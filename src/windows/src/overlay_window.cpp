@@ -61,6 +61,13 @@ std::vector<PointerEvent> coalescePointerMoves(
     return events;
 }
 
+bool CaptureExclusionStatus::confirmed() const noexcept
+{
+    return setSucceeded
+        && querySucceeded
+        && observedAffinity == requestedAffinity;
+}
+
 OverlayWindow::OverlayWindow(
     HINSTANCE instance,
     const RECT bounds,
@@ -153,6 +160,40 @@ ExitUiStatus OverlayWindow::exitUiStatus() const noexcept
         primaryExitHotKeyRegistered_,
         fallbackExitHotKeyRegistered_,
         notificationIconAdded_};
+}
+
+CaptureExclusionStatus OverlayWindow::setCaptureExcluded(
+    const bool excluded) noexcept
+{
+    CaptureExclusionStatus status{};
+    status.requestedAffinity = excluded ? WDA_EXCLUDEFROMCAPTURE : WDA_NONE;
+    if (window_ == nullptr)
+    {
+        status.setError = ERROR_INVALID_WINDOW_HANDLE;
+        status.queryError = ERROR_INVALID_WINDOW_HANDLE;
+        return status;
+    }
+
+    SetLastError(ERROR_SUCCESS);
+    status.setSucceeded = SetWindowDisplayAffinity(
+        window_,
+        status.requestedAffinity) != FALSE;
+    if (!status.setSucceeded)
+    {
+        status.setError = GetLastError();
+    }
+
+    // Set may report success while an older compositor applies WDA_MONITOR.
+    // Always query the effective value before trusting capture exclusion.
+    SetLastError(ERROR_SUCCESS);
+    status.querySucceeded = GetWindowDisplayAffinity(
+        window_,
+        &status.observedAffinity) != FALSE;
+    if (!status.querySucceeded)
+    {
+        status.queryError = GetLastError();
+    }
+    return status;
 }
 
 std::optional<WindowSize> OverlayWindow::takePendingResize() noexcept

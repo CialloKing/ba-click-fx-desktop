@@ -24,6 +24,18 @@ struct ExitUiStatus
     bool notificationIconAdded{false};
 };
 
+struct CaptureExclusionStatus
+{
+    DWORD requestedAffinity{WDA_NONE};
+    DWORD observedAffinity{WDA_NONE};
+    DWORD setError{ERROR_SUCCESS};
+    DWORD queryError{ERROR_SUCCESS};
+    bool setSucceeded{false};
+    bool querySucceeded{false};
+
+    [[nodiscard]] bool confirmed() const noexcept;
+};
+
 enum class PointerEventKind : std::uint8_t
 {
     Move,
@@ -55,6 +67,7 @@ public:
     [[nodiscard]] WindowSize size() const noexcept;
     [[nodiscard]] bool closeRequested() const noexcept;
     [[nodiscard]] ExitUiStatus exitUiStatus() const noexcept;
+    [[nodiscard]] CaptureExclusionStatus setCaptureExcluded(bool excluded) noexcept;
     [[nodiscard]] std::optional<WindowSize> takePendingResize() noexcept;
     [[nodiscard]] std::vector<PointerEvent> takePointerEvents() noexcept;
 
