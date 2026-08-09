@@ -1,0 +1,10 @@
+#pragma once
+
+#include <string_view>
+
+namespace bafx::desktop
+{
+
+inline constexpr std::string_view version = "@BAFX_VERSION@";
+
+}

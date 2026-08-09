@@ -3,9 +3,9 @@
   <assemblyIdentity
       type="win32"
       name="CialloKing.ba-click-fx-desktop"
-      version="0.1.0.0"
+      version="@BAFX_VERSION_MAJOR@.@BAFX_VERSION_MINOR@.@BAFX_VERSION_PATCH@.0"
       processorArchitecture="*" />
-  <description>Native desktop click effects</description>
+  <description>Native desktop click effects @BAFX_VERSION@</description>
   <trustInfo xmlns="urn:schemas-microsoft-com:asm.v3">
     <security>
       <requestedPrivileges>
@@ -29,4 +29,3 @@
     </windowsSettings>
   </application>
 </assembly>
-

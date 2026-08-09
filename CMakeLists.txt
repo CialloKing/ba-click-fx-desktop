@@ -1,8 +1,10 @@
 cmake_minimum_required(VERSION 3.25)
 
+include(cmake/Version.cmake)
+
 project(
     ba_click_fx_desktop
-    VERSION 0.1.0
+    VERSION "${BAFX_VERSION_CORE}"
     DESCRIPTION "Native Windows desktop click effects"
     LANGUAGES CXX
 )

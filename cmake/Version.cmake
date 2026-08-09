@@ -1,0 +1,14 @@
+set(BAFX_VERSION "0.1.0-alpha.1")
+
+if(NOT BAFX_VERSION MATCHES "^([0-9]+)\\.([0-9]+)\\.([0-9]+)(-([0-9A-Za-z.-]+))?$")
+    message(FATAL_ERROR "BAFX_VERSION must be a semantic version")
+endif()
+
+set(BAFX_VERSION_MAJOR "${CMAKE_MATCH_1}")
+set(BAFX_VERSION_MINOR "${CMAKE_MATCH_2}")
+set(BAFX_VERSION_PATCH "${CMAKE_MATCH_3}")
+set(BAFX_VERSION_PRERELEASE "${CMAKE_MATCH_5}")
+set(
+    BAFX_VERSION_CORE
+    "${BAFX_VERSION_MAJOR}.${BAFX_VERSION_MINOR}.${BAFX_VERSION_PATCH}"
+)

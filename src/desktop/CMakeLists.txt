@@ -1,11 +1,28 @@
+set(BAFX_DESKTOP_GENERATED_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")
+configure_file(
+    version.hpp.in
+    "${BAFX_DESKTOP_GENERATED_DIR}/bafx/desktop/version.hpp"
+    @ONLY
+)
+configure_file(
+    ba-click-fx-desktop.manifest.in
+    "${BAFX_DESKTOP_GENERATED_DIR}/ba-click-fx-desktop.manifest"
+    @ONLY
+)
+
 add_executable(
     ba_click_fx_desktop
     WIN32
         main.cpp
-        ba-click-fx-desktop.manifest
+        "${BAFX_DESKTOP_GENERATED_DIR}/ba-click-fx-desktop.manifest"
 )
 
 target_compile_features(ba_click_fx_desktop PRIVATE cxx_std_20)
+target_include_directories(
+    ba_click_fx_desktop
+    PRIVATE
+        "${BAFX_DESKTOP_GENERATED_DIR}"
+)
 target_link_libraries(
     ba_click_fx_desktop
     PRIVATE
