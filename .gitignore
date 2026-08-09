@@ -1,0 +1,24 @@
+# CMake build trees
+/build/
+/out/
+/cmake-build-*/
+
+# Visual Studio user state
+/.vs/
+*.user
+*.suo
+*.VC.db
+*.VC.VC.opendb
+
+# Compiler output
+*.obj
+*.pdb
+*.ilk
+*.exe
+*.dll
+*.lib
+*.exp
+
+# Local validation evidence can be large and machine-specific.
+/artifacts/local/
+
