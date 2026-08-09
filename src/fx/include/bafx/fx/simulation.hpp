@@ -142,6 +142,7 @@ private:
     std::uint64_t baseSeed_{0};
     std::uint64_t activationCount_{0};
     Random random_;
+    Random atlasRandom_;
     bool active_{false};
     bool pointerHeld_{false};
     SimulationTime startedAt_{};

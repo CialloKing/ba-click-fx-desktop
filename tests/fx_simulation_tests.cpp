@@ -82,6 +82,32 @@ BAFX_TEST(unity_click_timeline_has_expected_system_counts)
     BAFX_CHECK(countKind(frame, SpriteKind::DissolveRing) == 0U);
 }
 
+BAFX_TEST(click_triangle_atlas_frames_are_sampled_per_particle)
+{
+    bool foundNonAlternatingFrames = false;
+    for (std::uint64_t seed = 1U; seed <= 16U; ++seed)
+    {
+        Simulation simulation(seed);
+        simulation.pointerDown(goldenCenter, goldenViewport, 0ns);
+        const FrameSnapshot frame = simulation.snapshot(goldenViewport, 50ms);
+        const auto triangles = spritesOfKind(
+            frame,
+            SpriteKind::Triangle);
+        BAFX_CHECK(triangles.size() == 4U);
+
+        const bool fixedAlternation = triangles[0]->atlasFrame == 0U
+            && triangles[1]->atlasFrame == 1U
+            && triangles[2]->atlasFrame == 0U
+            && triangles[3]->atlasFrame == 1U;
+        foundNonAlternatingFrames = foundNonAlternatingFrames || !fixedAlternation;
+        for (const Sprite* triangle : triangles)
+        {
+            BAFX_CHECK(triangle->atlasFrame <= 1U);
+        }
+    }
+    BAFX_CHECK(foundNonAlternatingFrames);
+}
+
 BAFX_TEST(dissolve_ring_is_most_open_at_120ms)
 {
     Simulation simulation;

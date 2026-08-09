@@ -22,6 +22,7 @@ constexpr float ringLifetimeSeconds = 0.6F;
 constexpr float ringAngularVelocityMultiplier = 11.170107F;
 constexpr std::uint32_t maximumDragParticles = 50U;
 constexpr std::uint32_t releaseFrameCount = 60U;
+constexpr std::uint64_t atlasRandomStream = 0xD1B54A32D192ED03ULL;
 
 struct CurveKey
 {
@@ -358,6 +359,7 @@ float Simulation::Random::range(const float minimum, const float maximum) noexce
 Simulation::Simulation(const std::uint64_t seed)
     : baseSeed_(seed)
     , random_(seed)
+    , atlasRandom_(seed ^ atlasRandomStream)
 {
     rings_.reserve(2);
     triangles_.reserve(4U + maximumDragParticles);
@@ -612,7 +614,12 @@ double Simulation::ageSeconds(const SimulationTime now, const SimulationTime the
 void Simulation::reset(const PointF worldPosition, const SimulationTime time)
 {
     ++activationCount_;
-    random_ = Random(baseSeed_ + activationCount_ * 0x9E3779B97F4A7C15ULL);
+    const std::uint64_t activationSeed =
+        baseSeed_ + activationCount_ * 0x9E3779B97F4A7C15ULL;
+    random_ = Random(activationSeed);
+    // Unity samples texture-sheet animation per particle. A separate stream
+    // keeps frame selection from perturbing already calibrated trajectories.
+    atlasRandom_ = Random(activationSeed ^ atlasRandomStream);
     active_ = true;
     pointerHeld_ = true;
     startedAt_ = time;
@@ -651,7 +658,7 @@ void Simulation::emitClickTriangles(const SimulationTime time)
             time,
             random_.range(0.6F, 0.7F),
             random_.range(0.1F, 0.2F) * triangleLocalScale,
-            index % 2U,
+            atlasRandom_.unit() < 0.5F ? 0U : 1U,
             false});
     }
 }
@@ -678,7 +685,7 @@ void Simulation::emitDragTriangle(const PointF worldPosition, const SimulationTi
         time,
         random_.range(0.2F, 0.4F),
         random_.range(0.1F, 0.2F) * triangleLocalScale,
-        static_cast<std::uint32_t>(random_.unit() * 2.0F) % 2U,
+        atlasRandom_.unit() < 0.5F ? 0U : 1U,
         true});
 }
 
