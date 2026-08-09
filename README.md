@@ -26,7 +26,7 @@ DirectComposition、Windows Graphics Capture、HDR/Advanced Color 和多适配�
 ## 文档入口
 
 - [ARCHITECTURE.md](ARCHITECTURE.md)：系统边界、模块、线程、数据流和降级规则。
-- [docs/adr](docs/adr)：七项尚待证据闭环的架构决策。
+- [docs/adr](docs/adr)：七项渲染核心决策及产品控制面决策。
 - [docs/adr/0008-product-control-plane.md](docs/adr/0008-product-control-plane.md)：Host 配置与本地控制面的首个垂直切片。
 - [docs/SPIKES.md](docs/SPIKES.md)：四个必须执行的硬件/API Spike。
 - [docs/VALIDATION.md](docs/VALIDATION.md)：测试层级、Golden Oracle 和发布门槛。
@@ -70,6 +70,26 @@ build\alpha-x64\src\desktop\Debug\ba-click-fx-desktop.exe --demo-click
 Overlay 不抢焦点且保持鼠标穿透；右键通知区域图标可退出，也可按 `Ctrl+Alt+F12` 或备用的
 `Ctrl+Shift+F12`。即使组合键已被其他软件注册，轮询兜底仍会识别它。当前 smoke 仍不等同于
 HDR、跨适配器或 WGC 的 Spike 已通过。
+
+## Host 控制面
+
+首个产品化垂直切片已经接入版本化配置和本地 Named Pipe。首次启动会在
+`%LOCALAPPDATA%\BAFX\config.json` 创建 schema 3 默认配置；Host 使用
+`Local\BAFX.Host.v1` 互斥体保证单实例。
+
+控制界面尚未加入 WinUI 3，当前可用 PowerShell 或其他 Named Pipe 客户端验证：
+
+```text
+GetState
+GetConfig
+SetConfig {"generation":1,"path":"effects.globalScale","value":1.25}
+Pause
+Resume
+Shutdown
+```
+
+`SetConfig` 也接受完整的 schema 3 JSON 快照。路径补丁只允许配置库声明的产品字段，代次
+不匹配会返回 `generation_conflict`；所有命令均在下一帧由 Host 应用。
 
 `embedded_unity_textures` 测试逐张锁定内嵌 PNG 的尺寸、字节数和 SHA-256。只有在更新
 Unity 真值快照时才需要运行生成器，生成结果会进入源码而不是成为运行时依赖：
