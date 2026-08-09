@@ -11,6 +11,7 @@
 *.VC.VC.opendb
 
 # Compiler output
+obj/
 *.obj
 *.pdb
 *.ilk
@@ -21,4 +22,3 @@
 
 # Local validation evidence can be large and machine-specific.
 /artifacts/local/
-
