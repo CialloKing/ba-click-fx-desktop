@@ -15,6 +15,7 @@ include(CompilerWarnings)
 include(CTest)
 
 add_subdirectory(src/core)
+add_subdirectory(src/fx)
 
 if(WIN32)
     add_subdirectory(src/windows)
