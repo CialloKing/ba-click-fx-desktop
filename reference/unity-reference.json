@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "referenceId": "fx-touch-unity-2026-07-26",
-  "assetPolicy": "external-only",
+  "assetPolicy": "external-reference-with-embedded-runtime-textures",
   "defaults": {
     "runtimeRoot": "D:\\WebProjects\\BA鼠标输入与点击特效系统\\UnityMouseFxLab\\UnityMouseFxLab",
     "extractionRoot": "D:\\WebProjects\\BA鼠标输入与点击特效系统\\提取资产2\\BA_FX_Touch_UnityProject"

@@ -4,9 +4,10 @@
 `ba-click-fx` 的 JavaScript、WebGL 或 WebGPU 渲染代码；Unity/游戏资源是视觉真值，
 Web 版本只作为行为与参数语义参考。
 
-生产运行时是单文件自包含：Circle、Grad Ring、Triangle Atlas、Trail 四张原始 PNG
-以压缩文本嵌入 C++，启动时只在内存中解码并上传为 sRGB GPU 纹理；材质 HLSL 也嵌入程序。
-运行不读取 Unity 工程、游戏目录或旁置 shader/图片文件。外部工程只参与开发期真值校验。
+Release 运行时是单文件：Visual C++ 运行库静态链接，Circle、Grad Ring、Triangle Atlas、Trail
+四张原始 PNG 以压缩文本嵌入 C++，启动时只在内存中解码并上传为 sRGB GPU 纹理；材质 HLSL
+也嵌入程序。运行不读取 Unity 工程、游戏目录或旁置 shader/图片文件，但仍使用 Windows 自带的
+D3D11、DirectComposition、WIC 和 D3DCompiler 系统组件。
 
 当前架构版本是 **v0.2**，状态为 **Proposed**。这意味着候选技术栈和资源所有权底座已经冻结，但涉及
 DirectComposition、Windows Graphics Capture、HDR/Advanced Color 和多适配器的结论，
@@ -29,6 +30,8 @@ DirectComposition、Windows Graphics Capture、HDR/Advanced Color 和多适配�
 - [docs/SPIKES.md](docs/SPIKES.md)：四个必须执行的硬件/API Spike。
 - [docs/VALIDATION.md](docs/VALIDATION.md)：测试层级、Golden Oracle 和发布门槛。
 - [docs/UNITY_REFERENCE.md](docs/UNITY_REFERENCE.md)：游戏解包资源、Unity 重建工程与 Golden 的证据边界。
+- [SUPPORT.md](SUPPORT.md)：首个 Alpha 的可测试范围、退出方式和明确排除项。
+- [ASSET-MANIFEST.md](ASSET-MANIFEST.md)：进入可执行文件的纹理哈希与再分发边界。
 
 ## 项目状态
 
@@ -43,27 +46,24 @@ cmake --build build\vs2026 --target verify_unity_reference
 
 ## 构建与测试
 
-首版固定使用 C++20；本机验证工具链为 Visual Studio 2026 与 Windows SDK 10.0.26100：
+首版固定使用 C++20；本机验证工具链为 Visual Studio 2026 与 Windows SDK 10.0.26100。推荐使用
+仓库预设完成全新 Release 配置、构建和测试：
 
 ```powershell
-cmake -S . -B build\vs2026 `
-  -G "Visual Studio 18 2026" -A x64 `
-  "-DCMAKE_SYSTEM_VERSION=10.0.26100.0"
-cmake --build build\vs2026 --config Debug --parallel
-ctest --test-dir build\vs2026 -C Debug --output-on-failure
+cmake --workflow --preset alpha-release-verify
 ```
 
 DirectComposition smoke test 需要交互式桌面，因此默认不进入普通 CTest：
 
 ```powershell
-cmake --build build\vs2026 --config Debug --target smoke_desktop
+cmake --build --preset alpha-debug --target smoke_desktop
 ```
 
 启用 `BAFX_ENABLE_DESKTOP_SMOKE_TESTS=ON` 时，smoke 会生成一次确定性中心点击，实际经过
 Unity 材质 shader、MRT、FP16 预乘交换链和 DirectComposition present。单独查看效果可运行：
 
 ```powershell
-build\vs2026\src\desktop\Debug\ba-click-fx-desktop.exe --demo-click
+build\alpha-x64\src\desktop\Debug\ba-click-fx-desktop.exe --demo-click
 ```
 
 Overlay 不抢焦点且保持鼠标穿透；`Ctrl+Alt+F12` 可退出。当前 smoke 仍不等同于
@@ -79,4 +79,5 @@ pwsh -NoProfile -File tools\generate-embedded-unity-textures.ps1 `
 
 ## 许可证
 
-本项目使用仓库根目录中的 GNU GPL v2 许可证。
+本项目自行编写的代码使用仓库根目录中的 GNU GPL v2 许可证。内嵌的第三方游戏纹理不因本项目
+许可证而获得再许可；本地测试与公开分发边界见 [ASSET-MANIFEST.md](ASSET-MANIFEST.md)。
