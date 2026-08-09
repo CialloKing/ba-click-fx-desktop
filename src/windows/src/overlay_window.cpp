@@ -45,9 +45,12 @@ std::vector<PointerEvent> coalescePointerMoves(
     {
         if (event.kind == PointerEventKind::Move
             && writeIndex > 0U
-            && events[writeIndex - 1U].kind == PointerEventKind::Move)
+            && events[writeIndex - 1U].kind == PointerEventKind::Move
+            && events[writeIndex - 1U].screenPosition.x == event.screenPosition.x
+            && events[writeIndex - 1U].screenPosition.y == event.screenPosition.y)
         {
-            // Unity observes one current pointer position per Update tick.
+            // Queued Raw Input can report the same latest cursor position more
+            // than once; only exact duplicates are path-neutral to discard.
             events[writeIndex - 1U] = event;
             continue;
         }
@@ -196,6 +199,16 @@ void OverlayWindow::pollExitShortcut() noexcept
     exitShortcutDown_ = shortcutDown;
 }
 
+void OverlayWindow::pollPointerState() noexcept
+{
+    if (leftButtonDown_ && (GetAsyncKeyState(VK_LBUTTON) & 0x8000) == 0)
+    {
+        // Raw Input is normally lossless, but device changes and queue pressure
+        // still need a physical-state escape from a permanently held stroke.
+        cancelPointer();
+    }
+}
+
 LRESULT CALLBACK OverlayWindow::windowProcedure(
     const HWND window,
     const UINT message,
@@ -264,6 +277,18 @@ LRESULT OverlayWindow::handleMessage(
     case WM_INPUT:
         handleRawInput(lParam);
         return DefWindowProcW(window_, message, wParam, lParam);
+
+    case WM_INPUT_DEVICE_CHANGE:
+        if (wParam == GIDC_REMOVAL)
+        {
+            cancelPointer();
+        }
+        return 0;
+
+    case WM_CANCELMODE:
+    case WM_CAPTURECHANGED:
+        cancelPointer();
+        return 0;
 
     case WM_HOTKEY:
         if (static_cast<int>(wParam) == primaryExitHotKeyIdentifier
@@ -404,6 +429,7 @@ void OverlayWindow::handleRawInput(const LPARAM lParam) noexcept
     const USHORT buttons = input.data.mouse.usButtonFlags;
     if ((buttons & RI_MOUSE_LEFT_BUTTON_DOWN) != 0U)
     {
+        leftButtonDown_ = true;
         pushPointerEvent(PointerEventKind::LeftButtonDown, screenPosition, qpc.QuadPart);
     }
 
@@ -414,6 +440,7 @@ void OverlayWindow::handleRawInput(const LPARAM lParam) noexcept
 
     if ((buttons & RI_MOUSE_LEFT_BUTTON_UP) != 0U)
     {
+        leftButtonDown_ = false;
         pushPointerEvent(PointerEventKind::LeftButtonUp, screenPosition, qpc.QuadPart);
     }
 }
@@ -432,6 +459,21 @@ void OverlayWindow::pushPointerEvent(
                 + static_cast<std::ptrdiff_t>(maximumPendingPointerEvents / 2U));
     }
     pendingPointerEvents_.push_back(PointerEvent{kind, position, qpc});
+}
+
+void OverlayWindow::cancelPointer() noexcept
+{
+    if (!leftButtonDown_)
+    {
+        return;
+    }
+
+    POINT screenPosition{};
+    LARGE_INTEGER qpc{};
+    GetCursorPos(&screenPosition);
+    QueryPerformanceCounter(&qpc);
+    leftButtonDown_ = false;
+    pushPointerEvent(PointerEventKind::Cancel, screenPosition, qpc.QuadPart);
 }
 
 void OverlayWindow::requestClose() noexcept

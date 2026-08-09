@@ -203,6 +203,27 @@ void dispatchMessages(bool& quit)
     return bafx::fx::Viewport{size.width, size.height};
 }
 
+[[nodiscard]] bool isInsideClient(
+    const POINT position,
+    const bafx::windows::WindowSize size) noexcept
+{
+    return position.x >= 0
+        && position.y >= 0
+        && static_cast<std::uint32_t>(position.x) < size.width
+        && static_cast<std::uint32_t>(position.y) < size.height;
+}
+
+[[nodiscard]] POINT clampToClient(
+    const POINT position,
+    const bafx::windows::WindowSize size) noexcept
+{
+    const LONG maximumX = static_cast<LONG>(size.width - 1U);
+    const LONG maximumY = static_cast<LONG>(size.height - 1U);
+    return POINT{
+        std::clamp(position.x, 0L, maximumX),
+        std::clamp(position.y, 0L, maximumY)};
+}
+
 void consumePointerEvents(
     bafx::windows::OverlayWindow& window,
     bafx::fx::Simulation& simulation,
@@ -212,16 +233,42 @@ void consumePointerEvents(
     for (const bafx::windows::PointerEvent& event :
          bafx::windows::coalescePointerMoves(window.takePointerEvents()))
     {
+        const bafx::fx::SimulationTime time = clock.fromCounter(event.qpcTimestamp);
+        if (event.kind == bafx::windows::PointerEventKind::LeftButtonUp)
+        {
+            simulation.pointerUp(time);
+            continue;
+        }
+        if (event.kind == bafx::windows::PointerEventKind::Cancel)
+        {
+            simulation.pointerCancel(time);
+            continue;
+        }
+
         POINT clientPosition = event.screenPosition;
         if (!ScreenToClient(window.handle(), &clientPosition))
         {
             continue;
         }
 
+        const bool insideClient = isInsideClient(clientPosition, window.size());
+        if (event.kind == bafx::windows::PointerEventKind::LeftButtonDown
+            && (!insideClient || simulation.pointerHeld()))
+        {
+            continue;
+        }
+        if (event.kind == bafx::windows::PointerEventKind::Move)
+        {
+            if (!simulation.pointerHeld())
+            {
+                continue;
+            }
+            clientPosition = clampToClient(clientPosition, window.size());
+        }
+
         const bafx::fx::PointF position{
             static_cast<float>(clientPosition.x),
             static_cast<float>(clientPosition.y)};
-        const bafx::fx::SimulationTime time = clock.fromCounter(event.qpcTimestamp);
         switch (event.kind)
         {
         case bafx::windows::PointerEventKind::LeftButtonDown:
@@ -233,7 +280,7 @@ void consumePointerEvents(
             break;
 
         case bafx::windows::PointerEventKind::LeftButtonUp:
-            simulation.pointerUp(time);
+        case bafx::windows::PointerEventKind::Cancel:
             break;
         }
     }
@@ -296,6 +343,7 @@ int runApplication(
     {
         dispatchMessages(quit);
         window.pollExitShortcut();
+        window.pollPointerState();
         if (quit || window.closeRequested())
         {
             break;

@@ -392,14 +392,31 @@ void Simulation::pointerMove(
     appendTrailPoint(pointerWorld_, sampleTime);
 }
 
-void Simulation::pointerUp(const SimulationTime)
+void Simulation::pointerUp(const SimulationTime time)
 {
     if (!active_ || !pointerHeld_)
     {
         return;
     }
     pointerHeld_ = false;
+    pointerSampleAt_ = std::max(pointerSampleAt_, time);
     releasedFrames_ = 0;
+}
+
+void Simulation::pointerCancel(const SimulationTime time)
+{
+    if (!active_ || !pointerHeld_)
+    {
+        return;
+    }
+
+    pointerHeld_ = false;
+    pointerSampleAt_ = std::max(pointerSampleAt_, time);
+    releasedFrames_ = 0;
+    dragDistanceRemainderWorld_ = 0.0F;
+    // A cancelled pointer has no reliable final position; keep click particles
+    // but discard the in-progress TrailRenderer stroke like the JS reference.
+    trail_.clear();
 }
 
 void Simulation::advance(const SimulationTime time)
@@ -548,6 +565,11 @@ FrameSnapshot Simulation::snapshot(const Viewport viewport, const SimulationTime
 bool Simulation::active() const noexcept
 {
     return active_;
+}
+
+bool Simulation::pointerHeld() const noexcept
+{
+    return pointerHeld_;
 }
 
 PointF Simulation::screenToWorld(const PointF screen, const Viewport viewport) noexcept

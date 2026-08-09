@@ -73,11 +73,13 @@ public:
     void pointerDown(PointF screenPosition, Viewport viewport, SimulationTime time);
     void pointerMove(PointF screenPosition, Viewport viewport, SimulationTime time);
     void pointerUp(SimulationTime time);
+    void pointerCancel(SimulationTime time);
     void advance(SimulationTime time);
     void onFrameRendered();
 
     [[nodiscard]] FrameSnapshot snapshot(Viewport viewport, SimulationTime time) const;
     [[nodiscard]] bool active() const noexcept;
+    [[nodiscard]] bool pointerHeld() const noexcept;
 
 private:
     struct MovingParticle

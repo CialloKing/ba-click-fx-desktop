@@ -19,7 +19,7 @@ namespace
 
 }
 
-BAFX_TEST(pointer_moves_are_coalesced_to_the_latest_sample_per_tick)
+BAFX_TEST(distinct_pointer_moves_preserve_the_raw_input_path)
 {
     std::vector<PointerEvent> events{
         event(PointerEventKind::Move, 10, 100),
@@ -27,12 +27,27 @@ BAFX_TEST(pointer_moves_are_coalesced_to_the_latest_sample_per_tick)
         event(PointerEventKind::Move, 30, 300)};
 
     events = coalescePointerMoves(std::move(events));
-    BAFX_CHECK(events.size() == 1U);
-    BAFX_CHECK(events[0].screenPosition.x == 30);
-    BAFX_CHECK(events[0].qpcTimestamp == 300);
+    BAFX_CHECK(events.size() == 3U);
+    BAFX_CHECK(events[0].screenPosition.x == 10);
+    BAFX_CHECK(events[1].screenPosition.x == 20);
+    BAFX_CHECK(events[2].screenPosition.x == 30);
 }
 
-BAFX_TEST(pointer_button_edges_partition_move_coalescing)
+BAFX_TEST(exact_duplicate_pointer_moves_keep_the_latest_timestamp)
+{
+    std::vector<PointerEvent> events{
+        event(PointerEventKind::Move, 10, 100),
+        event(PointerEventKind::Move, 10, 200),
+        event(PointerEventKind::Move, 20, 300)};
+
+    events = coalescePointerMoves(std::move(events));
+    BAFX_CHECK(events.size() == 2U);
+    BAFX_CHECK(events[0].screenPosition.x == 10);
+    BAFX_CHECK(events[0].qpcTimestamp == 200);
+    BAFX_CHECK(events[1].screenPosition.x == 20);
+}
+
+BAFX_TEST(pointer_button_edges_preserve_ordered_move_samples)
 {
     std::vector<PointerEvent> events{
         event(PointerEventKind::Move, 1, 10),
@@ -45,15 +60,15 @@ BAFX_TEST(pointer_button_edges_partition_move_coalescing)
         event(PointerEventKind::Move, 8, 80)};
 
     events = coalescePointerMoves(std::move(events));
-    BAFX_CHECK(events.size() == 5U);
+    BAFX_CHECK(events.size() == 8U);
     BAFX_CHECK(events[0].kind == PointerEventKind::Move);
-    BAFX_CHECK(events[0].screenPosition.x == 2);
-    BAFX_CHECK(events[1].kind == PointerEventKind::LeftButtonDown);
-    BAFX_CHECK(events[2].kind == PointerEventKind::Move);
-    BAFX_CHECK(events[2].screenPosition.x == 5);
-    BAFX_CHECK(events[3].kind == PointerEventKind::LeftButtonUp);
+    BAFX_CHECK(events[1].kind == PointerEventKind::Move);
+    BAFX_CHECK(events[2].kind == PointerEventKind::LeftButtonDown);
+    BAFX_CHECK(events[3].kind == PointerEventKind::Move);
     BAFX_CHECK(events[4].kind == PointerEventKind::Move);
-    BAFX_CHECK(events[4].screenPosition.x == 8);
+    BAFX_CHECK(events[5].kind == PointerEventKind::LeftButtonUp);
+    BAFX_CHECK(events[6].kind == PointerEventKind::Move);
+    BAFX_CHECK(events[7].kind == PointerEventKind::Move);
 }
 
 BAFX_TEST(pointer_coalescing_accepts_empty_input)

@@ -28,7 +28,8 @@ enum class PointerEventKind : std::uint8_t
 {
     Move,
     LeftButtonDown,
-    LeftButtonUp
+    LeftButtonUp,
+    Cancel
 };
 
 struct PointerEvent
@@ -59,6 +60,7 @@ public:
 
     void show();
     void pollExitShortcut() noexcept;
+    void pollPointerState() noexcept;
 
 private:
     static LRESULT CALLBACK windowProcedure(
@@ -73,6 +75,7 @@ private:
     void unregisterRawMouse() noexcept;
     void handleRawInput(LPARAM lParam) noexcept;
     void pushPointerEvent(PointerEventKind kind, POINT position, std::int64_t qpc) noexcept;
+    void cancelPointer() noexcept;
     void requestClose() noexcept;
     void addNotificationIcon() noexcept;
     void removeNotificationIcon() noexcept;
@@ -89,6 +92,7 @@ private:
     bool fallbackExitHotKeyRegistered_{false};
     bool notificationIconAdded_{false};
     bool exitShortcutDown_{false};
+    bool leftButtonDown_{false};
     UINT taskbarCreatedMessage_{0U};
     NOTIFYICONDATAW notificationIcon_{};
 };
