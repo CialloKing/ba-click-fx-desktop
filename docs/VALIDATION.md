@@ -80,12 +80,17 @@ cmake --build --preset alpha-release --target ba_fx_gpu_capture
 $revision = git rev-parse HEAD
 build\alpha-x64\src\capture\Release\ba-click-fx-gpu-capture.exe `
   "--output=artifacts\local\gpu-captures\$revision" `
+  "--all-layers" `
   "--revision=$revision"
+python -B tools\verify-golden-metrics.py `
+  "--native-root=artifacts\local\gpu-captures\$revision" `
+  "--require-layers"
 ```
 
 默认十个时间片只写 `FinalOverlay.rgba16f` 和黑底 sRGB PNG；指定 `--all-layers` 时再写
 `DirectSurface`、`BloomSeed`、全部 Down/Up mip。`.rgba16f` 是顶部原点、little-endian RGBA
 half 数值证据；PNG 不执行 unpremultiply、强制不透明黑底，仅用于与 Unity PNG 观察和感知比较。
+指标门禁必须同时通过十个时间片及 FP16 分层检查；失败后先解释实现或参考证据，不得放宽阈值。
 
 ## 4. Differential Bloom 属性测试
 
