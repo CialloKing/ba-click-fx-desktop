@@ -109,16 +109,16 @@ struct ColorTarget
     return byteCode;
 }
 
-[[nodiscard]] D3D11_RENDER_TARGET_BLEND_DESC additiveBlendTarget(
-    const bool preserveAlpha) noexcept
+[[nodiscard]] D3D11_RENDER_TARGET_BLEND_DESC additiveBlendTarget() noexcept
 {
     D3D11_RENDER_TARGET_BLEND_DESC target{};
     target.BlendEnable = TRUE;
     target.SrcBlend = D3D11_BLEND_ONE;
     target.DestBlend = D3D11_BLEND_ONE;
     target.BlendOp = D3D11_BLEND_OP_ADD;
-    target.SrcBlendAlpha = preserveAlpha ? D3D11_BLEND_ZERO : D3D11_BLEND_ONE;
-    target.DestBlendAlpha = D3D11_BLEND_ONE;
+    // DComp needs accumulated coverage even though Unity only consumes additive RGB.
+    target.SrcBlendAlpha = D3D11_BLEND_ONE;
+    target.DestBlendAlpha = D3D11_BLEND_INV_SRC_ALPHA;
     target.BlendOpAlpha = D3D11_BLEND_OP_ADD;
     target.RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
     return target;
@@ -443,8 +443,8 @@ struct FxGpuRenderer::Implementation
 
         D3D11_BLEND_DESC emissionDescription{};
         emissionDescription.IndependentBlendEnable = TRUE;
-        emissionDescription.RenderTarget[0] = additiveBlendTarget(true);
-        emissionDescription.RenderTarget[1] = additiveBlendTarget(true);
+        emissionDescription.RenderTarget[0] = additiveBlendTarget();
+        emissionDescription.RenderTarget[1] = additiveBlendTarget();
         throwIfFailed(
             device->CreateBlendState(&emissionDescription, &emissionBlendState),
             "ID3D11Device::CreateBlendState(emission)");
@@ -484,6 +484,7 @@ struct FxGpuRenderer::Implementation
         createBloomPixelShader("DownsamplePixel", downsamplePixelShader);
         createBloomPixelShader("UpsamplePixel", upsamplePixelShader);
         createBloomPixelShader("CompositePixel", compositePixelShader);
+        createBloomPixelShader("DesktopCompositePixel", desktopCompositePixelShader);
 
         D3D11_BUFFER_DESC constantDescription{};
         constantDescription.ByteWidth = sizeof(BloomConstants);
@@ -749,7 +750,9 @@ struct FxGpuRenderer::Implementation
             noResources.data());
     }
 
-    void renderBloom(ID3D11RenderTargetView* destination)
+    void renderBloom(
+        ID3D11RenderTargetView* destination,
+        ID3D11PixelShader* finalCompositeShader)
     {
         const bafx::core::BloomExtent sourceExtent{
             static_cast<std::int32_t>(size.width),
@@ -801,7 +804,7 @@ struct FxGpuRenderer::Implementation
         drawFullscreen(
             destination,
             sourceExtent,
-            compositePixelShader.Get(),
+            finalCompositeShader,
             directTarget.shaderResource.Get(),
             accumulated,
             makeBloomConstants(
@@ -890,7 +893,8 @@ struct FxGpuRenderer::Implementation
 
     void render(
         const bafx::fx::FrameSnapshot& snapshot,
-        ID3D11RenderTargetView* destination)
+        ID3D11RenderTargetView* destination,
+        ID3D11PixelShader* finalCompositeShader)
     {
         constexpr std::array<float, 4> transparent{0.0F, 0.0F, 0.0F, 0.0F};
         if (!hasVisualContent(snapshot))
@@ -947,9 +951,9 @@ struct FxGpuRenderer::Implementation
             ++index;
         }
 
-        // The game additive target alpha is intentionally discarded; directTarget owns DComp alpha.
+        // Unbind the material MRTs before sampling them through the Bloom chain.
         context->OMSetRenderTargets(0, nullptr, nullptr);
-        renderBloom(destination);
+        renderBloom(destination, finalCompositeShader);
         context->OMSetRenderTargets(0, nullptr, nullptr);
     }
 
@@ -957,7 +961,7 @@ struct FxGpuRenderer::Implementation
         const bafx::fx::FrameSnapshot& snapshot,
         ID3D11RenderTargetView* destination)
     {
-        render(snapshot, destination);
+        render(snapshot, destination, compositePixelShader.Get());
 
         FxGpuFrameCapture capture{};
         const ComPtr<ID3D11Texture2D> destinationTexture =
@@ -1011,6 +1015,7 @@ struct FxGpuRenderer::Implementation
     ComPtr<ID3D11PixelShader> downsamplePixelShader{};
     ComPtr<ID3D11PixelShader> upsamplePixelShader{};
     ComPtr<ID3D11PixelShader> compositePixelShader{};
+    ComPtr<ID3D11PixelShader> desktopCompositePixelShader{};
     ComPtr<ID3D11InputLayout> inputLayout{};
     ComPtr<ID3D11Buffer> vertexBuffer{};
     ComPtr<ID3D11Buffer> viewportBuffer{};
@@ -1049,7 +1054,10 @@ void FxGpuRenderer::render(
     const bafx::fx::FrameSnapshot& snapshot,
     ID3D11RenderTargetView* destination)
 {
-    implementation_->render(snapshot, destination);
+    implementation_->render(
+        snapshot,
+        destination,
+        implementation_->desktopCompositePixelShader.Get());
 }
 
 FxGpuFrameCapture FxGpuRenderer::renderAndCapture(

@@ -87,8 +87,10 @@ MaterialOutput DissolvePixel(PixelInput input)
         * coverage;
 
     MaterialOutput output;
-    output.direct = float4(emission, 0.0);
-    output.bloomSeed = float4(emission * input.bloomEnabled, 0.0);
+    output.direct = float4(emission, coverage);
+    output.bloomSeed = float4(
+        emission * input.bloomEnabled,
+        coverage * input.bloomEnabled);
     return output;
 }
 
@@ -102,8 +104,10 @@ MaterialOutput AdditivePixel(PixelInput input)
         * coverage;
 
     MaterialOutput output;
-    output.direct = float4(emission, 0.0);
-    output.bloomSeed = float4(emission * input.bloomEnabled, 0.0);
+    output.direct = float4(emission, coverage);
+    output.bloomSeed = float4(
+        emission * input.bloomEnabled,
+        coverage * input.bloomEnabled);
     return output;
 }
 )hlsl";
@@ -153,35 +157,52 @@ float4 FourTap(Texture2D<float4> source, float2 uv, float2 offset)
 
 float4 PrefilterPixel(FullscreenOutput input) : SV_Target0
 {
-    float3 color = FourTap(Source0, input.uv, SourceTexelSize).rgb;
+    const float4 source = FourTap(Source0, input.uv, SourceTexelSize);
+    float3 color = source.rgb;
     color = min(max(color, 0.0), ClampValue);
     const float brightness = max(color.r, max(color.g, color.b));
     float soft = clamp(brightness - (Threshold - Knee), 0.0, 2.0 * Knee);
     soft = soft * soft * (0.25 / Knee);
     const float contribution = max(soft, brightness - Threshold)
         / max(brightness, 0.0001);
-    return float4(color * contribution, 0.0);
+    return float4(color * contribution, source.a * contribution);
 }
 
 float4 DownsamplePixel(FullscreenOutput input) : SV_Target0
 {
-    return float4(FourTap(Source0, input.uv, SourceTexelSize).rgb, 0.0);
+    return FourTap(Source0, input.uv, SourceTexelSize);
 }
 
 float4 UpsamplePixel(FullscreenOutput input) : SV_Target0
 {
     const float2 offset = SourceTexelSize * (SampleScale * 0.5);
-    const float3 coarse = FourTap(Source0, input.uv, offset).rgb;
-    const float3 currentFine = Source1.Sample(LinearClampSampler, input.uv).rgb;
-    return float4(coarse + currentFine, 0.0);
+    const float4 coarse = FourTap(Source0, input.uv, offset);
+    const float4 currentFine = Source1.Sample(LinearClampSampler, input.uv);
+    return coarse + currentFine;
 }
 
 float4 CompositePixel(FullscreenOutput input) : SV_Target0
 {
     const float4 direct = Source0.Sample(LinearClampSampler, input.uv);
     const float2 offset = SourceTexelSize * (SampleScale * 0.5);
-    const float3 bloom = FourTap(Source1, input.uv, offset).rgb;
-    return float4(direct.rgb + bloom * ExposureGain, direct.a);
+    const float4 bloom = FourTap(Source1, input.uv, offset);
+    const float bloomCoverage = saturate(bloom.a * ExposureGain);
+    return float4(
+        direct.rgb + bloom.rgb * ExposureGain,
+        max(direct.a, bloomCoverage));
+}
+
+float4 DesktopCompositePixel(FullscreenOutput input) : SV_Target0
+{
+    const float4 linearOverlay = CompositePixel(input);
+    const float3 sdrColor = saturate(linearOverlay.rgb);
+    const float requiredCoverage = max(sdrColor.r, max(sdrColor.g, sdrColor.b));
+
+    // DWM may canonicalize RGB that exceeds premultiplied alpha. Carry the
+    // visible SDR color with enough coverage while HDR reference layers stay linear.
+    return float4(
+        sdrColor,
+        max(linearOverlay.a, requiredCoverage));
 }
 )hlsl";
 
