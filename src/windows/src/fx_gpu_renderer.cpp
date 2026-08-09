@@ -4,6 +4,7 @@
 #include "bafx/core/unity_ring_mesh.hpp"
 #include "bafx/core/unity_trail_mesh.hpp"
 #include "bafx/windows/error.hpp"
+#include "bafx/windows/gpu_texture_readback.hpp"
 #include "embedded_fx_shaders.hpp"
 #include "embedded_unity_textures.hpp"
 #include "wic_texture_loader.hpp"
@@ -162,6 +163,32 @@ struct ColorTarget
         device->CreateShaderResourceView(target.texture.Get(), nullptr, &target.shaderResource),
         "ID3D11Device::CreateShaderResourceView(FX target)");
     return target;
+}
+
+[[nodiscard]] ComPtr<ID3D11Texture2D> textureFromRenderTarget(
+    ID3D11RenderTargetView* renderTarget)
+{
+    if (renderTarget == nullptr)
+    {
+        throw std::invalid_argument("FX render target is required");
+    }
+
+    ComPtr<ID3D11Resource> resource;
+    renderTarget->GetResource(&resource);
+    ComPtr<ID3D11Texture2D> texture;
+    throwIfFailed(
+        resource.As(&texture),
+        "ID3D11RenderTargetView::GetResource(ID3D11Texture2D)");
+    return texture;
+}
+
+[[nodiscard]] bool hasVisualContent(
+    const bafx::fx::FrameSnapshot& snapshot) noexcept
+{
+    return snapshot.active
+        || !snapshot.sprites.empty()
+        || !snapshot.trail.empty()
+        || !snapshot.trailStrokes.empty();
 }
 
 [[nodiscard]] SpriteVertex makeVertex(
@@ -866,10 +893,7 @@ struct FxGpuRenderer::Implementation
         ID3D11RenderTargetView* destination)
     {
         constexpr std::array<float, 4> transparent{0.0F, 0.0F, 0.0F, 0.0F};
-        if (!snapshot.active
-            && snapshot.sprites.empty()
-            && snapshot.trail.empty()
-            && snapshot.trailStrokes.empty())
+        if (!hasVisualContent(snapshot))
         {
             context->ClearRenderTargetView(destination, transparent.data());
             return;
@@ -929,6 +953,47 @@ struct FxGpuRenderer::Implementation
         context->OMSetRenderTargets(0, nullptr, nullptr);
     }
 
+    [[nodiscard]] FxGpuFrameCapture renderAndCapture(
+        const bafx::fx::FrameSnapshot& snapshot,
+        ID3D11RenderTargetView* destination)
+    {
+        render(snapshot, destination);
+
+        FxGpuFrameCapture capture{};
+        const ComPtr<ID3D11Texture2D> destinationTexture =
+            textureFromRenderTarget(destination);
+        capture.finalOverlay = readbackRgba16FloatTexture(
+            context.Get(),
+            destinationTexture.Get());
+        if (!hasVisualContent(snapshot))
+        {
+            return capture;
+        }
+
+        capture.directSurface = readbackRgba16FloatTexture(
+            context.Get(),
+            directTarget.texture.Get());
+        capture.bloomSeed = readbackRgba16FloatTexture(
+            context.Get(),
+            bloomSeedTarget.texture.Get());
+        capture.bloomDown.reserve(bloomDownTargets.size());
+        for (const ColorTarget& target : bloomDownTargets)
+        {
+            capture.bloomDown.push_back(readbackRgba16FloatTexture(
+                context.Get(),
+                target.texture.Get()));
+        }
+        capture.bloomUp.reserve(bloomUpTargets.size());
+        for (const ColorTarget& target : bloomUpTargets)
+        {
+            capture.bloomUp.push_back(readbackRgba16FloatTexture(
+                context.Get(),
+                target.texture.Get()));
+        }
+        capture.intermediateLayersValid = true;
+        return capture;
+    }
+
     ComPtr<ID3D11Device> device{};
     ComPtr<ID3D11DeviceContext> context{};
     WindowSize size{};
@@ -985,6 +1050,13 @@ void FxGpuRenderer::render(
     ID3D11RenderTargetView* destination)
 {
     implementation_->render(snapshot, destination);
+}
+
+FxGpuFrameCapture FxGpuRenderer::renderAndCapture(
+    const bafx::fx::FrameSnapshot& snapshot,
+    ID3D11RenderTargetView* destination)
+{
+    return implementation_->renderAndCapture(snapshot, destination);
 }
 
 }

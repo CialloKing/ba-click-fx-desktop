@@ -134,6 +134,36 @@ struct WarpDevice
     return pixels;
 }
 
+[[nodiscard]] std::vector<ReadbackPixel> toFloatPixels(
+    const Rgba16FloatImage& raw)
+{
+    std::vector<ReadbackPixel> pixels;
+    pixels.reserve(raw.pixels.size());
+    for (const Rgba16FloatPixel pixel : raw.pixels)
+    {
+        pixels.push_back(ReadbackPixel{
+            halfToFloat(pixel.red),
+            halfToFloat(pixel.green),
+            halfToFloat(pixel.blue),
+            halfToFloat(pixel.alpha)});
+    }
+    return pixels;
+}
+
+[[nodiscard]] bool isZeroImage(const Rgba16FloatImage& image) noexcept
+{
+    return std::all_of(
+        image.pixels.begin(),
+        image.pixels.end(),
+        [](const Rgba16FloatPixel pixel)
+        {
+            return pixel.red == 0U
+                && pixel.green == 0U
+                && pixel.blue == 0U
+                && pixel.alpha == 0U;
+        });
+}
+
 [[nodiscard]] bafx::fx::FrameSnapshot makeDiskSnapshot(const bool bloomEnabled)
 {
     bafx::fx::FrameSnapshot snapshot{};
@@ -171,6 +201,26 @@ struct WarpDevice
                 bafx::fx::TrailPoint{bafx::fx::PointF{232.0F, 192.0F}, 0.0F},
             },
             8.0F}};
+    return snapshot;
+}
+
+[[nodiscard]] bafx::fx::FrameSnapshot makeTriangleSnapshot()
+{
+    bafx::fx::FrameSnapshot snapshot{};
+    snapshot.active = true;
+    snapshot.sprites.push_back(bafx::fx::Sprite{
+        bafx::fx::SpriteKind::Triangle,
+        bafx::fx::PointF{
+            static_cast<float>(testSize.width) * 0.5F,
+            static_cast<float>(testSize.height) * 0.5F},
+        48.0F,
+        0.0F,
+        bafx::fx::ColorF{1.0F, 1.0F, 1.0F, 1.0F},
+        5.992157F,
+        0.0F,
+        0U,
+        4550,
+        false});
     return snapshot;
 }
 
@@ -290,4 +340,93 @@ BAFX_TEST(warp_pipeline_renders_every_retained_trail_stroke)
     checkFiniteAndNonNegative(pixels);
     BAFX_CHECK(maximumRgbInBox(pixels, 16U, 48U, 120U, 80U) > 1.0e-3F);
     BAFX_CHECK(maximumRgbInBox(pixels, 136U, 176U, 240U, 208U) > 1.0e-3F);
+}
+
+BAFX_TEST(warp_capture_reads_all_layers_from_the_same_frame)
+{
+    ComApartment apartment;
+    const WarpDevice graphics = createWarpDevice();
+    FxGpuRenderer renderer(graphics.device.Get(), graphics.context.Get(), testSize);
+    const RenderTarget target = createRenderTarget(graphics.device.Get());
+
+    const FxGpuFrameCapture capture = renderer.renderAndCapture(
+        makeDiskSnapshot(true),
+        target.view.Get());
+
+    BAFX_CHECK(capture.intermediateLayersValid);
+    BAFX_CHECK(capture.directSurface.width == testSize.width);
+    BAFX_CHECK(capture.directSurface.height == testSize.height);
+    BAFX_CHECK(capture.bloomSeed.width == testSize.width);
+    BAFX_CHECK(capture.finalOverlay.width == testSize.width);
+    BAFX_CHECK(capture.bloomDown.size() == 4U);
+    BAFX_CHECK(capture.bloomUp.size() == 3U);
+    constexpr std::array expectedMipWidths{128U, 64U, 32U, 16U};
+    for (std::size_t index = 0U; index < expectedMipWidths.size(); ++index)
+    {
+        BAFX_CHECK(capture.bloomDown[index].width == expectedMipWidths[index]);
+        BAFX_CHECK(capture.bloomDown[index].height == expectedMipWidths[index]);
+    }
+    for (std::size_t index = 0U; index < capture.bloomUp.size(); ++index)
+    {
+        BAFX_CHECK(capture.bloomUp[index].width == expectedMipWidths[index]);
+        BAFX_CHECK(capture.bloomUp[index].height == expectedMipWidths[index]);
+    }
+
+    const std::vector<ReadbackPixel> direct = toFloatPixels(capture.directSurface);
+    const std::vector<ReadbackPixel> seed = toFloatPixels(capture.bloomSeed);
+    const std::vector<ReadbackPixel> final = toFloatPixels(capture.finalOverlay);
+    checkFiniteAndNonNegative(direct);
+    checkFiniteAndNonNegative(seed);
+    checkFiniteAndNonNegative(final);
+    const std::size_t center = static_cast<std::size_t>(testSize.height / 2U)
+        * testSize.width
+        + testSize.width / 2U;
+    BAFX_CHECK(direct[center].blue > 1.0F);
+    BAFX_CHECK(seed[center].blue > 1.0F);
+    BAFX_CHECK(final[center].blue >= direct[center].blue);
+}
+
+BAFX_TEST(warp_capture_proves_triangle_bloom_seed_is_zero)
+{
+    ComApartment apartment;
+    const WarpDevice graphics = createWarpDevice();
+    FxGpuRenderer renderer(graphics.device.Get(), graphics.context.Get(), testSize);
+    const RenderTarget target = createRenderTarget(graphics.device.Get());
+
+    const FxGpuFrameCapture capture = renderer.renderAndCapture(
+        makeTriangleSnapshot(),
+        target.view.Get());
+
+    BAFX_CHECK(capture.intermediateLayersValid);
+    BAFX_CHECK(!isZeroImage(capture.directSurface));
+    BAFX_CHECK(isZeroImage(capture.bloomSeed));
+    for (const Rgba16FloatImage& mip : capture.bloomDown)
+    {
+        BAFX_CHECK(isZeroImage(mip));
+    }
+    for (const Rgba16FloatImage& mip : capture.bloomUp)
+    {
+        BAFX_CHECK(isZeroImage(mip));
+    }
+    BAFX_CHECK(!isZeroImage(capture.finalOverlay));
+}
+
+BAFX_TEST(warp_capture_never_exports_stale_layers_for_an_empty_frame)
+{
+    ComApartment apartment;
+    const WarpDevice graphics = createWarpDevice();
+    FxGpuRenderer renderer(graphics.device.Get(), graphics.context.Get(), testSize);
+    const RenderTarget target = createRenderTarget(graphics.device.Get());
+    renderer.render(makeDiskSnapshot(true), target.view.Get());
+
+    const FxGpuFrameCapture capture = renderer.renderAndCapture(
+        bafx::fx::FrameSnapshot{},
+        target.view.Get());
+
+    BAFX_CHECK(!capture.intermediateLayersValid);
+    BAFX_CHECK(capture.directSurface.pixels.empty());
+    BAFX_CHECK(capture.bloomSeed.pixels.empty());
+    BAFX_CHECK(capture.bloomDown.empty());
+    BAFX_CHECK(capture.bloomUp.empty());
+    BAFX_CHECK(isZeroImage(capture.finalOverlay));
 }
