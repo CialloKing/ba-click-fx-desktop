@@ -25,6 +25,17 @@ set_target_properties(
 )
 
 add_executable(
+    bafx_config_tests
+    test_main.cpp
+    config_tests.cpp
+)
+target_link_libraries(bafx_config_tests PRIVATE bafx::config)
+target_compile_features(bafx_config_tests PRIVATE cxx_std_20)
+bafx_enable_warnings(bafx_config_tests)
+add_test(NAME config COMMAND bafx_config_tests)
+set_target_properties(bafx_config_tests PROPERTIES FOLDER "Tests")
+
+add_executable(
     bafx_fx_tests
     test_main.cpp
     fx_simulation_tests.cpp

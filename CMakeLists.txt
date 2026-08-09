@@ -30,6 +30,7 @@ if(WIN32)
 endif()
 
 add_subdirectory(src/core)
+add_subdirectory(src/config)
 add_subdirectory(src/fx)
 add_subdirectory(src/reference)
 
