@@ -2,6 +2,7 @@
 
 #include "bafx/core/unity_bloom.hpp"
 #include "bafx/core/unity_ring_mesh.hpp"
+#include "bafx/core/unity_trail_mesh.hpp"
 #include "bafx/windows/error.hpp"
 #include "embedded_fx_shaders.hpp"
 #include "embedded_unity_textures.hpp"
@@ -260,98 +261,45 @@ makeRingVertices(const bafx::fx::Sprite& sprite) noexcept
     return vertices;
 }
 
-[[nodiscard]] bafx::fx::ColorF trailColor(const float normalizedAge) noexcept
-{
-    const float age = std::clamp(normalizedAge, 0.0F, 1.0F);
-    if (age <= 0.45F)
-    {
-        const float amount = age / 0.45F;
-        return bafx::fx::ColorF{
-            0.0F,
-            0.391F + (0.08F - 0.391F) * amount,
-            1.0F + (0.35F - 1.0F) * amount,
-            1.0F};
-    }
-    const float amount = (age - 0.45F) / 0.55F;
-    return bafx::fx::ColorF{
-        0.0F,
-        0.08F * (1.0F - amount),
-        0.35F * (1.0F - amount),
-        1.0F};
-}
-
 [[nodiscard]] std::vector<SpriteVertex> makeTrailVertices(
     const bafx::fx::FrameSnapshot& snapshot)
 {
-    std::vector<SpriteVertex> vertices;
     if (snapshot.trail.size() < 2U || snapshot.trailWidthPixels <= 0.0F)
     {
-        return vertices;
+        return {};
     }
 
-    struct TrailPair
+    std::vector<bafx::core::UnityTrailPoint> points;
+    points.reserve(snapshot.trail.size());
+    for (const bafx::fx::TrailPoint& point : snapshot.trail)
     {
-        SpriteVertex top{};
-        SpriteVertex bottom{};
-    };
-    std::vector<TrailPair> pairs;
-    pairs.reserve(snapshot.trail.size());
-    const float halfWidth = snapshot.trailWidthPixels * 0.5F;
-    for (std::size_t index = 0; index < snapshot.trail.size(); ++index)
-    {
-        const std::size_t previous = index == 0U ? 0U : index - 1U;
-        const std::size_t next = std::min(index + 1U, snapshot.trail.size() - 1U);
-        const auto& point = snapshot.trail[index];
-        const float tangentX = snapshot.trail[next].positionPixels.x
-            - snapshot.trail[previous].positionPixels.x;
-        const float tangentY = snapshot.trail[next].positionPixels.y
-            - snapshot.trail[previous].positionPixels.y;
-        const float tangentLength = std::sqrt(tangentX * tangentX + tangentY * tangentY);
-        if (tangentLength <= std::numeric_limits<float>::epsilon())
-        {
-            continue;
-        }
-        const float normalX = -tangentY / tangentLength;
-        const float normalY = tangentX / tangentLength;
-        const float u = static_cast<float>(index)
-            / static_cast<float>(snapshot.trail.size() - 1U);
-        const bafx::fx::ColorF color = trailColor(point.normalizedAge);
-        pairs.push_back(TrailPair{
-            makeVertex(
-                point.positionPixels.x + normalX * halfWidth,
-                point.positionPixels.y + normalY * halfWidth,
-                u,
-                0.0F,
-                color,
-                trailArtisticIntensity,
-                0.0F,
-                true),
-            makeVertex(
-                point.positionPixels.x - normalX * halfWidth,
-                point.positionPixels.y - normalY * halfWidth,
-                u,
-                1.0F,
-                color,
-                trailArtisticIntensity,
-                0.0F,
-                true)});
+        points.push_back(bafx::core::UnityTrailPoint{
+            point.positionPixels.x,
+            point.positionPixels.y});
     }
 
-    if (pairs.size() < 2U)
+    const bafx::core::UnityTrailMesh mesh = bafx::core::makeUnityTrailMesh(
+        points,
+        snapshot.trailWidthPixels);
+    std::vector<SpriteVertex> vertices;
+    vertices.reserve(mesh.vertices.size());
+    for (const bafx::core::UnityTrailVertex& vertex : mesh.vertices)
     {
-        return vertices;
-    }
-    vertices.reserve((pairs.size() - 1U) * 6U);
-    for (std::size_t index = 1; index < pairs.size(); ++index)
-    {
-        const TrailPair& previous = pairs[index - 1U];
-        const TrailPair& current = pairs[index];
-        vertices.push_back(previous.top);
-        vertices.push_back(current.bottom);
-        vertices.push_back(current.top);
-        vertices.push_back(previous.top);
-        vertices.push_back(previous.bottom);
-        vertices.push_back(current.bottom);
+        const bafx::core::Float3 trailColor =
+            bafx::core::evaluateUnityTrailColor(vertex.progress);
+        vertices.push_back(makeVertex(
+            vertex.x,
+            vertex.y,
+            1.0F - vertex.progress,
+            vertex.transverse,
+            bafx::fx::ColorF{
+                trailColor.r,
+                trailColor.g,
+                trailColor.b,
+                1.0F},
+            trailArtisticIntensity,
+            0.0F,
+            true));
     }
     return vertices;
 }
