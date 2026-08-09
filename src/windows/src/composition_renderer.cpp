@@ -119,6 +119,11 @@ D3D_FEATURE_LEVEL CompositionRenderer::featureLevel() const noexcept
     return featureLevel_;
 }
 
+const GraphicsDeviceInfo& CompositionRenderer::deviceInfo() const noexcept
+{
+    return deviceInfo_;
+}
+
 std::optional<PixelF> CompositionRenderer::lastCenterPixel() const noexcept
 {
     return lastCenterPixel_;
@@ -161,12 +166,47 @@ void CompositionRenderer::createDevice()
 #else
     HRESULT result = create(D3D_DRIVER_TYPE_HARDWARE, baseFlags);
 #endif
+    const HRESULT hardwareCreateResult = result;
     if (FAILED(result))
     {
         // WARP keeps the FX-only path usable when a hardware device cannot be created.
         result = create(D3D_DRIVER_TYPE_WARP, baseFlags);
+        deviceInfo_.driverType = GraphicsDriverType::Warp;
     }
     throwIfFailed(result, "D3D11CreateDevice");
+    deviceInfo_.hardwareCreateResult = hardwareCreateResult;
+    deviceInfo_.featureLevel = featureLevel_;
+    collectDeviceInfo();
+}
+
+void CompositionRenderer::collectDeviceInfo()
+{
+    Microsoft::WRL::ComPtr<IDXGIDevice> dxgiDevice;
+    throwIfFailed(device_.As(&dxgiDevice), "ID3D11Device::QueryInterface(IDXGIDevice)");
+
+    Microsoft::WRL::ComPtr<IDXGIAdapter> adapter;
+    throwIfFailed(dxgiDevice->GetAdapter(&adapter), "IDXGIDevice::GetAdapter");
+
+    DXGI_ADAPTER_DESC description{};
+    throwIfFailed(adapter->GetDesc(&description), "IDXGIAdapter::GetDesc");
+    deviceInfo_.adapterDescription = description.Description;
+    deviceInfo_.adapterLuid = description.AdapterLuid;
+    deviceInfo_.vendorId = description.VendorId;
+    deviceInfo_.deviceId = description.DeviceId;
+    deviceInfo_.subsystemId = description.SubSysId;
+    deviceInfo_.revision = description.Revision;
+    deviceInfo_.dedicatedVideoMemory = description.DedicatedVideoMemory;
+    deviceInfo_.dedicatedSystemMemory = description.DedicatedSystemMemory;
+    deviceInfo_.sharedSystemMemory = description.SharedSystemMemory;
+
+    LARGE_INTEGER driverVersion{};
+    const HRESULT driverResult = adapter->CheckInterfaceSupport(
+        __uuidof(ID3D11Device),
+        &driverVersion);
+    if (SUCCEEDED(driverResult))
+    {
+        deviceInfo_.driverVersion = static_cast<std::uint64_t>(driverVersion.QuadPart);
+    }
 }
 
 void CompositionRenderer::createSwapChain(const WindowSize size)

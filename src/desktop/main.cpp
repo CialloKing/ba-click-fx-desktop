@@ -225,6 +225,10 @@ int runApplication(const HINSTANCE instance, const RunOptions options)
         primaryMonitorBounds(),
         L"ba-click-fx-desktop");
     bafx::windows::CompositionRenderer renderer(window.handle(), window.size());
+    if (options.smokeTest && renderer.deviceInfo().adapterDescription.empty())
+    {
+        throw std::runtime_error("Desktop smoke test could not identify the D3D11 adapter");
+    }
     renderer.setReadbackDiagnostics(options.smokeTest);
     bafx::fx::Simulation simulation;
     window.show();

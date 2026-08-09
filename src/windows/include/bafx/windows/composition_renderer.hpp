@@ -9,8 +9,10 @@
 #include <wrl/client.h>
 
 #include <array>
+#include <cstdint>
 #include <memory>
 #include <optional>
+#include <string>
 
 namespace bafx::fx
 {
@@ -32,6 +34,29 @@ struct PixelF
     float alpha{0.0F};
 };
 
+enum class GraphicsDriverType : std::uint8_t
+{
+    Hardware,
+    Warp
+};
+
+struct GraphicsDeviceInfo
+{
+    GraphicsDriverType driverType{GraphicsDriverType::Hardware};
+    std::wstring adapterDescription{};
+    LUID adapterLuid{};
+    std::uint32_t vendorId{0U};
+    std::uint32_t deviceId{0U};
+    std::uint32_t subsystemId{0U};
+    std::uint32_t revision{0U};
+    std::uint64_t dedicatedVideoMemory{0U};
+    std::uint64_t dedicatedSystemMemory{0U};
+    std::uint64_t sharedSystemMemory{0U};
+    std::optional<std::uint64_t> driverVersion{};
+    HRESULT hardwareCreateResult{S_OK};
+    D3D_FEATURE_LEVEL featureLevel{D3D_FEATURE_LEVEL_11_0};
+};
+
 class CompositionRenderer final
 {
 public:
@@ -47,10 +72,12 @@ public:
 
     [[nodiscard]] HANDLE frameLatencyWaitableObject() const noexcept;
     [[nodiscard]] D3D_FEATURE_LEVEL featureLevel() const noexcept;
+    [[nodiscard]] const GraphicsDeviceInfo& deviceInfo() const noexcept;
     [[nodiscard]] std::optional<PixelF> lastCenterPixel() const noexcept;
 
 private:
     void createDevice();
+    void collectDeviceInfo();
     void createSwapChain(WindowSize size);
     void createComposition(HWND window);
     void createRenderTarget();
@@ -70,6 +97,7 @@ private:
     std::unique_ptr<FxGpuRenderer> fxRenderer_{};
     std::optional<PixelF> lastCenterPixel_{};
     D3D_FEATURE_LEVEL featureLevel_{D3D_FEATURE_LEVEL_11_0};
+    GraphicsDeviceInfo deviceInfo_{};
     WindowSize size_{};
 };
 
