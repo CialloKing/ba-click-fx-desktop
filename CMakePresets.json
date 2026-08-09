@@ -1,0 +1,85 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 25,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "alpha-x64",
+      "displayName": "Alpha x64 (Visual Studio 2026)",
+      "generator": "Visual Studio 18 2026",
+      "architecture": {
+        "value": "x64",
+        "strategy": "set"
+      },
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "cacheVariables": {
+        "CMAKE_SYSTEM_VERSION": "10.0.26100.0",
+        "BUILD_TESTING": "ON",
+        "BAFX_ENABLE_DESKTOP_SMOKE_TESTS": "ON"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "alpha-debug",
+      "displayName": "Build Alpha Debug",
+      "configurePreset": "alpha-x64",
+      "configuration": "Debug"
+    },
+    {
+      "name": "alpha-release",
+      "displayName": "Build Alpha Release",
+      "configurePreset": "alpha-x64",
+      "configuration": "Release"
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "alpha-debug",
+      "displayName": "Test Alpha Debug",
+      "configurePreset": "alpha-x64",
+      "configuration": "Debug",
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "noTestsAction": "error"
+      }
+    },
+    {
+      "name": "alpha-release",
+      "displayName": "Test Alpha Release",
+      "configurePreset": "alpha-x64",
+      "configuration": "Release",
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "noTestsAction": "error"
+      }
+    }
+  ],
+  "workflowPresets": [
+    {
+      "name": "alpha-release-verify",
+      "displayName": "Configure, build, and test Alpha Release",
+      "steps": [
+        {
+          "type": "configure",
+          "name": "alpha-x64"
+        },
+        {
+          "type": "build",
+          "name": "alpha-release"
+        },
+        {
+          "type": "test",
+          "name": "alpha-release"
+        }
+      ]
+    }
+  ]
+}
