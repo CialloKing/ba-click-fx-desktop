@@ -1,6 +1,7 @@
 #include "bafx/windows/fx_gpu_renderer.hpp"
 
 #include "bafx/core/unity_bloom.hpp"
+#include "bafx/core/unity_ring_mesh.hpp"
 #include "bafx/windows/error.hpp"
 #include "embedded_fx_shaders.hpp"
 #include "embedded_unity_textures.hpp"
@@ -29,7 +30,7 @@ using Microsoft::WRL::ComPtr;
 
 constexpr float trailArtisticIntensity = 23.968628F;
 constexpr std::int32_t trailRenderQueue = 4499;
-constexpr std::size_t initialVertexCapacity = 256U;
+constexpr std::size_t initialVertexCapacity = bafx::core::unityRingIndexCount;
 
 struct SpriteVertex
 {
@@ -228,6 +229,35 @@ struct ColorTarget
             sprite.contributesBloom);
     };
     return {vertex(0), vertex(1), vertex(2), vertex(0), vertex(2), vertex(3)};
+}
+
+[[nodiscard]] std::array<SpriteVertex, bafx::core::unityRingIndexCount>
+makeRingVertices(const bafx::fx::Sprite& sprite) noexcept
+{
+    // Cylinder002 is regular, so its exact topology can remain code-generated.
+    static const bafx::core::UnityRingMesh mesh = bafx::core::makeUnityRingMesh();
+    std::array<SpriteVertex, bafx::core::unityRingIndexCount> vertices{};
+    const float scale = sprite.sizePixels
+        / (2.0F * bafx::core::unityRingOuterRadius);
+    const float cosine = std::cos(sprite.rotationRadians);
+    const float sine = std::sin(sprite.rotationRadians);
+    for (std::size_t index = 0U; index < mesh.indices.size(); ++index)
+    {
+        const bafx::core::UnityRingVertex& source =
+            mesh.vertices[mesh.indices[index]];
+        const float rotatedX = source.x * cosine - source.y * sine;
+        const float rotatedY = source.x * sine + source.y * cosine;
+        vertices[index] = makeVertex(
+            sprite.centerPixels.x + rotatedX * scale,
+            sprite.centerPixels.y - rotatedY * scale,
+            source.u,
+            source.v,
+            sprite.color,
+            sprite.artisticIntensity,
+            sprite.dissolveThreshold,
+            sprite.contributesBloom);
+    }
+    return vertices;
 }
 
 [[nodiscard]] bafx::fx::ColorF trailColor(const float normalizedAge) noexcept
@@ -842,10 +872,11 @@ struct FxGpuRenderer::Implementation
 
     void drawSprite(const bafx::fx::Sprite& sprite)
     {
-        const std::array<SpriteVertex, 6> vertices = makeSpriteVertices(sprite);
         switch (sprite.kind)
         {
         case bafx::fx::SpriteKind::CenterDisk:
+        {
+            const std::array<SpriteVertex, 6> vertices = makeSpriteVertices(sprite);
             drawVertices(
                 vertices,
                 circleTexture.Get(),
@@ -853,8 +884,11 @@ struct FxGpuRenderer::Implementation
                 crossPixelShader.Get(),
                 crossBlendState.Get());
             break;
+        }
 
         case bafx::fx::SpriteKind::DissolveRing:
+        {
+            const auto vertices = makeRingVertices(sprite);
             drawVertices(
                 vertices,
                 ringTexture.Get(),
@@ -862,8 +896,11 @@ struct FxGpuRenderer::Implementation
                 dissolvePixelShader.Get(),
                 emissionBlendState.Get());
             break;
+        }
 
         case bafx::fx::SpriteKind::Triangle:
+        {
+            const std::array<SpriteVertex, 6> vertices = makeSpriteVertices(sprite);
             drawVertices(
                 vertices,
                 triangleTexture.Get(),
@@ -871,6 +908,7 @@ struct FxGpuRenderer::Implementation
                 additivePixelShader.Get(),
                 emissionBlendState.Get());
             break;
+        }
         }
     }
 
