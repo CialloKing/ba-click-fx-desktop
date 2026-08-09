@@ -31,3 +31,13 @@ bafx_enable_warnings(bafx_fx_tests)
 add_test(NAME fx_simulation COMMAND bafx_fx_tests)
 set_target_properties(bafx_fx_tests PROPERTIES FOLDER "Tests")
 
+add_executable(
+    bafx_reference_tests
+    test_main.cpp
+    unity_runtime_resources_tests.cpp
+)
+target_link_libraries(bafx_reference_tests PRIVATE bafx::reference)
+target_compile_features(bafx_reference_tests PRIVATE cxx_std_20)
+bafx_enable_warnings(bafx_reference_tests)
+add_test(NAME unity_runtime_resources COMMAND bafx_reference_tests)
+set_target_properties(bafx_reference_tests PROPERTIES FOLDER "Tests")
