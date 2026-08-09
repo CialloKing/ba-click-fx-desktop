@@ -228,6 +228,17 @@ void SupportReport::setBackgroundCaptureStatus(
     backgroundCaptureStatus_ = status;
 }
 
+void SupportReport::setConfigurationSchemaVersion(
+    const std::uint32_t version) noexcept
+{
+    configurationSchemaVersion_ = version;
+}
+
+void SupportReport::setControlServiceAvailable(const bool available) noexcept
+{
+    controlServiceAvailable_ = available;
+}
+
 void SupportReport::setLogPath(const std::filesystem::path& path)
 {
     logPath_ = pathToUtf8(path);
@@ -263,6 +274,18 @@ std::string SupportReport::serialize() const
            << "Support.HDR=not-supported\n"
            << "Support.WGC=" << backgroundStatus() << '\n'
            << "Support.MultiDisplay=not-supported\n"
+           << "Configuration.SchemaVersion=";
+    if (configurationSchemaVersion_.has_value())
+    {
+        stream << *configurationSchemaVersion_;
+    }
+    else
+    {
+        stream << "not-loaded";
+    }
+    stream << '\n'
+           << "IPC.ControlService="
+           << (controlServiceAvailable_ ? "active" : "unavailable") << '\n'
            << "OS.Version=" << osVersion_ << '\n'
            << "OS.Architecture=" << architecture_ << '\n'
            << "Display.Primary="

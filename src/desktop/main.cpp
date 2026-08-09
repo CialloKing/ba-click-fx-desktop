@@ -392,6 +392,7 @@ int runApplication(
     }
 
     bafx::desktop::HostControlPlane control(configPath, config);
+    report.setConfigurationSchemaVersion(config.schemaVersion);
     const MonitorSelection primaryMonitor = primaryMonitorBounds();
     report.setPrimaryMonitor(primaryMonitor.bounds);
     bafx::windows::OverlayWindow window(
@@ -413,7 +414,9 @@ int runApplication(
     }
     report.setDeviceInfo(renderer.deviceInfo());
     report.setExitUiStatus(window.exitUiStatus());
-    if (!control.start())
+    const bool controlServiceStarted = control.start();
+    report.setControlServiceAvailable(controlServiceStarted);
+    if (!controlServiceStarted)
     {
         bafx::windows::appendDiagnosticLog(
             logPath,

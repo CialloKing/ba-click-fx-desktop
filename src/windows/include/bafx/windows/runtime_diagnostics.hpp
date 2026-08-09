@@ -4,6 +4,7 @@
 
 #include <filesystem>
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <string_view>
 
@@ -26,6 +27,8 @@ public:
     void setDeviceInfo(const GraphicsDeviceInfo& info);
     void setExitUiStatus(const ExitUiStatus& status);
     void setBackgroundCaptureStatus(BackgroundCaptureStatus status) noexcept;
+    void setConfigurationSchemaVersion(std::uint32_t version) noexcept;
+    void setControlServiceAvailable(bool available) noexcept;
     void setLogPath(const std::filesystem::path& path);
     void setFailure(std::string_view failure);
 
@@ -42,6 +45,8 @@ private:
     ExitUiStatus exitUiStatus_{};
     BackgroundCaptureStatus backgroundCaptureStatus_{
         BackgroundCaptureStatus::NotProbed};
+    std::optional<std::uint32_t> configurationSchemaVersion_{};
+    bool controlServiceAvailable_{false};
     bool hasDeviceInfo_{false};
     bool hasExitUiStatus_{false};
 };

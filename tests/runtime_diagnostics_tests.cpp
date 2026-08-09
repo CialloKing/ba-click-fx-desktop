@@ -20,12 +20,16 @@ BAFX_TEST(support_report_contains_alpha_scope_and_graphics_facts)
     device.hardwareCreateResult = DXGI_ERROR_UNSUPPORTED;
     report.setDeviceInfo(device);
     report.setExitUiStatus(bafx::windows::ExitUiStatus{true, false, true});
+    report.setConfigurationSchemaVersion(3U);
+    report.setControlServiceAvailable(true);
 
     const std::string text = report.serialize();
     BAFX_CHECK(text.find("Product.Version=0.1.0-alpha.2") != std::string::npos);
     BAFX_CHECK(text.find("Support.Scope=single-primary-monitor;fx-only-or-wgc;sdr-tested")
         != std::string::npos);
     BAFX_CHECK(text.find("Support.WGC=not-probed") != std::string::npos);
+    BAFX_CHECK(text.find("Configuration.SchemaVersion=3") != std::string::npos);
+    BAFX_CHECK(text.find("IPC.ControlService=active") != std::string::npos);
     BAFX_CHECK(text.find("Graphics.DriverType=WARP") != std::string::npos);
     BAFX_CHECK(text.find("Graphics.HardwareFallback=WARP") != std::string::npos);
     BAFX_CHECK(text.find("Graphics.Adapter=Microsoft Basic Render Driver")
