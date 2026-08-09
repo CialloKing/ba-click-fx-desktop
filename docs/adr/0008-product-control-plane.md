@@ -15,12 +15,14 @@
    校验，再生成不可变的运行时快照；写入使用同目录临时文件、flush、替换的原子流程。
 2. Host 是配置的唯一写入者。外部客户端只能通过版本化的本地 Named Pipe 请求操作，不能
    取得 Renderer 或 D3D11 immediate context 的句柄。
-3. IPC 使用 UTF-8、以换行分隔的请求/响应记录。每条请求包含 `id` 和 `method`，响应包含
-   `ok`；未知方法、格式错误和过期 generation 都返回可诊断错误而不终止 Host。
+3. IPC 使用 UTF-8、以换行分隔的请求/响应记录。请求是一个命令 token，可选地跟随一个
+   `SetConfig` JSON 负载；响应以 `OK` 或 `ERR <code> <message>` 开头。未知命令、格式错误、
+   NUL/换行注入和超限请求都返回可诊断错误而不终止 Host。
 4. Host 通过用户范围的命名互斥体保证单实例；管道服务在独立线程运行，Render Owner 只
    在帧边界消费已校验的命令。Control Center 退出不会影响 Host。
-5. 首个垂直切片只承诺 `GetState`、`GetConfig`、`SetConfig`、`Pause`、`Resume` 和
-   `Shutdown`。Preset/Profile 和 WinUI 3 页面在此协议稳定后再增加。
+5. 首个垂直切片只承诺 `GetState`、`GetConfig`、`SetConfig <schema-3-json>`、`Pause`、
+   `Resume` 和 `Shutdown`。响应中的 `generation` 用于客户端判断快照是否变化；Preset/Profile
+   和 WinUI 3 页面在此协议稳定后再增加。
 
 ## 取舍
 
@@ -37,4 +39,3 @@
 - schema 1/2 配置可迁移到 schema 3，非法值被拒绝并保留原文件。
 - 一个 Host 进程能同时服务至少一个客户端；第二个 Host 启动会快速退出。
 - `GetState`/`SetConfig` 在下一帧可观察，`Shutdown` 能使 Host 正常退出且无残留进程。
-

@@ -417,7 +417,8 @@ int runApplication(
     {
         bafx::windows::appendDiagnosticLog(
             logPath,
-            "IPC control service unavailable; continuing without Control Center");
+            std::string("IPC control service unavailable; continuing without Control Center; error=")
+                + std::to_string(control.ipcLastError()));
     }
     else
     {
