@@ -57,6 +57,10 @@ BAFX_TEST(ipc_parser_rejects_invalid_payload_shapes)
     const IpcParseResult injected = parseIpcRequest("GetState\nSetConfig x");
     BAFX_CHECK(!injected.succeeded());
     BAFX_CHECK(injected.errorCode == "invalid_request");
+
+    const IpcParseResult nul = parseIpcRequest(std::string("GetState\0x", 10U));
+    BAFX_CHECK(!nul.succeeded());
+    BAFX_CHECK(nul.errorCode == "invalid_request");
 }
 
 BAFX_TEST(ipc_response_is_single_line_and_has_stable_prefix)
@@ -122,7 +126,7 @@ BAFX_TEST(ipc_server_round_trips_a_request)
         nullptr);
     BAFX_CHECK(client != INVALID_HANDLE_VALUE);
 
-    const std::string request = "GetState\n";
+    const std::string request = "GetState\nGetState\n";
     DWORD written = 0U;
     BAFX_CHECK(WriteFile(
         client,
@@ -133,6 +137,7 @@ BAFX_TEST(ipc_server_round_trips_a_request)
     BAFX_CHECK(written == request.size());
 
     std::array<char, 256U> responseBuffer{};
+    std::string responses;
     DWORD available = 0U;
     bool received = false;
     DWORD receivedBytes = 0U;
@@ -153,8 +158,13 @@ BAFX_TEST(ipc_server_round_trips_a_request)
                 static_cast<DWORD>(responseBuffer.size()),
                 &receivedBytes,
                 nullptr) != FALSE);
-            received = true;
-            break;
+            responses.append(responseBuffer.data(), receivedBytes);
+            received = responses.find("OK {\"enabled\":true}\nOK {\"enabled\":true}\n")
+                != std::string::npos;
+            if (received)
+            {
+                break;
+            }
         }
         Sleep(5U);
     }
@@ -163,6 +173,5 @@ BAFX_TEST(ipc_server_round_trips_a_request)
 
     BAFX_CHECK(received);
     BAFX_CHECK(
-        std::string(responseBuffer.data(), receivedBytes)
-        == "OK {\"enabled\":true}\n");
+        responses == "OK {\"enabled\":true}\nOK {\"enabled\":true}\n");
 }

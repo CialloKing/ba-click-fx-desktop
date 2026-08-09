@@ -124,6 +124,10 @@ private:
     [[nodiscard]] UniqueHandle createPipe() noexcept;
     [[nodiscard]] ConnectResult waitForConnection(HANDLE pipe) noexcept;
     [[nodiscard]] bool serveClient(HANDLE pipe) noexcept;
+    [[nodiscard]] bool processLine(
+        HANDLE pipe,
+        std::string line,
+        std::uint32_t& commandCount) noexcept;
     [[nodiscard]] bool readChunk(
         HANDLE pipe,
         std::string& chunk) noexcept;

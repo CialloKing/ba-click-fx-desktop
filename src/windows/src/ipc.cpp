@@ -108,7 +108,9 @@ IpcParseResult parseIpcRequest(const std::string_view line)
         result.errorMessage = "request line exceeds the parser limit";
         return result;
     }
-    if (line.find_first_of("\r\n\0") != std::string_view::npos)
+    if (line.find('\r') != std::string_view::npos
+        || line.find('\n') != std::string_view::npos
+        || line.find('\0') != std::string_view::npos)
     {
         result.errorCode = "invalid_request";
         result.errorMessage = "request contains a line terminator or NUL";
@@ -411,101 +413,32 @@ bool NamedPipeIpcServer::serveClient(const HANDLE pipe) noexcept
             {
                 return false;
             }
-            if (pending.size() > options_.maxRequestBytes
-                || chunk.size() > options_.maxRequestBytes + 1U - pending.size())
+            for (const char character : chunk)
             {
-                static_cast<void>(writeAll(
-                    pipe,
-                    serializeIpcResponse(IpcResponse::failure(
-                        "request_too_large",
-                        "request exceeds the configured limit"))));
-                return false;
-            }
-            pending.append(chunk);
-
-            for (;;)
-            {
-                const std::size_t newline = pending.find('\n');
-                if (newline == std::string::npos)
+                if (character != '\n')
                 {
-                    break;
-                }
-
-                std::string line = pending.substr(0U, newline);
-                pending.erase(0U, newline + 1U);
-                if (!line.empty() && line.back() == '\r')
-                {
-                    line.pop_back();
-                }
-
-                ++commandCount;
-                if (commandCount > options_.maxCommandsPerConnection)
-                {
-                    static_cast<void>(writeAll(
-                        pipe,
-                        serializeIpcResponse(IpcResponse::failure(
-                            "command_limit",
-                            "connection command limit exceeded"))));
-                    return false;
-                }
-
-                const IpcParseResult parsed = parseIpcRequest(line);
-                IpcResponse response{};
-                if (!parsed.succeeded())
-                {
-                    response = IpcResponse::failure(
-                        parsed.errorCode,
-                        parsed.errorMessage);
-                }
-                else if (!handler_)
-                {
-                    response = IpcResponse::failure(
-                        "handler_unavailable",
-                        "no request handler is installed");
-                }
-                else
-                {
-                    try
+                    if (pending.size() >= options_.maxRequestBytes)
                     {
-                        response = handler_(*parsed.request);
+                        static_cast<void>(writeAll(
+                            pipe,
+                            serializeIpcResponse(IpcResponse::failure(
+                                "request_too_large",
+                                "request exceeds the configured limit"))));
+                        return false;
                     }
-                    catch (...)
-                    {
-                        response = IpcResponse::failure(
-                            "handler_error",
-                            "request handler raised an exception");
-                    }
+                    pending.push_back(character);
+                    continue;
                 }
 
-                if (parsed.succeeded()
-                    && parsed.request->command == IpcCommand::Shutdown
-                    && response.succeeded)
+                if (!pending.empty() && pending.back() == '\r')
                 {
-                    // Shutdown is acknowledged before the service wakes its
-                    // waiters, allowing the control center to exit cleanly.
-                    response.stopServer = true;
-                    response.closeConnection = true;
+                    pending.pop_back();
                 }
-
-                std::string serialized = serializeIpcResponse(response);
-                if (serialized.size() > options_.maxResponseBytes)
-                {
-                    serialized = serializeIpcResponse(IpcResponse::failure(
-                        "response_too_large",
-                        "response exceeds the configured limit"));
-                }
-                if (!writeAll(pipe, serialized))
+                if (!processLine(pipe, std::move(pending), commandCount))
                 {
                     return false;
                 }
-                if (response.stopServer)
-                {
-                    static_cast<void>(SetEvent(stopEvent_.get()));
-                }
-                if (response.closeConnection || response.stopServer)
-                {
-                    return false;
-                }
+                pending.clear();
             }
         }
     }
@@ -515,6 +448,86 @@ bool NamedPipeIpcServer::serveClient(const HANDLE pipe) noexcept
         return false;
     }
     return false;
+}
+
+bool NamedPipeIpcServer::processLine(
+    const HANDLE pipe,
+    std::string line,
+    std::uint32_t& commandCount) noexcept
+{
+    try
+    {
+        ++commandCount;
+        if (commandCount > options_.maxCommandsPerConnection)
+        {
+            static_cast<void>(writeAll(
+                pipe,
+                serializeIpcResponse(IpcResponse::failure(
+                    "command_limit",
+                    "connection command limit exceeded"))));
+            return false;
+        }
+
+        const IpcParseResult parsed = parseIpcRequest(line);
+        IpcResponse response{};
+        if (!parsed.succeeded())
+        {
+            response = IpcResponse::failure(
+                parsed.errorCode,
+                parsed.errorMessage);
+        }
+        else if (!handler_)
+        {
+            response = IpcResponse::failure(
+                "handler_unavailable",
+                "no request handler is installed");
+        }
+        else
+        {
+            try
+            {
+                response = handler_(*parsed.request);
+            }
+            catch (...)
+            {
+                response = IpcResponse::failure(
+                    "handler_error",
+                    "request handler raised an exception");
+            }
+        }
+
+        if (parsed.succeeded()
+            && parsed.request->command == IpcCommand::Shutdown
+            && response.succeeded)
+        {
+            // Shutdown is acknowledged before the service wakes its waiters,
+            // allowing the control center to exit cleanly.
+            response.stopServer = true;
+            response.closeConnection = true;
+        }
+
+        std::string serialized = serializeIpcResponse(response);
+        if (serialized.size() > options_.maxResponseBytes)
+        {
+            serialized = serializeIpcResponse(IpcResponse::failure(
+                "response_too_large",
+                "response exceeds the configured limit"));
+        }
+        if (!writeAll(pipe, serialized))
+        {
+            return false;
+        }
+        if (response.stopServer)
+        {
+            static_cast<void>(SetEvent(stopEvent_.get()));
+        }
+        return !response.closeConnection && !response.stopServer;
+    }
+    catch (...)
+    {
+        setLastError(ERROR_NOT_ENOUGH_MEMORY);
+        return false;
+    }
 }
 
 bool NamedPipeIpcServer::readChunk(
