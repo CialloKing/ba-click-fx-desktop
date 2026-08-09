@@ -197,10 +197,14 @@ float4 DesktopCompositePixel(FullscreenOutput input) : SV_Target0
     const float4 linearOverlay = CompositePixel(input);
     const float3 sdrColor = saturate(linearOverlay.rgb);
     const float visibleEnergy = max(sdrColor.r, max(sdrColor.g, sdrColor.b));
+    const float alpha = min(saturate(linearOverlay.a), visibleEnergy);
+    const float premultiplyScale = visibleEnergy > 0.00001
+        ? alpha / visibleEnergy
+        : 0.0;
 
-    // Additive Unity materials can retain full geometric coverage after their
-    // color has faded. On an unknown desktop that excess alpha creates a dark tail.
-    return float4(sdrColor, visibleEnergy);
+    // Preserve Unity's geometric transparency while keeping the DComp surface
+    // premultiplied. Capping alpha by visible energy also prevents dark tails.
+    return float4(sdrColor * premultiplyScale, alpha);
 }
 )hlsl";
 
