@@ -5,10 +5,14 @@
 #include "bafx/windows/gpu_texture_readback.hpp"
 #include "bafx/windows/wgc_background_sensor.hpp"
 
+#include <dwmapi.h>
 #include <dxgi1_2.h>
 
+#include <algorithm>
 #include <array>
 #include <chrono>
+#include <cmath>
+#include <limits>
 
 namespace bafx::windows
 {
@@ -18,6 +22,40 @@ namespace
 constexpr UINT swapChainFlags = DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT;
 constexpr DXGI_COLOR_SPACE_TYPE swapChainColorSpace =
     DXGI_COLOR_SPACE_RGB_FULL_G10_NONE_P709;
+
+[[nodiscard]] std::optional<bafx::core::MonotonicTime>
+primaryRefreshPeriod() noexcept
+{
+    DWM_TIMING_INFO timing{};
+    timing.cbSize = sizeof(timing);
+    if (FAILED(DwmGetCompositionTimingInfo(nullptr, &timing))
+        || timing.rateRefresh.uiNumerator == 0U
+        || timing.rateRefresh.uiDenominator == 0U)
+    {
+        return std::nullopt;
+    }
+
+    const double seconds = static_cast<double>(timing.rateRefresh.uiDenominator)
+        / static_cast<double>(timing.rateRefresh.uiNumerator);
+    if (!std::isfinite(seconds) || seconds <= 0.0 || seconds > 1.0)
+    {
+        return std::nullopt;
+    }
+    const auto period = std::chrono::duration_cast<bafx::core::MonotonicTime>(
+        std::chrono::duration<double>(seconds));
+    if (period <= bafx::core::MonotonicTime::zero())
+    {
+        return std::nullopt;
+    }
+    return period;
+}
+
+[[nodiscard]] std::uint64_t nextEpoch(const std::uint64_t epoch) noexcept
+{
+    return epoch == std::numeric_limits<std::uint64_t>::max()
+        ? 1U
+        : epoch + 1U;
+}
 
 }
 
@@ -41,6 +79,14 @@ void CompositionRenderer::resize(const WindowSize size)
         return;
     }
 
+    if (backgroundSensor_ != nullptr)
+    {
+        // Capture teardown shares the render owner's immediate-context domain;
+        // finish it before swap-chain and size-dependent resources are replaced.
+        backgroundSensor_->stop();
+        backgroundSensor_.reset();
+    }
+
     context_->OMSetRenderTargets(0, nullptr, nullptr);
     renderTarget_.Reset();
     backBuffer_.Reset();
@@ -55,11 +101,7 @@ void CompositionRenderer::resize(const WindowSize size)
     size_ = size;
     createRenderTarget();
     fxRenderer_->resize(size);
-    if (backgroundSensor_ != nullptr)
-    {
-        backgroundSensor_->stop();
-        backgroundSensor_.reset();
-    }
+    static_cast<void>(tryCreateBackgroundSensor());
 }
 
 void CompositionRenderer::renderFrame(
@@ -92,32 +134,44 @@ void CompositionRenderer::renderFrame(
     {
         try
         {
-            static_cast<void>(backgroundSensor_->drainLatest(context_.Get()));
-            const std::optional<WgcBackgroundSample> sample =
-                backgroundSensor_->latestSample();
-            if (sample.has_value()
-                && sample->size.width == size_.width
-                && sample->size.height == size_.height)
+            const WgcBackgroundDrainStatus drainStatus =
+                backgroundSensor_->drainLatest(context_.Get());
+            if (drainStatus == WgcBackgroundDrainStatus::Stopped)
             {
-                const bafx::core::BackgroundFreshnessResult freshness =
-                    bafx::core::evaluateBackgroundFreshness(
-                        sample->stamp,
-                        effectiveWallTime,
-                        bafx::core::BackgroundFreshnessPolicy{
-                            // A 60 Hz producer can legitimately deliver a
-                            // frame nearly one refresh late. Keep one full
-                            // cadence at full weight and three cadences as
-                            // the hard stale boundary.
-                            std::chrono::milliseconds(20),
-                            std::chrono::milliseconds(60),
-                            std::chrono::milliseconds(2),
-                            backgroundSensor_->expectedEpoch()});
-                if (freshness.freshness == bafx::core::BackgroundFreshness::Fresh
-                    || freshness.freshness == bafx::core::BackgroundFreshness::Fading)
+                backgroundSensor_.reset();
+                backgroundRefreshPeriod_ = bafx::core::MonotonicTime::zero();
+            }
+            else
+            {
+                const std::optional<WgcBackgroundSample> sample =
+                    backgroundSensor_->latestSample();
+                if (sample.has_value()
+                    && sample->size.width == size_.width
+                    && sample->size.height == size_.height
+                    && backgroundRefreshPeriod_ > bafx::core::MonotonicTime::zero())
                 {
-                    background = BackgroundRenderInput{
-                        sample->texture,
-                        freshness.weight};
+                    const bafx::core::BackgroundFreshnessResult freshness =
+                        bafx::core::evaluateBackgroundFreshness(
+                            sample->stamp,
+                            effectiveWallTime,
+                            bafx::core::BackgroundFreshnessPolicy{
+                                backgroundRefreshPeriod_,
+                                backgroundRefreshPeriod_ * 3,
+                                std::min(
+                                    std::chrono::duration_cast<
+                                        bafx::core::MonotonicTime>(
+                                        std::chrono::milliseconds(2)),
+                                    backgroundRefreshPeriod_ / 2),
+                                backgroundSensor_->expectedEpoch()});
+                    if (freshness.freshness
+                            == bafx::core::BackgroundFreshness::Fresh
+                        || freshness.freshness
+                            == bafx::core::BackgroundFreshness::Fading)
+                    {
+                        background = BackgroundRenderInput{
+                            sample->texture,
+                            freshness.weight};
+                    }
                 }
             }
         }
@@ -127,6 +181,7 @@ void CompositionRenderer::renderFrame(
             // never stop the FX-only interaction path.
             backgroundSensor_->stop();
             backgroundSensor_.reset();
+            backgroundRefreshPeriod_ = bafx::core::MonotonicTime::zero();
         }
     }
 
@@ -148,10 +203,41 @@ bool CompositionRenderer::tryEnableBackgroundCapture(
     const HMONITOR monitor,
     const bool exclusionConfirmed) noexcept
 {
-    if (!exclusionConfirmed
-        || monitor == nullptr
-        || deviceInfo_.driverType != GraphicsDriverType::Hardware
+    if (backgroundSensor_ != nullptr)
+    {
+        backgroundSensor_->stop();
+        backgroundSensor_.reset();
+    }
+    backgroundCaptureRequested_ = exclusionConfirmed
+        && monitor != nullptr
+        && deviceInfo_.driverType == GraphicsDriverType::Hardware;
+    backgroundMonitor_ = backgroundCaptureRequested_ ? monitor : nullptr;
+    backgroundRefreshPeriod_ = bafx::core::MonotonicTime::zero();
+    if (!backgroundCaptureRequested_)
+    {
+        return false;
+    }
+
+    return tryCreateBackgroundSensor();
+}
+
+bool CompositionRenderer::backgroundCaptureActive() const noexcept
+{
+    return backgroundSensor_ != nullptr && backgroundSensor_->running();
+}
+
+bool CompositionRenderer::tryCreateBackgroundSensor() noexcept
+{
+    if (!backgroundCaptureRequested_
+        || backgroundMonitor_ == nullptr
         || !WgcBackgroundSensor::isSupported())
+    {
+        return false;
+    }
+
+    const std::optional<bafx::core::MonotonicTime> refreshPeriod =
+        primaryRefreshPeriod();
+    if (!refreshPeriod.has_value())
     {
         return false;
     }
@@ -160,13 +246,16 @@ bool CompositionRenderer::tryEnableBackgroundCapture(
     {
         backgroundSensor_ = std::make_unique<WgcBackgroundSensor>(
             device_.Get(),
-            monitor,
-            WgcBackgroundSensorOptions{1U, true});
+            backgroundMonitor_,
+            WgcBackgroundSensorOptions{backgroundEpoch_, true});
+        backgroundEpoch_ = nextEpoch(backgroundEpoch_);
+        backgroundRefreshPeriod_ = *refreshPeriod;
         return true;
     }
     catch (...)
     {
         backgroundSensor_.reset();
+        backgroundRefreshPeriod_ = bafx::core::MonotonicTime::zero();
         return false;
     }
 }

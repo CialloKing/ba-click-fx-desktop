@@ -75,6 +75,7 @@ public:
     [[nodiscard]] bool tryEnableBackgroundCapture(
         HMONITOR monitor,
         bool exclusionConfirmed) noexcept;
+    [[nodiscard]] bool backgroundCaptureActive() const noexcept;
     void setReadbackDiagnostics(bool enabled);
 
     [[nodiscard]] HANDLE frameLatencyWaitableObject() const noexcept;
@@ -89,6 +90,7 @@ private:
     void createComposition(HWND window);
     void createRenderTarget();
     void captureCenterPixel();
+    [[nodiscard]] bool tryCreateBackgroundSensor() noexcept;
 
     Microsoft::WRL::ComPtr<ID3D11Device> device_{};
     Microsoft::WRL::ComPtr<ID3D11DeviceContext> context_{};
@@ -102,6 +104,10 @@ private:
     std::unique_ptr<FxGpuRenderer> fxRenderer_{};
     std::unique_ptr<WgcBackgroundSensor> backgroundSensor_{};
     std::optional<PixelF> lastCenterPixel_{};
+    bafx::core::MonotonicTime backgroundRefreshPeriod_{};
+    HMONITOR backgroundMonitor_{nullptr};
+    std::uint64_t backgroundEpoch_{1U};
+    bool backgroundCaptureRequested_{false};
     bool readbackDiagnosticsEnabled_{false};
     D3D_FEATURE_LEVEL featureLevel_{D3D_FEATURE_LEVEL_11_0};
     GraphicsDeviceInfo deviceInfo_{};

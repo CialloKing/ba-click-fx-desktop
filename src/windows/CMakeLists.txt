@@ -37,6 +37,7 @@ target_link_libraries(
         d3d11
         dcomp
         d3dcompiler
+        dwmapi
         dxgi
         shell32
         user32
