@@ -143,3 +143,21 @@ BAFX_TEST(config_atomic_save_load_and_failure_preserves_previous_file)
     removeTestTree(path);
 }
 
+BAFX_TEST(config_preserves_unicode_paths_and_rejects_unknown_enum_values)
+{
+    const fs::path path = testPath().parent_path() / L"配置.json";
+    const fs::path root = path.parent_path();
+    std::error_code cleanupError;
+    fs::remove_all(root, cleanupError);
+
+    bafx::config::Config value = bafx::config::defaultConfig();
+    BAFX_CHECK(bafx::config::saveConfigAtomic(path, value).succeeded());
+    const auto loaded = bafx::config::loadConfig(path);
+    BAFX_CHECK(loaded.status == bafx::config::ConfigStatus::Ok);
+
+    value.background.mode = static_cast<bafx::config::CaptureMode>(255U);
+    const auto invalid = bafx::config::saveConfigAtomic(path, value);
+    BAFX_CHECK(invalid.status == bafx::config::ConfigStatus::ValidationError);
+
+    removeTestTree(path);
+}

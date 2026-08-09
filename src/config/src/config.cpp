@@ -1348,7 +1348,9 @@ ConfigSaveResult saveConfigAtomic(
             }
         }
 
-        const std::filesystem::path temporary = path.string() + makeTemporarySuffix();
+        // Append to the native path object so wide Windows paths stay intact.
+        std::filesystem::path temporary = path;
+        temporary += makeTemporarySuffix();
         const std::string serialized = toJson(config, true);
         {
             std::ofstream stream(temporary, std::ios::binary | std::ios::trunc);
@@ -1412,6 +1414,35 @@ bool validateConfig(const Config& config, std::string* error) noexcept
     if (config.schemaVersion != currentSchemaVersion)
     {
         return failValidation("config schemaVersion does not match the current schema");
+    }
+    switch (config.background.mode)
+    {
+    case CaptureMode::FxOnly:
+    case CaptureMode::BackgroundAware:
+    case CaptureMode::RecordingCompatible:
+        break;
+    default:
+        return failValidation("background.mode is not a recognized capture mode");
+    }
+    switch (config.effects.bloomQuality)
+    {
+    case BloomQuality::Low:
+    case BloomQuality::Medium:
+    case BloomQuality::High:
+    case BloomQuality::Ultra:
+        break;
+    default:
+        return failValidation("effects.bloomQuality is not a recognized quality");
+    }
+    switch (config.performance.framePacing)
+    {
+    case FramePacing::MatchDisplay:
+    case FramePacing::Fixed60:
+    case FramePacing::Fixed120:
+    case FramePacing::Fixed144:
+        break;
+    default:
+        return failValidation("performance.framePacing is not recognized");
     }
     if (!std::isfinite(config.effects.globalScale)
         || config.effects.globalScale < 0.1F
