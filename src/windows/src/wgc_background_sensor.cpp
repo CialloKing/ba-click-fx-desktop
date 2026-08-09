@@ -164,7 +164,7 @@ void closeFrame(Direct3D11CaptureFrame& frame) noexcept
 }
 
 [[nodiscard]] bafx::core::MonotonicTime captureTime(
-    const Direct3D11CaptureFrame& frame) noexcept
+    const Direct3D11CaptureFrame& frame)
 {
     return std::chrono::duration_cast<bafx::core::MonotonicTime>(
         frame.SystemRelativeTime());
@@ -321,11 +321,22 @@ struct WgcBackgroundSensor::Implementation
                 poolSize = checkedContentSize;
                 options.epoch = nextGeneration(options.epoch);
                 latestBackground.reset();
+                lastAcceptedTimestamp.reset();
                 resetNotification(observedGeneration);
                 return WgcBackgroundDrainStatus::Reconfigured;
             }
 
             const bafx::core::MonotonicTime timestamp = captureTime(latest);
+            if (lastAcceptedTimestamp.has_value()
+                && timestamp < *lastAcceptedTimestamp)
+            {
+                // A regressed driver timestamp must not make an older desktop
+                // image look fresh again. Keep the previous sample so it can
+                // age out through the normal fallback policy.
+                closeFrame(latest);
+                resetNotification(observedGeneration);
+                return WgcBackgroundDrainStatus::NoFrame;
+            }
             const ComPtr<ID3D11Texture2D> sourceTexture = textureFromFrame(latest);
             D3D11_TEXTURE2D_DESC sourceDescription{};
             sourceTexture->GetDesc(&sourceDescription);
@@ -354,6 +365,7 @@ struct WgcBackgroundSensor::Implementation
                 &sourceBox);
 
             closeFrame(latest);
+            lastAcceptedTimestamp = timestamp;
             sampleGeneration = nextGeneration(sampleGeneration);
             latestBackground = WgcBackgroundSample{
                 ownedTexture.shaderResource.Get(),
@@ -442,6 +454,7 @@ struct WgcBackgroundSensor::Implementation
         item = nullptr;
         direct3dDevice = nullptr;
         latestBackground.reset();
+        lastAcceptedTimestamp.reset();
         ownedTexture = {};
         isRunning = false;
         SetEvent(notification->event.get());
@@ -456,6 +469,7 @@ struct WgcBackgroundSensor::Implementation
     std::shared_ptr<NotificationState> notification{};
     OwnedBackgroundTexture ownedTexture{};
     std::optional<WgcBackgroundSample> latestBackground{};
+    std::optional<bafx::core::MonotonicTime> lastAcceptedTimestamp{};
     WindowSize poolSize{};
     winrt::event_token frameArrivedToken{};
     winrt::event_token itemClosedToken{};
