@@ -94,8 +94,8 @@ private:
     struct RingParticle
     {
         float startSizeWorld{0.0F};
-        float rotationRadians{0.0F};
-        float angularVelocity{0.0F};
+        float initialRotationRadians{0.0F};
+        float angularBlend{0.0F};
     };
 
     struct StoredTrailPoint

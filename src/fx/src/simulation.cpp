@@ -18,6 +18,8 @@ constexpr float dragEmissionStepWorld = 1.0F / 5.0F;
 constexpr float trailPointStepWorld = 0.01F;
 constexpr float trailLifetimeSeconds = 0.3F;
 constexpr float trailWidthWorld = 0.005F;
+constexpr float ringLifetimeSeconds = 0.6F;
+constexpr float ringAngularVelocityMultiplier = 11.170107F;
 constexpr std::uint32_t maximumDragParticles = 50U;
 constexpr std::uint32_t releaseFrameCount = 60U;
 
@@ -79,6 +81,82 @@ template<std::size_t keyCount>
     }
 
     return keys.back().value;
+}
+
+template<std::size_t keyCount>
+[[nodiscard]] float integrateHermiteCurve(
+    const std::array<CurveKey, keyCount>& keys,
+    const float time) noexcept
+{
+    static_assert(keyCount > 0U);
+    const float t = clampUnit(time);
+    float integral = keys.front().value * std::min(t, keys.front().time);
+    if (t <= keys.front().time)
+    {
+        return integral;
+    }
+
+    for (std::size_t index = 1U; index < keys.size(); ++index)
+    {
+        const CurveKey& left = keys[index - 1U];
+        const CurveKey& right = keys[index];
+        const float duration = right.time - left.time;
+        if (duration <= 0.0F)
+        {
+            continue;
+        }
+
+        const float segmentEnd = std::min(t, right.time);
+        const float u = clampUnit((segmentEnd - left.time) / duration);
+        const float uSquared = u * u;
+        const float uCubed = uSquared * u;
+        const float uFourth = uCubed * u;
+        const float h00Integral = 0.5F * uFourth - uCubed + u;
+        const float h10Integral = 0.25F * uFourth
+            - (2.0F / 3.0F) * uCubed
+            + 0.5F * uSquared;
+        const float h01Integral = -0.5F * uFourth + uCubed;
+        const float h11Integral = 0.25F * uFourth
+            - (1.0F / 3.0F) * uCubed;
+        integral += duration * (
+            h00Integral * left.value
+            + h10Integral * duration * left.outSlope
+            + h01Integral * right.value
+            + h11Integral * duration * right.inSlope);
+        if (t <= right.time)
+        {
+            return integral;
+        }
+    }
+
+    return integral + (t - keys.back().time) * keys.back().value;
+}
+
+[[nodiscard]] float ringRotationDelta(
+    const float angularBlend,
+    const float normalizedAge) noexcept
+{
+    constexpr std::array minimumKeys{
+        CurveKey{0.14903903F, 1.0F, 0.0F, 0.0F},
+        CurveKey{1.0F, 0.45561826F, 0.0F, 0.0F}};
+    constexpr std::array maximumKeys{
+        CurveKey{0.15865384F, 0.79881656F, 0.0F, 0.0F},
+        CurveKey{1.0F, -0.06509134F, 0.0F, 0.0F}};
+    const float minimumIntegral = integrateHermiteCurve(
+        minimumKeys,
+        normalizedAge);
+    const float maximumIntegral = integrateHermiteCurve(
+        maximumKeys,
+        normalizedAge);
+    const float blend = clampUnit(angularBlend);
+    const float blendedIntegral = minimumIntegral
+        + (maximumIntegral - minimumIntegral) * blend;
+
+    // Unity stores angular velocity over normalized lifetime, so integrate in
+    // curve space and multiply by the particle lifetime to recover radians.
+    return blendedIntegral
+        * ringAngularVelocityMultiplier
+        * ringLifetimeSeconds;
 }
 
 [[nodiscard]] float length(const PointF value) noexcept
@@ -393,9 +471,10 @@ FrameSnapshot Simulation::snapshot(const Viewport viewport, const SimulationTime
             true});
     }
 
-    if (effectAge >= 0.0 && effectAge <= 0.6)
+    if (effectAge >= 0.0 && effectAge <= ringLifetimeSeconds)
     {
-        const float normalizedAge = static_cast<float>(effectAge / 0.6);
+        const float normalizedAge = static_cast<float>(
+            effectAge / ringLifetimeSeconds);
         for (const RingParticle& ring : rings_)
         {
             // The reconstructed Cylinder002 AABB has a full extent of 2 * 1.0636685.
@@ -407,8 +486,8 @@ FrameSnapshot Simulation::snapshot(const Viewport viewport, const SimulationTime
                 SpriteKind::DissolveRing,
                 worldToScreen(effectOriginWorld_, viewport),
                 size,
-                ring.rotationRadians
-                    + ring.angularVelocity * static_cast<float>(effectAge),
+                ring.initialRotationRadians
+                    + ringRotationDelta(ring.angularBlend, normalizedAge),
                 ringColor(normalizedAge),
                 5.992157F,
                 dissolveThreshold(normalizedAge),
@@ -527,7 +606,7 @@ void Simulation::reset(const PointF worldPosition, const SimulationTime time)
         rings_.push_back(RingParticle{
             random_.range(0.12F, 0.14F),
             random_.range(0.0F, 2.0F * std::numbers::pi_v<float>),
-            random_.range(-3.0F, 3.0F)});
+            random_.unit()});
     }
     emitClickTriangles(time);
     appendTrailPoint(worldPosition, time);

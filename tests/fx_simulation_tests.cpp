@@ -172,6 +172,38 @@ BAFX_TEST(unity_hermite_size_curves_match_golden_samples)
     }
 }
 
+BAFX_TEST(unity_ring_rotation_integrates_the_serialized_two_curves)
+{
+    Simulation simulation;
+    simulation.pointerDown(goldenCenter, goldenViewport, 0ns);
+
+    const auto initialFrame = simulation.snapshot(goldenViewport, 0ns);
+    const auto frameAt300ms = simulation.snapshot(goldenViewport, 300ms);
+    const auto frameAt600ms = simulation.snapshot(goldenViewport, 600ms);
+    const auto initialRings = spritesOfKind(initialFrame, SpriteKind::DissolveRing);
+    const auto ringsAt300ms = spritesOfKind(frameAt300ms, SpriteKind::DissolveRing);
+    const auto ringsAt600ms = spritesOfKind(frameAt600ms, SpriteKind::DissolveRing);
+    BAFX_CHECK(initialRings.size() == 2U);
+    BAFX_CHECK(ringsAt300ms.size() == initialRings.size());
+    BAFX_CHECK(ringsAt600ms.size() == initialRings.size());
+
+    constexpr std::array expectedAt300ms{3.0705049F, 2.7826068F};
+    constexpr std::array expectedAt600ms{4.8338957F, 3.9891858F};
+    for (std::size_t index = 0U; index < initialRings.size(); ++index)
+    {
+        BAFX_CHECK_NEAR(
+            ringsAt300ms[index]->rotationRadians
+                - initialRings[index]->rotationRadians,
+            expectedAt300ms[index],
+            2.0e-5F);
+        BAFX_CHECK_NEAR(
+            ringsAt600ms[index]->rotationRadians
+                - initialRings[index]->rotationRadians,
+            expectedAt600ms[index],
+            2.0e-5F);
+    }
+}
+
 BAFX_TEST(unity_color_keys_and_start_color_multiplication_match_golden_samples)
 {
     Simulation simulation;
