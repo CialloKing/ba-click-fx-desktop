@@ -351,9 +351,15 @@ int runApplication(
     renderer.setReadbackDiagnostics(options.smokeTest);
     // WGC startup belongs here, after the base renderer exists and only when
     // capture exclusion was confirmed by querying the effective affinity.
-    // renderer.tryEnableBackgroundCapture(
-    //     primaryMonitor.handle,
-    //     exclusionConfirmed);
+    const bool backgroundCaptureEnabled = renderer.tryEnableBackgroundCapture(
+        primaryMonitor.handle,
+        exclusionConfirmed);
+    if (!backgroundCaptureEnabled)
+    {
+        bafx::windows::appendDiagnosticLog(
+            logPath,
+            "WGC background capture unavailable; using FX-only rendering");
+    }
     bafx::fx::SimulationRuntime simulation(makeRuntimeSeed());
     window.show();
 
@@ -417,7 +423,7 @@ int runApplication(
         const bafx::fx::FrameSnapshot snapshot = simulation.snapshot(
             toViewport(window.size()),
             renderTime);
-        renderer.renderFrame(snapshot);
+        renderer.renderFrame(snapshot, wallTime);
         if (options.smokeTest)
         {
             const std::optional<bafx::windows::PixelF> pixel =
