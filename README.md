@@ -96,6 +96,9 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File .\tools\package-test-bundle.ps1
 `%LOCALAPPDATA%\BAFX\config.json` 创建 schema 3 默认配置；Host 使用
 `Local\BAFX.Host.v1` 互斥体保证单实例。
 
+首次生成的配置将 `background.mode` 设为 `fx-only`。`background-aware` 和
+`recording-compatible` 需要用户显式选择；WGC 或录屏路径失败时 Host 继续使用 FX-only。
+
 `BAFX.ControlCenter.exe` 已作为独立的 WinUI 3 进程接入该 Pipe。Host 保持运行时，Control Center
 可以读取状态、暂停或恢复特效，并将下列效果配置在下一帧交给 Host：启用状态、点击特效、鼠标拖尾、
 效果大小、拖尾长度、拖尾宽度、Bloom 强度与 Bloom 质量。数值控件会合并连续拖动后的写入，避免为

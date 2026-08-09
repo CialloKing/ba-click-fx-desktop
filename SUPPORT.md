@@ -8,6 +8,8 @@
   拖尾宽度、Bloom 强度和 Bloom 质量会通过本地 Named Pipe 在下一帧应用到正在运行的 Host。
 - D3D11 硬件设备；硬件设备创建失败时尝试 WARP 软件设备。
 - 当前验证范围为普通 SDR 桌面合成路径。
+- 首次生成的 schema 3 配置默认为 `background.mode=fx-only`；背景捕获必须显式启用，
+  授权、排除或会话失败时继续使用 FX-only。
 - Release 可执行文件静态链接 Visual C++ 运行库；仍使用 Windows 自带的 D3D11、DirectComposition、
   WIC 和 D3DCompiler 系统组件。
 

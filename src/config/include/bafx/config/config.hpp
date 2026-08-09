@@ -48,7 +48,9 @@ struct EffectsConfig
 
 struct BackgroundConfig
 {
-    CaptureMode mode{CaptureMode::BackgroundAware};
+    // FX-only is the supported, non-capturing baseline; WGC is opt-in until
+    // the permission, self-exclusion, and recording matrix is accepted.
+    CaptureMode mode{CaptureMode::FxOnly};
     bool cursorExcluded{true};
 };
 

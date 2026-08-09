@@ -67,3 +67,33 @@ BAFX_TEST(capture_exclusion_diagnostic_preserves_win32_evidence)
     BAFX_CHECK(text.find("Query=succeeded;QueryError=0x00000000")
         != std::string::npos);
 }
+
+BAFX_TEST(capture_exclusion_confirmation_requires_complete_evidence)
+{
+    bafx::windows::CaptureExclusionStatus confirmed{};
+    confirmed.requestedAffinity = WDA_EXCLUDEFROMCAPTURE;
+    confirmed.observedAffinity = WDA_EXCLUDEFROMCAPTURE;
+    confirmed.setSucceeded = true;
+    confirmed.querySucceeded = true;
+    BAFX_CHECK(confirmed.confirmed());
+
+    // A matching observed value is not enough when SetWindowDisplayAffinity
+    // failed: it could be a value left over from a previous mode.
+    confirmed.setSucceeded = false;
+    BAFX_CHECK(!confirmed.confirmed());
+
+    confirmed.setSucceeded = true;
+    confirmed.querySucceeded = false;
+    BAFX_CHECK(!confirmed.confirmed());
+
+    confirmed.querySucceeded = true;
+    confirmed.observedAffinity = WDA_NONE;
+    BAFX_CHECK(!confirmed.confirmed());
+
+    bafx::windows::CaptureExclusionStatus disabled{};
+    disabled.requestedAffinity = WDA_NONE;
+    disabled.observedAffinity = WDA_NONE;
+    disabled.setSucceeded = true;
+    disabled.querySucceeded = true;
+    BAFX_CHECK(disabled.confirmed());
+}
