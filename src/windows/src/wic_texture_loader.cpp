@@ -16,8 +16,13 @@ using Microsoft::WRL::ComPtr;
 
 ComPtr<ID3D11ShaderResourceView> loadSrgbTexture(
     ID3D11Device* device,
-    const std::filesystem::path& path)
+    const std::span<const std::uint8_t> pngBytes)
 {
+    if (pngBytes.empty() || pngBytes.size() > std::numeric_limits<DWORD>::max())
+    {
+        throw std::invalid_argument("Embedded PNG byte range is invalid");
+    }
+
     ComPtr<IWICImagingFactory> factory;
     throwIfFailed(
         CoCreateInstance(
@@ -27,15 +32,25 @@ ComPtr<ID3D11ShaderResourceView> loadSrgbTexture(
             IID_PPV_ARGS(&factory)),
         "CoCreateInstance(WICImagingFactory2)");
 
+    ComPtr<IWICStream> stream;
+    throwIfFailed(
+        factory->CreateStream(&stream),
+        "IWICImagingFactory::CreateStream");
+    // WIC's memory stream API predates const-correct spans and retains the bytes only for reading.
+    throwIfFailed(
+        stream->InitializeFromMemory(
+            const_cast<BYTE*>(reinterpret_cast<const BYTE*>(pngBytes.data())),
+            static_cast<DWORD>(pngBytes.size())),
+        "IWICStream::InitializeFromMemory");
+
     ComPtr<IWICBitmapDecoder> decoder;
     throwIfFailed(
-        factory->CreateDecoderFromFilename(
-            path.c_str(),
+        factory->CreateDecoderFromStream(
+            stream.Get(),
             nullptr,
-            GENERIC_READ,
             WICDecodeMetadataCacheOnLoad,
             &decoder),
-        "IWICImagingFactory::CreateDecoderFromFilename");
+        "IWICImagingFactory::CreateDecoderFromStream");
 
     ComPtr<IWICBitmapFrameDecode> frame;
     throwIfFailed(decoder->GetFrame(0, &frame), "IWICBitmapDecoder::GetFrame");

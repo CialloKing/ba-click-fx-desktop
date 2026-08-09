@@ -1,3 +1,11 @@
+#pragma once
+
+#include <string_view>
+
+namespace bafx::windows
+{
+
+inline constexpr std::string_view fxMaterialsShaderSource = R"hlsl(
 cbuffer ViewportConstants : register(b0)
 {
     float2 ViewportSize;
@@ -95,4 +103,7 @@ MaterialOutput AdditivePixel(PixelInput input)
     output.direct = float4(emission, 0.0);
     output.bloomSeed = float4(emission * input.bloomEnabled, 0.0);
     return output;
+}
+)hlsl";
+
 }

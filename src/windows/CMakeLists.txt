@@ -2,6 +2,7 @@ add_library(
     bafx_windows
     STATIC
         src/composition_renderer.cpp
+        src/embedded_unity_textures.cpp
         src/fx_gpu_renderer.cpp
         src/overlay_window.cpp
         src/wic_texture_loader.cpp
@@ -35,7 +36,6 @@ target_link_libraries(
         dxgi
         user32
     PRIVATE
-        bafx::reference
         windowscodecs
 )
 bafx_enable_warnings(bafx_windows)

@@ -42,3 +42,26 @@ target_compile_features(bafx_reference_tests PRIVATE cxx_std_20)
 bafx_enable_warnings(bafx_reference_tests)
 add_test(NAME unity_runtime_resources COMMAND bafx_reference_tests)
 set_target_properties(bafx_reference_tests PROPERTIES FOLDER "Tests")
+
+if(WIN32)
+    add_executable(
+        bafx_embedded_texture_tests
+        test_main.cpp
+        embedded_unity_textures_tests.cpp
+    )
+    target_include_directories(
+        bafx_embedded_texture_tests
+        PRIVATE
+            "${CMAKE_SOURCE_DIR}/src/windows/src"
+    )
+    target_link_libraries(
+        bafx_embedded_texture_tests
+        PRIVATE
+            bafx::windows
+            bcrypt
+    )
+    target_compile_features(bafx_embedded_texture_tests PRIVATE cxx_std_20)
+    bafx_enable_warnings(bafx_embedded_texture_tests)
+    add_test(NAME embedded_unity_textures COMMAND bafx_embedded_texture_tests)
+    set_target_properties(bafx_embedded_texture_tests PROPERTIES FOLDER "Tests")
+endif()

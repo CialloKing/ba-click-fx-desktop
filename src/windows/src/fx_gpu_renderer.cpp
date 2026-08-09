@@ -1,7 +1,8 @@
 #include "bafx/windows/fx_gpu_renderer.hpp"
 
-#include "bafx/reference/unity_runtime_resources.hpp"
 #include "bafx/windows/error.hpp"
+#include "embedded_fx_shaders.hpp"
+#include "embedded_unity_textures.hpp"
 #include "wic_texture_loader.hpp"
 
 #include <d3dcompiler.h>
@@ -12,13 +13,10 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
-#include <filesystem>
 #include <limits>
-#include <numbers>
 #include <span>
 #include <stdexcept>
 #include <string>
-#include <variant>
 #include <vector>
 
 namespace bafx::windows
@@ -55,30 +53,8 @@ struct ColorTarget
     ComPtr<ID3D11ShaderResourceView> shaderResource{};
 };
 
-enum class ProceduralTextureKind : std::uint8_t
-{
-    Circle,
-    Ring,
-    TriangleAtlas,
-    Trail
-};
-
-[[nodiscard]] std::filesystem::path executableDirectory()
-{
-    std::array<wchar_t, 32768> buffer{};
-    const DWORD length = GetModuleFileNameW(
-        nullptr,
-        buffer.data(),
-        static_cast<DWORD>(buffer.size()));
-    if (length == 0U || length >= buffer.size())
-    {
-        throwLastError("GetModuleFileNameW");
-    }
-    return std::filesystem::path(buffer.data(), buffer.data() + length).parent_path();
-}
-
 [[nodiscard]] ComPtr<ID3DBlob> compileShader(
-    const std::filesystem::path& path,
+    const std::string_view source,
     const char* entryPoint,
     const char* profile)
 {
@@ -91,10 +67,12 @@ enum class ProceduralTextureKind : std::uint8_t
 
     ComPtr<ID3DBlob> byteCode;
     ComPtr<ID3DBlob> errors;
-    const HRESULT result = D3DCompileFromFile(
-        path.c_str(),
+    const HRESULT result = D3DCompile(
+        source.data(),
+        source.size(),
+        "embedded_fx_shaders.hpp",
         nullptr,
-        D3D_COMPILE_STANDARD_FILE_INCLUDE,
+        nullptr,
         entryPoint,
         profile,
         flags,
@@ -103,7 +81,7 @@ enum class ProceduralTextureKind : std::uint8_t
         &errors);
     if (FAILED(result))
     {
-        std::string message = "D3DCompileFromFile failed";
+        std::string message = "D3DCompile failed";
         if (errors != nullptr && errors->GetBufferPointer() != nullptr)
         {
             message += ": ";
@@ -170,178 +148,6 @@ enum class ProceduralTextureKind : std::uint8_t
         device->CreateShaderResourceView(target.texture.Get(), nullptr, &target.shaderResource),
         "ID3D11Device::CreateShaderResourceView(FX target)");
     return target;
-}
-
-[[nodiscard]] std::uint8_t unitToByte(const float value) noexcept
-{
-    return static_cast<std::uint8_t>(
-        std::clamp(value, 0.0F, 1.0F) * 255.0F + 0.5F);
-}
-
-[[nodiscard]] std::uint32_t rgba(
-    const float red,
-    const float green,
-    const float blue,
-    const float alpha) noexcept
-{
-    return static_cast<std::uint32_t>(unitToByte(red))
-        | (static_cast<std::uint32_t>(unitToByte(green)) << 8U)
-        | (static_cast<std::uint32_t>(unitToByte(blue)) << 16U)
-        | (static_cast<std::uint32_t>(unitToByte(alpha)) << 24U);
-}
-
-[[nodiscard]] float smoothCoverage(
-    const float distance,
-    const float edge,
-    const float softness) noexcept
-{
-    return std::clamp((edge - distance) / softness + 0.5F, 0.0F, 1.0F);
-}
-
-[[nodiscard]] std::vector<std::uint32_t> makeCirclePixels(
-    const std::uint32_t width,
-    const std::uint32_t height)
-{
-    std::vector<std::uint32_t> pixels(
-        static_cast<std::size_t>(width) * static_cast<std::size_t>(height));
-    for (std::uint32_t y = 0; y < height; ++y)
-    {
-        for (std::uint32_t x = 0; x < width; ++x)
-        {
-            const float px = (static_cast<float>(x) + 0.5F) / static_cast<float>(width) - 0.5F;
-            const float py = (static_cast<float>(y) + 0.5F) / static_cast<float>(height) - 0.5F;
-            const float shape = smoothCoverage(std::sqrt(px * px + py * py), 0.42F, 0.025F);
-            pixels[static_cast<std::size_t>(y) * width + x] = rgba(shape, shape, shape, 1.0F);
-        }
-    }
-    return pixels;
-}
-
-[[nodiscard]] std::vector<std::uint32_t> makeRingPixels(
-    const std::uint32_t width,
-    const std::uint32_t height)
-{
-    std::vector<std::uint32_t> pixels(
-        static_cast<std::size_t>(width) * static_cast<std::size_t>(height));
-    for (std::uint32_t y = 0; y < height; ++y)
-    {
-        for (std::uint32_t x = 0; x < width; ++x)
-        {
-            const float px = (static_cast<float>(x) + 0.5F) / static_cast<float>(width) - 0.5F;
-            const float py = (static_cast<float>(y) + 0.5F) / static_cast<float>(height) - 0.5F;
-            const float radius = std::sqrt(px * px + py * py);
-            const float shape = smoothCoverage(std::abs(radius - 0.34F), 0.035F, 0.018F);
-            pixels[static_cast<std::size_t>(y) * width + x] = rgba(1.0F, 1.0F, 1.0F, shape);
-        }
-    }
-    return pixels;
-}
-
-[[nodiscard]] float triangleCoverage(const float x, const float y) noexcept
-{
-    const float leftEdge = y + 0.82F * x + 0.35F;
-    const float rightEdge = y - 0.82F * x + 0.35F;
-    const float bottomEdge = 0.42F - y;
-    const float edge = std::min({leftEdge, rightEdge, bottomEdge});
-    return std::clamp(edge / 0.025F + 0.5F, 0.0F, 1.0F);
-}
-
-[[nodiscard]] std::vector<std::uint32_t> makeTrianglePixels(
-    const std::uint32_t width,
-    const std::uint32_t height)
-{
-    std::vector<std::uint32_t> pixels(
-        static_cast<std::size_t>(width) * static_cast<std::size_t>(height));
-    const std::uint32_t frameWidth = width / 2U;
-    for (std::uint32_t y = 0; y < height; ++y)
-    {
-        for (std::uint32_t x = 0; x < width; ++x)
-        {
-            const std::uint32_t localX = x % frameWidth;
-            float px = (static_cast<float>(localX) + 0.5F)
-                / static_cast<float>(frameWidth) - 0.5F;
-            if (x >= frameWidth)
-            {
-                px = -px;
-            }
-            const float py = (static_cast<float>(y) + 0.5F)
-                / static_cast<float>(height) - 0.5F;
-            const float shape = triangleCoverage(px, py);
-            pixels[static_cast<std::size_t>(y) * width + x] = rgba(1.0F, 1.0F, 1.0F, shape);
-        }
-    }
-    return pixels;
-}
-
-[[nodiscard]] std::vector<std::uint32_t> makeTrailPixels(
-    const std::uint32_t width,
-    const std::uint32_t height)
-{
-    std::vector<std::uint32_t> pixels(
-        static_cast<std::size_t>(width) * static_cast<std::size_t>(height));
-    for (std::uint32_t y = 0; y < height; ++y)
-    {
-        const float v = (static_cast<float>(y) + 0.5F) / static_cast<float>(height);
-        const float shape = std::pow(std::sin(v * std::numbers::pi_v<float>), 1.5F);
-        for (std::uint32_t x = 0; x < width; ++x)
-        {
-            pixels[static_cast<std::size_t>(y) * width + x] = rgba(shape, shape, shape, 1.0F);
-        }
-    }
-    return pixels;
-}
-
-[[nodiscard]] ComPtr<ID3D11ShaderResourceView> createProceduralTexture(
-    ID3D11Device* device,
-    const ProceduralTextureKind kind)
-{
-    const bool atlas = kind == ProceduralTextureKind::TriangleAtlas;
-    const std::uint32_t width = atlas ? 256U : 256U;
-    const std::uint32_t height = atlas ? 128U : 256U;
-
-    std::vector<std::uint32_t> pixels;
-    switch (kind)
-    {
-    case ProceduralTextureKind::Circle:
-        pixels = makeCirclePixels(width, height);
-        break;
-
-    case ProceduralTextureKind::Ring:
-        pixels = makeRingPixels(width, height);
-        break;
-
-    case ProceduralTextureKind::TriangleAtlas:
-        pixels = makeTrianglePixels(width, height);
-        break;
-
-    case ProceduralTextureKind::Trail:
-        pixels = makeTrailPixels(width, height);
-        break;
-    }
-
-    D3D11_TEXTURE2D_DESC description{};
-    description.Width = width;
-    description.Height = height;
-    description.MipLevels = 1;
-    description.ArraySize = 1;
-    description.Format = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
-    description.SampleDesc = DXGI_SAMPLE_DESC{1, 0};
-    description.Usage = D3D11_USAGE_IMMUTABLE;
-    description.BindFlags = D3D11_BIND_SHADER_RESOURCE;
-
-    D3D11_SUBRESOURCE_DATA data{};
-    data.pSysMem = pixels.data();
-    data.SysMemPitch = width * sizeof(std::uint32_t);
-
-    ComPtr<ID3D11Texture2D> texture;
-    throwIfFailed(
-        device->CreateTexture2D(&description, &data, &texture),
-        "ID3D11Device::CreateTexture2D(procedural FX texture)");
-    ComPtr<ID3D11ShaderResourceView> resource;
-    throwIfFailed(
-        device->CreateShaderResourceView(texture.Get(), nullptr, &resource),
-        "ID3D11Device::CreateShaderResourceView(procedural FX texture)");
-    return resource;
 }
 
 [[nodiscard]] SpriteVertex makeVertex(
@@ -499,11 +305,11 @@ enum class ProceduralTextureKind : std::uint8_t
         const TrailPair& previous = pairs[index - 1U];
         const TrailPair& current = pairs[index];
         vertices.push_back(previous.top);
+        vertices.push_back(current.bottom);
         vertices.push_back(current.top);
-        vertices.push_back(current.bottom);
         vertices.push_back(previous.top);
-        vertices.push_back(current.bottom);
         vertices.push_back(previous.bottom);
+        vertices.push_back(current.bottom);
     }
     return vertices;
 }
@@ -527,11 +333,8 @@ struct FxGpuRenderer::Implementation
 
     void createPipeline()
     {
-        const std::filesystem::path shaderPath = executableDirectory()
-            / L"shaders"
-            / L"fx_materials.hlsl";
         const ComPtr<ID3DBlob> vertexByteCode = compileShader(
-            shaderPath,
+            fxMaterialsShaderSource,
             "SpriteVertex",
             "vs_5_0");
         throwIfFailed(
@@ -576,9 +379,9 @@ struct FxGpuRenderer::Implementation
                 &inputLayout),
             "ID3D11Device::CreateInputLayout(FX)");
 
-        createPixelShader(shaderPath, "CrossPixel", crossPixelShader);
-        createPixelShader(shaderPath, "DissolvePixel", dissolvePixelShader);
-        createPixelShader(shaderPath, "AdditivePixel", additivePixelShader);
+        createPixelShader("CrossPixel", crossPixelShader);
+        createPixelShader("DissolvePixel", dissolvePixelShader);
+        createPixelShader("AdditivePixel", additivePixelShader);
 
         D3D11_BUFFER_DESC constantDescription{};
         constantDescription.ByteWidth = sizeof(ViewportConstants);
@@ -637,11 +440,13 @@ struct FxGpuRenderer::Implementation
     }
 
     void createPixelShader(
-        const std::filesystem::path& path,
         const char* entryPoint,
         ComPtr<ID3D11PixelShader>& output)
     {
-        const ComPtr<ID3DBlob> byteCode = compileShader(path, entryPoint, "ps_5_0");
+        const ComPtr<ID3DBlob> byteCode = compileShader(
+            fxMaterialsShaderSource,
+            entryPoint,
+            "ps_5_0");
         throwIfFailed(
             device->CreatePixelShader(
                 byteCode->GetBufferPointer(),
@@ -670,28 +475,18 @@ struct FxGpuRenderer::Implementation
 
     void createTextures()
     {
-        const bafx::reference::UnityRuntimeLocationResult location =
-            bafx::reference::locateUnityRuntimeResources();
-        if (const auto* resources =
-                std::get_if<bafx::reference::UnityRuntimeResources>(&location))
-        {
-            circleTexture = loadSrgbTexture(device.Get(), resources->circle01);
-            ringTexture = loadSrgbTexture(device.Get(), resources->gradRing3);
-            triangleTexture = loadSrgbTexture(device.Get(), resources->triangle02_1);
-            trailTexture = loadSrgbTexture(device.Get(), resources->trail03);
-            return;
-        }
-
-        const auto& error = std::get<bafx::reference::UnityRuntimeLocationError>(location);
-        const std::string message = error.message()
-            + " Falling back to generated development textures.\n";
-        OutputDebugStringA(message.c_str());
-        circleTexture = createProceduralTexture(device.Get(), ProceduralTextureKind::Circle);
-        ringTexture = createProceduralTexture(device.Get(), ProceduralTextureKind::Ring);
-        triangleTexture = createProceduralTexture(
+        circleTexture = loadSrgbTexture(
             device.Get(),
-            ProceduralTextureKind::TriangleAtlas);
-        trailTexture = createProceduralTexture(device.Get(), ProceduralTextureKind::Trail);
+            embeddedUnityTexture(EmbeddedUnityTextureId::Circle01).pngBytes);
+        ringTexture = loadSrgbTexture(
+            device.Get(),
+            embeddedUnityTexture(EmbeddedUnityTextureId::GradRing3).pngBytes);
+        triangleTexture = loadSrgbTexture(
+            device.Get(),
+            embeddedUnityTexture(EmbeddedUnityTextureId::Triangle02_1).pngBytes);
+        trailTexture = loadSrgbTexture(
+            device.Get(),
+            embeddedUnityTexture(EmbeddedUnityTextureId::Trail03).pngBytes);
     }
 
     void createTargets()
