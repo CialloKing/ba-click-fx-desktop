@@ -394,16 +394,8 @@ struct FxGpuRenderer::Implementation
 
         createVertexBuffer(initialVertexCapacity);
 
-        D3D11_SAMPLER_DESC samplerDescription{};
-        samplerDescription.Filter = D3D11_FILTER_MIN_MAG_LINEAR_MIP_POINT;
-        samplerDescription.AddressU = D3D11_TEXTURE_ADDRESS_CLAMP;
-        samplerDescription.AddressV = D3D11_TEXTURE_ADDRESS_CLAMP;
-        samplerDescription.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
-        samplerDescription.MinLOD = 0.0F;
-        samplerDescription.MaxLOD = D3D11_FLOAT32_MAX;
-        throwIfFailed(
-            device->CreateSamplerState(&samplerDescription, &sampler),
-            "ID3D11Device::CreateSamplerState(FX)");
+        createMaterialSampler(D3D11_TEXTURE_ADDRESS_CLAMP, clampSampler);
+        createMaterialSampler(D3D11_TEXTURE_ADDRESS_WRAP, repeatSampler);
 
         D3D11_RASTERIZER_DESC rasterizerDescription{};
         rasterizerDescription.FillMode = D3D11_FILL_SOLID;
@@ -454,6 +446,22 @@ struct FxGpuRenderer::Implementation
                 nullptr,
                 &output),
             "ID3D11Device::CreatePixelShader(FX)");
+    }
+
+    void createMaterialSampler(
+        const D3D11_TEXTURE_ADDRESS_MODE addressMode,
+        ComPtr<ID3D11SamplerState>& output)
+    {
+        D3D11_SAMPLER_DESC description{};
+        description.Filter = D3D11_FILTER_MIN_MAG_LINEAR_MIP_POINT;
+        description.AddressU = addressMode;
+        description.AddressV = addressMode;
+        description.AddressW = addressMode;
+        description.MinLOD = 0.0F;
+        description.MaxLOD = D3D11_FLOAT32_MAX;
+        throwIfFailed(
+            device->CreateSamplerState(&description, &output),
+            "ID3D11Device::CreateSamplerState(FX material)");
     }
 
     void createVertexBuffer(const std::size_t capacity)
@@ -545,13 +553,12 @@ struct FxGpuRenderer::Implementation
         context->VSSetShader(vertexShader.Get(), nullptr, 0);
         ID3D11Buffer* viewportConstant = viewportBuffer.Get();
         context->VSSetConstantBuffers(0, 1, &viewportConstant);
-        ID3D11SamplerState* materialSampler = sampler.Get();
-        context->PSSetSamplers(0, 1, &materialSampler);
     }
 
     void drawVertices(
         const std::span<const SpriteVertex> vertices,
         ID3D11ShaderResourceView* texture,
+        ID3D11SamplerState* materialSampler,
         ID3D11PixelShader* pixelShader,
         ID3D11BlendState* blendState)
     {
@@ -580,6 +587,7 @@ struct FxGpuRenderer::Implementation
         context->OMSetBlendState(blendState, blendFactor.data(), 0xFFFFFFFFU);
         context->PSSetShader(pixelShader, nullptr, 0);
         context->PSSetShaderResources(0, 1, &texture);
+        context->PSSetSamplers(0, 1, &materialSampler);
         context->Draw(static_cast<UINT>(vertices.size()), 0);
     }
 
@@ -592,6 +600,7 @@ struct FxGpuRenderer::Implementation
             drawVertices(
                 vertices,
                 circleTexture.Get(),
+                repeatSampler.Get(),
                 crossPixelShader.Get(),
                 crossBlendState.Get());
             break;
@@ -600,6 +609,7 @@ struct FxGpuRenderer::Implementation
             drawVertices(
                 vertices,
                 ringTexture.Get(),
+                clampSampler.Get(),
                 dissolvePixelShader.Get(),
                 emissionBlendState.Get());
             break;
@@ -608,6 +618,7 @@ struct FxGpuRenderer::Implementation
             drawVertices(
                 vertices,
                 triangleTexture.Get(),
+                clampSampler.Get(),
                 additivePixelShader.Get(),
                 emissionBlendState.Get());
             break;
@@ -639,6 +650,7 @@ struct FxGpuRenderer::Implementation
         drawVertices(
             trailVertices,
             trailTexture.Get(),
+            repeatSampler.Get(),
             additivePixelShader.Get(),
             emissionBlendState.Get());
         while (index < snapshot.sprites.size())
@@ -664,7 +676,8 @@ struct FxGpuRenderer::Implementation
     ComPtr<ID3D11InputLayout> inputLayout{};
     ComPtr<ID3D11Buffer> vertexBuffer{};
     ComPtr<ID3D11Buffer> viewportBuffer{};
-    ComPtr<ID3D11SamplerState> sampler{};
+    ComPtr<ID3D11SamplerState> clampSampler{};
+    ComPtr<ID3D11SamplerState> repeatSampler{};
     ComPtr<ID3D11RasterizerState> rasterizerState{};
     ComPtr<ID3D11DepthStencilState> depthState{};
     ComPtr<ID3D11BlendState> crossBlendState{};
