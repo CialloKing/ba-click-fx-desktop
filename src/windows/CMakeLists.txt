@@ -32,6 +32,7 @@ target_compile_definitions(
 target_link_libraries(
     bafx_windows
     PUBLIC
+        bafx::core
         bafx::fx
         d3d11
         dcomp
@@ -40,7 +41,6 @@ target_link_libraries(
         shell32
         user32
     PRIVATE
-        bafx::core
         runtimeobject
         windowscodecs
 )

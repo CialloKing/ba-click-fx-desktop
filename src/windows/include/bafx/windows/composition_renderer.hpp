@@ -1,5 +1,6 @@
 #pragma once
 
+#include "bafx/core/background_freshness.hpp"
 #include "bafx/windows/overlay_window.hpp"
 #include "bafx/windows/unique_handle.hpp"
 
@@ -25,6 +26,7 @@ namespace bafx::windows
 {
 
 class FxGpuRenderer;
+class WgcBackgroundSensor;
 
 struct PixelF
 {
@@ -67,7 +69,12 @@ public:
     CompositionRenderer& operator=(const CompositionRenderer&) = delete;
 
     void resize(WindowSize size);
-    void renderFrame(const bafx::fx::FrameSnapshot& snapshot);
+    void renderFrame(
+        const bafx::fx::FrameSnapshot& snapshot,
+        bafx::core::MonotonicTime wallTime = bafx::core::MonotonicTime::zero());
+    [[nodiscard]] bool tryEnableBackgroundCapture(
+        HMONITOR monitor,
+        bool exclusionConfirmed) noexcept;
     void setReadbackDiagnostics(bool enabled);
 
     [[nodiscard]] HANDLE frameLatencyWaitableObject() const noexcept;
@@ -93,6 +100,7 @@ private:
     Microsoft::WRL::ComPtr<IDCompositionVisual> rootVisual_{};
     UniqueHandle frameLatencyHandle_{};
     std::unique_ptr<FxGpuRenderer> fxRenderer_{};
+    std::unique_ptr<WgcBackgroundSensor> backgroundSensor_{};
     std::optional<PixelF> lastCenterPixel_{};
     bool readbackDiagnosticsEnabled_{false};
     D3D_FEATURE_LEVEL featureLevel_{D3D_FEATURE_LEVEL_11_0};

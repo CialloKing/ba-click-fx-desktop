@@ -126,6 +126,7 @@ cbuffer BloomConstants : register(b0)
 
 Texture2D<float4> Source0 : register(t0);
 Texture2D<float4> Source1 : register(t1);
+Texture2D<float4> Source2 : register(t2);
 SamplerState LinearClampSampler : register(s0);
 
 struct FullscreenOutput
@@ -155,10 +156,9 @@ float4 FourTap(Texture2D<float4> source, float2 uv, float2 offset)
         source.Sample(LinearClampSampler, uv + offset * float2(1.0, 1.0)));
 }
 
-float4 PrefilterPixel(FullscreenOutput input) : SV_Target0
+float4 BrightPass(float3 source)
 {
-    const float4 source = FourTap(Source0, input.uv, SourceTexelSize);
-    float3 color = source.rgb;
+    float3 color = source;
     color = min(max(color, 0.0), ClampValue);
     const float brightness = max(color.r, max(color.g, color.b));
     float soft = clamp(brightness - (Threshold - Knee), 0.0, 2.0 * Knee);
@@ -171,6 +171,28 @@ float4 PrefilterPixel(FullscreenOutput input) : SV_Target0
     // it independent from geometric coverage lets the final pass reserve just
     // enough premultiplied capacity for Bloom on an unknown desktop background.
     return float4(color * contribution, transportEnergy);
+}
+
+float4 PrefilterPixel(FullscreenOutput input) : SV_Target0
+{
+    const float4 source = FourTap(Source0, input.uv, SourceTexelSize);
+    return BrightPass(source.rgb);
+}
+
+float4 DifferentialPrefilterPixel(FullscreenOutput input) : SV_Target0
+{
+    const float3 withFx = FourTap(Source0, input.uv, SourceTexelSize).rgb;
+    const float3 background = FourTap(Source1, input.uv, SourceTexelSize).rgb;
+    const float3 differential = max(
+        BrightPass(withFx).rgb - BrightPass(background).rgb,
+        0.0) * saturate(BloomPadding);
+    const float transportEnergy = max(
+        differential.r,
+        max(differential.g, differential.b));
+
+    // H(B + F) and H(B) stay in one invocation so FP16 intermediates cannot
+    // introduce a negative delta through separate pass rounding.
+    return float4(differential, transportEnergy);
 }
 
 float4 DownsamplePixel(FullscreenOutput input) : SV_Target0
@@ -202,27 +224,60 @@ float4 DesktopCompositePixel(FullscreenOutput input) : SV_Target0
     const float4 direct = Source0.Sample(LinearClampSampler, input.uv);
     const float2 offset = SourceTexelSize * (SampleScale * 0.5);
     const float4 bloom = FourTap(Source1, input.uv, offset);
-    const float sceneCoverage = saturate(direct.a);
-    const float maximumSceneEnergy = max(direct.r, max(direct.g, direct.b));
-    const float sceneScale = min(
-        1.0,
-        sceneCoverage / max(maximumSceneEnergy, 0.000001));
-    const float3 sceneColor = max(direct.rgb, 0.0) * sceneScale;
-    const float bloomTransport = max(0.0, bloom.a * ExposureGain);
-    const float transportCapacity = saturate(sceneCoverage + bloomTransport);
-    const float3 sdrColor = saturate(
-        sceneColor + max(bloom.rgb, 0.0) * ExposureGain);
-    const float visibleEnergy = max(sdrColor.r, max(sdrColor.g, sdrColor.b));
-    const float alpha = min(transportCapacity, visibleEnergy);
-    const float capacityScale = min(
-        1.0,
-        alpha / max(visibleEnergy, 0.000001));
+    const float bloomCoverage = saturate(bloom.a * ExposureGain);
 
-    // The FP16 DComp swap chain consumes linear premultiplied values. Scene
-    // coverage and Bloom transport stay independent until this final boundary;
-    // scale uniformly to preserve hue, while the visible-energy cap prevents
-    // faded trail coverage from darkening the desktop.
-    return float4(sdrColor * capacityScale, alpha);
+    // FX-only keeps Unity's extended linear energy intact. The known-background
+    // pass below performs the separate source-over inversion when a WGC sample
+    // is available, so this fallback never loses the blue HDR core.
+    return float4(
+        direct.rgb + bloom.rgb * ExposureGain,
+        max(direct.a, bloomCoverage));
+}
+
+float SolveOverlayAlpha(float background, float desired)
+{
+    if (desired > background)
+    {
+        return (desired - background) / max(1.0 - background, 0.000001);
+    }
+    if (desired < background)
+    {
+        return (background - desired) / max(background, 0.000001);
+    }
+    return 0.0;
+}
+
+float4 KnownBackgroundCompositePixel(FullscreenOutput input) : SV_Target0
+{
+    const float3 direct = Source0.Sample(
+        LinearClampSampler,
+        input.uv).rgb;
+    const float2 offset = SourceTexelSize * (SampleScale * 0.5);
+    const float3 bloom = max(
+        FourTap(Source1, input.uv, offset).rgb * ExposureGain,
+        0.0);
+    const float3 background = saturate(Source2.Sample(
+        LinearClampSampler,
+        input.uv).rgb);
+    const float3 desired = saturate(direct + bloom);
+    const float3 difference = abs(desired - background);
+    if (max(difference.r, max(difference.g, difference.b)) <= 0.00001)
+    {
+        return 0.0;
+    }
+
+    const float3 channelAlpha = float3(
+        SolveOverlayAlpha(background.r, desired.r),
+        SolveOverlayAlpha(background.g, desired.g),
+        SolveOverlayAlpha(background.b, desired.b));
+    const float alpha = saturate(max(
+        channelAlpha.r,
+        max(channelAlpha.g, channelAlpha.b)));
+    const float3 premultiplied = desired - background * (1.0 - alpha);
+
+    // The swap chain is explicitly linear scRGB, so inversion must happen in
+    // this same domain. Unchanged desktop pixels become exactly transparent.
+    return float4(clamp(premultiplied, 0.0, alpha), alpha);
 }
 )hlsl";
 

@@ -222,6 +222,12 @@ void SupportReport::setExitUiStatus(const ExitUiStatus& status)
     hasExitUiStatus_ = true;
 }
 
+void SupportReport::setBackgroundCaptureStatus(
+    const BackgroundCaptureStatus status) noexcept
+{
+    backgroundCaptureStatus_ = status;
+}
+
 void SupportReport::setLogPath(const std::filesystem::path& path)
 {
     logPath_ = pathToUtf8(path);
@@ -235,13 +241,27 @@ void SupportReport::setFailure(const std::string_view failure)
 std::string SupportReport::serialize() const
 {
     std::ostringstream stream;
+    const auto backgroundStatus = [this]() -> std::string_view
+    {
+        switch (backgroundCaptureStatus_)
+        {
+        case BackgroundCaptureStatus::NotProbed:
+            return "not-probed";
+        case BackgroundCaptureStatus::Active:
+            return "active";
+        case BackgroundCaptureStatus::FallbackFxOnly:
+            return "fallback-fx-only";
+        }
+        return "unknown";
+    };
+
     stream << "Report.GeneratedUtc=" << utcTimestamp() << '\n'
            << "Product.Name=ba-click-fx-desktop\n"
            << "Product.Version=" << sanitize(version_) << '\n'
            << "Status=" << (failure_.empty() ? "Ready" : "Failed") << '\n'
-           << "Support.Scope=single-primary-monitor;fx-only;sdr-tested\n"
+           << "Support.Scope=single-primary-monitor;fx-only-or-wgc;sdr-tested\n"
            << "Support.HDR=not-supported\n"
-           << "Support.WGC=not-supported\n"
+           << "Support.WGC=" << backgroundStatus() << '\n'
            << "Support.MultiDisplay=not-supported\n"
            << "OS.Version=" << osVersion_ << '\n'
            << "OS.Architecture=" << architecture_ << '\n'

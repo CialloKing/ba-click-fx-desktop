@@ -506,6 +506,11 @@ std::optional<WgcBackgroundSample> WgcBackgroundSensor::latestSample() const noe
     return implementation_->latestBackground;
 }
 
+std::uint64_t WgcBackgroundSensor::expectedEpoch() const noexcept
+{
+    return implementation_->options.epoch;
+}
+
 HANDLE WgcBackgroundSensor::frameAvailableObject() const noexcept
 {
     return implementation_->notification->event.get();

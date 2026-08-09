@@ -9,6 +9,7 @@
 
 #include <cstddef>
 #include <memory>
+#include <optional>
 #include <vector>
 
 namespace bafx::windows
@@ -22,6 +23,12 @@ struct FxGpuFrameCapture
     std::vector<Rgba16FloatImage> bloomUp{};
     Rgba16FloatImage finalOverlay{};
     bool intermediateLayersValid{false};
+};
+
+struct BackgroundRenderInput
+{
+    ID3D11ShaderResourceView* shaderResource{nullptr};
+    float freshnessWeight{0.0F};
 };
 
 class FxGpuRenderer final
@@ -39,7 +46,8 @@ public:
     void resize(WindowSize size);
     void render(
         const bafx::fx::FrameSnapshot& snapshot,
-        ID3D11RenderTargetView* destination);
+        ID3D11RenderTargetView* destination,
+        std::optional<BackgroundRenderInput> background = std::nullopt);
     [[nodiscard]] FxGpuFrameCapture renderAndCapture(
         const bafx::fx::FrameSnapshot& snapshot,
         ID3D11RenderTargetView* destination);

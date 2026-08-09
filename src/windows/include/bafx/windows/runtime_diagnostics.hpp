@@ -3,11 +3,19 @@
 #include "bafx/windows/composition_renderer.hpp"
 
 #include <filesystem>
+#include <cstdint>
 #include <string>
 #include <string_view>
 
 namespace bafx::windows
 {
+
+enum class BackgroundCaptureStatus : std::uint8_t
+{
+    NotProbed,
+    Active,
+    FallbackFxOnly
+};
 
 class SupportReport final
 {
@@ -17,6 +25,7 @@ public:
     void setPrimaryMonitor(RECT bounds);
     void setDeviceInfo(const GraphicsDeviceInfo& info);
     void setExitUiStatus(const ExitUiStatus& status);
+    void setBackgroundCaptureStatus(BackgroundCaptureStatus status) noexcept;
     void setLogPath(const std::filesystem::path& path);
     void setFailure(std::string_view failure);
 
@@ -31,6 +40,8 @@ private:
     std::string failure_;
     GraphicsDeviceInfo deviceInfo_{};
     ExitUiStatus exitUiStatus_{};
+    BackgroundCaptureStatus backgroundCaptureStatus_{
+        BackgroundCaptureStatus::NotProbed};
     bool hasDeviceInfo_{false};
     bool hasExitUiStatus_{false};
 };

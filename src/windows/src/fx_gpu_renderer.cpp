@@ -182,6 +182,44 @@ struct ColorTarget
     return texture;
 }
 
+[[nodiscard]] ComPtr<ID3D11Texture2D> textureFromShaderResource(
+    ID3D11ShaderResourceView* shaderResource) noexcept
+{
+    if (shaderResource == nullptr)
+    {
+        return {};
+    }
+
+    ComPtr<ID3D11Resource> resource;
+    shaderResource->GetResource(&resource);
+    ComPtr<ID3D11Texture2D> texture;
+    if (resource == nullptr || FAILED(resource.As(&texture)))
+    {
+        return {};
+    }
+    return texture;
+}
+
+[[nodiscard]] bool isCompatibleBackgroundTexture(
+    ID3D11Texture2D* texture,
+    const WindowSize size) noexcept
+{
+    if (texture == nullptr)
+    {
+        return false;
+    }
+
+    D3D11_TEXTURE2D_DESC description{};
+    texture->GetDesc(&description);
+    return description.Width == size.width
+        && description.Height == size.height
+        && description.MipLevels == 1U
+        && description.ArraySize == 1U
+        && description.Format == DXGI_FORMAT_R16G16B16A16_FLOAT
+        && description.SampleDesc.Count == 1U
+        && description.SampleDesc.Quality == 0U;
+}
+
 [[nodiscard]] bool hasVisualContent(
     const bafx::fx::FrameSnapshot& snapshot) noexcept
 {
@@ -481,10 +519,16 @@ struct FxGpuRenderer::Implementation
                 &fullscreenVertexShader),
             "ID3D11Device::CreateVertexShader(Bloom)");
         createBloomPixelShader("PrefilterPixel", prefilterPixelShader);
+        createBloomPixelShader(
+            "DifferentialPrefilterPixel",
+            differentialPrefilterPixelShader);
         createBloomPixelShader("DownsamplePixel", downsamplePixelShader);
         createBloomPixelShader("UpsamplePixel", upsamplePixelShader);
         createBloomPixelShader("CompositePixel", compositePixelShader);
         createBloomPixelShader("DesktopCompositePixel", desktopCompositePixelShader);
+        createBloomPixelShader(
+            "KnownBackgroundCompositePixel",
+            knownBackgroundCompositePixelShader);
 
         D3D11_BUFFER_DESC constantDescription{};
         constantDescription.ByteWidth = sizeof(BloomConstants);
@@ -682,13 +726,15 @@ struct FxGpuRenderer::Implementation
     [[nodiscard]] static BloomConstants makeBloomConstants(
         const bafx::core::BloomExtent sourceExtent,
         const float sampleScale,
-        const float exposureGain) noexcept
+        const float exposureGain,
+        const float backgroundWeight = 0.0F) noexcept
     {
         BloomConstants constants{};
         constants.sourceTexelSize[0] = 1.0F / static_cast<float>(sourceExtent.width);
         constants.sourceTexelSize[1] = 1.0F / static_cast<float>(sourceExtent.height);
         constants.sampleScale = sampleScale;
         constants.exposureGain = exposureGain;
+        constants.padding = backgroundWeight;
         return constants;
     }
 
@@ -698,7 +744,8 @@ struct FxGpuRenderer::Implementation
         ID3D11PixelShader* pixelShader,
         ID3D11ShaderResourceView* source0,
         ID3D11ShaderResourceView* source1,
-        const BloomConstants& constants)
+        const BloomConstants& constants,
+        ID3D11ShaderResourceView* source2 = nullptr)
     {
         D3D11_MAPPED_SUBRESOURCE mapped{};
         throwIfFailed(
@@ -736,14 +783,17 @@ struct FxGpuRenderer::Implementation
         context->PSSetConstantBuffers(0, 1, &constantBuffer);
         ID3D11SamplerState* bloomSampler = clampSampler.Get();
         context->PSSetSamplers(0, 1, &bloomSampler);
-        std::array<ID3D11ShaderResourceView*, 2> sources{source0, source1};
+        std::array<ID3D11ShaderResourceView*, 3> sources{source0, source1, source2};
         context->PSSetShaderResources(
             0,
             static_cast<UINT>(sources.size()),
             sources.data());
         context->Draw(3, 0);
 
-        constexpr std::array<ID3D11ShaderResourceView*, 2> noResources{nullptr, nullptr};
+        constexpr std::array<ID3D11ShaderResourceView*, 3> noResources{
+            nullptr,
+            nullptr,
+            nullptr};
         context->PSSetShaderResources(
             0,
             static_cast<UINT>(noResources.size()),
@@ -752,7 +802,8 @@ struct FxGpuRenderer::Implementation
 
     void renderBloom(
         ID3D11RenderTargetView* destination,
-        ID3D11PixelShader* finalCompositeShader)
+        ID3D11PixelShader* finalCompositeShader,
+        const std::optional<BackgroundRenderInput> background)
     {
         const bafx::core::BloomExtent sourceExtent{
             static_cast<std::int32_t>(size.width),
@@ -761,10 +812,16 @@ struct FxGpuRenderer::Implementation
         drawFullscreen(
             bloomDownTargets[0].renderTarget.Get(),
             firstExtent,
-            prefilterPixelShader.Get(),
+            background.has_value()
+                ? differentialPrefilterPixelShader.Get()
+                : prefilterPixelShader.Get(),
             bloomSeedTarget.shaderResource.Get(),
-            nullptr,
-            makeBloomConstants(sourceExtent, bloomPlan.sampleScale, 0.0F));
+            background.has_value() ? background->shaderResource : nullptr,
+            makeBloomConstants(
+                sourceExtent,
+                bloomPlan.sampleScale,
+                0.0F,
+                background.has_value() ? background->freshnessWeight : 0.0F));
 
         for (std::size_t index = 1U; index < bloomPlan.mipCount; ++index)
         {
@@ -801,16 +858,33 @@ struct FxGpuRenderer::Implementation
             accumulated = bloomUpTargets[fineIndex].shaderResource.Get();
         }
 
-        drawFullscreen(
-            destination,
-            sourceExtent,
-            finalCompositeShader,
-            directTarget.shaderResource.Get(),
-            accumulated,
-            makeBloomConstants(
-                firstExtent,
-                bloomPlan.sampleScale,
-                bloomPlan.exposureGain));
+        if (background.has_value())
+        {
+            drawFullscreen(
+                destination,
+                sourceExtent,
+                knownBackgroundCompositePixelShader.Get(),
+                directTarget.shaderResource.Get(),
+                accumulated,
+                makeBloomConstants(
+                    firstExtent,
+                    bloomPlan.sampleScale,
+                    bloomPlan.exposureGain),
+                background->shaderResource);
+        }
+        else
+        {
+            drawFullscreen(
+                destination,
+                sourceExtent,
+                finalCompositeShader,
+                directTarget.shaderResource.Get(),
+                accumulated,
+                makeBloomConstants(
+                    firstExtent,
+                    bloomPlan.sampleScale,
+                    bloomPlan.exposureGain));
+        }
     }
 
     void drawVertices(
@@ -894,16 +968,55 @@ struct FxGpuRenderer::Implementation
     void render(
         const bafx::fx::FrameSnapshot& snapshot,
         ID3D11RenderTargetView* destination,
-        ID3D11PixelShader* finalCompositeShader)
+        ID3D11PixelShader* finalCompositeShader,
+        std::optional<BackgroundRenderInput> background = std::nullopt)
     {
+        if (background.has_value()
+            && (background->shaderResource == nullptr
+                || !std::isfinite(background->freshnessWeight)
+                || background->freshnessWeight <= 0.0F))
+        {
+            background.reset();
+        }
+        else if (background.has_value())
+        {
+            background->freshnessWeight = std::clamp(
+                background->freshnessWeight,
+                0.0F,
+                1.0F);
+        }
+
         constexpr std::array<float, 4> transparent{0.0F, 0.0F, 0.0F, 0.0F};
         if (!hasVisualContent(snapshot))
         {
             context->ClearRenderTargetView(destination, transparent.data());
             return;
         }
-        context->ClearRenderTargetView(directTarget.renderTarget.Get(), transparent.data());
-        context->ClearRenderTargetView(bloomSeedTarget.renderTarget.Get(), transparent.data());
+        const ComPtr<ID3D11Texture2D> backgroundTexture = background.has_value()
+            ? textureFromShaderResource(background->shaderResource)
+            : ComPtr<ID3D11Texture2D>{};
+        if (background.has_value()
+            && !isCompatibleBackgroundTexture(backgroundTexture.Get(), size))
+        {
+            background.reset();
+        }
+
+        if (background.has_value())
+        {
+            // Start both scene buffers from the same immutable WGC sample.
+            // Target 0 receives every material; target 1 receives Bloom contributors only.
+            context->CopyResource(directTarget.texture.Get(), backgroundTexture.Get());
+            context->CopyResource(bloomSeedTarget.texture.Get(), backgroundTexture.Get());
+        }
+        else
+        {
+            context->ClearRenderTargetView(
+                directTarget.renderTarget.Get(),
+                transparent.data());
+            context->ClearRenderTargetView(
+                bloomSeedTarget.renderTarget.Get(),
+                transparent.data());
+        }
         std::array<ID3D11RenderTargetView*, 2> targets{
             directTarget.renderTarget.Get(),
             bloomSeedTarget.renderTarget.Get()};
@@ -953,7 +1066,7 @@ struct FxGpuRenderer::Implementation
 
         // Unbind the material MRTs before sampling them through the Bloom chain.
         context->OMSetRenderTargets(0, nullptr, nullptr);
-        renderBloom(destination, finalCompositeShader);
+        renderBloom(destination, finalCompositeShader, background);
         context->OMSetRenderTargets(0, nullptr, nullptr);
     }
 
@@ -1012,10 +1125,12 @@ struct FxGpuRenderer::Implementation
     ComPtr<ID3D11PixelShader> dissolvePixelShader{};
     ComPtr<ID3D11PixelShader> additivePixelShader{};
     ComPtr<ID3D11PixelShader> prefilterPixelShader{};
+    ComPtr<ID3D11PixelShader> differentialPrefilterPixelShader{};
     ComPtr<ID3D11PixelShader> downsamplePixelShader{};
     ComPtr<ID3D11PixelShader> upsamplePixelShader{};
     ComPtr<ID3D11PixelShader> compositePixelShader{};
     ComPtr<ID3D11PixelShader> desktopCompositePixelShader{};
+    ComPtr<ID3D11PixelShader> knownBackgroundCompositePixelShader{};
     ComPtr<ID3D11InputLayout> inputLayout{};
     ComPtr<ID3D11Buffer> vertexBuffer{};
     ComPtr<ID3D11Buffer> viewportBuffer{};
@@ -1052,12 +1167,14 @@ void FxGpuRenderer::resize(const WindowSize size)
 
 void FxGpuRenderer::render(
     const bafx::fx::FrameSnapshot& snapshot,
-    ID3D11RenderTargetView* destination)
+    ID3D11RenderTargetView* destination,
+    const std::optional<BackgroundRenderInput> background)
 {
     implementation_->render(
         snapshot,
         destination,
-        implementation_->desktopCompositePixelShader.Get());
+        implementation_->desktopCompositePixelShader.Get(),
+        background);
 }
 
 FxGpuFrameCapture FxGpuRenderer::renderAndCapture(

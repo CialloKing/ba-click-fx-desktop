@@ -338,9 +338,11 @@ int runApplication(
     }
     report.setDeviceInfo(renderer.deviceInfo());
     report.setExitUiStatus(window.exitUiStatus());
-    bafx::windows::appendDiagnosticLog(logPath, report);
     if (options.supportInfoOnly)
     {
+        report.setBackgroundCaptureStatus(
+            bafx::windows::BackgroundCaptureStatus::NotProbed);
+        bafx::windows::appendDiagnosticLog(logPath, report);
         bafx::windows::writeSupportReport(*options.supportInfoPath, report);
         return 0;
     }
@@ -356,10 +358,18 @@ int runApplication(
         exclusionConfirmed);
     if (!backgroundCaptureEnabled)
     {
+        report.setBackgroundCaptureStatus(
+            bafx::windows::BackgroundCaptureStatus::FallbackFxOnly);
         bafx::windows::appendDiagnosticLog(
             logPath,
             "WGC background capture unavailable; using FX-only rendering");
     }
+    else
+    {
+        report.setBackgroundCaptureStatus(
+            bafx::windows::BackgroundCaptureStatus::Active);
+    }
+    bafx::windows::appendDiagnosticLog(logPath, report);
     bafx::fx::SimulationRuntime simulation(makeRuntimeSeed());
     window.show();
 

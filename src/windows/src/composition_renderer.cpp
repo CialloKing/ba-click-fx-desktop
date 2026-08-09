@@ -3,10 +3,12 @@
 #include "bafx/windows/error.hpp"
 #include "bafx/windows/fx_gpu_renderer.hpp"
 #include "bafx/windows/gpu_texture_readback.hpp"
+#include "bafx/windows/wgc_background_sensor.hpp"
 
 #include <dxgi1_2.h>
 
 #include <array>
+#include <chrono>
 
 namespace bafx::windows
 {
@@ -53,11 +55,82 @@ void CompositionRenderer::resize(const WindowSize size)
     size_ = size;
     createRenderTarget();
     fxRenderer_->resize(size);
+    if (backgroundSensor_ != nullptr)
+    {
+        backgroundSensor_->stop();
+        backgroundSensor_.reset();
+    }
 }
 
-void CompositionRenderer::renderFrame(const bafx::fx::FrameSnapshot& snapshot)
+void CompositionRenderer::renderFrame(
+    const bafx::fx::FrameSnapshot& snapshot,
+    const bafx::core::MonotonicTime wallTime)
 {
-    fxRenderer_->render(snapshot, renderTarget_.Get());
+    std::optional<BackgroundRenderInput> background;
+    bafx::core::MonotonicTime effectiveWallTime = wallTime;
+    if (effectiveWallTime == bafx::core::MonotonicTime::zero())
+    {
+        LARGE_INTEGER counter{};
+        if (QueryPerformanceCounter(&counter))
+        {
+            LARGE_INTEGER frequency{};
+            if (QueryPerformanceFrequency(&frequency) && frequency.QuadPart > 0)
+            {
+                const auto seconds = counter.QuadPart / frequency.QuadPart;
+                const auto remainder = counter.QuadPart % frequency.QuadPart;
+                // Keep the legacy overload usable for diagnostics while the
+                // desktop host passes its calibrated QPC time explicitly.
+                const auto now = std::chrono::seconds(seconds)
+                    + std::chrono::nanoseconds(
+                        remainder * 1'000'000'000LL / frequency.QuadPart);
+                effectiveWallTime = std::chrono::duration_cast<
+                    bafx::core::MonotonicTime>(now);
+            }
+        }
+    }
+    if (backgroundSensor_ != nullptr)
+    {
+        try
+        {
+            static_cast<void>(backgroundSensor_->drainLatest(context_.Get()));
+            const std::optional<WgcBackgroundSample> sample =
+                backgroundSensor_->latestSample();
+            if (sample.has_value()
+                && sample->size.width == size_.width
+                && sample->size.height == size_.height)
+            {
+                const bafx::core::BackgroundFreshnessResult freshness =
+                    bafx::core::evaluateBackgroundFreshness(
+                        sample->stamp,
+                        effectiveWallTime,
+                        bafx::core::BackgroundFreshnessPolicy{
+                            // A 60 Hz producer can legitimately deliver a
+                            // frame nearly one refresh late. Keep one full
+                            // cadence at full weight and three cadences as
+                            // the hard stale boundary.
+                            std::chrono::milliseconds(20),
+                            std::chrono::milliseconds(60),
+                            std::chrono::milliseconds(2),
+                            backgroundSensor_->expectedEpoch()});
+                if (freshness.freshness == bafx::core::BackgroundFreshness::Fresh
+                    || freshness.freshness == bafx::core::BackgroundFreshness::Fading)
+                {
+                    background = BackgroundRenderInput{
+                        sample->texture,
+                        freshness.weight};
+                }
+            }
+        }
+        catch (...)
+        {
+            // Background sensing is optional. A capture/device failure must
+            // never stop the FX-only interaction path.
+            backgroundSensor_->stop();
+            backgroundSensor_.reset();
+        }
+    }
+
+    fxRenderer_->render(snapshot, renderTarget_.Get(), background);
     if (readbackDiagnosticsEnabled_)
     {
         captureCenterPixel();
@@ -69,6 +142,33 @@ void CompositionRenderer::renderFrame(const bafx::fx::FrameSnapshot& snapshot)
         throwIfFailed(device_->GetDeviceRemovedReason(), "D3D11 device removed");
     }
     throwIfFailed(result, "IDXGISwapChain::Present");
+}
+
+bool CompositionRenderer::tryEnableBackgroundCapture(
+    const HMONITOR monitor,
+    const bool exclusionConfirmed) noexcept
+{
+    if (!exclusionConfirmed
+        || monitor == nullptr
+        || deviceInfo_.driverType != GraphicsDriverType::Hardware
+        || !WgcBackgroundSensor::isSupported())
+    {
+        return false;
+    }
+
+    try
+    {
+        backgroundSensor_ = std::make_unique<WgcBackgroundSensor>(
+            device_.Get(),
+            monitor,
+            WgcBackgroundSensorOptions{1U, true});
+        return true;
+    }
+    catch (...)
+    {
+        backgroundSensor_.reset();
+        return false;
+    }
 }
 
 void CompositionRenderer::setReadbackDiagnostics(const bool enabled)

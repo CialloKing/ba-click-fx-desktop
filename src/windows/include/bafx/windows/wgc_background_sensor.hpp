@@ -54,6 +54,7 @@ public:
     [[nodiscard]] WgcBackgroundDrainStatus drainLatest(
         ID3D11DeviceContext* context);
     [[nodiscard]] std::optional<WgcBackgroundSample> latestSample() const noexcept;
+    [[nodiscard]] std::uint64_t expectedEpoch() const noexcept;
     [[nodiscard]] HANDLE frameAvailableObject() const noexcept;
     [[nodiscard]] bool running() const noexcept;
 
@@ -65,4 +66,3 @@ private:
 };
 
 }
-
