@@ -62,6 +62,19 @@
       }
     }
   ],
+  "packagePresets": [
+    {
+      "name": "alpha-release",
+      "displayName": "Package Alpha Release ZIP",
+      "configurePreset": "alpha-x64",
+      "generators": [
+        "ZIP"
+      ],
+      "configurations": [
+        "Release"
+      ]
+    }
+  ],
   "workflowPresets": [
     {
       "name": "alpha-release-verify",
@@ -77,6 +90,28 @@
         },
         {
           "type": "test",
+          "name": "alpha-release"
+        }
+      ]
+    },
+    {
+      "name": "alpha-package",
+      "displayName": "Configure, build, test, and package Alpha Release",
+      "steps": [
+        {
+          "type": "configure",
+          "name": "alpha-x64"
+        },
+        {
+          "type": "build",
+          "name": "alpha-release"
+        },
+        {
+          "type": "test",
+          "name": "alpha-release"
+        },
+        {
+          "type": "package",
           "name": "alpha-release"
         }
       ]

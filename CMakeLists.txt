@@ -61,3 +61,5 @@ if(WIN32)
         )
     endif()
 endif()
+
+include(cmake/Packaging.cmake)
