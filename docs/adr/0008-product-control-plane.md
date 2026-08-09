@@ -20,9 +20,10 @@
    NUL/换行注入和超限请求都返回可诊断错误而不终止 Host。
 4. Host 通过用户范围的命名互斥体保证单实例；管道服务在独立线程运行，Render Owner 只
    在帧边界消费已校验的命令。Control Center 退出不会影响 Host。
-5. 首个垂直切片只承诺 `GetState`、`GetConfig`、`SetConfig <schema-3-json>`、`Pause`、
-   `Resume` 和 `Shutdown`。响应中的 `generation` 用于客户端判断快照是否变化；Preset/Profile
-   和 WinUI 3 页面在此协议稳定后再增加。
+5. 首个垂直切片只承诺 `GetState`、`GetConfig`、`SetConfig <schema-3-json>`、
+   `SetConfig {generation,path,value}`、`Pause`、`Resume` 和 `Shutdown`。路径更新只允许
+   配置库声明的产品字段，并在 generation 不匹配时返回冲突。响应中的 `generation` 用于
+   客户端判断快照是否变化；Preset/Profile 和 WinUI 3 页面在此协议稳定后再增加。
 
 ## 取舍
 
