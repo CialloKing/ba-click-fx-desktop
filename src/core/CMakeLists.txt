@@ -8,6 +8,7 @@ add_library(
         src/roi.cpp
         src/unity_bloom.cpp
         src/unity_ring_mesh.cpp
+        src/unity_trail_mesh.cpp
 )
 add_library(bafx::core ALIAS bafx_core)
 
