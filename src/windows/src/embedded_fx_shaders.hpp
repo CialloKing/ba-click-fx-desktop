@@ -165,7 +165,12 @@ float4 PrefilterPixel(FullscreenOutput input) : SV_Target0
     soft = soft * soft * (0.25 / Knee);
     const float contribution = max(soft, brightness - Threshold)
         / max(brightness, 0.0001);
-    return float4(color * contribution, source.a * contribution);
+    const float transportEnergy = brightness * contribution;
+
+    // Alpha carries an upper bound for every bright-pass RGB channel. Keeping
+    // it independent from geometric coverage lets the final pass reserve just
+    // enough premultiplied capacity for Bloom on an unknown desktop background.
+    return float4(color * contribution, transportEnergy);
 }
 
 float4 DownsamplePixel(FullscreenOutput input) : SV_Target0
@@ -194,14 +199,30 @@ float4 CompositePixel(FullscreenOutput input) : SV_Target0
 
 float4 DesktopCompositePixel(FullscreenOutput input) : SV_Target0
 {
-    const float4 linearOverlay = CompositePixel(input);
-    const float3 sdrColor = saturate(linearOverlay.rgb);
+    const float4 direct = Source0.Sample(LinearClampSampler, input.uv);
+    const float2 offset = SourceTexelSize * (SampleScale * 0.5);
+    const float4 bloom = FourTap(Source1, input.uv, offset);
+    const float sceneCoverage = saturate(direct.a);
+    const float maximumSceneEnergy = max(direct.r, max(direct.g, direct.b));
+    const float sceneScale = min(
+        1.0,
+        sceneCoverage / max(maximumSceneEnergy, 0.000001));
+    const float3 sceneColor = max(direct.rgb, 0.0) * sceneScale;
+    const float bloomTransport = max(0.0, bloom.a * ExposureGain);
+    const float transportCapacity = saturate(sceneCoverage + bloomTransport);
+    const float3 sdrColor = saturate(
+        sceneColor + max(bloom.rgb, 0.0) * ExposureGain);
     const float visibleEnergy = max(sdrColor.r, max(sdrColor.g, sdrColor.b));
-    const float alpha = min(saturate(linearOverlay.a), visibleEnergy);
+    const float alpha = min(transportCapacity, visibleEnergy);
+    const float capacityScale = min(
+        1.0,
+        alpha / max(visibleEnergy, 0.000001));
 
-    // Unity emission remains independent from geometric coverage. RGB greater
-    // than alpha is intentional extended-premultiplied energy on this FP16 surface.
-    return float4(sdrColor, alpha);
+    // The FP16 DComp swap chain consumes linear premultiplied values. Scene
+    // coverage and Bloom transport stay independent until this final boundary;
+    // scale uniformly to preserve hue, while the visible-energy cap prevents
+    // faded trail coverage from darkening the desktop.
+    return float4(sdrColor * capacityScale, alpha);
 }
 )hlsl";
 
