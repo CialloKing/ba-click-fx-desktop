@@ -50,6 +50,7 @@ if(WIN32)
     add_executable(
         bafx_windows_tests
         test_main.cpp
+        ipc_protocol_tests.cpp
         pointer_event_tests.cpp
     )
     target_link_libraries(bafx_windows_tests PRIVATE bafx::windows)
