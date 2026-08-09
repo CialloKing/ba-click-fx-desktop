@@ -141,7 +141,7 @@ BAFX_TEST(dissolve_ring_is_most_open_at_120ms)
     }
 }
 
-BAFX_TEST(unity_hermite_size_curves_match_golden_samples)
+BAFX_TEST(unity_hermite_size_curves_match_serialized_samples)
 {
     Simulation simulation;
     simulation.pointerDown(goldenCenter, goldenViewport, 0ns);
@@ -231,7 +231,7 @@ BAFX_TEST(unity_ring_rotation_integrates_the_serialized_two_curves)
     }
 }
 
-BAFX_TEST(unity_color_keys_and_start_color_multiplication_match_golden_samples)
+BAFX_TEST(unity_color_keys_and_start_color_multiplication_match_serialized_samples)
 {
     Simulation simulation;
     simulation.pointerDown(goldenCenter, goldenViewport, 0ns);
@@ -271,6 +271,8 @@ BAFX_TEST(click_triangles_use_independent_random_angles_and_zero_rotation)
     simulation.pointerDown(goldenCenter, goldenViewport, 0ns);
     const auto frame = simulation.snapshot(goldenViewport, 50ms);
     const auto triangles = spritesOfKind(frame, SpriteKind::Triangle);
+    // These coordinates lock the native deterministic stream only. Unity's
+    // engine-specific random stream is compared with layout-insensitive metrics.
     constexpr std::array expectedCenters{
         PointF{1019.79510F, 518.41803F},
         PointF{987.14734F, 496.29846F},
