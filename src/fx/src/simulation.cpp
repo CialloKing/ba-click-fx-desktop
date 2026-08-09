@@ -377,15 +377,19 @@ void Simulation::pointerMove(
     const Viewport viewport,
     const SimulationTime time)
 {
-    if (!active_ || !pointerHeld_ || time < lastAdvancedAt_)
+    if (!active_ || !pointerHeld_)
     {
         return;
     }
 
+    // Input can be drained after the compositor has already advanced past its
+    // QPC sample. Preserve that sample while preventing pointer-time rollback.
+    const SimulationTime sampleTime = std::max(time, pointerSampleAt_);
     const PointF nextWorld = screenToWorld(screenPosition, viewport);
-    emitAlongDrag(pointerWorld_, nextWorld, time);
+    emitAlongDrag(pointerWorld_, nextWorld, pointerSampleAt_, sampleTime);
     pointerWorld_ = nextWorld;
-    appendTrailPoint(pointerWorld_, time);
+    pointerSampleAt_ = sampleTime;
+    appendTrailPoint(pointerWorld_, sampleTime);
 }
 
 void Simulation::pointerUp(const SimulationTime)
@@ -595,6 +599,7 @@ void Simulation::reset(const PointF worldPosition, const SimulationTime time)
     releasedFrames_ = 0;
     effectOriginWorld_ = worldPosition;
     pointerWorld_ = worldPosition;
+    pointerSampleAt_ = time;
     lastEmissionWorld_ = worldPosition;
     dragDistanceRemainderWorld_ = 0.0F;
     rings_.clear();
@@ -668,7 +673,8 @@ void Simulation::appendTrailPoint(const PointF worldPosition, const SimulationTi
 void Simulation::emitAlongDrag(
     const PointF from,
     const PointF to,
-    const SimulationTime time)
+    const SimulationTime fromTime,
+    const SimulationTime toTime)
 {
     const PointF segment = subtract(to, from);
     const float segmentLength = length(segment);
@@ -684,7 +690,12 @@ void Simulation::emitAlongDrag(
         consumed += distanceUntilEmission;
         const float interpolation = consumed / segmentLength;
         const PointF position = add(from, multiply(segment, interpolation));
-        emitDragTriangle(position, time);
+        const auto elapsedNanoseconds = static_cast<SimulationTime::rep>(
+            static_cast<double>((toTime - fromTime).count())
+            * static_cast<double>(interpolation));
+        emitDragTriangle(
+            position,
+            fromTime + SimulationTime{elapsedNanoseconds});
         lastEmissionWorld_ = position;
         dragDistanceRemainderWorld_ = 0.0F;
         distanceUntilEmission = dragEmissionStepWorld;

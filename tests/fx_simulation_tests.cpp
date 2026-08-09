@@ -306,6 +306,72 @@ BAFX_TEST(drag_uses_world_distance_for_trail_and_particles)
     BAFX_CHECK_NEAR(frame.trailWidthPixels, 2.7425F, 1.0e-4F);
 }
 
+BAFX_TEST(delayed_pointer_move_is_not_dropped_after_simulation_advance)
+{
+    Simulation simulation;
+    simulation.pointerDown(PointF{100.0F, 100.0F}, goldenViewport, 0ns);
+    simulation.advance(100ms);
+
+    simulation.pointerMove(PointF{600.0F, 100.0F}, goldenViewport, 50ms);
+    const auto frame = simulation.snapshot(goldenViewport, 100ms);
+
+    BAFX_CHECK(frame.trail.size() >= 2U);
+    BAFX_CHECK(countKind(frame, SpriteKind::Triangle) == 8U);
+}
+
+BAFX_TEST(pointer_move_time_rollback_clamps_to_the_previous_sample)
+{
+    Simulation monotonic;
+    Simulation rolledBack;
+    constexpr PointF start{100.0F, 100.0F};
+    constexpr PointF smallMove{101.0F, 100.0F};
+    constexpr PointF longMove{600.0F, 100.0F};
+
+    monotonic.pointerDown(start, goldenViewport, 0ns);
+    rolledBack.pointerDown(start, goldenViewport, 0ns);
+    monotonic.pointerMove(smallMove, goldenViewport, 100ms);
+    rolledBack.pointerMove(smallMove, goldenViewport, 100ms);
+    monotonic.pointerMove(longMove, goldenViewport, 100ms);
+    rolledBack.pointerMove(longMove, goldenViewport, 50ms);
+
+    const auto monotonicFrame = monotonic.snapshot(goldenViewport, 100ms);
+    const auto rolledBackFrame = rolledBack.snapshot(goldenViewport, 100ms);
+    const auto monotonicTriangles = spritesOfKind(
+        monotonicFrame,
+        SpriteKind::Triangle);
+    const auto rolledBackTriangles = spritesOfKind(
+        rolledBackFrame,
+        SpriteKind::Triangle);
+    BAFX_CHECK(monotonicTriangles.size() == rolledBackTriangles.size());
+    for (std::size_t index = 0U; index < monotonicTriangles.size(); ++index)
+    {
+        BAFX_CHECK_NEAR(
+            monotonicTriangles[index]->centerPixels.x,
+            rolledBackTriangles[index]->centerPixels.x,
+            1.0e-5F);
+        BAFX_CHECK_NEAR(
+            monotonicTriangles[index]->centerPixels.y,
+            rolledBackTriangles[index]->centerPixels.y,
+            1.0e-5F);
+        BAFX_CHECK_NEAR(
+            monotonicTriangles[index]->sizePixels,
+            rolledBackTriangles[index]->sizePixels,
+            1.0e-5F);
+    }
+}
+
+BAFX_TEST(drag_particle_birth_times_are_interpolated_along_the_input_segment)
+{
+    Simulation simulation;
+    simulation.pointerDown(PointF{100.0F, 100.0F}, goldenViewport, 0ns);
+    simulation.pointerMove(PointF{600.0F, 100.0F}, goldenViewport, 1000ms);
+
+    const auto frame = simulation.snapshot(goldenViewport, 1000ms);
+    const std::size_t visibleTriangles = countKind(frame, SpriteKind::Triangle);
+    BAFX_CHECK(visibleTriangles >= 1U);
+    BAFX_CHECK(visibleTriangles <= 2U);
+}
+
 BAFX_TEST(release_waits_sixty_rendered_frames_before_clearing)
 {
     Simulation simulation;

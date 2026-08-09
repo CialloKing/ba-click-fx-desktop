@@ -124,7 +124,11 @@ private:
     void emitClickTriangles(SimulationTime time);
     void emitDragTriangle(PointF worldPosition, SimulationTime time);
     void appendTrailPoint(PointF worldPosition, SimulationTime time);
-    void emitAlongDrag(PointF from, PointF to, SimulationTime time);
+    void emitAlongDrag(
+        PointF from,
+        PointF to,
+        SimulationTime fromTime,
+        SimulationTime toTime);
 
     std::uint64_t baseSeed_{0};
     std::uint64_t activationCount_{0};
@@ -136,6 +140,7 @@ private:
     std::uint32_t releasedFrames_{0};
     PointF effectOriginWorld_{};
     PointF pointerWorld_{};
+    SimulationTime pointerSampleAt_{};
     PointF lastEmissionWorld_{};
     float dragDistanceRemainderWorld_{0.0F};
     std::vector<RingParticle> rings_{};
