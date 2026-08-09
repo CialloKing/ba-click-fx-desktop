@@ -200,8 +200,9 @@ template<std::size_t keyCount>
         from.a + (to.a - from.a) * t};
 }
 
-[[nodiscard]] ColorF srgbToLinear(const ColorF color) noexcept
+[[nodiscard]] ColorF applyUnityActiveColorSpace(const ColorF color) noexcept
 {
+    // ParticleSystemRenderer converts the evaluated gamma color once before upload.
     const bafx::core::Float3 linear = bafx::core::srgbToLinear(
         bafx::core::Float3{color.r, color.g, color.b});
     return ColorF{linear.r, linear.g, linear.b, color.a};
@@ -287,10 +288,8 @@ template<std::size_t keyCount>
 
 [[nodiscard]] ColorF diskColor(const float normalizedAge) noexcept
 {
-    static const ColorF white = srgbToLinear(
-        ColorF{1.0F, 1.0F, 1.0F, 1.0F});
-    static const ColorF blue = srgbToLinear(
-        ColorF{0.24056602F, 0.39061815F, 1.0F, 1.0F});
+    constexpr ColorF white{1.0F, 1.0F, 1.0F, 1.0F};
+    constexpr ColorF blue{0.24056602F, 0.39061815F, 1.0F, 1.0F};
     const float colorT = normalizedAge / 0.120592050F;
     ColorF color = lerpColor(white, blue, colorT);
     const float fadeStart = 0.108827344F;
@@ -298,35 +297,33 @@ template<std::size_t keyCount>
         ? 1.0F
         : 1.0F - (normalizedAge - fadeStart) / (1.0F - fadeStart);
     color.a = clampUnit(color.a);
-    return color;
+    return applyUnityActiveColorSpace(color);
 }
 
 [[nodiscard]] ColorF ringColor(const float normalizedAge) noexcept
 {
-    static const ColorF white = srgbToLinear(
-        ColorF{1.0F, 1.0F, 1.0F, 1.0F});
-    static const ColorF blue = srgbToLinear(
-        ColorF{0.2971698F, 0.6532865F, 1.0F, 1.0F});
+    constexpr ColorF white{1.0F, 1.0F, 1.0F, 1.0F};
+    constexpr ColorF blue{0.2971698F, 0.6532865F, 1.0F, 1.0F};
     if (normalizedAge <= 0.111772335F)
     {
-        return white;
+        return applyUnityActiveColorSpace(white);
     }
-    return lerpColor(
+    const ColorF color = lerpColor(
         white,
         blue,
         (normalizedAge - 0.111772335F) / (0.500007630F - 0.111772335F));
+    return applyUnityActiveColorSpace(color);
 }
 
 [[nodiscard]] ColorF triangleColor(const float normalizedAge) noexcept
 {
-    static const ColorF startColor = srgbToLinear(
-        ColorF{0.5377358F, 0.5377358F, 0.5377358F, 1.0F});
-    static const std::array keys{
-        ColorKey{0.182360571F, srgbToLinear(ColorF{1.0F, 1.0F, 1.0F, 1.0F})},
-        ColorKey{0.282352941F, srgbToLinear(ColorF{0.3726415F, 0.7731873F, 1.0F, 1.0F})},
-        ColorKey{0.461768521F, srgbToLinear(ColorF{0.37254903F, 0.7725491F, 1.0F, 1.0F})},
-        ColorKey{0.661768521F, srgbToLinear(ColorF{0.3529412F, 0.7294118F, 0.9450981F, 1.0F})},
-        ColorKey{0.826474403F, srgbToLinear(ColorF{0.37254903F, 0.7725491F, 1.0F, 1.0F})}};
+    constexpr ColorF startColor{0.5377358F, 0.5377358F, 0.5377358F, 1.0F};
+    constexpr std::array keys{
+        ColorKey{0.182360571F, ColorF{1.0F, 1.0F, 1.0F, 1.0F}},
+        ColorKey{0.282352941F, ColorF{0.3726415F, 0.7731873F, 1.0F, 1.0F}},
+        ColorKey{0.461768521F, ColorF{0.37254903F, 0.7725491F, 1.0F, 1.0F}},
+        ColorKey{0.661768521F, ColorF{0.3529412F, 0.7294118F, 0.9450981F, 1.0F}},
+        ColorKey{0.826474403F, ColorF{0.37254903F, 0.7725491F, 1.0F, 1.0F}}};
     const ColorF lifetimeColor = evaluateColorGradient(keys, normalizedAge);
     ColorF color{
         startColor.r * lifetimeColor.r,
@@ -334,7 +331,7 @@ template<std::size_t keyCount>
         startColor.b * lifetimeColor.b,
         startColor.a * lifetimeColor.a};
     color.a *= triangleAlphaCurve(normalizedAge);
-    return color;
+    return applyUnityActiveColorSpace(color);
 }
 
 [[nodiscard]] float dissolveThreshold(const float normalizedAge) noexcept

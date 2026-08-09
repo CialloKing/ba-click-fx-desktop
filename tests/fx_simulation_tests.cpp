@@ -231,29 +231,29 @@ BAFX_TEST(unity_ring_rotation_integrates_the_serialized_two_curves)
     }
 }
 
-BAFX_TEST(unity_color_keys_and_start_color_multiplication_use_linear_serialized_colors)
+BAFX_TEST(unity_active_color_space_is_applied_after_serialized_color_curves)
 {
     Simulation simulation;
     simulation.pointerDown(goldenCenter, goldenViewport, 0ns);
 
     const auto diskFrame = simulation.snapshot(goldenViewport, 10ms);
     const Sprite& disk = firstKind(diskFrame, SpriteKind::CenterDisk);
-    BAFX_CHECK_NEAR(disk.color.r, 0.60494110F, 1.0e-6F);
-    BAFX_CHECK_NEAR(disk.color.g, 0.63778199F, 1.0e-6F);
+    BAFX_CHECK_NEAR(disk.color.r, 0.42709361F, 1.0e-6F);
+    BAFX_CHECK_NEAR(disk.color.g, 0.51838338F, 1.0e-6F);
     BAFX_CHECK_NEAR(disk.color.b, 1.0F, 1.0e-6F);
     BAFX_CHECK_NEAR(disk.color.a, 1.0F, 1.0e-6F);
 
     const auto ringFrame = simulation.snapshot(goldenViewport, 250ms);
     const Sprite& ring = firstKind(ringFrame, SpriteKind::DissolveRing);
-    BAFX_CHECK_NEAR(ring.color.r, 0.27108877F, 1.0e-6F);
-    BAFX_CHECK_NEAR(ring.color.g, 0.51648746F, 1.0e-6F);
+    BAFX_CHECK_NEAR(ring.color.r, 0.16906266F, 1.0e-6F);
+    BAFX_CHECK_NEAR(ring.color.g, 0.48847437F, 1.0e-6F);
     BAFX_CHECK_NEAR(ring.color.b, 1.0F, 1.0e-6F);
 
     constexpr std::array expectedColors{
-        ColorF{0.02869016F, 0.14007421F, 0.25064609F, 0.07775988F},
-        ColorF{0.02869134F, 0.14009482F, 0.25064609F, 0.07909042F},
-        ColorF{0.02868852F, 0.14004579F, 0.25064609F, 0.26349252F},
-        ColorF{0.02869139F, 0.14009570F, 0.25064609F, 0.08707273F}};
+        ColorF{0.03321629F, 0.14406304F, 0.25064608F, 0.07775988F},
+        ColorF{0.03321752F, 0.14408310F, 0.25064608F, 0.07909042F},
+        ColorF{0.03321458F, 0.14403539F, 0.25064608F, 0.26349252F},
+        ColorF{0.03321758F, 0.14408398F, 0.25064608F, 0.08707273F}};
     const auto triangles = spritesOfKind(ringFrame, SpriteKind::Triangle);
     BAFX_CHECK(triangles.size() == expectedColors.size());
     for (std::size_t index = 0U; index < expectedColors.size(); ++index)
