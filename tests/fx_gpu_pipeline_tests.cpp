@@ -411,6 +411,35 @@ BAFX_TEST(warp_capture_proves_triangle_bloom_seed_is_zero)
     BAFX_CHECK(!isZeroImage(capture.finalOverlay));
 }
 
+BAFX_TEST(warp_capture_uses_source_over_for_overlapping_cross_bloom_seed)
+{
+    ComApartment apartment;
+    const WarpDevice graphics = createWarpDevice();
+    FxGpuRenderer renderer(graphics.device.Get(), graphics.context.Get(), testSize);
+    const RenderTarget singleTarget = createRenderTarget(graphics.device.Get());
+    const FxGpuFrameCapture single = renderer.renderAndCapture(
+        makeDiskSnapshot(true),
+        singleTarget.view.Get());
+
+    bafx::fx::FrameSnapshot overlapping = makeDiskSnapshot(true);
+    overlapping.sprites.push_back(overlapping.sprites.front());
+    const RenderTarget overlappingTarget = createRenderTarget(graphics.device.Get());
+    const FxGpuFrameCapture doubled = renderer.renderAndCapture(
+        overlapping,
+        overlappingTarget.view.Get());
+
+    const std::size_t center = static_cast<std::size_t>(testSize.height / 2U)
+        * testSize.width
+        + testSize.width / 2U;
+    const ReadbackPixel singleSeed = toFloatPixels(single.bloomSeed)[center];
+    const ReadbackPixel doubledSeed = toFloatPixels(doubled.bloomSeed)[center];
+    BAFX_CHECK(singleSeed.alpha > 0.99F);
+    BAFX_CHECK_NEAR(doubledSeed.red, singleSeed.red, 1.0e-3F);
+    BAFX_CHECK_NEAR(doubledSeed.green, singleSeed.green, 1.0e-3F);
+    BAFX_CHECK_NEAR(doubledSeed.blue, singleSeed.blue, 1.0e-3F);
+    BAFX_CHECK_NEAR(doubledSeed.alpha, singleSeed.alpha, 1.0e-3F);
+}
+
 BAFX_TEST(warp_capture_never_exports_stale_layers_for_an_empty_frame)
 {
     ComApartment apartment;

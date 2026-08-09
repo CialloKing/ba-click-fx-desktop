@@ -436,7 +436,7 @@ struct FxGpuRenderer::Implementation
         D3D11_BLEND_DESC crossDescription{};
         crossDescription.IndependentBlendEnable = TRUE;
         crossDescription.RenderTarget[0] = sourceOverBlendTarget();
-        crossDescription.RenderTarget[1] = additiveBlendTarget(true);
+        crossDescription.RenderTarget[1] = sourceOverBlendTarget();
         throwIfFailed(
             device->CreateBlendState(&crossDescription, &crossBlendState),
             "ID3D11Device::CreateBlendState(Cross)");

@@ -70,7 +70,9 @@ MaterialOutput CrossPixel(PixelInput input)
 
     MaterialOutput output;
     output.direct = float4(emission, coverage);
-    output.bloomSeed = float4(emission * input.bloomEnabled, 0.0);
+    output.bloomSeed = float4(
+        emission * input.bloomEnabled,
+        coverage * input.bloomEnabled);
     return output;
 }
 
