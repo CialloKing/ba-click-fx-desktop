@@ -9,12 +9,18 @@ configure_file(
     "${BAFX_DESKTOP_GENERATED_DIR}/ba-click-fx-desktop.manifest"
     @ONLY
 )
+configure_file(
+    ba-click-fx-desktop.rc.in
+    "${BAFX_DESKTOP_GENERATED_DIR}/ba-click-fx-desktop.rc"
+    @ONLY
+)
 
 add_executable(
     ba_click_fx_desktop
     WIN32
         main.cpp
         "${BAFX_DESKTOP_GENERATED_DIR}/ba-click-fx-desktop.manifest"
+        "${BAFX_DESKTOP_GENERATED_DIR}/ba-click-fx-desktop.rc"
 )
 
 target_compile_features(ba_click_fx_desktop PRIVATE cxx_std_20)

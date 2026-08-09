@@ -9,6 +9,10 @@ project(
     LANGUAGES CXX
 )
 
+if(WIN32)
+    enable_language(RC)
+endif()
+
 set(CMAKE_CXX_EXTENSIONS OFF)
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 
