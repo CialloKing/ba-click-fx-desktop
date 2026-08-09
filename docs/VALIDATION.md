@@ -72,6 +72,21 @@ FinalOverlay
 并在最终图上补充感知误差；
 不得用 PNG hash 代替数值比较。
 
+原生层级捕获使用固定 WARP、`1950x1097`、中心点击、种子 `20260716`，直接读取
+`Present` 前的 FP16 资源，不依赖会漏掉 DComp visual 的 PrintScreen：
+
+```powershell
+cmake --build --preset alpha-release --target ba_fx_gpu_capture
+$revision = git rev-parse HEAD
+build\alpha-x64\src\capture\Release\ba-click-fx-gpu-capture.exe `
+  "--output=artifacts\local\gpu-captures\$revision" `
+  "--revision=$revision"
+```
+
+默认十个时间片只写 `FinalOverlay.rgba16f` 和黑底 sRGB PNG；指定 `--all-layers` 时再写
+`DirectSurface`、`BloomSeed`、全部 Down/Up mip。`.rgba16f` 是顶部原点、little-endian RGBA
+half 数值证据；PNG 不执行 unpremultiply、强制不透明黑底，仅用于与 Unity PNG 观察和感知比较。
+
 ## 4. Differential Bloom 属性测试
 
 随机输入覆盖普通值、零、负 scRGB、HDR 极值、NaN 和 Inf。验证：
