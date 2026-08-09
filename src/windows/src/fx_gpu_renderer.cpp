@@ -1,5 +1,6 @@
 #include "bafx/windows/fx_gpu_renderer.hpp"
 
+#include "bafx/core/unity_bloom.hpp"
 #include "bafx/windows/error.hpp"
 #include "embedded_fx_shaders.hpp"
 #include "embedded_unity_textures.hpp"
@@ -44,6 +45,17 @@ struct ViewportConstants
 {
     float size[2]{};
     float padding[2]{};
+};
+
+struct BloomConstants
+{
+    float sourceTexelSize[2]{};
+    float sampleScale{1.0F};
+    float exposureGain{0.0F};
+    float threshold{1.0F};
+    float knee{0.00001F};
+    float clampValue{65472.0F};
+    float padding{0.0F};
 };
 
 struct ColorTarget
@@ -382,6 +394,7 @@ struct FxGpuRenderer::Implementation
         createPixelShader("CrossPixel", crossPixelShader);
         createPixelShader("DissolvePixel", dissolvePixelShader);
         createPixelShader("AdditivePixel", additivePixelShader);
+        createBloomPipeline();
 
         D3D11_BUFFER_DESC constantDescription{};
         constantDescription.ByteWidth = sizeof(ViewportConstants);
@@ -448,6 +461,69 @@ struct FxGpuRenderer::Implementation
             "ID3D11Device::CreatePixelShader(FX)");
     }
 
+    void createBloomPipeline()
+    {
+        const ComPtr<ID3DBlob> vertexByteCode = compileShader(
+            unityBloomShaderSource,
+            "FullscreenVertex",
+            "vs_5_0");
+        throwIfFailed(
+            device->CreateVertexShader(
+                vertexByteCode->GetBufferPointer(),
+                vertexByteCode->GetBufferSize(),
+                nullptr,
+                &fullscreenVertexShader),
+            "ID3D11Device::CreateVertexShader(Bloom)");
+        createBloomPixelShader("PrefilterPixel", prefilterPixelShader);
+        createBloomPixelShader("DownsamplePixel", downsamplePixelShader);
+        createBloomPixelShader("UpsamplePixel", upsamplePixelShader);
+        createBloomPixelShader("CompositePixel", compositePixelShader);
+
+        D3D11_BUFFER_DESC constantDescription{};
+        constantDescription.ByteWidth = sizeof(BloomConstants);
+        constantDescription.Usage = D3D11_USAGE_DYNAMIC;
+        constantDescription.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+        constantDescription.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+        throwIfFailed(
+            device->CreateBuffer(&constantDescription, nullptr, &bloomConstantsBuffer),
+            "ID3D11Device::CreateBuffer(Bloom constants)");
+
+        D3D11_RASTERIZER_DESC rasterizerDescription{};
+        rasterizerDescription.FillMode = D3D11_FILL_SOLID;
+        rasterizerDescription.CullMode = D3D11_CULL_NONE;
+        rasterizerDescription.DepthClipEnable = TRUE;
+        throwIfFailed(
+            device->CreateRasterizerState(
+                &rasterizerDescription,
+                &fullscreenRasterizerState),
+            "ID3D11Device::CreateRasterizerState(Bloom)");
+
+        D3D11_BLEND_DESC blendDescription{};
+        blendDescription.RenderTarget[0].BlendEnable = FALSE;
+        blendDescription.RenderTarget[0].RenderTargetWriteMask =
+            D3D11_COLOR_WRITE_ENABLE_ALL;
+        throwIfFailed(
+            device->CreateBlendState(&blendDescription, &overwriteBlendState),
+            "ID3D11Device::CreateBlendState(Bloom overwrite)");
+    }
+
+    void createBloomPixelShader(
+        const char* entryPoint,
+        ComPtr<ID3D11PixelShader>& output)
+    {
+        const ComPtr<ID3DBlob> byteCode = compileShader(
+            unityBloomShaderSource,
+            entryPoint,
+            "ps_5_0");
+        throwIfFailed(
+            device->CreatePixelShader(
+                byteCode->GetBufferPointer(),
+                byteCode->GetBufferSize(),
+                nullptr,
+                &output),
+            "ID3D11Device::CreatePixelShader(Bloom)");
+    }
+
     void createMaterialSampler(
         const D3D11_TEXTURE_ADDRESS_MODE addressMode,
         ComPtr<ID3D11SamplerState>& output)
@@ -501,6 +577,40 @@ struct FxGpuRenderer::Implementation
     {
         directTarget = createColorTarget(device.Get(), size);
         bloomSeedTarget = createColorTarget(device.Get(), size);
+
+        if (size.width > static_cast<std::uint32_t>(std::numeric_limits<std::int32_t>::max())
+            || size.height > static_cast<std::uint32_t>(std::numeric_limits<std::int32_t>::max()))
+        {
+            throw std::overflow_error("Bloom source extent exceeds the planner range");
+        }
+        const bafx::core::UnityBloomPlanResult planResult =
+            bafx::core::planUnityBloom(bafx::core::BloomExtent{
+                static_cast<std::int32_t>(size.width),
+                static_cast<std::int32_t>(size.height)});
+        if (planResult.status != bafx::core::UnityBloomStatus::Ok)
+        {
+            throw std::runtime_error("Unity Bloom planner rejected the swap-chain extent");
+        }
+        bloomPlan = planResult.plan;
+        bloomDownTargets.clear();
+        bloomUpTargets.clear();
+        bloomDownTargets.reserve(bloomPlan.mipCount);
+        if (bloomPlan.mipCount > 1U)
+        {
+            bloomUpTargets.reserve(static_cast<std::size_t>(bloomPlan.mipCount) - 1U);
+        }
+        for (std::size_t index = 0U; index < bloomPlan.mipCount; ++index)
+        {
+            const bafx::core::BloomExtent extent = bloomPlan.mipChain[index];
+            const WindowSize targetSize{
+                static_cast<std::uint32_t>(extent.width),
+                static_cast<std::uint32_t>(extent.height)};
+            bloomDownTargets.push_back(createColorTarget(device.Get(), targetSize));
+            if (index + 1U < bloomPlan.mipCount)
+            {
+                bloomUpTargets.push_back(createColorTarget(device.Get(), targetSize));
+            }
+        }
     }
 
     void resize(const WindowSize nextSize)
@@ -511,8 +621,15 @@ struct FxGpuRenderer::Implementation
             return;
         }
         context->OMSetRenderTargets(0, nullptr, nullptr);
+        constexpr std::array<ID3D11ShaderResourceView*, 2> noResources{nullptr, nullptr};
+        context->PSSetShaderResources(
+            0,
+            static_cast<UINT>(noResources.size()),
+            noResources.data());
         directTarget = {};
         bloomSeedTarget = {};
+        bloomDownTargets.clear();
+        bloomUpTargets.clear();
         size = nextSize;
         createTargets();
     }
@@ -553,6 +670,138 @@ struct FxGpuRenderer::Implementation
         context->VSSetShader(vertexShader.Get(), nullptr, 0);
         ID3D11Buffer* viewportConstant = viewportBuffer.Get();
         context->VSSetConstantBuffers(0, 1, &viewportConstant);
+    }
+
+    [[nodiscard]] static BloomConstants makeBloomConstants(
+        const bafx::core::BloomExtent sourceExtent,
+        const float sampleScale,
+        const float exposureGain) noexcept
+    {
+        BloomConstants constants{};
+        constants.sourceTexelSize[0] = 1.0F / static_cast<float>(sourceExtent.width);
+        constants.sourceTexelSize[1] = 1.0F / static_cast<float>(sourceExtent.height);
+        constants.sampleScale = sampleScale;
+        constants.exposureGain = exposureGain;
+        return constants;
+    }
+
+    void drawFullscreen(
+        ID3D11RenderTargetView* target,
+        const bafx::core::BloomExtent targetExtent,
+        ID3D11PixelShader* pixelShader,
+        ID3D11ShaderResourceView* source0,
+        ID3D11ShaderResourceView* source1,
+        const BloomConstants& constants)
+    {
+        D3D11_MAPPED_SUBRESOURCE mapped{};
+        throwIfFailed(
+            context->Map(
+                bloomConstantsBuffer.Get(),
+                0,
+                D3D11_MAP_WRITE_DISCARD,
+                0,
+                &mapped),
+            "ID3D11DeviceContext::Map(Bloom constants)");
+        std::memcpy(mapped.pData, &constants, sizeof(constants));
+        context->Unmap(bloomConstantsBuffer.Get(), 0);
+
+        const D3D11_VIEWPORT viewport{
+            0.0F,
+            0.0F,
+            static_cast<float>(targetExtent.width),
+            static_cast<float>(targetExtent.height),
+            0.0F,
+            1.0F};
+        context->RSSetViewports(1, &viewport);
+        context->RSSetState(fullscreenRasterizerState.Get());
+        context->OMSetDepthStencilState(depthState.Get(), 0);
+        context->OMSetRenderTargets(1, &target, nullptr);
+        constexpr std::array<float, 4> blendFactor{0.0F, 0.0F, 0.0F, 0.0F};
+        context->OMSetBlendState(
+            overwriteBlendState.Get(),
+            blendFactor.data(),
+            0xFFFFFFFFU);
+        context->IASetInputLayout(nullptr);
+        context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+        context->VSSetShader(fullscreenVertexShader.Get(), nullptr, 0);
+        context->PSSetShader(pixelShader, nullptr, 0);
+        ID3D11Buffer* constantBuffer = bloomConstantsBuffer.Get();
+        context->PSSetConstantBuffers(0, 1, &constantBuffer);
+        ID3D11SamplerState* bloomSampler = clampSampler.Get();
+        context->PSSetSamplers(0, 1, &bloomSampler);
+        std::array<ID3D11ShaderResourceView*, 2> sources{source0, source1};
+        context->PSSetShaderResources(
+            0,
+            static_cast<UINT>(sources.size()),
+            sources.data());
+        context->Draw(3, 0);
+
+        constexpr std::array<ID3D11ShaderResourceView*, 2> noResources{nullptr, nullptr};
+        context->PSSetShaderResources(
+            0,
+            static_cast<UINT>(noResources.size()),
+            noResources.data());
+    }
+
+    void renderBloom(ID3D11RenderTargetView* destination)
+    {
+        const bafx::core::BloomExtent sourceExtent{
+            static_cast<std::int32_t>(size.width),
+            static_cast<std::int32_t>(size.height)};
+        const bafx::core::BloomExtent firstExtent = bloomPlan.mipChain[0];
+        drawFullscreen(
+            bloomDownTargets[0].renderTarget.Get(),
+            firstExtent,
+            prefilterPixelShader.Get(),
+            bloomSeedTarget.shaderResource.Get(),
+            nullptr,
+            makeBloomConstants(sourceExtent, bloomPlan.sampleScale, 0.0F));
+
+        for (std::size_t index = 1U; index < bloomPlan.mipCount; ++index)
+        {
+            drawFullscreen(
+                bloomDownTargets[index].renderTarget.Get(),
+                bloomPlan.mipChain[index],
+                downsamplePixelShader.Get(),
+                bloomDownTargets[index - 1U].shaderResource.Get(),
+                nullptr,
+                makeBloomConstants(
+                    bloomPlan.mipChain[index - 1U],
+                    bloomPlan.sampleScale,
+                    0.0F));
+        }
+
+        ID3D11ShaderResourceView* accumulated =
+            bloomDownTargets[static_cast<std::size_t>(bloomPlan.mipCount) - 1U]
+                .shaderResource.Get();
+        for (std::size_t coarseIndex = bloomPlan.mipCount - 1U;
+             coarseIndex > 0U;
+             --coarseIndex)
+        {
+            const std::size_t fineIndex = coarseIndex - 1U;
+            drawFullscreen(
+                bloomUpTargets[fineIndex].renderTarget.Get(),
+                bloomPlan.mipChain[fineIndex],
+                upsamplePixelShader.Get(),
+                accumulated,
+                bloomDownTargets[fineIndex].shaderResource.Get(),
+                makeBloomConstants(
+                    bloomPlan.mipChain[coarseIndex],
+                    bloomPlan.sampleScale,
+                    0.0F));
+            accumulated = bloomUpTargets[fineIndex].shaderResource.Get();
+        }
+
+        drawFullscreen(
+            destination,
+            sourceExtent,
+            compositePixelShader.Get(),
+            directTarget.shaderResource.Get(),
+            accumulated,
+            makeBloomConstants(
+                firstExtent,
+                bloomPlan.sampleScale,
+                bloomPlan.exposureGain));
     }
 
     void drawVertices(
@@ -625,9 +874,16 @@ struct FxGpuRenderer::Implementation
         }
     }
 
-    void render(const bafx::fx::FrameSnapshot& snapshot, ID3D11Texture2D* destination)
+    void render(
+        const bafx::fx::FrameSnapshot& snapshot,
+        ID3D11RenderTargetView* destination)
     {
         constexpr std::array<float, 4> transparent{0.0F, 0.0F, 0.0F, 0.0F};
+        if (!snapshot.active && snapshot.sprites.empty() && snapshot.trail.empty())
+        {
+            context->ClearRenderTargetView(destination, transparent.data());
+            return;
+        }
         context->ClearRenderTargetView(directTarget.renderTarget.Get(), transparent.data());
         context->ClearRenderTargetView(bloomSeedTarget.renderTarget.Get(), transparent.data());
         std::array<ID3D11RenderTargetView*, 2> targets{
@@ -661,7 +917,8 @@ struct FxGpuRenderer::Implementation
 
         // The game additive target alpha is intentionally discarded; directTarget owns DComp alpha.
         context->OMSetRenderTargets(0, nullptr, nullptr);
-        context->CopyResource(destination, directTarget.texture.Get());
+        renderBloom(destination);
+        context->OMSetRenderTargets(0, nullptr, nullptr);
     }
 
     ComPtr<ID3D11Device> device{};
@@ -669,19 +926,30 @@ struct FxGpuRenderer::Implementation
     WindowSize size{};
     ColorTarget directTarget{};
     ColorTarget bloomSeedTarget{};
+    bafx::core::UnityBloomPlan bloomPlan{};
+    std::vector<ColorTarget> bloomDownTargets{};
+    std::vector<ColorTarget> bloomUpTargets{};
     ComPtr<ID3D11VertexShader> vertexShader{};
+    ComPtr<ID3D11VertexShader> fullscreenVertexShader{};
     ComPtr<ID3D11PixelShader> crossPixelShader{};
     ComPtr<ID3D11PixelShader> dissolvePixelShader{};
     ComPtr<ID3D11PixelShader> additivePixelShader{};
+    ComPtr<ID3D11PixelShader> prefilterPixelShader{};
+    ComPtr<ID3D11PixelShader> downsamplePixelShader{};
+    ComPtr<ID3D11PixelShader> upsamplePixelShader{};
+    ComPtr<ID3D11PixelShader> compositePixelShader{};
     ComPtr<ID3D11InputLayout> inputLayout{};
     ComPtr<ID3D11Buffer> vertexBuffer{};
     ComPtr<ID3D11Buffer> viewportBuffer{};
+    ComPtr<ID3D11Buffer> bloomConstantsBuffer{};
     ComPtr<ID3D11SamplerState> clampSampler{};
     ComPtr<ID3D11SamplerState> repeatSampler{};
     ComPtr<ID3D11RasterizerState> rasterizerState{};
+    ComPtr<ID3D11RasterizerState> fullscreenRasterizerState{};
     ComPtr<ID3D11DepthStencilState> depthState{};
     ComPtr<ID3D11BlendState> crossBlendState{};
     ComPtr<ID3D11BlendState> emissionBlendState{};
+    ComPtr<ID3D11BlendState> overwriteBlendState{};
     ComPtr<ID3D11ShaderResourceView> circleTexture{};
     ComPtr<ID3D11ShaderResourceView> ringTexture{};
     ComPtr<ID3D11ShaderResourceView> triangleTexture{};
@@ -706,7 +974,7 @@ void FxGpuRenderer::resize(const WindowSize size)
 
 void FxGpuRenderer::render(
     const bafx::fx::FrameSnapshot& snapshot,
-    ID3D11Texture2D* destination)
+    ID3D11RenderTargetView* destination)
 {
     implementation_->render(snapshot, destination);
 }

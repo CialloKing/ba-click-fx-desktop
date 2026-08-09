@@ -5,7 +5,9 @@
 
 #include <windows.h>
 
+#include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <cstdint>
 #include <cstdlib>
 #include <exception>
@@ -88,6 +90,7 @@ private:
 struct RunOptions
 {
     std::optional<std::uint32_t> frameLimit{};
+    std::optional<std::uint32_t> demoAgeMilliseconds{};
     bool smokeTest{false};
     bool demoClick{false};
 };
@@ -103,6 +106,7 @@ struct RunOptions
         {
             options.smokeTest = true;
             options.demoClick = true;
+            options.demoAgeMilliseconds = 130U;
             options.frameLimit = 3U;
         }
         else if (argument == L"--demo-click")
@@ -117,6 +121,17 @@ struct RunOptions
             if (end != value.data() && *end == L'\0' && parsed > 0UL)
             {
                 options.frameLimit = static_cast<std::uint32_t>(parsed);
+            }
+        }
+        else if (argument.starts_with(L"--demo-age-ms="))
+        {
+            const std::wstring_view value = argument.substr(14);
+            wchar_t* end = nullptr;
+            const unsigned long parsed = std::wcstoul(value.data(), &end, 10);
+            if (end != value.data() && *end == L'\0')
+            {
+                options.demoClick = true;
+                options.demoAgeMilliseconds = static_cast<std::uint32_t>(parsed);
             }
         }
     }
@@ -209,18 +224,21 @@ int runApplication(const HINSTANCE instance, const RunOptions options)
         primaryMonitorBounds(),
         L"ba-click-fx-desktop");
     bafx::windows::CompositionRenderer renderer(window.handle(), window.size());
+    renderer.setReadbackDiagnostics(options.smokeTest);
     bafx::fx::Simulation simulation;
     window.show();
 
+    std::optional<bafx::fx::SimulationTime> demoStartedAt;
     if (options.demoClick)
     {
         const bafx::fx::Viewport viewport = toViewport(window.size());
+        demoStartedAt = clock.now();
         simulation.pointerDown(
             bafx::fx::PointF{
                 static_cast<float>(viewport.width) * 0.5F,
                 static_cast<float>(viewport.height) * 0.5F},
             viewport,
-            clock.now());
+            *demoStartedAt);
     }
 
     bool quit = false;
@@ -240,17 +258,38 @@ int runApplication(const HINSTANCE instance, const RunOptions options)
         }
 
         consumePointerEvents(window, simulation, clock);
-        const bafx::fx::SimulationTime renderTime = clock.now();
-        if (options.smokeTest && renderTime - smokeStartedAt >= smokeTestDeadline)
+        const bafx::fx::SimulationTime wallTime = clock.now();
+        if (options.smokeTest && wallTime - smokeStartedAt >= smokeTestDeadline)
         {
             // A bounded smoke test must fail instead of hanging under a noisy input source.
             throw std::runtime_error("Desktop smoke test exceeded its five-second deadline");
         }
+        const bafx::fx::SimulationTime renderTime =
+            options.demoAgeMilliseconds.has_value() && demoStartedAt.has_value()
+            ? *demoStartedAt + std::chrono::milliseconds(*options.demoAgeMilliseconds)
+            : wallTime;
         simulation.advance(renderTime);
         const bafx::fx::FrameSnapshot snapshot = simulation.snapshot(
             toViewport(window.size()),
             renderTime);
         renderer.renderFrame(snapshot);
+        if (options.smokeTest)
+        {
+            const std::optional<bafx::windows::PixelF> pixel =
+                renderer.lastCenterPixel();
+            if (!pixel.has_value()
+                || !std::isfinite(pixel->red)
+                || !std::isfinite(pixel->green)
+                || !std::isfinite(pixel->blue)
+                || !std::isfinite(pixel->alpha)
+                || pixel->alpha <= 0.01F
+                || std::max({pixel->red, pixel->green, pixel->blue}) <= 0.01F)
+            {
+                throw std::runtime_error(
+                    "Desktop smoke test did not render a finite center FX pixel");
+            }
+        }
+        simulation.onFrameRendered();
         ++renderedFrames;
         if (options.frameLimit.has_value() && renderedFrames >= *options.frameLimit)
         {

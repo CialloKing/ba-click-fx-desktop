@@ -25,7 +25,9 @@ public:
     FxGpuRenderer& operator=(const FxGpuRenderer&) = delete;
 
     void resize(WindowSize size);
-    void render(const bafx::fx::FrameSnapshot& snapshot, ID3D11Texture2D* destination);
+    void render(
+        const bafx::fx::FrameSnapshot& snapshot,
+        ID3D11RenderTargetView* destination);
 
 private:
     struct Implementation;

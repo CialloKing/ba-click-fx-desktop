@@ -36,6 +36,7 @@ target_link_libraries(
         dxgi
         user32
     PRIVATE
+        bafx::core
         windowscodecs
 )
 bafx_enable_warnings(bafx_windows)
