@@ -2,6 +2,7 @@ add_executable(
     bafx_core_tests
     test_main.cpp
     background_freshness_tests.cpp
+    color_space_tests.cpp
     differential_bloom_tests.cpp
     intensity_tests.cpp
     material_tests.cpp

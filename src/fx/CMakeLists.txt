@@ -12,6 +12,7 @@ target_include_directories(
         "${CMAKE_CURRENT_SOURCE_DIR}/include"
 )
 target_compile_features(bafx_fx PUBLIC cxx_std_20)
+target_link_libraries(bafx_fx PRIVATE bafx::core)
 bafx_enable_warnings(bafx_fx)
 
 set_target_properties(

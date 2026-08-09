@@ -87,7 +87,7 @@ BAFX_TEST(unity_trail_progress_uses_accumulated_distance)
     BAFX_CHECK(foundJoint);
 }
 
-BAFX_TEST(unity_trail_gradient_matches_reversed_serialized_keys)
+BAFX_TEST(unity_trail_gradient_converts_reversed_serialized_srgb_keys_to_linear)
 {
     auto color = evaluateUnityTrailColor(0.0F);
     BAFX_CHECK_NEAR(color.r, 0.0F, 0.0F);
@@ -95,11 +95,11 @@ BAFX_TEST(unity_trail_gradient_matches_reversed_serialized_keys)
     BAFX_CHECK_NEAR(color.b, 0.0F, 0.0F);
 
     color = evaluateUnityTrailColor(0.5794155795F);
-    BAFX_CHECK_NEAR(color.g, 0.09486991F, 1.0e-7F);
-    BAFX_CHECK_NEAR(color.b, 0.28235295F, 1.0e-7F);
+    BAFX_CHECK_NEAR(color.g, 0.00924504F, 1.0e-7F);
+    BAFX_CHECK_NEAR(color.b, 0.06480327F, 1.0e-7F);
 
     color = evaluateUnityTrailColor(0.9794155795F);
-    BAFX_CHECK_NEAR(color.g, 0.39058137F, 1.0e-7F);
+    BAFX_CHECK_NEAR(color.g, 0.12636272F, 1.0e-7F);
     BAFX_CHECK_NEAR(color.b, 1.0F, 1.0e-7F);
 }
 
