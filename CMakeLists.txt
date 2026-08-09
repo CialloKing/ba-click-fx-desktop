@@ -12,10 +12,15 @@ set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 include(CompilerWarnings)
+include(CTest)
 
 add_subdirectory(src/core)
 
-include(CTest)
+if(WIN32)
+    add_subdirectory(src/windows)
+    add_subdirectory(src/desktop)
+endif()
+
 if(BUILD_TESTING)
     add_subdirectory(tests)
 endif()

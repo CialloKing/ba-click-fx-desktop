@@ -37,6 +37,27 @@ DirectComposition、Windows Graphics Capture、HDR/Advanced Color 和多适配�
 cmake --build build\vs2026 --target verify_unity_reference
 ```
 
+## 构建与测试
+
+首版固定使用 C++20；本机验证工具链为 Visual Studio 2026 与 Windows SDK 10.0.26100：
+
+```powershell
+cmake -S . -B build\vs2026 `
+  -G "Visual Studio 18 2026" -A x64 `
+  "-DCMAKE_SYSTEM_VERSION=10.0.26100.0"
+cmake --build build\vs2026 --config Debug --parallel
+ctest --test-dir build\vs2026 -C Debug --output-on-failure
+```
+
+DirectComposition smoke test 需要交互式桌面，因此默认不进入普通 CTest：
+
+```powershell
+cmake --build build\vs2026 --config Debug --target smoke_desktop
+```
+
+当前 Windows 骨架已创建 PMv2、无激活/穿透 overlay、D3D11 FP16 premultiplied swap chain 和
+DirectComposition visual。透明 smoke 只验证创建、present 和销毁，不等同于 SPK-001 已通过。
+
 ## 许可证
 
 本项目使用仓库根目录中的 GNU GPL v2 许可证。
