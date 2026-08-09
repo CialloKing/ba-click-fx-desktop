@@ -63,6 +63,7 @@ struct RenderTarget
 {
     ComPtr<ID3D11Texture2D> texture{};
     ComPtr<ID3D11RenderTargetView> view{};
+    ComPtr<ID3D11ShaderResourceView> shaderResource{};
 };
 
 struct WarpDevice
@@ -82,7 +83,7 @@ struct WarpDevice
     description.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
     description.SampleDesc = DXGI_SAMPLE_DESC{1U, 0U};
     description.Usage = D3D11_USAGE_DEFAULT;
-    description.BindFlags = D3D11_BIND_RENDER_TARGET;
+    description.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
 
     RenderTarget target{};
     throwIfFailed(
@@ -91,6 +92,12 @@ struct WarpDevice
     throwIfFailed(
         device->CreateRenderTargetView(target.texture.Get(), nullptr, &target.view),
         "ID3D11Device::CreateRenderTargetView(WARP destination)");
+    throwIfFailed(
+        device->CreateShaderResourceView(
+            target.texture.Get(),
+            nullptr,
+            &target.shaderResource),
+        "ID3D11Device::CreateShaderResourceView(WARP destination)");
     return target;
 }
 
@@ -289,6 +296,45 @@ void checkFiniteAndNonNegative(const std::vector<ReadbackPixel>& pixels)
     }
 }
 
+[[nodiscard]] float maximumRgbaDelta(
+    const std::vector<ReadbackPixel>& left,
+    const std::vector<ReadbackPixel>& right) noexcept
+{
+    float maximum = 0.0F;
+    for (std::size_t index = 0U; index < left.size(); ++index)
+    {
+        maximum = std::max(
+            maximum,
+            std::max({
+                std::abs(left[index].red - right[index].red),
+                std::abs(left[index].green - right[index].green),
+                std::abs(left[index].blue - right[index].blue),
+                std::abs(left[index].alpha - right[index].alpha)}));
+    }
+    return maximum;
+}
+
+[[nodiscard]] float maximumRgbMidpointError(
+    const std::vector<ReadbackPixel>& first,
+    const std::vector<ReadbackPixel>& midpoint,
+    const std::vector<ReadbackPixel>& last) noexcept
+{
+    float maximum = 0.0F;
+    for (std::size_t index = 0U; index < first.size(); ++index)
+    {
+        const float expectedRed = (first[index].red + last[index].red) * 0.5F;
+        const float expectedGreen = (first[index].green + last[index].green) * 0.5F;
+        const float expectedBlue = (first[index].blue + last[index].blue) * 0.5F;
+        maximum = std::max(
+            maximum,
+            std::max({
+                std::abs(midpoint[index].red - expectedRed),
+                std::abs(midpoint[index].green - expectedGreen),
+                std::abs(midpoint[index].blue - expectedBlue)}));
+    }
+    return maximum;
+}
+
 }
 
 BAFX_TEST(warp_pipeline_separates_direct_emission_and_multilevel_bloom_seed)
@@ -323,6 +369,51 @@ BAFX_TEST(warp_pipeline_separates_direct_emission_and_multilevel_bloom_seed)
         1.0e-3F);
     BAFX_CHECK(maximumRgbOutsideSprite(directPixels) <= 1.0e-6F);
     BAFX_CHECK(maximumRgbOutsideSprite(bloomPixels) > 1.0e-3F);
+}
+
+BAFX_TEST(warp_background_bloom_fades_to_fx_only_without_clamping_extended_rgb)
+{
+    ComApartment apartment;
+    const WarpDevice graphics = createWarpDevice();
+    FxGpuRenderer renderer(graphics.device.Get(), graphics.context.Get(), testSize);
+    const bafx::fx::FrameSnapshot snapshot = makeDiskSnapshot(true);
+
+    const RenderTarget background = createRenderTarget(graphics.device.Get());
+    constexpr std::array<float, 4> backgroundColor{0.75F, 0.25F, 0.5F, 1.0F};
+    graphics.context->ClearRenderTargetView(
+        background.view.Get(),
+        backgroundColor.data());
+
+    const RenderTarget fxOnlyTarget = createRenderTarget(graphics.device.Get());
+    renderer.render(snapshot, fxOnlyTarget.view.Get());
+    const std::vector<ReadbackPixel> fxOnly = readback(
+        graphics.context.Get(),
+        fxOnlyTarget.texture.Get());
+
+    const auto renderWithWeight = [&](const float weight)
+    {
+        const RenderTarget target = createRenderTarget(graphics.device.Get());
+        renderer.render(
+            snapshot,
+            target.view.Get(),
+            BackgroundRenderInput{background.shaderResource.Get(), weight});
+        return readback(graphics.context.Get(), target.texture.Get());
+    };
+    const std::vector<ReadbackPixel> zeroWeight = renderWithWeight(0.0F);
+    const std::vector<ReadbackPixel> halfWeight = renderWithWeight(0.5F);
+    const std::vector<ReadbackPixel> fullWeight = renderWithWeight(1.0F);
+
+    BAFX_CHECK(maximumRgbaDelta(fxOnly, zeroWeight) <= 1.0e-3F);
+    BAFX_CHECK(maximumRgbaDelta(fxOnly, fullWeight) > 1.0e-3F);
+    BAFX_CHECK(maximumRgbMidpointError(fxOnly, halfWeight, fullWeight) <= 2.0e-2F);
+
+    const std::size_t center = static_cast<std::size_t>(testSize.height / 2U)
+        * testSize.width
+        + testSize.width / 2U;
+    BAFX_CHECK(zeroWeight[center].blue > 1.0F);
+    BAFX_CHECK(zeroWeight[center].blue > zeroWeight[center].alpha);
+    BAFX_CHECK(fullWeight[center].blue > 1.0F);
+    BAFX_CHECK(fullWeight[center].blue > fullWeight[center].alpha);
 }
 
 BAFX_TEST(warp_pipeline_renders_every_retained_trail_stroke)

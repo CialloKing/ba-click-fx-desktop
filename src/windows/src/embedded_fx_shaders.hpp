@@ -126,7 +126,6 @@ cbuffer BloomConstants : register(b0)
 
 Texture2D<float4> Source0 : register(t0);
 Texture2D<float4> Source1 : register(t1);
-Texture2D<float4> Source2 : register(t2);
 SamplerState LinearClampSampler : register(s0);
 
 struct FullscreenOutput
@@ -181,18 +180,27 @@ float4 PrefilterPixel(FullscreenOutput input) : SV_Target0
 
 float4 DifferentialPrefilterPixel(FullscreenOutput input) : SV_Target0
 {
-    const float3 withFx = FourTap(Source0, input.uv, SourceTexelSize).rgb;
+    const float3 fx = FourTap(Source0, input.uv, SourceTexelSize).rgb;
+    const float4 fxOnly = BrightPass(fx);
+    const float backgroundWeight = saturate(BloomPadding);
+    if (backgroundWeight <= 0.0)
+    {
+        // Make the stale endpoint identical to the normal FX-only prefilter.
+        return fxOnly;
+    }
+
     const float3 background = FourTap(Source1, input.uv, SourceTexelSize).rgb;
     const float3 differential = max(
-        BrightPass(withFx).rgb - BrightPass(background).rgb,
-        0.0) * saturate(BloomPadding);
+        BrightPass(background + fx).rgb - BrightPass(background).rgb,
+        0.0);
     const float transportEnergy = max(
         differential.r,
         max(differential.g, differential.b));
+    const float4 backgroundAware = float4(differential, transportEnergy);
 
-    // H(B + F) and H(B) stay in one invocation so FP16 intermediates cannot
-    // introduce a negative delta through separate pass rounding.
-    return float4(differential, transportEnergy);
+    // Interpolate seeds before the linear pyramid so a stalled sensor fades
+    // continuously to the always-available FX-only Bloom path.
+    return lerp(fxOnly, backgroundAware, backgroundWeight);
 }
 
 float4 DownsamplePixel(FullscreenOutput input) : SV_Target0
@@ -226,58 +234,11 @@ float4 DesktopCompositePixel(FullscreenOutput input) : SV_Target0
     const float4 bloom = FourTap(Source1, input.uv, offset);
     const float bloomCoverage = saturate(bloom.a * ExposureGain);
 
-    // FX-only keeps Unity's extended linear energy intact. The known-background
-    // pass below performs the separate source-over inversion when a WGC sample
-    // is available, so this fallback never loses the blue HDR core.
+    // Background sampling only changes the Bloom seed. The final DComp surface
+    // keeps Unity's extended linear energy and coverage as independent values.
     return float4(
         direct.rgb + bloom.rgb * ExposureGain,
         max(direct.a, bloomCoverage));
-}
-
-float SolveOverlayAlpha(float background, float desired)
-{
-    if (desired > background)
-    {
-        return (desired - background) / max(1.0 - background, 0.000001);
-    }
-    if (desired < background)
-    {
-        return (background - desired) / max(background, 0.000001);
-    }
-    return 0.0;
-}
-
-float4 KnownBackgroundCompositePixel(FullscreenOutput input) : SV_Target0
-{
-    const float3 direct = Source0.Sample(
-        LinearClampSampler,
-        input.uv).rgb;
-    const float2 offset = SourceTexelSize * (SampleScale * 0.5);
-    const float3 bloom = max(
-        FourTap(Source1, input.uv, offset).rgb * ExposureGain,
-        0.0);
-    const float3 background = saturate(Source2.Sample(
-        LinearClampSampler,
-        input.uv).rgb);
-    const float3 desired = saturate(direct + bloom);
-    const float3 difference = abs(desired - background);
-    if (max(difference.r, max(difference.g, difference.b)) <= 0.00001)
-    {
-        return 0.0;
-    }
-
-    const float3 channelAlpha = float3(
-        SolveOverlayAlpha(background.r, desired.r),
-        SolveOverlayAlpha(background.g, desired.g),
-        SolveOverlayAlpha(background.b, desired.b));
-    const float alpha = saturate(max(
-        channelAlpha.r,
-        max(channelAlpha.g, channelAlpha.b)));
-    const float3 premultiplied = desired - background * (1.0 - alpha);
-
-    // The swap chain is explicitly linear scRGB, so inversion must happen in
-    // this same domain. Unchanged desktop pixels become exactly transparent.
-    return float4(clamp(premultiplied, 0.0, alpha), alpha);
 }
 )hlsl";
 

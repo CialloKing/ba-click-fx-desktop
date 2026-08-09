@@ -167,9 +167,11 @@ BAFX_TEST(all_embedded_fx_shader_entries_compile_with_warnings_as_errors)
         ShaderEntry{fxMaterialsShaderSource, "AdditivePixel", "ps_5_0"},
         ShaderEntry{unityBloomShaderSource, "FullscreenVertex", "vs_5_0"},
         ShaderEntry{unityBloomShaderSource, "PrefilterPixel", "ps_5_0"},
+        ShaderEntry{unityBloomShaderSource, "DifferentialPrefilterPixel", "ps_5_0"},
         ShaderEntry{unityBloomShaderSource, "DownsamplePixel", "ps_5_0"},
         ShaderEntry{unityBloomShaderSource, "UpsamplePixel", "ps_5_0"},
-        ShaderEntry{unityBloomShaderSource, "CompositePixel", "ps_5_0"}};
+        ShaderEntry{unityBloomShaderSource, "CompositePixel", "ps_5_0"},
+        ShaderEntry{unityBloomShaderSource, "DesktopCompositePixel", "ps_5_0"}};
 
     for (const ShaderEntry& entry : entries)
     {
@@ -212,9 +214,11 @@ BAFX_TEST(bloom_shader_reflection_locks_resources_and_constant_layout)
 {
     constexpr std::array entries{
         "PrefilterPixel",
+        "DifferentialPrefilterPixel",
         "DownsamplePixel",
         "UpsamplePixel",
-        "CompositePixel"};
+        "CompositePixel",
+        "DesktopCompositePixel"};
     for (const char* entryPoint : entries)
     {
         const auto reflection = compileAndReflect(
@@ -240,8 +244,10 @@ BAFX_TEST(bloom_shader_reflection_locks_resources_and_constant_layout)
         BAFX_CHECK(hasConstantVariable(
             reflection.Get(), "BloomConstants", "BloomPadding", 28U, 4U));
 
-        if (std::string_view(entryPoint) == "UpsamplePixel"
-            || std::string_view(entryPoint) == "CompositePixel")
+        if (std::string_view(entryPoint) == "DifferentialPrefilterPixel"
+            || std::string_view(entryPoint) == "UpsamplePixel"
+            || std::string_view(entryPoint) == "CompositePixel"
+            || std::string_view(entryPoint) == "DesktopCompositePixel")
         {
             BAFX_CHECK(hasBinding(reflection.Get(), "Source1", D3D_SIT_TEXTURE, 1U));
         }
