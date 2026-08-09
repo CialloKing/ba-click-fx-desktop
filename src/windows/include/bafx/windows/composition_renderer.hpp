@@ -75,6 +75,7 @@ public:
     [[nodiscard]] bool tryEnableBackgroundCapture(
         HMONITOR monitor,
         bool exclusionConfirmed) noexcept;
+    void disableBackgroundCapture() noexcept;
     [[nodiscard]] bool backgroundCaptureActive() const noexcept;
     void setReadbackDiagnostics(bool enabled);
 

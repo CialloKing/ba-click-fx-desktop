@@ -221,6 +221,19 @@ bool CompositionRenderer::tryEnableBackgroundCapture(
     return tryCreateBackgroundSensor();
 }
 
+void CompositionRenderer::disableBackgroundCapture() noexcept
+{
+    backgroundCaptureRequested_ = false;
+    backgroundMonitor_ = nullptr;
+    backgroundRefreshPeriod_ = bafx::core::MonotonicTime::zero();
+    if (backgroundSensor_ != nullptr)
+    {
+        backgroundSensor_->stop();
+        backgroundSensor_.reset();
+    }
+    backgroundEpoch_ = nextEpoch(backgroundEpoch_);
+}
+
 bool CompositionRenderer::backgroundCaptureActive() const noexcept
 {
     return backgroundSensor_ != nullptr && backgroundSensor_->running();
