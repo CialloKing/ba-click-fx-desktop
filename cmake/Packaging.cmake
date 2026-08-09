@@ -30,4 +30,22 @@ set(CPACK_INCLUDE_TOPLEVEL_DIRECTORY ON)
 set(CPACK_MONOLITHIC_INSTALL ON)
 set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_SOURCE_DIR}/LICENSE")
 
+set(BAFX_ALPHA_PACKAGE_FILE_NAME "${CPACK_PACKAGE_FILE_NAME}")
 include(CPack)
+
+if(BAFX_POWERSHELL_EXECUTABLE)
+    add_custom_target(
+        verify_alpha_package
+        COMMAND
+            "${BAFX_POWERSHELL_EXECUTABLE}"
+            -NoProfile
+            -File "${CMAKE_SOURCE_DIR}/tools/verify-alpha-package.ps1"
+            -Package "${CPACK_PACKAGE_DIRECTORY}/${BAFX_ALPHA_PACKAGE_FILE_NAME}.zip"
+            -ExpectedVersion "${BAFX_VERSION}"
+            -Linker "${CMAKE_LINKER}"
+            -PortableVerifier "${CMAKE_SOURCE_DIR}/tools/verify-portable-pe.ps1"
+        COMMENT "Verify, extract, and smoke-test the Alpha ZIP"
+        VERBATIM
+    )
+    set_target_properties(verify_alpha_package PROPERTIES FOLDER "Validation")
+endif()

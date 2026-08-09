@@ -34,6 +34,15 @@
       "displayName": "Build Alpha Release",
       "configurePreset": "alpha-x64",
       "configuration": "Release"
+    },
+    {
+      "name": "alpha-package-verify",
+      "displayName": "Verify packaged Alpha Release",
+      "configurePreset": "alpha-x64",
+      "configuration": "Release",
+      "targets": [
+        "verify_alpha_package"
+      ]
     }
   ],
   "testPresets": [
@@ -113,6 +122,10 @@
         {
           "type": "package",
           "name": "alpha-release"
+        },
+        {
+          "type": "build",
+          "name": "alpha-package-verify"
         }
       ]
     }
