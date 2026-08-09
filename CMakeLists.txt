@@ -16,9 +16,18 @@ endif()
 set(CMAKE_CXX_EXTENSIONS OFF)
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 
+if(MSVC)
+    # Alpha packages must run without a separately installed Visual C++ runtime.
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+endif()
+
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 include(CompilerWarnings)
 include(CTest)
+
+if(WIN32)
+    find_program(BAFX_POWERSHELL_EXECUTABLE NAMES pwsh powershell)
+endif()
 
 add_subdirectory(src/core)
 add_subdirectory(src/fx)
@@ -34,7 +43,6 @@ if(BUILD_TESTING)
 endif()
 
 if(WIN32)
-    find_program(BAFX_POWERSHELL_EXECUTABLE NAMES pwsh powershell)
     if(BAFX_POWERSHELL_EXECUTABLE)
         add_custom_target(
             verify_unity_reference

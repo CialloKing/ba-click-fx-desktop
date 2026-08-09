@@ -55,6 +55,22 @@ add_custom_target(
 )
 set_target_properties(smoke_desktop PROPERTIES FOLDER "Validation")
 
+if(BAFX_POWERSHELL_EXECUTABLE)
+    add_custom_target(
+        verify_portable_desktop
+        COMMAND
+            "${BAFX_POWERSHELL_EXECUTABLE}"
+            -NoProfile
+            -File "${CMAKE_SOURCE_DIR}/tools/verify-portable-pe.ps1"
+            -Executable $<TARGET_FILE:ba_click_fx_desktop>
+            -Linker "${CMAKE_LINKER}"
+        DEPENDS ba_click_fx_desktop
+        COMMENT "Verify the desktop executable has no Visual C++ runtime DLL dependency"
+        VERBATIM
+    )
+    set_target_properties(verify_portable_desktop PROPERTIES FOLDER "Validation")
+endif()
+
 option(
     BAFX_ENABLE_DESKTOP_SMOKE_TESTS
     "Register tests that require an interactive Windows desktop"
@@ -71,4 +87,17 @@ if(BUILD_TESTING AND BAFX_ENABLE_DESKTOP_SMOKE_TESTS)
             LABELS "integration;desktop"
             TIMEOUT 15
     )
+endif()
+
+if(BUILD_TESTING AND BAFX_POWERSHELL_EXECUTABLE)
+    add_test(
+        NAME desktop_portable_pe
+        COMMAND
+            "${BAFX_POWERSHELL_EXECUTABLE}"
+            -NoProfile
+            -File "${CMAKE_SOURCE_DIR}/tools/verify-portable-pe.ps1"
+            -Executable $<TARGET_FILE:ba_click_fx_desktop>
+            -Linker "${CMAKE_LINKER}"
+    )
+    set_tests_properties(desktop_portable_pe PROPERTIES LABELS "package")
 endif()
