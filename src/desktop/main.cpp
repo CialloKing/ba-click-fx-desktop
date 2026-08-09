@@ -1,9 +1,11 @@
 #include "bafx/desktop/version.hpp"
+#include "bafx/config/config.hpp"
 #include "bafx/fx/simulation_runtime.hpp"
 #include "bafx/windows/composition_renderer.hpp"
 #include "bafx/windows/error.hpp"
 #include "bafx/windows/overlay_window.hpp"
 #include "bafx/windows/runtime_diagnostics.hpp"
+#include "host_control.hpp"
 
 #include <windows.h>
 
@@ -23,6 +25,44 @@ namespace
 
 constexpr std::uint32_t maximumMessagesPerFrame = 256U;
 constexpr auto smokeTestDeadline = std::chrono::seconds(5);
+
+[[nodiscard]] bool wantsBackgroundCapture(
+    const bafx::config::Config& config) noexcept
+{
+    return config.background.mode == bafx::config::CaptureMode::BackgroundAware;
+}
+
+void applyVisualConfig(
+    bafx::fx::FrameSnapshot& snapshot,
+    const bafx::config::Config& config)
+{
+    if (!config.effects.enabled)
+    {
+        snapshot = bafx::fx::FrameSnapshot{};
+        return;
+    }
+    if (!config.effects.clickEnabled)
+    {
+        snapshot.sprites.clear();
+    }
+    if (!config.effects.trailEnabled)
+    {
+        snapshot.trail.clear();
+        snapshot.trailStrokes.clear();
+        snapshot.trailWidthPixels = 0.0F;
+    }
+
+    const float scale = config.effects.globalScale;
+    for (bafx::fx::Sprite& sprite : snapshot.sprites)
+    {
+        sprite.sizePixels *= scale;
+    }
+    snapshot.trailWidthPixels *= scale;
+    for (bafx::fx::TrailStroke& stroke : snapshot.trailStrokes)
+    {
+        stroke.widthPixels *= scale;
+    }
+}
 
 [[nodiscard]] std::uint64_t makeRuntimeSeed() noexcept
 {
@@ -320,6 +360,38 @@ int runApplication(
 
     ComApartment apartment;
     QpcClock clock;
+    const std::filesystem::path configPath = bafx::desktop::defaultConfigPath();
+    const bafx::config::ConfigLoadResult loadedConfig =
+        bafx::config::loadConfig(configPath);
+    bafx::config::Config config = loadedConfig.succeeded()
+        ? loadedConfig.config
+        : bafx::config::defaultConfig();
+    if (!loadedConfig.succeeded())
+    {
+        bafx::windows::appendDiagnosticLog(
+            logPath,
+            "Configuration load failed; using in-memory defaults: "
+                + loadedConfig.message);
+    }
+    else if (loadedConfig.status == bafx::config::ConfigStatus::CreatedDefault
+        || loadedConfig.status == bafx::config::ConfigStatus::Migrated)
+    {
+        const bafx::config::ConfigSaveResult saved =
+            bafx::config::saveConfigAtomic(configPath, config);
+        if (!saved.succeeded())
+        {
+            bafx::windows::appendDiagnosticLog(
+                logPath,
+                "Configuration bootstrap save failed: " + saved.message);
+        }
+    }
+    if (options.smokeTest)
+    {
+        // Smoke must still exercise the renderer even when a user disabled FX.
+        config.effects.enabled = true;
+    }
+
+    bafx::desktop::HostControlPlane control(configPath, config);
     const MonitorSelection primaryMonitor = primaryMonitorBounds();
     report.setPrimaryMonitor(primaryMonitor.bounds);
     bafx::windows::OverlayWindow window(
@@ -328,12 +400,12 @@ int runApplication(
         L"ba-click-fx-desktop");
     bafx::windows::CompositionRenderer renderer(window.handle(), window.size());
     const bafx::windows::CaptureExclusionStatus captureExclusion =
-        window.setCaptureExcluded(true);
+        window.setCaptureExcluded(wantsBackgroundCapture(config));
     bafx::windows::appendDiagnosticLog(
         logPath,
         bafx::windows::captureExclusionDiagnostic(captureExclusion));
     const bool exclusionConfirmed = captureExclusion.confirmed();
-    if (!exclusionConfirmed)
+    if (wantsBackgroundCapture(config) && !exclusionConfirmed)
     {
         bafx::windows::appendDiagnosticLog(
             logPath,
@@ -341,6 +413,16 @@ int runApplication(
     }
     report.setDeviceInfo(renderer.deviceInfo());
     report.setExitUiStatus(window.exitUiStatus());
+    if (!control.start())
+    {
+        bafx::windows::appendDiagnosticLog(
+            logPath,
+            "IPC control service unavailable; continuing without Control Center");
+    }
+    else
+    {
+        bafx::windows::appendDiagnosticLog(logPath, "IPC control service started");
+    }
     if (options.supportInfoOnly)
     {
         report.setBackgroundCaptureStatus(
@@ -356,16 +438,20 @@ int runApplication(
     renderer.setReadbackDiagnostics(options.smokeTest);
     // WGC startup belongs here, after the base renderer exists and only when
     // capture exclusion was confirmed by querying the effective affinity.
-    bool backgroundCaptureEnabled = renderer.tryEnableBackgroundCapture(
-        primaryMonitor.handle,
-        exclusionConfirmed);
+    bool backgroundCaptureWanted = wantsBackgroundCapture(config);
+    bool backgroundCaptureEnabled = backgroundCaptureWanted
+        && renderer.tryEnableBackgroundCapture(
+            primaryMonitor.handle,
+            exclusionConfirmed);
     if (!backgroundCaptureEnabled)
     {
         report.setBackgroundCaptureStatus(
             bafx::windows::BackgroundCaptureStatus::FallbackFxOnly);
         bafx::windows::appendDiagnosticLog(
             logPath,
-            "WGC background capture unavailable; using FX-only rendering");
+            backgroundCaptureWanted
+            ? "WGC background capture unavailable; using FX-only rendering"
+            : "WGC background capture disabled by configuration; using FX-only rendering");
     }
     else
     {
@@ -391,15 +477,57 @@ int runApplication(
 
     bool quit = false;
     std::uint32_t renderedFrames = 0;
+    std::uint64_t appliedGeneration = control.snapshot().generation;
+    std::optional<bafx::fx::SimulationTime> frozenRenderTime;
     const bafx::fx::SimulationTime applicationStartedAt = clock.now();
     while (!quit && !window.closeRequested())
     {
         dispatchMessages(quit);
         window.pollExitShortcut();
         window.pollPointerState();
-        if (quit || window.closeRequested())
+        bafx::desktop::HostStateSnapshot controlState = control.snapshot();
+        if (controlState.shutdownRequested || quit || window.closeRequested())
         {
             break;
+        }
+
+        if (controlState.generation != appliedGeneration)
+        {
+            config = controlState.config;
+            const bool nextBackgroundCaptureWanted = wantsBackgroundCapture(config);
+            if (nextBackgroundCaptureWanted != backgroundCaptureWanted)
+            {
+                backgroundCaptureWanted = nextBackgroundCaptureWanted;
+                if (backgroundCaptureWanted)
+                {
+                    const bafx::windows::CaptureExclusionStatus exclusion =
+                        window.setCaptureExcluded(true);
+                    const bool confirmed = exclusion.confirmed();
+                    backgroundCaptureEnabled = confirmed
+                        && renderer.tryEnableBackgroundCapture(
+                            primaryMonitor.handle,
+                            confirmed);
+                    bafx::windows::appendDiagnosticLog(
+                        logPath,
+                        bafx::windows::captureExclusionDiagnostic(exclusion));
+                }
+                else
+                {
+                    renderer.disableBackgroundCapture();
+                    backgroundCaptureEnabled = false;
+                    const bafx::windows::CaptureExclusionStatus exclusion =
+                        window.setCaptureExcluded(false);
+                    bafx::windows::appendDiagnosticLog(
+                        logPath,
+                        bafx::windows::captureExclusionDiagnostic(exclusion));
+                }
+                report.setBackgroundCaptureStatus(
+                    backgroundCaptureEnabled
+                    ? bafx::windows::BackgroundCaptureStatus::Active
+                    : bafx::windows::BackgroundCaptureStatus::FallbackFxOnly);
+                bafx::windows::appendDiagnosticLog(logPath, report);
+            }
+            appliedGeneration = controlState.generation;
         }
 
         if (const auto resize = window.takePendingResize(); resize.has_value())
@@ -407,9 +535,9 @@ int runApplication(
             renderer.resize(*resize);
         }
 
-        if (options.demoClick)
+        if (options.demoClick || !config.effects.enabled || controlState.paused)
         {
-            // Fixed-age review frames must not inherit concurrent desktop input.
+            // Do not let disabled/paused input accumulate and replay after resume.
             static_cast<void>(window.takePointerEvents());
         }
         else
@@ -417,6 +545,17 @@ int runApplication(
             consumePointerEvents(window, simulation, clock);
         }
         const bafx::fx::SimulationTime wallTime = clock.now();
+        if (controlState.paused)
+        {
+            if (!frozenRenderTime.has_value())
+            {
+                frozenRenderTime = wallTime;
+            }
+        }
+        else
+        {
+            frozenRenderTime.reset();
+        }
         if (options.quitAfterMilliseconds.has_value()
             && wallTime - applicationStartedAt
                 >= std::chrono::milliseconds(*options.quitAfterMilliseconds))
@@ -431,16 +570,21 @@ int runApplication(
         const bafx::fx::SimulationTime renderTime =
             options.demoAgeMilliseconds.has_value() && demoStartedAt.has_value()
             ? *demoStartedAt + std::chrono::milliseconds(*options.demoAgeMilliseconds)
-            : wallTime;
-        simulation.advance(renderTime);
-        const bafx::fx::FrameSnapshot snapshot = simulation.snapshot(
-            toViewport(window.size()),
-            renderTime);
-        renderer.renderFrame(snapshot, wallTime);
-        const bool backgroundCaptureActive = renderer.backgroundCaptureActive();
-        if (backgroundCaptureActive != backgroundCaptureEnabled)
+            : frozenRenderTime.has_value() ? *frozenRenderTime : wallTime;
+        if (!controlState.paused && config.effects.enabled)
         {
-            backgroundCaptureEnabled = backgroundCaptureActive;
+            simulation.advance(renderTime);
+        }
+        bafx::fx::FrameSnapshot snapshot = config.effects.enabled
+            ? simulation.snapshot(toViewport(window.size()), renderTime)
+            : bafx::fx::FrameSnapshot{};
+        applyVisualConfig(snapshot, config);
+        renderer.renderFrame(snapshot, wallTime);
+        const bool currentBackgroundCaptureActive = renderer.backgroundCaptureActive();
+        control.setBackgroundCaptureActive(currentBackgroundCaptureActive);
+        if (currentBackgroundCaptureActive != backgroundCaptureEnabled)
+        {
+            backgroundCaptureEnabled = currentBackgroundCaptureActive;
             report.setBackgroundCaptureStatus(
                 backgroundCaptureEnabled
                 ? bafx::windows::BackgroundCaptureStatus::Active
@@ -487,6 +631,7 @@ int runApplication(
             bafx::windows::throwLastError("MsgWaitForMultipleObjectsEx");
         }
     }
+    control.stop();
     return 0;
 }
 
@@ -499,8 +644,26 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int)
     bafx::windows::SupportReport report(bafx::desktop::version);
     report.setLogPath(logPath);
     bafx::windows::appendDiagnosticLog(logPath, "Startup");
+    std::optional<bafx::desktop::SingleInstanceGuard> instanceGuard;
     try
     {
+        if (!options.supportInfoOnly)
+        {
+            instanceGuard.emplace(L"Local\\BAFX.Host.v1");
+            if (!instanceGuard->acquire())
+            {
+                if (instanceGuard->alreadyRunning())
+                {
+                    bafx::windows::appendDiagnosticLog(
+                        logPath,
+                        "Another BAFX Host instance is already running");
+                    return 0;
+                }
+                throw std::runtime_error(
+                    "Could not acquire the BAFX Host single-instance mutex (error "
+                    + std::to_string(instanceGuard->lastError()) + ")");
+            }
+        }
         const int result = runApplication(instance, options, report, logPath);
         bafx::windows::appendDiagnosticLog(logPath, "Exited");
         return result;

@@ -18,6 +18,7 @@ configure_file(
 add_executable(
     ba_click_fx_desktop
     WIN32
+        host_control.cpp
         main.cpp
         "${BAFX_DESKTOP_GENERATED_DIR}/ba-click-fx-desktop.manifest"
         "${BAFX_DESKTOP_GENERATED_DIR}/ba-click-fx-desktop.rc"
@@ -33,6 +34,7 @@ target_link_libraries(
     ba_click_fx_desktop
     PRIVATE
         bafx::core
+        bafx::config
         bafx::fx
         bafx::windows
         ole32
