@@ -111,7 +111,8 @@ struct MaterialOutputs
 };
 ```
 
-三角碎片只写 `coverage`，不写 `directEmission` 或 `bloomSeed`。
+三角碎片可写 `coverage` 和用于保留清晰 HDR 核心的 `directEmission`，但必须保持
+`bloomSeed = 0`。这里的 crisp direct energy 不经过模糊金字塔，因此不产生三角光晕。
 
 ### 5.2 背景样本
 

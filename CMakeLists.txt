@@ -20,3 +20,23 @@ if(BUILD_TESTING)
     add_subdirectory(tests)
 endif()
 
+if(WIN32)
+    find_program(BAFX_POWERSHELL_EXECUTABLE NAMES pwsh powershell)
+    if(BAFX_POWERSHELL_EXECUTABLE)
+        add_custom_target(
+            verify_unity_reference
+            COMMAND
+                "${BAFX_POWERSHELL_EXECUTABLE}"
+                -NoProfile
+                -File "${CMAKE_CURRENT_SOURCE_DIR}/tools/verify-unity-reference.ps1"
+            WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+            COMMENT "Verify the external Unity/game reference without copying assets"
+            VERBATIM
+        )
+        set_target_properties(
+            verify_unity_reference
+            PROPERTIES
+                FOLDER "Validation"
+        )
+    endif()
+endif()

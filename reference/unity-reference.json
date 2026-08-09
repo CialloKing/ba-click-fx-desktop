@@ -1,0 +1,212 @@
+{
+  "schemaVersion": 1,
+  "referenceId": "fx-touch-unity-2026-07-26",
+  "assetPolicy": "external-only",
+  "defaults": {
+    "runtimeRoot": "D:\\WebProjects\\BA鼠标输入与点击特效系统\\UnityMouseFxLab\\UnityMouseFxLab",
+    "extractionRoot": "D:\\WebProjects\\BA鼠标输入与点击特效系统\\提取资产2\\BA_FX_Touch_UnityProject"
+  },
+  "versions": {
+    "gameUnity": "2021.3.56f2",
+    "reconstructionUnity": "2021.3.45f1"
+  },
+  "trees": [
+    {
+      "root": "runtime",
+      "path": "Assets/Imported/FX_Touch",
+      "fileCount": 25,
+      "totalBytes": 423045
+    },
+    {
+      "root": "extraction",
+      "path": "Assets/Imported/FX_Touch",
+      "fileCount": 25,
+      "totalBytes": 423045
+    }
+  ],
+  "files": [
+    {
+      "root": "runtime",
+      "class": "ReconstructionChoice",
+      "path": "ProjectSettings/ProjectVersion.txt",
+      "bytes": 85,
+      "sha256": "EFFFF606632BDE39949D0E9F4A1C72F3CFF064EBBF3907F0C5806744B58AE254"
+    },
+    {
+      "root": "runtime",
+      "class": "ReconstructionChoice",
+      "path": "Assets/Imported/FX_Touch/FX_Touch.prefab",
+      "bytes": 284832,
+      "sha256": "7466B15EB4CA70203C454AFA2D5049E48CA3011732A9583B1BE7ED7075583C17"
+    },
+    {
+      "root": "runtime",
+      "class": "ReconstructionChoice",
+      "path": "Assets/Shaders/BaTouchAdditive.shader",
+      "bytes": 2380,
+      "sha256": "90840C621EB917CC460E3849A273CCC184B44728217E80F77530F92976B0D320"
+    },
+    {
+      "root": "runtime",
+      "class": "ReconstructionChoice",
+      "path": "Assets/Shaders/BaTouchAlphaBlendAdd.shader",
+      "bytes": 2637,
+      "sha256": "89A4E51167342E3596DE16D695C1E7F5C7D0B6C48A29DE75C1915AD54A3CD4F8"
+    },
+    {
+      "root": "runtime",
+      "class": "ReconstructionChoice",
+      "path": "Assets/Shaders/BaTouchDissolve.shader",
+      "bytes": 3326,
+      "sha256": "CABEB9B523A33FDB49BA06EC28A94593A54FB29C5B4B90A0DF19C667A5709458"
+    },
+    {
+      "root": "runtime",
+      "class": "ReconstructionChoice",
+      "path": "Assets/Shaders/BaGameBloom.shader",
+      "bytes": 5943,
+      "sha256": "9FE73E0DBAF212EE5E0B3ACBCD505AAEF1D0B64DD7CE8FC1B42394F42C595CE5"
+    },
+    {
+      "root": "runtime",
+      "class": "ReconstructionChoice",
+      "path": "Assets/Scripts/BaGameBloomRendererFeature.cs",
+      "bytes": 33883,
+      "sha256": "01F40BBA47F5C3E5A5E1AB27BFED458668B2F5589D0F899C47DC4FF8A13D368D"
+    },
+    {
+      "root": "runtime",
+      "class": "RuntimeObservation",
+      "path": "Reference/光晕还原审计.md",
+      "bytes": 7181,
+      "sha256": "08B84240132832C854CB38FA85B040F343E939CBC9022A7BBAF6EE9BE1306800"
+    },
+    {
+      "root": "extraction",
+      "class": "OriginalSerialized",
+      "path": "Reference/Extracted/OriginalPrefab/FX_Touch.prefab",
+      "bytes": 285662,
+      "sha256": "4D9110295A3DEC68822AABC4480030504016EAE044158C941774392EF64E52C7"
+    },
+    {
+      "root": "extraction",
+      "class": "OriginalSerialized",
+      "path": "Reference/Extracted/Materials/FX_MAT_Touch_Cross2.json",
+      "bytes": 1035,
+      "sha256": "7AA29710C3446FE6B90FB5FAF5C6FC30731B3416E763567050D93965EE527ECA"
+    },
+    {
+      "root": "extraction",
+      "class": "OriginalSerialized",
+      "path": "Reference/Extracted/Materials/FX_MAT_Touch_Tri 2.json",
+      "bytes": 967,
+      "sha256": "EA574787EF377010B780FBDAE0A283E6810231DDDFD453BD0AD0C27237324932"
+    },
+    {
+      "root": "extraction",
+      "class": "OriginalSerialized",
+      "path": "Reference/Extracted/Materials/FX_MAT_Touch_Tri3.json",
+      "bytes": 2184,
+      "sha256": "DCBF4F7989771281AB5CC6092298F7ECBFFE0FCA56B93DA684C0112B2227F85C"
+    },
+    {
+      "root": "extraction",
+      "class": "OriginalSerialized",
+      "path": "Reference/Extracted/Materials/FX_MAT_TouchFXTrail.json",
+      "bytes": 967,
+      "sha256": "41B9A4ADBBBC94DA13D0AE686755B11D3298D596A7153B385729F69D1C518E85"
+    },
+    {
+      "root": "extraction",
+      "class": "OriginalSerialized",
+      "path": "Reference/Extracted/Shader/FX_SHADER_Dissolve_GachaGauge_P.parsed.shader.txt",
+      "bytes": 3860,
+      "sha256": "31ECCA82E692179CB0482380DF40F938E01E319A7031E6A53D56A01FD95C45BE"
+    },
+    {
+      "root": "extraction",
+      "class": "OriginalSerialized",
+      "path": "Reference/Parameters/FX_Touch粒子参数.txt",
+      "bytes": 14828,
+      "sha256": "04933AB130EDF8DF987F660DCD03FD09DBD0B8579495ED952D7C958BB69F71A3"
+    },
+    {
+      "root": "extraction",
+      "class": "ReconstructionChoice",
+      "path": "Reference/Parameters/光晕与Shader还原参数.txt",
+      "bytes": 3020,
+      "sha256": "4CE148ADFD98AEF9DAA8E6CCDF312FDCF8A5749A9A9642518CB68D151C51DF0B"
+    },
+    {
+      "root": "runtime",
+      "class": "RuntimeObservation",
+      "path": "Reference/Captures/FX_Touch_0050ms.png",
+      "bytes": 89588,
+      "sha256": "4397983B64D84BD412CB8BDE14E0EAD1F88403143C8B3B2F133E4C03E679F8F9"
+    },
+    {
+      "root": "runtime",
+      "class": "RuntimeObservation",
+      "path": "Reference/Captures/FX_Touch_0100ms.png",
+      "bytes": 130953,
+      "sha256": "C26344F5B4D71BD7ADA4527CA58519531D00C32B40030EEEE655AFF3F3BA1170"
+    },
+    {
+      "root": "runtime",
+      "class": "RuntimeObservation",
+      "path": "Reference/Captures/FX_Touch_0110ms.png",
+      "bytes": 133596,
+      "sha256": "B9B4DCE613240CD89E7162396D9BD9D5A4C62EF91C88B5930E44BDE625524DD7"
+    },
+    {
+      "root": "runtime",
+      "class": "RuntimeObservation",
+      "path": "Reference/Captures/FX_Touch_0120ms.png",
+      "bytes": 136882,
+      "sha256": "2744E3C2157254CC63DA95429FD0946DC40232E9F862FCFE80876DA4802E1DBA"
+    },
+    {
+      "root": "runtime",
+      "class": "RuntimeObservation",
+      "path": "Reference/Captures/FX_Touch_0130ms.png",
+      "bytes": 144450,
+      "sha256": "B3EA031B988200C16FEA3B50ADA5ECCCBE0B8F7CDFDB620B39DA7D0B40B0EDF6"
+    },
+    {
+      "root": "runtime",
+      "class": "RuntimeObservation",
+      "path": "Reference/Captures/FX_Touch_0140ms.png",
+      "bytes": 145463,
+      "sha256": "E4E1DB1083EA434F04096281B39684152B920401277B6C2DDF72A601F984D5FD"
+    },
+    {
+      "root": "runtime",
+      "class": "RuntimeObservation",
+      "path": "Reference/Captures/FX_Touch_0150ms.png",
+      "bytes": 147739,
+      "sha256": "AEB1F954D5F3F346AA7C4AEEAF69E0D5509879F165F8CE4F06C5E331AFB5BF57"
+    },
+    {
+      "root": "runtime",
+      "class": "RuntimeObservation",
+      "path": "Reference/Captures/FX_Touch_0180ms.png",
+      "bytes": 148015,
+      "sha256": "094715F9702F3C67AC61098E9A7BF3BBBA3BB8F86C02554405576CB40F9B31BB"
+    },
+    {
+      "root": "runtime",
+      "class": "RuntimeObservation",
+      "path": "Reference/Captures/FX_Touch_0250ms.png",
+      "bytes": 122590,
+      "sha256": "35559454A88FF03D632016C8D99DD5C548D7C36E87EC5BCB0086662409F5D54F"
+    },
+    {
+      "root": "runtime",
+      "class": "RuntimeObservation",
+      "path": "Reference/Captures/FX_Touch_0450ms.png",
+      "bytes": 99561,
+      "sha256": "2C30F0EEDC699879C8CC8631B63404E85BFB770764753DE5240D55609CC6C766"
+    }
+  ]
+}
+

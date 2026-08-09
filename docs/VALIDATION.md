@@ -64,7 +64,8 @@ BloomResult
 FinalOverlay
 ```
 
-三角碎片必须只出现在 Coverage。对 FP16 使用每通道绝对/相对容差，并在最终图上补充感知误差；
+三角碎片只能出现在 Coverage/DirectEmission，BloomSeed 必须为零。对 FP16 使用每通道绝对/相对容差，
+并在最终图上补充感知误差；
 不得用 PNG hash 代替数值比较。
 
 ## 4. Differential Bloom 属性测试
@@ -108,4 +109,3 @@ Lanczos 或带负瓣 bicubic 不得进入等价性路径。
 比较类型固定为：整数/状态机 exact；确定性 CPU simulation exact；FP32 abs/rel epsilon；FP16 GPU
 max/mean/p99.9 error；最终视觉使用感知指标加人工评审。具体阈值必须在首次执行前单独提交，失败后不得
 通过放宽断言来掩盖回归。
-

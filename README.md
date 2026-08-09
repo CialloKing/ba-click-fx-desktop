@@ -16,7 +16,7 @@ DirectComposition、Windows Graphics Capture、HDR/Advanced Color 和多适配�
 - Windows Graphics Capture 是可选的 Background Sensor，不是基础点击特效的依赖。
 - 背景交互使用非负的 Background-aware Differential Bloom。
 - 最终透明交换链使用 FP16 扩展预乘输出；普通 SDR 下不得承诺白底仍有加法余量。
-- 三角碎片保持 crisp-only，只写 coverage，不进入发光或 Bloom 通道。
+- 三角碎片保持 crisp-only，可保留未模糊的 HDR 核心，但 `BloomSeed=0`，不产生模糊光晕。
 
 ## 文档入口
 
@@ -24,11 +24,18 @@ DirectComposition、Windows Graphics Capture、HDR/Advanced Color 和多适配�
 - [docs/adr](docs/adr)：七项尚待证据闭环的架构决策。
 - [docs/SPIKES.md](docs/SPIKES.md)：四个必须执行的硬件/API Spike。
 - [docs/VALIDATION.md](docs/VALIDATION.md)：测试层级、Golden Oracle 和发布门槛。
+- [docs/UNITY_REFERENCE.md](docs/UNITY_REFERENCE.md)：游戏解包资源、Unity 重建工程与 Golden 的证据边界。
 
 ## 项目状态
 
 仓库正在按上述规范建立首个可运行版本。文档中的 `Proposed`、`Verified` 和
 `Accepted` 是严格状态，不代表完成百分比：没有证据的能力不会因为代码路径存在而被宣称支持。
+
+本地可用下列命令核对 Unity 外部证据。脚本只读取并校验哈希，不会复制或修改游戏资产：
+
+```powershell
+cmake --build build\vs2026 --target verify_unity_reference
+```
 
 ## 许可证
 
