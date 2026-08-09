@@ -39,6 +39,30 @@
       "bytes": 284832,
       "sha256": "7466B15EB4CA70203C454AFA2D5049E48CA3011732A9583B1BE7ED7075583C17"
     },
+    { "root": "runtime", "class": "ReconstructionChoice", "path": "Assets/Imported/FX_Touch/FX_Touch.prefab.meta", "bytes": 236, "sha256": "9D4E45018158DCA6C19300405AB2DD1418132F867E56C3F9F35119D5E2EA6F22" },
+    { "root": "runtime", "class": "ReconstructionChoice", "path": "Assets/Imported/FX_Touch/Materials.meta", "bytes": 172, "sha256": "30A13107A9E858A62726FC6F94804DC08D9CDCCB82667353360062CF5EC31F9F" },
+    { "root": "runtime", "class": "ReconstructionChoice", "path": "Assets/Imported/FX_Touch/Materials/FX_MAT_Touch_Cross2.mat", "bytes": 880, "sha256": "9BEF81CEF4E1A1A41C3A8CC9151EE3B355BE95ED9612950A349577472E0382AF" },
+    { "root": "runtime", "class": "ReconstructionChoice", "path": "Assets/Imported/FX_Touch/Materials/FX_MAT_Touch_Cross2.mat.meta", "bytes": 188, "sha256": "8F69F93E613D3185557F69E24B9350DD01D32A196B4F2E9DB883D2CE8035BB2B" },
+    { "root": "runtime", "class": "ReconstructionChoice", "path": "Assets/Imported/FX_Touch/Materials/FX_MAT_Touch_Tri 2.mat", "bytes": 886, "sha256": "9D7E4BE82898634E8054B4706D5CD649EA76672E1E462FE3DDF4A28D2FCE2202" },
+    { "root": "runtime", "class": "ReconstructionChoice", "path": "Assets/Imported/FX_Touch/Materials/FX_MAT_Touch_Tri 2.mat.meta", "bytes": 188, "sha256": "1F800CCBA242E37625B811891811EB75679962569CA4A268F3BA3A3CB2689D72" },
+    { "root": "runtime", "class": "ReconstructionChoice", "path": "Assets/Imported/FX_Touch/Materials/FX_MAT_Touch_Tri3.mat", "bytes": 885, "sha256": "2C668A93D9B7DF0B10334DEB5DDC2296BCCF31A7A9BE99EC2E918751A8FF3527" },
+    { "root": "runtime", "class": "ReconstructionChoice", "path": "Assets/Imported/FX_Touch/Materials/FX_MAT_Touch_Tri3.mat.meta", "bytes": 188, "sha256": "2B1A72BC21A743CE4ECCD1B35BB6BD05560C406C4776C28CF7AC5933577FED18" },
+    { "root": "runtime", "class": "ReconstructionChoice", "path": "Assets/Imported/FX_Touch/Materials/FX_MAT_TouchFXTrail.mat", "bytes": 888, "sha256": "4989E8A7FBE092719DF59BDB7BD7B632875CA29769718F4C5385CB80D0F8CD55" },
+    { "root": "runtime", "class": "ReconstructionChoice", "path": "Assets/Imported/FX_Touch/Materials/FX_MAT_TouchFXTrail.mat.meta", "bytes": 188, "sha256": "924C41EDBD30ECBF8E908C8B2EDFAAD1329594510A646E8A4197B97C26D46A23" },
+    { "root": "runtime", "class": "ReconstructionChoice", "path": "Assets/Imported/FX_Touch/Meshes.meta", "bytes": 172, "sha256": "6F3612C4D7F2BC78301FF0DDDDCCDA0A979982E48AB27F9BB59680AC4E71CA9F" },
+    { "root": "runtime", "class": "ReconstructionChoice", "path": "Assets/Imported/FX_Touch/Meshes/Cylinder002.asset", "bytes": 17155, "sha256": "52F33C906DD7E65D4108849B7C49AA2F85F0B21DC2CECB5DB782E1C805267027" },
+    { "root": "runtime", "class": "ReconstructionChoice", "path": "Assets/Imported/FX_Touch/Meshes/Cylinder002.asset.meta", "bytes": 227, "sha256": "42B1BEBA50686EE4CFA0B0A5FB80813EE8571B2D34DC3F0A2AEA6D85CBDCD642" },
+    { "root": "runtime", "class": "ReconstructionChoice", "path": "Assets/Imported/FX_Touch/Meshes/FX_MESH_Triangle.asset", "bytes": 3447, "sha256": "488C1704F758F500D6CC7456470A6151B6239C6C79E7E26D248B822EDF255067" },
+    { "root": "runtime", "class": "ReconstructionChoice", "path": "Assets/Imported/FX_Touch/Meshes/FX_MESH_Triangle.asset.meta", "bytes": 227, "sha256": "EE63A3AF21F46CC2452B928EEECDD2C3D5925219DF0365C685354C0F4ECA9BC8" },
+    { "root": "runtime", "class": "ReconstructionChoice", "path": "Assets/Imported/FX_Touch/Textures.meta", "bytes": 172, "sha256": "633528D41AE6872227C7090B3011F14571B15200A376A243746B12D4A68A7130" },
+    { "root": "runtime", "class": "RuntimeObservation", "path": "Assets/Imported/FX_Touch/Textures/FX_TEX_Circle_01.png", "bytes": 23540, "sha256": "F8675E0A16959EDA829AE7D516FB609A4D45434520866466D04B78745F0BADD2" },
+    { "root": "runtime", "class": "ReconstructionChoice", "path": "Assets/Imported/FX_Touch/Textures/FX_TEX_Circle_01.png.meta", "bytes": 2522, "sha256": "165FAA096524B2D43B40029C8AF92708B15020C88437E32B629328CB48C722EA" },
+    { "root": "runtime", "class": "RuntimeObservation", "path": "Assets/Imported/FX_Touch/Textures/FX_TEX_Grad_Ring3.png", "bytes": 19743, "sha256": "517236C7C818A3715F8BA03EC316853BEC92FFD6E032B8E5D21DAEDFFC809684" },
+    { "root": "runtime", "class": "ReconstructionChoice", "path": "Assets/Imported/FX_Touch/Textures/FX_TEX_Grad_Ring3.png.meta", "bytes": 2522, "sha256": "EAB910B3D1F070CEFD69B541CBC58A4BDBEC9F0A6284F4BDE809E7260B4B4C29" },
+    { "root": "runtime", "class": "RuntimeObservation", "path": "Assets/Imported/FX_Touch/Textures/FX_TEX_Trail_03.png", "bytes": 54161, "sha256": "16001511757E7007F43DB9613E24144B5E8D726239DE0262F55D9E14C0F00FEB" },
+    { "root": "runtime", "class": "ReconstructionChoice", "path": "Assets/Imported/FX_Touch/Textures/FX_TEX_Trail_03.png.meta", "bytes": 2522, "sha256": "E3CAE16442BF28D7497EE083DE305BFA3DBDA6915BAF6875AFD5B3E804C1C689" },
+    { "root": "runtime", "class": "RuntimeObservation", "path": "Assets/Imported/FX_Touch/Textures/FX_TEX_Triangle_02_1.png", "bytes": 4582, "sha256": "0EB35FDA5710344BEDB5713B0B197B1C190EC4D8851EF8DD916B4E17DE39A068" },
+    { "root": "runtime", "class": "ReconstructionChoice", "path": "Assets/Imported/FX_Touch/Textures/FX_TEX_Triangle_02_1.png.meta", "bytes": 2522, "sha256": "94EDC2E4412BF0BBBA70A76746B52011562075F72EB188131634BD9356E7F5FC" },
     {
       "root": "runtime",
       "class": "ReconstructionChoice",
@@ -209,4 +233,3 @@
     }
   ]
 }
-
