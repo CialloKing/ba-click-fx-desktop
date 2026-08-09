@@ -1,0 +1,91 @@
+#include "bafx/core/background_freshness.hpp"
+
+#include <algorithm>
+
+namespace bafx::core
+{
+
+BackgroundFreshnessResult evaluateBackgroundFreshness(
+    const std::optional<BackgroundFrameStamp>& frame,
+    const MonotonicTime renderAt,
+    const BackgroundFreshnessPolicy& policy) noexcept
+{
+    BackgroundFreshnessResult result{};
+
+    if (policy.fullWeightAge < MonotonicTime::zero()
+        || policy.staleAge <= policy.fullWeightAge
+        || policy.maxFutureSkew < MonotonicTime::zero())
+    {
+        result.freshness = BackgroundFreshness::InvalidPolicy;
+        return result;
+    }
+
+    if (!frame.has_value())
+    {
+        result.freshness = BackgroundFreshness::Missing;
+        return result;
+    }
+
+    if (frame->epoch != policy.expectedEpoch)
+    {
+        result.freshness = BackgroundFreshness::WrongEpoch;
+        return result;
+    }
+
+    if (!frame->canonicalLinearScRgb || !frame->excludesOwnOverlay)
+    {
+        result.freshness = BackgroundFreshness::InvalidContract;
+        return result;
+    }
+
+    result.age = renderAt - frame->capturedAt;
+    if (result.age < -policy.maxFutureSkew)
+    {
+        result.freshness = BackgroundFreshness::FutureTimestamp;
+        return result;
+    }
+
+    if (result.age <= policy.fullWeightAge)
+    {
+        result.freshness = BackgroundFreshness::Fresh;
+        result.weight = 1.0F;
+        return result;
+    }
+
+    if (result.age >= policy.staleAge)
+    {
+        result.freshness = BackgroundFreshness::Stale;
+        return result;
+    }
+
+    const auto fadeDuration = policy.staleAge - policy.fullWeightAge;
+    const auto fadeAge = result.age - policy.fullWeightAge;
+    const auto fadeFraction = static_cast<double>(fadeAge.count())
+        / static_cast<double>(fadeDuration.count());
+
+    result.freshness = BackgroundFreshness::Fading;
+    result.weight = std::clamp(static_cast<float>(1.0 - fadeFraction), 0.0F, 1.0F);
+    return result;
+}
+
+BloomInputMode selectBloomInputMode(
+    const BackgroundFreshnessResult& freshness,
+    const BackgroundFallback fallback) noexcept
+{
+    if ((freshness.freshness == BackgroundFreshness::Fresh
+            || freshness.freshness == BackgroundFreshness::Fading)
+        && freshness.weight > 0.0F)
+    {
+        return BloomInputMode::BackgroundAware;
+    }
+
+    if (fallback == BackgroundFallback::FxOnlyBloom)
+    {
+        return BloomInputMode::FxOnly;
+    }
+
+    return BloomInputMode::Disabled;
+}
+
+}
+
