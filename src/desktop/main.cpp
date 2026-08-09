@@ -180,7 +180,8 @@ void consumePointerEvents(
     const QpcClock& clock)
 {
     const bafx::fx::Viewport viewport = toViewport(window.size());
-    for (const bafx::windows::PointerEvent& event : window.takePointerEvents())
+    for (const bafx::windows::PointerEvent& event :
+         bafx::windows::coalescePointerMoves(window.takePointerEvents()))
     {
         POINT clientPosition = event.screenPosition;
         if (!ScreenToClient(window.handle(), &clientPosition))

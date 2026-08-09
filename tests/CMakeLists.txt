@@ -46,6 +46,17 @@ set_target_properties(bafx_reference_tests PROPERTIES FOLDER "Tests")
 
 if(WIN32)
     add_executable(
+        bafx_windows_tests
+        test_main.cpp
+        pointer_event_tests.cpp
+    )
+    target_link_libraries(bafx_windows_tests PRIVATE bafx::windows)
+    target_compile_features(bafx_windows_tests PRIVATE cxx_std_20)
+    bafx_enable_warnings(bafx_windows_tests)
+    add_test(NAME pointer_event_coalescing COMMAND bafx_windows_tests)
+    set_target_properties(bafx_windows_tests PROPERTIES FOLDER "Tests")
+
+    add_executable(
         bafx_embedded_texture_tests
         test_main.cpp
         embedded_unity_textures_tests.cpp

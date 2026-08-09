@@ -31,6 +31,27 @@ constexpr std::size_t maximumPendingPointerEvents = 2048U;
 
 }
 
+std::vector<PointerEvent> coalescePointerMoves(
+    std::vector<PointerEvent> events) noexcept
+{
+    std::size_t writeIndex = 0U;
+    for (const PointerEvent& event : events)
+    {
+        if (event.kind == PointerEventKind::Move
+            && writeIndex > 0U
+            && events[writeIndex - 1U].kind == PointerEventKind::Move)
+        {
+            // Unity observes one current pointer position per Update tick.
+            events[writeIndex - 1U] = event;
+            continue;
+        }
+        events[writeIndex] = event;
+        ++writeIndex;
+    }
+    events.resize(writeIndex);
+    return events;
+}
+
 OverlayWindow::OverlayWindow(
     HINSTANCE instance,
     const RECT bounds,

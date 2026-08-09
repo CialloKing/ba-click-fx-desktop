@@ -30,6 +30,9 @@ struct PointerEvent
     std::int64_t qpcTimestamp{0};
 };
 
+[[nodiscard]] std::vector<PointerEvent> coalescePointerMoves(
+    std::vector<PointerEvent> events) noexcept;
+
 class OverlayWindow final
 {
 public:
