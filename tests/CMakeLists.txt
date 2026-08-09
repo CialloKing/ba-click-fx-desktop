@@ -6,6 +6,7 @@ add_executable(
     intensity_tests.cpp
     material_tests.cpp
     roi_tests.cpp
+    unity_bloom_tests.cpp
 )
 
 target_link_libraries(bafx_core_tests PRIVATE bafx::core)

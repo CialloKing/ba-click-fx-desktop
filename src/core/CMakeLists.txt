@@ -6,6 +6,7 @@ add_library(
         src/intensity.cpp
         src/material.cpp
         src/roi.cpp
+        src/unity_bloom.cpp
 )
 add_library(bafx::core ALIAS bafx_core)
 
