@@ -2,7 +2,9 @@ add_library(
     bafx_windows
     STATIC
         src/composition_renderer.cpp
+        src/fx_gpu_renderer.cpp
         src/overlay_window.cpp
+        src/wic_texture_loader.cpp
 )
 add_library(bafx::windows ALIAS bafx_windows)
 
@@ -26,10 +28,15 @@ target_compile_definitions(
 target_link_libraries(
     bafx_windows
     PUBLIC
+        bafx::fx
         d3d11
         dcomp
+        d3dcompiler
         dxgi
         user32
+    PRIVATE
+        bafx::reference
+        windowscodecs
 )
 bafx_enable_warnings(bafx_windows)
 
@@ -38,4 +45,3 @@ set_target_properties(
     PROPERTIES
         FOLDER "Libraries"
 )
-

@@ -1,6 +1,7 @@
 #include "bafx/windows/composition_renderer.hpp"
 
 #include "bafx/windows/error.hpp"
+#include "bafx/windows/fx_gpu_renderer.hpp"
 
 #include <dxgi1_2.h>
 
@@ -22,7 +23,10 @@ CompositionRenderer::CompositionRenderer(const HWND window, const WindowSize siz
     createSwapChain(size);
     createComposition(window);
     createRenderTarget();
+    fxRenderer_ = std::make_unique<FxGpuRenderer>(device_.Get(), context_.Get(), size_);
 }
+
+CompositionRenderer::~CompositionRenderer() = default;
 
 void CompositionRenderer::resize(const WindowSize size)
 {
@@ -34,6 +38,7 @@ void CompositionRenderer::resize(const WindowSize size)
 
     context_->OMSetRenderTargets(0, nullptr, nullptr);
     renderTarget_.Reset();
+    backBuffer_.Reset();
     throwIfFailed(
         swapChain_->ResizeBuffers(
             0,
@@ -44,14 +49,12 @@ void CompositionRenderer::resize(const WindowSize size)
         "IDXGISwapChain::ResizeBuffers");
     size_ = size;
     createRenderTarget();
+    fxRenderer_->resize(size);
 }
 
-void CompositionRenderer::renderTransparentFrame()
+void CompositionRenderer::renderFrame(const bafx::fx::FrameSnapshot& snapshot)
 {
-    constexpr std::array<float, 4> transparent{0.0F, 0.0F, 0.0F, 0.0F};
-    ID3D11RenderTargetView* target = renderTarget_.Get();
-    context_->OMSetRenderTargets(1, &target, nullptr);
-    context_->ClearRenderTargetView(renderTarget_.Get(), transparent.data());
+    fxRenderer_->render(snapshot, backBuffer_.Get());
 
     const HRESULT result = swapChain_->Present(1, 0);
     if (result == DXGI_ERROR_DEVICE_REMOVED || result == DXGI_ERROR_DEVICE_RESET)
@@ -170,10 +173,11 @@ void CompositionRenderer::createComposition(const HWND window)
 
 void CompositionRenderer::createRenderTarget()
 {
-    Microsoft::WRL::ComPtr<ID3D11Texture2D> buffer;
-    throwIfFailed(swapChain_->GetBuffer(0, IID_PPV_ARGS(&buffer)), "IDXGISwapChain::GetBuffer");
     throwIfFailed(
-        device_->CreateRenderTargetView(buffer.Get(), nullptr, &renderTarget_),
+        swapChain_->GetBuffer(0, IID_PPV_ARGS(&backBuffer_)),
+        "IDXGISwapChain::GetBuffer");
+    throwIfFailed(
+        device_->CreateRenderTargetView(backBuffer_.Get(), nullptr, &renderTarget_),
         "ID3D11Device::CreateRenderTargetView");
 }
 

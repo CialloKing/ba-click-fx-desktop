@@ -23,6 +23,20 @@ set_target_properties(
         OUTPUT_NAME "ba-click-fx-desktop"
 )
 
+add_custom_command(
+    TARGET ba_click_fx_desktop
+    POST_BUILD
+    COMMAND
+        "${CMAKE_COMMAND}" -E make_directory
+        "$<TARGET_FILE_DIR:ba_click_fx_desktop>/shaders"
+    COMMAND
+        "${CMAKE_COMMAND}" -E copy_if_different
+        "${CMAKE_CURRENT_SOURCE_DIR}/../windows/shaders/fx_materials.hlsl"
+        "$<TARGET_FILE_DIR:ba_click_fx_desktop>/shaders/fx_materials.hlsl"
+    COMMENT "Deploy native FX shaders"
+    VERBATIM
+)
+
 add_custom_target(
     smoke_desktop
     COMMAND $<TARGET_FILE:ba_click_fx_desktop> --smoke-test

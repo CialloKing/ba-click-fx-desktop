@@ -89,6 +89,7 @@ struct RunOptions
 {
     std::optional<std::uint32_t> frameLimit{};
     bool smokeTest{false};
+    bool demoClick{false};
 };
 
 [[nodiscard]] RunOptions parseOptions()
@@ -101,7 +102,12 @@ struct RunOptions
         if (argument == L"--smoke-test")
         {
             options.smokeTest = true;
+            options.demoClick = true;
             options.frameLimit = 3U;
+        }
+        else if (argument == L"--demo-click")
+        {
+            options.demoClick = true;
         }
         else if (argument.starts_with(L"--frames="))
         {
@@ -206,6 +212,17 @@ int runApplication(const HINSTANCE instance, const RunOptions options)
     bafx::fx::Simulation simulation;
     window.show();
 
+    if (options.demoClick)
+    {
+        const bafx::fx::Viewport viewport = toViewport(window.size());
+        simulation.pointerDown(
+            bafx::fx::PointF{
+                static_cast<float>(viewport.width) * 0.5F,
+                static_cast<float>(viewport.height) * 0.5F},
+            viewport,
+            clock.now());
+    }
+
     bool quit = false;
     std::uint32_t renderedFrames = 0;
     const bafx::fx::SimulationTime smokeStartedAt = clock.now();
@@ -233,9 +250,7 @@ int runApplication(const HINSTANCE instance, const RunOptions options)
         const bafx::fx::FrameSnapshot snapshot = simulation.snapshot(
             toViewport(window.size()),
             renderTime);
-        static_cast<void>(snapshot);
-
-        renderer.renderTransparentFrame();
+        renderer.renderFrame(snapshot);
         ++renderedFrames;
         if (options.frameLimit.has_value() && renderedFrames >= *options.frameLimit)
         {
