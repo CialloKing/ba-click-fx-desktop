@@ -9,7 +9,7 @@ Release 运行时是单文件：Visual C++ 运行库静态链接，Circle、Grad
 也嵌入程序。运行不读取 Unity 工程、游戏目录或旁置 shader/图片文件，但仍使用 Windows 自带的
 D3D11、DirectComposition、WIC 和 D3DCompiler 系统组件。
 
-当前架构版本是 **v0.2**，状态为 **Proposed**。这意味着候选技术栈和资源所有权底座已经冻结，但涉及
+当前架构版本是 **v0.3**，状态为 **Proposed**。这意味着候选技术栈和资源所有权底座已经冻结，但涉及
 DirectComposition、Windows Graphics Capture、HDR/Advanced Color 和多适配器的结论，
 必须取得仓库中定义的 Spike 证据或接受明确的 fallback 后，相关 ADR 才能标记为 Accepted。
 
@@ -27,6 +27,7 @@ DirectComposition、Windows Graphics Capture、HDR/Advanced Color 和多适配�
 
 - [ARCHITECTURE.md](ARCHITECTURE.md)：系统边界、模块、线程、数据流和降级规则。
 - [docs/adr](docs/adr)：七项尚待证据闭环的架构决策。
+- [docs/adr/0008-product-control-plane.md](docs/adr/0008-product-control-plane.md)：Host 配置与本地控制面的首个垂直切片。
 - [docs/SPIKES.md](docs/SPIKES.md)：四个必须执行的硬件/API Spike。
 - [docs/VALIDATION.md](docs/VALIDATION.md)：测试层级、Golden Oracle 和发布门槛。
 - [docs/UNITY_REFERENCE.md](docs/UNITY_REFERENCE.md)：游戏解包资源、Unity 重建工程与 Golden 的证据边界。

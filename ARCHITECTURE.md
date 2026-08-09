@@ -1,4 +1,4 @@
-# ba-click-fx-desktop Architecture v0.2
+# ba-click-fx-desktop Architecture v0.3
 
 - Status: **Proposed**
 - Platform: Windows desktop
@@ -17,6 +17,7 @@
 3. WGC 仅提供带时间戳的背景样本；渲染器能够拒绝过期样本。
 4. 透明输出在数值上保留 `RGB > Alpha` 的扩展预乘语义。
 5. 任何能力失败都沿明确的降级路径退回 FX-only，而不是停止点击反馈。
+6. Host 是唯一的运行时配置写入者；控制客户端通过本地 IPC 提交经过校验的命令。
 
 ## 2. 非目标
 
@@ -93,6 +94,12 @@ Platform / Window
               -> OutputPolicy
               -> FinalComposition
               -> DirectComposition Present
+
+Product Control Plane
+  -> Versioned JSON Configuration
+  -> Immutable Runtime Snapshot
+  -> Named Pipe IPC (control client)
+  -> Host single-instance lifetime
 ```
 
 模块保持单向依赖：Platform 不理解材质；Simulation 不持有 GPU 资源；BackgroundSensor 不参与
@@ -241,6 +248,10 @@ dirty rect 必须 union 前后帧区域再扩张，以清除上一帧残留。�
 | NaN/Inf | 在产生边界 sanitize，并增加诊断计数 |
 
 ## 11. 决策与验收
+
+产品控制面的边界和首个协议切片记录在
+[`docs/adr/0008-product-control-plane.md`](docs/adr/0008-product-control-plane.md)。该 ADR
+仍为 Proposed；在 Control Center 和安装/启动项完成前，不把产品层能力标记为完整支持。
 
 架构只有在以下文件中的七个 ADR 均为 Accepted、四个 P0 Spike 均有可复现结论，并且没有未决 P0
 问题后才能从 Proposed 升级。Spike 主假设可以失败，但必须已有 Accepted fallback 且同步收窄能力矩阵；
