@@ -477,6 +477,37 @@ BAFX_TEST(warp_capture_reads_all_layers_from_the_same_frame)
     BAFX_CHECK(final[center].blue >= direct[center].blue);
 }
 
+BAFX_TEST(warp_pipeline_applies_runtime_bloom_intensity_and_quality)
+{
+    ComApartment apartment;
+    const WarpDevice graphics = createWarpDevice();
+    FxGpuRenderer renderer(graphics.device.Get(), graphics.context.Get(), testSize);
+    const RenderTarget target = createRenderTarget(graphics.device.Get());
+
+    renderer.setBloomSettings(FxBloomSettings{0.0F, 7.0F});
+    const FxGpuFrameCapture disabledBloom = renderer.renderAndCapture(
+        makeDiskSnapshot(true),
+        target.view.Get());
+    const std::vector<ReadbackPixel> disabledPixels = toFloatPixels(
+        disabledBloom.finalOverlay);
+    BAFX_CHECK(disabledBloom.bloomDown.size() == 4U);
+    BAFX_CHECK(maximumRgbOutsideSprite(disabledPixels) <= 1.0e-6F);
+
+    renderer.setBloomSettings(FxBloomSettings{1.0F, 10.0F});
+    const FxGpuFrameCapture ultraBloom = renderer.renderAndCapture(
+        makeDiskSnapshot(true),
+        target.view.Get());
+    BAFX_CHECK(ultraBloom.bloomDown.size() == 7U);
+    BAFX_CHECK(ultraBloom.bloomUp.size() == 6U);
+
+    renderer.setBloomSettings(FxBloomSettings{1.0F, 4.0F});
+    const FxGpuFrameCapture lowBloom = renderer.renderAndCapture(
+        makeDiskSnapshot(true),
+        target.view.Get());
+    BAFX_CHECK(lowBloom.bloomDown.size() == 1U);
+    BAFX_CHECK(lowBloom.bloomUp.empty());
+}
+
 BAFX_TEST(warp_capture_proves_triangle_bloom_seed_is_zero)
 {
     ComApartment apartment;

@@ -1,6 +1,7 @@
 #include "bafx/fx/simulation_runtime.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <iterator>
 #include <utility>
 
@@ -10,6 +11,21 @@ namespace
 {
 
 constexpr std::uint64_t randomStreamStep = 0x9E3779B97F4A7C15ULL;
+constexpr float minimumTrailLengthMultiplier = 0.0F;
+constexpr float maximumTrailLengthMultiplier = 3.0F;
+
+[[nodiscard]] float normalizeTrailLengthMultiplier(const float multiplier) noexcept
+{
+    if (!std::isfinite(multiplier))
+    {
+        return 1.0F;
+    }
+
+    return std::clamp(
+        multiplier,
+        minimumTrailLengthMultiplier,
+        maximumTrailLengthMultiplier);
+}
 
 }
 
@@ -32,6 +48,7 @@ void SimulationRuntime::pointerDown(
     }
 
     instances_.emplace_back(nextSeed());
+    instances_.back().setTrailLengthMultiplier(trailLengthMultiplier_);
     instances_.back().pointerDown(screenPosition, viewport, time);
     pointerActive_ = true;
 }
@@ -94,6 +111,15 @@ void SimulationRuntime::onFrameRendered()
             return !instance.active();
         });
     instances_.erase(inactiveBegin, instances_.end());
+}
+
+void SimulationRuntime::setTrailLengthMultiplier(const float multiplier) noexcept
+{
+    trailLengthMultiplier_ = normalizeTrailLengthMultiplier(multiplier);
+    for (Simulation& instance : instances_)
+    {
+        instance.setTrailLengthMultiplier(trailLengthMultiplier_);
+    }
 }
 
 FrameSnapshot SimulationRuntime::snapshot(

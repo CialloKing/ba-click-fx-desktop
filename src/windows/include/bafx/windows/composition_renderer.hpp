@@ -1,6 +1,7 @@
 #pragma once
 
 #include "bafx/core/background_freshness.hpp"
+#include "bafx/windows/fx_bloom_settings.hpp"
 #include "bafx/windows/overlay_window.hpp"
 #include "bafx/windows/unique_handle.hpp"
 
@@ -62,13 +63,17 @@ struct GraphicsDeviceInfo
 class CompositionRenderer final
 {
 public:
-    CompositionRenderer(HWND window, WindowSize size);
+    CompositionRenderer(
+        HWND window,
+        WindowSize size,
+        FxBloomSettings bloomSettings = {});
     ~CompositionRenderer();
 
     CompositionRenderer(const CompositionRenderer&) = delete;
     CompositionRenderer& operator=(const CompositionRenderer&) = delete;
 
     void resize(WindowSize size);
+    void setBloomSettings(FxBloomSettings settings);
     void renderFrame(
         const bafx::fx::FrameSnapshot& snapshot,
         bafx::core::MonotonicTime wallTime = bafx::core::MonotonicTime::zero());

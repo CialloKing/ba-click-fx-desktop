@@ -1,6 +1,7 @@
 #pragma once
 
 #include "bafx/fx/simulation.hpp"
+#include "bafx/windows/fx_bloom_settings.hpp"
 #include "bafx/windows/gpu_texture_readback.hpp"
 #include "bafx/windows/overlay_window.hpp"
 
@@ -37,13 +38,15 @@ public:
     FxGpuRenderer(
         ID3D11Device* device,
         ID3D11DeviceContext* context,
-        WindowSize size);
+        WindowSize size,
+        FxBloomSettings bloomSettings = {});
     ~FxGpuRenderer();
 
     FxGpuRenderer(const FxGpuRenderer&) = delete;
     FxGpuRenderer& operator=(const FxGpuRenderer&) = delete;
 
     void resize(WindowSize size);
+    void setBloomSettings(FxBloomSettings settings);
     void render(
         const bafx::fx::FrameSnapshot& snapshot,
         ID3D11RenderTargetView* destination,

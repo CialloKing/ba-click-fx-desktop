@@ -33,6 +33,10 @@ using Microsoft::WRL::ComPtr;
 constexpr float trailArtisticIntensity = 23.968628F;
 constexpr std::int32_t trailRenderQueue = 4499;
 constexpr std::size_t initialVertexCapacity = bafx::core::unityRingIndexCount;
+constexpr float unityBloomIntensity = 1.7F;
+constexpr float minimumBloomDiffusion = 1.0F;
+constexpr float maximumBloomDiffusion = 10.0F;
+constexpr float maximumBloomIntensityMultiplier = 8.0F;
 
 struct SpriteVertex
 {
@@ -67,6 +71,24 @@ struct ColorTarget
     ComPtr<ID3D11RenderTargetView> renderTarget{};
     ComPtr<ID3D11ShaderResourceView> shaderResource{};
 };
+
+[[nodiscard]] bool hasValidBloomSettings(const FxBloomSettings settings) noexcept
+{
+    return std::isfinite(settings.intensityMultiplier)
+        && settings.intensityMultiplier >= 0.0F
+        && settings.intensityMultiplier <= maximumBloomIntensityMultiplier
+        && std::isfinite(settings.diffusion)
+        && settings.diffusion >= minimumBloomDiffusion
+        && settings.diffusion <= maximumBloomDiffusion;
+}
+
+[[nodiscard]] bool sameBloomSettings(
+    const FxBloomSettings left,
+    const FxBloomSettings right) noexcept
+{
+    return left.intensityMultiplier == right.intensityMultiplier
+        && left.diffusion == right.diffusion;
+}
 
 [[nodiscard]] ComPtr<ID3DBlob> compileShader(
     const std::string_view source,
@@ -377,11 +399,17 @@ struct FxGpuRenderer::Implementation
     Implementation(
         ID3D11Device* sourceDevice,
         ID3D11DeviceContext* sourceContext,
-        const WindowSize initialSize)
+        const WindowSize initialSize,
+        const FxBloomSettings initialBloomSettings)
         : device(sourceDevice)
         , context(sourceContext)
         , size(initialSize)
+        , bloomSettings(initialBloomSettings)
     {
+        if (!hasValidBloomSettings(bloomSettings))
+        {
+            throw std::invalid_argument("FX Bloom settings are outside the supported range");
+        }
         createPipeline();
         createTextures();
         createTargets();
@@ -621,11 +649,8 @@ struct FxGpuRenderer::Implementation
             embeddedUnityTexture(EmbeddedUnityTextureId::Trail03).pngBytes);
     }
 
-    void createTargets()
+    void updateBloomPlan()
     {
-        directTarget = createColorTarget(device.Get(), size);
-        bloomSeedTarget = createColorTarget(device.Get(), size);
-
         if (size.width > static_cast<std::uint32_t>(std::numeric_limits<std::int32_t>::max())
             || size.height > static_cast<std::uint32_t>(std::numeric_limits<std::int32_t>::max()))
         {
@@ -634,12 +659,23 @@ struct FxGpuRenderer::Implementation
         const bafx::core::UnityBloomPlanResult planResult =
             bafx::core::planUnityBloom(bafx::core::BloomExtent{
                 static_cast<std::int32_t>(size.width),
-                static_cast<std::int32_t>(size.height)});
+                static_cast<std::int32_t>(size.height)},
+                bafx::core::UnityBloomSettings{
+                    bloomSettings.diffusion,
+                    0.0F,
+                    unityBloomIntensity});
         if (planResult.status != bafx::core::UnityBloomStatus::Ok)
         {
             throw std::runtime_error("Unity Bloom planner rejected the swap-chain extent");
         }
         bloomPlan = planResult.plan;
+        // The config is intentionally a multiplier around the captured Unity
+        // exposure, so one leaves the golden/default output unchanged.
+        bloomPlan.exposureGain *= bloomSettings.intensityMultiplier;
+    }
+
+    void createBloomTargets()
+    {
         bloomDownTargets.clear();
         bloomUpTargets.clear();
         bloomDownTargets.reserve(bloomPlan.mipCount);
@@ -661,6 +697,33 @@ struct FxGpuRenderer::Implementation
         }
     }
 
+    void createTargets()
+    {
+        directTarget = createColorTarget(device.Get(), size);
+        bloomSeedTarget = createColorTarget(device.Get(), size);
+        updateBloomPlan();
+        createBloomTargets();
+    }
+
+    void unbindFrameResources()
+    {
+        context->OMSetRenderTargets(0, nullptr, nullptr);
+        constexpr std::array<ID3D11ShaderResourceView*, 2> noResources{nullptr, nullptr};
+        context->PSSetShaderResources(
+            0,
+            static_cast<UINT>(noResources.size()),
+            noResources.data());
+    }
+
+    void releaseSizeDependentTargets()
+    {
+        unbindFrameResources();
+        directTarget = {};
+        bloomSeedTarget = {};
+        bloomDownTargets.clear();
+        bloomUpTargets.clear();
+    }
+
     void resize(const WindowSize nextSize)
     {
         if (nextSize.width == 0U || nextSize.height == 0U
@@ -668,18 +731,37 @@ struct FxGpuRenderer::Implementation
         {
             return;
         }
-        context->OMSetRenderTargets(0, nullptr, nullptr);
-        constexpr std::array<ID3D11ShaderResourceView*, 2> noResources{nullptr, nullptr};
-        context->PSSetShaderResources(
-            0,
-            static_cast<UINT>(noResources.size()),
-            noResources.data());
-        directTarget = {};
-        bloomSeedTarget = {};
-        bloomDownTargets.clear();
-        bloomUpTargets.clear();
+        releaseSizeDependentTargets();
         size = nextSize;
         createTargets();
+    }
+
+    void setBloomSettings(const FxBloomSettings nextSettings)
+    {
+        if (!hasValidBloomSettings(nextSettings))
+        {
+            throw std::invalid_argument("FX Bloom settings are outside the supported range");
+        }
+        if (sameBloomSettings(bloomSettings, nextSettings))
+        {
+            return;
+        }
+
+        const bool pyramidChanged = bloomSettings.diffusion != nextSettings.diffusion;
+        bloomSettings = nextSettings;
+        if (!pyramidChanged)
+        {
+            updateBloomPlan();
+            return;
+        }
+
+        // Diffusion changes mip extents, so release just the pyramid before
+        // replacing it. Direct/coverage targets remain valid for this size.
+        unbindFrameResources();
+        bloomDownTargets.clear();
+        bloomUpTargets.clear();
+        updateBloomPlan();
+        createBloomTargets();
     }
 
     void configureFramePipeline()
@@ -1084,6 +1166,7 @@ struct FxGpuRenderer::Implementation
     ComPtr<ID3D11Device> device{};
     ComPtr<ID3D11DeviceContext> context{};
     WindowSize size{};
+    FxBloomSettings bloomSettings{};
     ColorTarget directTarget{};
     ColorTarget bloomSeedTarget{};
     bafx::core::UnityBloomPlan bloomPlan{};
@@ -1122,8 +1205,13 @@ struct FxGpuRenderer::Implementation
 FxGpuRenderer::FxGpuRenderer(
     ID3D11Device* device,
     ID3D11DeviceContext* context,
-    const WindowSize size)
-    : implementation_(std::make_unique<Implementation>(device, context, size))
+    const WindowSize size,
+    const FxBloomSettings bloomSettings)
+    : implementation_(std::make_unique<Implementation>(
+        device,
+        context,
+        size,
+        bloomSettings))
 {
 }
 
@@ -1132,6 +1220,11 @@ FxGpuRenderer::~FxGpuRenderer() = default;
 void FxGpuRenderer::resize(const WindowSize size)
 {
     implementation_->resize(size);
+}
+
+void FxGpuRenderer::setBloomSettings(const FxBloomSettings settings)
+{
+    implementation_->setBloomSettings(settings);
 }
 
 void FxGpuRenderer::render(

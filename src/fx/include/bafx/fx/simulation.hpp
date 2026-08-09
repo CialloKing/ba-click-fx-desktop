@@ -84,6 +84,10 @@ public:
     void advance(SimulationTime time);
     void onFrameRendered();
 
+    // Product settings may change during an active stroke. Retain the
+    // existing points and apply the new lifetime on the next simulation step.
+    void setTrailLengthMultiplier(float multiplier) noexcept;
+
     [[nodiscard]] FrameSnapshot snapshot(Viewport viewport, SimulationTime time) const;
     [[nodiscard]] bool active() const noexcept;
     [[nodiscard]] bool pointerHeld() const noexcept;
@@ -153,6 +157,7 @@ private:
     SimulationTime pointerSampleAt_{};
     PointF lastEmissionWorld_{};
     float dragDistanceRemainderWorld_{0.0F};
+    float trailLengthMultiplier_{1.0F};
     std::vector<RingParticle> rings_{};
     std::vector<MovingParticle> triangles_{};
     std::vector<StoredTrailPoint> trail_{};

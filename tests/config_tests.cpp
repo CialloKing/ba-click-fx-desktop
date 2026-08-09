@@ -62,6 +62,26 @@ BAFX_TEST(config_defaults_round_trip_through_versioned_json)
         0.00001F);
 }
 
+BAFX_TEST(config_bloom_quality_preserves_the_unity_default_at_high)
+{
+    BAFX_CHECK_NEAR(
+        bafx::config::bloomDiffusionForQuality(bafx::config::BloomQuality::Low),
+        4.0F,
+        0.00001F);
+    BAFX_CHECK_NEAR(
+        bafx::config::bloomDiffusionForQuality(bafx::config::BloomQuality::Medium),
+        6.0F,
+        0.00001F);
+    BAFX_CHECK_NEAR(
+        bafx::config::bloomDiffusionForQuality(bafx::config::BloomQuality::High),
+        7.0F,
+        0.00001F);
+    BAFX_CHECK_NEAR(
+        bafx::config::bloomDiffusionForQuality(bafx::config::BloomQuality::Ultra),
+        10.0F,
+        0.00001F);
+}
+
 BAFX_TEST(config_migration_maps_legacy_keys)
 {
     const auto result = bafx::config::parseJson(R"json(

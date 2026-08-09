@@ -20,6 +20,7 @@ public:
     void pointerCancel(SimulationTime time);
     void advance(SimulationTime time);
     void onFrameRendered();
+    void setTrailLengthMultiplier(float multiplier) noexcept;
 
     [[nodiscard]] FrameSnapshot snapshot(Viewport viewport, SimulationTime time) const;
     [[nodiscard]] bool active() const noexcept;
@@ -32,6 +33,7 @@ private:
     std::uint64_t baseSeed_{0U};
     std::uint64_t activationCount_{0U};
     bool pointerActive_{false};
+    float trailLengthMultiplier_{1.0F};
     std::vector<Simulation> instances_{};
 };
 

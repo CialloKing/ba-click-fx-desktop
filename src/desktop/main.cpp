@@ -32,6 +32,14 @@ constexpr auto smokeTestDeadline = std::chrono::seconds(5);
     return config.background.mode == bafx::config::CaptureMode::BackgroundAware;
 }
 
+[[nodiscard]] bafx::windows::FxBloomSettings makeBloomSettings(
+    const bafx::config::EffectsConfig& effects) noexcept
+{
+    return bafx::windows::FxBloomSettings{
+        effects.bloomIntensity,
+        bafx::config::bloomDiffusionForQuality(effects.bloomQuality)};
+}
+
 void applyVisualConfig(
     bafx::fx::FrameSnapshot& snapshot,
     const bafx::config::Config& config)
@@ -57,10 +65,11 @@ void applyVisualConfig(
     {
         sprite.sizePixels *= scale;
     }
-    snapshot.trailWidthPixels *= scale;
+    const float trailScale = scale * config.effects.trailWidth;
+    snapshot.trailWidthPixels *= trailScale;
     for (bafx::fx::TrailStroke& stroke : snapshot.trailStrokes)
     {
-        stroke.widthPixels *= scale;
+        stroke.widthPixels *= trailScale;
     }
 }
 
@@ -399,7 +408,10 @@ int runApplication(
         instance,
         primaryMonitor.bounds,
         L"ba-click-fx-desktop");
-    bafx::windows::CompositionRenderer renderer(window.handle(), window.size());
+    bafx::windows::CompositionRenderer renderer(
+        window.handle(),
+        window.size(),
+        makeBloomSettings(config.effects));
     const bafx::windows::CaptureExclusionStatus captureExclusion =
         window.setCaptureExcluded(wantsBackgroundCapture(config));
     bafx::windows::appendDiagnosticLog(
@@ -464,6 +476,7 @@ int runApplication(
     }
     bafx::windows::appendDiagnosticLog(logPath, report);
     bafx::fx::SimulationRuntime simulation(makeRuntimeSeed());
+    simulation.setTrailLengthMultiplier(config.effects.trailLength);
     window.show();
 
     std::optional<bafx::fx::SimulationTime> demoStartedAt;
@@ -498,6 +511,11 @@ int runApplication(
         if (controlState.generation != appliedGeneration)
         {
             config = controlState.config;
+            // Host owns the render thread, so applying the immutable control
+            // snapshot here makes length and Bloom changes take effect on the
+            // next rendered frame without cross-thread renderer mutation.
+            simulation.setTrailLengthMultiplier(config.effects.trailLength);
+            renderer.setBloomSettings(makeBloomSettings(config.effects));
             const bool nextBackgroundCaptureWanted = wantsBackgroundCapture(config);
             if (nextBackgroundCaptureWanted != backgroundCaptureWanted)
             {

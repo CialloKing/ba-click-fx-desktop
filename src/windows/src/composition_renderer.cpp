@@ -59,14 +59,21 @@ primaryRefreshPeriod() noexcept
 
 }
 
-CompositionRenderer::CompositionRenderer(const HWND window, const WindowSize size)
+CompositionRenderer::CompositionRenderer(
+    const HWND window,
+    const WindowSize size,
+    const FxBloomSettings bloomSettings)
     : size_(size)
 {
     createDevice();
     createSwapChain(size);
     createComposition(window);
     createRenderTarget();
-    fxRenderer_ = std::make_unique<FxGpuRenderer>(device_.Get(), context_.Get(), size_);
+    fxRenderer_ = std::make_unique<FxGpuRenderer>(
+        device_.Get(),
+        context_.Get(),
+        size_,
+        bloomSettings);
 }
 
 CompositionRenderer::~CompositionRenderer() = default;
@@ -102,6 +109,11 @@ void CompositionRenderer::resize(const WindowSize size)
     createRenderTarget();
     fxRenderer_->resize(size);
     static_cast<void>(tryCreateBackgroundSensor());
+}
+
+void CompositionRenderer::setBloomSettings(const FxBloomSettings settings)
+{
+    fxRenderer_->setBloomSettings(settings);
 }
 
 void CompositionRenderer::renderFrame(

@@ -169,4 +169,8 @@ struct ConfigSaveResult
 [[nodiscard]] std::string_view toString(BloomQuality quality) noexcept;
 [[nodiscard]] std::string_view toString(FramePacing pacing) noexcept;
 
+// Maps product quality choices onto the existing Unity Bloom diffusion range.
+// High deliberately remains at the extracted game's verified diffusion of 7.
+[[nodiscard]] float bloomDiffusionForQuality(BloomQuality quality) noexcept;
+
 }

@@ -421,6 +421,24 @@ BAFX_TEST(pointer_cancel_keeps_the_current_trail_until_it_naturally_expires)
     BAFX_CHECK(simulation.snapshot(goldenViewport, 351ms).trail.empty());
 }
 
+BAFX_TEST(trail_length_multiplier_changes_the_simulated_retention_window)
+{
+    Simulation simulation;
+    simulation.setTrailLengthMultiplier(2.0F);
+    simulation.pointerDown(PointF{100.0F, 100.0F}, goldenViewport, 0ns);
+    simulation.pointerMove(PointF{600.0F, 100.0F}, goldenViewport, 50ms);
+    simulation.pointerUp(60ms);
+
+    simulation.advance(400ms);
+    BAFX_CHECK(!simulation.snapshot(goldenViewport, 400ms).trail.empty());
+
+    simulation.advance(700ms);
+    BAFX_CHECK(simulation.snapshot(goldenViewport, 700ms).trail.empty());
+
+    simulation.setTrailLengthMultiplier(0.0F);
+    BAFX_CHECK(simulation.snapshot(goldenViewport, 700ms).trail.empty());
+}
+
 BAFX_TEST(pointer_cancel_enters_the_same_rendered_frame_cleanup_as_release)
 {
     Simulation simulation;

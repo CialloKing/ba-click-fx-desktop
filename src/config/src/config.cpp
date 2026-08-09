@@ -1756,6 +1756,25 @@ std::string_view toString(const BloomQuality quality) noexcept
     return "high";
 }
 
+float bloomDiffusionForQuality(const BloomQuality quality) noexcept
+{
+    switch (quality)
+    {
+    case BloomQuality::Low:
+        return 4.0F;
+    case BloomQuality::Medium:
+        return 6.0F;
+    case BloomQuality::High:
+        return 7.0F;
+    case BloomQuality::Ultra:
+        return 10.0F;
+    }
+
+    // A malformed enum must retain the reference visual rather than select a
+    // stronger pyramid unexpectedly. Config validation rejects it upstream.
+    return 7.0F;
+}
+
 std::string_view toString(const FramePacing pacing) noexcept
 {
     switch (pacing)

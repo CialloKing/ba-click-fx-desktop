@@ -19,6 +19,8 @@ constexpr float dragShapeRadiusWorld = 0.15F * triangleLocalScale;
 constexpr float dragEmissionStepWorld = 1.0F / 5.0F;
 constexpr float trailPointStepWorld = 0.01F;
 constexpr float trailLifetimeSeconds = 0.3F;
+constexpr float minimumTrailLengthMultiplier = 0.0F;
+constexpr float maximumTrailLengthMultiplier = 3.0F;
 constexpr float trailWidthWorld = 0.005F;
 constexpr float ringLifetimeSeconds = 0.6F;
 constexpr float ringAngularVelocityMultiplier = 11.170107F;
@@ -45,6 +47,19 @@ struct ColorKey
 [[nodiscard]] float clampUnit(const float value) noexcept
 {
     return std::clamp(value, 0.0F, 1.0F);
+}
+
+[[nodiscard]] float normalizeTrailLengthMultiplier(const float multiplier) noexcept
+{
+    if (!std::isfinite(multiplier))
+    {
+        return 1.0F;
+    }
+
+    return std::clamp(
+        multiplier,
+        minimumTrailLengthMultiplier,
+        maximumTrailLengthMultiplier);
 }
 
 template<std::size_t keyCount>
@@ -386,6 +401,17 @@ Simulation::Simulation(const std::uint64_t seed)
     trail_.reserve(128);
 }
 
+void Simulation::setTrailLengthMultiplier(const float multiplier) noexcept
+{
+    trailLengthMultiplier_ = normalizeTrailLengthMultiplier(multiplier);
+    if (trailLengthMultiplier_ == 0.0F)
+    {
+        // A zero-length product setting must remove retained geometry now,
+        // otherwise a paused renderer could present one stale trail frame.
+        trail_.clear();
+    }
+}
+
 void Simulation::pointerDown(
     const PointF screenPosition,
     const Viewport viewport,
@@ -448,12 +474,15 @@ void Simulation::advance(const SimulationTime time)
     }
 
     lastAdvancedAt_ = time;
+    const double effectiveTrailLifetime = static_cast<double>(trailLifetimeSeconds)
+        * static_cast<double>(trailLengthMultiplier_);
     const auto trailEnd = std::remove_if(
         trail_.begin(),
         trail_.end(),
-        [time](const StoredTrailPoint& point)
+        [time, effectiveTrailLifetime](const StoredTrailPoint& point)
         {
-            return ageSeconds(time, point.createdAt) > trailLifetimeSeconds;
+            return effectiveTrailLifetime <= 0.0
+                || ageSeconds(time, point.createdAt) > effectiveTrailLifetime;
         });
     trail_.erase(trailEnd, trail_.end());
 
@@ -580,10 +609,12 @@ FrameSnapshot Simulation::snapshot(const Viewport viewport, const SimulationTime
             false});
     }
 
+    const double effectiveTrailLifetime = static_cast<double>(trailLifetimeSeconds)
+        * static_cast<double>(trailLengthMultiplier_);
     for (const StoredTrailPoint& point : trail_)
     {
         const float normalizedAge = clampUnit(
-            static_cast<float>(ageSeconds(time, point.createdAt) / trailLifetimeSeconds));
+            static_cast<float>(ageSeconds(time, point.createdAt) / effectiveTrailLifetime));
         frame.trail.push_back(TrailPoint{worldToScreen(point.world, viewport), normalizedAge});
     }
 
@@ -725,6 +756,11 @@ void Simulation::emitDragTriangle(const PointF worldPosition, const SimulationTi
 
 void Simulation::appendTrailPoint(const PointF worldPosition, const SimulationTime time)
 {
+    if (trailLengthMultiplier_ <= 0.0F)
+    {
+        return;
+    }
+
     if (trail_.empty()
         || length(subtract(worldPosition, trail_.back().world)) >= trailPointStepWorld)
     {
