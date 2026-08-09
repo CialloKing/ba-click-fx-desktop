@@ -67,6 +67,7 @@ OverlayWindow::OverlayWindow(
     const DWORD extendedStyle = WS_EX_NOACTIVATE
         | WS_EX_TOOLWINDOW
         | WS_EX_TOPMOST
+        | WS_EX_LAYERED
         | WS_EX_TRANSPARENT
         | WS_EX_NOREDIRECTIONBITMAP;
     const std::wstring ownedTitle(title);
