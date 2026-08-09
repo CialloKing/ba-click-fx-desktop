@@ -129,25 +129,16 @@ void CompositionRenderer::createDevice()
     constexpr std::array featureLevels{
         D3D_FEATURE_LEVEL_11_1,
         D3D_FEATURE_LEVEL_11_0};
-    const UINT flags = D3D11_CREATE_DEVICE_BGRA_SUPPORT;
-
-    HRESULT result = D3D11CreateDevice(
-        nullptr,
-        D3D_DRIVER_TYPE_HARDWARE,
-        nullptr,
-        flags,
-        featureLevels.data(),
-        static_cast<UINT>(featureLevels.size()),
-        D3D11_SDK_VERSION,
-        &device_,
-        &featureLevel_,
-        &context_);
-    if (FAILED(result))
+    constexpr UINT baseFlags = D3D11_CREATE_DEVICE_BGRA_SUPPORT;
+    const auto create = [this, &featureLevels](
+                            const D3D_DRIVER_TYPE driver,
+                            const UINT flags)
     {
-        // WARP keeps the FX-only path usable when a hardware device cannot be created.
-        result = D3D11CreateDevice(
+        device_.Reset();
+        context_.Reset();
+        return D3D11CreateDevice(
             nullptr,
-            D3D_DRIVER_TYPE_WARP,
+            driver,
             nullptr,
             flags,
             featureLevels.data(),
@@ -156,6 +147,24 @@ void CompositionRenderer::createDevice()
             &device_,
             &featureLevel_,
             &context_);
+    };
+
+#if defined(_DEBUG)
+    HRESULT result = create(
+        D3D_DRIVER_TYPE_HARDWARE,
+        baseFlags | D3D11_CREATE_DEVICE_DEBUG);
+    if (result == DXGI_ERROR_SDK_COMPONENT_MISSING)
+    {
+        // End-user machines often omit Graphics Tools; diagnostics must remain optional.
+        result = create(D3D_DRIVER_TYPE_HARDWARE, baseFlags);
+    }
+#else
+    HRESULT result = create(D3D_DRIVER_TYPE_HARDWARE, baseFlags);
+#endif
+    if (FAILED(result))
+    {
+        // WARP keeps the FX-only path usable when a hardware device cannot be created.
+        result = create(D3D_DRIVER_TYPE_WARP, baseFlags);
     }
     throwIfFailed(result, "D3D11CreateDevice");
 }
