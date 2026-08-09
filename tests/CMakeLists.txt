@@ -77,4 +77,34 @@ if(WIN32)
     bafx_enable_warnings(bafx_embedded_texture_tests)
     add_test(NAME embedded_unity_textures COMMAND bafx_embedded_texture_tests)
     set_target_properties(bafx_embedded_texture_tests PROPERTIES FOLDER "Tests")
+
+    add_executable(
+        bafx_shader_contract_tests
+        test_main.cpp
+        fx_shader_contract_tests.cpp
+    )
+    target_include_directories(
+        bafx_shader_contract_tests
+        PRIVATE
+            "${CMAKE_SOURCE_DIR}/src/windows/src"
+    )
+    target_link_libraries(bafx_shader_contract_tests PRIVATE d3dcompiler)
+    target_compile_features(bafx_shader_contract_tests PRIVATE cxx_std_20)
+    bafx_enable_warnings(bafx_shader_contract_tests)
+    add_test(NAME fx_shader_contract COMMAND bafx_shader_contract_tests)
+    set_target_properties(bafx_shader_contract_tests PROPERTIES FOLDER "Tests")
+
+    # Shader errors must fail a normal build before the desktop app first runs.
+    add_custom_target(
+        verify_embedded_fx_shaders ALL
+        COMMAND $<TARGET_FILE:bafx_shader_contract_tests>
+        DEPENDS bafx_shader_contract_tests
+        COMMENT "Compile and reflect all embedded FX shaders"
+        VERBATIM
+    )
+    set_target_properties(
+        verify_embedded_fx_shaders
+        PROPERTIES
+            FOLDER "Validation"
+    )
 endif()
