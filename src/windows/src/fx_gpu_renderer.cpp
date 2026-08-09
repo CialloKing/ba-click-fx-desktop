@@ -262,16 +262,17 @@ makeRingVertices(const bafx::fx::Sprite& sprite) noexcept
 }
 
 [[nodiscard]] std::vector<SpriteVertex> makeTrailVertices(
-    const bafx::fx::FrameSnapshot& snapshot)
+    const std::span<const bafx::fx::TrailPoint> trail,
+    const float trailWidthPixels)
 {
-    if (snapshot.trail.size() < 2U || snapshot.trailWidthPixels <= 0.0F)
+    if (trail.size() < 2U || trailWidthPixels <= 0.0F)
     {
         return {};
     }
 
     std::vector<bafx::core::UnityTrailPoint> points;
-    points.reserve(snapshot.trail.size());
-    for (const bafx::fx::TrailPoint& point : snapshot.trail)
+    points.reserve(trail.size());
+    for (const bafx::fx::TrailPoint& point : trail)
     {
         points.push_back(bafx::core::UnityTrailPoint{
             point.positionPixels.x,
@@ -280,7 +281,7 @@ makeRingVertices(const bafx::fx::Sprite& sprite) noexcept
 
     const bafx::core::UnityTrailMesh mesh = bafx::core::makeUnityTrailMesh(
         points,
-        snapshot.trailWidthPixels);
+        trailWidthPixels);
     std::vector<SpriteVertex> vertices;
     vertices.reserve(mesh.vertices.size());
     for (const bafx::core::UnityTrailVertex& vertex : mesh.vertices)
@@ -865,7 +866,10 @@ struct FxGpuRenderer::Implementation
         ID3D11RenderTargetView* destination)
     {
         constexpr std::array<float, 4> transparent{0.0F, 0.0F, 0.0F, 0.0F};
-        if (!snapshot.active && snapshot.sprites.empty() && snapshot.trail.empty())
+        if (!snapshot.active
+            && snapshot.sprites.empty()
+            && snapshot.trail.empty()
+            && snapshot.trailStrokes.empty())
         {
             context->ClearRenderTargetView(destination, transparent.data());
             return;
@@ -888,13 +892,31 @@ struct FxGpuRenderer::Implementation
             drawSprite(snapshot.sprites[index]);
             ++index;
         }
-        const std::vector<SpriteVertex> trailVertices = makeTrailVertices(snapshot);
-        drawVertices(
-            trailVertices,
-            trailTexture.Get(),
-            repeatSampler.Get(),
-            additivePixelShader.Get(),
-            emissionBlendState.Get());
+        const auto drawTrail = [this](
+                                   const std::span<const bafx::fx::TrailPoint> points,
+                                   const float widthPixels)
+        {
+            const std::vector<SpriteVertex> trailVertices = makeTrailVertices(
+                points,
+                widthPixels);
+            drawVertices(
+                trailVertices,
+                trailTexture.Get(),
+                repeatSampler.Get(),
+                additivePixelShader.Get(),
+                emissionBlendState.Get());
+        };
+        if (snapshot.trailStrokes.empty())
+        {
+            drawTrail(snapshot.trail, snapshot.trailWidthPixels);
+        }
+        else
+        {
+            for (const bafx::fx::TrailStroke& stroke : snapshot.trailStrokes)
+            {
+                drawTrail(stroke.points, stroke.widthPixels);
+            }
+        }
         while (index < snapshot.sprites.size())
         {
             drawSprite(snapshot.sprites[index]);

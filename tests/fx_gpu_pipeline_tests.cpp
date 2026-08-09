@@ -65,6 +65,13 @@ struct RenderTarget
     ComPtr<ID3D11RenderTargetView> view{};
 };
 
+struct WarpDevice
+{
+    ComPtr<ID3D11Device> device{};
+    ComPtr<ID3D11DeviceContext> context{};
+    D3D_FEATURE_LEVEL featureLevel{D3D_FEATURE_LEVEL_11_0};
+};
+
 [[nodiscard]] float halfToFloat(const std::uint16_t value) noexcept
 {
     const bool negative = (value & 0x8000U) != 0U;
@@ -111,6 +118,28 @@ struct RenderTarget
         device->CreateRenderTargetView(target.texture.Get(), nullptr, &target.view),
         "ID3D11Device::CreateRenderTargetView(WARP destination)");
     return target;
+}
+
+[[nodiscard]] WarpDevice createWarpDevice()
+{
+    constexpr std::array featureLevels{
+        D3D_FEATURE_LEVEL_11_1,
+        D3D_FEATURE_LEVEL_11_0};
+    WarpDevice graphics{};
+    throwIfFailed(
+        D3D11CreateDevice(
+            nullptr,
+            D3D_DRIVER_TYPE_WARP,
+            nullptr,
+            D3D11_CREATE_DEVICE_BGRA_SUPPORT,
+            featureLevels.data(),
+            static_cast<UINT>(featureLevels.size()),
+            D3D11_SDK_VERSION,
+            &graphics.device,
+            &graphics.featureLevel,
+            &graphics.context),
+        "D3D11CreateDevice(WARP)");
+    return graphics;
 }
 
 [[nodiscard]] ComPtr<ID3D11Texture2D> createStagingTexture(ID3D11Device* device)
@@ -186,6 +215,26 @@ struct RenderTarget
     return snapshot;
 }
 
+[[nodiscard]] bafx::fx::FrameSnapshot makeTwoTrailSnapshot()
+{
+    bafx::fx::FrameSnapshot snapshot{};
+    snapshot.active = true;
+    snapshot.trailStrokes = {
+        bafx::fx::TrailStroke{
+            {
+                bafx::fx::TrailPoint{bafx::fx::PointF{24.0F, 64.0F}, 0.0F},
+                bafx::fx::TrailPoint{bafx::fx::PointF{112.0F, 64.0F}, 0.0F},
+            },
+            8.0F},
+        bafx::fx::TrailStroke{
+            {
+                bafx::fx::TrailPoint{bafx::fx::PointF{144.0F, 192.0F}, 0.0F},
+                bafx::fx::TrailPoint{bafx::fx::PointF{232.0F, 192.0F}, 0.0F},
+            },
+            8.0F}};
+    return snapshot;
+}
+
 [[nodiscard]] float maximumRgbOutsideSprite(
     const std::vector<ReadbackPixel>& pixels) noexcept
 {
@@ -204,6 +253,28 @@ struct RenderTarget
             {
                 continue;
             }
+            const ReadbackPixel& pixel =
+                pixels[static_cast<std::size_t>(y) * testSize.width + x];
+            maximum = std::max(
+                maximum,
+                std::max({pixel.red, pixel.green, pixel.blue}));
+        }
+    }
+    return maximum;
+}
+
+[[nodiscard]] float maximumRgbInBox(
+    const std::vector<ReadbackPixel>& pixels,
+    const std::uint32_t left,
+    const std::uint32_t top,
+    const std::uint32_t right,
+    const std::uint32_t bottom) noexcept
+{
+    float maximum = 0.0F;
+    for (std::uint32_t y = top; y < bottom; ++y)
+    {
+        for (std::uint32_t x = left; x < right; ++x)
+        {
             const ReadbackPixel& pixel =
                 pixels[static_cast<std::size_t>(y) * testSize.width + x];
             maximum = std::max(
@@ -234,40 +305,22 @@ void checkFiniteAndNonNegative(const std::vector<ReadbackPixel>& pixels)
 BAFX_TEST(warp_pipeline_separates_direct_emission_and_multilevel_bloom_seed)
 {
     ComApartment apartment;
-    constexpr std::array featureLevels{
-        D3D_FEATURE_LEVEL_11_1,
-        D3D_FEATURE_LEVEL_11_0};
-    ComPtr<ID3D11Device> device;
-    ComPtr<ID3D11DeviceContext> context;
-    D3D_FEATURE_LEVEL selectedFeatureLevel = D3D_FEATURE_LEVEL_11_0;
-    throwIfFailed(
-        D3D11CreateDevice(
-            nullptr,
-            D3D_DRIVER_TYPE_WARP,
-            nullptr,
-            D3D11_CREATE_DEVICE_BGRA_SUPPORT,
-            featureLevels.data(),
-            static_cast<UINT>(featureLevels.size()),
-            D3D11_SDK_VERSION,
-            &device,
-            &selectedFeatureLevel,
-            &context),
-        "D3D11CreateDevice(WARP)");
-    BAFX_CHECK(selectedFeatureLevel >= D3D_FEATURE_LEVEL_11_0);
+    const WarpDevice graphics = createWarpDevice();
+    BAFX_CHECK(graphics.featureLevel >= D3D_FEATURE_LEVEL_11_0);
 
-    FxGpuRenderer renderer(device.Get(), context.Get(), testSize);
-    const RenderTarget withoutBloom = createRenderTarget(device.Get());
+    FxGpuRenderer renderer(graphics.device.Get(), graphics.context.Get(), testSize);
+    const RenderTarget withoutBloom = createRenderTarget(graphics.device.Get());
     renderer.render(makeDiskSnapshot(false), withoutBloom.view.Get());
     const std::vector<ReadbackPixel> directPixels = readback(
-        device.Get(),
-        context.Get(),
+        graphics.device.Get(),
+        graphics.context.Get(),
         withoutBloom.texture.Get());
 
-    const RenderTarget withBloom = createRenderTarget(device.Get());
+    const RenderTarget withBloom = createRenderTarget(graphics.device.Get());
     renderer.render(makeDiskSnapshot(true), withBloom.view.Get());
     const std::vector<ReadbackPixel> bloomPixels = readback(
-        device.Get(),
-        context.Get(),
+        graphics.device.Get(),
+        graphics.context.Get(),
         withBloom.texture.Get());
 
     checkFiniteAndNonNegative(directPixels);
@@ -283,4 +336,22 @@ BAFX_TEST(warp_pipeline_separates_direct_emission_and_multilevel_bloom_seed)
         1.0e-3F);
     BAFX_CHECK(maximumRgbOutsideSprite(directPixels) <= 1.0e-6F);
     BAFX_CHECK(maximumRgbOutsideSprite(bloomPixels) > 1.0e-3F);
+}
+
+BAFX_TEST(warp_pipeline_renders_every_retained_trail_stroke)
+{
+    ComApartment apartment;
+    const WarpDevice graphics = createWarpDevice();
+    FxGpuRenderer renderer(graphics.device.Get(), graphics.context.Get(), testSize);
+    const RenderTarget target = createRenderTarget(graphics.device.Get());
+
+    renderer.render(makeTwoTrailSnapshot(), target.view.Get());
+    const std::vector<ReadbackPixel> pixels = readback(
+        graphics.device.Get(),
+        graphics.context.Get(),
+        target.texture.Get());
+
+    checkFiniteAndNonNegative(pixels);
+    BAFX_CHECK(maximumRgbInBox(pixels, 16U, 48U, 120U, 80U) > 1.0e-3F);
+    BAFX_CHECK(maximumRgbInBox(pixels, 136U, 176U, 240U, 208U) > 1.0e-3F);
 }

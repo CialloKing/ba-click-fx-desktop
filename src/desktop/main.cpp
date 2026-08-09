@@ -1,5 +1,5 @@
 #include "bafx/desktop/version.hpp"
-#include "bafx/fx/simulation.hpp"
+#include "bafx/fx/simulation_runtime.hpp"
 #include "bafx/windows/composition_renderer.hpp"
 #include "bafx/windows/error.hpp"
 #include "bafx/windows/overlay_window.hpp"
@@ -226,7 +226,7 @@ void dispatchMessages(bool& quit)
 
 void consumePointerEvents(
     bafx::windows::OverlayWindow& window,
-    bafx::fx::Simulation& simulation,
+    bafx::fx::SimulationRuntime& simulation,
     const QpcClock& clock)
 {
     const bafx::fx::Viewport viewport = toViewport(window.size());
@@ -320,7 +320,7 @@ int runApplication(
         throw std::runtime_error("Desktop smoke test could not identify the D3D11 adapter");
     }
     renderer.setReadbackDiagnostics(options.smokeTest);
-    bafx::fx::Simulation simulation;
+    bafx::fx::SimulationRuntime simulation;
     window.show();
 
     std::optional<bafx::fx::SimulationTime> demoStartedAt;
