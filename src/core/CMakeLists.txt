@@ -7,6 +7,7 @@ add_library(
         src/material.cpp
         src/roi.cpp
         src/unity_bloom.cpp
+        src/unity_ring_mesh.cpp
 )
 add_library(bafx::core ALIAS bafx_core)
 
@@ -24,4 +25,3 @@ set_target_properties(
     PROPERTIES
         FOLDER "Libraries"
 )
-
