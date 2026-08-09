@@ -1,0 +1,49 @@
+#pragma once
+
+#include "bafx/windows/composition_renderer.hpp"
+
+#include <filesystem>
+#include <string>
+#include <string_view>
+
+namespace bafx::windows
+{
+
+class SupportReport final
+{
+public:
+    explicit SupportReport(std::string_view version);
+
+    void setPrimaryMonitor(RECT bounds);
+    void setDeviceInfo(const GraphicsDeviceInfo& info);
+    void setLogPath(const std::filesystem::path& path);
+    void setFailure(std::string_view failure);
+
+    [[nodiscard]] std::string serialize() const;
+
+private:
+    std::string version_;
+    std::string osVersion_;
+    std::string architecture_;
+    std::string primaryMonitor_;
+    std::string logPath_;
+    std::string failure_;
+    GraphicsDeviceInfo deviceInfo_{};
+    bool hasDeviceInfo_{false};
+};
+
+[[nodiscard]] std::filesystem::path defaultDiagnosticLogPath();
+
+void writeSupportReport(
+    const std::filesystem::path& path,
+    const SupportReport& report);
+
+void appendDiagnosticLog(
+    const std::filesystem::path& path,
+    std::string_view event) noexcept;
+
+void appendDiagnosticLog(
+    const std::filesystem::path& path,
+    const SupportReport& report) noexcept;
+
+}

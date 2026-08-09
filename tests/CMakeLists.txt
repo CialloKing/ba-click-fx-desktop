@@ -58,6 +58,17 @@ if(WIN32)
     set_target_properties(bafx_windows_tests PROPERTIES FOLDER "Tests")
 
     add_executable(
+        bafx_runtime_diagnostics_tests
+        test_main.cpp
+        runtime_diagnostics_tests.cpp
+    )
+    target_link_libraries(bafx_runtime_diagnostics_tests PRIVATE bafx::windows)
+    target_compile_features(bafx_runtime_diagnostics_tests PRIVATE cxx_std_20)
+    bafx_enable_warnings(bafx_runtime_diagnostics_tests)
+    add_test(NAME runtime_diagnostics COMMAND bafx_runtime_diagnostics_tests)
+    set_target_properties(bafx_runtime_diagnostics_tests PROPERTIES FOLDER "Tests")
+
+    add_executable(
         bafx_embedded_texture_tests
         test_main.cpp
         embedded_unity_textures_tests.cpp

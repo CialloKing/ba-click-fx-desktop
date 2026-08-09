@@ -5,6 +5,7 @@ add_library(
         src/embedded_unity_textures.cpp
         src/fx_gpu_renderer.cpp
         src/overlay_window.cpp
+        src/runtime_diagnostics.cpp
         src/wic_texture_loader.cpp
 )
 add_library(bafx::windows ALIAS bafx_windows)

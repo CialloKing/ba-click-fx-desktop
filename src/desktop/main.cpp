@@ -1,7 +1,9 @@
+#include "bafx/desktop/version.hpp"
 #include "bafx/fx/simulation.hpp"
 #include "bafx/windows/composition_renderer.hpp"
 #include "bafx/windows/error.hpp"
 #include "bafx/windows/overlay_window.hpp"
+#include "bafx/windows/runtime_diagnostics.hpp"
 
 #include <windows.h>
 
@@ -11,6 +13,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <exception>
+#include <filesystem>
 #include <optional>
 #include <stdexcept>
 #include <string_view>
@@ -91,6 +94,8 @@ struct RunOptions
 {
     std::optional<std::uint32_t> frameLimit{};
     std::optional<std::uint32_t> demoAgeMilliseconds{};
+    std::optional<std::filesystem::path> supportInfoPath{};
+    bool supportInfoOnly{false};
     bool smokeTest{false};
     bool demoClick{false};
 };
@@ -108,6 +113,19 @@ struct RunOptions
             options.demoClick = true;
             options.demoAgeMilliseconds = 130U;
             options.frameLimit = 3U;
+        }
+        else if (argument == L"--support-info")
+        {
+            options.supportInfoPath = std::filesystem::path(L"ba-click-fx-support.txt");
+            options.supportInfoOnly = true;
+        }
+        else if (argument.starts_with(L"--support-info="))
+        {
+            const std::wstring_view value = argument.substr(15);
+            options.supportInfoPath = value.empty()
+                ? std::filesystem::path(L"ba-click-fx-support.txt")
+                : std::filesystem::path(std::wstring(value));
+            options.supportInfoOnly = true;
         }
         else if (argument == L"--demo-click")
         {
@@ -210,7 +228,11 @@ void consumePointerEvents(
     }
 }
 
-int runApplication(const HINSTANCE instance, const RunOptions options)
+int runApplication(
+    const HINSTANCE instance,
+    const RunOptions options,
+    bafx::windows::SupportReport& report,
+    const std::filesystem::path& logPath)
 {
     if (!SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2)
         && GetLastError() != ERROR_ACCESS_DENIED)
@@ -220,11 +242,20 @@ int runApplication(const HINSTANCE instance, const RunOptions options)
 
     ComApartment apartment;
     QpcClock clock;
+    const RECT monitorBounds = primaryMonitorBounds();
+    report.setPrimaryMonitor(monitorBounds);
     bafx::windows::OverlayWindow window(
         instance,
-        primaryMonitorBounds(),
+        monitorBounds,
         L"ba-click-fx-desktop");
     bafx::windows::CompositionRenderer renderer(window.handle(), window.size());
+    report.setDeviceInfo(renderer.deviceInfo());
+    bafx::windows::appendDiagnosticLog(logPath, report);
+    if (options.supportInfoOnly)
+    {
+        bafx::windows::writeSupportReport(*options.supportInfoPath, report);
+        return 0;
+    }
     if (options.smokeTest && renderer.deviceInfo().adapterDescription.empty())
     {
         throw std::runtime_error("Desktop smoke test could not identify the D3D11 adapter");
@@ -321,12 +352,31 @@ int runApplication(const HINSTANCE instance, const RunOptions options)
 int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int)
 {
     const RunOptions options = parseOptions();
+    const std::filesystem::path logPath = bafx::windows::defaultDiagnosticLogPath();
+    bafx::windows::SupportReport report(bafx::desktop::version);
+    report.setLogPath(logPath);
+    bafx::windows::appendDiagnosticLog(logPath, "Startup");
     try
     {
-        return runApplication(instance, options);
+        const int result = runApplication(instance, options, report, logPath);
+        bafx::windows::appendDiagnosticLog(logPath, "Exited");
+        return result;
     }
     catch (const std::exception& error)
     {
+        report.setFailure(error.what());
+        bafx::windows::appendDiagnosticLog(logPath, report);
+        if (options.supportInfoPath.has_value())
+        {
+            try
+            {
+                bafx::windows::writeSupportReport(*options.supportInfoPath, report);
+            }
+            catch (...)
+            {
+                // Preserve the original startup failure when the requested path is unavailable.
+            }
+        }
         if (options.smokeTest)
         {
             OutputDebugStringA(error.what());

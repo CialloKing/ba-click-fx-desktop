@@ -201,7 +201,7 @@ void CompositionRenderer::collectDeviceInfo()
 
     LARGE_INTEGER driverVersion{};
     const HRESULT driverResult = adapter->CheckInterfaceSupport(
-        __uuidof(ID3D11Device),
+        __uuidof(IDXGIDevice),
         &driverVersion);
     if (SUCCEEDED(driverResult))
     {
