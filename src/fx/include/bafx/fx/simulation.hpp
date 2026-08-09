@@ -74,6 +74,7 @@ public:
     void pointerMove(PointF screenPosition, Viewport viewport, SimulationTime time);
     void pointerUp(SimulationTime time);
     void advance(SimulationTime time);
+    void onFrameRendered();
 
     [[nodiscard]] FrameSnapshot snapshot(Viewport viewport, SimulationTime time) const;
     [[nodiscard]] bool active() const noexcept;
@@ -86,8 +87,6 @@ private:
         SimulationTime bornAt{};
         float lifetimeSeconds{0.0F};
         float startSizeWorld{0.0F};
-        float rotationRadians{0.0F};
-        float angularVelocity{0.0F};
         std::uint32_t atlasFrame{0};
         bool dragParticle{false};
     };
@@ -134,7 +133,6 @@ private:
     bool pointerHeld_{false};
     SimulationTime startedAt_{};
     SimulationTime lastAdvancedAt_{};
-    SimulationTime releasedAt_{};
     std::uint32_t releasedFrames_{0};
     PointF effectOriginWorld_{};
     PointF pointerWorld_{};
@@ -146,4 +144,3 @@ private:
 };
 
 }
-

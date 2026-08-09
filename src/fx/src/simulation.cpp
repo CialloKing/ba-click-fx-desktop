@@ -11,24 +11,74 @@ namespace bafx::fx
 namespace
 {
 
-constexpr float rootScale = 0.3078824F;
-constexpr float clickShapeRadiusWorld = 0.3F * rootScale;
-constexpr float dragShapeRadiusWorld = 0.15F * rootScale;
+constexpr float triangleLocalScale = 0.3078824F;
+constexpr float clickShapeRadiusWorld = 0.3F * triangleLocalScale;
+constexpr float dragShapeRadiusWorld = 0.15F * triangleLocalScale;
 constexpr float dragEmissionStepWorld = 1.0F / 5.0F;
 constexpr float trailPointStepWorld = 0.01F;
 constexpr float trailLifetimeSeconds = 0.3F;
 constexpr float trailWidthWorld = 0.005F;
 constexpr std::uint32_t maximumDragParticles = 50U;
+constexpr std::uint32_t releaseFrameCount = 60U;
+
+struct CurveKey
+{
+    float time{0.0F};
+    float value{0.0F};
+    float inSlope{0.0F};
+    float outSlope{0.0F};
+};
+
+struct ColorKey
+{
+    float time{0.0F};
+    ColorF color{};
+};
 
 [[nodiscard]] float clampUnit(const float value) noexcept
 {
     return std::clamp(value, 0.0F, 1.0F);
 }
 
-[[nodiscard]] float smoothStep(const float value) noexcept
+template<std::size_t keyCount>
+[[nodiscard]] float evaluateHermiteCurve(
+    const std::array<CurveKey, keyCount>& keys,
+    const float time) noexcept
 {
-    const float t = clampUnit(value);
-    return t * t * (3.0F - 2.0F * t);
+    static_assert(keyCount > 0U);
+    if (time <= keys.front().time)
+    {
+        return keys.front().value;
+    }
+    if (time >= keys.back().time)
+    {
+        return keys.back().value;
+    }
+
+    for (std::size_t index = 1U; index < keys.size(); ++index)
+    {
+        const CurveKey& right = keys[index];
+        if (time > right.time)
+        {
+            continue;
+        }
+
+        const CurveKey& left = keys[index - 1U];
+        const float duration = right.time - left.time;
+        const float t = (time - left.time) / duration;
+        const float tSquared = t * t;
+        const float tCubed = tSquared * t;
+        const float h00 = 2.0F * tCubed - 3.0F * tSquared + 1.0F;
+        const float h10 = tCubed - 2.0F * tSquared + t;
+        const float h01 = -2.0F * tCubed + 3.0F * tSquared;
+        const float h11 = tCubed - tSquared;
+        return h00 * left.value
+            + h10 * duration * left.outSlope
+            + h01 * right.value
+            + h11 * duration * right.inSlope;
+    }
+
+    return keys.back().value;
 }
 
 [[nodiscard]] float length(const PointF value) noexcept
@@ -69,47 +119,65 @@ constexpr std::uint32_t maximumDragParticles = 50U;
         from.a + (to.a - from.a) * t};
 }
 
+template<std::size_t keyCount>
+[[nodiscard]] ColorF evaluateColorGradient(
+    const std::array<ColorKey, keyCount>& keys,
+    const float time) noexcept
+{
+    static_assert(keyCount > 0U);
+    if (time <= keys.front().time)
+    {
+        return keys.front().color;
+    }
+    for (std::size_t index = 1U; index < keys.size(); ++index)
+    {
+        if (time <= keys[index].time)
+        {
+            const float amount = (time - keys[index - 1U].time)
+                / (keys[index].time - keys[index - 1U].time);
+            return lerpColor(keys[index - 1U].color, keys[index].color, amount);
+        }
+    }
+    return keys.back().color;
+}
+
 [[nodiscard]] float diskSizeCurve(const float normalizedAge) noexcept
 {
-    if (normalizedAge <= 0.2139282F)
-    {
-        const float segment = normalizedAge / 0.2139282F;
-        return 2.0F * (0.3258358F + (0.7159773F - 0.3258358F) * smoothStep(segment));
-    }
-    const float segment = (normalizedAge - 0.2139282F) / (1.0F - 0.2139282F);
-    return 2.0F * (0.7159773F + (1.0F - 0.7159773F) * smoothStep(segment));
+    constexpr std::array keys{
+        CurveKey{0.0F, 0.32583582F, 2.4004734F, 2.4004734F},
+        CurveKey{0.21392822F, 0.7159773F, 0.9115745F, 0.9115745F},
+        CurveKey{1.0F, 1.0F, 0.0F, 0.0F}};
+    return 2.0F * evaluateHermiteCurve(keys, normalizedAge);
 }
 
 [[nodiscard]] float ringSizeCurve(const float normalizedAge) noexcept
 {
-    if (normalizedAge <= 0.2139282F)
-    {
-        const float segment = normalizedAge / 0.2139282F;
-        return 0.420509F + (0.7159773F - 0.420509F) * smoothStep(segment);
-    }
-    const float segment = (normalizedAge - 0.2139282F) / (1.0F - 0.2139282F);
-    return 0.7159773F + (1.0F - 0.7159773F) * smoothStep(segment);
+    constexpr std::array keys{
+        CurveKey{0.007209778F, 0.42050898F, 2.4004734F, 2.4004734F},
+        CurveKey{0.21392822F, 0.7159773F, 0.9115745F, 0.9115745F},
+        CurveKey{1.0F, 1.0F, 0.0F, 0.0F}};
+    return evaluateHermiteCurve(keys, normalizedAge);
 }
 
 [[nodiscard]] float triangleSizeCurve(const float normalizedAge) noexcept
 {
-    if (normalizedAge <= 0.154451F)
-    {
-        return smoothStep(normalizedAge / 0.154451F);
-    }
-    return 1.0F - smoothStep((normalizedAge - 0.154451F) / (1.0F - 0.154451F));
+    constexpr std::array keys{
+        CurveKey{0.0F, 0.0F, 0.0F, 0.0F},
+        CurveKey{0.15445095F, 1.0F, 0.0F, 0.0F},
+        CurveKey{1.0F, 0.0F, -2.1621501F, -2.1621501F}};
+    return evaluateHermiteCurve(keys, normalizedAge);
 }
 
 [[nodiscard]] float triangleAlphaCurve(const float normalizedAge) noexcept
 {
     constexpr std::array times{
-        0.2882429F,
-        0.3647059F,
-        0.4705882F,
-        0.5735256F,
-        0.6676432F,
-        0.7558862F,
-        0.8529488F,
+        0.288242924F,
+        0.364705882F,
+        0.470588235F,
+        0.573525597F,
+        0.667643244F,
+        0.755886168F,
+        0.852948806F,
         1.0F};
     constexpr std::array values{1.0F, 0.0F, 1.0F, 0.0F, 1.0F, 0.0F, 1.0F, 1.0F};
 
@@ -132,10 +200,10 @@ constexpr std::uint32_t maximumDragParticles = 50U;
 [[nodiscard]] ColorF diskColor(const float normalizedAge) noexcept
 {
     const ColorF white{1.0F, 1.0F, 1.0F, 1.0F};
-    const ColorF blue{0.241F, 0.391F, 1.0F, 1.0F};
-    const float colorT = normalizedAge / 0.1205921F;
+    const ColorF blue{0.24056602F, 0.39061815F, 1.0F, 1.0F};
+    const float colorT = normalizedAge / 0.120592050F;
     ColorF color = lerpColor(white, blue, colorT);
-    const float fadeStart = 0.1088273F;
+    const float fadeStart = 0.108827344F;
     color.a = normalizedAge <= fadeStart
         ? 1.0F
         : 1.0F - (normalizedAge - fadeStart) / (1.0F - fadeStart);
@@ -146,33 +214,43 @@ constexpr std::uint32_t maximumDragParticles = 50U;
 [[nodiscard]] ColorF ringColor(const float normalizedAge) noexcept
 {
     const ColorF white{1.0F, 1.0F, 1.0F, 1.0F};
-    const ColorF blue{0.297F, 0.653F, 1.0F, 1.0F};
-    if (normalizedAge <= 0.1117723F)
+    const ColorF blue{0.2971698F, 0.6532865F, 1.0F, 1.0F};
+    if (normalizedAge <= 0.111772335F)
     {
         return white;
     }
     return lerpColor(
         white,
         blue,
-        (normalizedAge - 0.1117723F) / (0.5000076F - 0.1117723F));
+        (normalizedAge - 0.111772335F) / (0.500007630F - 0.111772335F));
 }
 
 [[nodiscard]] ColorF triangleColor(const float normalizedAge) noexcept
 {
-    const ColorF initial{0.5377358F, 0.5377358F, 0.5377358F, 1.0F};
-    const ColorF blue{0.373F, 0.773F, 1.0F, 1.0F};
-    ColorF color = lerpColor(initial, blue, normalizedAge / 0.282353F);
-    color.a = triangleAlphaCurve(normalizedAge);
+    constexpr ColorF startColor{0.5377358F, 0.5377358F, 0.5377358F, 1.0F};
+    constexpr std::array keys{
+        ColorKey{0.182360571F, ColorF{1.0F, 1.0F, 1.0F, 1.0F}},
+        ColorKey{0.282352941F, ColorF{0.3726415F, 0.7731873F, 1.0F, 1.0F}},
+        ColorKey{0.461768521F, ColorF{0.37254903F, 0.7725491F, 1.0F, 1.0F}},
+        ColorKey{0.661768521F, ColorF{0.3529412F, 0.7294118F, 0.9450981F, 1.0F}},
+        ColorKey{0.826474403F, ColorF{0.37254903F, 0.7725491F, 1.0F, 1.0F}}};
+    const ColorF lifetimeColor = evaluateColorGradient(keys, normalizedAge);
+    ColorF color{
+        startColor.r * lifetimeColor.r,
+        startColor.g * lifetimeColor.g,
+        startColor.b * lifetimeColor.b,
+        startColor.a * lifetimeColor.a};
+    color.a *= triangleAlphaCurve(normalizedAge);
     return color;
 }
 
 [[nodiscard]] float dissolveThreshold(const float normalizedAge) noexcept
 {
-    if (normalizedAge <= 0.2F)
-    {
-        return 1.0F - normalizedAge / 0.2F;
-    }
-    return (normalizedAge - 0.2F) / 0.8F;
+    constexpr std::array keys{
+        CurveKey{0.0F, 1.0F, 0.0F, 0.0F},
+        CurveKey{0.2F, 0.0F, 0.0F, 2.4249368F},
+        CurveKey{1.0F, 1.0F, 0.27735636F, 0.27735636F}};
+    return evaluateHermiteCurve(keys, normalizedAge);
 }
 
 }
@@ -232,14 +310,13 @@ void Simulation::pointerMove(
     appendTrailPoint(pointerWorld_, time);
 }
 
-void Simulation::pointerUp(const SimulationTime time)
+void Simulation::pointerUp(const SimulationTime)
 {
     if (!active_ || !pointerHeld_)
     {
         return;
     }
     pointerHeld_ = false;
-    releasedAt_ = std::max(time, lastAdvancedAt_);
     releasedFrames_ = 0;
 }
 
@@ -268,18 +345,23 @@ void Simulation::advance(const SimulationTime time)
             return ageSeconds(time, particle.bornAt) > particle.lifetimeSeconds;
         });
     triangles_.erase(particleEnd, triangles_.end());
+}
 
-    if (!pointerHeld_)
+void Simulation::onFrameRendered()
+{
+    if (!active_ || pointerHeld_)
     {
-        ++releasedFrames_;
-        if (releasedFrames_ >= 60U)
-        {
-            // The game waits 60 rendered frames, then Stop clears Trail and returns the instance.
-            active_ = false;
-            rings_.clear();
-            triangles_.clear();
-            trail_.clear();
-        }
+        return;
+    }
+
+    ++releasedFrames_;
+    if (releasedFrames_ >= releaseFrameCount)
+    {
+        // Unity waits until the 60th frame has rendered before Stop clears the pooled effect.
+        active_ = false;
+        rings_.clear();
+        triangles_.clear();
+        trail_.clear();
     }
 }
 
@@ -316,10 +398,10 @@ FrameSnapshot Simulation::snapshot(const Viewport viewport, const SimulationTime
         const float normalizedAge = static_cast<float>(effectAge / 0.6);
         for (const RingParticle& ring : rings_)
         {
-            // Cylinder002 has approximately 2.12 units of full mesh extent.
+            // The reconstructed Cylinder002 AABB has a full extent of 2 * 1.0636685.
             const float size = ring.startSizeWorld
                 * ringSizeCurve(normalizedAge)
-                * 2.12F
+                * 2.127337F
                 * worldToPixels(viewport);
             frame.sprites.push_back(Sprite{
                 SpriteKind::DissolveRing,
@@ -354,8 +436,7 @@ FrameSnapshot Simulation::snapshot(const Viewport viewport, const SimulationTime
             particle.startSizeWorld
                 * triangleSizeCurve(normalizedAge)
                 * worldToPixels(viewport),
-            particle.rotationRadians
-                + particle.angularVelocity * static_cast<float>(age),
+            0.0F,
             triangleColor(normalizedAge),
             5.992157F,
             0.0F,
@@ -432,7 +513,6 @@ void Simulation::reset(const PointF worldPosition, const SimulationTime time)
     pointerHeld_ = true;
     startedAt_ = time;
     lastAdvancedAt_ = time;
-    releasedAt_ = SimulationTime{};
     releasedFrames_ = 0;
     effectOriginWorld_ = worldPosition;
     pointerWorld_ = worldPosition;
@@ -455,21 +535,17 @@ void Simulation::reset(const PointF worldPosition, const SimulationTime time)
 
 void Simulation::emitClickTriangles(const SimulationTime time)
 {
-    const float phase = random_.range(0.0F, 2.0F * std::numbers::pi_v<float>);
     for (std::uint32_t index = 0; index < 4U; ++index)
     {
-        const float angle = phase
-            + static_cast<float>(index) * (0.5F * std::numbers::pi_v<float>)
-            + random_.range(-0.18F, 0.18F);
+        // Unity's Circle arc is Random: burst particles sample independent positions.
+        const float angle = random_.range(0.0F, 2.0F * std::numbers::pi_v<float>);
         const PointF radial = direction(angle);
         triangles_.push_back(MovingParticle{
             add(effectOriginWorld_, multiply(radial, clickShapeRadiusWorld)),
-            multiply(radial, random_.range(0.3F, 0.4F) * rootScale),
+            multiply(radial, random_.range(0.3F, 0.4F) * triangleLocalScale),
             time,
             random_.range(0.6F, 0.7F),
-            random_.range(0.1F, 0.2F) * rootScale,
-            random_.range(0.0F, 2.0F * std::numbers::pi_v<float>),
-            random_.range(-4.0F, 4.0F),
+            random_.range(0.1F, 0.2F) * triangleLocalScale,
             index % 2U,
             false});
     }
@@ -493,12 +569,10 @@ void Simulation::emitDragTriangle(const PointF worldPosition, const SimulationTi
     const PointF radial = direction(angle);
     triangles_.push_back(MovingParticle{
         add(worldPosition, multiply(radial, dragShapeRadiusWorld)),
-        multiply(radial, random_.range(0.2F, 0.3F) * rootScale),
+        multiply(radial, random_.range(0.2F, 0.3F) * triangleLocalScale),
         time,
         random_.range(0.2F, 0.4F),
-        random_.range(0.1F, 0.2F) * rootScale,
-        random_.range(0.0F, 2.0F * std::numbers::pi_v<float>),
-        random_.range(-4.0F, 4.0F),
+        random_.range(0.1F, 0.2F) * triangleLocalScale,
         static_cast<std::uint32_t>(random_.unit() * 2.0F) % 2U,
         true});
 }
@@ -540,4 +614,3 @@ void Simulation::emitAlongDrag(
 }
 
 }
-
