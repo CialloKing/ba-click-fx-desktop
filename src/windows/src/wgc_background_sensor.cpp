@@ -244,6 +244,18 @@ struct WgcBackgroundSensor::Implementation
             itemClosedRegistered = true;
 
             session = framePool.CreateCaptureSession(item);
+            const auto borderSession = session.try_as<
+                winrt::Windows::Graphics::Capture::IGraphicsCaptureSession3>();
+            if (!borderSession)
+            {
+                throw HResultError(
+                    E_NOINTERFACE,
+                    "GraphicsCaptureSession border exclusion");
+            }
+            // A system capture border would be captured as desktop content and
+            // feed a visible feedback edge into the differential Bloom input.
+            borderSession.IsBorderRequired(false);
+
             const auto cursorSession = session.try_as<
                 winrt::Windows::Graphics::Capture::IGraphicsCaptureSession2>();
             if (!cursorSession)
