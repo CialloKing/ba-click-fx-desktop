@@ -368,7 +368,15 @@ int runApplication(
             renderer.resize(*resize);
         }
 
-        consumePointerEvents(window, simulation, clock);
+        if (options.demoClick)
+        {
+            // Fixed-age review frames must not inherit concurrent desktop input.
+            static_cast<void>(window.takePointerEvents());
+        }
+        else
+        {
+            consumePointerEvents(window, simulation, clock);
+        }
         const bafx::fx::SimulationTime wallTime = clock.now();
         if (options.quitAfterMilliseconds.has_value()
             && wallTime - applicationStartedAt
