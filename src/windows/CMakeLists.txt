@@ -7,6 +7,7 @@ add_library(
         src/gpu_texture_readback.cpp
         src/overlay_window.cpp
         src/runtime_diagnostics.cpp
+        src/wgc_background_sensor.cpp
         src/wic_texture_loader.cpp
 )
 add_library(bafx::windows ALIAS bafx_windows)
@@ -40,6 +41,7 @@ target_link_libraries(
         user32
     PRIVATE
         bafx::core
+        runtimeobject
         windowscodecs
 )
 bafx_enable_warnings(bafx_windows)
