@@ -216,6 +216,12 @@ void SupportReport::setDeviceInfo(const GraphicsDeviceInfo& info)
     hasDeviceInfo_ = true;
 }
 
+void SupportReport::setExitUiStatus(const ExitUiStatus& status)
+{
+    exitUiStatus_ = status;
+    hasExitUiStatus_ = true;
+}
+
 void SupportReport::setLogPath(const std::filesystem::path& path)
 {
     logPath_ = pathToUtf8(path);
@@ -273,6 +279,30 @@ std::string SupportReport::serialize() const
     {
         stream << "Graphics.DriverType=not-created\n";
     }
+
+    if (hasExitUiStatus_)
+    {
+        stream << "Exit.PrimaryHotKey="
+               << (exitUiStatus_.primaryHotKeyRegistered
+                       ? "registered"
+                       : "polling-fallback")
+               << '\n'
+               << "Exit.FallbackHotKey="
+               << (exitUiStatus_.fallbackHotKeyRegistered
+                       ? "registered"
+                       : "polling-fallback")
+               << '\n'
+               << "Exit.NotificationIcon="
+               << (exitUiStatus_.notificationIconAdded ? "available" : "unavailable")
+               << '\n';
+    }
+    else
+    {
+        stream << "Exit.PrimaryHotKey=not-created\n"
+               << "Exit.FallbackHotKey=not-created\n"
+               << "Exit.NotificationIcon=not-created\n";
+    }
+    stream << "Exit.PollingFallback=enabled\n";
 
     if (!failure_.empty())
     {

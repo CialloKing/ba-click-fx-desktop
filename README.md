@@ -66,7 +66,8 @@ Unity 材质 shader、MRT、FP16 预乘交换链和 DirectComposition present。
 build\alpha-x64\src\desktop\Debug\ba-click-fx-desktop.exe --demo-click
 ```
 
-Overlay 不抢焦点且保持鼠标穿透；`Ctrl+Alt+F12` 可退出。当前 smoke 仍不等同于
+Overlay 不抢焦点且保持鼠标穿透；右键通知区域图标可退出，也可按 `Ctrl+Alt+F12` 或备用的
+`Ctrl+Shift+F12`。即使组合键已被其他软件注册，轮询兜底仍会识别它。当前 smoke 仍不等同于
 HDR、跨适配器或 WGC 的 Spike 已通过。
 
 `embedded_unity_textures` 测试逐张锁定内嵌 PNG 的尺寸、字节数和 SHA-256。只有在更新

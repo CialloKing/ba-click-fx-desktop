@@ -2,10 +2,12 @@
 
 #include "bafx/windows/error.hpp"
 
+#include <shellapi.h>
 #include <windowsx.h>
 
 #include <algorithm>
 #include <cstddef>
+#include <iterator>
 #include <limits>
 #include <stdexcept>
 #include <string>
@@ -17,7 +19,11 @@ namespace
 {
 
 constexpr wchar_t windowClassName[] = L"BaClickFxDesktopOverlay";
-constexpr int exitHotKeyIdentifier = 0xBAF0;
+constexpr int primaryExitHotKeyIdentifier = 0xBAF0;
+constexpr int fallbackExitHotKeyIdentifier = 0xBAF1;
+constexpr UINT notificationIconIdentifier = 0xBAF2U;
+constexpr UINT notificationExitCommandIdentifier = 0xBAF3U;
+constexpr UINT notificationIconMessage = WM_APP + 1U;
 constexpr std::size_t maximumPendingPointerEvents = 2048U;
 
 [[nodiscard]] std::uint32_t checkedDimension(const LONG value)
@@ -91,20 +97,33 @@ OverlayWindow::OverlayWindow(
 
     pendingPointerEvents_.reserve(64);
     registerRawMouse();
-    exitHotKeyRegistered_ = RegisterHotKey(
+    primaryExitHotKeyRegistered_ = RegisterHotKey(
         window_,
-        exitHotKeyIdentifier,
+        primaryExitHotKeyIdentifier,
         MOD_CONTROL | MOD_ALT | MOD_NOREPEAT,
         VK_F12) != FALSE;
+    fallbackExitHotKeyRegistered_ = RegisterHotKey(
+        window_,
+        fallbackExitHotKeyIdentifier,
+        MOD_CONTROL | MOD_SHIFT | MOD_NOREPEAT,
+        VK_F12) != FALSE;
+    taskbarCreatedMessage_ = RegisterWindowMessageW(L"TaskbarCreated");
+    addNotificationIcon();
 }
 
 OverlayWindow::~OverlayWindow()
 {
     if (window_ != nullptr)
     {
-        if (exitHotKeyRegistered_)
+        removeNotificationIcon();
+        unregisterRawMouse();
+        if (primaryExitHotKeyRegistered_)
         {
-            UnregisterHotKey(window_, exitHotKeyIdentifier);
+            UnregisterHotKey(window_, primaryExitHotKeyIdentifier);
+        }
+        if (fallbackExitHotKeyRegistered_)
+        {
+            UnregisterHotKey(window_, fallbackExitHotKeyIdentifier);
         }
         DestroyWindow(window_);
     }
@@ -123,6 +142,14 @@ WindowSize OverlayWindow::size() const noexcept
 bool OverlayWindow::closeRequested() const noexcept
 {
     return closeRequested_;
+}
+
+ExitUiStatus OverlayWindow::exitUiStatus() const noexcept
+{
+    return ExitUiStatus{
+        primaryExitHotKeyRegistered_,
+        fallbackExitHotKeyRegistered_,
+        notificationIconAdded_};
 }
 
 std::optional<WindowSize> OverlayWindow::takePendingResize() noexcept
@@ -152,6 +179,21 @@ void OverlayWindow::show()
     {
         throwLastError("SetWindowPos");
     }
+}
+
+void OverlayWindow::pollExitShortcut() noexcept
+{
+    const bool f12Down = (GetAsyncKeyState(VK_F12) & 0x8000) != 0;
+    const bool controlDown = (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
+    const bool altDown = (GetAsyncKeyState(VK_MENU) & 0x8000) != 0;
+    const bool shiftDown = (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0;
+    const bool shortcutDown = f12Down && controlDown && (altDown || shiftDown);
+    if (shortcutDown && !exitShortcutDown_)
+    {
+        // Polling remains available when another process owns either registered hot key.
+        requestClose();
+    }
+    exitShortcutDown_ = shortcutDown;
 }
 
 LRESULT CALLBACK OverlayWindow::windowProcedure(
@@ -186,6 +228,28 @@ LRESULT OverlayWindow::handleMessage(
     const WPARAM wParam,
     const LPARAM lParam)
 {
+    if (taskbarCreatedMessage_ != 0U && message == taskbarCreatedMessage_)
+    {
+        notificationIconAdded_ = false;
+        addNotificationIcon();
+        return 0;
+    }
+
+    if (message == notificationIconMessage)
+    {
+        const UINT notificationMessage = LOWORD(lParam);
+        if (notificationMessage == WM_CONTEXTMENU
+            || notificationMessage == WM_RBUTTONUP)
+        {
+            showNotificationMenu();
+        }
+        else if (notificationMessage == WM_LBUTTONDBLCLK)
+        {
+            requestClose();
+        }
+        return 0;
+    }
+
     switch (message)
     {
     case WM_NCHITTEST:
@@ -202,9 +266,18 @@ LRESULT OverlayWindow::handleMessage(
         return DefWindowProcW(window_, message, wParam, lParam);
 
     case WM_HOTKEY:
-        if (static_cast<int>(wParam) == exitHotKeyIdentifier)
+        if (static_cast<int>(wParam) == primaryExitHotKeyIdentifier
+            || static_cast<int>(wParam) == fallbackExitHotKeyIdentifier)
         {
-            closeRequested_ = true;
+            requestClose();
+            return 0;
+        }
+        return DefWindowProcW(window_, message, wParam, lParam);
+
+    case WM_COMMAND:
+        if (LOWORD(wParam) == notificationExitCommandIdentifier)
+        {
+            requestClose();
             return 0;
         }
         return DefWindowProcW(window_, message, wParam, lParam);
@@ -234,13 +307,13 @@ LRESULT OverlayWindow::handleMessage(
                 suggested->bottom - suggested->top,
                 SWP_NOACTIVATE | SWP_NOZORDER))
         {
-            closeRequested_ = true;
+            requestClose();
         }
         return 0;
     }
 
     case WM_CLOSE:
-        closeRequested_ = true;
+        requestClose();
         return 0;
 
     case WM_DESTROY:
@@ -287,6 +360,23 @@ void OverlayWindow::registerRawMouse()
     {
         throwLastError("RegisterRawInputDevices");
     }
+    rawMouseRegistered_ = true;
+}
+
+void OverlayWindow::unregisterRawMouse() noexcept
+{
+    if (!rawMouseRegistered_)
+    {
+        return;
+    }
+
+    RAWINPUTDEVICE mouse{};
+    mouse.usUsagePage = 0x01;
+    mouse.usUsage = 0x02;
+    mouse.dwFlags = RIDEV_REMOVE;
+    mouse.hwndTarget = nullptr;
+    RegisterRawInputDevices(&mouse, 1, sizeof(mouse));
+    rawMouseRegistered_ = false;
 }
 
 void OverlayWindow::handleRawInput(const LPARAM lParam) noexcept
@@ -342,6 +432,93 @@ void OverlayWindow::pushPointerEvent(
                 + static_cast<std::ptrdiff_t>(maximumPendingPointerEvents / 2U));
     }
     pendingPointerEvents_.push_back(PointerEvent{kind, position, qpc});
+}
+
+void OverlayWindow::requestClose() noexcept
+{
+    closeRequested_ = true;
+    if (window_ != nullptr)
+    {
+        PostMessageW(window_, WM_NULL, 0, 0);
+    }
+}
+
+void OverlayWindow::addNotificationIcon() noexcept
+{
+    if (window_ == nullptr || notificationIconAdded_)
+    {
+        return;
+    }
+
+    notificationIcon_ = NOTIFYICONDATAW{};
+    notificationIcon_.cbSize = sizeof(notificationIcon_);
+    notificationIcon_.hWnd = window_;
+    notificationIcon_.uID = notificationIconIdentifier;
+    notificationIcon_.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP | NIF_SHOWTIP;
+    notificationIcon_.uCallbackMessage = notificationIconMessage;
+    notificationIcon_.hIcon = LoadIconW(nullptr, IDI_APPLICATION);
+    constexpr wchar_t tooltip[] = L"ba-click-fx-desktop - right-click to exit";
+    static_assert(std::size(tooltip) <= std::size(notificationIcon_.szTip));
+    std::copy(std::begin(tooltip), std::end(tooltip), notificationIcon_.szTip);
+
+    notificationIconAdded_ = Shell_NotifyIconW(NIM_ADD, &notificationIcon_) != FALSE;
+    if (notificationIconAdded_)
+    {
+        notificationIcon_.uVersion = NOTIFYICON_VERSION_4;
+        Shell_NotifyIconW(NIM_SETVERSION, &notificationIcon_);
+    }
+}
+
+void OverlayWindow::removeNotificationIcon() noexcept
+{
+    if (!notificationIconAdded_)
+    {
+        return;
+    }
+    Shell_NotifyIconW(NIM_DELETE, &notificationIcon_);
+    notificationIconAdded_ = false;
+}
+
+void OverlayWindow::showNotificationMenu() noexcept
+{
+    const HMENU menu = CreatePopupMenu();
+    if (menu == nullptr)
+    {
+        return;
+    }
+
+    if (!AppendMenuW(
+            menu,
+            MF_STRING,
+            notificationExitCommandIdentifier,
+            L"Exit"))
+    {
+        DestroyMenu(menu);
+        return;
+    }
+
+    SetMenuDefaultItem(menu, notificationExitCommandIdentifier, FALSE);
+    POINT cursor{};
+    if (!GetCursorPos(&cursor))
+    {
+        DestroyMenu(menu);
+        return;
+    }
+
+    SetForegroundWindow(window_);
+    const UINT command = TrackPopupMenuEx(
+        menu,
+        TPM_RIGHTBUTTON | TPM_RETURNCMD | TPM_NONOTIFY,
+        cursor.x,
+        cursor.y,
+        window_,
+        nullptr);
+    DestroyMenu(menu);
+    PostMessageW(window_, WM_NULL, 0, 0);
+    if (command == notificationExitCommandIdentifier)
+    {
+        requestClose();
+    }
 }
 
 }

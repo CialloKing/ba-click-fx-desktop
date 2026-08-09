@@ -81,8 +81,12 @@ if(BUILD_TESTING AND BAFX_ENABLE_DESKTOP_SMOKE_TESTS)
         NAME desktop_smoke
         COMMAND $<TARGET_FILE:ba_click_fx_desktop> --smoke-test
     )
+    add_test(
+        NAME desktop_timed_exit
+        COMMAND $<TARGET_FILE:ba_click_fx_desktop> --quit-after-ms=250
+    )
     set_tests_properties(
-        desktop_smoke
+        desktop_smoke desktop_timed_exit
         PROPERTIES
             LABELS "integration;desktop"
             TIMEOUT 15

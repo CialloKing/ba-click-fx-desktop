@@ -16,6 +16,7 @@ public:
 
     void setPrimaryMonitor(RECT bounds);
     void setDeviceInfo(const GraphicsDeviceInfo& info);
+    void setExitUiStatus(const ExitUiStatus& status);
     void setLogPath(const std::filesystem::path& path);
     void setFailure(std::string_view failure);
 
@@ -29,7 +30,9 @@ private:
     std::string logPath_;
     std::string failure_;
     GraphicsDeviceInfo deviceInfo_{};
+    ExitUiStatus exitUiStatus_{};
     bool hasDeviceInfo_{false};
+    bool hasExitUiStatus_{false};
 };
 
 [[nodiscard]] std::filesystem::path defaultDiagnosticLogPath();

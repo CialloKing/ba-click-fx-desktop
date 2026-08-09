@@ -1,6 +1,7 @@
 #pragma once
 
 #include <windows.h>
+#include <shellapi.h>
 
 #include <cstdint>
 #include <optional>
@@ -14,6 +15,13 @@ struct WindowSize
 {
     std::uint32_t width{0};
     std::uint32_t height{0};
+};
+
+struct ExitUiStatus
+{
+    bool primaryHotKeyRegistered{false};
+    bool fallbackHotKeyRegistered{false};
+    bool notificationIconAdded{false};
 };
 
 enum class PointerEventKind : std::uint8_t
@@ -45,10 +53,12 @@ public:
     [[nodiscard]] HWND handle() const noexcept;
     [[nodiscard]] WindowSize size() const noexcept;
     [[nodiscard]] bool closeRequested() const noexcept;
+    [[nodiscard]] ExitUiStatus exitUiStatus() const noexcept;
     [[nodiscard]] std::optional<WindowSize> takePendingResize() noexcept;
     [[nodiscard]] std::vector<PointerEvent> takePointerEvents() noexcept;
 
     void show();
+    void pollExitShortcut() noexcept;
 
 private:
     static LRESULT CALLBACK windowProcedure(
@@ -60,8 +70,13 @@ private:
     LRESULT handleMessage(UINT message, WPARAM wParam, LPARAM lParam);
     static ATOM registerWindowClass(HINSTANCE instance);
     void registerRawMouse();
+    void unregisterRawMouse() noexcept;
     void handleRawInput(LPARAM lParam) noexcept;
     void pushPointerEvent(PointerEventKind kind, POINT position, std::int64_t qpc) noexcept;
+    void requestClose() noexcept;
+    void addNotificationIcon() noexcept;
+    void removeNotificationIcon() noexcept;
+    void showNotificationMenu() noexcept;
 
     HINSTANCE instance_{nullptr};
     HWND window_{nullptr};
@@ -69,7 +84,13 @@ private:
     std::optional<WindowSize> pendingResize_{};
     std::vector<PointerEvent> pendingPointerEvents_{};
     bool closeRequested_{false};
-    bool exitHotKeyRegistered_{false};
+    bool rawMouseRegistered_{false};
+    bool primaryExitHotKeyRegistered_{false};
+    bool fallbackExitHotKeyRegistered_{false};
+    bool notificationIconAdded_{false};
+    bool exitShortcutDown_{false};
+    UINT taskbarCreatedMessage_{0U};
+    NOTIFYICONDATAW notificationIcon_{};
 };
 
 }

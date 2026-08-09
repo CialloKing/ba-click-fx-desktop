@@ -94,6 +94,7 @@ struct RunOptions
 {
     std::optional<std::uint32_t> frameLimit{};
     std::optional<std::uint32_t> demoAgeMilliseconds{};
+    std::optional<std::uint32_t> quitAfterMilliseconds{};
     std::optional<std::filesystem::path> supportInfoPath{};
     bool supportInfoOnly{false};
     bool smokeTest{false};
@@ -150,6 +151,16 @@ struct RunOptions
             {
                 options.demoClick = true;
                 options.demoAgeMilliseconds = static_cast<std::uint32_t>(parsed);
+            }
+        }
+        else if (argument.starts_with(L"--quit-after-ms="))
+        {
+            const std::wstring_view value = argument.substr(16);
+            wchar_t* end = nullptr;
+            const unsigned long parsed = std::wcstoul(value.data(), &end, 10);
+            if (end != value.data() && *end == L'\0' && parsed > 0UL)
+            {
+                options.quitAfterMilliseconds = static_cast<std::uint32_t>(parsed);
             }
         }
     }
@@ -250,6 +261,7 @@ int runApplication(
         L"ba-click-fx-desktop");
     bafx::windows::CompositionRenderer renderer(window.handle(), window.size());
     report.setDeviceInfo(renderer.deviceInfo());
+    report.setExitUiStatus(window.exitUiStatus());
     bafx::windows::appendDiagnosticLog(logPath, report);
     if (options.supportInfoOnly)
     {
@@ -279,11 +291,12 @@ int runApplication(
 
     bool quit = false;
     std::uint32_t renderedFrames = 0;
-    const bafx::fx::SimulationTime smokeStartedAt = clock.now();
+    const bafx::fx::SimulationTime applicationStartedAt = clock.now();
     while (!quit && !window.closeRequested())
     {
         dispatchMessages(quit);
-        if (quit)
+        window.pollExitShortcut();
+        if (quit || window.closeRequested())
         {
             break;
         }
@@ -295,7 +308,13 @@ int runApplication(
 
         consumePointerEvents(window, simulation, clock);
         const bafx::fx::SimulationTime wallTime = clock.now();
-        if (options.smokeTest && wallTime - smokeStartedAt >= smokeTestDeadline)
+        if (options.quitAfterMilliseconds.has_value()
+            && wallTime - applicationStartedAt
+                >= std::chrono::milliseconds(*options.quitAfterMilliseconds))
+        {
+            break;
+        }
+        if (options.smokeTest && wallTime - applicationStartedAt >= smokeTestDeadline)
         {
             // A bounded smoke test must fail instead of hanging under a noisy input source.
             throw std::runtime_error("Desktop smoke test exceeded its five-second deadline");

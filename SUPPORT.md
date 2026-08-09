@@ -9,7 +9,9 @@
 - Release 可执行文件静态链接 Visual C++ 运行库；仍使用 Windows 自带的 D3D11、DirectComposition、
   WIC 和 D3DCompiler 系统组件。
 
-直接运行 `ba-click-fx-desktop.exe` 后，窗口保持鼠标穿透。按 `Ctrl+Alt+F12` 退出。
+直接运行 `ba-click-fx-desktop.exe` 后，窗口保持鼠标穿透。右键通知区域中的程序图标并选择
+`Exit` 可退出；也可按 `Ctrl+Alt+F12` 或备用的 `Ctrl+Shift+F12`。即使系统热键注册被占用，
+程序仍会轮询同一组合键作为兜底。
 
 ## 尚未支持或尚未验证
 
@@ -26,5 +28,7 @@
 - `ba-click-fx-desktop.exe --demo-click`：在主屏中心生成一次可见点击后继续运行。
 - `ba-click-fx-desktop.exe --smoke-test`：执行有界的 D3D11/DirectComposition 中心像素检查并退出；
   成功退出码为 `0`。
+- `ba-click-fx-desktop.exe --quit-after-ms=1000`：运行正常消息/渲染循环并在约一秒后退出，用于验证
+  退出清理路径。
 
 smoke 只证明当前 Windows 会话中的基本渲染链路可用，不替代 HDR、多显示器或其他硬件矩阵验证。

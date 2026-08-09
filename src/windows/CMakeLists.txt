@@ -35,6 +35,7 @@ target_link_libraries(
         dcomp
         d3dcompiler
         dxgi
+        shell32
         user32
     PRIVATE
         bafx::core

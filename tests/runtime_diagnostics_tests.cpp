@@ -19,6 +19,7 @@ BAFX_TEST(support_report_contains_alpha_scope_and_graphics_facts)
     device.featureLevel = D3D_FEATURE_LEVEL_11_0;
     device.hardwareCreateResult = DXGI_ERROR_UNSUPPORTED;
     report.setDeviceInfo(device);
+    report.setExitUiStatus(bafx::windows::ExitUiStatus{true, false, true});
 
     const std::string text = report.serialize();
     BAFX_CHECK(text.find("Product.Version=0.1.0-alpha.1") != std::string::npos);
@@ -29,6 +30,11 @@ BAFX_TEST(support_report_contains_alpha_scope_and_graphics_facts)
     BAFX_CHECK(text.find("Graphics.Adapter=Microsoft Basic Render Driver")
         != std::string::npos);
     BAFX_CHECK(text.find("Graphics.FeatureLevel=11_0") != std::string::npos);
+    BAFX_CHECK(text.find("Exit.PrimaryHotKey=registered") != std::string::npos);
+    BAFX_CHECK(text.find("Exit.FallbackHotKey=polling-fallback")
+        != std::string::npos);
+    BAFX_CHECK(text.find("Exit.NotificationIcon=available") != std::string::npos);
+    BAFX_CHECK(text.find("Exit.PollingFallback=enabled") != std::string::npos);
 }
 
 BAFX_TEST(support_report_sanitizes_multiline_failures)
