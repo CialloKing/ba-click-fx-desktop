@@ -63,6 +63,11 @@ private:
         || value.find('\0') != std::string_view::npos;
 }
 
+[[nodiscard]] bool shouldRetryPipeOpen(const DWORD error) noexcept
+{
+    return error == ERROR_FILE_NOT_FOUND || error == ERROR_PIPE_BUSY;
+}
+
 [[nodiscard]] UniqueHandle openPipe(
     const std::wstring& pipeName,
     const Deadline& deadline,
@@ -79,6 +84,14 @@ private:
         if (WaitNamedPipeW(pipeName.c_str(), remaining) == FALSE)
         {
             error = GetLastError();
+            if (shouldRetryPipeOpen(error))
+            {
+                // The single-instance server briefly removes and recreates its
+                // pipe after a short-lived client disconnects. Keep retrying
+                // inside this request's deadline instead of reporting Host down.
+                Sleep(1U);
+                continue;
+            }
             return {};
         }
 
@@ -96,12 +109,13 @@ private:
         }
 
         error = GetLastError();
-        if (error != ERROR_PIPE_BUSY)
+        if (!shouldRetryPipeOpen(error))
         {
             return {};
         }
-        // A competing client can claim the only server instance between the
-        // availability wait and CreateFileW, so retry inside the same deadline.
+        // A competing client can claim the only instance between the wait and
+        // CreateFileW, or the server can be recreating it after a disconnect.
+        Sleep(1U);
     }
 }
 

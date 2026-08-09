@@ -27,6 +27,7 @@
 #include <sstream>
 #include <string>
 #include <string_view>
+#include <utility>
 
 namespace
 {
@@ -37,6 +38,12 @@ namespace json = winrt::Windows::Data::Json;
 
 constexpr std::wstring_view controlCenterMutexName = L"Local\\BAFX.ControlCenter.v1";
 constexpr std::wstring_view controlCenterWindowTitle = L"BAFX Control Center";
+
+struct PendingPatch final
+{
+    std::string path{};
+    std::string valueJson{};
+};
 
 [[nodiscard]] std::wstring utf8ToWide(const std::string_view value)
 {
@@ -208,7 +215,10 @@ public:
         try
         {
             createWindow();
-            static_cast<void>(refreshFromHost());
+            if (!refreshFromHost())
+            {
+                scheduleHostRefreshRetry();
+            }
             window_.Activate();
         }
         catch (const winrt::hresult_error& error)
@@ -262,18 +272,12 @@ private:
         scrollViewer.Content(root);
         window_.Content(scrollViewer);
 
-        scaleCommitTimer_ = xaml::DispatcherTimer();
-        scaleCommitTimer_.Interval(std::chrono::milliseconds(120));
-        scaleCommitTimer_.Tick(
+        patchCommitTimer_ = xaml::DispatcherTimer();
+        patchCommitTimer_.Interval(std::chrono::milliseconds(120));
+        patchCommitTimer_.Tick(
             [this](const auto&, const auto&)
             {
-                scaleCommitTimer_.Stop();
-                if (pendingScale_.has_value())
-                {
-                    const double value = *pendingScale_;
-                    pendingScale_.reset();
-                    applyPatch("effects.globalScale", numberJson(value));
-                }
+                commitPendingPatch();
             });
 
         hostRetryTimer_ = xaml::DispatcherTimer();
@@ -350,26 +354,69 @@ private:
             });
         root.Children().Append(trailEnabled_);
 
-        globalScale_ = controls::Slider();
-        globalScale_.Header(winrt::box_value(L"效果大小"));
-        globalScale_.Minimum(0.1);
-        globalScale_.Maximum(4.0);
-        globalScale_.StepFrequency(0.05);
-        globalScale_.ValueChanged(
-            [this](const auto&, const auto& arguments)
+        globalScale_ = appendNumberSlider(
+            root,
+            L"效果大小",
+            0.1,
+            4.0,
+            0.05,
+            "effects.globalScale");
+        trailLength_ = appendNumberSlider(
+            root,
+            L"拖尾长度",
+            0.0,
+            3.0,
+            0.05,
+            "effects.trailLength");
+        trailWidth_ = appendNumberSlider(
+            root,
+            L"拖尾宽度",
+            0.1,
+            4.0,
+            0.05,
+            "effects.trailWidth");
+        bloomIntensity_ = appendNumberSlider(
+            root,
+            L"Bloom 强度",
+            0.0,
+            8.0,
+            0.05,
+            "effects.bloomIntensity");
+
+        bloomQuality_ = controls::ComboBox();
+        bloomQuality_.Header(winrt::box_value(L"Bloom 质量"));
+        appendComboItem(bloomQuality_, L"低");
+        appendComboItem(bloomQuality_, L"中");
+        appendComboItem(bloomQuality_, L"高");
+        appendComboItem(bloomQuality_, L"极高");
+        bloomQuality_.SelectionChanged(
+            [this](const auto&, const auto&)
             {
                 if (updatingControls_)
                 {
                     return;
                 }
 
-                // A slider emits many intermediate values. Debouncing prevents an
-                // atomic config write for every pixel while retaining live feedback.
-                pendingScale_ = arguments.NewValue();
-                scaleCommitTimer_.Stop();
-                scaleCommitTimer_.Start();
+                switch (bloomQuality_.SelectedIndex())
+                {
+                case 0:
+                    applyPatch("effects.bloomQuality", "\"low\"");
+                    break;
+                case 1:
+                    applyPatch("effects.bloomQuality", "\"medium\"");
+                    break;
+                case 2:
+                    applyPatch("effects.bloomQuality", "\"high\"");
+                    break;
+                case 3:
+                    applyPatch("effects.bloomQuality", "\"ultra\"");
+                    break;
+                default:
+                    setError(L"未知的 Bloom 质量选择");
+                    break;
+                }
             });
-        root.Children().Append(globalScale_);
+        root.Children().Append(bloomQuality_);
     }
 
     void appendBackgroundSection(const controls::StackPanel& root)
@@ -392,13 +439,13 @@ private:
                 switch (backgroundMode_.SelectedIndex())
                 {
                 case 0:
-                    applyPatch("background.mode", "\"FX_ONLY\"");
+                    applyPatch("background.mode", "\"fx-only\"");
                     break;
                 case 1:
-                    applyPatch("background.mode", "\"BACKGROUND_AWARE\"");
+                    applyPatch("background.mode", "\"background-aware\"");
                     break;
                 case 2:
-                    applyPatch("background.mode", "\"RECORDING_COMPATIBLE\"");
+                    applyPatch("background.mode", "\"recording-compatible\"");
                     break;
                 default:
                     setError(L"未知的背景模式选择");
@@ -456,6 +503,58 @@ private:
         comboBox.Items().Append(item);
     }
 
+    controls::Slider appendNumberSlider(
+        const controls::StackPanel& root,
+        const winrt::hstring& header,
+        const double minimum,
+        const double maximum,
+        const double step,
+        const std::string_view path)
+    {
+        controls::Slider slider{};
+        slider.Header(winrt::box_value(header));
+        slider.Minimum(minimum);
+        slider.Maximum(maximum);
+        slider.StepFrequency(step);
+        const std::string pathCopy(path);
+        slider.ValueChanged(
+            [this, pathCopy](const auto&, const auto& arguments)
+            {
+                if (!updatingControls_)
+                {
+                    queueNumberPatch(pathCopy, arguments.NewValue());
+                }
+            });
+        root.Children().Append(slider);
+        return slider;
+    }
+
+    void queueNumberPatch(const std::string_view path, const double value)
+    {
+        // Commit a previous field before switching fields so a quick change from
+        // one slider to another cannot silently discard the first adjustment.
+        if (pendingPatch_.has_value() && pendingPatch_->path != path)
+        {
+            commitPendingPatch();
+        }
+        pendingPatch_ = PendingPatch{std::string(path), numberJson(value)};
+        patchCommitTimer_.Stop();
+        patchCommitTimer_.Start();
+    }
+
+    void commitPendingPatch()
+    {
+        patchCommitTimer_.Stop();
+        if (!pendingPatch_.has_value())
+        {
+            return;
+        }
+
+        PendingPatch patch = std::move(*pendingPatch_);
+        pendingPatch_.reset();
+        applyPatch(patch.path, patch.valueJson);
+    }
+
     [[nodiscard]] bool refreshFromHost()
     {
         const bafx::windows::IpcClientResponse stateResponse = client_.transact("GetState");
@@ -494,6 +593,11 @@ private:
             clickEnabled_.IsOn(effects.GetNamedBoolean(L"clickEnabled"));
             trailEnabled_.IsOn(effects.GetNamedBoolean(L"trailEnabled"));
             globalScale_.Value(effects.GetNamedNumber(L"globalScale"));
+            trailLength_.Value(effects.GetNamedNumber(L"trailLength"));
+            trailWidth_.Value(effects.GetNamedNumber(L"trailWidth"));
+            bloomIntensity_.Value(effects.GetNamedNumber(L"bloomIntensity"));
+            bloomQuality_.SelectedIndex(
+                bloomQualityIndex(effects.GetNamedString(L"bloomQuality")));
             backgroundMode_.SelectedIndex(
                 captureModeIndex(background.GetNamedString(L"mode")));
             updatingControls_ = false;
@@ -581,6 +685,13 @@ private:
         }
 
         setInfo(L"正在启动 Host", L"Control Center 会在 Host 初始化完成后自动刷新。");
+        scheduleHostRefreshRetry();
+    }
+
+    void scheduleHostRefreshRetry()
+    {
+        // The Host can be between short-lived pipe clients while rebuilding its
+        // sole server instance. Retry briefly so opening the UI is not racy.
         hostRetryAttempts_ = 8U;
         hostRetryTimer_.Stop();
         hostRetryTimer_.Start();
@@ -588,17 +699,38 @@ private:
 
     static int captureModeIndex(const winrt::hstring& mode) noexcept
     {
-        if (mode == L"FX_ONLY")
+        if (mode == L"fx-only")
         {
             return 0;
         }
-        if (mode == L"BACKGROUND_AWARE")
+        if (mode == L"background-aware")
         {
             return 1;
         }
-        if (mode == L"RECORDING_COMPATIBLE")
+        if (mode == L"recording-compatible")
         {
             return 2;
+        }
+        return -1;
+    }
+
+    static int bloomQualityIndex(const winrt::hstring& quality) noexcept
+    {
+        if (quality == L"low")
+        {
+            return 0;
+        }
+        if (quality == L"medium")
+        {
+            return 1;
+        }
+        if (quality == L"high")
+        {
+            return 2;
+        }
+        if (quality == L"ultra")
+        {
+            return 3;
         }
         return -1;
     }
@@ -645,10 +777,14 @@ private:
     controls::ToggleSwitch clickEnabled_{nullptr};
     controls::ToggleSwitch trailEnabled_{nullptr};
     controls::Slider globalScale_{nullptr};
+    controls::Slider trailLength_{nullptr};
+    controls::Slider trailWidth_{nullptr};
+    controls::Slider bloomIntensity_{nullptr};
+    controls::ComboBox bloomQuality_{nullptr};
     controls::ComboBox backgroundMode_{nullptr};
-    xaml::DispatcherTimer scaleCommitTimer_{nullptr};
+    xaml::DispatcherTimer patchCommitTimer_{nullptr};
     xaml::DispatcherTimer hostRetryTimer_{nullptr};
-    std::optional<double> pendingScale_{};
+    std::optional<PendingPatch> pendingPatch_{};
     std::uint64_t generation_{0U};
     std::uint32_t hostRetryAttempts_{0U};
     bool connected_{false};
