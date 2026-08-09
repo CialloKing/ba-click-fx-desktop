@@ -47,3 +47,19 @@ BAFX_TEST(support_report_sanitizes_multiline_failures)
     BAFX_CHECK(text.find("Failure=device removed 0x887A0005") != std::string::npos);
     BAFX_CHECK(text.find("Failure=device\n") == std::string::npos);
 }
+
+BAFX_TEST(capture_exclusion_diagnostic_preserves_win32_evidence)
+{
+    bafx::windows::CaptureExclusionStatus status{};
+    status.requestedAffinity = WDA_EXCLUDEFROMCAPTURE;
+    status.observedAffinity = WDA_NONE;
+    status.setError = ERROR_INVALID_PARAMETER;
+    status.querySucceeded = true;
+
+    const std::string text = bafx::windows::captureExclusionDiagnostic(status);
+    BAFX_CHECK(text.find("Requested=0x00000011") != std::string::npos);
+    BAFX_CHECK(text.find("Observed=0x00000000") != std::string::npos);
+    BAFX_CHECK(text.find("Set=failed;SetError=0x00000057") != std::string::npos);
+    BAFX_CHECK(text.find("Query=succeeded;QueryError=0x00000000")
+        != std::string::npos);
+}

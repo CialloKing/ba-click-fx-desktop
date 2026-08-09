@@ -329,6 +329,9 @@ int runApplication(
     bafx::windows::CompositionRenderer renderer(window.handle(), window.size());
     const bafx::windows::CaptureExclusionStatus captureExclusion =
         window.setCaptureExcluded(true);
+    bafx::windows::appendDiagnosticLog(
+        logPath,
+        bafx::windows::captureExclusionDiagnostic(captureExclusion));
     const bool exclusionConfirmed = captureExclusion.confirmed();
     if (!exclusionConfirmed)
     {

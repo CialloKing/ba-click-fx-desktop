@@ -414,4 +414,16 @@ void appendDiagnosticLog(
     }
 }
 
+std::string captureExclusionDiagnostic(const CaptureExclusionStatus& status)
+{
+    std::ostringstream stream;
+    stream << "Capture.Exclusion.Requested=" << hex32(status.requestedAffinity)
+           << ";Observed=" << hex32(status.observedAffinity)
+           << ";Set=" << (status.setSucceeded ? "succeeded" : "failed")
+           << ";SetError=" << hex32(status.setError)
+           << ";Query=" << (status.querySucceeded ? "succeeded" : "failed")
+           << ";QueryError=" << hex32(status.queryError);
+    return stream.str();
+}
+
 }

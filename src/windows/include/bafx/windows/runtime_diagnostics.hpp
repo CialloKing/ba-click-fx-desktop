@@ -60,4 +60,7 @@ void appendDiagnosticLog(
     const std::filesystem::path& path,
     const SupportReport& report) noexcept;
 
+[[nodiscard]] std::string captureExclusionDiagnostic(
+    const CaptureExclusionStatus& status);
+
 }
