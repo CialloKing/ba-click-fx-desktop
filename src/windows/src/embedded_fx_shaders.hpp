@@ -196,13 +196,11 @@ float4 DesktopCompositePixel(FullscreenOutput input) : SV_Target0
 {
     const float4 linearOverlay = CompositePixel(input);
     const float3 sdrColor = saturate(linearOverlay.rgb);
-    const float requiredCoverage = max(sdrColor.r, max(sdrColor.g, sdrColor.b));
+    const float visibleEnergy = max(sdrColor.r, max(sdrColor.g, sdrColor.b));
 
-    // DWM may canonicalize RGB that exceeds premultiplied alpha. Carry the
-    // visible SDR color with enough coverage while HDR reference layers stay linear.
-    return float4(
-        sdrColor,
-        max(linearOverlay.a, requiredCoverage));
+    // Additive Unity materials can retain full geometric coverage after their
+    // color has faded. On an unknown desktop that excess alpha creates a dark tail.
+    return float4(sdrColor, visibleEnergy);
 }
 )hlsl";
 
