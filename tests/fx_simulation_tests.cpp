@@ -373,7 +373,7 @@ BAFX_TEST(drag_particle_birth_times_are_interpolated_along_the_input_segment)
     BAFX_CHECK(visibleTriangles <= 2U);
 }
 
-BAFX_TEST(pointer_cancel_discards_the_current_trail_but_keeps_click_particles)
+BAFX_TEST(pointer_cancel_keeps_the_current_trail_until_it_naturally_expires)
 {
     Simulation simulation;
     simulation.pointerDown(PointF{100.0F, 100.0F}, goldenViewport, 0ns);
@@ -384,10 +384,13 @@ BAFX_TEST(pointer_cancel_discards_the_current_trail_but_keeps_click_particles)
     simulation.pointerCancel(60ms);
     const auto frame = simulation.snapshot(goldenViewport, 60ms);
     BAFX_CHECK(!simulation.pointerHeld());
-    BAFX_CHECK(frame.trail.empty());
+    BAFX_CHECK(!frame.trail.empty());
     BAFX_CHECK(countKind(frame, SpriteKind::CenterDisk) == 1U);
     BAFX_CHECK(countKind(frame, SpriteKind::DissolveRing) == 2U);
     BAFX_CHECK(countKind(frame, SpriteKind::Triangle) >= 4U);
+
+    simulation.advance(351ms);
+    BAFX_CHECK(simulation.snapshot(goldenViewport, 351ms).trail.empty());
 }
 
 BAFX_TEST(pointer_cancel_enters_the_same_rendered_frame_cleanup_as_release)

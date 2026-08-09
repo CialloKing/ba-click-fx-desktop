@@ -414,9 +414,8 @@ void Simulation::pointerCancel(const SimulationTime time)
     pointerSampleAt_ = std::max(pointerSampleAt_, time);
     releasedFrames_ = 0;
     dragDistanceRemainderWorld_ = 0.0F;
-    // A cancelled pointer has no reliable final position; keep click particles
-    // but discard the in-progress TrailRenderer stroke like the JS reference.
-    trail_.clear();
+    // Unity routes Canceled and Ended through the same delayed Stop path, so
+    // the existing TrailRenderer geometry must decay instead of disappearing.
 }
 
 void Simulation::advance(const SimulationTime time)
