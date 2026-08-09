@@ -24,6 +24,20 @@ namespace
 constexpr std::uint32_t maximumMessagesPerFrame = 256U;
 constexpr auto smokeTestDeadline = std::chrono::seconds(5);
 
+[[nodiscard]] std::uint64_t makeRuntimeSeed() noexcept
+{
+    LARGE_INTEGER counter{};
+    QueryPerformanceCounter(&counter);
+    const std::uint64_t process = static_cast<std::uint64_t>(GetCurrentProcessId());
+    const std::uint64_t tick = static_cast<std::uint64_t>(GetTickCount64());
+
+    // The game enables Unity's automatic particle seed. Mix independent
+    // process clocks here while keeping explicit simulation seeds repeatable.
+    return static_cast<std::uint64_t>(counter.QuadPart)
+        ^ (tick << 21U)
+        ^ (process << 48U);
+}
+
 class ComApartment final
 {
 public:
@@ -320,7 +334,7 @@ int runApplication(
         throw std::runtime_error("Desktop smoke test could not identify the D3D11 adapter");
     }
     renderer.setReadbackDiagnostics(options.smokeTest);
-    bafx::fx::SimulationRuntime simulation;
+    bafx::fx::SimulationRuntime simulation(makeRuntimeSeed());
     window.show();
 
     std::optional<bafx::fx::SimulationTime> demoStartedAt;

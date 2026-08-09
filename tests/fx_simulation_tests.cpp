@@ -551,3 +551,30 @@ BAFX_TEST(duplicate_down_does_not_restart_the_held_effect)
         300.0F,
         1.0e-3F);
 }
+
+BAFX_TEST(explicit_runtime_seed_replays_the_same_particle_state)
+{
+    SimulationRuntime first(20260716U);
+    SimulationRuntime second(20260716U);
+    first.pointerDown(goldenCenter, goldenViewport, 0ns);
+    second.pointerDown(goldenCenter, goldenViewport, 0ns);
+
+    const FrameSnapshot firstFrame = first.snapshot(goldenViewport, 130ms);
+    const FrameSnapshot secondFrame = second.snapshot(goldenViewport, 130ms);
+    BAFX_CHECK(firstFrame.sprites.size() == secondFrame.sprites.size());
+    for (std::size_t index = 0U; index < firstFrame.sprites.size(); ++index)
+    {
+        const Sprite& firstSprite = firstFrame.sprites[index];
+        const Sprite& secondSprite = secondFrame.sprites[index];
+        BAFX_CHECK(firstSprite.kind == secondSprite.kind);
+        BAFX_CHECK_NEAR(
+            firstSprite.centerPixels.x,
+            secondSprite.centerPixels.x,
+            1.0e-7F);
+        BAFX_CHECK_NEAR(
+            firstSprite.centerPixels.y,
+            secondSprite.centerPixels.y,
+            1.0e-7F);
+        BAFX_CHECK(firstSprite.atlasFrame == secondSprite.atlasFrame);
+    }
+}
