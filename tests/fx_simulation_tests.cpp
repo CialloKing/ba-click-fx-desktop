@@ -1,6 +1,7 @@
 #include "test_support.hpp"
 
 #include "bafx/fx/simulation.hpp"
+#include "bafx/fx/simulation_runtime.hpp"
 
 #include <algorithm>
 #include <array>
@@ -427,4 +428,97 @@ BAFX_TEST(release_waits_sixty_rendered_frames_before_clearing)
     simulation.onFrameRendered();
     BAFX_CHECK(!simulation.active());
     BAFX_CHECK(!simulation.snapshot(goldenViewport, 110ms).active);
+}
+
+BAFX_TEST(rapid_clicks_keep_released_effects_alive)
+{
+    SimulationRuntime runtime;
+    constexpr PointF firstClick{300.0F, 400.0F};
+    constexpr PointF secondClick{900.0F, 600.0F};
+
+    runtime.pointerDown(firstClick, goldenViewport, 0ns);
+    runtime.pointerUp(10ms);
+    runtime.pointerDown(secondClick, goldenViewport, 50ms);
+
+    const auto frame = runtime.snapshot(goldenViewport, 100ms);
+    BAFX_CHECK(runtime.instanceCount() == 2U);
+    BAFX_CHECK(runtime.pointerHeld());
+    BAFX_CHECK(countKind(frame, SpriteKind::CenterDisk) == 2U);
+    BAFX_CHECK(countKind(frame, SpriteKind::DissolveRing) == 4U);
+    BAFX_CHECK(countKind(frame, SpriteKind::Triangle) == 8U);
+
+    const auto disks = spritesOfKind(frame, SpriteKind::CenterDisk);
+    BAFX_CHECK_NEAR(disks[0]->centerPixels.x, firstClick.x, 1.0e-3F);
+    BAFX_CHECK_NEAR(disks[1]->centerPixels.x, secondClick.x, 1.0e-3F);
+}
+
+BAFX_TEST(overlapping_drag_strokes_remain_independent)
+{
+    SimulationRuntime runtime;
+
+    runtime.pointerDown(PointF{100.0F, 100.0F}, goldenViewport, 0ns);
+    runtime.pointerMove(PointF{400.0F, 100.0F}, goldenViewport, 40ms);
+    runtime.pointerUp(50ms);
+    runtime.pointerDown(PointF{700.0F, 300.0F}, goldenViewport, 60ms);
+    runtime.pointerMove(PointF{1000.0F, 300.0F}, goldenViewport, 100ms);
+
+    const auto frame = runtime.snapshot(goldenViewport, 100ms);
+    BAFX_CHECK(frame.trailStrokes.size() == 2U);
+    BAFX_CHECK(frame.trailStrokes[0].points.size() >= 2U);
+    BAFX_CHECK(frame.trailStrokes[1].points.size() >= 2U);
+    BAFX_CHECK_NEAR(
+        frame.trailStrokes[0].points.back().positionPixels.x,
+        400.0F,
+        1.0e-3F);
+    BAFX_CHECK_NEAR(
+        frame.trailStrokes[1].points.front().positionPixels.x,
+        700.0F,
+        1.0e-3F);
+    BAFX_CHECK_NEAR(frame.trail.front().positionPixels.x, 700.0F, 1.0e-3F);
+}
+
+BAFX_TEST(released_effect_instances_expire_independently)
+{
+    SimulationRuntime runtime;
+    runtime.pointerDown(PointF{300.0F, 400.0F}, goldenViewport, 0ns);
+    runtime.pointerUp(10ms);
+
+    for (std::uint32_t frame = 0U; frame < 30U; ++frame)
+    {
+        runtime.onFrameRendered();
+    }
+
+    runtime.pointerDown(PointF{900.0F, 600.0F}, goldenViewport, 50ms);
+    runtime.pointerUp(60ms);
+    for (std::uint32_t frame = 0U; frame < 29U; ++frame)
+    {
+        runtime.onFrameRendered();
+    }
+    BAFX_CHECK(runtime.instanceCount() == 2U);
+
+    runtime.onFrameRendered();
+    BAFX_CHECK(runtime.instanceCount() == 1U);
+    BAFX_CHECK(runtime.active());
+
+    for (std::uint32_t frame = 0U; frame < 30U; ++frame)
+    {
+        runtime.onFrameRendered();
+    }
+    BAFX_CHECK(runtime.instanceCount() == 0U);
+    BAFX_CHECK(!runtime.active());
+}
+
+BAFX_TEST(duplicate_down_does_not_restart_the_held_effect)
+{
+    SimulationRuntime runtime;
+    runtime.pointerDown(PointF{300.0F, 400.0F}, goldenViewport, 0ns);
+    runtime.pointerDown(PointF{900.0F, 600.0F}, goldenViewport, 50ms);
+
+    const auto frame = runtime.snapshot(goldenViewport, 100ms);
+    BAFX_CHECK(runtime.instanceCount() == 1U);
+    BAFX_CHECK(countKind(frame, SpriteKind::CenterDisk) == 1U);
+    BAFX_CHECK_NEAR(
+        firstKind(frame, SpriteKind::CenterDisk).centerPixels.x,
+        300.0F,
+        1.0e-3F);
 }

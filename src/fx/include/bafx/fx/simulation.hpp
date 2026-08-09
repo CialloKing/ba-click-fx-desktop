@@ -56,11 +56,18 @@ struct TrailPoint
     float normalizedAge{0.0F};
 };
 
+struct TrailStroke
+{
+    std::vector<TrailPoint> points{};
+    float widthPixels{0.0F};
+};
+
 struct FrameSnapshot
 {
     std::vector<Sprite> sprites{};
     std::vector<TrailPoint> trail{};
     float trailWidthPixels{0.0F};
+    std::vector<TrailStroke> trailStrokes{};
     bool active{false};
     bool pointerHeld{false};
 };

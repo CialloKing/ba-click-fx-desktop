@@ -2,6 +2,7 @@ add_library(
     bafx_fx
     STATIC
         src/simulation.cpp
+        src/simulation_runtime.cpp
 )
 add_library(bafx::fx ALIAS bafx_fx)
 
@@ -18,4 +19,3 @@ set_target_properties(
     PROPERTIES
         FOLDER "Libraries"
 )
-
