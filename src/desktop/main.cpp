@@ -1,3 +1,4 @@
+#include "bafx/fx/simulation.hpp"
 #include "bafx/windows/composition_renderer.hpp"
 #include "bafx/windows/error.hpp"
 #include "bafx/windows/overlay_window.hpp"
@@ -9,10 +10,14 @@
 #include <cstdlib>
 #include <exception>
 #include <optional>
+#include <stdexcept>
 #include <string_view>
 
 namespace
 {
+
+constexpr std::uint32_t maximumMessagesPerFrame = 256U;
+constexpr auto smokeTestDeadline = std::chrono::seconds(5);
 
 class ComApartment final
 {
@@ -41,6 +46,43 @@ public:
 
 private:
     bool initialized_{false};
+};
+
+class QpcClock final
+{
+public:
+    QpcClock()
+    {
+        LARGE_INTEGER frequency{};
+        if (!QueryPerformanceFrequency(&frequency) || frequency.QuadPart <= 0)
+        {
+            bafx::windows::throwLastError("QueryPerformanceFrequency");
+        }
+        frequency_ = frequency.QuadPart;
+    }
+
+    [[nodiscard]] bafx::fx::SimulationTime now() const
+    {
+        LARGE_INTEGER counter{};
+        if (!QueryPerformanceCounter(&counter))
+        {
+            bafx::windows::throwLastError("QueryPerformanceCounter");
+        }
+        return fromCounter(counter.QuadPart);
+    }
+
+    [[nodiscard]] bafx::fx::SimulationTime fromCounter(const std::int64_t counter) const noexcept
+    {
+        constexpr std::int64_t nanosecondsPerSecond = 1'000'000'000LL;
+        const std::int64_t seconds = counter / frequency_;
+        const std::int64_t remainder = counter % frequency_;
+        return bafx::fx::SimulationTime{
+            seconds * nanosecondsPerSecond
+            + remainder * nanosecondsPerSecond / frequency_};
+    }
+
+private:
+    std::int64_t frequency_{0};
 };
 
 struct RunOptions
@@ -91,7 +133,9 @@ struct RunOptions
 void dispatchMessages(bool& quit)
 {
     MSG message{};
-    while (PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE))
+    std::uint32_t dispatched = 0U;
+    while (dispatched < maximumMessagesPerFrame
+        && PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE))
     {
         if (message.message == WM_QUIT)
         {
@@ -100,6 +144,47 @@ void dispatchMessages(bool& quit)
         }
         TranslateMessage(&message);
         DispatchMessageW(&message);
+        ++dispatched;
+    }
+}
+
+[[nodiscard]] bafx::fx::Viewport toViewport(const bafx::windows::WindowSize size) noexcept
+{
+    return bafx::fx::Viewport{size.width, size.height};
+}
+
+void consumePointerEvents(
+    bafx::windows::OverlayWindow& window,
+    bafx::fx::Simulation& simulation,
+    const QpcClock& clock)
+{
+    const bafx::fx::Viewport viewport = toViewport(window.size());
+    for (const bafx::windows::PointerEvent& event : window.takePointerEvents())
+    {
+        POINT clientPosition = event.screenPosition;
+        if (!ScreenToClient(window.handle(), &clientPosition))
+        {
+            continue;
+        }
+
+        const bafx::fx::PointF position{
+            static_cast<float>(clientPosition.x),
+            static_cast<float>(clientPosition.y)};
+        const bafx::fx::SimulationTime time = clock.fromCounter(event.qpcTimestamp);
+        switch (event.kind)
+        {
+        case bafx::windows::PointerEventKind::LeftButtonDown:
+            simulation.pointerDown(position, viewport, time);
+            break;
+
+        case bafx::windows::PointerEventKind::Move:
+            simulation.pointerMove(position, viewport, time);
+            break;
+
+        case bafx::windows::PointerEventKind::LeftButtonUp:
+            simulation.pointerUp(time);
+            break;
+        }
     }
 }
 
@@ -112,15 +197,18 @@ int runApplication(const HINSTANCE instance, const RunOptions options)
     }
 
     ComApartment apartment;
+    QpcClock clock;
     bafx::windows::OverlayWindow window(
         instance,
         primaryMonitorBounds(),
         L"ba-click-fx-desktop");
     bafx::windows::CompositionRenderer renderer(window.handle(), window.size());
+    bafx::fx::Simulation simulation;
     window.show();
 
     bool quit = false;
     std::uint32_t renderedFrames = 0;
+    const bafx::fx::SimulationTime smokeStartedAt = clock.now();
     while (!quit && !window.closeRequested())
     {
         dispatchMessages(quit);
@@ -133,6 +221,19 @@ int runApplication(const HINSTANCE instance, const RunOptions options)
         {
             renderer.resize(*resize);
         }
+
+        consumePointerEvents(window, simulation, clock);
+        const bafx::fx::SimulationTime renderTime = clock.now();
+        if (options.smokeTest && renderTime - smokeStartedAt >= smokeTestDeadline)
+        {
+            // A bounded smoke test must fail instead of hanging under a noisy input source.
+            throw std::runtime_error("Desktop smoke test exceeded its five-second deadline");
+        }
+        simulation.advance(renderTime);
+        const bafx::fx::FrameSnapshot snapshot = simulation.snapshot(
+            toViewport(window.size()),
+            renderTime);
+        static_cast<void>(snapshot);
 
         renderer.renderTransparentFrame();
         ++renderedFrames;

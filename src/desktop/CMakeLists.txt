@@ -10,6 +10,7 @@ target_link_libraries(
     ba_click_fx_desktop
     PRIVATE
         bafx::core
+        bafx::fx
         bafx::windows
         ole32
 )

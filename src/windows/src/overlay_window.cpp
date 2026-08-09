@@ -5,9 +5,11 @@
 #include <windowsx.h>
 
 #include <algorithm>
+#include <cstddef>
 #include <limits>
 #include <stdexcept>
 #include <string>
+#include <utility>
 
 namespace bafx::windows
 {
@@ -15,6 +17,8 @@ namespace
 {
 
 constexpr wchar_t windowClassName[] = L"BaClickFxDesktopOverlay";
+constexpr int exitHotKeyIdentifier = 0xBAF0;
+constexpr std::size_t maximumPendingPointerEvents = 2048U;
 
 [[nodiscard]] std::uint32_t checkedDimension(const LONG value)
 {
@@ -62,12 +66,24 @@ OverlayWindow::OverlayWindow(
     {
         throwLastError("CreateWindowExW");
     }
+
+    pendingPointerEvents_.reserve(64);
+    registerRawMouse();
+    exitHotKeyRegistered_ = RegisterHotKey(
+        window_,
+        exitHotKeyIdentifier,
+        MOD_CONTROL | MOD_ALT | MOD_NOREPEAT,
+        VK_F12) != FALSE;
 }
 
 OverlayWindow::~OverlayWindow()
 {
     if (window_ != nullptr)
     {
+        if (exitHotKeyRegistered_)
+        {
+            UnregisterHotKey(window_, exitHotKeyIdentifier);
+        }
         DestroyWindow(window_);
     }
 }
@@ -90,6 +106,14 @@ bool OverlayWindow::closeRequested() const noexcept
 std::optional<WindowSize> OverlayWindow::takePendingResize() noexcept
 {
     return std::exchange(pendingResize_, std::nullopt);
+}
+
+std::vector<PointerEvent> OverlayWindow::takePointerEvents() noexcept
+{
+    std::vector<PointerEvent> events;
+    events.swap(pendingPointerEvents_);
+    pendingPointerEvents_.reserve(64);
+    return events;
 }
 
 void OverlayWindow::show()
@@ -150,6 +174,18 @@ LRESULT OverlayWindow::handleMessage(
 
     case WM_ERASEBKGND:
         return 1;
+
+    case WM_INPUT:
+        handleRawInput(lParam);
+        return DefWindowProcW(window_, message, wParam, lParam);
+
+    case WM_HOTKEY:
+        if (static_cast<int>(wParam) == exitHotKeyIdentifier)
+        {
+            closeRequested_ = true;
+            return 0;
+        }
+        return DefWindowProcW(window_, message, wParam, lParam);
 
     case WM_SIZE:
         if (wParam != SIZE_MINIMIZED)
@@ -218,5 +254,72 @@ ATOM OverlayWindow::registerWindowClass(const HINSTANCE instance)
     return atom;
 }
 
+void OverlayWindow::registerRawMouse()
+{
+    RAWINPUTDEVICE mouse{};
+    mouse.usUsagePage = 0x01;
+    mouse.usUsage = 0x02;
+    mouse.dwFlags = RIDEV_INPUTSINK | RIDEV_DEVNOTIFY;
+    mouse.hwndTarget = window_;
+    if (!RegisterRawInputDevices(&mouse, 1, sizeof(mouse)))
+    {
+        throwLastError("RegisterRawInputDevices");
+    }
 }
 
+void OverlayWindow::handleRawInput(const LPARAM lParam) noexcept
+{
+    RAWINPUT input{};
+    UINT size = sizeof(input);
+    const UINT bytes = GetRawInputData(
+        reinterpret_cast<HRAWINPUT>(lParam),
+        RID_INPUT,
+        &input,
+        &size,
+        sizeof(RAWINPUTHEADER));
+    if (bytes == static_cast<UINT>(-1) || input.header.dwType != RIM_TYPEMOUSE)
+    {
+        return;
+    }
+
+    POINT screenPosition{};
+    LARGE_INTEGER qpc{};
+    if (!GetCursorPos(&screenPosition) || !QueryPerformanceCounter(&qpc))
+    {
+        return;
+    }
+
+    const USHORT buttons = input.data.mouse.usButtonFlags;
+    if ((buttons & RI_MOUSE_LEFT_BUTTON_DOWN) != 0U)
+    {
+        pushPointerEvent(PointerEventKind::LeftButtonDown, screenPosition, qpc.QuadPart);
+    }
+
+    if (input.data.mouse.lLastX != 0 || input.data.mouse.lLastY != 0)
+    {
+        pushPointerEvent(PointerEventKind::Move, screenPosition, qpc.QuadPart);
+    }
+
+    if ((buttons & RI_MOUSE_LEFT_BUTTON_UP) != 0U)
+    {
+        pushPointerEvent(PointerEventKind::LeftButtonUp, screenPosition, qpc.QuadPart);
+    }
+}
+
+void OverlayWindow::pushPointerEvent(
+    const PointerEventKind kind,
+    const POINT position,
+    const std::int64_t qpc) noexcept
+{
+    if (pendingPointerEvents_.size() >= maximumPendingPointerEvents)
+    {
+        // Keep the most recent input under a stalled renderer instead of growing without bound.
+        pendingPointerEvents_.erase(
+            pendingPointerEvents_.begin(),
+            pendingPointerEvents_.begin()
+                + static_cast<std::ptrdiff_t>(maximumPendingPointerEvents / 2U));
+    }
+    pendingPointerEvents_.push_back(PointerEvent{kind, position, qpc});
+}
+
+}
