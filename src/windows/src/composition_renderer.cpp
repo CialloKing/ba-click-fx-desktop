@@ -2,13 +2,11 @@
 
 #include "bafx/windows/error.hpp"
 #include "bafx/windows/fx_gpu_renderer.hpp"
+#include "bafx/windows/gpu_texture_readback.hpp"
 
 #include <dxgi1_2.h>
 
 #include <array>
-#include <cmath>
-#include <cstdint>
-#include <limits>
 
 namespace bafx::windows
 {
@@ -16,31 +14,6 @@ namespace
 {
 
 constexpr UINT swapChainFlags = DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT;
-
-[[nodiscard]] float halfToFloat(const std::uint16_t value) noexcept
-{
-    const bool negative = (value & 0x8000U) != 0U;
-    const std::uint16_t exponent = static_cast<std::uint16_t>((value >> 10U) & 0x1FU);
-    const std::uint16_t mantissa = static_cast<std::uint16_t>(value & 0x03FFU);
-    float result = 0.0F;
-    if (exponent == 0U)
-    {
-        result = std::ldexp(static_cast<float>(mantissa), -24);
-    }
-    else if (exponent == 0x1FU)
-    {
-        result = mantissa == 0U
-            ? std::numeric_limits<float>::infinity()
-            : std::numeric_limits<float>::quiet_NaN();
-    }
-    else
-    {
-        result = std::ldexp(
-            1.0F + static_cast<float>(mantissa) / 1024.0F,
-            static_cast<int>(exponent) - 15);
-    }
-    return negative ? -result : result;
-}
 
 }
 
@@ -83,7 +56,7 @@ void CompositionRenderer::resize(const WindowSize size)
 void CompositionRenderer::renderFrame(const bafx::fx::FrameSnapshot& snapshot)
 {
     fxRenderer_->render(snapshot, renderTarget_.Get());
-    if (diagnosticStagingTexture_ != nullptr)
+    if (readbackDiagnosticsEnabled_)
     {
         captureCenterPixel();
     }
@@ -99,14 +72,7 @@ void CompositionRenderer::renderFrame(const bafx::fx::FrameSnapshot& snapshot)
 void CompositionRenderer::setReadbackDiagnostics(const bool enabled)
 {
     lastCenterPixel_.reset();
-    if (enabled)
-    {
-        createDiagnosticStagingTexture();
-    }
-    else
-    {
-        diagnosticStagingTexture_.Reset();
-    }
+    readbackDiagnosticsEnabled_ = enabled;
 }
 
 HANDLE CompositionRenderer::frameLatencyWaitableObject() const noexcept
@@ -280,62 +246,22 @@ void CompositionRenderer::createRenderTarget()
         "ID3D11Device::CreateRenderTargetView");
 }
 
-void CompositionRenderer::createDiagnosticStagingTexture()
-{
-    D3D11_TEXTURE2D_DESC description{};
-    description.Width = 1U;
-    description.Height = 1U;
-    description.MipLevels = 1U;
-    description.ArraySize = 1U;
-    description.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
-    description.SampleDesc = DXGI_SAMPLE_DESC{1U, 0U};
-    description.Usage = D3D11_USAGE_STAGING;
-    description.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
-    throwIfFailed(
-        device_->CreateTexture2D(
-            &description,
-            nullptr,
-            &diagnosticStagingTexture_),
-        "ID3D11Device::CreateTexture2D(diagnostic staging)");
-}
-
 void CompositionRenderer::captureCenterPixel()
 {
     const UINT centerX = size_.width / 2U;
     const UINT centerY = size_.height / 2U;
-    const D3D11_BOX sourceBox{
-        centerX,
-        centerY,
-        0U,
-        centerX + 1U,
-        centerY + 1U,
-        1U};
-    context_->CopySubresourceRegion(
-        diagnosticStagingTexture_.Get(),
-        0,
-        0,
-        0,
-        0,
+    // The one-pixel region keeps the interactive smoke test from synchronizing
+    // and copying the full monitor-sized swap-chain buffer.
+    const Rgba16FloatImage image = readbackRgba16FloatTexture(
+        context_.Get(),
         backBuffer_.Get(),
-        0,
-        &sourceBox);
-
-    D3D11_MAPPED_SUBRESOURCE mapped{};
-    throwIfFailed(
-        context_->Map(
-            diagnosticStagingTexture_.Get(),
-            0,
-            D3D11_MAP_READ,
-            0,
-            &mapped),
-        "ID3D11DeviceContext::Map(diagnostic staging)");
-    const auto* channels = static_cast<const std::uint16_t*>(mapped.pData);
+        TextureReadbackRegion{centerX, centerY, 1U, 1U});
+    const Rgba16FloatPixel pixel = image.pixels.front();
     lastCenterPixel_ = PixelF{
-        halfToFloat(channels[0]),
-        halfToFloat(channels[1]),
-        halfToFloat(channels[2]),
-        halfToFloat(channels[3])};
-    context_->Unmap(diagnosticStagingTexture_.Get(), 0);
+        halfToFloat(pixel.red),
+        halfToFloat(pixel.green),
+        halfToFloat(pixel.blue),
+        halfToFloat(pixel.alpha)};
 }
 
 }

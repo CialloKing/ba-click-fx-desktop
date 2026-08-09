@@ -81,7 +81,6 @@ private:
     void createSwapChain(WindowSize size);
     void createComposition(HWND window);
     void createRenderTarget();
-    void createDiagnosticStagingTexture();
     void captureCenterPixel();
 
     Microsoft::WRL::ComPtr<ID3D11Device> device_{};
@@ -89,13 +88,13 @@ private:
     Microsoft::WRL::ComPtr<IDXGISwapChain2> swapChain_{};
     Microsoft::WRL::ComPtr<ID3D11Texture2D> backBuffer_{};
     Microsoft::WRL::ComPtr<ID3D11RenderTargetView> renderTarget_{};
-    Microsoft::WRL::ComPtr<ID3D11Texture2D> diagnosticStagingTexture_{};
     Microsoft::WRL::ComPtr<IDCompositionDevice> compositionDevice_{};
     Microsoft::WRL::ComPtr<IDCompositionTarget> compositionTarget_{};
     Microsoft::WRL::ComPtr<IDCompositionVisual> rootVisual_{};
     UniqueHandle frameLatencyHandle_{};
     std::unique_ptr<FxGpuRenderer> fxRenderer_{};
     std::optional<PixelF> lastCenterPixel_{};
+    bool readbackDiagnosticsEnabled_{false};
     D3D_FEATURE_LEVEL featureLevel_{D3D_FEATURE_LEVEL_11_0};
     GraphicsDeviceInfo deviceInfo_{};
     WindowSize size_{};

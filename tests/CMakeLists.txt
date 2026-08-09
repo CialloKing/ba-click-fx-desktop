@@ -123,12 +123,18 @@ if(WIN32)
         bafx_gpu_pipeline_tests
         test_main.cpp
         fx_gpu_pipeline_tests.cpp
+        gpu_texture_readback_tests.cpp
     )
     target_link_libraries(
         bafx_gpu_pipeline_tests
         PRIVATE
             bafx::windows
             ole32
+    )
+    target_include_directories(
+        bafx_gpu_pipeline_tests
+        PRIVATE
+            "${CMAKE_SOURCE_DIR}/src/windows/src"
     )
     target_compile_features(bafx_gpu_pipeline_tests PRIVATE cxx_std_20)
     bafx_enable_warnings(bafx_gpu_pipeline_tests)

@@ -4,6 +4,7 @@ add_library(
         src/composition_renderer.cpp
         src/embedded_unity_textures.cpp
         src/fx_gpu_renderer.cpp
+        src/gpu_texture_readback.cpp
         src/overlay_window.cpp
         src/runtime_diagnostics.cpp
         src/wic_texture_loader.cpp

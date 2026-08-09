@@ -2,6 +2,7 @@
 
 #include "bafx/windows/error.hpp"
 #include "bafx/windows/fx_gpu_renderer.hpp"
+#include "bafx/windows/gpu_texture_readback.hpp"
 
 #include <d3d11.h>
 #include <wrl/client.h>
@@ -10,7 +11,6 @@
 #include <array>
 #include <cmath>
 #include <cstdint>
-#include <limits>
 #include <stdexcept>
 #include <vector>
 
@@ -72,32 +72,6 @@ struct WarpDevice
     D3D_FEATURE_LEVEL featureLevel{D3D_FEATURE_LEVEL_11_0};
 };
 
-[[nodiscard]] float halfToFloat(const std::uint16_t value) noexcept
-{
-    const bool negative = (value & 0x8000U) != 0U;
-    const std::uint16_t exponent = static_cast<std::uint16_t>(
-        (value >> 10U) & 0x1FU);
-    const std::uint16_t mantissa = static_cast<std::uint16_t>(value & 0x03FFU);
-    float result = 0.0F;
-    if (exponent == 0U)
-    {
-        result = std::ldexp(static_cast<float>(mantissa), -24);
-    }
-    else if (exponent == 0x1FU)
-    {
-        result = mantissa == 0U
-            ? std::numeric_limits<float>::infinity()
-            : std::numeric_limits<float>::quiet_NaN();
-    }
-    else
-    {
-        result = std::ldexp(
-            1.0F + static_cast<float>(mantissa) / 1024.0F,
-            static_cast<int>(exponent) - 15);
-    }
-    return negative ? -result : result;
-}
-
 [[nodiscard]] RenderTarget createRenderTarget(ID3D11Device* device)
 {
     D3D11_TEXTURE2D_DESC description{};
@@ -142,56 +116,21 @@ struct WarpDevice
     return graphics;
 }
 
-[[nodiscard]] ComPtr<ID3D11Texture2D> createStagingTexture(ID3D11Device* device)
-{
-    D3D11_TEXTURE2D_DESC description{};
-    description.Width = testSize.width;
-    description.Height = testSize.height;
-    description.MipLevels = 1U;
-    description.ArraySize = 1U;
-    description.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
-    description.SampleDesc = DXGI_SAMPLE_DESC{1U, 0U};
-    description.Usage = D3D11_USAGE_STAGING;
-    description.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
-
-    ComPtr<ID3D11Texture2D> texture;
-    throwIfFailed(
-        device->CreateTexture2D(&description, nullptr, &texture),
-        "ID3D11Device::CreateTexture2D(WARP staging)");
-    return texture;
-}
-
 [[nodiscard]] std::vector<ReadbackPixel> readback(
-    ID3D11Device* device,
     ID3D11DeviceContext* context,
     ID3D11Texture2D* source)
 {
-    const ComPtr<ID3D11Texture2D> staging = createStagingTexture(device);
-    context->CopyResource(staging.Get(), source);
-
-    D3D11_MAPPED_SUBRESOURCE mapped{};
-    throwIfFailed(
-        context->Map(staging.Get(), 0U, D3D11_MAP_READ, 0U, &mapped),
-        "ID3D11DeviceContext::Map(WARP staging)");
-    std::vector<ReadbackPixel> pixels(
-        static_cast<std::size_t>(testSize.width) * testSize.height);
-    for (std::uint32_t y = 0U; y < testSize.height; ++y)
+    const Rgba16FloatImage raw = readbackRgba16FloatTexture(context, source);
+    std::vector<ReadbackPixel> pixels;
+    pixels.reserve(raw.pixels.size());
+    for (const Rgba16FloatPixel pixel : raw.pixels)
     {
-        const auto* row = reinterpret_cast<const std::uint16_t*>(
-            static_cast<const std::uint8_t*>(mapped.pData)
-            + static_cast<std::size_t>(y) * mapped.RowPitch);
-        for (std::uint32_t x = 0U; x < testSize.width; ++x)
-        {
-            const std::size_t sourceIndex = static_cast<std::size_t>(x) * 4U;
-            pixels[static_cast<std::size_t>(y) * testSize.width + x] =
-                ReadbackPixel{
-                    halfToFloat(row[sourceIndex]),
-                    halfToFloat(row[sourceIndex + 1U]),
-                    halfToFloat(row[sourceIndex + 2U]),
-                    halfToFloat(row[sourceIndex + 3U])};
-        }
+        pixels.push_back(ReadbackPixel{
+            halfToFloat(pixel.red),
+            halfToFloat(pixel.green),
+            halfToFloat(pixel.blue),
+            halfToFloat(pixel.alpha)});
     }
-    context->Unmap(staging.Get(), 0U);
     return pixels;
 }
 
@@ -312,14 +251,12 @@ BAFX_TEST(warp_pipeline_separates_direct_emission_and_multilevel_bloom_seed)
     const RenderTarget withoutBloom = createRenderTarget(graphics.device.Get());
     renderer.render(makeDiskSnapshot(false), withoutBloom.view.Get());
     const std::vector<ReadbackPixel> directPixels = readback(
-        graphics.device.Get(),
         graphics.context.Get(),
         withoutBloom.texture.Get());
 
     const RenderTarget withBloom = createRenderTarget(graphics.device.Get());
     renderer.render(makeDiskSnapshot(true), withBloom.view.Get());
     const std::vector<ReadbackPixel> bloomPixels = readback(
-        graphics.device.Get(),
         graphics.context.Get(),
         withBloom.texture.Get());
 
@@ -347,7 +284,6 @@ BAFX_TEST(warp_pipeline_renders_every_retained_trail_stroke)
 
     renderer.render(makeTwoTrailSnapshot(), target.view.Get());
     const std::vector<ReadbackPixel> pixels = readback(
-        graphics.device.Get(),
         graphics.context.Get(),
         target.texture.Get());
 
