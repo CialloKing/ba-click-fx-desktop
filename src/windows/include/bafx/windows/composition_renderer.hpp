@@ -5,7 +5,7 @@
 
 #include <d3d11.h>
 #include <dcomp.h>
-#include <dxgi1_3.h>
+#include <dxgi1_4.h>
 #include <wrl/client.h>
 
 #include <array>
@@ -85,7 +85,7 @@ private:
 
     Microsoft::WRL::ComPtr<ID3D11Device> device_{};
     Microsoft::WRL::ComPtr<ID3D11DeviceContext> context_{};
-    Microsoft::WRL::ComPtr<IDXGISwapChain2> swapChain_{};
+    Microsoft::WRL::ComPtr<IDXGISwapChain3> swapChain_{};
     Microsoft::WRL::ComPtr<ID3D11Texture2D> backBuffer_{};
     Microsoft::WRL::ComPtr<ID3D11RenderTargetView> renderTarget_{};
     Microsoft::WRL::ComPtr<IDCompositionDevice> compositionDevice_{};

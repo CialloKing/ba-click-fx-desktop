@@ -14,6 +14,8 @@ namespace
 {
 
 constexpr UINT swapChainFlags = DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT;
+constexpr DXGI_COLOR_SPACE_TYPE swapChainColorSpace =
+    DXGI_COLOR_SPACE_RGB_FULL_G10_NONE_P709;
 
 }
 
@@ -208,6 +210,22 @@ void CompositionRenderer::createSwapChain(const WindowSize size)
             &swapChain),
         "IDXGIFactory2::CreateSwapChainForComposition");
     throwIfFailed(swapChain.As(&swapChain_), "IDXGISwapChain1::QueryInterface");
+
+    UINT colorSpaceSupport = 0U;
+    throwIfFailed(
+        swapChain_->CheckColorSpaceSupport(swapChainColorSpace, &colorSpaceSupport),
+        "IDXGISwapChain3::CheckColorSpaceSupport(scRGB)");
+    if ((colorSpaceSupport & DXGI_SWAP_CHAIN_COLOR_SPACE_SUPPORT_FLAG_PRESENT) == 0U)
+    {
+        // The final shader emits linear premultiplied values. Continuing with
+        // DXGI's default gamma interpretation would silently change their hue.
+        throwIfFailed(
+            DXGI_ERROR_UNSUPPORTED,
+            "IDXGISwapChain3::CheckColorSpaceSupport(scRGB present)");
+    }
+    throwIfFailed(
+        swapChain_->SetColorSpace1(swapChainColorSpace),
+        "IDXGISwapChain3::SetColorSpace1(scRGB)");
     throwIfFailed(swapChain_->SetMaximumFrameLatency(1), "IDXGISwapChain2::SetMaximumFrameLatency");
 
     frameLatencyHandle_.reset(swapChain_->GetFrameLatencyWaitableObject());
