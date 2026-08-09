@@ -1248,6 +1248,261 @@ ConfigLoadResult parseJson(const std::string_view json) noexcept
     }
 }
 
+ConfigPatchResult applyPatchJson(
+    const Config& base,
+    const std::string_view json) noexcept
+{
+    try
+    {
+        JsonParser parser(json);
+        const std::optional<JsonValue> parsed = parser.parse();
+        if (!parsed.has_value())
+        {
+            return ConfigPatchResult{
+                base,
+                ConfigStatus::ParseError,
+                parser.error().empty() ? "invalid patch JSON" : parser.error(),
+                false,
+                std::nullopt};
+        }
+
+        const JsonValue::Object* root = objectOf(*parsed);
+        if (root == nullptr)
+        {
+            return ConfigPatchResult{
+                base,
+                ConfigStatus::ParseError,
+                "patch root must be an object",
+                false,
+                std::nullopt};
+        }
+        const JsonValue* pathValue = member(*root, "path");
+        if (pathValue == nullptr)
+        {
+            return ConfigPatchResult{
+                base,
+                ConfigStatus::ParseError,
+                "not a patch object",
+                false,
+                std::nullopt};
+        }
+        const std::string* path = std::get_if<std::string>(&pathValue->storage);
+        if (path == nullptr || path->empty())
+        {
+            return ConfigPatchResult{
+                base,
+                ConfigStatus::ValidationError,
+                "patch path must be a non-empty string",
+                true,
+                std::nullopt};
+        }
+        const JsonValue* value = member(*root, "value");
+        if (value == nullptr)
+        {
+            return ConfigPatchResult{
+                base,
+                ConfigStatus::ValidationError,
+                "patch value is required",
+                true,
+                std::nullopt};
+        }
+
+        std::optional<std::uint64_t> expectedGeneration;
+        if (const JsonValue* generation = member(*root, "generation");
+            generation != nullptr)
+        {
+            const double* number = std::get_if<double>(&generation->storage);
+            if (number == nullptr
+                || !std::isfinite(*number)
+                || *number < 0.0
+                || std::floor(*number) != *number
+                || *number
+                    > static_cast<double>((std::numeric_limits<std::uint64_t>::max)()))
+            {
+                return ConfigPatchResult{
+                    base,
+                    ConfigStatus::ValidationError,
+                    "patch generation must be a non-negative integer",
+                    true,
+                    std::nullopt};
+            }
+            expectedGeneration = static_cast<std::uint64_t>(*number);
+        }
+
+        Config result = base;
+        const auto readPatchBool = [value](bool& target) -> bool
+        {
+            const bool* boolean = std::get_if<bool>(&value->storage);
+            if (boolean == nullptr)
+            {
+                return false;
+            }
+            target = *boolean;
+            return true;
+        };
+        const auto readPatchFloat = [value](float& target) -> bool
+        {
+            const double* number = std::get_if<double>(&value->storage);
+            if (number == nullptr || !std::isfinite(*number)
+                || *number < -(std::numeric_limits<float>::max)()
+                || *number > (std::numeric_limits<float>::max)())
+            {
+                return false;
+            }
+            target = static_cast<float>(*number);
+            return true;
+        };
+        const auto readPatchString = [value](std::string& target) -> bool
+        {
+            const std::string* string = std::get_if<std::string>(&value->storage);
+            if (string == nullptr)
+            {
+                return false;
+            }
+            target = *string;
+            return true;
+        };
+
+        bool valueAccepted = false;
+        if (*path == "effects.enabled")
+        {
+            valueAccepted = readPatchBool(result.effects.enabled);
+        }
+        else if (*path == "effects.globalScale")
+        {
+            valueAccepted = readPatchFloat(result.effects.globalScale);
+        }
+        else if (*path == "effects.clickEnabled")
+        {
+            valueAccepted = readPatchBool(result.effects.clickEnabled);
+        }
+        else if (*path == "effects.trailEnabled")
+        {
+            valueAccepted = readPatchBool(result.effects.trailEnabled);
+        }
+        else if (*path == "effects.trailLength")
+        {
+            valueAccepted = readPatchFloat(result.effects.trailLength);
+        }
+        else if (*path == "effects.trailWidth")
+        {
+            valueAccepted = readPatchFloat(result.effects.trailWidth);
+        }
+        else if (*path == "effects.bloomIntensity")
+        {
+            valueAccepted = readPatchFloat(result.effects.bloomIntensity);
+        }
+        else if (*path == "effects.bloomQuality")
+        {
+            std::string quality;
+            valueAccepted = readPatchString(quality)
+                && parseBloomQuality(quality, result.effects.bloomQuality);
+        }
+        else if (*path == "background.mode")
+        {
+            std::string mode;
+            valueAccepted = readPatchString(mode)
+                && parseCaptureMode(mode, result.background.mode);
+        }
+        else if (*path == "background.cursorExcluded")
+        {
+            valueAccepted = readPatchBool(result.background.cursorExcluded);
+        }
+        else if (*path == "input.leftClick")
+        {
+            valueAccepted = readPatchBool(result.input.leftClick);
+        }
+        else if (*path == "input.rightClick")
+        {
+            valueAccepted = readPatchBool(result.input.rightClick);
+        }
+        else if (*path == "input.middleClick")
+        {
+            valueAccepted = readPatchBool(result.input.middleClick);
+        }
+        else if (*path == "input.trailOnlyWhilePressed")
+        {
+            valueAccepted = readPatchBool(result.input.trailOnlyWhilePressed);
+        }
+        else if (*path == "performance.idleOptimization")
+        {
+            valueAccepted = readPatchBool(result.performance.idleOptimization);
+        }
+        else if (*path == "performance.framePacing")
+        {
+            std::string pacing;
+            valueAccepted = readPatchString(pacing)
+                && parseFramePacing(pacing, result.performance.framePacing);
+        }
+        else if (*path == "system.startWithWindows")
+        {
+            valueAccepted = readPatchBool(result.system.startWithWindows);
+        }
+        else if (*path == "system.startMinimized")
+        {
+            valueAccepted = readPatchBool(result.system.startMinimized);
+        }
+        else if (*path == "system.closeToTray")
+        {
+            valueAccepted = readPatchBool(result.system.closeToTray);
+        }
+        else
+        {
+            return ConfigPatchResult{
+                base,
+                ConfigStatus::ValidationError,
+                "patch path is not supported",
+                true,
+                expectedGeneration};
+        }
+
+        if (!valueAccepted)
+        {
+            return ConfigPatchResult{
+                base,
+                ConfigStatus::ValidationError,
+                "patch value has the wrong type or enum value",
+                true,
+                expectedGeneration};
+        }
+
+        std::string validationError;
+        if (!validateConfig(result, &validationError))
+        {
+            return ConfigPatchResult{
+                base,
+                ConfigStatus::ValidationError,
+                std::move(validationError),
+                true,
+                expectedGeneration};
+        }
+        return ConfigPatchResult{
+            result,
+            ConfigStatus::Ok,
+            {},
+            true,
+            expectedGeneration};
+    }
+    catch (const std::exception& error)
+    {
+        return ConfigPatchResult{
+            base,
+            ConfigStatus::ParseError,
+            std::string("configuration patch failed: ") + error.what(),
+            false,
+            std::nullopt};
+    }
+    catch (...)
+    {
+        return ConfigPatchResult{
+            base,
+            ConfigStatus::ParseError,
+            "configuration patch failed",
+            false,
+            std::nullopt};
+    }
+}
+
 std::string toJson(const Config& config, const bool pretty)
 {
     std::string output;

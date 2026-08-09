@@ -232,24 +232,55 @@ bafx::windows::IpcResponse HostControlPlane::handle(
 bafx::windows::IpcResponse HostControlPlane::handleSetConfig(
     const std::string_view payload) noexcept
 {
-    const bafx::config::ConfigLoadResult parsed = bafx::config::parseJson(payload);
-    if (!parsed.succeeded())
+    bafx::config::Config baseConfig;
     {
-        return bafx::windows::IpcResponse::failure(
-            "invalid_config",
-            parsed.message.empty() ? "configuration is invalid" : parsed.message);
+        std::lock_guard<std::mutex> lock(mutex_);
+        baseConfig = config_;
+    }
+
+    const bafx::config::ConfigPatchResult patch =
+        bafx::config::applyPatchJson(baseConfig, payload);
+    bafx::config::Config candidate{};
+    std::optional<std::uint64_t> expectedGeneration;
+    if (patch.recognized)
+    {
+        if (!patch.succeeded())
+        {
+            return bafx::windows::IpcResponse::failure(
+                "invalid_config",
+                patch.message.empty() ? "configuration patch is invalid" : patch.message);
+        }
+        candidate = patch.config;
+        expectedGeneration = patch.expectedGeneration;
+    }
+    else
+    {
+        const bafx::config::ConfigLoadResult parsed = bafx::config::parseJson(payload);
+        if (!parsed.succeeded())
+        {
+            return bafx::windows::IpcResponse::failure(
+                "invalid_config",
+                parsed.message.empty() ? "configuration is invalid" : parsed.message);
+        }
+        candidate = parsed.config;
     }
 
     std::lock_guard<std::mutex> lock(mutex_);
+    if (expectedGeneration.has_value() && *expectedGeneration != generation_)
+    {
+        return bafx::windows::IpcResponse::failure(
+            "generation_conflict",
+            "configuration generation changed; refresh before retrying");
+    }
     const bafx::config::ConfigSaveResult saved =
-        bafx::config::saveConfigAtomic(configPath_, parsed.config);
+        bafx::config::saveConfigAtomic(configPath_, candidate);
     if (!saved.succeeded())
     {
         return bafx::windows::IpcResponse::failure(
             "config_write_failed",
             saved.message.empty() ? "configuration could not be saved" : saved.message);
     }
-    config_ = parsed.config;
+    config_ = candidate;
     ++generation_;
     return bafx::windows::IpcResponse::success(
         bafx::config::toJson(config_, false));

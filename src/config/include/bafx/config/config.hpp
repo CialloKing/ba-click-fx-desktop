@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <optional>
 #include <string>
 #include <string_view>
 
@@ -113,6 +114,20 @@ struct ConfigLoadResult
     }
 };
 
+struct ConfigPatchResult
+{
+    Config config{};
+    ConfigStatus status{ConfigStatus::ParseError};
+    std::string message{};
+    bool recognized{false};
+    std::optional<std::uint64_t> expectedGeneration{};
+
+    [[nodiscard]] bool succeeded() const noexcept
+    {
+        return recognized && status == ConfigStatus::Ok;
+    }
+};
+
 struct ConfigSaveResult
 {
     ConfigStatus status{ConfigStatus::Ok};
@@ -127,6 +142,13 @@ struct ConfigSaveResult
 [[nodiscard]] Config defaultConfig() noexcept;
 
 [[nodiscard]] ConfigLoadResult parseJson(std::string_view json) noexcept;
+
+// Parses a single {"path": ..., "value": ...} product-level update. A
+// missing path makes recognized=false so callers can fall back to a full
+// configuration document without accepting malformed patch objects.
+[[nodiscard]] ConfigPatchResult applyPatchJson(
+    const Config& base,
+    std::string_view json) noexcept;
 
 [[nodiscard]] std::string toJson(
     const Config& config,
@@ -148,4 +170,3 @@ struct ConfigSaveResult
 [[nodiscard]] std::string_view toString(FramePacing pacing) noexcept;
 
 }
-

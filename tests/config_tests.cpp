@@ -143,6 +143,30 @@ BAFX_TEST(config_atomic_save_load_and_failure_preserves_previous_file)
     removeTestTree(path);
 }
 
+BAFX_TEST(config_patch_updates_whitelisted_field_and_checks_generation)
+{
+    const bafx::config::Config base = bafx::config::defaultConfig();
+    const auto patched = bafx::config::applyPatchJson(
+        base,
+        R"json({"generation":7,"path":"effects.globalScale","value":1.75})json");
+    BAFX_CHECK(patched.recognized);
+    BAFX_CHECK(patched.succeeded());
+    BAFX_CHECK(patched.expectedGeneration.has_value());
+    BAFX_CHECK(*patched.expectedGeneration == 7U);
+    BAFX_CHECK_NEAR(patched.config.effects.globalScale, 1.75F, 0.00001F);
+
+    const auto unknown = bafx::config::applyPatchJson(
+        base,
+        R"json({"path":"renderer.device","value":"warp"})json");
+    BAFX_CHECK(unknown.recognized);
+    BAFX_CHECK(!unknown.succeeded());
+
+    const auto fullDocument = bafx::config::applyPatchJson(
+        base,
+        bafx::config::toJson(base, false));
+    BAFX_CHECK(!fullDocument.recognized);
+}
+
 BAFX_TEST(config_preserves_unicode_paths_and_rejects_unknown_enum_values)
 {
     const fs::path path = testPath().parent_path() / L"配置.json";
