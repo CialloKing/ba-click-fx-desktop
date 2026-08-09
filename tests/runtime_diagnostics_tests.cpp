@@ -8,7 +8,7 @@
 
 BAFX_TEST(support_report_contains_alpha_scope_and_graphics_facts)
 {
-    bafx::windows::SupportReport report("0.1.0-alpha.1");
+    bafx::windows::SupportReport report("0.1.0-alpha.2");
     report.setPrimaryMonitor(RECT{0, 0, 1920, 1080});
 
     bafx::windows::GraphicsDeviceInfo device{};
@@ -22,7 +22,7 @@ BAFX_TEST(support_report_contains_alpha_scope_and_graphics_facts)
     report.setExitUiStatus(bafx::windows::ExitUiStatus{true, false, true});
 
     const std::string text = report.serialize();
-    BAFX_CHECK(text.find("Product.Version=0.1.0-alpha.1") != std::string::npos);
+    BAFX_CHECK(text.find("Product.Version=0.1.0-alpha.2") != std::string::npos);
     BAFX_CHECK(text.find("Support.Scope=single-primary-monitor;fx-only;sdr-tested")
         != std::string::npos);
     BAFX_CHECK(text.find("Graphics.DriverType=WARP") != std::string::npos);
