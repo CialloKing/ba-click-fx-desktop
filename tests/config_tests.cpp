@@ -62,6 +62,48 @@ BAFX_TEST(config_defaults_round_trip_through_versioned_json)
         0.00001F);
 }
 
+BAFX_TEST(config_capture_modes_use_canonical_wire_values)
+{
+    const bafx::config::Config base = bafx::config::defaultConfig();
+
+    BAFX_CHECK(bafx::config::toString(bafx::config::CaptureMode::FxOnly)
+        == "fx-only");
+    BAFX_CHECK(
+        bafx::config::toString(bafx::config::CaptureMode::BackgroundAware)
+        == "background-aware");
+    BAFX_CHECK(
+        bafx::config::toString(bafx::config::CaptureMode::RecordingCompatible)
+        == "recording-compatible");
+
+    const auto fxOnly = bafx::config::applyPatchJson(
+        base,
+        R"json({"path":"background.mode","value":"fx-only"})json");
+    BAFX_CHECK(fxOnly.succeeded());
+    BAFX_CHECK(fxOnly.config.background.mode
+        == bafx::config::CaptureMode::FxOnly);
+
+    const auto backgroundAware = bafx::config::applyPatchJson(
+        base,
+        R"json({"path":"background.mode","value":"background-aware"})json");
+    BAFX_CHECK(backgroundAware.succeeded());
+    BAFX_CHECK(backgroundAware.config.background.mode
+        == bafx::config::CaptureMode::BackgroundAware);
+
+    const auto recordingCompatible = bafx::config::applyPatchJson(
+        base,
+        R"json({"path":"background.mode","value":"recording-compatible"})json");
+    BAFX_CHECK(recordingCompatible.succeeded());
+    BAFX_CHECK(recordingCompatible.config.background.mode
+        == bafx::config::CaptureMode::RecordingCompatible);
+
+    // Uppercase enum names were emitted by an early Control Center build. Keep
+    // them rejected so every writer converges on the canonical wire contract.
+    const auto legacyUppercase = bafx::config::applyPatchJson(
+        base,
+        R"json({"path":"background.mode","value":"BACKGROUND_AWARE"})json");
+    BAFX_CHECK(!legacyUppercase.succeeded());
+}
+
 BAFX_TEST(config_bloom_quality_preserves_the_unity_default_at_high)
 {
     BAFX_CHECK_NEAR(
