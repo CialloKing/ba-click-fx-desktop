@@ -22,6 +22,8 @@ constexpr float trailLifetimeSeconds = 0.3F;
 constexpr float trailWidthWorld = 0.005F;
 constexpr float ringLifetimeSeconds = 0.6F;
 constexpr float ringAngularVelocityMultiplier = 11.170107F;
+constexpr double particleRenderDelaySeconds = 0.025;
+constexpr double customDataRenderDelaySeconds = 0.050;
 constexpr std::uint32_t maximumDragParticles = 50U;
 constexpr std::uint32_t releaseFrameCount = 60U;
 constexpr std::uint64_t atlasRandomStream = 0xD1B54A32D192ED03ULL;
@@ -165,6 +167,13 @@ template<std::size_t keyCount>
 [[nodiscard]] float length(const PointF value) noexcept
 {
     return std::sqrt(value.x * value.x + value.y * value.y);
+}
+
+[[nodiscard]] double delayedAge(
+    const double elapsedSeconds,
+    const double delaySeconds) noexcept
+{
+    return std::max(0.0, elapsedSeconds - delaySeconds);
 }
 
 [[nodiscard]] PointF add(const PointF lhs, const PointF rhs) noexcept
@@ -453,7 +462,8 @@ void Simulation::advance(const SimulationTime time)
         triangles_.end(),
         [time](const MovingParticle& particle)
         {
-            return ageSeconds(time, particle.bornAt) > particle.lifetimeSeconds;
+            return ageSeconds(time, particle.bornAt)
+                > particle.lifetimeSeconds + particleRenderDelaySeconds;
         });
     triangles_.erase(particleEnd, triangles_.end());
 }
@@ -488,9 +498,12 @@ FrameSnapshot Simulation::snapshot(const Viewport viewport, const SimulationTime
     }
 
     const double effectAge = ageSeconds(time, startedAt_);
-    if (effectAge >= 0.0 && effectAge <= 0.2)
+    // Unity emits bursts at the end of its first particle update. The verified
+    // 50/100 ms captures expose a 25 ms phase before visual lifetime advances.
+    const double particleAge = delayedAge(effectAge, particleRenderDelaySeconds);
+    if (effectAge > 0.0 && particleAge <= 0.2)
     {
-        const float normalizedAge = static_cast<float>(effectAge / 0.2);
+        const float normalizedAge = static_cast<float>(particleAge / 0.2);
         frame.sprites.push_back(Sprite{
             SpriteKind::CenterDisk,
             worldToScreen(effectOriginWorld_, viewport),
@@ -504,10 +517,14 @@ FrameSnapshot Simulation::snapshot(const Viewport viewport, const SimulationTime
             true});
     }
 
-    if (effectAge >= 0.0 && effectAge <= ringLifetimeSeconds)
+    if (effectAge > 0.0 && particleAge <= ringLifetimeSeconds)
     {
         const float normalizedAge = static_cast<float>(
-            effectAge / ringLifetimeSeconds);
+            particleAge / ringLifetimeSeconds);
+        // Custom1 reaches the renderer one particle update after size/color.
+        const float customNormalizedAge = static_cast<float>(
+            delayedAge(effectAge, customDataRenderDelaySeconds)
+            / ringLifetimeSeconds);
         for (const RingParticle& ring : rings_)
         {
             // The reconstructed Cylinder002 AABB has a full extent of 2 * 1.0636685.
@@ -523,7 +540,7 @@ FrameSnapshot Simulation::snapshot(const Viewport viewport, const SimulationTime
                     + ringRotationDelta(ring.angularBlend, normalizedAge),
                 ringColor(normalizedAge),
                 5.992157F,
-                dissolveThreshold(normalizedAge),
+                dissolveThreshold(customNormalizedAge),
                 0U,
                 4499,
                 true});
@@ -532,8 +549,14 @@ FrameSnapshot Simulation::snapshot(const Viewport viewport, const SimulationTime
 
     for (const MovingParticle& particle : triangles_)
     {
-        const double age = ageSeconds(time, particle.bornAt);
-        if (age < 0.0 || age > particle.lifetimeSeconds)
+        const double elapsed = ageSeconds(time, particle.bornAt);
+        if (elapsed <= 0.0)
+        {
+            continue;
+        }
+
+        const double age = delayedAge(elapsed, particleRenderDelaySeconds);
+        if (age > particle.lifetimeSeconds)
         {
             continue;
         }

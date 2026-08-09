@@ -108,7 +108,7 @@ BAFX_TEST(click_triangle_atlas_frames_are_sampled_per_particle)
     BAFX_CHECK(foundNonAlternatingFrames);
 }
 
-BAFX_TEST(dissolve_ring_is_most_open_at_120ms)
+BAFX_TEST(dissolve_ring_custom_data_follows_the_unity_particle_update_phase)
 {
     Simulation simulation;
     simulation.pointerDown(goldenCenter, goldenViewport, 0ns);
@@ -123,14 +123,14 @@ BAFX_TEST(dissolve_ring_is_most_open_at_120ms)
         250ms,
         450ms};
     constexpr std::array expectedThresholds{
+        1.0F,
         0.62384260F,
-        0.07407415F,
-        0.01967585F,
-        0.0F,
-        0.03993887F,
-        0.22559442F,
-        0.44780129F,
-        0.86553848F};
+        0.50000006F,
+        0.37615746F,
+        0.25925934F,
+        0.03993884F,
+        0.29346901F,
+        0.78884792F};
 
     for (std::size_t index = 0U; index < sampleTimes.size(); ++index)
     {
@@ -149,11 +149,11 @@ BAFX_TEST(unity_hermite_size_curves_match_serialized_samples)
     const auto diskFrame = simulation.snapshot(goldenViewport, 100ms);
     BAFX_CHECK_NEAR(
         firstKind(diskFrame, SpriteKind::CenterDisk).sizePixels,
-        119.39155F,
+        110.53641F,
         1.0e-3F);
 
-    constexpr std::array expectedRingSizesAt250ms{139.71249F, 124.16064F};
-    constexpr std::array expectedRingSizesAt450ms{158.58969F, 140.93652F};
+    constexpr std::array expectedRingSizesAt250ms{135.67345F, 120.57119F};
+    constexpr std::array expectedRingSizesAt450ms{157.33611F, 139.82249F};
     const auto ringFrameAt250ms = simulation.snapshot(goldenViewport, 250ms);
     const auto ringsAt250ms = spritesOfKind(ringFrameAt250ms, SpriteKind::DissolveRing);
     const auto ringFrameAt450ms = simulation.snapshot(goldenViewport, 450ms);
@@ -173,15 +173,15 @@ BAFX_TEST(unity_hermite_size_curves_match_serialized_samples)
     }
 
     constexpr std::array expectedTriangleSizesAt250ms{
-        23.86673F,
-        22.00195F,
-        25.94406F,
-        27.92309F};
+        24.46440F,
+        22.49270F,
+        26.69940F,
+        28.54280F};
     constexpr std::array expectedTriangleSizesAt450ms{
-        15.52249F,
-        15.03560F,
-        15.60907F,
-        19.12013F};
+        16.89060F,
+        16.18470F,
+        17.29080F,
+        20.57250F};
     const auto trianglesAt250ms = spritesOfKind(ringFrameAt250ms, SpriteKind::Triangle);
     const auto trianglesAt450ms = spritesOfKind(ringFrameAt450ms, SpriteKind::Triangle);
     BAFX_CHECK(trianglesAt250ms.size() == expectedTriangleSizesAt250ms.size());
@@ -204,7 +204,7 @@ BAFX_TEST(unity_ring_rotation_integrates_the_serialized_two_curves)
     Simulation simulation;
     simulation.pointerDown(goldenCenter, goldenViewport, 0ns);
 
-    const auto initialFrame = simulation.snapshot(goldenViewport, 0ns);
+    const auto initialFrame = simulation.snapshot(goldenViewport, 1ns);
     const auto frameAt300ms = simulation.snapshot(goldenViewport, 300ms);
     const auto frameAt600ms = simulation.snapshot(goldenViewport, 600ms);
     const auto initialRings = spritesOfKind(initialFrame, SpriteKind::DissolveRing);
@@ -214,8 +214,8 @@ BAFX_TEST(unity_ring_rotation_integrates_the_serialized_two_curves)
     BAFX_CHECK(ringsAt300ms.size() == initialRings.size());
     BAFX_CHECK(ringsAt600ms.size() == initialRings.size());
 
-    constexpr std::array expectedAt300ms{3.0705049F, 2.7826068F};
-    constexpr std::array expectedAt600ms{4.8338957F, 3.9891858F};
+    constexpr std::array expectedAt300ms{2.8539987F, 2.5977697F};
+    constexpr std::array expectedAt600ms{4.7268543F, 3.9370995F};
     for (std::size_t index = 0U; index < initialRings.size(); ++index)
     {
         BAFX_CHECK_NEAR(
@@ -238,22 +238,22 @@ BAFX_TEST(unity_active_color_space_is_applied_after_serialized_color_curves)
 
     const auto diskFrame = simulation.snapshot(goldenViewport, 10ms);
     const Sprite& disk = firstKind(diskFrame, SpriteKind::CenterDisk);
-    BAFX_CHECK_NEAR(disk.color.r, 0.42709361F, 1.0e-6F);
-    BAFX_CHECK_NEAR(disk.color.g, 0.51838338F, 1.0e-6F);
+    BAFX_CHECK_NEAR(disk.color.r, 1.0F, 1.0e-6F);
+    BAFX_CHECK_NEAR(disk.color.g, 1.0F, 1.0e-6F);
     BAFX_CHECK_NEAR(disk.color.b, 1.0F, 1.0e-6F);
     BAFX_CHECK_NEAR(disk.color.a, 1.0F, 1.0e-6F);
 
     const auto ringFrame = simulation.snapshot(goldenViewport, 250ms);
     const Sprite& ring = firstKind(ringFrame, SpriteKind::DissolveRing);
-    BAFX_CHECK_NEAR(ring.color.r, 0.16906266F, 1.0e-6F);
-    BAFX_CHECK_NEAR(ring.color.g, 0.48847437F, 1.0e-6F);
+    BAFX_CHECK_NEAR(ring.color.r, 0.23641479F, 1.0e-6F);
+    BAFX_CHECK_NEAR(ring.color.g, 0.54607397F, 1.0e-6F);
     BAFX_CHECK_NEAR(ring.color.b, 1.0F, 1.0e-6F);
 
     constexpr std::array expectedColors{
-        ColorF{0.03321629F, 0.14406304F, 0.25064608F, 0.07775988F},
-        ColorF{0.03321752F, 0.14408310F, 0.25064608F, 0.07909042F},
-        ColorF{0.03321458F, 0.14403539F, 0.25064608F, 0.26349252F},
-        ColorF{0.03321758F, 0.14408398F, 0.25064608F, 0.08707273F}};
+        ColorF{0.03321951F, 0.14411548F, 0.25064608F, 0.38006002F},
+        ColorF{0.03322063F, 0.14413354F, 0.25064608F, 0.54815209F},
+        ColorF{0.03321799F, 0.14409056F, 0.25064608F, 0.14858568F},
+        ColorF{0.03322067F, 0.14413428F, 0.25064608F, 0.55533624F}};
     const auto triangles = spritesOfKind(ringFrame, SpriteKind::Triangle);
     BAFX_CHECK(triangles.size() == expectedColors.size());
     for (std::size_t index = 0U; index < expectedColors.size(); ++index)
@@ -274,10 +274,10 @@ BAFX_TEST(click_triangles_use_independent_random_angles_and_zero_rotation)
     // These coordinates lock the native deterministic stream only. Unity's
     // engine-specific random stream is compared with layout-insensitive metrics.
     constexpr std::array expectedCenters{
-        PointF{1019.79510F, 518.41803F},
-        PointF{987.14734F, 496.29846F},
-        PointF{999.75006F, 596.50702F},
-        PointF{1002.14856F, 594.41406F}};
+        PointF{1018.42676F, 519.33691F},
+        PointF{986.81482F, 497.72739F},
+        PointF{998.98273F, 595.01849F},
+        PointF{1001.46710F, 593.26154F}};
 
     BAFX_CHECK(triangles.size() == expectedCenters.size());
     for (std::size_t index = 0U; index < expectedCenters.size(); ++index)
