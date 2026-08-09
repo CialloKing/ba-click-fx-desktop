@@ -6,6 +6,7 @@ add_library(
         src/fx_gpu_renderer.cpp
         src/gpu_texture_readback.cpp
         src/ipc.cpp
+        src/ipc_client.cpp
         src/overlay_window.cpp
         src/runtime_diagnostics.cpp
         src/wgc_background_sensor.cpp
