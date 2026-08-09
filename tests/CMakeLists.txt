@@ -107,4 +107,26 @@ if(WIN32)
         PROPERTIES
             FOLDER "Validation"
     )
+
+    add_executable(
+        bafx_gpu_pipeline_tests
+        test_main.cpp
+        fx_gpu_pipeline_tests.cpp
+    )
+    target_link_libraries(
+        bafx_gpu_pipeline_tests
+        PRIVATE
+            bafx::windows
+            ole32
+    )
+    target_compile_features(bafx_gpu_pipeline_tests PRIVATE cxx_std_20)
+    bafx_enable_warnings(bafx_gpu_pipeline_tests)
+    add_test(NAME gpu_pipeline_warp COMMAND bafx_gpu_pipeline_tests)
+    set_tests_properties(
+        gpu_pipeline_warp
+        PROPERTIES
+            LABELS "gpu;warp"
+            TIMEOUT 30
+    )
+    set_target_properties(bafx_gpu_pipeline_tests PROPERTIES FOLDER "Tests")
 endif()
