@@ -115,6 +115,12 @@ struct RunOptions
     bool demoClick{false};
 };
 
+struct MonitorSelection
+{
+    HMONITOR handle{nullptr};
+    RECT bounds{};
+};
+
 [[nodiscard]] RunOptions parseOptions()
 {
     RunOptions options{};
@@ -181,7 +187,7 @@ struct RunOptions
     return options;
 }
 
-[[nodiscard]] RECT primaryMonitorBounds()
+[[nodiscard]] MonitorSelection primaryMonitorBounds()
 {
     POINT origin{0, 0};
     const HMONITOR monitor = MonitorFromPoint(origin, MONITOR_DEFAULTTOPRIMARY);
@@ -191,7 +197,7 @@ struct RunOptions
     {
         bafx::windows::throwLastError("GetMonitorInfoW");
     }
-    return information.rcMonitor;
+    return MonitorSelection{monitor, information.rcMonitor};
 }
 
 void dispatchMessages(bool& quit)
@@ -314,13 +320,22 @@ int runApplication(
 
     ComApartment apartment;
     QpcClock clock;
-    const RECT monitorBounds = primaryMonitorBounds();
-    report.setPrimaryMonitor(monitorBounds);
+    const MonitorSelection primaryMonitor = primaryMonitorBounds();
+    report.setPrimaryMonitor(primaryMonitor.bounds);
     bafx::windows::OverlayWindow window(
         instance,
-        monitorBounds,
+        primaryMonitor.bounds,
         L"ba-click-fx-desktop");
     bafx::windows::CompositionRenderer renderer(window.handle(), window.size());
+    const bafx::windows::CaptureExclusionStatus captureExclusion =
+        window.setCaptureExcluded(true);
+    const bool exclusionConfirmed = captureExclusion.confirmed();
+    if (!exclusionConfirmed)
+    {
+        bafx::windows::appendDiagnosticLog(
+            logPath,
+            "Capture exclusion was not confirmed; WGC remains disabled");
+    }
     report.setDeviceInfo(renderer.deviceInfo());
     report.setExitUiStatus(window.exitUiStatus());
     bafx::windows::appendDiagnosticLog(logPath, report);
@@ -334,6 +349,11 @@ int runApplication(
         throw std::runtime_error("Desktop smoke test could not identify the D3D11 adapter");
     }
     renderer.setReadbackDiagnostics(options.smokeTest);
+    // WGC startup belongs here, after the base renderer exists and only when
+    // capture exclusion was confirmed by querying the effective affinity.
+    // renderer.tryEnableBackgroundCapture(
+    //     primaryMonitor.handle,
+    //     exclusionConfirmed);
     bafx::fx::SimulationRuntime simulation(makeRuntimeSeed());
     window.show();
 
