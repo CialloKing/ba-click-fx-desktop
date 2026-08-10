@@ -791,7 +791,12 @@ int runApplication(
         }
         if (shouldRender)
         {
-            simulation.onFrameRendered();
+            if (!controlState.paused || enteringPause)
+            {
+                // A paused resize/config redraw refreshes the retained surface;
+                // it is not a Unity simulation frame and must not age Stop.
+                simulation.onFrameRendered();
+            }
             ++renderedFrames;
             if (options.frameLimit.has_value() && renderedFrames >= *options.frameLimit)
             {
