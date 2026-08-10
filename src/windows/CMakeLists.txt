@@ -9,6 +9,7 @@ add_library(
         src/ipc.cpp
         src/ipc_client.cpp
         src/overlay_window.cpp
+        src/packed_fx_textures.cpp
         src/runtime_diagnostics.cpp
         src/wgc_background_sensor.cpp
         src/wic_texture_loader.cpp
