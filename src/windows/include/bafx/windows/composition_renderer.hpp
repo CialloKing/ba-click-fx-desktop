@@ -44,6 +44,20 @@ enum class GraphicsDriverType : std::uint8_t
     Warp
 };
 
+enum class BackgroundCompositeStatus : std::uint8_t
+{
+    Inactive,
+    WaitingForFrame,
+    SizeMismatch,
+    Stale,
+    FutureTimestamp,
+    WrongEpoch,
+    InvalidContract,
+    InvalidPolicy,
+    CaptureFailed,
+    Participating
+};
+
 struct GraphicsDeviceInfo
 {
     GraphicsDriverType driverType{GraphicsDriverType::Hardware};
@@ -84,6 +98,10 @@ public:
         bool cursorExcluded = true) noexcept;
     void disableBackgroundCapture() noexcept;
     [[nodiscard]] bool backgroundCaptureActive() const noexcept;
+    [[nodiscard]] bool backgroundCaptureBorderHidden() const noexcept;
+    [[nodiscard]] bool backgroundCaptureCursorExcluded() const noexcept;
+    [[nodiscard]] bool backgroundParticipatedInLastFrame() const noexcept;
+    [[nodiscard]] BackgroundCompositeStatus backgroundCompositeStatus() const noexcept;
     [[nodiscard]] std::string_view backgroundCaptureFailure() const noexcept;
     void setReadbackDiagnostics(bool enabled);
 
@@ -119,6 +137,9 @@ private:
     std::uint64_t backgroundEpoch_{1U};
     bool backgroundCaptureRequested_{false};
     bool backgroundCursorExcluded_{true};
+    bool backgroundParticipatedInLastFrame_{false};
+    BackgroundCompositeStatus backgroundCompositeStatus_{
+        BackgroundCompositeStatus::Inactive};
     // Failure reporting is used by noexcept fallback paths. Keep it inline so
     // a diagnostic allocation can never terminate the render process.
     std::array<char, 512U> backgroundCaptureFailure_{};

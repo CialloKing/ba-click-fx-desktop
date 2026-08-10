@@ -31,6 +31,14 @@ struct WgcBackgroundSample
     std::uint64_t generation{0U};
 };
 
+struct WgcBackgroundSessionCapabilities
+{
+    // Portable Win32 applications cannot require the package capability used
+    // to suppress the system capture border. Capture remains usable without it.
+    bool borderHidden{false};
+    bool cursorExcluded{false};
+};
+
 enum class WgcBackgroundDrainStatus : std::uint8_t
 {
     NoFrame,
@@ -58,6 +66,7 @@ public:
         ID3D11DeviceContext* context);
     [[nodiscard]] std::optional<WgcBackgroundSample> latestSample() const noexcept;
     [[nodiscard]] std::uint64_t expectedEpoch() const noexcept;
+    [[nodiscard]] WgcBackgroundSessionCapabilities capabilities() const noexcept;
     [[nodiscard]] HANDLE frameAvailableObject() const noexcept;
     [[nodiscard]] bool running() const noexcept;
 

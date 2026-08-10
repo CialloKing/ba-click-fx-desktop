@@ -19,6 +19,7 @@
 #include <filesystem>
 #include <optional>
 #include <stdexcept>
+#include <string>
 #include <string_view>
 
 namespace
@@ -31,6 +32,46 @@ constexpr auto smokeTestDeadline = std::chrono::seconds(5);
     const bafx::config::Config& config) noexcept
 {
     return config.background.mode == bafx::config::CaptureMode::BackgroundAware;
+}
+
+[[nodiscard]] std::string backgroundCaptureCapabilitiesDiagnostic(
+    const bafx::windows::CompositionRenderer& renderer)
+{
+    std::string message = "WGC capture session active; system-border=";
+    message += renderer.backgroundCaptureBorderHidden() ? "hidden" : "visible";
+    message += "; cursor=";
+    message += renderer.backgroundCaptureCursorExcluded() ? "excluded" : "captured";
+    return message;
+}
+
+[[nodiscard]] std::string_view backgroundCompositeStatusName(
+    const bafx::windows::BackgroundCompositeStatus status) noexcept
+{
+    using bafx::windows::BackgroundCompositeStatus;
+    switch (status)
+    {
+    case BackgroundCompositeStatus::Inactive:
+        return "inactive";
+    case BackgroundCompositeStatus::WaitingForFrame:
+        return "waiting-for-frame";
+    case BackgroundCompositeStatus::SizeMismatch:
+        return "size-mismatch";
+    case BackgroundCompositeStatus::Stale:
+        return "stale";
+    case BackgroundCompositeStatus::FutureTimestamp:
+        return "future-timestamp";
+    case BackgroundCompositeStatus::WrongEpoch:
+        return "wrong-epoch";
+    case BackgroundCompositeStatus::InvalidContract:
+        return "invalid-contract";
+    case BackgroundCompositeStatus::InvalidPolicy:
+        return "invalid-policy";
+    case BackgroundCompositeStatus::CaptureFailed:
+        return "capture-failed";
+    case BackgroundCompositeStatus::Participating:
+        return "participating";
+    }
+    return "unknown";
 }
 
 [[nodiscard]] bafx::windows::FxBloomSettings makeBloomSettings(
@@ -499,6 +540,9 @@ int runApplication(
     {
         report.setBackgroundCaptureStatus(
             bafx::windows::BackgroundCaptureStatus::Active);
+        bafx::windows::appendDiagnosticLog(
+            logPath,
+            backgroundCaptureCapabilitiesDiagnostic(renderer));
     }
     bafx::windows::appendDiagnosticLog(logPath, report);
     bafx::fx::SimulationRuntime simulation(makeRuntimeSeed());
@@ -520,7 +564,10 @@ int runApplication(
 
     bool quit = false;
     std::uint32_t renderedFrames = 0;
+    std::uint64_t backgroundCompositeFrames = 0U;
     std::uint64_t appliedGeneration = control.snapshot().generation;
+    bool backgroundParticipationLogged = false;
+    bool backgroundPendingDiagnosticLogged = false;
     std::optional<bafx::fx::SimulationTime> frozenRenderTime;
     const bafx::fx::SimulationTime applicationStartedAt = clock.now();
     while (!quit && !window.closeRequested())
@@ -596,6 +643,14 @@ int runApplication(
                     backgroundCaptureEnabled
                     ? bafx::windows::BackgroundCaptureStatus::Active
                     : bafx::windows::BackgroundCaptureStatus::FallbackFxOnly);
+                if (backgroundCaptureEnabled)
+                {
+                    bafx::windows::appendDiagnosticLog(
+                        logPath,
+                        backgroundCaptureCapabilitiesDiagnostic(renderer));
+                }
+                backgroundParticipationLogged = false;
+                backgroundPendingDiagnosticLogged = false;
                 bafx::windows::appendDiagnosticLog(logPath, report);
             }
             appliedGeneration = controlState.generation;
@@ -651,11 +706,17 @@ int runApplication(
             : bafx::fx::FrameSnapshot{};
         applyVisualConfig(snapshot, config);
         renderer.renderFrame(snapshot, wallTime);
+        if (renderer.backgroundParticipatedInLastFrame())
+        {
+            ++backgroundCompositeFrames;
+        }
         const bool currentBackgroundCaptureActive = renderer.backgroundCaptureActive();
         control.setBackgroundCaptureActive(currentBackgroundCaptureActive);
         if (currentBackgroundCaptureActive != backgroundCaptureEnabled)
         {
             backgroundCaptureEnabled = currentBackgroundCaptureActive;
+            backgroundParticipationLogged = false;
+            backgroundPendingDiagnosticLogged = false;
             if (!backgroundCaptureEnabled && backgroundCaptureWanted)
             {
                 // Session close, item close, or a failed resize leaves no
@@ -677,6 +738,28 @@ int runApplication(
                 ? "WGC background capture resumed"
                 : "WGC background capture stopped; using FX-only rendering");
             bafx::windows::appendDiagnosticLog(logPath, report);
+        }
+        if (renderer.backgroundParticipatedInLastFrame()
+            && !backgroundParticipationLogged)
+        {
+            // Session startup alone does not prove that a captured desktop
+            // sample reached the shader. Log the first frame that actually did.
+            bafx::windows::appendDiagnosticLog(
+                logPath,
+                "WGC background sample entered the final desktop composite");
+            backgroundParticipationLogged = true;
+        }
+        else if (currentBackgroundCaptureActive
+            && !backgroundParticipationLogged
+            && !backgroundPendingDiagnosticLogged
+            && wallTime - applicationStartedAt >= std::chrono::seconds(1))
+        {
+            std::string diagnostic =
+                "WGC final composite is still pending; reason=";
+            diagnostic += backgroundCompositeStatusName(
+                renderer.backgroundCompositeStatus());
+            bafx::windows::appendDiagnosticLog(logPath, diagnostic);
+            backgroundPendingDiagnosticLogged = true;
         }
         if (options.smokeTest)
         {
@@ -712,6 +795,14 @@ int runApplication(
         {
             bafx::windows::throwLastError("MsgWaitForMultipleObjectsEx");
         }
+    }
+    if (backgroundCompositeFrames > 0U)
+    {
+        std::string summary = "WGC final composite summary; composite-frames=";
+        summary += std::to_string(backgroundCompositeFrames);
+        summary += "; rendered-frames=";
+        summary += std::to_string(renderedFrames);
+        bafx::windows::appendDiagnosticLog(logPath, summary);
     }
     control.stop();
     return 0;

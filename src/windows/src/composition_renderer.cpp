@@ -122,6 +122,10 @@ void CompositionRenderer::renderFrame(
     const bafx::core::MonotonicTime wallTime)
 {
     std::optional<BackgroundRenderInput> background;
+    backgroundParticipatedInLastFrame_ = false;
+    backgroundCompositeStatus_ = backgroundSensor_ != nullptr
+        ? BackgroundCompositeStatus::WaitingForFrame
+        : BackgroundCompositeStatus::Inactive;
     bafx::core::MonotonicTime effectiveWallTime = wallTime;
     if (effectiveWallTime == bafx::core::MonotonicTime::zero())
     {
@@ -170,11 +174,11 @@ void CompositionRenderer::renderFrame(
                             bafx::core::BackgroundFreshnessPolicy{
                                 backgroundRefreshPeriod_,
                                 backgroundRefreshPeriod_ * 3,
-                                std::min(
-                                    std::chrono::duration_cast<
-                                        bafx::core::MonotonicTime>(
-                                        std::chrono::milliseconds(2)),
-                                    backgroundRefreshPeriod_ / 2),
+                                // WGC may timestamp a frame at the upcoming
+                                // compositor tick. One refresh period accepts
+                                // that scheduling lead without admitting an
+                                // arbitrarily future desktop sample.
+                                backgroundRefreshPeriod_,
                                 backgroundSensor_->expectedEpoch()});
                     if (freshness.freshness
                             == bafx::core::BackgroundFreshness::Fresh
@@ -184,7 +188,43 @@ void CompositionRenderer::renderFrame(
                         background = BackgroundRenderInput{
                             sample->texture,
                             freshness.weight};
+                        backgroundParticipatedInLastFrame_ = true;
+                        backgroundCompositeStatus_ =
+                            BackgroundCompositeStatus::Participating;
                     }
+                    else
+                    {
+                        switch (freshness.freshness)
+                        {
+                        case bafx::core::BackgroundFreshness::Stale:
+                            backgroundCompositeStatus_ = BackgroundCompositeStatus::Stale;
+                            break;
+                        case bafx::core::BackgroundFreshness::FutureTimestamp:
+                            backgroundCompositeStatus_ =
+                                BackgroundCompositeStatus::FutureTimestamp;
+                            break;
+                        case bafx::core::BackgroundFreshness::WrongEpoch:
+                            backgroundCompositeStatus_ =
+                                BackgroundCompositeStatus::WrongEpoch;
+                            break;
+                        case bafx::core::BackgroundFreshness::InvalidContract:
+                            backgroundCompositeStatus_ =
+                                BackgroundCompositeStatus::InvalidContract;
+                            break;
+                        case bafx::core::BackgroundFreshness::InvalidPolicy:
+                            backgroundCompositeStatus_ =
+                                BackgroundCompositeStatus::InvalidPolicy;
+                            break;
+                        case bafx::core::BackgroundFreshness::Fresh:
+                        case bafx::core::BackgroundFreshness::Fading:
+                        case bafx::core::BackgroundFreshness::Missing:
+                            break;
+                        }
+                    }
+                }
+                else if (sample.has_value())
+                {
+                    backgroundCompositeStatus_ = BackgroundCompositeStatus::SizeMismatch;
                 }
             }
         }
@@ -195,6 +235,7 @@ void CompositionRenderer::renderFrame(
             backgroundSensor_->stop();
             backgroundSensor_.reset();
             backgroundRefreshPeriod_ = bafx::core::MonotonicTime::zero();
+            backgroundCompositeStatus_ = BackgroundCompositeStatus::CaptureFailed;
         }
     }
 
@@ -266,6 +307,28 @@ void CompositionRenderer::disableBackgroundCapture() noexcept
 bool CompositionRenderer::backgroundCaptureActive() const noexcept
 {
     return backgroundSensor_ != nullptr && backgroundSensor_->running();
+}
+
+bool CompositionRenderer::backgroundCaptureBorderHidden() const noexcept
+{
+    return backgroundSensor_ != nullptr
+        && backgroundSensor_->capabilities().borderHidden;
+}
+
+bool CompositionRenderer::backgroundCaptureCursorExcluded() const noexcept
+{
+    return backgroundSensor_ != nullptr
+        && backgroundSensor_->capabilities().cursorExcluded;
+}
+
+bool CompositionRenderer::backgroundParticipatedInLastFrame() const noexcept
+{
+    return backgroundParticipatedInLastFrame_;
+}
+
+BackgroundCompositeStatus CompositionRenderer::backgroundCompositeStatus() const noexcept
+{
+    return backgroundCompositeStatus_;
 }
 
 bool CompositionRenderer::tryCreateBackgroundSensor() noexcept

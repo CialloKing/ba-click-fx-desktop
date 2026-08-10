@@ -248,25 +248,20 @@ struct WgcBackgroundSensor::Implementation
             const auto borderSession = session.try_as_with_reason<
                 winrt::Windows::Graphics::Capture::IGraphicsCaptureSession3>(
                     borderQueryResult);
-            if (!borderSession)
+            if (borderSession)
             {
-                throw HResultError(
-                    SUCCEEDED(borderQueryResult)
-                        ? E_NOINTERFACE
-                        : static_cast<HRESULT>(borderQueryResult),
-                    "GraphicsCaptureSession::QueryInterface(IGraphicsCaptureSession3)");
-            }
-            // A system capture border would be captured as desktop content and
-            // feed a visible feedback edge into the differential Bloom input.
-            try
-            {
-                borderSession.IsBorderRequired(false);
-            }
-            catch (const winrt::hresult_error& error)
-            {
-                throw HResultError(
-                    error.code(),
-                    "IGraphicsCaptureSession3::IsBorderRequired(false)");
+                // Border suppression is an enhancement, not a prerequisite for
+                // sampling the desktop. Portable applications commonly lack the
+                // package capability even when the interface itself is present.
+                try
+                {
+                    borderSession.IsBorderRequired(false);
+                    capabilities.borderHidden = !borderSession.IsBorderRequired();
+                }
+                catch (const winrt::hresult_error&)
+                {
+                    capabilities.borderHidden = false;
+                }
             }
 
             if (options.cursorExcluded)
@@ -287,12 +282,20 @@ struct WgcBackgroundSensor::Implementation
                 try
                 {
                     cursorSession.IsCursorCaptureEnabled(false);
+                    capabilities.cursorExcluded =
+                        !cursorSession.IsCursorCaptureEnabled();
                 }
                 catch (const winrt::hresult_error& error)
                 {
                     throw HResultError(
                         error.code(),
                         "IGraphicsCaptureSession2::IsCursorCaptureEnabled(false)");
+                }
+                if (!capabilities.cursorExcluded)
+                {
+                    throw HResultError(
+                        E_FAIL,
+                        "IGraphicsCaptureSession2 kept cursor capture enabled");
                 }
             }
             try
@@ -514,6 +517,7 @@ struct WgcBackgroundSensor::Implementation
     Direct3D11CaptureFramePool framePool{nullptr};
     GraphicsCaptureSession session{nullptr};
     WgcBackgroundSensorOptions options{};
+    WgcBackgroundSessionCapabilities capabilities{};
     std::shared_ptr<NotificationState> notification{};
     OwnedBackgroundTexture ownedTexture{};
     std::optional<WgcBackgroundSample> latestBackground{};
@@ -571,6 +575,11 @@ std::optional<WgcBackgroundSample> WgcBackgroundSensor::latestSample() const noe
 std::uint64_t WgcBackgroundSensor::expectedEpoch() const noexcept
 {
     return implementation_->options.epoch;
+}
+
+WgcBackgroundSessionCapabilities WgcBackgroundSensor::capabilities() const noexcept
+{
+    return implementation_->capabilities;
 }
 
 HANDLE WgcBackgroundSensor::frameAvailableObject() const noexcept
