@@ -210,6 +210,7 @@ BAFX_TEST(sprite_shader_reflection_locks_vertex_and_mrt_contracts)
         BAFX_CHECK(hasBinding(pixel.Get(), "MaterialSampler", D3D_SIT_SAMPLER, 0U));
         BAFX_CHECK(hasSignatureParameter(pixel.Get(), true, "SV_Target", 0U, 0xFU));
         BAFX_CHECK(hasSignatureParameter(pixel.Get(), true, "SV_Target", 1U, 0xFU));
+        BAFX_CHECK(hasSignatureParameter(pixel.Get(), true, "SV_Target", 2U, 0x3U));
     }
 }
 
@@ -253,6 +254,15 @@ BAFX_TEST(bloom_shader_reflection_locks_resources_and_constant_layout)
             || std::string_view(entryPoint) == "DesktopCompositePixel")
         {
             BAFX_CHECK(hasBinding(reflection.Get(), "Source1", D3D_SIT_TEXTURE, 1U));
+        }
+        if (std::string_view(entryPoint) == "DifferentialPrefilterPixel"
+            || std::string_view(entryPoint) == "DesktopCompositePixel")
+        {
+            BAFX_CHECK(hasBinding(reflection.Get(), "Source2", D3D_SIT_TEXTURE, 2U));
+        }
+        if (std::string_view(entryPoint) == "DesktopCompositePixel")
+        {
+            BAFX_CHECK(hasBinding(reflection.Get(), "Source3", D3D_SIT_TEXTURE, 3U));
         }
     }
 }

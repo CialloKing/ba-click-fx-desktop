@@ -163,16 +163,32 @@ struct ColorTarget
     return target;
 }
 
+[[nodiscard]] D3D11_RENDER_TARGET_BLEND_DESC coverageUnionBlendTarget() noexcept
+{
+    D3D11_RENDER_TARGET_BLEND_DESC target{};
+    target.BlendEnable = TRUE;
+    target.SrcBlend = D3D11_BLEND_ONE;
+    target.DestBlend = D3D11_BLEND_INV_SRC_COLOR;
+    target.BlendOp = D3D11_BLEND_OP_ADD;
+    target.SrcBlendAlpha = D3D11_BLEND_ONE;
+    target.DestBlendAlpha = D3D11_BLEND_ZERO;
+    target.BlendOpAlpha = D3D11_BLEND_OP_ADD;
+    target.RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_RED
+        | D3D11_COLOR_WRITE_ENABLE_GREEN;
+    return target;
+}
+
 [[nodiscard]] ColorTarget createColorTarget(
     ID3D11Device* device,
-    const WindowSize size)
+    const WindowSize size,
+    const DXGI_FORMAT format = DXGI_FORMAT_R16G16B16A16_FLOAT)
 {
     D3D11_TEXTURE2D_DESC description{};
     description.Width = size.width;
     description.Height = size.height;
     description.MipLevels = 1;
     description.ArraySize = 1;
-    description.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
+    description.Format = format;
     description.SampleDesc = DXGI_SAMPLE_DESC{1, 0};
     description.Usage = D3D11_USAGE_DEFAULT;
     description.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
@@ -532,6 +548,7 @@ struct FxGpuRenderer::Implementation
         crossDescription.IndependentBlendEnable = TRUE;
         crossDescription.RenderTarget[0] = sourceOverBlendTarget();
         crossDescription.RenderTarget[1] = sourceOverBlendTarget();
+        crossDescription.RenderTarget[2] = coverageUnionBlendTarget();
         throwIfFailed(
             device->CreateBlendState(&crossDescription, &crossBlendState),
             "ID3D11Device::CreateBlendState(Cross)");
@@ -540,6 +557,7 @@ struct FxGpuRenderer::Implementation
         emissionDescription.IndependentBlendEnable = TRUE;
         emissionDescription.RenderTarget[0] = additiveBlendTarget();
         emissionDescription.RenderTarget[1] = additiveBlendTarget();
+        emissionDescription.RenderTarget[2] = additiveBlendTarget();
         throwIfFailed(
             device->CreateBlendState(&emissionDescription, &emissionBlendState),
             "ID3D11Device::CreateBlendState(emission)");
@@ -730,6 +748,10 @@ struct FxGpuRenderer::Implementation
     {
         directTarget = createColorTarget(device.Get(), size);
         bloomSeedTarget = createColorTarget(device.Get(), size);
+        occlusionTarget = createColorTarget(
+            device.Get(),
+            size,
+            DXGI_FORMAT_R16G16_FLOAT);
         updateBloomPlan();
         createBloomTargets();
     }
@@ -737,7 +759,11 @@ struct FxGpuRenderer::Implementation
     void unbindFrameResources()
     {
         context->OMSetRenderTargets(0, nullptr, nullptr);
-        constexpr std::array<ID3D11ShaderResourceView*, 2> noResources{nullptr, nullptr};
+        constexpr std::array<ID3D11ShaderResourceView*, 4> noResources{
+            nullptr,
+            nullptr,
+            nullptr,
+            nullptr};
         context->PSSetShaderResources(
             0,
             static_cast<UINT>(noResources.size()),
@@ -749,6 +775,7 @@ struct FxGpuRenderer::Implementation
         unbindFrameResources();
         directTarget = {};
         bloomSeedTarget = {};
+        occlusionTarget = {};
         bloomDownTargets.clear();
         bloomUpTargets.clear();
     }
@@ -852,7 +879,9 @@ struct FxGpuRenderer::Implementation
         ID3D11PixelShader* pixelShader,
         ID3D11ShaderResourceView* source0,
         ID3D11ShaderResourceView* source1,
-        const BloomConstants& constants)
+        const BloomConstants& constants,
+        ID3D11ShaderResourceView* source2 = nullptr,
+        ID3D11ShaderResourceView* source3 = nullptr)
     {
         D3D11_MAPPED_SUBRESOURCE mapped{};
         throwIfFailed(
@@ -890,14 +919,20 @@ struct FxGpuRenderer::Implementation
         context->PSSetConstantBuffers(0, 1, &constantBuffer);
         ID3D11SamplerState* bloomSampler = clampSampler.Get();
         context->PSSetSamplers(0, 1, &bloomSampler);
-        std::array<ID3D11ShaderResourceView*, 2> sources{source0, source1};
+        std::array<ID3D11ShaderResourceView*, 4> sources{
+            source0,
+            source1,
+            source2,
+            source3};
         context->PSSetShaderResources(
             0,
             static_cast<UINT>(sources.size()),
             sources.data());
         context->Draw(3, 0);
 
-        constexpr std::array<ID3D11ShaderResourceView*, 2> noResources{
+        constexpr std::array<ID3D11ShaderResourceView*, 4> noResources{
+            nullptr,
+            nullptr,
             nullptr,
             nullptr};
         context->PSSetShaderResources(
@@ -927,7 +962,10 @@ struct FxGpuRenderer::Implementation
                 sourceExtent,
                 bloomPlan.sampleScale,
                 0.0F,
-                background.has_value() ? background->freshnessWeight : 0.0F));
+                background.has_value() ? background->freshnessWeight : 0.0F),
+            background.has_value()
+                ? occlusionTarget.shaderResource.Get()
+                : nullptr);
 
         for (std::size_t index = 1U; index < bloomPlan.mipCount; ++index)
         {
@@ -973,7 +1011,12 @@ struct FxGpuRenderer::Implementation
             makeBloomConstants(
                 firstExtent,
                 bloomPlan.sampleScale,
-                bloomPlan.exposureGain));
+                bloomPlan.exposureGain,
+                background.has_value() ? background->freshnessWeight : 0.0F),
+            background.has_value()
+                ? occlusionTarget.shaderResource.Get()
+                : nullptr,
+            background.has_value() ? background->shaderResource : nullptr);
     }
 
     void drawVertices(
@@ -1090,17 +1133,22 @@ struct FxGpuRenderer::Implementation
             background.reset();
         }
 
-        // WGC is a Bloom input only. Keeping both material targets transparent
-        // preserves the same direct/coverage contract in every capture state.
+        // Keep FX emission independent from capture state. The final pass uses
+        // the small occlusion target to reconstruct how Cross2 attenuates WGC;
+        // additive materials never suppress the captured desktop.
         context->ClearRenderTargetView(
             directTarget.renderTarget.Get(),
             transparent.data());
         context->ClearRenderTargetView(
             bloomSeedTarget.renderTarget.Get(),
             transparent.data());
-        std::array<ID3D11RenderTargetView*, 2> targets{
+        context->ClearRenderTargetView(
+            occlusionTarget.renderTarget.Get(),
+            transparent.data());
+        std::array<ID3D11RenderTargetView*, 3> targets{
             directTarget.renderTarget.Get(),
-            bloomSeedTarget.renderTarget.Get()};
+            bloomSeedTarget.renderTarget.Get(),
+            occlusionTarget.renderTarget.Get()};
         context->OMSetRenderTargets(
             static_cast<UINT>(targets.size()),
             targets.data(),
@@ -1198,6 +1246,7 @@ struct FxGpuRenderer::Implementation
     FxBloomSettings bloomSettings{};
     ColorTarget directTarget{};
     ColorTarget bloomSeedTarget{};
+    ColorTarget occlusionTarget{};
     bafx::core::UnityBloomPlan bloomPlan{};
     std::vector<ColorTarget> bloomDownTargets{};
     std::vector<ColorTarget> bloomUpTargets{};

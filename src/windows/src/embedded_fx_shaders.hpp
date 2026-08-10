@@ -41,6 +41,7 @@ struct MaterialOutput
 {
     float4 direct : SV_Target0;
     float4 bloomSeed : SV_Target1;
+    float2 occlusion : SV_Target2;
 };
 
 PixelInput SpriteVertex(VertexInput input)
@@ -76,6 +77,9 @@ MaterialOutput CrossPixel(PixelInput input)
     output.bloomSeed = float4(
         emission * input.bloomEnabled,
         coverage * input.bloomEnabled);
+    output.occlusion = float2(
+        coverage,
+        coverage * input.bloomEnabled);
     return output;
 }
 
@@ -94,6 +98,7 @@ MaterialOutput DissolvePixel(PixelInput input)
     output.bloomSeed = float4(
         emission * input.bloomEnabled,
         coverage * input.bloomEnabled);
+    output.occlusion = float2(0.0, 0.0);
     return output;
 }
 
@@ -111,6 +116,7 @@ MaterialOutput AdditivePixel(PixelInput input)
     output.bloomSeed = float4(
         emission * input.bloomEnabled,
         coverage * input.bloomEnabled);
+    output.occlusion = float2(0.0, 0.0);
     return output;
 }
 
@@ -137,6 +143,7 @@ MaterialOutput TrailPixel(PixelInput input)
     output.bloomSeed = float4(
         emission * input.bloomEnabled,
         coverage * input.bloomEnabled);
+    output.occlusion = float2(0.0, 0.0);
     return output;
 }
 )hlsl";
@@ -155,6 +162,8 @@ cbuffer BloomConstants : register(b0)
 
 Texture2D<float4> Source0 : register(t0);
 Texture2D<float4> Source1 : register(t1);
+Texture2D<float4> Source2 : register(t2);
+Texture2D<float4> Source3 : register(t3);
 SamplerState LinearClampSampler : register(s0);
 
 struct FullscreenOutput
@@ -209,8 +218,11 @@ float4 PrefilterPixel(FullscreenOutput input) : SV_Target0
 
 float4 DifferentialPrefilterPixel(FullscreenOutput input) : SV_Target0
 {
-    const float3 fx = FourTap(Source0, input.uv, SourceTexelSize).rgb;
-    const float4 fxOnly = BrightPass(fx);
+    const float3 fxOnlyScene = FourTap(
+        Source0,
+        input.uv,
+        SourceTexelSize).rgb;
+    const float4 fxOnly = BrightPass(fxOnlyScene);
     const float backgroundWeight = saturate(BloomPadding);
     if (backgroundWeight <= 0.0)
     {
@@ -219,8 +231,33 @@ float4 DifferentialPrefilterPixel(FullscreenOutput input) : SV_Target0
     }
 
     const float3 background = FourTap(Source1, input.uv, SourceTexelSize).rgb;
+    const float2 topLeft = input.uv
+        + SourceTexelSize * float2(-1.0, -1.0);
+    const float2 topRight = input.uv
+        + SourceTexelSize * float2(1.0, -1.0);
+    const float2 bottomLeft = input.uv
+        + SourceTexelSize * float2(-1.0, 1.0);
+    const float2 bottomRight = input.uv
+        + SourceTexelSize * float2(1.0, 1.0);
+    const float3 scene = 0.25 * (
+        Source0.Sample(LinearClampSampler, topLeft).rgb
+            + Source1.Sample(LinearClampSampler, topLeft).rgb
+                * (1.0 - saturate(
+                    Source2.Sample(LinearClampSampler, topLeft).g))
+        + Source0.Sample(LinearClampSampler, topRight).rgb
+            + Source1.Sample(LinearClampSampler, topRight).rgb
+                * (1.0 - saturate(
+                    Source2.Sample(LinearClampSampler, topRight).g))
+        + Source0.Sample(LinearClampSampler, bottomLeft).rgb
+            + Source1.Sample(LinearClampSampler, bottomLeft).rgb
+                * (1.0 - saturate(
+                    Source2.Sample(LinearClampSampler, bottomLeft).g))
+        + Source0.Sample(LinearClampSampler, bottomRight).rgb
+            + Source1.Sample(LinearClampSampler, bottomRight).rgb
+                * (1.0 - saturate(
+                    Source2.Sample(LinearClampSampler, bottomRight).g)));
     const float3 differential = max(
-        BrightPass(background + fx).rgb - BrightPass(background).rgb,
+        BrightPass(scene).rgb - BrightPass(background).rgb,
         0.0);
     const float transportEnergy = max(
         differential.r,
@@ -294,12 +331,79 @@ float4 ResolveFxOnlyDesktopTransport(
         alpha);
 }
 
+float SolveOverlayAlpha(float background, float target)
+{
+    if (target > background)
+    {
+        return (target - background) / max(1.0 - background, 0.000001);
+    }
+    if (target < background)
+    {
+        return (background - target) / max(background, 0.000001);
+    }
+    return 0.0;
+}
+
+float4 ResolveBackgroundAwareDesktopTransport(
+    float4 direct,
+    float4 bloom,
+    float occlusion,
+    float3 capturedBackground,
+    float exposureGain)
+{
+    const float3 background = saturate(capturedBackground);
+    const float3 target = saturate(
+        max(direct.rgb, 0.0)
+        + background * (1.0 - saturate(occlusion))
+        + max(bloom.rgb, 0.0) * exposureGain);
+    const float3 difference = abs(target - background);
+    if (max(difference.r, max(difference.g, difference.b)) <= 0.000001)
+    {
+        return float4(0.0, 0.0, 0.0, 0.0);
+    }
+
+    const float3 channelAlpha = float3(
+        SolveOverlayAlpha(background.r, target.r),
+        SolveOverlayAlpha(background.g, target.g),
+        SolveOverlayAlpha(background.b, target.b));
+    const float alpha = saturate(max(
+        channelAlpha.r,
+        max(channelAlpha.g, channelAlpha.b)));
+    const float3 premultiplied = target - background * (1.0 - alpha);
+
+    // The captured background is baked into the payload only as required to
+    // reproduce Unity's target. DWM still receives a valid premultiplied layer.
+    return float4(clamp(premultiplied, 0.0, alpha), alpha);
+}
+
 float4 DesktopCompositePixel(FullscreenOutput input) : SV_Target0
 {
     const float4 direct = Source0.Sample(LinearClampSampler, input.uv);
     const float2 offset = SourceTexelSize * (SampleScale * 0.5);
     const float4 bloom = FourTap(Source1, input.uv, offset);
-    return ResolveFxOnlyDesktopTransport(direct, bloom, ExposureGain);
+    const float4 fxOnly = ResolveFxOnlyDesktopTransport(
+        direct,
+        bloom,
+        ExposureGain);
+    const float backgroundWeight = saturate(BloomPadding);
+    if (backgroundWeight <= 0.0)
+    {
+        return fxOnly;
+    }
+
+    const float occlusion = Source2.Sample(
+        LinearClampSampler,
+        input.uv).r;
+    const float3 background = Source3.Sample(
+        LinearClampSampler,
+        input.uv).rgb;
+    const float4 backgroundAware = ResolveBackgroundAwareDesktopTransport(
+        direct,
+        bloom,
+        occlusion,
+        background,
+        ExposureGain);
+    return lerp(fxOnly, backgroundAware, backgroundWeight);
 }
 )hlsl";
 

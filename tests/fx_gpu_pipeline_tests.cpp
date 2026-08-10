@@ -316,14 +316,23 @@ void checkFiniteAndNonNegative(const std::vector<ReadbackPixel>& pixels)
     }
 }
 
-void checkValidDesktopPremultiplied(const std::vector<ReadbackPixel>& pixels)
+void checkValidDesktopPremultiplied(
+    const std::vector<ReadbackPixel>& pixels,
+    const bool enforceFxOnlyAlphaLimit = true)
 {
     constexpr float overlayAlphaLimit = 250.0F / 255.0F;
     constexpr float transportTolerance = 2.0e-3F;
     checkFiniteAndNonNegative(pixels);
     for (const ReadbackPixel& pixel : pixels)
     {
-        BAFX_CHECK(pixel.alpha <= overlayAlphaLimit + transportTolerance);
+        if (enforceFxOnlyAlphaLimit)
+        {
+            BAFX_CHECK(pixel.alpha <= overlayAlphaLimit + transportTolerance);
+        }
+        else
+        {
+            BAFX_CHECK(pixel.alpha <= 1.0F + transportTolerance);
+        }
         BAFX_CHECK(pixel.red <= pixel.alpha + transportTolerance);
         BAFX_CHECK(pixel.green <= pixel.alpha + transportTolerance);
         BAFX_CHECK(pixel.blue <= pixel.alpha + transportTolerance);
@@ -348,25 +357,16 @@ void checkValidDesktopPremultiplied(const std::vector<ReadbackPixel>& pixels)
     return maximum;
 }
 
-[[nodiscard]] float maximumRgbMidpointError(
-    const std::vector<ReadbackPixel>& first,
-    const std::vector<ReadbackPixel>& midpoint,
-    const std::vector<ReadbackPixel>& last) noexcept
+[[nodiscard]] ReadbackPixel compositeOver(
+    const ReadbackPixel foreground,
+    const std::array<float, 4>& background) noexcept
 {
-    float maximum = 0.0F;
-    for (std::size_t index = 0U; index < first.size(); ++index)
-    {
-        const float expectedRed = (first[index].red + last[index].red) * 0.5F;
-        const float expectedGreen = (first[index].green + last[index].green) * 0.5F;
-        const float expectedBlue = (first[index].blue + last[index].blue) * 0.5F;
-        maximum = std::max(
-            maximum,
-            std::max({
-                std::abs(midpoint[index].red - expectedRed),
-                std::abs(midpoint[index].green - expectedGreen),
-                std::abs(midpoint[index].blue - expectedBlue)}));
-    }
-    return maximum;
+    const float backgroundWeight = 1.0F - foreground.alpha;
+    return ReadbackPixel{
+        foreground.red + background[0] * backgroundWeight,
+        foreground.green + background[1] * backgroundWeight,
+        foreground.blue + background[2] * backgroundWeight,
+        1.0F};
 }
 
 }
@@ -439,18 +439,99 @@ BAFX_TEST(warp_background_bloom_fades_with_valid_desktop_transport)
 
     checkValidDesktopPremultiplied(fxOnly);
     checkValidDesktopPremultiplied(zeroWeight);
-    checkValidDesktopPremultiplied(halfWeight);
-    checkValidDesktopPremultiplied(fullWeight);
+    checkValidDesktopPremultiplied(halfWeight, false);
+    checkValidDesktopPremultiplied(fullWeight, false);
 
     BAFX_CHECK(maximumRgbaDelta(fxOnly, zeroWeight) <= 1.0e-3F);
-    BAFX_CHECK(maximumRgbaDelta(fxOnly, fullWeight) > 1.0e-3F);
-    BAFX_CHECK(maximumRgbMidpointError(fxOnly, halfWeight, fullWeight) <= 2.0e-2F);
+    const float fullDelta = maximumRgbaDelta(fxOnly, fullWeight);
+    const float halfFromFxOnly = maximumRgbaDelta(fxOnly, halfWeight);
+    const float halfToFull = maximumRgbaDelta(halfWeight, fullWeight);
+    BAFX_CHECK(fullDelta > 1.0e-3F);
+    BAFX_CHECK(halfFromFxOnly > 1.0e-3F);
+    BAFX_CHECK(halfFromFxOnly < fullDelta);
+    BAFX_CHECK(halfToFull < fullDelta);
 
     const std::size_t center = static_cast<std::size_t>(testSize.height / 2U)
         * testSize.width
         + testSize.width / 2U;
     BAFX_CHECK(zeroWeight[center].blue > 0.5F);
     BAFX_CHECK(fullWeight[center].blue > 0.5F);
+}
+
+BAFX_TEST(warp_background_reconstructs_the_unity_source_over_target)
+{
+    ComApartment apartment;
+    const WarpDevice graphics = createWarpDevice();
+    FxGpuRenderer renderer(graphics.device.Get(), graphics.context.Get(), testSize);
+    renderer.setBloomSettings(FxBloomSettings{0.0F, 7.0F});
+    const bafx::fx::FrameSnapshot snapshot = makeDiskSnapshot(false);
+    const RenderTarget captureTarget = createRenderTarget(graphics.device.Get());
+    const FxGpuFrameCapture capture = renderer.renderAndCapture(
+        snapshot,
+        captureTarget.view.Get());
+    const std::vector<ReadbackPixel> direct = toFloatPixels(capture.directSurface);
+
+    std::size_t edgeIndex = direct.size();
+    for (std::size_t index = 0U; index < direct.size(); ++index)
+    {
+        if (direct[index].alpha > 0.15F && direct[index].alpha < 0.75F)
+        {
+            edgeIndex = index;
+            break;
+        }
+    }
+    BAFX_CHECK(edgeIndex < direct.size());
+
+    const auto renderOver = [&](const std::array<float, 4>& color)
+    {
+        const RenderTarget background = createRenderTarget(graphics.device.Get());
+        graphics.context->ClearRenderTargetView(background.view.Get(), color.data());
+        const RenderTarget output = createRenderTarget(graphics.device.Get());
+        renderer.render(
+            snapshot,
+            output.view.Get(),
+            BackgroundRenderInput{background.shaderResource.Get(), 1.0F});
+        return readback(graphics.context.Get(), output.texture.Get());
+    };
+
+    constexpr std::array<float, 4> darkBackground{0.1F, 0.2F, 0.3F, 1.0F};
+    constexpr std::array<float, 4> lightBackground{0.7F, 0.6F, 0.5F, 1.0F};
+    const std::vector<ReadbackPixel> overDark = renderOver(darkBackground);
+    const std::vector<ReadbackPixel> overLight = renderOver(lightBackground);
+    checkValidDesktopPremultiplied(overDark, false);
+    checkValidDesktopPremultiplied(overLight, false);
+
+    const ReadbackPixel darkReconstructed = compositeOver(
+        overDark[edgeIndex],
+        darkBackground);
+    const ReadbackPixel lightReconstructed = compositeOver(
+        overLight[edgeIndex],
+        lightBackground);
+    const float coverage = direct[edgeIndex].alpha;
+    const ReadbackPixel expectedDark{
+        std::clamp(direct[edgeIndex].red
+            + darkBackground[0] * (1.0F - coverage), 0.0F, 1.0F),
+        std::clamp(direct[edgeIndex].green
+            + darkBackground[1] * (1.0F - coverage), 0.0F, 1.0F),
+        std::clamp(direct[edgeIndex].blue
+            + darkBackground[2] * (1.0F - coverage), 0.0F, 1.0F),
+        1.0F};
+    const ReadbackPixel expectedLight{
+        std::clamp(direct[edgeIndex].red
+            + lightBackground[0] * (1.0F - coverage), 0.0F, 1.0F),
+        std::clamp(direct[edgeIndex].green
+            + lightBackground[1] * (1.0F - coverage), 0.0F, 1.0F),
+        std::clamp(direct[edgeIndex].blue
+            + lightBackground[2] * (1.0F - coverage), 0.0F, 1.0F),
+        1.0F};
+
+    BAFX_CHECK_NEAR(darkReconstructed.red, expectedDark.red, 4.0e-3F);
+    BAFX_CHECK_NEAR(darkReconstructed.green, expectedDark.green, 4.0e-3F);
+    BAFX_CHECK_NEAR(darkReconstructed.blue, expectedDark.blue, 4.0e-3F);
+    BAFX_CHECK_NEAR(lightReconstructed.red, expectedLight.red, 4.0e-3F);
+    BAFX_CHECK_NEAR(lightReconstructed.green, expectedLight.green, 4.0e-3F);
+    BAFX_CHECK_NEAR(lightReconstructed.blue, expectedLight.blue, 4.0e-3F);
+    BAFX_CHECK(std::abs(lightReconstructed.red - darkReconstructed.red) > 0.05F);
 }
 
 BAFX_TEST(warp_pipeline_renders_every_retained_trail_stroke)
