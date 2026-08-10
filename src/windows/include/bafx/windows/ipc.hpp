@@ -19,6 +19,8 @@ namespace bafx::windows
 
 inline constexpr wchar_t kDefaultIpcPipeName[] =
     L"\\\\.\\pipe\\BAFX.Host.v1";
+inline constexpr wchar_t kHostSingleInstanceMutexName[] =
+    L"Local\\BAFX.Host.v1";
 
 inline constexpr std::size_t kDefaultIpcMaxRequestBytes = 64U * 1024U;
 inline constexpr std::size_t kDefaultIpcMaxResponseBytes = 256U * 1024U;

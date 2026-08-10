@@ -93,7 +93,8 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File .\tools\package-test-bundle.ps1
 默认输出到 `artifacts\local\ba-click-fx-desktop-<version>-test-windows-x64.zip`，并在同目录生成
 `.sha256` 文件。解压后必须保留目录结构：先启动 `ba-click-fx-desktop.exe`，再启动
 `BAFX.ControlCenter.exe`。Control Center 只依赖 Windows 自带的 User32、Comctl32 和配置 IPC，
-可以直接复制该 EXE 运行，但需要与 Host 放在同一目录才能使用“启动 Host”按钮。
+可以直接复制该 EXE 运行，但需要与 Host 放在同一目录才能使用“启动 Host”按钮。连接后同一按钮会
+切换为“关闭 Host”，通过 IPC 请求正常退出，并等待 Host 的单实例生命周期真正结束后才允许再次启动。
 
 ### 轻量视觉审核包
 

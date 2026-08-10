@@ -863,7 +863,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int)
     {
         if (!options.supportInfoOnly)
         {
-            instanceGuard.emplace(L"Local\\BAFX.Host.v1");
+            instanceGuard.emplace(bafx::windows::kHostSingleInstanceMutexName);
             if (!instanceGuard->acquire())
             {
                 if (instanceGuard->alreadyRunning())

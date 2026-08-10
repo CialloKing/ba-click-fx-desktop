@@ -4,6 +4,7 @@
 
 #include "bafx/config/config.hpp"
 #include "bafx/windows/ipc_client.hpp"
+#include "bafx/windows/unique_handle.hpp"
 
 #include <windows.h>
 
@@ -44,7 +45,7 @@ private:
         BackgroundMode,
         CursorExcluded,
         Refresh,
-        StartHost
+        HostLifecycle
     };
 
     struct SliderControl final
@@ -115,7 +116,11 @@ private:
     void applyPatch(std::string_view path, std::string_view valueJson);
     void sendCommand(std::string_view command);
     void startHostFromBundle();
-    void scheduleHostRefreshRetry() noexcept;
+    void stopHost();
+    void scheduleHostRefreshRetry(bool startPending = false) noexcept;
+    void scheduleHostShutdownPoll() noexcept;
+    void finishHostShutdown() noexcept;
+    void updateHostLifecycleButton() const noexcept;
 
     void setConnected(bool connected) noexcept;
     void setInfo(std::wstring_view title, std::wstring_view message);
@@ -166,14 +171,18 @@ private:
     HWND cursorExcluded_{nullptr};
     HWND pauseButton_{nullptr};
     HWND refreshButton_{nullptr};
-    HWND startHostButton_{nullptr};
+    HWND hostLifecycleButton_{nullptr};
 
     bafx::windows::NamedPipeIpcClient client_{};
+    bafx::windows::UniqueHandle hostLifetimeMutex_{};
     std::optional<PendingPatch> pendingPatch_{};
     std::uint64_t generation_{0U};
     std::uint32_t hostRetryAttempts_{0U};
+    ULONGLONG hostShutdownDeadlineTicks_{0U};
     bool connected_{false};
     bool paused_{false};
+    bool hostStartPending_{false};
+    bool hostShutdownPending_{false};
     bool updatingControls_{false};
 };
 

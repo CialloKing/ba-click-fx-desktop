@@ -22,8 +22,14 @@ constexpr wchar_t windowClassName[] = L"BAFX.NativeControlCenter.Window.v1";
 constexpr wchar_t windowTitle[] = L"BAFX Control Center";
 constexpr UINT_PTR patchTimerId = 1U;
 constexpr UINT_PTR hostRetryTimerId = 2U;
+constexpr UINT_PTR hostShutdownTimerId = 3U;
 constexpr UINT patchDelayMilliseconds = 120U;
 constexpr UINT hostRetryDelayMilliseconds = 250U;
+constexpr UINT hostShutdownPollDelayMilliseconds = 100U;
+constexpr ULONGLONG hostShutdownWarningMilliseconds = 4'000U;
+constexpr std::uint32_t hostRetryLimit = 8U;
+constexpr int minimumClientWidth = 760;
+constexpr int minimumClientHeight = 460;
 
 [[nodiscard]] HMENU controlMenu(const int id) noexcept
 {
@@ -109,7 +115,7 @@ bool ControlCenterWindow::create(const int showCommand)
     }
 
     dpi_ = GetDpiForSystem();
-    RECT bounds{0, 0, scale(760), scale(460)};
+    RECT bounds{0, 0, scale(minimumClientWidth), scale(minimumClientHeight)};
     if (AdjustWindowRectExForDpi(
             &bounds,
             WS_OVERLAPPEDWINDOW,
@@ -158,12 +164,17 @@ bool ControlCenterWindow::create(const int showCommand)
     updateControls(HostState{}, bafx::config::defaultConfig());
     setConnected(false);
     SetWindowTextW(statusText_, L"正在连接 Host...");
+    updateHostLifecycleButton();
     ShowWindow(window_, showCommand == 0 ? SW_SHOWNORMAL : showCommand);
     UpdateWindow(window_);
 
     if (!refreshFromHost())
     {
         scheduleHostRefreshRetry();
+    }
+    else
+    {
+        updateHostLifecycleButton();
     }
     return true;
 }
@@ -259,13 +270,31 @@ LRESULT ControlCenterWindow::handleMessage(
             suggested->right - suggested->left,
             suggested->bottom - suggested->top,
             SWP_NOACTIVATE | SWP_NOZORDER);
+        RECT client{};
+        if (GetClientRect(window_, &client) != FALSE)
+        {
+            layoutControls(client.right - client.left, client.bottom - client.top);
+        }
         return 0;
     }
     case WM_GETMINMAXINFO:
     {
         auto* limits = reinterpret_cast<MINMAXINFO*>(lParam);
-        limits->ptMinTrackSize.x = scale(680);
-        limits->ptMinTrackSize.y = scale(430);
+        RECT minimumBounds{
+            0,
+            0,
+            scale(minimumClientWidth),
+            scale(minimumClientHeight)};
+        if (AdjustWindowRectExForDpi(
+                &minimumBounds,
+                static_cast<DWORD>(GetWindowLongPtrW(window_, GWL_STYLE)),
+                FALSE,
+                static_cast<DWORD>(GetWindowLongPtrW(window_, GWL_EXSTYLE)),
+                dpi_) != FALSE)
+        {
+            limits->ptMinTrackSize.x = minimumBounds.right - minimumBounds.left;
+            limits->ptMinTrackSize.y = minimumBounds.bottom - minimumBounds.top;
+        }
         return 0;
     }
     case WM_CLOSE:
@@ -275,6 +304,7 @@ LRESULT ControlCenterWindow::handleMessage(
     case WM_DESTROY:
         KillTimer(window_, patchTimerId);
         KillTimer(window_, hostRetryTimerId);
+        KillTimer(window_, hostShutdownTimerId);
         PostQuitMessage(0);
         return 0;
     default:
@@ -323,9 +353,9 @@ bool ControlCenterWindow::createControls()
         L"",
         SS_LEFT | SS_NOPREFIX);
     effectsHeading_ = createChild(
-        L"STATIC",
+        L"BUTTON",
         L"特效",
-        SS_LEFT | SS_NOPREFIX);
+        BS_GROUPBOX);
 
     effectsEnabled_ = createChild(
         L"BUTTON",
@@ -391,12 +421,13 @@ bool ControlCenterWindow::createControls()
         static_cast<void>(SendMessageW(bloomQuality_, CB_ADDSTRING, 0U, reinterpret_cast<LPARAM>(L"中")));
         static_cast<void>(SendMessageW(bloomQuality_, CB_ADDSTRING, 0U, reinterpret_cast<LPARAM>(L"高")));
         static_cast<void>(SendMessageW(bloomQuality_, CB_ADDSTRING, 0U, reinterpret_cast<LPARAM>(L"极高")));
+        static_cast<void>(SendMessageW(bloomQuality_, CB_SETMINVISIBLE, 4U, 0));
     }
 
     backgroundHeading_ = createChild(
-        L"STATIC",
+        L"BUTTON",
         L"背景与主程序",
-        SS_LEFT | SS_NOPREFIX);
+        BS_GROUPBOX);
     backgroundModeLabel_ = createChild(
         L"STATIC",
         L"渲染模式",
@@ -411,6 +442,7 @@ bool ControlCenterWindow::createControls()
         static_cast<void>(SendMessageW(backgroundMode_, CB_ADDSTRING, 0U, reinterpret_cast<LPARAM>(L"仅特效")));
         static_cast<void>(SendMessageW(backgroundMode_, CB_ADDSTRING, 0U, reinterpret_cast<LPARAM>(L"背景感知")));
         static_cast<void>(SendMessageW(backgroundMode_, CB_ADDSTRING, 0U, reinterpret_cast<LPARAM>(L"录制兼容")));
+        static_cast<void>(SendMessageW(backgroundMode_, CB_SETMINVISIBLE, 3U, 0));
     }
 
     cursorExcluded_ = createChild(
@@ -428,11 +460,11 @@ bool ControlCenterWindow::createControls()
         L"刷新状态",
         BS_PUSHBUTTON | WS_TABSTOP,
         ControlId::Refresh);
-    startHostButton_ = createChild(
+    hostLifecycleButton_ = createChild(
         L"BUTTON",
         L"启动 Host",
         BS_PUSHBUTTON | WS_TABSTOP,
-        ControlId::StartHost);
+        ControlId::HostLifecycle);
 
     const std::array required{
         titleText_,
@@ -450,7 +482,7 @@ bool ControlCenterWindow::createControls()
         cursorExcluded_,
         pauseButton_,
         refreshButton_,
-        startHostButton_};
+        hostLifecycleButton_};
     if (!slidersCreated
         || std::ranges::find(required, nullptr) != required.end())
     {
@@ -641,7 +673,7 @@ void ControlCenterWindow::applyFonts() const noexcept
         cursorExcluded_,
         pauseButton_,
         refreshButton_,
-        startHostButton_};
+        hostLifecycleButton_};
     for (const HWND control : normalControls)
     {
         setControlFont(control, normalFont_);
@@ -655,14 +687,13 @@ void ControlCenterWindow::layoutControls(
     const int clientWidth,
     const int clientHeight) const noexcept
 {
-    static_cast<void>(clientHeight);
     if (titleText_ == nullptr)
     {
         return;
     }
 
     const int margin = scale(20);
-    const int columnGap = scale(26);
+    const int columnGap = scale(20);
     const int rightWidth = scale(230);
     const int leftWidth = (std::max)(
         scale(360),
@@ -672,53 +703,87 @@ void ControlCenterWindow::layoutControls(
         scale(180),
         clientWidth - rightX - margin);
 
-    moveControl(titleText_, margin, scale(14), clientWidth - margin * 2, scale(32));
+    moveControl(titleText_, margin, scale(14), clientWidth - margin * 2, scale(34));
     moveControl(statusText_, margin, scale(50), clientWidth - margin * 2, scale(22));
-    moveControl(messageText_, margin, scale(76), clientWidth - margin * 2, scale(42));
+    const int messageHeight = (std::clamp)(
+        clientHeight - scale(418),
+        scale(28),
+        scale(48));
+    moveControl(messageText_, margin, scale(78), clientWidth - margin * 2, messageHeight);
 
-    const int contentTop = scale(126);
-    moveControl(effectsHeading_, margin, contentTop, leftWidth, scale(26));
+    const int contentTop = scale(84) + messageHeight;
+    moveControl(effectsHeading_, margin, contentTop, leftWidth, scale(314));
 
-    const int checkboxTop = contentTop + scale(30);
-    const int checkboxWidth = leftWidth / 3;
-    moveControl(effectsEnabled_, margin, checkboxTop, checkboxWidth, scale(26));
-    moveControl(clickEnabled_, margin + checkboxWidth, checkboxTop, checkboxWidth, scale(26));
-    moveControl(trailEnabled_, margin + checkboxWidth * 2, checkboxTop, checkboxWidth, scale(26));
+    const int groupInset = scale(12);
+    const int groupLeft = margin + groupInset;
+    const int groupWidth = leftWidth - groupInset * 2;
+    const int checkboxTop = contentTop + scale(27);
+    const int checkboxWidth = groupWidth / 3;
+    moveControl(effectsEnabled_, groupLeft, checkboxTop, checkboxWidth, scale(26));
+    moveControl(clickEnabled_, groupLeft + checkboxWidth, checkboxTop, checkboxWidth, scale(26));
+    moveControl(trailEnabled_, groupLeft + checkboxWidth * 2, checkboxTop, checkboxWidth, scale(26));
 
     int sliderTop = checkboxTop + scale(32);
-    layoutSlider(globalScale_, margin, sliderTop, leftWidth, scale(38));
+    layoutSlider(globalScale_, groupLeft, sliderTop, groupWidth, scale(38));
     sliderTop += scale(42);
-    layoutSlider(trailLength_, margin, sliderTop, leftWidth, scale(38));
+    layoutSlider(trailLength_, groupLeft, sliderTop, groupWidth, scale(38));
     sliderTop += scale(42);
-    layoutSlider(trailWidth_, margin, sliderTop, leftWidth, scale(38));
+    layoutSlider(trailWidth_, groupLeft, sliderTop, groupWidth, scale(38));
     sliderTop += scale(42);
-    layoutSlider(bloomIntensity_, margin, sliderTop, leftWidth, scale(38));
+    layoutSlider(bloomIntensity_, groupLeft, sliderTop, groupWidth, scale(38));
     sliderTop += scale(44);
 
     const int labelWidth = scale(94);
-    moveControl(bloomQualityLabel_, margin, sliderTop, labelWidth, scale(28));
+    moveControl(bloomQualityLabel_, groupLeft, sliderTop, labelWidth, scale(28));
     moveControl(
         bloomQuality_,
-        margin + labelWidth,
+        groupLeft + labelWidth,
         sliderTop,
-        leftWidth - labelWidth,
-        scale(220));
+        groupWidth - labelWidth,
+        scale(28));
 
-    moveControl(backgroundHeading_, rightX, contentTop, availableRightWidth, scale(26));
-    moveControl(backgroundModeLabel_, rightX, contentTop + scale(34), availableRightWidth, scale(22));
-    moveControl(backgroundMode_, rightX, contentTop + scale(58), availableRightWidth, scale(220));
-    moveControl(cursorExcluded_, rightX, contentTop + scale(94), availableRightWidth, scale(28));
-    moveControl(pauseButton_, rightX, contentTop + scale(134), availableRightWidth, scale(32));
+    moveControl(backgroundHeading_, rightX, contentTop, availableRightWidth, scale(226));
+    const int rightContentX = rightX + groupInset;
+    const int rightContentWidth = availableRightWidth - groupInset * 2;
+    moveControl(
+        backgroundModeLabel_,
+        rightContentX,
+        contentTop + scale(27),
+        rightContentWidth,
+        scale(22));
+    moveControl(
+        backgroundMode_,
+        rightContentX,
+        contentTop + scale(51),
+        rightContentWidth,
+        scale(28));
+    moveControl(
+        cursorExcluded_,
+        rightContentX,
+        contentTop + scale(87),
+        rightContentWidth,
+        scale(28));
+    moveControl(
+        pauseButton_,
+        rightContentX,
+        contentTop + scale(127),
+        rightContentWidth,
+        scale(34));
 
     const int actionGap = scale(8);
-    const int actionWidth = (availableRightWidth - actionGap) / 2;
-    moveControl(refreshButton_, rightX, contentTop + scale(178), actionWidth, scale(32));
+    const int actionWidth = (rightContentWidth - actionGap) / 2;
     moveControl(
-        startHostButton_,
-        rightX + actionWidth + actionGap,
-        contentTop + scale(178),
+        refreshButton_,
+        rightContentX,
+        contentTop + scale(173),
         actionWidth,
-        scale(32));
+        scale(34));
+    moveControl(
+        hostLifecycleButton_,
+        rightContentX + actionWidth + actionGap,
+        contentTop + scale(173),
+        actionWidth,
+        scale(34));
 }
 
 void ControlCenterWindow::layoutSlider(
@@ -843,10 +908,17 @@ void ControlCenterWindow::onCommand(
             static_cast<void>(refreshFromHost());
         }
         break;
-    case ControlId::StartHost:
+    case ControlId::HostLifecycle:
         if (notificationCode == BN_CLICKED)
         {
-            startHostFromBundle();
+            if (connected_)
+            {
+                stopHost();
+            }
+            else
+            {
+                startHostFromBundle();
+            }
         }
         break;
     case ControlId::GlobalScale:
@@ -915,15 +987,61 @@ void ControlCenterWindow::onTimer(const UINT_PTR timerId)
         commitPendingPatch();
         return;
     }
+    if (timerId == hostShutdownTimerId)
+    {
+        if (!hostShutdownPending_ || hostLifetimeMutex_.get() == nullptr)
+        {
+            KillTimer(window_, hostShutdownTimerId);
+            return;
+        }
+
+        const DWORD waitResult = WaitForSingleObject(hostLifetimeMutex_.get(), 0U);
+        if (waitResult == WAIT_OBJECT_0 || waitResult == WAIT_ABANDONED)
+        {
+            // Waiting on a mutex grants ownership, including the abandoned
+            // case. Release it before dropping our observation handle.
+            static_cast<void>(ReleaseMutex(hostLifetimeMutex_.get()));
+            finishHostShutdown();
+            return;
+        }
+        if (waitResult == WAIT_FAILED)
+        {
+            // An invalid observation handle cannot prove process exit. Keep
+            // lifecycle controls disabled instead of guessing from pipe state.
+            KillTimer(window_, hostShutdownTimerId);
+            hostShutdownDeadlineTicks_ = 0U;
+            setError(L"无法确认 Host 是否已经退出，启动按钮将保持禁用。");
+            return;
+        }
+
+        if (hostShutdownDeadlineTicks_ != 0U
+            && GetTickCount64() >= hostShutdownDeadlineTicks_)
+        {
+            // Keep observing the owned mutex after the warning. Re-enabling
+            // Start here would race the old process while it still owns the
+            // single-instance contract.
+            hostShutdownDeadlineTicks_ = 0U;
+            SetWindowTextW(statusText_, L"Host 关闭时间超过预期");
+            setError(L"Host 仍在释放资源；确认退出前不会重复启动进程。");
+        }
+        return;
+    }
     if (timerId != hostRetryTimerId)
     {
         return;
     }
 
+    if (hostShutdownPending_ || hostRetryAttempts_ == 0U)
+    {
+        KillTimer(window_, hostRetryTimerId);
+        return;
+    }
     if (refreshFromHost())
     {
         KillTimer(window_, hostRetryTimerId);
         hostRetryAttempts_ = 0U;
+        hostStartPending_ = false;
+        updateHostLifecycleButton();
         return;
     }
     if (hostRetryAttempts_ > 0U)
@@ -933,6 +1051,12 @@ void ControlCenterWindow::onTimer(const UINT_PTR timerId)
     if (hostRetryAttempts_ == 0U)
     {
         KillTimer(window_, hostRetryTimerId);
+        if (hostStartPending_)
+        {
+            hostStartPending_ = false;
+            updateHostLifecycleButton();
+            setError(L"Host 启动超时，请查看支持日志后重试。");
+        }
     }
 }
 
@@ -942,8 +1066,11 @@ bool ControlCenterWindow::refreshFromHost()
     if (!stateResponse.succeeded())
     {
         setConnected(false);
-        SetWindowTextW(statusText_, L"Host 未运行或控制服务不可用");
-        setInfo(L"无法连接 Host", describeResponse(stateResponse));
+        if (!hostShutdownPending_ && !hostStartPending_)
+        {
+            SetWindowTextW(statusText_, L"Host 未运行或控制服务不可用");
+            setInfo(L"无法连接 Host", describeResponse(stateResponse));
+        }
         return false;
     }
 
@@ -1014,7 +1141,10 @@ void ControlCenterWindow::updateControls(
         + (paused_ ? L"已暂停" : L"运行中")
         + L" | 背景采样：" + captureStatus;
     SetWindowTextW(statusText_, status.c_str());
-    clearInfo();
+    if (!hostShutdownPending_)
+    {
+        clearInfo();
+    }
 }
 
 void ControlCenterWindow::applyPatch(
@@ -1056,6 +1186,10 @@ void ControlCenterWindow::sendCommand(const std::string_view command)
 
 void ControlCenterWindow::startHostFromBundle()
 {
+    if (hostStartPending_ || hostShutdownPending_)
+    {
+        return;
+    }
     const std::filesystem::path hostPath = executableDirectory()
         / L"ba-click-fx-desktop.exe";
     if (!std::filesystem::is_regular_file(hostPath))
@@ -1076,20 +1210,81 @@ void ControlCenterWindow::startHostFromBundle()
     const INT_PTR resultCode = reinterpret_cast<INT_PTR>(result);
     if (resultCode <= 32)
     {
+        hostStartPending_ = false;
+        updateHostLifecycleButton();
         setError(L"启动 Host 失败，ShellExecute 错误码："
             + std::to_wstring(resultCode));
         return;
     }
 
+    scheduleHostRefreshRetry(true);
     setInfo(L"正在启动 Host", L"Host 初始化完成后会自动刷新。");
-    scheduleHostRefreshRetry();
 }
 
-void ControlCenterWindow::scheduleHostRefreshRetry() noexcept
+void ControlCenterWindow::stopHost()
+{
+    if (!connected_ || hostStartPending_ || hostShutdownPending_)
+    {
+        return;
+    }
+
+    if (pendingPatch_.has_value())
+    {
+        commitPendingPatch();
+        if (!connected_)
+        {
+            return;
+        }
+    }
+    const HANDLE lifetimeMutex = OpenMutexW(
+        SYNCHRONIZE | MUTEX_MODIFY_STATE,
+        FALSE,
+        bafx::windows::kHostSingleInstanceMutexName);
+    if (lifetimeMutex == nullptr)
+    {
+        setError(L"无法取得 Host 生命周期句柄，已取消关闭请求。");
+        return;
+    }
+
+    hostLifetimeMutex_.reset(lifetimeMutex);
+    // Host owns renderer teardown. The control center requests orderly exit
+    // over IPC and observes the exact single-instance mutex; it never searches
+    // by executable name or terminates an unrelated process.
+    const bafx::windows::IpcClientResponse response = client_.transact("Shutdown");
+    if (!response.succeeded())
+    {
+        hostLifetimeMutex_.reset();
+        if (!response.transportSucceeded())
+        {
+            setConnected(false);
+            SetWindowTextW(statusText_, L"Host 未运行或控制服务不可用");
+        }
+        setError(describeResponse(response));
+        return;
+    }
+
+    KillTimer(window_, hostRetryTimerId);
+    hostRetryAttempts_ = 0U;
+    hostStartPending_ = false;
+    hostShutdownPending_ = true;
+    setConnected(false);
+    updateHostLifecycleButton();
+    SetWindowTextW(statusText_, L"正在关闭 Host...");
+    setInfo(L"正在关闭 Host", L"等待主程序释放渲染与捕获资源。");
+    scheduleHostShutdownPoll();
+}
+
+void ControlCenterWindow::scheduleHostRefreshRetry(const bool startPending) noexcept
 {
     // Host recreates its single pipe instance after each short-lived client.
     // A bounded retry removes that startup race without a resident worker.
-    hostRetryAttempts_ = 8U;
+    hostRetryAttempts_ = hostRetryLimit;
+    hostStartPending_ = startPending;
+    updateHostLifecycleButton();
+    if (startPending)
+    {
+        SetWindowTextW(statusText_, L"正在启动 Host...");
+    }
     KillTimer(window_, hostRetryTimerId);
     if (SetTimer(
             window_,
@@ -1098,6 +1293,57 @@ void ControlCenterWindow::scheduleHostRefreshRetry() noexcept
             nullptr) == 0U)
     {
         hostRetryAttempts_ = 0U;
+        hostStartPending_ = false;
+        updateHostLifecycleButton();
+    }
+}
+
+void ControlCenterWindow::scheduleHostShutdownPoll() noexcept
+{
+    hostShutdownDeadlineTicks_ = GetTickCount64()
+        + hostShutdownWarningMilliseconds;
+    KillTimer(window_, hostShutdownTimerId);
+    if (SetTimer(
+            window_,
+            hostShutdownTimerId,
+            hostShutdownPollDelayMilliseconds,
+            nullptr) == 0U)
+    {
+        hostShutdownDeadlineTicks_ = 0U;
+        setError(L"无法监视 Host 退出，启动按钮将保持禁用。");
+    }
+}
+
+void ControlCenterWindow::finishHostShutdown() noexcept
+{
+    KillTimer(window_, hostShutdownTimerId);
+    hostLifetimeMutex_.reset();
+    hostShutdownDeadlineTicks_ = 0U;
+    hostShutdownPending_ = false;
+    setConnected(false);
+    SetWindowTextW(statusText_, L"Host 已关闭");
+    setInfo(L"Host 已关闭", L"点击“启动 Host”可重新开启特效。");
+}
+
+void ControlCenterWindow::updateHostLifecycleButton() const noexcept
+{
+    if (hostLifecycleButton_ == nullptr)
+    {
+        return;
+    }
+    const wchar_t* const text = hostShutdownPending_
+        ? L"正在关闭..."
+        : (hostStartPending_
+            ? L"正在启动..."
+            : (connected_ ? L"关闭 Host" : L"启动 Host"));
+    SetWindowTextW(hostLifecycleButton_, text);
+    const BOOL lifecycleEnabled = hostShutdownPending_ || hostStartPending_
+        ? FALSE
+        : TRUE;
+    EnableWindow(hostLifecycleButton_, lifecycleEnabled);
+    if (refreshButton_ != nullptr)
+    {
+        EnableWindow(refreshButton_, lifecycleEnabled);
     }
 }
 
@@ -1124,6 +1370,7 @@ void ControlCenterWindow::setConnected(const bool connected) noexcept
             EnableWindow(control, enabled);
         }
     }
+    updateHostLifecycleButton();
 }
 
 void ControlCenterWindow::setInfo(
