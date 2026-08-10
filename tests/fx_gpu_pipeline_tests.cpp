@@ -433,6 +433,50 @@ BAFX_TEST(warp_pipeline_renders_every_retained_trail_stroke)
     BAFX_CHECK(maximumRgbInBox(pixels, 136U, 176U, 240U, 208U) > 1.0e-3F);
 }
 
+BAFX_TEST(warp_desktop_overlay_caps_faded_trail_coverage_to_visible_energy)
+{
+    ComApartment apartment;
+    const WarpDevice graphics = createWarpDevice();
+    FxGpuRenderer renderer(graphics.device.Get(), graphics.context.Get(), testSize);
+    renderer.setBloomSettings(FxBloomSettings{0.0F, 7.0F});
+    const RenderTarget target = createRenderTarget(graphics.device.Get());
+    const bafx::fx::FrameSnapshot snapshot = makeTwoTrailSnapshot();
+
+    // The raw material layer proves that the Unity trail keeps geometric
+    // coverage at its dark endpoint. The desktop pass must remove only that
+    // excess coverage, without changing the emission RGB.
+    const FxGpuFrameCapture capture = renderer.renderAndCapture(
+        snapshot,
+        target.view.Get());
+    BAFX_CHECK(capture.intermediateLayersValid);
+    const std::vector<ReadbackPixel> direct = toFloatPixels(capture.directSurface);
+
+    renderer.render(snapshot, target.view.Get());
+    const std::vector<ReadbackPixel> final = readback(
+        graphics.context.Get(),
+        target.texture.Get());
+
+    bool foundDarkCoveredTrailPixel = false;
+    for (std::size_t index = 0U; index < direct.size(); ++index)
+    {
+        const float directEnergy = std::max({
+            direct[index].red,
+            direct[index].green,
+            direct[index].blue});
+        if (direct[index].alpha > 0.5F && directEnergy < 0.01F)
+        {
+            foundDarkCoveredTrailPixel = true;
+            const float finalEnergy = std::max({
+                final[index].red,
+                final[index].green,
+                final[index].blue});
+            BAFX_CHECK(final[index].alpha <= finalEnergy + 1.0e-3F);
+            BAFX_CHECK_NEAR(final[index].blue, direct[index].blue, 1.0e-3F);
+        }
+    }
+    BAFX_CHECK(foundDarkCoveredTrailPixel);
+}
+
 BAFX_TEST(warp_capture_reads_all_layers_from_the_same_frame)
 {
     ComApartment apartment;

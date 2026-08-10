@@ -233,12 +233,20 @@ float4 DesktopCompositePixel(FullscreenOutput input) : SV_Target0
     const float2 offset = SourceTexelSize * (SampleScale * 0.5);
     const float4 bloom = FourTap(Source1, input.uv, offset);
     const float bloomCoverage = saturate(bloom.a * ExposureGain);
-
-    // Background sampling only changes the Bloom seed. The final DComp surface
-    // keeps Unity's extended linear energy and coverage as independent values.
-    return float4(
+    const float3 linearRgb = max(
         direct.rgb + bloom.rgb * ExposureGain,
-        max(direct.a, bloomCoverage));
+        0.0);
+    const float visibleEnergy = saturate(max(
+        linearRgb.r,
+        max(linearRgb.g, linearRgb.b)));
+    const float coverage = max(direct.a, bloomCoverage);
+
+    // Background sampling only changes the Bloom seed. Keep Unity's extended
+    // linear RGB untouched, but do not let a faded additive texel retain full
+    // coverage: source-over would turn that black tail into a dark desktop edge.
+    return float4(
+        linearRgb,
+        min(saturate(coverage), visibleEnergy));
 }
 )hlsl";
 
