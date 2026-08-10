@@ -23,13 +23,16 @@
 - 来自旧 epoch、尺寸/encoding 不匹配或未确认排除自身 overlay 的样本立即不可用。
 - 可用样本同时启用完整 Differential Bloom 和 background-aware source-over 反解；不可用样本同时
   回退 FX-only。sample age 不参与 Bloom、Alpha 或其他视觉能量计算，避免正常 WGC cadence 在浅色
-  背景上形成周期性亮度脉冲。锁存只保存路径枚举，不跨帧缓存 sensor 所有的裸 SRV。
+  背景上形成周期性亮度脉冲。反解时每通道小于 `1/1024` 的目标/背景差异视为 WGC/DWM
+  量化噪声并省略；分母同时设置相同下限，避免接近纯白时把不可见差异放大成不透明载荷。
+  该近似的最大线性颜色误差不超过 `1/1024`，不改变 FX-only 或 Unity source-over 的源颜色。
+  锁存只保存路径枚举，不跨帧缓存 sensor 所有的裸 SRV。
 
 ## Acceptance
 
 - 纯函数测试覆盖开闭边界、路径锁存、不同刷新率、QPC 极值饱和、时间倒退和 session generation
   切换。
 - WARP 连续帧测试在浅色/深色背景上覆盖点击与拖尾，确认获取边界、保留边界、样本恢复和新批次
-  的逐像素稳定性。
+  的逐像素稳定性，并覆盖近白到纯白的 FP16 量化边界。
 - 集成测试人工冻结 sensor，确认背景路径跨获取边界保持稳定，超过有界保留窗口后只回退一次。
 - 诊断同时记录 sample age、refresh period、generation 和最终二值状态。

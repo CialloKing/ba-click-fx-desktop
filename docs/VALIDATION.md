@@ -26,6 +26,7 @@
 - MaterialOutputs MRT；
 - DifferentialPrefilter FP32 差值；
 - 浅色/深色背景下点击与拖尾跨获取/保留边界及恢复序列的逐像素稳定性；
+- 近白到纯白背景的 FP16 量化边界，确认背景反解不会在点击或拖尾上产生透明/不透明跳变；
 - Bloom mip/down/up；
 - FinalOverlay FP16 readback。
 

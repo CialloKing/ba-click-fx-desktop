@@ -352,15 +352,27 @@ float4 ResolveFxOnlyDesktopTransport(
         alpha);
 }
 
+static const float BackgroundTransportNoiseFloor = 1.0 / 1024.0;
+
 float SolveOverlayAlpha(float background, float target)
 {
-    if (target > background)
+    const float delta = target - background;
+    if (abs(delta) <= BackgroundTransportNoiseFloor)
     {
-        return (target - background) / max(1.0 - background, 0.000001);
+        // WGC and DWM do not sample the desktop atomically. Reconstructing a
+        // sub-10-bit change near white would amplify one FP16 capture step into
+        // an opaque payload, exposing capture cadence instead of visible FX.
+        return 0.0;
     }
-    if (target < background)
+    if (delta > 0.0)
     {
-        return (background - target) / max(background, 0.000001);
+        return delta / max(
+            1.0 - background,
+            BackgroundTransportNoiseFloor);
+    }
+    if (delta < 0.0)
+    {
+        return -delta / max(background, BackgroundTransportNoiseFloor);
     }
     return 0.0;
 }
@@ -378,7 +390,8 @@ float4 ResolveBackgroundAwareDesktopTransport(
         + background * (1.0 - saturate(occlusion))
         + max(bloom.rgb, 0.0) * exposureGain);
     const float3 difference = abs(target - background);
-    if (max(difference.r, max(difference.g, difference.b)) <= 0.000001)
+    if (max(difference.r, max(difference.g, difference.b))
+        <= BackgroundTransportNoiseFloor)
     {
         return float4(0.0, 0.0, 0.0, 0.0);
     }

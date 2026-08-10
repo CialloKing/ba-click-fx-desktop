@@ -801,6 +801,123 @@ BAFX_TEST(warp_background_reconstructs_the_unity_source_over_target)
     BAFX_CHECK(std::abs(lightReconstructed.red - darkReconstructed.red) > 0.05F);
 }
 
+BAFX_TEST(warp_background_transport_suppresses_near_white_capture_noise)
+{
+    ComApartment apartment;
+    const WarpDevice graphics = createWarpDevice();
+    FxGpuRenderer renderer(graphics.device.Get(), graphics.context.Get(), testSize);
+    renderer.setBloomSettings(FxBloomSettings{0.0F, 7.0F});
+    const bafx::fx::FrameSnapshot snapshot = makeDiskAndTrailSnapshot();
+    const auto renderOver = [&](const std::array<float, 4>& color)
+    {
+        const RenderTarget background = createRenderTarget(graphics.device.Get());
+        graphics.context->ClearRenderTargetView(background.view.Get(), color.data());
+        const RenderTarget output = createRenderTarget(graphics.device.Get());
+        renderer.render(
+            snapshot,
+            output.view.Get(),
+            BackgroundRenderInput{background.shaderResource.Get()});
+        const std::vector<ReadbackPixel> pixels = readback(
+            graphics.context.Get(),
+            output.texture.Get());
+        return pixels;
+    };
+
+    constexpr std::array<float, 4> nearWhiteBackground{
+        0.99951171875F,
+        0.99951171875F,
+        0.99951171875F,
+        1.0F};
+    constexpr std::array<float, 4> pureWhiteBackground{
+        1.0F,
+        1.0F,
+        1.0F,
+        1.0F};
+    constexpr std::array<float, 4> visibleLightBackground{
+        0.99F,
+        0.99F,
+        0.99F,
+        1.0F};
+
+    const std::vector<ReadbackPixel> nearWhite = renderOver(nearWhiteBackground);
+    const std::vector<ReadbackPixel> pureWhite = renderOver(pureWhiteBackground);
+    const std::vector<ReadbackPixel> visibleLight =
+        renderOver(visibleLightBackground);
+    checkValidDesktopPremultiplied(nearWhite, false);
+    checkValidDesktopPremultiplied(pureWhite, false);
+    checkValidDesktopPremultiplied(visibleLight, false);
+
+    constexpr std::uint32_t diskLeft = 96U;
+    constexpr std::uint32_t diskTop = 96U;
+    constexpr std::uint32_t diskRight = 160U;
+    constexpr std::uint32_t diskBottom = 160U;
+    constexpr std::uint32_t trailLeft = 16U;
+    constexpr std::uint32_t trailTop = 48U;
+    constexpr std::uint32_t trailRight = 120U;
+    constexpr std::uint32_t trailBottom = 80U;
+
+    BAFX_CHECK_NEAR(
+        maximumAlphaInBox(nearWhite, diskLeft, diskTop, diskRight, diskBottom),
+        maximumAlphaInBox(pureWhite, diskLeft, diskTop, diskRight, diskBottom),
+        2.0e-3F);
+    BAFX_CHECK_NEAR(
+        maximumAlphaInBox(nearWhite, trailLeft, trailTop, trailRight, trailBottom),
+        maximumAlphaInBox(pureWhite, trailLeft, trailTop, trailRight, trailBottom),
+        2.0e-3F);
+
+    // Compare the payloads over the same desktop sample. This catches a
+    // transparent-to-opaque jump even when the two captured backgrounds differ
+    // by only one FP16 step.
+    const float diskNoiseDelta = std::max(
+        maximumCompositeRgbDeltaInBox(
+            nearWhite,
+            pureWhite,
+            nearWhiteBackground,
+            diskLeft,
+            diskTop,
+            diskRight,
+            diskBottom),
+        maximumCompositeRgbDeltaInBox(
+            nearWhite,
+            pureWhite,
+            pureWhiteBackground,
+            diskLeft,
+            diskTop,
+            diskRight,
+            diskBottom));
+    const float trailNoiseDelta = std::max(
+        maximumCompositeRgbDeltaInBox(
+            nearWhite,
+            pureWhite,
+            nearWhiteBackground,
+            trailLeft,
+            trailTop,
+            trailRight,
+            trailBottom),
+        maximumCompositeRgbDeltaInBox(
+            nearWhite,
+            pureWhite,
+            pureWhiteBackground,
+            trailLeft,
+            trailTop,
+            trailRight,
+            trailBottom));
+    BAFX_CHECK(diskNoiseDelta <= 2.0e-3F);
+    BAFX_CHECK(trailNoiseDelta <= 2.0e-3F);
+
+    BAFX_CHECK(
+        maximumAlphaInBox(visibleLight, diskLeft, diskTop, diskRight, diskBottom)
+        > 0.5F);
+    BAFX_CHECK(
+        maximumAlphaInBox(
+            visibleLight,
+            trailLeft,
+            trailTop,
+            trailRight,
+            trailBottom)
+        > 0.5F);
+}
+
 BAFX_TEST(warp_background_path_keeps_triangle_alpha_independent_from_the_disk)
 {
     ComApartment apartment;
