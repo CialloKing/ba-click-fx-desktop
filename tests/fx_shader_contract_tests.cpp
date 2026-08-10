@@ -165,6 +165,7 @@ BAFX_TEST(all_embedded_fx_shader_entries_compile_with_warnings_as_errors)
         ShaderEntry{fxMaterialsShaderSource, "CrossPixel", "ps_5_0"},
         ShaderEntry{fxMaterialsShaderSource, "DissolvePixel", "ps_5_0"},
         ShaderEntry{fxMaterialsShaderSource, "AdditivePixel", "ps_5_0"},
+        ShaderEntry{fxMaterialsShaderSource, "TrailPixel", "ps_5_0"},
         ShaderEntry{unityBloomShaderSource, "FullscreenVertex", "vs_5_0"},
         ShaderEntry{unityBloomShaderSource, "PrefilterPixel", "ps_5_0"},
         ShaderEntry{unityBloomShaderSource, "DifferentialPrefilterPixel", "ps_5_0"},
@@ -190,6 +191,7 @@ BAFX_TEST(sprite_shader_reflection_locks_vertex_and_mrt_contracts)
     BAFX_CHECK(hasSignatureParameter(vertex.Get(), false, "TEXCOORD", 1U, 0x1U));
     BAFX_CHECK(hasSignatureParameter(vertex.Get(), false, "TEXCOORD", 2U, 0x1U));
     BAFX_CHECK(hasSignatureParameter(vertex.Get(), false, "TEXCOORD", 3U, 0x1U));
+    BAFX_CHECK(hasSignatureParameter(vertex.Get(), false, "TEXCOORD", 4U, 0x1U));
     BAFX_CHECK(hasConstantVariable(
         vertex.Get(), "ViewportConstants", "ViewportSize", 0U, 8U));
     BAFX_CHECK(hasConstantVariable(
@@ -198,7 +200,8 @@ BAFX_TEST(sprite_shader_reflection_locks_vertex_and_mrt_contracts)
     constexpr std::array pixelEntries{
         "CrossPixel",
         "DissolvePixel",
-        "AdditivePixel"};
+        "AdditivePixel",
+        "TrailPixel"};
     for (const char* entryPoint : pixelEntries)
     {
         const auto pixel = compileAndReflect(

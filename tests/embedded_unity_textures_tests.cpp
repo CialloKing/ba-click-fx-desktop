@@ -148,3 +148,24 @@ BAFX_TEST(embedded_unity_pngs_match_locked_originals)
         BAFX_CHECK(sha256(texture.pngBytes) == texture.pngSha256);
     }
 }
+
+BAFX_TEST(embedded_trail_coverage_png_is_a_locked_derivative)
+{
+    const bafx::windows::EmbeddedUnityTexture& texture =
+        bafx::windows::embeddedUnityTexture(
+            bafx::windows::EmbeddedUnityTextureId::Trail03Coverage);
+    constexpr std::array<std::uint8_t, 8> pngSignature{
+        0x89U, 0x50U, 0x4EU, 0x47U, 0x0DU, 0x0AU, 0x1AU, 0x0AU};
+
+    BAFX_CHECK(texture.name == "FX_TEX_Trail_03.desktop-coverage.png");
+    BAFX_CHECK(texture.pngBytes.size() == 107651U);
+    BAFX_CHECK(texture.width == 512U);
+    BAFX_CHECK(texture.height == 512U);
+    BAFX_CHECK(std::equal(
+        pngSignature.begin(),
+        pngSignature.end(),
+        texture.pngBytes.begin()));
+    BAFX_CHECK(readBigEndian32(texture.pngBytes, 16U) == texture.width);
+    BAFX_CHECK(readBigEndian32(texture.pngBytes, 20U) == texture.height);
+    BAFX_CHECK(sha256(texture.pngBytes) == texture.pngSha256);
+}

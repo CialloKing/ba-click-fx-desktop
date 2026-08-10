@@ -12,7 +12,8 @@ enum class EmbeddedUnityTextureId : std::uint8_t
     Circle01,
     GradRing3,
     Triangle02_1,
-    Trail03
+    Trail03,
+    Trail03Coverage
 };
 
 struct EmbeddedUnityTexture

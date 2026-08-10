@@ -23,6 +23,7 @@ struct VertexInput
     float intensity : TEXCOORD1;
     float dissolveThreshold : TEXCOORD2;
     float bloomEnabled : TEXCOORD3;
+    float coverageFactor : TEXCOORD4;
 };
 
 struct PixelInput
@@ -33,6 +34,7 @@ struct PixelInput
     float intensity : TEXCOORD1;
     float dissolveThreshold : TEXCOORD2;
     float bloomEnabled : TEXCOORD3;
+    float coverageFactor : TEXCOORD4;
 };
 
 struct MaterialOutput
@@ -55,6 +57,7 @@ PixelInput SpriteVertex(VertexInput input)
     output.intensity = input.intensity;
     output.dissolveThreshold = input.dissolveThreshold;
     output.bloomEnabled = input.bloomEnabled;
+    output.coverageFactor = input.coverageFactor;
     return output;
 }
 
@@ -102,6 +105,32 @@ MaterialOutput AdditivePixel(PixelInput input)
         * input.color.rgb
         * input.intensity
         * coverage;
+
+    MaterialOutput output;
+    output.direct = float4(emission, coverage);
+    output.bloomSeed = float4(
+        emission * input.bloomEnabled,
+        coverage * input.bloomEnabled);
+    return output;
+}
+
+MaterialOutput TrailPixel(PixelInput input)
+{
+    const float4 sampleValue = MaterialTexture.Sample(MaterialSampler, input.uv);
+    const float particleOpacity = saturate(input.color.a);
+    const float edgeDistance = min(input.uv.y, 1.0 - input.uv.y);
+    const float footprint = max(fwidth(input.uv.y) * 0.5, 0.000001);
+    const float geometryCoverage = smoothstep(0.0, footprint, edgeDistance);
+    const float coverage = saturate(
+        sampleValue.a
+        * particleOpacity
+        * saturate(input.coverageFactor)
+        * geometryCoverage);
+    // Desktop Coverage is transport metadata. Unity emission must not be dimmed by it.
+    const float3 emission = sampleValue.rgb
+        * input.color.rgb
+        * input.intensity
+        * particleOpacity;
 
     MaterialOutput output;
     output.direct = float4(emission, coverage);
@@ -232,21 +261,14 @@ float4 DesktopCompositePixel(FullscreenOutput input) : SV_Target0
     const float4 direct = Source0.Sample(LinearClampSampler, input.uv);
     const float2 offset = SourceTexelSize * (SampleScale * 0.5);
     const float4 bloom = FourTap(Source1, input.uv, offset);
-    const float bloomCoverage = saturate(bloom.a * ExposureGain);
+    const float bloomCoverage = max(bloom.a, 0.0) * ExposureGain;
     const float3 linearRgb = max(
         direct.rgb + bloom.rgb * ExposureGain,
         0.0);
-    const float visibleEnergy = saturate(max(
-        linearRgb.r,
-        max(linearRgb.g, linearRgb.b)));
-    const float coverage = max(direct.a, bloomCoverage);
 
-    // Background sampling only changes the Bloom seed. Keep Unity's extended
-    // linear RGB untouched, but do not let a faded additive texel retain full
-    // coverage: source-over would turn that black tail into a dark desktop edge.
-    return float4(
-        linearRgb,
-        min(saturate(coverage), visibleEnergy));
+    // Direct Coverage and Bloom transport are independent from visible color.
+    // Lowering Alpha from RGB recreates dark tails and globally flattens the glow.
+    return float4(linearRgb, saturate(direct.a + bloomCoverage));
 }
 )hlsl";
 

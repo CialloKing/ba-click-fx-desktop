@@ -32,6 +32,8 @@ using Microsoft::WRL::ComPtr;
 
 constexpr float trailArtisticIntensity = 23.968628F;
 constexpr std::int32_t trailRenderQueue = 4499;
+constexpr float trailCoverageFadeStart = 0.248532F;
+constexpr float trailCoverageFadeEnd = 0.97941558F;
 constexpr std::size_t initialVertexCapacity = bafx::core::unityRingIndexCount;
 constexpr float unityBloomIntensity = 1.7F;
 constexpr float minimumBloomDiffusion = 1.0F;
@@ -46,6 +48,7 @@ struct SpriteVertex
     float intensity{1.0F};
     float dissolveThreshold{0.0F};
     float bloomEnabled{0.0F};
+    float coverageFactor{1.0F};
 };
 
 struct ViewportConstants
@@ -259,7 +262,8 @@ struct ColorTarget
     const bafx::fx::ColorF color,
     const float intensity,
     const float dissolveThreshold,
-    const bool contributesBloom) noexcept
+    const bool contributesBloom,
+    const float coverageFactor = 1.0F) noexcept
 {
     return SpriteVertex{
         {x, y},
@@ -267,7 +271,26 @@ struct ColorTarget
         {color.r, color.g, color.b, color.a},
         intensity,
         dissolveThreshold,
-        contributesBloom ? 1.0F : 0.0F};
+        contributesBloom ? 1.0F : 0.0F,
+        coverageFactor};
+}
+
+[[nodiscard]] float evaluateTrailLongitudinalCoverage(const float progress) noexcept
+{
+    if (progress <= trailCoverageFadeStart)
+    {
+        return 0.0F;
+    }
+    if (progress >= trailCoverageFadeEnd)
+    {
+        return 1.0F;
+    }
+
+    const float value = (progress - trailCoverageFadeStart)
+        / (trailCoverageFadeEnd - trailCoverageFadeStart);
+    // Match the WebGPU transport curve with flat derivatives at both
+    // deletion boundaries.
+    return value * value * value * (value * (value * 6.0F - 15.0F) + 10.0F);
 }
 
 [[nodiscard]] std::array<SpriteVertex, 6> makeSpriteVertices(
@@ -387,7 +410,8 @@ makeRingVertices(const bafx::fx::Sprite& sprite) noexcept
                 1.0F},
             trailArtisticIntensity,
             0.0F,
-            true));
+            true,
+            evaluateTrailLongitudinalCoverage(vertex.progress)));
     }
     return vertices;
 }
@@ -453,6 +477,10 @@ struct FxGpuRenderer::Implementation
             D3D11_INPUT_ELEMENT_DESC{
                 "TEXCOORD", 3, DXGI_FORMAT_R32_FLOAT, 0,
                 static_cast<UINT>(offsetof(SpriteVertex, bloomEnabled)),
+                D3D11_INPUT_PER_VERTEX_DATA, 0},
+            D3D11_INPUT_ELEMENT_DESC{
+                "TEXCOORD", 4, DXGI_FORMAT_R32_FLOAT, 0,
+                static_cast<UINT>(offsetof(SpriteVertex, coverageFactor)),
                 D3D11_INPUT_PER_VERTEX_DATA, 0}};
         throwIfFailed(
             device->CreateInputLayout(
@@ -466,6 +494,7 @@ struct FxGpuRenderer::Implementation
         createPixelShader("CrossPixel", crossPixelShader);
         createPixelShader("DissolvePixel", dissolvePixelShader);
         createPixelShader("AdditivePixel", additivePixelShader);
+        createPixelShader("TrailPixel", trailPixelShader);
         createBloomPipeline();
 
         D3D11_BUFFER_DESC constantDescription{};
@@ -646,7 +675,7 @@ struct FxGpuRenderer::Implementation
             embeddedUnityTexture(EmbeddedUnityTextureId::Triangle02_1).pngBytes);
         trailTexture = loadSrgbTexture(
             device.Get(),
-            embeddedUnityTexture(EmbeddedUnityTextureId::Trail03).pngBytes);
+            embeddedUnityTexture(EmbeddedUnityTextureId::Trail03Coverage).pngBytes);
     }
 
     void updateBloomPlan()
@@ -1096,7 +1125,7 @@ struct FxGpuRenderer::Implementation
                 trailVertices,
                 trailTexture.Get(),
                 repeatSampler.Get(),
-                additivePixelShader.Get(),
+                trailPixelShader.Get(),
                 emissionBlendState.Get());
         };
         if (snapshot.trailStrokes.empty())
@@ -1177,6 +1206,7 @@ struct FxGpuRenderer::Implementation
     ComPtr<ID3D11PixelShader> crossPixelShader{};
     ComPtr<ID3D11PixelShader> dissolvePixelShader{};
     ComPtr<ID3D11PixelShader> additivePixelShader{};
+    ComPtr<ID3D11PixelShader> trailPixelShader{};
     ComPtr<ID3D11PixelShader> prefilterPixelShader{};
     ComPtr<ID3D11PixelShader> differentialPrefilterPixelShader{};
     ComPtr<ID3D11PixelShader> downsamplePixelShader{};

@@ -281,6 +281,26 @@ struct WarpDevice
     return maximum;
 }
 
+[[nodiscard]] float maximumAlphaInBox(
+    const std::vector<ReadbackPixel>& pixels,
+    const std::uint32_t left,
+    const std::uint32_t top,
+    const std::uint32_t right,
+    const std::uint32_t bottom) noexcept
+{
+    float maximum = 0.0F;
+    for (std::uint32_t y = top; y < bottom; ++y)
+    {
+        for (std::uint32_t x = left; x < right; ++x)
+        {
+            maximum = std::max(
+                maximum,
+                pixels[static_cast<std::size_t>(y) * testSize.width + x].alpha);
+        }
+    }
+    return maximum;
+}
+
 void checkFiniteAndNonNegative(const std::vector<ReadbackPixel>& pixels)
 {
     for (const ReadbackPixel& pixel : pixels)
@@ -433,7 +453,7 @@ BAFX_TEST(warp_pipeline_renders_every_retained_trail_stroke)
     BAFX_CHECK(maximumRgbInBox(pixels, 136U, 176U, 240U, 208U) > 1.0e-3F);
 }
 
-BAFX_TEST(warp_desktop_overlay_caps_faded_trail_coverage_to_visible_energy)
+BAFX_TEST(warp_trail_keeps_emission_and_desktop_coverage_independent)
 {
     ComApartment apartment;
     const WarpDevice graphics = createWarpDevice();
@@ -442,9 +462,6 @@ BAFX_TEST(warp_desktop_overlay_caps_faded_trail_coverage_to_visible_energy)
     const RenderTarget target = createRenderTarget(graphics.device.Get());
     const bafx::fx::FrameSnapshot snapshot = makeTwoTrailSnapshot();
 
-    // The raw material layer proves that the Unity trail keeps geometric
-    // coverage at its dark endpoint. The desktop pass must remove only that
-    // excess coverage, without changing the emission RGB.
     const FxGpuFrameCapture capture = renderer.renderAndCapture(
         snapshot,
         target.view.Get());
@@ -456,25 +473,29 @@ BAFX_TEST(warp_desktop_overlay_caps_faded_trail_coverage_to_visible_energy)
         graphics.context.Get(),
         target.texture.Get());
 
-    bool foundDarkCoveredTrailPixel = false;
+    // The old endpoint remains visible in geometry, but its transport envelope is zero.
+    BAFX_CHECK(maximumAlphaInBox(direct, 16U, 56U, 44U, 72U) < 1.0e-3F);
+    BAFX_CHECK(maximumAlphaInBox(direct, 136U, 184U, 164U, 200U) < 1.0e-3F);
+    BAFX_CHECK(maximumRgbInBox(direct, 88U, 56U, 120U, 72U) > 1.0e-3F);
+
+    bool foundCoverageAboveVisibleEnergy = false;
     for (std::size_t index = 0U; index < direct.size(); ++index)
     {
         const float directEnergy = std::max({
             direct[index].red,
             direct[index].green,
             direct[index].blue});
-        if (direct[index].alpha > 0.5F && directEnergy < 0.01F)
+        if (direct[index].alpha > 0.05F
+            && direct[index].alpha > directEnergy + 0.01F)
         {
-            foundDarkCoveredTrailPixel = true;
-            const float finalEnergy = std::max({
-                final[index].red,
-                final[index].green,
-                final[index].blue});
-            BAFX_CHECK(final[index].alpha <= finalEnergy + 1.0e-3F);
+            foundCoverageAboveVisibleEnergy = true;
+            BAFX_CHECK_NEAR(final[index].alpha, direct[index].alpha, 2.0e-3F);
+            BAFX_CHECK_NEAR(final[index].red, direct[index].red, 1.0e-3F);
+            BAFX_CHECK_NEAR(final[index].green, direct[index].green, 1.0e-3F);
             BAFX_CHECK_NEAR(final[index].blue, direct[index].blue, 1.0e-3F);
         }
     }
-    BAFX_CHECK(foundDarkCoveredTrailPixel);
+    BAFX_CHECK(foundCoverageAboveVisibleEnergy);
 }
 
 BAFX_TEST(warp_capture_reads_all_layers_from_the_same_frame)

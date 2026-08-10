@@ -101,9 +101,9 @@ struct TextureStorage
     return storage;
 }
 
-[[nodiscard]] const std::array<TextureStorage, 4>& storages()
+[[nodiscard]] const std::array<TextureStorage, 5>& storages()
 {
-    static const std::array<TextureStorage, 4> values{
+    static const std::array<TextureStorage, 5> values{
         makeTexture(
             "FX_TEX_Circle_01.png",
             circle01PngBase64,
@@ -131,7 +131,14 @@ struct TextureStorage
             trail03PngByteCount,
             512U,
             512U,
-            "16001511757E7007F43DB9613E24144B5E8D726239DE0262F55D9E14C0F00FEB")};
+            "16001511757E7007F43DB9613E24144B5E8D726239DE0262F55D9E14C0F00FEB"),
+        makeTexture(
+            "FX_TEX_Trail_03.desktop-coverage.png",
+            trail03CoveragePngBase64,
+            trail03CoveragePngByteCount,
+            512U,
+            512U,
+            "D97FDC31023CAC592398B59DC4BC85C93D24719696DD913B75C1E9702FB1A394")};
     return values;
 }
 
