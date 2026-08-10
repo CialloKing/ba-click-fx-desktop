@@ -7,10 +7,10 @@ Web 版本只作为行为与参数语义参考。
 Release Host 运行时是单文件：Visual C++ 运行库静态链接，Circle、Grad Ring、Triangle Atlas、Trail
 四张原始 PNG 以压缩文本嵌入 C++，启动时只在内存中解码并上传为 sRGB GPU 纹理；材质 HLSL
 也嵌入程序。运行不读取 Unity 工程、游戏目录或旁置 shader/图片文件，但仍使用 Windows 自带的
-D3D11、DirectComposition、WIC 和 D3DCompiler 系统组件。独立的 WinUI 3 Control Center 使用
-Windows App SDK 直接部署文件，测试时必须与这些旁置文件保持在同一目录。
+D3D11、DirectComposition、WIC 和 D3DCompiler 系统组件。独立的 Control Center 使用纯 Win32
+Common Controls，不需要 Windows App SDK 或其他旁置运行时。
 
-当前架构版本是 **v0.3**，状态为 **Proposed**。首个可运行 Alpha 已具备 Host、WinUI 3
+当前架构版本是 **v0.3**，状态为 **Proposed**。首个可运行 Alpha 已具备 Host、原生 Win32
 Control Center、本地 IPC 与独立测试包；当前人工特效审核和支持合同仍以单主屏 FX-only/SDR
 路径为准。涉及 DirectComposition、Windows Graphics Capture、HDR/Advanced Color 和多适配器的结论，
 必须取得仓库中定义的 Spike 证据或接受明确的 fallback 后，相关 ADR 才能标记为 Accepted。
@@ -81,9 +81,8 @@ HDR、跨适配器或 WGC 的 Spike 已通过。
 
 ### 独立测试包
 
-下面的命令会先构建 Release Host 和 Release Control Center，再将二者及 Control Center 的
-Windows App SDK 直接部署文件、支持文档和逐文件 SHA-256 清单打入 ZIP；脚本完成前会自动运行
-包验证。它要求 `cmake.exe` 可用，且能在 `PATH` 或通过 `-MSBuild` 找到 x64 `MSBuild.exe`：
+下面的命令会先构建 Release Host 和原生 Win32 Control Center，再将两个 EXE、支持文档和逐文件
+SHA-256 清单打入 ZIP；脚本完成前会自动运行包验证。它只要求 `cmake.exe` 可用：
 
 ```powershell
 pwsh -NoProfile -ExecutionPolicy Bypass -File .\tools\package-test-bundle.ps1
@@ -91,12 +90,12 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File .\tools\package-test-bundle.ps1
 
 默认输出到 `artifacts\local\ba-click-fx-desktop-<version>-test-windows-x64.zip`，并在同目录生成
 `.sha256` 文件。解压后必须保留目录结构：先启动 `ba-click-fx-desktop.exe`，再启动
-`BAFX.ControlCenter.exe`。Control Center 是依赖同目录 Windows App SDK 文件的直接部署应用，不能
-单独复制其 EXE 运行。
+`BAFX.ControlCenter.exe`。Control Center 只依赖 Windows 自带的 User32、Comctl32 和配置 IPC，
+可以直接复制该 EXE 运行，但需要与 Host 放在同一目录才能使用“启动 Host”按钮。
 
 ### 轻量视觉审核包
 
-如果只需要审核点击和拖尾画面，不需要 WinUI 3 控制面，请使用 Host-only 包入口：
+如果只需要审核点击和拖尾画面，不需要控制面，请使用 Host-only 包入口：
 
 ```powershell
 pwsh -NoProfile -ExecutionPolicy Bypass -File .\tools\package-host-review-bundle.ps1
@@ -104,7 +103,8 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File .\tools\package-host-review-bundle
 
 脚本复用 CPack 的四文件安装合同，并将经过验证的 ZIP 放到
 `artifacts\local\host-visual-review\<commit>\`。该包只包含 Host、许可证、支持说明和内嵌资产清单，
-通常约 0.4 MB；上面的完整测试包则包含 Control Center 的 Windows App SDK 旁置运行时，体积较大是预期的。
+通常约 0.4 MB；完整测试包现在也只包含两个原生 EXE，压缩后约 0.7 MB，不再携带 Windows App SDK
+旁置运行时。
 
 ## Host 控制面
 
@@ -115,10 +115,11 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File .\tools\package-host-review-bundle
 首次生成的配置将 `background.mode` 设为 `fx-only`。`background-aware` 和
 `recording-compatible` 需要用户显式选择；WGC 或录屏路径失败时 Host 继续使用 FX-only。
 portable EXE 不带 package identity，因此不会把无边框捕获 capability 伪装成已支持；WGC 只有在
-窗口自排除已确认且运行时边框/光标排除接口都可用时才会进入 active 状态。Overlay 的跨进程鼠标穿透
-优先于可选背景采样，任何自排除冲突都必须回退 FX-only。
+窗口自排除已确认且捕获会话成功时才会进入 active 状态。边框隐藏和光标排除能力分别记录在日志中；
+缺少无边框接口时允许带系统边框的实验捕获，但不会降低 Overlay 的跨进程鼠标穿透优先级，任何
+自排除冲突都必须回退 FX-only。
 
-`BAFX.ControlCenter.exe` 已作为独立的 WinUI 3 进程接入该 Pipe。Host 保持运行时，Control Center
+`BAFX.ControlCenter.exe` 已作为独立的 Win32 进程接入该 Pipe。Host 保持运行时，Control Center
 可以读取状态、暂停或恢复特效，并将下列效果配置在下一帧交给 Host：启用状态、点击特效、鼠标拖尾、
 效果大小、拖尾长度、拖尾宽度、Bloom 强度与 Bloom 质量。数值控件会合并连续拖动后的写入，避免为
 每个滑块像素都写一次配置。

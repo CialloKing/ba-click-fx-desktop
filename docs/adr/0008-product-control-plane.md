@@ -23,11 +23,11 @@
 5. 首个垂直切片只承诺 `GetState`、`GetConfig`、`SetConfig <schema-3-json>`、
    `SetConfig {generation,path,value}`、`Pause`、`Resume` 和 `Shutdown`。路径更新只允许
    配置库声明的产品字段，并在 generation 不匹配时返回冲突。响应中的 `generation` 用于
-   客户端判断快照是否变化；Preset/Profile 和 WinUI 3 页面在此协议稳定后再增加。
+   客户端判断快照是否变化；Preset/Profile 等更高层功能在此协议稳定后再增加。
 
 ## 取舍
 
-- 采用自描述文本协议便于 PowerShell、诊断工具和未来 WinUI 客户端调试；性能不是控制面
+- 采用自描述文本协议便于 PowerShell、诊断工具和原生 Win32 客户端调试；性能不是控制面
   的瓶颈。
 - 配置字段只暴露产品语义（启用、特效缩放、Bloom 强度、捕获模式等），底层材质常量仍由
   Renderer 维护，避免 UI 形成不受控的 GPU 依赖。

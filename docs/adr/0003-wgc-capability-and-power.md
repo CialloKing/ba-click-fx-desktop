@@ -20,12 +20,13 @@ Agile/Threading(Both) 不保证方法并发安全。`MinUpdateInterval` 只在 b
 ## Portable Alpha boundary
 
 portable Win32 EXE 不具备 MSIX package identity，也不能通过外部清单授予
-`graphicsCaptureWithoutBorder` capability。因而本实现把无边框接口和光标排除接口视为
-差分 Bloom 的安全前提：任一接口缺失就关闭背景传感器并继续 FX-only，而不是把系统捕获边框
-误当成桌面背景。`Support.WGC=fallback-fx-only` 是可预期的能力结果，不是 Host 启动失败。
+`graphicsCaptureWithoutBorder` capability。因而无边框接口是可选增强：接口缺失或权限不足时
+仍可启动实验 WGC，但必须把 `system-border=visible` 写入诊断，不能把它宣称为无边框捕获。
+光标排除仍按配置作为独立能力探测；请求排除时若无法确认则关闭该捕获会话并继续 FX-only。
+`Support.WGC=fallback-fx-only` 只表示捕获会话未能安全启动，不是 Host 启动失败。
 
-在带 package identity 的 Windows 11/Server 环境完成 capability、授权、边框污染和录屏矩阵
-之前，不将 portable 包的 fallback 改为“保留系统边框继续捕获”。
+背景合成只接受带有效时间戳、尺寸和自排除合同的帧；首个进入最终 pass 的样本会写入
+`WGC background sample entered the final desktop composite`，以便区分会话启动和实际参与。
 
 ## Acceptance
 

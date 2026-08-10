@@ -251,7 +251,8 @@ dirty rect 必须 union 前后帧区域再扩张，以清除上一帧残留。�
 
 产品控制面的边界和首个协议切片记录在
 [`docs/adr/0008-product-control-plane.md`](docs/adr/0008-product-control-plane.md)。该 ADR
-仍为 Proposed；在 Control Center 和安装/启动项完成前，不把产品层能力标记为完整支持。
+仍为 Proposed；虽然原生 Win32 Control Center 已完成首个构建切片，在安装/启动项和完整验收前，
+不把产品层能力标记为完整支持。
 
 架构只有在以下文件中的七个核心 ADR 均为 Accepted、产品控制面 ADR 有独立验收、四个 P0 Spike 均有可复现结论，并且没有未决 P0
 问题后才能从 Proposed 升级。Spike 主假设可以失败，但必须已有 Accepted fallback 且同步收窄能力矩阵；

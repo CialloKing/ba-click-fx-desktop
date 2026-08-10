@@ -4,7 +4,7 @@
 
 - Windows 10/11 x64，单个主显示器。
 - FX-only 模式下的点击与拖拽特效，以及基于 Unity/游戏资源的当前 D3D11/Bloom 渲染路径。
-- `BAFX.ControlCenter.exe` 的 WinUI 3 控制面：启用状态、点击特效、鼠标拖尾、效果大小、拖尾长度、
+- `BAFX.ControlCenter.exe` 的原生 Win32 控制面：启用状态、点击特效、鼠标拖尾、效果大小、拖尾长度、
   拖尾宽度、Bloom 强度和 Bloom 质量会通过本地 Named Pipe 在下一帧应用到正在运行的 Host。
 - D3D11 硬件设备；硬件设备创建失败时尝试 WARP 软件设备。
 - 当前验证范围为普通 SDR 桌面合成路径。
@@ -14,9 +14,9 @@
 - 首次生成的 schema 3 配置默认为 `background.mode=fx-only`；背景捕获必须显式启用，
   授权、排除或会话失败时继续使用 FX-only。
 - WGC 是可选的背景差分输入，不是点击特效依赖。portable EXE 没有 package identity，
-  也不会自行声明 `graphicsCaptureWithoutBorder` capability；只有运行时同时取得
-  `GraphicsCaptureSession3`（无系统边框）和 `GraphicsCaptureSession2`（光标排除）时才报告
-  `Support.WGC=active`。
+  也不会自行声明 `graphicsCaptureWithoutBorder` capability；捕获会话启动后报告
+  `Support.WGC=active`，系统边框和光标能力会单独写入日志。日志中的
+  `WGC background sample entered the final desktop composite` 才表示背景样本已经进入最终 pass。
 - Release 可执行文件静态链接 Visual C++ 运行库；仍使用 Windows 自带的 D3D11、DirectComposition、
   WIC 和 D3DCompiler 系统组件。
 
@@ -33,8 +33,8 @@
 pwsh -NoProfile -ExecutionPolicy Bypass -File .\tools\package-test-bundle.ps1
 ```
 
-解压测试包时必须保留其完整目录结构。`BAFX.ControlCenter.exe` 依赖旁置的 Windows App SDK 资源和 DLL，
-不能脱离该目录单独运行。
+解压测试包时必须保留其完整目录结构。Control Center 不携带 Windows App SDK 运行时，只有在需要
+通过按钮启动 Host 时才要求与 Host EXE 位于同一目录。
 
 ## 尚未支持或尚未验证
 
@@ -44,12 +44,11 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File .\tools\package-test-bundle.ps1
   可依赖的效果路径，出现失败或帧过期时应维持或回退 FX-only。`recording-compatible` 始终关闭
   WGC 并撤销窗口捕获排除，以便录屏器有机会看到 overlay，但不保证任意录屏器都能捕获。
   `background-aware` 启动或会话中止后也会撤销窗口捕获排除，避免 FX-only 回退被录屏器隐藏。
-- 当前 portable 包在 Windows 10 19045 的实测结果为 `Support.WGC=fallback-fx-only`。为保证全屏
-  Overlay 不阻断其他进程的按钮，窗口必须保留 `WS_EX_LAYERED | WS_EX_TRANSPARENT`；在该 DComp
-  窗口上请求 `WDA_EXCLUDEFROMCAPTURE` 返回错误 `0x8`，查询值保持 `WDA_NONE`，因此 Host 不启动 WGC。
-  早期移除 `WS_EX_LAYERED` 的实验虽能继续探测 WGC，却会让 Overlay 命中鼠标，不能作为可接受路径。
-- 以上结果不表示 D3D11 或 FX-only 渲染失败。后续 WGC 路径必须同时证明跨进程点击穿透、自排除、
-  无边框和光标排除，才可放宽 fallback；不能用牺牲桌面输入来换取背景采样。
+- 当前 portable 包在 Windows 10 19045 的实测结果为 `Support.WGC=active`：窗口保留
+  `WS_EX_LAYERED | WS_EX_TRANSPARENT`，请求 `WDA_EXCLUDEFROMCAPTURE` 后查询值为 `0x11`，
+  WGC 会话可正常取帧；系统边框隐藏接口不可用时日志标为 `system-border=visible`，光标排除成功。
+  首次实机运行记录了 426 个渲染帧中的 423 个背景合成帧。
+- 无论 WGC 是否可用，都不能移除 Layered/Transparent 样式来换取背景采样；这会破坏跨进程按钮点击。
 - 多显示器、跨显示器输入、多适配器和混合刷新率。
 - device removed/reset 后的原地恢复。
 - 开机启动、自动更新、安装程序和代码签名。
@@ -63,9 +62,10 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File .\tools\package-test-bundle.ps1
   成功退出码为 `0`。
 - `ba-click-fx-desktop.exe --quit-after-ms=1000`：运行正常消息/渲染循环并在约一秒后退出，用于验证
   退出清理路径。
-- `BAFX.ControlCenter.exe`：在 Host 已运行时打开 WinUI 3 设置窗口，通过本地 IPC 读取并调整当前
+- `BAFX.ControlCenter.exe`：在 Host 已运行时打开 Win32 设置窗口，通过本地 IPC 读取并调整当前
   FX-only 特效参数；它不是独立渲染器。
 
 smoke 只证明当前 Windows 会话中的基本渲染链路可用。运行日志中的
-`Support.WGC=active` 只表示本次会话成功创建了 WGC 路径；`fallback-fx-only` 表示已安全降级。
+`Support.WGC=active` 表示本次会话成功创建了 WGC 路径；随后出现背景合成日志才表示样本已参与；
+`fallback-fx-only` 表示已安全降级。
 两者都不替代 FX-only 人工视觉审核，更不替代 HDR、多显示器、录屏兼容性或其他硬件矩阵验证。
