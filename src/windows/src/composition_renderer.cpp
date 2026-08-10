@@ -12,6 +12,7 @@
 #include <array>
 #include <chrono>
 #include <cmath>
+#include <exception>
 #include <limits>
 
 namespace bafx::windows
@@ -215,6 +216,7 @@ bool CompositionRenderer::tryEnableBackgroundCapture(
     const HMONITOR monitor,
     const bool exclusionConfirmed) noexcept
 {
+    backgroundCaptureFailure_.clear();
     if (backgroundSensor_ != nullptr)
     {
         backgroundSensor_->stop();
@@ -227,6 +229,19 @@ bool CompositionRenderer::tryEnableBackgroundCapture(
     backgroundRefreshPeriod_ = bafx::core::MonotonicTime::zero();
     if (!backgroundCaptureRequested_)
     {
+        if (!exclusionConfirmed)
+        {
+            backgroundCaptureFailure_ = "capture exclusion was not confirmed";
+        }
+        else if (monitor == nullptr)
+        {
+            backgroundCaptureFailure_ = "target monitor is unavailable";
+        }
+        else if (deviceInfo_.driverType != GraphicsDriverType::Hardware)
+        {
+            backgroundCaptureFailure_ =
+                "WGC requires a hardware D3D11 device";
+        }
         return false;
     }
 
@@ -253,10 +268,18 @@ bool CompositionRenderer::backgroundCaptureActive() const noexcept
 
 bool CompositionRenderer::tryCreateBackgroundSensor() noexcept
 {
-    if (!backgroundCaptureRequested_
-        || backgroundMonitor_ == nullptr
-        || !WgcBackgroundSensor::isSupported())
+    if (!backgroundCaptureRequested_ || backgroundMonitor_ == nullptr)
     {
+        if (backgroundCaptureRequested_ && backgroundMonitor_ == nullptr)
+        {
+            backgroundCaptureFailure_ = "target monitor is unavailable";
+        }
+        return false;
+    }
+    if (!WgcBackgroundSensor::isSupported())
+    {
+        backgroundCaptureFailure_ =
+            "Windows Graphics Capture is not supported";
         return false;
     }
 
@@ -264,6 +287,8 @@ bool CompositionRenderer::tryCreateBackgroundSensor() noexcept
         primaryRefreshPeriod();
     if (!refreshPeriod.has_value())
     {
+        backgroundCaptureFailure_ =
+            "display refresh period could not be determined";
         return false;
     }
 
@@ -281,8 +306,25 @@ bool CompositionRenderer::tryCreateBackgroundSensor() noexcept
     {
         backgroundSensor_.reset();
         backgroundRefreshPeriod_ = bafx::core::MonotonicTime::zero();
+        try
+        {
+            throw;
+        }
+        catch (const std::exception& error)
+        {
+            backgroundCaptureFailure_ = error.what();
+        }
+        catch (...)
+        {
+            backgroundCaptureFailure_ = "unknown WGC initialization failure";
+        }
         return false;
     }
+}
+
+std::string_view CompositionRenderer::backgroundCaptureFailure() const noexcept
+{
+    return backgroundCaptureFailure_;
 }
 
 void CompositionRenderer::setReadbackDiagnostics(const bool enabled)

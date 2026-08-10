@@ -463,11 +463,16 @@ int runApplication(
     {
         report.setBackgroundCaptureStatus(
             bafx::windows::BackgroundCaptureStatus::FallbackFxOnly);
-        bafx::windows::appendDiagnosticLog(
-            logPath,
-            backgroundCaptureWanted
+        std::string failure = backgroundCaptureWanted
             ? "WGC background capture unavailable; using FX-only rendering"
-            : "WGC background capture disabled by configuration; using FX-only rendering");
+            : "WGC background capture disabled by configuration; using FX-only rendering";
+        if (backgroundCaptureWanted
+            && !renderer.backgroundCaptureFailure().empty())
+        {
+            failure += "; reason=";
+            failure += renderer.backgroundCaptureFailure();
+        }
+        bafx::windows::appendDiagnosticLog(logPath, failure);
     }
     else
     {
@@ -532,6 +537,14 @@ int runApplication(
                     bafx::windows::appendDiagnosticLog(
                         logPath,
                         bafx::windows::captureExclusionDiagnostic(exclusion));
+                    if (!backgroundCaptureEnabled
+                        && !renderer.backgroundCaptureFailure().empty())
+                    {
+                        bafx::windows::appendDiagnosticLog(
+                            logPath,
+                            std::string("WGC background capture unavailable; using FX-only rendering; reason=")
+                                + std::string(renderer.backgroundCaptureFailure()));
+                    }
                 }
                 else
                 {

@@ -15,6 +15,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 
 namespace bafx::fx
 {
@@ -82,6 +83,7 @@ public:
         bool exclusionConfirmed) noexcept;
     void disableBackgroundCapture() noexcept;
     [[nodiscard]] bool backgroundCaptureActive() const noexcept;
+    [[nodiscard]] std::string_view backgroundCaptureFailure() const noexcept;
     void setReadbackDiagnostics(bool enabled);
 
     [[nodiscard]] HANDLE frameLatencyWaitableObject() const noexcept;
@@ -114,6 +116,7 @@ private:
     HMONITOR backgroundMonitor_{nullptr};
     std::uint64_t backgroundEpoch_{1U};
     bool backgroundCaptureRequested_{false};
+    std::string backgroundCaptureFailure_{};
     bool readbackDiagnosticsEnabled_{false};
     D3D_FEATURE_LEVEL featureLevel_{D3D_FEATURE_LEVEL_11_0};
     GraphicsDeviceInfo deviceInfo_{};

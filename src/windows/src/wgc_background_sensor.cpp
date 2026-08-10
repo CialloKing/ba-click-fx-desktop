@@ -254,7 +254,16 @@ struct WgcBackgroundSensor::Implementation
             }
             // A system capture border would be captured as desktop content and
             // feed a visible feedback edge into the differential Bloom input.
-            borderSession.IsBorderRequired(false);
+            try
+            {
+                borderSession.IsBorderRequired(false);
+            }
+            catch (const winrt::hresult_error& error)
+            {
+                throw HResultError(
+                    error.code(),
+                    "IGraphicsCaptureSession3::IsBorderRequired(false)");
+            }
 
             const auto cursorSession = session.try_as<
                 winrt::Windows::Graphics::Capture::IGraphicsCaptureSession2>();
@@ -265,7 +274,16 @@ struct WgcBackgroundSensor::Implementation
                     "GraphicsCaptureSession cursor exclusion");
             }
             // A captured cursor would be mistaken for the desktop beneath the FX.
-            cursorSession.IsCursorCaptureEnabled(false);
+            try
+            {
+                cursorSession.IsCursorCaptureEnabled(false);
+            }
+            catch (const winrt::hresult_error& error)
+            {
+                throw HResultError(
+                    error.code(),
+                    "IGraphicsCaptureSession2::IsCursorCaptureEnabled(false)");
+            }
             session.StartCapture();
             isRunning = true;
         }
