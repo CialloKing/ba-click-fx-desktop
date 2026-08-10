@@ -553,6 +553,7 @@ struct FxGpuRenderer::Implementation
         crossDescription.RenderTarget[0] = sourceOverBlendTarget();
         crossDescription.RenderTarget[1] = sourceOverBlendTarget();
         crossDescription.RenderTarget[2] = coverageUnionBlendTarget();
+        crossDescription.RenderTarget[3] = sourceOverBlendTarget();
         throwIfFailed(
             device->CreateBlendState(&crossDescription, &crossBlendState),
             "ID3D11Device::CreateBlendState(Cross)");
@@ -562,6 +563,7 @@ struct FxGpuRenderer::Implementation
         emissionDescription.RenderTarget[0] = additiveBlendTarget();
         emissionDescription.RenderTarget[1] = additiveBlendTarget();
         emissionDescription.RenderTarget[2] = additiveBlendTarget();
+        emissionDescription.RenderTarget[3] = additiveBlendTarget();
         throwIfFailed(
             device->CreateBlendState(&emissionDescription, &emissionBlendState),
             "ID3D11Device::CreateBlendState(emission)");
@@ -751,6 +753,7 @@ struct FxGpuRenderer::Implementation
     void createTargets()
     {
         directTarget = createColorTarget(device.Get(), size);
+        crossTarget = createColorTarget(device.Get(), size);
         bloomSeedTarget = createColorTarget(device.Get(), size);
         occlusionTarget = createColorTarget(
             device.Get(),
@@ -763,7 +766,8 @@ struct FxGpuRenderer::Implementation
     void unbindFrameResources()
     {
         context->OMSetRenderTargets(0, nullptr, nullptr);
-        constexpr std::array<ID3D11ShaderResourceView*, 4> noResources{
+        constexpr std::array<ID3D11ShaderResourceView*, 5> noResources{
+            nullptr,
             nullptr,
             nullptr,
             nullptr,
@@ -778,6 +782,7 @@ struct FxGpuRenderer::Implementation
     {
         unbindFrameResources();
         directTarget = {};
+        crossTarget = {};
         bloomSeedTarget = {};
         occlusionTarget = {};
         bloomDownTargets.clear();
@@ -889,7 +894,8 @@ struct FxGpuRenderer::Implementation
         ID3D11ShaderResourceView* source1,
         const BloomConstants& constants,
         ID3D11ShaderResourceView* source2 = nullptr,
-        ID3D11ShaderResourceView* source3 = nullptr)
+        ID3D11ShaderResourceView* source3 = nullptr,
+        ID3D11ShaderResourceView* source4 = nullptr)
     {
         D3D11_MAPPED_SUBRESOURCE mapped{};
         throwIfFailed(
@@ -927,18 +933,20 @@ struct FxGpuRenderer::Implementation
         context->PSSetConstantBuffers(0, 1, &constantBuffer);
         ID3D11SamplerState* bloomSampler = clampSampler.Get();
         context->PSSetSamplers(0, 1, &bloomSampler);
-        std::array<ID3D11ShaderResourceView*, 4> sources{
+        std::array<ID3D11ShaderResourceView*, 5> sources{
             source0,
             source1,
             source2,
-            source3};
+            source3,
+            source4};
         context->PSSetShaderResources(
             0,
             static_cast<UINT>(sources.size()),
             sources.data());
         context->Draw(3, 0);
 
-        constexpr std::array<ID3D11ShaderResourceView*, 4> noResources{
+        constexpr std::array<ID3D11ShaderResourceView*, 5> noResources{
+            nullptr,
             nullptr,
             nullptr,
             nullptr,
@@ -1024,10 +1032,9 @@ struct FxGpuRenderer::Implementation
                 bloomPlan.exposureGain,
                 0.0F,
                 background.has_value()),
-            background.has_value()
-                ? occlusionTarget.shaderResource.Get()
-                : nullptr,
-            background.has_value() ? background->shaderResource : nullptr);
+            occlusionTarget.shaderResource.Get(),
+            background.has_value() ? background->shaderResource : nullptr,
+            crossTarget.shaderResource.Get());
     }
 
     void drawVertices(
@@ -1151,15 +1158,19 @@ struct FxGpuRenderer::Implementation
             directTarget.renderTarget.Get(),
             transparent.data());
         context->ClearRenderTargetView(
+            crossTarget.renderTarget.Get(),
+            transparent.data());
+        context->ClearRenderTargetView(
             bloomSeedTarget.renderTarget.Get(),
             transparent.data());
         context->ClearRenderTargetView(
             occlusionTarget.renderTarget.Get(),
             transparent.data());
-        std::array<ID3D11RenderTargetView*, 3> targets{
+        std::array<ID3D11RenderTargetView*, 4> targets{
             directTarget.renderTarget.Get(),
             bloomSeedTarget.renderTarget.Get(),
-            occlusionTarget.renderTarget.Get()};
+            occlusionTarget.renderTarget.Get(),
+            crossTarget.renderTarget.Get()};
         context->OMSetRenderTargets(
             static_cast<UINT>(targets.size()),
             targets.data(),
@@ -1256,6 +1267,7 @@ struct FxGpuRenderer::Implementation
     WindowSize size{};
     FxBloomSettings bloomSettings{};
     ColorTarget directTarget{};
+    ColorTarget crossTarget{};
     ColorTarget bloomSeedTarget{};
     ColorTarget occlusionTarget{};
     bafx::core::UnityBloomPlan bloomPlan{};

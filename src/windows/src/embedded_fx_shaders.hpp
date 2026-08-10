@@ -42,6 +42,7 @@ struct MaterialOutput
     float4 direct : SV_Target0;
     float4 bloomSeed : SV_Target1;
     float2 occlusion : SV_Target2;
+    float4 cross : SV_Target3;
 };
 
 PixelInput SpriteVertex(VertexInput input)
@@ -80,6 +81,7 @@ MaterialOutput CrossPixel(PixelInput input)
     output.occlusion = float2(
         coverage,
         coverage * input.bloomEnabled);
+    output.cross = output.direct;
     return output;
 }
 
@@ -99,6 +101,7 @@ MaterialOutput DissolvePixel(PixelInput input)
         emission * input.bloomEnabled,
         coverage * input.bloomEnabled);
     output.occlusion = float2(0.0, 0.0);
+    output.cross = float4(0.0, 0.0, 0.0, 0.0);
     return output;
 }
 
@@ -117,6 +120,7 @@ MaterialOutput AdditivePixel(PixelInput input)
         emission * input.bloomEnabled,
         coverage * input.bloomEnabled);
     output.occlusion = float2(0.0, 0.0);
+    output.cross = float4(0.0, 0.0, 0.0, 0.0);
     return output;
 }
 
@@ -144,6 +148,7 @@ MaterialOutput TrailPixel(PixelInput input)
         emission * input.bloomEnabled,
         coverage * input.bloomEnabled);
     output.occlusion = float2(0.0, 0.0);
+    output.cross = float4(0.0, 0.0, 0.0, 0.0);
     return output;
 }
 )hlsl";
@@ -165,6 +170,7 @@ Texture2D<float4> Source0 : register(t0);
 Texture2D<float4> Source1 : register(t1);
 Texture2D<float4> Source2 : register(t2);
 Texture2D<float4> Source3 : register(t3);
+Texture2D<float4> Source4 : register(t4);
 SamplerState LinearClampSampler : register(s0);
 
 struct FullscreenOutput
@@ -297,11 +303,19 @@ float4 CompositePixel(FullscreenOutput input) : SV_Target0
 float4 ResolveFxOnlyDesktopTransport(
     float4 direct,
     float4 bloom,
+    float4 cross,
     float exposureGain)
 {
+    const float crossCoverage = saturate(cross.a);
     const float sceneCoverage = saturate(direct.a);
+    // The direct target stores a source-over union. Remove Cross2's share and
+    // invert that union so additive capacity remains independent from it.
+    const float additiveCoverage = saturate(
+        (sceneCoverage - crossCoverage)
+        / max(1.0 - crossCoverage, 0.000001));
     const float bloomTransport = max(bloom.a, 0.0) * exposureGain;
-    const float requestedCapacity = sceneCoverage + bloomTransport;
+    const float residualCapacity = additiveCoverage + bloomTransport;
+    const float requestedCapacity = crossCoverage + residualCapacity;
     const float transportCapacity = saturate(requestedCapacity);
     const float overlayAlphaLimit = 250.0 / 255.0;
     const float alpha = min(transportCapacity, overlayAlphaLimit);
@@ -311,24 +325,47 @@ float4 ResolveFxOnlyDesktopTransport(
         return float4(0.0, 0.0, 0.0, 0.0);
     }
 
-    const float3 directRgb = max(direct.rgb, 0.0);
-    const float directMaximum = max(
-        directRgb.r,
-        max(directRgb.g, directRgb.b));
-    const float directScale = min(
+    const float3 crossRgb = max(cross.rgb, 0.0);
+    const float crossMaximum = max(
+        crossRgb.r,
+        max(crossRgb.g, crossRgb.b));
+    const float crossScale = min(
         1.0,
-        sceneCoverage / max(directMaximum, 0.000001));
-    const float3 linearRgb = directRgb * directScale
+        crossCoverage / max(crossMaximum, 0.000001));
+    const float3 crossPayload = crossRgb * crossScale;
+
+    const float3 additiveRgb = max(direct.rgb - cross.rgb, 0.0);
+    const float3 residualRgb = additiveRgb
         + max(bloom.rgb, 0.0) * exposureGain;
-    const float capacityScale = min(
+    const float residualMaximum = max(
+        residualRgb.r,
+        max(residualRgb.g, residualRgb.b));
+    const float residualScale = min(
         1.0,
-        alpha / max(transportCapacity, 0.000001));
+        residualCapacity / max(residualMaximum, 0.000001));
+    const float3 residualPayload = residualRgb * residualScale;
+
+    // Cross2 owns the background-attenuating disk. Reserve its premultiplied
+    // capacity before additive materials so their pulsing Alpha cannot dim the
+    // stable disk when WGC temporarily falls back to FX-only transport.
+    const float crossTransportCapacity = min(crossCoverage, alpha);
+    const float crossTransportScale = min(
+        1.0,
+        crossTransportCapacity / max(crossCoverage, 0.000001));
+    const float availableResidualCapacity = max(
+        alpha - crossTransportCapacity,
+        0.0);
+    const float residualTransportScale = min(
+        1.0,
+        availableResidualCapacity / max(residualCapacity, 0.000001));
+    const float3 linearRgb = crossPayload * crossTransportScale
+        + residualPayload * residualTransportScale;
 
     // The DComp swap chain declares premultiplied Alpha. Converging RGB here
-    // preserves authored Coverage while preventing an opaque or dark payload
-    // from being exported when the desktop background is not sampled.
+    // preserves each authored layer's capacity while preventing an opaque or
+    // dark payload from being exported when the desktop is not sampled.
     return float4(
-        min(linearRgb * capacityScale, alpha),
+        min(linearRgb, alpha),
         alpha);
 }
 
@@ -382,13 +419,16 @@ float4 DesktopCompositePixel(FullscreenOutput input) : SV_Target0
     const float4 direct = Source0.Sample(LinearClampSampler, input.uv);
     const float2 offset = SourceTexelSize * (SampleScale * 0.5);
     const float4 bloom = FourTap(Source1, input.uv, offset);
-    const float4 fxOnly = ResolveFxOnlyDesktopTransport(
-        direct,
-        bloom,
-        ExposureGain);
     if (BackgroundTransportEnabled <= 0.0)
     {
-        return fxOnly;
+        const float4 cross = Source4.Sample(
+            LinearClampSampler,
+            input.uv);
+        return ResolveFxOnlyDesktopTransport(
+            direct,
+            bloom,
+            cross,
+            ExposureGain);
     }
 
     const float occlusion = Source2.Sample(

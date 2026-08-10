@@ -253,6 +253,35 @@ struct WarpDevice
     return snapshot;
 }
 
+[[nodiscard]] bafx::fx::FrameSnapshot makeCoincidentDiskAndTriangleSnapshot(
+    const float triangleAlpha,
+    const bool includeDisk)
+{
+    bafx::fx::FrameSnapshot snapshot = includeDisk
+        ? makeDiskSnapshot(false)
+        : bafx::fx::FrameSnapshot{};
+    snapshot.active = true;
+    if (includeDisk)
+    {
+        // Cross2 keeps emitting while its lifecycle Coverage fades.
+        snapshot.sprites.front().color.a = 0.05F;
+    }
+    snapshot.sprites.push_back(bafx::fx::Sprite{
+        bafx::fx::SpriteKind::Triangle,
+        bafx::fx::PointF{
+            static_cast<float>(testSize.width) * 0.5F,
+            static_cast<float>(testSize.height) * 0.5F},
+        96.0F,
+        0.0F,
+        bafx::fx::ColorF{1.0F, 1.0F, 1.0F, triangleAlpha},
+        5.992157F,
+        0.0F,
+        0U,
+        4550,
+        false});
+    return snapshot;
+}
+
 [[nodiscard]] float maximumRgbOutsideSprite(
     const std::vector<ReadbackPixel>& pixels) noexcept
 {
@@ -665,6 +694,91 @@ BAFX_TEST(warp_wgc_weight_never_transfers_triangle_flicker_to_the_disk)
         triangleTop,
         triangleRight,
         triangleBottom) > 0.05F);
+}
+
+BAFX_TEST(warp_fx_only_keeps_coincident_disk_independent_from_triangle_alpha)
+{
+    ComApartment apartment;
+    const WarpDevice graphics = createWarpDevice();
+    FxGpuRenderer renderer(graphics.device.Get(), graphics.context.Get(), testSize);
+    renderer.setBloomSettings(FxBloomSettings{0.0F, 7.0F});
+
+    const auto captureDirect = [&](const bafx::fx::FrameSnapshot& snapshot)
+    {
+        const RenderTarget target = createRenderTarget(graphics.device.Get());
+        return toFloatPixels(
+            renderer.renderAndCapture(snapshot, target.view.Get()).directSurface);
+    };
+    bafx::fx::FrameSnapshot fadedDisk = makeDiskSnapshot(false);
+    fadedDisk.sprites.front().color.a = 0.05F;
+    const std::vector<ReadbackPixel> diskDirect = captureDirect(fadedDisk);
+    const std::vector<ReadbackPixel> brightTriangleDirect = captureDirect(
+        makeCoincidentDiskAndTriangleSnapshot(0.9F, false));
+
+    std::size_t overlapIndex = diskDirect.size();
+    for (std::size_t index = 0U; index < diskDirect.size(); ++index)
+    {
+        const float diskCoverage = diskDirect[index].alpha;
+        const float triangleCoverage = brightTriangleDirect[index].alpha;
+        const float triangleEnergy = std::max({
+            brightTriangleDirect[index].red,
+            brightTriangleDirect[index].green,
+            brightTriangleDirect[index].blue});
+        if (diskCoverage >= 0.04F
+            && diskCoverage <= 0.051F
+            && triangleCoverage >= 0.8F
+            && diskCoverage + triangleCoverage <= 0.97F
+            && triangleEnergy >= 0.1F)
+        {
+            overlapIndex = index;
+            break;
+        }
+    }
+    BAFX_CHECK(overlapIndex < diskDirect.size());
+
+    const auto render = [&](const float triangleAlpha, const bool includeDisk)
+    {
+        const RenderTarget target = createRenderTarget(graphics.device.Get());
+        renderer.render(
+            makeCoincidentDiskAndTriangleSnapshot(triangleAlpha, includeDisk),
+            target.view.Get());
+        return readback(graphics.context.Get(), target.texture.Get());
+    };
+    const std::vector<ReadbackPixel> combinedDim = render(0.1F, true);
+    const std::vector<ReadbackPixel> combinedBright = render(0.9F, true);
+    const std::vector<ReadbackPixel> triangleDim = render(0.1F, false);
+    const std::vector<ReadbackPixel> triangleBright = render(0.9F, false);
+
+    checkValidDesktopPremultiplied(combinedDim);
+    checkValidDesktopPremultiplied(combinedBright);
+    checkValidDesktopPremultiplied(triangleDim);
+    checkValidDesktopPremultiplied(triangleBright);
+
+    const ReadbackPixel dim = combinedDim[overlapIndex];
+    const ReadbackPixel bright = combinedBright[overlapIndex];
+    const ReadbackPixel dimTriangle = triangleDim[overlapIndex];
+    const ReadbackPixel brightTriangle = triangleBright[overlapIndex];
+    const std::array<float, 3> diskWithDimTriangle{
+        dim.red - dimTriangle.red,
+        dim.green - dimTriangle.green,
+        dim.blue - dimTriangle.blue};
+    const std::array<float, 3> diskWithBrightTriangle{
+        bright.red - brightTriangle.red,
+        bright.green - brightTriangle.green,
+        bright.blue - brightTriangle.blue};
+
+    // On a black desktop the premultiplied RGB is the visible composite. Tri2
+    // may pulse, but removing its own result must leave the same Cross2 disk.
+    for (std::size_t channel = 0U; channel < diskWithDimTriangle.size(); ++channel)
+    {
+        BAFX_CHECK_NEAR(
+            diskWithDimTriangle[channel],
+            diskWithBrightTriangle[channel],
+            3.0e-3F);
+    }
+    BAFX_CHECK(diskWithDimTriangle[2] > 0.01F);
+    BAFX_CHECK(brightTriangle.blue - dimTriangle.blue > 0.05F);
+    BAFX_CHECK(bright.alpha - dim.alpha > 0.1F);
 }
 
 BAFX_TEST(warp_pipeline_renders_every_retained_trail_stroke)
