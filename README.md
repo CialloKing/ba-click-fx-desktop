@@ -155,5 +155,5 @@ node tools\generate-packed-fx-textures.mjs `
 
 ## 许可证
 
-本项目自行编写的代码使用仓库根目录中的 GNU GPL v2 许可证。内嵌的第三方游戏纹理不因本项目
-许可证而获得再许可；本地测试与公开分发边界见 [ASSET-MANIFEST.md](ASSET-MANIFEST.md)。
+本项目自行编写的代码使用仓库根目录中的 GNU GPL v2 许可证。内嵌四组基础几何纹理的自由使用与
+公开分发边界见 [ASSET-MANIFEST.md](ASSET-MANIFEST.md)。
