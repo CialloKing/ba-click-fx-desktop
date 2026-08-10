@@ -5,10 +5,12 @@
 Web 版本只作为行为与参数语义参考。
 
 Release Host 运行时是单文件：Visual C++ 运行库静态链接，Circle、Grad Ring、Triangle Atlas、Trail
-四张原始 PNG 以压缩文本嵌入 C++，启动时只在内存中解码并上传为 sRGB GPU 纹理；材质 HLSL
-也嵌入程序。运行不读取 Unity 工程、游戏目录或旁置 shader/图片文件，但仍使用 Windows 自带的
-D3D11、DirectComposition、WIC 和 D3DCompiler 系统组件。独立的 Control Center 使用纯 Win32
-Common Controls，不需要 Windows App SDK 或其他旁置运行时。
+四张参考纹理的 RGBA8 texel 以 raw LZ4 Block 无损压缩为 C 字节串，直接编译进 EXE。启动时逐张分配
+无需预清零的输出缓冲区，执行一次有界解压并直接创建 D3D11 immutable sRGB 纹理；上传返回后立即
+释放 CPU texel。该路径没有 Base64、PNG 容器、WIC 解码或临时图片文件。材质 HLSL 也嵌入程序；
+运行不读取 Unity 工程、游戏目录或旁置 shader/图片文件，只使用 Windows 自带的 D3D11、
+DirectComposition 和 D3DCompiler 系统组件。独立的 Control Center 使用纯 Win32 Common Controls，
+不需要 Windows App SDK 或其他旁置运行时。
 
 当前架构版本是 **v0.3**，状态为 **Proposed**。首个可运行 Alpha 已具备 Host、原生 Win32
 Control Center、本地 IPC 与独立测试包；当前人工特效审核和支持合同仍以单主屏 FX-only/SDR
@@ -142,12 +144,13 @@ Shutdown
 `SetConfig` 也接受完整的 schema 3 JSON 快照。路径补丁只允许配置库声明的产品字段，代次
 不匹配会返回 `generation_conflict`；所有命令均在下一帧由 Host 应用。
 
-`embedded_unity_textures` 测试逐张锁定内嵌 PNG 的尺寸、字节数和 SHA-256。只有在更新
-Unity 真值快照时才需要运行生成器，生成结果会进入源码而不是成为运行时依赖：
+`packed_fx_textures` 测试逐张解压 raw LZ4 Block，并锁定 RGBA8 texel 的尺寸、行距和 SHA-256。
+生成器是仅供维护者使用的开发工具；只有在更新 Unity 真值快照时才需要运行，输入 PNG、Node.js 和
+Unity 工程都不是构建产物或运行时依赖：
 
 ```powershell
-pwsh -NoProfile -File tools\generate-embedded-unity-textures.ps1 `
-  -UnityProjectRoot "D:\path\to\UnityProject"
+node tools\generate-packed-fx-textures.mjs `
+  --project "D:\path\to\UnityProject"
 ```
 
 ## 许可证

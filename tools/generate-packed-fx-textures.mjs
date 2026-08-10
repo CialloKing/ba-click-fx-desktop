@@ -244,7 +244,7 @@ function readSequenceKey(source, offset)
 }
 
 // This deterministic block encoder mirrors the browser implementation. The
-// runtime only needs the much smaller, allocation-free LZ4 block decoder.
+// runtime only needs the much smaller, bounded LZ4 block decoder.
 function encodeLz4Block(source)
 {
   const output = [];

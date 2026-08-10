@@ -6,8 +6,9 @@
 相对文件名、长度、SHA-256、数学契约和比较工具；不会提交 mesh、prefab、材质、Unity 截图或这些
 外部工程的完整二进制副本。
 
-生产运行时需要的四个 PNG 容器是唯一例外：它们以字节一致的生成源码嵌入仓库并编译进 EXE，
-不以独立图片文件分发。其哈希、来源和未获再许可的边界见 [../ASSET-MANIFEST.md](../ASSET-MANIFEST.md)。
+生产运行时需要的四组 RGBA8 texel 是唯一例外：它们经 raw LZ4 Block 无损压缩为 C 字节串并编译
+进 EXE，不保存 PNG 容器、Base64 文本或独立图片文件。其解码哈希、来源和未获再许可的边界见
+[../ASSET-MANIFEST.md](../ASSET-MANIFEST.md)。
 
 默认本地根目录为：
 
@@ -70,6 +71,8 @@ slow-motion、录屏、HDR 显示或桌面合成行为一致。
 
 ## 5. 原生实现的映射
 
+- 四张运行时纹理逐张执行有界 LZ4 解压并直接创建 immutable RGBA8/sRGB GPU 资源；上传后释放
+  CPU texel。Host 不初始化 WIC，开发用 Capture 工具仍可用 WIC 输出验证 PNG。
 - 中心 disk 和圆环分别按原纹理通道、硬裁剪及 draw order 求值。
 - 点击/拖拽碎片保留几何、时间、颜色、Unity HDR 核心和清晰边缘；它们可写 DirectEmission，
   但必须 `BloomSeed=0`，因此不会产生模糊三角光晕。

@@ -17,8 +17,9 @@
   也不会自行声明 `graphicsCaptureWithoutBorder` capability；捕获会话启动后报告
   `Support.WGC=active`，系统边框和光标能力会单独写入日志。日志中的
   `WGC background sample entered the final desktop composite` 才表示背景样本已经进入最终 pass。
-- Release 可执行文件静态链接 Visual C++ 运行库；仍使用 Windows 自带的 D3D11、DirectComposition、
-  WIC 和 D3DCompiler 系统组件。
+- Release Host 静态链接 Visual C++ 运行库；仍使用 Windows 自带的 D3D11、DirectComposition 和
+  D3DCompiler 系统组件。四张纹理以 raw LZ4 字节编译进 EXE，运行时不读取图片，也不使用 WIC；
+  仅开发用的 GPU 捕获工具使用 WIC 写出验证 PNG。
 
 直接运行 `ba-click-fx-desktop.exe` 后，窗口保持鼠标穿透。右键通知区域中的程序图标并选择
 `Exit` 可退出；也可按 `Ctrl+Alt+F12` 或备用的 `Ctrl+Shift+F12`。即使系统热键注册被占用，
