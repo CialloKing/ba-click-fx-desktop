@@ -10,6 +10,10 @@
 - 当前验证范围为普通 SDR 桌面合成路径。
 - 首次生成的 schema 3 配置默认为 `background.mode=fx-only`；背景捕获必须显式启用，
   授权、排除或会话失败时继续使用 FX-only。
+- WGC 是可选的背景差分输入，不是点击特效依赖。portable EXE 没有 package identity，
+  也不会自行声明 `graphicsCaptureWithoutBorder` capability；只有运行时同时取得
+  `GraphicsCaptureSession3`（无系统边框）和 `GraphicsCaptureSession2`（光标排除）时才报告
+  `Support.WGC=active`。
 - Release 可执行文件静态链接 Visual C++ 运行库；仍使用 Windows 自带的 D3D11、DirectComposition、
   WIC 和 D3DCompiler 系统组件。
 
@@ -33,8 +37,13 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File .\tools\package-test-bundle.ps1
 
 - HDR、Advanced Color 和物理 nits 输出声明。
 - WGC 背景感知的边框策略、外部录屏兼容性、会话长时间压力与权限拒绝矩阵。Control Center 中的
-  `background-aware` 与 `recording-compatible` 选项目前仅为配置/实验入口；本 Alpha 不将其作为
-  可依赖的效果路径，出现失败或帧过期时应维持或回退 FX-only。
+  `background-aware` 与 `recording-compatible` 选项仍是显式实验入口；本 Alpha 不将它们作为
+  可依赖的效果路径，出现失败或帧过期时应维持或回退 FX-only。`recording-compatible` 始终关闭
+  WGC 并撤销窗口捕获排除，以便录屏器有机会看到 overlay，但不保证任意录屏器都能捕获。
+- 当前 portable 包在 Windows 10 19045 的实测结果为 `Support.WGC=fallback-fx-only`，原因是
+  `GraphicsCaptureSession::QueryInterface(IGraphicsCaptureSession3)` 返回 `0x80004002`
+  (`E_NOINTERFACE`)。这表示本机缺少无边框接口，不表示 D3D11 或 FX-only 渲染失败。需要
+  package identity/capability 的 MSIX 实验和 Windows 11/Server 矩阵验证后，才能放宽该策略。
 - 多显示器、跨显示器输入、多适配器和混合刷新率。
 - device removed/reset 后的原地恢复。
 - 开机启动、自动更新、安装程序和代码签名。
