@@ -80,11 +80,13 @@ OverlayWindow::OverlayWindow(
     const LONG height = bounds.bottom - bounds.top;
     size_ = WindowSize{checkedDimension(width), checkedDimension(height)};
 
-    // DirectComposition owns premultiplied alpha. WS_EX_LAYERED is redundant
-    // here and makes WDA_EXCLUDEFROMCAPTURE fail on supported Windows builds.
+    // Cross-process hit testing does not reliably honor HTTRANSPARENT alone.
+    // Keep the layered style so the full-screen overlay can never trap desktop input;
+    // capture exclusion remains optional and falls back to FX-only when unavailable.
     const DWORD extendedStyle = WS_EX_NOACTIVATE
         | WS_EX_TOOLWINDOW
         | WS_EX_TOPMOST
+        | WS_EX_LAYERED
         | WS_EX_TRANSPARENT
         | WS_EX_NOREDIRECTIONBITMAP;
     const std::wstring ownedTitle(title);
