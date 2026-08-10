@@ -231,6 +231,28 @@ struct WarpDevice
     return snapshot;
 }
 
+[[nodiscard]] bafx::fx::FrameSnapshot makeSeparatedDiskAndTriangleSnapshot(
+    const float triangleAlpha)
+{
+    bafx::fx::FrameSnapshot snapshot = makeDiskSnapshot(false);
+    snapshot.sprites.front().centerPixels.y =
+        static_cast<float>(testSize.height) * 0.6875F;
+    snapshot.sprites.push_back(bafx::fx::Sprite{
+        bafx::fx::SpriteKind::Triangle,
+        bafx::fx::PointF{
+            static_cast<float>(testSize.width) * 0.5F,
+            static_cast<float>(testSize.height) * 0.25F},
+        48.0F,
+        0.0F,
+        bafx::fx::ColorF{1.0F, 1.0F, 1.0F, triangleAlpha},
+        5.992157F,
+        0.0F,
+        0U,
+        4550,
+        false});
+    return snapshot;
+}
+
 [[nodiscard]] float maximumRgbOutsideSprite(
     const std::vector<ReadbackPixel>& pixels) noexcept
 {
@@ -367,6 +389,36 @@ void checkValidDesktopPremultiplied(
         foreground.green + background[1] * backgroundWeight,
         foreground.blue + background[2] * backgroundWeight,
         1.0F};
+}
+
+[[nodiscard]] float maximumCompositeRgbDeltaInBox(
+    const std::vector<ReadbackPixel>& left,
+    const std::vector<ReadbackPixel>& right,
+    const std::array<float, 4>& background,
+    const std::uint32_t boxLeft,
+    const std::uint32_t boxTop,
+    const std::uint32_t boxRight,
+    const std::uint32_t boxBottom) noexcept
+{
+    float maximum = 0.0F;
+    for (std::uint32_t y = boxTop; y < boxBottom; ++y)
+    {
+        for (std::uint32_t x = boxLeft; x < boxRight; ++x)
+        {
+            const std::size_t index = static_cast<std::size_t>(y)
+                * testSize.width
+                + x;
+            const ReadbackPixel leftComposite = compositeOver(left[index], background);
+            const ReadbackPixel rightComposite = compositeOver(right[index], background);
+            maximum = std::max(
+                maximum,
+                std::max({
+                    std::abs(leftComposite.red - rightComposite.red),
+                    std::abs(leftComposite.green - rightComposite.green),
+                    std::abs(leftComposite.blue - rightComposite.blue)}));
+        }
+    }
+    return maximum;
 }
 
 }
@@ -535,6 +587,84 @@ BAFX_TEST(warp_background_reconstructs_the_unity_source_over_target)
     BAFX_CHECK_NEAR(lightReconstructed.green, expectedLight.green, 4.0e-3F);
     BAFX_CHECK_NEAR(lightReconstructed.blue, expectedLight.blue, 4.0e-3F);
     BAFX_CHECK(std::abs(lightReconstructed.red - darkReconstructed.red) > 0.05F);
+}
+
+BAFX_TEST(warp_wgc_weight_never_transfers_triangle_flicker_to_the_disk)
+{
+    ComApartment apartment;
+    const WarpDevice graphics = createWarpDevice();
+    FxGpuRenderer renderer(graphics.device.Get(), graphics.context.Get(), testSize);
+    renderer.setBloomSettings(FxBloomSettings{0.0F, 7.0F});
+
+    const RenderTarget background = createRenderTarget(graphics.device.Get());
+    constexpr std::array<float, 4> backgroundColor{0.18F, 0.62F, 0.84F, 1.0F};
+    graphics.context->ClearRenderTargetView(
+        background.view.Get(),
+        backgroundColor.data());
+
+    const auto render = [&](const float triangleAlpha, const float bloomWeight)
+    {
+        const RenderTarget target = createRenderTarget(graphics.device.Get());
+        renderer.render(
+            makeSeparatedDiskAndTriangleSnapshot(triangleAlpha),
+            target.view.Get(),
+            BackgroundRenderInput{background.shaderResource.Get(), bloomWeight});
+        return readback(graphics.context.Get(), target.texture.Get());
+    };
+
+    const std::vector<ReadbackPixel> brightTriangleZeroWeight = render(0.9F, 0.0F);
+    const std::vector<ReadbackPixel> brightTriangleHalfWeight = render(0.9F, 0.5F);
+    const std::vector<ReadbackPixel> brightTriangleFullWeight = render(0.9F, 1.0F);
+    const std::vector<ReadbackPixel> dimTriangleHalfWeight = render(0.1F, 0.5F);
+
+    checkValidDesktopPremultiplied(brightTriangleZeroWeight, false);
+    checkValidDesktopPremultiplied(brightTriangleHalfWeight, false);
+    checkValidDesktopPremultiplied(brightTriangleFullWeight, false);
+    checkValidDesktopPremultiplied(dimTriangleHalfWeight, false);
+
+    constexpr std::uint32_t diskLeft = 96U;
+    constexpr std::uint32_t diskTop = 144U;
+    constexpr std::uint32_t diskRight = 160U;
+    constexpr std::uint32_t diskBottom = 208U;
+    constexpr std::uint32_t triangleLeft = 96U;
+    constexpr std::uint32_t triangleTop = 32U;
+    constexpr std::uint32_t triangleRight = 160U;
+    constexpr std::uint32_t triangleBottom = 96U;
+
+    // Unity Cross2 and Tri2 own independent particle Alpha. WGC cadence may
+    // fade Differential Bloom, but it must not make Cross2 inherit Tri2's pulse.
+    BAFX_CHECK(maximumCompositeRgbDeltaInBox(
+        brightTriangleZeroWeight,
+        brightTriangleHalfWeight,
+        backgroundColor,
+        diskLeft,
+        diskTop,
+        diskRight,
+        diskBottom) <= 1.0e-3F);
+    BAFX_CHECK(maximumCompositeRgbDeltaInBox(
+        brightTriangleHalfWeight,
+        brightTriangleFullWeight,
+        backgroundColor,
+        diskLeft,
+        diskTop,
+        diskRight,
+        diskBottom) <= 1.0e-3F);
+    BAFX_CHECK(maximumCompositeRgbDeltaInBox(
+        brightTriangleHalfWeight,
+        dimTriangleHalfWeight,
+        backgroundColor,
+        diskLeft,
+        diskTop,
+        diskRight,
+        diskBottom) <= 1.0e-3F);
+    BAFX_CHECK(maximumCompositeRgbDeltaInBox(
+        brightTriangleHalfWeight,
+        dimTriangleHalfWeight,
+        backgroundColor,
+        triangleLeft,
+        triangleTop,
+        triangleRight,
+        triangleBottom) > 0.05F);
 }
 
 BAFX_TEST(warp_pipeline_renders_every_retained_trail_stroke)
