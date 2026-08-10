@@ -152,6 +152,11 @@ void CompositionRenderer::resize(const WindowSize size)
         backgroundSensor_.reset();
     }
 
+    // A resized swap chain starts a new capture contract. Do not carry the
+    // previous visible batch's path into the new session while its first
+    // correctly sized WGC frame is still pending.
+    backgroundPathLatch_.reset();
+
     context_->OMSetRenderTargets(0, nullptr, nullptr);
     renderTarget_.Reset();
     backBuffer_.Reset();
@@ -218,6 +223,9 @@ void CompositionRenderer::renderFrame(
             {
                 backgroundSensor_.reset();
                 backgroundRefreshPeriod_ = bafx::core::MonotonicTime::zero();
+                // The capture session ended between visible frames. The next
+                // session must make an independent acquire decision.
+                backgroundPathLatch_.reset();
             }
             else
             {
@@ -264,6 +272,9 @@ void CompositionRenderer::renderFrame(
             backgroundSensor_.reset();
             backgroundRefreshPeriod_ = bafx::core::MonotonicTime::zero();
             backgroundCompositeStatus_ = BackgroundCompositeStatus::CaptureFailed;
+            // A failed session cannot continue the previous path safely: its
+            // resource and epoch are no longer part of the active contract.
+            backgroundPathLatch_.reset();
         }
     }
 
@@ -307,6 +318,9 @@ bool CompositionRenderer::tryEnableBackgroundCapture(
     const bool cursorExcluded) noexcept
 {
     setBackgroundCaptureFailure({});
+    // Re-enabling capture replaces the producer and therefore starts a new
+    // visible-batch decision, even when the monitor and options are unchanged.
+    backgroundPathLatch_.reset();
     if (backgroundSensor_ != nullptr)
     {
         backgroundSensor_->stop();
@@ -340,6 +354,9 @@ bool CompositionRenderer::tryEnableBackgroundCapture(
 
 void CompositionRenderer::disableBackgroundCapture() noexcept
 {
+    // Disabling capture invalidates any latched Background-aware path before
+    // the next FX-only frame is presented.
+    backgroundPathLatch_.reset();
     backgroundCaptureRequested_ = false;
     backgroundMonitor_ = nullptr;
     backgroundRefreshPeriod_ = bafx::core::MonotonicTime::zero();
@@ -426,6 +443,9 @@ bool CompositionRenderer::tryCreateBackgroundSensor() noexcept
     {
         backgroundSensor_.reset();
         backgroundRefreshPeriod_ = bafx::core::MonotonicTime::zero();
+        // Sensor construction can fail after allocating part of a session;
+        // clear the latch so a later retry cannot inherit that partial state.
+        backgroundPathLatch_.reset();
         try
         {
             throw;

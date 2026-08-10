@@ -146,6 +146,23 @@ BAFX_TEST(background_path_latch_never_upgrades_a_visible_fx_only_batch)
         == BackgroundRenderPath::FxOnly);
 }
 
+BAFX_TEST(background_path_latch_reset_starts_a_new_capture_session)
+{
+    BackgroundPathLatch latch;
+
+    // The old session was forced to FX-only after its background sample aged
+    // out. A new capture session must be allowed to acquire independently.
+    BAFX_CHECK(latch.select(true, false, false)
+        == BackgroundRenderPath::FxOnly);
+    BAFX_CHECK(latch.select(true, true, true)
+        == BackgroundRenderPath::FxOnly);
+
+    latch.reset();
+
+    BAFX_CHECK(latch.select(true, true, true)
+        == BackgroundRenderPath::BackgroundAware);
+}
+
 BAFX_TEST(background_path_latch_uses_strict_pause_results_without_reupgrade)
 {
     BackgroundPathLatch latch;
