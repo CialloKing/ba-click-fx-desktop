@@ -57,40 +57,16 @@ function Get-RelativePath
     return [Uri]::UnescapeDataString($baseUri.MakeRelativeUri($fileUri).ToString()).Replace('\', '/')
 }
 
-function Assert-ControlCenterSentinels
+function Assert-ControlCenterExecutable
 {
     param(
         [Parameter(Mandatory = $true)]
-        [string]$Directory
+        [string]$Executable
     )
 
-    $requiredFiles = @(
-        'BAFX.ControlCenter.exe',
-        'BAFX.ControlCenter.pri',
-        'Microsoft.WindowsAppRuntime.Bootstrap.dll',
-        'Microsoft.WindowsAppRuntime.dll',
-        'MRM.dll',
-        'Microsoft.UI.pri',
-        'Microsoft.UI.Xaml.Controls.pri',
-        'Microsoft.ui.xaml.dll'
-    )
-    foreach ($relativePath in $requiredFiles)
+    if (-not (Test-Path -LiteralPath $Executable -PathType Leaf))
     {
-        $candidate = Join-Path $Directory $relativePath
-        if (-not (Test-Path -LiteralPath $candidate -PathType Leaf))
-        {
-            throw "Control Center direct-deployment file is missing: $relativePath"
-        }
-    }
-
-    $assetsDirectory = Join-Path $Directory 'Microsoft.UI.Xaml\Assets'
-    if (-not (Test-Path -LiteralPath $assetsDirectory -PathType Container))
-    {
-        throw 'Control Center XAML asset directory is missing.'
-    }
-    if ($null -eq (Get-ChildItem -LiteralPath $assetsDirectory -File | Select-Object -First 1))
-    {
-        throw 'Control Center XAML asset directory is empty.'
+        throw "Control Center executable is missing: $Executable"
     }
 }
 
@@ -117,7 +93,7 @@ function Invoke-ControlCenterLaunchCheck
     $process = $null
     try
     {
-        # Startup detects missing direct-deployment files that static archive checks cannot observe.
+        # Startup catches manifest and common-control failures that static PE checks cannot observe.
         $process = Start-Process -FilePath $Executable -WorkingDirectory $WorkingDirectory `
             -WindowStyle Hidden -PassThru
         Start-Sleep -Milliseconds $StartupTimeoutMs
@@ -223,14 +199,7 @@ try
         'SUPPORT.md',
         'TEST-BUNDLE-MANIFEST.json',
         'ba-click-fx-desktop.exe',
-        'BAFX.ControlCenter.exe',
-        'BAFX.ControlCenter.pri',
-        'Microsoft.WindowsAppRuntime.Bootstrap.dll',
-        'Microsoft.WindowsAppRuntime.dll',
-        'MRM.dll',
-        'Microsoft.UI.pri',
-        'Microsoft.UI.Xaml.Controls.pri',
-        'Microsoft.ui.xaml.dll'
+        'BAFX.ControlCenter.exe'
     )
     foreach ($relativePath in $requiredFiles)
     {
@@ -238,12 +207,6 @@ try
         {
             throw "Test bundle is missing required file: $relativePath"
         }
-    }
-    if ($null -eq ($entries | Where-Object {
-        $_.FullName.StartsWith("${rootPrefix}Microsoft.UI.Xaml/Assets/", [StringComparison]::OrdinalIgnoreCase)
-    } | Select-Object -First 1))
-    {
-        throw 'Test bundle is missing the Control Center XAML asset tree.'
     }
 }
 finally
@@ -263,7 +226,7 @@ try
         throw "Extracted test bundle root is missing: $installRoot"
     }
 
-    Assert-ControlCenterSentinels -Directory $installRoot
+    Assert-ControlCenterExecutable -Executable (Join-Path $installRoot 'BAFX.ControlCenter.exe')
 
     $manifestPath = Join-Path $installRoot 'TEST-BUNDLE-MANIFEST.json'
     $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
@@ -340,7 +303,14 @@ try
     & $portableVerifier -Executable $hostExecutable -Linker $Linker
     if ($LASTEXITCODE -ne 0)
     {
-        throw "Portable PE verification failed with exit code $LASTEXITCODE"
+        throw "Host portable PE verification failed with exit code $LASTEXITCODE"
+    }
+
+    $controlCenterExecutable = Join-Path $installRoot 'BAFX.ControlCenter.exe'
+    & $portableVerifier -Executable $controlCenterExecutable -Linker $Linker
+    if ($LASTEXITCODE -ne 0)
+    {
+        throw "Control Center portable PE verification failed with exit code $LASTEXITCODE"
     }
 
     $hostProcess = Start-Process -FilePath $hostExecutable -ArgumentList '--smoke-test' `
@@ -353,7 +323,7 @@ try
     if (-not $SkipControlCenterLaunch)
     {
         Invoke-ControlCenterLaunchCheck `
-            -Executable (Join-Path $installRoot 'BAFX.ControlCenter.exe') `
+            -Executable $controlCenterExecutable `
             -WorkingDirectory $installRoot `
             -StartupTimeoutMs $ControlCenterStartupTimeoutMs
     }

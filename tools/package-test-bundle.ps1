@@ -2,8 +2,6 @@
 param(
     [string]$OutputDirectory = 'artifacts\local',
 
-    [string]$MSBuild,
-
     [switch]$SkipVerification
 )
 
@@ -59,57 +57,6 @@ function Invoke-Checked
     }
 }
 
-function Resolve-MSBuild
-{
-    param(
-        [string]$RequestedPath
-    )
-
-    if (-not [string]::IsNullOrWhiteSpace($RequestedPath))
-    {
-        $resolvedRequestedPath = [IO.Path]::GetFullPath($RequestedPath)
-        if (-not (Test-Path -LiteralPath $resolvedRequestedPath -PathType Leaf))
-        {
-            throw "MSBuild executable not found: $resolvedRequestedPath"
-        }
-        return $resolvedRequestedPath
-    }
-
-    $command = Get-Command MSBuild.exe -ErrorAction SilentlyContinue |
-        Select-Object -First 1
-    if ($null -ne $command)
-    {
-        return $command.Source
-    }
-
-    $vswhereCandidates = @(
-        'C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe',
-        'C:\Program Files\Microsoft Visual Studio\Installer\vswhere.exe'
-    )
-    foreach ($vswhere in $vswhereCandidates)
-    {
-        if (-not (Test-Path -LiteralPath $vswhere -PathType Leaf))
-        {
-            continue
-        }
-
-        $installationPath = (& $vswhere -latest -products '*' `
-            -requires Microsoft.Component.MSBuild -property installationPath).Trim()
-        if ([string]::IsNullOrWhiteSpace($installationPath))
-        {
-            continue
-        }
-
-        $candidate = Join-Path $installationPath 'MSBuild\Current\Bin\amd64\MSBuild.exe'
-        if (Test-Path -LiteralPath $candidate -PathType Leaf)
-        {
-            return $candidate
-        }
-    }
-
-    throw 'MSBuild.exe was not found. Pass -MSBuild with the x64 MSBuild path.'
-}
-
 function Get-BafxVersion
 {
     param(
@@ -158,40 +105,16 @@ function Get-CMakeLinker
     return $linker
 }
 
-function Assert-ControlCenterPayload
+function Assert-ControlCenterExecutable
 {
     param(
         [Parameter(Mandatory = $true)]
-        [string]$Directory
+        [string]$Executable
     )
 
-    $requiredFiles = @(
-        'BAFX.ControlCenter.exe',
-        'BAFX.ControlCenter.pri',
-        'Microsoft.WindowsAppRuntime.Bootstrap.dll',
-        'Microsoft.WindowsAppRuntime.dll',
-        'MRM.dll',
-        'Microsoft.UI.pri',
-        'Microsoft.UI.Xaml.Controls.pri',
-        'Microsoft.ui.xaml.dll'
-    )
-    foreach ($relativePath in $requiredFiles)
+    if (-not (Test-Path -LiteralPath $Executable -PathType Leaf))
     {
-        $candidate = Join-Path $Directory $relativePath
-        if (-not (Test-Path -LiteralPath $candidate -PathType Leaf))
-        {
-            throw "Control Center direct-deployment file is missing: $relativePath"
-        }
-    }
-
-    $assetsDirectory = Join-Path $Directory 'Microsoft.UI.Xaml\Assets'
-    if (-not (Test-Path -LiteralPath $assetsDirectory -PathType Container))
-    {
-        throw 'Control Center XAML asset directory is missing.'
-    }
-    if ($null -eq (Get-ChildItem -LiteralPath $assetsDirectory -File | Select-Object -First 1))
-    {
-        throw 'Control Center XAML asset directory is empty.'
+        throw "Control Center executable is missing: $Executable"
     }
 }
 
@@ -224,28 +147,13 @@ Invoke-Checked -Description 'CMake configure' -FilePath $cmake.Source `
 Invoke-Checked -Description 'Host Release build' -FilePath $cmake.Source `
     -Arguments @('--build', '--preset', 'alpha-release') -WorkingDirectory $repositoryRoot
 
-$msbuildPath = Resolve-MSBuild -RequestedPath $MSBuild
-$controlCenterProject = Join-Path $repositoryRoot 'src\control-center\BAFX.ControlCenter.vcxproj'
-Invoke-Checked -Description 'Control Center Release build' -FilePath $msbuildPath `
-    -Arguments @(
-        $controlCenterProject,
-        '/restore',
-        '/p:Configuration=Release',
-        '/p:Platform=x64',
-        '/m:1'
-    ) -WorkingDirectory $repositoryRoot
-
 $hostExecutable = Join-Path $repositoryRoot 'build\alpha-x64\src\desktop\Release\ba-click-fx-desktop.exe'
-$controlCenterOutput = Join-Path $repositoryRoot 'build\control-center\x64\Release'
+$controlCenterExecutable = Join-Path $repositoryRoot 'build\alpha-x64\src\control-center\Release\BAFX.ControlCenter.exe'
 if (-not (Test-Path -LiteralPath $hostExecutable -PathType Leaf))
 {
     throw "Host Release executable is missing: $hostExecutable"
 }
-if (-not (Test-Path -LiteralPath $controlCenterOutput -PathType Container))
-{
-    throw "Control Center Release output is missing: $controlCenterOutput"
-}
-Assert-ControlCenterPayload -Directory $controlCenterOutput
+Assert-ControlCenterExecutable -Executable $controlCenterExecutable
 
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 $temporaryParent = [IO.Path]::GetFullPath([IO.Path]::GetTempPath())
@@ -257,25 +165,14 @@ try
     New-Item -ItemType Directory -Path $stageRoot | Out-Null
 
     Copy-Item -LiteralPath $hostExecutable -Destination (Join-Path $stageRoot 'ba-click-fx-desktop.exe')
-    # Windows App SDK direct deployment resolves resources beside the EXE, so keep its tree intact.
-    Copy-Item -Path (Join-Path $controlCenterOutput '*') -Destination $stageRoot -Recurse -Force
-    $pdbFiles = @(Get-ChildItem -LiteralPath $stageRoot -Recurse -File -Filter '*.pdb')
-    foreach ($pdbFile in $pdbFiles)
-    {
-        Remove-Item -LiteralPath $pdbFile.FullName -Force
-    }
-    $startupLog = Join-Path $stageRoot 'BAFX.ControlCenter.startup-error.log'
-    if (Test-Path -LiteralPath $startupLog -PathType Leaf)
-    {
-        # This is a local diagnostic emitted by a prior launch, not a runtime dependency.
-        Remove-Item -LiteralPath $startupLog -Force
-    }
+    Copy-Item -LiteralPath $controlCenterExecutable `
+        -Destination (Join-Path $stageRoot 'BAFX.ControlCenter.exe')
 
     Copy-Item -LiteralPath (Join-Path $repositoryRoot 'LICENSE') `
         -Destination (Join-Path $stageRoot 'LICENSE.txt')
     Copy-Item -LiteralPath (Join-Path $repositoryRoot 'SUPPORT.md') -Destination $stageRoot
     Copy-Item -LiteralPath (Join-Path $repositoryRoot 'ASSET-MANIFEST.md') -Destination $stageRoot
-    Assert-ControlCenterPayload -Directory $stageRoot
+    Assert-ControlCenterExecutable -Executable (Join-Path $stageRoot 'BAFX.ControlCenter.exe')
 
     $manifestFiles = @(
         Get-ChildItem -LiteralPath $stageRoot -Recurse -File |
