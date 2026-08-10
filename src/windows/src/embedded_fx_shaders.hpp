@@ -353,17 +353,19 @@ float4 ResolveFxOnlyDesktopTransport(
 }
 
 static const float BackgroundTransportNoiseFloor = 1.0 / 1024.0;
+static const float BackgroundTransportNoiseBlendEnd =
+    BackgroundTransportNoiseFloor * 2.0;
+static const float BackgroundTransportLightHeadroomStart =
+    BackgroundTransportNoiseFloor * 16.0;
+static const float BackgroundTransportLightHeadroomEnd =
+    BackgroundTransportNoiseFloor * 32.0;
 
 float SolveOverlayAlpha(float background, float target)
 {
     const float delta = target - background;
-    if (abs(delta) <= BackgroundTransportNoiseFloor)
-    {
-        // WGC and DWM do not sample the desktop atomically. Reconstructing a
-        // sub-10-bit change near white would amplify one FP16 capture step into
-        // an opaque payload, exposing capture cadence instead of visible FX.
-        return 0.0;
-    }
+    // Keep the inverse continuous. The caller applies the capture-noise
+    // budget as a soft blend, so a filtered edge never toggles from zero to a
+    // full transport layer when WGC reports adjacent FP16 samples.
     if (delta > 0.0)
     {
         return delta / max(
@@ -384,11 +386,12 @@ float4 ResolveBackgroundAwareDesktopTransport(
     float3 capturedBackground,
     float exposureGain)
 {
-    const float3 background = saturate(capturedBackground);
-    const float3 target = saturate(
+    const float3 background = max(capturedBackground, 0.0);
+    const float3 target = max(
         max(direct.rgb, 0.0)
         + background * (1.0 - saturate(occlusion))
-        + max(bloom.rgb, 0.0) * exposureGain);
+        + max(bloom.rgb, 0.0) * exposureGain,
+        0.0);
 
     // Keep Alpha tied to authored Coverage and Bloom transport, matching the
     // WebGL2/WebGPU transparent-overlay contract. Inverting target-background
@@ -403,22 +406,15 @@ float4 ResolveBackgroundAwareDesktopTransport(
     const float requestedCoverage = saturate(
         crossCoverage + additiveCoverage + bloomTransport);
     // Additive trail emission is intentionally independent from Coverage.
-    // Include its peak transport energy so a faded tail remains valid
-    // premultiplied RGB without allowing the captured desktop to choose Alpha.
-    const float directEnergy = max(
-        direct.rgb.r,
-        max(direct.rgb.g, direct.rgb.b));
-    const float transportCapacity = saturate(max(
-        requestedCoverage,
-        directEnergy));
+    // It is fitted into the authored transport envelope in RGB below; letting
+    // its peak energy raise Alpha makes a fading tail pulse on light surfaces.
+    const float transportCapacity = saturate(requestedCoverage);
     const float overlayAlphaLimit = 250.0 / 255.0;
 
     const float3 difference = abs(target - background);
-    if (max(difference.r, max(difference.g, difference.b))
-        <= BackgroundTransportNoiseFloor)
-    {
-        return float4(0.0, 0.0, 0.0, 0.0);
-    }
+    const float maximumDifference = max(
+        difference.r,
+        max(difference.g, difference.b));
     const float3 channelAlpha = float3(
         SolveOverlayAlpha(background.r, target.r),
         SolveOverlayAlpha(background.g, target.g),
@@ -430,27 +426,50 @@ float4 ResolveBackgroundAwareDesktopTransport(
     // authored layer. Capping it by transportCapacity preserves the visible
     // effect while preventing a transparent edge or trail tail from becoming
     // opaque when WGC quantization moves by one FP16 step.
-    const float boundedAlpha = min(
-        min(reconstructedAlpha, transportCapacity),
-        overlayAlphaLimit);
-    // Once the captured light headroom is only a few FP16 steps, the inverse
-    // problem is numerically ill-conditioned. Use authored capacity for that
-    // surface so both a click edge and a fading trail keep one stable Alpha.
-    const float lightSurfaceThreshold = 1.0
-        - BackgroundTransportNoiseFloor * 16.0;
-    const float alpha = max(background.r, max(background.g, background.b))
-        >= lightSurfaceThreshold
-        ? min(transportCapacity, overlayAlphaLimit)
-        : boundedAlpha;
+    const float authoredAlpha = min(transportCapacity, overlayAlphaLimit);
+    const float boundedAlpha = min(reconstructedAlpha, authoredAlpha);
+    // Both transitions are deliberately continuous. The first keeps capture
+    // quantization from modulating Alpha; the second avoids a hard switch when
+    // the available headroom crosses the near-white stability window.
+    const float captureNoiseBlend = smoothstep(
+        BackgroundTransportNoiseFloor,
+        BackgroundTransportNoiseBlendEnd,
+        maximumDifference);
+    const float lightHeadroom = max(
+        1.0 - max(background.r, max(background.g, background.b)),
+        0.0);
+    const float inverseHeadroomBlend = smoothstep(
+        BackgroundTransportLightHeadroomStart,
+        BackgroundTransportLightHeadroomEnd,
+        lightHeadroom);
+    const float stableInverseAlpha = lerp(
+        authoredAlpha,
+        boundedAlpha,
+        inverseHeadroomBlend);
+    const float alpha = lerp(
+        authoredAlpha,
+        stableInverseAlpha,
+        captureNoiseBlend);
     if (alpha <= 0.000001)
     {
         return float4(0.0, 0.0, 0.0, 0.0);
     }
-    const float3 premultiplied = target - background * (1.0 - alpha);
+    const float3 rawPremultiplied = target - background * (1.0 - alpha);
+    const float3 nonNegativePremultiplied = max(rawPremultiplied, 0.0);
+    const float payloadMaximum = max(
+        nonNegativePremultiplied.r,
+        max(nonNegativePremultiplied.g, nonNegativePremultiplied.b));
+    // Trail emission is stored independently of Coverage. Scale only its
+    // exported RGB when necessary so the DComp premultiplied contract remains
+    // valid without feeding emission energy back into Alpha.
+    const float payloadScale = min(
+        1.0,
+        alpha / max(payloadMaximum, 0.000001));
+    const float3 premultiplied = nonNegativePremultiplied * payloadScale;
 
     // The captured background is baked into the payload only as required to
     // reproduce Unity's target. DWM still receives a valid premultiplied layer.
-    return float4(clamp(premultiplied, 0.0, alpha), alpha);
+    return float4(min(premultiplied, alpha), alpha);
 }
 
 float4 DesktopCompositePixel(FullscreenOutput input) : SV_Target0
