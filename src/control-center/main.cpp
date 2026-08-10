@@ -453,6 +453,20 @@ private:
                 }
             });
         root.Children().Append(backgroundMode_);
+
+        cursorExcluded_ = controls::ToggleSwitch();
+        cursorExcluded_.Header(winrt::box_value(L"排除鼠标指针"));
+        cursorExcluded_.Toggled(
+            [this](const auto&, const auto&)
+            {
+                if (!updatingControls_)
+                {
+                    applyPatch(
+                        "background.cursorExcluded",
+                        cursorExcluded_.IsOn() ? "true" : "false");
+                }
+            });
+        root.Children().Append(cursorExcluded_);
     }
 
     void appendCommandSection(const controls::StackPanel& root)
@@ -600,6 +614,7 @@ private:
                 bloomQualityIndex(effects.GetNamedString(L"bloomQuality")));
             backgroundMode_.SelectedIndex(
                 captureModeIndex(background.GetNamedString(L"mode")));
+            cursorExcluded_.IsOn(background.GetNamedBoolean(L"cursorExcluded"));
             updatingControls_ = false;
 
             pauseButton_.Content(winrt::box_value(paused_ ? L"恢复特效" : L"暂停特效"));
@@ -782,6 +797,7 @@ private:
     controls::Slider bloomIntensity_{nullptr};
     controls::ComboBox bloomQuality_{nullptr};
     controls::ComboBox backgroundMode_{nullptr};
+    controls::ToggleSwitch cursorExcluded_{nullptr};
     xaml::DispatcherTimer patchCommitTimer_{nullptr};
     xaml::DispatcherTimer hostRetryTimer_{nullptr};
     std::optional<PendingPatch> pendingPatch_{};
