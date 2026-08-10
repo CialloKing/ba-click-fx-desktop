@@ -11,6 +11,14 @@ BAFX_TEST(support_report_contains_alpha_scope_and_graphics_facts)
     bafx::windows::SupportReport report("0.1.0-alpha.2");
     report.setPrimaryMonitor(RECT{0, 0, 1920, 1080});
     report.setPrimaryDpi(144U);
+    report.setPrimaryDisplayColorCapabilities(
+        bafx::windows::DisplayColorCapabilities{
+            DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020,
+            10U,
+            0.005F,
+            1000.0F,
+            600.0F,
+            true});
 
     bafx::windows::GraphicsDeviceInfo device{};
     device.driverType = bafx::windows::GraphicsDriverType::Warp;
@@ -37,6 +45,14 @@ BAFX_TEST(support_report_contains_alpha_scope_and_graphics_facts)
         != std::string::npos);
     BAFX_CHECK(text.find("Graphics.FeatureLevel=11_0") != std::string::npos);
     BAFX_CHECK(text.find("Display.PrimaryDpi=144") != std::string::npos);
+    BAFX_CHECK(text.find(
+        "Display.ColorMode=rgb-full-pq-p2020;capability-only;luminance-valid;alpha-scope-sdr-only")
+        != std::string::npos);
+    BAFX_CHECK(text.find("Display.DxgiColorSpaceValue=0x0000000C")
+        != std::string::npos);
+    BAFX_CHECK(text.find("Display.BitsPerColor=10") != std::string::npos);
+    BAFX_CHECK(text.find("Display.MaxLuminanceNits=1000.000")
+        != std::string::npos);
     BAFX_CHECK(text.find("Exit.PrimaryHotKey=registered") != std::string::npos);
     BAFX_CHECK(text.find("Exit.FallbackHotKey=polling-fallback")
         != std::string::npos);
@@ -49,6 +65,11 @@ BAFX_TEST(support_report_marks_primary_dpi_unknown_until_probed)
     bafx::windows::SupportReport report("test");
     const std::string text = report.serialize();
     BAFX_CHECK(text.find("Display.PrimaryDpi=unknown") != std::string::npos);
+    BAFX_CHECK(text.find("Display.ColorMode=not-probed;alpha-scope-sdr-only")
+        != std::string::npos);
+    BAFX_CHECK(text.find("Display.DxgiColorSpaceValue=unknown")
+        != std::string::npos);
+    BAFX_CHECK(text.find("Display.BitsPerColor=unknown") != std::string::npos);
 
     report.setPrimaryDpi(0U);
     BAFX_CHECK(

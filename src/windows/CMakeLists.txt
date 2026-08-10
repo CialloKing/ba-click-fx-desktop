@@ -2,6 +2,7 @@ add_library(
     bafx_windows
     STATIC
         src/composition_renderer.cpp
+        src/display_capabilities.cpp
         src/embedded_unity_textures.cpp
         src/fx_gpu_renderer.cpp
         src/gpu_texture_readback.cpp

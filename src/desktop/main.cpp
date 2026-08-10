@@ -2,6 +2,7 @@
 #include "bafx/config/config.hpp"
 #include "bafx/fx/simulation_runtime.hpp"
 #include "bafx/windows/composition_renderer.hpp"
+#include "bafx/windows/display_capabilities.hpp"
 #include "bafx/windows/error.hpp"
 #include "bafx/windows/overlay_window.hpp"
 #include "bafx/windows/runtime_diagnostics.hpp"
@@ -409,6 +410,12 @@ int runApplication(
         primaryMonitor.bounds,
         L"ba-click-fx-desktop");
     report.setPrimaryDpi(window.effectiveDpi());
+    if (const auto displayColor =
+            bafx::windows::queryDisplayColorCapabilities(primaryMonitor.handle);
+        displayColor.has_value())
+    {
+        report.setPrimaryDisplayColorCapabilities(*displayColor);
+    }
     bafx::windows::CompositionRenderer renderer(
         window.handle(),
         window.size(),

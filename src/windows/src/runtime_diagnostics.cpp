@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <fstream>
 #include <iomanip>
+#include <locale>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -153,6 +154,26 @@ namespace
     return type == GraphicsDriverType::Warp ? "WARP" : "Hardware";
 }
 
+[[nodiscard]] std::string_view colorSpaceName(
+    const DXGI_COLOR_SPACE_TYPE colorSpace) noexcept
+{
+    switch (colorSpace)
+    {
+    case DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709:
+        return "rgb-full-g22-p709";
+    case DXGI_COLOR_SPACE_RGB_FULL_G10_NONE_P709:
+        return "rgb-full-g10-p709";
+    case DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020:
+        return "rgb-full-pq-p2020";
+    case DXGI_COLOR_SPACE_RGB_STUDIO_G2084_NONE_P2020:
+        return "rgb-studio-pq-p2020";
+    case DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P2020:
+        return "rgb-full-g22-p2020";
+    default:
+        return "other";
+    }
+}
+
 [[nodiscard]] std::string hex32(const std::uint32_t value)
 {
     std::ostringstream stream;
@@ -217,6 +238,12 @@ void SupportReport::setPrimaryDpi(const std::uint32_t dpi) noexcept
         : std::optional<std::uint32_t>(dpi);
 }
 
+void SupportReport::setPrimaryDisplayColorCapabilities(
+    const DisplayColorCapabilities& capabilities) noexcept
+{
+    primaryDisplayColorCapabilities_ = capabilities;
+}
+
 void SupportReport::setDeviceInfo(const GraphicsDeviceInfo& info)
 {
     deviceInfo_ = info;
@@ -259,6 +286,7 @@ void SupportReport::setFailure(const std::string_view failure)
 std::string SupportReport::serialize() const
 {
     std::ostringstream stream;
+    stream.imbue(std::locale::classic());
     const auto backgroundStatus = [this]() -> std::string_view
     {
         switch (backgroundCaptureStatus_)
@@ -307,8 +335,34 @@ std::string SupportReport::serialize() const
         stream << "unknown";
     }
     stream << '\n'
-           << "Display.ColorMode=not-probed;alpha-scope-sdr-only\n"
-           << "Log.Path=" << (logPath_.empty() ? "unknown" : logPath_) << '\n';
+           << "Display.ColorMode=";
+    if (primaryDisplayColorCapabilities_.has_value())
+    {
+        const DisplayColorCapabilities& color =
+            *primaryDisplayColorCapabilities_;
+        stream << colorSpaceName(color.colorSpace)
+               << ";capability-only;luminance-"
+               << (color.luminanceMetadataValid ? "valid" : "unknown")
+               << ";alpha-scope-sdr-only\n"
+               << "Display.DxgiColorSpaceValue="
+               << hex32(static_cast<std::uint32_t>(color.colorSpace)) << '\n'
+               << "Display.BitsPerColor=" << color.bitsPerColor << '\n'
+               << std::fixed << std::setprecision(3)
+               << "Display.MinLuminanceNits=" << color.minimumLuminanceNits << '\n'
+               << "Display.MaxLuminanceNits=" << color.maximumLuminanceNits << '\n'
+               << "Display.MaxFullFrameLuminanceNits="
+               << color.maximumFullFrameLuminanceNits << '\n';
+    }
+    else
+    {
+        stream << "not-probed;alpha-scope-sdr-only\n"
+               << "Display.DxgiColorSpaceValue=unknown\n"
+               << "Display.BitsPerColor=unknown\n"
+               << "Display.MinLuminanceNits=unknown\n"
+               << "Display.MaxLuminanceNits=unknown\n"
+               << "Display.MaxFullFrameLuminanceNits=unknown\n";
+    }
+    stream << "Log.Path=" << (logPath_.empty() ? "unknown" : logPath_) << '\n';
 
     if (hasDeviceInfo_)
     {
