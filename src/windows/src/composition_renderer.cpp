@@ -227,6 +227,13 @@ void CompositionRenderer::renderFrame(
                 // session must make an independent acquire decision.
                 backgroundPathLatch_.reset();
             }
+            else if (drainStatus == WgcBackgroundDrainStatus::Reconfigured)
+            {
+                // A frame-pool resize advances the sensor epoch and drops its
+                // sample. Treat it as a new session so the first replacement
+                // frame cannot inherit the old visible batch's path.
+                backgroundPathLatch_.reset();
+            }
             else
             {
                 const std::optional<WgcBackgroundSample> sample =
