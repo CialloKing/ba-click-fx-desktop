@@ -408,6 +408,7 @@ int runApplication(
         instance,
         primaryMonitor.bounds,
         L"ba-click-fx-desktop");
+    report.setPrimaryDpi(window.effectiveDpi());
     bafx::windows::CompositionRenderer renderer(
         window.handle(),
         window.size(),
