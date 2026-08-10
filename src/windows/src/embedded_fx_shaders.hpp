@@ -256,19 +256,50 @@ float4 CompositePixel(FullscreenOutput input) : SV_Target0
         max(direct.a, bloomCoverage));
 }
 
+float4 ResolveFxOnlyDesktopTransport(
+    float4 direct,
+    float4 bloom,
+    float exposureGain)
+{
+    const float sceneCoverage = saturate(direct.a);
+    const float bloomTransport = max(bloom.a, 0.0) * exposureGain;
+    const float requestedCapacity = sceneCoverage + bloomTransport;
+    const float transportCapacity = saturate(requestedCapacity);
+    const float overlayAlphaLimit = 250.0 / 255.0;
+    const float alpha = min(transportCapacity, overlayAlphaLimit);
+
+    if (alpha <= 0.000001)
+    {
+        return float4(0.0, 0.0, 0.0, 0.0);
+    }
+
+    const float3 directRgb = max(direct.rgb, 0.0);
+    const float directMaximum = max(
+        directRgb.r,
+        max(directRgb.g, directRgb.b));
+    const float directScale = min(
+        1.0,
+        sceneCoverage / max(directMaximum, 0.000001));
+    const float3 linearRgb = directRgb * directScale
+        + max(bloom.rgb, 0.0) * exposureGain;
+    const float capacityScale = min(
+        1.0,
+        alpha / max(transportCapacity, 0.000001));
+
+    // The DComp swap chain declares premultiplied Alpha. Converging RGB here
+    // preserves authored Coverage while preventing an opaque or dark payload
+    // from being exported when the desktop background is not sampled.
+    return float4(
+        min(linearRgb * capacityScale, alpha),
+        alpha);
+}
+
 float4 DesktopCompositePixel(FullscreenOutput input) : SV_Target0
 {
     const float4 direct = Source0.Sample(LinearClampSampler, input.uv);
     const float2 offset = SourceTexelSize * (SampleScale * 0.5);
     const float4 bloom = FourTap(Source1, input.uv, offset);
-    const float bloomCoverage = max(bloom.a, 0.0) * ExposureGain;
-    const float3 linearRgb = max(
-        direct.rgb + bloom.rgb * ExposureGain,
-        0.0);
-
-    // Direct Coverage and Bloom transport are independent from visible color.
-    // Lowering Alpha from RGB recreates dark tails and globally flattens the glow.
-    return float4(linearRgb, saturate(direct.a + bloomCoverage));
+    return ResolveFxOnlyDesktopTransport(direct, bloom, ExposureGain);
 }
 )hlsl";
 

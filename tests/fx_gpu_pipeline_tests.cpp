@@ -316,6 +316,20 @@ void checkFiniteAndNonNegative(const std::vector<ReadbackPixel>& pixels)
     }
 }
 
+void checkValidDesktopPremultiplied(const std::vector<ReadbackPixel>& pixels)
+{
+    constexpr float overlayAlphaLimit = 250.0F / 255.0F;
+    constexpr float transportTolerance = 2.0e-3F;
+    checkFiniteAndNonNegative(pixels);
+    for (const ReadbackPixel& pixel : pixels)
+    {
+        BAFX_CHECK(pixel.alpha <= overlayAlphaLimit + transportTolerance);
+        BAFX_CHECK(pixel.red <= pixel.alpha + transportTolerance);
+        BAFX_CHECK(pixel.green <= pixel.alpha + transportTolerance);
+        BAFX_CHECK(pixel.blue <= pixel.alpha + transportTolerance);
+    }
+}
+
 [[nodiscard]] float maximumRgbaDelta(
     const std::vector<ReadbackPixel>& left,
     const std::vector<ReadbackPixel>& right) noexcept
@@ -376,12 +390,12 @@ BAFX_TEST(warp_pipeline_separates_direct_emission_and_multilevel_bloom_seed)
         graphics.context.Get(),
         withBloom.texture.Get());
 
-    checkFiniteAndNonNegative(directPixels);
-    checkFiniteAndNonNegative(bloomPixels);
+    checkValidDesktopPremultiplied(directPixels);
+    checkValidDesktopPremultiplied(bloomPixels);
     const std::size_t center = static_cast<std::size_t>(testSize.height / 2U)
         * testSize.width
         + testSize.width / 2U;
-    BAFX_CHECK(directPixels[center].blue > 1.0F);
+    BAFX_CHECK(directPixels[center].blue > 0.5F);
     BAFX_CHECK(directPixels[center].alpha > 0.5F);
     BAFX_CHECK_NEAR(
         bloomPixels[center].alpha,
@@ -391,7 +405,7 @@ BAFX_TEST(warp_pipeline_separates_direct_emission_and_multilevel_bloom_seed)
     BAFX_CHECK(maximumRgbOutsideSprite(bloomPixels) > 1.0e-3F);
 }
 
-BAFX_TEST(warp_background_bloom_fades_to_fx_only_without_clamping_extended_rgb)
+BAFX_TEST(warp_background_bloom_fades_with_valid_desktop_transport)
 {
     ComApartment apartment;
     const WarpDevice graphics = createWarpDevice();
@@ -423,6 +437,11 @@ BAFX_TEST(warp_background_bloom_fades_to_fx_only_without_clamping_extended_rgb)
     const std::vector<ReadbackPixel> halfWeight = renderWithWeight(0.5F);
     const std::vector<ReadbackPixel> fullWeight = renderWithWeight(1.0F);
 
+    checkValidDesktopPremultiplied(fxOnly);
+    checkValidDesktopPremultiplied(zeroWeight);
+    checkValidDesktopPremultiplied(halfWeight);
+    checkValidDesktopPremultiplied(fullWeight);
+
     BAFX_CHECK(maximumRgbaDelta(fxOnly, zeroWeight) <= 1.0e-3F);
     BAFX_CHECK(maximumRgbaDelta(fxOnly, fullWeight) > 1.0e-3F);
     BAFX_CHECK(maximumRgbMidpointError(fxOnly, halfWeight, fullWeight) <= 2.0e-2F);
@@ -430,10 +449,8 @@ BAFX_TEST(warp_background_bloom_fades_to_fx_only_without_clamping_extended_rgb)
     const std::size_t center = static_cast<std::size_t>(testSize.height / 2U)
         * testSize.width
         + testSize.width / 2U;
-    BAFX_CHECK(zeroWeight[center].blue > 1.0F);
-    BAFX_CHECK(zeroWeight[center].blue > zeroWeight[center].alpha);
-    BAFX_CHECK(fullWeight[center].blue > 1.0F);
-    BAFX_CHECK(fullWeight[center].blue > fullWeight[center].alpha);
+    BAFX_CHECK(zeroWeight[center].blue > 0.5F);
+    BAFX_CHECK(fullWeight[center].blue > 0.5F);
 }
 
 BAFX_TEST(warp_pipeline_renders_every_retained_trail_stroke)
@@ -472,11 +489,14 @@ BAFX_TEST(warp_trail_keeps_emission_and_desktop_coverage_independent)
     const std::vector<ReadbackPixel> final = readback(
         graphics.context.Get(),
         target.texture.Get());
+    checkValidDesktopPremultiplied(final);
 
     // The old endpoint remains visible in geometry, but its transport envelope is zero.
     BAFX_CHECK(maximumAlphaInBox(direct, 16U, 56U, 44U, 72U) < 1.0e-3F);
     BAFX_CHECK(maximumAlphaInBox(direct, 136U, 184U, 164U, 200U) < 1.0e-3F);
     BAFX_CHECK(maximumRgbInBox(direct, 88U, 56U, 120U, 72U) > 1.0e-3F);
+    BAFX_CHECK(maximumRgbInBox(final, 16U, 56U, 44U, 72U) < 1.0e-3F);
+    BAFX_CHECK(maximumRgbInBox(final, 136U, 184U, 164U, 200U) < 1.0e-3F);
 
     bool foundCoverageAboveVisibleEnergy = false;
     for (std::size_t index = 0U; index < direct.size(); ++index)
