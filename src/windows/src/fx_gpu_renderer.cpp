@@ -6,8 +6,7 @@
 #include "bafx/windows/error.hpp"
 #include "bafx/windows/gpu_texture_readback.hpp"
 #include "embedded_fx_shaders.hpp"
-#include "embedded_unity_textures.hpp"
-#include "wic_texture_loader.hpp"
+#include "packed_fx_texture_loader.hpp"
 
 #include <d3dcompiler.h>
 
@@ -688,18 +687,18 @@ struct FxGpuRenderer::Implementation
 
     void createTextures()
     {
-        circleTexture = loadSrgbTexture(
+        circleTexture = loadPackedFxTexture(
             device.Get(),
-            embeddedUnityTexture(EmbeddedUnityTextureId::Circle01).pngBytes);
-        ringTexture = loadSrgbTexture(
+            PackedFxTextureId::CenterDisk);
+        ringTexture = loadPackedFxTexture(
             device.Get(),
-            embeddedUnityTexture(EmbeddedUnityTextureId::GradRing3).pngBytes);
-        triangleTexture = loadSrgbTexture(
+            PackedFxTextureId::DissolveRing);
+        triangleTexture = loadPackedFxTexture(
             device.Get(),
-            embeddedUnityTexture(EmbeddedUnityTextureId::Triangle02_1).pngBytes);
-        trailTexture = loadSrgbTexture(
+            PackedFxTextureId::TriangleAtlas);
+        trailTexture = loadPackedFxTexture(
             device.Get(),
-            embeddedUnityTexture(EmbeddedUnityTextureId::Trail03Coverage).pngBytes);
+            PackedFxTextureId::Trail);
     }
 
     void updateBloomPlan()

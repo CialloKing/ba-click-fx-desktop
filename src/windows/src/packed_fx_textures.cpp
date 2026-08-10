@@ -47,7 +47,7 @@ struct PackedTextureRecord
             bytesOf(centerDiskLz4Data, centerDiskLz4ByteCount)},
         PackedTextureRecord{
             "dissolve-ring",
-            PackedFxTextureLayout::R8Unorm,
+            PackedFxTextureLayout::Rgba8Srgb,
             256U,
             128U,
             dissolveRingDecodedByteCount,

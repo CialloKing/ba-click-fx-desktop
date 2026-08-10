@@ -107,11 +107,11 @@ BAFX_TEST(packed_fx_textures_decode_to_locked_pixels)
         ExpectedTexture{
             PackedFxTextureId::DissolveRing,
             "dissolve-ring",
-            PackedFxTextureLayout::R8Unorm,
+            PackedFxTextureLayout::Rgba8Srgb,
             256U,
             128U,
-            256U,
-            "43C8D7B1AE2C4B629ABA382BCCD606593AC5D608B3EE437743FD3948BD23FC14"},
+            1024U,
+            "9EED3861862413CA47757182CF5C36A9BE553E53227BED7FA4BC12DD0D480B01"},
         ExpectedTexture{
             PackedFxTextureId::TriangleAtlas,
             "triangle-atlas",

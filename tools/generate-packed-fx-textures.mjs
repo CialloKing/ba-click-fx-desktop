@@ -24,7 +24,7 @@ const SOURCE_TEXTURES = Object.freeze([
     sha256: '517236c7c818a3715f8ba03ec316853bec92ffd6e032b8e5d21daedffc809684',
     width: 256,
     height: 128,
-    layout: 'r8-unorm',
+    layout: 'rgba8-srgb',
   }),
   Object.freeze({
     id: 'triangleAtlas',
@@ -333,28 +333,6 @@ function encodeLz4Block(source)
   return Buffer.from(output);
 }
 
-function extractRingAlpha(rgba)
-{
-  const alpha = Buffer.alloc(rgba.length / 4);
-
-  for (let pixel = 0; pixel < alpha.length; pixel++)
-  {
-    const offset = pixel * 4;
-
-    if (
-      rgba[offset] !== 255 ||
-      rgba[offset + 1] !== 255 ||
-      rgba[offset + 2] !== 255
-    )
-    {
-      throw new Error('Dissolve Ring RGB must remain opaque white');
-    }
-    alpha[pixel] = rgba[offset + 3];
-  }
-
-  return alpha;
-}
-
 function addTrailCoverage(rgba, width, height)
 {
   const output = Buffer.from(rgba);
@@ -468,11 +446,7 @@ for (const texture of SOURCE_TEXTURES)
   const rgba = decodePngRgba(source, texture.width, texture.height);
   let decoded = rgba;
 
-  if (texture.id === 'dissolveRing')
-  {
-    decoded = extractRingAlpha(rgba);
-  }
-  else if (texture.id === 'trail')
+  if (texture.id === 'trail')
   {
     decoded = addTrailCoverage(rgba, texture.width, texture.height);
   }
