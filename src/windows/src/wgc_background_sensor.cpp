@@ -244,13 +244,17 @@ struct WgcBackgroundSensor::Implementation
             itemClosedRegistered = true;
 
             session = framePool.CreateCaptureSession(item);
-            const auto borderSession = session.try_as<
-                winrt::Windows::Graphics::Capture::IGraphicsCaptureSession3>();
+            winrt::hresult borderQueryResult{};
+            const auto borderSession = session.try_as_with_reason<
+                winrt::Windows::Graphics::Capture::IGraphicsCaptureSession3>(
+                    borderQueryResult);
             if (!borderSession)
             {
                 throw HResultError(
-                    E_NOINTERFACE,
-                    "GraphicsCaptureSession border exclusion");
+                    SUCCEEDED(borderQueryResult)
+                        ? E_NOINTERFACE
+                        : static_cast<HRESULT>(borderQueryResult),
+                    "GraphicsCaptureSession::QueryInterface(IGraphicsCaptureSession3)");
             }
             // A system capture border would be captured as desktop content and
             // feed a visible feedback edge into the differential Bloom input.
@@ -265,13 +269,17 @@ struct WgcBackgroundSensor::Implementation
                     "IGraphicsCaptureSession3::IsBorderRequired(false)");
             }
 
-            const auto cursorSession = session.try_as<
-                winrt::Windows::Graphics::Capture::IGraphicsCaptureSession2>();
+            winrt::hresult cursorQueryResult{};
+            const auto cursorSession = session.try_as_with_reason<
+                winrt::Windows::Graphics::Capture::IGraphicsCaptureSession2>(
+                    cursorQueryResult);
             if (!cursorSession)
             {
                 throw HResultError(
-                    E_NOINTERFACE,
-                    "GraphicsCaptureSession cursor exclusion");
+                    SUCCEEDED(cursorQueryResult)
+                        ? E_NOINTERFACE
+                        : static_cast<HRESULT>(cursorQueryResult),
+                    "GraphicsCaptureSession::QueryInterface(IGraphicsCaptureSession2)");
             }
             // A captured cursor would be mistaken for the desktop beneath the FX.
             try
@@ -284,7 +292,14 @@ struct WgcBackgroundSensor::Implementation
                     error.code(),
                     "IGraphicsCaptureSession2::IsCursorCaptureEnabled(false)");
             }
-            session.StartCapture();
+            try
+            {
+                session.StartCapture();
+            }
+            catch (const winrt::hresult_error& error)
+            {
+                throw HResultError(error.code(), "GraphicsCaptureSession::StartCapture");
+            }
             isRunning = true;
         }
         catch (...)

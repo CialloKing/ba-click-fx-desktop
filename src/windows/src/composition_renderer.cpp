@@ -253,6 +253,7 @@ void CompositionRenderer::disableBackgroundCapture() noexcept
     backgroundCaptureRequested_ = false;
     backgroundMonitor_ = nullptr;
     backgroundRefreshPeriod_ = bafx::core::MonotonicTime::zero();
+    backgroundCaptureFailure_.clear();
     if (backgroundSensor_ != nullptr)
     {
         backgroundSensor_->stop();
@@ -294,6 +295,7 @@ bool CompositionRenderer::tryCreateBackgroundSensor() noexcept
 
     try
     {
+        backgroundCaptureFailure_.clear();
         backgroundSensor_ = std::make_unique<WgcBackgroundSensor>(
             device_.Get(),
             backgroundMonitor_,
