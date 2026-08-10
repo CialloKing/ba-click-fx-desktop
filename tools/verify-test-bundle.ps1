@@ -113,9 +113,15 @@ function Invoke-ControlCenterLaunchCheck
                 $null = $process.CloseMainWindow()
                 if (-not $process.WaitForExit(2000))
                 {
+                    # Hidden validation launches do not expose a reliable
+                    # main-window handle. Force termination only as a fallback,
+                    # then wait for the image section to be unmapped before the
+                    # temporary extraction is removed.
                     Stop-Process -Id $process.Id -Force
+                    $null = $process.WaitForExit(5000)
                 }
             }
+            $process.Dispose()
         }
     }
 }
