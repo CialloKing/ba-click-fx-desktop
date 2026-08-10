@@ -94,6 +94,18 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File .\tools\package-test-bundle.ps1
 `BAFX.ControlCenter.exe`。Control Center 是依赖同目录 Windows App SDK 文件的直接部署应用，不能
 单独复制其 EXE 运行。
 
+### 轻量视觉审核包
+
+如果只需要审核点击和拖尾画面，不需要 WinUI 3 控制面，请使用 Host-only 包入口：
+
+```powershell
+pwsh -NoProfile -ExecutionPolicy Bypass -File .\tools\package-host-review-bundle.ps1
+```
+
+脚本复用 CPack 的四文件安装合同，并将经过验证的 ZIP 放到
+`artifacts\local\host-visual-review\<commit>\`。该包只包含 Host、许可证、支持说明和内嵌资产清单，
+通常约 0.4 MB；上面的完整测试包则包含 Control Center 的 Windows App SDK 旁置运行时，体积较大是预期的。
+
 ## Host 控制面
 
 首个产品化垂直切片已经接入版本化配置和本地 Named Pipe。首次启动会在
