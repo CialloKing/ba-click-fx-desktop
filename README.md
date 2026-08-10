@@ -15,6 +15,10 @@ Control Center、本地 IPC 与独立测试包；当前人工特效审核和支�
 路径为准。涉及 DirectComposition、Windows Graphics Capture、HDR/Advanced Color 和多适配器的结论，
 必须取得仓库中定义的 Spike 证据或接受明确的 fallback 后，相关 ADR 才能标记为 Accepted。
 
+Host 现在会把主显示器 DPI、DXGI 色彩空间、位深和驱动提供的亮度元数据写入支持报告。这些字段只用于
+后续 HDR/显示 Spike 的能力证据；`Support.HDR=not-supported` 在完整输出矩阵通过前保持不变，亮度为零时
+也会显式标记为未知，而不会把零值解释成显示器真实亮度。
+
 ## 冻结的技术方向
 
 - C++20、Win32、D3D11、HLSL、DirectComposition。

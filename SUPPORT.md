@@ -8,6 +8,9 @@
   拖尾宽度、Bloom 强度和 Bloom 质量会通过本地 Named Pipe 在下一帧应用到正在运行的 Host。
 - D3D11 硬件设备；硬件设备创建失败时尝试 WARP 软件设备。
 - 当前验证范围为普通 SDR 桌面合成路径。
+- 支持报告会记录主屏 DPI、DXGI 色彩空间、位深和亮度元数据；这些只是当前输出快照，不能据此
+  宣称 HDR、Advanced Color 或物理 nits 输出已经受支持。驱动未提供有效亮度时会记录
+  `luminance-unknown`。
 - 首次生成的 schema 3 配置默认为 `background.mode=fx-only`；背景捕获必须显式启用，
   授权、排除或会话失败时继续使用 FX-only。
 - WGC 是可选的背景差分输入，不是点击特效依赖。portable EXE 没有 package identity，

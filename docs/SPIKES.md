@@ -45,6 +45,8 @@ DXGI premultiplied alpha 的 FP16 surface 经 DirectComposition/DWM 后，`A=0, 
 
 - 普通 SDR、HDR active、Advanced Color SDR（设备支持项）。
 - 枚举并记录 SDR white level。
+- 保存 `Display.ColorMode`、`Display.DxgiColorSpaceValue`、位深和亮度元数据；零亮度元数据按
+  `unknown` 处理，不能作为显示器实测亮度。
 - FP16 负值、0..1、`>1` 与名义 1000-nit 编码输入。
 
 ### Pass
