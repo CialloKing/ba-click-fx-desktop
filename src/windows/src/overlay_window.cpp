@@ -140,37 +140,47 @@ OverlayWindow::OverlayWindow(
         throwLastError("CreateWindowExW");
     }
 
-    pendingPointerEvents_.reserve(64);
-    registerRawMouse();
-    primaryExitHotKeyRegistered_ = RegisterHotKey(
-        window_,
-        primaryExitHotKeyIdentifier,
-        MOD_CONTROL | MOD_ALT | MOD_NOREPEAT,
-        VK_F12) != FALSE;
-    fallbackExitHotKeyRegistered_ = RegisterHotKey(
-        window_,
-        fallbackExitHotKeyIdentifier,
-        MOD_CONTROL | MOD_SHIFT | MOD_NOREPEAT,
-        VK_F12) != FALSE;
-    taskbarCreatedMessage_ = RegisterWindowMessageW(L"TaskbarCreated");
-    addNotificationIcon();
+    try
+    {
+        pendingPointerEvents_.reserve(64);
+        registerRawMouse();
+        primaryExitHotKeyRegistered_ = RegisterHotKey(
+            window_,
+            primaryExitHotKeyIdentifier,
+            MOD_CONTROL | MOD_ALT | MOD_NOREPEAT,
+            VK_F12) != FALSE;
+        fallbackExitHotKeyRegistered_ = RegisterHotKey(
+            window_,
+            fallbackExitHotKeyIdentifier,
+            MOD_CONTROL | MOD_SHIFT | MOD_NOREPEAT,
+            VK_F12) != FALSE;
+        taskbarCreatedMessage_ = RegisterWindowMessageW(L"TaskbarCreated");
+        addNotificationIcon();
+    }
+    catch (...)
+    {
+        // A throwing constructor does not run the destructor. Release every
+        // process-global registration acquired after CreateWindowExW before
+        // propagating the original initialization failure.
+        releaseInputRegistrations(window_);
+        if (window_ != nullptr)
+        {
+            const HWND window = window_;
+            window_ = nullptr;
+            DestroyWindow(window);
+        }
+        throw;
+    }
 }
 
 OverlayWindow::~OverlayWindow()
 {
+    releaseInputRegistrations(window_);
     if (window_ != nullptr)
     {
-        removeNotificationIcon();
-        unregisterRawMouse();
-        if (primaryExitHotKeyRegistered_)
-        {
-            UnregisterHotKey(window_, primaryExitHotKeyIdentifier);
-        }
-        if (fallbackExitHotKeyRegistered_)
-        {
-            UnregisterHotKey(window_, fallbackExitHotKeyIdentifier);
-        }
-        DestroyWindow(window_);
+        const HWND window = window_;
+        window_ = nullptr;
+        DestroyWindow(window);
     }
 }
 
@@ -486,6 +496,7 @@ LRESULT OverlayWindow::handleMessage(
         return 0;
 
     case WM_DESTROY:
+        releaseInputRegistrations(window_);
         closeRequested_ = true;
         window_ = nullptr;
         PostQuitMessage(0);
@@ -546,6 +557,26 @@ void OverlayWindow::unregisterRawMouse() noexcept
     mouse.hwndTarget = nullptr;
     RegisterRawInputDevices(&mouse, 1, sizeof(mouse));
     rawMouseRegistered_ = false;
+}
+
+void OverlayWindow::releaseInputRegistrations(const HWND window) noexcept
+{
+    removeNotificationIcon();
+    unregisterRawMouse();
+    if (window == nullptr)
+    {
+        return;
+    }
+    if (primaryExitHotKeyRegistered_)
+    {
+        UnregisterHotKey(window, primaryExitHotKeyIdentifier);
+        primaryExitHotKeyRegistered_ = false;
+    }
+    if (fallbackExitHotKeyRegistered_)
+    {
+        UnregisterHotKey(window, fallbackExitHotKeyIdentifier);
+        fallbackExitHotKeyRegistered_ = false;
+    }
 }
 
 void OverlayWindow::handleRawInput(const LPARAM lParam) noexcept

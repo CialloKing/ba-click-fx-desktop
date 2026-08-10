@@ -89,6 +89,7 @@ private:
     static ATOM registerWindowClass(HINSTANCE instance);
     void registerRawMouse();
     void unregisterRawMouse() noexcept;
+    void releaseInputRegistrations(HWND window) noexcept;
     void handleRawInput(LPARAM lParam) noexcept;
     void pushPointerEvent(PointerEventKind kind, POINT position, std::int64_t qpc) noexcept;
     void cancelPointer() noexcept;
