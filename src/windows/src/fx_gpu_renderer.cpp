@@ -64,12 +64,10 @@ struct BloomConstants
     float threshold{1.0F};
     float knee{0.00001F};
     float clampValue{65472.0F};
-    float differentialBloomWeight{0.0F};
     float backgroundTransportEnabled{0.0F};
-    float padding[3]{};
 };
 
-static_assert(sizeof(BloomConstants) == 48U);
+static_assert(sizeof(BloomConstants) == 32U);
 
 struct ColorTarget
 {
@@ -267,10 +265,7 @@ struct ColorTarget
 [[nodiscard]] bool hasVisualContent(
     const bafx::fx::FrameSnapshot& snapshot) noexcept
 {
-    return snapshot.active
-        || !snapshot.sprites.empty()
-        || !snapshot.trail.empty()
-        || !snapshot.trailStrokes.empty();
+    return snapshot.hasDrawableContent();
 }
 
 [[nodiscard]] SpriteVertex makeVertex(
@@ -870,7 +865,6 @@ struct FxGpuRenderer::Implementation
         const bafx::core::BloomExtent sourceExtent,
         const float sampleScale,
         const float exposureGain,
-        const float differentialBloomWeight = 0.0F,
         const bool backgroundTransportEnabled = false) noexcept
     {
         BloomConstants constants{};
@@ -878,7 +872,6 @@ struct FxGpuRenderer::Implementation
         constants.sourceTexelSize[1] = 1.0F / static_cast<float>(sourceExtent.height);
         constants.sampleScale = sampleScale;
         constants.exposureGain = exposureGain;
-        constants.differentialBloomWeight = differentialBloomWeight;
         constants.backgroundTransportEnabled = backgroundTransportEnabled
             ? 1.0F
             : 0.0F;
@@ -976,10 +969,7 @@ struct FxGpuRenderer::Implementation
             makeBloomConstants(
                 sourceExtent,
                 bloomPlan.sampleScale,
-                0.0F,
-                background.has_value()
-                    ? background->differentialBloomWeight
-                    : 0.0F),
+                0.0F),
             background.has_value()
                 ? occlusionTarget.shaderResource.Get()
                 : nullptr);
@@ -1029,7 +1019,6 @@ struct FxGpuRenderer::Implementation
                 firstExtent,
                 bloomPlan.sampleScale,
                 bloomPlan.exposureGain,
-                0.0F,
                 background.has_value()),
             occlusionTarget.shaderResource.Get(),
             background.has_value() ? background->shaderResource : nullptr,
@@ -1120,19 +1109,9 @@ struct FxGpuRenderer::Implementation
         ID3D11PixelShader* finalCompositeShader,
         std::optional<BackgroundRenderInput> background = std::nullopt)
     {
-        if (background.has_value()
-            && (background->shaderResource == nullptr
-                || !std::isfinite(background->differentialBloomWeight)
-                || background->differentialBloomWeight < 0.0F))
+        if (background.has_value() && background->shaderResource == nullptr)
         {
             background.reset();
-        }
-        else if (background.has_value())
-        {
-            background->differentialBloomWeight = std::clamp(
-                background->differentialBloomWeight,
-                0.0F,
-                1.0F);
         }
 
         constexpr std::array<float, 4> transparent{0.0F, 0.0F, 0.0F, 0.0F};

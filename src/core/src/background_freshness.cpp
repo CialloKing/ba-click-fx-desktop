@@ -1,71 +1,68 @@
 #include "bafx/core/background_freshness.hpp"
 
-#include <algorithm>
+#include <limits>
 
 namespace bafx::core
 {
-
-BackgroundFreshnessResult evaluateBackgroundFreshness(
-    const std::optional<BackgroundFrameStamp>& frame,
-    const MonotonicTime renderAt,
-    const BackgroundFreshnessPolicy& policy) noexcept
+namespace
 {
-    BackgroundFreshnessResult result{};
 
-    if (policy.fullWeightAge < MonotonicTime::zero()
-        || policy.staleAge <= policy.fullWeightAge
-        || policy.maxFutureSkew < MonotonicTime::zero())
+[[nodiscard]] MonotonicTime saturatingDifference(
+    const MonotonicTime left,
+    const MonotonicTime right) noexcept
+{
+    using Rep = MonotonicTime::rep;
+    constexpr Rep minimum = std::numeric_limits<Rep>::min();
+    constexpr Rep maximum = std::numeric_limits<Rep>::max();
+    const Rep leftCount = left.count();
+    const Rep rightCount = right.count();
+
+    // Driver timestamps are outside our trust boundary. Saturation preserves
+    // their direction without invoking signed overflow in duration subtraction.
+    if (rightCount > 0 && leftCount < minimum + rightCount)
     {
-        result.freshness = BackgroundFreshness::InvalidPolicy;
-        return result;
+        return MonotonicTime::min();
+    }
+    if (rightCount < 0 && leftCount > maximum + rightCount)
+    {
+        return MonotonicTime::max();
+    }
+    return MonotonicTime{leftCount - rightCount};
+}
+
+}
+
+BackgroundRenderPath BackgroundPathLatch::select(
+    const bool hasVisibleContent,
+    const bool acquireAllowed,
+    const bool retainAllowed) noexcept
+{
+    if (!hasVisibleContent)
+    {
+        reset();
+        return BackgroundRenderPath::FxOnly;
     }
 
-    if (!frame.has_value())
+    if (!path_.has_value())
     {
-        result.freshness = BackgroundFreshness::Missing;
-        return result;
+        path_ = acquireAllowed
+            ? BackgroundRenderPath::BackgroundAware
+            : BackgroundRenderPath::FxOnly;
+    }
+    else if (*path_ == BackgroundRenderPath::BackgroundAware
+        && !retainAllowed)
+    {
+        // Downgrade once after the bounded retention window. Refusing to
+        // upgrade again in the same visible batch removes cadence toggling.
+        path_ = BackgroundRenderPath::FxOnly;
     }
 
-    if (frame->epoch != policy.expectedEpoch)
-    {
-        result.freshness = BackgroundFreshness::WrongEpoch;
-        return result;
-    }
+    return *path_;
+}
 
-    if (!frame->canonicalLinearScRgb || !frame->excludesOwnOverlay)
-    {
-        result.freshness = BackgroundFreshness::InvalidContract;
-        return result;
-    }
-
-    result.age = renderAt - frame->capturedAt;
-    if (result.age < -policy.maxFutureSkew)
-    {
-        result.freshness = BackgroundFreshness::FutureTimestamp;
-        return result;
-    }
-
-    if (result.age <= policy.fullWeightAge)
-    {
-        result.freshness = BackgroundFreshness::Fresh;
-        result.weight = 1.0F;
-        return result;
-    }
-
-    if (result.age >= policy.staleAge)
-    {
-        result.freshness = BackgroundFreshness::Stale;
-        return result;
-    }
-
-    const auto fadeDuration = policy.staleAge - policy.fullWeightAge;
-    const auto fadeAge = result.age - policy.fullWeightAge;
-    const auto fadeFraction = static_cast<double>(fadeAge.count())
-        / static_cast<double>(fadeDuration.count());
-
-    result.freshness = BackgroundFreshness::Fading;
-    result.weight = std::clamp(static_cast<float>(1.0 - fadeFraction), 0.0F, 1.0F);
-    return result;
+void BackgroundPathLatch::reset() noexcept
+{
+    path_.reset();
 }
 
 BackgroundUsageDecision evaluateBackgroundUsage(
@@ -74,58 +71,46 @@ BackgroundUsageDecision evaluateBackgroundUsage(
     const BackgroundUsagePolicy& policy) noexcept
 {
     BackgroundUsageDecision decision{};
-    if (policy.transportStaleAge < policy.differentialBloom.staleAge
-        || policy.transportMaxFutureSkew
-            < policy.differentialBloom.maxFutureSkew)
+    if (policy.maxAge <= MonotonicTime::zero()
+        || policy.maxFutureSkew < MonotonicTime::zero())
     {
-        decision.freshness.freshness = BackgroundFreshness::InvalidPolicy;
+        decision.status = BackgroundUsageStatus::InvalidPolicy;
         return decision;
     }
 
-    decision.freshness = evaluateBackgroundFreshness(
-        frame,
-        renderAt,
-        policy.differentialBloom);
-    switch (decision.freshness.freshness)
+    if (!frame.has_value())
     {
-    case BackgroundFreshness::Fresh:
-    case BackgroundFreshness::Fading:
-        decision.transportEnabled = true;
-        break;
-    case BackgroundFreshness::Stale:
-        decision.transportEnabled = decision.freshness.age
-            < policy.transportStaleAge;
-        break;
-    case BackgroundFreshness::FutureTimestamp:
-        decision.transportEnabled = decision.freshness.age
-            >= -policy.transportMaxFutureSkew;
-        break;
-    case BackgroundFreshness::Missing:
-    case BackgroundFreshness::WrongEpoch:
-    case BackgroundFreshness::InvalidContract:
-    case BackgroundFreshness::InvalidPolicy:
-        break;
+        decision.status = BackgroundUsageStatus::Missing;
+        return decision;
     }
+
+    if (frame->epoch != policy.expectedEpoch)
+    {
+        decision.status = BackgroundUsageStatus::WrongEpoch;
+        return decision;
+    }
+
+    if (!frame->canonicalLinearScRgb || !frame->excludesOwnOverlay)
+    {
+        decision.status = BackgroundUsageStatus::InvalidContract;
+        return decision;
+    }
+
+    decision.age = saturatingDifference(renderAt, frame->capturedAt);
+    if (decision.age < -policy.maxFutureSkew)
+    {
+        decision.status = BackgroundUsageStatus::FutureTimestamp;
+        return decision;
+    }
+    if (decision.age >= policy.maxAge)
+    {
+        decision.status = BackgroundUsageStatus::Stale;
+        return decision;
+    }
+
+    decision.status = BackgroundUsageStatus::Usable;
+    decision.enabled = true;
     return decision;
-}
-
-BloomInputMode selectBloomInputMode(
-    const BackgroundFreshnessResult& freshness,
-    const BackgroundFallback fallback) noexcept
-{
-    if ((freshness.freshness == BackgroundFreshness::Fresh
-            || freshness.freshness == BackgroundFreshness::Fading)
-        && freshness.weight > 0.0F)
-    {
-        return BloomInputMode::BackgroundAware;
-    }
-
-    if (fallback == BackgroundFallback::FxOnlyBloom)
-    {
-        return BloomInputMode::FxOnly;
-    }
-
-    return BloomInputMode::Disabled;
 }
 
 }

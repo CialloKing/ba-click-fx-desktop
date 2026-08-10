@@ -162,7 +162,6 @@ cbuffer BloomConstants : register(b0)
     float Threshold;
     float Knee;
     float ClampValue;
-    float DifferentialBloomWeight;
     float BackgroundTransportEnabled;
 };
 
@@ -225,18 +224,6 @@ float4 PrefilterPixel(FullscreenOutput input) : SV_Target0
 
 float4 DifferentialPrefilterPixel(FullscreenOutput input) : SV_Target0
 {
-    const float3 fxOnlyScene = FourTap(
-        Source0,
-        input.uv,
-        SourceTexelSize).rgb;
-    const float4 fxOnly = BrightPass(fxOnlyScene);
-    const float backgroundWeight = saturate(DifferentialBloomWeight);
-    if (backgroundWeight <= 0.0)
-    {
-        // Make the stale endpoint identical to the normal FX-only prefilter.
-        return fxOnly;
-    }
-
     const float3 background = FourTap(Source1, input.uv, SourceTexelSize).rgb;
     const float2 topLeft = input.uv
         + SourceTexelSize * float2(-1.0, -1.0);
@@ -269,11 +256,7 @@ float4 DifferentialPrefilterPixel(FullscreenOutput input) : SV_Target0
     const float transportEnergy = max(
         differential.r,
         max(differential.g, differential.b));
-    const float4 backgroundAware = float4(differential, transportEnergy);
-
-    // Interpolate seeds before the linear pyramid so a stalled sensor fades
-    // continuously to the always-available FX-only Bloom path.
-    return lerp(fxOnly, backgroundAware, backgroundWeight);
+    return float4(differential, transportEnergy);
 }
 
 float4 DownsamplePixel(FullscreenOutput input) : SV_Target0
@@ -437,9 +420,9 @@ float4 DesktopCompositePixel(FullscreenOutput input) : SV_Target0
     const float3 background = Source3.Sample(
         LinearClampSampler,
         input.uv).rgb;
-    // A valid sample owns one transport contract for its whole lifetime.
-    // Differential Bloom may fade, but switching Alpha solvers per frame would
-    // make stable Cross2 coverage pulse when WGC cadence changes.
+    // The render owner latches one complete visual path. Differential Bloom
+    // and Alpha reconstruction arrive together so capture cadence cannot
+    // modulate either layer independently.
     return ResolveBackgroundAwareDesktopTransport(
         direct,
         bloom,

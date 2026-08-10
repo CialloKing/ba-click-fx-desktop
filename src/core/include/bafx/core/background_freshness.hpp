@@ -1,7 +1,5 @@
 #pragma once
 
-#include "bafx/core/intensity.hpp"
-
 #include <chrono>
 #include <cstdint>
 #include <optional>
@@ -19,18 +17,16 @@ struct BackgroundFrameStamp
     bool excludesOwnOverlay{false};
 };
 
-struct BackgroundFreshnessPolicy
+struct BackgroundUsagePolicy
 {
-    MonotonicTime fullWeightAge{};
-    MonotonicTime staleAge{};
+    MonotonicTime maxAge{};
     MonotonicTime maxFutureSkew{};
     std::uint64_t expectedEpoch{0};
 };
 
-enum class BackgroundFreshness : std::uint8_t
+enum class BackgroundUsageStatus : std::uint8_t
 {
-    Fresh,
-    Fading,
+    Usable,
     Missing,
     Stale,
     FutureTimestamp,
@@ -39,49 +35,37 @@ enum class BackgroundFreshness : std::uint8_t
     InvalidPolicy
 };
 
-struct BackgroundFreshnessResult
-{
-    BackgroundFreshness freshness{BackgroundFreshness::Missing};
-    float weight{0.0F};
-    MonotonicTime age{};
-};
-
-struct BackgroundUsagePolicy
-{
-    BackgroundFreshnessPolicy differentialBloom{};
-    MonotonicTime transportStaleAge{};
-    MonotonicTime transportMaxFutureSkew{};
-};
-
 struct BackgroundUsageDecision
 {
-    BackgroundFreshnessResult freshness{};
-    bool transportEnabled{false};
+    BackgroundUsageStatus status{BackgroundUsageStatus::Missing};
+    MonotonicTime age{};
+    bool enabled{false};
 };
 
-[[nodiscard]] BackgroundFreshnessResult evaluateBackgroundFreshness(
-    const std::optional<BackgroundFrameStamp>& frame,
-    MonotonicTime renderAt,
-    const BackgroundFreshnessPolicy& policy) noexcept;
+enum class BackgroundRenderPath : std::uint8_t
+{
+    FxOnly,
+    BackgroundAware
+};
 
-// Differential Bloom needs a tightly synchronized sample. Final source-over
-// transport only needs a recent, contract-valid background and therefore gets
-// a separate bounded window that prevents cadence jitter from changing Alpha
-// solvers for a single frame.
+class BackgroundPathLatch final
+{
+public:
+    [[nodiscard]] BackgroundRenderPath select(
+        bool hasVisibleContent,
+        bool acquireAllowed,
+        bool retainAllowed) noexcept;
+    void reset() noexcept;
+
+private:
+    std::optional<BackgroundRenderPath> path_{};
+};
+
+// A usable sample selects one complete visual path: Differential Bloom and
+// final source-over reconstruction must never disagree about background use.
 [[nodiscard]] BackgroundUsageDecision evaluateBackgroundUsage(
     const std::optional<BackgroundFrameStamp>& frame,
     MonotonicTime renderAt,
     const BackgroundUsagePolicy& policy) noexcept;
-
-enum class BloomInputMode : std::uint8_t
-{
-    BackgroundAware,
-    FxOnly,
-    Disabled
-};
-
-[[nodiscard]] BloomInputMode selectBloomInputMode(
-    const BackgroundFreshnessResult& freshness,
-    BackgroundFallback fallback) noexcept;
 
 }

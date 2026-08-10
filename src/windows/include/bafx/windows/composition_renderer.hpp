@@ -55,6 +55,7 @@ enum class BackgroundCompositeStatus : std::uint8_t
     InvalidContract,
     InvalidPolicy,
     CaptureFailed,
+    LatchedFxOnly,
     Participating
 };
 
@@ -91,7 +92,8 @@ public:
     void setBloomSettings(FxBloomSettings settings);
     void renderFrame(
         const bafx::fx::FrameSnapshot& snapshot,
-        bafx::core::MonotonicTime wallTime = bafx::core::MonotonicTime::zero());
+        bafx::core::MonotonicTime wallTime = bafx::core::MonotonicTime::zero(),
+        bool requireCurrentBackground = false);
     [[nodiscard]] bool tryEnableBackgroundCapture(
         HMONITOR monitor,
         bool exclusionConfirmed,
@@ -137,6 +139,7 @@ private:
     std::uint64_t backgroundEpoch_{1U};
     bool backgroundCaptureRequested_{false};
     bool backgroundCursorExcluded_{true};
+    bafx::core::BackgroundPathLatch backgroundPathLatch_{};
     bool backgroundParticipatedInLastFrame_{false};
     BackgroundCompositeStatus backgroundCompositeStatus_{
         BackgroundCompositeStatus::Inactive};

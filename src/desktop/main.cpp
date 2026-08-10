@@ -70,6 +70,8 @@ constexpr DWORD pausedControlPollMilliseconds = 50U;
         return "invalid-policy";
     case BackgroundCompositeStatus::CaptureFailed:
         return "capture-failed";
+    case BackgroundCompositeStatus::LatchedFxOnly:
+        return "latched-fx-only";
     case BackgroundCompositeStatus::Participating:
         return "participating";
     }
@@ -715,7 +717,10 @@ int runApplication(
                 ? simulation.snapshot(toViewport(window.size()), renderTime)
                 : bafx::fx::FrameSnapshot{};
             applyVisualConfig(snapshot, config);
-            renderer.renderFrame(snapshot, wallTime);
+            // A paused DComp surface can persist indefinitely. Its last frame
+            // may only bake a current background; normal animation tolerates
+            // short WGC cadence gaps without modulating FX energy.
+            renderer.renderFrame(snapshot, wallTime, controlState.paused);
             if (renderer.backgroundParticipatedInLastFrame())
             {
                 ++backgroundCompositeFrames;

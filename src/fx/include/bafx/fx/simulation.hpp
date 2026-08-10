@@ -70,6 +70,26 @@ struct FrameSnapshot
     std::vector<TrailStroke> trailStrokes{};
     bool active{false};
     bool pointerHeld{false};
+
+    [[nodiscard]] bool hasDrawableContent() const noexcept
+    {
+        if (!sprites.empty())
+        {
+            return true;
+        }
+        if (trailWidthPixels > 0.0F && trail.size() >= 2U)
+        {
+            return true;
+        }
+        for (const TrailStroke& stroke : trailStrokes)
+        {
+            if (stroke.widthPixels > 0.0F && stroke.points.size() >= 2U)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
 };
 
 class Simulation final

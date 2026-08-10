@@ -1,5 +1,6 @@
 #include "test_support.hpp"
 
+#include "bafx/core/background_freshness.hpp"
 #include "bafx/windows/error.hpp"
 #include "bafx/windows/fx_gpu_renderer.hpp"
 #include "bafx/windows/gpu_texture_readback.hpp"
@@ -9,13 +10,16 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <optional>
 #include <stdexcept>
 #include <vector>
 
 using Microsoft::WRL::ComPtr;
 using namespace bafx::windows;
+using namespace std::chrono_literals;
 
 namespace
 {
@@ -208,6 +212,13 @@ struct WarpDevice
                 bafx::fx::TrailPoint{bafx::fx::PointF{232.0F, 192.0F}, 0.0F},
             },
             8.0F}};
+    return snapshot;
+}
+
+[[nodiscard]] bafx::fx::FrameSnapshot makeDiskAndTrailSnapshot()
+{
+    bafx::fx::FrameSnapshot snapshot = makeDiskSnapshot(true);
+    snapshot.trailStrokes = makeTwoTrailSnapshot().trailStrokes;
     return snapshot;
 }
 
@@ -486,7 +497,7 @@ BAFX_TEST(warp_pipeline_separates_direct_emission_and_multilevel_bloom_seed)
     BAFX_CHECK(maximumRgbOutsideSprite(bloomPixels) > 1.0e-3F);
 }
 
-BAFX_TEST(warp_background_bloom_fades_with_valid_desktop_transport)
+BAFX_TEST(warp_background_path_uses_full_differential_bloom)
 {
     ComApartment apartment;
     const WarpDevice graphics = createWarpDevice();
@@ -505,41 +516,213 @@ BAFX_TEST(warp_background_bloom_fades_with_valid_desktop_transport)
         graphics.context.Get(),
         fxOnlyTarget.texture.Get());
 
-    const auto renderWithWeight = [&](const float weight)
-    {
-        const RenderTarget target = createRenderTarget(graphics.device.Get());
-        renderer.render(
-            snapshot,
-            target.view.Get(),
-            BackgroundRenderInput{background.shaderResource.Get(), weight});
-        return readback(graphics.context.Get(), target.texture.Get());
-    };
-    const std::vector<ReadbackPixel> zeroWeight = renderWithWeight(0.0F);
-    const std::vector<ReadbackPixel> halfWeight = renderWithWeight(0.5F);
-    const std::vector<ReadbackPixel> fullWeight = renderWithWeight(1.0F);
+    const RenderTarget backgroundAwareTarget =
+        createRenderTarget(graphics.device.Get());
+    renderer.render(
+        snapshot,
+        backgroundAwareTarget.view.Get(),
+        BackgroundRenderInput{background.shaderResource.Get()});
+    const std::vector<ReadbackPixel> backgroundAware = readback(
+        graphics.context.Get(),
+        backgroundAwareTarget.texture.Get());
 
     checkValidDesktopPremultiplied(fxOnly);
-    checkValidDesktopPremultiplied(zeroWeight, false);
-    checkValidDesktopPremultiplied(halfWeight, false);
-    checkValidDesktopPremultiplied(fullWeight, false);
-
-    // A zero Differential Bloom weight still has a valid WGC sample, so the
-    // transparent transport must remain background-aware until the caller
-    // removes that sample explicitly.
-    BAFX_CHECK(maximumRgbaDelta(fxOnly, zeroWeight) > 1.0e-3F);
-    const float fullFadeDelta = maximumRgbaDelta(zeroWeight, fullWeight);
-    const float halfFromZero = maximumRgbaDelta(zeroWeight, halfWeight);
-    const float halfToFull = maximumRgbaDelta(halfWeight, fullWeight);
-    BAFX_CHECK(fullFadeDelta > 1.0e-3F);
-    BAFX_CHECK(halfFromZero > 1.0e-3F);
-    BAFX_CHECK(halfFromZero < fullFadeDelta);
-    BAFX_CHECK(halfToFull < fullFadeDelta);
+    checkValidDesktopPremultiplied(backgroundAware, false);
+    BAFX_CHECK(maximumRgbaDelta(fxOnly, backgroundAware) > 1.0e-3F);
 
     const std::size_t center = static_cast<std::size_t>(testSize.height / 2U)
         * testSize.width
         + testSize.width / 2U;
-    BAFX_CHECK(zeroWeight[center].blue > 0.5F);
-    BAFX_CHECK(fullWeight[center].blue > 0.5F);
+    BAFX_CHECK(backgroundAware[center].blue > 0.5F);
+}
+
+BAFX_TEST(warp_usable_background_age_never_modulates_click_or_trail)
+{
+    ComApartment apartment;
+    const WarpDevice graphics = createWarpDevice();
+    FxGpuRenderer renderer(graphics.device.Get(), graphics.context.Get(), testSize);
+    const bafx::fx::FrameSnapshot snapshot = makeDiskAndTrailSnapshot();
+    constexpr bafx::core::BackgroundUsagePolicy usagePolicy{100ms, 48ms, 7U};
+    constexpr std::array<bafx::core::MonotonicTime, 4U> capturedAt{
+        0ms,
+        -50ms,
+        -100ms + 1ns,
+        48ms};
+    constexpr std::array<std::array<float, 4U>, 2U> backgroundColors{
+        std::array<float, 4U>{0.02F, 0.04F, 0.08F, 1.0F},
+        std::array<float, 4U>{0.95F, 0.95F, 0.95F, 1.0F}};
+
+    for (const std::array<float, 4U>& backgroundColor : backgroundColors)
+    {
+        const RenderTarget background = createRenderTarget(graphics.device.Get());
+        graphics.context->ClearRenderTargetView(
+            background.view.Get(),
+            backgroundColor.data());
+
+        std::vector<ReadbackPixel> reference;
+        for (const bafx::core::MonotonicTime captureTime : capturedAt)
+        {
+            const bafx::core::BackgroundUsageDecision usage =
+                bafx::core::evaluateBackgroundUsage(
+                    bafx::core::BackgroundFrameStamp{
+                        captureTime,
+                        7U,
+                        true,
+                        true},
+                    0ms,
+                    usagePolicy);
+            BAFX_CHECK(usage.status == bafx::core::BackgroundUsageStatus::Usable);
+            BAFX_CHECK(usage.enabled);
+
+            const RenderTarget target = createRenderTarget(graphics.device.Get());
+            renderer.render(
+                snapshot,
+                target.view.Get(),
+                BackgroundRenderInput{background.shaderResource.Get()});
+            const std::vector<ReadbackPixel> pixels = readback(
+                graphics.context.Get(),
+                target.texture.Get());
+            checkValidDesktopPremultiplied(pixels, false);
+            BAFX_CHECK(maximumRgbInBox(pixels, 96U, 96U, 160U, 160U) > 1.0e-3F);
+            BAFX_CHECK(maximumRgbInBox(pixels, 16U, 48U, 120U, 80U) > 1.0e-3F);
+
+            if (reference.empty())
+            {
+                reference = pixels;
+            }
+            else
+            {
+                BAFX_CHECK(maximumRgbaDelta(reference, pixels) == 0.0F);
+            }
+        }
+    }
+}
+
+BAFX_TEST(warp_latched_background_path_stays_stable_at_age_boundaries)
+{
+    ComApartment apartment;
+    const WarpDevice graphics = createWarpDevice();
+    FxGpuRenderer renderer(graphics.device.Get(), graphics.context.Get(), testSize);
+    const bafx::fx::FrameSnapshot snapshot = makeDiskAndTrailSnapshot();
+    constexpr bafx::core::BackgroundUsagePolicy acquirePolicy{100ms, 48ms, 7U};
+    constexpr bafx::core::BackgroundUsagePolicy retainPolicy{250ms, 48ms, 7U};
+    constexpr std::array<std::array<float, 4U>, 2U> backgroundColors{
+        std::array<float, 4U>{0.02F, 0.04F, 0.08F, 1.0F},
+        std::array<float, 4U>{0.95F, 0.95F, 0.95F, 1.0F}};
+
+    for (const std::array<float, 4U>& backgroundColor : backgroundColors)
+    {
+        const RenderTarget background = createRenderTarget(graphics.device.Get());
+        graphics.context->ClearRenderTargetView(
+            background.view.Get(),
+            backgroundColor.data());
+
+        const auto renderSelected = [&](
+            bafx::core::BackgroundPathLatch& latch,
+            const bafx::core::MonotonicTime capturedAt,
+            const bafx::core::MonotonicTime renderAt,
+            const bafx::core::BackgroundRenderPath expectedPath)
+        {
+            const bafx::core::BackgroundFrameStamp stamp{
+                capturedAt,
+                7U,
+                true,
+                true};
+            const bafx::core::BackgroundUsageDecision acquire =
+                bafx::core::evaluateBackgroundUsage(
+                    stamp,
+                    renderAt,
+                    acquirePolicy);
+            const bafx::core::BackgroundUsageDecision retain =
+                bafx::core::evaluateBackgroundUsage(
+                    stamp,
+                    renderAt,
+                    retainPolicy);
+            const bafx::core::BackgroundRenderPath path = latch.select(
+                snapshot.hasDrawableContent(),
+                acquire.enabled,
+                retain.enabled);
+            BAFX_CHECK(path == expectedPath);
+
+            const std::optional<BackgroundRenderInput> input =
+                path == bafx::core::BackgroundRenderPath::BackgroundAware
+                ? std::optional<BackgroundRenderInput>{
+                    BackgroundRenderInput{background.shaderResource.Get()}}
+                : std::nullopt;
+            const RenderTarget target = createRenderTarget(graphics.device.Get());
+            renderer.render(snapshot, target.view.Get(), input);
+            const std::vector<ReadbackPixel> pixels = readback(
+                graphics.context.Get(),
+                target.texture.Get());
+            checkValidDesktopPremultiplied(pixels, false);
+            return pixels;
+        };
+
+        bafx::core::BackgroundPathLatch backgroundAwareLatch;
+        const std::vector<ReadbackPixel> beforeAcquireBoundary = renderSelected(
+            backgroundAwareLatch,
+            -100ms + 1ns,
+            0ms,
+            bafx::core::BackgroundRenderPath::BackgroundAware);
+        const std::vector<ReadbackPixel> atAcquireBoundary = renderSelected(
+            backgroundAwareLatch,
+            -100ms,
+            0ms,
+            bafx::core::BackgroundRenderPath::BackgroundAware);
+        const std::vector<ReadbackPixel> recoveredBeforeRetainExpiry =
+            renderSelected(
+                backgroundAwareLatch,
+                0ms,
+                0ms,
+                bafx::core::BackgroundRenderPath::BackgroundAware);
+        BAFX_CHECK(maximumRgbaDelta(
+            beforeAcquireBoundary,
+            atAcquireBoundary) == 0.0F);
+        BAFX_CHECK(maximumRgbaDelta(
+            beforeAcquireBoundary,
+            recoveredBeforeRetainExpiry) == 0.0F);
+
+        const std::vector<ReadbackPixel> atRetainBoundary = renderSelected(
+            backgroundAwareLatch,
+            -250ms,
+            0ms,
+            bafx::core::BackgroundRenderPath::FxOnly);
+        const std::vector<ReadbackPixel> recoveredAfterRetainExpiry =
+            renderSelected(
+                backgroundAwareLatch,
+                0ms,
+                0ms,
+                bafx::core::BackgroundRenderPath::FxOnly);
+        BAFX_CHECK(maximumRgbaDelta(
+            atRetainBoundary,
+            recoveredAfterRetainExpiry) == 0.0F);
+
+        BAFX_CHECK(backgroundAwareLatch.select(false, false, false)
+            == bafx::core::BackgroundRenderPath::FxOnly);
+        const std::vector<ReadbackPixel> nextBatch = renderSelected(
+            backgroundAwareLatch,
+            0ms,
+            0ms,
+            bafx::core::BackgroundRenderPath::BackgroundAware);
+        BAFX_CHECK(maximumRgbaDelta(
+            beforeAcquireBoundary,
+            nextBatch) == 0.0F);
+
+        bafx::core::BackgroundPathLatch fxOnlyLatch;
+        const std::vector<ReadbackPixel> staleFirstFrame = renderSelected(
+            fxOnlyLatch,
+            -100ms,
+            0ms,
+            bafx::core::BackgroundRenderPath::FxOnly);
+        const std::vector<ReadbackPixel> recoveredFxOnly = renderSelected(
+            fxOnlyLatch,
+            0ms,
+            0ms,
+            bafx::core::BackgroundRenderPath::FxOnly);
+        BAFX_CHECK(maximumRgbaDelta(
+            staleFirstFrame,
+            recoveredFxOnly) == 0.0F);
+    }
 }
 
 BAFX_TEST(warp_background_reconstructs_the_unity_source_over_target)
@@ -574,7 +757,7 @@ BAFX_TEST(warp_background_reconstructs_the_unity_source_over_target)
         renderer.render(
             snapshot,
             output.view.Get(),
-            BackgroundRenderInput{background.shaderResource.Get(), 1.0F});
+            BackgroundRenderInput{background.shaderResource.Get()});
         return readback(graphics.context.Get(), output.texture.Get());
     };
 
@@ -618,7 +801,7 @@ BAFX_TEST(warp_background_reconstructs_the_unity_source_over_target)
     BAFX_CHECK(std::abs(lightReconstructed.red - darkReconstructed.red) > 0.05F);
 }
 
-BAFX_TEST(warp_wgc_weight_never_transfers_triangle_flicker_to_the_disk)
+BAFX_TEST(warp_background_path_keeps_triangle_alpha_independent_from_the_disk)
 {
     ComApartment apartment;
     const WarpDevice graphics = createWarpDevice();
@@ -631,25 +814,21 @@ BAFX_TEST(warp_wgc_weight_never_transfers_triangle_flicker_to_the_disk)
         background.view.Get(),
         backgroundColor.data());
 
-    const auto render = [&](const float triangleAlpha, const float bloomWeight)
+    const auto render = [&](const float triangleAlpha)
     {
         const RenderTarget target = createRenderTarget(graphics.device.Get());
         renderer.render(
             makeSeparatedDiskAndTriangleSnapshot(triangleAlpha),
             target.view.Get(),
-            BackgroundRenderInput{background.shaderResource.Get(), bloomWeight});
+            BackgroundRenderInput{background.shaderResource.Get()});
         return readback(graphics.context.Get(), target.texture.Get());
     };
 
-    const std::vector<ReadbackPixel> brightTriangleZeroWeight = render(0.9F, 0.0F);
-    const std::vector<ReadbackPixel> brightTriangleHalfWeight = render(0.9F, 0.5F);
-    const std::vector<ReadbackPixel> brightTriangleFullWeight = render(0.9F, 1.0F);
-    const std::vector<ReadbackPixel> dimTriangleHalfWeight = render(0.1F, 0.5F);
+    const std::vector<ReadbackPixel> brightTriangle = render(0.9F);
+    const std::vector<ReadbackPixel> dimTriangle = render(0.1F);
 
-    checkValidDesktopPremultiplied(brightTriangleZeroWeight, false);
-    checkValidDesktopPremultiplied(brightTriangleHalfWeight, false);
-    checkValidDesktopPremultiplied(brightTriangleFullWeight, false);
-    checkValidDesktopPremultiplied(dimTriangleHalfWeight, false);
+    checkValidDesktopPremultiplied(brightTriangle, false);
+    checkValidDesktopPremultiplied(dimTriangle, false);
 
     constexpr std::uint32_t diskLeft = 96U;
     constexpr std::uint32_t diskTop = 144U;
@@ -660,35 +839,19 @@ BAFX_TEST(warp_wgc_weight_never_transfers_triangle_flicker_to_the_disk)
     constexpr std::uint32_t triangleRight = 160U;
     constexpr std::uint32_t triangleBottom = 96U;
 
-    // Unity Cross2 and Tri2 own independent particle Alpha. WGC cadence may
-    // fade Differential Bloom, but it must not make Cross2 inherit Tri2's pulse.
+    // Unity Cross2 and Tri2 own independent particle Alpha. The fixed
+    // background path must not make Cross2 inherit Tri2's pulse.
     BAFX_CHECK(maximumCompositeRgbDeltaInBox(
-        brightTriangleZeroWeight,
-        brightTriangleHalfWeight,
+        brightTriangle,
+        dimTriangle,
         backgroundColor,
         diskLeft,
         diskTop,
         diskRight,
         diskBottom) <= 1.0e-3F);
     BAFX_CHECK(maximumCompositeRgbDeltaInBox(
-        brightTriangleHalfWeight,
-        brightTriangleFullWeight,
-        backgroundColor,
-        diskLeft,
-        diskTop,
-        diskRight,
-        diskBottom) <= 1.0e-3F);
-    BAFX_CHECK(maximumCompositeRgbDeltaInBox(
-        brightTriangleHalfWeight,
-        dimTriangleHalfWeight,
-        backgroundColor,
-        diskLeft,
-        diskTop,
-        diskRight,
-        diskBottom) <= 1.0e-3F);
-    BAFX_CHECK(maximumCompositeRgbDeltaInBox(
-        brightTriangleHalfWeight,
-        dimTriangleHalfWeight,
+        brightTriangle,
+        dimTriangle,
         backgroundColor,
         triangleLeft,
         triangleTop,

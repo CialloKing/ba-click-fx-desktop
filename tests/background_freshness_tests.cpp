@@ -11,11 +11,6 @@ using namespace std::chrono_literals;
 namespace
 {
 
-BackgroundFreshnessPolicy policy()
-{
-    return BackgroundFreshnessPolicy{16ms, 48ms, 1ms, 7};
-}
-
 BackgroundFrameStamp frameAt(const MonotonicTime time)
 {
     return BackgroundFrameStamp{time, 7, true, true};
@@ -23,90 +18,143 @@ BackgroundFrameStamp frameAt(const MonotonicTime time)
 
 BackgroundUsagePolicy usagePolicy()
 {
-    return BackgroundUsagePolicy{policy(), 250ms, 48ms};
+    return BackgroundUsagePolicy{100ms, 48ms, 7};
 }
 
 }
 
-BAFX_TEST(background_freshness_has_closed_full_weight_boundary)
+BAFX_TEST(background_usage_accepts_the_entire_bounded_window)
 {
-    const auto result = evaluateBackgroundFreshness(frameAt(84ms), 100ms, policy());
-    BAFX_CHECK(result.freshness == BackgroundFreshness::Fresh);
-    BAFX_CHECK_NEAR(result.weight, 1.0F, 0.0F);
+    auto decision = evaluateBackgroundUsage(frameAt(0ms), 0ms, usagePolicy());
+    BAFX_CHECK(decision.status == BackgroundUsageStatus::Usable);
+    BAFX_CHECK(decision.age == 0ms);
+    BAFX_CHECK(decision.enabled);
+
+    decision = evaluateBackgroundUsage(frameAt(-100ms + 1ns), 0ms, usagePolicy());
+    BAFX_CHECK(decision.status == BackgroundUsageStatus::Usable);
+    BAFX_CHECK(decision.age == 100ms - 1ns);
+    BAFX_CHECK(decision.enabled);
+
+    decision = evaluateBackgroundUsage(frameAt(48ms), 0ms, usagePolicy());
+    BAFX_CHECK(decision.status == BackgroundUsageStatus::Usable);
+    BAFX_CHECK(decision.age == -48ms);
+    BAFX_CHECK(decision.enabled);
 }
 
-BAFX_TEST(background_freshness_fades_and_then_stops)
+BAFX_TEST(background_usage_window_has_explicit_closed_and_open_boundaries)
 {
-    auto result = evaluateBackgroundFreshness(frameAt(68ms), 100ms, policy());
-    BAFX_CHECK(result.freshness == BackgroundFreshness::Fading);
-    BAFX_CHECK_NEAR(result.weight, 0.5F, 1.0e-6F);
+    auto decision = evaluateBackgroundUsage(frameAt(-100ms), 0ms, usagePolicy());
+    BAFX_CHECK(decision.status == BackgroundUsageStatus::Stale);
+    BAFX_CHECK(decision.age == 100ms);
+    BAFX_CHECK(!decision.enabled);
 
-    result = evaluateBackgroundFreshness(frameAt(52ms), 100ms, policy());
-    BAFX_CHECK(result.freshness == BackgroundFreshness::Stale);
-    BAFX_CHECK_NEAR(result.weight, 0.0F, 0.0F);
-    BAFX_CHECK(selectBloomInputMode(result, BackgroundFallback::FxOnlyBloom)
-        == BloomInputMode::FxOnly);
+    decision = evaluateBackgroundUsage(frameAt(48ms + 1ns), 0ms, usagePolicy());
+    BAFX_CHECK(decision.status == BackgroundUsageStatus::FutureTimestamp);
+    BAFX_CHECK(decision.age == -48ms - 1ns);
+    BAFX_CHECK(!decision.enabled);
 }
 
-BAFX_TEST(background_freshness_rejects_future_epoch_and_contract_errors)
+BAFX_TEST(background_usage_rejects_epoch_and_contract_errors_immediately)
 {
-    auto result = evaluateBackgroundFreshness(frameAt(101ms), 100ms, policy());
-    BAFX_CHECK(result.freshness == BackgroundFreshness::Fresh);
-
-    result = evaluateBackgroundFreshness(frameAt(101ms + 1ns), 100ms, policy());
-    BAFX_CHECK(result.freshness == BackgroundFreshness::FutureTimestamp);
-
     auto wrongEpoch = frameAt(100ms);
     wrongEpoch.epoch = 8;
-    result = evaluateBackgroundFreshness(wrongEpoch, 100ms, policy());
-    BAFX_CHECK(result.freshness == BackgroundFreshness::WrongEpoch);
+    auto decision = evaluateBackgroundUsage(wrongEpoch, 100ms, usagePolicy());
+    BAFX_CHECK(decision.status == BackgroundUsageStatus::WrongEpoch);
+    BAFX_CHECK(!decision.enabled);
 
     auto badContract = frameAt(100ms);
     badContract.excludesOwnOverlay = false;
-    result = evaluateBackgroundFreshness(badContract, 100ms, policy());
-    BAFX_CHECK(result.freshness == BackgroundFreshness::InvalidContract);
+    decision = evaluateBackgroundUsage(badContract, 100ms, usagePolicy());
+    BAFX_CHECK(decision.status == BackgroundUsageStatus::InvalidContract);
+    BAFX_CHECK(!decision.enabled);
 }
 
-BAFX_TEST(background_freshness_validates_missing_and_policy)
+BAFX_TEST(background_usage_validates_missing_samples_and_policy)
 {
-    auto result = evaluateBackgroundFreshness(std::nullopt, 100ms, policy());
-    BAFX_CHECK(result.freshness == BackgroundFreshness::Missing);
+    auto decision = evaluateBackgroundUsage(std::nullopt, 100ms, usagePolicy());
+    BAFX_CHECK(decision.status == BackgroundUsageStatus::Missing);
+    BAFX_CHECK(!decision.enabled);
 
-    auto invalidPolicy = policy();
-    invalidPolicy.staleAge = invalidPolicy.fullWeightAge;
-    result = evaluateBackgroundFreshness(frameAt(100ms), 100ms, invalidPolicy);
-    BAFX_CHECK(result.freshness == BackgroundFreshness::InvalidPolicy);
+    auto invalidPolicy = usagePolicy();
+    invalidPolicy.maxAge = MonotonicTime::zero();
+    decision = evaluateBackgroundUsage(frameAt(100ms), 100ms, invalidPolicy);
+    BAFX_CHECK(decision.status == BackgroundUsageStatus::InvalidPolicy);
+    BAFX_CHECK(!decision.enabled);
+
+    invalidPolicy = usagePolicy();
+    invalidPolicy.maxFutureSkew = -1ns;
+    decision = evaluateBackgroundUsage(frameAt(100ms), 100ms, invalidPolicy);
+    BAFX_CHECK(decision.status == BackgroundUsageStatus::InvalidPolicy);
+    BAFX_CHECK(!decision.enabled);
 }
 
-BAFX_TEST(background_usage_keeps_transport_stable_after_bloom_fades)
+BAFX_TEST(background_usage_saturates_extreme_timestamp_differences)
 {
-    auto decision = evaluateBackgroundUsage(frameAt(52ms), 100ms, usagePolicy());
-    BAFX_CHECK(decision.freshness.freshness == BackgroundFreshness::Stale);
-    BAFX_CHECK_NEAR(decision.freshness.weight, 0.0F, 0.0F);
-    BAFX_CHECK(decision.transportEnabled);
+    auto decision = evaluateBackgroundUsage(
+        frameAt(MonotonicTime::min()),
+        MonotonicTime::max(),
+        usagePolicy());
+    BAFX_CHECK(decision.status == BackgroundUsageStatus::Stale);
+    BAFX_CHECK(decision.age == MonotonicTime::max());
+    BAFX_CHECK(!decision.enabled);
 
-    decision = evaluateBackgroundUsage(frameAt(32ms), 0ms, usagePolicy());
-    BAFX_CHECK(
-        decision.freshness.freshness == BackgroundFreshness::FutureTimestamp);
-    BAFX_CHECK_NEAR(decision.freshness.weight, 0.0F, 0.0F);
-    BAFX_CHECK(decision.transportEnabled);
+    decision = evaluateBackgroundUsage(
+        frameAt(MonotonicTime::max()),
+        MonotonicTime::min(),
+        usagePolicy());
+    BAFX_CHECK(decision.status == BackgroundUsageStatus::FutureTimestamp);
+    BAFX_CHECK(decision.age == MonotonicTime::min());
+    BAFX_CHECK(!decision.enabled);
 }
 
-BAFX_TEST(background_usage_transport_window_is_bounded)
+BAFX_TEST(background_path_latch_holds_across_the_acquire_boundary)
 {
-    auto decision = evaluateBackgroundUsage(frameAt(-250ms), 0ms, usagePolicy());
-    BAFX_CHECK(decision.freshness.freshness == BackgroundFreshness::Stale);
-    BAFX_CHECK(!decision.transportEnabled);
+    BackgroundPathLatch latch;
 
-    decision = evaluateBackgroundUsage(frameAt(48ms + 1ns), 0ms, usagePolicy());
-    BAFX_CHECK(
-        decision.freshness.freshness == BackgroundFreshness::FutureTimestamp);
-    BAFX_CHECK(!decision.transportEnabled);
+    BAFX_CHECK(latch.select(true, true, true)
+        == BackgroundRenderPath::BackgroundAware);
+    BAFX_CHECK(latch.select(true, false, true)
+        == BackgroundRenderPath::BackgroundAware);
+    BAFX_CHECK(latch.select(true, true, true)
+        == BackgroundRenderPath::BackgroundAware);
+}
 
-    auto invalidContract = frameAt(0ms);
-    invalidContract.excludesOwnOverlay = false;
-    decision = evaluateBackgroundUsage(invalidContract, 0ms, usagePolicy());
-    BAFX_CHECK(
-        decision.freshness.freshness == BackgroundFreshness::InvalidContract);
-    BAFX_CHECK(!decision.transportEnabled);
+BAFX_TEST(background_path_latch_downgrades_once_at_the_retain_boundary)
+{
+    BackgroundPathLatch latch;
+
+    BAFX_CHECK(latch.select(true, true, true)
+        == BackgroundRenderPath::BackgroundAware);
+    BAFX_CHECK(latch.select(true, false, false)
+        == BackgroundRenderPath::FxOnly);
+    BAFX_CHECK(latch.select(true, true, true)
+        == BackgroundRenderPath::FxOnly);
+
+    BAFX_CHECK(latch.select(false, false, false)
+        == BackgroundRenderPath::FxOnly);
+    BAFX_CHECK(latch.select(true, true, true)
+        == BackgroundRenderPath::BackgroundAware);
+}
+
+BAFX_TEST(background_path_latch_never_upgrades_a_visible_fx_only_batch)
+{
+    BackgroundPathLatch latch;
+
+    BAFX_CHECK(latch.select(true, false, true)
+        == BackgroundRenderPath::FxOnly);
+    BAFX_CHECK(latch.select(true, true, true)
+        == BackgroundRenderPath::FxOnly);
+}
+
+BAFX_TEST(background_path_latch_uses_strict_pause_results_without_reupgrade)
+{
+    BackgroundPathLatch latch;
+
+    BAFX_CHECK(latch.select(true, true, true)
+        == BackgroundRenderPath::BackgroundAware);
+    // Paused redraws pass the same strict decision as acquire and retain.
+    BAFX_CHECK(latch.select(true, false, false)
+        == BackgroundRenderPath::FxOnly);
+    BAFX_CHECK(latch.select(true, true, true)
+        == BackgroundRenderPath::FxOnly);
 }

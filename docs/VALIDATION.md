@@ -15,7 +15,7 @@
 ### L0：纯函数
 
 - intensity 语义与 output policy；
-- background freshness；
+- background binary validity、路径单向锁存、饱和时间差与边界；
 - ROI alignment/guard；
 - finite sanitize、component-wise non-negative 与 isotonic test vectors；
 - fixed-step simulation 和 deterministic random。
@@ -25,6 +25,7 @@
 - shader compile/reflection；
 - MaterialOutputs MRT；
 - DifferentialPrefilter FP32 差值；
+- 浅色/深色背景下点击与拖尾跨获取/保留边界及恢复序列的逐像素稳定性；
 - Bloom mip/down/up；
 - FinalOverlay FP16 readback。
 

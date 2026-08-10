@@ -25,10 +25,13 @@ constexpr DXGI_COLOR_SPACE_TYPE swapChainColorSpace =
     DXGI_COLOR_SPACE_RGB_FULL_G10_NONE_P709;
 constexpr bafx::core::MonotonicTime minimumBackgroundCadencePeriod =
     std::chrono::nanoseconds(16'666'667);
-constexpr bafx::core::MonotonicTime minimumBackgroundTransportLifetime =
+constexpr bafx::core::MonotonicTime minimumBackgroundAcquireLifetime =
+    std::chrono::milliseconds(100);
+constexpr bafx::core::MonotonicTime minimumBackgroundRetainLifetime =
     std::chrono::milliseconds(250);
-constexpr std::int64_t backgroundTransportPeriodCount = 12;
-constexpr std::int64_t backgroundTransportFuturePeriodCount = 3;
+constexpr std::int64_t backgroundAcquirePeriodCount = 6;
+constexpr std::int64_t backgroundRetainPeriodCount = 12;
+constexpr std::int64_t backgroundFuturePeriodCount = 3;
 
 [[nodiscard]] std::optional<bafx::core::MonotonicTime>
 primaryRefreshPeriod() noexcept
@@ -62,6 +65,54 @@ primaryRefreshPeriod() noexcept
     return epoch == std::numeric_limits<std::uint64_t>::max()
         ? 1U
         : epoch + 1U;
+}
+
+[[nodiscard]] bafx::core::BackgroundUsagePolicy backgroundUsagePolicy(
+    const bafx::core::MonotonicTime refreshPeriod,
+    const std::uint64_t expectedEpoch,
+    const bool retain,
+    const bool requireCurrentBackground) noexcept
+{
+    if (requireCurrentBackground)
+    {
+        return bafx::core::BackgroundUsagePolicy{
+            refreshPeriod,
+            refreshPeriod,
+            expectedEpoch};
+    }
+
+    return bafx::core::BackgroundUsagePolicy{
+        std::max(
+            refreshPeriod * (retain
+                ? backgroundRetainPeriodCount
+                : backgroundAcquirePeriodCount),
+            retain
+                ? minimumBackgroundRetainLifetime
+                : minimumBackgroundAcquireLifetime),
+        refreshPeriod * backgroundFuturePeriodCount,
+        expectedEpoch};
+}
+
+[[nodiscard]] BackgroundCompositeStatus compositeStatus(
+    const bafx::core::BackgroundUsageStatus status) noexcept
+{
+    switch (status)
+    {
+    case bafx::core::BackgroundUsageStatus::Stale:
+        return BackgroundCompositeStatus::Stale;
+    case bafx::core::BackgroundUsageStatus::FutureTimestamp:
+        return BackgroundCompositeStatus::FutureTimestamp;
+    case bafx::core::BackgroundUsageStatus::WrongEpoch:
+        return BackgroundCompositeStatus::WrongEpoch;
+    case bafx::core::BackgroundUsageStatus::InvalidContract:
+        return BackgroundCompositeStatus::InvalidContract;
+    case bafx::core::BackgroundUsageStatus::InvalidPolicy:
+        return BackgroundCompositeStatus::InvalidPolicy;
+    case bafx::core::BackgroundUsageStatus::Usable:
+    case bafx::core::BackgroundUsageStatus::Missing:
+        return BackgroundCompositeStatus::WaitingForFrame;
+    }
+    return BackgroundCompositeStatus::WaitingForFrame;
 }
 
 }
@@ -125,9 +176,13 @@ void CompositionRenderer::setBloomSettings(const FxBloomSettings settings)
 
 void CompositionRenderer::renderFrame(
     const bafx::fx::FrameSnapshot& snapshot,
-    const bafx::core::MonotonicTime wallTime)
+    const bafx::core::MonotonicTime wallTime,
+    const bool requireCurrentBackground)
 {
     std::optional<BackgroundRenderInput> background;
+    std::optional<WgcBackgroundSample> backgroundSample;
+    bafx::core::BackgroundUsageDecision acquireUsage{};
+    bafx::core::BackgroundUsageDecision retainUsage{};
     backgroundParticipatedInLastFrame_ = false;
     backgroundCompositeStatus_ = backgroundSensor_ != nullptr
         ? BackgroundCompositeStatus::WaitingForFrame
@@ -169,72 +224,35 @@ void CompositionRenderer::renderFrame(
                 const std::optional<WgcBackgroundSample> sample =
                     backgroundSensor_->latestSample();
                 if (sample.has_value()
+                    && sample->texture != nullptr
                     && sample->size.width == size_.width
                     && sample->size.height == size_.height
                     && backgroundRefreshPeriod_ > bafx::core::MonotonicTime::zero())
                 {
-                    const bafx::core::BackgroundUsageDecision usage =
-                        bafx::core::evaluateBackgroundUsage(
-                            sample->stamp,
-                            effectiveWallTime,
-                            bafx::core::BackgroundUsagePolicy{
-                                bafx::core::BackgroundFreshnessPolicy{
-                                    backgroundRefreshPeriod_,
-                                    backgroundRefreshPeriod_ * 3,
-                                    // WGC may timestamp a frame at the upcoming
-                                    // compositor tick. One cadence period accepts
-                                    // that scheduling lead without admitting an
-                                    // arbitrarily future desktop sample.
-                                    backgroundRefreshPeriod_,
-                                    backgroundSensor_->expectedEpoch()},
-                                std::max(
-                                    backgroundRefreshPeriod_
-                                        * backgroundTransportPeriodCount,
-                                    minimumBackgroundTransportLifetime),
-                                backgroundRefreshPeriod_
-                                    * backgroundTransportFuturePeriodCount});
-                    if (usage.transportEnabled)
-                    {
-                        background = BackgroundRenderInput{
-                            sample->texture,
-                            usage.freshness.weight};
-                        backgroundParticipatedInLastFrame_ = true;
-                        backgroundCompositeStatus_ =
-                            BackgroundCompositeStatus::Participating;
-                    }
-                    else
-                    {
-                        switch (usage.freshness.freshness)
-                        {
-                        case bafx::core::BackgroundFreshness::Stale:
-                            backgroundCompositeStatus_ = BackgroundCompositeStatus::Stale;
-                            break;
-                        case bafx::core::BackgroundFreshness::FutureTimestamp:
-                            backgroundCompositeStatus_ =
-                                BackgroundCompositeStatus::FutureTimestamp;
-                            break;
-                        case bafx::core::BackgroundFreshness::WrongEpoch:
-                            backgroundCompositeStatus_ =
-                                BackgroundCompositeStatus::WrongEpoch;
-                            break;
-                        case bafx::core::BackgroundFreshness::InvalidContract:
-                            backgroundCompositeStatus_ =
-                                BackgroundCompositeStatus::InvalidContract;
-                            break;
-                        case bafx::core::BackgroundFreshness::InvalidPolicy:
-                            backgroundCompositeStatus_ =
-                                BackgroundCompositeStatus::InvalidPolicy;
-                            break;
-                        case bafx::core::BackgroundFreshness::Fresh:
-                        case bafx::core::BackgroundFreshness::Fading:
-                        case bafx::core::BackgroundFreshness::Missing:
-                            break;
-                        }
-                    }
+                    backgroundSample = sample;
+                    acquireUsage = bafx::core::evaluateBackgroundUsage(
+                        sample->stamp,
+                        effectiveWallTime,
+                        backgroundUsagePolicy(
+                            backgroundRefreshPeriod_,
+                            backgroundSensor_->expectedEpoch(),
+                            false,
+                            requireCurrentBackground));
+                    retainUsage = bafx::core::evaluateBackgroundUsage(
+                        sample->stamp,
+                        effectiveWallTime,
+                        backgroundUsagePolicy(
+                            backgroundRefreshPeriod_,
+                            backgroundSensor_->expectedEpoch(),
+                            true,
+                            requireCurrentBackground));
+                    backgroundCompositeStatus_ = compositeStatus(acquireUsage.status);
                 }
                 else if (sample.has_value())
                 {
-                    backgroundCompositeStatus_ = BackgroundCompositeStatus::SizeMismatch;
+                    backgroundCompositeStatus_ = sample->texture == nullptr
+                        ? BackgroundCompositeStatus::InvalidContract
+                        : BackgroundCompositeStatus::SizeMismatch;
                 }
             }
         }
@@ -247,6 +265,26 @@ void CompositionRenderer::renderFrame(
             backgroundRefreshPeriod_ = bafx::core::MonotonicTime::zero();
             backgroundCompositeStatus_ = BackgroundCompositeStatus::CaptureFailed;
         }
+    }
+
+    const bafx::core::BackgroundRenderPath renderPath =
+        backgroundPathLatch_.select(
+            snapshot.hasDrawableContent(),
+            backgroundSample.has_value() && acquireUsage.enabled,
+            backgroundSample.has_value() && retainUsage.enabled);
+    if (renderPath == bafx::core::BackgroundRenderPath::BackgroundAware
+        && backgroundSample.has_value()
+        && retainUsage.enabled)
+    {
+        background = BackgroundRenderInput{backgroundSample->texture};
+        backgroundParticipatedInLastFrame_ = true;
+        backgroundCompositeStatus_ = BackgroundCompositeStatus::Participating;
+    }
+    else if (snapshot.hasDrawableContent()
+        && backgroundSample.has_value()
+        && acquireUsage.enabled)
+    {
+        backgroundCompositeStatus_ = BackgroundCompositeStatus::LatchedFxOnly;
     }
 
     fxRenderer_->render(snapshot, renderTarget_.Get(), background);

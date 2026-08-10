@@ -34,7 +34,7 @@
 - `ARCH-INV-003`：一个 immediate context 同一时刻只能由一个 Render Owner 使用。
 - `ARCH-INV-004`：WGC frame/surface 是借用资源，复制后必须及时关闭。
 - `ARCH-INV-005`：coverage 已预乘；emission/seed 必须有限、非负且不重复计能量。
-- `ARCH-INV-006`：背景无效、编码不兼容或过期时禁止 Differential Bloom。
+- `ARCH-INV-006`：背景路径是二值合同；Differential Bloom 与最终背景反解必须同时启用或同时禁用。
 - `ARCH-INV-007`：PreserveDesktop 禁止降低桌面像素；HighVisibility 明确放弃该约束。
 - `ARCH-INV-008`：RecordingCompatible 是 best effort，不是通用录屏保证。
 - `ARCH-INV-009`：跨 GPU 的 FP16 结果使用容差比较，不承诺 hash 或 bit-identical。
@@ -180,19 +180,22 @@ Render Owner 醒来后串行调用 `TryGetNextFrame`，丢弃旧帧、保留最�
 
 ### 6.3 背景时效
 
-根据 `SystemRelativeTime` 转换后的 QPC 计算样本年龄。首版保守策略以背景采样 cadence 为单位；
-高刷新率显示器至少按 60 Hz 周期计算，避免 WGC 正常抖动反复跨越边界：
+根据 `SystemRelativeTime` 转换后的 QPC 计算样本年龄；时间差使用饱和减法，损坏或极端时间戳只能
+落入 Stale/Future 状态，不能触发有符号溢出。首版窗口以背景采样 cadence 为单位，高刷新率显示器
+至少按 60 Hz 周期计算：
 
-- 不超过 1 个刷新周期：权重 1；
-- 1 到 3 个刷新周期：连续衰减到 0；
-- 超过 3 个刷新周期、时间倒退或时间戳无效：权重 0。
+- 普通动画仅在 `-3T <= age < max(6T, 100ms)` 时为新一批可见特效获取背景路径；
+- 已进入背景感知的批次可在 `-3T <= age < max(12T, 250ms)` 内保留该路径；超出保留窗口后
+  只降级一次，本批特效即使恢复新样本也不再升级；
+- FX-only 批次在画面完全透明前保持 FX-only；透明帧解除锁存，下一批重新选择；
+- 暂停后的所有永久保留帧仅接受 `-T <= age < T`，并且仍然只允许单向降级；
+- epoch、尺寸、encoding 或排除合同错误：立即不可用。
 
-权重只影响 Background-aware Differential Bloom；直接特效和 FX-only Bloom 不受影响。阈值属于
-ADR-007 的 Proposed 参数，真实 cadence/VRR 证据可收窄它，但不能取消 stale cutoff。
-
-最终 source-over 传输不复用 Bloom 权重作为开关。合同有效的背景纹理可在
-`max(12T, 250ms)` 的有界窗口内继续参与反解，未来时间戳最多容忍 `3T`；只有窗口结束或
-epoch、尺寸、encoding、排除合同失效时才切回 FX-only，避免浅色背景逐帧切换 Alpha solver。
+可用性是二值合同。可用纹理始终同时驱动完整 Differential Bloom 与同一套 background-aware
+source-over 反解；不可用时两者同时切回 FX-only。sample age 不得映射为 Bloom、Alpha 或其他视觉
+能量权重，避免捕获 cadence 在浅色背景上调制点击和拖尾亮度。窗口参数属于 ADR-007 的 Proposed
+值，获取/保留迟滞只锁存路径枚举，不保存 WGC 裸纹理；真实 cadence/VRR 证据可收窄窗口，但不能
+取消 stale cutoff。
 
 ## 7. 捕获功耗状态
 
@@ -244,7 +247,7 @@ dirty rect 必须 union 前后帧区域再扩张，以清除上一帧残留。�
 | 失败 | 必须行为 |
 | --- | --- |
 | WGC 不可用/拒绝/关闭 | Null sensor，继续 FX-only |
-| 捕获帧过期 | 背景差分 Bloom 衰减为 0 |
+| 捕获帧超过保留窗口 | Differential Bloom 与背景反解同时单向切回 FX-only |
 | ContentSize 改变 | 串行重建捕获资源，当前帧 FX-only |
 | HDR/色彩元数据未知 | 使用保守 SDR 输出策略并记录诊断 |
 | Monitor 跨 Adapter | 在目标资源域重建，不隐式共享 |
