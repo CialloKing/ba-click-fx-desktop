@@ -19,21 +19,13 @@ ComPtr<ID3D11ShaderResourceView> loadPackedFxTexture(
     }
 
     const DecodedPackedFxTexture decoded = decodePackedFxTexture(id);
-    const DXGI_FORMAT resourceFormat =
-        decoded.layout == PackedFxTextureLayout::R8Unorm
-            ? DXGI_FORMAT_R8_TYPELESS
-            : DXGI_FORMAT_R8G8B8A8_TYPELESS;
-    const DXGI_FORMAT viewFormat =
-        decoded.layout == PackedFxTextureLayout::R8Unorm
-            ? DXGI_FORMAT_R8_UNORM
-            : DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
 
     D3D11_TEXTURE2D_DESC textureDescription{};
     textureDescription.Width = decoded.width;
     textureDescription.Height = decoded.height;
     textureDescription.MipLevels = 1U;
     textureDescription.ArraySize = 1U;
-    textureDescription.Format = resourceFormat;
+    textureDescription.Format = DXGI_FORMAT_R8G8B8A8_TYPELESS;
     textureDescription.SampleDesc = DXGI_SAMPLE_DESC{1U, 0U};
     textureDescription.Usage = D3D11_USAGE_IMMUTABLE;
     textureDescription.BindFlags = D3D11_BIND_SHADER_RESOURCE;
@@ -48,7 +40,7 @@ ComPtr<ID3D11ShaderResourceView> loadPackedFxTexture(
         "ID3D11Device::CreateTexture2D(packed FX texture)");
 
     D3D11_SHADER_RESOURCE_VIEW_DESC viewDescription{};
-    viewDescription.Format = viewFormat;
+    viewDescription.Format = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
     viewDescription.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
     viewDescription.Texture2D.MostDetailedMip = 0U;
     viewDescription.Texture2D.MipLevels = 1U;

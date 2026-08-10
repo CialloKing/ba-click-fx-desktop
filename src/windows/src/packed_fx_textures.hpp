@@ -15,16 +15,9 @@ enum class PackedFxTextureId : std::uint8_t
     Trail
 };
 
-enum class PackedFxTextureLayout : std::uint8_t
-{
-    R8Unorm,
-    Rgba8Srgb
-};
-
 struct DecodedPackedFxTexture
 {
     std::string_view name;
-    PackedFxTextureLayout layout{PackedFxTextureLayout::Rgba8Srgb};
     std::uint32_t width{0U};
     std::uint32_t height{0U};
     std::uint32_t rowPitch{0U};

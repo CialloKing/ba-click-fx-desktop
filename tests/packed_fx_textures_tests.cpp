@@ -21,7 +21,6 @@ struct ExpectedTexture
 {
     bafx::windows::PackedFxTextureId id;
     std::string_view name;
-    bafx::windows::PackedFxTextureLayout layout;
     std::uint32_t width;
     std::uint32_t height;
     std::uint32_t rowPitch;
@@ -99,7 +98,6 @@ BAFX_TEST(packed_fx_textures_decode_to_locked_pixels)
         ExpectedTexture{
             PackedFxTextureId::CenterDisk,
             "center-disk",
-            PackedFxTextureLayout::Rgba8Srgb,
             512U,
             512U,
             2048U,
@@ -107,7 +105,6 @@ BAFX_TEST(packed_fx_textures_decode_to_locked_pixels)
         ExpectedTexture{
             PackedFxTextureId::DissolveRing,
             "dissolve-ring",
-            PackedFxTextureLayout::Rgba8Srgb,
             256U,
             128U,
             1024U,
@@ -115,7 +112,6 @@ BAFX_TEST(packed_fx_textures_decode_to_locked_pixels)
         ExpectedTexture{
             PackedFxTextureId::TriangleAtlas,
             "triangle-atlas",
-            PackedFxTextureLayout::Rgba8Srgb,
             256U,
             128U,
             1024U,
@@ -123,7 +119,6 @@ BAFX_TEST(packed_fx_textures_decode_to_locked_pixels)
         ExpectedTexture{
             PackedFxTextureId::Trail,
             "trail",
-            PackedFxTextureLayout::Rgba8Srgb,
             512U,
             512U,
             2048U,
@@ -133,7 +128,6 @@ BAFX_TEST(packed_fx_textures_decode_to_locked_pixels)
     {
         const DecodedPackedFxTexture texture = decodePackedFxTexture(expected.id);
         BAFX_CHECK(texture.name == expected.name);
-        BAFX_CHECK(texture.layout == expected.layout);
         BAFX_CHECK(texture.width == expected.width);
         BAFX_CHECK(texture.height == expected.height);
         BAFX_CHECK(texture.rowPitch == expected.rowPitch);

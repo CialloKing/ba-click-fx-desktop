@@ -17,7 +17,6 @@ namespace
 struct PackedTextureRecord
 {
     std::string_view name;
-    PackedFxTextureLayout layout{PackedFxTextureLayout::Rgba8Srgb};
     std::uint32_t width{0U};
     std::uint32_t height{0U};
     std::size_t decodedByteCount{0U};
@@ -39,7 +38,6 @@ struct PackedTextureRecord
     static const std::array values{
         PackedTextureRecord{
             "center-disk",
-            PackedFxTextureLayout::Rgba8Srgb,
             512U,
             512U,
             centerDiskDecodedByteCount,
@@ -47,7 +45,6 @@ struct PackedTextureRecord
             bytesOf(centerDiskLz4Data, centerDiskLz4ByteCount)},
         PackedTextureRecord{
             "dissolve-ring",
-            PackedFxTextureLayout::Rgba8Srgb,
             256U,
             128U,
             dissolveRingDecodedByteCount,
@@ -55,7 +52,6 @@ struct PackedTextureRecord
             bytesOf(dissolveRingLz4Data, dissolveRingLz4ByteCount)},
         PackedTextureRecord{
             "triangle-atlas",
-            PackedFxTextureLayout::Rgba8Srgb,
             256U,
             128U,
             triangleAtlasDecodedByteCount,
@@ -63,7 +59,6 @@ struct PackedTextureRecord
             bytesOf(triangleAtlasLz4Data, triangleAtlasLz4ByteCount)},
         PackedTextureRecord{
             "trail",
-            PackedFxTextureLayout::Rgba8Srgb,
             512U,
             512U,
             trailDecodedByteCount,
@@ -208,12 +203,6 @@ void copyMatch(
     return output;
 }
 
-[[nodiscard]] std::uint32_t bytesPerPixel(
-    const PackedFxTextureLayout layout) noexcept
-{
-    return layout == PackedFxTextureLayout::R8Unorm ? 1U : 4U;
-}
-
 }
 
 DecodedPackedFxTexture decodePackedFxTexture(const PackedFxTextureId id)
@@ -226,12 +215,13 @@ DecodedPackedFxTexture decodePackedFxTexture(const PackedFxTextureId id)
     }
 
     const PackedTextureRecord& record = values[index];
-    const std::uint32_t pixelBytes = bytesPerPixel(record.layout);
-    if (record.width > std::numeric_limits<std::uint32_t>::max() / pixelBytes)
+    constexpr std::uint32_t rgba8BytesPerPixel = 4U;
+    if (record.width
+        > std::numeric_limits<std::uint32_t>::max() / rgba8BytesPerPixel)
     {
         throw std::overflow_error("Packed FX texture row pitch overflowed");
     }
-    const std::uint32_t rowPitch = record.width * pixelBytes;
+    const std::uint32_t rowPitch = record.width * rgba8BytesPerPixel;
     if (record.height > std::numeric_limits<std::size_t>::max() / rowPitch
         || static_cast<std::size_t>(rowPitch) * record.height
             != record.decodedByteCount)
@@ -241,7 +231,6 @@ DecodedPackedFxTexture decodePackedFxTexture(const PackedFxTextureId id)
 
     return DecodedPackedFxTexture{
         record.name,
-        record.layout,
         record.width,
         record.height,
         rowPitch,
