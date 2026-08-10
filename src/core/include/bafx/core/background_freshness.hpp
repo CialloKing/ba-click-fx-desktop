@@ -46,10 +46,32 @@ struct BackgroundFreshnessResult
     MonotonicTime age{};
 };
 
+struct BackgroundUsagePolicy
+{
+    BackgroundFreshnessPolicy differentialBloom{};
+    MonotonicTime transportStaleAge{};
+    MonotonicTime transportMaxFutureSkew{};
+};
+
+struct BackgroundUsageDecision
+{
+    BackgroundFreshnessResult freshness{};
+    bool transportEnabled{false};
+};
+
 [[nodiscard]] BackgroundFreshnessResult evaluateBackgroundFreshness(
     const std::optional<BackgroundFrameStamp>& frame,
     MonotonicTime renderAt,
     const BackgroundFreshnessPolicy& policy) noexcept;
+
+// Differential Bloom needs a tightly synchronized sample. Final source-over
+// transport only needs a recent, contract-valid background and therefore gets
+// a separate bounded window that prevents cadence jitter from changing Alpha
+// solvers for a single frame.
+[[nodiscard]] BackgroundUsageDecision evaluateBackgroundUsage(
+    const std::optional<BackgroundFrameStamp>& frame,
+    MonotonicTime renderAt,
+    const BackgroundUsagePolicy& policy) noexcept;
 
 enum class BloomInputMode : std::uint8_t
 {
@@ -63,4 +85,3 @@ enum class BloomInputMode : std::uint8_t
     BackgroundFallback fallback) noexcept;
 
 }
-

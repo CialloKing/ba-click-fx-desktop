@@ -68,6 +68,47 @@ BackgroundFreshnessResult evaluateBackgroundFreshness(
     return result;
 }
 
+BackgroundUsageDecision evaluateBackgroundUsage(
+    const std::optional<BackgroundFrameStamp>& frame,
+    const MonotonicTime renderAt,
+    const BackgroundUsagePolicy& policy) noexcept
+{
+    BackgroundUsageDecision decision{};
+    if (policy.transportStaleAge < policy.differentialBloom.staleAge
+        || policy.transportMaxFutureSkew
+            < policy.differentialBloom.maxFutureSkew)
+    {
+        decision.freshness.freshness = BackgroundFreshness::InvalidPolicy;
+        return decision;
+    }
+
+    decision.freshness = evaluateBackgroundFreshness(
+        frame,
+        renderAt,
+        policy.differentialBloom);
+    switch (decision.freshness.freshness)
+    {
+    case BackgroundFreshness::Fresh:
+    case BackgroundFreshness::Fading:
+        decision.transportEnabled = true;
+        break;
+    case BackgroundFreshness::Stale:
+        decision.transportEnabled = decision.freshness.age
+            < policy.transportStaleAge;
+        break;
+    case BackgroundFreshness::FutureTimestamp:
+        decision.transportEnabled = decision.freshness.age
+            >= -policy.transportMaxFutureSkew;
+        break;
+    case BackgroundFreshness::Missing:
+    case BackgroundFreshness::WrongEpoch:
+    case BackgroundFreshness::InvalidContract:
+    case BackgroundFreshness::InvalidPolicy:
+        break;
+    }
+    return decision;
+}
+
 BloomInputMode selectBloomInputMode(
     const BackgroundFreshnessResult& freshness,
     const BackgroundFallback fallback) noexcept
@@ -88,4 +129,3 @@ BloomInputMode selectBloomInputMode(
 }
 
 }
-

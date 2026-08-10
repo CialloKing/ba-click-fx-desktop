@@ -23,6 +23,12 @@ namespace
 constexpr UINT swapChainFlags = DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT;
 constexpr DXGI_COLOR_SPACE_TYPE swapChainColorSpace =
     DXGI_COLOR_SPACE_RGB_FULL_G10_NONE_P709;
+constexpr bafx::core::MonotonicTime minimumBackgroundCadencePeriod =
+    std::chrono::nanoseconds(16'666'667);
+constexpr bafx::core::MonotonicTime minimumBackgroundTransportLifetime =
+    std::chrono::milliseconds(250);
+constexpr std::int64_t backgroundTransportPeriodCount = 12;
+constexpr std::int64_t backgroundTransportFuturePeriodCount = 3;
 
 [[nodiscard]] std::optional<bafx::core::MonotonicTime>
 primaryRefreshPeriod() noexcept
@@ -167,34 +173,38 @@ void CompositionRenderer::renderFrame(
                     && sample->size.height == size_.height
                     && backgroundRefreshPeriod_ > bafx::core::MonotonicTime::zero())
                 {
-                    const bafx::core::BackgroundFreshnessResult freshness =
-                        bafx::core::evaluateBackgroundFreshness(
+                    const bafx::core::BackgroundUsageDecision usage =
+                        bafx::core::evaluateBackgroundUsage(
                             sample->stamp,
                             effectiveWallTime,
-                            bafx::core::BackgroundFreshnessPolicy{
-                                backgroundRefreshPeriod_,
-                                backgroundRefreshPeriod_ * 3,
-                                // WGC may timestamp a frame at the upcoming
-                                // compositor tick. One refresh period accepts
-                                // that scheduling lead without admitting an
-                                // arbitrarily future desktop sample.
-                                backgroundRefreshPeriod_,
-                                backgroundSensor_->expectedEpoch()});
-                    if (freshness.freshness
-                            == bafx::core::BackgroundFreshness::Fresh
-                        || freshness.freshness
-                            == bafx::core::BackgroundFreshness::Fading)
+                            bafx::core::BackgroundUsagePolicy{
+                                bafx::core::BackgroundFreshnessPolicy{
+                                    backgroundRefreshPeriod_,
+                                    backgroundRefreshPeriod_ * 3,
+                                    // WGC may timestamp a frame at the upcoming
+                                    // compositor tick. One cadence period accepts
+                                    // that scheduling lead without admitting an
+                                    // arbitrarily future desktop sample.
+                                    backgroundRefreshPeriod_,
+                                    backgroundSensor_->expectedEpoch()},
+                                std::max(
+                                    backgroundRefreshPeriod_
+                                        * backgroundTransportPeriodCount,
+                                    minimumBackgroundTransportLifetime),
+                                backgroundRefreshPeriod_
+                                    * backgroundTransportFuturePeriodCount});
+                    if (usage.transportEnabled)
                     {
                         background = BackgroundRenderInput{
                             sample->texture,
-                            freshness.weight};
+                            usage.freshness.weight};
                         backgroundParticipatedInLastFrame_ = true;
                         backgroundCompositeStatus_ =
                             BackgroundCompositeStatus::Participating;
                     }
                     else
                     {
-                        switch (freshness.freshness)
+                        switch (usage.freshness.freshness)
                         {
                         case bafx::core::BackgroundFreshness::Stale:
                             backgroundCompositeStatus_ = BackgroundCompositeStatus::Stale;
@@ -366,7 +376,12 @@ bool CompositionRenderer::tryCreateBackgroundSensor() noexcept
                 true,
                 backgroundCursorExcluded_});
         backgroundEpoch_ = nextEpoch(backgroundEpoch_);
-        backgroundRefreshPeriod_ = *refreshPeriod;
+        // Capture and presentation have independent cadence. On high-refresh
+        // displays WGC can still arrive near 60 Hz, so using a 170/240 Hz
+        // present period directly would make normal jitter toggle transport.
+        backgroundRefreshPeriod_ = std::max(
+            *refreshPeriod,
+            minimumBackgroundCadencePeriod);
         return true;
     }
     catch (...)

@@ -180,7 +180,8 @@ Render Owner 醒来后串行调用 `TryGetNextFrame`，丢弃旧帧、保留最�
 
 ### 6.3 背景时效
 
-根据 `SystemRelativeTime` 转换后的 QPC 计算样本年龄。首版保守策略以目标显示器刷新周期为单位：
+根据 `SystemRelativeTime` 转换后的 QPC 计算样本年龄。首版保守策略以背景采样 cadence 为单位；
+高刷新率显示器至少按 60 Hz 周期计算，避免 WGC 正常抖动反复跨越边界：
 
 - 不超过 1 个刷新周期：权重 1；
 - 1 到 3 个刷新周期：连续衰减到 0；
@@ -188,6 +189,10 @@ Render Owner 醒来后串行调用 `TryGetNextFrame`，丢弃旧帧、保留最�
 
 权重只影响 Background-aware Differential Bloom；直接特效和 FX-only Bloom 不受影响。阈值属于
 ADR-007 的 Proposed 参数，真实 cadence/VRR 证据可收窄它，但不能取消 stale cutoff。
+
+最终 source-over 传输不复用 Bloom 权重作为开关。合同有效的背景纹理可在
+`max(12T, 250ms)` 的有界窗口内继续参与反解，未来时间戳最多容忍 `3T`；只有窗口结束或
+epoch、尺寸、encoding、排除合同失效时才切回 FX-only，避免浅色背景逐帧切换 Alpha solver。
 
 ## 7. 捕获功耗状态
 
