@@ -216,7 +216,7 @@ bool CompositionRenderer::tryEnableBackgroundCapture(
     const HMONITOR monitor,
     const bool exclusionConfirmed) noexcept
 {
-    backgroundCaptureFailure_.clear();
+    setBackgroundCaptureFailure({});
     if (backgroundSensor_ != nullptr)
     {
         backgroundSensor_->stop();
@@ -231,16 +231,15 @@ bool CompositionRenderer::tryEnableBackgroundCapture(
     {
         if (!exclusionConfirmed)
         {
-            backgroundCaptureFailure_ = "capture exclusion was not confirmed";
+            setBackgroundCaptureFailure("capture exclusion was not confirmed");
         }
         else if (monitor == nullptr)
         {
-            backgroundCaptureFailure_ = "target monitor is unavailable";
+            setBackgroundCaptureFailure("target monitor is unavailable");
         }
         else if (deviceInfo_.driverType != GraphicsDriverType::Hardware)
         {
-            backgroundCaptureFailure_ =
-                "WGC requires a hardware D3D11 device";
+            setBackgroundCaptureFailure("WGC requires a hardware D3D11 device");
         }
         return false;
     }
@@ -253,7 +252,7 @@ void CompositionRenderer::disableBackgroundCapture() noexcept
     backgroundCaptureRequested_ = false;
     backgroundMonitor_ = nullptr;
     backgroundRefreshPeriod_ = bafx::core::MonotonicTime::zero();
-    backgroundCaptureFailure_.clear();
+    setBackgroundCaptureFailure({});
     if (backgroundSensor_ != nullptr)
     {
         backgroundSensor_->stop();
@@ -273,14 +272,13 @@ bool CompositionRenderer::tryCreateBackgroundSensor() noexcept
     {
         if (backgroundCaptureRequested_ && backgroundMonitor_ == nullptr)
         {
-            backgroundCaptureFailure_ = "target monitor is unavailable";
+            setBackgroundCaptureFailure("target monitor is unavailable");
         }
         return false;
     }
     if (!WgcBackgroundSensor::isSupported())
     {
-        backgroundCaptureFailure_ =
-            "Windows Graphics Capture is not supported";
+        setBackgroundCaptureFailure("Windows Graphics Capture is not supported");
         return false;
     }
 
@@ -288,14 +286,13 @@ bool CompositionRenderer::tryCreateBackgroundSensor() noexcept
         primaryRefreshPeriod();
     if (!refreshPeriod.has_value())
     {
-        backgroundCaptureFailure_ =
-            "display refresh period could not be determined";
+        setBackgroundCaptureFailure("display refresh period could not be determined");
         return false;
     }
 
     try
     {
-        backgroundCaptureFailure_.clear();
+        setBackgroundCaptureFailure({});
         backgroundSensor_ = std::make_unique<WgcBackgroundSensor>(
             device_.Get(),
             backgroundMonitor_,
@@ -314,11 +311,11 @@ bool CompositionRenderer::tryCreateBackgroundSensor() noexcept
         }
         catch (const std::exception& error)
         {
-            backgroundCaptureFailure_ = error.what();
+            setBackgroundCaptureFailure(error.what());
         }
         catch (...)
         {
-            backgroundCaptureFailure_ = "unknown WGC initialization failure";
+            setBackgroundCaptureFailure("unknown WGC initialization failure");
         }
         return false;
     }
@@ -326,7 +323,25 @@ bool CompositionRenderer::tryCreateBackgroundSensor() noexcept
 
 std::string_view CompositionRenderer::backgroundCaptureFailure() const noexcept
 {
-    return backgroundCaptureFailure_;
+    return std::string_view(
+        backgroundCaptureFailure_.data(),
+        backgroundCaptureFailureLength_);
+}
+
+void CompositionRenderer::setBackgroundCaptureFailure(
+    const std::string_view message) noexcept
+{
+    const std::size_t length = std::min(
+        message.size(),
+        backgroundCaptureFailure_.size());
+    if (length > 0U)
+    {
+        std::copy_n(
+            message.data(),
+            length,
+            backgroundCaptureFailure_.data());
+    }
+    backgroundCaptureFailureLength_ = length;
 }
 
 void CompositionRenderer::setReadbackDiagnostics(const bool enabled)

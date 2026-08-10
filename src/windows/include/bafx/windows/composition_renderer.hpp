@@ -11,10 +11,10 @@
 #include <wrl/client.h>
 
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <optional>
-#include <string>
 #include <string_view>
 
 namespace bafx::fx
@@ -98,6 +98,7 @@ private:
     void createComposition(HWND window);
     void createRenderTarget();
     void captureCenterPixel();
+    void setBackgroundCaptureFailure(std::string_view message) noexcept;
     [[nodiscard]] bool tryCreateBackgroundSensor() noexcept;
 
     Microsoft::WRL::ComPtr<ID3D11Device> device_{};
@@ -116,7 +117,10 @@ private:
     HMONITOR backgroundMonitor_{nullptr};
     std::uint64_t backgroundEpoch_{1U};
     bool backgroundCaptureRequested_{false};
-    std::string backgroundCaptureFailure_{};
+    // Failure reporting is used by noexcept fallback paths. Keep it inline so
+    // a diagnostic allocation can never terminate the render process.
+    std::array<char, 512U> backgroundCaptureFailure_{};
+    std::size_t backgroundCaptureFailureLength_{0U};
     bool readbackDiagnosticsEnabled_{false};
     D3D_FEATURE_LEVEL featureLevel_{D3D_FEATURE_LEVEL_11_0};
     GraphicsDeviceInfo deviceInfo_{};
