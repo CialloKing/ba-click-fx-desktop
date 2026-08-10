@@ -3,7 +3,6 @@ add_library(
     STATIC
         src/composition_renderer.cpp
         src/display_capabilities.cpp
-        src/embedded_unity_textures.cpp
         src/fx_gpu_renderer.cpp
         src/gpu_texture_readback.cpp
         src/ipc.cpp
@@ -13,7 +12,6 @@ add_library(
         src/packed_fx_textures.cpp
         src/runtime_diagnostics.cpp
         src/wgc_background_sensor.cpp
-        src/wic_texture_loader.cpp
 )
 add_library(bafx::windows ALIAS bafx_windows)
 
@@ -48,7 +46,6 @@ target_link_libraries(
         user32
     PRIVATE
         runtimeobject
-        windowscodecs
 )
 bafx_enable_warnings(bafx_windows)
 
