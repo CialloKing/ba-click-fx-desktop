@@ -210,6 +210,13 @@ void SupportReport::setPrimaryMonitor(const RECT bounds)
     primaryMonitor_ = stream.str();
 }
 
+void SupportReport::setPrimaryDpi(const std::uint32_t dpi) noexcept
+{
+    primaryDpi_ = dpi == 0U
+        ? std::nullopt
+        : std::optional<std::uint32_t>(dpi);
+}
+
 void SupportReport::setDeviceInfo(const GraphicsDeviceInfo& info)
 {
     deviceInfo_ = info;
@@ -290,6 +297,16 @@ std::string SupportReport::serialize() const
            << "OS.Architecture=" << architecture_ << '\n'
            << "Display.Primary="
            << (primaryMonitor_.empty() ? "unknown" : primaryMonitor_) << '\n'
+           << "Display.PrimaryDpi=";
+    if (primaryDpi_.has_value())
+    {
+        stream << *primaryDpi_;
+    }
+    else
+    {
+        stream << "unknown";
+    }
+    stream << '\n'
            << "Display.ColorMode=not-probed;alpha-scope-sdr-only\n"
            << "Log.Path=" << (logPath_.empty() ? "unknown" : logPath_) << '\n';
 

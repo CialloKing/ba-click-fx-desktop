@@ -10,6 +10,7 @@ BAFX_TEST(support_report_contains_alpha_scope_and_graphics_facts)
 {
     bafx::windows::SupportReport report("0.1.0-alpha.2");
     report.setPrimaryMonitor(RECT{0, 0, 1920, 1080});
+    report.setPrimaryDpi(144U);
 
     bafx::windows::GraphicsDeviceInfo device{};
     device.driverType = bafx::windows::GraphicsDriverType::Warp;
@@ -35,11 +36,24 @@ BAFX_TEST(support_report_contains_alpha_scope_and_graphics_facts)
     BAFX_CHECK(text.find("Graphics.Adapter=Microsoft Basic Render Driver")
         != std::string::npos);
     BAFX_CHECK(text.find("Graphics.FeatureLevel=11_0") != std::string::npos);
+    BAFX_CHECK(text.find("Display.PrimaryDpi=144") != std::string::npos);
     BAFX_CHECK(text.find("Exit.PrimaryHotKey=registered") != std::string::npos);
     BAFX_CHECK(text.find("Exit.FallbackHotKey=polling-fallback")
         != std::string::npos);
     BAFX_CHECK(text.find("Exit.NotificationIcon=available") != std::string::npos);
     BAFX_CHECK(text.find("Exit.PollingFallback=enabled") != std::string::npos);
+}
+
+BAFX_TEST(support_report_marks_primary_dpi_unknown_until_probed)
+{
+    bafx::windows::SupportReport report("test");
+    const std::string text = report.serialize();
+    BAFX_CHECK(text.find("Display.PrimaryDpi=unknown") != std::string::npos);
+
+    report.setPrimaryDpi(0U);
+    BAFX_CHECK(
+        report.serialize().find("Display.PrimaryDpi=unknown")
+        != std::string::npos);
 }
 
 BAFX_TEST(support_report_sanitizes_multiline_failures)

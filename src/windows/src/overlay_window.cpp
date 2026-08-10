@@ -150,6 +150,28 @@ WindowSize OverlayWindow::size() const noexcept
     return size_;
 }
 
+std::uint32_t OverlayWindow::effectiveDpi() const noexcept
+{
+    constexpr std::uint32_t defaultDpi = 96U;
+    if (window_ == nullptr)
+    {
+        return defaultDpi;
+    }
+
+    const UINT dpi = GetDpiForWindow(window_);
+    if (dpi != 0U)
+    {
+        return static_cast<std::uint32_t>(dpi);
+    }
+
+    // GetDpiForWindow can return zero while a window is being destroyed. Keep
+    // diagnostics deterministic and avoid exposing an invalid scale factor.
+    const UINT systemDpi = GetDpiForSystem();
+    return systemDpi == 0U
+        ? defaultDpi
+        : static_cast<std::uint32_t>(systemDpi);
+}
+
 bool OverlayWindow::closeRequested() const noexcept
 {
     return closeRequested_;

@@ -24,6 +24,7 @@ public:
     explicit SupportReport(std::string_view version);
 
     void setPrimaryMonitor(RECT bounds);
+    void setPrimaryDpi(std::uint32_t dpi) noexcept;
     void setDeviceInfo(const GraphicsDeviceInfo& info);
     void setExitUiStatus(const ExitUiStatus& status);
     void setBackgroundCaptureStatus(BackgroundCaptureStatus status) noexcept;
@@ -39,6 +40,7 @@ private:
     std::string osVersion_;
     std::string architecture_;
     std::string primaryMonitor_;
+    std::optional<std::uint32_t> primaryDpi_{};
     std::string logPath_;
     std::string failure_;
     GraphicsDeviceInfo deviceInfo_{};
