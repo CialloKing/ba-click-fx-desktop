@@ -2,6 +2,7 @@
 
 #include "bafx/fx/simulation.hpp"
 #include "bafx/fx/simulation_runtime.hpp"
+#include "bafx/fx/simulation_timeline.hpp"
 
 #include <algorithm>
 #include <array>
@@ -60,6 +61,26 @@ constexpr PointF goldenCenter{975.0F, 548.5F};
     return matches;
 }
 
+}
+
+BAFX_TEST(simulation_timeline_freezes_and_excludes_the_paused_interval)
+{
+    SimulationTimeline timeline;
+
+    BAFX_CHECK(timeline.fromWallTime(100ms) == 100ms);
+    timeline.setPaused(true, 125ms);
+    BAFX_CHECK(timeline.paused());
+    BAFX_CHECK(timeline.fromWallTime(125ms) == 125ms);
+    BAFX_CHECK(timeline.fromWallTime(5s) == 125ms);
+
+    // Repeated control snapshots must not move the original pause boundary.
+    timeline.setPaused(true, 2s);
+    BAFX_CHECK(timeline.fromWallTime(5s) == 125ms);
+
+    timeline.setPaused(false, 5s);
+    BAFX_CHECK(!timeline.paused());
+    BAFX_CHECK(timeline.fromWallTime(5s) == 125ms);
+    BAFX_CHECK(timeline.fromWallTime(5016ms) == 141ms);
 }
 
 BAFX_TEST(unity_click_timeline_has_expected_system_counts)

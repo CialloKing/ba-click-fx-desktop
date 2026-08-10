@@ -3,6 +3,7 @@ add_library(
     STATIC
         src/simulation.cpp
         src/simulation_runtime.cpp
+        src/simulation_timeline.cpp
 )
 add_library(bafx::fx ALIAS bafx_fx)
 

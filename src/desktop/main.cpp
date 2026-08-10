@@ -1,6 +1,7 @@
 #include "bafx/desktop/version.hpp"
 #include "bafx/config/config.hpp"
 #include "bafx/fx/simulation_runtime.hpp"
+#include "bafx/fx/simulation_timeline.hpp"
 #include "bafx/windows/composition_renderer.hpp"
 #include "bafx/windows/display_capabilities.hpp"
 #include "bafx/windows/error.hpp"
@@ -27,6 +28,7 @@ namespace
 
 constexpr std::uint32_t maximumMessagesPerFrame = 256U;
 constexpr auto smokeTestDeadline = std::chrono::seconds(5);
+constexpr DWORD pausedControlPollMilliseconds = 50U;
 
 [[nodiscard]] bool wantsBackgroundCapture(
     const bafx::config::Config& config) noexcept
@@ -338,13 +340,15 @@ void dispatchMessages(bool& quit)
 void consumePointerEvents(
     bafx::windows::OverlayWindow& window,
     bafx::fx::SimulationRuntime& simulation,
-    const QpcClock& clock)
+    const QpcClock& clock,
+    const bafx::fx::SimulationTimeline& timeline)
 {
     const bafx::fx::Viewport viewport = toViewport(window.size());
     for (const bafx::windows::PointerEvent& event :
          bafx::windows::coalescePointerMoves(window.takePointerEvents()))
     {
-        const bafx::fx::SimulationTime time = clock.fromCounter(event.qpcTimestamp);
+        const bafx::fx::SimulationTime time = timeline.fromWallTime(
+            clock.fromCounter(event.qpcTimestamp));
         if (event.kind == bafx::windows::PointerEventKind::LeftButtonUp)
         {
             simulation.pointerUp(time);
@@ -546,6 +550,7 @@ int runApplication(
     }
     bafx::windows::appendDiagnosticLog(logPath, report);
     bafx::fx::SimulationRuntime simulation(makeRuntimeSeed());
+    bafx::fx::SimulationTimeline simulationTimeline;
     simulation.setTrailLengthMultiplier(config.effects.trailLength);
     window.show();
 
@@ -568,7 +573,6 @@ int runApplication(
     std::uint64_t appliedGeneration = control.snapshot().generation;
     bool backgroundParticipationLogged = false;
     bool backgroundPendingDiagnosticLogged = false;
-    std::optional<bafx::fx::SimulationTime> frozenRenderTime;
     const bafx::fx::SimulationTime applicationStartedAt = clock.now();
     while (!quit && !window.closeRequested())
     {
@@ -581,8 +585,10 @@ int runApplication(
             break;
         }
 
+        bool renderInvalidated = false;
         if (controlState.generation != appliedGeneration)
         {
+            renderInvalidated = true;
             config = controlState.config;
             // Host owns the render thread, so applying the immutable control
             // snapshot here makes length and Bloom changes take effect on the
@@ -659,28 +665,31 @@ int runApplication(
         if (const auto resize = window.takePendingResize(); resize.has_value())
         {
             renderer.resize(*resize);
+            renderInvalidated = true;
         }
 
+        const bafx::fx::SimulationTime wallTime = clock.now();
+        const bool enteringPause = controlState.paused
+            && !simulationTimeline.paused();
+        simulationTimeline.setPaused(controlState.paused, wallTime);
+        const bafx::fx::SimulationTime renderTime =
+            options.demoAgeMilliseconds.has_value() && demoStartedAt.has_value()
+            ? *demoStartedAt + std::chrono::milliseconds(*options.demoAgeMilliseconds)
+            : simulationTimeline.fromWallTime(wallTime);
         if (options.demoClick || !config.effects.enabled || controlState.paused)
         {
             // Do not let disabled/paused input accumulate and replay after resume.
             static_cast<void>(window.takePointerEvents());
-        }
-        else
-        {
-            consumePointerEvents(window, simulation, clock);
-        }
-        const bafx::fx::SimulationTime wallTime = clock.now();
-        if (controlState.paused)
-        {
-            if (!frozenRenderTime.has_value())
+            if (enteringPause)
             {
-                frozenRenderTime = wallTime;
+                // Match the Web/Unity stop boundary: detach the held pointer
+                // while retaining already emitted particles and trail geometry.
+                simulation.pointerCancel(renderTime);
             }
         }
         else
         {
-            frozenRenderTime.reset();
+            consumePointerEvents(window, simulation, clock, simulationTimeline);
         }
         if (options.quitAfterMilliseconds.has_value()
             && wallTime - applicationStartedAt
@@ -693,22 +702,24 @@ int runApplication(
             // A bounded smoke test must fail instead of hanging under a noisy input source.
             throw std::runtime_error("Desktop smoke test exceeded its five-second deadline");
         }
-        const bafx::fx::SimulationTime renderTime =
-            options.demoAgeMilliseconds.has_value() && demoStartedAt.has_value()
-            ? *demoStartedAt + std::chrono::milliseconds(*options.demoAgeMilliseconds)
-            : frozenRenderTime.has_value() ? *frozenRenderTime : wallTime;
-        if (!controlState.paused && config.effects.enabled)
+        if ((!controlState.paused || enteringPause) && config.effects.enabled)
         {
             simulation.advance(renderTime);
         }
-        bafx::fx::FrameSnapshot snapshot = config.effects.enabled
-            ? simulation.snapshot(toViewport(window.size()), renderTime)
-            : bafx::fx::FrameSnapshot{};
-        applyVisualConfig(snapshot, config);
-        renderer.renderFrame(snapshot, wallTime);
-        if (renderer.backgroundParticipatedInLastFrame())
+        const bool shouldRender = !controlState.paused
+            || enteringPause
+            || renderInvalidated;
+        if (shouldRender)
         {
-            ++backgroundCompositeFrames;
+            bafx::fx::FrameSnapshot snapshot = config.effects.enabled
+                ? simulation.snapshot(toViewport(window.size()), renderTime)
+                : bafx::fx::FrameSnapshot{};
+            applyVisualConfig(snapshot, config);
+            renderer.renderFrame(snapshot, wallTime);
+            if (renderer.backgroundParticipatedInLastFrame())
+            {
+                ++backgroundCompositeFrames;
+            }
         }
         const bool currentBackgroundCaptureActive = renderer.backgroundCaptureActive();
         control.setBackgroundCaptureActive(currentBackgroundCaptureActive);
@@ -739,7 +750,8 @@ int runApplication(
                 : "WGC background capture stopped; using FX-only rendering");
             bafx::windows::appendDiagnosticLog(logPath, report);
         }
-        if (renderer.backgroundParticipatedInLastFrame()
+        if (shouldRender
+            && renderer.backgroundParticipatedInLastFrame()
             && !backgroundParticipationLogged)
         {
             // Session startup alone does not prove that a captured desktop
@@ -761,7 +773,7 @@ int runApplication(
             bafx::windows::appendDiagnosticLog(logPath, diagnostic);
             backgroundPendingDiagnosticLogged = true;
         }
-        if (options.smokeTest)
+        if (shouldRender && options.smokeTest)
         {
             const std::optional<bafx::windows::PixelF> pixel =
                 renderer.lastCenterPixel();
@@ -777,20 +789,39 @@ int runApplication(
                     "Desktop smoke test did not render a finite center FX pixel");
             }
         }
-        simulation.onFrameRendered();
-        ++renderedFrames;
-        if (options.frameLimit.has_value() && renderedFrames >= *options.frameLimit)
+        if (shouldRender)
         {
-            break;
+            simulation.onFrameRendered();
+            ++renderedFrames;
+            if (options.frameLimit.has_value() && renderedFrames >= *options.frameLimit)
+            {
+                break;
+            }
         }
 
-        const HANDLE waitable = renderer.frameLatencyWaitableObject();
-        const DWORD waitResult = MsgWaitForMultipleObjectsEx(
-            1,
-            &waitable,
-            1000,
-            QS_ALLINPUT,
-            MWMO_INPUTAVAILABLE);
+        DWORD waitResult = WAIT_TIMEOUT;
+        if (controlState.paused)
+        {
+            // A DirectComposition swap chain retains its last presented frame.
+            // Poll only the control plane while paused, without consuming WGC
+            // frames or presenting the frozen overlay again.
+            waitResult = MsgWaitForMultipleObjectsEx(
+                0,
+                nullptr,
+                pausedControlPollMilliseconds,
+                QS_ALLINPUT,
+                MWMO_INPUTAVAILABLE);
+        }
+        else
+        {
+            const HANDLE waitable = renderer.frameLatencyWaitableObject();
+            waitResult = MsgWaitForMultipleObjectsEx(
+                1,
+                &waitable,
+                1000,
+                QS_ALLINPUT,
+                MWMO_INPUTAVAILABLE);
+        }
         if (waitResult == WAIT_FAILED)
         {
             bafx::windows::throwLastError("MsgWaitForMultipleObjectsEx");
