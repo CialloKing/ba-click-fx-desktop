@@ -2,6 +2,10 @@
 param(
     [string]$OutputDirectory = 'artifacts\local',
 
+    # Retained for callers of the former WinUI packaging contract. CMake now
+    # selects and invokes the native toolchain, so no separate MSBuild path is needed.
+    [string]$MSBuild,
+
     [switch]$SkipVerification
 )
 
