@@ -472,6 +472,17 @@ int runApplication(
             failure += "; reason=";
             failure += renderer.backgroundCaptureFailure();
         }
+        if (backgroundCaptureWanted)
+        {
+            // A failed WGC startup has no feedback to protect. Restore normal
+            // capture visibility so FX-only fallback remains visible to recorders.
+            renderer.disableBackgroundCapture();
+            const bafx::windows::CaptureExclusionStatus fallbackExclusion =
+                window.setCaptureExcluded(false);
+            bafx::windows::appendDiagnosticLog(
+                logPath,
+                bafx::windows::captureExclusionDiagnostic(fallbackExclusion));
+        }
         bafx::windows::appendDiagnosticLog(logPath, failure);
     }
     else
@@ -544,6 +555,17 @@ int runApplication(
                             logPath,
                             std::string("WGC background capture unavailable; using FX-only rendering; reason=")
                                 + std::string(renderer.backgroundCaptureFailure()));
+                    }
+                    if (!backgroundCaptureEnabled)
+                    {
+                        // WGC did not start, so retaining self-exclusion would
+                        // make the FX-only fallback unexpectedly invisible.
+                        renderer.disableBackgroundCapture();
+                        const bafx::windows::CaptureExclusionStatus fallbackExclusion =
+                            window.setCaptureExcluded(false);
+                        bafx::windows::appendDiagnosticLog(
+                            logPath,
+                            bafx::windows::captureExclusionDiagnostic(fallbackExclusion));
                     }
                 }
                 else
@@ -620,6 +642,17 @@ int runApplication(
         if (currentBackgroundCaptureActive != backgroundCaptureEnabled)
         {
             backgroundCaptureEnabled = currentBackgroundCaptureActive;
+            if (!backgroundCaptureEnabled && backgroundCaptureWanted)
+            {
+                // Session close, item close, or a failed resize leaves no
+                // valid background sample; return to ordinary FX-only capture.
+                renderer.disableBackgroundCapture();
+                const bafx::windows::CaptureExclusionStatus fallbackExclusion =
+                    window.setCaptureExcluded(false);
+                bafx::windows::appendDiagnosticLog(
+                    logPath,
+                    bafx::windows::captureExclusionDiagnostic(fallbackExclusion));
+            }
             report.setBackgroundCaptureStatus(
                 backgroundCaptureEnabled
                 ? bafx::windows::BackgroundCaptureStatus::Active
