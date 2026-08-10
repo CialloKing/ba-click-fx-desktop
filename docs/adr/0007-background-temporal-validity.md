@@ -23,10 +23,12 @@
 - 来自旧 epoch、尺寸/encoding 不匹配或未确认排除自身 overlay 的样本立即不可用。
 - 可用样本同时启用完整 Differential Bloom 和 background-aware source-over 反解；不可用样本同时
   回退 FX-only。sample age 不参与 Bloom、Alpha 或其他视觉能量计算，避免正常 WGC cadence 在浅色
-  背景上形成周期性亮度脉冲。反解时每通道小于 `1/1024` 的目标/背景差异视为 WGC/DWM
-  量化噪声并省略；分母同时设置相同下限，避免接近纯白时把不可见差异放大成不透明载荷。
-  该近似的最大线性颜色误差不超过 `1/1024`，不改变 FX-only 或 Unity source-over 的源颜色。
-  锁存只保存路径枚举，不跨帧缓存 sensor 所有的裸 SRV。
+  背景上形成周期性亮度脉冲。Render Owner 将首个可用帧复制到独立背景快照，使同一可见批次的
+  Differential Bloom 与最终反解读取同一个样本；批次结束、尺寸变化或 session 失效时丢弃快照。
+  反解时每通道小于 `1/1024` 的目标/背景差异视为 WGC/DWM 量化噪声并省略；分母同时设置相同下限，
+  当亮面余量只剩少数 FP16 步进时改用该帧 Coverage/能量传输容量而不再放大反解 Alpha，避免接近
+  纯白时把不可见差异放大成不透明载荷。该近似只属于已知背景的传输层，不改变 FX-only 或 Unity
+  source-over 的源颜色。
 
 ## Acceptance
 

@@ -461,6 +461,30 @@ void checkValidDesktopPremultiplied(
     return maximum;
 }
 
+[[nodiscard]] float maximumAlphaDeltaInBox(
+    const std::vector<ReadbackPixel>& left,
+    const std::vector<ReadbackPixel>& right,
+    const std::uint32_t boxLeft,
+    const std::uint32_t boxTop,
+    const std::uint32_t boxRight,
+    const std::uint32_t boxBottom) noexcept
+{
+    float maximum = 0.0F;
+    for (std::uint32_t y = boxTop; y < boxBottom; ++y)
+    {
+        for (std::uint32_t x = boxLeft; x < boxRight; ++x)
+        {
+            const std::size_t index = static_cast<std::size_t>(y)
+                * testSize.width
+                + x;
+            maximum = (std::max)(
+                maximum,
+                std::abs(left[index].alpha - right[index].alpha));
+        }
+    }
+    return maximum;
+}
+
 }
 
 BAFX_TEST(warp_pipeline_separates_direct_emission_and_multilevel_bloom_seed)
@@ -916,6 +940,85 @@ BAFX_TEST(warp_background_transport_suppresses_near_white_capture_noise)
             trailRight,
             trailBottom)
         > 0.5F);
+}
+
+BAFX_TEST(warp_background_transport_stays_stable_across_light_capture_steps)
+{
+    ComApartment apartment;
+    const WarpDevice graphics = createWarpDevice();
+    FxGpuRenderer renderer(graphics.device.Get(), graphics.context.Get(), testSize);
+    renderer.setBloomSettings(FxBloomSettings{0.0F, 7.0F});
+    const bafx::fx::FrameSnapshot snapshot = makeDiskAndTrailSnapshot();
+
+    const auto renderOverCapturedBackground = [&](const float capturedValue)
+    {
+        const RenderTarget background = createRenderTarget(graphics.device.Get());
+        const std::array<float, 4> color{
+            capturedValue,
+            capturedValue,
+            capturedValue,
+            1.0F};
+        graphics.context->ClearRenderTargetView(background.view.Get(), color.data());
+        const RenderTarget output = createRenderTarget(graphics.device.Get());
+        renderer.render(
+            snapshot,
+            output.view.Get(),
+            BackgroundRenderInput{background.shaderResource.Get()});
+        return readback(graphics.context.Get(), output.texture.Get());
+    };
+
+    constexpr std::array<float, 5> capturedValues{
+        0.98828125F,
+        0.9892578125F,
+        0.99F,
+        0.99072265625F,
+        0.99169921875F};
+
+    std::vector<ReadbackPixel> reference;
+    for (const float capturedValue : capturedValues)
+    {
+        const std::vector<ReadbackPixel> pixels =
+            renderOverCapturedBackground(capturedValue);
+        checkValidDesktopPremultiplied(pixels, false);
+        if (reference.empty())
+        {
+            reference = pixels;
+            continue;
+        }
+
+        // Alpha is the part that DComp applies to the real desktop. It must
+        // remain authored and stable even when WGC reports adjacent FP16
+        // values for a visually unchanged light surface.
+        const float diskAlphaDelta = maximumAlphaDeltaInBox(
+            reference,
+            pixels,
+            96U,
+            96U,
+            160U,
+            160U);
+        const float trailAlphaDelta = maximumAlphaDeltaInBox(
+            reference,
+            pixels,
+            16U,
+            48U,
+            120U,
+            80U);
+        BAFX_CHECK(diskAlphaDelta <= 2.0e-3F);
+        BAFX_CHECK(trailAlphaDelta <= 2.0e-3F);
+    }
+
+    BAFX_CHECK(maximumAlphaInBox(
+        reference,
+        96U,
+        96U,
+        160U,
+        160U) > 0.5F);
+    BAFX_CHECK(maximumAlphaInBox(
+        reference,
+        16U,
+        48U,
+        120U,
+        80U) > 0.05F);
 }
 
 BAFX_TEST(warp_background_path_keeps_triangle_alpha_independent_from_the_disk)

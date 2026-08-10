@@ -194,10 +194,12 @@ Render Owner 醒来后串行调用 `TryGetNextFrame`，丢弃旧帧、保留最�
 可用性是二值合同。可用纹理始终同时驱动完整 Differential Bloom 与同一套 background-aware
 source-over 反解；不可用时两者同时切回 FX-only。sample age 不得映射为 Bloom、Alpha 或其他视觉
 能量权重，避免捕获 cadence 在浅色背景上调制点击和拖尾亮度。窗口参数属于 ADR-007 的 Proposed
-值，获取/保留迟滞只锁存路径枚举，不保存 WGC 裸纹理；真实 cadence/VRR 证据可收窄窗口，但不能
-取消 stale cutoff。背景反解还将每通道小于 `1/1024` 的差异视为捕获量化噪声，并对接近白色的
-分母使用相同下限；否则 `1 - background` 接近零会把不可见的 FP16 步进放大为不透明闪烁。
-这个误差预算只属于已知背景的传输层，不能用于放宽 Unity Golden 的源渲染比较。
+值，获取/保留迟滞只锁存路径枚举；Render Owner 还会将首个可用 WGC 帧复制到独立快照，保证
+Differential Bloom 和最终反解在一个可见批次内读取同一背景样本。真实 cadence/VRR 证据可收窄窗口，
+但不能取消 stale cutoff。背景反解还将每通道小于 `1/1024` 的差异视为捕获量化噪声，并对接近白色的
+分母使用相同下限；当亮面余量只有少数 FP16 步进时，Alpha 改用该帧 Coverage/能量传输容量
+而不再放大背景反解值，避免 `1 - background` 接近零把不可见步进放大为不透明闪烁。这个误差预算只属于已知
+背景的传输层，不能用于放宽 Unity Golden 的源渲染比较。
 
 ## 7. 捕获功耗状态
 

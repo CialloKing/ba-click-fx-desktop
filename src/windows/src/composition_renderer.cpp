@@ -156,6 +156,7 @@ void CompositionRenderer::resize(const WindowSize size)
     // previous visible batch's path into the new session while its first
     // correctly sized WGC frame is still pending.
     backgroundPathLatch_.reset();
+    resetBackgroundSnapshot();
 
     context_->OMSetRenderTargets(0, nullptr, nullptr);
     renderTarget_.Reset();
@@ -188,6 +189,13 @@ void CompositionRenderer::renderFrame(
     std::optional<WgcBackgroundSample> backgroundSample;
     bafx::core::BackgroundUsageDecision acquireUsage{};
     bafx::core::BackgroundUsageDecision retainUsage{};
+    if (!snapshot.hasDrawableContent())
+    {
+        // A new visible batch gets a fresh desktop reference. Keeping the
+        // previous copy across an idle frame would make a later click inherit
+        // an unrelated background and reintroduce a bright-surface pulse.
+        resetBackgroundSnapshot();
+    }
     backgroundParticipatedInLastFrame_ = false;
     backgroundCompositeStatus_ = backgroundSensor_ != nullptr
         ? BackgroundCompositeStatus::WaitingForFrame
@@ -226,6 +234,7 @@ void CompositionRenderer::renderFrame(
                 // The capture session ended between visible frames. The next
                 // session must make an independent acquire decision.
                 backgroundPathLatch_.reset();
+                resetBackgroundSnapshot();
             }
             else if (drainStatus == WgcBackgroundDrainStatus::Reconfigured)
             {
@@ -233,6 +242,7 @@ void CompositionRenderer::renderFrame(
                 // sample. Treat it as a new session so the first replacement
                 // frame cannot inherit the old visible batch's path.
                 backgroundPathLatch_.reset();
+                resetBackgroundSnapshot();
             }
             else
             {
@@ -282,6 +292,7 @@ void CompositionRenderer::renderFrame(
             // A failed session cannot continue the previous path safely: its
             // resource and epoch are no longer part of the active contract.
             backgroundPathLatch_.reset();
+            resetBackgroundSnapshot();
         }
     }
 
@@ -290,19 +301,43 @@ void CompositionRenderer::renderFrame(
             snapshot.hasDrawableContent(),
             backgroundSample.has_value() && acquireUsage.enabled,
             backgroundSample.has_value() && retainUsage.enabled);
-    if (renderPath == bafx::core::BackgroundRenderPath::BackgroundAware
+    const bool useBackgroundTransport =
+        renderPath == bafx::core::BackgroundRenderPath::BackgroundAware
         && backgroundSample.has_value()
-        && retainUsage.enabled)
+        && retainUsage.enabled;
+    if (useBackgroundTransport)
     {
-        background = BackgroundRenderInput{backgroundSample->texture};
-        backgroundParticipatedInLastFrame_ = true;
-        backgroundCompositeStatus_ = BackgroundCompositeStatus::Participating;
+        if (!backgroundSnapshotValid_
+            && captureBackgroundSnapshot(backgroundSample->texture))
+        {
+            backgroundSnapshotValid_ = true;
+        }
+        if (backgroundSnapshotValid_)
+        {
+            background = BackgroundRenderInput{
+                backgroundSnapshotShaderResource_.Get()};
+            backgroundParticipatedInLastFrame_ = true;
+            backgroundCompositeStatus_ = BackgroundCompositeStatus::Participating;
+        }
+        else
+        {
+            // Optional WGC transport must never prevent the stable FX-only
+            // path when a snapshot allocation or copy is unavailable.
+            backgroundPathLatch_.reset();
+            backgroundCompositeStatus_ = BackgroundCompositeStatus::CaptureFailed;
+        }
     }
-    else if (snapshot.hasDrawableContent()
-        && backgroundSample.has_value()
-        && acquireUsage.enabled)
+    else
     {
-        backgroundCompositeStatus_ = BackgroundCompositeStatus::LatchedFxOnly;
+        // A downgraded or missing background path must not leave a previous
+        // batch's snapshot available for a later FX-only frame.
+        resetBackgroundSnapshot();
+        if (snapshot.hasDrawableContent()
+            && backgroundSample.has_value()
+            && acquireUsage.enabled)
+        {
+            backgroundCompositeStatus_ = BackgroundCompositeStatus::LatchedFxOnly;
+        }
     }
 
     fxRenderer_->render(snapshot, renderTarget_.Get(), background);
@@ -328,6 +363,7 @@ bool CompositionRenderer::tryEnableBackgroundCapture(
     // Re-enabling capture replaces the producer and therefore starts a new
     // visible-batch decision, even when the monitor and options are unchanged.
     backgroundPathLatch_.reset();
+    resetBackgroundSnapshot();
     if (backgroundSensor_ != nullptr)
     {
         backgroundSensor_->stop();
@@ -364,6 +400,7 @@ void CompositionRenderer::disableBackgroundCapture() noexcept
     // Disabling capture invalidates any latched Background-aware path before
     // the next FX-only frame is presented.
     backgroundPathLatch_.reset();
+    resetBackgroundSnapshot();
     backgroundCaptureRequested_ = false;
     backgroundMonitor_ = nullptr;
     backgroundRefreshPeriod_ = bafx::core::MonotonicTime::zero();
@@ -453,6 +490,7 @@ bool CompositionRenderer::tryCreateBackgroundSensor() noexcept
         // Sensor construction can fail after allocating part of a session;
         // clear the latch so a later retry cannot inherit that partial state.
         backgroundPathLatch_.reset();
+        resetBackgroundSnapshot();
         try
         {
             throw;
@@ -683,6 +721,86 @@ void CompositionRenderer::createRenderTarget()
     throwIfFailed(
         device_->CreateRenderTargetView(backBuffer_.Get(), nullptr, &renderTarget_),
         "ID3D11Device::CreateRenderTargetView");
+}
+
+void CompositionRenderer::resetBackgroundSnapshot() noexcept
+{
+    backgroundSnapshotShaderResource_.Reset();
+    backgroundSnapshotTexture_.Reset();
+    backgroundSnapshotSize_ = WindowSize{};
+    backgroundSnapshotValid_ = false;
+}
+
+bool CompositionRenderer::captureBackgroundSnapshot(
+    ID3D11ShaderResourceView* const source) noexcept
+{
+    if (source == nullptr || device_ == nullptr || context_ == nullptr)
+    {
+        resetBackgroundSnapshot();
+        return false;
+    }
+
+    try
+    {
+        Microsoft::WRL::ComPtr<ID3D11Resource> sourceResource;
+        source->GetResource(&sourceResource);
+        Microsoft::WRL::ComPtr<ID3D11Texture2D> sourceTexture;
+        throwIfFailed(
+            sourceResource.As(&sourceTexture),
+            "WGC background snapshot source texture");
+
+        D3D11_TEXTURE2D_DESC sourceDescription{};
+        sourceTexture->GetDesc(&sourceDescription);
+        if (sourceDescription.Width != size_.width
+            || sourceDescription.Height != size_.height
+            || sourceDescription.MipLevels != 1U
+            || sourceDescription.ArraySize != 1U
+            || sourceDescription.Format != DXGI_FORMAT_R16G16B16A16_FLOAT
+            || sourceDescription.SampleDesc.Count != 1U
+            || sourceDescription.SampleDesc.Quality != 0U)
+        {
+            resetBackgroundSnapshot();
+            return false;
+        }
+
+        if (backgroundSnapshotTexture_ == nullptr
+            || backgroundSnapshotSize_.width != size_.width
+            || backgroundSnapshotSize_.height != size_.height)
+        {
+            D3D11_TEXTURE2D_DESC destinationDescription{};
+            destinationDescription.Width = size_.width;
+            destinationDescription.Height = size_.height;
+            destinationDescription.MipLevels = 1U;
+            destinationDescription.ArraySize = 1U;
+            destinationDescription.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
+            destinationDescription.SampleDesc = DXGI_SAMPLE_DESC{1U, 0U};
+            destinationDescription.Usage = D3D11_USAGE_DEFAULT;
+            destinationDescription.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+            throwIfFailed(
+                device_->CreateTexture2D(
+                    &destinationDescription,
+                    nullptr,
+                    &backgroundSnapshotTexture_),
+                "ID3D11Device::CreateTexture2D(WGC background snapshot)");
+            throwIfFailed(
+                device_->CreateShaderResourceView(
+                    backgroundSnapshotTexture_.Get(),
+                    nullptr,
+                    &backgroundSnapshotShaderResource_),
+                "ID3D11Device::CreateShaderResourceView(WGC background snapshot)");
+            backgroundSnapshotSize_ = size_;
+        }
+
+        context_->CopyResource(
+            backgroundSnapshotTexture_.Get(),
+            sourceTexture.Get());
+        return true;
+    }
+    catch (...)
+    {
+        resetBackgroundSnapshot();
+        return false;
+    }
 }
 
 void CompositionRenderer::captureCenterPixel()

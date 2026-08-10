@@ -253,10 +253,10 @@ float4 DifferentialPrefilterPixel(FullscreenOutput input) : SV_Target0
     const float3 differential = max(
         BrightPass(scene).rgb - BrightPass(background).rgb,
         0.0);
-    const float transportEnergy = max(
+    const float differentialEnergy = max(
         differential.r,
         max(differential.g, differential.b));
-    return float4(differential, transportEnergy);
+    return float4(differential, differentialEnergy);
 }
 
 float4 DownsamplePixel(FullscreenOutput input) : SV_Target0
@@ -389,20 +389,63 @@ float4 ResolveBackgroundAwareDesktopTransport(
         max(direct.rgb, 0.0)
         + background * (1.0 - saturate(occlusion))
         + max(bloom.rgb, 0.0) * exposureGain);
+
+    // Keep Alpha tied to authored Coverage and Bloom transport, matching the
+    // WebGL2/WebGPU transparent-overlay contract. Inverting target-background
+    // is ill-conditioned on a light desktop: one FP16 capture step near white
+    // can otherwise turn a stable edge into an opaque pixel.
+    const float sceneCoverage = saturate(direct.a);
+    const float crossCoverage = saturate(occlusion);
+    const float additiveCoverage = saturate(
+        (sceneCoverage - crossCoverage)
+        / max(1.0 - crossCoverage, 0.000001));
+    const float bloomTransport = max(bloom.a, 0.0) * exposureGain;
+    const float requestedCoverage = saturate(
+        crossCoverage + additiveCoverage + bloomTransport);
+    // Additive trail emission is intentionally independent from Coverage.
+    // Include its peak transport energy so a faded tail remains valid
+    // premultiplied RGB without allowing the captured desktop to choose Alpha.
+    const float directEnergy = max(
+        direct.rgb.r,
+        max(direct.rgb.g, direct.rgb.b));
+    const float transportCapacity = saturate(max(
+        requestedCoverage,
+        directEnergy));
+    const float overlayAlphaLimit = 250.0 / 255.0;
+
     const float3 difference = abs(target - background);
     if (max(difference.r, max(difference.g, difference.b))
         <= BackgroundTransportNoiseFloor)
     {
         return float4(0.0, 0.0, 0.0, 0.0);
     }
-
     const float3 channelAlpha = float3(
         SolveOverlayAlpha(background.r, target.r),
         SolveOverlayAlpha(background.g, target.g),
         SolveOverlayAlpha(background.b, target.b));
-    const float alpha = saturate(max(
+    const float reconstructedAlpha = saturate(max(
         channelAlpha.r,
         max(channelAlpha.g, channelAlpha.b)));
+    // A capture step near white can make reconstructedAlpha larger than any
+    // authored layer. Capping it by transportCapacity preserves the visible
+    // effect while preventing a transparent edge or trail tail from becoming
+    // opaque when WGC quantization moves by one FP16 step.
+    const float boundedAlpha = min(
+        min(reconstructedAlpha, transportCapacity),
+        overlayAlphaLimit);
+    // Once the captured light headroom is only a few FP16 steps, the inverse
+    // problem is numerically ill-conditioned. Use authored capacity for that
+    // surface so both a click edge and a fading trail keep one stable Alpha.
+    const float lightSurfaceThreshold = 1.0
+        - BackgroundTransportNoiseFloor * 16.0;
+    const float alpha = max(background.r, max(background.g, background.b))
+        >= lightSurfaceThreshold
+        ? min(transportCapacity, overlayAlphaLimit)
+        : boundedAlpha;
+    if (alpha <= 0.000001)
+    {
+        return float4(0.0, 0.0, 0.0, 0.0);
+    }
     const float3 premultiplied = target - background * (1.0 - alpha);
 
     // The captured background is baked into the payload only as required to

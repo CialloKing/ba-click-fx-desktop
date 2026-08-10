@@ -118,6 +118,9 @@ private:
     void createSwapChain(WindowSize size);
     void createComposition(HWND window);
     void createRenderTarget();
+    void resetBackgroundSnapshot() noexcept;
+    [[nodiscard]] bool captureBackgroundSnapshot(
+        ID3D11ShaderResourceView* source) noexcept;
     void captureCenterPixel();
     void setBackgroundCaptureFailure(std::string_view message) noexcept;
     [[nodiscard]] bool tryCreateBackgroundSensor() noexcept;
@@ -127,6 +130,13 @@ private:
     Microsoft::WRL::ComPtr<IDXGISwapChain3> swapChain_{};
     Microsoft::WRL::ComPtr<ID3D11Texture2D> backBuffer_{};
     Microsoft::WRL::ComPtr<ID3D11RenderTargetView> renderTarget_{};
+    // WGC owns and reuses its latest texture. Keep an immutable copy for the
+    // lifetime of one visible FX batch so capture cadence cannot modulate the
+    // Differential Bloom and Final source-over solver independently.
+    Microsoft::WRL::ComPtr<ID3D11Texture2D> backgroundSnapshotTexture_{};
+    Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> backgroundSnapshotShaderResource_{};
+    WindowSize backgroundSnapshotSize_{};
+    bool backgroundSnapshotValid_{false};
     Microsoft::WRL::ComPtr<IDCompositionDevice> compositionDevice_{};
     Microsoft::WRL::ComPtr<IDCompositionTarget> compositionTarget_{};
     Microsoft::WRL::ComPtr<IDCompositionVisual> rootVisual_{};
