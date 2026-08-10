@@ -11,6 +11,7 @@
 #include <iomanip>
 #include <sstream>
 #include <stdexcept>
+#include <span>
 #include <string>
 #include <string_view>
 
@@ -63,7 +64,7 @@ private:
     BCRYPT_ALG_HANDLE handle_{nullptr};
 };
 
-[[nodiscard]] std::string sha256(const std::vector<std::uint8_t>& bytes)
+[[nodiscard]] std::string sha256(const std::span<const std::uint8_t> bytes)
 {
     AlgorithmProvider provider;
     std::array<std::uint8_t, 32> digest{};
@@ -131,10 +132,11 @@ BAFX_TEST(packed_fx_textures_decode_to_locked_pixels)
         BAFX_CHECK(texture.width == expected.width);
         BAFX_CHECK(texture.height == expected.height);
         BAFX_CHECK(texture.rowPitch == expected.rowPitch);
-        BAFX_CHECK(texture.pixels.size()
+        BAFX_CHECK(texture.pixelByteCount
             == static_cast<std::size_t>(expected.rowPitch) * expected.height);
         BAFX_CHECK(texture.decodedSha256 == expected.sha256);
-        BAFX_CHECK(sha256(texture.pixels) == expected.sha256);
+        BAFX_CHECK(sha256({texture.pixels.get(), texture.pixelByteCount})
+            == expected.sha256);
     }
 }
 
@@ -150,10 +152,10 @@ BAFX_TEST(packed_fx_textures_are_raw_pixels_not_png_containers)
              bafx::windows::PackedFxTextureId::Trail})
     {
         const auto texture = bafx::windows::decodePackedFxTexture(id);
-        BAFX_CHECK(texture.pixels.size() >= pngSignature.size());
+        BAFX_CHECK(texture.pixelByteCount >= pngSignature.size());
         BAFX_CHECK(!std::equal(
             pngSignature.begin(),
             pngSignature.end(),
-            texture.pixels.begin()));
+            texture.pixels.get()));
     }
 }

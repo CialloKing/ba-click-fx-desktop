@@ -1,8 +1,9 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <string_view>
-#include <vector>
 
 namespace bafx::windows
 {
@@ -22,7 +23,8 @@ struct DecodedPackedFxTexture
     std::uint32_t height{0U};
     std::uint32_t rowPitch{0U};
     std::string_view decodedSha256;
-    std::vector<std::uint8_t> pixels;
+    std::size_t pixelByteCount{0U};
+    std::unique_ptr<std::uint8_t[]> pixels;
 };
 
 // Each payload is a raw LZ4 block compiled directly into .rdata. Decoding one

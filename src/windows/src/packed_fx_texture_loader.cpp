@@ -31,7 +31,7 @@ ComPtr<ID3D11ShaderResourceView> loadPackedFxTexture(
     textureDescription.BindFlags = D3D11_BIND_SHADER_RESOURCE;
 
     D3D11_SUBRESOURCE_DATA textureData{};
-    textureData.pSysMem = decoded.pixels.data();
+    textureData.pSysMem = decoded.pixels.get();
     textureData.SysMemPitch = decoded.rowPitch;
 
     ComPtr<ID3D11Texture2D> texture;

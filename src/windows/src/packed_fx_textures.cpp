@@ -96,7 +96,7 @@ struct PackedTextureRecord
 }
 
 void copyMatch(
-    std::vector<std::uint8_t>& output,
+    const std::span<std::uint8_t> output,
     const std::size_t outputOffset,
     const std::size_t distance,
     const std::size_t length)
@@ -131,7 +131,7 @@ void copyMatch(
     }
 }
 
-[[nodiscard]] std::vector<std::uint8_t> decodeLz4Block(
+[[nodiscard]] std::unique_ptr<std::uint8_t[]> decodeLz4Block(
     const std::span<const std::uint8_t> source,
     const std::size_t decodedByteCount)
 {
@@ -140,7 +140,13 @@ void copyMatch(
         throw std::invalid_argument("Packed FX texture LZ4 ranges must not be empty");
     }
 
-    std::vector<std::uint8_t> output(decodedByteCount);
+    // Every output byte is written by the decoder, so value-initializing this
+    // buffer would add a redundant memory pass during startup.
+    auto output = std::make_unique_for_overwrite<std::uint8_t[]>(
+        decodedByteCount);
+    const std::span<std::uint8_t> outputBytes{
+        output.get(),
+        decodedByteCount};
     std::size_t sourceOffset = 0U;
     std::size_t outputOffset = 0U;
     while (sourceOffset < source.size())
@@ -151,12 +157,12 @@ void copyMatch(
             sourceOffset,
             static_cast<std::size_t>(token >> 4U));
         if (literalLength > source.size() - sourceOffset
-            || literalLength > output.size() - outputOffset)
+            || literalLength > outputBytes.size() - outputOffset)
         {
             throw std::runtime_error("Packed FX texture has an invalid LZ4 literal");
         }
         std::memcpy(
-            output.data() + outputOffset,
+            outputBytes.data() + outputOffset,
             source.data() + sourceOffset,
             literalLength);
         sourceOffset += literalLength;
@@ -188,15 +194,15 @@ void copyMatch(
             throw std::overflow_error("Packed FX texture LZ4 match overflowed");
         }
         const std::size_t matchLength = matchPayload + 4U;
-        if (matchLength > output.size() - outputOffset)
+        if (matchLength > outputBytes.size() - outputOffset)
         {
             throw std::runtime_error("Packed FX texture has an invalid LZ4 match");
         }
-        copyMatch(output, outputOffset, distance, matchLength);
+        copyMatch(outputBytes, outputOffset, distance, matchLength);
         outputOffset += matchLength;
     }
 
-    if (sourceOffset != source.size() || outputOffset != output.size())
+    if (sourceOffset != source.size() || outputOffset != outputBytes.size())
     {
         throw std::runtime_error("Packed FX texture LZ4 output is incomplete");
     }
@@ -235,6 +241,7 @@ DecodedPackedFxTexture decodePackedFxTexture(const PackedFxTextureId id)
         record.height,
         rowPitch,
         record.decodedSha256,
+        record.decodedByteCount,
         decodeLz4Block(record.lz4Bytes, record.decodedByteCount)};
 }
 
