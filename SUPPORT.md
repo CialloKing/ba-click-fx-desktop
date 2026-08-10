@@ -40,6 +40,7 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File .\tools\package-test-bundle.ps1
   `background-aware` 与 `recording-compatible` 选项仍是显式实验入口；本 Alpha 不将它们作为
   可依赖的效果路径，出现失败或帧过期时应维持或回退 FX-only。`recording-compatible` 始终关闭
   WGC 并撤销窗口捕获排除，以便录屏器有机会看到 overlay，但不保证任意录屏器都能捕获。
+  `background-aware` 启动或会话中止后也会撤销窗口捕获排除，避免 FX-only 回退被录屏器隐藏。
 - 当前 portable 包在 Windows 10 19045 的实测结果为 `Support.WGC=fallback-fx-only`，原因是
   `GraphicsCaptureSession::QueryInterface(IGraphicsCaptureSession3)` 返回 `0x80004002`
   (`E_NOINTERFACE`)。这表示本机缺少无边框接口，不表示 D3D11 或 FX-only 渲染失败。需要
