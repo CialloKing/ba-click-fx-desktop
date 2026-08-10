@@ -37,6 +37,7 @@ add_subdirectory(src/reference)
 if(WIN32)
     add_subdirectory(src/windows)
     add_subdirectory(src/desktop)
+    add_subdirectory(src/control-center)
     add_subdirectory(src/capture)
 endif()
 
