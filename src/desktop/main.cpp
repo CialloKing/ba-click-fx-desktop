@@ -455,10 +455,12 @@ int runApplication(
     // WGC startup belongs here, after the base renderer exists and only when
     // capture exclusion was confirmed by querying the effective affinity.
     bool backgroundCaptureWanted = wantsBackgroundCapture(config);
+    bool backgroundCursorExcluded = config.background.cursorExcluded;
     bool backgroundCaptureEnabled = backgroundCaptureWanted
         && renderer.tryEnableBackgroundCapture(
             primaryMonitor.handle,
-            exclusionConfirmed);
+            exclusionConfirmed,
+            backgroundCursorExcluded);
     if (!backgroundCaptureEnabled)
     {
         report.setBackgroundCaptureStatus(
@@ -533,9 +535,12 @@ int runApplication(
             simulation.setTrailLengthMultiplier(config.effects.trailLength);
             renderer.setBloomSettings(makeBloomSettings(config.effects));
             const bool nextBackgroundCaptureWanted = wantsBackgroundCapture(config);
-            if (nextBackgroundCaptureWanted != backgroundCaptureWanted)
+            const bool nextBackgroundCursorExcluded = config.background.cursorExcluded;
+            if (nextBackgroundCaptureWanted != backgroundCaptureWanted
+                || nextBackgroundCursorExcluded != backgroundCursorExcluded)
             {
                 backgroundCaptureWanted = nextBackgroundCaptureWanted;
+                backgroundCursorExcluded = nextBackgroundCursorExcluded;
                 if (backgroundCaptureWanted)
                 {
                     const bafx::windows::CaptureExclusionStatus exclusion =
@@ -544,7 +549,8 @@ int runApplication(
                     backgroundCaptureEnabled = confirmed
                         && renderer.tryEnableBackgroundCapture(
                             primaryMonitor.handle,
-                            confirmed);
+                            confirmed,
+                            backgroundCursorExcluded);
                     bafx::windows::appendDiagnosticLog(
                         logPath,
                         bafx::windows::captureExclusionDiagnostic(exclusion));

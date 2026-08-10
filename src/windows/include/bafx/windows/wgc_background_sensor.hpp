@@ -17,6 +17,9 @@ struct WgcBackgroundSensorOptions
 {
     std::uint64_t epoch{1U};
     bool excludesOwnOverlay{false};
+    // Cursor capture is optional because older Windows builds may not expose
+    // IGraphicsCaptureSession2. The product default keeps this enabled.
+    bool cursorExcluded{true};
 };
 
 struct WgcBackgroundSample

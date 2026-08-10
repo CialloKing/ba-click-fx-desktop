@@ -214,7 +214,8 @@ void CompositionRenderer::renderFrame(
 
 bool CompositionRenderer::tryEnableBackgroundCapture(
     const HMONITOR monitor,
-    const bool exclusionConfirmed) noexcept
+    const bool exclusionConfirmed,
+    const bool cursorExcluded) noexcept
 {
     setBackgroundCaptureFailure({});
     if (backgroundSensor_ != nullptr)
@@ -222,6 +223,7 @@ bool CompositionRenderer::tryEnableBackgroundCapture(
         backgroundSensor_->stop();
         backgroundSensor_.reset();
     }
+    backgroundCursorExcluded_ = cursorExcluded;
     backgroundCaptureRequested_ = exclusionConfirmed
         && monitor != nullptr
         && deviceInfo_.driverType == GraphicsDriverType::Hardware;
@@ -296,7 +298,10 @@ bool CompositionRenderer::tryCreateBackgroundSensor() noexcept
         backgroundSensor_ = std::make_unique<WgcBackgroundSensor>(
             device_.Get(),
             backgroundMonitor_,
-            WgcBackgroundSensorOptions{backgroundEpoch_, true});
+            WgcBackgroundSensorOptions{
+                backgroundEpoch_,
+                true,
+                backgroundCursorExcluded_});
         backgroundEpoch_ = nextEpoch(backgroundEpoch_);
         backgroundRefreshPeriod_ = *refreshPeriod;
         return true;

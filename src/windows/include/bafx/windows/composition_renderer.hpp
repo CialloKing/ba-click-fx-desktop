@@ -80,7 +80,8 @@ public:
         bafx::core::MonotonicTime wallTime = bafx::core::MonotonicTime::zero());
     [[nodiscard]] bool tryEnableBackgroundCapture(
         HMONITOR monitor,
-        bool exclusionConfirmed) noexcept;
+        bool exclusionConfirmed,
+        bool cursorExcluded = true) noexcept;
     void disableBackgroundCapture() noexcept;
     [[nodiscard]] bool backgroundCaptureActive() const noexcept;
     [[nodiscard]] std::string_view backgroundCaptureFailure() const noexcept;
@@ -117,6 +118,7 @@ private:
     HMONITOR backgroundMonitor_{nullptr};
     std::uint64_t backgroundEpoch_{1U};
     bool backgroundCaptureRequested_{false};
+    bool backgroundCursorExcluded_{true};
     // Failure reporting is used by noexcept fallback paths. Keep it inline so
     // a diagnostic allocation can never terminate the render process.
     std::array<char, 512U> backgroundCaptureFailure_{};

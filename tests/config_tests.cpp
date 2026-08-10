@@ -43,6 +43,7 @@ BAFX_TEST(config_defaults_round_trip_through_versioned_json)
     BAFX_CHECK(defaults.schemaVersion == bafx::config::currentSchemaVersion);
     BAFX_CHECK(defaults.effects.enabled);
     BAFX_CHECK(defaults.background.mode == bafx::config::CaptureMode::FxOnly);
+    BAFX_CHECK(defaults.background.cursorExcluded);
     BAFX_CHECK_NEAR(defaults.effects.globalScale, 1.0F, 0.00001F);
     BAFX_CHECK_NEAR(defaults.effects.bloomIntensity, 1.0F, 0.00001F);
 
@@ -52,6 +53,9 @@ BAFX_TEST(config_defaults_round_trip_through_versioned_json)
     BAFX_CHECK(parsed.status == bafx::config::ConfigStatus::Ok);
     BAFX_CHECK(parsed.config.schemaVersion == defaults.schemaVersion);
     BAFX_CHECK(parsed.config.background.mode == defaults.background.mode);
+    BAFX_CHECK(
+        parsed.config.background.cursorExcluded
+        == defaults.background.cursorExcluded);
     BAFX_CHECK_NEAR(
         parsed.config.effects.globalScale,
         defaults.effects.globalScale,
@@ -102,6 +106,22 @@ BAFX_TEST(config_capture_modes_use_canonical_wire_values)
         base,
         R"json({"path":"background.mode","value":"BACKGROUND_AWARE"})json");
     BAFX_CHECK(!legacyUppercase.succeeded());
+}
+
+BAFX_TEST(config_patch_controls_cursor_capture_policy)
+{
+    const bafx::config::Config base = bafx::config::defaultConfig();
+    const auto included = bafx::config::applyPatchJson(
+        base,
+        R"json({"path":"background.cursorExcluded","value":false})json");
+    BAFX_CHECK(included.succeeded());
+    BAFX_CHECK(!included.config.background.cursorExcluded);
+
+    const auto excluded = bafx::config::applyPatchJson(
+        included.config,
+        R"json({"path":"background.cursorExcluded","value":true})json");
+    BAFX_CHECK(excluded.succeeded());
+    BAFX_CHECK(excluded.config.background.cursorExcluded);
 }
 
 BAFX_TEST(config_bloom_quality_preserves_the_unity_default_at_high)

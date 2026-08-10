@@ -269,28 +269,31 @@ struct WgcBackgroundSensor::Implementation
                     "IGraphicsCaptureSession3::IsBorderRequired(false)");
             }
 
-            winrt::hresult cursorQueryResult{};
-            const auto cursorSession = session.try_as_with_reason<
-                winrt::Windows::Graphics::Capture::IGraphicsCaptureSession2>(
-                    cursorQueryResult);
-            if (!cursorSession)
+            if (options.cursorExcluded)
             {
-                throw HResultError(
-                    SUCCEEDED(cursorQueryResult)
-                        ? E_NOINTERFACE
-                        : static_cast<HRESULT>(cursorQueryResult),
-                    "GraphicsCaptureSession::QueryInterface(IGraphicsCaptureSession2)");
-            }
-            // A captured cursor would be mistaken for the desktop beneath the FX.
-            try
-            {
-                cursorSession.IsCursorCaptureEnabled(false);
-            }
-            catch (const winrt::hresult_error& error)
-            {
-                throw HResultError(
-                    error.code(),
-                    "IGraphicsCaptureSession2::IsCursorCaptureEnabled(false)");
+                winrt::hresult cursorQueryResult{};
+                const auto cursorSession = session.try_as_with_reason<
+                    winrt::Windows::Graphics::Capture::IGraphicsCaptureSession2>(
+                        cursorQueryResult);
+                if (!cursorSession)
+                {
+                    throw HResultError(
+                        SUCCEEDED(cursorQueryResult)
+                            ? E_NOINTERFACE
+                            : static_cast<HRESULT>(cursorQueryResult),
+                        "GraphicsCaptureSession::QueryInterface(IGraphicsCaptureSession2)");
+                }
+                // A captured cursor would be mistaken for the desktop beneath the FX.
+                try
+                {
+                    cursorSession.IsCursorCaptureEnabled(false);
+                }
+                catch (const winrt::hresult_error& error)
+                {
+                    throw HResultError(
+                        error.code(),
+                        "IGraphicsCaptureSession2::IsCursorCaptureEnabled(false)");
+                }
             }
             try
             {
