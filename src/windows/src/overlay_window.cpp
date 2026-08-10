@@ -35,6 +35,38 @@ constexpr std::size_t maximumPendingPointerEvents = 2048U;
     return static_cast<std::uint32_t>(value);
 }
 
+[[nodiscard]] DWORD applyExtendedStyle(
+    const HWND window,
+    const LONG_PTR extendedStyle) noexcept
+{
+    SetLastError(ERROR_SUCCESS);
+    const LONG_PTR previous = SetWindowLongPtrW(
+        window,
+        GWL_EXSTYLE,
+        extendedStyle);
+    const DWORD styleError = GetLastError();
+    if (previous == 0 && styleError != ERROR_SUCCESS)
+    {
+        return styleError;
+    }
+    if (!SetWindowPos(
+            window,
+            nullptr,
+            0,
+            0,
+            0,
+            0,
+            SWP_FRAMECHANGED
+                | SWP_NOACTIVATE
+                | SWP_NOMOVE
+                | SWP_NOSIZE
+                | SWP_NOZORDER))
+    {
+        return GetLastError();
+    }
+    return ERROR_SUCCESS;
+}
+
 }
 
 std::vector<PointerEvent> coalescePointerMoves(
@@ -199,13 +231,59 @@ CaptureExclusionStatus OverlayWindow::setCaptureExcluded(
         return status;
     }
 
-    SetLastError(ERROR_SUCCESS);
-    status.setSucceeded = SetWindowDisplayAffinity(
-        window_,
-        status.requestedAffinity) != FALSE;
-    if (!status.setSucceeded)
+    const auto applyAffinity = [this, &status]() noexcept
     {
-        status.setError = GetLastError();
+        SetLastError(ERROR_SUCCESS);
+        status.setSucceeded = SetWindowDisplayAffinity(
+            window_,
+            status.requestedAffinity) != FALSE;
+        status.setError = status.setSucceeded ? ERROR_SUCCESS : GetLastError();
+    };
+
+    SetLastError(ERROR_SUCCESS);
+    const LONG_PTR originalStyle = GetWindowLongPtrW(window_, GWL_EXSTYLE);
+    const DWORD readStyleError = GetLastError();
+    const bool styleAvailable = originalStyle != 0
+        || readStyleError == ERROR_SUCCESS;
+    const bool transitionLayered = excluded
+        && styleAvailable
+        && (originalStyle & WS_EX_LAYERED) != 0;
+    if (!styleAvailable)
+    {
+        status.setError = readStyleError;
+    }
+    else if (!transitionLayered)
+    {
+        applyAffinity();
+    }
+    else
+    {
+        // Windows 10 rejects first-time capture exclusion on a layered HWND.
+        // Establish affinity before restoring the style required for reliable
+        // cross-process click-through; the effective value survives the change.
+        const DWORD removeError = applyExtendedStyle(
+            window_,
+            originalStyle & ~static_cast<LONG_PTR>(WS_EX_LAYERED));
+        if (removeError == ERROR_SUCCESS)
+        {
+            applyAffinity();
+        }
+        else
+        {
+            status.setError = removeError;
+        }
+
+        const DWORD restoreError = applyExtendedStyle(window_, originalStyle);
+        if (restoreError != ERROR_SUCCESS)
+        {
+            status.setSucceeded = false;
+            status.setError = restoreError;
+        }
+        else if (status.setSucceeded)
+        {
+            // Reapply after the transition so success describes the final HWND.
+            applyAffinity();
+        }
     }
 
     // Set may report success while an older compositor applies WDA_MONITOR.
