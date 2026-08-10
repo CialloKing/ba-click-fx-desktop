@@ -157,7 +157,8 @@ cbuffer BloomConstants : register(b0)
     float Threshold;
     float Knee;
     float ClampValue;
-    float BloomPadding;
+    float DifferentialBloomWeight;
+    float BackgroundTransportEnabled;
 };
 
 Texture2D<float4> Source0 : register(t0);
@@ -223,7 +224,7 @@ float4 DifferentialPrefilterPixel(FullscreenOutput input) : SV_Target0
         input.uv,
         SourceTexelSize).rgb;
     const float4 fxOnly = BrightPass(fxOnlyScene);
-    const float backgroundWeight = saturate(BloomPadding);
+    const float backgroundWeight = saturate(DifferentialBloomWeight);
     if (backgroundWeight <= 0.0)
     {
         // Make the stale endpoint identical to the normal FX-only prefilter.
@@ -385,8 +386,7 @@ float4 DesktopCompositePixel(FullscreenOutput input) : SV_Target0
         direct,
         bloom,
         ExposureGain);
-    const float backgroundWeight = saturate(BloomPadding);
-    if (backgroundWeight <= 0.0)
+    if (BackgroundTransportEnabled <= 0.0)
     {
         return fxOnly;
     }
@@ -397,13 +397,15 @@ float4 DesktopCompositePixel(FullscreenOutput input) : SV_Target0
     const float3 background = Source3.Sample(
         LinearClampSampler,
         input.uv).rgb;
-    const float4 backgroundAware = ResolveBackgroundAwareDesktopTransport(
+    // A valid sample owns one transport contract for its whole lifetime.
+    // Differential Bloom may fade, but switching Alpha solvers per frame would
+    // make stable Cross2 coverage pulse when WGC cadence changes.
+    return ResolveBackgroundAwareDesktopTransport(
         direct,
         bloom,
         occlusion,
         background,
         ExposureGain);
-    return lerp(fxOnly, backgroundAware, backgroundWeight);
 }
 )hlsl";
 

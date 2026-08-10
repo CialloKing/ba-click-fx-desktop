@@ -246,7 +246,17 @@ BAFX_TEST(bloom_shader_reflection_locks_resources_and_constant_layout)
         BAFX_CHECK(hasConstantVariable(
             reflection.Get(), "BloomConstants", "ClampValue", 24U, 4U));
         BAFX_CHECK(hasConstantVariable(
-            reflection.Get(), "BloomConstants", "BloomPadding", 28U, 4U));
+            reflection.Get(),
+            "BloomConstants",
+            "DifferentialBloomWeight",
+            28U,
+            4U));
+        BAFX_CHECK(hasConstantVariable(
+            reflection.Get(),
+            "BloomConstants",
+            "BackgroundTransportEnabled",
+            32U,
+            4U));
 
         if (std::string_view(entryPoint) == "DifferentialPrefilterPixel"
             || std::string_view(entryPoint) == "UpsamplePixel"

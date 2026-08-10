@@ -438,18 +438,21 @@ BAFX_TEST(warp_background_bloom_fades_with_valid_desktop_transport)
     const std::vector<ReadbackPixel> fullWeight = renderWithWeight(1.0F);
 
     checkValidDesktopPremultiplied(fxOnly);
-    checkValidDesktopPremultiplied(zeroWeight);
+    checkValidDesktopPremultiplied(zeroWeight, false);
     checkValidDesktopPremultiplied(halfWeight, false);
     checkValidDesktopPremultiplied(fullWeight, false);
 
-    BAFX_CHECK(maximumRgbaDelta(fxOnly, zeroWeight) <= 1.0e-3F);
-    const float fullDelta = maximumRgbaDelta(fxOnly, fullWeight);
-    const float halfFromFxOnly = maximumRgbaDelta(fxOnly, halfWeight);
+    // A zero Differential Bloom weight still has a valid WGC sample, so the
+    // transparent transport must remain background-aware until the caller
+    // removes that sample explicitly.
+    BAFX_CHECK(maximumRgbaDelta(fxOnly, zeroWeight) > 1.0e-3F);
+    const float fullFadeDelta = maximumRgbaDelta(zeroWeight, fullWeight);
+    const float halfFromZero = maximumRgbaDelta(zeroWeight, halfWeight);
     const float halfToFull = maximumRgbaDelta(halfWeight, fullWeight);
-    BAFX_CHECK(fullDelta > 1.0e-3F);
-    BAFX_CHECK(halfFromFxOnly > 1.0e-3F);
-    BAFX_CHECK(halfFromFxOnly < fullDelta);
-    BAFX_CHECK(halfToFull < fullDelta);
+    BAFX_CHECK(fullFadeDelta > 1.0e-3F);
+    BAFX_CHECK(halfFromZero > 1.0e-3F);
+    BAFX_CHECK(halfFromZero < fullFadeDelta);
+    BAFX_CHECK(halfToFull < fullFadeDelta);
 
     const std::size_t center = static_cast<std::size_t>(testSize.height / 2U)
         * testSize.width

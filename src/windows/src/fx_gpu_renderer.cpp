@@ -65,8 +65,12 @@ struct BloomConstants
     float threshold{1.0F};
     float knee{0.00001F};
     float clampValue{65472.0F};
-    float padding{0.0F};
+    float differentialBloomWeight{0.0F};
+    float backgroundTransportEnabled{0.0F};
+    float padding[3]{};
 };
+
+static_assert(sizeof(BloomConstants) == 48U);
 
 struct ColorTarget
 {
@@ -862,14 +866,18 @@ struct FxGpuRenderer::Implementation
         const bafx::core::BloomExtent sourceExtent,
         const float sampleScale,
         const float exposureGain,
-        const float backgroundWeight = 0.0F) noexcept
+        const float differentialBloomWeight = 0.0F,
+        const bool backgroundTransportEnabled = false) noexcept
     {
         BloomConstants constants{};
         constants.sourceTexelSize[0] = 1.0F / static_cast<float>(sourceExtent.width);
         constants.sourceTexelSize[1] = 1.0F / static_cast<float>(sourceExtent.height);
         constants.sampleScale = sampleScale;
         constants.exposureGain = exposureGain;
-        constants.padding = backgroundWeight;
+        constants.differentialBloomWeight = differentialBloomWeight;
+        constants.backgroundTransportEnabled = backgroundTransportEnabled
+            ? 1.0F
+            : 0.0F;
         return constants;
     }
 
@@ -962,7 +970,9 @@ struct FxGpuRenderer::Implementation
                 sourceExtent,
                 bloomPlan.sampleScale,
                 0.0F,
-                background.has_value() ? background->freshnessWeight : 0.0F),
+                background.has_value()
+                    ? background->differentialBloomWeight
+                    : 0.0F),
             background.has_value()
                 ? occlusionTarget.shaderResource.Get()
                 : nullptr);
@@ -1012,7 +1022,8 @@ struct FxGpuRenderer::Implementation
                 firstExtent,
                 bloomPlan.sampleScale,
                 bloomPlan.exposureGain,
-                background.has_value() ? background->freshnessWeight : 0.0F),
+                0.0F,
+                background.has_value()),
             background.has_value()
                 ? occlusionTarget.shaderResource.Get()
                 : nullptr,
@@ -1105,15 +1116,15 @@ struct FxGpuRenderer::Implementation
     {
         if (background.has_value()
             && (background->shaderResource == nullptr
-                || !std::isfinite(background->freshnessWeight)
-                || background->freshnessWeight < 0.0F))
+                || !std::isfinite(background->differentialBloomWeight)
+                || background->differentialBloomWeight < 0.0F))
         {
             background.reset();
         }
         else if (background.has_value())
         {
-            background->freshnessWeight = std::clamp(
-                background->freshnessWeight,
+            background->differentialBloomWeight = std::clamp(
+                background->differentialBloomWeight,
                 0.0F,
                 1.0F);
         }

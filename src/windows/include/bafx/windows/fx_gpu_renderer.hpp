@@ -29,7 +29,9 @@ struct FxGpuFrameCapture
 struct BackgroundRenderInput
 {
     ID3D11ShaderResourceView* shaderResource{nullptr};
-    float freshnessWeight{0.0F};
+    // Supplying a valid texture selects the stable background-aware transport.
+    // Freshness only fades Differential Bloom while that sample remains valid.
+    float differentialBloomWeight{0.0F};
 };
 
 class FxGpuRenderer final
