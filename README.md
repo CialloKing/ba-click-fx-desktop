@@ -114,8 +114,9 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File .\tools\package-host-review-bundle
 
 首次生成的配置将 `background.mode` 设为 `fx-only`。`background-aware` 和
 `recording-compatible` 需要用户显式选择；WGC 或录屏路径失败时 Host 继续使用 FX-only。
-portable EXE 不带 package identity，因此不会把无边框捕获 capability 伪装成已支持；WGC
-只有在运行时边框/光标排除接口都可用时才会进入 active 状态。
+portable EXE 不带 package identity，因此不会把无边框捕获 capability 伪装成已支持；WGC 只有在
+窗口自排除已确认且运行时边框/光标排除接口都可用时才会进入 active 状态。Overlay 的跨进程鼠标穿透
+优先于可选背景采样，任何自排除冲突都必须回退 FX-only。
 
 `BAFX.ControlCenter.exe` 已作为独立的 WinUI 3 进程接入该 Pipe。Host 保持运行时，Control Center
 可以读取状态、暂停或恢复特效，并将下列效果配置在下一帧交给 Host：启用状态、点击特效、鼠标拖尾、

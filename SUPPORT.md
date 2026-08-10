@@ -44,10 +44,12 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File .\tools\package-test-bundle.ps1
   可依赖的效果路径，出现失败或帧过期时应维持或回退 FX-only。`recording-compatible` 始终关闭
   WGC 并撤销窗口捕获排除，以便录屏器有机会看到 overlay，但不保证任意录屏器都能捕获。
   `background-aware` 启动或会话中止后也会撤销窗口捕获排除，避免 FX-only 回退被录屏器隐藏。
-- 当前 portable 包在 Windows 10 19045 的实测结果为 `Support.WGC=fallback-fx-only`，原因是
-  `GraphicsCaptureSession::QueryInterface(IGraphicsCaptureSession3)` 返回 `0x80004002`
-  (`E_NOINTERFACE`)。这表示本机缺少无边框接口，不表示 D3D11 或 FX-only 渲染失败。需要
-  package identity/capability 的 MSIX 实验和 Windows 11/Server 矩阵验证后，才能放宽该策略。
+- 当前 portable 包在 Windows 10 19045 的实测结果为 `Support.WGC=fallback-fx-only`。为保证全屏
+  Overlay 不阻断其他进程的按钮，窗口必须保留 `WS_EX_LAYERED | WS_EX_TRANSPARENT`；在该 DComp
+  窗口上请求 `WDA_EXCLUDEFROMCAPTURE` 返回错误 `0x8`，查询值保持 `WDA_NONE`，因此 Host 不启动 WGC。
+  早期移除 `WS_EX_LAYERED` 的实验虽能继续探测 WGC，却会让 Overlay 命中鼠标，不能作为可接受路径。
+- 以上结果不表示 D3D11 或 FX-only 渲染失败。后续 WGC 路径必须同时证明跨进程点击穿透、自排除、
+  无边框和光标排除，才可放宽 fallback；不能用牺牲桌面输入来换取背景采样。
 - 多显示器、跨显示器输入、多适配器和混合刷新率。
 - device removed/reset 后的原地恢复。
 - 开机启动、自动更新、安装程序和代码签名。
