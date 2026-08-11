@@ -498,6 +498,14 @@ bool ControlCenterWindow::createControls()
             "effects.trailWidth",
             ControlId::TrailWidth)
         && createSlider(
+            inputSamplingRate_,
+            L"输入采样率上限 (Hz)",
+            0.0,
+            1000.0,
+            1.0,
+            "input.samplingRateHz",
+            ControlId::InputSamplingRate)
+        && createSlider(
             bloomIntensity_,
             L"Bloom 强度",
             0.0,
@@ -795,6 +803,9 @@ void ControlCenterWindow::applyFonts() const noexcept
         trailWidth_.label,
         trailWidth_.trackbar,
         trailWidth_.valueText,
+        inputSamplingRate_.label,
+        inputSamplingRate_.trackbar,
+        inputSamplingRate_.valueText,
         bloomIntensity_.label,
         bloomIntensity_.trackbar,
         bloomIntensity_.valueText,
@@ -893,6 +904,8 @@ void ControlCenterWindow::layoutControls(
     sliderTop += scale(46);
     layoutSlider(trailWidth_, groupLeft, sliderTop, groupWidth, scale(40));
     sliderTop += scale(46);
+    layoutSlider(inputSamplingRate_, groupLeft, sliderTop, groupWidth, scale(40));
+    sliderTop += scale(46);
     layoutSlider(bloomIntensity_, groupLeft, sliderTop, groupWidth, scale(40));
     sliderTop += scale(48);
 
@@ -964,8 +977,8 @@ void ControlCenterWindow::layoutSlider(
     const int width,
     const int height) const noexcept
 {
-    const int labelWidth = scale(106);
-    const int valueWidth = scale(56);
+    const int labelWidth = scale(132);
+    const int valueWidth = scale(64);
     const int gap = scale(8);
     moveControl(slider.label, x, y, labelWidth, height);
     moveControl(
@@ -1113,6 +1126,7 @@ void ControlCenterWindow::onCommand(
     case ControlId::GlobalScale:
     case ControlId::TrailLength:
     case ControlId::TrailWidth:
+    case ControlId::InputSamplingRate:
     case ControlId::BloomIntensity:
         break;
     }
@@ -1129,6 +1143,7 @@ void ControlCenterWindow::onSliderChanged(const HWND trackbar)
         &globalScale_,
         &trailLength_,
         &trailWidth_,
+        &inputSamplingRate_,
         &bloomIntensity_};
     for (SliderControl* const slider : sliders)
     {
@@ -1378,6 +1393,7 @@ void ControlCenterWindow::updateControls(
     setSliderValue(globalScale_, config.effects.globalScale);
     setSliderValue(trailLength_, config.effects.trailLength);
     setSliderValue(trailWidth_, config.effects.trailWidth);
+    setSliderValue(inputSamplingRate_, config.input.samplingRateHz);
     setSliderValue(bloomIntensity_, config.effects.bloomIntensity);
     static_cast<void>(SendMessageW(
         bloomQuality_,
@@ -1683,6 +1699,7 @@ void ControlCenterWindow::setConnected(const bool connected) noexcept
         globalScale_.trackbar,
         trailLength_.trackbar,
         trailWidth_.trackbar,
+        inputSamplingRate_.trackbar,
         bloomIntensity_.trackbar,
         bloomQuality_,
         backgroundMode_,

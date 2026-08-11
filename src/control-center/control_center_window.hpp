@@ -41,6 +41,7 @@ private:
         GlobalScale,
         TrailLength,
         TrailWidth,
+        InputSamplingRate,
         BloomIntensity,
         BloomQuality,
         BackgroundMode,
@@ -168,6 +169,7 @@ private:
     SliderControl globalScale_{};
     SliderControl trailLength_{};
     SliderControl trailWidth_{};
+    SliderControl inputSamplingRate_{};
     SliderControl bloomIntensity_{};
     HWND bloomQualityLabel_{nullptr};
     HWND bloomQuality_{nullptr};
