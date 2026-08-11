@@ -14,6 +14,7 @@
 #include <cmath>
 #include <exception>
 #include <limits>
+#include <utility>
 
 namespace bafx::windows
 {
@@ -296,10 +297,9 @@ void CompositionRenderer::renderFrame(
         }
     }
 
-    // Once a WGC frame has been copied, the immutable snapshot is the visual
-    // contract for this visible batch. A later capture-age miss must not swap
-    // the whole frame to FX-only: that transition is visible as a light-surface
-    // flash, especially when a paused overlay is redrawn.
+    // The render path remains stable for the visible batch, but its owned
+    // background copy follows each accepted WGC generation. Freezing the first
+    // image would bake stale light UI into every later source-over payload.
     const bool retainedBackgroundAvailable = backgroundSnapshotValid_
         || (backgroundSample.has_value() && retainUsage.enabled);
     const bafx::core::BackgroundRenderPath renderPath =
@@ -309,12 +309,16 @@ void CompositionRenderer::renderFrame(
             retainedBackgroundAvailable);
     if (renderPath == bafx::core::BackgroundRenderPath::BackgroundAware)
     {
-        if (!backgroundSnapshotValid_
-            && backgroundSample.has_value()
+        const bool refreshSnapshot = backgroundSample.has_value()
             && retainUsage.enabled
+            && (!backgroundSnapshotValid_
+                || backgroundSample->generation
+                    != backgroundSnapshotGeneration_);
+        if (refreshSnapshot
             && captureBackgroundSnapshot(backgroundSample->texture))
         {
             backgroundSnapshotValid_ = true;
+            backgroundSnapshotGeneration_ = backgroundSample->generation;
         }
         if (backgroundSnapshotValid_)
         {
@@ -731,6 +735,7 @@ void CompositionRenderer::resetBackgroundSnapshot() noexcept
     backgroundSnapshotShaderResource_.Reset();
     backgroundSnapshotTexture_.Reset();
     backgroundSnapshotSize_ = WindowSize{};
+    backgroundSnapshotGeneration_ = 0U;
     backgroundSnapshotValid_ = false;
 }
 
@@ -739,7 +744,6 @@ bool CompositionRenderer::captureBackgroundSnapshot(
 {
     if (source == nullptr || device_ == nullptr || context_ == nullptr)
     {
-        resetBackgroundSnapshot();
         return false;
     }
 
@@ -762,7 +766,6 @@ bool CompositionRenderer::captureBackgroundSnapshot(
             || sourceDescription.SampleDesc.Count != 1U
             || sourceDescription.SampleDesc.Quality != 0U)
         {
-            resetBackgroundSnapshot();
             return false;
         }
 
@@ -770,6 +773,8 @@ bool CompositionRenderer::captureBackgroundSnapshot(
             || backgroundSnapshotSize_.width != size_.width
             || backgroundSnapshotSize_.height != size_.height)
         {
+            Microsoft::WRL::ComPtr<ID3D11Texture2D> replacementTexture;
+            Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> replacementShaderResource;
             D3D11_TEXTURE2D_DESC destinationDescription{};
             destinationDescription.Width = size_.width;
             destinationDescription.Height = size_.height;
@@ -783,14 +788,17 @@ bool CompositionRenderer::captureBackgroundSnapshot(
                 device_->CreateTexture2D(
                     &destinationDescription,
                     nullptr,
-                    &backgroundSnapshotTexture_),
+                    &replacementTexture),
                 "ID3D11Device::CreateTexture2D(WGC background snapshot)");
             throwIfFailed(
                 device_->CreateShaderResourceView(
-                    backgroundSnapshotTexture_.Get(),
+                    replacementTexture.Get(),
                     nullptr,
-                    &backgroundSnapshotShaderResource_),
+                    &replacementShaderResource),
                 "ID3D11Device::CreateShaderResourceView(WGC background snapshot)");
+            backgroundSnapshotTexture_ = std::move(replacementTexture);
+            backgroundSnapshotShaderResource_ =
+                std::move(replacementShaderResource);
             backgroundSnapshotSize_ = size_;
         }
 
@@ -801,7 +809,8 @@ bool CompositionRenderer::captureBackgroundSnapshot(
     }
     catch (...)
     {
-        resetBackgroundSnapshot();
+        // A failed refresh must not destroy the last coherent background.
+        // Session, epoch and resize failures explicitly reset it at the caller.
         return false;
     }
 }
