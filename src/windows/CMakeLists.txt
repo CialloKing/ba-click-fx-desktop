@@ -1,6 +1,7 @@
 add_library(
     bafx_windows
     STATIC
+        src/borderless_capture_access.cpp
         src/composition_renderer.cpp
         src/display_capabilities.cpp
         src/fx_gpu_renderer.cpp

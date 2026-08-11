@@ -1,5 +1,6 @@
 #include "bafx/windows/composition_renderer.hpp"
 
+#include "bafx/windows/borderless_capture_access.hpp"
 #include "bafx/windows/error.hpp"
 #include "bafx/windows/fx_gpu_renderer.hpp"
 #include "bafx/windows/gpu_texture_readback.hpp"
@@ -469,6 +470,17 @@ bool CompositionRenderer::tryCreateBackgroundSensor() noexcept
     {
         setBackgroundCaptureFailure("Windows Graphics Capture is not supported");
         return false;
+    }
+
+    if (!backgroundSystemBorderAllowed_)
+    {
+        const BorderlessCaptureAccessResult access =
+            requestBorderlessCaptureAccess();
+        if (!borderlessCaptureAccessAllowed(access))
+        {
+            setBackgroundCaptureFailure(borderlessCaptureAccessDiagnostic(access));
+            return false;
+        }
     }
 
     const std::optional<bafx::core::MonotonicTime> refreshPeriod =

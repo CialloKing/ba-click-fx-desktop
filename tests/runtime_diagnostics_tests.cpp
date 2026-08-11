@@ -1,5 +1,6 @@
 #include "test_support.hpp"
 
+#include "bafx/windows/borderless_capture_access.hpp"
 #include "bafx/windows/package_identity.hpp"
 #include "bafx/windows/portable_paths.hpp"
 #include "bafx/windows/runtime_diagnostics.hpp"
@@ -27,6 +28,19 @@ BAFX_TEST(package_identity_probe_is_self_consistent)
         bafx::windows::packageIdentityDiagnostic(identity);
     BAFX_CHECK(diagnostic.find("Package.Identity=") != std::string::npos);
     BAFX_CHECK(diagnostic.find("FullNameError=0x") != std::string::npos);
+}
+
+BAFX_TEST(borderless_access_diagnostic_names_are_stable)
+{
+    const bafx::windows::BorderlessCaptureAccessResult denied{
+        bafx::windows::BorderlessCaptureAccessStatus::DeniedByUser,
+        E_ACCESSDENIED};
+    BAFX_CHECK(!bafx::windows::borderlessCaptureAccessAllowed(denied));
+    const std::string diagnostic =
+        bafx::windows::borderlessCaptureAccessDiagnostic(denied);
+    BAFX_CHECK(diagnostic.find("WGC.BorderlessAccess=denied-by-user")
+        != std::string::npos);
+    BAFX_CHECK(diagnostic.find("HRESULT=0x80070005") != std::string::npos);
 }
 
 BAFX_TEST(runtime_owned_paths_stay_beside_the_loaded_executable)
