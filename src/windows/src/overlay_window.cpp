@@ -166,8 +166,8 @@ OverlayWindow::OverlayWindow(
         if (window_ != nullptr)
         {
             const HWND window = window_;
-            window_ = nullptr;
             DestroyWindow(window);
+            window_ = nullptr;
         }
         throw;
     }
@@ -179,8 +179,8 @@ OverlayWindow::~OverlayWindow()
     if (window_ != nullptr)
     {
         const HWND window = window_;
-        window_ = nullptr;
         DestroyWindow(window);
+        window_ = nullptr;
     }
 }
 
@@ -385,7 +385,16 @@ LRESULT CALLBACK OverlayWindow::windowProcedure(
 
     if (self != nullptr)
     {
-        return self->handleMessage(message, wParam, lParam);
+        const LRESULT result = self->handleMessage(message, wParam, lParam);
+        if (message == WM_NCDESTROY)
+        {
+            // WM_NCDESTROY is the last message that can reach this instance.
+            // Clear the backlink only after default processing has received
+            // the real HWND, so teardown cannot dispatch through stale state.
+            SetWindowLongPtrW(window, GWLP_USERDATA, 0);
+            self->window_ = nullptr;
+        }
+        return result;
     }
     return DefWindowProcW(window, message, wParam, lParam);
 }
@@ -498,9 +507,11 @@ LRESULT OverlayWindow::handleMessage(
     case WM_DESTROY:
         releaseInputRegistrations(window_);
         closeRequested_ = true;
-        window_ = nullptr;
         PostQuitMessage(0);
         return 0;
+
+    case WM_NCDESTROY:
+        return DefWindowProcW(window_, message, wParam, lParam);
 
     default:
         return DefWindowProcW(window_, message, wParam, lParam);
