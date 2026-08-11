@@ -140,8 +140,7 @@ function Assert-HostOnlyArchive
         $expectedEntries = @(
             "${rootPrefix}ba-click-fx-desktop.exe",
             "${rootPrefix}LICENSE.txt",
-            "${rootPrefix}SUPPORT.md",
-            "${rootPrefix}ASSET-MANIFEST.md"
+            "${rootPrefix}SUPPORT.md"
         )
         $actualEntries = @(
             $archive.Entries |
@@ -152,7 +151,7 @@ function Assert-HostOnlyArchive
         $difference = @(Compare-Object $expectedEntries $actualEntries)
         if ($difference.Count -ne 0)
         {
-            throw "Host review archive is not the four-file contract: $($difference -join ', ')"
+            throw "Host review archive is not the three-file contract: $($difference -join ', ')"
         }
 
         foreach ($entry in $actualEntries)

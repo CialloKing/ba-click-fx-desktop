@@ -7,8 +7,8 @@
 外部工程的完整二进制副本。
 
 生产运行时需要的四组 RGBA8 texel 是唯一例外：它们经 raw LZ4 Block 无损压缩为 C 字节串并编译
-进 EXE，不保存 PNG 容器、Base64 文本或独立图片文件。其解码哈希、来源和自由使用与分发边界见
-[../ASSET-MANIFEST.md](../ASSET-MANIFEST.md)。
+进 EXE，不保存 PNG 容器、Base64 文本或独立图片文件。其源容器哈希由维护生成器锁定，解码哈希由
+生成数据和 `packed_fx_textures` 测试共同锁定。
 
 默认本地根目录为：
 

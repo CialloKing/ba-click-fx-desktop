@@ -48,7 +48,6 @@ try
 {
     $rootName = [IO.Path]::GetFileNameWithoutExtension($packagePath)
     $expectedEntries = @(
-        "$rootName/ASSET-MANIFEST.md",
         "$rootName/LICENSE.txt",
         "$rootName/SUPPORT.md",
         "$rootName/ba-click-fx-desktop.exe"
@@ -62,7 +61,7 @@ try
     $difference = @(Compare-Object $expectedEntries $actualEntries)
     if ($difference.Count -ne 0)
     {
-        throw "Alpha ZIP file list differs from the locked four-file package contract: $($difference -join ', ')"
+        throw "Alpha ZIP file list differs from the locked three-file package contract: $($difference -join ', ')"
     }
 }
 finally

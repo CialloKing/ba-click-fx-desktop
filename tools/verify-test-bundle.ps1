@@ -200,7 +200,6 @@ try
     }
 
     $requiredFiles = @(
-        'ASSET-MANIFEST.md',
         'LICENSE.txt',
         'SUPPORT.md',
         'TEST-BUNDLE-MANIFEST.json',

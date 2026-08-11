@@ -176,7 +176,6 @@ try
     Copy-Item -LiteralPath (Join-Path $repositoryRoot 'LICENSE') `
         -Destination (Join-Path $stageRoot 'LICENSE.txt')
     Copy-Item -LiteralPath (Join-Path $repositoryRoot 'SUPPORT.md') -Destination $stageRoot
-    Copy-Item -LiteralPath (Join-Path $repositoryRoot 'ASSET-MANIFEST.md') -Destination $stageRoot
     Assert-ControlCenterExecutable -Executable (Join-Path $stageRoot 'BAFX.ControlCenter.exe')
 
     $manifestFiles = @(

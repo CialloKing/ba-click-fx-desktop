@@ -40,7 +40,6 @@ Host 现在会把主显示器 DPI、DXGI 色彩空间、位深和驱动提供的
 - [docs/VALIDATION.md](docs/VALIDATION.md)：测试层级、Golden Oracle 和发布门槛。
 - [docs/UNITY_REFERENCE.md](docs/UNITY_REFERENCE.md)：游戏解包资源、Unity 重建工程与 Golden 的证据边界。
 - [SUPPORT.md](SUPPORT.md)：首个 Alpha 的可测试范围、退出方式和明确排除项。
-- [ASSET-MANIFEST.md](ASSET-MANIFEST.md)：进入可执行文件的纹理哈希与再分发边界。
 - [tools/package-test-bundle.ps1](tools/package-test-bundle.ps1)：构建并生成可解压测试包，同时调用完整性验证。
 
 ## 项目状态
@@ -104,8 +103,8 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File .\tools\package-test-bundle.ps1
 pwsh -NoProfile -ExecutionPolicy Bypass -File .\tools\package-host-review-bundle.ps1
 ```
 
-脚本复用 CPack 的四文件安装合同，并将经过验证的 ZIP 放到
-`artifacts\local\host-visual-review\<commit>\`。该包只包含 Host、许可证、支持说明和内嵌资产清单，
+脚本复用 CPack 的三文件安装合同，并将经过验证的 ZIP 放到
+`artifacts\local\host-visual-review\<commit>\`。该包只包含 Host、许可证和支持说明，
 通常约 0.4 MB；完整测试包现在也只包含两个原生 EXE，压缩后约 0.7 MB，不再携带 Windows App SDK
 旁置运行时。
 
@@ -158,5 +157,5 @@ node tools\generate-packed-fx-textures.mjs `
 
 ## 许可证
 
-本项目自行编写的代码使用仓库根目录中的 GNU GPL v2 许可证。内嵌四组基础几何纹理的自由使用与
-公开分发边界见 [ASSET-MANIFEST.md](ASSET-MANIFEST.md)。
+本项目自行编写的代码使用仓库根目录中的 GNU GPL v2 许可证。四组基础几何纹理作为编译期字节数据
+直接内嵌；外部 Unity 工程、游戏目录和旁置图片不会进入源码或发布包。

@@ -12,9 +12,7 @@ install(
     RENAME "LICENSE.txt"
 )
 install(
-    FILES
-        "${CMAKE_SOURCE_DIR}/SUPPORT.md"
-        "${CMAKE_SOURCE_DIR}/ASSET-MANIFEST.md"
+    FILES "${CMAKE_SOURCE_DIR}/SUPPORT.md"
     DESTINATION "."
 )
 
