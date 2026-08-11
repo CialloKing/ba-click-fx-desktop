@@ -467,6 +467,11 @@ bool ControlCenterWindow::createControls()
         L"鼠标拖尾",
         BS_AUTOCHECKBOX | WS_TABSTOP,
         ControlId::TrailEnabled);
+    trailAlwaysOn_ = createChild(
+        L"BUTTON",
+        L"拖尾常驻",
+        BS_AUTOCHECKBOX | WS_TABSTOP,
+        ControlId::TrailAlwaysOn);
 
     const bool slidersCreated = createSlider(
         globalScale_,
@@ -574,6 +579,7 @@ bool ControlCenterWindow::createControls()
         effectsEnabled_,
         clickEnabled_,
         trailEnabled_,
+        trailAlwaysOn_,
         bloomQualityLabel_,
         bloomQuality_,
         backgroundHeading_,
@@ -779,6 +785,7 @@ void ControlCenterWindow::applyFonts() const noexcept
         effectsEnabled_,
         clickEnabled_,
         trailEnabled_,
+        trailAlwaysOn_,
         globalScale_.label,
         globalScale_.trackbar,
         globalScale_.valueText,
@@ -868,10 +875,16 @@ void ControlCenterWindow::layoutControls(
     const int groupLeft = margin + groupInset;
     const int groupWidth = (std::max)(scale(1), leftWidth - groupInset * 2);
     const int checkboxTop = contentTop + scale(32);
-    const int checkboxWidth = groupWidth / 3;
+    const int checkboxWidth = groupWidth / 4;
     moveControl(effectsEnabled_, groupLeft, checkboxTop, checkboxWidth, scale(30));
     moveControl(clickEnabled_, groupLeft + checkboxWidth, checkboxTop, checkboxWidth, scale(30));
     moveControl(trailEnabled_, groupLeft + checkboxWidth * 2, checkboxTop, checkboxWidth, scale(30));
+    moveControl(
+        trailAlwaysOn_,
+        groupLeft + checkboxWidth * 3,
+        checkboxTop,
+        groupWidth - checkboxWidth * 3,
+        scale(30));
 
     int sliderTop = checkboxTop + scale(34);
     layoutSlider(globalScale_, groupLeft, sliderTop, groupWidth, scale(40));
@@ -1007,6 +1020,16 @@ void ControlCenterWindow::onCommand(
         if (notificationCode == BN_CLICKED)
         {
             applyPatch("effects.trailEnabled", isChecked(trailEnabled_) ? "true" : "false");
+        }
+        break;
+    case ControlId::TrailAlwaysOn:
+        if (notificationCode == BN_CLICKED)
+        {
+            // The persisted field keeps its historical pressed-only wording;
+            // expose the user-facing switch as the positive inverse.
+            applyPatch(
+                "input.trailOnlyWhilePressed",
+                isChecked(trailAlwaysOn_) ? "false" : "true");
         }
         break;
     case ControlId::BloomQuality:
@@ -1351,6 +1374,7 @@ void ControlCenterWindow::updateControls(
     setChecked(effectsEnabled_, config.effects.enabled);
     setChecked(clickEnabled_, config.effects.clickEnabled);
     setChecked(trailEnabled_, config.effects.trailEnabled);
+    setChecked(trailAlwaysOn_, !config.input.trailOnlyWhilePressed);
     setSliderValue(globalScale_, config.effects.globalScale);
     setSliderValue(trailLength_, config.effects.trailLength);
     setSliderValue(trailWidth_, config.effects.trailWidth);
@@ -1655,6 +1679,7 @@ void ControlCenterWindow::setConnected(const bool connected) noexcept
         effectsEnabled_,
         clickEnabled_,
         trailEnabled_,
+        trailAlwaysOn_,
         globalScale_.trackbar,
         trailLength_.trackbar,
         trailWidth_.trackbar,

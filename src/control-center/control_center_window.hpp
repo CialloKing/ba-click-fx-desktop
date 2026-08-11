@@ -37,6 +37,7 @@ private:
         EffectsEnabled,
         ClickEnabled,
         TrailEnabled,
+        TrailAlwaysOn,
         GlobalScale,
         TrailLength,
         TrailWidth,
@@ -163,6 +164,7 @@ private:
     HWND effectsEnabled_{nullptr};
     HWND clickEnabled_{nullptr};
     HWND trailEnabled_{nullptr};
+    HWND trailAlwaysOn_{nullptr};
     SliderControl globalScale_{};
     SliderControl trailLength_{};
     SliderControl trailWidth_{};
