@@ -147,28 +147,50 @@ end;
 procedure RunBestEffortRollback(
   const InstallRoot: String;
   const InstallerRoot: String;
-  const CommonArguments: String);
+  const CommonArguments: String;
+  var Succeeded: Boolean);
 var
   ExitCode: Integer;
 begin
+  Succeeded := True;
   if not FileExists(MachineStatePath) then
   begin
     Exit;
   end;
 
-  RunPowerShell(
+  if not RunPowerShell(
     AddBackslash(InstallerRoot) + 'register-user-package.ps1',
     '-InstallDirectory ' + QuoteArgument(InstallRoot) +
       ' -MachineStatePath ' + QuoteArgument(MachineStatePath) +
       ' -ResultPath ' + QuoteArgument(RegistrationResultPath) +
       ' -Rollback',
     True,
-    ExitCode);
-  RunPowerShell(
+    ExitCode) then
+  begin
+    Succeeded := False;
+  end
+  else if ExitCode <> 0 then
+  begin
+    Succeeded := False;
+  end;
+
+  if not Succeeded then
+  begin
+    Exit;
+  end;
+
+  if not RunPowerShell(
     AddBackslash(InstallerRoot) + 'install-machine.ps1',
     '-Phase Rollback ' + CommonArguments,
     False,
-    ExitCode);
+    ExitCode) then
+  begin
+    Succeeded := False;
+  end
+  else if ExitCode <> 0 then
+  begin
+    Succeeded := False;
+  end;
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
@@ -177,6 +199,7 @@ var
   InstallerRoot: String;
   CommonArguments: String;
   ExitCode: Integer;
+  RollbackSucceeded: Boolean;
 begin
   if CurStep <> ssPostInstall then
   begin
@@ -213,7 +236,19 @@ begin
   end;
   if ExitCode <> 0 then
   begin
-    RunBestEffortRollback(InstallRoot, InstallerRoot, CommonArguments);
+    RunBestEffortRollback(
+      InstallRoot,
+      InstallerRoot,
+      CommonArguments,
+      RollbackSucceeded);
+    if not RollbackSucceeded then
+    begin
+      MsgBox(
+        'Preparation failed. The installation files and recovery state were retained; reopen Control Center to repair the installation.',
+        mbError,
+        MB_OK);
+      Exit;
+    end;
     RaiseException('Preparing the machine installation failed with exit code ' +
       IntToStr(ExitCode) + '.');
   end;
@@ -226,8 +261,29 @@ begin
     True,
     ExitCode) then
   begin
-    RunBestEffortRollback(InstallRoot, InstallerRoot, CommonArguments);
+    RunBestEffortRollback(
+      InstallRoot,
+      InstallerRoot,
+      CommonArguments,
+      RollbackSucceeded);
     RaiseException('Registering the package could not be started.');
+  end;
+  if ExitCode <> 0 then
+  begin
+    RunBestEffortRollback(
+      InstallRoot,
+      InstallerRoot,
+      CommonArguments,
+      RollbackSucceeded);
+    if not RollbackSucceeded then
+    begin
+      MsgBox(
+        'Package registration failed. The installation files and recovery state were retained; reopen Control Center to repair the installation.',
+        mbError,
+        MB_OK);
+      Exit;
+    end;
+    RaiseException('Registering the package failed with exit code ' + IntToStr(ExitCode) + '.');
   end;
 
   if not RunPowerShell(
@@ -236,12 +292,37 @@ begin
     False,
     ExitCode) then
   begin
-    RunBestEffortRollback(InstallRoot, InstallerRoot, CommonArguments);
+    RunBestEffortRollback(
+      InstallRoot,
+      InstallerRoot,
+      CommonArguments,
+      RollbackSucceeded);
     RaiseException('Finalizing the machine installation could not be started.');
   end;
   if ExitCode <> 0 then
   begin
-    RunBestEffortRollback(InstallRoot, InstallerRoot, CommonArguments);
+    if FileExists(AddBackslash(InstallerRoot) + 'INSTALL-STATE.json') and
+      not FileExists(MachineStatePath) then
+    begin
+      MsgBox(
+        'The package was committed, but final cleanup needs another repair pass from Control Center.',
+        mbError,
+        MB_OK);
+      Exit;
+    end;
+    RunBestEffortRollback(
+      InstallRoot,
+      InstallerRoot,
+      CommonArguments,
+      RollbackSucceeded);
+    if not RollbackSucceeded then
+    begin
+      MsgBox(
+        'Finalization failed. The installation files and recovery state were retained; reopen Control Center to repair the installation.',
+        mbError,
+        MB_OK);
+      Exit;
+    end;
     RaiseException('Package registration or finalization failed; rollback was attempted.');
   end;
 end;
@@ -249,14 +330,40 @@ end;
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 var
   ExitCode: Integer;
+  InstallRoot: String;
+  InstallerRoot: String;
+  MachineStatePath: String;
+  RegistrationResultPath: String;
 begin
   if CurUninstallStep <> usUninstall then
   begin
     Exit;
   end;
+  InstallRoot := ExpandConstant('{app}');
+  InstallerRoot := AddBackslash(InstallRoot) + 'Installer';
+  MachineStatePath := AddBackslash(InstallerRoot) + 'PREPARE-STATE.json';
+  RegistrationResultPath := ExpandConstant('{tmp}\bafx-uninstall-registration-result.json');
+  if FileExists(MachineStatePath) then
+  begin
+    if not RunPowerShell(
+      AddBackslash(InstallerRoot) + 'register-user-package.ps1',
+      '-InstallDirectory ' + QuoteArgument(InstallRoot) +
+        ' -MachineStatePath ' + QuoteArgument(MachineStatePath) +
+        ' -ResultPath ' + QuoteArgument(RegistrationResultPath) +
+        ' -Rollback',
+      True,
+      ExitCode) then
+    begin
+      RaiseException('The pending package rollback could not be started.');
+    end;
+    if ExitCode <> 0 then
+    begin
+      RaiseException('The pending package rollback failed with exit code ' + IntToStr(ExitCode) + '.');
+    end;
+  end;
   if not RunPowerShell(
     ExpandConstant('{app}\Installer\unregister-machine.ps1'),
-    '-InstallDirectory ' + QuoteArgument(ExpandConstant('{app}')),
+    '-InstallDirectory ' + QuoteArgument(InstallRoot),
     False,
     ExitCode) then
   begin

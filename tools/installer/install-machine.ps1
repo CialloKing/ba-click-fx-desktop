@@ -161,6 +161,63 @@ function Write-ProtectedJson
     }
 }
 
+function Write-ProtectedInstallState
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path,
+
+        [Parameter(Mandatory = $true)]
+        [object]$Value,
+
+        [Parameter(Mandatory = $true)]
+        [string]$ReadSid
+    )
+
+    Write-ProtectedJson -Path $Path -Value $Value -ReadSid $ReadSid
+    $backupPath = "$Path.bak"
+    Copy-Item -LiteralPath $Path -Destination $backupPath -Force
+    Set-ProtectedStateAcl -Path $backupPath -ReadSid $ReadSid
+}
+
+function Split-Ledger
+{
+    param(
+        [AllowNull()]
+        [object]$Value,
+
+        [Parameter(Mandatory = $true)]
+        [ValidateSet('Comma', 'Pipe')]
+        [string]$Separator
+    )
+
+    if ($null -eq $Value -or [string]::IsNullOrWhiteSpace([string]$Value))
+    {
+        return @()
+    }
+    $pattern = if ($Separator -eq 'Comma') { ',' } else { '\|' }
+    return @(
+        ([string]$Value -split $pattern) |
+            Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
+            ForEach-Object { $_.Trim() }
+    )
+}
+
+function Join-Ledger
+{
+    param(
+        [AllowNull()]
+        [object[]]$Values,
+
+        [Parameter(Mandatory = $true)]
+        [ValidateSet('Comma', 'Pipe')]
+        [string]$Separator
+    )
+
+    $delimiter = if ($Separator -eq 'Comma') { ',' } else { '|' }
+    return (@($Values | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) }) -join $delimiter)
+}
+
 function Resolve-ProtectedInstallRoot
 {
     param(
@@ -290,7 +347,13 @@ function Assert-IdentityPayload
 {
     param(
         [Parameter(Mandatory = $true)]
-        [string]$InstallRoot
+        [string]$InstallRoot,
+
+        [Parameter(Mandatory = $true)]
+        [string]$PendingStatePath,
+
+        [Parameter(Mandatory = $true)]
+        [object]$PendingStateSeed
     )
 
     Add-Type -AssemblyName System.IO.Compression
@@ -299,14 +362,15 @@ function Assert-IdentityPayload
     $identityDirectory = Join-Path $InstallRoot 'Identity'
     $metadataBaseName = "CialloKing.BaClickFxDesktop-$PackageVersion"
     $metadataFile = Get-Item -LiteralPath (
-        Join-Path $identityDirectory "$metadataBaseName.identity.json") `
+        Join-Path $identityDirectory "$metadataBaseName.identity-template.json") `
         -ErrorAction SilentlyContinue
     if ($null -eq $metadataFile -or $metadataFile.PSIsContainer)
     {
         throw 'Identity package metadata is missing.'
     }
     $metadata = Get-Content -LiteralPath $metadataFile.FullName -Raw | ConvertFrom-Json
-    if ([int]$metadata.schema -ne 2)
+    if ([int]$metadata.schema -ne 3 -or
+        [string]$metadata.identityMode -ne 'target-machine-self-signed')
     {
         throw 'Identity package metadata has an unsupported schema.'
     }
@@ -318,56 +382,133 @@ function Assert-IdentityPayload
         throw 'Identity package metadata version mismatch.'
     }
 
-    $packagePath = Join-Path $identityDirectory ([string]$metadata.packageFile)
-    $certificatePath = Join-Path $identityDirectory ([string]$metadata.certificateFile)
-    foreach ($payloadName in @(
-        [string]$metadata.packageFile,
-        [string]$metadata.certificateFile))
+    $templateFile = [string]$metadata.templateFile
+    if ([IO.Path]::IsPathRooted($templateFile) -or
+        $templateFile.Contains('..') -or
+        [IO.Path]::GetFileName($templateFile) -ne $templateFile -or
+        $templateFile -ne "$metadataBaseName.unsigned.msix")
     {
-        if ([IO.Path]::IsPathRooted($payloadName) -or
-            $payloadName.Contains('..') -or
-            [IO.Path]::GetFileName($payloadName) -ne $payloadName)
-        {
-            throw 'Identity package metadata contains an unsafe payload path.'
-        }
+        throw 'Identity package metadata contains an unsafe unsigned template path.'
     }
-    if ([string]$metadata.packageFile -ne "$metadataBaseName.msix" -or
-        [string]$metadata.certificateFile -ne "$metadataBaseName.cer")
+    if ([string]$metadata.signerFile -ne 'Installer/BAFX.IdentitySigner.exe')
     {
-        throw 'Identity package metadata names do not match the requested version.'
+        throw 'Identity package metadata does not name the native signer.'
     }
-    $certificate = New-Object Security.Cryptography.X509Certificates.X509Certificate2($certificatePath)
-    if ($certificate.Thumbprint -ne [string]$metadata.certificateThumbprint)
+    $templatePath = Join-Path $identityDirectory $templateFile
+    $signerPath = Join-Path $InstallRoot 'Installer\BAFX.IdentitySigner.exe'
+    if (-not (Test-Path -LiteralPath $templatePath -PathType Leaf) -or
+        -not (Test-Path -LiteralPath $signerPath -PathType Leaf))
     {
-        throw 'Identity certificate thumbprint mismatch.'
+        throw 'The unsigned identity template or native signer is missing.'
     }
-    if ($certificate.Subject -ne [string]$metadata.publisher)
+    if ((Get-FileHash -LiteralPath $templatePath -Algorithm SHA256).Hash -ne
+        [string]$metadata.templateSha256)
     {
-        throw 'Identity certificate subject mismatch.'
+        throw 'Unsigned identity template hash mismatch.'
+    }
+    if ((Get-FileHash -LiteralPath $signerPath -Algorithm SHA256).Hash -ne
+        [string]$metadata.signerSha256)
+    {
+        throw 'Native identity signer hash mismatch.'
+    }
+    $templateSignature = Get-AuthenticodeSignature -LiteralPath $templatePath
+    if ($templateSignature.Status -ne [Management.Automation.SignatureStatus]::NotSigned)
+    {
+        throw 'The identity template must be unsigned before target-machine signing.'
     }
 
-    $existingCertificate = Get-ChildItem -Path 'Cert:\LocalMachine\TrustedPeople' |
-        Where-Object { $_.Thumbprint -eq $certificate.Thumbprint } |
-        Select-Object -First 1
-    $certificateWasPresent = $null -ne $existingCertificate
-    if (-not $certificateWasPresent)
-    {
-        $imported = Import-Certificate `
-            -FilePath $certificatePath `
-            -CertStoreLocation 'Cert:\LocalMachine\TrustedPeople'
-        if ($imported.Thumbprint -ne $certificate.Thumbprint)
-        {
-            throw 'Imported certificate thumbprint mismatch.'
-        }
-    }
+    $certificate = $null
+    $certificateWasPresent = $false
+    $certificatePrivateKeyRemoved = $false
+    $signedPackagePath = $null
+    $publicCertificatePath = Join-Path (
+        [IO.Path]::GetTempPath()) ('bafx-identity-' + [Guid]::NewGuid().ToString('N') + '.cer')
 
     try
     {
-        $signature = Get-AuthenticodeSignature -LiteralPath $packagePath
+        $certificate = New-SelfSignedCertificate `
+            -Type CodeSigningCert `
+            -Subject ([string]$metadata.publisher) `
+            -CertStoreLocation 'Cert:\LocalMachine\My' `
+            -KeyAlgorithm RSA `
+            -KeyLength 2048 `
+            -HashAlgorithm SHA256 `
+            -KeyExportPolicy NonExportable `
+            -NotAfter (Get-Date).AddYears(2)
+        if ($null -eq $certificate -or
+            [string]$certificate.Subject -ne [string]$metadata.publisher)
+        {
+            throw 'Target-machine signing certificate creation returned an unexpected certificate.'
+        }
+        $certificateThumbprint = ([string]$certificate.Thumbprint).ToUpperInvariant()
+        $journal = [ordered]@{}
+        $seedEntries = if ($PendingStateSeed -is [Collections.IDictionary])
+        {
+            $PendingStateSeed.GetEnumerator()
+        }
+        else
+        {
+            $PendingStateSeed.PSObject.Properties |
+                ForEach-Object { [ordered]@{ Key = $_.Name; Value = $_.Value } }
+        }
+        foreach ($entry in $seedEntries)
+        {
+            if ($PendingStateSeed -is [Collections.IDictionary])
+            {
+                $journal[$entry.Key] = $entry.Value
+            }
+            else
+            {
+                $journal[$entry.Key] = $entry.Value
+            }
+        }
+        $journal.certificateThumbprint = $certificateThumbprint
+        $journal.certificateWasPresent = $false
+        $journal.packagePath = Join-Path $identityDirectory (
+            "$metadataBaseName-$certificateThumbprint.msix")
+        $journal.packageFile = [IO.Path]::GetFileName([string]$journal.packagePath)
+        $journal.ownedCertificateThumbprints = $certificateThumbprint
+        $journal.ownedPackageFiles = [string]$journal.packageFile
+        Write-ProtectedJson `
+            -Path $PendingStatePath `
+            -Value $journal `
+            -ReadSid ([string]$PendingStateSeed.userSid)
+        Export-Certificate `
+            -Cert $certificate `
+            -FilePath $publicCertificatePath `
+            -Type CERT | Out-Null
+
+        $existingCertificate = Get-ChildItem -Path 'Cert:\LocalMachine\TrustedPeople' |
+            Where-Object { $_.Thumbprint -eq $certificateThumbprint } |
+            Select-Object -First 1
+        $certificateWasPresent = $null -ne $existingCertificate
+        if (-not $certificateWasPresent)
+        {
+            $imported = Import-Certificate `
+                -FilePath $publicCertificatePath `
+                -CertStoreLocation 'Cert:\LocalMachine\TrustedPeople'
+            if ([string]$imported.Thumbprint -ne $certificateThumbprint)
+            {
+                throw 'Imported target-machine certificate thumbprint mismatch.'
+            }
+        }
+
+        $signedPackagePath = [string]$journal.packagePath
+        Copy-Item -LiteralPath $templatePath -Destination $signedPackagePath -Force
+        & $signerPath `
+            '--package' $signedPackagePath `
+            '--thumbprint' $certificateThumbprint `
+            '--store-location' 'LocalMachine'
+        if ($LASTEXITCODE -ne 0)
+        {
+            throw "Native identity signer failed with exit code $LASTEXITCODE."
+        }
+
+        $signature = Get-AuthenticodeSignature -LiteralPath $signedPackagePath
         $signatureInvalid = `
             ($signature.Status -ne [Management.Automation.SignatureStatus]::Valid) -or `
             ($null -eq $signature.SignerCertificate) -or `
-            ($signature.SignerCertificate.Thumbprint -ne $certificate.Thumbprint)
+            ($signature.SignerCertificate.Thumbprint -ne $certificateThumbprint)
         if ($signatureInvalid)
         {
             throw "Sparse package signature is invalid: $($signature.StatusMessage)"
@@ -425,13 +566,53 @@ function Assert-IdentityPayload
         {
             $archive.Dispose()
         }
+
+        # The package is already trusted through its public certificate. The
+        # private key must not survive Prepare, because it is not needed after
+        # the one package signature has been produced.
+        $privateCertificatePath = "Cert:\LocalMachine\My\$certificateThumbprint"
+        Remove-Item `
+            -LiteralPath $privateCertificatePath `
+            -DeleteKey `
+            -Force
+        $certificatePrivateKeyRemoved = $true
+        if (Test-Path -LiteralPath $privateCertificatePath)
+        {
+            throw 'Target-machine private signing certificate remains after cleanup.'
+        }
+
+        return [ordered]@{
+            metadata = $metadata
+            packagePath = $signedPackagePath
+            packageFile = [IO.Path]::GetFileName($signedPackagePath)
+            certificateThumbprint = $certificateThumbprint
+            certificateWasPresent = $certificateWasPresent
+        }
     }
     catch
     {
-        if (-not $certificateWasPresent)
+        if ($null -ne $signedPackagePath -and
+            (Test-Path -LiteralPath $signedPackagePath -PathType Leaf))
+        {
+            Remove-Item -LiteralPath $signedPackagePath -Force
+        }
+        if ($null -ne $certificate)
+        {
+            $certificateThumbprint = ([string]$certificate.Thumbprint).ToUpperInvariant()
+            $privateCertificatePath = "Cert:\LocalMachine\My\$certificateThumbprint"
+            if (-not $certificatePrivateKeyRemoved -and
+                (Test-Path -LiteralPath $privateCertificatePath))
+            {
+                Remove-Item `
+                    -LiteralPath $privateCertificatePath `
+                    -DeleteKey `
+                    -Force
+            }
+        }
+        if ($null -ne $certificate -and -not $certificateWasPresent)
         {
             $trusted = Get-ChildItem -Path 'Cert:\LocalMachine\TrustedPeople' |
-                Where-Object { $_.Thumbprint -eq $certificate.Thumbprint } |
+                Where-Object { $_.Thumbprint -eq ([string]$certificate.Thumbprint).ToUpperInvariant() } |
                 Select-Object -First 1
             if ($null -ne $trusted)
             {
@@ -440,12 +621,16 @@ function Assert-IdentityPayload
         }
         throw
     }
-
-    return [ordered]@{
-        metadata = $metadata
-        packagePath = $packagePath
-        certificateThumbprint = $certificate.Thumbprint
-        certificateWasPresent = $certificateWasPresent
+    finally
+    {
+        if ($null -ne $certificate)
+        {
+            $certificate.Dispose()
+        }
+        if (Test-Path -LiteralPath $publicCertificatePath -PathType Leaf)
+        {
+            Remove-Item -LiteralPath $publicCertificatePath -Force
+        }
     }
 }
 
@@ -597,6 +782,37 @@ function Assert-InstallStateObject
     {
         throw 'Protected install state has an invalid certificate ownership flag.'
     }
+    if ($null -eq $State.PSObject.Properties['ownedCertificateThumbprints'])
+    {
+        $State | Add-Member -NotePropertyName ownedCertificateThumbprints `
+            -NotePropertyValue ([string]$State.certificateThumbprint)
+    }
+    if ($null -eq $State.PSObject.Properties['ownedPackageFiles'])
+    {
+        $State | Add-Member -NotePropertyName ownedPackageFiles `
+            -NotePropertyValue ([string]$State.packageFile)
+    }
+    foreach ($thumbprint in (Split-Ledger `
+            -Value $State.ownedCertificateThumbprints `
+            -Separator Comma))
+    {
+        if ($thumbprint -notmatch '^[0-9A-Fa-f]{40}$')
+        {
+            throw 'Protected install state contains an invalid certificate ledger entry.'
+        }
+    }
+    foreach ($ownedFile in (Split-Ledger `
+            -Value $State.ownedPackageFiles `
+            -Separator Pipe))
+    {
+        if ([IO.Path]::IsPathRooted($ownedFile) -or
+            $ownedFile.Contains('..') -or
+            [IO.Path]::GetFileName($ownedFile) -ne $ownedFile -or
+            $ownedFile -notmatch '\.msix$')
+        {
+            throw 'Protected install state contains an unsafe package ledger entry.'
+        }
+    }
     if ([string]$State.installedUserSid -notmatch '^S-1-[0-9-]+$')
     {
         throw 'Protected install state has an invalid user SID.'
@@ -633,16 +849,37 @@ function Read-OldInstallState
     )
 
     $path = Join-Path $InstallRoot 'Installer\INSTALL-STATE.json'
-    if (-not (Test-Path -LiteralPath $path -PathType Leaf))
+    $backupPath = "$path.bak"
+    $candidates = @($path, $backupPath) |
+        Where-Object { Test-Path -LiteralPath $_ -PathType Leaf }
+    if ($candidates.Count -eq 0)
     {
         return $null
     }
-    Assert-ProtectedStateAcl -Path $path
-    $state = Get-Content -LiteralPath $path -Raw | ConvertFrom-Json
-    return Assert-InstallStateObject `
-        -State $state `
-        -InstallRoot $InstallRoot `
-        -ExpectedUserSid $UserSid
+    $errors = New-Object Collections.Generic.List[string]
+    foreach ($candidate in $candidates)
+    {
+        try
+        {
+            Assert-ProtectedStateAcl -Path $candidate
+            $state = Get-Content -LiteralPath $candidate -Raw | ConvertFrom-Json
+            $validated = Assert-InstallStateObject `
+                -State $state `
+                -InstallRoot $InstallRoot `
+                -ExpectedUserSid $UserSid
+            if ($candidate -ne $path)
+            {
+                Copy-Item -LiteralPath $candidate -Destination $path -Force
+                Set-ProtectedStateAcl -Path $path -ReadSid $UserSid
+            }
+            return $validated
+        }
+        catch
+        {
+            $errors.Add("$candidate`: $($_.Exception.Message)")
+        }
+    }
+    throw "Protected install state and its backup are invalid: $($errors -join ' | ')"
 }
 
 function Remove-OldCertificate
@@ -684,6 +921,96 @@ function Remove-OldCertificate
     Remove-Item -LiteralPath $certificate.PSPath -Force
 }
 
+function Remove-ObsoleteIdentityArtifacts
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [object]$State
+    )
+
+    $otherPackages = @(
+        Get-AppxPackage -AllUsers -Name ([string]$State.packageName) -ErrorAction Stop |
+            Where-Object { [string]$_.PackageFullName -ne [string]$State.packageFullName }
+    )
+    if ($otherPackages.Count -gt 0)
+    {
+        return $State
+    }
+
+    $installRoot = [IO.Path]::GetFullPath([string]$State.externalLocation)
+    $currentFile = [string]$State.packageFile
+    $remainingFiles = New-Object Collections.Generic.List[string]
+    foreach ($ownedFile in (Split-Ledger `
+            -Value $State.ownedPackageFiles `
+            -Separator Pipe))
+    {
+        if ($ownedFile -eq $currentFile)
+        {
+            $remainingFiles.Add($ownedFile)
+            continue
+        }
+        $path = Join-Path (Join-Path $installRoot 'Identity') $ownedFile
+        if (Test-Path -LiteralPath $path -PathType Leaf)
+        {
+            Remove-Item -LiteralPath $path -Force
+        }
+        if (Test-Path -LiteralPath $path -PathType Leaf)
+        {
+            $remainingFiles.Add($ownedFile)
+        }
+    }
+
+    $remainingCertificates = New-Object Collections.Generic.List[string]
+    $currentThumbprint = ([string]$State.certificateThumbprint).ToUpperInvariant()
+    foreach ($thumbprint in (Split-Ledger `
+            -Value $State.ownedCertificateThumbprints `
+            -Separator Comma))
+    {
+        $normalizedThumbprint = $thumbprint.ToUpperInvariant()
+        if ($normalizedThumbprint -eq $currentThumbprint)
+        {
+            $remainingCertificates.Add($normalizedThumbprint)
+            continue
+        }
+        $certificate = Get-ChildItem -Path 'Cert:\LocalMachine\TrustedPeople' |
+            Where-Object { $_.Thumbprint -eq $normalizedThumbprint } |
+            Select-Object -First 1
+        if ($null -ne $certificate)
+        {
+            if ($certificate.Subject -ne [string]$State.publisher)
+            {
+                throw 'Refusing to remove an owned certificate with an unexpected subject.'
+            }
+            Remove-Item -LiteralPath $certificate.PSPath -Force
+        }
+        $privateCertificate = Get-ChildItem -Path 'Cert:\LocalMachine\My' |
+            Where-Object { $_.Thumbprint -eq $normalizedThumbprint } |
+            Select-Object -First 1
+        if ($null -ne $privateCertificate)
+        {
+            if ($privateCertificate.Subject -ne [string]$State.publisher)
+            {
+                throw 'Refusing to remove an owned private certificate with an unexpected subject.'
+            }
+            Remove-Item -LiteralPath $privateCertificate.PSPath -DeleteKey -Force
+        }
+        if ($null -ne (Get-ChildItem -Path 'Cert:\LocalMachine\TrustedPeople' |
+                Where-Object { $_.Thumbprint -eq $normalizedThumbprint } |
+                Select-Object -First 1))
+        {
+            $remainingCertificates.Add($normalizedThumbprint)
+        }
+    }
+
+    $State.ownedPackageFiles = Join-Ledger `
+        -Values @($remainingFiles) `
+        -Separator Pipe
+    $State.ownedCertificateThumbprints = Join-Ledger `
+        -Values @($remainingCertificates) `
+        -Separator Comma
+    return $State
+}
+
 function Assert-PendingStateObject
 {
     param(
@@ -703,10 +1030,13 @@ function Assert-PendingStateObject
         'publisher',
         'productVersion',
         'packageVersion',
+        'transactionId',
         'packagePath',
         'packageFile',
         'certificateThumbprint',
         'certificateWasPresent',
+        'ownedCertificateThumbprints',
+        'ownedPackageFiles',
         'preexistingPackageFullNames',
         'oldInstallState'))
     {
@@ -731,10 +1061,35 @@ function Assert-PendingStateObject
     {
         throw 'Protected pending state does not match this installer.'
     }
+    if ([string]$State.transactionId -notmatch '^[0-9a-fA-F]{32}$')
+    {
+        throw 'Protected pending state has an invalid transaction identifier.'
+    }
     if ([string]$State.certificateThumbprint -notmatch '^[0-9A-Fa-f]{40}$' -or
         $State.certificateWasPresent -isnot [bool])
     {
         throw 'Protected pending state has invalid certificate data.'
+    }
+    foreach ($thumbprint in (Split-Ledger `
+            -Value $State.ownedCertificateThumbprints `
+            -Separator Comma))
+    {
+        if ($thumbprint -notmatch '^[0-9A-Fa-f]{40}$')
+        {
+            throw 'Protected pending state contains an invalid certificate ledger entry.'
+        }
+    }
+    foreach ($ownedFile in (Split-Ledger `
+            -Value $State.ownedPackageFiles `
+            -Separator Pipe))
+    {
+        if ([IO.Path]::IsPathRooted($ownedFile) -or
+            $ownedFile.Contains('..') -or
+            [IO.Path]::GetFileName($ownedFile) -ne $ownedFile -or
+            $ownedFile -notmatch '\.msix$')
+        {
+            throw 'Protected pending state contains an unsafe package ledger entry.'
+        }
     }
     $packageFile = [string]$State.packageFile
     if ([IO.Path]::IsPathRooted($packageFile) -or
@@ -824,13 +1179,27 @@ function Remove-PreparedCertificateIfUnused
         Select-Object -First 1
     if ($null -eq $certificate)
     {
-        return
+        $certificate = $null
     }
-    if ($certificate.Subject -ne [string]$State.publisher)
+    if ($null -ne $certificate -and $certificate.Subject -ne [string]$State.publisher)
     {
         throw 'Refusing to remove the prepared certificate with an unexpected subject.'
     }
-    Remove-Item -LiteralPath $certificate.PSPath -Force
+    if ($null -ne $certificate)
+    {
+        Remove-Item -LiteralPath $certificate.PSPath -Force
+    }
+    $privateCertificate = Get-ChildItem -Path 'Cert:\LocalMachine\My' |
+        Where-Object { $_.Thumbprint -eq [string]$State.certificateThumbprint } |
+        Select-Object -First 1
+    if ($null -ne $privateCertificate)
+    {
+        if ($privateCertificate.Subject -ne [string]$State.publisher)
+        {
+            throw 'Refusing to remove the prepared private certificate with an unexpected subject.'
+        }
+        Remove-Item -LiteralPath $privateCertificate.PSPath -DeleteKey -Force
+    }
 }
 
 function Invoke-PendingRollback
@@ -873,6 +1242,7 @@ function Read-RegistrationResult
     $result = Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json
     foreach ($propertyName in @(
         'schema',
+        'transactionId',
         'succeeded',
         'installedUserSid',
         'packageName',
@@ -889,6 +1259,10 @@ function Read-RegistrationResult
     if ([int]$result.schema -ne 1 -or $result.succeeded -isnot [bool])
     {
         throw 'Package registration result has an unsupported schema.'
+    }
+    if ([string]$result.transactionId -ne [string]$State.transactionId)
+    {
+        throw 'Package registration result belongs to a different installation transaction.'
     }
     if (-not [bool]$result.succeeded)
     {
@@ -956,7 +1330,35 @@ if ($Phase -eq 'Prepare')
     {
         if (Test-Path -LiteralPath $machineStateFullPath -PathType Leaf)
         {
-            throw 'A previous protected pending state still exists; complete rollback before retrying.'
+            Assert-ProtectedStateAcl -Path $machineStateFullPath
+            $stalePending = Get-Content -LiteralPath $machineStateFullPath -Raw | ConvertFrom-Json
+            $stalePending = Assert-PendingStateObject `
+                -State $stalePending `
+                -InstallRoot $installRoot
+            $committedState = $null
+            try
+            {
+                $committedState = Read-OldInstallState `
+                    -InstallRoot $installRoot `
+                    -UserSid ([string]$stalePending.userSid)
+            }
+            catch
+            {
+                $committedState = $null
+            }
+            if ($null -ne $committedState -and
+                [string]$committedState.transactionId -eq [string]$stalePending.transactionId)
+            {
+                # Finalize committed the state before the process stopped. The
+                # pending journal is no longer needed and must not trigger a
+                # second package rollback on the next repair.
+                Remove-Item -LiteralPath $machineStateFullPath -Force
+            }
+            else
+            {
+                Invoke-PendingRollback -State $stalePending
+                Remove-Item -LiteralPath $machineStateFullPath -Force
+            }
         }
         $context = Get-Content -LiteralPath $userContextFullPath -Raw | ConvertFrom-Json
         if ([int]$context.schema -ne 1 -or [string]$context.userSid -notmatch '^S-1-[0-9-]+$')
@@ -970,8 +1372,14 @@ if ($Phase -eq 'Prepare')
             -InstallRoot $installRoot `
             -UserSid ([string]$context.userSid)
         Grant-DataDirectoryAccess -Path $dataDirectory -UserSid ([string]$context.userSid)
-        $identity = Assert-IdentityPayload -InstallRoot $installRoot
-        $metadata = $identity.metadata
+        $metadataPath = Join-Path (Join-Path $installRoot 'Identity') `
+            "CialloKing.BaClickFxDesktop-$PackageVersion.identity-template.json"
+        $metadata = Get-Content -LiteralPath $metadataPath -Raw | ConvertFrom-Json
+        if ([int]$metadata.schema -ne 3 -or
+            [string]$metadata.identityMode -ne 'target-machine-self-signed')
+        {
+            throw 'Identity package metadata has an unsupported schema.'
+        }
         $preexistingFullNames = @(
             Get-AppxPackage `
                 -User ([string]$context.userSid) `
@@ -984,13 +1392,14 @@ if ($Phase -eq 'Prepare')
             throw 'An untracked package registration already exists; uninstall it before continuing.'
         }
         if ($null -ne $oldInstallState -and
-            $preexistingFullNames -notcontains [string]$oldInstallState.packageFullName)
+            ($preexistingFullNames | Where-Object {
+                [string]$_ -ne [string]$oldInstallState.packageFullName
+            }).Count -gt 0)
         {
-            throw 'Protected install state does not match the existing package registration.'
+            throw 'An untracked package registration exists beside the protected install state.'
         }
 
-        $packageFile = [IO.Path]::GetFileName([string]$identity.packagePath)
-        $pendingState = [ordered]@{
+        $pendingSeed = [ordered]@{
             schema = 1
             stateKind = 'prepare'
             userSid = [string]$context.userSid
@@ -999,28 +1408,41 @@ if ($Phase -eq 'Prepare')
             publisher = [string]$metadata.publisher
             productVersion = $ProductVersion
             packageVersion = $PackageVersion
-            packagePath = [string]$identity.packagePath
-            packageFile = $packageFile
-            certificateThumbprint = [string]$identity.certificateThumbprint
-            certificateWasPresent = [bool]$identity.certificateWasPresent
+            transactionId = [Guid]::NewGuid().ToString('N')
             preexistingPackageFullNames = $preexistingFullNames
             oldInstallState = $oldInstallState
             preparedUtc = [DateTime]::UtcNow.ToString('o')
         }
-        Write-ProtectedJson `
-            -Path $machineStateFullPath `
-            -Value $pendingState `
-            -ReadSid ([string]$context.userSid)
+        $identity = Assert-IdentityPayload `
+            -InstallRoot $installRoot `
+            -PendingStatePath $machineStateFullPath `
+            -PendingStateSeed $pendingSeed
+        Assert-ProtectedStateAcl -Path $machineStateFullPath
+        $pendingState = Get-Content -LiteralPath $machineStateFullPath -Raw | ConvertFrom-Json
+        $pendingState = Assert-PendingStateObject `
+            -State $pendingState `
+            -InstallRoot $installRoot
         Initialize-IdentityConfig -InstallRoot $installRoot -DataDirectory $dataDirectory
         exit 0
     }
     catch
     {
         $prepareError = $_.Exception.Message
-        if ($null -ne $pendingState)
+        if ($null -ne $pendingState -or
+            (Test-Path -LiteralPath $machineStateFullPath -PathType Leaf))
         {
             try
             {
+                if ($null -eq $pendingState)
+                {
+                    Assert-ProtectedStateAcl -Path $machineStateFullPath
+                    $pendingState = Get-Content `
+                        -LiteralPath $machineStateFullPath `
+                        -Raw | ConvertFrom-Json
+                    $pendingState = Assert-PendingStateObject `
+                        -State $pendingState `
+                        -InstallRoot $installRoot
+                }
                 Invoke-PendingRollback -State $pendingState
                 if (Test-Path -LiteralPath $machineStateFullPath -PathType Leaf)
                 {
@@ -1030,16 +1452,6 @@ if ($Phase -eq 'Prepare')
             catch
             {
                 throw "Prepare failed: $prepareError Rollback failed: $($_.Exception.Message)"
-            }
-        }
-        elseif ($null -ne $identity -and -not [bool]$identity.certificateWasPresent)
-        {
-            $certificate = Get-ChildItem -Path 'Cert:\LocalMachine\TrustedPeople' |
-                Where-Object { $_.Thumbprint -eq [string]$identity.certificateThumbprint } |
-                Select-Object -First 1
-            if ($null -ne $certificate)
-            {
-                Remove-Item -LiteralPath $certificate.PSPath -Force
             }
         }
         throw $prepareError
@@ -1064,6 +1476,7 @@ try
     }
     $installState = [ordered]@{
         schema = 1
+        transactionId = [string]$pendingState.transactionId
         packageName = [string]$pendingState.packageName
         applicationId = [string]$pendingState.applicationId
         publisher = [string]$pendingState.publisher
@@ -1076,9 +1489,25 @@ try
         externalLocation = $installRoot
         installedUserSid = [string]$pendingState.userSid
         packageFile = [string]$pendingState.packageFile
+        ownedCertificateThumbprints = Join-Ledger `
+            -Values @(
+                (Split-Ledger `
+                    -Value $pendingState.ownedCertificateThumbprints `
+                    -Separator Comma),
+                [string]$pendingState.certificateThumbprint
+            ) `
+            -Separator Comma
+        ownedPackageFiles = Join-Ledger `
+            -Values @(
+                (Split-Ledger `
+                    -Value $pendingState.ownedPackageFiles `
+                    -Separator Pipe),
+                [string]$pendingState.packageFile
+            ) `
+            -Separator Pipe
         installedUtc = [DateTime]::UtcNow.ToString('o')
     }
-    Write-ProtectedJson `
+    Write-ProtectedInstallState `
         -Path $installStatePath `
         -Value $installState `
         -ReadSid ([string]$pendingState.userSid)
@@ -1098,49 +1527,21 @@ catch
     throw $finalizeError
 }
 
-# Cleanup after the protected commit is best effort. A stale old certificate
-# or payload is safer than rolling back an already committed registration.
+# Cleanup after the protected commit is best effort. The state ledger is
+# deliberately written before cleanup so a locked file or shared package can
+# be retried on the next repair or uninstall.
 try
 {
-    Remove-OldCertificate `
-        -State $pendingState.oldInstallState `
-        -CurrentCertificateThumbprint ([string]$pendingState.certificateThumbprint)
+    $committedState = Read-OldInstallState `
+        -InstallRoot $installRoot `
+        -UserSid ([string]$pendingState.userSid)
+    $cleanedState = Remove-ObsoleteIdentityArtifacts -State $committedState
+    Write-ProtectedInstallState `
+        -Path $installStatePath `
+        -Value $cleanedState `
+        -ReadSid ([string]$pendingState.userSid)
 }
 catch
 {
-    Write-Warning "Could not remove the previous installer certificate: $($_.Exception.Message)"
-}
-try
-{
-    $identityDirectory = Join-Path $installRoot 'Identity'
-    $obsoleteRegistrations = @(
-        Get-AppxPackage -AllUsers -Name ([string]$pendingState.packageName) -ErrorAction Stop |
-            Where-Object {
-                [string]$_.PackageFullName -ne [string]$registrationResult.packageFullName
-            }
-    )
-    if ($obsoleteRegistrations.Count -gt 0)
-    {
-        Write-Warning 'Keeping previous identity payloads while another registration still uses them.'
-    }
-    else
-    {
-        $currentNames = @(
-            [string]$pendingState.packageFile,
-            "CialloKing.BaClickFxDesktop-$PackageVersion.cer",
-            "CialloKing.BaClickFxDesktop-$PackageVersion.identity.json"
-        )
-        Get-ChildItem -LiteralPath $identityDirectory -File |
-            Where-Object {
-                $isIdentityFile = $_.Name -like 'CialloKing.BaClickFxDesktop-*'
-                $isObsolete = $currentNames -notcontains $_.Name
-                $hasExpectedExtension = $_.Extension -in @('.msix', '.cer', '.json')
-                $isIdentityFile -and $isObsolete -and $hasExpectedExtension
-            } |
-            Remove-Item -Force
-    }
-}
-catch
-{
-    Write-Warning "Could not remove obsolete identity payloads: $($_.Exception.Message)"
+    Write-Warning "Could not clean obsolete identity artifacts: $($_.Exception.Message)"
 }

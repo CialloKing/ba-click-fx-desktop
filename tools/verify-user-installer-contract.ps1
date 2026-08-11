@@ -435,6 +435,26 @@ function Test-SparsePackageContract
         -Text $machineInstaller `
         -Pattern 'Write-ProtectedJson' `
         -Description 'protected install state is written with an ACL'
+    Assert-TextContains `
+        -Text $machineInstaller `
+        -Pattern 'New-SelfSignedCertificate[\s\S]*Cert:\\LocalMachine\\My' `
+        -Description 'target-machine certificate generation'
+    Assert-TextContains `
+        -Text $machineInstaller `
+        -Pattern 'BAFX\.IdentitySigner\.exe[\s\S]*\-store-location' `
+        -Description 'native target-machine package signing'
+    Assert-TextContains `
+        -Text $machineInstaller `
+        -Pattern '\-DeleteKey' `
+        -Description 'private signing-key cleanup'
+    Assert-TextContains `
+        -Text $machineInstaller `
+        -Pattern 'Write-ProtectedInstallState[\s\S]*\.bak' `
+        -Description 'protected install-state backup'
+    Assert-TextContains `
+        -Text $machineInstaller `
+        -Pattern 'transactionId[\s\S]*ownedCertificateThumbprints[\s\S]*ownedPackageFiles' `
+        -Description 'transaction and cleanup ledgers'
 
     $controlCenter = Read-RepositoryText -RelativePath 'src/control-center/control_center_window.cpp'
     $activation = Read-RepositoryText -RelativePath 'src/control-center/package_activation.cpp'
@@ -460,6 +480,21 @@ function Test-SparsePackageContract
         -Text $inno `
         -Pattern 'DisableSystemBorder' `
         -Description 'installer preserves the default visible system border'
+    Assert-TextContains `
+        -Text $inno `
+        -Pattern 'recovery state were retained[\s\S]*Exit' `
+        -Description 'failed setup retains recovery payload'
+
+    $registration = Read-RepositoryText -RelativePath 'tools/installer/register-user-package.ps1'
+    Assert-TextContains `
+        -Text $registration `
+        -Pattern 'transactionId[\s\S]*Remove-PreviousPackageForReplacement' `
+        -Description 'registration transaction binding and same-version replacement'
+    $uninstaller = Read-RepositoryText -RelativePath 'tools/installer/unregister-machine.ps1'
+    Assert-TextContains `
+        -Text $uninstaller `
+        -Pattern 'Read-InstallStateWithBackup[\s\S]*ownedCertificateThumbprints[\s\S]*\-DeleteKey' `
+        -Description 'uninstall backup and complete certificate ledger cleanup'
 }
 
 function Test-PortableZipContract

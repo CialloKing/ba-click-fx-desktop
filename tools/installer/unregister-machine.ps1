@@ -95,6 +95,85 @@ function Assert-ProtectedStateAcl
     }
 }
 
+function Split-Ledger
+{
+    param(
+        [AllowNull()]
+        [object]$Value,
+
+        [Parameter(Mandatory = $true)]
+        [ValidateSet('Comma', 'Pipe')]
+        [string]$Separator
+    )
+
+    if ($null -eq $Value -or [string]::IsNullOrWhiteSpace([string]$Value))
+    {
+        return @()
+    }
+    $pattern = if ($Separator -eq 'Comma') { ',' } else { '\|' }
+    return @(
+        ([string]$Value -split $pattern) |
+            Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
+            ForEach-Object { $_.Trim() }
+    )
+}
+
+function Read-InstallStateWithBackup
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path,
+
+        [Parameter(Mandatory = $true)]
+        [string]$InstallRoot
+    )
+
+    $backupPath = "$Path.bak"
+    $candidates = @($Path, $backupPath) |
+        Where-Object { Test-Path -LiteralPath $_ -PathType Leaf }
+    if ($candidates.Count -eq 0)
+    {
+        throw 'Protected install state is missing; refusing an imprecise uninstall.'
+    }
+    $errors = New-Object Collections.Generic.List[string]
+    foreach ($candidate in $candidates)
+    {
+        try
+        {
+            Assert-ProtectedStateAcl -Path $candidate
+            $candidateState = Get-Content -LiteralPath $candidate -Raw | ConvertFrom-Json
+            if ([int]$candidateState.schema -ne 1 -or
+                [string]$candidateState.packageName -ne 'CialloKing.BaClickFxDesktop' -or
+                [string]$candidateState.applicationId -ne 'BaClickFxDesktop' -or
+                [string]$candidateState.publisher -ne 'CN=BaClickFx.Local')
+            {
+                throw 'Protected install state has unsupported identity data.'
+            }
+            if ($null -eq $candidateState.PSObject.Properties['ownedCertificateThumbprints'])
+            {
+                $candidateState | Add-Member -NotePropertyName ownedCertificateThumbprints `
+                    -NotePropertyValue ([string]$candidateState.certificateThumbprint)
+            }
+            if ($null -eq $candidateState.PSObject.Properties['ownedPackageFiles'])
+            {
+                $candidateState | Add-Member -NotePropertyName ownedPackageFiles `
+                    -NotePropertyValue ([string]$candidateState.packageFile)
+            }
+            if ($candidate -ne $Path)
+            {
+                Copy-Item -LiteralPath $candidate -Destination $Path -Force
+                Set-ProtectedStateAcl -Path $Path
+            }
+            return $candidateState
+        }
+        catch
+        {
+            $errors.Add("$candidate`: $($_.Exception.Message)")
+        }
+    }
+    throw "Protected install state and its backup are invalid: $($errors -join ' | ')"
+}
+
 Assert-Administrator
 if ($PSVersionTable.PSEdition -ne 'Desktop')
 {
@@ -103,12 +182,12 @@ if ($PSVersionTable.PSEdition -ne 'Desktop')
 
 $installRoot = Resolve-ProtectedInstallRoot -Path $InstallDirectory
 $statePath = Join-Path $installRoot 'Installer\INSTALL-STATE.json'
-if (-not (Test-Path -LiteralPath $statePath -PathType Leaf))
+$pendingPath = Join-Path $installRoot 'Installer\PREPARE-STATE.json'
+if (Test-Path -LiteralPath $pendingPath -PathType Leaf)
 {
-    throw 'Protected install state is missing; refusing an imprecise uninstall.'
+    throw 'A pending installation transaction remains; complete rollback before uninstalling.'
 }
-Assert-ProtectedStateAcl -Path $statePath
-$state = Get-Content -LiteralPath $statePath -Raw | ConvertFrom-Json
+$state = Read-InstallStateWithBackup -Path $statePath -InstallRoot $installRoot
 foreach ($propertyName in @(
     'schema',
     'packageName',
@@ -122,7 +201,9 @@ foreach ($propertyName in @(
     'certificateInstalledBySetup',
     'externalLocation',
     'installedUserSid',
-    'packageFile'))
+    'packageFile',
+    'ownedCertificateThumbprints',
+    'ownedPackageFiles'))
 {
     if ($null -eq $state.PSObject.Properties[$propertyName])
     {
@@ -204,10 +285,37 @@ if ($otherUserPackages.Count -gt 0)
     throw 'Another user package registration remains; keeping shared files and certificate.'
 }
 
-if ([bool]$state.certificateInstalledBySetup)
+$ownedFiles = Split-Ledger -Value $state.ownedPackageFiles -Separator Pipe
+foreach ($ownedFile in $ownedFiles)
 {
+    if ([IO.Path]::IsPathRooted($ownedFile) -or
+        $ownedFile.Contains('..') -or
+        [IO.Path]::GetFileName($ownedFile) -ne $ownedFile -or
+        $ownedFile -notmatch '\.msix$')
+    {
+        throw 'Protected install state has an unsafe package ledger entry.'
+    }
+    $ownedPath = Join-Path (Join-Path $installRoot 'Identity') $ownedFile
+    if (Test-Path -LiteralPath $ownedPath -PathType Leaf)
+    {
+        Remove-Item -LiteralPath $ownedPath -Force
+    }
+    if (Test-Path -LiteralPath $ownedPath -PathType Leaf)
+    {
+        throw "The installer-owned identity package remains after uninstall: $ownedFile"
+    }
+}
+
+foreach ($thumbprint in (Split-Ledger `
+        -Value $state.ownedCertificateThumbprints `
+        -Separator Comma))
+{
+    if ($thumbprint -notmatch '^[0-9A-Fa-f]{40}$')
+    {
+        throw 'Protected install state has an unsafe certificate ledger entry.'
+    }
     $certificate = Get-ChildItem -Path 'Cert:\LocalMachine\TrustedPeople' |
-        Where-Object { $_.Thumbprint -eq [string]$state.certificateThumbprint } |
+        Where-Object { $_.Thumbprint -eq $thumbprint } |
         Select-Object -First 1
     if ($null -ne $certificate)
     {
@@ -217,13 +325,27 @@ if ([bool]$state.certificateInstalledBySetup)
         }
         Remove-Item -LiteralPath $certificate.PSPath -Force
     }
-
+    $privateCertificate = Get-ChildItem -Path 'Cert:\LocalMachine\My' |
+        Where-Object { $_.Thumbprint -eq $thumbprint } |
+        Select-Object -First 1
+    if ($null -ne $privateCertificate)
+    {
+        if ($privateCertificate.Subject -ne [string]$state.publisher)
+        {
+            throw 'Refusing to remove a private certificate with an unexpected subject.'
+        }
+        Remove-Item -LiteralPath $privateCertificate.PSPath -DeleteKey -Force
+    }
     if ($null -ne (Get-ChildItem -Path 'Cert:\LocalMachine\TrustedPeople' |
-            Where-Object { $_.Thumbprint -eq [string]$state.certificateThumbprint } |
+            Where-Object { $_.Thumbprint -eq $thumbprint } |
             Select-Object -First 1))
     {
-        throw 'The installer-owned certificate remains after uninstall.'
+        throw "The installer-owned certificate remains after uninstall: $thumbprint"
     }
 }
 
 Remove-Item -LiteralPath $statePath -Force
+if (Test-Path -LiteralPath "$statePath.bak" -PathType Leaf)
+{
+    Remove-Item -LiteralPath "$statePath.bak" -Force
+}

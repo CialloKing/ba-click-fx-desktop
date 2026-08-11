@@ -46,6 +46,7 @@ function Write-Result
 
     $result = [ordered]@{
         schema = 1
+        transactionId = [string]$State.transactionId
         succeeded = $Succeeded
         installedUserSid = [string]$State.userSid
         packageName = [string]$State.packageName
@@ -109,6 +110,7 @@ function Assert-PendingState
     foreach ($propertyName in @(
         'schema',
         'stateKind',
+        'transactionId',
         'userSid',
         'packageName',
         'applicationId',
@@ -116,6 +118,8 @@ function Assert-PendingState
         'packageVersion',
         'packagePath',
         'packageFile',
+        'ownedCertificateThumbprints',
+        'ownedPackageFiles',
         'preexistingPackageFullNames',
         'oldInstallState'))
     {
@@ -135,6 +139,29 @@ function Assert-PendingState
         [string]$State.packageVersion -notmatch '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$')
     {
         throw 'Protected pending state contains invalid identity data.'
+    }
+    if ([string]$State.transactionId -notmatch '^[0-9a-fA-F]{32}$')
+    {
+        throw 'Protected pending state has an invalid transaction identifier.'
+    }
+    foreach ($thumbprint in (([string]$State.ownedCertificateThumbprints) -split ',' |
+            Where-Object { -not [string]::IsNullOrWhiteSpace($_) }))
+    {
+        if ($thumbprint -notmatch '^[0-9A-Fa-f]{40}$')
+        {
+            throw 'Protected pending state has an invalid certificate ledger entry.'
+        }
+    }
+    foreach ($ownedFile in (([string]$State.ownedPackageFiles) -split '\|' |
+            Where-Object { -not [string]::IsNullOrWhiteSpace($_) }))
+    {
+        if ([IO.Path]::IsPathRooted($ownedFile) -or
+            $ownedFile.Contains('..') -or
+            [IO.Path]::GetFileName($ownedFile) -ne $ownedFile -or
+            $ownedFile -notmatch '\.msix$')
+        {
+            throw 'Protected pending state has an unsafe package ledger entry.'
+        }
     }
     $packageFile = [string]$State.packageFile
     if ([IO.Path]::IsPathRooted($packageFile) -or
@@ -228,6 +255,36 @@ function Restore-PreviousPackage
     }
 }
 
+function Remove-PreviousPackageForReplacement
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [object]$State
+    )
+
+    if ($null -eq $State.oldInstallState)
+    {
+        return
+    }
+    $oldFullName = [string]$State.oldInstallState.packageFullName
+    $oldPackage = Get-AppxPackage `
+        -User ([string]$State.userSid) `
+        -Name ([string]$State.packageName) `
+        -ErrorAction Stop |
+        Where-Object { [string]$_.PackageFullName -eq $oldFullName } |
+        Select-Object -First 1
+    if ($null -ne $oldPackage)
+    {
+        # AppX keeps the same PackageFullName for a same-version repair. Remove
+        # the old registration explicitly so Add-AppxPackage cannot treat the
+        # replacement as an already installed package.
+        Remove-AppxPackage `
+            -Package $oldFullName `
+            -User ([string]$State.userSid) `
+            -ErrorAction Stop
+    }
+}
+
 if ($PSVersionTable.PSEdition -ne 'Desktop')
 {
     throw 'Package registration requires Windows PowerShell 5.1.'
@@ -276,6 +333,8 @@ try
     {
         throw 'Package registrations changed after the protected prepare phase.'
     }
+
+    Remove-PreviousPackageForReplacement -State $machineState
 
     Add-AppxPackage `
         -Path $packagePath `
