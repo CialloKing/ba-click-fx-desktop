@@ -248,18 +248,44 @@ struct WgcBackgroundSensor::Implementation
             const auto borderSession = session.try_as_with_reason<
                 winrt::Windows::Graphics::Capture::IGraphicsCaptureSession3>(
                     borderQueryResult);
-            if (borderSession)
+            if (!options.allowSystemBorder)
             {
-                // Border suppression is an enhancement, not a prerequisite for
-                // sampling the desktop. Portable applications commonly lack the
-                // package capability even when the interface itself is present.
+                if (!borderSession)
+                {
+                    throw HResultError(
+                        SUCCEEDED(borderQueryResult)
+                            ? E_NOINTERFACE
+                            : static_cast<HRESULT>(borderQueryResult),
+                        "borderless WGC session is unavailable");
+                }
                 try
                 {
                     borderSession.IsBorderRequired(false);
                     capabilities.borderHidden = !borderSession.IsBorderRequired();
                 }
+                catch (const winrt::hresult_error& error)
+                {
+                    throw HResultError(
+                        error.code(),
+                        "IGraphicsCaptureSession3::IsBorderRequired(false)");
+                }
+                if (!capabilities.borderHidden)
+                {
+                    throw HResultError(
+                        E_ACCESSDENIED,
+                        "Windows kept the WGC system capture border enabled");
+                }
+            }
+            else if (borderSession)
+            {
+                try
+                {
+                    capabilities.borderHidden = !borderSession.IsBorderRequired();
+                }
                 catch (const winrt::hresult_error&)
                 {
+                    // The visible border is explicitly allowed, so an
+                    // unavailable capability query does not block capture.
                     capabilities.borderHidden = false;
                 }
             }

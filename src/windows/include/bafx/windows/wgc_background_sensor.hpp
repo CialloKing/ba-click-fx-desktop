@@ -20,6 +20,9 @@ struct WgcBackgroundSensorOptions
     // Cursor capture is optional because older Windows builds may not expose
     // IGraphicsCaptureSession2. The product default keeps this enabled.
     bool cursorExcluded{true};
+    // Windows may require a visible privacy border for WGC. Keep it opt-in so
+    // the default desktop experience falls back instead of showing a yellow frame.
+    bool allowSystemBorder{false};
 };
 
 struct WgcBackgroundSample
@@ -33,8 +36,8 @@ struct WgcBackgroundSample
 
 struct WgcBackgroundSessionCapabilities
 {
-    // Portable Win32 applications cannot require the package capability used
-    // to suppress the system capture border. Capture remains usable without it.
+    // A false value is accepted only when allowSystemBorder was requested;
+    // otherwise sensor construction fails before StartCapture.
     bool borderHidden{false};
     bool cursorExcluded{false};
 };

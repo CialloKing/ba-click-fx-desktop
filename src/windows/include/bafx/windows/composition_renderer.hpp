@@ -97,7 +97,8 @@ public:
     [[nodiscard]] bool tryEnableBackgroundCapture(
         HMONITOR monitor,
         bool exclusionConfirmed,
-        bool cursorExcluded = true) noexcept;
+        bool cursorExcluded = true,
+        bool allowSystemBorder = false) noexcept;
     void disableBackgroundCapture() noexcept;
     [[nodiscard]] bool backgroundCaptureActive() const noexcept;
     [[nodiscard]] bool backgroundCaptureBorderHidden() const noexcept;
@@ -156,6 +157,7 @@ private:
     std::uint64_t backgroundEpoch_{1U};
     bool backgroundCaptureRequested_{false};
     bool backgroundCursorExcluded_{true};
+    bool backgroundSystemBorderAllowed_{false};
     bafx::core::BackgroundPathLatch backgroundPathLatch_{};
     bool backgroundParticipatedInLastFrame_{false};
     BackgroundCompositeStatus backgroundCompositeStatus_{

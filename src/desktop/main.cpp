@@ -41,7 +41,7 @@ constexpr DWORD pausedControlPollMilliseconds = 50U;
     const bafx::windows::CompositionRenderer& renderer)
 {
     std::string message = "WGC capture session active; system-border=";
-    message += renderer.backgroundCaptureBorderHidden() ? "hidden" : "visible";
+    message += renderer.backgroundCaptureBorderHidden() ? "hidden" : "visible-allowed";
     message += "; cursor=";
     message += renderer.backgroundCaptureCursorExcluded() ? "excluded" : "captured";
     return message;
@@ -512,11 +512,13 @@ int runApplication(
     // capture exclusion was confirmed by querying the effective affinity.
     bool backgroundCaptureWanted = wantsBackgroundCapture(config);
     bool backgroundCursorExcluded = config.background.cursorExcluded;
+    bool backgroundSystemBorderAllowed = config.background.allowSystemBorder;
     bool backgroundCaptureEnabled = backgroundCaptureWanted
         && renderer.tryEnableBackgroundCapture(
             primaryMonitor.handle,
             exclusionConfirmed,
-            backgroundCursorExcluded);
+            backgroundCursorExcluded,
+            backgroundSystemBorderAllowed);
     if (!backgroundCaptureEnabled)
     {
         report.setBackgroundCaptureStatus(
@@ -603,11 +605,16 @@ int runApplication(
             renderer.setBloomSettings(makeBloomSettings(config.effects));
             const bool nextBackgroundCaptureWanted = wantsBackgroundCapture(config);
             const bool nextBackgroundCursorExcluded = config.background.cursorExcluded;
+            const bool nextBackgroundSystemBorderAllowed =
+                config.background.allowSystemBorder;
             if (nextBackgroundCaptureWanted != backgroundCaptureWanted
-                || nextBackgroundCursorExcluded != backgroundCursorExcluded)
+                || nextBackgroundCursorExcluded != backgroundCursorExcluded
+                || nextBackgroundSystemBorderAllowed
+                    != backgroundSystemBorderAllowed)
             {
                 backgroundCaptureWanted = nextBackgroundCaptureWanted;
                 backgroundCursorExcluded = nextBackgroundCursorExcluded;
+                backgroundSystemBorderAllowed = nextBackgroundSystemBorderAllowed;
                 if (backgroundCaptureWanted)
                 {
                     const bafx::windows::CaptureExclusionStatus exclusion =
@@ -617,7 +624,8 @@ int runApplication(
                         && renderer.tryEnableBackgroundCapture(
                             primaryMonitor.handle,
                             confirmed,
-                            backgroundCursorExcluded);
+                            backgroundCursorExcluded,
+                            backgroundSystemBorderAllowed);
                     bafx::windows::appendDiagnosticLog(
                         logPath,
                         bafx::windows::captureExclusionDiagnostic(exclusion));

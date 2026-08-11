@@ -364,7 +364,8 @@ void CompositionRenderer::renderFrame(
 bool CompositionRenderer::tryEnableBackgroundCapture(
     const HMONITOR monitor,
     const bool exclusionConfirmed,
-    const bool cursorExcluded) noexcept
+    const bool cursorExcluded,
+    const bool allowSystemBorder) noexcept
 {
     setBackgroundCaptureFailure({});
     // Re-enabling capture replaces the producer and therefore starts a new
@@ -377,6 +378,7 @@ bool CompositionRenderer::tryEnableBackgroundCapture(
         backgroundSensor_.reset();
     }
     backgroundCursorExcluded_ = cursorExcluded;
+    backgroundSystemBorderAllowed_ = allowSystemBorder;
     backgroundCaptureRequested_ = exclusionConfirmed
         && monitor != nullptr
         && deviceInfo_.driverType == GraphicsDriverType::Hardware;
@@ -410,6 +412,7 @@ void CompositionRenderer::disableBackgroundCapture() noexcept
     releaseBackgroundSnapshotResources();
     backgroundCaptureRequested_ = false;
     backgroundMonitor_ = nullptr;
+    backgroundSystemBorderAllowed_ = false;
     backgroundRefreshPeriod_ = bafx::core::MonotonicTime::zero();
     setBackgroundCaptureFailure({});
     if (backgroundSensor_ != nullptr)
@@ -480,7 +483,8 @@ bool CompositionRenderer::tryCreateBackgroundSensor() noexcept
             WgcBackgroundSensorOptions{
                 backgroundEpoch_,
                 true,
-                backgroundCursorExcluded_});
+                backgroundCursorExcluded_,
+                backgroundSystemBorderAllowed_});
         backgroundEpoch_ = nextEpoch(backgroundEpoch_);
         // Capture and presentation have independent cadence. On high-refresh
         // displays WGC can still arrive near 60 Hz, so using a 170/240 Hz
