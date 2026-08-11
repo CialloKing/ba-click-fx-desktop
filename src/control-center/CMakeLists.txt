@@ -4,6 +4,7 @@ add_executable(
         control_center_window.cpp
         host_state.cpp
         main.cpp
+        "${PROJECT_SOURCE_DIR}/src/windows/src/package_identity.cpp"
         "${PROJECT_SOURCE_DIR}/src/windows/src/portable_paths.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/BAFX.ControlCenter.manifest"
         "${PROJECT_SOURCE_DIR}/src/windows/src/ipc_client.cpp"
