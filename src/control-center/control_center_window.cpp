@@ -1,5 +1,7 @@
 #include "control_center_window.hpp"
 
+#include "bafx/windows/portable_paths.hpp"
+
 #include <commctrl.h>
 #include <shellapi.h>
 
@@ -1758,16 +1760,7 @@ std::wstring ControlCenterWindow::numberText(const double value)
 
 std::filesystem::path ControlCenterWindow::executableDirectory()
 {
-    std::array<wchar_t, 32'768U> buffer{};
-    const DWORD length = GetModuleFileNameW(
-        nullptr,
-        buffer.data(),
-        static_cast<DWORD>(buffer.size()));
-    if (length == 0U || length >= buffer.size())
-    {
-        return {};
-    }
-    return std::filesystem::path(std::wstring(buffer.data(), length)).parent_path();
+    return bafx::windows::executableDirectory();
 }
 
 }

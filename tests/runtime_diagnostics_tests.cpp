@@ -1,10 +1,36 @@
 #include "test_support.hpp"
 
+#include "bafx/windows/portable_paths.hpp"
 #include "bafx/windows/runtime_diagnostics.hpp"
 
 #include <d3d11.h>
 
+#include <filesystem>
 #include <string>
+
+BAFX_TEST(runtime_owned_paths_stay_beside_the_loaded_executable)
+{
+    const std::filesystem::path executableDirectory =
+        bafx::windows::executableDirectory();
+    BAFX_CHECK(!executableDirectory.empty());
+
+    const std::filesystem::path logPath =
+        bafx::windows::defaultDiagnosticLogPath();
+    BAFX_CHECK(logPath.parent_path() == executableDirectory);
+    BAFX_CHECK(logPath.filename() == L"ba-click-fx-desktop-support.log");
+
+    const std::filesystem::path escapedPath = bafx::windows::executableFilePath(
+        L"C:\\outside\\support.txt",
+        L"fallback.txt");
+    BAFX_CHECK(escapedPath.parent_path() == executableDirectory);
+    BAFX_CHECK(escapedPath.filename() == L"support.txt");
+
+    const std::filesystem::path traversalPath = bafx::windows::executableFilePath(
+        L"..",
+        L"fallback.txt");
+    BAFX_CHECK(traversalPath.parent_path() == executableDirectory);
+    BAFX_CHECK(traversalPath.filename() == L"fallback.txt");
+}
 
 BAFX_TEST(support_report_contains_alpha_scope_and_graphics_facts)
 {

@@ -1,8 +1,9 @@
 #include "host_control.hpp"
 
+#include "bafx/windows/portable_paths.hpp"
+
 #include <sstream>
 #include <utility>
-#include <vector>
 
 namespace bafx::desktop
 {
@@ -306,21 +307,9 @@ std::string HostControlPlane::stateJson(const HostStateSnapshot& state)
 
 std::filesystem::path defaultConfigPath()
 {
-    std::wstring value;
-    std::vector<wchar_t> buffer(32'768U, L'\0');
-    const DWORD length = GetEnvironmentVariableW(
-        L"LOCALAPPDATA",
-        buffer.data(),
-        static_cast<DWORD>(buffer.size()));
-    if (length > 0U && length < buffer.size())
-    {
-        value.assign(buffer.data(), length);
-    }
-    if (value.empty())
-    {
-        return std::filesystem::path(L"BAFX") / L"config.json";
-    }
-    return std::filesystem::path(value) / L"BAFX" / L"config.json";
+    return bafx::windows::executableFilePath(
+        L"BAFX.config.json",
+        L"BAFX.config.json");
 }
 
 }

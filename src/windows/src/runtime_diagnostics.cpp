@@ -1,5 +1,7 @@
 #include "bafx/windows/runtime_diagnostics.hpp"
 
+#include "bafx/windows/portable_paths.hpp"
+
 #include <windows.h>
 #include <winternl.h>
 
@@ -427,18 +429,9 @@ std::string SupportReport::serialize() const
 
 std::filesystem::path defaultDiagnosticLogPath()
 {
-    std::array<wchar_t, 32768> buffer{};
-    const DWORD length = GetEnvironmentVariableW(
-        L"LOCALAPPDATA",
-        buffer.data(),
-        static_cast<DWORD>(buffer.size()));
-    if (length > 0U && length < buffer.size())
-    {
-        return std::filesystem::path(std::wstring(buffer.data(), length))
-            / L"ba-click-fx-desktop"
-            / L"support.log";
-    }
-    return std::filesystem::path(L"ba-click-fx-desktop-support.log");
+    return executableFilePath(
+        L"ba-click-fx-desktop-support.log",
+        L"ba-click-fx-desktop-support.log");
 }
 
 void writeSupportReport(

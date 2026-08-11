@@ -10,6 +10,7 @@ add_library(
         src/overlay_window.cpp
         src/packed_fx_texture_loader.cpp
         src/packed_fx_textures.cpp
+        src/portable_paths.cpp
         src/runtime_diagnostics.cpp
         src/wgc_background_sensor.cpp
 )

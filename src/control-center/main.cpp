@@ -1,10 +1,11 @@
 #include "control_center_window.hpp"
 
+#include "bafx/windows/portable_paths.hpp"
+
 #include <windows.h>
 #include <commctrl.h>
 
 #include <array>
-#include <filesystem>
 #include <fstream>
 #include <string>
 #include <string_view>
@@ -14,20 +15,6 @@ namespace
 
 constexpr std::wstring_view controlCenterMutexName = L"Local\\BAFX.ControlCenter.v1";
 constexpr std::wstring_view controlCenterWindowTitle = L"BAFX Control Center";
-
-[[nodiscard]] std::filesystem::path executableDirectory()
-{
-    std::array<wchar_t, 32'768U> buffer{};
-    const DWORD length = GetModuleFileNameW(
-        nullptr,
-        buffer.data(),
-        static_cast<DWORD>(buffer.size()));
-    if (length == 0U || length >= buffer.size())
-    {
-        return {};
-    }
-    return std::filesystem::path(std::wstring(buffer.data(), length)).parent_path();
-}
 
 void recordStartupFailure(const std::wstring_view message) noexcept
 {
@@ -39,7 +26,9 @@ void recordStartupFailure(const std::wstring_view message) noexcept
     {
         // Startup can fail before a window exists. A portable bundle therefore
         // keeps this diagnostic beside the executable rather than in UI state.
-        std::wofstream stream(executableDirectory() / L"BAFX.ControlCenter.startup-error.log");
+        std::wofstream stream(bafx::windows::executableFilePath(
+            L"BAFX.ControlCenter.startup-error.log",
+            L"BAFX.ControlCenter.startup-error.log"));
         stream << line << L'\n';
     }
     catch (...)

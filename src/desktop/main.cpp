@@ -6,6 +6,7 @@
 #include "bafx/windows/display_capabilities.hpp"
 #include "bafx/windows/error.hpp"
 #include "bafx/windows/overlay_window.hpp"
+#include "bafx/windows/portable_paths.hpp"
 #include "bafx/windows/runtime_diagnostics.hpp"
 #include "host_control.hpp"
 
@@ -868,14 +869,25 @@ int runApplication(
 
 int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int)
 {
-    const RunOptions options = parseOptions();
-    const std::filesystem::path logPath = bafx::windows::defaultDiagnosticLogPath();
+    RunOptions options = parseOptions();
+    std::filesystem::path logPath{};
     bafx::windows::SupportReport report(bafx::desktop::version);
-    report.setLogPath(logPath);
-    bafx::windows::appendDiagnosticLog(logPath, "Startup");
     std::optional<bafx::desktop::SingleInstanceGuard> instanceGuard;
     try
     {
+        if (options.supportInfoPath.has_value())
+        {
+            // Keep diagnostics portable even when a caller supplies an
+            // absolute path; only its file name is accepted beside the EXE.
+            const std::wstring requestedName = options.supportInfoPath->wstring();
+            options.supportInfoPath.reset();
+            options.supportInfoPath = bafx::windows::executableFilePath(
+                requestedName,
+                L"ba-click-fx-support.txt");
+        }
+        logPath = bafx::windows::defaultDiagnosticLogPath();
+        report.setLogPath(logPath);
+        bafx::windows::appendDiagnosticLog(logPath, "Startup");
         if (!options.supportInfoOnly)
         {
             instanceGuard.emplace(bafx::windows::kHostSingleInstanceMutexName);
@@ -900,7 +912,10 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int)
     catch (const std::exception& error)
     {
         report.setFailure(error.what());
-        bafx::windows::appendDiagnosticLog(logPath, report);
+        if (!logPath.empty())
+        {
+            bafx::windows::appendDiagnosticLog(logPath, report);
+        }
         if (options.supportInfoPath.has_value())
         {
             try
