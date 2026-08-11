@@ -577,6 +577,110 @@ BAFX_TEST(always_on_trail_is_opt_in_and_ignores_free_moves_by_default)
     BAFX_CHECK(!runtime.snapshot(goldenViewport, 50ms).hasDrawableContent());
 }
 
+BAFX_TEST(unlimited_input_sampling_preserves_each_pointer_turn)
+{
+    SimulationRuntime runtime;
+    runtime.pointerDown(PointF{100.0F, 100.0F}, goldenViewport, 0ms);
+    runtime.pointerMove(PointF{300.0F, 100.0F}, goldenViewport, 100ms);
+    runtime.pointerMove(PointF{300.0F, 300.0F}, goldenViewport, 120ms);
+    runtime.pointerMove(PointF{500.0F, 300.0F}, goldenViewport, 200ms);
+
+    const FrameSnapshot frame = runtime.snapshot(goldenViewport, 200ms);
+    BAFX_CHECK(frame.trail.size() == 4U);
+    BAFX_CHECK_NEAR(frame.trail[2].positionPixels.x, 300.0F, 1.0e-3F);
+    BAFX_CHECK_NEAR(frame.trail[2].positionPixels.y, 300.0F, 1.0e-3F);
+}
+
+BAFX_TEST(limited_input_sampling_drops_intermediate_turns)
+{
+    SimulationRuntime runtime;
+    runtime.setInputSamplingRateHz(10U);
+    runtime.pointerDown(PointF{100.0F, 100.0F}, goldenViewport, 0ms);
+    runtime.pointerMove(PointF{300.0F, 100.0F}, goldenViewport, 100ms);
+    runtime.pointerMove(PointF{300.0F, 300.0F}, goldenViewport, 120ms);
+    runtime.pointerMove(PointF{500.0F, 300.0F}, goldenViewport, 200ms);
+
+    const FrameSnapshot frame = runtime.snapshot(goldenViewport, 200ms);
+    BAFX_CHECK(frame.trail.size() == 3U);
+    BAFX_CHECK_NEAR(frame.trail[1].positionPixels.x, 300.0F, 1.0e-3F);
+    BAFX_CHECK_NEAR(frame.trail[1].positionPixels.y, 100.0F, 1.0e-3F);
+    BAFX_CHECK_NEAR(frame.trail[2].positionPixels.x, 500.0F, 1.0e-3F);
+    BAFX_CHECK_NEAR(frame.trail[2].positionPixels.y, 300.0F, 1.0e-3F);
+}
+
+BAFX_TEST(input_sampling_uses_wall_time_instead_of_simulation_time)
+{
+    SimulationRuntime runtime;
+    runtime.setInputSamplingRateHz(10U);
+    runtime.pointerDown(
+        PointF{100.0F, 100.0F},
+        goldenViewport,
+        0ms,
+        0ms);
+    runtime.pointerMove(
+        PointF{300.0F, 100.0F},
+        goldenViewport,
+        10ms,
+        100ms);
+    runtime.pointerMove(
+        PointF{300.0F, 300.0F},
+        goldenViewport,
+        20ms,
+        120ms);
+    runtime.pointerMove(
+        PointF{500.0F, 300.0F},
+        goldenViewport,
+        30ms,
+        200ms);
+
+    const FrameSnapshot frame = runtime.snapshot(goldenViewport, 30ms);
+    BAFX_CHECK(frame.trail.size() == 3U);
+    BAFX_CHECK_NEAR(frame.trail.back().positionPixels.x, 500.0F, 1.0e-3F);
+}
+
+BAFX_TEST(changing_input_sampling_rate_resets_the_sampling_phase)
+{
+    SimulationRuntime runtime;
+    runtime.setInputSamplingRateHz(10U);
+    runtime.pointerDown(PointF{100.0F, 100.0F}, goldenViewport, 0ms);
+    runtime.pointerMove(PointF{300.0F, 100.0F}, goldenViewport, 100ms);
+    runtime.setInputSamplingRateHz(30U);
+    runtime.pointerMove(PointF{300.0F, 300.0F}, goldenViewport, 110ms);
+
+    const FrameSnapshot frame = runtime.snapshot(goldenViewport, 110ms);
+    BAFX_CHECK(frame.trail.size() == 3U);
+    BAFX_CHECK_NEAR(frame.trail.back().positionPixels.x, 300.0F, 1.0e-3F);
+    BAFX_CHECK_NEAR(frame.trail.back().positionPixels.y, 300.0F, 1.0e-3F);
+}
+
+BAFX_TEST(always_on_trail_uses_the_same_input_sampling_limit)
+{
+    SimulationRuntime runtime;
+    runtime.setInputSamplingRateHz(10U);
+    runtime.setAlwaysOnTrailEnabled(true, 0ms);
+    runtime.pointerMove(PointF{100.0F, 100.0F}, goldenViewport, 0ms);
+    runtime.pointerMove(PointF{300.0F, 300.0F}, goldenViewport, 50ms);
+    runtime.pointerMove(PointF{500.0F, 100.0F}, goldenViewport, 100ms);
+
+    const FrameSnapshot frame = runtime.snapshot(goldenViewport, 100ms);
+    BAFX_CHECK(frame.trail.size() == 2U);
+    BAFX_CHECK_NEAR(frame.trail.front().positionPixels.x, 100.0F, 1.0e-3F);
+    BAFX_CHECK_NEAR(frame.trail.back().positionPixels.x, 500.0F, 1.0e-3F);
+}
+
+BAFX_TEST(pointer_edges_are_never_blocked_by_input_sampling)
+{
+    SimulationRuntime runtime;
+    runtime.setInputSamplingRateHz(1U);
+    runtime.pointerDown(PointF{100.0F, 100.0F}, goldenViewport, 0ms);
+    runtime.pointerUp(10ms);
+    runtime.pointerDown(PointF{500.0F, 300.0F}, goldenViewport, 20ms);
+
+    const FrameSnapshot frame = runtime.snapshot(goldenViewport, 50ms);
+    BAFX_CHECK(countKind(frame, SpriteKind::CenterDisk) == 2U);
+    BAFX_CHECK(runtime.pointerHeld());
+}
+
 BAFX_TEST(always_on_trail_uses_free_moves_without_fabricating_a_click)
 {
     SimulationRuntime runtime;

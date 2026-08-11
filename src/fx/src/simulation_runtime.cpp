@@ -13,6 +13,7 @@ namespace
 constexpr std::uint64_t randomStreamStep = 0x9E3779B97F4A7C15ULL;
 constexpr float minimumTrailLengthMultiplier = 0.0F;
 constexpr float maximumTrailLengthMultiplier = 3.0F;
+constexpr std::uint32_t maximumInputSamplingRateHz = 1000U;
 
 [[nodiscard]] float normalizeTrailLengthMultiplier(const float multiplier) noexcept
 {
@@ -40,6 +41,15 @@ void SimulationRuntime::pointerDown(
     const Viewport viewport,
     const SimulationTime time)
 {
+    pointerDown(screenPosition, viewport, time, time);
+}
+
+void SimulationRuntime::pointerDown(
+    const PointF screenPosition,
+    const Viewport viewport,
+    const SimulationTime simulationTime,
+    const SimulationTime inputTime)
+{
     // Unity keeps one object for the currently held pointer, so duplicate down
     // notifications must not replace that object or restart its particles.
     if (pointerActive_)
@@ -49,11 +59,15 @@ void SimulationRuntime::pointerDown(
 
     // A physical press owns the live stroke until release. Retiring the
     // movement-only stroke prevents duplicate geometry while preserving its fade.
-    retireAlwaysOnTrail(time);
+    retireAlwaysOnTrail(simulationTime);
     instances_.emplace_back(nextSeed());
     instances_.back().setTrailLengthMultiplier(trailLengthMultiplier_);
-    instances_.back().pointerDown(screenPosition, viewport, time);
+    instances_.back().pointerDown(screenPosition, viewport, simulationTime);
     pointerActive_ = true;
+    if (inputSamplingRateHz_ > 0U)
+    {
+        lastInputSampleAt_ = inputTime;
+    }
 }
 
 void SimulationRuntime::pointerMove(
@@ -61,13 +75,32 @@ void SimulationRuntime::pointerMove(
     const Viewport viewport,
     const SimulationTime time)
 {
+    pointerMove(screenPosition, viewport, time, time);
+}
+
+void SimulationRuntime::pointerMove(
+    const PointF screenPosition,
+    const Viewport viewport,
+    const SimulationTime simulationTime,
+    const SimulationTime inputTime)
+{
     if (pointerActive_ && !instances_.empty())
     {
-        instances_.back().pointerMove(screenPosition, viewport, time);
+        if (acceptInputSample(inputTime))
+        {
+            instances_.back().pointerMove(
+                screenPosition,
+                viewport,
+                simulationTime);
+        }
         return;
     }
 
     if (!alwaysOnTrailEnabled_)
+    {
+        return;
+    }
+    if (!acceptInputSample(inputTime))
     {
         return;
     }
@@ -77,10 +110,10 @@ void SimulationRuntime::pointerMove(
         // pre-toggle or off-screen coordinate would draw a false long segment.
         alwaysOnTrail_.emplace(nextSeed());
         alwaysOnTrail_->setTrailLengthMultiplier(trailLengthMultiplier_);
-        alwaysOnTrail_->startTrail(screenPosition, viewport, time);
+        alwaysOnTrail_->startTrail(screenPosition, viewport, simulationTime);
         return;
     }
-    alwaysOnTrail_->pointerMove(screenPosition, viewport, time);
+    alwaysOnTrail_->pointerMove(screenPosition, viewport, simulationTime);
 }
 
 void SimulationRuntime::pointerUp(const SimulationTime time)
@@ -92,6 +125,7 @@ void SimulationRuntime::pointerUp(const SimulationTime time)
 
     instances_.back().pointerUp(time);
     pointerActive_ = false;
+    resetInputSamplingPhase();
 }
 
 void SimulationRuntime::pointerCancel(const SimulationTime time)
@@ -154,6 +188,22 @@ void SimulationRuntime::setTrailLengthMultiplier(const float multiplier) noexcep
     {
         alwaysOnTrail_->setTrailLengthMultiplier(trailLengthMultiplier_);
     }
+}
+
+void SimulationRuntime::setInputSamplingRateHz(const std::uint32_t rateHz) noexcept
+{
+    const std::uint32_t normalized = std::min(
+        rateHz,
+        maximumInputSamplingRateHz);
+    if (normalized == inputSamplingRateHz_)
+    {
+        return;
+    }
+
+    inputSamplingRateHz_ = normalized;
+    // A new rate starts with the next Move. Carrying the old phase across two
+    // intervals makes the control appear unresponsive near a boundary.
+    resetInputSamplingPhase();
 }
 
 void SimulationRuntime::setAlwaysOnTrailEnabled(
@@ -253,8 +303,40 @@ std::uint64_t SimulationRuntime::nextSeed() noexcept
     return seed;
 }
 
+bool SimulationRuntime::acceptInputSample(const SimulationTime inputTime) noexcept
+{
+    if (inputSamplingRateHz_ == 0U)
+    {
+        return true;
+    }
+    if (!lastInputSampleAt_.has_value())
+    {
+        lastInputSampleAt_ = inputTime;
+        return true;
+    }
+
+    const std::chrono::duration<double> elapsed = inputTime - *lastInputSampleAt_;
+    const double intervalSeconds = 1.0
+        / static_cast<double>(inputSamplingRateHz_);
+    if (elapsed.count() < intervalSeconds)
+    {
+        return false;
+    }
+
+    // Advance the time phase before Unity's independent spatial threshold.
+    // A retained but spatially tiny Move still consumes one input sample.
+    lastInputSampleAt_ = inputTime;
+    return true;
+}
+
+void SimulationRuntime::resetInputSamplingPhase() noexcept
+{
+    lastInputSampleAt_.reset();
+}
+
 void SimulationRuntime::retireAlwaysOnTrail(const SimulationTime time)
 {
+    resetInputSamplingPhase();
     if (!alwaysOnTrail_.has_value())
     {
         return;
