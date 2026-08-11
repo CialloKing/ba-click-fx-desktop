@@ -89,6 +89,9 @@ bool SingleInstanceGuard::acquire() noexcept
         lastError_ = ERROR_INVALID_NAME;
         return false;
     }
+    // CreateMutexW only promises ERROR_ALREADY_EXISTS for an existing named
+    // object; clear a stale thread error so a newly created mutex is not
+    // misclassified as another Host instance.
     SetLastError(ERROR_SUCCESS);
     mutex_ = CreateMutexW(nullptr, TRUE, name_.c_str());
     if (mutex_ == nullptr)
