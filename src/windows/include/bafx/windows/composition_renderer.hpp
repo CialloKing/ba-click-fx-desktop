@@ -29,6 +29,7 @@ namespace bafx::windows
 
 class FxGpuRenderer;
 class WgcBackgroundSensor;
+enum class FxOverlayProfile : std::uint8_t;
 
 struct PixelF
 {
@@ -90,6 +91,7 @@ public:
 
     void resize(WindowSize size);
     void setBloomSettings(FxBloomSettings settings);
+    void setOverlayProfile(FxOverlayProfile profile);
     void renderFrame(
         const bafx::fx::FrameSnapshot& snapshot,
         bafx::core::MonotonicTime wallTime = bafx::core::MonotonicTime::zero(),

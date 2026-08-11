@@ -5,6 +5,7 @@
 #include "bafx/windows/composition_renderer.hpp"
 #include "bafx/windows/display_capabilities.hpp"
 #include "bafx/windows/error.hpp"
+#include "bafx/windows/fx_gpu_renderer.hpp"
 #include "bafx/windows/overlay_window.hpp"
 #include "bafx/windows/portable_paths.hpp"
 #include "bafx/windows/runtime_diagnostics.hpp"
@@ -34,7 +35,23 @@ constexpr DWORD pausedControlPollMilliseconds = 50U;
 [[nodiscard]] bool wantsBackgroundCapture(
     const bafx::config::Config& config) noexcept
 {
-    return config.background.mode == bafx::config::CaptureMode::BackgroundAware;
+    return config.background.mode == bafx::config::RenderMode::BackgroundAware;
+}
+
+[[nodiscard]] bafx::windows::FxOverlayProfile overlayProfileForRenderMode(
+    const bafx::config::RenderMode mode) noexcept
+{
+    switch (mode)
+    {
+    case bafx::config::RenderMode::LightBackground:
+        return bafx::windows::FxOverlayProfile::LightBackground;
+    case bafx::config::RenderMode::BackgroundAware:
+    case bafx::config::RenderMode::Classic:
+        // Background-aware uses the exact captured path when available and
+        // deliberately falls back to the stable Classic transport otherwise.
+        return bafx::windows::FxOverlayProfile::Classic;
+    }
+    return bafx::windows::FxOverlayProfile::Classic;
 }
 
 [[nodiscard]] std::string backgroundCaptureCapabilitiesDiagnostic(
@@ -468,6 +485,7 @@ int runApplication(
         window.handle(),
         window.size(),
         makeBloomSettings(config.effects));
+    renderer.setOverlayProfile(overlayProfileForRenderMode(config.background.mode));
     const bafx::windows::CaptureExclusionStatus captureExclusion =
         window.setCaptureExcluded(wantsBackgroundCapture(config));
     bafx::windows::appendDiagnosticLog(
@@ -603,6 +621,8 @@ int runApplication(
             // next rendered frame without cross-thread renderer mutation.
             simulation.setTrailLengthMultiplier(config.effects.trailLength);
             renderer.setBloomSettings(makeBloomSettings(config.effects));
+            renderer.setOverlayProfile(
+                overlayProfileForRenderMode(config.background.mode));
             const bool nextBackgroundCaptureWanted = wantsBackgroundCapture(config);
             const bool nextBackgroundCursorExcluded = config.background.cursorExcluded;
             const bool nextBackgroundSystemBorderAllowed =

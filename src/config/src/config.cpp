@@ -655,6 +655,15 @@ void migrateV3ToV4(JsonValue::Object& root)
     root["schemaVersion"] = JsonValue(4.0);
 }
 
+void migrateV4ToV5(JsonValue::Object& root)
+{
+    JsonValue::Object& background = ensureObject(root, "background");
+    // Schema 5 replaces capture-oriented names with product render profiles.
+    // During Alpha development, retired modes restart from the new default.
+    background["mode"] = JsonValue(std::string("background-aware"));
+    root["schemaVersion"] = JsonValue(5.0);
+}
+
 [[nodiscard]] bool readBool(
     const JsonValue::Object& object,
     const std::string_view key,
@@ -735,23 +744,23 @@ void migrateV3ToV4(JsonValue::Object& root)
     return readString(object, key, fallback, output, error);
 }
 
-[[nodiscard]] bool parseCaptureMode(
+[[nodiscard]] bool parseRenderMode(
     const std::string_view value,
-    CaptureMode& output) noexcept
+    RenderMode& output) noexcept
 {
-    if (value == "fx-only" || value == "fxOnly")
+    if (value == "background-aware")
     {
-        output = CaptureMode::FxOnly;
+        output = RenderMode::BackgroundAware;
         return true;
     }
-    if (value == "background-aware" || value == "backgroundAware")
+    if (value == "classic")
     {
-        output = CaptureMode::BackgroundAware;
+        output = RenderMode::Classic;
         return true;
     }
-    if (value == "recording-compatible" || value == "recordingCompatible")
+    if (value == "light-background")
     {
-        output = CaptureMode::RecordingCompatible;
+        output = RenderMode::LightBackground;
         return true;
     }
     return false;
@@ -893,7 +902,7 @@ void migrateV3ToV4(JsonValue::Object& root)
         }
         std::string mode;
         if (!readEnum(*background, "mode", toString(config.background.mode), mode, error)
-            || !parseCaptureMode(mode, config.background.mode))
+            || !parseRenderMode(mode, config.background.mode))
         {
             error = "config field 'background.mode' has an unknown value";
             return config;
@@ -1216,6 +1225,10 @@ void appendJsonValue(
         {
             migrateV3ToV4(root);
         }
+        else if (version == 4U)
+        {
+            migrateV4ToV5(root);
+        }
         ++version;
     }
 
@@ -1425,7 +1438,7 @@ ConfigPatchResult applyPatchJson(
         {
             std::string mode;
             valueAccepted = readPatchString(mode)
-                && parseCaptureMode(mode, result.background.mode);
+                && parseRenderMode(mode, result.background.mode);
         }
         else if (*path == "background.cursorExcluded")
         {
@@ -1699,12 +1712,12 @@ bool validateConfig(const Config& config, std::string* error) noexcept
     }
     switch (config.background.mode)
     {
-    case CaptureMode::FxOnly:
-    case CaptureMode::BackgroundAware:
-    case CaptureMode::RecordingCompatible:
+    case RenderMode::BackgroundAware:
+    case RenderMode::Classic:
+    case RenderMode::LightBackground:
         break;
     default:
-        return failValidation("background.mode is not a recognized capture mode");
+        return failValidation("background.mode is not a recognized render mode");
     }
     switch (config.effects.bloomQuality)
     {
@@ -1753,18 +1766,18 @@ bool validateConfig(const Config& config, std::string* error) noexcept
     return true;
 }
 
-std::string_view toString(const CaptureMode mode) noexcept
+std::string_view toString(const RenderMode mode) noexcept
 {
     switch (mode)
     {
-    case CaptureMode::FxOnly:
-        return "fx-only";
-    case CaptureMode::BackgroundAware:
+    case RenderMode::BackgroundAware:
         return "background-aware";
-    case CaptureMode::RecordingCompatible:
-        return "recording-compatible";
+    case RenderMode::Classic:
+        return "classic";
+    case RenderMode::LightBackground:
+        return "light-background";
     }
-    return "fx-only";
+    return "background-aware";
 }
 
 std::string_view toString(const BloomQuality quality) noexcept

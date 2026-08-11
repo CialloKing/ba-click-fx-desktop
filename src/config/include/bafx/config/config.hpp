@@ -9,13 +9,13 @@
 namespace bafx::config
 {
 
-inline constexpr std::uint32_t currentSchemaVersion = 4U;
+inline constexpr std::uint32_t currentSchemaVersion = 5U;
 
-enum class CaptureMode : std::uint8_t
+enum class RenderMode : std::uint8_t
 {
-    FxOnly,
     BackgroundAware,
-    RecordingCompatible
+    Classic,
+    LightBackground
 };
 
 enum class BloomQuality : std::uint8_t
@@ -50,7 +50,7 @@ struct BackgroundConfig
 {
     // Prefer the background-aware path for new profiles. The host still falls
     // back to FX-only when WGC or capture exclusion cannot be established.
-    CaptureMode mode{CaptureMode::BackgroundAware};
+    RenderMode mode{RenderMode::BackgroundAware};
     bool cursorExcluded{true};
     // Keep background-aware rendering usable on systems that require the WGC
     // privacy indicator. Users can still request borderless-only capture.
@@ -170,7 +170,7 @@ struct ConfigSaveResult
     const Config& config,
     std::string* error = nullptr) noexcept;
 
-[[nodiscard]] std::string_view toString(CaptureMode mode) noexcept;
+[[nodiscard]] std::string_view toString(RenderMode mode) noexcept;
 [[nodiscard]] std::string_view toString(BloomQuality quality) noexcept;
 [[nodiscard]] std::string_view toString(FramePacing pacing) noexcept;
 

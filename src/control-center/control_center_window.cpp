@@ -101,15 +101,15 @@ void setControlFont(const HWND control, const HFONT font) noexcept
     return -1;
 }
 
-[[nodiscard]] int captureModeIndex(const bafx::config::CaptureMode mode) noexcept
+[[nodiscard]] int renderModeIndex(const bafx::config::RenderMode mode) noexcept
 {
     switch (mode)
     {
-    case bafx::config::CaptureMode::FxOnly:
+    case bafx::config::RenderMode::BackgroundAware:
         return 0;
-    case bafx::config::CaptureMode::BackgroundAware:
+    case bafx::config::RenderMode::Classic:
         return 1;
-    case bafx::config::CaptureMode::RecordingCompatible:
+    case bafx::config::RenderMode::LightBackground:
         return 2;
     }
     return -1;
@@ -534,9 +534,9 @@ bool ControlCenterWindow::createControls()
         ControlId::BackgroundMode);
     if (backgroundMode_ != nullptr)
     {
-        static_cast<void>(SendMessageW(backgroundMode_, CB_ADDSTRING, 0U, reinterpret_cast<LPARAM>(L"仅特效")));
         static_cast<void>(SendMessageW(backgroundMode_, CB_ADDSTRING, 0U, reinterpret_cast<LPARAM>(L"背景感知")));
-        static_cast<void>(SendMessageW(backgroundMode_, CB_ADDSTRING, 0U, reinterpret_cast<LPARAM>(L"录制兼容")));
+        static_cast<void>(SendMessageW(backgroundMode_, CB_ADDSTRING, 0U, reinterpret_cast<LPARAM>(L"贴近原版")));
+        static_cast<void>(SendMessageW(backgroundMode_, CB_ADDSTRING, 0U, reinterpret_cast<LPARAM>(L"浅色背景优化")));
         static_cast<void>(SendMessageW(backgroundMode_, CB_SETMINVISIBLE, 3U, 0));
     }
 
@@ -1038,13 +1038,13 @@ void ControlCenterWindow::onCommand(
             switch (SendMessageW(backgroundMode_, CB_GETCURSEL, 0U, 0))
             {
             case 0:
-                applyPatch("background.mode", "\"fx-only\"");
-                break;
-            case 1:
                 applyPatch("background.mode", "\"background-aware\"");
                 break;
+            case 1:
+                applyPatch("background.mode", "\"classic\"");
+                break;
             case 2:
-                applyPatch("background.mode", "\"recording-compatible\"");
+                applyPatch("background.mode", "\"light-background\"");
                 break;
             default:
                 setError(L"未知的背景模式选择。");
@@ -1363,7 +1363,7 @@ void ControlCenterWindow::updateControls(
     static_cast<void>(SendMessageW(
         backgroundMode_,
         CB_SETCURSEL,
-        captureModeIndex(config.background.mode),
+        renderModeIndex(config.background.mode),
         0));
     setChecked(cursorExcluded_, config.background.cursorExcluded);
     setChecked(

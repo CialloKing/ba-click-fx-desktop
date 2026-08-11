@@ -181,6 +181,11 @@ void CompositionRenderer::setBloomSettings(const FxBloomSettings settings)
     fxRenderer_->setBloomSettings(settings);
 }
 
+void CompositionRenderer::setOverlayProfile(const FxOverlayProfile profile)
+{
+    fxRenderer_->setOverlayProfile(profile);
+}
+
 void CompositionRenderer::renderFrame(
     const bafx::fx::FrameSnapshot& snapshot,
     const bafx::core::MonotonicTime wallTime,

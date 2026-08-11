@@ -44,7 +44,7 @@ BAFX_TEST(config_defaults_round_trip_through_versioned_json)
     BAFX_CHECK(defaults.effects.enabled);
     BAFX_CHECK(
         defaults.background.mode
-        == bafx::config::CaptureMode::BackgroundAware);
+        == bafx::config::RenderMode::BackgroundAware);
     BAFX_CHECK(defaults.background.cursorExcluded);
     BAFX_CHECK(defaults.background.allowSystemBorder);
     BAFX_CHECK_NEAR(defaults.effects.globalScale, 1.0F, 0.00001F);
@@ -72,46 +72,45 @@ BAFX_TEST(config_defaults_round_trip_through_versioned_json)
         0.00001F);
 }
 
-BAFX_TEST(config_capture_modes_use_canonical_wire_values)
+BAFX_TEST(config_render_modes_use_canonical_wire_values)
 {
     const bafx::config::Config base = bafx::config::defaultConfig();
 
-    BAFX_CHECK(bafx::config::toString(bafx::config::CaptureMode::FxOnly)
-        == "fx-only");
     BAFX_CHECK(
-        bafx::config::toString(bafx::config::CaptureMode::BackgroundAware)
+        bafx::config::toString(bafx::config::RenderMode::BackgroundAware)
         == "background-aware");
     BAFX_CHECK(
-        bafx::config::toString(bafx::config::CaptureMode::RecordingCompatible)
-        == "recording-compatible");
-
-    const auto fxOnly = bafx::config::applyPatchJson(
-        base,
-        R"json({"path":"background.mode","value":"fx-only"})json");
-    BAFX_CHECK(fxOnly.succeeded());
-    BAFX_CHECK(fxOnly.config.background.mode
-        == bafx::config::CaptureMode::FxOnly);
+        bafx::config::toString(bafx::config::RenderMode::Classic)
+        == "classic");
+    BAFX_CHECK(
+        bafx::config::toString(bafx::config::RenderMode::LightBackground)
+        == "light-background");
 
     const auto backgroundAware = bafx::config::applyPatchJson(
         base,
         R"json({"path":"background.mode","value":"background-aware"})json");
     BAFX_CHECK(backgroundAware.succeeded());
     BAFX_CHECK(backgroundAware.config.background.mode
-        == bafx::config::CaptureMode::BackgroundAware);
+        == bafx::config::RenderMode::BackgroundAware);
 
-    const auto recordingCompatible = bafx::config::applyPatchJson(
+    const auto classic = bafx::config::applyPatchJson(
         base,
-        R"json({"path":"background.mode","value":"recording-compatible"})json");
-    BAFX_CHECK(recordingCompatible.succeeded());
-    BAFX_CHECK(recordingCompatible.config.background.mode
-        == bafx::config::CaptureMode::RecordingCompatible);
+        R"json({"path":"background.mode","value":"classic"})json");
+    BAFX_CHECK(classic.succeeded());
+    BAFX_CHECK(classic.config.background.mode
+        == bafx::config::RenderMode::Classic);
 
-    // Uppercase enum names were emitted by an early Control Center build. Keep
-    // them rejected so every writer converges on the canonical wire contract.
-    const auto legacyUppercase = bafx::config::applyPatchJson(
+    const auto lightBackground = bafx::config::applyPatchJson(
         base,
-        R"json({"path":"background.mode","value":"BACKGROUND_AWARE"})json");
-    BAFX_CHECK(!legacyUppercase.succeeded());
+        R"json({"path":"background.mode","value":"light-background"})json");
+    BAFX_CHECK(lightBackground.succeeded());
+    BAFX_CHECK(lightBackground.config.background.mode
+        == bafx::config::RenderMode::LightBackground);
+
+    const auto retiredMode = bafx::config::applyPatchJson(
+        base,
+        R"json({"path":"background.mode","value":"fx-only"})json");
+    BAFX_CHECK(!retiredMode.succeeded());
 }
 
 BAFX_TEST(config_patch_controls_cursor_capture_policy)
@@ -186,7 +185,7 @@ BAFX_TEST(config_migration_maps_legacy_keys)
     BAFX_CHECK(!result.config.effects.enabled);
     BAFX_CHECK(!result.config.effects.trailEnabled);
     BAFX_CHECK(result.config.background.mode
-        == bafx::config::CaptureMode::RecordingCompatible);
+        == bafx::config::RenderMode::BackgroundAware);
     BAFX_CHECK(result.config.background.allowSystemBorder);
     BAFX_CHECK_NEAR(result.config.effects.globalScale, 1.75F, 0.00001F);
     BAFX_CHECK_NEAR(result.config.effects.bloomIntensity, 0.35F, 0.00001F);
@@ -208,11 +207,29 @@ BAFX_TEST(config_schema_three_migrates_to_an_allowed_system_border)
     BAFX_CHECK(result.config.background.allowSystemBorder);
 }
 
-BAFX_TEST(config_current_schema_preserves_an_explicit_hidden_system_border)
+BAFX_TEST(config_schema_four_restarts_from_the_background_aware_render_mode)
 {
     const auto result = bafx::config::parseJson(R"json(
         {
             "schemaVersion": 4,
+            "background": {
+                "mode": "recording-compatible",
+                "cursorExcluded": true,
+                "allowSystemBorder": false
+            }
+        }
+    )json");
+    BAFX_CHECK(result.status == bafx::config::ConfigStatus::Migrated);
+    BAFX_CHECK(result.config.background.mode
+        == bafx::config::RenderMode::BackgroundAware);
+    BAFX_CHECK(!result.config.background.allowSystemBorder);
+}
+
+BAFX_TEST(config_current_schema_preserves_an_explicit_hidden_system_border)
+{
+    const auto result = bafx::config::parseJson(R"json(
+        {
+            "schemaVersion": 5,
             "background": {
                 "mode": "background-aware",
                 "cursorExcluded": true,
@@ -235,15 +252,15 @@ BAFX_TEST(config_parser_rejects_invalid_documents_and_values)
     BAFX_CHECK(futureVersion.status == bafx::config::ConfigStatus::UnsupportedSchema);
 
     const auto duplicateKey = bafx::config::parseJson(
-        R"json({"schemaVersion":4,"schemaVersion":4})json");
+        R"json({"schemaVersion":5,"schemaVersion":5})json");
     BAFX_CHECK(duplicateKey.status == bafx::config::ConfigStatus::ParseError);
 
     const auto invalidScale = bafx::config::parseJson(
-        R"json({"schemaVersion":4,"effects":{"globalScale":9.0}})json");
+        R"json({"schemaVersion":5,"effects":{"globalScale":9.0}})json");
     BAFX_CHECK(invalidScale.status == bafx::config::ConfigStatus::ValidationError);
 
     const auto malformed = bafx::config::parseJson(
-        R"json({"schemaVersion":4,"effects":{"enabled":tru}})json");
+        R"json({"schemaVersion":5,"effects":{"enabled":tru}})json");
     BAFX_CHECK(malformed.status == bafx::config::ConfigStatus::ParseError);
 }
 
@@ -316,7 +333,7 @@ BAFX_TEST(config_preserves_unicode_paths_and_rejects_unknown_enum_values)
     const auto loaded = bafx::config::loadConfig(path);
     BAFX_CHECK(loaded.status == bafx::config::ConfigStatus::Ok);
 
-    value.background.mode = static_cast<bafx::config::CaptureMode>(255U);
+    value.background.mode = static_cast<bafx::config::RenderMode>(255U);
     const auto invalid = bafx::config::saveConfigAtomic(path, value);
     BAFX_CHECK(invalid.status == bafx::config::ConfigStatus::ValidationError);
 
