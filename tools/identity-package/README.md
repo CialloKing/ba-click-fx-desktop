@@ -1,6 +1,8 @@
 ﻿# 方案 C Identity Installer Spike
 
-该目录实现“每台机器本机生成证书 + Sparse / External Location Package”的第一版开发工具。
+该目录保留 Sparse / External Location Package 的开发 Spike 和发布机构建模板工具。
+正式普通用户安装事务由 `tools/installer/` 与 `BAFX.IdentitySigner.exe` 负责；不要把本目录的
+CurrentUser 签名/安装脚本当作 alpha.9 的发布链。
 它不携带 SDK、Windows App SDK 或游戏/Unity 美术资源；三个包图标由脚本生成的透明占位 PNG 提供。
 
 ## 构建签名包（不改系统信任）

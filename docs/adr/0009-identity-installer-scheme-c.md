@@ -20,7 +20,9 @@ portable Win32 Host 没有 Package Identity，不能可靠地使用
    `uap11:Capability Name="graphicsCaptureWithoutBorder"`。Manifest Publisher 必须与本机
    代码签名证书 Subject 完全匹配。
 3. 安装阶段先将 Host 文件放入受保护的程序目录，再生成本机非导出私钥；公钥证书只允许加入
-   `LocalMachine\\TrustedPeople`，禁止加入 Trusted Root。签名完成后删除私钥容器和临时签名材料。
+   `LocalMachine\\TrustedPeople`，禁止加入 Trusted Root。安装器携带未签名 Package 模板和只使用
+   `LocalMachine\\My` 精确指纹证书的原生 `SignerSignEx2` 工具；签名验证完成后通过 `-DeleteKey`
+   删除私钥容器和临时签名材料。
 4. 注册使用 `Add-AppxPackage -ExternalLocation` 或等价的 Windows Packaging API，并记录本次
    安装创建的包全名、证书指纹和外部位置。Host 必须从 Package Activation / 注册的应用入口启动，
    不能把裸 EXE 直启当作已获得 identity。
@@ -41,8 +43,8 @@ portable Win32 Host 没有 Package Identity，不能可靠地使用
   目录树内，卸载默认保留 `data` 用户配置。
 - `RequestAccessAsync` 的用户同意、Windows 版本支持、DWM 最终像素和无边框效果必须在真实
   Windows 11/目标硬件上验证；离屏测试不能把 ADR 变为 Accepted。
-- Windows SDK 中的 `makeappx.exe`、`signtool.exe` 是否可随公开安装器再分发，必须依据其许可和
-  安装环境确认；安装器不能假设用户已安装 SDK。
+- Windows SDK 的 `makeappx.exe` 只用于发布机构建未签模板，不进入 Setup；目标机签名使用 Windows
+  自带的 `MSSign32.dll`，不能假设用户已安装 SDK。
 
 ## 验收
 

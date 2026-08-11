@@ -62,7 +62,9 @@ Studio、Inno Setup 或旁置 Windows App SDK；安装器会在一次 UAC 确认
 Package 注册和 Control Center 快捷方式创建。安装完成后打开 Control Center，点击“启动 Host”即可开始使用。
 
 安装器使用目标机生成的本机证书签名 Package，因此 SmartScreen 可能显示“Unknown Publisher”。Release 不提供
-可单独安装的证书、MSIX、私钥或 SDK 工具。卸载可从开始菜单或 Windows“已安装的应用”执行，默认保留安装目录
+可单独安装的证书、MSIX、私钥或 SDK 工具；Setup 内部携带的是未签名模板和约束到 `LocalMachine\My` 的原生
+签名器。公钥只导入 `LocalMachine\TrustedPeople`，签名后使用 `-DeleteKey` 删除私钥。卸载可从开始菜单或
+Windows“已安装的应用”执行，默认保留安装目录
 下的 `data` 用户配置；需要无管理员权限时可改用 portable ZIP，但它没有 Package Identity。
 
 ## 尚未支持或尚未验证

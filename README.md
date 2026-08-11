@@ -119,7 +119,7 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File .\tools\package-host-review-bundle
 
 Release 页面提供单文件 `*-setup-windows-x64.exe` 安装器。普通用户不需要安装
 Visual Studio、Windows SDK、Inno Setup 或 PowerShell 依赖包；安装器已经包含 Host、Control Center、
-Sparse Package、公钥证书和安装脚本。
+未签名的 Sparse Package 模板、原生签名器和安装脚本，不包含预签名 MSIX、公钥证书或私钥。
 
 1. 从 Release 下载与系统匹配的 `*-setup-windows-x64.exe`，同时下载同名 `.sha256`，按页面提供的哈希校验文件。
 2. 双击安装器并确认一次 UAC。安装器会把程序放到 `Program Files`，为当前用户注册方案 C Package Identity，
@@ -130,7 +130,8 @@ Sparse Package、公钥证书和安装脚本。
    后仍可继续使用；如需彻底清理，请在卸载前手动备份并删除该目录。
 
 该安装器使用目标机生成的本机证书为 Sparse Package 签名，不是公有代码签名。Windows SmartScreen 可能显示
-“Unknown Publisher”，这是预期提示；不要从 Release 单独下载或安装证书、MSIX、私钥或 SDK 工具。若没有管理员权限，
+“Unknown Publisher”，这是预期提示。安装器只把公钥加入 `LocalMachine\TrustedPeople`，签名验证完成后立即删除
+`LocalMachine\My` 中的证书和不可导出私钥；不要从 Release 单独下载或安装证书、MSIX、私钥或 SDK 工具。若没有管理员权限，
 请改用上面的 portable 测试 ZIP，直接解压运行即可，但 portable 没有 Package Identity，无法承诺无边框 WGC。
 
 ## Host 控制面
