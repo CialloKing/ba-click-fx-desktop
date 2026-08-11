@@ -13,8 +13,8 @@ DirectComposition 和 D3DCompiler 系统组件。独立的 Control Center 使用
 不需要 Windows App SDK 或其他旁置运行时。
 
 当前架构版本是 **v0.3**，状态为 **Proposed**。首个可运行 Alpha 已具备 Host、原生 Win32
-Control Center、本地 IPC 与独立测试包；当前人工特效审核和支持合同仍以单主屏 FX-only/SDR
-路径为准。涉及 DirectComposition、Windows Graphics Capture、HDR/Advanced Color 和多适配器的结论，
+Control Center、本地 IPC 与独立测试包；当前人工特效审核和支持合同以单主屏 SDR 下的三种渲染模式
+为准。涉及 DirectComposition、Windows Graphics Capture、HDR/Advanced Color 和多适配器的结论，
 必须取得仓库中定义的 Spike 证据或接受明确的 fallback 后，相关 ADR 才能标记为 Accepted。
 
 Host 现在会把主显示器 DPI、DXGI 色彩空间、位深和驱动提供的亮度元数据写入支持报告。这些字段只用于
@@ -26,10 +26,17 @@ Host 现在会把主显示器 DPI、DXGI 色彩空间、位深和驱动提供的
 - C++20、Win32、D3D11、HLSL、DirectComposition。
 - D3D11 immediate context 只由 Render Owner 使用。
 - 一个 DXGI Adapter 定义一个资源域；跨适配器资源不隐式共享。
-- Windows Graphics Capture 是可选的 Background Sensor，不是基础点击特效的依赖。
-- 未来背景交互采用非负的 Background-aware Differential Bloom；它不是本 Alpha 的支持承诺。
+- Windows Graphics Capture 只由 `background-aware` 模式使用；它不是基础点击特效的硬依赖，失败时
+  回退到 `classic`。
+- `background-aware`、`classic`、`light-background` 是唯一的产品渲染模式。前者使用 WGC 和完整的
+  Differential Bloom；`classic` 使用现有 FX-only coverage transport；`light-background` 使用
+  `visual-max`、`bright-core` 和 `0.85` 的桌面 Alpha 上限。后两者关闭 WGC。
 - 最终透明交换链使用 FP16 扩展预乘输出；普通 SDR 下不得承诺白底仍有加法余量。
 - 三角碎片保持 crisp-only，可保留未模糊的 HDR 核心，但 `BloomSeed=0`，不产生模糊光晕。
+
+桌面版的 DirectComposition overlay 没有浏览器 `Screen` API 的逐像素等价物。只有
+`background-aware` 在 WGC 样本有效时能把异步桌面纹理带入合成；`classic` 和 `light-background`
+是没有捕获背景时的确定性传输策略，不能宣称对任意桌面像素逐点还原。
 
 ## 文档入口
 
@@ -116,10 +123,12 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File .\tools\package-host-review-bundle
 `%LOCALAPPDATA%`、当前工作目录或其他用户目录保存数据。Host 使用
 `Local\BAFX.Host.v1` 互斥体保证单实例。
 
-首次生成的 schema 4 配置将 `background.mode` 设为 `background-aware`，并将
-`background.allowSystemBorder` 设为 `true`；schema 1/2/3 配置迁移到 schema 4 时也采用该值，以便
-保留旧系统上的背景感知路径。已有 schema 4 配置中的显式 `false` 会原样保留，不会被迁移覆盖。
-WGC 或捕获排除路径失败时 Host 会继续使用 FX-only；`recording-compatible` 仍需要用户显式选择。
+首次生成的 schema 5 配置将 `background.mode` 设为 `background-aware`，并将
+`background.allowSystemBorder` 设为 `true`；schema 1/2/3 配置迁移到 schema 5 时采用该值，schema 4
+迁移时缺失字段也使用该默认值，以便保留旧系统上的背景感知路径；schema 4 中已经显式保存的
+`false` 会原样保留。只有
+`background-aware` 会启用 WGC；WGC 或捕获排除路径失败时，Host 将当前批次回退到 `classic` 的
+FX-only coverage transport，支持报告仍记为 `fallback-fx-only`。
 portable EXE 不带 package identity，因此不会把无边框捕获 capability 伪装成已支持。允许系统边框时，
 WGC 可以在 Windows 要求隐私提示的情况下启动；可见边框会在日志中记为
 `system-border=visible-allowed`。用户可以在 Control Center 中取消勾选“允许黄色捕获边框”；此后 Host
@@ -132,10 +141,11 @@ FX-only，不会先启动带黄色边框的会话。无论该开关如何设置�
 效果大小、拖尾长度、拖尾宽度、Bloom 强度与 Bloom 质量。数值控件会合并连续拖动后的写入，避免为
 每个滑块像素都写一次配置。
 
-控制中心也会显示 `fx-only`、`background-aware` 和 `recording-compatible` 三个背景模式，以及
-“允许黄色捕获边框”复选框。新配置默认请求 `background-aware` 并允许 Windows 显示捕获边框；用户可
-取消勾选以要求无边框捕获。这不构成 WGC、录屏兼容性或 HDR 的支持声明；关闭边框后若无边框 WGC
-无法安全建立，Host 必须保持或回退到 FX-only。
+控制中心也会显示三个渲染模式（显示名依次为“背景感知”“贴近原版”“浅色背景优化”），以及
+“允许黄色捕获边框”复选框。它们对应的 wire values 分别为 `background-aware`、`classic`、
+`light-background`；切换到后两项会关闭 WGC。新配置默认请求 `background-aware` 并允许 Windows
+显示捕获边框；用户可取消勾选以要求无边框捕获。这不构成 WGC、录屏兼容性或 HDR 的支持声明；
+关闭边框后若无边框 WGC 无法安全建立，Host 必须保持或回退到 `classic`。
 
 底层协议仍可由 PowerShell 或其他 Named Pipe 客户端验证：
 
@@ -143,13 +153,16 @@ FX-only，不会先启动带黄色边框的会话。无论该开关如何设置�
 GetState
 GetConfig
 SetConfig {"generation":1,"path":"effects.globalScale","value":1.25}
+SetConfig {"generation":1,"path":"background.mode","value":"background-aware"}
+SetConfig {"generation":1,"path":"background.mode","value":"classic"}
+SetConfig {"generation":1,"path":"background.mode","value":"light-background"}
 SetConfig {"generation":1,"path":"background.allowSystemBorder","value":false}
 Pause
 Resume
 Shutdown
 ```
 
-`SetConfig` 也接受完整的 schema 4 JSON 快照。路径补丁只允许配置库声明的产品字段，代次
+`SetConfig` 也接受完整的 schema 5 JSON 快照。路径补丁只允许配置库声明的产品字段，代次
 不匹配会返回 `generation_conflict`；所有命令均在下一帧由 Host 应用。
 
 `packed_fx_textures` 测试逐张解压 raw LZ4 Block，并锁定 RGBA8 texel 的尺寸、行距和 SHA-256。
