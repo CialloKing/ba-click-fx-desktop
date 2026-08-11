@@ -1,0 +1,399 @@
+[CmdletBinding()]
+param(
+    [string]$OutputDirectory = 'artifacts\local',
+    [string]$ISCC,
+    [switch]$SkipBuild,
+    [switch]$SkipVerification
+)
+
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
+
+function Get-FullPath
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path,
+
+        [Parameter(Mandatory = $true)]
+        [string]$BaseDirectory
+    )
+
+    if ([IO.Path]::IsPathRooted($Path))
+    {
+        return [IO.Path]::GetFullPath($Path)
+    }
+    return [IO.Path]::GetFullPath((Join-Path $BaseDirectory $Path))
+}
+
+function Invoke-Checked
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Description,
+
+        [Parameter(Mandatory = $true)]
+        [string]$FilePath,
+
+        [Parameter(Mandatory = $true)]
+        [string[]]$Arguments,
+
+        [Parameter(Mandatory = $true)]
+        [string]$WorkingDirectory
+    )
+
+    Push-Location -LiteralPath $WorkingDirectory
+    try
+    {
+        & $FilePath @Arguments
+        if ($LASTEXITCODE -ne 0)
+        {
+            throw "$Description failed with exit code $LASTEXITCODE"
+        }
+    }
+    finally
+    {
+        Pop-Location
+    }
+}
+
+function Get-BafxVersion
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$VersionFile
+    )
+
+    $contents = Get-Content -LiteralPath $VersionFile -Raw
+    $match = [regex]::Match(
+        $contents,
+        'set\s*\(\s*BAFX_VERSION\s+"([^"]+)"\s*\)',
+        [Text.RegularExpressions.RegexOptions]::CultureInvariant)
+    if (-not $match.Success)
+    {
+        throw "Could not find BAFX_VERSION in $VersionFile"
+    }
+    return $match.Groups[1].Value
+}
+
+function Get-NumericVersions
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Version
+    )
+
+    $match = [regex]::Match(
+        $Version,
+        '^([0-9]+)\.([0-9]+)\.([0-9]+)-alpha\.([0-9]+)$',
+        [Text.RegularExpressions.RegexOptions]::CultureInvariant)
+    if (-not $match.Success)
+    {
+        throw 'The user installer currently requires an alpha semantic version.'
+    }
+    $major = [int]$match.Groups[1].Value
+    $minor = [int]$match.Groups[2].Value
+    $patch = [int]$match.Groups[3].Value
+    $alpha = [int]$match.Groups[4].Value
+    foreach ($component in @($major, $minor, $patch, $alpha))
+    {
+        if ($component -lt 0 -or $component -gt 65535)
+        {
+            throw "Version component is outside the Windows range: $component"
+        }
+    }
+    return [ordered]@{
+        numericVersion = "$major.$minor.$patch.$alpha"
+        packageVersion = "$major.$minor.$patch.$alpha"
+    }
+}
+
+function Resolve-Iscc
+{
+    param(
+        [string]$RequestedPath,
+        [string]$RepositoryRoot
+    )
+
+    $candidates = New-Object Collections.Generic.List[string]
+    if (-not [string]::IsNullOrWhiteSpace($RequestedPath))
+    {
+        $candidates.Add((Get-FullPath -Path $RequestedPath -BaseDirectory $RepositoryRoot))
+    }
+    $command = Get-Command iscc.exe -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($null -ne $command)
+    {
+        $candidates.Add($command.Source)
+    }
+    foreach ($path in @(
+        (Join-Path $RepositoryRoot 'artifacts\local\inno-6.7.3\ISCC.exe'),
+        (Join-Path $env:LOCALAPPDATA 'Programs\Inno Setup 6\ISCC.exe'),
+        (Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'),
+        (Join-Path $env:ProgramFiles 'Inno Setup 6\ISCC.exe')
+    ))
+    {
+        if (-not [string]::IsNullOrWhiteSpace($path))
+        {
+            $candidates.Add($path)
+        }
+    }
+    foreach ($candidate in $candidates)
+    {
+        if (Test-Path -LiteralPath $candidate -PathType Leaf)
+        {
+            return [IO.Path]::GetFullPath($candidate)
+        }
+    }
+    throw 'ISCC.exe was not found. Install Inno Setup 6 or pass -ISCC.'
+}
+
+function Get-CMakeLinker
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$CacheFile
+    )
+
+    $match = Select-String -LiteralPath $CacheFile -Pattern '^CMAKE_LINKER:FILEPATH=(.+)$' |
+        Select-Object -First 1
+    if ($null -eq $match)
+    {
+        throw "CMAKE_LINKER is missing from $CacheFile"
+    }
+    return $match.Matches[0].Groups[1].Value
+}
+
+function Write-Utf8NoBom
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Content
+    )
+
+    $encoding = New-Object -TypeName System.Text.UTF8Encoding -ArgumentList $false
+    [IO.File]::WriteAllText($Path, $Content, $encoding)
+}
+
+$repositoryRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
+$cmake = Get-Command cmake.exe -ErrorAction SilentlyContinue | Select-Object -First 1
+if ($null -eq $cmake)
+{
+    throw 'cmake.exe was not found on PATH.'
+}
+$isccPath = Resolve-Iscc -RequestedPath $ISCC -RepositoryRoot $repositoryRoot
+$version = Get-BafxVersion -VersionFile (Join-Path $repositoryRoot 'cmake\Version.cmake')
+$numericVersions = Get-NumericVersions -Version $version
+$numericVersion = [string]$numericVersions.numericVersion
+$packageVersion = [string]$numericVersions.packageVersion
+$outputRoot = Get-FullPath -Path $OutputDirectory -BaseDirectory $repositoryRoot
+$outputBaseName = "ba-click-fx-desktop-$version-setup-windows-x64"
+$installerPath = Join-Path $outputRoot "$outputBaseName.exe"
+$checksumPath = "$installerPath.sha256"
+
+if (Test-Path -LiteralPath $installerPath -PathType Leaf)
+{
+    throw "Refusing to overwrite an existing user installer: $installerPath"
+}
+if (Test-Path -LiteralPath $checksumPath -PathType Leaf)
+{
+    throw "Refusing to overwrite an existing installer checksum: $checksumPath"
+}
+New-Item -ItemType Directory -Path $outputRoot -Force | Out-Null
+
+if (-not $SkipBuild)
+{
+    Invoke-Checked `
+        -Description 'CMake configure' `
+        -FilePath $cmake.Source `
+        -Arguments @('--preset', 'alpha-x64') `
+        -WorkingDirectory $repositoryRoot
+    Invoke-Checked `
+        -Description 'Release build' `
+        -FilePath $cmake.Source `
+        -Arguments @('--build', '--preset', 'alpha-release') `
+        -WorkingDirectory $repositoryRoot
+}
+
+$hostExecutable = Join-Path $repositoryRoot 'build\alpha-x64\src\desktop\Release\ba-click-fx-desktop.exe'
+$controlCenterExecutable = Join-Path $repositoryRoot 'build\alpha-x64\src\control-center\Release\BAFX.ControlCenter.exe'
+foreach ($required in @($hostExecutable, $controlCenterExecutable))
+{
+    if (-not (Test-Path -LiteralPath $required -PathType Leaf))
+    {
+        throw "Required Release executable is missing: $required"
+    }
+}
+
+$temporaryParent = [IO.Path]::GetFullPath([IO.Path]::GetTempPath())
+$temporaryRoot = Join-Path $temporaryParent ('bafx-user-installer-' + [Guid]::NewGuid().ToString('N'))
+$stageRoot = Join-Path $temporaryRoot 'stage'
+$identityDirectory = Join-Path $stageRoot 'Identity'
+$installerDirectory = Join-Path $stageRoot 'Installer'
+
+try
+{
+    New-Item -ItemType Directory -Path $identityDirectory -Force | Out-Null
+    New-Item -ItemType Directory -Path $installerDirectory -Force | Out-Null
+    Copy-Item -LiteralPath $hostExecutable -Destination (Join-Path $stageRoot 'ba-click-fx-desktop.exe')
+    Copy-Item -LiteralPath $controlCenterExecutable -Destination (Join-Path $stageRoot 'BAFX.ControlCenter.exe')
+    Copy-Item -LiteralPath (Join-Path $repositoryRoot 'LICENSE') -Destination (Join-Path $stageRoot 'LICENSE.txt')
+    Copy-Item -LiteralPath (Join-Path $repositoryRoot 'SUPPORT.md') -Destination $stageRoot
+
+    foreach ($scriptName in @(
+        'capture-user-context.ps1',
+        'install-machine.ps1',
+        'register-user-package.ps1',
+        'unregister-machine.ps1'
+    ))
+    {
+        Copy-Item `
+            -LiteralPath (Join-Path $PSScriptRoot "installer\$scriptName") `
+            -Destination $installerDirectory
+    }
+
+    $certificateThumbprintsBefore = @(
+        Get-ChildItem -Path 'Cert:\CurrentUser\My' |
+            ForEach-Object { $_.Thumbprint }
+    )
+    & (Join-Path $repositoryRoot 'tools\identity-package\build-identity-package.ps1') `
+        -HostExecutable (Join-Path $stageRoot 'ba-click-fx-desktop.exe') `
+        -OutputDirectory $identityDirectory `
+        -PackageVersion $packageVersion
+    if (-not $?)
+    {
+        throw 'Sparse package build failed.'
+    }
+
+    $rawMetadataFile = Get-ChildItem -LiteralPath $identityDirectory -Filter '*.identity.json' -File |
+        Select-Object -First 1
+    if ($null -eq $rawMetadataFile)
+    {
+        throw 'Sparse package metadata was not created.'
+    }
+    $rawMetadata = Get-Content -LiteralPath $rawMetadataFile.FullName -Raw | ConvertFrom-Json
+    $packageFile = Get-ChildItem -LiteralPath $identityDirectory -Filter '*.msix' -File |
+        Select-Object -First 1
+    $certificateFile = Get-ChildItem -LiteralPath $identityDirectory -Filter '*.cer' -File |
+        Select-Object -First 1
+    if ($null -eq $packageFile -or $null -eq $certificateFile)
+    {
+        throw 'Sparse package or public certificate is missing.'
+    }
+    $normalizedMetadata = [ordered]@{
+        schema = 2
+        productVersion = $version
+        packageName = [string]$rawMetadata.packageName
+        applicationId = [string]$rawMetadata.applicationId
+        publisher = [string]$rawMetadata.publisher
+        packageVersion = [string]$rawMetadata.packageVersion
+        certificateThumbprint = [string]$rawMetadata.certificateThumbprint
+        packageFile = $packageFile.Name
+        certificateFile = $certificateFile.Name
+        hostSha256 = (Get-FileHash -LiteralPath (Join-Path $stageRoot 'ba-click-fx-desktop.exe') -Algorithm SHA256).Hash
+    }
+    Write-Utf8NoBom `
+        -Path $rawMetadataFile.FullName `
+        -Content ($normalizedMetadata | ConvertTo-Json -Depth 4)
+
+    $certificateThumbprintsAfter = @(
+        Get-ChildItem -Path 'Cert:\CurrentUser\My' |
+            ForEach-Object { $_.Thumbprint }
+    )
+    $newPrivateCertificates = @(
+        $certificateThumbprintsAfter |
+            Where-Object { $certificateThumbprintsBefore -notcontains $_ }
+    )
+    if ($newPrivateCertificates.Count -ne 0)
+    {
+        throw "Private signing certificate remains after packaging: $($newPrivateCertificates -join ', ')"
+    }
+    if (@(Get-ChildItem -LiteralPath $stageRoot -Filter '*.pfx' -Recurse -File).Count -ne 0)
+    {
+        throw 'A private key container entered the installer stage.'
+    }
+
+    $payloadFiles = @(
+        Get-ChildItem -LiteralPath $stageRoot -Recurse -File |
+            Where-Object { $_.FullName -ne (Join-Path $installerDirectory 'INSTALLER-PAYLOAD.json') } |
+            Sort-Object FullName |
+            ForEach-Object {
+                [ordered]@{
+                    path = $_.FullName.Substring($stageRoot.Length).TrimStart('\').Replace('\', '/')
+                    bytes = [Int64]$_.Length
+                    sha256 = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash
+                }
+            }
+    )
+    $payloadManifest = [ordered]@{
+        schema = 1
+        version = $version
+        files = $payloadFiles
+    }
+    Write-Utf8NoBom `
+        -Path (Join-Path $installerDirectory 'INSTALLER-PAYLOAD.json') `
+        -Content ($payloadManifest | ConvertTo-Json -Depth 5)
+
+    $innoScript = Join-Path $PSScriptRoot 'installer\ba-click-fx-desktop.iss'
+    Invoke-Checked `
+        -Description 'Inno Setup compile' `
+        -FilePath $isccPath `
+        -Arguments @(
+            "/DStageRoot=$stageRoot",
+            "/DOutputRoot=$outputRoot",
+            "/DProductVersion=$version",
+            "/DNumericVersion=$numericVersion",
+            "/DPackageVersion=$packageVersion",
+            "/DOutputBaseName=$outputBaseName",
+            $innoScript
+        ) `
+        -WorkingDirectory $repositoryRoot
+
+    if (-not (Test-Path -LiteralPath $installerPath -PathType Leaf))
+    {
+        throw "Inno Setup did not create the expected installer: $installerPath"
+    }
+
+    if (-not $SkipVerification)
+    {
+        $linker = Get-CMakeLinker -CacheFile (Join-Path $repositoryRoot 'build\alpha-x64\CMakeCache.txt')
+        & (Join-Path $repositoryRoot 'tools\verify-portable-pe.ps1') `
+            -Executable $installerPath `
+            -Linker $linker
+        if (-not $?)
+        {
+            throw 'Installer PE dependency verification failed.'
+        }
+        $versionInfo = (Get-Item -LiteralPath $installerPath).VersionInfo
+        $installerProductVersion = ([string]$versionInfo.ProductVersion).Trim()
+        if ($installerProductVersion -ne $version)
+        {
+            throw "Installer ProductVersion mismatch: $installerProductVersion"
+        }
+    }
+
+    $installerHash = (Get-FileHash -LiteralPath $installerPath -Algorithm SHA256).Hash
+    Set-Content -LiteralPath $checksumPath -Encoding Ascii -NoNewline `
+        -Value "$installerHash *$([IO.Path]::GetFileName($installerPath))"
+
+    Write-Host "User installer created: $installerPath"
+    Write-Host "SHA-256: $installerHash"
+    Write-Host 'The installer contains no private signing key and requires no target-machine SDK.'
+}
+finally
+{
+    if (Test-Path -LiteralPath $temporaryRoot -PathType Container)
+    {
+        $temporaryPrefix = $temporaryParent.TrimEnd('\') + '\'
+        $resolvedTemporaryRoot = [IO.Path]::GetFullPath($temporaryRoot)
+        if (-not $resolvedTemporaryRoot.StartsWith(
+                $temporaryPrefix,
+                [StringComparison]::OrdinalIgnoreCase))
+        {
+            throw "Refusing to clean a path outside the temporary directory: $resolvedTemporaryRoot"
+        }
+        Remove-Item -LiteralPath $resolvedTemporaryRoot -Recurse -Force
+    }
+}
