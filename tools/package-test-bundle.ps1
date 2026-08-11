@@ -159,6 +159,7 @@ if (-not (Test-Path -LiteralPath $hostExecutable -PathType Leaf))
 }
 Assert-ControlCenterExecutable -Executable $controlCenterExecutable
 
+Add-Type -AssemblyName System.IO.Compression
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 $temporaryParent = [IO.Path]::GetFullPath([IO.Path]::GetTempPath())
 $temporaryRoot = Join-Path $temporaryParent ("bafx-test-bundle-" + [Guid]::NewGuid().ToString('N'))
@@ -199,11 +200,30 @@ try
     $manifest | ConvertTo-Json -Depth 4 |
         Set-Content -LiteralPath (Join-Path $stageRoot 'TEST-BUNDLE-MANIFEST.json') -Encoding UTF8
 
-    [IO.Compression.ZipFile]::CreateFromDirectory(
-        $stageRoot,
+    $archive = [IO.Compression.ZipFile]::Open(
         $archivePath,
-        [IO.Compression.CompressionLevel]::Optimal,
-        $true)
+        [IO.Compression.ZipArchiveMode]::Create)
+    try
+    {
+        foreach ($file in Get-ChildItem -LiteralPath $stageRoot -Recurse -File |
+                Sort-Object FullName)
+        {
+            $relativePath = $file.FullName.Substring($stageRoot.Length)
+            $relativePath = $relativePath.TrimStart('\').Replace('\', '/')
+            # ZIP entry names use '/' on every platform. CreateFromDirectory
+            # preserved Windows separators and produced a non-portable archive.
+            $entryName = "$bundleName/$relativePath"
+            [IO.Compression.ZipFileExtensions]::CreateEntryFromFile(
+                $archive,
+                $file.FullName,
+                $entryName,
+                [IO.Compression.CompressionLevel]::Optimal) | Out-Null
+        }
+    }
+    finally
+    {
+        $archive.Dispose()
+    }
 }
 finally
 {
