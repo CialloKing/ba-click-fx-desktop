@@ -274,38 +274,35 @@ using UniqueCertificate = std::unique_ptr<const CERT_CONTEXT, CertificateDeleter
 
 void requireExactSubject(const PCCERT_CONTEXT certificate)
 {
-    DWORD encodedSize = 0U;
-    if (!CertStrToNameW(
-            X509_ASN_ENCODING,
-            requiredSubject,
-            CERT_X500_NAME_STR,
-            nullptr,
-            nullptr,
-            &encodedSize,
-            nullptr))
+    // New-SelfSignedCertificate uses UTF8String for the CN while
+    // CertStrToNameW commonly emits PrintableString. Comparing the encoded
+    // DER blobs would reject an otherwise identical subject, so normalize the
+    // complete X.500 name through the platform formatter first.
+    DWORD characterCount = CertNameToStrW(
+        X509_ASN_ENCODING,
+        &certificate->pCertInfo->Subject,
+        CERT_X500_NAME_STR,
+        nullptr,
+        0U);
+    if (characterCount == 0U)
     {
-        throwLastError("Encoding the required certificate subject");
+        throwLastError("Formatting the signing certificate subject");
     }
-
-    std::vector<BYTE> encodedSubject(encodedSize);
-    if (!CertStrToNameW(
-            X509_ASN_ENCODING,
-            requiredSubject,
-            CERT_X500_NAME_STR,
-            nullptr,
-            encodedSubject.data(),
-            &encodedSize,
-            nullptr))
-    {
-        throwLastError("Encoding the required certificate subject");
-    }
-    CERT_NAME_BLOB expectedSubject{};
-    expectedSubject.cbData = encodedSize;
-    expectedSubject.pbData = encodedSubject.data();
-    if (!CertCompareCertificateName(
+    std::wstring subject(characterCount, L'\0');
+    if (CertNameToStrW(
             X509_ASN_ENCODING,
             &certificate->pCertInfo->Subject,
-            &expectedSubject))
+            CERT_X500_NAME_STR,
+            subject.data(),
+            characterCount) == 0U)
+    {
+        throwLastError("Formatting the signing certificate subject");
+    }
+    if (!subject.empty() && subject.back() == L'\0')
+    {
+        subject.pop_back();
+    }
+    if (subject != requiredSubject)
     {
         throw std::runtime_error("The signing certificate subject must be exactly CN=BaClickFx.Local");
     }
