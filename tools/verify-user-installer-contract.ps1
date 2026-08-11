@@ -567,6 +567,14 @@ function Test-SparsePackageContract
     $uninstaller = Read-RepositoryText -RelativePath 'tools/installer/unregister-machine.ps1'
     Assert-TextContains `
         -Text $uninstaller `
+        -Pattern 'writeRights\s*=\s*\[int\]\(\[Security\.AccessControl\.FileSystemRights\]::WriteData[\s\S]*TakeOwnership\)' `
+        -Description 'uninstall ACL validation uses atomic write rights'
+    Assert-TextExcludes `
+        -Text $uninstaller `
+        -Pattern 'writeRights[\s\S]*?FileSystemRights\]::(Modify|FullControl)' `
+        -Description 'uninstall write mask does not include read bits from composite rights'
+    Assert-TextContains `
+        -Text $uninstaller `
         -Pattern 'Read-InstallStateWithBackup[\s\S]*ownedCertificateThumbprints[\s\S]*\-DeleteKey' `
         -Description 'uninstall backup and complete certificate ledger cleanup'
 }
