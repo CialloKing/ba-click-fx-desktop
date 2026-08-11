@@ -276,6 +276,16 @@ function Test-InstallerScriptWhitelist
         -Pattern 'Assert-ExecutableVersion[\s\S]*-NumericVersion\s+\$numericVersion' `
         -Description 'Host and Control Center version-resource verification'
 
+    $installMachine = Read-RepositoryText -RelativePath 'tools/installer/install-machine.ps1'
+    Assert-TextContains `
+        -Text $installMachine `
+        -Pattern 'function\s+Get-IdentityTemplateContentHash' `
+        -Description 'canonical identity package content hashing'
+    Assert-TextContains `
+        -Text $installMachine `
+        -Pattern 'Get-IdentityTemplateContentHash\s+-Path\s+\$oldPackagePath[\s\S]*identity package content changed' `
+        -Description 'same-version repair compares package semantics'
+
     $controlCenterResource = Read-RepositoryText `
         -RelativePath 'src/control-center/BAFX.ControlCenter.rc.in'
     Assert-TextContains `
@@ -446,6 +456,14 @@ function Test-SparsePackageContract
         -Description 'registered full trust application entry point'
 
     $registration = Read-RepositoryText -RelativePath 'tools/installer/register-user-package.ps1'
+    Assert-TextContains `
+        -Text $registration `
+        -Pattern 'FileInfo\(\$Path\)[\s\S]*GetAccessControl\(\)' `
+        -Description 'original-user ACL validation avoids the PowerShell Security module'
+    Assert-TextExcludes `
+        -Text $registration `
+        -Pattern '(?m)^\s*\$acl\s*=\s*Get-Acl\b' `
+        -Description 'original-user registration does not require Get-Acl'
     Assert-TextContains `
         -Text $registration `
         -Pattern 'Add-AppxPackage\s+`[\s\S]*-ExternalLocation\s+\$installRoot' `

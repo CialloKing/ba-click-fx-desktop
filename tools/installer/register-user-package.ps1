@@ -66,7 +66,10 @@ function Assert-ProtectedStateAcl
         [string]$Path
     )
 
-    $acl = Get-Acl -LiteralPath $Path
+    # ExecAsOriginalUser may not be able to load Microsoft.PowerShell.Security;
+    # use the framework ACL API while preserving the same protection checks.
+    $fileInfo = New-Object System.IO.FileInfo($Path)
+    $acl = $fileInfo.GetAccessControl()
     if (-not $acl.AreAccessRulesProtected)
     {
         throw 'Protected pending state still inherits access rules.'

@@ -285,6 +285,78 @@ function Assert-FileHash
     }
 }
 
+function Get-IdentityTemplateContentHash
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path
+    )
+
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $archive = [IO.Compression.ZipFile]::OpenRead($Path)
+    try
+    {
+        $blockMapEntry = $archive.Entries |
+            Where-Object { $_.FullName -eq 'AppxBlockMap.xml' } |
+            Select-Object -First 1
+        if ($null -eq $blockMapEntry)
+        {
+            throw 'Identity package block map is missing.'
+        }
+        $reader = New-Object IO.StreamReader(
+            $blockMapEntry.Open(),
+            [Text.Encoding]::UTF8,
+            $true)
+        try
+        {
+            $blockMap = [xml]$reader.ReadToEnd()
+        }
+        finally
+        {
+            $reader.Dispose()
+        }
+
+        # MakeAppx is allowed to enumerate equivalent entries in a different
+        # order. Hash the sorted block-map semantics instead of ZIP metadata.
+        $canonical = New-Object Text.StringBuilder
+        $files = @(
+            $blockMap.SelectNodes("/*[local-name()='BlockMap']/*[local-name()='File']") |
+                Sort-Object { $_.GetAttribute('Name') }
+        )
+        foreach ($file in $files)
+        {
+            foreach ($attributeName in @('Name', 'Size', 'LfhSize'))
+            {
+                [void]$canonical.Append($file.GetAttribute($attributeName)).Append("`0")
+            }
+            $blocks = @(
+                $file.ChildNodes |
+                    Where-Object { $_.LocalName -eq 'Block' }
+            )
+            foreach ($block in $blocks)
+            {
+                [void]$canonical.Append($block.GetAttribute('Hash')).Append("`0")
+                [void]$canonical.Append($block.GetAttribute('Size')).Append("`0")
+            }
+            $fileHash = $file.ChildNodes |
+                Where-Object { $_.LocalName -eq 'FileHash' } |
+                Select-Object -First 1
+            if ($null -ne $fileHash)
+            {
+                [void]$canonical.Append($fileHash.GetAttribute('Hash'))
+            }
+            [void]$canonical.Append("`n")
+        }
+        $bytes = [Text.Encoding]::UTF8.GetBytes($canonical.ToString())
+        $digest = [Security.Cryptography.SHA256]::Create().ComputeHash($bytes)
+        return ([BitConverter]::ToString($digest)).Replace('-', '')
+    }
+    finally
+    {
+        $archive.Dispose()
+    }
+}
+
 function Assert-PayloadManifest
 {
     param(
@@ -1426,6 +1498,8 @@ if ($Phase -eq 'Prepare')
         {
             throw 'Identity package metadata has an unsupported schema.'
         }
+        $templatePath = Join-Path (Join-Path $installRoot 'Identity') `
+            ([string]$metadata.templateFile)
         $preexistingFullNames = @(
             Get-AppxPackage `
                 -User ([string]$context.userSid) `
@@ -1455,7 +1529,14 @@ if ($Phase -eq 'Prepare')
             $null -ne $oldInstallState.PSObject.Properties['templateSha256'] -and
             [string]$oldInstallState.templateSha256 -ne [string]$metadata.templateSha256)
         {
-            throw 'Refusing a same-version repair whose unsigned identity template changed.'
+            $oldPackagePath = Join-Path (Join-Path $installRoot 'Identity') `
+                ([string]$oldInstallState.packageFile)
+            if (-not (Test-Path -LiteralPath $oldPackagePath -PathType Leaf) -or
+                (Get-IdentityTemplateContentHash -Path $oldPackagePath) -ne
+                    (Get-IdentityTemplateContentHash -Path $templatePath))
+            {
+                throw 'Refusing a same-version repair whose identity package content changed.'
+            }
         }
 
         $pendingSeed = [ordered]@{
