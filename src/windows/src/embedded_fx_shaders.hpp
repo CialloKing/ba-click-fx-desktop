@@ -172,6 +172,19 @@ Texture2D<float4> Source3 : register(t3);
 Texture2D<float4> Source4 : register(t4);
 SamplerState LinearClampSampler : register(s0);
 
+static const float BackgroundTransportNoiseFloor = 1.0 / 1024.0;
+static const float BackgroundTransportNoiseBlendEnd =
+    BackgroundTransportNoiseFloor * 2.0;
+static const float BackgroundTransportStableSampleScale = 512.0;
+
+float3 StableBackgroundSample(float3 sample)
+{
+    return floor(
+        max(sample, 0.0) * BackgroundTransportStableSampleScale
+        + 0.5)
+        / BackgroundTransportStableSampleScale;
+}
+
 struct FullscreenOutput
 {
     float4 position : SV_POSITION;
@@ -224,7 +237,6 @@ float4 PrefilterPixel(FullscreenOutput input) : SV_Target0
 
 float4 DifferentialPrefilterPixel(FullscreenOutput input) : SV_Target0
 {
-    const float3 background = FourTap(Source1, input.uv, SourceTexelSize).rgb;
     const float2 topLeft = input.uv
         + SourceTexelSize * float2(-1.0, -1.0);
     const float2 topRight = input.uv
@@ -233,23 +245,36 @@ float4 DifferentialPrefilterPixel(FullscreenOutput input) : SV_Target0
         + SourceTexelSize * float2(-1.0, 1.0);
     const float2 bottomRight = input.uv
         + SourceTexelSize * float2(1.0, 1.0);
+    const float3 backgroundTopLeft = StableBackgroundSample(
+        Source1.Sample(LinearClampSampler, topLeft).rgb);
+    const float3 backgroundTopRight = StableBackgroundSample(
+        Source1.Sample(LinearClampSampler, topRight).rgb);
+    const float3 backgroundBottomLeft = StableBackgroundSample(
+        Source1.Sample(LinearClampSampler, bottomLeft).rgb);
+    const float3 backgroundBottomRight = StableBackgroundSample(
+        Source1.Sample(LinearClampSampler, bottomRight).rgb);
+    const float backgroundOcclusionTopLeft = saturate(
+        Source2.Sample(LinearClampSampler, topLeft).g);
+    const float backgroundOcclusionTopRight = saturate(
+        Source2.Sample(LinearClampSampler, topRight).g);
+    const float backgroundOcclusionBottomLeft = saturate(
+        Source2.Sample(LinearClampSampler, bottomLeft).g);
+    const float backgroundOcclusionBottomRight = saturate(
+        Source2.Sample(LinearClampSampler, bottomRight).g);
+    const float3 background = 0.25 * (
+        backgroundTopLeft
+        + backgroundTopRight
+        + backgroundBottomLeft
+        + backgroundBottomRight);
     const float3 scene = 0.25 * (
         Source0.Sample(LinearClampSampler, topLeft).rgb
-            + Source1.Sample(LinearClampSampler, topLeft).rgb
-                * (1.0 - saturate(
-                    Source2.Sample(LinearClampSampler, topLeft).g))
+        + backgroundTopLeft * (1.0 - backgroundOcclusionTopLeft)
         + Source0.Sample(LinearClampSampler, topRight).rgb
-            + Source1.Sample(LinearClampSampler, topRight).rgb
-                * (1.0 - saturate(
-                    Source2.Sample(LinearClampSampler, topRight).g))
+        + backgroundTopRight * (1.0 - backgroundOcclusionTopRight)
         + Source0.Sample(LinearClampSampler, bottomLeft).rgb
-            + Source1.Sample(LinearClampSampler, bottomLeft).rgb
-                * (1.0 - saturate(
-                    Source2.Sample(LinearClampSampler, bottomLeft).g))
+        + backgroundBottomLeft * (1.0 - backgroundOcclusionBottomLeft)
         + Source0.Sample(LinearClampSampler, bottomRight).rgb
-            + Source1.Sample(LinearClampSampler, bottomRight).rgb
-                * (1.0 - saturate(
-                    Source2.Sample(LinearClampSampler, bottomRight).g)));
+        + backgroundBottomRight * (1.0 - backgroundOcclusionBottomRight));
     const float3 differential = max(
         BrightPass(scene).rgb - BrightPass(background).rgb,
         0.0);
@@ -352,33 +377,6 @@ float4 ResolveFxOnlyDesktopTransport(
         alpha);
 }
 
-static const float BackgroundTransportNoiseFloor = 1.0 / 1024.0;
-static const float BackgroundTransportNoiseBlendEnd =
-    BackgroundTransportNoiseFloor * 2.0;
-static const float BackgroundTransportLightHeadroomStart =
-    BackgroundTransportNoiseFloor * 16.0;
-static const float BackgroundTransportLightHeadroomEnd =
-    BackgroundTransportNoiseFloor * 32.0;
-
-float SolveOverlayAlpha(float background, float target)
-{
-    const float delta = target - background;
-    // Keep the inverse continuous. The caller applies the capture-noise
-    // budget as a soft blend, so a filtered edge never toggles from zero to a
-    // full transport layer when WGC reports adjacent FP16 samples.
-    if (delta > 0.0)
-    {
-        return delta / max(
-            1.0 - background,
-            BackgroundTransportNoiseFloor);
-    }
-    if (delta < 0.0)
-    {
-        return -delta / max(background, BackgroundTransportNoiseFloor);
-    }
-    return 0.0;
-}
-
 float4 ResolveBackgroundAwareDesktopTransport(
     float4 direct,
     float4 bloom,
@@ -386,7 +384,11 @@ float4 ResolveBackgroundAwareDesktopTransport(
     float3 capturedBackground,
     float exposureGain)
 {
-    const float3 background = max(capturedBackground, 0.0);
+    // WGC's FP16 cadence can alternate between adjacent values around a
+    // visually unchanged light surface. Collapse pairs of those steps before
+    // solving and exporting the source-over payload, while retaining the
+    // extended non-negative range for HDR samples.
+    const float3 background = StableBackgroundSample(capturedBackground);
     const float3 target = max(
         max(direct.rgb, 0.0)
         + background * (1.0 - saturate(occlusion))
@@ -395,8 +397,8 @@ float4 ResolveBackgroundAwareDesktopTransport(
 
     // Keep Alpha tied to authored Coverage and Bloom transport, matching the
     // WebGL2/WebGPU transparent-overlay contract. Inverting target-background
-    // is ill-conditioned on a light desktop: one FP16 capture step near white
-    // can otherwise turn a stable edge into an opaque pixel.
+    // for Alpha is ill-conditioned on a light desktop: one FP16 capture step
+    // near white can otherwise turn a stable edge into an opaque pixel.
     const float sceneCoverage = saturate(direct.a);
     const float crossCoverage = saturate(occlusion);
     const float additiveCoverage = saturate(
@@ -411,65 +413,47 @@ float4 ResolveBackgroundAwareDesktopTransport(
     const float transportCapacity = saturate(requestedCoverage);
     const float overlayAlphaLimit = 250.0 / 255.0;
 
-    const float3 difference = abs(target - background);
-    const float maximumDifference = max(
-        difference.r,
-        max(difference.g, difference.b));
-    const float3 channelAlpha = float3(
-        SolveOverlayAlpha(background.r, target.r),
-        SolveOverlayAlpha(background.g, target.g),
-        SolveOverlayAlpha(background.b, target.b));
-    const float reconstructedAlpha = saturate(max(
-        channelAlpha.r,
-        max(channelAlpha.g, channelAlpha.b)));
-    // A capture step near white can make reconstructedAlpha larger than any
-    // authored layer. Capping it by transportCapacity preserves the visible
-    // effect while preventing a transparent edge or trail tail from becoming
-    // opaque when WGC quantization moves by one FP16 step.
+    // Cross2 occlusion and additive/Bloom transport already provide the
+    // authored source-over envelope. Keep this Alpha independent from the
+    // captured RGB difference: inverse-solving it would make a fading trail
+    // pulse whenever WGC reports a neighboring light-background sample.
     const float authoredAlpha = min(transportCapacity, overlayAlphaLimit);
-    const float boundedAlpha = min(reconstructedAlpha, authoredAlpha);
-    // Both transitions are deliberately continuous. The first keeps capture
-    // quantization from modulating Alpha; the second avoids a hard switch when
-    // the available headroom crosses the near-white stability window.
-    const float captureNoiseBlend = smoothstep(
-        BackgroundTransportNoiseFloor,
-        BackgroundTransportNoiseBlendEnd,
-        maximumDifference);
-    const float lightHeadroom = max(
-        1.0 - max(background.r, max(background.g, background.b)),
-        0.0);
-    const float inverseHeadroomBlend = smoothstep(
-        BackgroundTransportLightHeadroomStart,
-        BackgroundTransportLightHeadroomEnd,
-        lightHeadroom);
-    const float stableInverseAlpha = lerp(
-        authoredAlpha,
-        boundedAlpha,
-        inverseHeadroomBlend);
-    const float alpha = lerp(
-        authoredAlpha,
-        stableInverseAlpha,
-        captureNoiseBlend);
+    const float alpha = authoredAlpha;
     if (alpha <= 0.000001)
     {
         return float4(0.0, 0.0, 0.0, 0.0);
     }
-    const float3 rawPremultiplied = target - background * (1.0 - alpha);
-    const float3 nonNegativePremultiplied = max(rawPremultiplied, 0.0);
-    const float payloadMaximum = max(
-        nonNegativePremultiplied.r,
-        max(nonNegativePremultiplied.g, nonNegativePremultiplied.b));
-    // Trail emission is stored independently of Coverage. Scale only its
-    // exported RGB when necessary so the DComp premultiplied contract remains
-    // valid without feeding emission energy back into Alpha.
-    const float payloadScale = min(
-        1.0,
-        alpha / max(payloadMaximum, 0.000001));
-    const float3 premultiplied = nonNegativePremultiplied * payloadScale;
+    // Keep direct emission and Bloom additive, matching the WebGL2/WebGPU
+    // default `coverage` policy. Only the Cross2 background attenuation is
+    // represented by the source-over term; it must not scale an independent
+    // trail RGB peak back down to its Coverage Alpha.
+    const float3 additiveEmission = max(direct.rgb, 0.0)
+        + max(bloom.rgb, 0.0) * exposureGain;
+    const float3 backgroundCoveragePayload = background * max(
+        alpha - crossCoverage,
+        0.0);
+    const float3 authoredPayload = additiveEmission + backgroundCoveragePayload;
+    const float maximumDifference = max(
+        abs(target.r - background.r),
+        max(
+            abs(target.g - background.g),
+            abs(target.b - background.b)));
+    const float captureNoiseBlend = smoothstep(
+        BackgroundTransportNoiseFloor,
+        BackgroundTransportNoiseBlendEnd,
+        maximumDifference);
+    const float3 inversePayload = target - background * (1.0 - alpha);
+    // The two payload forms are equivalent for ordinary SDR samples. Keeping
+    // the authored form through the noise band makes the transition explicit
+    // and continuous when a captured light surface crosses one FP16 step.
+    const float3 premultiplied = max(
+        lerp(authoredPayload, inversePayload, captureNoiseBlend),
+        0.0);
 
     // The captured background is baked into the payload only as required to
-    // reproduce Unity's target. DWM still receives a valid premultiplied layer.
-    return float4(min(premultiplied, alpha), alpha);
+    // reproduce Unity's target. Extended premultiplied transport intentionally
+    // permits additive RGB to exceed Coverage Alpha.
+    return float4(premultiplied, alpha);
 }
 
 float4 DesktopCompositePixel(FullscreenOutput input) : SV_Target0

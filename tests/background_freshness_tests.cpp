@@ -136,6 +136,20 @@ BAFX_TEST(background_path_latch_downgrades_once_at_the_retain_boundary)
         == BackgroundRenderPath::BackgroundAware);
 }
 
+BAFX_TEST(background_path_latch_keeps_a_captured_snapshot_after_retain_expiry)
+{
+    BackgroundPathLatch latch;
+
+    BAFX_CHECK(latch.select(true, true, true)
+        == BackgroundRenderPath::BackgroundAware);
+    // The renderer replaces the live retain decision with true once the
+    // immutable snapshot has been copied for this visible batch.
+    BAFX_CHECK(latch.select(true, false, true)
+        == BackgroundRenderPath::BackgroundAware);
+    BAFX_CHECK(latch.select(true, false, true)
+        == BackgroundRenderPath::BackgroundAware);
+}
+
 BAFX_TEST(background_path_latch_never_upgrades_a_visible_fx_only_batch)
 {
     BackgroundPathLatch latch;

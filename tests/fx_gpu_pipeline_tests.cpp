@@ -195,6 +195,16 @@ struct WarpDevice
     return snapshot;
 }
 
+[[nodiscard]] bafx::fx::FrameSnapshot makeDiskTransportSnapshot(
+    const float particleAlpha,
+    const float artisticIntensity)
+{
+    bafx::fx::FrameSnapshot snapshot = makeDiskSnapshot(false);
+    snapshot.sprites.front().color.a = particleAlpha;
+    snapshot.sprites.front().artisticIntensity = artisticIntensity;
+    return snapshot;
+}
+
 [[nodiscard]] bafx::fx::FrameSnapshot makeTwoTrailSnapshot()
 {
     bafx::fx::FrameSnapshot snapshot{};
@@ -235,6 +245,28 @@ struct WarpDevice
         0.0F,
         bafx::fx::ColorF{1.0F, 1.0F, 1.0F, 1.0F},
         5.992157F,
+        0.0F,
+        0U,
+        4550,
+        false});
+    return snapshot;
+}
+
+[[nodiscard]] bafx::fx::FrameSnapshot makeTriangleTransportSnapshot(
+    const float particleAlpha,
+    const float artisticIntensity)
+{
+    bafx::fx::FrameSnapshot snapshot{};
+    snapshot.active = true;
+    snapshot.sprites.push_back(bafx::fx::Sprite{
+        bafx::fx::SpriteKind::Triangle,
+        bafx::fx::PointF{
+            static_cast<float>(testSize.width) * 0.5F,
+            static_cast<float>(testSize.height) * 0.25F},
+        64.0F,
+        0.0F,
+        bafx::fx::ColorF{1.0F, 1.0F, 1.0F, particleAlpha},
+        artisticIntensity,
         0.0F,
         0U,
         4550,
@@ -380,7 +412,8 @@ void checkFiniteAndNonNegative(const std::vector<ReadbackPixel>& pixels)
 
 void checkValidDesktopPremultiplied(
     const std::vector<ReadbackPixel>& pixels,
-    const bool enforceFxOnlyAlphaLimit = true)
+    const bool enforceFxOnlyAlphaLimit = true,
+    const bool allowAdditiveRgb = false)
 {
     constexpr float overlayAlphaLimit = 250.0F / 255.0F;
     constexpr float transportTolerance = 2.0e-3F;
@@ -394,6 +427,12 @@ void checkValidDesktopPremultiplied(
         else
         {
             BAFX_CHECK(pixel.alpha <= 1.0F + transportTolerance);
+        }
+        if (allowAdditiveRgb)
+        {
+            // Background-aware output follows the WebGL2/WebGPU coverage
+            // contract: direct emission and Bloom may exceed Coverage Alpha.
+            continue;
         }
         BAFX_CHECK(pixel.red <= pixel.alpha + transportTolerance);
         BAFX_CHECK(pixel.green <= pixel.alpha + transportTolerance);
@@ -551,7 +590,7 @@ BAFX_TEST(warp_background_path_uses_full_differential_bloom)
         backgroundAwareTarget.texture.Get());
 
     checkValidDesktopPremultiplied(fxOnly);
-    checkValidDesktopPremultiplied(backgroundAware, false);
+    checkValidDesktopPremultiplied(backgroundAware, false, true);
     BAFX_CHECK(maximumRgbaDelta(fxOnly, backgroundAware) > 1.0e-3F);
 
     const std::size_t center = static_cast<std::size_t>(testSize.height / 2U)
@@ -606,7 +645,7 @@ BAFX_TEST(warp_usable_background_age_never_modulates_click_or_trail)
             const std::vector<ReadbackPixel> pixels = readback(
                 graphics.context.Get(),
                 target.texture.Get());
-            checkValidDesktopPremultiplied(pixels, false);
+            checkValidDesktopPremultiplied(pixels, false, true);
             BAFX_CHECK(maximumRgbInBox(pixels, 96U, 96U, 160U, 160U) > 1.0e-3F);
             BAFX_CHECK(maximumRgbInBox(pixels, 16U, 48U, 120U, 80U) > 1.0e-3F);
 
@@ -678,7 +717,7 @@ BAFX_TEST(warp_latched_background_path_stays_stable_at_age_boundaries)
             const std::vector<ReadbackPixel> pixels = readback(
                 graphics.context.Get(),
                 target.texture.Get());
-            checkValidDesktopPremultiplied(pixels, false);
+            checkValidDesktopPremultiplied(pixels, false, true);
             return pixels;
         };
 
@@ -789,8 +828,8 @@ BAFX_TEST(warp_background_reconstructs_the_unity_source_over_target)
     constexpr std::array<float, 4> lightBackground{0.7F, 0.6F, 0.5F, 1.0F};
     const std::vector<ReadbackPixel> overDark = renderOver(darkBackground);
     const std::vector<ReadbackPixel> overLight = renderOver(lightBackground);
-    checkValidDesktopPremultiplied(overDark, false);
-    checkValidDesktopPremultiplied(overLight, false);
+    checkValidDesktopPremultiplied(overDark, false, true);
+    checkValidDesktopPremultiplied(overLight, false, true);
 
     const ReadbackPixel darkReconstructed = compositeOver(
         overDark[edgeIndex],
@@ -815,7 +854,6 @@ BAFX_TEST(warp_background_reconstructs_the_unity_source_over_target)
         std::clamp(direct[edgeIndex].blue
             + lightBackground[2] * (1.0F - coverage), 0.0F, 1.0F),
         1.0F};
-
     BAFX_CHECK_NEAR(darkReconstructed.red, expectedDark.red, 4.0e-3F);
     BAFX_CHECK_NEAR(darkReconstructed.green, expectedDark.green, 4.0e-3F);
     BAFX_CHECK_NEAR(darkReconstructed.blue, expectedDark.blue, 4.0e-3F);
@@ -867,9 +905,9 @@ BAFX_TEST(warp_background_transport_suppresses_near_white_capture_noise)
     const std::vector<ReadbackPixel> pureWhite = renderOver(pureWhiteBackground);
     const std::vector<ReadbackPixel> visibleLight =
         renderOver(visibleLightBackground);
-    checkValidDesktopPremultiplied(nearWhite, false);
-    checkValidDesktopPremultiplied(pureWhite, false);
-    checkValidDesktopPremultiplied(visibleLight, false);
+    checkValidDesktopPremultiplied(nearWhite, false, true);
+    checkValidDesktopPremultiplied(pureWhite, false, true);
+    checkValidDesktopPremultiplied(visibleLight, false, true);
 
     constexpr std::uint32_t diskLeft = 96U;
     constexpr std::uint32_t diskTop = 96U;
@@ -942,6 +980,66 @@ BAFX_TEST(warp_background_transport_suppresses_near_white_capture_noise)
         > 0.5F);
 }
 
+BAFX_TEST(warp_background_transport_is_continuous_at_the_noise_floor)
+{
+    ComApartment apartment;
+    const WarpDevice graphics = createWarpDevice();
+    FxGpuRenderer renderer(graphics.device.Get(), graphics.context.Get(), testSize);
+    renderer.setBloomSettings(FxBloomSettings{0.0F, 7.0F});
+
+    const RenderTarget background = createRenderTarget(graphics.device.Get());
+    constexpr std::array<float, 4> lightBackground{
+        0.99F,
+        0.99F,
+        0.99F,
+        1.0F};
+    graphics.context->ClearRenderTargetView(
+        background.view.Get(),
+        lightBackground.data());
+
+    constexpr std::array<float, 5> intensities{
+        0.0975F,
+        0.0985F,
+        0.0995F,
+        0.1005F,
+        0.1015F};
+    constexpr std::uint32_t centerX = testSize.width / 2U;
+    constexpr std::uint32_t centerY = testSize.height / 2U;
+    const std::size_t centerIndex = static_cast<std::size_t>(centerY)
+        * testSize.width
+        + centerX;
+
+    std::optional<float> previousAlpha;
+    float minimumAlpha = 1.0F;
+    float maximumAlpha = 0.0F;
+    for (const float intensity : intensities)
+    {
+        const RenderTarget target = createRenderTarget(graphics.device.Get());
+        renderer.render(
+            makeDiskTransportSnapshot(0.1F, intensity),
+            target.view.Get(),
+            BackgroundRenderInput{background.shaderResource.Get()});
+        const std::vector<ReadbackPixel> pixels = readback(
+            graphics.context.Get(),
+            target.texture.Get());
+        checkValidDesktopPremultiplied(pixels, false, true);
+
+        const float alpha = pixels[centerIndex].alpha;
+        minimumAlpha = (std::min)(minimumAlpha, alpha);
+        maximumAlpha = (std::max)(maximumAlpha, alpha);
+        if (previousAlpha.has_value())
+        {
+            // A WGC sample crossing one FP16 noise step must not turn a
+            // fading click edge from transparent into a full authored layer.
+            BAFX_CHECK(std::abs(alpha - *previousAlpha) <= 2.0e-2F);
+        }
+        previousAlpha = alpha;
+    }
+
+    BAFX_CHECK(maximumAlpha > 0.05F);
+    BAFX_CHECK(maximumAlpha - minimumAlpha <= 2.0e-2F);
+}
+
 BAFX_TEST(warp_background_transport_stays_stable_across_light_capture_steps)
 {
     ComApartment apartment;
@@ -979,7 +1077,7 @@ BAFX_TEST(warp_background_transport_stays_stable_across_light_capture_steps)
     {
         const std::vector<ReadbackPixel> pixels =
             renderOverCapturedBackground(capturedValue);
-        checkValidDesktopPremultiplied(pixels, false);
+        checkValidDesktopPremultiplied(pixels, false, true);
         if (reference.empty())
         {
             reference = pixels;
@@ -1021,6 +1119,83 @@ BAFX_TEST(warp_background_transport_stays_stable_across_light_capture_steps)
         80U) > 0.05F);
 }
 
+BAFX_TEST(warp_background_transport_does_not_promote_emission_to_alpha)
+{
+    ComApartment apartment;
+    const WarpDevice graphics = createWarpDevice();
+    FxGpuRenderer renderer(graphics.device.Get(), graphics.context.Get(), testSize);
+    renderer.setBloomSettings(FxBloomSettings{0.0F, 7.0F});
+
+    const RenderTarget background = createRenderTarget(graphics.device.Get());
+    constexpr std::array<float, 4> lightBackground{
+        0.96F,
+        0.96F,
+        0.96F,
+        1.0F};
+    graphics.context->ClearRenderTargetView(
+        background.view.Get(),
+        lightBackground.data());
+
+    const auto render = [&](const float artisticIntensity)
+    {
+        const RenderTarget target = createRenderTarget(graphics.device.Get());
+        renderer.render(
+            makeTriangleTransportSnapshot(0.12F, artisticIntensity),
+            target.view.Get(),
+            BackgroundRenderInput{background.shaderResource.Get()});
+        return readback(graphics.context.Get(), target.texture.Get());
+    };
+
+    const std::vector<ReadbackPixel> dimEmission = render(0.5F);
+    const std::vector<ReadbackPixel> brightEmission = render(12.0F);
+    checkValidDesktopPremultiplied(dimEmission, false, true);
+    checkValidDesktopPremultiplied(brightEmission, false, true);
+
+    constexpr std::uint32_t triangleLeft = 96U;
+    constexpr std::uint32_t triangleTop = 32U;
+    constexpr std::uint32_t triangleRight = 160U;
+    constexpr std::uint32_t triangleBottom = 96U;
+    const float alphaDelta = maximumAlphaDeltaInBox(
+        dimEmission,
+        brightEmission,
+        triangleLeft,
+        triangleTop,
+        triangleRight,
+        triangleBottom);
+    const auto directEnergy = [&](const float artisticIntensity)
+    {
+        const RenderTarget target = createRenderTarget(graphics.device.Get());
+        const bafx::fx::FrameSnapshot snapshot =
+            makeTriangleTransportSnapshot(0.12F, artisticIntensity);
+        const FxGpuFrameCapture capture = renderer.renderAndCapture(
+            snapshot,
+            target.view.Get());
+        return maximumRgbInBox(
+            toFloatPixels(capture.directSurface),
+            triangleLeft,
+            triangleTop,
+            triangleRight,
+            triangleBottom);
+    };
+    const float dimEnergy = directEnergy(0.5F);
+    const float brightEnergy = directEnergy(12.0F);
+    const float dimVisibleEnergy = maximumRgbInBox(
+        dimEmission,
+        triangleLeft,
+        triangleTop,
+        triangleRight,
+        triangleBottom);
+    const float brightVisibleEnergy = maximumRgbInBox(
+        brightEmission,
+        triangleLeft,
+        triangleTop,
+        triangleRight,
+        triangleBottom);
+    BAFX_CHECK(alphaDelta <= 2.0e-3F);
+    BAFX_CHECK(brightEnergy - dimEnergy > 0.05F);
+    BAFX_CHECK(brightVisibleEnergy - dimVisibleEnergy > 0.05F);
+}
+
 BAFX_TEST(warp_background_path_keeps_triangle_alpha_independent_from_the_disk)
 {
     ComApartment apartment;
@@ -1047,8 +1222,8 @@ BAFX_TEST(warp_background_path_keeps_triangle_alpha_independent_from_the_disk)
     const std::vector<ReadbackPixel> brightTriangle = render(0.9F);
     const std::vector<ReadbackPixel> dimTriangle = render(0.1F);
 
-    checkValidDesktopPremultiplied(brightTriangle, false);
-    checkValidDesktopPremultiplied(dimTriangle, false);
+    checkValidDesktopPremultiplied(brightTriangle, false, true);
+    checkValidDesktopPremultiplied(dimTriangle, false, true);
 
     constexpr std::uint32_t diskLeft = 96U;
     constexpr std::uint32_t diskTop = 144U;

@@ -192,14 +192,17 @@ Render Owner 醒来后串行调用 `TryGetNextFrame`，丢弃旧帧、保留最�
 - epoch、尺寸、encoding 或排除合同错误：立即不可用。
 
 可用性是二值合同。可用纹理始终同时驱动完整 Differential Bloom 与同一套 background-aware
-source-over 反解；不可用时两者同时切回 FX-only。sample age 不得映射为 Bloom、Alpha 或其他视觉
+source-over payload；不可用时两者同时切回 FX-only。sample age 不得映射为 Bloom、Alpha 或其他视觉
 能量权重，避免捕获 cadence 在浅色背景上调制点击和拖尾亮度。窗口参数属于 ADR-007 的 Proposed
-值，获取/保留迟滞只锁存路径枚举；Render Owner 还会将首个可用 WGC 帧复制到独立快照，保证
-Differential Bloom 和最终反解在一个可见批次内读取同一背景样本。真实 cadence/VRR 证据可收窄窗口，
-但不能取消 stale cutoff。背景反解还将每通道小于 `1/1024` 的差异视为捕获量化噪声，并对接近白色的
-分母使用相同下限；当亮面余量只有少数 FP16 步进时，Alpha 改用该帧 Coverage/能量传输容量
-而不再放大背景反解值，避免 `1 - background` 接近零把不可见步进放大为不透明闪烁。这个误差预算只属于已知
-背景的传输层，不能用于放宽 Unity Golden 的源渲染比较。
+值；新批次必须先通过 acquire freshness，Render Owner 随后将首个可用 WGC 帧复制到独立快照。
+快照一旦成功复制，整个可见批次继续使用它，即使 live sample 跨过 retain 边界；这样 Differential
+Bloom 和最终 payload 在一个可见批次内永远读取同一背景，不会在丢帧或暂停重绘时切换路径。只有
+快照尚未建立的新批次才按 retain 窗口回退，真实 cadence/VRR 证据可收窄该窗口。背景传输将捕获
+样本按 `1/512` 稳定量化，把相邻 FP16 步进合并；每通道
+小于 `1/1024` 的目标/背景差异只用于 payload 的连续噪声过渡，不得反解或抬高 Alpha。最终 Alpha
+固定来自该帧 authored Coverage/Bloom 传输容量，DirectEmission 与 Bloom RGB 保持独立加法能量，
+避免 `1 - background` 接近零或拖尾能量衰减把不可见步进放大为闪烁。这个误差预算只属于已知背景的
+传输层，不能用于放宽 Unity Golden 的源渲染比较。
 
 ## 7. 捕获功耗状态
 

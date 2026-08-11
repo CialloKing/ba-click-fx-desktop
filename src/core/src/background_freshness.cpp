@@ -52,8 +52,10 @@ BackgroundRenderPath BackgroundPathLatch::select(
     else if (*path_ == BackgroundRenderPath::BackgroundAware
         && !retainAllowed)
     {
-        // Downgrade once after the bounded retention window. Refusing to
-        // upgrade again in the same visible batch removes cadence toggling.
+        // Downgrade only while the renderer has not captured a stable batch
+        // snapshot yet. Once a snapshot exists, the caller keeps retainAllowed
+        // true even when the live WGC sample ages out, so the visible batch
+        // cannot flash between background-aware and FX-only composition.
         path_ = BackgroundRenderPath::FxOnly;
     }
 

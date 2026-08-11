@@ -48,6 +48,10 @@ enum class BackgroundRenderPath : std::uint8_t
     BackgroundAware
 };
 
+// A selected path is one complete visual contract. The renderer passes
+// retainAllowed as either a live sample decision or the availability of its
+// immutable batch snapshot; the latter keeps a visible effect on one path
+// through a transient capture-age miss.
 class BackgroundPathLatch final
 {
 public:

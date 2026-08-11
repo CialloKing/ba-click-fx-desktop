@@ -296,18 +296,22 @@ void CompositionRenderer::renderFrame(
         }
     }
 
+    // Once a WGC frame has been copied, the immutable snapshot is the visual
+    // contract for this visible batch. A later capture-age miss must not swap
+    // the whole frame to FX-only: that transition is visible as a light-surface
+    // flash, especially when a paused overlay is redrawn.
+    const bool retainedBackgroundAvailable = backgroundSnapshotValid_
+        || (backgroundSample.has_value() && retainUsage.enabled);
     const bafx::core::BackgroundRenderPath renderPath =
         backgroundPathLatch_.select(
             snapshot.hasDrawableContent(),
             backgroundSample.has_value() && acquireUsage.enabled,
-            backgroundSample.has_value() && retainUsage.enabled);
-    const bool useBackgroundTransport =
-        renderPath == bafx::core::BackgroundRenderPath::BackgroundAware
-        && backgroundSample.has_value()
-        && retainUsage.enabled;
-    if (useBackgroundTransport)
+            retainedBackgroundAvailable);
+    if (renderPath == bafx::core::BackgroundRenderPath::BackgroundAware)
     {
         if (!backgroundSnapshotValid_
+            && backgroundSample.has_value()
+            && retainUsage.enabled
             && captureBackgroundSnapshot(backgroundSample->texture))
         {
             backgroundSnapshotValid_ = true;
@@ -329,8 +333,7 @@ void CompositionRenderer::renderFrame(
     }
     else
     {
-        // A downgraded or missing background path must not leave a previous
-        // batch's snapshot available for a later FX-only frame.
+        // A new FX-only batch must not inherit a previous batch's snapshot.
         resetBackgroundSnapshot();
         if (snapshot.hasDrawableContent()
             && backgroundSample.has_value()
