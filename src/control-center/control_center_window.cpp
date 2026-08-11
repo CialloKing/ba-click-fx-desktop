@@ -602,7 +602,7 @@ bool ControlCenterWindow::createSlider(
     slider.valueText = createChild(
         L"STATIC",
         L"0",
-        SS_RIGHT | SS_CENTERIMAGE | SS_NOPREFIX);
+        SS_CENTER | SS_CENTERIMAGE | SS_NOPREFIX);
     slider.minimum = minimum;
     slider.maximum = maximum;
     slider.step = step;
