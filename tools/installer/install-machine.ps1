@@ -20,9 +20,7 @@ param(
     [string]$ProductVersion,
 
     [Parameter(Mandatory = $true)]
-    [string]$PackageVersion,
-
-    [switch]$DisableSystemBorder
+    [string]$PackageVersion
 )
 
 Set-StrictMode -Version Latest
@@ -483,7 +481,6 @@ function Initialize-IdentityConfig
     )
 
     $configPath = Join-Path $DataDirectory 'BAFX.config.json'
-    $configAlreadyExisted = Test-Path -LiteralPath $configPath -PathType Leaf
     $hostPath = Join-Path $InstallRoot 'ba-click-fx-desktop.exe'
     $reportName = 'identity-installer-support.txt'
     Push-Location -LiteralPath $InstallRoot
@@ -518,16 +515,6 @@ function Initialize-IdentityConfig
         throw 'Host did not create the identity configuration.'
     }
 
-    if ($DisableSystemBorder -and -not $configAlreadyExisted)
-    {
-        $config = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json
-        if ($null -eq $config.background)
-        {
-            throw 'Generated configuration has no background object.'
-        }
-        $config.background.allowSystemBorder = $false
-        Write-Utf8NoBom -Path $configPath -Content ($config | ConvertTo-Json -Depth 12)
-    }
     foreach ($root in @($InstallRoot, $DataDirectory))
     {
         $reportPath = Join-Path $root $reportName
@@ -1089,7 +1076,10 @@ try
         packageFile = [string]$pendingState.packageFile
         installedUtc = [DateTime]::UtcNow.ToString('o')
     }
-    Write-ProtectedJson -Path $installStatePath -Value $installState -ReadSid $null
+    Write-ProtectedJson `
+        -Path $installStatePath `
+        -Value $installState `
+        -ReadSid ([string]$pendingState.userSid)
     Remove-Item -LiteralPath $machineStateFullPath -Force
 }
 catch

@@ -205,7 +205,7 @@ begin
 
   if not RunPowerShell(
     AddBackslash(InstallerRoot) + 'install-machine.ps1',
-    '-Phase Prepare ' + CommonArguments + ' -DisableSystemBorder',
+    '-Phase Prepare ' + CommonArguments,
     False,
     ExitCode) then
   begin

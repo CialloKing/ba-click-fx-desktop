@@ -70,6 +70,12 @@ function Assert-ProtectedStateAcl
     {
         throw 'Protected install state still inherits writable access rules.'
     }
+    $writeRights = [int]([Security.AccessControl.FileSystemRights]::Write -bor
+        [Security.AccessControl.FileSystemRights]::Modify -bor
+        [Security.AccessControl.FileSystemRights]::FullControl -bor
+        [Security.AccessControl.FileSystemRights]::Delete -bor
+        [Security.AccessControl.FileSystemRights]::ChangePermissions -bor
+        [Security.AccessControl.FileSystemRights]::TakeOwnership)
     foreach ($rule in $acl.Access)
     {
         if ($rule.AccessControlType -ne [Security.AccessControl.AccessControlType]::Allow)
@@ -78,9 +84,13 @@ function Assert-ProtectedStateAcl
         }
         $sid = $rule.IdentityReference.Translate(
             [Security.Principal.SecurityIdentifier]).Value
-        if ($sid -notin @('S-1-5-18', 'S-1-5-32-544'))
+        if ($sid -in @('S-1-5-18', 'S-1-5-32-544'))
         {
-            throw 'Protected install state grants access to an unexpected principal.'
+            continue
+        }
+        if (([int]$rule.FileSystemRights -band $writeRights) -ne 0)
+        {
+            throw 'Protected install state grants write access to a non-administrator.'
         }
     }
 }
