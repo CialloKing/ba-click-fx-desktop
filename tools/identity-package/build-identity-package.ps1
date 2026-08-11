@@ -12,6 +12,7 @@ param(
     [string]$PublisherDisplayName = 'ba-click-fx-desktop contributors',
     [string]$DisplayName = 'ba-click-fx-desktop',
     [string]$PackageVersion = '0.1.0.7',
+    [switch]$UnsignedTemplate,
     [switch]$KeepCertificate
 )
 
@@ -131,7 +132,14 @@ if ([IO.Path]::GetFileName($hostPath) -ne 'ba-click-fx-desktop.exe')
 New-Item -ItemType Directory -Path $outputRoot -Force | Out-Null
 
 $makeAppx = Resolve-SdkTool -Name 'makeappx.exe'
-$signTool = Resolve-SdkTool -Name 'signtool.exe'
+$signTool = if ($UnsignedTemplate)
+{
+    $null
+}
+else
+{
+    Resolve-SdkTool -Name 'signtool.exe'
+}
 $repositoryRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
 $manifestTemplate = Join-Path $PSScriptRoot 'Package.appxmanifest.in'
 $temporaryRoot = Join-Path ([IO.Path]::GetTempPath()) ('bafx-identity-' + [Guid]::NewGuid().ToString('N'))
@@ -161,7 +169,16 @@ try
     }
     Set-Content -LiteralPath (Join-Path $stageRoot 'AppxManifest.xml') -Value $manifest -Encoding UTF8
 
-    $packagePath = Join-Path $outputRoot "$PackageName-$PackageVersion.msix"
+    $packageBaseName = "$PackageName-$PackageVersion"
+    $packageFileName = if ($UnsignedTemplate)
+    {
+        "$packageBaseName.unsigned.msix"
+    }
+    else
+    {
+        "$packageBaseName.msix"
+    }
+    $packagePath = Join-Path $outputRoot $packageFileName
     if (Test-Path -LiteralPath $packagePath -PathType Leaf)
     {
         throw "Refusing to overwrite an existing package: $packagePath"
@@ -169,6 +186,27 @@ try
     Invoke-Checked -Description 'Sparse package build' -FilePath $makeAppx -Arguments @(
         'pack', '/d', $stageRoot, '/p', $packagePath, '/o'
     )
+
+    if ($UnsignedTemplate)
+    {
+        $metadataPath = Join-Path $outputRoot "$packageBaseName.identity-template.json"
+        $metadata = [ordered]@{
+            schema = 2
+            identityMode = 'target-machine-self-signed'
+            packageName = $PackageName
+            applicationId = $ApplicationId
+            publisher = $Publisher
+            packageVersion = $PackageVersion
+            templateFile = $packageFileName
+            templateSha256 = (Get-FileHash -LiteralPath $packagePath -Algorithm SHA256).Hash
+            hostSha256 = (Get-FileHash -LiteralPath $hostPath -Algorithm SHA256).Hash
+        }
+        $metadata | ConvertTo-Json -Depth 3 |
+            Set-Content -LiteralPath $metadataPath -Encoding UTF8
+
+        Write-Host "Unsigned identity template created: $packagePath"
+        return
+    }
 
     $certificate = New-SelfSignedCertificate `
         -Type CodeSigningCert `
@@ -207,7 +245,16 @@ finally
 {
     if ($null -ne $certificate -and -not $KeepCertificate)
     {
-        Remove-Item -LiteralPath "Cert:\CurrentUser\My\$($certificate.Thumbprint)" -Force -ErrorAction SilentlyContinue
+        $certificatePath = "Cert:\CurrentUser\My\$($certificate.Thumbprint)"
+        Remove-Item `
+            -LiteralPath $certificatePath `
+            -DeleteKey `
+            -Force `
+            -ErrorAction Stop
+        if (Test-Path -LiteralPath $certificatePath)
+        {
+            throw 'The temporary signing certificate remains after cleanup.'
+        }
     }
     if (Test-Path -LiteralPath $temporaryRoot -PathType Container)
     {
