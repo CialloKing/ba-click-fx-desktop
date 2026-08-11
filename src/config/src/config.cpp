@@ -643,6 +643,18 @@ void migrateV2ToV3(JsonValue::Object& root)
     root["schemaVersion"] = JsonValue(3.0);
 }
 
+void migrateV3ToV4(JsonValue::Object& root)
+{
+    JsonValue::Object& background = ensureObject(root, "background");
+    if (background.find("allowSystemBorder") == background.end())
+    {
+        // Preserve a border-free desktop on upgrade. Users can explicitly
+        // opt into the Windows privacy border from Control Center.
+        background.emplace("allowSystemBorder", JsonValue(false));
+    }
+    root["schemaVersion"] = JsonValue(4.0);
+}
+
 [[nodiscard]] bool readBool(
     const JsonValue::Object& object,
     const std::string_view key,
@@ -869,6 +881,12 @@ void migrateV2ToV3(JsonValue::Object& root)
                 "cursorExcluded",
                 config.background.cursorExcluded,
                 config.background.cursorExcluded,
+                error)
+            || !readBool(
+                *background,
+                "allowSystemBorder",
+                config.background.allowSystemBorder,
+                config.background.allowSystemBorder,
                 error))
         {
             return config;
@@ -960,6 +978,7 @@ void migrateV2ToV3(JsonValue::Object& root)
     effects.emplace("trailWidth", JsonValue(static_cast<double>(config.effects.trailWidth)));
 
     JsonValue::Object background;
+    background.emplace("allowSystemBorder", JsonValue(config.background.allowSystemBorder));
     background.emplace("cursorExcluded", JsonValue(config.background.cursorExcluded));
     background.emplace("mode", JsonValue(std::string(toString(config.background.mode))));
 
@@ -1193,6 +1212,10 @@ void appendJsonValue(
         {
             migrateV2ToV3(root);
         }
+        else if (version == 3U)
+        {
+            migrateV3ToV4(root);
+        }
         ++version;
     }
 
@@ -1407,6 +1430,10 @@ ConfigPatchResult applyPatchJson(
         else if (*path == "background.cursorExcluded")
         {
             valueAccepted = readPatchBool(result.background.cursorExcluded);
+        }
+        else if (*path == "background.allowSystemBorder")
+        {
+            valueAccepted = readPatchBool(result.background.allowSystemBorder);
         }
         else if (*path == "input.leftClick")
         {

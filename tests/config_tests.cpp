@@ -46,6 +46,7 @@ BAFX_TEST(config_defaults_round_trip_through_versioned_json)
         defaults.background.mode
         == bafx::config::CaptureMode::BackgroundAware);
     BAFX_CHECK(defaults.background.cursorExcluded);
+    BAFX_CHECK(!defaults.background.allowSystemBorder);
     BAFX_CHECK_NEAR(defaults.effects.globalScale, 1.0F, 0.00001F);
     BAFX_CHECK_NEAR(defaults.effects.bloomIntensity, 1.0F, 0.00001F);
 
@@ -58,6 +59,9 @@ BAFX_TEST(config_defaults_round_trip_through_versioned_json)
     BAFX_CHECK(
         parsed.config.background.cursorExcluded
         == defaults.background.cursorExcluded);
+    BAFX_CHECK(
+        parsed.config.background.allowSystemBorder
+        == defaults.background.allowSystemBorder);
     BAFX_CHECK_NEAR(
         parsed.config.effects.globalScale,
         defaults.effects.globalScale,
@@ -126,6 +130,22 @@ BAFX_TEST(config_patch_controls_cursor_capture_policy)
     BAFX_CHECK(excluded.config.background.cursorExcluded);
 }
 
+BAFX_TEST(config_patch_controls_system_capture_border_policy)
+{
+    const bafx::config::Config base = bafx::config::defaultConfig();
+    const auto allowed = bafx::config::applyPatchJson(
+        base,
+        R"json({"path":"background.allowSystemBorder","value":true})json");
+    BAFX_CHECK(allowed.succeeded());
+    BAFX_CHECK(allowed.config.background.allowSystemBorder);
+
+    const auto hidden = bafx::config::applyPatchJson(
+        allowed.config,
+        R"json({"path":"background.allowSystemBorder","value":false})json");
+    BAFX_CHECK(hidden.succeeded());
+    BAFX_CHECK(!hidden.config.background.allowSystemBorder);
+}
+
 BAFX_TEST(config_bloom_quality_preserves_the_unity_default_at_high)
 {
     BAFX_CHECK_NEAR(
@@ -167,8 +187,25 @@ BAFX_TEST(config_migration_maps_legacy_keys)
     BAFX_CHECK(!result.config.effects.trailEnabled);
     BAFX_CHECK(result.config.background.mode
         == bafx::config::CaptureMode::RecordingCompatible);
+    BAFX_CHECK(!result.config.background.allowSystemBorder);
     BAFX_CHECK_NEAR(result.config.effects.globalScale, 1.75F, 0.00001F);
     BAFX_CHECK_NEAR(result.config.effects.bloomIntensity, 0.35F, 0.00001F);
+}
+
+BAFX_TEST(config_schema_three_migrates_to_a_hidden_system_border)
+{
+    const auto result = bafx::config::parseJson(R"json(
+        {
+            "schemaVersion": 3,
+            "background": {
+                "mode": "background-aware",
+                "cursorExcluded": true
+            }
+        }
+    )json");
+    BAFX_CHECK(result.status == bafx::config::ConfigStatus::Migrated);
+    BAFX_CHECK(result.config.schemaVersion == bafx::config::currentSchemaVersion);
+    BAFX_CHECK(!result.config.background.allowSystemBorder);
 }
 
 BAFX_TEST(config_parser_rejects_invalid_documents_and_values)
@@ -182,15 +219,15 @@ BAFX_TEST(config_parser_rejects_invalid_documents_and_values)
     BAFX_CHECK(futureVersion.status == bafx::config::ConfigStatus::UnsupportedSchema);
 
     const auto duplicateKey = bafx::config::parseJson(
-        R"json({"schemaVersion":3,"schemaVersion":3})json");
+        R"json({"schemaVersion":4,"schemaVersion":4})json");
     BAFX_CHECK(duplicateKey.status == bafx::config::ConfigStatus::ParseError);
 
     const auto invalidScale = bafx::config::parseJson(
-        R"json({"schemaVersion":3,"effects":{"globalScale":9.0}})json");
+        R"json({"schemaVersion":4,"effects":{"globalScale":9.0}})json");
     BAFX_CHECK(invalidScale.status == bafx::config::ConfigStatus::ValidationError);
 
     const auto malformed = bafx::config::parseJson(
-        R"json({"schemaVersion":3,"effects":{"enabled":tru}})json");
+        R"json({"schemaVersion":4,"effects":{"enabled":tru}})json");
     BAFX_CHECK(malformed.status == bafx::config::ConfigStatus::ParseError);
 }
 
