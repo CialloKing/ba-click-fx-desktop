@@ -116,6 +116,7 @@ function Assert-PendingState
         'applicationId',
         'publisher',
         'packageVersion',
+        'templateSha256',
         'packagePath',
         'packageFile',
         'ownedCertificateThumbprints',
@@ -143,6 +144,10 @@ function Assert-PendingState
     if ([string]$State.transactionId -notmatch '^[0-9a-fA-F]{32}$')
     {
         throw 'Protected pending state has an invalid transaction identifier.'
+    }
+    if ([string]$State.templateSha256 -notmatch '^[0-9A-Fa-f]{64}$')
+    {
+        throw 'Protected pending state has an invalid template hash.'
     }
     foreach ($thumbprint in (([string]$State.ownedCertificateThumbprints) -split ',' |
             Where-Object { -not [string]::IsNullOrWhiteSpace($_) }))
@@ -194,6 +199,23 @@ function Remove-NewPackages
     )
 
     $preexisting = @($State.preexistingPackageFullNames)
+    if ($null -ne $State.oldInstallState)
+    {
+        $oldFullName = [string]$State.oldInstallState.packageFullName
+        $sameIdentityReplacement = Get-AppxPackage `
+            -Name ([string]$State.packageName) `
+            -ErrorAction Stop |
+            Where-Object { [string]$_.PackageFullName -eq $oldFullName } |
+            Select-Object -First 1
+        if ($null -ne $sameIdentityReplacement)
+        {
+            # A same-version repair keeps PackageFullName unchanged. Remove the
+            # candidate registration before restoring the immutable old file.
+            Remove-AppxPackage `
+                -Package $oldFullName `
+                -ErrorAction Stop
+        }
+    }
     $newPackages = @(
         Get-AppxPackage -Name ([string]$State.packageName) -ErrorAction Stop |
             Where-Object { $preexisting -notcontains [string]$_.PackageFullName }

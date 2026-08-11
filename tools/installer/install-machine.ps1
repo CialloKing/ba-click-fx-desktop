@@ -215,7 +215,12 @@ function Join-Ledger
     )
 
     $delimiter = if ($Separator -eq 'Comma') { ',' } else { '|' }
-    return (@($Values | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) }) -join $delimiter)
+    return (@(
+            $Values |
+                Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) } |
+                ForEach-Object { ([string]$_).Trim() } |
+                Sort-Object -Unique
+        ) -join $delimiter)
 }
 
 function Resolve-ProtectedInstallRoot
@@ -467,8 +472,42 @@ function Assert-IdentityPayload
         $journal.packagePath = Join-Path $identityDirectory (
             "$metadataBaseName-$certificateThumbprint.msix")
         $journal.packageFile = [IO.Path]::GetFileName([string]$journal.packagePath)
-        $journal.ownedCertificateThumbprints = $certificateThumbprint
-        $journal.ownedPackageFiles = [string]$journal.packageFile
+        $ownedCertificateThumbprints = @($certificateThumbprint)
+        $ownedPackageFiles = @([string]$journal.packageFile)
+        if ($null -ne $PendingStateSeed.oldInstallState)
+        {
+            $oldState = $PendingStateSeed.oldInstallState
+            $oldCertificateLedger = if (
+                $null -ne $oldState.PSObject.Properties['ownedCertificateThumbprints'])
+            {
+                [string]$oldState.ownedCertificateThumbprints
+            }
+            else
+            {
+                [string]$oldState.certificateThumbprint
+            }
+            $oldPackageLedger = if (
+                $null -ne $oldState.PSObject.Properties['ownedPackageFiles'])
+            {
+                [string]$oldState.ownedPackageFiles
+            }
+            else
+            {
+                [string]$oldState.packageFile
+            }
+            $ownedCertificateThumbprints += Split-Ledger `
+                -Value $oldCertificateLedger `
+                -Separator Comma
+            $ownedPackageFiles += Split-Ledger `
+                -Value $oldPackageLedger `
+                -Separator Pipe
+        }
+        $journal.ownedCertificateThumbprints = Join-Ledger `
+            -Values @($ownedCertificateThumbprints | Sort-Object -Unique) `
+            -Separator Comma
+        $journal.ownedPackageFiles = Join-Ledger `
+            -Values @($ownedPackageFiles | Sort-Object -Unique) `
+            -Separator Pipe
         Write-ProtectedJson `
             -Path $PendingStatePath `
             -Value $journal `
@@ -1031,6 +1070,7 @@ function Assert-PendingStateObject
         'productVersion',
         'packageVersion',
         'transactionId',
+        'templateSha256',
         'packagePath',
         'packageFile',
         'certificateThumbprint',
@@ -1064,6 +1104,10 @@ function Assert-PendingStateObject
     if ([string]$State.transactionId -notmatch '^[0-9a-fA-F]{32}$')
     {
         throw 'Protected pending state has an invalid transaction identifier.'
+    }
+    if ([string]$State.templateSha256 -notmatch '^[0-9A-Fa-f]{64}$')
+    {
+        throw 'Protected pending state has an invalid template hash.'
     }
     if ([string]$State.certificateThumbprint -notmatch '^[0-9A-Fa-f]{40}$' -or
         $State.certificateWasPresent -isnot [bool])
@@ -1398,6 +1442,13 @@ if ($Phase -eq 'Prepare')
         {
             throw 'An untracked package registration exists beside the protected install state.'
         }
+        if ($null -ne $oldInstallState -and
+            [string]$oldInstallState.productVersion -eq $ProductVersion -and
+            $null -ne $oldInstallState.PSObject.Properties['templateSha256'] -and
+            [string]$oldInstallState.templateSha256 -ne [string]$metadata.templateSha256)
+        {
+            throw 'Refusing a same-version repair whose unsigned identity template changed.'
+        }
 
         $pendingSeed = [ordered]@{
             schema = 1
@@ -1409,6 +1460,7 @@ if ($Phase -eq 'Prepare')
             productVersion = $ProductVersion
             packageVersion = $PackageVersion
             transactionId = [Guid]::NewGuid().ToString('N')
+            templateSha256 = [string]$metadata.templateSha256
             preexistingPackageFullNames = $preexistingFullNames
             oldInstallState = $oldInstallState
             preparedUtc = [DateTime]::UtcNow.ToString('o')
@@ -1482,6 +1534,7 @@ try
         publisher = [string]$pendingState.publisher
         productVersion = $ProductVersion
         packageVersion = $PackageVersion
+        templateSha256 = [string]$pendingState.templateSha256
         packageFullName = [string]$registrationResult.packageFullName
         packageFamilyName = [string]$registrationResult.packageFamilyName
         certificateThumbprint = [string]$pendingState.certificateThumbprint
