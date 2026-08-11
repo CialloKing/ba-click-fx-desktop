@@ -474,7 +474,7 @@ bool ControlCenterWindow::createControls()
 
     bloomQualityLabel_ = createChild(
         L"STATIC",
-        L"Bloom 质量",
+        L"光晕扩散",
         SS_LEFT | SS_NOPREFIX);
     bloomQuality_ = createChild(
         WC_COMBOBOXW,
@@ -483,10 +483,10 @@ bool ControlCenterWindow::createControls()
         ControlId::BloomQuality);
     if (bloomQuality_ != nullptr)
     {
-        static_cast<void>(SendMessageW(bloomQuality_, CB_ADDSTRING, 0U, reinterpret_cast<LPARAM>(L"低")));
-        static_cast<void>(SendMessageW(bloomQuality_, CB_ADDSTRING, 0U, reinterpret_cast<LPARAM>(L"中")));
-        static_cast<void>(SendMessageW(bloomQuality_, CB_ADDSTRING, 0U, reinterpret_cast<LPARAM>(L"高")));
-        static_cast<void>(SendMessageW(bloomQuality_, CB_ADDSTRING, 0U, reinterpret_cast<LPARAM>(L"极高")));
+        static_cast<void>(SendMessageW(bloomQuality_, CB_ADDSTRING, 0U, reinterpret_cast<LPARAM>(L"紧凑")));
+        static_cast<void>(SendMessageW(bloomQuality_, CB_ADDSTRING, 0U, reinterpret_cast<LPARAM>(L"适中")));
+        static_cast<void>(SendMessageW(bloomQuality_, CB_ADDSTRING, 0U, reinterpret_cast<LPARAM>(L"原版")));
+        static_cast<void>(SendMessageW(bloomQuality_, CB_ADDSTRING, 0U, reinterpret_cast<LPARAM>(L"极宽")));
         static_cast<void>(SendMessageW(bloomQuality_, CB_SETMINVISIBLE, 4U, 0));
     }
 
