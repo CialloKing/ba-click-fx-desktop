@@ -232,7 +232,9 @@ function Assert-PayloadManifest
 
     $manifestPath = Join-Path $InstallRoot 'Installer\INSTALLER-PAYLOAD.json'
     $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
-    if ([int]$manifest.schema -ne 1 -or [string]$manifest.version -ne $ProductVersion)
+    if ([int]$manifest.schema -ne 2 -or
+        [string]$manifest.version -ne $ProductVersion -or
+        [string]$manifest.identityMode -ne 'target-machine-self-signed')
     {
         throw 'The installer payload manifest has an unexpected version.'
     }

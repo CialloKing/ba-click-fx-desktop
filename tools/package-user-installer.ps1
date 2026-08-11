@@ -248,6 +248,7 @@ if (-not $SkipBuild)
 
 $hostExecutable = Join-Path $repositoryRoot 'build\alpha-x64\src\desktop\Release\ba-click-fx-desktop.exe'
 $controlCenterExecutable = Join-Path $repositoryRoot 'build\alpha-x64\src\control-center\Release\BAFX.ControlCenter.exe'
+$identitySignerExecutable = Join-Path $repositoryRoot 'build\alpha-x64\src\identity-signer\Release\BAFX.IdentitySigner.exe'
 foreach ($required in @($hostExecutable, $controlCenterExecutable))
 {
     if (-not (Test-Path -LiteralPath $required -PathType Leaf))
@@ -262,6 +263,10 @@ foreach ($required in @($hostExecutable, $controlCenterExecutable))
         -ProductVersion $version `
         -NumericVersion $numericVersion
 }
+if (-not (Test-Path -LiteralPath $identitySignerExecutable -PathType Leaf))
+{
+    throw "Required Release identity signer is missing: $identitySignerExecutable"
+}
 
 $temporaryParent = [IO.Path]::GetFullPath([IO.Path]::GetTempPath())
 $temporaryRoot = Join-Path $temporaryParent ('bafx-user-installer-' + [Guid]::NewGuid().ToString('N'))
@@ -275,6 +280,9 @@ try
     New-Item -ItemType Directory -Path $installerDirectory -Force | Out-Null
     Copy-Item -LiteralPath $hostExecutable -Destination (Join-Path $stageRoot 'ba-click-fx-desktop.exe')
     Copy-Item -LiteralPath $controlCenterExecutable -Destination (Join-Path $stageRoot 'BAFX.ControlCenter.exe')
+    Copy-Item `
+        -LiteralPath $identitySignerExecutable `
+        -Destination (Join-Path $installerDirectory 'BAFX.IdentitySigner.exe')
     Copy-Item -LiteralPath (Join-Path $repositoryRoot 'LICENSE') -Destination (Join-Path $stageRoot 'LICENSE.txt')
     Copy-Item -LiteralPath (Join-Path $repositoryRoot 'SUPPORT.md') -Destination $stageRoot
 
@@ -290,63 +298,82 @@ try
             -Destination $installerDirectory
     }
 
-    $certificateThumbprintsBefore = @(
-        Get-ChildItem -Path 'Cert:\CurrentUser\My' |
-            ForEach-Object { $_.Thumbprint }
-    )
     & (Join-Path $repositoryRoot 'tools\identity-package\build-identity-package.ps1') `
         -HostExecutable (Join-Path $stageRoot 'ba-click-fx-desktop.exe') `
         -OutputDirectory $identityDirectory `
-        -PackageVersion $packageVersion
+        -PackageVersion $packageVersion `
+        -UnsignedTemplate
     if (-not $?)
     {
         throw 'Sparse package build failed.'
     }
 
-    $rawMetadataFile = Get-ChildItem -LiteralPath $identityDirectory -Filter '*.identity.json' -File |
+    $rawMetadataFile = Get-ChildItem `
+        -LiteralPath $identityDirectory `
+        -Filter '*.identity-template.json' `
+        -File |
         Select-Object -First 1
     if ($null -eq $rawMetadataFile)
     {
         throw 'Sparse package metadata was not created.'
     }
     $rawMetadata = Get-Content -LiteralPath $rawMetadataFile.FullName -Raw | ConvertFrom-Json
-    $packageFile = Get-ChildItem -LiteralPath $identityDirectory -Filter '*.msix' -File |
+    $templateFile = Get-ChildItem `
+        -LiteralPath $identityDirectory `
+        -Filter '*.unsigned.msix' `
+        -File |
         Select-Object -First 1
-    $certificateFile = Get-ChildItem -LiteralPath $identityDirectory -Filter '*.cer' -File |
-        Select-Object -First 1
-    if ($null -eq $packageFile -or $null -eq $certificateFile)
+    if ($null -eq $templateFile)
     {
-        throw 'Sparse package or public certificate is missing.'
+        throw 'Unsigned sparse-package template is missing.'
     }
+    $unexpectedIdentityFiles = @(
+        Get-ChildItem -LiteralPath $identityDirectory -File |
+            Where-Object {
+                $_.Extension -in @('.cer', '.pfx', '.pvk', '.snk', '.key', '.pem') -or
+                ($_.Extension -eq '.msix' -and $_.Name -notlike '*.unsigned.msix')
+            }
+    )
+    if ($unexpectedIdentityFiles.Count -ne 0)
+    {
+        throw "Signed package, certificate, or private key entered the installer stage: $($unexpectedIdentityFiles.Name -join ', ')"
+    }
+    $templateSignature = Get-AuthenticodeSignature -LiteralPath $templateFile.FullName
+    if ($templateSignature.Status -ne [Management.Automation.SignatureStatus]::NotSigned)
+    {
+        throw "Identity template must remain unsigned: $($templateSignature.Status)"
+    }
+    $expectedTemplateHash = (Get-FileHash -LiteralPath $templateFile.FullName -Algorithm SHA256).Hash
+    if ([int]$rawMetadata.schema -ne 2 -or
+        [string]$rawMetadata.identityMode -ne 'target-machine-self-signed' -or
+        [string]$rawMetadata.templateFile -ne $templateFile.Name -or
+        [string]$rawMetadata.templateSha256 -ne $expectedTemplateHash)
+    {
+        throw 'Unsigned identity-template metadata is invalid.'
+    }
+    $signerStagePath = Join-Path $installerDirectory 'BAFX.IdentitySigner.exe'
     $normalizedMetadata = [ordered]@{
-        schema = 2
+        schema = 3
+        identityMode = 'target-machine-self-signed'
         productVersion = $version
         packageName = [string]$rawMetadata.packageName
         applicationId = [string]$rawMetadata.applicationId
         publisher = [string]$rawMetadata.publisher
         packageVersion = [string]$rawMetadata.packageVersion
-        certificateThumbprint = [string]$rawMetadata.certificateThumbprint
-        packageFile = $packageFile.Name
-        certificateFile = $certificateFile.Name
+        templateFile = $templateFile.Name
+        templateSha256 = $expectedTemplateHash
         hostSha256 = (Get-FileHash -LiteralPath (Join-Path $stageRoot 'ba-click-fx-desktop.exe') -Algorithm SHA256).Hash
+        signerFile = 'Installer/BAFX.IdentitySigner.exe'
+        signerSha256 = (Get-FileHash -LiteralPath $signerStagePath -Algorithm SHA256).Hash
     }
     Write-Utf8NoBom `
         -Path $rawMetadataFile.FullName `
         -Content ($normalizedMetadata | ConvertTo-Json -Depth 4)
 
-    $certificateThumbprintsAfter = @(
-        Get-ChildItem -Path 'Cert:\CurrentUser\My' |
-            ForEach-Object { $_.Thumbprint }
-    )
-    $newPrivateCertificates = @(
-        $certificateThumbprintsAfter |
-            Where-Object { $certificateThumbprintsBefore -notcontains $_ }
-    )
-    if ($newPrivateCertificates.Count -ne 0)
-    {
-        throw "Private signing certificate remains after packaging: $($newPrivateCertificates -join ', ')"
-    }
-    if (@(Get-ChildItem -LiteralPath $stageRoot -Filter '*.pfx' -Recurse -File).Count -ne 0)
+    if (@(
+            Get-ChildItem -LiteralPath $stageRoot -Recurse -File |
+                Where-Object { $_.Extension -in @('.pfx', '.pvk', '.snk', '.key', '.pem') }
+        ).Count -ne 0)
     {
         throw 'A private key container entered the installer stage.'
     }
@@ -364,8 +391,9 @@ try
             }
     )
     $payloadManifest = [ordered]@{
-        schema = 1
+        schema = 2
         version = $version
+        identityMode = 'target-machine-self-signed'
         files = $payloadFiles
     }
     Write-Utf8NoBom `
@@ -416,7 +444,8 @@ try
 
     Write-Host "User installer created: $installerPath"
     Write-Host "SHA-256: $installerHash"
-    Write-Host 'The installer contains no private signing key and requires no target-machine SDK.'
+    Write-Host 'The installer contains an unsigned identity template and native signer, but no certificate or private key.'
+    Write-Host 'The target machine requires no Windows SDK.'
 }
 finally
 {

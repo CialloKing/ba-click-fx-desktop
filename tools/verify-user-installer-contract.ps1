@@ -269,7 +269,7 @@ function Test-InstallerScriptWhitelist
         -Description 'payload manifest does not hash itself'
     Assert-TextContains `
         -Text $packager `
-        -Pattern 'schema\s*=\s*1[\s\S]*files\s*=\s*\$payloadFiles' `
+        -Pattern 'schema\s*=\s*2[\s\S]*identityMode\s*=\s*\x27target-machine-self-signed\x27[\s\S]*files\s*=\s*\$payloadFiles' `
         -Description 'payload manifest schema and file hashes'
     Assert-TextContains `
         -Text $packager `
@@ -339,40 +339,50 @@ function Test-InnoPayloadContract
         -Pattern '\-Phase Finalize' `
         -Description 'machine finalization phase'
 
-    # SDK tools and the temporary signing key belong to the release machine,
-    # never to the installer's target-machine payload.
+    # The release machine creates only the unsigned package template. The
+    # target machine owns the short-lived signing key.
     Assert-TextContains `
         -Text $identityBuilder `
-        -Pattern '\-KeyExportPolicy\s+NonExportable' `
-        -Description 'non-exportable release signing key'
+        -Pattern '\[switch\]\$UnsignedTemplate' `
+        -Description 'unsigned identity-template build mode'
     Assert-TextContains `
-        -Text $identityBuilder `
-        -Pattern 'Cert:\\CurrentUser\\My\\\$\(\$certificate\.Thumbprint\)' `
-        -Description 'release signing certificate cleanup'
+        -Text $packager `
+        -Pattern '\-UnsignedTemplate' `
+        -Description 'release packaging requests an unsigned identity template'
+    Assert-TextContains `
+        -Text $packager `
+        -Pattern "Filter\s+'\*\.unsigned\.msix'" `
+        -Description 'unsigned sparse-package template selection'
+    Assert-TextContains `
+        -Text $packager `
+        -Pattern "Filter\s+'\*\.identity-template\.json'" `
+        -Description 'identity-template metadata selection'
+    Assert-TextContains `
+        -Text $packager `
+        -Pattern 'BAFX\.IdentitySigner\.exe' `
+        -Description 'native target-machine signer payload'
+    Assert-TextContains `
+        -Text $packager `
+        -Pattern 'Get-AuthenticodeSignature[\s\S]*SignatureStatus\]::NotSigned' `
+        -Description 'unsigned template signature guard'
+    Assert-TextContains `
+        -Text $packager `
+        -Pattern "Extension\s+-in\s+@\('\.cer',\s*'\.pfx',\s*'\.pvk',\s*'\.snk',\s*'\.key',\s*'\.pem'\)" `
+        -Description 'certificate and private-key staging guard'
     Assert-TextExcludes `
-        -Text $identityBuilder `
-        -Pattern '(?i)Export-PfxCertificate' `
-        -Description 'private key export'
-    Assert-TextContains `
         -Text $packager `
-        -Pattern "Filter\s+'\*\.msix'" `
-        -Description 'signed sparse package selection'
+        -Pattern '(?i)(New-SelfSignedCertificate|Import-Certificate|Export-Certificate)' `
+        -Description 'release-machine certificate handling'
+
+    $packagingCmake = Read-RepositoryText -RelativePath 'cmake/Packaging.cmake'
     Assert-TextContains `
-        -Text $packager `
-        -Pattern "Filter\s+'\*\.cer'" `
-        -Description 'public certificate selection'
+        -Text $packagingCmake `
+        -Pattern 'add_custom_target\(\s*package_user_installer' `
+        -Description 'ordinary-user installer CMake target'
     Assert-TextContains `
-        -Text $packager `
-        -Pattern "Filter\s+'\*\.identity\.json'" `
-        -Description 'public identity metadata selection'
-    Assert-TextContains `
-        -Text $packager `
-        -Pattern "Filter\s+'\*\.pfx'\s+-Recurse" `
-        -Description 'private key staging guard'
-    Assert-TextContains `
-        -Text $packager `
-        -Pattern 'Private signing certificate remains after packaging' `
-        -Description 'certificate-store cleanup guard'
+        -Text $packagingCmake `
+        -Pattern 'DEPENDS[\s\S]*ba_click_fx_desktop[\s\S]*bafx_control_center[\s\S]*bafx_identity_signer' `
+        -Description 'ordinary-user installer Release payload dependencies'
 }
 
 function Test-SparsePackageContract

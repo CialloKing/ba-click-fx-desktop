@@ -63,6 +63,24 @@ if(BAFX_POWERSHELL_EXECUTABLE)
             FOLDER "Validation"
     )
 
+    add_custom_target(
+        package_user_installer
+        COMMAND
+            "${BAFX_POWERSHELL_EXECUTABLE}"
+            -NoProfile
+            -File "${CMAKE_SOURCE_DIR}/tools/package-user-installer.ps1"
+            -OutputDirectory "${CMAKE_SOURCE_DIR}/artifacts/local"
+            -SkipBuild
+        DEPENDS
+            ba_click_fx_desktop
+            bafx_control_center
+            bafx_identity_signer
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+        COMMENT "Build the ordinary-user installer from Release binaries"
+        VERBATIM
+    )
+    set_target_properties(package_user_installer PROPERTIES FOLDER "Packaging")
+
     if(BUILD_TESTING)
         add_test(
             NAME user_installer_contract
