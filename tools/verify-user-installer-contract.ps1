@@ -576,6 +576,71 @@ function Test-PortableZipContract
         -Description 'portable package verification target remains available'
 }
 
+function Test-RegistrationFailureDiagnostics
+{
+    $temporaryParent = [IO.Path]::GetFullPath([IO.Path]::GetTempPath())
+    $temporaryRoot = Join-Path `
+        $temporaryParent `
+        ('bafx-registration-diagnostic-' + [Guid]::NewGuid().ToString('N'))
+    try
+    {
+        $installRoot = Join-Path $temporaryRoot 'install'
+        $installerRoot = Join-Path $installRoot 'Installer'
+        New-Item -ItemType Directory -Path $installerRoot -Force | Out-Null
+        $missingStatePath = Join-Path $installerRoot 'PREPARE-STATE.json'
+        $resultPath = Join-Path $temporaryRoot 'registration-result.json'
+        $registrationScript = Resolve-RepositoryPath `
+            -RelativePath 'tools/installer/register-user-package.ps1'
+        $windowsPowerShell = Get-Command powershell.exe -ErrorAction Stop | Select-Object -First 1
+
+        $previousErrorActionPreference = $ErrorActionPreference
+        try
+        {
+            $ErrorActionPreference = 'Continue'
+            & $windowsPowerShell.Source `
+                -NoLogo `
+                -NoProfile `
+                -ExecutionPolicy Bypass `
+                -File $registrationScript `
+                -InstallDirectory $installRoot `
+                -MachineStatePath $missingStatePath `
+                -ResultPath $resultPath 2> $null | Out-Null
+            $exitCode = $LASTEXITCODE
+        }
+        finally
+        {
+            $ErrorActionPreference = $previousErrorActionPreference
+        }
+
+        Assert-True `
+            -Condition ($exitCode -ne 0) `
+            -Message 'Missing protected state unexpectedly succeeded.'
+        Assert-True `
+            -Condition (Test-Path -LiteralPath $resultPath -PathType Leaf) `
+            -Message 'Early registration failure did not create a diagnostic result.'
+        $result = Get-Content -LiteralPath $resultPath -Raw | ConvertFrom-Json
+        Assert-True `
+            -Condition (-not [bool]$result.succeeded) `
+            -Message 'Early registration failure diagnostic reported success.'
+        Assert-True `
+            -Condition (-not [string]::IsNullOrWhiteSpace([string]$result.error)) `
+            -Message 'Early registration failure diagnostic omitted the error.'
+    }
+    finally
+    {
+        $resolvedTemporaryRoot = [IO.Path]::GetFullPath($temporaryRoot)
+        if ($resolvedTemporaryRoot.StartsWith(
+                $temporaryParent,
+                [StringComparison]::OrdinalIgnoreCase) -and
+            [IO.Path]::GetFileName($resolvedTemporaryRoot).StartsWith(
+                'bafx-registration-diagnostic-',
+                [StringComparison]::Ordinal))
+        {
+            Remove-Item -LiteralPath $resolvedTemporaryRoot -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+}
+
 $repositoryRootValue = $RepositoryRoot
 if ([string]::IsNullOrWhiteSpace($repositoryRootValue))
 {
@@ -593,5 +658,6 @@ Test-InstallerScriptWhitelist
 Test-InnoPayloadContract
 Test-SparsePackageContract
 Test-PortableZipContract
+Test-RegistrationFailureDiagnostics
 
 Write-Host "User installer contracts verified (PowerShell $($PSVersionTable.PSVersion))."

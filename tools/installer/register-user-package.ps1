@@ -307,6 +307,35 @@ function Remove-PreviousPackageForReplacement
     }
 }
 
+trap
+{
+    $diagnosticError = $_.Exception.Message
+    try
+    {
+        if (-not (Test-Path -LiteralPath $ResultPath -PathType Leaf))
+        {
+            # Validation can fail before protected state is available. Preserve
+            # a minimal result so the hidden original-user process remains
+            # diagnosable from the parent installer log.
+            $diagnosticResult = [ordered]@{
+                schema = 1
+                succeeded = $false
+                error = $diagnosticError
+                completedUtc = [DateTime]::UtcNow.ToString('o')
+            }
+            Write-Utf8NoBom `
+                -Path $ResultPath `
+                -Content ($diagnosticResult | ConvertTo-Json -Depth 3)
+        }
+    }
+    catch
+    {
+        # The original failure remains authoritative when diagnostics cannot be written.
+    }
+    [Console]::Error.WriteLine($diagnosticError)
+    exit 1
+}
+
 if ($PSVersionTable.PSEdition -ne 'Desktop')
 {
     throw 'Package registration requires Windows PowerShell 5.1.'
