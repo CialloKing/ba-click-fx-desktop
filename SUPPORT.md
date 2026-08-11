@@ -11,14 +11,16 @@
 - 支持报告会记录主屏 DPI、DXGI 色彩空间、位深和亮度元数据；这些只是当前输出快照，不能据此
   宣称 HDR、Advanced Color 或物理 nits 输出已经受支持。驱动未提供有效亮度时会记录
   `luminance-unknown`。
-- 首次生成的 schema 3 配置默认为 `background.mode=background-aware`；授权、排除或会话
-  失败时继续使用 FX-only。
+- 首次生成的 schema 4 配置默认为 `background.mode=background-aware`，同时设置
+  `background.allowSystemBorder=false`；授权、排除、无边框能力确认或会话失败时继续使用 FX-only。
 - 运行时用户数据采用 portable 规则：`BAFX.config.json`、`ba-click-fx-desktop-support.log`
   和支持报告只写入对应 EXE 所在目录。命令行支持报告即使传入绝对路径，也只采用文件名，
   不会写入 `%LOCALAPPDATA%`、当前工作目录或其他用户目录。
 - WGC 是可选的背景差分输入，不是点击特效依赖。portable EXE 没有 package identity，
-  也不会自行声明 `graphicsCaptureWithoutBorder` capability；捕获会话启动后报告
-  `Support.WGC=active`，系统边框和光标能力会单独写入日志。日志中的
+  也不会自行声明 `graphicsCaptureWithoutBorder` capability。默认会在 `StartCapture` 前确认系统允许
+  无边框会话；接口缺失、权限不足或系统仍要求边框时直接报告 `Support.WGC=fallback-fx-only`，不会先
+  启动带黄色边框的会话。只有用户在 Control Center 中显式勾选“允许黄色捕获边框”后，才允许可见边框
+  的实验 WGC；该状态记录为 `system-border=visible-allowed`。日志中的
   `WGC background sample entered the final desktop composite` 才表示背景样本已经进入最终 pass。
 - Release Host 静态链接 Visual C++ 运行库；仍使用 Windows 自带的 D3D11、DirectComposition 和
   D3DCompiler 系统组件。四张纹理以 raw LZ4 字节编译进 EXE，运行时不读取图片，也不使用 WIC；
@@ -43,15 +45,16 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File .\tools\package-test-bundle.ps1
 ## 尚未支持或尚未验证
 
 - HDR、Advanced Color 和物理 nits 输出声明。
-- WGC 背景感知的边框策略、外部录屏兼容性、会话长时间压力与权限拒绝矩阵。Control Center 中的
-  `background-aware` 与 `recording-compatible` 选项仍是实验入口；本 Alpha 不将它们作为
-  可依赖的效果路径，出现失败或帧过期时应维持或回退 FX-only。`recording-compatible` 始终关闭
-  WGC 并撤销窗口捕获排除，以便录屏器有机会看到 overlay，但不保证任意录屏器都能捕获。
-  `background-aware` 启动或会话中止后也会撤销窗口捕获排除，避免 FX-only 回退被录屏器隐藏。
-- 当前 portable 包在 Windows 10 19045 的实测结果为 `Support.WGC=active`：窗口保留
+- WGC 背景感知的外部录屏兼容性、会话长时间压力与权限拒绝矩阵。Control Center 中的
+  `background-aware`、`recording-compatible` 和“允许黄色捕获边框”仍是实验入口；本 Alpha 不将
+  它们作为可依赖的效果路径，出现失败或帧过期时应维持或回退 FX-only。`recording-compatible` 始终
+  关闭 WGC 并撤销窗口捕获排除，以便录屏器有机会看到 overlay，但不保证任意录屏器都能捕获。
+  `background-aware` 启动失败或会话中止后也会撤销窗口捕获排除，避免 FX-only 回退被录屏器隐藏。
+- Windows 10 19045 的既有实测证明了用户允许可见系统边框后的实验路径：窗口保留
   `WS_EX_LAYERED | WS_EX_TRANSPARENT`，请求 `WDA_EXCLUDEFROMCAPTURE` 后查询值为 `0x11`，
-  WGC 会话可正常取帧；系统边框隐藏接口不可用时日志标为 `system-border=visible`，光标排除成功。
-  首次实机运行记录了 426 个渲染帧中的 423 个背景合成帧。
+  WGC 会话可正常取帧，光标排除成功，426 个渲染帧中有 423 个背景合成帧。该数据不证明无边框能力；
+  schema 4 默认配置会在边框隐藏接口不可用时于 `StartCapture` 前回退 FX-only，只有显式允许后才会
+  进入并记录 `system-border=visible-allowed` 的路径。
 - 无论 WGC 是否可用，都不能移除 Layered/Transparent 样式来换取背景采样；这会破坏跨进程按钮点击。
 - 多显示器、跨显示器输入、多适配器和混合刷新率。
 - device removed/reset 后的原地恢复。

@@ -11,7 +11,7 @@
 
 ## 决策
 
-1. 配置由 `bafx_config` 持有，使用版本化 JSON（当前 schema 为 3）。读取时先完成迁移和
+1. 配置由 `bafx_config` 持有，使用版本化 JSON（当前 schema 为 4）。读取时先完成迁移和
    校验，再生成不可变的运行时快照；写入使用同目录临时文件、flush、替换的原子流程。
 2. Host 是配置的唯一写入者。外部客户端只能通过版本化的本地 Named Pipe 请求操作，不能
    取得 Renderer 或 D3D11 immediate context 的句柄。
@@ -20,10 +20,13 @@
    NUL/换行注入和超限请求都返回可诊断错误而不终止 Host。
 4. Host 通过用户范围的命名互斥体保证单实例；管道服务在独立线程运行，Render Owner 只
    在帧边界消费已校验的命令。Control Center 退出不会影响 Host。
-5. 首个垂直切片只承诺 `GetState`、`GetConfig`、`SetConfig <schema-3-json>`、
+5. 首个垂直切片只承诺 `GetState`、`GetConfig`、`SetConfig <schema-4-json>`、
    `SetConfig {generation,path,value}`、`Pause`、`Resume` 和 `Shutdown`。路径更新只允许
    配置库声明的产品字段，并在 generation 不匹配时返回冲突。响应中的 `generation` 用于
    客户端判断快照是否变化；Preset/Profile 等更高层功能在此协议稳定后再增加。
+6. `background.allowSystemBorder` 默认为 `false`。Control Center 通过显式复选框更新该字段；默认
+   无边框 WGC 能力无法在 `StartCapture` 前确认时，Host 回退 FX-only。只有用户勾选后才允许带
+   黄色系统捕获边框的实验会话。
 
 ## 取舍
 
@@ -37,6 +40,7 @@
 ## 验收
 
 - 无配置文件首次启动会创建当前 schema 的默认 JSON。
-- schema 1/2 配置可迁移到 schema 3，非法值被拒绝并保留原文件。
+- schema 1/2/3 配置可迁移到 schema 4；schema 3 迁移后默认不允许系统捕获边框，非法值被拒绝并
+  保留原文件。
 - 一个 Host 进程能同时服务至少一个客户端；第二个 Host 启动会快速退出。
 - `GetState`/`SetConfig` 在下一帧可观察，`Shutdown` 能使 Host 正常退出且无残留进程。
