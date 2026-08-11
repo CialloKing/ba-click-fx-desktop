@@ -6,17 +6,18 @@
 - 三种渲染模式下的点击与拖拽特效，以及基于 Unity/游戏资源的当前 D3D11/Bloom 渲染路径：
   `background-aware`（背景感知）、`classic`（贴近原版）和 `light-background`（浅色背景优化）。
   背景感知启用 WGC，失败时回退 Classic；其余两项关闭 WGC。
-- `BAFX.ControlCenter.exe` 的原生 Win32 控制面：启用状态、点击特效、鼠标拖尾、效果大小、拖尾长度、
+- `BAFX.ControlCenter.exe` 的原生 Win32 控制面：启用状态、点击特效、鼠标拖尾、拖尾常驻、效果大小、拖尾长度、
   拖尾宽度、Bloom 强度和 Bloom 质量会通过本地 Named Pipe 在下一帧应用到正在运行的 Host。
 - D3D11 硬件设备；硬件设备创建失败时尝试 WARP 软件设备。
 - 当前验证范围为普通 SDR 桌面合成路径。
 - 支持报告会记录主屏 DPI、DXGI 色彩空间、位深和亮度元数据；这些只是当前输出快照，不能据此
   宣称 HDR、Advanced Color 或物理 nits 输出已经受支持。驱动未提供有效亮度时会记录
   `luminance-unknown`。
-- 首次生成的 schema 5 配置默认为 `background.mode=background-aware`，同时设置
+- 首次生成的 schema 6 配置默认为 `background.mode=background-aware`，同时设置
   `background.allowSystemBorder=true`。schema 1/2/3 迁移时默认允许系统边框；schema 4 迁移时缺失字段
   也使用该默认值，但已有 schema 4 中显式保存的 `false` 会原样保留。背景感知授权、排除或会话失败时
-  回退 Classic；其余模式不启用 WGC。
+  回退 Classic；其余模式不启用 WGC。schema 5 迁移会把当时未接线的拖尾按键策略归一为
+  “仅按住时”，因此新增的“拖尾常驻”默认关闭，必须由用户显式开启。
 - 运行时用户数据采用 portable 规则：`BAFX.config.json`、`ba-click-fx-desktop-support.log`
   和支持报告只写入对应 EXE 所在目录。命令行支持报告即使传入绝对路径，也只采用文件名，
   不会写入 `%LOCALAPPDATA%`、当前工作目录或其他用户目录。
@@ -61,7 +62,7 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File .\tools\package-test-bundle.ps1
   `WS_EX_LAYERED | WS_EX_TRANSPARENT`，请求 `WDA_EXCLUDEFROMCAPTURE` 后查询值为 `0x11`，
   WGC 会话可正常取帧，光标排除成功，426 个渲染帧中有 423 个背景合成帧。该数据不证明无边框能力；
   在 Control Center 中关闭黄色边框后，该系统因边框隐藏接口不可用而在 `StartCapture` 前回退
-  Classic。已有 schema 4 配置若显式保存了 `false`，迁移到 schema 5 后仍保持该关闭状态。
+  Classic。已有 schema 4 配置若显式保存了 `false`，迁移到当前 schema 6 后仍保持该关闭状态。
 - 无论 WGC 是否可用，都不能移除 Layered/Transparent 样式来换取背景采样；这会破坏跨进程按钮点击。
 - 多显示器、跨显示器输入、多适配器和混合刷新率。
 - device removed/reset 后的原地恢复。

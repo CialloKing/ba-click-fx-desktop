@@ -52,7 +52,7 @@
 - OS build、adapter LUID、driver、显示色彩模式；
 - viewport、DPI、背景编码与参考白；
 - QPC frequency、事件时间、固定模拟步长、随机种子；
-- 输入位置/按下/移动/释放序列。
+- 输入位置/按下/移动/释放序列，以及拖尾常驻开关、出界与重入边界。
 
 显式种子的 C++ 模拟坐标只属于实现内确定性回归，不等同于 Unity Golden。Unity 为每个
 ParticleSystem 使用独立的引擎随机流；在尚未导出初始粒子状态 fixture 或复现该随机流前，跨实现

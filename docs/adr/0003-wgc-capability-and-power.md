@@ -26,8 +26,8 @@ Agile/Threading(Both) 不保证方法并发安全。`MinUpdateInterval` 只在 b
 ## Portable Alpha boundary
 
 portable Win32 EXE 不具备 MSIX package identity，也不能通过外部清单授予
-`graphicsCaptureWithoutBorder` capability。新生成的 schema 5 配置将
-`background.allowSystemBorder` 默认为 `true`，schema 1/2/3 迁移到 schema 5 时采用该值；schema 4
+`graphicsCaptureWithoutBorder` capability。新生成的 schema 6 配置将
+`background.allowSystemBorder` 默认为 `true`，schema 1/2/3 迁移到当前版本时采用该值；schema 4
 迁移时缺失字段也使用该默认值，使旧系统仍可使用背景感知路径。schema 4 已显式保存的 `false` 是
 用户选择，迁移时必须保留。
 

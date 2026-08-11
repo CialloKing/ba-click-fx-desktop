@@ -123,10 +123,11 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File .\tools\package-host-review-bundle
 `%LOCALAPPDATA%`、当前工作目录或其他用户目录保存数据。Host 使用
 `Local\BAFX.Host.v1` 互斥体保证单实例。
 
-首次生成的 schema 5 配置将 `background.mode` 设为 `background-aware`，并将
-`background.allowSystemBorder` 设为 `true`；schema 1/2/3 配置迁移到 schema 5 时采用该值，schema 4
+首次生成的 schema 6 配置将 `background.mode` 设为 `background-aware`，并将
+`background.allowSystemBorder` 设为 `true`；schema 1/2/3 配置迁移到当前版本时采用该值，schema 4
 迁移时缺失字段也使用该默认值，以便保留旧系统上的背景感知路径；schema 4 中已经显式保存的
-`false` 会原样保留。只有
+`false` 会原样保留。schema 5 虽然序列化了尚未接线的 `trailOnlyWhilePressed=false`，实际行为始终要求
+按住鼠标；迁移到 schema 6 时会归一为 `true`，避免升级后意外开启拖尾常驻。只有
 `background-aware` 会启用 WGC；WGC 或捕获排除路径失败时，Host 将当前批次回退到 `classic` 的
 FX-only coverage transport，支持报告仍记为 `fallback-fx-only`。
 portable EXE 不带 package identity，因此不会把无边框捕获 capability 伪装成已支持。允许系统边框时，
@@ -138,7 +139,8 @@ FX-only，不会先启动带黄色边框的会话。无论该开关如何设置�
 
 `BAFX.ControlCenter.exe` 已作为独立的 Win32 进程接入该 Pipe。Host 保持运行时，Control Center
 可以读取状态、暂停或恢复特效，并将下列效果配置在下一帧交给 Host：启用状态、点击特效、鼠标拖尾、
-效果大小、拖尾长度、拖尾宽度、Bloom 强度与 Bloom 质量。数值控件会合并连续拖动后的写入，避免为
+拖尾常驻、效果大小、拖尾长度、拖尾宽度、Bloom 强度与 Bloom 质量。“拖尾常驻”默认关闭；开启后
+无需按住鼠标，普通移动也会生成纯拖尾，但不会伪造点击圆盘或圆环。数值控件会合并连续拖动后的写入，避免为
 每个滑块像素都写一次配置。
 
 控制中心也会显示三个渲染模式（显示名依次为“背景感知”“贴近原版”“浅色背景优化”），以及
@@ -153,6 +155,7 @@ FX-only，不会先启动带黄色边框的会话。无论该开关如何设置�
 GetState
 GetConfig
 SetConfig {"generation":1,"path":"effects.globalScale","value":1.25}
+SetConfig {"generation":1,"path":"input.trailOnlyWhilePressed","value":false}
 SetConfig {"generation":1,"path":"background.mode","value":"background-aware"}
 SetConfig {"generation":1,"path":"background.mode","value":"classic"}
 SetConfig {"generation":1,"path":"background.mode","value":"light-background"}
@@ -162,7 +165,7 @@ Resume
 Shutdown
 ```
 
-`SetConfig` 也接受完整的 schema 5 JSON 快照。路径补丁只允许配置库声明的产品字段，代次
+`SetConfig` 也接受完整的 schema 6 JSON 快照。路径补丁只允许配置库声明的产品字段，代次
 不匹配会返回 `generation_conflict`；所有命令均在下一帧由 Host 应用。
 
 `packed_fx_textures` 测试逐张解压 raw LZ4 Block，并锁定 RGBA8 texel 的尺寸、行距和 SHA-256。
