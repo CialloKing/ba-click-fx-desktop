@@ -13,6 +13,6 @@ ADR 记录架构选择、替代方案和证据，不记录实现进度。状态�
 | 005 | Golden Oracle 与数值比较 | Proposed | 全部验证层级 |
 | 006 | ROI、guard 与 mip 相位 | Proposed | VAL-ROI；未接受时走 full-screen |
 | 007 | 背景时间有效性 | Proposed | SPK-002, SPK-004, VAL-TEMPORAL |
+| 009 | 方案 C 本机身份安装通道 | Proposed | Identity Spike, SPK-002 |
 
 最近评审：2026-08-09。
-
