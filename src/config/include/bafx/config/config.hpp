@@ -9,7 +9,7 @@
 namespace bafx::config
 {
 
-inline constexpr std::uint32_t currentSchemaVersion = 6U;
+inline constexpr std::uint32_t currentSchemaVersion = 7U;
 
 enum class RenderMode : std::uint8_t
 {
@@ -63,6 +63,9 @@ struct InputConfig
     bool rightClick{true};
     bool middleClick{false};
     bool trailOnlyWhilePressed{true};
+    // Zero preserves every move sample. Positive values cap accepted input
+    // samples in Hz without changing Unity's spatial vertex threshold.
+    std::uint32_t samplingRateHz{0U};
 };
 
 struct PerformanceConfig

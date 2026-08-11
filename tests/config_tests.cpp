@@ -48,6 +48,7 @@ BAFX_TEST(config_defaults_round_trip_through_versioned_json)
     BAFX_CHECK(defaults.background.cursorExcluded);
     BAFX_CHECK(defaults.background.allowSystemBorder);
     BAFX_CHECK(defaults.input.trailOnlyWhilePressed);
+    BAFX_CHECK(defaults.input.samplingRateHz == 0U);
     BAFX_CHECK_NEAR(defaults.effects.globalScale, 1.0F, 0.00001F);
     BAFX_CHECK_NEAR(defaults.effects.bloomIntensity, 1.0F, 0.00001F);
 
@@ -66,6 +67,7 @@ BAFX_TEST(config_defaults_round_trip_through_versioned_json)
     BAFX_CHECK(
         parsed.config.input.trailOnlyWhilePressed
         == defaults.input.trailOnlyWhilePressed);
+    BAFX_CHECK(parsed.config.input.samplingRateHz == defaults.input.samplingRateHz);
     BAFX_CHECK_NEAR(
         parsed.config.effects.globalScale,
         defaults.effects.globalScale,
@@ -169,6 +171,32 @@ BAFX_TEST(config_patch_controls_always_on_trail_policy)
         R"json({"path":"input.trailOnlyWhilePressed","value":"yes"})json");
     BAFX_CHECK(!invalid.succeeded());
     BAFX_CHECK(invalid.status == bafx::config::ConfigStatus::ValidationError);
+}
+
+BAFX_TEST(config_patch_controls_input_sampling_rate)
+{
+    const bafx::config::Config base = bafx::config::defaultConfig();
+    for (const std::uint32_t rate : {0U, 15U, 30U, 1000U})
+    {
+        const auto result = bafx::config::applyPatchJson(
+            base,
+            std::string("{\"path\":\"input.samplingRateHz\",\"value\":")
+                + std::to_string(rate)
+                + "}");
+        BAFX_CHECK(result.succeeded());
+        BAFX_CHECK(result.config.input.samplingRateHz == rate);
+    }
+
+    for (const std::string_view value : {"-1", "0.5", "1001", "\"30\""})
+    {
+        const auto result = bafx::config::applyPatchJson(
+            base,
+            std::string("{\"path\":\"input.samplingRateHz\",\"value\":")
+                + std::string(value)
+                + "}");
+        BAFX_CHECK(!result.succeeded());
+        BAFX_CHECK(result.status == bafx::config::ConfigStatus::ValidationError);
+    }
 }
 
 BAFX_TEST(config_bloom_quality_preserves_the_unity_default_at_high)
@@ -283,7 +311,7 @@ BAFX_TEST(config_current_schema_preserves_an_explicit_hidden_system_border)
 {
     const auto result = bafx::config::parseJson(R"json(
         {
-            "schemaVersion": 6,
+            "schemaVersion": 7,
             "background": {
                 "mode": "background-aware",
                 "cursorExcluded": true,
@@ -293,6 +321,22 @@ BAFX_TEST(config_current_schema_preserves_an_explicit_hidden_system_border)
     )json");
     BAFX_CHECK(result.status == bafx::config::ConfigStatus::Ok);
     BAFX_CHECK(!result.config.background.allowSystemBorder);
+}
+
+BAFX_TEST(config_schema_six_migrates_to_unlimited_input_sampling)
+{
+    const auto result = bafx::config::parseJson(R"json(
+        {
+            "schemaVersion": 6,
+            "input": {
+                "trailOnlyWhilePressed": false
+            }
+        }
+    )json");
+    BAFX_CHECK(result.status == bafx::config::ConfigStatus::Migrated);
+    BAFX_CHECK(result.config.schemaVersion == bafx::config::currentSchemaVersion);
+    BAFX_CHECK(result.config.input.samplingRateHz == 0U);
+    BAFX_CHECK(!result.config.input.trailOnlyWhilePressed);
 }
 
 BAFX_TEST(config_parser_rejects_invalid_documents_and_values)
@@ -306,15 +350,15 @@ BAFX_TEST(config_parser_rejects_invalid_documents_and_values)
     BAFX_CHECK(futureVersion.status == bafx::config::ConfigStatus::UnsupportedSchema);
 
     const auto duplicateKey = bafx::config::parseJson(
-        R"json({"schemaVersion":6,"schemaVersion":6})json");
+        R"json({"schemaVersion":7,"schemaVersion":7})json");
     BAFX_CHECK(duplicateKey.status == bafx::config::ConfigStatus::ParseError);
 
     const auto invalidScale = bafx::config::parseJson(
-        R"json({"schemaVersion":6,"effects":{"globalScale":9.0}})json");
+        R"json({"schemaVersion":7,"effects":{"globalScale":9.0}})json");
     BAFX_CHECK(invalidScale.status == bafx::config::ConfigStatus::ValidationError);
 
     const auto malformed = bafx::config::parseJson(
-        R"json({"schemaVersion":6,"effects":{"enabled":tru}})json");
+        R"json({"schemaVersion":7,"effects":{"enabled":tru}})json");
     BAFX_CHECK(malformed.status == bafx::config::ConfigStatus::ParseError);
 }
 
@@ -329,6 +373,7 @@ BAFX_TEST(config_atomic_save_load_and_failure_preserves_previous_file)
     value.effects.globalScale = 1.75F;
     value.effects.bloomIntensity = 0.6F;
     value.input.trailOnlyWhilePressed = false;
+    value.input.samplingRateHz = 30U;
     const auto saved = bafx::config::saveConfigAtomic(path, value);
     BAFX_CHECK(saved.succeeded());
     BAFX_CHECK(fs::exists(path));
@@ -338,6 +383,7 @@ BAFX_TEST(config_atomic_save_load_and_failure_preserves_previous_file)
     BAFX_CHECK_NEAR(loaded.config.effects.globalScale, 1.75F, 0.00001F);
     BAFX_CHECK_NEAR(loaded.config.effects.bloomIntensity, 0.6F, 0.00001F);
     BAFX_CHECK(!loaded.config.input.trailOnlyWhilePressed);
+    BAFX_CHECK(loaded.config.input.samplingRateHz == 30U);
 
     const std::string beforeInvalidSave = readFile(path);
     value.effects.bloomIntensity = 9.0F;

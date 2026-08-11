@@ -682,6 +682,23 @@ void migrateV5ToV6(JsonValue::Object& root)
     root["schemaVersion"] = JsonValue(6.0);
 }
 
+void migrateV6ToV7(JsonValue::Object& root)
+{
+    auto inputIterator = root.find("input");
+    if (inputIterator == root.end())
+    {
+        inputIterator = root.emplace("input", JsonValue(JsonValue::Object{})).first;
+    }
+    JsonValue::Object* const input = objectOf(inputIterator->second);
+    if (input != nullptr && input->find("samplingRateHz") == input->end())
+    {
+        // Unlimited input retains the exact pre-schema-7 behavior and the
+        // extracted desktop-quality trail until the user opts into sampling.
+        input->emplace("samplingRateHz", JsonValue(0.0));
+    }
+    root["schemaVersion"] = JsonValue(7.0);
+}
+
 [[nodiscard]] bool readBool(
     const JsonValue::Object& object,
     const std::string_view key,
@@ -726,6 +743,32 @@ void migrateV5ToV6(JsonValue::Object& root)
         return false;
     }
     output = static_cast<float>(*parsed);
+    return true;
+}
+
+[[nodiscard]] bool readUnsignedInteger(
+    const JsonValue::Object& object,
+    const std::string_view key,
+    const std::uint32_t fallback,
+    std::uint32_t& output,
+    std::string& error)
+{
+    const JsonValue* value = member(object, key);
+    if (value == nullptr)
+    {
+        output = fallback;
+        return true;
+    }
+    const double* parsed = std::get_if<double>(&value->storage);
+    if (parsed == nullptr || !std::isfinite(*parsed)
+        || *parsed < 0.0
+        || *parsed > static_cast<double>((std::numeric_limits<std::uint32_t>::max)())
+        || std::floor(*parsed) != *parsed)
+    {
+        error = "config field '" + std::string(key) + "' must be an unsigned integer";
+        return false;
+    }
+    output = static_cast<std::uint32_t>(*parsed);
     return true;
 }
 
@@ -936,6 +979,12 @@ void migrateV5ToV6(JsonValue::Object& root)
                 "trailOnlyWhilePressed",
                 config.input.trailOnlyWhilePressed,
                 config.input.trailOnlyWhilePressed,
+                error)
+            || !readUnsignedInteger(
+                *input,
+                "samplingRateHz",
+                config.input.samplingRateHz,
+                config.input.samplingRateHz,
                 error)))
     {
         return config;
@@ -1013,6 +1062,7 @@ void migrateV5ToV6(JsonValue::Object& root)
     input.emplace("leftClick", JsonValue(config.input.leftClick));
     input.emplace("middleClick", JsonValue(config.input.middleClick));
     input.emplace("rightClick", JsonValue(config.input.rightClick));
+    input.emplace("samplingRateHz", JsonValue(static_cast<double>(config.input.samplingRateHz)));
     input.emplace("trailOnlyWhilePressed", JsonValue(config.input.trailOnlyWhilePressed));
 
     JsonValue::Object performance;
@@ -1251,6 +1301,10 @@ void appendJsonValue(
         {
             migrateV5ToV6(root);
         }
+        else if (version == 6U)
+        {
+            migrateV6ToV7(root);
+        }
         ++version;
     }
 
@@ -1410,6 +1464,19 @@ ConfigPatchResult applyPatchJson(
             target = static_cast<float>(*number);
             return true;
         };
+        const auto readPatchUnsignedInteger = [value](std::uint32_t& target) -> bool
+        {
+            const double* number = std::get_if<double>(&value->storage);
+            if (number == nullptr || !std::isfinite(*number)
+                || *number < 0.0
+                || *number > static_cast<double>((std::numeric_limits<std::uint32_t>::max)())
+                || std::floor(*number) != *number)
+            {
+                return false;
+            }
+            target = static_cast<std::uint32_t>(*number);
+            return true;
+        };
         const auto readPatchString = [value](std::string& target) -> bool
         {
             const std::string* string = std::get_if<std::string>(&value->storage);
@@ -1485,6 +1552,10 @@ ConfigPatchResult applyPatchJson(
         else if (*path == "input.trailOnlyWhilePressed")
         {
             valueAccepted = readPatchBool(result.input.trailOnlyWhilePressed);
+        }
+        else if (*path == "input.samplingRateHz")
+        {
+            valueAccepted = readPatchUnsignedInteger(result.input.samplingRateHz);
         }
         else if (*path == "performance.idleOptimization")
         {
@@ -1784,6 +1855,10 @@ bool validateConfig(const Config& config, std::string* error) noexcept
         || config.effects.bloomIntensity > 8.0F)
     {
         return failValidation("effects.bloomIntensity must be within [0, 8]");
+    }
+    if (config.input.samplingRateHz > 1000U)
+    {
+        return failValidation("input.samplingRateHz must be 0 or within [1, 1000]");
     }
     return true;
 }
