@@ -519,6 +519,11 @@ bool ControlCenterWindow::createControls()
         L"排除鼠标指针",
         BS_AUTOCHECKBOX | WS_TABSTOP,
         ControlId::CursorExcluded);
+    allowSystemBorder_ = createChild(
+        L"BUTTON",
+        L"允许黄色捕获边框",
+        BS_AUTOCHECKBOX | WS_TABSTOP,
+        ControlId::AllowSystemBorder);
     pauseButton_ = createChild(
         L"BUTTON",
         L"暂停特效",
@@ -549,6 +554,7 @@ bool ControlCenterWindow::createControls()
         backgroundModeLabel_,
         backgroundMode_,
         cursorExcluded_,
+        allowSystemBorder_,
         pauseButton_,
         refreshButton_,
         hostLifecycleButton_};
@@ -764,6 +770,7 @@ void ControlCenterWindow::applyFonts() const noexcept
         backgroundModeLabel_,
         backgroundMode_,
         cursorExcluded_,
+        allowSystemBorder_,
         pauseButton_,
         refreshButton_,
         hostLifecycleButton_};
@@ -883,9 +890,15 @@ void ControlCenterWindow::layoutControls(
         rightContentWidth,
         scale(30));
     moveControl(
+        allowSystemBorder_,
+        rightContentX,
+        contentTop + scale(133),
+        rightContentWidth,
+        scale(30));
+    moveControl(
         pauseButton_,
         rightContentX,
-        contentTop + scale(147),
+        contentTop + scale(179),
         rightContentWidth,
         scale(38));
 
@@ -894,13 +907,13 @@ void ControlCenterWindow::layoutControls(
     moveControl(
         refreshButton_,
         rightContentX,
-        contentTop + scale(197),
+        contentTop + scale(229),
         actionWidth,
         scale(38));
     moveControl(
         hostLifecycleButton_,
         rightContentX + actionWidth + actionGap,
-        contentTop + scale(197),
+        contentTop + scale(229),
         actionWidth,
         scale(38));
 }
@@ -1019,6 +1032,14 @@ void ControlCenterWindow::onCommand(
             applyPatch(
                 "background.cursorExcluded",
                 isChecked(cursorExcluded_) ? "true" : "false");
+        }
+        break;
+    case ControlId::AllowSystemBorder:
+        if (notificationCode == BN_CLICKED)
+        {
+            applyPatch(
+                "background.allowSystemBorder",
+                isChecked(allowSystemBorder_) ? "true" : "false");
         }
         break;
     case ControlId::Refresh:
@@ -1319,6 +1340,9 @@ void ControlCenterWindow::updateControls(
         captureModeIndex(config.background.mode),
         0));
     setChecked(cursorExcluded_, config.background.cursorExcluded);
+    setChecked(
+        allowSystemBorder_,
+        config.background.allowSystemBorder);
     SetWindowTextW(pauseButton_, paused_ ? L"恢复特效" : L"暂停特效");
 
     updatingControls_ = false;
@@ -1612,6 +1636,7 @@ void ControlCenterWindow::setConnected(const bool connected) noexcept
         bloomQuality_,
         backgroundMode_,
         cursorExcluded_,
+        allowSystemBorder_,
         pauseButton_};
     for (const HWND control : controls)
     {

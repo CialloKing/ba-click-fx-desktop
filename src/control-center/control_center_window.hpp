@@ -44,6 +44,7 @@ private:
         BloomQuality,
         BackgroundMode,
         CursorExcluded,
+        AllowSystemBorder,
         Refresh,
         HostLifecycle
     };
@@ -172,6 +173,7 @@ private:
     HWND backgroundModeLabel_{nullptr};
     HWND backgroundMode_{nullptr};
     HWND cursorExcluded_{nullptr};
+    HWND allowSystemBorder_{nullptr};
     HWND pauseButton_{nullptr};
     HWND refreshButton_{nullptr};
     HWND hostLifecycleButton_{nullptr};
