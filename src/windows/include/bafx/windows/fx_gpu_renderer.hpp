@@ -34,7 +34,8 @@ struct BackgroundRenderInput
 
 enum class FxOverlayProfile : std::uint8_t
 {
-    Classic,
+    FxOnlyFallback,
+    RecordingCompatible,
     LightBackground
 };
 

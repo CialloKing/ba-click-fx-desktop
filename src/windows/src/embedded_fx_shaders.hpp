@@ -410,18 +410,21 @@ float4 ResolveFxOnlyDesktopTransport(
         alpha);
 }
 
-float4 ResolveLightBackgroundDesktopTransport(
+float4 ResolveUnknownBackgroundDesktopTransport(
     float4 direct,
     float4 bloom,
-    float exposureGain)
+    float exposureGain,
+    float alphaLimit,
+    float compensationMix)
 {
     const float3 linearRgb = max(direct.rgb, 0.0)
         + max(bloom.rgb, 0.0) * exposureGain;
     const float sceneCoverage = saturate(direct.a);
     const float bloomTransport = saturate(max(bloom.a, 0.0) * exposureGain);
-    // Match the extension's light-background preset: visual-max chooses the
-    // larger independent transport envelope and source-over is capped at 0.85.
-    const float alpha = min(max(sceneCoverage, bloomTransport), 0.85);
+    // Unknown-background source-over follows the Web transparent-overlay
+    // contract: visual-max chooses the larger independent envelope instead of
+    // summing Alpha, then the selected preset applies its explicit cap.
+    const float alpha = min(max(sceneCoverage, bloomTransport), alphaLimit);
     if (alpha <= 0.000001)
     {
         return float4(0.0, 0.0, 0.0, 0.0);
@@ -448,8 +451,38 @@ float4 ResolveLightBackgroundDesktopTransport(
     premultiplied = lerp(
         premultiplied,
         maximumPremultiplied.xxx,
-        0.35 * gate);
+        compensationMix * gate);
     return float4(min(premultiplied, alpha), alpha);
+}
+
+float4 ResolveRecordingCompatibleDesktopTransport(
+    float4 direct,
+    float4 bloom,
+    float exposureGain)
+{
+    // Match the browser preset shown in the transparent-overlay controls:
+    // visual-max + bright-core with a 0.90 source-over Alpha ceiling.
+    return ResolveUnknownBackgroundDesktopTransport(
+        direct,
+        bloom,
+        exposureGain,
+        0.90,
+        0.35);
+}
+
+float4 ResolveLightBackgroundDesktopTransport(
+    float4 direct,
+    float4 bloom,
+    float exposureGain)
+{
+    // Keep the dedicated light-background preset slightly more conservative
+    // on ordinary white surfaces than recording-compatible fitting.
+    return ResolveUnknownBackgroundDesktopTransport(
+        direct,
+        bloom,
+        exposureGain,
+        0.85,
+        0.35);
 }
 
 float4 ResolveBackgroundAwareDesktopTransport(
@@ -548,6 +581,17 @@ float4 LightBackgroundCompositePixel(FullscreenOutput input) : SV_Target0
     const float2 offset = SourceTexelSize * (SampleScale * 0.5);
     const float4 bloom = FourTap(Source1, input.uv, offset);
     return ResolveLightBackgroundDesktopTransport(
+        direct,
+        bloom,
+        ExposureGain);
+}
+
+float4 RecordingCompatibleCompositePixel(FullscreenOutput input) : SV_Target0
+{
+    const float4 direct = Source0.Sample(LinearClampSampler, input.uv);
+    const float2 offset = SourceTexelSize * (SampleScale * 0.5);
+    const float4 bloom = FourTap(Source1, input.uv, offset);
+    return ResolveRecordingCompatibleDesktopTransport(
         direct,
         bloom,
         ExposureGain);

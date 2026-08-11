@@ -99,7 +99,8 @@ struct ColorTarget
 {
     switch (profile)
     {
-    case FxOverlayProfile::Classic:
+    case FxOverlayProfile::FxOnlyFallback:
+    case FxOverlayProfile::RecordingCompatible:
     case FxOverlayProfile::LightBackground:
         return true;
     }
@@ -617,6 +618,9 @@ struct FxGpuRenderer::Implementation
         createBloomPixelShader("CompositePixel", compositePixelShader);
         createBloomPixelShader("DesktopCompositePixel", desktopCompositePixelShader);
         createBloomPixelShader(
+            "RecordingCompatibleCompositePixel",
+            recordingCompatibleCompositePixelShader);
+        createBloomPixelShader(
             "LightBackgroundCompositePixel",
             lightBackgroundCompositePixelShader);
 
@@ -855,9 +859,13 @@ struct FxGpuRenderer::Implementation
     {
         // A captured background provides the exact source-over target and must
         // take precedence over any unknown-background approximation.
-        if (hasBackground || overlayProfile == FxOverlayProfile::Classic)
+        if (hasBackground || overlayProfile == FxOverlayProfile::FxOnlyFallback)
         {
             return desktopCompositePixelShader.Get();
+        }
+        if (overlayProfile == FxOverlayProfile::RecordingCompatible)
+        {
+            return recordingCompatibleCompositePixelShader.Get();
         }
         return lightBackgroundCompositePixelShader.Get();
     }
@@ -1348,6 +1356,7 @@ struct FxGpuRenderer::Implementation
     ComPtr<ID3D11PixelShader> upsamplePixelShader{};
     ComPtr<ID3D11PixelShader> compositePixelShader{};
     ComPtr<ID3D11PixelShader> desktopCompositePixelShader{};
+    ComPtr<ID3D11PixelShader> recordingCompatibleCompositePixelShader{};
     ComPtr<ID3D11PixelShader> lightBackgroundCompositePixelShader{};
     ComPtr<ID3D11InputLayout> inputLayout{};
     ComPtr<ID3D11Buffer> vertexBuffer{};
@@ -1366,7 +1375,7 @@ struct FxGpuRenderer::Implementation
     ComPtr<ID3D11ShaderResourceView> triangleTexture{};
     ComPtr<ID3D11ShaderResourceView> trailTexture{};
     std::size_t vertexCapacity{0U};
-    FxOverlayProfile overlayProfile{FxOverlayProfile::Classic};
+    FxOverlayProfile overlayProfile{FxOverlayProfile::FxOnlyFallback};
 };
 
 FxGpuRenderer::FxGpuRenderer(

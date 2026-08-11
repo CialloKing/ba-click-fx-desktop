@@ -568,11 +568,12 @@ BAFX_TEST(warp_light_background_profile_uses_visual_max_source_over_capacity)
     FxGpuRenderer renderer(graphics.device.Get(), graphics.context.Get(), testSize);
     const bafx::fx::FrameSnapshot snapshot = makeDiskSnapshot(true);
 
-    const RenderTarget classicTarget = createRenderTarget(graphics.device.Get());
-    renderer.render(snapshot, classicTarget.view.Get());
-    const std::vector<ReadbackPixel> classic = readback(
+    renderer.setOverlayProfile(FxOverlayProfile::FxOnlyFallback);
+    const RenderTarget fallbackTarget = createRenderTarget(graphics.device.Get());
+    renderer.render(snapshot, fallbackTarget.view.Get());
+    const std::vector<ReadbackPixel> fallback = readback(
         graphics.context.Get(),
-        classicTarget.texture.Get());
+        fallbackTarget.texture.Get());
 
     renderer.setOverlayProfile(FxOverlayProfile::LightBackground);
     const RenderTarget lightTarget = createRenderTarget(graphics.device.Get());
@@ -581,15 +582,49 @@ BAFX_TEST(warp_light_background_profile_uses_visual_max_source_over_capacity)
         graphics.context.Get(),
         lightTarget.texture.Get());
 
-    checkValidDesktopPremultiplied(classic);
+    checkValidDesktopPremultiplied(fallback);
     checkValidDesktopPremultiplied(light);
     const std::size_t center = static_cast<std::size_t>(testSize.height / 2U)
         * testSize.width
         + testSize.width / 2U;
-    BAFX_CHECK(classic[center].alpha > 0.9F);
+    BAFX_CHECK(fallback[center].alpha > 0.9F);
     BAFX_CHECK(light[center].alpha > 0.8F);
     BAFX_CHECK(light[center].alpha <= 0.851F);
-    BAFX_CHECK(maximumRgbaDelta(classic, light) > 0.05F);
+    BAFX_CHECK(maximumRgbaDelta(fallback, light) > 0.05F);
+}
+
+BAFX_TEST(warp_recording_compatible_profile_matches_web_overlay_preset)
+{
+    ComApartment apartment;
+    const WarpDevice graphics = createWarpDevice();
+    FxGpuRenderer renderer(graphics.device.Get(), graphics.context.Get(), testSize);
+    const bafx::fx::FrameSnapshot snapshot = makeDiskSnapshot(true);
+
+    renderer.setOverlayProfile(FxOverlayProfile::RecordingCompatible);
+    const RenderTarget target = createRenderTarget(graphics.device.Get());
+    renderer.render(snapshot, target.view.Get());
+    const std::vector<ReadbackPixel> pixels = readback(
+        graphics.context.Get(),
+        target.texture.Get());
+
+    checkValidDesktopPremultiplied(pixels);
+    constexpr float recordingAlphaLimit = 0.90F;
+    constexpr float tolerance = 2.0e-3F;
+    for (const ReadbackPixel& pixel : pixels)
+    {
+        BAFX_CHECK(pixel.alpha <= recordingAlphaLimit + tolerance);
+        BAFX_CHECK(pixel.red <= pixel.alpha + tolerance);
+        BAFX_CHECK(pixel.green <= pixel.alpha + tolerance);
+        BAFX_CHECK(pixel.blue <= pixel.alpha + tolerance);
+    }
+
+    const std::size_t center = static_cast<std::size_t>(testSize.height / 2U)
+        * testSize.width
+        + testSize.width / 2U;
+    BAFX_CHECK_NEAR(
+        pixels[center].alpha,
+        recordingAlphaLimit,
+        tolerance);
 }
 
 BAFX_TEST(warp_background_path_uses_full_differential_bloom)

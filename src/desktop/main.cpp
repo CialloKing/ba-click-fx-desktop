@@ -44,15 +44,16 @@ constexpr DWORD pausedControlPollMilliseconds = 50U;
 {
     switch (mode)
     {
+    case bafx::config::RenderMode::RecordingCompatible:
+        return bafx::windows::FxOverlayProfile::RecordingCompatible;
     case bafx::config::RenderMode::LightBackground:
         return bafx::windows::FxOverlayProfile::LightBackground;
     case bafx::config::RenderMode::BackgroundAware:
-    case bafx::config::RenderMode::Classic:
         // Background-aware uses the exact captured path when available and
-        // deliberately falls back to the stable Classic transport otherwise.
-        return bafx::windows::FxOverlayProfile::Classic;
+        // deliberately falls back to the stable FX-only transport otherwise.
+        return bafx::windows::FxOverlayProfile::FxOnlyFallback;
     }
-    return bafx::windows::FxOverlayProfile::Classic;
+    return bafx::windows::FxOverlayProfile::FxOnlyFallback;
 }
 
 [[nodiscard]] std::string backgroundCaptureCapabilitiesDiagnostic(

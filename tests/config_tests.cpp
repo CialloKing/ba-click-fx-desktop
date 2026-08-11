@@ -86,8 +86,8 @@ BAFX_TEST(config_render_modes_use_canonical_wire_values)
         bafx::config::toString(bafx::config::RenderMode::BackgroundAware)
         == "background-aware");
     BAFX_CHECK(
-        bafx::config::toString(bafx::config::RenderMode::Classic)
-        == "classic");
+        bafx::config::toString(bafx::config::RenderMode::RecordingCompatible)
+        == "recording-compatible");
     BAFX_CHECK(
         bafx::config::toString(bafx::config::RenderMode::LightBackground)
         == "light-background");
@@ -99,12 +99,19 @@ BAFX_TEST(config_render_modes_use_canonical_wire_values)
     BAFX_CHECK(backgroundAware.config.background.mode
         == bafx::config::RenderMode::BackgroundAware);
 
-    const auto classic = bafx::config::applyPatchJson(
+    const auto recordingCompatible = bafx::config::applyPatchJson(
+        base,
+        R"json({"path":"background.mode","value":"recording-compatible"})json");
+    BAFX_CHECK(recordingCompatible.succeeded());
+    BAFX_CHECK(recordingCompatible.config.background.mode
+        == bafx::config::RenderMode::RecordingCompatible);
+
+    const auto alpha9Alias = bafx::config::applyPatchJson(
         base,
         R"json({"path":"background.mode","value":"classic"})json");
-    BAFX_CHECK(classic.succeeded());
-    BAFX_CHECK(classic.config.background.mode
-        == bafx::config::RenderMode::Classic);
+    BAFX_CHECK(alpha9Alias.succeeded());
+    BAFX_CHECK(alpha9Alias.config.background.mode
+        == bafx::config::RenderMode::RecordingCompatible);
 
     const auto lightBackground = bafx::config::applyPatchJson(
         base,

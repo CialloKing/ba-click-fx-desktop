@@ -814,9 +814,11 @@ void migrateV6ToV7(JsonValue::Object& root)
         output = RenderMode::BackgroundAware;
         return true;
     }
-    if (value == "classic")
+    if (value == "recording-compatible" || value == "classic")
     {
-        output = RenderMode::Classic;
+        // Keep the alpha.9 spelling readable while converging new writes on
+        // the product name used by the Control Center.
+        output = RenderMode::RecordingCompatible;
         return true;
     }
     if (value == "light-background")
@@ -1806,7 +1808,7 @@ bool validateConfig(const Config& config, std::string* error) noexcept
     switch (config.background.mode)
     {
     case RenderMode::BackgroundAware:
-    case RenderMode::Classic:
+    case RenderMode::RecordingCompatible:
     case RenderMode::LightBackground:
         break;
     default:
@@ -1869,8 +1871,8 @@ std::string_view toString(const RenderMode mode) noexcept
     {
     case RenderMode::BackgroundAware:
         return "background-aware";
-    case RenderMode::Classic:
-        return "classic";
+    case RenderMode::RecordingCompatible:
+        return "recording-compatible";
     case RenderMode::LightBackground:
         return "light-background";
     }

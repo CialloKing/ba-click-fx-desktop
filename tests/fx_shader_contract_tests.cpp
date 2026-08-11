@@ -172,7 +172,15 @@ BAFX_TEST(all_embedded_fx_shader_entries_compile_with_warnings_as_errors)
         ShaderEntry{unityBloomShaderSource, "DownsamplePixel", "ps_5_0"},
         ShaderEntry{unityBloomShaderSource, "UpsamplePixel", "ps_5_0"},
         ShaderEntry{unityBloomShaderSource, "CompositePixel", "ps_5_0"},
-        ShaderEntry{unityBloomShaderSource, "DesktopCompositePixel", "ps_5_0"}};
+        ShaderEntry{unityBloomShaderSource, "DesktopCompositePixel", "ps_5_0"},
+        ShaderEntry{
+            unityBloomShaderSource,
+            "RecordingCompatibleCompositePixel",
+            "ps_5_0"},
+        ShaderEntry{
+            unityBloomShaderSource,
+            "LightBackgroundCompositePixel",
+            "ps_5_0"}};
 
     for (const ShaderEntry& entry : entries)
     {
@@ -224,6 +232,7 @@ BAFX_TEST(bloom_shader_reflection_locks_resources_and_constant_layout)
         "UpsamplePixel",
         "CompositePixel",
         "DesktopCompositePixel",
+        "RecordingCompatibleCompositePixel",
         "LightBackgroundCompositePixel"};
     for (const char* entryPoint : entries)
     {
@@ -264,6 +273,7 @@ BAFX_TEST(bloom_shader_reflection_locks_resources_and_constant_layout)
             || std::string_view(entryPoint) == "UpsamplePixel"
             || std::string_view(entryPoint) == "CompositePixel"
             || std::string_view(entryPoint) == "DesktopCompositePixel"
+            || std::string_view(entryPoint) == "RecordingCompatibleCompositePixel"
             || std::string_view(entryPoint) == "LightBackgroundCompositePixel")
         {
             BAFX_CHECK(hasBinding(reflection.Get(), "Source1", D3D_SIT_TEXTURE, 1U));

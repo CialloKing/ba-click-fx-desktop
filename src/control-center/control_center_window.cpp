@@ -120,7 +120,7 @@ void setControlFont(const HWND control, const HFONT font) noexcept
     {
     case bafx::config::RenderMode::BackgroundAware:
         return 0;
-    case bafx::config::RenderMode::Classic:
+    case bafx::config::RenderMode::RecordingCompatible:
         return 1;
     case bafx::config::RenderMode::LightBackground:
         return 2;
@@ -561,7 +561,7 @@ bool ControlCenterWindow::createControls()
     if (backgroundMode_ != nullptr)
     {
         static_cast<void>(SendMessageW(backgroundMode_, CB_ADDSTRING, 0U, reinterpret_cast<LPARAM>(L"背景感知")));
-        static_cast<void>(SendMessageW(backgroundMode_, CB_ADDSTRING, 0U, reinterpret_cast<LPARAM>(L"贴近原版")));
+        static_cast<void>(SendMessageW(backgroundMode_, CB_ADDSTRING, 0U, reinterpret_cast<LPARAM>(L"录屏兼容拟合")));
         static_cast<void>(SendMessageW(backgroundMode_, CB_ADDSTRING, 0U, reinterpret_cast<LPARAM>(L"浅色背景优化")));
         static_cast<void>(SendMessageW(backgroundMode_, CB_SETMINVISIBLE, 3U, 0));
     }
@@ -1090,7 +1090,7 @@ void ControlCenterWindow::onCommand(
                 applyPatch("background.mode", "\"background-aware\"");
                 break;
             case 1:
-                applyPatch("background.mode", "\"classic\"");
+                applyPatch("background.mode", "\"recording-compatible\"");
                 break;
             case 2:
                 applyPatch("background.mode", "\"light-background\"");

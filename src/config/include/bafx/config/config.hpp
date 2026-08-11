@@ -14,7 +14,7 @@ inline constexpr std::uint32_t currentSchemaVersion = 7U;
 enum class RenderMode : std::uint8_t
 {
     BackgroundAware,
-    Classic,
+    RecordingCompatible,
     LightBackground
 };
 
