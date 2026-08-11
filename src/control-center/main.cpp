@@ -103,6 +103,9 @@ public:
 
     [[nodiscard]] bool acquire() noexcept
     {
+        // CreateMutexW only defines the last-error value for an existing name.
+        // Clear it so an unrelated earlier error cannot look like a duplicate.
+        SetLastError(ERROR_SUCCESS);
         handle_ = CreateMutexW(nullptr, TRUE, controlCenterMutexName.data());
         if (handle_ == nullptr)
         {

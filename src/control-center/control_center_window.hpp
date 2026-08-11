@@ -94,6 +94,7 @@ private:
     void createFonts();
     void destroyFonts() noexcept;
     void applyFonts() const noexcept;
+    void applyDpiMetrics() const noexcept;
     void layoutControls(int clientWidth, int clientHeight) const noexcept;
     void layoutSlider(
         const SliderControl& slider,
@@ -117,9 +118,11 @@ private:
     void sendCommand(std::string_view command);
     void startHostFromBundle();
     void stopHost();
+    [[nodiscard]] bool hostMutexPresent() const noexcept;
     void scheduleHostRefreshRetry(bool startPending = false) noexcept;
     void scheduleHostShutdownPoll() noexcept;
     void finishHostShutdown() noexcept;
+    void recoverHostShutdown(std::wstring_view message);
     void updateHostLifecycleButton() const noexcept;
 
     void setConnected(bool connected) noexcept;
@@ -180,9 +183,14 @@ private:
     std::uint32_t hostRetryAttempts_{0U};
     ULONGLONG hostShutdownDeadlineTicks_{0U};
     bool connected_{false};
+    // IPC can be unavailable while the Host is still initializing. Keep this
+    // process-level state separate so the lifecycle button can still request
+    // an orderly shutdown during that window.
+    bool hostRunning_{false};
     bool paused_{false};
     bool hostStartPending_{false};
     bool hostShutdownPending_{false};
+    bool hostShutdownCommandAcknowledged_{false};
     bool updatingControls_{false};
 };
 
