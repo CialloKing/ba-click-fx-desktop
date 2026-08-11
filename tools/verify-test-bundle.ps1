@@ -70,6 +70,35 @@ function Assert-ControlCenterExecutable
     }
 }
 
+function Assert-ExecutableVersion
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Executable,
+
+        [Parameter(Mandatory = $true)]
+        [string]$ExpectedProductVersion,
+
+        [Parameter(Mandatory = $true)]
+        [string]$ExpectedNumericVersion
+    )
+
+    $versionInfo = (Get-Item -LiteralPath $Executable).VersionInfo
+    $actualProductVersion = ([string]$versionInfo.ProductVersion).Trim()
+    $actualFileVersion = ([string]$versionInfo.FileVersion).Trim()
+    $actualNumericVersion = '{0}.{1}.{2}.{3}' -f `
+        $versionInfo.FileMajorPart,
+        $versionInfo.FileMinorPart,
+        $versionInfo.FileBuildPart,
+        $versionInfo.FilePrivatePart
+    if ($actualProductVersion -ne $ExpectedProductVersion -or
+        $actualFileVersion -ne $ExpectedProductVersion -or
+        $actualNumericVersion -ne $ExpectedNumericVersion)
+    {
+        throw "Executable version mismatch for $Executable`: expected $ExpectedProductVersion / $ExpectedNumericVersion, got $actualProductVersion / $actualFileVersion / $actualNumericVersion"
+    }
+}
+
 function Invoke-ControlCenterLaunchCheck
 {
     param(
@@ -297,12 +326,17 @@ try
         throw "Manifest file list differs from extracted payload: $details"
     }
 
-    $hostExecutable = Join-Path $installRoot 'ba-click-fx-desktop.exe'
-    $productVersion = (Get-Item -LiteralPath $hostExecutable).VersionInfo.ProductVersion
-    if ($productVersion -ne $ExpectedVersion)
+    $numericVersion = $ExpectedVersion -replace '-alpha\.', '.'
+    if ($numericVersion -notmatch '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$')
     {
-        throw "Extracted Host version mismatch: expected $ExpectedVersion, got $productVersion"
+        throw "Expected version cannot be mapped to a Windows version: $ExpectedVersion"
     }
+
+    $hostExecutable = Join-Path $installRoot 'ba-click-fx-desktop.exe'
+    Assert-ExecutableVersion `
+        -Executable $hostExecutable `
+        -ExpectedProductVersion $ExpectedVersion `
+        -ExpectedNumericVersion $numericVersion
 
     $portableVerifier = Join-Path $PSScriptRoot 'verify-portable-pe.ps1'
     & $portableVerifier -Executable $hostExecutable -Linker $Linker
@@ -312,6 +346,10 @@ try
     }
 
     $controlCenterExecutable = Join-Path $installRoot 'BAFX.ControlCenter.exe'
+    Assert-ExecutableVersion `
+        -Executable $controlCenterExecutable `
+        -ExpectedProductVersion $ExpectedVersion `
+        -ExpectedNumericVersion $numericVersion
     & $portableVerifier -Executable $controlCenterExecutable -Linker $Linker
     if ($LASTEXITCODE -ne 0)
     {

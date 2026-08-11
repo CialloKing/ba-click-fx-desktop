@@ -13,10 +13,10 @@ BEGIN
     BEGIN
         BLOCK "040904B0"
         BEGIN
-            VALUE "FileDescription", "Native Windows desktop click effects\0"
+            VALUE "FileDescription", "BAFX native control center\0"
             VALUE "FileVersion", "@BAFX_VERSION@\0"
-            VALUE "InternalName", "ba-click-fx-desktop\0"
-            VALUE "OriginalFilename", "ba-click-fx-desktop.exe\0"
+            VALUE "InternalName", "BAFX.ControlCenter\0"
+            VALUE "OriginalFilename", "BAFX.ControlCenter.exe\0"
             VALUE "ProductName", "ba-click-fx-desktop\0"
             VALUE "ProductVersion", "@BAFX_VERSION@\0"
         END

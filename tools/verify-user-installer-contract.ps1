@@ -271,6 +271,21 @@ function Test-InstallerScriptWhitelist
         -Text $packager `
         -Pattern 'schema\s*=\s*1[\s\S]*files\s*=\s*\$payloadFiles' `
         -Description 'payload manifest schema and file hashes'
+    Assert-TextContains `
+        -Text $packager `
+        -Pattern 'Assert-ExecutableVersion[\s\S]*-NumericVersion\s+\$numericVersion' `
+        -Description 'Host and Control Center version-resource verification'
+
+    $controlCenterResource = Read-RepositoryText `
+        -RelativePath 'src/control-center/BAFX.ControlCenter.rc.in'
+    Assert-TextContains `
+        -Text $controlCenterResource `
+        -Pattern 'FILEVERSION\s+@BAFX_VERSION_MAJOR@,@BAFX_VERSION_MINOR@,@BAFX_VERSION_PATCH@,@BAFX_VERSION_REVISION@' `
+        -Description 'Control Center fixed file version resource'
+    Assert-TextContains `
+        -Text $controlCenterResource `
+        -Pattern 'VALUE\s+"ProductVersion",\s+"@BAFX_VERSION@\\0"' `
+        -Description 'Control Center product version resource'
 }
 
 function Test-InnoPayloadContract

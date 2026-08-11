@@ -177,6 +177,35 @@ function Write-Utf8NoBom
     [IO.File]::WriteAllText($Path, $Content, $encoding)
 }
 
+function Assert-ExecutableVersion
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path,
+
+        [Parameter(Mandatory = $true)]
+        [string]$ProductVersion,
+
+        [Parameter(Mandatory = $true)]
+        [string]$NumericVersion
+    )
+
+    $versionInfo = (Get-Item -LiteralPath $Path).VersionInfo
+    $actualProductVersion = ([string]$versionInfo.ProductVersion).Trim()
+    $actualFileVersion = ([string]$versionInfo.FileVersion).Trim()
+    $actualNumericVersion = '{0}.{1}.{2}.{3}' -f `
+        $versionInfo.FileMajorPart,
+        $versionInfo.FileMinorPart,
+        $versionInfo.FileBuildPart,
+        $versionInfo.FilePrivatePart
+    if ($actualProductVersion -ne $ProductVersion -or
+        $actualFileVersion -ne $ProductVersion -or
+        $actualNumericVersion -ne $NumericVersion)
+    {
+        throw "Executable version mismatch for $Path`: expected $ProductVersion / $NumericVersion, got $actualProductVersion / $actualFileVersion / $actualNumericVersion"
+    }
+}
+
 $repositoryRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $cmake = Get-Command cmake.exe -ErrorAction SilentlyContinue | Select-Object -First 1
 if ($null -eq $cmake)
@@ -225,6 +254,13 @@ foreach ($required in @($hostExecutable, $controlCenterExecutable))
     {
         throw "Required Release executable is missing: $required"
     }
+
+    # Both user-facing executables must expose the same release identity in
+    # Explorer. The fixed version also controls Windows upgrade comparisons.
+    Assert-ExecutableVersion `
+        -Path $required `
+        -ProductVersion $version `
+        -NumericVersion $numericVersion
 }
 
 $temporaryParent = [IO.Path]::GetFullPath([IO.Path]::GetTempPath())

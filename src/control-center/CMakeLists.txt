@@ -1,3 +1,10 @@
+set(BAFX_CONTROL_CENTER_GENERATED_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")
+configure_file(
+    BAFX.ControlCenter.rc.in
+    "${BAFX_CONTROL_CENTER_GENERATED_DIR}/BAFX.ControlCenter.rc"
+    @ONLY
+)
+
 add_executable(
     bafx_control_center
     WIN32
@@ -8,6 +15,7 @@ add_executable(
         "${PROJECT_SOURCE_DIR}/src/windows/src/package_identity.cpp"
         "${PROJECT_SOURCE_DIR}/src/windows/src/portable_paths.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/BAFX.ControlCenter.manifest"
+        "${BAFX_CONTROL_CENTER_GENERATED_DIR}/BAFX.ControlCenter.rc"
         "${PROJECT_SOURCE_DIR}/src/windows/src/ipc_client.cpp"
 )
 
