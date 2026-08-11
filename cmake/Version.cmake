@@ -1,4 +1,4 @@
-set(BAFX_VERSION "0.1.0-alpha.6")
+set(BAFX_VERSION "0.1.0-alpha.7")
 
 if(NOT BAFX_VERSION MATCHES "^([0-9]+)\\.([0-9]+)\\.([0-9]+)(-([0-9A-Za-z.-]+))?$")
     message(FATAL_ERROR "BAFX_VERSION must be a semantic version")

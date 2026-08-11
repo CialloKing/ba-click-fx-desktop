@@ -11,7 +11,7 @@ param(
     [string]$Publisher = 'CN=BaClickFx.Local',
     [string]$PublisherDisplayName = 'ba-click-fx-desktop contributors',
     [string]$DisplayName = 'ba-click-fx-desktop',
-    [string]$PackageVersion = '0.1.0.6',
+    [string]$PackageVersion = '0.1.0.7',
     [switch]$KeepCertificate
 )
 
