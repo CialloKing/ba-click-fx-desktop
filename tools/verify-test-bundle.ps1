@@ -320,10 +320,26 @@ try
     }
 
     $hostProcess = Start-Process -FilePath $hostExecutable -ArgumentList '--smoke-test' `
-        -WorkingDirectory $installRoot -WindowStyle Hidden -Wait -PassThru
+        -WorkingDirectory $temporaryRoot -WindowStyle Hidden -Wait -PassThru
     if ($hostProcess.ExitCode -ne 0)
     {
         throw "Extracted Host smoke test failed with exit code $($hostProcess.ExitCode)"
+    }
+
+    foreach ($portableFile in @(
+            'BAFX.config.json',
+            'ba-click-fx-desktop-support.log'))
+    {
+        $portablePath = Join-Path $installRoot $portableFile
+        if (-not (Test-Path -LiteralPath $portablePath -PathType Leaf))
+        {
+            throw "Portable runtime file is missing beside the executable: $portableFile"
+        }
+        $workingDirectoryPath = Join-Path $temporaryRoot $portableFile
+        if (Test-Path -LiteralPath $workingDirectoryPath)
+        {
+            throw "Portable runtime file escaped the executable directory: $workingDirectoryPath"
+        }
     }
 
     if (-not $SkipControlCenterLaunch)

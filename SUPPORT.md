@@ -13,6 +13,9 @@
   `luminance-unknown`。
 - 首次生成的 schema 3 配置默认为 `background.mode=background-aware`；授权、排除或会话
   失败时继续使用 FX-only。
+- 运行时用户数据采用 portable 规则：`BAFX.config.json`、`ba-click-fx-desktop-support.log`
+  和支持报告只写入对应 EXE 所在目录。命令行支持报告即使传入绝对路径，也只采用文件名，
+  不会写入 `%LOCALAPPDATA%`、当前工作目录或其他用户目录。
 - WGC 是可选的背景差分输入，不是点击特效依赖。portable EXE 没有 package identity，
   也不会自行声明 `graphicsCaptureWithoutBorder` capability；捕获会话启动后报告
   `Support.WGC=active`，系统边框和光标能力会单独写入日志。日志中的

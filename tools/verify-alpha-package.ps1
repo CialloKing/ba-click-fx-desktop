@@ -89,13 +89,51 @@ try
     $process = Start-Process `
         -FilePath $executable `
         -ArgumentList '--smoke-test' `
-        -WorkingDirectory $installRoot `
+        -WorkingDirectory $tempRoot `
         -WindowStyle Hidden `
         -Wait `
         -PassThru
     if ($process.ExitCode -ne 0)
     {
         throw "Extracted desktop smoke test failed with exit code $($process.ExitCode)"
+    }
+
+    foreach ($portableFile in @(
+            'BAFX.config.json',
+            'ba-click-fx-desktop-support.log'))
+    {
+        $portablePath = Join-Path $installRoot $portableFile
+        if (-not (Test-Path -LiteralPath $portablePath -PathType Leaf))
+        {
+            throw "Portable runtime file is missing beside the executable: $portableFile"
+        }
+        $workingDirectoryPath = Join-Path $tempRoot $portableFile
+        if (Test-Path -LiteralPath $workingDirectoryPath)
+        {
+            throw "Portable runtime file escaped the executable directory: $workingDirectoryPath"
+        }
+    }
+
+    $outsideReport = Join-Path $tempRoot 'requested-support.txt'
+    $reportProcess = Start-Process `
+        -FilePath $executable `
+        -ArgumentList "--support-info=$outsideReport" `
+        -WorkingDirectory $tempRoot `
+        -WindowStyle Hidden `
+        -Wait `
+        -PassThru
+    if ($reportProcess.ExitCode -ne 0)
+    {
+        throw "Extracted support report command failed with exit code $($reportProcess.ExitCode)"
+    }
+    $clampedReport = Join-Path $installRoot 'requested-support.txt'
+    if (-not (Test-Path -LiteralPath $clampedReport -PathType Leaf))
+    {
+        throw 'Support report was not written beside the executable.'
+    }
+    if (Test-Path -LiteralPath $outsideReport)
+    {
+        throw "Support report escaped the executable directory: $outsideReport"
     }
 }
 finally

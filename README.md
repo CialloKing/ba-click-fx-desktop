@@ -111,8 +111,10 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File .\tools\package-host-review-bundle
 
 ## Host 控制面
 
-首个产品化垂直切片已经接入版本化配置和本地 Named Pipe。首次启动会在
-`%LOCALAPPDATA%\BAFX\config.json` 创建 schema 3 默认配置；Host 使用
+首个产品化垂直切片已经接入版本化配置和本地 Named Pipe。首次启动会在主程序
+`ba-click-fx-desktop.exe` 同目录创建 `BAFX.config.json` 和
+`ba-click-fx-desktop-support.log`；支持报告也会被限制在该目录。运行时不再使用
+`%LOCALAPPDATA%`、当前工作目录或其他用户目录保存数据。Host 使用
 `Local\BAFX.Host.v1` 互斥体保证单实例。
 
 首次生成的配置将 `background.mode` 设为 `background-aware`。WGC 或捕获排除路径失败时

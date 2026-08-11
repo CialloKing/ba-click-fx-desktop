@@ -188,38 +188,16 @@ function Invoke-IsolatedVerification
         [string]$PortableVerifier
     )
 
-    $temporaryParent = [IO.Path]::GetFullPath([IO.Path]::GetTempPath())
-    $temporaryLocalAppData = Join-Path $temporaryParent (
-        'bafx-host-review-' + [Guid]::NewGuid().ToString('N'))
-    New-Item -ItemType Directory -Path $temporaryLocalAppData | Out-Null
-    $previousLocalAppData = $env:LOCALAPPDATA
-    try
+    # The portable Host owns its data beside the extracted EXE, so there is no
+    # profile directory to redirect or clean during package verification.
+    & $Verifier `
+        -Package $PackagePath `
+        -ExpectedVersion $ExpectedVersion `
+        -Linker $Linker `
+        -PortableVerifier $PortableVerifier
+    if ($LASTEXITCODE -ne 0)
     {
-        # Smoke verification must not bootstrap or migrate the user's real profile.
-        $env:LOCALAPPDATA = $temporaryLocalAppData
-        & $Verifier `
-            -Package $PackagePath `
-            -ExpectedVersion $ExpectedVersion `
-            -Linker $Linker `
-            -PortableVerifier $PortableVerifier
-        if ($LASTEXITCODE -ne 0)
-        {
-            throw "Host review package verification failed with exit code $LASTEXITCODE"
-        }
-    }
-    finally
-    {
-        $env:LOCALAPPDATA = $previousLocalAppData
-        $resolvedParent = $temporaryParent.TrimEnd('\') + '\'
-        $resolvedRoot = [IO.Path]::GetFullPath($temporaryLocalAppData)
-        if (-not $resolvedRoot.StartsWith($resolvedParent, [StringComparison]::OrdinalIgnoreCase))
-        {
-            throw "Refusing to clean a path outside the temporary directory: $resolvedRoot"
-        }
-        if (Test-Path -LiteralPath $resolvedRoot -PathType Container)
-        {
-            Remove-Item -LiteralPath $resolvedRoot -Recurse -Force
-        }
+        throw "Host review package verification failed with exit code $LASTEXITCODE"
     }
 }
 
