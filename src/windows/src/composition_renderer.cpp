@@ -157,7 +157,7 @@ void CompositionRenderer::resize(const WindowSize size)
     // previous visible batch's path into the new session while its first
     // correctly sized WGC frame is still pending.
     backgroundPathLatch_.reset();
-    resetBackgroundSnapshot();
+    releaseBackgroundSnapshotResources();
 
     context_->OMSetRenderTargets(0, nullptr, nullptr);
     renderTarget_.Reset();
@@ -370,7 +370,7 @@ bool CompositionRenderer::tryEnableBackgroundCapture(
     // Re-enabling capture replaces the producer and therefore starts a new
     // visible-batch decision, even when the monitor and options are unchanged.
     backgroundPathLatch_.reset();
-    resetBackgroundSnapshot();
+    releaseBackgroundSnapshotResources();
     if (backgroundSensor_ != nullptr)
     {
         backgroundSensor_->stop();
@@ -407,7 +407,7 @@ void CompositionRenderer::disableBackgroundCapture() noexcept
     // Disabling capture invalidates any latched Background-aware path before
     // the next FX-only frame is presented.
     backgroundPathLatch_.reset();
-    resetBackgroundSnapshot();
+    releaseBackgroundSnapshotResources();
     backgroundCaptureRequested_ = false;
     backgroundMonitor_ = nullptr;
     backgroundRefreshPeriod_ = bafx::core::MonotonicTime::zero();
@@ -739,8 +739,21 @@ void CompositionRenderer::createRenderTarget()
 
 void CompositionRenderer::resetBackgroundSnapshot() noexcept
 {
+    // Invalidate the batch without releasing the monitor-sized allocations;
+    // repeated clicks should seed the existing ping-pong pair instead of
+    // stalling D3D11 on two fresh full-screen textures every time.
+    backgroundSnapshotGeneration_ = 0U;
+    backgroundSnapshotValid_ = false;
+}
+
+void CompositionRenderer::releaseBackgroundSnapshotResources() noexcept
+{
     backgroundSnapshotShaderResource_.Reset();
+    backgroundSnapshotRenderTarget_.Reset();
     backgroundSnapshotTexture_.Reset();
+    backgroundCandidateShaderResource_.Reset();
+    backgroundCandidateRenderTarget_.Reset();
+    backgroundCandidateTexture_.Reset();
     backgroundSnapshotSize_ = WindowSize{};
     backgroundSnapshotGeneration_ = 0U;
     backgroundSnapshotValid_ = false;
@@ -777,11 +790,16 @@ bool CompositionRenderer::captureBackgroundSnapshot(
         }
 
         if (backgroundSnapshotTexture_ == nullptr
+            || backgroundCandidateTexture_ == nullptr
             || backgroundSnapshotSize_.width != size_.width
             || backgroundSnapshotSize_.height != size_.height)
         {
             Microsoft::WRL::ComPtr<ID3D11Texture2D> replacementTexture;
+            Microsoft::WRL::ComPtr<ID3D11RenderTargetView> replacementRenderTarget;
             Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> replacementShaderResource;
+            Microsoft::WRL::ComPtr<ID3D11Texture2D> replacementCandidateTexture;
+            Microsoft::WRL::ComPtr<ID3D11RenderTargetView> replacementCandidateRenderTarget;
+            Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> replacementCandidateShaderResource;
             D3D11_TEXTURE2D_DESC destinationDescription{};
             destinationDescription.Width = size_.width;
             destinationDescription.Height = size_.height;
@@ -790,7 +808,8 @@ bool CompositionRenderer::captureBackgroundSnapshot(
             destinationDescription.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
             destinationDescription.SampleDesc = DXGI_SAMPLE_DESC{1U, 0U};
             destinationDescription.Usage = D3D11_USAGE_DEFAULT;
-            destinationDescription.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+            destinationDescription.BindFlags = D3D11_BIND_RENDER_TARGET
+                | D3D11_BIND_SHADER_RESOURCE;
             throwIfFailed(
                 device_->CreateTexture2D(
                     &destinationDescription,
@@ -803,15 +822,65 @@ bool CompositionRenderer::captureBackgroundSnapshot(
                     nullptr,
                     &replacementShaderResource),
                 "ID3D11Device::CreateShaderResourceView(WGC background snapshot)");
+            throwIfFailed(
+                device_->CreateRenderTargetView(
+                    replacementTexture.Get(),
+                    nullptr,
+                    &replacementRenderTarget),
+                "ID3D11Device::CreateRenderTargetView(WGC background snapshot)");
+            throwIfFailed(
+                device_->CreateTexture2D(
+                    &destinationDescription,
+                    nullptr,
+                    &replacementCandidateTexture),
+                "ID3D11Device::CreateTexture2D(WGC background candidate)");
+            throwIfFailed(
+                device_->CreateShaderResourceView(
+                    replacementCandidateTexture.Get(),
+                    nullptr,
+                    &replacementCandidateShaderResource),
+                "ID3D11Device::CreateShaderResourceView(WGC background candidate)");
+            throwIfFailed(
+                device_->CreateRenderTargetView(
+                    replacementCandidateTexture.Get(),
+                    nullptr,
+                    &replacementCandidateRenderTarget),
+                "ID3D11Device::CreateRenderTargetView(WGC background candidate)");
             backgroundSnapshotTexture_ = std::move(replacementTexture);
+            backgroundSnapshotRenderTarget_ = std::move(replacementRenderTarget);
             backgroundSnapshotShaderResource_ =
                 std::move(replacementShaderResource);
+            backgroundCandidateTexture_ = std::move(replacementCandidateTexture);
+            backgroundCandidateRenderTarget_ =
+                std::move(replacementCandidateRenderTarget);
+            backgroundCandidateShaderResource_ =
+                std::move(replacementCandidateShaderResource);
             backgroundSnapshotSize_ = size_;
+            backgroundSnapshotValid_ = false;
         }
 
-        context_->CopyResource(
-            backgroundSnapshotTexture_.Get(),
-            sourceTexture.Get());
+        if (!backgroundSnapshotValid_)
+        {
+            context_->CopyResource(
+                backgroundSnapshotTexture_.Get(),
+                sourceTexture.Get());
+            return true;
+        }
+
+        // Only the accepted WGC generation reaches this pass. Keeping the
+        // previous and candidate textures separate avoids an SRV/RTV hazard
+        // and makes Differential Bloom and Final read one coherent result.
+        fxRenderer_->stabilizeBackgroundFrame(
+            backgroundSnapshotShaderResource_.Get(),
+            source,
+            backgroundCandidateRenderTarget_.Get());
+        std::swap(backgroundSnapshotTexture_, backgroundCandidateTexture_);
+        std::swap(
+            backgroundSnapshotRenderTarget_,
+            backgroundCandidateRenderTarget_);
+        std::swap(
+            backgroundSnapshotShaderResource_,
+            backgroundCandidateShaderResource_);
         return true;
     }
     catch (...)

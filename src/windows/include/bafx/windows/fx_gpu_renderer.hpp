@@ -46,6 +46,13 @@ public:
 
     void resize(WindowSize size);
     void setBloomSettings(FxBloomSettings settings);
+    // WGC and DComp run on independent clocks. Filter accepted captures before
+    // they feed both Differential Bloom and the final source-over transport so
+    // one FP16 rounding step cannot modulate a visible effect.
+    void stabilizeBackgroundFrame(
+        ID3D11ShaderResourceView* previous,
+        ID3D11ShaderResourceView* current,
+        ID3D11RenderTargetView* destination);
     void render(
         const bafx::fx::FrameSnapshot& snapshot,
         ID3D11RenderTargetView* destination,

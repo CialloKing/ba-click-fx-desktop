@@ -597,6 +597,9 @@ struct FxGpuRenderer::Implementation
         createBloomPixelShader(
             "DifferentialPrefilterPixel",
             differentialPrefilterPixelShader);
+        createBloomPixelShader(
+            "TemporalBackgroundPixel",
+            temporalBackgroundPixelShader);
         createBloomPixelShader("DownsamplePixel", downsamplePixelShader);
         createBloomPixelShader("UpsamplePixel", upsamplePixelShader);
         createBloomPixelShader("CompositePixel", compositePixelShader);
@@ -821,6 +824,51 @@ struct FxGpuRenderer::Implementation
         bloomUpTargets.clear();
         updateBloomPlan();
         createBloomTargets();
+    }
+
+    void stabilizeBackgroundFrame(
+        ID3D11ShaderResourceView* const previous,
+        ID3D11ShaderResourceView* const current,
+        ID3D11RenderTargetView* const destination)
+    {
+        if (previous == nullptr || current == nullptr || destination == nullptr)
+        {
+            throw std::invalid_argument(
+                "background stabilization requires three valid views");
+        }
+
+        const ComPtr<ID3D11Texture2D> previousTexture =
+            textureFromShaderResource(previous);
+        const ComPtr<ID3D11Texture2D> currentTexture =
+            textureFromShaderResource(current);
+        const ComPtr<ID3D11Texture2D> destinationTexture =
+            textureFromRenderTarget(destination);
+        if (!isCompatibleBackgroundTexture(previousTexture.Get(), size)
+            || !isCompatibleBackgroundTexture(currentTexture.Get(), size)
+            || !isCompatibleBackgroundTexture(destinationTexture.Get(), size))
+        {
+            throw std::invalid_argument(
+                "background stabilization views have incompatible extents");
+        }
+        if (destinationTexture.Get() == previousTexture.Get()
+            || destinationTexture.Get() == currentTexture.Get())
+        {
+            // Sampling and rendering the same resource is undefined on D3D11;
+            // the caller must provide a ping-pong destination.
+            throw std::invalid_argument(
+                "background stabilization destination aliases a source");
+        }
+
+        const bafx::core::BloomExtent extent{
+            static_cast<std::int32_t>(size.width),
+            static_cast<std::int32_t>(size.height)};
+        drawFullscreen(
+            destination,
+            extent,
+            temporalBackgroundPixelShader.Get(),
+            previous,
+            current,
+            makeBloomConstants(extent, 1.0F, 0.0F));
     }
 
     void configureFramePipeline()
@@ -1259,6 +1307,7 @@ struct FxGpuRenderer::Implementation
     ComPtr<ID3D11PixelShader> trailPixelShader{};
     ComPtr<ID3D11PixelShader> prefilterPixelShader{};
     ComPtr<ID3D11PixelShader> differentialPrefilterPixelShader{};
+    ComPtr<ID3D11PixelShader> temporalBackgroundPixelShader{};
     ComPtr<ID3D11PixelShader> downsamplePixelShader{};
     ComPtr<ID3D11PixelShader> upsamplePixelShader{};
     ComPtr<ID3D11PixelShader> compositePixelShader{};
@@ -1305,6 +1354,14 @@ void FxGpuRenderer::resize(const WindowSize size)
 void FxGpuRenderer::setBloomSettings(const FxBloomSettings settings)
 {
     implementation_->setBloomSettings(settings);
+}
+
+void FxGpuRenderer::stabilizeBackgroundFrame(
+    ID3D11ShaderResourceView* const previous,
+    ID3D11ShaderResourceView* const current,
+    ID3D11RenderTargetView* const destination)
+{
+    implementation_->stabilizeBackgroundFrame(previous, current, destination);
 }
 
 void FxGpuRenderer::render(

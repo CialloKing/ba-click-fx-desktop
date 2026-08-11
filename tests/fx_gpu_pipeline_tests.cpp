@@ -15,6 +15,7 @@
 #include <cstdint>
 #include <optional>
 #include <stdexcept>
+#include <utility>
 #include <vector>
 
 using Microsoft::WRL::ComPtr;
@@ -1117,6 +1118,76 @@ BAFX_TEST(warp_background_transport_stays_stable_across_light_capture_steps)
         48U,
         120U,
         80U) > 0.05F);
+}
+
+BAFX_TEST(warp_temporal_background_filter_stabilizes_disk_and_trail)
+{
+    ComApartment apartment;
+    const WarpDevice graphics = createWarpDevice();
+    FxGpuRenderer renderer(graphics.device.Get(), graphics.context.Get(), testSize);
+    renderer.setBloomSettings(FxBloomSettings{0.0F, 7.0F});
+
+    RenderTarget previous = createRenderTarget(graphics.device.Get());
+    RenderTarget current = createRenderTarget(graphics.device.Get());
+    RenderTarget filtered = createRenderTarget(graphics.device.Get());
+    constexpr std::array<float, 4> seedColor{0.99F, 0.99F, 0.99F, 1.0F};
+    graphics.context->ClearRenderTargetView(previous.view.Get(), seedColor.data());
+
+    const bafx::fx::FrameSnapshot snapshot = makeDiskAndTrailSnapshot();
+    std::vector<ReadbackPixel> reference;
+    constexpr std::array<float, 6> jitteredSamples{
+        0.9892578125F,
+        0.99072265625F,
+        0.98974609375F,
+        0.990234375F,
+        0.9892578125F,
+        0.99072265625F};
+    for (const float sample : jitteredSamples)
+    {
+        const std::array<float, 4> color{sample, sample, sample, 1.0F};
+        graphics.context->ClearRenderTargetView(current.view.Get(), color.data());
+        renderer.stabilizeBackgroundFrame(
+            previous.shaderResource.Get(),
+            current.shaderResource.Get(),
+            filtered.view.Get());
+        const RenderTarget output = createRenderTarget(graphics.device.Get());
+        renderer.render(
+            snapshot,
+            output.view.Get(),
+            BackgroundRenderInput{filtered.shaderResource.Get()});
+        const std::vector<ReadbackPixel> pixels = readback(
+            graphics.context.Get(),
+            output.texture.Get());
+        checkValidDesktopPremultiplied(pixels, false, true);
+        if (reference.empty())
+        {
+            reference = pixels;
+        }
+        else
+        {
+            // Both the Cross2 disk and the additive trail must see the same
+            // stable background; adjacent WGC FP16 steps cannot flash either.
+            BAFX_CHECK(maximumRgbaDelta(reference, pixels) <= 2.0e-3F);
+        }
+        std::swap(previous, filtered);
+    }
+
+    const std::array<float, 4> changedColor{0.90F, 0.90F, 0.90F, 1.0F};
+    graphics.context->ClearRenderTargetView(current.view.Get(), changedColor.data());
+    renderer.stabilizeBackgroundFrame(
+        previous.shaderResource.Get(),
+        current.shaderResource.Get(),
+        filtered.view.Get());
+    const std::vector<ReadbackPixel> changed = readback(
+        graphics.context.Get(),
+        filtered.texture.Get());
+    const std::size_t center = static_cast<std::size_t>(testSize.height / 2U)
+        * testSize.width
+        + testSize.width / 2U;
+    // A real desktop change must still pass through instead of freezing the
+    // first captured frame for the lifetime of a visible effect.
+    BAFX_CHECK(changed[center].red < 0.98F);
+    BAFX_CHECK(changed[center].red > 0.90F - 1.0e-3F);
 }
 
 BAFX_TEST(warp_background_transport_does_not_promote_emission_to_alpha)

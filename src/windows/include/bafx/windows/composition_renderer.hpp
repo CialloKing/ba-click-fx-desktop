@@ -120,6 +120,7 @@ private:
     void createComposition(HWND window);
     void createRenderTarget();
     void resetBackgroundSnapshot() noexcept;
+    void releaseBackgroundSnapshotResources() noexcept;
     [[nodiscard]] bool captureBackgroundSnapshot(
         ID3D11ShaderResourceView* source) noexcept;
     void captureCenterPixel();
@@ -131,11 +132,15 @@ private:
     Microsoft::WRL::ComPtr<IDXGISwapChain3> swapChain_{};
     Microsoft::WRL::ComPtr<ID3D11Texture2D> backBuffer_{};
     Microsoft::WRL::ComPtr<ID3D11RenderTargetView> renderTarget_{};
-    // WGC owns and reuses its latest texture. Keep an owned copy that can be
-    // refreshed atomically for each accepted generation while both consumers
-    // continue to read one coherent background image.
+    // WGC owns and reuses its latest texture. Keep a ping-pong pair of owned
+    // copies: one is the previous accepted sample and the other receives the
+    // temporal filter output before the pair is swapped.
     Microsoft::WRL::ComPtr<ID3D11Texture2D> backgroundSnapshotTexture_{};
+    Microsoft::WRL::ComPtr<ID3D11RenderTargetView> backgroundSnapshotRenderTarget_{};
     Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> backgroundSnapshotShaderResource_{};
+    Microsoft::WRL::ComPtr<ID3D11Texture2D> backgroundCandidateTexture_{};
+    Microsoft::WRL::ComPtr<ID3D11RenderTargetView> backgroundCandidateRenderTarget_{};
+    Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> backgroundCandidateShaderResource_{};
     WindowSize backgroundSnapshotSize_{};
     std::uint64_t backgroundSnapshotGeneration_{0U};
     bool backgroundSnapshotValid_{false};

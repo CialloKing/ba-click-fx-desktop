@@ -287,6 +287,35 @@ float4 DifferentialPrefilterPixel(FullscreenOutput input) : SV_Target0
     return float4(differential, differentialEnergy);
 }
 
+float4 TemporalBackgroundPixel(FullscreenOutput input) : SV_Target0
+{
+    const float3 previous = StabilizeCapturedBackground(
+        Source0.Sample(LinearClampSampler, input.uv).rgb);
+    const float3 current = StabilizeCapturedBackground(
+        Source1.Sample(LinearClampSampler, input.uv).rgb);
+    const float3 peak = max(previous, current);
+    const float luminance = saturate(dot(peak, float3(0.2126, 0.7152, 0.0722)));
+    // The WGC FP16 conversion is least stable near a bright reference white.
+    // A luminance-scaled deadband filters that noise while preserving larger
+    // desktop changes, such as a window crossing the effect.
+    const float peakChannel = max(peak.r, max(peak.g, peak.b));
+    const float absoluteDeadband = lerp(
+        0.5 / 1024.0,
+        2.0 / 1024.0,
+        luminance);
+    const float deadband = max(
+        absoluteDeadband,
+        peakChannel * (2.0 / 1024.0));
+    const float fullResponse = deadband * 4.0;
+    const float channelDelta = max(
+        abs(current.r - previous.r),
+        max(abs(current.g - previous.g), abs(current.b - previous.b)));
+    const float response = smoothstep(deadband, fullResponse, channelDelta);
+    // Keep the result in the same linear scRGB domain as the Unity transport;
+    // no gamma conversion or Alpha adjustment belongs in this history pass.
+    return float4(lerp(previous, current, response), 1.0);
+}
+
 float4 DownsamplePixel(FullscreenOutput input) : SV_Target0
 {
     return FourTap(Source0, input.uv, SourceTexelSize);
