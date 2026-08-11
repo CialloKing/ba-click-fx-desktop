@@ -270,10 +270,11 @@ begin
       RollbackSucceeded);
     if not RollbackSucceeded then
     begin
-      MsgBox(
+      SuppressibleMsgBox(
         'Preparation failed. The installation files and recovery state were retained; reopen Control Center to repair the installation.',
         mbError,
-        MB_OK);
+        MB_OK,
+        IDOK);
       Exit;
     end;
     RaiseException('Preparing the machine installation failed with exit code ' +
@@ -304,10 +305,11 @@ begin
       RollbackSucceeded);
     if not RollbackSucceeded then
     begin
-      MsgBox(
+      SuppressibleMsgBox(
         'Package registration failed. The installation files and recovery state were retained; reopen Control Center to repair the installation.',
         mbError,
-        MB_OK);
+        MB_OK,
+        IDOK);
       Exit;
     end;
     RaiseException('Registering the package failed with exit code ' + IntToStr(ExitCode) + '.');
@@ -331,10 +333,11 @@ begin
     if FileExists(AddBackslash(InstallerRoot) + 'INSTALL-STATE.json') and
       not FileExists(MachineStatePath) then
     begin
-      MsgBox(
+      SuppressibleMsgBox(
         'The package was committed, but final cleanup needs another repair pass from Control Center.',
         mbError,
-        MB_OK);
+        MB_OK,
+        IDOK);
       Exit;
     end;
     RunBestEffortRollback(
@@ -344,10 +347,11 @@ begin
       RollbackSucceeded);
     if not RollbackSucceeded then
     begin
-      MsgBox(
+      SuppressibleMsgBox(
         'Finalization failed. The installation files and recovery state were retained; reopen Control Center to repair the installation.',
         mbError,
-        MB_OK);
+        MB_OK,
+        IDOK);
       Exit;
     end;
     RaiseException('Package registration or finalization failed; rollback was attempted.');

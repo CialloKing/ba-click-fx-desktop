@@ -332,6 +332,14 @@ function Test-InnoPayloadContract
         -Description 'registration is executed for the installing user'
     Assert-TextContains `
         -Text $inno `
+        -Pattern 'SuppressibleMsgBox' `
+        -Description 'recovery prompts support unattended installation'
+    Assert-TextExcludes `
+        -Text $inno `
+        -Pattern '(?m)^\s*MsgBox\s*\(' `
+        -Description 'unsuppressible custom installer prompts'
+    Assert-TextContains `
+        -Text $inno `
         -Pattern 'GenerateUniqueName\(TempRoot,\s*\x27\.json\x27\)' `
         -Description 'original-user state uses unique user TEMP files'
     Assert-TextContains `
