@@ -387,13 +387,14 @@ PackageActivationIdentityResult parsePackageActivationState(
     }
 }
 
-PackageActivationIdentityResult readPackageActivationState(
-    const std::filesystem::path& executableDirectory) noexcept
+namespace
+{
+
+[[nodiscard]] PackageActivationIdentityResult readPackageActivationStateFile(
+    const std::filesystem::path& statePath) noexcept
 {
     try
     {
-        const std::filesystem::path statePath =
-            executableDirectory / L"Installer" / L"INSTALL-STATE.json";
         std::error_code error;
         const bool exists = std::filesystem::exists(statePath, error);
         if (error)
@@ -458,6 +459,33 @@ PackageActivationIdentityResult readPackageActivationState(
         result.error = L"The package install state could not be loaded.";
         return result;
     }
+}
+
+}
+
+PackageActivationIdentityResult readPackageActivationState(
+    const std::filesystem::path& executableDirectory) noexcept
+{
+    const std::filesystem::path installerDirectory =
+        executableDirectory / L"Installer";
+    PackageActivationIdentityResult primary = readPackageActivationStateFile(
+        installerDirectory / L"INSTALL-STATE.json");
+    if (primary.succeeded())
+    {
+        return primary;
+    }
+
+    PackageActivationIdentityResult backup = readPackageActivationStateFile(
+        installerDirectory / L"INSTALL-STATE.json.bak");
+    if (backup.succeeded())
+    {
+        return backup;
+    }
+    if (primary.installStatePresent)
+    {
+        return primary;
+    }
+    return backup;
 }
 
 PackageActivationResult activatePackagedHost(

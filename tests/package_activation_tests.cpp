@@ -47,10 +47,11 @@ public:
         return path_;
     }
 
-    void writeState(const std::string& contents) const
+    void writeState(const std::string& contents, const bool backup = false) const
     {
         std::ofstream stream(
-            path_ / L"Installer" / L"INSTALL-STATE.json",
+            path_ / L"Installer"
+                / (backup ? L"INSTALL-STATE.json.bak" : L"INSTALL-STATE.json"),
             std::ios::binary);
         stream.write(contents.data(), static_cast<std::streamsize>(contents.size()));
         if (!stream)
@@ -122,4 +123,19 @@ BAFX_TEST(package_activation_state_reads_utf8_bom_file)
 
     BAFX_CHECK(result.installStatePresent);
     BAFX_CHECK(result.succeeded());
+}
+
+BAFX_TEST(package_activation_state_uses_backup_when_primary_is_corrupt)
+{
+    TemporaryInstallDirectory directory;
+    directory.writeState("{broken");
+    directory.writeState(std::string(validInstallState), true);
+
+    const auto result = bafx::control_center::readPackageActivationState(
+        directory.path());
+
+    BAFX_CHECK(result.installStatePresent);
+    BAFX_CHECK(result.succeeded());
+    BAFX_CHECK(result.identity->appUserModelId
+        == L"CialloKing.BaClickFxDesktop_abc123!BaClickFxDesktop");
 }
