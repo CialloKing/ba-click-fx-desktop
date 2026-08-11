@@ -100,6 +100,22 @@ if(WIN32)
     set_target_properties(bafx_control_center_tests PROPERTIES FOLDER "Tests")
 
     add_executable(
+        bafx_identity_signer_tests
+        test_main.cpp
+        identity_signer_options_tests.cpp
+        "${PROJECT_SOURCE_DIR}/src/identity-signer/identity_signer_options.cpp"
+    )
+    target_include_directories(
+        bafx_identity_signer_tests
+        PRIVATE
+            "${PROJECT_SOURCE_DIR}/src/identity-signer"
+    )
+    target_compile_features(bafx_identity_signer_tests PRIVATE cxx_std_20)
+    bafx_enable_warnings(bafx_identity_signer_tests)
+    add_test(NAME identity_signer_arguments COMMAND bafx_identity_signer_tests)
+    set_target_properties(bafx_identity_signer_tests PROPERTIES FOLDER "Tests")
+
+    add_executable(
         bafx_packed_texture_tests
         test_main.cpp
         packed_fx_textures_tests.cpp

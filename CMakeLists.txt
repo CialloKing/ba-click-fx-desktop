@@ -39,6 +39,7 @@ if(WIN32)
     add_subdirectory(src/desktop)
     add_subdirectory(src/control-center)
     add_subdirectory(src/capture)
+    add_subdirectory(src/identity-signer)
 endif()
 
 if(BUILD_TESTING)
