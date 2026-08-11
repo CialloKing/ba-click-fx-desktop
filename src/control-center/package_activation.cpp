@@ -6,7 +6,6 @@
 #include <cctype>
 #include <cstddef>
 #include <fstream>
-#include <iterator>
 #include <limits>
 #include <optional>
 #include <string>
@@ -432,10 +431,14 @@ PackageActivationIdentityResult readPackageActivationState(
             result.error = L"The package install state could not be opened.";
             return result;
         }
-        std::string contents{
-            std::istreambuf_iterator<char>(stream),
-            std::istreambuf_iterator<char>()};
-        if (!stream.eof() || contents.size() != static_cast<std::size_t>(size))
+        std::string contents(static_cast<std::size_t>(size), '\0');
+        stream.read(contents.data(), static_cast<std::streamsize>(contents.size()));
+        const std::streamsize readCount = stream.gcount();
+        const bool hasTrailingByte = stream.peek()
+            != std::char_traits<char>::eof();
+        if (readCount != static_cast<std::streamsize>(size)
+            || stream.bad()
+            || hasTrailingByte)
         {
             PackageActivationIdentityResult result{};
             result.installStatePresent = true;
