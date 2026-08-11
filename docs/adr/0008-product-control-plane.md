@@ -24,9 +24,9 @@
    `SetConfig {generation,path,value}`、`Pause`、`Resume` 和 `Shutdown`。路径更新只允许
    配置库声明的产品字段，并在 generation 不匹配时返回冲突。响应中的 `generation` 用于
    客户端判断快照是否变化；Preset/Profile 等更高层功能在此协议稳定后再增加。
-6. `background.allowSystemBorder` 默认为 `false`。Control Center 通过显式复选框更新该字段；默认
-   无边框 WGC 能力无法在 `StartCapture` 前确认时，Host 回退 FX-only。只有用户勾选后才允许带
-   黄色系统捕获边框的实验会话。
+6. 新配置的 `background.allowSystemBorder` 默认为 `true`。Control Center 通过复选框更新该字段；
+   用户取消勾选后，Host 必须在 `StartCapture` 前确认无边框 WGC 能力，否则回退 FX-only。已有
+   schema 4 中显式保存的 `false` 必须保留，不能被启动或迁移流程重置。
 
 ## 取舍
 
@@ -40,7 +40,7 @@
 ## 验收
 
 - 无配置文件首次启动会创建当前 schema 的默认 JSON。
-- schema 1/2/3 配置可迁移到 schema 4；schema 3 迁移后默认不允许系统捕获边框，非法值被拒绝并
-  保留原文件。
+- schema 1/2/3 配置可迁移到 schema 4，迁移后默认允许系统捕获边框；已有 schema 4 的显式值保持
+  不变，非法值被拒绝并保留原文件。
 - 一个 Host 进程能同时服务至少一个客户端；第二个 Host 启动会快速退出。
 - `GetState`/`SetConfig` 在下一帧可观察，`Shutdown` 能使 Host 正常退出且无残留进程。

@@ -117,14 +117,15 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File .\tools\package-host-review-bundle
 `Local\BAFX.Host.v1` 互斥体保证单实例。
 
 首次生成的 schema 4 配置将 `background.mode` 设为 `background-aware`，并将
-`background.allowSystemBorder` 设为 `false`。WGC 或捕获排除路径失败时 Host 会继续使用 FX-only；
-`recording-compatible` 仍需要用户显式选择。
-portable EXE 不带 package identity，因此不会把无边框捕获 capability 伪装成已支持；默认路径会在
-`StartCapture` 前请求并确认无边框会话。接口缺失、权限不足或 Windows 仍要求系统边框时，该会话不会
-启动，Host 会直接回退 FX-only，因此启动过程不会先显示黄色捕获框。只有用户在 Control Center 中
-显式勾选“允许黄色捕获边框”后，才允许启动带系统边框的实验 WGC；日志将该状态记为
-`system-border=visible-allowed`。无论该开关如何设置，Overlay 的跨进程鼠标穿透都具有更高优先级，
-任何自排除冲突都必须回退 FX-only。
+`background.allowSystemBorder` 设为 `true`；schema 1/2/3 配置迁移到 schema 4 时也采用该值，以便
+保留旧系统上的背景感知路径。已有 schema 4 配置中的显式 `false` 会原样保留，不会被迁移覆盖。
+WGC 或捕获排除路径失败时 Host 会继续使用 FX-only；`recording-compatible` 仍需要用户显式选择。
+portable EXE 不带 package identity，因此不会把无边框捕获 capability 伪装成已支持。允许系统边框时，
+WGC 可以在 Windows 要求隐私提示的情况下启动；可见边框会在日志中记为
+`system-border=visible-allowed`。用户可以在 Control Center 中取消勾选“允许黄色捕获边框”；此后 Host
+会在 `StartCapture` 前请求并确认无边框会话，接口缺失、权限不足或 Windows 仍要求系统边框时直接回退
+FX-only，不会先启动带黄色边框的会话。无论该开关如何设置，Overlay 的跨进程鼠标穿透都具有更高
+优先级，任何自排除冲突都必须回退 FX-only。
 
 `BAFX.ControlCenter.exe` 已作为独立的 Win32 进程接入该 Pipe。Host 保持运行时，Control Center
 可以读取状态、暂停或恢复特效，并将下列效果配置在下一帧交给 Host：启用状态、点击特效、鼠标拖尾、
@@ -132,8 +133,9 @@ portable EXE 不带 package identity，因此不会把无边框捕获 capability
 每个滑块像素都写一次配置。
 
 控制中心也会显示 `fx-only`、`background-aware` 和 `recording-compatible` 三个背景模式，以及
-“允许黄色捕获边框”复选框。新配置默认请求 `background-aware`，但默认不允许黄色系统边框；这不构成
-WGC、录屏兼容性或 HDR 的支持声明。无边框 WGC 无法安全建立时，Host 必须保持或回退到 FX-only。
+“允许黄色捕获边框”复选框。新配置默认请求 `background-aware` 并允许 Windows 显示捕获边框；用户可
+取消勾选以要求无边框捕获。这不构成 WGC、录屏兼容性或 HDR 的支持声明；关闭边框后若无边框 WGC
+无法安全建立，Host 必须保持或回退到 FX-only。
 
 底层协议仍可由 PowerShell 或其他 Named Pipe 客户端验证：
 
@@ -141,7 +143,7 @@ WGC、录屏兼容性或 HDR 的支持声明。无边框 WGC 无法安全建立�
 GetState
 GetConfig
 SetConfig {"generation":1,"path":"effects.globalScale","value":1.25}
-SetConfig {"generation":1,"path":"background.allowSystemBorder","value":true}
+SetConfig {"generation":1,"path":"background.allowSystemBorder","value":false}
 Pause
 Resume
 Shutdown
