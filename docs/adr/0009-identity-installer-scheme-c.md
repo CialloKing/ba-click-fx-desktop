@@ -12,8 +12,9 @@ portable Win32 Host 没有 Package Identity，不能可靠地使用
 
 ## 决策
 
-1. 方案 C 是独立的 Identity Installer 通道；portable ZIP 继续保留，作为无安装权限、旧系统和
-   Borderless 授权失败时的回退。alpha 测试包不假设拥有 Package Identity。
+1. 方案 C 是面向普通用户的独立 Identity Installer 通道；Release 提供单文件安装器，portable ZIP
+   继续保留，作为无安装权限、旧系统和 Borderless 授权失败时的回退。portable 测试包不假设拥有
+   Package Identity。
 2. Sparse manifest 使用固定的 `Identity.Name` 和 `Publisher` Subject，声明
    `uap10:AllowExternalContent=true`、`rescap:runFullTrust` 和
    `uap11:Capability Name="graphicsCaptureWithoutBorder"`。Manifest Publisher 必须与本机
@@ -36,6 +37,8 @@ portable Win32 Host 没有 Package Identity，不能可靠地使用
 ## 明确不承诺
 
 - 自签安装器不会消除 SmartScreen 的 Unknown Publisher 提示。
+- 安装器需要一次管理员 UAC 确认；没有管理员权限的用户应使用 portable ZIP。运行时数据仍限制在 EXE
+  目录树内，卸载默认保留 `data` 用户配置。
 - `RequestAccessAsync` 的用户同意、Windows 版本支持、DWM 最终像素和无边框效果必须在真实
   Windows 11/目标硬件上验证；离屏测试不能把 ADR 变为 Accepted。
 - Windows SDK 中的 `makeappx.exe`、`signtool.exe` 是否可随公开安装器再分发，必须依据其许可和

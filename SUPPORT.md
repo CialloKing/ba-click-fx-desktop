@@ -55,6 +55,16 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File .\tools\package-test-bundle.ps1
 解压测试包时必须保留其完整目录结构。Control Center 不携带 Windows App SDK 运行时，只有在需要
 通过按钮启动 Host 时才要求与 Host EXE 位于同一目录。
 
+## 普通用户安装
+
+Release 页面中的 `*-setup-windows-x64.exe` 是面向普通用户的单文件安装器。运行时不需要 Windows SDK、Visual
+Studio、Inno Setup 或旁置 Windows App SDK；安装器会在一次 UAC 确认后完成程序文件部署、当前用户的 Sparse
+Package 注册和 Control Center 快捷方式创建。安装完成后打开 Control Center，点击“启动 Host”即可开始使用。
+
+安装器使用目标机生成的本机证书签名 Package，因此 SmartScreen 可能显示“Unknown Publisher”。Release 不提供
+可单独安装的证书、MSIX、私钥或 SDK 工具。卸载可从开始菜单或 Windows“已安装的应用”执行，默认保留安装目录
+下的 `data` 用户配置；需要无管理员权限时可改用 portable ZIP，但它没有 Package Identity。
+
 ## 尚未支持或尚未验证
 
 - HDR、Advanced Color 和物理 nits 输出声明。
@@ -70,8 +80,8 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File .\tools\package-test-bundle.ps1
 - 无论 WGC 是否可用，都不能移除 Layered/Transparent 样式来换取背景采样；这会破坏跨进程按钮点击。
 - 多显示器、跨显示器输入、多适配器和混合刷新率。
 - device removed/reset 后的原地恢复。
-- 开机启动、自动更新、正式安装程序和公有代码签名。仓库中的方案 C Identity Installer
-  仅是需要管理员权限的开发 Spike，不属于 Alpha portable 发布包。
+- 开机启动、自动更新、公有代码签名，以及无边框 WGC 的跨版本稳定性。方案 C 安装器已经作为普通用户发布
+  通道提供，但其背景感知能力仍受 Windows 版本、权限和显卡环境影响；portable ZIP 继续作为无安装权限的备选。
 
 这些能力即使存在实验代码或架构文档，也不属于本 Alpha 的支持合同。
 

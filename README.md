@@ -115,6 +115,24 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File .\tools\package-host-review-bundle
 通常约 0.4 MB；完整测试包现在也只包含两个原生 EXE，压缩后约 0.7 MB，不再携带 Windows App SDK
 旁置运行时。
 
+### 普通用户安装器
+
+Release 页面提供单文件 `*-setup-windows-x64.exe` 安装器。普通用户不需要安装
+Visual Studio、Windows SDK、Inno Setup 或 PowerShell 依赖包；安装器已经包含 Host、Control Center、
+Sparse Package、公钥证书和安装脚本。
+
+1. 从 Release 下载与系统匹配的 `*-setup-windows-x64.exe`，同时下载同名 `.sha256`，按页面提供的哈希校验文件。
+2. 双击安装器并确认一次 UAC。安装器会把程序放到 `Program Files`，为当前用户注册方案 C Package Identity，
+   然后打开 Control Center。
+3. 在 Control Center 中点击“启动 Host”，再按需选择“背景感知”“贴近原版”或“浅色背景优化”。
+   关闭 Control Center 不会停止 Host；可以从通知区域退出 Host。
+4. 卸载时使用开始菜单中的卸载项或 Windows“已安装的应用”。默认保留程序目录下的 `data` 配置，重新安装
+   后仍可继续使用；如需彻底清理，请在卸载前手动备份并删除该目录。
+
+该安装器使用目标机生成的本机证书为 Sparse Package 签名，不是公有代码签名。Windows SmartScreen 可能显示
+“Unknown Publisher”，这是预期提示；不要从 Release 单独下载或安装证书、MSIX、私钥或 SDK 工具。若没有管理员权限，
+请改用上面的 portable 测试 ZIP，直接解压运行即可，但 portable 没有 Package Identity，无法承诺无边框 WGC。
+
 ## Host 控制面
 
 首个产品化垂直切片已经接入版本化配置和本地 Named Pipe。首次启动会在主程序
