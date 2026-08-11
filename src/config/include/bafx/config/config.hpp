@@ -52,9 +52,9 @@ struct BackgroundConfig
     // back to FX-only when WGC or capture exclusion cannot be established.
     CaptureMode mode{CaptureMode::BackgroundAware};
     bool cursorExcluded{true};
-    // A visible WGC privacy border is opt-in. When Windows cannot provide a
-    // borderless session, the host falls back to FX-only instead.
-    bool allowSystemBorder{false};
+    // Keep background-aware rendering usable on systems that require the WGC
+    // privacy indicator. Users can still request borderless-only capture.
+    bool allowSystemBorder{true};
 };
 
 struct InputConfig

@@ -648,9 +648,9 @@ void migrateV3ToV4(JsonValue::Object& root)
     JsonValue::Object& background = ensureObject(root, "background");
     if (background.find("allowSystemBorder") == background.end())
     {
-        // Preserve a border-free desktop on upgrade. Users can explicitly
-        // opt into the Windows privacy border from Control Center.
-        background.emplace("allowSystemBorder", JsonValue(false));
+        // Older schemas had no border policy. Prefer a working background
+        // sensor on Windows versions that require the privacy indicator.
+        background.emplace("allowSystemBorder", JsonValue(true));
     }
     root["schemaVersion"] = JsonValue(4.0);
 }

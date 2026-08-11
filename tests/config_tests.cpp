@@ -46,7 +46,7 @@ BAFX_TEST(config_defaults_round_trip_through_versioned_json)
         defaults.background.mode
         == bafx::config::CaptureMode::BackgroundAware);
     BAFX_CHECK(defaults.background.cursorExcluded);
-    BAFX_CHECK(!defaults.background.allowSystemBorder);
+    BAFX_CHECK(defaults.background.allowSystemBorder);
     BAFX_CHECK_NEAR(defaults.effects.globalScale, 1.0F, 0.00001F);
     BAFX_CHECK_NEAR(defaults.effects.bloomIntensity, 1.0F, 0.00001F);
 
@@ -187,12 +187,12 @@ BAFX_TEST(config_migration_maps_legacy_keys)
     BAFX_CHECK(!result.config.effects.trailEnabled);
     BAFX_CHECK(result.config.background.mode
         == bafx::config::CaptureMode::RecordingCompatible);
-    BAFX_CHECK(!result.config.background.allowSystemBorder);
+    BAFX_CHECK(result.config.background.allowSystemBorder);
     BAFX_CHECK_NEAR(result.config.effects.globalScale, 1.75F, 0.00001F);
     BAFX_CHECK_NEAR(result.config.effects.bloomIntensity, 0.35F, 0.00001F);
 }
 
-BAFX_TEST(config_schema_three_migrates_to_a_hidden_system_border)
+BAFX_TEST(config_schema_three_migrates_to_an_allowed_system_border)
 {
     const auto result = bafx::config::parseJson(R"json(
         {
@@ -205,6 +205,22 @@ BAFX_TEST(config_schema_three_migrates_to_a_hidden_system_border)
     )json");
     BAFX_CHECK(result.status == bafx::config::ConfigStatus::Migrated);
     BAFX_CHECK(result.config.schemaVersion == bafx::config::currentSchemaVersion);
+    BAFX_CHECK(result.config.background.allowSystemBorder);
+}
+
+BAFX_TEST(config_current_schema_preserves_an_explicit_hidden_system_border)
+{
+    const auto result = bafx::config::parseJson(R"json(
+        {
+            "schemaVersion": 4,
+            "background": {
+                "mode": "background-aware",
+                "cursorExcluded": true,
+                "allowSystemBorder": false
+            }
+        }
+    )json");
+    BAFX_CHECK(result.status == bafx::config::ConfigStatus::Ok);
     BAFX_CHECK(!result.config.background.allowSystemBorder);
 }
 
