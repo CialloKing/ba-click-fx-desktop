@@ -471,6 +471,10 @@ function Test-SparsePackageContract
         -Text $machineInstaller `
         -Pattern 'transactionId[\s\S]*ownedCertificateThumbprints[\s\S]*ownedPackageFiles' `
         -Description 'transaction and cleanup ledgers'
+    Assert-TextContains `
+        -Text $machineInstaller `
+        -Pattern '\$ownedCertificateThumbprints\s*=\s*@\([\s\S]*Split-Ledger[\s\S]*\$ownedPackageFiles\s*=\s*@\([\s\S]*Split-Ledger' `
+        -Description 'final install-state ledgers are flattened before serialization'
 
     $controlCenter = Read-RepositoryText -RelativePath 'src/control-center/control_center_window.cpp'
     $activation = Read-RepositoryText -RelativePath 'src/control-center/package_activation.cpp'

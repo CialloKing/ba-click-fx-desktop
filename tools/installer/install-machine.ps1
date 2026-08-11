@@ -1534,6 +1534,18 @@ try
         $certificateInstalledBySetup =
             [bool]$pendingState.oldInstallState.certificateInstalledBySetup
     }
+    $ownedCertificateThumbprints = @(
+        Split-Ledger `
+            -Value $pendingState.ownedCertificateThumbprints `
+            -Separator Comma
+        [string]$pendingState.certificateThumbprint
+    )
+    $ownedPackageFiles = @(
+        Split-Ledger `
+            -Value $pendingState.ownedPackageFiles `
+            -Separator Pipe
+        [string]$pendingState.packageFile
+    )
     $installState = [ordered]@{
         schema = 1
         transactionId = [string]$pendingState.transactionId
@@ -1551,20 +1563,10 @@ try
         installedUserSid = [string]$pendingState.userSid
         packageFile = [string]$pendingState.packageFile
         ownedCertificateThumbprints = Join-Ledger `
-            -Values @(
-                (Split-Ledger `
-                    -Value $pendingState.ownedCertificateThumbprints `
-                    -Separator Comma),
-                [string]$pendingState.certificateThumbprint
-            ) `
+            -Values $ownedCertificateThumbprints `
             -Separator Comma
         ownedPackageFiles = Join-Ledger `
-            -Values @(
-                (Split-Ledger `
-                    -Value $pendingState.ownedPackageFiles `
-                    -Separator Pipe),
-                [string]$pendingState.packageFile
-            ) `
+            -Values $ownedPackageFiles `
             -Separator Pipe
         installedUtc = [DateTime]::UtcNow.ToString('o')
     }
