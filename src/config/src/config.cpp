@@ -664,6 +664,24 @@ void migrateV4ToV5(JsonValue::Object& root)
     root["schemaVersion"] = JsonValue(5.0);
 }
 
+void migrateV5ToV6(JsonValue::Object& root)
+{
+    auto inputIterator = root.find("input");
+    if (inputIterator == root.end())
+    {
+        inputIterator = root.emplace("input", JsonValue(JsonValue::Object{})).first;
+    }
+    JsonValue::Object* const input = objectOf(inputIterator->second);
+    // Schema 5 serialized this dormant field, while the Host always required
+    // a held button. Preserve that effective behavior instead of silently
+    // enabling a new always-on effect for existing profiles.
+    if (input != nullptr)
+    {
+        (*input)["trailOnlyWhilePressed"] = JsonValue(true);
+    }
+    root["schemaVersion"] = JsonValue(6.0);
+}
+
 [[nodiscard]] bool readBool(
     const JsonValue::Object& object,
     const std::string_view key,
@@ -1228,6 +1246,10 @@ void appendJsonValue(
         else if (version == 4U)
         {
             migrateV4ToV5(root);
+        }
+        else if (version == 5U)
+        {
+            migrateV5ToV6(root);
         }
         ++version;
     }

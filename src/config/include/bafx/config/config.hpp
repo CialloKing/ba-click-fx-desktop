@@ -9,7 +9,7 @@
 namespace bafx::config
 {
 
-inline constexpr std::uint32_t currentSchemaVersion = 5U;
+inline constexpr std::uint32_t currentSchemaVersion = 6U;
 
 enum class RenderMode : std::uint8_t
 {
@@ -62,7 +62,7 @@ struct InputConfig
     bool leftClick{true};
     bool rightClick{true};
     bool middleClick{false};
-    bool trailOnlyWhilePressed{false};
+    bool trailOnlyWhilePressed{true};
 };
 
 struct PerformanceConfig
