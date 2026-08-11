@@ -127,10 +127,21 @@ function RunPowerShell(
   const AsOriginalUser: Boolean;
   var ExitCode: Integer): Boolean;
 var
+  ContextName: String;
   Parameters: String;
 begin
+  if AsOriginalUser then
+  begin
+    ContextName := 'original-user';
+  end
+  else
+  begin
+    ContextName := 'elevated';
+  end;
   Parameters := '-NoLogo -NoProfile -ExecutionPolicy Bypass -File ' +
     QuoteArgument(ScriptPath) + ' ' + Arguments;
+  ExitCode := -1;
+  Log('PowerShell [' + ContextName + '] starting: ' + ScriptPath + ' ' + Arguments);
   if AsOriginalUser then
   begin
     Result := ExecAsOriginalUser(
@@ -150,6 +161,37 @@ begin
       SW_HIDE,
       ewWaitUntilTerminated,
       ExitCode);
+  end;
+  if Result then
+  begin
+    Log('PowerShell [' + ContextName + '] exited with code ' + IntToStr(ExitCode) +
+      ': ' + ScriptPath);
+  end
+  else
+  begin
+    Log('PowerShell [' + ContextName + '] could not be started: ' + ScriptPath);
+  end;
+end;
+
+procedure LogRegistrationResult;
+var
+  I: Integer;
+  Lines: TArrayOfString;
+begin
+  if not FileExists(RegistrationResultPath) then
+  begin
+    Log('Package registration result file was not created: ' + RegistrationResultPath);
+    Exit;
+  end;
+  if not LoadStringsFromFile(RegistrationResultPath, Lines) then
+  begin
+    Log('Package registration result file could not be read: ' + RegistrationResultPath);
+    Exit;
+  end;
+  Log('Package registration result follows:');
+  for I := 0 to GetArrayLength(Lines) - 1 do
+  begin
+    Log('  ' + Lines[I]);
   end;
 end;
 
@@ -289,6 +331,7 @@ begin
     True,
     ExitCode) then
   begin
+    LogRegistrationResult;
     RunBestEffortRollback(
       InstallRoot,
       InstallerRoot,
@@ -296,6 +339,7 @@ begin
       RollbackSucceeded);
     RaiseException('Registering the package could not be started.');
   end;
+  LogRegistrationResult;
   if ExitCode <> 0 then
   begin
     RunBestEffortRollback(

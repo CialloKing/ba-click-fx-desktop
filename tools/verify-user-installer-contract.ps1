@@ -332,6 +332,14 @@ function Test-InnoPayloadContract
         -Description 'registration is executed for the installing user'
     Assert-TextContains `
         -Text $inno `
+        -Pattern 'PowerShell \[\x27 \+ ContextName \+ \x27\] exited with code' `
+        -Description 'PowerShell execution context and exit code logging'
+    Assert-TextContains `
+        -Text $inno `
+        -Pattern 'Package registration result follows:' `
+        -Description 'package registration result logging'
+    Assert-TextContains `
+        -Text $inno `
         -Pattern 'SuppressibleMsgBox' `
         -Description 'recovery prompts support unattended installation'
     Assert-TextExcludes `
