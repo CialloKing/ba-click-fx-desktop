@@ -62,4 +62,4 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\identity-package
 
 Windows 10 可以安装/注册的结果取决于系统的 Appx capability 合同；`graphicsCaptureWithoutBorder`
 和最终无黄色边框必须在支持该能力的 Windows 11/硬件上实测。用户拒绝或系统不支持时，Host 会在
-`StartCapture` 前回退 Classic。
+`StartCapture` 前回退内部 FX-only transport。

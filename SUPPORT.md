@@ -4,8 +4,9 @@
 
 - Windows 10/11 x64，单个主显示器。
 - 三种渲染模式下的点击与拖拽特效，以及基于 Unity/游戏资源的当前 D3D11/Bloom 渲染路径：
-  `background-aware`（背景感知）、`classic`（贴近原版）和 `light-background`（浅色背景优化）。
-  背景感知启用 WGC，失败时回退 Classic；其余两项关闭 WGC。
+  `background-aware`（背景感知）、`recording-compatible`（录屏兼容拟合）和
+  `light-background`（浅色背景优化）。背景感知启用 WGC，失败时回退内部 FX-only transport；
+  其余两项关闭 WGC。
 - `BAFX.ControlCenter.exe` 的原生 Win32 控制面：启用状态、点击特效、鼠标拖尾、拖尾常驻、效果大小、拖尾长度、
   拖尾宽度、输入采样率上限、Bloom 强度和 Bloom 质量会通过本地 Named Pipe 在下一帧应用到正在运行的 Host。
 - 输入采样率 `0` 表示不限频；`1..1000 Hz` 只按 Raw Input 的 QPC 时间过滤 Move，不影响按下、抬起或取消。
@@ -19,7 +20,7 @@
 - 首次生成的 schema 7 配置默认为 `background.mode=background-aware`，同时设置
   `background.allowSystemBorder=true`。schema 1/2/3 迁移时默认允许系统边框；schema 4 迁移时缺失字段
   也使用该默认值，但已有 schema 4 中显式保存的 `false` 会原样保留。背景感知授权、排除或会话失败时
-  回退 Classic；其余模式不启用 WGC。schema 5 迁移会把当时未接线的拖尾按键策略归一为
+  回退内部 FX-only transport；其余模式不启用 WGC。schema 5 迁移会把当时未接线的拖尾按键策略归一为
   “仅按住时”，因此新增的“拖尾常驻”默认关闭，必须由用户显式开启。schema 6 迁移会新增
   `input.samplingRateHz=0`，保持此前不限频的输入行为。
 - 运行时用户数据采用 portable 规则：`BAFX.config.json`、`ba-click-fx-desktop-support.log`
@@ -29,12 +30,13 @@
   `graphicsCaptureWithoutBorder` capability。新配置默认允许 Windows 显示捕获边框；可见边框状态记录为
   `system-border=visible-allowed`。用户可在 Control Center 中取消勾选“允许黄色捕获边框”；关闭后会在
   `StartCapture` 前确认无边框会话，接口缺失、权限不足或系统仍要求边框时直接报告
-  `Support.WGC=fallback-fx-only`，并把当前渲染批次回退到 Classic，不会先启动带黄色边框的会话。切换到
-  `classic` 或 `light-background` 会关闭 WGC。日志中的
+  `Support.WGC=fallback-fx-only`，并把当前渲染批次回退到内部 FX-only transport，不会先启动带黄色
+  边框的会话。切换到 `recording-compatible` 或 `light-background` 会关闭 WGC。日志中的
   `WGC background sample entered the final desktop composite` 才表示背景样本已经进入最终 pass。
-- Classic 使用现有 FX-only coverage transport；LightBackground 使用 `visual-max`、`bright-core`，
-  并将桌面 source-over Alpha 限制为 `0.85`。DirectComposition 没有浏览器 `Screen` API 的逐像素
-  等价物，因此这两种模式不是任意桌面像素的逐点捕获。
+- RecordingCompatible 按 Web 版截图的透明覆盖层、`visual-max`、`bright-core`、`0.90` Alpha 上限、
+  `source-over` 和未知透明背景设置拟合；LightBackground 使用同一策略，但将 Alpha 上限收紧为
+  `0.85`。原生 DirectComposition 没有 DOM 背景表面的逐像素等价物，因此这两种模式都不读取桌面，
+  也不是任意桌面像素的逐点捕获。
 - Release Host 静态链接 Visual C++ 运行库；仍使用 Windows 自带的 D3D11、DirectComposition 和
   D3DCompiler 系统组件。四张纹理以 raw LZ4 字节编译进 EXE，运行时不读取图片，也不使用 WIC；
   仅开发用的 GPU 捕获工具使用 WIC 写出验证 PNG。
@@ -72,13 +74,13 @@ Windows“已安装的应用”执行，默认保留安装目录
 - HDR、Advanced Color 和物理 nits 输出声明。
 - WGC 背景感知的外部录屏兼容性、会话长时间压力与权限拒绝矩阵。Control Center 中三种模式和
   “允许黄色捕获边框”仍是实验入口；本 Alpha 不将 WGC、录屏兼容性或 HDR 作为可依赖的效果路径。
-  `background-aware` 启动失败或会话中止后回退 Classic，并撤销窗口捕获排除，避免 FX-only 回退被
-  录屏器隐藏；`classic` 和 `light-background` 始终关闭 WGC。
+  `background-aware` 启动失败或会话中止后回退内部 FX-only transport，并撤销窗口捕获排除，避免
+  回退画面被录屏器隐藏；`recording-compatible` 和 `light-background` 始终关闭 WGC。
 - 当前 Windows 10 19045 实测中，默认允许可见系统边框时，窗口保留
   `WS_EX_LAYERED | WS_EX_TRANSPARENT`，请求 `WDA_EXCLUDEFROMCAPTURE` 后查询值为 `0x11`，
   WGC 会话可正常取帧，光标排除成功，426 个渲染帧中有 423 个背景合成帧。该数据不证明无边框能力；
   在 Control Center 中关闭黄色边框后，该系统因边框隐藏接口不可用而在 `StartCapture` 前回退
-  Classic。已有 schema 4 配置若显式保存了 `false`，迁移到当前 schema 7 后仍保持该关闭状态。
+  FX-only。已有 schema 4 配置若显式保存了 `false`，迁移到当前 schema 7 后仍保持该关闭状态。
 - 无论 WGC 是否可用，都不能移除 Layered/Transparent 样式来换取背景采样；这会破坏跨进程按钮点击。
 - 多显示器、跨显示器输入、多适配器和混合刷新率。
 - device removed/reset 后的原地恢复。
@@ -99,5 +101,6 @@ Windows“已安装的应用”执行，默认保留安装目录
 
 smoke 只证明当前 Windows 会话中的基本渲染链路可用。运行日志中的
 `Support.WGC=active` 表示本次背景感知会话成功创建了 WGC 路径；随后出现背景合成日志才表示样本已
-参与；`fallback-fx-only` 表示已安全降级到 Classic。Classic 和 LightBackground 不创建 WGC，
-但仍可进行人工视觉审核；这些状态都不替代 HDR、多显示器、录屏兼容性或其他硬件矩阵验证。
+参与；`fallback-fx-only` 表示已安全降级到内部 FX-only transport。RecordingCompatible 和
+LightBackground 不创建 WGC，但仍可进行人工视觉审核；这些状态都不替代 HDR、多显示器、
+录屏兼容性或其他硬件矩阵验证。

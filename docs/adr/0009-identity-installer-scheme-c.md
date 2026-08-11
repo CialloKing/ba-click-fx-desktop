@@ -29,7 +29,7 @@ portable Win32 Host 没有 Package Identity，不能可靠地使用
 5. Host 启动时先用 `GetCurrentPackageFullName` 探测 identity。只有存在 identity 且
    `GraphicsCaptureAccess::RequestAccessAsync(Borderless)` 返回 `Allowed` 后，才允许调用
    `IGraphicsCaptureSession3::IsBorderRequired(false)`；任一条件失败都在 `StartCapture` 前回退
-     Classic，并记录明确原因。
+     内部 FX-only transport，并记录明确原因。
 6. identity 安装版的程序文件目录不可由普通用户写入。运行数据仍限制在程序目录树内，但必须放在
    单独授予用户写权限的 `data` 子目录；不能让用户可写的目录同时承载拥有 Borderless capability
    的外部 Host EXE。
@@ -51,7 +51,7 @@ portable Win32 Host 没有 Package Identity，不能可靠地使用
 - portable Host 的支持报告明确显示 `Package.Identity=absent`，不会请求 Borderless。
 - identity Host 能显示 package full name、external location 和证书指纹，并在授权成功后隐藏边框。
 - 用户拒绝、系统拒绝、无 capability、直接裸 EXE 启动和外部文件被替换时均不启动无边框会话，
-  而是回退 Classic。
+  而是回退内部 FX-only transport。
 - 安装、重启、升级、卸载后不残留包注册、私钥或非本安装实例的证书；程序目录和数据目录权限
   符合上述分离合同。
 

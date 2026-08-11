@@ -27,15 +27,16 @@ Host 现在会把主显示器 DPI、DXGI 色彩空间、位深和驱动提供的
 - D3D11 immediate context 只由 Render Owner 使用。
 - 一个 DXGI Adapter 定义一个资源域；跨适配器资源不隐式共享。
 - Windows Graphics Capture 只由 `background-aware` 模式使用；它不是基础点击特效的硬依赖，失败时
-  回退到 `classic`。
-- `background-aware`、`classic`、`light-background` 是唯一的产品渲染模式。前者使用 WGC 和完整的
-  Differential Bloom；`classic` 使用现有 FX-only coverage transport；`light-background` 使用
-  `visual-max`、`bright-core` 和 `0.85` 的桌面 Alpha 上限。后两者关闭 WGC。
+  回退到内部 FX-only transport。
+- `background-aware`、`recording-compatible`、`light-background` 是唯一的产品渲染模式。前者使用
+  WGC 和完整的 Differential Bloom；`recording-compatible` 关闭 WGC，拟合 Web 版透明覆盖层的
+  `visual-max`、`bright-core`、`0.90` Alpha 上限和 source-over；`light-background` 使用同一颜色策略，
+  但将桌面 Alpha 上限收紧为 `0.85`。
 - 最终透明交换链使用 FP16 扩展预乘输出；普通 SDR 下不得承诺白底仍有加法余量。
 - 三角碎片保持 crisp-only，可保留未模糊的 HDR 核心，但 `BloomSeed=0`，不产生模糊光晕。
 
 桌面版的 DirectComposition overlay 没有浏览器 `Screen` API 的逐像素等价物。只有
-`background-aware` 在 WGC 样本有效时能把异步桌面纹理带入合成；`classic` 和 `light-background`
+`background-aware` 在 WGC 样本有效时能把异步桌面纹理带入合成；`recording-compatible` 和 `light-background`
 是没有捕获背景时的确定性传输策略，不能宣称对任意桌面像素逐点还原。
 
 ## 文档入口
@@ -124,7 +125,7 @@ Visual Studio、Windows SDK、Inno Setup 或 PowerShell 依赖包；安装器已
 1. 从 Release 下载与系统匹配的 `*-setup-windows-x64.exe`，同时下载同名 `.sha256`，按页面提供的哈希校验文件。
 2. 双击安装器并确认一次 UAC。安装器会把程序放到 `Program Files`，为当前用户注册方案 C Package Identity，
    然后打开 Control Center。
-3. 在 Control Center 中点击“启动 Host”，再按需选择“背景感知”“贴近原版”或“浅色背景优化”。
+3. 在 Control Center 中点击“启动 Host”，再按需选择“背景感知”“录屏兼容拟合”或“浅色背景优化”。
    关闭 Control Center 不会停止 Host；可以从通知区域退出 Host。
 4. 卸载时使用开始菜单中的卸载项或 Windows“已安装的应用”。默认保留程序目录下的 `data` 配置，重新安装
    后仍可继续使用；如需彻底清理，请在卸载前手动备份并删除该目录。
@@ -136,9 +137,10 @@ Visual Studio、Windows SDK、Inno Setup 或 PowerShell 依赖包；安装器已
 
 ## Host 控制面
 
-首个产品化垂直切片已经接入版本化配置和本地 Named Pipe。首次启动会在主程序
+首个产品化垂直切片已经接入版本化配置和本地 Named Pipe。portable Host 会在主程序
 `ba-click-fx-desktop.exe` 同目录创建 `BAFX.config.json` 和
-`ba-click-fx-desktop-support.log`；支持报告也会被限制在该目录。运行时不再使用
+`ba-click-fx-desktop-support.log`；Identity 安装版则将这些文件放入同一目录下可写的 `data` 子目录。
+支持报告也会被限制在这棵目录树内。运行时不再使用
 `%LOCALAPPDATA%`、当前工作目录或其他用户目录保存数据。Host 使用
 `Local\BAFX.Host.v1` 互斥体保证单实例。
 
@@ -148,8 +150,9 @@ Visual Studio、Windows SDK、Inno Setup 或 PowerShell 依赖包；安装器已
 `false` 会原样保留。schema 5 虽然序列化了尚未接线的 `trailOnlyWhilePressed=false`，实际行为始终要求
 按住鼠标；迁移到 schema 6 时会归一为 `true`，避免升级后意外开启拖尾常驻。schema 6 迁移到
 schema 7 时新增 `input.samplingRateHz=0`，保持此前不限频的输入行为。只有
-`background-aware` 会启用 WGC；WGC 或捕获排除路径失败时，Host 将当前批次回退到 `classic` 的
-FX-only coverage transport，支持报告仍记为 `fallback-fx-only`。
+`background-aware` 会启用 WGC；WGC 或捕获排除路径失败时，Host 将当前批次回退到内部
+FX-only coverage transport，支持报告仍记为 `fallback-fx-only`。这个故障回退不是一个可选的产品模式，
+也不会把背景感知配置改写成其他模式。
 portable EXE 不带 package identity，因此不会把无边框捕获 capability 伪装成已支持。允许系统边框时，
 WGC 可以在 Windows 要求隐私提示的情况下启动；可见边框会在日志中记为
 `system-border=visible-allowed`。用户可以在 Control Center 中取消勾选“允许黄色捕获边框”；此后 Host
@@ -169,11 +172,18 @@ FX-only，不会先启动带黄色边框的会话。无论该开关如何设置�
 限频只丢弃过密 Move，按下、抬起和取消不会被延迟，也不会修改 Unity TrailRenderer 的
 `m_MinVertexDistance=0.01`、`time=0.3` 或 `widthMultiplier=0.005`。
 
-控制中心也会显示三个渲染模式（显示名依次为“背景感知”“贴近原版”“浅色背景优化”），以及
-“允许黄色捕获边框”复选框。它们对应的 wire values 分别为 `background-aware`、`classic`、
-`light-background`；切换到后两项会关闭 WGC。新配置默认请求 `background-aware` 并允许 Windows
-显示捕获边框；用户可取消勾选以要求无边框捕获。这不构成 WGC、录屏兼容性或 HDR 的支持声明；
-关闭边框后若无边框 WGC 无法安全建立，Host 必须保持或回退到 `classic`。
+控制中心也会显示三个渲染模式（显示名依次为“背景感知”“录屏兼容拟合”“浅色背景优化”），以及
+“允许黄色捕获边框”复选框。它们对应的 wire values 分别为 `background-aware`、
+`recording-compatible`、`light-background`；切换到后两项会关闭 WGC。新配置默认请求
+`background-aware` 并允许 Windows 显示捕获边框；用户可取消勾选以要求无边框捕获。这不构成 WGC、
+录屏兼容性或 HDR 的支持声明；关闭边框后若无边框 WGC 无法安全建立，Host 必须保持或回退到内部
+FX-only transport。
+
+“录屏兼容拟合”固定使用截图中 Web 版设置的原生对应：`browser-overlay` 透明覆盖层、
+`visual-max` Alpha 策略、`bright-core` 颜色补偿、`0.90` Alpha 上限、`source-over` 宿主合成，
+并按未知透明背景处理，不让 WGC 样本进入最终 pass。原生桌面没有 Web 的 DOM 背景表面；这里由
+DirectComposition 的 FP16 预乘透明 surface 承担最接近的传输角色，因此这是录屏可见性优先的视觉拟合，
+不是对 `hostCompositingSurface=dom-backdrop` 的逐像素实现，也不保证所有录屏器都能捕获。
 
 底层协议仍可由 PowerShell 或其他 Named Pipe 客户端验证：
 
@@ -184,7 +194,7 @@ SetConfig {"generation":1,"path":"effects.globalScale","value":1.25}
 SetConfig {"generation":1,"path":"input.trailOnlyWhilePressed","value":false}
 SetConfig {"generation":1,"path":"input.samplingRateHz","value":30}
 SetConfig {"generation":1,"path":"background.mode","value":"background-aware"}
-SetConfig {"generation":1,"path":"background.mode","value":"classic"}
+SetConfig {"generation":1,"path":"background.mode","value":"recording-compatible"}
 SetConfig {"generation":1,"path":"background.mode","value":"light-background"}
 SetConfig {"generation":1,"path":"background.allowSystemBorder","value":false}
 Pause

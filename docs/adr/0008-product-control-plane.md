@@ -25,19 +25,20 @@
    配置库声明的产品字段，并在 generation 不匹配时返回冲突。响应中的 `generation` 用于
    客户端判断快照是否变化；Preset/Profile 等更高层功能在此协议稳定后再增加。
 6. `background.mode` 的产品 wire values 与 Control Center 显示名固定如下：
-   `background-aware`（背景感知）、`classic`（贴近原版）和 `light-background`（浅色背景优化）。
-   只有背景感知启用 WGC；WGC 失败时回退 Classic。Classic 使用现有 FX-only coverage transport，
-   LightBackground 使用 `visual-max` + `bright-core`，并将 source-over Alpha 限制为 `0.85`；后两者
-   关闭 WGC。
+   `background-aware`（背景感知）、`recording-compatible`（录屏兼容拟合）和
+   `light-background`（浅色背景优化）。只有背景感知启用 WGC；WGC 失败时回退内部 FX-only
+   coverage transport。RecordingCompatible 按 Web 透明覆盖层的 `visual-max` + `bright-core`、
+   `0.90` Alpha 上限、`source-over` 和未知背景合同拟合；LightBackground 使用同一策略，但将 Alpha
+   上限收紧为 `0.85`。后两者关闭 WGC。
 
    | Control Center 显示名 | `background.mode` wire value | WGC |
    | --- | --- | --- |
-   | 背景感知 | `background-aware` | 启用，失败回退 Classic |
-   | 贴近原版 | `classic` | 关闭 |
+   | 背景感知 | `background-aware` | 启用，失败回退内部 FX-only |
+   | 录屏兼容拟合 | `recording-compatible` | 关闭 |
    | 浅色背景优化 | `light-background` | 关闭 |
 
 7. 新配置的 `background.allowSystemBorder` 默认为 `true`。Control Center 通过复选框更新该字段；
-   用户取消勾选后，Host 必须在 `StartCapture` 前确认无边框 WGC 能力，否则回退 Classic。已有
+   用户取消勾选后，Host 必须在 `StartCapture` 前确认无边框 WGC 能力，否则回退内部 FX-only。已有
    schema 4 中显式保存的 `false` 必须保留，不能被启动或迁移流程重置。DComp overlay 没有浏览器
    `Screen` API 的逐像素等价物，控制面不得宣称三种模式都能逐像素复现桌面。
 8. Control Center 提供默认关闭的“拖尾常驻”复选框，并反向映射到历史配置字段
