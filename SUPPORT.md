@@ -70,7 +70,8 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File .\tools\package-test-bundle.ps1
 - 无论 WGC 是否可用，都不能移除 Layered/Transparent 样式来换取背景采样；这会破坏跨进程按钮点击。
 - 多显示器、跨显示器输入、多适配器和混合刷新率。
 - device removed/reset 后的原地恢复。
-- 开机启动、自动更新、安装程序和代码签名。
+- 开机启动、自动更新、正式安装程序和公有代码签名。仓库中的方案 C Identity Installer
+  仅是需要管理员权限的开发 Spike，不属于 Alpha portable 发布包。
 
 这些能力即使存在实验代码或架构文档，也不属于本 Alpha 的支持合同。
 

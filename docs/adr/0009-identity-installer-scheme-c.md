@@ -49,3 +49,21 @@ portable Win32 Host 没有 Package Identity，不能可靠地使用
   而是回退 Classic。
 - 安装、重启、升级、卸载后不残留包注册、私钥或非本安装实例的证书；程序目录和数据目录权限
   符合上述分离合同。
+
+## 本机 Spike 证据（2026-08-11）
+
+在 Windows 10 Pro 19045、Windows SDK 10.0.26100 和 NVIDIA RTX 4060 Laptop 的本机环境中，
+使用 `tools/identity-package/install-identity-package.ps1` 完成了一次可逆安装闭环：
+
+- Sparse 包成功注册，Shell Package Activation 创建了带
+  `Package.Identity=present` 的 Host；日志记录了 package full name 和
+  `PackagePath`。
+- `BAFX.config.json`、支持日志和安装元数据均位于外部 Host EXE 下的 `data` 子目录；复制引导文件
+  后继承当前用户写权限，激活后的 Host 能继续追加日志。配置文件以无 BOM UTF-8 保存。
+- Windows 10 上 `BorderlessAccess` 返回 `0x80040154`（接口未注册），Host 在 `StartCapture` 前
+  记录 `Support.WGC=fallback-fx-only`，没有伪装成无边框成功。
+- 通过精确的 `packageFullName` 执行卸载后，包注册、`TrustedPeople` 中的本机证书、Identity 目录、
+  `data` 目录和临时安装目录均已清理；CurrentUser 私钥存储没有残留该 Subject 的证书。
+
+这组证据只验证安装通道和安全回退，不能替代 Windows 11/目标硬件上的无边框授权、DWM 最终像素和
+升级矩阵验收，因此 ADR 仍保持 **Proposed**。
