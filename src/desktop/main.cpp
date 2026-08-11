@@ -575,6 +575,8 @@ int runApplication(
     std::uint64_t appliedGeneration = control.snapshot().generation;
     bool backgroundParticipationLogged = false;
     bool backgroundPendingDiagnosticLogged = false;
+    bool backgroundFrameInvalidated = false;
+    bool lastPresentedDrawableContent = false;
     const bafx::fx::SimulationTime applicationStartedAt = clock.now();
     while (!quit && !window.closeRequested())
     {
@@ -587,7 +589,8 @@ int runApplication(
             break;
         }
 
-        bool renderInvalidated = false;
+        bool renderInvalidated = backgroundFrameInvalidated;
+        backgroundFrameInvalidated = false;
         if (controlState.generation != appliedGeneration)
         {
             renderInvalidated = true;
@@ -717,6 +720,7 @@ int runApplication(
                 ? simulation.snapshot(toViewport(window.size()), renderTime)
                 : bafx::fx::FrameSnapshot{};
             applyVisualConfig(snapshot, config);
+            lastPresentedDrawableContent = snapshot.hasDrawableContent();
             // A paused DComp surface can persist indefinitely. Its last frame
             // may only bake a current background; normal animation tolerates
             // short WGC cadence gaps without modulating FX energy.
@@ -812,15 +816,26 @@ int runApplication(
         DWORD waitResult = WAIT_TIMEOUT;
         if (controlState.paused)
         {
-            // A DirectComposition swap chain retains its last presented frame.
-            // Poll only the control plane while paused, without consuming WGC
-            // frames or presenting the frozen overlay again.
+            // Pause freezes authored simulation state, not the desktop beneath
+            // it. A visible retained effect must follow WGC frame events so its
+            // source-over payload never keeps an obsolete light background.
+            const HANDLE backgroundWaitable = lastPresentedDrawableContent
+                ? renderer.backgroundFrameAvailableObject()
+                : nullptr;
+            const DWORD backgroundWaitableCount = backgroundWaitable != nullptr
+                ? 1U
+                : 0U;
             waitResult = MsgWaitForMultipleObjectsEx(
-                0,
-                nullptr,
+                backgroundWaitableCount,
+                backgroundWaitableCount > 0U ? &backgroundWaitable : nullptr,
                 pausedControlPollMilliseconds,
                 QS_ALLINPUT,
                 MWMO_INPUTAVAILABLE);
+            if (backgroundWaitableCount > 0U
+                && waitResult == WAIT_OBJECT_0)
+            {
+                backgroundFrameInvalidated = true;
+            }
         }
         else
         {

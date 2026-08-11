@@ -548,6 +548,13 @@ HANDLE CompositionRenderer::frameLatencyWaitableObject() const noexcept
     return frameLatencyHandle_.get();
 }
 
+HANDLE CompositionRenderer::backgroundFrameAvailableObject() const noexcept
+{
+    return backgroundSensor_ != nullptr
+        ? backgroundSensor_->frameAvailableObject()
+        : nullptr;
+}
+
 D3D_FEATURE_LEVEL CompositionRenderer::featureLevel() const noexcept
 {
     return featureLevel_;

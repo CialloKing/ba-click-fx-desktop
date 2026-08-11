@@ -108,6 +108,7 @@ public:
     void setReadbackDiagnostics(bool enabled);
 
     [[nodiscard]] HANDLE frameLatencyWaitableObject() const noexcept;
+    [[nodiscard]] HANDLE backgroundFrameAvailableObject() const noexcept;
     [[nodiscard]] D3D_FEATURE_LEVEL featureLevel() const noexcept;
     [[nodiscard]] const GraphicsDeviceInfo& deviceInfo() const noexcept;
     [[nodiscard]] std::optional<PixelF> lastCenterPixel() const noexcept;
