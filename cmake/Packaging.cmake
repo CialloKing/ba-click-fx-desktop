@@ -46,4 +46,37 @@ if(BAFX_POWERSHELL_EXECUTABLE)
         VERBATIM
     )
     set_target_properties(verify_alpha_package PROPERTIES FOLDER "Validation")
+
+    add_custom_target(
+        verify_user_installer_contract
+        COMMAND
+            "${BAFX_POWERSHELL_EXECUTABLE}"
+            -NoProfile
+            -File "${CMAKE_SOURCE_DIR}/tools/verify-user-installer-contract.ps1"
+            -RepositoryRoot "${CMAKE_SOURCE_DIR}"
+        COMMENT "Verify the ordinary-user installer source contracts"
+        VERBATIM
+    )
+    set_target_properties(
+        verify_user_installer_contract
+        PROPERTIES
+            FOLDER "Validation"
+    )
+
+    if(BUILD_TESTING)
+        add_test(
+            NAME user_installer_contract
+            COMMAND
+                "${BAFX_POWERSHELL_EXECUTABLE}"
+                -NoProfile
+                -File "${CMAKE_SOURCE_DIR}/tools/verify-user-installer-contract.ps1"
+                -RepositoryRoot "${CMAKE_SOURCE_DIR}"
+        )
+        set_tests_properties(
+            user_installer_contract
+            PROPERTIES
+                LABELS "packaging;contract"
+                TIMEOUT 30
+        )
+    endif()
 endif()

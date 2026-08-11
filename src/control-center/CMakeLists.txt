@@ -2,6 +2,7 @@ add_executable(
     bafx_control_center
     WIN32
         control_center_window.cpp
+        package_activation.cpp
         host_state.cpp
         main.cpp
         "${PROJECT_SOURCE_DIR}/src/windows/src/package_identity.cpp"
@@ -31,7 +32,7 @@ target_link_libraries(
     PRIVATE
         bafx::config
         comctl32
-        shell32
+        ole32
         user32
 )
 bafx_enable_warnings(bafx_control_center)

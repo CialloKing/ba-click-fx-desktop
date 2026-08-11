@@ -83,6 +83,23 @@ if(WIN32)
     set_target_properties(bafx_runtime_diagnostics_tests PROPERTIES FOLDER "Tests")
 
     add_executable(
+        bafx_control_center_tests
+        test_main.cpp
+        package_activation_tests.cpp
+        "${PROJECT_SOURCE_DIR}/src/control-center/package_activation.cpp"
+    )
+    target_include_directories(
+        bafx_control_center_tests
+        PRIVATE
+            "${PROJECT_SOURCE_DIR}/src/control-center"
+    )
+    target_link_libraries(bafx_control_center_tests PRIVATE ole32)
+    target_compile_features(bafx_control_center_tests PRIVATE cxx_std_20)
+    bafx_enable_warnings(bafx_control_center_tests)
+    add_test(NAME control_center_activation COMMAND bafx_control_center_tests)
+    set_target_properties(bafx_control_center_tests PROPERTIES FOLDER "Tests")
+
+    add_executable(
         bafx_packed_texture_tests
         test_main.cpp
         packed_fx_textures_tests.cpp

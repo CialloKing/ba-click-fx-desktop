@@ -1,9 +1,10 @@
 #include "control_center_window.hpp"
 
+#include "package_activation.hpp"
+
 #include "bafx/windows/portable_paths.hpp"
 
 #include <commctrl.h>
-#include <shellapi.h>
 
 #include <algorithm>
 #include <array>
@@ -41,6 +42,18 @@ constexpr int defaultClientWidth = 960;
 constexpr int defaultClientHeight = 600;
 constexpr DWORD controlCenterWindowStyle =
     WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN | WS_CLIPSIBLINGS;
+
+[[nodiscard]] std::wstring hresultText(const HRESULT result)
+{
+    std::wostringstream stream;
+    stream << L"0x"
+           << std::uppercase
+           << std::hex
+           << std::setw(8)
+           << std::setfill(L'0')
+           << static_cast<unsigned long>(result);
+    return stream.str();
+}
 
 [[nodiscard]] bafx::windows::IpcClientOptions controlCenterIpcOptions()
 {
@@ -1500,21 +1513,57 @@ void ControlCenterWindow::startHostFromBundle()
         return;
     }
 
-    const HINSTANCE result = ShellExecuteW(
-        nullptr,
-        L"open",
-        hostPath.c_str(),
-        nullptr,
-        hostPath.parent_path().c_str(),
-        SW_SHOWNOACTIVATE);
-    const INT_PTR resultCode = reinterpret_cast<INT_PTR>(result);
-    if (resultCode <= 32)
+    const PackageActivationIdentityResult packageIdentity =
+        readPackageActivationState(hostPath.parent_path());
+    if (packageIdentity.installStatePresent)
     {
-        hostStartPending_ = false;
-        updateHostLifecycleButton();
-        setError(L"启动 Host 失败，ShellExecute 错误码："
-            + std::to_wstring(resultCode));
-        return;
+        if (!packageIdentity.succeeded())
+        {
+            setInfo(
+                L"安装状态无效",
+                packageIdentity.error
+                    + L" 请重新运行安装器进行修复。");
+            return;
+        }
+
+        const PackageActivationResult activation = activatePackagedHost(
+            packageIdentity.identity->appUserModelId);
+        if (!activation.succeeded())
+        {
+            setError(
+                L"通过 Package Activation 启动 Host 失败，HRESULT："
+                + hresultText(activation.result));
+            return;
+        }
+    }
+    else
+    {
+        STARTUPINFOW startupInfo{};
+        startupInfo.cb = sizeof(startupInfo);
+        startupInfo.dwFlags = STARTF_USESHOWWINDOW;
+        startupInfo.wShowWindow = SW_SHOWNOACTIVATE;
+        PROCESS_INFORMATION processInfo{};
+        std::wstring commandLine = L"\"" + hostPath.wstring() + L"\"";
+        const std::wstring workingDirectory = hostPath.parent_path().wstring();
+        if (CreateProcessW(
+                hostPath.c_str(),
+                commandLine.data(),
+                nullptr,
+                nullptr,
+                FALSE,
+                CREATE_DEFAULT_ERROR_MODE,
+                nullptr,
+                workingDirectory.c_str(),
+                &startupInfo,
+                &processInfo) == FALSE)
+        {
+            const DWORD error = GetLastError();
+            setError(L"启动 portable Host 失败，Win32 错误码："
+                + std::to_wstring(error));
+            return;
+        }
+        CloseHandle(processInfo.hThread);
+        CloseHandle(processInfo.hProcess);
     }
 
     hostRunning_ = true;
