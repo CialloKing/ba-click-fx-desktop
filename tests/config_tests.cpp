@@ -42,7 +42,9 @@ BAFX_TEST(config_defaults_round_trip_through_versioned_json)
     const bafx::config::Config defaults = bafx::config::defaultConfig();
     BAFX_CHECK(defaults.schemaVersion == bafx::config::currentSchemaVersion);
     BAFX_CHECK(defaults.effects.enabled);
-    BAFX_CHECK(defaults.background.mode == bafx::config::CaptureMode::FxOnly);
+    BAFX_CHECK(
+        defaults.background.mode
+        == bafx::config::CaptureMode::BackgroundAware);
     BAFX_CHECK(defaults.background.cursorExcluded);
     BAFX_CHECK_NEAR(defaults.effects.globalScale, 1.0F, 0.00001F);
     BAFX_CHECK_NEAR(defaults.effects.bloomIntensity, 1.0F, 0.00001F);

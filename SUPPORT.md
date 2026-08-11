@@ -11,8 +11,8 @@
 - 支持报告会记录主屏 DPI、DXGI 色彩空间、位深和亮度元数据；这些只是当前输出快照，不能据此
   宣称 HDR、Advanced Color 或物理 nits 输出已经受支持。驱动未提供有效亮度时会记录
   `luminance-unknown`。
-- 首次生成的 schema 3 配置默认为 `background.mode=fx-only`；背景捕获必须显式启用，
-  授权、排除或会话失败时继续使用 FX-only。
+- 首次生成的 schema 3 配置默认为 `background.mode=background-aware`；授权、排除或会话
+  失败时继续使用 FX-only。
 - WGC 是可选的背景差分输入，不是点击特效依赖。portable EXE 没有 package identity，
   也不会自行声明 `graphicsCaptureWithoutBorder` capability；捕获会话启动后报告
   `Support.WGC=active`，系统边框和光标能力会单独写入日志。日志中的
@@ -41,7 +41,7 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File .\tools\package-test-bundle.ps1
 
 - HDR、Advanced Color 和物理 nits 输出声明。
 - WGC 背景感知的边框策略、外部录屏兼容性、会话长时间压力与权限拒绝矩阵。Control Center 中的
-  `background-aware` 与 `recording-compatible` 选项仍是显式实验入口；本 Alpha 不将它们作为
+  `background-aware` 与 `recording-compatible` 选项仍是实验入口；本 Alpha 不将它们作为
   可依赖的效果路径，出现失败或帧过期时应维持或回退 FX-only。`recording-compatible` 始终关闭
   WGC 并撤销窗口捕获排除，以便录屏器有机会看到 overlay，但不保证任意录屏器都能捕获。
   `background-aware` 启动或会话中止后也会撤销窗口捕获排除，避免 FX-only 回退被录屏器隐藏。

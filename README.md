@@ -115,8 +115,8 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File .\tools\package-host-review-bundle
 `%LOCALAPPDATA%\BAFX\config.json` 创建 schema 3 默认配置；Host 使用
 `Local\BAFX.Host.v1` 互斥体保证单实例。
 
-首次生成的配置将 `background.mode` 设为 `fx-only`。`background-aware` 和
-`recording-compatible` 需要用户显式选择；WGC 或录屏路径失败时 Host 继续使用 FX-only。
+首次生成的配置将 `background.mode` 设为 `background-aware`。WGC 或捕获排除路径失败时
+Host 会继续使用 FX-only；`recording-compatible` 仍需要用户显式选择。
 portable EXE 不带 package identity，因此不会把无边框捕获 capability 伪装成已支持；WGC 只有在
 窗口自排除已确认且捕获会话成功时才会进入 active 状态。边框隐藏和光标排除能力分别记录在日志中；
 缺少无边框接口时允许带系统边框的实验捕获，但不会降低 Overlay 的跨进程鼠标穿透优先级，任何
@@ -127,9 +127,9 @@ portable EXE 不带 package identity，因此不会把无边框捕获 capability
 效果大小、拖尾长度、拖尾宽度、Bloom 强度与 Bloom 质量。数值控件会合并连续拖动后的写入，避免为
 每个滑块像素都写一次配置。
 
-控制中心也会显示 `fx-only`、`background-aware` 和 `recording-compatible` 三个背景模式。当前默认且
-受支持的模式是 `fx-only`；其余模式只表示可选背景捕获配置，尚不构成 WGC、录屏兼容性或 HDR 的支持
-声明，失败时 Host 必须保持或回退到 FX-only。
+控制中心也会显示 `fx-only`、`background-aware` 和 `recording-compatible` 三个背景模式。新配置
+默认请求 `background-aware`，但这不构成 WGC、录屏兼容性或 HDR 的支持声明；失败时 Host 必须
+保持或回退到 FX-only。
 
 底层协议仍可由 PowerShell 或其他 Named Pipe 客户端验证：
 
