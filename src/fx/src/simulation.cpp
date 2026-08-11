@@ -369,6 +369,31 @@ template<std::size_t keyCount>
 
 }
 
+void applyGlobalScale(FrameSnapshot& snapshot, const float scale) noexcept
+{
+    const float safeScale = std::isfinite(scale) && scale > 0.0F
+        ? scale
+        : 1.0F;
+    for (Sprite& sprite : snapshot.sprites)
+    {
+        sprite.sizePixels *= safeScale;
+        if (sprite.scaleCenterWithGlobalScale)
+        {
+            const PointF offset = subtract(
+                sprite.centerPixels,
+                sprite.globalScalePivotPixels);
+            sprite.centerPixels = add(
+                sprite.globalScalePivotPixels,
+                multiply(offset, safeScale));
+        }
+    }
+    snapshot.trailWidthPixels *= safeScale;
+    for (TrailStroke& stroke : snapshot.trailStrokes)
+    {
+        stroke.widthPixels *= safeScale;
+    }
+}
+
 Simulation::Random::Random(const std::uint64_t seed) noexcept
     : state_(seed == 0U ? 0x9E3779B97F4A7C15ULL : seed)
 {
@@ -606,7 +631,9 @@ FrameSnapshot Simulation::snapshot(const Viewport viewport, const SimulationTime
             0.0F,
             particle.atlasFrame,
             4550,
-            false});
+            false,
+            worldToScreen(particle.globalScalePivotWorld, viewport),
+            true});
     }
 
     const double effectiveTrailLifetime = static_cast<double>(trailLifetimeSeconds)
@@ -724,7 +751,8 @@ void Simulation::emitClickTriangles(const SimulationTime time)
             random_.range(0.6F, 0.7F),
             random_.range(0.1F, 0.2F) * triangleLocalScale,
             atlasRandom_.unit() < 0.5F ? 0U : 1U,
-            false});
+            false,
+            effectOriginWorld_});
     }
 }
 
@@ -751,7 +779,8 @@ void Simulation::emitDragTriangle(const PointF worldPosition, const SimulationTi
         random_.range(0.2F, 0.4F),
         random_.range(0.1F, 0.2F) * triangleLocalScale,
         atlasRandom_.unit() < 0.5F ? 0U : 1U,
-        true});
+        true,
+        worldPosition});
 }
 
 void Simulation::appendTrailPoint(const PointF worldPosition, const SimulationTime time)

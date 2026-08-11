@@ -220,6 +220,50 @@ BAFX_TEST(unity_hermite_size_curves_match_serialized_samples)
     }
 }
 
+BAFX_TEST(global_scale_keeps_click_shards_synchronized_with_the_click_effect)
+{
+    Simulation simulation(20260716U);
+    simulation.pointerDown(goldenCenter, goldenViewport, 0ns);
+
+    const FrameSnapshot original = simulation.snapshot(goldenViewport, 100ms);
+    const Sprite& originalRing = firstKind(original, SpriteKind::DissolveRing);
+    const auto originalTriangles = spritesOfKind(original, SpriteKind::Triangle);
+    BAFX_CHECK(!originalTriangles.empty());
+    constexpr std::array scales{0.5F, 2.0F};
+    for (const float scale : scales)
+    {
+        FrameSnapshot scaled = original;
+        applyGlobalScale(scaled, scale);
+        const Sprite& scaledRing = firstKind(scaled, SpriteKind::DissolveRing);
+        BAFX_CHECK_NEAR(scaledRing.centerPixels.x, originalRing.centerPixels.x, 0.0F);
+        BAFX_CHECK_NEAR(scaledRing.centerPixels.y, originalRing.centerPixels.y, 0.0F);
+        BAFX_CHECK_NEAR(
+            scaledRing.sizePixels,
+            originalRing.sizePixels * scale,
+            1.0e-4F);
+
+        const auto scaledTriangles = spritesOfKind(scaled, SpriteKind::Triangle);
+        BAFX_CHECK(originalTriangles.size() == scaledTriangles.size());
+        for (std::size_t index = 0U; index < originalTriangles.size(); ++index)
+        {
+            const PointF pivot = originalTriangles[index]->globalScalePivotPixels;
+            BAFX_CHECK(originalTriangles[index]->scaleCenterWithGlobalScale);
+            BAFX_CHECK_NEAR(
+                scaledTriangles[index]->centerPixels.x - pivot.x,
+                (originalTriangles[index]->centerPixels.x - pivot.x) * scale,
+                1.0e-4F);
+            BAFX_CHECK_NEAR(
+                scaledTriangles[index]->centerPixels.y - pivot.y,
+                (originalTriangles[index]->centerPixels.y - pivot.y) * scale,
+                1.0e-4F);
+            BAFX_CHECK_NEAR(
+                scaledTriangles[index]->sizePixels,
+                originalTriangles[index]->sizePixels * scale,
+                1.0e-4F);
+        }
+    }
+}
+
 BAFX_TEST(unity_ring_rotation_integrates_the_serialized_two_curves)
 {
     Simulation simulation;

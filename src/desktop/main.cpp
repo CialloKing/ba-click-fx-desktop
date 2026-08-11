@@ -124,12 +124,8 @@ void applyVisualConfig(
         snapshot.trailWidthPixels = 0.0F;
     }
 
-    const float scale = config.effects.globalScale;
-    for (bafx::fx::Sprite& sprite : snapshot.sprites)
-    {
-        sprite.sizePixels *= scale;
-    }
-    const float trailScale = scale * config.effects.trailWidth;
+    bafx::fx::applyGlobalScale(snapshot, config.effects.globalScale);
+    const float trailScale = config.effects.trailWidth;
     snapshot.trailWidthPixels *= trailScale;
     for (bafx::fx::TrailStroke& stroke : snapshot.trailStrokes)
     {

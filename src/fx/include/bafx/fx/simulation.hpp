@@ -48,6 +48,8 @@ struct Sprite
     std::uint32_t atlasFrame{0};
     std::int32_t renderQueue{0};
     bool contributesBloom{false};
+    PointF globalScalePivotPixels{};
+    bool scaleCenterWithGlobalScale{false};
 };
 
 struct TrailPoint
@@ -92,6 +94,10 @@ struct FrameSnapshot
     }
 };
 
+// Moving particles must scale around their own emission pivot; changing only
+// their quad size detaches click shards from the disk and ring.
+void applyGlobalScale(FrameSnapshot& snapshot, float scale) noexcept;
+
 class Simulation final
 {
 public:
@@ -122,6 +128,7 @@ private:
         float startSizeWorld{0.0F};
         std::uint32_t atlasFrame{0};
         bool dragParticle{false};
+        PointF globalScalePivotWorld{};
     };
 
     struct RingParticle
