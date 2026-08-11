@@ -566,6 +566,139 @@ BAFX_TEST(rapid_clicks_keep_released_effects_alive)
     BAFX_CHECK_NEAR(disks[1]->centerPixels.x, secondClick.x, 1.0e-3F);
 }
 
+BAFX_TEST(always_on_trail_is_opt_in_and_ignores_free_moves_by_default)
+{
+    SimulationRuntime runtime;
+    runtime.pointerMove(PointF{100.0F, 100.0F}, goldenViewport, 10ms);
+    runtime.pointerMove(PointF{600.0F, 100.0F}, goldenViewport, 50ms);
+
+    BAFX_CHECK(!runtime.alwaysOnTrailEnabled());
+    BAFX_CHECK(runtime.instanceCount() == 0U);
+    BAFX_CHECK(!runtime.snapshot(goldenViewport, 50ms).hasDrawableContent());
+}
+
+BAFX_TEST(always_on_trail_uses_free_moves_without_fabricating_a_click)
+{
+    SimulationRuntime runtime;
+    runtime.setAlwaysOnTrailEnabled(true, 0ns);
+    runtime.pointerMove(PointF{100.0F, 100.0F}, goldenViewport, 10ms);
+
+    const FrameSnapshot anchored = runtime.snapshot(goldenViewport, 10ms);
+    BAFX_CHECK(runtime.instanceCount() == 1U);
+    BAFX_CHECK(anchored.trail.size() == 1U);
+    BAFX_CHECK(countKind(anchored, SpriteKind::CenterDisk) == 0U);
+    BAFX_CHECK(countKind(anchored, SpriteKind::DissolveRing) == 0U);
+    BAFX_CHECK(countKind(anchored, SpriteKind::Triangle) == 0U);
+
+    runtime.pointerMove(PointF{600.0F, 100.0F}, goldenViewport, 50ms);
+    runtime.advance(50ms);
+    const FrameSnapshot moving = runtime.snapshot(goldenViewport, 50ms);
+    BAFX_CHECK(moving.trail.size() >= 2U);
+    BAFX_CHECK(countKind(moving, SpriteKind::CenterDisk) == 0U);
+    BAFX_CHECK(countKind(moving, SpriteKind::DissolveRing) == 0U);
+    BAFX_CHECK(countKind(moving, SpriteKind::Triangle) > 0U);
+}
+
+BAFX_TEST(always_on_and_pressed_trails_use_independent_strokes_without_a_bridge)
+{
+    SimulationRuntime runtime;
+    runtime.setAlwaysOnTrailEnabled(true, 0ns);
+    runtime.pointerMove(PointF{100.0F, 100.0F}, goldenViewport, 10ms);
+    runtime.pointerMove(PointF{400.0F, 100.0F}, goldenViewport, 40ms);
+
+    runtime.pointerDown(PointF{600.0F, 300.0F}, goldenViewport, 60ms);
+    runtime.pointerMove(PointF{900.0F, 300.0F}, goldenViewport, 100ms);
+    FrameSnapshot frame = runtime.snapshot(goldenViewport, 100ms);
+    BAFX_CHECK(runtime.pointerHeld());
+    BAFX_CHECK(frame.trailStrokes.size() == 2U);
+    BAFX_CHECK_NEAR(
+        frame.trailStrokes[0].points.back().positionPixels.x,
+        400.0F,
+        1.0e-3F);
+    BAFX_CHECK_NEAR(
+        frame.trailStrokes[1].points.front().positionPixels.x,
+        600.0F,
+        1.0e-3F);
+    BAFX_CHECK(countKind(frame, SpriteKind::CenterDisk) == 1U);
+    BAFX_CHECK(countKind(frame, SpriteKind::DissolveRing) == 2U);
+
+    runtime.pointerUp(110ms);
+    runtime.pointerMove(PointF{1000.0F, 500.0F}, goldenViewport, 120ms);
+    runtime.pointerMove(PointF{1200.0F, 500.0F}, goldenViewport, 150ms);
+    frame = runtime.snapshot(goldenViewport, 150ms);
+    BAFX_CHECK(frame.trailStrokes.size() == 3U);
+    BAFX_CHECK_NEAR(
+        frame.trailStrokes.back().points.front().positionPixels.x,
+        1000.0F,
+        1.0e-3F);
+}
+
+BAFX_TEST(ending_always_on_trail_makes_reentry_start_from_a_fresh_anchor)
+{
+    SimulationRuntime runtime;
+    runtime.setAlwaysOnTrailEnabled(true, 0ns);
+    runtime.pointerMove(PointF{100.0F, 100.0F}, goldenViewport, 10ms);
+    runtime.pointerMove(PointF{300.0F, 100.0F}, goldenViewport, 30ms);
+    runtime.endAlwaysOnTrail(40ms);
+
+    runtime.pointerMove(PointF{900.0F, 500.0F}, goldenViewport, 50ms);
+    runtime.pointerMove(PointF{1100.0F, 500.0F}, goldenViewport, 70ms);
+    const FrameSnapshot frame = runtime.snapshot(goldenViewport, 70ms);
+    BAFX_CHECK(frame.trailStrokes.size() == 2U);
+    BAFX_CHECK_NEAR(
+        frame.trailStrokes[0].points.back().positionPixels.x,
+        300.0F,
+        1.0e-3F);
+    BAFX_CHECK_NEAR(
+        frame.trailStrokes[1].points.front().positionPixels.x,
+        900.0F,
+        1.0e-3F);
+}
+
+BAFX_TEST(disabling_always_on_trail_stops_new_free_move_geometry)
+{
+    SimulationRuntime runtime;
+    runtime.setAlwaysOnTrailEnabled(true, 0ns);
+    runtime.pointerMove(PointF{100.0F, 100.0F}, goldenViewport, 10ms);
+    runtime.pointerMove(PointF{400.0F, 100.0F}, goldenViewport, 40ms);
+    runtime.setAlwaysOnTrailEnabled(false, 50ms);
+
+    runtime.pointerMove(PointF{1000.0F, 500.0F}, goldenViewport, 60ms);
+    runtime.pointerMove(PointF{1200.0F, 500.0F}, goldenViewport, 80ms);
+    const FrameSnapshot frame = runtime.snapshot(goldenViewport, 80ms);
+    BAFX_CHECK(!runtime.alwaysOnTrailEnabled());
+    BAFX_CHECK(frame.trailStrokes.size() == 1U);
+    BAFX_CHECK_NEAR(
+        frame.trailStrokes.front().points.back().positionPixels.x,
+        400.0F,
+        1.0e-3F);
+
+    for (std::uint32_t rendered = 0U; rendered < 60U; ++rendered)
+    {
+        runtime.onFrameRendered();
+    }
+    BAFX_CHECK(!runtime.active());
+}
+
+BAFX_TEST(canceling_a_held_pointer_allows_always_on_trail_to_restart)
+{
+    SimulationRuntime runtime;
+    runtime.setAlwaysOnTrailEnabled(true, 0ns);
+    runtime.pointerDown(PointF{100.0F, 100.0F}, goldenViewport, 10ms);
+    runtime.pointerMove(PointF{300.0F, 100.0F}, goldenViewport, 30ms);
+    runtime.pointerCancel(40ms);
+    BAFX_CHECK(!runtime.pointerHeld());
+
+    runtime.pointerMove(PointF{900.0F, 500.0F}, goldenViewport, 50ms);
+    runtime.pointerMove(PointF{1100.0F, 500.0F}, goldenViewport, 70ms);
+    const FrameSnapshot frame = runtime.snapshot(goldenViewport, 70ms);
+    BAFX_CHECK(frame.trailStrokes.size() == 2U);
+    BAFX_CHECK_NEAR(
+        frame.trailStrokes.back().points.front().positionPixels.x,
+        900.0F,
+        1.0e-3F);
+}
+
 BAFX_TEST(overlapping_drag_strokes_remain_independent)
 {
     SimulationRuntime runtime;

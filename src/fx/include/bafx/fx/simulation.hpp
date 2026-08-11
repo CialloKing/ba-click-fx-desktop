@@ -104,6 +104,9 @@ public:
     explicit Simulation(std::uint64_t seed = 20260716U);
 
     void pointerDown(PointF screenPosition, Viewport viewport, SimulationTime time);
+    // Starts a movement-only instance. It deliberately omits the click burst
+    // so an always-on trail never fabricates a mouse click.
+    void startTrail(PointF screenPosition, Viewport viewport, SimulationTime time);
     void pointerMove(PointF screenPosition, Viewport viewport, SimulationTime time);
     void pointerUp(SimulationTime time);
     void pointerCancel(SimulationTime time);
@@ -161,6 +164,7 @@ private:
     [[nodiscard]] static double ageSeconds(SimulationTime now, SimulationTime then) noexcept;
 
     void reset(PointF worldPosition, SimulationTime time);
+    void resetState(PointF worldPosition, SimulationTime time);
     void emitClickTriangles(SimulationTime time);
     void emitDragTriangle(PointF worldPosition, SimulationTime time);
     void appendTrailPoint(PointF worldPosition, SimulationTime time);
@@ -176,6 +180,7 @@ private:
     Random atlasRandom_;
     bool active_{false};
     bool pointerHeld_{false};
+    bool clickEffectEnabled_{false};
     SimulationTime startedAt_{};
     SimulationTime lastAdvancedAt_{};
     std::uint32_t releasedFrames_{0};

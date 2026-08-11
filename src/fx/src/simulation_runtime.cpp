@@ -47,6 +47,9 @@ void SimulationRuntime::pointerDown(
         return;
     }
 
+    // A physical press owns the live stroke until release. Retiring the
+    // movement-only stroke prevents duplicate geometry while preserving its fade.
+    retireAlwaysOnTrail(time);
     instances_.emplace_back(nextSeed());
     instances_.back().setTrailLengthMultiplier(trailLengthMultiplier_);
     instances_.back().pointerDown(screenPosition, viewport, time);
@@ -58,12 +61,26 @@ void SimulationRuntime::pointerMove(
     const Viewport viewport,
     const SimulationTime time)
 {
-    if (!pointerActive_ || instances_.empty())
+    if (pointerActive_ && !instances_.empty())
     {
+        instances_.back().pointerMove(screenPosition, viewport, time);
         return;
     }
 
-    instances_.back().pointerMove(screenPosition, viewport, time);
+    if (!alwaysOnTrailEnabled_)
+    {
+        return;
+    }
+    if (!alwaysOnTrail_.has_value())
+    {
+        // The first free-move sample is only an anchor. Connecting it to a
+        // pre-toggle or off-screen coordinate would draw a false long segment.
+        alwaysOnTrail_.emplace(nextSeed());
+        alwaysOnTrail_->setTrailLengthMultiplier(trailLengthMultiplier_);
+        alwaysOnTrail_->startTrail(screenPosition, viewport, time);
+        return;
+    }
+    alwaysOnTrail_->pointerMove(screenPosition, viewport, time);
 }
 
 void SimulationRuntime::pointerUp(const SimulationTime time)
@@ -79,13 +96,18 @@ void SimulationRuntime::pointerUp(const SimulationTime time)
 
 void SimulationRuntime::pointerCancel(const SimulationTime time)
 {
-    if (!pointerActive_ || instances_.empty())
+    if (pointerActive_ && !instances_.empty())
     {
-        return;
+        instances_.back().pointerCancel(time);
+        pointerActive_ = false;
     }
 
-    instances_.back().pointerCancel(time);
-    pointerActive_ = false;
+    retireAlwaysOnTrail(time);
+}
+
+void SimulationRuntime::endAlwaysOnTrail(const SimulationTime time)
+{
+    retireAlwaysOnTrail(time);
 }
 
 void SimulationRuntime::advance(const SimulationTime time)
@@ -94,6 +116,10 @@ void SimulationRuntime::advance(const SimulationTime time)
     {
         instance.advance(time);
     }
+    if (alwaysOnTrail_.has_value())
+    {
+        alwaysOnTrail_->advance(time);
+    }
 }
 
 void SimulationRuntime::onFrameRendered()
@@ -101,6 +127,10 @@ void SimulationRuntime::onFrameRendered()
     for (Simulation& instance : instances_)
     {
         instance.onFrameRendered();
+    }
+    if (alwaysOnTrail_.has_value())
+    {
+        alwaysOnTrail_->onFrameRendered();
     }
 
     const auto inactiveBegin = std::remove_if(
@@ -120,6 +150,21 @@ void SimulationRuntime::setTrailLengthMultiplier(const float multiplier) noexcep
     {
         instance.setTrailLengthMultiplier(trailLengthMultiplier_);
     }
+    if (alwaysOnTrail_.has_value())
+    {
+        alwaysOnTrail_->setTrailLengthMultiplier(trailLengthMultiplier_);
+    }
+}
+
+void SimulationRuntime::setAlwaysOnTrailEnabled(
+    const bool enabled,
+    const SimulationTime time)
+{
+    alwaysOnTrailEnabled_ = enabled;
+    if (!alwaysOnTrailEnabled_)
+    {
+        retireAlwaysOnTrail(time);
+    }
 }
 
 FrameSnapshot SimulationRuntime::snapshot(
@@ -137,6 +182,21 @@ FrameSnapshot SimulationRuntime::snapshot(
             std::make_move_iterator(current.sprites.begin()),
             std::make_move_iterator(current.sprites.end()));
 
+        if (!current.trail.empty())
+        {
+            combined.trailStrokes.push_back(TrailStroke{
+                std::move(current.trail),
+                current.trailWidthPixels});
+        }
+    }
+    if (alwaysOnTrail_.has_value())
+    {
+        FrameSnapshot current = alwaysOnTrail_->snapshot(viewport, time);
+        combined.active = combined.active || current.active;
+        combined.sprites.insert(
+            combined.sprites.end(),
+            std::make_move_iterator(current.sprites.begin()),
+            std::make_move_iterator(current.sprites.end()));
         if (!current.trail.empty())
         {
             combined.trailStrokes.push_back(TrailStroke{
@@ -166,7 +226,7 @@ FrameSnapshot SimulationRuntime::snapshot(
 
 bool SimulationRuntime::active() const noexcept
 {
-    return !instances_.empty();
+    return !instances_.empty() || alwaysOnTrail_.has_value();
 }
 
 bool SimulationRuntime::pointerHeld() const noexcept
@@ -174,9 +234,14 @@ bool SimulationRuntime::pointerHeld() const noexcept
     return pointerActive_;
 }
 
+bool SimulationRuntime::alwaysOnTrailEnabled() const noexcept
+{
+    return alwaysOnTrailEnabled_;
+}
+
 std::size_t SimulationRuntime::instanceCount() const noexcept
 {
-    return instances_.size();
+    return instances_.size() + (alwaysOnTrail_.has_value() ? 1U : 0U);
 }
 
 std::uint64_t SimulationRuntime::nextSeed() noexcept
@@ -186,6 +251,18 @@ std::uint64_t SimulationRuntime::nextSeed() noexcept
     const std::uint64_t seed = baseSeed_ + activationCount_ * randomStreamStep;
     ++activationCount_;
     return seed;
+}
+
+void SimulationRuntime::retireAlwaysOnTrail(const SimulationTime time)
+{
+    if (!alwaysOnTrail_.has_value())
+    {
+        return;
+    }
+
+    alwaysOnTrail_->pointerCancel(time);
+    instances_.push_back(std::move(*alwaysOnTrail_));
+    alwaysOnTrail_.reset();
 }
 
 }

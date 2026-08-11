@@ -445,6 +445,16 @@ void Simulation::pointerDown(
     reset(screenToWorld(screenPosition, viewport), time);
 }
 
+void Simulation::startTrail(
+    const PointF screenPosition,
+    const Viewport viewport,
+    const SimulationTime time)
+{
+    const PointF worldPosition = screenToWorld(screenPosition, viewport);
+    resetState(worldPosition, time);
+    appendTrailPoint(worldPosition, time);
+}
+
 void Simulation::pointerMove(
     const PointF screenPosition,
     const Viewport viewport,
@@ -555,7 +565,7 @@ FrameSnapshot Simulation::snapshot(const Viewport viewport, const SimulationTime
     // Unity emits bursts at the end of its first particle update. The verified
     // 50/100 ms captures expose a 25 ms phase before visual lifetime advances.
     const double particleAge = delayedAge(effectAge, particleRenderDelaySeconds);
-    if (effectAge > 0.0 && particleAge <= 0.2)
+    if (clickEffectEnabled_ && effectAge > 0.0 && particleAge <= 0.2)
     {
         const float normalizedAge = static_cast<float>(particleAge / 0.2);
         frame.sprites.push_back(Sprite{
@@ -705,6 +715,24 @@ double Simulation::ageSeconds(const SimulationTime now, const SimulationTime the
 
 void Simulation::reset(const PointF worldPosition, const SimulationTime time)
 {
+    resetState(worldPosition, time);
+    clickEffectEnabled_ = true;
+
+    for (std::uint32_t index = 0; index < 2U; ++index)
+    {
+        rings_.push_back(RingParticle{
+            random_.range(0.12F, 0.14F),
+            random_.range(0.0F, 2.0F * std::numbers::pi_v<float>),
+            random_.unit()});
+    }
+    emitClickTriangles(time);
+    appendTrailPoint(worldPosition, time);
+}
+
+void Simulation::resetState(
+    const PointF worldPosition,
+    const SimulationTime time)
+{
     ++activationCount_;
     const std::uint64_t activationSeed =
         baseSeed_ + activationCount_ * 0x9E3779B97F4A7C15ULL;
@@ -714,6 +742,7 @@ void Simulation::reset(const PointF worldPosition, const SimulationTime time)
     atlasRandom_ = Random(activationSeed ^ atlasRandomStream);
     active_ = true;
     pointerHeld_ = true;
+    clickEffectEnabled_ = false;
     startedAt_ = time;
     lastAdvancedAt_ = time;
     releasedFrames_ = 0;
@@ -725,16 +754,6 @@ void Simulation::reset(const PointF worldPosition, const SimulationTime time)
     rings_.clear();
     triangles_.clear();
     trail_.clear();
-
-    for (std::uint32_t index = 0; index < 2U; ++index)
-    {
-        rings_.push_back(RingParticle{
-            random_.range(0.12F, 0.14F),
-            random_.range(0.0F, 2.0F * std::numbers::pi_v<float>),
-            random_.unit()});
-    }
-    emitClickTriangles(time);
-    appendTrailPoint(worldPosition, time);
 }
 
 void Simulation::emitClickTriangles(const SimulationTime time)

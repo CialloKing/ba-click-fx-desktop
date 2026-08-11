@@ -384,14 +384,23 @@ void consumePointerEvents(
 
         const bool insideClient = isInsideClient(clientPosition, window.size());
         if (event.kind == bafx::windows::PointerEventKind::LeftButtonDown
-            && (!insideClient || simulation.pointerHeld()))
+            && !insideClient)
+        {
+            simulation.endAlwaysOnTrail(time);
+            continue;
+        }
+        if (event.kind == bafx::windows::PointerEventKind::LeftButtonDown
+            && simulation.pointerHeld())
         {
             continue;
         }
         if (event.kind == bafx::windows::PointerEventKind::Move)
         {
-            if (!simulation.pointerHeld())
+            if (!insideClient && !simulation.pointerHeld())
             {
+                // Do not clamp a free-moving cursor to the overlay edge. End
+                // the ambient stroke so re-entry starts from a fresh anchor.
+                simulation.endAlwaysOnTrail(time);
                 continue;
             }
             clientPosition = clampToClient(clientPosition, window.size());
@@ -571,6 +580,11 @@ int runApplication(
     bafx::fx::SimulationRuntime simulation(makeRuntimeSeed());
     bafx::fx::SimulationTimeline simulationTimeline;
     simulation.setTrailLengthMultiplier(config.effects.trailLength);
+    simulation.setAlwaysOnTrailEnabled(
+        config.effects.enabled
+            && config.effects.trailEnabled
+            && !config.input.trailOnlyWhilePressed,
+        bafx::fx::SimulationTime{});
     window.show();
 
     std::optional<bafx::fx::SimulationTime> demoStartedAt;
@@ -616,6 +630,11 @@ int runApplication(
             // snapshot here makes length and Bloom changes take effect on the
             // next rendered frame without cross-thread renderer mutation.
             simulation.setTrailLengthMultiplier(config.effects.trailLength);
+            simulation.setAlwaysOnTrailEnabled(
+                config.effects.enabled
+                    && config.effects.trailEnabled
+                    && !config.input.trailOnlyWhilePressed,
+                simulationTimeline.fromWallTime(clock.now()));
             renderer.setBloomSettings(makeBloomSettings(config.effects));
             renderer.setOverlayProfile(
                 overlayProfileForRenderMode(config.background.mode));
@@ -710,10 +729,10 @@ int runApplication(
         {
             // Do not let disabled/paused input accumulate and replay after resume.
             static_cast<void>(window.takePointerEvents());
-            if (enteringPause)
+            if (enteringPause || !config.effects.enabled)
             {
-                // Match the Web/Unity stop boundary: detach the held pointer
-                // while retaining already emitted particles and trail geometry.
+                // Disabling can drain the physical Up event. Cancel
+                // idempotently so re-enabling cannot retain a phantom press.
                 simulation.pointerCancel(renderTime);
             }
         }
