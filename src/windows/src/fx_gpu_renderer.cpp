@@ -94,6 +94,18 @@ struct ColorTarget
         && left.diffusion == right.diffusion;
 }
 
+[[nodiscard]] bool isValidOverlayProfile(
+    const FxOverlayProfile profile) noexcept
+{
+    switch (profile)
+    {
+    case FxOverlayProfile::Classic:
+    case FxOverlayProfile::LightBackground:
+        return true;
+    }
+    return false;
+}
+
 [[nodiscard]] ComPtr<ID3DBlob> compileShader(
     const std::string_view source,
     const char* entryPoint,
@@ -604,6 +616,9 @@ struct FxGpuRenderer::Implementation
         createBloomPixelShader("UpsamplePixel", upsamplePixelShader);
         createBloomPixelShader("CompositePixel", compositePixelShader);
         createBloomPixelShader("DesktopCompositePixel", desktopCompositePixelShader);
+        createBloomPixelShader(
+            "LightBackgroundCompositePixel",
+            lightBackgroundCompositePixelShader);
 
         D3D11_BUFFER_DESC constantDescription{};
         constantDescription.ByteWidth = sizeof(BloomConstants);
@@ -824,6 +839,27 @@ struct FxGpuRenderer::Implementation
         bloomUpTargets.clear();
         updateBloomPlan();
         createBloomTargets();
+    }
+
+    void setOverlayProfile(const FxOverlayProfile nextProfile)
+    {
+        if (!isValidOverlayProfile(nextProfile))
+        {
+            throw std::invalid_argument("FX overlay profile is not recognized");
+        }
+        overlayProfile = nextProfile;
+    }
+
+    [[nodiscard]] ID3D11PixelShader* desktopCompositeShader(
+        const bool hasBackground) const noexcept
+    {
+        // A captured background provides the exact source-over target and must
+        // take precedence over any unknown-background approximation.
+        if (hasBackground || overlayProfile == FxOverlayProfile::Classic)
+        {
+            return desktopCompositePixelShader.Get();
+        }
+        return lightBackgroundCompositePixelShader.Get();
     }
 
     void stabilizeBackgroundFrame(
@@ -1312,6 +1348,7 @@ struct FxGpuRenderer::Implementation
     ComPtr<ID3D11PixelShader> upsamplePixelShader{};
     ComPtr<ID3D11PixelShader> compositePixelShader{};
     ComPtr<ID3D11PixelShader> desktopCompositePixelShader{};
+    ComPtr<ID3D11PixelShader> lightBackgroundCompositePixelShader{};
     ComPtr<ID3D11InputLayout> inputLayout{};
     ComPtr<ID3D11Buffer> vertexBuffer{};
     ComPtr<ID3D11Buffer> viewportBuffer{};
@@ -1329,6 +1366,7 @@ struct FxGpuRenderer::Implementation
     ComPtr<ID3D11ShaderResourceView> triangleTexture{};
     ComPtr<ID3D11ShaderResourceView> trailTexture{};
     std::size_t vertexCapacity{0U};
+    FxOverlayProfile overlayProfile{FxOverlayProfile::Classic};
 };
 
 FxGpuRenderer::FxGpuRenderer(
@@ -1356,6 +1394,11 @@ void FxGpuRenderer::setBloomSettings(const FxBloomSettings settings)
     implementation_->setBloomSettings(settings);
 }
 
+void FxGpuRenderer::setOverlayProfile(const FxOverlayProfile profile)
+{
+    implementation_->setOverlayProfile(profile);
+}
+
 void FxGpuRenderer::stabilizeBackgroundFrame(
     ID3D11ShaderResourceView* const previous,
     ID3D11ShaderResourceView* const current,
@@ -1372,7 +1415,7 @@ void FxGpuRenderer::render(
     implementation_->render(
         snapshot,
         destination,
-        implementation_->desktopCompositePixelShader.Get(),
+        implementation_->desktopCompositeShader(background.has_value()),
         background);
 }
 

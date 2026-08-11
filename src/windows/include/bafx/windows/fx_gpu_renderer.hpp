@@ -9,6 +9,7 @@
 #include <wrl/client.h>
 
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <optional>
 #include <vector>
@@ -31,6 +32,12 @@ struct BackgroundRenderInput
     ID3D11ShaderResourceView* shaderResource{nullptr};
 };
 
+enum class FxOverlayProfile : std::uint8_t
+{
+    Classic,
+    LightBackground
+};
+
 class FxGpuRenderer final
 {
 public:
@@ -46,6 +53,7 @@ public:
 
     void resize(WindowSize size);
     void setBloomSettings(FxBloomSettings settings);
+    void setOverlayProfile(FxOverlayProfile profile);
     // WGC and DComp run on independent clocks. Filter accepted captures before
     // they feed both Differential Bloom and the final source-over transport so
     // one FP16 rounding step cannot modulate a visible effect.

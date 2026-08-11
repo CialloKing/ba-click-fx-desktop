@@ -561,6 +561,37 @@ BAFX_TEST(warp_pipeline_separates_direct_emission_and_multilevel_bloom_seed)
     BAFX_CHECK(maximumRgbOutsideSprite(bloomPixels) > 1.0e-3F);
 }
 
+BAFX_TEST(warp_light_background_profile_uses_visual_max_source_over_capacity)
+{
+    ComApartment apartment;
+    const WarpDevice graphics = createWarpDevice();
+    FxGpuRenderer renderer(graphics.device.Get(), graphics.context.Get(), testSize);
+    const bafx::fx::FrameSnapshot snapshot = makeDiskSnapshot(true);
+
+    const RenderTarget classicTarget = createRenderTarget(graphics.device.Get());
+    renderer.render(snapshot, classicTarget.view.Get());
+    const std::vector<ReadbackPixel> classic = readback(
+        graphics.context.Get(),
+        classicTarget.texture.Get());
+
+    renderer.setOverlayProfile(FxOverlayProfile::LightBackground);
+    const RenderTarget lightTarget = createRenderTarget(graphics.device.Get());
+    renderer.render(snapshot, lightTarget.view.Get());
+    const std::vector<ReadbackPixel> light = readback(
+        graphics.context.Get(),
+        lightTarget.texture.Get());
+
+    checkValidDesktopPremultiplied(classic);
+    checkValidDesktopPremultiplied(light);
+    const std::size_t center = static_cast<std::size_t>(testSize.height / 2U)
+        * testSize.width
+        + testSize.width / 2U;
+    BAFX_CHECK(classic[center].alpha > 0.9F);
+    BAFX_CHECK(light[center].alpha > 0.8F);
+    BAFX_CHECK(light[center].alpha <= 0.851F);
+    BAFX_CHECK(maximumRgbaDelta(classic, light) > 0.05F);
+}
+
 BAFX_TEST(warp_background_path_uses_full_differential_bloom)
 {
     ComApartment apartment;

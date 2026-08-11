@@ -223,7 +223,8 @@ BAFX_TEST(bloom_shader_reflection_locks_resources_and_constant_layout)
         "DownsamplePixel",
         "UpsamplePixel",
         "CompositePixel",
-        "DesktopCompositePixel"};
+        "DesktopCompositePixel",
+        "LightBackgroundCompositePixel"};
     for (const char* entryPoint : entries)
     {
         const auto reflection = compileAndReflect(
@@ -262,7 +263,8 @@ BAFX_TEST(bloom_shader_reflection_locks_resources_and_constant_layout)
         if (std::string_view(entryPoint) == "DifferentialPrefilterPixel"
             || std::string_view(entryPoint) == "UpsamplePixel"
             || std::string_view(entryPoint) == "CompositePixel"
-            || std::string_view(entryPoint) == "DesktopCompositePixel")
+            || std::string_view(entryPoint) == "DesktopCompositePixel"
+            || std::string_view(entryPoint) == "LightBackgroundCompositePixel")
         {
             BAFX_CHECK(hasBinding(reflection.Get(), "Source1", D3D_SIT_TEXTURE, 1U));
         }

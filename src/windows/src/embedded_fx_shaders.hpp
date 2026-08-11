@@ -410,6 +410,48 @@ float4 ResolveFxOnlyDesktopTransport(
         alpha);
 }
 
+float4 ResolveLightBackgroundDesktopTransport(
+    float4 direct,
+    float4 bloom,
+    float exposureGain)
+{
+    const float3 linearRgb = max(direct.rgb, 0.0)
+        + max(bloom.rgb, 0.0) * exposureGain;
+    const float sceneCoverage = saturate(direct.a);
+    const float bloomTransport = saturate(max(bloom.a, 0.0) * exposureGain);
+    // Match the extension's light-background preset: visual-max chooses the
+    // larger independent transport envelope and source-over is capped at 0.85.
+    const float alpha = min(max(sceneCoverage, bloomTransport), 0.85);
+    if (alpha <= 0.000001)
+    {
+        return float4(0.0, 0.0, 0.0, 0.0);
+    }
+
+    const float maximumLinear = max(
+        linearRgb.r,
+        max(linearRgb.g, linearRgb.b));
+    const float capacityScale = min(
+        1.0,
+        alpha / max(maximumLinear, 0.000001));
+    float3 premultiplied = linearRgb * capacityScale;
+
+    const float maximumPremultiplied = max(
+        premultiplied.r,
+        max(premultiplied.g, premultiplied.b));
+    const float energyRatio = maximumPremultiplied
+        / max(alpha, 0.000001);
+    const float gate = smoothstep(0.25, 0.75, energyRatio)
+        * smoothstep(0.03125, 0.25, maximumPremultiplied);
+
+    // bright-core only lifts weaker channels toward the existing peak. It
+    // never raises peak energy or turns the low-energy trail tail gray-white.
+    premultiplied = lerp(
+        premultiplied,
+        maximumPremultiplied.xxx,
+        0.35 * gate);
+    return float4(min(premultiplied, alpha), alpha);
+}
+
 float4 ResolveBackgroundAwareDesktopTransport(
     float4 direct,
     float4 bloom,
@@ -497,6 +539,17 @@ float4 DesktopCompositePixel(FullscreenOutput input) : SV_Target0
         bloom,
         occlusion,
         background,
+        ExposureGain);
+}
+
+float4 LightBackgroundCompositePixel(FullscreenOutput input) : SV_Target0
+{
+    const float4 direct = Source0.Sample(LinearClampSampler, input.uv);
+    const float2 offset = SourceTexelSize * (SampleScale * 0.5);
+    const float4 bloom = FourTap(Source1, input.uv, offset);
+    return ResolveLightBackgroundDesktopTransport(
+        direct,
+        bloom,
         ExposureGain);
 }
 )hlsl";
