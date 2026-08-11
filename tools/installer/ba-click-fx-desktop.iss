@@ -434,7 +434,6 @@ var
   InstallRoot: String;
   InstallerRoot: String;
   MachineStatePath: String;
-  RegistrationResultPath: String;
 begin
   if CurUninstallStep <> usUninstall then
   begin

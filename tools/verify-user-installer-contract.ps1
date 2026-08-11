@@ -360,6 +360,10 @@ function Test-InnoPayloadContract
         -Description 'transient original-user state is removed after setup and uninstall'
     Assert-TextExcludes `
         -Text $inno `
+        -Pattern 'procedure\s+CurUninstallStepChanged[\s\S]*?RegistrationResultPath\s*:\s*String;' `
+        -Description 'uninstall result path does not shadow transient cleanup state'
+    Assert-TextExcludes `
+        -Text $inno `
         -Pattern '\{tmp\}\\bafx-[A-Za-z-]*(user-context|registration-result)\.json' `
         -Description 'original-user state avoids the protected Inno temp directory'
     Assert-TextContains `
