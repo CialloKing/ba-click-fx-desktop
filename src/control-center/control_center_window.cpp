@@ -144,7 +144,10 @@ bool ControlCenterWindow::create(const int showCommand)
         return false;
     }
 
-    dpi_ = GetDpiForSystem();
+    // GetDpiForSystem() can return the virtualized 96-DPI value before this
+    // process owns a top-level window. The desktop window reports the primary
+    // monitor DPI that is needed for the initial centered window.
+    dpi_ = GetDpiForWindow(GetDesktopWindow());
     if (dpi_ == 0U)
     {
         dpi_ = USER_DEFAULT_SCREEN_DPI;
@@ -161,15 +164,38 @@ bool ControlCenterWindow::create(const int showCommand)
         return false;
     }
 
+    const int windowWidth = bounds.right - bounds.left;
+    const int windowHeight = bounds.bottom - bounds.top;
+    RECT workArea{};
+    if (SystemParametersInfoW(SPI_GETWORKAREA, 0U, &workArea, 0U) == FALSE)
+    {
+        workArea = RECT{
+            0,
+            0,
+            GetSystemMetrics(SM_CXSCREEN),
+            GetSystemMetrics(SM_CYSCREEN)};
+    }
+    const int workAreaWidth = static_cast<int>(workArea.right - workArea.left);
+    const int workAreaHeight = static_cast<int>(workArea.bottom - workArea.top);
+    const int windowX = static_cast<int>(workArea.left) + (std::max)(
+        0,
+        (workAreaWidth - windowWidth) / 2);
+    const int windowY = static_cast<int>(workArea.top) + (std::max)(
+        0,
+        (workAreaHeight - windowHeight) / 2);
+
+    // CW_USEDEFAULT makes Windows choose the size of an overlapped window and
+    // discards our DPI-scaled dimensions. Explicit coordinates preserve the
+    // client area that layoutControls() was designed for.
     window_ = CreateWindowExW(
         0U,
         windowClassName,
         windowTitle,
         controlCenterWindowStyle,
-        CW_USEDEFAULT,
-        CW_USEDEFAULT,
-        bounds.right - bounds.left,
-        bounds.bottom - bounds.top,
+        windowX,
+        windowY,
+        windowWidth,
+        windowHeight,
         nullptr,
         nullptr,
         instance_,
