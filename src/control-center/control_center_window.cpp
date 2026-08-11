@@ -12,6 +12,7 @@
 #include <iomanip>
 #include <locale>
 #include <limits>
+#include <exception>
 #include <sstream>
 #include <string>
 #include <utility>
@@ -1391,8 +1392,16 @@ void ControlCenterWindow::startHostFromBundle()
             L"控制服务尚未连接，正在继续刷新；也可以点击“关闭 Host”重试退出。");
         return;
     }
-    const std::filesystem::path hostPath = executableDirectory()
-        / L"ba-click-fx-desktop.exe";
+    std::filesystem::path hostPath;
+    try
+    {
+        hostPath = executableDirectory() / L"ba-click-fx-desktop.exe";
+    }
+    catch (const std::exception& error)
+    {
+        setError(utf8ToWide(error.what()));
+        return;
+    }
     if (!std::filesystem::is_regular_file(hostPath))
     {
         setInfo(

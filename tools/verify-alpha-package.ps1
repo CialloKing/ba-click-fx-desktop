@@ -113,6 +113,17 @@ try
             throw "Portable runtime file escaped the executable directory: $workingDirectoryPath"
         }
     }
+    $escapedFiles = @(
+        Get-ChildItem -LiteralPath $tempRoot -Recurse -File |
+            Where-Object {
+                -not $_.FullName.StartsWith(
+                    ([IO.Path]::GetFullPath($installRoot).TrimEnd('\') + '\'),
+                    [StringComparison]::OrdinalIgnoreCase)
+            })
+    if ($escapedFiles.Count -ne 0)
+    {
+        throw "Runtime data escaped the executable directory: $($escapedFiles.FullName -join ', ')"
+    }
 
     $outsideReport = Join-Path $tempRoot 'requested-support.txt'
     $reportProcess = Start-Process `
@@ -134,6 +145,17 @@ try
     if (Test-Path -LiteralPath $outsideReport)
     {
         throw "Support report escaped the executable directory: $outsideReport"
+    }
+    $escapedFiles = @(
+        Get-ChildItem -LiteralPath $tempRoot -Recurse -File |
+            Where-Object {
+                -not $_.FullName.StartsWith(
+                    ([IO.Path]::GetFullPath($installRoot).TrimEnd('\') + '\'),
+                    [StringComparison]::OrdinalIgnoreCase)
+            })
+    if ($escapedFiles.Count -ne 0)
+    {
+        throw "Runtime data escaped the executable directory: $($escapedFiles.FullName -join ', ')"
     }
 }
 finally

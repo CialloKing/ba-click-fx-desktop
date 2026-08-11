@@ -341,6 +341,17 @@ try
             throw "Portable runtime file escaped the executable directory: $workingDirectoryPath"
         }
     }
+    $escapedFiles = @(
+        Get-ChildItem -LiteralPath $temporaryRoot -Recurse -File |
+            Where-Object {
+                -not $_.FullName.StartsWith(
+                    ([IO.Path]::GetFullPath($installRoot).TrimEnd('\') + '\'),
+                    [StringComparison]::OrdinalIgnoreCase)
+            })
+    if ($escapedFiles.Count -ne 0)
+    {
+        throw "Runtime data escaped the executable directory: $($escapedFiles.FullName -join ', ')"
+    }
 
     if (-not $SkipControlCenterLaunch)
     {
