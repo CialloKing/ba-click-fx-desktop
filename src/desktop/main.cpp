@@ -363,8 +363,9 @@ void consumePointerEvents(
     for (const bafx::windows::PointerEvent& event :
          bafx::windows::coalescePointerMoves(window.takePointerEvents()))
     {
-        const bafx::fx::SimulationTime time = timeline.fromWallTime(
-            clock.fromCounter(event.qpcTimestamp));
+        const bafx::fx::SimulationTime inputTime = clock.fromCounter(
+            event.qpcTimestamp);
+        const bafx::fx::SimulationTime time = timeline.fromWallTime(inputTime);
         if (event.kind == bafx::windows::PointerEventKind::LeftButtonUp)
         {
             simulation.pointerUp(time);
@@ -412,11 +413,11 @@ void consumePointerEvents(
         switch (event.kind)
         {
         case bafx::windows::PointerEventKind::LeftButtonDown:
-            simulation.pointerDown(position, viewport, time);
+            simulation.pointerDown(position, viewport, time, inputTime);
             break;
 
         case bafx::windows::PointerEventKind::Move:
-            simulation.pointerMove(position, viewport, time);
+            simulation.pointerMove(position, viewport, time, inputTime);
             break;
 
         case bafx::windows::PointerEventKind::LeftButtonUp:
@@ -580,6 +581,7 @@ int runApplication(
     bafx::fx::SimulationRuntime simulation(makeRuntimeSeed());
     bafx::fx::SimulationTimeline simulationTimeline;
     simulation.setTrailLengthMultiplier(config.effects.trailLength);
+    simulation.setInputSamplingRateHz(config.input.samplingRateHz);
     simulation.setAlwaysOnTrailEnabled(
         config.effects.enabled
             && config.effects.trailEnabled
@@ -627,9 +629,10 @@ int runApplication(
             renderInvalidated = true;
             config = controlState.config;
             // Host owns the render thread, so applying the immutable control
-            // snapshot here makes length and Bloom changes take effect on the
-            // next rendered frame without cross-thread renderer mutation.
+            // snapshot here makes input, length and Bloom changes take effect
+            // on the next frame without cross-thread renderer mutation.
             simulation.setTrailLengthMultiplier(config.effects.trailLength);
+            simulation.setInputSamplingRateHz(config.input.samplingRateHz);
             simulation.setAlwaysOnTrailEnabled(
                 config.effects.enabled
                     && config.effects.trailEnabled
