@@ -7,6 +7,7 @@
 #include "bafx/windows/error.hpp"
 #include "bafx/windows/fx_gpu_renderer.hpp"
 #include "bafx/windows/overlay_window.hpp"
+#include "bafx/windows/package_identity.hpp"
 #include "bafx/windows/portable_paths.hpp"
 #include "bafx/windows/runtime_diagnostics.hpp"
 #include "host_control.hpp"
@@ -441,6 +442,11 @@ int runApplication(
 
     ComApartment apartment;
     QpcClock clock;
+    const bafx::windows::PackageIdentityInfo packageIdentity =
+        bafx::windows::queryCurrentPackageIdentity();
+    bafx::windows::appendDiagnosticLog(
+        logPath,
+        bafx::windows::packageIdentityDiagnostic(packageIdentity));
     const std::filesystem::path configPath = bafx::desktop::defaultConfigPath();
     const bafx::config::ConfigLoadResult loadedConfig =
         bafx::config::loadConfig(configPath);

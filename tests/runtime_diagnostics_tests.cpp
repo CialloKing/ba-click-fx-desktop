@@ -1,5 +1,6 @@
 #include "test_support.hpp"
 
+#include "bafx/windows/package_identity.hpp"
 #include "bafx/windows/portable_paths.hpp"
 #include "bafx/windows/runtime_diagnostics.hpp"
 
@@ -7,6 +8,26 @@
 
 #include <filesystem>
 #include <string>
+
+BAFX_TEST(package_identity_probe_is_self_consistent)
+{
+    const bafx::windows::PackageIdentityInfo identity =
+        bafx::windows::queryCurrentPackageIdentity();
+    if (identity.present)
+    {
+        BAFX_CHECK(!identity.fullName.empty());
+        BAFX_CHECK(identity.fullNameError == ERROR_SUCCESS);
+    }
+    else
+    {
+        BAFX_CHECK(identity.fullName.empty());
+    }
+
+    const std::string diagnostic =
+        bafx::windows::packageIdentityDiagnostic(identity);
+    BAFX_CHECK(diagnostic.find("Package.Identity=") != std::string::npos);
+    BAFX_CHECK(diagnostic.find("FullNameError=0x") != std::string::npos);
+}
 
 BAFX_TEST(runtime_owned_paths_stay_beside_the_loaded_executable)
 {
