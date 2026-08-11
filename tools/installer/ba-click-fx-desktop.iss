@@ -84,6 +84,7 @@ var
   UserContextPath: String;
   MachineStatePath: String;
   RegistrationResultPath: String;
+  RecoveryRequired: Boolean;
 
 function QuoteArgument(const Value: String): String;
 var
@@ -312,6 +313,7 @@ begin
       RollbackSucceeded);
     if not RollbackSucceeded then
     begin
+      RecoveryRequired := True;
       SuppressibleMsgBox(
         'Preparation failed. The installation files and recovery state were retained; reopen Control Center to repair the installation.',
         mbError,
@@ -349,6 +351,7 @@ begin
       RollbackSucceeded);
     if not RollbackSucceeded then
     begin
+      RecoveryRequired := True;
       SuppressibleMsgBox(
         'Package registration failed. The installation files and recovery state were retained; reopen Control Center to repair the installation.',
         mbError,
@@ -377,6 +380,7 @@ begin
     if FileExists(AddBackslash(InstallerRoot) + 'INSTALL-STATE.json') and
       not FileExists(MachineStatePath) then
     begin
+      RecoveryRequired := True;
       SuppressibleMsgBox(
         'The package was committed, but final cleanup needs another repair pass from Control Center.',
         mbError,
@@ -391,6 +395,7 @@ begin
       RollbackSucceeded);
     if not RollbackSucceeded then
     begin
+      RecoveryRequired := True;
       SuppressibleMsgBox(
         'Finalization failed. The installation files and recovery state were retained; reopen Control Center to repair the installation.',
         mbError,
@@ -399,6 +404,17 @@ begin
       Exit;
     end;
     RaiseException('Package registration or finalization failed; rollback was attempted.');
+  end;
+end;
+
+function GetCustomSetupExitCode: Integer;
+begin
+  Result := 0;
+  if RecoveryRequired then
+  begin
+    // Recovery data must remain in place, but unattended callers still need a
+    // reliable failure signal instead of treating the repair as successful.
+    Result := 1001;
   end;
 end;
 

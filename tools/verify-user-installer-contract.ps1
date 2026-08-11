@@ -342,6 +342,10 @@ function Test-InnoPayloadContract
         -Text $inno `
         -Pattern 'SuppressibleMsgBox' `
         -Description 'recovery prompts support unattended installation'
+    Assert-TextContains `
+        -Text $inno `
+        -Pattern 'RecoveryRequired\s*:=\s*True[\s\S]*function\s+GetCustomSetupExitCode[\s\S]*Result\s*:=\s*1001' `
+        -Description 'retained recovery state returns a nonzero setup exit code'
     Assert-TextExcludes `
         -Text $inno `
         -Pattern '(?m)^\s*MsgBox\s*\(' `
