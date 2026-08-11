@@ -553,7 +553,7 @@ function Assert-IdentityPayload
             throw "Sparse package signature is invalid: $($signature.StatusMessage)"
         }
 
-        $archive = [IO.Compression.ZipFile]::OpenRead($packagePath)
+        $archive = [IO.Compression.ZipFile]::OpenRead($signedPackagePath)
         try
         {
             $manifestEntry = $archive.GetEntry('AppxManifest.xml')

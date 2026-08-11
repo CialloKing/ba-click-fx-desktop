@@ -457,6 +457,10 @@ function Test-SparsePackageContract
         -Description 'native target-machine package signing'
     Assert-TextContains `
         -Text $machineInstaller `
+        -Pattern 'OpenRead\(\$signedPackagePath\)' `
+        -Description 'generated package path is used for manifest validation'
+    Assert-TextContains `
+        -Text $machineInstaller `
         -Pattern '\-DeleteKey' `
         -Description 'private signing-key cleanup'
     Assert-TextContains `
