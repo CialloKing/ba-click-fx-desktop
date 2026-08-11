@@ -289,10 +289,11 @@ float4 DifferentialPrefilterPixel(FullscreenOutput input) : SV_Target0
 
 float4 TemporalBackgroundPixel(FullscreenOutput input) : SV_Target0
 {
+    const int2 pixel = int2(input.position.xy);
     const float3 previous = StabilizeCapturedBackground(
-        Source0.Sample(LinearClampSampler, input.uv).rgb);
+        Source0.Load(int3(pixel, 0)).rgb);
     const float3 current = StabilizeCapturedBackground(
-        Source1.Sample(LinearClampSampler, input.uv).rgb);
+        Source1.Load(int3(pixel, 0)).rgb);
     const float3 peak = max(previous, current);
     const float luminance = saturate(dot(peak, float3(0.2126, 0.7152, 0.0722)));
     // The WGC FP16 conversion is least stable near a bright reference white.
