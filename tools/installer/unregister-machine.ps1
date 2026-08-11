@@ -129,8 +129,10 @@ function Read-InstallStateWithBackup
     )
 
     $backupPath = "$Path.bak"
-    $candidates = @($Path, $backupPath) |
-        Where-Object { Test-Path -LiteralPath $_ -PathType Leaf }
+    $candidates = @(
+        @($Path, $backupPath) |
+            Where-Object { Test-Path -LiteralPath $_ -PathType Leaf }
+    )
     if ($candidates.Count -eq 0)
     {
         throw 'Protected install state is missing; refusing an imprecise uninstall.'

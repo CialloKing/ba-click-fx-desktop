@@ -889,8 +889,10 @@ function Read-OldInstallState
 
     $path = Join-Path $InstallRoot 'Installer\INSTALL-STATE.json'
     $backupPath = "$path.bak"
-    $candidates = @($path, $backupPath) |
-        Where-Object { Test-Path -LiteralPath $_ -PathType Leaf }
+    $candidates = @(
+        @($path, $backupPath) |
+            Where-Object { Test-Path -LiteralPath $_ -PathType Leaf }
+    )
     if ($candidates.Count -eq 0)
     {
         return $null
@@ -1435,10 +1437,16 @@ if ($Phase -eq 'Prepare')
         {
             throw 'An untracked package registration already exists; uninstall it before continuing.'
         }
-        if ($null -ne $oldInstallState -and
-            ($preexistingFullNames | Where-Object {
-                [string]$_ -ne [string]$oldInstallState.packageFullName
-            }).Count -gt 0)
+        $untrackedFullNames = @()
+        if ($null -ne $oldInstallState)
+        {
+            $untrackedFullNames = @(
+                $preexistingFullNames | Where-Object {
+                    [string]$_ -ne [string]$oldInstallState.packageFullName
+                }
+            )
+        }
+        if ($null -ne $oldInstallState -and $untrackedFullNames.Count -gt 0)
         {
             throw 'An untracked package registration exists beside the protected install state.'
         }
