@@ -1353,6 +1353,13 @@ function Invoke-PendingRollback
     {
         throw "Package rollback failed: $packageError"
     }
+    $preparedPackagePath = [string]$State.packagePath
+    if (Test-Path -LiteralPath $preparedPackagePath -PathType Leaf)
+    {
+        # Assert-PendingStateObject already bound this path to packageFile under
+        # the Identity directory; remove the transaction-owned artifact only.
+        Remove-Item -LiteralPath $preparedPackagePath -Force
+    }
     Remove-PreparedCertificateIfUnused -State $State
 }
 

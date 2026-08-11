@@ -291,6 +291,10 @@ function Test-InstallerScriptWhitelist
         -Description 'rollback ignores the preexisting same-version package'
     Assert-TextContains `
         -Text $installMachine `
+        -Pattern 'Invoke-PendingRollback[\s\S]*preparedPackagePath[\s\S]*Remove-Item\s+-LiteralPath\s+\$preparedPackagePath' `
+        -Description 'rollback removes the prepared signed package file'
+    Assert-TextContains `
+        -Text $installMachine `
         -Pattern 'Start-Process[\s\S]*-Wait[\s\S]*\$hostProcess\.ExitCode' `
         -Description 'identity bootstrap uses an explicit GUI process exit code'
 
