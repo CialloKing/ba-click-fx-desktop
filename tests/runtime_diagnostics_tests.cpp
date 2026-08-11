@@ -53,6 +53,7 @@ BAFX_TEST(runtime_owned_paths_stay_beside_the_loaded_executable)
         bafx::windows::defaultDiagnosticLogPath();
     BAFX_CHECK(logPath.parent_path() == executableDirectory);
     BAFX_CHECK(logPath.filename() == L"ba-click-fx-desktop-support.log");
+    BAFX_CHECK(logPath.parent_path() == bafx::windows::runtimeDataDirectory());
 
     const std::filesystem::path escapedPath = bafx::windows::executableFilePath(
         L"C:\\outside\\support.txt",

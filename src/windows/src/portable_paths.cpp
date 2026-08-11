@@ -1,6 +1,7 @@
 #include "bafx/windows/portable_paths.hpp"
 
 #include "bafx/windows/error.hpp"
+#include "bafx/windows/package_identity.hpp"
 
 #include <windows.h>
 
@@ -43,6 +44,16 @@ std::filesystem::path executableDirectory()
     }
 }
 
+std::filesystem::path runtimeDataDirectory()
+{
+    const std::filesystem::path root = executableDirectory();
+    if (!queryCurrentPackageIdentity().present)
+    {
+        return root;
+    }
+    return root / L"data";
+}
+
 std::filesystem::path executableFilePath(
     const std::wstring_view requestedName,
     const std::wstring_view fallbackName)
@@ -56,7 +67,7 @@ std::filesystem::path executableFilePath(
     {
         throw std::invalid_argument("portable file name is empty");
     }
-    return executableDirectory() / filename;
+    return runtimeDataDirectory() / filename;
 }
 
 }
