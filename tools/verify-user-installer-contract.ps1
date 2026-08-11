@@ -332,6 +332,18 @@ function Test-InnoPayloadContract
         -Description 'registration is executed for the installing user'
     Assert-TextContains `
         -Text $inno `
+        -Pattern 'GenerateUniqueName\(TempRoot,\s*\x27\.json\x27\)' `
+        -Description 'original-user state uses unique user TEMP files'
+    Assert-TextContains `
+        -Text $inno `
+        -Pattern 'procedure\s+DeinitializeSetup[\s\S]*DeleteTransientState[\s\S]*procedure\s+DeinitializeUninstall[\s\S]*DeleteTransientState' `
+        -Description 'transient original-user state is removed after setup and uninstall'
+    Assert-TextExcludes `
+        -Text $inno `
+        -Pattern '\{tmp\}\\bafx-[A-Za-z-]*(user-context|registration-result)\.json' `
+        -Description 'original-user state avoids the protected Inno temp directory'
+    Assert-TextContains `
+        -Text $inno `
         -Pattern '\-Phase Prepare' `
         -Description 'machine preparation phase'
     Assert-TextContains `

@@ -94,6 +94,33 @@ begin
   Result := '"' + Escaped + '"';
 end;
 
+function CreateOriginalUserStatePath(): String;
+var
+  TempRoot: String;
+begin
+  // Inno's protected setup temp directory is read-only for the original user
+  // after elevation. A unique file in inherited TEMP keeps the setup directory
+  // protected while ExecAsOriginalUser writes its short-lived result.
+  TempRoot := GetEnv('TEMP');
+  if TempRoot = '' then
+  begin
+    RaiseException('The original user temporary directory is unavailable.');
+  end;
+  Result := GenerateUniqueName(TempRoot, '.json');
+end;
+
+procedure DeleteTransientState;
+begin
+  if UserContextPath <> '' then
+  begin
+    DeleteFile(UserContextPath);
+  end;
+  if RegistrationResultPath <> '' then
+  begin
+    DeleteFile(RegistrationResultPath);
+  end;
+end;
+
 function RunPowerShell(
   const ScriptPath: String;
   const Arguments: String;
@@ -208,9 +235,9 @@ begin
 
   InstallRoot := ExpandConstant('{app}');
   InstallerRoot := AddBackslash(InstallRoot) + 'Installer';
-  UserContextPath := ExpandConstant('{tmp}\bafx-user-context.json');
+  UserContextPath := CreateOriginalUserStatePath();
   MachineStatePath := AddBackslash(InstallerRoot) + 'PREPARE-STATE.json';
-  RegistrationResultPath := ExpandConstant('{tmp}\bafx-registration-result.json');
+  RegistrationResultPath := CreateOriginalUserStatePath();
 
   RequirePowerShellSuccess(
     'Capturing the original user context',
@@ -327,6 +354,16 @@ begin
   end;
 end;
 
+procedure DeinitializeSetup;
+begin
+  DeleteTransientState;
+end;
+
+procedure DeinitializeUninstall;
+begin
+  DeleteTransientState;
+end;
+
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 var
   ExitCode: Integer;
@@ -342,7 +379,7 @@ begin
   InstallRoot := ExpandConstant('{app}');
   InstallerRoot := AddBackslash(InstallRoot) + 'Installer';
   MachineStatePath := AddBackslash(InstallerRoot) + 'PREPARE-STATE.json';
-  RegistrationResultPath := ExpandConstant('{tmp}\bafx-uninstall-registration-result.json');
+  RegistrationResultPath := CreateOriginalUserStatePath();
   if FileExists(MachineStatePath) then
   begin
     if not RunPowerShell(
