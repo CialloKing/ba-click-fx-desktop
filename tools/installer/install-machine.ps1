@@ -784,10 +784,19 @@ function Initialize-IdentityConfig
     Push-Location -LiteralPath $InstallRoot
     try
     {
-        & $hostPath "--support-info=$reportName" | Out-Null
-        if ($LASTEXITCODE -ne 0)
+        # GUI-subsystem processes do not reliably update LASTEXITCODE. Wait
+        # explicitly so a stale signer exit code cannot mask bootstrap errors.
+        $hostProcess = Start-Process `
+            -FilePath $hostPath `
+            -ArgumentList @("--support-info=$reportName") `
+            -WorkingDirectory $InstallRoot `
+            -WindowStyle Hidden `
+            -Wait `
+            -PassThru `
+            -ErrorAction Stop
+        if ($hostProcess.ExitCode -ne 0)
         {
-            throw "Host configuration bootstrap failed with exit code $LASTEXITCODE."
+            throw "Host configuration bootstrap failed with exit code $($hostProcess.ExitCode)."
         }
     }
     finally

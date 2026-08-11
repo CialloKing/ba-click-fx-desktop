@@ -289,6 +289,10 @@ function Test-InstallerScriptWhitelist
         -Text $installMachine `
         -Pattern 'preexistingFullNames\s*=\s*@\(\$State\.preexistingPackageFullNames\)[\s\S]*sameVersionPackages' `
         -Description 'rollback ignores the preexisting same-version package'
+    Assert-TextContains `
+        -Text $installMachine `
+        -Pattern 'Start-Process[\s\S]*-Wait[\s\S]*\$hostProcess\.ExitCode' `
+        -Description 'identity bootstrap uses an explicit GUI process exit code'
 
     $controlCenterResource = Read-RepositoryText `
         -RelativePath 'src/control-center/BAFX.ControlCenter.rc.in'
