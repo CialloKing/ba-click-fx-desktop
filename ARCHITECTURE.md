@@ -185,24 +185,25 @@ Render Owner 醒来后串行调用 `TryGetNextFrame`，丢弃旧帧、保留最�
 至少按 60 Hz 周期计算：
 
 - 普通动画仅在 `-3T <= age < max(6T, 100ms)` 时为新一批可见特效获取背景路径；
-- 已进入背景感知的批次可在 `-3T <= age < max(12T, 250ms)` 内保留该路径；超出保留窗口后
-  只降级一次，本批特效即使恢复新样本也不再升级；
+- 已进入背景感知的批次只用 `-3T <= age < max(12T, 250ms)` 的新 generation 刷新快照；已有快照
+  在短暂缺帧时保留该路径，只有首次快照尚未建立时才允许单向降级；
 - FX-only 批次在画面完全透明前保持 FX-only；透明帧解除锁存，下一批重新选择；
-- 暂停后的所有永久保留帧仅接受 `-T <= age < T`，并且仍然只允许单向降级；
+- 暂停后的背景刷新仅接受 `-T <= age < T`；已有快照保持路径并等待下一次 WGC 帧事件；
 - epoch、尺寸、encoding 或排除合同错误：立即不可用。
 
 可用性是二值合同。可用纹理始终同时驱动完整 Differential Bloom 与同一套 background-aware
 source-over payload；不可用时两者同时切回 FX-only。sample age 不得映射为 Bloom、Alpha 或其他视觉
 能量权重，避免捕获 cadence 在浅色背景上调制点击和拖尾亮度。窗口参数属于 ADR-007 的 Proposed
-值；新批次必须先通过 acquire freshness，Render Owner 随后将首个可用 WGC 帧复制到独立快照。
-快照一旦成功复制，整个可见批次继续使用它，即使 live sample 跨过 retain 边界；这样 Differential
-Bloom 和最终 payload 在一个可见批次内永远读取同一背景，不会在丢帧或暂停重绘时切换路径。只有
-快照尚未建立的新批次才按 retain 窗口回退，真实 cadence/VRR 证据可收窄该窗口。背景传输将捕获
-样本按 `1/512` 稳定量化，把相邻 FP16 步进合并；每通道
-小于 `1/1024` 的目标/背景差异只用于 payload 的连续噪声过渡，不得反解或抬高 Alpha。最终 Alpha
-固定来自该帧 authored Coverage/Bloom 传输容量，DirectEmission 与 Bloom RGB 保持独立加法能量，
-避免 `1 - background` 接近零或拖尾能量衰减把不可见步进放大为闪烁。这个误差预算只属于已知背景的
-传输层，不能用于放宽 Unity Golden 的源渲染比较。
+值；新批次必须先通过 acquire freshness，Render Owner 随后将可用 WGC 帧复制到独立快照。路径在
+整个可见批次内保持不变，但每个通过校验的新 generation 都原子刷新快照；短暂丢帧时才沿用上一张。
+这样 Differential Bloom 和最终 payload 在每次 present 中读取同一背景，又不会把首次点击时的浅色
+桌面永久烘焙进移动拖尾。暂停只冻结 authored simulation，仍由 WGC 帧事件驱动静止特效重合成。
+快照尚未建立的新批次才按 retain 窗口回退，真实 cadence/VRR 证据可收窄该窗口。背景 scRGB 不执行
+全域分箱量化；只把 `1.0` 参考白周围的 `1/1024` 捕获噪声平台收敛到参考白，再于 `3/1024` 内
+连续退出，抑制相邻 FP16 捕获值抖动而不让普通浅色渐变产生阶跃。最终 Alpha 固定来自该帧
+authored Coverage/Bloom 传输容量，不由捕获 RGB 的近白分母反解；DirectEmission 与 Bloom RGB
+保持独立加法能量，避免拖尾衰减或背景采样步进
+放大为透明度闪烁。这个误差预算只属于已知背景的传输层，不能用于放宽 Unity Golden 的源渲染比较。
 
 ## 7. 捕获功耗状态
 

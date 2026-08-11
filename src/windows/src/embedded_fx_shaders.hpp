@@ -172,17 +172,20 @@ Texture2D<float4> Source3 : register(t3);
 Texture2D<float4> Source4 : register(t4);
 SamplerState LinearClampSampler : register(s0);
 
-static const float BackgroundTransportNoiseFloor = 1.0 / 1024.0;
-static const float BackgroundTransportNoiseBlendEnd =
-    BackgroundTransportNoiseFloor * 2.0;
-static const float BackgroundTransportStableSampleScale = 512.0;
+static const float BackgroundReferenceWhitePlateau = 1.0 / 1024.0;
+static const float BackgroundReferenceWhiteFilterEnd = 3.0 / 1024.0;
 
-float3 StableBackgroundSample(float3 sample)
+float3 StabilizeCapturedBackground(float3 sample)
 {
-    return floor(
-        max(sample, 0.0) * BackgroundTransportStableSampleScale
-        + 0.5)
-        / BackgroundTransportStableSampleScale;
+    const float3 nonNegative = max(sample, 0.0);
+    const float3 distanceFromReferenceWhite = abs(nonNegative - 1.0);
+    const float3 referenceWhiteBlend = 1.0 - smoothstep(
+        BackgroundReferenceWhitePlateau,
+        BackgroundReferenceWhiteFilterEnd,
+        distanceFromReferenceWhite);
+    // WGC can alternate between adjacent FP16 values around scRGB 1.0. Use a
+    // continuous local filter there without quantizing unrelated gradients.
+    return lerp(nonNegative, 1.0, referenceWhiteBlend);
 }
 
 struct FullscreenOutput
@@ -245,13 +248,13 @@ float4 DifferentialPrefilterPixel(FullscreenOutput input) : SV_Target0
         + SourceTexelSize * float2(-1.0, 1.0);
     const float2 bottomRight = input.uv
         + SourceTexelSize * float2(1.0, 1.0);
-    const float3 backgroundTopLeft = StableBackgroundSample(
+    const float3 backgroundTopLeft = StabilizeCapturedBackground(
         Source1.Sample(LinearClampSampler, topLeft).rgb);
-    const float3 backgroundTopRight = StableBackgroundSample(
+    const float3 backgroundTopRight = StabilizeCapturedBackground(
         Source1.Sample(LinearClampSampler, topRight).rgb);
-    const float3 backgroundBottomLeft = StableBackgroundSample(
+    const float3 backgroundBottomLeft = StabilizeCapturedBackground(
         Source1.Sample(LinearClampSampler, bottomLeft).rgb);
-    const float3 backgroundBottomRight = StableBackgroundSample(
+    const float3 backgroundBottomRight = StabilizeCapturedBackground(
         Source1.Sample(LinearClampSampler, bottomRight).rgb);
     const float backgroundOcclusionTopLeft = saturate(
         Source2.Sample(LinearClampSampler, topLeft).g);
@@ -384,21 +387,12 @@ float4 ResolveBackgroundAwareDesktopTransport(
     float3 capturedBackground,
     float exposureGain)
 {
-    // WGC's FP16 cadence can alternate between adjacent values around a
-    // visually unchanged light surface. Collapse pairs of those steps before
-    // solving and exporting the source-over payload, while retaining the
-    // extended non-negative range for HDR samples.
-    const float3 background = StableBackgroundSample(capturedBackground);
-    const float3 target = max(
-        max(direct.rgb, 0.0)
-        + background * (1.0 - saturate(occlusion))
-        + max(bloom.rgb, 0.0) * exposureGain,
-        0.0);
+    // Preserve continuous scRGB outside a narrow reference-white noise band.
+    const float3 background = StabilizeCapturedBackground(capturedBackground);
 
-    // Keep Alpha tied to authored Coverage and Bloom transport, matching the
-    // WebGL2/WebGPU transparent-overlay contract. Inverting target-background
-    // for Alpha is ill-conditioned on a light desktop: one FP16 capture step
-    // near white can otherwise turn a stable edge into an opaque pixel.
+    // Keep Alpha tied to the authored Coverage/Bloom envelope used by the Web
+    // coverage path. WGC is asynchronous to DWM, so inverse-solving Alpha from
+    // captured RGB is ill-conditioned on a light desktop.
     const float sceneCoverage = saturate(direct.a);
     const float crossCoverage = saturate(occlusion);
     const float additiveCoverage = saturate(
@@ -423,31 +417,17 @@ float4 ResolveBackgroundAwareDesktopTransport(
     {
         return float4(0.0, 0.0, 0.0, 0.0);
     }
-    // Keep direct emission and Bloom additive, matching the WebGL2/WebGPU
-    // default `coverage` policy. Only the Cross2 background attenuation is
-    // represented by the source-over term; it must not scale an independent
-    // trail RGB peak back down to its Coverage Alpha.
+    // Keep direct emission and Bloom additive, matching the Web default
+    // `coverage` policy. Only the Cross2 background attenuation is represented
+    // by the source-over term; it must not scale an independent trail RGB peak
+    // back down to its Coverage Alpha.
     const float3 additiveEmission = max(direct.rgb, 0.0)
         + max(bloom.rgb, 0.0) * exposureGain;
     const float3 backgroundCoveragePayload = background * max(
         alpha - crossCoverage,
         0.0);
-    const float3 authoredPayload = additiveEmission + backgroundCoveragePayload;
-    const float maximumDifference = max(
-        abs(target.r - background.r),
-        max(
-            abs(target.g - background.g),
-            abs(target.b - background.b)));
-    const float captureNoiseBlend = smoothstep(
-        BackgroundTransportNoiseFloor,
-        BackgroundTransportNoiseBlendEnd,
-        maximumDifference);
-    const float3 inversePayload = target - background * (1.0 - alpha);
-    // The two payload forms are equivalent for ordinary SDR samples. Keeping
-    // the authored form through the noise band makes the transition explicit
-    // and continuous when a captured light surface crosses one FP16 step.
     const float3 premultiplied = max(
-        lerp(authoredPayload, inversePayload, captureNoiseBlend),
+        additiveEmission + backgroundCoveragePayload,
         0.0);
 
     // The captured background is baked into the payload only as required to
@@ -480,8 +460,8 @@ float4 DesktopCompositePixel(FullscreenOutput input) : SV_Target0
         LinearClampSampler,
         input.uv).rgb;
     // The render owner latches one complete visual path. Differential Bloom
-    // and Alpha reconstruction arrive together so capture cadence cannot
-    // modulate either layer independently.
+    // and the background payload arrive together so capture cadence cannot
+    // switch either layer independently.
     return ResolveBackgroundAwareDesktopTransport(
         direct,
         bloom,

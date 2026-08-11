@@ -980,7 +980,7 @@ BAFX_TEST(warp_background_transport_suppresses_near_white_capture_noise)
         > 0.5F);
 }
 
-BAFX_TEST(warp_background_transport_is_continuous_at_the_noise_floor)
+BAFX_TEST(warp_background_transport_follows_authored_coverage_continuously)
 {
     ComApartment apartment;
     const WarpDevice graphics = createWarpDevice();
@@ -1029,8 +1029,8 @@ BAFX_TEST(warp_background_transport_is_continuous_at_the_noise_floor)
         maximumAlpha = (std::max)(maximumAlpha, alpha);
         if (previousAlpha.has_value())
         {
-            // A WGC sample crossing one FP16 noise step must not turn a
-            // fading click edge from transparent into a full authored layer.
+            // A small authored intensity change must not turn a fading click
+            // edge from transparent into a full transport layer.
             BAFX_CHECK(std::abs(alpha - *previousAlpha) <= 2.0e-2F);
         }
         previousAlpha = alpha;
