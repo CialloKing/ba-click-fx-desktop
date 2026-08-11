@@ -1284,9 +1284,13 @@ function Remove-PreparedCertificateIfUnused
     {
         return
     }
+    $preexistingFullNames = @($State.preexistingPackageFullNames)
     $sameVersionPackages = @(
         Get-AppxPackage -AllUsers -Name ([string]$State.packageName) -ErrorAction Stop |
-            Where-Object { [string]$_.Version -eq [string]$State.packageVersion }
+            Where-Object {
+                [string]$_.Version -eq [string]$State.packageVersion -and
+                $preexistingFullNames -notcontains [string]$_.PackageFullName
+            }
     )
     if ($sameVersionPackages.Count -gt 0)
     {

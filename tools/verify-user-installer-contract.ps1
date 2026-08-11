@@ -285,6 +285,10 @@ function Test-InstallerScriptWhitelist
         -Text $installMachine `
         -Pattern 'Get-IdentityTemplateContentHash\s+-Path\s+\$oldPackagePath[\s\S]*identity package content changed' `
         -Description 'same-version repair compares package semantics'
+    Assert-TextContains `
+        -Text $installMachine `
+        -Pattern 'preexistingFullNames\s*=\s*@\(\$State\.preexistingPackageFullNames\)[\s\S]*sameVersionPackages' `
+        -Description 'rollback ignores the preexisting same-version package'
 
     $controlCenterResource = Read-RepositoryText `
         -RelativePath 'src/control-center/BAFX.ControlCenter.rc.in'
