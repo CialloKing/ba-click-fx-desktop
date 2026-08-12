@@ -372,6 +372,57 @@ BAFX_TEST(dissolve_ring_lifetime_curves_use_the_same_unity_particle_age)
     BAFX_CHECK(ringSizes[1] < ringSizes[2]);
 }
 
+BAFX_TEST(click_burst_systems_follow_unity_particle_age_at_common_refresh_rates)
+{
+    struct RefreshSample
+    {
+        std::uint32_t rateHz;
+        std::uint32_t frame;
+    };
+    constexpr std::array samples{
+        RefreshSample{60U, 3U},
+        RefreshSample{120U, 6U},
+        RefreshSample{240U, 12U}};
+    std::array<float, samples.size()> diskSizes{};
+    std::array<float, samples.size()> triangleSizes{};
+
+    for (std::size_t index = 0U; index < samples.size(); ++index)
+    {
+        const RefreshSample& sample = samples[index];
+        Simulation simulation;
+        simulation.pointerDown(goldenCenter, goldenViewport, 0ns);
+        for (std::uint32_t frame = 1U; frame <= sample.frame; ++frame)
+        {
+            const auto frameTime = std::chrono::duration_cast<SimulationTime>(
+                std::chrono::duration<float>(
+                    static_cast<float>(frame)
+                    / static_cast<float>(sample.rateHz)));
+            simulation.advance(frameTime);
+        }
+
+        const auto sampleTime = std::chrono::duration_cast<SimulationTime>(
+            std::chrono::duration<float>(
+                static_cast<float>(sample.frame)
+                / static_cast<float>(sample.rateHz)));
+        const FrameSnapshot frame = simulation.snapshot(
+            goldenViewport,
+            sampleTime);
+        diskSizes[index] = firstKind(
+            frame,
+            SpriteKind::CenterDisk).sizePixels;
+        triangleSizes[index] = firstKind(
+            frame,
+            SpriteKind::Triangle).sizePixels;
+    }
+
+    // All samples end near 50 ms. Their differing sizes come from Unity's
+    // first-frame birth boundary, not an absolute 25 ms render delay.
+    BAFX_CHECK(diskSizes[0] < diskSizes[1]);
+    BAFX_CHECK(diskSizes[1] < diskSizes[2]);
+    BAFX_CHECK(triangleSizes[0] < triangleSizes[1]);
+    BAFX_CHECK(triangleSizes[1] < triangleSizes[2]);
+}
+
 BAFX_TEST(unity_hermite_size_curves_match_serialized_samples)
 {
     Simulation simulation;
@@ -404,15 +455,15 @@ BAFX_TEST(unity_hermite_size_curves_match_serialized_samples)
     }
 
     constexpr std::array expectedTriangleSizesAt250ms{
-        24.46440F,
-        22.49270F,
-        26.69940F,
-        28.54280F};
+        24.524269F,
+        22.541700F,
+        26.775435F,
+        28.604612F};
     constexpr std::array expectedTriangleSizesAt450ms{
-        16.89060F,
-        16.18470F,
-        17.29080F,
-        20.57250F};
+        17.153708F,
+        16.405443F,
+        17.614582F,
+        20.851566F};
     const auto trianglesAt250ms = spritesOfKind(ringFrameAt250ms, SpriteKind::Triangle);
     const auto trianglesAt450ms = spritesOfKind(ringFrameAt450ms, SpriteKind::Triangle);
     BAFX_CHECK(trianglesAt250ms.size() == expectedTriangleSizesAt250ms.size());
@@ -525,10 +576,10 @@ BAFX_TEST(unity_active_color_space_is_applied_after_serialized_color_curves)
     BAFX_CHECK_NEAR(ring.color.b, 1.0F, 1.0e-6F);
 
     constexpr std::array expectedColors{
-        ColorF{0.03321951F, 0.14411548F, 0.25064608F, 0.38006002F},
-        ColorF{0.03322063F, 0.14413354F, 0.25064608F, 0.54815209F},
-        ColorF{0.03321799F, 0.14409056F, 0.25064608F, 0.14858568F},
-        ColorF{0.03322067F, 0.14413428F, 0.25064608F, 0.55533624F}};
+        ColorF{0.03321987F, 0.14412127F, 0.25064608F, 0.43425328F},
+        ColorF{0.03322097F, 0.14413916F, 0.25064608F, 0.60027027F},
+        ColorF{0.03321836F, 0.14409673F, 0.25064608F, 0.20563626F},
+        ColorF{0.03322102F, 0.14413990F, 0.25064608F, 0.60736549F}};
     const auto triangles = spritesOfKind(ringFrame, SpriteKind::Triangle);
     BAFX_CHECK(triangles.size() == expectedColors.size());
     for (std::size_t index = 0U; index < expectedColors.size(); ++index)
@@ -689,6 +740,28 @@ BAFX_TEST(drag_particle_birth_times_are_interpolated_along_the_input_segment)
     const std::size_t visibleTriangles = countKind(frame, SpriteKind::Triangle);
     BAFX_CHECK(visibleTriangles >= 1U);
     BAFX_CHECK(visibleTriangles <= 2U);
+}
+
+BAFX_TEST(drag_particle_age_starts_at_the_distance_interpolated_birth_time)
+{
+    Simulation simulation;
+    constexpr PointF start{100.0F, 100.0F};
+    constexpr PointF end{220.0F, 100.0F};
+    simulation.pointerDown(start, goldenViewport, 0ns);
+    simulation.pointerMove(end, goldenViewport, 30ms);
+
+    const auto frame = simulation.snapshot(goldenViewport, 30ms);
+    const auto triangles = spritesOfKind(frame, SpriteKind::Triangle);
+    BAFX_CHECK(triangles.size() == 5U);
+
+    // Ring (3) emits its Burst at the end of this single Unity step, so its
+    // four particles still have age zero. Ring (4) crossed 0.2 world within
+    // the step and owns the remaining fraction of frame time immediately.
+    for (std::size_t index = 0U; index < 4U; ++index)
+    {
+        BAFX_CHECK_NEAR(triangles[index]->sizePixels, 0.0F, 0.0F);
+    }
+    BAFX_CHECK(triangles.back()->sizePixels > 0.0F);
 }
 
 BAFX_TEST(pointer_cancel_keeps_the_current_trail_until_it_naturally_expires)

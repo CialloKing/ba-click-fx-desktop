@@ -24,7 +24,6 @@ constexpr float maximumTrailLengthMultiplier = 3.0F;
 constexpr float trailWidthWorld = 0.005F;
 constexpr float ringLifetimeSeconds = 0.6F;
 constexpr float ringAngularVelocityMultiplier = 11.170107F;
-constexpr double particleRenderDelaySeconds = 0.025;
 constexpr float maximumParticleTimestepSeconds = 0.03F;
 constexpr std::uint32_t maximumDragParticles = 50U;
 constexpr double releaseLifetimeSeconds = 1.0;
@@ -182,13 +181,6 @@ template<std::size_t keyCount>
 [[nodiscard]] float length(const PointF value) noexcept
 {
     return std::sqrt(value.x * value.x + value.y * value.y);
-}
-
-[[nodiscard]] double delayedAge(
-    const double elapsedSeconds,
-    const double delaySeconds) noexcept
-{
-    return std::max(0.0, elapsedSeconds - delaySeconds);
 }
 
 [[nodiscard]] PointF add(const PointF lhs, const PointF rhs) noexcept
@@ -520,8 +512,8 @@ void Simulation::advance(const SimulationTime time)
 
     if (clickEffectEnabled_)
     {
-        advanceParticleStepState(
-            particleStepState_,
+        advanceClickParticleStepStates(
+            particleStepStates_,
             time - lastAdvancedAt_);
     }
 
@@ -538,13 +530,24 @@ void Simulation::advance(const SimulationTime time)
         });
     trail_.erase(trailEnd, trail_.end());
 
+    const float clickTriangleAge =
+        particleStepStates_.clickTriangles.particleAgeSeconds;
+    const bool clickTrianglesEmitted =
+        particleStepStates_.clickTriangles.burstEmitted;
     const auto particleEnd = std::remove_if(
         triangles_.begin(),
         triangles_.end(),
-        [time](const MovingParticle& particle)
+        [time, clickTriangleAge, clickTrianglesEmitted](
+            const MovingParticle& particle)
         {
-            return ageSeconds(time, particle.bornAt)
-                > particle.lifetimeSeconds + particleRenderDelaySeconds;
+            if (particle.dragParticle)
+            {
+                return ageSeconds(time, particle.bornAt)
+                    > particle.lifetimeSeconds;
+            }
+
+            return clickTrianglesEmitted
+                && clickTriangleAge > particle.lifetimeSeconds;
         });
     triangles_.erase(particleEnd, triangles_.end());
 }
@@ -579,14 +582,14 @@ FrameSnapshot Simulation::snapshot(const Viewport viewport, const SimulationTime
         return frame;
     }
 
-    const double effectAge = ageSeconds(time, startedAt_);
-    const ParticleStepState particleState = particleStepStateAt(time);
-    // Unity emits bursts at the end of its first particle update. The verified
-    // 50/100 ms captures expose a 25 ms phase before visual lifetime advances.
-    const double particleAge = delayedAge(effectAge, particleRenderDelaySeconds);
-    if (clickEffectEnabled_ && effectAge > 0.0 && particleAge <= 0.2)
+    const ClickParticleStepStates particleStates = particleStepStatesAt(time);
+    const ParticleStepState& centerDiskState = particleStates.centerDisk;
+    if (clickEffectEnabled_
+        && centerDiskState.burstEmitted
+        && centerDiskState.particleAgeSeconds <= 0.2F)
     {
-        const float normalizedAge = static_cast<float>(particleAge / 0.2);
+        const float normalizedAge =
+            centerDiskState.particleAgeSeconds / 0.2F;
         frame.sprites.push_back(Sprite{
             SpriteKind::CenterDisk,
             worldToScreen(effectOriginWorld_, viewport),
@@ -600,13 +603,14 @@ FrameSnapshot Simulation::snapshot(const Viewport viewport, const SimulationTime
             true});
     }
 
-    if (effectAge > 0.0
-        && particleState.burstEmitted
-        && particleState.particleAgeSeconds <= ringLifetimeSeconds)
+    const ParticleStepState& dissolveRingState =
+        particleStates.dissolveRings;
+    if (dissolveRingState.burstEmitted
+        && dissolveRingState.particleAgeSeconds <= ringLifetimeSeconds)
     {
-        const float normalizedAge = particleState.particleAgeSeconds
+        const float normalizedAge = dissolveRingState.particleAgeSeconds
             / ringLifetimeSeconds;
-        const float customNormalizedAge = particleState.customDataAgeSeconds
+        const float customNormalizedAge = dissolveRingState.customDataAgeSeconds
             / ringLifetimeSeconds;
         for (const RingParticle& ring : rings_)
         {
@@ -638,7 +642,18 @@ FrameSnapshot Simulation::snapshot(const Viewport viewport, const SimulationTime
             continue;
         }
 
-        const double age = delayedAge(elapsed, particleRenderDelaySeconds);
+        double age = elapsed;
+        if (!particle.dragParticle)
+        {
+            const ParticleStepState& clickTriangleState =
+                particleStates.clickTriangles;
+            if (!clickTriangleState.burstEmitted)
+            {
+                continue;
+            }
+            age = clickTriangleState.particleAgeSeconds;
+        }
+
         if (age > particle.lifetimeSeconds)
         {
             continue;
@@ -724,17 +739,26 @@ void Simulation::advanceParticleStepState(
     }
 }
 
-Simulation::ParticleStepState Simulation::particleStepStateAt(
+void Simulation::advanceClickParticleStepStates(
+    ClickParticleStepStates& states,
+    const SimulationTime elapsed) noexcept
+{
+    advanceParticleStepState(states.centerDisk, elapsed);
+    advanceParticleStepState(states.dissolveRings, elapsed);
+    advanceParticleStepState(states.clickTriangles, elapsed);
+}
+
+Simulation::ClickParticleStepStates Simulation::particleStepStatesAt(
     const SimulationTime time) const noexcept
 {
-    ParticleStepState state = particleStepState_;
+    ClickParticleStepStates states = particleStepStates_;
     if (clickEffectEnabled_ && time > lastAdvancedAt_)
     {
         // Snapshot is intentionally read-only. Capture tools query arbitrary
         // future ages, so complete the pending interval on a disposable copy.
-        advanceParticleStepState(state, time - lastAdvancedAt_);
+        advanceClickParticleStepStates(states, time - lastAdvancedAt_);
     }
-    return state;
+    return states;
 }
 
 PointF Simulation::screenToWorld(const PointF screen, const Viewport viewport) noexcept
@@ -813,7 +837,7 @@ void Simulation::resetState(
     pointerSampleAt_ = time;
     lastEmissionWorld_ = worldPosition;
     dragDistanceRemainderWorld_ = 0.0F;
-    particleStepState_ = ParticleStepState{};
+    particleStepStates_ = ClickParticleStepStates{};
     rings_.clear();
     triangles_.clear();
     trail_.clear();

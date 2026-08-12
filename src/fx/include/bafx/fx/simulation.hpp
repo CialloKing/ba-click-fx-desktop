@@ -154,6 +154,15 @@ private:
         bool burstEmitted{false};
     };
 
+    struct ClickParticleStepStates
+    {
+        // Unity advances every child ParticleSystem independently, even when
+        // their zero-delay bursts are observed in the same rendered frame.
+        ParticleStepState centerDisk{};
+        ParticleStepState dissolveRings{};
+        ParticleStepState clickTriangles{};
+    };
+
     class Random final
     {
     public:
@@ -183,7 +192,10 @@ private:
     static void advanceParticleStepState(
         ParticleStepState& state,
         SimulationTime elapsed) noexcept;
-    [[nodiscard]] ParticleStepState particleStepStateAt(
+    static void advanceClickParticleStepStates(
+        ClickParticleStepStates& states,
+        SimulationTime elapsed) noexcept;
+    [[nodiscard]] ClickParticleStepStates particleStepStatesAt(
         SimulationTime time) const noexcept;
 
     std::uint64_t baseSeed_{0};
@@ -202,7 +214,7 @@ private:
     PointF lastEmissionWorld_{};
     float dragDistanceRemainderWorld_{0.0F};
     float trailLengthMultiplier_{1.0F};
-    ParticleStepState particleStepState_{};
+    ClickParticleStepStates particleStepStates_{};
     std::vector<RingParticle> rings_{};
     std::vector<MovingParticle> triangles_{};
     std::vector<StoredTrailPoint> trail_{};
