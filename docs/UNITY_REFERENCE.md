@@ -46,6 +46,46 @@ D:\WebProjects\BA鼠标输入与点击特效系统\提取资产2\BA_FX_Touch_Uni
 上述“截图一致”只证明重建路径在该矩阵中的观察结果；它不自动证明游戏所有 render queue、pause、
 slow-motion、录屏、HDR 显示或桌面合成行为一致。
 
+### Windows Player 连续帧时序
+
+2026-08-12 使用 Unity `2021.3.45f1` 重建工程构建 WindowsPlayer/D3D11 探针。每档刷新率均固定
+随机种子、预热 30 帧、关闭 VSync、启用 `Application.runInBackground`，并在严格串行的独立 Player
+进程中通过 `WaitForEndOfFrame` 逐帧采样。Unity 2021.3 没有公开 `Particle.time`，日志中的粒子年龄为
+`startLifetime - remainingLifetime`。
+
+| 目标刷新率 | 捕获帧数 | 总时长 | 平均帧间隔 | 约 50 ms 时 `ring` 年龄 |
+| ---: | ---: | ---: | ---: | ---: |
+| 60 Hz | 57 | 0.9520113 s | 0.016701958 s | 0.03333393 s |
+| 120 Hz | 114 | 0.9510710 s | 0.008342729 s | 0.04166920 s |
+| 240 Hz | 224 | 0.9515688 s | 0.004248075 s | 0.04575591 s |
+
+`ring` 与 `Ring (3)` 均在第一个采样帧出生且年龄约为零，随后按真实 Player 帧间隔推进；这排除了
+统一减去固定 `25 ms` 的模型。`Ring (3)` 的四个点击碎片在三档运行中的首帧年龄均为零。
+
+`Ring (4)` 的距离发射粒子分别拥有独立年龄。探针以 `2 world/s` 匀速移动，Prefab 的
+`rateOverDistance=5` 因此每移动 `0.2 world` 发射一粒；反推出的首粒系统出生时刻分别约为
+`0.1166662 s`、`0.1083339 s`、`0.1041670 s`（60/120/240 Hz），其余粒子约每 `0.1 s` 出生。
+这项证据要求拖拽碎片使用距离交点内插的自身出生时刻，不能复用点击 Burst 或根对象年龄。
+
+本地原始证据及 SHA-256：
+
+```text
+unity-player-particle-timing-60hz.log
+AF7A155B561AF959E65B26DE6BCBA7EF35B87075FA0078D146B46299277CEA00
+unity-player-particle-timing-120hz.log
+9C87096C93ECB24FEAA2C62384FD56A21DC52C429740070C2ADD6C376FB5DEE3
+unity-player-particle-timing-240hz.log
+2CA2F1D2518933CBCFA7C239EC1B179616458C06C8FE7AF91DD8F28A510AD90D
+unity-player-particle-timing-summary.md
+3856E22A116EC1CCD2B6F72C79766183D1CE5F3CCE80876ECD3A6F73BED39552
+unity-player-probe-build.log
+07C2CE10BC692C7AD0F7FB8DC40BA639673FB7D2FBE19DED8F750A781C1B2FFE
+```
+
+这些日志证明的是重建工程 Windows Player 的粒子时钟，不是商业游戏进程。探针使用合成直线路径而非
+OS 指针输入；首次观察位置包含 shape offset 和观察前已累积的运动；240 Hz 运行中存在一次
+`9.9739 ms` 调度离群，但连续采样和完成标记均完整。
+
 ## 4. 原始材质与 Bloom 契约
 
 | 材质 | Game queue | 原始 shader | 纹理/通道 | 艺术强度 |
@@ -74,10 +114,15 @@ slow-motion、录屏、HDR 显示或桌面合成行为一致。
 - 四张运行时纹理逐张执行有界 LZ4 解压并直接创建 immutable RGBA8/sRGB GPU 资源；上传后释放
   CPU texel。Host 不初始化 WIC，开发用 Capture 工具仍可用 WIC 输出验证 PNG。
 - 中心 disk 和圆环分别按原纹理通道、硬裁剪及 draw order 求值。
+- Prefab 中 `ring`、`MeshTri`、`Ring (3)`、`Ring (4)` 是四个独立 ParticleSystem，分别对应中心
+  disk、溶解环、点击碎片和距离发射拖拽碎片。原生实现分别保存前三个 Burst 系统的步进状态，并让
+  每个拖拽碎片保存距离交点内插的出生时刻；这些状态不能合并成根对象的统一年龄。
 - MeshTri 的 Custom1 溶解相位按重建工程 `Maximum Particle Timestep=0.03` 的 float32 子步求值：
-  Burst 在首个子步末生成，后续每个子步先从上一粒子年龄上传 Custom1、再推进年龄；真实 Player 的
-  `60/120/240 Hz` 日志均验证了这一帧滞后。MeshTri 的尺寸、颜色、旋转和可见寿命使用同一个逐步
-  粒子年龄，不能从绝对时间回算或退化成固定 25/50/60 ms 延迟。
+  Burst 在首个子步末生成，后续每个子步先从上一粒子年龄上传 Custom1、再推进年龄。这是重建工程
+  与 Golden 的 ReconstructionChoice；上述 Player 日志未直接采样 MeshTri。MeshTri 的尺寸、颜色、
+  旋转和可见寿命使用同一个逐步粒子年龄，不能从绝对时间回算或退化成固定 25/50/60 ms 延迟。
+- Web 参考实现同样把 `ClickWave` 与点击/拖拽 `ShardParticle` 分开记时，并按碎片类型消费 click 或
+  trail 虚拟时钟；这支持原生的状态归属划分，但仍只属于行为参考，不能覆盖 Unity 视觉真值。
 - 点击/拖拽碎片保留几何、时间、颜色、Unity HDR 核心和清晰边缘；它们可写 DirectEmission，
   但必须 `BloomSeed=0`，因此不会产生模糊三角光晕。
 - Trail 与圆环可写非负的 DirectEmission/BloomSeed；写入前先从 ArtisticRelative 经过版本化校准。
