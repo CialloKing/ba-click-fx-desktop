@@ -486,6 +486,19 @@ BAFX_TEST(pointer_cancel_keeps_the_current_trail_until_it_naturally_expires)
     BAFX_CHECK(simulation.snapshot(goldenViewport, 351ms).trail.empty());
 }
 
+BAFX_TEST(trail_point_expires_at_the_authored_lifetime_boundary)
+{
+    Simulation simulation;
+    simulation.startTrail(PointF{100.0F, 100.0F}, goldenViewport, 0ns);
+
+    simulation.advance(299ms);
+    BAFX_CHECK(simulation.snapshot(goldenViewport, 299ms).trail.size() == 1U);
+
+    // Web and Unity both retire a vertex once its 300 ms lifetime is reached.
+    simulation.advance(300ms);
+    BAFX_CHECK(simulation.snapshot(goldenViewport, 300ms).trail.empty());
+}
+
 BAFX_TEST(trail_length_multiplier_changes_the_simulated_retention_window)
 {
     Simulation simulation;

@@ -18,7 +18,7 @@ constexpr float clickShapeRadiusWorld = 0.3F * triangleLocalScale;
 constexpr float dragShapeRadiusWorld = 0.15F * triangleLocalScale;
 constexpr float dragEmissionStepWorld = 1.0F / 5.0F;
 constexpr float trailPointStepWorld = 0.01F;
-constexpr float trailLifetimeSeconds = 0.3F;
+constexpr double trailLifetimeSeconds = 0.3;
 constexpr float minimumTrailLengthMultiplier = 0.0F;
 constexpr float maximumTrailLengthMultiplier = 3.0F;
 constexpr float trailWidthWorld = 0.005F;
@@ -509,7 +509,7 @@ void Simulation::advance(const SimulationTime time)
     }
 
     lastAdvancedAt_ = time;
-    const double effectiveTrailLifetime = static_cast<double>(trailLifetimeSeconds)
+    const double effectiveTrailLifetime = trailLifetimeSeconds
         * static_cast<double>(trailLengthMultiplier_);
     const auto trailEnd = std::remove_if(
         trail_.begin(),
@@ -517,7 +517,7 @@ void Simulation::advance(const SimulationTime time)
         [time, effectiveTrailLifetime](const StoredTrailPoint& point)
         {
             return effectiveTrailLifetime <= 0.0
-                || ageSeconds(time, point.createdAt) > effectiveTrailLifetime;
+                || ageSeconds(time, point.createdAt) >= effectiveTrailLifetime;
         });
     trail_.erase(trailEnd, trail_.end());
 
@@ -647,7 +647,7 @@ FrameSnapshot Simulation::snapshot(const Viewport viewport, const SimulationTime
             true});
     }
 
-    const double effectiveTrailLifetime = static_cast<double>(trailLifetimeSeconds)
+    const double effectiveTrailLifetime = trailLifetimeSeconds
         * static_cast<double>(trailLengthMultiplier_);
     for (const StoredTrailPoint& point : trail_)
     {
