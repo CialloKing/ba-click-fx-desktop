@@ -173,14 +173,91 @@ BAFX_TEST(dissolve_ring_custom_data_follows_the_unity_particle_update_phase)
     for (std::size_t index = 0U; index < sampleTimes.size(); ++index)
     {
         // Golden capture creates a fresh prefab and calls Simulate(total) once.
-        Simulation simulation;
-        simulation.pointerDown(goldenCenter, goldenViewport, 0ns);
-        simulation.advance(sampleTimes[index]);
-        const auto frame = simulation.snapshot(goldenViewport, sampleTimes[index]);
-        const Sprite& ring = firstKind(frame, SpriteKind::DissolveRing);
-        BAFX_CHECK_NEAR(ring.dissolveThreshold, expectedThresholds[index], 1.0e-6F);
-        BAFX_CHECK(ring.contributesBloom);
+        Simulation advanced;
+        advanced.pointerDown(goldenCenter, goldenViewport, 0ns);
+        advanced.advance(sampleTimes[index]);
+        const auto advancedFrame = advanced.snapshot(
+            goldenViewport,
+            sampleTimes[index]);
+
+        // Read-only capture callers must observe the same pending simulation
+        // without mutating the live state or first calling advance().
+        Simulation queried;
+        queried.pointerDown(goldenCenter, goldenViewport, 0ns);
+        const auto queriedFrame = queried.snapshot(
+            goldenViewport,
+            sampleTimes[index]);
+
+        const Sprite& advancedRing = firstKind(
+            advancedFrame,
+            SpriteKind::DissolveRing);
+        const Sprite& queriedRing = firstKind(
+            queriedFrame,
+            SpriteKind::DissolveRing);
+        BAFX_CHECK_NEAR(
+            advancedRing.dissolveThreshold,
+            expectedThresholds[index],
+            1.0e-6F);
+        BAFX_CHECK_NEAR(
+            queriedRing.dissolveThreshold,
+            advancedRing.dissolveThreshold,
+            0.0F);
+        BAFX_CHECK(advancedRing.contributesBloom);
+        BAFX_CHECK(queriedRing.contributesBloom);
     }
+}
+
+BAFX_TEST(dissolve_ring_read_only_future_snapshot_does_not_advance_live_state)
+{
+    Simulation simulation;
+    simulation.pointerDown(goldenCenter, goldenViewport, 0ns);
+
+    const FrameSnapshot futureFrame = simulation.snapshot(
+        goldenViewport,
+        250ms);
+    const FrameSnapshot earlierFrame = simulation.snapshot(
+        goldenViewport,
+        50ms);
+    const Sprite& futureRing = firstKind(
+        futureFrame,
+        SpriteKind::DissolveRing);
+    const Sprite& earlierRing = firstKind(
+        earlierFrame,
+        SpriteKind::DissolveRing);
+
+    BAFX_CHECK_NEAR(futureRing.dissolveThreshold, 0.27497348F, 1.0e-6F);
+    BAFX_CHECK_NEAR(earlierRing.dissolveThreshold, 1.0F, 0.0F);
+}
+
+BAFX_TEST(dissolve_ring_substep_count_preserves_unity_float32_boundaries)
+{
+    constexpr SimulationTime belowBoundary{179999999};
+    constexpr SimulationTime atBoundary = 180ms;
+    Simulation below;
+    Simulation at;
+    below.pointerDown(goldenCenter, goldenViewport, 0ns);
+    at.pointerDown(goldenCenter, goldenViewport, 0ns);
+
+    const FrameSnapshot belowFrame = below.snapshot(
+        goldenViewport,
+        belowBoundary);
+    const FrameSnapshot atFrame = at.snapshot(
+        goldenViewport,
+        atBoundary);
+    const Sprite& belowRing = firstKind(
+        belowFrame,
+        SpriteKind::DissolveRing);
+    const Sprite& atRing = firstKind(
+        atFrame,
+        SpriteKind::DissolveRing);
+
+    // Both nanosecond inputs round to the same float32 elapsed value. Unity
+    // therefore takes seven 0.03 s-bounded steps at this boundary.
+    BAFX_CHECK_NEAR(belowRing.dissolveThreshold, 0.03429154F, 1.0e-6F);
+    BAFX_CHECK_NEAR(
+        atRing.dissolveThreshold,
+        belowRing.dissolveThreshold,
+        0.0F);
 }
 
 BAFX_TEST(dissolve_ring_custom_data_matches_unity_at_common_refresh_rates)

@@ -518,27 +518,11 @@ void Simulation::advance(const SimulationTime time)
         return;
     }
 
-    const float elapsed = static_cast<float>(ageSeconds(time, lastAdvancedAt_));
-    if (clickEffectEnabled_ && elapsed > 0.0F)
+    if (clickEffectEnabled_)
     {
-        const auto stepCount = static_cast<std::uint32_t>(std::ceil(
-            elapsed / maximumParticleTimestepSeconds));
-        const float stepSeconds = elapsed / static_cast<float>(stepCount);
-        for (std::uint32_t step = 0U; step < stepCount; ++step)
-        {
-            if (!ringParticlesEmitted_)
-            {
-                // Unity's zero-delay Burst is born at the end of the first
-                // particle update and therefore starts with age zero.
-                ringParticlesEmitted_ = true;
-                continue;
-            }
-
-            // Custom1 is evaluated from the age entering this particle step;
-            // the renderer observes it after the age itself has advanced.
-            ringCustomDataAgeSeconds_ = ringParticleAgeSeconds_;
-            ringParticleAgeSeconds_ += stepSeconds;
-        }
+        advanceParticleStepState(
+            particleStepState_,
+            time - lastAdvancedAt_);
     }
 
     lastAdvancedAt_ = time;
@@ -596,6 +580,7 @@ FrameSnapshot Simulation::snapshot(const Viewport viewport, const SimulationTime
     }
 
     const double effectAge = ageSeconds(time, startedAt_);
+    const ParticleStepState particleState = particleStepStateAt(time);
     // Unity emits bursts at the end of its first particle update. The verified
     // 50/100 ms captures expose a 25 ms phase before visual lifetime advances.
     const double particleAge = delayedAge(effectAge, particleRenderDelaySeconds);
@@ -619,7 +604,7 @@ FrameSnapshot Simulation::snapshot(const Viewport viewport, const SimulationTime
     {
         const float normalizedAge = static_cast<float>(
             particleAge / ringLifetimeSeconds);
-        const float customNormalizedAge = ringCustomDataAgeSeconds_
+        const float customNormalizedAge = particleState.customDataAgeSeconds
             / ringLifetimeSeconds;
         for (const RingParticle& ring : rings_)
         {
@@ -707,6 +692,49 @@ bool Simulation::pointerHeld() const noexcept
     return pointerHeld_;
 }
 
+void Simulation::advanceParticleStepState(
+    ParticleStepState& state,
+    const SimulationTime elapsed) noexcept
+{
+    const float elapsedSeconds = std::chrono::duration<float>(elapsed).count();
+    if (elapsedSeconds <= 0.0F)
+    {
+        return;
+    }
+
+    const auto stepCount = static_cast<std::uint32_t>(std::ceil(
+        elapsedSeconds / maximumParticleTimestepSeconds));
+    const float stepSeconds = elapsedSeconds / static_cast<float>(stepCount);
+    for (std::uint32_t step = 0U; step < stepCount; ++step)
+    {
+        if (!state.burstEmitted)
+        {
+            // Unity's zero-delay Burst is born at the end of the first
+            // particle update and therefore starts with age zero.
+            state.burstEmitted = true;
+            continue;
+        }
+
+        // Custom1 is evaluated from the age entering this particle step; the
+        // renderer observes it after the particle age itself has advanced.
+        state.customDataAgeSeconds = state.particleAgeSeconds;
+        state.particleAgeSeconds += stepSeconds;
+    }
+}
+
+Simulation::ParticleStepState Simulation::particleStepStateAt(
+    const SimulationTime time) const noexcept
+{
+    ParticleStepState state = particleStepState_;
+    if (clickEffectEnabled_ && time > lastAdvancedAt_)
+    {
+        // Snapshot is intentionally read-only. Capture tools query arbitrary
+        // future ages, so complete the pending interval on a disposable copy.
+        advanceParticleStepState(state, time - lastAdvancedAt_);
+    }
+    return state;
+}
+
 PointF Simulation::screenToWorld(const PointF screen, const Viewport viewport) noexcept
 {
     if (viewport.width == 0U || viewport.height == 0U)
@@ -783,9 +811,7 @@ void Simulation::resetState(
     pointerSampleAt_ = time;
     lastEmissionWorld_ = worldPosition;
     dragDistanceRemainderWorld_ = 0.0F;
-    ringParticleAgeSeconds_ = 0.0F;
-    ringCustomDataAgeSeconds_ = 0.0F;
-    ringParticlesEmitted_ = false;
+    particleStepState_ = ParticleStepState{};
     rings_.clear();
     triangles_.clear();
     trail_.clear();

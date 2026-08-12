@@ -147,6 +147,13 @@ private:
         SimulationTime createdAt{};
     };
 
+    struct ParticleStepState
+    {
+        float particleAgeSeconds{0.0F};
+        float customDataAgeSeconds{0.0F};
+        bool burstEmitted{false};
+    };
+
     class Random final
     {
     public:
@@ -173,6 +180,11 @@ private:
         PointF to,
         SimulationTime fromTime,
         SimulationTime toTime);
+    static void advanceParticleStepState(
+        ParticleStepState& state,
+        SimulationTime elapsed) noexcept;
+    [[nodiscard]] ParticleStepState particleStepStateAt(
+        SimulationTime time) const noexcept;
 
     std::uint64_t baseSeed_{0};
     std::uint64_t activationCount_{0};
@@ -190,9 +202,7 @@ private:
     PointF lastEmissionWorld_{};
     float dragDistanceRemainderWorld_{0.0F};
     float trailLengthMultiplier_{1.0F};
-    float ringParticleAgeSeconds_{0.0F};
-    float ringCustomDataAgeSeconds_{0.0F};
-    bool ringParticlesEmitted_{false};
+    ParticleStepState particleStepState_{};
     std::vector<RingParticle> rings_{};
     std::vector<MovingParticle> triangles_{};
     std::vector<StoredTrailPoint> trail_{};
