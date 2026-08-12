@@ -111,7 +111,7 @@ public:
     void pointerUp(SimulationTime time);
     void pointerCancel(SimulationTime time);
     void advance(SimulationTime time);
-    void onFrameRendered(SimulationTime time);
+    void onFrameRendered();
 
     // Product settings may change during an active stroke. Retain the
     // existing points and apply the new lifetime on the next simulation step.
@@ -183,7 +183,7 @@ private:
     bool clickEffectEnabled_{false};
     SimulationTime startedAt_{};
     SimulationTime lastAdvancedAt_{};
-    SimulationTime releasedAt_{};
+    std::uint32_t releasedFrames_{0U};
     PointF effectOriginWorld_{};
     PointF pointerWorld_{};
     SimulationTime pointerSampleAt_{};
