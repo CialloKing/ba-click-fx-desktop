@@ -8,7 +8,8 @@
   `light-background`（浅色背景优化）。背景感知启用 WGC，失败时回退内部 FX-only transport；
   其余两项关闭 WGC。
 - `BAFX.ControlCenter.exe` 的原生 Win32 控制面：启用状态、点击特效、鼠标拖尾、拖尾常驻、效果大小、拖尾长度、
-  拖尾宽度、输入采样率上限、Bloom 强度和 Bloom 质量会通过本地 Named Pipe 在下一帧应用到正在运行的 Host。
+  拖尾宽度、输入采样率上限、Bloom 强度和 Bloom 质量会通过本地 Named Pipe 在下一帧应用到正在运行的 Host；
+  “重置默认”经确认后恢复全部持久化设置，但保留当前暂停或运行状态。
 - 输入采样率 `0` 表示不限频；`1..1000 Hz` 只按 Raw Input 的 QPC 时间过滤 Move，不影响按下、抬起或取消。
   `30 Hz` 是建议人工审核的手机视觉近似，`15 Hz` 更折线，`60 Hz` 更平滑；这些值不是 Unity 资源中的固定帧率。
   Unity 的 TrailRenderer 空间参数仍保持 `m_MinVertexDistance=0.01`。

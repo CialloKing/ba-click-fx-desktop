@@ -8,6 +8,7 @@ configure_file(
 add_executable(
     bafx_control_center
     WIN32
+        config_commands.cpp
         control_center_window.cpp
         package_activation.cpp
         host_state.cpp

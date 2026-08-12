@@ -48,7 +48,8 @@ private:
         CursorExcluded,
         AllowSystemBorder,
         Refresh,
-        HostLifecycle
+        HostLifecycle,
+        ResetDefaults
     };
 
     struct SliderControl final
@@ -119,6 +120,7 @@ private:
         const bafx::config::Config& config);
     void applyPatch(std::string_view path, std::string_view valueJson);
     void sendCommand(std::string_view command);
+    void resetDefaults();
     void startHostFromBundle();
     void stopHost();
     [[nodiscard]] bool hostMutexPresent() const noexcept;
@@ -181,6 +183,7 @@ private:
     HWND pauseButton_{nullptr};
     HWND refreshButton_{nullptr};
     HWND hostLifecycleButton_{nullptr};
+    HWND resetDefaultsButton_{nullptr};
 
     bafx::windows::NamedPipeIpcClient client_{};
     bafx::windows::UniqueHandle hostLifetimeMutex_{};

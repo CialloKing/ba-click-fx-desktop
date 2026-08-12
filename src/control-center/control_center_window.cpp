@@ -1,5 +1,6 @@
 #include "control_center_window.hpp"
 
+#include "config_commands.hpp"
 #include "package_activation.hpp"
 
 #include "bafx/windows/portable_paths.hpp"
@@ -591,6 +592,11 @@ bool ControlCenterWindow::createControls()
         L"启动 Host",
         BS_PUSHBUTTON | WS_TABSTOP,
         ControlId::HostLifecycle);
+    resetDefaultsButton_ = createChild(
+        L"BUTTON",
+        L"重置默认",
+        BS_PUSHBUTTON | WS_TABSTOP,
+        ControlId::ResetDefaults);
 
     const std::array required{
         titleText_,
@@ -610,7 +616,8 @@ bool ControlCenterWindow::createControls()
         allowSystemBorder_,
         pauseButton_,
         refreshButton_,
-        hostLifecycleButton_};
+        hostLifecycleButton_,
+        resetDefaultsButton_};
     if (!slidersCreated
         || std::ranges::find(required, nullptr) != required.end())
     {
@@ -830,7 +837,8 @@ void ControlCenterWindow::applyFonts() const noexcept
         allowSystemBorder_,
         pauseButton_,
         refreshButton_,
-        hostLifecycleButton_};
+        hostLifecycleButton_,
+        resetDefaultsButton_};
     for (const HWND control : normalControls)
     {
         setControlFont(control, normalFont_);
@@ -980,6 +988,12 @@ void ControlCenterWindow::layoutControls(
         rightContentX + actionWidth + actionGap,
         contentTop + scale(229),
         actionWidth,
+        scale(38));
+    moveControl(
+        resetDefaultsButton_,
+        rightContentX,
+        contentTop + scale(279),
+        rightContentWidth,
         scale(38));
 }
 
@@ -1134,6 +1148,12 @@ void ControlCenterWindow::onCommand(
             {
                 startHostFromBundle();
             }
+        }
+        break;
+    case ControlId::ResetDefaults:
+        if (notificationCode == BN_CLICKED)
+        {
+            resetDefaults();
         }
         break;
     case ControlId::GlobalScale:
@@ -1475,6 +1495,31 @@ void ControlCenterWindow::sendCommand(const std::string_view command)
     static_cast<void>(refreshFromHost());
 }
 
+void ControlCenterWindow::resetDefaults()
+{
+    if (!connected_)
+    {
+        setInfo(L"Host 未连接", L"请先启动 Host，然后刷新状态。");
+        return;
+    }
+
+    const int choice = MessageBoxW(
+        window_,
+        L"确定将特效、输入和背景设置全部恢复为默认值吗？\r\n\r\n"
+        L"当前暂停或运行状态不会改变。",
+        L"重置默认设置",
+        MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2);
+    if (choice != IDYES)
+    {
+        return;
+    }
+
+    // A delayed slider patch must not overwrite the defaults after reset.
+    KillTimer(window_, patchTimerId);
+    pendingPatch_.reset();
+    sendCommand(defaultConfigRequest());
+}
+
 void ControlCenterWindow::startHostFromBundle()
 {
     if (hostShutdownPending_)
@@ -1754,7 +1799,8 @@ void ControlCenterWindow::setConnected(const bool connected) noexcept
         backgroundMode_,
         cursorExcluded_,
         allowSystemBorder_,
-        pauseButton_};
+        pauseButton_,
+        resetDefaultsButton_};
     for (const HWND control : controls)
     {
         if (control != nullptr)
