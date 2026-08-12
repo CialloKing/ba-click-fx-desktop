@@ -856,9 +856,10 @@ int runApplication(
         {
             if (!controlState.paused || enteringPause)
             {
-                // Unity restores the pooled effect after 60 WaitForEndOfFrame
-                // resumptions. Notify only after this frame was presented.
-                simulation.onFrameRendered();
+                // Unity restores the pooled effect after WaitForEndOfFrame.
+                // Passing frozen simulation time preserves that ordering and
+                // prevents monitor refresh from becoming an animation clock.
+                simulation.onFrameRendered(renderTime);
             }
             ++renderedFrames;
             if (options.frameLimit.has_value() && renderedFrames >= *options.frameLimit)
