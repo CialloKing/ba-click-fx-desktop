@@ -140,18 +140,22 @@ BAFX_TEST(dissolve_ring_custom_data_follows_the_unity_particle_update_phase)
         110ms,
         120ms,
         130ms,
+        140ms,
+        150ms,
         180ms,
         250ms,
         450ms};
     constexpr std::array expectedThresholds{
         1.0F,
         0.62384260F,
+        0.56235534F,
         0.50000006F,
-        0.37615746F,
-        0.25925934F,
-        0.03993884F,
-        0.29346901F,
-        0.78884792F};
+        0.28175008F,
+        0.21600008F,
+        0.07407415F,
+        0.03429154F,
+        0.27497348F,
+        0.77141333F};
 
     for (std::size_t index = 0U; index < sampleTimes.size(); ++index)
     {

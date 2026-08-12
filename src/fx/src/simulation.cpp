@@ -25,7 +25,7 @@ constexpr float trailWidthWorld = 0.005F;
 constexpr float ringLifetimeSeconds = 0.6F;
 constexpr float ringAngularVelocityMultiplier = 11.170107F;
 constexpr double particleRenderDelaySeconds = 0.025;
-constexpr double customDataRenderDelaySeconds = 0.050;
+constexpr float maximumParticleTimestepSeconds = 0.03F;
 constexpr std::uint32_t maximumDragParticles = 50U;
 constexpr double releaseLifetimeSeconds = 1.0;
 constexpr std::uint64_t atlasRandomStream = 0xD1B54A32D192ED03ULL;
@@ -367,6 +367,21 @@ template<std::size_t keyCount>
     return evaluateHermiteCurve(keys, normalizedAge);
 }
 
+[[nodiscard]] float customDataAgeSeconds(const double effectAgeSeconds) noexcept
+{
+    const float elapsed = static_cast<float>(std::max(0.0, effectAgeSeconds));
+    const float stepCount = std::ceil(elapsed / maximumParticleTimestepSeconds);
+    if (stepCount <= 0.0F)
+    {
+        return 0.0F;
+    }
+
+    const float step = elapsed / stepCount;
+    // Unity emits the burst at the end of the first particle step and uploads
+    // Custom1 on the following step. Preserve its float32 subdivision here.
+    return std::max(0.0F, elapsed - 2.0F * step);
+}
+
 }
 
 void applyGlobalScale(FrameSnapshot& snapshot, const float scale) noexcept
@@ -586,10 +601,8 @@ FrameSnapshot Simulation::snapshot(const Viewport viewport, const SimulationTime
     {
         const float normalizedAge = static_cast<float>(
             particleAge / ringLifetimeSeconds);
-        // Custom1 reaches the renderer one particle update after size/color.
-        const float customNormalizedAge = static_cast<float>(
-            delayedAge(effectAge, customDataRenderDelaySeconds)
-            / ringLifetimeSeconds);
+        const float customNormalizedAge = customDataAgeSeconds(effectAge)
+            / ringLifetimeSeconds;
         for (const RingParticle& ring : rings_)
         {
             // The reconstructed Cylinder002 AABB has a full extent of 2 * 1.0636685.

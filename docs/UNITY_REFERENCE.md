@@ -74,6 +74,8 @@ slow-motion、录屏、HDR 显示或桌面合成行为一致。
 - 四张运行时纹理逐张执行有界 LZ4 解压并直接创建 immutable RGBA8/sRGB GPU 资源；上传后释放
   CPU texel。Host 不初始化 WIC，开发用 Capture 工具仍可用 WIC 输出验证 PNG。
 - 中心 disk 和圆环分别按原纹理通道、硬裁剪及 draw order 求值。
+- MeshTri 的 Custom1 溶解相位按重建工程 `Maximum Particle Timestep=0.03` 的 float32 子步求值：
+  Burst 在首个子步末生成，Custom1 在下一子步上传；不能退化成固定 50/60 ms 延迟。
 - 点击/拖拽碎片保留几何、时间、颜色、Unity HDR 核心和清晰边缘；它们可写 DirectEmission，
   但必须 `BloomSeed=0`，因此不会产生模糊三角光晕。
 - Trail 与圆环可写非负的 DirectEmission/BloomSeed；写入前先从 ArtisticRelative 经过版本化校准。
