@@ -19,6 +19,7 @@ constexpr float dragShapeRadiusWorld = 0.15F * triangleLocalScale;
 constexpr float dragEmissionStepWorld = 1.0F / 5.0F;
 constexpr float trailPointStepWorld = 0.01F;
 constexpr double trailLifetimeSeconds = 0.3;
+constexpr std::uint32_t maximumTrailPointsPerSample = 512U;
 constexpr float minimumTrailLengthMultiplier = 0.0F;
 constexpr float maximumTrailLengthMultiplier = 3.0F;
 constexpr float trailWidthWorld = 0.005F;
@@ -209,6 +210,16 @@ template<std::size_t keyCount>
 [[nodiscard]] PointF direction(const float angle) noexcept
 {
     return PointF{std::cos(angle), std::sin(angle)};
+}
+
+[[nodiscard]] SimulationTime interpolateTime(
+    const SimulationTime from,
+    const SimulationTime to,
+    const float amount) noexcept
+{
+    const auto elapsedNanoseconds = static_cast<SimulationTime::rep>(
+        static_cast<double>((to - from).count()) * static_cast<double>(amount));
+    return from + SimulationTime{elapsedNanoseconds};
 }
 
 [[nodiscard]] ColorF lerpColor(
@@ -823,10 +834,41 @@ void Simulation::appendTrailPoint(const PointF worldPosition, const SimulationTi
         return;
     }
 
-    if (trail_.empty()
-        || length(subtract(worldPosition, trail_.back().world)) >= trailPointStepWorld)
+    if (trail_.empty())
     {
         trail_.push_back(StoredTrailPoint{worldPosition, time});
+        return;
+    }
+
+    const double effectiveTrailLifetime = trailLifetimeSeconds
+        * static_cast<double>(trailLengthMultiplier_);
+    if (ageSeconds(time, trail_.back().createdAt) >= effectiveTrailLifetime)
+    {
+        // An expired anchor must not connect movement across an idle interval.
+        trail_.clear();
+        trail_.push_back(StoredTrailPoint{worldPosition, time});
+        return;
+    }
+
+    const StoredTrailPoint from = trail_.back();
+    const PointF segment = subtract(worldPosition, from.world);
+    const float segmentLength = length(segment);
+    if (segmentLength < trailPointStepWorld)
+    {
+        return;
+    }
+
+    const std::uint32_t pointCount = std::min(
+        maximumTrailPointsPerSample,
+        static_cast<std::uint32_t>(std::floor(
+            segmentLength / trailPointStepWorld)));
+    for (std::uint32_t index = 1U; index <= pointCount; ++index)
+    {
+        const float interpolation = static_cast<float>(index)
+            / static_cast<float>(pointCount);
+        trail_.push_back(StoredTrailPoint{
+            add(from.world, multiply(segment, interpolation)),
+            interpolateTime(from.createdAt, time, interpolation)});
     }
 }
 
@@ -850,12 +892,9 @@ void Simulation::emitAlongDrag(
         consumed += distanceUntilEmission;
         const float interpolation = consumed / segmentLength;
         const PointF position = add(from, multiply(segment, interpolation));
-        const auto elapsedNanoseconds = static_cast<SimulationTime::rep>(
-            static_cast<double>((toTime - fromTime).count())
-            * static_cast<double>(interpolation));
         emitDragTriangle(
             position,
-            fromTime + SimulationTime{elapsedNanoseconds});
+            interpolateTime(fromTime, toTime, interpolation));
         lastEmissionWorld_ = position;
         dragDistanceRemainderWorld_ = 0.0F;
         distanceUntilEmission = dragEmissionStepWorld;

@@ -79,7 +79,8 @@ slow-motion、录屏、HDR 显示或桌面合成行为一致。
 - 点击/拖拽碎片保留几何、时间、颜色、Unity HDR 核心和清晰边缘；它们可写 DirectEmission，
   但必须 `BloomSeed=0`，因此不会产生模糊三角光晕。
 - Trail 与圆环可写非负的 DirectEmission/BloomSeed；写入前先从 ArtisticRelative 经过版本化校准。
-- Trail 保持 Prefab 的 `time=0.3`、`widthMultiplier=0.005` 和 `m_MinVertexDistance=0.01`。产品设置
+- Trail 保持 Prefab 的 `time=0.3`、`widthMultiplier=0.005` 和 `m_MinVertexDistance=0.01`；相邻输入样本
+  之间按该世界距离补点并插值出生时间，使低频长距离移动仍按段衰减。产品设置
   `input.samplingRateHz` 只近似客户端每帧提交触点位置的频率，不属于 Unity 序列化美术参数；`30 Hz`
   是人工视觉审核建议，不是游戏硬编码真值。
 - Unity 全场景 Bloom 是 FX-only Golden；桌面 Background-aware Differential Bloom 只改变背景交互，

@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <chrono>
 #include <vector>
 
@@ -59,6 +60,21 @@ constexpr PointF goldenCenter{975.0F, 548.5F};
         }
     }
     return matches;
+}
+
+[[nodiscard]] bool trailContainsPoint(
+    const FrameSnapshot& frame,
+    const PointF point,
+    const float tolerance = 1.0e-3F)
+{
+    return std::any_of(
+        frame.trail.begin(),
+        frame.trail.end(),
+        [point, tolerance](const TrailPoint& candidate)
+        {
+            return std::abs(candidate.positionPixels.x - point.x) <= tolerance
+                && std::abs(candidate.positionPixels.y - point.y) <= tolerance;
+        });
 }
 
 }
@@ -404,6 +420,32 @@ BAFX_TEST(drag_uses_world_distance_for_trail_and_particles)
     BAFX_CHECK_NEAR(frame.trailWidthPixels, 2.7425F, 1.0e-4F);
 }
 
+BAFX_TEST(trail_resamples_long_input_segments_at_unity_vertex_distance)
+{
+    Simulation simulation;
+    constexpr PointF start{100.0F, 100.0F};
+    constexpr PointF end{600.0F, 100.0F};
+    simulation.pointerDown(start, goldenViewport, 0ns);
+    simulation.pointerMove(end, goldenViewport, 100ms);
+
+    const auto frame = simulation.snapshot(goldenViewport, 100ms);
+    BAFX_CHECK(frame.trail.size() == 92U);
+    for (std::size_t index = 1U; index < frame.trail.size(); ++index)
+    {
+        const float deltaX = frame.trail[index].positionPixels.x
+            - frame.trail[index - 1U].positionPixels.x;
+        const float deltaY = frame.trail[index].positionPixels.y
+            - frame.trail[index - 1U].positionPixels.y;
+        BAFX_CHECK(std::hypot(deltaX, deltaY) <= 5.5F);
+    }
+
+    simulation.advance(350ms);
+    const auto decayed = simulation.snapshot(goldenViewport, 350ms);
+    BAFX_CHECK(!decayed.trail.empty());
+    BAFX_CHECK(decayed.trail.front().positionPixels.x > start.x);
+    BAFX_CHECK_NEAR(decayed.trail.back().positionPixels.x, end.x, 1.0e-4F);
+}
+
 BAFX_TEST(delayed_pointer_move_is_not_dropped_after_simulation_advance)
 {
     Simulation simulation;
@@ -604,9 +646,9 @@ BAFX_TEST(unlimited_input_sampling_preserves_each_pointer_turn)
     runtime.pointerMove(PointF{500.0F, 300.0F}, goldenViewport, 200ms);
 
     const FrameSnapshot frame = runtime.snapshot(goldenViewport, 200ms);
-    BAFX_CHECK(frame.trail.size() == 4U);
-    BAFX_CHECK_NEAR(frame.trail[2].positionPixels.x, 300.0F, 1.0e-3F);
-    BAFX_CHECK_NEAR(frame.trail[2].positionPixels.y, 300.0F, 1.0e-3F);
+    BAFX_CHECK(trailContainsPoint(frame, PointF{300.0F, 100.0F}));
+    BAFX_CHECK(trailContainsPoint(frame, PointF{300.0F, 300.0F}));
+    BAFX_CHECK(trailContainsPoint(frame, PointF{500.0F, 300.0F}));
 }
 
 BAFX_TEST(limited_input_sampling_drops_intermediate_turns)
@@ -619,11 +661,9 @@ BAFX_TEST(limited_input_sampling_drops_intermediate_turns)
     runtime.pointerMove(PointF{500.0F, 300.0F}, goldenViewport, 200ms);
 
     const FrameSnapshot frame = runtime.snapshot(goldenViewport, 200ms);
-    BAFX_CHECK(frame.trail.size() == 3U);
-    BAFX_CHECK_NEAR(frame.trail[1].positionPixels.x, 300.0F, 1.0e-3F);
-    BAFX_CHECK_NEAR(frame.trail[1].positionPixels.y, 100.0F, 1.0e-3F);
-    BAFX_CHECK_NEAR(frame.trail[2].positionPixels.x, 500.0F, 1.0e-3F);
-    BAFX_CHECK_NEAR(frame.trail[2].positionPixels.y, 300.0F, 1.0e-3F);
+    BAFX_CHECK(trailContainsPoint(frame, PointF{300.0F, 100.0F}));
+    BAFX_CHECK(!trailContainsPoint(frame, PointF{300.0F, 300.0F}));
+    BAFX_CHECK(trailContainsPoint(frame, PointF{500.0F, 300.0F}));
 }
 
 BAFX_TEST(input_sampling_uses_wall_time_instead_of_simulation_time)
@@ -652,7 +692,8 @@ BAFX_TEST(input_sampling_uses_wall_time_instead_of_simulation_time)
         200ms);
 
     const FrameSnapshot frame = runtime.snapshot(goldenViewport, 30ms);
-    BAFX_CHECK(frame.trail.size() == 3U);
+    BAFX_CHECK(trailContainsPoint(frame, PointF{300.0F, 100.0F}));
+    BAFX_CHECK(!trailContainsPoint(frame, PointF{300.0F, 300.0F}));
     BAFX_CHECK_NEAR(frame.trail.back().positionPixels.x, 500.0F, 1.0e-3F);
 }
 
@@ -666,7 +707,8 @@ BAFX_TEST(changing_input_sampling_rate_resets_the_sampling_phase)
     runtime.pointerMove(PointF{300.0F, 300.0F}, goldenViewport, 110ms);
 
     const FrameSnapshot frame = runtime.snapshot(goldenViewport, 110ms);
-    BAFX_CHECK(frame.trail.size() == 3U);
+    BAFX_CHECK(trailContainsPoint(frame, PointF{300.0F, 100.0F}));
+    BAFX_CHECK(trailContainsPoint(frame, PointF{300.0F, 300.0F}));
     BAFX_CHECK_NEAR(frame.trail.back().positionPixels.x, 300.0F, 1.0e-3F);
     BAFX_CHECK_NEAR(frame.trail.back().positionPixels.y, 300.0F, 1.0e-3F);
 }
@@ -681,7 +723,7 @@ BAFX_TEST(always_on_trail_uses_the_same_input_sampling_limit)
     runtime.pointerMove(PointF{500.0F, 100.0F}, goldenViewport, 100ms);
 
     const FrameSnapshot frame = runtime.snapshot(goldenViewport, 100ms);
-    BAFX_CHECK(frame.trail.size() == 2U);
+    BAFX_CHECK(!trailContainsPoint(frame, PointF{300.0F, 300.0F}));
     BAFX_CHECK_NEAR(frame.trail.front().positionPixels.x, 100.0F, 1.0e-3F);
     BAFX_CHECK_NEAR(frame.trail.back().positionPixels.x, 500.0F, 1.0e-3F);
 }
