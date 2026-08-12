@@ -147,9 +147,6 @@ BAFX_TEST(click_triangle_atlas_frames_are_sampled_per_particle)
 
 BAFX_TEST(dissolve_ring_custom_data_follows_the_unity_particle_update_phase)
 {
-    Simulation simulation;
-    simulation.pointerDown(goldenCenter, goldenViewport, 0ns);
-
     constexpr std::array sampleTimes{
         50ms,
         100ms,
@@ -175,10 +172,58 @@ BAFX_TEST(dissolve_ring_custom_data_follows_the_unity_particle_update_phase)
 
     for (std::size_t index = 0U; index < sampleTimes.size(); ++index)
     {
+        // Golden capture creates a fresh prefab and calls Simulate(total) once.
+        Simulation simulation;
+        simulation.pointerDown(goldenCenter, goldenViewport, 0ns);
+        simulation.advance(sampleTimes[index]);
         const auto frame = simulation.snapshot(goldenViewport, sampleTimes[index]);
         const Sprite& ring = firstKind(frame, SpriteKind::DissolveRing);
         BAFX_CHECK_NEAR(ring.dissolveThreshold, expectedThresholds[index], 1.0e-6F);
         BAFX_CHECK(ring.contributesBloom);
+    }
+}
+
+BAFX_TEST(dissolve_ring_custom_data_matches_unity_at_common_refresh_rates)
+{
+    struct RefreshSample
+    {
+        std::uint32_t rateHz;
+        std::uint32_t frame;
+        float expectedThreshold;
+    };
+    constexpr std::array samples{
+        RefreshSample{60U, 3U, 0.9474879F},
+        RefreshSample{60U, 15U, 0.3473206F},
+        RefreshSample{120U, 6U, 0.8113854F},
+        RefreshSample{120U, 30U, 0.3987512F},
+        RefreshSample{240U, 12U, 0.7220346F},
+        RefreshSample{240U, 60U, 0.4235710F}};
+
+    for (const RefreshSample& sample : samples)
+    {
+        Simulation simulation;
+        simulation.pointerDown(goldenCenter, goldenViewport, 0ns);
+        for (std::uint32_t frame = 1U; frame <= sample.frame; ++frame)
+        {
+            const auto frameTime = std::chrono::duration_cast<SimulationTime>(
+                std::chrono::duration<float>(
+                    static_cast<float>(frame)
+                    / static_cast<float>(sample.rateHz)));
+            simulation.advance(frameTime);
+        }
+
+        const auto sampleTime = std::chrono::duration_cast<SimulationTime>(
+            std::chrono::duration<float>(
+                static_cast<float>(sample.frame)
+                / static_cast<float>(sample.rateHz)));
+        const FrameSnapshot frame = simulation.snapshot(
+            goldenViewport,
+            sampleTime);
+        const Sprite& ring = firstKind(frame, SpriteKind::DissolveRing);
+        BAFX_CHECK_NEAR(
+            ring.dissolveThreshold,
+            sample.expectedThreshold,
+            2.0e-6F);
     }
 }
 

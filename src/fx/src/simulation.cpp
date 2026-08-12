@@ -377,21 +377,6 @@ template<std::size_t keyCount>
     return evaluateHermiteCurve(keys, normalizedAge);
 }
 
-[[nodiscard]] float customDataAgeSeconds(const double effectAgeSeconds) noexcept
-{
-    const float elapsed = static_cast<float>(std::max(0.0, effectAgeSeconds));
-    const float stepCount = std::ceil(elapsed / maximumParticleTimestepSeconds);
-    if (stepCount <= 0.0F)
-    {
-        return 0.0F;
-    }
-
-    const float step = elapsed / stepCount;
-    // Unity emits the burst at the end of the first particle step and uploads
-    // Custom1 on the following step. Preserve its float32 subdivision here.
-    return std::max(0.0F, elapsed - 2.0F * step);
-}
-
 }
 
 void applyGlobalScale(FrameSnapshot& snapshot, const float scale) noexcept
@@ -533,6 +518,29 @@ void Simulation::advance(const SimulationTime time)
         return;
     }
 
+    const float elapsed = static_cast<float>(ageSeconds(time, lastAdvancedAt_));
+    if (clickEffectEnabled_ && elapsed > 0.0F)
+    {
+        const auto stepCount = static_cast<std::uint32_t>(std::ceil(
+            elapsed / maximumParticleTimestepSeconds));
+        const float stepSeconds = elapsed / static_cast<float>(stepCount);
+        for (std::uint32_t step = 0U; step < stepCount; ++step)
+        {
+            if (!ringParticlesEmitted_)
+            {
+                // Unity's zero-delay Burst is born at the end of the first
+                // particle update and therefore starts with age zero.
+                ringParticlesEmitted_ = true;
+                continue;
+            }
+
+            // Custom1 is evaluated from the age entering this particle step;
+            // the renderer observes it after the age itself has advanced.
+            ringCustomDataAgeSeconds_ = ringParticleAgeSeconds_;
+            ringParticleAgeSeconds_ += stepSeconds;
+        }
+    }
+
     lastAdvancedAt_ = time;
     const double effectiveTrailLifetime = trailLifetimeSeconds
         * static_cast<double>(trailLengthMultiplier_);
@@ -611,7 +619,7 @@ FrameSnapshot Simulation::snapshot(const Viewport viewport, const SimulationTime
     {
         const float normalizedAge = static_cast<float>(
             particleAge / ringLifetimeSeconds);
-        const float customNormalizedAge = customDataAgeSeconds(effectAge)
+        const float customNormalizedAge = ringCustomDataAgeSeconds_
             / ringLifetimeSeconds;
         for (const RingParticle& ring : rings_)
         {
@@ -775,6 +783,9 @@ void Simulation::resetState(
     pointerSampleAt_ = time;
     lastEmissionWorld_ = worldPosition;
     dragDistanceRemainderWorld_ = 0.0F;
+    ringParticleAgeSeconds_ = 0.0F;
+    ringCustomDataAgeSeconds_ = 0.0F;
+    ringParticlesEmitted_ = false;
     rings_.clear();
     triangles_.clear();
     trail_.clear();

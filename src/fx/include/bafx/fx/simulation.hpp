@@ -190,6 +190,9 @@ private:
     PointF lastEmissionWorld_{};
     float dragDistanceRemainderWorld_{0.0F};
     float trailLengthMultiplier_{1.0F};
+    float ringParticleAgeSeconds_{0.0F};
+    float ringCustomDataAgeSeconds_{0.0F};
+    bool ringParticlesEmitted_{false};
     std::vector<RingParticle> rings_{};
     std::vector<MovingParticle> triangles_{};
     std::vector<StoredTrailPoint> trail_{};
