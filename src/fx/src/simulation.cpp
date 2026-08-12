@@ -27,7 +27,7 @@ constexpr float ringAngularVelocityMultiplier = 11.170107F;
 constexpr double particleRenderDelaySeconds = 0.025;
 constexpr double customDataRenderDelaySeconds = 0.050;
 constexpr std::uint32_t maximumDragParticles = 50U;
-constexpr std::uint32_t releaseFrameCount = 60U;
+constexpr double releaseLifetimeSeconds = 1.0;
 constexpr std::uint64_t atlasRandomStream = 0xD1B54A32D192ED03ULL;
 
 struct CurveKey
@@ -483,7 +483,7 @@ void Simulation::pointerUp(const SimulationTime time)
     }
     pointerHeld_ = false;
     pointerSampleAt_ = std::max(pointerSampleAt_, time);
-    releasedFrames_ = 0;
+    releasedAt_ = pointerSampleAt_;
 }
 
 void Simulation::pointerCancel(const SimulationTime time)
@@ -495,7 +495,7 @@ void Simulation::pointerCancel(const SimulationTime time)
 
     pointerHeld_ = false;
     pointerSampleAt_ = std::max(pointerSampleAt_, time);
-    releasedFrames_ = 0;
+    releasedAt_ = pointerSampleAt_;
     dragDistanceRemainderWorld_ = 0.0F;
     // Unity routes Canceled and Ended through the same delayed Stop path, so
     // the existing TrailRenderer geometry must decay instead of disappearing.
@@ -532,17 +532,18 @@ void Simulation::advance(const SimulationTime time)
     triangles_.erase(particleEnd, triangles_.end());
 }
 
-void Simulation::onFrameRendered()
+void Simulation::onFrameRendered(const SimulationTime time)
 {
     if (!active_ || pointerHeld_)
     {
         return;
     }
 
-    ++releasedFrames_;
-    if (releasedFrames_ >= releaseFrameCount)
+    if (ageSeconds(time, releasedAt_) >= releaseLifetimeSeconds)
     {
-        // Unity waits until the 60th frame has rendered before Stop clears the pooled effect.
+        // The game converts the one-second root duration to 60 UI frames.
+        // Evaluate that duration after Present so high-refresh monitors cannot
+        // truncate the 600-700 ms tail and the boundary frame remains visible.
         active_ = false;
         rings_.clear();
         triangles_.clear();
@@ -745,7 +746,7 @@ void Simulation::resetState(
     clickEffectEnabled_ = false;
     startedAt_ = time;
     lastAdvancedAt_ = time;
-    releasedFrames_ = 0;
+    releasedAt_ = time;
     effectOriginWorld_ = worldPosition;
     pointerWorld_ = worldPosition;
     pointerSampleAt_ = time;

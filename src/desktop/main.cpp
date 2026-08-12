@@ -856,9 +856,10 @@ int runApplication(
         {
             if (!controlState.paused || enteringPause)
             {
-                // A paused resize/config redraw refreshes the retained surface;
-                // it is not a Unity simulation frame and must not age Stop.
-                simulation.onFrameRendered();
+                // Unity restores the pooled effect after WaitForEndOfFrame.
+                // Passing frozen simulation time preserves that ordering and
+                // prevents monitor refresh from becoming an animation clock.
+                simulation.onFrameRendered(renderTime);
             }
             ++renderedFrames;
             if (options.frameLimit.has_value() && renderedFrames >= *options.frameLimit)

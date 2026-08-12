@@ -156,15 +156,15 @@ void SimulationRuntime::advance(const SimulationTime time)
     }
 }
 
-void SimulationRuntime::onFrameRendered()
+void SimulationRuntime::onFrameRendered(const SimulationTime time)
 {
     for (Simulation& instance : instances_)
     {
-        instance.onFrameRendered();
+        instance.onFrameRendered(time);
     }
     if (alwaysOnTrail_.has_value())
     {
-        alwaysOnTrail_->onFrameRendered();
+        alwaysOnTrail_->onFrameRendered(time);
     }
 
     const auto inactiveBegin = std::remove_if(

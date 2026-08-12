@@ -504,44 +504,45 @@ BAFX_TEST(trail_length_multiplier_changes_the_simulated_retention_window)
     BAFX_CHECK(simulation.snapshot(goldenViewport, 700ms).trail.empty());
 }
 
-BAFX_TEST(pointer_cancel_enters_the_same_rendered_frame_cleanup_as_release)
+BAFX_TEST(pointer_cancel_uses_the_same_authored_cleanup_deadline_as_release)
 {
     Simulation simulation;
     simulation.pointerDown(goldenCenter, goldenViewport, 0ns);
     simulation.pointerCancel(10ms);
 
-    for (std::uint32_t frame = 0U; frame < 60U; ++frame)
-    {
-        simulation.onFrameRendered();
-    }
+    simulation.onFrameRendered(1009ms);
+    BAFX_CHECK(simulation.active());
+    simulation.onFrameRendered(1010ms);
     BAFX_CHECK(!simulation.active());
 }
 
-BAFX_TEST(release_waits_sixty_rendered_frames_before_clearing)
+BAFX_TEST(release_cleanup_is_independent_of_monitor_refresh_rate)
 {
-    Simulation simulation;
-    simulation.pointerDown(goldenCenter, goldenViewport, 0ns);
-    simulation.pointerUp(10ms);
-
-    // Simulation updates alone do not prove that the compositor presented a frame.
-    for (std::uint32_t update = 0U; update < 100U; ++update)
+    constexpr std::array refreshRates{60U, 120U, 144U, 240U};
+    for (const std::uint32_t refreshRate : refreshRates)
     {
-        simulation.advance(10ms + std::chrono::milliseconds(update + 1U));
-    }
-    BAFX_CHECK(simulation.active());
+        Simulation simulation;
+        simulation.pointerDown(goldenCenter, goldenViewport, 0ns);
+        simulation.pointerUp(10ms);
 
-    for (std::uint32_t frame = 0U; frame < 59U; ++frame)
-    {
-        BAFX_CHECK(simulation.snapshot(goldenViewport, 110ms).active);
-        simulation.onFrameRendered();
-    }
-    BAFX_CHECK(simulation.active());
+        // A 144/240 Hz monitor submits well over 60 frames before the longest
+        // click shards finish. Presentation cadence must not own their lifetime.
+        for (std::uint32_t frame = 1U; frame < refreshRate; ++frame)
+        {
+            const auto elapsed = std::chrono::duration_cast<SimulationTime>(
+                std::chrono::duration<double>(
+                    static_cast<double>(frame) / refreshRate));
+            const SimulationTime frameTime = 10ms + elapsed;
+            simulation.advance(frameTime);
+            simulation.onFrameRendered(frameTime);
+            BAFX_CHECK(simulation.active());
+        }
 
-    // The 60th frame is still drawable; cleanup happens only after it succeeds.
-    BAFX_CHECK(simulation.snapshot(goldenViewport, 110ms).active);
-    simulation.onFrameRendered();
-    BAFX_CHECK(!simulation.active());
-    BAFX_CHECK(!simulation.snapshot(goldenViewport, 110ms).active);
+        // The 1 s boundary was drawable; retirement follows that presentation.
+        BAFX_CHECK(simulation.snapshot(goldenViewport, 1010ms).active);
+        simulation.onFrameRendered(1010ms);
+        BAFX_CHECK(!simulation.active());
+    }
 }
 
 BAFX_TEST(rapid_clicks_keep_released_effects_alive)
@@ -777,10 +778,8 @@ BAFX_TEST(disabling_always_on_trail_stops_new_free_move_geometry)
         400.0F,
         1.0e-3F);
 
-    for (std::uint32_t rendered = 0U; rendered < 60U; ++rendered)
-    {
-        runtime.onFrameRendered();
-    }
+    runtime.advance(1050ms);
+    runtime.onFrameRendered(1050ms);
     BAFX_CHECK(!runtime.active());
 }
 
@@ -834,27 +833,19 @@ BAFX_TEST(released_effect_instances_expire_independently)
     runtime.pointerDown(PointF{300.0F, 400.0F}, goldenViewport, 0ns);
     runtime.pointerUp(10ms);
 
-    for (std::uint32_t frame = 0U; frame < 30U; ++frame)
-    {
-        runtime.onFrameRendered();
-    }
-
-    runtime.pointerDown(PointF{900.0F, 600.0F}, goldenViewport, 50ms);
-    runtime.pointerUp(60ms);
-    for (std::uint32_t frame = 0U; frame < 29U; ++frame)
-    {
-        runtime.onFrameRendered();
-    }
+    runtime.pointerDown(PointF{900.0F, 600.0F}, goldenViewport, 500ms);
+    runtime.pointerUp(510ms);
+    runtime.advance(1009ms);
+    runtime.onFrameRendered(1009ms);
     BAFX_CHECK(runtime.instanceCount() == 2U);
 
-    runtime.onFrameRendered();
+    runtime.advance(1010ms);
+    runtime.onFrameRendered(1010ms);
     BAFX_CHECK(runtime.instanceCount() == 1U);
     BAFX_CHECK(runtime.active());
 
-    for (std::uint32_t frame = 0U; frame < 30U; ++frame)
-    {
-        runtime.onFrameRendered();
-    }
+    runtime.advance(1510ms);
+    runtime.onFrameRendered(1510ms);
     BAFX_CHECK(runtime.instanceCount() == 0U);
     BAFX_CHECK(!runtime.active());
 }
