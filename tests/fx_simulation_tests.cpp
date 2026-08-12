@@ -378,11 +378,12 @@ BAFX_TEST(click_burst_systems_follow_unity_particle_age_at_common_refresh_rates)
     {
         std::uint32_t rateHz;
         std::uint32_t frame;
+        float expectedParticleAgeSeconds;
     };
     constexpr std::array samples{
-        RefreshSample{60U, 3U},
-        RefreshSample{120U, 6U},
-        RefreshSample{240U, 12U}};
+        RefreshSample{60U, 3U, 0.03333336F},
+        RefreshSample{120U, 6U, 0.04166669F},
+        RefreshSample{240U, 12U, 0.04583335F}};
     std::array<float, samples.size()> diskSizes{};
     std::array<float, samples.size()> triangleSizes{};
 
@@ -407,6 +408,46 @@ BAFX_TEST(click_burst_systems_follow_unity_particle_age_at_common_refresh_rates)
         const FrameSnapshot frame = simulation.snapshot(
             goldenViewport,
             sampleTime);
+
+        // A one-nanosecond first update emits each zero-delay Burst without
+        // aging it. Advancing the reference by the measured Unity age then
+        // exposes the exact public sprite state expected at this refresh rate.
+        Simulation expected;
+        expected.pointerDown(goldenCenter, goldenViewport, 0ns);
+        expected.advance(1ns);
+        const SimulationTime expectedAge = 1ns
+            + std::chrono::duration_cast<SimulationTime>(
+                std::chrono::duration<float>(
+                    sample.expectedParticleAgeSeconds));
+        expected.advance(expectedAge);
+        const FrameSnapshot expectedFrame = expected.snapshot(
+            goldenViewport,
+            expectedAge);
+
+        const Sprite& disk = firstKind(frame, SpriteKind::CenterDisk);
+        const Sprite& expectedDisk = firstKind(
+            expectedFrame,
+            SpriteKind::CenterDisk);
+        const Sprite& triangle = firstKind(frame, SpriteKind::Triangle);
+        const Sprite& expectedTriangle = firstKind(
+            expectedFrame,
+            SpriteKind::Triangle);
+        // Per-frame float32 accumulation differs by a few ten-thousandths of
+        // a pixel from the two-step reference while preserving the same age.
+        BAFX_CHECK_NEAR(disk.sizePixels, expectedDisk.sizePixels, 5.0e-5F);
+        BAFX_CHECK_NEAR(
+            triangle.centerPixels.x,
+            expectedTriangle.centerPixels.x,
+            2.0e-4F);
+        BAFX_CHECK_NEAR(
+            triangle.centerPixels.y,
+            expectedTriangle.centerPixels.y,
+            2.0e-4F);
+        BAFX_CHECK_NEAR(
+            triangle.sizePixels,
+            expectedTriangle.sizePixels,
+            5.0e-5F);
+        BAFX_CHECK_NEAR(triangle.color.a, expectedTriangle.color.a, 2.0e-6F);
         diskSizes[index] = firstKind(
             frame,
             SpriteKind::CenterDisk).sizePixels;
@@ -478,6 +519,61 @@ BAFX_TEST(unity_hermite_size_curves_match_serialized_samples)
             trianglesAt450ms[index]->sizePixels,
             expectedTriangleSizesAt450ms[index],
             1.0e-3F);
+    }
+}
+
+BAFX_TEST(click_burst_future_snapshot_keeps_the_live_particle_age_unchanged)
+{
+    Simulation queried;
+    queried.pointerDown(goldenCenter, goldenViewport, 0ns);
+    const FrameSnapshot futureFrame = queried.snapshot(
+        goldenViewport,
+        250ms);
+    const FrameSnapshot earlierFrame = queried.snapshot(
+        goldenViewport,
+        50ms);
+
+    Simulation expected;
+    expected.pointerDown(goldenCenter, goldenViewport, 0ns);
+    const FrameSnapshot expectedFrame = expected.snapshot(
+        goldenViewport,
+        50ms);
+    BAFX_CHECK(countKind(futureFrame, SpriteKind::Triangle) == 4U);
+
+    const Sprite& earlierDisk = firstKind(
+        earlierFrame,
+        SpriteKind::CenterDisk);
+    const Sprite& expectedDisk = firstKind(
+        expectedFrame,
+        SpriteKind::CenterDisk);
+    BAFX_CHECK_NEAR(earlierDisk.sizePixels, expectedDisk.sizePixels, 0.0F);
+    BAFX_CHECK_NEAR(earlierDisk.color.a, expectedDisk.color.a, 0.0F);
+
+    const auto earlierTriangles = spritesOfKind(
+        earlierFrame,
+        SpriteKind::Triangle);
+    const auto expectedTriangles = spritesOfKind(
+        expectedFrame,
+        SpriteKind::Triangle);
+    BAFX_CHECK(earlierTriangles.size() == expectedTriangles.size());
+    for (std::size_t index = 0U; index < earlierTriangles.size(); ++index)
+    {
+        BAFX_CHECK_NEAR(
+            earlierTriangles[index]->centerPixels.x,
+            expectedTriangles[index]->centerPixels.x,
+            0.0F);
+        BAFX_CHECK_NEAR(
+            earlierTriangles[index]->centerPixels.y,
+            expectedTriangles[index]->centerPixels.y,
+            0.0F);
+        BAFX_CHECK_NEAR(
+            earlierTriangles[index]->sizePixels,
+            expectedTriangles[index]->sizePixels,
+            0.0F);
+        BAFX_CHECK_NEAR(
+            earlierTriangles[index]->color.a,
+            expectedTriangles[index]->color.a,
+            0.0F);
     }
 }
 
@@ -761,7 +857,51 @@ BAFX_TEST(drag_particle_age_starts_at_the_distance_interpolated_birth_time)
     {
         BAFX_CHECK_NEAR(triangles[index]->sizePixels, 0.0F, 0.0F);
     }
-    BAFX_CHECK(triangles.back()->sizePixels > 0.0F);
+
+    constexpr float dragEmissionStepWorld = 0.2F;
+    const float segmentWorld = 2.0F
+        * static_cast<float>(end.x - start.x)
+        / static_cast<float>(goldenViewport.height);
+    const float interpolation = dragEmissionStepWorld / segmentWorld;
+    const Sprite& dragTriangle = *triangles.back();
+    const SimulationTime movementDuration =
+        std::chrono::duration_cast<SimulationTime>(30ms);
+    const auto bornAtCount = static_cast<SimulationTime::rep>(
+        static_cast<double>(movementDuration.count())
+        * static_cast<double>(interpolation));
+    const SimulationTime expectedAge = movementDuration
+        - SimulationTime{bornAtCount};
+
+    Simulation reference;
+    reference.pointerDown(start, goldenViewport, 0ns);
+    reference.pointerMove(end, goldenViewport, 0ns);
+    const FrameSnapshot referenceFrame = reference.snapshot(
+        goldenViewport,
+        expectedAge);
+    const auto referenceTriangles = spritesOfKind(
+        referenceFrame,
+        SpriteKind::Triangle);
+    BAFX_CHECK(referenceTriangles.size() == 5U);
+    const Sprite& expectedDragTriangle = *referenceTriangles.back();
+
+    // Moving the same seeded particle at time zero isolates its expected age.
+    // The output must then match the particle born at the distance crossing.
+    BAFX_CHECK_NEAR(
+        dragTriangle.centerPixels.x,
+        expectedDragTriangle.centerPixels.x,
+        0.0F);
+    BAFX_CHECK_NEAR(
+        dragTriangle.centerPixels.y,
+        expectedDragTriangle.centerPixels.y,
+        0.0F);
+    BAFX_CHECK_NEAR(
+        dragTriangle.sizePixels,
+        expectedDragTriangle.sizePixels,
+        0.0F);
+    BAFX_CHECK_NEAR(
+        dragTriangle.color.a,
+        expectedDragTriangle.color.a,
+        0.0F);
 }
 
 BAFX_TEST(pointer_cancel_keeps_the_current_trail_until_it_naturally_expires)
