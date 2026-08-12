@@ -378,12 +378,29 @@ BAFX_TEST(click_burst_systems_follow_unity_particle_age_at_common_refresh_rates)
     {
         std::uint32_t rateHz;
         std::uint32_t frame;
-        float expectedParticleAgeSeconds;
+        float expectedDiskSize;
+        float expectedTriangleSize;
+        PointF expectedTriangleCenter;
     };
     constexpr std::array samples{
-        RefreshSample{60U, 3U, 0.03333336F},
-        RefreshSample{120U, 6U, 0.04166669F},
-        RefreshSample{240U, 12U, 0.04583335F}};
+        RefreshSample{
+            60U,
+            3U,
+            86.96708F,
+            6.30301F,
+            PointF{1018.88287F, 519.03064F}},
+        RefreshSample{
+            120U,
+            6U,
+            93.55600F,
+            9.17558F,
+            PointF{1019.33899F, 518.72430F}},
+        RefreshSample{
+            240U,
+            12U,
+            96.05126F,
+            10.69537F,
+            PointF{1019.56702F, 518.57117F}}};
     std::array<float, samples.size()> diskSizes{};
     std::array<float, samples.size()> triangleSizes{};
 
@@ -409,51 +426,32 @@ BAFX_TEST(click_burst_systems_follow_unity_particle_age_at_common_refresh_rates)
             goldenViewport,
             sampleTime);
 
-        // A one-nanosecond first update emits each zero-delay Burst without
-        // aging it. Advancing the reference by the measured Unity age then
-        // exposes the exact public sprite state expected at this refresh rate.
-        Simulation expected;
-        expected.pointerDown(goldenCenter, goldenViewport, 0ns);
-        expected.advance(1ns);
-        const SimulationTime expectedAge = 1ns
-            + std::chrono::duration_cast<SimulationTime>(
-                std::chrono::duration<float>(
-                    sample.expectedParticleAgeSeconds));
-        expected.advance(expectedAge);
-        const FrameSnapshot expectedFrame = expected.snapshot(
-            goldenViewport,
-            expectedAge);
-
+        BAFX_CHECK(countKind(frame, SpriteKind::CenterDisk) == 1U);
+        BAFX_CHECK(countKind(frame, SpriteKind::DissolveRing) == 2U);
+        BAFX_CHECK(countKind(frame, SpriteKind::Triangle) == 4U);
         const Sprite& disk = firstKind(frame, SpriteKind::CenterDisk);
-        const Sprite& expectedDisk = firstKind(
-            expectedFrame,
-            SpriteKind::CenterDisk);
         const Sprite& triangle = firstKind(frame, SpriteKind::Triangle);
-        const Sprite& expectedTriangle = firstKind(
-            expectedFrame,
-            SpriteKind::Triangle);
-        // Per-frame float32 accumulation differs by a few ten-thousandths of
-        // a pixel from the two-step reference while preserving the same age.
-        BAFX_CHECK_NEAR(disk.sizePixels, expectedDisk.sizePixels, 5.0e-5F);
+        // These public Sprite values come from the Unity-observed particle
+        // ages, so a shared regression cannot update both sides of the check.
+        BAFX_CHECK_NEAR(disk.sizePixels, sample.expectedDiskSize, 2.0e-4F);
         BAFX_CHECK_NEAR(
             triangle.centerPixels.x,
-            expectedTriangle.centerPixels.x,
+            sample.expectedTriangleCenter.x,
             2.0e-4F);
         BAFX_CHECK_NEAR(
             triangle.centerPixels.y,
-            expectedTriangle.centerPixels.y,
+            sample.expectedTriangleCenter.y,
             2.0e-4F);
         BAFX_CHECK_NEAR(
             triangle.sizePixels,
-            expectedTriangle.sizePixels,
-            5.0e-5F);
-        BAFX_CHECK_NEAR(triangle.color.a, expectedTriangle.color.a, 2.0e-6F);
-        diskSizes[index] = firstKind(
-            frame,
-            SpriteKind::CenterDisk).sizePixels;
-        triangleSizes[index] = firstKind(
-            frame,
-            SpriteKind::Triangle).sizePixels;
+            sample.expectedTriangleSize,
+            2.0e-4F);
+        BAFX_CHECK_NEAR(triangle.color.r, 0.25064608F, 1.0e-6F);
+        BAFX_CHECK_NEAR(triangle.color.g, 0.25064608F, 1.0e-6F);
+        BAFX_CHECK_NEAR(triangle.color.b, 0.25064608F, 1.0e-6F);
+        BAFX_CHECK_NEAR(triangle.color.a, 1.0F, 0.0F);
+        diskSizes[index] = disk.sizePixels;
+        triangleSizes[index] = triangle.sizePixels;
     }
 
     // All samples end near 50 ms. Their differing sizes come from Unity's
@@ -538,7 +536,12 @@ BAFX_TEST(click_burst_future_snapshot_keeps_the_live_particle_age_unchanged)
     const FrameSnapshot expectedFrame = expected.snapshot(
         goldenViewport,
         50ms);
+    BAFX_CHECK(countKind(futureFrame, SpriteKind::CenterDisk) == 0U);
+    BAFX_CHECK(countKind(futureFrame, SpriteKind::DissolveRing) == 2U);
     BAFX_CHECK(countKind(futureFrame, SpriteKind::Triangle) == 4U);
+    BAFX_CHECK(countKind(earlierFrame, SpriteKind::CenterDisk) == 1U);
+    BAFX_CHECK(countKind(earlierFrame, SpriteKind::DissolveRing) == 2U);
+    BAFX_CHECK(countKind(earlierFrame, SpriteKind::Triangle) == 4U);
 
     const Sprite& earlierDisk = firstKind(
         earlierFrame,
@@ -546,6 +549,8 @@ BAFX_TEST(click_burst_future_snapshot_keeps_the_live_particle_age_unchanged)
     const Sprite& expectedDisk = firstKind(
         expectedFrame,
         SpriteKind::CenterDisk);
+    BAFX_CHECK_NEAR(earlierDisk.sizePixels, 78.18764F, 2.0e-4F);
+    BAFX_CHECK_NEAR(earlierDisk.color.a, 0.9818524F, 1.0e-6F);
     BAFX_CHECK_NEAR(earlierDisk.sizePixels, expectedDisk.sizePixels, 0.0F);
     BAFX_CHECK_NEAR(earlierDisk.color.a, expectedDisk.color.a, 0.0F);
 
@@ -556,6 +561,19 @@ BAFX_TEST(click_burst_future_snapshot_keeps_the_live_particle_age_unchanged)
         expectedFrame,
         SpriteKind::Triangle);
     BAFX_CHECK(earlierTriangles.size() == expectedTriangles.size());
+    BAFX_CHECK_NEAR(
+        earlierTriangles.front()->centerPixels.x,
+        1018.42676F,
+        2.0e-4F);
+    BAFX_CHECK_NEAR(
+        earlierTriangles.front()->centerPixels.y,
+        519.33691F,
+        2.0e-4F);
+    BAFX_CHECK_NEAR(
+        earlierTriangles.front()->sizePixels,
+        3.787674F,
+        2.0e-4F);
+    BAFX_CHECK_NEAR(earlierTriangles.front()->color.a, 1.0F, 0.0F);
     for (std::size_t index = 0U; index < earlierTriangles.size(); ++index)
     {
         BAFX_CHECK_NEAR(
