@@ -420,30 +420,19 @@ BAFX_TEST(drag_uses_world_distance_for_trail_and_particles)
     BAFX_CHECK_NEAR(frame.trailWidthPixels, 2.7425F, 1.0e-4F);
 }
 
-BAFX_TEST(trail_resamples_long_input_segments_at_unity_vertex_distance)
+BAFX_TEST(trail_vertex_distance_filters_samples_without_tessellating_frame_jumps)
 {
     Simulation simulation;
     constexpr PointF start{100.0F, 100.0F};
     constexpr PointF end{600.0F, 100.0F};
     simulation.pointerDown(start, goldenViewport, 0ns);
+    simulation.pointerMove(PointF{104.0F, 100.0F}, goldenViewport, 50ms);
     simulation.pointerMove(end, goldenViewport, 100ms);
 
     const auto frame = simulation.snapshot(goldenViewport, 100ms);
-    BAFX_CHECK(frame.trail.size() == 92U);
-    for (std::size_t index = 1U; index < frame.trail.size(); ++index)
-    {
-        const float deltaX = frame.trail[index].positionPixels.x
-            - frame.trail[index - 1U].positionPixels.x;
-        const float deltaY = frame.trail[index].positionPixels.y
-            - frame.trail[index - 1U].positionPixels.y;
-        BAFX_CHECK(std::hypot(deltaX, deltaY) <= 5.5F);
-    }
-
-    simulation.advance(350ms);
-    const auto decayed = simulation.snapshot(goldenViewport, 350ms);
-    BAFX_CHECK(!decayed.trail.empty());
-    BAFX_CHECK(decayed.trail.front().positionPixels.x > start.x);
-    BAFX_CHECK_NEAR(decayed.trail.back().positionPixels.x, end.x, 1.0e-4F);
+    BAFX_CHECK(frame.trail.size() == 2U);
+    BAFX_CHECK_NEAR(frame.trail.front().positionPixels.x, start.x, 1.0e-4F);
+    BAFX_CHECK_NEAR(frame.trail.back().positionPixels.x, end.x, 1.0e-4F);
 }
 
 BAFX_TEST(delayed_pointer_move_is_not_dropped_after_simulation_advance)
