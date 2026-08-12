@@ -175,6 +175,46 @@ SamplerState LinearClampSampler : register(s0);
 static const float BackgroundReferenceWhitePlateau = 1.0 / 1024.0;
 static const float BackgroundReferenceWhiteFilterEnd = 3.0 / 1024.0;
 
+float LinearToSrgbChannel(float value)
+{
+    const float clampedLinear = saturate(value);
+    if (clampedLinear <= 0.0031308)
+    {
+        return clampedLinear * 12.92;
+    }
+    return 1.055 * pow(clampedLinear, 1.0 / 2.4) - 0.055;
+}
+
+float3 LinearToSrgb(float3 value)
+{
+    return float3(
+        LinearToSrgbChannel(value.r),
+        LinearToSrgbChannel(value.g),
+        LinearToSrgbChannel(value.b));
+}
+
+float SrgbToLinearChannel(float value)
+{
+    const float srgb = saturate(value);
+    if (srgb <= 0.04045)
+    {
+        return srgb / 12.92;
+    }
+    return pow((srgb + 0.055) / 1.055, 2.4);
+}
+
+float3 SrgbPremultipliedToLinearPremultiplied(
+    float3 premultiplied,
+    float alpha)
+{
+    const float3 straight = saturate(
+        premultiplied / max(alpha, 0.000001));
+    return float3(
+        SrgbToLinearChannel(straight.r),
+        SrgbToLinearChannel(straight.g),
+        SrgbToLinearChannel(straight.b)) * alpha;
+}
+
 float3 StabilizeCapturedBackground(float3 sample)
 {
     const float3 nonNegative = max(sample, 0.0);
@@ -419,8 +459,10 @@ float4 ResolveUnknownBackgroundDesktopTransport(
 {
     const float3 linearRgb = max(direct.rgb, 0.0)
         + max(bloom.rgb, 0.0) * exposureGain;
+    const float3 srgbRgb = LinearToSrgb(linearRgb);
     const float sceneCoverage = saturate(direct.a);
-    const float bloomTransport = saturate(max(bloom.a, 0.0) * exposureGain);
+    const float bloomTransport = LinearToSrgbChannel(
+        max(bloom.a, 0.0) * exposureGain);
     // Unknown-background source-over follows the Web transparent-overlay
     // contract: visual-max chooses the larger independent envelope instead of
     // summing Alpha, then the selected preset applies its explicit cap.
@@ -430,17 +472,17 @@ float4 ResolveUnknownBackgroundDesktopTransport(
         return float4(0.0, 0.0, 0.0, 0.0);
     }
 
-    const float maximumLinear = max(
-        linearRgb.r,
-        max(linearRgb.g, linearRgb.b));
+    const float maximumSrgb = max(
+        srgbRgb.r,
+        max(srgbRgb.g, srgbRgb.b));
     const float capacityScale = min(
         1.0,
-        alpha / max(maximumLinear, 0.000001));
-    float3 premultiplied = linearRgb * capacityScale;
+        alpha / max(maximumSrgb, 0.000001));
+    float3 premultipliedSrgb = srgbRgb * capacityScale;
 
     const float maximumPremultiplied = max(
-        premultiplied.r,
-        max(premultiplied.g, premultiplied.b));
+        premultipliedSrgb.r,
+        max(premultipliedSrgb.g, premultipliedSrgb.b));
     const float energyRatio = maximumPremultiplied
         / max(alpha, 0.000001);
     const float gate = smoothstep(0.25, 0.75, energyRatio)
@@ -448,11 +490,19 @@ float4 ResolveUnknownBackgroundDesktopTransport(
 
     // bright-core only lifts weaker channels toward the existing peak. It
     // never raises peak energy or turns the low-energy trail tail gray-white.
-    premultiplied = lerp(
-        premultiplied,
+    premultipliedSrgb = lerp(
+        premultipliedSrgb,
         maximumPremultiplied.xxx,
         compensationMix * gate);
-    return float4(min(premultiplied, alpha), alpha);
+
+    // Chromium transports the transparent Canvas as premultiplied sRGB. DComp
+    // consumes linear scRGB, so preserve the same straight color by
+    // unpremultiplying before the transfer conversion and premultiplying again.
+    const float3 premultipliedLinear =
+        SrgbPremultipliedToLinearPremultiplied(
+            min(premultipliedSrgb, alpha),
+            alpha);
+    return float4(min(premultipliedLinear, alpha), alpha);
 }
 
 float4 ResolveRecordingCompatibleDesktopTransport(

@@ -459,6 +459,89 @@ void checkValidDesktopPremultiplied(
     return maximum;
 }
 
+[[nodiscard]] float linearToSrgbChannel(const float value) noexcept
+{
+    const float linear = std::clamp(value, 0.0F, 1.0F);
+    if (linear <= 0.0031308F)
+    {
+        return linear * 12.92F;
+    }
+    return 1.055F * std::pow(linear, 1.0F / 2.4F) - 0.055F;
+}
+
+[[nodiscard]] float srgbToLinearChannel(const float value) noexcept
+{
+    const float srgb = std::clamp(value, 0.0F, 1.0F);
+    if (srgb <= 0.04045F)
+    {
+        return srgb / 12.92F;
+    }
+    return std::pow((srgb + 0.055F) / 1.055F, 2.4F);
+}
+
+[[nodiscard]] float smoothstepReference(
+    const float lower,
+    const float upper,
+    const float value) noexcept
+{
+    const float normalized = std::clamp(
+        (value - lower) / (upper - lower),
+        0.0F,
+        1.0F);
+    return normalized * normalized * (3.0F - 2.0F * normalized);
+}
+
+[[nodiscard]] ReadbackPixel recordingCompatibleWebReference(
+    const ReadbackPixel direct) noexcept
+{
+    constexpr float alphaLimit = 0.90F;
+    constexpr float compensationMix = 0.35F;
+    const float alpha = std::min(
+        std::clamp(direct.alpha, 0.0F, 1.0F),
+        alphaLimit);
+    if (alpha <= 1.0e-6F)
+    {
+        return {};
+    }
+
+    std::array<float, 3U> premultipliedSrgb{
+        linearToSrgbChannel(direct.red),
+        linearToSrgbChannel(direct.green),
+        linearToSrgbChannel(direct.blue)};
+    const float maximumSrgb = std::max({
+        premultipliedSrgb[0],
+        premultipliedSrgb[1],
+        premultipliedSrgb[2]});
+    const float capacityScale = std::min(
+        1.0F,
+        alpha / std::max(maximumSrgb, 1.0e-6F));
+    for (float& channel : premultipliedSrgb)
+    {
+        channel *= capacityScale;
+    }
+
+    const float maximumPremultiplied = std::max({
+        premultipliedSrgb[0],
+        premultipliedSrgb[1],
+        premultipliedSrgb[2]});
+    const float energyRatio = maximumPremultiplied
+        / std::max(alpha, 1.0e-6F);
+    const float gate = smoothstepReference(0.25F, 0.75F, energyRatio)
+        * smoothstepReference(0.03125F, 0.25F, maximumPremultiplied);
+    for (float& channel : premultipliedSrgb)
+    {
+        channel += (maximumPremultiplied - channel)
+            * compensationMix
+            * gate;
+    }
+
+    return ReadbackPixel{
+        srgbToLinearChannel(premultipliedSrgb[0] / alpha) * alpha,
+        srgbToLinearChannel(premultipliedSrgb[1] / alpha) * alpha,
+        srgbToLinearChannel(premultipliedSrgb[2] / alpha) * alpha,
+        alpha};
+}
+
 [[nodiscard]] ReadbackPixel compositeOver(
     const ReadbackPixel foreground,
     const std::array<float, 4>& background) noexcept
@@ -625,6 +708,46 @@ BAFX_TEST(warp_recording_compatible_profile_matches_web_overlay_preset)
         pixels[center].alpha,
         recordingAlphaLimit,
         tolerance);
+}
+
+BAFX_TEST(warp_recording_compatible_converts_web_srgb_payload_to_scrgb)
+{
+    ComApartment apartment;
+    const WarpDevice graphics = createWarpDevice();
+    FxGpuRenderer renderer(graphics.device.Get(), graphics.context.Get(), testSize);
+    bafx::fx::FrameSnapshot snapshot = makeDiskTransportSnapshot(0.55F, 0.45F);
+    snapshot.sprites.front().color = bafx::fx::ColorF{
+        0.15F,
+        0.50F,
+        1.00F,
+        0.55F};
+
+    const RenderTarget captureTarget = createRenderTarget(graphics.device.Get());
+    const FxGpuFrameCapture capture = renderer.renderAndCapture(
+        snapshot,
+        captureTarget.view.Get());
+    const std::vector<ReadbackPixel> direct = toFloatPixels(capture.directSurface);
+
+    renderer.setOverlayProfile(FxOverlayProfile::RecordingCompatible);
+    const RenderTarget outputTarget = createRenderTarget(graphics.device.Get());
+    renderer.render(snapshot, outputTarget.view.Get());
+    const std::vector<ReadbackPixel> output = readback(
+        graphics.context.Get(),
+        outputTarget.texture.Get());
+
+    const std::size_t center = static_cast<std::size_t>(testSize.height / 2U)
+        * testSize.width
+        + testSize.width / 2U;
+    const ReadbackPixel expected = recordingCompatibleWebReference(direct[center]);
+    constexpr float tolerance = 3.0e-3F;
+    BAFX_CHECK_NEAR(output[center].red, expected.red, tolerance);
+    BAFX_CHECK_NEAR(output[center].green, expected.green, tolerance);
+    BAFX_CHECK_NEAR(output[center].blue, expected.blue, tolerance);
+    BAFX_CHECK_NEAR(output[center].alpha, expected.alpha, tolerance);
+
+    // The old path compressed directly in linear space. The Web-compatible
+    // transfer keeps the selected transparent-window color visibly brighter.
+    BAFX_CHECK(output[center].blue > direct[center].blue + 0.05F);
 }
 
 BAFX_TEST(warp_background_path_uses_full_differential_bloom)
