@@ -304,6 +304,74 @@ BAFX_TEST(dissolve_ring_custom_data_matches_unity_at_common_refresh_rates)
     }
 }
 
+BAFX_TEST(dissolve_ring_lifetime_curves_use_the_same_unity_particle_age)
+{
+    struct RefreshSample
+    {
+        std::uint32_t rateHz;
+        std::uint32_t frame;
+        float expectedParticleAgeSeconds;
+    };
+    constexpr std::array samples{
+        RefreshSample{60U, 3U, 0.03333336F},
+        RefreshSample{120U, 6U, 0.04166669F},
+        RefreshSample{240U, 12U, 0.04583335F}};
+    std::array<float, samples.size()> ringSizes{};
+
+    for (std::size_t index = 0U; index < samples.size(); ++index)
+    {
+        const RefreshSample& sample = samples[index];
+        Simulation simulation;
+        simulation.pointerDown(goldenCenter, goldenViewport, 0ns);
+        for (std::uint32_t frame = 1U; frame <= sample.frame; ++frame)
+        {
+            const auto frameTime = std::chrono::duration_cast<SimulationTime>(
+                std::chrono::duration<float>(
+                    static_cast<float>(frame)
+                    / static_cast<float>(sample.rateHz)));
+            simulation.advance(frameTime);
+        }
+
+        Simulation expected;
+        expected.pointerDown(goldenCenter, goldenViewport, 0ns);
+        expected.advance(1ns);
+        const SimulationTime expectedAge = 1ns
+            + std::chrono::duration_cast<SimulationTime>(
+                std::chrono::duration<float>(
+                    sample.expectedParticleAgeSeconds));
+        expected.advance(expectedAge);
+        const FrameSnapshot expectedFrame = expected.snapshot(
+            goldenViewport,
+            expectedAge);
+        const auto sampleTime = std::chrono::duration_cast<SimulationTime>(
+            std::chrono::duration<float>(
+                static_cast<float>(sample.frame)
+                / static_cast<float>(sample.rateHz)));
+        const FrameSnapshot actualFrame = simulation.snapshot(
+            goldenViewport,
+            sampleTime);
+        const Sprite& expectedRing = firstKind(
+            expectedFrame,
+            SpriteKind::DissolveRing);
+        const Sprite& actualRing = firstKind(
+            actualFrame,
+            SpriteKind::DissolveRing);
+
+        BAFX_CHECK_NEAR(actualRing.sizePixels, expectedRing.sizePixels, 2.0e-5F);
+        BAFX_CHECK_NEAR(
+            actualRing.rotationRadians,
+            expectedRing.rotationRadians,
+            2.0e-6F);
+        BAFX_CHECK_NEAR(actualRing.color.r, expectedRing.color.r, 2.0e-6F);
+        BAFX_CHECK_NEAR(actualRing.color.g, expectedRing.color.g, 2.0e-6F);
+        BAFX_CHECK_NEAR(actualRing.color.b, expectedRing.color.b, 2.0e-6F);
+        ringSizes[index] = actualRing.sizePixels;
+    }
+
+    BAFX_CHECK(ringSizes[0] < ringSizes[1]);
+    BAFX_CHECK(ringSizes[1] < ringSizes[2]);
+}
+
 BAFX_TEST(unity_hermite_size_curves_match_serialized_samples)
 {
     Simulation simulation;
@@ -315,8 +383,8 @@ BAFX_TEST(unity_hermite_size_curves_match_serialized_samples)
         110.53641F,
         1.0e-3F);
 
-    constexpr std::array expectedRingSizesAt250ms{135.67345F, 120.57119F};
-    constexpr std::array expectedRingSizesAt450ms{157.33611F, 139.82249F};
+    constexpr std::array expectedRingSizesAt250ms{135.19762F, 120.14832F};
+    constexpr std::array expectedRingSizesAt450ms{157.05330F, 139.57118F};
     const auto ringFrameAt250ms = simulation.snapshot(goldenViewport, 250ms);
     const auto ringsAt250ms = spritesOfKind(ringFrameAt250ms, SpriteKind::DissolveRing);
     const auto ringFrameAt450ms = simulation.snapshot(goldenViewport, 450ms);
@@ -421,8 +489,8 @@ BAFX_TEST(unity_ring_rotation_integrates_the_serialized_two_curves)
     BAFX_CHECK(ringsAt300ms.size() == initialRings.size());
     BAFX_CHECK(ringsAt600ms.size() == initialRings.size());
 
-    constexpr std::array expectedAt300ms{2.8539987F, 2.5977697F};
-    constexpr std::array expectedAt600ms{4.7268543F, 3.9370995F};
+    constexpr std::array expectedAt300ms{2.8337526F, 2.5802860F};
+    constexpr std::array expectedAt600ms{4.7114286F, 3.9294958F};
     for (std::size_t index = 0U; index < initialRings.size(); ++index)
     {
         BAFX_CHECK_NEAR(
@@ -452,8 +520,8 @@ BAFX_TEST(unity_active_color_space_is_applied_after_serialized_color_curves)
 
     const auto ringFrame = simulation.snapshot(goldenViewport, 250ms);
     const Sprite& ring = firstKind(ringFrame, SpriteKind::DissolveRing);
-    BAFX_CHECK_NEAR(ring.color.r, 0.23641479F, 1.0e-6F);
-    BAFX_CHECK_NEAR(ring.color.g, 0.54607397F, 1.0e-6F);
+    BAFX_CHECK_NEAR(ring.color.r, 0.24471897F, 1.0e-6F);
+    BAFX_CHECK_NEAR(ring.color.g, 0.55270594F, 1.0e-6F);
     BAFX_CHECK_NEAR(ring.color.b, 1.0F, 1.0e-6F);
 
     constexpr std::array expectedColors{

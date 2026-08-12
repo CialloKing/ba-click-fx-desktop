@@ -600,10 +600,12 @@ FrameSnapshot Simulation::snapshot(const Viewport viewport, const SimulationTime
             true});
     }
 
-    if (effectAge > 0.0 && particleAge <= ringLifetimeSeconds)
+    if (effectAge > 0.0
+        && particleState.burstEmitted
+        && particleState.particleAgeSeconds <= ringLifetimeSeconds)
     {
-        const float normalizedAge = static_cast<float>(
-            particleAge / ringLifetimeSeconds);
+        const float normalizedAge = particleState.particleAgeSeconds
+            / ringLifetimeSeconds;
         const float customNormalizedAge = particleState.customDataAgeSeconds
             / ringLifetimeSeconds;
         for (const RingParticle& ring : rings_)
