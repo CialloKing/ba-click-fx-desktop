@@ -7,6 +7,7 @@ import importlib.util
 import json
 from pathlib import Path
 import subprocess
+import struct
 import sys
 import tempfile
 import unittest
@@ -36,8 +37,14 @@ def valid_metrics(**overrides):
         "seed_rgb_sum": 3.0,
         "final_rgb_sum": 5.0,
         "bloom_delta_rgb_sum": 1.0,
+        "bloom_result_rgb_sum": 1.0,
         "up00_rgb_sum": 1.0,
-        "composite_gain_ratio": 1.0,
+        "composite_rgb_max_absolute_error": 0.001,
+        "composite_rgb_mean_absolute_error": 0.0001,
+        "composite_rgb_max_tolerance_ratio": 0.5,
+        "composite_rgb_first_failure": None,
+        "composite_alpha_max_absolute_error": 0.0,
+        "composite_alpha_first_failure": None,
         "down_mean_ratios": (1.0, 0.99, 1.01),
         "up_mean_monotonic": True,
     }
@@ -46,6 +53,28 @@ def valid_metrics(**overrides):
 
 
 class LayerContractTests(unittest.TestCase):
+    @staticmethod
+    def measured_metrics(final_overlay):
+        layers = {
+            "DirectSurface": (0.25, 0.5, 0.75, 0.25),
+            "BloomSeed": (0.0, 0.0, 0.0, 0.0),
+            "BloomResult": (0.125, 0.25, 0.125, 0.75),
+            "FinalOverlay": final_overlay,
+            "Prefilter_Down00": (0.0, 0.0, 0.0, 0.0),
+            "Up00": (0.0, 0.0, 0.0, 0.0),
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for name, pixel in layers.items():
+                (root / f"{name}.rgba16f").write_bytes(
+                    struct.pack("<4e", *pixel)
+                )
+            layer_info = {
+                name: {"width": 1, "height": 1}
+                for name in layers
+            }
+            return VERIFY._layer_metrics(root, layer_info)
+
     def test_alpha_layers_are_ordered_instead_of_identical(self):
         self.assertEqual((), VERIFY._layer_contract_failures(valid_metrics()))
 
@@ -67,6 +96,48 @@ class LayerContractTests(unittest.TestCase):
             final_direct_alpha_min_delta=-VERIFY.FP16_LAYER_TOLERANCE,
         )
         self.assertEqual((), VERIFY._layer_contract_failures(metrics))
+
+    def test_composite_rgb_reports_the_first_formula_failure(self):
+        failures = VERIFY._layer_contract_failures(
+            valid_metrics(
+                composite_rgb_max_absolute_error=0.01,
+                composite_rgb_mean_absolute_error=0.001,
+                composite_rgb_max_tolerance_ratio=2.0,
+                composite_rgb_first_failure=(12, 34, 2),
+            )
+        )
+        self.assertTrue(any("DirectSurface + BloomResult" in item for item in failures))
+        self.assertTrue(any("(12, 34, 2)" in item for item in failures))
+
+    def test_composite_alpha_reports_the_first_formula_failure(self):
+        failures = VERIFY._layer_contract_failures(
+            valid_metrics(
+                composite_alpha_max_absolute_error=0.01,
+                composite_alpha_first_failure=(56, 78),
+            )
+        )
+        self.assertTrue(any("max(DirectSurface, BloomResult)" in item for item in failures))
+        self.assertTrue(any("(56, 78)" in item for item in failures))
+
+    def test_measured_composite_rgb_failure_reports_pixel_and_channel(self):
+        metrics = self.measured_metrics((0.39, 0.75, 0.875, 0.75))
+        self.assertEqual((0, 0, 0), metrics.composite_rgb_first_failure)
+        self.assertTrue(
+            any(
+                "first=(0, 0, 0)" in item
+                for item in VERIFY._layer_contract_failures(metrics)
+            )
+        )
+
+    def test_measured_composite_alpha_failure_reports_pixel(self):
+        metrics = self.measured_metrics((0.375, 0.75, 0.875, 0.5))
+        self.assertEqual((0, 0), metrics.composite_alpha_first_failure)
+        self.assertTrue(
+            any(
+                "first=(0, 0)" in item
+                for item in VERIFY._layer_contract_failures(metrics)
+            )
+        )
 
 
 class TrailDeltaContractTests(unittest.TestCase):
@@ -325,8 +396,10 @@ class TrailOnlyContractTests(unittest.TestCase):
 class ManifestCaseTests(unittest.TestCase):
     def manifest(self, ages):
         return {
-            "schemaVersion": 2,
+            "schemaVersion": 3,
             "driver": "WARP",
+            "captureProfile": "fx-only",
+            "compositeFormula": "direct-plus-bloom-result-max-alpha-v1",
             "seed": 20260716,
             "allLayers": False,
             "viewport": {"width": 1950, "height": 1097},
@@ -417,6 +490,16 @@ class ManifestCaseTests(unittest.TestCase):
         manifest["case"] = {"name": "click"}
         loaded = self.load(manifest)
         self.assertEqual("click", loaded["case"]["name"])
+
+    def test_capture_profile_and_composite_formula_are_exact(self):
+        valid = self.manifest(VERIFY.AGES)
+        for field, value in (
+            ("captureProfile", "background-aware"),
+            ("compositeFormula", "arbitrary"),
+        ):
+            with self.subTest(field=field):
+                with self.assertRaises(VERIFY.ValidationError):
+                    self.load(self.replaced(valid, (field,), value))
 
     def test_drag_manifest_uses_the_locked_fixture(self):
         loaded = self.load(self.drag_manifest())
@@ -541,6 +624,8 @@ class ManifestCaseTests(unittest.TestCase):
         required_fields = (
             (valid_click, ("schemaVersion",)),
             (valid_click, ("driver",)),
+            (valid_click, ("captureProfile",)),
+            (valid_click, ("compositeFormula",)),
             (valid_click, ("seed",)),
             (valid_click, ("allLayers",)),
             (valid_click, ("viewport",)),

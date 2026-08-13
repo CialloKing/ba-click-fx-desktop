@@ -50,7 +50,7 @@ TRAIL_SIGNAL_THRESHOLD = 24
 EXPOSURE_GAIN = 0.125058532
 SAMPLE_SCALE = 1.42925835
 FP16_LAYER_TOLERANCE = 0.002
-COMPOSITE_GAIN_TOLERANCE = 0.03
+COMPOSITE_RGB_RELATIVE_TOLERANCE = 0.001
 DOWNSAMPLE_MEAN_RATIO_MIN = 0.85
 DOWNSAMPLE_MEAN_RATIO_MAX = 1.15
 CAPTURE_WIDTH = 1950
@@ -201,8 +201,14 @@ class LayerMetrics:
     seed_rgb_sum: float
     final_rgb_sum: float
     bloom_delta_rgb_sum: float
+    bloom_result_rgb_sum: float
     up00_rgb_sum: float
-    composite_gain_ratio: float | None
+    composite_rgb_max_absolute_error: float
+    composite_rgb_mean_absolute_error: float
+    composite_rgb_max_tolerance_ratio: float
+    composite_rgb_first_failure: tuple[int, int, int] | None
+    composite_alpha_max_absolute_error: float
+    composite_alpha_first_failure: tuple[int, int] | None
     down_mean_ratios: tuple[float, ...]
     up_mean_monotonic: bool
 
@@ -600,6 +606,7 @@ def _layer_metrics(age_directory: Path, layer_info: dict[str, dict]) -> LayerMet
     required = (
         "DirectSurface",
         "BloomSeed",
+        "BloomResult",
         "FinalOverlay",
         "Prefilter_Down00",
         "Up00",
@@ -615,35 +622,75 @@ def _layer_metrics(age_directory: Path, layer_info: dict[str, dict]) -> LayerMet
     }
     direct_path = age_directory / "DirectSurface.rgba16f"
     seed_path = age_directory / "BloomSeed.rgba16f"
+    bloom_result_path = age_directory / "BloomResult.rgba16f"
     final_path = age_directory / "FinalOverlay.rgba16f"
     width, height = dimensions["DirectSurface"]
-    if dimensions["BloomSeed"] != (width, height) or dimensions["FinalOverlay"] != (width, height):
+    if (
+        dimensions["BloomSeed"] != (width, height)
+        or dimensions["BloomResult"] != (width, height)
+        or dimensions["FinalOverlay"] != (width, height)
+    ):
         raise ValidationError(f"{age_directory.name}: full-resolution layer dimensions differ")
 
     direct_sum = 0.0
     seed_sum = 0.0
     final_sum = 0.0
     bloom_delta_sum = 0.0
+    bloom_result_sum = 0.0
     direct_seed_min = math.inf
     final_direct_min = math.inf
     final_direct_alpha_min = math.inf
     direct_seed_alpha_min = math.inf
+    composite_rgb_max_absolute_error = 0.0
+    composite_rgb_absolute_error_sum = 0.0
+    composite_rgb_max_tolerance_ratio = 0.0
+    composite_rgb_first_failure = None
+    composite_alpha_max_absolute_error = 0.0
+    composite_alpha_first_failure = None
     finite = True
     non_negative = True
     direct_iter = _iter_half_pixels(direct_path, width, height)
     seed_iter = _iter_half_pixels(seed_path, width, height)
+    bloom_result_iter = _iter_half_pixels(bloom_result_path, width, height)
     final_iter = _iter_half_pixels(final_path, width, height)
-    for direct, seed, final in zip(direct_iter, seed_iter, final_iter):
-        if not all(math.isfinite(value) for value in (*direct, *seed, *final)):
+    for pixel_index, (direct, seed, bloom_result, final) in enumerate(
+        zip(direct_iter, seed_iter, bloom_result_iter, final_iter)
+    ):
+        if not all(
+            math.isfinite(value)
+            for value in (*direct, *seed, *bloom_result, *final)
+        ):
             finite = False
-        if min(direct[:3] + seed[:3] + final[:3]) < -0.002:
+        if min(direct[:3] + seed[:3] + bloom_result[:3] + final[:3]) < -0.002:
             non_negative = False
         direct_sum += sum(direct[:3])
         seed_sum += sum(seed[:3])
+        bloom_result_sum += sum(bloom_result[:3])
         final_sum += sum(final[:3])
         for channel in range(3):
             direct_seed_min = min(direct_seed_min, direct[channel] - seed[channel])
             final_direct_min = min(final_direct_min, final[channel] - direct[channel])
+            expected = direct[channel] + bloom_result[channel]
+            absolute_error = abs(final[channel] - expected)
+            magnitude = max(abs(final[channel]), abs(expected))
+            tolerance = FP16_LAYER_TOLERANCE \
+                + COMPOSITE_RGB_RELATIVE_TOLERANCE * magnitude
+            tolerance_ratio = absolute_error / tolerance
+            composite_rgb_max_absolute_error = max(
+                composite_rgb_max_absolute_error,
+                absolute_error,
+            )
+            composite_rgb_absolute_error_sum += absolute_error
+            composite_rgb_max_tolerance_ratio = max(
+                composite_rgb_max_tolerance_ratio,
+                tolerance_ratio,
+            )
+            if composite_rgb_first_failure is None and tolerance_ratio > 1.0:
+                composite_rgb_first_failure = (
+                    pixel_index % width,
+                    pixel_index // width,
+                    channel,
+                )
         final_direct_alpha_min = min(
             final_direct_alpha_min,
             final[3] - direct[3],
@@ -652,6 +699,21 @@ def _layer_metrics(age_directory: Path, layer_info: dict[str, dict]) -> LayerMet
             direct_seed_alpha_min,
             direct[3] - seed[3],
         )
+        composite_alpha_error = abs(
+            final[3] - max(direct[3], bloom_result[3])
+        )
+        composite_alpha_max_absolute_error = max(
+            composite_alpha_max_absolute_error,
+            composite_alpha_error,
+        )
+        if (
+            composite_alpha_first_failure is None
+            and composite_alpha_error > FP16_LAYER_TOLERANCE
+        ):
+            composite_alpha_first_failure = (
+                pixel_index % width,
+                pixel_index // width,
+            )
         bloom_delta_sum += sum(final[channel] - direct[channel] for channel in range(3))
 
     up_width, up_height = dimensions["Up00"]
@@ -660,12 +722,6 @@ def _layer_metrics(age_directory: Path, layer_info: dict[str, dict]) -> LayerMet
     )
     finite = finite and up_finite
     non_negative = non_negative and up_non_negative
-    composite_gain_ratio = None
-    if up00_sum > 0.0:
-        area_ratio = (width * height) / (up_width * up_height)
-        expected_delta = EXPOSURE_GAIN * area_ratio * up00_sum
-        composite_gain_ratio = bloom_delta_sum / expected_delta
-
     down_names = sorted(
         (
             name
@@ -717,8 +773,16 @@ def _layer_metrics(age_directory: Path, layer_info: dict[str, dict]) -> LayerMet
         seed_rgb_sum=seed_sum,
         final_rgb_sum=final_sum,
         bloom_delta_rgb_sum=bloom_delta_sum,
+        bloom_result_rgb_sum=bloom_result_sum,
         up00_rgb_sum=up00_sum,
-        composite_gain_ratio=composite_gain_ratio,
+        composite_rgb_max_absolute_error=composite_rgb_max_absolute_error,
+        composite_rgb_mean_absolute_error=(
+            composite_rgb_absolute_error_sum / (width * height * 3)
+        ),
+        composite_rgb_max_tolerance_ratio=composite_rgb_max_tolerance_ratio,
+        composite_rgb_first_failure=composite_rgb_first_failure,
+        composite_alpha_max_absolute_error=composite_alpha_max_absolute_error,
+        composite_alpha_first_failure=composite_alpha_first_failure,
         down_mean_ratios=tuple(down_ratios),
         up_mean_monotonic=up_monotonic,
     )
@@ -754,13 +818,19 @@ def _layer_contract_failures(layers: LayerMetrics) -> tuple[str, ...]:
             "FinalOverlay Alpha falls below DirectSurface Alpha: "
             f"minDelta={layers.final_direct_alpha_min_delta:.6g}"
         )
-    if (
-        layers.composite_gain_ratio is None
-        or abs(layers.composite_gain_ratio - 1.0) > COMPOSITE_GAIN_TOLERANCE
-    ):
+    if layers.composite_rgb_first_failure is not None:
         failures.append(
-            "Bloom composite gain differs from the planned exposure: "
-            f"ratio={layers.composite_gain_ratio}"
+            "FinalOverlay RGB differs from DirectSurface + BloomResult: "
+            f"maxAbs={layers.composite_rgb_max_absolute_error:.6g}, "
+            f"meanAbs={layers.composite_rgb_mean_absolute_error:.6g}, "
+            f"maxToleranceRatio={layers.composite_rgb_max_tolerance_ratio:.6g}, "
+            f"first={layers.composite_rgb_first_failure}"
+        )
+    if layers.composite_alpha_first_failure is not None:
+        failures.append(
+            "FinalOverlay Alpha differs from max(DirectSurface, BloomResult): "
+            f"maxAbs={layers.composite_alpha_max_absolute_error:.6g}, "
+            f"first={layers.composite_alpha_first_failure}"
         )
     invalid_down_ratios = tuple(
         ratio
@@ -1067,8 +1137,15 @@ def _load_manifest(root: Path) -> dict:
     except (OSError, UnicodeError, json.JSONDecodeError) as error:
         raise ValidationError(f"invalid native manifest {path}: {error}") from error
     manifest = _require_object(manifest, "native manifest")
-    _require_exact_int(manifest, "schemaVersion", 2, "native manifest")
+    _require_exact_int(manifest, "schemaVersion", 3, "native manifest")
     _require_string(manifest, "driver", "WARP", "native manifest")
+    _require_string(manifest, "captureProfile", "fx-only", "native manifest")
+    _require_string(
+        manifest,
+        "compositeFormula",
+        "direct-plus-bloom-result-max-alpha-v1",
+        "native manifest",
+    )
     _require_exact_int(manifest, "seed", 20260716, "native manifest")
     _require_string(manifest, "rowOrigin", "top-left", "native manifest")
     if type(manifest.get("allLayers")) is not bool:

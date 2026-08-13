@@ -93,6 +93,14 @@ Bloom 传播可以扩张最终传输覆盖范围，但不能抹掉已有 Coverag
 `DirectSurface` 相同；它与 `FinalOverlay` 在同一次捕获专用 MRT 调用中写出，普通桌面呈现路径不增加
 额外 pass。当前层语义只验证 native shader 自洽，不宣称存在 Unity 对应字段。
 
+schema 3 同时锁定 `captureProfile=fx-only` 和
+`compositeFormula=direct-plus-bloom-result-max-alpha-v1`。验证器逐像素重建
+`FinalOverlay.rgb = DirectSurface.rgb + BloomResult.rgb` 与
+`FinalOverlay.a = max(DirectSurface.a, BloomResult.a)`。RGB 使用
+`0.002 + 0.001 * max(abs(actual), abs(expected))` 的 FP16 绝对加相对容差，Alpha 使用 `0.002`
+绝对容差；报告最大/平均误差、最大容差占用和首个越界坐标。该门禁取代旧的全图 Bloom 能量比近似，
+Down/Up 的能量守恒与单调传播检查继续保留。背景感知和录屏拟合有不同复合公式，不得套用此 profile。
+
 原生层级捕获使用固定 WARP、`1950x1097`、中心点击、种子 `20260716`，直接读取
 `Present` 前的 FP16 资源，不依赖会漏掉 DComp visual 的 PrintScreen：
 

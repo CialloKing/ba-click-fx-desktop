@@ -521,10 +521,12 @@ void writeManifest(
     }
     stream << std::setprecision(9);
     stream << "{\n"
-           << "  \"schemaVersion\": 2,\n"
+           << "  \"schemaVersion\": 3,\n"
            << "  \"applicationVersion\": \"" << BAFX_CAPTURE_VERSION << "\",\n"
            << "  \"revision\": \"" << options.revision << "\",\n"
            << "  \"driver\": \"WARP\",\n"
+           << "  \"captureProfile\": \"fx-only\",\n"
+           << "  \"compositeFormula\": \"direct-plus-bloom-result-max-alpha-v1\",\n"
            << "  \"featureLevel\": " << static_cast<unsigned int>(featureLevel) << ",\n"
            << "  \"viewport\": {\"width\": " << captureSize.width
            << ", \"height\": " << captureSize.height << "},\n"
