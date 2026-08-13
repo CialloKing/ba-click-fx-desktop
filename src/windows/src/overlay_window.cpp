@@ -684,10 +684,9 @@ void OverlayWindow::pushPointerEvent(
     if (pendingPointerEvents_.size() >= maximumPendingPointerEvents)
     {
         // Compact first so a stalled renderer cannot push a button edge behind
-        // thousands of obsolete Move samples. The nominal limit applies to
-        // Move samples only: button and cancellation edges are state changes
-        // and must remain ordered even when a pathological click burst briefly
-        // takes the queue above the limit.
+        // thousands of obsolete Move samples. Button and cancellation edges
+        // are state changes and must remain ordered, so they may temporarily
+        // exceed the nominal queue bound until a Move can reclaim a slot.
         pendingPointerEvents_ = compactPointerEventBacklog(
             std::move(pendingPointerEvents_));
         if (pendingPointerEvents_.size() >= maximumPendingPointerEvents)
