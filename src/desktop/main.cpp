@@ -30,6 +30,7 @@ namespace
 {
 
 constexpr std::uint32_t maximumMessagesPerFrame = 256U;
+constexpr std::uint32_t maximumInputMessagesPerFrame = 4096U;
 constexpr auto smokeTestDeadline = std::chrono::seconds(5);
 constexpr DWORD pausedControlPollMilliseconds = 50U;
 
@@ -314,6 +315,20 @@ struct MonitorSelection
 void dispatchMessages(bool& quit)
 {
     MSG message{};
+    std::uint32_t inputDispatched = 0U;
+    while (inputDispatched < maximumInputMessagesPerFrame
+        && PeekMessageW(
+            &message,
+            nullptr,
+            WM_INPUT,
+            WM_INPUT,
+            PM_REMOVE))
+    {
+        TranslateMessage(&message);
+        DispatchMessageW(&message);
+        ++inputDispatched;
+    }
+
     std::uint32_t dispatched = 0U;
     while (dispatched < maximumMessagesPerFrame
         && PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE))

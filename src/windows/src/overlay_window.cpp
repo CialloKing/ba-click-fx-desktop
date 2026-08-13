@@ -25,6 +25,7 @@ constexpr UINT notificationIconIdentifier = 0xBAF2U;
 constexpr UINT notificationExitCommandIdentifier = 0xBAF3U;
 constexpr UINT notificationIconMessage = WM_APP + 1U;
 constexpr std::size_t maximumPendingPointerEvents = 2048U;
+constexpr std::size_t pointerEventCompactionThreshold = 256U;
 
 [[nodiscard]] std::uint32_t checkedDimension(const LONG value)
 {
@@ -83,6 +84,29 @@ std::vector<PointerEvent> coalescePointerMoves(
         {
             // Queued Raw Input can report the same latest cursor position more
             // than once; only exact duplicates are path-neutral to discard.
+            events[writeIndex - 1U] = event;
+            continue;
+        }
+        events[writeIndex] = event;
+        ++writeIndex;
+    }
+    events.resize(writeIndex);
+    return events;
+}
+
+std::vector<PointerEvent> compactPointerEventBacklog(
+    std::vector<PointerEvent> events) noexcept
+{
+    std::size_t writeIndex = 0U;
+    for (const PointerEvent& event : events)
+    {
+        if (event.kind == PointerEventKind::Move
+            && writeIndex > 0U
+            && events[writeIndex - 1U].kind == PointerEventKind::Move)
+        {
+            // Under queue pressure, intermediate cursor positions cannot be
+            // displayed at their original time. Keep the newest point in the
+            // run while never crossing a button or cancellation edge.
             events[writeIndex - 1U] = event;
             continue;
         }
@@ -319,6 +343,10 @@ std::vector<PointerEvent> OverlayWindow::takePointerEvents() noexcept
     std::vector<PointerEvent> events;
     events.swap(pendingPointerEvents_);
     pendingPointerEvents_.reserve(64);
+    if (events.size() > pointerEventCompactionThreshold)
+    {
+        events = compactPointerEventBacklog(std::move(events));
+    }
     return events;
 }
 
@@ -611,40 +639,81 @@ void OverlayWindow::handleRawInput(const LPARAM lParam) noexcept
     {
         return;
     }
+    const DWORD messageTime = GetMessageTime();
+    const std::uint32_t messageTimeMilliseconds = messageTime == 0xFFFFFFFFU
+        ? 0U
+        : static_cast<std::uint32_t>(messageTime);
 
     const USHORT buttons = input.data.mouse.usButtonFlags;
     if ((buttons & RI_MOUSE_LEFT_BUTTON_DOWN) != 0U)
     {
         leftButtonDown_ = true;
-        pushPointerEvent(PointerEventKind::LeftButtonDown, screenPosition, qpc.QuadPart);
+        pushPointerEvent(
+            PointerEventKind::LeftButtonDown,
+            screenPosition,
+            qpc.QuadPart,
+            messageTimeMilliseconds);
     }
 
     if (input.data.mouse.lLastX != 0 || input.data.mouse.lLastY != 0)
     {
-        pushPointerEvent(PointerEventKind::Move, screenPosition, qpc.QuadPart);
+        pushPointerEvent(
+            PointerEventKind::Move,
+            screenPosition,
+            qpc.QuadPart,
+            messageTimeMilliseconds);
     }
 
     if ((buttons & RI_MOUSE_LEFT_BUTTON_UP) != 0U)
     {
         leftButtonDown_ = false;
-        pushPointerEvent(PointerEventKind::LeftButtonUp, screenPosition, qpc.QuadPart);
+        pushPointerEvent(
+            PointerEventKind::LeftButtonUp,
+            screenPosition,
+            qpc.QuadPart,
+            messageTimeMilliseconds);
     }
 }
 
 void OverlayWindow::pushPointerEvent(
     const PointerEventKind kind,
     const POINT position,
-    const std::int64_t qpc) noexcept
+    const std::int64_t qpc,
+    const std::uint32_t messageTimeMilliseconds) noexcept
 {
     if (pendingPointerEvents_.size() >= maximumPendingPointerEvents)
     {
-        // Keep the most recent input under a stalled renderer instead of growing without bound.
-        pendingPointerEvents_.erase(
-            pendingPointerEvents_.begin(),
-            pendingPointerEvents_.begin()
-                + static_cast<std::ptrdiff_t>(maximumPendingPointerEvents / 2U));
+        // Compact first so a stalled renderer cannot push a button edge behind
+        // thousands of obsolete Move samples. The nominal limit applies to
+        // Move samples only: button and cancellation edges are state changes
+        // and must remain ordered even when a pathological click burst briefly
+        // takes the queue above the limit.
+        pendingPointerEvents_ = compactPointerEventBacklog(
+            std::move(pendingPointerEvents_));
+        if (pendingPointerEvents_.size() >= maximumPendingPointerEvents)
+        {
+            const auto move = std::find_if(
+                pendingPointerEvents_.begin(),
+                pendingPointerEvents_.end(),
+                [](const PointerEvent& event)
+                {
+                    return event.kind == PointerEventKind::Move;
+                });
+            if (move != pendingPointerEvents_.end())
+            {
+                pendingPointerEvents_.erase(move);
+            }
+            else
+            {
+                // A pathological stream can contain only button edges. Keep
+                // the newest bounded suffix rather than deleting a move that
+                // is not present or growing without bound.
+                pendingPointerEvents_.erase(pendingPointerEvents_.begin());
+            }
+        }
     }
-    pendingPointerEvents_.push_back(PointerEvent{kind, position, qpc});
+    pendingPointerEvents_.push_back(
+        PointerEvent{kind, position, qpc, messageTimeMilliseconds});
 }
 
 void OverlayWindow::cancelPointer() noexcept

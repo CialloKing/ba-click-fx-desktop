@@ -49,9 +49,15 @@ struct PointerEvent
     PointerEventKind kind{PointerEventKind::Move};
     POINT screenPosition{};
     std::int64_t qpcTimestamp{0};
+    // GetMessageTime is retained separately from the dispatch QPC sample so
+    // the host can identify input that waited in the Win32 queue.
+    std::uint32_t messageTimeMilliseconds{0U};
 };
 
 [[nodiscard]] std::vector<PointerEvent> coalescePointerMoves(
+    std::vector<PointerEvent> events) noexcept;
+
+[[nodiscard]] std::vector<PointerEvent> compactPointerEventBacklog(
     std::vector<PointerEvent> events) noexcept;
 
 class OverlayWindow final
@@ -91,7 +97,11 @@ private:
     void unregisterRawMouse() noexcept;
     void releaseInputRegistrations(HWND window) noexcept;
     void handleRawInput(LPARAM lParam) noexcept;
-    void pushPointerEvent(PointerEventKind kind, POINT position, std::int64_t qpc) noexcept;
+    void pushPointerEvent(
+        PointerEventKind kind,
+        POINT position,
+        std::int64_t qpc,
+        std::uint32_t messageTimeMilliseconds = 0U) noexcept;
     void cancelPointer() noexcept;
     void requestClose() noexcept;
     void addNotificationIcon() noexcept;
