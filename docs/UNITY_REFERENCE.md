@@ -143,6 +143,15 @@ OS 指针输入；首次观察位置包含 shape offset 和观察前已累积的
   释放帧 `GetMouseButton(0)` 为 false，因此不会在 `GetMouseButtonUp(0)` 前再移动根对象。原生按压路径
   据此在每次输入消费/呈现更新中只应用一份帧边界当前位置，并让所有模拟动作共享 `renderTime`。
   消息分派 QPC 只服务可选 `input.samplingRateHz` 输入相位，不属于 Unity 序列化美术参数。
+- `FxTrailTimeScale` 脚本构造默认值是 `killUnderTimeScale=0.3333`，但游戏中 Trail 实例的 MonoBehaviour
+  原始数据在字段偏移 `0x20` 序列化为 `5C 8F 42 3E`，即 `0.19f`；运行时以该实例覆盖值为准。
+  `Time.timeScale <= 0.19` 首次进入 parking 时读取全部 Trail 顶点，丢弃索引 0 并缓存剩余后缀；后续每个
+  `Update` 先把缓存写回 Renderer，再删除缓存头点。缓存不足两点时直接 `Clear()` 并禁用 Renderer，
+  因而 `N=0..4` 的可见点数序列分别为 `0`、`1→0`、`2→0`、`3→2→0`、`4→3→2→0`。
+  倍率恢复到阈值以上时只清缓存并重新启用 Renderer，不清除当前可见后缀。
+- `FXTouch.Stop()` 只清 Trail 并停止粒子，不重置相邻 `FxTrailTimeScale` 的 parking 标志、Renderer 启用态
+  或未完成缓存；这些组件状态会随池化对象保留到下一次 `FxTrailTimeScale.Update`。原生模拟保留这一
+  复用边界。该入口只表达游戏时间倍率，不能由桌面“暂停特效”代替；桌面暂停继续冻结独立仿真时间轴。
 - Web 版的 coalesced events 与未按键常驻拖尾只作为 native/Web 产品增强，不是 Unity 路径真值。原生会
   按原序无损保留同帧多个 Raw Input 边沿，且含边沿帧不会从尾随 Move 重启常驻段；Unity Legacy Input
   如何聚合这些边沿仍为 Not Verified，需用真实 Player 黑盒夹具确认。`30 Hz` 是人工视觉审核建议，
