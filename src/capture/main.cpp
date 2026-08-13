@@ -396,10 +396,9 @@ static_assert(dragTrailStepTime(13U) == 140ms);
 
     bafx::fx::Simulation simulation(captureSeed);
     simulation.pointerDown(start, viewport, 0ns);
+    // Unity observes the stationary root in the first particle update before
+    // the twelve movement steps begin; advance now records that time baseline.
     simulation.advance(dragTrailStepTime(1U));
-    // Anchor the input sample after Unity's stationary first step. Otherwise
-    // the first moving segment incorrectly spreads births across two steps.
-    simulation.pointerMove(start, viewport, dragTrailStepTime(1U));
     for (std::uint32_t step = 1U; step <= dragTrailMovementSteps; ++step)
     {
         const float progress = static_cast<float>(step)

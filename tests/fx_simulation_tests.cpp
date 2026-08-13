@@ -833,10 +833,64 @@ BAFX_TEST(delayed_pointer_move_is_not_dropped_after_simulation_advance)
     simulation.advance(100ms);
 
     simulation.pointerMove(PointF{600.0F, 100.0F}, goldenViewport, 50ms);
-    const auto frame = simulation.snapshot(goldenViewport, 100ms);
+    const auto boundaryFrame = simulation.snapshot(goldenViewport, 100ms);
+    const auto visibleFrame = simulation.snapshot(goldenViewport, 100ms + 1ns);
 
-    BAFX_CHECK(frame.trail.size() >= 2U);
-    BAFX_CHECK(countKind(frame, SpriteKind::Triangle) == 8U);
+    BAFX_CHECK(boundaryFrame.trail.size() >= 2U);
+    BAFX_CHECK_NEAR(
+        boundaryFrame.trail.back().positionPixels.x,
+        600.0F,
+        1.0e-4F);
+    BAFX_CHECK(countKind(boundaryFrame, SpriteKind::Triangle) == 4U);
+    BAFX_CHECK(countKind(visibleFrame, SpriteKind::Triangle) == 8U);
+}
+
+BAFX_TEST(stationary_updates_bound_the_next_drag_emission_interval)
+{
+    Simulation advanced;
+    Simulation explicitSample;
+    constexpr PointF start{100.0F, 100.0F};
+    constexpr PointF end{600.0F, 100.0F};
+
+    for (Simulation* const simulation : {&advanced, &explicitSample})
+    {
+        simulation->pointerDown(start, goldenViewport, 0ns);
+        simulation->advance(1ns);
+        simulation->advance(100ms);
+    }
+    explicitSample.pointerMove(start, goldenViewport, 100ms);
+    advanced.pointerMove(end, goldenViewport, 116ms);
+    explicitSample.pointerMove(end, goldenViewport, 116ms);
+
+    const FrameSnapshot advancedFrame = advanced.snapshot(goldenViewport, 116ms);
+    const FrameSnapshot explicitFrame = explicitSample.snapshot(goldenViewport, 116ms);
+    const auto advancedTriangles = spritesOfKind(
+        advancedFrame,
+        SpriteKind::Triangle);
+    const auto explicitTriangles = spritesOfKind(
+        explicitFrame,
+        SpriteKind::Triangle);
+    BAFX_CHECK(advancedTriangles.size() > 4U);
+    BAFX_CHECK(advancedTriangles.size() == explicitTriangles.size());
+    for (std::size_t index = 0U; index < advancedTriangles.size(); ++index)
+    {
+        BAFX_CHECK_NEAR(
+            advancedTriangles[index]->centerPixels.x,
+            explicitTriangles[index]->centerPixels.x,
+            0.0F);
+        BAFX_CHECK_NEAR(
+            advancedTriangles[index]->centerPixels.y,
+            explicitTriangles[index]->centerPixels.y,
+            0.0F);
+        BAFX_CHECK_NEAR(
+            advancedTriangles[index]->sizePixels,
+            explicitTriangles[index]->sizePixels,
+            0.0F);
+        BAFX_CHECK_NEAR(
+            advancedTriangles[index]->color.a,
+            explicitTriangles[index]->color.a,
+            0.0F);
+    }
 }
 
 BAFX_TEST(pointer_move_time_rollback_clamps_to_the_previous_sample)
@@ -916,8 +970,9 @@ BAFX_TEST(drag_particle_age_starts_at_the_distance_interpolated_birth_time)
         / static_cast<float>(goldenViewport.height);
     const float interpolation = dragEmissionStepWorld / segmentWorld;
     const Sprite& dragTriangle = *triangles.back();
+    constexpr SimulationTime movementStartedAt = 1ns;
     const SimulationTime movementDuration =
-        std::chrono::duration_cast<SimulationTime>(30ms);
+        std::chrono::duration_cast<SimulationTime>(30ms) - movementStartedAt;
     const auto bornAtCount = static_cast<SimulationTime::rep>(
         static_cast<double>(movementDuration.count())
         * static_cast<double>(interpolation));
@@ -926,11 +981,11 @@ BAFX_TEST(drag_particle_age_starts_at_the_distance_interpolated_birth_time)
 
     Simulation reference;
     reference.pointerDown(start, goldenViewport, 0ns);
-    reference.advance(1ns);
-    reference.pointerMove(end, goldenViewport, 1ns);
+    reference.advance(movementStartedAt);
+    reference.pointerMove(end, goldenViewport, movementStartedAt);
     const FrameSnapshot referenceFrame = reference.snapshot(
         goldenViewport,
-        expectedAge);
+        movementStartedAt + expectedAge);
     const auto referenceTriangles = spritesOfKind(
         referenceFrame,
         SpriteKind::Triangle);

@@ -141,6 +141,9 @@ OS 指针输入；首次观察位置包含 shape offset 和观察前已累积的
   不会跨越 Down/Up/Cancel 边沿，帧级鼠标状态适配仍需独立验证。Web 版消费浏览器 coalesced events 的
   实现只用于参考独立输入时间相位，不是这里的路径真值。`input.samplingRateHz` 只在上述队列收敛后进一步近似客户端
   提交触点位置的频率，不属于 Unity 序列化美术参数；`30 Hz` 是人工视觉审核建议，不是游戏硬编码真值。
+- 按住期间即使没有新的 OS Move，Unity 粒子更新仍会观察当前根 Transform。原生每次 `advance`
+  因此只推进距离发射的静止时间基线，不追加 Trail 顶点，也不推进独立的输入限频相位；下一次位移的
+  距离粒子出生时刻只在最近两个仿真更新之间内插，不会跨越更早的静止区间。
 - Unity 全场景 Bloom 是 FX-only Golden；桌面 Background-aware Differential Bloom 只改变背景交互，
   不能反向调节原粒子参数来追逐一张桌面截图。
 - 50 ms 主要是中心 disk；100–180 ms 是环和近中程辉光包络；250/450 ms 验证消散和碎片/弧段尾部。

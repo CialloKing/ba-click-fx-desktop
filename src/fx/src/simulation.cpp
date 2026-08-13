@@ -519,6 +519,13 @@ void Simulation::advance(const SimulationTime time)
         return;
     }
 
+    if (pointerHeld_)
+    {
+        // Unity observes the emitter Transform on every particle update even
+        // when no OS move arrives. Confirm the stationary interval here so a
+        // later jump cannot distribute distance emissions across idle time.
+        pointerSampleAt_ = std::max(pointerSampleAt_, time);
+    }
     firstAdvancePending_ = false;
     if (clickEffectEnabled_)
     {
