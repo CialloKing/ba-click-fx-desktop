@@ -249,7 +249,7 @@ struct WarpDevice
         0.0F,
         0U,
         4550,
-        false});
+        true});
     return snapshot;
 }
 
@@ -271,7 +271,7 @@ struct WarpDevice
         0.0F,
         0U,
         4550,
-        false});
+        true});
     return snapshot;
 }
 
@@ -293,7 +293,7 @@ struct WarpDevice
         0.0F,
         0U,
         4550,
-        false});
+        true});
     return snapshot;
 }
 
@@ -322,7 +322,7 @@ struct WarpDevice
         0.0F,
         0U,
         4550,
-        false});
+        true});
     return snapshot;
 }
 
@@ -1715,7 +1715,9 @@ BAFX_TEST(warp_capture_preserves_directional_alpha_layer_contract)
     FxGpuRenderer renderer(graphics.device.Get(), graphics.context.Get(), testSize);
     const RenderTarget target = createRenderTarget(graphics.device.Get());
 
-    bafx::fx::FrameSnapshot snapshot = makeDiskSnapshot(true);
+    // Keep Cross2 as an explicit non-Bloom control while Tri2 exercises the
+    // Unity additive material's Bloom path.
+    bafx::fx::FrameSnapshot snapshot = makeDiskSnapshot(false);
     bafx::fx::Sprite triangle = makeTriangleSnapshot().sprites.front();
     triangle.centerPixels = bafx::fx::PointF{
         static_cast<float>(testSize.width) * 0.25F,
@@ -1783,7 +1785,7 @@ BAFX_TEST(warp_pipeline_applies_runtime_bloom_intensity_and_quality)
     BAFX_CHECK(lowBloom.bloomUp.empty());
 }
 
-BAFX_TEST(warp_capture_proves_triangle_bloom_seed_is_zero)
+BAFX_TEST(warp_capture_proves_triangle_enters_bloom)
 {
     ComApartment apartment;
     const WarpDevice graphics = createWarpDevice();
@@ -1796,15 +1798,19 @@ BAFX_TEST(warp_capture_proves_triangle_bloom_seed_is_zero)
 
     BAFX_CHECK(capture.intermediateLayersValid);
     BAFX_CHECK(!isZeroImage(capture.directSurface));
-    BAFX_CHECK(isZeroImage(capture.bloomSeed));
+    BAFX_CHECK(!isZeroImage(capture.bloomSeed));
+    bool hasBloomDown = false;
     for (const Rgba16FloatImage& mip : capture.bloomDown)
     {
-        BAFX_CHECK(isZeroImage(mip));
+        hasBloomDown = hasBloomDown || !isZeroImage(mip);
     }
+    BAFX_CHECK(hasBloomDown);
+    bool hasBloomUp = false;
     for (const Rgba16FloatImage& mip : capture.bloomUp)
     {
-        BAFX_CHECK(isZeroImage(mip));
+        hasBloomUp = hasBloomUp || !isZeroImage(mip);
     }
+    BAFX_CHECK(hasBloomUp);
     BAFX_CHECK(!isZeroImage(capture.finalOverlay));
 }
 

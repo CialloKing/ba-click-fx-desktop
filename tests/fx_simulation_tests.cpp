@@ -728,7 +728,7 @@ BAFX_TEST(click_triangles_use_independent_random_angles_and_zero_rotation)
     }
 }
 
-BAFX_TEST(triangles_preserve_crisp_hdr_but_never_seed_bloom)
+BAFX_TEST(triangles_preserve_crisp_hdr_and_seed_bloom)
 {
     Simulation simulation;
     simulation.pointerDown(goldenCenter, goldenViewport, 0ns);
@@ -739,7 +739,7 @@ BAFX_TEST(triangles_preserve_crisp_hdr_but_never_seed_bloom)
         if (sprite.kind == SpriteKind::Triangle)
         {
             BAFX_CHECK_NEAR(sprite.artisticIntensity, 5.992157F, 1.0e-6F);
-            BAFX_CHECK(!sprite.contributesBloom);
+            BAFX_CHECK(sprite.contributesBloom);
             BAFX_CHECK(sprite.renderQueue == 4550);
         }
     }

@@ -680,6 +680,8 @@ FrameSnapshot Simulation::snapshot(const Viewport viewport, const SimulationTime
         const PointF worldPosition = add(
             particle.originWorld,
             multiply(particle.velocityWorld, static_cast<float>(age)));
+        // Tri2 uses FX_SHADER_Additive_0; its HDR output is included in the
+        // game's full-scene Bloom pass after the UI buffer is rendered.
         frame.sprites.push_back(Sprite{
             SpriteKind::Triangle,
             worldToScreen(worldPosition, viewport),
@@ -692,7 +694,7 @@ FrameSnapshot Simulation::snapshot(const Viewport viewport, const SimulationTime
             0.0F,
             particle.atlasFrame,
             4550,
-            false,
+            true,
             worldToScreen(particle.globalScalePivotWorld, viewport),
             true});
     }
