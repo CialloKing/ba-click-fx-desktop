@@ -705,10 +705,10 @@ void OverlayWindow::pushPointerEvent(
             }
             else
             {
-                // A pathological stream can contain only button edges. Keep
-                // the newest bounded suffix rather than deleting a move that
-                // is not present or growing without bound.
-                pendingPointerEvents_.erase(pendingPointerEvents_.begin());
+                // A queue made solely of edges is already bounded by the
+                // input device's transition rate. Let it grow briefly so no
+                // state transition is discarded; the next move sample will
+                // reclaim one slot through the branch above.
             }
         }
     }
