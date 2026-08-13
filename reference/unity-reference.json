@@ -251,6 +251,13 @@
       "path": "Reference/Diagnostics/Interaction/FX_Touch_0140ms_Move_0432px_NoTrail_Age0140ms.png",
       "bytes": 160445,
       "sha256": "AF141F96D6BCAB767E3D215E8F43A3CCF0B313DC644C53403F2B748DE50967FF"
+    },
+    {
+      "root": "runtime",
+      "class": "RuntimeObservation",
+      "path": "Reference/Diagnostics/Trail/FX_Touch_0140ms_TrailOnly_20px.png",
+      "bytes": 56687,
+      "sha256": "1EF37F6D81FAF020DFAC7AC847C4009E6D402ED6B82CB5C6A2686CB2EB429E7F"
     }
   ]
 }

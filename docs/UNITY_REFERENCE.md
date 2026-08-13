@@ -45,6 +45,9 @@ D:\WebProjects\BA鼠标输入与点击特效系统\提取资产2\BA_FX_Touch_Uni
 - 拖拽诊断使用 `140 ms` 内水平移动 `432 px`：先在起点静止推进一帧，再分 12 段移动；
   `WithTrail` 与 `NoTrail` 使用相同种子和粒子轨迹，只切换 TrailRenderer。生成脚本与两张诊断图均由
   `reference/unity-reference.json` 锁定，供后续拖尾差分门禁使用。
+- `TrailOnly_20px` 诊断关闭全部 ParticleSystem，只保留中心两侧各 `10 px` 的两点 TrailRenderer；
+  它同样由 manifest 锁定，专门比较拖尾几何、材质与 Bloom，避免 Unity/原生不同随机粒子流经过
+  sRGB 量化和饱和后污染 `WithTrail - NoTrail` 的弱光尾部。
 
 上述“截图一致”只证明重建路径在该矩阵中的观察结果；它不自动证明游戏所有 render queue、pause、
 slow-motion、录屏、HDR 显示或桌面合成行为一致。
