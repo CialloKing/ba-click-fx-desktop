@@ -23,6 +23,6 @@ BloomResult、FinalOverlay。FP16 使用绝对/相对误差与感知指标；只
 
 - 固定 QPC、随机种子、viewport、DPI、色彩编码和输入事件。
 - 关键时间点覆盖 0/50/100/200/450 ms 及 release 后衰减。
-- 三角碎片的 BloomSeed 在所有 case 中为零。
+- Tri2 三角碎片的 BloomSeed 在点击和拖拽 case 中均应为非零（在可见像素存在时），并且其
+  Down/Up mip 与 FinalOverlay 能观察到对应的 Bloom 传播；非 Bloom 材质仍须保持零种子。
 - 失败报告能定位到第一个偏离的中间 buffer，而不只给最终截图。
-

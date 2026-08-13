@@ -118,8 +118,9 @@ struct MaterialOutputs
 };
 ```
 
-三角碎片可写 `coverage` 和用于保留清晰 HDR 核心的 `directEmission`，但必须保持
-`bloomSeed = 0`。这里的 crisp direct energy 不经过模糊金字塔，因此不产生三角光晕。
+三角碎片可写 `coverage`、用于保留清晰 HDR 核心的 `directEmission`，以及进入全场景
+Bloom 的 `bloomSeed`。Tri2 使用游戏的 `FX_SHADER_Additive_0`，其 HDR 输出在 UI 缓冲
+绘制后统一进入 `MXFinalBloom`；清晰直接能量与模糊光晕是同一材质的两个输出，不应互相替代。
 
 ### 5.2 背景样本
 

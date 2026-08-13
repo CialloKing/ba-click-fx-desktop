@@ -33,7 +33,8 @@ Host 现在会把主显示器 DPI、DXGI 色彩空间、位深和驱动提供的
   `visual-max`、`bright-core`、`0.90` Alpha 上限和 source-over；`light-background` 使用同一颜色策略，
   但将桌面 Alpha 上限收紧为 `0.85`。
 - 最终透明交换链使用 FP16 扩展预乘输出；普通 SDR 下不得承诺白底仍有加法余量。
-- 三角碎片保持 crisp-only，可保留未模糊的 HDR 核心，但 `BloomSeed=0`，不产生模糊光晕。
+- 三角碎片保留清晰的 HDR 直接能量，同时按游戏 `FX_SHADER_Additive_0` 进入全场景 Bloom，
+  因此既有锐利核心也有对应的模糊光晕。
 
 桌面版的 DirectComposition overlay 没有浏览器 `Screen` API 的逐像素等价物。只有
 `background-aware` 在 WGC 样本有效时能把异步桌面纹理带入合成；`recording-compatible` 和 `light-background`

@@ -132,9 +132,11 @@ OS 指针输入；首次观察位置包含 shape offset 和观察前已累积的
   旋转和可见寿命使用同一个逐步粒子年龄，不能从绝对时间回算或退化成固定 25/50/60 ms 延迟。
 - Web 参考实现同样把 `ClickWave` 与点击/拖拽 `ShardParticle` 分开记时，并按碎片类型消费 click 或
   trail 虚拟时钟；这支持原生的状态归属划分，但仍只属于行为参考，不能覆盖 Unity 视觉真值。
-- 点击/拖拽碎片保留几何、时间、颜色、Unity HDR 核心和清晰边缘；它们可写 DirectEmission，
-  但必须 `BloomSeed=0`，因此不会产生模糊三角光晕。
-- Trail 与圆环可写非负的 DirectEmission/BloomSeed；写入前先从 ArtisticRelative 经过版本化校准。
+- 点击/拖拽碎片保留几何、时间、颜色、Unity HDR 核心和清晰边缘；Tri2 使用
+  `FX_SHADER_Additive_0`，因此同时写入 DirectEmission 和 BloomSeed，随 UI HDR 缓冲进入
+  游戏的全场景 `MXFinalBloom`。原生实现保留锐利核心并恢复对应的三角光晕。
+- Trail、圆环和三角碎片均可写非负的 DirectEmission/BloomSeed；写入前先从 ArtisticRelative
+  经过版本化校准。
 - Trail 保持 Prefab 的 `time=0.3`、`widthMultiplier=0.005` 和 `m_MinVertexDistance=0.01`。真实 Player
   验证表明该距离只过滤每帧 Transform 样本：单帧移动 `0.9 world` 仍只有首尾两点，不会沿线自动补点。
   原脚本的 `Update` 按 Down→Held→Up 查询 Legacy Input，并只使用该帧的同一份 `Input.mousePosition`；
