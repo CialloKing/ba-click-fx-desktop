@@ -19,6 +19,8 @@ obj/
 *.dll
 *.lib
 *.exp
+__pycache__/
+*.py[cod]
 
 # Local validation evidence can be large and machine-specific.
 /artifacts/local/

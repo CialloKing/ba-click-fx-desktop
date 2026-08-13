@@ -65,5 +65,47 @@ class LayerContractTests(unittest.TestCase):
         self.assertEqual((), VERIFY._layer_contract_failures(metrics))
 
 
+class TrailDeltaContractTests(unittest.TestCase):
+    def valid_metrics(self, **overrides):
+        values = {
+            "energy": VERIFY.TRAIL_DELTA_REFERENCE_ENERGY,
+            "coverage_pixels": VERIFY.TRAIL_DELTA_REFERENCE_COVERAGE,
+            "centroid_x": VERIFY.TRAIL_DELTA_REFERENCE_CENTROID[0],
+            "centroid_y": VERIFY.TRAIL_DELTA_REFERENCE_CENTROID[1],
+            "chromaticity": VERIFY.TRAIL_DELTA_REFERENCE_CHROMATICITY,
+            "bounds": VERIFY.TRAIL_DELTA_REFERENCE_BOUNDS,
+            "negative_energy": 0,
+        }
+        values.update(overrides)
+        return VERIFY.TrailDeltaMetrics(**values)
+
+    def test_unity_reference_delta_passes_the_preregistered_contract(self):
+        self.assertEqual((), VERIFY._trail_delta_failures(self.valid_metrics()))
+
+    def test_additive_trail_cannot_dark_en_the_paired_frame(self):
+        failures = VERIFY._trail_delta_failures(
+            self.valid_metrics(negative_energy=1)
+        )
+        self.assertTrue(any("darker" in item for item in failures))
+
+    def test_relative_threshold_boundary_is_accepted(self):
+        energy = int(
+            VERIFY.TRAIL_DELTA_REFERENCE_ENERGY
+            * (1.0 + VERIFY.TRAIL_DELTA_ENERGY_RELATIVE_TOLERANCE)
+        )
+        self.assertEqual(
+            (),
+            VERIFY._trail_delta_failures(self.valid_metrics(energy=energy)),
+        )
+
+    def test_spatial_drift_outside_the_locked_bounds_is_rejected(self):
+        bounds = list(VERIFY.TRAIL_DELTA_REFERENCE_BOUNDS)
+        bounds[2] += VERIFY.TRAIL_DELTA_BOUNDS_TOLERANCE_PX + 1
+        failures = VERIFY._trail_delta_failures(
+            self.valid_metrics(bounds=tuple(bounds))
+        )
+        self.assertTrue(any("bounds differ" in item for item in failures))
+
+
 if __name__ == "__main__":
     unittest.main()

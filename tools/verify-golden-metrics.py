@@ -52,6 +52,16 @@ FP16_LAYER_TOLERANCE = 0.002
 COMPOSITE_GAIN_TOLERANCE = 0.03
 DOWNSAMPLE_MEAN_RATIO_MIN = 0.85
 DOWNSAMPLE_MEAN_RATIO_MAX = 1.15
+TRAIL_DELTA_REFERENCE_ENERGY = 5_195_864
+TRAIL_DELTA_REFERENCE_COVERAGE = 89_657
+TRAIL_DELTA_REFERENCE_CENTROID = (1107.7087, 548.9578)
+TRAIL_DELTA_REFERENCE_CHROMATICITY = (0.0, 0.3713, 0.6287)
+TRAIL_DELTA_REFERENCE_BOUNDS = (884, 407, 1289, 688)
+TRAIL_DELTA_ENERGY_RELATIVE_TOLERANCE = 0.20
+TRAIL_DELTA_COVERAGE_RELATIVE_TOLERANCE = 0.20
+TRAIL_DELTA_CENTROID_TOLERANCE = (16.0, 4.0)
+TRAIL_DELTA_CHROMATICITY_L1_TOLERANCE = 0.10
+TRAIL_DELTA_BOUNDS_TOLERANCE_PX = 20
 
 
 class ValidationError(RuntimeError):
@@ -107,6 +117,17 @@ class LayerMetrics:
     composite_gain_ratio: float | None
     down_mean_ratios: tuple[float, ...]
     up_mean_monotonic: bool
+
+
+@dataclass(frozen=True)
+class TrailDeltaMetrics:
+    energy: int
+    coverage_pixels: int
+    centroid_x: float
+    centroid_y: float
+    chromaticity: tuple[float, float, float]
+    bounds: tuple[int, int, int, int]
+    negative_energy: int
 
 
 @dataclass(frozen=True)
@@ -549,6 +570,65 @@ def _layer_contract_failures(layers: LayerMetrics) -> tuple[str, ...]:
         )
     if not layers.up_mean_monotonic:
         failures.append("Bloom upsample mean energy is not monotonic")
+    return tuple(failures)
+
+
+def _trail_delta_failures(metrics: TrailDeltaMetrics) -> tuple[str, ...]:
+    """Evaluate thresholds locked before the first native drag capture."""
+    failures = []
+    if metrics.negative_energy != 0:
+        failures.append(
+            "WithTrail is darker than NoTrail: "
+            f"negativeEnergy={metrics.negative_energy}"
+        )
+    energy_error = _relative_error(
+        metrics.energy,
+        TRAIL_DELTA_REFERENCE_ENERGY,
+    )
+    if energy_error > TRAIL_DELTA_ENERGY_RELATIVE_TOLERANCE:
+        failures.append(f"Trail delta energy differs from Unity: error={energy_error:.1%}")
+    coverage_error = _relative_error(
+        metrics.coverage_pixels,
+        TRAIL_DELTA_REFERENCE_COVERAGE,
+    )
+    if coverage_error > TRAIL_DELTA_COVERAGE_RELATIVE_TOLERANCE:
+        failures.append(
+            f"Trail delta coverage differs from Unity: error={coverage_error:.1%}"
+        )
+    centroid_delta = (
+        abs(metrics.centroid_x - TRAIL_DELTA_REFERENCE_CENTROID[0]),
+        abs(metrics.centroid_y - TRAIL_DELTA_REFERENCE_CENTROID[1]),
+    )
+    if any(
+        delta > tolerance
+        for delta, tolerance in zip(
+            centroid_delta,
+            TRAIL_DELTA_CENTROID_TOLERANCE,
+        )
+    ):
+        failures.append(
+            "Trail delta centroid differs from Unity: "
+            f"dx={centroid_delta[0]:.2f}px dy={centroid_delta[1]:.2f}px"
+        )
+    chromaticity_error = sum(
+        abs(actual - expected)
+        for actual, expected in zip(
+            metrics.chromaticity,
+            TRAIL_DELTA_REFERENCE_CHROMATICITY,
+        )
+    )
+    if chromaticity_error > TRAIL_DELTA_CHROMATICITY_L1_TOLERANCE:
+        failures.append(
+            "Trail delta chromaticity differs from Unity: "
+            f"l1={chromaticity_error:.4f}"
+        )
+    for actual, expected in zip(metrics.bounds, TRAIL_DELTA_REFERENCE_BOUNDS):
+        if abs(actual - expected) > TRAIL_DELTA_BOUNDS_TOLERANCE_PX:
+            failures.append(
+                "Trail delta bounds differ from Unity: "
+                f"actual={metrics.bounds} expected={TRAIL_DELTA_REFERENCE_BOUNDS}"
+            )
+            break
     return tuple(failures)
 
 

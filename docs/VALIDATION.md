@@ -100,6 +100,13 @@ python -B tools\verify-golden-metrics.py `
 half 数值证据；PNG 不执行 unpremultiply、强制不透明黑底，仅用于与 Unity PNG 观察和感知比较。
 指标门禁必须同时通过十个时间片及 FP16 分层检查；失败后先解释实现或参考证据，不得放宽阈值。
 
+拖拽/Trail 使用独立的配对诊断：`140 ms` 内从 `(759, 548.5)` 水平移动到 `(1191, 548.5)`，
+先静止推进一段，再以 12 段等距移动；WithTrail 与 NoTrail 共享同一份粒子快照，Trail 固定为 Unity
+诊断所用的两个端点。门禁在首次原生捕获前锁定为：正差总能量与覆盖像素各 `20%`，能量质心
+`x/y = 16/4 px`，色度 L1 `0.10`，正差包围盒每边 `20 px`；WithTrail 相对 NoTrail 的逐通道负差
+能量必须精确为零。这项配对差分验证拖拽粒子、Trail 几何/材质与 Bloom，不冒充真实逐帧
+TrailRenderer 采样时序验证。
+
 ## 4. Differential Bloom 属性测试
 
 随机输入覆盖普通值、零、负 scRGB、HDR 极值、NaN 和 Inf。验证：
