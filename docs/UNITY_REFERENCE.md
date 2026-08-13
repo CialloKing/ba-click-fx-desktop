@@ -136,11 +136,15 @@ OS 指针输入；首次观察位置包含 shape offset 和观察前已累积的
   但必须 `BloomSeed=0`，因此不会产生模糊三角光晕。
 - Trail 与圆环可写非负的 DirectEmission/BloomSeed；写入前先从 ArtisticRelative 经过版本化校准。
 - Trail 保持 Prefab 的 `time=0.3`、`widthMultiplier=0.005` 和 `m_MinVertexDistance=0.01`。真实 Player
-  验证表明该距离只过滤每帧 Transform 样本：单帧移动 `0.9 world` 仍只有首尾两点，不会沿线自动补点。产品设置
-  原脚本的 `Update` 只使用 Legacy Input 暴露的同一份帧态 `Input.mousePosition`；原生队列层先将相邻 Move 组收敛为末项，且
-  不会跨越 Down/Up/Cancel 边沿，帧级鼠标状态适配仍需独立验证。Web 版消费浏览器 coalesced events 的
-  实现只用于参考独立输入时间相位，不是这里的路径真值。`input.samplingRateHz` 只在上述队列收敛后进一步近似客户端
-  提交触点位置的频率，不属于 Unity 序列化美术参数；`30 Hz` 是人工视觉审核建议，不是游戏硬编码真值。
+  验证表明该距离只过滤每帧 Transform 样本：单帧移动 `0.9 world` 仍只有首尾两点，不会沿线自动补点。
+  原脚本的 `Update` 按 Down→Held→Up 查询 Legacy Input，并只使用该帧的同一份 `Input.mousePosition`；
+  释放帧 `GetMouseButton(0)` 为 false，因此不会在 `GetMouseButtonUp(0)` 前再移动根对象。原生按压路径
+  据此在每次输入消费/呈现更新中只应用一份帧边界当前位置，并让所有模拟动作共享 `renderTime`。
+  消息分派 QPC 只服务可选 `input.samplingRateHz` 输入相位，不属于 Unity 序列化美术参数。
+- Web 版的 coalesced events 与未按键常驻拖尾只作为 native/Web 产品增强，不是 Unity 路径真值。原生会
+  按原序无损保留同帧多个 Raw Input 边沿，且含边沿帧不会从尾随 Move 重启常驻段；Unity Legacy Input
+  如何聚合这些边沿仍为 Not Verified，需用真实 Player 黑盒夹具确认。`30 Hz` 是人工视觉审核建议，
+  不是游戏硬编码真值。
 - 按住期间即使没有新的 OS Move，Unity 粒子更新仍会观察当前根 Transform。原生每次 `advance`
   因此只推进距离发射的静止时间基线，不追加 Trail 顶点，也不推进独立的输入限频相位；下一次位移的
   距离粒子出生时刻只在最近两个仿真更新之间内插，不会跨越更早的静止区间。

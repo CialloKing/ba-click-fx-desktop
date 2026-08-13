@@ -10,10 +10,12 @@
 - `BAFX.ControlCenter.exe` 的原生 Win32 控制面：启用状态、点击特效、鼠标拖尾、拖尾常驻、效果大小、拖尾长度、
   拖尾宽度、输入采样率上限、Bloom 强度和 Bloom 质量会通过本地 Named Pipe 在下一帧应用到正在运行的 Host；
   “重置默认”经确认后恢复全部持久化设置，但保留当前暂停或运行状态。
-- 相邻 Raw Input Move 会在一次呈现更新内收敛为末项且不跨越按下、抬起或取消边沿。输入采样率 `0`
-  表示不再额外限频；`1..1000 Hz` 再按保留样本的消息分派 QPC 过滤 Move，不影响任何状态边沿。
-  `30 Hz` 是建议人工审核的手机视觉近似，`15 Hz` 更折线，`60 Hz` 更平滑；这些值不是 Unity 资源中的固定帧率。
-  Unity 的 TrailRenderer 空间参数仍保持 `m_MinVertexDistance=0.01`。
+- 每次输入消费/呈现更新只为按压 FX 使用一份帧边界当前位置，并以同一 `renderTime` 按
+  Down→Held→Up 处理普通路径；释放帧 Held 为 false，不应用该帧的按住移动。输入采样率 `0` 不额外
+  限频；`1..1000 Hz` 只按消息分派 QPC 推进可选位置采样相位，不影响边沿或模拟时间。
+- Raw Input 的同帧多边沿按原序无损保留，这是原生扩展；Unity Legacy Input 的同帧聚合仍为
+  Not Verified。含任一边沿的帧不会从尾随 Move 重启常驻拖尾。拖尾常驻是 native/Web 增强，
+  不生成点击 burst。Unity TrailRenderer 的空间参数仍保持 `m_MinVertexDistance=0.01`。
 - D3D11 硬件设备；硬件设备创建失败时尝试 WARP 软件设备。
 - 当前验证范围为普通 SDR 桌面合成路径。
 - 支持报告会记录主屏 DPI、DXGI 色彩空间、位深和亮度元数据；这些只是当前输出快照，不能据此

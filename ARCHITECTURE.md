@@ -170,11 +170,17 @@ enum class CaptureInteractionMode
 ### 6.1 输入
 
 窗口线程接收 Raw Input/Pointer 消息，记录消息分派时 QPC，并写入单生产者命令队列；另存的
-`GetMessageTime` 只用于诊断 Win32 排队时间。Render Owner 消费命令并执行模拟。视觉位置使用绝对指针
-坐标锚定，采样限频使用分派 QPC，不能把后续模拟或呈现完成时间冒充输入采样时间。
+`GetMessageTime` 只用于诊断 Win32 排队时间。Render Owner 在有待消费位置的呈现更新中锁存一份
+帧边界绝对指针位置，按压 FX 的普通调用顺序为 Down→Held→Up；释放帧 Held 为 false，不提交位置移动。
+本轮所有模拟动作统一使用 `renderTime`，消息分派 QPC 只推进可选 `input.samplingRateHz` 输入相位，
+不能冒充模拟或呈现时间。Raw Input 的同帧边沿按原序无损保留属于原生扩展；Unity Legacy Input 对
+同帧多边沿的聚合仍为 Not Verified。
+
 默认输入合同只在真实按住期间推进拖尾。用户开启“拖尾常驻”后，未按键 Move 由独立的纯拖尾实例
-消费；首个样本只建立锚点。真实按下、出界、暂停或关闭相关开关必须结束该段，避免双重拖尾或跨状态
-假连接，且纯拖尾实例不得生成任何点击 burst。
+消费；这是 native/Web 产品增强，首个样本只建立锚点。含任一边沿的帧不得从尾随 Move 重启常驻段；
+真实按下、出界、暂停或关闭相关开关也必须结束该段，避免双重拖尾或跨状态假连接，且纯拖尾实例不得
+生成任何点击 burst。按住但没有新位置时不要求输入层读取光标；模拟 `advance` 只推进距离发射的静止
+时间基线，不追加 Trail 顶点或推进输入采样相位。
 
 ### 6.2 WGC
 

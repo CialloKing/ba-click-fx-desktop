@@ -18,7 +18,9 @@
 - background binary validity、路径单向锁存、饱和时间差与边界；
 - ROI alignment/guard；
 - finite sanitize、component-wise non-negative 与 isotonic test vectors；
-- fixed-step simulation 和 deterministic random。
+- fixed-step simulation 和 deterministic random；
+- PointerFrameAdapter 的跨帧 held、Down→Held→Up、释放帧不移动、边沿后尾随 Move 抑制，以及同帧
+  多边沿原序归约；PointerFrameDispatch 的统一帧位置、统一 `renderTime` 与 QPC 输入相位隔离。
 
 ### L1：GPU 离屏
 
@@ -32,7 +34,8 @@
 
 ### L2：窗口与 API 集成
 
-- PMv2 坐标、Raw Input、click-through overlay；
+- PMv2 坐标、Raw Input 到单一帧边界当前位置的映射、click-through overlay；
+- 输入消费/呈现边界上的 Down→Held→Up、释放帧不移动、常驻拖尾分流，以及 QPC 只影响可选采样相位；
 - DComp visual/swap chain resize/present；
 - WGC session state machine；
 - monitor/adapter rebuild。
@@ -51,8 +54,8 @@
 - commit、shader hash、配置 schema；
 - OS build、adapter LUID、driver、显示色彩模式；
 - viewport、DPI、背景编码与参考白；
-- QPC frequency、事件时间、固定模拟步长、随机种子；
-- 输入位置/按下/移动/释放序列，以及拖尾常驻开关、出界与重入边界。
+- QPC frequency、消息分派 QPC、统一 `renderTime`、固定模拟步长、随机种子；
+- 呈现边界、锁存位置、Down/Held/Up 序列，以及拖尾常驻开关、出界、重入和边沿后尾随 Move 边界。
 
 显式种子的 C++ 模拟坐标只属于实现内确定性回归，不等同于 Unity Golden。Unity 为每个
 ParticleSystem 使用独立的引擎随机流；在尚未导出初始粒子状态 fixture 或复现该随机流前，跨实现
@@ -130,6 +133,9 @@ python -B tools\verify-golden-metrics.py `
 `case.contractVersion=1` 独立版本化这套新增夹具；Golden 比较前会从 `.rgba16f` 按捕获端相同的
 linear-to-sRGB 规则重建并核对 PNG，避免陈旧预览与数值层错配。
 该诊断验证距离发射、两点 Trail 几何/材质与 Bloom，不冒充真实逐帧 TrailRenderer 采样时序验证。
+它也不验证 OS 消息到 Unity Legacy Input 帧态的聚合。原生同帧多边沿无损扩展已有确定性测试，但 Unity
+如何聚合一个渲染帧内的多次按下/释放仍为 Not Verified；需由真实 Player 黑盒夹具同时记录
+`GetMouseButtonDown`、`GetMouseButton`、`GetMouseButtonUp` 和 `Input.mousePosition` 后才能声明 parity。
 `--json` 输出固定的 schema v1 envelope；退出码 `0/1/2` 分别表示通过、指标失败和输入/参数错误，
 参数错误也不会混入人类可读文本。
 
