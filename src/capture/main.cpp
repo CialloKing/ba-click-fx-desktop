@@ -35,6 +35,10 @@ using namespace std::chrono_literals;
 constexpr bafx::windows::WindowSize captureSize{1950U, 1097U};
 constexpr bafx::fx::PointF captureCenter{975.0F, 548.5F};
 constexpr std::uint64_t captureSeed = 20260716U;
+constexpr std::uint32_t dragTrailAgeMilliseconds = 140U;
+constexpr std::uint32_t dragTrailMovementPixels = 432U;
+constexpr std::uint32_t dragTrailMovementSteps = 12U;
+constexpr std::uint32_t trailOnlyDiagnosticPixels = 20U;
 constexpr std::array defaultAges{
     50U,
     100U,
@@ -46,6 +50,12 @@ constexpr std::array defaultAges{
     180U,
     250U,
     450U};
+
+enum class CaptureCase
+{
+    Click,
+    DragTrail
+};
 
 class ComApartment final
 {
@@ -79,6 +89,7 @@ struct CaptureOptions
         L"artifacts\\local\\gpu-captures\\native"};
     std::vector<std::uint32_t> agesMilliseconds{};
     std::string revision{"unrecorded"};
+    CaptureCase captureCase{CaptureCase::Click};
     bool allLayers{false};
     bool help{false};
 };
@@ -106,6 +117,7 @@ struct ManifestAge
 {
     std::uint32_t ageMilliseconds{0U};
     std::vector<ManifestLayer> layers{};
+    std::vector<ManifestLayer> comparisonFrames{};
 };
 
 [[nodiscard]] std::optional<std::uint32_t> parseUnsigned(
@@ -187,13 +199,31 @@ struct ManifestAge
                 options.revision.push_back(static_cast<char>(character));
             }
         }
+        else if (argument == L"--case=drag-trail")
+        {
+            options.captureCase = CaptureCase::DragTrail;
+        }
+        else if (argument.starts_with(L"--case="))
+        {
+            throw std::invalid_argument("--case only supports drag-trail");
+        }
         else
         {
             throw std::invalid_argument("Unknown GPU capture option");
         }
     }
 
-    if (!customAges)
+    if (options.captureCase == CaptureCase::DragTrail)
+    {
+        if (customAges
+            && (options.agesMilliseconds.size() != 1U
+                || options.agesMilliseconds.front() != dragTrailAgeMilliseconds))
+        {
+            throw std::invalid_argument("drag-trail capture requires age 140 ms");
+        }
+        options.agesMilliseconds.assign(1U, dragTrailAgeMilliseconds);
+    }
+    else if (!customAges)
     {
         options.agesMilliseconds.assign(defaultAges.begin(), defaultAges.end());
     }
@@ -204,7 +234,7 @@ void printUsage()
 {
     std::wcout
         << L"Usage: ba-click-fx-gpu-capture [--output=DIR] [--age-ms=N ...] "
-        << L"[--all-layers] [--revision=GIT]\n";
+        << L"[--all-layers] [--revision=GIT] [--case=drag-trail]\n";
 }
 
 [[nodiscard]] CaptureDevice createWarpDevice()
@@ -283,7 +313,7 @@ void appendLayer(
         throw std::runtime_error("GPU capture did not produce valid intermediate layers");
     }
 
-    ManifestAge manifest{ageMilliseconds, {}};
+    ManifestAge manifest{ageMilliseconds, {}, {}};
     const std::filesystem::path directory = root / ageDirectoryName(ageMilliseconds);
     if (allLayers)
     {
@@ -311,6 +341,128 @@ void appendLayer(
     }
     appendLayer(manifest, directory, "FinalOverlay", capture.finalOverlay);
     return manifest;
+}
+
+void appendComparisonFrame(
+    ManifestAge& manifest,
+    const std::filesystem::path& root,
+    const std::string& name,
+    const bafx::windows::Rgba16FloatImage& image)
+{
+    const std::filesystem::path directory =
+        root / ageDirectoryName(manifest.ageMilliseconds);
+    manifest.comparisonFrames.push_back(ManifestLayer{
+        name,
+        bafx::capture::writeLayerArtifact(
+            directory,
+            std::filesystem::path(name),
+            image)});
+}
+
+[[nodiscard]] constexpr bafx::fx::SimulationTime dragTrailStepTime(
+    const std::uint32_t completedSteps) noexcept
+{
+    constexpr std::uint32_t totalSteps = dragTrailMovementSteps + 1U;
+    constexpr std::int64_t totalNanoseconds =
+        std::chrono::duration_cast<std::chrono::nanoseconds>(
+            std::chrono::milliseconds(dragTrailAgeMilliseconds))
+            .count();
+
+    // Unity accumulates a float step. Round each boundary independently so
+    // truncation cannot bias every simulated particle age one nanosecond low.
+    return std::chrono::nanoseconds{
+        (totalNanoseconds * static_cast<std::int64_t>(completedSteps)
+            + static_cast<std::int64_t>(totalSteps / 2U))
+        / static_cast<std::int64_t>(totalSteps)};
+}
+
+static_assert(dragTrailStepTime(1U) == 10'769'231ns);
+static_assert(dragTrailStepTime(2U) == 21'538'462ns);
+static_assert(dragTrailStepTime(13U) == 140ms);
+
+[[nodiscard]] bafx::fx::FrameSnapshot makeDragTrailSnapshot()
+{
+    constexpr float halfMovement =
+        static_cast<float>(dragTrailMovementPixels) * 0.5F;
+    constexpr bafx::fx::PointF start{
+        captureCenter.x - halfMovement,
+        captureCenter.y};
+    constexpr bafx::fx::PointF end{
+        captureCenter.x + halfMovement,
+        captureCenter.y};
+    constexpr bafx::fx::Viewport viewport{
+        captureSize.width,
+        captureSize.height};
+
+    bafx::fx::Simulation simulation(captureSeed);
+    simulation.pointerDown(start, viewport, 0ns);
+    simulation.advance(dragTrailStepTime(1U));
+    // Anchor the input sample after Unity's stationary first step. Otherwise
+    // the first moving segment incorrectly spreads births across two steps.
+    simulation.pointerMove(start, viewport, dragTrailStepTime(1U));
+    for (std::uint32_t step = 1U; step <= dragTrailMovementSteps; ++step)
+    {
+        const float progress = static_cast<float>(step)
+            / static_cast<float>(dragTrailMovementSteps);
+        const bafx::fx::PointF position{
+            start.x + (end.x - start.x) * progress,
+            start.y + (end.y - start.y) * progress};
+        const bafx::fx::SimulationTime time = dragTrailStepTime(step + 1U);
+        simulation.pointerMove(position, viewport, time);
+        simulation.advance(time);
+    }
+
+    bafx::fx::FrameSnapshot snapshot = simulation.snapshot(
+        viewport,
+        std::chrono::milliseconds(dragTrailAgeMilliseconds));
+    // Unity's editor diagnostic freezes TrailRenderer as two endpoints because
+    // manual ParticleSystem.Simulate does not advance editor TrailRenderer time.
+    snapshot.trail = {
+        bafx::fx::TrailPoint{start, 1.0F},
+        bafx::fx::TrailPoint{end, 0.0F}};
+    snapshot.trailStrokes.clear();
+
+    std::size_t triangleCount = 0U;
+    for (const bafx::fx::Sprite& sprite : snapshot.sprites)
+    {
+        if (sprite.kind == bafx::fx::SpriteKind::Triangle)
+        {
+            ++triangleCount;
+        }
+    }
+    if (snapshot.sprites.size() != 10U || triangleCount != 7U)
+    {
+        throw std::runtime_error(
+            "drag-trail fixture must contain 3 non-triangle and 7 triangle sprites");
+    }
+    if (snapshot.trail.size() != 2U
+        || snapshot.trailWidthPixels <= 0.0F
+        || snapshot.trail.front().positionPixels.x != start.x
+        || snapshot.trail.front().positionPixels.y != start.y
+        || snapshot.trail.back().positionPixels.x != end.x
+        || snapshot.trail.back().positionPixels.y != end.y)
+    {
+        throw std::runtime_error(
+            "drag-trail fixture must contain the fixed two-endpoint trail");
+    }
+    return snapshot;
+}
+
+[[nodiscard]] bafx::fx::FrameSnapshot makeTrailOnlySnapshot()
+{
+    constexpr float halfLength =
+        static_cast<float>(trailOnlyDiagnosticPixels) * 0.5F;
+    bafx::fx::FrameSnapshot snapshot{};
+    snapshot.trail = {
+        bafx::fx::TrailPoint{
+            bafx::fx::PointF{captureCenter.x - halfLength, captureCenter.y},
+            1.0F},
+        bafx::fx::TrailPoint{
+            bafx::fx::PointF{captureCenter.x + halfLength, captureCenter.y},
+            0.0F}};
+    // Use the same world-to-pixel mapping as the simulation and Unity camera.
+    snapshot.trailWidthPixels = 0.005F * (captureSize.height * 0.5F);
+    return snapshot;
 }
 
 void writeManifest(
@@ -341,8 +493,24 @@ void writeManifest(
            << "  \"featureLevel\": " << static_cast<unsigned int>(featureLevel) << ",\n"
            << "  \"viewport\": {\"width\": " << captureSize.width
            << ", \"height\": " << captureSize.height << "},\n"
-           << "  \"seed\": " << captureSeed << ",\n"
-           << "  \"rowOrigin\": \"top-left\",\n"
+           << "  \"seed\": " << captureSeed << ",\n";
+    if (options.captureCase == CaptureCase::DragTrail)
+    {
+        stream
+            << "  \"case\": {\"name\": \"drag-trail\", "
+            << "\"movementPixels\": " << dragTrailMovementPixels << ", "
+            << "\"movementSteps\": " << dragTrailMovementSteps << ", "
+            << "\"trailOnlyPixels\": " << trailOnlyDiagnosticPixels << ", "
+            << "\"trailFixture\": \"two-endpoint-unity-editor-diagnostic\", "
+            << "\"unityReference\": {"
+            << "\"withTrail\": \"Reference/Diagnostics/Interaction/"
+            << "FX_Touch_0140ms_Move_0432px_WithTrail_Age0140ms.png\", "
+            << "\"noTrail\": \"Reference/Diagnostics/Interaction/"
+            << "FX_Touch_0140ms_Move_0432px_NoTrail_Age0140ms.png\", "
+            << "\"trailOnly\": \"Reference/Diagnostics/Trail/"
+            << "FX_Touch_0140ms_TrailOnly_20px.png\"}},\n";
+    }
+    stream << "  \"rowOrigin\": \"top-left\",\n"
            << "  \"rawFormat\": \"DXGI_FORMAT_R16G16B16A16_FLOAT little-endian RGBA\",\n"
            << "  \"rawColorEncoding\": \"linear extended-premultiplied\",\n"
            << "  \"pngPreview\": \"linear-to-sRGB clamp over opaque black; no unpremultiply\",\n"
@@ -365,7 +533,26 @@ void writeManifest(
                    << ", \"rawBytes\": " << layer.artifact.rawBytes << "}";
             stream << (layerIndex + 1U < age.layers.size() ? ",\n" : "\n");
         }
-        stream << "    ]}" << (ageIndex + 1U < ages.size() ? ",\n" : "\n");
+        stream << "    ]";
+        if (!age.comparisonFrames.empty())
+        {
+            stream << ", \"comparisonFrames\": [\n";
+            for (std::size_t frameIndex = 0U;
+                 frameIndex < age.comparisonFrames.size();
+                 ++frameIndex)
+            {
+                const ManifestLayer& frame = age.comparisonFrames[frameIndex];
+                stream << "      {\"name\": \"" << frame.name
+                       << "\", \"width\": " << frame.artifact.width
+                       << ", \"height\": " << frame.artifact.height
+                       << ", \"rawBytes\": " << frame.artifact.rawBytes << "}";
+                stream << (frameIndex + 1U < age.comparisonFrames.size()
+                    ? ",\n"
+                    : "\n");
+            }
+            stream << "    ]";
+        }
+        stream << "}" << (ageIndex + 1U < ages.size() ? ",\n" : "\n");
     }
     stream << "  ]\n}\n";
     if (!stream)
@@ -393,6 +580,40 @@ int run(const CaptureOptions& options)
 
     std::vector<ManifestAge> manifests;
     manifests.reserve(options.agesMilliseconds.size());
+    if (options.captureCase == CaptureCase::DragTrail)
+    {
+        bafx::fx::FrameSnapshot withTrail = makeDragTrailSnapshot();
+        const bafx::windows::FxGpuFrameCapture withTrailCapture =
+            renderer.renderAndCapture(withTrail, target.view.Get());
+        ManifestAge manifest = writeCapture(
+            options.outputDirectory,
+            dragTrailAgeMilliseconds,
+            options.allLayers,
+            withTrailCapture);
+
+        bafx::fx::FrameSnapshot noTrail = std::move(withTrail);
+        noTrail.trail.clear();
+        noTrail.trailStrokes.clear();
+        noTrail.trailWidthPixels = 0.0F;
+        const bafx::windows::FxGpuFrameCapture noTrailCapture =
+            renderer.renderAndCapture(noTrail, target.view.Get());
+        appendComparisonFrame(
+            manifest,
+            options.outputDirectory,
+            "FinalOverlay_NoTrail",
+            noTrailCapture.finalOverlay);
+        const bafx::windows::FxGpuFrameCapture trailOnlyCapture =
+            renderer.renderAndCapture(makeTrailOnlySnapshot(), target.view.Get());
+        appendComparisonFrame(
+            manifest,
+            options.outputDirectory,
+            "FinalOverlay_TrailOnly20px",
+            trailOnlyCapture.finalOverlay);
+        manifests.push_back(std::move(manifest));
+        writeManifest(options, graphics.featureLevel, manifests);
+        return 0;
+    }
+
     for (const std::uint32_t ageMilliseconds : options.agesMilliseconds)
     {
         bafx::fx::Simulation simulation(captureSeed);

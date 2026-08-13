@@ -42,4 +42,19 @@ if(BUILD_TESTING)
             LABELS "gpu;warp"
             TIMEOUT 30
     )
+
+    add_test(
+        NAME gpu_capture_drag_trail_cli
+        COMMAND
+            ba_fx_gpu_capture
+            "--output=${CMAKE_CURRENT_BINARY_DIR}/ctest-drag-trail-output"
+            --case=drag-trail
+            --revision=ctest
+    )
+    set_tests_properties(
+        gpu_capture_drag_trail_cli
+        PROPERTIES
+            LABELS "gpu;warp"
+            TIMEOUT 30
+    )
 endif()
