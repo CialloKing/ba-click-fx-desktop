@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate the Unity FX_Touch particle-state fixture v1.
+"""Validate the Unity FX_Touch particle-state fixture v2.
 
 The fixture is an observation from Unity, not a native RNG golden.  This
 validator deliberately checks only the serialization contract and numerical
@@ -16,8 +16,8 @@ import sys
 from typing import Any
 
 
-EXPECTED_SCHEMA = 1
-EXPECTED_FIXTURE = "UnityParticleStateV1"
+EXPECTED_SCHEMA = 2
+EXPECTED_FIXTURE = "UnityParticleStateV2"
 EXPECTED_WIDTH = 1950
 EXPECTED_HEIGHT = 1097
 EXPECTED_TIME_SECONDS = 0.05
@@ -111,6 +111,7 @@ def _validate_particle(value: Any, system_label: str, expected_index: int) -> No
     required = {
         "index",
         "randomSeed",
+        "atlasFrame",
         "position",
         "worldPosition",
         "projectedPixel",
@@ -127,6 +128,7 @@ def _validate_particle(value: Any, system_label: str, expected_index: int) -> No
     if _integer(particle["index"], f"{label}.index", minimum=0) != expected_index:
         raise ValidationError(f"{label}.index is not in serialized order")
     _uint32(particle["randomSeed"], f"{label}.randomSeed")
+    _integer(particle["atlasFrame"], f"{label}.atlasFrame", minimum=0)
     _named_vector(particle["position"], ("x", "y", "z"), f"{label}.position")
     _named_vector(
         particle["worldPosition"], ("x", "y", "z"), f"{label}.worldPosition"
@@ -182,6 +184,12 @@ def _validate_system(value: Any, expected_index: int) -> None:
         raise ValidationError(f"{label}.particleCount does not match particles length")
     for particle_index, particle in enumerate(particles):
         _validate_particle(particle, label, particle_index)
+        frame = particle["atlasFrame"]
+        if system["name"] in {"Ring (3)", "Ring (4)"}:
+            if frame > 1:
+                raise ValidationError(f"{label}.particles[{particle_index}].atlasFrame must be 0 or 1")
+        elif frame != 0:
+            raise ValidationError(f"{label}.particles[{particle_index}].atlasFrame must be 0")
 
 
 def validate_fixture(value: Any) -> dict[str, Any]:
@@ -202,7 +210,7 @@ def validate_fixture(value: Any) -> dict[str, Any]:
     if set(fixture) != required:
         raise ValidationError("fixture fields differ from the v1 contract")
     if _integer(fixture["schema"], "fixture.schema") != EXPECTED_SCHEMA:
-        raise ValidationError("fixture.schema must be 1")
+        raise ValidationError("fixture.schema must be 2")
     if _string(fixture["fixture"], "fixture.fixture") != EXPECTED_FIXTURE:
         raise ValidationError("fixture.fixture is unsupported")
     _string(fixture["unityVersion"], "fixture.unityVersion")

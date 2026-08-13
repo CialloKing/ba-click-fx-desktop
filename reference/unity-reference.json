@@ -102,8 +102,8 @@
       "root": "runtime",
       "class": "ReconstructionChoice",
       "path": "Assets/Editor/BaFxTouchPreviewCapture.cs",
-      "bytes": 80323,
-      "sha256": "E49E88FC1A22E188A3BD532E48B34BBB77F6F9D82DB1A4627652B27FF3EE10E9"
+      "bytes": 85992,
+      "sha256": "2D8AEB67DFDAE9B52EF1287523CED7F21E3227ECC32B4B55297859E4C9AB2818"
     },
     {
       "root": "runtime",
@@ -262,9 +262,9 @@
     {
       "root": "runtime",
       "class": "RuntimeObservation",
-      "path": "Reference/Diagnostics/ParticleStates/FX_Touch_0050ms_particle-state-v1.json",
-      "bytes": 4326,
-      "sha256": "FDDB79E6AEFEE9171B8977F59AD416C0E03715FBAD504D1A2A2489EAC1023930"
+      "path": "Reference/Diagnostics/ParticleStates/FX_Touch_0050ms_particle-state-v2.json",
+      "bytes": 4431,
+      "sha256": "1BECBED5019111D8C0F1D9D9A3808B72DF9586E55B960A1DF30DBE4438BECCCD"
     }
   ]
 }

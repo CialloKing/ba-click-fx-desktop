@@ -27,8 +27,8 @@ SPEC.loader.exec_module(VERIFY)
 
 def valid_fixture() -> dict:
     return {
-        "schema": 1,
-        "fixture": "UnityParticleStateV1",
+        "schema": 2,
+        "fixture": "UnityParticleStateV2",
         "unityVersion": "2021.3.45f1",
         "renderSize": {"width": 1950, "height": 1097},
         "captureTimeSeconds": 0.05,
@@ -67,6 +67,7 @@ def valid_fixture() -> dict:
                     {
                         "index": 0,
                         "randomSeed": 7,
+                        "atlasFrame": 0,
                         "position": {"x": 0.0, "y": 0.0, "z": 0.0},
                         "worldPosition": {"x": 0.0, "y": 0.0, "z": 0.0},
                         "projectedPixel": {"x": 975.0, "y": 548.5},
@@ -113,6 +114,19 @@ class FixtureContractTests(unittest.TestCase):
         with self.assertRaisesRegex(VERIFY.ValidationError, "fields differ"):
             VERIFY.validate_fixture(fixture)
 
+    def test_rejects_non_triangle_atlas_frame(self):
+        fixture = valid_fixture()
+        fixture["systems"][0]["particles"][0]["atlasFrame"] = 1
+        with self.assertRaisesRegex(VERIFY.ValidationError, "atlasFrame must be 0"):
+            VERIFY.validate_fixture(fixture)
+
+    def test_rejects_triangle_atlas_frame_outside_two_tiles(self):
+        fixture = valid_fixture()
+        fixture["systems"][0]["name"] = "Ring (3)"
+        fixture["systems"][0]["particles"][0]["atlasFrame"] = 2
+        with self.assertRaisesRegex(VERIFY.ValidationError, "atlasFrame must be 0 or 1"):
+            VERIFY.validate_fixture(fixture)
+
     def test_rejects_system_seed_that_does_not_follow_stride(self):
         fixture = valid_fixture()
         fixture["systems"].append(
@@ -156,7 +170,7 @@ class FixtureContractTests(unittest.TestCase):
 
     def test_rejects_duplicate_json_fields(self):
         duplicate = (
-            b'{"schema":1,"schema":1,"fixture":"UnityParticleStateV1"}'
+            b'{"schema":2,"schema":2,"fixture":"UnityParticleStateV2"}'
         )
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "duplicate.json"
