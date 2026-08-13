@@ -766,6 +766,7 @@ BAFX_TEST(drag_uses_world_distance_for_trail_and_particles)
 {
     Simulation simulation;
     simulation.pointerDown(PointF{100.0F, 100.0F}, goldenViewport, 0ns);
+    simulation.advance(1ns);
     simulation.pointerMove(PointF{600.0F, 100.0F}, goldenViewport, 50ms);
     simulation.advance(50ms);
     const auto frame = simulation.snapshot(goldenViewport, 50ms);
@@ -775,12 +776,47 @@ BAFX_TEST(drag_uses_world_distance_for_trail_and_particles)
     BAFX_CHECK_NEAR(frame.trailWidthPixels, 2.7425F, 1.0e-4F);
 }
 
+BAFX_TEST(pointer_moves_before_first_advance_match_unitys_final_update_position)
+{
+    Simulation simulation;
+    constexpr PointF pressed{100.0F, 100.0F};
+    constexpr PointF firstFramePosition{600.0F, 100.0F};
+    constexpr PointF secondFramePosition{900.0F, 100.0F};
+
+    simulation.pointerDown(pressed, goldenViewport, 0ns);
+    simulation.pointerMove(firstFramePosition, goldenViewport, 50ms);
+    simulation.advance(50ms);
+    FrameSnapshot frame = simulation.snapshot(goldenViewport, 50ms);
+
+    // CreateEffect and SetDragPosition see one Input.mousePosition in the
+    // first Unity Update, so the press coordinate never becomes geometry.
+    BAFX_CHECK(frame.trail.size() == 1U);
+    BAFX_CHECK(!trailContainsPoint(frame, pressed));
+    BAFX_CHECK(trailContainsPoint(frame, firstFramePosition));
+    BAFX_CHECK(countKind(frame, SpriteKind::Triangle) == 4U);
+    BAFX_CHECK_NEAR(
+        firstKind(frame, SpriteKind::CenterDisk).centerPixels.x,
+        firstFramePosition.x,
+        1.0e-4F);
+    for (const Sprite* const ring : spritesOfKind(frame, SpriteKind::DissolveRing))
+    {
+        BAFX_CHECK_NEAR(ring->centerPixels.x, firstFramePosition.x, 1.0e-4F);
+    }
+
+    simulation.pointerMove(secondFramePosition, goldenViewport, 100ms);
+    frame = simulation.snapshot(goldenViewport, 100ms);
+    BAFX_CHECK(frame.trail.size() == 2U);
+    BAFX_CHECK(trailContainsPoint(frame, secondFramePosition));
+    BAFX_CHECK(countKind(frame, SpriteKind::Triangle) > 4U);
+}
+
 BAFX_TEST(trail_vertex_distance_filters_samples_without_tessellating_frame_jumps)
 {
     Simulation simulation;
     constexpr PointF start{100.0F, 100.0F};
     constexpr PointF end{600.0F, 100.0F};
     simulation.pointerDown(start, goldenViewport, 0ns);
+    simulation.advance(1ns);
     simulation.pointerMove(PointF{104.0F, 100.0F}, goldenViewport, 50ms);
     simulation.pointerMove(end, goldenViewport, 100ms);
 
@@ -813,6 +849,8 @@ BAFX_TEST(pointer_move_time_rollback_clamps_to_the_previous_sample)
 
     monotonic.pointerDown(start, goldenViewport, 0ns);
     rolledBack.pointerDown(start, goldenViewport, 0ns);
+    monotonic.advance(1ns);
+    rolledBack.advance(1ns);
     monotonic.pointerMove(smallMove, goldenViewport, 100ms);
     rolledBack.pointerMove(smallMove, goldenViewport, 100ms);
     monotonic.pointerMove(longMove, goldenViewport, 100ms);
@@ -848,6 +886,7 @@ BAFX_TEST(drag_particle_birth_times_are_interpolated_along_the_input_segment)
 {
     Simulation simulation;
     simulation.pointerDown(PointF{100.0F, 100.0F}, goldenViewport, 0ns);
+    simulation.advance(1ns);
     simulation.pointerMove(PointF{600.0F, 100.0F}, goldenViewport, 1000ms);
 
     const auto frame = simulation.snapshot(goldenViewport, 1000ms);
@@ -862,20 +901,15 @@ BAFX_TEST(drag_particle_age_starts_at_the_distance_interpolated_birth_time)
     constexpr PointF start{100.0F, 100.0F};
     constexpr PointF end{220.0F, 100.0F};
     simulation.pointerDown(start, goldenViewport, 0ns);
+    simulation.advance(1ns);
     simulation.pointerMove(end, goldenViewport, 30ms);
 
     const auto frame = simulation.snapshot(goldenViewport, 30ms);
     const auto triangles = spritesOfKind(frame, SpriteKind::Triangle);
     BAFX_CHECK(triangles.size() == 5U);
 
-    // Ring (3) emits its Burst at the end of this single Unity step, so its
-    // four particles still have age zero. Ring (4) crossed 0.2 world within
-    // the step and owns the remaining fraction of frame time immediately.
-    for (std::size_t index = 0U; index < 4U; ++index)
-    {
-        BAFX_CHECK_NEAR(triangles[index]->sizePixels, 0.0F, 0.0F);
-    }
-
+    // Ring (4) crossed 0.2 world within this post-first-frame movement and
+    // owns the remaining fraction of the input interval immediately.
     constexpr float dragEmissionStepWorld = 0.2F;
     const float segmentWorld = 2.0F
         * static_cast<float>(end.x - start.x)
@@ -892,7 +926,8 @@ BAFX_TEST(drag_particle_age_starts_at_the_distance_interpolated_birth_time)
 
     Simulation reference;
     reference.pointerDown(start, goldenViewport, 0ns);
-    reference.pointerMove(end, goldenViewport, 0ns);
+    reference.advance(1ns);
+    reference.pointerMove(end, goldenViewport, 1ns);
     const FrameSnapshot referenceFrame = reference.snapshot(
         goldenViewport,
         expectedAge);
@@ -926,6 +961,7 @@ BAFX_TEST(pointer_cancel_keeps_the_current_trail_until_it_naturally_expires)
 {
     Simulation simulation;
     simulation.pointerDown(PointF{100.0F, 100.0F}, goldenViewport, 0ns);
+    simulation.advance(1ns);
     simulation.pointerMove(PointF{600.0F, 100.0F}, goldenViewport, 50ms);
     BAFX_CHECK(simulation.pointerHeld());
     BAFX_CHECK(!simulation.snapshot(goldenViewport, 50ms).trail.empty());
@@ -960,6 +996,7 @@ BAFX_TEST(trail_length_multiplier_changes_the_simulated_retention_window)
     Simulation simulation;
     simulation.setTrailLengthMultiplier(2.0F);
     simulation.pointerDown(PointF{100.0F, 100.0F}, goldenViewport, 0ns);
+    simulation.advance(1ns);
     simulation.pointerMove(PointF{600.0F, 100.0F}, goldenViewport, 50ms);
     simulation.pointerUp(60ms);
 
@@ -1051,6 +1088,7 @@ BAFX_TEST(unlimited_input_sampling_preserves_each_pointer_turn)
 {
     SimulationRuntime runtime;
     runtime.pointerDown(PointF{100.0F, 100.0F}, goldenViewport, 0ms);
+    runtime.advance(1ns);
     runtime.pointerMove(PointF{300.0F, 100.0F}, goldenViewport, 100ms);
     runtime.pointerMove(PointF{300.0F, 300.0F}, goldenViewport, 120ms);
     runtime.pointerMove(PointF{500.0F, 300.0F}, goldenViewport, 200ms);
@@ -1066,6 +1104,7 @@ BAFX_TEST(limited_input_sampling_drops_intermediate_turns)
     SimulationRuntime runtime;
     runtime.setInputSamplingRateHz(10U);
     runtime.pointerDown(PointF{100.0F, 100.0F}, goldenViewport, 0ms);
+    runtime.advance(1ns);
     runtime.pointerMove(PointF{300.0F, 100.0F}, goldenViewport, 100ms);
     runtime.pointerMove(PointF{300.0F, 300.0F}, goldenViewport, 120ms);
     runtime.pointerMove(PointF{500.0F, 300.0F}, goldenViewport, 200ms);
@@ -1074,6 +1113,42 @@ BAFX_TEST(limited_input_sampling_drops_intermediate_turns)
     BAFX_CHECK(trailContainsPoint(frame, PointF{300.0F, 100.0F}));
     BAFX_CHECK(!trailContainsPoint(frame, PointF{300.0F, 300.0F}));
     BAFX_CHECK(trailContainsPoint(frame, PointF{500.0F, 300.0F}));
+}
+
+BAFX_TEST(limited_input_sampling_keeps_the_final_pre_first_frame_move)
+{
+    SimulationRuntime runtime;
+    runtime.setInputSamplingRateHz(10U);
+    runtime.pointerDown(
+        PointF{100.0F, 100.0F},
+        goldenViewport,
+        0ms,
+        0ms);
+    runtime.pointerMove(
+        PointF{300.0F, 100.0F},
+        goldenViewport,
+        1ms,
+        1ms);
+    runtime.pointerMove(
+        PointF{500.0F, 100.0F},
+        goldenViewport,
+        2ms,
+        2ms);
+    runtime.advance(50ms);
+
+    const FrameSnapshot frame = runtime.snapshot(goldenViewport, 50ms);
+    BAFX_CHECK(frame.trail.size() == 1U);
+    BAFX_CHECK(trailContainsPoint(frame, PointF{500.0F, 100.0F}));
+    BAFX_CHECK(!trailContainsPoint(frame, PointF{100.0F, 100.0F}));
+    BAFX_CHECK(countKind(frame, SpriteKind::Triangle) == 4U);
+
+    runtime.pointerMove(
+        PointF{700.0F, 100.0F},
+        goldenViewport,
+        60ms,
+        60ms);
+    BAFX_CHECK(
+        runtime.snapshot(goldenViewport, 60ms).trail.size() == 1U);
 }
 
 BAFX_TEST(input_sampling_uses_wall_time_instead_of_simulation_time)
@@ -1085,6 +1160,7 @@ BAFX_TEST(input_sampling_uses_wall_time_instead_of_simulation_time)
         goldenViewport,
         0ms,
         0ms);
+    runtime.advance(1ns);
     runtime.pointerMove(
         PointF{300.0F, 100.0F},
         goldenViewport,
@@ -1112,6 +1188,7 @@ BAFX_TEST(changing_input_sampling_rate_resets_the_sampling_phase)
     SimulationRuntime runtime;
     runtime.setInputSamplingRateHz(10U);
     runtime.pointerDown(PointF{100.0F, 100.0F}, goldenViewport, 0ms);
+    runtime.advance(1ns);
     runtime.pointerMove(PointF{300.0F, 100.0F}, goldenViewport, 100ms);
     runtime.setInputSamplingRateHz(30U);
     runtime.pointerMove(PointF{300.0F, 300.0F}, goldenViewport, 110ms);
@@ -1181,6 +1258,7 @@ BAFX_TEST(always_on_and_pressed_trails_use_independent_strokes_without_a_bridge)
     runtime.pointerMove(PointF{400.0F, 100.0F}, goldenViewport, 40ms);
 
     runtime.pointerDown(PointF{600.0F, 300.0F}, goldenViewport, 60ms);
+    runtime.advance(61ms);
     runtime.pointerMove(PointF{900.0F, 300.0F}, goldenViewport, 100ms);
     FrameSnapshot frame = runtime.snapshot(goldenViewport, 100ms);
     BAFX_CHECK(runtime.pointerHeld());
@@ -1257,6 +1335,7 @@ BAFX_TEST(canceling_a_held_pointer_allows_always_on_trail_to_restart)
     SimulationRuntime runtime;
     runtime.setAlwaysOnTrailEnabled(true, 0ns);
     runtime.pointerDown(PointF{100.0F, 100.0F}, goldenViewport, 10ms);
+    runtime.advance(11ms);
     runtime.pointerMove(PointF{300.0F, 100.0F}, goldenViewport, 30ms);
     runtime.pointerCancel(40ms);
     BAFX_CHECK(!runtime.pointerHeld());
@@ -1276,9 +1355,11 @@ BAFX_TEST(overlapping_drag_strokes_remain_independent)
     SimulationRuntime runtime;
 
     runtime.pointerDown(PointF{100.0F, 100.0F}, goldenViewport, 0ns);
+    runtime.advance(1ns);
     runtime.pointerMove(PointF{400.0F, 100.0F}, goldenViewport, 40ms);
     runtime.pointerUp(50ms);
     runtime.pointerDown(PointF{700.0F, 300.0F}, goldenViewport, 60ms);
+    runtime.advance(61ms);
     runtime.pointerMove(PointF{1000.0F, 300.0F}, goldenViewport, 100ms);
 
     const auto frame = runtime.snapshot(goldenViewport, 100ms);

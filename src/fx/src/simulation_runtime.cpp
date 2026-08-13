@@ -86,7 +86,24 @@ void SimulationRuntime::pointerMove(
 {
     if (pointerActive_ && !instances_.empty())
     {
-        if (acceptInputSample(inputTime))
+        const bool firstAdvancePending = instances_.back().firstAdvancePending();
+        if (firstAdvancePending)
+        {
+            // Unity samples the final Input.mousePosition in the same Update
+            // that creates FX_Touch. Preserve that final sample even when an
+            // optional host-side rate would reject its short raw interval.
+            if (inputSamplingRateHz_ > 0U
+                && (!lastInputSampleAt_.has_value()
+                    || inputTime > *lastInputSampleAt_))
+            {
+                lastInputSampleAt_ = inputTime;
+            }
+            instances_.back().pointerMove(
+                screenPosition,
+                viewport,
+                simulationTime);
+        }
+        else if (acceptInputSample(inputTime))
         {
             instances_.back().pointerMove(
                 screenPosition,

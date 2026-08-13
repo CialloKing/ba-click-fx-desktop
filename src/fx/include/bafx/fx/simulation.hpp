@@ -120,6 +120,7 @@ public:
     [[nodiscard]] FrameSnapshot snapshot(Viewport viewport, SimulationTime time) const;
     [[nodiscard]] bool active() const noexcept;
     [[nodiscard]] bool pointerHeld() const noexcept;
+    [[nodiscard]] bool firstAdvancePending() const noexcept;
 
 private:
     struct MovingParticle
@@ -181,6 +182,7 @@ private:
 
     void reset(PointF worldPosition, SimulationTime time);
     void resetState(PointF worldPosition, SimulationTime time);
+    void relocatePendingClick(PointF worldPosition, SimulationTime time);
     void emitClickTriangles(SimulationTime time);
     void emitDragTriangle(PointF worldPosition, SimulationTime time);
     void appendTrailPoint(PointF worldPosition, SimulationTime time);
@@ -205,6 +207,7 @@ private:
     bool active_{false};
     bool pointerHeld_{false};
     bool clickEffectEnabled_{false};
+    bool firstAdvancePending_{false};
     SimulationTime startedAt_{};
     SimulationTime lastAdvancedAt_{};
     SimulationTime releasedAt_{};

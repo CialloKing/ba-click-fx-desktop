@@ -471,6 +471,15 @@ void Simulation::pointerMove(
     // QPC sample. Preserve that sample while preventing pointer-time rollback.
     const SimulationTime sampleTime = std::max(time, pointerSampleAt_);
     const PointF nextWorld = screenToWorld(screenPosition, viewport);
+    if (clickEffectEnabled_ && firstAdvancePending_)
+    {
+        // TouchEffectCreater reads Input.mousePosition for both CreateEffect
+        // and SetDragPosition in one Update. Before Unity's first particle
+        // step, only the final transform exists; no travelled segment exists.
+        relocatePendingClick(nextWorld, sampleTime);
+        return;
+    }
+
     emitAlongDrag(pointerWorld_, nextWorld, pointerSampleAt_, sampleTime);
     pointerWorld_ = nextWorld;
     pointerSampleAt_ = sampleTime;
@@ -510,6 +519,7 @@ void Simulation::advance(const SimulationTime time)
         return;
     }
 
+    firstAdvancePending_ = false;
     if (clickEffectEnabled_)
     {
         advanceClickParticleStepStates(
@@ -709,6 +719,11 @@ bool Simulation::pointerHeld() const noexcept
     return pointerHeld_;
 }
 
+bool Simulation::firstAdvancePending() const noexcept
+{
+    return firstAdvancePending_;
+}
+
 void Simulation::advanceParticleStepState(
     ParticleStepState& state,
     const SimulationTime elapsed) noexcept
@@ -829,6 +844,7 @@ void Simulation::resetState(
     active_ = true;
     pointerHeld_ = true;
     clickEffectEnabled_ = false;
+    firstAdvancePending_ = true;
     startedAt_ = time;
     lastAdvancedAt_ = time;
     releasedAt_ = time;
@@ -841,6 +857,37 @@ void Simulation::resetState(
     rings_.clear();
     triangles_.clear();
     trail_.clear();
+}
+
+void Simulation::relocatePendingClick(
+    const PointF worldPosition,
+    const SimulationTime time)
+{
+    const PointF offset = subtract(worldPosition, effectOriginWorld_);
+    effectOriginWorld_ = worldPosition;
+    pointerWorld_ = worldPosition;
+    pointerSampleAt_ = time;
+    lastEmissionWorld_ = worldPosition;
+    dragDistanceRemainderWorld_ = 0.0F;
+
+    // World-space Burst particles have not been emitted yet, so moving the
+    // pooled object changes their eventual spawn position without a trail.
+    for (MovingParticle& particle : triangles_)
+    {
+        if (!particle.dragParticle)
+        {
+            particle.originWorld = add(particle.originWorld, offset);
+            particle.globalScalePivotWorld = add(
+                particle.globalScalePivotWorld,
+                offset);
+        }
+    }
+
+    if (!trail_.empty())
+    {
+        trail_.front() = StoredTrailPoint{worldPosition, time};
+        trail_.resize(1U);
+    }
 }
 
 void Simulation::emitClickTriangles(const SimulationTime time)
