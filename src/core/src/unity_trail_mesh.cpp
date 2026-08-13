@@ -1,7 +1,5 @@
 #include "bafx/core/unity_trail_mesh.hpp"
 
-#include "bafx/core/color_space.hpp"
-
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -17,20 +15,10 @@ constexpr float maximumInnerMiterRatio = 8.0F;
 constexpr float turnEpsilon = 1.0e-6F;
 constexpr float darkKeyTime = 0.5794155795F;
 constexpr float brightKeyTime = 0.9794155795F;
-
-[[nodiscard]] const Float3& darkKey() noexcept
-{
-    static const Float3 value = srgbToLinear(
-        Float3{0.0F, 0.09486991F, 0.28235295F});
-    return value;
-}
-
-[[nodiscard]] const Float3& brightKey() noexcept
-{
-    static const Float3 value = srgbToLinear(
-        Float3{0.0F, 0.39058137F, 1.0F});
-    return value;
-}
+// Unity serializes Gradient keys in the active linear color space. Texture
+// samples still use an sRGB SRV, but decoding these keys again skews the trail.
+constexpr Float3 darkKey{0.0F, 0.09486991F, 0.28235295F};
+constexpr Float3 brightKey{0.0F, 0.39058137F, 1.0F};
 
 struct Vec2
 {
@@ -357,16 +345,16 @@ Float3 evaluateUnityTrailColor(const float progress) noexcept
     const float value = std::clamp(progress, 0.0F, 1.0F);
     if (value <= darkKeyTime)
     {
-        return lerp(Float3{}, darkKey(), value / darkKeyTime);
+        return lerp(Float3{}, darkKey, value / darkKeyTime);
     }
     if (value <= brightKeyTime)
     {
         return lerp(
-            darkKey(),
-            brightKey(),
+            darkKey,
+            brightKey,
             (value - darkKeyTime) / (brightKeyTime - darkKeyTime));
     }
-    return brightKey();
+    return brightKey;
 }
 
 }
