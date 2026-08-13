@@ -498,6 +498,7 @@ void writeManifest(
     {
         stream
             << "  \"case\": {\"name\": \"drag-trail\", "
+            << "\"contractVersion\": 1, "
             << "\"movementPixels\": " << dragTrailMovementPixels << ", "
             << "\"movementSteps\": " << dragTrailMovementSteps << ", "
             << "\"trailOnlyPixels\": " << trailOnlyDiagnosticPixels << ", "

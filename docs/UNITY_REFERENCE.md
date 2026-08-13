@@ -48,6 +48,9 @@ D:\WebProjects\BA鼠标输入与点击特效系统\提取资产2\BA_FX_Touch_Uni
 - `TrailOnly_20px` 诊断关闭全部 ParticleSystem，只保留中心两侧各 `10 px` 的两点 TrailRenderer；
   它同样由 manifest 锁定，专门比较拖尾几何、材质与 Bloom，避免 Unity/原生不同随机粒子流经过
   sRGB 量化和饱和后污染 `WithTrail - NoTrail` 的弱光尾部。
+- Unity 工程使用 Linear active color space；Prefab Gradient 中的浮点键已是该活动色彩空间的数值，
+  不再执行 sRGB 解码。Web 参考实现同样把 Gradient 与 sRGB 纹理解码分开处理；原生只对贴图 SRV
+  使用 sRGB 解码，直接传递 Gradient 键值。
 
 上述“截图一致”只证明重建路径在该矩阵中的观察结果；它不自动证明游戏所有 render queue、pause、
 slow-motion、录屏、HDR 显示或桌面合成行为一致。
@@ -148,3 +151,5 @@ pwsh -NoProfile -File tools\verify-unity-reference.ps1
 
 脚本会验证 manifest 中的关键原始证据、重建实现、十张 Golden 以及完整 Imported tree 的数量/字节数。
 任何哈希变化都必须先判断是游戏更新、Unity 重建变更还是 baseline 更新，禁止直接刷新 manifest 让测试变绿。
+原生拖拽与纯拖尾门禁命令、指标和证据边界见 `docs/VALIDATION.md`；它读取上述已锁定诊断图，
+不会以 Web 像素或原生粒子随机坐标替代 Unity Golden。

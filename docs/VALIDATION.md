@@ -102,10 +102,36 @@ half 数值证据；PNG 不执行 unpremultiply、强制不透明黑底，仅用
 
 拖拽/Trail 使用独立的配对诊断：`140 ms` 内从 `(759, 548.5)` 水平移动到 `(1191, 548.5)`，
 先静止推进一段，再以 12 段等距移动；WithTrail 与 NoTrail 共享同一份粒子快照，Trail 固定为 Unity
-诊断所用的两个端点。门禁在首次原生捕获前锁定为：正差总能量与覆盖像素各 `20%`，能量质心
-`x/y = 16/4 px`，色度 L1 `0.10`，正差包围盒每边 `20 px`；WithTrail 相对 NoTrail 的逐通道负差
-能量必须精确为零。这项配对差分验证拖拽粒子、Trail 几何/材质与 Bloom，不冒充真实逐帧
-TrailRenderer 采样时序验证。
+诊断所用的两个端点。原生捕获还额外生成不含粒子的 `20 px` 两点 Trail，避免不同引擎的粒子随机流
+经过 sRGB 量化、饱和与 BrightPass 后污染弱光尾部比较：
+
+```powershell
+$dragRoot = "artifacts\local\gpu-captures\$revision-drag-trail"
+build\alpha-x64\src\capture\Release\ba-click-fx-gpu-capture.exe `
+  "--output=$dragRoot" `
+  "--case=drag-trail" `
+  "--all-layers" `
+  "--revision=$revision"
+python -B tools\verify-golden-metrics.py `
+  "--native-root=$dragRoot" `
+  "--require-layers"
+```
+
+门禁分成两条互补合同：
+
+- `WithTrail - NoTrail` 仍要求全图逐通道负差为零；其能量、能量质心、色度、覆盖和包围盒都只在
+  `max(channel delta) > 24` 的高信号主体内阻断。`> 2` 的弱光尾部仍输出诊断，但不作为跨随机流
+  失败条件。高信号主体容差依次为能量 `5%`、覆盖 `3%`、质心 `x/y = 2/3 px`、色度 L1
+  `0.01`、包围盒每边 `4 px`。
+- `FinalOverlay_TrailOnly20px` 相对纯黑比较，独立锁定 Trail 材质、几何与 Bloom：能量 `15%`、
+  覆盖 `12%`、质心每轴 `1 px`、色度 L1 `0.03`、包围盒每边 `12 px`。
+
+拖拽 case 的 manifest 必须精确声明两个比较帧及三张 Unity 参考图；验证器同时核对 FP16 文件长度。
+`case.contractVersion=1` 独立版本化这套新增夹具；Golden 比较前会从 `.rgba16f` 按捕获端相同的
+linear-to-sRGB 规则重建并核对 PNG，避免陈旧预览与数值层错配。
+该诊断验证距离发射、两点 Trail 几何/材质与 Bloom，不冒充真实逐帧 TrailRenderer 采样时序验证。
+`--json` 输出固定的 schema v1 envelope；退出码 `0/1/2` 分别表示通过、指标失败和输入/参数错误，
+参数错误也不会混入人类可读文本。
 
 ## 4. Differential Bloom 属性测试
 

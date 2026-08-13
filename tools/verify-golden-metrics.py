@@ -46,26 +46,95 @@ RADIAL_EDGES = (
     math.inf,
 )
 NON_BLACK_THRESHOLD = 2
+TRAIL_SIGNAL_THRESHOLD = 24
 EXPOSURE_GAIN = 0.125058532
 SAMPLE_SCALE = 1.42925835
 FP16_LAYER_TOLERANCE = 0.002
 COMPOSITE_GAIN_TOLERANCE = 0.03
 DOWNSAMPLE_MEAN_RATIO_MIN = 0.85
 DOWNSAMPLE_MEAN_RATIO_MAX = 1.15
-TRAIL_DELTA_REFERENCE_ENERGY = 5_195_864
-TRAIL_DELTA_REFERENCE_COVERAGE = 89_657
-TRAIL_DELTA_REFERENCE_CENTROID = (1107.7087, 548.9578)
-TRAIL_DELTA_REFERENCE_CHROMATICITY = (0.0, 0.3713, 0.6287)
-TRAIL_DELTA_REFERENCE_BOUNDS = (884, 407, 1289, 688)
-TRAIL_DELTA_ENERGY_RELATIVE_TOLERANCE = 0.20
-TRAIL_DELTA_COVERAGE_RELATIVE_TOLERANCE = 0.20
-TRAIL_DELTA_CENTROID_TOLERANCE = (16.0, 4.0)
-TRAIL_DELTA_CHROMATICITY_L1_TOLERANCE = 0.10
-TRAIL_DELTA_BOUNDS_TOLERANCE_PX = 20
+CAPTURE_WIDTH = 1950
+CAPTURE_HEIGHT = 1097
+CAPTURE_RGBA16F_BYTES = CAPTURE_WIDTH * CAPTURE_HEIGHT * 8
+DRAG_WITH_TRAIL_REFERENCE = (
+    "Reference/Diagnostics/Interaction/"
+    "FX_Touch_0140ms_Move_0432px_WithTrail_Age0140ms.png"
+)
+DRAG_NO_TRAIL_REFERENCE = (
+    "Reference/Diagnostics/Interaction/"
+    "FX_Touch_0140ms_Move_0432px_NoTrail_Age0140ms.png"
+)
+TRAIL_ONLY_REFERENCE = (
+    "Reference/Diagnostics/Trail/FX_Touch_0140ms_TrailOnly_20px.png"
+)
+FINAL_ONLY_LAYER_NAMES = frozenset(("FinalOverlay",))
+ALL_LAYER_NAMES = frozenset(
+    (
+        "DirectSurface",
+        "BloomSeed",
+        "Prefilter_Down00",
+        "Down01",
+        "Down02",
+        "Down03",
+        "Down04",
+        "Down05",
+        "Up00",
+        "Up01",
+        "Up02",
+        "Up03",
+        "Up04",
+        "FinalOverlay",
+    )
+)
+EXPECTED_LAYER_EXTENTS = {
+    "DirectSurface": (1950, 1097),
+    "BloomSeed": (1950, 1097),
+    "Prefilter_Down00": (975, 548),
+    "Down01": (487, 274),
+    "Down02": (243, 137),
+    "Down03": (121, 68),
+    "Down04": (60, 34),
+    "Down05": (30, 17),
+    "Up00": (975, 548),
+    "Up01": (487, 274),
+    "Up02": (243, 137),
+    "Up03": (121, 68),
+    "Up04": (60, 34),
+    "FinalOverlay": (1950, 1097),
+}
+TRAIL_DELTA_REFERENCE_ENERGY = 4_386_871
+TRAIL_DELTA_REFERENCE_COVERAGE = 40_598
+TRAIL_DELTA_REFERENCE_CENTROID = (1108.4099, 549.2720)
+TRAIL_DELTA_REFERENCE_CHROMATICITY = (0.0, 0.384149, 0.615851)
+TRAIL_DELTA_REFERENCE_BOUNDS = (894, 460, 1244, 637)
+TRAIL_DELTA_ENERGY_RELATIVE_TOLERANCE = 0.05
+TRAIL_DELTA_COVERAGE_RELATIVE_TOLERANCE = 0.03
+TRAIL_DELTA_CENTROID_TOLERANCE = (2.0, 3.0)
+TRAIL_DELTA_CHROMATICITY_L1_TOLERANCE = 0.01
+TRAIL_DELTA_BOUNDS_TOLERANCE_PX = 4
+TRAIL_ONLY_REFERENCE_ENERGY = 588_979
+TRAIL_ONLY_REFERENCE_COVERAGE = 25_711
+TRAIL_ONLY_REFERENCE_CENTROID = (977.2882, 547.8723)
+TRAIL_ONLY_REFERENCE_CHROMATICITY = (0.0, 0.323896, 0.676104)
+TRAIL_ONLY_REFERENCE_BOUNDS = (895, 457, 1054, 639)
+TRAIL_ONLY_ENERGY_RELATIVE_TOLERANCE = 0.15
+TRAIL_ONLY_COVERAGE_RELATIVE_TOLERANCE = 0.12
+TRAIL_ONLY_CENTROID_TOLERANCE_PX = 1.0
+TRAIL_ONLY_CHROMATICITY_L1_TOLERANCE = 0.03
+TRAIL_ONLY_BOUNDS_TOLERANCE_PX = 12
 
 
 class ValidationError(RuntimeError):
     """A malformed input or an unavailable required artifact."""
+
+
+class ArgumentValidationError(RuntimeError):
+    """A command-line error that the caller may request as JSON."""
+
+
+class GoldenArgumentParser(argparse.ArgumentParser):
+    def error(self, message: str) -> None:
+        raise ArgumentValidationError(message)
 
 
 @dataclass(frozen=True)
@@ -128,6 +197,21 @@ class TrailDeltaMetrics:
     chromaticity: tuple[float, float, float]
     bounds: tuple[int, int, int, int]
     negative_energy: int
+
+
+@dataclass(frozen=True)
+class TrailDeltaResult:
+    metrics: TrailDeltaMetrics
+    failures: tuple[str, ...]
+    weak_tail_metrics: TrailDeltaMetrics | None = None
+
+
+@dataclass(frozen=True)
+class DragCaseResult:
+    interaction: TrailDeltaResult
+    trail_only: TrailDeltaResult
+    layers: LayerMetrics | None
+    passed_layers: bool | None
 
 
 @dataclass(frozen=True)
@@ -281,6 +365,107 @@ def _read_png(path: Path) -> Image8:
             source_offset:source_offset + 3
         ]
     return Image8(width, height, bytes(rgb))
+
+
+def _linear_to_srgb_preview_byte(linear: float) -> int:
+    if not math.isfinite(linear):
+        raise ValidationError("FP16 preview source contains non-finite RGB")
+    clamped = min(max(linear, 0.0), 1.0)
+    encoded = (
+        clamped * 12.92
+        if clamped <= 0.0031308
+        else 1.055 * clamped ** (1.0 / 2.4) - 0.055
+    )
+    # C++ lround rounds positive half values away from zero.
+    return math.floor(encoded * 255.0 + 0.5)
+
+
+def _read_bound_preview(directory: Path, name: str) -> Image8:
+    image = _read_png(directory / f"{name}.png")
+    if (image.width, image.height) != (CAPTURE_WIDTH, CAPTURE_HEIGHT):
+        raise ValidationError(f"{name} PNG must be {CAPTURE_WIDTH}x{CAPTURE_HEIGHT}")
+    raw_path = directory / f"{name}.rgba16f"
+    for pixel_index, pixel in enumerate(
+        _iter_half_pixels(raw_path, image.width, image.height)
+    ):
+        rgb_offset = pixel_index * 3
+        for channel in range(3):
+            expected = _linear_to_srgb_preview_byte(pixel[channel])
+            actual = image.rgb[rgb_offset + channel]
+            if actual != expected:
+                raise ValidationError(
+                    f"{name} PNG does not match its FP16 source at pixel "
+                    f"{pixel_index}, channel {channel}"
+                )
+    return image
+
+
+def _trail_delta_metrics(
+    with_trail: Image8,
+    no_trail: Image8,
+    signal_threshold: int = NON_BLACK_THRESHOLD,
+    signal_only: bool = False,
+) -> TrailDeltaMetrics:
+    if (with_trail.width, with_trail.height) != (no_trail.width, no_trail.height):
+        raise ValidationError("WithTrail/NoTrail dimensions differ")
+    expected_rgb_bytes = with_trail.width * with_trail.height * 3
+    if (
+        len(with_trail.rgb) != expected_rgb_bytes
+        or len(no_trail.rgb) != expected_rgb_bytes
+    ):
+        raise ValidationError("paired PNG storage does not match dimensions")
+    if type(signal_threshold) is not int or signal_threshold < 0:
+        raise ValidationError("Trail signal threshold must be a non-negative integer")
+    if type(signal_only) is not bool:
+        raise ValidationError("Trail signal-only flag must be a boolean")
+
+    channel_energy = [0, 0, 0]
+    negative_energy = 0
+    coverage_pixels = 0
+    weighted_x = 0
+    weighted_y = 0
+    weight = 0
+    minimum_x = with_trail.width
+    minimum_y = with_trail.height
+    maximum_x = -1
+    maximum_y = -1
+    for byte_index in range(0, len(with_trail.rgb), 3):
+        pixel_index = byte_index // 3
+        x = pixel_index % with_trail.width
+        y = pixel_index // with_trail.width
+        positive = []
+        for channel in range(3):
+            delta = with_trail.rgb[byte_index + channel] - no_trail.rgb[byte_index + channel]
+            positive.append(max(delta, 0))
+            negative_energy += max(-delta, 0)
+        is_signal = max(positive) > signal_threshold
+        if not signal_only or is_signal:
+            for channel in range(3):
+                channel_energy[channel] += positive[channel]
+            pixel_weight = sum(positive)
+            if pixel_weight > 0:
+                weight += pixel_weight
+                weighted_x += x * pixel_weight
+                weighted_y += y * pixel_weight
+        if is_signal:
+            coverage_pixels += 1
+            minimum_x = min(minimum_x, x)
+            minimum_y = min(minimum_y, y)
+            maximum_x = max(maximum_x, x)
+            maximum_y = max(maximum_y, y)
+
+    energy = sum(channel_energy)
+    if energy <= 0 or coverage_pixels <= 0 or maximum_x < minimum_x:
+        raise ValidationError("WithTrail/NoTrail pair has no positive Trail delta")
+    return TrailDeltaMetrics(
+        energy=energy,
+        coverage_pixels=coverage_pixels,
+        centroid_x=weighted_x / weight,
+        centroid_y=weighted_y / weight,
+        chromaticity=tuple(value / energy for value in channel_energy),
+        bounds=(minimum_x, minimum_y, maximum_x, maximum_y),
+        negative_energy=negative_energy,
+    )
 
 
 def _display_metrics(image: Image8) -> DisplayMetrics:
@@ -574,7 +759,7 @@ def _layer_contract_failures(layers: LayerMetrics) -> tuple[str, ...]:
 
 
 def _trail_delta_failures(metrics: TrailDeltaMetrics) -> tuple[str, ...]:
-    """Evaluate thresholds locked before the first native drag capture."""
+    """Evaluate the interaction pair using its high-signal Trail body."""
     failures = []
     if metrics.negative_energy != 0:
         failures.append(
@@ -632,6 +817,58 @@ def _trail_delta_failures(metrics: TrailDeltaMetrics) -> tuple[str, ...]:
     return tuple(failures)
 
 
+def _trail_only_failures(metrics: TrailDeltaMetrics) -> tuple[str, ...]:
+    """Validate the isolated Trail material without cross-RNG particle overlap."""
+    failures = []
+    if metrics.negative_energy != 0:
+        failures.append(
+            "Trail-only frame contains negative energy: "
+            f"negativeEnergy={metrics.negative_energy}"
+        )
+    energy_error = _relative_error(metrics.energy, TRAIL_ONLY_REFERENCE_ENERGY)
+    if energy_error > TRAIL_ONLY_ENERGY_RELATIVE_TOLERANCE:
+        failures.append(
+            f"Trail-only energy differs from Unity: error={energy_error:.1%}"
+        )
+    coverage_error = _relative_error(
+        metrics.coverage_pixels,
+        TRAIL_ONLY_REFERENCE_COVERAGE,
+    )
+    if coverage_error > TRAIL_ONLY_COVERAGE_RELATIVE_TOLERANCE:
+        failures.append(
+            f"Trail-only coverage differs from Unity: error={coverage_error:.1%}"
+        )
+    centroid_delta = (
+        abs(metrics.centroid_x - TRAIL_ONLY_REFERENCE_CENTROID[0]),
+        abs(metrics.centroid_y - TRAIL_ONLY_REFERENCE_CENTROID[1]),
+    )
+    if any(delta > TRAIL_ONLY_CENTROID_TOLERANCE_PX for delta in centroid_delta):
+        failures.append(
+            "Trail-only centroid differs from Unity: "
+            f"dx={centroid_delta[0]:.2f}px dy={centroid_delta[1]:.2f}px"
+        )
+    chromaticity_error = sum(
+        abs(actual - expected)
+        for actual, expected in zip(
+            metrics.chromaticity,
+            TRAIL_ONLY_REFERENCE_CHROMATICITY,
+        )
+    )
+    if chromaticity_error > TRAIL_ONLY_CHROMATICITY_L1_TOLERANCE:
+        failures.append(
+            "Trail-only chromaticity differs from Unity: "
+            f"l1={chromaticity_error:.4f}"
+        )
+    for actual, expected in zip(metrics.bounds, TRAIL_ONLY_REFERENCE_BOUNDS):
+        if abs(actual - expected) > TRAIL_ONLY_BOUNDS_TOLERANCE_PX:
+            failures.append(
+                "Trail-only bounds differ from Unity: "
+                f"actual={metrics.bounds} expected={TRAIL_ONLY_REFERENCE_BOUNDS}"
+            )
+            break
+    return tuple(failures)
+
+
 def _tolerance(age_ms: int) -> Tolerance:
     if age_ms <= 50:
         return Tolerance(0.35, 0.30, 32.0, 0.15, 0.08)
@@ -649,44 +886,312 @@ def _find_age_directory(root: Path, age_ms: int) -> Path:
     return directory
 
 
+def _require_object(value: object, label: str) -> dict:
+    if not isinstance(value, dict):
+        raise ValidationError(f"{label} must be an object")
+    return value
+
+
+def _require_list(value: object, label: str) -> list:
+    if not isinstance(value, list):
+        raise ValidationError(f"{label} must be an array")
+    return value
+
+
+def _require_exact_int(container: dict, key: str, expected: int, label: str) -> int:
+    value = container.get(key)
+    # bool subclasses int in Python, but JSON true is never a valid dimension.
+    if type(value) is not int or value != expected:
+        raise ValidationError(f"{label}.{key} must be {expected}")
+    return value
+
+
+def _require_string(container: dict, key: str, expected: str, label: str) -> str:
+    value = container.get(key)
+    if type(value) is not str or value != expected:
+        raise ValidationError(f"{label}.{key} must be {expected!r}")
+    return value
+
+
+def _require_finite_number(container: dict, key: str, label: str) -> float:
+    value = container.get(key)
+    if type(value) not in (int, float) or not math.isfinite(value):
+        raise ValidationError(f"{label}.{key} must be a finite number")
+    return float(value)
+
+
+def _validate_layer_records(records: object, label: str) -> frozenset[str]:
+    layers = _require_list(records, label)
+    names = set()
+    for index, value in enumerate(layers):
+        layer_label = f"{label}[{index}]"
+        layer = _require_object(value, layer_label)
+        name = layer.get("name")
+        if type(name) is not str or not name:
+            raise ValidationError(f"{layer_label}.name must be a non-empty string")
+        if name in names:
+            raise ValidationError(f"{label} contains duplicate layer {name!r}")
+        names.add(name)
+        width = layer.get("width")
+        height = layer.get("height")
+        raw_bytes = layer.get("rawBytes")
+        expected_extent = EXPECTED_LAYER_EXTENTS.get(name)
+        if (
+            type(width) is not int
+            or type(height) is not int
+            or type(raw_bytes) is not int
+            or expected_extent is None
+            or (width, height) != expected_extent
+            or raw_bytes != width * height * 8
+        ):
+            raise ValidationError(f"{layer_label} has invalid FP16 extent or byte count")
+    return frozenset(names)
+
+
+def _require_file_size(path: Path, expected: int) -> None:
+    try:
+        actual = path.stat().st_size
+    except OSError as error:
+        raise ValidationError(f"unable to inspect required artifact {path}: {error}") from error
+    if actual != expected:
+        raise ValidationError(
+            f"artifact byte count mismatch for {path}: expected {expected}, got {actual}"
+        )
+
+
+def _validate_drag_manifest(root: Path, manifest: dict, age_record: dict) -> None:
+    case = _require_object(manifest["case"], "native manifest case")
+    _require_exact_int(case, "contractVersion", 1, "native manifest case")
+    _require_exact_int(case, "movementPixels", 432, "native manifest case")
+    _require_exact_int(case, "movementSteps", 12, "native manifest case")
+    _require_exact_int(case, "trailOnlyPixels", 20, "native manifest case")
+    _require_string(
+        case,
+        "trailFixture",
+        "two-endpoint-unity-editor-diagnostic",
+        "native manifest case",
+    )
+    references = _require_object(
+        case.get("unityReference"),
+        "native manifest case.unityReference",
+    )
+    _require_string(
+        references,
+        "withTrail",
+        DRAG_WITH_TRAIL_REFERENCE,
+        "native manifest case.unityReference",
+    )
+    _require_string(
+        references,
+        "noTrail",
+        DRAG_NO_TRAIL_REFERENCE,
+        "native manifest case.unityReference",
+    )
+    _require_string(
+        references,
+        "trailOnly",
+        TRAIL_ONLY_REFERENCE,
+        "native manifest case.unityReference",
+    )
+
+    frames = _require_list(
+        age_record.get("comparisonFrames"),
+        "native drag-trail comparisonFrames",
+    )
+    expected_names = {
+        "FinalOverlay_NoTrail",
+        "FinalOverlay_TrailOnly20px",
+    }
+    if len(frames) != len(expected_names):
+        raise ValidationError(
+            "native drag-trail comparisonFrames must contain exactly two frames"
+        )
+    frame_names = []
+    for index, value in enumerate(frames):
+        label = f"native drag-trail comparisonFrames[{index}]"
+        frame = _require_object(value, label)
+        name = frame.get("name")
+        if type(name) is not str:
+            raise ValidationError(f"{label}.name must be a string")
+        frame_names.append(name)
+        _require_exact_int(frame, "width", CAPTURE_WIDTH, label)
+        _require_exact_int(frame, "height", CAPTURE_HEIGHT, label)
+        _require_exact_int(frame, "rawBytes", CAPTURE_RGBA16F_BYTES, label)
+    if set(frame_names) != expected_names or len(set(frame_names)) != len(frame_names):
+        raise ValidationError(
+            "native drag-trail comparisonFrames names differ from the locked fixture"
+        )
+    age_directory = root / "0140ms"
+    for name in expected_names:
+        _require_file_size(
+            age_directory / f"{name}.rgba16f",
+            CAPTURE_RGBA16F_BYTES,
+        )
+
+
 def _load_manifest(root: Path) -> dict:
     path = root / "manifest.json"
     if not path.is_file():
         raise ValidationError(f"native manifest not found: {path}")
     try:
         manifest = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as error:
+    except (OSError, UnicodeError, json.JSONDecodeError) as error:
         raise ValidationError(f"invalid native manifest {path}: {error}") from error
-    if manifest.get("viewport", {}).get("width") != 1950 or manifest.get("viewport", {}).get("height") != 1097:
-        raise ValidationError("native manifest viewport must be 1950x1097")
-    if manifest.get("schemaVersion") != 1:
-        raise ValidationError("native manifest schemaVersion must be 1")
-    if manifest.get("driver") != "WARP" or int(manifest.get("seed", -1)) != 20260716:
-        raise ValidationError("native manifest must use WARP and seed 20260716")
-    if manifest.get("rowOrigin") != "top-left":
-        raise ValidationError("native manifest rowOrigin must be top-left")
-    bloom = manifest.get("bloom", {})
-    if int(bloom.get("mipCount", -1)) != 6:
-        raise ValidationError("native manifest Bloom mipCount must be 6")
-    if abs(float(bloom.get("sampleScale", math.nan)) - SAMPLE_SCALE) > 1.0e-6:
+    manifest = _require_object(manifest, "native manifest")
+    _require_exact_int(manifest, "schemaVersion", 1, "native manifest")
+    _require_string(manifest, "driver", "WARP", "native manifest")
+    _require_exact_int(manifest, "seed", 20260716, "native manifest")
+    _require_string(manifest, "rowOrigin", "top-left", "native manifest")
+    if type(manifest.get("allLayers")) is not bool:
+        raise ValidationError("native manifest allLayers must be a boolean")
+
+    viewport = _require_object(manifest.get("viewport"), "native manifest viewport")
+    _require_exact_int(viewport, "width", CAPTURE_WIDTH, "native manifest viewport")
+    _require_exact_int(viewport, "height", CAPTURE_HEIGHT, "native manifest viewport")
+
+    bloom = _require_object(manifest.get("bloom"), "native manifest bloom")
+    _require_exact_int(bloom, "mipCount", 6, "native manifest bloom")
+    sample_scale = _require_finite_number(
+        bloom,
+        "sampleScale",
+        "native manifest bloom",
+    )
+    if abs(sample_scale - SAMPLE_SCALE) > 1.0e-6:
         raise ValidationError("native manifest Bloom sampleScale differs from Unity")
-    if abs(float(bloom.get("exposureGain", math.nan)) - EXPOSURE_GAIN) > 1.0e-7:
+    exposure_gain = _require_finite_number(
+        bloom,
+        "exposureGain",
+        "native manifest bloom",
+    )
+    if abs(exposure_gain - EXPOSURE_GAIN) > 1.0e-7:
         raise ValidationError("native manifest Bloom exposureGain differs from Unity")
-    manifest_ages = [int(entry.get("ageMs", -1)) for entry in manifest.get("ages", [])]
-    if sorted(manifest_ages) != list(AGES):
-        raise ValidationError(
-            "native manifest must contain each locked age exactly once: "
-            + ", ".join(str(age) for age in AGES)
+
+    case_name = "click"
+    if "case" in manifest:
+        case = _require_object(manifest["case"], "native manifest case")
+        case_name_value = case.get("name")
+        if type(case_name_value) is not str:
+            raise ValidationError("native manifest case.name must be a string")
+        case_name = case_name_value
+    if case_name not in ("click", "drag-trail"):
+        raise ValidationError(f"native manifest case is unsupported: {case_name}")
+
+    ages = _require_list(manifest.get("ages"), "native manifest ages")
+    age_records = []
+    manifest_ages = []
+    for index, value in enumerate(ages):
+        label = f"native manifest ages[{index}]"
+        age_record = _require_object(value, label)
+        age = age_record.get("ageMs")
+        if type(age) is not int:
+            raise ValidationError(f"{label}.ageMs must be an integer")
+        layer_names = _validate_layer_records(
+            age_record.get("layers"),
+            f"{label}.layers",
         )
+        expected_layer_names = (
+            ALL_LAYER_NAMES if manifest["allLayers"] else FINAL_ONLY_LAYER_NAMES
+        )
+        if layer_names != expected_layer_names:
+            raise ValidationError(
+                f"{label}.layers differ from the declared allLayers contract"
+            )
+        age_records.append(age_record)
+        manifest_ages.append(age)
+    required_ages = AGES if case_name == "click" else (140,)
+    if sorted(manifest_ages) != list(required_ages):
+        raise ValidationError(
+            f"native {case_name} manifest must contain each locked age exactly once: "
+            + ", ".join(str(age) for age in required_ages)
+        )
+    if case_name == "drag-trail":
+        _validate_drag_manifest(root, manifest, age_records[0])
     return manifest
+
+
+def _black_image_like(image: Image8) -> Image8:
+    return Image8(image.width, image.height, bytes(len(image.rgb)))
+
+
+def _compare_drag_case(
+    unity_root: Path,
+    native_root: Path,
+    check_layers: bool,
+    manifest: dict,
+) -> DragCaseResult:
+    unity_interaction_root = unity_root.parent / "Diagnostics" / "Interaction"
+    unity_with = _read_png(unity_interaction_root / Path(DRAG_WITH_TRAIL_REFERENCE).name)
+    unity_without = _read_png(unity_interaction_root / Path(DRAG_NO_TRAIL_REFERENCE).name)
+    unity_metrics = _trail_delta_metrics(
+        unity_with,
+        unity_without,
+        TRAIL_SIGNAL_THRESHOLD,
+        signal_only=True,
+    )
+    # The constants above are deliberately duplicated from the locked external
+    # evidence so a changed reference cannot silently redefine its own gate.
+    if _trail_delta_failures(unity_metrics):
+        raise ValidationError("locked Unity drag-trail pair differs from recorded metrics")
+
+    directory = _find_age_directory(native_root, 140)
+    native_with = _read_bound_preview(directory, "FinalOverlay")
+    native_without = _read_bound_preview(directory, "FinalOverlay_NoTrail")
+    native_metrics = _trail_delta_metrics(
+        native_with,
+        native_without,
+        TRAIL_SIGNAL_THRESHOLD,
+        signal_only=True,
+    )
+    interaction = TrailDeltaResult(
+        metrics=native_metrics,
+        failures=_trail_delta_failures(native_metrics),
+        weak_tail_metrics=_trail_delta_metrics(native_with, native_without),
+    )
+
+    unity_trail_only = _read_png(
+        unity_root.parent / "Diagnostics" / "Trail" / Path(TRAIL_ONLY_REFERENCE).name
+    )
+    unity_trail_only_metrics = _trail_delta_metrics(
+        unity_trail_only,
+        _black_image_like(unity_trail_only),
+    )
+    if _trail_only_failures(unity_trail_only_metrics):
+        raise ValidationError("locked Unity Trail-only frame differs from recorded metrics")
+    native_trail_only = _read_bound_preview(
+        directory,
+        "FinalOverlay_TrailOnly20px",
+    )
+    native_trail_only_metrics = _trail_delta_metrics(
+        native_trail_only,
+        _black_image_like(native_trail_only),
+    )
+    trail_only = TrailDeltaResult(
+        metrics=native_trail_only_metrics,
+        failures=_trail_only_failures(native_trail_only_metrics),
+    )
+
+    layers = None
+    passed_layers = None
+    if check_layers:
+        age_record = manifest["ages"][0]
+        layer_info = {entry["name"]: entry for entry in age_record["layers"]}
+        layers = _layer_metrics(directory, layer_info)
+        passed_layers = not _layer_contract_failures(layers)
+    return DragCaseResult(
+        interaction=interaction,
+        trail_only=trail_only,
+        layers=layers,
+        passed_layers=passed_layers,
+    )
 
 
 def _compare_slice(age_ms: int, unity_root: Path, native_root: Path, check_layers: bool, manifest: dict) -> SliceResult:
     golden_path = unity_root / f"FX_Touch_{age_ms:04d}ms.png"
     native_directory = _find_age_directory(native_root, age_ms)
-    native_path = native_directory / "FinalOverlay.png"
     golden = _display_metrics(_read_png(golden_path))
-    native = _display_metrics(_read_png(native_path))
+    native = _display_metrics(
+        _read_bound_preview(native_directory, "FinalOverlay")
+    )
     if (golden.width, golden.height) != (native.width, native.height):
         raise ValidationError(f"{age_ms}ms: Golden/native dimensions differ")
     tolerance = _tolerance(age_ms)
@@ -758,13 +1263,94 @@ def _format_result(result: SliceResult) -> str:
     )
 
 
+def _format_trail_result(label: str, result: TrailDeltaResult) -> str:
+    metrics = result.metrics
+    status = "PASS" if not result.failures else "FAIL"
+    return (
+        f"{status} {label} energy={metrics.energy} "
+        f"coverage={metrics.coverage_pixels} "
+        f"centroid=({metrics.centroid_x:.2f},{metrics.centroid_y:.2f}) "
+        f"chroma=({metrics.chromaticity[0]:.4f},"
+        f"{metrics.chromaticity[1]:.4f},{metrics.chromaticity[2]:.4f}) "
+        f"bounds={metrics.bounds} negativeEnergy={metrics.negative_energy}"
+    )
+
+
+def _threshold_failures(
+    results: list[SliceResult],
+    drag_result: DragCaseResult | None,
+) -> list[str]:
+    failures = []
+    for result in results:
+        if not result.passed_display:
+            failures.append(f"display threshold failure at {result.age_ms}ms")
+        if result.passed_layers is False:
+            details = "; ".join(_layer_contract_failures(result.layers))
+            failures.append(
+                f"layer threshold failure at {result.age_ms}ms: {details}"
+            )
+    if drag_result is not None:
+        failures.extend(
+            f"trail threshold failure: {failure}"
+            for failure in drag_result.interaction.failures
+        )
+        failures.extend(
+            f"Trail-only threshold failure: {failure}"
+            for failure in drag_result.trail_only.failures
+        )
+        if drag_result.passed_layers is False:
+            details = "; ".join(_layer_contract_failures(drag_result.layers))
+            failures.append(f"drag-trail layer threshold failure: {details}")
+    return failures
+
+
+def _json_report(
+    case_name: str | None,
+    passed: bool,
+    results: list[SliceResult],
+    drag_result: DragCaseResult | None,
+    errors: list[str],
+    error_kind: str | None,
+) -> dict:
+    return {
+        "schemaVersion": 1,
+        "case": case_name,
+        "passed": passed,
+        "errorKind": error_kind,
+        "results": {
+            "slices": [asdict(result) for result in results],
+            "drag": asdict(drag_result) if drag_result is not None else None,
+        },
+        "errors": errors,
+    }
+
+
+def _json_safe(value: object) -> object:
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
+    if isinstance(value, dict):
+        return {key: _json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(item) for item in value]
+    return value
+
+
+def _write_json(report: dict) -> None:
+    print(json.dumps(_json_safe(report), indent=2, allow_nan=False))
+
+
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
+    arguments = list(sys.argv[1:] if argv is None else argv)
+    json_requested = "--json" in arguments
+    parser = GoldenArgumentParser(description=__doc__)
     parser.add_argument(
         "--unity-captures",
         type=Path,
         default=None,
-        help="directory containing FX_Touch_XXXXms.png (default: Unity reference)",
+        help=(
+            "directory containing FX_Touch_XXXXms.png; drag diagnostics are "
+            "resolved from the sibling Diagnostics/Interaction directory"
+        ),
     )
     parser.add_argument(
         "--native-root",
@@ -772,12 +1358,13 @@ def main(argv: list[str] | None = None) -> int:
         default=Path("artifacts/local/gpu-captures/native"),
         help="native capture directory containing manifest.json and age folders",
     )
-    parser.add_argument(
+    layer_options = parser.add_mutually_exclusive_group()
+    layer_options.add_argument(
         "--no-layers",
         action="store_true",
         help="skip FP16 intermediate-layer checks even when manifest has allLayers=true",
     )
-    parser.add_argument(
+    layer_options.add_argument(
         "--require-layers",
         action="store_true",
         help="fail if the native manifest does not contain all intermediate layers",
@@ -787,48 +1374,95 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="emit a JSON report after the human-readable lines",
     )
-    args = parser.parse_args(argv)
+    try:
+        args = parser.parse_args(arguments)
+    except ArgumentValidationError as error:
+        if json_requested:
+            _write_json(_json_report(
+                None,
+                False,
+                [],
+                None,
+                [str(error)],
+                "arguments",
+            ))
+        else:
+            parser.print_usage(sys.stderr)
+            print(f"{parser.prog}: error: {error}", file=sys.stderr)
+        return 2
     unity_root = (args.unity_captures or _default_unity_root()).resolve()
     native_root = args.native_root.resolve()
+    case_name = None
     try:
         manifest = _load_manifest(native_root)
         manifest_has_layers = bool(manifest.get("allLayers", False))
         if args.require_layers and not manifest_has_layers:
             raise ValidationError("--require-layers requires a manifest captured with --all-layers")
         check_layers = manifest_has_layers and not args.no_layers
-        results = [
-            _compare_slice(age, unity_root, native_root, check_layers, manifest)
-            for age in AGES
-        ]
+        case_name = manifest.get("case", {}).get("name", "click")
+        if case_name == "click":
+            results = [
+                _compare_slice(age, unity_root, native_root, check_layers, manifest)
+                for age in AGES
+            ]
+            drag_result = None
+        else:
+            results = []
+            drag_result = _compare_drag_case(
+                unity_root,
+                native_root,
+                check_layers,
+                manifest,
+            )
     except ValidationError as error:
-        print(f"golden-metrics: ERROR: {error}", file=sys.stderr)
+        if args.json:
+            _write_json(_json_report(
+                case_name,
+                False,
+                [],
+                None,
+                [str(error)],
+                "input",
+            ))
+        else:
+            print(f"golden-metrics: ERROR: {error}", file=sys.stderr)
         return 2
+
+    failures = _threshold_failures(results, drag_result)
+    passed = not failures
+    if args.json:
+        _write_json(_json_report(
+            case_name,
+            passed,
+            results,
+            drag_result,
+            failures,
+            None if passed else "threshold",
+        ))
+        return 0 if passed else 1
 
     for result in results:
         print(_format_result(result))
-    passed = all(
-        result.passed_display and (result.passed_layers is not False)
-        for result in results
-    )
-    if args.json:
-        print(json.dumps([asdict(result) for result in results], indent=2))
+    if drag_result is not None:
+        print(_format_trail_result("drag-trail-delta", drag_result.interaction))
+        weak = drag_result.interaction.weak_tail_metrics
+        if weak is not None:
+            print(
+                "INFO drag-trail-weak-tail "
+                f"threshold>{NON_BLACK_THRESHOLD} "
+                f"coverage={weak.coverage_pixels} bounds={weak.bounds}"
+            )
+        print(_format_trail_result("trail-only-20px", drag_result.trail_only))
     if not passed:
-        for result in results:
-            if not result.passed_display:
-                print(
-                    f"golden-metrics: display threshold failure at {result.age_ms}ms",
-                    file=sys.stderr,
-                )
-            if result.passed_layers is False:
-                details = "; ".join(_layer_contract_failures(result.layers))
-                print(
-                    f"golden-metrics: layer threshold failure at {result.age_ms}ms: "
-                    + details,
-                    file=sys.stderr,
-                )
+        for failure in failures:
+            print(f"golden-metrics: {failure}", file=sys.stderr)
         return 1
     print(
-        f"Golden metrics passed: {len(results)} slices"
+        (
+            f"Golden metrics passed: {len(results)} slices"
+            if drag_result is None
+            else "Golden metrics passed: drag interaction + isolated Trail"
+        )
         + (" + FP16 layers" if check_layers else "")
     )
     return 0
