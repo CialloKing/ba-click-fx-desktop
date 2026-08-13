@@ -100,6 +100,13 @@
     },
     {
       "root": "runtime",
+      "class": "ReconstructionChoice",
+      "path": "Assets/Editor/BaFxTouchPreviewCapture.cs",
+      "bytes": 60276,
+      "sha256": "80A2D4CCFB27534828D9555EE6D8C74194E1996B58105F56C8C96D429511C586"
+    },
+    {
+      "root": "runtime",
       "class": "RuntimeObservation",
       "path": "Reference/光晕还原审计.md",
       "bytes": 7181,
@@ -230,6 +237,20 @@
       "path": "Reference/Captures/FX_Touch_0450ms.png",
       "bytes": 99561,
       "sha256": "2C30F0EEDC699879C8CC8631B63404E85BFB770764753DE5240D55609CC6C766"
+    },
+    {
+      "root": "runtime",
+      "class": "RuntimeObservation",
+      "path": "Reference/Diagnostics/Interaction/FX_Touch_0140ms_Move_0432px_WithTrail_Age0140ms.png",
+      "bytes": 203061,
+      "sha256": "A456F6C8D61629BBADBC5DEAAD005C79851DDF1ED4D6AC3CBE16079AAE07A0DD"
+    },
+    {
+      "root": "runtime",
+      "class": "RuntimeObservation",
+      "path": "Reference/Diagnostics/Interaction/FX_Touch_0140ms_Move_0432px_NoTrail_Age0140ms.png",
+      "bytes": 160445,
+      "sha256": "AF141F96D6BCAB767E3D215E8F43A3CCF0B313DC644C53403F2B748DE50967FF"
     }
   ]
 }

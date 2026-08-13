@@ -42,6 +42,9 @@ D:\WebProjects\BA鼠标输入与点击特效系统\提取资产2\BA_FX_Touch_Uni
 - 当前 Golden 使用 `1950x1097`、固定 UI `Ortho(-aspect, aspect, -1, 1)`、ARGBHalf/Linear、MSAA 1。
 - 固定时间片为 50、100、110、120、130、140、150、180、250、450 ms。
 - Bloom 从 `975x548` 开始，共 6 层，最小 mip 为 `30x17`，sample scale 为 `1.42925835`。
+- 拖拽诊断使用 `140 ms` 内水平移动 `432 px`：先在起点静止推进一帧，再分 12 段移动；
+  `WithTrail` 与 `NoTrail` 使用相同种子和粒子轨迹，只切换 TrailRenderer。生成脚本与两张诊断图均由
+  `reference/unity-reference.json` 锁定，供后续拖尾差分门禁使用。
 
 上述“截图一致”只证明重建路径在该矩阵中的观察结果；它不自动证明游戏所有 render queue、pause、
 slow-motion、录屏、HDR 显示或桌面合成行为一致。
