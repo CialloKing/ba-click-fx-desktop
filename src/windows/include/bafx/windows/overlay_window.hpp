@@ -54,6 +54,38 @@ struct PointerEvent
     std::uint32_t messageTimeMilliseconds{0U};
 };
 
+struct PointerFrameEdge
+{
+    PointerEventKind kind{PointerEventKind::Cancel};
+    PointerEvent trigger{};
+};
+
+struct PointerFrameSnapshot
+{
+    bool heldBefore{false};
+    bool heldAfter{false};
+    bool hasFinalHeldMove{false};
+    bool hasFinalFreeMove{false};
+    std::vector<PointerFrameEdge> edges{};
+    std::optional<PointerEvent> latestNonCancelSample{};
+    std::optional<PointerEvent> latestMoveSample{};
+};
+
+// Legacy Unity input exposes one pointer state per rendered frame rather than
+// replaying every OS move. This adapter owns only that pure state reduction;
+// coordinate sampling, mapping, and effect dispatch remain host concerns.
+class PointerFrameAdapter final
+{
+public:
+    [[nodiscard]] PointerFrameSnapshot consume(
+        const std::vector<PointerEvent>& events);
+
+    [[nodiscard]] bool held() const noexcept;
+
+private:
+    bool held_{false};
+};
+
 [[nodiscard]] std::vector<PointerEvent> coalescePointerMoves(
     std::vector<PointerEvent> events) noexcept;
 

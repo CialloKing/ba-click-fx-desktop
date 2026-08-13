@@ -99,6 +99,76 @@ std::vector<PointerEvent> compactPointerEventBacklog(
     return coalescePointerMoves(std::move(events));
 }
 
+PointerFrameSnapshot PointerFrameAdapter::consume(
+    const std::vector<PointerEvent>& events)
+{
+    PointerFrameSnapshot frame{};
+    frame.heldBefore = held_;
+
+    for (const PointerEvent& event : events)
+    {
+        if (event.kind != PointerEventKind::Cancel)
+        {
+            // Even a duplicate edge carries the newest cursor sample. The
+            // desktop host can therefore use one final frame position without
+            // treating the duplicate as another state transition.
+            frame.latestNonCancelSample = event;
+        }
+
+        switch (event.kind)
+        {
+        case PointerEventKind::Move:
+            frame.latestMoveSample = event;
+            if (held_)
+            {
+                frame.hasFinalHeldMove = true;
+            }
+            else
+            {
+                frame.hasFinalFreeMove = true;
+            }
+            break;
+
+        case PointerEventKind::LeftButtonDown:
+            if (!held_)
+            {
+                held_ = true;
+                frame.hasFinalFreeMove = false;
+                frame.hasFinalHeldMove = false;
+                frame.edges.push_back(PointerFrameEdge{event.kind, event});
+            }
+            break;
+
+        case PointerEventKind::LeftButtonUp:
+            if (held_)
+            {
+                held_ = false;
+                frame.hasFinalFreeMove = false;
+                frame.hasFinalHeldMove = false;
+                frame.edges.push_back(PointerFrameEdge{event.kind, event});
+            }
+            break;
+
+        case PointerEventKind::Cancel:
+            // Cancellation is also a frame boundary while already free: the
+            // host must be able to retire ambient input before any later move.
+            held_ = false;
+            frame.hasFinalFreeMove = false;
+            frame.hasFinalHeldMove = false;
+            frame.edges.push_back(PointerFrameEdge{event.kind, event});
+            break;
+        }
+    }
+
+    frame.heldAfter = held_;
+    return frame;
+}
+
+bool PointerFrameAdapter::held() const noexcept
+{
+    return held_;
+}
+
 bool CaptureExclusionStatus::confirmed() const noexcept
 {
     return setSucceeded
