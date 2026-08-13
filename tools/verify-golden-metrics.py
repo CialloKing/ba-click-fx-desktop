@@ -68,6 +68,23 @@ TRAIL_ONLY_REFERENCE = (
     "Reference/Diagnostics/Trail/FX_Touch_0140ms_TrailOnly_20px.png"
 )
 FINAL_ONLY_LAYER_NAMES = frozenset(("FinalOverlay",))
+LAYER_ALPHA_SEMANTICS = {
+    "DirectSurface": "authored-coverage-union",
+    "BloomSeed": "bloom-source-coverage",
+    "Prefilter_Down00": "bloom-transport-energy",
+    "Down01": "bloom-transport-energy",
+    "Down02": "bloom-transport-energy",
+    "Down03": "bloom-transport-energy",
+    "Down04": "bloom-transport-energy",
+    "Down05": "bloom-transport-energy",
+    "Up00": "bloom-transport-energy",
+    "Up01": "bloom-transport-energy",
+    "Up02": "bloom-transport-energy",
+    "Up03": "bloom-transport-energy",
+    "Up04": "bloom-transport-energy",
+    "BloomResult": "bloom-transport-coverage",
+    "FinalOverlay": "coverage-union",
+}
 ALL_LAYER_NAMES = frozenset(
     (
         "DirectSurface",
@@ -83,6 +100,7 @@ ALL_LAYER_NAMES = frozenset(
         "Up02",
         "Up03",
         "Up04",
+        "BloomResult",
         "FinalOverlay",
     )
 )
@@ -100,6 +118,7 @@ EXPECTED_LAYER_EXTENTS = {
     "Up02": (243, 137),
     "Up03": (121, 68),
     "Up04": (60, 34),
+    "BloomResult": (1950, 1097),
     "FinalOverlay": (1950, 1097),
 }
 TRAIL_DELTA_REFERENCE_ENERGY = 4_386_871
@@ -932,6 +951,15 @@ def _validate_layer_records(records: object, label: str) -> frozenset[str]:
         if name in names:
             raise ValidationError(f"{label} contains duplicate layer {name!r}")
         names.add(name)
+        alpha_semantic = layer.get("alphaSemantic")
+        expected_alpha_semantic = LAYER_ALPHA_SEMANTICS.get(name)
+        if (
+            type(alpha_semantic) is not str
+            or alpha_semantic != expected_alpha_semantic
+        ):
+            raise ValidationError(
+                f"{layer_label}.alphaSemantic differs from the layer contract"
+            )
         width = layer.get("width")
         height = layer.get("height")
         raw_bytes = layer.get("rawBytes")
@@ -1014,6 +1042,7 @@ def _validate_drag_manifest(root: Path, manifest: dict, age_record: dict) -> Non
         if type(name) is not str:
             raise ValidationError(f"{label}.name must be a string")
         frame_names.append(name)
+        _require_string(frame, "alphaSemantic", "coverage-union", label)
         _require_exact_int(frame, "width", CAPTURE_WIDTH, label)
         _require_exact_int(frame, "height", CAPTURE_HEIGHT, label)
         _require_exact_int(frame, "rawBytes", CAPTURE_RGBA16F_BYTES, label)
@@ -1038,7 +1067,7 @@ def _load_manifest(root: Path) -> dict:
     except (OSError, UnicodeError, json.JSONDecodeError) as error:
         raise ValidationError(f"invalid native manifest {path}: {error}") from error
     manifest = _require_object(manifest, "native manifest")
-    _require_exact_int(manifest, "schemaVersion", 1, "native manifest")
+    _require_exact_int(manifest, "schemaVersion", 2, "native manifest")
     _require_string(manifest, "driver", "WARP", "native manifest")
     _require_exact_int(manifest, "seed", 20260716, "native manifest")
     _require_string(manifest, "rowOrigin", "top-left", "native manifest")

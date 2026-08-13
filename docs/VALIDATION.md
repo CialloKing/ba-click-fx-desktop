@@ -86,6 +86,13 @@ Bloom 传播可以扩张最终传输覆盖范围，但不能抹掉已有 Coverag
 `DirectSurface.a <= FinalOverlay.a`。这两项使用与其他 FP16 层相同的 `0.002` 数值容差检查单向关系，
 不要求三个 Alpha 通道相等。
 
+捕获 manifest 从 schema 2 起为每个层记录 `alphaSemantic`，它是桌面诊断合同而非 Unity 原生字段：
+`DirectSurface=authored-coverage-union`、`BloomSeed=bloom-source-coverage`、Down/Up
+`=bloom-transport-energy`、`BloomResult=bloom-transport-coverage`、`FinalOverlay=coverage-union`。
+`BloomResult` 是最终 Bloom 金字塔经过全分辨率四点采样、曝光和 Alpha 饱和后的独立 FP16 层，尺寸与
+`DirectSurface` 相同；它与 `FinalOverlay` 在同一次捕获专用 MRT 调用中写出，普通桌面呈现路径不增加
+额外 pass。当前层语义只验证 native shader 自洽，不宣称存在 Unity 对应字段。
+
 原生层级捕获使用固定 WARP、`1950x1097`、中心点击、种子 `20260716`，直接读取
 `Present` 前的 FP16 资源，不依赖会漏掉 DComp visual 的 PrintScreen：
 
@@ -102,7 +109,7 @@ python -B tools\verify-golden-metrics.py `
 ```
 
 默认十个时间片只写 `FinalOverlay.rgba16f` 和黑底 sRGB PNG；指定 `--all-layers` 时再写
-`DirectSurface`、`BloomSeed`、全部 Down/Up mip。`.rgba16f` 是顶部原点、little-endian RGBA
+`DirectSurface`、`BloomSeed`、全部 Down/Up mip、`BloomResult`。`.rgba16f` 是顶部原点、little-endian RGBA
 half 数值证据；PNG 不执行 unpremultiply、强制不透明黑底，仅用于与 Unity PNG 观察和感知比较。
 指标门禁必须同时通过十个时间片及 FP16 分层检查；失败后先解释实现或参考证据，不得放宽阈值。
 

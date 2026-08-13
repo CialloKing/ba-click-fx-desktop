@@ -325,7 +325,7 @@ class TrailOnlyContractTests(unittest.TestCase):
 class ManifestCaseTests(unittest.TestCase):
     def manifest(self, ages):
         return {
-            "schemaVersion": 1,
+            "schemaVersion": 2,
             "driver": "WARP",
             "seed": 20260716,
             "allLayers": False,
@@ -370,6 +370,7 @@ class ManifestCaseTests(unittest.TestCase):
     def comparison_frame(name):
         return {
             "name": name,
+            "alphaSemantic": "coverage-union",
             "width": 1950,
             "height": 1097,
             "rawBytes": 17_113_200,
@@ -475,6 +476,7 @@ class ManifestCaseTests(unittest.TestCase):
             (valid_click, ("bloom", "sampleScale")),
             (valid_click, ("bloom", "exposureGain")),
             (valid_click, ("ages", 0, "ageMs")),
+            (valid_click, ("ages", 0, "layers", 0, "alphaSemantic")),
             (valid_drag, ("case", "movementPixels")),
             (valid_drag, ("case", "movementSteps")),
             (valid_drag, ("case", "trailOnlyPixels")),
@@ -502,6 +504,7 @@ class ManifestCaseTests(unittest.TestCase):
         valid_layers = [
             {
                 "name": name,
+                "alphaSemantic": VERIFY.LAYER_ALPHA_SEMANTICS[name],
                 "width": extent[0],
                 "height": extent[1],
                 "rawBytes": extent[0] * extent[1] * 8,
@@ -523,6 +526,14 @@ class ManifestCaseTests(unittest.TestCase):
         )
         with self.assertRaises(VERIFY.ValidationError):
             self.load(wrong_extent)
+
+        wrong_semantic = self.replaced(
+            valid,
+            ("ages", 0, "layers", 0, "alphaSemantic"),
+            "coverage-union",
+        )
+        with self.assertRaises(VERIFY.ValidationError):
+            self.load(wrong_semantic)
 
     def test_required_manifest_fields_cannot_be_omitted(self):
         valid_click = self.manifest(VERIFY.AGES)
@@ -553,6 +564,10 @@ class ManifestCaseTests(unittest.TestCase):
             (valid_drag, ("case", "unityReference", "noTrail")),
             (valid_drag, ("case", "unityReference", "trailOnly")),
             (valid_drag, ("ages", 0, "comparisonFrames")),
+            (
+                valid_drag,
+                ("ages", 0, "comparisonFrames", 0, "alphaSemantic"),
+            ),
         )
         for manifest, path in required_fields:
             with self.subTest(field=path):
@@ -606,6 +621,10 @@ class ManifestCaseTests(unittest.TestCase):
     def test_comparison_frame_dimensions_and_storage_are_exact(self):
         valid = self.drag_manifest()
         invalid_values = (
+            (
+                ("ages", 0, "comparisonFrames", 0, "alphaSemantic"),
+                "bloom-transport-coverage",
+            ),
             (("ages", 0, "comparisonFrames", 0, "width"), 1949),
             (("ages", 0, "comparisonFrames", 0, "height"), 1096),
             (("ages", 0, "comparisonFrames", 0, "rawBytes"), 17_113_199),

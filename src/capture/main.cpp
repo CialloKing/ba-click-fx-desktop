@@ -110,6 +110,7 @@ struct RenderTarget
 struct ManifestLayer
 {
     std::string name{};
+    std::string alphaSemantic{};
     bafx::capture::LayerArtifact artifact{};
 };
 
@@ -292,10 +293,12 @@ void appendLayer(
     ManifestAge& manifest,
     const std::filesystem::path& directory,
     const std::string& name,
+    const std::string& alphaSemantic,
     const bafx::windows::Rgba16FloatImage& image)
 {
     manifest.layers.push_back(ManifestLayer{
         name,
+        alphaSemantic,
         bafx::capture::writeLayerArtifact(
             directory,
             std::filesystem::path(name),
@@ -317,8 +320,18 @@ void appendLayer(
     const std::filesystem::path directory = root / ageDirectoryName(ageMilliseconds);
     if (allLayers)
     {
-        appendLayer(manifest, directory, "DirectSurface", capture.directSurface);
-        appendLayer(manifest, directory, "BloomSeed", capture.bloomSeed);
+        appendLayer(
+            manifest,
+            directory,
+            "DirectSurface",
+            "authored-coverage-union",
+            capture.directSurface);
+        appendLayer(
+            manifest,
+            directory,
+            "BloomSeed",
+            "bloom-source-coverage",
+            capture.bloomSeed);
         for (std::size_t index = 0U; index < capture.bloomDown.size(); ++index)
         {
             std::ostringstream name;
@@ -330,16 +343,37 @@ void appendLayer(
             {
                 name << "Down" << std::setfill('0') << std::setw(2) << index;
             }
-            appendLayer(manifest, directory, name.str(), capture.bloomDown[index]);
+            appendLayer(
+                manifest,
+                directory,
+                name.str(),
+                "bloom-transport-energy",
+                capture.bloomDown[index]);
         }
         for (std::size_t index = 0U; index < capture.bloomUp.size(); ++index)
         {
             std::ostringstream name;
             name << "Up" << std::setfill('0') << std::setw(2) << index;
-            appendLayer(manifest, directory, name.str(), capture.bloomUp[index]);
+            appendLayer(
+                manifest,
+                directory,
+                name.str(),
+                "bloom-transport-energy",
+                capture.bloomUp[index]);
         }
+        appendLayer(
+            manifest,
+            directory,
+            "BloomResult",
+            "bloom-transport-coverage",
+            capture.bloomResult);
     }
-    appendLayer(manifest, directory, "FinalOverlay", capture.finalOverlay);
+    appendLayer(
+        manifest,
+        directory,
+        "FinalOverlay",
+        "coverage-union",
+        capture.finalOverlay);
     return manifest;
 }
 
@@ -347,12 +381,14 @@ void appendComparisonFrame(
     ManifestAge& manifest,
     const std::filesystem::path& root,
     const std::string& name,
+    const std::string& alphaSemantic,
     const bafx::windows::Rgba16FloatImage& image)
 {
     const std::filesystem::path directory =
         root / ageDirectoryName(manifest.ageMilliseconds);
     manifest.comparisonFrames.push_back(ManifestLayer{
         name,
+        alphaSemantic,
         bafx::capture::writeLayerArtifact(
             directory,
             std::filesystem::path(name),
@@ -485,7 +521,7 @@ void writeManifest(
     }
     stream << std::setprecision(9);
     stream << "{\n"
-           << "  \"schemaVersion\": 1,\n"
+           << "  \"schemaVersion\": 2,\n"
            << "  \"applicationVersion\": \"" << BAFX_CAPTURE_VERSION << "\",\n"
            << "  \"revision\": \"" << options.revision << "\",\n"
            << "  \"driver\": \"WARP\",\n"
@@ -528,6 +564,7 @@ void writeManifest(
         {
             const ManifestLayer& layer = age.layers[layerIndex];
             stream << "      {\"name\": \"" << layer.name
+                   << "\", \"alphaSemantic\": \"" << layer.alphaSemantic
                    << "\", \"width\": " << layer.artifact.width
                    << ", \"height\": " << layer.artifact.height
                    << ", \"rawBytes\": " << layer.artifact.rawBytes << "}";
@@ -543,6 +580,7 @@ void writeManifest(
             {
                 const ManifestLayer& frame = age.comparisonFrames[frameIndex];
                 stream << "      {\"name\": \"" << frame.name
+                       << "\", \"alphaSemantic\": \"" << frame.alphaSemantic
                        << "\", \"width\": " << frame.artifact.width
                        << ", \"height\": " << frame.artifact.height
                        << ", \"rawBytes\": " << frame.artifact.rawBytes << "}";
@@ -601,6 +639,7 @@ int run(const CaptureOptions& options)
             manifest,
             options.outputDirectory,
             "FinalOverlay_NoTrail",
+            "coverage-union",
             noTrailCapture.finalOverlay);
         const bafx::windows::FxGpuFrameCapture trailOnlyCapture =
             renderer.renderAndCapture(makeTrailOnlySnapshot(), target.view.Get());
@@ -608,6 +647,7 @@ int run(const CaptureOptions& options)
             manifest,
             options.outputDirectory,
             "FinalOverlay_TrailOnly20px",
+            "coverage-union",
             trailOnlyCapture.finalOverlay);
         manifests.push_back(std::move(manifest));
         writeManifest(options, graphics.featureLevel, manifests);
