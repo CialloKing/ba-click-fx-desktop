@@ -150,8 +150,12 @@ OS 指针输入；首次观察位置包含 shape offset 和观察前已累积的
   因而 `N=0..4` 的可见点数序列分别为 `0`、`1→0`、`2→0`、`3→2→0`、`4→3→2→0`。
   倍率恢复到阈值以上时只清缓存并重新启用 Renderer，不清除当前可见后缀。
 - `FXTouch.Stop()` 只清 Trail 并停止粒子，不重置相邻 `FxTrailTimeScale` 的 parking 标志、Renderer 启用态
-  或未完成缓存；这些组件状态会随池化对象保留到下一次 `FxTrailTimeScale.Update`。原生模拟保留这一
-  复用边界。该入口只表达游戏时间倍率，不能由桌面“暂停特效”代替；桌面暂停继续冻结独立仿真时间轴。
+  或未完成缓存；这些组件状态会随池化对象保留到下一次 `FxTrailTimeScale.Update`。原生 `Simulation`
+  参考对象保留了该组件状态，但 `SimulationRuntime` 目前会销毁失活实例，尚未复现游戏的
+  `SyncComponentPool<FXTouch>` 生命周期。实现 Runtime 池化前必须先取得具体取回顺序证据，不能臆定
+  FIFO 或 LIFO。`updateUnityTrailTimeScale` 只提供逐游戏 Update 的显式参考入口；桌面 Host 没有真实
+  `Time.timeScale` 来源，因此生产路径尚未调用它，也不能由桌面“暂停特效”代替。桌面暂停继续冻结
+  独立仿真时间轴。
 - Web 版的 coalesced events 与未按键常驻拖尾只作为 native/Web 产品增强，不是 Unity 路径真值。原生会
   按原序无损保留同帧多个 Raw Input 边沿，且含边沿帧不会从尾随 Move 重启常驻段；Unity Legacy Input
   如何聚合这些边沿仍为 Not Verified，需用真实 Player 黑盒夹具确认。`30 Hz` 是人工视觉审核建议，
