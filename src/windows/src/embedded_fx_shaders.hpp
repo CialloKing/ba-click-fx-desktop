@@ -370,15 +370,43 @@ float4 UpsamplePixel(FullscreenOutput input) : SV_Target0
     return coarse + currentFine;
 }
 
+float4 ResolveBloomResult(FullscreenOutput input)
+{
+    const float2 offset = SourceTexelSize * (SampleScale * 0.5);
+    const float4 bloom = FourTap(Source1, input.uv, offset);
+    return float4(
+        bloom.rgb * ExposureGain,
+        saturate(bloom.a * ExposureGain));
+}
+
+float4 ResolveComposite(float4 direct, float4 bloomResult)
+{
+    return float4(
+        direct.rgb + bloomResult.rgb,
+        max(direct.a, bloomResult.a));
+}
+
 float4 CompositePixel(FullscreenOutput input) : SV_Target0
 {
     const float4 direct = Source0.Sample(LinearClampSampler, input.uv);
-    const float2 offset = SourceTexelSize * (SampleScale * 0.5);
-    const float4 bloom = FourTap(Source1, input.uv, offset);
-    const float bloomCoverage = saturate(bloom.a * ExposureGain);
-    return float4(
-        direct.rgb + bloom.rgb * ExposureGain,
-        max(direct.a, bloomCoverage));
+    return ResolveComposite(direct, ResolveBloomResult(input));
+}
+
+struct CaptureCompositeOutput
+{
+    float4 finalOverlay : SV_Target0;
+    float4 bloomResult : SV_Target1;
+};
+
+CaptureCompositeOutput CaptureCompositePixel(FullscreenOutput input)
+{
+    const float4 direct = Source0.Sample(LinearClampSampler, input.uv);
+    const float4 bloomResult = ResolveBloomResult(input);
+
+    CaptureCompositeOutput output;
+    output.finalOverlay = ResolveComposite(direct, bloomResult);
+    output.bloomResult = bloomResult;
+    return output;
 }
 
 float4 ResolveFxOnlyDesktopTransport(

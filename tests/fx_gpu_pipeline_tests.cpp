@@ -1679,6 +1679,8 @@ BAFX_TEST(warp_capture_reads_all_layers_from_the_same_frame)
     BAFX_CHECK(capture.directSurface.width == testSize.width);
     BAFX_CHECK(capture.directSurface.height == testSize.height);
     BAFX_CHECK(capture.bloomSeed.width == testSize.width);
+    BAFX_CHECK(capture.bloomResult.width == testSize.width);
+    BAFX_CHECK(capture.bloomResult.height == testSize.height);
     BAFX_CHECK(capture.finalOverlay.width == testSize.width);
     BAFX_CHECK(capture.bloomDown.size() == 4U);
     BAFX_CHECK(capture.bloomUp.size() == 3U);
@@ -1696,15 +1698,18 @@ BAFX_TEST(warp_capture_reads_all_layers_from_the_same_frame)
 
     const std::vector<ReadbackPixel> direct = toFloatPixels(capture.directSurface);
     const std::vector<ReadbackPixel> seed = toFloatPixels(capture.bloomSeed);
+    const std::vector<ReadbackPixel> bloom = toFloatPixels(capture.bloomResult);
     const std::vector<ReadbackPixel> final = toFloatPixels(capture.finalOverlay);
     checkFiniteAndNonNegative(direct);
     checkFiniteAndNonNegative(seed);
+    checkFiniteAndNonNegative(bloom);
     checkFiniteAndNonNegative(final);
     const std::size_t center = static_cast<std::size_t>(testSize.height / 2U)
         * testSize.width
         + testSize.width / 2U;
     BAFX_CHECK(direct[center].blue > 1.0F);
     BAFX_CHECK(seed[center].blue > 1.0F);
+    BAFX_CHECK(bloom[center].blue > 0.0F);
     BAFX_CHECK(final[center].blue >= direct[center].blue);
 }
 
@@ -1768,6 +1773,7 @@ BAFX_TEST(warp_pipeline_applies_runtime_bloom_intensity_and_quality)
     const std::vector<ReadbackPixel> disabledPixels = toFloatPixels(
         disabledBloom.finalOverlay);
     BAFX_CHECK(disabledBloom.bloomDown.size() == 4U);
+    BAFX_CHECK(isZeroImage(disabledBloom.bloomResult));
     BAFX_CHECK(maximumRgbOutsideSprite(disabledPixels) <= 1.0e-6F);
 
     renderer.setBloomSettings(FxBloomSettings{1.0F, 10.0F});
@@ -1799,6 +1805,7 @@ BAFX_TEST(warp_capture_proves_triangle_enters_bloom)
     BAFX_CHECK(capture.intermediateLayersValid);
     BAFX_CHECK(!isZeroImage(capture.directSurface));
     BAFX_CHECK(!isZeroImage(capture.bloomSeed));
+    BAFX_CHECK(!isZeroImage(capture.bloomResult));
     bool hasBloomDown = false;
     for (const Rgba16FloatImage& mip : capture.bloomDown)
     {
@@ -1860,5 +1867,6 @@ BAFX_TEST(warp_capture_never_exports_stale_layers_for_an_empty_frame)
     BAFX_CHECK(capture.bloomSeed.pixels.empty());
     BAFX_CHECK(capture.bloomDown.empty());
     BAFX_CHECK(capture.bloomUp.empty());
+    BAFX_CHECK(capture.bloomResult.pixels.empty());
     BAFX_CHECK(isZeroImage(capture.finalOverlay));
 }

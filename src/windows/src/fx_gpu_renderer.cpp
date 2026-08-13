@@ -616,6 +616,9 @@ struct FxGpuRenderer::Implementation
         createBloomPixelShader("DownsamplePixel", downsamplePixelShader);
         createBloomPixelShader("UpsamplePixel", upsamplePixelShader);
         createBloomPixelShader("CompositePixel", compositePixelShader);
+        createBloomPixelShader(
+            "CaptureCompositePixel",
+            captureCompositePixelShader);
         createBloomPixelShader("DesktopCompositePixel", desktopCompositePixelShader);
         createBloomPixelShader(
             "RecordingCompatibleCompositePixel",
@@ -800,6 +803,7 @@ struct FxGpuRenderer::Implementation
         directTarget = {};
         crossTarget = {};
         bloomSeedTarget = {};
+        bloomResultTarget = {};
         occlusionTarget = {};
         bloomDownTargets.clear();
         bloomUpTargets.clear();
@@ -981,6 +985,30 @@ struct FxGpuRenderer::Implementation
         ID3D11ShaderResourceView* source3 = nullptr,
         ID3D11ShaderResourceView* source4 = nullptr)
     {
+        const std::array<ID3D11RenderTargetView*, 1> targets{target};
+        drawFullscreenTargets(
+            targets,
+            targetExtent,
+            pixelShader,
+            source0,
+            source1,
+            constants,
+            source2,
+            source3,
+            source4);
+    }
+
+    void drawFullscreenTargets(
+        const std::span<ID3D11RenderTargetView* const> targets,
+        const bafx::core::BloomExtent targetExtent,
+        ID3D11PixelShader* pixelShader,
+        ID3D11ShaderResourceView* source0,
+        ID3D11ShaderResourceView* source1,
+        const BloomConstants& constants,
+        ID3D11ShaderResourceView* source2 = nullptr,
+        ID3D11ShaderResourceView* source3 = nullptr,
+        ID3D11ShaderResourceView* source4 = nullptr)
+    {
         D3D11_MAPPED_SUBRESOURCE mapped{};
         throwIfFailed(
             context->Map(
@@ -1003,7 +1031,10 @@ struct FxGpuRenderer::Implementation
         context->RSSetViewports(1, &viewport);
         context->RSSetState(fullscreenRasterizerState.Get());
         context->OMSetDepthStencilState(depthState.Get(), 0);
-        context->OMSetRenderTargets(1, &target, nullptr);
+        context->OMSetRenderTargets(
+            static_cast<UINT>(targets.size()),
+            targets.data(),
+            nullptr);
         constexpr std::array<float, 4> blendFactor{0.0F, 0.0F, 0.0F, 0.0F};
         context->OMSetBlendState(
             overwriteBlendState.Get(),
@@ -1044,7 +1075,8 @@ struct FxGpuRenderer::Implementation
     void renderBloom(
         ID3D11RenderTargetView* destination,
         ID3D11PixelShader* finalCompositeShader,
-        const std::optional<BackgroundRenderInput> background)
+        const std::optional<BackgroundRenderInput> background,
+        ID3D11RenderTargetView* bloomResultDestination = nullptr)
     {
         const bafx::core::BloomExtent sourceExtent{
             static_cast<std::int32_t>(size.width),
@@ -1101,17 +1133,36 @@ struct FxGpuRenderer::Implementation
             accumulated = bloomUpTargets[fineIndex].shaderResource.Get();
         }
 
-        drawFullscreen(
+        const BloomConstants finalConstants = makeBloomConstants(
+            firstExtent,
+            bloomPlan.sampleScale,
+            bloomPlan.exposureGain,
+            background.has_value());
+        if (bloomResultDestination == nullptr)
+        {
+            drawFullscreen(
+                destination,
+                sourceExtent,
+                finalCompositeShader,
+                directTarget.shaderResource.Get(),
+                accumulated,
+                finalConstants,
+                occlusionTarget.shaderResource.Get(),
+                background.has_value() ? background->shaderResource : nullptr,
+                crossTarget.shaderResource.Get());
+            return;
+        }
+
+        const std::array<ID3D11RenderTargetView*, 2> targets{
             destination,
+            bloomResultDestination};
+        drawFullscreenTargets(
+            targets,
             sourceExtent,
             finalCompositeShader,
             directTarget.shaderResource.Get(),
             accumulated,
-            makeBloomConstants(
-                firstExtent,
-                bloomPlan.sampleScale,
-                bloomPlan.exposureGain,
-                background.has_value()),
+            finalConstants,
             occlusionTarget.shaderResource.Get(),
             background.has_value() ? background->shaderResource : nullptr,
             crossTarget.shaderResource.Get());
@@ -1199,7 +1250,8 @@ struct FxGpuRenderer::Implementation
         const bafx::fx::FrameSnapshot& snapshot,
         ID3D11RenderTargetView* destination,
         ID3D11PixelShader* finalCompositeShader,
-        std::optional<BackgroundRenderInput> background = std::nullopt)
+        std::optional<BackgroundRenderInput> background = std::nullopt,
+        ID3D11RenderTargetView* bloomResultDestination = nullptr)
     {
         if (background.has_value() && background->shaderResource == nullptr)
         {
@@ -1287,15 +1339,43 @@ struct FxGpuRenderer::Implementation
 
         // Unbind the material MRTs before sampling them through the Bloom chain.
         context->OMSetRenderTargets(0, nullptr, nullptr);
-        renderBloom(destination, finalCompositeShader, background);
+        renderBloom(
+            destination,
+            finalCompositeShader,
+            background,
+            bloomResultDestination);
         context->OMSetRenderTargets(0, nullptr, nullptr);
+    }
+
+    void ensureBloomResultTarget()
+    {
+        if (bloomResultTarget.texture == nullptr)
+        {
+            // Capture diagnostics must not add a full-resolution target or a
+            // second output to the desktop's ordinary rendering path.
+            bloomResultTarget = createColorTarget(device.Get(), size);
+        }
     }
 
     [[nodiscard]] FxGpuFrameCapture renderAndCapture(
         const bafx::fx::FrameSnapshot& snapshot,
         ID3D11RenderTargetView* destination)
     {
-        render(snapshot, destination, compositePixelShader.Get());
+        const bool visualContent = hasVisualContent(snapshot);
+        if (visualContent)
+        {
+            ensureBloomResultTarget();
+            render(
+                snapshot,
+                destination,
+                captureCompositePixelShader.Get(),
+                std::nullopt,
+                bloomResultTarget.renderTarget.Get());
+        }
+        else
+        {
+            render(snapshot, destination, compositePixelShader.Get());
+        }
 
         FxGpuFrameCapture capture{};
         const ComPtr<ID3D11Texture2D> destinationTexture =
@@ -1303,7 +1383,7 @@ struct FxGpuRenderer::Implementation
         capture.finalOverlay = readbackRgba16FloatTexture(
             context.Get(),
             destinationTexture.Get());
-        if (!hasVisualContent(snapshot))
+        if (!visualContent)
         {
             return capture;
         }
@@ -1328,6 +1408,9 @@ struct FxGpuRenderer::Implementation
                 context.Get(),
                 target.texture.Get()));
         }
+        capture.bloomResult = readbackRgba16FloatTexture(
+            context.Get(),
+            bloomResultTarget.texture.Get());
         capture.intermediateLayersValid = true;
         return capture;
     }
@@ -1339,6 +1422,7 @@ struct FxGpuRenderer::Implementation
     ColorTarget directTarget{};
     ColorTarget crossTarget{};
     ColorTarget bloomSeedTarget{};
+    ColorTarget bloomResultTarget{};
     ColorTarget occlusionTarget{};
     bafx::core::UnityBloomPlan bloomPlan{};
     std::vector<ColorTarget> bloomDownTargets{};
@@ -1355,6 +1439,7 @@ struct FxGpuRenderer::Implementation
     ComPtr<ID3D11PixelShader> downsamplePixelShader{};
     ComPtr<ID3D11PixelShader> upsamplePixelShader{};
     ComPtr<ID3D11PixelShader> compositePixelShader{};
+    ComPtr<ID3D11PixelShader> captureCompositePixelShader{};
     ComPtr<ID3D11PixelShader> desktopCompositePixelShader{};
     ComPtr<ID3D11PixelShader> recordingCompatibleCompositePixelShader{};
     ComPtr<ID3D11PixelShader> lightBackgroundCompositePixelShader{};

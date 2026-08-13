@@ -23,6 +23,7 @@ struct FxGpuFrameCapture
     Rgba16FloatImage bloomSeed{};
     std::vector<Rgba16FloatImage> bloomDown{};
     std::vector<Rgba16FloatImage> bloomUp{};
+    Rgba16FloatImage bloomResult{};
     Rgba16FloatImage finalOverlay{};
     bool intermediateLayersValid{false};
 };
