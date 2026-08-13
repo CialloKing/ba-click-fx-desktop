@@ -10,7 +10,8 @@
 - `BAFX.ControlCenter.exe` 的原生 Win32 控制面：启用状态、点击特效、鼠标拖尾、拖尾常驻、效果大小、拖尾长度、
   拖尾宽度、输入采样率上限、Bloom 强度和 Bloom 质量会通过本地 Named Pipe 在下一帧应用到正在运行的 Host；
   “重置默认”经确认后恢复全部持久化设置，但保留当前暂停或运行状态。
-- 输入采样率 `0` 表示不限频；`1..1000 Hz` 只按 Raw Input 的 QPC 时间过滤 Move，不影响按下、抬起或取消。
+- 相邻 Raw Input Move 会在一次呈现更新内收敛为末项且不跨越按下、抬起或取消边沿。输入采样率 `0`
+  表示不再额外限频；`1..1000 Hz` 再按保留样本的消息分派 QPC 过滤 Move，不影响任何状态边沿。
   `30 Hz` 是建议人工审核的手机视觉近似，`15 Hz` 更折线，`60 Hz` 更平滑；这些值不是 Unity 资源中的固定帧率。
   Unity 的 TrailRenderer 空间参数仍保持 `m_MinVertexDistance=0.01`。
 - D3D11 硬件设备；硬件设备创建失败时尝试 WARP 软件设备。
@@ -23,7 +24,7 @@
   也使用该默认值，但已有 schema 4 中显式保存的 `false` 会原样保留。背景感知授权、排除或会话失败时
   回退内部 FX-only transport；其余模式不启用 WGC。schema 5 迁移会把当时未接线的拖尾按键策略归一为
   “仅按住时”，因此新增的“拖尾常驻”默认关闭，必须由用户显式开启。schema 6 迁移会新增
-  `input.samplingRateHz=0`，保持此前不限频的输入行为。
+  `input.samplingRateHz=0`，保持不施加额外时间限频的输入行为。
 - 运行时用户数据采用 portable 规则：`BAFX.config.json`、`ba-click-fx-desktop-support.log`
   和支持报告只写入对应 EXE 所在目录。命令行支持报告即使传入绝对路径，也只采用文件名，
   不会写入 `%LOCALAPPDATA%`、当前工作目录或其他用户目录。

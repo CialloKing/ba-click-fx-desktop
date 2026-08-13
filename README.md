@@ -150,7 +150,7 @@ Visual Studio、Windows SDK、Inno Setup 或 PowerShell 依赖包；安装器已
 迁移时缺失字段也使用该默认值，以便保留旧系统上的背景感知路径；schema 4 中已经显式保存的
 `false` 会原样保留。schema 5 虽然序列化了尚未接线的 `trailOnlyWhilePressed=false`，实际行为始终要求
 按住鼠标；迁移到 schema 6 时会归一为 `true`，避免升级后意外开启拖尾常驻。schema 6 迁移到
-schema 7 时新增 `input.samplingRateHz=0`，保持此前不限频的输入行为。只有
+schema 7 时新增 `input.samplingRateHz=0`，表示不在输入队列收敛之外再施加时间限频。只有
 `background-aware` 会启用 WGC；WGC 或捕获排除路径失败时，Host 将当前批次回退到内部
 FX-only coverage transport，支持报告仍记为 `fallback-fx-only`。这个故障回退不是一个可选的产品模式，
 也不会把背景感知配置改写成其他模式。
@@ -170,8 +170,10 @@ FX-only，不会先启动带黄色边框的会话。无论该开关如何设置�
 控制中心的“重置默认”按钮会先请求确认，再用内置默认 schema 整体替换持久化配置。它不会恢复已经
 暂停的特效；需要继续显示时仍应单独点击“恢复特效”。
 
-“输入采样率上限 (Hz)”默认值 `0` 表示保留全部 Raw Input Move；`1..1000` 使用每个样本自己的 QPC
-时间戳限频，不受渲染帧率或暂停后的模拟时间影响。`30 Hz` 是参考 Web 版提供的手机客户端视觉近似，
+Host 会在每次交换链呈现前处理本轮输入，将相邻的一组 Raw Input Move 收敛为最后位置；按下、抬起和
+取消边沿会划分 Move 组且始终保留。“输入采样率上限 (Hz)”默认值 `0` 表示不在该队列收敛之外额外
+限频；`1..1000` 再使用保留样本的消息分派 QPC 限频，限频相位不受暂停后的
+模拟时间影响。`30 Hz` 是参考 Web 版提供的手机客户端视觉近似，
 `15 Hz` 折线更明显，`60 Hz` 更平滑；这些是人工审核入口，不是从 Prefab 提取出的固定客户端帧率。
 限频只丢弃过密 Move，按下、抬起和取消不会被延迟，也不会修改 Unity TrailRenderer 的
 `m_MinVertexDistance=0.01`、`time=0.3` 或 `widthMultiplier=0.005`。

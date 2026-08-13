@@ -137,8 +137,10 @@ OS 指针输入；首次观察位置包含 shape offset 和观察前已累积的
 - Trail 与圆环可写非负的 DirectEmission/BloomSeed；写入前先从 ArtisticRelative 经过版本化校准。
 - Trail 保持 Prefab 的 `time=0.3`、`widthMultiplier=0.005` 和 `m_MinVertexDistance=0.01`。真实 Player
   验证表明该距离只过滤每帧 Transform 样本：单帧移动 `0.9 world` 仍只有首尾两点，不会沿线自动补点。产品设置
-  `input.samplingRateHz` 只近似客户端每帧提交触点位置的频率，不属于 Unity 序列化美术参数；`30 Hz`
-  是人工视觉审核建议，不是游戏硬编码真值。
+  原脚本的 `Update` 只使用 Legacy Input 暴露的同一份帧态 `Input.mousePosition`；原生队列层先将相邻 Move 组收敛为末项，且
+  不会跨越 Down/Up/Cancel 边沿，帧级鼠标状态适配仍需独立验证。Web 版消费浏览器 coalesced events 的
+  实现只用于参考独立输入时间相位，不是这里的路径真值。`input.samplingRateHz` 只在上述队列收敛后进一步近似客户端
+  提交触点位置的频率，不属于 Unity 序列化美术参数；`30 Hz` 是人工视觉审核建议，不是游戏硬编码真值。
 - Unity 全场景 Bloom 是 FX-only Golden；桌面 Background-aware Differential Bloom 只改变背景交互，
   不能反向调节原粒子参数来追逐一张桌面截图。
 - 50 ms 主要是中心 disk；100–180 ms 是环和近中程辉光包络；250/450 ms 验证消散和碎片/弧段尾部。

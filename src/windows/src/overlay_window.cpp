@@ -78,12 +78,11 @@ std::vector<PointerEvent> coalescePointerMoves(
     {
         if (event.kind == PointerEventKind::Move
             && writeIndex > 0U
-            && events[writeIndex - 1U].kind == PointerEventKind::Move
-            && events[writeIndex - 1U].screenPosition.x == event.screenPosition.x
-            && events[writeIndex - 1U].screenPosition.y == event.screenPosition.y)
+            && events[writeIndex - 1U].kind == PointerEventKind::Move)
         {
-            // Queued Raw Input can report the same latest cursor position more
-            // than once; only exact duplicates are path-neutral to discard.
+            // Keep the latest queued position without crossing a button or
+            // cancellation edge. Frame-level Unity input state remains a
+            // separate desktop-owner contract after this edge compaction.
             events[writeIndex - 1U] = event;
             continue;
         }
@@ -97,24 +96,7 @@ std::vector<PointerEvent> coalescePointerMoves(
 std::vector<PointerEvent> compactPointerEventBacklog(
     std::vector<PointerEvent> events) noexcept
 {
-    std::size_t writeIndex = 0U;
-    for (const PointerEvent& event : events)
-    {
-        if (event.kind == PointerEventKind::Move
-            && writeIndex > 0U
-            && events[writeIndex - 1U].kind == PointerEventKind::Move)
-        {
-            // Under queue pressure, intermediate cursor positions cannot be
-            // displayed at their original time. Keep the newest point in the
-            // run while never crossing a button or cancellation edge.
-            events[writeIndex - 1U] = event;
-            continue;
-        }
-        events[writeIndex] = event;
-        ++writeIndex;
-    }
-    events.resize(writeIndex);
-    return events;
+    return coalescePointerMoves(std::move(events));
 }
 
 bool CaptureExclusionStatus::confirmed() const noexcept
