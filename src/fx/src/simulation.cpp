@@ -19,6 +19,10 @@ constexpr float dragShapeRadiusWorld = 0.15F * triangleLocalScale;
 constexpr float dragEmissionStepWorld = 1.0F / 5.0F;
 constexpr float trailPointStepWorld = 0.01F;
 constexpr double trailLifetimeSeconds = 0.3;
+// The script default is 0.3333, but the shipped FX_Touch Trail instance
+// serializes killUnderTimeScale as 0.19. The instance override is the value
+// observed by the game and therefore owns this native simulation contract.
+constexpr float trailParkingTimeScaleThreshold = 0.19F;
 constexpr float minimumTrailLengthMultiplier = 0.0F;
 constexpr float maximumTrailLengthMultiplier = 3.0F;
 constexpr float trailWidthWorld = 0.005F;
@@ -426,6 +430,7 @@ Simulation::Simulation(const std::uint64_t seed)
     rings_.reserve(2);
     triangles_.reserve(4U + maximumDragParticles);
     trail_.reserve(128);
+    trailParkingPoints_.reserve(128);
 }
 
 void Simulation::setTrailLengthMultiplier(const float multiplier) noexcept
@@ -436,6 +441,32 @@ void Simulation::setTrailLengthMultiplier(const float multiplier) noexcept
         // A zero-length product setting must remove retained geometry now,
         // otherwise a paused renderer could present one stale trail frame.
         trail_.clear();
+        trailParkingPoints_.clear();
+    }
+}
+
+void Simulation::updateUnityTrailTimeScale(const float timeScale)
+{
+    if (timeScale > trailParkingTimeScaleThreshold)
+    {
+        if (trailParkingMode_)
+        {
+            trailParkingMode_ = false;
+            initTrailNormalMode();
+        }
+        return;
+    }
+
+    if (!trailParkingMode_)
+    {
+        trailParkingMode_ = true;
+        initTrailParkingMode();
+        return;
+    }
+
+    if (trailRendererEnabled_)
+    {
+        stepTrailParkingSequence();
     }
 }
 
@@ -537,15 +568,18 @@ void Simulation::advance(const SimulationTime time)
     lastAdvancedAt_ = time;
     const double effectiveTrailLifetime = trailLifetimeSeconds
         * static_cast<double>(trailLengthMultiplier_);
-    const auto trailEnd = std::remove_if(
-        trail_.begin(),
-        trail_.end(),
-        [time, effectiveTrailLifetime](const StoredTrailPoint& point)
-        {
-            return effectiveTrailLifetime <= 0.0
-                || ageSeconds(time, point.createdAt) >= effectiveTrailLifetime;
-        });
-    trail_.erase(trailEnd, trail_.end());
+    if (!trailParkingMode_)
+    {
+        const auto trailEnd = std::remove_if(
+            trail_.begin(),
+            trail_.end(),
+            [time, effectiveTrailLifetime](const StoredTrailPoint& point)
+            {
+                return effectiveTrailLifetime <= 0.0
+                    || ageSeconds(time, point.createdAt) >= effectiveTrailLifetime;
+            });
+        trail_.erase(trailEnd, trail_.end());
+    }
 
     const float clickTriangleAge =
         particleStepStates_.clickTriangles.particleAgeSeconds;
@@ -866,6 +900,9 @@ void Simulation::resetState(
     rings_.clear();
     triangles_.clear();
     trail_.clear();
+    // FXTouch.Stop clears TrailRenderer geometry, but the sibling
+    // FxTrailTimeScale state survives pool reuse until its next Update.
+    // Preserve the cached suffix, mode and renderer state across activation.
 }
 
 void Simulation::relocatePendingClick(
@@ -947,7 +984,9 @@ void Simulation::emitDragTriangle(const PointF worldPosition, const SimulationTi
 
 void Simulation::appendTrailPoint(const PointF worldPosition, const SimulationTime time)
 {
-    if (trailLengthMultiplier_ <= 0.0F)
+    if (trailLengthMultiplier_ <= 0.0F
+        || trailParkingMode_
+        || !trailRendererEnabled_)
     {
         return;
     }
@@ -977,6 +1016,54 @@ void Simulation::appendTrailPoint(const PointF worldPosition, const SimulationTi
     // Unity's TrailRenderer samples the transform once per rendered update.
     // MinVertexDistance filters samples; it does not tessellate a frame jump.
     trail_.push_back(StoredTrailPoint{worldPosition, time});
+}
+
+void Simulation::initTrailNormalMode()
+{
+    trailParkingPoints_.clear();
+    trailRendererEnabled_ = true;
+}
+
+void Simulation::initTrailParkingMode()
+{
+    trailParkingPoints_.clear();
+    if (trail_.empty())
+    {
+        finishTrailParkingSequence();
+        return;
+    }
+
+    if (trail_.size() == 1U)
+    {
+        // The game leaves a one-point renderer enabled on the transition
+        // Update; StepParkingSequence finishes it on the following Update.
+        return;
+    }
+
+    // The game deliberately skips position zero. The first low-time-scale
+    // Update only captures this suffix; visible contraction starts next Update.
+    trailParkingPoints_.assign(trail_.begin() + 1, trail_.end());
+}
+
+void Simulation::stepTrailParkingSequence()
+{
+    if (trailParkingPoints_.size() <= 1U)
+    {
+        finishTrailParkingSequence();
+        return;
+    }
+
+    // FxTrailTimeScale calls SetPositions before removing the next head, so
+    // the final one-point state is never presented.
+    trail_ = trailParkingPoints_;
+    trailParkingPoints_.erase(trailParkingPoints_.begin());
+}
+
+void Simulation::finishTrailParkingSequence()
+{
+    trailParkingPoints_.clear();
+    trail_.clear();
+    trailRendererEnabled_ = false;
 }
 
 void Simulation::emitAlongDrag(

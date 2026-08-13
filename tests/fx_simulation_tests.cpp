@@ -8,6 +8,7 @@
 #include <array>
 #include <cmath>
 #include <chrono>
+#include <limits>
 #include <vector>
 
 using namespace bafx::fx;
@@ -1065,6 +1066,243 @@ BAFX_TEST(trail_length_multiplier_changes_the_simulated_retention_window)
     BAFX_CHECK(simulation.snapshot(goldenViewport, 700ms).trail.empty());
 }
 
+BAFX_TEST(game_trail_parking_removes_one_cached_head_per_update)
+{
+    Simulation simulation;
+    simulation.startTrail(PointF{100.0F, 100.0F}, goldenViewport, 0ns);
+    simulation.pointerMove(PointF{200.0F, 100.0F}, goldenViewport, 10ms);
+    simulation.pointerMove(PointF{300.0F, 100.0F}, goldenViewport, 20ms);
+    simulation.pointerMove(PointF{400.0F, 100.0F}, goldenViewport, 30ms);
+    simulation.pointerMove(PointF{500.0F, 100.0F}, goldenViewport, 40ms);
+    BAFX_CHECK(simulation.snapshot(goldenViewport, 40ms).trail.size() == 5U);
+
+    simulation.updateUnityTrailTimeScale(0.19F);
+    BAFX_CHECK(simulation.snapshot(goldenViewport, 40ms).trail.size() == 5U);
+
+    simulation.updateUnityTrailTimeScale(0.19F);
+    FrameSnapshot frame = simulation.snapshot(goldenViewport, 40ms);
+    BAFX_CHECK(frame.trail.size() == 4U);
+    BAFX_CHECK_NEAR(frame.trail.front().positionPixels.x, 200.0F, 1.0e-3F);
+
+    simulation.updateUnityTrailTimeScale(0.19F);
+    frame = simulation.snapshot(goldenViewport, 40ms);
+    BAFX_CHECK(frame.trail.size() == 3U);
+    BAFX_CHECK_NEAR(frame.trail.front().positionPixels.x, 300.0F, 1.0e-3F);
+
+    simulation.updateUnityTrailTimeScale(0.19F);
+    frame = simulation.snapshot(goldenViewport, 40ms);
+    BAFX_CHECK(frame.trail.size() == 2U);
+    BAFX_CHECK_NEAR(frame.trail.front().positionPixels.x, 400.0F, 1.0e-3F);
+
+    simulation.updateUnityTrailTimeScale(0.19F);
+    BAFX_CHECK(simulation.snapshot(goldenViewport, 40ms).trail.empty());
+}
+
+BAFX_TEST(game_trail_parking_matches_the_n_zero_through_four_sequences)
+{
+    constexpr std::array<std::array<std::size_t, 4>, 5> expectedSizes{
+        std::array<std::size_t, 4>{0U, 0U, 0U, 0U},
+        std::array<std::size_t, 4>{1U, 0U, 0U, 0U},
+        std::array<std::size_t, 4>{2U, 0U, 0U, 0U},
+        std::array<std::size_t, 4>{3U, 2U, 0U, 0U},
+        std::array<std::size_t, 4>{4U, 3U, 2U, 0U}};
+
+    for (std::size_t pointCount = 0U; pointCount < expectedSizes.size(); ++pointCount)
+    {
+        Simulation simulation;
+        if (pointCount == 0U)
+        {
+            simulation.setTrailLengthMultiplier(0.0F);
+        }
+        simulation.startTrail(PointF{100.0F, 100.0F}, goldenViewport, 0ns);
+        for (std::size_t index = 1U; index < pointCount; ++index)
+        {
+            simulation.pointerMove(
+                PointF{100.0F + static_cast<float>(index) * 100.0F, 100.0F},
+                goldenViewport,
+                std::chrono::milliseconds(index * 10U));
+        }
+
+        for (const std::size_t expectedSize : expectedSizes[pointCount])
+        {
+            simulation.updateUnityTrailTimeScale(0.19F);
+            BAFX_CHECK(
+                simulation.snapshot(goldenViewport, 40ms).trail.size()
+                == expectedSize);
+        }
+    }
+}
+
+BAFX_TEST(game_trail_parking_uses_an_inclusive_threshold_and_one_point_finish_frame)
+{
+    Simulation simulation;
+    simulation.startTrail(PointF{100.0F, 100.0F}, goldenViewport, 0ns);
+
+    simulation.updateUnityTrailTimeScale(0.190001F);
+    BAFX_CHECK(simulation.snapshot(goldenViewport, 1ms).trail.size() == 1U);
+
+    simulation.updateUnityTrailTimeScale(0.19F);
+    BAFX_CHECK(simulation.snapshot(goldenViewport, 2ms).trail.size() == 1U);
+
+    simulation.updateUnityTrailTimeScale(0.19F);
+    BAFX_CHECK(simulation.snapshot(goldenViewport, 3ms).trail.empty());
+
+    // Once FinishParkingSequence disables the renderer, later low-scale
+    // Updates are intentionally idempotent rather than re-running cleanup.
+    simulation.updateUnityTrailTimeScale(0.19F);
+    BAFX_CHECK(simulation.snapshot(goldenViewport, 4ms).trail.empty());
+}
+
+BAFX_TEST(game_trail_parking_empty_trail_finishes_on_the_transition_update)
+{
+    Simulation simulation;
+    simulation.setTrailLengthMultiplier(0.0F);
+    simulation.startTrail(PointF{100.0F, 100.0F}, goldenViewport, 0ns);
+
+    BAFX_CHECK(simulation.snapshot(goldenViewport, 0ns).trail.empty());
+    simulation.updateUnityTrailTimeScale(0.19F);
+    BAFX_CHECK(simulation.snapshot(goldenViewport, 1ms).trail.empty());
+
+    simulation.setTrailLengthMultiplier(1.0F);
+    simulation.pointerMove(PointF{200.0F, 100.0F}, goldenViewport, 2ms);
+    BAFX_CHECK(simulation.snapshot(goldenViewport, 2ms).trail.empty());
+
+    simulation.updateUnityTrailTimeScale(1.0F);
+    simulation.pointerMove(PointF{300.0F, 100.0F}, goldenViewport, 3ms);
+    const FrameSnapshot frame = simulation.snapshot(goldenViewport, 3ms);
+    BAFX_CHECK(frame.trail.size() == 1U);
+    BAFX_CHECK_NEAR(frame.trail.front().positionPixels.x, 300.0F, 1.0e-3F);
+}
+
+BAFX_TEST(game_trail_parking_nan_uses_the_low_scale_branch)
+{
+    Simulation simulation;
+    simulation.startTrail(PointF{100.0F, 100.0F}, goldenViewport, 0ns);
+
+    simulation.updateUnityTrailTimeScale(std::numeric_limits<float>::quiet_NaN());
+    BAFX_CHECK(simulation.snapshot(goldenViewport, 1ms).trail.size() == 1U);
+
+    simulation.updateUnityTrailTimeScale(std::numeric_limits<float>::quiet_NaN());
+    BAFX_CHECK(simulation.snapshot(goldenViewport, 2ms).trail.empty());
+}
+
+BAFX_TEST(game_trail_parking_resume_preserves_the_current_suffix)
+{
+    Simulation simulation;
+    simulation.startTrail(PointF{100.0F, 100.0F}, goldenViewport, 0ns);
+    simulation.pointerMove(PointF{200.0F, 100.0F}, goldenViewport, 10ms);
+    simulation.pointerMove(PointF{300.0F, 100.0F}, goldenViewport, 20ms);
+    simulation.pointerMove(PointF{400.0F, 100.0F}, goldenViewport, 30ms);
+
+    simulation.updateUnityTrailTimeScale(0.19F);
+    simulation.updateUnityTrailTimeScale(0.19F);
+    FrameSnapshot frame = simulation.snapshot(goldenViewport, 30ms);
+    BAFX_CHECK(frame.trail.size() == 3U);
+    BAFX_CHECK_NEAR(frame.trail.front().positionPixels.x, 200.0F, 1.0e-3F);
+
+    simulation.updateUnityTrailTimeScale(1.0F);
+    frame = simulation.snapshot(goldenViewport, 31ms);
+    BAFX_CHECK(frame.trail.size() == 3U);
+    BAFX_CHECK_NEAR(frame.trail.front().positionPixels.x, 200.0F, 1.0e-3F);
+
+    simulation.pointerMove(PointF{500.0F, 100.0F}, goldenViewport, 40ms);
+    frame = simulation.snapshot(goldenViewport, 40ms);
+    BAFX_CHECK(frame.trail.size() == 4U);
+    BAFX_CHECK_NEAR(frame.trail.back().positionPixels.x, 500.0F, 1.0e-3F);
+}
+
+BAFX_TEST(game_trail_parking_state_persists_across_pooled_reactivation)
+{
+    Simulation simulation;
+    simulation.startTrail(PointF{100.0F, 100.0F}, goldenViewport, 0ns);
+    simulation.updateUnityTrailTimeScale(0.19F);
+    simulation.updateUnityTrailTimeScale(0.19F);
+    BAFX_CHECK(simulation.snapshot(goldenViewport, 1ms).trail.empty());
+
+    simulation.startTrail(PointF{700.0F, 100.0F}, goldenViewport, 10ms);
+    BAFX_CHECK(simulation.snapshot(goldenViewport, 10ms).trail.empty());
+
+    simulation.pointerMove(PointF{800.0F, 100.0F}, goldenViewport, 20ms);
+    BAFX_CHECK(simulation.snapshot(goldenViewport, 20ms).trail.empty());
+
+    // FXTouch.Stop clears the Trail but does not reset FxTrailTimeScale.
+    // The next normal-scale Update owns re-enabling the pooled renderer.
+    simulation.updateUnityTrailTimeScale(1.0F);
+    simulation.pointerMove(PointF{900.0F, 100.0F}, goldenViewport, 30ms);
+    const FrameSnapshot frame = simulation.snapshot(goldenViewport, 30ms);
+    BAFX_CHECK(frame.trail.size() == 1U);
+    BAFX_CHECK_NEAR(frame.trail.front().positionPixels.x, 900.0F, 1.0e-3F);
+}
+
+BAFX_TEST(game_trail_parking_keeps_an_unfinished_pool_cache)
+{
+    Simulation simulation;
+    simulation.startTrail(PointF{100.0F, 100.0F}, goldenViewport, 0ns);
+    simulation.pointerMove(PointF{200.0F, 100.0F}, goldenViewport, 10ms);
+    simulation.pointerMove(PointF{300.0F, 100.0F}, goldenViewport, 20ms);
+    simulation.pointerMove(PointF{400.0F, 100.0F}, goldenViewport, 30ms);
+    simulation.pointerMove(PointF{500.0F, 100.0F}, goldenViewport, 40ms);
+
+    simulation.updateUnityTrailTimeScale(0.19F);
+    simulation.updateUnityTrailTimeScale(0.19F);
+    simulation.pointerUp(50ms);
+    simulation.onFrameRendered(1050ms);
+    BAFX_CHECK(!simulation.active());
+
+    // FXTouch.Stop clears TrailRenderer geometry, but the sibling
+    // FxTrailTimeScale component retains an unfinished parkingPosList.
+    simulation.startTrail(PointF{700.0F, 100.0F}, goldenViewport, 1100ms);
+    BAFX_CHECK(simulation.snapshot(goldenViewport, 1100ms).trail.empty());
+
+    simulation.updateUnityTrailTimeScale(0.19F);
+    const FrameSnapshot frame = simulation.snapshot(goldenViewport, 1101ms);
+    BAFX_CHECK(frame.trail.size() == 3U);
+    BAFX_CHECK_NEAR(frame.trail.front().positionPixels.x, 300.0F, 1.0e-3F);
+    BAFX_CHECK_NEAR(frame.trail.back().positionPixels.x, 500.0F, 1.0e-3F);
+}
+
+BAFX_TEST(game_trail_parking_disables_emission_until_normal_mode_resumes)
+{
+    Simulation simulation;
+    simulation.startTrail(PointF{100.0F, 100.0F}, goldenViewport, 0ns);
+    simulation.pointerMove(PointF{200.0F, 100.0F}, goldenViewport, 10ms);
+
+    simulation.updateUnityTrailTimeScale(0.0F);
+    simulation.updateUnityTrailTimeScale(0.0F);
+    BAFX_CHECK(simulation.snapshot(goldenViewport, 10ms).trail.empty());
+
+    simulation.pointerMove(PointF{800.0F, 500.0F}, goldenViewport, 20ms);
+    BAFX_CHECK(simulation.snapshot(goldenViewport, 20ms).trail.empty());
+
+    simulation.updateUnityTrailTimeScale(1.0F);
+    FrameSnapshot frame = simulation.snapshot(goldenViewport, 30ms);
+    BAFX_CHECK(frame.trail.empty());
+
+    simulation.pointerMove(PointF{900.0F, 500.0F}, goldenViewport, 40ms);
+    frame = simulation.snapshot(goldenViewport, 40ms);
+    BAFX_CHECK(frame.trail.size() == 1U);
+    BAFX_CHECK_NEAR(frame.trail.front().positionPixels.x, 900.0F, 1.0e-3F);
+}
+
+BAFX_TEST(desktop_pause_does_not_implicitly_enter_game_trail_parking)
+{
+    SimulationTimeline timeline;
+    Simulation simulation;
+    simulation.startTrail(PointF{100.0F, 100.0F}, goldenViewport, 0ns);
+    simulation.pointerMove(PointF{300.0F, 100.0F}, goldenViewport, 20ms);
+
+    timeline.setPaused(true, 20ms);
+    constexpr std::array<SimulationTime, 3> pausedWallTimes{
+        30ms,
+        100ms,
+        1s};
+    for (const SimulationTime wallTime : pausedWallTimes)
+    {
+        simulation.advance(timeline.fromWallTime(wallTime));
+        BAFX_CHECK(simulation.snapshot(goldenViewport, 20ms).trail.size() == 2U);
+    }
+}
+
 BAFX_TEST(pointer_cancel_uses_the_same_authored_cleanup_deadline_as_release)
 {
     Simulation simulation;
@@ -1126,6 +1364,27 @@ BAFX_TEST(rapid_clicks_keep_released_effects_alive)
     const auto disks = spritesOfKind(frame, SpriteKind::CenterDisk);
     BAFX_CHECK_NEAR(disks[0]->centerPixels.x, firstClick.x, 1.0e-3F);
     BAFX_CHECK_NEAR(disks[1]->centerPixels.x, secondClick.x, 1.0e-3F);
+}
+
+BAFX_TEST(runtime_forwards_game_trail_parking_to_all_live_instances)
+{
+    SimulationRuntime runtime;
+    runtime.pointerDown(PointF{100.0F, 100.0F}, goldenViewport, 0ns);
+    runtime.advance(1ns);
+    runtime.pointerMove(PointF{300.0F, 100.0F}, goldenViewport, 10ms);
+    runtime.pointerUp(20ms);
+
+    runtime.pointerDown(PointF{600.0F, 300.0F}, goldenViewport, 30ms);
+    runtime.advance(31ms);
+    runtime.pointerMove(PointF{800.0F, 300.0F}, goldenViewport, 40ms);
+    BAFX_CHECK(runtime.snapshot(goldenViewport, 40ms).trailStrokes.size() == 2U);
+
+    runtime.updateUnityTrailTimeScale(0.19F);
+    runtime.updateUnityTrailTimeScale(0.19F);
+    const FrameSnapshot frame = runtime.snapshot(goldenViewport, 40ms);
+    BAFX_CHECK(frame.trailStrokes.empty());
+    BAFX_CHECK(countKind(frame, SpriteKind::CenterDisk) == 2U);
+    BAFX_CHECK(countKind(frame, SpriteKind::DissolveRing) == 4U);
 }
 
 BAFX_TEST(always_on_trail_is_opt_in_and_ignores_free_moves_by_default)

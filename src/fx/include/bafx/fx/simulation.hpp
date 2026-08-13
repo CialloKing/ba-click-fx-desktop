@@ -113,6 +113,10 @@ public:
     void advance(SimulationTime time);
     void onFrameRendered(SimulationTime time);
 
+    // Mirrors FxTrailTimeScale.Update. This is an explicit game-time-scale
+    // input and is intentionally separate from the desktop pause timeline.
+    void updateUnityTrailTimeScale(float timeScale);
+
     // Product settings may change during an active stroke. Retain the
     // existing points and apply the new lifetime on the next simulation step.
     void setTrailLengthMultiplier(float multiplier) noexcept;
@@ -186,6 +190,10 @@ private:
     void emitClickTriangles(SimulationTime time);
     void emitDragTriangle(PointF worldPosition, SimulationTime time);
     void appendTrailPoint(PointF worldPosition, SimulationTime time);
+    void initTrailNormalMode();
+    void initTrailParkingMode();
+    void stepTrailParkingSequence();
+    void finishTrailParkingSequence();
     void emitAlongDrag(
         PointF from,
         PointF to,
@@ -217,10 +225,13 @@ private:
     PointF lastEmissionWorld_{};
     float dragDistanceRemainderWorld_{0.0F};
     float trailLengthMultiplier_{1.0F};
+    bool trailParkingMode_{false};
+    bool trailRendererEnabled_{true};
     ClickParticleStepStates particleStepStates_{};
     std::vector<RingParticle> rings_{};
     std::vector<MovingParticle> triangles_{};
     std::vector<StoredTrailPoint> trail_{};
+    std::vector<StoredTrailPoint> trailParkingPoints_{};
 };
 
 }

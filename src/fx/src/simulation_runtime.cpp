@@ -194,6 +194,18 @@ void SimulationRuntime::onFrameRendered(const SimulationTime time)
     instances_.erase(inactiveBegin, instances_.end());
 }
 
+void SimulationRuntime::updateUnityTrailTimeScale(const float timeScale)
+{
+    for (Simulation& instance : instances_)
+    {
+        instance.updateUnityTrailTimeScale(timeScale);
+    }
+    if (alwaysOnTrail_.has_value())
+    {
+        alwaysOnTrail_->updateUnityTrailTimeScale(timeScale);
+    }
+}
+
 void SimulationRuntime::setTrailLengthMultiplier(const float multiplier) noexcept
 {
     trailLengthMultiplier_ = normalizeTrailLengthMultiplier(multiplier);

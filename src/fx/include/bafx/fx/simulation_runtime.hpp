@@ -32,6 +32,7 @@ public:
     void endAlwaysOnTrail(SimulationTime time);
     void advance(SimulationTime time);
     void onFrameRendered(SimulationTime time);
+    void updateUnityTrailTimeScale(float timeScale);
     void setTrailLengthMultiplier(float multiplier) noexcept;
     void setInputSamplingRateHz(std::uint32_t rateHz) noexcept;
     void setAlwaysOnTrailEnabled(bool enabled, SimulationTime time);
