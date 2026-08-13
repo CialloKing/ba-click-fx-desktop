@@ -11,6 +11,7 @@
 #include "bafx/windows/portable_paths.hpp"
 #include "bafx/windows/runtime_diagnostics.hpp"
 #include "host_control.hpp"
+#include "pointer_frame_dispatch.hpp"
 
 #include <windows.h>
 
@@ -25,6 +26,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace
 {
@@ -373,75 +375,128 @@ void dispatchMessages(bool& quit)
 void consumePointerEvents(
     bafx::windows::OverlayWindow& window,
     bafx::fx::SimulationRuntime& simulation,
+    bafx::windows::PointerFrameAdapter& frameAdapter,
     const QpcClock& clock,
-    const bafx::fx::SimulationTimeline& timeline)
+    const bafx::fx::SimulationTime frameTime)
 {
+    using bafx::desktop::PointerFrameDispatch;
+    using bafx::desktop::PointerFramePosition;
+    using bafx::desktop::PointerFramePositionUse;
+    using bafx::desktop::PointerFrameTransition;
+    using bafx::desktop::PointerFrameTransitionKind;
+    using bafx::windows::PointerEventKind;
+
     const bafx::fx::Viewport viewport = toViewport(window.size());
-    for (const bafx::windows::PointerEvent& event :
-         bafx::windows::coalescePointerMoves(window.takePointerEvents()))
+    const std::vector<bafx::windows::PointerEvent> events =
+        bafx::windows::coalescePointerMoves(window.takePointerEvents());
+    const bafx::windows::PointerFrameSnapshot frame =
+        frameAdapter.consume(events);
+    PointerFrameDispatch dispatch{};
+    dispatch.transitions.reserve(frame.edges.size());
+
+    for (const bafx::windows::PointerFrameEdge& edge : frame.edges)
     {
-        const bafx::fx::SimulationTime inputTime = clock.fromCounter(
-            event.qpcTimestamp);
-        const bafx::fx::SimulationTime time = timeline.fromWallTime(inputTime);
-        if (event.kind == bafx::windows::PointerEventKind::LeftButtonUp)
+        PointerFrameTransition transition{};
+        transition.inputTime = clock.fromCounter(edge.trigger.qpcTimestamp);
+        switch (edge.kind)
         {
-            simulation.pointerUp(time);
-            continue;
-        }
-        if (event.kind == bafx::windows::PointerEventKind::Cancel)
-        {
-            simulation.pointerCancel(time);
-            continue;
-        }
-
-        POINT clientPosition = event.screenPosition;
-        if (!ScreenToClient(window.handle(), &clientPosition))
-        {
-            continue;
-        }
-
-        const bool insideClient = isInsideClient(clientPosition, window.size());
-        if (event.kind == bafx::windows::PointerEventKind::LeftButtonDown
-            && !insideClient)
-        {
-            simulation.endAlwaysOnTrail(time);
-            continue;
-        }
-        if (event.kind == bafx::windows::PointerEventKind::LeftButtonDown
-            && simulation.pointerHeld())
-        {
-            continue;
-        }
-        if (event.kind == bafx::windows::PointerEventKind::Move)
-        {
-            if (!insideClient && !simulation.pointerHeld())
+        case PointerEventKind::LeftButtonDown:
+            transition.kind = PointerFrameTransitionKind::Down;
             {
-                // Do not clamp a free-moving cursor to the overlay edge. End
-                // the ambient stroke so re-entry starts from a fresh anchor.
-                simulation.endAlwaysOnTrail(time);
-                continue;
+                POINT triggerClientPosition = edge.trigger.screenPosition;
+                transition.acceptDown = ScreenToClient(
+                    window.handle(),
+                    &triggerClientPosition)
+                    && isInsideClient(triggerClientPosition, window.size());
             }
-            clientPosition = clampToClient(clientPosition, window.size());
+            break;
+
+        case PointerEventKind::LeftButtonUp:
+            transition.kind = PointerFrameTransitionKind::Up;
+            break;
+
+        case PointerEventKind::Cancel:
+            transition.kind = PointerFrameTransitionKind::Cancel;
+            break;
+
+        case PointerEventKind::Move:
+            // The frame adapter never emits Move as a state transition.
+            continue;
+        }
+        dispatch.transitions.push_back(transition);
+    }
+
+    if (frame.heldAfter && frame.hasFinalHeldMove)
+    {
+        dispatch.positionUse = PointerFramePositionUse::Held;
+    }
+    else if (!frame.heldAfter
+        && frame.edges.empty()
+        && frame.hasFinalFreeMove)
+    {
+        // A button/cancel frame belongs wholly to the strict press path.
+        // Ambient enhancement may restart only from a later input frame, so
+        // an Up followed by queued Move cannot create a second same-frame stroke.
+        dispatch.positionUse = PointerFramePositionUse::Free;
+    }
+
+    const bool downNeedsPosition = std::any_of(
+        dispatch.transitions.begin(),
+        dispatch.transitions.end(),
+        [](const PointerFrameTransition& transition)
+        {
+            return transition.kind == PointerFrameTransitionKind::Down
+                && transition.acceptDown;
+        });
+    if (downNeedsPosition
+        || dispatch.positionUse != PointerFramePositionUse::None)
+    {
+        POINT screenPosition{};
+        bool positionAvailable = GetCursorPos(&screenPosition) != FALSE;
+        if (!positionAvailable && frame.latestNonCancelSample.has_value())
+        {
+            // Cancel may contain a default POINT when Win32 sampling fails.
+            // Only a previously validated non-Cancel event is a safe fallback.
+            screenPosition = frame.latestNonCancelSample->screenPosition;
+            positionAvailable = true;
         }
 
-        const bafx::fx::PointF position{
-            static_cast<float>(clientPosition.x),
-            static_cast<float>(clientPosition.y)};
-        switch (event.kind)
+        POINT clientPosition = screenPosition;
+        if (positionAvailable
+            && ScreenToClient(window.handle(), &clientPosition))
         {
-        case bafx::windows::PointerEventKind::LeftButtonDown:
-            simulation.pointerDown(position, viewport, time, inputTime);
-            break;
-
-        case bafx::windows::PointerEventKind::Move:
-            simulation.pointerMove(position, viewport, time, inputTime);
-            break;
-
-        case bafx::windows::PointerEventKind::LeftButtonUp:
-        case bafx::windows::PointerEventKind::Cancel:
-            break;
+            const bool insideClient = isInsideClient(
+                clientPosition,
+                window.size());
+            clientPosition = clampToClient(clientPosition, window.size());
+            const bafx::windows::PointerEvent* inputSample = nullptr;
+            if (frame.latestMoveSample.has_value())
+            {
+                inputSample = &*frame.latestMoveSample;
+            }
+            else if (frame.latestNonCancelSample.has_value())
+            {
+                inputSample = &*frame.latestNonCancelSample;
+            }
+            const bafx::fx::SimulationTime inputTime = inputSample != nullptr
+                ? clock.fromCounter(inputSample->qpcTimestamp)
+                : frameTime;
+            dispatch.position = PointerFramePosition{
+                bafx::fx::PointF{
+                    static_cast<float>(clientPosition.x),
+                    static_cast<float>(clientPosition.y)},
+                insideClient,
+                inputTime};
         }
     }
+
+    // Edge triggers keep their raw ownership metadata, while every accepted
+    // spatial action uses one frame-boundary cursor position and frame time.
+    bafx::desktop::applyPointerFrame(
+        simulation,
+        viewport,
+        frameTime,
+        dispatch);
 }
 
 int runApplication(
@@ -602,6 +657,7 @@ int runApplication(
     bafx::windows::appendDiagnosticLog(logPath, report);
     bafx::fx::SimulationRuntime simulation(makeRuntimeSeed());
     bafx::fx::SimulationTimeline simulationTimeline;
+    bafx::windows::PointerFrameAdapter pointerFrameAdapter;
     simulation.setTrailLengthMultiplier(config.effects.trailLength);
     simulation.setInputSamplingRateHz(config.input.samplingRateHz);
     simulation.setAlwaysOnTrailEnabled(
@@ -753,7 +809,8 @@ int runApplication(
         if (options.demoClick || !config.effects.enabled || controlState.paused)
         {
             // Do not let disabled/paused input accumulate and replay after resume.
-            static_cast<void>(window.takePointerEvents());
+            static_cast<void>(pointerFrameAdapter.consume(
+                bafx::windows::coalescePointerMoves(window.takePointerEvents())));
             if (enteringPause || !config.effects.enabled)
             {
                 // Disabling can drain the physical Up event. Cancel
@@ -763,7 +820,12 @@ int runApplication(
         }
         else
         {
-            consumePointerEvents(window, simulation, clock, simulationTimeline);
+            consumePointerEvents(
+                window,
+                simulation,
+                pointerFrameAdapter,
+                clock,
+                renderTime);
         }
         if (options.quitAfterMilliseconds.has_value()
             && wallTime - applicationStartedAt
