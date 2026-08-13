@@ -63,6 +63,19 @@
 ParticleSystem 使用独立的引擎随机流；在尚未导出初始粒子状态 fixture 或复现该随机流前，跨实现
 比较必须使用与随机布局无关的数量、包络、径向能量和感知指标，禁止把 C++ 粒子坐标称为 Unity 像素真值。
 
+Unity 50 ms 粒子状态观察夹具固定为
+`Reference/Diagnostics/ParticleStates/FX_Touch_0050ms_particle-state-v1.json`。
+它使用 schema 1、`1950x1097`、`seedBase + index * seedStride`（`seedStride=7919`），
+保留 `GetComponentsInChildren(true)` 的系统顺序和 `GetParticles` 的粒子顺序，并导出局部/世界坐标、
+投影像素、速度、寿命、尺寸、旋转、颜色及 Custom1。Unity 导出器在同一批处理中独立生成两次，
+要求 UTF-8 JSON 字节完全一致（`deterministic.runs=2`、`byteIdentical=true`）；native 校验器只验证
+该可复现序列化合同，不把它升级为 native 随机流等价声明：
+
+```powershell
+python -B tools\verify-unity-particle-fixture.py `
+  "D:\WebProjects\BA鼠标输入与点击特效系统\UnityMouseFxLab\UnityMouseFxLab\Reference\Diagnostics\ParticleStates\FX_Touch_0050ms_particle-state-v1.json"
+```
+
 导出以下命名层：
 
 ```text

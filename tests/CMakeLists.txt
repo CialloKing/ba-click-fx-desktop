@@ -71,6 +71,19 @@ if(Python3_Interpreter_FOUND)
         PROPERTIES
             WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
     )
+    add_test(
+        NAME unity_particle_fixture_contract
+        COMMAND
+            "${Python3_EXECUTABLE}"
+            -B
+            "${CMAKE_CURRENT_SOURCE_DIR}/verify_unity_particle_fixture_tests.py"
+    )
+    set_tests_properties(
+        unity_particle_fixture_contract
+        PROPERTIES
+            WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
+            TIMEOUT 10
+    )
 endif()
 
 if(WIN32)
