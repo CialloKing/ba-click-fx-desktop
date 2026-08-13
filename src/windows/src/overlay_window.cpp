@@ -703,13 +703,6 @@ void OverlayWindow::pushPointerEvent(
             {
                 pendingPointerEvents_.erase(move);
             }
-            else
-            {
-                // A queue made solely of edges is already bounded by the
-                // input device's transition rate. Let it grow briefly so no
-                // state transition is discarded; the next move sample will
-                // reclaim one slot through the branch above.
-            }
         }
     }
     pendingPointerEvents_.push_back(
