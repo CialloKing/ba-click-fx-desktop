@@ -689,7 +689,8 @@ void OverlayWindow::pushPointerEvent(
         // exceed the nominal queue bound until a Move can reclaim a slot.
         pendingPointerEvents_ = compactPointerEventBacklog(
             std::move(pendingPointerEvents_));
-        if (pendingPointerEvents_.size() >= maximumPendingPointerEvents)
+        if (pendingPointerEvents_.size() >= maximumPendingPointerEvents
+            && kind == PointerEventKind::Move)
         {
             const auto move = std::find_if(
                 pendingPointerEvents_.begin(),
