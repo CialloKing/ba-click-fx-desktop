@@ -57,6 +57,22 @@ bafx_enable_warnings(bafx_reference_tests)
 add_test(NAME unity_runtime_resources COMMAND bafx_reference_tests)
 set_target_properties(bafx_reference_tests PROPERTIES FOLDER "Tests")
 
+find_package(Python3 COMPONENTS Interpreter QUIET)
+if(Python3_Interpreter_FOUND)
+    add_test(
+        NAME golden_metrics_contract
+        COMMAND
+            "${Python3_EXECUTABLE}"
+            -B
+            "${CMAKE_CURRENT_SOURCE_DIR}/verify_golden_metrics_tests.py"
+    )
+    set_tests_properties(
+        golden_metrics_contract
+        PROPERTIES
+            WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
+    )
+endif()
+
 if(WIN32)
     add_executable(
         bafx_windows_tests

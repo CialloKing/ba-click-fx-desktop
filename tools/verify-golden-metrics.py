@@ -48,6 +48,10 @@ RADIAL_EDGES = (
 NON_BLACK_THRESHOLD = 2
 EXPOSURE_GAIN = 0.125058532
 SAMPLE_SCALE = 1.42925835
+FP16_LAYER_TOLERANCE = 0.002
+COMPOSITE_GAIN_TOLERANCE = 0.03
+DOWNSAMPLE_MEAN_RATIO_MIN = 0.85
+DOWNSAMPLE_MEAN_RATIO_MAX = 1.15
 
 
 class ValidationError(RuntimeError):
@@ -93,8 +97,8 @@ class LayerMetrics:
     non_negative_rgb: bool
     direct_seed_min_delta: float
     final_direct_min_delta: float
-    final_direct_alpha_max_delta: float
-    direct_seed_alpha_max_delta: float
+    final_direct_alpha_min_delta: float
+    direct_seed_alpha_min_delta: float
     direct_rgb_sum: float
     seed_rgb_sum: float
     final_rgb_sum: float
@@ -397,8 +401,8 @@ def _layer_metrics(age_directory: Path, layer_info: dict[str, dict]) -> LayerMet
     bloom_delta_sum = 0.0
     direct_seed_min = math.inf
     final_direct_min = math.inf
-    alpha_max_delta = 0.0
-    seed_alpha_max_delta = 0.0
+    final_direct_alpha_min = math.inf
+    direct_seed_alpha_min = math.inf
     finite = True
     non_negative = True
     direct_iter = _iter_half_pixels(direct_path, width, height)
@@ -415,8 +419,14 @@ def _layer_metrics(age_directory: Path, layer_info: dict[str, dict]) -> LayerMet
         for channel in range(3):
             direct_seed_min = min(direct_seed_min, direct[channel] - seed[channel])
             final_direct_min = min(final_direct_min, final[channel] - direct[channel])
-        alpha_max_delta = max(alpha_max_delta, abs(final[3] - direct[3]))
-        seed_alpha_max_delta = max(seed_alpha_max_delta, abs(seed[3] - direct[3]))
+        final_direct_alpha_min = min(
+            final_direct_alpha_min,
+            final[3] - direct[3],
+        )
+        direct_seed_alpha_min = min(
+            direct_seed_alpha_min,
+            direct[3] - seed[3],
+        )
         bloom_delta_sum += sum(final[channel] - direct[channel] for channel in range(3))
 
     up_width, up_height = dimensions["Up00"]
@@ -476,8 +486,8 @@ def _layer_metrics(age_directory: Path, layer_info: dict[str, dict]) -> LayerMet
         non_negative_rgb=non_negative,
         direct_seed_min_delta=direct_seed_min,
         final_direct_min_delta=final_direct_min,
-        final_direct_alpha_max_delta=alpha_max_delta,
-        direct_seed_alpha_max_delta=seed_alpha_max_delta,
+        final_direct_alpha_min_delta=final_direct_alpha_min,
+        direct_seed_alpha_min_delta=direct_seed_alpha_min,
         direct_rgb_sum=direct_sum,
         seed_rgb_sum=seed_sum,
         final_rgb_sum=final_sum,
@@ -487,6 +497,59 @@ def _layer_metrics(age_directory: Path, layer_info: dict[str, dict]) -> LayerMet
         down_mean_ratios=tuple(down_ratios),
         up_mean_monotonic=up_monotonic,
     )
+
+
+def _layer_contract_failures(layers: LayerMetrics) -> tuple[str, ...]:
+    failures = []
+    if not layers.finite:
+        failures.append("layer graph contains non-finite values")
+    if not layers.non_negative_rgb:
+        failures.append("layer graph contains negative RGB")
+    if layers.direct_seed_min_delta < -FP16_LAYER_TOLERANCE:
+        failures.append(
+            "BloomSeed RGB exceeds DirectSurface RGB: "
+            f"minDelta={layers.direct_seed_min_delta:.6g}"
+        )
+    if layers.final_direct_min_delta < -FP16_LAYER_TOLERANCE:
+        failures.append(
+            "FinalOverlay RGB falls below DirectSurface RGB: "
+            f"minDelta={layers.final_direct_min_delta:.6g}"
+        )
+    # Bloom-disabled materials still contribute authored coverage to the direct
+    # surface, so seed Alpha is a subset rather than an identical copy.
+    if layers.direct_seed_alpha_min_delta < -FP16_LAYER_TOLERANCE:
+        failures.append(
+            "BloomSeed Alpha exceeds DirectSurface Alpha: "
+            f"minDelta={layers.direct_seed_alpha_min_delta:.6g}"
+        )
+    # Bloom propagation may expand transport coverage, but it must never erase
+    # the authored direct coverage already present at the same pixel.
+    if layers.final_direct_alpha_min_delta < -FP16_LAYER_TOLERANCE:
+        failures.append(
+            "FinalOverlay Alpha falls below DirectSurface Alpha: "
+            f"minDelta={layers.final_direct_alpha_min_delta:.6g}"
+        )
+    if (
+        layers.composite_gain_ratio is None
+        or abs(layers.composite_gain_ratio - 1.0) > COMPOSITE_GAIN_TOLERANCE
+    ):
+        failures.append(
+            "Bloom composite gain differs from the planned exposure: "
+            f"ratio={layers.composite_gain_ratio}"
+        )
+    invalid_down_ratios = tuple(
+        ratio
+        for ratio in layers.down_mean_ratios
+        if not DOWNSAMPLE_MEAN_RATIO_MIN <= ratio <= DOWNSAMPLE_MEAN_RATIO_MAX
+    )
+    if invalid_down_ratios:
+        failures.append(
+            "Bloom downsample mean energy left the conservation range: "
+            + ",".join(f"{ratio:.6g}" for ratio in invalid_down_ratios)
+        )
+    if not layers.up_mean_monotonic:
+        failures.append("Bloom upsample mean energy is not monotonic")
+    return tuple(failures)
 
 
 def _tolerance(age_ms: int) -> Tolerance:
@@ -575,19 +638,7 @@ def _compare_slice(age_ms: int, unity_root: Path, native_root: Path, check_layer
             raise ValidationError(f"{age_ms}ms: manifest has no age record")
         layer_info = {entry["name"]: entry for entry in age_record.get("layers", [])}
         layers = _layer_metrics(native_directory, layer_info)
-        gain_ok = layers.composite_gain_ratio is not None and abs(layers.composite_gain_ratio - 1.0) <= 0.03
-        down_ok = all(0.85 <= ratio <= 1.15 for ratio in layers.down_mean_ratios)
-        passed_layers = (
-            layers.finite
-            and layers.non_negative_rgb
-            and layers.direct_seed_min_delta >= -0.002
-            and layers.final_direct_min_delta >= -0.002
-            and layers.final_direct_alpha_max_delta <= 0.002
-            and layers.direct_seed_alpha_max_delta <= 0.002
-            and gain_ok
-            and down_ok
-            and layers.up_mean_monotonic
-        )
+        passed_layers = not _layer_contract_failures(layers)
     return SliceResult(
         age_ms=age_ms,
         golden=golden,
@@ -689,8 +740,10 @@ def main(argv: list[str] | None = None) -> int:
                     file=sys.stderr,
                 )
             if result.passed_layers is False:
+                details = "; ".join(_layer_contract_failures(result.layers))
                 print(
-                    f"golden-metrics: layer threshold failure at {result.age_ms}ms",
+                    f"golden-metrics: layer threshold failure at {result.age_ms}ms: "
+                    + details,
                     file=sys.stderr,
                 )
         return 1

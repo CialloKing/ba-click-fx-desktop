@@ -74,6 +74,12 @@ FinalOverlay
 并在最终图上补充感知误差；
 不得用 PNG hash 代替数值比较。
 
+`DirectSurface` 保存 Coverage 与 DirectEmission 的组合结果。`BloomSeed` 只包含允许进入 Bloom 的材质，
+因此逐像素必须满足 `BloomSeed.a <= DirectSurface.a`；禁用 Bloom 的三角碎片可以让两者明显不同。
+Bloom 传播可以扩张最终传输覆盖范围，但不能抹掉已有 Coverage，所以还必须满足
+`DirectSurface.a <= FinalOverlay.a`。这两项使用与其他 FP16 层相同的 `0.002` 数值容差检查单向关系，
+不要求三个 Alpha 通道相等。
+
 原生层级捕获使用固定 WARP、`1950x1097`、中心点击、种子 `20260716`，直接读取
 `Present` 前的 FP16 资源，不依赖会漏掉 DComp visual 的 PrintScreen：
 

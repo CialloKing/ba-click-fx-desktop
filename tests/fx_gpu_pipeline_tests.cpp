@@ -1708,6 +1708,50 @@ BAFX_TEST(warp_capture_reads_all_layers_from_the_same_frame)
     BAFX_CHECK(final[center].blue >= direct[center].blue);
 }
 
+BAFX_TEST(warp_capture_preserves_directional_alpha_layer_contract)
+{
+    ComApartment apartment;
+    const WarpDevice graphics = createWarpDevice();
+    FxGpuRenderer renderer(graphics.device.Get(), graphics.context.Get(), testSize);
+    const RenderTarget target = createRenderTarget(graphics.device.Get());
+
+    bafx::fx::FrameSnapshot snapshot = makeDiskSnapshot(true);
+    bafx::fx::Sprite triangle = makeTriangleSnapshot().sprites.front();
+    triangle.centerPixels = bafx::fx::PointF{
+        static_cast<float>(testSize.width) * 0.25F,
+        static_cast<float>(testSize.height) * 0.25F};
+    snapshot.sprites.push_back(triangle);
+
+    const FxGpuFrameCapture capture = renderer.renderAndCapture(
+        snapshot,
+        target.view.Get());
+    const std::vector<ReadbackPixel> direct = toFloatPixels(capture.directSurface);
+    const std::vector<ReadbackPixel> seed = toFloatPixels(capture.bloomSeed);
+    const std::vector<ReadbackPixel> final = toFloatPixels(capture.finalOverlay);
+
+    constexpr float fp16Tolerance = 2.0e-3F;
+    bool foundBloomExpandedAlpha = false;
+    bool foundNonBloomDirectAlpha = false;
+    for (std::size_t index = 0U; index < direct.size(); ++index)
+    {
+        BAFX_CHECK(seed[index].alpha <= direct[index].alpha + fp16Tolerance);
+        BAFX_CHECK(direct[index].alpha <= final[index].alpha + fp16Tolerance);
+        if (final[index].alpha > direct[index].alpha + fp16Tolerance)
+        {
+            foundBloomExpandedAlpha = true;
+        }
+        if (direct[index].alpha > seed[index].alpha + fp16Tolerance)
+        {
+            foundNonBloomDirectAlpha = true;
+        }
+    }
+
+    // Exercise both strict inequalities so this cannot regress into an Alpha
+    // equality check that rejects valid non-Bloom or propagated-Bloom pixels.
+    BAFX_CHECK(foundBloomExpandedAlpha);
+    BAFX_CHECK(foundNonBloomDirectAlpha);
+}
+
 BAFX_TEST(warp_pipeline_applies_runtime_bloom_intensity_and_quality)
 {
     ComApartment apartment;
