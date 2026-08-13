@@ -75,6 +75,25 @@ endif()
 
 if(WIN32)
     add_executable(
+        bafx_desktop_input_tests
+        test_main.cpp
+        pointer_frame_dispatch_tests.cpp
+    )
+    target_link_libraries(
+        bafx_desktop_input_tests
+        PRIVATE
+            bafx::desktop_input
+    )
+    target_compile_features(bafx_desktop_input_tests PRIVATE cxx_std_20)
+    bafx_enable_warnings(bafx_desktop_input_tests)
+    add_test(NAME desktop_input_dispatch COMMAND bafx_desktop_input_tests)
+    set_target_properties(
+        bafx_desktop_input_tests
+        PROPERTIES
+            FOLDER "Tests"
+    )
+
+    add_executable(
         bafx_windows_tests
         test_main.cpp
         ipc_client_tests.cpp

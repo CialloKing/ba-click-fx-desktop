@@ -15,6 +15,26 @@ configure_file(
     @ONLY
 )
 
+add_library(
+    bafx_desktop_input
+    STATIC
+        pointer_frame_dispatch.cpp
+)
+add_library(bafx::desktop_input ALIAS bafx_desktop_input)
+target_include_directories(
+    bafx_desktop_input
+    PUBLIC
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+)
+target_link_libraries(bafx_desktop_input PUBLIC bafx::fx)
+target_compile_features(bafx_desktop_input PUBLIC cxx_std_20)
+bafx_enable_warnings(bafx_desktop_input)
+set_target_properties(
+    bafx_desktop_input
+    PROPERTIES
+        FOLDER "Libraries"
+)
+
 add_executable(
     ba_click_fx_desktop
     WIN32
@@ -35,6 +55,7 @@ target_link_libraries(
     PRIVATE
         bafx::core
         bafx::config
+        bafx::desktop_input
         bafx::fx
         bafx::windows
         ole32
