@@ -268,6 +268,7 @@ class CompositionSpikeContractTests(unittest.TestCase):
                 check=False,
             )
             self.assertEqual(0, result.returncode, result.stderr)
+            self.assertNotIn(b"\r\n", report_path.read_bytes())
             report = json.loads(report_path.read_text(encoding="utf-8"))
             self.assertEqual("sdr-accepted", report["status"])
             self.assertIn("PASS: SPK-001", result.stdout)

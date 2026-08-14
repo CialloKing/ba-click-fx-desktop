@@ -591,10 +591,9 @@ def validate_path(path: Path) -> VerificationResult:
 def _write_report(path: Path, result: VerificationResult) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(path.name + ".tmp")
-    temporary.write_text(
-        json.dumps(asdict(result), indent=2, ensure_ascii=False) + "\n",
-        encoding="utf-8",
-    )
+    # Evidence hashes must remain stable when the verifier runs on Windows.
+    with temporary.open("w", encoding="utf-8", newline="\n") as stream:
+        stream.write(json.dumps(asdict(result), indent=2, ensure_ascii=False) + "\n")
     temporary.replace(path)
 
 
