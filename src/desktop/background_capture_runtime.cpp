@@ -121,6 +121,10 @@ BackgroundCaptureExecutionResult executeBackgroundCaptureTransition(
             renderer.setOverlayProfile(action->overlayProfile);
             succeeded = true;
             break;
+        case bafx::windows::BackgroundCaptureActionKind::ResizeOutput:
+            renderer.resizeOutput(action->outputSize);
+            succeeded = true;
+            break;
         case bafx::windows::BackgroundCaptureActionKind::StartSensor:
             // Start is emitted only after WDA exclusion was confirmed in this
             // transaction, so a stale affinity result cannot enable capture.

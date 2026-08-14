@@ -24,6 +24,15 @@ namespace
     return action;
 }
 
+[[nodiscard]] BackgroundCaptureAction resizeAction(
+    const WindowSize outputSize) noexcept
+{
+    BackgroundCaptureAction action{};
+    action.kind = BackgroundCaptureActionKind::ResizeOutput;
+    action.outputSize = outputSize;
+    return action;
+}
+
 [[nodiscard]] BackgroundCaptureAction startAction(
     const BackgroundCaptureRequest& request) noexcept
 {
@@ -55,6 +64,17 @@ namespace
 
 }
 
+bool BackgroundCaptureAction::operator==(
+    const BackgroundCaptureAction& other) const noexcept
+{
+    return kind == other.kind
+        && overlayProfile == other.overlayProfile
+        && outputSize.width == other.outputSize.width
+        && outputSize.height == other.outputSize.height
+        && cursorExcluded == other.cursorExcluded
+        && allowSystemBorder == other.allowSystemBorder;
+}
+
 bool isValidBackgroundCaptureRequest(
     const BackgroundCaptureRequest& request) noexcept
 {
@@ -68,7 +88,19 @@ bool isValidBackgroundCaptureRequest(
 BackgroundCaptureRequestResult BackgroundCaptureTransition::beginRequest(
     const BackgroundCaptureRequest request) noexcept
 {
+    return beginIntent(request, std::nullopt);
+}
+
+BackgroundCaptureRequestResult BackgroundCaptureTransition::beginIntent(
+    const BackgroundCaptureRequest request,
+    const std::optional<WindowSize> outputSize) noexcept
+{
     if (!isValidBackgroundCaptureRequest(request))
+    {
+        return BackgroundCaptureRequestResult::InvalidRequest;
+    }
+    if (outputSize.has_value()
+        && (outputSize->width == 0U || outputSize->height == 0U))
     {
         return BackgroundCaptureRequestResult::InvalidRequest;
     }
@@ -76,8 +108,9 @@ BackgroundCaptureRequestResult BackgroundCaptureTransition::beginRequest(
     {
         return BackgroundCaptureRequestResult::Busy;
     }
-    if (request_.has_value()
-        && equivalentStableRequest(*request_, request))
+    const bool stableRequest = request_.has_value()
+        && equivalentStableRequest(*request_, request);
+    if (stableRequest && !outputSize.has_value())
     {
         request_ = request;
         return BackgroundCaptureRequestResult::NoChange;
@@ -87,14 +120,58 @@ BackgroundCaptureRequestResult BackgroundCaptureTransition::beginRequest(
         && !request_->sensorRequired
         && !request.sensorRequired
         && request_->retryToken == request.retryToken;
+    const bool activeBackgroundAware =
+        effectivePath_ == EffectiveBackgroundCapturePath::BackgroundAware;
+    const bool applyProfile = !appliedOverlayProfile_.has_value()
+        || *appliedOverlayProfile_ != request.overlayProfile;
     request_ = request;
-    if (profileOnly)
+    if (!outputSize.has_value())
     {
-        beginProfileOnlyRequest(request);
+        if (profileOnly)
+        {
+            beginProfileOnlyRequest(request);
+        }
+        else
+        {
+            beginFullRequest(request);
+        }
+        return BackgroundCaptureRequestResult::Started;
+    }
+
+    if (stableRequest)
+    {
+        if (activeBackgroundAware)
+        {
+            beginBackgroundAwareResize(
+                request,
+                *outputSize,
+                true,
+                false);
+        }
+        else
+        {
+            // A failed stable request is terminal. Resize its output without
+            // turning an unrelated window event into an implicit WGC retry.
+            beginResizeOnly(*outputSize);
+        }
+    }
+    else if (request.sensorRequired)
+    {
+        // An active sensor already uses the only valid sensor profile. Avoid a
+        // redundant profile action so Stop+Included rollback still fits six.
+        beginBackgroundAwareResize(
+            request,
+            *outputSize,
+            activeBackgroundAware,
+            !activeBackgroundAware && applyProfile);
     }
     else
     {
-        beginFullRequest(request);
+        beginFxOnlyResize(
+            request,
+            *outputSize,
+            activeBackgroundAware,
+            profileOnly);
     }
     return BackgroundCaptureRequestResult::Started;
 }
@@ -141,6 +218,7 @@ bool BackgroundCaptureTransition::applyObservation(
     }
     if (!succeeded
         && (action.kind == BackgroundCaptureActionKind::StopSensor
+            || action.kind == BackgroundCaptureActionKind::ResizeOutput
             || action.kind == BackgroundCaptureActionKind::ApplyOverlayProfile))
     {
         return false;
@@ -181,8 +259,11 @@ bool BackgroundCaptureTransition::applyObservation(
                 BackgroundCaptureActionKind::SetAffinityIncluded));
         }
         break;
-    case BackgroundCaptureActionKind::StopSensor:
     case BackgroundCaptureActionKind::ApplyOverlayProfile:
+        appliedOverlayProfile_ = action.overlayProfile;
+        break;
+    case BackgroundCaptureActionKind::StopSensor:
+    case BackgroundCaptureActionKind::ResizeOutput:
         break;
     }
 
@@ -249,6 +330,78 @@ void BackgroundCaptureTransition::beginProfileOnlyRequest(
     completionVisibilityUnknown_ =
         effectivePath_ == EffectiveBackgroundCapturePath::
             FxOnlyCaptureVisibilityUnknown;
+    appendAction(profileAction(request.overlayProfile));
+}
+
+void BackgroundCaptureTransition::beginResizeOnly(
+    const WindowSize outputSize) noexcept
+{
+    actionCount_ = 0U;
+    actionIndex_ = 0U;
+    pendingFailure_ = failure_;
+    completionPath_ = effectivePath_;
+    completionVisibilityUnknown_ =
+        effectivePath_ == EffectiveBackgroundCapturePath::
+            FxOnlyCaptureVisibilityUnknown;
+    appendAction(resizeAction(outputSize));
+}
+
+void BackgroundCaptureTransition::beginBackgroundAwareResize(
+    const BackgroundCaptureRequest& request,
+    const WindowSize outputSize,
+    const bool stopActiveSensor,
+    const bool applyProfile) noexcept
+{
+    actionCount_ = 0U;
+    actionIndex_ = 0U;
+    pendingFailure_ = BackgroundCaptureFailure::None;
+    completionPath_ = EffectiveBackgroundCapturePath::BackgroundAware;
+    completionVisibilityUnknown_ = false;
+
+    if (stopActiveSensor)
+    {
+        appendAction(simpleAction(BackgroundCaptureActionKind::StopSensor));
+    }
+    appendAction(resizeAction(outputSize));
+    appendAction(simpleAction(BackgroundCaptureActionKind::SetAffinityExcluded));
+    if (applyProfile)
+    {
+        appendAction(profileAction(request.overlayProfile));
+    }
+    appendAction(startAction(request));
+}
+
+void BackgroundCaptureTransition::beginFxOnlyResize(
+    const BackgroundCaptureRequest& request,
+    const WindowSize outputSize,
+    const bool stopActiveSensor,
+    const bool profileOnly) noexcept
+{
+    actionCount_ = 0U;
+    actionIndex_ = 0U;
+    if (profileOnly)
+    {
+        // A profile-only change cannot repair an earlier failure to restore
+        // capture visibility. Resize must preserve that diagnostic contract.
+        pendingFailure_ = failure_;
+        completionPath_ = effectivePath_;
+        completionVisibilityUnknown_ =
+            effectivePath_ == EffectiveBackgroundCapturePath::
+                FxOnlyCaptureVisibilityUnknown;
+    }
+    else
+    {
+        pendingFailure_ = BackgroundCaptureFailure::None;
+        completionPath_ = EffectiveBackgroundCapturePath::FxOnly;
+        completionVisibilityUnknown_ = false;
+    }
+
+    if (stopActiveSensor || !profileOnly)
+    {
+        appendAction(simpleAction(BackgroundCaptureActionKind::StopSensor));
+        appendAction(simpleAction(BackgroundCaptureActionKind::SetAffinityIncluded));
+    }
+    appendAction(resizeAction(outputSize));
     appendAction(profileAction(request.overlayProfile));
 }
 

@@ -5,12 +5,15 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <vector>
 
 using namespace bafx::windows;
 
 namespace
 {
+
+constexpr WindowSize resizedOutput{2560U, 1440U};
 
 [[nodiscard]] BackgroundCaptureRequest backgroundAwareRequest(
     const bool cursorExcluded = true,
@@ -33,13 +36,20 @@ namespace
 }
 
 [[nodiscard]] std::vector<BackgroundCaptureActionKind> completeSuccessfully(
-    BackgroundCaptureTransition& transition)
+    BackgroundCaptureTransition& transition,
+    const std::optional<WindowSize> expectedOutputSize = std::nullopt)
 {
     std::vector<BackgroundCaptureActionKind> actions;
     while (const auto action = transition.nextAction())
     {
         BAFX_CHECK(actions.size() < maximumBackgroundCaptureActions);
         actions.push_back(action->kind);
+        if (action->kind == BackgroundCaptureActionKind::ResizeOutput)
+        {
+            BAFX_CHECK(expectedOutputSize.has_value());
+            BAFX_CHECK(action->outputSize.width == expectedOutputSize->width);
+            BAFX_CHECK(action->outputSize.height == expectedOutputSize->height);
+        }
         BAFX_CHECK(transition.applyObservation(*action, true));
     }
     return actions;
@@ -277,4 +287,253 @@ BAFX_TEST(out_of_order_observation_is_rejected_without_advancing)
     wrong.kind = BackgroundCaptureActionKind::StartSensor;
     BAFX_CHECK(!transition.applyObservation(wrong, true));
     BAFX_CHECK(transition.nextAction() == expected);
+}
+
+BAFX_TEST(background_aware_resize_restarts_in_resize_safe_order)
+{
+    BackgroundCaptureTransition transition;
+    const BackgroundCaptureRequest request = backgroundAwareRequest();
+    BAFX_CHECK(
+        transition.beginRequest(request) == BackgroundCaptureRequestResult::Started);
+    static_cast<void>(completeSuccessfully(transition));
+
+    BAFX_CHECK(
+        transition.beginIntent(request, resizedOutput)
+        == BackgroundCaptureRequestResult::Started);
+    checkActions(
+        completeSuccessfully(transition, resizedOutput),
+        {BackgroundCaptureActionKind::StopSensor,
+         BackgroundCaptureActionKind::ResizeOutput,
+         BackgroundCaptureActionKind::SetAffinityExcluded,
+         BackgroundCaptureActionKind::StartSensor});
+    BAFX_CHECK(
+        transition.effectivePath()
+        == EffectiveBackgroundCapturePath::BackgroundAware);
+    BAFX_CHECK(transition.failure() == BackgroundCaptureFailure::None);
+}
+
+BAFX_TEST(fx_only_resize_does_not_restart_a_stable_request)
+{
+    BackgroundCaptureTransition transition;
+    const BackgroundCaptureRequest request = recordingRequest();
+    BAFX_CHECK(
+        transition.beginRequest(request) == BackgroundCaptureRequestResult::Started);
+    static_cast<void>(completeSuccessfully(transition));
+
+    BAFX_CHECK(
+        transition.beginIntent(request, resizedOutput)
+        == BackgroundCaptureRequestResult::Started);
+    const auto resize = transition.nextAction();
+    BAFX_CHECK(resize.has_value());
+    BAFX_CHECK(resize->kind == BackgroundCaptureActionKind::ResizeOutput);
+    BAFX_CHECK(resize->outputSize.width == resizedOutput.width);
+    BAFX_CHECK(resize->outputSize.height == resizedOutput.height);
+    BAFX_CHECK(!transition.applyObservation(*resize, false));
+    BAFX_CHECK(transition.nextAction() == resize);
+    BAFX_CHECK(transition.applyObservation(*resize, true));
+    BAFX_CHECK(!transition.nextAction().has_value());
+    BAFX_CHECK(
+        transition.effectivePath() == EffectiveBackgroundCapturePath::FxOnly);
+}
+
+BAFX_TEST(failed_background_aware_resize_is_terminal_without_explicit_retry)
+{
+    BackgroundCaptureTransition transition;
+    const BackgroundCaptureRequest request = backgroundAwareRequest();
+    BAFX_CHECK(
+        transition.beginRequest(request) == BackgroundCaptureRequestResult::Started);
+    for (std::size_t index = 0U; index < 3U; ++index)
+    {
+        const auto action = transition.nextAction();
+        BAFX_CHECK(action.has_value());
+        BAFX_CHECK(transition.applyObservation(*action, true));
+    }
+    const auto start = transition.nextAction();
+    BAFX_CHECK(start.has_value());
+    BAFX_CHECK(start->kind == BackgroundCaptureActionKind::StartSensor);
+    BAFX_CHECK(transition.applyObservation(*start, false));
+    static_cast<void>(completeSuccessfully(transition));
+
+    BAFX_CHECK(
+        transition.beginIntent(request, resizedOutput)
+        == BackgroundCaptureRequestResult::Started);
+    checkActions(
+        completeSuccessfully(transition, resizedOutput),
+        {BackgroundCaptureActionKind::ResizeOutput});
+    BAFX_CHECK(
+        transition.effectivePath() == EffectiveBackgroundCapturePath::FxOnly);
+    BAFX_CHECK(
+        transition.failure() == BackgroundCaptureFailure::SensorStartFailed);
+}
+
+BAFX_TEST(background_aware_configuration_and_resize_share_one_transaction)
+{
+    BackgroundCaptureTransition transition;
+    BAFX_CHECK(
+        transition.beginRequest(recordingRequest())
+        == BackgroundCaptureRequestResult::Started);
+    static_cast<void>(completeSuccessfully(transition));
+
+    BAFX_CHECK(
+        transition.beginIntent(backgroundAwareRequest(), resizedOutput)
+        == BackgroundCaptureRequestResult::Started);
+    checkActions(
+        completeSuccessfully(transition, resizedOutput),
+        {BackgroundCaptureActionKind::ResizeOutput,
+         BackgroundCaptureActionKind::SetAffinityExcluded,
+         BackgroundCaptureActionKind::ApplyOverlayProfile,
+         BackgroundCaptureActionKind::StartSensor});
+}
+
+BAFX_TEST(background_aware_resize_start_failure_stays_within_action_budget)
+{
+    BackgroundCaptureTransition transition;
+    BAFX_CHECK(
+        transition.beginRequest(recordingRequest())
+        == BackgroundCaptureRequestResult::Started);
+    static_cast<void>(completeSuccessfully(transition));
+    BAFX_CHECK(
+        transition.beginIntent(backgroundAwareRequest(), resizedOutput)
+        == BackgroundCaptureRequestResult::Started);
+
+    std::vector<BackgroundCaptureActionKind> actions;
+    while (const auto action = transition.nextAction())
+    {
+        BAFX_CHECK(actions.size() < maximumBackgroundCaptureActions);
+        actions.push_back(action->kind);
+        const bool succeeded =
+            action->kind != BackgroundCaptureActionKind::StartSensor;
+        BAFX_CHECK(transition.applyObservation(*action, succeeded));
+    }
+    checkActions(
+        actions,
+        {BackgroundCaptureActionKind::ResizeOutput,
+         BackgroundCaptureActionKind::SetAffinityExcluded,
+         BackgroundCaptureActionKind::ApplyOverlayProfile,
+         BackgroundCaptureActionKind::StartSensor,
+         BackgroundCaptureActionKind::StopSensor,
+         BackgroundCaptureActionKind::SetAffinityIncluded});
+    BAFX_CHECK(actions.size() == maximumBackgroundCaptureActions);
+    BAFX_CHECK(
+        transition.failure() == BackgroundCaptureFailure::SensorStartFailed);
+}
+
+BAFX_TEST(explicit_retry_reuses_the_current_profile_during_resize)
+{
+    BackgroundCaptureTransition transition;
+    const BackgroundCaptureRequest request = backgroundAwareRequest();
+    BAFX_CHECK(
+        transition.beginRequest(request) == BackgroundCaptureRequestResult::Started);
+    for (std::size_t index = 0U; index < 3U; ++index)
+    {
+        const auto action = transition.nextAction();
+        BAFX_CHECK(action.has_value());
+        BAFX_CHECK(transition.applyObservation(*action, true));
+    }
+    const auto start = transition.nextAction();
+    BAFX_CHECK(start.has_value());
+    BAFX_CHECK(transition.applyObservation(*start, false));
+    static_cast<void>(completeSuccessfully(transition));
+
+    BAFX_CHECK(
+        transition.beginIntent(
+            backgroundAwareRequest(true, true, 1U),
+            resizedOutput)
+        == BackgroundCaptureRequestResult::Started);
+    checkActions(
+        completeSuccessfully(transition, resizedOutput),
+        {BackgroundCaptureActionKind::ResizeOutput,
+         BackgroundCaptureActionKind::SetAffinityExcluded,
+         BackgroundCaptureActionKind::StartSensor});
+    BAFX_CHECK(transition.failure() == BackgroundCaptureFailure::None);
+}
+
+BAFX_TEST(leaving_active_background_aware_resizes_after_restoring_visibility)
+{
+    BackgroundCaptureTransition transition;
+    BAFX_CHECK(
+        transition.beginRequest(backgroundAwareRequest())
+        == BackgroundCaptureRequestResult::Started);
+    static_cast<void>(completeSuccessfully(transition));
+
+    BAFX_CHECK(
+        transition.beginIntent(recordingRequest(), resizedOutput)
+        == BackgroundCaptureRequestResult::Started);
+    checkActions(
+        completeSuccessfully(transition, resizedOutput),
+        {BackgroundCaptureActionKind::StopSensor,
+         BackgroundCaptureActionKind::SetAffinityIncluded,
+         BackgroundCaptureActionKind::ResizeOutput,
+         BackgroundCaptureActionKind::ApplyOverlayProfile});
+    BAFX_CHECK(
+        transition.effectivePath() == EffectiveBackgroundCapturePath::FxOnly);
+}
+
+BAFX_TEST(fx_only_profile_change_and_resize_avoid_capture_operations)
+{
+    BackgroundCaptureTransition transition;
+    BAFX_CHECK(
+        transition.beginRequest(recordingRequest())
+        == BackgroundCaptureRequestResult::Started);
+    static_cast<void>(completeSuccessfully(transition));
+
+    BAFX_CHECK(
+        transition.beginIntent(
+            recordingRequest(FxOverlayProfile::LightBackground),
+            resizedOutput)
+        == BackgroundCaptureRequestResult::Started);
+    checkActions(
+        completeSuccessfully(transition, resizedOutput),
+        {BackgroundCaptureActionKind::ResizeOutput,
+         BackgroundCaptureActionKind::ApplyOverlayProfile});
+}
+
+BAFX_TEST(background_capture_resize_rejects_zero_output_dimensions)
+{
+    BackgroundCaptureTransition transition;
+    BAFX_CHECK(
+        transition.beginRequest(recordingRequest())
+        == BackgroundCaptureRequestResult::Started);
+    static_cast<void>(completeSuccessfully(transition));
+
+    BAFX_CHECK(
+        transition.beginIntent(recordingRequest(), WindowSize{0U, 1440U})
+        == BackgroundCaptureRequestResult::InvalidRequest);
+    BAFX_CHECK(!transition.nextAction().has_value());
+}
+
+BAFX_TEST(fx_only_profile_resize_preserves_unknown_capture_visibility)
+{
+    BackgroundCaptureTransition transition;
+    BAFX_CHECK(
+        transition.beginRequest(recordingRequest())
+        == BackgroundCaptureRequestResult::Started);
+
+    auto action = transition.nextAction();
+    BAFX_CHECK(action.has_value());
+    BAFX_CHECK(transition.applyObservation(*action, true));
+    action = transition.nextAction();
+    BAFX_CHECK(action.has_value());
+    BAFX_CHECK(
+        action->kind == BackgroundCaptureActionKind::SetAffinityIncluded);
+    BAFX_CHECK(transition.applyObservation(*action, false));
+    static_cast<void>(completeSuccessfully(transition));
+    BAFX_CHECK(
+        transition.effectivePath()
+        == EffectiveBackgroundCapturePath::FxOnlyCaptureVisibilityUnknown);
+
+    BAFX_CHECK(
+        transition.beginIntent(
+            recordingRequest(FxOverlayProfile::LightBackground),
+            resizedOutput)
+        == BackgroundCaptureRequestResult::Started);
+    checkActions(
+        completeSuccessfully(transition, resizedOutput),
+        {BackgroundCaptureActionKind::ResizeOutput,
+         BackgroundCaptureActionKind::ApplyOverlayProfile});
+    BAFX_CHECK(
+        transition.effectivePath()
+        == EffectiveBackgroundCapturePath::FxOnlyCaptureVisibilityUnknown);
+    BAFX_CHECK(
+        transition.failure() == BackgroundCaptureFailure::InclusionUnconfirmed);
 }

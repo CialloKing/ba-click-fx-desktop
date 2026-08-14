@@ -15,6 +15,7 @@
 #include <cmath>
 #include <exception>
 #include <limits>
+#include <stdexcept>
 #include <utility>
 
 namespace bafx::windows
@@ -138,7 +139,7 @@ CompositionRenderer::CompositionRenderer(
 
 CompositionRenderer::~CompositionRenderer() = default;
 
-void CompositionRenderer::resize(const WindowSize size)
+void CompositionRenderer::resizeOutput(const WindowSize size)
 {
     if (size.width == 0U || size.height == 0U
         || (size.width == size_.width && size.height == size_.height))
@@ -146,12 +147,10 @@ void CompositionRenderer::resize(const WindowSize size)
         return;
     }
 
-    if (backgroundSensor_ != nullptr)
+    if (backgroundSensor_ != nullptr || backgroundCaptureRequested_)
     {
-        // Capture teardown shares the render owner's immediate-context domain;
-        // finish it before swap-chain and size-dependent resources are replaced.
-        backgroundSensor_->stop();
-        backgroundSensor_.reset();
+        throw std::logic_error(
+            "Output resize requires a completed capture-stop transaction");
     }
 
     // A resized swap chain starts a new capture contract. Do not carry the
@@ -174,7 +173,6 @@ void CompositionRenderer::resize(const WindowSize size)
     size_ = size;
     createRenderTarget();
     fxRenderer_->resize(size);
-    static_cast<void>(tryCreateBackgroundSensor());
 }
 
 void CompositionRenderer::setBloomSettings(const FxBloomSettings settings)

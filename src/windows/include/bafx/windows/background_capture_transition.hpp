@@ -29,6 +29,7 @@ struct BackgroundCaptureRequest
 enum class BackgroundCaptureActionKind : std::uint8_t
 {
     StopSensor,
+    ResizeOutput,
     SetAffinityExcluded,
     SetAffinityIncluded,
     ApplyOverlayProfile,
@@ -39,11 +40,12 @@ struct BackgroundCaptureAction
 {
     BackgroundCaptureActionKind kind{BackgroundCaptureActionKind::StopSensor};
     FxOverlayProfile overlayProfile{FxOverlayProfile::FxOnlyFallback};
+    WindowSize outputSize{};
     bool cursorExcluded{true};
     bool allowSystemBorder{true};
 
     [[nodiscard]] bool operator==(
-        const BackgroundCaptureAction&) const noexcept = default;
+        const BackgroundCaptureAction& other) const noexcept;
 };
 
 enum class EffectiveBackgroundCapturePath : std::uint8_t
@@ -76,13 +78,16 @@ enum class BackgroundCaptureRequestResult : std::uint8_t
 class BackgroundCaptureTransition final
 {
 public:
+    [[nodiscard]] BackgroundCaptureRequestResult beginIntent(
+        BackgroundCaptureRequest request,
+        std::optional<WindowSize> outputSize) noexcept;
     [[nodiscard]] BackgroundCaptureRequestResult beginRequest(
         BackgroundCaptureRequest request) noexcept;
     [[nodiscard]] bool beginSessionStopped() noexcept;
 
     [[nodiscard]] std::optional<BackgroundCaptureAction> nextAction() const noexcept;
-    // Observation must match nextAction(). Stop/Profile are infallible owner
-    // operations and therefore reject a false observation without advancing.
+    // Observation must match nextAction(). Stop/Resize/Profile are infallible
+    // owner operations and reject a false observation without advancing.
     [[nodiscard]] bool applyObservation(
         const BackgroundCaptureAction& action,
         bool succeeded) noexcept;
@@ -95,6 +100,17 @@ public:
 private:
     void beginFullRequest(const BackgroundCaptureRequest& request) noexcept;
     void beginProfileOnlyRequest(const BackgroundCaptureRequest& request) noexcept;
+    void beginResizeOnly(WindowSize outputSize) noexcept;
+    void beginBackgroundAwareResize(
+        const BackgroundCaptureRequest& request,
+        WindowSize outputSize,
+        bool stopActiveSensor,
+        bool applyProfile) noexcept;
+    void beginFxOnlyResize(
+        const BackgroundCaptureRequest& request,
+        WindowSize outputSize,
+        bool stopActiveSensor,
+        bool profileOnly) noexcept;
     void appendAction(BackgroundCaptureAction action) noexcept;
     void discardRemainingActions() noexcept;
     void finishIfComplete() noexcept;
@@ -109,6 +125,7 @@ private:
         EffectiveBackgroundCapturePath::FxOnly};
     BackgroundCaptureFailure failure_{BackgroundCaptureFailure::None};
     BackgroundCaptureFailure pendingFailure_{BackgroundCaptureFailure::None};
+    std::optional<FxOverlayProfile> appliedOverlayProfile_{};
     bool completionVisibilityUnknown_{false};
 };
 

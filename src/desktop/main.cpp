@@ -532,6 +532,7 @@ int runApplication(
         window.handle(),
         window.size(),
         makeBloomSettings(config.effects));
+    bafx::windows::WindowSize appliedOutputSize = window.size();
     report.setDeviceInfo(renderer.deviceInfo());
     report.setExitUiStatus(window.exitUiStatus());
     const bool controlServiceStarted = control.start();
@@ -635,25 +636,41 @@ int runApplication(
 
         bool renderInvalidated = backgroundFrameInvalidated;
         backgroundFrameInvalidated = false;
-        if (controlState.generation != appliedGeneration)
+        std::optional<bafx::windows::WindowSize> pendingOutputResize =
+            window.takePendingResize();
+        if (pendingOutputResize.has_value()
+            && pendingOutputResize->width == appliedOutputSize.width
+            && pendingOutputResize->height == appliedOutputSize.height)
+        {
+            // Win32 can report the construction size again after ShowWindow.
+            // Do not turn that no-op into a needless capture restart.
+            pendingOutputResize.reset();
+        }
+        const bool configChanged = controlState.generation != appliedGeneration;
+        if (configChanged || pendingOutputResize.has_value())
         {
             renderInvalidated = true;
-            config = controlState.config;
-            // Host owns the render thread, so applying the immutable control
-            // snapshot here makes input, length and Bloom changes take effect
-            // on the next frame without cross-thread renderer mutation.
-            simulation.setTrailLengthMultiplier(config.effects.trailLength);
-            simulation.setInputSamplingRateHz(config.input.samplingRateHz);
-            simulation.setAlwaysOnTrailEnabled(
-                config.effects.enabled
-                    && config.effects.trailEnabled
-                    && !config.input.trailOnlyWhilePressed,
-                simulationTimeline.fromWallTime(clock.now()));
-            renderer.setBloomSettings(makeBloomSettings(config.effects));
+            if (configChanged)
+            {
+                config = controlState.config;
+                // Host owns the render thread, so applying the immutable control
+                // snapshot here makes input, length and Bloom changes take effect
+                // on the next frame without cross-thread renderer mutation.
+                simulation.setTrailLengthMultiplier(config.effects.trailLength);
+                simulation.setInputSamplingRateHz(config.input.samplingRateHz);
+                simulation.setAlwaysOnTrailEnabled(
+                    config.effects.enabled
+                        && config.effects.trailEnabled
+                        && !config.input.trailOnlyWhilePressed,
+                    simulationTimeline.fromWallTime(clock.now()));
+                renderer.setBloomSettings(makeBloomSettings(config.effects));
+            }
             const bafx::windows::BackgroundCaptureRequest nextBackgroundRequest =
                 bafx::desktop::backgroundCaptureRequest(config);
             const bafx::windows::BackgroundCaptureRequestResult requestResult =
-                backgroundTransition.beginRequest(nextBackgroundRequest);
+                backgroundTransition.beginIntent(
+                    nextBackgroundRequest,
+                    pendingOutputResize);
             switch (requestResult)
             {
             case bafx::windows::BackgroundCaptureRequestResult::Started:
@@ -664,6 +681,10 @@ int runApplication(
                     renderer,
                     primaryMonitor.handle,
                     logPath);
+                if (pendingOutputResize.has_value())
+                {
+                    appliedOutputSize = *pendingOutputResize;
+                }
                 backgroundCaptureEnabled = backgroundTransition.effectivePath()
                     == bafx::windows::EffectiveBackgroundCapturePath::
                         BackgroundAware;
@@ -690,12 +711,6 @@ int runApplication(
                 throw std::logic_error("Background capture request was invalid");
             }
             appliedGeneration = controlState.generation;
-        }
-
-        if (const auto resize = window.takePendingResize(); resize.has_value())
-        {
-            renderer.resize(*resize);
-            renderInvalidated = true;
         }
 
         const bafx::fx::SimulationTime wallTime = clock.now();

@@ -89,7 +89,9 @@ public:
     CompositionRenderer(const CompositionRenderer&) = delete;
     CompositionRenderer& operator=(const CompositionRenderer&) = delete;
 
-    void resize(WindowSize size);
+    // Capture lifecycle is owned by BackgroundCaptureTransition. Callers must
+    // stop any active sensor before replacing output-size resources.
+    void resizeOutput(WindowSize size);
     void setBloomSettings(FxBloomSettings settings);
     void setOverlayProfile(FxOverlayProfile profile);
     void renderFrame(
