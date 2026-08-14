@@ -73,6 +73,14 @@ cmake --build build\vs2026 --target verify_unity_reference
 cmake --workflow --preset alpha-release-verify
 ```
 
+日常只验证桌面 Host 时使用按目标构建，避免触发包含全部测试和 Spike 的 `ALL_BUILD`：
+
+```powershell
+cmake --build --preset alpha-host-release --parallel 4
+```
+
+`alpha-release-verify` 仍然保留完整 Release 构建和 CTest 流程；它不是快速迭代命令。
+
 DirectComposition smoke test 需要交互式桌面，因此默认不进入普通 CTest：
 
 ```powershell

@@ -36,6 +36,15 @@
       "configuration": "Release"
     },
     {
+      "name": "alpha-host-release",
+      "displayName": "Build Alpha Desktop Host Release",
+      "configurePreset": "alpha-x64",
+      "configuration": "Release",
+      "targets": [
+        "ba_click_fx_desktop"
+      ]
+    },
+    {
       "name": "alpha-package-verify",
       "displayName": "Verify packaged Alpha Release",
       "configurePreset": "alpha-x64",
