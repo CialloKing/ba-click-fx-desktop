@@ -151,6 +151,7 @@ class UnityParticleFixturePixelTests(unittest.TestCase):
         self.assertEqual(1.0, metrics.mean_channel_absolute_error)
         self.assertEqual(1, metrics.pixels_over_one)
         self.assertEqual(1, metrics.pixels_over_two)
+        self.assertEqual(0, metrics.pixels_over_thirty_two)
 
     def test_fixture_pixel_threshold_boundaries_are_locked(self):
         boundary = VERIFY.PixelDifferenceMetrics(
@@ -159,7 +160,7 @@ class UnityParticleFixturePixelTests(unittest.TestCase):
             pixels_over_one=128,
             pixels_over_two=64,
         )
-        self.assertTrue(VERIFY._fixture_pixels_pass(boundary))
+        self.assertTrue(VERIFY._fixture_pixels_pass(50, boundary))
 
         invalid = (
             VERIFY.PixelDifferenceMetrics(17, 0.01, 128, 64),
@@ -169,10 +170,52 @@ class UnityParticleFixturePixelTests(unittest.TestCase):
         )
         for metrics in invalid:
             with self.subTest(metrics=metrics):
-                self.assertFalse(VERIFY._fixture_pixels_pass(metrics))
+                self.assertFalse(VERIFY._fixture_pixels_pass(50, metrics))
+
+    def test_dynamic_fixture_pixel_thresholds_reject_one_pixel_drift(self):
+        boundary = VERIFY.PixelDifferenceMetrics(
+            maximum_channel_absolute_error=255,
+            mean_channel_absolute_error=0.04,
+            pixels_over_one=18000,
+            pixels_over_two=7000,
+            pixels_over_thirty_two=128,
+        )
+        self.assertTrue(VERIFY._fixture_pixels_pass(100, boundary))
+
+        invalid = (
+            VERIFY.PixelDifferenceMetrics(255, 0.040001, 18000, 7000, 128),
+            VERIFY.PixelDifferenceMetrics(255, 0.04, 18001, 7000, 128),
+            VERIFY.PixelDifferenceMetrics(255, 0.04, 18000, 7001, 128),
+            VERIFY.PixelDifferenceMetrics(255, 0.04, 18000, 7000, 129),
+        )
+        for metrics in invalid:
+            with self.subTest(metrics=metrics):
+                self.assertFalse(VERIFY._fixture_pixels_pass(100, metrics))
+
+    def test_dynamic_fixture_gate_rejects_a_shifted_hard_edge(self):
+        width = 200
+        height = 100
+        expected = bytearray(width * height * 3)
+        actual = bytearray(width * height * 3)
+        for y in range(height):
+            for x in range(50, 150):
+                offset = (y * width + x) * 3
+                expected[offset : offset + 3] = b"\xff\xff\xff"
+            for x in range(51, 151):
+                offset = (y * width + x) * 3
+                actual[offset : offset + 3] = b"\xff\xff\xff"
+
+        metrics = VERIFY._pixel_difference_metrics(
+            VERIFY.Image8(width, height, bytes(actual)),
+            VERIFY.Image8(width, height, bytes(expected)),
+        )
+
+        self.assertEqual(200, metrics.pixels_over_thirty_two)
+        self.assertFalse(VERIFY._fixture_pixels_pass(100, metrics))
 
     def test_fixture_aggregate_tolerance_is_stricter_than_random_stream(self):
-        fixture = VERIFY._unity_particle_fixture_tolerance()
+        fixture = VERIFY._unity_particle_fixture_tolerance(50)
+        dynamic = VERIFY._unity_particle_fixture_tolerance(100)
         random_stream = VERIFY._tolerance(50)
 
         self.assertEqual(0.02, fixture.energy_relative)
@@ -180,6 +223,9 @@ class UnityParticleFixturePixelTests(unittest.TestCase):
         self.assertLess(fixture.centroid_distance_px, random_stream.centroid_distance_px)
         self.assertLess(fixture.radial_histogram_l1, random_stream.radial_histogram_l1)
         self.assertLess(fixture.chromaticity_l1, random_stream.chromaticity_l1)
+        self.assertEqual(0.25, fixture.centroid_distance_px)
+        self.assertEqual(1.25, dynamic.centroid_distance_px)
+        self.assertLess(dynamic.centroid_distance_px, random_stream.centroid_distance_px)
 
 
 class TrailDeltaContractTests(unittest.TestCase):
@@ -482,15 +528,22 @@ class ManifestCaseTests(unittest.TestCase):
         return value
 
     def fixture_manifest(self):
-        value = self.manifest((50,))
+        value = self.manifest(VERIFY.UNITY_PARTICLE_FIXTURE_AGES)
         value["case"] = {
             "name": "unity-particle-fixture",
-            "contractVersion": 1,
+            "contractVersion": 2,
             "scope": "capture-only-observation",
-            "sourceFixture": VERIFY.UNITY_PARTICLE_FIXTURE_REFERENCE,
-            "sourceSchema": 2,
-            "sourceSha256": VERIFY.UNITY_PARTICLE_FIXTURE_SHA256,
-            "sourceParticleCount": 7,
+            "sources": [
+                {
+                    "ageMs": age,
+                    "sourceFixture": source_fixture,
+                    "sourceSchema": 2,
+                    "sourceSha256": source_sha256,
+                    "sourceParticleCount": particle_count,
+                }
+                for age, source_fixture, source_sha256, particle_count in
+                VERIFY.UNITY_PARTICLE_FIXTURE_SOURCES
+            ],
             "coordinateMapping": "bottom-left-to-top-left-y-flip",
             "colorMapping": "sRGB-to-linear-rgb-alpha-unchanged",
             "productionRandomStream": "not-used",
@@ -592,6 +645,14 @@ class ManifestCaseTests(unittest.TestCase):
             ("case", self.replaced(valid_drag, ("case",), [])),
             ("fixture case", self.replaced(valid_fixture, ("case",), [])),
             (
+                "fixture sources",
+                self.replaced(valid_fixture, ("case", "sources"), {}),
+            ),
+            (
+                "fixture source",
+                self.replaced(valid_fixture, ("case", "sources", 0), []),
+            ),
+            (
                 "unityReference",
                 self.replaced(valid_drag, ("case", "unityReference"), []),
             ),
@@ -636,8 +697,12 @@ class ManifestCaseTests(unittest.TestCase):
             (valid_drag, ("case", "trailOnlyPixels")),
             (valid_drag, ("case", "contractVersion")),
             (valid_fixture, ("case", "contractVersion")),
-            (valid_fixture, ("case", "sourceSchema")),
-            (valid_fixture, ("case", "sourceParticleCount")),
+            (valid_fixture, ("case", "sources", 0, "ageMs")),
+            (valid_fixture, ("case", "sources", 0, "sourceSchema")),
+            (
+                valid_fixture,
+                ("case", "sources", 0, "sourceParticleCount"),
+            ),
             (valid_drag, ("ages", 0, "comparisonFrames", 0, "width")),
             (valid_drag, ("ages", 0, "comparisonFrames", 0, "height")),
             (valid_drag, ("ages", 0, "comparisonFrames", 0, "rawBytes")),
@@ -731,10 +796,15 @@ class ManifestCaseTests(unittest.TestCase):
             (valid_fixture, ("case", "name")),
             (valid_fixture, ("case", "contractVersion")),
             (valid_fixture, ("case", "scope")),
-            (valid_fixture, ("case", "sourceFixture")),
-            (valid_fixture, ("case", "sourceSchema")),
-            (valid_fixture, ("case", "sourceSha256")),
-            (valid_fixture, ("case", "sourceParticleCount")),
+            (valid_fixture, ("case", "sources")),
+            (valid_fixture, ("case", "sources", 0, "ageMs")),
+            (valid_fixture, ("case", "sources", 0, "sourceFixture")),
+            (valid_fixture, ("case", "sources", 0, "sourceSchema")),
+            (valid_fixture, ("case", "sources", 0, "sourceSha256")),
+            (
+                valid_fixture,
+                ("case", "sources", 0, "sourceParticleCount"),
+            ),
             (valid_fixture, ("case", "coordinateMapping")),
             (valid_fixture, ("case", "colorMapping")),
             (valid_fixture, ("case", "productionRandomStream")),
@@ -765,12 +835,13 @@ class ManifestCaseTests(unittest.TestCase):
     def test_unity_particle_fixture_fields_are_exact(self):
         valid = self.fixture_manifest()
         invalid_values = (
-            (("case", "contractVersion"), 2),
+            (("case", "contractVersion"), 1),
             (("case", "scope"), "production"),
-            (("case", "sourceFixture"), "wrong.json"),
-            (("case", "sourceSchema"), 1),
-            (("case", "sourceSha256"), "0" * 64),
-            (("case", "sourceParticleCount"), 6),
+            (("case", "sources", 0, "ageMs"), 51),
+            (("case", "sources", 0, "sourceFixture"), "wrong.json"),
+            (("case", "sources", 0, "sourceSchema"), 1),
+            (("case", "sources", 0, "sourceSha256"), "0" * 64),
+            (("case", "sources", 0, "sourceParticleCount"), 6),
             (("case", "coordinateMapping"), "unchanged"),
             (("case", "colorMapping"), "gamma"),
             (("case", "productionRandomStream"), "used"),

@@ -67,16 +67,53 @@ DRAG_NO_TRAIL_REFERENCE = (
 TRAIL_ONLY_REFERENCE = (
     "Reference/Diagnostics/Trail/FX_Touch_0140ms_TrailOnly_20px.png"
 )
-UNITY_PARTICLE_FIXTURE_REFERENCE = (
-    "Reference/Diagnostics/ParticleStates/FX_Touch_0050ms_particle-state-v2.json"
+UNITY_PARTICLE_FIXTURE_SOURCES = (
+    (
+        50,
+        "Reference/Diagnostics/ParticleStates/FX_Touch_0050ms_particle-state-v2.json",
+        "1BECBED5019111D8C0F1D9D9A3808B72DF9586E55B960A1DF30DBE4438BECCCD",
+        7,
+    ),
+    (
+        100,
+        "Reference/Diagnostics/ParticleStates/FX_Touch_0100ms_particle-state-v2.json",
+        "9DB1712C896871CE46EE49FBB0F9340E42EE4599A81A56545081085814CB31F2",
+        7,
+    ),
+    (
+        120,
+        "Reference/Diagnostics/ParticleStates/FX_Touch_0120ms_particle-state-v2.json",
+        "8892417B9272E9E18BC0D8596B408DC4B05EDFE3D66E813910A33828499DF993",
+        7,
+    ),
+    (
+        250,
+        "Reference/Diagnostics/ParticleStates/FX_Touch_0250ms_particle-state-v2.json",
+        "3A1D0249D738B5448E60758697BE44B76F247A5FDFA571FE5DA981C3343B6E99",
+        6,
+    ),
+    (
+        450,
+        "Reference/Diagnostics/ParticleStates/FX_Touch_0450ms_particle-state-v2.json",
+        "CA067C13E8DFB7BA03052F0C83DBE5F5C09A2AC1709DB30571825D9FEBB53F20",
+        6,
+    ),
 )
-UNITY_PARTICLE_FIXTURE_SHA256 = (
-    "1BECBED5019111D8C0F1D9D9A3808B72DF9586E55B960A1DF30DBE4438BECCCD"
+UNITY_PARTICLE_FIXTURE_AGES = tuple(
+    source[0] for source in UNITY_PARTICLE_FIXTURE_SOURCES
 )
 UNITY_PARTICLE_FIXTURE_PIXEL_MAX_ABSOLUTE = 16
 UNITY_PARTICLE_FIXTURE_PIXEL_MEAN_ABSOLUTE = 0.01
 UNITY_PARTICLE_FIXTURE_PIXELS_OVER_ONE = 128
 UNITY_PARTICLE_FIXTURE_PIXELS_OVER_TWO = 64
+# At 50 ms the dissolve meshes are fully clipped, so the static slice keeps the
+# near-exact gate above. Later slices compare Unity hardware rasterization with
+# WARP at moving hard edges; retain layout sensitivity by bounding both total
+# error and the count of severe pixels instead of requiring identical coverage.
+UNITY_PARTICLE_FIXTURE_DYNAMIC_PIXEL_MEAN_ABSOLUTE = 0.04
+UNITY_PARTICLE_FIXTURE_DYNAMIC_PIXELS_OVER_ONE = 18000
+UNITY_PARTICLE_FIXTURE_DYNAMIC_PIXELS_OVER_TWO = 7000
+UNITY_PARTICLE_FIXTURE_DYNAMIC_PIXELS_OVER_THIRTY_TWO = 128
 FINAL_ONLY_LAYER_NAMES = frozenset(("FinalOverlay",))
 LAYER_ALPHA_SEMANTICS = {
     "DirectSurface": "authored-coverage-union",
@@ -205,6 +242,7 @@ class PixelDifferenceMetrics:
     mean_channel_absolute_error: float
     pixels_over_one: int
     pixels_over_two: int
+    pixels_over_thirty_two: int = 0
 
 
 @dataclass(frozen=True)
@@ -600,6 +638,7 @@ def _pixel_difference_metrics(
     absolute_sum = 0
     pixels_over_one = 0
     pixels_over_two = 0
+    pixels_over_thirty_two = 0
     for offset in range(0, len(actual.rgb), 3):
         pixel_maximum = 0
         for channel in range(3):
@@ -611,15 +650,32 @@ def _pixel_difference_metrics(
             pixels_over_one += 1
         if pixel_maximum > 2:
             pixels_over_two += 1
+        if pixel_maximum > 32:
+            pixels_over_thirty_two += 1
     return PixelDifferenceMetrics(
         maximum_channel_absolute_error=maximum,
         mean_channel_absolute_error=absolute_sum / len(actual.rgb),
         pixels_over_one=pixels_over_one,
         pixels_over_two=pixels_over_two,
+        pixels_over_thirty_two=pixels_over_thirty_two,
     )
 
 
-def _fixture_pixels_pass(metrics: PixelDifferenceMetrics) -> bool:
+def _fixture_pixels_pass(
+    age_ms: int,
+    metrics: PixelDifferenceMetrics,
+) -> bool:
+    if age_ms != 50:
+        return (
+            metrics.mean_channel_absolute_error
+            <= UNITY_PARTICLE_FIXTURE_DYNAMIC_PIXEL_MEAN_ABSOLUTE
+            and metrics.pixels_over_one
+            <= UNITY_PARTICLE_FIXTURE_DYNAMIC_PIXELS_OVER_ONE
+            and metrics.pixels_over_two
+            <= UNITY_PARTICLE_FIXTURE_DYNAMIC_PIXELS_OVER_TWO
+            and metrics.pixels_over_thirty_two
+            <= UNITY_PARTICLE_FIXTURE_DYNAMIC_PIXELS_OVER_THIRTY_TWO
+        )
     return (
         metrics.maximum_channel_absolute_error
         <= UNITY_PARTICLE_FIXTURE_PIXEL_MAX_ABSOLUTE
@@ -1029,8 +1085,9 @@ def _tolerance(age_ms: int) -> Tolerance:
     return Tolerance(0.40, 0.35, 96.0, 0.25, 0.16)
 
 
-def _unity_particle_fixture_tolerance() -> Tolerance:
-    return Tolerance(0.02, 0.02, 0.25, 0.02, 0.01)
+def _unity_particle_fixture_tolerance(age_ms: int) -> Tolerance:
+    centroid_tolerance = 0.25 if age_ms == 50 else 1.25
+    return Tolerance(0.02, 0.02, centroid_tolerance, 0.02, 0.01)
 
 
 def _find_age_directory(root: Path, age_ms: int) -> Path:
@@ -1195,27 +1252,35 @@ def _validate_drag_manifest(root: Path, manifest: dict, age_record: dict) -> Non
 
 def _validate_unity_particle_fixture_manifest(manifest: dict) -> None:
     case = _require_object(manifest["case"], "native manifest case")
-    _require_exact_int(case, "contractVersion", 1, "native manifest case")
+    _require_exact_int(case, "contractVersion", 2, "native manifest case")
     _require_string(
         case,
         "scope",
         "capture-only-observation",
         "native manifest case",
     )
-    _require_string(
-        case,
-        "sourceFixture",
-        UNITY_PARTICLE_FIXTURE_REFERENCE,
-        "native manifest case",
+    sources = _require_list(
+        case.get("sources"),
+        "native manifest case.sources",
     )
-    _require_exact_int(case, "sourceSchema", 2, "native manifest case")
-    _require_string(
-        case,
-        "sourceSha256",
-        UNITY_PARTICLE_FIXTURE_SHA256,
-        "native manifest case",
-    )
-    _require_exact_int(case, "sourceParticleCount", 7, "native manifest case")
+    if len(sources) != len(UNITY_PARTICLE_FIXTURE_SOURCES):
+        raise ValidationError(
+            "native manifest case.sources must contain each locked fixture"
+        )
+    for index, expected in enumerate(UNITY_PARTICLE_FIXTURE_SOURCES):
+        age, source_fixture, source_sha256, particle_count = expected
+        label = f"native manifest case.sources[{index}]"
+        source = _require_object(sources[index], label)
+        _require_exact_int(source, "ageMs", age, label)
+        _require_string(source, "sourceFixture", source_fixture, label)
+        _require_exact_int(source, "sourceSchema", 2, label)
+        _require_string(source, "sourceSha256", source_sha256, label)
+        _require_exact_int(
+            source,
+            "sourceParticleCount",
+            particle_count,
+            label,
+        )
     _require_string(
         case,
         "coordinateMapping",
@@ -1315,7 +1380,7 @@ def _load_manifest(root: Path) -> dict:
     required_ages = {
         "click": AGES,
         "drag-trail": (140,),
-        "unity-particle-fixture": (50,),
+        "unity-particle-fixture": UNITY_PARTICLE_FIXTURE_AGES,
     }[case_name]
     if sorted(manifest_ages) != list(required_ages):
         raise ValidationError(
@@ -1417,7 +1482,7 @@ def _compare_slice(age_ms: int, unity_root: Path, native_root: Path, check_layer
     case_name = manifest.get("case", {}).get("name", "click")
     fixture_case = case_name == "unity-particle-fixture"
     tolerance = (
-        _unity_particle_fixture_tolerance()
+        _unity_particle_fixture_tolerance(age_ms)
         if fixture_case
         else _tolerance(age_ms)
     )
@@ -1454,7 +1519,7 @@ def _compare_slice(age_ms: int, unity_root: Path, native_root: Path, check_layer
     passed_pixels = None
     if fixture_case:
         pixel_difference = _pixel_difference_metrics(native_image, golden_image)
-        passed_pixels = _fixture_pixels_pass(pixel_difference)
+        passed_pixels = _fixture_pixels_pass(age_ms, pixel_difference)
     return SliceResult(
         age_ms=age_ms,
         golden=golden,
@@ -1504,7 +1569,8 @@ def _format_result(result: SliceResult) -> str:
             f" pixelMax={pixel.maximum_channel_absolute_error} "
             f"pixelMean={pixel.mean_channel_absolute_error:.6f} "
             f"pixels>1={pixel.pixels_over_one} "
-            f"pixels>2={pixel.pixels_over_two}"
+            f"pixels>2={pixel.pixels_over_two} "
+            f"pixels>32={pixel.pixels_over_thirty_two}"
         )
     return text
 
@@ -1667,7 +1733,14 @@ def main(argv: list[str] | None = None) -> int:
             )
         else:
             results = [
-                _compare_slice(50, unity_root, native_root, check_layers, manifest)
+                _compare_slice(
+                    age,
+                    unity_root,
+                    native_root,
+                    check_layers,
+                    manifest,
+                )
+                for age in UNITY_PARTICLE_FIXTURE_AGES
             ]
             drag_result = None
     except ValidationError as error:
