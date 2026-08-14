@@ -104,14 +104,18 @@ class CaptureFixture:
         self.intervals: dict[str, dict[str, object]] = {}
         manifest = {
             "schemaVersion": 1,
-            "scenarioId": "p0-static-click-message-pressure-v1",
+            "scenarioId": "p0-static-click-message-pressure-v2",
             "captureStatus": "captured",
             "revision": "0123456789abcdef0123456789abcdef01234567",
             "workingTreeDirty": False,
             "executableSha256": hashlib.sha256(b"test-host").hexdigest(),
             "capturedAtUtc": "2026-08-15T00:00:00.000Z",
             "durationMs": 10500,
+            "demoAgeMs": 130,
+            "demoDelayMs": 50,
             "messageCount": 705,
+            "messageIntervalMs": 5,
+            "rawInputRegistration": "disabled",
             "modes": {},
         }
         for name, background_mode in (
@@ -133,7 +137,12 @@ class CaptureFixture:
                 "backgroundMode": background_mode,
                 "postedMessages": 705,
                 "exitCode": 0,
-                "commandLine": [REPORTER.HOST_NAME, "--demo-age-ms=130"],
+                "commandLine": [
+                    REPORTER.HOST_NAME,
+                    "--demo-age-ms=130",
+                    "--demo-delay-ms=50",
+                    "--disable-raw-input",
+                ],
             }
             interval = _interval(
                 background_mode, name == "background-aware"

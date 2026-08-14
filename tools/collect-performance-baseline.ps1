@@ -25,8 +25,10 @@ $ErrorActionPreference = 'Stop'
 $hostName = 'ba-click-fx-desktop.exe'
 $configName = 'BAFX.config.json'
 $logName = 'ba-click-fx-desktop-support.log'
-$scenarioId = 'p0-static-click-message-pressure-v1'
+$scenarioId = 'p0-static-click-message-pressure-v2'
 $demoAgeMilliseconds = 130
+$demoDelayMilliseconds = 50
+$messageIntervalMilliseconds = 5
 $pressureMessageId = 0x80B0
 
 function Get-FullPath
@@ -234,6 +236,8 @@ function Invoke-ModeCapture
 
     $arguments = @(
         "--demo-age-ms=$script:demoAgeMilliseconds",
+        "--demo-delay-ms=$script:demoDelayMilliseconds",
+        '--disable-raw-input',
         "--quit-after-ms=$DurationMilliseconds"
     )
     $startedAt = [DateTime]::UtcNow
@@ -265,6 +269,12 @@ function Invoke-ModeCapture
                 throw "PostThreadMessage failed at $index with Win32 error $errorCode"
             }
             ++$postedMessages
+            if ($index + 1 -lt $MessageCount)
+            {
+                # Pace the pressure below the bounded dispatch budget. The
+                # scenario exercises message wakes, not artificial overflow.
+                Start-Sleep -Milliseconds $script:messageIntervalMilliseconds
+            }
         }
 
         if (-not $process.WaitForExit($ProcessTimeoutMilliseconds))
@@ -377,7 +387,10 @@ $manifest = [ordered]@{
     capturedAtUtc = [DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ss.fffZ')
     durationMs = $DurationMilliseconds
     demoAgeMs = $demoAgeMilliseconds
+    demoDelayMs = $demoDelayMilliseconds
     messageCount = $MessageCount
+    messageIntervalMs = $messageIntervalMilliseconds
+    rawInputRegistration = 'disabled'
     readyTimeoutMs = $ReadyTimeoutMilliseconds
     processTimeoutMs = $ProcessTimeoutMilliseconds
     modes = [ordered]@{}
@@ -407,7 +420,7 @@ try
 catch
 {
     $manifest.captureStatus = 'failed'
-    $manifest.failure = $_.Exception.Message
+    $manifest['failure'] = $_.Exception.Message
     Write-CaptureManifest -Path $manifestPath -Manifest $manifest
     throw
 }

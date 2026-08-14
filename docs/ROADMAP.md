@@ -29,7 +29,8 @@
 本阶段交付为一份可复跑的基线报告，至少分别覆盖 FX-only 与 `background-aware`，并能回答延迟来自
 输入积压、WGC、copy、Bloom 还是 Present。没有基线数据时，不凭主观卡顿直接选择优化点。
 
-当前配对采集入口固定一个 `130 ms` 点击时间片，并在同一完整 10 秒性能窗内投递无害线程消息：
+当前配对采集入口先给 WGC `50 ms` acquire 预热，再固定一个 `130 ms` 点击时间片，并在同一完整
+10 秒性能窗内每 `5 ms` 投递一条无害线程消息：
 
 ```powershell
 pwsh -NoProfile -File tools/collect-performance-baseline.ps1 `
@@ -39,8 +40,9 @@ python -B tools/report-performance-baseline.py `
   artifacts/local/performance-baseline-<timestamp>
 ```
 
-采集器拒绝覆盖目录、已有 Host、脏工作树和无界进程等待；报告器要求真实 Raw Input 为零，并校验
-同一 HEAD/EXE、配置差异、WGC 参与、GPU 样本覆盖率、丢样计数、资源账本与帧节流上限。
+采集器拒绝覆盖目录、已有 Host、脏工作树和无界进程等待；该诊断场景关闭 Raw Input 注册以隔离
+操作者活动。报告器要求 Raw Input 为零，并校验同一 HEAD/EXE、配置差异、WGC 参与、GPU 样本
+覆盖率、丢样计数、资源账本与帧节流上限。
 
 ## P1：WGC 成本优化与 guard-band ROI
 

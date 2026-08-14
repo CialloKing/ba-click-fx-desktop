@@ -18,7 +18,7 @@ from typing import Any
 
 
 EXPECTED_SCHEMA = 1
-EXPECTED_SCENARIO = "p0-static-click-message-pressure-v1"
+EXPECTED_SCENARIO = "p0-static-click-message-pressure-v2"
 MODE_DIRECTORIES = ("fx-only", "background-aware")
 EXPECTED_BACKGROUND_MODES = {
     "fx-only": "recording-compatible",
@@ -239,7 +239,15 @@ def _validate_manifest(manifest: dict[str, Any]) -> tuple[int, int]:
     ):
         raise ValidationError("manifest executableSha256 must be lowercase SHA-256")
     duration_ms = _manifest_integer(manifest, "durationMs")
+    if _manifest_integer(manifest, "demoAgeMs") != 130:
+        raise ValidationError("manifest demoAgeMs must be 130")
+    if _manifest_integer(manifest, "demoDelayMs") != 50:
+        raise ValidationError("manifest demoDelayMs must be 50")
     message_count = _manifest_integer(manifest, "messageCount")
+    if _manifest_integer(manifest, "messageIntervalMs") != 5:
+        raise ValidationError("manifest messageIntervalMs must be 5")
+    if manifest.get("rawInputRegistration") != "disabled":
+        raise ValidationError("manifest rawInputRegistration must be disabled")
     if duration_ms < 10_000:
         raise ValidationError("manifest durationMs must cover a full 10 second window")
     if message_count <= 0:
@@ -262,6 +270,8 @@ def _validate_manifest(manifest: dict[str, Any]) -> tuple[int, int]:
             type(argument) is str and argument for argument in command_line
         ):
             raise ValidationError(f"manifest mode {name} has no exact command line")
+        if "--disable-raw-input" not in command_line:
+            raise ValidationError(f"manifest mode {name} did not isolate Raw Input")
     return duration_ms, message_count
 
 
@@ -499,7 +509,10 @@ def build_report(root: Path) -> dict[str, Any]:
         "revision": manifest.get("revision"),
         "capturedAtUtc": manifest.get("capturedAtUtc"),
         "durationMs": duration_ms,
+        "demoAgeMs": manifest["demoAgeMs"],
+        "demoDelayMs": manifest["demoDelayMs"],
         "messageCount": message_count,
+        "messageIntervalMs": manifest["messageIntervalMs"],
         "identity": {
             key: (
                 evidence["fx-only"].interval.get(key)
@@ -536,8 +549,10 @@ def render_markdown(report: dict[str, Any]) -> str:
         f"- Scenario: `{report['scenarioId']}`",
         f"- Revision: `{report['revision']}`",
         f"- Captured at: `{report['capturedAtUtc']}`",
-        f"- Workload: fixed 130 ms click, {report['durationMs']} ms, "
-        f"{report['messageCount']} harmless thread messages",
+        f"- Workload: fixed {report['demoAgeMs']} ms click after "
+        f"{report['demoDelayMs']} ms WGC warm-up, {report['durationMs']} ms",
+        f"- Message pressure: {report['messageCount']} harmless thread messages "
+        f"at {report['messageIntervalMs']} ms intervals",
         f"- Adapter: `{identity['Graphics.Adapter']}`",
         f"- Driver: `{identity['Graphics.DriverVersion']}`",
         f"- Output: `{identity['Output.Width']}x{identity['Output.Height']}`",
