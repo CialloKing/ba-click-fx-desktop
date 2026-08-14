@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "spike_id": "SPK-002-WDA-SELF-EXCLUSION",
+  "capture_revision": "c1c4536",
+  "status": "accepted",
+  "included_before_different_pixels": 36864,
+  "included_after_different_pixels": 36864,
+  "maximum_overlay_rgb_delta": 0.7938690185546875,
+  "included_stability_maximum_rgb_delta": 0.0,
+  "excluded_overlay_rgb_range": 0.0,
+  "excluded_background_maximum_rgb_delta": 0.0,
+  "excluded_background_different_pixels": 0,
+  "control_maximum_rgb_delta": 0.0,
+  "minimum_marker_pair_rgb_delta": 1.201629638671875,
+  "minimum_marker_pair_different_pixels": 4096,
+  "frames_acquired": 14
+}
