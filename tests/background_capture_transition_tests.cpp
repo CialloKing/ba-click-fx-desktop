@@ -1,0 +1,280 @@
+#include "test_support.hpp"
+
+#include "bafx/windows/background_capture_transition.hpp"
+
+#include <array>
+#include <cstddef>
+#include <cstdint>
+#include <vector>
+
+using namespace bafx::windows;
+
+namespace
+{
+
+[[nodiscard]] BackgroundCaptureRequest backgroundAwareRequest(
+    const bool cursorExcluded = true,
+    const bool allowSystemBorder = true,
+    const std::uint64_t retryToken = 0U)
+{
+    return BackgroundCaptureRequest{
+        true,
+        FxOverlayProfile::FxOnlyFallback,
+        cursorExcluded,
+        allowSystemBorder,
+        retryToken};
+}
+
+[[nodiscard]] BackgroundCaptureRequest recordingRequest(
+    const FxOverlayProfile profile = FxOverlayProfile::RecordingCompatible,
+    const std::uint64_t retryToken = 0U)
+{
+    return BackgroundCaptureRequest{false, profile, true, true, retryToken};
+}
+
+[[nodiscard]] std::vector<BackgroundCaptureActionKind> completeSuccessfully(
+    BackgroundCaptureTransition& transition)
+{
+    std::vector<BackgroundCaptureActionKind> actions;
+    while (const auto action = transition.nextAction())
+    {
+        BAFX_CHECK(actions.size() < maximumBackgroundCaptureActions);
+        actions.push_back(action->kind);
+        BAFX_CHECK(transition.applyObservation(*action, true));
+    }
+    return actions;
+}
+
+void checkActions(
+    const std::vector<BackgroundCaptureActionKind>& actual,
+    const std::initializer_list<BackgroundCaptureActionKind> expected)
+{
+    BAFX_CHECK(actual == std::vector<BackgroundCaptureActionKind>(expected));
+}
+
+}
+
+BAFX_TEST(background_capture_rejects_incoherent_sensor_profiles)
+{
+    BackgroundCaptureTransition transition;
+    BAFX_CHECK(
+        transition.beginRequest(BackgroundCaptureRequest{
+            true,
+            FxOverlayProfile::RecordingCompatible,
+            true,
+            true,
+            0U}) == BackgroundCaptureRequestResult::InvalidRequest);
+    BAFX_CHECK(!transition.nextAction().has_value());
+}
+
+BAFX_TEST(background_aware_uses_the_transactional_start_order)
+{
+    BackgroundCaptureTransition transition;
+    BAFX_CHECK(
+        transition.beginRequest(backgroundAwareRequest())
+        == BackgroundCaptureRequestResult::Started);
+
+    checkActions(
+        completeSuccessfully(transition),
+        {BackgroundCaptureActionKind::StopSensor,
+         BackgroundCaptureActionKind::SetAffinityExcluded,
+         BackgroundCaptureActionKind::ApplyOverlayProfile,
+         BackgroundCaptureActionKind::StartSensor});
+    BAFX_CHECK(
+        transition.effectivePath()
+        == EffectiveBackgroundCapturePath::BackgroundAware);
+    BAFX_CHECK(transition.failure() == BackgroundCaptureFailure::None);
+}
+
+BAFX_TEST(recording_and_light_modes_stop_include_then_apply_profile)
+{
+    for (const FxOverlayProfile profile :
+         std::array{
+             FxOverlayProfile::RecordingCompatible,
+             FxOverlayProfile::LightBackground})
+    {
+        BackgroundCaptureTransition transition;
+        BAFX_CHECK(
+            transition.beginRequest(recordingRequest(profile))
+            == BackgroundCaptureRequestResult::Started);
+        checkActions(
+            completeSuccessfully(transition),
+            {BackgroundCaptureActionKind::StopSensor,
+             BackgroundCaptureActionKind::SetAffinityIncluded,
+             BackgroundCaptureActionKind::ApplyOverlayProfile});
+        BAFX_CHECK(
+            transition.effectivePath()
+            == EffectiveBackgroundCapturePath::FxOnly);
+    }
+}
+
+BAFX_TEST(recording_and_light_switch_only_changes_the_profile)
+{
+    BackgroundCaptureTransition transition;
+    BAFX_CHECK(
+        transition.beginRequest(recordingRequest())
+        == BackgroundCaptureRequestResult::Started);
+    static_cast<void>(completeSuccessfully(transition));
+
+    BAFX_CHECK(
+        transition.beginRequest(recordingRequest(FxOverlayProfile::LightBackground))
+        == BackgroundCaptureRequestResult::Started);
+    const auto action = transition.nextAction();
+    BAFX_CHECK(action.has_value());
+    BAFX_CHECK(action->kind == BackgroundCaptureActionKind::ApplyOverlayProfile);
+    BAFX_CHECK(action->overlayProfile == FxOverlayProfile::LightBackground);
+    BAFX_CHECK(transition.applyObservation(*action, true));
+    BAFX_CHECK(!transition.nextAction().has_value());
+}
+
+BAFX_TEST(background_aware_option_change_restarts_once)
+{
+    BackgroundCaptureTransition transition;
+    BAFX_CHECK(
+        transition.beginRequest(backgroundAwareRequest())
+        == BackgroundCaptureRequestResult::Started);
+    static_cast<void>(completeSuccessfully(transition));
+
+    BAFX_CHECK(
+        transition.beginRequest(backgroundAwareRequest(false, false))
+        == BackgroundCaptureRequestResult::Started);
+    checkActions(
+        completeSuccessfully(transition),
+        {BackgroundCaptureActionKind::StopSensor,
+         BackgroundCaptureActionKind::SetAffinityExcluded,
+         BackgroundCaptureActionKind::ApplyOverlayProfile,
+         BackgroundCaptureActionKind::StartSensor});
+}
+
+BAFX_TEST(exclusion_failure_rolls_back_without_starting_the_sensor)
+{
+    BackgroundCaptureTransition transition;
+    BAFX_CHECK(
+        transition.beginRequest(backgroundAwareRequest())
+        == BackgroundCaptureRequestResult::Started);
+
+    auto action = transition.nextAction();
+    BAFX_CHECK(action.has_value());
+    BAFX_CHECK(transition.applyObservation(*action, true));
+    action = transition.nextAction();
+    BAFX_CHECK(action.has_value());
+    BAFX_CHECK(action->kind == BackgroundCaptureActionKind::SetAffinityExcluded);
+    BAFX_CHECK(transition.applyObservation(*action, false));
+
+    checkActions(
+        completeSuccessfully(transition),
+        {BackgroundCaptureActionKind::SetAffinityIncluded,
+         BackgroundCaptureActionKind::ApplyOverlayProfile});
+    BAFX_CHECK(
+        transition.effectivePath() == EffectiveBackgroundCapturePath::FxOnly);
+    BAFX_CHECK(
+        transition.failure()
+        == BackgroundCaptureFailure::ExclusionUnconfirmed);
+}
+
+BAFX_TEST(sensor_start_failure_stops_partial_state_and_restores_visibility)
+{
+    BackgroundCaptureTransition transition;
+    BAFX_CHECK(
+        transition.beginRequest(backgroundAwareRequest())
+        == BackgroundCaptureRequestResult::Started);
+
+    for (std::size_t index = 0U; index < 3U; ++index)
+    {
+        const auto action = transition.nextAction();
+        BAFX_CHECK(action.has_value());
+        BAFX_CHECK(transition.applyObservation(*action, true));
+    }
+    const auto start = transition.nextAction();
+    BAFX_CHECK(start.has_value());
+    BAFX_CHECK(start->kind == BackgroundCaptureActionKind::StartSensor);
+    BAFX_CHECK(transition.applyObservation(*start, false));
+
+    const std::vector<BackgroundCaptureActionKind> cleanupActions =
+        completeSuccessfully(transition);
+    checkActions(
+        cleanupActions,
+        {BackgroundCaptureActionKind::StopSensor,
+         BackgroundCaptureActionKind::SetAffinityIncluded});
+    BAFX_CHECK(4U + cleanupActions.size() == maximumBackgroundCaptureActions);
+    BAFX_CHECK(
+        transition.failure() == BackgroundCaptureFailure::SensorStartFailed);
+    BAFX_CHECK(
+        transition.effectivePath() == EffectiveBackgroundCapturePath::FxOnly);
+}
+
+BAFX_TEST(inclusion_failure_terminates_with_unknown_capture_visibility)
+{
+    BackgroundCaptureTransition transition;
+    BAFX_CHECK(
+        transition.beginRequest(recordingRequest())
+        == BackgroundCaptureRequestResult::Started);
+
+    auto action = transition.nextAction();
+    BAFX_CHECK(action.has_value());
+    BAFX_CHECK(transition.applyObservation(*action, true));
+    action = transition.nextAction();
+    BAFX_CHECK(action.has_value());
+    BAFX_CHECK(action->kind == BackgroundCaptureActionKind::SetAffinityIncluded);
+    BAFX_CHECK(transition.applyObservation(*action, false));
+    static_cast<void>(completeSuccessfully(transition));
+
+    BAFX_CHECK(
+        transition.effectivePath()
+        == EffectiveBackgroundCapturePath::FxOnlyCaptureVisibilityUnknown);
+    BAFX_CHECK(
+        transition.failure() == BackgroundCaptureFailure::InclusionUnconfirmed);
+}
+
+BAFX_TEST(session_stop_cleans_up_without_retrying_the_same_request)
+{
+    BackgroundCaptureTransition transition;
+    BAFX_CHECK(
+        transition.beginRequest(backgroundAwareRequest())
+        == BackgroundCaptureRequestResult::Started);
+    static_cast<void>(completeSuccessfully(transition));
+
+    BAFX_CHECK(transition.beginSessionStopped());
+    checkActions(
+        completeSuccessfully(transition),
+        {BackgroundCaptureActionKind::StopSensor,
+         BackgroundCaptureActionKind::SetAffinityIncluded,
+         BackgroundCaptureActionKind::ApplyOverlayProfile});
+    BAFX_CHECK(transition.failure() == BackgroundCaptureFailure::SessionStopped);
+    BAFX_CHECK(
+        transition.beginRequest(backgroundAwareRequest())
+        == BackgroundCaptureRequestResult::NoChange);
+    BAFX_CHECK(!transition.nextAction().has_value());
+
+    BAFX_CHECK(
+        transition.beginRequest(backgroundAwareRequest(true, true, 1U))
+        == BackgroundCaptureRequestResult::Started);
+}
+
+BAFX_TEST(stable_request_is_idempotent_and_busy_transition_rejects_reentry)
+{
+    BackgroundCaptureTransition transition;
+    const BackgroundCaptureRequest request = recordingRequest();
+    BAFX_CHECK(
+        transition.beginRequest(request) == BackgroundCaptureRequestResult::Started);
+    BAFX_CHECK(
+        transition.beginRequest(request) == BackgroundCaptureRequestResult::Busy);
+    static_cast<void>(completeSuccessfully(transition));
+    BAFX_CHECK(
+        transition.beginRequest(request) == BackgroundCaptureRequestResult::NoChange);
+}
+
+BAFX_TEST(out_of_order_observation_is_rejected_without_advancing)
+{
+    BackgroundCaptureTransition transition;
+    BAFX_CHECK(
+        transition.beginRequest(backgroundAwareRequest())
+        == BackgroundCaptureRequestResult::Started);
+    const auto expected = transition.nextAction();
+    BAFX_CHECK(expected.has_value());
+
+    BackgroundCaptureAction wrong{};
+    wrong.kind = BackgroundCaptureActionKind::StartSensor;
+    BAFX_CHECK(!transition.applyObservation(wrong, true));
+    BAFX_CHECK(transition.nextAction() == expected);
+}
