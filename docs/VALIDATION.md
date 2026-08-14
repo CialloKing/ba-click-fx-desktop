@@ -122,17 +122,18 @@ PNG 仍须先与同次 FP16 `FinalOverlay` 重建结果一致，并继续执行�
 导出以下命名层：
 
 ```text
-Coverage
-DirectEmission
+DirectSurface
 BloomSeed
-DifferentialPrefilter
-BloomMip0..N
+Prefilter_Down00
+Down01..Down05
+Up00..Up04
 BloomResult
 FinalOverlay
 ```
 
-Tri2 三角碎片应同时出现在 Coverage/DirectEmission/BloomSeed：它使用游戏
-`FX_SHADER_Additive_0`，在 UI HDR 缓冲绘制后进入全场景 Bloom。对 FP16 使用每通道绝对/相对容差，并在最终图上补充感知误差；
+`Coverage` 与 `DirectEmission` 是组合进 `DirectSurface` 的 MRT 语义，不是独立捕获文件。Tri2 三角碎片
+应同时贡献 `DirectSurface` 和 `BloomSeed`：它使用游戏 `FX_SHADER_Additive_0`，在 UI HDR 缓冲绘制后
+进入全场景 Bloom。对 FP16 使用每通道绝对/相对容差，并在最终图上补充感知误差；
 不得用 PNG hash 代替数值比较。
 
 `DirectSurface` 保存 Coverage 与 DirectEmission 的组合结果。`BloomSeed` 保存允许进入 Bloom
