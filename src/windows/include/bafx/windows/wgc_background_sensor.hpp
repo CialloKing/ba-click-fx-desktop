@@ -77,6 +77,9 @@ struct WgcBackgroundSensorOptions
     // A caller-owned ledger keeps constructor-failure evidence available to
     // hardware collectors after a sensor instance fails to materialize.
     std::shared_ptr<WgcBackgroundResourceLedger> resourceLedger{};
+    // Hardware probes can require an explicit enable/disable write and
+    // readback. Product callers leave this unset to preserve old-OS fallback.
+    std::optional<bool> cursorCaptureEnabledOverride{};
 };
 
 struct WgcBackgroundSample
@@ -94,6 +97,8 @@ struct WgcBackgroundSessionCapabilities
     // otherwise sensor construction fails before StartCapture.
     bool borderHidden{false};
     bool cursorExcluded{false};
+    bool cursorCaptureEnabled{false};
+    bool cursorControlConfirmed{false};
 };
 
 enum class WgcBackgroundDrainStatus : std::uint8_t

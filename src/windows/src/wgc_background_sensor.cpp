@@ -412,7 +412,8 @@ struct WgcBackgroundSensor::Implementation
                 }
             }
 
-            if (options.cursorExcluded)
+            if (options.cursorExcluded
+                || options.cursorCaptureEnabledOverride.has_value())
             {
                 winrt::hresult cursorQueryResult{};
                 const auto cursorSession = session.try_as_with_reason<
@@ -426,24 +427,41 @@ struct WgcBackgroundSensor::Implementation
                             : static_cast<HRESULT>(cursorQueryResult),
                         "GraphicsCaptureSession::QueryInterface(IGraphicsCaptureSession2)");
                 }
-                // A captured cursor would be mistaken for the desktop beneath the FX.
+                const bool requestedCursorCaptureEnabled =
+                    options.cursorCaptureEnabledOverride.value_or(false);
+                if (options.cursorCaptureEnabledOverride.has_value()
+                    && options.cursorExcluded
+                        == requestedCursorCaptureEnabled)
+                {
+                    throw std::invalid_argument(
+                        "WGC cursor options request contradictory states");
+                }
+                // A captured cursor would be mistaken for the desktop beneath
+                // the FX. Validation probes also use this path to explicitly
+                // enable inclusion instead of trusting the session default.
                 try
                 {
-                    cursorSession.IsCursorCaptureEnabled(false);
+                    cursorSession.IsCursorCaptureEnabled(
+                        requestedCursorCaptureEnabled);
+                    capabilities.cursorCaptureEnabled =
+                        cursorSession.IsCursorCaptureEnabled();
                     capabilities.cursorExcluded =
-                        !cursorSession.IsCursorCaptureEnabled();
+                        !capabilities.cursorCaptureEnabled;
+                    capabilities.cursorControlConfirmed =
+                        capabilities.cursorCaptureEnabled
+                        == requestedCursorCaptureEnabled;
                 }
                 catch (const winrt::hresult_error& error)
                 {
                     throw HResultError(
                         error.code(),
-                        "IGraphicsCaptureSession2::IsCursorCaptureEnabled(false)");
+                        "IGraphicsCaptureSession2::IsCursorCaptureEnabled(write/readback)");
                 }
-                if (!capabilities.cursorExcluded)
+                if (!capabilities.cursorControlConfirmed)
                 {
                     throw HResultError(
                         E_FAIL,
-                        "IGraphicsCaptureSession2 kept cursor capture enabled");
+                        "IGraphicsCaptureSession2 cursor readback mismatched the request");
                 }
             }
             try
