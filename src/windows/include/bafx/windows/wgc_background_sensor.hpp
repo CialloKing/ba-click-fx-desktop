@@ -125,6 +125,15 @@ struct WgcBackgroundDrainDiagnostics
     std::chrono::nanoseconds ownedCopySubmitCpu{};
 };
 
+struct WgcBackgroundTransportSnapshot
+{
+    std::uint64_t epoch{0U};
+    std::uint64_t frameArrivedCallbacksTotal{0U};
+    std::uint64_t acceptedGeneration{0U};
+    bool running{false};
+    bool itemClosed{false};
+};
+
 class WgcBackgroundSensor final
 {
 public:
@@ -152,6 +161,9 @@ public:
     // Must run on the same owner that drains and uses the immediate context.
     void recreateFramePool(WindowSize size);
     [[nodiscard]] std::optional<WgcBackgroundSample> latestSample() const noexcept;
+    // Idle render frames must observe producer progress without touching the
+    // capture queue or issuing a full-screen copy on the immediate context.
+    [[nodiscard]] WgcBackgroundTransportSnapshot transportSnapshot() const noexcept;
     [[nodiscard]] std::uint64_t expectedEpoch() const noexcept;
     [[nodiscard]] WgcBackgroundSessionCapabilities capabilities() const noexcept;
     [[nodiscard]] WgcBackgroundResourceLedgerSnapshot resourceLedger() const noexcept;

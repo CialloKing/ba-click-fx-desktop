@@ -666,6 +666,17 @@ struct WgcBackgroundSensor::Implementation
         }
     }
 
+    [[nodiscard]] WgcBackgroundTransportSnapshot transportSnapshot() const noexcept
+    {
+        const bool closed = notification->itemClosed();
+        return WgcBackgroundTransportSnapshot{
+            options.epoch,
+            notification->generation(),
+            sampleGeneration,
+            isRunning && !closed,
+            closed};
+    }
+
     void recreateFramePool(const WindowSize size)
     {
         if (!isRunning || notification->itemClosed())
@@ -923,6 +934,12 @@ void WgcBackgroundSensor::recreateFramePool(const WindowSize size)
 std::optional<WgcBackgroundSample> WgcBackgroundSensor::latestSample() const noexcept
 {
     return implementation_->latestBackground;
+}
+
+WgcBackgroundTransportSnapshot
+WgcBackgroundSensor::transportSnapshot() const noexcept
+{
+    return implementation_->transportSnapshot();
 }
 
 std::uint64_t WgcBackgroundSensor::expectedEpoch() const noexcept
