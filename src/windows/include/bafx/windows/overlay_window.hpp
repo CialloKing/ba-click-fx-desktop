@@ -85,6 +85,12 @@ struct PointerQueueDiagnostics
     std::uint32_t maximumWin32QueueAgeMilliseconds{0U};
 };
 
+enum class RawMouseRegistration : std::uint8_t
+{
+    Enabled,
+    Disabled
+};
+
 [[nodiscard]] constexpr std::uint32_t win32MessageQueueAgeMilliseconds(
     const std::uint32_t dispatchTick,
     const std::uint32_t messageTime) noexcept
@@ -116,7 +122,11 @@ private:
 class OverlayWindow final
 {
 public:
-    OverlayWindow(HINSTANCE instance, RECT bounds, std::wstring_view title);
+    OverlayWindow(
+        HINSTANCE instance,
+        RECT bounds,
+        std::wstring_view title,
+        RawMouseRegistration rawMouseRegistration = RawMouseRegistration::Enabled);
     ~OverlayWindow();
 
     OverlayWindow(const OverlayWindow&) = delete;

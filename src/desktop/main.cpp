@@ -200,6 +200,7 @@ struct RunOptions
     bool supportInfoOnly{false};
     bool smokeTest{false};
     bool demoClick{false};
+    bool disableRawInput{false};
     std::uint32_t demoDelayMilliseconds{0U};
 };
 
@@ -271,6 +272,12 @@ struct PointerConsumptionDiagnostics
         else if (argument == L"--demo-click")
         {
             options.demoClick = true;
+        }
+        else if (argument == L"--disable-raw-input")
+        {
+            // Deterministic renderer baselines provide their own harmless
+            // message pressure and must not depend on operator mouse activity.
+            options.disableRawInput = true;
         }
         else if (argument.starts_with(L"--frames="))
         {
@@ -711,7 +718,10 @@ int runApplication(
     bafx::windows::OverlayWindow window(
         instance,
         primaryMonitor.bounds,
-        L"ba-click-fx-desktop");
+        L"ba-click-fx-desktop",
+        options.disableRawInput
+            ? bafx::windows::RawMouseRegistration::Disabled
+            : bafx::windows::RawMouseRegistration::Enabled);
     report.setPrimaryDpi(window.effectiveDpi());
     if (const auto refreshRate =
             bafx::windows::queryPrimaryCompositionRefreshRate();

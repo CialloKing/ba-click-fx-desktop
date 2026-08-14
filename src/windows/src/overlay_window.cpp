@@ -179,7 +179,8 @@ bool CaptureExclusionStatus::confirmed() const noexcept
 OverlayWindow::OverlayWindow(
     HINSTANCE instance,
     const RECT bounds,
-    const std::wstring_view title)
+    const std::wstring_view title,
+    const RawMouseRegistration rawMouseRegistration)
     : instance_(instance)
 {
     registerWindowClass(instance_);
@@ -219,7 +220,10 @@ OverlayWindow::OverlayWindow(
     try
     {
         pendingPointerEvents_.reserve(64);
-        registerRawMouse();
+        if (rawMouseRegistration == RawMouseRegistration::Enabled)
+        {
+            registerRawMouse();
+        }
         primaryExitHotKeyRegistered_ = RegisterHotKey(
             window_,
             primaryExitHotKeyIdentifier,
