@@ -38,6 +38,7 @@ set_target_properties(
 add_executable(
     ba_click_fx_desktop
     WIN32
+        background_capture_runtime.cpp
         host_control.cpp
         main.cpp
         "${BAFX_DESKTOP_GENERATED_DIR}/ba-click-fx-desktop.manifest"

@@ -5,11 +5,11 @@
 #include "bafx/windows/composition_renderer.hpp"
 #include "bafx/windows/display_capabilities.hpp"
 #include "bafx/windows/error.hpp"
-#include "bafx/windows/fx_gpu_renderer.hpp"
 #include "bafx/windows/overlay_window.hpp"
 #include "bafx/windows/package_identity.hpp"
 #include "bafx/windows/portable_paths.hpp"
 #include "bafx/windows/runtime_diagnostics.hpp"
+#include "background_capture_runtime.hpp"
 #include "host_control.hpp"
 #include "pointer_frame_dispatch.hpp"
 
@@ -35,39 +35,6 @@ constexpr std::uint32_t maximumMessagesPerFrame = 256U;
 constexpr std::uint32_t maximumInputMessagesPerFrame = 4096U;
 constexpr auto smokeTestDeadline = std::chrono::seconds(5);
 constexpr DWORD pausedControlPollMilliseconds = 50U;
-
-[[nodiscard]] bool wantsBackgroundCapture(
-    const bafx::config::Config& config) noexcept
-{
-    return config.background.mode == bafx::config::RenderMode::BackgroundAware;
-}
-
-[[nodiscard]] bafx::windows::FxOverlayProfile overlayProfileForRenderMode(
-    const bafx::config::RenderMode mode) noexcept
-{
-    switch (mode)
-    {
-    case bafx::config::RenderMode::RecordingCompatible:
-        return bafx::windows::FxOverlayProfile::RecordingCompatible;
-    case bafx::config::RenderMode::LightBackground:
-        return bafx::windows::FxOverlayProfile::LightBackground;
-    case bafx::config::RenderMode::BackgroundAware:
-        // Background-aware uses the exact captured path when available and
-        // deliberately falls back to the stable FX-only transport otherwise.
-        return bafx::windows::FxOverlayProfile::FxOnlyFallback;
-    }
-    return bafx::windows::FxOverlayProfile::FxOnlyFallback;
-}
-
-[[nodiscard]] std::string backgroundCaptureCapabilitiesDiagnostic(
-    const bafx::windows::CompositionRenderer& renderer)
-{
-    std::string message = "WGC capture session active; system-border=";
-    message += renderer.backgroundCaptureBorderHidden() ? "hidden" : "visible-allowed";
-    message += "; cursor=";
-    message += renderer.backgroundCaptureCursorExcluded() ? "excluded" : "captured";
-    return message;
-}
 
 [[nodiscard]] std::string_view backgroundCompositeStatusName(
     const bafx::windows::BackgroundCompositeStatus status) noexcept
@@ -565,19 +532,6 @@ int runApplication(
         window.handle(),
         window.size(),
         makeBloomSettings(config.effects));
-    renderer.setOverlayProfile(overlayProfileForRenderMode(config.background.mode));
-    const bafx::windows::CaptureExclusionStatus captureExclusion =
-        window.setCaptureExcluded(wantsBackgroundCapture(config));
-    bafx::windows::appendDiagnosticLog(
-        logPath,
-        bafx::windows::captureExclusionDiagnostic(captureExclusion));
-    const bool exclusionConfirmed = captureExclusion.confirmed();
-    if (wantsBackgroundCapture(config) && !exclusionConfirmed)
-    {
-        bafx::windows::appendDiagnosticLog(
-            logPath,
-            "Capture exclusion was not confirmed; WGC remains disabled");
-    }
     report.setDeviceInfo(renderer.deviceInfo());
     report.setExitUiStatus(window.exitUiStatus());
     const bool controlServiceStarted = control.start();
@@ -606,51 +560,33 @@ int runApplication(
         throw std::runtime_error("Desktop smoke test could not identify the D3D11 adapter");
     }
     renderer.setReadbackDiagnostics(options.smokeTest);
-    // WGC startup belongs here, after the base renderer exists and only when
-    // capture exclusion was confirmed by querying the effective affinity.
-    bool backgroundCaptureWanted = wantsBackgroundCapture(config);
-    bool backgroundCursorExcluded = config.background.cursorExcluded;
-    bool backgroundSystemBorderAllowed = config.background.allowSystemBorder;
-    bool backgroundCaptureEnabled = backgroundCaptureWanted
-        && renderer.tryEnableBackgroundCapture(
+    // Startup and runtime changes share one finite transaction. A failed
+    // request remains terminal until its key or explicit retry token changes.
+    bafx::windows::BackgroundCaptureTransition backgroundTransition;
+    bafx::windows::BackgroundCaptureRequest appliedBackgroundRequest =
+        bafx::desktop::backgroundCaptureRequest(config);
+    if (backgroundTransition.beginRequest(appliedBackgroundRequest)
+        != bafx::windows::BackgroundCaptureRequestResult::Started)
+    {
+        throw std::logic_error("Initial background capture request was invalid");
+    }
+    bafx::desktop::BackgroundCaptureExecutionResult backgroundExecution =
+        bafx::desktop::executeBackgroundCaptureTransition(
+            backgroundTransition,
+            window,
+            renderer,
             primaryMonitor.handle,
-            exclusionConfirmed,
-            backgroundCursorExcluded,
-            backgroundSystemBorderAllowed);
-    if (!backgroundCaptureEnabled)
-    {
-        report.setBackgroundCaptureStatus(
-            bafx::windows::BackgroundCaptureStatus::FallbackFxOnly);
-        std::string failure = backgroundCaptureWanted
-            ? "WGC background capture unavailable; using FX-only rendering"
-            : "WGC background capture disabled by configuration; using FX-only rendering";
-        if (backgroundCaptureWanted
-            && !renderer.backgroundCaptureFailure().empty())
-        {
-            failure += "; reason=";
-            failure += renderer.backgroundCaptureFailure();
-        }
-        if (backgroundCaptureWanted)
-        {
-            // A failed WGC startup has no feedback to protect. Restore normal
-            // capture visibility so FX-only fallback remains visible to recorders.
-            renderer.disableBackgroundCapture();
-            const bafx::windows::CaptureExclusionStatus fallbackExclusion =
-                window.setCaptureExcluded(false);
-            bafx::windows::appendDiagnosticLog(
-                logPath,
-                bafx::windows::captureExclusionDiagnostic(fallbackExclusion));
-        }
-        bafx::windows::appendDiagnosticLog(logPath, failure);
-    }
-    else
-    {
-        report.setBackgroundCaptureStatus(
-            bafx::windows::BackgroundCaptureStatus::Active);
-        bafx::windows::appendDiagnosticLog(
-            logPath,
-            backgroundCaptureCapabilitiesDiagnostic(renderer));
-    }
+            logPath);
+    bool backgroundCaptureEnabled = backgroundTransition.effectivePath()
+        == bafx::windows::EffectiveBackgroundCapturePath::BackgroundAware;
+    report.setBackgroundCaptureStatus(
+        bafx::desktop::backgroundCaptureStatus(backgroundTransition.effectivePath()));
+    bafx::desktop::appendBackgroundCaptureOutcome(
+        logPath,
+        appliedBackgroundRequest,
+        backgroundTransition,
+        backgroundExecution,
+        renderer);
     bafx::windows::appendDiagnosticLog(logPath, report);
     bafx::fx::SimulationRuntime simulation(makeRuntimeSeed());
     bafx::fx::SimulationTimeline simulationTimeline;
@@ -714,77 +650,44 @@ int runApplication(
                     && !config.input.trailOnlyWhilePressed,
                 simulationTimeline.fromWallTime(clock.now()));
             renderer.setBloomSettings(makeBloomSettings(config.effects));
-            renderer.setOverlayProfile(
-                overlayProfileForRenderMode(config.background.mode));
-            const bool nextBackgroundCaptureWanted = wantsBackgroundCapture(config);
-            const bool nextBackgroundCursorExcluded = config.background.cursorExcluded;
-            const bool nextBackgroundSystemBorderAllowed =
-                config.background.allowSystemBorder;
-            if (nextBackgroundCaptureWanted != backgroundCaptureWanted
-                || nextBackgroundCursorExcluded != backgroundCursorExcluded
-                || nextBackgroundSystemBorderAllowed
-                    != backgroundSystemBorderAllowed)
+            const bafx::windows::BackgroundCaptureRequest nextBackgroundRequest =
+                bafx::desktop::backgroundCaptureRequest(config);
+            const bafx::windows::BackgroundCaptureRequestResult requestResult =
+                backgroundTransition.beginRequest(nextBackgroundRequest);
+            switch (requestResult)
             {
-                backgroundCaptureWanted = nextBackgroundCaptureWanted;
-                backgroundCursorExcluded = nextBackgroundCursorExcluded;
-                backgroundSystemBorderAllowed = nextBackgroundSystemBorderAllowed;
-                if (backgroundCaptureWanted)
-                {
-                    const bafx::windows::CaptureExclusionStatus exclusion =
-                        window.setCaptureExcluded(true);
-                    const bool confirmed = exclusion.confirmed();
-                    backgroundCaptureEnabled = confirmed
-                        && renderer.tryEnableBackgroundCapture(
-                            primaryMonitor.handle,
-                            confirmed,
-                            backgroundCursorExcluded,
-                            backgroundSystemBorderAllowed);
-                    bafx::windows::appendDiagnosticLog(
-                        logPath,
-                        bafx::windows::captureExclusionDiagnostic(exclusion));
-                    if (!backgroundCaptureEnabled
-                        && !renderer.backgroundCaptureFailure().empty())
-                    {
-                        bafx::windows::appendDiagnosticLog(
-                            logPath,
-                            std::string("WGC background capture unavailable; using FX-only rendering; reason=")
-                                + std::string(renderer.backgroundCaptureFailure()));
-                    }
-                    if (!backgroundCaptureEnabled)
-                    {
-                        // WGC did not start, so retaining self-exclusion would
-                        // make the FX-only fallback unexpectedly invisible.
-                        renderer.disableBackgroundCapture();
-                        const bafx::windows::CaptureExclusionStatus fallbackExclusion =
-                            window.setCaptureExcluded(false);
-                        bafx::windows::appendDiagnosticLog(
-                            logPath,
-                            bafx::windows::captureExclusionDiagnostic(fallbackExclusion));
-                    }
-                }
-                else
-                {
-                    renderer.disableBackgroundCapture();
-                    backgroundCaptureEnabled = false;
-                    const bafx::windows::CaptureExclusionStatus exclusion =
-                        window.setCaptureExcluded(false);
-                    bafx::windows::appendDiagnosticLog(
-                        logPath,
-                        bafx::windows::captureExclusionDiagnostic(exclusion));
-                }
+            case bafx::windows::BackgroundCaptureRequestResult::Started:
+                appliedBackgroundRequest = nextBackgroundRequest;
+                backgroundExecution = bafx::desktop::executeBackgroundCaptureTransition(
+                    backgroundTransition,
+                    window,
+                    renderer,
+                    primaryMonitor.handle,
+                    logPath);
+                backgroundCaptureEnabled = backgroundTransition.effectivePath()
+                    == bafx::windows::EffectiveBackgroundCapturePath::
+                        BackgroundAware;
                 report.setBackgroundCaptureStatus(
-                    backgroundCaptureEnabled
-                    ? bafx::windows::BackgroundCaptureStatus::Active
-                    : bafx::windows::BackgroundCaptureStatus::FallbackFxOnly);
-                if (backgroundCaptureEnabled)
-                {
-                    bafx::windows::appendDiagnosticLog(
-                        logPath,
-                        backgroundCaptureCapabilitiesDiagnostic(renderer));
-                }
+                    bafx::desktop::backgroundCaptureStatus(
+                        backgroundTransition.effectivePath()));
+                bafx::desktop::appendBackgroundCaptureOutcome(
+                    logPath,
+                    appliedBackgroundRequest,
+                    backgroundTransition,
+                    backgroundExecution,
+                    renderer);
                 backgroundParticipationLogged = false;
                 backgroundPendingDiagnosticLogged = false;
                 bafx::windows::appendDiagnosticLog(logPath, report);
+                break;
+            case bafx::windows::BackgroundCaptureRequestResult::NoChange:
+                appliedBackgroundRequest = nextBackgroundRequest;
+                break;
+            case bafx::windows::BackgroundCaptureRequestResult::Busy:
+                throw std::logic_error(
+                    "Background capture request arrived during a transaction");
+            case bafx::windows::BackgroundCaptureRequestResult::InvalidRequest:
+                throw std::logic_error("Background capture request was invalid");
             }
             appliedGeneration = controlState.generation;
         }
@@ -858,35 +761,47 @@ int runApplication(
                 ++backgroundCompositeFrames;
             }
         }
-        const bool currentBackgroundCaptureActive = renderer.backgroundCaptureActive();
-        control.setBackgroundCaptureActive(currentBackgroundCaptureActive);
-        if (currentBackgroundCaptureActive != backgroundCaptureEnabled)
+        bool currentBackgroundCaptureActive = renderer.backgroundCaptureActive();
+        if (backgroundCaptureEnabled && !currentBackgroundCaptureActive)
         {
-            backgroundCaptureEnabled = currentBackgroundCaptureActive;
+            const std::string stoppedReason(renderer.backgroundCaptureFailure());
+            if (!backgroundTransition.beginSessionStopped())
+            {
+                throw std::logic_error(
+                    "Background capture stop could not enter cleanup transaction");
+            }
+            backgroundExecution = bafx::desktop::executeBackgroundCaptureTransition(
+                backgroundTransition,
+                window,
+                renderer,
+                primaryMonitor.handle,
+                logPath);
+            if (backgroundExecution.sensorFailure.empty())
+            {
+                backgroundExecution.sensorFailure = stoppedReason;
+            }
+            backgroundCaptureEnabled = backgroundTransition.effectivePath()
+                == bafx::windows::EffectiveBackgroundCapturePath::BackgroundAware;
             backgroundParticipationLogged = false;
             backgroundPendingDiagnosticLogged = false;
-            if (!backgroundCaptureEnabled && backgroundCaptureWanted)
-            {
-                // Session close, item close, or a failed resize leaves no
-                // valid background sample; return to ordinary FX-only capture.
-                renderer.disableBackgroundCapture();
-                const bafx::windows::CaptureExclusionStatus fallbackExclusion =
-                    window.setCaptureExcluded(false);
-                bafx::windows::appendDiagnosticLog(
-                    logPath,
-                    bafx::windows::captureExclusionDiagnostic(fallbackExclusion));
-            }
             report.setBackgroundCaptureStatus(
-                backgroundCaptureEnabled
-                ? bafx::windows::BackgroundCaptureStatus::Active
-                : bafx::windows::BackgroundCaptureStatus::FallbackFxOnly);
-            bafx::windows::appendDiagnosticLog(
+                bafx::desktop::backgroundCaptureStatus(
+                    backgroundTransition.effectivePath()));
+            bafx::desktop::appendBackgroundCaptureOutcome(
                 logPath,
-                backgroundCaptureEnabled
-                ? "WGC background capture resumed"
-                : "WGC background capture stopped; using FX-only rendering");
+                appliedBackgroundRequest,
+                backgroundTransition,
+                backgroundExecution,
+                renderer);
             bafx::windows::appendDiagnosticLog(logPath, report);
+            currentBackgroundCaptureActive = renderer.backgroundCaptureActive();
         }
+        else if (!backgroundCaptureEnabled && currentBackgroundCaptureActive)
+        {
+            throw std::logic_error(
+                "Background sensor became active outside its transaction");
+        }
+        control.setBackgroundCaptureActive(currentBackgroundCaptureActive);
         if (shouldRender
             && renderer.backgroundParticipatedInLastFrame()
             && !backgroundParticipationLogged)
