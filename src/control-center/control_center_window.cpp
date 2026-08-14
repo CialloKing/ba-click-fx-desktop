@@ -83,7 +83,21 @@ void moveControl(
 {
     if (control != nullptr)
     {
-        static_cast<void>(MoveWindow(control, x, y, width, height, TRUE));
+        // Discard the old child bitmap and repaint once after every control
+        // has moved. Copying preserved bits during live resize produces the
+        // visible stair-step trail across newly exposed parent regions.
+        static_cast<void>(SetWindowPos(
+            control,
+            nullptr,
+            x,
+            y,
+            width,
+            height,
+            SWP_NOACTIVATE
+                | SWP_NOCOPYBITS
+                | SWP_NOOWNERZORDER
+                | SWP_NOREDRAW
+                | SWP_NOZORDER));
     }
 }
 
@@ -880,6 +894,10 @@ void ControlCenterWindow::layoutControls(
         return;
     }
 
+    // Child windows are repositioned without intermediate paints. The final
+    // redraw invalidates both vacated and newly occupied regions, so live
+    // resizing cannot preserve pixels from an earlier layout pass.
+
     const int margin = scale(24);
     const int columnGap = scale(24);
     const int availableRightWidth = (std::clamp)(
@@ -995,6 +1013,12 @@ void ControlCenterWindow::layoutControls(
         contentTop + scale(279),
         rightContentWidth,
         scale(38));
+
+    static_cast<void>(RedrawWindow(
+        window_,
+        nullptr,
+        nullptr,
+        RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN | RDW_UPDATENOW));
 }
 
 void ControlCenterWindow::layoutSlider(
