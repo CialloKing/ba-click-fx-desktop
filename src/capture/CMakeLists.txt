@@ -28,6 +28,54 @@ set_target_properties(
         OUTPUT_NAME "ba-click-fx-gpu-capture"
 )
 
+add_executable(
+    ba_fx_composition_spike
+    composition_spike_main.cpp
+)
+target_compile_features(ba_fx_composition_spike PRIVATE cxx_std_20)
+target_compile_definitions(
+    ba_fx_composition_spike
+    PRIVATE
+        BAFX_CAPTURE_VERSION="${BAFX_VERSION}"
+)
+target_link_libraries(
+    ba_fx_composition_spike
+    PRIVATE
+        bafx::windows
+        gdi32
+        ole32
+)
+bafx_enable_warnings(ba_fx_composition_spike)
+set_target_properties(
+    ba_fx_composition_spike
+    PROPERTIES
+        FOLDER "Validation"
+        OUTPUT_NAME "ba-click-fx-composition-spike"
+)
+
+option(
+    BAFX_ENABLE_COMPOSITION_SPIKE_TESTS
+    "Register the interactive DirectComposition/WGC composition spike"
+    OFF
+)
+if(BUILD_TESTING AND BAFX_ENABLE_COMPOSITION_SPIKE_TESTS)
+    add_test(
+        NAME composition_spike_capture
+        COMMAND
+            ba_fx_composition_spike
+            "--output=${CMAKE_CURRENT_BINARY_DIR}/ctest-composition-spike"
+            --revision=ctest
+            --timeout-ms=15000
+    )
+    set_tests_properties(
+        composition_spike_capture
+        PROPERTIES
+            LABELS "integration;desktop;gpu;spike"
+            RUN_SERIAL TRUE
+            TIMEOUT 30
+    )
+endif()
+
 if(BUILD_TESTING)
     add_test(
         NAME gpu_capture_cli
