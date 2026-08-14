@@ -2,6 +2,7 @@
 
 #include "bafx/core/unity_bloom.hpp"
 #include "bafx/fx/simulation.hpp"
+#include "bafx/reference/unity_particle_fixture.hpp"
 #include "bafx/windows/error.hpp"
 #include "bafx/windows/fx_gpu_renderer.hpp"
 
@@ -54,7 +55,8 @@ constexpr std::array defaultAges{
 enum class CaptureCase
 {
     Click,
-    DragTrail
+    DragTrail,
+    UnityParticleFixture
 };
 
 class ComApartment final
@@ -204,9 +206,14 @@ struct ManifestAge
         {
             options.captureCase = CaptureCase::DragTrail;
         }
+        else if (argument == L"--case=unity-particle-fixture")
+        {
+            options.captureCase = CaptureCase::UnityParticleFixture;
+        }
         else if (argument.starts_with(L"--case="))
         {
-            throw std::invalid_argument("--case only supports drag-trail");
+            throw std::invalid_argument(
+                "--case only supports drag-trail or unity-particle-fixture");
         }
         else
         {
@@ -224,6 +231,18 @@ struct ManifestAge
         }
         options.agesMilliseconds.assign(1U, dragTrailAgeMilliseconds);
     }
+    else if (options.captureCase == CaptureCase::UnityParticleFixture)
+    {
+        constexpr std::uint32_t fixtureAgeMilliseconds = 50U;
+        if (customAges
+            && (options.agesMilliseconds.size() != 1U
+                || options.agesMilliseconds.front() != fixtureAgeMilliseconds))
+        {
+            throw std::invalid_argument(
+                "unity-particle-fixture capture requires age 50 ms");
+        }
+        options.agesMilliseconds.assign(1U, fixtureAgeMilliseconds);
+    }
     else if (!customAges)
     {
         options.agesMilliseconds.assign(defaultAges.begin(), defaultAges.end());
@@ -235,7 +254,8 @@ void printUsage()
 {
     std::wcout
         << L"Usage: ba-click-fx-gpu-capture [--output=DIR] [--age-ms=N ...] "
-        << L"[--all-layers] [--revision=GIT] [--case=drag-trail]\n";
+        << L"[--all-layers] [--revision=GIT] "
+        << L"[--case=drag-trail|unity-particle-fixture]\n";
 }
 
 [[nodiscard]] CaptureDevice createWarpDevice()
@@ -548,6 +568,23 @@ void writeManifest(
             << "\"trailOnly\": \"Reference/Diagnostics/Trail/"
             << "FX_Touch_0140ms_TrailOnly_20px.png\"}},\n";
     }
+    else if (options.captureCase == CaptureCase::UnityParticleFixture)
+    {
+        const bafx::reference::UnityParticleFixtureDescriptor descriptor =
+            bafx::reference::unityParticleFixtureV2Descriptor();
+        stream
+            << "  \"case\": {\"name\": \"unity-particle-fixture\", "
+            << "\"contractVersion\": 1, "
+            << "\"scope\": \"capture-only-observation\", "
+            << "\"sourceFixture\": \"Reference/Diagnostics/ParticleStates/"
+            << "FX_Touch_0050ms_particle-state-v2.json\", "
+            << "\"sourceSchema\": " << descriptor.schema << ", "
+            << "\"sourceSha256\": \"" << descriptor.sourceSha256 << "\", "
+            << "\"sourceParticleCount\": " << descriptor.particleCount << ", "
+            << "\"coordinateMapping\": \"bottom-left-to-top-left-y-flip\", "
+            << "\"colorMapping\": \"sRGB-to-linear-rgb-alpha-unchanged\", "
+            << "\"productionRandomStream\": \"not-used\"},\n";
+    }
     stream << "  \"rowOrigin\": \"top-left\",\n"
            << "  \"rawFormat\": \"DXGI_FORMAT_R16G16B16A16_FLOAT little-endian RGBA\",\n"
            << "  \"rawColorEncoding\": \"linear extended-premultiplied\",\n"
@@ -652,6 +689,37 @@ int run(const CaptureOptions& options)
             "coverage-union",
             trailOnlyCapture.finalOverlay);
         manifests.push_back(std::move(manifest));
+        writeManifest(options, graphics.featureLevel, manifests);
+        return 0;
+    }
+
+    if (options.captureCase == CaptureCase::UnityParticleFixture)
+    {
+        const bafx::reference::UnityParticleFixtureDescriptor descriptor =
+            bafx::reference::unityParticleFixtureV2Descriptor();
+        if (descriptor.viewport.width != captureSize.width
+            || descriptor.viewport.height != captureSize.height
+            || options.agesMilliseconds.size() != 1U
+            || options.agesMilliseconds.front() != descriptor.ageMilliseconds)
+        {
+            throw std::runtime_error(
+                "Unity particle fixture does not match the fixed capture contract");
+        }
+
+        const bafx::fx::FrameSnapshot snapshot =
+            bafx::reference::makeUnityParticleFixtureV2Snapshot();
+        if (snapshot.sprites.size() != descriptor.particleCount)
+        {
+            throw std::runtime_error(
+                "Unity particle fixture snapshot has an unexpected particle count");
+        }
+        const bafx::windows::FxGpuFrameCapture capture =
+            renderer.renderAndCapture(snapshot, target.view.Get());
+        manifests.push_back(writeCapture(
+            options.outputDirectory,
+            descriptor.ageMilliseconds,
+            options.allLayers,
+            capture));
         writeManifest(options, graphics.featureLevel, manifests);
         return 0;
     }

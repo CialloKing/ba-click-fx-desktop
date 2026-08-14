@@ -14,6 +14,7 @@ target_link_libraries(
     ba_fx_gpu_capture
     PRIVATE
         bafx::core
+        bafx::reference
         bafx::windows
         ole32
         windowscodecs
@@ -53,6 +54,21 @@ if(BUILD_TESTING)
     )
     set_tests_properties(
         gpu_capture_drag_trail_cli
+        PROPERTIES
+            LABELS "gpu;warp"
+            TIMEOUT 30
+    )
+
+    add_test(
+        NAME gpu_capture_unity_particle_fixture_cli
+        COMMAND
+            ba_fx_gpu_capture
+            "--output=${CMAKE_CURRENT_BINARY_DIR}/ctest-unity-particle-fixture-output"
+            --case=unity-particle-fixture
+            --revision=ctest
+    )
+    set_tests_properties(
+        gpu_capture_unity_particle_fixture_cli
         PROPERTIES
             LABELS "gpu;warp"
             TIMEOUT 30
