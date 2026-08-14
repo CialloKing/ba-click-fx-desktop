@@ -113,6 +113,10 @@ public:
     void advance(SimulationTime time);
     void onFrameRendered(SimulationTime time);
 
+    // Runtime pool reuse retains Unity component state while assigning a new
+    // deterministic native random stream to this activation.
+    void preparePooledActivation(std::uint64_t seed) noexcept;
+
     // Mirrors FxTrailTimeScale.Update. This is an explicit game-time-scale
     // input and is intentionally separate from the desktop pause timeline.
     void updateUnityTrailTimeScale(float timeScale);

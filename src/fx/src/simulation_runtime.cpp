@@ -11,6 +11,7 @@ namespace
 {
 
 constexpr std::uint64_t randomStreamStep = 0x9E3779B97F4A7C15ULL;
+constexpr std::uint64_t ambientRandomStream = 0xD1B54A32D192ED03ULL;
 constexpr float minimumTrailLengthMultiplier = 0.0F;
 constexpr float maximumTrailLengthMultiplier = 3.0F;
 constexpr std::uint32_t maximumInputSamplingRateHz = 1000U;
@@ -34,6 +35,9 @@ SimulationRuntime::SimulationRuntime(const std::uint64_t seed)
     : baseSeed_(seed)
 {
     instances_.reserve(8U);
+    // TouchEffectCreater initializes SyncComponentPool<FXTouch> with one item.
+    // Materialize it here so the first activation also follows the FIFO path.
+    unityPool_.emplace_back(baseSeed_);
 }
 
 void SimulationRuntime::pointerDown(
@@ -60,9 +64,22 @@ void SimulationRuntime::pointerDown(
     // A physical press owns the live stroke until release. Retiring the
     // movement-only stroke prevents duplicate geometry while preserving its fade.
     retireAlwaysOnTrail(simulationTime);
-    instances_.emplace_back(nextSeed());
-    instances_.back().setTrailLengthMultiplier(trailLengthMultiplier_);
-    instances_.back().pointerDown(screenPosition, viewport, simulationTime);
+    if (unityPool_.empty())
+    {
+        instances_.push_back(RuntimeInstance{Simulation(nextUnitySeed()), true});
+    }
+    else
+    {
+        instances_.push_back(RuntimeInstance{
+            std::move(unityPool_.front()),
+            true});
+        unityPool_.pop_front();
+        instances_.back().simulation.preparePooledActivation(nextUnitySeed());
+    }
+
+    Simulation& instance = instances_.back().simulation;
+    instance.setTrailLengthMultiplier(trailLengthMultiplier_);
+    instance.pointerDown(screenPosition, viewport, simulationTime);
     pointerActive_ = true;
     if (inputSamplingRateHz_ > 0U)
     {
@@ -86,7 +103,8 @@ void SimulationRuntime::pointerMove(
 {
     if (pointerActive_ && !instances_.empty())
     {
-        const bool firstAdvancePending = instances_.back().firstAdvancePending();
+        Simulation& instance = instances_.back().simulation;
+        const bool firstAdvancePending = instance.firstAdvancePending();
         if (firstAdvancePending)
         {
             // Unity samples the final Input.mousePosition in the same Update
@@ -98,14 +116,14 @@ void SimulationRuntime::pointerMove(
             {
                 lastInputSampleAt_ = inputTime;
             }
-            instances_.back().pointerMove(
+            instance.pointerMove(
                 screenPosition,
                 viewport,
                 simulationTime);
         }
         else if (acceptInputSample(inputTime))
         {
-            instances_.back().pointerMove(
+            instance.pointerMove(
                 screenPosition,
                 viewport,
                 simulationTime);
@@ -125,7 +143,7 @@ void SimulationRuntime::pointerMove(
     {
         // The first free-move sample is only an anchor. Connecting it to a
         // pre-toggle or off-screen coordinate would draw a false long segment.
-        alwaysOnTrail_.emplace(nextSeed());
+        alwaysOnTrail_.emplace(nextAmbientSeed());
         alwaysOnTrail_->setTrailLengthMultiplier(trailLengthMultiplier_);
         alwaysOnTrail_->startTrail(screenPosition, viewport, simulationTime);
         return;
@@ -140,7 +158,7 @@ void SimulationRuntime::pointerUp(const SimulationTime time)
         return;
     }
 
-    instances_.back().pointerUp(time);
+    instances_.back().simulation.pointerUp(time);
     pointerActive_ = false;
     resetInputSamplingPhase();
 }
@@ -149,7 +167,7 @@ void SimulationRuntime::pointerCancel(const SimulationTime time)
 {
     if (pointerActive_ && !instances_.empty())
     {
-        instances_.back().pointerCancel(time);
+        instances_.back().simulation.pointerCancel(time);
         pointerActive_ = false;
     }
 
@@ -163,9 +181,9 @@ void SimulationRuntime::endAlwaysOnTrail(const SimulationTime time)
 
 void SimulationRuntime::advance(const SimulationTime time)
 {
-    for (Simulation& instance : instances_)
+    for (RuntimeInstance& runtimeInstance : instances_)
     {
-        instance.advance(time);
+        runtimeInstance.simulation.advance(time);
     }
     if (alwaysOnTrail_.has_value())
     {
@@ -175,30 +193,39 @@ void SimulationRuntime::advance(const SimulationTime time)
 
 void SimulationRuntime::onFrameRendered(const SimulationTime time)
 {
-    for (Simulation& instance : instances_)
+    for (RuntimeInstance& runtimeInstance : instances_)
     {
-        instance.onFrameRendered(time);
+        runtimeInstance.simulation.onFrameRendered(time);
     }
     if (alwaysOnTrail_.has_value())
     {
         alwaysOnTrail_->onFrameRendered(time);
     }
 
-    const auto inactiveBegin = std::remove_if(
-        instances_.begin(),
-        instances_.end(),
-        [](const Simulation& instance)
+    for (auto instance = instances_.begin(); instance != instances_.end();)
+    {
+        if (instance->simulation.active())
         {
-            return !instance.active();
-        });
-    instances_.erase(inactiveBegin, instances_.end());
+            ++instance;
+            continue;
+        }
+
+        if (instance->returnsToUnityPool)
+        {
+            // ComponentPool<T>.AddObject enqueues at the tail. Iterating in
+            // activation order preserves the game's FIFO return order when
+            // several coroutines complete on the same presented frame.
+            unityPool_.push_back(std::move(instance->simulation));
+        }
+        instance = instances_.erase(instance);
+    }
 }
 
 void SimulationRuntime::updateUnityTrailTimeScale(const float timeScale)
 {
-    for (Simulation& instance : instances_)
+    for (RuntimeInstance& runtimeInstance : instances_)
     {
-        instance.updateUnityTrailTimeScale(timeScale);
+        runtimeInstance.simulation.updateUnityTrailTimeScale(timeScale);
     }
     if (alwaysOnTrail_.has_value())
     {
@@ -209,9 +236,9 @@ void SimulationRuntime::updateUnityTrailTimeScale(const float timeScale)
 void SimulationRuntime::setTrailLengthMultiplier(const float multiplier) noexcept
 {
     trailLengthMultiplier_ = normalizeTrailLengthMultiplier(multiplier);
-    for (Simulation& instance : instances_)
+    for (RuntimeInstance& runtimeInstance : instances_)
     {
-        instance.setTrailLengthMultiplier(trailLengthMultiplier_);
+        runtimeInstance.simulation.setTrailLengthMultiplier(trailLengthMultiplier_);
     }
     if (alwaysOnTrail_.has_value())
     {
@@ -251,9 +278,9 @@ FrameSnapshot SimulationRuntime::snapshot(
     const SimulationTime time) const
 {
     FrameSnapshot combined{};
-    for (const Simulation& instance : instances_)
+    for (const RuntimeInstance& runtimeInstance : instances_)
     {
-        FrameSnapshot current = instance.snapshot(viewport, time);
+        FrameSnapshot current = runtimeInstance.simulation.snapshot(viewport, time);
         combined.active = combined.active || current.active;
         combined.pointerHeld = combined.pointerHeld || current.pointerHeld;
         combined.sprites.insert(
@@ -323,12 +350,27 @@ std::size_t SimulationRuntime::instanceCount() const noexcept
     return instances_.size() + (alwaysOnTrail_.has_value() ? 1U : 0U);
 }
 
-std::uint64_t SimulationRuntime::nextSeed() noexcept
+std::size_t SimulationRuntime::pooledInstanceCount() const noexcept
 {
-    // Match repeated activation of one Simulation while giving each retained
-    // instance an independent deterministic random stream.
-    const std::uint64_t seed = baseSeed_ + activationCount_ * randomStreamStep;
-    ++activationCount_;
+    return unityPool_.size();
+}
+
+std::uint64_t SimulationRuntime::nextUnitySeed() noexcept
+{
+    // Assign every pooled activation a distinct deterministic stream base.
+    const std::uint64_t seed =
+        baseSeed_ + unityActivationCount_ * randomStreamStep;
+    ++unityActivationCount_;
+    return seed;
+}
+
+std::uint64_t SimulationRuntime::nextAmbientSeed() noexcept
+{
+    // Ambient trails are a desktop-only enhancement. Their independent domain
+    // prevents free movement from perturbing the strict Unity click sequence.
+    const std::uint64_t seed = (baseSeed_ ^ ambientRandomStream)
+        + ambientActivationCount_ * randomStreamStep;
+    ++ambientActivationCount_;
     return seed;
 }
 
@@ -372,7 +414,11 @@ void SimulationRuntime::retireAlwaysOnTrail(const SimulationTime time)
     }
 
     alwaysOnTrail_->pointerCancel(time);
-    instances_.push_back(std::move(*alwaysOnTrail_));
+    // Always-on trail is a desktop enhancement, not an FXTouch acquired from
+    // the game's SyncComponentPool. Retain its fade without pooling it.
+    instances_.push_back(RuntimeInstance{
+        std::move(*alwaysOnTrail_),
+        false});
     alwaysOnTrail_.reset();
 }
 

@@ -78,6 +78,30 @@ constexpr PointF goldenCenter{975.0F, 548.5F};
         });
 }
 
+void checkSpriteEqual(const Sprite& actual, const Sprite& expected)
+{
+    BAFX_CHECK(actual.kind == expected.kind);
+    BAFX_CHECK(actual.centerPixels.x == expected.centerPixels.x);
+    BAFX_CHECK(actual.centerPixels.y == expected.centerPixels.y);
+    BAFX_CHECK(actual.sizePixels == expected.sizePixels);
+    BAFX_CHECK(actual.rotationRadians == expected.rotationRadians);
+    BAFX_CHECK(actual.color.r == expected.color.r);
+    BAFX_CHECK(actual.color.g == expected.color.g);
+    BAFX_CHECK(actual.color.b == expected.color.b);
+    BAFX_CHECK(actual.color.a == expected.color.a);
+    BAFX_CHECK(actual.artisticIntensity == expected.artisticIntensity);
+    BAFX_CHECK(actual.dissolveThreshold == expected.dissolveThreshold);
+    BAFX_CHECK(actual.atlasFrame == expected.atlasFrame);
+    BAFX_CHECK(actual.renderQueue == expected.renderQueue);
+    BAFX_CHECK(actual.contributesBloom == expected.contributesBloom);
+    BAFX_CHECK(
+        actual.globalScalePivotPixels.x == expected.globalScalePivotPixels.x);
+    BAFX_CHECK(
+        actual.globalScalePivotPixels.y == expected.globalScalePivotPixels.y);
+    BAFX_CHECK(
+        actual.scaleCenterWithGlobalScale == expected.scaleCenterWithGlobalScale);
+}
+
 }
 
 BAFX_TEST(simulation_timeline_freezes_and_excludes_the_paused_interval)
@@ -1714,6 +1738,115 @@ BAFX_TEST(released_effect_instances_expire_independently)
     BAFX_CHECK(!runtime.active());
 }
 
+BAFX_TEST(released_fx_touch_returns_to_the_unity_fifo_pool)
+{
+    SimulationRuntime runtime;
+    BAFX_CHECK(runtime.pooledInstanceCount() == 1U);
+
+    runtime.pointerDown(goldenCenter, goldenViewport, 0ns);
+    BAFX_CHECK(runtime.pooledInstanceCount() == 0U);
+    runtime.pointerUp(10ms);
+    runtime.advance(1010ms);
+    runtime.onFrameRendered(1010ms);
+
+    BAFX_CHECK(runtime.instanceCount() == 0U);
+    BAFX_CHECK(runtime.pooledInstanceCount() == 1U);
+    BAFX_CHECK(!runtime.active());
+}
+
+BAFX_TEST(unity_fifo_pool_reuses_the_oldest_fx_touch_component_state)
+{
+    SimulationRuntime runtime;
+
+    runtime.pointerDown(PointF{100.0F, 100.0F}, goldenViewport, 0ns);
+    runtime.advance(1ns);
+    runtime.pointerMove(PointF{300.0F, 100.0F}, goldenViewport, 10ms);
+    runtime.updateUnityTrailTimeScale(0.19F);
+    runtime.updateUnityTrailTimeScale(0.19F);
+    BAFX_CHECK(runtime.snapshot(goldenViewport, 10ms).trail.empty());
+    runtime.pointerUp(20ms);
+
+    // The first effect is still awaiting its one-second restore, so this
+    // activation creates a second object with the default component state.
+    runtime.pointerDown(PointF{600.0F, 300.0F}, goldenViewport, 30ms);
+    BAFX_CHECK(runtime.snapshot(goldenViewport, 30ms).trail.size() == 1U);
+    runtime.pointerUp(40ms);
+
+    runtime.advance(1020ms);
+    runtime.onFrameRendered(1020ms);
+    BAFX_CHECK(runtime.pooledInstanceCount() == 1U);
+    runtime.advance(1040ms);
+    runtime.onFrameRendered(1040ms);
+    BAFX_CHECK(runtime.pooledInstanceCount() == 2U);
+
+    // Inactive pooled GameObjects do not receive Update. A live-object update
+    // would restore the first object's parked renderer before it is acquired.
+    runtime.updateUnityTrailTimeScale(1.0F);
+
+    // FIFO returns the first object, whose disabled parking renderer survived
+    // FXTouch.Stop. A LIFO pool would return the normal second object instead.
+    runtime.pointerDown(PointF{900.0F, 500.0F}, goldenViewport, 1100ms);
+    BAFX_CHECK(runtime.snapshot(goldenViewport, 1100ms).trail.empty());
+    runtime.pointerUp(1110ms);
+    runtime.advance(2110ms);
+    runtime.onFrameRendered(2110ms);
+
+    runtime.pointerDown(PointF{1200.0F, 700.0F}, goldenViewport, 2200ms);
+    BAFX_CHECK(runtime.snapshot(goldenViewport, 2200ms).trail.size() == 1U);
+}
+
+BAFX_TEST(always_on_trail_never_enters_the_unity_fx_touch_pool)
+{
+    SimulationRuntime runtime;
+    runtime.setAlwaysOnTrailEnabled(true, 0ns);
+    runtime.pointerMove(PointF{100.0F, 100.0F}, goldenViewport, 10ms);
+    runtime.pointerMove(PointF{300.0F, 100.0F}, goldenViewport, 20ms);
+    runtime.endAlwaysOnTrail(30ms);
+    runtime.advance(1030ms);
+    runtime.onFrameRendered(1030ms);
+
+    BAFX_CHECK(runtime.instanceCount() == 0U);
+    BAFX_CHECK(runtime.pooledInstanceCount() == 1U);
+}
+
+BAFX_TEST(always_on_trail_random_stream_does_not_perturb_unity_clicks)
+{
+    constexpr std::uint64_t seed = 0x12345678U;
+    SimulationRuntime strictRuntime(seed);
+    SimulationRuntime enhancedRuntime(seed);
+
+    enhancedRuntime.setAlwaysOnTrailEnabled(true, 0ns);
+    enhancedRuntime.pointerMove(
+        PointF{100.0F, 100.0F},
+        goldenViewport,
+        10ms);
+    enhancedRuntime.pointerMove(
+        PointF{300.0F, 100.0F},
+        goldenViewport,
+        20ms);
+    enhancedRuntime.endAlwaysOnTrail(30ms);
+    enhancedRuntime.advance(1030ms);
+    enhancedRuntime.onFrameRendered(1030ms);
+    BAFX_CHECK(enhancedRuntime.instanceCount() == 0U);
+
+    strictRuntime.pointerDown(goldenCenter, goldenViewport, 1100ms);
+    enhancedRuntime.pointerDown(goldenCenter, goldenViewport, 1100ms);
+    const FrameSnapshot strictFrame = strictRuntime.snapshot(
+        goldenViewport,
+        1150ms);
+    const FrameSnapshot enhancedFrame = enhancedRuntime.snapshot(
+        goldenViewport,
+        1150ms);
+
+    BAFX_CHECK(strictFrame.sprites.size() == enhancedFrame.sprites.size());
+    for (std::size_t index = 0U; index < strictFrame.sprites.size(); ++index)
+    {
+        checkSpriteEqual(
+            strictFrame.sprites[index],
+            enhancedFrame.sprites[index]);
+    }
+}
+
 BAFX_TEST(duplicate_down_does_not_restart_the_held_effect)
 {
     SimulationRuntime runtime;
@@ -1741,17 +1874,8 @@ BAFX_TEST(explicit_runtime_seed_replays_the_same_particle_state)
     BAFX_CHECK(firstFrame.sprites.size() == secondFrame.sprites.size());
     for (std::size_t index = 0U; index < firstFrame.sprites.size(); ++index)
     {
-        const Sprite& firstSprite = firstFrame.sprites[index];
-        const Sprite& secondSprite = secondFrame.sprites[index];
-        BAFX_CHECK(firstSprite.kind == secondSprite.kind);
-        BAFX_CHECK_NEAR(
-            firstSprite.centerPixels.x,
-            secondSprite.centerPixels.x,
-            1.0e-7F);
-        BAFX_CHECK_NEAR(
-            firstSprite.centerPixels.y,
-            secondSprite.centerPixels.y,
-            1.0e-7F);
-        BAFX_CHECK(firstSprite.atlasFrame == secondSprite.atlasFrame);
+        checkSpriteEqual(
+            firstFrame.sprites[index],
+            secondFrame.sprites[index]);
     }
 }

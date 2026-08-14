@@ -433,6 +433,16 @@ Simulation::Simulation(const std::uint64_t seed)
     trailParkingPoints_.reserve(128);
 }
 
+void Simulation::preparePooledActivation(const std::uint64_t seed) noexcept
+{
+    baseSeed_ = seed;
+    activationCount_ = 0U;
+    random_ = Random(seed);
+    atlasRandom_ = Random(seed ^ atlasRandomStream);
+    // FxTrailTimeScale mode, cached points and renderer state intentionally
+    // survive. FXTouch.Stop does not reset that sibling component in Unity.
+}
+
 void Simulation::setTrailLengthMultiplier(const float multiplier) noexcept
 {
     trailLengthMultiplier_ = normalizeTrailLengthMultiplier(multiplier);

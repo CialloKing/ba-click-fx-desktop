@@ -4,6 +4,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <deque>
 #include <optional>
 #include <vector>
 
@@ -42,21 +43,31 @@ public:
     [[nodiscard]] bool pointerHeld() const noexcept;
     [[nodiscard]] bool alwaysOnTrailEnabled() const noexcept;
     [[nodiscard]] std::size_t instanceCount() const noexcept;
+    [[nodiscard]] std::size_t pooledInstanceCount() const noexcept;
 
 private:
-    [[nodiscard]] std::uint64_t nextSeed() noexcept;
+    struct RuntimeInstance
+    {
+        Simulation simulation;
+        bool returnsToUnityPool{false};
+    };
+
+    [[nodiscard]] std::uint64_t nextUnitySeed() noexcept;
+    [[nodiscard]] std::uint64_t nextAmbientSeed() noexcept;
     [[nodiscard]] bool acceptInputSample(SimulationTime inputTime) noexcept;
     void resetInputSamplingPhase() noexcept;
     void retireAlwaysOnTrail(SimulationTime time);
 
     std::uint64_t baseSeed_{0U};
-    std::uint64_t activationCount_{0U};
+    std::uint64_t unityActivationCount_{0U};
+    std::uint64_t ambientActivationCount_{0U};
     bool pointerActive_{false};
     bool alwaysOnTrailEnabled_{false};
     float trailLengthMultiplier_{1.0F};
     std::uint32_t inputSamplingRateHz_{0U};
     std::optional<SimulationTime> lastInputSampleAt_{};
-    std::vector<Simulation> instances_{};
+    std::vector<RuntimeInstance> instances_{};
+    std::deque<Simulation> unityPool_{};
     std::optional<Simulation> alwaysOnTrail_{};
 };
 
