@@ -124,6 +124,19 @@ if(Python3_Interpreter_FOUND)
             WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
             TIMEOUT 10
     )
+    add_test(
+        NAME wgc_cursor_spike_contract
+        COMMAND
+            "${Python3_EXECUTABLE}"
+            -B
+            "${CMAKE_CURRENT_SOURCE_DIR}/verify_wgc_cursor_spike_tests.py"
+    )
+    set_tests_properties(
+        wgc_cursor_spike_contract
+        PROPERTIES
+            WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
+            TIMEOUT 15
+    )
     if(WIN32 AND BAFX_ENABLE_COMPOSITION_SPIKE_TESTS)
         add_test(
             NAME composition_spike_capture_verify
@@ -159,6 +172,25 @@ if(Python3_Interpreter_FOUND)
                 LABELS "integration;desktop;gpu;spike"
                 RUN_SERIAL TRUE
                 TIMEOUT 10
+        )
+    endif()
+    if(WIN32 AND BAFX_ENABLE_WGC_CURSOR_SPIKE_TESTS)
+        add_test(
+            NAME wgc_cursor_spike_capture_verify
+            COMMAND
+                "${Python3_EXECUTABLE}"
+                -B
+                "${PROJECT_SOURCE_DIR}/tools/verify-wgc-cursor-spike.py"
+                "${PROJECT_BINARY_DIR}/src/capture/ctest-wgc-cursor-spike/cursor.json"
+                "--report=${PROJECT_BINARY_DIR}/src/capture/ctest-wgc-cursor-spike/verification.json"
+        )
+        set_tests_properties(
+            wgc_cursor_spike_capture_verify
+            PROPERTIES
+                DEPENDS wgc_cursor_spike_capture
+                LABELS "integration;desktop;gpu;spike;cursor"
+                RUN_SERIAL TRUE
+                TIMEOUT 15
         )
     endif()
 endif()
