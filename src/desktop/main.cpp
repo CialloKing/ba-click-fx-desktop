@@ -1116,7 +1116,8 @@ int runApplication(
                 "WGC background sample entered the final desktop composite");
             backgroundParticipationLogged = true;
         }
-        else if (currentBackgroundCaptureActive
+        else if (lastPresentedDrawableContent
+            && currentBackgroundCaptureActive
             && !backgroundParticipationLogged
             && !backgroundPendingDiagnosticLogged
             && wallTime - applicationStartedAt >= std::chrono::seconds(1))
