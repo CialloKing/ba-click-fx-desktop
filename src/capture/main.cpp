@@ -233,15 +233,33 @@ struct ManifestAge
     }
     else if (options.captureCase == CaptureCase::UnityParticleFixture)
     {
-        constexpr std::uint32_t fixtureAgeMilliseconds = 50U;
-        if (customAges
-            && (options.agesMilliseconds.size() != 1U
-                || options.agesMilliseconds.front() != fixtureAgeMilliseconds))
+        const auto descriptors =
+            bafx::reference::unityParticleFixtureV2Descriptors();
+        bool customAgesMatch = options.agesMilliseconds.size()
+            == descriptors.size();
+        if (customAgesMatch)
+        {
+            for (std::size_t index = 0U; index < descriptors.size(); ++index)
+            {
+                if (options.agesMilliseconds[index]
+                    != descriptors[index].ageMilliseconds)
+                {
+                    customAgesMatch = false;
+                    break;
+                }
+            }
+        }
+        if (customAges && !customAgesMatch)
         {
             throw std::invalid_argument(
-                "unity-particle-fixture capture requires age 50 ms");
+                "unity-particle-fixture capture requires ages 50,100,120,250,450 ms");
         }
-        options.agesMilliseconds.assign(1U, fixtureAgeMilliseconds);
+        options.agesMilliseconds.clear();
+        options.agesMilliseconds.reserve(descriptors.size());
+        for (const auto& descriptor : descriptors)
+        {
+            options.agesMilliseconds.push_back(descriptor.ageMilliseconds);
+        }
     }
     else if (!customAges)
     {
@@ -570,16 +588,29 @@ void writeManifest(
     }
     else if (options.captureCase == CaptureCase::UnityParticleFixture)
     {
-        const bafx::reference::UnityParticleFixtureDescriptor& descriptor =
-            bafx::reference::unityParticleFixtureV2Descriptors().front();
+        const auto descriptors =
+            bafx::reference::unityParticleFixtureV2Descriptors();
         stream
             << "  \"case\": {\"name\": \"unity-particle-fixture\", "
-            << "\"contractVersion\": 1, "
+            << "\"contractVersion\": 2, "
             << "\"scope\": \"capture-only-observation\", "
-            << "\"sourceFixture\": \"" << descriptor.sourceFixture << "\", "
-            << "\"sourceSchema\": " << descriptor.schema << ", "
-            << "\"sourceSha256\": \"" << descriptor.sourceSha256 << "\", "
-            << "\"sourceParticleCount\": " << descriptor.particleCount << ", "
+            << "\"sources\": [";
+        for (std::size_t index = 0U; index < descriptors.size(); ++index)
+        {
+            const auto& descriptor = descriptors[index];
+            stream
+                << "{\"ageMs\": " << descriptor.ageMilliseconds << ", "
+                << "\"sourceFixture\": \"" << descriptor.sourceFixture << "\", "
+                << "\"sourceSchema\": " << descriptor.schema << ", "
+                << "\"sourceSha256\": \"" << descriptor.sourceSha256 << "\", "
+                << "\"sourceParticleCount\": " << descriptor.particleCount << "}";
+            if (index + 1U < descriptors.size())
+            {
+                stream << ", ";
+            }
+        }
+        stream
+            << "], "
             << "\"coordinateMapping\": \"bottom-left-to-top-left-y-flip\", "
             << "\"colorMapping\": \"sRGB-to-linear-rgb-alpha-unchanged\", "
             << "\"productionRandomStream\": \"not-used\"},\n";
@@ -694,32 +725,41 @@ int run(const CaptureOptions& options)
 
     if (options.captureCase == CaptureCase::UnityParticleFixture)
     {
-        const bafx::reference::UnityParticleFixtureDescriptor& descriptor =
-            bafx::reference::unityParticleFixtureV2Descriptors().front();
-        if (descriptor.viewport.width != captureSize.width
-            || descriptor.viewport.height != captureSize.height
-            || options.agesMilliseconds.size() != 1U
-            || options.agesMilliseconds.front() != descriptor.ageMilliseconds)
+        const auto descriptors =
+            bafx::reference::unityParticleFixtureV2Descriptors();
+        if (options.agesMilliseconds.size() != descriptors.size())
         {
             throw std::runtime_error(
                 "Unity particle fixture does not match the fixed capture contract");
         }
-
-        const bafx::fx::FrameSnapshot snapshot =
-            bafx::reference::makeUnityParticleFixtureV2Snapshot(
-                descriptor.ageMilliseconds);
-        if (snapshot.sprites.size() != descriptor.particleCount)
+        for (std::size_t index = 0U; index < descriptors.size(); ++index)
         {
-            throw std::runtime_error(
-                "Unity particle fixture snapshot has an unexpected particle count");
+            const auto& descriptor = descriptors[index];
+            if (descriptor.viewport.width != captureSize.width
+                || descriptor.viewport.height != captureSize.height
+                || options.agesMilliseconds[index]
+                    != descriptor.ageMilliseconds)
+            {
+                throw std::runtime_error(
+                    "Unity particle fixture does not match the fixed capture contract");
+            }
+
+            const bafx::fx::FrameSnapshot snapshot =
+                bafx::reference::makeUnityParticleFixtureV2Snapshot(
+                    descriptor.ageMilliseconds);
+            if (snapshot.sprites.size() != descriptor.particleCount)
+            {
+                throw std::runtime_error(
+                    "Unity particle fixture snapshot has an unexpected particle count");
+            }
+            const bafx::windows::FxGpuFrameCapture capture =
+                renderer.renderAndCapture(snapshot, target.view.Get());
+            manifests.push_back(writeCapture(
+                options.outputDirectory,
+                descriptor.ageMilliseconds,
+                options.allLayers,
+                capture));
         }
-        const bafx::windows::FxGpuFrameCapture capture =
-            renderer.renderAndCapture(snapshot, target.view.Get());
-        manifests.push_back(writeCapture(
-            options.outputDirectory,
-            descriptor.ageMilliseconds,
-            options.allLayers,
-            capture));
         writeManifest(options, graphics.featureLevel, manifests);
         return 0;
     }
