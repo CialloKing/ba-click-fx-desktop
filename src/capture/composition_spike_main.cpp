@@ -895,7 +895,7 @@ void writePresentation(
                << attempt.presentMarkerNanoseconds
                << ", \"prePresentPixel\": ";
         writePixel(stream, attempt.prePresentPixel);
-        stream << ", \"desktopGdiBackgroundDiagnosticSrgb8\": ["
+        stream << ", \"desktopGdiDiagnosticSrgb8\": ["
                << static_cast<unsigned int>(attempt.desktopGdiSrgb[0U]) << ", "
                << static_cast<unsigned int>(attempt.desktopGdiSrgb[1U]) << ", "
                << static_cast<unsigned int>(attempt.desktopGdiSrgb[2U]) << ']';
@@ -961,7 +961,7 @@ void writeCaptureDocument(
            << "\"cursorExcluded\": true, "
            << "\"systemBorderAllowed\": true, "
            << "\"sourceInjection\": \"ClearRenderTargetView-production-swap-chain\", "
-           << "\"desktopGdiDiagnosticSemantic\": \"background-only-unsynchronized\", "
+           << "\"desktopGdiDiagnosticSemantic\": \"diagnostic-only-unsynchronized\", "
            << "\"nonFiniteJsonEncoding\": \"null\", "
            << "\"formula\": \"C=S.rgb+(1-S.a)*B\", "
            << "\"stableSampleTolerance\": " << stableSampleTolerance << "},\n"
