@@ -61,12 +61,12 @@
 
 显式种子的生产 C++ 模拟坐标只属于实现内确定性回归，不等同于 Unity Golden。Unity 为每个
 ParticleSystem 使用独立的引擎随机流；原生尚未复现这些随机流，因此普通点击/拖拽捕获仍必须使用
-与随机布局无关的数量、包络、径向能量和感知指标。只有下述由 Unity 观察值直接构造的 50 ms
-诊断快照可以逐坐标、逐像素比较；它不能进入生产 `Simulation`，也不能据此宣称随机流等价。
+与随机布局无关的数量、包络、径向能量和感知指标。只有下述由 Unity 观察值直接构造的
+50/100/120/250/450 ms 诊断快照可以逐坐标、逐像素比较；它们不能进入生产 `Simulation`，
+也不能据此宣称随机流等价。
 
-Unity 50 ms 粒子状态观察夹具固定为
-`Reference/Diagnostics/ParticleStates/FX_Touch_0050ms_particle-state-v2.json`。
-它使用 schema 2、`1950x1097`、`seedBase + index * seedStride`（`seedStride=7919`），
+Unity 粒子状态观察夹具固定为 `FX_Touch_{0050,0100,0120,0250,0450}ms_particle-state-v2.json`。
+它们使用 schema 2、`1950x1097`、`seedBase + index * seedStride`（`seedStride=7919`），
 保留 `GetComponentsInChildren(true)` 的系统顺序和 `GetParticles` 的粒子顺序，并导出局部/世界坐标、
 投影像素、速度、寿命、尺寸、旋转、颜色、Custom1 及从 `ParticleSystemRenderer.BakeMesh`
 最终 UV 解析的 `atlasFrame`。导出器必须将烘焙四边形与 `GetParticles` 世界坐标唯一匹配，
@@ -75,11 +75,14 @@ Unity 50 ms 粒子状态观察夹具固定为
 该可复现序列化合同，不把它升级为 native 随机流等价声明：
 
 ```powershell
-python -B tools\verify-unity-particle-fixture.py `
-  "D:\WebProjects\BA鼠标输入与点击特效系统\UnityMouseFxLab\UnityMouseFxLab\Reference\Diagnostics\ParticleStates\FX_Touch_0050ms_particle-state-v2.json"
-python -B tools\generate-unity-particle-fixture.py `
-  "D:\WebProjects\BA鼠标输入与点击特效系统\UnityMouseFxLab\UnityMouseFxLab\Reference\Diagnostics\ParticleStates\FX_Touch_0050ms_particle-state-v2.json" `
-  --check
+$particleRoot = "D:\WebProjects\BA鼠标输入与点击特效系统\UnityMouseFxLab\UnityMouseFxLab\Reference\Diagnostics\ParticleStates"
+$fixtures = @(50, 100, 120, 250, 450 | ForEach-Object {
+  Join-Path $particleRoot ("FX_Touch_{0:D4}ms_particle-state-v2.json" -f $_)
+})
+foreach ($fixture in $fixtures) {
+  python -B tools\verify-unity-particle-fixture.py $fixture
+}
+python -B tools\generate-unity-particle-fixture.py @fixtures --check
 ```
 
 生成数据只编入 `bafx::reference` 与 Capture 工具。映射固定为：`ring -> CenterDisk`、
@@ -89,7 +92,8 @@ python -B tools\generate-unity-particle-fixture.py `
 保持原值；MeshTri `Custom1.x` 映射到硬溶解阈值，三角 `atlasFrame` 来自 BakeMesh UV。
 材质强度、render queue 与 Bloom 归属仍由 Prefab/Shader 合同提供，而不是由 Fixture 猜测。
 
-固定粒子 GPU case 使用相同 WARP/FP16 渲染器，并同时检查 Unity 50 ms Golden：
+固定粒子 GPU case 使用 manifest contract v2 按年龄锁定 source path/SHA/particleCount，
+并用相同 WARP/FP16 渲染器检查五张 Unity Golden：
 
 ```powershell
 $revision = git rev-parse HEAD
@@ -104,10 +108,12 @@ python -B tools\verify-golden-metrics.py `
   --require-layers
 ```
 
-该 case 的统计容差为能量/覆盖各 `2%`、质心距离 `0.25 px`、径向直方图 L1 `0.02`、色度 L1
-`0.01`。全图逐通道比较另要求最大 8-bit 误差不超过 `16`、平均误差不超过 `0.01`，最大通道误差
-大于 `1`/`2` 的像素分别不超过 `128`/`64`。PNG 仍须先与同次 FP16 `FinalOverlay` 重建结果一致，
-并继续执行全部中间层合同。
+该 case 的统计容差为能量/覆盖各 `2%`、径向直方图 L1 `0.02`、色度 L1 `0.01`；50 ms
+质心距离容差为 `0.25 px`，动态时间片为 `1.25 px`。50 ms 尚无可见溶解 Mesh，保留近字节级像素门禁：
+最大 8-bit 误差 `16`、平均误差 `0.01`，最大通道误差大于 `1`/`2` 的像素不超过 `128`/`64`。
+其余时间片包含 Unity 硬件 D3D 与 WARP 对硬裁剪动态边缘的栅格覆盖差异，统一限制平均误差 `0.04`，
+最大通道误差大于 `1`/`2`/`32` 的像素不超过 `18000`/`7000`/`128`；合成 1 px 位移必须失败。
+PNG 仍须先与同次 FP16 `FinalOverlay` 重建结果一致，并继续执行全部中间层合同。
 
 导出以下命名层：
 
