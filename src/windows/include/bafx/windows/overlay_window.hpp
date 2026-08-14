@@ -52,6 +52,7 @@ struct PointerEvent
     // GetMessageTime is retained separately from the dispatch QPC sample so
     // the host can identify input that waited in the Win32 queue.
     std::uint32_t messageTimeMilliseconds{0U};
+    bool messageTimeValid{false};
 };
 
 struct PointerFrameEdge
@@ -70,6 +71,26 @@ struct PointerFrameSnapshot
     std::optional<PointerEvent> latestNonCancelSample{};
     std::optional<PointerEvent> latestMoveSample{};
 };
+
+struct PointerQueueDiagnostics
+{
+    std::uint64_t rawInputMessages{0U};
+    std::uint64_t moveEvents{0U};
+    std::uint64_t buttonEdges{0U};
+    std::uint64_t cancelEvents{0U};
+    std::uint64_t compactedMoveEvents{0U};
+    std::uint64_t overflowMoveDrops{0U};
+    std::uint64_t messageTimeUnavailable{0U};
+    std::uint32_t maximumPendingEvents{0U};
+    std::uint32_t maximumWin32QueueAgeMilliseconds{0U};
+};
+
+[[nodiscard]] constexpr std::uint32_t win32MessageQueueAgeMilliseconds(
+    const std::uint32_t dispatchTick,
+    const std::uint32_t messageTime) noexcept
+{
+    return dispatchTick - messageTime;
+}
 
 // Legacy Unity input exposes one pointer state per rendered frame rather than
 // replaying every OS move. This adapter owns only that pure state reduction;
@@ -111,6 +132,7 @@ public:
     [[nodiscard]] CaptureExclusionStatus setCaptureExcluded(bool excluded) noexcept;
     [[nodiscard]] std::optional<WindowSize> takePendingResize() noexcept;
     [[nodiscard]] std::vector<PointerEvent> takePointerEvents() noexcept;
+    [[nodiscard]] PointerQueueDiagnostics takePointerQueueDiagnostics() noexcept;
 
     void show();
     void pollExitShortcut() noexcept;
@@ -133,7 +155,9 @@ private:
         PointerEventKind kind,
         POINT position,
         std::int64_t qpc,
-        std::uint32_t messageTimeMilliseconds = 0U) noexcept;
+        std::uint32_t messageTimeMilliseconds = 0U,
+        bool messageTimeValid = false) noexcept;
+    void compactPendingPointerEvents() noexcept;
     void cancelPointer() noexcept;
     void requestClose() noexcept;
     void addNotificationIcon() noexcept;
@@ -145,6 +169,7 @@ private:
     WindowSize size_{};
     std::optional<WindowSize> pendingResize_{};
     std::vector<PointerEvent> pendingPointerEvents_{};
+    PointerQueueDiagnostics pointerQueueDiagnostics_{};
     bool closeRequested_{false};
     bool rawMouseRegistered_{false};
     bool primaryExitHotKeyRegistered_{false};

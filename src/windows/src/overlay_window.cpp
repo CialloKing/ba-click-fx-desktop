@@ -397,9 +397,18 @@ std::vector<PointerEvent> OverlayWindow::takePointerEvents() noexcept
     pendingPointerEvents_.reserve(64);
     if (events.size() > pointerEventCompactionThreshold)
     {
+        const std::size_t before = events.size();
         events = compactPointerEventBacklog(std::move(events));
+        pointerQueueDiagnostics_.compactedMoveEvents += before - events.size();
     }
     return events;
+}
+
+PointerQueueDiagnostics OverlayWindow::takePointerQueueDiagnostics() noexcept
+{
+    return std::exchange(
+        pointerQueueDiagnostics_,
+        PointerQueueDiagnostics{});
 }
 
 void OverlayWindow::show()
@@ -695,6 +704,22 @@ void OverlayWindow::handleRawInput(const LPARAM lParam) noexcept
     const std::uint32_t messageTimeMilliseconds = messageTime == 0xFFFFFFFFU
         ? 0U
         : static_cast<std::uint32_t>(messageTime);
+    ++pointerQueueDiagnostics_.rawInputMessages;
+    if (messageTime == 0xFFFFFFFFU)
+    {
+        ++pointerQueueDiagnostics_.messageTimeUnavailable;
+    }
+    else
+    {
+        // Both values use the wrapping 32-bit system tick domain. Unsigned
+        // subtraction therefore remains correct across the 49.7-day wrap.
+        const std::uint32_t queueAge = win32MessageQueueAgeMilliseconds(
+            GetTickCount(),
+            messageTimeMilliseconds);
+        pointerQueueDiagnostics_.maximumWin32QueueAgeMilliseconds = std::max(
+            pointerQueueDiagnostics_.maximumWin32QueueAgeMilliseconds,
+            queueAge);
+    }
 
     const USHORT buttons = input.data.mouse.usButtonFlags;
     if ((buttons & RI_MOUSE_LEFT_BUTTON_DOWN) != 0U)
@@ -704,7 +729,8 @@ void OverlayWindow::handleRawInput(const LPARAM lParam) noexcept
             PointerEventKind::LeftButtonDown,
             screenPosition,
             qpc.QuadPart,
-            messageTimeMilliseconds);
+            messageTimeMilliseconds,
+            messageTime != 0xFFFFFFFFU);
     }
 
     if (input.data.mouse.lLastX != 0 || input.data.mouse.lLastY != 0)
@@ -713,7 +739,8 @@ void OverlayWindow::handleRawInput(const LPARAM lParam) noexcept
             PointerEventKind::Move,
             screenPosition,
             qpc.QuadPart,
-            messageTimeMilliseconds);
+            messageTimeMilliseconds,
+            messageTime != 0xFFFFFFFFU);
     }
 
     if ((buttons & RI_MOUSE_LEFT_BUTTON_UP) != 0U)
@@ -723,7 +750,8 @@ void OverlayWindow::handleRawInput(const LPARAM lParam) noexcept
             PointerEventKind::LeftButtonUp,
             screenPosition,
             qpc.QuadPart,
-            messageTimeMilliseconds);
+            messageTimeMilliseconds,
+            messageTime != 0xFFFFFFFFU);
     }
 }
 
@@ -731,16 +759,30 @@ void OverlayWindow::pushPointerEvent(
     const PointerEventKind kind,
     const POINT position,
     const std::int64_t qpc,
-    const std::uint32_t messageTimeMilliseconds) noexcept
+    const std::uint32_t messageTimeMilliseconds,
+    const bool messageTimeValid) noexcept
 {
+    switch (kind)
+    {
+    case PointerEventKind::Move:
+        ++pointerQueueDiagnostics_.moveEvents;
+        break;
+    case PointerEventKind::LeftButtonDown:
+    case PointerEventKind::LeftButtonUp:
+        ++pointerQueueDiagnostics_.buttonEdges;
+        break;
+    case PointerEventKind::Cancel:
+        ++pointerQueueDiagnostics_.cancelEvents;
+        break;
+    }
+
     if (pendingPointerEvents_.size() >= maximumPendingPointerEvents)
     {
         // Compact first so a stalled renderer cannot push a button edge behind
         // thousands of obsolete Move samples. Button and cancellation edges
         // are state changes and must remain ordered, so they may temporarily
         // exceed the nominal queue bound until a Move can reclaim a slot.
-        pendingPointerEvents_ = compactPointerEventBacklog(
-            std::move(pendingPointerEvents_));
+        compactPendingPointerEvents();
         if (pendingPointerEvents_.size() >= maximumPendingPointerEvents
             && kind == PointerEventKind::Move)
         {
@@ -754,11 +796,31 @@ void OverlayWindow::pushPointerEvent(
             if (move != pendingPointerEvents_.end())
             {
                 pendingPointerEvents_.erase(move);
+                ++pointerQueueDiagnostics_.overflowMoveDrops;
             }
         }
     }
     pendingPointerEvents_.push_back(
-        PointerEvent{kind, position, qpc, messageTimeMilliseconds});
+        PointerEvent{
+            kind,
+            position,
+            qpc,
+            messageTimeMilliseconds,
+            messageTimeValid});
+    pointerQueueDiagnostics_.maximumPendingEvents = std::max(
+        pointerQueueDiagnostics_.maximumPendingEvents,
+        static_cast<std::uint32_t>(std::min<std::size_t>(
+            pendingPointerEvents_.size(),
+            std::numeric_limits<std::uint32_t>::max())));
+}
+
+void OverlayWindow::compactPendingPointerEvents() noexcept
+{
+    const std::size_t before = pendingPointerEvents_.size();
+    pendingPointerEvents_ = compactPointerEventBacklog(
+        std::move(pendingPointerEvents_));
+    pointerQueueDiagnostics_.compactedMoveEvents +=
+        before - pendingPointerEvents_.size();
 }
 
 void OverlayWindow::cancelPointer() noexcept

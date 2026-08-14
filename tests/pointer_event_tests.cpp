@@ -20,7 +20,8 @@ namespace
         kind,
         POINT{x, 0},
         timestamp,
-        messageTimeMilliseconds};
+        messageTimeMilliseconds,
+        messageTimeMilliseconds != 0U};
 }
 
 }
@@ -37,6 +38,15 @@ BAFX_TEST(pointer_moves_keep_the_latest_sample_per_contiguous_run)
     BAFX_CHECK(events[0].screenPosition.x == 30);
     BAFX_CHECK(events[0].qpcTimestamp == 300);
     BAFX_CHECK(events[0].messageTimeMilliseconds == 3U);
+    BAFX_CHECK(events[0].messageTimeValid);
+}
+
+BAFX_TEST(win32_message_queue_age_handles_tick_count_wrap)
+{
+    BAFX_CHECK(win32MessageQueueAgeMilliseconds(150U, 100U) == 50U);
+    BAFX_CHECK(
+        win32MessageQueueAgeMilliseconds(25U, 0xFFFFFFF0U)
+        == 41U);
 }
 
 BAFX_TEST(pointer_move_run_keeps_the_latest_timestamp)
