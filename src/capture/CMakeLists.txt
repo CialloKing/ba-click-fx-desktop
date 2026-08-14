@@ -31,6 +31,7 @@ set_target_properties(
 add_executable(
     ba_fx_composition_spike
     composition_spike_main.cpp
+    spike_runtime.cpp
 )
 target_compile_features(ba_fx_composition_spike PRIVATE cxx_std_20)
 target_compile_definitions(

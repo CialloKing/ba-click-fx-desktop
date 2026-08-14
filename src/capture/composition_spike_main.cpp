@@ -7,6 +7,8 @@
 #include "bafx/windows/unique_handle.hpp"
 #include "bafx/windows/wgc_background_sensor.hpp"
 
+#include "spike_runtime.hpp"
+
 #include <windows.h>
 #include <winternl.h>
 
@@ -31,7 +33,6 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
-#include <thread>
 #include <utility>
 #include <vector>
 
@@ -40,6 +41,9 @@ namespace
 
 using Microsoft::WRL::ComPtr;
 using namespace std::chrono_literals;
+using bafx::capture::ComApartment;
+using bafx::capture::Deadline;
+using bafx::capture::ProcessWatchdog;
 
 constexpr std::uint32_t defaultTimeoutMilliseconds = 20'000U;
 constexpr std::uint32_t maximumTimeoutMilliseconds = 120'000U;
@@ -117,118 +121,6 @@ struct CaptureDocument
     bafx::windows::CaptureExclusionStatus captureAffinity{};
     bafx::windows::WgcBackgroundSessionCapabilities wgcCapabilities{};
     std::vector<BackgroundCapture> backgrounds{};
-};
-
-class ComApartment final
-{
-public:
-    ComApartment()
-    {
-        const HRESULT result = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
-        if (result == RPC_E_CHANGED_MODE)
-        {
-            throw bafx::windows::HResultError(result, "CoInitializeEx");
-        }
-        bafx::windows::throwIfFailed(result, "CoInitializeEx");
-        initialized_ = true;
-    }
-
-    ~ComApartment()
-    {
-        if (initialized_)
-        {
-            CoUninitialize();
-        }
-    }
-
-    ComApartment(const ComApartment&) = delete;
-    ComApartment& operator=(const ComApartment&) = delete;
-
-private:
-    bool initialized_{false};
-};
-
-class ProcessWatchdog final
-{
-public:
-    explicit ProcessWatchdog(const std::uint32_t timeoutMilliseconds)
-        : stopEvent_(CreateEventW(nullptr, TRUE, FALSE, nullptr))
-    {
-        if (stopEvent_.get() == nullptr)
-        {
-            bafx::windows::throwLastError("CreateEventW(composition spike watchdog)");
-        }
-
-        const HANDLE stopEvent = stopEvent_.get();
-        worker_ = std::thread(
-            [stopEvent, timeoutMilliseconds]() noexcept
-            {
-                const DWORD result = WaitForSingleObject(
-                    stopEvent,
-                    timeoutMilliseconds);
-                if (result == WAIT_TIMEOUT)
-                {
-                    // Present, DwmFlush and GPU Map can block below the loop's
-                    // deadline. This disposable probe must still have a hard stop.
-                    if (!TerminateProcess(GetCurrentProcess(), 124U))
-                    {
-                        ExitProcess(124U);
-                    }
-                }
-            });
-    }
-
-    ~ProcessWatchdog()
-    {
-        if (stopEvent_.get() != nullptr)
-        {
-            SetEvent(stopEvent_.get());
-        }
-        if (worker_.joinable())
-        {
-            worker_.join();
-        }
-    }
-
-    ProcessWatchdog(const ProcessWatchdog&) = delete;
-    ProcessWatchdog& operator=(const ProcessWatchdog&) = delete;
-
-private:
-    bafx::windows::UniqueHandle stopEvent_{};
-    std::thread worker_{};
-};
-
-class Deadline final
-{
-public:
-    explicit Deadline(const std::chrono::milliseconds duration)
-        : expiresAt_(std::chrono::steady_clock::now() + duration)
-    {
-    }
-
-    [[nodiscard]] bool expired() const noexcept
-    {
-        return std::chrono::steady_clock::now() >= expiresAt_;
-    }
-
-    [[nodiscard]] DWORD nextWaitMilliseconds() const noexcept
-    {
-        const auto now = std::chrono::steady_clock::now();
-        if (now >= expiresAt_)
-        {
-            return 0U;
-        }
-        const auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(
-            expiresAt_ - now);
-        const auto bounded = std::clamp<std::int64_t>(
-            remaining.count(),
-            1,
-            50);
-        return static_cast<DWORD>(bounded);
-    }
-
-private:
-    std::chrono::steady_clock::time_point expiresAt_{};
 };
 
 class QpcClock final
