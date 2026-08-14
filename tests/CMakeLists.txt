@@ -99,6 +99,19 @@ if(Python3_Interpreter_FOUND)
             TIMEOUT 10
     )
     add_test(
+        NAME performance_baseline_report_contract
+        COMMAND
+            "${Python3_EXECUTABLE}"
+            -B
+            "${CMAKE_CURRENT_SOURCE_DIR}/report_performance_baseline_tests.py"
+    )
+    set_tests_properties(
+        performance_baseline_report_contract
+        PROPERTIES
+            WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
+            TIMEOUT 10
+    )
+    add_test(
         NAME composition_spike_contract
         COMMAND
             "${Python3_EXECUTABLE}"
