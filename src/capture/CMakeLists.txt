@@ -80,6 +80,34 @@ set_target_properties(
         OUTPUT_NAME "ba-click-fx-wgc-lifecycle-spike"
 )
 
+add_executable(
+    ba_fx_wgc_cursor_spike
+    capture_artifact_writer.cpp
+    spike_runtime.cpp
+    wgc_cursor_spike_main.cpp
+)
+target_compile_features(ba_fx_wgc_cursor_spike PRIVATE cxx_std_20)
+target_compile_definitions(
+    ba_fx_wgc_cursor_spike
+    PRIVATE
+        BAFX_CAPTURE_VERSION="${BAFX_VERSION}"
+)
+target_link_libraries(
+    ba_fx_wgc_cursor_spike
+    PRIVATE
+        bafx::windows
+        gdi32
+        ole32
+        windowscodecs
+)
+bafx_enable_warnings(ba_fx_wgc_cursor_spike)
+set_target_properties(
+    ba_fx_wgc_cursor_spike
+    PROPERTIES
+        FOLDER "Validation"
+        OUTPUT_NAME "ba-click-fx-wgc-cursor-spike"
+)
+
 option(
     BAFX_ENABLE_COMPOSITION_SPIKE_TESTS
     "Register the interactive DirectComposition/WGC composition spike"
