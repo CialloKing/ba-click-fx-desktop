@@ -139,6 +139,19 @@ BAFX_TEST(support_report_marks_primary_dpi_unknown_until_probed)
         != std::string::npos);
 }
 
+BAFX_TEST(support_report_distinguishes_unknown_fx_only_capture_visibility)
+{
+    bafx::windows::SupportReport report("test");
+    report.setBackgroundCaptureStatus(
+        bafx::windows::BackgroundCaptureStatus::
+            FallbackFxOnlyCaptureVisibilityUnknown);
+
+    BAFX_CHECK(
+        report.serialize().find(
+            "Support.WGC=fallback-fx-only-capture-visibility-unknown")
+        != std::string::npos);
+}
+
 BAFX_TEST(support_report_sanitizes_multiline_failures)
 {
     bafx::windows::SupportReport report("test");

@@ -299,6 +299,8 @@ std::string SupportReport::serialize() const
             return "active";
         case BackgroundCaptureStatus::FallbackFxOnly:
             return "fallback-fx-only";
+        case BackgroundCaptureStatus::FallbackFxOnlyCaptureVisibilityUnknown:
+            return "fallback-fx-only-capture-visibility-unknown";
         }
         return "unknown";
     };

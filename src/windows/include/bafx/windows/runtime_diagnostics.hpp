@@ -16,7 +16,8 @@ enum class BackgroundCaptureStatus : std::uint8_t
 {
     NotProbed,
     Active,
-    FallbackFxOnly
+    FallbackFxOnly,
+    FallbackFxOnlyCaptureVisibilityUnknown
 };
 
 class SupportReport final
