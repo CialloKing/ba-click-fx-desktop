@@ -3,6 +3,7 @@
 #include "bafx/core/background_freshness.hpp"
 #include "bafx/windows/fx_bloom_settings.hpp"
 #include "bafx/windows/fx_gpu_renderer.hpp"
+#include "bafx/windows/gpu_timestamp_profiler.hpp"
 #include "bafx/windows/overlay_window.hpp"
 #include "bafx/windows/unique_handle.hpp"
 #include "bafx/windows/wgc_background_sensor.hpp"
@@ -98,6 +99,15 @@ struct CompositionFrameDiagnostics
     bool backgroundSnapshotRefreshAttempted{false};
     bool backgroundSnapshotRefreshed{false};
     bool backgroundParticipated{false};
+    GpuTimestampPollResult gpuTimestampPoll{};
+    GpuTimestampBeginStatus gpuTimestampBegin{
+        GpuTimestampBeginStatus::Unavailable};
+    GpuTimestampEndStatus gpuTimestampEnd{
+        GpuTimestampEndStatus::NoActiveFrame};
+    HRESULT gpuTimestampInitializationResult{E_FAIL};
+    std::size_t gpuTimestampPendingFrames{0U};
+    bool gpuTimestampProfilerAvailable{false};
+    bool gpuTimestampCheckpointFailure{false};
 };
 
 class CompositionRenderer final
@@ -184,6 +194,7 @@ private:
     Microsoft::WRL::ComPtr<IDCompositionTarget> compositionTarget_{};
     Microsoft::WRL::ComPtr<IDCompositionVisual> rootVisual_{};
     UniqueHandle frameLatencyHandle_{};
+    std::unique_ptr<GpuTimestampProfiler> gpuTimestampProfiler_{};
     std::unique_ptr<FxGpuRenderer> fxRenderer_{};
     std::unique_ptr<WgcBackgroundSensor> backgroundSensor_{};
     std::optional<PixelF> lastCenterPixel_{};

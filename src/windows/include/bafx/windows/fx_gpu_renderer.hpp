@@ -18,6 +18,8 @@
 namespace bafx::windows
 {
 
+class GpuTimestampProfiler;
+
 struct FxGpuFrameCapture
 {
     Rgba16FloatImage directSurface{};
@@ -75,7 +77,8 @@ public:
     FxRenderCpuDiagnostics render(
         const bafx::fx::FrameSnapshot& snapshot,
         ID3D11RenderTargetView* destination,
-        std::optional<BackgroundRenderInput> background = std::nullopt);
+        std::optional<BackgroundRenderInput> background = std::nullopt,
+        GpuTimestampProfiler* gpuTimestampProfiler = nullptr);
     [[nodiscard]] FxGpuFrameCapture renderAndCapture(
         const bafx::fx::FrameSnapshot& snapshot,
         ID3D11RenderTargetView* destination);

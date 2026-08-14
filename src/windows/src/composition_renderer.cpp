@@ -36,6 +36,69 @@ constexpr std::int64_t backgroundAcquirePeriodCount = 6;
 constexpr std::int64_t backgroundRetainPeriodCount = 12;
 constexpr std::int64_t backgroundFuturePeriodCount = 3;
 
+class GpuTimestampFrameScope final
+{
+public:
+    GpuTimestampFrameScope(
+        GpuTimestampProfiler& profiler,
+        const std::uint64_t frameId,
+        CompositionFrameDiagnostics& diagnostics) noexcept
+        : profiler_(profiler), diagnostics_(diagnostics)
+    {
+        diagnostics_.gpuTimestampProfilerAvailable = profiler_.available();
+        diagnostics_.gpuTimestampInitializationResult =
+            profiler_.initializationResult();
+        diagnostics_.gpuTimestampPoll = profiler_.poll(frameId);
+        diagnostics_.gpuTimestampBegin = profiler_.beginFrame(frameId);
+        active_ = diagnostics_.gpuTimestampBegin
+            == GpuTimestampBeginStatus::Started;
+    }
+
+    ~GpuTimestampFrameScope()
+    {
+        if (active_)
+        {
+            // An exception must close the disjoint query so one bad frame
+            // cannot leave the fixed ring permanently occupied.
+            (void)profiler_.cancelFrame();
+        }
+    }
+
+    GpuTimestampFrameScope(const GpuTimestampFrameScope&) = delete;
+    GpuTimestampFrameScope& operator=(const GpuTimestampFrameScope&) = delete;
+
+    void checkpoint(const GpuTimestampCheckpoint checkpoint) noexcept
+    {
+        if (active_
+            && profiler_.checkpoint(checkpoint)
+                != GpuTimestampCheckpointStatus::Recorded)
+        {
+            diagnostics_.gpuTimestampCheckpointFailure = true;
+        }
+    }
+
+    [[nodiscard]] GpuTimestampProfiler* recorder() noexcept
+    {
+        return active_ ? &profiler_ : nullptr;
+    }
+
+    void complete(const GpuTimestampFrameUsage usage) noexcept
+    {
+        if (active_)
+        {
+            diagnostics_.gpuTimestampEnd = profiler_.endFrame(usage);
+            active_ = false;
+        }
+        diagnostics_.gpuTimestampPendingFrames =
+            profiler_.pendingFrameCount();
+    }
+
+private:
+    GpuTimestampProfiler& profiler_;
+    CompositionFrameDiagnostics& diagnostics_;
+    bool active_{false};
+};
+
 [[nodiscard]] std::optional<bafx::core::MonotonicTime>
 primaryRefreshPeriod() noexcept
 {
@@ -130,6 +193,9 @@ CompositionRenderer::CompositionRenderer(
     createSwapChain(size);
     createComposition(window);
     createRenderTarget();
+    gpuTimestampProfiler_ = std::make_unique<GpuTimestampProfiler>(
+        device_.Get(),
+        context_.Get());
     fxRenderer_ = std::make_unique<FxGpuRenderer>(
         device_.Get(),
         context_.Get(),
@@ -192,6 +258,10 @@ CompositionFrameDiagnostics CompositionRenderer::renderFrame(
 {
     CompositionFrameDiagnostics diagnostics{};
     diagnostics.frameId = ++frameId_;
+    GpuTimestampFrameScope gpuTimestampFrame(
+        *gpuTimestampProfiler_,
+        diagnostics.frameId,
+        diagnostics);
     const auto frameStartedAt = std::chrono::steady_clock::now();
     std::optional<BackgroundRenderInput> background;
     std::optional<WgcBackgroundSample> backgroundSample;
@@ -325,6 +395,8 @@ CompositionFrameDiagnostics CompositionRenderer::renderFrame(
             stopFailedBackgroundCapture("unknown WGC drain failure");
         }
     }
+    gpuTimestampFrame.checkpoint(
+        GpuTimestampCheckpoint::WgcDrainAndCopyComplete);
 
     // The render path remains stable for the visible batch, but its owned
     // background copy follows each accepted WGC generation. Freezing the first
@@ -386,10 +458,18 @@ CompositionFrameDiagnostics CompositionRenderer::renderFrame(
         }
     }
 
+    gpuTimestampFrame.checkpoint(
+        GpuTimestampCheckpoint::BackgroundSnapshotComplete);
+
     diagnostics.fx = fxRenderer_->render(
         snapshot,
         renderTarget_.Get(),
-        background);
+        background,
+        gpuTimestampFrame.recorder());
+    gpuTimestampFrame.complete(GpuTimestampFrameUsage{
+        diagnostics.wgcActive,
+        diagnostics.backgroundSnapshotRefreshAttempted,
+        diagnostics.fx.visualContent});
     if (readbackDiagnosticsEnabled_)
     {
         const auto readbackStartedAt = std::chrono::steady_clock::now();

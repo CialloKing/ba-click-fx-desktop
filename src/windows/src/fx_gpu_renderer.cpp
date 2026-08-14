@@ -1,5 +1,7 @@
 #include "bafx/windows/fx_gpu_renderer.hpp"
 
+#include "bafx/windows/gpu_timestamp_profiler.hpp"
+
 #include "bafx/core/unity_bloom.hpp"
 #include "bafx/core/unity_ring_mesh.hpp"
 #include "bafx/core/unity_trail_mesh.hpp"
@@ -1251,7 +1253,8 @@ struct FxGpuRenderer::Implementation
         ID3D11RenderTargetView* destination,
         ID3D11PixelShader* finalCompositeShader,
         std::optional<BackgroundRenderInput> background = std::nullopt,
-        ID3D11RenderTargetView* bloomResultDestination = nullptr)
+        ID3D11RenderTargetView* bloomResultDestination = nullptr,
+        GpuTimestampProfiler* gpuTimestampProfiler = nullptr)
     {
         FxRenderCpuDiagnostics diagnostics{};
         const auto totalStartedAt = std::chrono::steady_clock::now();
@@ -1264,6 +1267,13 @@ struct FxGpuRenderer::Implementation
         if (!hasVisualContent(snapshot))
         {
             context->ClearRenderTargetView(destination, transparent.data());
+            if (gpuTimestampProfiler != nullptr)
+            {
+                // Keep the fixed query boundary sequence complete on idle
+                // frames; aggregation excludes these non-visual FX stages.
+                (void)gpuTimestampProfiler->checkpoint(
+                    GpuTimestampCheckpoint::FxMaterialsComplete);
+            }
             diagnostics.totalSubmit =
                 std::chrono::steady_clock::now() - totalStartedAt;
             return diagnostics;
@@ -1344,6 +1354,11 @@ struct FxGpuRenderer::Implementation
 
         diagnostics.materialsSubmit =
             std::chrono::steady_clock::now() - totalStartedAt;
+        if (gpuTimestampProfiler != nullptr)
+        {
+            (void)gpuTimestampProfiler->checkpoint(
+                GpuTimestampCheckpoint::FxMaterialsComplete);
+        }
         // Unbind the material MRTs before sampling them through the Bloom chain.
         context->OMSetRenderTargets(0, nullptr, nullptr);
         const auto bloomStartedAt = std::chrono::steady_clock::now();
@@ -1517,13 +1532,16 @@ void FxGpuRenderer::stabilizeBackgroundFrame(
 FxRenderCpuDiagnostics FxGpuRenderer::render(
     const bafx::fx::FrameSnapshot& snapshot,
     ID3D11RenderTargetView* destination,
-    const std::optional<BackgroundRenderInput> background)
+    const std::optional<BackgroundRenderInput> background,
+    GpuTimestampProfiler* const gpuTimestampProfiler)
 {
     return implementation_->render(
         snapshot,
         destination,
         implementation_->desktopCompositeShader(background.has_value()),
-        background);
+        background,
+        nullptr,
+        gpuTimestampProfiler);
 }
 
 FxGpuFrameCapture FxGpuRenderer::renderAndCapture(
