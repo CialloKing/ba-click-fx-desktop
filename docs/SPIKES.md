@@ -134,6 +134,43 @@ python -B tools\verify-wgc-cursor-spike.py `
   "--report=$output\verification.json"
 ```
 
+### 已执行 WDA 自排除像素子集证据
+
+- 受控主显示器 WDA 动态像素子集：`Passed`，collector commits `5a34c29`、`7dff929`，
+  verifier commit `c1c4536`。Windows `10.0.19045.6466`、RTX 4060 Laptop GPU
+  `32.0.16.1074`。原始 FP16、预览、哈希与复现步骤见
+  [`artifacts/spikes/spk-002/rtx4060-win10-19045-self-exclusion-pixels-2026-08-14/README.md`](../artifacts/spikes/spk-002/rtx4060-win10-19045-self-exclusion-pixels-2026-08-14/README.md)。
+- 一个 monitor-WGC Session 内依次执行
+  `WDA_NONE -> WDA_EXCLUDEFROMCAPTURE -> WDA_NONE`；每阶段均确认请求值、回读值、
+  `WS_EX_LAYERED | WS_EX_TRANSPARENT` 恢复、generation 前进、QPC 新鲜度及两个稳定样本。
+- 两次 included 相对 excluded 均改变 overlay ROI 的全部 `36864/36864` 像素，最大 RGB 差
+  `0.7938690185546875`。excluded ROI 与同帧远端背景逐像素相同，重复 included 和 control ROI
+  差异也均为 0，因此均匀黑色保护面不能冒充成功的自排除。
+- 三个阶段各有独立 `64x64` 原始像素 marker；每对 marker 均改变全部 4096 像素。离线 verifier
+  从三份 `.rgba16f` 重算所有指标，36 项合同测试覆盖旧帧、伪造指标、弱化阈值、黑块、错误 marker、
+  样式丢失、路径逃逸、非有限 FP16 和资源泄漏。
+- 共获取并关闭 14 帧；一个 FramePool、一个 Session 和两类事件注册全部配平，live/failure 为 0。
+  真实桌面 CTest 仅在 `BAFX_ENABLE_WGC_SELF_EXCLUSION_SPIKE_TESTS=ON` 时注册，固定 `RUN_SERIAL`
+  与 30 秒进程超时；离线 `wgc_self_exclusion_spike_contract` 始终注册并有 45 秒硬超时。
+- 该单 Session 动态矩阵不验证产品 `Stop sensor -> change WDA -> start sensor` 事务，也不覆盖
+  外部录屏器、模式切换、HDR、其他显示器或 device lost。因此完整 SPK-002 仍为 `Not Run`，
+  ADR-003/ADR-004 仍为 `Proposed`。
+
+复跑该硬件子集时使用：
+
+```powershell
+cmake --build --preset alpha-release --target ba_fx_wgc_self_exclusion_spike -- /m:1
+$revision = git rev-parse --short HEAD
+$output = "artifacts\local\spikes\spk-002-self-exclusion\$env:COMPUTERNAME-$revision"
+build\alpha-x64\src\capture\Release\ba-click-fx-wgc-self-exclusion-spike.exe `
+  "--output=$output" `
+  "--revision=$revision" `
+  --timeout-ms=15000
+python -B tools\verify-wgc-self-exclusion-spike.py `
+  "$output\self-exclusion.json" `
+  "--report=$output\verification.json"
+```
+
 ## SPK-003 / Spike C：Color/HDR 输出
 
 ### 场景
