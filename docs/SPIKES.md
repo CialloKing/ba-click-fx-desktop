@@ -24,6 +24,38 @@ DXGI premultiplied alpha 的 FP16 surface 经 DirectComposition/DWM 后，`A=0, 
 - 桌面捕获/显示测量与 source-over 方向一致，`A=0, RGB>0` 不被 overlay 内部清零。
 - 普通 SDR 白底饱和被记录为产品降级，而不是测试失败或偷偷压暗桌面。
 
+### 已执行证据
+
+- SDR：`Passed`，commit `9f5b777`，Windows `10.0.19045`、RTX 4060 Laptop GPU、
+  `G22/P709`、10 bpc。原始结果和复现步骤见
+  [`artifacts/spikes/spk-001/rtx4060-win10-19045-sdr-2026-08-14/README.md`](../artifacts/spikes/spk-001/rtx4060-win10-19045-sdr-2026-08-14/README.md)。
+- 四种背景、20 次呈现、48 个逐通道公式检查全部通过；最大绝对误差为 `0.001953125`，
+  WGC 验证器未记录传输公式降级。黑底 `(0.25,0)`、`(1,0.25)` 和 `(4,0.5)` 的 RGB
+  分别保留为 `0.25`、`1.0` 和 `4.0`。
+- 该结果不是物理 scanout 测量；白底 GDI 诊断已饱和到 `[255,255,255]`，最终可见 SDR
+  余量仍按产品降级边界处理。
+- HDR active：`Not Run`。当前只接受 SPK-001 的 SDR 单元格，ADR-001 仍为 `Proposed`。
+- 常量通过 `ClearRenderTargetView` 注入生产 FP16 swap-chain；最终 shader 与层公式由当前 FP16
+  Golden 独立证明。两类证据共同覆盖 shader 输出和 DComp/DWM 传输边界，不能互相冒充。
+
+复跑真实桌面矩阵时使用：
+
+```powershell
+cmake --build --preset alpha-release --target ba_fx_composition_spike
+$revision = git rev-parse --short HEAD
+$output = "artifacts\local\spikes\spk-001\$env:COMPUTERNAME-$revision"
+build\alpha-x64\src\capture\Release\ba-click-fx-composition-spike.exe `
+  "--output=$output" `
+  "--revision=$revision" `
+  --timeout-ms=25000
+python -B tools\verify-composition-spike.py `
+  "$output\capture.json" `
+  "--report=$output\verification.json"
+```
+
+collector 使用进程内总 watchdog；自动化调用仍必须设置独立的进程外超时。真实桌面 CTest 默认关闭，
+仅在 `BAFX_ENABLE_COMPOSITION_SPIKE_TESTS=ON` 时注册，且固定 `RUN_SERIAL` 与 30 秒超时。
+
 ## SPK-002 / Spike B：WGC 生命周期、自排除与录屏
 
 ### 场景

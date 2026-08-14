@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "spike_id": "SPK-001",
+  "capture_revision": "9f5b777",
+  "matrix_cell": "sdr",
+  "display_mode": "rgb-full-g22-p709",
+  "status": "sdr-accepted",
+  "backgrounds": 4,
+  "presentations": 20,
+  "formula_channel_checks": 48,
+  "maximum_formula_absolute_error": 0.001953125,
+  "degradations": []
+}

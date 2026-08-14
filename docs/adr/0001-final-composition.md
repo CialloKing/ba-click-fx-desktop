@@ -35,3 +35,10 @@
   FinalOverlay 均保留中间证据。
 - 对三种解析公式建立 CPU/GPU 单元测试，禁止后处理把 RGB 截到 alpha。
 
+## Current evidence
+
+- Unity/原生 FP16 分层 Golden 已验证 proposed layer order、最终 shader 复合公式和扩展 RGB 数值。
+- SPK-001 的 SDR 单元格已在 commit `9f5b777` 通过：生产 FP16 swap-chain 与 DComp target 经 WGC
+  观察的 48 个 source-over 通道检查最大绝对误差为 `0.001953125`，`A=0, RGB>0` 和
+  `RGB>A` 均未被 DComp/DWM 清零或 canonicalize。
+- HDR active 单元格仍为 `Not Run`，因此本 ADR 保持 `Proposed`，不得从单台 SDR 结果推广到 HDR。

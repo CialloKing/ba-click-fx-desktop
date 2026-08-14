@@ -1,0 +1,111 @@
+{
+  "schemaVersion": 1,
+  "spikeId": "SPK-001",
+  "applicationVersion": "0.1.0-alpha.11",
+  "revision": "9f5b777",
+  "capturedAtUtc": "2026-08-14T08:19:10.077Z",
+  "timeoutMs": 25000,
+  "contract": {"surfaceFormat": "DXGI_FORMAT_R16G16B16A16_FLOAT", "swapChainAlphaMode": "premultiplied", "swapChainColorSpace": "rgb-full-g10-p709", "observerFormat": "DXGI_FORMAT_R16G16B16A16_FLOAT", "observerExcludesOwnOverlay": false, "cursorExcluded": true, "systemBorderAllowed": true, "sourceInjection": "ClearRenderTargetView-production-swap-chain", "desktopGdiDiagnosticSemantic": "diagnostic-only-unsynchronized", "nonFiniteJsonEncoding": "null", "formula": "C=S.rgb+(1-S.a)*B", "stableSampleTolerance": 0.00999999978},
+  "osVersion": {"major": 10, "minor": 0, "build": 19045},
+  "monitorBounds": {"left": 0, "top": 0, "right": 3840, "bottom": 2160},
+  "probeBounds": {"left": 1792, "top": 952, "right": 2048, "bottom": 1208},
+  "rendererDevice": {"driverType": "hardware", "adapter": "NVIDIA GeForce RTX 4060 Laptop GPU", "adapterLuid": {"low": 70975, "high": 0}, "vendorId": 4318, "deviceId": 10464, "driverVersion": 9007199255790642, "featureLevel": 45312},
+  "observerFeatureLevel": 45312,
+  "display": {"colorSpace": 0, "colorSpaceName": "rgb-full-g22-p709", "bitsPerColor": 10, "minimumLuminanceNits": 0.0177999996, "maximumLuminanceNits": 1435, "maximumFullFrameLuminanceNits": 1374, "luminanceMetadataValid": true},
+  "captureAffinity": {"requested": 0, "observed": 0, "confirmed": true},
+  "wgcCapabilities": {"borderHidden": false, "cursorExcluded": true},
+  "backgrounds": [
+    {"name": "black", "srgb8": [0, 0, 0], "baseline":
+      {"name": "baseline", "requestedSource": {"r": 0, "g": 0, "b": 0, "a": 0}, "attempts": [
+        {"presentMarkerNs": 426591961604200, "prePresentPixel": {"r": 0, "g": 0, "b": 0, "a": 0}, "desktopGdiDiagnosticSrgb8": [0, 0, 0], "sample": {"generation": 2, "capturedAtNs": 426591980456800, "contentSize": {"width": 3840, "height": 2160}, "pixel": {"r": 0, "g": 0, "b": 0, "a": 1}}},
+        {"presentMarkerNs": 426591983543200, "prePresentPixel": {"r": 0, "g": 0, "b": 0, "a": 0}, "desktopGdiDiagnosticSrgb8": [0, 0, 0], "sample": {"generation": 3, "capturedAtNs": 426592004003000, "contentSize": {"width": 3840, "height": 2160}, "pixel": {"r": 0, "g": 0, "b": 0, "a": 1}}}
+      ], "stablePair": [0, 1]},
+      "sources": [
+        {"name": "transparent", "requestedSource": {"r": 0, "g": 0, "b": 0, "a": 0}, "attempts": [
+          {"presentMarkerNs": 426592008762400, "prePresentPixel": {"r": 0, "g": 0, "b": 0, "a": 0}, "desktopGdiDiagnosticSrgb8": [0, 0, 0], "sample": {"generation": 5, "capturedAtNs": 426592021667100, "contentSize": {"width": 3840, "height": 2160}, "pixel": {"r": 0, "g": 0, "b": 0, "a": 1}}},
+          {"presentMarkerNs": 426592026072800, "prePresentPixel": {"r": 0, "g": 0, "b": 0, "a": 0}, "desktopGdiDiagnosticSrgb8": [0, 0, 0], "sample": {"generation": 6, "capturedAtNs": 426592045206600, "contentSize": {"width": 3840, "height": 2160}, "pixel": {"r": 0, "g": 0, "b": 0, "a": 1}}}
+        ], "stablePair": [0, 1]},
+        {"name": "additive-0.25", "requestedSource": {"r": 0.25, "g": 0.25, "b": 0.25, "a": 0}, "attempts": [
+          {"presentMarkerNs": 426592048239400, "prePresentPixel": {"r": 0.25, "g": 0.25, "b": 0.25, "a": 0}, "desktopGdiDiagnosticSrgb8": [0, 0, 0], "sample": {"generation": 8, "capturedAtNs": 426592062800400, "contentSize": {"width": 3840, "height": 2160}, "pixel": {"r": 0.25, "g": 0.25, "b": 0.25, "a": 1}}},
+          {"presentMarkerNs": 426592060009200, "prePresentPixel": {"r": 0.25, "g": 0.25, "b": 0.25, "a": 0}, "desktopGdiDiagnosticSrgb8": [0, 0, 0], "sample": {"generation": 9, "capturedAtNs": 426592080456300, "contentSize": {"width": 3840, "height": 2160}, "pixel": {"r": 0.25, "g": 0.25, "b": 0.25, "a": 1}}}
+        ], "stablePair": [0, 1]},
+        {"name": "extended-1-alpha-0.25", "requestedSource": {"r": 1, "g": 1, "b": 1, "a": 0.25}, "attempts": [
+          {"presentMarkerNs": 426592077067300, "prePresentPixel": {"r": 1, "g": 1, "b": 1, "a": 0.25}, "desktopGdiDiagnosticSrgb8": [64, 64, 64], "sample": {"generation": 10, "capturedAtNs": 426592092218600, "contentSize": {"width": 3840, "height": 2160}, "pixel": {"r": 1, "g": 1, "b": 1, "a": 1}}},
+          {"presentMarkerNs": 426592096115100, "prePresentPixel": {"r": 1, "g": 1, "b": 1, "a": 0.25}, "desktopGdiDiagnosticSrgb8": [64, 64, 64], "sample": {"generation": 11, "capturedAtNs": 426592115743900, "contentSize": {"width": 3840, "height": 2160}, "pixel": {"r": 1, "g": 1, "b": 1, "a": 1}}}
+        ], "stablePair": [0, 1]},
+        {"name": "extended-4-alpha-0.5", "requestedSource": {"r": 4, "g": 4, "b": 4, "a": 0.5}, "attempts": [
+          {"presentMarkerNs": 426592112303900, "prePresentPixel": {"r": 4, "g": 4, "b": 4, "a": 0.5}, "desktopGdiDiagnosticSrgb8": [127, 127, 127], "sample": {"generation": 12, "capturedAtNs": 426592127522800, "contentSize": {"width": 3840, "height": 2160}, "pixel": {"r": 4, "g": 4, "b": 4, "a": 1}}},
+          {"presentMarkerNs": 426592126113600, "prePresentPixel": {"r": 4, "g": 4, "b": 4, "a": 0.5}, "desktopGdiDiagnosticSrgb8": [127, 127, 127], "sample": {"generation": 13, "capturedAtNs": 426592145136600, "contentSize": {"width": 3840, "height": 2160}, "pixel": {"r": 4, "g": 4, "b": 4, "a": 1}}}
+        ], "stablePair": [0, 1]}
+      ]},
+    {"name": "gray-18-percent", "srgb8": [119, 119, 119], "baseline":
+      {"name": "baseline", "requestedSource": {"r": 0, "g": 0, "b": 0, "a": 0}, "attempts": [
+        {"presentMarkerNs": 426592167615100, "prePresentPixel": {"r": 0, "g": 0, "b": 0, "a": 0}, "desktopGdiDiagnosticSrgb8": [119, 119, 119], "sample": {"generation": 15, "capturedAtNs": 426592186335600, "contentSize": {"width": 3840, "height": 2160}, "pixel": {"r": 0.368896484, "g": 0.368896484, "b": 0.368896484, "a": 1}}},
+        {"presentMarkerNs": 426592182664800, "prePresentPixel": {"r": 0, "g": 0, "b": 0, "a": 0}, "desktopGdiDiagnosticSrgb8": [119, 119, 119], "sample": {"generation": 16, "capturedAtNs": 426592198126900, "contentSize": {"width": 3840, "height": 2160}, "pixel": {"r": 0.368896484, "g": 0.368896484, "b": 0.368896484, "a": 1}}}
+      ], "stablePair": [0, 1]},
+      "sources": [
+        {"name": "transparent", "requestedSource": {"r": 0, "g": 0, "b": 0, "a": 0}, "attempts": [
+          {"presentMarkerNs": 426592207994700, "prePresentPixel": {"r": 0, "g": 0, "b": 0, "a": 0}, "desktopGdiDiagnosticSrgb8": [119, 119, 119], "sample": {"generation": 18, "capturedAtNs": 426592221634400, "contentSize": {"width": 3840, "height": 2160}, "pixel": {"r": 0.368896484, "g": 0.368896484, "b": 0.368896484, "a": 1}}},
+          {"presentMarkerNs": 426592227791900, "prePresentPixel": {"r": 0, "g": 0, "b": 0, "a": 0}, "desktopGdiDiagnosticSrgb8": [119, 119, 119], "sample": {"generation": 19, "capturedAtNs": 426592245183500, "contentSize": {"width": 3840, "height": 2160}, "pixel": {"r": 0.368896484, "g": 0.368896484, "b": 0.368896484, "a": 1}}}
+        ], "stablePair": [0, 1]},
+        {"name": "additive-0.25", "requestedSource": {"r": 0.25, "g": 0.25, "b": 0.25, "a": 0}, "attempts": [
+          {"presentMarkerNs": 426592254341700, "prePresentPixel": {"r": 0.25, "g": 0.25, "b": 0.25, "a": 0}, "desktopGdiDiagnosticSrgb8": [119, 119, 119], "sample": {"generation": 21, "capturedAtNs": 426592268702000, "contentSize": {"width": 3840, "height": 2160}, "pixel": {"r": 0.619140625, "g": 0.619140625, "b": 0.619140625, "a": 1}}},
+          {"presentMarkerNs": 426592267573100, "prePresentPixel": {"r": 0.25, "g": 0.25, "b": 0.25, "a": 0}, "desktopGdiDiagnosticSrgb8": [119, 119, 119], "sample": {"generation": 22, "capturedAtNs": 426592286332300, "contentSize": {"width": 3840, "height": 2160}, "pixel": {"r": 0.619140625, "g": 0.619140625, "b": 0.619140625, "a": 1}}}
+        ], "stablePair": [0, 1]},
+        {"name": "extended-1-alpha-0.25", "requestedSource": {"r": 1, "g": 1, "b": 1, "a": 0.25}, "attempts": [
+          {"presentMarkerNs": 426592290459400, "prePresentPixel": {"r": 1, "g": 1, "b": 1, "a": 0.25}, "desktopGdiDiagnosticSrgb8": [153, 153, 153], "sample": {"generation": 24, "capturedAtNs": 426592303983700, "contentSize": {"width": 3840, "height": 2160}, "pixel": {"r": 1.27636719, "g": 1.27636719, "b": 1.27636719, "a": 1}}},
+          {"presentMarkerNs": 426592313655900, "prePresentPixel": {"r": 1, "g": 1, "b": 1, "a": 0.25}, "desktopGdiDiagnosticSrgb8": [153, 153, 153], "sample": {"generation": 25, "capturedAtNs": 426592333382000, "contentSize": {"width": 3840, "height": 2160}, "pixel": {"r": 1.27636719, "g": 1.27636719, "b": 1.27636719, "a": 1}}}
+        ], "stablePair": [0, 1]},
+        {"name": "extended-4-alpha-0.5", "requestedSource": {"r": 4, "g": 4, "b": 4, "a": 0.5}, "attempts": [
+          {"presentMarkerNs": 426592338538300, "prePresentPixel": {"r": 4, "g": 4, "b": 4, "a": 0.5}, "desktopGdiDiagnosticSrgb8": [187, 187, 187], "sample": {"generation": 27, "capturedAtNs": 426592351070300, "contentSize": {"width": 3840, "height": 2160}, "pixel": {"r": 4.18359375, "g": 4.18359375, "b": 4.18359375, "a": 1}}},
+          {"presentMarkerNs": 426592355297000, "prePresentPixel": {"r": 4, "g": 4, "b": 4, "a": 0.5}, "desktopGdiDiagnosticSrgb8": [187, 187, 187], "sample": {"generation": 28, "capturedAtNs": 426592374570100, "contentSize": {"width": 3840, "height": 2160}, "pixel": {"r": 4.18359375, "g": 4.18359375, "b": 4.18359375, "a": 1}}}
+        ], "stablePair": [0, 1]}
+      ]},
+    {"name": "color", "srgb8": [52, 120, 212], "baseline":
+      {"name": "baseline", "requestedSource": {"r": 0, "g": 0, "b": 0, "a": 0}, "attempts": [
+        {"presentMarkerNs": 426592388756300, "prePresentPixel": {"r": 0, "g": 0, "b": 0, "a": 0}, "desktopGdiDiagnosticSrgb8": [52, 120, 212], "sample": {"generation": 30, "capturedAtNs": 426592409889100, "contentSize": {"width": 3840, "height": 2160}, "pixel": {"r": 0.0686645508, "g": 0.375488281, "b": 1.31640625, "a": 1}}},
+        {"presentMarkerNs": 426592404372900, "prePresentPixel": {"r": 0, "g": 0, "b": 0, "a": 0}, "desktopGdiDiagnosticSrgb8": [52, 120, 212], "sample": {"generation": 31, "capturedAtNs": 426592421651800, "contentSize": {"width": 3840, "height": 2160}, "pixel": {"r": 0.0686645508, "g": 0.375488281, "b": 1.31640625, "a": 1}}}
+      ], "stablePair": [0, 1]},
+      "sources": [
+        {"name": "transparent", "requestedSource": {"r": 0, "g": 0, "b": 0, "a": 0}, "attempts": [
+          {"presentMarkerNs": 426592424775300, "prePresentPixel": {"r": 0, "g": 0, "b": 0, "a": 0}, "desktopGdiDiagnosticSrgb8": [52, 120, 212], "sample": {"generation": 32, "capturedAtNs": 426592439298700, "contentSize": {"width": 3840, "height": 2160}, "pixel": {"r": 0.0686645508, "g": 0.375488281, "b": 1.31640625, "a": 1}}},
+          {"presentMarkerNs": 426592443516100, "prePresentPixel": {"r": 0, "g": 0, "b": 0, "a": 0}, "desktopGdiDiagnosticSrgb8": [52, 120, 212], "sample": {"generation": 33, "capturedAtNs": 426592462831300, "contentSize": {"width": 3840, "height": 2160}, "pixel": {"r": 0.0686645508, "g": 0.375488281, "b": 1.31640625, "a": 1}}}
+        ], "stablePair": [0, 1]},
+        {"name": "additive-0.25", "requestedSource": {"r": 0.25, "g": 0.25, "b": 0.25, "a": 0}, "attempts": [
+          {"presentMarkerNs": 426592459960900, "prePresentPixel": {"r": 0.25, "g": 0.25, "b": 0.25, "a": 0}, "desktopGdiDiagnosticSrgb8": [52, 120, 212], "sample": {"generation": 34, "capturedAtNs": 426592474576300, "contentSize": {"width": 3840, "height": 2160}, "pixel": {"r": 0.318603516, "g": 0.625488281, "b": 1.56640625, "a": 1}}},
+          {"presentMarkerNs": 426592473593600, "prePresentPixel": {"r": 0.25, "g": 0.25, "b": 0.25, "a": 0}, "desktopGdiDiagnosticSrgb8": [52, 120, 212], "sample": {"generation": 35, "capturedAtNs": 426592492233300, "contentSize": {"width": 3840, "height": 2160}, "pixel": {"r": 0.318603516, "g": 0.625488281, "b": 1.56640625, "a": 1}}}
+        ], "stablePair": [0, 1]},
+        {"name": "extended-1-alpha-0.25", "requestedSource": {"r": 1, "g": 1, "b": 1, "a": 0.25}, "attempts": [
+          {"presentMarkerNs": 426592488763800, "prePresentPixel": {"r": 1, "g": 1, "b": 1, "a": 0.25}, "desktopGdiDiagnosticSrgb8": [103, 154, 223], "sample": {"generation": 36, "capturedAtNs": 426592504006200, "contentSize": {"width": 3840, "height": 2160}, "pixel": {"r": 1.05175781, "g": 1.28125, "b": 1.98730469, "a": 1}}},
+          {"presentMarkerNs": 426592500199700, "prePresentPixel": {"r": 1, "g": 1, "b": 1, "a": 0.25}, "desktopGdiDiagnosticSrgb8": [103, 154, 223], "sample": {"generation": 37, "capturedAtNs": 426592515760700, "contentSize": {"width": 3840, "height": 2160}, "pixel": {"r": 1.05175781, "g": 1.28125, "b": 1.98730469, "a": 1}}}
+        ], "stablePair": [0, 1]},
+        {"name": "extended-4-alpha-0.5", "requestedSource": {"r": 4, "g": 4, "b": 4, "a": 0.5}, "attempts": [
+          {"presentMarkerNs": 426592519639700, "prePresentPixel": {"r": 4, "g": 4, "b": 4, "a": 0.5}, "desktopGdiDiagnosticSrgb8": [153, 187, 233], "sample": {"generation": 38, "capturedAtNs": 426592527579400, "contentSize": {"width": 3840, "height": 2160}, "pixel": {"r": 4.03515625, "g": 4.1875, "b": 4.65625, "a": 1}}},
+          {"presentMarkerNs": 426592530492300, "prePresentPixel": {"r": 4, "g": 4, "b": 4, "a": 0.5}, "desktopGdiDiagnosticSrgb8": [153, 187, 233], "sample": {"generation": 39, "capturedAtNs": 426592545169200, "contentSize": {"width": 3840, "height": 2160}, "pixel": {"r": 4.03515625, "g": 4.1875, "b": 4.65625, "a": 1}}}
+        ], "stablePair": [0, 1]}
+      ]},
+    {"name": "white", "srgb8": [255, 255, 255], "baseline":
+      {"name": "baseline", "requestedSource": {"r": 0, "g": 0, "b": 0, "a": 0}, "attempts": [
+        {"presentMarkerNs": 426592563515000, "prePresentPixel": {"r": 0, "g": 0, "b": 0, "a": 0}, "desktopGdiDiagnosticSrgb8": [255, 255, 255], "sample": {"generation": 41, "capturedAtNs": 426592580468400, "contentSize": {"width": 3840, "height": 2160}, "pixel": {"r": 2, "g": 2, "b": 2, "a": 1}}},
+        {"presentMarkerNs": 426592580236800, "prePresentPixel": {"r": 0, "g": 0, "b": 0, "a": 0}, "desktopGdiDiagnosticSrgb8": [255, 255, 255], "sample": {"generation": 42, "capturedAtNs": 426592598181300, "contentSize": {"width": 3840, "height": 2160}, "pixel": {"r": 2, "g": 2, "b": 2, "a": 1}}}
+      ], "stablePair": [0, 1]},
+      "sources": [
+        {"name": "transparent", "requestedSource": {"r": 0, "g": 0, "b": 0, "a": 0}, "attempts": [
+          {"presentMarkerNs": 426592607265300, "prePresentPixel": {"r": 0, "g": 0, "b": 0, "a": 0}, "desktopGdiDiagnosticSrgb8": [255, 255, 255], "sample": {"generation": 44, "capturedAtNs": 426592621650300, "contentSize": {"width": 3840, "height": 2160}, "pixel": {"r": 2, "g": 2, "b": 2, "a": 1}}},
+          {"presentMarkerNs": 426592628961200, "prePresentPixel": {"r": 0, "g": 0, "b": 0, "a": 0}, "desktopGdiDiagnosticSrgb8": [255, 255, 255], "sample": {"generation": 45, "capturedAtNs": 426592645184300, "contentSize": {"width": 3840, "height": 2160}, "pixel": {"r": 2, "g": 2, "b": 2, "a": 1}}}
+        ], "stablePair": [0, 1]},
+        {"name": "additive-0.25", "requestedSource": {"r": 0.25, "g": 0.25, "b": 0.25, "a": 0}, "attempts": [
+          {"presentMarkerNs": 426592647941700, "prePresentPixel": {"r": 0.25, "g": 0.25, "b": 0.25, "a": 0}, "desktopGdiDiagnosticSrgb8": [255, 255, 255], "sample": {"generation": 46, "capturedAtNs": 426592662841200, "contentSize": {"width": 3840, "height": 2160}, "pixel": {"r": 2.25, "g": 2.25, "b": 2.25, "a": 1}}},
+          {"presentMarkerNs": 426592660238700, "prePresentPixel": {"r": 0.25, "g": 0.25, "b": 0.25, "a": 0}, "desktopGdiDiagnosticSrgb8": [255, 255, 255], "sample": {"generation": 47, "capturedAtNs": 426592680491400, "contentSize": {"width": 3840, "height": 2160}, "pixel": {"r": 2.25, "g": 2.25, "b": 2.25, "a": 1}}}
+        ], "stablePair": [0, 1]},
+        {"name": "extended-1-alpha-0.25", "requestedSource": {"r": 1, "g": 1, "b": 1, "a": 0.25}, "attempts": [
+          {"presentMarkerNs": 426592677812700, "prePresentPixel": {"r": 1, "g": 1, "b": 1, "a": 0.25}, "desktopGdiDiagnosticSrgb8": [255, 255, 255], "sample": {"generation": 48, "capturedAtNs": 426592692226000, "contentSize": {"width": 3840, "height": 2160}, "pixel": {"r": 2.5, "g": 2.5, "b": 2.5, "a": 1}}},
+          {"presentMarkerNs": 426592690229500, "prePresentPixel": {"r": 1, "g": 1, "b": 1, "a": 0.25}, "desktopGdiDiagnosticSrgb8": [255, 255, 255], "sample": {"generation": 49, "capturedAtNs": 426592709878000, "contentSize": {"width": 3840, "height": 2160}, "pixel": {"r": 2.5, "g": 2.5, "b": 2.5, "a": 1}}}
+        ], "stablePair": [0, 1]},
+        {"name": "extended-4-alpha-0.5", "requestedSource": {"r": 4, "g": 4, "b": 4, "a": 0.5}, "attempts": [
+          {"presentMarkerNs": 426592706974900, "prePresentPixel": {"r": 4, "g": 4, "b": 4, "a": 0.5}, "desktopGdiDiagnosticSrgb8": [255, 255, 255], "sample": {"generation": 50, "capturedAtNs": 426592721619600, "contentSize": {"width": 3840, "height": 2160}, "pixel": {"r": 5, "g": 5, "b": 5, "a": 1}}},
+          {"presentMarkerNs": 426592728451700, "prePresentPixel": {"r": 4, "g": 4, "b": 4, "a": 0.5}, "desktopGdiDiagnosticSrgb8": [255, 255, 255], "sample": {"generation": 51, "capturedAtNs": 426592745187100, "contentSize": {"width": 3840, "height": 2160}, "pixel": {"r": 5, "g": 5, "b": 5, "a": 1}}}
+        ], "stablePair": [0, 1]}
+      ]}
+  ]
+}
