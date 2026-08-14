@@ -61,6 +61,28 @@ struct FramePerformanceSample
     bool backgroundParticipated{false};
     bool backgroundSampleAgeValid{false};
     bool diagnosticReadbackUsed{false};
+    std::uint64_t gpuWgcDrainAndCopyMicroseconds{0U};
+    std::uint64_t gpuBackgroundSnapshotMicroseconds{0U};
+    std::uint64_t gpuFxMaterialsMicroseconds{0U};
+    std::uint64_t gpuBloomAndFinalCompositeMicroseconds{0U};
+    std::uint64_t gpuTotalFxMicroseconds{0U};
+    std::uint64_t gpuRenderCommandSpanMicroseconds{0U};
+    std::uint32_t gpuTimestampInitializationResult{0U};
+    std::uint32_t gpuTimestampPendingFrames{0U};
+    bool gpuTimestampProfilerObserved{false};
+    bool gpuTimestampProfilerAvailable{false};
+    bool gpuFrameStarted{false};
+    bool gpuFrameSubmitted{false};
+    bool gpuPollPending{false};
+    bool gpuRingFullSkipped{false};
+    bool gpuSampleCompleted{false};
+    bool gpuCancelledSlotReclaimed{false};
+    bool gpuDisjointSample{false};
+    bool gpuQueryFailure{false};
+    bool gpuStateError{false};
+    bool gpuWgcTimingValid{false};
+    bool gpuBackgroundSnapshotTimingValid{false};
+    bool gpuFxTimingValid{false};
 };
 
 struct RuntimePerformanceSummary
@@ -87,6 +109,18 @@ struct RuntimePerformanceSummary
     std::uint64_t otherMessagesDispatched{0U};
     std::uint64_t inputDispatchBudgetExhaustions{0U};
     std::uint64_t otherDispatchBudgetExhaustions{0U};
+    std::uint64_t gpuFramesStarted{0U};
+    std::uint64_t gpuFramesSubmitted{0U};
+    std::uint64_t gpuPendingPolls{0U};
+    std::uint64_t gpuRingFullSkipped{0U};
+    std::uint64_t gpuSamplesCompleted{0U};
+    std::uint64_t gpuCancelledSlotsReclaimed{0U};
+    std::uint64_t gpuDisjointSamples{0U};
+    std::uint64_t gpuQueryFailures{0U};
+    std::uint64_t gpuStateErrors{0U};
+    std::uint32_t gpuTimestampInitializationResult{0U};
+    bool gpuTimestampProfilerObserved{false};
+    bool gpuTimestampProfilerAvailable{false};
     MetricSummary frameTotalCpuMicroseconds{};
     MetricSummary wgcDrainCpuMicroseconds{};
     MetricSummary wgcOwnedCopySubmitCpuMicroseconds{};
@@ -101,6 +135,13 @@ struct RuntimePerformanceSummary
     MetricSummary maximumWin32QueueAgeMilliseconds{};
     MetricSummary dispatchToPresentReturnMicroseconds{};
     MetricSummary messageToPresentReturnMilliseconds{};
+    MetricSummary gpuTimestampPendingFrames{};
+    MetricSummary gpuWgcDrainAndCopyMicroseconds{};
+    MetricSummary gpuBackgroundSnapshotMicroseconds{};
+    MetricSummary gpuFxMaterialsMicroseconds{};
+    MetricSummary gpuBloomAndFinalCompositeMicroseconds{};
+    MetricSummary gpuTotalFxMicroseconds{};
+    MetricSummary gpuRenderCommandSpanMicroseconds{};
 };
 
 // Interactive diagnostics keep exact samples for one bounded reporting window.
@@ -161,6 +202,18 @@ private:
     std::uint64_t otherMessagesDispatched_{0U};
     std::uint64_t inputDispatchBudgetExhaustions_{0U};
     std::uint64_t otherDispatchBudgetExhaustions_{0U};
+    std::uint64_t gpuFramesStarted_{0U};
+    std::uint64_t gpuFramesSubmitted_{0U};
+    std::uint64_t gpuPendingPolls_{0U};
+    std::uint64_t gpuRingFullSkipped_{0U};
+    std::uint64_t gpuSamplesCompleted_{0U};
+    std::uint64_t gpuCancelledSlotsReclaimed_{0U};
+    std::uint64_t gpuDisjointSamples_{0U};
+    std::uint64_t gpuQueryFailures_{0U};
+    std::uint64_t gpuStateErrors_{0U};
+    std::uint32_t gpuTimestampInitializationResult_{0U};
+    bool gpuTimestampProfilerObserved_{false};
+    bool gpuTimestampProfilerAvailable_{false};
     BoundedMetric frameTotalCpuMicroseconds_{};
     BoundedMetric wgcDrainCpuMicroseconds_{};
     BoundedMetric wgcOwnedCopySubmitCpuMicroseconds_{};
@@ -175,6 +228,13 @@ private:
     BoundedMetric maximumWin32QueueAgeMilliseconds_{};
     BoundedMetric dispatchToPresentReturnMicroseconds_{};
     BoundedMetric messageToPresentReturnMilliseconds_{};
+    BoundedMetric gpuTimestampPendingFrames_{};
+    BoundedMetric gpuWgcDrainAndCopyMicroseconds_{};
+    BoundedMetric gpuBackgroundSnapshotMicroseconds_{};
+    BoundedMetric gpuFxMaterialsMicroseconds_{};
+    BoundedMetric gpuBloomAndFinalCompositeMicroseconds_{};
+    BoundedMetric gpuTotalFxMicroseconds_{};
+    BoundedMetric gpuRenderCommandSpanMicroseconds_{};
 };
 
 }

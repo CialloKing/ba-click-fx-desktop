@@ -165,6 +165,50 @@ void RuntimePerformanceWindow::addFrame(
         backgroundSampleAgeMicroseconds_.add(
             sample.backgroundSampleAgeMicroseconds);
     }
+    if (sample.gpuTimestampProfilerObserved)
+    {
+        gpuTimestampProfilerObserved_ = true;
+        gpuTimestampProfilerAvailable_ =
+            sample.gpuTimestampProfilerAvailable;
+        gpuTimestampInitializationResult_ =
+            sample.gpuTimestampInitializationResult;
+    }
+    gpuFramesStarted_ += sample.gpuFrameStarted ? 1U : 0U;
+    gpuFramesSubmitted_ += sample.gpuFrameSubmitted ? 1U : 0U;
+    gpuPendingPolls_ += sample.gpuPollPending ? 1U : 0U;
+    gpuRingFullSkipped_ += sample.gpuRingFullSkipped ? 1U : 0U;
+    gpuSamplesCompleted_ += sample.gpuSampleCompleted ? 1U : 0U;
+    gpuCancelledSlotsReclaimed_ +=
+        sample.gpuCancelledSlotReclaimed ? 1U : 0U;
+    gpuDisjointSamples_ += sample.gpuDisjointSample ? 1U : 0U;
+    gpuQueryFailures_ += sample.gpuQueryFailure ? 1U : 0U;
+    gpuStateErrors_ += sample.gpuStateError ? 1U : 0U;
+    if (sample.gpuTimestampProfilerAvailable)
+    {
+        gpuTimestampPendingFrames_.add(sample.gpuTimestampPendingFrames);
+    }
+    if (sample.gpuSampleCompleted)
+    {
+        gpuRenderCommandSpanMicroseconds_.add(
+            sample.gpuRenderCommandSpanMicroseconds);
+    }
+    if (sample.gpuWgcTimingValid)
+    {
+        gpuWgcDrainAndCopyMicroseconds_.add(
+            sample.gpuWgcDrainAndCopyMicroseconds);
+    }
+    if (sample.gpuBackgroundSnapshotTimingValid)
+    {
+        gpuBackgroundSnapshotMicroseconds_.add(
+            sample.gpuBackgroundSnapshotMicroseconds);
+    }
+    if (sample.gpuFxTimingValid)
+    {
+        gpuFxMaterialsMicroseconds_.add(sample.gpuFxMaterialsMicroseconds);
+        gpuBloomAndFinalCompositeMicroseconds_.add(
+            sample.gpuBloomAndFinalCompositeMicroseconds);
+        gpuTotalFxMicroseconds_.add(sample.gpuTotalFxMicroseconds);
+    }
 }
 
 void RuntimePerformanceWindow::addDispatchToPresentReturn(
@@ -203,6 +247,18 @@ void RuntimePerformanceWindow::reset() noexcept
     otherMessagesDispatched_ = 0U;
     inputDispatchBudgetExhaustions_ = 0U;
     otherDispatchBudgetExhaustions_ = 0U;
+    gpuFramesStarted_ = 0U;
+    gpuFramesSubmitted_ = 0U;
+    gpuPendingPolls_ = 0U;
+    gpuRingFullSkipped_ = 0U;
+    gpuSamplesCompleted_ = 0U;
+    gpuCancelledSlotsReclaimed_ = 0U;
+    gpuDisjointSamples_ = 0U;
+    gpuQueryFailures_ = 0U;
+    gpuStateErrors_ = 0U;
+    gpuTimestampInitializationResult_ = 0U;
+    gpuTimestampProfilerObserved_ = false;
+    gpuTimestampProfilerAvailable_ = false;
     frameTotalCpuMicroseconds_.reset();
     wgcDrainCpuMicroseconds_.reset();
     wgcOwnedCopySubmitCpuMicroseconds_.reset();
@@ -217,6 +273,13 @@ void RuntimePerformanceWindow::reset() noexcept
     maximumWin32QueueAgeMilliseconds_.reset();
     dispatchToPresentReturnMicroseconds_.reset();
     messageToPresentReturnMilliseconds_.reset();
+    gpuTimestampPendingFrames_.reset();
+    gpuWgcDrainAndCopyMicroseconds_.reset();
+    gpuBackgroundSnapshotMicroseconds_.reset();
+    gpuFxMaterialsMicroseconds_.reset();
+    gpuBloomAndFinalCompositeMicroseconds_.reset();
+    gpuTotalFxMicroseconds_.reset();
+    gpuRenderCommandSpanMicroseconds_.reset();
 }
 
 RuntimePerformanceSummary RuntimePerformanceWindow::summarize() const
@@ -244,6 +307,19 @@ RuntimePerformanceSummary RuntimePerformanceWindow::summarize() const
     summary.otherMessagesDispatched = otherMessagesDispatched_;
     summary.inputDispatchBudgetExhaustions = inputDispatchBudgetExhaustions_;
     summary.otherDispatchBudgetExhaustions = otherDispatchBudgetExhaustions_;
+    summary.gpuFramesStarted = gpuFramesStarted_;
+    summary.gpuFramesSubmitted = gpuFramesSubmitted_;
+    summary.gpuPendingPolls = gpuPendingPolls_;
+    summary.gpuRingFullSkipped = gpuRingFullSkipped_;
+    summary.gpuSamplesCompleted = gpuSamplesCompleted_;
+    summary.gpuCancelledSlotsReclaimed = gpuCancelledSlotsReclaimed_;
+    summary.gpuDisjointSamples = gpuDisjointSamples_;
+    summary.gpuQueryFailures = gpuQueryFailures_;
+    summary.gpuStateErrors = gpuStateErrors_;
+    summary.gpuTimestampInitializationResult =
+        gpuTimestampInitializationResult_;
+    summary.gpuTimestampProfilerObserved = gpuTimestampProfilerObserved_;
+    summary.gpuTimestampProfilerAvailable = gpuTimestampProfilerAvailable_;
     summary.frameTotalCpuMicroseconds = frameTotalCpuMicroseconds_.summarize();
     summary.wgcDrainCpuMicroseconds = wgcDrainCpuMicroseconds_.summarize();
     summary.wgcOwnedCopySubmitCpuMicroseconds =
@@ -268,6 +344,19 @@ RuntimePerformanceSummary RuntimePerformanceWindow::summarize() const
         dispatchToPresentReturnMicroseconds_.summarize();
     summary.messageToPresentReturnMilliseconds =
         messageToPresentReturnMilliseconds_.summarize();
+    summary.gpuTimestampPendingFrames =
+        gpuTimestampPendingFrames_.summarize();
+    summary.gpuWgcDrainAndCopyMicroseconds =
+        gpuWgcDrainAndCopyMicroseconds_.summarize();
+    summary.gpuBackgroundSnapshotMicroseconds =
+        gpuBackgroundSnapshotMicroseconds_.summarize();
+    summary.gpuFxMaterialsMicroseconds =
+        gpuFxMaterialsMicroseconds_.summarize();
+    summary.gpuBloomAndFinalCompositeMicroseconds =
+        gpuBloomAndFinalCompositeMicroseconds_.summarize();
+    summary.gpuTotalFxMicroseconds = gpuTotalFxMicroseconds_.summarize();
+    summary.gpuRenderCommandSpanMicroseconds =
+        gpuRenderCommandSpanMicroseconds_.summarize();
     return summary;
 }
 

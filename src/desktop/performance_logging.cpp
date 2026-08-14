@@ -51,6 +51,19 @@ public:
         add(key, stream.str());
     }
 
+    void addHex32(const std::string_view key, const std::uint32_t value)
+    {
+        std::ostringstream stream;
+        stream.imbue(std::locale::classic());
+        stream << "0x"
+               << std::uppercase
+               << std::hex
+               << std::setw(8)
+               << std::setfill('0')
+               << value;
+        add(key, stream.str());
+    }
+
     void append(
         const std::filesystem::path& path,
         const std::string_view eventName,
@@ -241,6 +254,15 @@ std::chrono::nanoseconds appendPerformanceInterval(
             "Timing.InputSemantic",
             "input-to-Present-return-not-photon-latency");
         fields.add(
+            "Timing.GpuSemantic",
+            "asynchronous-D3D11-timestamp-command-execution-not-Present-DWM-or-scanout");
+        fields.add(
+            "GPU.SampleCompletionSemantic",
+            "completed-sample-may-belong-to-an-older-reporting-window");
+        fields.add(
+            "GPU.StageApplicabilitySemantic",
+            "WGC-active-snapshot-attempted-and-visual-FX-only");
+        fields.add(
             "WGC.ProducerSemantic",
             "FrameArrived-callback-rate-proxy");
         fields.add(
@@ -301,6 +323,30 @@ std::chrono::nanoseconds appendPerformanceInterval(
         fields.add(
             "MessagePump.OtherBudgetExhaustions",
             summary.otherDispatchBudgetExhaustions);
+
+        fields.add(
+            "GPU.TimestampProfiler.Observed",
+            summary.gpuTimestampProfilerObserved);
+        if (summary.gpuTimestampProfilerObserved)
+        {
+            fields.add(
+                "GPU.TimestampProfiler.Available",
+                summary.gpuTimestampProfilerAvailable);
+            fields.addHex32(
+                "GPU.TimestampProfiler.InitializationHresult",
+                summary.gpuTimestampInitializationResult);
+        }
+        fields.add("GPU.FramesStarted", summary.gpuFramesStarted);
+        fields.add("GPU.FramesSubmitted", summary.gpuFramesSubmitted);
+        fields.add("GPU.PendingPolls", summary.gpuPendingPolls);
+        fields.add("GPU.RingFullSkipped", summary.gpuRingFullSkipped);
+        fields.add("GPU.SamplesCompleted", summary.gpuSamplesCompleted);
+        fields.add(
+            "GPU.CancelledSlotsReclaimed",
+            summary.gpuCancelledSlotsReclaimed);
+        fields.add("GPU.DisjointSamples", summary.gpuDisjointSamples);
+        fields.add("GPU.QueryFailures", summary.gpuQueryFailures);
+        fields.add("GPU.StateErrors", summary.gpuStateErrors);
 
         appendMetric(
             fields,
@@ -372,10 +418,48 @@ std::chrono::nanoseconds appendPerformanceInterval(
             "Input.MessageToPresentReturn",
             summary.messageToPresentReturnMilliseconds,
             "ms");
+        appendMetric(
+            fields,
+            "GPU.PendingFrames",
+            summary.gpuTimestampPendingFrames,
+            "slots");
+        appendMetric(
+            fields,
+            "GPU.WgcDrainAndCopy",
+            summary.gpuWgcDrainAndCopyMicroseconds,
+            "us");
+        appendMetric(
+            fields,
+            "GPU.BackgroundSnapshot",
+            summary.gpuBackgroundSnapshotMicroseconds,
+            "us");
+        appendMetric(
+            fields,
+            "GPU.FxMaterials",
+            summary.gpuFxMaterialsMicroseconds,
+            "us");
+        appendMetric(
+            fields,
+            "GPU.BloomAndFinalComposite",
+            summary.gpuBloomAndFinalCompositeMicroseconds,
+            "us");
+        appendMetric(
+            fields,
+            "GPU.FxTotal",
+            summary.gpuTotalFxMicroseconds,
+            "us");
+        appendMetric(
+            fields,
+            "GPU.RenderCommandSpan",
+            summary.gpuRenderCommandSpanMicroseconds,
+            "us");
 
         const bool warning = summary.overflowMoveDrops > 0U
             || summary.inputDispatchBudgetExhaustions > 0U
             || summary.otherDispatchBudgetExhaustions > 0U
+            || summary.gpuRingFullSkipped > 0U
+            || summary.gpuQueryFailures > 0U
+            || summary.gpuStateErrors > 0U
             || summary.frameTotalCpuMicroseconds.maximum >= 100'000U
             || summary.presentCallCpuMicroseconds.maximum >= 50'000U;
         fields.append(

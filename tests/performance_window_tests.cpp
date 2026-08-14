@@ -143,3 +143,56 @@ BAFX_TEST(runtime_performance_window_omits_unavailable_optional_timings)
     window.reset();
     BAFX_CHECK(window.empty());
 }
+
+BAFX_TEST(runtime_performance_window_filters_gpu_stages_by_original_frame_usage)
+{
+    bafx::desktop::RuntimePerformanceWindow window;
+    window.addFrame(bafx::desktop::FramePerformanceSample{
+        .gpuWgcDrainAndCopyMicroseconds = 100U,
+        .gpuBackgroundSnapshotMicroseconds = 200U,
+        .gpuFxMaterialsMicroseconds = 300U,
+        .gpuBloomAndFinalCompositeMicroseconds = 400U,
+        .gpuTotalFxMicroseconds = 700U,
+        .gpuRenderCommandSpanMicroseconds = 1'000U,
+        .gpuTimestampInitializationResult = 0U,
+        .gpuTimestampPendingFrames = 2U,
+        .gpuTimestampProfilerObserved = true,
+        .gpuTimestampProfilerAvailable = true,
+        .gpuFrameStarted = true,
+        .gpuFrameSubmitted = true,
+        .gpuPollPending = true,
+        .gpuSampleCompleted = true,
+        .gpuWgcTimingValid = true,
+        .gpuBackgroundSnapshotTimingValid = true,
+        .gpuFxTimingValid = true});
+    window.addFrame(bafx::desktop::FramePerformanceSample{
+        .gpuWgcDrainAndCopyMicroseconds = 1U,
+        .gpuBackgroundSnapshotMicroseconds = 2U,
+        .gpuFxMaterialsMicroseconds = 3U,
+        .gpuBloomAndFinalCompositeMicroseconds = 4U,
+        .gpuTotalFxMicroseconds = 7U,
+        .gpuRenderCommandSpanMicroseconds = 10U,
+        .gpuTimestampInitializationResult = 0U,
+        .gpuTimestampPendingFrames = 1U,
+        .gpuTimestampProfilerObserved = true,
+        .gpuTimestampProfilerAvailable = true,
+        .gpuFrameStarted = true,
+        .gpuFrameSubmitted = true,
+        .gpuSampleCompleted = true});
+
+    const bafx::desktop::RuntimePerformanceSummary summary = window.summarize();
+    BAFX_CHECK(summary.gpuTimestampProfilerObserved);
+    BAFX_CHECK(summary.gpuTimestampProfilerAvailable);
+    BAFX_CHECK(summary.gpuFramesStarted == 2U);
+    BAFX_CHECK(summary.gpuFramesSubmitted == 2U);
+    BAFX_CHECK(summary.gpuSamplesCompleted == 2U);
+    BAFX_CHECK(summary.gpuPendingPolls == 1U);
+    BAFX_CHECK(summary.gpuTimestampPendingFrames.maximum == 2U);
+    BAFX_CHECK(summary.gpuRenderCommandSpanMicroseconds.sampleCount == 2U);
+    BAFX_CHECK(summary.gpuWgcDrainAndCopyMicroseconds.sampleCount == 1U);
+    BAFX_CHECK(summary.gpuWgcDrainAndCopyMicroseconds.maximum == 100U);
+    BAFX_CHECK(summary.gpuBackgroundSnapshotMicroseconds.sampleCount == 1U);
+    BAFX_CHECK(summary.gpuFxMaterialsMicroseconds.sampleCount == 1U);
+    BAFX_CHECK(summary.gpuBloomAndFinalCompositeMicroseconds.maximum == 400U);
+    BAFX_CHECK(summary.gpuTotalFxMicroseconds.maximum == 700U);
+}

@@ -64,7 +64,19 @@ BAFX_TEST(performance_log_preserves_metric_and_semantic_fields)
         .fxTotalSubmitCpuMicroseconds = 4'000U,
         .fxMaterialsSubmitCpuMicroseconds = 1'000U,
         .bloomAndCompositeSubmitCpuMicroseconds = 3'000U,
-        .presentCallCpuMicroseconds = 2'000U});
+        .presentCallCpuMicroseconds = 2'000U,
+        .gpuFxMaterialsMicroseconds = 900U,
+        .gpuBloomAndFinalCompositeMicroseconds = 2'500U,
+        .gpuTotalFxMicroseconds = 3'400U,
+        .gpuRenderCommandSpanMicroseconds = 3'500U,
+        .gpuTimestampInitializationResult = 0U,
+        .gpuTimestampPendingFrames = 1U,
+        .gpuTimestampProfilerObserved = true,
+        .gpuTimestampProfilerAvailable = true,
+        .gpuFrameStarted = true,
+        .gpuFrameSubmitted = true,
+        .gpuSampleCompleted = true,
+        .gpuFxTimingValid = true});
     window.addDispatchToPresentReturn(25'000U);
     const bafx::config::Config config = bafx::config::defaultConfig();
 
@@ -89,6 +101,16 @@ BAFX_TEST(performance_log_preserves_metric_and_semantic_fields)
         "Timing.PresentSemantic=Present-call-return-not-dwm-composition-or-scanout\n")
         != std::string::npos);
     BAFX_CHECK(text.find("Cpu.FrameTotal.P95=20000\n") != std::string::npos);
+    BAFX_CHECK(text.find("GPU.TimestampProfiler.Available=true\n")
+        != std::string::npos);
+    BAFX_CHECK(text.find("GPU.TimestampProfiler.InitializationHresult=0x00000000\n")
+        != std::string::npos);
+    BAFX_CHECK(text.find("GPU.SamplesCompleted=1\n") != std::string::npos);
+    BAFX_CHECK(text.find("GPU.WgcDrainAndCopy.Available=false\n")
+        != std::string::npos);
+    BAFX_CHECK(text.find("GPU.FxTotal.P95=3400\n") != std::string::npos);
+    BAFX_CHECK(text.find("GPU.RenderCommandSpan.Max=3500\n")
+        != std::string::npos);
     BAFX_CHECK(text.find("Input.DispatchToPresentReturn.Max=25000\n")
         != std::string::npos);
     BAFX_CHECK(text.find("Diagnostics.PreviousLogWriteCpuUs=123\n")

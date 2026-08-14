@@ -536,29 +536,93 @@ struct PointerConsumptionDiagnostics
     const std::uint64_t wgcProducerCallbacks,
     const bool diagnosticReadbackUsed) noexcept
 {
-    return bafx::desktop::FramePerformanceSample{
-        durationMicroseconds(frame.frameTotalCpu),
-        durationMicroseconds(frame.wgcDrainInclusiveCpu),
-        durationMicroseconds(frame.wgc.ownedCopySubmitCpu),
-        durationMicroseconds(frame.backgroundSnapshotSubmitCpu),
-        durationMicroseconds(frame.fx.totalSubmit),
-        durationMicroseconds(frame.fx.materialsSubmit),
-        durationMicroseconds(frame.fx.bloomAndCompositeSubmit),
-        durationMicroseconds(frame.diagnosticReadbackCpu),
-        durationMicroseconds(frame.presentCallCpu),
-        durationMicroseconds(frame.backgroundSampleAge),
-        wgcProducerCallbacks,
-        frame.wgc.framesAcquired,
-        frame.wgc.framesSuperseded,
-        frame.wgc.timestampRejectedFrames,
-        frame.wgcActive,
-        frame.wgc.ownedCopySubmitted,
-        frame.wgc.accepted,
-        frame.backgroundSnapshotRefreshAttempted,
-        frame.backgroundSnapshotRefreshed,
-        frame.backgroundParticipated,
-        frame.backgroundSampleAgeValid,
-        diagnosticReadbackUsed};
+    bafx::desktop::FramePerformanceSample sample{};
+    sample.frameTotalCpuMicroseconds = durationMicroseconds(frame.frameTotalCpu);
+    sample.wgcDrainCpuMicroseconds =
+        durationMicroseconds(frame.wgcDrainInclusiveCpu);
+    sample.wgcOwnedCopySubmitCpuMicroseconds =
+        durationMicroseconds(frame.wgc.ownedCopySubmitCpu);
+    sample.backgroundSnapshotSubmitCpuMicroseconds =
+        durationMicroseconds(frame.backgroundSnapshotSubmitCpu);
+    sample.fxTotalSubmitCpuMicroseconds =
+        durationMicroseconds(frame.fx.totalSubmit);
+    sample.fxMaterialsSubmitCpuMicroseconds =
+        durationMicroseconds(frame.fx.materialsSubmit);
+    sample.bloomAndCompositeSubmitCpuMicroseconds =
+        durationMicroseconds(frame.fx.bloomAndCompositeSubmit);
+    sample.diagnosticReadbackCpuMicroseconds =
+        durationMicroseconds(frame.diagnosticReadbackCpu);
+    sample.presentCallCpuMicroseconds =
+        durationMicroseconds(frame.presentCallCpu);
+    sample.backgroundSampleAgeMicroseconds =
+        durationMicroseconds(frame.backgroundSampleAge);
+    sample.wgcProducerCallbacks = wgcProducerCallbacks;
+    sample.wgcFramesAcquired = frame.wgc.framesAcquired;
+    sample.wgcFramesSuperseded = frame.wgc.framesSuperseded;
+    sample.wgcTimestampRejectedFrames = frame.wgc.timestampRejectedFrames;
+    sample.wgcActive = frame.wgcActive;
+    sample.wgcOwnedCopySubmitted = frame.wgc.ownedCopySubmitted;
+    sample.wgcAccepted = frame.wgc.accepted;
+    sample.backgroundSnapshotRefreshAttempted =
+        frame.backgroundSnapshotRefreshAttempted;
+    sample.backgroundSnapshotRefreshed = frame.backgroundSnapshotRefreshed;
+    sample.backgroundParticipated = frame.backgroundParticipated;
+    sample.backgroundSampleAgeValid = frame.backgroundSampleAgeValid;
+    sample.diagnosticReadbackUsed = diagnosticReadbackUsed;
+
+    sample.gpuTimestampProfilerObserved = true;
+    sample.gpuTimestampProfilerAvailable =
+        frame.gpuTimestampProfilerAvailable;
+    sample.gpuTimestampInitializationResult = static_cast<std::uint32_t>(
+        frame.gpuTimestampInitializationResult);
+    sample.gpuTimestampPendingFrames = static_cast<std::uint32_t>(
+        frame.gpuTimestampPendingFrames);
+    sample.gpuFrameStarted = frame.gpuTimestampBegin
+        == bafx::windows::GpuTimestampBeginStatus::Started;
+    sample.gpuFrameSubmitted = frame.gpuTimestampEnd
+        == bafx::windows::GpuTimestampEndStatus::Submitted;
+    sample.gpuPollPending = frame.gpuTimestampPoll.status
+        == bafx::windows::GpuTimestampPollStatus::Pending;
+    sample.gpuRingFullSkipped = frame.gpuTimestampBegin
+        == bafx::windows::GpuTimestampBeginStatus::RingFullSkipped;
+    sample.gpuCancelledSlotReclaimed = frame.gpuTimestampPoll.status
+        == bafx::windows::GpuTimestampPollStatus::Cancelled;
+    sample.gpuDisjointSample = frame.gpuTimestampPoll.status
+        == bafx::windows::GpuTimestampPollStatus::Disjoint;
+    sample.gpuQueryFailure = frame.gpuTimestampPoll.status
+        == bafx::windows::GpuTimestampPollStatus::QueryFailure;
+    sample.gpuStateError = frame.gpuTimestampCheckpointFailure
+        || frame.gpuTimestampBegin
+            == bafx::windows::GpuTimestampBeginStatus::AlreadyActive
+        || frame.gpuTimestampEnd
+            == bafx::windows::GpuTimestampEndStatus::IncompleteCancelled
+        || frame.gpuTimestampPoll.status
+            == bafx::windows::GpuTimestampPollStatus::ActiveFrame
+        || frame.gpuTimestampPoll.status
+            == bafx::windows::GpuTimestampPollStatus::AlreadyPolled;
+
+    if (frame.gpuTimestampPoll.sample.has_value())
+    {
+        const bafx::windows::GpuTimestampSample& gpu =
+            *frame.gpuTimestampPoll.sample;
+        sample.gpuSampleCompleted = true;
+        sample.gpuWgcDrainAndCopyMicroseconds =
+            durationMicroseconds(gpu.wgcDrainAndCopy);
+        sample.gpuBackgroundSnapshotMicroseconds =
+            durationMicroseconds(gpu.backgroundSnapshot);
+        sample.gpuFxMaterialsMicroseconds =
+            durationMicroseconds(gpu.fxMaterials);
+        sample.gpuBloomAndFinalCompositeMicroseconds =
+            durationMicroseconds(gpu.bloomAndFinalComposite);
+        sample.gpuTotalFxMicroseconds = durationMicroseconds(gpu.totalFx);
+        sample.gpuRenderCommandSpanMicroseconds =
+            durationMicroseconds(gpu.totalFrame);
+        sample.gpuWgcTimingValid = gpu.usage.wgcActive;
+        sample.gpuBackgroundSnapshotTimingValid =
+            gpu.usage.backgroundSnapshotAttempted;
+        sample.gpuFxTimingValid = gpu.usage.visualContent;
+    }
+    return sample;
 }
 
 int runApplication(
