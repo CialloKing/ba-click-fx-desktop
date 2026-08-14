@@ -300,6 +300,20 @@
       "path": "Reference/Diagnostics/Pool/FXTouch_ComponentPool_FIFO.md",
       "bytes": 2637,
       "sha256": "25A94EC8BE0A5F6F6B9470467B05596183F2573FDC69C9DDBD4EAA3830F823A0"
+    },
+    {
+      "root": "runtime",
+      "class": "RuntimeObservation",
+      "path": "Reference/Diagnostics/Input/FXTouch_LegacyInput_DownUpDown.json",
+      "bytes": 4086,
+      "sha256": "0D4F35E4B5BBF636E2F285C7BB541401C8014BB20332432CAA53CBC9F7C1B395"
+    },
+    {
+      "root": "runtime",
+      "class": "RuntimeObservation",
+      "path": "Reference/Diagnostics/Input/FXTouch_LegacyInput_DownUpDown.md",
+      "bytes": 2237,
+      "sha256": "7BF2B99E4349EB240B6C75A806511B6A60A428F75C77C64C19F978CB90277438"
     }
   ]
 }
