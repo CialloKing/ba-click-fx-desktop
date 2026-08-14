@@ -36,8 +36,13 @@
 - 支持日志 schema 2 为每条记录写入会话 ID、单调时间、序号、进程/线程、级别和事件名；当前文件达到
   8 MiB 后轮转，最多保留 `.log.1`、`.log.2`、`.log.3` 三份备份。正常运行每 10 秒写一条
   `Performance.Interval`，退出时刷新最后一个未满窗口；它包含输入队列年龄、消息/Move 收敛、WGC
-  callback/accepted、背景样本年龄、CPU 提交阶段、Present 调用和输入到 Present 返回的
-  `p50/p95/p99/max`。这些 CPU/API 时间不代表 GPU 执行或物理上屏，日志中会保留对应 semantic 字段。
+  callback/accepted、背景样本年龄、CPU 提交阶段、Present 调用、输入到 Present 返回，以及 WGC/copy、
+  背景快照、FX 材质和 Bloom/最终复合的异步 D3D11 GPU 时间戳 `p50/p95/p99/max`。GPU 分析器使用
+  固定 8 槽查询环，每个渲染帧最多无阻塞轮询一次，不调用 `Flush` 或等待查询完成；日志会另外记录
+  pending、环满跳过、disjoint、查询失败和取消回收数量。未取得 GPU 样本时相应指标保持
+  `Available=false`，不会用 `0` 伪装结果；WGC、背景快照和 FX 阶段只统计原帧实际适用的样本。
+  CPU/API 时间不代表 GPU 执行，GPU 时间戳也不包含 Present、DWM 合成、扫描输出或物理上屏；异步完成的
+  样本还可能属于较早的报告窗口，日志中会保留对应 semantic 字段。
   排障时请同时提供 `BAFX.config.json`、当前 `.log` 和仍存在的三个轮转备份。
 - WGC 只由 `background-aware` 模式使用。portable EXE 没有 package identity，也不会自行声明
   `graphicsCaptureWithoutBorder` capability。新配置默认允许 Windows 显示捕获边框；可见边框状态记录为
