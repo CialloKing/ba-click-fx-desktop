@@ -140,6 +140,48 @@ class LayerContractTests(unittest.TestCase):
         )
 
 
+class UnityParticleFixturePixelTests(unittest.TestCase):
+    def test_pixel_difference_counts_per_pixel_thresholds(self):
+        expected = VERIFY.Image8(2, 1, bytes(6))
+        actual = VERIFY.Image8(2, 1, bytes((1, 2, 3, 0, 0, 0)))
+
+        metrics = VERIFY._pixel_difference_metrics(actual, expected)
+
+        self.assertEqual(3, metrics.maximum_channel_absolute_error)
+        self.assertEqual(1.0, metrics.mean_channel_absolute_error)
+        self.assertEqual(1, metrics.pixels_over_one)
+        self.assertEqual(1, metrics.pixels_over_two)
+
+    def test_fixture_pixel_threshold_boundaries_are_locked(self):
+        boundary = VERIFY.PixelDifferenceMetrics(
+            maximum_channel_absolute_error=16,
+            mean_channel_absolute_error=0.01,
+            pixels_over_one=128,
+            pixels_over_two=64,
+        )
+        self.assertTrue(VERIFY._fixture_pixels_pass(boundary))
+
+        invalid = (
+            VERIFY.PixelDifferenceMetrics(17, 0.01, 128, 64),
+            VERIFY.PixelDifferenceMetrics(16, 0.010001, 128, 64),
+            VERIFY.PixelDifferenceMetrics(16, 0.01, 129, 64),
+            VERIFY.PixelDifferenceMetrics(16, 0.01, 128, 65),
+        )
+        for metrics in invalid:
+            with self.subTest(metrics=metrics):
+                self.assertFalse(VERIFY._fixture_pixels_pass(metrics))
+
+    def test_fixture_aggregate_tolerance_is_stricter_than_random_stream(self):
+        fixture = VERIFY._unity_particle_fixture_tolerance()
+        random_stream = VERIFY._tolerance(50)
+
+        self.assertEqual(0.02, fixture.energy_relative)
+        self.assertEqual(0.02, fixture.coverage_relative)
+        self.assertLess(fixture.centroid_distance_px, random_stream.centroid_distance_px)
+        self.assertLess(fixture.radial_histogram_l1, random_stream.radial_histogram_l1)
+        self.assertLess(fixture.chromaticity_l1, random_stream.chromaticity_l1)
+
+
 class TrailDeltaContractTests(unittest.TestCase):
     def valid_metrics(self, **overrides):
         values = {
@@ -439,6 +481,22 @@ class ManifestCaseTests(unittest.TestCase):
         ]
         return value
 
+    def fixture_manifest(self):
+        value = self.manifest((50,))
+        value["case"] = {
+            "name": "unity-particle-fixture",
+            "contractVersion": 1,
+            "scope": "capture-only-observation",
+            "sourceFixture": VERIFY.UNITY_PARTICLE_FIXTURE_REFERENCE,
+            "sourceSchema": 2,
+            "sourceSha256": VERIFY.UNITY_PARTICLE_FIXTURE_SHA256,
+            "sourceParticleCount": 7,
+            "coordinateMapping": "bottom-left-to-top-left-y-flip",
+            "colorMapping": "sRGB-to-linear-rgb-alpha-unchanged",
+            "productionRandomStream": "not-used",
+        }
+        return value
+
     @staticmethod
     def comparison_frame(name):
         return {
@@ -511,9 +569,20 @@ class ManifestCaseTests(unittest.TestCase):
         with self.assertRaises(VERIFY.ValidationError):
             self.load(manifest)
 
+    def test_unity_particle_fixture_manifest_is_accepted(self):
+        loaded = self.load(self.fixture_manifest())
+        self.assertEqual("unity-particle-fixture", loaded["case"]["name"])
+
+    def test_unity_particle_fixture_rejects_arbitrary_ages(self):
+        manifest = self.fixture_manifest()
+        manifest["ages"][0]["ageMs"] = 51
+        with self.assertRaises(VERIFY.ValidationError):
+            self.load(manifest)
+
     def test_manifest_containers_are_strictly_typed(self):
         valid_click = self.manifest(VERIFY.AGES)
         valid_drag = self.drag_manifest()
+        valid_fixture = self.fixture_manifest()
         invalid_manifests = (
             ("root", []),
             ("viewport", self.replaced(valid_click, ("viewport",), [])),
@@ -521,6 +590,7 @@ class ManifestCaseTests(unittest.TestCase):
             ("ages", self.replaced(valid_click, ("ages",), {})),
             ("age entry", self.replaced(valid_click, ("ages", 0), [])),
             ("case", self.replaced(valid_drag, ("case",), [])),
+            ("fixture case", self.replaced(valid_fixture, ("case",), [])),
             (
                 "unityReference",
                 self.replaced(valid_drag, ("case", "unityReference"), []),
@@ -550,6 +620,7 @@ class ManifestCaseTests(unittest.TestCase):
     def test_manifest_numeric_fields_reject_bool_and_string_coercion(self):
         valid_click = self.manifest(VERIFY.AGES)
         valid_drag = self.drag_manifest()
+        valid_fixture = self.fixture_manifest()
         numeric_fields = (
             (valid_click, ("schemaVersion",)),
             (valid_click, ("seed",)),
@@ -564,6 +635,9 @@ class ManifestCaseTests(unittest.TestCase):
             (valid_drag, ("case", "movementSteps")),
             (valid_drag, ("case", "trailOnlyPixels")),
             (valid_drag, ("case", "contractVersion")),
+            (valid_fixture, ("case", "contractVersion")),
+            (valid_fixture, ("case", "sourceSchema")),
+            (valid_fixture, ("case", "sourceParticleCount")),
             (valid_drag, ("ages", 0, "comparisonFrames", 0, "width")),
             (valid_drag, ("ages", 0, "comparisonFrames", 0, "height")),
             (valid_drag, ("ages", 0, "comparisonFrames", 0, "rawBytes")),
@@ -621,6 +695,7 @@ class ManifestCaseTests(unittest.TestCase):
     def test_required_manifest_fields_cannot_be_omitted(self):
         valid_click = self.manifest(VERIFY.AGES)
         valid_drag = self.drag_manifest()
+        valid_fixture = self.fixture_manifest()
         required_fields = (
             (valid_click, ("schemaVersion",)),
             (valid_click, ("driver",)),
@@ -653,6 +728,16 @@ class ManifestCaseTests(unittest.TestCase):
                 valid_drag,
                 ("ages", 0, "comparisonFrames", 0, "alphaSemantic"),
             ),
+            (valid_fixture, ("case", "name")),
+            (valid_fixture, ("case", "contractVersion")),
+            (valid_fixture, ("case", "scope")),
+            (valid_fixture, ("case", "sourceFixture")),
+            (valid_fixture, ("case", "sourceSchema")),
+            (valid_fixture, ("case", "sourceSha256")),
+            (valid_fixture, ("case", "sourceParticleCount")),
+            (valid_fixture, ("case", "coordinateMapping")),
+            (valid_fixture, ("case", "colorMapping")),
+            (valid_fixture, ("case", "productionRandomStream")),
         )
         for manifest, path in required_fields:
             with self.subTest(field=path):
@@ -671,6 +756,24 @@ class ManifestCaseTests(unittest.TestCase):
             (("case", "unityReference", "withTrail"), "wrong.png"),
             (("case", "unityReference", "noTrail"), "wrong.png"),
             (("case", "unityReference", "trailOnly"), "wrong.png"),
+        )
+        for path, replacement in invalid_values:
+            with self.subTest(field=path):
+                with self.assertRaises(VERIFY.ValidationError):
+                    self.load(self.replaced(valid, path, replacement))
+
+    def test_unity_particle_fixture_fields_are_exact(self):
+        valid = self.fixture_manifest()
+        invalid_values = (
+            (("case", "contractVersion"), 2),
+            (("case", "scope"), "production"),
+            (("case", "sourceFixture"), "wrong.json"),
+            (("case", "sourceSchema"), 1),
+            (("case", "sourceSha256"), "0" * 64),
+            (("case", "sourceParticleCount"), 6),
+            (("case", "coordinateMapping"), "unchanged"),
+            (("case", "colorMapping"), "gamma"),
+            (("case", "productionRandomStream"), "used"),
         )
         for path, replacement in invalid_values:
             with self.subTest(field=path):

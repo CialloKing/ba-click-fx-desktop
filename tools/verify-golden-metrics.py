@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Compare the native ten-slice capture with the Unity visual reference.
+"""Compare native GPU captures with the Unity visual reference.
 
-The comparison deliberately ignores individual particle coordinates.  Unity and
-the native simulator use different random streams, so aggregate display energy,
-coverage, centroid distance from the click, and a coarse radial histogram are
-the stable cross-implementation contract.  Optional FP16 checks validate the
-native layer graph without treating a PNG hash as numerical evidence.
+The normal click comparison deliberately ignores individual particle
+coordinates because Unity and the native simulator use different random
+streams.  The unity-particle-fixture case instead renders Unity's observed
+particles and adds a strict per-pixel comparison.  Optional FP16 checks validate
+the native layer graph without treating a PNG hash as numerical evidence.
 
 The script uses only Python's standard library.  It reads files and writes
 nothing unless the caller redirects stdout.
@@ -67,6 +67,16 @@ DRAG_NO_TRAIL_REFERENCE = (
 TRAIL_ONLY_REFERENCE = (
     "Reference/Diagnostics/Trail/FX_Touch_0140ms_TrailOnly_20px.png"
 )
+UNITY_PARTICLE_FIXTURE_REFERENCE = (
+    "Reference/Diagnostics/ParticleStates/FX_Touch_0050ms_particle-state-v2.json"
+)
+UNITY_PARTICLE_FIXTURE_SHA256 = (
+    "1BECBED5019111D8C0F1D9D9A3808B72DF9586E55B960A1DF30DBE4438BECCCD"
+)
+UNITY_PARTICLE_FIXTURE_PIXEL_MAX_ABSOLUTE = 16
+UNITY_PARTICLE_FIXTURE_PIXEL_MEAN_ABSOLUTE = 0.01
+UNITY_PARTICLE_FIXTURE_PIXELS_OVER_ONE = 128
+UNITY_PARTICLE_FIXTURE_PIXELS_OVER_TWO = 64
 FINAL_ONLY_LAYER_NAMES = frozenset(("FinalOverlay",))
 LAYER_ALPHA_SEMANTICS = {
     "DirectSurface": "authored-coverage-union",
@@ -190,6 +200,14 @@ class Tolerance:
 
 
 @dataclass(frozen=True)
+class PixelDifferenceMetrics:
+    maximum_channel_absolute_error: int
+    mean_channel_absolute_error: float
+    pixels_over_one: int
+    pixels_over_two: int
+
+
+@dataclass(frozen=True)
 class LayerMetrics:
     finite: bool
     non_negative_rgb: bool
@@ -253,6 +271,8 @@ class SliceResult:
     passed_display: bool
     layers: LayerMetrics | None
     passed_layers: bool | None
+    pixel_difference: PixelDifferenceMetrics | None
+    passed_pixels: bool | None
 
 
 def _srgb_to_linear_byte() -> tuple[float, ...]:
@@ -566,6 +586,47 @@ def _display_metrics(image: Image8) -> DisplayMetrics:
         centroid_distance_px=distance,
         radial_rms_fraction=radial_rms,
         radial_histogram=histogram,
+    )
+
+
+def _pixel_difference_metrics(
+    actual: Image8,
+    expected: Image8,
+) -> PixelDifferenceMetrics:
+    if (actual.width, actual.height) != (expected.width, expected.height):
+        raise ValidationError("pixel comparison dimensions differ")
+
+    maximum = 0
+    absolute_sum = 0
+    pixels_over_one = 0
+    pixels_over_two = 0
+    for offset in range(0, len(actual.rgb), 3):
+        pixel_maximum = 0
+        for channel in range(3):
+            error = abs(actual.rgb[offset + channel] - expected.rgb[offset + channel])
+            maximum = max(maximum, error)
+            pixel_maximum = max(pixel_maximum, error)
+            absolute_sum += error
+        if pixel_maximum > 1:
+            pixels_over_one += 1
+        if pixel_maximum > 2:
+            pixels_over_two += 1
+    return PixelDifferenceMetrics(
+        maximum_channel_absolute_error=maximum,
+        mean_channel_absolute_error=absolute_sum / len(actual.rgb),
+        pixels_over_one=pixels_over_one,
+        pixels_over_two=pixels_over_two,
+    )
+
+
+def _fixture_pixels_pass(metrics: PixelDifferenceMetrics) -> bool:
+    return (
+        metrics.maximum_channel_absolute_error
+        <= UNITY_PARTICLE_FIXTURE_PIXEL_MAX_ABSOLUTE
+        and metrics.mean_channel_absolute_error
+        <= UNITY_PARTICLE_FIXTURE_PIXEL_MEAN_ABSOLUTE
+        and metrics.pixels_over_one <= UNITY_PARTICLE_FIXTURE_PIXELS_OVER_ONE
+        and metrics.pixels_over_two <= UNITY_PARTICLE_FIXTURE_PIXELS_OVER_TWO
     )
 
 
@@ -968,6 +1029,10 @@ def _tolerance(age_ms: int) -> Tolerance:
     return Tolerance(0.40, 0.35, 96.0, 0.25, 0.16)
 
 
+def _unity_particle_fixture_tolerance() -> Tolerance:
+    return Tolerance(0.02, 0.02, 0.25, 0.02, 0.01)
+
+
 def _find_age_directory(root: Path, age_ms: int) -> Path:
     directory = root / f"{age_ms:04d}ms"
     if not directory.is_dir():
@@ -1128,6 +1193,49 @@ def _validate_drag_manifest(root: Path, manifest: dict, age_record: dict) -> Non
         )
 
 
+def _validate_unity_particle_fixture_manifest(manifest: dict) -> None:
+    case = _require_object(manifest["case"], "native manifest case")
+    _require_exact_int(case, "contractVersion", 1, "native manifest case")
+    _require_string(
+        case,
+        "scope",
+        "capture-only-observation",
+        "native manifest case",
+    )
+    _require_string(
+        case,
+        "sourceFixture",
+        UNITY_PARTICLE_FIXTURE_REFERENCE,
+        "native manifest case",
+    )
+    _require_exact_int(case, "sourceSchema", 2, "native manifest case")
+    _require_string(
+        case,
+        "sourceSha256",
+        UNITY_PARTICLE_FIXTURE_SHA256,
+        "native manifest case",
+    )
+    _require_exact_int(case, "sourceParticleCount", 7, "native manifest case")
+    _require_string(
+        case,
+        "coordinateMapping",
+        "bottom-left-to-top-left-y-flip",
+        "native manifest case",
+    )
+    _require_string(
+        case,
+        "colorMapping",
+        "sRGB-to-linear-rgb-alpha-unchanged",
+        "native manifest case",
+    )
+    _require_string(
+        case,
+        "productionRandomStream",
+        "not-used",
+        "native manifest case",
+    )
+
+
 def _load_manifest(root: Path) -> dict:
     path = root / "manifest.json"
     if not path.is_file():
@@ -1179,7 +1287,7 @@ def _load_manifest(root: Path) -> dict:
         if type(case_name_value) is not str:
             raise ValidationError("native manifest case.name must be a string")
         case_name = case_name_value
-    if case_name not in ("click", "drag-trail"):
+    if case_name not in ("click", "drag-trail", "unity-particle-fixture"):
         raise ValidationError(f"native manifest case is unsupported: {case_name}")
 
     ages = _require_list(manifest.get("ages"), "native manifest ages")
@@ -1204,7 +1312,11 @@ def _load_manifest(root: Path) -> dict:
             )
         age_records.append(age_record)
         manifest_ages.append(age)
-    required_ages = AGES if case_name == "click" else (140,)
+    required_ages = {
+        "click": AGES,
+        "drag-trail": (140,),
+        "unity-particle-fixture": (50,),
+    }[case_name]
     if sorted(manifest_ages) != list(required_ages):
         raise ValidationError(
             f"native {case_name} manifest must contain each locked age exactly once: "
@@ -1212,6 +1324,8 @@ def _load_manifest(root: Path) -> dict:
         )
     if case_name == "drag-trail":
         _validate_drag_manifest(root, manifest, age_records[0])
+    elif case_name == "unity-particle-fixture":
+        _validate_unity_particle_fixture_manifest(manifest)
     return manifest
 
 
@@ -1294,13 +1408,19 @@ def _compare_drag_case(
 def _compare_slice(age_ms: int, unity_root: Path, native_root: Path, check_layers: bool, manifest: dict) -> SliceResult:
     golden_path = unity_root / f"FX_Touch_{age_ms:04d}ms.png"
     native_directory = _find_age_directory(native_root, age_ms)
-    golden = _display_metrics(_read_png(golden_path))
-    native = _display_metrics(
-        _read_bound_preview(native_directory, "FinalOverlay")
-    )
+    golden_image = _read_png(golden_path)
+    native_image = _read_bound_preview(native_directory, "FinalOverlay")
+    golden = _display_metrics(golden_image)
+    native = _display_metrics(native_image)
     if (golden.width, golden.height) != (native.width, native.height):
         raise ValidationError(f"{age_ms}ms: Golden/native dimensions differ")
-    tolerance = _tolerance(age_ms)
+    case_name = manifest.get("case", {}).get("name", "click")
+    fixture_case = case_name == "unity-particle-fixture"
+    tolerance = (
+        _unity_particle_fixture_tolerance()
+        if fixture_case
+        else _tolerance(age_ms)
+    )
     energy_error = _relative_error(native.display_energy, golden.display_energy)
     coverage_error = _relative_error(native.coverage_pixels, golden.coverage_pixels)
     centroid_error = abs(native.centroid_distance_px - golden.centroid_distance_px)
@@ -1330,6 +1450,11 @@ def _compare_slice(age_ms: int, unity_root: Path, native_root: Path, check_layer
         layer_info = {entry["name"]: entry for entry in age_record.get("layers", [])}
         layers = _layer_metrics(native_directory, layer_info)
         passed_layers = not _layer_contract_failures(layers)
+    pixel_difference = None
+    passed_pixels = None
+    if fixture_case:
+        pixel_difference = _pixel_difference_metrics(native_image, golden_image)
+        passed_pixels = _fixture_pixels_pass(pixel_difference)
     return SliceResult(
         age_ms=age_ms,
         golden=golden,
@@ -1343,6 +1468,8 @@ def _compare_slice(age_ms: int, unity_root: Path, native_root: Path, check_layer
         passed_display=passed_display,
         layers=layers,
         passed_layers=passed_layers,
+        pixel_difference=pixel_difference,
+        passed_pixels=passed_pixels,
     )
 
 
@@ -1356,8 +1483,12 @@ def _default_unity_root() -> Path:
 
 
 def _format_result(result: SliceResult) -> str:
-    status = "PASS" if result.passed_display and (result.passed_layers is not False) else "FAIL"
-    return (
+    status = "PASS" if (
+        result.passed_display
+        and result.passed_layers is not False
+        and result.passed_pixels is not False
+    ) else "FAIL"
+    text = (
         f"{status} {result.age_ms:04d}ms "
         f"energy={result.native.display_energy}/{result.golden.display_energy} "
         f"({result.energy_relative_error:.1%}) "
@@ -1367,6 +1498,15 @@ def _format_result(result: SliceResult) -> str:
         f"radialL1={result.radial_histogram_l1:.3f} "
         f"chromaL1={result.chromaticity_l1:.3f}"
     )
+    if result.pixel_difference is not None:
+        pixel = result.pixel_difference
+        text += (
+            f" pixelMax={pixel.maximum_channel_absolute_error} "
+            f"pixelMean={pixel.mean_channel_absolute_error:.6f} "
+            f"pixels>1={pixel.pixels_over_one} "
+            f"pixels>2={pixel.pixels_over_two}"
+        )
+    return text
 
 
 def _format_trail_result(label: str, result: TrailDeltaResult) -> str:
@@ -1394,6 +1534,11 @@ def _threshold_failures(
             details = "; ".join(_layer_contract_failures(result.layers))
             failures.append(
                 f"layer threshold failure at {result.age_ms}ms: {details}"
+            )
+        if result.passed_pixels is False:
+            failures.append(
+                f"pixel threshold failure at {result.age_ms}ms: "
+                f"{result.pixel_difference}"
             )
     if drag_result is not None:
         failures.extend(
@@ -1512,7 +1657,7 @@ def main(argv: list[str] | None = None) -> int:
                 for age in AGES
             ]
             drag_result = None
-        else:
+        elif case_name == "drag-trail":
             results = []
             drag_result = _compare_drag_case(
                 unity_root,
@@ -1520,6 +1665,11 @@ def main(argv: list[str] | None = None) -> int:
                 check_layers,
                 manifest,
             )
+        else:
+            results = [
+                _compare_slice(50, unity_root, native_root, check_layers, manifest)
+            ]
+            drag_result = None
     except ValidationError as error:
         if args.json:
             _write_json(_json_report(

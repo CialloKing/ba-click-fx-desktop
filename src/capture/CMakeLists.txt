@@ -65,6 +65,7 @@ if(BUILD_TESTING)
             ba_fx_gpu_capture
             "--output=${CMAKE_CURRENT_BINARY_DIR}/ctest-unity-particle-fixture-output"
             --case=unity-particle-fixture
+            --all-layers
             --revision=ctest
     )
     set_tests_properties(
