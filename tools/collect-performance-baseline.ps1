@@ -25,10 +25,11 @@ $ErrorActionPreference = 'Stop'
 $hostName = 'ba-click-fx-desktop.exe'
 $configName = 'BAFX.config.json'
 $logName = 'ba-click-fx-desktop-support.log'
-$scenarioId = 'p0-static-click-message-pressure-v2'
+$scenarioId = 'p0-static-click-message-pressure-v3'
 $demoAgeMilliseconds = 130
 $demoDelayMilliseconds = 50
-$messageIntervalMilliseconds = 5
+$messageBatchSize = 5
+$messageBatchIntervalMilliseconds = 25
 $pressureMessageId = 0x80B0
 
 function Get-FullPath
@@ -269,11 +270,13 @@ function Invoke-ModeCapture
                 throw "PostThreadMessage failed at $index with Win32 error $errorCode"
             }
             ++$postedMessages
-            if ($index + 1 -lt $MessageCount)
+            $batchComplete = ($index + 1) % $script:messageBatchSize -eq 0
+            $moreMessagesRemain = $index + 1 -lt $MessageCount
+            if ($batchComplete -and $moreMessagesRemain)
             {
-                # Pace the pressure below the bounded dispatch budget. The
-                # scenario exercises message wakes, not artificial overflow.
-                Start-Sleep -Milliseconds $script:messageIntervalMilliseconds
+                # Small batches avoid both PowerShell's sub-tick sleep drift
+                # and the Host's bounded dispatch overflow path.
+                Start-Sleep -Milliseconds $script:messageBatchIntervalMilliseconds
             }
         }
 
@@ -389,7 +392,8 @@ $manifest = [ordered]@{
     demoAgeMs = $demoAgeMilliseconds
     demoDelayMs = $demoDelayMilliseconds
     messageCount = $MessageCount
-    messageIntervalMs = $messageIntervalMilliseconds
+    messageBatchSize = $messageBatchSize
+    messageBatchIntervalMs = $messageBatchIntervalMilliseconds
     rawInputRegistration = 'disabled'
     readyTimeoutMs = $ReadyTimeoutMilliseconds
     processTimeoutMs = $ProcessTimeoutMilliseconds

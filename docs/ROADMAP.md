@@ -30,7 +30,7 @@
 输入积压、WGC、copy、Bloom 还是 Present。没有基线数据时，不凭主观卡顿直接选择优化点。
 
 当前配对采集入口先给 WGC `50 ms` acquire 预热，再固定一个 `130 ms` 点击时间片，并在同一完整
-10 秒性能窗内每 `5 ms` 投递一条无害线程消息：
+10 秒性能窗内每 `25 ms` 投递一批 5 条无害线程消息：
 
 ```powershell
 pwsh -NoProfile -File tools/collect-performance-baseline.ps1 `

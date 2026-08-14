@@ -18,7 +18,7 @@ from typing import Any
 
 
 EXPECTED_SCHEMA = 1
-EXPECTED_SCENARIO = "p0-static-click-message-pressure-v2"
+EXPECTED_SCENARIO = "p0-static-click-message-pressure-v3"
 MODE_DIRECTORIES = ("fx-only", "background-aware")
 EXPECTED_BACKGROUND_MODES = {
     "fx-only": "recording-compatible",
@@ -244,8 +244,10 @@ def _validate_manifest(manifest: dict[str, Any]) -> tuple[int, int]:
     if _manifest_integer(manifest, "demoDelayMs") != 50:
         raise ValidationError("manifest demoDelayMs must be 50")
     message_count = _manifest_integer(manifest, "messageCount")
-    if _manifest_integer(manifest, "messageIntervalMs") != 5:
-        raise ValidationError("manifest messageIntervalMs must be 5")
+    if _manifest_integer(manifest, "messageBatchSize") != 5:
+        raise ValidationError("manifest messageBatchSize must be 5")
+    if _manifest_integer(manifest, "messageBatchIntervalMs") != 25:
+        raise ValidationError("manifest messageBatchIntervalMs must be 25")
     if manifest.get("rawInputRegistration") != "disabled":
         raise ValidationError("manifest rawInputRegistration must be disabled")
     if duration_ms < 10_000:
@@ -512,7 +514,8 @@ def build_report(root: Path) -> dict[str, Any]:
         "demoAgeMs": manifest["demoAgeMs"],
         "demoDelayMs": manifest["demoDelayMs"],
         "messageCount": message_count,
-        "messageIntervalMs": manifest["messageIntervalMs"],
+        "messageBatchSize": manifest["messageBatchSize"],
+        "messageBatchIntervalMs": manifest["messageBatchIntervalMs"],
         "identity": {
             key: (
                 evidence["fx-only"].interval.get(key)
@@ -551,8 +554,9 @@ def render_markdown(report: dict[str, Any]) -> str:
         f"- Captured at: `{report['capturedAtUtc']}`",
         f"- Workload: fixed {report['demoAgeMs']} ms click after "
         f"{report['demoDelayMs']} ms WGC warm-up, {report['durationMs']} ms",
-        f"- Message pressure: {report['messageCount']} harmless thread messages "
-        f"at {report['messageIntervalMs']} ms intervals",
+        f"- Message pressure: {report['messageCount']} harmless thread messages, "
+        f"{report['messageBatchSize']} per batch every "
+        f"{report['messageBatchIntervalMs']} ms",
         f"- Adapter: `{identity['Graphics.Adapter']}`",
         f"- Driver: `{identity['Graphics.DriverVersion']}`",
         f"- Output: `{identity['Output.Width']}x{identity['Output.Height']}`",

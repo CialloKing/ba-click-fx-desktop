@@ -104,7 +104,7 @@ class CaptureFixture:
         self.intervals: dict[str, dict[str, object]] = {}
         manifest = {
             "schemaVersion": 1,
-            "scenarioId": "p0-static-click-message-pressure-v2",
+            "scenarioId": "p0-static-click-message-pressure-v3",
             "captureStatus": "captured",
             "revision": "0123456789abcdef0123456789abcdef01234567",
             "workingTreeDirty": False,
@@ -114,7 +114,8 @@ class CaptureFixture:
             "demoAgeMs": 130,
             "demoDelayMs": 50,
             "messageCount": 705,
-            "messageIntervalMs": 5,
+            "messageBatchSize": 5,
+            "messageBatchIntervalMs": 25,
             "rawInputRegistration": "disabled",
             "modes": {},
         }
