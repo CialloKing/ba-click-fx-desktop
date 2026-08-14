@@ -44,6 +44,7 @@ constexpr std::size_t maximumMessagesPerPump = 256U;
 constexpr bafx::windows::WindowSize initialWindowSize{320U, 240U};
 constexpr bafx::windows::WindowSize resizedWindowSize{480U, 300U};
 constexpr bafx::windows::WindowSize restartWindowSize{360U, 220U};
+std::string latestPhase{"startup"};
 
 struct ProbeOptions
 {
@@ -296,6 +297,7 @@ private:
 
 void reportPhase(const std::string_view phase)
 {
+    latestPhase.assign(phase);
     // std::endl is intentional: the final phase must survive a watchdog kill.
     std::cerr << "SPK-002 lifecycle phase: " << phase << std::endl;
 }
@@ -617,6 +619,7 @@ void waitForStopped(
 [[nodiscard]] ResizeCloseCapture collectResizeClose(
     DeviceResources& device,
     ControlledCaptureWindow& window,
+    const std::shared_ptr<bafx::windows::WgcBackgroundResourceLedger>& ledger,
     Deadline& deadline)
 {
     ResizeCloseCapture capture{};
@@ -625,9 +628,6 @@ void waitForStopped(
         initialWindowSize,
         std::nullopt,
         std::nullopt});
-    const auto ledger =
-        std::make_shared<bafx::windows::WgcBackgroundResourceLedger>();
-
     reportPhase("resize-close.sensor-create.begin");
     {
         bafx::windows::WgcBackgroundSensor sensor(
@@ -717,6 +717,7 @@ void waitForStopped(
 [[nodiscard]] RestartStopCapture collectRestartStop(
     DeviceResources& device,
     ControlledCaptureWindow& window,
+    const std::shared_ptr<bafx::windows::WgcBackgroundResourceLedger>& ledger,
     Deadline& deadline)
 {
     RestartStopCapture capture{};
@@ -725,9 +726,6 @@ void waitForStopped(
         restartWindowSize,
         std::nullopt,
         std::nullopt});
-    const auto ledger =
-        std::make_shared<bafx::windows::WgcBackgroundResourceLedger>();
-
     reportPhase("restart.sensor-create.begin");
     {
         bafx::windows::WgcBackgroundSensor sensor(
@@ -1115,6 +1113,52 @@ void requireBalancedLedger(
     }
 }
 
+void writeFailureDocument(
+    const ProbeOptions& options,
+    const std::string_view error,
+    const bafx::windows::WgcBackgroundResourceLedgerSnapshot& resizeLedger,
+    const bafx::windows::WgcBackgroundResourceLedgerSnapshot& restartLedger)
+{
+    std::filesystem::create_directories(options.outputDirectory);
+    const std::filesystem::path finalPath =
+        options.outputDirectory / L"failure.json";
+    const std::filesystem::path temporaryPath =
+        options.outputDirectory / L"failure.json.tmp";
+    std::ofstream stream(temporaryPath, std::ios::binary | std::ios::trunc);
+    if (!stream)
+    {
+        throw std::runtime_error("Unable to create WGC lifecycle failure evidence");
+    }
+    stream << "{\n"
+           << "  \"schemaVersion\": 1,\n"
+           << "  \"spikeId\": \"SPK-002-LIFECYCLE\",\n"
+           << "  \"revision\": ";
+    writeJsonString(stream, options.revision);
+    stream << ",\n  \"phase\": ";
+    writeJsonString(stream, latestPhase);
+    stream << ",\n  \"error\": ";
+    writeJsonString(stream, error);
+    stream << ",\n  \"ledgers\": {\"resizeClose\": ";
+    writeLedger(stream, resizeLedger);
+    stream << ", \"restartStop\": ";
+    writeLedger(stream, restartLedger);
+    stream << "}\n}\n";
+    stream.flush();
+    if (!stream)
+    {
+        throw std::runtime_error("Unable to write WGC lifecycle failure evidence");
+    }
+    stream.close();
+    if (!MoveFileExW(
+            temporaryPath.c_str(),
+            finalPath.c_str(),
+            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
+    {
+        bafx::windows::throwLastError(
+            "MoveFileExW(WGC lifecycle failure evidence)");
+    }
+}
+
 int run(const ProbeOptions& options)
 {
     if (options.help)
@@ -1127,55 +1171,81 @@ int run(const ProbeOptions& options)
 
     ProcessWatchdog watchdog(
         options.timeoutMilliseconds + watchdogGraceMilliseconds);
-    ComApartment apartment{};
-    Deadline deadline(std::chrono::milliseconds(options.timeoutMilliseconds));
-    enablePerMonitorDpiAwareness();
+    const auto resizeLedger =
+        std::make_shared<bafx::windows::WgcBackgroundResourceLedger>();
+    const auto restartLedger =
+        std::make_shared<bafx::windows::WgcBackgroundResourceLedger>();
+    try
+    {
+        ComApartment apartment{};
+        Deadline deadline(std::chrono::milliseconds(options.timeoutMilliseconds));
+        enablePerMonitorDpiAwareness();
 
-    reportPhase("device-create.begin");
-    DeviceResources device = createHardwareDevice();
-    reportPhase("device-create.end");
+        reportPhase("device-create.begin");
+        DeviceResources device = createHardwareDevice();
+        reportPhase("device-create.end");
 
-    CaptureDocument document{};
-    document.options = options;
-    document.capturedAtUtc = utcTimestamp();
-    document.device = device;
-    // Create both targets up front so Windows cannot recycle the HWND closed
-    // by the first scenario while WGC is still retiring its capture item.
-    ControlledCaptureWindow restartWindow(
-        restartWindowSize,
-        RGB(160, 72, 48));
-    ControlledCaptureWindow resizeWindow(
-        initialWindowSize,
-        RGB(32, 96, 160));
-    reportPhase("targets-dwm-ready.begin");
-    pumpMessages(deadline);
-    bafx::windows::throwIfFailed(
-        DwmFlush(),
-        "DwmFlush(WGC lifecycle targets)");
-    pumpMessages(deadline);
-    reportPhase("targets-dwm-ready.end");
-    document.resizeClose = collectResizeClose(
-        device,
-        resizeWindow,
-        deadline);
-    document.restartStop = collectRestartStop(
-        device,
-        restartWindow,
-        deadline);
+        CaptureDocument document{};
+        document.options = options;
+        document.capturedAtUtc = utcTimestamp();
+        document.device = device;
+        // Create both targets up front so Windows cannot recycle the HWND closed
+        // by the first scenario while WGC is still retiring its capture item.
+        ControlledCaptureWindow restartWindow(
+            restartWindowSize,
+            RGB(160, 72, 48));
+        ControlledCaptureWindow resizeWindow(
+            initialWindowSize,
+            RGB(32, 96, 160));
+        reportPhase("targets-dwm-ready.begin");
+        pumpMessages(deadline);
+        bafx::windows::throwIfFailed(
+            DwmFlush(),
+            "DwmFlush(WGC lifecycle targets)");
+        pumpMessages(deadline);
+        reportPhase("targets-dwm-ready.end");
+        document.resizeClose = collectResizeClose(
+            device,
+            resizeWindow,
+            resizeLedger,
+            deadline);
+        document.restartStop = collectRestartStop(
+            device,
+            restartWindow,
+            restartLedger,
+            deadline);
 
-    reportPhase("artifact-write.begin");
-    writeCaptureDocument(options.outputDirectory, document);
-    reportPhase("artifact-write.end");
-    requireBalancedLedger(
-        "resize-close",
-        document.resizeClose.ledger);
-    requireBalancedLedger(
-        "restart-stop",
-        document.restartStop.ledger);
-    std::wcout << L"Wrote SPK-002 lifecycle capture: "
-               << (options.outputDirectory / L"lifecycle.json").wstring()
-               << L'\n';
-    return 0;
+        reportPhase("artifact-write.begin");
+        writeCaptureDocument(options.outputDirectory, document);
+        reportPhase("artifact-write.end");
+        requireBalancedLedger(
+            "resize-close",
+            document.resizeClose.ledger);
+        requireBalancedLedger(
+            "restart-stop",
+            document.restartStop.ledger);
+        std::wcout << L"Wrote SPK-002 lifecycle capture: "
+                   << (options.outputDirectory / L"lifecycle.json").wstring()
+                   << L'\n';
+        return 0;
+    }
+    catch (const std::exception& error)
+    {
+        try
+        {
+            writeFailureDocument(
+                options,
+                error.what(),
+                resizeLedger->snapshot(),
+                restartLedger->snapshot());
+        }
+        catch (const std::exception& writeError)
+        {
+            std::cerr << "Unable to write lifecycle failure evidence: "
+                      << writeError.what() << '\n';
+        }
+        throw;
+    }
 }
 
 }
