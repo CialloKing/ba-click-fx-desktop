@@ -6,6 +6,7 @@ add_library(
         src/composition_renderer.cpp
         src/display_capabilities.cpp
         src/fx_gpu_renderer.cpp
+        src/gpu_timestamp_profiler.cpp
         src/gpu_texture_readback.cpp
         src/ipc.cpp
         src/ipc_client.cpp
