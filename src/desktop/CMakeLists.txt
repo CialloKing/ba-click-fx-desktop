@@ -42,6 +42,7 @@ add_executable(
         background_capture_runtime.cpp
         host_control.cpp
         main.cpp
+        performance_logging.cpp
         "${BAFX_DESKTOP_GENERATED_DIR}/ba-click-fx-desktop.manifest"
         "${BAFX_DESKTOP_GENERATED_DIR}/ba-click-fx-desktop.rc"
 )

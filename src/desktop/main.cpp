@@ -11,6 +11,8 @@
 #include "bafx/windows/runtime_diagnostics.hpp"
 #include "background_capture_runtime.hpp"
 #include "host_control.hpp"
+#include "performance_logging.hpp"
+#include "performance_window.hpp"
 #include "pointer_frame_dispatch.hpp"
 
 #include <windows.h>
@@ -35,6 +37,7 @@ namespace
 constexpr std::uint32_t maximumMessagesPerFrame = 256U;
 constexpr std::uint32_t maximumInputMessagesPerFrame = 4096U;
 constexpr auto smokeTestDeadline = std::chrono::seconds(5);
+constexpr auto performanceReportInterval = std::chrono::seconds(10);
 constexpr DWORD pausedControlPollMilliseconds = 50U;
 
 [[nodiscard]] std::string_view backgroundCompositeStatusName(
@@ -203,6 +206,26 @@ struct MonitorSelection
     RECT bounds{};
 };
 
+struct MessageDispatchDiagnostics
+{
+    std::uint32_t inputMessages{0U};
+    std::uint32_t otherMessages{0U};
+    bool inputBudgetExhausted{false};
+    bool otherBudgetExhausted{false};
+};
+
+struct PointerLatencyOrigin
+{
+    std::int64_t dispatchQpc{0};
+    std::uint32_t messageTimeMilliseconds{0U};
+    bool messageTimeValid{false};
+};
+
+struct PointerConsumptionDiagnostics
+{
+    std::vector<PointerLatencyOrigin> acceptedDowns{};
+};
+
 [[nodiscard]] RunOptions parseOptions()
 {
     RunOptions options{};
@@ -282,8 +305,9 @@ struct MonitorSelection
     return MonitorSelection{monitor, information.rcMonitor};
 }
 
-void dispatchMessages(bool& quit)
+[[nodiscard]] MessageDispatchDiagnostics dispatchMessages(bool& quit)
 {
+    MessageDispatchDiagnostics diagnostics{};
     MSG message{};
     std::uint32_t inputDispatched = 0U;
     while (inputDispatched < maximumInputMessagesPerFrame
@@ -298,6 +322,16 @@ void dispatchMessages(bool& quit)
         DispatchMessageW(&message);
         ++inputDispatched;
     }
+    diagnostics.inputMessages = inputDispatched;
+    if (inputDispatched == maximumInputMessagesPerFrame)
+    {
+        diagnostics.inputBudgetExhausted = PeekMessageW(
+            &message,
+            nullptr,
+            WM_INPUT,
+            WM_INPUT,
+            PM_NOREMOVE) != FALSE;
+    }
 
     std::uint32_t dispatched = 0U;
     while (dispatched < maximumMessagesPerFrame
@@ -306,12 +340,24 @@ void dispatchMessages(bool& quit)
         if (message.message == WM_QUIT)
         {
             quit = true;
-            return;
+            diagnostics.otherMessages = dispatched;
+            return diagnostics;
         }
         TranslateMessage(&message);
         DispatchMessageW(&message);
         ++dispatched;
     }
+    diagnostics.otherMessages = dispatched;
+    if (dispatched == maximumMessagesPerFrame)
+    {
+        diagnostics.otherBudgetExhausted = PeekMessageW(
+            &message,
+            nullptr,
+            0U,
+            0U,
+            PM_NOREMOVE) != FALSE;
+    }
+    return diagnostics;
 }
 
 [[nodiscard]] bafx::fx::Viewport toViewport(const bafx::windows::WindowSize size) noexcept
@@ -340,12 +386,13 @@ void dispatchMessages(bool& quit)
         std::clamp(position.y, 0L, maximumY)};
 }
 
-void consumePointerEvents(
+[[nodiscard]] PointerConsumptionDiagnostics consumePointerEvents(
     bafx::windows::OverlayWindow& window,
     bafx::fx::SimulationRuntime& simulation,
     bafx::windows::PointerFrameAdapter& frameAdapter,
     const QpcClock& clock,
-    const bafx::fx::SimulationTime frameTime)
+    const bafx::fx::SimulationTime frameTime,
+    const std::vector<bafx::windows::PointerEvent>& events)
 {
     using bafx::desktop::PointerFrameDispatch;
     using bafx::desktop::PointerFramePosition;
@@ -355,11 +402,11 @@ void consumePointerEvents(
     using bafx::windows::PointerEventKind;
 
     const bafx::fx::Viewport viewport = toViewport(window.size());
-    const std::vector<bafx::windows::PointerEvent> events =
-        bafx::windows::coalescePointerMoves(window.takePointerEvents());
     const bafx::windows::PointerFrameSnapshot frame =
         frameAdapter.consume(events);
     PointerFrameDispatch dispatch{};
+    PointerConsumptionDiagnostics diagnostics{};
+    diagnostics.acceptedDowns.reserve(frame.edges.size());
 
     for (const bafx::windows::PointerFrameEdge& edge : frame.edges)
     {
@@ -393,6 +440,14 @@ void consumePointerEvents(
         bafx::desktop::mergePointerFrameTransition(
             dispatch.buttons,
             transition);
+        if (edge.kind == PointerEventKind::LeftButtonDown
+            && transition.acceptDown)
+        {
+            diagnostics.acceptedDowns.push_back(PointerLatencyOrigin{
+                edge.trigger.qpcTimestamp,
+                edge.trigger.messageTimeMilliseconds,
+                edge.trigger.messageTimeValid});
+        }
     }
 
     dispatch.buttons.held = frame.heldAfter;
@@ -462,6 +517,48 @@ void consumePointerEvents(
         viewport,
         frameTime,
         dispatch);
+    return diagnostics;
+}
+
+[[nodiscard]] std::uint64_t durationMicroseconds(
+    const std::chrono::nanoseconds duration) noexcept
+{
+    if (duration <= std::chrono::nanoseconds::zero())
+    {
+        return 0U;
+    }
+    return static_cast<std::uint64_t>(
+        std::chrono::duration_cast<std::chrono::microseconds>(duration).count());
+}
+
+[[nodiscard]] bafx::desktop::FramePerformanceSample framePerformanceSample(
+    const bafx::windows::CompositionFrameDiagnostics& frame,
+    const std::uint64_t wgcProducerCallbacks,
+    const bool diagnosticReadbackUsed) noexcept
+{
+    return bafx::desktop::FramePerformanceSample{
+        durationMicroseconds(frame.frameTotalCpu),
+        durationMicroseconds(frame.wgcDrainInclusiveCpu),
+        durationMicroseconds(frame.wgc.ownedCopySubmitCpu),
+        durationMicroseconds(frame.backgroundSnapshotSubmitCpu),
+        durationMicroseconds(frame.fx.totalSubmit),
+        durationMicroseconds(frame.fx.materialsSubmit),
+        durationMicroseconds(frame.fx.bloomAndCompositeSubmit),
+        durationMicroseconds(frame.diagnosticReadbackCpu),
+        durationMicroseconds(frame.presentCallCpu),
+        durationMicroseconds(frame.backgroundSampleAge),
+        wgcProducerCallbacks,
+        frame.wgc.framesAcquired,
+        frame.wgc.framesSuperseded,
+        frame.wgc.timestampRejectedFrames,
+        frame.wgcActive,
+        frame.wgc.ownedCopySubmitted,
+        frame.wgc.accepted,
+        frame.backgroundSnapshotRefreshAttempted,
+        frame.backgroundSnapshotRefreshed,
+        frame.backgroundParticipated,
+        frame.backgroundSampleAgeValid,
+        diagnosticReadbackUsed};
 }
 
 int runApplication(
@@ -590,6 +687,11 @@ int runApplication(
         backgroundExecution,
         renderer);
     bafx::windows::appendDiagnosticLog(logPath, report);
+    bafx::desktop::appendAppliedConfiguration(
+        logPath,
+        config,
+        appliedOutputSize,
+        "startup");
     bafx::fx::SimulationRuntime simulation(makeRuntimeSeed());
     bafx::fx::SimulationTimeline simulationTimeline;
     bafx::windows::PointerFrameAdapter pointerFrameAdapter;
@@ -624,9 +726,15 @@ int runApplication(
     bool backgroundFrameInvalidated = false;
     bool lastPresentedDrawableContent = false;
     const bafx::fx::SimulationTime applicationStartedAt = clock.now();
+    bafx::fx::SimulationTime performanceWindowStartedAt = applicationStartedAt;
+    bafx::desktop::RuntimePerformanceWindow performanceWindow;
+    std::chrono::nanoseconds previousPerformanceLogWriteCpu{};
+    std::uint64_t previousWgcEpoch = 0U;
+    std::uint64_t previousWgcCallbackTotal = 0U;
+    bool previousFrameHadWgc = false;
     while (!quit && !window.closeRequested())
     {
-        dispatchMessages(quit);
+        const MessageDispatchDiagnostics messageDispatch = dispatchMessages(quit);
         window.pollExitShortcut();
         window.pollPointerState();
         bafx::desktop::HostStateSnapshot controlState = control.snapshot();
@@ -712,6 +820,16 @@ int runApplication(
                 throw std::logic_error("Background capture request was invalid");
             }
             appliedGeneration = controlState.generation;
+            const std::string_view configurationReason = configChanged
+                ? (pendingOutputResize.has_value()
+                    ? "control-and-output-resize"
+                    : "control-generation")
+                : "output-resize";
+            bafx::desktop::appendAppliedConfiguration(
+                logPath,
+                config,
+                appliedOutputSize,
+                configurationReason);
         }
 
         const bafx::fx::SimulationTime wallTime = clock.now();
@@ -722,11 +840,36 @@ int runApplication(
             options.demoAgeMilliseconds.has_value() && demoStartedAt.has_value()
             ? *demoStartedAt + std::chrono::milliseconds(*options.demoAgeMilliseconds)
             : simulationTimeline.fromWallTime(wallTime);
+        std::vector<bafx::windows::PointerEvent> pointerEvents =
+            window.takePointerEvents();
+        const std::size_t pointerEventsBeforeHostCompaction =
+            pointerEvents.size();
+        pointerEvents = bafx::windows::coalescePointerMoves(
+            std::move(pointerEvents));
+        bafx::windows::PointerQueueDiagnostics pointerQueue =
+            window.takePointerQueueDiagnostics();
+        pointerQueue.compactedMoveEvents +=
+            pointerEventsBeforeHostCompaction - pointerEvents.size();
+        performanceWindow.addInput(bafx::desktop::InputPerformanceSample{
+            pointerQueue.rawInputMessages,
+            pointerQueue.moveEvents,
+            pointerQueue.buttonEdges,
+            pointerQueue.cancelEvents,
+            pointerQueue.compactedMoveEvents,
+            pointerQueue.overflowMoveDrops,
+            pointerQueue.messageTimeUnavailable,
+            messageDispatch.inputMessages,
+            messageDispatch.otherMessages,
+            pointerQueue.maximumPendingEvents,
+            pointerQueue.maximumWin32QueueAgeMilliseconds,
+            messageDispatch.inputBudgetExhausted,
+            messageDispatch.otherBudgetExhausted});
+        PointerConsumptionDiagnostics pointerConsumption{};
         if (options.demoClick || !config.effects.enabled || controlState.paused)
         {
             // Do not let disabled/paused input accumulate and replay after resume.
             static_cast<void>(pointerFrameAdapter.consume(
-                bafx::windows::coalescePointerMoves(window.takePointerEvents())));
+                pointerEvents));
             if (enteringPause || !config.effects.enabled)
             {
                 // Disabling can drain the physical Up event. Cancel
@@ -736,12 +879,13 @@ int runApplication(
         }
         else
         {
-            consumePointerEvents(
+            pointerConsumption = consumePointerEvents(
                 window,
                 simulation,
                 pointerFrameAdapter,
                 clock,
-                renderTime);
+                renderTime,
+                pointerEvents);
         }
         if (options.quitAfterMilliseconds.has_value()
             && wallTime - applicationStartedAt
@@ -771,8 +915,54 @@ int runApplication(
             // A paused DComp surface can persist indefinitely. Its last frame
             // may only bake a current background; normal animation tolerates
             // short WGC cadence gaps without modulating FX energy.
-            renderer.renderFrame(snapshot, wallTime, controlState.paused);
-            if (renderer.backgroundParticipatedInLastFrame())
+            const bafx::windows::CompositionFrameDiagnostics frameDiagnostics =
+                renderer.renderFrame(snapshot, wallTime, controlState.paused);
+            std::uint64_t producerCallbacks = 0U;
+            if (frameDiagnostics.wgcActive)
+            {
+                const std::uint64_t currentTotal =
+                    frameDiagnostics.wgc.frameArrivedCallbacksTotal;
+                producerCallbacks = previousFrameHadWgc
+                        && frameDiagnostics.wgc.epoch == previousWgcEpoch
+                        && currentTotal >= previousWgcCallbackTotal
+                    ? currentTotal - previousWgcCallbackTotal
+                    : currentTotal;
+                previousWgcEpoch = frameDiagnostics.wgc.epoch;
+                previousWgcCallbackTotal = currentTotal;
+                previousFrameHadWgc = true;
+            }
+            else
+            {
+                previousWgcEpoch = 0U;
+                previousWgcCallbackTotal = 0U;
+                previousFrameHadWgc = false;
+            }
+            performanceWindow.addFrame(framePerformanceSample(
+                frameDiagnostics,
+                producerCallbacks,
+                options.smokeTest));
+            for (const PointerLatencyOrigin& origin :
+                 pointerConsumption.acceptedDowns)
+            {
+                if (origin.dispatchQpc > 0
+                    && frameDiagnostics.presentReturnedQpc
+                        >= origin.dispatchQpc)
+                {
+                    performanceWindow.addDispatchToPresentReturn(
+                        durationMicroseconds(
+                            clock.fromCounter(
+                                frameDiagnostics.presentReturnedQpc)
+                            - clock.fromCounter(origin.dispatchQpc)));
+                }
+                if (origin.messageTimeValid)
+                {
+                    performanceWindow.addMessageToPresentReturn(
+                        bafx::windows::win32MessageQueueAgeMilliseconds(
+                            frameDiagnostics.presentReturnedTickMilliseconds,
+                            origin.messageTimeMilliseconds));
+                }
+            }
+            if (frameDiagnostics.backgroundParticipated)
             {
                 ++backgroundCompositeFrames;
             }
@@ -904,6 +1094,26 @@ int runApplication(
             }
         }
 
+        const bafx::fx::SimulationTime performanceNow = clock.now();
+        if (performanceNow - performanceWindowStartedAt
+            >= performanceReportInterval)
+        {
+            previousPerformanceLogWriteCpu =
+                bafx::desktop::appendPerformanceInterval(
+                    logPath,
+                    performanceWindow.summarize(),
+                    config,
+                    bafx::desktop::PerformanceLogContext{
+                        appliedOutputSize,
+                        renderer.backgroundCompositeStatus(),
+                        controlState.paused},
+                    performanceNow - performanceWindowStartedAt,
+                    previousPerformanceLogWriteCpu,
+                    false);
+            performanceWindow.reset();
+            performanceWindowStartedAt = clock.now();
+        }
+
         DWORD waitResult = WAIT_TIMEOUT;
         if (controlState.paused)
         {
@@ -942,6 +1152,21 @@ int runApplication(
         {
             bafx::windows::throwLastError("MsgWaitForMultipleObjectsEx");
         }
+    }
+    const bafx::fx::SimulationTime finalPerformanceTime = clock.now();
+    if (!performanceWindow.empty())
+    {
+        static_cast<void>(bafx::desktop::appendPerformanceInterval(
+            logPath,
+            performanceWindow.summarize(),
+            config,
+            bafx::desktop::PerformanceLogContext{
+                appliedOutputSize,
+                renderer.backgroundCompositeStatus(),
+                control.snapshot().paused},
+            finalPerformanceTime - performanceWindowStartedAt,
+            previousPerformanceLogWriteCpu,
+            true));
     }
     if (backgroundCompositeFrames > 0U)
     {

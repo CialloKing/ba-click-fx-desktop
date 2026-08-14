@@ -39,7 +39,7 @@ enum class DiagnosticLevel : std::uint8_t
 
 struct DiagnosticLogRetention
 {
-    std::uintmax_t maximumBytes{4U * 1024U * 1024U};
+    std::uintmax_t maximumBytes{8U * 1024U * 1024U};
     std::uint32_t backupCount{3U};
 };
 

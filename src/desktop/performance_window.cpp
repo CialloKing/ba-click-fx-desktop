@@ -93,4 +93,193 @@ bool BoundedMetric::empty() const noexcept
     return sampleCount_ == 0U;
 }
 
+void RuntimePerformanceWindow::addInput(
+    const InputPerformanceSample& sample) noexcept
+{
+    rawInputMessages_ += sample.rawInputMessages;
+    moveEvents_ += sample.moveEvents;
+    buttonEdges_ += sample.buttonEdges;
+    cancelEvents_ += sample.cancelEvents;
+    compactedMoveEvents_ += sample.compactedMoveEvents;
+    overflowMoveDrops_ += sample.overflowMoveDrops;
+    messageTimeUnavailable_ += sample.messageTimeUnavailable;
+    inputMessagesDispatched_ += sample.inputMessagesDispatched;
+    otherMessagesDispatched_ += sample.otherMessagesDispatched;
+    inputDispatchBudgetExhaustions_ += sample.inputDispatchBudgetExhausted ? 1U : 0U;
+    otherDispatchBudgetExhaustions_ += sample.otherDispatchBudgetExhausted ? 1U : 0U;
+    if (sample.maximumPendingEvents > 0U)
+    {
+        maximumPendingEvents_.add(sample.maximumPendingEvents);
+    }
+    if (sample.rawInputMessages > sample.messageTimeUnavailable)
+    {
+        maximumWin32QueueAgeMilliseconds_.add(
+            sample.maximumWin32QueueAgeMilliseconds);
+    }
+}
+
+void RuntimePerformanceWindow::addFrame(
+    const FramePerformanceSample& sample) noexcept
+{
+    ++frameCount_;
+    wgcActiveFrames_ += sample.wgcActive ? 1U : 0U;
+    wgcProducerCallbacks_ += sample.wgcProducerCallbacks;
+    wgcFramesAcquired_ += sample.wgcFramesAcquired;
+    wgcFramesSuperseded_ += sample.wgcFramesSuperseded;
+    wgcTimestampRejectedFrames_ += sample.wgcTimestampRejectedFrames;
+    wgcOwnedCopiesSubmitted_ += sample.wgcOwnedCopySubmitted ? 1U : 0U;
+    wgcSamplesAccepted_ += sample.wgcAccepted ? 1U : 0U;
+    backgroundSnapshotAttempts_ +=
+        sample.backgroundSnapshotRefreshAttempted ? 1U : 0U;
+    backgroundSnapshotsRefreshed_ +=
+        sample.backgroundSnapshotRefreshed ? 1U : 0U;
+    backgroundParticipatingFrames_ += sample.backgroundParticipated ? 1U : 0U;
+    frameTotalCpuMicroseconds_.add(sample.frameTotalCpuMicroseconds);
+    fxTotalSubmitCpuMicroseconds_.add(sample.fxTotalSubmitCpuMicroseconds);
+    fxMaterialsSubmitCpuMicroseconds_.add(
+        sample.fxMaterialsSubmitCpuMicroseconds);
+    bloomAndCompositeSubmitCpuMicroseconds_.add(
+        sample.bloomAndCompositeSubmitCpuMicroseconds);
+    presentCallCpuMicroseconds_.add(sample.presentCallCpuMicroseconds);
+    if (sample.wgcActive)
+    {
+        wgcDrainCpuMicroseconds_.add(sample.wgcDrainCpuMicroseconds);
+    }
+    if (sample.wgcOwnedCopySubmitted)
+    {
+        wgcOwnedCopySubmitCpuMicroseconds_.add(
+            sample.wgcOwnedCopySubmitCpuMicroseconds);
+    }
+    if (sample.backgroundSnapshotRefreshAttempted)
+    {
+        backgroundSnapshotSubmitCpuMicroseconds_.add(
+            sample.backgroundSnapshotSubmitCpuMicroseconds);
+    }
+    if (sample.diagnosticReadbackUsed)
+    {
+        diagnosticReadbackCpuMicroseconds_.add(
+            sample.diagnosticReadbackCpuMicroseconds);
+    }
+    if (sample.backgroundSampleAgeValid)
+    {
+        backgroundSampleAgeMicroseconds_.add(
+            sample.backgroundSampleAgeMicroseconds);
+    }
+}
+
+void RuntimePerformanceWindow::addDispatchToPresentReturn(
+    const std::uint64_t microseconds) noexcept
+{
+    dispatchToPresentReturnMicroseconds_.add(microseconds);
+}
+
+void RuntimePerformanceWindow::addMessageToPresentReturn(
+    const std::uint64_t milliseconds) noexcept
+{
+    messageToPresentReturnMilliseconds_.add(milliseconds);
+}
+
+void RuntimePerformanceWindow::reset() noexcept
+{
+    frameCount_ = 0U;
+    wgcActiveFrames_ = 0U;
+    wgcProducerCallbacks_ = 0U;
+    wgcFramesAcquired_ = 0U;
+    wgcFramesSuperseded_ = 0U;
+    wgcTimestampRejectedFrames_ = 0U;
+    wgcOwnedCopiesSubmitted_ = 0U;
+    wgcSamplesAccepted_ = 0U;
+    backgroundSnapshotAttempts_ = 0U;
+    backgroundSnapshotsRefreshed_ = 0U;
+    backgroundParticipatingFrames_ = 0U;
+    rawInputMessages_ = 0U;
+    moveEvents_ = 0U;
+    buttonEdges_ = 0U;
+    cancelEvents_ = 0U;
+    compactedMoveEvents_ = 0U;
+    overflowMoveDrops_ = 0U;
+    messageTimeUnavailable_ = 0U;
+    inputMessagesDispatched_ = 0U;
+    otherMessagesDispatched_ = 0U;
+    inputDispatchBudgetExhaustions_ = 0U;
+    otherDispatchBudgetExhaustions_ = 0U;
+    frameTotalCpuMicroseconds_.reset();
+    wgcDrainCpuMicroseconds_.reset();
+    wgcOwnedCopySubmitCpuMicroseconds_.reset();
+    backgroundSnapshotSubmitCpuMicroseconds_.reset();
+    fxTotalSubmitCpuMicroseconds_.reset();
+    fxMaterialsSubmitCpuMicroseconds_.reset();
+    bloomAndCompositeSubmitCpuMicroseconds_.reset();
+    diagnosticReadbackCpuMicroseconds_.reset();
+    presentCallCpuMicroseconds_.reset();
+    backgroundSampleAgeMicroseconds_.reset();
+    maximumPendingEvents_.reset();
+    maximumWin32QueueAgeMilliseconds_.reset();
+    dispatchToPresentReturnMicroseconds_.reset();
+    messageToPresentReturnMilliseconds_.reset();
+}
+
+RuntimePerformanceSummary RuntimePerformanceWindow::summarize() const
+{
+    RuntimePerformanceSummary summary{};
+    summary.frameCount = frameCount_;
+    summary.wgcActiveFrames = wgcActiveFrames_;
+    summary.wgcProducerCallbacks = wgcProducerCallbacks_;
+    summary.wgcFramesAcquired = wgcFramesAcquired_;
+    summary.wgcFramesSuperseded = wgcFramesSuperseded_;
+    summary.wgcTimestampRejectedFrames = wgcTimestampRejectedFrames_;
+    summary.wgcOwnedCopiesSubmitted = wgcOwnedCopiesSubmitted_;
+    summary.wgcSamplesAccepted = wgcSamplesAccepted_;
+    summary.backgroundSnapshotAttempts = backgroundSnapshotAttempts_;
+    summary.backgroundSnapshotsRefreshed = backgroundSnapshotsRefreshed_;
+    summary.backgroundParticipatingFrames = backgroundParticipatingFrames_;
+    summary.rawInputMessages = rawInputMessages_;
+    summary.moveEvents = moveEvents_;
+    summary.buttonEdges = buttonEdges_;
+    summary.cancelEvents = cancelEvents_;
+    summary.compactedMoveEvents = compactedMoveEvents_;
+    summary.overflowMoveDrops = overflowMoveDrops_;
+    summary.messageTimeUnavailable = messageTimeUnavailable_;
+    summary.inputMessagesDispatched = inputMessagesDispatched_;
+    summary.otherMessagesDispatched = otherMessagesDispatched_;
+    summary.inputDispatchBudgetExhaustions = inputDispatchBudgetExhaustions_;
+    summary.otherDispatchBudgetExhaustions = otherDispatchBudgetExhaustions_;
+    summary.frameTotalCpuMicroseconds = frameTotalCpuMicroseconds_.summarize();
+    summary.wgcDrainCpuMicroseconds = wgcDrainCpuMicroseconds_.summarize();
+    summary.wgcOwnedCopySubmitCpuMicroseconds =
+        wgcOwnedCopySubmitCpuMicroseconds_.summarize();
+    summary.backgroundSnapshotSubmitCpuMicroseconds =
+        backgroundSnapshotSubmitCpuMicroseconds_.summarize();
+    summary.fxTotalSubmitCpuMicroseconds =
+        fxTotalSubmitCpuMicroseconds_.summarize();
+    summary.fxMaterialsSubmitCpuMicroseconds =
+        fxMaterialsSubmitCpuMicroseconds_.summarize();
+    summary.bloomAndCompositeSubmitCpuMicroseconds =
+        bloomAndCompositeSubmitCpuMicroseconds_.summarize();
+    summary.diagnosticReadbackCpuMicroseconds =
+        diagnosticReadbackCpuMicroseconds_.summarize();
+    summary.presentCallCpuMicroseconds = presentCallCpuMicroseconds_.summarize();
+    summary.backgroundSampleAgeMicroseconds =
+        backgroundSampleAgeMicroseconds_.summarize();
+    summary.maximumPendingEvents = maximumPendingEvents_.summarize();
+    summary.maximumWin32QueueAgeMilliseconds =
+        maximumWin32QueueAgeMilliseconds_.summarize();
+    summary.dispatchToPresentReturnMicroseconds =
+        dispatchToPresentReturnMicroseconds_.summarize();
+    summary.messageToPresentReturnMilliseconds =
+        messageToPresentReturnMilliseconds_.summarize();
+    return summary;
+}
+
+bool RuntimePerformanceWindow::empty() const noexcept
+{
+    return frameCount_ == 0U
+        && rawInputMessages_ == 0U
+        && moveEvents_ == 0U
+        && buttonEdges_ == 0U
+        && cancelEvents_ == 0U
+        && inputMessagesDispatched_ == 0U
+        && otherMessagesDispatched_ == 0U;
+}
+
 }

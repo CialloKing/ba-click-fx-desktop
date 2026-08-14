@@ -231,13 +231,17 @@ if(WIN32)
     add_executable(
         bafx_desktop_input_tests
         test_main.cpp
+        performance_logging_tests.cpp
         performance_window_tests.cpp
         pointer_frame_dispatch_tests.cpp
+        "${PROJECT_SOURCE_DIR}/src/desktop/performance_logging.cpp"
     )
     target_link_libraries(
         bafx_desktop_input_tests
         PRIVATE
+            bafx::config
             bafx::desktop_input
+            bafx::windows
     )
     target_compile_features(bafx_desktop_input_tests PRIVATE cxx_std_20)
     bafx_enable_warnings(bafx_desktop_input_tests)

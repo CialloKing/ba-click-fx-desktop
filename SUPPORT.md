@@ -33,6 +33,12 @@
 - 运行时用户数据采用 portable 规则：`BAFX.config.json`、`ba-click-fx-desktop-support.log`
   和支持报告只写入对应 EXE 所在目录。命令行支持报告即使传入绝对路径，也只采用文件名，
   不会写入 `%LOCALAPPDATA%`、当前工作目录或其他用户目录。
+- 支持日志 schema 2 为每条记录写入会话 ID、单调时间、序号、进程/线程、级别和事件名；当前文件达到
+  8 MiB 后轮转，最多保留 `.log.1`、`.log.2`、`.log.3` 三份备份。正常运行每 10 秒写一条
+  `Performance.Interval`，退出时刷新最后一个未满窗口；它包含输入队列年龄、消息/Move 收敛、WGC
+  callback/accepted、背景样本年龄、CPU 提交阶段、Present 调用和输入到 Present 返回的
+  `p50/p95/p99/max`。这些 CPU/API 时间不代表 GPU 执行或物理上屏，日志中会保留对应 semantic 字段。
+  排障时请同时提供 `BAFX.config.json`、当前 `.log` 和仍存在的三个轮转备份。
 - WGC 只由 `background-aware` 模式使用。portable EXE 没有 package identity，也不会自行声明
   `graphicsCaptureWithoutBorder` capability。新配置默认允许 Windows 显示捕获边框；可见边框状态记录为
   `system-border=visible-allowed`。用户可在 Control Center 中取消勾选“允许黄色捕获边框”；关闭后会在
