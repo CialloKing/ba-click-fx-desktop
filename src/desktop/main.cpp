@@ -700,6 +700,12 @@ int runApplication(
         primaryMonitor.bounds,
         L"ba-click-fx-desktop");
     report.setPrimaryDpi(window.effectiveDpi());
+    if (const auto refreshRate =
+            bafx::windows::queryPrimaryCompositionRefreshRate();
+        refreshRate.has_value())
+    {
+        report.setPrimaryRefreshRate(*refreshRate);
+    }
     if (const auto displayColor =
             bafx::windows::queryDisplayColorCapabilities(primaryMonitor.handle);
         displayColor.has_value())

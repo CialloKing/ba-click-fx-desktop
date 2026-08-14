@@ -1,5 +1,6 @@
 #include "bafx/windows/display_capabilities.hpp"
 
+#include <dwmapi.h>
 #include <dxgi1_6.h>
 #include <wrl/client.h>
 
@@ -108,6 +109,28 @@ std::optional<DisplayColorCapabilities> queryDisplayColorCapabilities(
         // Capability probing must not make the FX-only renderer unavailable.
     }
     return std::nullopt;
+}
+
+std::optional<DisplayRefreshRate> queryPrimaryCompositionRefreshRate() noexcept
+{
+    DWM_TIMING_INFO timing{};
+    timing.cbSize = sizeof(timing);
+    if (FAILED(DwmGetCompositionTimingInfo(nullptr, &timing))
+        || timing.rateRefresh.uiNumerator == 0U
+        || timing.rateRefresh.uiDenominator == 0U)
+    {
+        return std::nullopt;
+    }
+
+    const double hertz = static_cast<double>(timing.rateRefresh.uiNumerator)
+        / static_cast<double>(timing.rateRefresh.uiDenominator);
+    if (!std::isfinite(hertz) || hertz < 1.0 || hertz > 1000.0)
+    {
+        return std::nullopt;
+    }
+    return DisplayRefreshRate{
+        timing.rateRefresh.uiNumerator,
+        timing.rateRefresh.uiDenominator};
 }
 
 }

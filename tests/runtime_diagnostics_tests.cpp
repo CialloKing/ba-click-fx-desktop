@@ -178,6 +178,8 @@ BAFX_TEST(support_report_contains_alpha_scope_and_graphics_facts)
     bafx::windows::SupportReport report("0.1.0-alpha.2");
     report.setPrimaryMonitor(RECT{0, 0, 1920, 1080});
     report.setPrimaryDpi(144U);
+    report.setPrimaryRefreshRate(
+        bafx::windows::DisplayRefreshRate{60'000U, 1001U});
     report.setPrimaryDisplayColorCapabilities(
         bafx::windows::DisplayColorCapabilities{
             DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020,
@@ -212,6 +214,15 @@ BAFX_TEST(support_report_contains_alpha_scope_and_graphics_facts)
         != std::string::npos);
     BAFX_CHECK(text.find("Graphics.FeatureLevel=11_0") != std::string::npos);
     BAFX_CHECK(text.find("Display.PrimaryDpi=144") != std::string::npos);
+    BAFX_CHECK(text.find("Display.RefreshRateSource=dwm-composition-timing")
+        != std::string::npos);
+    BAFX_CHECK(text.find("Display.RefreshRateNumerator=60000")
+        != std::string::npos);
+    BAFX_CHECK(text.find("Display.RefreshRateDenominator=1001")
+        != std::string::npos);
+    BAFX_CHECK(text.find("Display.RefreshRateHz=59.940") != std::string::npos);
+    BAFX_CHECK(text.find("Display.RefreshPeriodUs=16683.333")
+        != std::string::npos);
     BAFX_CHECK(text.find(
         "Display.ColorMode=rgb-full-pq-p2020;capability-only;luminance-valid;alpha-scope-sdr-only")
         != std::string::npos);
@@ -285,6 +296,9 @@ BAFX_TEST(support_report_marks_primary_dpi_unknown_until_probed)
     bafx::windows::SupportReport report("test");
     const std::string text = report.serialize();
     BAFX_CHECK(text.find("Display.PrimaryDpi=unknown") != std::string::npos);
+    BAFX_CHECK(text.find("Display.RefreshRateSource=not-probed")
+        != std::string::npos);
+    BAFX_CHECK(text.find("Display.RefreshRateHz=unknown") != std::string::npos);
     BAFX_CHECK(text.find("Display.ColorMode=not-probed;alpha-scope-sdr-only")
         != std::string::npos);
     BAFX_CHECK(text.find("Display.DxgiColorSpaceValue=unknown")
@@ -292,8 +306,12 @@ BAFX_TEST(support_report_marks_primary_dpi_unknown_until_probed)
     BAFX_CHECK(text.find("Display.BitsPerColor=unknown") != std::string::npos);
 
     report.setPrimaryDpi(0U);
+    report.setPrimaryRefreshRate(bafx::windows::DisplayRefreshRate{});
     BAFX_CHECK(
         report.serialize().find("Display.PrimaryDpi=unknown")
+        != std::string::npos);
+    BAFX_CHECK(
+        report.serialize().find("Display.RefreshRateHz=unknown")
         != std::string::npos);
 }
 

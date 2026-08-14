@@ -36,6 +36,9 @@ IDENTITY_FIELDS = (
     "Graphics.DriverVersion",
     "Display.Primary",
     "Display.PrimaryDpi",
+    "Display.RefreshRateNumerator",
+    "Display.RefreshRateDenominator",
+    "Display.RefreshRateHz",
     "Output.Width",
     "Output.Height",
 )

@@ -1,12 +1,12 @@
 #include "bafx/windows/composition_renderer.hpp"
 
 #include "bafx/windows/borderless_capture_access.hpp"
+#include "bafx/windows/display_capabilities.hpp"
 #include "bafx/windows/error.hpp"
 #include "bafx/windows/fx_gpu_renderer.hpp"
 #include "bafx/windows/gpu_texture_readback.hpp"
 #include "bafx/windows/wgc_background_sensor.hpp"
 
-#include <dwmapi.h>
 #include <dxgi1_2.h>
 
 #include <algorithm>
@@ -102,17 +102,15 @@ private:
 [[nodiscard]] std::optional<bafx::core::MonotonicTime>
 primaryRefreshPeriod() noexcept
 {
-    DWM_TIMING_INFO timing{};
-    timing.cbSize = sizeof(timing);
-    if (FAILED(DwmGetCompositionTimingInfo(nullptr, &timing))
-        || timing.rateRefresh.uiNumerator == 0U
-        || timing.rateRefresh.uiDenominator == 0U)
+    const std::optional<DisplayRefreshRate> refreshRate =
+        queryPrimaryCompositionRefreshRate();
+    if (!refreshRate.has_value())
     {
         return std::nullopt;
     }
 
-    const double seconds = static_cast<double>(timing.rateRefresh.uiDenominator)
-        / static_cast<double>(timing.rateRefresh.uiNumerator);
+    const double seconds = static_cast<double>(refreshRate->denominator)
+        / static_cast<double>(refreshRate->numerator);
     if (!std::isfinite(seconds) || seconds <= 0.0 || seconds > 1.0)
     {
         return std::nullopt;

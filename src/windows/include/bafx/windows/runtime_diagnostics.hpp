@@ -50,6 +50,7 @@ public:
 
     void setPrimaryMonitor(RECT bounds);
     void setPrimaryDpi(std::uint32_t dpi) noexcept;
+    void setPrimaryRefreshRate(const DisplayRefreshRate& refreshRate) noexcept;
     void setPrimaryDisplayColorCapabilities(
         const DisplayColorCapabilities& capabilities) noexcept;
     void setDeviceInfo(const GraphicsDeviceInfo& info);
@@ -68,6 +69,7 @@ private:
     std::string architecture_;
     std::string primaryMonitor_;
     std::optional<std::uint32_t> primaryDpi_{};
+    std::optional<DisplayRefreshRate> primaryRefreshRate_{};
     std::optional<DisplayColorCapabilities> primaryDisplayColorCapabilities_{};
     std::string logPath_;
     std::string failure_;

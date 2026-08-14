@@ -155,6 +155,9 @@ class CaptureFixture:
             "Graphics.HardwareFallback": "none",
             "Display.Primary": "2560x1440@0,0",
             "Display.PrimaryDpi": 120,
+            "Display.RefreshRateNumerator": 120,
+            "Display.RefreshRateDenominator": 1,
+            "Display.RefreshRateHz": 120.0,
         }
         mode = "background-aware" if name == "background-aware" else "recording-compatible"
         blocks = [

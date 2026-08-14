@@ -499,6 +499,17 @@ void SupportReport::setPrimaryDpi(const std::uint32_t dpi) noexcept
         : std::optional<std::uint32_t>(dpi);
 }
 
+void SupportReport::setPrimaryRefreshRate(
+    const DisplayRefreshRate& refreshRate) noexcept
+{
+    if (refreshRate.numerator == 0U || refreshRate.denominator == 0U)
+    {
+        primaryRefreshRate_.reset();
+        return;
+    }
+    primaryRefreshRate_ = refreshRate;
+}
+
 void SupportReport::setPrimaryDisplayColorCapabilities(
     const DisplayColorCapabilities& capabilities) noexcept
 {
@@ -597,8 +608,29 @@ std::string SupportReport::serialize() const
     {
         stream << "unknown";
     }
-    stream << '\n'
-           << "Display.ColorMode=";
+    stream << '\n';
+    if (primaryRefreshRate_.has_value())
+    {
+        const DisplayRefreshRate& refresh = *primaryRefreshRate_;
+        const double hertz = static_cast<double>(refresh.numerator)
+            / static_cast<double>(refresh.denominator);
+        const double periodMicroseconds = 1'000'000.0 / hertz;
+        stream << "Display.RefreshRateSource=dwm-composition-timing\n"
+               << "Display.RefreshRateNumerator=" << refresh.numerator << '\n'
+               << "Display.RefreshRateDenominator=" << refresh.denominator << '\n'
+               << std::fixed << std::setprecision(3)
+               << "Display.RefreshRateHz=" << hertz << '\n'
+               << "Display.RefreshPeriodUs=" << periodMicroseconds << '\n';
+    }
+    else
+    {
+        stream << "Display.RefreshRateSource=not-probed\n"
+               << "Display.RefreshRateNumerator=unknown\n"
+               << "Display.RefreshRateDenominator=unknown\n"
+               << "Display.RefreshRateHz=unknown\n"
+               << "Display.RefreshPeriodUs=unknown\n";
+    }
+    stream << "Display.ColorMode=";
     if (primaryDisplayColorCapabilities_.has_value())
     {
         const DisplayColorCapabilities& color =
