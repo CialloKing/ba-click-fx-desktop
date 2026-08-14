@@ -98,6 +98,37 @@ if(Python3_Interpreter_FOUND)
             WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
             TIMEOUT 10
     )
+    add_test(
+        NAME composition_spike_contract
+        COMMAND
+            "${Python3_EXECUTABLE}"
+            -B
+            "${CMAKE_CURRENT_SOURCE_DIR}/verify_composition_spike_tests.py"
+    )
+    set_tests_properties(
+        composition_spike_contract
+        PROPERTIES
+            WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
+            TIMEOUT 10
+    )
+    if(WIN32 AND BAFX_ENABLE_COMPOSITION_SPIKE_TESTS)
+        add_test(
+            NAME composition_spike_capture_verify
+            COMMAND
+                "${Python3_EXECUTABLE}"
+                -B
+                "${PROJECT_SOURCE_DIR}/tools/verify-composition-spike.py"
+                "${PROJECT_BINARY_DIR}/src/capture/ctest-composition-spike/capture.json"
+        )
+        set_tests_properties(
+            composition_spike_capture_verify
+            PROPERTIES
+                DEPENDS composition_spike_capture
+                LABELS "integration;desktop;gpu;spike"
+                RUN_SERIAL TRUE
+                TIMEOUT 10
+        )
+    endif()
 endif()
 
 if(WIN32)
