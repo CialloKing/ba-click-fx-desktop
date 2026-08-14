@@ -148,6 +148,21 @@ struct RuntimePerformanceSummary
     MetricSummary gpuRenderCommandSpanMicroseconds{};
 };
 
+class WgcCallbackDeltaTracker final
+{
+public:
+    [[nodiscard]] std::uint64_t observe(
+        bool active,
+        std::uint64_t epoch,
+        std::uint64_t callbacksTotal) noexcept;
+    void reset() noexcept;
+
+private:
+    std::uint64_t epoch_{0U};
+    std::uint64_t callbacksTotal_{0U};
+    bool active_{false};
+};
+
 // Interactive diagnostics keep exact samples for one bounded reporting window.
 // The all-sample average and extrema remain valid if an extreme cadence fills
 // the buffer; the report exposes droppedSampleCount instead of hiding bias.

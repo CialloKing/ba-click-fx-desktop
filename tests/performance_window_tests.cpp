@@ -61,6 +61,22 @@ BAFX_TEST(performance_metric_reset_starts_a_fresh_window)
     BAFX_CHECK(fresh.maximum == 7U);
 }
 
+BAFX_TEST(wgc_callback_delta_stays_continuous_across_idle_skip_frames)
+{
+    bafx::desktop::WgcCallbackDeltaTracker tracker;
+
+    BAFX_CHECK(tracker.observe(true, 7U, 100U) == 100U);
+    // The idle frame still reports the transport total without draining.
+    BAFX_CHECK(tracker.observe(true, 7U, 110U) == 10U);
+    BAFX_CHECK(tracker.observe(true, 7U, 120U) == 10U);
+
+    BAFX_CHECK(tracker.observe(true, 8U, 4U) == 4U);
+    // A same-epoch regression is treated as a new baseline, not underflow.
+    BAFX_CHECK(tracker.observe(true, 8U, 2U) == 2U);
+    BAFX_CHECK(tracker.observe(false, 0U, 0U) == 0U);
+    BAFX_CHECK(tracker.observe(true, 8U, 5U) == 5U);
+}
+
 BAFX_TEST(runtime_performance_window_aggregates_input_and_render_contracts)
 {
     bafx::desktop::RuntimePerformanceWindow window;

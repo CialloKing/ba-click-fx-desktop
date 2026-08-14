@@ -27,6 +27,37 @@ namespace
 
 }
 
+std::uint64_t WgcCallbackDeltaTracker::observe(
+    const bool active,
+    const std::uint64_t epoch,
+    const std::uint64_t callbacksTotal) noexcept
+{
+    if (!active)
+    {
+        reset();
+        return 0U;
+    }
+
+    std::uint64_t delta = callbacksTotal;
+    if (active_
+        && epoch == epoch_
+        && callbacksTotal >= callbacksTotal_)
+    {
+        delta = callbacksTotal - callbacksTotal_;
+    }
+    epoch_ = epoch;
+    callbacksTotal_ = callbacksTotal;
+    active_ = true;
+    return delta;
+}
+
+void WgcCallbackDeltaTracker::reset() noexcept
+{
+    epoch_ = 0U;
+    callbacksTotal_ = 0U;
+    active_ = false;
+}
+
 BoundedMetric::BoundedMetric(const std::size_t capacity)
     : capacity_(capacity)
 {

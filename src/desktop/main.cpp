@@ -795,9 +795,7 @@ int runApplication(
     bafx::fx::SimulationTime performanceWindowStartedAt = applicationStartedAt;
     bafx::desktop::RuntimePerformanceWindow performanceWindow;
     std::chrono::nanoseconds previousPerformanceLogWriteCpu{};
-    std::uint64_t previousWgcEpoch = 0U;
-    std::uint64_t previousWgcCallbackTotal = 0U;
-    bool previousFrameHadWgc = false;
+    bafx::desktop::WgcCallbackDeltaTracker wgcCallbackDeltaTracker;
     while (!quit && !window.closeRequested())
     {
         const MessageDispatchDiagnostics messageDispatch = dispatchMessages(quit);
@@ -983,26 +981,11 @@ int runApplication(
             // short WGC cadence gaps without modulating FX energy.
             const bafx::windows::CompositionFrameDiagnostics frameDiagnostics =
                 renderer.renderFrame(snapshot, wallTime, controlState.paused);
-            std::uint64_t producerCallbacks = 0U;
-            if (frameDiagnostics.wgcActive)
-            {
-                const std::uint64_t currentTotal =
-                    frameDiagnostics.wgc.frameArrivedCallbacksTotal;
-                producerCallbacks = previousFrameHadWgc
-                        && frameDiagnostics.wgc.epoch == previousWgcEpoch
-                        && currentTotal >= previousWgcCallbackTotal
-                    ? currentTotal - previousWgcCallbackTotal
-                    : currentTotal;
-                previousWgcEpoch = frameDiagnostics.wgc.epoch;
-                previousWgcCallbackTotal = currentTotal;
-                previousFrameHadWgc = true;
-            }
-            else
-            {
-                previousWgcEpoch = 0U;
-                previousWgcCallbackTotal = 0U;
-                previousFrameHadWgc = false;
-            }
+            const std::uint64_t producerCallbacks =
+                wgcCallbackDeltaTracker.observe(
+                    frameDiagnostics.wgcActive,
+                    frameDiagnostics.wgc.epoch,
+                    frameDiagnostics.wgc.frameArrivedCallbacksTotal);
             performanceWindow.addFrame(framePerformanceSample(
                 frameDiagnostics,
                 producerCallbacks,
