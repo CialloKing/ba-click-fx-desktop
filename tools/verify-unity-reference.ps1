@@ -118,7 +118,34 @@ if ($failures.Count -gt 0)
     exit 1
 }
 
+$particleFixturePath = Join-Path `
+    $runtimeRoot `
+    'Reference\Diagnostics\ParticleStates\FX_Touch_0050ms_particle-state-v2.json'
+$pythonCommand = Get-Command python -ErrorAction SilentlyContinue
+if ($null -eq $pythonCommand)
+{
+    throw 'Python is required to verify the generated Unity particle fixture.'
+}
+
+& $pythonCommand.Source `
+    -B `
+    (Join-Path $repositoryRoot 'tools\verify-unity-particle-fixture.py') `
+    $particleFixturePath
+if ($LASTEXITCODE -ne 0)
+{
+    throw 'Unity particle fixture validation failed.'
+}
+
+& $pythonCommand.Source `
+    -B `
+    (Join-Path $repositoryRoot 'tools\generate-unity-particle-fixture.py') `
+    $particleFixturePath `
+    --check
+if ($LASTEXITCODE -ne 0)
+{
+    throw 'Generated Unity particle fixture is stale.'
+}
+
 Write-Host "Unity reference verified: $verifiedFiles files, $($manifest.trees.Count) trees"
 Write-Host "Runtime root: $runtimeRoot"
 Write-Host "Extraction root: $extractionRoot"
-

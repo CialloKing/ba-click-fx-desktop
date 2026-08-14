@@ -49,6 +49,7 @@ set_target_properties(bafx_fx_tests PROPERTIES FOLDER "Tests")
 add_executable(
     bafx_reference_tests
     test_main.cpp
+    unity_particle_fixture_snapshot_tests.cpp
     unity_runtime_resources_tests.cpp
 )
 target_link_libraries(bafx_reference_tests PRIVATE bafx::reference)
@@ -80,6 +81,19 @@ if(Python3_Interpreter_FOUND)
     )
     set_tests_properties(
         unity_particle_fixture_contract
+        PROPERTIES
+            WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
+            TIMEOUT 10
+    )
+    add_test(
+        NAME unity_particle_fixture_generator_contract
+        COMMAND
+            "${Python3_EXECUTABLE}"
+            -B
+            "${CMAKE_CURRENT_SOURCE_DIR}/generate_unity_particle_fixture_tests.py"
+    )
+    set_tests_properties(
+        unity_particle_fixture_generator_contract
         PROPERTIES
             WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
             TIMEOUT 10

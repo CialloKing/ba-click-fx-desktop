@@ -29,7 +29,7 @@ EXPECTED_SPACES = {"Local", "World", "Custom"}
 
 
 class ValidationError(ValueError):
-    """Raised when a fixture is malformed or violates the v1 contract."""
+    """Raised when a fixture is malformed or violates the v2 contract."""
 
 
 def _reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -124,7 +124,7 @@ def _validate_particle(value: Any, system_label: str, expected_index: int) -> No
         "custom1",
     }
     if set(particle) != required:
-        raise ValidationError(f"{label} fields differ from the v1 contract")
+        raise ValidationError(f"{label} fields differ from the v2 contract")
     if _integer(particle["index"], f"{label}.index", minimum=0) != expected_index:
         raise ValidationError(f"{label}.index is not in serialized order")
     _uint32(particle["randomSeed"], f"{label}.randomSeed")
@@ -163,7 +163,7 @@ def _validate_system(value: Any, expected_index: int) -> None:
         "particles",
     }
     if set(system) != required:
-        raise ValidationError(f"{label} fields differ from the v1 contract")
+        raise ValidationError(f"{label} fields differ from the v2 contract")
     if _integer(system["index"], f"{label}.index", minimum=0) != expected_index:
         raise ValidationError(f"{label}.index is not in serialized order")
     path = _string(system["path"], f"{label}.path")
@@ -208,7 +208,7 @@ def validate_fixture(value: Any) -> dict[str, Any]:
         "systems",
     }
     if set(fixture) != required:
-        raise ValidationError("fixture fields differ from the v1 contract")
+        raise ValidationError("fixture fields differ from the v2 contract")
     if _integer(fixture["schema"], "fixture.schema") != EXPECTED_SCHEMA:
         raise ValidationError("fixture.schema must be 2")
     if _string(fixture["fixture"], "fixture.fixture") != EXPECTED_FIXTURE:
@@ -216,7 +216,7 @@ def validate_fixture(value: Any) -> dict[str, Any]:
     _string(fixture["unityVersion"], "fixture.unityVersion")
     render_size = _object(fixture["renderSize"], "fixture.renderSize")
     if set(render_size) != {"width", "height"}:
-        raise ValidationError("fixture.renderSize fields differ from the v1 contract")
+        raise ValidationError("fixture.renderSize fields differ from the v2 contract")
     if _integer(render_size["width"], "fixture.renderSize.width") != EXPECTED_WIDTH:
         raise ValidationError("fixture.renderSize.width must be 1950")
     if _integer(render_size["height"], "fixture.renderSize.height") != EXPECTED_HEIGHT:
@@ -257,7 +257,7 @@ def _read_fixture(path: Path) -> bytes:
     return data
 
 
-def validate_path(path: Path) -> None:
+def load_fixture(path: Path) -> tuple[dict[str, Any], bytes]:
     first_bytes = _read_fixture(path)
     try:
         first = json.loads(
@@ -265,7 +265,11 @@ def validate_path(path: Path) -> None:
         )
     except (UnicodeDecodeError, json.JSONDecodeError) as error:
         raise ValidationError(f"invalid UTF-8 JSON fixture: {error}") from error
-    validate_fixture(first)
+    return validate_fixture(first), first_bytes
+
+
+def validate_path(path: Path) -> None:
+    _, first_bytes = load_fixture(path)
 
     # Unity writes two independent captures and compares their UTF-8 bytes.
     # Accept an optional sibling ``.repeat`` only as a diagnostic check; the
