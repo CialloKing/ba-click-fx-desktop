@@ -41,6 +41,16 @@ BAFX_TEST(borderless_access_diagnostic_names_are_stable)
     BAFX_CHECK(diagnostic.find("WGC.BorderlessAccess=denied-by-user")
         != std::string::npos);
     BAFX_CHECK(diagnostic.find("HRESULT=0x80070005") != std::string::npos);
+
+    const bafx::windows::BorderlessCaptureAccessResult timedOut{
+        bafx::windows::BorderlessCaptureAccessStatus::TimedOut,
+        HRESULT_FROM_WIN32(ERROR_TIMEOUT)};
+    const std::string timeoutDiagnostic =
+        bafx::windows::borderlessCaptureAccessDiagnostic(timedOut);
+    BAFX_CHECK(timeoutDiagnostic.find("WGC.BorderlessAccess=timed-out")
+        != std::string::npos);
+    BAFX_CHECK(timeoutDiagnostic.find("HRESULT=0x800705B4")
+        != std::string::npos);
 }
 
 BAFX_TEST(runtime_owned_paths_stay_beside_the_loaded_executable)

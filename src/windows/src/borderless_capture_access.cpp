@@ -8,6 +8,7 @@
 #include <winrt/Windows.Security.Authorization.AppCapabilityAccess.h>
 #include <winrt/base.h>
 
+#include <chrono>
 #include <iomanip>
 #include <sstream>
 
@@ -18,6 +19,7 @@ namespace
 
 using winrt::Windows::Graphics::Capture::GraphicsCaptureAccess;
 using winrt::Windows::Graphics::Capture::GraphicsCaptureAccessKind;
+using winrt::Windows::Foundation::AsyncStatus;
 using winrt::Windows::Security::Authorization::AppCapabilityAccess::
     AppCapabilityAccessStatus;
 
@@ -57,6 +59,8 @@ using winrt::Windows::Security::Authorization::AppCapabilityAccess::
         return "denied-by-user";
     case BorderlessCaptureAccessStatus::UserPromptRequired:
         return "user-prompt-required";
+    case BorderlessCaptureAccessStatus::TimedOut:
+        return "timed-out";
     case BorderlessCaptureAccessStatus::Unsupported:
         return "unsupported";
     case BorderlessCaptureAccessStatus::Failed:
@@ -86,9 +90,31 @@ BorderlessCaptureAccessResult requestBorderlessCaptureAccess() noexcept
                 HRESULT_FROM_WIN32(APPMODEL_ERROR_NO_PACKAGE)};
         }
 
-        const auto status = GraphicsCaptureAccess::RequestAccessAsync(
-            GraphicsCaptureAccessKind::Borderless).get();
-        return BorderlessCaptureAccessResult{mapStatus(status), S_OK};
+        const auto operation = GraphicsCaptureAccess::RequestAccessAsync(
+            GraphicsCaptureAccessKind::Borderless);
+        const AsyncStatus asyncStatus = operation.wait_for(
+            std::chrono::milliseconds(
+                borderlessCaptureAccessTimeoutMilliseconds));
+        if (asyncStatus == AsyncStatus::Started)
+        {
+            // Permission is optional. Cancel at a fixed boundary instead of
+            // allowing .get() to stall the render/input owner indefinitely.
+            try
+            {
+                operation.Cancel();
+            }
+            catch (...)
+            {
+                // Timeout remains the actionable result even if cancellation
+                // races completion or the broker has already disconnected.
+            }
+            return BorderlessCaptureAccessResult{
+                BorderlessCaptureAccessStatus::TimedOut,
+                HRESULT_FROM_WIN32(ERROR_TIMEOUT)};
+        }
+        return BorderlessCaptureAccessResult{
+            mapStatus(operation.GetResults()),
+            S_OK};
     }
     catch (const winrt::hresult_error& error)
     {

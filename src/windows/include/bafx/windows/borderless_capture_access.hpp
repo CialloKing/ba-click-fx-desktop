@@ -8,6 +8,8 @@
 namespace bafx::windows
 {
 
+inline constexpr std::uint32_t borderlessCaptureAccessTimeoutMilliseconds = 100U;
+
 enum class BorderlessCaptureAccessStatus : std::uint8_t
 {
     NotPackaged,
@@ -16,6 +18,7 @@ enum class BorderlessCaptureAccessStatus : std::uint8_t
     NotDeclaredByApp,
     DeniedByUser,
     UserPromptRequired,
+    TimedOut,
     Unsupported,
     Failed
 };
