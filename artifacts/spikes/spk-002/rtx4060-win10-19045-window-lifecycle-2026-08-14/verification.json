@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "spike_id": "SPK-002-LIFECYCLE",
+  "capture_revision": "5d56716",
+  "status": "accepted",
+  "resize_close_events": 10,
+  "restart_stop_events": 8,
+  "resize_close_reconfigurations": 1,
+  "restart_stop_reconfigurations": 0,
+  "total_frames_acquired": 4
+}

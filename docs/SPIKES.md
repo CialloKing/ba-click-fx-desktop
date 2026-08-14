@@ -71,6 +71,37 @@ collector 使用进程内总 watchdog；自动化调用仍必须设置独立的�
 - self-exclusion 不产生递归反馈；失败时退回 FX-only 并有诊断。
 - 录屏结果按“观察”记录，不将单一录屏器结论泛化。
 
+### 已执行生命周期子集证据
+
+- 受控窗口生命周期子集：`Passed`，capture/verifier commit `5d56716`，Windows `10.0.19045`、
+  RTX 4060 Laptop GPU `32.0.16.1074`。原始结果与复现步骤见
+  [`artifacts/spikes/spk-002/rtx4060-win10-19045-window-lifecycle-2026-08-14/README.md`](../artifacts/spikes/spk-002/rtx4060-win10-19045-window-lifecycle-2026-08-14/README.md)。
+- 已验证两个不同 `HWND` 上的首帧、`320x240 -> 480x300` ContentSize 变化、显式
+  FramePool Recreate、epoch/generation 前进、`item.Closed -> Stopped`、新 Session 重启和幂等 stop。
+  共获取并关闭 4 帧；2 个 FramePool、2 个 Session 和两组事件注册全部配平，live/failure 计数为 0。
+- collector 的逻辑截止、进程内 watchdog 和调用方超时彼此独立；失败时会原子保存最后阶段和清理后
+  ledger。离线验证器拒绝乱序事件、未重建尺寸、未前进 epoch/generation、未归零资源和重复 JSON 字段。
+- 该结果不覆盖权限拒绝、无边框、自排除、产品模式切换、外部录屏器、显示器关闭、压力或功耗，
+  因此完整 SPK-002 和 ADR-003 仍为 `Not Run` / `Proposed`。
+
+复跑该硬件子集时使用：
+
+```powershell
+cmake --build --preset alpha-release --target ba_fx_wgc_lifecycle_spike
+$revision = git rev-parse --short HEAD
+$output = "artifacts\local\spikes\spk-002\$env:COMPUTERNAME-$revision"
+build\alpha-x64\src\capture\Release\ba-click-fx-wgc-lifecycle-spike.exe `
+  "--output=$output" `
+  "--revision=$revision" `
+  --timeout-ms=12000
+python -B tools\verify-wgc-lifecycle-spike.py `
+  "$output\lifecycle.json" `
+  "--report=$output\verification.json"
+```
+
+真实桌面 CTest 默认关闭；仅在 `BAFX_ENABLE_WGC_LIFECYCLE_SPIKE_TESTS=ON` 时注册，并固定
+`RUN_SERIAL` 和 30 秒超时。离线 `wgc_lifecycle_spike_contract` 始终注册。
+
 ## SPK-003 / Spike C：Color/HDR 输出
 
 ### 场景

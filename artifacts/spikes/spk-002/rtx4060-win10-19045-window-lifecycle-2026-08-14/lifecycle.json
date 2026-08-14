@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "spikeId": "SPK-002-LIFECYCLE",
+  "applicationVersion": "0.1.0-alpha.11",
+  "revision": "5d56716",
+  "capturedAtUtc": "2026-08-14T10:57:38.925Z",
+  "timeoutMs": 12000,
+  "contract": {"scope": "controlled-window-lifecycle-only", "captureTarget": "HWND", "ownerThread": "single", "callbacks": "notification-only", "surfaceFormat": "DXGI_FORMAT_R16G16B16A16_FLOAT", "systemBorderAllowed": true, "cursorExcluded": true},
+  "device": {"driverType": "hardware", "adapter": "NVIDIA GeForce RTX 4060 Laptop GPU", "adapterLuid": {"low": 70975, "high": 0}, "vendorId": 4318, "deviceId": 10464, "featureLevel": 45312},
+  "scenarios": {
+    "resizeClose": {
+      "events": [
+        {"sequence": 0, "kind": "target-created", "size": {"width": 320, "height": 240}},
+        {"sequence": 1, "kind": "sensor-started", "size": {"width": 320, "height": 240}, "epoch": 1},
+        {"sequence": 2, "kind": "frame-updated", "size": {"width": 320, "height": 240}, "generation": 1, "epoch": 1},
+        {"sequence": 3, "kind": "resize-requested", "size": {"width": 480, "height": 300}},
+        {"sequence": 4, "kind": "reconfigure-required", "size": {"width": 480, "height": 300}, "epoch": 1},
+        {"sequence": 5, "kind": "frame-pool-recreated", "size": {"width": 480, "height": 300}, "epoch": 2},
+        {"sequence": 6, "kind": "frame-updated", "size": {"width": 480, "height": 300}, "generation": 2, "epoch": 2},
+        {"sequence": 7, "kind": "target-closed"},
+        {"sequence": 8, "kind": "sensor-stopped", "epoch": 2},
+        {"sequence": 9, "kind": "sensor-destroyed"}
+      ],
+      "initialFrame": {"generation": 1, "epoch": 1, "size": {"width": 320, "height": 240}},
+      "requestedResize": {"width": 480, "height": 300},
+      "reconfigurations": [{"size": {"width": 480, "height": 300}, "epochBefore": 1, "epochAfter": 2}],
+      "resizedFrame": {"generation": 2, "epoch": 2, "size": {"width": 480, "height": 300}},
+      "capabilities": {"borderHidden": false, "cursorExcluded": true},
+      "ledger": {"framesAcquired": 3, "framesClosed": 3, "framePoolsCreated": 1, "framePoolsClosed": 1, "framePoolsRecreated": 1, "sessionsCreated": 1, "sessionsClosed": 1, "frameArrivedRegistrations": 1, "frameArrivedUnregistrations": 1, "itemClosedRegistrations": 1, "itemClosedUnregistrations": 1, "liveFrames": 0, "liveFramePools": 0, "liveSessions": 0, "liveFrameArrivedRegistrations": 0, "liveItemClosedRegistrations": 0, "failures": 0, "allReleased": true}
+    },
+    "restartStop": {
+      "events": [
+        {"sequence": 0, "kind": "target-created", "size": {"width": 360, "height": 220}},
+        {"sequence": 1, "kind": "sensor-started", "size": {"width": 360, "height": 220}, "epoch": 1},
+        {"sequence": 2, "kind": "frame-updated", "size": {"width": 360, "height": 220}, "generation": 1, "epoch": 1},
+        {"sequence": 3, "kind": "sensor-stop-requested", "epoch": 1},
+        {"sequence": 4, "kind": "sensor-stopped", "epoch": 1},
+        {"sequence": 5, "kind": "sensor-stop-repeated", "epoch": 1},
+        {"sequence": 6, "kind": "sensor-destroyed"},
+        {"sequence": 7, "kind": "target-closed"}
+      ],
+      "initialFrame": {"generation": 1, "epoch": 1, "size": {"width": 360, "height": 220}},
+      "capabilities": {"borderHidden": false, "cursorExcluded": true},
+      "ledger": {"framesAcquired": 1, "framesClosed": 1, "framePoolsCreated": 1, "framePoolsClosed": 1, "framePoolsRecreated": 0, "sessionsCreated": 1, "sessionsClosed": 1, "frameArrivedRegistrations": 1, "frameArrivedUnregistrations": 1, "itemClosedRegistrations": 1, "itemClosedUnregistrations": 1, "liveFrames": 0, "liveFramePools": 0, "liveSessions": 0, "liveFrameArrivedRegistrations": 0, "liveItemClosedRegistrations": 0, "failures": 0, "allReleased": true}
+    }
+  }
+}
