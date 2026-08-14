@@ -18,6 +18,7 @@ configure_file(
 add_library(
     bafx_desktop_input
     STATIC
+        performance_window.cpp
         pointer_frame_dispatch.cpp
 )
 add_library(bafx::desktop_input ALIAS bafx_desktop_input)

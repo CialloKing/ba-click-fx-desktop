@@ -1,0 +1,62 @@
+#include "test_support.hpp"
+
+#include "performance_window.hpp"
+
+#include <cstdint>
+
+BAFX_TEST(performance_metric_reports_exact_nearest_rank_percentiles)
+{
+    bafx::desktop::BoundedMetric metric;
+    for (std::uint64_t value = 1U; value <= 100U; ++value)
+    {
+        metric.add(value);
+    }
+
+    const bafx::desktop::MetricSummary summary = metric.summarize();
+    BAFX_CHECK(summary.sampleCount == 100U);
+    BAFX_CHECK(summary.recordedSampleCount == 100U);
+    BAFX_CHECK(summary.droppedSampleCount == 0U);
+    BAFX_CHECK(summary.minimum == 1U);
+    BAFX_CHECK(summary.p50 == 50U);
+    BAFX_CHECK(summary.p95 == 95U);
+    BAFX_CHECK(summary.p99 == 99U);
+    BAFX_CHECK(summary.maximum == 100U);
+    BAFX_CHECK(summary.average == 50.5);
+}
+
+BAFX_TEST(performance_metric_exposes_capacity_loss_without_losing_extrema)
+{
+    bafx::desktop::BoundedMetric metric(3U);
+    metric.add(10U);
+    metric.add(20U);
+    metric.add(30U);
+    metric.add(1000U);
+
+    const bafx::desktop::MetricSummary summary = metric.summarize();
+    BAFX_CHECK(summary.sampleCount == 4U);
+    BAFX_CHECK(summary.recordedSampleCount == 3U);
+    BAFX_CHECK(summary.droppedSampleCount == 1U);
+    BAFX_CHECK(summary.minimum == 10U);
+    BAFX_CHECK(summary.p50 == 20U);
+    BAFX_CHECK(summary.p95 == 30U);
+    BAFX_CHECK(summary.maximum == 1000U);
+    BAFX_CHECK(summary.average == 265.0);
+}
+
+BAFX_TEST(performance_metric_reset_starts_a_fresh_window)
+{
+    bafx::desktop::BoundedMetric metric;
+    metric.add(42U);
+    metric.reset();
+
+    BAFX_CHECK(metric.empty());
+    const bafx::desktop::MetricSummary empty = metric.summarize();
+    BAFX_CHECK(empty.sampleCount == 0U);
+    BAFX_CHECK(empty.average == 0.0);
+
+    metric.add(7U);
+    const bafx::desktop::MetricSummary fresh = metric.summarize();
+    BAFX_CHECK(fresh.sampleCount == 1U);
+    BAFX_CHECK(fresh.minimum == 7U);
+    BAFX_CHECK(fresh.maximum == 7U);
+}
