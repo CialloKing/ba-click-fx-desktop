@@ -54,6 +54,8 @@ struct FramePerformanceSample
     std::uint32_t wgcFramesSuperseded{0U};
     std::uint32_t wgcTimestampRejectedFrames{0U};
     bool wgcActive{false};
+    bool wgcDrainAttempted{false};
+    bool wgcIdleDrainSkipped{false};
     bool wgcOwnedCopySubmitted{false};
     bool wgcAccepted{false};
     bool backgroundSnapshotRefreshAttempted{false};
@@ -89,6 +91,8 @@ struct RuntimePerformanceSummary
 {
     std::uint64_t frameCount{0U};
     std::uint64_t wgcActiveFrames{0U};
+    std::uint64_t wgcDrainAttemptedFrames{0U};
+    std::uint64_t wgcIdleDrainSkippedFrames{0U};
     std::uint64_t wgcProducerCallbacks{0U};
     std::uint64_t wgcFramesAcquired{0U};
     std::uint64_t wgcFramesSuperseded{0U};
@@ -182,6 +186,8 @@ public:
 private:
     std::uint64_t frameCount_{0U};
     std::uint64_t wgcActiveFrames_{0U};
+    std::uint64_t wgcDrainAttemptedFrames_{0U};
+    std::uint64_t wgcIdleDrainSkippedFrames_{0U};
     std::uint64_t wgcProducerCallbacks_{0U};
     std::uint64_t wgcFramesAcquired_{0U};
     std::uint64_t wgcFramesSuperseded_{0U};

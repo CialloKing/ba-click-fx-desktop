@@ -561,6 +561,8 @@ struct PointerConsumptionDiagnostics
     sample.wgcFramesSuperseded = frame.wgc.framesSuperseded;
     sample.wgcTimestampRejectedFrames = frame.wgc.timestampRejectedFrames;
     sample.wgcActive = frame.wgcActive;
+    sample.wgcDrainAttempted = frame.wgcDrainAttempted;
+    sample.wgcIdleDrainSkipped = frame.wgcIdleDrainSkipped;
     sample.wgcOwnedCopySubmitted = frame.wgc.ownedCopySubmitted;
     sample.wgcAccepted = frame.wgc.accepted;
     sample.backgroundSnapshotRefreshAttempted =

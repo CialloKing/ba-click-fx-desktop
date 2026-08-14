@@ -123,6 +123,8 @@ void RuntimePerformanceWindow::addFrame(
 {
     ++frameCount_;
     wgcActiveFrames_ += sample.wgcActive ? 1U : 0U;
+    wgcDrainAttemptedFrames_ += sample.wgcDrainAttempted ? 1U : 0U;
+    wgcIdleDrainSkippedFrames_ += sample.wgcIdleDrainSkipped ? 1U : 0U;
     wgcProducerCallbacks_ += sample.wgcProducerCallbacks;
     wgcFramesAcquired_ += sample.wgcFramesAcquired;
     wgcFramesSuperseded_ += sample.wgcFramesSuperseded;
@@ -141,7 +143,7 @@ void RuntimePerformanceWindow::addFrame(
     bloomAndCompositeSubmitCpuMicroseconds_.add(
         sample.bloomAndCompositeSubmitCpuMicroseconds);
     presentCallCpuMicroseconds_.add(sample.presentCallCpuMicroseconds);
-    if (sample.wgcActive)
+    if (sample.wgcDrainAttempted)
     {
         wgcDrainCpuMicroseconds_.add(sample.wgcDrainCpuMicroseconds);
     }
@@ -227,6 +229,8 @@ void RuntimePerformanceWindow::reset() noexcept
 {
     frameCount_ = 0U;
     wgcActiveFrames_ = 0U;
+    wgcDrainAttemptedFrames_ = 0U;
+    wgcIdleDrainSkippedFrames_ = 0U;
     wgcProducerCallbacks_ = 0U;
     wgcFramesAcquired_ = 0U;
     wgcFramesSuperseded_ = 0U;
@@ -287,6 +291,8 @@ RuntimePerformanceSummary RuntimePerformanceWindow::summarize() const
     RuntimePerformanceSummary summary{};
     summary.frameCount = frameCount_;
     summary.wgcActiveFrames = wgcActiveFrames_;
+    summary.wgcDrainAttemptedFrames = wgcDrainAttemptedFrames_;
+    summary.wgcIdleDrainSkippedFrames = wgcIdleDrainSkippedFrames_;
     summary.wgcProducerCallbacks = wgcProducerCallbacks_;
     summary.wgcFramesAcquired = wgcFramesAcquired_;
     summary.wgcFramesSuperseded = wgcFramesSuperseded_;

@@ -261,7 +261,7 @@ std::chrono::nanoseconds appendPerformanceInterval(
             "completed-sample-may-belong-to-an-older-reporting-window");
         fields.add(
             "GPU.StageApplicabilitySemantic",
-            "WGC-active-snapshot-attempted-and-visual-FX-only");
+            "WGC-drain-attempted-snapshot-attempted-and-visual-FX-only");
         fields.add(
             "WGC.ProducerSemantic",
             "FrameArrived-callback-rate-proxy");
@@ -270,6 +270,13 @@ std::chrono::nanoseconds appendPerformanceInterval(
             microseconds(previousLogWriteCpu));
 
         fields.add("WGC.ActiveFrames", summary.wgcActiveFrames);
+        fields.add("WGC.DrainPolicy", "active-fx-only");
+        fields.add(
+            "WGC.DrainAttemptedFrames",
+            summary.wgcDrainAttemptedFrames);
+        fields.add(
+            "WGC.IdleDrainSkippedFrames",
+            summary.wgcIdleDrainSkippedFrames);
         fields.add("WGC.ProducerCallbacks", summary.wgcProducerCallbacks);
         fields.addDecimal(
             "WGC.ProducerCallbackFps",

@@ -65,6 +65,8 @@ BAFX_TEST(performance_log_preserves_metric_and_semantic_fields)
         .fxMaterialsSubmitCpuMicroseconds = 1'000U,
         .bloomAndCompositeSubmitCpuMicroseconds = 3'000U,
         .presentCallCpuMicroseconds = 2'000U,
+        .wgcActive = true,
+        .wgcDrainAttempted = true,
         .gpuFxMaterialsMicroseconds = 900U,
         .gpuBloomAndFinalCompositeMicroseconds = 2'500U,
         .gpuTotalFxMicroseconds = 3'400U,
@@ -101,6 +103,12 @@ BAFX_TEST(performance_log_preserves_metric_and_semantic_fields)
         "Timing.PresentSemantic=Present-call-return-not-dwm-composition-or-scanout\n")
         != std::string::npos);
     BAFX_CHECK(text.find("Cpu.FrameTotal.P95=20000\n") != std::string::npos);
+    BAFX_CHECK(text.find("WGC.DrainPolicy=active-fx-only\n")
+        != std::string::npos);
+    BAFX_CHECK(text.find("WGC.DrainAttemptedFrames=1\n")
+        != std::string::npos);
+    BAFX_CHECK(text.find("WGC.IdleDrainSkippedFrames=0\n")
+        != std::string::npos);
     BAFX_CHECK(text.find("GPU.TimestampProfiler.Available=true\n")
         != std::string::npos);
     BAFX_CHECK(text.find("GPU.TimestampProfiler.InitializationHresult=0x00000000\n")
