@@ -359,6 +359,40 @@ void CompositionRenderer::renderFrame(
         captureCenterPixel();
     }
 
+    presentSwapChain();
+}
+
+PixelF CompositionRenderer::presentCompositionProbeColor(const PixelF color)
+{
+    if (!std::isfinite(color.red)
+        || !std::isfinite(color.green)
+        || !std::isfinite(color.blue)
+        || !std::isfinite(color.alpha)
+        || color.alpha < 0.0F
+        || color.alpha > 1.0F)
+    {
+        throw std::invalid_argument(
+            "Composition probe color requires finite RGB and Alpha in [0, 1]");
+    }
+
+    const std::array<float, 4> clearColor{
+        color.red,
+        color.green,
+        color.blue,
+        color.alpha};
+    context_->ClearRenderTargetView(renderTarget_.Get(), clearColor.data());
+    captureCenterPixel();
+    presentSwapChain();
+    if (!lastCenterPixel_.has_value())
+    {
+        throw std::runtime_error(
+            "Composition probe could not read the pre-Present pixel");
+    }
+    return *lastCenterPixel_;
+}
+
+void CompositionRenderer::presentSwapChain()
+{
     const HRESULT result = swapChain_->Present(1, 0);
     if (result == DXGI_ERROR_DEVICE_REMOVED || result == DXGI_ERROR_DEVICE_RESET)
     {

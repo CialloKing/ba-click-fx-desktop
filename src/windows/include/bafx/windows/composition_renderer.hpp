@@ -96,6 +96,10 @@ public:
         const bafx::fx::FrameSnapshot& snapshot,
         bafx::core::MonotonicTime wallTime = bafx::core::MonotonicTime::zero(),
         bool requireCurrentBackground = false);
+    // SPK-001 must exercise the production FP16 swap chain and DComp target
+    // without reconstructing them in a second renderer. The returned pixel is
+    // captured before Present so DWM observation can be compared independently.
+    [[nodiscard]] PixelF presentCompositionProbeColor(PixelF color);
     [[nodiscard]] bool tryEnableBackgroundCapture(
         HMONITOR monitor,
         bool exclusionConfirmed,
@@ -122,6 +126,7 @@ private:
     void createSwapChain(WindowSize size);
     void createComposition(HWND window);
     void createRenderTarget();
+    void presentSwapChain();
     void resetBackgroundSnapshot() noexcept;
     void releaseBackgroundSnapshotResources() noexcept;
     [[nodiscard]] bool captureBackgroundSnapshot(
