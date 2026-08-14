@@ -118,21 +118,18 @@ struct OwnedBackgroundTexture
     return item;
 }
 
-void closeFrame(Direct3D11CaptureFrame& frame) noexcept
+[[nodiscard]] GraphicsCaptureItem createWindowItem(const HWND window)
 {
-    if (!frame)
-    {
-        return;
-    }
-    try
-    {
-        frame.Close();
-    }
-    catch (...)
-    {
-        // Releasing the projection is still necessary when IClosable fails.
-    }
-    frame = nullptr;
+    const auto factory = winrt::get_activation_factory<GraphicsCaptureItem>();
+    const auto interop = factory.as<IGraphicsCaptureItemInterop>();
+    GraphicsCaptureItem item{nullptr};
+    throwIfFailed(
+        interop->CreateForWindow(
+            window,
+            winrt::guid_of<winrt::Windows::Graphics::Capture::IGraphicsCaptureItem>(),
+            winrt::put_abi(item)),
+        "IGraphicsCaptureItemInterop::CreateForWindow");
+    return item;
 }
 
 [[nodiscard]] ComPtr<ID3D11Texture2D> textureFromFrame(
@@ -166,25 +163,163 @@ void closeFrame(Direct3D11CaptureFrame& frame) noexcept
 
 }
 
+enum class WgcBackgroundSensor::ResourceLedgerEvent : std::uint8_t
+{
+    FrameAcquired,
+    FrameClosed,
+    FramePoolCreated,
+    FramePoolClosed,
+    FramePoolRecreated,
+    SessionCreated,
+    SessionClosed,
+    FrameArrivedRegistered,
+    FrameArrivedUnregistered,
+    ItemClosedRegistered,
+    ItemClosedUnregistered,
+    Failure
+};
+
+bool WgcBackgroundResourceLedgerSnapshot::allReleased() const noexcept
+{
+    return liveFrames == 0U
+        && liveFramePools == 0U
+        && liveSessions == 0U
+        && liveFrameArrivedRegistrations == 0U
+        && liveItemClosedRegistrations == 0U;
+}
+
+WgcBackgroundResourceLedgerSnapshot
+WgcBackgroundResourceLedger::snapshot() const noexcept
+{
+    return WgcBackgroundResourceLedgerSnapshot{
+        framesAcquired_.load(std::memory_order_relaxed),
+        framesClosed_.load(std::memory_order_relaxed),
+        framePoolsCreated_.load(std::memory_order_relaxed),
+        framePoolsClosed_.load(std::memory_order_relaxed),
+        framePoolsRecreated_.load(std::memory_order_relaxed),
+        sessionsCreated_.load(std::memory_order_relaxed),
+        sessionsClosed_.load(std::memory_order_relaxed),
+        frameArrivedRegistrations_.load(std::memory_order_relaxed),
+        frameArrivedUnregistrations_.load(std::memory_order_relaxed),
+        itemClosedRegistrations_.load(std::memory_order_relaxed),
+        itemClosedUnregistrations_.load(std::memory_order_relaxed),
+        liveFrames_.load(std::memory_order_relaxed),
+        liveFramePools_.load(std::memory_order_relaxed),
+        liveSessions_.load(std::memory_order_relaxed),
+        liveFrameArrivedRegistrations_.load(std::memory_order_relaxed),
+        liveItemClosedRegistrations_.load(std::memory_order_relaxed),
+        failures_.load(std::memory_order_relaxed)};
+}
+
+void WgcBackgroundSensor::recordResourceLedgerEvent(
+    const std::shared_ptr<WgcBackgroundResourceLedger>& ledger,
+    const ResourceLedgerEvent event) noexcept
+{
+    if (ledger == nullptr)
+    {
+        return;
+    }
+
+    const auto decrementLive = [&ledger](
+        std::atomic<std::uint64_t>& live) noexcept
+    {
+        std::uint64_t current = live.load(std::memory_order_relaxed);
+        while (current != 0U)
+        {
+            if (live.compare_exchange_weak(
+                    current,
+                    current - 1U,
+                    std::memory_order_relaxed))
+            {
+                return;
+            }
+        }
+        // An unmatched release is itself lifecycle evidence, so retain it as
+        // a failure instead of wrapping the unsigned live counter.
+        ledger->failures_.fetch_add(1U, std::memory_order_relaxed);
+    };
+
+    switch (event)
+    {
+    case ResourceLedgerEvent::FrameAcquired:
+        ledger->framesAcquired_.fetch_add(1U, std::memory_order_relaxed);
+        ledger->liveFrames_.fetch_add(1U, std::memory_order_relaxed);
+        break;
+    case ResourceLedgerEvent::FrameClosed:
+        ledger->framesClosed_.fetch_add(1U, std::memory_order_relaxed);
+        decrementLive(ledger->liveFrames_);
+        break;
+    case ResourceLedgerEvent::FramePoolCreated:
+        ledger->framePoolsCreated_.fetch_add(1U, std::memory_order_relaxed);
+        ledger->liveFramePools_.fetch_add(1U, std::memory_order_relaxed);
+        break;
+    case ResourceLedgerEvent::FramePoolClosed:
+        ledger->framePoolsClosed_.fetch_add(1U, std::memory_order_relaxed);
+        decrementLive(ledger->liveFramePools_);
+        break;
+    case ResourceLedgerEvent::FramePoolRecreated:
+        ledger->framePoolsRecreated_.fetch_add(1U, std::memory_order_relaxed);
+        break;
+    case ResourceLedgerEvent::SessionCreated:
+        ledger->sessionsCreated_.fetch_add(1U, std::memory_order_relaxed);
+        ledger->liveSessions_.fetch_add(1U, std::memory_order_relaxed);
+        break;
+    case ResourceLedgerEvent::SessionClosed:
+        ledger->sessionsClosed_.fetch_add(1U, std::memory_order_relaxed);
+        decrementLive(ledger->liveSessions_);
+        break;
+    case ResourceLedgerEvent::FrameArrivedRegistered:
+        ledger->frameArrivedRegistrations_.fetch_add(1U, std::memory_order_relaxed);
+        ledger->liveFrameArrivedRegistrations_.fetch_add(
+            1U,
+            std::memory_order_relaxed);
+        break;
+    case ResourceLedgerEvent::FrameArrivedUnregistered:
+        ledger->frameArrivedUnregistrations_.fetch_add(
+            1U,
+            std::memory_order_relaxed);
+        decrementLive(ledger->liveFrameArrivedRegistrations_);
+        break;
+    case ResourceLedgerEvent::ItemClosedRegistered:
+        ledger->itemClosedRegistrations_.fetch_add(1U, std::memory_order_relaxed);
+        ledger->liveItemClosedRegistrations_.fetch_add(
+            1U,
+            std::memory_order_relaxed);
+        break;
+    case ResourceLedgerEvent::ItemClosedUnregistered:
+        ledger->itemClosedUnregistrations_.fetch_add(
+            1U,
+            std::memory_order_relaxed);
+        decrementLive(ledger->liveItemClosedRegistrations_);
+        break;
+    case ResourceLedgerEvent::Failure:
+        ledger->failures_.fetch_add(1U, std::memory_order_relaxed);
+        break;
+    }
+}
+
 struct WgcBackgroundSensor::Implementation
 {
     Implementation(
         ID3D11Device* sourceDevice,
-        const HMONITOR monitor,
+        GraphicsCaptureItem sourceItem,
         const WgcBackgroundSensorOptions sourceOptions)
         : device(sourceDevice)
         , direct3dDevice(createWinrtDevice(sourceDevice))
-        , item(createMonitorItem(monitor))
+        , item(std::move(sourceItem))
         , options(sourceOptions)
+        , ledger(sourceOptions.resourceLedger != nullptr
+              ? sourceOptions.resourceLedger
+              : std::make_shared<WgcBackgroundResourceLedger>())
         , notification(std::make_shared<detail::WgcFrameNotification>())
     {
         if (sourceDevice == nullptr)
         {
             throw std::invalid_argument("WGC background sensor requires a D3D11 device");
         }
-        if (monitor == nullptr)
+        if (!item)
         {
-            throw std::invalid_argument("WGC background sensor requires a monitor");
+            throw std::invalid_argument("WGC background sensor requires a capture item");
         }
         if (!GraphicsCaptureSession::IsSupported())
         {
@@ -203,6 +338,9 @@ struct WgcBackgroundSensor::Implementation
                 capturePixelFormat,
                 captureBufferCount,
                 initialContentSize);
+            recordResourceLedgerEvent(
+                ledger,
+                ResourceLedgerEvent::FramePoolCreated);
 
             const std::shared_ptr<detail::WgcFrameNotification> callbackState =
                 notification;
@@ -212,6 +350,9 @@ struct WgcBackgroundSensor::Implementation
                     callbackState->notifyFrame();
                 });
             frameArrivedRegistered = true;
+            recordResourceLedgerEvent(
+                ledger,
+                ResourceLedgerEvent::FrameArrivedRegistered);
 
             itemClosedToken = item.Closed(
                 [callbackState](const auto&, const auto&) noexcept
@@ -219,8 +360,14 @@ struct WgcBackgroundSensor::Implementation
                     callbackState->notifyItemClosed();
                 });
             itemClosedRegistered = true;
+            recordResourceLedgerEvent(
+                ledger,
+                ResourceLedgerEvent::ItemClosedRegistered);
 
             session = framePool.CreateCaptureSession(item);
+            recordResourceLedgerEvent(
+                ledger,
+                ResourceLedgerEvent::SessionCreated);
             winrt::hresult borderQueryResult{};
             const auto borderSession = session.try_as_with_reason<
                 winrt::Windows::Graphics::Capture::IGraphicsCaptureSession3>(
@@ -323,6 +470,37 @@ struct WgcBackgroundSensor::Implementation
         stop();
     }
 
+    [[nodiscard]] Direct3D11CaptureFrame tryGetNextFrame()
+    {
+        Direct3D11CaptureFrame frame = framePool.TryGetNextFrame();
+        if (frame)
+        {
+            recordResourceLedgerEvent(
+                ledger,
+                ResourceLedgerEvent::FrameAcquired);
+        }
+        return frame;
+    }
+
+    void closeOwnedFrame(Direct3D11CaptureFrame& frame) noexcept
+    {
+        if (!frame)
+        {
+            return;
+        }
+        try
+        {
+            frame.Close();
+        }
+        catch (...)
+        {
+            // Releasing the projection is still necessary when IClosable fails.
+            recordResourceLedgerEvent(ledger, ResourceLedgerEvent::Failure);
+        }
+        frame = nullptr;
+        recordResourceLedgerEvent(ledger, ResourceLedgerEvent::FrameClosed);
+    }
+
     [[nodiscard]] WgcBackgroundDrainStatus drainLatest(
         ID3D11DeviceContext* context)
     {
@@ -346,7 +524,7 @@ struct WgcBackgroundSensor::Implementation
 
         const std::uint64_t observedGeneration =
             notification->generation();
-        Direct3D11CaptureFrame latest = framePool.TryGetNextFrame();
+        Direct3D11CaptureFrame latest = tryGetNextFrame();
         if (!latest)
         {
             notification->resetAfterDrain(observedGeneration, false);
@@ -358,12 +536,12 @@ struct WgcBackgroundSensor::Implementation
             std::uint32_t consumedFrameCount = 1U;
             while (consumedFrameCount < maximumFramesPerDrain)
             {
-                Direct3D11CaptureFrame next = framePool.TryGetNextFrame();
+                Direct3D11CaptureFrame next = tryGetNextFrame();
                 if (!next)
                 {
                     break;
                 }
-                closeFrame(latest);
+                closeOwnedFrame(latest);
                 latest = std::move(next);
                 ++consumedFrameCount;
             }
@@ -377,7 +555,7 @@ struct WgcBackgroundSensor::Implementation
             if (checkedContentSize.width != poolSize.width
                 || checkedContentSize.height != poolSize.height)
             {
-                closeFrame(latest);
+                closeOwnedFrame(latest);
                 latestBackground.reset();
                 lastAcceptedTimestamp.reset();
                 pendingFramePoolSize = checkedContentSize;
@@ -395,7 +573,7 @@ struct WgcBackgroundSensor::Implementation
                 // A regressed driver timestamp must not make an older desktop
                 // image look fresh again. Keep the previous sample so it can
                 // age out through the normal fallback policy.
-                closeFrame(latest);
+                closeOwnedFrame(latest);
                 notification->resetAfterDrain(
                     observedGeneration,
                     queuedFramesMayRemain);
@@ -428,7 +606,7 @@ struct WgcBackgroundSensor::Implementation
                 0U,
                 &sourceBox);
 
-            closeFrame(latest);
+            closeOwnedFrame(latest);
             lastAcceptedTimestamp = timestamp;
             sampleGeneration = nextGeneration(sampleGeneration);
             latestBackground = WgcBackgroundSample{
@@ -447,7 +625,7 @@ struct WgcBackgroundSensor::Implementation
         }
         catch (...)
         {
-            closeFrame(latest);
+            closeOwnedFrame(latest);
             throw;
         }
     }
@@ -478,6 +656,9 @@ struct WgcBackgroundSensor::Implementation
             capturePixelFormat,
             captureBufferCount,
             contentSize);
+        recordResourceLedgerEvent(
+            ledger,
+            ResourceLedgerEvent::FramePoolRecreated);
         ownedTexture = std::move(resizedTexture);
         poolSize = size;
         options.epoch = nextGeneration(options.epoch);
@@ -501,8 +682,12 @@ struct WgcBackgroundSensor::Implementation
             catch (...)
             {
                 // The pool may already be torn down after a device loss.
+                recordResourceLedgerEvent(ledger, ResourceLedgerEvent::Failure);
             }
             frameArrivedRegistered = false;
+            recordResourceLedgerEvent(
+                ledger,
+                ResourceLedgerEvent::FrameArrivedUnregistered);
         }
         if (itemClosedRegistered && item)
         {
@@ -513,8 +698,12 @@ struct WgcBackgroundSensor::Implementation
             catch (...)
             {
                 // The item can close itself before the owner reaches shutdown.
+                recordResourceLedgerEvent(ledger, ResourceLedgerEvent::Failure);
             }
             itemClosedRegistered = false;
+            recordResourceLedgerEvent(
+                ledger,
+                ResourceLedgerEvent::ItemClosedUnregistered);
         }
         if (session)
         {
@@ -525,8 +714,12 @@ struct WgcBackgroundSensor::Implementation
             catch (...)
             {
                 // Shutdown must not replace an earlier rendering failure.
+                recordResourceLedgerEvent(ledger, ResourceLedgerEvent::Failure);
             }
             session = nullptr;
+            recordResourceLedgerEvent(
+                ledger,
+                ResourceLedgerEvent::SessionClosed);
         }
         if (framePool)
         {
@@ -537,8 +730,12 @@ struct WgcBackgroundSensor::Implementation
             catch (...)
             {
                 // The device may already be removed during process shutdown.
+                recordResourceLedgerEvent(ledger, ResourceLedgerEvent::Failure);
             }
             framePool = nullptr;
+            recordResourceLedgerEvent(
+                ledger,
+                ResourceLedgerEvent::FramePoolClosed);
         }
         item = nullptr;
         direct3dDevice = nullptr;
@@ -556,6 +753,7 @@ struct WgcBackgroundSensor::Implementation
     GraphicsCaptureSession session{nullptr};
     WgcBackgroundSensorOptions options{};
     WgcBackgroundSessionCapabilities capabilities{};
+    std::shared_ptr<WgcBackgroundResourceLedger> ledger{};
     std::shared_ptr<detail::WgcFrameNotification> notification{};
     OwnedBackgroundTexture ownedTexture{};
     std::optional<WgcBackgroundSample> latestBackground{};
@@ -574,7 +772,7 @@ struct WgcBackgroundSensor::Implementation
 WgcBackgroundSensor::WgcBackgroundSensor(
     ID3D11Device* device,
     const HMONITOR monitor,
-    const WgcBackgroundSensorOptions options)
+    WgcBackgroundSensorOptions options)
 {
     if (device == nullptr)
     {
@@ -584,7 +782,57 @@ WgcBackgroundSensor::WgcBackgroundSensor(
     {
         throw std::invalid_argument("WGC background sensor requires a monitor");
     }
-    implementation_ = std::make_unique<Implementation>(device, monitor, options);
+    if (options.resourceLedger == nullptr)
+    {
+        options.resourceLedger = std::make_shared<WgcBackgroundResourceLedger>();
+    }
+    try
+    {
+        implementation_ = std::make_unique<Implementation>(
+            device,
+            createMonitorItem(monitor),
+            options);
+    }
+    catch (...)
+    {
+        recordResourceLedgerEvent(
+            options.resourceLedger,
+            ResourceLedgerEvent::Failure);
+        throw;
+    }
+}
+
+WgcBackgroundSensor::WgcBackgroundSensor(
+    ID3D11Device* device,
+    const HWND window,
+    WgcBackgroundSensorOptions options)
+{
+    if (device == nullptr)
+    {
+        throw std::invalid_argument("WGC background sensor requires a D3D11 device");
+    }
+    if (window == nullptr || !IsWindow(window))
+    {
+        throw std::invalid_argument("WGC background sensor requires a live window");
+    }
+    if (options.resourceLedger == nullptr)
+    {
+        options.resourceLedger = std::make_shared<WgcBackgroundResourceLedger>();
+    }
+    try
+    {
+        implementation_ = std::make_unique<Implementation>(
+            device,
+            createWindowItem(window),
+            options);
+    }
+    catch (...)
+    {
+        recordResourceLedgerEvent(
+            options.resourceLedger,
+            ResourceLedgerEvent::Failure);
+        throw;
+    }
 }
 
 WgcBackgroundSensor::~WgcBackgroundSensor() = default;
@@ -604,7 +852,17 @@ bool WgcBackgroundSensor::isSupported() noexcept
 WgcBackgroundDrainStatus WgcBackgroundSensor::drainLatest(
     ID3D11DeviceContext* context)
 {
-    return implementation_->drainLatest(context);
+    try
+    {
+        return implementation_->drainLatest(context);
+    }
+    catch (...)
+    {
+        recordResourceLedgerEvent(
+            implementation_->ledger,
+            ResourceLedgerEvent::Failure);
+        throw;
+    }
 }
 
 std::optional<WindowSize>
@@ -615,7 +873,17 @@ WgcBackgroundSensor::pendingFramePoolSize() const noexcept
 
 void WgcBackgroundSensor::recreateFramePool(const WindowSize size)
 {
-    implementation_->recreateFramePool(size);
+    try
+    {
+        implementation_->recreateFramePool(size);
+    }
+    catch (...)
+    {
+        recordResourceLedgerEvent(
+            implementation_->ledger,
+            ResourceLedgerEvent::Failure);
+        throw;
+    }
 }
 
 std::optional<WgcBackgroundSample> WgcBackgroundSensor::latestSample() const noexcept
@@ -631,6 +899,12 @@ std::uint64_t WgcBackgroundSensor::expectedEpoch() const noexcept
 WgcBackgroundSessionCapabilities WgcBackgroundSensor::capabilities() const noexcept
 {
     return implementation_->capabilities;
+}
+
+WgcBackgroundResourceLedgerSnapshot
+WgcBackgroundSensor::resourceLedger() const noexcept
+{
+    return implementation_->ledger->snapshot();
 }
 
 HANDLE WgcBackgroundSensor::frameAvailableObject() const noexcept

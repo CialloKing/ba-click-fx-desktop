@@ -1,10 +1,13 @@
 #include "test_support.hpp"
 
 #include "bafx/windows/detail/wgc_frame_notification.hpp"
+#include "bafx/windows/wgc_background_sensor.hpp"
 
 #include <windows.h>
 
 using bafx::windows::detail::WgcFrameNotification;
+using bafx::windows::WgcBackgroundResourceLedger;
+using bafx::windows::WgcBackgroundResourceLedgerSnapshot;
 
 namespace
 {
@@ -92,4 +95,39 @@ BAFX_TEST(wgc_notification_stop_wakes_the_owner_and_ignores_late_frames)
 
     BAFX_CHECK(notification.generation() == generationBeforeStop);
     BAFX_CHECK(signalState(notification) == WAIT_OBJECT_0);
+}
+
+BAFX_TEST(wgc_resource_ledger_starts_empty_and_released)
+{
+    const WgcBackgroundResourceLedger ledger;
+    const WgcBackgroundResourceLedgerSnapshot snapshot = ledger.snapshot();
+
+    BAFX_CHECK(snapshot.allReleased());
+    BAFX_CHECK(snapshot.framesAcquired == 0U);
+    BAFX_CHECK(snapshot.framePoolsCreated == 0U);
+    BAFX_CHECK(snapshot.sessionsCreated == 0U);
+    BAFX_CHECK(snapshot.failures == 0U);
+}
+
+BAFX_TEST(wgc_resource_ledger_requires_every_live_resource_to_be_released)
+{
+    WgcBackgroundResourceLedgerSnapshot snapshot{};
+    snapshot.liveFrames = 1U;
+    BAFX_CHECK(!snapshot.allReleased());
+
+    snapshot.liveFrames = 0U;
+    snapshot.liveFramePools = 1U;
+    BAFX_CHECK(!snapshot.allReleased());
+
+    snapshot.liveFramePools = 0U;
+    snapshot.liveSessions = 1U;
+    BAFX_CHECK(!snapshot.allReleased());
+
+    snapshot.liveSessions = 0U;
+    snapshot.liveFrameArrivedRegistrations = 1U;
+    BAFX_CHECK(!snapshot.allReleased());
+
+    snapshot.liveFrameArrivedRegistrations = 0U;
+    snapshot.liveItemClosedRegistrations = 1U;
+    BAFX_CHECK(!snapshot.allReleased());
 }
