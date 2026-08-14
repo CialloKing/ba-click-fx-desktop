@@ -2,6 +2,7 @@
 
 #include "bafx/windows/overlay_window.hpp"
 
+#include <chrono>
 #include <cstddef>
 #include <optional>
 #include <stdexcept>
@@ -67,6 +68,61 @@ namespace
     return "unknown";
 }
 
+[[nodiscard]] std::string_view backgroundCaptureActionName(
+    const bafx::windows::BackgroundCaptureActionKind kind) noexcept
+{
+    using bafx::windows::BackgroundCaptureActionKind;
+    switch (kind)
+    {
+    case BackgroundCaptureActionKind::StopSensor:
+        return "stop-sensor";
+    case BackgroundCaptureActionKind::ResizeOutput:
+        return "resize-output";
+    case BackgroundCaptureActionKind::RecreateFramePool:
+        return "recreate-frame-pool";
+    case BackgroundCaptureActionKind::SetAffinityExcluded:
+        return "set-affinity-excluded";
+    case BackgroundCaptureActionKind::SetAffinityIncluded:
+        return "set-affinity-included";
+    case BackgroundCaptureActionKind::ApplyOverlayProfile:
+        return "apply-overlay-profile";
+    case BackgroundCaptureActionKind::StartSensor:
+        return "start-sensor";
+    }
+    return "unknown";
+}
+
+void appendBackgroundCaptureActionBegin(
+    const std::filesystem::path& logPath,
+    const std::size_t index,
+    const bafx::windows::BackgroundCaptureActionKind kind)
+{
+    std::string message = "BackgroundCapture.Action.Begin=";
+    message += backgroundCaptureActionName(kind);
+    message += ";Index=";
+    message += std::to_string(index);
+    bafx::windows::appendDiagnosticLog(logPath, message);
+}
+
+void appendBackgroundCaptureActionEnd(
+    const std::filesystem::path& logPath,
+    const std::size_t index,
+    const bafx::windows::BackgroundCaptureActionKind kind,
+    const bool succeeded,
+    const std::chrono::steady_clock::duration elapsed)
+{
+    std::string message = "BackgroundCapture.Action.End=";
+    message += backgroundCaptureActionName(kind);
+    message += ";Index=";
+    message += std::to_string(index);
+    message += ";Succeeded=";
+    message += succeeded ? "true" : "false";
+    message += ";ElapsedUs=";
+    message += std::to_string(
+        std::chrono::duration_cast<std::chrono::microseconds>(elapsed).count());
+    bafx::windows::appendDiagnosticLog(logPath, message);
+}
+
 }
 
 bafx::windows::BackgroundCaptureRequest backgroundCaptureRequest(
@@ -88,6 +144,8 @@ BackgroundCaptureExecutionResult executeBackgroundCaptureTransition(
     const std::filesystem::path& logPath)
 {
     BackgroundCaptureExecutionResult result{};
+    const auto transactionStartedAt = std::chrono::steady_clock::now();
+    std::size_t executedActionCount = 0U;
     for (std::size_t index = 0U;
          index < bafx::windows::maximumBackgroundCaptureActions;
          ++index)
@@ -99,60 +157,83 @@ BackgroundCaptureExecutionResult executeBackgroundCaptureTransition(
             break;
         }
 
+        appendBackgroundCaptureActionBegin(logPath, index, action->kind);
+        const auto actionStartedAt = std::chrono::steady_clock::now();
         bool succeeded = false;
-        switch (action->kind)
+        try
         {
-        case bafx::windows::BackgroundCaptureActionKind::StopSensor:
-            renderer.disableBackgroundCapture();
-            succeeded = true;
-            break;
-        case bafx::windows::BackgroundCaptureActionKind::SetAffinityExcluded:
-        case bafx::windows::BackgroundCaptureActionKind::SetAffinityIncluded:
+            switch (action->kind)
+            {
+            case bafx::windows::BackgroundCaptureActionKind::StopSensor:
+                renderer.disableBackgroundCapture();
+                succeeded = true;
+                break;
+            case bafx::windows::BackgroundCaptureActionKind::SetAffinityExcluded:
+            case bafx::windows::BackgroundCaptureActionKind::SetAffinityIncluded:
+            {
+                const bool excluded = action->kind
+                    == bafx::windows::BackgroundCaptureActionKind::
+                        SetAffinityExcluded;
+                const bafx::windows::CaptureExclusionStatus status =
+                    window.setCaptureExcluded(excluded);
+                bafx::windows::appendDiagnosticLog(
+                    logPath,
+                    bafx::windows::captureExclusionDiagnostic(status));
+                succeeded = status.confirmed();
+                break;
+            }
+            case bafx::windows::BackgroundCaptureActionKind::ApplyOverlayProfile:
+                renderer.setOverlayProfile(action->overlayProfile);
+                succeeded = true;
+                break;
+            case bafx::windows::BackgroundCaptureActionKind::ResizeOutput:
+                renderer.resizeOutput(action->outputSize);
+                succeeded = true;
+                break;
+            case bafx::windows::BackgroundCaptureActionKind::RecreateFramePool:
+                succeeded = renderer.tryRecreateBackgroundFramePool(
+                    action->captureSize);
+                if (succeeded)
+                {
+                    result.recreatedFramePoolSize = action->captureSize;
+                }
+                else if (!renderer.backgroundCaptureFailure().empty())
+                {
+                    result.sensorFailure = renderer.backgroundCaptureFailure();
+                }
+                break;
+            case bafx::windows::BackgroundCaptureActionKind::StartSensor:
+                // Start is emitted only after WDA exclusion was confirmed in
+                // this transaction, so stale affinity cannot enable capture.
+                succeeded = renderer.tryEnableBackgroundCapture(
+                    monitor,
+                    true,
+                    action->cursorExcluded,
+                    action->allowSystemBorder);
+                if (!succeeded && !renderer.backgroundCaptureFailure().empty())
+                {
+                    result.sensorFailure = renderer.backgroundCaptureFailure();
+                }
+                break;
+            }
+        }
+        catch (...)
         {
-            const bool excluded = action->kind
-                == bafx::windows::BackgroundCaptureActionKind::SetAffinityExcluded;
-            const bafx::windows::CaptureExclusionStatus status =
-                window.setCaptureExcluded(excluded);
-            bafx::windows::appendDiagnosticLog(
+            appendBackgroundCaptureActionEnd(
                 logPath,
-                bafx::windows::captureExclusionDiagnostic(status));
-            succeeded = status.confirmed();
-            break;
+                index,
+                action->kind,
+                false,
+                std::chrono::steady_clock::now() - actionStartedAt);
+            throw;
         }
-        case bafx::windows::BackgroundCaptureActionKind::ApplyOverlayProfile:
-            renderer.setOverlayProfile(action->overlayProfile);
-            succeeded = true;
-            break;
-        case bafx::windows::BackgroundCaptureActionKind::ResizeOutput:
-            renderer.resizeOutput(action->outputSize);
-            succeeded = true;
-            break;
-        case bafx::windows::BackgroundCaptureActionKind::RecreateFramePool:
-            succeeded = renderer.tryRecreateBackgroundFramePool(
-                action->captureSize);
-            if (succeeded)
-            {
-                result.recreatedFramePoolSize = action->captureSize;
-            }
-            else if (!renderer.backgroundCaptureFailure().empty())
-            {
-                result.sensorFailure = renderer.backgroundCaptureFailure();
-            }
-            break;
-        case bafx::windows::BackgroundCaptureActionKind::StartSensor:
-            // Start is emitted only after WDA exclusion was confirmed in this
-            // transaction, so a stale affinity result cannot enable capture.
-            succeeded = renderer.tryEnableBackgroundCapture(
-                monitor,
-                true,
-                action->cursorExcluded,
-                action->allowSystemBorder);
-            if (!succeeded && !renderer.backgroundCaptureFailure().empty())
-            {
-                result.sensorFailure = renderer.backgroundCaptureFailure();
-            }
-            break;
-        }
+        appendBackgroundCaptureActionEnd(
+            logPath,
+            index,
+            action->kind,
+            succeeded,
+            std::chrono::steady_clock::now() - actionStartedAt);
+        ++executedActionCount;
 
         if (!transition.applyObservation(*action, succeeded))
         {
@@ -165,6 +246,14 @@ BackgroundCaptureExecutionResult executeBackgroundCaptureTransition(
         throw std::logic_error(
             "Background capture transition exceeded its fixed action budget");
     }
+
+    std::string completion = "BackgroundCapture.Transaction.End;Actions=";
+    completion += std::to_string(executedActionCount);
+    completion += ";ElapsedUs=";
+    completion += std::to_string(
+        std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::steady_clock::now() - transactionStartedAt).count());
+    bafx::windows::appendDiagnosticLog(logPath, completion);
     return result;
 }
 
