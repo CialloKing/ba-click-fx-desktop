@@ -40,7 +40,7 @@ def _event(name: str, session: str, fields: dict[str, object]) -> str:
 def _interval(mode: str, background_aware: bool) -> dict[str, object]:
     available = "true" if background_aware else "false"
     wgc_frames = 900 if background_aware else 0
-    return {
+    interval = {
         "Background.Mode": mode,
         "Output.Width": 2560,
         "Output.Height": 1440,
@@ -82,20 +82,24 @@ def _interval(mode: str, background_aware: bool) -> dict[str, object]:
         "GPU.StateErrors": 0,
         "GPU.PendingFrames.Max": 1,
         "GPU.WgcDrainAndCopy.Available": available,
-        "GPU.WgcDrainAndCopy.P95": 300 if background_aware else 0,
-        "GPU.BloomAndFinalComposite.P50": 700,
-        "GPU.BloomAndFinalComposite.P95": 800,
-        "GPU.BloomAndFinalComposite.P99": 900,
-        "GPU.BloomAndFinalComposite.Max": 1000,
-        "Cpu.PresentCall.P50": 200,
-        "Cpu.PresentCall.P95": 300,
-        "Cpu.PresentCall.P99": 400,
-        "Cpu.PresentCall.Max": 500,
+        "GPU.BloomAndFinalComposite.P50": 900 if background_aware else 700,
+        "GPU.BloomAndFinalComposite.P95": 1100 if background_aware else 800,
+        "GPU.BloomAndFinalComposite.P99": 1200 if background_aware else 900,
+        "GPU.BloomAndFinalComposite.Max": 1300 if background_aware else 1000,
+        "GPU.RenderCommandSpan.P95": 1800 if background_aware else 1000,
+        "Cpu.PresentCall.P50": 150 if background_aware else 200,
+        "Cpu.PresentCall.P95": 250 if background_aware else 300,
+        "Cpu.PresentCall.P99": 350 if background_aware else 400,
+        "Cpu.PresentCall.Max": 900 if background_aware else 500,
         "Cpu.FrameTotal.Max": 2000,
         "Cpu.FrameTotal.DroppedSamples": 0,
         "Cpu.PresentCall.DroppedSamples": 0,
         "GPU.BloomAndFinalComposite.DroppedSamples": 0,
     }
+    if background_aware:
+        interval["GPU.WgcDrainAndCopy.P95"] = 200
+        interval["GPU.BackgroundSnapshot.P95"] = 250
+    return interval
 
 
 class CaptureFixture:
@@ -198,9 +202,87 @@ class PerformanceBaselineReporterTests(unittest.TestCase):
 
             self.assertEqual("passed", report["status"])
             self.assertEqual(1, report["modes"]["fx-only"]["metrics"]["GPU.PendingFrames.Max"])
+            interpretation = report["interpretation"]
+            self.assertEqual(
+                "gpu-command-path",
+                interpretation["bottleneck"]["classification"],
+            )
+            self.assertEqual(
+                "bloom-and-final-composite",
+                interpretation["bottleneck"][
+                    "largestListedIncrementalGpuStage"
+                ],
+            )
+            components = interpretation["components"]
+            self.assertEqual(
+                "introduced",
+                components["wgcDrainAndCopyP95Us"]["status"],
+            )
+            self.assertIsNone(
+                components["wgcDrainAndCopyP95Us"]["percentChange"]
+            )
+            self.assertEqual(
+                300,
+                components["bloomAndFinalCompositeP95Us"]["absoluteChange"],
+            )
+            self.assertEqual(
+                37.5,
+                components["bloomAndFinalCompositeP95Us"]["percentChange"],
+            )
+            self.assertEqual(
+                800,
+                components["gpuCommandSpanP95Us"]["absoluteChange"],
+            )
+            self.assertEqual(
+                -50,
+                components["presentCallP95Us"]["absoluteChange"],
+            )
+            self.assertEqual(
+                "reduced", components["presentCallP95Us"]["status"]
+            )
+            self.assertTrue(
+                interpretation["tail"]["presentMaxRegressionObserved"]
+            )
             markdown = REPORTER.render_markdown(report)
             self.assertIn("GPU Bloom/final p95", markdown)
             self.assertIn("harmless thread messages", markdown)
+            self.assertIn("Primary incremental cost: `gpu-command-path`", markdown)
+            self.assertIn("Bloom/final p95 changed by +300 us (+37.500%)", markdown)
+            self.assertIn("Input backlog: `not-measured`", markdown)
+
+    def test_interpretation_handles_a_zero_baseline_without_dividing(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = CaptureFixture(Path(temporary))
+            fixture.intervals["fx-only"][
+                "GPU.BloomAndFinalComposite.P95"
+            ] = 0
+            fixture.rewrite("fx-only")
+
+            report = REPORTER.build_report(fixture.root)
+            bloom = report["interpretation"]["components"][
+                "bloomAndFinalCompositeP95Us"
+            ]
+            self.assertEqual(1100, bloom["absoluteChange"])
+            self.assertIsNone(bloom["percentChange"])
+            self.assertEqual("increased", bloom["status"])
+            self.assertIn(
+                "Bloom/final p95 changed by +1100 us (unavailable)",
+                REPORTER.render_markdown(report),
+            )
+
+    def test_interpretation_rejects_missing_required_stage_metric(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = CaptureFixture(Path(temporary))
+            del fixture.intervals["background-aware"][
+                "GPU.BackgroundSnapshot.P95"
+            ]
+            fixture.rewrite("background-aware")
+
+            with self.assertRaisesRegex(
+                REPORTER.ValidationError,
+                "interpretation requires numeric GPU.BackgroundSnapshot.P95",
+            ):
+                REPORTER.build_report(fixture.root)
 
     def test_real_raw_input_rejects_nonidentical_workload(self):
         with tempfile.TemporaryDirectory() as temporary:

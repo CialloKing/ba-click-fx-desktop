@@ -472,6 +472,150 @@ def _mode_result(mode: ModeEvidence) -> dict[str, Any]:
     }
 
 
+def _required_metric(
+    modes: dict[str, dict[str, Any]], mode: str, key: str
+) -> int | float:
+    value = modes[mode]["metrics"].get(key)
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValidationError(f"{mode}: interpretation requires numeric {key}")
+    return value
+
+
+def _relative_percent(delta: int | float, baseline: int | float) -> float | None:
+    if baseline == 0:
+        return None
+    return delta / baseline * 100.0
+
+
+def _paired_component(
+    fx_only: int | float, background_aware: int | float
+) -> dict[str, int | float | str | None]:
+    change = background_aware - fx_only
+    if change > 0:
+        status = "increased"
+    elif change < 0:
+        status = "reduced"
+    else:
+        status = "unchanged"
+    return {
+        "fxOnly": fx_only,
+        "backgroundAware": background_aware,
+        "absoluteChange": change,
+        "percentChange": _relative_percent(change, fx_only),
+        "status": status,
+    }
+
+
+def _introduced_component(
+    background_aware: int | float,
+) -> dict[str, int | float | str | None]:
+    return {
+        "fxOnly": None,
+        "backgroundAware": background_aware,
+        "absoluteChange": background_aware,
+        "percentChange": None,
+        "status": "introduced",
+    }
+
+
+def _build_interpretation(
+    modes: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    fx_fps = _required_metric(modes, "fx-only", "Window.PresentedFps")
+    background_fps = _required_metric(
+        modes, "background-aware", "Window.PresentedFps"
+    )
+    fx_bloom = _required_metric(
+        modes, "fx-only", "GPU.BloomAndFinalComposite.P95"
+    )
+    background_bloom = _required_metric(
+        modes, "background-aware", "GPU.BloomAndFinalComposite.P95"
+    )
+    fx_command = _required_metric(
+        modes, "fx-only", "GPU.RenderCommandSpan.P95"
+    )
+    background_command = _required_metric(
+        modes, "background-aware", "GPU.RenderCommandSpan.P95"
+    )
+    fx_present = _required_metric(modes, "fx-only", "Cpu.PresentCall.P95")
+    background_present = _required_metric(
+        modes, "background-aware", "Cpu.PresentCall.P95"
+    )
+    fx_present_max = _required_metric(
+        modes, "fx-only", "Cpu.PresentCall.Max"
+    )
+    background_present_max = _required_metric(
+        modes, "background-aware", "Cpu.PresentCall.Max"
+    )
+    wgc_copy = _required_metric(
+        modes, "background-aware", "GPU.WgcDrainAndCopy.P95"
+    )
+    background_snapshot = _required_metric(
+        modes, "background-aware", "GPU.BackgroundSnapshot.P95"
+    )
+
+    throughput = _paired_component(fx_fps, background_fps)
+    wgc_component = _introduced_component(wgc_copy)
+    snapshot_component = _introduced_component(background_snapshot)
+    bloom_component = _paired_component(fx_bloom, background_bloom)
+    command_component = _paired_component(fx_command, background_command)
+    present_component = _paired_component(fx_present, background_present)
+    present_max_component = _paired_component(
+        fx_present_max, background_present_max
+    )
+
+    incremental_stages = (
+        ("wgc-drain-and-copy", max(0, wgc_copy)),
+        ("background-snapshot", max(0, background_snapshot)),
+        (
+            "bloom-and-final-composite",
+            max(0, bloom_component["absoluteChange"]),
+        ),
+    )
+    largest_stage, largest_stage_cost = max(
+        incremental_stages, key=lambda item: item[1]
+    )
+    if present_component["absoluteChange"] > max(
+        0, command_component["absoluteChange"]
+    ):
+        bottleneck = "present-wait"
+    elif command_component["absoluteChange"] > 0:
+        bottleneck = "gpu-command-path"
+    else:
+        bottleneck = "no-steady-state-regression"
+
+    return {
+        "inputBacklog": {
+            "status": "not-measured",
+            "reason": "Raw Input registration was disabled for the paired render baseline.",
+        },
+        "components": {
+            "throughputFps": throughput,
+            "wgcDrainAndCopyP95Us": wgc_component,
+            "backgroundSnapshotP95Us": snapshot_component,
+            "bloomAndFinalCompositeP95Us": bloom_component,
+            "gpuCommandSpanP95Us": command_component,
+            "presentCallP95Us": present_component,
+            "presentCallMaxUs": present_max_component,
+        },
+        "tail": {
+            "presentMaxRegressionObserved": (
+                present_max_component["absoluteChange"] > 0
+            ),
+        },
+        "bottleneck": {
+            "classification": bottleneck,
+            "largestListedIncrementalGpuStage": largest_stage,
+            "largestListedIncrementalGpuStageP95Us": largest_stage_cost,
+            "scope": (
+                "Largest positive p95 change among WGC drain/copy, background "
+                "snapshot, and Bloom/final. Percentiles are not additive and "
+                "do not prove per-frame causality."
+            ),
+        },
+    }
+
+
 def build_report(root: Path) -> dict[str, Any]:
     manifest_path = root / "capture.json"
     manifest = _load_json(manifest_path)
@@ -504,6 +648,7 @@ def build_report(root: Path) -> dict[str, Any]:
             "ratio": ratio,
         }
 
+    interpretation = _build_interpretation(modes)
     return {
         "schemaVersion": 1,
         "status": "passed",
@@ -527,6 +672,7 @@ def build_report(root: Path) -> dict[str, Any]:
         "modes": modes,
         "configurations": configurations,
         "comparisons": comparisons,
+        "interpretation": interpretation,
         "limitations": [
             "The deterministic pressure uses harmless thread messages, not synthetic Raw Input.",
             "Input-to-Present-return is not DWM, scanout, panel, or photon latency.",
@@ -541,6 +687,18 @@ def _format_value(value: int | float | None) -> str:
     if isinstance(value, float):
         return f"{value:.3f}"
     return str(value)
+
+
+def _format_signed(value: int | float, suffix: str = "") -> str:
+    if isinstance(value, float):
+        return f"{value:+.3f}{suffix}"
+    return f"{value:+d}{suffix}"
+
+
+def _format_percent(value: int | float | None) -> str:
+    if value is None:
+        return "unavailable"
+    return _format_signed(value, "%")
 
 
 def render_markdown(report: dict[str, Any]) -> str:
@@ -579,11 +737,49 @@ def render_markdown(report: dict[str, Any]) -> str:
             )
             + " |"
         )
+    interpretation = report["interpretation"]
+    components = interpretation["components"]
+    throughput = components["throughputFps"]
+    wgc = components["wgcDrainAndCopyP95Us"]
+    snapshot = components["backgroundSnapshotP95Us"]
+    bloom = components["bloomAndFinalCompositeP95Us"]
+    command = components["gpuCommandSpanP95Us"]
+    present = components["presentCallP95Us"]
+    present_max = components["presentCallMaxUs"]
+    bottleneck = interpretation["bottleneck"]
     lines.extend(("", "## Interpretation", ""))
-    lines.append(
-        "The report separates input/message pressure, WGC, GPU copy, Bloom, "
-        "and Present metrics. A passed report also proves that both modes kept "
-        "`GPU.PendingFrames.Max <= 1` while message wakes were observed."
+    lines.extend(
+        (
+            f"- Primary incremental cost: `{bottleneck['classification']}`; "
+            f"largest listed incremental GPU stage is "
+            f"`{bottleneck['largestListedIncrementalGpuStage']}` at "
+            f"{bottleneck['largestListedIncrementalGpuStageP95Us']} us p95.",
+            f"- GPU command span p95 changed by "
+            f"{_format_signed(command['absoluteChange'], ' us')} "
+            f"({_format_percent(command['percentChange'])}).",
+            f"- WGC drain/copy p95: `{wgc['status']}`, "
+            f"{wgc['backgroundAware']} us; percent change unavailable.",
+            f"- Background snapshot p95: `{snapshot['status']}`, "
+            f"{snapshot['backgroundAware']} us; percent change unavailable.",
+            f"- Bloom/final p95 changed by "
+            f"{_format_signed(bloom['absoluteChange'], ' us')} "
+            f"({_format_percent(bloom['percentChange'])}); status "
+            f"`{bloom['status']}`.",
+            f"- Present p95 changed by "
+            f"{_format_signed(present['absoluteChange'], ' us')} "
+            f"({_format_percent(present['percentChange'])}); max changed "
+            f"by {_format_signed(present_max['absoluteChange'], ' us')}. "
+            f"Tail regression observed: "
+            f"`{str(interpretation['tail']['presentMaxRegressionObserved']).lower()}`.",
+            f"- Presented FPS changed by "
+            f"{_format_signed(throughput['absoluteChange'])} "
+            f"({_format_percent(throughput['percentChange'])}).",
+            "- Input backlog: `not-measured`; Raw Input registration was disabled "
+            "for this paired render baseline.",
+            f"- Scope: {bottleneck['scope']}",
+            "- Both modes kept `GPU.PendingFrames.Max <= 1` while message wakes "
+            "were observed.",
+        )
     )
     lines.extend(("", "## Limitations", ""))
     lines.extend(f"- {item}" for item in report["limitations"])
