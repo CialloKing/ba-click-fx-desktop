@@ -18,6 +18,7 @@ configure_file(
 add_library(
     bafx_desktop_input
     STATIC
+        frame_pacing.cpp
         performance_window.cpp
         pointer_frame_dispatch.cpp
 )
@@ -27,7 +28,7 @@ target_include_directories(
     PUBLIC
         "${CMAKE_CURRENT_SOURCE_DIR}"
 )
-target_link_libraries(bafx_desktop_input PUBLIC bafx::fx)
+target_link_libraries(bafx_desktop_input PUBLIC bafx::fx user32)
 target_compile_features(bafx_desktop_input PUBLIC cxx_std_20)
 bafx_enable_warnings(bafx_desktop_input)
 set_target_properties(

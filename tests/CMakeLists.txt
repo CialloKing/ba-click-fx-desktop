@@ -231,6 +231,7 @@ if(WIN32)
     add_executable(
         bafx_desktop_input_tests
         test_main.cpp
+        frame_pacing_tests.cpp
         performance_logging_tests.cpp
         performance_window_tests.cpp
         pointer_frame_dispatch_tests.cpp

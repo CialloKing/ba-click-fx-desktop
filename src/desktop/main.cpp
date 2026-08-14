@@ -10,6 +10,7 @@
 #include "bafx/windows/portable_paths.hpp"
 #include "bafx/windows/runtime_diagnostics.hpp"
 #include "background_capture_runtime.hpp"
+#include "frame_pacing.hpp"
 #include "host_control.hpp"
 #include "performance_logging.hpp"
 #include "performance_window.hpp"
@@ -38,6 +39,7 @@ constexpr std::uint32_t maximumMessagesPerFrame = 256U;
 constexpr std::uint32_t maximumInputMessagesPerFrame = 4096U;
 constexpr auto smokeTestDeadline = std::chrono::seconds(5);
 constexpr auto performanceReportInterval = std::chrono::seconds(10);
+constexpr DWORD activeControlPollMilliseconds = 50U;
 constexpr DWORD pausedControlPollMilliseconds = 50U;
 
 [[nodiscard]] std::string_view backgroundCompositeStatusName(
@@ -213,6 +215,18 @@ struct MessageDispatchDiagnostics
     bool inputBudgetExhausted{false};
     bool otherBudgetExhausted{false};
 };
+
+void accumulateMessageDispatch(
+    MessageDispatchDiagnostics& total,
+    const MessageDispatchDiagnostics sample) noexcept
+{
+    total.inputMessages += sample.inputMessages;
+    total.otherMessages += sample.otherMessages;
+    total.inputBudgetExhausted = total.inputBudgetExhausted
+        || sample.inputBudgetExhausted;
+    total.otherBudgetExhausted = total.otherBudgetExhausted
+        || sample.otherBudgetExhausted;
+}
 
 struct PointerLatencyOrigin
 {
@@ -789,16 +803,17 @@ int runApplication(
     std::uint64_t appliedGeneration = control.snapshot().generation;
     bool backgroundParticipationLogged = false;
     bool backgroundPendingDiagnosticLogged = false;
-    bool backgroundFrameInvalidated = false;
+    bool renderInvalidationPending = false;
     bool lastPresentedDrawableContent = false;
     const bafx::fx::SimulationTime applicationStartedAt = clock.now();
     bafx::fx::SimulationTime performanceWindowStartedAt = applicationStartedAt;
     bafx::desktop::RuntimePerformanceWindow performanceWindow;
     std::chrono::nanoseconds previousPerformanceLogWriteCpu{};
     bafx::desktop::WgcCallbackDeltaTracker wgcCallbackDeltaTracker;
+    MessageDispatchDiagnostics pendingMessageDispatch{};
     while (!quit && !window.closeRequested())
     {
-        const MessageDispatchDiagnostics messageDispatch = dispatchMessages(quit);
+        accumulateMessageDispatch(pendingMessageDispatch, dispatchMessages(quit));
         window.pollExitShortcut();
         window.pollPointerState();
         bafx::desktop::HostStateSnapshot controlState = control.snapshot();
@@ -807,8 +822,8 @@ int runApplication(
             break;
         }
 
-        bool renderInvalidated = backgroundFrameInvalidated;
-        backgroundFrameInvalidated = false;
+        bool renderInvalidated = renderInvalidationPending;
+        renderInvalidationPending = false;
         std::optional<bafx::windows::WindowSize> pendingOutputResize =
             window.takePendingResize();
         if (pendingOutputResize.has_value()
@@ -896,9 +911,37 @@ int runApplication(
                 configurationReason);
         }
 
-        const bafx::fx::SimulationTime wallTime = clock.now();
         const bool enteringPause = controlState.paused
             && !simulationTimeline.paused();
+        const bool shouldRender = !controlState.paused
+            || enteringPause
+            || renderInvalidated;
+        if (shouldRender)
+        {
+            const bafx::desktop::FramePacingWake pacingWake =
+                bafx::desktop::waitForFrameOpportunity(
+                    renderer.frameLatencyWaitableObject(),
+                    activeControlPollMilliseconds);
+            switch (pacingWake)
+            {
+            case bafx::desktop::FramePacingWake::FrameReady:
+                break;
+            case bafx::desktop::FramePacingWake::MessagesPending:
+            case bafx::desktop::FramePacingWake::TimedOut:
+                // Preserve one-shot resize/config/background invalidations
+                // until a real swap-chain slot is available.
+                renderInvalidationPending = renderInvalidated;
+                continue;
+            case bafx::desktop::FramePacingWake::Failed:
+                bafx::windows::throwLastError(
+                    "MsgWaitForMultipleObjectsEx(frame latency)");
+            }
+        }
+
+        const MessageDispatchDiagnostics messageDispatch = pendingMessageDispatch;
+        pendingMessageDispatch = MessageDispatchDiagnostics{};
+
+        const bafx::fx::SimulationTime wallTime = clock.now();
         simulationTimeline.setPaused(controlState.paused, wallTime);
         const bafx::fx::SimulationTime renderTime =
             options.demoAgeMilliseconds.has_value() && demoStartedAt.has_value()
@@ -966,9 +1009,6 @@ int runApplication(
         {
             simulation.advance(renderTime);
         }
-        const bool shouldRender = !controlState.paused
-            || enteringPause
-            || renderInvalidated;
         if (shouldRender)
         {
             bafx::fx::FrameSnapshot snapshot = config.effects.enabled
@@ -1164,7 +1204,6 @@ int runApplication(
             performanceWindowStartedAt = clock.now();
         }
 
-        DWORD waitResult = WAIT_TIMEOUT;
         if (controlState.paused)
         {
             // Pause freezes authored simulation state, not the desktop beneath
@@ -1176,7 +1215,7 @@ int runApplication(
             const DWORD backgroundWaitableCount = backgroundWaitable != nullptr
                 ? 1U
                 : 0U;
-            waitResult = MsgWaitForMultipleObjectsEx(
+            const DWORD waitResult = MsgWaitForMultipleObjectsEx(
                 backgroundWaitableCount,
                 backgroundWaitableCount > 0U ? &backgroundWaitable : nullptr,
                 pausedControlPollMilliseconds,
@@ -1185,22 +1224,12 @@ int runApplication(
             if (backgroundWaitableCount > 0U
                 && waitResult == WAIT_OBJECT_0)
             {
-                backgroundFrameInvalidated = true;
+                renderInvalidationPending = true;
             }
-        }
-        else
-        {
-            const HANDLE waitable = renderer.frameLatencyWaitableObject();
-            waitResult = MsgWaitForMultipleObjectsEx(
-                1,
-                &waitable,
-                1000,
-                QS_ALLINPUT,
-                MWMO_INPUTAVAILABLE);
-        }
-        if (waitResult == WAIT_FAILED)
-        {
-            bafx::windows::throwLastError("MsgWaitForMultipleObjectsEx");
+            if (waitResult == WAIT_FAILED)
+            {
+                bafx::windows::throwLastError("MsgWaitForMultipleObjectsEx");
+            }
         }
     }
     const bafx::fx::SimulationTime finalPerformanceTime = clock.now();
