@@ -293,6 +293,13 @@
       "path": "Reference/Diagnostics/ParticleStates/FX_Touch_0450ms_particle-state-v2.json",
       "bytes": 4122,
       "sha256": "CA067C13E8DFB7BA03052F0C83DBE5F5C09A2AC1709DB30571825D9FEBB53F20"
+    },
+    {
+      "root": "runtime",
+      "class": "RuntimeObservation",
+      "path": "Reference/Diagnostics/Pool/FXTouch_ComponentPool_FIFO.md",
+      "bytes": 2637,
+      "sha256": "25A94EC8BE0A5F6F6B9470467B05596183F2573FDC69C9DDBD4EAA3830F823A0"
     }
   ]
 }
