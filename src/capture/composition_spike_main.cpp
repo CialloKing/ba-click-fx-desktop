@@ -1053,7 +1053,7 @@ void writeCaptureDocument(
                << static_cast<unsigned int>(background.srgb[0U]) << ", "
                << static_cast<unsigned int>(background.srgb[1U]) << ", "
                << static_cast<unsigned int>(background.srgb[2U])
-               << "], \"baseline\": \n";
+               << "], \"baseline\":\n";
         writePresentation(stream, background.baseline, "      ");
         stream << ",\n      \"sources\": [\n";
         for (std::size_t sourceIndex = 0U;
