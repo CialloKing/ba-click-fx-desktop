@@ -200,6 +200,7 @@ struct RunOptions
     bool supportInfoOnly{false};
     bool smokeTest{false};
     bool demoClick{false};
+    std::uint32_t demoDelayMilliseconds{0U};
 };
 
 struct MonitorSelection
@@ -290,6 +291,18 @@ struct PointerConsumptionDiagnostics
             {
                 options.demoClick = true;
                 options.demoAgeMilliseconds = static_cast<std::uint32_t>(parsed);
+            }
+        }
+        else if (argument.starts_with(L"--demo-delay-ms="))
+        {
+            const std::wstring_view value = argument.substr(16);
+            wchar_t* end = nullptr;
+            const unsigned long parsed = std::wcstoul(value.data(), &end, 10);
+            if (end != value.data() && *end == L'\0')
+            {
+                options.demoClick = true;
+                options.demoDelayMilliseconds =
+                    static_cast<std::uint32_t>(parsed);
             }
         }
         else if (argument.starts_with(L"--quit-after-ms="))
@@ -790,17 +803,23 @@ int runApplication(
         bafx::fx::SimulationTime{});
     window.show();
 
+    const bafx::fx::SimulationTime applicationStartedAt = clock.now();
     std::optional<bafx::fx::SimulationTime> demoStartedAt;
-    if (options.demoClick)
+    const auto startDemoClick =
+        [&](const bafx::fx::SimulationTime time)
+        {
+            const bafx::fx::Viewport viewport = toViewport(window.size());
+            demoStartedAt = time;
+            simulation.pointerDown(
+                bafx::fx::PointF{
+                    static_cast<float>(viewport.width) * 0.5F,
+                    static_cast<float>(viewport.height) * 0.5F},
+                viewport,
+                time);
+        };
+    if (options.demoClick && options.demoDelayMilliseconds == 0U)
     {
-        const bafx::fx::Viewport viewport = toViewport(window.size());
-        demoStartedAt = clock.now();
-        simulation.pointerDown(
-            bafx::fx::PointF{
-                static_cast<float>(viewport.width) * 0.5F,
-                static_cast<float>(viewport.height) * 0.5F},
-            viewport,
-            *demoStartedAt);
+        startDemoClick(applicationStartedAt);
     }
 
     bool quit = false;
@@ -811,7 +830,6 @@ int runApplication(
     bool backgroundPendingDiagnosticLogged = false;
     bool renderInvalidationPending = false;
     bool lastPresentedDrawableContent = false;
-    const bafx::fx::SimulationTime applicationStartedAt = clock.now();
     bafx::fx::SimulationTime performanceWindowStartedAt = applicationStartedAt;
     bafx::desktop::RuntimePerformanceWindow performanceWindow;
     std::chrono::nanoseconds previousPerformanceLogWriteCpu{};
@@ -949,6 +967,15 @@ int runApplication(
         pendingMessageDispatch = MessageDispatchDiagnostics{};
 
         const bafx::fx::SimulationTime wallTime = clock.now();
+        if (options.demoClick
+            && !demoStartedAt.has_value()
+            && wallTime - applicationStartedAt
+                >= std::chrono::milliseconds(options.demoDelayMilliseconds))
+        {
+            // A capture baseline can let WGC accumulate a fresh sample before
+            // starting the visible batch that is intentionally path-latched.
+            startDemoClick(wallTime);
+        }
         simulationTimeline.setPaused(controlState.paused, wallTime);
         const bafx::fx::SimulationTime renderTime =
             options.demoAgeMilliseconds.has_value() && demoStartedAt.has_value()
