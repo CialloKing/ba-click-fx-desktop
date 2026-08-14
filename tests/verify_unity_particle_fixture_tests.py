@@ -25,14 +25,14 @@ sys.modules[SPEC.name] = VERIFY
 SPEC.loader.exec_module(VERIFY)
 
 
-def valid_fixture() -> dict:
+def valid_fixture(capture_time_milliseconds: int = 50) -> dict:
     return {
         "schema": 2,
         "fixture": "UnityParticleStateV2",
         "unityVersion": "2021.3.45f1",
         "renderSize": {"width": 1950, "height": 1097},
-        "captureTimeSeconds": 0.05,
-        "captureTimeMilliseconds": 50,
+        "captureTimeSeconds": capture_time_milliseconds / 1000.0,
+        "captureTimeMilliseconds": capture_time_milliseconds,
         "seedBase": 20260716,
         "seedStride": 7919,
         "seedFormula": "seedBase + index * seedStride",
@@ -89,6 +89,23 @@ class FixtureContractTests(unittest.TestCase):
     def test_valid_fixture(self):
         fixture = valid_fixture()
         self.assertIs(VERIFY.validate_fixture(fixture), fixture)
+
+    def test_accepts_each_locked_capture_time(self):
+        for age in VERIFY.EXPECTED_TIMES_MILLISECONDS:
+            with self.subTest(age=age):
+                fixture = valid_fixture(age)
+                self.assertIs(VERIFY.validate_fixture(fixture), fixture)
+
+    def test_rejects_unlisted_capture_time(self):
+        fixture = valid_fixture(110)
+        with self.assertRaisesRegex(VERIFY.ValidationError, "must be one of"):
+            VERIFY.validate_fixture(fixture)
+
+    def test_rejects_mismatched_seconds_and_milliseconds(self):
+        fixture = valid_fixture(120)
+        fixture["captureTimeSeconds"] = 0.05
+        with self.assertRaisesRegex(VERIFY.ValidationError, "captureTimeSeconds"):
+            VERIFY.validate_fixture(fixture)
 
     def test_rejects_boolean_as_integer(self):
         fixture = valid_fixture()

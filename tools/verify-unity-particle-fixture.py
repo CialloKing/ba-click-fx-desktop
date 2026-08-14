@@ -20,8 +20,7 @@ EXPECTED_SCHEMA = 2
 EXPECTED_FIXTURE = "UnityParticleStateV2"
 EXPECTED_WIDTH = 1950
 EXPECTED_HEIGHT = 1097
-EXPECTED_TIME_SECONDS = 0.05
-EXPECTED_TIME_MILLISECONDS = 50
+EXPECTED_TIMES_MILLISECONDS = (50, 100, 120, 250, 450)
 EXPECTED_SEED_BASE = 20260716
 EXPECTED_SEED_STRIDE = 7919
 EXPECTED_SEED_FORMULA = "seedBase + index * seedStride"
@@ -221,9 +220,20 @@ def validate_fixture(value: Any) -> dict[str, Any]:
         raise ValidationError("fixture.renderSize.width must be 1950")
     if _integer(render_size["height"], "fixture.renderSize.height") != EXPECTED_HEIGHT:
         raise ValidationError("fixture.renderSize.height must be 1097")
-    _exact_number(fixture["captureTimeSeconds"], EXPECTED_TIME_SECONDS, "fixture.captureTimeSeconds")
-    if _integer(fixture["captureTimeMilliseconds"], "fixture.captureTimeMilliseconds") != EXPECTED_TIME_MILLISECONDS:
-        raise ValidationError("fixture.captureTimeMilliseconds must be 50")
+    capture_time_milliseconds = _integer(
+        fixture["captureTimeMilliseconds"],
+        "fixture.captureTimeMilliseconds",
+    )
+    if capture_time_milliseconds not in EXPECTED_TIMES_MILLISECONDS:
+        expected = ",".join(str(value) for value in EXPECTED_TIMES_MILLISECONDS)
+        raise ValidationError(
+            f"fixture.captureTimeMilliseconds must be one of {expected}"
+        )
+    _exact_number(
+        fixture["captureTimeSeconds"],
+        capture_time_milliseconds / 1000.0,
+        "fixture.captureTimeSeconds",
+    )
     if _integer(fixture["seedBase"], "fixture.seedBase") != EXPECTED_SEED_BASE:
         raise ValidationError("fixture.seedBase differs from the locked seed")
     if _integer(fixture["seedStride"], "fixture.seedStride") != EXPECTED_SEED_STRIDE:
