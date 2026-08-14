@@ -157,6 +157,7 @@ if(WIN32)
         ipc_client_tests.cpp
         ipc_protocol_tests.cpp
         pointer_event_tests.cpp
+        wgc_frame_notification_tests.cpp
     )
     target_link_libraries(bafx_windows_tests PRIVATE bafx::windows)
     target_compile_features(bafx_windows_tests PRIVATE cxx_std_20)

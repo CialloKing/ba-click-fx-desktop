@@ -1,7 +1,7 @@
 #include "bafx/windows/wgc_background_sensor.hpp"
 
+#include "bafx/windows/detail/wgc_frame_notification.hpp"
 #include "bafx/windows/error.hpp"
-#include "bafx/windows/unique_handle.hpp"
 
 #include <windows.graphics.capture.interop.h>
 #include <windows.graphics.directx.direct3d11.interop.h>
@@ -14,7 +14,6 @@
 #include <winrt/Windows.Graphics.h>
 #include <winrt/base.h>
 
-#include <atomic>
 #include <chrono>
 #include <limits>
 #include <memory>
@@ -36,6 +35,9 @@ using winrt::Windows::Graphics::DirectX::DirectXPixelFormat;
 using winrt::Windows::Graphics::SizeInt32;
 
 constexpr int captureBufferCount = 2;
+static_assert(captureBufferCount > 0);
+constexpr std::uint32_t maximumFramesPerDrain =
+    static_cast<std::uint32_t>(captureBufferCount);
 constexpr DirectXPixelFormat capturePixelFormat =
     DirectXPixelFormat::R16G16B16A16Float;
 constexpr DXGI_FORMAT captureDxgiFormat = DXGI_FORMAT_R16G16B16A16_FLOAT;
@@ -45,24 +47,6 @@ struct OwnedBackgroundTexture
     ComPtr<ID3D11Texture2D> texture{};
     ComPtr<ID3D11ShaderResourceView> shaderResource{};
     WindowSize size{};
-};
-
-class NotificationState final
-{
-public:
-    NotificationState()
-        : event(CreateEventW(nullptr, TRUE, FALSE, nullptr))
-    {
-        if (event.get() == nullptr)
-        {
-            throwLastError("CreateEventW(WGC frame available)");
-        }
-    }
-
-    UniqueHandle event{};
-    std::atomic<std::uint64_t> generation{0U};
-    std::atomic_bool itemClosed{false};
-    std::atomic_bool stopping{false};
 };
 
 [[nodiscard]] WindowSize checkedSize(const SizeInt32 size)
@@ -192,7 +176,7 @@ struct WgcBackgroundSensor::Implementation
         , direct3dDevice(createWinrtDevice(sourceDevice))
         , item(createMonitorItem(monitor))
         , options(sourceOptions)
-        , notification(std::make_shared<NotificationState>())
+        , notification(std::make_shared<detail::WgcFrameNotification>())
     {
         if (sourceDevice == nullptr)
         {
@@ -220,26 +204,19 @@ struct WgcBackgroundSensor::Implementation
                 captureBufferCount,
                 initialContentSize);
 
-            const std::shared_ptr<NotificationState> callbackState = notification;
+            const std::shared_ptr<detail::WgcFrameNotification> callbackState =
+                notification;
             frameArrivedToken = framePool.FrameArrived(
                 [callbackState](const auto&, const auto&) noexcept
                 {
-                    if (callbackState->stopping.load(std::memory_order_acquire))
-                    {
-                        return;
-                    }
-                    callbackState->generation.fetch_add(
-                        1U,
-                        std::memory_order_release);
-                    SetEvent(callbackState->event.get());
+                    callbackState->notifyFrame();
                 });
             frameArrivedRegistered = true;
 
             itemClosedToken = item.Closed(
                 [callbackState](const auto&, const auto&) noexcept
                 {
-                    callbackState->itemClosed.store(true, std::memory_order_release);
-                    SetEvent(callbackState->event.get());
+                    callbackState->notifyItemClosed();
                 });
             itemClosedRegistered = true;
 
@@ -357,28 +334,39 @@ struct WgcBackgroundSensor::Implementation
         {
             throw std::invalid_argument("WGC drain requires a D3D11 device context");
         }
-        if (notification->itemClosed.load(std::memory_order_acquire))
+        if (notification->itemClosed())
         {
             stop();
             return WgcBackgroundDrainStatus::Stopped;
         }
 
         const std::uint64_t observedGeneration =
-            notification->generation.load(std::memory_order_acquire);
+            notification->generation();
         Direct3D11CaptureFrame latest = framePool.TryGetNextFrame();
         if (!latest)
         {
-            resetNotification(observedGeneration);
+            notification->resetAfterDrain(observedGeneration, false);
             return WgcBackgroundDrainStatus::NoFrame;
         }
 
         try
         {
-            while (Direct3D11CaptureFrame next = framePool.TryGetNextFrame())
+            std::uint32_t consumedFrameCount = 1U;
+            while (consumedFrameCount < maximumFramesPerDrain)
             {
+                Direct3D11CaptureFrame next = framePool.TryGetNextFrame();
+                if (!next)
+                {
+                    break;
+                }
                 closeFrame(latest);
                 latest = std::move(next);
+                ++consumedFrameCount;
             }
+            // A hot producer must not monopolize the Render Owner. An extra
+            // wake is harmless when the queue contained exactly the budget.
+            const bool queuedFramesMayRemain =
+                consumedFrameCount == maximumFramesPerDrain;
 
             const SizeInt32 contentSize = latest.ContentSize();
             const WindowSize checkedContentSize = checkedSize(contentSize);
@@ -399,7 +387,9 @@ struct WgcBackgroundSensor::Implementation
                 options.epoch = nextGeneration(options.epoch);
                 latestBackground.reset();
                 lastAcceptedTimestamp.reset();
-                resetNotification(observedGeneration);
+                // Recreate replaces the pool, so no old queued frame survives
+                // into the new epoch and needs a conservative extra wake.
+                notification->resetAfterDrain(observedGeneration, false);
                 return WgcBackgroundDrainStatus::Reconfigured;
             }
 
@@ -411,7 +401,9 @@ struct WgcBackgroundSensor::Implementation
                 // image look fresh again. Keep the previous sample so it can
                 // age out through the normal fallback policy.
                 closeFrame(latest);
-                resetNotification(observedGeneration);
+                notification->resetAfterDrain(
+                    observedGeneration,
+                    queuedFramesMayRemain);
                 return WgcBackgroundDrainStatus::NoFrame;
             }
             const ComPtr<ID3D11Texture2D> sourceTexture = textureFromFrame(latest);
@@ -453,7 +445,9 @@ struct WgcBackgroundSensor::Implementation
                     options.excludesOwnOverlay},
                 poolSize,
                 sampleGeneration};
-            resetNotification(observedGeneration);
+            notification->resetAfterDrain(
+                observedGeneration,
+                queuedFramesMayRemain);
             return WgcBackgroundDrainStatus::Updated;
         }
         catch (...)
@@ -463,23 +457,9 @@ struct WgcBackgroundSensor::Implementation
         }
     }
 
-    void resetNotification(const std::uint64_t observedGeneration)
-    {
-        if (!ResetEvent(notification->event.get()))
-        {
-            throwLastError("ResetEvent(WGC frame available)");
-        }
-        if (notification->itemClosed.load(std::memory_order_acquire)
-            || notification->generation.load(std::memory_order_acquire)
-                != observedGeneration)
-        {
-            SetEvent(notification->event.get());
-        }
-    }
-
     void stop() noexcept
     {
-        notification->stopping.store(true, std::memory_order_release);
+        notification->beginStop();
         if (frameArrivedRegistered && framePool)
         {
             try
@@ -534,7 +514,6 @@ struct WgcBackgroundSensor::Implementation
         lastAcceptedTimestamp.reset();
         ownedTexture = {};
         isRunning = false;
-        SetEvent(notification->event.get());
     }
 
     ComPtr<ID3D11Device> device{};
@@ -544,7 +523,7 @@ struct WgcBackgroundSensor::Implementation
     GraphicsCaptureSession session{nullptr};
     WgcBackgroundSensorOptions options{};
     WgcBackgroundSessionCapabilities capabilities{};
-    std::shared_ptr<NotificationState> notification{};
+    std::shared_ptr<detail::WgcFrameNotification> notification{};
     OwnedBackgroundTexture ownedTexture{};
     std::optional<WgcBackgroundSample> latestBackground{};
     std::optional<bafx::core::MonotonicTime> lastAcceptedTimestamp{};
@@ -610,7 +589,7 @@ WgcBackgroundSessionCapabilities WgcBackgroundSensor::capabilities() const noexc
 
 HANDLE WgcBackgroundSensor::frameAvailableObject() const noexcept
 {
-    return implementation_->notification->event.get();
+    return implementation_->notification->eventObject();
 }
 
 bool WgcBackgroundSensor::running() const noexcept

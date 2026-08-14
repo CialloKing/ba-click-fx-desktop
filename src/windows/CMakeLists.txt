@@ -14,6 +14,7 @@ add_library(
         src/package_identity.cpp
         src/portable_paths.cpp
         src/runtime_diagnostics.cpp
+        src/wgc_frame_notification.cpp
         src/wgc_background_sensor.cpp
 )
 add_library(bafx::windows ALIAS bafx_windows)
