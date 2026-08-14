@@ -59,6 +59,9 @@ public:
         bool hasVisibleContent,
         bool acquireAllowed,
         bool retainAllowed) noexcept;
+    // A failed first snapshot must keep the current visible batch on one
+    // compositing contract; the next idle boundary resets it normally.
+    void forceFxOnly() noexcept;
     void reset() noexcept;
 
 private:

@@ -458,8 +458,9 @@ CompositionFrameDiagnostics CompositionRenderer::renderFrame(
         else
         {
             // Optional WGC transport must never prevent the stable FX-only
-            // path when a snapshot allocation or copy is unavailable.
-            backgroundPathLatch_.reset();
+            // path when a snapshot allocation or copy is unavailable. Keep
+            // this visible batch latched so a later frame cannot upgrade.
+            backgroundPathLatch_.forceFxOnly();
             backgroundCompositeStatus_ = BackgroundCompositeStatus::CaptureFailed;
         }
     }

@@ -62,6 +62,11 @@ BackgroundRenderPath BackgroundPathLatch::select(
     return *path_;
 }
 
+void BackgroundPathLatch::forceFxOnly() noexcept
+{
+    path_ = BackgroundRenderPath::FxOnly;
+}
+
 void BackgroundPathLatch::reset() noexcept
 {
     path_.reset();
