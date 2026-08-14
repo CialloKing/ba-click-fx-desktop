@@ -85,6 +85,11 @@ option(
     "Register the interactive DirectComposition/WGC composition spike"
     OFF
 )
+option(
+    BAFX_ENABLE_WGC_LIFECYCLE_SPIKE_TESTS
+    "Register the interactive WGC lifecycle spike"
+    OFF
+)
 if(BUILD_TESTING AND BAFX_ENABLE_COMPOSITION_SPIKE_TESTS)
     add_test(
         NAME composition_spike_capture
@@ -96,6 +101,24 @@ if(BUILD_TESTING AND BAFX_ENABLE_COMPOSITION_SPIKE_TESTS)
     )
     set_tests_properties(
         composition_spike_capture
+        PROPERTIES
+            LABELS "integration;desktop;gpu;spike"
+            RUN_SERIAL TRUE
+            TIMEOUT 30
+    )
+endif()
+
+if(BUILD_TESTING AND BAFX_ENABLE_WGC_LIFECYCLE_SPIKE_TESTS)
+    add_test(
+        NAME wgc_lifecycle_spike_capture
+        COMMAND
+            ba_fx_wgc_lifecycle_spike
+            "--output=${CMAKE_CURRENT_BINARY_DIR}/ctest-wgc-lifecycle-spike"
+            --revision=ctest
+            --timeout-ms=12000
+    )
+    set_tests_properties(
+        wgc_lifecycle_spike_capture
         PROPERTIES
             LABELS "integration;desktop;gpu;spike"
             RUN_SERIAL TRUE
