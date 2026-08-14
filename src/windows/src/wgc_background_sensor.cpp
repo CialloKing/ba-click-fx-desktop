@@ -126,7 +126,7 @@ struct OwnedBackgroundTexture
     throwIfFailed(
         interop->CreateForWindow(
             window,
-            winrt::guid_of<winrt::Windows::Graphics::Capture::IGraphicsCaptureItem>(),
+            winrt::guid_of<GraphicsCaptureItem>(),
             winrt::put_abi(item)),
         "IGraphicsCaptureItemInterop::CreateForWindow");
     return item;
