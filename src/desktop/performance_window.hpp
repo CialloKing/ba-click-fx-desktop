@@ -1,5 +1,7 @@
 #pragma once
 
+#include "frame_pacing.hpp"
+
 #include <cstddef>
 #include <cstdint>
 #include <vector>
@@ -113,6 +115,10 @@ struct RuntimePerformanceSummary
     std::uint64_t otherMessagesDispatched{0U};
     std::uint64_t inputDispatchBudgetExhaustions{0U};
     std::uint64_t otherDispatchBudgetExhaustions{0U};
+    std::uint64_t framePacingFrameReadyWakes{0U};
+    std::uint64_t framePacingMessageWakes{0U};
+    std::uint64_t framePacingTimeouts{0U};
+    std::uint64_t framePacingFailures{0U};
     std::uint64_t gpuFramesStarted{0U};
     std::uint64_t gpuFramesSubmitted{0U};
     std::uint64_t gpuPendingPolls{0U};
@@ -191,6 +197,7 @@ class RuntimePerformanceWindow final
 public:
     void addInput(const InputPerformanceSample& sample) noexcept;
     void addFrame(const FramePerformanceSample& sample) noexcept;
+    void addFramePacingWake(FramePacingWake wake) noexcept;
     void addDispatchToPresentReturn(std::uint64_t microseconds) noexcept;
     void addMessageToPresentReturn(std::uint64_t milliseconds) noexcept;
     void reset() noexcept;
@@ -223,6 +230,10 @@ private:
     std::uint64_t otherMessagesDispatched_{0U};
     std::uint64_t inputDispatchBudgetExhaustions_{0U};
     std::uint64_t otherDispatchBudgetExhaustions_{0U};
+    std::uint64_t framePacingFrameReadyWakes_{0U};
+    std::uint64_t framePacingMessageWakes_{0U};
+    std::uint64_t framePacingTimeouts_{0U};
+    std::uint64_t framePacingFailures_{0U};
     std::uint64_t gpuFramesStarted_{0U};
     std::uint64_t gpuFramesSubmitted_{0U};
     std::uint64_t gpuPendingPolls_{0U};

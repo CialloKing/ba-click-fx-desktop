@@ -117,6 +117,10 @@ BAFX_TEST(runtime_performance_window_aggregates_input_and_render_contracts)
         .backgroundSampleAgeValid = true});
     window.addDispatchToPresentReturn(12'000U);
     window.addMessageToPresentReturn(47U);
+    window.addFramePacingWake(bafx::desktop::FramePacingWake::FrameReady);
+    window.addFramePacingWake(bafx::desktop::FramePacingWake::MessagesPending);
+    window.addFramePacingWake(bafx::desktop::FramePacingWake::TimedOut);
+    window.addFramePacingWake(bafx::desktop::FramePacingWake::Failed);
 
     const bafx::desktop::RuntimePerformanceSummary summary = window.summarize();
     BAFX_CHECK(summary.frameCount == 1U);
@@ -138,6 +142,10 @@ BAFX_TEST(runtime_performance_window_aggregates_input_and_render_contracts)
     BAFX_CHECK(
         summary.dispatchToPresentReturnMicroseconds.maximum == 12'000U);
     BAFX_CHECK(summary.messageToPresentReturnMilliseconds.maximum == 47U);
+    BAFX_CHECK(summary.framePacingFrameReadyWakes == 1U);
+    BAFX_CHECK(summary.framePacingMessageWakes == 1U);
+    BAFX_CHECK(summary.framePacingTimeouts == 1U);
+    BAFX_CHECK(summary.framePacingFailures == 1U);
 }
 
 BAFX_TEST(runtime_performance_window_excludes_idle_wgc_skips_from_drain_timing)

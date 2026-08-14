@@ -330,6 +330,18 @@ std::chrono::nanoseconds appendPerformanceInterval(
         fields.add(
             "MessagePump.OtherBudgetExhaustions",
             summary.otherDispatchBudgetExhaustions);
+        fields.add(
+            "FramePacing.FrameReadyWakes",
+            summary.framePacingFrameReadyWakes);
+        fields.add(
+            "FramePacing.MessageWakes",
+            summary.framePacingMessageWakes);
+        fields.add(
+            "FramePacing.Timeouts",
+            summary.framePacingTimeouts);
+        fields.add(
+            "FramePacing.Failures",
+            summary.framePacingFailures);
 
         fields.add(
             "GPU.TimestampProfiler.Observed",
@@ -464,6 +476,8 @@ std::chrono::nanoseconds appendPerformanceInterval(
         const bool warning = summary.overflowMoveDrops > 0U
             || summary.inputDispatchBudgetExhaustions > 0U
             || summary.otherDispatchBudgetExhaustions > 0U
+            || summary.framePacingTimeouts > 0U
+            || summary.framePacingFailures > 0U
             || summary.gpuRingFullSkipped > 0U
             || summary.gpuQueryFailures > 0U
             || summary.gpuStateErrors > 0U

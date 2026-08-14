@@ -80,6 +80,9 @@ BAFX_TEST(performance_log_preserves_metric_and_semantic_fields)
         .gpuSampleCompleted = true,
         .gpuFxTimingValid = true});
     window.addDispatchToPresentReturn(25'000U);
+    window.addFramePacingWake(bafx::desktop::FramePacingWake::FrameReady);
+    window.addFramePacingWake(bafx::desktop::FramePacingWake::MessagesPending);
+    window.addFramePacingWake(bafx::desktop::FramePacingWake::TimedOut);
     const bafx::config::Config config = bafx::config::defaultConfig();
 
     static_cast<void>(bafx::desktop::appendPerformanceInterval(
@@ -120,6 +123,14 @@ BAFX_TEST(performance_log_preserves_metric_and_semantic_fields)
     BAFX_CHECK(text.find("GPU.RenderCommandSpan.Max=3500\n")
         != std::string::npos);
     BAFX_CHECK(text.find("Input.DispatchToPresentReturn.Max=25000\n")
+        != std::string::npos);
+    BAFX_CHECK(text.find("FramePacing.FrameReadyWakes=1\n")
+        != std::string::npos);
+    BAFX_CHECK(text.find("FramePacing.MessageWakes=1\n")
+        != std::string::npos);
+    BAFX_CHECK(text.find("FramePacing.Timeouts=1\n")
+        != std::string::npos);
+    BAFX_CHECK(text.find("FramePacing.Failures=0\n")
         != std::string::npos);
     BAFX_CHECK(text.find("Diagnostics.PreviousLogWriteCpuUs=123\n")
         != std::string::npos);

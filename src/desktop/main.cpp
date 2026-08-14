@@ -922,6 +922,7 @@ int runApplication(
                 bafx::desktop::waitForFrameOpportunity(
                     renderer.frameLatencyWaitableObject(),
                     activeControlPollMilliseconds);
+            performanceWindow.addFramePacingWake(pacingWake);
             switch (pacingWake)
             {
             case bafx::desktop::FramePacingWake::FrameReady:

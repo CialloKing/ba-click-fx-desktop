@@ -30,6 +30,16 @@ target_include_directories(
 )
 target_link_libraries(bafx_desktop_input PUBLIC bafx::fx user32)
 target_compile_features(bafx_desktop_input PUBLIC cxx_std_20)
+target_compile_definitions(
+    bafx_desktop_input
+    PUBLIC
+        UNICODE
+        _UNICODE
+        WIN32_LEAN_AND_MEAN
+        NOMINMAX
+        WINVER=0x0A00
+        _WIN32_WINNT=0x0A00
+)
 bafx_enable_warnings(bafx_desktop_input)
 set_target_properties(
     bafx_desktop_input

@@ -244,6 +244,26 @@ void RuntimePerformanceWindow::addFrame(
     }
 }
 
+void RuntimePerformanceWindow::addFramePacingWake(
+    const FramePacingWake wake) noexcept
+{
+    switch (wake)
+    {
+    case FramePacingWake::FrameReady:
+        ++framePacingFrameReadyWakes_;
+        break;
+    case FramePacingWake::MessagesPending:
+        ++framePacingMessageWakes_;
+        break;
+    case FramePacingWake::TimedOut:
+        ++framePacingTimeouts_;
+        break;
+    case FramePacingWake::Failed:
+        ++framePacingFailures_;
+        break;
+    }
+}
+
 void RuntimePerformanceWindow::addDispatchToPresentReturn(
     const std::uint64_t microseconds) noexcept
 {
@@ -282,6 +302,10 @@ void RuntimePerformanceWindow::reset() noexcept
     otherMessagesDispatched_ = 0U;
     inputDispatchBudgetExhaustions_ = 0U;
     otherDispatchBudgetExhaustions_ = 0U;
+    framePacingFrameReadyWakes_ = 0U;
+    framePacingMessageWakes_ = 0U;
+    framePacingTimeouts_ = 0U;
+    framePacingFailures_ = 0U;
     gpuFramesStarted_ = 0U;
     gpuFramesSubmitted_ = 0U;
     gpuPendingPolls_ = 0U;
@@ -344,6 +368,10 @@ RuntimePerformanceSummary RuntimePerformanceWindow::summarize() const
     summary.otherMessagesDispatched = otherMessagesDispatched_;
     summary.inputDispatchBudgetExhaustions = inputDispatchBudgetExhaustions_;
     summary.otherDispatchBudgetExhaustions = otherDispatchBudgetExhaustions_;
+    summary.framePacingFrameReadyWakes = framePacingFrameReadyWakes_;
+    summary.framePacingMessageWakes = framePacingMessageWakes_;
+    summary.framePacingTimeouts = framePacingTimeouts_;
+    summary.framePacingFailures = framePacingFailures_;
     summary.gpuFramesStarted = gpuFramesStarted_;
     summary.gpuFramesSubmitted = gpuFramesSubmitted_;
     summary.gpuPendingPolls = gpuPendingPolls_;
@@ -405,7 +433,11 @@ bool RuntimePerformanceWindow::empty() const noexcept
         && buttonEdges_ == 0U
         && cancelEvents_ == 0U
         && inputMessagesDispatched_ == 0U
-        && otherMessagesDispatched_ == 0U;
+        && otherMessagesDispatched_ == 0U
+        && framePacingFrameReadyWakes_ == 0U
+        && framePacingMessageWakes_ == 0U
+        && framePacingTimeouts_ == 0U
+        && framePacingFailures_ == 0U;
 }
 
 }
