@@ -16,6 +16,7 @@
 #include <windows.h>
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cmath>
 #include <cstdint>
@@ -976,7 +977,20 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int)
         }
         logPath = bafx::windows::defaultDiagnosticLogPath();
         report.setLogPath(logPath);
-        bafx::windows::appendDiagnosticLog(logPath, "Startup");
+        const std::string_view processMode = options.supportInfoOnly
+            ? "support-info"
+            : (options.smokeTest ? "smoke-test" : "interactive");
+        const std::array startupFields{
+            bafx::windows::DiagnosticField{
+                "Product.Version",
+                bafx::desktop::version},
+            bafx::windows::DiagnosticField{
+                "Process.Mode",
+                processMode}};
+        bafx::windows::appendDiagnosticEvent(
+            logPath,
+            "Process.Startup",
+            startupFields);
         if (!options.supportInfoOnly)
         {
             instanceGuard.emplace(bafx::windows::kHostSingleInstanceMutexName);
@@ -995,7 +1009,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int)
             }
         }
         const int result = runApplication(instance, options, report, logPath);
-        bafx::windows::appendDiagnosticLog(logPath, "Exited");
+        bafx::windows::appendDiagnosticEvent(logPath, "Process.Exited");
         return result;
     }
     catch (const std::exception& error)

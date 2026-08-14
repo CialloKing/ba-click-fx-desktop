@@ -6,6 +6,7 @@
 #include <filesystem>
 #include <cstdint>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 
@@ -18,6 +19,28 @@ enum class BackgroundCaptureStatus : std::uint8_t
     Active,
     FallbackFxOnly,
     FallbackFxOnlyCaptureVisibilityUnknown
+};
+
+inline constexpr std::uint32_t diagnosticLogSchemaVersion = 2U;
+
+struct DiagnosticField
+{
+    std::string_view key{};
+    std::string_view value{};
+};
+
+enum class DiagnosticLevel : std::uint8_t
+{
+    Debug,
+    Info,
+    Warning,
+    Error
+};
+
+struct DiagnosticLogRetention
+{
+    std::uintmax_t maximumBytes{4U * 1024U * 1024U};
+    std::uint32_t backupCount{3U};
 };
 
 class SupportReport final
@@ -59,6 +82,20 @@ private:
 };
 
 [[nodiscard]] std::filesystem::path defaultDiagnosticLogPath();
+
+[[nodiscard]] std::string_view diagnosticSessionId() noexcept;
+
+// Performs one best-effort rotation using the supplied retention. Normal
+// appends independently enforce the default retention for long-running hosts.
+void rotateDiagnosticLog(
+    const std::filesystem::path& path,
+    DiagnosticLogRetention retention = {}) noexcept;
+
+void appendDiagnosticEvent(
+    const std::filesystem::path& path,
+    std::string_view eventName,
+    std::span<const DiagnosticField> fields = {},
+    DiagnosticLevel level = DiagnosticLevel::Info) noexcept;
 
 void writeSupportReport(
     const std::filesystem::path& path,

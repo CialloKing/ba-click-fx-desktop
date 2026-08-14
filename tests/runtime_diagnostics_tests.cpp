@@ -8,8 +8,71 @@
 #include <appmodel.h>
 #include <d3d11.h>
 
+#include <array>
 #include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <string>
+
+namespace
+{
+
+class TemporaryDiagnosticDirectory final
+{
+public:
+    TemporaryDiagnosticDirectory()
+    {
+        path_ = std::filesystem::temp_directory_path()
+            / ("bafx-runtime-diagnostics-"
+                + std::to_string(GetCurrentProcessId())
+                + "-"
+                + std::to_string(GetTickCount64()));
+        std::filesystem::create_directories(path_);
+    }
+
+    ~TemporaryDiagnosticDirectory()
+    {
+        std::error_code error;
+        std::filesystem::remove_all(path_, error);
+    }
+
+    TemporaryDiagnosticDirectory(const TemporaryDiagnosticDirectory&) = delete;
+    TemporaryDiagnosticDirectory& operator=(
+        const TemporaryDiagnosticDirectory&) = delete;
+
+    [[nodiscard]] const std::filesystem::path& path() const noexcept
+    {
+        return path_;
+    }
+
+private:
+    std::filesystem::path path_{};
+};
+
+void writeText(const std::filesystem::path& path, const std::string_view text)
+{
+    std::ofstream output(path, std::ios::binary | std::ios::trunc);
+    output << text;
+}
+
+[[nodiscard]] std::string readText(const std::filesystem::path& path)
+{
+    std::ifstream input(path, std::ios::binary);
+    return std::string(
+        std::istreambuf_iterator<char>(input),
+        std::istreambuf_iterator<char>());
+}
+
+[[nodiscard]] std::filesystem::path backupPath(
+    const std::filesystem::path& path,
+    const std::uint32_t index)
+{
+    std::filesystem::path backup(path);
+    backup += L"." + std::to_wstring(index);
+    return backup;
+}
+
+}
 
 BAFX_TEST(package_identity_probe_is_self_consistent)
 {
@@ -162,6 +225,59 @@ BAFX_TEST(support_report_contains_alpha_scope_and_graphics_facts)
         != std::string::npos);
     BAFX_CHECK(text.find("Exit.NotificationIcon=available") != std::string::npos);
     BAFX_CHECK(text.find("Exit.PollingFallback=enabled") != std::string::npos);
+    BAFX_CHECK(text.find("Log.SchemaVersion=2") != std::string::npos);
+    BAFX_CHECK(text.find("Log.SessionId=") != std::string::npos);
+}
+
+BAFX_TEST(diagnostic_events_are_structured_and_keep_equals_inside_values)
+{
+    const TemporaryDiagnosticDirectory temporary;
+    const std::filesystem::path logPath = temporary.path() / "support.log";
+    const std::array fields{
+        bafx::windows::DiagnosticField{"Runtime.Component", "render"},
+        bafx::windows::DiagnosticField{"Runtime.Detail", "left=right\ncontinued"}};
+
+    bafx::windows::appendDiagnosticEvent(
+        logPath,
+        "Runtime.Sample",
+        fields);
+
+    const std::string text = readText(logPath);
+    BAFX_CHECK(text.find("Log.SchemaVersion=2\n") != std::string::npos);
+    BAFX_CHECK(text.find("Log.SessionId=") != std::string::npos);
+    BAFX_CHECK(text.find("Event.Sequence=") != std::string::npos);
+    BAFX_CHECK(text.find("Event.MonotonicUs=") != std::string::npos);
+    BAFX_CHECK(text.find("Event.ProcessId=") != std::string::npos);
+    BAFX_CHECK(text.find("Event.ThreadId=") != std::string::npos);
+    BAFX_CHECK(text.find("Event.Level=Info\n") != std::string::npos);
+    BAFX_CHECK(text.find("Event.Name=Runtime.Sample\n") != std::string::npos);
+    BAFX_CHECK(text.find("Runtime.Component=render\n") != std::string::npos);
+    BAFX_CHECK(
+        text.find("Runtime.Detail=left=right continued\n")
+        != std::string::npos);
+}
+
+BAFX_TEST(diagnostic_log_rotation_keeps_a_bounded_backup_chain)
+{
+    const TemporaryDiagnosticDirectory temporary;
+    const std::filesystem::path logPath = temporary.path() / "support.log";
+    writeText(logPath, "current");
+    writeText(backupPath(logPath, 1U), "previous");
+    writeText(backupPath(logPath, 2U), "oldest");
+
+    bafx::windows::rotateDiagnosticLog(
+        logPath,
+        bafx::windows::DiagnosticLogRetention{1U, 2U});
+
+    BAFX_CHECK(!std::filesystem::exists(logPath));
+    BAFX_CHECK(readText(backupPath(logPath, 1U)) == "current");
+    BAFX_CHECK(readText(backupPath(logPath, 2U)) == "previous");
+
+    bafx::windows::appendDiagnosticEvent(logPath, "AfterRotation");
+    BAFX_CHECK(std::filesystem::exists(logPath));
+    BAFX_CHECK(
+        readText(logPath).find("Event.Name=AfterRotation\n")
+        != std::string::npos);
 }
 
 BAFX_TEST(support_report_marks_primary_dpi_unknown_until_probed)
