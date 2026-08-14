@@ -79,12 +79,28 @@ using winrt::Windows::Security::Authorization::AppCapabilityAccess::
 
 }
 
-BorderlessCaptureAccessResult requestBorderlessCaptureAccess() noexcept
+BorderlessCaptureAccessResult requestBorderlessCaptureAccess(
+    const PackageIdentityInfo& identity) noexcept
 {
     try
     {
-        if (!queryCurrentPackageIdentity().present)
+        if (!identity.present)
         {
+            if (identity.fullNameError
+                != static_cast<DWORD>(APPMODEL_ERROR_NO_PACKAGE))
+            {
+                // Do not disguise an OOM or AppModel probe failure as the
+                // expected portable-build result.
+                const DWORD identityError = identity.fullNameError
+                    != ERROR_SUCCESS
+                    ? identity.fullNameError
+                    : (identity.packagePathError != ERROR_SUCCESS
+                        ? identity.packagePathError
+                        : ERROR_INVALID_DATA);
+                return BorderlessCaptureAccessResult{
+                    BorderlessCaptureAccessStatus::Failed,
+                    HRESULT_FROM_WIN32(identityError)};
+            }
             return BorderlessCaptureAccessResult{
                 BorderlessCaptureAccessStatus::NotPackaged,
                 HRESULT_FROM_WIN32(APPMODEL_ERROR_NO_PACKAGE)};
@@ -119,7 +135,9 @@ BorderlessCaptureAccessResult requestBorderlessCaptureAccess() noexcept
     catch (const winrt::hresult_error& error)
     {
         const HRESULT code = error.code();
-        if (code == E_NOTIMPL || code == E_NOINTERFACE)
+        if (code == E_NOTIMPL
+            || code == E_NOINTERFACE
+            || code == REGDB_E_CLASSNOTREG)
         {
             return BorderlessCaptureAccessResult{
                 BorderlessCaptureAccessStatus::Unsupported,
@@ -135,6 +153,11 @@ BorderlessCaptureAccessResult requestBorderlessCaptureAccess() noexcept
             BorderlessCaptureAccessStatus::Failed,
             E_FAIL};
     }
+}
+
+BorderlessCaptureAccessResult requestBorderlessCaptureAccess() noexcept
+{
+    return requestBorderlessCaptureAccess(queryCurrentPackageIdentity());
 }
 
 bool borderlessCaptureAccessAllowed(

@@ -5,6 +5,7 @@
 #include "bafx/windows/portable_paths.hpp"
 #include "bafx/windows/runtime_diagnostics.hpp"
 
+#include <appmodel.h>
 #include <d3d11.h>
 
 #include <filesystem>
@@ -51,6 +52,37 @@ BAFX_TEST(borderless_access_diagnostic_names_are_stable)
         != std::string::npos);
     BAFX_CHECK(timeoutDiagnostic.find("HRESULT=0x800705B4")
         != std::string::npos);
+}
+
+BAFX_TEST(borderless_access_preserves_package_identity_probe_failures)
+{
+    const bafx::windows::PackageIdentityInfo notPackaged{
+        false,
+        {},
+        {},
+        static_cast<DWORD>(APPMODEL_ERROR_NO_PACKAGE),
+        static_cast<DWORD>(APPMODEL_ERROR_NO_PACKAGE)};
+    const bafx::windows::BorderlessCaptureAccessResult portable =
+        bafx::windows::requestBorderlessCaptureAccess(notPackaged);
+    BAFX_CHECK(
+        portable.status
+        == bafx::windows::BorderlessCaptureAccessStatus::NotPackaged);
+    BAFX_CHECK(
+        portable.error
+        == HRESULT_FROM_WIN32(APPMODEL_ERROR_NO_PACKAGE));
+
+    const bafx::windows::PackageIdentityInfo probeFailed{
+        false,
+        {},
+        {},
+        ERROR_NOT_ENOUGH_MEMORY,
+        ERROR_NOT_ENOUGH_MEMORY};
+    const bafx::windows::BorderlessCaptureAccessResult failure =
+        bafx::windows::requestBorderlessCaptureAccess(probeFailed);
+    BAFX_CHECK(
+        failure.status
+        == bafx::windows::BorderlessCaptureAccessStatus::Failed);
+    BAFX_CHECK(failure.error == HRESULT_FROM_WIN32(ERROR_NOT_ENOUGH_MEMORY));
 }
 
 BAFX_TEST(runtime_owned_paths_stay_beside_the_loaded_executable)
