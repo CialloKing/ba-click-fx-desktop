@@ -172,10 +172,13 @@ enum class CaptureInteractionMode
 
 窗口线程接收 Raw Input/Pointer 消息，记录消息分派时 QPC，并写入单生产者命令队列；另存的
 `GetMessageTime` 只用于诊断 Win32 排队时间。Render Owner 在有待消费位置的呈现更新中锁存一份
-帧边界绝对指针位置，按压 FX 的普通调用顺序为 Down→Held→Up；释放帧 Held 为 false，不提交位置移动。
+帧边界绝对指针位置，按压 FX 的普通调用顺序为 Down→Held→Up；普通 Up-only 释放帧的 Held 为 false，
+不提交位置移动。
 本轮所有模拟动作统一使用 `renderTime`，消息分派 QPC 只推进可选 `input.samplingRateHz` 输入相位，
-不能冒充模拟或呈现时间。Raw Input 的同帧边沿按原序无损保留属于原生扩展；Unity Legacy Input 对
-同帧多边沿的聚合仍为 Not Verified。
+不能冒充模拟或呈现时间。`PointerFrameSnapshot` 按原序无损保留同帧 Raw Input 边沿，仅用于诊断和
+native 扩展；严格效果路径将边沿归约为 Down/Held/Up 布尔帧态并按 Down→Held→Up 执行，Cancel 最后
+作为 native 硬边界处理。Unity `2021.3.45f1` Player 黑盒已确认 `Down-Up-Down` 在聚合帧中得到
+Down=true、Held=true、Up=true；其他边沿排列及游戏所用 Unity `2021.3.56f2` 仍未验证。
 
 默认输入合同只在真实按住期间推进拖尾。用户开启“拖尾常驻”后，未按键 Move 由独立的纯拖尾实例
 消费；这是 native/Web 产品增强，首个样本只建立锚点。含任一边沿的帧不得从尾随 Move 重启常驻段；

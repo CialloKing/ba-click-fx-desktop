@@ -4,8 +4,8 @@
 
 | Tier | 用途 | 可以决定什么 |
 | --- | --- | --- |
-| Unity/游戏证据 | 视觉真值 | 时序、形状、材质、层顺序、Bloom 观感 |
-| ba-click-fx | 行为参考 | 输入语义、配置命名、兼容接口 |
+| Unity/游戏证据 | 视觉与运行时真值 | 时序、输入帧态、形状、材质、层顺序、Bloom 观感 |
+| ba-click-fx | 产品行为参考 | 配置命名、兼容接口、native/Web 增强 |
 | 原生中间 buffer | 实现验证 | 定位数值、滤波、合成和回归 |
 
 低层证据不能推翻高层视觉真值。若 Web 与 Unity 不一致，先记录差异，再以 Unity/游戏证据校准。
@@ -21,8 +21,9 @@
 - fixed-step simulation 和 deterministic random；
 - `FXTouch` 释放后的 `1 s` 仿真寿命、桌面暂停冻结、边界帧呈现后回池，以及
   `60/120/144/240 Hz` 下不随 Present 频率提前回收；
-- PointerFrameAdapter 的跨帧 held、Down→Held→Up、释放帧不移动、边沿后尾随 Move 抑制，以及同帧
-  多边沿原序归约；PointerFrameDispatch 的统一帧位置、统一 `renderTime` 与 QPC 输入相位隔离。
+- PointerFrameAdapter 的跨帧 held、Raw 边沿原序保留、普通 Up-only 帧不移动和边沿后尾随 Move 抑制；
+  PointerFrameDispatch 的 Down/Held/Up 帧态归约、Down→Held→Up 固定顺序、三态同时为 true 时各执行
+  一次、统一帧位置、统一 `renderTime`、QPC 输入相位隔离，以及 native Cancel 最终硬边界。
 
 ### L1：GPU 离屏
 
@@ -37,7 +38,8 @@
 ### L2：窗口与 API 集成
 
 - PMv2 坐标、Raw Input 到单一帧边界当前位置的映射、click-through overlay；
-- 输入消费/呈现边界上的 Down→Held→Up、释放帧不移动、常驻拖尾分流，以及 QPC 只影响可选采样相位；
+- 输入消费/呈现边界上的 Raw 边沿保留、Down/Held/Up 帧态归约、普通 Up-only 帧不移动、常驻拖尾分流，
+  以及 QPC 只影响可选采样相位；
 - `FxTrailTimeScale` 的逐 Update parking 状态机已在参考层验证；`SimulationRuntime` 已按当前游戏
   审计复现 `SyncComponentPool<FXTouch>` 的 FIFO 失活对象复用，并由 L0 测试锁定最早归还对象及其
   相邻组件状态的再次取回。桌面 Host 仍无游戏 `Time.timeScale` 来源，因此生产路径尚未调用 parking 入口；
@@ -60,7 +62,8 @@
 - OS build、adapter LUID、driver、显示色彩模式；
 - viewport、DPI、背景编码与参考白；
 - QPC frequency、消息分派 QPC、统一 `renderTime`、固定模拟步长、随机种子；
-- 呈现边界、锁存位置、Down/Held/Up 序列，以及拖尾常驻开关、出界、重入和边沿后尾随 Move 边界。
+- 呈现边界、锁存位置、Raw 边沿、归约后的 Down/Held/Up 帧态，以及拖尾常驻开关、出界、重入和
+  边沿后尾随 Move 边界。
 
 显式种子的生产 C++ 模拟坐标只属于实现内确定性回归，不等同于 Unity Golden。Unity 为每个
 ParticleSystem 使用独立的引擎随机流；原生尚未复现这些随机流，因此普通点击/拖拽捕获仍必须使用
@@ -207,10 +210,13 @@ python -B tools\verify-golden-metrics.py `
 拖拽 case 的 manifest 必须精确声明两个比较帧及三张 Unity 参考图；验证器同时核对 FP16 文件长度。
 `case.contractVersion=1` 独立版本化这套新增夹具；Golden 比较前会从 `.rgba16f` 按捕获端相同的
 linear-to-sRGB 规则重建并核对 PNG，避免陈旧预览与数值层错配。
-该诊断验证距离发射、两点 Trail 几何/材质与 Bloom，不冒充真实逐帧 TrailRenderer 采样时序验证。
-它也不验证 OS 消息到 Unity Legacy Input 帧态的聚合。原生同帧多边沿无损扩展已有确定性测试，但 Unity
-如何聚合一个渲染帧内的多次按下/释放仍为 Not Verified；需由真实 Player 黑盒夹具同时记录
-`GetMouseButtonDown`、`GetMouseButton`、`GetMouseButtonUp` 和 `Input.mousePosition` 后才能声明 parity。
+该诊断验证距离发射、两点 Trail 几何/材质与 Bloom，不冒充真实逐帧 TrailRenderer 采样时序验证，也不
+验证 OS 消息到 Unity Legacy Input 帧态；该输入合同由独立 Player 黑盒证据
+`Reference/Diagnostics/Input/FXTouch_LegacyInput_DownUpDown.{md,json}` 锁定：Unity `2021.3.45f1`
+Windows Player 在完整前台、命中测试和焦点门禁下接收 `Down-Up-Down`，下一聚合帧记录到
+`GetMouseButtonDown(0)=true`、`GetMouseButton(0)=true`、`GetMouseButtonUp(0)=true`。原生确定性测试
+同时锁定 Raw 边沿原序保留、布尔帧态归约和 Down→Held→Up 派发。该证据只覆盖这一边沿排列，不证明
+其他排列，也不证明游戏使用的 Unity `2021.3.56f2` 行为相同。
 `--json` 输出固定的 schema v1 envelope；退出码 `0/1/2` 分别表示通过、指标失败和输入/参数错误，
 参数错误也不会混入人类可读文本。
 

@@ -30,7 +30,8 @@ D:\WebProjects\BA鼠标输入与点击特效系统\提取资产2\BA_FX_Touch_Uni
    blend、render state 和行为。
 2. **ReconstructionChoice**：Unity 2021.3.45f1 URP 工程中的 shader/C# 还原；用于重放和生成中间 buffer，
    但不能覆盖 OriginalSerialized。
-3. **RuntimeObservation**：固定种子截图、游戏截图、径向量化和人工观察；用于验证实现是否落入正确时间包络。
+3. **RuntimeObservation**：固定种子截图、游戏截图、Player 输入探针、结构化日志、径向量化和人工观察；
+   用于验证实现是否落入正确时间包络与运行时行为边界。
 
 `ba-click-fx` 只提供行为/配置兼容参考，不是像素真值。
 
@@ -145,8 +146,8 @@ OS 指针输入；首次观察位置包含 shape offset 和观察前已累积的
 - Trail 保持 Prefab 的 `time=0.3`、`widthMultiplier=0.005` 和 `m_MinVertexDistance=0.01`。真实 Player
   验证表明该距离只过滤每帧 Transform 样本：单帧移动 `0.9 world` 仍只有首尾两点，不会沿线自动补点。
   原脚本的 `Update` 按 Down→Held→Up 查询 Legacy Input，并只使用该帧的同一份 `Input.mousePosition`；
-  释放帧 `GetMouseButton(0)` 为 false，因此不会在 `GetMouseButtonUp(0)` 前再移动根对象。原生按压路径
-  据此在每次输入消费/呈现更新中只应用一份帧边界当前位置，并让所有模拟动作共享 `renderTime`。
+  普通 Up-only 释放帧的 `GetMouseButton(0)` 为 false，因此不会在 `GetMouseButtonUp(0)` 前再移动
+  根对象。原生按压路径据此在每次输入消费/呈现更新中只应用一份帧边界当前位置，并让所有模拟动作共享 `renderTime`。
   消息分派 QPC 只服务可选 `input.samplingRateHz` 输入相位，不属于 Unity 序列化美术参数。
 - `FxTrailTimeScale` 脚本构造默认值是 `killUnderTimeScale=0.3333`，但游戏中 Trail 实例的 MonoBehaviour
   原始数据在字段偏移 `0x20` 序列化为 `5C 8F 42 3E`，即 `0.19f`；运行时以该实例覆盖值为准。
@@ -171,9 +172,13 @@ OS 指针输入；首次观察位置包含 shape offset 和观察前已累积的
   才停止并归还对象，桌面暂停期间不消费这段时间。若字面按 60 次 Present 回收，`120/144/240 Hz`
   会分别约在 `500/417/250 ms` 截断最长 `600-700 ms` 的碎片，因此不作为当前桌面合同。
 - Web 版的 coalesced events 与未按键常驻拖尾只作为 native/Web 产品增强，不是 Unity 路径真值。原生会
-  按原序无损保留同帧多个 Raw Input 边沿，且含边沿帧不会从尾随 Move 重启常驻段；Unity Legacy Input
-  如何聚合这些边沿仍为 Not Verified，需用真实 Player 黑盒夹具确认。`30 Hz` 是人工视觉审核建议，
-  不是游戏硬编码真值。
+  按原序无损保留同帧多个 Raw Input 边沿，仅用于诊断和 native 扩展，且含边沿帧不会从尾随 Move
+  重启常驻段；严格效果路径将边沿归约为 Down/Held/Up 布尔帧态并按脚本的 Down→Held→Up 顺序执行，
+  Cancel 最后作为 native 硬边界处理。Unity `2021.3.45f1` Windows Player 黑盒已确认
+  `Reference/Diagnostics/Input/FXTouch_LegacyInput_DownUpDown.{md,json}` 的 `Valid=true`，并记录
+  `Down-Up-Down` 在第 4 帧得到 Down=true、Held=true、Up=true；清理最终按下态后，第 5 帧为
+  Down=false、Held=false、Up=true。该证据不覆盖其他边沿排列，也不证明游戏所用 Unity
+  `2021.3.56f2` 行为相同。`30 Hz` 是人工视觉审核建议，不是游戏硬编码真值。
 - 按住期间即使没有新的 OS Move，Unity 粒子更新仍会观察当前根 Transform。原生每次 `advance`
   因此只推进距离发射的静止时间基线，不追加 Trail 顶点，也不推进独立的输入限频相位；下一次位移的
   距离粒子出生时刻只在最近两个仿真更新之间内插，不会跨越更早的静止区间。

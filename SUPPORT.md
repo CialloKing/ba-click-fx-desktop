@@ -11,11 +11,14 @@
   拖尾宽度、输入采样率上限、Bloom 强度和 Bloom 质量会通过本地 Named Pipe 在下一帧应用到正在运行的 Host；
   “重置默认”经确认后恢复全部持久化设置，但保留当前暂停或运行状态。
 - 每次输入消费/呈现更新只为按压 FX 使用一份帧边界当前位置，并以同一 `renderTime` 按
-  Down→Held→Up 处理普通路径；释放帧 Held 为 false，不应用该帧的按住移动。输入采样率 `0` 不额外
+  Down→Held→Up 处理普通路径；普通 Up-only 释放帧的 Held 为 false，不应用该帧的按住移动。输入采样率 `0` 不额外
   限频；`1..1000 Hz` 只按消息分派 QPC 推进可选位置采样相位，不影响边沿或模拟时间。
-- Raw Input 的同帧多边沿按原序无损保留，这是原生扩展；Unity Legacy Input 的同帧聚合仍为
-  Not Verified。含任一边沿的帧不会从尾随 Move 重启常驻拖尾。拖尾常驻是 native/Web 增强，
-  不生成点击 burst。Unity TrailRenderer 的空间参数仍保持 `m_MinVertexDistance=0.01`。
+- Raw Input 的同帧多边沿仍按原序无损保留，仅用于诊断和 native 扩展；严格效果路径将其归约为
+  Down/Held/Up 布尔帧态并按 Down→Held→Up 执行，Cancel 最后作为 native 硬边界处理。Unity
+  `2021.3.45f1` Player 已确认 `Down-Up-Down` 的聚合帧三态同时为 true；其他边沿排列及游戏所用
+  Unity `2021.3.56f2` 仍未验证。含任一边沿的帧不会从尾随 Move 重启常驻拖尾。
+- 拖尾常驻是 native/Web 增强，不生成点击 burst。Unity TrailRenderer 的空间参数仍保持
+  `m_MinVertexDistance=0.01`。
 - D3D11 硬件设备；硬件设备创建失败时尝试 WARP 软件设备。
 - 当前验证范围为普通 SDR 桌面合成路径。
 - 支持报告会记录主屏 DPI、DXGI 色彩空间、位深和亮度元数据；这些只是当前输出快照，不能据此

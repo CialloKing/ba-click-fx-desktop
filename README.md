@@ -172,14 +172,16 @@ FX-only，不会先启动带黄色边框的会话。无论该开关如何设置�
 暂停的特效；需要继续显示时仍应单独点击“恢复特效”。
 
 Host 在每次输入消费/交换链呈现更新中，为按压 FX 锁存一份帧边界当前鼠标位置，并用同一份
-`renderTime` 执行本轮模拟动作。普通调用顺序为 Down→Held→Up；释放帧的 Held 为 false，因此不会先把
-该帧 Move 应用为按住移动再释放。含任一边沿的帧也不会用边沿后的尾随 Move 重启常驻拖尾。Raw Input 的
-Down/Up/Cancel 在同一帧内仍按原顺序无损保留；这是原生扩展，Unity Legacy Input 对同帧多边沿的聚合语义
-仍为 Not Verified。没有待消费的位置时不会仅为输入适配而读取光标；按住静止期间由模拟 `advance` 推进
-距离发射的时间基线。
+`renderTime` 执行本轮模拟动作。普通调用顺序为 Down→Held→Up；普通 Up-only 释放帧的 Held 为 false，
+因此不会先把该帧 Move 应用为按住移动再释放。含任一边沿的帧也不会用边沿后的尾随 Move 重启常驻拖尾。Raw Input 的
+Down/Up/Cancel 仍按原顺序无损保留，仅用于诊断和 native 扩展；严格效果路径将它们归约为单帧
+Down/Held/Up 布尔态，并固定按 Down→Held→Up 执行，Cancel 最后作为 native 硬边界处理。Unity
+`2021.3.45f1` Player 黑盒已确认 `Down-Up-Down` 在聚合帧中三态同时为 true；其他边沿排列及游戏使用的
+Unity `2021.3.56f2` 仍未验证。没有待消费的位置时不会仅为输入适配而读取光标；按住静止期间由模拟
+`advance` 推进距离发射的时间基线。
 
 “输入采样率上限 (Hz)”默认值 `0` 表示不额外限频；`1..1000` 仅使用位置样本的消息分派 QPC 推进
-可选输入采样相位。QPC 不决定模拟动作时间、边沿顺序或释放时刻。`30 Hz` 是参考 Web 版提供的手机客户端
+可选输入采样相位。QPC 不决定模拟动作时间、帧态归约、严格路径执行顺序或释放时刻。`30 Hz` 是参考 Web 版提供的手机客户端
 视觉近似，`15 Hz` 折线更明显，`60 Hz` 更平滑；这些是人工审核入口，不是从 Prefab 提取出的固定客户端
 帧率，也不会修改 Unity TrailRenderer 的 `m_MinVertexDistance=0.01`、`time=0.3` 或
 `widthMultiplier=0.005`。
