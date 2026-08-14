@@ -537,3 +537,71 @@ BAFX_TEST(fx_only_profile_resize_preserves_unknown_capture_visibility)
     BAFX_CHECK(
         transition.failure() == BackgroundCaptureFailure::InclusionUnconfirmed);
 }
+
+BAFX_TEST(frame_pool_recreate_keeps_the_active_background_path)
+{
+    BackgroundCaptureTransition transition;
+    const BackgroundCaptureRequest request = backgroundAwareRequest();
+    BAFX_CHECK(
+        transition.beginRequest(request) == BackgroundCaptureRequestResult::Started);
+    static_cast<void>(completeSuccessfully(transition));
+
+    BAFX_CHECK(transition.beginFramePoolRecreate(resizedOutput));
+    const auto recreate = transition.nextAction();
+    BAFX_CHECK(recreate.has_value());
+    BAFX_CHECK(
+        recreate->kind == BackgroundCaptureActionKind::RecreateFramePool);
+    BAFX_CHECK(recreate->captureSize.width == resizedOutput.width);
+    BAFX_CHECK(recreate->captureSize.height == resizedOutput.height);
+    BAFX_CHECK(transition.applyObservation(*recreate, true));
+    BAFX_CHECK(!transition.nextAction().has_value());
+    BAFX_CHECK(
+        transition.effectivePath()
+        == EffectiveBackgroundCapturePath::BackgroundAware);
+    BAFX_CHECK(transition.failure() == BackgroundCaptureFailure::None);
+}
+
+BAFX_TEST(frame_pool_recreate_failure_cleans_up_once_without_retry)
+{
+    BackgroundCaptureTransition transition;
+    const BackgroundCaptureRequest request = backgroundAwareRequest();
+    BAFX_CHECK(
+        transition.beginRequest(request) == BackgroundCaptureRequestResult::Started);
+    static_cast<void>(completeSuccessfully(transition));
+
+    BAFX_CHECK(transition.beginFramePoolRecreate(resizedOutput));
+    const auto recreate = transition.nextAction();
+    BAFX_CHECK(recreate.has_value());
+    BAFX_CHECK(transition.applyObservation(*recreate, false));
+    checkActions(
+        completeSuccessfully(transition),
+        {BackgroundCaptureActionKind::StopSensor,
+         BackgroundCaptureActionKind::SetAffinityIncluded,
+         BackgroundCaptureActionKind::ApplyOverlayProfile});
+    BAFX_CHECK(
+        transition.failure()
+        == BackgroundCaptureFailure::FramePoolRecreateFailed);
+    BAFX_CHECK(
+        transition.effectivePath() == EffectiveBackgroundCapturePath::FxOnly);
+    BAFX_CHECK(
+        transition.beginRequest(request) == BackgroundCaptureRequestResult::NoChange);
+}
+
+BAFX_TEST(frame_pool_recreate_rejects_invalid_or_inactive_sessions)
+{
+    BackgroundCaptureTransition transition;
+    BAFX_CHECK(!transition.beginFramePoolRecreate(resizedOutput));
+
+    BAFX_CHECK(
+        transition.beginRequest(recordingRequest())
+        == BackgroundCaptureRequestResult::Started);
+    static_cast<void>(completeSuccessfully(transition));
+    BAFX_CHECK(!transition.beginFramePoolRecreate(resizedOutput));
+
+    BAFX_CHECK(
+        transition.beginRequest(backgroundAwareRequest())
+        == BackgroundCaptureRequestResult::Started);
+    static_cast<void>(completeSuccessfully(transition));
+    BAFX_CHECK(
+        !transition.beginFramePoolRecreate(WindowSize{resizedOutput.width, 0U}));
+}

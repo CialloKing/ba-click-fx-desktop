@@ -339,6 +339,10 @@ struct WgcBackgroundSensor::Implementation
             stop();
             return WgcBackgroundDrainStatus::Stopped;
         }
+        if (pendingFramePoolSize.has_value())
+        {
+            return WgcBackgroundDrainStatus::ReconfigureRequired;
+        }
 
         const std::uint64_t observedGeneration =
             notification->generation();
@@ -373,24 +377,15 @@ struct WgcBackgroundSensor::Implementation
             if (checkedContentSize.width != poolSize.width
                 || checkedContentSize.height != poolSize.height)
             {
-                OwnedBackgroundTexture resizedTexture = createOwnedTexture(
-                    device.Get(),
-                    checkedContentSize);
                 closeFrame(latest);
-                framePool.Recreate(
-                    direct3dDevice,
-                    capturePixelFormat,
-                    captureBufferCount,
-                    contentSize);
-                ownedTexture = std::move(resizedTexture);
-                poolSize = checkedContentSize;
-                options.epoch = nextGeneration(options.epoch);
                 latestBackground.reset();
                 lastAcceptedTimestamp.reset();
-                // Recreate replaces the pool, so no old queued frame survives
-                // into the new epoch and needs a conservative extra wake.
-                notification->resetAfterDrain(observedGeneration, false);
-                return WgcBackgroundDrainStatus::Reconfigured;
+                pendingFramePoolSize = checkedContentSize;
+                pendingFramePoolGeneration = observedGeneration;
+                // Leave the manual-reset event signaled until the owner runs
+                // the explicit Recreate action. This prevents a wait between
+                // detection and the lifecycle transaction.
+                return WgcBackgroundDrainStatus::ReconfigureRequired;
             }
 
             const bafx::core::MonotonicTime timestamp = captureTime(latest);
@@ -457,6 +452,43 @@ struct WgcBackgroundSensor::Implementation
         }
     }
 
+    void recreateFramePool(const WindowSize size)
+    {
+        if (!isRunning || notification->itemClosed())
+        {
+            throw std::runtime_error(
+                "WGC frame pool cannot be recreated after session stop");
+        }
+        if (!pendingFramePoolSize.has_value()
+            || pendingFramePoolSize->width != size.width
+            || pendingFramePoolSize->height != size.height)
+        {
+            throw std::invalid_argument(
+                "WGC frame pool recreate size does not match the pending frame");
+        }
+
+        OwnedBackgroundTexture resizedTexture = createOwnedTexture(
+            device.Get(),
+            size);
+        const SizeInt32 contentSize{
+            static_cast<std::int32_t>(size.width),
+            static_cast<std::int32_t>(size.height)};
+        framePool.Recreate(
+            direct3dDevice,
+            capturePixelFormat,
+            captureBufferCount,
+            contentSize);
+        ownedTexture = std::move(resizedTexture);
+        poolSize = size;
+        options.epoch = nextGeneration(options.epoch);
+        latestBackground.reset();
+        lastAcceptedTimestamp.reset();
+        pendingFramePoolSize.reset();
+        // Recreate discards the old pool backlog. A callback that raced this
+        // action still preserves a conservative extra wake via generation.
+        notification->resetAfterDrain(pendingFramePoolGeneration, false);
+    }
+
     void stop() noexcept
     {
         notification->beginStop();
@@ -512,6 +544,7 @@ struct WgcBackgroundSensor::Implementation
         direct3dDevice = nullptr;
         latestBackground.reset();
         lastAcceptedTimestamp.reset();
+        pendingFramePoolSize.reset();
         ownedTexture = {};
         isRunning = false;
     }
@@ -527,10 +560,12 @@ struct WgcBackgroundSensor::Implementation
     OwnedBackgroundTexture ownedTexture{};
     std::optional<WgcBackgroundSample> latestBackground{};
     std::optional<bafx::core::MonotonicTime> lastAcceptedTimestamp{};
+    std::optional<WindowSize> pendingFramePoolSize{};
     WindowSize poolSize{};
     winrt::event_token frameArrivedToken{};
     winrt::event_token itemClosedToken{};
     std::uint64_t sampleGeneration{0U};
+    std::uint64_t pendingFramePoolGeneration{0U};
     bool frameArrivedRegistered{false};
     bool itemClosedRegistered{false};
     bool isRunning{false};
@@ -570,6 +605,17 @@ WgcBackgroundDrainStatus WgcBackgroundSensor::drainLatest(
     ID3D11DeviceContext* context)
 {
     return implementation_->drainLatest(context);
+}
+
+std::optional<WindowSize>
+WgcBackgroundSensor::pendingFramePoolSize() const noexcept
+{
+    return implementation_->pendingFramePoolSize;
+}
+
+void WgcBackgroundSensor::recreateFramePool(const WindowSize size)
+{
+    implementation_->recreateFramePool(size);
 }
 
 std::optional<WgcBackgroundSample> WgcBackgroundSensor::latestSample() const noexcept

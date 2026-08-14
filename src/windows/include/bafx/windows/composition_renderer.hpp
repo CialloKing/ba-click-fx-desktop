@@ -107,6 +107,9 @@ public:
         bool exclusionConfirmed,
         bool cursorExcluded = true,
         bool allowSystemBorder = false) noexcept;
+    [[nodiscard]] std::optional<WindowSize>
+        pendingBackgroundFramePoolSize() const noexcept;
+    [[nodiscard]] bool tryRecreateBackgroundFramePool(WindowSize size) noexcept;
     void disableBackgroundCapture() noexcept;
     [[nodiscard]] bool backgroundCaptureActive() const noexcept;
     [[nodiscard]] bool backgroundCaptureBorderHidden() const noexcept;

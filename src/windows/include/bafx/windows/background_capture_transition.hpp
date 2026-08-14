@@ -30,6 +30,7 @@ enum class BackgroundCaptureActionKind : std::uint8_t
 {
     StopSensor,
     ResizeOutput,
+    RecreateFramePool,
     SetAffinityExcluded,
     SetAffinityIncluded,
     ApplyOverlayProfile,
@@ -41,6 +42,7 @@ struct BackgroundCaptureAction
     BackgroundCaptureActionKind kind{BackgroundCaptureActionKind::StopSensor};
     FxOverlayProfile overlayProfile{FxOverlayProfile::FxOnlyFallback};
     WindowSize outputSize{};
+    WindowSize captureSize{};
     bool cursorExcluded{true};
     bool allowSystemBorder{true};
 
@@ -60,6 +62,7 @@ enum class BackgroundCaptureFailure : std::uint8_t
     None,
     ExclusionUnconfirmed,
     SensorStartFailed,
+    FramePoolRecreateFailed,
     InclusionUnconfirmed,
     SessionStopped
 };
@@ -83,6 +86,7 @@ public:
         std::optional<WindowSize> outputSize) noexcept;
     [[nodiscard]] BackgroundCaptureRequestResult beginRequest(
         BackgroundCaptureRequest request) noexcept;
+    [[nodiscard]] bool beginFramePoolRecreate(WindowSize captureSize) noexcept;
     [[nodiscard]] bool beginSessionStopped() noexcept;
 
     [[nodiscard]] std::optional<BackgroundCaptureAction> nextAction() const noexcept;

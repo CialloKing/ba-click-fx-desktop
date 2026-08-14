@@ -7,6 +7,7 @@
 #include <windows.h>
 
 #include <filesystem>
+#include <optional>
 #include <string>
 
 namespace bafx::desktop
@@ -15,6 +16,7 @@ namespace bafx::desktop
 struct BackgroundCaptureExecutionResult
 {
     std::string sensorFailure{};
+    std::optional<bafx::windows::WindowSize> recreatedFramePoolSize{};
 };
 
 [[nodiscard]] bafx::windows::BackgroundCaptureRequest backgroundCaptureRequest(

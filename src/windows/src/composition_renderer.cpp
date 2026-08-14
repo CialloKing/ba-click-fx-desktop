@@ -254,11 +254,11 @@ void CompositionRenderer::renderFrame(
                 backgroundPathLatch_.reset();
                 resetBackgroundSnapshot();
             }
-            else if (drainStatus == WgcBackgroundDrainStatus::Reconfigured)
+            else if (drainStatus
+                == WgcBackgroundDrainStatus::ReconfigureRequired)
             {
-                // A frame-pool resize advances the sensor epoch and drops its
-                // sample. Treat it as a new session so the first replacement
-                // frame cannot inherit the old visible batch's path.
+                // The owner will execute Recreate through the capture
+                // transaction after this frame has selected FX-only.
                 backgroundPathLatch_.reset();
                 resetBackgroundSnapshot();
             }
@@ -451,6 +451,51 @@ bool CompositionRenderer::tryEnableBackgroundCapture(
     }
 
     return tryCreateBackgroundSensor();
+}
+
+std::optional<WindowSize>
+CompositionRenderer::pendingBackgroundFramePoolSize() const noexcept
+{
+    if (backgroundSensor_ == nullptr)
+    {
+        return std::nullopt;
+    }
+    return backgroundSensor_->pendingFramePoolSize();
+}
+
+bool CompositionRenderer::tryRecreateBackgroundFramePool(
+    const WindowSize size) noexcept
+{
+    if (backgroundSensor_ == nullptr)
+    {
+        setBackgroundCaptureFailure(
+            "WGC frame pool recreate requires an active sensor");
+        return false;
+    }
+
+    try
+    {
+        backgroundSensor_->recreateFramePool(size);
+        setBackgroundCaptureFailure({});
+        return true;
+    }
+    catch (...)
+    {
+        try
+        {
+            throw;
+        }
+        catch (const std::exception& error)
+        {
+            setBackgroundCaptureFailure(error.what());
+        }
+        catch (...)
+        {
+            setBackgroundCaptureFailure(
+                "unknown WGC frame pool recreate failure");
+        }
+        return false;
+    }
 }
 
 void CompositionRenderer::disableBackgroundCapture() noexcept

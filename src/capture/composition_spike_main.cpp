@@ -1168,7 +1168,8 @@ void pumpMessages(Deadline& deadline)
         {
             throw std::runtime_error("WGC stopped during composition capture");
         }
-        if (status == bafx::windows::WgcBackgroundDrainStatus::Reconfigured)
+        if (status
+            == bafx::windows::WgcBackgroundDrainStatus::ReconfigureRequired)
         {
             throw std::runtime_error("Display changed during composition capture");
         }
@@ -1242,7 +1243,8 @@ void pumpMessages(Deadline& deadline)
     const bafx::windows::WgcBackgroundDrainStatus drainStatus =
         sensor.drainLatest(context);
     if (drainStatus == bafx::windows::WgcBackgroundDrainStatus::Stopped
-        || drainStatus == bafx::windows::WgcBackgroundDrainStatus::Reconfigured)
+        || drainStatus
+            == bafx::windows::WgcBackgroundDrainStatus::ReconfigureRequired)
     {
         throw std::runtime_error("WGC became unavailable before presentation");
     }

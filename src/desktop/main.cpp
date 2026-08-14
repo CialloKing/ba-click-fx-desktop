@@ -811,7 +811,38 @@ int runApplication(
             bafx::windows::appendDiagnosticLog(logPath, report);
             currentBackgroundCaptureActive = renderer.backgroundCaptureActive();
         }
-        else if (!backgroundCaptureEnabled && currentBackgroundCaptureActive)
+        else if (const std::optional<bafx::windows::WindowSize> captureSize =
+                     renderer.pendingBackgroundFramePoolSize();
+                 backgroundCaptureEnabled && captureSize.has_value())
+        {
+            if (!backgroundTransition.beginFramePoolRecreate(*captureSize))
+            {
+                throw std::logic_error(
+                    "WGC frame pool resize could not enter its transaction");
+            }
+            backgroundExecution = bafx::desktop::executeBackgroundCaptureTransition(
+                backgroundTransition,
+                window,
+                renderer,
+                primaryMonitor.handle,
+                logPath);
+            backgroundCaptureEnabled = backgroundTransition.effectivePath()
+                == bafx::windows::EffectiveBackgroundCapturePath::BackgroundAware;
+            backgroundParticipationLogged = false;
+            backgroundPendingDiagnosticLogged = false;
+            report.setBackgroundCaptureStatus(
+                bafx::desktop::backgroundCaptureStatus(
+                    backgroundTransition.effectivePath()));
+            bafx::desktop::appendBackgroundCaptureOutcome(
+                logPath,
+                appliedBackgroundRequest,
+                backgroundTransition,
+                backgroundExecution,
+                renderer);
+            bafx::windows::appendDiagnosticLog(logPath, report);
+            currentBackgroundCaptureActive = renderer.backgroundCaptureActive();
+        }
+        if (!backgroundCaptureEnabled && currentBackgroundCaptureActive)
         {
             throw std::logic_error(
                 "Background sensor became active outside its transaction");

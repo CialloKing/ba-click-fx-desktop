@@ -33,6 +33,15 @@ namespace
     return action;
 }
 
+[[nodiscard]] BackgroundCaptureAction recreateFramePoolAction(
+    const WindowSize captureSize) noexcept
+{
+    BackgroundCaptureAction action{};
+    action.kind = BackgroundCaptureActionKind::RecreateFramePool;
+    action.captureSize = captureSize;
+    return action;
+}
+
 [[nodiscard]] BackgroundCaptureAction startAction(
     const BackgroundCaptureRequest& request) noexcept
 {
@@ -71,6 +80,8 @@ bool BackgroundCaptureAction::operator==(
         && overlayProfile == other.overlayProfile
         && outputSize.width == other.outputSize.width
         && outputSize.height == other.outputSize.height
+        && captureSize.width == other.captureSize.width
+        && captureSize.height == other.captureSize.height
         && cursorExcluded == other.cursorExcluded
         && allowSystemBorder == other.allowSystemBorder;
 }
@@ -176,6 +187,28 @@ BackgroundCaptureRequestResult BackgroundCaptureTransition::beginIntent(
     return BackgroundCaptureRequestResult::Started;
 }
 
+bool BackgroundCaptureTransition::beginFramePoolRecreate(
+    const WindowSize captureSize) noexcept
+{
+    if (transitioning()
+        || captureSize.width == 0U
+        || captureSize.height == 0U
+        || !request_.has_value()
+        || !request_->sensorRequired
+        || effectivePath_ != EffectiveBackgroundCapturePath::BackgroundAware)
+    {
+        return false;
+    }
+
+    actionCount_ = 0U;
+    actionIndex_ = 0U;
+    pendingFailure_ = BackgroundCaptureFailure::None;
+    completionPath_ = EffectiveBackgroundCapturePath::BackgroundAware;
+    completionVisibilityUnknown_ = false;
+    appendAction(recreateFramePoolAction(captureSize));
+    return true;
+}
+
 bool BackgroundCaptureTransition::beginSessionStopped() noexcept
 {
     if (transitioning()
@@ -257,6 +290,19 @@ bool BackgroundCaptureTransition::applyObservation(
             appendAction(simpleAction(BackgroundCaptureActionKind::StopSensor));
             appendAction(simpleAction(
                 BackgroundCaptureActionKind::SetAffinityIncluded));
+        }
+        break;
+    case BackgroundCaptureActionKind::RecreateFramePool:
+        if (!succeeded)
+        {
+            pendingFailure_ =
+                BackgroundCaptureFailure::FramePoolRecreateFailed;
+            completionPath_ = EffectiveBackgroundCapturePath::FxOnly;
+            discardRemainingActions();
+            appendAction(simpleAction(BackgroundCaptureActionKind::StopSensor));
+            appendAction(simpleAction(
+                BackgroundCaptureActionKind::SetAffinityIncluded));
+            appendAction(profileAction(FxOverlayProfile::FxOnlyFallback));
         }
         break;
     case BackgroundCaptureActionKind::ApplyOverlayProfile:

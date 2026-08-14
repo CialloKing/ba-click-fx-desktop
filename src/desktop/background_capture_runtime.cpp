@@ -57,6 +57,8 @@ namespace
         return "exclusion-unconfirmed";
     case BackgroundCaptureFailure::SensorStartFailed:
         return "sensor-start-failed";
+    case BackgroundCaptureFailure::FramePoolRecreateFailed:
+        return "frame-pool-recreate-failed";
     case BackgroundCaptureFailure::InclusionUnconfirmed:
         return "inclusion-unconfirmed";
     case BackgroundCaptureFailure::SessionStopped:
@@ -125,6 +127,18 @@ BackgroundCaptureExecutionResult executeBackgroundCaptureTransition(
             renderer.resizeOutput(action->outputSize);
             succeeded = true;
             break;
+        case bafx::windows::BackgroundCaptureActionKind::RecreateFramePool:
+            succeeded = renderer.tryRecreateBackgroundFramePool(
+                action->captureSize);
+            if (succeeded)
+            {
+                result.recreatedFramePoolSize = action->captureSize;
+            }
+            else if (!renderer.backgroundCaptureFailure().empty())
+            {
+                result.sensorFailure = renderer.backgroundCaptureFailure();
+            }
+            break;
         case bafx::windows::BackgroundCaptureActionKind::StartSensor:
             // Start is emitted only after WDA exclusion was confirmed in this
             // transaction, so a stale affinity result cannot enable capture.
@@ -181,9 +195,20 @@ void appendBackgroundCaptureOutcome(
     if (transition.effectivePath()
         == bafx::windows::EffectiveBackgroundCapturePath::BackgroundAware)
     {
-        bafx::windows::appendDiagnosticLog(
-            logPath,
-            backgroundCaptureCapabilitiesDiagnostic(renderer));
+        if (execution.recreatedFramePoolSize.has_value())
+        {
+            std::string message = "WGC frame pool recreated; size=";
+            message += std::to_string(execution.recreatedFramePoolSize->width);
+            message += "x";
+            message += std::to_string(execution.recreatedFramePoolSize->height);
+            bafx::windows::appendDiagnosticLog(logPath, message);
+        }
+        else
+        {
+            bafx::windows::appendDiagnosticLog(
+                logPath,
+                backgroundCaptureCapabilitiesDiagnostic(renderer));
+        }
         return;
     }
 

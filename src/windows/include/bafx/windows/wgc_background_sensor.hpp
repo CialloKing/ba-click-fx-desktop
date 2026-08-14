@@ -46,7 +46,7 @@ enum class WgcBackgroundDrainStatus : std::uint8_t
 {
     NoFrame,
     Updated,
-    Reconfigured,
+    ReconfigureRequired,
     Stopped
 };
 
@@ -67,6 +67,9 @@ public:
     // Must be called by the owner of the D3D11 immediate context.
     [[nodiscard]] WgcBackgroundDrainStatus drainLatest(
         ID3D11DeviceContext* context);
+    [[nodiscard]] std::optional<WindowSize> pendingFramePoolSize() const noexcept;
+    // Must run on the same owner that drains and uses the immediate context.
+    void recreateFramePool(WindowSize size);
     [[nodiscard]] std::optional<WgcBackgroundSample> latestSample() const noexcept;
     [[nodiscard]] std::uint64_t expectedEpoch() const noexcept;
     [[nodiscard]] WgcBackgroundSessionCapabilities capabilities() const noexcept;
