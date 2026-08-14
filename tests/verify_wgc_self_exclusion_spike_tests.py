@@ -361,6 +361,8 @@ class SelfExclusionVerifierTests(unittest.TestCase):
         self.assertEqual(result.included_before_different_pixels, 192 * 192)
         self.assertEqual(result.included_after_different_pixels, 192 * 192)
         self.assertEqual(result.included_stability_maximum_rgb_delta, 0.0)
+        self.assertEqual(result.excluded_background_different_pixels, 0)
+        self.assertEqual(result.minimum_marker_pair_different_pixels, 64 * 64)
 
     def test_unknown_nested_field_is_rejected(self):
         self.document["observations"]["excluded"]["affinity"]["extra"] = 1

@@ -247,7 +247,11 @@ class VerificationResult:
     maximum_overlay_rgb_delta: float
     included_stability_maximum_rgb_delta: float
     excluded_overlay_rgb_range: float
+    excluded_background_maximum_rgb_delta: float
+    excluded_background_different_pixels: int
     control_maximum_rgb_delta: float
+    minimum_marker_pair_rgb_delta: float
+    minimum_marker_pair_different_pixels: int
     frames_acquired: int
 
 
@@ -1277,6 +1281,11 @@ def validate_capture(document: Any, base_directory: Path) -> VerificationResult:
             raise ValidationError(f"{label} stage markers are not distinct")
 
     frames_acquired = _validate_ledger(capture["resourceLedger"])
+    marker_pairs = (
+        marker_before_excluded_raw,
+        marker_excluded_after_raw,
+        marker_before_after_raw,
+    )
     return VerificationResult(
         schema,
         spike,
@@ -1287,7 +1296,11 @@ def validate_capture(document: Any, base_directory: Path) -> VerificationResult:
         max(before_raw.maximum_rgb_delta, after_raw.maximum_rgb_delta),
         stability_raw.maximum_rgb_delta,
         excluded_range,
+        excluded_spatial_raw.maximum_rgb_delta,
+        excluded_spatial_raw.different_pixels,
         control_raw,
+        min(pair.maximum_rgb_delta for pair in marker_pairs),
+        min(pair.different_pixels for pair in marker_pairs),
         frames_acquired,
     )
 
@@ -1342,6 +1355,8 @@ def main(arguments: list[str] | None = None) -> int:
         f"PASS: {result.spike_id} {result.status}; "
         f"overlayPixels={result.included_before_different_pixels}/"
         f"{result.included_after_different_pixels}, "
+        f"backgroundDelta={result.excluded_background_maximum_rgb_delta:.6f}, "
+        f"markerPixels={result.minimum_marker_pair_different_pixels}, "
         f"stabilityDelta={result.included_stability_maximum_rgb_delta:.6f}, "
         f"controlDelta={result.control_maximum_rgb_delta:.6f}"
     )
