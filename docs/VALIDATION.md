@@ -59,9 +59,10 @@
 - QPC frequency、消息分派 QPC、统一 `renderTime`、固定模拟步长、随机种子；
 - 呈现边界、锁存位置、Down/Held/Up 序列，以及拖尾常驻开关、出界、重入和边沿后尾随 Move 边界。
 
-显式种子的 C++ 模拟坐标只属于实现内确定性回归，不等同于 Unity Golden。Unity 为每个
-ParticleSystem 使用独立的引擎随机流；在尚未导出初始粒子状态 fixture 或复现该随机流前，跨实现
-比较必须使用与随机布局无关的数量、包络、径向能量和感知指标，禁止把 C++ 粒子坐标称为 Unity 像素真值。
+显式种子的生产 C++ 模拟坐标只属于实现内确定性回归，不等同于 Unity Golden。Unity 为每个
+ParticleSystem 使用独立的引擎随机流；原生尚未复现这些随机流，因此普通点击/拖拽捕获仍必须使用
+与随机布局无关的数量、包络、径向能量和感知指标。只有下述由 Unity 观察值直接构造的 50 ms
+诊断快照可以逐坐标、逐像素比较；它不能进入生产 `Simulation`，也不能据此宣称随机流等价。
 
 Unity 50 ms 粒子状态观察夹具固定为
 `Reference/Diagnostics/ParticleStates/FX_Touch_0050ms_particle-state-v2.json`。
@@ -76,7 +77,37 @@ Unity 50 ms 粒子状态观察夹具固定为
 ```powershell
 python -B tools\verify-unity-particle-fixture.py `
   "D:\WebProjects\BA鼠标输入与点击特效系统\UnityMouseFxLab\UnityMouseFxLab\Reference\Diagnostics\ParticleStates\FX_Touch_0050ms_particle-state-v2.json"
+python -B tools\generate-unity-particle-fixture.py `
+  "D:\WebProjects\BA鼠标输入与点击特效系统\UnityMouseFxLab\UnityMouseFxLab\Reference\Diagnostics\ParticleStates\FX_Touch_0050ms_particle-state-v2.json" `
+  --check
 ```
+
+生成数据只编入 `bafx::reference` 与 Capture 工具。映射固定为：`ring -> CenterDisk`、
+`MeshTri -> DissolveRing`、`Ring (3)/(4) -> Triangle`；根系统不绘制。Unity `projectedPixel`
+使用左下原点，转换到 native 顶部原点时执行 `y = height - y`。粒子当前尺寸乘系统 XY 缩放和
+`height / 2`，MeshTri 再乘 `Cylinder002` 的完整直径 `2.127337`。RGB 从 sRGB 转为线性，Alpha
+保持原值；MeshTri `Custom1.x` 映射到硬溶解阈值，三角 `atlasFrame` 来自 BakeMesh UV。
+材质强度、render queue 与 Bloom 归属仍由 Prefab/Shader 合同提供，而不是由 Fixture 猜测。
+
+固定粒子 GPU case 使用相同 WARP/FP16 渲染器，并同时检查 Unity 50 ms Golden：
+
+```powershell
+$revision = git rev-parse HEAD
+$fixtureRoot = "artifacts\local\gpu-captures\$revision-unity-particle-fixture"
+build\alpha-x64\src\capture\Release\ba-click-fx-gpu-capture.exe `
+  "--output=$fixtureRoot" `
+  "--case=unity-particle-fixture" `
+  "--all-layers" `
+  "--revision=$revision"
+python -B tools\verify-golden-metrics.py `
+  "--native-root=$fixtureRoot" `
+  --require-layers
+```
+
+该 case 的统计容差为能量/覆盖各 `2%`、质心距离 `0.25 px`、径向直方图 L1 `0.02`、色度 L1
+`0.01`。全图逐通道比较另要求最大 8-bit 误差不超过 `16`、平均误差不超过 `0.01`，最大通道误差
+大于 `1`/`2` 的像素分别不超过 `128`/`64`。PNG 仍须先与同次 FP16 `FinalOverlay` 重建结果一致，
+并继续执行全部中间层合同。
 
 导出以下命名层：
 

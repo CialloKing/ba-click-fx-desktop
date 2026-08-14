@@ -126,6 +126,9 @@ OS 指针输入；首次观察位置包含 shape offset 和观察前已累积的
 - Prefab 中 `ring`、`MeshTri`、`Ring (3)`、`Ring (4)` 是四个独立 ParticleSystem，分别对应中心
   disk、溶解环、点击碎片和距离发射拖拽碎片。原生实现分别保存前三个 Burst 系统的步进状态，并让
   每个拖拽碎片保存距离交点内插的出生时刻；这些状态不能合并成根对象的统一年龄。
+- Unity schema 2 粒子 Fixture 额外导出 50 ms 的 7 粒子最终状态与 BakeMesh atlas 帧。
+  `bafx::reference` 将该观察值生成 Capture-only `FrameSnapshot`，用于坐标和逐像素诊断；它不写入
+  生产 `Simulation`，不消费或替换原生 RNG，也不证明 Unity/native 的后续随机序列相同。
 - MeshTri 的 Custom1 溶解相位按重建工程 `Maximum Particle Timestep=0.03` 的 float32 子步求值：
   Burst 在首个子步末生成，后续每个子步先从上一粒子年龄上传 Custom1、再推进年龄。这是重建工程
   与 Golden 的 ReconstructionChoice；上述 Player 日志未直接采样 MeshTri。MeshTri 的尺寸、颜色、
@@ -173,7 +176,8 @@ OS 指针输入；首次观察位置包含 shape offset 和观察前已累积的
 pwsh -NoProfile -File tools\verify-unity-reference.ps1
 ```
 
-脚本会验证 manifest 中的关键原始证据、重建实现、十张 Golden 以及完整 Imported tree 的数量/字节数。
+脚本会验证 manifest 中的关键原始证据、重建实现、十张 Golden、粒子 Fixture 及其生成式 C++ 数据，
+以及完整 Imported tree 的数量/字节数。
 任何哈希变化都必须先判断是游戏更新、Unity 重建变更还是 baseline 更新，禁止直接刷新 manifest 让测试变绿。
 原生拖拽与纯拖尾门禁命令、指标和证据边界见 `docs/VALIDATION.md`；它读取上述已锁定诊断图，
 不会以 Web 像素或原生粒子随机坐标替代 Unity Golden。
