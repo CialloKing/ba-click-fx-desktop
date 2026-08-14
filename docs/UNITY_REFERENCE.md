@@ -155,10 +155,13 @@ OS 指针输入；首次观察位置包含 shape offset 和观察前已累积的
   因而 `N=0..4` 的可见点数序列分别为 `0`、`1→0`、`2→0`、`3→2→0`、`4→3→2→0`。
   倍率恢复到阈值以上时只清缓存并重新启用 Renderer，不清除当前可见后缀。
 - `FXTouch.Stop()` 只清 Trail 并停止粒子，不重置相邻 `FxTrailTimeScale` 的 parking 标志、Renderer 启用态
-  或未完成缓存；这些组件状态会随池化对象保留到下一次 `FxTrailTimeScale.Update`。原生 `Simulation`
-  参考对象保留了该组件状态，但 `SimulationRuntime` 目前会销毁失活实例，尚未复现游戏的
-  `SyncComponentPool<FXTouch>` 生命周期。实现 Runtime 池化前必须先取得具体取回顺序证据，不能臆定
-  FIFO 或 LIFO。`updateUnityTrailTimeScale` 只提供逐游戏 Update 的显式参考入口；桌面 Host 没有真实
+  或未完成缓存；这些组件状态会随池化对象保留。`Reference/Diagnostics/Pool/FXTouch_ComponentPool_FIFO.md`
+  锁定的当前 Steam Build `24542715` 审计表明，`ComponentPool<T>` 以 `Queue<T>` 保存对象：`AddObject`
+  从队尾 `Enqueue`，`GetObject` 从队首 `Dequeue`，`SyncComponentPool<T>` 不改变该顺序，因此
+  `SyncComponentPool<FXTouch>` 是 FIFO。原生 `SimulationRuntime` 已复现初始预热一个对象、池空时创建、
+  失活后归还、优先复用最早归还对象以及 `FxTrailTimeScale` 组件状态保留；每次激活只重新分配 native
+  确定性随机流，不据此宣称 Unity ParticleSystem 随机流等价。Web/native 常驻拖尾不进入该池，并使用
+  独立随机域。`updateUnityTrailTimeScale` 仍只提供逐游戏 Update 的显式入口；桌面 Host 没有真实
   `Time.timeScale` 来源，因此生产路径尚未调用它，也不能由桌面“暂停特效”代替。桌面暂停继续冻结
   独立仿真时间轴。
 - Web 版的 coalesced events 与未按键常驻拖尾只作为 native/Web 产品增强，不是 Unity 路径真值。原生会

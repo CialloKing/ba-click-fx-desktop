@@ -36,8 +36,9 @@
 
 - PMv2 坐标、Raw Input 到单一帧边界当前位置的映射、click-through overlay；
 - 输入消费/呈现边界上的 Down→Held→Up、释放帧不移动、常驻拖尾分流，以及 QPC 只影响可选采样相位；
-- `FxTrailTimeScale` 的逐 Update parking 状态机目前只在参考层验证；桌面 Host 尚无游戏
-  `Time.timeScale` 来源，`SimulationRuntime` 也尚未复现 `SyncComponentPool<FXTouch>` 的失活对象复用；
+- `FxTrailTimeScale` 的逐 Update parking 状态机已在参考层验证；`SimulationRuntime` 已按当前游戏
+  审计复现 `SyncComponentPool<FXTouch>` 的 FIFO 失活对象复用，并由 L0 测试锁定最早归还对象及其
+  相邻组件状态的再次取回。桌面 Host 仍无游戏 `Time.timeScale` 来源，因此生产路径尚未调用 parking 入口；
 - DComp visual/swap chain resize/present；
 - WGC session state machine；
 - monitor/adapter rebuild。
