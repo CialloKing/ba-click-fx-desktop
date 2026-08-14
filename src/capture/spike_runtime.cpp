@@ -9,6 +9,34 @@
 namespace bafx::capture
 {
 
+QpcClock::QpcClock()
+{
+    LARGE_INTEGER frequency{};
+    if (!QueryPerformanceFrequency(&frequency) || frequency.QuadPart <= 0)
+    {
+        bafx::windows::throwLastError("QueryPerformanceFrequency");
+    }
+    frequency_ = frequency.QuadPart;
+}
+
+bafx::core::MonotonicTime QpcClock::now() const
+{
+    LARGE_INTEGER counter{};
+    if (!QueryPerformanceCounter(&counter))
+    {
+        bafx::windows::throwLastError("QueryPerformanceCounter");
+    }
+
+    // Match WinRT SystemRelativeTime so probes can reject frames captured
+    // before a DWM presentation marker.
+    constexpr std::int64_t nanosecondsPerSecond = 1'000'000'000LL;
+    const std::int64_t seconds = counter.QuadPart / frequency_;
+    const std::int64_t remainder = counter.QuadPart % frequency_;
+    return bafx::core::MonotonicTime{
+        seconds * nanosecondsPerSecond
+        + remainder * nanosecondsPerSecond / frequency_};
+}
+
 ComApartment::ComApartment()
 {
     const HRESULT result = CoInitializeEx(nullptr, COINIT_MULTITHREADED);

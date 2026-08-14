@@ -1,5 +1,6 @@
 #pragma once
 
+#include "bafx/core/background_freshness.hpp"
 #include "bafx/windows/unique_handle.hpp"
 
 #include <windows.h>
@@ -10,6 +11,17 @@
 
 namespace bafx::capture
 {
+
+class QpcClock final
+{
+public:
+    QpcClock();
+
+    [[nodiscard]] bafx::core::MonotonicTime now() const;
+
+private:
+    std::int64_t frequency_{0};
+};
 
 class ComApartment final
 {

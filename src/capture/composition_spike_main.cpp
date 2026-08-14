@@ -44,6 +44,7 @@ using namespace std::chrono_literals;
 using bafx::capture::ComApartment;
 using bafx::capture::Deadline;
 using bafx::capture::ProcessWatchdog;
+using bafx::capture::QpcClock;
 
 constexpr std::uint32_t defaultTimeoutMilliseconds = 20'000U;
 constexpr std::uint32_t maximumTimeoutMilliseconds = 120'000U;
@@ -121,39 +122,6 @@ struct CaptureDocument
     bafx::windows::CaptureExclusionStatus captureAffinity{};
     bafx::windows::WgcBackgroundSessionCapabilities wgcCapabilities{};
     std::vector<BackgroundCapture> backgrounds{};
-};
-
-class QpcClock final
-{
-public:
-    QpcClock()
-    {
-        LARGE_INTEGER frequency{};
-        if (!QueryPerformanceFrequency(&frequency) || frequency.QuadPart <= 0)
-        {
-            bafx::windows::throwLastError("QueryPerformanceFrequency");
-        }
-        frequency_ = frequency.QuadPart;
-    }
-
-    [[nodiscard]] bafx::core::MonotonicTime now() const
-    {
-        LARGE_INTEGER counter{};
-        if (!QueryPerformanceCounter(&counter))
-        {
-            bafx::windows::throwLastError("QueryPerformanceCounter");
-        }
-
-        constexpr std::int64_t nanosecondsPerSecond = 1'000'000'000LL;
-        const std::int64_t seconds = counter.QuadPart / frequency_;
-        const std::int64_t remainder = counter.QuadPart % frequency_;
-        return bafx::core::MonotonicTime{
-            seconds * nanosecondsPerSecond
-            + remainder * nanosecondsPerSecond / frequency_};
-    }
-
-private:
-    std::int64_t frequency_{0};
 };
 
 class SolidBackgroundWindow final
