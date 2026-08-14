@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import copy
 import importlib.util
 import json
 from pathlib import Path
@@ -339,13 +340,42 @@ def valid_capture(directory):
 
 
 class SelfExclusionVerifierTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.temporary = tempfile.TemporaryDirectory()
+        cls.directory = Path(cls.temporary.name)
+        cls.baseline_document = valid_capture(cls.directory)
+        cls.baseline_artifacts = {
+            name: (cls.directory / name).read_bytes()
+            for name in (
+                "included-before.rgba16f",
+                "included-before.png",
+                "excluded.rgba16f",
+                "excluded.png",
+                "included-after.rgba16f",
+                "included-after.png",
+            )
+        }
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.temporary.cleanup()
+
     def setUp(self):
-        self.temporary = tempfile.TemporaryDirectory()
-        self.directory = Path(self.temporary.name)
-        self.document = valid_capture(self.directory)
+        # The exact-size FP16 fixture is expensive to rebuild.  Tests share the
+        # immutable baseline and restore only artifacts they intentionally edit.
+        self.document = copy.deepcopy(self.baseline_document)
+        self.mutated_artifacts = set()
 
     def tearDown(self):
-        self.temporary.cleanup()
+        for name in self.mutated_artifacts:
+            (self.directory / name).write_bytes(self.baseline_artifacts[name])
+
+    def write_artifact(self, name, payload):
+        self.mutated_artifacts.add(name)
+        path = self.directory / name
+        path.write_bytes(payload)
+        return path
 
     def validate(self):
         return VERIFY.validate_capture(self.document, self.directory)
@@ -462,7 +492,7 @@ class SelfExclusionVerifierTests(unittest.TestCase):
 
     def test_truncated_raw_artifact_is_rejected(self):
         path = self.directory / "excluded.rgba16f"
-        path.write_bytes(path.read_bytes()[:-8])
+        self.write_artifact(path.name, path.read_bytes()[:-8])
         with self.assertRaisesRegex(VERIFY.ValidationError, "byte count mismatch"):
             self.validate()
 
@@ -470,7 +500,7 @@ class SelfExclusionVerifierTests(unittest.TestCase):
         path = self.directory / "included-before.rgba16f"
         payload = bytearray(path.read_bytes())
         payload[0:2] = struct.pack("<e", float("inf"))
-        path.write_bytes(payload)
+        self.write_artifact(path.name, payload)
         with self.assertRaisesRegex(VERIFY.ValidationError, "non-finite"):
             self.validate()
 
@@ -482,7 +512,7 @@ class SelfExclusionVerifierTests(unittest.TestCase):
             self.validate()
 
     def test_png_dimensions_are_checked(self):
-        (self.directory / "excluded.png").write_bytes(_png_header(1, 1))
+        self.write_artifact("excluded.png", _png_header(1, 1))
         with self.assertRaisesRegex(VERIFY.ValidationError, "dimensions"):
             self.validate()
 
@@ -528,7 +558,7 @@ class SelfExclusionVerifierTests(unittest.TestCase):
 
     def test_missing_overlay_pixels_fail_after_metric_recalculation(self):
         excluded = (self.directory / "excluded.rgba16f").read_bytes()
-        (self.directory / "included-before.rgba16f").write_bytes(excluded)
+        self.write_artifact("included-before.rgba16f", excluded)
         refresh_metrics(self.document, self.directory)
         with self.assertRaisesRegex(VERIFY.ValidationError, "materially cover"):
             self.validate()
@@ -541,7 +571,7 @@ class SelfExclusionVerifierTests(unittest.TestCase):
             start = (y * WIDTH + OVERLAY_ROI[0]) * 8
             end = start + OVERLAY_ROI[2] * 8
             payload[start:end] = alternate * OVERLAY_ROI[2]
-        path.write_bytes(payload)
+        self.write_artifact(path.name, payload)
         refresh_metrics(self.document, self.directory)
         with self.assertRaisesRegex(VERIFY.ValidationError, "return to the background"):
             self.validate()
@@ -554,7 +584,7 @@ class SelfExclusionVerifierTests(unittest.TestCase):
             start = (y * WIDTH + MARKER_ROI[0]) * 8
             end = start + MARKER_ROI[2] * 8
             payload[start:end] = gray * MARKER_ROI[2]
-        path.write_bytes(payload)
+        self.write_artifact(path.name, payload)
         refresh_metrics(self.document, self.directory)
         with self.assertRaisesRegex(VERIFY.ValidationError, "channel identity"):
             self.validate()
@@ -565,7 +595,7 @@ class SelfExclusionVerifierTests(unittest.TestCase):
         changed = struct.pack("<4e", 0.8, 0.8, 0.8, 1.0)
         offset = (OVERLAY_ROI[1] * WIDTH + OVERLAY_ROI[0]) * 8
         payload[offset : offset + 8] = changed
-        path.write_bytes(payload)
+        self.write_artifact(path.name, payload)
         refresh_metrics(self.document, self.directory)
         with self.assertRaisesRegex(VERIFY.ValidationError, "not stable"):
             self.validate()
@@ -575,7 +605,7 @@ class SelfExclusionVerifierTests(unittest.TestCase):
         payload = bytearray(path.read_bytes())
         offset = (CONTROL_ROI[1] * WIDTH + CONTROL_ROI[0]) * 8
         payload[offset : offset + 8] = struct.pack("<4e", 0.8, 0.8, 0.8, 1.0)
-        path.write_bytes(payload)
+        self.write_artifact(path.name, payload)
         refresh_metrics(self.document, self.directory)
         with self.assertRaisesRegex(VERIFY.ValidationError, "control ROI"):
             self.validate()
