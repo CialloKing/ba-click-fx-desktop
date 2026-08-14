@@ -105,6 +105,7 @@ class CaptureFixture:
         manifest = {
             "schemaVersion": 1,
             "scenarioId": "p0-static-click-message-pressure-v1",
+            "captureStatus": "captured",
             "revision": "0123456789abcdef0123456789abcdef01234567",
             "workingTreeDirty": False,
             "executableSha256": hashlib.sha256(b"test-host").hexdigest(),

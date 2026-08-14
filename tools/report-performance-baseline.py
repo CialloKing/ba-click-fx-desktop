@@ -226,6 +226,8 @@ def _validate_manifest(manifest: dict[str, Any]) -> tuple[int, int]:
         )
     if manifest.get("scenarioId") != EXPECTED_SCENARIO:
         raise ValidationError(f"manifest scenarioId must be {EXPECTED_SCENARIO}")
+    if manifest.get("captureStatus") != "captured":
+        raise ValidationError("manifest captureStatus must be captured")
     revision = manifest.get("revision")
     if type(revision) is not str or not re.fullmatch(r"[0-9a-f]{40}", revision):
         raise ValidationError("manifest revision must be a full Git object ID")
