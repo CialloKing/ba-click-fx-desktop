@@ -308,9 +308,7 @@ struct WgcBackgroundSensor::Implementation
         , direct3dDevice(createWinrtDevice(sourceDevice))
         , item(std::move(sourceItem))
         , options(sourceOptions)
-        , ledger(sourceOptions.resourceLedger != nullptr
-              ? sourceOptions.resourceLedger
-              : std::make_shared<WgcBackgroundResourceLedger>())
+        , ledger(sourceOptions.resourceLedger)
         , notification(std::make_shared<detail::WgcFrameNotification>())
     {
         if (sourceDevice == nullptr)
@@ -782,10 +780,6 @@ WgcBackgroundSensor::WgcBackgroundSensor(
     {
         throw std::invalid_argument("WGC background sensor requires a monitor");
     }
-    if (options.resourceLedger == nullptr)
-    {
-        options.resourceLedger = std::make_shared<WgcBackgroundResourceLedger>();
-    }
     try
     {
         implementation_ = std::make_unique<Implementation>(
@@ -814,10 +808,6 @@ WgcBackgroundSensor::WgcBackgroundSensor(
     if (window == nullptr || !IsWindow(window))
     {
         throw std::invalid_argument("WGC background sensor requires a live window");
-    }
-    if (options.resourceLedger == nullptr)
-    {
-        options.resourceLedger = std::make_shared<WgcBackgroundResourceLedger>();
     }
     try
     {
@@ -904,6 +894,10 @@ WgcBackgroundSessionCapabilities WgcBackgroundSensor::capabilities() const noexc
 WgcBackgroundResourceLedgerSnapshot
 WgcBackgroundSensor::resourceLedger() const noexcept
 {
+    if (implementation_->ledger == nullptr)
+    {
+        return {};
+    }
     return implementation_->ledger->snapshot();
 }
 
