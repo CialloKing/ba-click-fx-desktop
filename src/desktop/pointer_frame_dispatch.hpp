@@ -4,7 +4,6 @@
 
 #include <cstdint>
 #include <optional>
-#include <vector>
 
 namespace bafx::desktop
 {
@@ -33,6 +32,16 @@ struct PointerFramePosition final
     bafx::fx::SimulationTime inputTime{};
 };
 
+struct PointerFrameButtons final
+{
+    bool down{false};
+    bool held{false};
+    bool up{false};
+    bool cancel{false};
+    bool acceptDown{false};
+    bafx::fx::SimulationTime downInputTime{};
+};
+
 enum class PointerFramePositionUse : std::uint8_t
 {
     None,
@@ -42,13 +51,17 @@ enum class PointerFramePositionUse : std::uint8_t
 
 struct PointerFrameDispatch final
 {
-    std::vector<PointerFrameTransition> transitions{};
+    PointerFrameButtons buttons{};
     std::optional<PointerFramePosition> position{};
     PointerFramePositionUse positionUse{PointerFramePositionUse::None};
 };
 
-// Applies one Unity-style input frame. Edge order is retained for rapid input,
-// while all simulation changes share the presented frame's time boundary.
+// Reduces lossless native transitions to Unity Legacy Input's per-frame flags.
+void mergePointerFrameTransition(
+    PointerFrameButtons& buttons,
+    const PointerFrameTransition& transition) noexcept;
+
+// Applies one Unity-style input frame in the script's Down -> Held -> Up order.
 void applyPointerFrame(
     bafx::fx::SimulationRuntime& runtime,
     bafx::fx::Viewport viewport,

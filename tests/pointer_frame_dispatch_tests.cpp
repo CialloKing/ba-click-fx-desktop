@@ -33,6 +33,17 @@ constexpr PointF finalPosition{700.0F, 400.0F};
     return PointerFrameTransition{kind, acceptDown, inputTime};
 }
 
+void addTransition(
+    PointerFrameDispatch& dispatch,
+    const PointerFrameTransitionKind kind,
+    const SimulationTime inputTime,
+    const bool acceptDown = false)
+{
+    mergePointerFrameTransition(
+        dispatch.buttons,
+        transition(kind, inputTime, acceptDown));
+}
+
 [[nodiscard]] const Sprite& centerDisk(const FrameSnapshot& frame)
 {
     const auto found = std::find_if(
@@ -66,10 +77,12 @@ BAFX_TEST(down_uses_the_unified_final_frame_position)
 {
     SimulationRuntime runtime;
     PointerFrameDispatch dispatch{};
-    dispatch.transitions.push_back(transition(
+    addTransition(
+        dispatch,
         PointerFrameTransitionKind::Down,
         10ms,
-        true));
+        true);
+    dispatch.buttons.held = true;
     dispatch.position = framePosition(finalPosition, 16ms);
     dispatch.positionUse = PointerFramePositionUse::Held;
 
@@ -82,18 +95,19 @@ BAFX_TEST(down_uses_the_unified_final_frame_position)
     BAFX_CHECK(centerDisk(frame).centerPixels.y == finalPosition.y);
 }
 
-BAFX_TEST(release_frame_does_not_apply_its_position_as_a_held_move)
+BAFX_TEST(up_only_frame_does_not_apply_its_position_as_a_held_move)
 {
     SimulationRuntime runtime;
     runtime.pointerDown(startPosition, testViewport, 0ms);
     runtime.advance(1ms);
 
     PointerFrameDispatch dispatch{};
-    dispatch.transitions.push_back(transition(
+    addTransition(
+        dispatch,
         PointerFrameTransitionKind::Up,
-        20ms));
+        20ms);
     dispatch.position = framePosition(finalPosition, 20ms);
-    dispatch.positionUse = PointerFramePositionUse::Held;
+    dispatch.positionUse = PointerFramePositionUse::None;
     applyPointerFrame(runtime, testViewport, 20ms, dispatch);
 
     const FrameSnapshot frame = runtime.snapshot(testViewport, 21ms);
@@ -105,9 +119,12 @@ BAFX_TEST(down_and_up_in_one_frame_create_then_release_at_final_position)
 {
     SimulationRuntime runtime;
     PointerFrameDispatch dispatch{};
-    dispatch.transitions = {
-        transition(PointerFrameTransitionKind::Down, 10ms, true),
-        transition(PointerFrameTransitionKind::Up, 12ms)};
+    addTransition(
+        dispatch,
+        PointerFrameTransitionKind::Down,
+        10ms,
+        true);
+    addTransition(dispatch, PointerFrameTransitionKind::Up, 12ms);
     dispatch.position = framePosition(finalPosition, 12ms);
     dispatch.positionUse = PointerFramePositionUse::Held;
 
@@ -128,6 +145,7 @@ BAFX_TEST(held_frame_moves_the_active_pointer_to_the_final_position)
     runtime.advance(1ms);
 
     PointerFrameDispatch dispatch{};
+    dispatch.buttons.held = true;
     dispatch.position = framePosition(finalPosition, 15ms);
     dispatch.positionUse = PointerFramePositionUse::Held;
     applyPointerFrame(runtime, testViewport, 16ms, dispatch);
@@ -143,9 +161,10 @@ BAFX_TEST(up_is_applied_even_when_the_frame_position_is_missing)
     runtime.pointerDown(startPosition, testViewport, 0ms);
 
     PointerFrameDispatch dispatch{};
-    dispatch.transitions.push_back(transition(
+    addTransition(
+        dispatch,
         PointerFrameTransitionKind::Up,
-        16ms));
+        16ms);
     dispatch.positionUse = PointerFramePositionUse::Held;
     applyPointerFrame(runtime, testViewport, 16ms, dispatch);
 
@@ -208,10 +227,12 @@ BAFX_TEST(rejected_down_retires_ambient_motion_without_creating_a_click)
     applyPointerFrame(runtime, testViewport, 10ms, freeMove);
 
     PointerFrameDispatch down{};
-    down.transitions.push_back(transition(
+    addTransition(
+        down,
         PointerFrameTransitionKind::Down,
         20ms,
-        false));
+        false);
+    down.buttons.held = true;
     down.position = framePosition(finalPosition, 20ms, false);
     down.positionUse = PointerFramePositionUse::None;
     applyPointerFrame(runtime, testViewport, 20ms, down);
@@ -222,19 +243,90 @@ BAFX_TEST(rejected_down_retires_ambient_motion_without_creating_a_click)
     BAFX_CHECK(frame.sprites.empty());
 }
 
-BAFX_TEST(ordered_down_up_down_edges_preserve_both_click_instances)
+BAFX_TEST(mixed_down_ownership_aggregates_to_one_accepted_down)
+{
+    PointerFrameDispatch dispatch{};
+    addTransition(
+        dispatch,
+        PointerFrameTransitionKind::Down,
+        8ms,
+        false);
+    addTransition(
+        dispatch,
+        PointerFrameTransitionKind::Down,
+        10ms,
+        true);
+    addTransition(
+        dispatch,
+        PointerFrameTransitionKind::Down,
+        12ms,
+        true);
+
+    BAFX_CHECK(dispatch.buttons.down);
+    BAFX_CHECK(dispatch.buttons.acceptDown);
+    BAFX_CHECK(dispatch.buttons.downInputTime == 10ms);
+}
+
+BAFX_TEST(down_up_down_edges_follow_unity_aggregated_frame_order)
 {
     SimulationRuntime runtime;
     PointerFrameDispatch dispatch{};
-    dispatch.transitions = {
-        transition(PointerFrameTransitionKind::Down, 10ms, true),
-        transition(PointerFrameTransitionKind::Up, 11ms),
-        transition(PointerFrameTransitionKind::Down, 12ms, true)};
+    addTransition(
+        dispatch,
+        PointerFrameTransitionKind::Down,
+        10ms,
+        true);
+    addTransition(dispatch, PointerFrameTransitionKind::Up, 11ms);
+    addTransition(
+        dispatch,
+        PointerFrameTransitionKind::Down,
+        12ms,
+        true);
+    dispatch.buttons.held = true;
     dispatch.position = framePosition(finalPosition, 12ms);
     dispatch.positionUse = PointerFramePositionUse::Held;
 
     applyPointerFrame(runtime, testViewport, 16ms, dispatch);
+    runtime.advance(17ms);
 
-    BAFX_CHECK(runtime.pointerHeld());
-    BAFX_CHECK(runtime.instanceCount() == 2U);
+    // The Player reports Down=true, Held=true, Up=true for this batch. The
+    // script therefore creates one effect, positions it, then releases it.
+    BAFX_CHECK(!runtime.pointerHeld());
+    BAFX_CHECK(runtime.instanceCount() == 1U);
+    BAFX_CHECK(
+        centerDisk(runtime.snapshot(testViewport, 16ms)).centerPixels.x
+        == finalPosition.x);
+
+    PointerFrameDispatch followingHeldFrame{};
+    followingHeldFrame.buttons.held = true;
+    followingHeldFrame.position = framePosition(startPosition, 20ms);
+    followingHeldFrame.positionUse = PointerFramePositionUse::Held;
+    applyPointerFrame(runtime, testViewport, 20ms, followingHeldFrame);
+
+    BAFX_CHECK(!runtime.pointerHeld());
+    BAFX_CHECK(runtime.instanceCount() == 1U);
+    BAFX_CHECK(
+        !trailContains(
+            runtime.snapshot(testViewport, 20ms),
+            startPosition));
+}
+
+BAFX_TEST(cancel_is_the_final_hard_boundary_of_an_aggregated_frame)
+{
+    SimulationRuntime runtime;
+    runtime.pointerDown(startPosition, testViewport, 0ms);
+
+    PointerFrameDispatch dispatch{};
+    dispatch.buttons.held = true;
+    addTransition(
+        dispatch,
+        PointerFrameTransitionKind::Cancel,
+        10ms);
+    dispatch.position = framePosition(finalPosition, 10ms);
+    dispatch.positionUse = PointerFramePositionUse::Held;
+
+    applyPointerFrame(runtime, testViewport, 10ms, dispatch);
+
+    BAFX_CHECK(!runtime.pointerHeld());
+    BAFX_CHECK(runtime.instanceCount() == 1U);
 }

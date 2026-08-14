@@ -392,7 +392,6 @@ void consumePointerEvents(
     const bafx::windows::PointerFrameSnapshot frame =
         frameAdapter.consume(events);
     PointerFrameDispatch dispatch{};
-    dispatch.transitions.reserve(frame.edges.size());
 
     for (const bafx::windows::PointerFrameEdge& edge : frame.edges)
     {
@@ -423,10 +422,16 @@ void consumePointerEvents(
             // The frame adapter never emits Move as a state transition.
             continue;
         }
-        dispatch.transitions.push_back(transition);
+        bafx::desktop::mergePointerFrameTransition(
+            dispatch.buttons,
+            transition);
     }
 
-    if (frame.heldAfter && frame.hasFinalHeldMove)
+    dispatch.buttons.held = frame.heldAfter;
+    const bool downNeedsPosition = dispatch.buttons.down
+        && dispatch.buttons.acceptDown;
+    if (dispatch.buttons.held
+        && (frame.hasFinalHeldMove || downNeedsPosition))
     {
         dispatch.positionUse = PointerFramePositionUse::Held;
     }
@@ -440,14 +445,6 @@ void consumePointerEvents(
         dispatch.positionUse = PointerFramePositionUse::Free;
     }
 
-    const bool downNeedsPosition = std::any_of(
-        dispatch.transitions.begin(),
-        dispatch.transitions.end(),
-        [](const PointerFrameTransition& transition)
-        {
-            return transition.kind == PointerFrameTransitionKind::Down
-                && transition.acceptDown;
-        });
     if (downNeedsPosition
         || dispatch.positionUse != PointerFramePositionUse::None)
     {
@@ -490,8 +487,8 @@ void consumePointerEvents(
         }
     }
 
-    // Edge triggers keep their raw ownership metadata, while every accepted
-    // spatial action uses one frame-boundary cursor position and frame time.
+    // PointerFrameSnapshot retains raw edge order for diagnostics. The effect
+    // path consumes aggregated flags and one frame-boundary cursor position.
     bafx::desktop::applyPointerFrame(
         simulation,
         viewport,
