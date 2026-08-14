@@ -18,6 +18,13 @@ ROI Bloom 若改变 mip decimation phase、奇数尺寸规则、UV 或 border mo
 - 精确有限 kernel 可给 exact guard；近似无限 kernel 必须标注误差上界。
 - 任何约束不满足时回退全屏，不能输出“近似等价”而不带误差标记。
 
+## 当前原型状态
+
+`bafx::core::planUnityBloomRoi` 已按当前 `FourTap` prefilter/downsample/upsample/resolve
+链生成保守 receptive-field、guard 和 phase。以 Unity 默认 `1950x1097`、diffusion `7`
+为例，原型得到 `378px` guard 和 `64px` phase。该函数只生成计划，尚未接入生产渲染；
+在 VAL-ROI 通过和本 ADR 接受前，渲染器继续使用 full-screen fallback。
+
 ## Acceptance
 
 - randomized full-screen-vs-ROI pixel diff，覆盖屏幕边缘、奇数尺寸、负 scRGB、HDR 极值和移动 dirty rect。

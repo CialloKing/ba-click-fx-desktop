@@ -1,6 +1,8 @@
 #include "bafx/core/roi.hpp"
 
 #include <algorithm>
+#include <array>
+#include <cmath>
 #include <limits>
 
 namespace bafx::core
@@ -161,6 +163,72 @@ BloomRoiPlanResult planBloomRoi(
     return result;
 }
 
+BloomRoiPlanResult planUnityBloomRoi(
+    const RectI sourceSupport,
+    const RectI monitorBounds,
+    const UnityBloomPlan& bloomPlan) noexcept
+{
+    // FourTap samples are bilinear lookups at one texel (prefilter/downsample)
+    // or SampleScale/2 texels (upsample/resolve). Two texels per side is a
+    // conservative integer footprint for every currently supported preset,
+    // including the bilinear half-texel support.
+    constexpr std::uint16_t fixedFourTapRadius = 2U;
+    if (bloomPlan.mipCount == 0U
+        || bloomPlan.mipCount > unityBloomMaxMipCount
+        || !std::isfinite(bloomPlan.sampleScale)
+        || bloomPlan.sampleScale <= 0.0F)
+    {
+        return BloomRoiPlanResult{BloomRoiPlan{}, RoiStatus::InvalidFootprint};
+    }
+
+    const float upsampleRadius = std::ceil(
+        bloomPlan.sampleScale * 0.5F + 0.5F);
+    if (!std::isfinite(upsampleRadius)
+        || upsampleRadius < 1.0F
+        || upsampleRadius
+            > static_cast<float>(std::numeric_limits<std::uint16_t>::max()))
+    {
+        return BloomRoiPlanResult{BloomRoiPlan{}, RoiStatus::InvalidFootprint};
+    }
+
+    const auto upsampleRadius16 = static_cast<std::uint16_t>(upsampleRadius);
+    std::array<ReceptiveFieldTerm, unityBloomMaxMipCount * 2U + 2U> terms{};
+    std::size_t termCount = 0U;
+    const auto append = [&terms, &termCount](
+                            const std::uint8_t mipLevel,
+                            const std::uint16_t radius)
+    {
+        terms[termCount++] = ReceptiveFieldTerm{mipLevel, radius, radius};
+    };
+
+    // The first target is the source prefilter at Bloom mip level one.
+    append(0U, fixedFourTapRadius);
+    for (std::uint8_t index = 1U;
+         index < bloomPlan.mipCount;
+         ++index)
+    {
+        append(index, fixedFourTapRadius);
+    }
+    for (std::uint8_t coarseIndex = bloomPlan.mipCount - 1U;
+         coarseIndex > 0U;
+         --coarseIndex)
+    {
+        append(
+            static_cast<std::uint8_t>(coarseIndex + 1U),
+            upsampleRadius16);
+    }
+    // ResolveBloomResult samples the first Bloom target once more at full
+    // resolution, so retain its fine-level dependency in the guard.
+    append(1U, upsampleRadius16);
+
+    return planBloomRoi(
+        sourceSupport,
+        monitorBounds,
+        PyramidFootprint{
+            std::span<const ReceptiveFieldTerm>(terms.data(), termCount),
+            bloomPlan.mipCount});
+}
+
 RectI unite(const RectI lhs, const RectI rhs) noexcept
 {
     return RectI{
@@ -171,4 +239,3 @@ RectI unite(const RectI lhs, const RectI rhs) noexcept
 }
 
 }
-

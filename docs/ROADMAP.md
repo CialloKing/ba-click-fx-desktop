@@ -59,6 +59,11 @@ FX-only 与 background-aware 在 `3840x2160 @ 170 Hz` 下均保持
 
 ## P1：WGC 成本优化与 guard-band ROI
 
+当前 P1 原型已完成 Unity Bloom footprint 的纯函数规划，但尚未改变生产画面：
+`planUnityBloomRoi` 会输出保守 guard/phase，生产渲染仍保持 full-screen fallback。
+下一小项是从活跃 `FrameSnapshot` 生成跨帧 dirty rect，并以该计划测量 ROI 与 full-screen
+的资源尺寸、GPU 时间和 FP16 差异。
+
 基线确认瓶颈后，按下列顺序降低背景感知路径成本：
 
 1. 没有可见特效时保留必要的会话状态，但跳过不参与画面的背景 drain/copy；重新进入活跃状态时先取得

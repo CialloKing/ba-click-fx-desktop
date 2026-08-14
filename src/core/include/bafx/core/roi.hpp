@@ -1,6 +1,7 @@
 #pragma once
 
 #include "bafx/core/types.hpp"
+#include "bafx/core/unity_bloom.hpp"
 
 #include <cstdint>
 #include <span>
@@ -52,7 +53,14 @@ struct BloomRoiPlanResult
     RectI monitorBounds,
     const PyramidFootprint& footprint) noexcept;
 
+// Build the conservative footprint used by the current Unity Bloom shader
+// graph. The result is only a plan; the renderer must keep the full-screen
+// path until ROI pixel equivalence has been accepted by ADR-006.
+[[nodiscard]] BloomRoiPlanResult planUnityBloomRoi(
+    RectI sourceSupport,
+    RectI monitorBounds,
+    const UnityBloomPlan& bloomPlan) noexcept;
+
 [[nodiscard]] RectI unite(RectI lhs, RectI rhs) noexcept;
 
 }
-

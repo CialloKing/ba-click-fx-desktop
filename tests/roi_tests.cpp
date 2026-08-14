@@ -81,3 +81,43 @@ BAFX_TEST(roi_rejects_invalid_footprints_and_unites_dirty_rects)
         RectI{5, 20, 35, 45});
 }
 
+BAFX_TEST(roi_unity_bloom_plan_uses_shader_footprint_and_phase)
+{
+    const auto bloom = planUnityBloom(
+        BloomExtent{1950, 1097},
+        UnityBloomSettings{7.0F, 0.0F, 1.7F});
+    BAFX_CHECK(bloom.status == UnityBloomStatus::Ok);
+
+    const auto result = planUnityBloomRoi(
+        RectI{960, 530, 990, 560},
+        RectI{0, 0, 1950, 1097},
+        bloom.plan);
+    BAFX_CHECK(result.status == RoiStatus::Ok);
+    BAFX_CHECK(result.plan.guardX == 378U);
+    BAFX_CHECK(result.plan.guardY == 378U);
+    BAFX_CHECK(result.plan.phasePeriod == 64U);
+    checkRect(result.plan.bloomOutput, RectI{582, 152, 1368, 938});
+    checkRect(result.plan.alignedWork, RectI{576, 128, 1408, 960});
+}
+
+BAFX_TEST(roi_unity_bloom_plan_rejects_unusable_shader_plan)
+{
+    UnityBloomPlan invalid{};
+    BAFX_CHECK(
+        planUnityBloomRoi(
+            RectI{0, 0, 10, 10},
+            RectI{0, 0, 100, 100},
+            invalid)
+            .status
+        == RoiStatus::InvalidFootprint);
+
+    invalid.mipCount = 1U;
+    invalid.sampleScale = 0.0F;
+    BAFX_CHECK(
+        planUnityBloomRoi(
+            RectI{0, 0, 10, 10},
+            RectI{0, 0, 100, 100},
+            invalid)
+            .status
+        == RoiStatus::InvalidFootprint);
+}
