@@ -69,8 +69,9 @@ Unity 粒子状态观察夹具固定为 `FX_Touch_{0050,0100,0120,0250,0450}ms_p
 它们使用 schema 2、`1950x1097`、`seedBase + index * seedStride`（`seedStride=7919`），
 保留 `GetComponentsInChildren(true)` 的系统顺序和 `GetParticles` 的粒子顺序，并导出局部/世界坐标、
 投影像素、速度、寿命、尺寸、旋转、颜色、Custom1 及从 `ParticleSystemRenderer.BakeMesh`
-最终 UV 解析的 `atlasFrame`。导出器必须将烘焙四边形与 `GetParticles` 世界坐标唯一匹配，
-不得用 `randomSeed` 反推帧号。Unity 导出器在同一批处理中独立生成两次，
+最终 UV 解析的 `atlasFrame`。只有启用 Texture Sheet 的三角系统使用 BakeMesh；其他系统固定为 0。
+导出器必须将烘焙四边形与 `GetParticles` 世界坐标唯一匹配，不得用 `randomSeed` 反推帧号。
+Unity 导出器在同一批处理中独立生成两次，
 要求 UTF-8 JSON 字节完全一致（`deterministic.runs=2`、`byteIdentical=true`）；native 校验器只验证
 该可复现序列化合同，不把它升级为 native 随机流等价声明：
 
@@ -112,7 +113,7 @@ python -B tools\verify-golden-metrics.py `
 质心距离容差为 `0.25 px`，动态时间片为 `1.25 px`。50 ms 尚无可见溶解 Mesh，保留近字节级像素门禁：
 最大 8-bit 误差 `16`、平均误差 `0.01`，最大通道误差大于 `1`/`2` 的像素不超过 `128`/`64`。
 其余时间片包含 Unity 硬件 D3D 与 WARP 对硬裁剪动态边缘的栅格覆盖差异，统一限制平均误差 `0.04`，
-最大通道误差大于 `1`/`2`/`32` 的像素不超过 `18000`/`7000`/`128`；合成 1 px 位移必须失败。
+最大通道误差大于 `1`/`2`/`32` 的像素不超过 `18000`/`7000`/`128`；合成硬边 1 px 位移回归必须失败。
 PNG 仍须先与同次 FP16 `FinalOverlay` 重建结果一致，并继续执行全部中间层合同。
 
 导出以下命名层：

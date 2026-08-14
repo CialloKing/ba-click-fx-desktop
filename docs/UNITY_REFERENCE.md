@@ -126,8 +126,9 @@ OS 指针输入；首次观察位置包含 shape offset 和观察前已累积的
 - Prefab 中 `ring`、`MeshTri`、`Ring (3)`、`Ring (4)` 是四个独立 ParticleSystem，分别对应中心
   disk、溶解环、点击碎片和距离发射拖拽碎片。原生实现分别保存前三个 Burst 系统的步进状态，并让
   每个拖拽碎片保存距离交点内插的出生时刻；这些状态不能合并成根对象的统一年龄。
-- Unity schema 2 粒子 Fixture 额外导出 50/100/120 ms 的 7 粒子与 250/450 ms 的 6 粒子最终状态，
-  atlas 帧均来自 BakeMesh UV。`bafx::reference` 按年龄将这些观察值生成 Capture-only
+- Unity schema 2 粒子 Fixture 额外导出 50/100/120 ms 的 7 粒子与 250/450 ms 的 6 粒子最终状态。
+  启用 Texture Sheet 的三角系统从 BakeMesh UV 解析 atlas 帧，其他系统固定为 0；`bafx::reference`
+  按年龄将这些观察值生成 Capture-only
   `FrameSnapshot`，用于坐标和逐像素诊断；它不写入
   生产 `Simulation`，不消费或替换原生 RNG，也不证明 Unity/native 的后续随机序列相同。
 - MeshTri 的 Custom1 溶解相位按重建工程 `Maximum Particle Timestep=0.03` 的 float32 子步求值：
