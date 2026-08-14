@@ -102,6 +102,38 @@ python -B tools\verify-wgc-lifecycle-spike.py `
 真实桌面 CTest 默认关闭；仅在 `BAFX_ENABLE_WGC_LIFECYCLE_SPIKE_TESTS=ON` 时注册，并固定
 `RUN_SERIAL` 和 30 秒超时。离线 `wgc_lifecycle_spike_contract` 始终注册。
 
+### 已执行光标像素子集证据
+
+- 受控窗口光标 inclusion/exclusion 子集：`Passed`，capture/verifier commit `d41b9a0`，Windows
+  `10.0.19045`、RTX 4060 Laptop GPU `32.0.16.1074`。原始 FP16、预览、哈希与复现步骤见
+  [`artifacts/spikes/spk-002/rtx4060-win10-19045-cursor-pixels-2026-08-14/README.md`](../artifacts/spikes/spk-002/rtx4060-win10-19045-cursor-pixels-2026-08-14/README.md)。
+- 同一 `320x240` HWND 依次新建 `included-before -> excluded -> included-after` 三个 Session；每个
+  Session 都显式写入并回读 `IGraphicsCaptureSession2::IsCursorCaptureEnabled`，且样本 generation
+  和 QPC 时间戳均越过对应 marker。
+- 自定义 32x32 单色光标有 176 个不透明像素。两次 included 相对 excluded 都恰好改变 176 像素，
+  最大 RGB 差 `1.9711151123046875`；两次 included 之间和远端 control ROI 的差均为 0。三个 Session
+  共获取并关闭 6 帧，FramePool、Session 和两类事件注册全部配平，live/failure 计数为 0。
+- 离线验证器直接读取三份 `.rgba16f` 重算差异、边界、稳定性和 control ROI；JSON 不能自行放宽
+  阈值或伪造汇总。真实桌面 CTest 仅在 `BAFX_ENABLE_WGC_CURSOR_SPIKE_TESTS=ON` 时注册，固定
+  `RUN_SERIAL` 与 30 秒超时；离线 `wgc_cursor_spike_contract` 始终注册。
+- 该结果不覆盖 monitor capture、其他 DPI/光标主题、权限/无边框、自排除、产品模式切换、外部
+  录屏器或多显示器，因此完整 SPK-002 和 ADR-003 仍为 `Not Run` / `Proposed`。
+
+复跑该硬件子集时使用：
+
+```powershell
+cmake --build --preset alpha-release --target ba_fx_wgc_cursor_spike
+$revision = git rev-parse --short HEAD
+$output = "artifacts\local\spikes\spk-002-cursor\$env:COMPUTERNAME-$revision"
+build\alpha-x64\src\capture\Release\ba-click-fx-wgc-cursor-spike.exe `
+  "--output=$output" `
+  "--revision=$revision" `
+  --timeout-ms=12000
+python -B tools\verify-wgc-cursor-spike.py `
+  "$output\cursor.json" `
+  "--report=$output\verification.json"
+```
+
 ## SPK-003 / Spike C：Color/HDR 输出
 
 ### 场景

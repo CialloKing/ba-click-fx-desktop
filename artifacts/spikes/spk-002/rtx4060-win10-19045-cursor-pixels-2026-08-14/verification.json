@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "spike_id": "SPK-002-CURSOR",
+  "capture_revision": "d41b9a0",
+  "status": "accepted",
+  "included_before_different_pixels": 176,
+  "included_after_different_pixels": 176,
+  "maximum_cursor_delta": 1.9711151123046875,
+  "stability_different_pixels": 0,
+  "control_maximum_rgb_delta": 0.0,
+  "total_frames_acquired": 6
+}

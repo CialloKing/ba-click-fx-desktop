@@ -47,7 +47,9 @@ at zero.
 - This is a controlled `HWND` lifecycle result, not monitor `ContentSize` or display-close evidence.
 - The probe allowed the Windows system capture border. It does not prove borderless permission,
   denial fallback or self-exclusion.
-- Cursor exclusion was confirmed through the session capability; no cursor pixel matrix was run.
+- Cursor exclusion was confirmed through the session capability; pixel inclusion/exclusion was not
+  part of this collector. The separate controlled pixel matrix is recorded in
+  `../rtx4060-win10-19045-cursor-pixels-2026-08-14/README.md`.
 - `BackgroundAware`/`RecordingCompatible` mode switching and external recorder observations were
   not part of this collector.
 - HOT/WARM/COLD power behavior, pressure/soak, device loss and multi-display cases remain `Not Run`.

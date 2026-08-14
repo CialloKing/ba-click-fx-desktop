@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "spikeId": "SPK-002-CURSOR",
+  "applicationVersion": "0.1.0-alpha.11",
+  "revision": "d41b9a0",
+  "capturedAtUtc": "2026-08-14T11:52:16.496Z",
+  "timeoutMs": 12000,
+  "contract": {"scope": "controlled-window-cursor-pixels-only", "captureTarget": "HWND", "surfaceFormat": "DXGI_FORMAT_R16G16B16A16_FLOAT", "systemBorderAllowed": true, "cursorShape": "custom-monochrome-cross", "cursorExtent": 32, "cursorHotspot": 16, "cursorOpaquePixels": 176, "differenceThreshold": 0.02, "minimumDifferentPixels": 44, "minimumCursorDelta": 0.25, "maximumBackgroundRange": 0.01, "maximumControlDelta": 0.01, "maximumStabilityDifferentPixels": 4},
+  "os": {"available": true, "major": 10, "minor": 0, "build": 19045},
+  "device": {"driverType": "hardware", "adapter": "NVIDIA GeForce RTX 4060 Laptop GPU", "adapterLuid": {"low": 70975, "high": 0}, "vendorId": 4318, "deviceId": 10464, "featureLevel": 45312},
+  "fixture": {"size": {"width": 320, "height": 240}, "screenOrigin": {"x": 1760, "y": 930}, "cursorScreenPoint": {"x": 1920, "y": 1050}, "cursorClientPoint": {"x": 160, "y": 120}},
+  "observations": {
+    "includedBefore": {"requestedCursorExcluded": false, "capabilities": {"borderHidden": false, "cursorExcluded": false, "cursorCaptureEnabled": true, "cursorControlConfirmed": true}, "previousGeneration": 1, "generation": 2, "markerNanoseconds": 439378455141100, "capturedAtNanoseconds": 439378465277700, "size": {"width": 320, "height": 240}, "artifact": {"raw": "included-before.rgba16f", "png": "included-before.png", "width": 320, "height": 240, "rawBytes": 614400}, "ledger": {"framesAcquired": 2, "framesClosed": 2, "framePoolsCreated": 1, "framePoolsClosed": 1, "framePoolsRecreated": 0, "sessionsCreated": 1, "sessionsClosed": 1, "frameArrivedRegistrations": 1, "frameArrivedUnregistrations": 1, "itemClosedRegistrations": 1, "itemClosedUnregistrations": 1, "liveFrames": 0, "liveFramePools": 0, "liveSessions": 0, "liveFrameArrivedRegistrations": 0, "liveItemClosedRegistrations": 0, "failures": 0, "allReleased": true}},
+    "excluded": {"requestedCursorExcluded": true, "capabilities": {"borderHidden": false, "cursorExcluded": true, "cursorCaptureEnabled": false, "cursorControlConfirmed": true}, "previousGeneration": 1, "generation": 2, "markerNanoseconds": 439378544480800, "capturedAtNanoseconds": 439378555555500, "size": {"width": 320, "height": 240}, "artifact": {"raw": "excluded.rgba16f", "png": "excluded.png", "width": 320, "height": 240, "rawBytes": 614400}, "ledger": {"framesAcquired": 2, "framesClosed": 2, "framePoolsCreated": 1, "framePoolsClosed": 1, "framePoolsRecreated": 0, "sessionsCreated": 1, "sessionsClosed": 1, "frameArrivedRegistrations": 1, "frameArrivedUnregistrations": 1, "itemClosedRegistrations": 1, "itemClosedUnregistrations": 1, "liveFrames": 0, "liveFramePools": 0, "liveSessions": 0, "liveFrameArrivedRegistrations": 0, "liveItemClosedRegistrations": 0, "failures": 0, "allReleased": true}},
+    "includedAfter": {"requestedCursorExcluded": false, "capabilities": {"borderHidden": false, "cursorExcluded": false, "cursorCaptureEnabled": true, "cursorControlConfirmed": true}, "previousGeneration": 1, "generation": 2, "markerNanoseconds": 439378641447900, "capturedAtNanoseconds": 439378652777700, "size": {"width": 320, "height": 240}, "artifact": {"raw": "included-after.rgba16f", "png": "included-after.png", "width": 320, "height": 240, "rawBytes": 614400}, "ledger": {"framesAcquired": 2, "framesClosed": 2, "framePoolsCreated": 1, "framePoolsClosed": 1, "framePoolsRecreated": 0, "sessionsCreated": 1, "sessionsClosed": 1, "frameArrivedRegistrations": 1, "frameArrivedUnregistrations": 1, "itemClosedRegistrations": 1, "itemClosedUnregistrations": 1, "liveFrames": 0, "liveFramePools": 0, "liveSessions": 0, "liveFrameArrivedRegistrations": 0, "liveItemClosedRegistrations": 0, "failures": 0, "allReleased": true}}
+  },
+  "comparisons": {
+    "includedBeforeVsExcluded": {"roi": {"left": 112, "top": 72, "width": 96, "height": 96}, "threshold": 0.02, "referenceRgbRange": 0, "maximumRgbDelta": 1.97112, "differentPixels": 176, "edgeDifferentPixels": 0, "differenceBounds": {"left": 148, "top": 108, "right": 171, "bottom": 131}},
+    "includedAfterVsExcluded": {"roi": {"left": 112, "top": 72, "width": 96, "height": 96}, "threshold": 0.02, "referenceRgbRange": 0, "maximumRgbDelta": 1.97112, "differentPixels": 176, "edgeDifferentPixels": 0, "differenceBounds": {"left": 148, "top": 108, "right": 171, "bottom": 131}},
+    "includedBeforeVsAfter": {"roi": {"left": 112, "top": 72, "width": 96, "height": 96}, "threshold": 0.02, "referenceRgbRange": 1.97112, "maximumRgbDelta": 0, "differentPixels": 0, "edgeDifferentPixels": 0, "differenceBounds": null},
+    "controlRoi": {"left": 16, "top": 16, "width": 32, "height": 32},
+    "controlMaximumRgbDelta": 0
+  }
+}
