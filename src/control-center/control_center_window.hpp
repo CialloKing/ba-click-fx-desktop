@@ -99,6 +99,7 @@ private:
     void destroyFonts() noexcept;
     void applyFonts() const noexcept;
     void applyDpiMetrics() const noexcept;
+    void adaptLayoutToMonitor(HMONITOR monitor, bool force);
     void layoutControls(int clientWidth, int clientHeight) const noexcept;
     void layoutSlider(
         const SliderControl& slider,
@@ -158,6 +159,8 @@ private:
     HFONT titleFont_{nullptr};
     HFONT sectionFont_{nullptr};
     UINT dpi_{96U};
+    UINT layoutDpi_{96U};
+    HMONITOR layoutMonitor_{nullptr};
     DWORD lastError_{ERROR_SUCCESS};
 
     HWND titleText_{nullptr};
@@ -201,6 +204,7 @@ private:
     bool hostShutdownPending_{false};
     bool hostShutdownCommandAcknowledged_{false};
     bool updatingControls_{false};
+    bool interactiveMoveResize_{false};
 };
 
 }

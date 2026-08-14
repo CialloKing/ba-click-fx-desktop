@@ -1,6 +1,7 @@
 #include "control_center_window.hpp"
 
 #include "config_commands.hpp"
+#include "control_center_layout.hpp"
 #include "package_activation.hpp"
 
 #include "bafx/windows/portable_paths.hpp"
@@ -37,10 +38,6 @@ constexpr ULONGLONG hostShutdownTimeoutMilliseconds = 10'000U;
 // WGC/D3D startup can take several seconds on a cold process. The control
 // center keeps probing long enough for that process to become controllable.
 constexpr std::uint32_t hostRetryLimit = 40U;
-constexpr int minimumClientWidth = 860;
-constexpr int minimumClientHeight = 520;
-constexpr int defaultClientWidth = 960;
-constexpr int defaultClientHeight = 600;
 constexpr DWORD controlCenterWindowStyle =
     WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN | WS_CLIPSIBLINGS;
 
@@ -72,6 +69,53 @@ constexpr DWORD controlCenterWindowStyle =
         return nullptr;
     }
     return reinterpret_cast<HMENU>(static_cast<INT_PTR>(id));
+}
+
+[[nodiscard]] RECT monitorWorkArea(const HMONITOR monitor) noexcept
+{
+    MONITORINFO information{};
+    information.cbSize = sizeof(information);
+    if (monitor != nullptr && GetMonitorInfoW(monitor, &information) != FALSE)
+    {
+        return information.rcWork;
+    }
+
+    RECT workArea{};
+    if (SystemParametersInfoW(SPI_GETWORKAREA, 0U, &workArea, 0U) != FALSE)
+    {
+        return workArea;
+    }
+    return RECT{
+        0,
+        0,
+        GetSystemMetrics(SM_CXSCREEN),
+        GetSystemMetrics(SM_CYSCREEN)};
+}
+
+[[nodiscard]] PixelSize maximumClientSize(
+    const RECT workArea,
+    const UINT dpi) noexcept
+{
+    const int workAreaWidth = static_cast<int>(
+        workArea.right - workArea.left);
+    const int workAreaHeight = static_cast<int>(
+        workArea.bottom - workArea.top);
+    RECT nonClientBounds{};
+    int nonClientWidth = 0;
+    int nonClientHeight = 0;
+    if (AdjustWindowRectExForDpi(
+            &nonClientBounds,
+            controlCenterWindowStyle,
+            FALSE,
+            0U,
+            dpi) != FALSE)
+    {
+        nonClientWidth = nonClientBounds.right - nonClientBounds.left;
+        nonClientHeight = nonClientBounds.bottom - nonClientBounds.top;
+    }
+    return PixelSize{
+        (std::max)(1, workAreaWidth - nonClientWidth),
+        (std::max)(1, workAreaHeight - nonClientHeight)};
 }
 
 void moveControl(
@@ -180,7 +224,19 @@ bool ControlCenterWindow::create(const int showCommand)
     {
         dpi_ = USER_DEFAULT_SCREEN_DPI;
     }
-    RECT bounds{0, 0, scale(defaultClientWidth), scale(defaultClientHeight)};
+    const HMONITOR primaryMonitor = MonitorFromPoint(
+        POINT{0, 0},
+        MONITOR_DEFAULTTOPRIMARY);
+    layoutMonitor_ = primaryMonitor;
+    const RECT workArea = monitorWorkArea(primaryMonitor);
+    layoutDpi_ = controlCenterLayoutDpi(
+        maximumClientSize(workArea, dpi_),
+        dpi_);
+    RECT bounds{
+        0,
+        0,
+        scale(defaultControlCenterClientWidth),
+        scale(defaultControlCenterClientHeight)};
     if (AdjustWindowRectExForDpi(
             &bounds,
             controlCenterWindowStyle,
@@ -192,19 +248,13 @@ bool ControlCenterWindow::create(const int showCommand)
         return false;
     }
 
-    const int windowWidth = bounds.right - bounds.left;
-    const int windowHeight = bounds.bottom - bounds.top;
-    RECT workArea{};
-    if (SystemParametersInfoW(SPI_GETWORKAREA, 0U, &workArea, 0U) == FALSE)
-    {
-        workArea = RECT{
-            0,
-            0,
-            GetSystemMetrics(SM_CXSCREEN),
-            GetSystemMetrics(SM_CYSCREEN)};
-    }
     const int workAreaWidth = static_cast<int>(workArea.right - workArea.left);
     const int workAreaHeight = static_cast<int>(workArea.bottom - workArea.top);
+    const PixelSize windowSize = clampPixelSize(
+        PixelSize{bounds.right - bounds.left, bounds.bottom - bounds.top},
+        PixelSize{workAreaWidth, workAreaHeight});
+    const int windowWidth = windowSize.width;
+    const int windowHeight = windowSize.height;
     const int windowX = static_cast<int>(workArea.left) + (std::max)(
         0,
         (workAreaWidth - windowWidth) / 2);
@@ -239,6 +289,12 @@ bool ControlCenterWindow::create(const int showCommand)
     {
         dpi_ = USER_DEFAULT_SCREEN_DPI;
     }
+    layoutMonitor_ = MonitorFromWindow(window_, MONITOR_DEFAULTTONEAREST);
+    layoutDpi_ = controlCenterLayoutDpi(
+        maximumClientSize(
+            monitorWorkArea(layoutMonitor_),
+            dpi_),
+        dpi_);
     createFonts();
     if (!createControls())
     {
@@ -366,6 +422,36 @@ LRESULT ControlCenterWindow::handleMessage(
         }
         return 0;
     }
+    case WM_ENTERSIZEMOVE:
+        interactiveMoveResize_ = true;
+        return 0;
+    case WM_EXITSIZEMOVE:
+        interactiveMoveResize_ = false;
+        adaptLayoutToMonitor(
+            MonitorFromWindow(window_, MONITOR_DEFAULTTONEAREST),
+            false);
+        return 0;
+    case WM_MOVE:
+        if (!interactiveMoveResize_)
+        {
+            adaptLayoutToMonitor(
+                MonitorFromWindow(window_, MONITOR_DEFAULTTONEAREST),
+                false);
+        }
+        return DefWindowProcW(window_, message, wParam, lParam);
+    case WM_DISPLAYCHANGE:
+        adaptLayoutToMonitor(
+            MonitorFromWindow(window_, MONITOR_DEFAULTTONEAREST),
+            true);
+        return DefWindowProcW(window_, message, wParam, lParam);
+    case WM_SETTINGCHANGE:
+        if (wParam == SPI_SETWORKAREA)
+        {
+            adaptLayoutToMonitor(
+                MonitorFromWindow(window_, MONITOR_DEFAULTTONEAREST),
+                true);
+        }
+        return DefWindowProcW(window_, message, wParam, lParam);
     case WM_DPICHANGED:
     {
         dpi_ = HIWORD(wParam);
@@ -373,18 +459,67 @@ LRESULT ControlCenterWindow::handleMessage(
         {
             dpi_ = USER_DEFAULT_SCREEN_DPI;
         }
-        createFonts();
         const auto* suggested = reinterpret_cast<const RECT*>(lParam);
         if (suggested != nullptr)
         {
+            const HMONITOR targetMonitor = MonitorFromRect(
+                suggested,
+                MONITOR_DEFAULTTONEAREST);
+            layoutMonitor_ = targetMonitor;
+            const RECT workArea = monitorWorkArea(targetMonitor);
+            layoutDpi_ = controlCenterLayoutDpi(
+                maximumClientSize(workArea, dpi_),
+                dpi_);
+            createFonts();
+
+            RECT minimumBounds{
+                0,
+                0,
+                scale(minimumControlCenterClientWidth),
+                scale(minimumControlCenterClientHeight)};
+            static_cast<void>(AdjustWindowRectExForDpi(
+                &minimumBounds,
+                static_cast<DWORD>(GetWindowLongPtrW(window_, GWL_STYLE)),
+                FALSE,
+                static_cast<DWORD>(GetWindowLongPtrW(window_, GWL_EXSTYLE)),
+                dpi_));
+            const PixelSize targetSize = clampPixelSize(
+                PixelSize{
+                    (std::max)(
+                        suggested->right - suggested->left,
+                        minimumBounds.right - minimumBounds.left),
+                    (std::max)(
+                        suggested->bottom - suggested->top,
+                        minimumBounds.bottom - minimumBounds.top)},
+                PixelSize{
+                    static_cast<int>(workArea.right - workArea.left),
+                    static_cast<int>(workArea.bottom - workArea.top)});
+            const int targetX = (std::clamp)(
+                static_cast<int>(suggested->left),
+                static_cast<int>(workArea.left),
+                static_cast<int>(workArea.right) - targetSize.width);
+            const int targetY = (std::clamp)(
+                static_cast<int>(suggested->top),
+                static_cast<int>(workArea.top),
+                static_cast<int>(workArea.bottom) - targetSize.height);
             SetWindowPos(
                 window_,
                 nullptr,
-                suggested->left,
-                suggested->top,
-                suggested->right - suggested->left,
-                suggested->bottom - suggested->top,
+                targetX,
+                targetY,
+                targetSize.width,
+                targetSize.height,
                 SWP_NOACTIVATE | SWP_NOZORDER);
+        }
+        else
+        {
+            layoutMonitor_ = MonitorFromWindow(
+                window_,
+                MONITOR_DEFAULTTONEAREST);
+            layoutDpi_ = controlCenterLayoutDpi(
+                maximumClientSize(monitorWorkArea(layoutMonitor_), dpi_),
+                dpi_);
+            createFonts();
         }
         RECT client{};
         if (GetClientRect(window_, &client) != FALSE)
@@ -403,8 +538,8 @@ LRESULT ControlCenterWindow::handleMessage(
         RECT minimumBounds{
             0,
             0,
-            scale(minimumClientWidth),
-            scale(minimumClientHeight)};
+            scale(minimumControlCenterClientWidth),
+            scale(minimumControlCenterClientHeight)};
         if (AdjustWindowRectExForDpi(
                 &minimumBounds,
                 static_cast<DWORD>(GetWindowLongPtrW(window_, GWL_STYLE)),
@@ -717,7 +852,7 @@ void ControlCenterWindow::createFonts()
     const HFONT oldSection = sectionFont_;
 
     const HFONT newNormal = CreateFontW(
-        -MulDiv(10, static_cast<int>(dpi_), 72),
+        -MulDiv(10, static_cast<int>(layoutDpi_), 72),
         0,
         0,
         0,
@@ -732,7 +867,7 @@ void ControlCenterWindow::createFonts()
         DEFAULT_PITCH | FF_DONTCARE,
         L"Segoe UI");
     const HFONT newTitle = CreateFontW(
-        -MulDiv(20, static_cast<int>(dpi_), 72),
+        -MulDiv(20, static_cast<int>(layoutDpi_), 72),
         0,
         0,
         0,
@@ -747,7 +882,7 @@ void ControlCenterWindow::createFonts()
         DEFAULT_PITCH | FF_DONTCARE,
         L"Segoe UI");
     const HFONT newSection = CreateFontW(
-        -MulDiv(11, static_cast<int>(dpi_), 72),
+        -MulDiv(11, static_cast<int>(layoutDpi_), 72),
         0,
         0,
         0,
@@ -882,6 +1017,119 @@ void ControlCenterWindow::applyDpiMetrics() const noexcept
             static_cast<WPARAM>(-1),
             scale(26)));
         static_cast<void>(SendMessageW(comboBox, CB_SETITEMHEIGHT, 0U, scale(26)));
+    }
+}
+
+void ControlCenterWindow::adaptLayoutToMonitor(
+    const HMONITOR monitor,
+    const bool force)
+{
+    if (window_ == nullptr || monitor == nullptr)
+    {
+        return;
+    }
+    if (!force && monitor == layoutMonitor_)
+    {
+        return;
+    }
+
+    const UINT windowDpi = GetDpiForWindow(window_);
+    if (windowDpi != 0U && windowDpi != dpi_)
+    {
+        // A real DPI transition is finalized by WM_DPICHANGED, which also
+        // supplies the OS-recommended bounds. Do not race that transaction
+        // from an earlier WM_MOVE notification.
+        return;
+    }
+
+    const RECT workArea = monitorWorkArea(monitor);
+    const UINT nextLayoutDpi = controlCenterLayoutDpi(
+        maximumClientSize(workArea, dpi_),
+        dpi_);
+    const bool layoutChanged = nextLayoutDpi != layoutDpi_;
+    layoutMonitor_ = monitor;
+    if (layoutChanged)
+    {
+        layoutDpi_ = nextLayoutDpi;
+        createFonts();
+    }
+
+    if (IsIconic(window_) != FALSE || IsZoomed(window_) != FALSE)
+    {
+        RECT client{};
+        if (layoutChanged && GetClientRect(window_, &client) != FALSE)
+        {
+            layoutControls(
+                client.right - client.left,
+                client.bottom - client.top);
+        }
+        return;
+    }
+
+    RECT currentBounds{};
+    if (GetWindowRect(window_, &currentBounds) == FALSE)
+    {
+        return;
+    }
+    RECT minimumBounds{
+        0,
+        0,
+        scale(minimumControlCenterClientWidth),
+        scale(minimumControlCenterClientHeight)};
+    static_cast<void>(AdjustWindowRectExForDpi(
+        &minimumBounds,
+        static_cast<DWORD>(GetWindowLongPtrW(window_, GWL_STYLE)),
+        FALSE,
+        static_cast<DWORD>(GetWindowLongPtrW(window_, GWL_EXSTYLE)),
+        dpi_));
+
+    const int currentWidth = currentBounds.right - currentBounds.left;
+    const int currentHeight = currentBounds.bottom - currentBounds.top;
+    const PixelSize targetSize = clampPixelSize(
+        PixelSize{
+            (std::max)(
+                currentWidth,
+                static_cast<int>(minimumBounds.right - minimumBounds.left)),
+            (std::max)(
+                currentHeight,
+                static_cast<int>(minimumBounds.bottom - minimumBounds.top))},
+        PixelSize{
+            static_cast<int>(workArea.right - workArea.left),
+            static_cast<int>(workArea.bottom - workArea.top)});
+    const int targetX = (std::clamp)(
+        static_cast<int>(currentBounds.left),
+        static_cast<int>(workArea.left),
+        static_cast<int>(workArea.right) - targetSize.width);
+    const int targetY = (std::clamp)(
+        static_cast<int>(currentBounds.top),
+        static_cast<int>(workArea.top),
+        static_cast<int>(workArea.bottom) - targetSize.height);
+    const bool sizeChanged = targetSize.width != currentWidth
+        || targetSize.height != currentHeight;
+    const bool positionChanged = targetX != currentBounds.left
+        || targetY != currentBounds.top;
+
+    BOOL repositioned = TRUE;
+    if (sizeChanged || positionChanged)
+    {
+        repositioned = SetWindowPos(
+            window_,
+            nullptr,
+            targetX,
+            targetY,
+            targetSize.width,
+            targetSize.height,
+            SWP_NOACTIVATE | SWP_NOCOPYBITS | SWP_NOZORDER);
+    }
+    if (layoutChanged && (!sizeChanged || repositioned == FALSE))
+    {
+        RECT client{};
+        if (GetClientRect(window_, &client) != FALSE)
+        {
+            layoutControls(
+                client.right - client.left,
+                client.bottom - client.top);
+        }
     }
 }
 
@@ -1048,7 +1296,7 @@ void ControlCenterWindow::layoutSlider(
 
 int ControlCenterWindow::scale(const int logicalPixels) const noexcept
 {
-    return MulDiv(logicalPixels, static_cast<int>(dpi_), 96);
+    return MulDiv(logicalPixels, static_cast<int>(layoutDpi_), 96);
 }
 
 void ControlCenterWindow::onCommand(

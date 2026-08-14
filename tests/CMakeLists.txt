@@ -283,8 +283,10 @@ if(WIN32)
         bafx_control_center_tests
         test_main.cpp
         control_center_commands_tests.cpp
+        control_center_layout_tests.cpp
         package_activation_tests.cpp
         "${PROJECT_SOURCE_DIR}/src/control-center/config_commands.cpp"
+        "${PROJECT_SOURCE_DIR}/src/control-center/control_center_layout.cpp"
         "${PROJECT_SOURCE_DIR}/src/control-center/package_activation.cpp"
     )
     target_include_directories(
