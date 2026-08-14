@@ -125,6 +125,7 @@ if ($null -eq $pythonCommand)
 }
 
 $particleFixtureAgesMilliseconds = @(50, 100, 120, 250, 450)
+$particleFixturePaths = @()
 foreach ($ageMilliseconds in $particleFixtureAgesMilliseconds)
 {
     $particleFixtureName =
@@ -134,6 +135,7 @@ foreach ($ageMilliseconds in $particleFixtureAgesMilliseconds)
         (Join-Path `
             'Reference\Diagnostics\ParticleStates' `
             $particleFixtureName)
+    $particleFixturePaths += $particleFixturePath
     & $pythonCommand.Source `
         -B `
         (Join-Path $repositoryRoot 'tools\verify-unity-particle-fixture.py') `
@@ -144,13 +146,10 @@ foreach ($ageMilliseconds in $particleFixtureAgesMilliseconds)
     }
 }
 
-$particleFixturePath = Join-Path `
-    $runtimeRoot `
-    'Reference\Diagnostics\ParticleStates\FX_Touch_0050ms_particle-state-v2.json'
 & $pythonCommand.Source `
     -B `
     (Join-Path $repositoryRoot 'tools\generate-unity-particle-fixture.py') `
-    $particleFixturePath `
+    @particleFixturePaths `
     --check
 if ($LASTEXITCODE -ne 0)
 {

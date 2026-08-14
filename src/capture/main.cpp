@@ -570,14 +570,13 @@ void writeManifest(
     }
     else if (options.captureCase == CaptureCase::UnityParticleFixture)
     {
-        const bafx::reference::UnityParticleFixtureDescriptor descriptor =
-            bafx::reference::unityParticleFixtureV2Descriptor();
+        const bafx::reference::UnityParticleFixtureDescriptor& descriptor =
+            bafx::reference::unityParticleFixtureV2Descriptors().front();
         stream
             << "  \"case\": {\"name\": \"unity-particle-fixture\", "
             << "\"contractVersion\": 1, "
             << "\"scope\": \"capture-only-observation\", "
-            << "\"sourceFixture\": \"Reference/Diagnostics/ParticleStates/"
-            << "FX_Touch_0050ms_particle-state-v2.json\", "
+            << "\"sourceFixture\": \"" << descriptor.sourceFixture << "\", "
             << "\"sourceSchema\": " << descriptor.schema << ", "
             << "\"sourceSha256\": \"" << descriptor.sourceSha256 << "\", "
             << "\"sourceParticleCount\": " << descriptor.particleCount << ", "
@@ -695,8 +694,8 @@ int run(const CaptureOptions& options)
 
     if (options.captureCase == CaptureCase::UnityParticleFixture)
     {
-        const bafx::reference::UnityParticleFixtureDescriptor descriptor =
-            bafx::reference::unityParticleFixtureV2Descriptor();
+        const bafx::reference::UnityParticleFixtureDescriptor& descriptor =
+            bafx::reference::unityParticleFixtureV2Descriptors().front();
         if (descriptor.viewport.width != captureSize.width
             || descriptor.viewport.height != captureSize.height
             || options.agesMilliseconds.size() != 1U
@@ -707,7 +706,8 @@ int run(const CaptureOptions& options)
         }
 
         const bafx::fx::FrameSnapshot snapshot =
-            bafx::reference::makeUnityParticleFixtureV2Snapshot();
+            bafx::reference::makeUnityParticleFixtureV2Snapshot(
+                descriptor.ageMilliseconds);
         if (snapshot.sprites.size() != descriptor.particleCount)
         {
             throw std::runtime_error(

@@ -3,6 +3,7 @@
 #include "bafx/reference/unity_particle_fixture.hpp"
 
 #include <array>
+#include <stdexcept>
 #include <string_view>
 #include <vector>
 
@@ -28,28 +29,54 @@ using bafx::fx::SpriteKind;
     return matches;
 }
 
+[[nodiscard]] bool rejectsUnsupportedAge()
+{
+    try
+    {
+        static_cast<void>(
+            bafx::reference::makeUnityParticleFixtureV2Snapshot(110U));
+    }
+    catch (const std::invalid_argument&)
+    {
+        return true;
+    }
+    return false;
+}
+
 }
 
 BAFX_TEST(unity_particle_fixture_v2_descriptor_locks_source_observation)
 {
-    const bafx::reference::UnityParticleFixtureDescriptor descriptor =
-        bafx::reference::unityParticleFixtureV2Descriptor();
+    const auto descriptors =
+        bafx::reference::unityParticleFixtureV2Descriptors();
+    constexpr std::array ages{50U, 100U, 120U, 250U, 450U};
+    constexpr std::array particleCounts{7U, 7U, 7U, 6U, 6U};
+    constexpr std::array<std::string_view, 5U> hashes{
+        "1BECBED5019111D8C0F1D9D9A3808B72DF9586E55B960A1DF30DBE4438BECCCD",
+        "9DB1712C896871CE46EE49FBB0F9340E42EE4599A81A56545081085814CB31F2",
+        "8892417B9272E9E18BC0D8596B408DC4B05EDFE3D66E813910A33828499DF993",
+        "3A1D0249D738B5448E60758697BE44B76F247A5FDFA571FE5DA981C3343B6E99",
+        "CA067C13E8DFB7BA03052F0C83DBE5F5C09A2AC1709DB30571825D9FEBB53F20"};
 
-    BAFX_CHECK(descriptor.schema == 2U);
-    BAFX_CHECK(descriptor.fixture == "UnityParticleStateV2");
-    BAFX_CHECK(
-        descriptor.sourceSha256
-        == "1BECBED5019111D8C0F1D9D9A3808B72DF9586E55B960A1DF30DBE4438BECCCD");
-    BAFX_CHECK(descriptor.viewport.width == 1950U);
-    BAFX_CHECK(descriptor.viewport.height == 1097U);
-    BAFX_CHECK(descriptor.ageMilliseconds == 50U);
-    BAFX_CHECK(descriptor.particleCount == 7U);
+    BAFX_CHECK(descriptors.size() == ages.size());
+    for (std::size_t index = 0U; index < descriptors.size(); ++index)
+    {
+        const auto& descriptor = descriptors[index];
+        BAFX_CHECK(descriptor.schema == 2U);
+        BAFX_CHECK(descriptor.fixture == "UnityParticleStateV2");
+        BAFX_CHECK(descriptor.sourceFixture.find("Reference/Diagnostics/") == 0U);
+        BAFX_CHECK(descriptor.sourceSha256 == hashes[index]);
+        BAFX_CHECK(descriptor.viewport.width == 1950U);
+        BAFX_CHECK(descriptor.viewport.height == 1097U);
+        BAFX_CHECK(descriptor.ageMilliseconds == ages[index]);
+        BAFX_CHECK(descriptor.particleCount == particleCounts[index]);
+    }
 }
 
 BAFX_TEST(unity_particle_fixture_v2_maps_counts_and_materials)
 {
     const FrameSnapshot snapshot =
-        bafx::reference::makeUnityParticleFixtureV2Snapshot();
+        bafx::reference::makeUnityParticleFixtureV2Snapshot(50U);
     const auto disks = spritesOfKind(snapshot, SpriteKind::CenterDisk);
     const auto rings = spritesOfKind(snapshot, SpriteKind::DissolveRing);
     const auto triangles = spritesOfKind(snapshot, SpriteKind::Triangle);
@@ -83,7 +110,7 @@ BAFX_TEST(unity_particle_fixture_v2_maps_counts_and_materials)
 BAFX_TEST(unity_particle_fixture_v2_maps_projection_size_rotation_and_color)
 {
     const FrameSnapshot snapshot =
-        bafx::reference::makeUnityParticleFixtureV2Snapshot();
+        bafx::reference::makeUnityParticleFixtureV2Snapshot(50U);
     const auto disks = spritesOfKind(snapshot, SpriteKind::CenterDisk);
     const auto rings = spritesOfKind(snapshot, SpriteKind::DissolveRing);
     const auto triangles = spritesOfKind(snapshot, SpriteKind::Triangle);
@@ -140,4 +167,24 @@ BAFX_TEST(unity_particle_fixture_v2_maps_projection_size_rotation_and_color)
         BAFX_CHECK_NEAR(triangles[index]->color.b, 0.25015828F, 1.0e-6F);
         BAFX_CHECK_NEAR(triangles[index]->color.a, 1.0F, 1.0e-6F);
     }
+}
+
+BAFX_TEST(unity_particle_fixture_v2_maps_each_locked_age_range)
+{
+    constexpr std::array ages{50U, 100U, 120U, 250U, 450U};
+    constexpr std::array diskCounts{1U, 1U, 1U, 0U, 0U};
+    constexpr std::array totalCounts{7U, 7U, 7U, 6U, 6U};
+    for (std::size_t index = 0U; index < ages.size(); ++index)
+    {
+        const FrameSnapshot snapshot =
+            bafx::reference::makeUnityParticleFixtureV2Snapshot(ages[index]);
+        BAFX_CHECK(snapshot.sprites.size() == totalCounts[index]);
+        BAFX_CHECK(
+            spritesOfKind(snapshot, SpriteKind::CenterDisk).size()
+            == diskCounts[index]);
+        BAFX_CHECK(
+            spritesOfKind(snapshot, SpriteKind::DissolveRing).size() == 2U);
+        BAFX_CHECK(spritesOfKind(snapshot, SpriteKind::Triangle).size() == 4U);
+    }
+    BAFX_CHECK(rejectsUnsupportedAge());
 }

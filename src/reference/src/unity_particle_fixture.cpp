@@ -5,6 +5,7 @@
 #include <array>
 #include <cmath>
 #include <numbers>
+#include <stdexcept>
 #include <string_view>
 
 namespace bafx::reference
@@ -15,7 +16,6 @@ namespace
 constexpr std::uint32_t fixtureSchema = 2U;
 constexpr std::string_view fixtureName = "UnityParticleStateV2";
 constexpr bafx::fx::Viewport fixtureViewport{1950U, 1097U};
-constexpr std::uint32_t fixtureAgeMilliseconds = 50U;
 constexpr float unityRingMeshDiameter = 2.127337F;
 
 enum class UnityParticleSystemKind
@@ -130,26 +130,41 @@ struct UnityParticleObservation
 
 }
 
-UnityParticleFixtureDescriptor unityParticleFixtureV2Descriptor() noexcept
+std::span<const UnityParticleFixtureDescriptor>
+unityParticleFixtureV2Descriptors() noexcept
 {
-    return UnityParticleFixtureDescriptor{
-        fixtureSchema,
-        fixtureName,
-        unityParticleFixtureSha256,
-        fixtureViewport,
-        fixtureAgeMilliseconds,
-        unityParticleObservations.size()};
+    return unityParticleFixtureDescriptors;
 }
 
-bafx::fx::FrameSnapshot makeUnityParticleFixtureV2Snapshot()
+bafx::fx::FrameSnapshot makeUnityParticleFixtureV2Snapshot(
+    const std::uint32_t ageMilliseconds)
 {
+    std::size_t fixtureIndex = unityParticleFixtureDescriptors.size();
+    for (std::size_t index = 0U;
+         index < unityParticleFixtureDescriptors.size();
+         ++index)
+    {
+        if (unityParticleFixtureDescriptors[index].ageMilliseconds
+            == ageMilliseconds)
+        {
+            fixtureIndex = index;
+            break;
+        }
+    }
+    if (fixtureIndex == unityParticleFixtureDescriptors.size())
+    {
+        throw std::invalid_argument("Unsupported Unity particle fixture age");
+    }
+
+    const std::size_t begin = unityParticleFixtureObservationOffsets[fixtureIndex];
+    const std::size_t end = unityParticleFixtureObservationOffsets[fixtureIndex + 1U];
     bafx::fx::FrameSnapshot snapshot{};
     snapshot.active = true;
     snapshot.pointerHeld = true;
-    snapshot.sprites.reserve(unityParticleObservations.size());
-    for (const UnityParticleObservation& observation : unityParticleObservations)
+    snapshot.sprites.reserve(end - begin);
+    for (std::size_t index = begin; index < end; ++index)
     {
-        snapshot.sprites.push_back(makeSprite(observation));
+        snapshot.sprites.push_back(makeSprite(unityParticleObservations[index]));
     }
     return snapshot;
 }

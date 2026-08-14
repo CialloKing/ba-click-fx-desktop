@@ -56,14 +56,15 @@ def system(index: int, name: str, count: int, scale: float = 1.0) -> dict:
     }
 
 
-def fixture() -> dict:
+def fixture(age: int = 50) -> dict:
+    ring_count = 1 if age <= 120 else 0
     return {
         "schema": 2,
         "fixture": "UnityParticleStateV2",
         "unityVersion": "2021.3.45f1",
         "renderSize": {"width": 1950, "height": 1097},
-        "captureTimeSeconds": 0.05,
-        "captureTimeMilliseconds": 50,
+        "captureTimeSeconds": age / 1000.0,
+        "captureTimeMilliseconds": age,
         "seedBase": 20260716,
         "seedStride": 7919,
         "seedFormula": "seedBase + index * seedStride",
@@ -71,58 +72,85 @@ def fixture() -> dict:
         "systems": [
             system(0, "FX_Touch_ParticleFixture", 0),
             system(1, "MeshTri", 2),
-            system(2, "ring", 1),
+            system(2, "ring", ring_count),
             system(3, "Ring (3)", 4, 0.3078824),
             system(4, "Ring (4)", 0, 0.3078824),
         ],
     }
 
 
+def fixture_inputs() -> list[tuple[dict, bytes]]:
+    return [
+        (fixture(age), f"fixture-{age}".encode("ascii"))
+        for age in GENERATOR.VERIFY.EXPECTED_TIMES_MILLISECONDS
+    ]
+
+
 class FixtureGeneratorTests(unittest.TestCase):
     def test_generates_render_order_and_source_hash(self):
-        value = fixture()
-        encoded = b"fixture-bytes"
-        generated = GENERATOR.generate_include(value, encoded).decode("ascii")
+        inputs = fixture_inputs()
+        generated = GENERATOR.generate_include(inputs).decode("ascii")
 
-        expected_hash = hashlib.sha256(encoded).hexdigest().upper()
-        self.assertIn(expected_hash, generated)
-        self.assertEqual(generated.count("UnityParticleObservation{"), 7)
+        for _, encoded in inputs:
+            expected_hash = hashlib.sha256(encoded).hexdigest().upper()
+            self.assertIn(expected_hash, generated)
+        self.assertEqual(generated.count("UnityParticleFixtureDescriptor{"), 5)
+        self.assertEqual(generated.count("UnityParticleObservation{"), 33)
+        self.assertIn("{{0U, 7U, 14U, 21U, 27U, 33U}}", generated)
         self.assertLess(
             generated.index("UnityParticleSystemKind::CenterDisk"),
             generated.index("UnityParticleSystemKind::DissolveRing"),
         )
 
-    def test_rejects_system_count_drift(self):
-        value = fixture()
-        value["systems"][1]["particleCount"] = 1
-        value["systems"][1]["particles"] = value["systems"][1]["particles"][:1]
+    def test_rejects_missing_fixture_age(self):
         with self.assertRaisesRegex(
-            GENERATOR.VERIFY.ValidationError, "MeshTri must contain 2"
+            GENERATOR.VERIFY.ValidationError, "fixture ages"
         ):
-            GENERATOR.generate_include(value, b"fixture")
+            GENERATOR.generate_include(fixture_inputs()[:-1])
+
+    def test_rejects_duplicate_fixture_age(self):
+        inputs = fixture_inputs()
+        inputs.append((fixture(50), b"duplicate"))
+        with self.assertRaisesRegex(
+            GENERATOR.VERIFY.ValidationError, "duplicate fixture age"
+        ):
+            GENERATOR.generate_include(inputs)
+
+    def test_rejects_particles_on_fixture_root(self):
+        inputs = fixture_inputs()
+        value = inputs[0][0]
+        value["systems"][0]["particleCount"] = 1
+        value["systems"][0]["particles"] = [particle(0)]
+        with self.assertRaisesRegex(
+            GENERATOR.VERIFY.ValidationError, "root must not contain particles"
+        ):
+            GENERATOR.generate_include(inputs)
 
     def test_rejects_non_planar_rotation(self):
-        value = fixture()
+        inputs = fixture_inputs()
+        value = inputs[0][0]
         value["systems"][3]["particles"][0]["rotation"]["x"] = 0.5
         with self.assertRaisesRegex(
             GENERATOR.VERIFY.ValidationError, "non-planar"
         ):
-            GENERATOR.generate_include(value, b"fixture")
+            GENERATOR.generate_include(inputs)
 
     def test_check_rejects_stale_generated_file(self):
-        value = fixture()
         with tempfile.TemporaryDirectory() as directory:
-            fixture_path = Path(directory) / "fixture.json"
+            fixture_paths = []
+            for age in GENERATOR.VERIFY.EXPECTED_TIMES_MILLISECONDS:
+                fixture_path = Path(directory) / f"fixture-{age}.json"
+                fixture_path.write_text(
+                    json.dumps(fixture(age), separators=(",", ":")) + "\n",
+                    encoding="utf-8",
+                )
+                fixture_paths.append(fixture_path)
             output = Path(directory) / "fixture.inc"
-            fixture_path.write_text(
-                json.dumps(value, separators=(",", ":")) + "\n",
-                encoding="utf-8",
-            )
             output.write_text("stale", encoding="ascii")
             with self.assertRaisesRegex(
                 GENERATOR.VERIFY.ValidationError, "stale"
             ):
-                GENERATOR.run(fixture_path, output, True)
+                GENERATOR.run(fixture_paths, output, True)
 
 
 if __name__ == "__main__":
