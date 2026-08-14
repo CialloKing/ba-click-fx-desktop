@@ -204,7 +204,7 @@ BAFX_TEST(gpu_timestamp_profiler_reports_exact_stage_and_total_durations)
     BAFX_CHECK(result.sample->bloomAndFinalComposite == 5s);
     BAFX_CHECK(result.sample->totalFx == 7s);
     BAFX_CHECK(result.sample->totalFrame == 10s);
-    BAFX_CHECK(result.sample->usage.wgcActive);
+    BAFX_CHECK(result.sample->usage.wgcDrainAttempted);
     BAFX_CHECK(result.sample->usage.backgroundSnapshotAttempted);
     BAFX_CHECK(result.sample->usage.visualContent);
     BAFX_CHECK(fixture.profiler->counters().framesCompleted == 1U);
@@ -256,7 +256,7 @@ BAFX_TEST(gpu_timestamp_profiler_preserves_original_stage_applicability)
     const GpuTimestampPollResult result = fixture.profiler->poll(12U);
     BAFX_CHECK(result.status == GpuTimestampPollStatus::Completed);
     BAFX_CHECK(result.sample.has_value());
-    BAFX_CHECK(!result.sample->usage.wgcActive);
+    BAFX_CHECK(!result.sample->usage.wgcDrainAttempted);
     BAFX_CHECK(!result.sample->usage.backgroundSnapshotAttempted);
     BAFX_CHECK(result.sample->usage.visualContent);
 }

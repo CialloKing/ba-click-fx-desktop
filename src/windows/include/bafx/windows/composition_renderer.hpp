@@ -95,6 +95,8 @@ struct CompositionFrameDiagnostics
     std::int64_t presentReturnedQpc{0};
     std::uint32_t presentReturnedTickMilliseconds{0U};
     bool wgcActive{false};
+    bool wgcDrainAttempted{false};
+    bool wgcIdleDrainSkipped{false};
     bool backgroundSampleAgeValid{false};
     bool backgroundSnapshotRefreshAttempted{false};
     bool backgroundSnapshotRefreshed{false};

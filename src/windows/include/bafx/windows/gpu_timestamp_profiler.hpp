@@ -104,7 +104,7 @@ enum class GpuTimestampPollStatus : std::uint8_t
 
 struct GpuTimestampFrameUsage
 {
-    bool wgcActive{false};
+    bool wgcDrainAttempted{false};
     bool backgroundSnapshotAttempted{false};
     bool visualContent{false};
 };

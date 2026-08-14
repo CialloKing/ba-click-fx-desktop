@@ -263,11 +263,12 @@ CompositionFrameDiagnostics CompositionRenderer::renderFrame(
         diagnostics.frameId,
         diagnostics);
     const auto frameStartedAt = std::chrono::steady_clock::now();
+    const bool hasDrawableContent = snapshot.hasDrawableContent();
     std::optional<BackgroundRenderInput> background;
     std::optional<WgcBackgroundSample> backgroundSample;
     bafx::core::BackgroundUsageDecision acquireUsage{};
     bafx::core::BackgroundUsageDecision retainUsage{};
-    if (!snapshot.hasDrawableContent())
+    if (!hasDrawableContent)
     {
         // A new visible batch gets a fresh desktop reference. Keeping the
         // previous copy across an idle frame would make a later click inherit
@@ -302,6 +303,16 @@ CompositionFrameDiagnostics CompositionRenderer::renderFrame(
     if (backgroundSensor_ != nullptr)
     {
         diagnostics.wgcActive = true;
+        const WgcBackgroundTransportSnapshot transport =
+            backgroundSensor_->transportSnapshot();
+        diagnostics.wgc.epoch = transport.epoch;
+        diagnostics.wgc.frameArrivedCallbacksTotal =
+            transport.frameArrivedCallbacksTotal;
+        diagnostics.wgc.acceptedGeneration = transport.acceptedGeneration;
+    }
+    if (backgroundSensor_ != nullptr && hasDrawableContent)
+    {
+        diagnostics.wgcDrainAttempted = true;
         const auto stopFailedBackgroundCapture =
             [this](const std::string_view failure) noexcept
         {
@@ -395,6 +406,12 @@ CompositionFrameDiagnostics CompositionRenderer::renderFrame(
             stopFailedBackgroundCapture("unknown WGC drain failure");
         }
     }
+    else if (backgroundSensor_ != nullptr)
+    {
+        // The callback can continue coalescing producer progress while idle.
+        // The next visible frame drains the existing bounded queue once.
+        diagnostics.wgcIdleDrainSkipped = true;
+    }
     gpuTimestampFrame.checkpoint(
         GpuTimestampCheckpoint::WgcDrainAndCopyComplete);
 
@@ -405,7 +422,7 @@ CompositionFrameDiagnostics CompositionRenderer::renderFrame(
         || (backgroundSample.has_value() && retainUsage.enabled);
     const bafx::core::BackgroundRenderPath renderPath =
         backgroundPathLatch_.select(
-            snapshot.hasDrawableContent(),
+            hasDrawableContent,
             backgroundSample.has_value() && acquireUsage.enabled,
             retainedBackgroundAvailable);
     if (renderPath == bafx::core::BackgroundRenderPath::BackgroundAware)
@@ -450,7 +467,7 @@ CompositionFrameDiagnostics CompositionRenderer::renderFrame(
     {
         // A new FX-only batch must not inherit a previous batch's snapshot.
         resetBackgroundSnapshot();
-        if (snapshot.hasDrawableContent()
+        if (hasDrawableContent
             && backgroundSample.has_value()
             && acquireUsage.enabled)
         {
@@ -467,7 +484,7 @@ CompositionFrameDiagnostics CompositionRenderer::renderFrame(
         background,
         gpuTimestampFrame.recorder());
     gpuTimestampFrame.complete(GpuTimestampFrameUsage{
-        diagnostics.wgcActive,
+        diagnostics.wgcDrainAttempted,
         diagnostics.backgroundSnapshotRefreshAttempted,
         diagnostics.fx.visualContent});
     if (readbackDiagnosticsEnabled_)

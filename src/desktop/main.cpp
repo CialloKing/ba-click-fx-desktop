@@ -617,7 +617,7 @@ struct PointerConsumptionDiagnostics
         sample.gpuTotalFxMicroseconds = durationMicroseconds(gpu.totalFx);
         sample.gpuRenderCommandSpanMicroseconds =
             durationMicroseconds(gpu.totalFrame);
-        sample.gpuWgcTimingValid = gpu.usage.wgcActive;
+        sample.gpuWgcTimingValid = gpu.usage.wgcDrainAttempted;
         sample.gpuBackgroundSnapshotTimingValid =
             gpu.usage.backgroundSnapshotAttempted;
         sample.gpuFxTimingValid = gpu.usage.visualContent;
