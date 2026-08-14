@@ -105,6 +105,9 @@ BAFX_TEST(performance_log_preserves_metric_and_semantic_fields)
     BAFX_CHECK(text.find(
         "Timing.PresentSemantic=Present-call-return-not-dwm-composition-or-scanout\n")
         != std::string::npos);
+    BAFX_CHECK(text.find(
+        "Timing.PresentMode=interval-0-frame-latency-gated\n")
+        != std::string::npos);
     BAFX_CHECK(text.find("Cpu.FrameTotal.P95=20000\n") != std::string::npos);
     BAFX_CHECK(text.find("WGC.DrainPolicy=active-fx-only\n")
         != std::string::npos);

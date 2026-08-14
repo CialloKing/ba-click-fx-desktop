@@ -542,7 +542,11 @@ PixelF CompositionRenderer::presentCompositionProbeColor(const PixelF color)
 
 void CompositionRenderer::presentSwapChain()
 {
-    const HRESULT result = swapChain_->Present(1, 0);
+    // Frame cadence is gated before rendering by the frame-latency waitable
+    // object. A synchronous interval here can block the render owner behind
+    // DWM/GPU back-pressure and prevent the same thread from dispatching
+    // WM_INPUT, so composition receives the frame without an extra v-sync wait.
+    const HRESULT result = swapChain_->Present(0, 0);
     if (result == DXGI_ERROR_DEVICE_REMOVED || result == DXGI_ERROR_DEVICE_RESET)
     {
         throwIfFailed(device_->GetDeviceRemovedReason(), "D3D11 device removed");

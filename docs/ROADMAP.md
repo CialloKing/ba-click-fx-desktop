@@ -15,7 +15,7 @@
 - WGC producer/accepted FPS、被合并或拒绝的样本数、样本年龄和 `drainLatest` CPU 耗时；
 - 背景 FP16 copy 与 Bloom 的 GPU 耗时，使用异步 D3D11 timestamp query，不把 CPU 提交耗时
   冒充 GPU 执行耗时；
-- `Present(1, 0)` 的调用阻塞时间，以及输入边沿到对应 `Present` 返回的相关耗时；
+- `Present(0, 0)` 的调用阻塞时间，以及输入边沿到对应 `Present` 返回的相关耗时；
 - 渲染模式、adapter、driver、显示模式、降级原因、WGC 生命周期和资源账本等排障上下文。
 
 日志默认输出固定时间窗的计数、FPS、`p50/p95/p99/max` 与有速率限制的慢帧样本，不逐帧刷盘。

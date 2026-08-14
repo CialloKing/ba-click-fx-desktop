@@ -251,6 +251,9 @@ std::chrono::nanoseconds appendPerformanceInterval(
             "Timing.PresentSemantic",
             "Present-call-return-not-dwm-composition-or-scanout");
         fields.add(
+            "Timing.PresentMode",
+            "interval-0-frame-latency-gated");
+        fields.add(
             "Timing.InputSemantic",
             "input-to-Present-return-not-photon-latency");
         fields.add(
