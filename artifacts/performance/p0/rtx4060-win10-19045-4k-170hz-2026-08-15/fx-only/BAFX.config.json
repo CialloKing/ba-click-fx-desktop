@@ -1,0 +1,34 @@
+{
+  "background": {
+    "allowSystemBorder": true,
+    "cursorExcluded": true,
+    "mode": "recording-compatible"
+  },
+  "effects": {
+    "bloomIntensity": 1,
+    "bloomQuality": "high",
+    "clickEnabled": true,
+    "enabled": true,
+    "globalScale": 1,
+    "trailEnabled": true,
+    "trailLength": 1,
+    "trailWidth": 1
+  },
+  "input": {
+    "leftClick": true,
+    "middleClick": false,
+    "rightClick": true,
+    "samplingRateHz": 0,
+    "trailOnlyWhilePressed": true
+  },
+  "performance": {
+    "framePacing": "match-display",
+    "idleOptimization": true
+  },
+  "schemaVersion": 7,
+  "system": {
+    "closeToTray": true,
+    "startMinimized": false,
+    "startWithWindows": false
+  }
+}

@@ -44,6 +44,19 @@ python -B tools/report-performance-baseline.py `
 操作者活动。报告器要求 Raw Input 为零，并校验同一 HEAD/EXE、配置差异、WGC 参与、GPU 样本
 覆盖率、丢样计数、资源账本与帧节流上限。
 
+### P0 当前状态
+
+配对渲染基线已在提交 `c87c83a` 完成并通过门禁，追踪证据位于
+[`artifacts/performance/p0/rtx4060-win10-19045-4k-170hz-2026-08-15`](../artifacts/performance/p0/rtx4060-win10-19045-4k-170hz-2026-08-15/README.md)。
+FX-only 与 background-aware 在 `3840x2160 @ 170 Hz` 下均保持
+`GPU.PendingFrames.Max=1`；background-aware 的 GPU command span p95 增加 `975 us`，
+所列单阶段中 Bloom/final 增量最大，为 `491 us`。Present p95 没有形成稳定区间瓶颈，
+但最大值仍保留 `+7252 us` 的尾部风险记录。
+
+该场景为了获得可比较的渲染成本而关闭 Raw Input，因此 P0 尚未全部完成：仍需加入受控 Down
+边沿场景，记录 Win32 消息年龄、dispatch-to-Present-return 与 message-to-Present-return。
+这项缺口不阻止使用已经闭环的渲染配对数据启动 P1，但任何报告都不得把当前结果称为完整输入延迟基线。
+
 ## P1：WGC 成本优化与 guard-band ROI
 
 基线确认瓶颈后，按下列顺序降低背景感知路径成本：

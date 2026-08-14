@@ -1,0 +1,52 @@
+{
+  "schemaVersion": 1,
+  "scenarioId": "p0-static-click-message-pressure-v3",
+  "captureStatus": "captured",
+  "revision": "c87c83ae566b874e976c7c95230f58c0487ad31d",
+  "workingTreeDirty": false,
+  "executableSha256": "12b748478fdefab043b18bdd2dc3250881327d4e8b374e4d7c9a031dfdef3d13",
+  "capturedAtUtc": "2026-08-14T17:40:42.646Z",
+  "durationMs": 10500,
+  "demoAgeMs": 130,
+  "demoDelayMs": 50,
+  "messageCount": 705,
+  "messageBatchSize": 5,
+  "messageBatchIntervalMs": 25,
+  "rawInputRegistration": "disabled",
+  "readyTimeoutMs": 5000,
+  "processTimeoutMs": 30000,
+  "modes": {
+    "fx-only": {
+      "backgroundMode": "recording-compatible",
+      "commandLine": [
+        "D:\\C++project\\ba-click-fx-desktop\\artifacts\\local\\performance-baseline-frame-pacing-v3-c87c83a-20260815\\fx-only\\ba-click-fx-desktop.exe",
+        "--demo-age-ms=130",
+        "--demo-delay-ms=50",
+        "--disable-raw-input",
+        "--quit-after-ms=10500"
+      ],
+      "startedAtUtc": "2026-08-14T17:40:42.681Z",
+      "elapsedMs": 10987,
+      "threadId": 343280,
+      "messageId": "0x80B0",
+      "postedMessages": 705,
+      "exitCode": 0
+    },
+    "background-aware": {
+      "backgroundMode": "background-aware",
+      "commandLine": [
+        "D:\\C++project\\ba-click-fx-desktop\\artifacts\\local\\performance-baseline-frame-pacing-v3-c87c83a-20260815\\background-aware\\ba-click-fx-desktop.exe",
+        "--demo-age-ms=130",
+        "--demo-delay-ms=50",
+        "--disable-raw-input",
+        "--quit-after-ms=10500"
+      ],
+      "startedAtUtc": "2026-08-14T17:40:53.692Z",
+      "elapsedMs": 10965,
+      "threadId": 357128,
+      "messageId": "0x80B0",
+      "postedMessages": 705,
+      "exitCode": 0
+    }
+  }
+}
