@@ -835,6 +835,40 @@ void waitForSensorActivity(
     }
 }
 
+void waitForClockToPass(
+    const QpcClock& clock,
+    const std::int64_t timestampNanoseconds,
+    Deadline& deadline)
+{
+    while (!deadline.expired())
+    {
+        if (clock.now().count() > timestampNanoseconds)
+        {
+            return;
+        }
+        // WGC SystemRelativeTime can lead the consumer's current QPC by a few
+        // milliseconds. A bounded message-aware wait keeps stable-pair time
+        // intervals disjoint without spinning or introducing an unbounded sleep.
+        const DWORD result = MsgWaitForMultipleObjectsEx(
+            0U,
+            nullptr,
+            1U,
+            QS_ALLINPUT,
+            MWMO_INPUTAVAILABLE);
+        if (result == WAIT_FAILED)
+        {
+            bafx::windows::throwLastError(
+                "MsgWaitForMultipleObjectsEx(WDA QPC ordering)");
+        }
+        if (result == WAIT_OBJECT_0)
+        {
+            pumpMessages(deadline);
+        }
+    }
+    throw std::runtime_error(
+        "Timed out ordering WDA stable-pair QPC intervals");
+}
+
 void handleFramePoolResize(
     bafx::windows::WgcBackgroundSensor& sensor)
 {
@@ -1258,6 +1292,13 @@ void requireMatchingImages(
          attempt < maximumStableSampleAttempts && !deadline.expired();
          ++attempt)
     {
+        if (previous.has_value())
+        {
+            waitForClockToPass(
+                clock,
+                previous->metadata.capturedAtNanoseconds,
+                deadline);
+        }
         CapturedFrame current = captureAttempt(
             renderer,
             sensor,
