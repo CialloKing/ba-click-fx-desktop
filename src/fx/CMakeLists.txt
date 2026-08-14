@@ -1,6 +1,7 @@
 add_library(
     bafx_fx
     STATIC
+        src/frame_bounds.cpp
         src/simulation.cpp
         src/simulation_runtime.cpp
         src/simulation_timeline.cpp
@@ -13,7 +14,7 @@ target_include_directories(
         "${CMAKE_CURRENT_SOURCE_DIR}/include"
 )
 target_compile_features(bafx_fx PUBLIC cxx_std_20)
-target_link_libraries(bafx_fx PRIVATE bafx::core)
+target_link_libraries(bafx_fx PUBLIC bafx::core)
 bafx_enable_warnings(bafx_fx)
 
 set_target_properties(

@@ -37,8 +37,9 @@ set_target_properties(bafx_config_tests PROPERTIES FOLDER "Tests")
 
 add_executable(
     bafx_fx_tests
-    test_main.cpp
-    fx_simulation_tests.cpp
+        test_main.cpp
+        frame_bounds_tests.cpp
+        fx_simulation_tests.cpp
 )
 target_link_libraries(bafx_fx_tests PRIVATE bafx::fx)
 target_compile_features(bafx_fx_tests PRIVATE cxx_std_20)
