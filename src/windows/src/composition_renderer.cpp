@@ -230,6 +230,19 @@ void CompositionRenderer::renderFrame(
     }
     if (backgroundSensor_ != nullptr)
     {
+        const auto stopFailedBackgroundCapture =
+            [this](const std::string_view failure) noexcept
+        {
+            setBackgroundCaptureFailure(failure);
+            backgroundSensor_->stop();
+            backgroundSensor_.reset();
+            backgroundRefreshPeriod_ = bafx::core::MonotonicTime::zero();
+            backgroundCompositeStatus_ = BackgroundCompositeStatus::CaptureFailed;
+            // A failed session cannot continue the previous path safely: its
+            // resource and epoch are no longer part of the active contract.
+            backgroundPathLatch_.reset();
+            resetBackgroundSnapshot();
+        };
         try
         {
             const WgcBackgroundDrainStatus drainStatus =
@@ -288,18 +301,16 @@ void CompositionRenderer::renderFrame(
                 }
             }
         }
-        catch (...)
+        catch (const std::exception& error)
         {
             // Background sensing is optional. A capture/device failure must
-            // never stop the FX-only interaction path.
-            backgroundSensor_->stop();
-            backgroundSensor_.reset();
-            backgroundRefreshPeriod_ = bafx::core::MonotonicTime::zero();
-            backgroundCompositeStatus_ = BackgroundCompositeStatus::CaptureFailed;
-            // A failed session cannot continue the previous path safely: its
-            // resource and epoch are no longer part of the active contract.
-            backgroundPathLatch_.reset();
-            resetBackgroundSnapshot();
+            // never stop the FX-only interaction path. Preserve the original
+            // failure before destroying the sensor so Host cleanup can log it.
+            stopFailedBackgroundCapture(error.what());
+        }
+        catch (...)
+        {
+            stopFailedBackgroundCapture("unknown WGC drain failure");
         }
     }
 

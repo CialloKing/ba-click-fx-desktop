@@ -69,7 +69,13 @@ BAFX_TEST(wgc_notification_keeps_item_close_visible_to_the_owner)
     WgcFrameNotification notification;
     const std::uint64_t observedGeneration = notification.generation();
 
+    notification.notifyFrame();
+    BAFX_CHECK(!notification.itemClosed());
+
     notification.notifyItemClosed();
+    // The Host can observe close from its control poll without first draining
+    // a frame, which is required while paused with no drawable FX content.
+    BAFX_CHECK(notification.itemClosed());
     notification.resetAfterDrain(observedGeneration, false);
 
     BAFX_CHECK(notification.itemClosed());

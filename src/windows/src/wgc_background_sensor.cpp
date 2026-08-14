@@ -594,7 +594,10 @@ HANDLE WgcBackgroundSensor::frameAvailableObject() const noexcept
 
 bool WgcBackgroundSensor::running() const noexcept
 {
-    return implementation_->isRunning;
+    // item.Closed arrives on the capture callback thread. Report it directly
+    // so the Host's control poll can enter cleanup even when no frame is drawn.
+    return implementation_->isRunning
+        && !implementation_->notification->itemClosed();
 }
 
 void WgcBackgroundSensor::stop() noexcept
