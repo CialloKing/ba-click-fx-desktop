@@ -1246,13 +1246,15 @@ struct FxGpuRenderer::Implementation
         }
     }
 
-    void render(
+    FxRenderCpuDiagnostics render(
         const bafx::fx::FrameSnapshot& snapshot,
         ID3D11RenderTargetView* destination,
         ID3D11PixelShader* finalCompositeShader,
         std::optional<BackgroundRenderInput> background = std::nullopt,
         ID3D11RenderTargetView* bloomResultDestination = nullptr)
     {
+        FxRenderCpuDiagnostics diagnostics{};
+        const auto totalStartedAt = std::chrono::steady_clock::now();
         if (background.has_value() && background->shaderResource == nullptr)
         {
             background.reset();
@@ -1262,8 +1264,11 @@ struct FxGpuRenderer::Implementation
         if (!hasVisualContent(snapshot))
         {
             context->ClearRenderTargetView(destination, transparent.data());
-            return;
+            diagnostics.totalSubmit =
+                std::chrono::steady_clock::now() - totalStartedAt;
+            return diagnostics;
         }
+        diagnostics.visualContent = true;
         const ComPtr<ID3D11Texture2D> backgroundTexture = background.has_value()
             ? textureFromShaderResource(background->shaderResource)
             : ComPtr<ID3D11Texture2D>{};
@@ -1337,14 +1342,22 @@ struct FxGpuRenderer::Implementation
             ++index;
         }
 
+        diagnostics.materialsSubmit =
+            std::chrono::steady_clock::now() - totalStartedAt;
         // Unbind the material MRTs before sampling them through the Bloom chain.
         context->OMSetRenderTargets(0, nullptr, nullptr);
+        const auto bloomStartedAt = std::chrono::steady_clock::now();
         renderBloom(
             destination,
             finalCompositeShader,
             background,
             bloomResultDestination);
         context->OMSetRenderTargets(0, nullptr, nullptr);
+        diagnostics.bloomAndCompositeSubmit =
+            std::chrono::steady_clock::now() - bloomStartedAt;
+        diagnostics.totalSubmit =
+            std::chrono::steady_clock::now() - totalStartedAt;
+        return diagnostics;
     }
 
     void ensureBloomResultTarget()
@@ -1501,12 +1514,12 @@ void FxGpuRenderer::stabilizeBackgroundFrame(
     implementation_->stabilizeBackgroundFrame(previous, current, destination);
 }
 
-void FxGpuRenderer::render(
+FxRenderCpuDiagnostics FxGpuRenderer::render(
     const bafx::fx::FrameSnapshot& snapshot,
     ID3D11RenderTargetView* destination,
     const std::optional<BackgroundRenderInput> background)
 {
-    implementation_->render(
+    return implementation_->render(
         snapshot,
         destination,
         implementation_->desktopCompositeShader(background.has_value()),

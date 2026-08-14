@@ -7,6 +7,7 @@
 #include <windows.h>
 
 #include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <memory>
 #include <optional>
@@ -109,6 +110,21 @@ enum class WgcBackgroundDrainStatus : std::uint8_t
     Stopped
 };
 
+struct WgcBackgroundDrainDiagnostics
+{
+    WgcBackgroundDrainStatus status{WgcBackgroundDrainStatus::NoFrame};
+    std::uint32_t framesAcquired{0U};
+    std::uint32_t framesSuperseded{0U};
+    std::uint32_t timestampRejectedFrames{0U};
+    bool ownedCopySubmitted{false};
+    bool accepted{false};
+    std::uint64_t epoch{0U};
+    std::uint64_t frameArrivedCallbacksTotal{0U};
+    std::uint64_t acceptedGeneration{0U};
+    // This is only the CPU duration of issuing CopySubresourceRegion.
+    std::chrono::nanoseconds ownedCopySubmitCpu{};
+};
+
 class WgcBackgroundSensor final
 {
 public:
@@ -129,6 +145,8 @@ public:
 
     // Must be called by the owner of the D3D11 immediate context.
     [[nodiscard]] WgcBackgroundDrainStatus drainLatest(
+        ID3D11DeviceContext* context);
+    [[nodiscard]] WgcBackgroundDrainDiagnostics drainLatestDetailed(
         ID3D11DeviceContext* context);
     [[nodiscard]] std::optional<WindowSize> pendingFramePoolSize() const noexcept;
     // Must run on the same owner that drains and uses the immediate context.

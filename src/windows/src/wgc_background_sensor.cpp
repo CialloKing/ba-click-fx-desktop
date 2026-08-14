@@ -517,12 +517,17 @@ struct WgcBackgroundSensor::Implementation
         recordResourceLedgerEvent(ledger, ResourceLedgerEvent::FrameClosed);
     }
 
-    [[nodiscard]] WgcBackgroundDrainStatus drainLatest(
+    [[nodiscard]] WgcBackgroundDrainDiagnostics drainLatestDetailed(
         ID3D11DeviceContext* context)
     {
+        WgcBackgroundDrainDiagnostics diagnostics{};
+        diagnostics.epoch = options.epoch;
+        diagnostics.frameArrivedCallbacksTotal = notification->generation();
+        diagnostics.acceptedGeneration = sampleGeneration;
         if (!isRunning)
         {
-            return WgcBackgroundDrainStatus::Stopped;
+            diagnostics.status = WgcBackgroundDrainStatus::Stopped;
+            return diagnostics;
         }
         if (context == nullptr)
         {
@@ -531,21 +536,25 @@ struct WgcBackgroundSensor::Implementation
         if (notification->itemClosed())
         {
             stop();
-            return WgcBackgroundDrainStatus::Stopped;
+            diagnostics.status = WgcBackgroundDrainStatus::Stopped;
+            return diagnostics;
         }
         if (pendingFramePoolSize.has_value())
         {
-            return WgcBackgroundDrainStatus::ReconfigureRequired;
+            diagnostics.status = WgcBackgroundDrainStatus::ReconfigureRequired;
+            return diagnostics;
         }
 
         const std::uint64_t observedGeneration =
             notification->generation();
+        diagnostics.frameArrivedCallbacksTotal = observedGeneration;
         Direct3D11CaptureFrame latest = tryGetNextFrame();
         if (!latest)
         {
             notification->resetAfterDrain(observedGeneration, false);
-            return WgcBackgroundDrainStatus::NoFrame;
+            return diagnostics;
         }
+        diagnostics.framesAcquired = 1U;
 
         try
         {
@@ -560,6 +569,8 @@ struct WgcBackgroundSensor::Implementation
                 closeOwnedFrame(latest);
                 latest = std::move(next);
                 ++consumedFrameCount;
+                ++diagnostics.framesAcquired;
+                ++diagnostics.framesSuperseded;
             }
             // A hot producer must not monopolize the Render Owner. An extra
             // wake is harmless when the queue contained exactly the budget.
@@ -579,7 +590,8 @@ struct WgcBackgroundSensor::Implementation
                 // Leave the manual-reset event signaled until the owner runs
                 // the explicit Recreate action. This prevents a wait between
                 // detection and the lifecycle transaction.
-                return WgcBackgroundDrainStatus::ReconfigureRequired;
+                diagnostics.status = WgcBackgroundDrainStatus::ReconfigureRequired;
+                return diagnostics;
             }
 
             const bafx::core::MonotonicTime timestamp = captureTime(latest);
@@ -590,10 +602,11 @@ struct WgcBackgroundSensor::Implementation
                 // image look fresh again. Keep the previous sample so it can
                 // age out through the normal fallback policy.
                 closeOwnedFrame(latest);
+                diagnostics.timestampRejectedFrames = 1U;
                 notification->resetAfterDrain(
                     observedGeneration,
                     queuedFramesMayRemain);
-                return WgcBackgroundDrainStatus::NoFrame;
+                return diagnostics;
             }
             const ComPtr<ID3D11Texture2D> sourceTexture = textureFromFrame(latest);
             D3D11_TEXTURE2D_DESC sourceDescription{};
@@ -612,6 +625,7 @@ struct WgcBackgroundSensor::Implementation
                 poolSize.width,
                 poolSize.height,
                 1U};
+            const auto copyStartedAt = std::chrono::steady_clock::now();
             context->CopySubresourceRegion(
                 ownedTexture.texture.Get(),
                 0U,
@@ -621,6 +635,9 @@ struct WgcBackgroundSensor::Implementation
                 sourceTexture.Get(),
                 0U,
                 &sourceBox);
+            diagnostics.ownedCopySubmitCpu =
+                std::chrono::steady_clock::now() - copyStartedAt;
+            diagnostics.ownedCopySubmitted = true;
 
             closeOwnedFrame(latest);
             lastAcceptedTimestamp = timestamp;
@@ -634,10 +651,13 @@ struct WgcBackgroundSensor::Implementation
                     options.excludesOwnOverlay},
                 poolSize,
                 sampleGeneration};
+            diagnostics.status = WgcBackgroundDrainStatus::Updated;
+            diagnostics.accepted = true;
+            diagnostics.acceptedGeneration = sampleGeneration;
             notification->resetAfterDrain(
                 observedGeneration,
                 queuedFramesMayRemain);
-            return WgcBackgroundDrainStatus::Updated;
+            return diagnostics;
         }
         catch (...)
         {
@@ -860,9 +880,15 @@ bool WgcBackgroundSensor::isSupported() noexcept
 WgcBackgroundDrainStatus WgcBackgroundSensor::drainLatest(
     ID3D11DeviceContext* context)
 {
+    return drainLatestDetailed(context).status;
+}
+
+WgcBackgroundDrainDiagnostics WgcBackgroundSensor::drainLatestDetailed(
+    ID3D11DeviceContext* context)
+{
     try
     {
-        return implementation_->drainLatest(context);
+        return implementation_->drainLatestDetailed(context);
     }
     catch (...)
     {

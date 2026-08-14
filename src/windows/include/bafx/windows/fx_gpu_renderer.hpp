@@ -8,6 +8,7 @@
 #include <d3d11.h>
 #include <wrl/client.h>
 
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -31,6 +32,14 @@ struct FxGpuFrameCapture
 struct BackgroundRenderInput
 {
     ID3D11ShaderResourceView* shaderResource{nullptr};
+};
+
+struct FxRenderCpuDiagnostics
+{
+    std::chrono::nanoseconds totalSubmit{};
+    std::chrono::nanoseconds materialsSubmit{};
+    std::chrono::nanoseconds bloomAndCompositeSubmit{};
+    bool visualContent{false};
 };
 
 enum class FxOverlayProfile : std::uint8_t
@@ -63,7 +72,7 @@ public:
         ID3D11ShaderResourceView* previous,
         ID3D11ShaderResourceView* current,
         ID3D11RenderTargetView* destination);
-    void render(
+    FxRenderCpuDiagnostics render(
         const bafx::fx::FrameSnapshot& snapshot,
         ID3D11RenderTargetView* destination,
         std::optional<BackgroundRenderInput> background = std::nullopt);

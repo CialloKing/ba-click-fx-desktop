@@ -185,11 +185,14 @@ void CompositionRenderer::setOverlayProfile(const FxOverlayProfile profile)
     fxRenderer_->setOverlayProfile(profile);
 }
 
-void CompositionRenderer::renderFrame(
+CompositionFrameDiagnostics CompositionRenderer::renderFrame(
     const bafx::fx::FrameSnapshot& snapshot,
     const bafx::core::MonotonicTime wallTime,
     const bool requireCurrentBackground)
 {
+    CompositionFrameDiagnostics diagnostics{};
+    diagnostics.frameId = ++frameId_;
+    const auto frameStartedAt = std::chrono::steady_clock::now();
     std::optional<BackgroundRenderInput> background;
     std::optional<WgcBackgroundSample> backgroundSample;
     bafx::core::BackgroundUsageDecision acquireUsage{};
@@ -228,6 +231,7 @@ void CompositionRenderer::renderFrame(
     }
     if (backgroundSensor_ != nullptr)
     {
+        diagnostics.wgcActive = true;
         const auto stopFailedBackgroundCapture =
             [this](const std::string_view failure) noexcept
         {
@@ -243,8 +247,12 @@ void CompositionRenderer::renderFrame(
         };
         try
         {
-            const WgcBackgroundDrainStatus drainStatus =
-                backgroundSensor_->drainLatest(context_.Get());
+            const auto drainStartedAt = std::chrono::steady_clock::now();
+            diagnostics.wgc = backgroundSensor_->drainLatestDetailed(
+                context_.Get());
+            diagnostics.wgcDrainInclusiveCpu =
+                std::chrono::steady_clock::now() - drainStartedAt;
+            const WgcBackgroundDrainStatus drainStatus = diagnostics.wgc.status;
             if (drainStatus == WgcBackgroundDrainStatus::Stopped)
             {
                 backgroundSensor_.reset();
@@ -273,6 +281,12 @@ void CompositionRenderer::renderFrame(
                     && backgroundRefreshPeriod_ > bafx::core::MonotonicTime::zero())
                 {
                     backgroundSample = sample;
+                    if (effectiveWallTime >= sample->stamp.capturedAt)
+                    {
+                        diagnostics.backgroundSampleAge = effectiveWallTime
+                            - sample->stamp.capturedAt;
+                        diagnostics.backgroundSampleAgeValid = true;
+                    }
                     acquireUsage = bafx::core::evaluateBackgroundUsage(
                         sample->stamp,
                         effectiveWallTime,
@@ -329,11 +343,21 @@ void CompositionRenderer::renderFrame(
             && (!backgroundSnapshotValid_
                 || backgroundSample->generation
                     != backgroundSnapshotGeneration_);
-        if (refreshSnapshot
-            && captureBackgroundSnapshot(backgroundSample->texture))
+        diagnostics.backgroundSnapshotRefreshAttempted = refreshSnapshot;
+        bool snapshotRefreshed = false;
+        if (refreshSnapshot)
+        {
+            const auto snapshotStartedAt = std::chrono::steady_clock::now();
+            snapshotRefreshed = captureBackgroundSnapshot(
+                backgroundSample->texture);
+            diagnostics.backgroundSnapshotSubmitCpu =
+                std::chrono::steady_clock::now() - snapshotStartedAt;
+        }
+        if (snapshotRefreshed)
         {
             backgroundSnapshotValid_ = true;
             backgroundSnapshotGeneration_ = backgroundSample->generation;
+            diagnostics.backgroundSnapshotRefreshed = true;
         }
         if (backgroundSnapshotValid_)
         {
@@ -362,13 +386,33 @@ void CompositionRenderer::renderFrame(
         }
     }
 
-    fxRenderer_->render(snapshot, renderTarget_.Get(), background);
+    diagnostics.fx = fxRenderer_->render(
+        snapshot,
+        renderTarget_.Get(),
+        background);
     if (readbackDiagnosticsEnabled_)
     {
+        const auto readbackStartedAt = std::chrono::steady_clock::now();
         captureCenterPixel();
+        diagnostics.diagnosticReadbackCpu =
+            std::chrono::steady_clock::now() - readbackStartedAt;
     }
 
+    const auto presentStartedAt = std::chrono::steady_clock::now();
     presentSwapChain();
+    diagnostics.presentCallCpu =
+        std::chrono::steady_clock::now() - presentStartedAt;
+    LARGE_INTEGER presentReturned{};
+    if (QueryPerformanceCounter(&presentReturned))
+    {
+        diagnostics.presentReturnedQpc = presentReturned.QuadPart;
+    }
+    diagnostics.presentReturnedTickMilliseconds = GetTickCount();
+    diagnostics.backgroundStatus = backgroundCompositeStatus_;
+    diagnostics.backgroundParticipated = backgroundParticipatedInLastFrame_;
+    diagnostics.frameTotalCpu =
+        std::chrono::steady_clock::now() - frameStartedAt;
+    return diagnostics;
 }
 
 PixelF CompositionRenderer::presentCompositionProbeColor(const PixelF color)

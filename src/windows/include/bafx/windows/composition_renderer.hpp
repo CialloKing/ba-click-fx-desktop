@@ -2,8 +2,10 @@
 
 #include "bafx/core/background_freshness.hpp"
 #include "bafx/windows/fx_bloom_settings.hpp"
+#include "bafx/windows/fx_gpu_renderer.hpp"
 #include "bafx/windows/overlay_window.hpp"
 #include "bafx/windows/unique_handle.hpp"
+#include "bafx/windows/wgc_background_sensor.hpp"
 
 #include <d3d11.h>
 #include <dcomp.h>
@@ -11,6 +13,7 @@
 #include <wrl/client.h>
 
 #include <array>
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -27,8 +30,6 @@ struct FrameSnapshot;
 namespace bafx::windows
 {
 
-class FxGpuRenderer;
-class WgcBackgroundSensor;
 enum class FxOverlayProfile : std::uint8_t;
 
 struct PixelF
@@ -77,6 +78,28 @@ struct GraphicsDeviceInfo
     D3D_FEATURE_LEVEL featureLevel{D3D_FEATURE_LEVEL_11_0};
 };
 
+struct CompositionFrameDiagnostics
+{
+    std::uint64_t frameId{0U};
+    WgcBackgroundDrainDiagnostics wgc{};
+    FxRenderCpuDiagnostics fx{};
+    BackgroundCompositeStatus backgroundStatus{
+        BackgroundCompositeStatus::Inactive};
+    std::chrono::nanoseconds frameTotalCpu{};
+    std::chrono::nanoseconds wgcDrainInclusiveCpu{};
+    std::chrono::nanoseconds backgroundSnapshotSubmitCpu{};
+    std::chrono::nanoseconds diagnosticReadbackCpu{};
+    std::chrono::nanoseconds presentCallCpu{};
+    std::chrono::nanoseconds backgroundSampleAge{};
+    std::int64_t presentReturnedQpc{0};
+    std::uint32_t presentReturnedTickMilliseconds{0U};
+    bool wgcActive{false};
+    bool backgroundSampleAgeValid{false};
+    bool backgroundSnapshotRefreshAttempted{false};
+    bool backgroundSnapshotRefreshed{false};
+    bool backgroundParticipated{false};
+};
+
 class CompositionRenderer final
 {
 public:
@@ -94,7 +117,7 @@ public:
     void resizeOutput(WindowSize size);
     void setBloomSettings(FxBloomSettings settings);
     void setOverlayProfile(FxOverlayProfile profile);
-    void renderFrame(
+    CompositionFrameDiagnostics renderFrame(
         const bafx::fx::FrameSnapshot& snapshot,
         bafx::core::MonotonicTime wallTime = bafx::core::MonotonicTime::zero(),
         bool requireCurrentBackground = false);
@@ -182,6 +205,7 @@ private:
     D3D_FEATURE_LEVEL featureLevel_{D3D_FEATURE_LEVEL_11_0};
     GraphicsDeviceInfo deviceInfo_{};
     WindowSize size_{};
+    std::uint64_t frameId_{0U};
 };
 
 }
