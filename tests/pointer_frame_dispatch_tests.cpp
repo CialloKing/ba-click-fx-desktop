@@ -294,7 +294,7 @@ BAFX_TEST(down_up_down_edges_follow_unity_aggregated_frame_order)
     BAFX_CHECK(!runtime.pointerHeld());
     BAFX_CHECK(runtime.instanceCount() == 1U);
     BAFX_CHECK(
-        centerDisk(runtime.snapshot(testViewport, 16ms)).centerPixels.x
+        centerDisk(runtime.snapshot(testViewport, 17ms)).centerPixels.x
         == finalPosition.x);
 
     PointerFrameDispatch followingHeldFrame{};
