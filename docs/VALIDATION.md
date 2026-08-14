@@ -19,6 +19,8 @@
 - ROI alignment/guard；
 - finite sanitize、component-wise non-negative 与 isotonic test vectors；
 - fixed-step simulation 和 deterministic random；
+- `FXTouch` 释放后的 `1 s` 仿真寿命、桌面暂停冻结、边界帧呈现后回池，以及
+  `60/120/144/240 Hz` 下不随 Present 频率提前回收；
 - PointerFrameAdapter 的跨帧 held、Down→Held→Up、释放帧不移动、边沿后尾随 Move 抑制，以及同帧
   多边沿原序归约；PointerFrameDispatch 的统一帧位置、统一 `renderTime` 与 QPC 输入相位隔离。
 

@@ -164,6 +164,12 @@ OS 指针输入；首次观察位置包含 shape offset 和观察前已累积的
   独立随机域。`updateUnityTrailTimeScale` 仍只提供逐游戏 Update 的显式入口；桌面 Host 没有真实
   `Time.timeScale` 来源，因此生产路径尚未调用它，也不能由桌面“暂停特效”代替。桌面暂停继续冻结
   独立仿真时间轴。
+- `FXTouch.Duration` 来自根 ParticleSystem；Prefab 的根 `duration=1 s` 且 `useUnscaledTime=1`。
+  `TouchEffectCreater.CoRestoreClickEffect` 的字面实现是在释放后等待 `Duration * 60` 次
+  `WaitForEndOfFrame`，即 60 次呈现，在 `60 Hz` 下等价于 `1 s`。原生将此解释为游戏按 60 Hz 换算
+  一秒美术寿命，并明确采用刷新率无关的 `1 s` 仿真时间作为 **ReconstructionChoice**：边界帧呈现后
+  才停止并归还对象，桌面暂停期间不消费这段时间。若字面按 60 次 Present 回收，`120/144/240 Hz`
+  会分别约在 `500/417/250 ms` 截断最长 `600-700 ms` 的碎片，因此不作为当前桌面合同。
 - Web 版的 coalesced events 与未按键常驻拖尾只作为 native/Web 产品增强，不是 Unity 路径真值。原生会
   按原序无损保留同帧多个 Raw Input 边沿，且含边沿帧不会从尾随 Move 重启常驻段；Unity Legacy Input
   如何聚合这些边沿仍为 Not Verified，需用真实 Player 黑盒夹具确认。`30 Hz` 是人工视觉审核建议，

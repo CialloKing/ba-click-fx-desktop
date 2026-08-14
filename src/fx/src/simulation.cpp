@@ -622,9 +622,9 @@ void Simulation::onFrameRendered(const SimulationTime time)
 
     if (ageSeconds(time, releasedAt_) >= releaseLifetimeSeconds)
     {
-        // The game converts the one-second root duration to 60 UI frames.
-        // Evaluate that duration after Present so high-refresh monitors cannot
-        // truncate the 600-700 ms tail and the boundary frame remains visible.
+        // The source converts the one-second root duration to 60 UI frames.
+        // Preserve that visual lifetime across desktop refresh rates; cleanup
+        // remains post-Present so the boundary frame is still drawable.
         active_ = false;
         rings_.clear();
         triangles_.clear();

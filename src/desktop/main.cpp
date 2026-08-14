@@ -933,9 +933,9 @@ int runApplication(
         {
             if (!controlState.paused || enteringPause)
             {
-                // Unity restores the pooled effect after WaitForEndOfFrame.
-                // Passing frozen simulation time preserves that ordering and
-                // prevents monitor refresh from becoming an animation clock.
+                // Pool cleanup belongs after the boundary presentation.
+                // Simulation time freezes during product pause, while the
+                // one-second lifetime remains independent of monitor cadence.
                 simulation.onFrameRendered(renderTime);
             }
             ++renderedFrames;
