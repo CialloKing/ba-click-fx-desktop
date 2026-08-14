@@ -42,6 +42,7 @@ Host 现在会把主显示器 DPI、DXGI 色彩空间、位深和驱动提供的
 
 ## 文档入口
 
+- [docs/ROADMAP.md](docs/ROADMAP.md)：当前体验优先的开发顺序、交付物和执行边界。
 - [ARCHITECTURE.md](ARCHITECTURE.md)：系统边界、模块、线程、数据流和降级规则。
 - [docs/adr](docs/adr)：七项渲染核心决策及产品控制面决策。
 - [docs/adr/0008-product-control-plane.md](docs/adr/0008-product-control-plane.md)：Host 配置与本地控制面的首个垂直切片。

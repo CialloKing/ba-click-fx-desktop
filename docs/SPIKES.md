@@ -1,7 +1,9 @@
 # 架构 Spike 验收规范
 
-四个 P0 Spike 都是架构状态从 Proposed 升级的必要证据。主假设失败不自动阻塞架构接受，但必须有
-已接受的 fallback 并同步收窄能力矩阵。执行结果保存在
+四个 P0 Spike 都是架构状态从 Proposed 升级和正式发布验收的必要证据；这里的 P0 表示证据不可跳过，
+不表示当前体验迭代的执行顺序。当前开发优先级以 [ROADMAP.md](ROADMAP.md) 为准，先收敛延迟诊断、
+WGC 成本和三端视觉回归，再集中补齐硬件矩阵。单独新增 collector/verifier 不计作用户功能。
+主假设失败不自动阻塞架构接受，但必须有已接受的 fallback 并同步收窄能力矩阵。执行结果保存在
 `artifacts/spikes/<spike>/<machine-and-date>/`；本机临时输出放在被 Git 忽略的 `artifacts/local/`。
 每次结果必须包含 OS build、GPU/driver、显示器/色彩模式、应用 commit、步骤、原始输出和结论。
 
