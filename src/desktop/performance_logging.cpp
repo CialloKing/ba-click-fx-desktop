@@ -3,6 +3,7 @@
 #include "bafx/windows/runtime_diagnostics.hpp"
 
 #include <array>
+#include <cstdint>
 #include <iomanip>
 #include <locale>
 #include <sstream>
@@ -36,6 +37,11 @@ public:
     void add(const std::string_view key, const std::uint32_t value)
     {
         add(key, static_cast<std::uint64_t>(value));
+    }
+
+    void add(const std::string_view key, const std::int32_t value)
+    {
+        addOwned(std::string(key), std::to_string(value));
     }
 
     void add(const std::string_view key, const bool value)
@@ -119,6 +125,44 @@ private:
     return "unknown";
 }
 
+[[nodiscard]] std::string_view frameBoundsStatusName(
+    const bafx::fx::FrameBoundsStatus status) noexcept
+{
+    using bafx::fx::FrameBoundsStatus;
+    switch (status)
+    {
+    case FrameBoundsStatus::Ok:
+        return "ok";
+    case FrameBoundsStatus::Empty:
+        return "empty";
+    case FrameBoundsStatus::Invalid:
+        return "invalid";
+    case FrameBoundsStatus::IntegerOverflow:
+        return "integer-overflow";
+    }
+    return "unknown";
+}
+
+[[nodiscard]] std::string_view roiStatusName(
+    const bafx::core::RoiStatus status) noexcept
+{
+    using bafx::core::RoiStatus;
+    switch (status)
+    {
+    case RoiStatus::Ok:
+        return "ok";
+    case RoiStatus::Empty:
+        return "empty";
+    case RoiStatus::InvalidRect:
+        return "invalid-rect";
+    case RoiStatus::InvalidFootprint:
+        return "invalid-footprint";
+    case RoiStatus::IntegerOverflow:
+        return "integer-overflow";
+    }
+    return "unknown";
+}
+
 void appendMetric(
     DiagnosticFields& fields,
     const std::string_view prefix,
@@ -141,6 +185,24 @@ void appendMetric(
     fields.add(base + ".P95", metric.p95);
     fields.add(base + ".P99", metric.p99);
     fields.add(base + ".Max", metric.maximum);
+}
+
+void appendRect(
+    DiagnosticFields& fields,
+    const std::string_view prefix,
+    const bool available,
+    const bafx::core::RectI rect)
+{
+    fields.add(std::string(prefix) + ".Available", available);
+    if (!available)
+    {
+        return;
+    }
+    const std::string base(prefix);
+    fields.add(base + ".Left", rect.left);
+    fields.add(base + ".Top", rect.top);
+    fields.add(base + ".Right", rect.right);
+    fields.add(base + ".Bottom", rect.bottom);
 }
 
 void appendConfigurationFields(
@@ -265,6 +327,33 @@ std::chrono::nanoseconds appendPerformanceInterval(
         fields.add(
             "GPU.StageApplicabilitySemantic",
             "WGC-drain-attempted-snapshot-attempted-and-visual-FX-only");
+        fields.add("ROI.ProductionPath", "full-screen-fallback");
+        fields.add(
+            "ROI.VisualBounds.LastStatus",
+            frameBoundsStatusName(summary.roiLastVisualBoundsStatus));
+        fields.add(
+            "ROI.Plan.LastStatus",
+            roiStatusName(summary.roiLastPlanStatus));
+        fields.add("ROI.VisualBounds.OkFrames", summary.roiVisualBoundsOkFrames);
+        fields.add(
+            "ROI.VisualBounds.EmptyFrames",
+            summary.roiVisualBoundsEmptyFrames);
+        fields.add(
+            "ROI.VisualBounds.InvalidFrames",
+            summary.roiVisualBoundsInvalidFrames);
+        fields.add(
+            "ROI.VisualBounds.OverflowFrames",
+            summary.roiVisualBoundsOverflowFrames);
+        fields.add("ROI.DirtyRect.Frames", summary.roiDirtyRectFrames);
+        fields.add("ROI.Plan.OkFrames", summary.roiPlanFrames);
+        fields.add("ROI.Plan.EmptyFrames", summary.roiPlanEmptyFrames);
+        fields.add(
+            "ROI.Plan.InvalidRectFrames",
+            summary.roiPlanInvalidRectFrames);
+        fields.add(
+            "ROI.Plan.InvalidFootprintFrames",
+            summary.roiPlanInvalidFootprintFrames);
+        fields.add("ROI.Plan.OverflowFrames", summary.roiPlanOverflowFrames);
         fields.add(
             "WGC.ProducerSemantic",
             "FrameArrived-callback-rate-proxy");
@@ -442,6 +531,43 @@ std::chrono::nanoseconds appendPerformanceInterval(
             "ms");
         appendMetric(
             fields,
+            "ROI.FullScreenPixels",
+            summary.roiFullScreenPixels,
+            "pixels");
+        appendMetric(
+            fields,
+            "ROI.BloomOutputPixels",
+            summary.roiBloomOutputPixels,
+            "pixels");
+        appendMetric(
+            fields,
+            "ROI.AlignedWorkPixels",
+            summary.roiAlignedWorkPixels,
+            "pixels");
+        appendMetric(fields, "ROI.GuardX", summary.roiGuardX, "pixels");
+        appendMetric(fields, "ROI.GuardY", summary.roiGuardY, "pixels");
+        appendMetric(
+            fields,
+            "ROI.PhasePeriod",
+            summary.roiPhasePeriod,
+            "pixels");
+        appendRect(
+            fields,
+            "ROI.LastDirtyRect",
+            summary.roiLastDirtyRectAvailable,
+            summary.roiLastDirtyRect);
+        appendRect(
+            fields,
+            "ROI.LastBloomOutput",
+            summary.roiLastBloomOutputAvailable,
+            summary.roiLastBloomOutput);
+        appendRect(
+            fields,
+            "ROI.LastAlignedWork",
+            summary.roiLastAlignedWorkAvailable,
+            summary.roiLastAlignedWork);
+        appendMetric(
+            fields,
             "GPU.PendingFrames",
             summary.gpuTimestampPendingFrames,
             "slots");
@@ -484,6 +610,11 @@ std::chrono::nanoseconds appendPerformanceInterval(
             || summary.gpuRingFullSkipped > 0U
             || summary.gpuQueryFailures > 0U
             || summary.gpuStateErrors > 0U
+            || summary.roiVisualBoundsInvalidFrames > 0U
+            || summary.roiVisualBoundsOverflowFrames > 0U
+            || summary.roiPlanInvalidRectFrames > 0U
+            || summary.roiPlanInvalidFootprintFrames > 0U
+            || summary.roiPlanOverflowFrames > 0U
             || summary.frameTotalCpuMicroseconds.maximum >= 100'000U
             || summary.presentCallCpuMicroseconds.maximum >= 50'000U;
         fields.append(

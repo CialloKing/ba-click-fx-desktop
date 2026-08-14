@@ -114,7 +114,20 @@ BAFX_TEST(runtime_performance_window_aggregates_input_and_render_contracts)
         .backgroundSnapshotRefreshAttempted = true,
         .backgroundSnapshotRefreshed = true,
         .backgroundParticipated = true,
-        .backgroundSampleAgeValid = true});
+        .backgroundSampleAgeValid = true,
+        .roiVisualBoundsStatus = bafx::fx::FrameBoundsStatus::Ok,
+        .roiPlanStatus = bafx::core::RoiStatus::Ok,
+        .roiDirtyRectAvailable = true,
+        .roiPlanAvailable = true,
+        .roiFullScreenPixels = 1'920U * 1'080U,
+        .roiBloomOutputPixels = 40'000U,
+        .roiAlignedWorkPixels = 50'000U,
+        .roiGuardX = 378U,
+        .roiGuardY = 378U,
+        .roiPhasePeriod = 64U,
+        .roiDirtyRect = bafx::core::RectI{10, 20, 30, 40},
+        .roiBloomOutput = bafx::core::RectI{0, 0, 100, 100},
+        .roiAlignedWork = bafx::core::RectI{0, 0, 128, 128}});
     window.addDispatchToPresentReturn(12'000U);
     window.addMessageToPresentReturn(47U);
     window.addFramePacingWake(bafx::desktop::FramePacingWake::FrameReady);
@@ -142,6 +155,16 @@ BAFX_TEST(runtime_performance_window_aggregates_input_and_render_contracts)
     BAFX_CHECK(
         summary.dispatchToPresentReturnMicroseconds.maximum == 12'000U);
     BAFX_CHECK(summary.messageToPresentReturnMilliseconds.maximum == 47U);
+    BAFX_CHECK(summary.roiVisualBoundsOkFrames == 1U);
+    BAFX_CHECK(summary.roiDirtyRectFrames == 1U);
+    BAFX_CHECK(summary.roiPlanFrames == 1U);
+    BAFX_CHECK(summary.roiFullScreenPixels.maximum == 1'920U * 1'080U);
+    BAFX_CHECK(summary.roiAlignedWorkPixels.maximum == 50'000U);
+    BAFX_CHECK(summary.roiGuardX.maximum == 378U);
+    BAFX_CHECK(summary.roiPhasePeriod.maximum == 64U);
+    BAFX_CHECK(summary.roiLastDirtyRectAvailable);
+    BAFX_CHECK(summary.roiLastDirtyRect.left == 10);
+    BAFX_CHECK(summary.roiLastAlignedWork.right == 128);
     BAFX_CHECK(summary.framePacingFrameReadyWakes == 1U);
     BAFX_CHECK(summary.framePacingMessageWakes == 1U);
     BAFX_CHECK(summary.framePacingTimeouts == 1U);

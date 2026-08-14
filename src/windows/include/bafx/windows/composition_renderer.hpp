@@ -1,6 +1,8 @@
 #pragma once
 
 #include "bafx/core/background_freshness.hpp"
+#include "bafx/core/roi.hpp"
+#include "bafx/fx/frame_bounds.hpp"
 #include "bafx/windows/fx_bloom_settings.hpp"
 #include "bafx/windows/fx_gpu_renderer.hpp"
 #include "bafx/windows/gpu_timestamp_profiler.hpp"
@@ -79,9 +81,32 @@ struct GraphicsDeviceInfo
     D3D_FEATURE_LEVEL featureLevel{D3D_FEATURE_LEVEL_11_0};
 };
 
+struct RoiFrameDiagnostics
+{
+    bafx::fx::FrameBoundsStatus visualBoundsStatus{
+        bafx::fx::FrameBoundsStatus::Empty};
+    bafx::core::RoiStatus planStatus{bafx::core::RoiStatus::Empty};
+    bafx::core::RectI currentVisualBounds{};
+    bafx::core::RectI dirtyRect{};
+    bafx::core::RectI bloomOutput{};
+    bafx::core::RectI alignedWork{};
+    std::uint32_t guardX{0U};
+    std::uint32_t guardY{0U};
+    std::uint32_t phasePeriod{0U};
+    std::uint64_t fullScreenPixels{0U};
+    std::uint64_t bloomOutputPixels{0U};
+    std::uint64_t alignedWorkPixels{0U};
+    bool currentVisualBoundsAvailable{false};
+    bool dirtyRectAvailable{false};
+    bool planAvailable{false};
+    // ROI remains an observation-only plan until ADR-006 and VAL-ROI pass.
+    bool productionFullScreenFallback{true};
+};
+
 struct CompositionFrameDiagnostics
 {
     std::uint64_t frameId{0U};
+    RoiFrameDiagnostics roi{};
     WgcBackgroundDrainDiagnostics wgc{};
     FxRenderCpuDiagnostics fx{};
     BackgroundCompositeStatus backgroundStatus{
@@ -217,6 +242,8 @@ private:
     bool readbackDiagnosticsEnabled_{false};
     D3D_FEATURE_LEVEL featureLevel_{D3D_FEATURE_LEVEL_11_0};
     GraphicsDeviceInfo deviceInfo_{};
+    FxBloomSettings bloomSettings_{};
+    std::optional<bafx::core::RectI> previousVisualBounds_{};
     WindowSize size_{};
     std::uint64_t frameId_{0U};
 };

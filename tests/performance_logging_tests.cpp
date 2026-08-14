@@ -67,6 +67,19 @@ BAFX_TEST(performance_log_preserves_metric_and_semantic_fields)
         .presentCallCpuMicroseconds = 2'000U,
         .wgcActive = true,
         .wgcDrainAttempted = true,
+        .roiVisualBoundsStatus = bafx::fx::FrameBoundsStatus::Ok,
+        .roiPlanStatus = bafx::core::RoiStatus::Ok,
+        .roiDirtyRectAvailable = true,
+        .roiPlanAvailable = true,
+        .roiFullScreenPixels = 1920U * 1080U,
+        .roiBloomOutputPixels = 40'000U,
+        .roiAlignedWorkPixels = 50'000U,
+        .roiGuardX = 378U,
+        .roiGuardY = 378U,
+        .roiPhasePeriod = 64U,
+        .roiDirtyRect = bafx::core::RectI{10, 20, 30, 40},
+        .roiBloomOutput = bafx::core::RectI{0, 0, 100, 100},
+        .roiAlignedWork = bafx::core::RectI{0, 0, 128, 128},
         .gpuFxMaterialsMicroseconds = 900U,
         .gpuBloomAndFinalCompositeMicroseconds = 2'500U,
         .gpuTotalFxMicroseconds = 3'400U,
@@ -107,6 +120,18 @@ BAFX_TEST(performance_log_preserves_metric_and_semantic_fields)
         != std::string::npos);
     BAFX_CHECK(text.find(
         "Timing.PresentMode=interval-0-frame-latency-gated\n")
+        != std::string::npos);
+    BAFX_CHECK(text.find("ROI.ProductionPath=full-screen-fallback\n")
+        != std::string::npos);
+    BAFX_CHECK(text.find("ROI.VisualBounds.OkFrames=1\n")
+        != std::string::npos);
+    BAFX_CHECK(text.find("ROI.Plan.LastStatus=ok\n")
+        != std::string::npos);
+    BAFX_CHECK(text.find("ROI.AlignedWorkPixels.Max=50000\n")
+        != std::string::npos);
+    BAFX_CHECK(text.find("ROI.LastDirtyRect.Left=10\n")
+        != std::string::npos);
+    BAFX_CHECK(text.find("ROI.LastAlignedWork.Right=128\n")
         != std::string::npos);
     BAFX_CHECK(text.find("Cpu.FrameTotal.P95=20000\n") != std::string::npos);
     BAFX_CHECK(text.find("WGC.DrainPolicy=active-fx-only\n")

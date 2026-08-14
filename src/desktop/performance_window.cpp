@@ -153,6 +153,63 @@ void RuntimePerformanceWindow::addFrame(
     const FramePerformanceSample& sample) noexcept
 {
     ++frameCount_;
+    roiLastVisualBoundsStatus_ = sample.roiVisualBoundsStatus;
+    roiLastPlanStatus_ = sample.roiPlanStatus;
+    switch (sample.roiVisualBoundsStatus)
+    {
+    case bafx::fx::FrameBoundsStatus::Ok:
+        ++roiVisualBoundsOkFrames_;
+        break;
+    case bafx::fx::FrameBoundsStatus::Empty:
+        ++roiVisualBoundsEmptyFrames_;
+        break;
+    case bafx::fx::FrameBoundsStatus::Invalid:
+        ++roiVisualBoundsInvalidFrames_;
+        break;
+    case bafx::fx::FrameBoundsStatus::IntegerOverflow:
+        ++roiVisualBoundsOverflowFrames_;
+        break;
+    }
+    if (sample.roiDirtyRectAvailable)
+    {
+        ++roiDirtyRectFrames_;
+        roiLastDirtyRectAvailable_ = true;
+        roiLastDirtyRect_ = sample.roiDirtyRect;
+    }
+    switch (sample.roiPlanStatus)
+    {
+    case bafx::core::RoiStatus::Ok:
+        ++roiPlanFrames_;
+        break;
+    case bafx::core::RoiStatus::Empty:
+        ++roiPlanEmptyFrames_;
+        break;
+    case bafx::core::RoiStatus::InvalidRect:
+        ++roiPlanInvalidRectFrames_;
+        break;
+    case bafx::core::RoiStatus::InvalidFootprint:
+        ++roiPlanInvalidFootprintFrames_;
+        break;
+    case bafx::core::RoiStatus::IntegerOverflow:
+        ++roiPlanOverflowFrames_;
+        break;
+    }
+    if (sample.roiFullScreenPixels > 0U)
+    {
+        roiFullScreenPixels_.add(sample.roiFullScreenPixels);
+    }
+    if (sample.roiPlanAvailable)
+    {
+        roiLastBloomOutputAvailable_ = true;
+        roiLastBloomOutput_ = sample.roiBloomOutput;
+        roiLastAlignedWorkAvailable_ = true;
+        roiLastAlignedWork_ = sample.roiAlignedWork;
+        roiBloomOutputPixels_.add(sample.roiBloomOutputPixels);
+        roiAlignedWorkPixels_.add(sample.roiAlignedWorkPixels);
+        roiGuardX_.add(sample.roiGuardX);
+        roiGuardY_.add(sample.roiGuardY);
+        roiPhasePeriod_.add(sample.roiPhasePeriod);
+    }
     wgcActiveFrames_ += sample.wgcActive ? 1U : 0U;
     wgcDrainAttemptedFrames_ += sample.wgcDrainAttempted ? 1U : 0U;
     wgcIdleDrainSkippedFrames_ += sample.wgcIdleDrainSkipped ? 1U : 0U;
@@ -302,6 +359,18 @@ void RuntimePerformanceWindow::reset() noexcept
     otherMessagesDispatched_ = 0U;
     inputDispatchBudgetExhaustions_ = 0U;
     otherDispatchBudgetExhaustions_ = 0U;
+    roiVisualBoundsOkFrames_ = 0U;
+    roiVisualBoundsEmptyFrames_ = 0U;
+    roiVisualBoundsInvalidFrames_ = 0U;
+    roiVisualBoundsOverflowFrames_ = 0U;
+    roiDirtyRectFrames_ = 0U;
+    roiPlanFrames_ = 0U;
+    roiPlanEmptyFrames_ = 0U;
+    roiPlanInvalidRectFrames_ = 0U;
+    roiPlanInvalidFootprintFrames_ = 0U;
+    roiPlanOverflowFrames_ = 0U;
+    roiLastVisualBoundsStatus_ = bafx::fx::FrameBoundsStatus::Empty;
+    roiLastPlanStatus_ = bafx::core::RoiStatus::Empty;
     framePacingFrameReadyWakes_ = 0U;
     framePacingMessageWakes_ = 0U;
     framePacingTimeouts_ = 0U;
@@ -332,6 +401,18 @@ void RuntimePerformanceWindow::reset() noexcept
     maximumWin32QueueAgeMilliseconds_.reset();
     dispatchToPresentReturnMicroseconds_.reset();
     messageToPresentReturnMilliseconds_.reset();
+    roiFullScreenPixels_.reset();
+    roiBloomOutputPixels_.reset();
+    roiAlignedWorkPixels_.reset();
+    roiGuardX_.reset();
+    roiGuardY_.reset();
+    roiPhasePeriod_.reset();
+    roiLastDirtyRectAvailable_ = false;
+    roiLastDirtyRect_ = bafx::core::RectI{};
+    roiLastBloomOutputAvailable_ = false;
+    roiLastBloomOutput_ = bafx::core::RectI{};
+    roiLastAlignedWorkAvailable_ = false;
+    roiLastAlignedWork_ = bafx::core::RectI{};
     gpuTimestampPendingFrames_.reset();
     gpuWgcDrainAndCopyMicroseconds_.reset();
     gpuBackgroundSnapshotMicroseconds_.reset();
@@ -368,6 +449,18 @@ RuntimePerformanceSummary RuntimePerformanceWindow::summarize() const
     summary.otherMessagesDispatched = otherMessagesDispatched_;
     summary.inputDispatchBudgetExhaustions = inputDispatchBudgetExhaustions_;
     summary.otherDispatchBudgetExhaustions = otherDispatchBudgetExhaustions_;
+    summary.roiVisualBoundsOkFrames = roiVisualBoundsOkFrames_;
+    summary.roiVisualBoundsEmptyFrames = roiVisualBoundsEmptyFrames_;
+    summary.roiVisualBoundsInvalidFrames = roiVisualBoundsInvalidFrames_;
+    summary.roiVisualBoundsOverflowFrames = roiVisualBoundsOverflowFrames_;
+    summary.roiDirtyRectFrames = roiDirtyRectFrames_;
+    summary.roiPlanFrames = roiPlanFrames_;
+    summary.roiPlanEmptyFrames = roiPlanEmptyFrames_;
+    summary.roiPlanInvalidRectFrames = roiPlanInvalidRectFrames_;
+    summary.roiPlanInvalidFootprintFrames = roiPlanInvalidFootprintFrames_;
+    summary.roiPlanOverflowFrames = roiPlanOverflowFrames_;
+    summary.roiLastVisualBoundsStatus = roiLastVisualBoundsStatus_;
+    summary.roiLastPlanStatus = roiLastPlanStatus_;
     summary.framePacingFrameReadyWakes = framePacingFrameReadyWakes_;
     summary.framePacingMessageWakes = framePacingMessageWakes_;
     summary.framePacingTimeouts = framePacingTimeouts_;
@@ -409,6 +502,18 @@ RuntimePerformanceSummary RuntimePerformanceWindow::summarize() const
         dispatchToPresentReturnMicroseconds_.summarize();
     summary.messageToPresentReturnMilliseconds =
         messageToPresentReturnMilliseconds_.summarize();
+    summary.roiFullScreenPixels = roiFullScreenPixels_.summarize();
+    summary.roiBloomOutputPixels = roiBloomOutputPixels_.summarize();
+    summary.roiAlignedWorkPixels = roiAlignedWorkPixels_.summarize();
+    summary.roiGuardX = roiGuardX_.summarize();
+    summary.roiGuardY = roiGuardY_.summarize();
+    summary.roiPhasePeriod = roiPhasePeriod_.summarize();
+    summary.roiLastDirtyRectAvailable = roiLastDirtyRectAvailable_;
+    summary.roiLastDirtyRect = roiLastDirtyRect_;
+    summary.roiLastBloomOutputAvailable = roiLastBloomOutputAvailable_;
+    summary.roiLastBloomOutput = roiLastBloomOutput_;
+    summary.roiLastAlignedWorkAvailable = roiLastAlignedWorkAvailable_;
+    summary.roiLastAlignedWork = roiLastAlignedWork_;
     summary.gpuTimestampPendingFrames =
         gpuTimestampPendingFrames_.summarize();
     summary.gpuWgcDrainAndCopyMicroseconds =

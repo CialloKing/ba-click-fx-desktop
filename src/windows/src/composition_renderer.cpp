@@ -15,6 +15,7 @@
 #include <cmath>
 #include <exception>
 #include <limits>
+#include <optional>
 #include <stdexcept>
 #include <utility>
 
@@ -179,13 +180,150 @@ primaryRefreshPeriod() noexcept
     return BackgroundCompositeStatus::WaitingForFrame;
 }
 
+[[nodiscard]] std::uint64_t rectArea(const bafx::core::RectI rect) noexcept
+{
+    if (rect.left >= rect.right || rect.top >= rect.bottom)
+    {
+        return 0U;
+    }
+
+    const std::uint64_t width = static_cast<std::uint64_t>(
+        static_cast<std::int64_t>(rect.right)
+        - static_cast<std::int64_t>(rect.left));
+    const std::uint64_t height = static_cast<std::uint64_t>(
+        static_cast<std::int64_t>(rect.bottom)
+        - static_cast<std::int64_t>(rect.top));
+    if (height != 0U
+        && width > std::numeric_limits<std::uint64_t>::max() / height)
+    {
+        return std::numeric_limits<std::uint64_t>::max();
+    }
+    return width * height;
+}
+
+[[nodiscard]] std::optional<bafx::core::RectI> monitorRect(
+    const WindowSize size) noexcept
+{
+    if (size.width == 0U || size.height == 0U
+        || size.width > static_cast<std::uint32_t>(
+            std::numeric_limits<std::int32_t>::max())
+        || size.height > static_cast<std::uint32_t>(
+            std::numeric_limits<std::int32_t>::max()))
+    {
+        return std::nullopt;
+    }
+    return bafx::core::RectI{
+        0,
+        0,
+        static_cast<std::int32_t>(size.width),
+        static_cast<std::int32_t>(size.height)};
+}
+
+void populateRoiDiagnostics(
+    CompositionFrameDiagnostics& diagnostics,
+    const bafx::fx::FrameSnapshot& snapshot,
+    const WindowSize size,
+    const FxBloomSettings bloomSettings,
+    std::optional<bafx::core::RectI>& previousVisualBounds) noexcept
+{
+    diagnostics.roi.fullScreenPixels =
+        static_cast<std::uint64_t>(size.width)
+        * static_cast<std::uint64_t>(size.height);
+
+    const bafx::fx::FrameVisualBoundsResult bounds =
+        bafx::fx::visualBounds(snapshot);
+    diagnostics.roi.visualBoundsStatus = bounds.status;
+    if (bounds.status == bafx::fx::FrameBoundsStatus::Ok)
+    {
+        diagnostics.roi.currentVisualBounds = bounds.bounds;
+        diagnostics.roi.currentVisualBoundsAvailable = true;
+    }
+
+    const std::optional<bafx::core::RectI> currentBounds =
+        bounds.status == bafx::fx::FrameBoundsStatus::Ok
+        ? std::optional<bafx::core::RectI>(bounds.bounds)
+        : std::nullopt;
+    const std::optional<bafx::core::RectI> dirtyRect =
+        bafx::fx::uniteVisualBounds(previousVisualBounds, currentBounds);
+    if (dirtyRect.has_value())
+    {
+        diagnostics.roi.dirtyRect = *dirtyRect;
+        diagnostics.roi.dirtyRectAvailable = true;
+    }
+
+    if (bounds.status == bafx::fx::FrameBoundsStatus::Ok)
+    {
+        previousVisualBounds = currentBounds;
+    }
+    else if (bounds.status == bafx::fx::FrameBoundsStatus::Empty)
+    {
+        previousVisualBounds.reset();
+    }
+    else
+    {
+        // An invalid frame cannot safely seed a later ROI. Drop the previous
+        // range so a recovered frame starts a fresh conservative batch.
+        previousVisualBounds.reset();
+    }
+
+    if (bounds.status != bafx::fx::FrameBoundsStatus::Ok
+        && bounds.status != bafx::fx::FrameBoundsStatus::Empty)
+    {
+        diagnostics.roi.planStatus = bafx::core::RoiStatus::InvalidRect;
+        return;
+    }
+
+    const std::optional<bafx::core::RectI> fullMonitor = monitorRect(size);
+    if (!dirtyRect.has_value() || !fullMonitor.has_value())
+    {
+        diagnostics.roi.planStatus = dirtyRect.has_value()
+            ? bafx::core::RoiStatus::InvalidRect
+            : bafx::core::RoiStatus::Empty;
+        return;
+    }
+
+    const bafx::core::UnityBloomPlanResult bloom = bafx::core::planUnityBloom(
+        bafx::core::BloomExtent{
+            fullMonitor->right,
+            fullMonitor->bottom},
+        bafx::core::UnityBloomSettings{
+            bloomSettings.diffusion,
+            0.0F,
+            1.7F});
+    if (bloom.status != bafx::core::UnityBloomStatus::Ok)
+    {
+        diagnostics.roi.planStatus = bafx::core::RoiStatus::InvalidFootprint;
+        return;
+    }
+
+    const bafx::core::BloomRoiPlanResult plan =
+        bafx::core::planUnityBloomRoi(
+            *dirtyRect,
+            *fullMonitor,
+            bloom.plan);
+    diagnostics.roi.planStatus = plan.status;
+    if (plan.status != bafx::core::RoiStatus::Ok)
+    {
+        return;
+    }
+
+    diagnostics.roi.guardX = plan.plan.guardX;
+    diagnostics.roi.guardY = plan.plan.guardY;
+    diagnostics.roi.phasePeriod = plan.plan.phasePeriod;
+    diagnostics.roi.bloomOutput = plan.plan.bloomOutput;
+    diagnostics.roi.alignedWork = plan.plan.alignedWork;
+    diagnostics.roi.bloomOutputPixels = rectArea(plan.plan.bloomOutput);
+    diagnostics.roi.alignedWorkPixels = rectArea(plan.plan.alignedWork);
+    diagnostics.roi.planAvailable = true;
+}
+
 }
 
 CompositionRenderer::CompositionRenderer(
     const HWND window,
     const WindowSize size,
     const FxBloomSettings bloomSettings)
-    : size_(size)
+    : bloomSettings_(bloomSettings), size_(size)
 {
     createDevice();
     createSwapChain(size);
@@ -222,6 +360,7 @@ void CompositionRenderer::resizeOutput(const WindowSize size)
     // correctly sized WGC frame is still pending.
     backgroundPathLatch_.reset();
     releaseBackgroundSnapshotResources();
+    previousVisualBounds_.reset();
 
     context_->OMSetRenderTargets(0, nullptr, nullptr);
     renderTarget_.Reset();
@@ -241,6 +380,7 @@ void CompositionRenderer::resizeOutput(const WindowSize size)
 
 void CompositionRenderer::setBloomSettings(const FxBloomSettings settings)
 {
+    bloomSettings_ = settings;
     fxRenderer_->setBloomSettings(settings);
 }
 
@@ -256,6 +396,12 @@ CompositionFrameDiagnostics CompositionRenderer::renderFrame(
 {
     CompositionFrameDiagnostics diagnostics{};
     diagnostics.frameId = ++frameId_;
+    populateRoiDiagnostics(
+        diagnostics,
+        snapshot,
+        size_,
+        bloomSettings_,
+        previousVisualBounds_);
     GpuTimestampFrameScope gpuTimestampFrame(
         *gpuTimestampProfiler_,
         diagnostics.frameId,

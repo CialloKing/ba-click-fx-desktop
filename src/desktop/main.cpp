@@ -590,6 +590,19 @@ struct PointerConsumptionDiagnostics
         durationMicroseconds(frame.presentCallCpu);
     sample.backgroundSampleAgeMicroseconds =
         durationMicroseconds(frame.backgroundSampleAge);
+    sample.roiVisualBoundsStatus = frame.roi.visualBoundsStatus;
+    sample.roiPlanStatus = frame.roi.planStatus;
+    sample.roiDirtyRectAvailable = frame.roi.dirtyRectAvailable;
+    sample.roiPlanAvailable = frame.roi.planAvailable;
+    sample.roiFullScreenPixels = frame.roi.fullScreenPixels;
+    sample.roiBloomOutputPixels = frame.roi.bloomOutputPixels;
+    sample.roiAlignedWorkPixels = frame.roi.alignedWorkPixels;
+    sample.roiGuardX = frame.roi.guardX;
+    sample.roiGuardY = frame.roi.guardY;
+    sample.roiPhasePeriod = frame.roi.phasePeriod;
+    sample.roiDirtyRect = frame.roi.dirtyRect;
+    sample.roiBloomOutput = frame.roi.bloomOutput;
+    sample.roiAlignedWork = frame.roi.alignedWork;
     sample.wgcProducerCallbacks = wgcProducerCallbacks;
     sample.wgcFramesAcquired = frame.wgc.framesAcquired;
     sample.wgcFramesSuperseded = frame.wgc.framesSuperseded;

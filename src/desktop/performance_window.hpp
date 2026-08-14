@@ -1,5 +1,7 @@
 #pragma once
 
+#include "bafx/core/roi.hpp"
+#include "bafx/fx/frame_bounds.hpp"
 #include "frame_pacing.hpp"
 
 #include <cstddef>
@@ -65,6 +67,20 @@ struct FramePerformanceSample
     bool backgroundParticipated{false};
     bool backgroundSampleAgeValid{false};
     bool diagnosticReadbackUsed{false};
+    bafx::fx::FrameBoundsStatus roiVisualBoundsStatus{
+        bafx::fx::FrameBoundsStatus::Empty};
+    bafx::core::RoiStatus roiPlanStatus{bafx::core::RoiStatus::Empty};
+    bool roiDirtyRectAvailable{false};
+    bool roiPlanAvailable{false};
+    std::uint64_t roiFullScreenPixels{0U};
+    std::uint64_t roiBloomOutputPixels{0U};
+    std::uint64_t roiAlignedWorkPixels{0U};
+    std::uint32_t roiGuardX{0U};
+    std::uint32_t roiGuardY{0U};
+    std::uint32_t roiPhasePeriod{0U};
+    bafx::core::RectI roiDirtyRect{};
+    bafx::core::RectI roiBloomOutput{};
+    bafx::core::RectI roiAlignedWork{};
     std::uint64_t gpuWgcDrainAndCopyMicroseconds{0U};
     std::uint64_t gpuBackgroundSnapshotMicroseconds{0U};
     std::uint64_t gpuFxMaterialsMicroseconds{0U};
@@ -115,6 +131,19 @@ struct RuntimePerformanceSummary
     std::uint64_t otherMessagesDispatched{0U};
     std::uint64_t inputDispatchBudgetExhaustions{0U};
     std::uint64_t otherDispatchBudgetExhaustions{0U};
+    std::uint64_t roiVisualBoundsOkFrames{0U};
+    std::uint64_t roiVisualBoundsEmptyFrames{0U};
+    std::uint64_t roiVisualBoundsInvalidFrames{0U};
+    std::uint64_t roiVisualBoundsOverflowFrames{0U};
+    std::uint64_t roiDirtyRectFrames{0U};
+    std::uint64_t roiPlanFrames{0U};
+    std::uint64_t roiPlanEmptyFrames{0U};
+    std::uint64_t roiPlanInvalidRectFrames{0U};
+    std::uint64_t roiPlanInvalidFootprintFrames{0U};
+    std::uint64_t roiPlanOverflowFrames{0U};
+    bafx::fx::FrameBoundsStatus roiLastVisualBoundsStatus{
+        bafx::fx::FrameBoundsStatus::Empty};
+    bafx::core::RoiStatus roiLastPlanStatus{bafx::core::RoiStatus::Empty};
     std::uint64_t framePacingFrameReadyWakes{0U};
     std::uint64_t framePacingMessageWakes{0U};
     std::uint64_t framePacingTimeouts{0U};
@@ -145,6 +174,18 @@ struct RuntimePerformanceSummary
     MetricSummary maximumWin32QueueAgeMilliseconds{};
     MetricSummary dispatchToPresentReturnMicroseconds{};
     MetricSummary messageToPresentReturnMilliseconds{};
+    MetricSummary roiFullScreenPixels{};
+    MetricSummary roiBloomOutputPixels{};
+    MetricSummary roiAlignedWorkPixels{};
+    MetricSummary roiGuardX{};
+    MetricSummary roiGuardY{};
+    MetricSummary roiPhasePeriod{};
+    bool roiLastDirtyRectAvailable{false};
+    bafx::core::RectI roiLastDirtyRect{};
+    bool roiLastBloomOutputAvailable{false};
+    bafx::core::RectI roiLastBloomOutput{};
+    bool roiLastAlignedWorkAvailable{false};
+    bafx::core::RectI roiLastAlignedWork{};
     MetricSummary gpuTimestampPendingFrames{};
     MetricSummary gpuWgcDrainAndCopyMicroseconds{};
     MetricSummary gpuBackgroundSnapshotMicroseconds{};
@@ -230,6 +271,19 @@ private:
     std::uint64_t otherMessagesDispatched_{0U};
     std::uint64_t inputDispatchBudgetExhaustions_{0U};
     std::uint64_t otherDispatchBudgetExhaustions_{0U};
+    std::uint64_t roiVisualBoundsOkFrames_{0U};
+    std::uint64_t roiVisualBoundsEmptyFrames_{0U};
+    std::uint64_t roiVisualBoundsInvalidFrames_{0U};
+    std::uint64_t roiVisualBoundsOverflowFrames_{0U};
+    std::uint64_t roiDirtyRectFrames_{0U};
+    std::uint64_t roiPlanFrames_{0U};
+    std::uint64_t roiPlanEmptyFrames_{0U};
+    std::uint64_t roiPlanInvalidRectFrames_{0U};
+    std::uint64_t roiPlanInvalidFootprintFrames_{0U};
+    std::uint64_t roiPlanOverflowFrames_{0U};
+    bafx::fx::FrameBoundsStatus roiLastVisualBoundsStatus_{
+        bafx::fx::FrameBoundsStatus::Empty};
+    bafx::core::RoiStatus roiLastPlanStatus_{bafx::core::RoiStatus::Empty};
     std::uint64_t framePacingFrameReadyWakes_{0U};
     std::uint64_t framePacingMessageWakes_{0U};
     std::uint64_t framePacingTimeouts_{0U};
@@ -260,6 +314,18 @@ private:
     BoundedMetric maximumWin32QueueAgeMilliseconds_{};
     BoundedMetric dispatchToPresentReturnMicroseconds_{};
     BoundedMetric messageToPresentReturnMilliseconds_{};
+    BoundedMetric roiFullScreenPixels_{};
+    BoundedMetric roiBloomOutputPixels_{};
+    BoundedMetric roiAlignedWorkPixels_{};
+    BoundedMetric roiGuardX_{};
+    BoundedMetric roiGuardY_{};
+    BoundedMetric roiPhasePeriod_{};
+    bool roiLastDirtyRectAvailable_{false};
+    bafx::core::RectI roiLastDirtyRect_{};
+    bool roiLastBloomOutputAvailable_{false};
+    bafx::core::RectI roiLastBloomOutput_{};
+    bool roiLastAlignedWorkAvailable_{false};
+    bafx::core::RectI roiLastAlignedWork_{};
     BoundedMetric gpuTimestampPendingFrames_{};
     BoundedMetric gpuWgcDrainAndCopyMicroseconds_{};
     BoundedMetric gpuBackgroundSnapshotMicroseconds_{};
