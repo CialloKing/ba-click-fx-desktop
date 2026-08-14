@@ -137,6 +137,19 @@ if(Python3_Interpreter_FOUND)
             WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
             TIMEOUT 15
     )
+    add_test(
+        NAME wgc_self_exclusion_spike_contract
+        COMMAND
+            "${Python3_EXECUTABLE}"
+            -B
+            "${CMAKE_CURRENT_SOURCE_DIR}/verify_wgc_self_exclusion_spike_tests.py"
+    )
+    set_tests_properties(
+        wgc_self_exclusion_spike_contract
+        PROPERTIES
+            WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
+            TIMEOUT 45
+    )
     if(WIN32 AND BAFX_ENABLE_COMPOSITION_SPIKE_TESTS)
         add_test(
             NAME composition_spike_capture_verify
@@ -189,6 +202,25 @@ if(Python3_Interpreter_FOUND)
             PROPERTIES
                 DEPENDS wgc_cursor_spike_capture
                 LABELS "integration;desktop;gpu;spike;cursor"
+                RUN_SERIAL TRUE
+                TIMEOUT 15
+        )
+    endif()
+    if(WIN32 AND BAFX_ENABLE_WGC_SELF_EXCLUSION_SPIKE_TESTS)
+        add_test(
+            NAME wgc_self_exclusion_spike_capture_verify
+            COMMAND
+                "${Python3_EXECUTABLE}"
+                -B
+                "${PROJECT_SOURCE_DIR}/tools/verify-wgc-self-exclusion-spike.py"
+                "${PROJECT_BINARY_DIR}/src/capture/ctest-wgc-self-exclusion-spike/self-exclusion.json"
+                "--report=${PROJECT_BINARY_DIR}/src/capture/ctest-wgc-self-exclusion-spike/verification.json"
+        )
+        set_tests_properties(
+            wgc_self_exclusion_spike_capture_verify
+            PROPERTIES
+                DEPENDS wgc_self_exclusion_spike_capture
+                LABELS "integration;desktop;gpu;spike;capture-exclusion"
                 RUN_SERIAL TRUE
                 TIMEOUT 15
         )
