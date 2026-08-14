@@ -108,6 +108,34 @@ set_target_properties(
         OUTPUT_NAME "ba-click-fx-wgc-cursor-spike"
 )
 
+add_executable(
+    ba_fx_wgc_self_exclusion_spike
+    capture_artifact_writer.cpp
+    spike_runtime.cpp
+    wgc_self_exclusion_spike_main.cpp
+)
+target_compile_features(ba_fx_wgc_self_exclusion_spike PRIVATE cxx_std_20)
+target_compile_definitions(
+    ba_fx_wgc_self_exclusion_spike
+    PRIVATE
+        BAFX_CAPTURE_VERSION="${BAFX_VERSION}"
+)
+target_link_libraries(
+    ba_fx_wgc_self_exclusion_spike
+    PRIVATE
+        bafx::windows
+        gdi32
+        ole32
+        windowscodecs
+)
+bafx_enable_warnings(ba_fx_wgc_self_exclusion_spike)
+set_target_properties(
+    ba_fx_wgc_self_exclusion_spike
+    PROPERTIES
+        FOLDER "Validation"
+        OUTPUT_NAME "ba-click-fx-wgc-self-exclusion-spike"
+)
+
 option(
     BAFX_ENABLE_COMPOSITION_SPIKE_TESTS
     "Register the interactive DirectComposition/WGC composition spike"
@@ -121,6 +149,11 @@ option(
 option(
     BAFX_ENABLE_WGC_CURSOR_SPIKE_TESTS
     "Register the cursor-moving WGC pixel spike"
+    OFF
+)
+option(
+    BAFX_ENABLE_WGC_SELF_EXCLUSION_SPIKE_TESTS
+    "Register the WDA self-exclusion WGC pixel spike"
     OFF
 )
 if(BUILD_TESTING AND BAFX_ENABLE_COMPOSITION_SPIKE_TESTS)
@@ -172,6 +205,24 @@ if(BUILD_TESTING AND BAFX_ENABLE_WGC_CURSOR_SPIKE_TESTS)
         wgc_cursor_spike_capture
         PROPERTIES
             LABELS "integration;desktop;gpu;spike;cursor"
+            RUN_SERIAL TRUE
+            TIMEOUT 30
+    )
+endif()
+
+if(BUILD_TESTING AND BAFX_ENABLE_WGC_SELF_EXCLUSION_SPIKE_TESTS)
+    add_test(
+        NAME wgc_self_exclusion_spike_capture
+        COMMAND
+            ba_fx_wgc_self_exclusion_spike
+            "--output=${CMAKE_CURRENT_BINARY_DIR}/ctest-wgc-self-exclusion-spike"
+            --revision=ctest
+            --timeout-ms=15000
+    )
+    set_tests_properties(
+        wgc_self_exclusion_spike_capture
+        PROPERTIES
+            LABELS "integration;desktop;gpu;spike;capture-exclusion"
             RUN_SERIAL TRUE
             TIMEOUT 30
     )
