@@ -1109,6 +1109,8 @@ int runApplication(
     bafx::desktop::RuntimePerformanceWindow performanceWindow;
     std::chrono::nanoseconds previousPerformanceLogWriteCpu{};
     bafx::desktop::WgcCallbackDeltaTracker wgcCallbackDeltaTracker;
+    bafx::desktop::CaptureExclusionHealthPoller
+        captureExclusionHealthPoller;
     MessageDispatchDiagnostics pendingMessageDispatch{};
     const auto appendPendingBackgroundSnapshotInvalidation = [&]() noexcept
     {
@@ -1358,6 +1360,77 @@ int runApplication(
         // pacing waits. Consume it now so a timeout cannot shift attribution
         // to a later control generation.
         appendPendingBackgroundSnapshotInvalidation();
+
+        const bafx::fx::SimulationTime captureHealthNow = clock.now();
+        if (captureExclusionHealthPoller.shouldQuery(
+                renderer.backgroundCaptureActive(),
+                captureHealthNow))
+        {
+            const bafx::windows::CaptureExclusionQueryStatus affinity =
+                window.queryCaptureExcluded(true);
+            const bool affinityConfirmed = affinity.confirmed();
+            performanceWindow.addCaptureExclusionHealthCheck(
+                affinityConfirmed);
+            if (!affinityConfirmed)
+            {
+                const bool transactionPending =
+                    backgroundExecution.transactionActive;
+                const std::uint64_t failureGeneration = transactionPending
+                    ? backgroundExecution.controlGeneration
+                    : appliedGeneration;
+                bafx::desktop::appendCaptureExclusionHealthFailure(
+                    logPath,
+                    failureGeneration,
+                    transactionPending,
+                    affinity);
+
+                bafx::desktop::BackgroundCaptureExecutionStatus fallbackStatus =
+                    bafx::desktop::BackgroundCaptureExecutionStatus::Pending;
+                if (transactionPending)
+                {
+                    fallbackStatus =
+                        bafx::desktop::cancelBackgroundCaptureTransition(
+                            backgroundTransition,
+                            window,
+                            renderer,
+                            primaryMonitor.handle,
+                            backgroundExecution,
+                            "capture-exclusion-lost",
+                            logPath);
+                }
+                else
+                {
+                    if (!backgroundTransition.beginCaptureExclusionLost())
+                    {
+                        throw std::logic_error(
+                            "Capture exclusion loss could not enter cleanup transaction");
+                    }
+                    fallbackStatus =
+                        bafx::desktop::executeBackgroundCaptureTransition(
+                            backgroundTransition,
+                            window,
+                            renderer,
+                            primaryMonitor.handle,
+                            appliedGeneration,
+                            backgroundExecution,
+                            logPath);
+                }
+                if (fallbackStatus
+                    != bafx::desktop::BackgroundCaptureExecutionStatus::Completed)
+                {
+                    throw std::logic_error(
+                        "Capture exclusion cleanup unexpectedly became pending");
+                }
+                if (backgroundExecution.sensorFailure.empty())
+                {
+                    backgroundExecution.sensorFailure =
+                        bafx::windows::captureExclusionQueryDiagnostic(affinity);
+                }
+                finishBackgroundCaptureTransaction(
+                    "capture-exclusion-health-recovery");
+                renderInvalidated = true;
+            }
+        }
 
         const bool enteringPause = controlState.paused
             && !simulationTimeline.paused();

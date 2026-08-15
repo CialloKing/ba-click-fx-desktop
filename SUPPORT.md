@@ -56,6 +56,11 @@
   Action 抛异常、状态机拒绝或超出固定 action budget 时会分别记录
   `Phase=action-failed|transition-rejected|budget-exceeded`；正常退出记录 `Phase=shutdown`。
   账本格式化失败只写固定的 `Reason=formatter-failed` 降级事件，不会改变渲染事务结果。
+- WGC Sensor 活跃时，Host 最多每秒只读回查一次覆盖层是否仍为 `WDA_EXCLUDEFROMCAPTURE`。成功次数汇总到
+  十秒 `Performance.Interval` 的 `WGC.CaptureExclusion.HealthChecks/HealthFailures`，不逐次写盘；查询失败或
+  观察值变化时立即写 `WGC.CaptureExclusion.HealthFailed`，保留控制代次、待处理事务、期望值、观察值和
+  Win32 错误，然后按 `StopSensor -> WDA_NONE -> FX-only` 回退。若无边框权限请求仍在等待，会先取消该请求，
+  再执行同一回退；稳定配置不会在渲染循环中自动重启 WGC。该防护不等同于无边框 WGC 已通过跨版本验收。
 - 每次 WGC stop 还会记录 `WGC.Stop.SensorPresent/Completed/DeferredReport`、FrameArrived/Closed 两类事件
   退订耗时、`SessionCloseUs`、`FramePoolCloseUs` 和 `TotalUs`。渲染阶段已经停止 sensor、随后清理事务再次
   执行无 sensor stop 时，真实耗时会保留到首次日志消费并标记 `DeferredReport=true`，不会被零值覆盖；消费

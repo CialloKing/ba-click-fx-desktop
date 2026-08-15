@@ -123,6 +123,8 @@ struct RuntimePerformanceSummary
     std::uint64_t backgroundSnapshotAttempts{0U};
     std::uint64_t backgroundSnapshotsRefreshed{0U};
     std::uint64_t backgroundParticipatingFrames{0U};
+    std::uint64_t captureExclusionHealthChecks{0U};
+    std::uint64_t captureExclusionHealthFailures{0U};
     std::uint64_t rawInputMessages{0U};
     std::uint64_t moveEvents{0U};
     std::uint64_t buttonEdges{0U};
@@ -247,6 +249,7 @@ public:
     void addBackgroundMaintenance(
         const FramePerformanceSample& sample) noexcept;
     void addFramePacingWake(FramePacingWake wake) noexcept;
+    void addCaptureExclusionHealthCheck(bool confirmed) noexcept;
     void addDispatchToPresentReturn(std::uint64_t microseconds) noexcept;
     void addMessageToPresentReturn(std::uint64_t milliseconds) noexcept;
     void reset() noexcept;
@@ -272,6 +275,8 @@ private:
     std::uint64_t backgroundSnapshotAttempts_{0U};
     std::uint64_t backgroundSnapshotsRefreshed_{0U};
     std::uint64_t backgroundParticipatingFrames_{0U};
+    std::uint64_t captureExclusionHealthChecks_{0U};
+    std::uint64_t captureExclusionHealthFailures_{0U};
     std::uint64_t rawInputMessages_{0U};
     std::uint64_t moveEvents_{0U};
     std::uint64_t buttonEdges_{0U};

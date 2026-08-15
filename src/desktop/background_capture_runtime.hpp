@@ -148,4 +148,10 @@ void appendBackgroundCompositeParticipation(
     std::uint64_t controlGeneration,
     const bafx::windows::CompositionFrameDiagnostics& diagnostics) noexcept;
 
+void appendCaptureExclusionHealthFailure(
+    const std::filesystem::path& logPath,
+    std::uint64_t controlGeneration,
+    bool transactionPending,
+    const bafx::windows::CaptureExclusionQueryStatus& status) noexcept;
+
 }

@@ -105,6 +105,14 @@ namespace
     return "unknown";
 }
 
+[[nodiscard]] std::string win32Hex(const DWORD value)
+{
+    std::ostringstream stream;
+    stream << "0x" << std::hex << std::uppercase << std::setw(8)
+           << std::setfill('0') << value;
+    return stream.str();
+}
+
 [[nodiscard]] bafx::windows::DiagnosticLevel snapshotInvalidationLevel(
     const bafx::windows::BackgroundSnapshotInvalidationReason reason) noexcept
 {
@@ -1065,6 +1073,51 @@ void appendBackgroundCompositeParticipation(
     bafx::windows::appendDiagnosticLog(
         logPath,
         "WGC background sample entered the final desktop composite");
+}
+
+void appendCaptureExclusionHealthFailure(
+    const std::filesystem::path& logPath,
+    const std::uint64_t controlGeneration,
+    const bool transactionPending,
+    const bafx::windows::CaptureExclusionQueryStatus& status) noexcept
+{
+    try
+    {
+        const std::array values{
+            std::to_string(controlGeneration),
+            win32Hex(status.expectedAffinity),
+            win32Hex(status.observedAffinity),
+            win32Hex(status.queryError)};
+        const std::array fields{
+            bafx::windows::DiagnosticField{"Control.Generation", values[0]},
+            bafx::windows::DiagnosticField{
+                "Transaction.Pending",
+                transactionPending ? "true" : "false"},
+            bafx::windows::DiagnosticField{
+                "Capture.Exclusion.Expected",
+                values[1]},
+            bafx::windows::DiagnosticField{
+                "Capture.Exclusion.Observed",
+                values[2]},
+            bafx::windows::DiagnosticField{
+                "Capture.Exclusion.Query",
+                status.querySucceeded ? "succeeded" : "failed"},
+            bafx::windows::DiagnosticField{
+                "Capture.Exclusion.QueryError",
+                values[3]},
+            bafx::windows::DiagnosticField{
+                "Recovery",
+                "stop-wgc-then-fallback-fx-only"}};
+        bafx::windows::appendDiagnosticEvent(
+            logPath,
+            "WGC.CaptureExclusion.HealthFailed",
+            fields,
+            bafx::windows::DiagnosticLevel::Error);
+    }
+    catch (...)
+    {
+        // A logging allocation must not delay the required WGC stop.
+    }
 }
 
 }

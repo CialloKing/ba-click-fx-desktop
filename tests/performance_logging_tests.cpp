@@ -97,6 +97,7 @@ BAFX_TEST(performance_log_preserves_metric_and_semantic_fields)
     window.addFramePacingWake(bafx::desktop::FramePacingWake::DeviceRemoved);
     window.addFramePacingWake(bafx::desktop::FramePacingWake::MessagesPending);
     window.addFramePacingWake(bafx::desktop::FramePacingWake::TimedOut);
+    window.addCaptureExclusionHealthCheck(true);
     const bafx::config::Config config = bafx::config::defaultConfig();
 
     static_cast<void>(bafx::desktop::appendPerformanceInterval(
@@ -127,6 +128,13 @@ BAFX_TEST(performance_log_preserves_metric_and_semantic_fields)
     BAFX_CHECK(text.find("ROI.VisualBounds.OkFrames=1\n")
         != std::string::npos);
     BAFX_CHECK(text.find("ROI.Plan.LastStatus=ok\n")
+        != std::string::npos);
+    BAFX_CHECK(text.find("WGC.CaptureExclusion.HealthChecks=1\n")
+        != std::string::npos);
+    BAFX_CHECK(text.find("WGC.CaptureExclusion.HealthFailures=0\n")
+        != std::string::npos);
+    BAFX_CHECK(text.find(
+        "WGC.CaptureExclusion.HealthPolicy=one-hz-query-stop-then-fx-only\n")
         != std::string::npos);
     BAFX_CHECK(text.find("ROI.AlignedWorkPixels.Max=50000\n")
         != std::string::npos);
@@ -235,6 +243,34 @@ BAFX_TEST(performance_log_warns_when_device_removed_wake_is_observed)
         != std::string::npos);
     BAFX_CHECK(text.find("Event.Level=Warning\n") != std::string::npos);
     BAFX_CHECK(text.find("FramePacing.DeviceRemovedWakes=1\n")
+        != std::string::npos);
+}
+
+BAFX_TEST(performance_log_warns_when_capture_exclusion_health_fails)
+{
+    const TemporaryPerformanceLog log;
+    bafx::desktop::RuntimePerformanceWindow window;
+    window.addCaptureExclusionHealthCheck(false);
+
+    static_cast<void>(bafx::desktop::appendPerformanceInterval(
+        log.path(),
+        window.summarize(),
+        bafx::config::defaultConfig(),
+        bafx::desktop::PerformanceLogContext{
+            bafx::windows::WindowSize{1920U, 1080U},
+            bafx::windows::BackgroundCompositeStatus::Inactive,
+            false},
+        std::chrono::seconds(1),
+        std::chrono::microseconds(0),
+        false));
+
+    const std::string text = log.read();
+    BAFX_CHECK(text.find("Event.Name=Performance.Interval\n")
+        != std::string::npos);
+    BAFX_CHECK(text.find("Event.Level=Warning\n") != std::string::npos);
+    BAFX_CHECK(text.find("WGC.CaptureExclusion.HealthChecks=1\n")
+        != std::string::npos);
+    BAFX_CHECK(text.find("WGC.CaptureExclusion.HealthFailures=1\n")
         != std::string::npos);
 }
 

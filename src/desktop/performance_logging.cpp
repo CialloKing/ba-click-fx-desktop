@@ -415,6 +415,15 @@ std::chrono::nanoseconds appendPerformanceInterval(
         fields.add(
             "Background.ParticipatingFrames",
             summary.backgroundParticipatingFrames);
+        fields.add(
+            "WGC.CaptureExclusion.HealthChecks",
+            summary.captureExclusionHealthChecks);
+        fields.add(
+            "WGC.CaptureExclusion.HealthFailures",
+            summary.captureExclusionHealthFailures);
+        fields.add(
+            "WGC.CaptureExclusion.HealthPolicy",
+            "one-hz-query-stop-then-fx-only");
 
         fields.add("Input.RawMessages", summary.rawInputMessages);
         fields.add("Input.MoveEvents", summary.moveEvents);
@@ -634,6 +643,7 @@ std::chrono::nanoseconds appendPerformanceInterval(
             || summary.roiPlanInvalidFootprintFrames > 0U
             || summary.roiPlanOverflowFrames > 0U
             || summary.framePacingDeviceRemovedWakes > 0U
+            || summary.captureExclusionHealthFailures > 0U
             || summary.frameTotalCpuMicroseconds.maximum >= 100'000U
             || summary.presentCallCpuMicroseconds.maximum >= 50'000U;
         fields.append(

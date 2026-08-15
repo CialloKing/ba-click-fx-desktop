@@ -74,6 +74,12 @@ HRESULT，`Performance.Interval` 另记 `FramePacing.DeviceRemovedWakes`，非�
 WGC 资源；只有已成功写入的四个阶段级 `StageState=begin` 能定位具体系统调用，`Stop/begin` 只表示
 watchdog 已启动。真实 device-lost 下 Close 的行为、阶段和是否会触发该边界仍需故障注入，保持 `Not Run`。
 
+Sensor 构造期间若已取得部分 WinRT 资源，回滚 stop 的聚合结果现在会在对象尚未发布给 Renderer 时同步交给
+调用方 mailbox；任一 Close/退订失败会沿用同一进程级重启禁令，成功回滚则不误锁后续显式恢复。活跃 Sensor
+另外以最高 `1 Hz` 回读覆盖层 WDA：成功只汇总进性能窗，丢失或查询失败写结构化错误并在下一次 Present 前
+完成 stop、`WDA_NONE` 和 FX-only 回退。该状态机与日志合同已有确定性测试，但尚未用外部程序在真实运行中
+强制篡改 affinity，因此不能据此关闭 packaged、外部录屏或跨版本无边框硬件单元格。
+
 ## P0：输入、渲染与 Present 延迟诊断
 
 先建立可复现的性能基线，再改变 WGC 或渲染路径。诊断必须低开销、可聚合，并同时覆盖：

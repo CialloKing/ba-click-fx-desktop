@@ -19,6 +19,8 @@
 - WGC stop 四阶段调用前后事件、能够返回的异常继续清理、owner/caller 线程一致性、`OverallSucceeded`、
   失败后的 sticky 重启阻断、retry token 不可绕过，以及 included/FX-only 回退；watchdog 可注入处理器覆盖
   arm/disarm、单次触发与重新启动；背景快照失效单槽邮箱必须保留首个未消费原因和完整身份；
+- WDA 运行期健康检查必须在 Sensor 活跃后延迟首次查询、最多每秒一次、时钟回退或停用后重置；排除丢失
+  必须先 stop Sensor，再恢复 `WDA_NONE` 和 FX-only profile，同一稳定请求不得被循环自动重启；
 - `allowSystemBorder` 必须进入 capture request identity；`true -> false/Start 失败 -> true` 往返应执行
   完整 stop/fallback/restart 动作，普通 Start 失败不得错误触发 sticky 重启阻断；
 - 无边框授权是资源动作前的独立 `RequestBorderlessAccess`。`Pending` 不推进动作、不消耗固定 action
@@ -61,6 +63,8 @@
   默认 `10 s` 到期时调用进程终止处理器。独立子进程探针必须通过生产默认处理器以精确退出码 `124` 结束；
   超时不再继续 WDA/profile 动作。只有已成功写入的四个阶段级 `begin` 能定位具体阻塞调用，`Stop/begin`
   只证明 watchdog 已启动；这些证据不表示 WinRT Close 可取消或真实 device-lost 已通过；
+- 活跃 WGC 的 WDA 只读回查成功只进入性能窗计数；失败必须产生一次含控制代次、事务状态、期望/观察 affinity
+  和 Win32 错误的结构化事件，并在下一次 Present 前完成 WGC stop 与 FX-only 回退；
 - 无边框权限预检必须在 stop、WDA/profile 变更和新 Session/FramePool 之前开始；等待期间 Host 继续
   消费消息、Raw Input、呈现和 IPC。`WGC.BorderlessAccess.Checked` 记录原始 `Control.Generation`、事务
   动作序号、`AllowSystemBorder`、状态、HRESULT、`AsyncStatus`、`ElapsedMs`、`CancelRequested` 和

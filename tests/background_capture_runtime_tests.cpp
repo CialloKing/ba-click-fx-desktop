@@ -73,6 +73,44 @@ BAFX_TEST(capture_exclusion_health_poller_is_bounded_and_resets)
     BAFX_CHECK(poller.shouldQuery(true, std::chrono::seconds(3)));
 }
 
+BAFX_TEST(capture_exclusion_health_failure_log_preserves_recovery_evidence)
+{
+    const TemporaryBackgroundCaptureLog log;
+    bafx::windows::CaptureExclusionQueryStatus status{};
+    status.expectedAffinity = WDA_EXCLUDEFROMCAPTURE;
+    status.observedAffinity = WDA_NONE;
+    status.queryError = ERROR_INVALID_WINDOW_HANDLE;
+
+    bafx::desktop::appendCaptureExclusionHealthFailure(
+        log.path(),
+        73U,
+        true,
+        status);
+
+    const std::string contents = log.read();
+    BAFX_CHECK(contents.find("Event.Level=Error") != std::string::npos);
+    BAFX_CHECK(
+        contents.find("Event.Name=WGC.CaptureExclusion.HealthFailed")
+        != std::string::npos);
+    BAFX_CHECK(contents.find("Control.Generation=73") != std::string::npos);
+    BAFX_CHECK(contents.find("Transaction.Pending=true") != std::string::npos);
+    BAFX_CHECK(
+        contents.find("Capture.Exclusion.Expected=0x00000011")
+        != std::string::npos);
+    BAFX_CHECK(
+        contents.find("Capture.Exclusion.Observed=0x00000000")
+        != std::string::npos);
+    BAFX_CHECK(
+        contents.find("Capture.Exclusion.Query=failed")
+        != std::string::npos);
+    BAFX_CHECK(
+        contents.find("Capture.Exclusion.QueryError=0x00000578")
+        != std::string::npos);
+    BAFX_CHECK(
+        contents.find("Recovery=stop-wgc-then-fallback-fx-only")
+        != std::string::npos);
+}
+
 BAFX_TEST(background_snapshot_invalidation_log_preserves_causal_identity)
 {
     const TemporaryBackgroundCaptureLog log;

@@ -135,6 +135,8 @@ BAFX_TEST(runtime_performance_window_aggregates_input_and_render_contracts)
     window.addFramePacingWake(bafx::desktop::FramePacingWake::MessagesPending);
     window.addFramePacingWake(bafx::desktop::FramePacingWake::TimedOut);
     window.addFramePacingWake(bafx::desktop::FramePacingWake::Failed);
+    window.addCaptureExclusionHealthCheck(true);
+    window.addCaptureExclusionHealthCheck(false);
 
     const bafx::desktop::RuntimePerformanceSummary summary = window.summarize();
     BAFX_CHECK(summary.frameCount == 1U);
@@ -173,10 +175,13 @@ BAFX_TEST(runtime_performance_window_aggregates_input_and_render_contracts)
     BAFX_CHECK(summary.framePacingMessageWakes == 1U);
     BAFX_CHECK(summary.framePacingTimeouts == 1U);
     BAFX_CHECK(summary.framePacingFailures == 1U);
+    BAFX_CHECK(summary.captureExclusionHealthChecks == 2U);
+    BAFX_CHECK(summary.captureExclusionHealthFailures == 1U);
 
     window.reset();
     const bafx::desktop::RuntimePerformanceSummary reset = window.summarize();
     BAFX_CHECK(reset.framePacingDeviceRemovedWakes == 0U);
+    BAFX_CHECK(reset.captureExclusionHealthChecks == 0U);
     BAFX_CHECK(window.empty());
 }
 

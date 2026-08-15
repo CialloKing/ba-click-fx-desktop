@@ -345,6 +345,13 @@ void RuntimePerformanceWindow::addFramePacingWake(
     }
 }
 
+void RuntimePerformanceWindow::addCaptureExclusionHealthCheck(
+    const bool confirmed) noexcept
+{
+    ++captureExclusionHealthChecks_;
+    captureExclusionHealthFailures_ += confirmed ? 0U : 1U;
+}
+
 void RuntimePerformanceWindow::addDispatchToPresentReturn(
     const std::uint64_t microseconds) noexcept
 {
@@ -374,6 +381,8 @@ void RuntimePerformanceWindow::reset() noexcept
     backgroundSnapshotAttempts_ = 0U;
     backgroundSnapshotsRefreshed_ = 0U;
     backgroundParticipatingFrames_ = 0U;
+    captureExclusionHealthChecks_ = 0U;
+    captureExclusionHealthFailures_ = 0U;
     rawInputMessages_ = 0U;
     moveEvents_ = 0U;
     buttonEdges_ = 0U;
@@ -467,6 +476,8 @@ RuntimePerformanceSummary RuntimePerformanceWindow::summarize() const
     summary.backgroundSnapshotAttempts = backgroundSnapshotAttempts_;
     summary.backgroundSnapshotsRefreshed = backgroundSnapshotsRefreshed_;
     summary.backgroundParticipatingFrames = backgroundParticipatingFrames_;
+    summary.captureExclusionHealthChecks = captureExclusionHealthChecks_;
+    summary.captureExclusionHealthFailures = captureExclusionHealthFailures_;
     summary.rawInputMessages = rawInputMessages_;
     summary.moveEvents = moveEvents_;
     summary.buttonEdges = buttonEdges_;
@@ -564,6 +575,7 @@ bool RuntimePerformanceWindow::empty() const noexcept
 {
     return frameCount_ == 0U
         && wgcMaintenanceCycles_ == 0U
+        && captureExclusionHealthChecks_ == 0U
         && rawInputMessages_ == 0U
         && moveEvents_ == 0U
         && buttonEdges_ == 0U
