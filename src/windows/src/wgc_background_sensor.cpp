@@ -45,6 +45,29 @@ constexpr DirectXPixelFormat capturePixelFormat =
     DirectXPixelFormat::R16G16B16A16Float;
 constexpr DXGI_FORMAT captureDxgiFormat = DXGI_FORMAT_R16G16B16A16_FLOAT;
 
+// Cursor and border controls were added after the original Windows 10 SDK.
+// Keep their stable WinRT ABI local so an older build machine does not remove
+// capabilities that a newer target system can provide at runtime.
+MIDL_INTERFACE("2C39AE40-7D2E-5044-804E-8B6799D4CF9E")
+GraphicsCaptureSession2Abi : public IInspectable
+{
+public:
+    virtual HRESULT STDMETHODCALLTYPE get_IsCursorCaptureEnabled(
+        bool* value) = 0;
+    virtual HRESULT STDMETHODCALLTYPE put_IsCursorCaptureEnabled(
+        bool value) = 0;
+};
+
+MIDL_INTERFACE("F2CDD966-22AE-5EA1-9596-3A289344C3BE")
+GraphicsCaptureSession3Abi : public IInspectable
+{
+public:
+    virtual HRESULT STDMETHODCALLTYPE get_IsBorderRequired(
+        bool* value) = 0;
+    virtual HRESULT STDMETHODCALLTYPE put_IsBorderRequired(
+        bool value) = 0;
+};
+
 // Windows 11 24H2 added IGraphicsCaptureSession5 after the original Windows
 // 10 SDK. Keep its documented ABI local so every build emits the same runtime
 // capability and only the target OS decides whether QueryInterface succeeds.
@@ -557,31 +580,37 @@ struct WgcBackgroundSensor::Implementation
             recordResourceLedgerEvent(
                 ledger,
                 ResourceLedgerEvent::SessionCreated);
-            winrt::hresult borderQueryResult{};
-            const auto borderSession = session.try_as_with_reason<
-                winrt::Windows::Graphics::Capture::IGraphicsCaptureSession3>(
-                    borderQueryResult);
+            auto* const sessionUnknown = reinterpret_cast<IUnknown*>(
+                winrt::get_abi(session));
+            ComPtr<GraphicsCaptureSession3Abi> borderSession;
+            const HRESULT borderQueryResult = sessionUnknown->QueryInterface(
+                IID_PPV_ARGS(&borderSession));
             if (!options.allowSystemBorder)
             {
-                if (!borderSession)
+                if (FAILED(borderQueryResult))
                 {
                     throw HResultError(
-                        SUCCEEDED(borderQueryResult)
-                            ? E_NOINTERFACE
-                            : static_cast<HRESULT>(borderQueryResult),
+                        borderQueryResult,
                         "borderless WGC session is unavailable");
                 }
-                try
-                {
-                    borderSession.IsBorderRequired(false);
-                    capabilities.borderHidden = !borderSession.IsBorderRequired();
-                }
-                catch (const winrt::hresult_error& error)
+                const HRESULT borderWriteResult =
+                    borderSession->put_IsBorderRequired(false);
+                if (FAILED(borderWriteResult))
                 {
                     throw HResultError(
-                        error.code(),
+                        borderWriteResult,
                         "IGraphicsCaptureSession3::IsBorderRequired(false)");
                 }
+                bool borderRequired = true;
+                const HRESULT borderReadResult =
+                    borderSession->get_IsBorderRequired(&borderRequired);
+                if (FAILED(borderReadResult))
+                {
+                    throw HResultError(
+                        borderReadResult,
+                        "IGraphicsCaptureSession3::IsBorderRequired(readback)");
+                }
+                capabilities.borderHidden = !borderRequired;
                 if (!capabilities.borderHidden)
                 {
                     throw HResultError(
@@ -589,33 +618,29 @@ struct WgcBackgroundSensor::Implementation
                         "Windows kept the WGC system capture border enabled");
                 }
             }
-            else if (borderSession)
+            else if (SUCCEEDED(borderQueryResult))
             {
-                try
+                bool borderRequired = true;
+                const HRESULT borderReadResult =
+                    borderSession->get_IsBorderRequired(&borderRequired);
+                if (SUCCEEDED(borderReadResult))
                 {
-                    capabilities.borderHidden = !borderSession.IsBorderRequired();
+                    capabilities.borderHidden = !borderRequired;
                 }
-                catch (const winrt::hresult_error&)
-                {
-                    // The visible border is explicitly allowed, so an
-                    // unavailable capability query does not block capture.
-                    capabilities.borderHidden = false;
-                }
+                // The visible border is explicitly allowed, so a failed
+                // optional readback does not block capture.
             }
 
             if (options.cursorExcluded
                 || options.cursorCaptureEnabledOverride.has_value())
             {
-                winrt::hresult cursorQueryResult{};
-                const auto cursorSession = session.try_as_with_reason<
-                    winrt::Windows::Graphics::Capture::IGraphicsCaptureSession2>(
-                        cursorQueryResult);
-                if (!cursorSession)
+                ComPtr<GraphicsCaptureSession2Abi> cursorSession;
+                const HRESULT cursorQueryResult = sessionUnknown->QueryInterface(
+                    IID_PPV_ARGS(&cursorSession));
+                if (FAILED(cursorQueryResult))
                 {
                     throw HResultError(
-                        SUCCEEDED(cursorQueryResult)
-                            ? E_NOINTERFACE
-                            : static_cast<HRESULT>(cursorQueryResult),
+                        cursorQueryResult,
                         "GraphicsCaptureSession::QueryInterface(IGraphicsCaptureSession2)");
                 }
                 const bool requestedCursorCaptureEnabled =
@@ -630,24 +655,29 @@ struct WgcBackgroundSensor::Implementation
                 // A captured cursor would be mistaken for the desktop beneath
                 // the FX. Validation probes also use this path to explicitly
                 // enable inclusion instead of trusting the session default.
-                try
-                {
-                    cursorSession.IsCursorCaptureEnabled(
+                const HRESULT cursorWriteResult =
+                    cursorSession->put_IsCursorCaptureEnabled(
                         requestedCursorCaptureEnabled);
-                    capabilities.cursorCaptureEnabled =
-                        cursorSession.IsCursorCaptureEnabled();
-                    capabilities.cursorExcluded =
-                        !capabilities.cursorCaptureEnabled;
-                    capabilities.cursorControlConfirmed =
-                        capabilities.cursorCaptureEnabled
-                        == requestedCursorCaptureEnabled;
-                }
-                catch (const winrt::hresult_error& error)
+                if (FAILED(cursorWriteResult))
                 {
                     throw HResultError(
-                        error.code(),
-                        "IGraphicsCaptureSession2::IsCursorCaptureEnabled(write/readback)");
+                        cursorWriteResult,
+                        "IGraphicsCaptureSession2::IsCursorCaptureEnabled(write)");
                 }
+                bool cursorCaptureEnabled = true;
+                const HRESULT cursorReadResult =
+                    cursorSession->get_IsCursorCaptureEnabled(
+                        &cursorCaptureEnabled);
+                if (FAILED(cursorReadResult))
+                {
+                    throw HResultError(
+                        cursorReadResult,
+                        "IGraphicsCaptureSession2::IsCursorCaptureEnabled(readback)");
+                }
+                capabilities.cursorCaptureEnabled = cursorCaptureEnabled;
+                capabilities.cursorExcluded = !cursorCaptureEnabled;
+                capabilities.cursorControlConfirmed =
+                    cursorCaptureEnabled == requestedCursorCaptureEnabled;
                 if (!capabilities.cursorControlConfirmed)
                 {
                     throw HResultError(
