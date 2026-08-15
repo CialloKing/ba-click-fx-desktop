@@ -127,18 +127,23 @@ DisplayOutputRetargetResult retargetDisplayOutput(
         {
             const bafx::windows::WindowSize currentSize =
                 renderer.outputSize();
-            if (currentSize.width != previousOutputSize.width
-                || currentSize.height != previousOutputSize.height)
+            const bool outputSizeChanged =
+                currentSize.width != previousOutputSize.width
+                || currentSize.height != previousOutputSize.height;
+            if (outputSizeChanged)
             {
                 static_cast<void>(renderer.resizeOutput(previousOutputSize));
-                return;
             }
 
-            // ResizeBuffers can fail after releasing the old RTV but before
-            // size_ changes. A same-size resize would then be a false no-op;
-            // replace the swap chain to restore a complete output transport.
-            static_cast<void>(renderer.renegotiateOutput(
-                renderer.outputPreference()));
+            if (previousBounds.has_value() || !outputSizeChanged)
+            {
+                // A recovered device may have selected the moved monitor's
+                // color contract before a later operation failed. Re-evaluate
+                // after restoring the HWND; same-size resize failures also
+                // need a replacement swap chain to restore the released RTV.
+                static_cast<void>(renderer.renegotiateOutput(
+                    renderer.outputPreference()));
+            }
         });
 
         if (rollbackFailures.empty())
