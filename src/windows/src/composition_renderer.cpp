@@ -348,19 +348,24 @@ CompositionRenderer::~CompositionRenderer() = default;
 bool CompositionRenderer::tryRecoverDevice() noexcept
 {
     setDeviceRecoveryFailure({});
+    deviceRecoveryDiagnostics_ = DeviceRecoveryDiagnostics{};
     if (deviceRecoveryAttempted_)
     {
         setDeviceRecoveryFailure("device recovery budget exhausted");
         return false;
     }
     deviceRecoveryAttempted_ = true;
+    const auto recoveryStartedAt = std::chrono::steady_clock::now();
     GraphicsDeviceInfo previousDeviceInfo{};
     try
     {
         previousDeviceInfo = deviceInfo_;
         // WGC textures and the temporal snapshot belong to the old device;
         // invalidate them before releasing the swap-chain resource domain.
+        const auto backgroundStopStartedAt = std::chrono::steady_clock::now();
         disableBackgroundCapture();
+        deviceRecoveryDiagnostics_.backgroundStop =
+            std::chrono::steady_clock::now() - backgroundStopStartedAt;
         previousVisualBounds_.reset();
         lastCenterPixel_.reset();
         backgroundCompositeStatus_ = BackgroundCompositeStatus::Inactive;
@@ -388,6 +393,8 @@ bool CompositionRenderer::tryRecoverDevice() noexcept
             && previousDeviceInfo.adapterLuid.HighPart
                 == deviceInfo_.adapterLuid.HighPart
             && deviceInfo_.driverType == GraphicsDriverType::Hardware;
+        deviceRecoveryDiagnostics_.total =
+            std::chrono::steady_clock::now() - recoveryStartedAt;
         return true;
     }
     catch (...)
@@ -406,6 +413,8 @@ bool CompositionRenderer::tryRecoverDevice() noexcept
         }
         releaseDeviceResources();
         deviceInfo_ = std::move(previousDeviceInfo);
+        deviceRecoveryDiagnostics_.total =
+            std::chrono::steady_clock::now() - recoveryStartedAt;
         return false;
     }
 }
@@ -415,6 +424,12 @@ std::string_view CompositionRenderer::deviceRecoveryFailure() const noexcept
     return std::string_view(
         deviceRecoveryFailure_.data(),
         deviceRecoveryFailureLength_);
+}
+
+DeviceRecoveryDiagnostics
+CompositionRenderer::deviceRecoveryDiagnostics() const noexcept
+{
+    return deviceRecoveryDiagnostics_;
 }
 
 OutputResizeStatus CompositionRenderer::resizeOutput(const WindowSize size)

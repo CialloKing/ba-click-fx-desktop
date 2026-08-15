@@ -1261,13 +1261,21 @@ int runApplication(
                 {
                     const std::string recoveryFailure(
                         renderer.deviceRecoveryFailure());
+                    const bafx::windows::DeviceRecoveryDiagnostics diagnostics =
+                        renderer.deviceRecoveryDiagnostics();
+                    const std::string totalMicroseconds = std::to_string(
+                        std::chrono::duration_cast<std::chrono::microseconds>(
+                            diagnostics.total).count());
                     const std::array failureFields{
                         bafx::windows::DiagnosticField{
                             "OriginalHRESULT",
                             resultCode},
                         bafx::windows::DiagnosticField{
                             "RecoveryError",
-                            recoveryFailure}};
+                            recoveryFailure},
+                        bafx::windows::DiagnosticField{
+                            "TotalUs",
+                            totalMicroseconds}};
                     bafx::windows::appendDiagnosticEvent(
                         logPath,
                         "Graphics.DeviceRecovery.Failed",
@@ -1405,6 +1413,14 @@ int runApplication(
                     : "same";
                 const std::string retryTokenText = std::to_string(
                     backgroundRetryToken);
+                const bafx::windows::DeviceRecoveryDiagnostics diagnostics =
+                    renderer.deviceRecoveryDiagnostics();
+                const std::string totalMicroseconds = std::to_string(
+                    std::chrono::duration_cast<std::chrono::microseconds>(
+                        diagnostics.total).count());
+                const std::string backgroundStopMicroseconds = std::to_string(
+                    std::chrono::duration_cast<std::chrono::microseconds>(
+                        diagnostics.backgroundStop).count());
                 const std::array successFields{
                     bafx::windows::DiagnosticField{
                         "RetryToken",
@@ -1414,7 +1430,13 @@ int runApplication(
                         adapterState},
                     bafx::windows::DiagnosticField{
                         "WgcRetryPending",
-                        backgroundRetryPending ? "true" : "false"}};
+                        backgroundRetryPending ? "true" : "false"},
+                    bafx::windows::DiagnosticField{
+                        "WgcStopUs",
+                        backgroundStopMicroseconds},
+                    bafx::windows::DiagnosticField{
+                        "TotalUs",
+                        totalMicroseconds}};
                 bafx::windows::appendDiagnosticEvent(
                     logPath,
                     "Graphics.DeviceRecovery.Succeeded",
@@ -1485,6 +1507,21 @@ int runApplication(
                             + std::string(renderer.deviceRecoveryFailure()));
                     }
                     report.setDeviceInfo(renderer.deviceInfo());
+                    const bafx::windows::DeviceRecoveryDiagnostics diagnostics =
+                        renderer.deviceRecoveryDiagnostics();
+                    const std::string totalMicroseconds = std::to_string(
+                        std::chrono::duration_cast<std::chrono::microseconds>(
+                            diagnostics.total).count());
+                    const std::string backgroundStopMicroseconds = std::to_string(
+                        std::chrono::duration_cast<std::chrono::microseconds>(
+                            diagnostics.backgroundStop).count());
+                    const std::array probeFields{
+                        bafx::windows::DiagnosticField{
+                            "WgcStopUs",
+                            backgroundStopMicroseconds},
+                        bafx::windows::DiagnosticField{
+                            "TotalUs",
+                            totalMicroseconds}};
                     frameDiagnostics = renderer.renderFrame(
                         snapshot,
                         wallTime,
@@ -1503,7 +1540,8 @@ int runApplication(
                     }
                     bafx::windows::appendDiagnosticEvent(
                         logPath,
-                        "Graphics.DeviceRecovery.Probe.Succeeded");
+                        "Graphics.DeviceRecovery.Probe.Succeeded",
+                        probeFields);
                 }
             }
             const bafx::windows::CompositionFrameDiagnostics&

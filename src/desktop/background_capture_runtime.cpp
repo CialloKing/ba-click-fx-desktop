@@ -143,6 +143,14 @@ void observeDeviceRecovery(
         !result.deviceRecoveryAdapterChanged
         && renderer.deviceInfo().driverType
             == bafx::windows::GraphicsDriverType::Hardware;
+    const bafx::windows::DeviceRecoveryDiagnostics diagnostics =
+        renderer.deviceRecoveryDiagnostics();
+    const std::string totalMicroseconds = std::to_string(
+        std::chrono::duration_cast<std::chrono::microseconds>(
+            diagnostics.total).count());
+    const std::string backgroundStopMicroseconds = std::to_string(
+        std::chrono::duration_cast<std::chrono::microseconds>(
+            diagnostics.backgroundStop).count());
     const std::array recoveryFields{
         bafx::windows::DiagnosticField{
             "Adapter",
@@ -155,7 +163,13 @@ void observeDeviceRecovery(
                 : "warp"},
         bafx::windows::DiagnosticField{
             "WgcRestartAllowed",
-            sensorRestartAllowed ? "true" : "false"}};
+            sensorRestartAllowed ? "true" : "false"},
+        bafx::windows::DiagnosticField{
+            "WgcStopUs",
+            backgroundStopMicroseconds},
+        bafx::windows::DiagnosticField{
+            "TotalUs",
+            totalMicroseconds}};
     bafx::windows::appendDiagnosticEvent(
         logPath,
         eventName,

@@ -79,6 +79,12 @@ enum class BackgroundFramePoolRecreateStatus : std::uint8_t
     DeviceRecoveryFailed
 };
 
+struct DeviceRecoveryDiagnostics
+{
+    std::chrono::nanoseconds total{};
+    std::chrono::nanoseconds backgroundStop{};
+};
+
 struct GraphicsDeviceInfo
 {
     GraphicsDriverType driverType{GraphicsDriverType::Hardware};
@@ -171,6 +177,8 @@ public:
     // stopped first so no old-device frame or snapshot can cross the boundary.
     [[nodiscard]] bool tryRecoverDevice() noexcept;
     [[nodiscard]] std::string_view deviceRecoveryFailure() const noexcept;
+    [[nodiscard]] DeviceRecoveryDiagnostics
+        deviceRecoveryDiagnostics() const noexcept;
     [[nodiscard]] bool setBloomSettings(FxBloomSettings settings);
     void setOverlayProfile(FxOverlayProfile profile);
     CompositionFrameDiagnostics renderFrame(
@@ -277,6 +285,7 @@ private:
     std::uint64_t frameId_{0U};
     bool deviceRecoveryAttempted_{false};
     bool backgroundCaptureAfterRecoveryAllowed_{true};
+    DeviceRecoveryDiagnostics deviceRecoveryDiagnostics_{};
 };
 
 }
