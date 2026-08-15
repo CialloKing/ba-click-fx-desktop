@@ -987,6 +987,17 @@ BackgroundCaptureExecutionStatus executeBackgroundCaptureTransition(
                         "Graphics.DeviceRecovery.ResizeSucceeded",
                         execution.sensorRestartAllowed);
                 }
+                else if (retarget.outputRenegotiation.has_value()
+                    && retarget.outputRenegotiation->deviceRecovered)
+                {
+                    observeDeviceRecovery(
+                        execution,
+                        retarget.deviceBeforeOutputRenegotiation,
+                        renderer,
+                        logPath,
+                        "Graphics.DeviceRecovery.OutputRenegotiationSucceeded",
+                        execution.sensorRestartAllowed);
+                }
                 succeeded = true;
                 break;
             }

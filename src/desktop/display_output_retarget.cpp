@@ -73,6 +73,21 @@ DisplayOutputRetargetResult retargetDisplayOutput(
             intent.requestedAdapterLuid);
         result.deviceBeforeResize = renderer.deviceInfo();
         result.output = renderer.resizeOutput(intent.outputSize);
+        const bool outputResourceDomainRecreated =
+            result.adapter
+                != bafx::windows::OutputAdapterRetargetStatus::Unchanged
+            || result.output
+                == bafx::windows::OutputResizeStatus::DeviceRecovered;
+        if (intent.windowBounds.has_value()
+            && !outputResourceDomainRecreated)
+        {
+            // A same-adapter monitor move can also keep the old pixel size.
+            // Recreate the swap chain after moving the HWND so DXGI evaluates
+            // the new monitor's Advanced Color presentation contract.
+            result.deviceBeforeOutputRenegotiation = renderer.deviceInfo();
+            result.outputRenegotiation = renderer.renegotiateOutput(
+                renderer.outputPreference());
+        }
         return result;
     }
     catch (...)

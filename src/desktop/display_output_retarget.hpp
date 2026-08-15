@@ -24,7 +24,10 @@ struct DisplayOutputRetargetResult final
         bafx::windows::OutputAdapterRetargetStatus::Unchanged};
     bafx::windows::OutputResizeStatus output{
         bafx::windows::OutputResizeStatus::Unchanged};
+    std::optional<bafx::windows::OutputRenegotiationResult>
+        outputRenegotiation{};
     bafx::windows::GraphicsDeviceInfo deviceBeforeResize{};
+    bafx::windows::GraphicsDeviceInfo deviceBeforeOutputRenegotiation{};
 };
 
 class DisplayOutputRollbackError final : public std::runtime_error
