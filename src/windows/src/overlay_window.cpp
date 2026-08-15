@@ -441,11 +441,10 @@ CaptureExclusionQueryStatus OverlayWindow::queryCaptureExcluded(
     return status;
 }
 
-bool OverlayWindow::takeDisplayTopologyChange() noexcept
+std::optional<DisplayTopologyChange>
+OverlayWindow::takeDisplayTopologyChange() noexcept
 {
-    const bool pending = displayTopologyChangePending_;
-    displayTopologyChangePending_ = false;
-    return pending;
+    return std::exchange(pendingDisplayTopologyChange_, std::nullopt);
 }
 
 bool OverlayWindow::takeDisplayColorChange() noexcept
@@ -731,11 +730,13 @@ LRESULT OverlayWindow::handleMessage(
     case WM_WINDOWPOSCHANGED:
     {
         const auto* position = reinterpret_cast<const WINDOWPOS*>(lParam);
-        const bool geometryChanged = (position->flags & SWP_NOMOVE) == 0U
-            || (position->flags & SWP_NOSIZE) == 0U;
+        const bool geometryChanged = position != nullptr
+            && ((position->flags & SWP_NOMOVE) == 0U
+                || (position->flags & SWP_NOSIZE) == 0U);
         if (window_ != nullptr && !applyingBounds_ && geometryChanged)
         {
-            displayTopologyChangePending_ = true;
+            recordDisplayTopologyChange(
+                DisplayTopologyChangeSource::WindowPosition);
             invalidatePointerGeometry();
         }
         // DefWindowProc emits the corresponding WM_MOVE/WM_SIZE messages.
@@ -743,7 +744,8 @@ LRESULT OverlayWindow::handleMessage(
     }
 
     case WM_DISPLAYCHANGE:
-        displayTopologyChangePending_ = true;
+        recordDisplayTopologyChange(
+            DisplayTopologyChangeSource::DisplayConfiguration);
         displayColorChangePending_ = true;
         invalidatePointerGeometry();
         return 0;
@@ -759,7 +761,10 @@ LRESULT OverlayWindow::handleMessage(
         // The suggested rectangle preserves a normal window's logical size,
         // but this surface must cover rcMonitor in physical pixels. Defer the
         // move until the owner can stop and retarget WGC in the same update.
-        displayTopologyChangePending_ = true;
+        recordDisplayTopologyChange(
+            DisplayTopologyChangeSource::Dpi,
+            static_cast<std::uint32_t>(HIWORD(wParam)),
+            reinterpret_cast<const RECT*>(lParam));
         invalidatePointerGeometry();
         return 0;
 
@@ -783,6 +788,34 @@ LRESULT OverlayWindow::handleMessage(
 
     default:
         return DefWindowProcW(window_, message, wParam, lParam);
+    }
+}
+
+void OverlayWindow::recordDisplayTopologyChange(
+    const DisplayTopologyChangeSource source,
+    const std::uint32_t latestDpi,
+    const RECT* const suggestedBounds) noexcept
+{
+    if (!pendingDisplayTopologyChange_.has_value())
+    {
+        pendingDisplayTopologyChange_.emplace();
+    }
+
+    DisplayTopologyChange& pending = *pendingDisplayTopologyChange_;
+    // A display transition can deliver several different messages before the
+    // owner runs. Preserve every cause while keeping only the newest payload.
+    pending.sourceMask |= displayTopologyChangeSourceMask(source);
+    if (latestDpi != 0U)
+    {
+        pending.latestDpi = latestDpi;
+        pending.dpiValid = true;
+    }
+    if (suggestedBounds != nullptr
+        && suggestedBounds->right > suggestedBounds->left
+        && suggestedBounds->bottom > suggestedBounds->top)
+    {
+        pending.suggestedBounds = *suggestedBounds;
+        pending.suggestedBoundsValid = true;
     }
 }
 

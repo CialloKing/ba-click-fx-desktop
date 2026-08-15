@@ -24,6 +24,28 @@ struct WindowResizeDiagnostics
     DWORD lastClientRectQueryError{ERROR_SUCCESS};
 };
 
+enum class DisplayTopologyChangeSource : std::uint8_t
+{
+    WindowPosition = 1U << 0U,
+    DisplayConfiguration = 1U << 1U,
+    Dpi = 1U << 2U
+};
+
+[[nodiscard]] constexpr std::uint8_t displayTopologyChangeSourceMask(
+    const DisplayTopologyChangeSource source) noexcept
+{
+    return static_cast<std::uint8_t>(source);
+}
+
+struct DisplayTopologyChange
+{
+    std::uint8_t sourceMask{0U};
+    std::uint32_t latestDpi{0U};
+    RECT suggestedBounds{};
+    bool dpiValid{false};
+    bool suggestedBoundsValid{false};
+};
+
 struct ExitUiStatus
 {
     bool primaryHotKeyRegistered{false};
@@ -196,8 +218,9 @@ public:
     [[nodiscard]] CaptureExclusionQueryStatus queryCaptureExcluded(
         bool excluded) const noexcept;
     // Display messages only invalidate placement. The render owner consumes
-    // the signal so WGC teardown and output rebinding stay in one transaction.
-    [[nodiscard]] bool takeDisplayTopologyChange() noexcept;
+    // the merged facts so WGC teardown and output rebinding stay transactional.
+    [[nodiscard]] std::optional<DisplayTopologyChange>
+        takeDisplayTopologyChange() noexcept;
     // Color-mode changes do not require a WGC restart when monitor geometry is
     // stable. Keep a separate signal so the owner can refresh HDR policy only.
     [[nodiscard]] bool takeDisplayColorChange() noexcept;
@@ -233,6 +256,10 @@ private:
     void compactPendingPointerEvents() noexcept;
     void cancelPointer() noexcept;
     void invalidatePointerGeometry() noexcept;
+    void recordDisplayTopologyChange(
+        DisplayTopologyChangeSource source,
+        std::uint32_t latestDpi = 0U,
+        const RECT* suggestedBounds = nullptr) noexcept;
     void requestClose() noexcept;
     void addNotificationIcon() noexcept;
     void removeNotificationIcon() noexcept;
@@ -242,7 +269,7 @@ private:
     HWND window_{nullptr};
     OverlayWindowRole role_{OverlayWindowRole::HostShell};
     WindowSize size_{};
-    bool displayTopologyChangePending_{false};
+    std::optional<DisplayTopologyChange> pendingDisplayTopologyChange_{};
     bool displayColorChangePending_{false};
     bool applyingBounds_{false};
     std::optional<WindowSize> pendingResize_{};

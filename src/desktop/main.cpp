@@ -593,6 +593,125 @@ void appendDisplaySessionReconcile(
     }
 }
 
+[[nodiscard]] bool displayTopologyChangeHasSource(
+    const bafx::windows::DisplayTopologyChange& change,
+    const bafx::windows::DisplayTopologyChangeSource source) noexcept
+{
+    return (change.sourceMask
+        & bafx::windows::displayTopologyChangeSourceMask(source)) != 0U;
+}
+
+[[nodiscard]] std::string formatDisplayTopologyChangeSources(
+    const bafx::windows::DisplayTopologyChange& change)
+{
+    std::string sources;
+    const auto append = [&sources](const std::string_view source)
+    {
+        if (!sources.empty())
+        {
+            sources += '|';
+        }
+        sources += source;
+    };
+
+    if (displayTopologyChangeHasSource(
+            change,
+            bafx::windows::DisplayTopologyChangeSource::WindowPosition))
+    {
+        append("window-position");
+    }
+    if (displayTopologyChangeHasSource(
+            change,
+            bafx::windows::DisplayTopologyChangeSource::DisplayConfiguration))
+    {
+        append("display-configuration");
+    }
+    if (displayTopologyChangeHasSource(
+            change,
+            bafx::windows::DisplayTopologyChangeSource::Dpi))
+    {
+        append("dpi");
+    }
+    if (sources.empty())
+    {
+        sources = "unknown";
+    }
+    return sources;
+}
+
+[[nodiscard]] std::string formatTopologySuggestedBounds(
+    const bafx::windows::DisplayTopologyChange& change)
+{
+    if (!change.suggestedBoundsValid)
+    {
+        return "not-provided";
+    }
+
+    const RECT& bounds = change.suggestedBounds;
+    return std::to_string(bounds.right - bounds.left)
+        + 'x' + std::to_string(bounds.bottom - bounds.top)
+        + '@' + std::to_string(bounds.left)
+        + ',' + std::to_string(bounds.top);
+}
+
+void appendDisplayTopologyInvalidated(
+    const std::filesystem::path& logPath,
+    const std::string_view sessionRole,
+    const bafx::desktop::DisplayTarget* const target,
+    const bafx::windows::DisplayTopologyChange& change,
+    const std::uint32_t effectiveDpi) noexcept
+{
+    try
+    {
+        const std::string device = target != nullptr
+            ? bafx::desktop::displayTargetDeviceUtf8(*target)
+            : "process-global";
+        const std::string monitor = target != nullptr
+            ? bafx::desktop::formatDisplayTargetMonitor(*target)
+            : "not-bound";
+        const std::string sourceId = target != nullptr
+            ? std::to_string(target->sourceId)
+            : "not-bound";
+        const std::string sources =
+            formatDisplayTopologyChangeSources(change);
+        const std::string sourceMask = std::to_string(change.sourceMask);
+        const std::string dpi = change.dpiValid
+            ? std::to_string(change.latestDpi)
+            : "not-provided";
+        const std::string suggestedBounds =
+            formatTopologySuggestedBounds(change);
+        const std::string observedDpi = std::to_string(effectiveDpi);
+        const std::array fields{
+            bafx::windows::DiagnosticField{"Session", sessionRole},
+            bafx::windows::DiagnosticField{"Device", device},
+            bafx::windows::DiagnosticField{"Monitor", monitor},
+            bafx::windows::DiagnosticField{"SourceId", sourceId},
+            bafx::windows::DiagnosticField{"Sources", sources},
+            bafx::windows::DiagnosticField{"SourceMask", sourceMask},
+            bafx::windows::DiagnosticField{"Dpi", dpi},
+            bafx::windows::DiagnosticField{
+                "DpiValid",
+                change.dpiValid ? "true" : "false"},
+            bafx::windows::DiagnosticField{
+                "SuggestedBounds",
+                suggestedBounds},
+            bafx::windows::DiagnosticField{
+                "SuggestedBoundsValid",
+                change.suggestedBoundsValid ? "true" : "false"},
+            bafx::windows::DiagnosticField{"EffectiveDpi", observedDpi}};
+        bafx::windows::appendDiagnosticEvent(
+            logPath,
+            "Display.Topology.Invalidated",
+            fields);
+    }
+    catch (...)
+    {
+        bafx::windows::appendDiagnosticLog(
+            logPath,
+            "Display topology invalidation could not be formatted");
+    }
+}
+
 [[nodiscard]] MessageDispatchDiagnostics dispatchMessages(bool& quit)
 {
     MessageDispatchDiagnostics diagnostics{};
@@ -1433,15 +1552,36 @@ int runApplication(
 
         bool renderInvalidated = renderInvalidationPending;
         renderInvalidationPending = false;
-        const bool hostDisplayTopologyChanged =
-            hostWindow.takeDisplayTopologyChange();
+        const std::optional<bafx::windows::DisplayTopologyChange>
+            hostTopologyChange = hostWindow.takeDisplayTopologyChange();
+        const bool hostDisplayTopologyChanged = hostTopologyChange.has_value();
+        if (hostTopologyChange.has_value())
+        {
+            appendDisplayTopologyInvalidated(
+                logPath,
+                "host-shell",
+                nullptr,
+                *hostTopologyChange,
+                hostWindow.effectiveDpi());
+        }
         bool surfaceDisplayTopologyChanged = false;
         bool coordinatorSurfaceColorChanged = false;
         for (const auto& ownedSession : displaySessions.sessions())
         {
             bafx::desktop::DisplaySession& session = *ownedSession;
-            const bool topologyPending =
+            const std::optional<bafx::windows::DisplayTopologyChange>
+                topologyChange =
                 session.window().takeDisplayTopologyChange();
+            const bool topologyPending = topologyChange.has_value();
+            if (topologyChange.has_value())
+            {
+                appendDisplayTopologyInvalidated(
+                    logPath,
+                    "render-surface",
+                    &session.target(),
+                    *topologyChange,
+                    session.window().effectiveDpi());
+            }
             surfaceDisplayTopologyChanged = topologyPending
                 || surfaceDisplayTopologyChanged;
             const bool colorPending = session.window().takeDisplayColorChange();
