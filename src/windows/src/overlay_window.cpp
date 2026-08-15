@@ -28,6 +28,10 @@ constexpr UINT notificationExitCommandIdentifier = 0xBAF3U;
 constexpr UINT notificationIconMessage = WM_APP + 1U;
 constexpr std::size_t maximumPendingPointerEvents = 2048U;
 constexpr std::size_t pointerEventCompactionThreshold = 256U;
+// WDA_EXCLUDEFROMCAPTURE was added after the original Windows 10 SDK. Its
+// Win32 value is stable, so keep the build contract independent of SDK age and
+// let SetWindowDisplayAffinity decide support on the target system.
+constexpr DWORD excludeFromCaptureAffinity = 0x00000011UL;
 constexpr GUID consoleDisplayStateSetting{
     0x6FE69556,
     0x704A,
@@ -386,7 +390,9 @@ CaptureExclusionStatus OverlayWindow::setCaptureExcluded(
     const bool excluded) noexcept
 {
     CaptureExclusionStatus status{};
-    status.requestedAffinity = excluded ? WDA_EXCLUDEFROMCAPTURE : WDA_NONE;
+    status.requestedAffinity = excluded
+        ? excludeFromCaptureAffinity
+        : WDA_NONE;
     if (window_ == nullptr)
     {
         status.setError = ERROR_INVALID_WINDOW_HANDLE;
@@ -463,7 +469,9 @@ CaptureExclusionQueryStatus OverlayWindow::queryCaptureExcluded(
     const bool excluded) const noexcept
 {
     CaptureExclusionQueryStatus status{};
-    status.expectedAffinity = excluded ? WDA_EXCLUDEFROMCAPTURE : WDA_NONE;
+    status.expectedAffinity = excluded
+        ? excludeFromCaptureAffinity
+        : WDA_NONE;
     if (window_ == nullptr)
     {
         status.queryError = ERROR_INVALID_WINDOW_HANDLE;
