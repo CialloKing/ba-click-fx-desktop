@@ -42,6 +42,10 @@ def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+FFMPEG_SHA256 = _sha256(Path(str(FFMPEG))) if TOOLS_AVAILABLE else ""
+FFPROBE_SHA256 = _sha256(Path(str(FFPROBE))) if TOOLS_AVAILABLE else ""
+
+
 def _artifact_record(path: Path) -> dict[str, object]:
     return {
         "exists": True,
@@ -216,6 +220,19 @@ class CaptureFixture:
             "revision": "0123456789abcdef0123456789abcdef01234567",
             "workingTreeDirty": False,
             "capturedAtUtc": "2026-08-15T00:00:00.000Z",
+            "backgroundFixture": {
+                "kind": "solid-srgb8-click-through",
+                "srgb8": [30, 82, 146],
+                "left": 0,
+                "top": 0,
+                "width": WIDTH,
+                "height": HEIGHT,
+                "topmost": True,
+                "noActivate": True,
+                "clickThrough": True,
+                "handle": "0x1234",
+                "stopTimeoutMs": 5000,
+            },
             "host": {
                 "sourcePath": "D:/fixture/ba-click-fx-desktop.exe",
                 "sha256": hashlib.sha256(self.host_payload).hexdigest(),
@@ -229,9 +246,9 @@ class CaptureFixture:
             "recorder": {
                 "implementation": "ffmpeg-gdigrab",
                 "ffmpegPath": str(FFMPEG),
-                "ffmpegSha256": "1" * 64,
+                "ffmpegSha256": FFMPEG_SHA256,
                 "ffprobePath": str(FFPROBE),
-                "ffprobeSha256": "2" * 64,
+                "ffprobeSha256": FFPROBE_SHA256,
                 "frameRate": FRAME_RATE,
                 "durationMs": DURATION_SECONDS * 1000,
                 "processTimeoutMs": 15000,
@@ -475,6 +492,12 @@ class ExternalRecordingSpikeContractTests(ExternalRecordingFixture, unittest.Tes
         with self.assertRaisesRegex(VERIFY.ValidationError, "case.json hash"):
             self.validate()
 
+    def test_recorder_tool_hash_is_rejected(self):
+        self.fixture.root_document["recorder"]["ffmpegSha256"] = "0" * 64
+        self.fixture.write_root()
+        with self.assertRaisesRegex(VERIFY.ValidationError, "ffmpeg executable hash"):
+            self.validate()
+
     def test_stored_ffprobe_metadata_is_rechecked(self):
         case_id = "desktop-background-aware"
         probe = copy.deepcopy(self.probe_document)
@@ -546,6 +569,12 @@ class ExternalRecordingSpikeContractTests(ExternalRecordingFixture, unittest.Tes
             '{"schemaVersion":1,"schemaVersion":1}', encoding="utf-8"
         )
         with self.assertRaisesRegex(VERIFY.ValidationError, "duplicate JSON field"):
+            self.validate()
+
+    def test_controlled_background_must_remain_click_through(self):
+        self.fixture.root_document["backgroundFixture"]["clickThrough"] = False
+        self.fixture.write_root()
+        with self.assertRaisesRegex(VERIFY.ValidationError, "clickThrough must be true"):
             self.validate()
 
     def test_cli_writes_scoped_atomic_report(self):

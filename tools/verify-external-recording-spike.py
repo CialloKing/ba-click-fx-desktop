@@ -10,11 +10,13 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import asdict, dataclass
+from functools import lru_cache
 import hashlib
 import json
 import math
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import sys
 from typing import Any
@@ -120,6 +122,7 @@ class VerificationResult:
     capture_revision: str
     status: str
     evidence_scope: str
+    background_srgb8: tuple[int, int, int]
     cases: tuple[CaseResult, ...]
 
 
@@ -218,6 +221,32 @@ def _sha256(path: Path) -> str:
     except OSError as error:
         raise ValidationError(f"unable to hash {path}: {error}") from error
     return digest.hexdigest()
+
+
+@lru_cache(maxsize=16)
+def _tool_sha256_snapshot(path: str, size: int, modified_ns: int) -> str:
+    # Size and timestamp keep the cache bounded without hiding tool updates.
+    del size, modified_ns
+    return _sha256(Path(path))
+
+
+def _verified_tool(command: str, expected_hash: str, label: str) -> str:
+    resolved = shutil.which(command)
+    if resolved is None:
+        raise ValidationError(f"{label} executable is unavailable: {command}")
+    path = Path(resolved).resolve()
+    if path.is_symlink() or not path.is_file():
+        raise ValidationError(f"{label} executable is missing or symbolic: {path}")
+    try:
+        metadata = path.stat()
+    except OSError as error:
+        raise ValidationError(f"unable to inspect {label} executable: {error}") from error
+    actual_hash = _tool_sha256_snapshot(
+        str(path), metadata.st_size, metadata.st_mtime_ns
+    )
+    if actual_hash != expected_hash.lower():
+        raise ValidationError(f"{label} executable hash differs from the manifest")
+    return str(path)
 
 
 def _sha256_string(value: Any, label: str) -> str:
@@ -778,7 +807,13 @@ def _analyze_video(
 
 def _validate_root(
     document: Any,
-) -> tuple[dict[str, Any], dict[str, Any], tuple[int, int, int, int], str]:
+) -> tuple[
+    dict[str, Any],
+    dict[str, Any],
+    tuple[int, int, int, int],
+    tuple[int, int, int],
+    str,
+]:
     root = _object(document, "capture")
     _require_fields(
         root,
@@ -790,6 +825,7 @@ def _validate_root(
             "revision",
             "workingTreeDirty",
             "capturedAtUtc",
+            "backgroundFixture",
             "host",
             "recorder",
             "capture",
@@ -814,6 +850,58 @@ def _validate_root(
         raise ValidationError("official evidence requires a clean working tree")
     _string(root["capturedAtUtc"], "capture.capturedAtUtc")
     _string(root["completedAtUtc"], "capture.completedAtUtc")
+
+    fixture = _object(root["backgroundFixture"], "capture.backgroundFixture")
+    _require_fields(
+        fixture,
+        {
+            "kind",
+            "srgb8",
+            "left",
+            "top",
+            "width",
+            "height",
+            "topmost",
+            "noActivate",
+            "clickThrough",
+            "handle",
+            "stopTimeoutMs",
+        },
+        "capture.backgroundFixture",
+    )
+    _exact(
+        _string(fixture["kind"], "capture.backgroundFixture.kind"),
+        "solid-srgb8-click-through",
+        "capture.backgroundFixture.kind",
+    )
+    fixture_srgb_source = _list(
+        fixture["srgb8"], "capture.backgroundFixture.srgb8"
+    )
+    if len(fixture_srgb_source) != 3:
+        raise ValidationError("capture.backgroundFixture.srgb8 must have three channels")
+    fixture_srgb8 = tuple(
+        _integer(channel, f"capture.backgroundFixture.srgb8[{index}]")
+        for index, channel in enumerate(fixture_srgb_source)
+    )
+    if any(channel > 255 for channel in fixture_srgb8):
+        raise ValidationError("capture.backgroundFixture.srgb8 channels must be <= 255")
+    _exact(fixture_srgb8, (30, 82, 146), "capture.backgroundFixture.srgb8")
+    _exact(_integer(fixture["left"], "capture.backgroundFixture.left"), 0, "capture.backgroundFixture.left")
+    _exact(_integer(fixture["top"], "capture.backgroundFixture.top"), 0, "capture.backgroundFixture.top")
+    if not _boolean(fixture["topmost"], "capture.backgroundFixture.topmost"):
+        raise ValidationError("capture.backgroundFixture.topmost must be true")
+    if not _boolean(fixture["noActivate"], "capture.backgroundFixture.noActivate"):
+        raise ValidationError("capture.backgroundFixture.noActivate must be true")
+    if not _boolean(fixture["clickThrough"], "capture.backgroundFixture.clickThrough"):
+        raise ValidationError("capture.backgroundFixture.clickThrough must be true")
+    handle = _string(fixture["handle"], "capture.backgroundFixture.handle")
+    if re.fullmatch(r"0x[1-9A-F][0-9A-F]*", handle) is None:
+        raise ValidationError("capture.backgroundFixture.handle must be non-zero hex")
+    _exact(
+        _integer(fixture["stopTimeoutMs"], "capture.backgroundFixture.stopTimeoutMs", 1),
+        5000,
+        "capture.backgroundFixture.stopTimeoutMs",
+    )
 
     host = _object(root["host"], "capture.host")
     _require_fields(
@@ -888,6 +976,16 @@ def _validate_root(
         _integer(capture["displayWidth"], "capture.capture.displayWidth", 2),
         _integer(capture["displayHeight"], "capture.capture.displayHeight", 2),
     )
+    _exact(
+        _integer(fixture["width"], "capture.backgroundFixture.width", 2),
+        display_size[0],
+        "capture.backgroundFixture.width",
+    )
+    _exact(
+        _integer(fixture["height"], "capture.backgroundFixture.height", 2),
+        display_size[1],
+        "capture.backgroundFixture.height",
+    )
     capture_region = (
         _integer(capture["left"], "capture.capture.left"),
         _integer(capture["top"], "capture.capture.top"),
@@ -920,7 +1018,7 @@ def _validate_root(
     ]
     if root["matrix"] != expected_matrix:
         raise ValidationError("capture.matrix does not match the locked four-cell matrix")
-    return host, recorder, capture_region, revision
+    return host, recorder, capture_region, fixture_srgb8, revision
 
 
 def _validate_case(
@@ -1120,7 +1218,23 @@ def validate_path(
     timeout_seconds: float = 20.0,
 ) -> VerificationResult:
     document = _load_json(path, "capture manifest")
-    root_host, root_recorder, capture_region, revision = _validate_root(document)
+    (
+        root_host,
+        root_recorder,
+        capture_region,
+        background_srgb8,
+        revision,
+    ) = _validate_root(document)
+    verified_ffmpeg = _verified_tool(
+        ffmpeg,
+        root_recorder["ffmpegSha256"],
+        "ffmpeg",
+    )
+    verified_ffprobe = _verified_tool(
+        ffprobe,
+        root_recorder["ffprobeSha256"],
+        "ffprobe",
+    )
     root = path.parent
     summaries = _list(document["cases"], "capture.cases")
     ids = [
@@ -1135,8 +1249,8 @@ def validate_path(
             root_host,
             root_recorder,
             capture_region,
-            ffmpeg,
-            ffprobe,
+            verified_ffmpeg,
+            verified_ffprobe,
             timeout_seconds,
         )
         for summary in summaries
@@ -1147,6 +1261,7 @@ def validate_path(
         capture_revision=revision,
         status="verified-observation",
         evidence_scope=EVIDENCE_SCOPE,
+        background_srgb8=background_srgb8,
         cases=results,
     )
 

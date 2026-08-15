@@ -37,9 +37,11 @@ $hostDurationMilliseconds = 7500
 $recordingDurationMilliseconds = 6000
 $frameRate = 10
 $maximumCaptureEdge = 1024
+$backgroundSrgb8 = @(30, 82, 146)
 $processPollMilliseconds = 25
 $ownedTreeStopTimeoutMilliseconds = 5000
 $ownedRootStopTimeoutMilliseconds = 2000
+$backgroundStopTimeoutMilliseconds = 5000
 $gitTimeoutMilliseconds = 5000
 
 function Get-PrimaryDisplayMode
@@ -61,6 +63,7 @@ public static class BafxExternalRecordingNativeMethods
     [DllImport("gdi32.dll", SetLastError = true)]
     public static extern int GetDeviceCaps(IntPtr deviceContext, int index);
 }
+
 '@
     }
 
@@ -112,6 +115,209 @@ public static class BafxExternalRecordingNativeMethods
         height = $height
         refreshRateHz = $refreshRate
         bitsPerPixel = $bitsPerPixel * $planes
+    }
+}
+
+function Start-ControlledBackground
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [int]$Width,
+
+        [Parameter(Mandatory = $true)]
+        [int]$Height,
+
+        [Parameter(Mandatory = $true)]
+        [int[]]$Srgb8,
+
+        [Parameter(Mandatory = $true)]
+        [int]$TimeoutMilliseconds
+    )
+
+    if ($Srgb8.Count -ne 3)
+    {
+        throw 'Controlled background requires exactly three sRGB8 channels'
+    }
+    if ($null -eq ('BafxExternalRecordingBackgroundHost' -as [type]))
+    {
+        Add-Type -AssemblyName System.Drawing
+        Add-Type -AssemblyName System.Windows.Forms
+        $referenceDirectory = Join-Path $PSHOME 'ref'
+        if (Test-Path -LiteralPath $referenceDirectory -PathType Container)
+        {
+            # PowerShell 7 replaces its default references when WinForms is added.
+            $referenceAssemblies = @(
+                Get-ChildItem -LiteralPath $referenceDirectory -Filter '*.dll' |
+                    Select-Object -ExpandProperty FullName
+                (Join-Path $PSHOME 'System.Drawing.Common.dll')
+                (Join-Path $PSHOME 'System.Drawing.Primitives.dll')
+                (Join-Path $PSHOME 'System.Windows.Forms.dll')
+                (Join-Path $PSHOME 'System.Windows.Forms.Primitives.dll')
+            ) | Select-Object -Unique
+        }
+        else
+        {
+            $referenceAssemblies = @(
+                'System.Drawing.dll',
+                'System.Windows.Forms.dll')
+        }
+        Add-Type -ReferencedAssemblies $referenceAssemblies -TypeDefinition @'
+using System;
+using System.Drawing;
+using System.Runtime.InteropServices;
+using System.Threading;
+using System.Windows.Forms;
+
+public sealed class BafxExternalRecordingBackgroundForm : Form
+{
+    private const int WmNcHitTest = 0x0084;
+    private static readonly IntPtr HtTransparent = new IntPtr(-1);
+    private const int WsExTransparent = 0x00000020;
+    private const int WsExToolWindow = 0x00000080;
+    private const int WsExNoActivate = 0x08000000;
+
+    public BafxExternalRecordingBackgroundForm(Rectangle bounds, Color color)
+    {
+        AutoScaleMode = AutoScaleMode.None;
+        BackColor = color;
+        Bounds = bounds;
+        FormBorderStyle = FormBorderStyle.None;
+        ShowInTaskbar = false;
+        StartPosition = FormStartPosition.Manual;
+        TopMost = true;
+    }
+
+    protected override CreateParams CreateParams
+    {
+        get
+        {
+            CreateParams parameters = base.CreateParams;
+            parameters.ExStyle |= WsExTransparent | WsExToolWindow | WsExNoActivate;
+            return parameters;
+        }
+    }
+
+    protected override bool ShowWithoutActivation
+    {
+        get { return true; }
+    }
+
+    protected override void WndProc(ref Message message)
+    {
+        if (message.Msg == WmNcHitTest)
+        {
+            // The evidence fixture must never consume user input while visible.
+            message.Result = HtTransparent;
+            return;
+        }
+        base.WndProc(ref message);
+    }
+}
+
+public sealed class BafxExternalRecordingBackgroundHost
+{
+    private static readonly IntPtr PerMonitorAwareV2 = new IntPtr(-4);
+    private readonly ManualResetEventSlim ready = new ManualResetEventSlim(false);
+    private Thread thread;
+    private BafxExternalRecordingBackgroundForm form;
+    private Exception startupError;
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr SetThreadDpiAwarenessContext(IntPtr context);
+
+    public IntPtr Start(
+        int width,
+        int height,
+        int red,
+        int green,
+        int blue,
+        int timeoutMilliseconds)
+    {
+        if (thread != null)
+        {
+            throw new InvalidOperationException("background fixture already started");
+        }
+
+        thread = new Thread(
+            () =>
+            {
+                try
+                {
+                    SetThreadDpiAwarenessContext(PerMonitorAwareV2);
+                    form = new BafxExternalRecordingBackgroundForm(
+                        new Rectangle(0, 0, width, height),
+                        Color.FromArgb(red, green, blue));
+                    form.Shown += (_, __) => ready.Set();
+                    Application.Run(form);
+                }
+                catch (Exception error)
+                {
+                    startupError = error;
+                    ready.Set();
+                }
+            });
+        thread.IsBackground = true;
+        thread.Name = "BAFX external recording background";
+        thread.SetApartmentState(ApartmentState.STA);
+        thread.Start();
+
+        if (!ready.Wait(timeoutMilliseconds))
+        {
+            Stop(timeoutMilliseconds);
+            throw new TimeoutException("controlled background did not become ready");
+        }
+        if (startupError != null)
+        {
+            Stop(timeoutMilliseconds);
+            throw new InvalidOperationException(
+                "controlled background failed to start",
+                startupError);
+        }
+        return form.Handle;
+    }
+
+    public bool Stop(int timeoutMilliseconds)
+    {
+        if (thread == null)
+        {
+            return true;
+        }
+        try
+        {
+            if (form != null && !form.IsDisposed && form.IsHandleCreated)
+            {
+                form.BeginInvoke(new Action(form.Close));
+            }
+        }
+        catch (InvalidOperationException)
+        {
+            // The UI thread may have completed between the state check and invoke.
+        }
+        return thread.Join(timeoutMilliseconds);
+    }
+}
+'@ -ErrorAction Stop
+    }
+
+    $backgroundHost = New-Object BafxExternalRecordingBackgroundHost
+    try
+    {
+        $handle = $backgroundHost.Start(
+            $Width,
+            $Height,
+            $Srgb8[0],
+            $Srgb8[1],
+            $Srgb8[2],
+            $TimeoutMilliseconds)
+        return [ordered]@{
+            host = $backgroundHost
+            handle = $handle
+        }
+    }
+    catch
+    {
+        $null = $backgroundHost.Stop($TimeoutMilliseconds)
+        throw
     }
 }
 
@@ -1065,8 +1271,11 @@ if ($captureEdge -lt 2)
 {
     throw 'Primary display is too small for a centered recording region'
 }
-$captureLeft = [int](($primaryDisplayMode.width - $captureEdge) / 2)
-$captureTop = [int](($primaryDisplayMode.height - $captureEdge) / 2)
+# Match the verifier's centered-region contract on odd display dimensions.
+$captureLeft = [int][Math]::Floor(
+    ($primaryDisplayMode.width - $captureEdge) / 2.0)
+$captureTop = [int][Math]::Floor(
+    ($primaryDisplayMode.height - $captureEdge) / 2.0)
 if (-not (Test-Path -LiteralPath $executablePath -PathType Leaf))
 {
     throw "Host executable is missing: $executablePath"
@@ -1123,6 +1332,13 @@ if (-not [string]::IsNullOrWhiteSpace($statusResult.stdout))
     throw 'Official external recording collection requires a clean working tree.'
 }
 
+$backgroundFixture = Start-ControlledBackground `
+    -Width $primaryDisplayMode.width `
+    -Height $primaryDisplayMode.height `
+    -Srgb8 $backgroundSrgb8 `
+    -TimeoutMilliseconds $backgroundStopTimeoutMilliseconds
+try
+{
 $null = New-Item -ItemType Directory -Path $outputRoot
 $manifestPath = Join-Path $outputRoot 'capture.json'
 $matrix = @(
@@ -1155,6 +1371,19 @@ $manifest = [ordered]@{
     revision = $revision
     workingTreeDirty = $false
     capturedAtUtc = [DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ss.fffZ')
+    backgroundFixture = [ordered]@{
+        kind = 'solid-srgb8-click-through'
+        srgb8 = $backgroundSrgb8
+        left = 0
+        top = 0
+        width = $primaryDisplayMode.width
+        height = $primaryDisplayMode.height
+        topmost = $true
+        noActivate = $true
+        clickThrough = $true
+        handle = ('0x{0:X}' -f [int64]$backgroundFixture.handle)
+        stopTimeoutMs = $backgroundStopTimeoutMilliseconds
+    }
     host = [ordered]@{
         sourcePath = $executablePath
         sha256 = (Get-FileHash -LiteralPath $executablePath -Algorithm SHA256).
@@ -1286,3 +1515,11 @@ if ($failedCases.Count -ne 0 -or $matrixIncomplete)
 }
 
 Write-Host "External recording matrix completed: $outputRoot"
+}
+finally
+{
+    if (-not $backgroundFixture.host.Stop($backgroundStopTimeoutMilliseconds))
+    {
+        throw 'Controlled background did not stop within its 5000 ms timeout'
+    }
+}
