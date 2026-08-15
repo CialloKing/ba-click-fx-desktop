@@ -99,6 +99,19 @@ BAFX_TEST(wgc_notification_stop_wakes_the_owner_and_ignores_late_frames)
     BAFX_CHECK(signalState(notification) == WAIT_OBJECT_0);
 }
 
+BAFX_TEST(wgc_notification_reset_cannot_clear_a_stop_wakeup)
+{
+    WgcFrameNotification notification;
+    const std::uint64_t observedGeneration = notification.generation();
+
+    notification.beginStop();
+    notification.resetAfterDrain(observedGeneration, false);
+
+    // A stop request is a terminal owner wake even when no frame callback was
+    // queued.  Losing it would leave the lifecycle transaction asleep.
+    BAFX_CHECK(signalState(notification) == WAIT_OBJECT_0);
+}
+
 BAFX_TEST(wgc_resource_ledger_starts_empty_and_released)
 {
     const WgcBackgroundResourceLedger ledger;

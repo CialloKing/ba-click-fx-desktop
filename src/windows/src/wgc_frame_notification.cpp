@@ -61,6 +61,7 @@ void WgcFrameNotification::resetAfterDrain(
     }
     if (queuedFramesMayRemain
         || itemClosed()
+        || stopping_.load(std::memory_order_acquire)
         || generation() != observedGeneration)
     {
         SetEvent(event_.get());
