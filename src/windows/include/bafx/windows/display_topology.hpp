@@ -27,6 +27,21 @@ struct DisplayRefreshRate final
         DisplayRefreshRateSource::DwmCompositionTiming};
 };
 
+[[nodiscard]] constexpr bool equivalentDisplayRefreshRate(
+    const DisplayRefreshRate left,
+    const DisplayRefreshRate right) noexcept
+{
+    if (left.numerator == 0U
+        || left.denominator == 0U
+        || right.numerator == 0U
+        || right.denominator == 0U)
+    {
+        return false;
+    }
+    return static_cast<std::uint64_t>(left.numerator) * right.denominator
+        == static_cast<std::uint64_t>(right.numerator) * left.denominator;
+}
+
 struct DisplayPhysicalTarget final
 {
     LUID adapterLuid{};

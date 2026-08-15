@@ -30,8 +30,7 @@ constexpr std::uint64_t sessionSeedStep = 0x9E3779B97F4A7C15ULL;
         return false;
     }
     return !left.has_value()
-        || (left->numerator == right->numerator
-            && left->denominator == right->denominator
+        || (bafx::windows::equivalentDisplayRefreshRate(*left, *right)
             && left->source == right->source);
 }
 

@@ -49,8 +49,9 @@ commonRefreshRate(const bafx::windows::ActiveDisplayMonitor& display) noexcept
     for (const bafx::windows::DisplayPhysicalTarget& target :
          display.physicalTargets)
     {
-        if (target.refreshRate.numerator != refreshRate.numerator
-            || target.refreshRate.denominator != refreshRate.denominator)
+        if (!bafx::windows::equivalentDisplayRefreshRate(
+                target.refreshRate,
+                refreshRate))
         {
             return std::nullopt;
         }

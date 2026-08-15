@@ -105,8 +105,7 @@ struct MonitorEnumeration
     {
         const DisplayRefreshRate targetRefreshRate =
             captureCadenceRefreshRate(target);
-        if (targetRefreshRate.numerator != refreshRate.numerator
-            || targetRefreshRate.denominator != refreshRate.denominator)
+        if (!equivalentDisplayRefreshRate(targetRefreshRate, refreshRate))
         {
             // A cloned source with different scan-out rates has no single
             // capture cadence. Callers retain their conservative fallback.
