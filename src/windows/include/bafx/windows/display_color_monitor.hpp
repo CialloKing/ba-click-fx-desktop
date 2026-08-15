@@ -39,14 +39,16 @@ public:
     [[nodiscard]] DisplayColorMonitorResult start(
         HMONITOR monitor,
         HWND wakeWindow) noexcept;
-    [[nodiscard]] bool notificationPending() const noexcept;
+    [[nodiscard]] bool notificationPending() noexcept;
     [[nodiscard]] std::uint64_t consumeNotification() noexcept;
     [[nodiscard]] bool active() const noexcept;
+    [[nodiscard]] const DisplayColorMonitorResult& result() const noexcept;
     void stop() noexcept;
 
 private:
     struct Implementation;
     std::unique_ptr<Implementation> implementation_{};
+    DisplayColorMonitorResult result_{};
 };
 
 [[nodiscard]] std::string_view displayColorMonitorStatusName(

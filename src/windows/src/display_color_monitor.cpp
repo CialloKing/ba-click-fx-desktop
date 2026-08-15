@@ -5,7 +5,9 @@
 #include <winrt/Windows.Graphics.Display.h>
 #include <winrt/base.h>
 
+#include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <iomanip>
 #include <memory>
 #include <new>
@@ -18,6 +20,9 @@ namespace
 
 using winrt::Windows::Graphics::Display::DisplayInformation;
 using winrt::Windows::Graphics::Display::IDisplayInformation;
+
+constexpr std::chrono::milliseconds initialRetryDelay{1000};
+constexpr std::chrono::milliseconds maximumRetryDelay{30000};
 
 class DisplayColorNotification final
 {
@@ -81,12 +86,117 @@ private:
 
 struct DisplayColorMonitor::Implementation
 {
+    using Clock = std::chrono::steady_clock;
+
+    Implementation(
+        const HMONITOR targetMonitor,
+        const HWND targetWakeWindow) noexcept
+        : monitor(targetMonitor),
+          wakeWindow(targetWakeWindow)
+    {
+    }
+
     ~Implementation() noexcept
     {
         stop();
     }
 
-    void stop() noexcept
+    [[nodiscard]] DisplayColorMonitorResult subscribe(
+        const bool signalOwner) noexcept
+    {
+        stopSubscription();
+        try
+        {
+            notification = std::make_shared<DisplayColorNotification>(
+                wakeWindow);
+
+            const auto interop = winrt::get_activation_factory<
+                DisplayInformation,
+                IDisplayInformationStaticsInterop>();
+            winrt::check_hresult(interop->GetForMonitor(
+                monitor,
+                winrt::guid_of<IDisplayInformation>(),
+                winrt::put_abi(displayInformation)));
+
+            const std::shared_ptr<DisplayColorNotification> callback =
+                notification;
+            advancedColorChangedToken =
+                displayInformation.AdvancedColorInfoChanged(
+                    [callback](const auto&, const auto&) noexcept
+                    {
+                        callback->notify();
+                    });
+            advancedColorChangedRegistered = true;
+
+            // Force the required DisplayInformation revision to be queried.
+            // An older runtime then takes the explicit unsupported path.
+            static_cast<void>(displayInformation.GetAdvancedColorInfo());
+            observedGeneration = notification->generation();
+            if (signalOwner)
+            {
+                // A recovered subscription may have missed the state change
+                // that made the target valid, so force one owner-side query.
+                notification->notify();
+            }
+            return DisplayColorMonitorResult{
+                DisplayColorMonitorStatus::Active,
+                S_OK,
+                notification->generation()};
+        }
+        catch (const winrt::hresult_error& error)
+        {
+            stopSubscription();
+            return DisplayColorMonitorResult{
+                failureStatus(error.code()),
+                error.code(),
+                0U};
+        }
+        catch (const std::bad_alloc&)
+        {
+            stopSubscription();
+            return DisplayColorMonitorResult{
+                DisplayColorMonitorStatus::Failed,
+                E_OUTOFMEMORY,
+                0U};
+        }
+        catch (...)
+        {
+            stopSubscription();
+            return DisplayColorMonitorResult{
+                DisplayColorMonitorStatus::Failed,
+                E_FAIL,
+                0U};
+        }
+    }
+
+    void updateRetry(
+        const DisplayColorMonitorResult& result,
+        const Clock::time_point now) noexcept
+    {
+        if (result.status != DisplayColorMonitorStatus::Failed)
+        {
+            retryScheduled = false;
+            retryDelay = initialRetryDelay;
+            return;
+        }
+        retryAt = now + retryDelay;
+        retryScheduled = true;
+        retryDelay = (std::min)(retryDelay * 2, maximumRetryDelay);
+    }
+
+    [[nodiscard]] bool retryDue(const Clock::time_point now) const noexcept
+    {
+        return retryScheduled && now >= retryAt;
+    }
+
+    [[nodiscard]] bool active() const noexcept
+    {
+        return advancedColorChangedRegistered
+            && displayInformation != nullptr
+            && notification != nullptr;
+    }
+
+    void stopSubscription() noexcept
     {
         if (notification != nullptr)
         {
@@ -111,11 +221,22 @@ struct DisplayColorMonitor::Implementation
         notification.reset();
     }
 
+    void stop() noexcept
+    {
+        retryScheduled = false;
+        stopSubscription();
+    }
+
+    HMONITOR monitor{nullptr};
+    HWND wakeWindow{nullptr};
     DisplayInformation displayInformation{nullptr};
     winrt::event_token advancedColorChangedToken{};
     std::shared_ptr<DisplayColorNotification> notification{};
+    Clock::time_point retryAt{};
+    std::chrono::milliseconds retryDelay{initialRetryDelay};
     std::uint64_t observedGeneration{0U};
     bool advancedColorChangedRegistered{false};
+    bool retryScheduled{false};
 };
 
 DisplayColorMonitor::DisplayColorMonitor() noexcept = default;
@@ -132,75 +253,57 @@ DisplayColorMonitorResult DisplayColorMonitor::start(
     stop();
     if (monitor == nullptr || wakeWindow == nullptr)
     {
-        return DisplayColorMonitorResult{
+        result_ = DisplayColorMonitorResult{
             DisplayColorMonitorStatus::InvalidTarget,
             E_INVALIDARG,
             0U};
+        return result_;
     }
 
     try
     {
-        auto implementation = std::make_unique<Implementation>();
-        implementation->notification =
-            std::make_shared<DisplayColorNotification>(wakeWindow);
-
-        const auto interop = winrt::get_activation_factory<
-            DisplayInformation,
-            IDisplayInformationStaticsInterop>();
-        winrt::check_hresult(interop->GetForMonitor(
+        auto implementation = std::make_unique<Implementation>(
             monitor,
-            winrt::guid_of<IDisplayInformation>(),
-            winrt::put_abi(implementation->displayInformation)));
-
-        const std::shared_ptr<DisplayColorNotification> notification =
-            implementation->notification;
-        implementation->advancedColorChangedToken =
-            implementation->displayInformation.AdvancedColorInfoChanged(
-                [notification](const auto&, const auto&) noexcept
-                {
-                    notification->notify();
-                });
-        implementation->advancedColorChangedRegistered = true;
-
-        // Force the required DisplayInformation revision to be queried during
-        // startup. An older runtime then takes the explicit unsupported path.
-        static_cast<void>(
-            implementation->displayInformation.GetAdvancedColorInfo());
-        const std::uint64_t generation =
-            implementation->notification->generation();
-        implementation->observedGeneration = generation;
+            wakeWindow);
+        result_ = implementation->subscribe(false);
+        implementation->updateRetry(
+            result_,
+            Implementation::Clock::now());
         implementation_ = std::move(implementation);
-        return DisplayColorMonitorResult{
-            DisplayColorMonitorStatus::Active,
-            S_OK,
-            generation};
-    }
-    catch (const winrt::hresult_error& error)
-    {
-        return DisplayColorMonitorResult{
-            failureStatus(error.code()),
-            error.code(),
-            0U};
+        return result_;
     }
     catch (const std::bad_alloc&)
     {
-        return DisplayColorMonitorResult{
+        result_ = DisplayColorMonitorResult{
             DisplayColorMonitorStatus::Failed,
             E_OUTOFMEMORY,
             0U};
+        return result_;
     }
     catch (...)
     {
-        return DisplayColorMonitorResult{
+        result_ = DisplayColorMonitorResult{
             DisplayColorMonitorStatus::Failed,
             E_FAIL,
             0U};
+        return result_;
     }
 }
 
-bool DisplayColorMonitor::notificationPending() const noexcept
+bool DisplayColorMonitor::notificationPending() noexcept
 {
     if (implementation_ == nullptr)
+    {
+        return false;
+    }
+    const Implementation::Clock::time_point now =
+        Implementation::Clock::now();
+    if (implementation_->retryDue(now))
+    {
+        result_ = implementation_->subscribe(true);
+        implementation_->updateRetry(result_, now);
+    }
+    if (!implementation_->active())
     {
         return false;
     }
@@ -210,7 +313,7 @@ bool DisplayColorMonitor::notificationPending() const noexcept
 
 std::uint64_t DisplayColorMonitor::consumeNotification() noexcept
 {
-    if (implementation_ == nullptr)
+    if (implementation_ == nullptr || !implementation_->active())
     {
         return 0U;
     }
@@ -222,7 +325,12 @@ std::uint64_t DisplayColorMonitor::consumeNotification() noexcept
 
 bool DisplayColorMonitor::active() const noexcept
 {
-    return implementation_ != nullptr;
+    return implementation_ != nullptr && implementation_->active();
+}
+
+const DisplayColorMonitorResult& DisplayColorMonitor::result() const noexcept
+{
+    return result_;
 }
 
 void DisplayColorMonitor::stop() noexcept
