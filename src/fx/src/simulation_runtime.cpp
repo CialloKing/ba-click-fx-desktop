@@ -61,25 +61,31 @@ void SimulationRuntime::pointerDown(
         return;
     }
 
-    // A physical press owns the live stroke until release. Retiring the
-    // movement-only stroke prevents duplicate geometry while preserving its fade.
-    retireAlwaysOnTrail(simulationTime);
-    if (unityPool_.empty())
+    Simulation& instance = acquirePressedInstance(simulationTime);
+    instance.pointerDown(screenPosition, viewport, simulationTime);
+    pointerActive_ = true;
+    if (inputSamplingRateHz_ > 0U)
     {
-        instances_.push_back(RuntimeInstance{Simulation(nextUnitySeed()), true});
+        lastInputSampleAt_ = inputTime;
     }
-    else
+}
+
+void SimulationRuntime::continuePointerStroke(
+    const PointF screenPosition,
+    const Viewport viewport,
+    const SimulationTime simulationTime,
+    const SimulationTime inputTime)
+{
+    if (pointerActive_)
     {
-        instances_.push_back(RuntimeInstance{
-            std::move(unityPool_.front()),
-            true});
-        unityPool_.pop_front();
-        instances_.back().simulation.preparePooledActivation(nextUnitySeed());
+        return;
     }
 
-    Simulation& instance = instances_.back().simulation;
-    instance.setTrailLengthMultiplier(trailLengthMultiplier_);
-    instance.pointerDown(screenPosition, viewport, simulationTime);
+    Simulation& instance = acquirePressedInstance(simulationTime);
+    // startTrail deliberately omits click particles and treats this position
+    // as an anchor. This preserves the physical press without connecting two
+    // unrelated monitor-local coordinate systems.
+    instance.startTrail(screenPosition, viewport, simulationTime);
     pointerActive_ = true;
     if (inputSamplingRateHz_ > 0U)
     {
@@ -372,6 +378,30 @@ std::uint64_t SimulationRuntime::nextAmbientSeed() noexcept
         + ambientActivationCount_ * randomStreamStep;
     ++ambientActivationCount_;
     return seed;
+}
+
+Simulation& SimulationRuntime::acquirePressedInstance(
+    const SimulationTime simulationTime)
+{
+    // A physical press owns the live stroke until release. Retiring the
+    // movement-only stroke prevents duplicate geometry while preserving fade.
+    retireAlwaysOnTrail(simulationTime);
+    if (unityPool_.empty())
+    {
+        instances_.push_back(RuntimeInstance{Simulation(nextUnitySeed()), true});
+    }
+    else
+    {
+        instances_.push_back(RuntimeInstance{
+            std::move(unityPool_.front()),
+            true});
+        unityPool_.pop_front();
+        instances_.back().simulation.preparePooledActivation(nextUnitySeed());
+    }
+
+    Simulation& instance = instances_.back().simulation;
+    instance.setTrailLengthMultiplier(trailLengthMultiplier_);
+    return instance;
 }
 
 bool SimulationRuntime::acceptInputSample(const SimulationTime inputTime) noexcept

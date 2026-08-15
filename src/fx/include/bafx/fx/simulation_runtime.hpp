@@ -22,6 +22,14 @@ public:
         Viewport viewport,
         SimulationTime simulationTime,
         SimulationTime inputTime);
+    // Continues a physical press after its screen-local coordinate domain
+    // changes. The new instance starts from an anchor without a click burst or
+    // a synthetic line from the previous display.
+    void continuePointerStroke(
+        PointF screenPosition,
+        Viewport viewport,
+        SimulationTime simulationTime,
+        SimulationTime inputTime);
     void pointerMove(PointF screenPosition, Viewport viewport, SimulationTime time);
     void pointerMove(
         PointF screenPosition,
@@ -54,6 +62,8 @@ private:
 
     [[nodiscard]] std::uint64_t nextUnitySeed() noexcept;
     [[nodiscard]] std::uint64_t nextAmbientSeed() noexcept;
+    [[nodiscard]] Simulation& acquirePressedInstance(
+        SimulationTime simulationTime);
     [[nodiscard]] bool acceptInputSample(SimulationTime inputTime) noexcept;
     void resetInputSamplingPhase() noexcept;
     void retireAlwaysOnTrail(SimulationTime time);
