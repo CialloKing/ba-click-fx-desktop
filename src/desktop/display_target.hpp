@@ -17,6 +17,7 @@ struct DisplayPhysicalTargetIdentity final
 {
     LUID adapterLuid{};
     std::uint32_t targetId{0U};
+    std::wstring devicePath{};
 };
 
 struct DisplayTarget
@@ -60,7 +61,8 @@ struct DisplayTargetSnapshot
 {
     return left.adapterLuid.HighPart == right.adapterLuid.HighPart
         && left.adapterLuid.LowPart == right.adapterLuid.LowPart
-        && left.targetId == right.targetId;
+        && left.targetId == right.targetId
+        && left.devicePath == right.devicePath;
 }
 
 [[nodiscard]] inline bool sameDisplayPhysicalTargets(

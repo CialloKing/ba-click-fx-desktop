@@ -164,7 +164,8 @@ DisplayTargetSnapshot queryDisplayTargets() noexcept
                 target.physicalTargetIdentities.push_back(
                     DisplayPhysicalTargetIdentity{
                         physicalTarget.adapterLuid,
-                        physicalTarget.targetId});
+                        physicalTarget.targetId,
+                        physicalTarget.devicePath});
             }
             std::sort(
                 target.physicalTargetIdentities.begin(),
@@ -184,7 +185,13 @@ DisplayTargetSnapshot queryDisplayTargets() noexcept
                         return left.adapterLuid.LowPart
                             < right.adapterLuid.LowPart;
                     }
-                    return left.targetId < right.targetId;
+                    if (left.targetId != right.targetId)
+                    {
+                        return left.targetId < right.targetId;
+                    }
+                    // DisplayConfig target IDs identify adapter endpoints and
+                    // may be reused when a different panel replaces the old one.
+                    return left.devicePath < right.devicePath;
                 });
             result.displays.push_back(std::move(target));
         }
