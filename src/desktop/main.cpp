@@ -1435,7 +1435,9 @@ void appendSecondaryBackgroundCaptureServiceResult(
                 const bafx::windows::BackgroundSensorMaintenanceDiagnostics
                     maintenance =
                         session.renderer().serviceBackgroundCapture(now);
-                renderInvalidated = maintenance.wgc.accepted
+                renderInvalidated =
+                    (maintenance.wgc.accepted
+                        && session.lastPresentedDrawableContent())
                     || renderInvalidated;
             }
             const bafx::desktop::DisplaySessionBackgroundCaptureServiceResult
@@ -1528,8 +1530,39 @@ void appendSecondaryDeviceRecovery(
     const std::filesystem::path& logPath,
     bafx::desktop::DisplaySession& session,
     const std::string_view failureOperation,
-    const std::string_view successEvent) noexcept
+    const std::string_view successEvent,
+    const bool validateRemovalReason) noexcept
 {
+    if (validateRemovalReason)
+    {
+        const HRESULT removalReason =
+            session.renderer().deviceRemovedReason();
+        if (!bafx::windows::isDeviceLostResult(removalReason))
+        {
+            session.markRenderFaulted();
+            try
+            {
+                appendSecondaryRenderFailure(
+                    logPath,
+                    session,
+                    failureOperation,
+                    "device removal notification produced unexpected HRESULT "
+                        + formatHresult(removalReason));
+            }
+            catch (...)
+            {
+                // Preserve per-display isolation even if formatting the
+                // unexpected driver result cannot allocate memory.
+                appendSecondaryRenderFailure(
+                    logPath,
+                    session,
+                    failureOperation,
+                    "device removal notification produced unexpected HRESULT");
+            }
+            return false;
+        }
+    }
+
     const bafx::desktop::DisplaySessionDeviceRecoveryResult recovery =
         session.tryRecoverDevice();
     if (!recovery.recovered)
@@ -1582,7 +1615,8 @@ SecondaryRenderSummary renderSecondarySessions(
                     logPath,
                     session,
                     "device-recovery",
-                    "Display.Session.DeviceRecovered"))
+                    "Display.Session.DeviceRecovered",
+                    true))
             {
                 ++summary.failed;
                 continue;
@@ -1616,6 +1650,8 @@ SecondaryRenderSummary renderSecondarySessions(
                 snapshot,
                 wallTime,
                 false));
+            session.recordPresentedDrawableContent(
+                snapshot.hasDrawableContent());
             if (commitSimulationFrame)
             {
                 session.simulation().onFrameRendered(renderTime);
@@ -1630,7 +1666,8 @@ SecondaryRenderSummary renderSecondarySessions(
                         logPath,
                         session,
                         "render-device-recovery",
-                        "Display.Session.RenderDeviceRecovered"))
+                        "Display.Session.RenderDeviceRecovered",
+                        false))
                 {
                     ++summary.recovered;
                     continue;
@@ -3244,7 +3281,8 @@ int runApplication(
                             logPath,
                             *awakenedSession,
                             "frame-pacing-device-recovery",
-                            "Display.Session.FramePacingDeviceRecovered"))
+                            "Display.Session.FramePacingDeviceRecovered",
+                            true))
                     {
                         secondaryRecoveredDuringPacing = awakenedSession;
                         renderInvalidationPending = true;
@@ -4255,7 +4293,9 @@ int runApplication(
                     ? (lastPresentedDrawableContent
                         ? renderer.backgroundFrameAvailableObject()
                         : nullptr)
-                    : session.secondaryBackgroundFrameAvailableObject();
+                    : (session.lastPresentedDrawableContent()
+                        ? session.secondaryBackgroundFrameAvailableObject()
+                        : nullptr);
                 if (backgroundWaitable != nullptr)
                 {
                     pausedWaitables.push_back(
@@ -4291,7 +4331,8 @@ int runApplication(
                             logPath,
                             *ownedSessions[pausedWait.token],
                             "paused-device-recovery",
-                            "Display.Session.PausedDeviceRecovered")
+                            "Display.Session.PausedDeviceRecovered",
+                            true)
                         || renderInvalidationPending;
                 }
                 break;

@@ -104,6 +104,7 @@ public:
     [[nodiscard]] const bafx::windows::DisplayColorMonitorResult&
         colorMonitorStartResult() const noexcept;
     [[nodiscard]] bool renderFaulted() const noexcept;
+    [[nodiscard]] bool lastPresentedDrawableContent() const noexcept;
 
     // Call only after the owner has transactionally moved the HWND and
     // renderer resource domain. Monitoring is rebound first; the owner then
@@ -140,6 +141,7 @@ public:
     [[nodiscard]] HANDLE secondaryBackgroundFrameAvailableObject() const noexcept;
     void shutdownSecondaryBackgroundCapture() noexcept;
     void refreshColorCapabilities() noexcept;
+    void recordPresentedDrawableContent(bool drawable) noexcept;
     void markRenderFaulted() noexcept;
     void clearRenderFault() noexcept;
     void show();
@@ -161,6 +163,7 @@ private:
     bafx::windows::DisplayColorMonitor colorMonitor_{};
     std::optional<bafx::windows::DisplayColorCapabilities> colorCapabilities_{};
     bafx::windows::DisplayColorMonitorResult colorMonitorStartResult_{};
+    bool lastPresentedDrawableContent_{false};
     bool renderFaulted_{false};
     std::unique_ptr<DisplaySessionBackgroundCaptureState>
         secondaryBackgroundCapture_{};

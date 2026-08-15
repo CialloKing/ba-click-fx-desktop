@@ -156,6 +156,11 @@ bool DisplaySession::renderFaulted() const noexcept
     return renderFaulted_;
 }
 
+bool DisplaySession::lastPresentedDrawableContent() const noexcept
+{
+    return lastPresentedDrawableContent_;
+}
+
 void DisplaySession::acceptAppliedTarget(
     DisplayTarget target,
     const HWND wakeWindow) noexcept
@@ -188,6 +193,7 @@ DisplaySessionRetargetResult DisplaySession::retargetFxOnly(
                 target.bounds,
                 requestedAdapter(target),
                 displayTargetSize(target)});
+        lastPresentedDrawableContent_ = false;
         acceptAppliedTarget(std::move(target), wakeWindow);
         refreshColorCapabilities();
         clearRenderFault();
@@ -547,6 +553,7 @@ DisplaySession::serviceSecondaryBackgroundCapture(
                 {
                     result.outputRenegotiation =
                         renderer_.renegotiateOutput(pending.preference);
+                    lastPresentedDrawableContent_ = false;
                     recoveredDuringAttempt =
                         result.outputRenegotiation->deviceRecovered;
                 }
@@ -579,6 +586,10 @@ DisplaySession::serviceSecondaryBackgroundCapture(
                 }
             }
 
+            if (recoveredDuringAttempt)
+            {
+                lastPresentedDrawableContent_ = false;
+            }
             result.deviceRecovered = result.deviceRecovered
                 || recoveredDuringAttempt;
             result.renderInvalidated = true;
@@ -722,6 +733,12 @@ void DisplaySession::refreshColorCapabilities() noexcept
         target_.monitor);
 }
 
+void DisplaySession::recordPresentedDrawableContent(
+    const bool drawable) noexcept
+{
+    lastPresentedDrawableContent_ = drawable;
+}
+
 void DisplaySession::markRenderFaulted() noexcept
 {
     renderFaulted_ = true;
@@ -741,6 +758,9 @@ DisplaySessionDeviceRecoveryResult DisplaySession::finishDeviceRecovery(
     const bafx::windows::GraphicsDeviceInfo& previousDeviceInfo,
     const bool backgroundWasActive) noexcept
 {
+    // Device recreation publishes a new blank swap chain even when authored
+    // simulation state still exists; only a later successful Present can set it.
+    lastPresentedDrawableContent_ = false;
     const bool adapterChanged =
         previousDeviceInfo.adapterLuid.LowPart
             != renderer_.deviceInfo().adapterLuid.LowPart
@@ -836,6 +856,7 @@ void DisplaySession::acceptPendingSecondaryTargetIfApplied(
     acceptAppliedTarget(
         std::move(*state.pendingTarget),
         state.pendingWakeWindow);
+    lastPresentedDrawableContent_ = false;
     // The coordinator refreshes after comparing old/new modes. Secondary
     // sessions have no separate comparison owner, so refresh at commit time.
     refreshColorCapabilities();
