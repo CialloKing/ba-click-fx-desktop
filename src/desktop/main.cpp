@@ -12,6 +12,7 @@
 #include "bafx/windows/runtime_diagnostics.hpp"
 #include "bafx/windows/unique_handle.hpp"
 #include "background_capture_runtime.hpp"
+#include "display_output_retarget.hpp"
 #include "display_pointer_router.hpp"
 #include "display_session.hpp"
 #include "display_session_manager.hpp"
@@ -335,21 +336,22 @@ resolveDisplayOutputContract(
 }
 
 [[nodiscard]] bool displayOutputContractChanged(
-    const bafx::windows::CompositionOutputPreference preference,
+    const bafx::windows::CompositionOutputPreference previousPreference,
+    const bafx::windows::CompositionOutputPreference currentPreference,
     const std::optional<bafx::windows::DisplayColorCapabilities>& previous,
     const std::optional<bafx::windows::DisplayColorCapabilities>& current)
     noexcept
 {
     const std::optional<ResolvedDisplayOutputContract> currentContract =
-        resolveDisplayOutputContract(preference, current);
+        resolveDisplayOutputContract(currentPreference, current);
     if (!currentContract.has_value())
     {
-        // A transient capability-query failure is not evidence that the live
-        // output contract changed, so keep the working transport intact.
+        // The policy resolver normally maps unknown capabilities to SDR. Keep
+        // this guard for malformed callers without inventing a new contract.
         return false;
     }
     const std::optional<ResolvedDisplayOutputContract> previousContract =
-        resolveDisplayOutputContract(preference, previous);
+        resolveDisplayOutputContract(previousPreference, previous);
     return !previousContract.has_value()
         || *previousContract != *currentContract;
 }
@@ -2543,16 +2545,30 @@ int runApplication(
                 bafx::desktop::formatDisplayTargetMonitor(
                     appliedDisplayTarget);
             const std::string generationText = std::to_string(generation);
+            const bafx::windows::CompositionOutputPreference
+                requestedPreference =
+                    displaySession.requestedOutputPreference();
+            const bafx::windows::CompositionOutputPreference
+                previousPreference =
+                    bafx::desktop::resolveDisplayOutputPreference(
+                        requestedPreference,
+                        previousCapabilities);
+            const bafx::windows::CompositionOutputPreference
+                currentPreference =
+                    bafx::desktop::resolveDisplayOutputPreference(
+                        requestedPreference,
+                        displaySession.colorCapabilities());
             const bool outputContractChanged = scheduleOutputRenegotiation
                 && displayOutputContractChanged(
-                    renderer.outputPreference(),
+                    previousPreference,
+                    currentPreference,
                     previousCapabilities,
                     displaySession.colorCapabilities());
             if (outputContractChanged)
             {
                 pendingCoordinatorOutputRenegotiation =
                     PendingOutputRenegotiation{
-                        renderer.outputPreference(),
+                        currentPreference,
                         std::string(reason)};
             }
             else if (!scheduleOutputRenegotiation)
@@ -2574,6 +2590,12 @@ int runApplication(
                 bafx::windows::DiagnosticField{
                     "Generation",
                     generationText},
+                bafx::windows::DiagnosticField{
+                    "RequestedPreference",
+                    outputPreferenceName(requestedPreference)},
+                bafx::windows::DiagnosticField{
+                    "EffectivePreference",
+                    outputPreferenceName(currentPreference)},
                 bafx::windows::DiagnosticField{
                     "OutputContract",
                     outputContractChanged ? "changed" : "unchanged"},
@@ -2689,7 +2711,7 @@ int runApplication(
             refreshDisplayColorState(
                 "display-target-applied",
                 0U,
-                false);
+                true);
             bafx::desktop::appendDisplayTopologyApplied(
                 logPath,
                 backgroundExecution.controlGeneration,
@@ -3031,10 +3053,21 @@ int runApplication(
                     : (hostDisplayPowerChanged
                         ? "display-power"
                         : "win32-notification");
+                const bafx::windows::CompositionOutputPreference
+                    requestedPreference =
+                        session.requestedOutputPreference();
+                const bafx::windows::CompositionOutputPreference
+                    previousPreference =
+                        bafx::desktop::resolveDisplayOutputPreference(
+                            requestedPreference,
+                            previousCapabilities);
                 const bafx::windows::CompositionOutputPreference preference =
-                    session.renderer().outputPreference();
+                    bafx::desktop::resolveDisplayOutputPreference(
+                        requestedPreference,
+                        session.colorCapabilities());
                 const bool outputContractChanged =
                     displayOutputContractChanged(
+                        previousPreference,
                         preference,
                         previousCapabilities,
                         session.colorCapabilities());
@@ -3113,6 +3146,12 @@ int runApplication(
                             ? "succeeded"
                             : "failed"},
                     bafx::windows::DiagnosticField{"Generation", generation},
+                    bafx::windows::DiagnosticField{
+                        "RequestedPreference",
+                        outputPreferenceName(requestedPreference)},
+                    bafx::windows::DiagnosticField{
+                        "EffectivePreference",
+                        outputPreferenceName(preference)},
                     bafx::windows::DiagnosticField{
                         "OutputContract",
                         outputContractChanged ? "changed" : "unchanged"},
@@ -3673,6 +3712,11 @@ int runApplication(
                         config.display);
                 const bool outputPreferenceChanged =
                     previousOutputPreference != currentOutputPreference;
+                for (const auto& ownedSession : displaySessions.sessions())
+                {
+                    ownedSession->setRequestedOutputPreference(
+                        currentOutputPreference);
+                }
                 const bool alwaysOnTrailEnabled = config.effects.enabled
                     && config.effects.trailEnabled
                     && !config.input.trailOnlyWhilePressed;
@@ -3802,11 +3846,23 @@ int runApplication(
                     {
                         bafx::desktop::DisplaySession& session = *ownedSession;
                         const bool coordinator = &session == &displaySession;
+                        const bafx::windows::CompositionOutputPreference
+                            effectivePreference =
+                                bafx::desktop::resolveDisplayOutputPreference(
+                                    currentOutputPreference,
+                                    session.colorCapabilities());
                         bool applied = false;
-                        if (coordinator)
+                        if (session.renderer().outputPreference()
+                            == effectivePreference)
+                        {
+                            // The user request can change while this display
+                            // remains SDR. Keep its live WGC session intact.
+                            applied = true;
+                        }
+                        else if (coordinator)
                         {
                             applied = renegotiateCoordinatorOutput(
-                                currentOutputPreference,
+                                effectivePreference,
                                 "configuration");
                         }
                         else if (session.secondaryBackgroundCaptureInitialized())
@@ -3817,7 +3873,7 @@ int runApplication(
                                 // producer before replacing output resources,
                                 // then owns its restart or FX-only fallback.
                                 session.requestSecondaryOutputRenegotiation(
-                                    currentOutputPreference,
+                                    effectivePreference,
                                     "configuration");
                                 applied = true;
                             }
@@ -3832,7 +3888,7 @@ int runApplication(
                                 applied = tryRenegotiateOutput(
                                     logPath,
                                     session,
-                                    currentOutputPreference,
+                                    effectivePreference,
                                     "configuration-fx-only").has_value();
                             }
                             catch (...)
@@ -3846,7 +3902,7 @@ int runApplication(
                                 applied = tryRenegotiateOutput(
                                     logPath,
                                     session,
-                                    currentOutputPreference,
+                                    effectivePreference,
                                     "configuration-fx-only").has_value();
                             }
                         }
@@ -3858,7 +3914,7 @@ int runApplication(
                             applied = tryRenegotiateOutput(
                                 logPath,
                                 session,
-                                currentOutputPreference,
+                                effectivePreference,
                                 "configuration-fx-only").has_value();
                         }
                         if (applied && coordinator)
