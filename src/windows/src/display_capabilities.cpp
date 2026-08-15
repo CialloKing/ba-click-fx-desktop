@@ -1,10 +1,11 @@
 #include "bafx/windows/display_capabilities.hpp"
 
 #include <dwmapi.h>
-#include <dxgi1_6.h>
+#include <dxgi.h>
 #include <wrl/client.h>
 
 #include <algorithm>
+#include <cstddef>
 #include <cmath>
 
 namespace bafx::windows
@@ -13,6 +14,49 @@ namespace
 {
 
 using Microsoft::WRL::ComPtr;
+
+struct OutputDescription1Abi final
+{
+    WCHAR deviceName[32]{};
+    RECT desktopCoordinates{};
+    BOOL attachedToDesktop{FALSE};
+    DXGI_MODE_ROTATION rotation{DXGI_MODE_ROTATION_UNSPECIFIED};
+    HMONITOR monitor{nullptr};
+    UINT bitsPerColor{0U};
+    DXGI_COLOR_SPACE_TYPE colorSpace{DXGI_COLOR_SPACE_CUSTOM};
+    FLOAT redPrimary[2]{};
+    FLOAT greenPrimary[2]{};
+    FLOAT bluePrimary[2]{};
+    FLOAT whitePoint[2]{};
+    FLOAT minimumLuminance{0.0F};
+    FLOAT maximumLuminance{0.0F};
+    FLOAT maximumFullFrameLuminance{0.0F};
+};
+
+static_assert(offsetof(OutputDescription1Abi, monitor) == 88U);
+static_assert(offsetof(OutputDescription1Abi, bitsPerColor)
+    == 88U + sizeof(HMONITOR));
+static_assert(sizeof(OutputDescription1Abi)
+    == (sizeof(void*) == 8U ? 152U : 144U));
+
+// IDXGIOutput6 first appeared in a newer SDK than the product's minimum build
+// environment. The reserved methods preserve IDXGIOutput1-5's documented
+// vtable slots, so runtime QueryInterface keeps HDR metadata in every build.
+MIDL_INTERFACE("068346e8-aaec-4b84-add7-137f513f77a1")
+Output6Abi : public IDXGIOutput
+{
+public:
+    virtual HRESULT STDMETHODCALLTYPE reserved19() = 0;
+    virtual HRESULT STDMETHODCALLTYPE reserved20() = 0;
+    virtual HRESULT STDMETHODCALLTYPE reserved21() = 0;
+    virtual HRESULT STDMETHODCALLTYPE reserved22() = 0;
+    virtual HRESULT STDMETHODCALLTYPE reserved23() = 0;
+    virtual HRESULT STDMETHODCALLTYPE reserved24() = 0;
+    virtual HRESULT STDMETHODCALLTYPE reserved25() = 0;
+    virtual HRESULT STDMETHODCALLTYPE reserved26() = 0;
+    virtual HRESULT STDMETHODCALLTYPE getDescription1(
+        OutputDescription1Abi* description) = 0;
+};
 
 // Keep Advanced Color device-info contracts local. Build SDK selection must
 // not decide whether the resulting binary can probe a newer Windows runtime.
@@ -453,26 +497,26 @@ std::optional<DisplayColorCapabilities> queryDisplayColorCapabilities(
 
                 DisplayColorCapabilities capabilities{};
                 bool dxgiDescriptionAvailable = false;
-                ComPtr<IDXGIOutput6> output6;
+                ComPtr<Output6Abi> output6;
                 if (SUCCEEDED(output.As(&output6)))
                 {
-                    DXGI_OUTPUT_DESC1 description{};
-                    if (SUCCEEDED(output6->GetDesc1(&description)))
+                    OutputDescription1Abi description{};
+                    if (SUCCEEDED(output6->getDescription1(&description)))
                     {
-                        capabilities.colorSpace = description.ColorSpace;
-                        capabilities.bitsPerColor = description.BitsPerColor;
+                        capabilities.colorSpace = description.colorSpace;
+                        capabilities.bitsPerColor = description.bitsPerColor;
                         capabilities.minimumLuminanceNits =
-                            description.MinLuminance;
+                            description.minimumLuminance;
                         capabilities.maximumLuminanceNits =
-                            description.MaxLuminance;
+                            description.maximumLuminance;
                         capabilities.maximumFullFrameLuminanceNits =
-                            description.MaxFullFrameLuminance;
+                            description.maximumFullFrameLuminance;
                         capabilities.luminanceMetadataValid =
-                            validLuminance(description.MinLuminance)
-                            && validLuminance(description.MaxLuminance)
+                            validLuminance(description.minimumLuminance)
+                            && validLuminance(description.maximumLuminance)
                             && validLuminance(
-                                description.MaxFullFrameLuminance)
-                            && description.MaxLuminance > 0.0F;
+                                description.maximumFullFrameLuminance)
+                            && description.maximumLuminance > 0.0F;
                         capabilities.activeColorMode = inferColorMode(
                             capabilities.colorSpace);
                         dxgiDescriptionAvailable = true;
