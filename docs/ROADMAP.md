@@ -15,8 +15,8 @@ WGC/ROI 优化，当前直接收敛 WGC/背景感知可靠性，不再按 Spike 
 - `P1` 的 ROI 规划继续保持观测和 full-screen fallback，未通过 FP16 等价验证前不得接入生产；
 - 当前主线直接进入下一阶段的 WGC/背景感知可靠性，优先处理会话失效、FramePool 重建、旧快照清除、
   自排除/光标失败回退和资源配平；
-- 本阶段每项改动必须有可复跑的状态或硬件证据。已有的 WGC 生命周期子集仍需继续补齐权限拒绝、
-  外部录屏、设备移除/重置和多显示器单元格，未执行项保持 `Not Run`。
+- 本阶段每项改动必须有可复跑的状态或硬件证据。已有的 WGC 生命周期子集仍需继续补齐打包身份下的
+  权限允许/拒绝、无边框成功、外部录屏、设备移除/重置和多显示器单元格，未执行项保持 `Not Run`。
 
 当前已落地的可靠性工作包括生产 WGC 资源账本日志、停止通知竞态修复，以及 WGC 失败后允许同轮
 窗口 resize 进入清理/重启事务。stop 现在分别锁存 FrameArrived/item.Closed 退订、Session Close 和
@@ -29,6 +29,13 @@ FramePool Close 失败，并汇总到 `OverallSucceeded`；任一阶段失败仍
 `BackgroundSnapshot.Invalidated`，包含控制代次、帧号、WGC 与快照 epoch/generation 和失效原因。
 RTX 4060/Windows 10 的模式切换、暂停保鲜与存活快照失效子集已通过，证据见
 [`artifacts/spikes/spk-002/rtx4060-win10-19045-mode-switch-snapshot-2026-08-15`](../artifacts/spikes/spk-002/rtx4060-win10-19045-mode-switch-snapshot-2026-08-15/README.md)。
+
+同一机器上的 portable 无边框拒绝与恢复子集也已通过：允许系统边框时 WGC 正常参与，关闭边框后以
+`WGC.BorderlessAccess.Checked=not-packaged / 0x80073D54` 在创建新 Session/FramePool 前拒绝，事务回退
+FX-only 并恢复 `WDA_NONE`；重新允许边框后新会话与背景参与恢复。证据见
+[`artifacts/spikes/spk-002/rtx4060-win10-19045-portable-borderless-fallback-2026-08-15`](../artifacts/spikes/spk-002/rtx4060-win10-19045-portable-borderless-fallback-2026-08-15/README.md)。
+这只关闭 portable `not-packaged` 单元格，不覆盖 packaged 权限拒绝或无边框成功，完整 SPK-002 仍为
+`Not Run`。
 
 设备丢失路径现已接入 Host：渲染提交、Bloom 配置资源、swap-chain resize 或 WGC FramePool
 Recreate 遇到可识别的 DXGI device-lost HRESULT 时，整个 renderer 最多执行一次 D3D/DComp/WGC
@@ -142,7 +149,7 @@ ROI 数值合同继续服从 ADR-006；原型通过前，全屏仍是生产 fall
 
 输入跟手、WGC 成本和视觉回归收敛后，再集中完成以下发布矩阵：
 
-- WGC 权限、无边框、外部录屏、模式切换、压力和功耗；
+- WGC 打包身份权限允许/拒绝、无边框成功、外部录屏、模式切换、压力和功耗；
 - HDR/Advanced Color 输出与 SDR fallback；
 - 多显示器、混合刷新率、DPI、多适配器、热插拔和 device lost。
 

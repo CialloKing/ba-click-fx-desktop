@@ -75,7 +75,9 @@
   `system-border=visible-allowed`。用户可在 Control Center 中取消勾选“允许黄色捕获边框”；关闭后会在
   `StartCapture` 前确认无边框会话，接口缺失、权限不足或系统仍要求边框时直接报告
   `Support.WGC=fallback-fx-only`，并把当前渲染批次回退到内部 FX-only transport，不会先启动带黄色
-  边框的会话。切换到 `recording-compatible` 或 `light-background` 会关闭 WGC。日志中的
+  边框的会话。每次权限结论由 `WGC.BorderlessAccess.Checked` 结构化记录控制代次、事务动作序号、
+  `AllowSystemBorder`、状态、HRESULT 和 Allowed；portable 身份的预期拒绝状态是 `not-packaged`，不能与
+  packaged 用户/系统拒绝混为一谈。切换到 `recording-compatible` 或 `light-background` 会关闭 WGC。日志中的
   `BackgroundComposite.Participated` 才是背景样本进入最终 pass 的结构化判据；它记录已应用控制代次、
   成功 Present 的帧号以及 WGC/快照 epoch/generation。旧文本
   `WGC background sample entered the final desktop composite` 仅为既有验收工具保留。
@@ -120,15 +122,17 @@ Windows“已安装的应用”执行，默认保留安装目录
 ## 尚未支持或尚未验证
 
 - HDR、Advanced Color 和物理 nits 输出声明。
-- WGC 背景感知的外部录屏兼容性、会话长时间压力与权限拒绝矩阵。Control Center 中三种模式和
+- WGC 背景感知的外部录屏兼容性、会话长时间压力与 packaged 权限允许/拒绝矩阵。Control Center 中三种模式和
   “允许黄色捕获边框”仍是实验入口；本 Alpha 不将 WGC、录屏兼容性或 HDR 作为可依赖的效果路径。
   `background-aware` 启动失败或会话中止后回退内部 FX-only transport，并撤销窗口捕获排除，避免
   回退画面被录屏器隐藏；`recording-compatible` 和 `light-background` 始终关闭 WGC。
-- 当前 Windows 10 19045 实测中，默认允许可见系统边框时，窗口保留
-  `WS_EX_LAYERED | WS_EX_TRANSPARENT`，请求 `WDA_EXCLUDEFROMCAPTURE` 后查询值为 `0x11`，
-  WGC 会话可正常取帧，光标排除成功，426 个渲染帧中有 423 个背景合成帧。该数据不证明无边框能力；
-  在 Control Center 中关闭黄色边框后，该系统因边框隐藏接口不可用而在 `StartCapture` 前回退
-  FX-only。已有 schema 4 配置若显式保存了 `false`，迁移到当前 schema 7 后仍保持该关闭状态。
+- 当前 Windows 10 19045 portable 实测中，允许可见系统边框时 WGC 会话和背景参与正常；关闭黄色边框后，
+  package identity 预检以 `not-packaged / 0x80073D54` 在新 Session/FramePool 创建前拒绝，回退
+  FX-only、恢复 `WDA_NONE`，且该控制代次没有背景参与。重新允许边框后 WGC 和背景参与可以恢复。
+  原始证据见
+  [`artifacts/spikes/spk-002/rtx4060-win10-19045-portable-borderless-fallback-2026-08-15`](artifacts/spikes/spk-002/rtx4060-win10-19045-portable-borderless-fallback-2026-08-15/README.md)。
+  该结果不证明 packaged 权限拒绝或无边框成功；已有 schema 4 配置若显式保存了 `false`，迁移到当前
+  schema 7 后仍保持该关闭状态。
 - 无论 WGC 是否可用，都不能移除 Layered/Transparent 样式来换取背景采样；这会破坏跨进程按钮点击。
 - 多显示器、跨显示器输入、多适配器和混合刷新率。
 - device removed/reset 后已有事件通知、一次性重建实现和主动探针，但当前只证明通知注册及主动重建后的
