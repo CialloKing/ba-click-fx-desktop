@@ -318,6 +318,13 @@ BorderlessCaptureAccessRequest::BorderlessCaptureAccessRequest(
 {
 }
 
+BorderlessCaptureAccessRequest::~BorderlessCaptureAccessRequest() noexcept
+{
+    // Releasing the last WinRT handle does not express owner intent. Request
+    // cancellation explicitly so shutdown cannot leave a broker prompt alive.
+    cancel();
+}
+
 void BorderlessCaptureAccessRequest::begin(
     const PackageIdentityInfo& identity,
     const Clock::time_point now) noexcept
@@ -427,7 +434,21 @@ void BorderlessCaptureAccessRequest::cancel(
     {
         operation_->cancel();
         cancelRequested_ = true;
-        asyncStatus = BorderlessCaptureAccessAsyncStatus::Canceled;
+        // Cancel is advisory. Observe a completion or broker error that won
+        // the race instead of claiming that the broker confirmed Canceled.
+        asyncStatus = operation_->status();
+    }
+    if (asyncStatus == BorderlessCaptureAccessAsyncStatus::Started)
+    {
+        const HRESULT error = operation_->error();
+        readyResult_ = BorderlessCaptureAccessResult{
+            BorderlessCaptureAccessStatus::Canceled,
+            FAILED(error) ? error : HRESULT_FROM_WIN32(ERROR_CANCELLED),
+            asyncStatus,
+            elapsed,
+            cancelRequested_};
+        operation_.reset();
+        return;
     }
     readyResult_ = terminalResult(
         *operation_,

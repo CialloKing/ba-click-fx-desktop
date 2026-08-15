@@ -78,14 +78,14 @@ public:
     explicit BorderlessCaptureAccessRequest(
         std::chrono::milliseconds timeout = std::chrono::milliseconds(
             borderlessCaptureAccessPromptTimeoutMilliseconds)) noexcept;
-    ~BorderlessCaptureAccessRequest() = default;
+    ~BorderlessCaptureAccessRequest() noexcept;
 
     BorderlessCaptureAccessRequest(const BorderlessCaptureAccessRequest&) = delete;
     BorderlessCaptureAccessRequest& operator=(
         const BorderlessCaptureAccessRequest&) = delete;
-    BorderlessCaptureAccessRequest(BorderlessCaptureAccessRequest&&) noexcept = default;
+    BorderlessCaptureAccessRequest(BorderlessCaptureAccessRequest&&) = delete;
     BorderlessCaptureAccessRequest& operator=(
-        BorderlessCaptureAccessRequest&&) noexcept = default;
+        BorderlessCaptureAccessRequest&&) = delete;
 
     void begin(
         const PackageIdentityInfo& identity,

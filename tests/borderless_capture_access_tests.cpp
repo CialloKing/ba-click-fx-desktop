@@ -8,6 +8,7 @@
 #include <chrono>
 #include <cstddef>
 #include <memory>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -92,6 +93,9 @@ private:
 
 constexpr auto requestTimeout = std::chrono::milliseconds(100);
 const auto requestStartedAt = BorderlessCaptureAccessRequest::Clock::time_point{};
+
+static_assert(!std::is_move_constructible_v<BorderlessCaptureAccessRequest>);
+static_assert(!std::is_move_assignable_v<BorderlessCaptureAccessRequest>);
 
 }
 
@@ -270,7 +274,57 @@ BAFX_TEST(borderless_access_explicit_cancel_is_terminal_and_one_shot)
         canceled.result->status
         == BorderlessCaptureAccessStatus::Canceled);
     BAFX_CHECK(canceled.result->cancelRequested);
+    BAFX_CHECK(
+        canceled.result->asyncStatus
+        == BorderlessCaptureAccessAsyncStatus::Started);
     BAFX_CHECK(canceled.result->elapsedMilliseconds == 25U);
     BAFX_CHECK(counters->cancelCalls == 1U);
     BAFX_CHECK(!after.result.has_value());
+}
+
+BAFX_TEST(borderless_access_completion_wins_over_explicit_cancel)
+{
+    BorderlessCaptureAccessRequest request(requestTimeout);
+    const auto counters = std::make_shared<FakeOperationCounters>();
+    auto operation = std::make_unique<FakeBorderlessCaptureAccessOperation>(
+        std::vector{
+            BorderlessCaptureAccessAsyncStatus::Started,
+            BorderlessCaptureAccessAsyncStatus::Completed},
+        BorderlessCaptureAccessResult{
+            BorderlessCaptureAccessStatus::Allowed,
+            S_OK},
+        S_OK,
+        counters);
+    request.begin(std::move(operation), requestStartedAt);
+
+    request.cancel(requestStartedAt + std::chrono::milliseconds(25));
+    const auto completed = request.poll(
+        requestStartedAt + std::chrono::milliseconds(25));
+
+    BAFX_CHECK(completed.result.has_value());
+    BAFX_CHECK(completed.result->status == BorderlessCaptureAccessStatus::Allowed);
+    BAFX_CHECK(
+        completed.result->asyncStatus
+        == BorderlessCaptureAccessAsyncStatus::Completed);
+    BAFX_CHECK(completed.result->cancelRequested);
+    BAFX_CHECK(counters->cancelCalls == 1U);
+    BAFX_CHECK(counters->getResultsCalls == 1U);
+}
+
+BAFX_TEST(borderless_access_destructor_requests_cancel_once)
+{
+    const auto counters = std::make_shared<FakeOperationCounters>();
+    {
+        BorderlessCaptureAccessRequest request(requestTimeout);
+        auto operation = std::make_unique<FakeBorderlessCaptureAccessOperation>(
+            std::vector{
+                BorderlessCaptureAccessAsyncStatus::Started},
+            BorderlessCaptureAccessResult{},
+            S_OK,
+            counters);
+        request.begin(std::move(operation), requestStartedAt);
+    }
+
+    BAFX_CHECK(counters->cancelCalls == 1U);
+    BAFX_CHECK(counters->statusCalls == 2U);
 }
