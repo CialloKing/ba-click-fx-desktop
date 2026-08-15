@@ -919,13 +919,20 @@ int runApplication(
     report.setConfigurationSchemaVersion(config.schemaVersion);
     bafx::desktop::DisplayTarget appliedDisplayTarget = primaryDisplayTarget();
     report.setPrimaryMonitor(appliedDisplayTarget.bounds);
+    constexpr RECT hostShellBounds{0L, 0L, 1L, 1L};
+    bafx::windows::OverlayWindow hostWindow(
+        instance,
+        hostShellBounds,
+        L"ba-click-fx-desktop Host",
+        bafx::windows::OverlayWindowOptions::hostShell(
+            options.disableRawInput
+                ? bafx::windows::RawMouseRegistration::Disabled
+                : bafx::windows::RawMouseRegistration::Enabled));
     bafx::windows::OverlayWindow window(
         instance,
         appliedDisplayTarget.bounds,
         L"ba-click-fx-desktop",
-        options.disableRawInput
-            ? bafx::windows::RawMouseRegistration::Disabled
-            : bafx::windows::RawMouseRegistration::Enabled);
+        bafx::windows::OverlayWindowOptions::renderSurface());
     std::uint32_t appliedDisplayDpi = window.effectiveDpi();
     report.setPrimaryDpi(appliedDisplayDpi);
     if (const auto refreshRate =
@@ -939,7 +946,7 @@ int runApplication(
     const bafx::windows::DisplayColorMonitorResult displayColorMonitorStart =
         displayColorMonitor.start(
             appliedDisplayTarget.monitor,
-            window.handle());
+            hostWindow.handle());
     bafx::windows::appendDiagnosticLog(
         logPath,
         bafx::windows::displayColorMonitorDiagnostic(
@@ -977,7 +984,7 @@ int runApplication(
     }
     bafx::windows::WindowSize appliedOutputSize = window.size();
     report.setDeviceInfo(renderer.deviceInfo());
-    report.setExitUiStatus(window.exitUiStatus());
+    report.setExitUiStatus(hostWindow.exitUiStatus());
     if (options.supportInfoOnly)
     {
         static_cast<void>(publishControlService(
@@ -1250,7 +1257,7 @@ int runApplication(
             const bafx::windows::DisplayColorMonitorResult monitorResult =
                 displayColorMonitor.start(
                     appliedDisplayTarget.monitor,
-                    window.handle());
+                    hostWindow.handle());
             bafx::windows::appendDiagnosticLog(
                 logPath,
                 bafx::windows::displayColorMonitorDiagnostic(monitorResult));
@@ -1280,13 +1287,15 @@ int runApplication(
         control.setBackgroundCaptureActive(renderer.backgroundCaptureActive());
         bafx::windows::appendDiagnosticLog(logPath, report);
     };
-    while (!quit && !window.closeRequested())
+    while (!quit && !hostWindow.closeRequested())
     {
         accumulateMessageDispatch(pendingMessageDispatch, dispatchMessages(quit));
-        window.pollExitShortcut();
-        window.pollPointerState();
+        hostWindow.pollExitShortcut();
+        hostWindow.pollPointerState();
         bafx::desktop::HostStateSnapshot controlState = control.snapshot();
-        if (controlState.shutdownRequested || quit || window.closeRequested())
+        if (controlState.shutdownRequested
+            || quit
+            || hostWindow.closeRequested())
         {
             break;
         }
@@ -1297,9 +1306,18 @@ int runApplication(
 
         bool renderInvalidated = renderInvalidationPending;
         renderInvalidationPending = false;
-        const bool displayTopologyChanged =
+        const bool hostDisplayTopologyChanged =
+            hostWindow.takeDisplayTopologyChange();
+        const bool surfaceDisplayTopologyChanged =
             window.takeDisplayTopologyChange();
-        bool displayColorRefreshPending = window.takeDisplayColorChange();
+        const bool displayTopologyChanged = hostDisplayTopologyChanged
+            || surfaceDisplayTopologyChanged;
+        const bool hostDisplayColorChanged =
+            hostWindow.takeDisplayColorChange();
+        const bool surfaceDisplayColorChanged =
+            window.takeDisplayColorChange();
+        bool displayColorRefreshPending = hostDisplayColorChanged
+            || surfaceDisplayColorChanged;
         std::uint64_t displayColorGeneration = 0U;
         if (displayColorMonitor.notificationPending())
         {
@@ -1809,7 +1827,7 @@ int runApplication(
             ? *demoStartedAt + std::chrono::milliseconds(*options.demoAgeMilliseconds)
             : simulationTimeline.fromWallTime(wallTime);
         std::vector<bafx::windows::PointerEvent> pointerEvents =
-            window.takePointerEvents();
+            hostWindow.takePointerEvents();
         const std::size_t pointerEventsBeforeHostCompaction =
             pointerEvents.size();
         pointerEvents = bafx::windows::coalescePointerMoves(
