@@ -349,6 +349,18 @@ BAFX_TEST(config_patch_updates_whitelisted_field_and_checks_generation)
         base,
         bafx::config::toJson(base, false));
     BAFX_CHECK(!fullDocument.recognized);
+
+    const auto obsoleteMixedDocument = bafx::config::applyPatchJson(
+        base,
+        R"json({"schemaVersion":7,"oldField":true,"path":"effects.enabled","value":false})json");
+    BAFX_CHECK(obsoleteMixedDocument.recognized);
+    BAFX_CHECK(!obsoleteMixedDocument.succeeded());
+    BAFX_CHECK(
+        obsoleteMixedDocument.status
+        == bafx::config::ConfigStatus::ValidationError);
+    BAFX_CHECK(
+        obsoleteMixedDocument.config.effects.enabled
+        == base.effects.enabled);
 }
 
 BAFX_TEST(config_preserves_unicode_paths_and_rejects_unknown_enum_values)

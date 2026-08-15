@@ -1385,6 +1385,24 @@ ConfigPatchResult applyPatchJson(
                 false,
                 std::nullopt};
         }
+        for (const auto& entry : *root)
+        {
+            if (entry.first == "path"
+                || entry.first == "value"
+                || entry.first == "generation")
+            {
+                continue;
+            }
+
+            // A recognized patch must never hide an obsolete configuration
+            // document behind path/value members.
+            return ConfigPatchResult{
+                base,
+                ConfigStatus::ValidationError,
+                "patch field '" + entry.first + "' is not supported",
+                true,
+                std::nullopt};
+        }
         const std::string* path = std::get_if<std::string>(&pathValue->storage);
         if (path == nullptr || path->empty())
         {
