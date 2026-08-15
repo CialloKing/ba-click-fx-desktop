@@ -241,6 +241,12 @@ bool BackgroundCaptureTransition::beginCaptureExclusionLost() noexcept
         BackgroundCaptureFailure::ExclusionUnconfirmed);
 }
 
+bool BackgroundCaptureTransition::beginBorderlessAccessLost() noexcept
+{
+    return beginActiveSensorFailure(
+        BackgroundCaptureFailure::BorderlessAccessFailed);
+}
+
 bool BackgroundCaptureTransition::beginActiveSensorFailure(
     const BackgroundCaptureFailure failure) noexcept
 {
