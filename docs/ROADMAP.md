@@ -68,8 +68,10 @@ HRESULT，`Performance.Interval` 另记 `FramePacing.DeviceRemovedWakes`，非�
 `BackgroundCapture.StopProgress`，包含阶段、状态和 owner/caller 线程；即使调用不返回，最后一条完整日志
 也能指出阻塞阶段。调用返回后仍汇总各阶段与总耗时；渲染阶段先完成的真实 stop 会跨随后无 sensor 清理
 动作保留到首次日志消费，并以 `DeferredReport=true` 标识。异常继续清理、线程不一致和双 stop 交接由
-确定性单元测试覆盖。该诊断不能取消 device-lost 时的 WinRT Close，最坏阻塞时间仍需真实故障注入并保持
-`Not Run`。
+确定性单元测试覆盖。生产 stop 另有进程级 watchdog：它在首条 `Stop/begin` 前启动，默认 `10 s` 未完成即
+以退出码 `124` 强制结束 Host。由于阻塞的 WinRT Close 无法取消，超时后不会继续执行 WDA 回滚或复用旧
+WGC 资源；最后一个 `StageState=begin` 仅用于定位系统调用。真实 device-lost 下 Close 的行为、阶段和是否会
+触发该边界仍需故障注入，保持 `Not Run`。
 
 ## P0：输入、渲染与 Present 延迟诊断
 

@@ -190,8 +190,9 @@ python -B tools\verify-wgc-self-exclusion-spike.py `
 - 两个场景均以退出码 0 结束；最终 Frame/FramePool/Session 和两类事件注册全部配平，
   `Failures=0`、`AllReleased=true`。旧文本参与标记仍保留，但新的结构化事件是身份和顺序判据。
 - 该证据不覆盖权限拒绝、无边框、外部录屏器、显示器关闭、长期压力/功耗、HDR、多显示器或真实
-  device lost/reset，也不能证明同步 WinRT `Close()` 永久不返回时可被取消。因此完整 SPK-002
-  继续为 `Not Run`，ADR-003/ADR-004/ADR-007 继续为 `Proposed`。
+  device lost/reset，也不能证明同步 WinRT `Close()` 可被取消。当前生产 Host 会在 WGC stop 超过默认
+  `10 s` 时以退出码 `124` 结束进程，而不是继续 WDA 回滚或复用旧 Session；该进程边界不等同于 WinRT
+  清理成功。因此完整 SPK-002 继续为 `Not Run`，ADR-003/ADR-004/ADR-007 继续为 `Proposed`。
 
 ### 已执行 portable 无边框拒绝与恢复子集证据
 
@@ -267,12 +268,14 @@ python -B tools\verify-wgc-self-exclusion-spike.py `
   返回后汇总各阶段与总耗时；渲染阶段的真实 stop 不会被随后无 sensor 清理覆盖，延后交接时记录
   `DeferredReport=true`。当前机器的正常 WGC 会话已产生
   `SensorPresent=true;Completed=true;DeferredReport=false` 的完整汇总记录；阶段异常继续清理、线程一致性和
-  双 stop 交接由单元测试覆盖，但这些证据都不代替故障注入，也不能证明同步 Close 可取消。
+  双 stop 交接由单元测试覆盖。生产 watchdog 在 stop 开始前启动，默认 `10 s` 截止；超时会以退出码 `124`
+  强制结束 Host，最后一个 `StageState=begin` 用于定位阻塞调用。它不取消同步 Close，也不在旧 Session 状态
+  未知时继续执行 `WDA_NONE`。
 - 当前机器已观察到通知注册及主动资源重建后的重新注册，但该探针没有制造真实 GPU reset，也没有覆盖
   WGC Session/FramePool 在 device-lost 中的系统级行为；
   因此本 Spike 的真实 device lost、跨适配器、热插拔和多显示器单元格仍为 `Not Run`，不能据此发布
-  完整硬件支持声明。frame-latency 恢复分支和有界退出已有模拟覆盖，但同步 WGC stop 在 device-lost 下
-  的阻塞上限仍无真实故障证据。
+  完整硬件支持声明。frame-latency 恢复分支和 WGC stop 进程级硬截止已有模拟覆盖，但同步 WGC stop 在
+  device-lost 下实际会停在哪一阶段以及系统资源状态仍无真实故障证据。
 
 ## 状态模板
 

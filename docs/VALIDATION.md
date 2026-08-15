@@ -57,7 +57,9 @@
   错误锁存，以及已确认 device-lost 到一次性 render/Present 恢复边界的路由；通知不可用时保留连续
   timeout 轮询，`desktop_frame_pacing_stall` 必须在自身截止时间内退出；
 - WGC session state machine、每个不可取消 stop 调用前可独立观察的阶段检查点，以及渲染阶段真实 stop
-  诊断跨无 sensor 清理动作的一次性交接；检查点只能定位阻塞，不作为 WinRT Close 可取消的证据；
+  诊断跨无 sensor 清理动作的一次性交接；生产 watchdog 必须在 stop 首条日志前启动，正常完成时撤销，
+  默认 `10 s` 到期时调用进程终止处理器。可注入处理器覆盖撤销、单次触发与重新启动；检查点和 watchdog
+  只能定位并界定阻塞，不作为 WinRT Close 可取消或真实 device-lost 已通过的证据；
 - 无边框权限预检必须在 stop、WDA/profile 变更和新 Session/FramePool 之前开始；等待期间 Host 继续
   消费消息、Raw Input、呈现和 IPC。`WGC.BorderlessAccess.Checked` 记录原始 `Control.Generation`、事务
   动作序号、`AllowSystemBorder`、状态、HRESULT、`AsyncStatus`、`ElapsedMs`、`CancelRequested` 和
