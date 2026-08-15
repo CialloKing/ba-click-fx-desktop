@@ -286,7 +286,7 @@ void DisplaySession::initializeSecondaryBackgroundCapture(
 }
 
 void DisplaySession::updateSecondaryBackgroundCaptureRequest(
-    const bafx::windows::BackgroundCaptureRequest request,
+    bafx::windows::BackgroundCaptureRequest request,
     const std::uint64_t controlGeneration)
 {
     if (secondaryBackgroundCapture_ == nullptr)
@@ -297,6 +297,9 @@ void DisplaySession::updateSecondaryBackgroundCaptureRequest(
 
     DisplaySessionBackgroundCaptureState& state =
         *secondaryBackgroundCapture_;
+    // Retry identity belongs to this display's recovery state machine. The
+    // process-wide control snapshot only supplies the requested path/profile.
+    request.retryToken = state.request.retryToken;
     if (state.request == request)
     {
         if (!state.execution.transactionActive)
