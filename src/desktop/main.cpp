@@ -2572,6 +2572,9 @@ int runApplication(
             case bafx::desktop::DisplaySessionColorRefreshStatus::
                 RetainedTransactionSnapshot:
                 return "retained-target-snapshot";
+            case bafx::desktop::DisplaySessionColorRefreshStatus::
+                RetainedLastKnownSnapshot:
+                return "retained-last-known-snapshot";
             case bafx::desktop::DisplaySessionColorRefreshStatus::Unavailable:
                 return "failed";
             }
@@ -2582,7 +2585,9 @@ int runApplication(
             const std::uint64_t generation,
             const bool outputRebuiltForCurrentTarget,
             const std::optional<bafx::windows::DisplayColorCapabilities>&
-                fallbackCapabilities)
+                fallbackCapabilities,
+            const bafx::desktop::DisplaySessionColorRefreshRequest request =
+                bafx::desktop::DisplaySessionColorRefreshRequest::Observation)
         {
             const std::optional<bafx::windows::DisplayColorCapabilities>
                 previousCapabilities = displaySession.colorCapabilities();
@@ -2592,7 +2597,9 @@ int runApplication(
                     previousCapabilities->activeColorMode))
                 : "unknown";
             const bafx::desktop::DisplaySessionColorRefreshStatus refreshStatus =
-                displaySession.refreshColorCapabilities(fallbackCapabilities);
+                displaySession.refreshColorCapabilities(
+                    fallbackCapabilities,
+                    request);
             if (displaySession.colorCapabilities().has_value())
             {
                 report.setPrimaryDisplayColorCapabilities(
@@ -2614,6 +2621,8 @@ int runApplication(
                 bafx::desktop::formatDisplayTargetMonitor(
                     appliedDisplayTarget);
             const std::string generationText = std::to_string(generation);
+            const std::string retriesRemaining = std::to_string(
+                displaySession.colorRefreshRetriesRemaining());
             const bafx::windows::CompositionOutputPreference
                 requestedPreference =
                     displaySession.requestedOutputPreference();
@@ -2665,6 +2674,9 @@ int runApplication(
                 bafx::windows::DiagnosticField{
                     "Generation",
                     generationText},
+                bafx::windows::DiagnosticField{
+                    "RetryBudgetRemaining",
+                    retriesRemaining},
                 bafx::windows::DiagnosticField{
                     "RequestedPreference",
                     outputPreferenceName(requestedPreference)},
@@ -3096,8 +3108,9 @@ int runApplication(
 
         std::optional<bafx::desktop::DisplayTargetSnapshot>
             polledDisplayTopology{};
-        if (!displayPowerUnavailable
-            && loopObservedAt >= nextDisplayTopologyPollAt)
+        const bool displayMaintenanceDue = !displayPowerUnavailable
+            && loopObservedAt >= nextDisplayTopologyPollAt;
+        if (displayMaintenanceDue)
         {
             // Do not replay missed ticks after a stall. One current snapshot
             // is enough to converge without turning recovery into a busy loop.
@@ -3186,7 +3199,7 @@ int runApplication(
             // The console display-state subscription is process-global and
             // belongs to the Host shell. Fan its generation out so every
             // monitor revalidates HDR/WCG after sleep, dimming or power-on.
-            bool refreshSecondaryColor = colorPending
+            bool secondaryColorObservationPending = colorPending
                 || hostDisplayPowerChanged;
             std::uint64_t secondaryColorGeneration = 0U;
             if (!displayPowerUnavailable
@@ -3194,9 +3207,15 @@ int runApplication(
             {
                 secondaryColorGeneration =
                     session.colorMonitor().consumeNotification();
-                refreshSecondaryColor = true;
+                secondaryColorObservationPending = true;
             }
-            if (refreshSecondaryColor && !displayPowerUnavailable)
+            const bool secondaryColorRetryPending =
+                !secondaryColorObservationPending
+                && displayMaintenanceDue
+                && session.colorRefreshRetryPending();
+            if ((secondaryColorObservationPending
+                    || secondaryColorRetryPending)
+                && !displayPowerUnavailable)
             {
                 const std::optional<
                     bafx::windows::DisplayColorCapabilities>
@@ -3207,7 +3226,13 @@ int runApplication(
                         previousCapabilities->activeColorMode))
                     : "unknown";
                 const bafx::desktop::DisplaySessionColorRefreshStatus
-                    refreshStatus = session.refreshColorCapabilities();
+                    refreshStatus = session.refreshColorCapabilities(
+                        std::nullopt,
+                        secondaryColorRetryPending
+                            ? bafx::desktop::
+                                DisplaySessionColorRefreshRequest::Retry
+                            : bafx::desktop::
+                                DisplaySessionColorRefreshRequest::Observation);
                 const std::string currentMode =
                     session.colorCapabilities().has_value()
                     ? std::string(bafx::windows::displayColorModeName(
@@ -3219,12 +3244,15 @@ int runApplication(
                     bafx::desktop::displayTargetDeviceUtf8(session.target());
                 const std::string generation = std::to_string(
                     secondaryColorGeneration);
-                const std::string_view reason =
-                    secondaryColorGeneration != 0U
+                const std::string retriesRemaining = std::to_string(
+                    session.colorRefreshRetriesRemaining());
+                const std::string_view reason = secondaryColorRetryPending
+                    ? "query-retry"
+                    : (secondaryColorGeneration != 0U
                     ? "advanced-color-event"
                     : (hostDisplayPowerChanged
                         ? "display-power"
-                        : "win32-notification");
+                        : "win32-notification"));
                 const bafx::windows::CompositionOutputPreference
                     requestedPreference =
                         session.requestedOutputPreference();
@@ -3317,6 +3345,9 @@ int runApplication(
                         colorRefreshStatusName(refreshStatus)},
                     bafx::windows::DiagnosticField{"Generation", generation},
                     bafx::windows::DiagnosticField{
+                        "RetryBudgetRemaining",
+                        retriesRemaining},
+                    bafx::windows::DiagnosticField{
                         "RequestedPreference",
                         outputPreferenceName(requestedPreference)},
                     bafx::windows::DiagnosticField{
@@ -3347,7 +3378,7 @@ int runApplication(
         }
         const bool hostDisplayColorChanged =
             hostWindow.takeDisplayColorChange();
-        bool displayColorRefreshPending = !displayPowerUnavailable
+        bool displayColorObservationPending = !displayPowerUnavailable
             && (hostDisplayColorChanged || coordinatorSurfaceColorChanged);
         std::uint64_t displayColorGeneration = 0U;
         if (!displayPowerUnavailable
@@ -3355,8 +3386,14 @@ int runApplication(
         {
             displayColorGeneration =
                 displayColorMonitor.consumeNotification();
-            displayColorRefreshPending = !displayPowerUnavailable;
+            displayColorObservationPending = !displayPowerUnavailable;
         }
+        const bool displayColorRetryPending = !displayPowerUnavailable
+            && !displayColorObservationPending
+            && displayMaintenanceDue
+            && displaySession.colorRefreshRetryPending();
+        const bool displayColorRefreshPending =
+            displayColorObservationPending || displayColorRetryPending;
         if (displayTopologyChanged)
         {
             const bool topologyDiscoveredByPoll =
@@ -3545,14 +3582,20 @@ int runApplication(
             && !pendingDisplayTarget.has_value())
         {
             refreshDisplayColorState(
-                displayColorGeneration != 0U
+                displayColorRetryPending
+                    ? "query-retry"
+                    : (displayColorGeneration != 0U
                     ? "advanced-color-event"
                     : (hostDisplayPowerChanged
                         ? "display-power"
-                        : "win32-notification"),
+                        : "win32-notification")),
                 displayColorGeneration,
                 false,
-                std::nullopt);
+                std::nullopt,
+                displayColorRetryPending
+                    ? bafx::desktop::DisplaySessionColorRefreshRequest::Retry
+                    : bafx::desktop::
+                        DisplaySessionColorRefreshRequest::Observation);
             renderInvalidated = true;
         }
         if (hostDisplayPowerBecameUnavailable)

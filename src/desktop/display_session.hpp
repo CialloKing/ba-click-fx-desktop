@@ -59,7 +59,14 @@ enum class DisplaySessionColorRefreshStatus : std::uint8_t
 {
     Refreshed,
     RetainedTransactionSnapshot,
+    RetainedLastKnownSnapshot,
     Unavailable
+};
+
+enum class DisplaySessionColorRefreshRequest : std::uint8_t
+{
+    Observation,
+    Retry
 };
 
 struct DisplaySessionDeviceRecoveryResult final
@@ -181,9 +188,13 @@ public:
     [[nodiscard]] HANDLE secondaryBackgroundFrameAvailableObject() const noexcept;
     [[nodiscard]] bool takeTopologyRefreshRequest() noexcept;
     void shutdownSecondaryBackgroundCapture() noexcept;
+    [[nodiscard]] bool colorRefreshRetryPending() const noexcept;
+    [[nodiscard]] std::uint32_t colorRefreshRetriesRemaining() const noexcept;
     [[nodiscard]] DisplaySessionColorRefreshStatus refreshColorCapabilities(
         const std::optional<bafx::windows::DisplayColorCapabilities>& fallback =
-            std::nullopt) noexcept;
+            std::nullopt,
+        DisplaySessionColorRefreshRequest request =
+            DisplaySessionColorRefreshRequest::Observation) noexcept;
     void recordPresentedFrame(
         bool drawable,
         bafx::core::MonotonicTime startedAt,
@@ -217,6 +228,7 @@ private:
     bool lastPresentedDrawableContent_{false};
     bool renderFaulted_{false};
     bool topologyRefreshRequested_{false};
+    std::uint32_t colorRefreshRetriesRemaining_{0U};
     std::unique_ptr<DisplaySessionBackgroundCaptureState>
         secondaryBackgroundCapture_{};
 };

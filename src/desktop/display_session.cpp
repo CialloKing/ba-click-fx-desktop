@@ -46,6 +46,8 @@ struct DisplaySessionBackgroundCaptureState final
 namespace
 {
 
+constexpr std::uint32_t maximumColorRefreshRetries = 3U;
+
 void requireStartedRequest(
     const bafx::windows::BackgroundCaptureRequestResult result)
 {
@@ -101,6 +103,12 @@ DisplaySession::DisplaySession(DisplaySessionOptions options)
     {
         throw std::invalid_argument(
             "Display session requires the process access authority");
+    }
+    if (!colorCapabilities_.has_value())
+    {
+        // Startup can race a display-mode transition. Let the normal Host
+        // maintenance cadence retry without blocking construction.
+        colorRefreshRetriesRemaining_ = maximumColorRefreshRetries;
     }
     static_cast<void>(colorMonitor_.start(target_.monitor, options.wakeWindow));
 }
@@ -276,7 +284,16 @@ void DisplaySession::acceptAppliedTarget(
     DisplayTarget target,
     const HWND wakeWindow) noexcept
 {
+    const bool sourceChanged = target_.monitor != target.monitor
+        || !sameDisplaySourceIdentity(target_, target);
     target_ = std::move(target);
+    if (sourceChanged)
+    {
+        // Capabilities describe one physical output. Never use a coherent
+        // snapshot from the previous source as evidence for the new target.
+        colorCapabilities_.reset();
+        colorRefreshRetriesRemaining_ = maximumColorRefreshRetries;
+    }
     static_cast<void>(colorMonitor_.start(target_.monitor, wakeWindow));
 }
 
@@ -320,6 +337,9 @@ DisplaySessionRetargetResult DisplaySession::retargetFxOnly(
         resetFramePacing();
         acceptAppliedTarget(std::move(target), wakeWindow);
         colorCapabilities_ = targetColorCapabilities;
+        colorRefreshRetriesRemaining_ = targetColorCapabilities.has_value()
+            ? 0U
+            : maximumColorRefreshRetries;
         clearRenderFault();
         return DisplaySessionRetargetResult{
             output.adapter,
@@ -1192,23 +1212,57 @@ void DisplaySession::shutdownSecondaryBackgroundCapture() noexcept
     secondaryBackgroundCapture_.reset();
 }
 
+bool DisplaySession::colorRefreshRetryPending() const noexcept
+{
+    return colorRefreshRetriesRemaining_ > 0U;
+}
+
+std::uint32_t DisplaySession::colorRefreshRetriesRemaining() const noexcept
+{
+    return colorRefreshRetriesRemaining_;
+}
+
 DisplaySessionColorRefreshStatus DisplaySession::refreshColorCapabilities(
-    const std::optional<bafx::windows::DisplayColorCapabilities>& fallback)
+    const std::optional<bafx::windows::DisplayColorCapabilities>& fallback,
+    const DisplaySessionColorRefreshRequest request)
     noexcept
 {
+    if (request == DisplaySessionColorRefreshRequest::Retry
+        && colorRefreshRetriesRemaining_ == 0U)
+    {
+        return colorCapabilities_.has_value()
+            ? DisplaySessionColorRefreshStatus::RetainedLastKnownSnapshot
+            : DisplaySessionColorRefreshStatus::Unavailable;
+    }
+
     std::optional<bafx::windows::DisplayColorCapabilities> refreshed =
         bafx::windows::queryDisplayColorCapabilities(target_.monitor);
     if (refreshed.has_value())
     {
         colorCapabilities_ = std::move(refreshed);
+        colorRefreshRetriesRemaining_ = 0U;
         return DisplaySessionColorRefreshStatus::Refreshed;
+    }
+
+    if (request == DisplaySessionColorRefreshRequest::Retry)
+    {
+        --colorRefreshRetriesRemaining_;
+    }
+    else
+    {
+        // A new OS notification opens one bounded retry window. Repeated
+        // failures then settle without turning the main loop into a probe loop.
+        colorRefreshRetriesRemaining_ = maximumColorRefreshRetries;
     }
     if (fallback.has_value())
     {
         colorCapabilities_ = fallback;
         return DisplaySessionColorRefreshStatus::RetainedTransactionSnapshot;
     }
-    colorCapabilities_.reset();
+    if (colorCapabilities_.has_value())
+    {
+        return DisplaySessionColorRefreshStatus::RetainedLastKnownSnapshot;
+    }
     return DisplaySessionColorRefreshStatus::Unavailable;
 }
 
