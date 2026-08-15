@@ -348,8 +348,10 @@ CompositionRenderer::~CompositionRenderer() = default;
 bool CompositionRenderer::tryRecoverDevice() noexcept
 {
     setDeviceRecoveryFailure({});
+    GraphicsDeviceInfo previousDeviceInfo{};
     try
     {
+        previousDeviceInfo = deviceInfo_;
         // WGC textures and the temporal snapshot belong to the old device;
         // invalidate them before releasing the swap-chain resource domain.
         disableBackgroundCapture();
@@ -357,6 +359,7 @@ bool CompositionRenderer::tryRecoverDevice() noexcept
         lastCenterPixel_.reset();
         backgroundCompositeStatus_ = BackgroundCompositeStatus::Inactive;
         releaseDeviceResources();
+        deviceInfo_ = GraphicsDeviceInfo{};
         featureLevel_ = D3D_FEATURE_LEVEL_11_0;
 
         createDevice();
@@ -390,6 +393,7 @@ bool CompositionRenderer::tryRecoverDevice() noexcept
             setDeviceRecoveryFailure("unknown device recovery failure");
         }
         releaseDeviceResources();
+        deviceInfo_ = std::move(previousDeviceInfo);
         return false;
     }
 }

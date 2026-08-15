@@ -1257,7 +1257,8 @@ int runApplication(
                             "Graphics.DeviceRecovery.Failed",
                             failureFields,
                             bafx::windows::DiagnosticLevel::Error);
-                        throw error;
+                        throw std::logic_error(
+                            "WGC stop transaction was not accepted after device recovery");
                     }
                     try
                     {
@@ -1323,8 +1324,14 @@ int runApplication(
                     bafx::desktop::backgroundCaptureStatus(
                         backgroundTransition.effectivePath()));
 
-                if (backgroundRetryToken
-                    == std::numeric_limits<std::uint64_t>::max())
+                const bool backgroundRetryEligible =
+                    appliedBackgroundRequest.sensorRequired
+                    && !adapterChanged
+                    && renderer.deviceInfo().driverType
+                        == bafx::windows::GraphicsDriverType::Hardware;
+                if (backgroundRetryEligible
+                    && backgroundRetryToken
+                        == std::numeric_limits<std::uint64_t>::max())
                 {
                     const std::array failureFields{
                         bafx::windows::DiagnosticField{
@@ -1340,13 +1347,12 @@ int runApplication(
                         bafx::windows::DiagnosticLevel::Error);
                     throw;
                 }
-                ++backgroundRetryToken;
-                appliedBackgroundRequest.retryToken = backgroundRetryToken;
-                backgroundRetryPending =
-                    appliedBackgroundRequest.sensorRequired
-                    && !adapterChanged
-                    && renderer.deviceInfo().driverType
-                        == bafx::windows::GraphicsDriverType::Hardware;
+                if (backgroundRetryEligible)
+                {
+                    ++backgroundRetryToken;
+                    appliedBackgroundRequest.retryToken = backgroundRetryToken;
+                }
+                backgroundRetryPending = backgroundRetryEligible;
                 backgroundParticipationLogged = false;
                 backgroundPendingDiagnosticLogged = false;
                 std::string adapterState = adapterChanged
@@ -1415,39 +1421,45 @@ int runApplication(
                 recoveryProbePending = false;
                 if (deviceRecoveryConsumed)
                 {
-                    throw std::runtime_error(
-                        "Device recovery probe collided with a live recovery attempt");
+                    bafx::windows::appendDiagnosticEvent(
+                        logPath,
+                        "Graphics.DeviceRecovery.Probe.Suppressed",
+                        {},
+                        bafx::windows::DiagnosticLevel::Warning);
                 }
-                deviceRecoveryConsumed = true;
-                bafx::windows::appendDiagnosticEvent(
-                    logPath,
-                    "Graphics.DeviceRecovery.Probe.Begin");
-                if (!renderer.tryRecoverDevice())
+                else
                 {
-                    throw std::runtime_error(
-                        "Device recovery probe could not rebuild the renderer: "
-                        + std::string(renderer.deviceRecoveryFailure()));
+                    deviceRecoveryConsumed = true;
+                    bafx::windows::appendDiagnosticEvent(
+                        logPath,
+                        "Graphics.DeviceRecovery.Probe.Begin");
+                    if (!renderer.tryRecoverDevice())
+                    {
+                        throw std::runtime_error(
+                            "Device recovery probe could not rebuild the renderer: "
+                            + std::string(renderer.deviceRecoveryFailure()));
+                    }
+                    report.setDeviceInfo(renderer.deviceInfo());
+                    frameDiagnostics = renderer.renderFrame(
+                        snapshot,
+                        wallTime,
+                        controlState.paused);
+                    const std::optional<bafx::windows::PixelF> probePixel =
+                        renderer.lastCenterPixel();
+                    if (!probePixel.has_value()
+                        || !std::isfinite(probePixel->red)
+                        || !std::isfinite(probePixel->green)
+                        || !std::isfinite(probePixel->blue)
+                        || !std::isfinite(probePixel->alpha)
+                        || probePixel->alpha <= 0.01F)
+                    {
+                        throw std::runtime_error(
+                            "Device recovery probe produced an invalid center pixel");
+                    }
+                    bafx::windows::appendDiagnosticEvent(
+                        logPath,
+                        "Graphics.DeviceRecovery.Probe.Succeeded");
                 }
-                report.setDeviceInfo(renderer.deviceInfo());
-                frameDiagnostics = renderer.renderFrame(
-                    snapshot,
-                    wallTime,
-                    controlState.paused);
-                const std::optional<bafx::windows::PixelF> probePixel =
-                    renderer.lastCenterPixel();
-                if (!probePixel.has_value()
-                    || !std::isfinite(probePixel->red)
-                    || !std::isfinite(probePixel->green)
-                    || !std::isfinite(probePixel->blue)
-                    || !std::isfinite(probePixel->alpha)
-                    || probePixel->alpha <= 0.01F)
-                {
-                    throw std::runtime_error(
-                        "Device recovery probe produced an invalid center pixel");
-                }
-                bafx::windows::appendDiagnosticEvent(
-                    logPath,
-                    "Graphics.DeviceRecovery.Probe.Succeeded");
             }
             const bafx::windows::CompositionFrameDiagnostics&
                 completedFrameDiagnostics = *frameDiagnostics;
