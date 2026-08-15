@@ -5229,29 +5229,35 @@ int runApplication(
         if ((controlState.paused || displayPowerUnavailable)
             && !renderInvalidationPending)
         {
-            // Pause keeps retained backgrounds current. A powered-off display
-            // instead needs the same bounded control/device wait so suppressing
-            // Present cannot turn the owner loop into a busy poll.
+            // Pause keeps retained backgrounds current. While display power is
+            // unavailable, GPU and WGC signals are not actionable and may stay
+            // signaled until recovery, so only bounded control waits are safe.
             pausedWaitables.clear();
             const auto& ownedSessions = displaySessions.sessions();
-            for (std::size_t index = 0U; index < ownedSessions.size(); ++index)
+            if (!displayPowerUnavailable)
             {
-                bafx::desktop::DisplaySession& session = *ownedSessions[index];
-                if (&session != &displaySession && session.renderFaulted())
+                for (std::size_t index = 0U;
+                     index < ownedSessions.size();
+                     ++index)
                 {
-                    continue;
-                }
-                const HANDLE deviceRemoved =
-                    session.renderer().deviceRemovedWaitableObject();
-                if (deviceRemoved != nullptr)
-                {
-                    // Device loss invalidates a complete resource domain, so
-                    // keep every device event ahead of all WGC frame events.
-                    pausedWaitables.push_back(
-                        bafx::desktop::PausedWaitable{
-                            deviceRemoved,
-                            bafx::desktop::PausedWaitableKind::DeviceRemoved,
-                            index});
+                    bafx::desktop::DisplaySession& session =
+                        *ownedSessions[index];
+                    if (&session != &displaySession && session.renderFaulted())
+                    {
+                        continue;
+                    }
+                    const HANDLE deviceRemoved =
+                        session.renderer().deviceRemovedWaitableObject();
+                    if (deviceRemoved != nullptr)
+                    {
+                        // Device loss invalidates a complete resource domain,
+                        // so keep it ahead of all WGC frame events.
+                        pausedWaitables.push_back(
+                            bafx::desktop::PausedWaitable{
+                                deviceRemoved,
+                                bafx::desktop::PausedWaitableKind::DeviceRemoved,
+                                index});
+                    }
                 }
             }
             if (const HANDLE accessChanged =
@@ -5264,28 +5270,35 @@ int runApplication(
                         bafx::desktop::PausedWaitableKind::ControlChanged,
                         0U});
             }
-            for (std::size_t index = 0U; index < ownedSessions.size(); ++index)
+            if (!displayPowerUnavailable)
             {
-                bafx::desktop::DisplaySession& session = *ownedSessions[index];
-                if (&session != &displaySession && session.renderFaulted())
+                for (std::size_t index = 0U;
+                     index < ownedSessions.size();
+                     ++index)
                 {
-                    continue;
-                }
-                const HANDLE backgroundWaitable = &session == &displaySession
-                    ? (lastPresentedDrawableContent
-                        ? renderer.backgroundFrameAvailableObject()
-                        : nullptr)
-                    : (session.lastPresentedDrawableContent()
-                        ? session.secondaryBackgroundFrameAvailableObject()
-                        : nullptr);
-                if (backgroundWaitable != nullptr)
-                {
-                    pausedWaitables.push_back(
-                        bafx::desktop::PausedWaitable{
-                            backgroundWaitable,
-                            bafx::desktop::PausedWaitableKind::
-                                BackgroundFrameReady,
-                            index});
+                    bafx::desktop::DisplaySession& session =
+                        *ownedSessions[index];
+                    if (&session != &displaySession && session.renderFaulted())
+                    {
+                        continue;
+                    }
+                    const HANDLE backgroundWaitable =
+                        &session == &displaySession
+                        ? (lastPresentedDrawableContent
+                            ? renderer.backgroundFrameAvailableObject()
+                            : nullptr)
+                        : (session.lastPresentedDrawableContent()
+                            ? session.secondaryBackgroundFrameAvailableObject()
+                            : nullptr);
+                    if (backgroundWaitable != nullptr)
+                    {
+                        pausedWaitables.push_back(
+                            bafx::desktop::PausedWaitable{
+                                backgroundWaitable,
+                                bafx::desktop::PausedWaitableKind::
+                                    BackgroundFrameReady,
+                                index});
+                    }
                 }
             }
             const bafx::desktop::PausedWaitResult pausedWait =
