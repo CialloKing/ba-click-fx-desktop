@@ -108,6 +108,10 @@ public:
         colorMonitorStartResult() const noexcept;
     [[nodiscard]] bool renderFaulted() const noexcept;
     [[nodiscard]] bool lastPresentedDrawableContent() const noexcept;
+    [[nodiscard]] bool framePacingDue(
+        bafx::core::MonotonicTime now) const noexcept;
+    [[nodiscard]] std::optional<bafx::core::MonotonicTime>
+        nextFramePacingDeadline() const noexcept;
 
     // Call only after the owner has transactionally moved the HWND and
     // renderer resource domain. Monitoring is rebound first; the owner then
@@ -148,7 +152,11 @@ public:
     [[nodiscard]] HANDLE secondaryBackgroundFrameAvailableObject() const noexcept;
     void shutdownSecondaryBackgroundCapture() noexcept;
     void refreshColorCapabilities() noexcept;
-    void recordPresentedDrawableContent(bool drawable) noexcept;
+    void recordPresentedFrame(
+        bool drawable,
+        bafx::core::MonotonicTime startedAt,
+        bafx::core::MonotonicTime minimumPeriod) noexcept;
+    void resetFramePacing() noexcept;
     void markRenderFaulted() noexcept;
     void clearRenderFault() noexcept;
     void show();
@@ -172,6 +180,7 @@ private:
     bafx::windows::DisplayColorMonitor colorMonitor_{};
     std::optional<bafx::windows::DisplayColorCapabilities> colorCapabilities_{};
     bafx::windows::DisplayColorMonitorResult colorMonitorStartResult_{};
+    std::optional<bafx::core::MonotonicTime> nextFramePacingDeadline_{};
     bool lastPresentedDrawableContent_{false};
     bool renderFaulted_{false};
     std::unique_ptr<DisplaySessionBackgroundCaptureState>

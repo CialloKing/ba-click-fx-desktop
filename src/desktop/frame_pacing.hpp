@@ -2,6 +2,7 @@
 
 #include <windows.h>
 
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <span>
@@ -14,6 +15,7 @@ enum class FramePacingWake : std::uint8_t
     FrameReady,
     DeviceRemoved,
     ControlChanged,
+    CadenceReady,
     MessagesPending,
     TimedOut,
     Failed
@@ -30,7 +32,8 @@ enum class FramePacingWaitableKind : std::uint8_t
 {
     FrameReady,
     DeviceRemoved,
-    ControlChanged
+    ControlChanged,
+    CadenceReady
 };
 
 struct FramePacingWaitable final
@@ -85,6 +88,14 @@ struct PausedWaitable final
 [[nodiscard]] FramePacingWaitResult waitForAnyFrameOpportunity(
     std::span<const FramePacingWaitable> waitables,
     DWORD timeoutMilliseconds) noexcept;
+
+// The timer is one-shot and relative. Callers keep it outside the render
+// loop so a fixed-rate cap can wake alongside input and device events without
+// sleeping the owner thread.
+[[nodiscard]] HANDLE createFrameCadenceWaitableTimer() noexcept;
+[[nodiscard]] DWORD armFrameCadenceWaitableTimer(
+    HANDLE timer,
+    std::chrono::nanoseconds delay) noexcept;
 
 // A paused Host does not submit frames, but device removal must still wake it
 // so the existing one-shot recovery boundary can rebuild the resource domain.

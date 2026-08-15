@@ -338,6 +338,9 @@ void RuntimePerformanceWindow::addFramePacingWake(
         // owner for state work without granting a presentation slot.
         ++framePacingMessageWakes_;
         break;
+    case FramePacingWake::CadenceReady:
+        ++framePacingCadenceWakes_;
+        break;
     case FramePacingWake::MessagesPending:
         ++framePacingMessageWakes_;
         break;
@@ -413,6 +416,7 @@ void RuntimePerformanceWindow::reset() noexcept
     roiLastPlanStatus_ = bafx::core::RoiStatus::Empty;
     framePacingFrameReadyWakes_ = 0U;
     framePacingDeviceRemovedWakes_ = 0U;
+    framePacingCadenceWakes_ = 0U;
     framePacingMessageWakes_ = 0U;
     framePacingTimeouts_ = 0U;
     framePacingFailures_ = 0U;
@@ -508,6 +512,7 @@ RuntimePerformanceSummary RuntimePerformanceWindow::summarize() const
     summary.roiLastPlanStatus = roiLastPlanStatus_;
     summary.framePacingFrameReadyWakes = framePacingFrameReadyWakes_;
     summary.framePacingDeviceRemovedWakes = framePacingDeviceRemovedWakes_;
+    summary.framePacingCadenceWakes = framePacingCadenceWakes_;
     summary.framePacingMessageWakes = framePacingMessageWakes_;
     summary.framePacingTimeouts = framePacingTimeouts_;
     summary.framePacingFailures = framePacingFailures_;
@@ -589,6 +594,7 @@ bool RuntimePerformanceWindow::empty() const noexcept
         && otherMessagesDispatched_ == 0U
         && framePacingFrameReadyWakes_ == 0U
         && framePacingDeviceRemovedWakes_ == 0U
+        && framePacingCadenceWakes_ == 0U
         && framePacingMessageWakes_ == 0U
         && framePacingTimeouts_ == 0U
         && framePacingFailures_ == 0U;

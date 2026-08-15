@@ -151,6 +151,7 @@ struct RuntimePerformanceSummary
     bafx::core::RoiStatus roiLastPlanStatus{bafx::core::RoiStatus::Empty};
     std::uint64_t framePacingFrameReadyWakes{0U};
     std::uint64_t framePacingDeviceRemovedWakes{0U};
+    std::uint64_t framePacingCadenceWakes{0U};
     std::uint64_t framePacingMessageWakes{0U};
     std::uint64_t framePacingTimeouts{0U};
     std::uint64_t framePacingFailures{0U};
@@ -303,6 +304,7 @@ private:
     bafx::core::RoiStatus roiLastPlanStatus_{bafx::core::RoiStatus::Empty};
     std::uint64_t framePacingFrameReadyWakes_{0U};
     std::uint64_t framePacingDeviceRemovedWakes_{0U};
+    std::uint64_t framePacingCadenceWakes_{0U};
     std::uint64_t framePacingMessageWakes_{0U};
     std::uint64_t framePacingTimeouts_{0U};
     std::uint64_t framePacingFailures_{0U};

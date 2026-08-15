@@ -72,6 +72,8 @@ constexpr DWORD pausedControlPollMilliseconds = 50U;
         return "device-removed";
     case bafx::desktop::FramePacingWake::ControlChanged:
         return "control-changed";
+    case bafx::desktop::FramePacingWake::CadenceReady:
+        return "cadence-ready";
     case bafx::desktop::FramePacingWake::MessagesPending:
         return "messages-pending";
     case bafx::desktop::FramePacingWake::TimedOut:
@@ -80,6 +82,52 @@ constexpr DWORD pausedControlPollMilliseconds = 50U;
         return "failed";
     }
     return "unknown";
+}
+
+[[nodiscard]] std::optional<bafx::core::MonotonicTime>
+fixedFramePacingPeriod(const bafx::config::FramePacing pacing) noexcept
+{
+    std::uint32_t framesPerSecond = 0U;
+    switch (pacing)
+    {
+    case bafx::config::FramePacing::MatchDisplay:
+        return std::nullopt;
+    case bafx::config::FramePacing::Fixed60:
+        framesPerSecond = 60U;
+        break;
+    case bafx::config::FramePacing::Fixed120:
+        framesPerSecond = 120U;
+        break;
+    case bafx::config::FramePacing::Fixed144:
+        framesPerSecond = 144U;
+        break;
+    }
+    if (framesPerSecond == 0U)
+    {
+        return std::nullopt;
+    }
+
+    const std::int64_t second = std::chrono::duration_cast<
+        bafx::core::MonotonicTime>(std::chrono::seconds(1)).count();
+    return bafx::core::MonotonicTime{
+        (second + static_cast<std::int64_t>(framesPerSecond) - 1LL)
+        / static_cast<std::int64_t>(framesPerSecond)};
+}
+
+[[nodiscard]] DWORD cadenceFallbackTimeoutMilliseconds(
+    const bafx::core::MonotonicTime delay) noexcept
+{
+    if (delay <= bafx::core::MonotonicTime::zero())
+    {
+        return 0U;
+    }
+    const auto wholeMilliseconds =
+        std::chrono::duration_cast<std::chrono::milliseconds>(delay);
+    const std::int64_t roundedMilliseconds = wholeMilliseconds.count()
+        + (wholeMilliseconds < delay ? 1LL : 0LL);
+    return static_cast<DWORD>((std::min)(
+        roundedMilliseconds,
+        static_cast<std::int64_t>(activeControlPollMilliseconds)));
 }
 
 void appendFramePacingDeviceRecoveryDetection(
@@ -1778,6 +1826,9 @@ SecondaryRenderSummary renderSecondarySessions(
     const std::filesystem::path& logPath)
 {
     SecondaryRenderSummary summary{};
+    const bafx::core::MonotonicTime minimumFramePeriod =
+        fixedFramePacingPeriod(config.performance.framePacing).value_or(
+            bafx::core::MonotonicTime::zero());
     for (const auto& ownedSession : sessions.sessions())
     {
         bafx::desktop::DisplaySession& session = *ownedSession;
@@ -1832,8 +1883,10 @@ SecondaryRenderSummary renderSecondarySessions(
                 snapshot,
                 wallTime,
                 false));
-            session.recordPresentedDrawableContent(
-                snapshot.hasDrawableContent());
+            session.recordPresentedFrame(
+                snapshot.hasDrawableContent(),
+                wallTime,
+                minimumFramePeriod);
             if (commitSimulationFrame)
             {
                 session.simulation().onFrameRendered(renderTime);
@@ -2752,6 +2805,12 @@ int runApplication(
     std::vector<bafx::desktop::FramePacingWaitable> frameWaitables;
     std::vector<bafx::desktop::PausedWaitable> pausedWaitables;
     std::vector<bafx::desktop::DisplaySession*> readyDisplaySessions;
+    bafx::windows::UniqueHandle frameCadenceTimer(
+        bafx::desktop::createFrameCadenceWaitableTimer());
+    DWORD frameCadenceTimerError = frameCadenceTimer.get() != nullptr
+        ? ERROR_SUCCESS
+        : GetLastError();
+    bool frameCadenceTimerFailureLogged = false;
     frameWaitables.reserve(16U);
     pausedWaitables.reserve(16U);
     readyDisplaySessions.reserve(8U);
@@ -3236,10 +3295,21 @@ int runApplication(
             renderInvalidated = true;
             if (configChanged)
             {
+                const bafx::config::FramePacing previousFramePacing =
+                    config.performance.framePacing;
                 const bafx::windows::CompositionOutputPreference
                     previousOutputPreference = makeOutputPreference(
                         config.display);
                 config = controlState.config;
+                if (config.performance.framePacing != previousFramePacing)
+                {
+                    // A new policy starts a fresh cadence epoch. Reusing a
+                    // deadline from a different rate would delay its first frame.
+                    for (const auto& ownedSession : displaySessions.sessions())
+                    {
+                        ownedSession->resetFramePacing();
+                    }
+                }
                 configureBorderlessAccessMonitor(config, "configuration");
                 const bafx::windows::CompositionOutputPreference
                     currentOutputPreference = makeOutputPreference(
@@ -3610,6 +3680,12 @@ int runApplication(
             frameWaitables.clear();
             readyDisplaySessions.clear();
             const auto& ownedSessions = displaySessions.sessions();
+            const bafx::core::MonotonicTime pacingObservedAt = clock.now();
+            const std::optional<bafx::core::MonotonicTime>
+                minimumFramePeriod =
+                    fixedFramePacingPeriod(config.performance.framePacing);
+            std::optional<bafx::core::MonotonicTime>
+                earliestCadenceDeadline{};
             for (std::size_t index = 0U; index < ownedSessions.size(); ++index)
             {
                 bafx::desktop::DisplaySession& session = *ownedSessions[index];
@@ -3653,6 +3729,19 @@ int runApplication(
                 {
                     continue;
                 }
+                if (minimumFramePeriod.has_value()
+                    && !session.framePacingDue(pacingObservedAt))
+                {
+                    const std::optional<bafx::core::MonotonicTime> deadline =
+                        session.nextFramePacingDeadline();
+                    if (deadline.has_value()
+                        && (!earliestCadenceDeadline.has_value()
+                            || *deadline < *earliestCadenceDeadline))
+                    {
+                        earliestCadenceDeadline = deadline;
+                    }
+                    continue;
+                }
                 const HANDLE frameLatency = &session == &displaySession
                         && options.framePacingStallProbe
                     ? framePacingStallHandle.get()
@@ -3678,10 +3767,61 @@ int runApplication(
                         bafx::desktop::FramePacingWaitableKind::FrameReady,
                         index});
             }
+            DWORD frameWaitTimeout = activeControlPollMilliseconds;
+            if (earliestCadenceDeadline.has_value())
+            {
+                const bafx::core::MonotonicTime delay =
+                    *earliestCadenceDeadline - pacingObservedAt;
+                if (frameCadenceTimer.get() != nullptr)
+                {
+                    frameCadenceTimerError =
+                        bafx::desktop::armFrameCadenceWaitableTimer(
+                            frameCadenceTimer.get(),
+                            delay);
+                    if (frameCadenceTimerError == ERROR_SUCCESS)
+                    {
+                        frameWaitables.push_back(
+                            bafx::desktop::FramePacingWaitable{
+                                frameCadenceTimer.get(),
+                                bafx::desktop::FramePacingWaitableKind::
+                                    CadenceReady,
+                                0U});
+                    }
+                    else
+                    {
+                        frameCadenceTimer.reset();
+                    }
+                }
+                if (frameCadenceTimer.get() == nullptr)
+                {
+                    frameWaitTimeout = cadenceFallbackTimeoutMilliseconds(
+                        delay);
+                    if (!frameCadenceTimerFailureLogged)
+                    {
+                        const std::string error = std::to_string(
+                            frameCadenceTimerError == ERROR_SUCCESS
+                                ? ERROR_GEN_FAILURE
+                                : frameCadenceTimerError);
+                        const std::array fields{
+                            bafx::windows::DiagnosticField{
+                                "Error",
+                                error},
+                            bafx::windows::DiagnosticField{
+                                "Fallback",
+                                "bounded-message-timeout"}};
+                        bafx::windows::appendDiagnosticEvent(
+                            logPath,
+                            "FramePacing.CadenceTimerUnavailable",
+                            fields,
+                            bafx::windows::DiagnosticLevel::Warning);
+                        frameCadenceTimerFailureLogged = true;
+                    }
+                }
+            }
             const bafx::desktop::FramePacingWaitResult pacingWait =
                 bafx::desktop::waitForAnyFrameOpportunity(
                     frameWaitables,
-                    activeControlPollMilliseconds);
+                    frameWaitTimeout);
             performanceWindow.addFramePacingWake(pacingWait.wake);
             bafx::desktop::DisplaySession* awakenedSession =
                 pacingWait.token < ownedSessions.size()
@@ -3742,6 +3882,10 @@ int runApplication(
             case bafx::desktop::FramePacingWake::ControlChanged:
                 // The next owner iteration consumes and resets the generation
                 // before any WGC maintenance or Present can run.
+                continue;
+            case bafx::desktop::FramePacingWake::CadenceReady:
+                // Rebuild the wait set so only displays whose deadlines have
+                // elapsed can consume their independently signaled DXGI slot.
                 continue;
             case bafx::desktop::FramePacingWake::MessagesPending:
             case bafx::desktop::FramePacingWake::TimedOut:
@@ -3813,6 +3957,7 @@ int runApplication(
                 || pacingWait.wake
                     == bafx::desktop::FramePacingWake::DeviceRemoved)
             {
+                const bafx::core::MonotonicTime frameReadyPollAt = clock.now();
                 for (const auto& ownedSession : ownedSessions)
                 {
                     bafx::desktop::DisplaySession& session = *ownedSession;
@@ -3824,6 +3969,11 @@ int runApplication(
                     {
                         // The wake belonged to the released device. Wait for a
                         // fresh opportunity from the replacement swap chain.
+                        continue;
+                    }
+                    if (minimumFramePeriod.has_value()
+                        && !session.framePacingDue(frameReadyPollAt))
+                    {
                         continue;
                     }
                     if (std::find(
@@ -4417,6 +4567,12 @@ int runApplication(
             }
             const bafx::windows::CompositionFrameDiagnostics&
                 completedFrameDiagnostics = *frameDiagnostics;
+            displaySession.recordPresentedFrame(
+                lastPresentedDrawableContent,
+                wallTime,
+                fixedFramePacingPeriod(
+                    config.performance.framePacing).value_or(
+                        bafx::core::MonotonicTime::zero()));
             appendPendingBackgroundSnapshotInvalidation();
             const std::uint64_t producerCallbacks =
                 wgcCallbackDeltaTracker.observe(

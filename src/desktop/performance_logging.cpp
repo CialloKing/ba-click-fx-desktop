@@ -454,6 +454,9 @@ std::chrono::nanoseconds appendPerformanceInterval(
             "FramePacing.DeviceRemovedWakes",
             summary.framePacingDeviceRemovedWakes);
         fields.add(
+            "FramePacing.CadenceWakes",
+            summary.framePacingCadenceWakes);
+        fields.add(
             "FramePacing.MessageWakes",
             summary.framePacingMessageWakes);
         fields.add(

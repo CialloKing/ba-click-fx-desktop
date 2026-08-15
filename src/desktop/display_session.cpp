@@ -167,6 +167,19 @@ bool DisplaySession::lastPresentedDrawableContent() const noexcept
     return lastPresentedDrawableContent_;
 }
 
+bool DisplaySession::framePacingDue(
+    const bafx::core::MonotonicTime now) const noexcept
+{
+    return !nextFramePacingDeadline_.has_value()
+        || now >= *nextFramePacingDeadline_;
+}
+
+std::optional<bafx::core::MonotonicTime>
+DisplaySession::nextFramePacingDeadline() const noexcept
+{
+    return nextFramePacingDeadline_;
+}
+
 void DisplaySession::acceptAppliedTarget(
     DisplayTarget target,
     const HWND wakeWindow) noexcept
@@ -200,6 +213,7 @@ DisplaySessionRetargetResult DisplaySession::retargetFxOnly(
                 requestedAdapter(target),
                 displayTargetSize(target)});
         lastPresentedDrawableContent_ = false;
+        resetFramePacing();
         acceptAppliedTarget(std::move(target), wakeWindow);
         refreshColorCapabilities();
         clearRenderFault();
@@ -568,6 +582,7 @@ DisplaySession::serviceSecondaryBackgroundCapture(
                     result.outputRenegotiation =
                         renderer_.renegotiateOutput(pending.preference);
                     lastPresentedDrawableContent_ = false;
+                    resetFramePacing();
                     recoveredDuringAttempt =
                         result.outputRenegotiation->deviceRecovered;
                 }
@@ -603,6 +618,7 @@ DisplaySession::serviceSecondaryBackgroundCapture(
             if (recoveredDuringAttempt)
             {
                 lastPresentedDrawableContent_ = false;
+                resetFramePacing();
             }
             result.deviceRecovered = result.deviceRecovered
                 || recoveredDuringAttempt;
@@ -859,10 +875,31 @@ void DisplaySession::refreshColorCapabilities() noexcept
         target_.monitor);
 }
 
-void DisplaySession::recordPresentedDrawableContent(
-    const bool drawable) noexcept
+void DisplaySession::recordPresentedFrame(
+    const bool drawable,
+    const bafx::core::MonotonicTime startedAt,
+    const bafx::core::MonotonicTime minimumPeriod) noexcept
 {
     lastPresentedDrawableContent_ = drawable;
+    if (minimumPeriod <= bafx::core::MonotonicTime::zero())
+    {
+        nextFramePacingDeadline_.reset();
+        return;
+    }
+
+    const bafx::core::MonotonicTime followingDeadline =
+        nextFramePacingDeadline_.has_value()
+        ? *nextFramePacingDeadline_ + minimumPeriod
+        : startedAt + minimumPeriod;
+    // A delayed display must not submit a burst to catch up with missed ticks.
+    nextFramePacingDeadline_ = followingDeadline > startedAt
+        ? followingDeadline
+        : startedAt + minimumPeriod;
+}
+
+void DisplaySession::resetFramePacing() noexcept
+{
+    nextFramePacingDeadline_.reset();
 }
 
 void DisplaySession::markRenderFaulted() noexcept
@@ -887,6 +924,7 @@ DisplaySessionDeviceRecoveryResult DisplaySession::finishDeviceRecovery(
     // Device recreation publishes a new blank swap chain even when authored
     // simulation state still exists; only a later successful Present can set it.
     lastPresentedDrawableContent_ = false;
+    resetFramePacing();
     const bool adapterChanged =
         previousDeviceInfo.adapterLuid.LowPart
             != renderer_.deviceInfo().adapterLuid.LowPart
@@ -983,6 +1021,7 @@ void DisplaySession::acceptPendingSecondaryTargetIfApplied(
         std::move(*state.pendingTarget),
         state.pendingWakeWindow);
     lastPresentedDrawableContent_ = false;
+    resetFramePacing();
     // The coordinator refreshes after comparing old/new modes. Secondary
     // sessions have no separate comparison owner, so refresh at commit time.
     refreshColorCapabilities();
