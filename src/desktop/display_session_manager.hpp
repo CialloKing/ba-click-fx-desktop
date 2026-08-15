@@ -62,6 +62,7 @@ public:
     [[nodiscard]] const DisplaySession& coordinator() const;
     [[nodiscard]] DisplaySessionReconcileResult reconcileSecondaries(
         const DisplayTargetSnapshot& snapshot);
+    [[nodiscard]] std::size_t pruneCoordinatorDuplicates() noexcept;
 
     [[nodiscard]] DisplaySession* findBySource(
         const DisplayTarget& target) noexcept;

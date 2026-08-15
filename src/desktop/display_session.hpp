@@ -69,6 +69,9 @@ public:
     // renderer resource domain. Monitoring is rebound first; the owner then
     // samples color state so it can compare the old and new target modes.
     void acceptAppliedTarget(DisplayTarget target, HWND wakeWindow) noexcept;
+    // Refreshes DPI, cadence and primary-role metadata when the stable source
+    // and render geometry have not changed.
+    void updateTargetMetadata(DisplayTarget target) noexcept;
     // Secondary sessions never own WGC. They can therefore update their
     // resource domain directly without entering the primary capture state
     // machine.

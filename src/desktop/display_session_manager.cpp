@@ -178,6 +178,31 @@ DisplaySessionReconcileResult DisplaySessionManager::reconcileSecondaries(
     return result;
 }
 
+std::size_t DisplaySessionManager::pruneCoordinatorDuplicates() noexcept
+{
+    if (coordinator_ == nullptr)
+    {
+        return 0U;
+    }
+
+    std::size_t removed = 0U;
+    const auto firstRemoved = std::remove_if(
+        sessions_.begin(),
+        sessions_.end(),
+        [&](const std::unique_ptr<DisplaySession>& session)
+        {
+            const bool remove = session.get() != coordinator_
+                && sameDisplaySource(session->target(), coordinator_->target());
+            if (remove)
+            {
+                ++removed;
+            }
+            return remove;
+        });
+    sessions_.erase(firstRemoved, sessions_.end());
+    return removed;
+}
+
 DisplaySession* DisplaySessionManager::findBySource(
     const DisplayTarget& target) noexcept
 {

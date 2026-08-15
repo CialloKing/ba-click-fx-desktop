@@ -98,6 +98,11 @@ void DisplaySession::acceptAppliedTarget(
         wakeWindow);
 }
 
+void DisplaySession::updateTargetMetadata(DisplayTarget target) noexcept
+{
+    target_ = std::move(target);
+}
+
 DisplaySessionRetargetResult DisplaySession::retargetFxOnly(
     DisplayTarget target,
     const HWND wakeWindow)

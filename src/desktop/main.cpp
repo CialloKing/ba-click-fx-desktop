@@ -506,6 +506,92 @@ struct PointerConsumptionDiagnostics
     return *target;
 }
 
+[[nodiscard]] std::string_view displayTopologyStatusName(
+    const bafx::windows::DisplayTopologyStatus status) noexcept
+{
+    switch (status)
+    {
+    case bafx::windows::DisplayTopologyStatus::Complete:
+        return "complete";
+    case bafx::windows::DisplayTopologyStatus::Incomplete:
+        return "incomplete";
+    case bafx::windows::DisplayTopologyStatus::NoActiveDisplays:
+        return "no-active-displays";
+    case bafx::windows::DisplayTopologyStatus::QueryFailed:
+        return "query-failed";
+    }
+    return "unknown";
+}
+
+void appendDisplaySessionReconcile(
+    const std::filesystem::path& logPath,
+    const std::string_view phase,
+    const bafx::desktop::DisplaySessionReconcileResult& result,
+    const std::size_t activeSessionCount) noexcept
+{
+    try
+    {
+        const std::string topologyError = std::to_string(result.topologyError);
+        const std::string active = std::to_string(activeSessionCount);
+        const std::string added = std::to_string(result.added);
+        const std::string updated = std::to_string(result.updated);
+        const std::string removed = std::to_string(result.removed);
+        const std::string failures = std::to_string(result.failures.size());
+        const std::array fields{
+            bafx::windows::DiagnosticField{"Phase", phase},
+            bafx::windows::DiagnosticField{
+                "TopologyStatus",
+                displayTopologyStatusName(result.topologyStatus)},
+            bafx::windows::DiagnosticField{"TopologyError", topologyError},
+            bafx::windows::DiagnosticField{"ActiveSessions", active},
+            bafx::windows::DiagnosticField{"Added", added},
+            bafx::windows::DiagnosticField{"Updated", updated},
+            bafx::windows::DiagnosticField{"Removed", removed},
+            bafx::windows::DiagnosticField{
+                "RemovalsDeferred",
+                result.removalsDeferred ? "true" : "false"},
+            bafx::windows::DiagnosticField{"Failures", failures}};
+        bafx::windows::appendDiagnosticEvent(
+            logPath,
+            "Display.Sessions.Reconciled",
+            fields,
+            result.failures.empty() && !result.removalsDeferred
+                ? bafx::windows::DiagnosticLevel::Info
+                : bafx::windows::DiagnosticLevel::Warning);
+
+        for (const bafx::desktop::DisplaySessionFailure& failure :
+             result.failures)
+        {
+            const std::string device =
+                bafx::desktop::displayTargetDeviceUtf8(failure.target);
+            const std::string monitor =
+                bafx::desktop::formatDisplayTargetMonitor(failure.target);
+            const std::string bounds =
+                bafx::desktop::formatDisplayTargetBounds(failure.target);
+            const std::string sourceId = std::to_string(failure.target.sourceId);
+            const std::array failureFields{
+                bafx::windows::DiagnosticField{"Phase", phase},
+                bafx::windows::DiagnosticField{"Operation", failure.operation},
+                bafx::windows::DiagnosticField{"Device", device},
+                bafx::windows::DiagnosticField{"Monitor", monitor},
+                bafx::windows::DiagnosticField{"Bounds", bounds},
+                bafx::windows::DiagnosticField{"SourceId", sourceId},
+                bafx::windows::DiagnosticField{"Message", failure.message}};
+            bafx::windows::appendDiagnosticEvent(
+                logPath,
+                "Display.Session.Failed",
+                failureFields,
+                bafx::windows::DiagnosticLevel::Error);
+        }
+    }
+    catch (...)
+    {
+        bafx::windows::appendDiagnosticLog(
+            logPath,
+            "Display session reconciliation diagnostics could not be formatted");
+    }
+}
+
 [[nodiscard]] MessageDispatchDiagnostics dispatchMessages(bool& quit)
 {
     MessageDispatchDiagnostics diagnostics{};
@@ -1059,6 +1145,15 @@ int runApplication(
         appliedOutputSize,
         "startup");
     displaySession.show();
+    const bafx::desktop::DisplayTargetSnapshot initialDisplayTopology =
+        bafx::desktop::queryDisplayTargets();
+    const bafx::desktop::DisplaySessionReconcileResult initialReconcile =
+        displaySessions.reconcileSecondaries(initialDisplayTopology);
+    appendDisplaySessionReconcile(
+        logPath,
+        "startup",
+        initialReconcile,
+        displaySessions.sessions().size());
 
     // A broker prompt may remain pending for user input. Expose the control
     // plane after the non-blocking first service step so WM_INPUT, rendering,
@@ -1254,6 +1349,22 @@ int runApplication(
             displaySession.acceptAppliedTarget(
                 appliedDisplayTarget,
                 hostWindow.handle());
+            const std::size_t duplicateSessionsRemoved =
+                displaySessions.pruneCoordinatorDuplicates();
+            if (duplicateSessionsRemoved > 0U)
+            {
+                const std::string removed = std::to_string(
+                    duplicateSessionsRemoved);
+                const std::array fields{
+                    bafx::windows::DiagnosticField{"Removed", removed},
+                    bafx::windows::DiagnosticField{
+                        "Reason",
+                        "coordinator-target-applied"}};
+                bafx::windows::appendDiagnosticEvent(
+                    logPath,
+                    "Display.Sessions.CoordinatorDuplicatesRemoved",
+                    fields);
+            }
             const bafx::windows::DisplayColorMonitorResult monitorResult =
                 displaySession.colorMonitorStartResult();
             bafx::windows::appendDiagnosticLog(
@@ -1306,16 +1417,74 @@ int runApplication(
         renderInvalidationPending = false;
         const bool hostDisplayTopologyChanged =
             hostWindow.takeDisplayTopologyChange();
-        const bool surfaceDisplayTopologyChanged =
-            window.takeDisplayTopologyChange();
+        bool surfaceDisplayTopologyChanged = false;
+        bool coordinatorSurfaceColorChanged = false;
+        for (const auto& ownedSession : displaySessions.sessions())
+        {
+            bafx::desktop::DisplaySession& session = *ownedSession;
+            const bool topologyPending =
+                session.window().takeDisplayTopologyChange();
+            surfaceDisplayTopologyChanged = topologyPending
+                || surfaceDisplayTopologyChanged;
+            const bool colorPending = session.window().takeDisplayColorChange();
+            if (&session == &displaySession)
+            {
+                coordinatorSurfaceColorChanged = colorPending;
+                continue;
+            }
+
+            bool refreshSecondaryColor = colorPending;
+            std::uint64_t secondaryColorGeneration = 0U;
+            if (session.colorMonitor().notificationPending())
+            {
+                secondaryColorGeneration =
+                    session.colorMonitor().consumeNotification();
+                refreshSecondaryColor = true;
+            }
+            if (refreshSecondaryColor)
+            {
+                const std::string previousMode =
+                    session.colorCapabilities().has_value()
+                    ? std::string(bafx::windows::displayColorModeName(
+                        session.colorCapabilities()->activeColorMode))
+                    : "unknown";
+                session.refreshColorCapabilities();
+                const std::string currentMode =
+                    session.colorCapabilities().has_value()
+                    ? std::string(bafx::windows::displayColorModeName(
+                        session.colorCapabilities()->activeColorMode))
+                    : "unknown";
+                const std::string monitor =
+                    bafx::desktop::formatDisplayTargetMonitor(session.target());
+                const std::string device =
+                    bafx::desktop::displayTargetDeviceUtf8(session.target());
+                const std::string generation = std::to_string(
+                    secondaryColorGeneration);
+                const std::array fields{
+                    bafx::windows::DiagnosticField{"Device", device},
+                    bafx::windows::DiagnosticField{"Monitor", monitor},
+                    bafx::windows::DiagnosticField{
+                        "PreviousMode",
+                        previousMode},
+                    bafx::windows::DiagnosticField{"CurrentMode", currentMode},
+                    bafx::windows::DiagnosticField{
+                        "Query",
+                        session.colorCapabilities().has_value()
+                            ? "succeeded"
+                            : "failed"},
+                    bafx::windows::DiagnosticField{"Generation", generation}};
+                bafx::windows::appendDiagnosticEvent(
+                    logPath,
+                    "Display.Session.ColorState.Refreshed",
+                    fields);
+            }
+        }
         const bool displayTopologyChanged = hostDisplayTopologyChanged
             || surfaceDisplayTopologyChanged;
         const bool hostDisplayColorChanged =
             hostWindow.takeDisplayColorChange();
-        const bool surfaceDisplayColorChanged =
-            window.takeDisplayColorChange();
         bool displayColorRefreshPending = hostDisplayColorChanged
-            || surfaceDisplayColorChanged;
+            || coordinatorSurfaceColorChanged;
         std::uint64_t displayColorGeneration = 0U;
         if (displayColorMonitor.notificationPending())
         {
@@ -1325,8 +1494,38 @@ int runApplication(
         }
         if (displayTopologyChanged)
         {
+            const bafx::desktop::DisplayTargetSnapshot topology =
+                bafx::desktop::queryDisplayTargets();
+            const bafx::desktop::DisplaySessionReconcileResult reconcile =
+                displaySessions.reconcileSecondaries(topology);
+            appendDisplaySessionReconcile(
+                logPath,
+                "runtime-notification",
+                reconcile,
+                displaySessions.sessions().size());
+
+            const bafx::desktop::DisplayTarget& requestedTarget =
+                pendingDisplayTarget.has_value()
+                    ? *pendingDisplayTarget
+                    : appliedDisplayTarget;
+            const bafx::desktop::DisplayTarget* observed =
+                bafx::desktop::findDisplayTargetBySource(
+                    topology,
+                    requestedTarget);
+            if (observed == nullptr)
+            {
+                observed = bafx::desktop::findDisplayTargetBySource(
+                    topology,
+                    appliedDisplayTarget);
+            }
+            if (observed == nullptr)
+            {
+                // The coordinator migrates only after its stable source is
+                // absent. A primary-role toggle alone must not move it.
+                observed = bafx::desktop::findPrimaryDisplayTarget(topology);
+            }
             const bafx::desktop::DisplayTarget observedTarget =
-                primaryDisplayTarget();
+                observed != nullptr ? *observed : requestedTarget;
             bafx::desktop::appendDisplayTopologyObserved(
                 logPath,
                 backgroundExecution.transactionActive
@@ -1353,6 +1552,7 @@ int runApplication(
                 // physical fullscreen bounds without restarting a stable WGC
                 // target; any actual size correction is consumed below.
                 appliedDisplayTarget = observedTarget;
+                displaySession.updateTargetMetadata(appliedDisplayTarget);
                 window.setBounds(appliedDisplayTarget.bounds);
                 appliedDisplayDpi = window.effectiveDpi();
                 report.setPrimaryDpi(appliedDisplayDpi);
