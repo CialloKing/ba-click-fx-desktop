@@ -7,6 +7,7 @@
 #include <cmath>
 #include <fstream>
 #include <iomanip>
+#include <initializer_list>
 #include <iterator>
 #include <limits>
 #include <locale>
@@ -555,6 +556,38 @@ private:
     return iterator == object.end() ? nullptr : &iterator->second;
 }
 
+[[nodiscard]] bool validateKnownMembers(
+    const JsonValue::Object& object,
+    const std::initializer_list<std::string_view> knownMembers,
+    const std::string_view section,
+    std::string& error)
+{
+    for (const auto& entry : object)
+    {
+        if (std::find(
+                knownMembers.begin(),
+                knownMembers.end(),
+                std::string_view(entry.first)) != knownMembers.end())
+        {
+            continue;
+        }
+
+        // A schema bump must name every new field. Silently ignoring an old
+        // key would otherwise make an obsolete file appear to load correctly.
+        error = "config field '";
+        if (!section.empty())
+        {
+            error += section;
+            error += ".";
+        }
+        error += entry.first;
+        error += "' is not supported by schema ";
+        error += std::to_string(currentSchemaVersion);
+        return false;
+    }
+    return true;
+}
+
 [[nodiscard]] bool readBool(
     const JsonValue::Object& object,
     const std::string_view key,
@@ -765,6 +798,22 @@ private:
     Config config = defaultConfig();
     config.schemaVersion = currentSchemaVersion;
 
+    if (!validateKnownMembers(
+            root,
+            {
+                "schemaVersion",
+                "effects",
+                "background",
+                "display",
+                "input",
+                "performance",
+                "system"},
+            {},
+            error))
+    {
+        return config;
+    }
+
     const JsonValue::Object* effects = nullptr;
     const JsonValue::Object* background = nullptr;
     const JsonValue::Object* display = nullptr;
@@ -777,6 +826,59 @@ private:
         || !readNestedObject(root, "input", input, error)
         || !readNestedObject(root, "performance", performance, error)
         || !readNestedObject(root, "system", system, error))
+    {
+        return config;
+    }
+
+    if ((effects != nullptr
+            && !validateKnownMembers(
+                *effects,
+                {
+                    "enabled",
+                    "globalScale",
+                    "clickEnabled",
+                    "trailEnabled",
+                    "trailLength",
+                    "trailWidth",
+                    "bloomIntensity",
+                    "bloomQuality"},
+                "effects",
+                error))
+        || (background != nullptr
+            && !validateKnownMembers(
+                *background,
+                {"mode", "cursorExcluded", "allowSystemBorder"},
+                "background",
+                error))
+        || (display != nullptr
+            && !validateKnownMembers(
+                *display,
+                {"hdrEnabled"},
+                "display",
+                error))
+        || (input != nullptr
+            && !validateKnownMembers(
+                *input,
+                {
+                    "leftClick",
+                    "rightClick",
+                    "middleClick",
+                    "trailOnlyWhilePressed",
+                    "samplingRateHz"},
+                "input",
+                error))
+        || (performance != nullptr
+            && !validateKnownMembers(
+                *performance,
+                {"idleOptimization", "framePacing"},
+                "performance",
+                error))
+        || (system != nullptr
+            && !validateKnownMembers(
+                *system,
+                {"startWithWindows", "startMinimized", "closeToTray"},
+                "system",
+                error)))
     {
         return config;
     }
