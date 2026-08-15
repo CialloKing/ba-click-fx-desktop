@@ -2326,6 +2326,7 @@ int runApplication(
     std::uint64_t backgroundRetryToken = appliedBackgroundRequest.retryToken;
     bool backgroundRetryPending = false;
     bool coordinatorPowerRecoveryEligible = false;
+    bool outputPreferenceReconcilePending = false;
     std::optional<PendingOutputRenegotiation>
         pendingCoordinatorOutputRenegotiation{};
     std::optional<bafx::desktop::DisplayTarget> pendingDisplayTarget{};
@@ -2607,6 +2608,87 @@ int runApplication(
                 "Display.ColorState.Refreshed",
                 fields);
             bafx::windows::appendDiagnosticLog(logPath, report);
+        };
+    const auto reconcileRequestedOutputPreferences =
+        [&](const bafx::windows::CompositionOutputPreference requested,
+            const std::string_view reason,
+            const std::string_view fxOnlyReason) -> bool
+        {
+            bool renderRequired = false;
+            pendingCoordinatorOutputRenegotiation.reset();
+            for (const auto& ownedSession : displaySessions.sessions())
+            {
+                bafx::desktop::DisplaySession& session = *ownedSession;
+                const bool coordinator = &session == &displaySession;
+                const bafx::windows::CompositionOutputPreference effective =
+                    bafx::desktop::resolveDisplayOutputPreference(
+                        requested,
+                        session.colorCapabilities());
+                if (session.renderer().outputPreference() == effective)
+                {
+                    continue;
+                }
+
+                renderRequired = true;
+                bool applied = false;
+                if (coordinator)
+                {
+                    applied = renegotiateCoordinatorOutput(effective, reason);
+                }
+                else if (session.secondaryBackgroundCaptureInitialized())
+                {
+                    try
+                    {
+                        // The secondary owner serializes WGC stop, output
+                        // replacement and restart on its normal service path.
+                        session.requestSecondaryOutputRenegotiation(
+                            effective,
+                            reason);
+                        applied = true;
+                    }
+                    catch (const std::exception& error)
+                    {
+                        session.shutdownSecondaryBackgroundCapture();
+                        appendSecondaryBackgroundCaptureFailure(
+                            logPath,
+                            session,
+                            "queue-output-renegotiation",
+                            error.what());
+                        applied = tryRenegotiateOutput(
+                            logPath,
+                            session,
+                            effective,
+                            fxOnlyReason).has_value();
+                    }
+                    catch (...)
+                    {
+                        session.shutdownSecondaryBackgroundCapture();
+                        appendSecondaryBackgroundCaptureFailure(
+                            logPath,
+                            session,
+                            "queue-output-renegotiation",
+                            "unknown exception");
+                        applied = tryRenegotiateOutput(
+                            logPath,
+                            session,
+                            effective,
+                            fxOnlyReason).has_value();
+                    }
+                }
+                else
+                {
+                    applied = tryRenegotiateOutput(
+                        logPath,
+                        session,
+                        effective,
+                        fxOnlyReason).has_value();
+                }
+                if (applied && coordinator)
+                {
+                    report.setDeviceInfo(renderer.deviceInfo());
+                }
+            }
+            return renderRequired;
         };
     const auto appendPendingBackgroundSnapshotInvalidation = [&]() noexcept
     {
@@ -3686,7 +3768,9 @@ int runApplication(
         if (configChanged
             || pendingOutputResize.has_value()
             || displayTargetChanged
-            || backgroundRetryPending)
+            || backgroundRetryPending
+            || (!displayPowerUnavailable
+                && outputPreferenceReconcilePending))
         {
             renderInvalidated = true;
             if (configChanged)
@@ -3841,88 +3925,23 @@ int runApplication(
                     displayPowerUnavailable);
                 if (outputPreferenceChanged)
                 {
-                    pendingCoordinatorOutputRenegotiation.reset();
-                    for (const auto& ownedSession : displaySessions.sessions())
-                    {
-                        bafx::desktop::DisplaySession& session = *ownedSession;
-                        const bool coordinator = &session == &displaySession;
-                        const bafx::windows::CompositionOutputPreference
-                            effectivePreference =
-                                bafx::desktop::resolveDisplayOutputPreference(
-                                    currentOutputPreference,
-                                    session.colorCapabilities());
-                        bool applied = false;
-                        if (session.renderer().outputPreference()
-                            == effectivePreference)
-                        {
-                            // The user request can change while this display
-                            // remains SDR. Keep its live WGC session intact.
-                            applied = true;
-                        }
-                        else if (coordinator)
-                        {
-                            applied = renegotiateCoordinatorOutput(
-                                effectivePreference,
-                                "configuration");
-                        }
-                        else if (session.secondaryBackgroundCaptureInitialized())
-                        {
-                            try
-                            {
-                                // The session service stops only this WGC
-                                // producer before replacing output resources,
-                                // then owns its restart or FX-only fallback.
-                                session.requestSecondaryOutputRenegotiation(
-                                    effectivePreference,
-                                    "configuration");
-                                applied = true;
-                            }
-                            catch (const std::exception& error)
-                            {
-                                session.shutdownSecondaryBackgroundCapture();
-                                appendSecondaryBackgroundCaptureFailure(
-                                    logPath,
-                                    session,
-                                    "queue-output-renegotiation",
-                                    error.what());
-                                applied = tryRenegotiateOutput(
-                                    logPath,
-                                    session,
-                                    effectivePreference,
-                                    "configuration-fx-only").has_value();
-                            }
-                            catch (...)
-                            {
-                                session.shutdownSecondaryBackgroundCapture();
-                                appendSecondaryBackgroundCaptureFailure(
-                                    logPath,
-                                    session,
-                                    "queue-output-renegotiation",
-                                    "unknown exception");
-                                applied = tryRenegotiateOutput(
-                                    logPath,
-                                    session,
-                                    effectivePreference,
-                                    "configuration-fx-only").has_value();
-                            }
-                        }
-                        else
-                        {
-                            // Capture initialization can fail independently.
-                            // The surviving FX-only surface must still honor
-                            // an explicit HDR/SDR output preference change.
-                            applied = tryRenegotiateOutput(
-                                logPath,
-                                session,
-                                effectivePreference,
-                                "configuration-fx-only").has_value();
-                        }
-                        if (applied && coordinator)
-                        {
-                            report.setDeviceInfo(renderer.deviceInfo());
-                        }
-                    }
+                    // A powered-off display has no actionable scan-out
+                    // contract. Keep the newest user intent and reconcile it
+                    // once the restore edge has refreshed per-monitor facts.
+                    outputPreferenceReconcilePending = true;
                 }
+            }
+            if (!displayPowerUnavailable
+                && outputPreferenceReconcilePending)
+            {
+                // Clear before applying so a failing driver path cannot turn
+                // the main loop into an unbounded reconstruction cycle.
+                outputPreferenceReconcilePending = false;
+                renderInvalidated = reconcileRequestedOutputPreferences(
+                    makeOutputPreference(config.display),
+                    "configuration",
+                    "configuration-fx-only")
+                    || renderInvalidated;
             }
             const bafx::windows::BackgroundCaptureRequest nextBackgroundRequest =
                 bafx::desktop::backgroundCaptureRequest(
