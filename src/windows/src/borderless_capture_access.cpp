@@ -488,14 +488,26 @@ BorderlessCaptureAccessMonitor::observe() noexcept
             E_HANDLE,
             0U};
     }
+    const std::uint64_t generation =
+        implementation_->notification->generation();
+    const auto acknowledgeGeneration = [&]() noexcept
+    {
+        implementation_->observedGeneration = generation;
+        try
+        {
+            implementation_->notification->resetAfterObserve(generation);
+        }
+        catch (...)
+        {
+            // The generation is still consumed once. A later callback changes
+            // it again, while this failed event reset cannot create a hot loop.
+        }
+    };
     try
     {
-        const std::uint64_t generation =
-            implementation_->notification->generation();
         const BorderlessCaptureAccessStatus status = mapStatus(
             implementation_->capability.CheckAccess());
-        implementation_->notification->resetAfterObserve(generation);
-        implementation_->observedGeneration = generation;
+        acknowledgeGeneration();
         return BorderlessCaptureAccessHealthResult{
             status,
             status == BorderlessCaptureAccessStatus::Allowed
@@ -505,24 +517,27 @@ BorderlessCaptureAccessMonitor::observe() noexcept
     }
     catch (const winrt::hresult_error& error)
     {
+        acknowledgeGeneration();
         return BorderlessCaptureAccessHealthResult{
             failureStatus(error.code()),
             error.code(),
-            implementation_->notification->generation()};
+            generation};
     }
     catch (const HResultError& error)
     {
+        acknowledgeGeneration();
         return BorderlessCaptureAccessHealthResult{
             failureStatus(error.result()),
             error.result(),
-            implementation_->notification->generation()};
+            generation};
     }
     catch (...)
     {
+        acknowledgeGeneration();
         return BorderlessCaptureAccessHealthResult{
             BorderlessCaptureAccessStatus::Failed,
             E_FAIL,
-            implementation_->notification->generation()};
+            generation};
     }
 }
 
