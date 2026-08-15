@@ -1,6 +1,7 @@
 #include "bafx/windows/display_color_monitor.hpp"
 
 #include <windows.graphics.display.interop.h>
+#include <winrt/Windows.Foundation.h>
 #include <winrt/Windows.Graphics.Display.h>
 #include <winrt/base.h>
 
@@ -107,6 +108,8 @@ struct DisplayColorMonitor::Implementation
     std::uint64_t observedGeneration{0U};
     bool advancedColorChangedRegistered{false};
 };
+
+DisplayColorMonitor::DisplayColorMonitor() noexcept = default;
 
 DisplayColorMonitor::~DisplayColorMonitor() noexcept
 {

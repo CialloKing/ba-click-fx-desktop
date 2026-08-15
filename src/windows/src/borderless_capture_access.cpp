@@ -391,6 +391,9 @@ struct BorderlessCaptureAccessMonitor::Implementation
     bool accessChangedRegistered{false};
 };
 
+BorderlessCaptureAccessMonitor::BorderlessCaptureAccessMonitor() noexcept =
+    default;
+
 BorderlessCaptureAccessRequest::BorderlessCaptureAccessRequest(
     const std::chrono::milliseconds timeout) noexcept
     : timeout_(timeout > std::chrono::milliseconds::zero()

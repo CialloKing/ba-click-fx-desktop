@@ -86,7 +86,7 @@ struct BorderlessCaptureAccessHealthResult
 class BorderlessCaptureAccessMonitor final
 {
 public:
-    BorderlessCaptureAccessMonitor() noexcept = default;
+    BorderlessCaptureAccessMonitor() noexcept;
     ~BorderlessCaptureAccessMonitor() noexcept;
 
     BorderlessCaptureAccessMonitor(const BorderlessCaptureAccessMonitor&) = delete;

@@ -28,7 +28,7 @@ struct DisplayColorMonitorResult
 class DisplayColorMonitor final
 {
 public:
-    DisplayColorMonitor() noexcept = default;
+    DisplayColorMonitor() noexcept;
     ~DisplayColorMonitor() noexcept;
 
     DisplayColorMonitor(const DisplayColorMonitor&) = delete;
