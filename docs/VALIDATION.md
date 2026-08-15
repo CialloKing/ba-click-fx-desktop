@@ -21,7 +21,8 @@
   arm/disarm、单次触发与重新启动；背景快照失效单槽邮箱必须保留首个未消费原因和完整身份；
 - WDA 运行期健康检查必须在 Sensor 活跃后延迟首次查询、最多每秒一次、时钟回退或停用后重置；排除丢失
   必须先 stop Sensor，再恢复 `WDA_NONE` 和 FX-only profile，同一稳定请求不得被循环自动重启；device
-  recovery 只可重试故障前实际活跃的 Sensor，不得给已有 FX-only 终态注入新的 `retryToken`；
+  recovery 只可重试故障调用前锁存为实际活跃的 Sensor，不得让异常展开期间的 Closed 回调覆盖该事实，
+  也不得给已有 FX-only 终态注入新的 `retryToken`；
 - `allowSystemBorder` 必须进入 capture request identity；`true -> false/Start 失败 -> true` 往返应执行
   完整 stop/fallback/restart 动作，普通 Start 失败不得错误触发 sticky 重启阻断；
 - 无边框授权是资源动作前的独立 `RequestBorderlessAccess`。`Pending` 不推进动作、不消耗固定 action

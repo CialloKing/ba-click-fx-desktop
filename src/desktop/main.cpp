@@ -1740,6 +1740,11 @@ int runApplication(
             // short WGC cadence gaps without modulating FX energy.
             std::optional<
                 bafx::windows::CompositionFrameDiagnostics> frameDiagnostics;
+            // Device loss may synchronously publish Session.Closed while
+            // renderFrame unwinds. Recovery eligibility needs the state that
+            // existed before the failing GPU/Present call.
+            const bool backgroundCaptureWasActive =
+                renderer.backgroundCaptureActive();
             try
             {
                 if (framePacingDeviceLoss.has_value())
@@ -1781,8 +1786,6 @@ int runApplication(
                     throw;
                 }
                 deviceRecoveryConsumed = true;
-                const bool backgroundCaptureWasActive =
-                    renderer.backgroundCaptureActive();
                 const bafx::windows::GraphicsDeviceInfo previousDeviceInfo =
                     renderer.deviceInfo();
                 const std::string originalError(error.what());
