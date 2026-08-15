@@ -141,6 +141,20 @@ struct WgcBackgroundTransportSnapshot
     bool itemClosed{false};
 };
 
+struct WgcBackgroundStopDiagnostics
+{
+    std::chrono::nanoseconds frameArrivedUnregister{};
+    std::chrono::nanoseconds itemClosedUnregister{};
+    std::chrono::nanoseconds sessionClose{};
+    std::chrono::nanoseconds framePoolClose{};
+    std::chrono::nanoseconds total{};
+    bool sensorPresent{false};
+    bool completed{false};
+};
+
+[[nodiscard]] std::string wgcBackgroundStopDiagnostic(
+    const WgcBackgroundStopDiagnostics& diagnostics);
+
 class WgcBackgroundSensor final
 {
 public:
@@ -174,6 +188,7 @@ public:
     [[nodiscard]] std::uint64_t expectedEpoch() const noexcept;
     [[nodiscard]] WgcBackgroundSessionCapabilities capabilities() const noexcept;
     [[nodiscard]] WgcBackgroundResourceLedgerSnapshot resourceLedger() const noexcept;
+    [[nodiscard]] WgcBackgroundStopDiagnostics stopDiagnostics() const noexcept;
     [[nodiscard]] HANDLE frameAvailableObject() const noexcept;
     [[nodiscard]] bool running() const noexcept;
 

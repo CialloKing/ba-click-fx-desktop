@@ -204,6 +204,8 @@ public:
     [[nodiscard]] bool backgroundCaptureCursorExcluded() const noexcept;
     [[nodiscard]] WgcBackgroundResourceLedgerSnapshot
         backgroundResourceLedger() const noexcept;
+    [[nodiscard]] WgcBackgroundStopDiagnostics
+        backgroundStopDiagnostics() const noexcept;
     [[nodiscard]] bool backgroundParticipatedInLastFrame() const noexcept;
     [[nodiscard]] BackgroundCompositeStatus backgroundCompositeStatus() const noexcept;
     [[nodiscard]] std::string_view backgroundCaptureFailure() const noexcept;
@@ -284,6 +286,7 @@ private:
     std::optional<bafx::core::RectI> previousVisualBounds_{};
     WindowSize size_{};
     std::shared_ptr<WgcBackgroundResourceLedger> backgroundResourceLedger_{};
+    WgcBackgroundStopDiagnostics backgroundStopDiagnostics_{};
     std::uint64_t frameId_{0U};
     bool deviceRecoveryAttempted_{false};
     bool backgroundCaptureAfterRecoveryAllowed_{true};

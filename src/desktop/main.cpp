@@ -238,6 +238,10 @@ public:
         }
         finalized_ = true;
         renderer_.disableBackgroundCapture();
+        bafx::desktop::appendBackgroundCaptureStopDiagnostics(
+            logPath_,
+            renderer_,
+            phase);
         bafx::desktop::appendBackgroundCaptureResourceLedger(
             logPath_,
             renderer_,
@@ -1066,6 +1070,10 @@ int runApplication(
                     makeBloomSettings(config.effects));
                 if (bloomDeviceRecovered)
                 {
+                    bafx::desktop::appendBackgroundCaptureStopDiagnostics(
+                        logPath,
+                        renderer,
+                        "bloom-device-recovery");
                     deviceRecoveryConsumed = true;
                     report.setDeviceInfo(renderer.deviceInfo());
                     const bool adapterChanged =
@@ -1383,7 +1391,12 @@ int runApplication(
                     recoveryFields,
                     bafx::windows::DiagnosticLevel::Warning);
 
-                if (!renderer.tryRecoverDevice())
+                const bool deviceRecovered = renderer.tryRecoverDevice();
+                bafx::desktop::appendBackgroundCaptureStopDiagnostics(
+                    logPath,
+                    renderer,
+                    "render-device-recovery");
+                if (!deviceRecovered)
                 {
                     const std::string recoveryFailure(
                         renderer.deviceRecoveryFailure());
@@ -1626,7 +1639,12 @@ int runApplication(
                     bafx::windows::appendDiagnosticEvent(
                         logPath,
                         "Graphics.DeviceRecovery.Probe.Begin");
-                    if (!renderer.tryRecoverDevice())
+                    const bool probeRecovered = renderer.tryRecoverDevice();
+                    bafx::desktop::appendBackgroundCaptureStopDiagnostics(
+                        logPath,
+                        renderer,
+                        "device-recovery-probe");
+                    if (!probeRecovered)
                     {
                         throw std::runtime_error(
                             "Device recovery probe could not rebuild the renderer: "

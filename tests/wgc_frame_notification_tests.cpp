@@ -5,6 +5,7 @@
 
 #include <windows.h>
 
+#include <chrono>
 #include <string>
 
 using bafx::windows::detail::WgcFrameNotification;
@@ -173,4 +174,26 @@ BAFX_TEST(wgc_resource_ledger_diagnostic_includes_release_and_failure_evidence)
     BAFX_CHECK(diagnostic.find("LiveFramePools=1") != std::string::npos);
     BAFX_CHECK(diagnostic.find("Failures=2") != std::string::npos);
     BAFX_CHECK(diagnostic.find("AllReleased=false") != std::string::npos);
+}
+
+BAFX_TEST(wgc_stop_diagnostic_reports_each_uncancellable_phase)
+{
+    bafx::windows::WgcBackgroundStopDiagnostics diagnostics{};
+    diagnostics.frameArrivedUnregister = std::chrono::microseconds(11);
+    diagnostics.itemClosedUnregister = std::chrono::microseconds(22);
+    diagnostics.sessionClose = std::chrono::microseconds(33);
+    diagnostics.framePoolClose = std::chrono::microseconds(44);
+    diagnostics.total = std::chrono::microseconds(123);
+    diagnostics.sensorPresent = true;
+    diagnostics.completed = true;
+
+    const std::string text =
+        bafx::windows::wgcBackgroundStopDiagnostic(diagnostics);
+    BAFX_CHECK(text.find("WGC.Stop.SensorPresent=true") != std::string::npos);
+    BAFX_CHECK(text.find("WGC.Stop.Completed=true") != std::string::npos);
+    BAFX_CHECK(text.find("FrameArrivedUnregisterUs=11") != std::string::npos);
+    BAFX_CHECK(text.find("ItemClosedUnregisterUs=22") != std::string::npos);
+    BAFX_CHECK(text.find("SessionCloseUs=33") != std::string::npos);
+    BAFX_CHECK(text.find("FramePoolCloseUs=44") != std::string::npos);
+    BAFX_CHECK(text.find("WGC.Stop.TotalUs=123") != std::string::npos);
 }

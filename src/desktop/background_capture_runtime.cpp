@@ -174,6 +174,7 @@ void observeDeviceRecovery(
         logPath,
         eventName,
         recoveryFields);
+    appendBackgroundCaptureStopDiagnostics(logPath, renderer, eventName);
 }
 
 }
@@ -188,6 +189,29 @@ bafx::windows::BackgroundCaptureRequest backgroundCaptureRequest(
         config.background.cursorExcluded,
         config.background.allowSystemBorder,
         retryToken};
+}
+
+void appendBackgroundCaptureStopDiagnostics(
+    const std::filesystem::path& logPath,
+    const bafx::windows::CompositionRenderer& renderer,
+    const std::string_view phase) noexcept
+{
+    try
+    {
+        std::string message = "BackgroundCapture.Stop.Phase=";
+        message += phase;
+        message += ";";
+        message += bafx::windows::wgcBackgroundStopDiagnostic(
+            renderer.backgroundStopDiagnostics());
+        bafx::windows::appendDiagnosticLog(logPath, message);
+    }
+    catch (...)
+    {
+        bafx::windows::appendDiagnosticLog(
+            logPath,
+            "BackgroundCapture.Stop.Phase=unknown;WGC.Stop=unavailable;"
+            "Reason=formatter-failed");
+    }
 }
 
 void appendBackgroundCaptureResourceLedger(
@@ -248,6 +272,10 @@ BackgroundCaptureExecutionResult executeBackgroundCaptureTransition(
             {
             case bafx::windows::BackgroundCaptureActionKind::StopSensor:
                 renderer.disableBackgroundCapture();
+                appendBackgroundCaptureStopDiagnostics(
+                    logPath,
+                    renderer,
+                    "transaction");
                 succeeded = true;
                 break;
             case bafx::windows::BackgroundCaptureActionKind::SetAffinityExcluded:

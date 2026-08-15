@@ -243,6 +243,32 @@ WgcBackgroundResourceLedger::snapshot() const noexcept
         failures_.load(std::memory_order_relaxed)};
 }
 
+std::string wgcBackgroundStopDiagnostic(
+    const WgcBackgroundStopDiagnostics& diagnostics)
+{
+    const auto microseconds = [](const std::chrono::nanoseconds duration)
+    {
+        return std::chrono::duration_cast<std::chrono::microseconds>(
+            duration).count();
+    };
+    std::ostringstream stream;
+    stream << "WGC.Stop.SensorPresent="
+           << (diagnostics.sensorPresent ? "true" : "false")
+           << ";WGC.Stop.Completed="
+           << (diagnostics.completed ? "true" : "false")
+           << ";WGC.Stop.FrameArrivedUnregisterUs="
+           << microseconds(diagnostics.frameArrivedUnregister)
+           << ";WGC.Stop.ItemClosedUnregisterUs="
+           << microseconds(diagnostics.itemClosedUnregister)
+           << ";WGC.Stop.SessionCloseUs="
+           << microseconds(diagnostics.sessionClose)
+           << ";WGC.Stop.FramePoolCloseUs="
+           << microseconds(diagnostics.framePoolClose)
+           << ";WGC.Stop.TotalUs="
+           << microseconds(diagnostics.total);
+    return stream.str();
+}
+
 void WgcBackgroundSensor::recordResourceLedgerEvent(
     const std::shared_ptr<WgcBackgroundResourceLedger>& ledger,
     const ResourceLedgerEvent event) noexcept
@@ -751,9 +777,16 @@ struct WgcBackgroundSensor::Implementation
 
     void stop() noexcept
     {
+        if (stopDiagnostics.completed)
+        {
+            return;
+        }
+        const auto stopStartedAt = std::chrono::steady_clock::now();
+        stopDiagnostics.sensorPresent = true;
         notification->beginStop();
         if (frameArrivedRegistered && framePool)
         {
+            const auto unregisterStartedAt = std::chrono::steady_clock::now();
             try
             {
                 framePool.FrameArrived(frameArrivedToken);
@@ -767,9 +800,12 @@ struct WgcBackgroundSensor::Implementation
             recordResourceLedgerEvent(
                 ledger,
                 ResourceLedgerEvent::FrameArrivedUnregistered);
+            stopDiagnostics.frameArrivedUnregister =
+                std::chrono::steady_clock::now() - unregisterStartedAt;
         }
         if (itemClosedRegistered && item)
         {
+            const auto unregisterStartedAt = std::chrono::steady_clock::now();
             try
             {
                 item.Closed(itemClosedToken);
@@ -783,9 +819,12 @@ struct WgcBackgroundSensor::Implementation
             recordResourceLedgerEvent(
                 ledger,
                 ResourceLedgerEvent::ItemClosedUnregistered);
+            stopDiagnostics.itemClosedUnregister =
+                std::chrono::steady_clock::now() - unregisterStartedAt;
         }
         if (session)
         {
+            const auto closeStartedAt = std::chrono::steady_clock::now();
             try
             {
                 session.Close();
@@ -799,9 +838,12 @@ struct WgcBackgroundSensor::Implementation
             recordResourceLedgerEvent(
                 ledger,
                 ResourceLedgerEvent::SessionClosed);
+            stopDiagnostics.sessionClose =
+                std::chrono::steady_clock::now() - closeStartedAt;
         }
         if (framePool)
         {
+            const auto closeStartedAt = std::chrono::steady_clock::now();
             try
             {
                 framePool.Close();
@@ -815,6 +857,8 @@ struct WgcBackgroundSensor::Implementation
             recordResourceLedgerEvent(
                 ledger,
                 ResourceLedgerEvent::FramePoolClosed);
+            stopDiagnostics.framePoolClose =
+                std::chrono::steady_clock::now() - closeStartedAt;
         }
         item = nullptr;
         direct3dDevice = nullptr;
@@ -823,6 +867,9 @@ struct WgcBackgroundSensor::Implementation
         pendingFramePoolSize.reset();
         ownedTexture = {};
         isRunning = false;
+        stopDiagnostics.total =
+            std::chrono::steady_clock::now() - stopStartedAt;
+        stopDiagnostics.completed = true;
     }
 
     ComPtr<ID3D11Device> device{};
@@ -846,6 +893,7 @@ struct WgcBackgroundSensor::Implementation
     bool frameArrivedRegistered{false};
     bool itemClosedRegistered{false};
     bool isRunning{false};
+    WgcBackgroundStopDiagnostics stopDiagnostics{};
 };
 
 WgcBackgroundSensor::WgcBackgroundSensor(
@@ -992,6 +1040,12 @@ WgcBackgroundSensor::resourceLedger() const noexcept
         return {};
     }
     return implementation_->ledger->snapshot();
+}
+
+WgcBackgroundStopDiagnostics
+WgcBackgroundSensor::stopDiagnostics() const noexcept
+{
+    return implementation_->stopDiagnostics;
 }
 
 HANDLE WgcBackgroundSensor::frameAvailableObject() const noexcept
