@@ -47,7 +47,7 @@
 - 可选 D3D11.4 device-removed event 对 frame-latency 和暂停态 WGC 背景帧的等待优先级、异常可选句柄、
   错误锁存，以及已确认 device-lost 到一次性 render/Present 恢复边界的路由；通知不可用时保留连续
   timeout 轮询，`desktop_frame_pacing_stall` 必须在自身截止时间内退出；
-- WGC session state machine；
+- WGC session state machine，以及渲染阶段真实 stop 诊断跨无 sensor 清理动作的一次性交接；
 - monitor/adapter rebuild。
 
 ### L3：硬件/视觉

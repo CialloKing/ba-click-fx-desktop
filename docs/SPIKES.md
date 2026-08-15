@@ -219,8 +219,10 @@ python -B tools\verify-wgc-self-exclusion-spike.py `
 - 通知接口不可用或注册失败时继续使用轮询兜底：frame-latency wait 失败保留原始 Win32 error，连续
   `250 ms` 未取得 FrameReady 时检查 D3D device-removed reason。`desktop_frame_pacing_stall` 以永久不信号
   句柄验证运行截止检查不会被 `TimedOut`/`MessagesPending` 的 `continue` 绕过。
-- WGC stop 日志分别记录 FrameArrived/Closed 退订、Session Close、FramePool Close 和总耗时；当前机器的
-  正常 WGC 会话已产生 `SensorPresent=true;Completed=true` 的完整阶段记录，但该冒烟数据不代替故障注入。
+- WGC stop 日志分别记录 FrameArrived/Closed 退订、Session Close、FramePool Close 和总耗时；渲染阶段的
+  真实 stop 不会被随后无 sensor 清理覆盖，延后交接时记录 `DeferredReport=true`。当前机器的正常 WGC 会话
+  已产生 `SensorPresent=true;Completed=true;DeferredReport=false` 的完整阶段记录；双 stop 交接由单元测试
+  覆盖，但这些证据都不代替故障注入。
 - 当前机器已观察到通知注册及主动资源重建后的重新注册，但该探针没有制造真实 GPU reset，也没有覆盖
   WGC Session/FramePool 在 device-lost 中的系统级行为；
   因此本 Spike 的真实 device lost、跨适配器、热插拔和多显示器单元格仍为 `Not Run`，不能据此发布

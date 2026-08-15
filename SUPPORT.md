@@ -53,10 +53,12 @@
   Action 抛异常、状态机拒绝或超出固定 action budget 时会分别记录
   `Phase=action-failed|transition-rejected|budget-exceeded`；正常退出记录 `Phase=shutdown`。
   账本格式化失败只写固定的 `Reason=formatter-failed` 降级事件，不会改变渲染事务结果。
-- 每次 WGC stop 还会记录 `WGC.Stop.SensorPresent/Completed`、FrameArrived/Closed 两类事件退订耗时、
-  `SessionCloseUs`、`FramePoolCloseUs` 和 `TotalUs`。正常关闭完成后这些字段用于定位慢阶段；如果日志只
-  留下 `BackgroundCapture.Action.Begin=stop-sensor` 或 `Graphics.DeviceRecovery.Begin` 而没有对应完成
-  记录，说明同步 WinRT 关闭调用可能没有返回。当前实现不能取消该系统调用，需连同轮转日志一起排查。
+- 每次 WGC stop 还会记录 `WGC.Stop.SensorPresent/Completed/DeferredReport`、FrameArrived/Closed 两类事件
+  退订耗时、`SessionCloseUs`、`FramePoolCloseUs` 和 `TotalUs`。渲染阶段已经停止 sensor、随后清理事务再次
+  执行无 sensor stop 时，真实耗时会保留到首次日志消费并标记 `DeferredReport=true`，不会被零值覆盖；消费
+  后不会污染下一次 stop。正常关闭完成后这些字段用于定位慢阶段；如果日志只留下
+  `BackgroundCapture.Action.Begin=stop-sensor` 或 `Graphics.DeviceRecovery.Begin` 而没有对应完成记录，说明
+  同步 WinRT 关闭调用可能没有返回。当前实现不能取消该系统调用，需连同轮转日志一起排查。
 - Host 会尝试通过 D3D11.4 注册 device-removed event。启动及每次成功资源恢复后，
   `Graphics.DeviceRemovalNotification.Status` 记录 `Phase`、`Available` 和 `RegistrationHRESULT`；接口
   不可用或注册失败时，活跃渲染等待仍以每 `250 ms` 一次的 device-removed reason 查询兜底，不会把注册
