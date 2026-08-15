@@ -123,12 +123,11 @@ void recordFirstError(
     }
 }
 
-[[nodiscard]] LONG queryDisplayPaths(
+[[nodiscard]] LONG queryDisplayPathsWithFlags(
+    const UINT queryFlags,
     std::vector<DISPLAYCONFIG_PATH_INFO>& paths,
     std::vector<DISPLAYCONFIG_MODE_INFO>& modes) noexcept
 {
-    constexpr UINT queryFlags = QDC_ONLY_ACTIVE_PATHS
-        | QDC_VIRTUAL_MODE_AWARE;
     for (std::uint32_t attempt = 0U; attempt < 3U; ++attempt)
     {
         UINT32 pathCount = 0U;
@@ -176,6 +175,36 @@ void recordFirstError(
     return ERROR_RETRY;
 }
 
+[[nodiscard]] LONG queryDisplayPaths(
+    std::vector<DISPLAYCONFIG_PATH_INFO>& paths,
+    std::vector<DISPLAYCONFIG_MODE_INFO>& modes,
+    bool& virtualRefreshRateAware) noexcept
+{
+    constexpr UINT baseFlags = QDC_ONLY_ACTIVE_PATHS
+        | QDC_VIRTUAL_MODE_AWARE;
+    // QDC_VIRTUAL_REFRESH_RATE_AWARE is a Windows 11 query contract. Keep the
+    // numeric ABI local so an older SDK can still compile the full binary; an
+    // older runtime rejects the flag and takes the bounded fallback below.
+    constexpr UINT virtualRefreshRateAwareFlag = 0x00000040U;
+    const LONG virtualResult = queryDisplayPathsWithFlags(
+        baseFlags | virtualRefreshRateAwareFlag,
+        paths,
+        modes);
+    if (virtualResult == ERROR_SUCCESS)
+    {
+        virtualRefreshRateAware = true;
+        return ERROR_SUCCESS;
+    }
+    if (virtualResult != ERROR_INVALID_PARAMETER
+        && virtualResult != ERROR_NOT_SUPPORTED)
+    {
+        return virtualResult;
+    }
+
+    virtualRefreshRateAware = false;
+    return queryDisplayPathsWithFlags(baseFlags, paths, modes);
+}
+
 }
 
 DisplayTopologySnapshot queryActiveDisplayTopology() noexcept
@@ -208,7 +237,11 @@ DisplayTopologySnapshot queryActiveDisplayTopology() noexcept
 
         std::vector<DISPLAYCONFIG_PATH_INFO> paths;
         std::vector<DISPLAYCONFIG_MODE_INFO> modes;
-        const LONG pathResult = queryDisplayPaths(paths, modes);
+        bool virtualRefreshRateAware = false;
+        const LONG pathResult = queryDisplayPaths(
+            paths,
+            modes,
+            virtualRefreshRateAware);
         if (pathResult != ERROR_SUCCESS)
         {
             snapshot.status = DisplayTopologyStatus::Incomplete;
@@ -268,7 +301,9 @@ DisplayTopologySnapshot queryActiveDisplayTopology() noexcept
             target.refreshRate = DisplayRefreshRate{
                 path.targetInfo.refreshRate.Numerator,
                 path.targetInfo.refreshRate.Denominator,
-                DisplayRefreshRateSource::DisplayConfigPath};
+                virtualRefreshRateAware
+                    ? DisplayRefreshRateSource::DisplayConfigVirtualRefresh
+                    : DisplayRefreshRateSource::DisplayConfigPath};
             target.rotation = path.targetInfo.rotation;
             target.scaling = path.targetInfo.scaling;
             target.outputTechnology = path.targetInfo.outputTechnology;

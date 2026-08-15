@@ -14,7 +14,8 @@ namespace bafx::windows
 enum class DisplayRefreshRateSource : std::uint8_t
 {
     DwmCompositionTiming,
-    DisplayConfigPath
+    DisplayConfigPath,
+    DisplayConfigVirtualRefresh
 };
 
 struct DisplayRefreshRate final

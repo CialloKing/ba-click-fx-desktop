@@ -522,6 +522,8 @@ void appendDiagnosticRecordUnlocked(
         return "dwm-composition-timing";
     case DisplayRefreshRateSource::DisplayConfigPath:
         return "display-config-path";
+    case DisplayRefreshRateSource::DisplayConfigVirtualRefresh:
+        return "display-config-virtual-refresh";
     }
     return "unknown";
 }
