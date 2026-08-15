@@ -60,6 +60,8 @@ struct BackgroundCaptureExecutionResult
     std::optional<bafx::windows::WindowSize> recreatedFramePoolSize{};
     bool deviceRecovered{false};
     bool deviceRecoveryAdapterChanged{false};
+    bool outputAdapterRetargeted{false};
+    bool outputAdapterWarpFallback{false};
     bool transactionActive{false};
     bool pending{false};
     bool sensorRestartAllowed{true};

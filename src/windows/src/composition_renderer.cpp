@@ -359,19 +359,7 @@ CompositionRenderer::CompositionRenderer(
     , backgroundStopObserver_(backgroundStopObserver)
     , requestedAdapterLuid_(requestedAdapterLuid)
 {
-    createDevice();
-    createSwapChain(size);
-    createComposition(window);
-    createRenderTarget();
-    gpuTimestampProfiler_ = std::make_unique<GpuTimestampProfiler>(
-        device_.Get(),
-        context_.Get());
-    fxRenderer_ = std::make_unique<FxGpuRenderer>(
-        device_.Get(),
-        context_.Get(),
-        size_,
-        bloomSettings);
-    registerDeviceRemovedNotification();
+    createDeviceResources();
 }
 
 CompositionRenderer::~CompositionRenderer()
@@ -413,21 +401,7 @@ bool CompositionRenderer::tryRecoverDevice() noexcept
         deviceInfo_ = GraphicsDeviceInfo{};
         featureLevel_ = D3D_FEATURE_LEVEL_11_0;
 
-        createDevice();
-        createSwapChain(size_);
-        createComposition(window_);
-        createRenderTarget();
-        gpuTimestampProfiler_ = std::make_unique<GpuTimestampProfiler>(
-            device_.Get(),
-            context_.Get());
-        fxRenderer_ = std::make_unique<FxGpuRenderer>(
-            device_.Get(),
-            context_.Get(),
-            size_,
-            bloomSettings_);
-        fxRenderer_->setOverlayProfile(overlayProfile_);
-        setReadbackDiagnostics(readbackDiagnosticsEnabled_);
-        registerDeviceRemovedNotification();
+        createDeviceResources();
         backgroundCaptureAfterRecoveryAllowed_ =
             previousDeviceInfo.adapterLuid.LowPart
                 == deviceInfo_.adapterLuid.LowPart
@@ -457,6 +431,72 @@ bool CompositionRenderer::tryRecoverDevice() noexcept
         deviceRecoveryDiagnostics_.total =
             std::chrono::steady_clock::now() - recoveryStartedAt;
         return false;
+    }
+}
+
+OutputAdapterRetargetStatus CompositionRenderer::retargetOutputAdapter(
+    const std::optional<LUID> requestedAdapterLuid)
+{
+    const auto sameRequestedAdapter = [](const std::optional<LUID>& left,
+                                         const std::optional<LUID>& right)
+    {
+        if (left.has_value() != right.has_value())
+        {
+            return false;
+        }
+        return !left.has_value()
+            || (left->HighPart == right->HighPart
+                && left->LowPart == right->LowPart);
+    };
+    if (sameRequestedAdapter(requestedAdapterLuid_, requestedAdapterLuid))
+    {
+        return OutputAdapterRetargetStatus::Unchanged;
+    }
+    if (backgroundSensor_ != nullptr || backgroundCaptureRequested_)
+    {
+        throw std::logic_error(
+            "Output adapter retarget requires a completed capture-stop transaction");
+    }
+
+    const std::optional<LUID> previousRequestedAdapter =
+        requestedAdapterLuid_;
+    const bool previousBackgroundRestartAllowed =
+        backgroundCaptureAfterRecoveryAllowed_;
+    const bool previousDeviceRecoveryAttempted = deviceRecoveryAttempted_;
+
+    previousVisualBounds_.reset();
+    lastCenterPixel_.reset();
+    backgroundPathLatch_.reset();
+    backgroundCompositeStatus_ = BackgroundCompositeStatus::Inactive;
+    releaseDeviceResources();
+    requestedAdapterLuid_ = requestedAdapterLuid;
+    deviceInfo_ = GraphicsDeviceInfo{};
+    featureLevel_ = D3D_FEATURE_LEVEL_11_0;
+    try
+    {
+        createDeviceResources();
+        deviceRecoveryAttempted_ = false;
+        backgroundCaptureAfterRecoveryAllowed_ =
+            deviceInfo_.driverType == GraphicsDriverType::Hardware
+            && deviceInfo_.requestedAdapterMatched;
+        return deviceInfo_.driverType == GraphicsDriverType::Hardware
+            ? OutputAdapterRetargetStatus::RecreatedHardware
+            : OutputAdapterRetargetStatus::RecreatedWarpFallback;
+    }
+    catch (...)
+    {
+        const std::exception_ptr retargetFailure = std::current_exception();
+        // Preserve a usable old resource domain when a newly attached adapter
+        // disappears between topology enumeration and device creation.
+        releaseDeviceResources();
+        requestedAdapterLuid_ = previousRequestedAdapter;
+        deviceInfo_ = GraphicsDeviceInfo{};
+        featureLevel_ = D3D_FEATURE_LEVEL_11_0;
+        createDeviceResources();
+        backgroundCaptureAfterRecoveryAllowed_ =
+            previousBackgroundRestartAllowed;
+        deviceRecoveryAttempted_ = previousDeviceRecoveryAttempted;
+        std::rethrow_exception(retargetFailure);
     }
 }
 
@@ -1407,6 +1447,25 @@ void CompositionRenderer::createDevice()
                 == requestedAdapterLuid_->HighPart
             && deviceInfo_.adapterLuid.LowPart
                 == requestedAdapterLuid_->LowPart);
+}
+
+void CompositionRenderer::createDeviceResources()
+{
+    createDevice();
+    createSwapChain(size_);
+    createComposition(window_);
+    createRenderTarget();
+    gpuTimestampProfiler_ = std::make_unique<GpuTimestampProfiler>(
+        device_.Get(),
+        context_.Get());
+    fxRenderer_ = std::make_unique<FxGpuRenderer>(
+        device_.Get(),
+        context_.Get(),
+        size_,
+        bloomSettings_);
+    fxRenderer_->setOverlayProfile(overlayProfile_);
+    setReadbackDiagnostics(readbackDiagnosticsEnabled_);
+    registerDeviceRemovedNotification();
 }
 
 void CompositionRenderer::collectDeviceInfo()

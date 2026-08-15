@@ -178,6 +178,8 @@ void beginBackgroundCaptureExecution(
     execution.recreatedFramePoolSize.reset();
     execution.deviceRecovered = false;
     execution.deviceRecoveryAdapterChanged = false;
+    execution.outputAdapterRetargeted = false;
+    execution.outputAdapterWarpFallback = false;
     execution.transactionActive = true;
     execution.pending = false;
     execution.sensorRestartAllowed = true;
@@ -954,6 +956,25 @@ BackgroundCaptureExecutionStatus executeBackgroundCaptureTransition(
                         throw std::runtime_error(
                             "Overlay client size does not match the display target");
                     }
+                }
+                const std::optional<LUID> requestedAdapter =
+                    execution.targetIntent.target.sourceIdentityResolved
+                        ? std::optional<LUID>(
+                            execution.targetIntent.target.sourceAdapterLuid)
+                        : std::nullopt;
+                const bafx::windows::OutputAdapterRetargetStatus
+                    adapterStatus = renderer.retargetOutputAdapter(
+                        requestedAdapter);
+                execution.outputAdapterRetargeted = adapterStatus
+                    != bafx::windows::OutputAdapterRetargetStatus::Unchanged;
+                execution.outputAdapterWarpFallback = adapterStatus
+                    == bafx::windows::OutputAdapterRetargetStatus::
+                        RecreatedWarpFallback;
+                if (execution.outputAdapterWarpFallback)
+                {
+                    execution.sensorRestartAllowed = false;
+                    execution.sensorFailure =
+                        "Target display adapter fell back to WARP; WGC restart blocked";
                 }
                 const bafx::windows::GraphicsDeviceInfo previousDeviceInfo =
                     renderer.deviceInfo();

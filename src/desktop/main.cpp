@@ -1203,6 +1203,19 @@ int runApplication(
             deviceRecoveryConsumed = true;
             report.setDeviceInfo(renderer.deviceInfo());
         }
+        if (backgroundExecution.outputAdapterRetargeted)
+        {
+            // A planned display migration starts a new resource domain with a
+            // fresh one-shot device recovery budget.
+            deviceRecoveryConsumed = false;
+            report.setDeviceInfo(renderer.deviceInfo());
+            appendDeviceRemovedNotificationStatus(
+                logPath,
+                renderer,
+                backgroundExecution.outputAdapterWarpFallback
+                    ? "display-adapter-retarget-warp"
+                    : "display-adapter-retarget-hardware");
+        }
         if (backgroundExecution.resizedOutputSize.has_value())
         {
             appliedOutputSize = *backgroundExecution.resizedOutputSize;

@@ -73,6 +73,13 @@ enum class OutputResizeStatus : std::uint8_t
     DeviceRecovered
 };
 
+enum class OutputAdapterRetargetStatus : std::uint8_t
+{
+    Unchanged,
+    RecreatedHardware,
+    RecreatedWarpFallback
+};
+
 enum class BackgroundFramePoolRecreateStatus : std::uint8_t
 {
     Recreated,
@@ -193,6 +200,10 @@ public:
     // Capture lifecycle is owned by BackgroundCaptureTransition. Callers must
     // stop any active sensor before replacing output-size resources.
     [[nodiscard]] OutputResizeStatus resizeOutput(WindowSize size);
+    // Adapter changes replace the whole D3D/DComp resource domain. WGC must be
+    // stopped by the same owner transaction before this call.
+    [[nodiscard]] OutputAdapterRetargetStatus retargetOutputAdapter(
+        std::optional<LUID> requestedAdapterLuid);
     // Rebuild the D3D/DComp resource domain once after device removal. WGC is
     // stopped first so no old-device frame or snapshot can cross the boundary.
     [[nodiscard]] bool tryRecoverDevice() noexcept;
@@ -252,6 +263,7 @@ public:
 
 private:
     void createDevice();
+    void createDeviceResources();
     void collectDeviceInfo();
     void createSwapChain(WindowSize size);
     void createComposition(HWND window);
