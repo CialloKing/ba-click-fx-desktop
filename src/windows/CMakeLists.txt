@@ -7,6 +7,7 @@ add_library(
         src/composition_renderer.cpp
         src/display_capabilities.cpp
         src/display_color_monitor.cpp
+        src/display_topology.cpp
         src/external_host_trust.cpp
         src/fx_gpu_renderer.cpp
         src/gpu_timestamp_profiler.cpp
@@ -57,6 +58,7 @@ target_link_libraries(
         dwmapi
         dxgi
         shell32
+        shcore
         user32
         wintrust
     PRIVATE

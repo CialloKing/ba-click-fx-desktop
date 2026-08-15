@@ -1,5 +1,7 @@
 #pragma once
 
+#include "bafx/windows/display_topology.hpp"
+
 #include <windows.h>
 #include <dxgicommon.h>
 
@@ -40,12 +42,6 @@ struct DisplayColorCapabilities final
     bool advancedColorLimitedByPolicy{false};
     bool sdrWhiteLevelValid{false};
     bool advancedColorInfoV2{false};
-};
-
-struct DisplayRefreshRate final
-{
-    std::uint32_t numerator{0U};
-    std::uint32_t denominator{0U};
 };
 
 // This is capability evidence only. It does not mean the application's final
