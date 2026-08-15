@@ -2898,6 +2898,10 @@ int runApplication(
         const std::optional<bafx::windows::DisplayTopologyChange>
             hostTopologyChange = hostWindow.takeDisplayTopologyChange();
         const bool hostDisplayTopologyChanged = hostTopologyChange.has_value();
+        const bool hostDisplayPowerChanged = hostTopologyChange.has_value()
+            && displayTopologyChangeHasSource(
+                *hostTopologyChange,
+                bafx::windows::DisplayTopologyChangeSource::Power);
         if (hostTopologyChange.has_value())
         {
             appendDisplayTopologyInvalidated(
@@ -2934,7 +2938,11 @@ int runApplication(
                 continue;
             }
 
-            bool refreshSecondaryColor = colorPending;
+            // The console display-state subscription is process-global and
+            // belongs to the Host shell. Fan its generation out so every
+            // monitor revalidates HDR/WCG after sleep, dimming or power-on.
+            bool refreshSecondaryColor = colorPending
+                || hostDisplayPowerChanged;
             std::uint64_t secondaryColorGeneration = 0U;
             if (session.colorMonitor().notificationPending())
             {
@@ -2965,9 +2973,11 @@ int runApplication(
                 const std::string generation = std::to_string(
                     secondaryColorGeneration);
                 const std::string_view reason =
-                    secondaryColorGeneration == 0U
-                    ? "win32-notification"
-                    : "advanced-color-event";
+                    secondaryColorGeneration != 0U
+                    ? "advanced-color-event"
+                    : (hostDisplayPowerChanged
+                        ? "display-power"
+                        : "win32-notification");
                 const bafx::windows::CompositionOutputPreference preference =
                     session.renderer().outputPreference();
                 const bool outputContractChanged =
@@ -3250,9 +3260,11 @@ int runApplication(
             && !pendingDisplayTarget.has_value())
         {
             refreshDisplayColorState(
-                displayColorGeneration == 0U
-                    ? "win32-notification"
-                    : "advanced-color-event",
+                displayColorGeneration != 0U
+                    ? "advanced-color-event"
+                    : (hostDisplayPowerChanged
+                        ? "display-power"
+                        : "win32-notification"),
                 displayColorGeneration,
                 true);
             renderInvalidated = true;
