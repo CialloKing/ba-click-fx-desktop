@@ -6,6 +6,7 @@ add_library(
         src/borderless_capture_access.cpp
         src/composition_renderer.cpp
         src/display_capabilities.cpp
+        src/display_color_monitor.cpp
         src/external_host_trust.cpp
         src/fx_gpu_renderer.cpp
         src/gpu_timestamp_profiler.cpp
