@@ -4,6 +4,7 @@
 #include "bafx/core/roi.hpp"
 #include "bafx/fx/frame_bounds.hpp"
 #include "bafx/windows/background_snapshot_diagnostics.hpp"
+#include "bafx/windows/borderless_capture_access.hpp"
 #include "bafx/windows/detail/wgc_idle_drain_policy.hpp"
 #include "bafx/windows/fx_bloom_settings.hpp"
 #include "bafx/windows/fx_gpu_renderer.hpp"
@@ -229,6 +230,8 @@ public:
         takeBackgroundStopDiagnostics() noexcept;
     [[nodiscard]] std::optional<BackgroundSnapshotInvalidation>
         takeBackgroundSnapshotInvalidation() noexcept;
+    [[nodiscard]] std::optional<BorderlessCaptureAccessResult>
+        takeBorderlessCaptureAccessResult() noexcept;
     [[nodiscard]] bool backgroundParticipatedInLastFrame() const noexcept;
     [[nodiscard]] BackgroundCompositeStatus backgroundCompositeStatus() const noexcept;
     [[nodiscard]] std::string_view backgroundCaptureFailure() const noexcept;
@@ -310,6 +313,8 @@ private:
     bool backgroundCaptureRequested_{false};
     bool backgroundCursorExcluded_{true};
     bool backgroundSystemBorderAllowed_{false};
+    std::optional<BorderlessCaptureAccessResult>
+        borderlessCaptureAccessResult_{};
     bafx::core::BackgroundPathLatch backgroundPathLatch_{};
     detail::WgcDrainPolicyState wgcDrainPolicyState_{};
     bool backgroundParticipatedInLastFrame_{false};

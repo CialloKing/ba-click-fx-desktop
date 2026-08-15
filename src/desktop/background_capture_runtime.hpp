@@ -6,6 +6,7 @@
 
 #include <windows.h>
 
+#include <cstddef>
 #include <cstdint>
 #include <filesystem>
 #include <optional>
@@ -32,7 +33,14 @@ struct BackgroundCaptureExecutionResult
     bafx::windows::OverlayWindow& window,
     bafx::windows::CompositionRenderer& renderer,
     HMONITOR monitor,
+    std::uint64_t controlGeneration,
     const std::filesystem::path& logPath);
+
+void appendBorderlessCaptureAccessCheck(
+    const std::filesystem::path& logPath,
+    std::uint64_t controlGeneration,
+    std::size_t actionIndex,
+    const bafx::windows::BorderlessCaptureAccessResult& result) noexcept;
 
 void appendBackgroundCaptureResourceLedger(
     const std::filesystem::path& logPath,

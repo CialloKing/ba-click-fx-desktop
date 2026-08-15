@@ -42,33 +42,6 @@ using winrt::Windows::Security::Authorization::AppCapabilityAccess::
     return BorderlessCaptureAccessStatus::Failed;
 }
 
-[[nodiscard]] std::string statusName(
-    const BorderlessCaptureAccessStatus status) noexcept
-{
-    switch (status)
-    {
-    case BorderlessCaptureAccessStatus::NotPackaged:
-        return "not-packaged";
-    case BorderlessCaptureAccessStatus::Allowed:
-        return "allowed";
-    case BorderlessCaptureAccessStatus::DeniedBySystem:
-        return "denied-by-system";
-    case BorderlessCaptureAccessStatus::NotDeclaredByApp:
-        return "not-declared";
-    case BorderlessCaptureAccessStatus::DeniedByUser:
-        return "denied-by-user";
-    case BorderlessCaptureAccessStatus::UserPromptRequired:
-        return "user-prompt-required";
-    case BorderlessCaptureAccessStatus::TimedOut:
-        return "timed-out";
-    case BorderlessCaptureAccessStatus::Unsupported:
-        return "unsupported";
-    case BorderlessCaptureAccessStatus::Failed:
-        return "failed";
-    }
-    return "unknown";
-}
-
 [[nodiscard]] std::string hexHresult(const HRESULT error)
 {
     std::ostringstream stream;
@@ -166,11 +139,39 @@ bool borderlessCaptureAccessAllowed(
     return result.status == BorderlessCaptureAccessStatus::Allowed;
 }
 
+std::string_view borderlessCaptureAccessStatusName(
+    const BorderlessCaptureAccessStatus status) noexcept
+{
+    switch (status)
+    {
+    case BorderlessCaptureAccessStatus::NotPackaged:
+        return "not-packaged";
+    case BorderlessCaptureAccessStatus::Allowed:
+        return "allowed";
+    case BorderlessCaptureAccessStatus::DeniedBySystem:
+        return "denied-by-system";
+    case BorderlessCaptureAccessStatus::NotDeclaredByApp:
+        return "not-declared";
+    case BorderlessCaptureAccessStatus::DeniedByUser:
+        return "denied-by-user";
+    case BorderlessCaptureAccessStatus::UserPromptRequired:
+        return "user-prompt-required";
+    case BorderlessCaptureAccessStatus::TimedOut:
+        return "timed-out";
+    case BorderlessCaptureAccessStatus::Unsupported:
+        return "unsupported";
+    case BorderlessCaptureAccessStatus::Failed:
+        return "failed";
+    }
+    return "unknown";
+}
+
 std::string borderlessCaptureAccessDiagnostic(
     const BorderlessCaptureAccessResult& result)
 {
     std::ostringstream stream;
-    stream << "WGC.BorderlessAccess=" << statusName(result.status)
+    stream << "WGC.BorderlessAccess="
+           << borderlessCaptureAccessStatusName(result.status)
            << ";HRESULT=" << hexHresult(result.error);
     return stream.str();
 }

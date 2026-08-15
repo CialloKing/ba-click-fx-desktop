@@ -6,7 +6,9 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <iomanip>
 #include <optional>
+#include <sstream>
 #include <stdexcept>
 #include <string_view>
 
@@ -243,6 +245,55 @@ appendBackgroundCaptureStopDiagnostics(
     return diagnostics;
 }
 
+void appendBorderlessCaptureAccessCheck(
+    const std::filesystem::path& logPath,
+    const std::uint64_t controlGeneration,
+    const std::size_t actionIndex,
+    const bafx::windows::BorderlessCaptureAccessResult& result) noexcept
+{
+    try
+    {
+        std::ostringstream errorStream;
+        errorStream << "0x" << std::hex << std::uppercase << std::setw(8)
+                    << std::setfill('0')
+                    << static_cast<unsigned long>(result.error);
+        const std::array values{
+            std::to_string(controlGeneration),
+            std::to_string(actionIndex),
+            errorStream.str()};
+        const std::array fields{
+            bafx::windows::DiagnosticField{"Control.Generation", values[0]},
+            bafx::windows::DiagnosticField{
+                "Transaction.ActionIndex",
+                values[1]},
+            bafx::windows::DiagnosticField{
+                "Background.AllowSystemBorder",
+                "false"},
+            bafx::windows::DiagnosticField{
+                "WGC.BorderlessAccess.Status",
+                bafx::windows::borderlessCaptureAccessStatusName(result.status)},
+            bafx::windows::DiagnosticField{
+                "WGC.BorderlessAccess.HRESULT",
+                values[2]},
+            bafx::windows::DiagnosticField{
+                "WGC.BorderlessAccess.Allowed",
+                bafx::windows::borderlessCaptureAccessAllowed(result)
+                    ? "true"
+                    : "false"}};
+        bafx::windows::appendDiagnosticEvent(
+            logPath,
+            "WGC.BorderlessAccess.Checked",
+            fields,
+            bafx::windows::borderlessCaptureAccessAllowed(result)
+                ? bafx::windows::DiagnosticLevel::Info
+                : bafx::windows::DiagnosticLevel::Warning);
+    }
+    catch (...)
+    {
+        // Permission diagnostics cannot make an optional capture path fatal.
+    }
+}
+
 void appendBackgroundCaptureResourceLedger(
     const std::filesystem::path& logPath,
     const bafx::windows::CompositionRenderer& renderer,
@@ -275,6 +326,7 @@ BackgroundCaptureExecutionResult executeBackgroundCaptureTransition(
     bafx::windows::OverlayWindow& window,
     bafx::windows::CompositionRenderer& renderer,
     const HMONITOR monitor,
+    const std::uint64_t controlGeneration,
     const std::filesystem::path& logPath)
 {
     BackgroundCaptureExecutionResult result{};
@@ -398,6 +450,16 @@ BackgroundCaptureExecutionResult executeBackgroundCaptureTransition(
                         true,
                         action->cursorExcluded,
                         action->allowSystemBorder);
+                if (const auto access =
+                        renderer.takeBorderlessCaptureAccessResult();
+                    access.has_value())
+                {
+                    appendBorderlessCaptureAccessCheck(
+                        logPath,
+                        controlGeneration,
+                        index,
+                        *access);
+                }
                 if (!sensorRestartAllowed)
                 {
                     result.sensorFailure =

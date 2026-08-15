@@ -997,6 +997,7 @@ int runApplication(
             window,
             renderer,
             primaryMonitor.handle,
+            control.snapshot().generation,
             logPath);
     if (backgroundExecution.deviceRecovered)
     {
@@ -1224,6 +1225,7 @@ int runApplication(
                     window,
                     renderer,
                     primaryMonitor.handle,
+                    controlState.generation,
                     logPath);
                 if (backgroundExecution.deviceRecovered)
                 {
@@ -1604,6 +1606,7 @@ int runApplication(
                                     window,
                                     renderer,
                                     primaryMonitor.handle,
+                                    appliedGeneration,
                                     logPath);
                         backgroundCaptureEnabled = false;
                         control.setBackgroundCaptureActive(false);
@@ -1919,6 +1922,7 @@ int runApplication(
                 window,
                 renderer,
                 primaryMonitor.handle,
+                appliedGeneration,
                 logPath);
             if (backgroundExecution.deviceRecovered)
             {
@@ -1963,6 +1967,7 @@ int runApplication(
                 window,
                 renderer,
                 primaryMonitor.handle,
+                appliedGeneration,
                 logPath);
             if (backgroundExecution.deviceRecovered)
             {

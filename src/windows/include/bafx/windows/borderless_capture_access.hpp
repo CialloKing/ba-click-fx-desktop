@@ -4,6 +4,7 @@
 
 #include <cstdint>
 #include <string>
+#include <string_view>
 
 namespace bafx::windows
 {
@@ -41,6 +42,9 @@ struct BorderlessCaptureAccessResult
 
 [[nodiscard]] bool borderlessCaptureAccessAllowed(
     const BorderlessCaptureAccessResult& result) noexcept;
+
+[[nodiscard]] std::string_view borderlessCaptureAccessStatusName(
+    BorderlessCaptureAccessStatus status) noexcept;
 
 [[nodiscard]] std::string borderlessCaptureAccessDiagnostic(
     const BorderlessCaptureAccessResult& result);

@@ -140,3 +140,38 @@ BAFX_TEST(background_composite_participation_log_rejects_unpresented_frame)
 
     BAFX_CHECK(!std::filesystem::exists(log.path()));
 }
+
+BAFX_TEST(borderless_access_log_preserves_permission_decision)
+{
+    const TemporaryBackgroundCaptureLog log;
+    const bafx::windows::BorderlessCaptureAccessResult result{
+        bafx::windows::BorderlessCaptureAccessStatus::NotPackaged,
+        HRESULT_FROM_WIN32(APPMODEL_ERROR_NO_PACKAGE)};
+
+    bafx::desktop::appendBorderlessCaptureAccessCheck(
+        log.path(),
+        67U,
+        3U,
+        result);
+
+    const std::string contents = log.read();
+    BAFX_CHECK(contents.find("Event.Level=Warning") != std::string::npos);
+    BAFX_CHECK(
+        contents.find("Event.Name=WGC.BorderlessAccess.Checked")
+        != std::string::npos);
+    BAFX_CHECK(contents.find("Control.Generation=67") != std::string::npos);
+    BAFX_CHECK(
+        contents.find("Transaction.ActionIndex=3") != std::string::npos);
+    BAFX_CHECK(
+        contents.find("Background.AllowSystemBorder=false")
+        != std::string::npos);
+    BAFX_CHECK(
+        contents.find("WGC.BorderlessAccess.Status=not-packaged")
+        != std::string::npos);
+    BAFX_CHECK(
+        contents.find("WGC.BorderlessAccess.HRESULT=0x80073D54")
+        != std::string::npos);
+    BAFX_CHECK(
+        contents.find("WGC.BorderlessAccess.Allowed=false")
+        != std::string::npos);
+}

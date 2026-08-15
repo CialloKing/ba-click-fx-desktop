@@ -955,6 +955,7 @@ bool CompositionRenderer::tryEnableBackgroundCapture(
     const bool allowSystemBorder) noexcept
 {
     setBackgroundCaptureFailure({});
+    borderlessCaptureAccessResult_.reset();
     // Re-enabling capture replaces the producer and therefore starts a new
     // visible-batch decision, even when the monitor and options are unchanged.
     backgroundPathLatch_.reset();
@@ -1099,6 +1100,15 @@ CompositionRenderer::takeBackgroundSnapshotInvalidation() noexcept
     return backgroundSnapshotInvalidationMailbox_.take();
 }
 
+std::optional<BorderlessCaptureAccessResult>
+CompositionRenderer::takeBorderlessCaptureAccessResult() noexcept
+{
+    const std::optional<BorderlessCaptureAccessResult> result =
+        borderlessCaptureAccessResult_;
+    borderlessCaptureAccessResult_.reset();
+    return result;
+}
+
 bool CompositionRenderer::backgroundParticipatedInLastFrame() const noexcept
 {
     return backgroundParticipatedInLastFrame_;
@@ -1129,6 +1139,9 @@ bool CompositionRenderer::tryCreateBackgroundSensor() noexcept
     {
         const BorderlessCaptureAccessResult access =
             requestBorderlessCaptureAccess();
+        // Preserve the typed broker decision until the owner records it. The
+        // fallback text alone cannot distinguish permission states reliably.
+        borderlessCaptureAccessResult_ = access;
         if (!borderlessCaptureAccessAllowed(access))
         {
             setBackgroundCaptureFailure(borderlessCaptureAccessDiagnostic(access));
