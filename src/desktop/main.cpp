@@ -1347,6 +1347,21 @@ void appendSecondaryBackgroundCaptureServiceResult(
     }
 }
 
+[[nodiscard]] bool secondaryDeviceRemovalPending(
+    const bafx::desktop::DisplaySession& session) noexcept
+{
+    const HANDLE deviceRemoved =
+        session.renderer().deviceRemovedWaitableObject();
+    if (deviceRemoved == nullptr)
+    {
+        return false;
+    }
+
+    // RegisterDeviceRemovedEvent uses a manual-reset event. Polling it here
+    // does not consume the recovery signal that the frame-pacing owner needs.
+    return WaitForSingleObject(deviceRemoved, 0U) == WAIT_OBJECT_0;
+}
+
 [[nodiscard]] bool serviceSecondaryBackgroundCaptures(
     bafx::desktop::DisplaySessionManager& sessions,
     bafx::desktop::DisplaySession& coordinator,
@@ -1368,6 +1383,11 @@ void appendSecondaryBackgroundCaptureServiceResult(
         }
         if (!session.secondaryBackgroundCaptureInitialized())
         {
+            continue;
+        }
+        if (secondaryDeviceRemovalPending(session))
+        {
+            renderInvalidated = true;
             continue;
         }
 
@@ -1422,6 +1442,11 @@ void appendSecondaryBackgroundCaptureServiceResult(
                 readySessions.end(),
                 &session) != readySessions.end())
         {
+            continue;
+        }
+        if (secondaryDeviceRemovalPending(session))
+        {
+            renderInvalidated = true;
             continue;
         }
 
