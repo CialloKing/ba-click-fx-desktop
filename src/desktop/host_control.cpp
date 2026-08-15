@@ -272,6 +272,15 @@ bafx::windows::IpcResponse HostControlPlane::handleSetConfig(
                 "invalid_config",
                 patch.message.empty() ? "configuration patch is invalid" : patch.message);
         }
+        if (!patch.expectedGeneration.has_value())
+        {
+            // A path patch is a read-modify-write transaction. Requiring the
+            // observed generation prevents stale clients from overwriting a
+            // newer configuration snapshot without detecting the conflict.
+            return bafx::windows::IpcResponse::failure(
+                "invalid_config",
+                "configuration patch generation is required");
+        }
         candidate = patch.config;
         expectedGeneration = patch.expectedGeneration;
     }
