@@ -14,6 +14,7 @@ namespace
 {
 
 constexpr WindowSize resizedOutput{2560U, 1440U};
+constexpr WindowSize supersedingOutput{1920U, 1080U};
 
 [[nodiscard]] BackgroundCaptureRequest backgroundAwareRequest(
     const bool cursorExcluded = true,
@@ -240,7 +241,7 @@ BAFX_TEST(borderless_access_owner_cancel_allows_same_request_restart)
     const BackgroundCaptureRequest borderless =
         backgroundAwareRequest(true, false);
     BAFX_CHECK(
-        transition.beginRequest(borderless)
+        transition.beginIntent(borderless, resizedOutput)
         == BackgroundCaptureRequestResult::Started);
 
     const auto permission = transition.nextAction();
@@ -261,7 +262,7 @@ BAFX_TEST(borderless_access_owner_cancel_allows_same_request_restart)
         == BackgroundCaptureFailure::BorderlessAccessCanceled);
 
     BAFX_CHECK(
-        transition.beginIntent(borderless, resizedOutput)
+        transition.beginIntent(borderless, supersedingOutput)
         == BackgroundCaptureRequestResult::Started);
     const auto retried = transition.nextAction();
     BAFX_CHECK(retried.has_value());
@@ -270,7 +271,7 @@ BAFX_TEST(borderless_access_owner_cancel_allows_same_request_restart)
         == BackgroundCaptureActionKind::RequestBorderlessAccess);
     BAFX_CHECK(transition.applyObservation(*retried, true));
     checkActions(
-        completeSuccessfully(transition, resizedOutput),
+        completeSuccessfully(transition, supersedingOutput),
         {BackgroundCaptureActionKind::ResizeOutput,
          BackgroundCaptureActionKind::SetAffinityExcluded,
          BackgroundCaptureActionKind::StartSensor});

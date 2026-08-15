@@ -353,7 +353,7 @@ bool BackgroundCaptureTransition::applyObservation(
             appendAction(simpleAction(BackgroundCaptureActionKind::StopSensor));
             appendAction(simpleAction(
                 BackgroundCaptureActionKind::SetAffinityIncluded));
-            if (pendingResize.has_value())
+            if (!ownerCanceled && pendingResize.has_value())
             {
                 appendAction(*pendingResize);
             }
@@ -364,9 +364,10 @@ bool BackgroundCaptureTransition::applyObservation(
             }
             if (ownerCanceled)
             {
-                // A superseding owner intent must be allowed to submit the
-                // same capture identity under its new generation. Broker
-                // denial remains terminal until an explicit retry token.
+                // The queued resize belongs to the canceled target. The new
+                // owner must submit its own pinned target, even when both
+                // displays have the same dimensions. Broker denial remains
+                // terminal until an explicit retry token.
                 request_.reset();
             }
         }
