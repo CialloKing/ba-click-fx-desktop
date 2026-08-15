@@ -9,6 +9,59 @@ namespace bafx::desktop
 namespace
 {
 
+struct ResolvedDisplayOutputContract final
+{
+    DXGI_FORMAT format{DXGI_FORMAT_UNKNOWN};
+    DXGI_COLOR_SPACE_TYPE applicationColorSpace{DXGI_COLOR_SPACE_CUSTOM};
+    DXGI_COLOR_SPACE_TYPE displayColorSpace{DXGI_COLOR_SPACE_CUSTOM};
+    std::uint32_t bitsPerColor{0U};
+    bafx::windows::DisplayColorMode activeColorMode{
+        bafx::windows::DisplayColorMode::Unknown};
+    DISPLAYCONFIG_COLOR_ENCODING colorEncoding{
+        DISPLAYCONFIG_COLOR_ENCODING_FORCE_UINT32};
+    bool advancedColorActive{false};
+
+    [[nodiscard]] bool operator==(
+        const ResolvedDisplayOutputContract&) const noexcept = default;
+};
+
+[[nodiscard]] std::optional<ResolvedDisplayOutputContract>
+resolveDisplayOutputContract(
+    const bafx::windows::CompositionOutputPreference preference,
+    const std::optional<bafx::windows::DisplayColorCapabilities>& capabilities)
+    noexcept
+{
+    if (preference
+        == bafx::windows::CompositionOutputPreference::ConservativeSdr)
+    {
+        return ResolvedDisplayOutputContract{
+            DXGI_FORMAT_B8G8R8A8_UNORM,
+            DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709,
+            DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709,
+            8U,
+            bafx::windows::DisplayColorMode::Sdr,
+            DISPLAYCONFIG_COLOR_ENCODING_RGB,
+            false};
+    }
+    if (preference
+            != bafx::windows::CompositionOutputPreference::PreferLinearScRgb
+        || !capabilities.has_value())
+    {
+        return std::nullopt;
+    }
+
+    // scRGB keeps a fixed application-side FP16 contract. Monitor-side color
+    // facts remain part of the key because DWM can remap the same transport.
+    return ResolvedDisplayOutputContract{
+        DXGI_FORMAT_R16G16B16A16_FLOAT,
+        DXGI_COLOR_SPACE_RGB_FULL_G10_NONE_P709,
+        capabilities->colorSpace,
+        capabilities->bitsPerColor,
+        capabilities->activeColorMode,
+        capabilities->colorEncoding,
+        capabilities->advancedColorActive};
+}
+
 [[nodiscard]] std::string describeException(
     const std::exception_ptr& failure)
 {
@@ -71,6 +124,27 @@ bafx::windows::CompositionOutputPreference resolveDisplayOutputPreference(
         return CompositionOutputPreference::PreferLinearScRgb;
     }
     return CompositionOutputPreference::ConservativeSdr;
+}
+
+bool displayOutputContractChanged(
+    const bafx::windows::CompositionOutputPreference previousPreference,
+    const bafx::windows::CompositionOutputPreference currentPreference,
+    const std::optional<bafx::windows::DisplayColorCapabilities>& previous,
+    const std::optional<bafx::windows::DisplayColorCapabilities>& current)
+    noexcept
+{
+    const std::optional<ResolvedDisplayOutputContract> currentContract =
+        resolveDisplayOutputContract(currentPreference, current);
+    if (!currentContract.has_value())
+    {
+        // The policy resolver normally maps unknown capabilities to SDR. Keep
+        // malformed callers from inventing a transport contract here.
+        return false;
+    }
+    const std::optional<ResolvedDisplayOutputContract> previousContract =
+        resolveDisplayOutputContract(previousPreference, previous);
+    return !previousContract.has_value()
+        || *previousContract != *currentContract;
 }
 
 DisplayOutputRetargetResult retargetDisplayOutput(

@@ -21,6 +21,15 @@ resolveDisplayOutputPreference(
     const std::optional<bafx::windows::DisplayColorCapabilities>& capabilities)
     noexcept;
 
+// A stable scRGB application preference can still cross into a different DWM
+// output contract when the monitor's Advanced Color state changes.
+[[nodiscard]] bool displayOutputContractChanged(
+    bafx::windows::CompositionOutputPreference previousPreference,
+    bafx::windows::CompositionOutputPreference currentPreference,
+    const std::optional<bafx::windows::DisplayColorCapabilities>& previous,
+    const std::optional<bafx::windows::DisplayColorCapabilities>& current)
+    noexcept;
+
 struct DisplayOutputRetargetIntent final
 {
     std::optional<RECT> windowBounds{};

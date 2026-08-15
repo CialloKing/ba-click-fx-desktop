@@ -274,87 +274,12 @@ void appendBorderlessAccessHealth(
     }
 }
 
-struct ResolvedDisplayOutputContract final
-{
-    DXGI_FORMAT format{DXGI_FORMAT_UNKNOWN};
-    DXGI_COLOR_SPACE_TYPE applicationColorSpace{DXGI_COLOR_SPACE_CUSTOM};
-    DXGI_COLOR_SPACE_TYPE displayColorSpace{DXGI_COLOR_SPACE_CUSTOM};
-    std::uint32_t bitsPerColor{0U};
-    bafx::windows::DisplayColorMode activeColorMode{
-        bafx::windows::DisplayColorMode::Unknown};
-    DISPLAYCONFIG_COLOR_ENCODING colorEncoding{
-        DISPLAYCONFIG_COLOR_ENCODING_FORCE_UINT32};
-    bool advancedColorActive{false};
-
-    [[nodiscard]] bool operator==(
-        const ResolvedDisplayOutputContract&) const noexcept = default;
-};
-
 struct PendingOutputRenegotiation final
 {
     bafx::windows::CompositionOutputPreference preference{
         bafx::windows::CompositionOutputPreference::ConservativeSdr};
     std::string reason{};
 };
-
-[[nodiscard]] std::optional<ResolvedDisplayOutputContract>
-resolveDisplayOutputContract(
-    const bafx::windows::CompositionOutputPreference preference,
-    const std::optional<bafx::windows::DisplayColorCapabilities>&
-        capabilities) noexcept
-{
-    if (preference
-        == bafx::windows::CompositionOutputPreference::ConservativeSdr)
-    {
-        return ResolvedDisplayOutputContract{
-            DXGI_FORMAT_B8G8R8A8_UNORM,
-            DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709,
-            DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709,
-            8U,
-            bafx::windows::DisplayColorMode::Sdr,
-            DISPLAYCONFIG_COLOR_ENCODING_RGB,
-            false};
-    }
-    if (preference
-        != bafx::windows::CompositionOutputPreference::PreferLinearScRgb
-        || !capabilities.has_value())
-    {
-        return std::nullopt;
-    }
-
-    // scRGB keeps a fixed application-side FP16 contract. Monitor-side color
-    // facts are part of the key because DWM can remap that contract when
-    // Advanced Color changes without changing the application's preference.
-    return ResolvedDisplayOutputContract{
-        DXGI_FORMAT_R16G16B16A16_FLOAT,
-        DXGI_COLOR_SPACE_RGB_FULL_G10_NONE_P709,
-        capabilities->colorSpace,
-        capabilities->bitsPerColor,
-        capabilities->activeColorMode,
-        capabilities->colorEncoding,
-        capabilities->advancedColorActive};
-}
-
-[[nodiscard]] bool displayOutputContractChanged(
-    const bafx::windows::CompositionOutputPreference previousPreference,
-    const bafx::windows::CompositionOutputPreference currentPreference,
-    const std::optional<bafx::windows::DisplayColorCapabilities>& previous,
-    const std::optional<bafx::windows::DisplayColorCapabilities>& current)
-    noexcept
-{
-    const std::optional<ResolvedDisplayOutputContract> currentContract =
-        resolveDisplayOutputContract(currentPreference, current);
-    if (!currentContract.has_value())
-    {
-        // The policy resolver normally maps unknown capabilities to SDR. Keep
-        // this guard for malformed callers without inventing a new contract.
-        return false;
-    }
-    const std::optional<ResolvedDisplayOutputContract> previousContract =
-        resolveDisplayOutputContract(previousPreference, previous);
-    return !previousContract.has_value()
-        || *previousContract != *currentContract;
-}
 
 [[nodiscard]] std::string_view outputPreferenceName(
     const bafx::windows::CompositionOutputPreference preference) noexcept
@@ -2561,11 +2486,12 @@ int runApplication(
                         displaySession.colorCapabilities());
             const bool outputPreferenceMismatch =
                 renderer.outputPreference() != currentPreference;
-            const bool colorContractChanged = displayOutputContractChanged(
-                previousPreference,
-                currentPreference,
-                previousCapabilities,
-                displaySession.colorCapabilities());
+            const bool colorContractChanged =
+                bafx::desktop::displayOutputContractChanged(
+                    previousPreference,
+                    currentPreference,
+                    previousCapabilities,
+                    displaySession.colorCapabilities());
             // A target migration already recreated the swap chain after the
             // HWND moved. Reconcile only a pre/post query disagreement there;
             // ordinary color events must also rebuild same-transfer metadata.
@@ -3156,7 +3082,7 @@ int runApplication(
                         requestedPreference,
                         session.colorCapabilities());
                 const bool outputContractChanged =
-                    displayOutputContractChanged(
+                    bafx::desktop::displayOutputContractChanged(
                         previousPreference,
                         preference,
                         previousCapabilities,
@@ -3312,6 +3238,16 @@ int runApplication(
                 bafx::desktop::findDisplayTargetBySource(
                     topology,
                     requestedTarget);
+            if (observed == nullptr)
+            {
+                // A driver or eGPU transition can replace DisplayConfig's
+                // source identity while the same HMONITOR/GDI slot remains.
+                // Preserve placement, then let the resource-domain check
+                // require the new adapter LUID transactionally.
+                observed = bafx::desktop::findDisplayTargetByLogicalSlot(
+                    topology,
+                    requestedTarget);
+            }
             if (observed == nullptr
                 && topology.status
                     == bafx::windows::DisplayTopologyStatus::Complete)
@@ -3320,6 +3256,14 @@ int runApplication(
                 // Fall back to the applied source only after the pending
                 // source is authoritatively absent.
                 observed = bafx::desktop::findDisplayTargetBySource(
+                    topology,
+                    appliedDisplayTarget);
+            }
+            if (observed == nullptr
+                && topology.status
+                    == bafx::windows::DisplayTopologyStatus::Complete)
+            {
+                observed = bafx::desktop::findDisplayTargetByLogicalSlot(
                     topology,
                     appliedDisplayTarget);
             }
