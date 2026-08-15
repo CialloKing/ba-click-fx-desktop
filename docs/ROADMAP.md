@@ -52,6 +52,8 @@ DeniedBySystem` 仍需独立快照证据，不能据实现或旧 portable 证据
 又变为 C，owner cancel 会丢弃 B 的旧 resize，C 必须以新事务提交；shutdown cancel 同样不会移动窗口。
 `Display.Topology.Observed/Applied` 和事务目标字段可区分观察、提交和实际应用。当前只有确定性测试与同屏
 有界探针，真实多屏、混合 DPI/刷新率、热插拔和跨适配器仍保持 `Not Run`。
+没有新几何替代时，配置代次、device recovery、WDA 或 Session 故障取消会保留已经消费的 resize；该
+策略与新目标/新窗口尺寸的 discard 分支由不同状态机观察值表示，不能根据诊断字符串隐式推断。
 
 设备丢失路径现已接入 Host：渲染提交、Bloom 配置资源、swap-chain resize 或 WGC FramePool
 Recreate 遇到可识别的 DXGI device-lost HRESULT 时，整个 renderer 最多执行一次 D3D/DComp/WGC

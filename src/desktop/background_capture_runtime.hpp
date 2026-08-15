@@ -42,6 +42,17 @@ enum class BackgroundCaptureExecutionStatus : std::uint8_t
     Completed
 };
 
+enum class BackgroundCaptureCancelResizePolicy : std::uint8_t
+{
+    Preserve,
+    Discard
+};
+
+[[nodiscard]] BackgroundCaptureCancelResizePolicy
+backgroundCaptureCancelResizePolicy(
+    bool outputResizeSupersedes,
+    bool displayTargetSupersedes) noexcept;
+
 struct BackgroundCaptureExecutionResult
 {
     std::string sensorFailure{};
@@ -119,6 +130,7 @@ private:
     bafx::windows::OverlayWindow& window,
     bafx::windows::CompositionRenderer& renderer,
     BackgroundCaptureExecutionResult& execution,
+    BackgroundCaptureCancelResizePolicy resizePolicy,
     std::string_view reason,
     const std::filesystem::path& logPath);
 

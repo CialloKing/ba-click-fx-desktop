@@ -43,7 +43,10 @@ enum class BackgroundCaptureActionObservation : std::uint8_t
     Pending,
     Succeeded,
     Failed,
-    Canceled
+    // Preserve an already-coalesced resize unless a newer geometry intent
+    // explicitly supersedes the whole transaction.
+    Canceled,
+    CanceledSupersededIntent
 };
 
 struct BackgroundCaptureAction

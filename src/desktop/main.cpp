@@ -1286,6 +1286,10 @@ int runApplication(
                 || displayTargetSupersedesTransaction
                 || backgroundRetryPending)
             {
+                const auto cancelResizePolicy =
+                    bafx::desktop::backgroundCaptureCancelResizePolicy(
+                        pendingOutputResize.has_value(),
+                        displayTargetSupersedesTransaction);
                 const std::string_view cancellationReason = configChanged
                     ? "control-generation"
                     : (displayTargetSupersedesTransaction
@@ -1299,6 +1303,7 @@ int runApplication(
                         window,
                         renderer,
                         backgroundExecution,
+                        cancelResizePolicy,
                         cancellationReason,
                         logPath);
             }
@@ -1509,6 +1514,8 @@ int runApplication(
                             window,
                             renderer,
                             backgroundExecution,
+                            bafx::desktop::BackgroundCaptureCancelResizePolicy::
+                                Preserve,
                             "capture-exclusion-lost",
                             logPath);
                 }
@@ -1847,6 +1854,8 @@ int runApplication(
                                 window,
                                 renderer,
                                 backgroundExecution,
+                                bafx::desktop::
+                                    BackgroundCaptureCancelResizePolicy::Preserve,
                                 "device-recovery",
                                 logPath);
                     if (canceled
@@ -2218,6 +2227,7 @@ int runApplication(
                     window,
                     renderer,
                     backgroundExecution,
+                    bafx::desktop::BackgroundCaptureCancelResizePolicy::Preserve,
                     "capture-session-stopped",
                     logPath);
             if (canceled
@@ -2438,6 +2448,7 @@ int runApplication(
                 window,
                 renderer,
                 backgroundExecution,
+                bafx::desktop::BackgroundCaptureCancelResizePolicy::Discard,
                 "shutdown",
                 logPath);
         if (canceled

@@ -302,11 +302,17 @@ bool BackgroundCaptureTransition::applyObservation(
     }
     if (observation != BackgroundCaptureActionObservation::Succeeded
         && observation != BackgroundCaptureActionObservation::Failed
-        && observation != BackgroundCaptureActionObservation::Canceled)
+        && observation != BackgroundCaptureActionObservation::Canceled
+        && observation
+            != BackgroundCaptureActionObservation::CanceledSupersededIntent)
     {
         return false;
     }
-    if (observation == BackgroundCaptureActionObservation::Canceled
+    const bool ownerCanceled =
+        observation == BackgroundCaptureActionObservation::Canceled
+        || observation
+            == BackgroundCaptureActionObservation::CanceledSupersededIntent;
+    if (ownerCanceled
         && action.kind
             != BackgroundCaptureActionKind::RequestBorderlessAccess)
     {
@@ -328,8 +334,9 @@ bool BackgroundCaptureTransition::applyObservation(
     case BackgroundCaptureActionKind::RequestBorderlessAccess:
         if (!succeeded)
         {
-            const bool ownerCanceled =
-                observation == BackgroundCaptureActionObservation::Canceled;
+            const bool intentSuperseded = observation
+                == BackgroundCaptureActionObservation::
+                    CanceledSupersededIntent;
             std::optional<BackgroundCaptureAction> pendingResize{};
             for (std::size_t index = actionIndex_; index < actionCount_; ++index)
             {
@@ -353,7 +360,7 @@ bool BackgroundCaptureTransition::applyObservation(
             appendAction(simpleAction(BackgroundCaptureActionKind::StopSensor));
             appendAction(simpleAction(
                 BackgroundCaptureActionKind::SetAffinityIncluded));
-            if (!ownerCanceled && pendingResize.has_value())
+            if (!intentSuperseded && pendingResize.has_value())
             {
                 appendAction(*pendingResize);
             }
@@ -364,10 +371,9 @@ bool BackgroundCaptureTransition::applyObservation(
             }
             if (ownerCanceled)
             {
-                // The queued resize belongs to the canceled target. The new
-                // owner must submit its own pinned target, even when both
-                // displays have the same dimensions. Broker denial remains
-                // terminal until an explicit retry token.
+                // Owner cancellation permits a new generation to reuse the
+                // same capture identity. A superseding geometry intent drops
+                // the old resize; other cancellation causes must preserve it.
                 request_.reset();
             }
         }

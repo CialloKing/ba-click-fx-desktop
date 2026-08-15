@@ -296,6 +296,7 @@ void finishBackgroundCaptureAction(
 void appendBackgroundCaptureCancellation(
     const std::filesystem::path& logPath,
     const BackgroundCaptureExecutionResult& execution,
+    const BackgroundCaptureCancelResizePolicy resizePolicy,
     const std::string_view reason) noexcept
 {
     try
@@ -308,6 +309,11 @@ void appendBackgroundCaptureCancellation(
             bafx::windows::DiagnosticField{
                 "Transaction.ActionIndex",
                 values[1]},
+            bafx::windows::DiagnosticField{
+                "PendingResize",
+                resizePolicy == BackgroundCaptureCancelResizePolicy::Discard
+                    ? "discard"
+                    : "preserve"},
             bafx::windows::DiagnosticField{"Reason", reason}};
         bafx::windows::appendDiagnosticEvent(
             logPath,
@@ -408,6 +414,17 @@ bool CaptureExclusionHealthPoller::shouldQuery(
     // burst of Win32 calls while it is recovering.
     lastObservedAt_ = now;
     return true;
+}
+
+BackgroundCaptureCancelResizePolicy backgroundCaptureCancelResizePolicy(
+    const bool outputResizeSupersedes,
+    const bool displayTargetSupersedes) noexcept
+{
+    // An owner change alone must not lose geometry already consumed from the
+    // Win32 queue. Only a newer geometry intent can replace that resize.
+    return outputResizeSupersedes || displayTargetSupersedes
+        ? BackgroundCaptureCancelResizePolicy::Discard
+        : BackgroundCaptureCancelResizePolicy::Preserve;
 }
 
 bool displayTargetBoundsApplied(
@@ -1064,6 +1081,7 @@ BackgroundCaptureExecutionStatus cancelBackgroundCaptureTransition(
     bafx::windows::OverlayWindow& window,
     bafx::windows::CompositionRenderer& renderer,
     BackgroundCaptureExecutionResult& execution,
+    const BackgroundCaptureCancelResizePolicy resizePolicy,
     const std::string_view reason,
     const std::filesystem::path& logPath)
 {
@@ -1082,7 +1100,11 @@ BackgroundCaptureExecutionStatus cancelBackgroundCaptureTransition(
             "Only a pending borderless access action can be canceled");
     }
 
-    appendBackgroundCaptureCancellation(logPath, execution, reason);
+    appendBackgroundCaptureCancellation(
+        logPath,
+        execution,
+        resizePolicy,
+        reason);
     execution.borderlessAccessRequest->cancel();
     const bafx::windows::BorderlessCaptureAccessPollResult poll =
         execution.borderlessAccessRequest->poll();
@@ -1103,7 +1125,10 @@ BackgroundCaptureExecutionStatus cancelBackgroundCaptureTransition(
     finishBackgroundCaptureAction(
         transition,
         execution,
-        bafx::windows::BackgroundCaptureActionObservation::Canceled,
+        resizePolicy == BackgroundCaptureCancelResizePolicy::Discard
+            ? bafx::windows::BackgroundCaptureActionObservation::
+                CanceledSupersededIntent
+            : bafx::windows::BackgroundCaptureActionObservation::Canceled,
         logPath);
 
     return executeBackgroundCaptureTransition(

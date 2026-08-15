@@ -74,6 +74,20 @@ BAFX_TEST(display_target_commit_requires_the_resize_action)
     BAFX_CHECK(bafx::desktop::displayTargetBoundsApplied(execution));
 }
 
+BAFX_TEST(background_cancel_discards_only_superseded_geometry)
+{
+    using bafx::desktop::BackgroundCaptureCancelResizePolicy;
+
+    BAFX_CHECK(bafx::desktop::backgroundCaptureCancelResizePolicy(false, false)
+        == BackgroundCaptureCancelResizePolicy::Preserve);
+    BAFX_CHECK(bafx::desktop::backgroundCaptureCancelResizePolicy(true, false)
+        == BackgroundCaptureCancelResizePolicy::Discard);
+    BAFX_CHECK(bafx::desktop::backgroundCaptureCancelResizePolicy(false, true)
+        == BackgroundCaptureCancelResizePolicy::Discard);
+    BAFX_CHECK(bafx::desktop::backgroundCaptureCancelResizePolicy(true, true)
+        == BackgroundCaptureCancelResizePolicy::Discard);
+}
+
 BAFX_TEST(capture_exclusion_health_poller_is_bounded_and_resets)
 {
     bafx::desktop::CaptureExclusionHealthPoller poller;

@@ -103,7 +103,8 @@
 - 主显示器拓扑通知由渲染所有者串行处理。`Display.Topology.Observed` 记录已应用和新观察到的
   monitor/device/bounds；`BackgroundCapture.Transaction.Begin` 固定本次事务目标；只有目标 resize
   真正完成后才写 `Display.Topology.Applied` 并更新支持报告。等待无边框权限时若又出现更新目标，旧事务
-  会先完成 WGC/可见性清理，但不会重放旧目标的 resize；最新目标随后以自己的事务提交。
+  会先完成 WGC/可见性清理，但不会重放旧目标的 resize；最新目标随后以自己的事务提交。仅配置代次、
+  device recovery 或会话故障取消且没有新几何替代时，会保留已消费的 resize，避免输出永久停留在旧尺寸。
 - RecordingCompatible 按 Web 版截图的透明覆盖层、`visual-max`、`bright-core`、`0.90` Alpha 上限、
   `source-over` 和未知透明背景设置拟合；LightBackground 使用同一策略，但将 Alpha 上限收紧为
   `0.85`。原生 DirectComposition 没有 DOM 背景表面的逐像素等价物，因此这两种模式都不读取桌面，
