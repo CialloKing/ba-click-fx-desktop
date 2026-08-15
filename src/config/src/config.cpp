@@ -699,6 +699,15 @@ void migrateV6ToV7(JsonValue::Object& root)
     root["schemaVersion"] = JsonValue(7.0);
 }
 
+void migrateV7ToV8(JsonValue::Object& root)
+{
+    JsonValue::Object& display = ensureObject(root, "display");
+    // HDR output is an explicit opt-in. Existing profiles must keep the
+    // conservative SDR presentation contract after upgrading.
+    display["hdrEnabled"] = JsonValue(false);
+    root["schemaVersion"] = JsonValue(8.0);
+}
+
 [[nodiscard]] bool readBool(
     const JsonValue::Object& object,
     const std::string_view key,
@@ -913,11 +922,13 @@ void migrateV6ToV7(JsonValue::Object& root)
 
     const JsonValue::Object* effects = nullptr;
     const JsonValue::Object* background = nullptr;
+    const JsonValue::Object* display = nullptr;
     const JsonValue::Object* input = nullptr;
     const JsonValue::Object* performance = nullptr;
     const JsonValue::Object* system = nullptr;
     if (!readNestedObject(root, "effects", effects, error)
         || !readNestedObject(root, "background", background, error)
+        || !readNestedObject(root, "display", display, error)
         || !readNestedObject(root, "input", input, error)
         || !readNestedObject(root, "performance", performance, error)
         || !readNestedObject(root, "system", system, error))
@@ -970,6 +981,17 @@ void migrateV6ToV7(JsonValue::Object& root)
             error = "config field 'background.mode' has an unknown value";
             return config;
         }
+    }
+
+    if (display != nullptr
+        && !readBool(
+            *display,
+            "hdrEnabled",
+            config.display.hdrEnabled,
+            config.display.hdrEnabled,
+            error))
+    {
+        return config;
     }
 
     if (input != nullptr
@@ -1060,6 +1082,9 @@ void migrateV6ToV7(JsonValue::Object& root)
     background.emplace("cursorExcluded", JsonValue(config.background.cursorExcluded));
     background.emplace("mode", JsonValue(std::string(toString(config.background.mode))));
 
+    JsonValue::Object display;
+    display.emplace("hdrEnabled", JsonValue(config.display.hdrEnabled));
+
     JsonValue::Object input;
     input.emplace("leftClick", JsonValue(config.input.leftClick));
     input.emplace("middleClick", JsonValue(config.input.middleClick));
@@ -1078,6 +1103,7 @@ void migrateV6ToV7(JsonValue::Object& root)
 
     JsonValue::Object root;
     root.emplace("background", JsonValue(std::move(background)));
+    root.emplace("display", JsonValue(std::move(display)));
     root.emplace("effects", JsonValue(std::move(effects)));
     root.emplace("input", JsonValue(std::move(input)));
     root.emplace("performance", JsonValue(std::move(performance)));
@@ -1306,6 +1332,10 @@ void appendJsonValue(
         else if (version == 6U)
         {
             migrateV6ToV7(root);
+        }
+        else if (version == 7U)
+        {
+            migrateV7ToV8(root);
         }
         ++version;
     }
@@ -1538,6 +1568,10 @@ ConfigPatchResult applyPatchJson(
         else if (*path == "background.allowSystemBorder")
         {
             valueAccepted = readPatchBool(result.background.allowSystemBorder);
+        }
+        else if (*path == "display.hdrEnabled")
+        {
+            valueAccepted = readPatchBool(result.display.hdrEnabled);
         }
         else if (*path == "input.leftClick")
         {

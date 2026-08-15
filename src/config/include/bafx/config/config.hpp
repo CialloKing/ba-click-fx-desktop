@@ -9,7 +9,7 @@
 namespace bafx::config
 {
 
-inline constexpr std::uint32_t currentSchemaVersion = 7U;
+inline constexpr std::uint32_t currentSchemaVersion = 8U;
 
 enum class RenderMode : std::uint8_t
 {
@@ -57,6 +57,13 @@ struct BackgroundConfig
     bool allowSystemBorder{true};
 };
 
+struct DisplayConfig
+{
+    // Unity-authored color and Bloom always remain linear HDR internally.
+    // This flag only opts the final desktop transport into scRGB output.
+    bool hdrEnabled{false};
+};
+
 struct InputConfig
 {
     bool leftClick{true};
@@ -86,6 +93,7 @@ struct Config
     std::uint32_t schemaVersion{currentSchemaVersion};
     EffectsConfig effects{};
     BackgroundConfig background{};
+    DisplayConfig display{};
     InputConfig input{};
     PerformanceConfig performance{};
     SystemConfig system{};
