@@ -1109,7 +1109,8 @@ int runApplication(
             "Configuration load failed; using in-memory defaults: "
                 + loadedConfig.message);
     }
-    else if (loadedConfig.status == bafx::config::ConfigStatus::CreatedDefault)
+    else if (loadedConfig.status == bafx::config::ConfigStatus::CreatedDefault
+        || loadedConfig.migrated)
     {
         const bafx::config::ConfigSaveResult saved =
             bafx::config::saveConfigAtomic(configPath, config);
