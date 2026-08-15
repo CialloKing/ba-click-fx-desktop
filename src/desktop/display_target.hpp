@@ -70,6 +70,22 @@ struct DisplayTargetSnapshot
     return left.deviceName == right.deviceName;
 }
 
+[[nodiscard]] inline bool sameDisplaySourceIdentity(
+    const DisplayTarget& left,
+    const DisplayTarget& right) noexcept
+{
+    if (left.sourceIdentityResolved != right.sourceIdentityResolved)
+    {
+        return false;
+    }
+    return !left.sourceIdentityResolved
+        || (left.sourceAdapterLuid.HighPart
+                == right.sourceAdapterLuid.HighPart
+            && left.sourceAdapterLuid.LowPart
+                == right.sourceAdapterLuid.LowPart
+            && left.sourceId == right.sourceId);
+}
+
 [[nodiscard]] inline bafx::windows::WindowSize displayTargetSize(
     const DisplayTarget& target) noexcept
 {

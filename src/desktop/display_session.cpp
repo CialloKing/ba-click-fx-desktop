@@ -157,6 +157,10 @@ void DisplaySession::acceptAppliedTarget(
 void DisplaySession::updateTargetMetadata(DisplayTarget target) noexcept
 {
     target_ = std::move(target);
+    // DPI and refresh-rate changes preserve the physical resource domain.
+    // Refresh only the sample-age policy so a mixed-refresh desktop does not
+    // inherit the previous cadence or pay for a WGC session restart.
+    static_cast<void>(renderer_.refreshBackgroundCadence(target_.monitor));
 }
 
 DisplaySessionRetargetResult DisplaySession::retargetFxOnly(

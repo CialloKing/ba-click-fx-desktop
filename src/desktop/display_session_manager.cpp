@@ -125,13 +125,25 @@ DisplaySessionReconcileResult DisplaySessionManager::reconcileSecondaries(
             continue;
         }
 
-        if (sameDisplayTarget(existing->target(), target)
-            && existing->target().dpiX == target.dpiX
-            && existing->target().dpiY == target.dpiY
-            && sameRefreshRate(
-                existing->target().refreshRate,
-                target.refreshRate))
+        const bool sameTarget = sameDisplayTarget(existing->target(), target);
+        const bool sameSourceIdentity = sameDisplaySourceIdentity(
+            existing->target(),
+            target);
+        if (sameTarget && sameSourceIdentity)
         {
+            const bool metadataChanged = existing->target().dpiX != target.dpiX
+                || existing->target().dpiY != target.dpiY
+                || !sameRefreshRate(
+                    existing->target().refreshRate,
+                    target.refreshRate)
+                || existing->target().primary != target.primary
+                || existing->target().physicalTargetCount
+                    != target.physicalTargetCount;
+            if (metadataChanged)
+            {
+                existing->updateTargetMetadata(target);
+                ++result.updated;
+            }
             continue;
         }
 
