@@ -2095,6 +2095,7 @@ int runApplication(
     }
     const bafx::windows::DisplayColorMonitorResult displayColorMonitorStart =
         displaySession.colorMonitorResult();
+    report.setPrimaryDisplayColorMonitorResult(displayColorMonitorStart);
     bafx::windows::appendDiagnosticLog(
         logPath,
         bafx::windows::displayColorMonitorDiagnostic(
@@ -2511,6 +2512,8 @@ int runApplication(
             {
                 report.clearPrimaryDisplayColorCapabilities();
             }
+            report.setPrimaryDisplayColorMonitorResult(
+                displaySession.colorMonitorResult());
 
             const std::string currentMode =
                 displaySession.colorCapabilities().has_value()

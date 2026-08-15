@@ -2,6 +2,7 @@
 
 #include "bafx/windows/composition_renderer.hpp"
 #include "bafx/windows/display_capabilities.hpp"
+#include "bafx/windows/display_color_monitor.hpp"
 
 #include <filesystem>
 #include <cstdint>
@@ -54,6 +55,8 @@ public:
     void setPrimaryDisplayColorCapabilities(
         const DisplayColorCapabilities& capabilities) noexcept;
     void clearPrimaryDisplayColorCapabilities() noexcept;
+    void setPrimaryDisplayColorMonitorResult(
+        const DisplayColorMonitorResult& result) noexcept;
     void setDeviceInfo(const GraphicsDeviceInfo& info);
     void setExitUiStatus(const ExitUiStatus& status);
     void setBackgroundCaptureStatus(BackgroundCaptureStatus status) noexcept;
@@ -72,6 +75,8 @@ private:
     std::optional<std::uint32_t> primaryDpi_{};
     std::optional<DisplayRefreshRate> primaryRefreshRate_{};
     std::optional<DisplayColorCapabilities> primaryDisplayColorCapabilities_{};
+    std::optional<DisplayColorMonitorResult>
+        primaryDisplayColorMonitorResult_{};
     std::string logPath_;
     std::string failure_;
     GraphicsDeviceInfo deviceInfo_{};

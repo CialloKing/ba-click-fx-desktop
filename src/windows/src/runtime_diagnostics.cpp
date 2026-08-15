@@ -616,6 +616,12 @@ void SupportReport::clearPrimaryDisplayColorCapabilities() noexcept
     primaryDisplayColorCapabilities_.reset();
 }
 
+void SupportReport::setPrimaryDisplayColorMonitorResult(
+    const DisplayColorMonitorResult& result) noexcept
+{
+    primaryDisplayColorMonitorResult_ = result;
+}
+
 void SupportReport::setDeviceInfo(const GraphicsDeviceInfo& info)
 {
     deviceInfo_ = info;
@@ -730,6 +736,23 @@ std::string SupportReport::serialize() const
                << "Display.RefreshRateDenominator=unknown\n"
                << "Display.RefreshRateHz=unknown\n"
                << "Display.RefreshPeriodUs=unknown\n";
+    }
+    if (primaryDisplayColorMonitorResult_.has_value())
+    {
+        const DisplayColorMonitorResult& monitor =
+            *primaryDisplayColorMonitorResult_;
+        stream << "Display.ColorMonitor="
+               << displayColorMonitorStatusName(monitor.status) << '\n'
+               << "Display.ColorMonitorHRESULT="
+               << hex32(static_cast<std::uint32_t>(monitor.error)) << '\n'
+               << "Display.ColorMonitorGeneration="
+               << monitor.generation << '\n';
+    }
+    else
+    {
+        stream << "Display.ColorMonitor=not-probed\n"
+               << "Display.ColorMonitorHRESULT=unknown\n"
+               << "Display.ColorMonitorGeneration=unknown\n";
     }
     stream << "Display.ColorMode=";
     if (primaryDisplayColorCapabilities_.has_value())
