@@ -27,6 +27,11 @@ constexpr UINT notificationExitCommandIdentifier = 0xBAF3U;
 constexpr UINT notificationIconMessage = WM_APP + 1U;
 constexpr std::size_t maximumPendingPointerEvents = 2048U;
 constexpr std::size_t pointerEventCompactionThreshold = 256U;
+constexpr GUID consoleDisplayStateSetting{
+    0x6FE69556,
+    0x704A,
+    0x47A0,
+    {0x8F, 0x24, 0xC2, 0x8D, 0x93, 0x6F, 0xDA, 0x47}};
 
 [[nodiscard]] std::uint32_t checkedDimension(const LONG value)
 {
@@ -67,6 +72,15 @@ constexpr std::size_t pointerEventCompactionThreshold = 256U;
         return GetLastError();
     }
     return ERROR_SUCCESS;
+}
+
+[[nodiscard]] bool consoleDisplayStateChanged(const LPARAM lParam) noexcept
+{
+    const auto* const setting =
+        reinterpret_cast<const POWERBROADCAST_SETTING*>(lParam);
+    return setting != nullptr
+        && IsEqualGUID(setting->PowerSetting, consoleDisplayStateSetting)
+        && setting->DataLength >= sizeof(DWORD);
 }
 
 }
@@ -248,6 +262,7 @@ OverlayWindow::OverlayWindow(
         if (role_ == OverlayWindowRole::HostShell)
         {
             pendingPointerEvents_.reserve(64);
+            registerDisplayPowerNotification();
             if (options.rawMouseRegistration == RawMouseRegistration::Enabled)
             {
                 registerRawMouse();
@@ -787,6 +802,29 @@ LRESULT OverlayWindow::handleMessage(
         displayColorChangePending_ = true;
         return DefWindowProcW(window_, message, wParam, lParam);
 
+    case WM_POWERBROADCAST:
+        if (role_ != OverlayWindowRole::HostShell)
+        {
+            return DefWindowProcW(window_, message, wParam, lParam);
+        }
+        if (wParam == PBT_APMSUSPEND
+            || wParam == PBT_APMRESUMEAUTOMATIC
+            || wParam == PBT_APMRESUMESUSPEND
+            || wParam == PBT_APMRESUMECRITICAL
+            || (wParam == PBT_POWERSETTINGCHANGE
+                && consoleDisplayStateChanged(lParam)))
+        {
+            // The display can retain its monitor handle while the scan-out,
+            // adapter or Advanced Color contract changes underneath it. The
+            // render owner re-queries first and transacts every detected change.
+            recordDisplayTopologyChange(
+                DisplayTopologyChangeSource::Power);
+            displayColorChangePending_ = true;
+            invalidatePointerGeometry();
+            return TRUE;
+        }
+        return DefWindowProcW(window_, message, wParam, lParam);
+
     case WM_DPICHANGED:
         // The suggested rectangle preserves a normal window's logical size,
         // but this surface must cover rcMonitor in physical pixels. Defer the
@@ -904,10 +942,37 @@ void OverlayWindow::unregisterRawMouse() noexcept
     rawMouseRegistered_ = false;
 }
 
+void OverlayWindow::registerDisplayPowerNotification() noexcept
+{
+    if (window_ == nullptr || role_ != OverlayWindowRole::HostShell)
+    {
+        return;
+    }
+
+    // Registration is optional on old or restricted systems. Suspend/resume
+    // broadcasts still provide a bounded fallback without failing the Host.
+    displayPowerNotification_ = RegisterPowerSettingNotification(
+        window_,
+        &consoleDisplayStateSetting,
+        DEVICE_NOTIFY_WINDOW_HANDLE);
+}
+
+void OverlayWindow::unregisterDisplayPowerNotification() noexcept
+{
+    if (displayPowerNotification_ == nullptr)
+    {
+        return;
+    }
+    static_cast<void>(UnregisterPowerSettingNotification(
+        displayPowerNotification_));
+    displayPowerNotification_ = nullptr;
+}
+
 void OverlayWindow::releaseHostShellRegistrations(const HWND window) noexcept
 {
     removeNotificationIcon();
     unregisterRawMouse();
+    unregisterDisplayPowerNotification();
     if (window == nullptr)
     {
         return;

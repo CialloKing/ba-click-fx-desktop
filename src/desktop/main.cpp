@@ -1045,6 +1045,12 @@ void appendDisplaySessionReconcile(
     {
         append("dpi");
     }
+    if (displayTopologyChangeHasSource(
+            change,
+            bafx::windows::DisplayTopologyChangeSource::Power))
+    {
+        append("power");
+    }
     if (sources.empty())
     {
         sources = "unknown";

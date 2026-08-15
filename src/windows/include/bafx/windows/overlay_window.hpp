@@ -28,7 +28,8 @@ enum class DisplayTopologyChangeSource : std::uint8_t
 {
     WindowPosition = 1U << 0U,
     DisplayConfiguration = 1U << 1U,
-    Dpi = 1U << 2U
+    Dpi = 1U << 2U,
+    Power = 1U << 3U
 };
 
 [[nodiscard]] constexpr std::uint8_t displayTopologyChangeSourceMask(
@@ -250,6 +251,8 @@ private:
     static ATOM registerWindowClass(HINSTANCE instance);
     void registerRawMouse();
     void unregisterRawMouse() noexcept;
+    void registerDisplayPowerNotification() noexcept;
+    void unregisterDisplayPowerNotification() noexcept;
     void releaseHostShellRegistrations(HWND window) noexcept;
     void handleRawInput(LPARAM lParam) noexcept;
     void pushPointerEvent(
@@ -283,6 +286,7 @@ private:
     PointerQueueDiagnostics pointerQueueDiagnostics_{};
     bool closeRequested_{false};
     bool rawMouseRegistered_{false};
+    HPOWERNOTIFY displayPowerNotification_{nullptr};
     bool primaryExitHotKeyRegistered_{false};
     bool fallbackExitHotKeyRegistered_{false};
     bool notificationIconAdded_{false};
