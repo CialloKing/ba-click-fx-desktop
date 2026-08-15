@@ -1,6 +1,8 @@
 #include "bafx/windows/borderless_capture_access.hpp"
 
+#include "bafx/windows/error.hpp"
 #include "bafx/windows/package_identity.hpp"
+#include "bafx/windows/unique_handle.hpp"
 
 #include <appmodel.h>
 #include <winrt/Windows.Foundation.h>
@@ -9,6 +11,7 @@
 #include <winrt/base.h>
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <iomanip>
 #include <limits>
@@ -25,7 +28,69 @@ using winrt::Windows::Graphics::Capture::GraphicsCaptureAccess;
 using winrt::Windows::Graphics::Capture::GraphicsCaptureAccessKind;
 using winrt::Windows::Foundation::AsyncStatus;
 using winrt::Windows::Security::Authorization::AppCapabilityAccess::
+    AppCapability;
+using winrt::Windows::Security::Authorization::AppCapabilityAccess::
     AppCapabilityAccessStatus;
+
+constexpr wchar_t borderlessCapabilityName[] =
+    L"graphicsCaptureWithoutBorder";
+
+class BorderlessAccessNotification final
+{
+public:
+    BorderlessAccessNotification()
+        : event_(CreateEventW(nullptr, TRUE, FALSE, nullptr))
+    {
+        if (event_.get() == nullptr)
+        {
+            throwLastError("CreateEventW(borderless access changed)");
+        }
+    }
+
+    void notify() noexcept
+    {
+        if (stopping_.load(std::memory_order_acquire))
+        {
+            return;
+        }
+        generation_.fetch_add(1U, std::memory_order_release);
+        SetEvent(event_.get());
+    }
+
+    void beginStop() noexcept
+    {
+        stopping_.store(true, std::memory_order_release);
+        SetEvent(event_.get());
+    }
+
+    void resetAfterObserve(const std::uint64_t observedGeneration)
+    {
+        if (!ResetEvent(event_.get()))
+        {
+            throwLastError("ResetEvent(borderless access changed)");
+        }
+        if (stopping_.load(std::memory_order_acquire)
+            || generation() != observedGeneration)
+        {
+            SetEvent(event_.get());
+        }
+    }
+
+    [[nodiscard]] HANDLE eventObject() const noexcept
+    {
+        return event_.get();
+    }
+
+    [[nodiscard]] std::uint64_t generation() const noexcept
+    {
+        return generation_.load(std::memory_order_acquire);
+    }
+
+private:
+    UniqueHandle event_{};
+    std::atomic<std::uint64_t> generation_{0U};
+    std::atomic_bool stopping_{false};
+};
 
 [[nodiscard]] BorderlessCaptureAccessStatus mapStatus(
     const AppCapabilityAccessStatus status) noexcept
@@ -287,6 +352,45 @@ private:
 
 }
 
+struct BorderlessCaptureAccessMonitor::Implementation
+{
+    ~Implementation() noexcept
+    {
+        stop();
+    }
+
+    void stop() noexcept
+    {
+        if (notification != nullptr)
+        {
+            // Block late callbacks before removing the handler so an event
+            // cannot revive a monitor whose owner is already unwinding.
+            notification->beginStop();
+        }
+        if (accessChangedRegistered)
+        {
+            try
+            {
+                capability.AccessChanged(accessChangedToken);
+            }
+            catch (...)
+            {
+                // Teardown is fail-closed: no caller can safely recover from
+                // a WinRT event removal failure during stack unwinding.
+            }
+            accessChangedRegistered = false;
+        }
+        capability = nullptr;
+        notification.reset();
+    }
+
+    AppCapability capability{nullptr};
+    winrt::event_token accessChangedToken{};
+    std::shared_ptr<BorderlessAccessNotification> notification{};
+    std::uint64_t observedGeneration{0U};
+    bool accessChangedRegistered{false};
+};
+
 BorderlessCaptureAccessRequest::BorderlessCaptureAccessRequest(
     const std::chrono::milliseconds timeout) noexcept
     : timeout_(timeout > std::chrono::milliseconds::zero()
@@ -300,6 +404,161 @@ BorderlessCaptureAccessRequest::~BorderlessCaptureAccessRequest() noexcept
     // Releasing the last WinRT handle does not express owner intent. Request
     // cancellation explicitly so shutdown cannot leave a broker prompt alive.
     cancel();
+}
+
+BorderlessCaptureAccessMonitor::~BorderlessCaptureAccessMonitor() noexcept
+{
+    stop();
+}
+
+BorderlessCaptureAccessHealthResult
+BorderlessCaptureAccessMonitor::start() noexcept
+{
+    stop();
+    try
+    {
+        auto implementation = std::make_unique<Implementation>();
+        implementation->notification =
+            std::make_shared<BorderlessAccessNotification>();
+        implementation->capability = AppCapability::Create(
+            borderlessCapabilityName);
+        const std::shared_ptr<BorderlessAccessNotification> notification =
+            implementation->notification;
+        implementation->accessChangedToken =
+            implementation->capability.AccessChanged(
+                [notification](const auto&, const auto&) noexcept
+                {
+                    notification->notify();
+                });
+        implementation->accessChangedRegistered = true;
+
+        const BorderlessCaptureAccessStatus status = mapStatus(
+            implementation->capability.CheckAccess());
+        const std::uint64_t generation =
+            implementation->notification->generation();
+        implementation->observedGeneration = generation;
+        if (status != BorderlessCaptureAccessStatus::Allowed)
+        {
+            return BorderlessCaptureAccessHealthResult{
+                status,
+                E_ACCESSDENIED,
+                generation};
+        }
+
+        implementation_ = std::move(implementation);
+        return BorderlessCaptureAccessHealthResult{
+            BorderlessCaptureAccessStatus::Allowed,
+            S_OK,
+            generation};
+    }
+    catch (const winrt::hresult_error& error)
+    {
+        return BorderlessCaptureAccessHealthResult{
+            failureStatus(error.code()),
+            error.code(),
+            0U};
+    }
+    catch (const HResultError& error)
+    {
+        return BorderlessCaptureAccessHealthResult{
+            failureStatus(error.result()),
+            error.result(),
+            0U};
+    }
+    catch (const std::bad_alloc&)
+    {
+        return BorderlessCaptureAccessHealthResult{
+            BorderlessCaptureAccessStatus::Failed,
+            E_OUTOFMEMORY,
+            0U};
+    }
+    catch (...)
+    {
+        return BorderlessCaptureAccessHealthResult{
+            BorderlessCaptureAccessStatus::Failed,
+            E_FAIL,
+            0U};
+    }
+}
+
+BorderlessCaptureAccessHealthResult
+BorderlessCaptureAccessMonitor::observe() noexcept
+{
+    if (implementation_ == nullptr)
+    {
+        return BorderlessCaptureAccessHealthResult{
+            BorderlessCaptureAccessStatus::Failed,
+            E_HANDLE,
+            0U};
+    }
+    try
+    {
+        const std::uint64_t generation =
+            implementation_->notification->generation();
+        const BorderlessCaptureAccessStatus status = mapStatus(
+            implementation_->capability.CheckAccess());
+        implementation_->notification->resetAfterObserve(generation);
+        implementation_->observedGeneration = generation;
+        return BorderlessCaptureAccessHealthResult{
+            status,
+            status == BorderlessCaptureAccessStatus::Allowed
+                ? S_OK
+                : E_ACCESSDENIED,
+            generation};
+    }
+    catch (const winrt::hresult_error& error)
+    {
+        return BorderlessCaptureAccessHealthResult{
+            failureStatus(error.code()),
+            error.code(),
+            implementation_->notification->generation()};
+    }
+    catch (const HResultError& error)
+    {
+        return BorderlessCaptureAccessHealthResult{
+            failureStatus(error.result()),
+            error.result(),
+            implementation_->notification->generation()};
+    }
+    catch (...)
+    {
+        return BorderlessCaptureAccessHealthResult{
+            BorderlessCaptureAccessStatus::Failed,
+            E_FAIL,
+            implementation_->notification->generation()};
+    }
+}
+
+bool BorderlessCaptureAccessMonitor::notificationPending() const noexcept
+{
+    if (implementation_ == nullptr)
+    {
+        return false;
+    }
+    return implementation_->notification->generation()
+        != implementation_->observedGeneration;
+}
+
+HANDLE BorderlessCaptureAccessMonitor::changeEvent() const noexcept
+{
+    return implementation_ != nullptr
+        ? implementation_->notification->eventObject()
+        : nullptr;
+}
+
+bool BorderlessCaptureAccessMonitor::active() const noexcept
+{
+    return implementation_ != nullptr;
+}
+
+void BorderlessCaptureAccessMonitor::stop() noexcept
+{
+    if (implementation_ == nullptr)
+    {
+        return;
+    }
+    implementation_->stop();
+    implementation_.reset();
 }
 
 void BorderlessCaptureAccessRequest::begin(
@@ -564,6 +823,17 @@ std::string borderlessCaptureAccessDiagnostic(
                << ";ExternalHostTrustHRESULT="
                << hexHresult(result.externalHostTrust->error);
     }
+    return stream.str();
+}
+
+std::string borderlessCaptureAccessHealthDiagnostic(
+    const BorderlessCaptureAccessHealthResult& result)
+{
+    std::ostringstream stream;
+    stream << "WGC.BorderlessAccess.Health="
+           << borderlessCaptureAccessStatusName(result.status)
+           << ";HRESULT=" << hexHresult(result.error)
+           << ";Generation=" << result.generation;
     return stream.str();
 }
 

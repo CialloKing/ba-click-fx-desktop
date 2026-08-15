@@ -75,6 +75,39 @@ struct BorderlessCaptureAccessPollResult
     std::optional<BorderlessCaptureAccessResult> result{};
 };
 
+struct BorderlessCaptureAccessHealthResult
+{
+    BorderlessCaptureAccessStatus status{
+        BorderlessCaptureAccessStatus::Failed};
+    HRESULT error{E_UNEXPECTED};
+    std::uint64_t generation{0U};
+};
+
+class BorderlessCaptureAccessMonitor final
+{
+public:
+    BorderlessCaptureAccessMonitor() noexcept = default;
+    ~BorderlessCaptureAccessMonitor() noexcept;
+
+    BorderlessCaptureAccessMonitor(const BorderlessCaptureAccessMonitor&) = delete;
+    BorderlessCaptureAccessMonitor& operator=(
+        const BorderlessCaptureAccessMonitor&) = delete;
+    BorderlessCaptureAccessMonitor(BorderlessCaptureAccessMonitor&&) = delete;
+    BorderlessCaptureAccessMonitor& operator=(
+        BorderlessCaptureAccessMonitor&&) = delete;
+
+    [[nodiscard]] BorderlessCaptureAccessHealthResult start() noexcept;
+    [[nodiscard]] BorderlessCaptureAccessHealthResult observe() noexcept;
+    [[nodiscard]] bool notificationPending() const noexcept;
+    [[nodiscard]] HANDLE changeEvent() const noexcept;
+    [[nodiscard]] bool active() const noexcept;
+    void stop() noexcept;
+
+private:
+    struct Implementation;
+    std::unique_ptr<Implementation> implementation_{};
+};
+
 class BorderlessCaptureAccessRequest final
 {
 public:
@@ -128,5 +161,8 @@ private:
 
 [[nodiscard]] std::string borderlessCaptureAccessDiagnostic(
     const BorderlessCaptureAccessResult& result);
+
+[[nodiscard]] std::string borderlessCaptureAccessHealthDiagnostic(
+    const BorderlessCaptureAccessHealthResult& result);
 
 }
