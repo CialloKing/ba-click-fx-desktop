@@ -1,5 +1,7 @@
 #pragma once
 
+#include "background_capture_stop_watchdog.hpp"
+
 #include "bafx/config/config.hpp"
 #include "bafx/windows/background_capture_transition.hpp"
 #include "bafx/windows/borderless_capture_access.hpp"
@@ -46,13 +48,36 @@ struct BackgroundCaptureExecutionResult
         borderlessAccessRequest{};
 };
 
+class BackgroundCaptureStopMonitor final
+{
+public:
+    explicit BackgroundCaptureStopMonitor(
+        const std::filesystem::path& logPath,
+        std::chrono::milliseconds timeout =
+            backgroundCaptureStopWatchdogTimeout,
+        BackgroundCaptureStopTimeoutHandler timeoutHandler = nullptr,
+        const void* timeoutContext = nullptr);
+
+    BackgroundCaptureStopMonitor(const BackgroundCaptureStopMonitor&) = delete;
+    BackgroundCaptureStopMonitor& operator=(
+        const BackgroundCaptureStopMonitor&) = delete;
+
+    [[nodiscard]] bafx::windows::WgcBackgroundStopObserver observer() noexcept;
+
+private:
+    static void observe(
+        const void* context,
+        const bafx::windows::WgcBackgroundStopProgress& progress) noexcept;
+    void record(
+        const bafx::windows::WgcBackgroundStopProgress& progress) noexcept;
+
+    const std::filesystem::path& logPath_;
+    BackgroundCaptureStopWatchdog watchdog_;
+};
+
 [[nodiscard]] bafx::windows::BackgroundCaptureRequest backgroundCaptureRequest(
     const bafx::config::Config& config,
     std::uint64_t retryToken = 0U) noexcept;
-
-// The returned observer borrows logPath and must not outlive it.
-[[nodiscard]] bafx::windows::WgcBackgroundStopObserver
-backgroundCaptureStopObserver(const std::filesystem::path& logPath) noexcept;
 
 [[nodiscard]] BackgroundCaptureExecutionStatus executeBackgroundCaptureTransition(
     bafx::windows::BackgroundCaptureTransition& transition,

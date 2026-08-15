@@ -943,11 +943,12 @@ int runApplication(
     {
         report.setPrimaryDisplayColorCapabilities(*displayColor);
     }
+    bafx::desktop::BackgroundCaptureStopMonitor backgroundStopMonitor(logPath);
     bafx::windows::CompositionRenderer renderer(
         window.handle(),
         window.size(),
         makeBloomSettings(config.effects),
-        bafx::desktop::backgroundCaptureStopObserver(logPath));
+        backgroundStopMonitor.observer());
     appendDeviceRemovedNotificationStatus(logPath, renderer, "startup");
     bafx::windows::UniqueHandle framePacingStallHandle;
     if (options.framePacingStallProbe)

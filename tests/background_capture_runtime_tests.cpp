@@ -94,13 +94,24 @@ BAFX_TEST(background_snapshot_invalidation_log_preserves_causal_identity)
 BAFX_TEST(background_stop_observer_persists_the_uncancellable_stage_boundary)
 {
     const TemporaryBackgroundCaptureLog log;
+    bafx::desktop::BackgroundCaptureStopMonitor monitor(log.path());
     const bafx::windows::WgcBackgroundStopObserver observer =
-        bafx::desktop::backgroundCaptureStopObserver(log.path());
+        monitor.observer();
+    observer.notify(bafx::windows::WgcBackgroundStopProgress{
+        bafx::windows::WgcBackgroundStopStage::Stop,
+        bafx::windows::WgcBackgroundStopStageState::Begin,
+        17U,
+        17U});
     observer.notify(bafx::windows::WgcBackgroundStopProgress{
         bafx::windows::WgcBackgroundStopStage::SessionClose,
         bafx::windows::WgcBackgroundStopStageState::Begin,
         17U,
         19U});
+    observer.notify(bafx::windows::WgcBackgroundStopProgress{
+        bafx::windows::WgcBackgroundStopStage::Stop,
+        bafx::windows::WgcBackgroundStopStageState::Failed,
+        17U,
+        17U});
 
     const std::string contents = log.read();
     BAFX_CHECK(contents.find("Event.Level=Warning") != std::string::npos);
@@ -116,6 +127,14 @@ BAFX_TEST(background_stop_observer_persists_the_uncancellable_stage_boundary)
     BAFX_CHECK(contents.find("WGC.Stop.CallerThreadId=19")
         != std::string::npos);
     BAFX_CHECK(contents.find("WGC.Stop.OwnerThreadMatched=false")
+        != std::string::npos);
+    BAFX_CHECK(contents.find("WGC.Stop.WatchdogArmed=true")
+        != std::string::npos);
+    BAFX_CHECK(contents.find("WGC.Stop.WatchdogArmStatus=accepted")
+        != std::string::npos);
+    BAFX_CHECK(contents.find("WGC.Stop.WatchdogTimeoutMs=10000")
+        != std::string::npos);
+    BAFX_CHECK(contents.find("WGC.Stop.WatchdogArmed=false")
         != std::string::npos);
 }
 
