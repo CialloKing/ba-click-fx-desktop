@@ -18,6 +18,7 @@ configure_file(
 add_library(
     bafx_desktop_input
     STATIC
+        background_capture_stop_watchdog.cpp
         frame_pacing.cpp
         performance_window.cpp
         pointer_frame_dispatch.cpp

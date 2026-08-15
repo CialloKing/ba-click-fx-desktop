@@ -245,6 +245,7 @@ if(WIN32)
     add_executable(
         bafx_desktop_input_tests
         test_main.cpp
+        background_capture_stop_watchdog_tests.cpp
         frame_pacing_tests.cpp
         background_capture_runtime_tests.cpp
         performance_logging_tests.cpp
