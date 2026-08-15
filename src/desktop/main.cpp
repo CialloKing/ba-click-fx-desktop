@@ -953,11 +953,16 @@ int runApplication(
         report.setPrimaryDisplayColorCapabilities(*appliedDisplayColor);
     }
     bafx::desktop::BackgroundCaptureStopMonitor backgroundStopMonitor(logPath);
+    const std::optional<LUID> requestedAdapterLuid =
+        appliedDisplayTarget.sourceIdentityResolved
+            ? std::optional<LUID>(appliedDisplayTarget.sourceAdapterLuid)
+            : std::nullopt;
     bafx::windows::CompositionRenderer renderer(
         window.handle(),
         window.size(),
         makeBloomSettings(config.effects),
-        backgroundStopMonitor.observer());
+        backgroundStopMonitor.observer(),
+        requestedAdapterLuid);
     appendDeviceRemovedNotificationStatus(logPath, renderer, "startup");
     bafx::windows::UniqueHandle framePacingStallHandle;
     if (options.framePacingStallProbe)

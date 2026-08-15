@@ -349,13 +349,15 @@ CompositionRenderer::CompositionRenderer(
     const HWND window,
     const WindowSize size,
     const FxBloomSettings bloomSettings,
-    const WgcBackgroundStopObserver backgroundStopObserver)
+    const WgcBackgroundStopObserver backgroundStopObserver,
+    const std::optional<LUID> requestedAdapterLuid)
     : window_(window)
     , bloomSettings_(bloomSettings)
     , size_(size)
     , backgroundResourceLedger_(
           std::make_shared<WgcBackgroundResourceLedger>())
     , backgroundStopObserver_(backgroundStopObserver)
+    , requestedAdapterLuid_(requestedAdapterLuid)
 {
     createDevice();
     createSwapChain(size);
@@ -1305,14 +1307,52 @@ void CompositionRenderer::createDevice()
         D3D_FEATURE_LEVEL_11_1,
         D3D_FEATURE_LEVEL_11_0};
     constexpr UINT baseFlags = D3D11_CREATE_DEVICE_BGRA_SUPPORT;
+    deviceInfo_.requestedAdapterLuid = requestedAdapterLuid_;
+    deviceInfo_.requestedAdapterFound = !requestedAdapterLuid_.has_value();
+    deviceInfo_.requestedAdapterMatched = false;
+
+    Microsoft::WRL::ComPtr<IDXGIAdapter1> requestedAdapter;
+    if (requestedAdapterLuid_.has_value())
+    {
+        Microsoft::WRL::ComPtr<IDXGIFactory1> factory;
+        throwIfFailed(
+            CreateDXGIFactory1(IID_PPV_ARGS(&factory)),
+            "CreateDXGIFactory1(target adapter)");
+        for (UINT index = 0U;; ++index)
+        {
+            Microsoft::WRL::ComPtr<IDXGIAdapter1> adapter;
+            const HRESULT result = factory->EnumAdapters1(index, &adapter);
+            if (result == DXGI_ERROR_NOT_FOUND)
+            {
+                break;
+            }
+            throwIfFailed(result, "IDXGIFactory1::EnumAdapters1(target adapter)");
+
+            DXGI_ADAPTER_DESC1 description{};
+            throwIfFailed(
+                adapter->GetDesc1(&description),
+                "IDXGIAdapter1::GetDesc1(target adapter)");
+            if (description.AdapterLuid.HighPart
+                    == requestedAdapterLuid_->HighPart
+                && description.AdapterLuid.LowPart
+                    == requestedAdapterLuid_->LowPart)
+            {
+                requestedAdapter = std::move(adapter);
+                deviceInfo_.requestedAdapterFound = true;
+                break;
+            }
+        }
+    }
+
     const auto create = [this, &featureLevels](
-                            const D3D_DRIVER_TYPE driver,
-                            const UINT flags)
+                             IDXGIAdapter* const adapter,
+                             const D3D_DRIVER_TYPE driver,
+                             const UINT flags)
     {
         device_.Reset();
         context_.Reset();
         return D3D11CreateDevice(
-            nullptr,
+            adapter,
             driver,
             nullptr,
             flags,
@@ -1324,29 +1364,49 @@ void CompositionRenderer::createDevice()
             &context_);
     };
 
+    const auto createHardware = [&](const UINT flags)
+    {
+        if (requestedAdapterLuid_.has_value()
+            && requestedAdapter == nullptr)
+        {
+            return DXGI_ERROR_NOT_FOUND;
+        }
+        return create(
+            requestedAdapter.Get(),
+            requestedAdapterLuid_.has_value()
+                ? D3D_DRIVER_TYPE_UNKNOWN
+                : D3D_DRIVER_TYPE_HARDWARE,
+            flags);
+    };
+
 #if defined(_DEBUG)
-    HRESULT result = create(
-        D3D_DRIVER_TYPE_HARDWARE,
-        baseFlags | D3D11_CREATE_DEVICE_DEBUG);
+    HRESULT result = createHardware(baseFlags | D3D11_CREATE_DEVICE_DEBUG);
     if (result == DXGI_ERROR_SDK_COMPONENT_MISSING)
     {
         // End-user machines often omit Graphics Tools; diagnostics must remain optional.
-        result = create(D3D_DRIVER_TYPE_HARDWARE, baseFlags);
+        result = createHardware(baseFlags);
     }
 #else
-    HRESULT result = create(D3D_DRIVER_TYPE_HARDWARE, baseFlags);
+    HRESULT result = createHardware(baseFlags);
 #endif
     const HRESULT hardwareCreateResult = result;
     if (FAILED(result))
     {
         // WARP keeps the FX-only path usable when a hardware device cannot be created.
-        result = create(D3D_DRIVER_TYPE_WARP, baseFlags);
+        result = create(nullptr, D3D_DRIVER_TYPE_WARP, baseFlags);
         deviceInfo_.driverType = GraphicsDriverType::Warp;
     }
     throwIfFailed(result, "D3D11CreateDevice");
     deviceInfo_.hardwareCreateResult = hardwareCreateResult;
     deviceInfo_.featureLevel = featureLevel_;
     collectDeviceInfo();
+    deviceInfo_.requestedAdapterMatched =
+        !requestedAdapterLuid_.has_value()
+        || (deviceInfo_.driverType == GraphicsDriverType::Hardware
+            && deviceInfo_.adapterLuid.HighPart
+                == requestedAdapterLuid_->HighPart
+            && deviceInfo_.adapterLuid.LowPart
+                == requestedAdapterLuid_->LowPart);
 }
 
 void CompositionRenderer::collectDeviceInfo()

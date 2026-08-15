@@ -100,8 +100,11 @@ struct GraphicsDeviceInfo
     std::uint64_t dedicatedSystemMemory{0U};
     std::uint64_t sharedSystemMemory{0U};
     std::optional<std::uint64_t> driverVersion{};
+    std::optional<LUID> requestedAdapterLuid{};
     HRESULT hardwareCreateResult{S_OK};
     D3D_FEATURE_LEVEL featureLevel{D3D_FEATURE_LEVEL_11_0};
+    bool requestedAdapterFound{false};
+    bool requestedAdapterMatched{false};
 };
 
 struct RoiFrameDiagnostics
@@ -180,7 +183,8 @@ public:
         HWND window,
         WindowSize size,
         FxBloomSettings bloomSettings = {},
-        WgcBackgroundStopObserver backgroundStopObserver = {});
+        WgcBackgroundStopObserver backgroundStopObserver = {},
+        std::optional<LUID> requestedAdapterLuid = std::nullopt);
     ~CompositionRenderer();
 
     CompositionRenderer(const CompositionRenderer&) = delete;
@@ -340,6 +344,7 @@ private:
     bool deviceRecoveryAttempted_{false};
     bool backgroundCaptureAfterRecoveryAllowed_{true};
     DeviceRecoveryDiagnostics deviceRecoveryDiagnostics_{};
+    std::optional<LUID> requestedAdapterLuid_{};
 };
 
 }

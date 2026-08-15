@@ -761,6 +761,22 @@ std::string SupportReport::serialize() const
                << "Graphics.Adapter="
                << sanitize(wideToUtf8(deviceInfo_.adapterDescription)) << '\n'
                << "Graphics.AdapterLuid=" << luid(deviceInfo_.adapterLuid) << '\n'
+               << "Graphics.RequestedAdapterLuid=";
+        if (deviceInfo_.requestedAdapterLuid.has_value())
+        {
+            stream << luid(*deviceInfo_.requestedAdapterLuid);
+        }
+        else
+        {
+            stream << "default";
+        }
+        stream << '\n'
+               << "Graphics.RequestedAdapterFound="
+               << (deviceInfo_.requestedAdapterFound ? "true" : "false")
+               << '\n'
+               << "Graphics.RequestedAdapterMatched="
+               << (deviceInfo_.requestedAdapterMatched ? "true" : "false")
+               << '\n'
                << "Graphics.VendorId=" << hex32(deviceInfo_.vendorId) << '\n'
                << "Graphics.DeviceId=" << hex32(deviceInfo_.deviceId) << '\n'
                << "Graphics.SubsystemId=" << hex32(deviceInfo_.subsystemId) << '\n'
