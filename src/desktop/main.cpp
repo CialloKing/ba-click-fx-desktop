@@ -64,6 +64,134 @@ constexpr DWORD pausedControlPollMilliseconds = 50U;
     return stream.str();
 }
 
+[[nodiscard]] std::string_view dpiAwarenessContextName(
+    const DPI_AWARENESS_CONTEXT context) noexcept
+{
+    if (context == nullptr)
+    {
+        return "invalid";
+    }
+    if (AreDpiAwarenessContextsEqual(
+            context,
+            DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2))
+    {
+        return "per-monitor-v2";
+    }
+    if (AreDpiAwarenessContextsEqual(
+            context,
+            DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE))
+    {
+        return "per-monitor-v1";
+    }
+    if (AreDpiAwarenessContextsEqual(
+            context,
+            DPI_AWARENESS_CONTEXT_SYSTEM_AWARE))
+    {
+        return "system-aware";
+    }
+    if (AreDpiAwarenessContextsEqual(
+            context,
+            DPI_AWARENESS_CONTEXT_UNAWARE))
+    {
+        return "unaware";
+    }
+    return "unknown";
+}
+
+void requirePhysicalPixelDpiContract(
+    const std::filesystem::path& logPath)
+{
+    const DPI_AWARENESS_CONTEXT required =
+        DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2;
+    SetLastError(ERROR_SUCCESS);
+    const bool processContextSet =
+        SetProcessDpiAwarenessContext(required) != FALSE;
+    const DWORD observedProcessError = processContextSet
+        ? ERROR_SUCCESS
+        : GetLastError();
+    const DWORD processError = !processContextSet
+            && observedProcessError == ERROR_SUCCESS
+        ? ERROR_GEN_FAILURE
+        : observedProcessError;
+    if (!processContextSet && processError != ERROR_ACCESS_DENIED)
+    {
+        throw bafx::windows::HResultError(
+            HRESULT_FROM_WIN32(processError),
+            "SetProcessDpiAwarenessContext");
+    }
+
+    const DPI_AWARENESS_CONTEXT initialContext =
+        GetThreadDpiAwarenessContext();
+    bool threadContextOverridden = false;
+    DWORD threadError = ERROR_SUCCESS;
+    if (!AreDpiAwarenessContextsEqual(initialContext, required))
+    {
+        SetLastError(ERROR_SUCCESS);
+        const DPI_AWARENESS_CONTEXT previousContext =
+            SetThreadDpiAwarenessContext(required);
+        if (previousContext == nullptr)
+        {
+            const DWORD observedThreadError = GetLastError();
+            threadError = observedThreadError == ERROR_SUCCESS
+                ? ERROR_GEN_FAILURE
+                : observedThreadError;
+        }
+        else
+        {
+            threadContextOverridden = true;
+        }
+    }
+
+    const DPI_AWARENESS_CONTEXT effectiveContext =
+        GetThreadDpiAwarenessContext();
+    const bool contractSatisfied = AreDpiAwarenessContextsEqual(
+        effectiveContext,
+        required) != FALSE;
+    const std::string processErrorText = std::to_string(processError);
+    const std::string threadErrorText = std::to_string(threadError);
+    const std::array fields{
+        bafx::windows::DiagnosticField{
+            "ProcessContext",
+            processContextSet ? "set" : "already-defined"},
+        bafx::windows::DiagnosticField{
+            "ProcessError",
+            processErrorText},
+        bafx::windows::DiagnosticField{
+            "InitialThreadContext",
+            dpiAwarenessContextName(initialContext)},
+        bafx::windows::DiagnosticField{
+            "EffectiveThreadContext",
+            dpiAwarenessContextName(effectiveContext)},
+        bafx::windows::DiagnosticField{
+            "ThreadOverride",
+            threadContextOverridden ? "true" : "false"},
+        bafx::windows::DiagnosticField{
+            "ThreadError",
+            threadErrorText},
+        bafx::windows::DiagnosticField{
+            "PhysicalPixelContract",
+            contractSatisfied ? "satisfied" : "failed"}};
+    bafx::windows::appendDiagnosticEvent(
+        logPath,
+        "Display.DpiAwareness",
+        fields,
+        contractSatisfied
+            ? bafx::windows::DiagnosticLevel::Info
+            : bafx::windows::DiagnosticLevel::Error);
+    if (threadError != ERROR_SUCCESS)
+    {
+        throw bafx::windows::HResultError(
+            HRESULT_FROM_WIN32(threadError),
+            "SetThreadDpiAwarenessContext");
+    }
+    if (!contractSatisfied)
+    {
+        throw std::runtime_error(
+            "Per-monitor-v2 DPI awareness is required; effective context="
+            + std::string(dpiAwarenessContextName(effectiveContext)));
+    }
+}
+
 [[nodiscard]] std::string_view framePacingWakeName(
     const bafx::desktop::FramePacingWake wake) noexcept
 {
@@ -1931,11 +2059,7 @@ int runApplication(
     bafx::windows::SupportReport& report,
     const std::filesystem::path& logPath)
 {
-    if (!SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2)
-        && GetLastError() != ERROR_ACCESS_DENIED)
-    {
-        bafx::windows::throwLastError("SetProcessDpiAwarenessContext");
-    }
+    requirePhysicalPixelDpiContract(logPath);
 
     ComApartment apartment;
     QpcClock clock;
