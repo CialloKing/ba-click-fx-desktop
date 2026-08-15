@@ -435,6 +435,27 @@ void appendDiagnosticRecordUnlocked(
     }
 }
 
+[[nodiscard]] std::string_view colorEncodingName(
+    const DISPLAYCONFIG_COLOR_ENCODING encoding) noexcept
+{
+    switch (encoding)
+    {
+    case DISPLAYCONFIG_COLOR_ENCODING_RGB:
+        return "rgb";
+    case DISPLAYCONFIG_COLOR_ENCODING_YCBCR444:
+        return "ycbcr444";
+    case DISPLAYCONFIG_COLOR_ENCODING_YCBCR422:
+        return "ycbcr422";
+    case DISPLAYCONFIG_COLOR_ENCODING_YCBCR420:
+        return "ycbcr420";
+    case DISPLAYCONFIG_COLOR_ENCODING_INTENSITY:
+        return "intensity";
+    case DISPLAYCONFIG_COLOR_ENCODING_FORCE_UINT32:
+        return "unknown";
+    }
+    return "unknown";
+}
+
 [[nodiscard]] std::string hex32(const std::uint32_t value)
 {
     std::ostringstream stream;
@@ -646,9 +667,51 @@ std::string SupportReport::serialize() const
                << ";alpha-scope-sdr-only\n"
                << "Display.DxgiColorSpaceValue="
                << hex32(static_cast<std::uint32_t>(color.colorSpace)) << '\n'
-               << "Display.BitsPerColor=" << color.bitsPerColor << '\n'
-               << std::fixed << std::setprecision(3)
-               << "Display.MinLuminanceNits=" << color.minimumLuminanceNits << '\n'
+                << "Display.BitsPerColor=" << color.bitsPerColor << '\n'
+                << "Display.ActiveColorMode="
+                << displayColorModeName(color.activeColorMode) << '\n'
+                << "Display.AdvancedColorProbe="
+                << (color.advancedColorInfoV2
+                        ? "advanced-color-info-2"
+                        : (color.advancedColorQueryResult == ERROR_SUCCESS
+                            ? "advanced-color-info-legacy"
+                            : "unavailable"))
+                << '\n'
+                << "Display.AdvancedColorQueryResult="
+                << hex32(static_cast<std::uint32_t>(
+                       color.advancedColorQueryResult))
+                << '\n'
+                << "Display.AdvancedColorSupported="
+                << (color.advancedColorSupported ? "true" : "false") << '\n'
+                << "Display.AdvancedColorActive="
+                << (color.advancedColorActive ? "true" : "false") << '\n'
+                << "Display.AdvancedColorLimitedByPolicy="
+                << (color.advancedColorLimitedByPolicy ? "true" : "false")
+                << '\n'
+                << "Display.ColorPathResolved="
+                << (color.displayPathResolved ? "true" : "false") << '\n'
+                << "Display.ColorPathAdapterLuid="
+                << luid(color.adapterLuid) << '\n'
+                << "Display.ColorPathTargetId=" << color.targetId << '\n'
+                << "Display.ColorEncoding="
+                << colorEncodingName(color.colorEncoding) << '\n'
+                << "Display.SdrWhiteLevelQueryResult="
+                << hex32(static_cast<std::uint32_t>(
+                       color.sdrWhiteLevelQueryResult))
+                << '\n'
+                << "Display.SdrWhiteLevelNits=";
+        if (color.sdrWhiteLevelValid)
+        {
+            stream << std::fixed << std::setprecision(3)
+                   << color.sdrWhiteLevelNits;
+        }
+        else
+        {
+            stream << "unknown";
+        }
+        stream << '\n'
+                << std::fixed << std::setprecision(3)
+                << "Display.MinLuminanceNits=" << color.minimumLuminanceNits << '\n'
                << "Display.MaxLuminanceNits=" << color.maximumLuminanceNits << '\n'
                << "Display.MaxFullFrameLuminanceNits="
                << color.maximumFullFrameLuminanceNits << '\n';
@@ -656,9 +719,21 @@ std::string SupportReport::serialize() const
     else
     {
         stream << "not-probed;alpha-scope-sdr-only\n"
-               << "Display.DxgiColorSpaceValue=unknown\n"
-               << "Display.BitsPerColor=unknown\n"
-               << "Display.MinLuminanceNits=unknown\n"
+                << "Display.DxgiColorSpaceValue=unknown\n"
+                << "Display.BitsPerColor=unknown\n"
+                << "Display.ActiveColorMode=unknown\n"
+                << "Display.AdvancedColorProbe=not-probed\n"
+                << "Display.AdvancedColorQueryResult=unknown\n"
+                << "Display.AdvancedColorSupported=unknown\n"
+                << "Display.AdvancedColorActive=unknown\n"
+                << "Display.AdvancedColorLimitedByPolicy=unknown\n"
+                << "Display.ColorPathResolved=unknown\n"
+                << "Display.ColorPathAdapterLuid=unknown\n"
+                << "Display.ColorPathTargetId=unknown\n"
+                << "Display.ColorEncoding=unknown\n"
+                << "Display.SdrWhiteLevelQueryResult=unknown\n"
+                << "Display.SdrWhiteLevelNits=unknown\n"
+                << "Display.MinLuminanceNits=unknown\n"
                << "Display.MaxLuminanceNits=unknown\n"
                << "Display.MaxFullFrameLuminanceNits=unknown\n";
     }
