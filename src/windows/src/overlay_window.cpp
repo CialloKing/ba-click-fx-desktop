@@ -776,6 +776,7 @@ LRESULT OverlayWindow::handleMessage(
             // coalesced topology transaction so target identity is rechecked.
             recordDisplayTopologyChange(
                 DisplayTopologyChangeSource::DisplayConfiguration);
+            invalidatePointerGeometry();
         }
         return DefWindowProcW(window_, message, wParam, lParam);
 
