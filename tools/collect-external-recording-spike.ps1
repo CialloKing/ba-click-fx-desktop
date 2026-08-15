@@ -782,6 +782,9 @@ function New-RecordingConfiguration
             cursorExcluded = $true
             mode = $BackgroundMode
         }
+        display = [ordered]@{
+            hdrEnabled = $false
+        }
         effects = [ordered]@{
             bloomIntensity = 1
             bloomQuality = 'high'
@@ -803,7 +806,7 @@ function New-RecordingConfiguration
             framePacing = 'match-display'
             idleOptimization = $true
         }
-        schemaVersion = 7
+        schemaVersion = 8
         system = [ordered]@{
             closeToTray = $true
             startMinimized = $false
