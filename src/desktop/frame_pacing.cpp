@@ -99,45 +99,78 @@ PausedWaitResult waitForPausedInvalidation(
     const HANDLE backgroundFrameWaitable,
     const DWORD timeoutMilliseconds) noexcept
 {
-    if (deviceRemovedWaitable == INVALID_HANDLE_VALUE
-        || backgroundFrameWaitable == INVALID_HANDLE_VALUE)
-    {
-        return PausedWaitResult{
-            PausedWaitWake::Failed,
-            ERROR_INVALID_HANDLE};
-    }
-
     const bool deviceNotificationAvailable = deviceRemovedWaitable != nullptr;
     const bool backgroundFrameAvailable = backgroundFrameWaitable != nullptr;
-    std::array<HANDLE, 2U> waitables{};
-    DWORD waitableCount = 0U;
+    std::array<PausedWaitable, 2U> waitables{};
+    std::size_t waitableCount = 0U;
     if (deviceNotificationAvailable)
     {
         // The device event is terminal for both the retained frame and WGC.
         // Keep it first when both sources become ready at once.
-        waitables[waitableCount++] = deviceRemovedWaitable;
+        waitables[waitableCount++] = PausedWaitable{
+            deviceRemovedWaitable,
+            PausedWaitableKind::DeviceRemoved,
+            0U};
     }
     if (backgroundFrameAvailable)
     {
-        waitables[waitableCount++] = backgroundFrameWaitable;
+        waitables[waitableCount++] = PausedWaitable{
+            backgroundFrameWaitable,
+            PausedWaitableKind::BackgroundFrameReady,
+            0U};
+    }
+
+    return waitForAnyPausedInvalidation(
+        std::span<const PausedWaitable>(waitables.data(), waitableCount),
+        timeoutMilliseconds);
+}
+
+PausedWaitResult waitForAnyPausedInvalidation(
+    const std::span<const PausedWaitable> waitables,
+    const DWORD timeoutMilliseconds) noexcept
+{
+    constexpr std::size_t maximumWaitables = MAXIMUM_WAIT_OBJECTS - 1U;
+    if (waitables.size() > maximumWaitables)
+    {
+        return PausedWaitResult{
+            PausedWaitWake::Failed,
+            ERROR_INVALID_PARAMETER};
+    }
+
+    std::array<HANDLE, maximumWaitables> handles{};
+    for (std::size_t index = 0U; index < waitables.size(); ++index)
+    {
+        const PausedWaitable& waitable = waitables[index];
+        if (waitable.handle == nullptr
+            || waitable.handle == INVALID_HANDLE_VALUE)
+        {
+            return PausedWaitResult{
+                PausedWaitWake::Failed,
+                ERROR_INVALID_HANDLE,
+                waitable.token};
+        }
+        handles[index] = waitable.handle;
     }
 
     SetLastError(ERROR_SUCCESS);
+    const DWORD waitableCount = static_cast<DWORD>(waitables.size());
     const DWORD result = MsgWaitForMultipleObjectsEx(
         waitableCount,
-        waitableCount > 0U ? waitables.data() : nullptr,
+        waitableCount > 0U ? handles.data() : nullptr,
         timeoutMilliseconds,
         QS_ALLINPUT,
         MWMO_INPUTAVAILABLE);
-    if (deviceNotificationAvailable && result == WAIT_OBJECT_0)
+    if (result >= WAIT_OBJECT_0
+        && result < WAIT_OBJECT_0 + waitableCount)
     {
-        return PausedWaitResult{PausedWaitWake::DeviceRemoved};
-    }
-    const DWORD backgroundIndex = deviceNotificationAvailable ? 1U : 0U;
-    if (backgroundFrameAvailable
-        && result == WAIT_OBJECT_0 + backgroundIndex)
-    {
-        return PausedWaitResult{PausedWaitWake::BackgroundFrameReady};
+        const std::size_t index = static_cast<std::size_t>(
+            result - WAIT_OBJECT_0);
+        return PausedWaitResult{
+            waitables[index].kind == PausedWaitableKind::DeviceRemoved
+                ? PausedWaitWake::DeviceRemoved
+                : PausedWaitWake::BackgroundFrameReady,
+            ERROR_SUCCESS,
+            waitables[index].token};
     }
     if (result == WAIT_OBJECT_0 + waitableCount)
     {

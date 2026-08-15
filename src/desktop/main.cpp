@@ -1409,8 +1409,10 @@ int runApplication(
         bafx::windows::appendDiagnosticLog(logPath, report);
     };
     std::vector<bafx::desktop::FramePacingWaitable> frameWaitables;
+    std::vector<bafx::desktop::PausedWaitable> pausedWaitables;
     std::vector<bafx::desktop::DisplaySession*> readyDisplaySessions;
     frameWaitables.reserve(16U);
+    pausedWaitables.reserve(16U);
     readyDisplaySessions.reserve(8U);
     while (!quit && !hostWindow.closeRequested())
     {
@@ -3041,17 +3043,54 @@ int runApplication(
             // Pause freezes authored simulation state, not the desktop beneath
             // it. A visible retained effect must follow WGC frame events so its
             // source-over payload never keeps an obsolete light background.
+            pausedWaitables.clear();
+            const auto& ownedSessions = displaySessions.sessions();
+            for (std::size_t index = 0U; index < ownedSessions.size(); ++index)
+            {
+                bafx::desktop::DisplaySession& session = *ownedSessions[index];
+                if (&session != &displaySession && session.renderFaulted())
+                {
+                    continue;
+                }
+                const HANDLE deviceRemoved =
+                    session.renderer().deviceRemovedWaitableObject();
+                if (deviceRemoved != nullptr)
+                {
+                    // Device loss invalidates a complete resource domain, so
+                    // keep all device events ahead of the coordinator WGC event.
+                    pausedWaitables.push_back(
+                        bafx::desktop::PausedWaitable{
+                            deviceRemoved,
+                            bafx::desktop::PausedWaitableKind::DeviceRemoved,
+                            index});
+                }
+            }
             const HANDLE backgroundWaitable = lastPresentedDrawableContent
                 ? renderer.backgroundFrameAvailableObject()
                 : nullptr;
+            if (backgroundWaitable != nullptr)
+            {
+                pausedWaitables.push_back(
+                    bafx::desktop::PausedWaitable{
+                        backgroundWaitable,
+                        bafx::desktop::PausedWaitableKind::
+                            BackgroundFrameReady,
+                        0U});
+            }
             const bafx::desktop::PausedWaitResult pausedWait =
-                bafx::desktop::waitForPausedInvalidation(
-                    renderer.deviceRemovedWaitableObject(),
-                    backgroundWaitable,
+                bafx::desktop::waitForAnyPausedInvalidation(
+                    pausedWaitables,
                     pausedControlPollMilliseconds);
             switch (pausedWait.wake)
             {
             case bafx::desktop::PausedWaitWake::DeviceRemoved:
+                if (pausedWait.token >= ownedSessions.size())
+                {
+                    throw std::logic_error(
+                        "Paused wait returned an unknown display token");
+                }
+                renderInvalidationPending = true;
+                break;
             case bafx::desktop::PausedWaitWake::BackgroundFrameReady:
                 renderInvalidationPending = true;
                 break;

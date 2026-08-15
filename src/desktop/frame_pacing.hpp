@@ -51,6 +51,20 @@ struct PausedWaitResult
 {
     PausedWaitWake wake{PausedWaitWake::Failed};
     DWORD error{ERROR_SUCCESS};
+    std::size_t token{0U};
+};
+
+enum class PausedWaitableKind : std::uint8_t
+{
+    DeviceRemoved,
+    BackgroundFrameReady
+};
+
+struct PausedWaitable final
+{
+    HANDLE handle{nullptr};
+    PausedWaitableKind kind{PausedWaitableKind::DeviceRemoved};
+    std::size_t token{0U};
 };
 
 // Raw Input must wake the message pump without granting another GPU submission.
@@ -71,6 +85,10 @@ struct PausedWaitResult
 [[nodiscard]] PausedWaitResult waitForPausedInvalidation(
     HANDLE deviceRemovedWaitable,
     HANDLE backgroundFrameWaitable,
+    DWORD timeoutMilliseconds) noexcept;
+
+[[nodiscard]] PausedWaitResult waitForAnyPausedInvalidation(
+    std::span<const PausedWaitable> waitables,
     DWORD timeoutMilliseconds) noexcept;
 
 }
