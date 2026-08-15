@@ -80,6 +80,16 @@ using winrt::Windows::Security::Authorization::AppCapabilityAccess::
     return result;
 }
 
+[[nodiscard]] BorderlessCaptureAccessResult trustFailureResult(
+    const ExternalHostTrustResult& trust) noexcept
+{
+    BorderlessCaptureAccessResult result{
+        BorderlessCaptureAccessStatus::IdentityUntrusted,
+        FAILED(trust.error) ? trust.error : E_ACCESSDENIED};
+    result.externalHostTrust = trust;
+    return result;
+}
+
 [[nodiscard]] BorderlessCaptureAccessResult identityResult(
     const PackageIdentityInfo& identity) noexcept
 {
@@ -299,6 +309,7 @@ void BorderlessCaptureAccessRequest::begin(
     cancel(now);
     readyResult_.reset();
     capability_.reset();
+    externalHostTrust_.reset();
     startedAt_ = now;
     cancelRequested_ = false;
     if (!identity.present)
@@ -314,6 +325,14 @@ void BorderlessCaptureAccessRequest::begin(
         return;
     }
 
+    externalHostTrust_ = queryExternalHostTrust(identity);
+    if (!externalHostTrusted(*externalHostTrust_))
+    {
+        readyResult_ = trustFailureResult(*externalHostTrust_);
+        readyResult_->capability = capability_;
+        return;
+    }
+
     try
     {
         operation_ = std::make_unique<WinrtBorderlessCaptureAccessOperation>(
@@ -324,16 +343,19 @@ void BorderlessCaptureAccessRequest::begin(
     {
         readyResult_ = failureResult(error.code());
         readyResult_->capability = capability_;
+        readyResult_->externalHostTrust = externalHostTrust_;
     }
     catch (const std::bad_alloc&)
     {
         readyResult_ = failureResult(E_OUTOFMEMORY);
         readyResult_->capability = capability_;
+        readyResult_->externalHostTrust = externalHostTrust_;
     }
     catch (...)
     {
         readyResult_ = failureResult(E_FAIL);
         readyResult_->capability = capability_;
+        readyResult_->externalHostTrust = externalHostTrust_;
     }
 }
 
@@ -344,6 +366,7 @@ void BorderlessCaptureAccessRequest::begin(
     cancel(now);
     readyResult_.reset();
     capability_.reset();
+    externalHostTrust_.reset();
     startedAt_ = now;
     cancelRequested_ = false;
     if (operation == nullptr)
@@ -363,6 +386,7 @@ BorderlessCaptureAccessPollResult BorderlessCaptureAccessRequest::poll(
         poll.result = readyResult_;
         readyResult_.reset();
         capability_.reset();
+        externalHostTrust_.reset();
         return poll;
     }
     if (operation_ == nullptr)
@@ -396,8 +420,10 @@ BorderlessCaptureAccessPollResult BorderlessCaptureAccessRequest::poll(
         elapsed,
         cancelRequested_);
     poll.result->capability = capability_;
+    poll.result->externalHostTrust = externalHostTrust_;
     operation_.reset();
     capability_.reset();
+    externalHostTrust_.reset();
     return poll;
 }
 
@@ -430,6 +456,7 @@ void BorderlessCaptureAccessRequest::cancel(
             elapsed,
             cancelRequested_};
         readyResult_->capability = capability_;
+        readyResult_->externalHostTrust = externalHostTrust_;
         operation_.reset();
         return;
     }
@@ -439,6 +466,7 @@ void BorderlessCaptureAccessRequest::cancel(
         elapsed,
         cancelRequested_);
     readyResult_->capability = capability_;
+    readyResult_->externalHostTrust = externalHostTrust_;
     operation_.reset();
 }
 
@@ -481,6 +509,8 @@ std::string_view borderlessCaptureAccessStatusName(
         return "canceled";
     case BorderlessCaptureAccessStatus::Unsupported:
         return "unsupported";
+    case BorderlessCaptureAccessStatus::IdentityUntrusted:
+        return "identity-untrusted";
     case BorderlessCaptureAccessStatus::Failed:
         return "failed";
     }
@@ -525,6 +555,14 @@ std::string borderlessCaptureAccessDiagnostic(
                       result.capability->status)
                << ";CapabilityHRESULT="
                << hexHresult(result.capability->error);
+    }
+    if (result.externalHostTrust.has_value())
+    {
+        stream << ";ExternalHostTrust="
+               << externalHostTrustStatusName(
+                      result.externalHostTrust->status)
+               << ";ExternalHostTrustHRESULT="
+               << hexHresult(result.externalHostTrust->error);
     }
     return stream.str();
 }

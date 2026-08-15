@@ -624,6 +624,18 @@ void appendBorderlessCaptureAccessCheck(
         {
             capabilityErrorStream << "not-checked";
         }
+        std::ostringstream trustErrorStream;
+        if (result.externalHostTrust.has_value())
+        {
+            trustErrorStream
+                << "0x" << std::hex << std::uppercase << std::setw(8)
+                << std::setfill('0')
+                << static_cast<unsigned long>(result.externalHostTrust->error);
+        }
+        else
+        {
+            trustErrorStream << "not-checked";
+        }
         const std::array values{
             std::to_string(controlGeneration),
             std::to_string(actionIndex),
@@ -631,7 +643,8 @@ void appendBorderlessCaptureAccessCheck(
             std::to_string(result.elapsedMilliseconds),
             capabilityErrorStream.str(),
             std::to_string(
-                bafx::windows::borderlessCaptureUniversalApiContractVersion)};
+                bafx::windows::borderlessCaptureUniversalApiContractVersion),
+            trustErrorStream.str()};
         const auto presence = [&result](const bool present) noexcept
             -> std::string_view
         {
@@ -704,7 +717,57 @@ void appendBorderlessCaptureAccessCheck(
                 "WGC.BorderlessAccess.Capability.BorderPropertyWriteable",
                 presence(
                     result.capability.has_value()
-                        && result.capability->isBorderRequiredProperty)}};
+                        && result.capability->isBorderRequiredProperty)},
+            bafx::windows::DiagnosticField{
+                "WGC.BorderlessAccess.ExternalHostTrust.Status",
+                result.externalHostTrust.has_value()
+                    ? bafx::windows::externalHostTrustStatusName(
+                          result.externalHostTrust->status)
+                    : "not-checked"},
+            bafx::windows::DiagnosticField{
+                "WGC.BorderlessAccess.ExternalHostTrust.HRESULT",
+                values[6]},
+            bafx::windows::DiagnosticField{
+                "WGC.BorderlessAccess.ExternalHostTrust.StatePath",
+                result.externalHostTrust.has_value()
+                    ? std::string_view(result.externalHostTrust->statePath)
+                    : std::string_view("not-checked")},
+            bafx::windows::DiagnosticField{
+                "WGC.BorderlessAccess.ExternalHostTrust.ExpectedHostSha256",
+                result.externalHostTrust.has_value()
+                    ? std::string_view(
+                          result.externalHostTrust->expectedHostSha256)
+                    : std::string_view("not-checked")},
+            bafx::windows::DiagnosticField{
+                "WGC.BorderlessAccess.ExternalHostTrust.ObservedHostSha256",
+                result.externalHostTrust.has_value()
+                    ? std::string_view(
+                          result.externalHostTrust->observedHostSha256)
+                    : std::string_view("not-checked")},
+            bafx::windows::DiagnosticField{
+                "WGC.BorderlessAccess.ExternalHostTrust.ExpectedPackageSha256",
+                result.externalHostTrust.has_value()
+                    ? std::string_view(
+                          result.externalHostTrust->expectedPackageSha256)
+                    : std::string_view("not-checked")},
+            bafx::windows::DiagnosticField{
+                "WGC.BorderlessAccess.ExternalHostTrust.ObservedPackageSha256",
+                result.externalHostTrust.has_value()
+                    ? std::string_view(
+                          result.externalHostTrust->observedPackageSha256)
+                    : std::string_view("not-checked")},
+            bafx::windows::DiagnosticField{
+                "WGC.BorderlessAccess.ExternalHostTrust.ExpectedCertificateSha256",
+                result.externalHostTrust.has_value()
+                    ? std::string_view(
+                          result.externalHostTrust->expectedCertificateSha256)
+                    : std::string_view("not-checked")},
+            bafx::windows::DiagnosticField{
+                "WGC.BorderlessAccess.ExternalHostTrust.ObservedCertificateSha256",
+                result.externalHostTrust.has_value()
+                    ? std::string_view(
+                          result.externalHostTrust->observedCertificateSha256)
+                    : std::string_view("not-checked")}};
         bafx::windows::appendDiagnosticEvent(
             logPath,
             "WGC.BorderlessAccess.Checked",

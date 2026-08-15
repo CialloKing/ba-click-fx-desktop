@@ -1,5 +1,6 @@
 #pragma once
 
+#include "bafx/windows/external_host_trust.hpp"
 #include "bafx/windows/wgc_runtime_capabilities.hpp"
 
 #include <windows.h>
@@ -39,6 +40,7 @@ enum class BorderlessCaptureAccessStatus : std::uint8_t
     TimedOut,
     Canceled,
     Unsupported,
+    IdentityUntrusted,
     Failed
 };
 
@@ -52,6 +54,7 @@ struct BorderlessCaptureAccessResult
     std::uint32_t elapsedMilliseconds{0U};
     bool cancelRequested{false};
     std::optional<BorderlessCaptureCapabilityResult> capability{};
+    std::optional<ExternalHostTrustResult> externalHostTrust{};
 };
 
 class BorderlessCaptureAccessOperation
@@ -108,6 +111,7 @@ private:
     std::unique_ptr<BorderlessCaptureAccessOperation> operation_{};
     std::optional<BorderlessCaptureAccessResult> readyResult_{};
     std::optional<BorderlessCaptureCapabilityResult> capability_{};
+    std::optional<ExternalHostTrustResult> externalHostTrust_{};
     Clock::time_point startedAt_{};
     std::chrono::milliseconds timeout_{};
     bool cancelRequested_{false};
