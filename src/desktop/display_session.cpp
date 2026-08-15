@@ -1,9 +1,47 @@
 #include "display_session.hpp"
 
+#include <exception>
+#include <stdexcept>
+#include <string>
 #include <utility>
 
 namespace bafx::desktop
 {
+namespace
+{
+
+[[nodiscard]] std::string describeException(
+    const std::exception_ptr& failure)
+{
+    try
+    {
+        std::rethrow_exception(failure);
+    }
+    catch (const std::exception& error)
+    {
+        return error.what();
+    }
+    catch (...)
+    {
+        return "unknown exception";
+    }
+}
+
+void appendRollbackFailure(
+    std::string& failures,
+    const std::string_view operation,
+    const std::exception_ptr& failure)
+{
+    if (!failures.empty())
+    {
+        failures += "; ";
+    }
+    failures += operation;
+    failures += ": ";
+    failures += describeException(failure);
+}
+
+}
 
 DisplaySession::DisplaySession(DisplaySessionOptions options)
     : target_(std::move(options.target)),
@@ -107,14 +145,67 @@ DisplaySessionRetargetResult DisplaySession::retargetFxOnly(
     DisplayTarget target,
     const HWND wakeWindow)
 {
+    const DisplayTarget previousTarget = target_;
+    const bafx::windows::WindowSize previousSize = window_.size();
     DisplaySessionRetargetResult result{};
-    result.adapter = renderer_.retargetOutputAdapter(
-        requestedAdapter(target));
-    window_.setBounds(target.bounds);
-    result.output = renderer_.resizeOutput(window_.size());
-    acceptAppliedTarget(std::move(target), wakeWindow);
-    clearRenderFault();
-    return result;
+    try
+    {
+        // Move first so a rejected HWND geometry cannot unnecessarily replace
+        // an otherwise healthy D3D resource domain.
+        window_.setBounds(target.bounds);
+        result.adapter = renderer_.retargetOutputAdapter(
+            requestedAdapter(target));
+        result.output = renderer_.resizeOutput(window_.size());
+        acceptAppliedTarget(std::move(target), wakeWindow);
+        clearRenderFault();
+        return result;
+    }
+    catch (...)
+    {
+        const std::exception_ptr retargetFailure = std::current_exception();
+        std::string rollbackFailures;
+        const auto attemptRollback =
+            [&](const std::string_view operation, auto&& rollback)
+        {
+            try
+            {
+                rollback();
+            }
+            catch (...)
+            {
+                appendRollbackFailure(
+                    rollbackFailures,
+                    operation,
+                    std::current_exception());
+            }
+        };
+
+        // Every step is attempted independently. A failed window restore must
+        // not prevent the old adapter domain from being recovered as well.
+        attemptRollback("window", [&]()
+        {
+            window_.setBounds(previousTarget.bounds);
+        });
+        attemptRollback("adapter", [&]()
+        {
+            static_cast<void>(renderer_.retargetOutputAdapter(
+                requestedAdapter(previousTarget)));
+        });
+        attemptRollback("output", [&]()
+        {
+            static_cast<void>(renderer_.resizeOutput(previousSize));
+        });
+
+        if (rollbackFailures.empty())
+        {
+            std::rethrow_exception(retargetFailure);
+        }
+
+        markRenderFaulted();
+        throw std::runtime_error(
+            "Display retarget failed: " + describeException(retargetFailure)
+            + "; rollback failed: " + rollbackFailures);
+    }
 }
 
 void DisplaySession::refreshColorCapabilities() noexcept
