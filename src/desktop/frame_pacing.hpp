@@ -13,6 +13,7 @@ enum class FramePacingWake : std::uint8_t
 {
     FrameReady,
     DeviceRemoved,
+    ControlChanged,
     MessagesPending,
     TimedOut,
     Failed
@@ -28,7 +29,8 @@ struct FramePacingWaitResult
 enum class FramePacingWaitableKind : std::uint8_t
 {
     FrameReady,
-    DeviceRemoved
+    DeviceRemoved,
+    ControlChanged
 };
 
 struct FramePacingWaitable final
@@ -42,6 +44,7 @@ enum class PausedWaitWake : std::uint8_t
 {
     DeviceRemoved,
     BackgroundFrameReady,
+    ControlChanged,
     MessagesPending,
     TimedOut,
     Failed
@@ -57,7 +60,8 @@ struct PausedWaitResult
 enum class PausedWaitableKind : std::uint8_t
 {
     DeviceRemoved,
-    BackgroundFrameReady
+    BackgroundFrameReady,
+    ControlChanged
 };
 
 struct PausedWaitable final

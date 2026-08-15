@@ -70,6 +70,8 @@ constexpr DWORD pausedControlPollMilliseconds = 50U;
         return "frame-ready";
     case bafx::desktop::FramePacingWake::DeviceRemoved:
         return "device-removed";
+    case bafx::desktop::FramePacingWake::ControlChanged:
+        return "control-changed";
     case bafx::desktop::FramePacingWake::MessagesPending:
         return "messages-pending";
     case bafx::desktop::FramePacingWake::TimedOut:
@@ -3585,6 +3587,18 @@ int runApplication(
                             index});
                 }
             }
+            if (const HANDLE accessChanged =
+                    borderlessAccessMonitor.changeEvent();
+                accessChanged != nullptr)
+            {
+                // Device removal remains first. Permission changes precede
+                // frame slots so revoked capture cannot submit another frame.
+                frameWaitables.push_back(
+                    bafx::desktop::FramePacingWaitable{
+                        accessChanged,
+                        bafx::desktop::FramePacingWaitableKind::ControlChanged,
+                        0U});
+            }
             for (std::size_t index = 0U; index < ownedSessions.size(); ++index)
             {
                 bafx::desktop::DisplaySession& session = *ownedSessions[index];
@@ -3683,6 +3697,10 @@ int runApplication(
                 framePacingDeviceLoss = deviceResult;
                 break;
             }
+            case bafx::desktop::FramePacingWake::ControlChanged:
+                // The next owner iteration consumes and resets the generation
+                // before any WGC maintenance or Present can run.
+                continue;
             case bafx::desktop::FramePacingWake::MessagesPending:
             case bafx::desktop::FramePacingWake::TimedOut:
             {
@@ -4657,6 +4675,16 @@ int runApplication(
                             index});
                 }
             }
+            if (const HANDLE accessChanged =
+                    borderlessAccessMonitor.changeEvent();
+                accessChanged != nullptr)
+            {
+                pausedWaitables.push_back(
+                    bafx::desktop::PausedWaitable{
+                        accessChanged,
+                        bafx::desktop::PausedWaitableKind::ControlChanged,
+                        0U});
+            }
             for (std::size_t index = 0U; index < ownedSessions.size(); ++index)
             {
                 bafx::desktop::DisplaySession& session = *ownedSessions[index];
@@ -4718,6 +4746,10 @@ int runApplication(
                         "Paused WGC wait returned an unknown display token");
                 }
                 renderInvalidationPending = true;
+                break;
+            case bafx::desktop::PausedWaitWake::ControlChanged:
+                // There is no render below this wait. The next iteration
+                // consumes the permission generation before doing GPU work.
                 break;
             case bafx::desktop::PausedWaitWake::MessagesPending:
             case bafx::desktop::PausedWaitWake::TimedOut:

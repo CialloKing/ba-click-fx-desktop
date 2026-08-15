@@ -333,6 +333,11 @@ void RuntimePerformanceWindow::addFramePacingWake(
     case FramePacingWake::DeviceRemoved:
         ++framePacingDeviceRemovedWakes_;
         break;
+    case FramePacingWake::ControlChanged:
+        // Preserve the existing compact counter schema. Both sources wake the
+        // owner for state work without granting a presentation slot.
+        ++framePacingMessageWakes_;
+        break;
     case FramePacingWake::MessagesPending:
         ++framePacingMessageWakes_;
         break;

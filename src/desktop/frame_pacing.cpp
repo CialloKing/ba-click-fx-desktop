@@ -5,6 +5,40 @@
 
 namespace bafx::desktop
 {
+namespace
+{
+
+[[nodiscard]] FramePacingWake framePacingWake(
+    const FramePacingWaitableKind kind) noexcept
+{
+    switch (kind)
+    {
+    case FramePacingWaitableKind::FrameReady:
+        return FramePacingWake::FrameReady;
+    case FramePacingWaitableKind::DeviceRemoved:
+        return FramePacingWake::DeviceRemoved;
+    case FramePacingWaitableKind::ControlChanged:
+        return FramePacingWake::ControlChanged;
+    }
+    return FramePacingWake::Failed;
+}
+
+[[nodiscard]] PausedWaitWake pausedWaitWake(
+    const PausedWaitableKind kind) noexcept
+{
+    switch (kind)
+    {
+    case PausedWaitableKind::DeviceRemoved:
+        return PausedWaitWake::DeviceRemoved;
+    case PausedWaitableKind::BackgroundFrameReady:
+        return PausedWaitWake::BackgroundFrameReady;
+    case PausedWaitableKind::ControlChanged:
+        return PausedWaitWake::ControlChanged;
+    }
+    return PausedWaitWake::Failed;
+}
+
+}
 
 FramePacingWaitResult waitForFrameOpportunity(
     const HANDLE frameLatencyWaitable,
@@ -60,9 +94,7 @@ FramePacingWaitResult waitForAnyFrameOpportunity(
         if (state == WAIT_OBJECT_0)
         {
             return FramePacingWaitResult{
-                waitable.kind == FramePacingWaitableKind::DeviceRemoved
-                    ? FramePacingWake::DeviceRemoved
-                    : FramePacingWake::FrameReady,
+                framePacingWake(waitable.kind),
                 ERROR_SUCCESS,
                 waitable.token};
         }
@@ -99,9 +131,7 @@ FramePacingWaitResult waitForAnyFrameOpportunity(
         const std::size_t index = static_cast<std::size_t>(
             result - WAIT_OBJECT_0);
         return FramePacingWaitResult{
-            waitables[index].kind == FramePacingWaitableKind::DeviceRemoved
-                ? FramePacingWake::DeviceRemoved
-                : FramePacingWake::FrameReady,
+            framePacingWake(waitables[index].kind),
             ERROR_SUCCESS,
             waitables[index].token};
     }
@@ -174,9 +204,7 @@ PausedWaitResult waitForAnyPausedInvalidation(
         if (state == WAIT_OBJECT_0)
         {
             return PausedWaitResult{
-                waitable.kind == PausedWaitableKind::DeviceRemoved
-                    ? PausedWaitWake::DeviceRemoved
-                    : PausedWaitWake::BackgroundFrameReady,
+                pausedWaitWake(waitable.kind),
                 ERROR_SUCCESS,
                 waitable.token};
         }
@@ -211,9 +239,7 @@ PausedWaitResult waitForAnyPausedInvalidation(
         const std::size_t index = static_cast<std::size_t>(
             result - WAIT_OBJECT_0);
         return PausedWaitResult{
-            waitables[index].kind == PausedWaitableKind::DeviceRemoved
-                ? PausedWaitWake::DeviceRemoved
-                : PausedWaitWake::BackgroundFrameReady,
+            pausedWaitWake(waitables[index].kind),
             ERROR_SUCCESS,
             waitables[index].token};
     }
