@@ -1091,12 +1091,12 @@ int runApplication(
             || renderInvalidated;
         if (shouldRender)
         {
-            const bafx::desktop::FramePacingWake pacingWake =
+            const bafx::desktop::FramePacingWaitResult pacingWait =
                 bafx::desktop::waitForFrameOpportunity(
                     renderer.frameLatencyWaitableObject(),
                     activeControlPollMilliseconds);
-            performanceWindow.addFramePacingWake(pacingWake);
-            switch (pacingWake)
+            performanceWindow.addFramePacingWake(pacingWait.wake);
+            switch (pacingWait.wake)
             {
             case bafx::desktop::FramePacingWake::FrameReady:
                 break;
@@ -1107,8 +1107,34 @@ int runApplication(
                 renderInvalidationPending = renderInvalidated;
                 continue;
             case bafx::desktop::FramePacingWake::Failed:
-                bafx::windows::throwLastError(
-                    "MsgWaitForMultipleObjectsEx(frame latency)");
+            {
+                const HRESULT deviceResult = renderer.deviceRemovedReason();
+                if (!bafx::windows::isDeviceLostResult(deviceResult))
+                {
+                    throw bafx::windows::HResultError(
+                        HRESULT_FROM_WIN32(pacingWait.error),
+                        "MsgWaitForMultipleObjectsEx(frame latency)");
+                }
+
+                // A removed D3D device can invalidate the latency object before
+                // Present reports the loss. Let this exact frame reach Present
+                // so the existing bounded recovery path owns all state changes.
+                const std::string waitError = std::to_string(pacingWait.error);
+                const std::string deviceCode = formatHresult(deviceResult);
+                const std::array fields{
+                    bafx::windows::DiagnosticField{
+                        "WaitError",
+                        waitError},
+                    bafx::windows::DiagnosticField{
+                        "DeviceHRESULT",
+                        deviceCode}};
+                bafx::windows::appendDiagnosticEvent(
+                    logPath,
+                    "Graphics.DeviceRecovery.FramePacingDetected",
+                    fields,
+                    bafx::windows::DiagnosticLevel::Warning);
+                break;
+            }
             }
         }
 

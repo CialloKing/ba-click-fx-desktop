@@ -1156,6 +1156,13 @@ HANDLE CompositionRenderer::frameLatencyWaitableObject() const noexcept
     return frameLatencyHandle_.get();
 }
 
+HRESULT CompositionRenderer::deviceRemovedReason() const noexcept
+{
+    return device_ != nullptr
+        ? device_->GetDeviceRemovedReason()
+        : E_POINTER;
+}
+
 HANDLE CompositionRenderer::backgroundFrameAvailableObject() const noexcept
 {
     return backgroundSensor_ != nullptr

@@ -48,8 +48,9 @@ constexpr UINT pacingTestMessage = WM_APP + 71U;
 BAFX_TEST(frame_pacing_grants_render_only_for_the_latency_object)
 {
     EventHandle frameReady(true);
-    BAFX_CHECK(waitForFrameOpportunity(frameReady.get(), 0U)
-        == FramePacingWake::FrameReady);
+    const auto result = waitForFrameOpportunity(frameReady.get(), 0U);
+    BAFX_CHECK(result.wake == FramePacingWake::FrameReady);
+    BAFX_CHECK(result.error == ERROR_SUCCESS);
 }
 
 BAFX_TEST(frame_pacing_keeps_message_wakes_separate_from_render_slots)
@@ -68,8 +69,9 @@ BAFX_TEST(frame_pacing_keeps_message_wakes_separate_from_render_slots)
         0) != FALSE);
 
     EventHandle frameReady(false);
-    BAFX_CHECK(waitForFrameOpportunity(frameReady.get(), 0U)
-        == FramePacingWake::MessagesPending);
+    const auto result = waitForFrameOpportunity(frameReady.get(), 0U);
+    BAFX_CHECK(result.wake == FramePacingWake::MessagesPending);
+    BAFX_CHECK(result.error == ERROR_SUCCESS);
     BAFX_CHECK(PeekMessageW(
         &message,
         nullptr,
@@ -81,9 +83,11 @@ BAFX_TEST(frame_pacing_keeps_message_wakes_separate_from_render_slots)
 BAFX_TEST(frame_pacing_reports_timeout_and_invalid_handle)
 {
     EventHandle frameReady(false);
-    BAFX_CHECK(waitForFrameOpportunity(frameReady.get(), 0U)
-        == FramePacingWake::TimedOut);
-    BAFX_CHECK(waitForFrameOpportunity(nullptr, 0U)
-        == FramePacingWake::Failed);
-    BAFX_CHECK(GetLastError() == ERROR_INVALID_HANDLE);
+    const auto timeout = waitForFrameOpportunity(frameReady.get(), 0U);
+    BAFX_CHECK(timeout.wake == FramePacingWake::TimedOut);
+    BAFX_CHECK(timeout.error == ERROR_SUCCESS);
+
+    const auto invalid = waitForFrameOpportunity(nullptr, 0U);
+    BAFX_CHECK(invalid.wake == FramePacingWake::Failed);
+    BAFX_CHECK(invalid.error == ERROR_INVALID_HANDLE);
 }

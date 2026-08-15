@@ -210,6 +210,7 @@ public:
     void setReadbackDiagnostics(bool enabled);
 
     [[nodiscard]] HANDLE frameLatencyWaitableObject() const noexcept;
+    [[nodiscard]] HRESULT deviceRemovedReason() const noexcept;
     [[nodiscard]] HANDLE backgroundFrameAvailableObject() const noexcept;
     [[nodiscard]] D3D_FEATURE_LEVEL featureLevel() const noexcept;
     [[nodiscard]] const GraphicsDeviceInfo& deviceInfo() const noexcept;

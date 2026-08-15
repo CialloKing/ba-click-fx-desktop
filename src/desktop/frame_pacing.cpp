@@ -3,15 +3,16 @@
 namespace bafx::desktop
 {
 
-FramePacingWake waitForFrameOpportunity(
+FramePacingWaitResult waitForFrameOpportunity(
     const HANDLE frameLatencyWaitable,
     const DWORD timeoutMilliseconds) noexcept
 {
     if (frameLatencyWaitable == nullptr
         || frameLatencyWaitable == INVALID_HANDLE_VALUE)
     {
-        SetLastError(ERROR_INVALID_HANDLE);
-        return FramePacingWake::Failed;
+        return FramePacingWaitResult{
+            FramePacingWake::Failed,
+            ERROR_INVALID_HANDLE};
     }
 
     const DWORD result = MsgWaitForMultipleObjectsEx(
@@ -22,17 +23,22 @@ FramePacingWake waitForFrameOpportunity(
         MWMO_INPUTAVAILABLE);
     if (result == WAIT_OBJECT_0)
     {
-        return FramePacingWake::FrameReady;
+        return FramePacingWaitResult{FramePacingWake::FrameReady};
     }
     if (result == WAIT_OBJECT_0 + 1U)
     {
-        return FramePacingWake::MessagesPending;
+        return FramePacingWaitResult{FramePacingWake::MessagesPending};
     }
     if (result == WAIT_TIMEOUT)
     {
-        return FramePacingWake::TimedOut;
+        return FramePacingWaitResult{FramePacingWake::TimedOut};
     }
-    return FramePacingWake::Failed;
+    // Preserve the wait failure at its source. Diagnostics recorded before the
+    // caller handles it are allowed to invoke Win32 and change GetLastError().
+    const DWORD error = GetLastError();
+    return FramePacingWaitResult{
+        FramePacingWake::Failed,
+        error == ERROR_SUCCESS ? ERROR_GEN_FAILURE : error};
 }
 
 }
