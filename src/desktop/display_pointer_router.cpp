@@ -111,18 +111,28 @@ DisplayPointerRouteResult DisplayPointerRouter::consumeFrame(
         const POINT downPosition = finalPositionAvailable
             ? finalScreenPosition
             : acceptedDown->screenPosition;
-        const std::optional<SessionPosition> mapped = mapPosition(
-            *acceptedDownSession,
-            downPosition);
-        if (mapped.has_value())
+        DisplaySession* const downSession = finalPositionAvailable
+            ? sessions.findAtPoint(downPosition)
+            : acceptedDownSession;
+        if (downSession != nullptr)
         {
-            acceptedDownSession->simulation().pointerDown(
-                mapped->client,
-                mapped->viewport,
-                frameTime,
-                timestamps.map(acceptedDown->qpcTimestamp, frameTime));
-            pressedTarget_ = acceptedDownSession->target();
-            pressedSession = acceptedDownSession;
+            const std::optional<SessionPosition> mapped = mapPosition(
+                *downSession,
+                downPosition);
+            if (mapped.has_value())
+            {
+                // Unity exposes one final Input.mousePosition per frame.
+                // Session selection must use that same position or a
+                // cross-display move can clamp the click into the monitor
+                // that received Raw Down.
+                downSession->simulation().pointerDown(
+                    mapped->client,
+                    mapped->viewport,
+                    frameTime,
+                    timestamps.map(acceptedDown->qpcTimestamp, frameTime));
+                pressedTarget_ = downSession->target();
+                pressedSession = downSession;
+            }
         }
     }
 
