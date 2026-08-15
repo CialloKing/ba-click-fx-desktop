@@ -214,7 +214,8 @@ python -B tools\verify-wgc-self-exclusion-spike.py `
   `Graphics.DeviceRecovery.Probe.Succeeded`。
 - Host 会在 D3D11.4 可用时注册 device-removed event，并把该句柄排在 frame-latency 句柄之前；同时信号
   时设备移除优先，已确认的 device-lost 路由到同一恢复边界。启动与成功恢复后记录
-  `Graphics.DeviceRemovalNotification.Status`；性能窗独立统计 `FramePacing.DeviceRemovedWakes`。
+  `Graphics.DeviceRemovalNotification.Status`；性能窗独立统计 `FramePacing.DeviceRemovedWakes`。暂停态也同时
+  等待设备移除与 WGC 背景帧，设备事件优先并请求一个恢复帧。
 - 通知接口不可用或注册失败时继续使用轮询兜底：frame-latency wait 失败保留原始 Win32 error，连续
   `250 ms` 未取得 FrameReady 时检查 D3D device-removed reason。`desktop_frame_pacing_stall` 以永久不信号
   句柄验证运行截止检查不会被 `TimedOut`/`MessagesPending` 的 `continue` 绕过。

@@ -59,7 +59,9 @@
   记录，说明同步 WinRT 关闭调用可能没有返回。当前实现不能取消该系统调用，需连同轮转日志一起排查。
 - Host 会尝试通过 D3D11.4 注册 device-removed event。启动及每次成功资源恢复后，
   `Graphics.DeviceRemovalNotification.Status` 记录 `Phase`、`Available` 和 `RegistrationHRESULT`；接口
-  不可用或注册失败时仍以每 `250 ms` 一次的 device-removed reason 查询兜底，不会把注册失败当作渲染失败。
+  不可用或注册失败时，活跃渲染等待仍以每 `250 ms` 一次的 device-removed reason 查询兜底，不会把注册
+  失败当作渲染失败。通知可用时，Host 暂停期间也等待该事件；信号会请求一个恢复帧，但不会推进冻结的
+  特效模拟时间。
 - WGC 只由 `background-aware` 模式使用。portable EXE 没有 package identity，也不会自行声明
   `graphicsCaptureWithoutBorder` capability。新配置默认允许 Windows 显示捕获边框；可见边框状态记录为
   `system-border=visible-allowed`。用户可在 Control Center 中取消勾选“允许黄色捕获边框”；关闭后会在

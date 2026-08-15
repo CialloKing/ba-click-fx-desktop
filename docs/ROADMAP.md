@@ -29,7 +29,8 @@ Recreate 遇到可识别的 DXGI device-lost HRESULT 时，整个 renderer 最�
 
 Host 现在优先使用可选的 `ID3D11Device4::RegisterDeviceRemovedEvent`：设备移除句柄排在 frame-latency
 句柄之前，同时信号时先进入设备恢复；异常信号不会被手动复位，而是立即失败，避免对 manual-reset 句柄
-形成忙循环。启动和每次成功恢复后都会记录 `Graphics.DeviceRemovalNotification.Status` 的可用状态与注册
+形成忙循环。暂停态的等待也同时观察设备移除与 WGC 背景帧，设备移除优先并触发一次恢复帧，不再推迟到
+用户恢复运行。启动和每次成功恢复后都会记录 `Graphics.DeviceRemovalNotification.Status` 的可用状态与注册
 HRESULT，`Performance.Interval` 另记 `FramePacing.DeviceRemovedWakes`，非零时提升为 Warning。当前机器已验证
 通知注册和主动恢复后的重新注册，但没有制造真实 device-lost。
 
