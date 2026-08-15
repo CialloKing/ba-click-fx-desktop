@@ -115,7 +115,6 @@ struct ConfigLoadResult
     Config config{};
     ConfigStatus status{ConfigStatus::Ok};
     std::string message{};
-    bool migrated{false};
 
     [[nodiscard]] bool succeeded() const noexcept
     {

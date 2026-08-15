@@ -1140,9 +1140,7 @@ void appendJsonValue(
     {
         return ConfigLoadResult{defaultConfig(), ConfigStatus::ValidationError, std::move(error)};
     }
-    constexpr std::uint32_t immediatelyPreviousSchemaVersion = 7U;
-    const bool migrated = version == immediatelyPreviousSchemaVersion;
-    if (!migrated && version != currentSchemaVersion)
+    if (version != currentSchemaVersion)
     {
         return ConfigLoadResult{
             defaultConfig(),
@@ -1159,13 +1157,7 @@ void appendJsonValue(
     {
         return ConfigLoadResult{defaultConfig(), ConfigStatus::ValidationError, std::move(error)};
     }
-    return ConfigLoadResult{
-        config,
-        ConfigStatus::Ok,
-        migrated
-            ? "configuration migrated to current schema"
-            : std::string{},
-        migrated};
+    return ConfigLoadResult{config, ConfigStatus::Ok, {}};
 }
 
 [[nodiscard]] std::string makeTemporarySuffix()
