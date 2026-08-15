@@ -162,11 +162,9 @@ function Read-InstallStateWithBackup
                 $candidateState | Add-Member -NotePropertyName ownedPackageFiles `
                     -NotePropertyValue ([string]$candidateState.packageFile)
             }
-            if ($candidate -ne $Path)
-            {
-                Copy-Item -LiteralPath $candidate -Destination $Path -Force
-                Set-ProtectedStateAcl -Path $Path
-            }
+            # Keep the backup immutable until the full state validation and
+            # uninstall transaction succeed. Rewriting a corrupt primary here
+            # would destroy the evidence needed for a later recovery attempt.
             return $candidateState
         }
         catch
@@ -347,8 +345,10 @@ foreach ($thumbprint in (Split-Ledger `
     }
 }
 
-Remove-Item -LiteralPath $statePath -Force
-if (Test-Path -LiteralPath "$statePath.bak" -PathType Leaf)
+foreach ($installStatePath in @($statePath, "$statePath.bak"))
 {
-    Remove-Item -LiteralPath "$statePath.bak" -Force
+    if (Test-Path -LiteralPath $installStatePath -PathType Leaf)
+    {
+        Remove-Item -LiteralPath $installStatePath -Force
+    }
 }

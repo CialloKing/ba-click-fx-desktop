@@ -577,6 +577,91 @@ function Test-SparsePackageContract
         -Text $uninstaller `
         -Pattern 'Read-InstallStateWithBackup[\s\S]*ownedCertificateThumbprints[\s\S]*\-DeleteKey' `
         -Description 'uninstall backup and complete certificate ledger cleanup'
+    Assert-TextExcludes `
+        -Text $uninstaller `
+        -Pattern '\bSet-ProtectedStateAcl\b' `
+        -Description 'undefined uninstall state ACL repair helper'
+    Assert-TextContains `
+        -Text $uninstaller `
+        -Pattern 'foreach\s*\(\$installStatePath\s+in\s+@\(\$statePath,\s*"\$statePath\.bak"\)\)[\s\S]*Test-Path[\s\S]*Remove-Item' `
+        -Description 'guarded primary and backup install-state cleanup'
+}
+
+function Test-UninstallerBackupFallback
+{
+    $ast = Get-ParsedScript `
+        -RelativePath 'tools/installer/unregister-machine.ps1'
+    $reader = Get-FunctionText -Ast $ast -Name 'Read-InstallStateWithBackup'
+    $moduleText = @'
+Set-StrictMode -Version Latest
+function Assert-ProtectedStateAcl
+{
+    param([string]$Path)
+}
+'@ + "`n" + $reader
+    $readerModule = New-Module -ScriptBlock ([scriptblock]::Create($moduleText))
+
+    $temporaryParent = [IO.Path]::GetFullPath([IO.Path]::GetTempPath())
+    $temporaryRoot = Join-Path `
+        $temporaryParent `
+        ('bafx-uninstall-backup-' + [Guid]::NewGuid().ToString('N'))
+    try
+    {
+        New-Item -ItemType Directory -Path $temporaryRoot -Force | Out-Null
+        $statePath = Join-Path $temporaryRoot 'INSTALL-STATE.json'
+        $backupPath = "$statePath.bak"
+        [IO.File]::WriteAllText($statePath, '{broken')
+        $backupState = [ordered]@{
+            schema = 1
+            packageName = 'CialloKing.BaClickFxDesktop'
+            applicationId = 'BaClickFxDesktop'
+            publisher = 'CN=BaClickFx.Local'
+            certificateThumbprint = '1111111111111111111111111111111111111111'
+            packageFile = 'identity.msix'
+        } | ConvertTo-Json -Compress
+        [IO.File]::WriteAllText($backupPath, $backupState)
+
+        $state = & $readerModule {
+            param($Path, $InstallRoot)
+            Read-InstallStateWithBackup -Path $Path -InstallRoot $InstallRoot
+        } $statePath $temporaryRoot
+        Assert-True `
+            -Condition ([string]$state.packageName -eq 'CialloKing.BaClickFxDesktop') `
+            -Message 'Uninstaller did not recover the valid backup state.'
+        Assert-True `
+            -Condition ((Get-Content -LiteralPath $statePath -Raw) -eq '{broken') `
+            -Message 'Uninstaller rewrote the corrupt primary before full validation.'
+
+        Remove-Item -LiteralPath $statePath -Force
+        $backupOnlyState = & $readerModule {
+            param($Path, $InstallRoot)
+            Read-InstallStateWithBackup -Path $Path -InstallRoot $InstallRoot
+        } $statePath $temporaryRoot
+        Assert-True `
+            -Condition ([string]$backupOnlyState.packageFile -eq 'identity.msix') `
+            -Message 'Uninstaller did not accept a valid backup without a primary state.'
+    }
+    finally
+    {
+        if ($null -ne $readerModule)
+        {
+            Remove-Module -ModuleInfo $readerModule -Force -ErrorAction SilentlyContinue
+        }
+        $resolvedTemporaryRoot = [IO.Path]::GetFullPath($temporaryRoot)
+        if ($resolvedTemporaryRoot.StartsWith(
+                $temporaryParent,
+                [StringComparison]::OrdinalIgnoreCase) -and
+            [IO.Path]::GetFileName($resolvedTemporaryRoot).StartsWith(
+                'bafx-uninstall-backup-',
+                [StringComparison]::Ordinal))
+        {
+            Remove-Item `
+                -LiteralPath $resolvedTemporaryRoot `
+                -Recurse `
+                -Force `
+                -ErrorAction SilentlyContinue
+        }
+    }
 }
 
 function Test-PortableZipContract
@@ -695,6 +780,7 @@ Test-VersionMapping
 Test-InstallerScriptWhitelist
 Test-InnoPayloadContract
 Test-SparsePackageContract
+Test-UninstallerBackupFallback
 Test-PortableZipContract
 Test-RegistrationFailureDiagnostics
 
