@@ -432,6 +432,13 @@ std::optional<WindowSize> OverlayWindow::takePendingResize() noexcept
     return std::exchange(pendingResize_, std::nullopt);
 }
 
+WindowResizeDiagnostics OverlayWindow::takeWindowResizeDiagnostics() noexcept
+{
+    return std::exchange(
+        resizeDiagnostics_,
+        WindowResizeDiagnostics{});
+}
+
 std::vector<PointerEvent> OverlayWindow::takePointerEvents() noexcept
 {
     std::vector<PointerEvent> events;
@@ -648,11 +655,26 @@ LRESULT OverlayWindow::handleMessage(
     case WM_SIZE:
         if (wParam != SIZE_MINIMIZED)
         {
-            const auto width = static_cast<std::uint32_t>(LOWORD(lParam));
-            const auto height = static_cast<std::uint32_t>(HIWORD(lParam));
-            if (width > 0U && height > 0U)
+            RECT clientBounds{};
+            SetLastError(ERROR_SUCCESS);
+            if (GetClientRect(window_, &clientBounds) == FALSE)
             {
-                size_ = WindowSize{width, height};
+                const DWORD error = GetLastError();
+                ++resizeDiagnostics_.clientRectQueryFailures;
+                // Some Win32 failures do not publish a last-error value. Keep
+                // the diagnostic actionable without changing the last valid size.
+                resizeDiagnostics_.lastClientRectQueryError =
+                    error == ERROR_SUCCESS ? ERROR_GEN_FAILURE : error;
+                return 0;
+            }
+
+            const LONG width = clientBounds.right - clientBounds.left;
+            const LONG height = clientBounds.bottom - clientBounds.top;
+            if (width > 0 && height > 0)
+            {
+                size_ = WindowSize{
+                    static_cast<std::uint32_t>(width),
+                    static_cast<std::uint32_t>(height)};
                 pendingResize_ = size_;
             }
         }

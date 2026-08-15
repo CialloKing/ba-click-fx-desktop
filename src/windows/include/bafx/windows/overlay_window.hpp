@@ -17,6 +17,12 @@ struct WindowSize
     std::uint32_t height{0};
 };
 
+struct WindowResizeDiagnostics
+{
+    std::uint64_t clientRectQueryFailures{0U};
+    DWORD lastClientRectQueryError{ERROR_SUCCESS};
+};
+
 struct ExitUiStatus
 {
     bool primaryHotKeyRegistered{false};
@@ -159,6 +165,7 @@ public:
     // stable. Keep a separate signal so the owner can refresh HDR policy only.
     [[nodiscard]] bool takeDisplayColorChange() noexcept;
     [[nodiscard]] std::optional<WindowSize> takePendingResize() noexcept;
+    [[nodiscard]] WindowResizeDiagnostics takeWindowResizeDiagnostics() noexcept;
     [[nodiscard]] std::vector<PointerEvent> takePointerEvents() noexcept;
     [[nodiscard]] PointerQueueDiagnostics takePointerQueueDiagnostics() noexcept;
 
@@ -201,6 +208,7 @@ private:
     bool displayColorChangePending_{false};
     bool applyingBounds_{false};
     std::optional<WindowSize> pendingResize_{};
+    WindowResizeDiagnostics resizeDiagnostics_{};
     std::vector<PointerEvent> pendingPointerEvents_{};
     PointerQueueDiagnostics pointerQueueDiagnostics_{};
     bool closeRequested_{false};
