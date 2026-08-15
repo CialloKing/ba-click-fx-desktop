@@ -881,6 +881,16 @@ DisplaySession::serviceSecondaryBackgroundCapture(
                     renderer_.pendingBackgroundFramePoolSize();
                 captureSize.has_value())
             {
+                const bafx::windows::WindowSize outputSize =
+                    renderer_.outputSize();
+                if (captureSize->width != outputSize.width
+                    || captureSize->height != outputSize.height)
+                {
+                    // WGC can publish rotation or mode dimensions before the
+                    // shell posts a topology message. Recreate the producer,
+                    // but also ask the owner to confirm physical placement.
+                    topologyRefreshRequested_ = true;
+                }
                 if (!state.transition.beginFramePoolRecreate(*captureSize))
                 {
                     throw std::logic_error(
@@ -1152,6 +1162,11 @@ HANDLE DisplaySession::secondaryBackgroundFrameAvailableObject() const noexcept
     return secondaryBackgroundCapture_ != nullptr
         ? renderer_.backgroundFrameAvailableObject()
         : nullptr;
+}
+
+bool DisplaySession::takeTopologyRefreshRequest() noexcept
+{
+    return std::exchange(topologyRefreshRequested_, false);
 }
 
 void DisplaySession::shutdownSecondaryBackgroundCapture() noexcept

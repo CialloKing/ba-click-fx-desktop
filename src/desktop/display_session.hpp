@@ -179,6 +179,7 @@ public:
     [[nodiscard]] bool secondaryBackgroundCaptureInitialized() const noexcept;
     [[nodiscard]] bool secondaryBackgroundCaptureActive() const noexcept;
     [[nodiscard]] HANDLE secondaryBackgroundFrameAvailableObject() const noexcept;
+    [[nodiscard]] bool takeTopologyRefreshRequest() noexcept;
     void shutdownSecondaryBackgroundCapture() noexcept;
     [[nodiscard]] DisplaySessionColorRefreshStatus refreshColorCapabilities(
         const std::optional<bafx::windows::DisplayColorCapabilities>& fallback =
@@ -215,6 +216,7 @@ private:
     std::optional<bafx::core::MonotonicTime> nextFramePacingDeadline_{};
     bool lastPresentedDrawableContent_{false};
     bool renderFaulted_{false};
+    bool topologyRefreshRequested_{false};
     std::unique_ptr<DisplaySessionBackgroundCaptureState>
         secondaryBackgroundCapture_{};
 };

@@ -3081,6 +3081,19 @@ int runApplication(
             break;
         }
 
+        for (const auto& ownedSession : displaySessions.sessions())
+        {
+            bafx::desktop::DisplaySession& session = *ownedSession;
+            if (&session != &displaySession
+                && session.takeTopologyRefreshRequest()
+                && nextDisplayTopologyPollAt > loopObservedAt)
+            {
+                // Consume a WGC size lead before evaluating this iteration's
+                // poll deadline, so rotation does not wait for the 1 s fallback.
+                nextDisplayTopologyPollAt = loopObservedAt;
+            }
+        }
+
         std::optional<bafx::desktop::DisplayTargetSnapshot>
             polledDisplayTopology{};
         if (!displayPowerUnavailable
@@ -5310,6 +5323,15 @@ int runApplication(
         {
             const bool backgroundCaptureWasActive =
                 currentBackgroundCaptureActive;
+            if ((captureSize->width != appliedOutputSize.width
+                    || captureSize->height != appliedOutputSize.height)
+                && nextDisplayTopologyPollAt > wallTime)
+            {
+                // The capture item may observe rotation before rcMonitor. The
+                // next owner iteration confirms geometry instead of accepting
+                // WGC dimensions as authority for moving the overlay window.
+                nextDisplayTopologyPollAt = wallTime;
+            }
             if (!backgroundTransition.beginFramePoolRecreate(*captureSize))
             {
                 throw std::logic_error(
