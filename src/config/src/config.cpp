@@ -556,6 +556,33 @@ private:
     return iterator == object.end() ? nullptr : &iterator->second;
 }
 
+[[nodiscard]] std::string qualifiedConfigName(
+    const std::string_view section,
+    const std::string_view key)
+{
+    if (section.empty())
+    {
+        return std::string(key);
+    }
+    return std::string(section) + "." + std::string(key);
+}
+
+[[nodiscard]] const JsonValue* requiredMember(
+    const JsonValue::Object& object,
+    const std::string_view key,
+    const std::string_view section,
+    std::string& error)
+{
+    const JsonValue* value = member(object, key);
+    if (value == nullptr)
+    {
+        error = "config field '" + qualifiedConfigName(section, key)
+            + "' is required by schema "
+            + std::to_string(currentSchemaVersion);
+    }
+    return value;
+}
+
 [[nodiscard]] bool validateKnownMembers(
     const JsonValue::Object& object,
     const std::initializer_list<std::string_view> knownMembers,
@@ -591,44 +618,44 @@ private:
 [[nodiscard]] bool readBool(
     const JsonValue::Object& object,
     const std::string_view key,
-    const bool fallback,
+    const std::string_view section,
     bool& output,
     std::string& error)
 {
-    const JsonValue* value = member(object, key);
+    const JsonValue* value = requiredMember(object, key, section, error);
     if (value == nullptr)
     {
-        output = fallback;
-        return true;
+        return false;
     }
     if (const bool* parsed = std::get_if<bool>(&value->storage); parsed != nullptr)
     {
         output = *parsed;
         return true;
     }
-    error = "config field '" + std::string(key) + "' must be boolean";
+    error = "config field '" + qualifiedConfigName(section, key)
+        + "' must be boolean";
     return false;
 }
 
 [[nodiscard]] bool readFloat(
     const JsonValue::Object& object,
     const std::string_view key,
-    const float fallback,
+    const std::string_view section,
     float& output,
     std::string& error)
 {
-    const JsonValue* value = member(object, key);
+    const JsonValue* value = requiredMember(object, key, section, error);
     if (value == nullptr)
     {
-        output = fallback;
-        return true;
+        return false;
     }
     const double* parsed = std::get_if<double>(&value->storage);
     if (parsed == nullptr || !std::isfinite(*parsed)
         || *parsed < -(std::numeric_limits<float>::max)()
         || *parsed > (std::numeric_limits<float>::max)())
     {
-        error = "config field '" + std::string(key) + "' must be a finite number";
+        error = "config field '" + qualifiedConfigName(section, key)
+            + "' must be a finite number";
         return false;
     }
     output = static_cast<float>(*parsed);
@@ -638,15 +665,14 @@ private:
 [[nodiscard]] bool readUnsignedInteger(
     const JsonValue::Object& object,
     const std::string_view key,
-    const std::uint32_t fallback,
+    const std::string_view section,
     std::uint32_t& output,
     std::string& error)
 {
-    const JsonValue* value = member(object, key);
+    const JsonValue* value = requiredMember(object, key, section, error);
     if (value == nullptr)
     {
-        output = fallback;
-        return true;
+        return false;
     }
     const double* parsed = std::get_if<double>(&value->storage);
     if (parsed == nullptr || !std::isfinite(*parsed)
@@ -654,7 +680,8 @@ private:
         || *parsed > static_cast<double>((std::numeric_limits<std::uint32_t>::max)())
         || std::floor(*parsed) != *parsed)
     {
-        error = "config field '" + std::string(key) + "' must be an unsigned integer";
+        error = "config field '" + qualifiedConfigName(section, key)
+            + "' must be an unsigned integer";
         return false;
     }
     output = static_cast<std::uint32_t>(*parsed);
@@ -664,20 +691,20 @@ private:
 [[nodiscard]] bool readString(
     const JsonValue::Object& object,
     const std::string_view key,
-    const std::string_view fallback,
+    const std::string_view section,
     std::string& output,
     std::string& error)
 {
-    const JsonValue* value = member(object, key);
+    const JsonValue* value = requiredMember(object, key, section, error);
     if (value == nullptr)
     {
-        output = fallback;
-        return true;
+        return false;
     }
     const std::string* parsed = std::get_if<std::string>(&value->storage);
     if (parsed == nullptr)
     {
-        error = "config field '" + std::string(key) + "' must be a string";
+        error = "config field '" + qualifiedConfigName(section, key)
+            + "' must be a string";
         return false;
     }
     output = *parsed;
@@ -687,11 +714,11 @@ private:
 [[nodiscard]] bool readEnum(
     const JsonValue::Object& object,
     const std::string_view key,
-    const std::string_view fallback,
+    const std::string_view section,
     std::string& output,
     std::string& error)
 {
-    return readString(object, key, fallback, output, error);
+    return readString(object, key, section, output, error);
 }
 
 [[nodiscard]] bool parseRenderMode(
@@ -770,7 +797,7 @@ private:
     return false;
 }
 
-[[nodiscard]] bool readNestedObject(
+[[nodiscard]] bool readRequiredObject(
     const JsonValue::Object& parent,
     const std::string_view key,
     const JsonValue::Object*& output,
@@ -779,8 +806,10 @@ private:
     const JsonValue* value = member(parent, key);
     if (value == nullptr)
     {
-        output = nullptr;
-        return true;
+        error = "config section '" + std::string(key)
+            + "' is required by schema "
+            + std::to_string(currentSchemaVersion);
+        return false;
     }
     output = objectOf(*value);
     if (output == nullptr)
@@ -820,18 +849,17 @@ private:
     const JsonValue::Object* input = nullptr;
     const JsonValue::Object* performance = nullptr;
     const JsonValue::Object* system = nullptr;
-    if (!readNestedObject(root, "effects", effects, error)
-        || !readNestedObject(root, "background", background, error)
-        || !readNestedObject(root, "display", display, error)
-        || !readNestedObject(root, "input", input, error)
-        || !readNestedObject(root, "performance", performance, error)
-        || !readNestedObject(root, "system", system, error))
+    if (!readRequiredObject(root, "effects", effects, error)
+        || !readRequiredObject(root, "background", background, error)
+        || !readRequiredObject(root, "display", display, error)
+        || !readRequiredObject(root, "input", input, error)
+        || !readRequiredObject(root, "performance", performance, error)
+        || !readRequiredObject(root, "system", system, error))
     {
         return config;
     }
 
-    if ((effects != nullptr
-            && !validateKnownMembers(
+    if (!validateKnownMembers(
                 *effects,
                 {
                     "enabled",
@@ -843,21 +871,18 @@ private:
                     "bloomIntensity",
                     "bloomQuality"},
                 "effects",
-                error))
-        || (background != nullptr
-            && !validateKnownMembers(
+                error)
+        || !validateKnownMembers(
                 *background,
                 {"mode", "cursorExcluded", "allowSystemBorder"},
                 "background",
-                error))
-        || (display != nullptr
-            && !validateKnownMembers(
+                error)
+        || !validateKnownMembers(
                 *display,
                 {"hdrEnabled"},
                 "display",
-                error))
-        || (input != nullptr
-            && !validateKnownMembers(
+                error)
+        || !validateKnownMembers(
                 *input,
                 {
                     "leftClick",
@@ -866,145 +891,170 @@ private:
                     "trailOnlyWhilePressed",
                     "samplingRateHz"},
                 "input",
-                error))
-        || (performance != nullptr
-            && !validateKnownMembers(
+                error)
+        || !validateKnownMembers(
                 *performance,
                 {"idleOptimization", "framePacing"},
                 "performance",
-                error))
-        || (system != nullptr
-            && !validateKnownMembers(
+                error)
+        || !validateKnownMembers(
                 *system,
                 {"startWithWindows", "startMinimized", "closeToTray"},
                 "system",
-                error)))
+                error))
     {
         return config;
     }
 
-    if (effects != nullptr)
+    if (!readBool(*effects, "enabled", "effects", config.effects.enabled, error)
+        || !readFloat(
+            *effects,
+            "globalScale",
+            "effects",
+            config.effects.globalScale,
+            error)
+        || !readBool(
+            *effects,
+            "clickEnabled",
+            "effects",
+            config.effects.clickEnabled,
+            error)
+        || !readBool(
+            *effects,
+            "trailEnabled",
+            "effects",
+            config.effects.trailEnabled,
+            error)
+        || !readFloat(
+            *effects,
+            "trailLength",
+            "effects",
+            config.effects.trailLength,
+            error)
+        || !readFloat(
+            *effects,
+            "trailWidth",
+            "effects",
+            config.effects.trailWidth,
+            error)
+        || !readFloat(
+            *effects,
+            "bloomIntensity",
+            "effects",
+            config.effects.bloomIntensity,
+            error))
     {
-        if (!readBool(*effects, "enabled", config.effects.enabled, config.effects.enabled, error)
-            || !readFloat(*effects, "globalScale", config.effects.globalScale, config.effects.globalScale, error)
-            || !readBool(*effects, "clickEnabled", config.effects.clickEnabled, config.effects.clickEnabled, error)
-            || !readBool(*effects, "trailEnabled", config.effects.trailEnabled, config.effects.trailEnabled, error)
-            || !readFloat(*effects, "trailLength", config.effects.trailLength, config.effects.trailLength, error)
-            || !readFloat(*effects, "trailWidth", config.effects.trailWidth, config.effects.trailWidth, error)
-            || !readFloat(*effects, "bloomIntensity", config.effects.bloomIntensity, config.effects.bloomIntensity, error))
-        {
-            return config;
-        }
-        std::string quality;
-        if (!readEnum(*effects, "bloomQuality", toString(config.effects.bloomQuality), quality, error)
-            || !parseBloomQuality(quality, config.effects.bloomQuality))
-        {
-            error = "config field 'effects.bloomQuality' has an unknown value";
-            return config;
-        }
+        return config;
+    }
+    std::string quality;
+    if (!readEnum(*effects, "bloomQuality", "effects", quality, error))
+    {
+        return config;
+    }
+    if (!parseBloomQuality(quality, config.effects.bloomQuality))
+    {
+        error = "config field 'effects.bloomQuality' has an unknown value";
+        return config;
     }
 
-    if (background != nullptr)
+    if (!readBool(
+            *background,
+            "cursorExcluded",
+            "background",
+            config.background.cursorExcluded,
+            error)
+        || !readBool(
+            *background,
+            "allowSystemBorder",
+            "background",
+            config.background.allowSystemBorder,
+            error))
     {
-        if (!readBool(
-                *background,
-                "cursorExcluded",
-                config.background.cursorExcluded,
-                config.background.cursorExcluded,
-                error)
-            || !readBool(
-                *background,
-                "allowSystemBorder",
-                config.background.allowSystemBorder,
-                config.background.allowSystemBorder,
-                error))
-        {
-            return config;
-        }
-        std::string mode;
-        if (!readEnum(*background, "mode", toString(config.background.mode), mode, error)
-            || !parseRenderMode(mode, config.background.mode))
-        {
-            error = "config field 'background.mode' has an unknown value";
-            return config;
-        }
+        return config;
+    }
+    std::string mode;
+    if (!readEnum(*background, "mode", "background", mode, error))
+    {
+        return config;
+    }
+    if (!parseRenderMode(mode, config.background.mode))
+    {
+        error = "config field 'background.mode' has an unknown value";
+        return config;
     }
 
-    if (display != nullptr
-        && !readBool(
+    if (!readBool(
             *display,
             "hdrEnabled",
-            config.display.hdrEnabled,
+            "display",
             config.display.hdrEnabled,
             error))
     {
         return config;
     }
 
-    if (input != nullptr
-        && (!readBool(*input, "leftClick", config.input.leftClick, config.input.leftClick, error)
-            || !readBool(*input, "rightClick", config.input.rightClick, config.input.rightClick, error)
-            || !readBool(*input, "middleClick", config.input.middleClick, config.input.middleClick, error)
-            || !readBool(
-                *input,
-                "trailOnlyWhilePressed",
-                config.input.trailOnlyWhilePressed,
-                config.input.trailOnlyWhilePressed,
-                error)
-            || !readUnsignedInteger(
-                *input,
-                "samplingRateHz",
-                config.input.samplingRateHz,
-                config.input.samplingRateHz,
-                error)))
+    if (!readBool(*input, "leftClick", "input", config.input.leftClick, error)
+        || !readBool(*input, "rightClick", "input", config.input.rightClick, error)
+        || !readBool(*input, "middleClick", "input", config.input.middleClick, error)
+        || !readBool(
+            *input,
+            "trailOnlyWhilePressed",
+            "input",
+            config.input.trailOnlyWhilePressed,
+            error)
+        || !readUnsignedInteger(
+            *input,
+            "samplingRateHz",
+            "input",
+            config.input.samplingRateHz,
+            error))
     {
         return config;
     }
 
-    if (performance != nullptr)
+    if (!readBool(
+            *performance,
+            "idleOptimization",
+            "performance",
+            config.performance.idleOptimization,
+            error))
     {
-        if (!readBool(
-                *performance,
-                "idleOptimization",
-                config.performance.idleOptimization,
-                config.performance.idleOptimization,
-                error))
-        {
-            return config;
-        }
-        std::string pacing;
-        if (!readEnum(
-                *performance,
-                "framePacing",
-                toString(config.performance.framePacing),
-                pacing,
-                error)
-            || !parseFramePacing(pacing, config.performance.framePacing))
-        {
-            error = "config field 'performance.framePacing' has an unknown value";
-            return config;
-        }
+        return config;
+    }
+    std::string pacing;
+    if (!readEnum(
+            *performance,
+            "framePacing",
+            "performance",
+            pacing,
+            error))
+    {
+        return config;
+    }
+    if (!parseFramePacing(pacing, config.performance.framePacing))
+    {
+        error = "config field 'performance.framePacing' has an unknown value";
+        return config;
     }
 
-    if (system != nullptr
-        && (!readBool(
-                *system,
-                "startWithWindows",
-                config.system.startWithWindows,
-                config.system.startWithWindows,
-                error)
-            || !readBool(
-                *system,
-                "startMinimized",
-                config.system.startMinimized,
-                config.system.startMinimized,
-                error)
-            || !readBool(
-                *system,
-                "closeToTray",
-                config.system.closeToTray,
-                config.system.closeToTray,
-                error)))
+    if (!readBool(
+            *system,
+            "startWithWindows",
+            "system",
+            config.system.startWithWindows,
+            error)
+        || !readBool(
+            *system,
+            "startMinimized",
+            "system",
+            config.system.startMinimized,
+            error)
+        || !readBool(
+            *system,
+            "closeToTray",
+            "system",
+            config.system.closeToTray,
+            error))
     {
         return config;
     }

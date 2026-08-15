@@ -158,8 +158,9 @@ Visual Studio、Windows SDK、Inno Setup 或 PowerShell 依赖包；安装器已
 首次生成的 schema 8 配置将 `background.mode` 设为 `background-aware`、
 `background.allowSystemBorder` 设为 `true`、`display.hdrEnabled` 设为 `false`，并以
 `input.trailOnlyWhilePressed=true`、`input.samplingRateHz=0` 保持按住拖尾且不额外限频。
-测试版只接受显式 `schemaVersion=8`：缺少版本、schema 1--7、未来版本和旧枚举别名都会被拒绝，
-Host 记录错误后仅在内存中使用当前默认值，不迁移也不改写原文件。只有
+测试版只接受字段完整的显式 `schemaVersion=8`：缺少版本、section 或字段，schema 1--7、未来版本、
+旧字段和旧枚举别名都会被拒绝。Host 记录错误后仅在内存中使用当前默认值，不补齐、不迁移也不改写
+原文件。只有
 `background-aware` 会启用 WGC；WGC 或捕获排除路径失败时，Host 将当前批次回退到内部
 FX-only coverage transport，支持报告仍记为 `fallback-fx-only`。这个故障回退不是一个可选的产品模式，
 也不会把背景感知配置改写成其他模式。

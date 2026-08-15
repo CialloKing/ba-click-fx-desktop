@@ -239,20 +239,30 @@ BAFX_TEST(config_parser_rejects_non_current_schemas)
     }
 }
 
-BAFX_TEST(config_current_schema_preserves_an_explicit_hidden_system_border)
+BAFX_TEST(config_current_schema_requires_every_section_and_field)
 {
-    const auto result = bafx::config::parseJson(R"json(
-        {
-            "schemaVersion": 8,
-            "background": {
-                "mode": "background-aware",
-                "cursorExcluded": true,
-                "allowSystemBorder": false
-            }
-        }
-    )json");
-    BAFX_CHECK(result.status == bafx::config::ConfigStatus::Ok);
-    BAFX_CHECK(!result.config.background.allowSystemBorder);
+    const auto missingSection = bafx::config::parseJson(
+        R"json({"schemaVersion":8})json");
+    BAFX_CHECK(
+        missingSection.status == bafx::config::ConfigStatus::ValidationError);
+    BAFX_CHECK(
+        missingSection.message.find("config section 'effects' is required")
+        != std::string::npos);
+
+    bafx::config::Config config = bafx::config::defaultConfig();
+    config.background.allowSystemBorder = false;
+    std::string document = bafx::config::toJson(config, false);
+    const std::string field = R"json("hdrEnabled":false)json";
+    const std::size_t fieldPosition = document.find(field);
+    BAFX_CHECK(fieldPosition != std::string::npos);
+    document.erase(fieldPosition, field.size());
+
+    const auto missingField = bafx::config::parseJson(document);
+    BAFX_CHECK(
+        missingField.status == bafx::config::ConfigStatus::ValidationError);
+    BAFX_CHECK(
+        missingField.message.find("config field 'display.hdrEnabled' is required")
+        != std::string::npos);
 }
 
 BAFX_TEST(config_parser_rejects_invalid_documents_and_values)
@@ -269,8 +279,10 @@ BAFX_TEST(config_parser_rejects_invalid_documents_and_values)
         R"json({"schemaVersion":8,"schemaVersion":8})json");
     BAFX_CHECK(duplicateKey.status == bafx::config::ConfigStatus::ParseError);
 
+    bafx::config::Config invalidConfig = bafx::config::defaultConfig();
+    invalidConfig.effects.globalScale = 9.0F;
     const auto invalidScale = bafx::config::parseJson(
-        R"json({"schemaVersion":8,"effects":{"globalScale":9.0}})json");
+        bafx::config::toJson(invalidConfig, false));
     BAFX_CHECK(invalidScale.status == bafx::config::ConfigStatus::ValidationError);
 
     const auto malformed = bafx::config::parseJson(
