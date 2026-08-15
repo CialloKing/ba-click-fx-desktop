@@ -973,7 +973,47 @@ int runApplication(
                         && config.effects.trailEnabled
                         && !config.input.trailOnlyWhilePressed,
                     simulationTimeline.fromWallTime(clock.now()));
-                renderer.setBloomSettings(makeBloomSettings(config.effects));
+                const bafx::windows::GraphicsDeviceInfo previousDeviceInfo =
+                    renderer.deviceInfo();
+                const bool bloomDeviceRecovered = renderer.setBloomSettings(
+                    makeBloomSettings(config.effects));
+                if (bloomDeviceRecovered)
+                {
+                    deviceRecoveryConsumed = true;
+                    report.setDeviceInfo(renderer.deviceInfo());
+                    const bool adapterChanged =
+                        previousDeviceInfo.adapterLuid.LowPart
+                            != renderer.deviceInfo().adapterLuid.LowPart
+                        || previousDeviceInfo.adapterLuid.HighPart
+                            != renderer.deviceInfo().adapterLuid.HighPart;
+                    const bool retryEligible =
+                        config.background.mode
+                            == bafx::config::RenderMode::BackgroundAware
+                        && !adapterChanged
+                        && renderer.deviceInfo().driverType
+                            == bafx::windows::GraphicsDriverType::Hardware;
+                    if (retryEligible)
+                    {
+                        if (backgroundRetryToken
+                            == std::numeric_limits<std::uint64_t>::max())
+                        {
+                            throw std::runtime_error(
+                                "WGC retry token exhausted after Bloom resource recovery");
+                        }
+                        ++backgroundRetryToken;
+                    }
+                    const std::array recoveryFields{
+                        bafx::windows::DiagnosticField{
+                            "Adapter",
+                            adapterChanged ? "changed" : "same"},
+                        bafx::windows::DiagnosticField{
+                            "WgcRetry",
+                            retryEligible ? "scheduled" : "blocked"}};
+                    bafx::windows::appendDiagnosticEvent(
+                        logPath,
+                        "Graphics.DeviceRecovery.BloomSettingsSucceeded",
+                        recoveryFields);
+                }
             }
             const bafx::windows::BackgroundCaptureRequest nextBackgroundRequest =
                 bafx::desktop::backgroundCaptureRequest(

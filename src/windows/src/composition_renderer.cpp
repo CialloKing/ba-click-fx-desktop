@@ -382,6 +382,12 @@ bool CompositionRenderer::tryRecoverDevice() noexcept
             bloomSettings_);
         fxRenderer_->setOverlayProfile(overlayProfile_);
         setReadbackDiagnostics(readbackDiagnosticsEnabled_);
+        backgroundCaptureAfterRecoveryAllowed_ =
+            previousDeviceInfo.adapterLuid.LowPart
+                == deviceInfo_.adapterLuid.LowPart
+            && previousDeviceInfo.adapterLuid.HighPart
+                == deviceInfo_.adapterLuid.HighPart
+            && deviceInfo_.driverType == GraphicsDriverType::Hardware;
         return true;
     }
     catch (...)
@@ -476,10 +482,28 @@ OutputResizeStatus CompositionRenderer::resizeOutput(const WindowSize size)
     }
 }
 
-void CompositionRenderer::setBloomSettings(const FxBloomSettings settings)
+bool CompositionRenderer::setBloomSettings(const FxBloomSettings settings)
 {
     bloomSettings_ = settings;
-    fxRenderer_->setBloomSettings(settings);
+    try
+    {
+        fxRenderer_->setBloomSettings(settings);
+        return false;
+    }
+    catch (const HResultError& error)
+    {
+        if (!isDeviceLostResult(error.result()))
+        {
+            throw;
+        }
+        if (!tryRecoverDevice())
+        {
+            throw;
+        }
+        // tryRecoverDevice constructs the replacement renderer from the
+        // already-updated bloomSettings_ value.
+        return true;
+    }
 }
 
 void CompositionRenderer::releaseDeviceResources() noexcept
@@ -851,7 +875,8 @@ bool CompositionRenderer::tryEnableBackgroundCapture(
     backgroundSystemBorderAllowed_ = allowSystemBorder;
     backgroundCaptureRequested_ = exclusionConfirmed
         && monitor != nullptr
-        && deviceInfo_.driverType == GraphicsDriverType::Hardware;
+        && deviceInfo_.driverType == GraphicsDriverType::Hardware
+        && backgroundCaptureAfterRecoveryAllowed_;
     backgroundMonitor_ = backgroundCaptureRequested_ ? monitor : nullptr;
     backgroundRefreshPeriod_ = bafx::core::MonotonicTime::zero();
     if (!backgroundCaptureRequested_)
@@ -867,6 +892,11 @@ bool CompositionRenderer::tryEnableBackgroundCapture(
         else if (deviceInfo_.driverType != GraphicsDriverType::Hardware)
         {
             setBackgroundCaptureFailure("WGC requires a hardware D3D11 device");
+        }
+        else if (!backgroundCaptureAfterRecoveryAllowed_)
+        {
+            setBackgroundCaptureFailure(
+                "WGC restart requires a process restart after graphics adapter change");
         }
         return false;
     }

@@ -171,7 +171,7 @@ public:
     // stopped first so no old-device frame or snapshot can cross the boundary.
     [[nodiscard]] bool tryRecoverDevice() noexcept;
     [[nodiscard]] std::string_view deviceRecoveryFailure() const noexcept;
-    void setBloomSettings(FxBloomSettings settings);
+    [[nodiscard]] bool setBloomSettings(FxBloomSettings settings);
     void setOverlayProfile(FxOverlayProfile profile);
     CompositionFrameDiagnostics renderFrame(
         const bafx::fx::FrameSnapshot& snapshot,
@@ -276,6 +276,7 @@ private:
     std::shared_ptr<WgcBackgroundResourceLedger> backgroundResourceLedger_{};
     std::uint64_t frameId_{0U};
     bool deviceRecoveryAttempted_{false};
+    bool backgroundCaptureAfterRecoveryAllowed_{true};
 };
 
 }
