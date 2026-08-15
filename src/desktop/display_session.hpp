@@ -121,7 +121,8 @@ public:
     void acceptAppliedTarget(DisplayTarget target, HWND wakeWindow) noexcept;
     // Refreshes DPI, cadence and primary-role metadata when the stable source
     // and render geometry have not changed.
-    void updateTargetMetadata(DisplayTarget target) noexcept;
+    [[nodiscard]] bafx::windows::BackgroundCadenceRefreshResult
+        updateTargetMetadata(DisplayTarget target) noexcept;
     // Secondary sessions currently retarget their FX-only resource domain
     // without entering the coordinator's WGC transaction.
     [[nodiscard]] DisplaySessionRetargetResult retargetFxOnly(

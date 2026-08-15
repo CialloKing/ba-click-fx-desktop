@@ -246,7 +246,7 @@ DisplaySessionReconcileResult DisplaySessionManager::reconcileSecondaries(
                     target);
             if (metadataChanged)
             {
-                existing->updateTargetMetadata(target);
+                static_cast<void>(existing->updateTargetMetadata(target));
             }
             if (boundsCorrected || metadataChanged)
             {

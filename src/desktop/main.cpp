@@ -3219,7 +3219,8 @@ int runApplication(
                 // physical fullscreen bounds without restarting a stable WGC
                 // target; any actual size correction is consumed below.
                 appliedDisplayTarget = stabilizedObservedTarget;
-                displaySession.updateTargetMetadata(appliedDisplayTarget);
+                const bafx::windows::BackgroundCadenceRefreshResult cadence =
+                    displaySession.updateTargetMetadata(appliedDisplayTarget);
                 window.setBounds(appliedDisplayTarget.bounds);
                 appliedDisplayDpi = window.effectiveDpi();
                 report.setPrimaryDpi(appliedDisplayDpi);
@@ -3233,9 +3234,6 @@ int runApplication(
                     report.setPrimaryRefreshRate({});
                 }
 
-                const bafx::windows::BackgroundCadenceRefreshResult
-                    cadence = renderer.refreshBackgroundCadence(
-                        appliedDisplayTarget.monitor);
                 const auto cadenceStatusName = [](const auto status)
                     -> std::string_view
                 {
