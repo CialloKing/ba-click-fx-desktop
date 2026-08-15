@@ -52,6 +52,28 @@ enum class GraphicsDriverType : std::uint8_t
     Warp
 };
 
+enum class CompositionOutputTransfer : std::uint8_t
+{
+    Unknown,
+    LinearScRgb,
+    SdrGamma22
+};
+
+enum class CompositionOutputFallback : std::uint8_t
+{
+    None,
+    ConservativeSdr
+};
+
+struct CompositionOutputState final
+{
+    DXGI_FORMAT format{DXGI_FORMAT_UNKNOWN};
+    DXGI_COLOR_SPACE_TYPE colorSpace{DXGI_COLOR_SPACE_CUSTOM};
+    CompositionOutputTransfer transfer{CompositionOutputTransfer::Unknown};
+    CompositionOutputFallback fallback{CompositionOutputFallback::None};
+    bool extendedPremultiplied{false};
+};
+
 enum class BackgroundCompositeStatus : std::uint8_t
 {
     Inactive,
@@ -129,6 +151,9 @@ struct GraphicsDeviceInfo
     D3D_FEATURE_LEVEL featureLevel{D3D_FEATURE_LEVEL_11_0};
     bool requestedAdapterFound{false};
     bool requestedAdapterMatched{false};
+    // Keep the active swap-chain contract in the existing resource-domain
+    // snapshot so every device rebuild refreshes support diagnostics atomically.
+    CompositionOutputState output{};
 };
 
 struct RoiFrameDiagnostics
@@ -278,6 +303,7 @@ public:
     [[nodiscard]] HANDLE backgroundFrameAvailableObject() const noexcept;
     [[nodiscard]] D3D_FEATURE_LEVEL featureLevel() const noexcept;
     [[nodiscard]] const GraphicsDeviceInfo& deviceInfo() const noexcept;
+    [[nodiscard]] const CompositionOutputState& outputState() const noexcept;
     [[nodiscard]] std::optional<PixelF> lastCenterPixel() const noexcept;
 
 private:

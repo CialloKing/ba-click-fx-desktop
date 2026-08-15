@@ -24,8 +24,12 @@ namespace
 {
 
 constexpr UINT swapChainFlags = DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT;
-constexpr DXGI_COLOR_SPACE_TYPE swapChainColorSpace =
-    DXGI_COLOR_SPACE_RGB_FULL_G10_NONE_P709;
+constexpr CompositionOutputState scRgbOutputState{
+    DXGI_FORMAT_R16G16B16A16_FLOAT,
+    DXGI_COLOR_SPACE_RGB_FULL_G10_NONE_P709,
+    CompositionOutputTransfer::LinearScRgb,
+    CompositionOutputFallback::None,
+    true};
 constexpr bafx::core::MonotonicTime minimumBackgroundCadencePeriod =
     std::chrono::nanoseconds(16'666'667);
 constexpr bafx::core::MonotonicTime minimumBackgroundAcquireLifetime =
@@ -431,6 +435,9 @@ bool CompositionRenderer::tryRecoverDevice() noexcept
         }
         releaseDeviceResources();
         deviceInfo_ = std::move(previousDeviceInfo);
+        // Preserve the failed adapter context, but never describe the released
+        // swap chain as an active output transport.
+        deviceInfo_.output = CompositionOutputState{};
         deviceRecoveryDiagnostics_.total =
             std::chrono::steady_clock::now() - recoveryStartedAt;
         return false;
@@ -629,6 +636,7 @@ void CompositionRenderer::releaseDeviceResources() noexcept
     swapChain_.Reset();
     context_.Reset();
     device_.Reset();
+    deviceInfo_.output = CompositionOutputState{};
 }
 
 void CompositionRenderer::setOverlayProfile(const FxOverlayProfile profile)
@@ -1370,6 +1378,11 @@ const GraphicsDeviceInfo& CompositionRenderer::deviceInfo() const noexcept
     return deviceInfo_;
 }
 
+const CompositionOutputState& CompositionRenderer::outputState() const noexcept
+{
+    return deviceInfo_.output;
+}
+
 std::optional<PixelF> CompositionRenderer::lastCenterPixel() const noexcept
 {
     return lastCenterPixel_;
@@ -1550,7 +1563,7 @@ void CompositionRenderer::createSwapChain(const WindowSize size)
     DXGI_SWAP_CHAIN_DESC1 description{};
     description.Width = size.width;
     description.Height = size.height;
-    description.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
+    description.Format = scRgbOutputState.format;
     description.Stereo = FALSE;
     description.SampleDesc = DXGI_SAMPLE_DESC{1, 0};
     description.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
@@ -1572,7 +1585,9 @@ void CompositionRenderer::createSwapChain(const WindowSize size)
 
     UINT colorSpaceSupport = 0U;
     throwIfFailed(
-        swapChain_->CheckColorSpaceSupport(swapChainColorSpace, &colorSpaceSupport),
+        swapChain_->CheckColorSpaceSupport(
+            scRgbOutputState.colorSpace,
+            &colorSpaceSupport),
         "IDXGISwapChain3::CheckColorSpaceSupport(scRGB)");
     if ((colorSpaceSupport & DXGI_SWAP_CHAIN_COLOR_SPACE_SUPPORT_FLAG_PRESENT) == 0U)
     {
@@ -1583,7 +1598,7 @@ void CompositionRenderer::createSwapChain(const WindowSize size)
             "IDXGISwapChain3::CheckColorSpaceSupport(scRGB present)");
     }
     throwIfFailed(
-        swapChain_->SetColorSpace1(swapChainColorSpace),
+        swapChain_->SetColorSpace1(scRgbOutputState.colorSpace),
         "IDXGISwapChain3::SetColorSpace1(scRGB)");
     throwIfFailed(swapChain_->SetMaximumFrameLatency(1), "IDXGISwapChain2::SetMaximumFrameLatency");
 
@@ -1593,6 +1608,9 @@ void CompositionRenderer::createSwapChain(const WindowSize size)
         throwLastError("IDXGISwapChain2::GetFrameLatencyWaitableObject");
     }
 
+    // Publish only a fully configured swap chain. A later SDR fallback can use
+    // the same boundary without exposing a format whose shader contract failed.
+    deviceInfo_.output = scRgbOutputState;
 }
 
 void CompositionRenderer::createComposition(const HWND window)

@@ -415,6 +415,50 @@ void appendDiagnosticRecordUnlocked(
     return type == GraphicsDriverType::Warp ? "WARP" : "Hardware";
 }
 
+[[nodiscard]] std::string_view outputFormatName(
+    const DXGI_FORMAT format) noexcept
+{
+    switch (format)
+    {
+    case DXGI_FORMAT_R16G16B16A16_FLOAT:
+        return "r16g16b16a16-float";
+    case DXGI_FORMAT_B8G8R8A8_UNORM:
+        return "b8g8r8a8-unorm";
+    case DXGI_FORMAT_UNKNOWN:
+        return "unknown";
+    default:
+        return "other";
+    }
+}
+
+[[nodiscard]] std::string_view outputTransferName(
+    const CompositionOutputTransfer transfer) noexcept
+{
+    switch (transfer)
+    {
+    case CompositionOutputTransfer::Unknown:
+        return "unknown";
+    case CompositionOutputTransfer::LinearScRgb:
+        return "linear-scrgb";
+    case CompositionOutputTransfer::SdrGamma22:
+        return "sdr-gamma22";
+    }
+    return "unknown";
+}
+
+[[nodiscard]] std::string_view outputFallbackName(
+    const CompositionOutputFallback fallback) noexcept
+{
+    switch (fallback)
+    {
+    case CompositionOutputFallback::None:
+        return "none";
+    case CompositionOutputFallback::ConservativeSdr:
+        return "conservative-sdr";
+    }
+    return "unknown";
+}
+
 [[nodiscard]] std::string_view colorSpaceName(
     const DXGI_COLOR_SPACE_TYPE colorSpace) noexcept
 {
@@ -791,6 +835,27 @@ std::string SupportReport::serialize() const
                << driverVersion(deviceInfo_.driverVersion) << '\n'
                << "Graphics.FeatureLevel="
                << featureLevel(deviceInfo_.featureLevel) << '\n'
+               << "Graphics.OutputFormat="
+               << outputFormatName(deviceInfo_.output.format) << '\n'
+               << "Graphics.OutputFormatValue="
+               << hex32(static_cast<std::uint32_t>(
+                      deviceInfo_.output.format))
+               << '\n'
+               << "Graphics.OutputColorSpace="
+               << colorSpaceName(deviceInfo_.output.colorSpace) << '\n'
+               << "Graphics.OutputColorSpaceValue="
+               << hex32(static_cast<std::uint32_t>(
+                      deviceInfo_.output.colorSpace))
+               << '\n'
+               << "Graphics.OutputTransfer="
+               << outputTransferName(deviceInfo_.output.transfer) << '\n'
+               << "Graphics.OutputExtendedPremultiplied="
+               << (deviceInfo_.output.extendedPremultiplied
+                       ? "true"
+                       : "false")
+               << '\n'
+               << "Graphics.OutputFallback="
+               << outputFallbackName(deviceInfo_.output.fallback) << '\n'
                << "Graphics.HardwareCreateHResult="
                << hex32(static_cast<std::uint32_t>(deviceInfo_.hardwareCreateResult)) << '\n'
                << "Graphics.HardwareFallback="
