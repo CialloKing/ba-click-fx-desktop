@@ -101,6 +101,12 @@ public:
         std::optional<WindowSize> outputSize) noexcept;
     [[nodiscard]] BackgroundCaptureRequestResult beginRequest(
         BackgroundCaptureRequest request) noexcept;
+    // Display power loss is an expected lifecycle boundary rather than a WGC
+    // failure. Preserve the requested capture contract while parking the
+    // effective path in FX-only until an explicit recovery advances its token.
+    [[nodiscard]] BackgroundCaptureRequestResult beginPowerSuspension(
+        BackgroundCaptureRequest request,
+        std::optional<WindowSize> outputSize = std::nullopt) noexcept;
     [[nodiscard]] bool beginFramePoolRecreate(WindowSize captureSize) noexcept;
     [[nodiscard]] bool beginSessionStopped() noexcept;
     [[nodiscard]] bool beginCaptureExclusionLost() noexcept;

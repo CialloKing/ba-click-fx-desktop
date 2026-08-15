@@ -110,6 +110,60 @@ BackgroundCaptureRequestResult BackgroundCaptureTransition::beginRequest(
     return beginIntent(request, std::nullopt);
 }
 
+BackgroundCaptureRequestResult
+BackgroundCaptureTransition::beginPowerSuspension(
+    const BackgroundCaptureRequest request,
+    const std::optional<WindowSize> outputSize) noexcept
+{
+    if (!isValidBackgroundCaptureRequest(request)
+        || !request.sensorRequired)
+    {
+        return BackgroundCaptureRequestResult::InvalidRequest;
+    }
+    if (outputSize.has_value()
+        && (outputSize->width == 0U || outputSize->height == 0U))
+    {
+        return BackgroundCaptureRequestResult::InvalidRequest;
+    }
+    if (transitioning())
+    {
+        return BackgroundCaptureRequestResult::Busy;
+    }
+
+    const bool stableSuspension = request_.has_value()
+        && equivalentStableRequest(*request_, request)
+        && effectivePath_ != EffectiveBackgroundCapturePath::BackgroundAware;
+    request_ = request;
+    if (stableSuspension && !outputSize.has_value())
+    {
+        return BackgroundCaptureRequestResult::NoChange;
+    }
+
+    actionCount_ = 0U;
+    actionIndex_ = 0U;
+    pendingFailure_ = sensorRestartBlocked_
+        ? BackgroundCaptureFailure::SensorStopFailed
+        : BackgroundCaptureFailure::None;
+    completionPath_ = EffectiveBackgroundCapturePath::FxOnly;
+    completionVisibilityUnknown_ = false;
+
+    // Stop before resizing because WGC textures and the output share one D3D
+    // resource domain. Including the HWND prevents a parked overlay from
+    // remaining invisible to external capture while no background is sampled.
+    appendAction(simpleAction(BackgroundCaptureActionKind::StopSensor));
+    appendAction(simpleAction(BackgroundCaptureActionKind::SetAffinityIncluded));
+    if (outputSize.has_value())
+    {
+        appendAction(resizeAction(*outputSize));
+    }
+    if (!appliedOverlayProfile_.has_value()
+        || *appliedOverlayProfile_ != FxOverlayProfile::FxOnlyFallback)
+    {
+        appendAction(profileAction(FxOverlayProfile::FxOnlyFallback));
+    }
+    return BackgroundCaptureRequestResult::Started;
+}
+
 BackgroundCaptureRequestResult BackgroundCaptureTransition::beginIntent(
     const BackgroundCaptureRequest request,
     const std::optional<WindowSize> outputSize) noexcept
