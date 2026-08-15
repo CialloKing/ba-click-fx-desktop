@@ -252,6 +252,10 @@ BackgroundCaptureExecutionResult executeBackgroundCaptureTransition(
                 action->kind,
                 false,
                 std::chrono::steady_clock::now() - actionStartedAt);
+            appendBackgroundCaptureResourceLedger(
+                logPath,
+                renderer,
+                "action-failed");
             throw;
         }
         appendBackgroundCaptureActionEnd(
@@ -264,12 +268,20 @@ BackgroundCaptureExecutionResult executeBackgroundCaptureTransition(
 
         if (!transition.applyObservation(*action, succeeded))
         {
+            appendBackgroundCaptureResourceLedger(
+                logPath,
+                renderer,
+                "transition-rejected");
             throw std::logic_error(
                 "Background capture transition rejected its current action");
         }
     }
     if (transition.transitioning())
     {
+        appendBackgroundCaptureResourceLedger(
+            logPath,
+            renderer,
+            "budget-exceeded");
         throw std::logic_error(
             "Background capture transition exceeded its fixed action budget");
     }
