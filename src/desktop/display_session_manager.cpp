@@ -35,6 +35,40 @@ constexpr std::uint64_t sessionSeedStep = 0x9E3779B97F4A7C15ULL;
             && left->source == right->source);
 }
 
+[[nodiscard]] bool physicalTargetIdentityResolutionImproved(
+    const DisplayTarget& previous,
+    const DisplayTarget& current) noexcept
+{
+    if (previous.physicalTargetIdentities.size()
+        != current.physicalTargetIdentities.size())
+    {
+        return false;
+    }
+    bool improved = false;
+    for (std::size_t index = 0U;
+         index < previous.physicalTargetIdentities.size();
+         ++index)
+    {
+        const DisplayPhysicalTargetIdentity& oldIdentity =
+            previous.physicalTargetIdentities[index];
+        const DisplayPhysicalTargetIdentity& newIdentity =
+            current.physicalTargetIdentities[index];
+        if (!oldIdentity.devicePath.empty()
+            && newIdentity.devicePath.empty())
+        {
+            // Keep the last authoritative path while any cloned target is in
+            // a transiently incomplete DisplayConfig snapshot.
+            return false;
+        }
+        if (oldIdentity.devicePath.empty()
+            && !newIdentity.devicePath.empty())
+        {
+            improved = true;
+        }
+    }
+    return improved;
+}
+
 }
 
 DisplaySessionManager::DisplaySessionManager(
@@ -184,7 +218,10 @@ DisplaySessionReconcileResult DisplaySessionManager::reconcileSecondaries(
                     target.captureRefreshRate)
                 || existing->target().primary != target.primary
                 || existing->target().physicalTargetCount
-                    != target.physicalTargetCount;
+                    != target.physicalTargetCount
+                || physicalTargetIdentityResolutionImproved(
+                    existing->target(),
+                    target);
             if (metadataChanged)
             {
                 existing->updateTargetMetadata(target);
