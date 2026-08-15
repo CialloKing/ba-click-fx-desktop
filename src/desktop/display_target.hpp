@@ -219,6 +219,11 @@ struct DisplayTargetIntent
 {
     DisplayTarget target{};
     bool applyBounds{false};
+    // A display migration must carry the target monitor's resolved transport
+    // through any asynchronous WGC permission wait. Omitting it preserves the
+    // current swap-chain contract for size-only and capture-only transactions.
+    std::optional<bafx::windows::CompositionOutputPreference>
+        outputPreference{};
 };
 
 [[nodiscard]] inline bool sameDisplayTargetIntent(
@@ -226,6 +231,7 @@ struct DisplayTargetIntent
     const DisplayTargetIntent& right) noexcept
 {
     return left.applyBounds == right.applyBounds
+        && left.outputPreference == right.outputPreference
         && sameDisplayTarget(left.target, right.target)
         && sameDisplaySourceIdentity(left.target, right.target);
 }

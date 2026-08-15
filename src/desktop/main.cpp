@@ -2560,6 +2560,7 @@ int runApplication(
                         requestedPreference,
                         displaySession.colorCapabilities());
             const bool outputContractChanged = scheduleOutputRenegotiation
+                && renderer.outputPreference() != currentPreference
                 && displayOutputContractChanged(
                     previousPreference,
                     currentPreference,
@@ -3947,11 +3948,21 @@ int runApplication(
                 bafx::desktop::backgroundCaptureRequest(
                     config,
                     backgroundRetryToken);
+            const std::optional<
+                bafx::windows::CompositionOutputPreference>
+                targetOutputPreference = displayTargetChanged
+                ? std::optional<bafx::windows::CompositionOutputPreference>(
+                    bafx::desktop::resolveDisplayOutputPreference(
+                        displaySession.requestedOutputPreference(),
+                        bafx::windows::queryDisplayColorCapabilities(
+                            pendingDisplayTarget->monitor)))
+                : std::nullopt;
             const bafx::desktop::DisplayTargetIntent targetIntent{
                 displayTargetChanged
                     ? *pendingDisplayTarget
                     : appliedDisplayTarget,
-                displayTargetChanged};
+                displayTargetChanged,
+                targetOutputPreference};
             const std::optional<bafx::windows::WindowSize> outputIntent =
                 displayTargetChanged
                     ? std::optional<bafx::windows::WindowSize>(

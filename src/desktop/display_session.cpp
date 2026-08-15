@@ -26,6 +26,8 @@ struct DisplaySessionBackgroundCaptureState final
     std::string pendingSensorFailure{};
     CaptureExclusionHealthPoller exclusionHealthPoller{};
     std::optional<DisplayTarget> pendingTarget{};
+    std::optional<bafx::windows::CompositionOutputPreference>
+        pendingTargetOutputPreference{};
     std::optional<PendingSecondaryOutputRenegotiation>
         pendingOutputRenegotiation{};
     HWND pendingWakeWindow{nullptr};
@@ -324,6 +326,12 @@ DisplaySessionRetargetResult DisplaySession::retargetSecondary(
         appendSecondaryBackgroundOutcome(state, renderer_);
     }
 
+    const std::optional<bafx::windows::DisplayColorCapabilities>
+        targetColorCapabilities =
+            bafx::windows::queryDisplayColorCapabilities(target.monitor);
+    state.pendingTargetOutputPreference = resolveDisplayOutputPreference(
+        requestedOutputPreference_,
+        targetColorCapabilities);
     state.pendingTarget = std::move(target);
     state.pendingWakeWindow = wakeWindow;
     state.sensorWasActiveBeforeTransaction =
@@ -340,6 +348,7 @@ DisplaySessionRetargetResult DisplaySession::retargetSecondary(
             state.pendingWakeWindow);
         refreshColorCapabilities();
         state.pendingTarget.reset();
+        state.pendingTargetOutputPreference.reset();
         state.pendingWakeWindow = nullptr;
         return {};
     }
@@ -550,7 +559,10 @@ DisplaySession::serviceSecondaryBackgroundCapture(
             const DisplayTargetIntent intent = state.execution.transactionActive
                 ? state.execution.targetIntent
                 : (state.pendingTarget.has_value()
-                    ? DisplayTargetIntent{*state.pendingTarget, true}
+                    ? DisplayTargetIntent{
+                        *state.pendingTarget,
+                        true,
+                        state.pendingTargetOutputPreference}
                     : DisplayTargetIntent{target_, false});
             const std::uint64_t generation = state.execution.transactionActive
                 ? state.execution.controlGeneration
@@ -1298,6 +1310,7 @@ void DisplaySession::acceptPendingSecondaryTargetIfApplied(
         state.pendingOutputRenegotiation.reset();
     }
     state.pendingTarget.reset();
+    state.pendingTargetOutputPreference.reset();
     state.pendingWakeWindow = nullptr;
 }
 
