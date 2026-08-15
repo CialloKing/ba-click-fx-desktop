@@ -50,6 +50,10 @@ struct BackgroundCaptureExecutionResult
     const bafx::config::Config& config,
     std::uint64_t retryToken = 0U) noexcept;
 
+// The returned observer borrows logPath and must not outlive it.
+[[nodiscard]] bafx::windows::WgcBackgroundStopObserver
+backgroundCaptureStopObserver(const std::filesystem::path& logPath) noexcept;
+
 [[nodiscard]] BackgroundCaptureExecutionStatus executeBackgroundCaptureTransition(
     bafx::windows::BackgroundCaptureTransition& transition,
     bafx::windows::OverlayWindow& window,

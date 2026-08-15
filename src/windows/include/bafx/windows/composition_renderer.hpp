@@ -179,7 +179,8 @@ public:
     CompositionRenderer(
         HWND window,
         WindowSize size,
-        FxBloomSettings bloomSettings = {});
+        FxBloomSettings bloomSettings = {},
+        WgcBackgroundStopObserver backgroundStopObserver = {});
     ~CompositionRenderer();
 
     CompositionRenderer(const CompositionRenderer&) = delete;
@@ -331,6 +332,7 @@ private:
     std::optional<bafx::core::RectI> previousVisualBounds_{};
     WindowSize size_{};
     std::shared_ptr<WgcBackgroundResourceLedger> backgroundResourceLedger_{};
+    WgcBackgroundStopObserver backgroundStopObserver_{};
     detail::WgcBackgroundStopMailbox backgroundStopMailbox_{};
     detail::BackgroundSnapshotInvalidationMailbox
         backgroundSnapshotInvalidationMailbox_{};

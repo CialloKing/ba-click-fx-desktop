@@ -105,6 +105,53 @@ namespace
     return "unknown";
 }
 
+void appendBackgroundCaptureStopProgress(
+    const void* const context,
+    const bafx::windows::WgcBackgroundStopProgress& progress) noexcept
+{
+    if (context == nullptr)
+    {
+        return;
+    }
+
+    const auto& logPath = *static_cast<const std::filesystem::path*>(context);
+    try
+    {
+        const std::string ownerThreadId = std::to_string(progress.ownerThreadId);
+        const std::string callerThreadId = std::to_string(progress.callerThreadId);
+        const std::array fields{
+            bafx::windows::DiagnosticField{
+                "WGC.Stop.Stage",
+                bafx::windows::wgcBackgroundStopStageName(progress.stage)},
+            bafx::windows::DiagnosticField{
+                "WGC.Stop.StageState",
+                bafx::windows::wgcBackgroundStopStageStateName(progress.state)},
+            bafx::windows::DiagnosticField{
+                "WGC.Stop.OwnerThreadId",
+                ownerThreadId},
+            bafx::windows::DiagnosticField{
+                "WGC.Stop.CallerThreadId",
+                callerThreadId},
+            bafx::windows::DiagnosticField{
+                "WGC.Stop.OwnerThreadMatched",
+                progress.ownerThreadMatched() ? "true" : "false"}};
+        const bool warning = !progress.ownerThreadMatched()
+            || progress.state
+                == bafx::windows::WgcBackgroundStopStageState::Failed;
+        bafx::windows::appendDiagnosticEvent(
+            logPath,
+            "BackgroundCapture.StopProgress",
+            fields,
+            warning
+                ? bafx::windows::DiagnosticLevel::Warning
+                : bafx::windows::DiagnosticLevel::Info);
+    }
+    catch (...)
+    {
+        // A diagnostic allocation failure must not interrupt best-effort stop.
+    }
+}
+
 [[nodiscard]] bafx::windows::DiagnosticLevel snapshotInvalidationLevel(
     const bafx::windows::BackgroundSnapshotInvalidationReason reason) noexcept
 {
@@ -337,6 +384,14 @@ bafx::windows::BackgroundCaptureRequest backgroundCaptureRequest(
         config.background.cursorExcluded,
         config.background.allowSystemBorder,
         retryToken};
+}
+
+bafx::windows::WgcBackgroundStopObserver backgroundCaptureStopObserver(
+    const std::filesystem::path& logPath) noexcept
+{
+    return bafx::windows::WgcBackgroundStopObserver{
+        &logPath,
+        &appendBackgroundCaptureStopProgress};
 }
 
 bafx::windows::WgcBackgroundStopDiagnostics

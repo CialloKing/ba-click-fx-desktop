@@ -348,12 +348,14 @@ void populateRoiDiagnostics(
 CompositionRenderer::CompositionRenderer(
     const HWND window,
     const WindowSize size,
-    const FxBloomSettings bloomSettings)
+    const FxBloomSettings bloomSettings,
+    const WgcBackgroundStopObserver backgroundStopObserver)
     : window_(window)
     , bloomSettings_(bloomSettings)
     , size_(size)
     , backgroundResourceLedger_(
           std::make_shared<WgcBackgroundResourceLedger>())
+    , backgroundStopObserver_(backgroundStopObserver)
 {
     createDevice();
     createSwapChain(size);
@@ -1156,15 +1158,17 @@ bool CompositionRenderer::tryCreateBackgroundSensor() noexcept
     try
     {
         setBackgroundCaptureFailure({});
+        WgcBackgroundSensorOptions sensorOptions{};
+        sensorOptions.epoch = backgroundEpoch_;
+        sensorOptions.excludesOwnOverlay = true;
+        sensorOptions.cursorExcluded = backgroundCursorExcluded_;
+        sensorOptions.allowSystemBorder = backgroundSystemBorderAllowed_;
+        sensorOptions.resourceLedger = backgroundResourceLedger_;
+        sensorOptions.stopObserver = backgroundStopObserver_;
         backgroundSensor_ = std::make_unique<WgcBackgroundSensor>(
             device_.Get(),
             backgroundMonitor_,
-            WgcBackgroundSensorOptions{
-                backgroundEpoch_,
-                true,
-                backgroundCursorExcluded_,
-                backgroundSystemBorderAllowed_,
-                backgroundResourceLedger_});
+            sensorOptions);
         backgroundEpoch_ = nextEpoch(backgroundEpoch_);
         // Capture and presentation have independent cadence. On high-refresh
         // displays WGC can still arrive near 60 Hz, so using a 170/240 Hz

@@ -946,7 +946,8 @@ int runApplication(
     bafx::windows::CompositionRenderer renderer(
         window.handle(),
         window.size(),
-        makeBloomSettings(config.effects));
+        makeBloomSettings(config.effects),
+        bafx::desktop::backgroundCaptureStopObserver(logPath));
     appendDeviceRemovedNotificationStatus(logPath, renderer, "startup");
     bafx::windows::UniqueHandle framePacingStallHandle;
     if (options.framePacingStallProbe)
