@@ -155,6 +155,9 @@ public:
     // Display messages only invalidate placement. The render owner consumes
     // the signal so WGC teardown and output rebinding stay in one transaction.
     [[nodiscard]] bool takeDisplayTopologyChange() noexcept;
+    // Color-mode changes do not require a WGC restart when monitor geometry is
+    // stable. Keep a separate signal so the owner can refresh HDR policy only.
+    [[nodiscard]] bool takeDisplayColorChange() noexcept;
     [[nodiscard]] std::optional<WindowSize> takePendingResize() noexcept;
     [[nodiscard]] std::vector<PointerEvent> takePointerEvents() noexcept;
     [[nodiscard]] PointerQueueDiagnostics takePointerQueueDiagnostics() noexcept;
@@ -195,6 +198,7 @@ private:
     HWND window_{nullptr};
     WindowSize size_{};
     bool displayTopologyChangePending_{false};
+    bool displayColorChangePending_{false};
     bool applyingBounds_{false};
     std::optional<WindowSize> pendingResize_{};
     std::vector<PointerEvent> pendingPointerEvents_{};

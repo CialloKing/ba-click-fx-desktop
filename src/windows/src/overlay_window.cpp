@@ -420,6 +420,13 @@ bool OverlayWindow::takeDisplayTopologyChange() noexcept
     return pending;
 }
 
+bool OverlayWindow::takeDisplayColorChange() noexcept
+{
+    const bool pending = displayColorChangePending_;
+    displayColorChangePending_ = false;
+    return pending;
+}
+
 std::optional<WindowSize> OverlayWindow::takePendingResize() noexcept
 {
     return std::exchange(pendingResize_, std::nullopt);
@@ -667,8 +674,16 @@ LRESULT OverlayWindow::handleMessage(
 
     case WM_DISPLAYCHANGE:
         displayTopologyChangePending_ = true;
+        displayColorChangePending_ = true;
         invalidatePointerGeometry();
         return 0;
+
+    case WM_SETTINGCHANGE:
+        // Advanced Color/HDR changes are not guaranteed to alter rcMonitor.
+        // Querying on the owner thread is cheap and also covers legacy systems
+        // where DisplayInformation monitor interop is unavailable.
+        displayColorChangePending_ = true;
+        return DefWindowProcW(window_, message, wParam, lParam);
 
     case WM_DPICHANGED:
         // The suggested rectangle preserves a normal window's logical size,
