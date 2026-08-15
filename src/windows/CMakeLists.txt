@@ -6,6 +6,7 @@ add_library(
         src/borderless_capture_access.cpp
         src/composition_renderer.cpp
         src/display_capabilities.cpp
+        src/external_host_trust.cpp
         src/fx_gpu_renderer.cpp
         src/gpu_timestamp_profiler.cpp
         src/gpu_texture_readback.cpp
@@ -46,6 +47,9 @@ target_link_libraries(
     PUBLIC
         bafx::core
         bafx::fx
+        advapi32
+        bcrypt
+        crypt32
         d3d11
         dcomp
         d3dcompiler
@@ -53,6 +57,7 @@ target_link_libraries(
         dxgi
         shell32
         user32
+        wintrust
     PRIVATE
         runtimeobject
 )
