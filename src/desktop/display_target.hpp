@@ -59,10 +59,21 @@ struct DisplayTargetSnapshot
     const DisplayPhysicalTargetIdentity& left,
     const DisplayPhysicalTargetIdentity& right) noexcept
 {
-    return left.adapterLuid.HighPart == right.adapterLuid.HighPart
+    const bool stableEndpoint =
+        left.adapterLuid.HighPart == right.adapterLuid.HighPart
         && left.adapterLuid.LowPart == right.adapterLuid.LowPart
-        && left.targetId == right.targetId
-        && left.devicePath == right.devicePath;
+        && left.targetId == right.targetId;
+    if (!stableEndpoint)
+    {
+        return false;
+    }
+
+    // GET_TARGET_NAME can fail transiently during hot-plug. An unresolved path
+    // is not evidence of replacement; compare it only when both snapshots have
+    // an authoritative monitor device path.
+    return left.devicePath.empty()
+        || right.devicePath.empty()
+        || left.devicePath == right.devicePath;
 }
 
 [[nodiscard]] inline bool sameDisplayPhysicalTargets(
