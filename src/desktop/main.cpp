@@ -13,6 +13,7 @@
 #include "bafx/windows/unique_handle.hpp"
 #include "background_capture_runtime.hpp"
 #include "display_session.hpp"
+#include "display_session_manager.hpp"
 #include "frame_pacing.hpp"
 #include "host_control.hpp"
 #include "performance_logging.hpp"
@@ -930,15 +931,21 @@ int runApplication(
                 ? bafx::windows::RawMouseRegistration::Disabled
                 : bafx::windows::RawMouseRegistration::Enabled));
     bafx::desktop::BackgroundCaptureStopMonitor backgroundStopMonitor(logPath);
-    bafx::desktop::DisplaySession displaySession(
-        bafx::desktop::DisplaySessionOptions{
+    bafx::desktop::DisplaySessionManager displaySessions(
+        bafx::desktop::DisplaySessionManagerOptions{
             instance,
             hostWindow.handle(),
-            appliedDisplayTarget,
             L"ba-click-fx-desktop",
             makeBloomSettings(config.effects),
             backgroundStopMonitor.observer(),
-            makeRuntimeSeed()});
+            makeRuntimeSeed(),
+            config.effects.trailLength,
+            config.input.samplingRateHz,
+            config.effects.enabled
+                && config.effects.trailEnabled
+                && !config.input.trailOnlyWhilePressed});
+    bafx::desktop::DisplaySession& displaySession =
+        displaySessions.createCoordinator(appliedDisplayTarget);
     bafx::windows::OverlayWindow& window = displaySession.window();
     bafx::windows::CompositionRenderer& renderer = displaySession.renderer();
     bafx::fx::SimulationRuntime& simulation = displaySession.simulation();
@@ -1051,14 +1058,7 @@ int runApplication(
         config,
         appliedOutputSize,
         "startup");
-    simulation.setTrailLengthMultiplier(config.effects.trailLength);
-    simulation.setInputSamplingRateHz(config.input.samplingRateHz);
-    simulation.setAlwaysOnTrailEnabled(
-        config.effects.enabled
-            && config.effects.trailEnabled
-            && !config.input.trailOnlyWhilePressed,
-        bafx::fx::SimulationTime{});
-    window.show();
+    displaySession.show();
 
     // A broker prompt may remain pending for user input. Expose the control
     // plane after the non-blocking first service step so WM_INPUT, rendering,
