@@ -763,6 +763,36 @@ std::string SupportReport::serialize() const
                 << "Display.AdvancedColorLimitedByPolicy="
                 << (color.advancedColorLimitedByPolicy ? "true" : "false")
                 << '\n'
+                << "Display.AdvancedColorBitsPerChannel=";
+        if (color.displayConfigBitsPerColorChannel > 0U)
+        {
+            stream << color.displayConfigBitsPerColorChannel;
+        }
+        else
+        {
+            stream << "unknown";
+        }
+        stream << '\n'
+                << "Display.HdrSupported="
+                << (color.advancedColorInfoV2
+                        ? (color.highDynamicRangeSupported ? "true" : "false")
+                        : "unknown")
+                << '\n'
+                << "Display.HdrUserEnabled="
+                << (color.advancedColorInfoV2
+                        ? (color.highDynamicRangeUserEnabled ? "true" : "false")
+                        : "unknown")
+                << '\n'
+                << "Display.WideColorSupported="
+                << (color.advancedColorInfoV2
+                        ? (color.wideColorSupported ? "true" : "false")
+                        : "unknown")
+                << '\n'
+                << "Display.WideColorUserEnabled="
+                << (color.advancedColorInfoV2
+                        ? (color.wideColorUserEnabled ? "true" : "false")
+                        : "unknown")
+                << '\n'
                 << "Display.ColorPathResolved="
                 << (color.displayPathResolved ? "true" : "false") << '\n'
                 << "Display.ColorPathAdapterLuid="
@@ -802,6 +832,11 @@ std::string SupportReport::serialize() const
                 << "Display.AdvancedColorSupported=unknown\n"
                 << "Display.AdvancedColorActive=unknown\n"
                 << "Display.AdvancedColorLimitedByPolicy=unknown\n"
+                << "Display.AdvancedColorBitsPerChannel=unknown\n"
+                << "Display.HdrSupported=unknown\n"
+                << "Display.HdrUserEnabled=unknown\n"
+                << "Display.WideColorSupported=unknown\n"
+                << "Display.WideColorUserEnabled=unknown\n"
                 << "Display.ColorPathResolved=unknown\n"
                 << "Display.ColorPathAdapterLuid=unknown\n"
                 << "Display.ColorPathTargetId=unknown\n"

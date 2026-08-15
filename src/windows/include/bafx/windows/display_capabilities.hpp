@@ -33,6 +33,7 @@ struct DisplayColorCapabilities final
     std::uint32_t targetId{0U};
     DISPLAYCONFIG_COLOR_ENCODING colorEncoding{
         DISPLAYCONFIG_COLOR_ENCODING_FORCE_UINT32};
+    std::uint32_t displayConfigBitsPerColorChannel{0U};
     float sdrWhiteLevelNits{0.0F};
     LONG advancedColorQueryResult{ERROR_NOT_SUPPORTED};
     LONG sdrWhiteLevelQueryResult{ERROR_NOT_SUPPORTED};
@@ -40,6 +41,10 @@ struct DisplayColorCapabilities final
     bool advancedColorSupported{false};
     bool advancedColorActive{false};
     bool advancedColorLimitedByPolicy{false};
+    bool highDynamicRangeSupported{false};
+    bool highDynamicRangeUserEnabled{false};
+    bool wideColorSupported{false};
+    bool wideColorUserEnabled{false};
     bool sdrWhiteLevelValid{false};
     bool advancedColorInfoV2{false};
 };

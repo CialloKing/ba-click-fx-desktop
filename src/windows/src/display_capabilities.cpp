@@ -13,6 +13,34 @@ namespace
 
 using Microsoft::WRL::ComPtr;
 
+// Windows 11 added device-info type 15 after the original Windows 10 SDK.
+// Keep its documented fixed ABI local so an older SDK can still compile a
+// binary that discovers the newer contract at runtime.
+constexpr DISPLAYCONFIG_DEVICE_INFO_TYPE getAdvancedColorInfo2Type =
+    static_cast<DISPLAYCONFIG_DEVICE_INFO_TYPE>(15);
+constexpr std::uint32_t advancedColorSupportedMask = 1U << 0U;
+constexpr std::uint32_t advancedColorActiveMask = 1U << 1U;
+constexpr std::uint32_t advancedColorLimitedByPolicyMask = 1U << 3U;
+constexpr std::uint32_t highDynamicRangeSupportedMask = 1U << 4U;
+constexpr std::uint32_t highDynamicRangeUserEnabledMask = 1U << 5U;
+constexpr std::uint32_t wideColorSupportedMask = 1U << 6U;
+constexpr std::uint32_t wideColorUserEnabledMask = 1U << 7U;
+constexpr std::uint32_t advancedColorModeSdr = 0U;
+constexpr std::uint32_t advancedColorModeWcg = 1U;
+constexpr std::uint32_t advancedColorModeHdr = 2U;
+
+struct AdvancedColorInfo2Abi final
+{
+    DISPLAYCONFIG_DEVICE_INFO_HEADER header{};
+    std::uint32_t flags{0U};
+    DISPLAYCONFIG_COLOR_ENCODING colorEncoding{
+        DISPLAYCONFIG_COLOR_ENCODING_FORCE_UINT32};
+    std::uint32_t bitsPerColorChannel{0U};
+    std::uint32_t activeColorMode{advancedColorModeSdr};
+};
+
+static_assert(sizeof(AdvancedColorInfo2Abi) == 36U);
+
 [[nodiscard]] bool validLuminance(const float value) noexcept
 {
     return std::isfinite(value) && value >= 0.0F;
@@ -44,9 +72,8 @@ void queryAdvancedColorState(
     const DisplayPhysicalTarget& target,
     DisplayColorCapabilities& capabilities) noexcept
 {
-    DISPLAYCONFIG_GET_ADVANCED_COLOR_INFO_2 advancedColor2{};
-    advancedColor2.header.type =
-        DISPLAYCONFIG_DEVICE_INFO_GET_ADVANCED_COLOR_INFO_2;
+    AdvancedColorInfo2Abi advancedColor2{};
+    advancedColor2.header.type = getAdvancedColorInfo2Type;
     advancedColor2.header.size = sizeof(advancedColor2);
     advancedColor2.header.adapterId = target.adapterLuid;
     advancedColor2.header.id = target.targetId;
@@ -56,21 +83,31 @@ void queryAdvancedColorState(
     {
         capabilities.advancedColorInfoV2 = true;
         capabilities.advancedColorSupported =
-            advancedColor2.advancedColorSupported != 0U;
+            (advancedColor2.flags & advancedColorSupportedMask) != 0U;
         capabilities.advancedColorActive =
-            advancedColor2.advancedColorActive != 0U;
+            (advancedColor2.flags & advancedColorActiveMask) != 0U;
         capabilities.advancedColorLimitedByPolicy =
-            advancedColor2.advancedColorLimitedByPolicy != 0U;
+            (advancedColor2.flags & advancedColorLimitedByPolicyMask) != 0U;
+        capabilities.highDynamicRangeSupported =
+            (advancedColor2.flags & highDynamicRangeSupportedMask) != 0U;
+        capabilities.highDynamicRangeUserEnabled =
+            (advancedColor2.flags & highDynamicRangeUserEnabledMask) != 0U;
+        capabilities.wideColorSupported =
+            (advancedColor2.flags & wideColorSupportedMask) != 0U;
+        capabilities.wideColorUserEnabled =
+            (advancedColor2.flags & wideColorUserEnabledMask) != 0U;
         capabilities.colorEncoding = advancedColor2.colorEncoding;
+        capabilities.displayConfigBitsPerColorChannel =
+            advancedColor2.bitsPerColorChannel;
         switch (advancedColor2.activeColorMode)
         {
-        case DISPLAYCONFIG_ADVANCED_COLOR_MODE_SDR:
+        case advancedColorModeSdr:
             capabilities.activeColorMode = DisplayColorMode::Sdr;
             break;
-        case DISPLAYCONFIG_ADVANCED_COLOR_MODE_WCG:
+        case advancedColorModeWcg:
             capabilities.activeColorMode = DisplayColorMode::WideColorGamut;
             break;
-        case DISPLAYCONFIG_ADVANCED_COLOR_MODE_HDR:
+        case advancedColorModeHdr:
             capabilities.activeColorMode = DisplayColorMode::Hdr;
             break;
         default:
@@ -100,6 +137,8 @@ void queryAdvancedColorState(
     capabilities.advancedColorLimitedByPolicy =
         advancedColor.advancedColorForceDisabled != 0U;
     capabilities.colorEncoding = advancedColor.colorEncoding;
+    capabilities.displayConfigBitsPerColorChannel =
+        advancedColor.bitsPerColorChannel;
     if (!capabilities.advancedColorActive)
     {
         capabilities.activeColorMode = DisplayColorMode::Sdr;
