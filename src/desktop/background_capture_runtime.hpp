@@ -64,6 +64,9 @@ struct BackgroundCaptureExecutionResult
         borderlessAccessRequest{};
 };
 
+[[nodiscard]] bool displayTargetBoundsApplied(
+    const BackgroundCaptureExecutionResult& execution) noexcept;
+
 class BackgroundCaptureStopMonitor final
 {
 public:
@@ -118,6 +121,20 @@ private:
     BackgroundCaptureExecutionResult& execution,
     std::string_view reason,
     const std::filesystem::path& logPath);
+
+void appendDisplayTopologyObserved(
+    const std::filesystem::path& logPath,
+    std::uint64_t controlGeneration,
+    bool transactionActive,
+    const DisplayTarget& applied,
+    const DisplayTarget& observed) noexcept;
+
+void appendDisplayTopologyApplied(
+    const std::filesystem::path& logPath,
+    std::uint64_t controlGeneration,
+    const DisplayTarget& previous,
+    const DisplayTarget& applied,
+    std::uint32_t dpi) noexcept;
 
 void appendBorderlessCaptureAccessCheck(
     const std::filesystem::path& logPath,

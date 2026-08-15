@@ -1152,8 +1152,10 @@ int runApplication(
         {
             appliedOutputSize = *backgroundExecution.resizedOutputSize;
         }
-        if (backgroundExecution.targetIntent.applyBounds)
+        if (bafx::desktop::displayTargetBoundsApplied(backgroundExecution))
         {
+            const bafx::desktop::DisplayTarget previousDisplayTarget =
+                appliedDisplayTarget;
             appliedDisplayTarget = backgroundExecution.targetIntent.target;
             if (pendingDisplayTarget.has_value()
                 && bafx::desktop::sameDisplayTarget(
@@ -1163,7 +1165,8 @@ int runApplication(
                 pendingDisplayTarget.reset();
             }
             report.setPrimaryMonitor(appliedDisplayTarget.bounds);
-            report.setPrimaryDpi(window.effectiveDpi());
+            const std::uint32_t appliedDpi = window.effectiveDpi();
+            report.setPrimaryDpi(appliedDpi);
             if (const auto refreshRate =
                     bafx::windows::queryPrimaryCompositionRefreshRate();
                 refreshRate.has_value())
@@ -1181,6 +1184,18 @@ int runApplication(
             {
                 report.setPrimaryDisplayColorCapabilities(*displayColor);
             }
+            else
+            {
+                // Do not keep the previous monitor's HDR/SDR facts when the
+                // new target cannot be queried.
+                report.clearPrimaryDisplayColorCapabilities();
+            }
+            bafx::desktop::appendDisplayTopologyApplied(
+                logPath,
+                backgroundExecution.controlGeneration,
+                previousDisplayTarget,
+                appliedDisplayTarget,
+                appliedDpi);
         }
         backgroundCaptureEnabled = backgroundTransition.effectivePath()
             == bafx::windows::EffectiveBackgroundCapturePath::BackgroundAware;
@@ -1219,6 +1234,14 @@ int runApplication(
         {
             const bafx::desktop::DisplayTarget observedTarget =
                 primaryDisplayTarget();
+            bafx::desktop::appendDisplayTopologyObserved(
+                logPath,
+                backgroundExecution.transactionActive
+                    ? backgroundExecution.controlGeneration
+                    : appliedGeneration,
+                backgroundExecution.transactionActive,
+                appliedDisplayTarget,
+                observedTarget);
             const bafx::desktop::DisplayTarget& expectedTarget =
                 pendingDisplayTarget.has_value()
                     ? *pendingDisplayTarget

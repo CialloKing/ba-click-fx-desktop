@@ -4,6 +4,7 @@
 
 #include <windows.h>
 
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -54,6 +55,23 @@ private:
     std::filesystem::path path_{};
 };
 
+}
+
+BAFX_TEST(display_target_commit_requires_the_resize_action)
+{
+    bafx::desktop::BackgroundCaptureExecutionResult execution{};
+    execution.targetIntent = bafx::desktop::DisplayTargetIntent{
+        bafx::desktop::DisplayTarget{
+            reinterpret_cast<HMONITOR>(static_cast<std::uintptr_t>(1U)),
+            L"\\\\.\\DISPLAY2",
+            RECT{-2560, 0, 0, 1440}},
+        true};
+
+    BAFX_CHECK(!bafx::desktop::displayTargetBoundsApplied(execution));
+    execution.resizedOutputSize = bafx::windows::WindowSize{1920U, 1080U};
+    BAFX_CHECK(!bafx::desktop::displayTargetBoundsApplied(execution));
+    execution.resizedOutputSize = bafx::windows::WindowSize{2560U, 1440U};
+    BAFX_CHECK(bafx::desktop::displayTargetBoundsApplied(execution));
 }
 
 BAFX_TEST(capture_exclusion_health_poller_is_bounded_and_resets)
@@ -115,6 +133,47 @@ BAFX_TEST(device_recovery_retry_honors_resource_domain_gates)
         false,
         bafx::windows::GraphicsDriverType::Hardware,
         false));
+}
+
+BAFX_TEST(display_topology_logs_observed_and_committed_targets)
+{
+    const TemporaryBackgroundCaptureLog log;
+    const bafx::desktop::DisplayTarget first{
+        reinterpret_cast<HMONITOR>(static_cast<std::uintptr_t>(1U)),
+        L"\\\\.\\DISPLAY1",
+        RECT{0, 0, 1920, 1080}};
+    const bafx::desktop::DisplayTarget second{
+        reinterpret_cast<HMONITOR>(static_cast<std::uintptr_t>(2U)),
+        L"\\\\.\\DISPLAY2",
+        RECT{-2560, 0, 0, 1440}};
+
+    bafx::desktop::appendDisplayTopologyObserved(
+        log.path(),
+        17U,
+        true,
+        first,
+        second);
+    bafx::desktop::appendDisplayTopologyApplied(
+        log.path(),
+        17U,
+        first,
+        second,
+        144U);
+
+    const std::string contents = log.read();
+    BAFX_CHECK(contents.find("Event.Name=Display.Topology.Observed")
+        != std::string::npos);
+    BAFX_CHECK(contents.find("Event.Name=Display.Topology.Applied")
+        != std::string::npos);
+    BAFX_CHECK(contents.find("Control.Generation=17") != std::string::npos);
+    BAFX_CHECK(contents.find("Transaction.Active=true") != std::string::npos);
+    BAFX_CHECK(contents.find("Display.Changed=true") != std::string::npos);
+    BAFX_CHECK(contents.find("Display.Applied.Device=\\\\.\\DISPLAY2")
+        != std::string::npos);
+    BAFX_CHECK(contents.find("Display.Applied.Bounds=2560x1440@-2560,0")
+        != std::string::npos);
+    BAFX_CHECK(contents.find("Display.Applied.Dpi=144")
+        != std::string::npos);
 }
 
 BAFX_TEST(capture_exclusion_health_failure_log_preserves_recovery_evidence)

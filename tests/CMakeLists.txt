@@ -253,6 +253,7 @@ if(WIN32)
         performance_window_tests.cpp
         pointer_frame_dispatch_tests.cpp
         "${PROJECT_SOURCE_DIR}/src/desktop/background_capture_runtime.cpp"
+        "${PROJECT_SOURCE_DIR}/src/desktop/display_target.cpp"
         "${PROJECT_SOURCE_DIR}/src/desktop/performance_logging.cpp"
     )
     target_link_libraries(

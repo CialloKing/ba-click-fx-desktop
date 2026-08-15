@@ -337,6 +337,26 @@ BAFX_TEST(support_report_marks_primary_dpi_unknown_until_probed)
         != std::string::npos);
 }
 
+BAFX_TEST(support_report_clears_stale_display_color_after_retarget)
+{
+    bafx::windows::SupportReport report("test");
+    report.setPrimaryDisplayColorCapabilities(
+        bafx::windows::DisplayColorCapabilities{
+            DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020,
+            10U,
+            0.005F,
+            1000.0F,
+            600.0F,
+            true});
+    report.clearPrimaryDisplayColorCapabilities();
+
+    const std::string text = report.serialize();
+    BAFX_CHECK(text.find("Display.ColorMode=not-probed;alpha-scope-sdr-only")
+        != std::string::npos);
+    BAFX_CHECK(text.find("Display.DxgiColorSpaceValue=unknown")
+        != std::string::npos);
+}
+
 BAFX_TEST(support_report_distinguishes_unknown_fx_only_capture_visibility)
 {
     bafx::windows::SupportReport report("test");

@@ -516,6 +516,11 @@ void SupportReport::setPrimaryDisplayColorCapabilities(
     primaryDisplayColorCapabilities_ = capabilities;
 }
 
+void SupportReport::clearPrimaryDisplayColorCapabilities() noexcept
+{
+    primaryDisplayColorCapabilities_.reset();
+}
+
 void SupportReport::setDeviceInfo(const GraphicsDeviceInfo& info)
 {
     deviceInfo_ = info;

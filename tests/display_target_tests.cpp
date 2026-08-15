@@ -61,3 +61,17 @@ BAFX_TEST(display_target_intent_pins_geometry_application)
     BAFX_CHECK(sameDisplayTargetIntent(stable, stable));
     BAFX_CHECK(!sameDisplayTargetIntent(stable, topologyChange));
 }
+
+BAFX_TEST(display_target_diagnostic_format_preserves_identity_and_origin)
+{
+    const DisplayTarget target{
+        monitor(0x2AU),
+        L"\\\\.\\DISPLAY2",
+        RECT{-2560, 0, 0, 1440}};
+
+    BAFX_CHECK(displayTargetDeviceUtf8(target) == "\\\\.\\DISPLAY2");
+    BAFX_CHECK(formatDisplayTargetBounds(target) == "2560x1440@-2560,0");
+    const std::string monitorText = formatDisplayTargetMonitor(target);
+    BAFX_CHECK(monitorText.starts_with("0x"));
+    BAFX_CHECK(monitorText.ends_with("2A"));
+}

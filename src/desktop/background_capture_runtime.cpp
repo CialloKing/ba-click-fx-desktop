@@ -215,6 +215,51 @@ void beginBackgroundCaptureAction(
         action.kind);
 }
 
+void appendBackgroundCaptureTransactionTarget(
+    const std::filesystem::path& logPath,
+    const BackgroundCaptureExecutionResult& execution) noexcept
+{
+    try
+    {
+        const std::string generation = std::to_string(
+            execution.controlGeneration);
+        const std::string monitor = formatDisplayTargetMonitor(
+            execution.targetIntent.target);
+        const std::string device = displayTargetDeviceUtf8(
+            execution.targetIntent.target);
+        const std::string bounds = formatDisplayTargetBounds(
+            execution.targetIntent.target);
+        const std::array fields{
+            bafx::windows::DiagnosticField{
+                "Control.Generation",
+                generation},
+            bafx::windows::DiagnosticField{
+                "Display.Target.Monitor",
+                monitor},
+            bafx::windows::DiagnosticField{
+                "Display.Target.Device",
+                device},
+            bafx::windows::DiagnosticField{
+                "Display.Target.Bounds",
+                bounds},
+            bafx::windows::DiagnosticField{
+                "Display.Target.ApplyBounds",
+                execution.targetIntent.applyBounds ? "true" : "false"}};
+        bafx::windows::appendDiagnosticEvent(
+            logPath,
+            "BackgroundCapture.Transaction.Begin",
+            fields);
+    }
+    catch (...)
+    {
+        // Target diagnostics must not prevent the already-started owner
+        // transaction from reaching its finite cleanup path.
+        bafx::windows::appendDiagnosticLog(
+            logPath,
+            "BackgroundCapture.Transaction.Begin=diagnostic-unavailable");
+    }
+}
+
 void finishBackgroundCaptureAction(
     bafx::windows::BackgroundCaptureTransition& transition,
     BackgroundCaptureExecutionResult& execution,
@@ -363,6 +408,20 @@ bool CaptureExclusionHealthPoller::shouldQuery(
     // burst of Win32 calls while it is recovering.
     lastObservedAt_ = now;
     return true;
+}
+
+bool displayTargetBoundsApplied(
+    const BackgroundCaptureExecutionResult& execution) noexcept
+{
+    if (!execution.targetIntent.applyBounds
+        || !execution.resizedOutputSize.has_value())
+    {
+        return false;
+    }
+    const bafx::windows::WindowSize expected = displayTargetSize(
+        execution.targetIntent.target);
+    return execution.resizedOutputSize->width == expected.width
+        && execution.resizedOutputSize->height == expected.height;
 }
 
 BackgroundCaptureStopMonitor::BackgroundCaptureStopMonitor(
@@ -631,6 +690,7 @@ BackgroundCaptureExecutionStatus executeBackgroundCaptureTransition(
             targetIntent,
             controlGeneration,
             std::chrono::steady_clock::now());
+        appendBackgroundCaptureTransactionTarget(logPath, execution);
     }
     else if (execution.controlGeneration != controlGeneration
         || !sameDisplayTargetIntent(execution.targetIntent, targetIntent))
@@ -891,6 +951,112 @@ BackgroundCaptureExecutionStatus executeBackgroundCaptureTransition(
     execution.activeAction.reset();
     execution.borderlessAccessRequest.reset();
     return BackgroundCaptureExecutionStatus::Completed;
+}
+
+void appendDisplayTopologyObserved(
+    const std::filesystem::path& logPath,
+    const std::uint64_t controlGeneration,
+    const bool transactionActive,
+    const DisplayTarget& applied,
+    const DisplayTarget& observed) noexcept
+{
+    try
+    {
+        const std::string generation = std::to_string(controlGeneration);
+        const std::string transaction = transactionActive ? "true" : "false";
+        const std::string appliedMonitor = formatDisplayTargetMonitor(applied);
+        const std::string appliedDevice = displayTargetDeviceUtf8(applied);
+        const std::string appliedBounds = formatDisplayTargetBounds(applied);
+        const std::string observedMonitor = formatDisplayTargetMonitor(observed);
+        const std::string observedDevice = displayTargetDeviceUtf8(observed);
+        const std::string observedBounds = formatDisplayTargetBounds(observed);
+        const std::string changed = sameDisplayTarget(applied, observed)
+            ? "false"
+            : "true";
+        const std::array fields{
+            bafx::windows::DiagnosticField{"Control.Generation", generation},
+            bafx::windows::DiagnosticField{"Transaction.Active", transaction},
+            bafx::windows::DiagnosticField{
+                "Display.Applied.Monitor",
+                appliedMonitor},
+            bafx::windows::DiagnosticField{
+                "Display.Applied.Device",
+                appliedDevice},
+            bafx::windows::DiagnosticField{
+                "Display.Applied.Bounds",
+                appliedBounds},
+            bafx::windows::DiagnosticField{
+                "Display.Observed.Monitor",
+                observedMonitor},
+            bafx::windows::DiagnosticField{
+                "Display.Observed.Device",
+                observedDevice},
+            bafx::windows::DiagnosticField{
+                "Display.Observed.Bounds",
+                observedBounds},
+            bafx::windows::DiagnosticField{"Display.Changed", changed}};
+        bafx::windows::appendDiagnosticEvent(
+            logPath,
+            "Display.Topology.Observed",
+            fields);
+    }
+    catch (...)
+    {
+        bafx::windows::appendDiagnosticLog(
+            logPath,
+            "Display.Topology.Observed=diagnostic-unavailable");
+    }
+}
+
+void appendDisplayTopologyApplied(
+    const std::filesystem::path& logPath,
+    const std::uint64_t controlGeneration,
+    const DisplayTarget& previous,
+    const DisplayTarget& applied,
+    const std::uint32_t dpi) noexcept
+{
+    try
+    {
+        const std::string generation = std::to_string(controlGeneration);
+        const std::string previousMonitor = formatDisplayTargetMonitor(previous);
+        const std::string previousDevice = displayTargetDeviceUtf8(previous);
+        const std::string previousBounds = formatDisplayTargetBounds(previous);
+        const std::string appliedMonitor = formatDisplayTargetMonitor(applied);
+        const std::string appliedDevice = displayTargetDeviceUtf8(applied);
+        const std::string appliedBounds = formatDisplayTargetBounds(applied);
+        const std::string dpiText = std::to_string(dpi);
+        const std::array fields{
+            bafx::windows::DiagnosticField{"Control.Generation", generation},
+            bafx::windows::DiagnosticField{
+                "Display.Previous.Monitor",
+                previousMonitor},
+            bafx::windows::DiagnosticField{
+                "Display.Previous.Device",
+                previousDevice},
+            bafx::windows::DiagnosticField{
+                "Display.Previous.Bounds",
+                previousBounds},
+            bafx::windows::DiagnosticField{
+                "Display.Applied.Monitor",
+                appliedMonitor},
+            bafx::windows::DiagnosticField{
+                "Display.Applied.Device",
+                appliedDevice},
+            bafx::windows::DiagnosticField{
+                "Display.Applied.Bounds",
+                appliedBounds},
+            bafx::windows::DiagnosticField{"Display.Applied.Dpi", dpiText}};
+        bafx::windows::appendDiagnosticEvent(
+            logPath,
+            "Display.Topology.Applied",
+            fields);
+    }
+    catch (...)
+    {
+        bafx::windows::appendDiagnosticLog(
+            logPath,
+            "Display.Topology.Applied=diagnostic-unavailable");
+    }
 }
 
 BackgroundCaptureExecutionStatus cancelBackgroundCaptureTransition(

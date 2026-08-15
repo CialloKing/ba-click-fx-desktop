@@ -53,6 +53,7 @@ public:
     void setPrimaryRefreshRate(const DisplayRefreshRate& refreshRate) noexcept;
     void setPrimaryDisplayColorCapabilities(
         const DisplayColorCapabilities& capabilities) noexcept;
+    void clearPrimaryDisplayColorCapabilities() noexcept;
     void setDeviceInfo(const GraphicsDeviceInfo& info);
     void setExitUiStatus(const ExitUiStatus& status);
     void setBackgroundCaptureStatus(BackgroundCaptureStatus status) noexcept;

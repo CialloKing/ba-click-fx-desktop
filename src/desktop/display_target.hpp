@@ -4,6 +4,7 @@
 
 #include <windows.h>
 
+#include <cstdint>
 #include <string>
 
 namespace bafx::desktop
@@ -56,5 +57,12 @@ struct DisplayTargetIntent
     return left.applyBounds == right.applyBounds
         && sameDisplayTarget(left.target, right.target);
 }
+
+[[nodiscard]] std::string displayTargetDeviceUtf8(
+    const DisplayTarget& target);
+[[nodiscard]] std::string formatDisplayTargetMonitor(
+    const DisplayTarget& target);
+[[nodiscard]] std::string formatDisplayTargetBounds(
+    const DisplayTarget& target);
 
 }
