@@ -97,12 +97,28 @@ void closeProcessInformation(PROCESS_INFORMATION& processInformation) noexcept
         childWaitTimeoutMilliseconds);
     if (waitResult != WAIT_OBJECT_0)
     {
-        // The parent owns cleanup so a failed probe cannot leave a child behind.
-        TerminateProcess(processInformation.hProcess, probeCleanupExitCode);
-        WaitForSingleObject(processInformation.hProcess, 1'000U);
+        const DWORD waitError = waitResult == WAIT_FAILED
+            ? GetLastError()
+            : ERROR_SUCCESS;
+        // Keep cleanup bounded, but report both operations so a surviving
+        // child cannot be mistaken for successful containment.
+        const bool terminationRequested = TerminateProcess(
+            processInformation.hProcess,
+            probeCleanupExitCode) != FALSE;
+        const DWORD terminationError = terminationRequested
+            ? ERROR_SUCCESS
+            : GetLastError();
+        const DWORD cleanupWaitResult = WaitForSingleObject(
+            processInformation.hProcess,
+            1'000U);
         closeProcessInformation(processInformation);
         std::cerr << "Watchdog child did not terminate in time: "
-                  << waitResult << '\n';
+                  << waitResult
+                  << "; wait error: " << waitError
+                  << "; termination requested: "
+                  << (terminationRequested ? "true" : "false")
+                  << "; termination error: " << terminationError
+                  << "; cleanup wait: " << cleanupWaitResult << '\n';
         return 3;
     }
 

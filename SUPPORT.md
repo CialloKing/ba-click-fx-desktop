@@ -61,11 +61,11 @@
   执行无 sensor stop 时，真实耗时会保留到首次日志消费并标记 `DeferredReport=true`，不会被零值覆盖；消费
   后不会污染下一次 stop。四个同步调用前后还会各写一条 `BackgroundCapture.StopProgress`，其中
   `WGC.Stop.Stage/StageState` 指出当前阶段与 `begin|succeeded|failed`，owner/caller 线程字段用于发现跨线程
-  误用。stop watchdog 会在 `Stop/begin` 日志前启动，默认硬截止时间为 `10 s`；如果某个 `begin` 后没有
-  同阶段结果并达到截止时间，Host 会以退出码 `124` 强制结束。watchdog 不能取消已经阻塞的 WinRT 调用，
-  因此超时路径不会继续执行 `WDA_NONE`、FX-only 回退、事务结束或资源账本汇总，避免在旧 Session 状态
-  未知时重新捕获覆盖层。需完全重启 Host，并连同当前日志和轮转日志一起排查；只有已成功写入的四个
-  阶段级 `begin` 能定位具体调用，`Stop/begin` 只表示 watchdog 已启动。
+  误用。stop watchdog 会在 `Stop/begin` 日志前启动，整个 stop 共用默认 `10 s` 的单一硬截止，后续阶段只
+  继承剩余时间；达到截止时间时 Host 会以退出码 `124` 强制结束。watchdog 不能取消已经阻塞的 WinRT
+  调用，因此超时路径不会继续执行 `WDA_NONE`、FX-only 回退、事务结束或资源账本汇总，避免在旧 Session
+  状态未知时重新捕获覆盖层。需完全重启 Host，并连同当前日志和轮转日志一起排查；只有已成功写入的
+  四个阶段级 `begin` 能定位具体调用，`Stop/begin` 只表示 watchdog 已启动。
   四个 `*Failed` 字段分别对应 FrameArrived/item.Closed 退订、Session Close 和 FramePool Close；
   对于能够返回的 stop，`OwnerThreadMismatch=true` 或任一阶段失败时 `OverallSucceeded=false`，仍执行
   included/FX-only 回退，并把 `SensorStopFailed` 保留到控制事务。
