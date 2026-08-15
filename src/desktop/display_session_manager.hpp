@@ -89,6 +89,10 @@ public:
         sessions() const noexcept;
 
 private:
+    [[nodiscard]] DisplaySession* findForReconciliation(
+        const DisplayTarget& target) noexcept;
+    [[nodiscard]] const DisplaySession* findForReconciliation(
+        const DisplayTarget& target) const noexcept;
     [[nodiscard]] std::unique_ptr<DisplaySession> createSession(
         DisplayTarget target);
     [[nodiscard]] static bool targetPresent(

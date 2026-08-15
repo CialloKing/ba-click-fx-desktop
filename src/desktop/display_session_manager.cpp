@@ -126,12 +126,16 @@ DisplaySessionReconcileResult DisplaySessionManager::reconcileSecondaries(
 
     for (const DisplayTarget& observedTarget : snapshot.displays)
     {
-        if (sameDisplaySource(coordinator_->target(), observedTarget))
+        if (sameDisplaySource(coordinator_->target(), observedTarget)
+            || sameDisplayLogicalSlot(
+                coordinator_->target(),
+                observedTarget))
         {
             continue;
         }
 
-        DisplaySession* const existing = findBySource(observedTarget);
+        DisplaySession* const existing = findForReconciliation(
+            observedTarget);
         if (existing == nullptr)
         {
             if (!observedTarget.sourceAdapterResolved)
@@ -159,8 +163,10 @@ DisplaySessionReconcileResult DisplaySessionManager::reconcileSecondaries(
             continue;
         }
 
+        const DisplayTarget& reconciliationTarget =
+            existing->reconciliationTarget();
         const DisplayTarget target = stabilizeDisplayTargetObservation(
-            existing->target(),
+            reconciliationTarget,
             observedTarget,
             snapshot.status);
 
@@ -201,6 +207,14 @@ DisplaySessionReconcileResult DisplaySessionManager::reconcileSecondaries(
                     "recreate",
                     error.what()});
             }
+            continue;
+        }
+
+        if (existing->retargetPendingFor(target))
+        {
+            // The pending WGC transaction already owns this exact placement
+            // and source. Do not cancel a long-running permission request just
+            // because another display caused reconciliation in the meantime.
             continue;
         }
 
@@ -282,7 +296,9 @@ DisplaySessionReconcileResult DisplaySessionManager::reconcileSecondaries(
             {
                 return false;
             }
-            const bool remove = !targetPresent(snapshot, session->target());
+            const bool remove = !targetPresent(
+                snapshot,
+                session->reconciliationTarget());
             if (remove)
             {
                 ++result.removed;
@@ -307,9 +323,14 @@ bool DisplaySessionManager::topologyDiffers(
 
     for (const std::unique_ptr<DisplaySession>& session : sessions_)
     {
-        const DisplayTarget* const observed = findDisplayTargetBySource(
+        const DisplayTarget& expected = session->reconciliationTarget();
+        const DisplayTarget* observed = findDisplayTargetBySource(
             snapshot,
-            session->target());
+            expected);
+        if (observed == nullptr)
+        {
+            observed = findDisplayTargetByLogicalSlot(snapshot, expected);
+        }
         if (observed == nullptr)
         {
             if (snapshot.status
@@ -321,15 +342,19 @@ bool DisplaySessionManager::topologyDiffers(
         }
 
         const DisplayTarget stabilized = stabilizeDisplayTargetObservation(
-            session->target(),
+            expected,
             *observed,
             snapshot.status);
-        if (!sameDisplayTarget(session->target(), stabilized)
-            || !sameDisplaySourceIdentity(session->target(), stabilized)
-            || !sameDisplayRuntimeMetadata(session->target(), stabilized)
+        if (session->retargetPendingFor(stabilized))
+        {
+            continue;
+        }
+        if (!sameDisplayTarget(expected, stabilized)
+            || !sameDisplaySourceIdentity(expected, stabilized)
+            || !sameDisplayRuntimeMetadata(expected, stabilized)
             || !session->resourceDomainReadyForTarget(stabilized)
             || physicalTargetIdentityResolutionImproved(
-                session->target(),
+                expected,
                 stabilized))
         {
             return true;
@@ -338,7 +363,14 @@ bool DisplaySessionManager::topologyDiffers(
 
     for (const DisplayTarget& observed : snapshot.displays)
     {
-        if (findBySource(observed) == nullptr
+        const bool coordinatorTarget = sameDisplaySource(
+                coordinator_->target(),
+                observed)
+            || sameDisplayLogicalSlot(
+                coordinator_->target(),
+                observed);
+        if (!coordinatorTarget
+            && findForReconciliation(observed) == nullptr
             && observed.sourceAdapterResolved)
         {
             return true;
@@ -361,7 +393,12 @@ std::size_t DisplaySessionManager::pruneCoordinatorDuplicates() noexcept
         [&](const std::unique_ptr<DisplaySession>& session)
         {
             const bool remove = session.get() != coordinator_
-                && sameDisplaySource(session->target(), coordinator_->target());
+                && (sameDisplaySource(
+                        session->reconciliationTarget(),
+                        coordinator_->target())
+                    || sameDisplayLogicalSlot(
+                        session->reconciliationTarget(),
+                        coordinator_->target()));
             if (remove)
             {
                 ++removed;
@@ -410,6 +447,68 @@ const DisplaySession* DisplaySessionManager::findBySource(
             return sameDisplaySource(session->target(), target);
         });
     return found == sessions_.end() ? nullptr : found->get();
+}
+
+DisplaySession* DisplaySessionManager::findForReconciliation(
+    const DisplayTarget& target) noexcept
+{
+    const auto exactSource = std::find_if(
+        sessions_.begin(),
+        sessions_.end(),
+        [this, &target](const std::unique_ptr<DisplaySession>& session)
+        {
+            return session.get() != coordinator_
+                && sameDisplaySource(
+                    session->reconciliationTarget(),
+                    target);
+        });
+    if (exactSource != sessions_.end())
+    {
+        return exactSource->get();
+    }
+
+    const auto logicalSlot = std::find_if(
+        sessions_.begin(),
+        sessions_.end(),
+        [this, &target](const std::unique_ptr<DisplaySession>& session)
+        {
+            return session.get() != coordinator_
+                && sameDisplayLogicalSlot(
+                    session->reconciliationTarget(),
+                    target);
+        });
+    return logicalSlot == sessions_.end() ? nullptr : logicalSlot->get();
+}
+
+const DisplaySession* DisplaySessionManager::findForReconciliation(
+    const DisplayTarget& target) const noexcept
+{
+    const auto exactSource = std::find_if(
+        sessions_.begin(),
+        sessions_.end(),
+        [this, &target](const std::unique_ptr<DisplaySession>& session)
+        {
+            return session.get() != coordinator_
+                && sameDisplaySource(
+                    session->reconciliationTarget(),
+                    target);
+        });
+    if (exactSource != sessions_.end())
+    {
+        return exactSource->get();
+    }
+
+    const auto logicalSlot = std::find_if(
+        sessions_.begin(),
+        sessions_.end(),
+        [this, &target](const std::unique_ptr<DisplaySession>& session)
+        {
+            return session.get() != coordinator_
+                && sameDisplayLogicalSlot(
+                    session->reconciliationTarget(),
+                    target);
+        });
+    return logicalSlot == sessions_.end() ? nullptr : logicalSlot->get();
 }
 
 DisplaySession* DisplaySessionManager::findAtPoint(const POINT point) noexcept
@@ -484,7 +583,8 @@ bool DisplaySessionManager::targetPresent(
         snapshot.displays.end(),
         [&target](const DisplayTarget& candidate)
         {
-            return sameDisplaySource(target, candidate);
+            return sameDisplaySource(target, candidate)
+                || sameDisplayLogicalSlot(target, candidate);
         });
 }
 

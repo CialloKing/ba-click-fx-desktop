@@ -28,6 +28,8 @@ struct DisplaySessionBackgroundCaptureState final
     std::optional<DisplayTarget> pendingTarget{};
     std::optional<bafx::windows::CompositionOutputPreference>
         pendingTargetOutputPreference{};
+    std::optional<bafx::windows::DisplayColorCapabilities>
+        pendingTargetColorCapabilities{};
     std::optional<PendingSecondaryOutputRenegotiation>
         pendingOutputRenegotiation{};
     HWND pendingWakeWindow{nullptr};
@@ -111,6 +113,44 @@ DisplaySession::~DisplaySession()
 const DisplayTarget& DisplaySession::target() const noexcept
 {
     return target_;
+}
+
+const DisplayTarget& DisplaySession::reconciliationTarget() const noexcept
+{
+    if (secondaryBackgroundCapture_ != nullptr)
+    {
+        const DisplaySessionBackgroundCaptureState& state =
+            *secondaryBackgroundCapture_;
+        const bool transactionOwnsTarget = state.execution.transactionActive
+            || state.transition.transitioning();
+        if (transactionOwnsTarget && state.pendingTarget.has_value())
+        {
+            return *state.pendingTarget;
+        }
+    }
+    return target_;
+}
+
+bool DisplaySession::retargetPendingFor(
+    const DisplayTarget& target) const noexcept
+{
+    if (secondaryBackgroundCapture_ == nullptr)
+    {
+        return false;
+    }
+
+    const DisplaySessionBackgroundCaptureState& state =
+        *secondaryBackgroundCapture_;
+    const bool transactionOwnsTarget = state.execution.transactionActive
+        || state.transition.transitioning();
+    if (!transactionOwnsTarget || !state.pendingTarget.has_value())
+    {
+        return false;
+    }
+
+    const DisplayTarget& pending = *state.pendingTarget;
+    return sameDisplayTarget(pending, target)
+        && sameDisplaySourceIdentity(pending, target);
 }
 
 bafx::windows::OverlayWindow& DisplaySession::window() noexcept
@@ -332,6 +372,7 @@ DisplaySessionRetargetResult DisplaySession::retargetSecondary(
     state.pendingTargetOutputPreference = resolveDisplayOutputPreference(
         requestedOutputPreference_,
         targetColorCapabilities);
+    state.pendingTargetColorCapabilities = targetColorCapabilities;
     state.pendingTarget = std::move(target);
     state.pendingWakeWindow = wakeWindow;
     state.sensorWasActiveBeforeTransaction =
@@ -349,6 +390,7 @@ DisplaySessionRetargetResult DisplaySession::retargetSecondary(
         refreshColorCapabilities();
         state.pendingTarget.reset();
         state.pendingTargetOutputPreference.reset();
+        state.pendingTargetColorCapabilities.reset();
         state.pendingWakeWindow = nullptr;
         return {};
     }
@@ -1275,12 +1317,28 @@ DisplaySessionDeviceRecoveryResult DisplaySession::finishDeviceRecovery(
 void DisplaySession::acceptPendingSecondaryTargetIfApplied(
     DisplaySessionBackgroundCaptureState& state)
 {
-    if (!state.pendingTarget.has_value()
-        || !displayTargetBoundsApplied(state.execution))
+    if (!state.pendingTarget.has_value())
     {
         return;
     }
 
+    if (!displayTargetBoundsApplied(state.execution))
+    {
+        // Once the owning transaction has ended, an unapplied intent has no
+        // resource state to preserve. Retaining it would make topology
+        // reconciliation mistake a failed migration for committed progress.
+        state.pendingTarget.reset();
+        state.pendingTargetOutputPreference.reset();
+        state.pendingTargetColorCapabilities.reset();
+        state.pendingWakeWindow = nullptr;
+        return;
+    }
+
+    const bafx::windows::CompositionOutputPreference previousPreference =
+        state.pendingTargetOutputPreference.value_or(
+            renderer_.outputPreference());
+    const std::optional<bafx::windows::DisplayColorCapabilities>
+        previousCapabilities = state.pendingTargetColorCapabilities;
     acceptAppliedTarget(
         std::move(*state.pendingTarget),
         state.pendingWakeWindow);
@@ -1293,7 +1351,13 @@ void DisplaySession::acceptPendingSecondaryTargetIfApplied(
         resolveDisplayOutputPreference(
             requestedOutputPreference_,
             colorCapabilities_);
-    if (renderer_.outputPreference() != targetPreference)
+    const bool outputContractChanged = displayOutputContractChanged(
+        previousPreference,
+        targetPreference,
+        previousCapabilities,
+        colorCapabilities_);
+    if (renderer_.outputPreference() != targetPreference
+        || outputContractChanged)
     {
         // WGC textures share the output device. Queue the existing serialized
         // stop/recreate/restart path instead of replacing resources inline.
@@ -1311,6 +1375,7 @@ void DisplaySession::acceptPendingSecondaryTargetIfApplied(
     }
     state.pendingTarget.reset();
     state.pendingTargetOutputPreference.reset();
+    state.pendingTargetColorCapabilities.reset();
     state.pendingWakeWindow = nullptr;
 }
 

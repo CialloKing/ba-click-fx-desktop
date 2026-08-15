@@ -96,6 +96,12 @@ public:
     DisplaySession& operator=(DisplaySession&&) = delete;
 
     [[nodiscard]] const DisplayTarget& target() const noexcept;
+    // A secondary WGC transaction keeps the old applied target alive until
+    // commit. Topology reconciliation must compare against its pending intent
+    // so a periodic poll cannot cancel and restart the same permission wait.
+    [[nodiscard]] const DisplayTarget& reconciliationTarget() const noexcept;
+    [[nodiscard]] bool retargetPendingFor(
+        const DisplayTarget& target) const noexcept;
     [[nodiscard]] bafx::windows::OverlayWindow& window() noexcept;
     [[nodiscard]] const bafx::windows::OverlayWindow& window() const noexcept;
     [[nodiscard]] bafx::windows::CompositionRenderer& renderer() noexcept;

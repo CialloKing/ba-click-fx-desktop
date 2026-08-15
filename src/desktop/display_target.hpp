@@ -127,6 +127,20 @@ struct DisplayTargetSnapshot
         && sameDisplayPhysicalTargets(left, right);
 }
 
+[[nodiscard]] inline bool sameDisplayLogicalSlot(
+    const DisplayTarget& left,
+    const DisplayTarget& right) noexcept
+{
+    const bool sameMonitor = left.monitor != nullptr
+        && left.monitor == right.monitor;
+    const bool sameGdiSource = !left.deviceName.empty()
+        && left.deviceName == right.deviceName;
+    // HMONITOR and \\.\DISPLAYn identify desktop placement, not a D3D
+    // resource domain. Use them only to keep a session attached while the
+    // stronger DisplayConfig source identity is being replaced.
+    return sameMonitor || sameGdiSource;
+}
+
 [[nodiscard]] inline bool sameDisplaySource(
     const DisplayTarget& left,
     const DisplayTarget& right) noexcept
@@ -250,6 +264,9 @@ struct DisplayTargetIntent
     const DisplayTargetSnapshot& snapshot,
     HMONITOR monitor) noexcept;
 [[nodiscard]] const DisplayTarget* findDisplayTargetBySource(
+    const DisplayTargetSnapshot& snapshot,
+    const DisplayTarget& reference) noexcept;
+[[nodiscard]] const DisplayTarget* findDisplayTargetByLogicalSlot(
     const DisplayTargetSnapshot& snapshot,
     const DisplayTarget& reference) noexcept;
 [[nodiscard]] const DisplayTarget* findDisplayTargetAtPoint(
