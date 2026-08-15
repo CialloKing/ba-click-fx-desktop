@@ -195,6 +195,7 @@ private:
     HWND window_{nullptr};
     WindowSize size_{};
     bool displayTopologyChangePending_{false};
+    bool applyingBounds_{false};
     std::optional<WindowSize> pendingResize_{};
     std::vector<PointerEvent> pendingPointerEvents_{};
     PointerQueueDiagnostics pointerQueueDiagnostics_{};

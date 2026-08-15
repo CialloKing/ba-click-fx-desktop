@@ -82,4 +82,28 @@ BAFX_TEST(overlay_applies_physical_monitor_bounds)
     BAFX_CHECK(resize.has_value());
     BAFX_CHECK(resize->width == 128U);
     BAFX_CHECK(resize->height == 96U);
+    BAFX_CHECK(!window.takeDisplayTopologyChange());
+}
+
+BAFX_TEST(overlay_detects_geometry_changes_outside_its_owner_api)
+{
+    OverlayWindow window(
+        GetModuleHandleW(nullptr),
+        RECT{0, 0, 64, 64},
+        L"ba-click-fx-overlay-external-move-test",
+        RawMouseRegistration::Disabled);
+    static_cast<void>(window.takePendingResize());
+
+    BAFX_CHECK(SetWindowPos(
+        window.handle(),
+        nullptr,
+        20,
+        30,
+        96,
+        80,
+        SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_NOZORDER) != FALSE);
+    BAFX_CHECK(window.takeDisplayTopologyChange());
+    const std::vector<PointerEvent> events = window.takePointerEvents();
+    BAFX_CHECK(events.size() == 1U);
+    BAFX_CHECK(events.front().kind == PointerEventKind::Cancel);
 }

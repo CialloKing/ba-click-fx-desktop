@@ -358,12 +358,6 @@ struct RunOptions
     std::uint32_t demoDelayMilliseconds{0U};
 };
 
-struct MonitorSelection
-{
-    HMONITOR handle{nullptr};
-    RECT bounds{};
-};
-
 struct MessageDispatchDiagnostics
 {
     std::uint32_t inputMessages{0U};
@@ -495,17 +489,26 @@ struct PointerConsumptionDiagnostics
     return options;
 }
 
-[[nodiscard]] MonitorSelection primaryMonitorBounds()
+[[nodiscard]] bafx::desktop::DisplayTarget primaryDisplayTarget()
 {
     POINT origin{0, 0};
     const HMONITOR monitor = MonitorFromPoint(origin, MONITOR_DEFAULTTOPRIMARY);
-    MONITORINFO information{};
+    MONITORINFOEXW information{};
     information.cbSize = sizeof(information);
     if (!GetMonitorInfoW(monitor, &information))
     {
         bafx::windows::throwLastError("GetMonitorInfoW");
     }
-    return MonitorSelection{monitor, information.rcMonitor};
+    if (information.rcMonitor.right <= information.rcMonitor.left
+        || information.rcMonitor.bottom <= information.rcMonitor.top)
+    {
+        throw std::runtime_error(
+            "Primary monitor reported non-positive physical bounds");
+    }
+    return bafx::desktop::DisplayTarget{
+        monitor,
+        information.szDevice,
+        information.rcMonitor};
 }
 
 [[nodiscard]] MessageDispatchDiagnostics dispatchMessages(bool& quit)
@@ -921,11 +924,11 @@ int runApplication(
 
     bafx::desktop::HostControlPlane control(configPath, config);
     report.setConfigurationSchemaVersion(config.schemaVersion);
-    const MonitorSelection primaryMonitor = primaryMonitorBounds();
-    report.setPrimaryMonitor(primaryMonitor.bounds);
+    bafx::desktop::DisplayTarget appliedDisplayTarget = primaryDisplayTarget();
+    report.setPrimaryMonitor(appliedDisplayTarget.bounds);
     bafx::windows::OverlayWindow window(
         instance,
-        primaryMonitor.bounds,
+        appliedDisplayTarget.bounds,
         L"ba-click-fx-desktop",
         options.disableRawInput
             ? bafx::windows::RawMouseRegistration::Disabled
@@ -938,7 +941,8 @@ int runApplication(
         report.setPrimaryRefreshRate(*refreshRate);
     }
     if (const auto displayColor =
-            bafx::windows::queryDisplayColorCapabilities(primaryMonitor.handle);
+            bafx::windows::queryDisplayColorCapabilities(
+                appliedDisplayTarget.monitor);
         displayColor.has_value())
     {
         report.setPrimaryDisplayColorCapabilities(*displayColor);
@@ -1000,7 +1004,9 @@ int runApplication(
                 backgroundTransition,
                 window,
                 renderer,
-                primaryMonitor.handle,
+                bafx::desktop::DisplayTargetIntent{
+                    appliedDisplayTarget,
+                    false},
                 control.snapshot().generation,
                 backgroundExecution,
                 logPath);
@@ -1097,6 +1103,7 @@ int runApplication(
     std::uint64_t backgroundCompositeFrames = 0U;
     std::uint64_t backgroundRetryToken = appliedBackgroundRequest.retryToken;
     bool backgroundRetryPending = false;
+    std::optional<bafx::desktop::DisplayTarget> pendingDisplayTarget{};
     bool backgroundParticipationLogged = false;
     bool backgroundPendingDiagnosticLogged = false;
     bool renderInvalidationPending = false;
@@ -1145,6 +1152,36 @@ int runApplication(
         {
             appliedOutputSize = *backgroundExecution.resizedOutputSize;
         }
+        if (backgroundExecution.targetIntent.applyBounds)
+        {
+            appliedDisplayTarget = backgroundExecution.targetIntent.target;
+            if (pendingDisplayTarget.has_value()
+                && bafx::desktop::sameDisplayTarget(
+                    *pendingDisplayTarget,
+                    appliedDisplayTarget))
+            {
+                pendingDisplayTarget.reset();
+            }
+            report.setPrimaryMonitor(appliedDisplayTarget.bounds);
+            report.setPrimaryDpi(window.effectiveDpi());
+            if (const auto refreshRate =
+                    bafx::windows::queryPrimaryCompositionRefreshRate();
+                refreshRate.has_value())
+            {
+                report.setPrimaryRefreshRate(*refreshRate);
+            }
+            else
+            {
+                report.setPrimaryRefreshRate({});
+            }
+            if (const auto displayColor =
+                    bafx::windows::queryDisplayColorCapabilities(
+                        appliedDisplayTarget.monitor);
+                displayColor.has_value())
+            {
+                report.setPrimaryDisplayColorCapabilities(*displayColor);
+            }
+        }
         backgroundCaptureEnabled = backgroundTransition.effectivePath()
             == bafx::windows::EffectiveBackgroundCapturePath::BackgroundAware;
         report.setBackgroundCaptureStatus(
@@ -1178,6 +1215,29 @@ int runApplication(
 
         bool renderInvalidated = renderInvalidationPending;
         renderInvalidationPending = false;
+        if (window.takeDisplayTopologyChange())
+        {
+            const bafx::desktop::DisplayTarget observedTarget =
+                primaryDisplayTarget();
+            const bafx::desktop::DisplayTarget& expectedTarget =
+                pendingDisplayTarget.has_value()
+                    ? *pendingDisplayTarget
+                    : appliedDisplayTarget;
+            if (!bafx::desktop::sameDisplayTarget(
+                    observedTarget,
+                    expectedTarget))
+            {
+                pendingDisplayTarget = observedTarget;
+            }
+            else if (!pendingDisplayTarget.has_value())
+            {
+                // A DPI-only notification can preserve rcMonitor. Reassert the
+                // physical fullscreen bounds without restarting a stable WGC
+                // target; any actual size correction is consumed below.
+                window.setBounds(appliedDisplayTarget.bounds);
+                report.setPrimaryDpi(window.effectiveDpi());
+            }
+        }
         std::optional<bafx::windows::WindowSize> pendingOutputResize =
             window.takePendingResize();
         if (pendingOutputResize.has_value()
@@ -1191,23 +1251,30 @@ int runApplication(
         const bool configChanged = controlState.generation != appliedGeneration;
         if (backgroundExecution.transactionActive)
         {
+            const bool displayTargetSupersedesTransaction =
+                pendingDisplayTarget.has_value()
+                && !bafx::desktop::sameDisplayTarget(
+                    *pendingDisplayTarget,
+                    backgroundExecution.targetIntent.target);
             bafx::desktop::BackgroundCaptureExecutionStatus executionStatus =
                 bafx::desktop::BackgroundCaptureExecutionStatus::Pending;
             if (configChanged
                 || pendingOutputResize.has_value()
+                || displayTargetSupersedesTransaction
                 || backgroundRetryPending)
             {
                 const std::string_view cancellationReason = configChanged
                     ? "control-generation"
-                    : (pendingOutputResize.has_value()
-                        ? "output-resize"
-                        : "background-retry");
+                    : (displayTargetSupersedesTransaction
+                        ? "display-target"
+                        : (pendingOutputResize.has_value()
+                            ? "output-resize"
+                            : "background-retry"));
                 executionStatus =
                     bafx::desktop::cancelBackgroundCaptureTransition(
                         backgroundTransition,
                         window,
                         renderer,
-                        primaryMonitor.handle,
                         backgroundExecution,
                         cancellationReason,
                         logPath);
@@ -1219,7 +1286,7 @@ int runApplication(
                         backgroundTransition,
                         window,
                         renderer,
-                        primaryMonitor.handle,
+                        backgroundExecution.targetIntent,
                         backgroundExecution.controlGeneration,
                         backgroundExecution,
                         logPath);
@@ -1232,8 +1299,13 @@ int runApplication(
                 renderInvalidated = true;
             }
         }
+        const bool displayTargetChanged = pendingDisplayTarget.has_value()
+            && !bafx::desktop::sameDisplayTarget(
+                *pendingDisplayTarget,
+                appliedDisplayTarget);
         if (configChanged
             || pendingOutputResize.has_value()
+            || displayTargetChanged
             || backgroundRetryPending)
         {
             renderInvalidated = true;
@@ -1305,10 +1377,20 @@ int runApplication(
                 bafx::desktop::backgroundCaptureRequest(
                     config,
                     backgroundRetryToken);
+            const bafx::desktop::DisplayTargetIntent targetIntent{
+                displayTargetChanged
+                    ? *pendingDisplayTarget
+                    : appliedDisplayTarget,
+                displayTargetChanged};
+            const std::optional<bafx::windows::WindowSize> outputIntent =
+                displayTargetChanged
+                    ? std::optional<bafx::windows::WindowSize>(
+                        bafx::desktop::displayTargetSize(targetIntent.target))
+                    : pendingOutputResize;
             const bafx::windows::BackgroundCaptureRequestResult requestResult =
                 backgroundTransition.beginIntent(
                     nextBackgroundRequest,
-                    pendingOutputResize);
+                    outputIntent);
             switch (requestResult)
             {
             case bafx::windows::BackgroundCaptureRequestResult::Started:
@@ -1319,7 +1401,7 @@ int runApplication(
                         backgroundTransition,
                         window,
                         renderer,
-                        primaryMonitor.handle,
+                        targetIntent,
                         controlState.generation,
                         backgroundExecution,
                         logPath);
@@ -1344,12 +1426,16 @@ int runApplication(
             }
             appliedGeneration = controlState.generation;
             const std::string_view configurationReason = configChanged
-                ? (pendingOutputResize.has_value()
-                    ? "control-and-output-resize"
-                    : "control-generation")
-                : (pendingOutputResize.has_value()
-                    ? "output-resize"
-                    : "background-retry");
+                ? (displayTargetChanged
+                    ? "control-and-display-target"
+                    : (pendingOutputResize.has_value()
+                        ? "control-and-output-resize"
+                        : "control-generation"))
+                : (displayTargetChanged
+                    ? "display-target"
+                    : (pendingOutputResize.has_value()
+                        ? "output-resize"
+                        : "background-retry"));
             bafx::desktop::appendAppliedConfiguration(
                 logPath,
                 config,
@@ -1393,7 +1479,6 @@ int runApplication(
                             backgroundTransition,
                             window,
                             renderer,
-                            primaryMonitor.handle,
                             backgroundExecution,
                             "capture-exclusion-lost",
                             logPath);
@@ -1410,7 +1495,9 @@ int runApplication(
                             backgroundTransition,
                             window,
                             renderer,
-                            primaryMonitor.handle,
+                            bafx::desktop::DisplayTargetIntent{
+                                appliedDisplayTarget,
+                                false},
                             appliedGeneration,
                             backgroundExecution,
                             logPath);
@@ -1728,7 +1815,6 @@ int runApplication(
                                 backgroundTransition,
                                 window,
                                 renderer,
-                                primaryMonitor.handle,
                                 backgroundExecution,
                                 "device-recovery",
                                 logPath);
@@ -1773,7 +1859,9 @@ int runApplication(
                                     backgroundTransition,
                                     window,
                                     renderer,
-                                    primaryMonitor.handle,
+                                    bafx::desktop::DisplayTargetIntent{
+                                        appliedDisplayTarget,
+                                        false},
                                     appliedGeneration,
                                     backgroundExecution,
                                     logPath);
@@ -2095,7 +2183,6 @@ int runApplication(
                     backgroundTransition,
                     window,
                     renderer,
-                    primaryMonitor.handle,
                     backgroundExecution,
                     "capture-session-stopped",
                     logPath);
@@ -2124,7 +2211,9 @@ int runApplication(
                     backgroundTransition,
                     window,
                     renderer,
-                    primaryMonitor.handle,
+                    bafx::desktop::DisplayTargetIntent{
+                        appliedDisplayTarget,
+                        false},
                     appliedGeneration,
                     backgroundExecution,
                     logPath);
@@ -2157,7 +2246,9 @@ int runApplication(
                     backgroundTransition,
                     window,
                     renderer,
-                    primaryMonitor.handle,
+                    bafx::desktop::DisplayTargetIntent{
+                        appliedDisplayTarget,
+                        false},
                     appliedGeneration,
                     backgroundExecution,
                     logPath);
@@ -2310,7 +2401,6 @@ int runApplication(
                 backgroundTransition,
                 window,
                 renderer,
-                primaryMonitor.handle,
                 backgroundExecution,
                 "shutdown",
                 logPath);

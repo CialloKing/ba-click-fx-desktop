@@ -1,6 +1,7 @@
 #pragma once
 
 #include "background_capture_stop_watchdog.hpp"
+#include "display_target.hpp"
 
 #include "bafx/config/config.hpp"
 #include "bafx/windows/background_capture_transition.hpp"
@@ -52,6 +53,7 @@ struct BackgroundCaptureExecutionResult
     bool pending{false};
     bool sensorRestartAllowed{true};
     bool borderlessAccessConfirmed{false};
+    DisplayTargetIntent targetIntent{};
     std::uint64_t controlGeneration{0U};
     std::size_t actionIndex{0U};
     std::size_t executedActionCount{0U};
@@ -97,7 +99,7 @@ private:
     bafx::windows::BackgroundCaptureTransition& transition,
     bafx::windows::OverlayWindow& window,
     bafx::windows::CompositionRenderer& renderer,
-    HMONITOR monitor,
+    const DisplayTargetIntent& targetIntent,
     std::uint64_t controlGeneration,
     BackgroundCaptureExecutionResult& execution,
     const std::filesystem::path& logPath);
@@ -106,7 +108,6 @@ private:
     bafx::windows::BackgroundCaptureTransition& transition,
     bafx::windows::OverlayWindow& window,
     bafx::windows::CompositionRenderer& renderer,
-    HMONITOR monitor,
     BackgroundCaptureExecutionResult& execution,
     std::string_view reason,
     const std::filesystem::path& logPath);

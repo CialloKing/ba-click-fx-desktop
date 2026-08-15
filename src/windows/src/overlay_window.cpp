@@ -456,16 +456,37 @@ void OverlayWindow::setBounds(const RECT bounds)
             "Overlay bounds require a live window and positive dimensions");
     }
 
-    if (!SetWindowPos(
+    applyingBounds_ = true;
+    const bool positioned = SetWindowPos(
             window_,
             nullptr,
             bounds.left,
             bounds.top,
             width,
             height,
-            SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_NOZORDER))
+            SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_NOZORDER) != FALSE;
+    applyingBounds_ = false;
+    if (!positioned)
     {
         throwLastError("SetWindowPos(overlay bounds)");
+    }
+
+    RECT appliedBounds{};
+    RECT clientBounds{};
+    if (!GetWindowRect(window_, &appliedBounds)
+        || !GetClientRect(window_, &clientBounds))
+    {
+        throwLastError("GetWindowRect/GetClientRect(overlay bounds)");
+    }
+    if (appliedBounds.left != bounds.left
+        || appliedBounds.top != bounds.top
+        || appliedBounds.right != bounds.right
+        || appliedBounds.bottom != bounds.bottom
+        || clientBounds.right - clientBounds.left != width
+        || clientBounds.bottom - clientBounds.top != height)
+    {
+        throw std::runtime_error(
+            "Overlay window did not apply the requested physical bounds");
     }
 }
 
@@ -629,6 +650,20 @@ LRESULT OverlayWindow::handleMessage(
             }
         }
         return 0;
+
+    case WM_WINDOWPOSCHANGED:
+    {
+        const auto* position = reinterpret_cast<const WINDOWPOS*>(lParam);
+        const bool geometryChanged = (position->flags & SWP_NOMOVE) == 0U
+            || (position->flags & SWP_NOSIZE) == 0U;
+        if (window_ != nullptr && !applyingBounds_ && geometryChanged)
+        {
+            displayTopologyChangePending_ = true;
+            invalidatePointerGeometry();
+        }
+        // DefWindowProc emits the corresponding WM_MOVE/WM_SIZE messages.
+        return DefWindowProcW(window_, message, wParam, lParam);
+    }
 
     case WM_DISPLAYCHANGE:
         displayTopologyChangePending_ = true;

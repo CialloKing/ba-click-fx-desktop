@@ -169,6 +169,7 @@ void appendBackgroundCaptureActionEnd(
 
 void beginBackgroundCaptureExecution(
     BackgroundCaptureExecutionResult& execution,
+    const DisplayTargetIntent& targetIntent,
     const std::uint64_t controlGeneration,
     const std::chrono::steady_clock::time_point now)
 {
@@ -181,6 +182,7 @@ void beginBackgroundCaptureExecution(
     execution.pending = false;
     execution.sensorRestartAllowed = true;
     execution.borderlessAccessConfirmed = false;
+    execution.targetIntent = targetIntent;
     execution.controlGeneration = controlGeneration;
     execution.actionIndex = 0U;
     execution.executedActionCount = 0U;
@@ -597,7 +599,7 @@ BackgroundCaptureExecutionStatus executeBackgroundCaptureTransition(
     bafx::windows::BackgroundCaptureTransition& transition,
     bafx::windows::OverlayWindow& window,
     bafx::windows::CompositionRenderer& renderer,
-    const HMONITOR monitor,
+    const DisplayTargetIntent& targetIntent,
     const std::uint64_t controlGeneration,
     BackgroundCaptureExecutionResult& execution,
     const std::filesystem::path& logPath)
@@ -610,13 +612,15 @@ BackgroundCaptureExecutionStatus executeBackgroundCaptureTransition(
         }
         beginBackgroundCaptureExecution(
             execution,
+            targetIntent,
             controlGeneration,
             std::chrono::steady_clock::now());
     }
-    else if (execution.controlGeneration != controlGeneration)
+    else if (execution.controlGeneration != controlGeneration
+        || !sameDisplayTargetIntent(execution.targetIntent, targetIntent))
     {
         throw std::logic_error(
-            "Background capture generation changed without canceling its transaction");
+            "Background capture owner changed a pending transaction identity");
     }
 
     while (transition.transitioning())
@@ -726,6 +730,16 @@ BackgroundCaptureExecutionStatus executeBackgroundCaptureTransition(
                 break;
             case bafx::windows::BackgroundCaptureActionKind::ResizeOutput:
             {
+                if (execution.targetIntent.applyBounds)
+                {
+                    window.setBounds(execution.targetIntent.target.bounds);
+                    if (window.size().width != action->outputSize.width
+                        || window.size().height != action->outputSize.height)
+                    {
+                        throw std::runtime_error(
+                            "Overlay client size does not match the display target");
+                    }
+                }
                 const bafx::windows::GraphicsDeviceInfo previousDeviceInfo =
                     renderer.deviceInfo();
                 const bafx::windows::OutputResizeStatus resizeStatus =
@@ -789,7 +803,7 @@ BackgroundCaptureExecutionStatus executeBackgroundCaptureTransition(
                 // this transaction, so stale affinity cannot enable capture.
                 succeeded = execution.sensorRestartAllowed
                     && renderer.tryEnableBackgroundCapture(
-                        monitor,
+                        execution.targetIntent.target.monitor,
                         true,
                         action->cursorExcluded,
                         action->allowSystemBorder,
@@ -867,7 +881,6 @@ BackgroundCaptureExecutionStatus cancelBackgroundCaptureTransition(
     bafx::windows::BackgroundCaptureTransition& transition,
     bafx::windows::OverlayWindow& window,
     bafx::windows::CompositionRenderer& renderer,
-    const HMONITOR monitor,
     BackgroundCaptureExecutionResult& execution,
     const std::string_view reason,
     const std::filesystem::path& logPath)
@@ -915,7 +928,7 @@ BackgroundCaptureExecutionStatus cancelBackgroundCaptureTransition(
         transition,
         window,
         renderer,
-        monitor,
+        execution.targetIntent,
         execution.controlGeneration,
         execution,
         logPath);
