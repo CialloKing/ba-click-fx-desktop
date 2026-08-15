@@ -71,6 +71,7 @@ struct ActiveDisplayMonitor final
     std::vector<DisplayPhysicalTarget> physicalTargets{};
     std::optional<DisplayRefreshRate> captureRefreshRate{};
     bool primary{false};
+    bool sourceAdapterResolved{false};
     bool sourceIdentityResolved{false};
 };
 

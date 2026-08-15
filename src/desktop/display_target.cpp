@@ -156,6 +156,7 @@ DisplayTargetSnapshot queryDisplayTargets() noexcept
             target.captureRefreshRate = display.captureRefreshRate;
             target.physicalTargetCount = display.physicalTargets.size();
             target.primary = display.primary;
+            target.sourceAdapterResolved = display.sourceAdapterResolved;
             target.sourceIdentityResolved = display.sourceIdentityResolved;
             target.physicalTargetIdentities.reserve(
                 display.physicalTargets.size());

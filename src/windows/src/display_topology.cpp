@@ -1,6 +1,8 @@
 #include "bafx/windows/display_topology.hpp"
 
+#include <dxgi1_2.h>
 #include <shellscalingapi.h>
+#include <wrl/client.h>
 
 #include <algorithm>
 #include <cwchar>
@@ -13,6 +15,8 @@ namespace bafx::windows
 namespace
 {
 
+using Microsoft::WRL::ComPtr;
+
 struct MonitorEnumeration
 {
     std::vector<ActiveDisplayMonitor> displays{};
@@ -23,6 +27,110 @@ struct MonitorEnumeration
 {
     return left.HighPart == right.HighPart
         && left.LowPart == right.LowPart;
+}
+
+[[nodiscard]] std::optional<LUID> queryDxgiAdapterForMonitor(
+    IDXGIFactory1* const factory,
+    const HMONITOR monitor) noexcept
+{
+    bool found = false;
+    LUID resolved{};
+    for (UINT adapterIndex = 0U;; ++adapterIndex)
+    {
+        ComPtr<IDXGIAdapter1> adapter;
+        const HRESULT adapterResult = factory->EnumAdapters1(
+            adapterIndex,
+            &adapter);
+        if (adapterResult == DXGI_ERROR_NOT_FOUND)
+        {
+            break;
+        }
+        if (FAILED(adapterResult))
+        {
+            return std::nullopt;
+        }
+
+        DXGI_ADAPTER_DESC1 adapterDescription{};
+        if (FAILED(adapter->GetDesc1(&adapterDescription)))
+        {
+            return std::nullopt;
+        }
+        for (UINT outputIndex = 0U;; ++outputIndex)
+        {
+            ComPtr<IDXGIOutput> output;
+            const HRESULT outputResult = adapter->EnumOutputs(
+                outputIndex,
+                &output);
+            if (outputResult == DXGI_ERROR_NOT_FOUND)
+            {
+                break;
+            }
+            if (FAILED(outputResult))
+            {
+                return std::nullopt;
+            }
+
+            DXGI_OUTPUT_DESC outputDescription{};
+            if (FAILED(output->GetDesc(&outputDescription)))
+            {
+                return std::nullopt;
+            }
+            if (outputDescription.Monitor != monitor)
+            {
+                continue;
+            }
+            if (found
+                && !sameLuid(resolved, adapterDescription.AdapterLuid))
+            {
+                // Linked or mirrored adapters can expose ambiguous monitor
+                // handles. Do not guess a resource domain in that case.
+                return std::nullopt;
+            }
+            resolved = adapterDescription.AdapterLuid;
+            found = true;
+        }
+    }
+    return found ? std::optional<LUID>(resolved) : std::nullopt;
+}
+
+void resolveSourceAdaptersFromDxgi(
+    std::vector<ActiveDisplayMonitor>& displays) noexcept
+{
+    const bool unresolved = std::any_of(
+        displays.begin(),
+        displays.end(),
+        [](const ActiveDisplayMonitor& display) noexcept
+        {
+            return !display.sourceAdapterResolved;
+        });
+    if (!unresolved)
+    {
+        return;
+    }
+
+    ComPtr<IDXGIFactory1> factory;
+    if (FAILED(CreateDXGIFactory1(IID_PPV_ARGS(&factory))))
+    {
+        return;
+    }
+    for (ActiveDisplayMonitor& display : displays)
+    {
+        if (display.sourceAdapterResolved)
+        {
+            continue;
+        }
+        const std::optional<LUID> adapter = queryDxgiAdapterForMonitor(
+            factory.Get(),
+            display.monitor);
+        if (!adapter.has_value())
+        {
+            continue;
+        }
+        // DXGI identifies the rendering adapter but not DisplayConfig's source
+        // ID. Keep the stronger sourceIdentityResolved contract false.
+        display.sourceAdapterLuid = *adapter;
+        display.sourceAdapterResolved = true;
+    }
 }
 
 [[nodiscard]] bool validRefreshRate(
@@ -324,6 +432,7 @@ DisplayTopologySnapshot queryActiveDisplayTopology() noexcept
         {
             snapshot.status = DisplayTopologyStatus::Incomplete;
             snapshot.error = pathResult;
+            resolveSourceAdaptersFromDxgi(snapshot.displays);
             return snapshot;
         }
 
@@ -371,6 +480,7 @@ DisplayTopologySnapshot queryActiveDisplayTopology() noexcept
             }
             display->sourceAdapterLuid = path.sourceInfo.adapterId;
             display->sourceId = path.sourceInfo.id;
+            display->sourceAdapterResolved = true;
             display->sourceIdentityResolved = true;
 
             DisplayPhysicalTarget target{};
@@ -425,6 +535,7 @@ DisplayTopologySnapshot queryActiveDisplayTopology() noexcept
             }
         }
 
+        resolveSourceAdaptersFromDxgi(snapshot.displays);
         for (ActiveDisplayMonitor& display : snapshot.displays)
         {
             if (!display.sourceIdentityResolved

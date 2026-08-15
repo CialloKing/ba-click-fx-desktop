@@ -38,6 +38,7 @@ struct DisplayTarget
     std::optional<bafx::windows::DisplayRefreshRate> captureRefreshRate{};
     std::size_t physicalTargetCount{0U};
     bool primary{false};
+    bool sourceAdapterResolved{false};
     bool sourceIdentityResolved{false};
     std::vector<DisplayPhysicalTargetIdentity> physicalTargetIdentities{};
 };
