@@ -58,7 +58,6 @@ public:
     [[nodiscard]] bafx::fx::SimulationRuntime& simulation() noexcept;
     [[nodiscard]] const bafx::fx::SimulationRuntime& simulation() const noexcept;
     [[nodiscard]] bafx::fx::SimulationTimeline& timeline() noexcept;
-    [[nodiscard]] bafx::windows::PointerFrameAdapter& pointerFrameAdapter() noexcept;
     [[nodiscard]] bafx::windows::DisplayColorMonitor& colorMonitor() noexcept;
     [[nodiscard]] const std::optional<bafx::windows::DisplayColorCapabilities>&
         colorCapabilities() const noexcept;
@@ -90,7 +89,6 @@ private:
     bafx::windows::CompositionRenderer renderer_;
     bafx::fx::SimulationRuntime simulation_;
     bafx::fx::SimulationTimeline timeline_{};
-    bafx::windows::PointerFrameAdapter pointerFrameAdapter_{};
     bafx::windows::DisplayColorMonitor colorMonitor_{};
     std::optional<bafx::windows::DisplayColorCapabilities> colorCapabilities_{};
     bafx::windows::DisplayColorMonitorResult colorMonitorStartResult_{};

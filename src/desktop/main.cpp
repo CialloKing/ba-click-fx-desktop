@@ -12,13 +12,13 @@
 #include "bafx/windows/runtime_diagnostics.hpp"
 #include "bafx/windows/unique_handle.hpp"
 #include "background_capture_runtime.hpp"
+#include "display_pointer_router.hpp"
 #include "display_session.hpp"
 #include "display_session_manager.hpp"
 #include "frame_pacing.hpp"
 #include "host_control.hpp"
 #include "performance_logging.hpp"
 #include "performance_window.hpp"
-#include "pointer_frame_dispatch.hpp"
 
 #include <windows.h>
 
@@ -652,161 +652,6 @@ void appendDisplaySessionReconcile(
     return bafx::fx::Viewport{size.width, size.height};
 }
 
-[[nodiscard]] bool isInsideClient(
-    const POINT position,
-    const bafx::windows::WindowSize size) noexcept
-{
-    return position.x >= 0
-        && position.y >= 0
-        && static_cast<std::uint32_t>(position.x) < size.width
-        && static_cast<std::uint32_t>(position.y) < size.height;
-}
-
-[[nodiscard]] POINT clampToClient(
-    const POINT position,
-    const bafx::windows::WindowSize size) noexcept
-{
-    const LONG maximumX = static_cast<LONG>(size.width - 1U);
-    const LONG maximumY = static_cast<LONG>(size.height - 1U);
-    return POINT{
-        std::clamp(position.x, 0L, maximumX),
-        std::clamp(position.y, 0L, maximumY)};
-}
-
-[[nodiscard]] PointerConsumptionDiagnostics consumePointerEvents(
-    bafx::windows::OverlayWindow& window,
-    bafx::fx::SimulationRuntime& simulation,
-    bafx::windows::PointerFrameAdapter& frameAdapter,
-    const QpcClock& clock,
-    const bafx::fx::SimulationTime frameTime,
-    const std::vector<bafx::windows::PointerEvent>& events)
-{
-    using bafx::desktop::PointerFrameDispatch;
-    using bafx::desktop::PointerFramePosition;
-    using bafx::desktop::PointerFramePositionUse;
-    using bafx::desktop::PointerFrameTransition;
-    using bafx::desktop::PointerFrameTransitionKind;
-    using bafx::windows::PointerEventKind;
-
-    const bafx::fx::Viewport viewport = toViewport(window.size());
-    const bafx::windows::PointerFrameSnapshot frame =
-        frameAdapter.consume(events);
-    PointerFrameDispatch dispatch{};
-    PointerConsumptionDiagnostics diagnostics{};
-    diagnostics.acceptedDowns.reserve(frame.edges.size());
-
-    for (const bafx::windows::PointerFrameEdge& edge : frame.edges)
-    {
-        PointerFrameTransition transition{};
-        transition.inputTime = clock.fromCounter(edge.trigger.qpcTimestamp);
-        switch (edge.kind)
-        {
-        case PointerEventKind::LeftButtonDown:
-            transition.kind = PointerFrameTransitionKind::Down;
-            {
-                POINT triggerClientPosition = edge.trigger.screenPosition;
-                transition.acceptDown = ScreenToClient(
-                    window.handle(),
-                    &triggerClientPosition)
-                    && isInsideClient(triggerClientPosition, window.size());
-            }
-            break;
-
-        case PointerEventKind::LeftButtonUp:
-            transition.kind = PointerFrameTransitionKind::Up;
-            break;
-
-        case PointerEventKind::Cancel:
-            transition.kind = PointerFrameTransitionKind::Cancel;
-            break;
-
-        case PointerEventKind::Move:
-            // The frame adapter never emits Move as a state transition.
-            continue;
-        }
-        bafx::desktop::mergePointerFrameTransition(
-            dispatch.buttons,
-            transition);
-        if (edge.kind == PointerEventKind::LeftButtonDown
-            && transition.acceptDown)
-        {
-            diagnostics.acceptedDowns.push_back(PointerLatencyOrigin{
-                edge.trigger.qpcTimestamp,
-                edge.trigger.messageTimeMilliseconds,
-                edge.trigger.messageTimeValid});
-        }
-    }
-
-    dispatch.buttons.held = frame.heldAfter;
-    const bool downNeedsPosition = dispatch.buttons.down
-        && dispatch.buttons.acceptDown;
-    if (dispatch.buttons.held
-        && (frame.hasFinalHeldMove || downNeedsPosition))
-    {
-        dispatch.positionUse = PointerFramePositionUse::Held;
-    }
-    else if (!frame.heldAfter
-        && frame.edges.empty()
-        && frame.hasFinalFreeMove)
-    {
-        // A button/cancel frame belongs wholly to the strict press path.
-        // Ambient enhancement may restart only from a later input frame, so
-        // an Up followed by queued Move cannot create a second same-frame stroke.
-        dispatch.positionUse = PointerFramePositionUse::Free;
-    }
-
-    if (downNeedsPosition
-        || dispatch.positionUse != PointerFramePositionUse::None)
-    {
-        POINT screenPosition{};
-        bool positionAvailable = GetCursorPos(&screenPosition) != FALSE;
-        if (!positionAvailable && frame.latestNonCancelSample.has_value())
-        {
-            // Cancel may contain a default POINT when Win32 sampling fails.
-            // Only a previously validated non-Cancel event is a safe fallback.
-            screenPosition = frame.latestNonCancelSample->screenPosition;
-            positionAvailable = true;
-        }
-
-        POINT clientPosition = screenPosition;
-        if (positionAvailable
-            && ScreenToClient(window.handle(), &clientPosition))
-        {
-            const bool insideClient = isInsideClient(
-                clientPosition,
-                window.size());
-            clientPosition = clampToClient(clientPosition, window.size());
-            const bafx::windows::PointerEvent* inputSample = nullptr;
-            if (frame.latestMoveSample.has_value())
-            {
-                inputSample = &*frame.latestMoveSample;
-            }
-            else if (frame.latestNonCancelSample.has_value())
-            {
-                inputSample = &*frame.latestNonCancelSample;
-            }
-            const bafx::fx::SimulationTime inputTime = inputSample != nullptr
-                ? clock.fromCounter(inputSample->qpcTimestamp)
-                : frameTime;
-            dispatch.position = PointerFramePosition{
-                bafx::fx::PointF{
-                    static_cast<float>(clientPosition.x),
-                    static_cast<float>(clientPosition.y)},
-                insideClient,
-                inputTime};
-        }
-    }
-
-    // PointerFrameSnapshot retains raw edge order for diagnostics. The effect
-    // path consumes aggregated flags and one frame-boundary cursor position.
-    bafx::desktop::applyPointerFrame(
-        simulation,
-        viewport,
-        frameTime,
-        dispatch);
-    return diagnostics;
-}
-
 [[nodiscard]] std::uint64_t durationMicroseconds(
     const std::chrono::nanoseconds duration) noexcept
 {
@@ -1037,10 +882,15 @@ int runApplication(
     bafx::fx::SimulationRuntime& simulation = displaySession.simulation();
     bafx::fx::SimulationTimeline& simulationTimeline =
         displaySession.timeline();
-    bafx::windows::PointerFrameAdapter& pointerFrameAdapter =
-        displaySession.pointerFrameAdapter();
     bafx::windows::DisplayColorMonitor& displayColorMonitor =
         displaySession.colorMonitor();
+    bafx::desktop::DisplayPointerRouter pointerRouter;
+    const bafx::desktop::PointerTimestampSource pointerTimestamps{
+        &clock,
+        [](const void* const context, const std::int64_t counter) noexcept
+        {
+            return static_cast<const QpcClock*>(context)->fromCounter(counter);
+        }};
     std::uint32_t appliedDisplayDpi = window.effectiveDpi();
     report.setPrimaryDpi(appliedDisplayDpi);
     if (const auto refreshRate =
@@ -2052,7 +1902,7 @@ int runApplication(
         pointerEvents = bafx::windows::coalescePointerMoves(
             std::move(pointerEvents));
         bafx::windows::PointerQueueDiagnostics pointerQueue =
-            window.takePointerQueueDiagnostics();
+            hostWindow.takePointerQueueDiagnostics();
         pointerQueue.compactedMoveEvents +=
             pointerEventsBeforeHostCompaction - pointerEvents.size();
         performanceWindow.addInput(bafx::desktop::InputPerformanceSample{
@@ -2073,24 +1923,44 @@ int runApplication(
         if (options.demoClick || !config.effects.enabled || controlState.paused)
         {
             // Do not let disabled/paused input accumulate and replay after resume.
-            static_cast<void>(pointerFrameAdapter.consume(
-                pointerEvents));
+            pointerRouter.discardFrame(pointerEvents);
             if (enteringPause || !config.effects.enabled)
             {
                 // Disabling can drain the physical Up event. Cancel
                 // idempotently so re-enabling cannot retain a phantom press.
-                simulation.pointerCancel(renderTime);
+                pointerRouter.cancelAll(displaySessions, renderTime);
             }
         }
         else
         {
-            pointerConsumption = consumePointerEvents(
-                window,
-                simulation,
-                pointerFrameAdapter,
-                clock,
-                renderTime,
-                pointerEvents);
+            const bafx::desktop::DisplayPointerRouteResult routed =
+                pointerRouter.consumeFrame(
+                    displaySessions,
+                    renderTime,
+                    pointerEvents,
+                    pointerTimestamps);
+            pointerConsumption.acceptedDowns.reserve(
+                routed.acceptedDowns.size());
+            for (const bafx::windows::PointerEvent& acceptedDown :
+                 routed.acceptedDowns)
+            {
+                pointerConsumption.acceptedDowns.push_back(
+                    PointerLatencyOrigin{
+                        acceptedDown.qpcTimestamp,
+                        acceptedDown.messageTimeMilliseconds,
+                        acceptedDown.messageTimeValid});
+            }
+            if (routed.displayHandoffs > 0U)
+            {
+                const std::string handoffs = std::to_string(
+                    routed.displayHandoffs);
+                const std::array fields{
+                    bafx::windows::DiagnosticField{"Count", handoffs}};
+                bafx::windows::appendDiagnosticEvent(
+                    logPath,
+                    "Input.Pointer.DisplayHandoff",
+                    fields);
+            }
         }
         if (runtimeDeadlineReached(wallTime))
         {

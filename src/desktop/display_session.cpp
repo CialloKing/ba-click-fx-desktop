@@ -66,11 +66,6 @@ bafx::fx::SimulationTimeline& DisplaySession::timeline() noexcept
     return timeline_;
 }
 
-bafx::windows::PointerFrameAdapter& DisplaySession::pointerFrameAdapter() noexcept
-{
-    return pointerFrameAdapter_;
-}
-
 bafx::windows::DisplayColorMonitor& DisplaySession::colorMonitor() noexcept
 {
     return colorMonitor_;
