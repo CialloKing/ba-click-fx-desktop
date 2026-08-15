@@ -51,6 +51,10 @@
   Action 抛异常、状态机拒绝或超出固定 action budget 时会分别记录
   `Phase=action-failed|transition-rejected|budget-exceeded`；正常退出记录 `Phase=shutdown`。
   账本格式化失败只写固定的 `Reason=formatter-failed` 降级事件，不会改变渲染事务结果。
+- 每次 WGC stop 还会记录 `WGC.Stop.SensorPresent/Completed`、FrameArrived/Closed 两类事件退订耗时、
+  `SessionCloseUs`、`FramePoolCloseUs` 和 `TotalUs`。正常关闭完成后这些字段用于定位慢阶段；如果日志只
+  留下 `BackgroundCapture.Action.Begin=stop-sensor` 或 `Graphics.DeviceRecovery.Begin` 而没有对应完成
+  记录，说明同步 WinRT 关闭调用可能没有返回。当前实现不能取消该系统调用，需连同轮转日志一起排查。
 - WGC 只由 `background-aware` 模式使用。portable EXE 没有 package identity，也不会自行声明
   `graphicsCaptureWithoutBorder` capability。新配置默认允许 Windows 显示捕获边框；可见边框状态记录为
   `system-border=visible-allowed`。用户可在 Control Center 中取消勾选“允许黄色捕获边框”；关闭后会在
@@ -108,7 +112,8 @@ Windows“已安装的应用”执行，默认保留安装目录
   FX-only。已有 schema 4 配置若显式保存了 `false`，迁移到当前 schema 7 后仍保持该关闭状态。
 - 无论 WGC 是否可用，都不能移除 Layered/Transparent 样式来换取背景采样；这会破坏跨进程按钮点击。
 - 多显示器、跨显示器输入、多适配器和混合刷新率。
-- device removed/reset 后的原地恢复。
+- device removed/reset 后已有一次性重建实现和主动探针，但真实 GPU reset、热插拔、跨适配器以及
+  device-lost 下 WGC 同步关闭仍未完成硬件验收，因此不属于本 Alpha 的支持范围。
 - 开机启动、自动更新、公有代码签名，以及无边框 WGC 的跨版本稳定性。方案 C 安装器已经作为普通用户发布
   通道提供，但其背景感知能力仍受 Windows 版本、权限和显卡环境影响；portable ZIP 继续作为无安装权限的备选。
 
@@ -121,6 +126,10 @@ Windows“已安装的应用”执行，默认保留安装目录
   成功退出码为 `0`。
 - `ba-click-fx-desktop.exe --quit-after-ms=1000`：运行正常消息/渲染循环并在约一秒后退出，用于验证
   退出清理路径。
+- `ba-click-fx-desktop.exe --device-recovery-probe`：主动重建 D3D/DComp 资源域并重渲染同一快照；只验证
+  恢复实现，不制造真实 device-lost。
+- `ba-click-fx-desktop.exe --frame-pacing-stall-probe --quit-after-ms=250`：内部回归入口，以永久不信号句柄
+  验证运行截止检查不会被帧等待 timeout 绕过。
 - `BAFX.ControlCenter.exe`：在 Host 已运行时打开 Win32 设置窗口，通过本地 IPC 读取并调整三种
   渲染模式及 FX 参数；它不是独立渲染器。
 

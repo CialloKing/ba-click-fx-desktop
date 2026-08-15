@@ -212,9 +212,15 @@ python -B tools\verify-wgc-self-exclusion-spike.py `
 - `--device-recovery-probe` 在 FX-only 模式下完成首帧、资源域重建和同快照重渲染，当前 CTest
   `desktop_device_recovery_probe` 通过；日志事件为 `Graphics.DeviceRecovery.Probe.Begin` 和
   `Graphics.DeviceRecovery.Probe.Succeeded`。
+- frame-latency wait 失败会保留原始 Win32 error；连续 `250 ms` 未取得 FrameReady 时会检查 D3D
+  device-removed reason，并仅把已确认的 device-lost 路由到同一恢复边界。`desktop_frame_pacing_stall`
+  以永久不信号句柄验证运行截止检查不会被 `TimedOut`/`MessagesPending` 的 `continue` 绕过。
+- WGC stop 日志分别记录 FrameArrived/Closed 退订、Session Close、FramePool Close 和总耗时；当前机器的
+  正常 WGC 会话已产生 `SensorPresent=true;Completed=true` 的完整阶段记录，但该冒烟数据不代替故障注入。
 - 该探针没有制造真实 GPU reset，也没有覆盖 WGC Session/FramePool 在 device-lost 中的系统级行为；
   因此本 Spike 的真实 device lost、跨适配器、热插拔和多显示器单元格仍为 `Not Run`，不能据此发布
-  完整硬件支持声明。frame-latency wait 失效和同步 WGC stop 的阻塞上限也尚无真实故障证据。
+  完整硬件支持声明。frame-latency 恢复分支和有界退出已有模拟覆盖，但同步 WGC stop 在 device-lost 下
+  的阻塞上限仍无真实故障证据。
 
 ## 状态模板
 
