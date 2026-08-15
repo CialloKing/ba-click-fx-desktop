@@ -156,6 +156,61 @@ BAFX_TEST(background_aware_option_change_restarts_once)
          BackgroundCaptureActionKind::StartSensor});
 }
 
+BAFX_TEST(borderless_start_failure_allows_system_border_recovery)
+{
+    BackgroundCaptureTransition transition;
+    BAFX_CHECK(
+        transition.beginRequest(backgroundAwareRequest())
+        == BackgroundCaptureRequestResult::Started);
+    static_cast<void>(completeSuccessfully(transition));
+
+    BAFX_CHECK(
+        transition.beginRequest(backgroundAwareRequest(true, false))
+        == BackgroundCaptureRequestResult::Started);
+    std::vector<BackgroundCaptureActionKind> failedActions;
+    while (const auto action = transition.nextAction())
+    {
+        failedActions.push_back(action->kind);
+        const bool succeeded =
+            action->kind != BackgroundCaptureActionKind::StartSensor;
+        if (action->kind == BackgroundCaptureActionKind::StartSensor)
+        {
+            BAFX_CHECK(!action->allowSystemBorder);
+        }
+        BAFX_CHECK(transition.applyObservation(*action, succeeded));
+    }
+    checkActions(
+        failedActions,
+        {BackgroundCaptureActionKind::StopSensor,
+         BackgroundCaptureActionKind::SetAffinityExcluded,
+         BackgroundCaptureActionKind::ApplyOverlayProfile,
+         BackgroundCaptureActionKind::StartSensor,
+         BackgroundCaptureActionKind::StopSensor,
+         BackgroundCaptureActionKind::SetAffinityIncluded});
+    BAFX_CHECK(
+        transition.failure() == BackgroundCaptureFailure::SensorStartFailed);
+    BAFX_CHECK(
+        transition.effectivePath() == EffectiveBackgroundCapturePath::FxOnly);
+
+    // Changing the border contract is a new request, so a permission failure
+    // must not behave like an uncertain WinRT stop and permanently block WGC.
+    BAFX_CHECK(
+        transition.beginRequest(backgroundAwareRequest(true, true))
+        == BackgroundCaptureRequestResult::Started);
+    const std::vector<BackgroundCaptureActionKind> recoveredActions =
+        completeSuccessfully(transition);
+    checkActions(
+        recoveredActions,
+        {BackgroundCaptureActionKind::StopSensor,
+         BackgroundCaptureActionKind::SetAffinityExcluded,
+         BackgroundCaptureActionKind::ApplyOverlayProfile,
+         BackgroundCaptureActionKind::StartSensor});
+    BAFX_CHECK(
+        transition.effectivePath()
+        == EffectiveBackgroundCapturePath::BackgroundAware);
+    BAFX_CHECK(transition.failure() == BackgroundCaptureFailure::None);
+}
+
 BAFX_TEST(exclusion_failure_rolls_back_without_starting_the_sensor)
 {
     BackgroundCaptureTransition transition;
