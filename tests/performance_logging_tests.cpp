@@ -94,6 +94,7 @@ BAFX_TEST(performance_log_preserves_metric_and_semantic_fields)
         .gpuFxTimingValid = true});
     window.addDispatchToPresentReturn(25'000U);
     window.addFramePacingWake(bafx::desktop::FramePacingWake::FrameReady);
+    window.addFramePacingWake(bafx::desktop::FramePacingWake::DeviceRemoved);
     window.addFramePacingWake(bafx::desktop::FramePacingWake::MessagesPending);
     window.addFramePacingWake(bafx::desktop::FramePacingWake::TimedOut);
     const bafx::config::Config config = bafx::config::defaultConfig();
@@ -154,6 +155,8 @@ BAFX_TEST(performance_log_preserves_metric_and_semantic_fields)
         != std::string::npos);
     BAFX_CHECK(text.find("FramePacing.FrameReadyWakes=1\n")
         != std::string::npos);
+    BAFX_CHECK(text.find("FramePacing.DeviceRemovedWakes=1\n")
+        != std::string::npos);
     BAFX_CHECK(text.find("FramePacing.MessageWakes=1\n")
         != std::string::npos);
     BAFX_CHECK(text.find("FramePacing.Timeouts=1\n")
@@ -161,6 +164,32 @@ BAFX_TEST(performance_log_preserves_metric_and_semantic_fields)
     BAFX_CHECK(text.find("FramePacing.Failures=0\n")
         != std::string::npos);
     BAFX_CHECK(text.find("Diagnostics.PreviousLogWriteCpuUs=123\n")
+        != std::string::npos);
+}
+
+BAFX_TEST(performance_log_warns_when_device_removed_wake_is_observed)
+{
+    const TemporaryPerformanceLog log;
+    bafx::desktop::RuntimePerformanceWindow window;
+    window.addFramePacingWake(bafx::desktop::FramePacingWake::DeviceRemoved);
+
+    static_cast<void>(bafx::desktop::appendPerformanceInterval(
+        log.path(),
+        window.summarize(),
+        bafx::config::defaultConfig(),
+        bafx::desktop::PerformanceLogContext{
+            bafx::windows::WindowSize{1920U, 1080U},
+            bafx::windows::BackgroundCompositeStatus::Inactive,
+            false},
+        std::chrono::seconds(1),
+        std::chrono::microseconds(0),
+        false));
+
+    const std::string text = log.read();
+    BAFX_CHECK(text.find("Event.Name=Performance.Interval\n")
+        != std::string::npos);
+    BAFX_CHECK(text.find("Event.Level=Warning\n") != std::string::npos);
+    BAFX_CHECK(text.find("FramePacing.DeviceRemovedWakes=1\n")
         != std::string::npos);
 }
 

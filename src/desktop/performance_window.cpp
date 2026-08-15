@@ -309,6 +309,9 @@ void RuntimePerformanceWindow::addFramePacingWake(
     case FramePacingWake::FrameReady:
         ++framePacingFrameReadyWakes_;
         break;
+    case FramePacingWake::DeviceRemoved:
+        ++framePacingDeviceRemovedWakes_;
+        break;
     case FramePacingWake::MessagesPending:
         ++framePacingMessageWakes_;
         break;
@@ -372,6 +375,7 @@ void RuntimePerformanceWindow::reset() noexcept
     roiLastVisualBoundsStatus_ = bafx::fx::FrameBoundsStatus::Empty;
     roiLastPlanStatus_ = bafx::core::RoiStatus::Empty;
     framePacingFrameReadyWakes_ = 0U;
+    framePacingDeviceRemovedWakes_ = 0U;
     framePacingMessageWakes_ = 0U;
     framePacingTimeouts_ = 0U;
     framePacingFailures_ = 0U;
@@ -462,6 +466,7 @@ RuntimePerformanceSummary RuntimePerformanceWindow::summarize() const
     summary.roiLastVisualBoundsStatus = roiLastVisualBoundsStatus_;
     summary.roiLastPlanStatus = roiLastPlanStatus_;
     summary.framePacingFrameReadyWakes = framePacingFrameReadyWakes_;
+    summary.framePacingDeviceRemovedWakes = framePacingDeviceRemovedWakes_;
     summary.framePacingMessageWakes = framePacingMessageWakes_;
     summary.framePacingTimeouts = framePacingTimeouts_;
     summary.framePacingFailures = framePacingFailures_;
@@ -540,6 +545,7 @@ bool RuntimePerformanceWindow::empty() const noexcept
         && inputMessagesDispatched_ == 0U
         && otherMessagesDispatched_ == 0U
         && framePacingFrameReadyWakes_ == 0U
+        && framePacingDeviceRemovedWakes_ == 0U
         && framePacingMessageWakes_ == 0U
         && framePacingTimeouts_ == 0U
         && framePacingFailures_ == 0U;

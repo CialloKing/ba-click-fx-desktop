@@ -131,6 +131,7 @@ BAFX_TEST(runtime_performance_window_aggregates_input_and_render_contracts)
     window.addDispatchToPresentReturn(12'000U);
     window.addMessageToPresentReturn(47U);
     window.addFramePacingWake(bafx::desktop::FramePacingWake::FrameReady);
+    window.addFramePacingWake(bafx::desktop::FramePacingWake::DeviceRemoved);
     window.addFramePacingWake(bafx::desktop::FramePacingWake::MessagesPending);
     window.addFramePacingWake(bafx::desktop::FramePacingWake::TimedOut);
     window.addFramePacingWake(bafx::desktop::FramePacingWake::Failed);
@@ -166,9 +167,15 @@ BAFX_TEST(runtime_performance_window_aggregates_input_and_render_contracts)
     BAFX_CHECK(summary.roiLastDirtyRect.left == 10);
     BAFX_CHECK(summary.roiLastAlignedWork.right == 128);
     BAFX_CHECK(summary.framePacingFrameReadyWakes == 1U);
+    BAFX_CHECK(summary.framePacingDeviceRemovedWakes == 1U);
     BAFX_CHECK(summary.framePacingMessageWakes == 1U);
     BAFX_CHECK(summary.framePacingTimeouts == 1U);
     BAFX_CHECK(summary.framePacingFailures == 1U);
+
+    window.reset();
+    const bafx::desktop::RuntimePerformanceSummary reset = window.summarize();
+    BAFX_CHECK(reset.framePacingDeviceRemovedWakes == 0U);
+    BAFX_CHECK(window.empty());
 }
 
 BAFX_TEST(runtime_performance_window_excludes_idle_wgc_skips_from_drain_timing)

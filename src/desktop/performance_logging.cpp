@@ -426,6 +426,9 @@ std::chrono::nanoseconds appendPerformanceInterval(
             "FramePacing.FrameReadyWakes",
             summary.framePacingFrameReadyWakes);
         fields.add(
+            "FramePacing.DeviceRemovedWakes",
+            summary.framePacingDeviceRemovedWakes);
+        fields.add(
             "FramePacing.MessageWakes",
             summary.framePacingMessageWakes);
         fields.add(
@@ -615,6 +618,7 @@ std::chrono::nanoseconds appendPerformanceInterval(
             || summary.roiPlanInvalidRectFrames > 0U
             || summary.roiPlanInvalidFootprintFrames > 0U
             || summary.roiPlanOverflowFrames > 0U
+            || summary.framePacingDeviceRemovedWakes > 0U
             || summary.frameTotalCpuMicroseconds.maximum >= 100'000U
             || summary.presentCallCpuMicroseconds.maximum >= 50'000U;
         fields.append(

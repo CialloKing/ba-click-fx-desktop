@@ -64,6 +64,8 @@ constexpr DWORD pausedControlPollMilliseconds = 50U;
     {
     case bafx::desktop::FramePacingWake::FrameReady:
         return "frame-ready";
+    case bafx::desktop::FramePacingWake::DeviceRemoved:
+        return "device-removed";
     case bafx::desktop::FramePacingWake::MessagesPending:
         return "messages-pending";
     case bafx::desktop::FramePacingWake::TimedOut:
@@ -96,6 +98,31 @@ void appendFramePacingDeviceRecoveryDetection(
         "Graphics.DeviceRecovery.FramePacingDetected",
         fields,
         bafx::windows::DiagnosticLevel::Warning);
+}
+
+void appendDeviceRemovedNotificationStatus(
+    const std::filesystem::path& logPath,
+    const bafx::windows::CompositionRenderer& renderer,
+    const std::string_view phase)
+{
+    const bool available = renderer.deviceRemovedWaitableObject() != nullptr;
+    const std::string resultCode = formatHresult(
+        renderer.deviceRemovedNotificationResult());
+    const std::array fields{
+        bafx::windows::DiagnosticField{"Phase", phase},
+        bafx::windows::DiagnosticField{
+            "Available",
+            available ? "true" : "false"},
+        bafx::windows::DiagnosticField{
+            "RegistrationHRESULT",
+            resultCode}};
+    bafx::windows::appendDiagnosticEvent(
+        logPath,
+        "Graphics.DeviceRemovalNotification.Status",
+        fields,
+        available
+            ? bafx::windows::DiagnosticLevel::Info
+            : bafx::windows::DiagnosticLevel::Warning);
 }
 
 [[nodiscard]] std::string_view backgroundCompositeStatusName(
@@ -875,6 +902,7 @@ int runApplication(
         window.handle(),
         window.size(),
         makeBloomSettings(config.effects));
+    appendDeviceRemovedNotificationStatus(logPath, renderer, "startup");
     bafx::windows::UniqueHandle framePacingStallHandle;
     if (options.framePacingStallProbe)
     {
@@ -933,6 +961,13 @@ int runApplication(
             renderer,
             primaryMonitor.handle,
             logPath);
+    if (backgroundExecution.deviceRecovered)
+    {
+        appendDeviceRemovedNotificationStatus(
+            logPath,
+            renderer,
+            "startup-background-recovery");
+    }
     bool backgroundCaptureEnabled = backgroundTransition.effectivePath()
         == bafx::windows::EffectiveBackgroundCapturePath::BackgroundAware;
     report.setBackgroundCaptureStatus(
@@ -1009,7 +1044,7 @@ int runApplication(
     bool backgroundPendingDiagnosticLogged = false;
     bool renderInvalidationPending = false;
     bool lastPresentedDrawableContent = false;
-    bool deviceRecoveryConsumed = false;
+    bool deviceRecoveryConsumed = backgroundExecution.deviceRecovered;
     bool recoveryProbePending = options.recoveryProbe;
     bafx::fx::SimulationTime lastFrameReadyAt = applicationStartedAt;
     bafx::fx::SimulationTime lastFramePacingDeviceProbeAt = applicationStartedAt;
@@ -1074,6 +1109,10 @@ int runApplication(
                         logPath,
                         renderer,
                         "bloom-device-recovery");
+                    appendDeviceRemovedNotificationStatus(
+                        logPath,
+                        renderer,
+                        "bloom-device-recovery");
                     deviceRecoveryConsumed = true;
                     report.setDeviceInfo(renderer.deviceInfo());
                     const bool adapterChanged =
@@ -1130,6 +1169,10 @@ int runApplication(
                     logPath);
                 if (backgroundExecution.deviceRecovered)
                 {
+                    appendDeviceRemovedNotificationStatus(
+                        logPath,
+                        renderer,
+                        "control-background-recovery");
                     deviceRecoveryConsumed = true;
                     report.setDeviceInfo(renderer.deviceInfo());
                 }
@@ -1184,6 +1227,7 @@ int runApplication(
         const bool shouldRender = !controlState.paused
             || enteringPause
             || renderInvalidated;
+        std::optional<HRESULT> framePacingDeviceLoss;
         if (shouldRender)
         {
             const bafx::desktop::FramePacingWaitResult pacingWait =
@@ -1191,6 +1235,7 @@ int runApplication(
                     options.framePacingStallProbe
                         ? framePacingStallHandle.get()
                         : renderer.frameLatencyWaitableObject(),
+                    renderer.deviceRemovedWaitableObject(),
                     activeControlPollMilliseconds);
             performanceWindow.addFramePacingWake(pacingWait.wake);
             switch (pacingWait.wake)
@@ -1198,6 +1243,27 @@ int runApplication(
             case bafx::desktop::FramePacingWake::FrameReady:
                 lastFrameReadyAt = clock.now();
                 break;
+            case bafx::desktop::FramePacingWake::DeviceRemoved:
+            {
+                const bafx::fx::SimulationTime detectedAt = clock.now();
+                const HRESULT deviceResult = renderer.deviceRemovedReason();
+                appendFramePacingDeviceRecoveryDetection(
+                    logPath,
+                    pacingWait,
+                    deviceResult,
+                    detectedAt - lastFrameReadyAt);
+                if (!bafx::windows::isDeviceLostResult(deviceResult))
+                {
+                    // A manual-reset notification remains signaled until the
+                    // device is rebuilt. Reject a false signal instead of
+                    // spinning on the same handle indefinitely.
+                    throw std::runtime_error(
+                        "D3D11 device removal notification produced unexpected HRESULT "
+                        + formatHresult(deviceResult));
+                }
+                framePacingDeviceLoss = deviceResult;
+                break;
+            }
             case bafx::desktop::FramePacingWake::MessagesPending:
             case bafx::desktop::FramePacingWake::TimedOut:
             {
@@ -1209,7 +1275,8 @@ int runApplication(
                 }
                 const bafx::fx::SimulationTime stalledFor =
                     waitObservedAt - lastFrameReadyAt;
-                if (stalledFor >= framePacingDeviceProbePeriod
+                if (renderer.deviceRemovedWaitableObject() == nullptr
+                    && stalledFor >= framePacingDeviceProbePeriod
                     && waitObservedAt - lastFramePacingDeviceProbeAt
                         >= framePacingDeviceProbePeriod)
                 {
@@ -1222,6 +1289,7 @@ int runApplication(
                             pacingWait,
                             deviceResult,
                             stalledFor);
+                        framePacingDeviceLoss = deviceResult;
                         break;
                     }
                 }
@@ -1241,13 +1309,14 @@ int runApplication(
                 }
 
                 // A removed D3D device can invalidate the latency object before
-                // Present reports the loss. Let this exact frame reach Present
-                // so the existing bounded recovery path owns all state changes.
+                // Present reports the loss. Route this frame through the same
+                // bounded recovery path that owns all resource-domain changes.
                 appendFramePacingDeviceRecoveryDetection(
                     logPath,
                     pacingWait,
                     deviceResult,
                     clock.now() - lastFrameReadyAt);
+                framePacingDeviceLoss = deviceResult;
                 break;
             }
             }
@@ -1340,6 +1409,14 @@ int runApplication(
                 bafx::windows::CompositionFrameDiagnostics> frameDiagnostics;
             try
             {
+                if (framePacingDeviceLoss.has_value())
+                {
+                    // Enter the same one-shot recovery boundary as Present;
+                    // no input or simulation work is replayed after recovery.
+                    throw bafx::windows::HResultError(
+                        *framePacingDeviceLoss,
+                        "D3D11 device loss detected during frame pacing");
+                }
                 frameDiagnostics = renderer.renderFrame(
                     snapshot,
                     wallTime,
@@ -1423,6 +1500,10 @@ int runApplication(
                     throw;
                 }
 
+                appendDeviceRemovedNotificationStatus(
+                    logPath,
+                    renderer,
+                    "render-device-recovery");
                 report.setDeviceInfo(renderer.deviceInfo());
                 const bool adapterChanged =
                     previousDeviceInfo.adapterLuid.LowPart
@@ -1650,6 +1731,10 @@ int runApplication(
                             "Device recovery probe could not rebuild the renderer: "
                             + std::string(renderer.deviceRecoveryFailure()));
                     }
+                    appendDeviceRemovedNotificationStatus(
+                        logPath,
+                        renderer,
+                        "device-recovery-probe");
                     report.setDeviceInfo(renderer.deviceInfo());
                     const bafx::windows::DeviceRecoveryDiagnostics diagnostics =
                         renderer.deviceRecoveryDiagnostics();
@@ -1740,6 +1825,15 @@ int runApplication(
                 renderer,
                 primaryMonitor.handle,
                 logPath);
+            if (backgroundExecution.deviceRecovered)
+            {
+                appendDeviceRemovedNotificationStatus(
+                    logPath,
+                    renderer,
+                    "background-stop-recovery");
+                deviceRecoveryConsumed = true;
+                report.setDeviceInfo(renderer.deviceInfo());
+            }
             if (backgroundExecution.sensorFailure.empty())
             {
                 backgroundExecution.sensorFailure = stoppedReason;
@@ -1777,6 +1871,10 @@ int runApplication(
                 logPath);
             if (backgroundExecution.deviceRecovered)
             {
+                appendDeviceRemovedNotificationStatus(
+                    logPath,
+                    renderer,
+                    "frame-pool-recovery");
                 deviceRecoveryConsumed = true;
                 report.setDeviceInfo(renderer.deviceInfo());
                 const bool retryEligible =

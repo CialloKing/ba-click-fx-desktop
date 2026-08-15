@@ -10,6 +10,7 @@ namespace bafx::desktop
 enum class FramePacingWake : std::uint8_t
 {
     FrameReady,
+    DeviceRemoved,
     MessagesPending,
     TimedOut,
     Failed
@@ -25,6 +26,7 @@ struct FramePacingWaitResult
 // Only the swap-chain latency object represents an available presentation slot.
 [[nodiscard]] FramePacingWaitResult waitForFrameOpportunity(
     HANDLE frameLatencyWaitable,
+    HANDLE deviceRemovedWaitable,
     DWORD timeoutMilliseconds) noexcept;
 
 }

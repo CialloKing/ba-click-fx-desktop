@@ -57,7 +57,7 @@ constexpr UINT pacingTestMessage = WM_APP + 71U;
 BAFX_TEST(frame_pacing_grants_render_only_for_the_latency_object)
 {
     EventHandle frameReady(true);
-    const auto result = waitForFrameOpportunity(frameReady.get(), 0U);
+    const auto result = waitForFrameOpportunity(frameReady.get(), nullptr, 0U);
     BAFX_CHECK(result.wake == FramePacingWake::FrameReady);
     BAFX_CHECK(result.error == ERROR_SUCCESS);
 }
@@ -78,7 +78,11 @@ BAFX_TEST(frame_pacing_keeps_message_wakes_separate_from_render_slots)
         0) != FALSE);
 
     EventHandle frameReady(false);
-    const auto result = waitForFrameOpportunity(frameReady.get(), 0U);
+    EventHandle deviceRemoved(false);
+    const auto result = waitForFrameOpportunity(
+        frameReady.get(),
+        deviceRemoved.get(),
+        0U);
     BAFX_CHECK(result.wake == FramePacingWake::MessagesPending);
     BAFX_CHECK(result.error == ERROR_SUCCESS);
     BAFX_CHECK(PeekMessageW(
@@ -92,11 +96,11 @@ BAFX_TEST(frame_pacing_keeps_message_wakes_separate_from_render_slots)
 BAFX_TEST(frame_pacing_reports_timeout_and_invalid_handle)
 {
     EventHandle frameReady(false);
-    const auto timeout = waitForFrameOpportunity(frameReady.get(), 0U);
+    const auto timeout = waitForFrameOpportunity(frameReady.get(), nullptr, 0U);
     BAFX_CHECK(timeout.wake == FramePacingWake::TimedOut);
     BAFX_CHECK(timeout.error == ERROR_SUCCESS);
 
-    const auto invalid = waitForFrameOpportunity(nullptr, 0U);
+    const auto invalid = waitForFrameOpportunity(nullptr, nullptr, 0U);
     BAFX_CHECK(invalid.wake == FramePacingWake::Failed);
     BAFX_CHECK(invalid.error == ERROR_INVALID_HANDLE);
 }
@@ -107,7 +111,31 @@ BAFX_TEST(frame_pacing_preserves_the_error_from_a_closed_handle)
     const HANDLE closed = frameReady.get();
     frameReady.close();
 
-    const auto result = waitForFrameOpportunity(closed, 0U);
+    const auto result = waitForFrameOpportunity(closed, nullptr, 0U);
+    BAFX_CHECK(result.wake == FramePacingWake::Failed);
+    BAFX_CHECK(result.error == ERROR_INVALID_HANDLE);
+}
+
+BAFX_TEST(frame_pacing_prioritizes_device_removal_over_a_ready_frame)
+{
+    EventHandle frameReady(true);
+    EventHandle deviceRemoved(true);
+
+    const auto result = waitForFrameOpportunity(
+        frameReady.get(),
+        deviceRemoved.get(),
+        0U);
+    BAFX_CHECK(result.wake == FramePacingWake::DeviceRemoved);
+    BAFX_CHECK(result.error == ERROR_SUCCESS);
+}
+
+BAFX_TEST(frame_pacing_rejects_an_invalid_optional_device_handle)
+{
+    EventHandle frameReady(true);
+    const auto result = waitForFrameOpportunity(
+        frameReady.get(),
+        INVALID_HANDLE_VALUE,
+        0U);
     BAFX_CHECK(result.wake == FramePacingWake::Failed);
     BAFX_CHECK(result.error == ERROR_INVALID_HANDLE);
 }
