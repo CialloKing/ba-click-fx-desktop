@@ -36,6 +36,16 @@ struct CaptureExclusionStatus
     [[nodiscard]] bool confirmed() const noexcept;
 };
 
+struct CaptureExclusionQueryStatus
+{
+    DWORD expectedAffinity{WDA_NONE};
+    DWORD observedAffinity{WDA_NONE};
+    DWORD queryError{ERROR_SUCCESS};
+    bool querySucceeded{false};
+
+    [[nodiscard]] bool confirmed() const noexcept;
+};
+
 enum class PointerEventKind : std::uint8_t
 {
     Move,
@@ -140,6 +150,8 @@ public:
     [[nodiscard]] bool closeRequested() const noexcept;
     [[nodiscard]] ExitUiStatus exitUiStatus() const noexcept;
     [[nodiscard]] CaptureExclusionStatus setCaptureExcluded(bool excluded) noexcept;
+    [[nodiscard]] CaptureExclusionQueryStatus queryCaptureExcluded(
+        bool excluded) const noexcept;
     [[nodiscard]] std::optional<WindowSize> takePendingResize() noexcept;
     [[nodiscard]] std::vector<PointerEvent> takePointerEvents() noexcept;
     [[nodiscard]] PointerQueueDiagnostics takePointerQueueDiagnostics() noexcept;

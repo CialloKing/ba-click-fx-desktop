@@ -405,3 +405,30 @@ BAFX_TEST(capture_exclusion_confirmation_requires_complete_evidence)
     disabled.querySucceeded = true;
     BAFX_CHECK(disabled.confirmed());
 }
+
+BAFX_TEST(capture_exclusion_health_query_requires_effective_affinity)
+{
+    bafx::windows::CaptureExclusionQueryStatus status{};
+    status.expectedAffinity = WDA_EXCLUDEFROMCAPTURE;
+    status.observedAffinity = WDA_EXCLUDEFROMCAPTURE;
+    status.querySucceeded = true;
+    BAFX_CHECK(status.confirmed());
+
+    status.querySucceeded = false;
+    status.queryError = ERROR_INVALID_WINDOW_HANDLE;
+    BAFX_CHECK(!status.confirmed());
+
+    const std::string failed =
+        bafx::windows::captureExclusionQueryDiagnostic(status);
+    BAFX_CHECK(failed.find("Expected=0x00000011") != std::string::npos);
+    BAFX_CHECK(failed.find("Observed=0x00000011") != std::string::npos);
+    BAFX_CHECK(
+        failed.find("Query=failed;QueryError=0x00000578")
+        != std::string::npos);
+    BAFX_CHECK(failed.find("Confirmed=false") != std::string::npos);
+
+    status.querySucceeded = true;
+    status.queryError = ERROR_SUCCESS;
+    status.observedAffinity = WDA_NONE;
+    BAFX_CHECK(!status.confirmed());
+}

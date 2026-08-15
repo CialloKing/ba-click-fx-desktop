@@ -841,4 +841,17 @@ std::string captureExclusionDiagnostic(const CaptureExclusionStatus& status)
     return stream.str();
 }
 
+std::string captureExclusionQueryDiagnostic(
+    const CaptureExclusionQueryStatus& status)
+{
+    std::ostringstream stream;
+    stream << "Capture.Exclusion.Health.Expected="
+           << hex32(status.expectedAffinity)
+           << ";Observed=" << hex32(status.observedAffinity)
+           << ";Query=" << (status.querySucceeded ? "succeeded" : "failed")
+           << ";QueryError=" << hex32(status.queryError)
+           << ";Confirmed=" << (status.confirmed() ? "true" : "false");
+    return stream.str();
+}
+
 }

@@ -176,6 +176,11 @@ bool CaptureExclusionStatus::confirmed() const noexcept
         && observedAffinity == requestedAffinity;
 }
 
+bool CaptureExclusionQueryStatus::confirmed() const noexcept
+{
+    return querySucceeded && observedAffinity == expectedAffinity;
+}
+
 OverlayWindow::OverlayWindow(
     HINSTANCE instance,
     const RECT bounds,
@@ -378,6 +383,25 @@ CaptureExclusionStatus OverlayWindow::setCaptureExcluded(
 
     // Set may report success while an older compositor applies WDA_MONITOR.
     // Always query the effective value before trusting capture exclusion.
+    const CaptureExclusionQueryStatus query =
+        queryCaptureExcluded(excluded);
+    status.observedAffinity = query.observedAffinity;
+    status.queryError = query.queryError;
+    status.querySucceeded = query.querySucceeded;
+    return status;
+}
+
+CaptureExclusionQueryStatus OverlayWindow::queryCaptureExcluded(
+    const bool excluded) const noexcept
+{
+    CaptureExclusionQueryStatus status{};
+    status.expectedAffinity = excluded ? WDA_EXCLUDEFROMCAPTURE : WDA_NONE;
+    if (window_ == nullptr)
+    {
+        status.queryError = ERROR_INVALID_WINDOW_HANDLE;
+        return status;
+    }
+
     SetLastError(ERROR_SUCCESS);
     status.querySucceeded = GetWindowDisplayAffinity(
         window_,

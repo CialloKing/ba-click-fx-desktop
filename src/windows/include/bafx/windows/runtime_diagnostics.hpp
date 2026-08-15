@@ -114,4 +114,7 @@ void appendDiagnosticLog(
 [[nodiscard]] std::string captureExclusionDiagnostic(
     const CaptureExclusionStatus& status);
 
+[[nodiscard]] std::string captureExclusionQueryDiagnostic(
+    const CaptureExclusionQueryStatus& status);
+
 }
