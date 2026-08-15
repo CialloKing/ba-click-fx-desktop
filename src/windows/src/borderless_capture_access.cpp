@@ -63,17 +63,24 @@ public:
         SetEvent(event_.get());
     }
 
-    void resetAfterObserve(const std::uint64_t observedGeneration)
+    [[nodiscard]] DWORD resetAfterObserve(
+        const std::uint64_t observedGeneration) noexcept
     {
         if (!ResetEvent(event_.get()))
         {
-            throwLastError("ResetEvent(borderless access changed)");
+            const DWORD error = GetLastError();
+            return error == ERROR_SUCCESS ? ERROR_GEN_FAILURE : error;
         }
         if (stopping_.load(std::memory_order_acquire)
             || generation() != observedGeneration)
         {
-            SetEvent(event_.get());
+            if (!SetEvent(event_.get()))
+            {
+                const DWORD error = GetLastError();
+                return error == ERROR_SUCCESS ? ERROR_GEN_FAILURE : error;
+            }
         }
+        return ERROR_SUCCESS;
     }
 
     [[nodiscard]] HANDLE eventObject() const noexcept
@@ -490,54 +497,55 @@ BorderlessCaptureAccessMonitor::observe() noexcept
     }
     const std::uint64_t generation =
         implementation_->notification->generation();
-    const auto acknowledgeGeneration = [&]() noexcept
+    const auto completeObservation =
+        [&](const BorderlessCaptureAccessStatus status,
+            const HRESULT result) noexcept
     {
         implementation_->observedGeneration = generation;
-        try
-        {
+        const DWORD notificationError =
             implementation_->notification->resetAfterObserve(generation);
-        }
-        catch (...)
+        if (notificationError != ERROR_SUCCESS)
         {
-            // The generation is still consumed once. A later callback changes
-            // it again, while this failed event reset cannot create a hot loop.
+            // A manual-reset event that cannot be reset would wake every wait
+            // iteration forever. Retire the monitor and its handle immediately.
+            stop();
+            return BorderlessCaptureAccessHealthResult{
+                BorderlessCaptureAccessStatus::Failed,
+                HRESULT_FROM_WIN32(notificationError),
+                generation};
         }
+        return BorderlessCaptureAccessHealthResult{
+            status,
+            result,
+            generation};
     };
     try
     {
         const BorderlessCaptureAccessStatus status = mapStatus(
             implementation_->capability.CheckAccess());
-        acknowledgeGeneration();
-        return BorderlessCaptureAccessHealthResult{
+        return completeObservation(
             status,
             status == BorderlessCaptureAccessStatus::Allowed
                 ? S_OK
-                : E_ACCESSDENIED,
-            generation};
+                : E_ACCESSDENIED);
     }
     catch (const winrt::hresult_error& error)
     {
-        acknowledgeGeneration();
-        return BorderlessCaptureAccessHealthResult{
+        return completeObservation(
             failureStatus(error.code()),
-            error.code(),
-            generation};
+            error.code());
     }
     catch (const HResultError& error)
     {
-        acknowledgeGeneration();
-        return BorderlessCaptureAccessHealthResult{
+        return completeObservation(
             failureStatus(error.result()),
-            error.result(),
-            generation};
+            error.result());
     }
     catch (...)
     {
-        acknowledgeGeneration();
-        return BorderlessCaptureAccessHealthResult{
+        return completeObservation(
             BorderlessCaptureAccessStatus::Failed,
-            E_FAIL,
-            generation};
+            E_FAIL);
     }
 }
 
