@@ -37,6 +37,13 @@ public:
         Operation&& operation) noexcept
     {
         notify(stage, WgcBackgroundStopStageState::Begin);
+        const std::uint8_t order = stageOrder(stage);
+        if (order == 0U || order <= lastStageOrder_)
+        {
+            notify(stage, WgcBackgroundStopStageState::Failed);
+            return WgcBackgroundStopOperationResult{};
+        }
+        lastStageOrder_ = order;
         const auto startedAt = std::chrono::steady_clock::now();
         bool succeeded = true;
         try
@@ -72,6 +79,25 @@ public:
     }
 
 private:
+    [[nodiscard]] static std::uint8_t stageOrder(
+        const WgcBackgroundStopStage stage) noexcept
+    {
+        switch (stage)
+        {
+        case WgcBackgroundStopStage::FrameArrivedUnregister:
+            return 1U;
+        case WgcBackgroundStopStage::ItemClosedUnregister:
+            return 2U;
+        case WgcBackgroundStopStage::SessionClose:
+            return 3U;
+        case WgcBackgroundStopStage::FramePoolClose:
+            return 4U;
+        case WgcBackgroundStopStage::Stop:
+            return 0U;
+        }
+        return 0U;
+    }
+
     void notify(
         const WgcBackgroundStopStage stage,
         const WgcBackgroundStopStageState state) const noexcept
@@ -86,6 +112,7 @@ private:
     WgcBackgroundStopObserver observer_{};
     DWORD ownerThreadId_{0U};
     DWORD callerThreadId_{0U};
+    std::uint8_t lastStageOrder_{0U};
 };
 
 }

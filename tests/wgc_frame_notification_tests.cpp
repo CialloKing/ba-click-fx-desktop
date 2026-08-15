@@ -323,6 +323,48 @@ BAFX_TEST(wgc_stop_sequence_preserves_owner_thread_mismatch)
     BAFX_CHECK(!collector.events[1].ownerThreadMatched());
 }
 
+BAFX_TEST(wgc_stop_sequence_rejects_a_repeated_or_reversed_stage)
+{
+    StopProgressCollector collector{};
+    const DWORD threadId = GetCurrentThreadId();
+    WgcBackgroundStopSequence sequence(
+        bafx::windows::WgcBackgroundStopObserver{
+            &collector,
+            &StopProgressCollector::observe},
+        threadId,
+        threadId);
+    std::uint32_t operationCount = 0U;
+    const auto session = sequence.run(
+        bafx::windows::WgcBackgroundStopStage::SessionClose,
+        [&operationCount]()
+        {
+            ++operationCount;
+        });
+    const auto reversed = sequence.run(
+        bafx::windows::WgcBackgroundStopStage::ItemClosedUnregister,
+        [&operationCount]()
+        {
+            ++operationCount;
+        });
+    const auto repeated = sequence.run(
+        bafx::windows::WgcBackgroundStopStage::SessionClose,
+        [&operationCount]()
+        {
+            ++operationCount;
+        });
+
+    BAFX_CHECK(session.succeeded);
+    BAFX_CHECK(!reversed.succeeded);
+    BAFX_CHECK(!repeated.succeeded);
+    BAFX_CHECK(operationCount == 1U);
+    BAFX_CHECK(
+        collector.events[4].state
+        == bafx::windows::WgcBackgroundStopStageState::Failed);
+    BAFX_CHECK(
+        collector.events[6].state
+        == bafx::windows::WgcBackgroundStopStageState::Failed);
+}
+
 BAFX_TEST(wgc_stop_progress_names_are_stable)
 {
     BAFX_CHECK(
