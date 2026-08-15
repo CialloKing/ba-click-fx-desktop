@@ -12,6 +12,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 
 namespace bafx::windows
 {
@@ -38,6 +39,58 @@ struct WgcBackgroundResourceLedgerSnapshot
 
     [[nodiscard]] bool allReleased() const noexcept;
 };
+
+enum class WgcBackgroundStopStage : std::uint8_t
+{
+    Stop,
+    FrameArrivedUnregister,
+    ItemClosedUnregister,
+    SessionClose,
+    FramePoolClose
+};
+
+enum class WgcBackgroundStopStageState : std::uint8_t
+{
+    Begin,
+    Succeeded,
+    Failed
+};
+
+struct WgcBackgroundStopProgress
+{
+    WgcBackgroundStopStage stage{WgcBackgroundStopStage::Stop};
+    WgcBackgroundStopStageState state{WgcBackgroundStopStageState::Begin};
+    DWORD ownerThreadId{0U};
+    DWORD callerThreadId{0U};
+
+    [[nodiscard]] bool ownerThreadMatched() const noexcept
+    {
+        return ownerThreadId == callerThreadId;
+    }
+};
+
+using WgcBackgroundStopProgressCallback = void (*)(
+    const void* context,
+    const WgcBackgroundStopProgress& progress) noexcept;
+
+struct WgcBackgroundStopObserver
+{
+    const void* context{nullptr};
+    WgcBackgroundStopProgressCallback callback{nullptr};
+
+    void notify(const WgcBackgroundStopProgress& progress) const noexcept
+    {
+        if (callback != nullptr)
+        {
+            callback(context, progress);
+        }
+    }
+};
+
+[[nodiscard]] std::string_view wgcBackgroundStopStageName(
+    WgcBackgroundStopStage stage) noexcept;
+[[nodiscard]] std::string_view wgcBackgroundStopStageStateName(
+    WgcBackgroundStopStageState state) noexcept;
 
 // Keep the production lifecycle evidence in the same stable key/value form
 // as the support log.  The formatter is also used by offline tests so a
@@ -88,6 +141,9 @@ struct WgcBackgroundSensorOptions
     // Hardware probes can require an explicit enable/disable write and
     // readback. Product callers leave this unset to preserve old-OS fallback.
     std::optional<bool> cursorCaptureEnabledOverride{};
+    // Called synchronously immediately before and after each uncancellable
+    // WinRT stop operation. The observer must return promptly.
+    WgcBackgroundStopObserver stopObserver{};
 };
 
 struct WgcBackgroundSample
@@ -153,6 +209,7 @@ struct WgcBackgroundStopDiagnostics
     bool itemClosedUnregisterFailed{false};
     bool sessionCloseFailed{false};
     bool framePoolCloseFailed{false};
+    bool ownerThreadMismatch{false};
     bool completed{false};
     bool overallSucceeded{false};
     bool deferredReport{false};

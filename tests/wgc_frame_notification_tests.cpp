@@ -1,15 +1,20 @@
 #include "test_support.hpp"
 
 #include "bafx/windows/detail/wgc_frame_notification.hpp"
+#include "bafx/windows/detail/wgc_stop_sequence.hpp"
 #include "bafx/windows/wgc_background_sensor.hpp"
 
 #include <windows.h>
 
+#include <array>
 #include <chrono>
+#include <cstddef>
+#include <stdexcept>
 #include <string>
 
 using bafx::windows::detail::WgcFrameNotification;
 using bafx::windows::detail::WgcBackgroundStopMailbox;
+using bafx::windows::detail::WgcBackgroundStopSequence;
 using bafx::windows::WgcBackgroundResourceLedger;
 using bafx::windows::WgcBackgroundResourceLedgerSnapshot;
 
@@ -20,6 +25,27 @@ namespace
 {
     return WaitForSingleObject(notification.eventObject(), 0U);
 }
+
+struct StopProgressCollector
+{
+    static constexpr std::size_t capacity = 12U;
+
+    static void observe(
+        const void* const context,
+        const bafx::windows::WgcBackgroundStopProgress& progress) noexcept
+    {
+        auto& collector = *static_cast<StopProgressCollector*>(
+            const_cast<void*>(context));
+        if (collector.count < collector.events.size())
+        {
+            collector.events[collector.count] = progress;
+            ++collector.count;
+        }
+    }
+
+    std::array<bafx::windows::WgcBackgroundStopProgress, capacity> events{};
+    std::size_t count{0U};
+};
 
 }
 
@@ -188,6 +214,7 @@ BAFX_TEST(wgc_stop_diagnostic_reports_each_uncancellable_phase)
     diagnostics.sensorPresent = true;
     diagnostics.itemClosedUnregisterFailed = true;
     diagnostics.sessionCloseFailed = true;
+    diagnostics.ownerThreadMismatch = true;
     diagnostics.completed = true;
     diagnostics.overallSucceeded = false;
 
@@ -200,6 +227,7 @@ BAFX_TEST(wgc_stop_diagnostic_reports_each_uncancellable_phase)
         != std::string::npos);
     BAFX_CHECK(text.find("SessionCloseFailed=true") != std::string::npos);
     BAFX_CHECK(text.find("FramePoolCloseFailed=false") != std::string::npos);
+    BAFX_CHECK(text.find("OwnerThreadMismatch=true") != std::string::npos);
     BAFX_CHECK(text.find("WGC.Stop.Completed=true") != std::string::npos);
     BAFX_CHECK(text.find("WGC.Stop.OverallSucceeded=false")
         != std::string::npos);
@@ -209,6 +237,106 @@ BAFX_TEST(wgc_stop_diagnostic_reports_each_uncancellable_phase)
     BAFX_CHECK(text.find("SessionCloseUs=33") != std::string::npos);
     BAFX_CHECK(text.find("FramePoolCloseUs=44") != std::string::npos);
     BAFX_CHECK(text.find("WGC.Stop.TotalUs=123") != std::string::npos);
+}
+
+BAFX_TEST(wgc_stop_sequence_reports_boundaries_and_continues_after_failure)
+{
+    StopProgressCollector collector{};
+    const DWORD ownerThreadId = GetCurrentThreadId();
+    WgcBackgroundStopSequence sequence(
+        bafx::windows::WgcBackgroundStopObserver{
+            &collector,
+            &StopProgressCollector::observe},
+        ownerThreadId,
+        ownerThreadId);
+
+    std::array<int, 4U> operations{};
+    std::size_t operationCount = 0U;
+    const auto frameArrived = sequence.run(
+        bafx::windows::WgcBackgroundStopStage::FrameArrivedUnregister,
+        [&operations, &operationCount]()
+        {
+            operations[operationCount++] = 1;
+        });
+    const auto itemClosed = sequence.run(
+        bafx::windows::WgcBackgroundStopStage::ItemClosedUnregister,
+        [&operations, &operationCount]()
+        {
+            operations[operationCount++] = 2;
+            throw std::runtime_error("injected unregister failure");
+        });
+    const auto session = sequence.run(
+        bafx::windows::WgcBackgroundStopStage::SessionClose,
+        [&operations, &operationCount]()
+        {
+            operations[operationCount++] = 3;
+        });
+    const auto framePool = sequence.run(
+        bafx::windows::WgcBackgroundStopStage::FramePoolClose,
+        [&operations, &operationCount]()
+        {
+            operations[operationCount++] = 4;
+        });
+    sequence.complete(false);
+
+    const std::array<int, 4U> expectedOperations{1, 2, 3, 4};
+    BAFX_CHECK(operationCount == 4U);
+    BAFX_CHECK(operations == expectedOperations);
+    BAFX_CHECK(frameArrived.succeeded);
+    BAFX_CHECK(!itemClosed.succeeded);
+    BAFX_CHECK(session.succeeded);
+    BAFX_CHECK(framePool.succeeded);
+    BAFX_CHECK(collector.count == 10U);
+    BAFX_CHECK(
+        collector.events[0].stage
+        == bafx::windows::WgcBackgroundStopStage::Stop);
+    BAFX_CHECK(
+        collector.events[0].state
+        == bafx::windows::WgcBackgroundStopStageState::Begin);
+    BAFX_CHECK(
+        collector.events[3].stage
+        == bafx::windows::WgcBackgroundStopStage::ItemClosedUnregister);
+    BAFX_CHECK(
+        collector.events[4].state
+        == bafx::windows::WgcBackgroundStopStageState::Failed);
+    BAFX_CHECK(
+        collector.events[9].state
+        == bafx::windows::WgcBackgroundStopStageState::Failed);
+    BAFX_CHECK(collector.events[9].ownerThreadMatched());
+}
+
+BAFX_TEST(wgc_stop_sequence_preserves_owner_thread_mismatch)
+{
+    StopProgressCollector collector{};
+    const DWORD callerThreadId = GetCurrentThreadId();
+    WgcBackgroundStopSequence sequence(
+        bafx::windows::WgcBackgroundStopObserver{
+            &collector,
+            &StopProgressCollector::observe},
+        callerThreadId + 1U,
+        callerThreadId);
+    sequence.complete(false);
+
+    BAFX_CHECK(!sequence.ownerThreadMatched());
+    BAFX_CHECK(collector.count == 2U);
+    BAFX_CHECK(!collector.events[0].ownerThreadMatched());
+    BAFX_CHECK(!collector.events[1].ownerThreadMatched());
+}
+
+BAFX_TEST(wgc_stop_progress_names_are_stable)
+{
+    BAFX_CHECK(
+        bafx::windows::wgcBackgroundStopStageName(
+            bafx::windows::WgcBackgroundStopStage::FrameArrivedUnregister)
+        == "frame-arrived-unregister");
+    BAFX_CHECK(
+        bafx::windows::wgcBackgroundStopStageName(
+            bafx::windows::WgcBackgroundStopStage::SessionClose)
+        == "session-close");
+    BAFX_CHECK(
+        bafx::windows::wgcBackgroundStopStageStateName(
+            bafx::windows::WgcBackgroundStopStageState::Succeeded)
+        == "succeeded");
 }
 
 BAFX_TEST(wgc_stop_mailbox_preserves_a_sensor_stop_across_cleanup_noop)

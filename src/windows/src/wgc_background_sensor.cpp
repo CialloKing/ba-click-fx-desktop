@@ -1,6 +1,7 @@
 #include "bafx/windows/wgc_background_sensor.hpp"
 
 #include "bafx/windows/detail/wgc_frame_notification.hpp"
+#include "bafx/windows/detail/wgc_stop_sequence.hpp"
 #include "bafx/windows/error.hpp"
 
 #include <windows.graphics.capture.interop.h>
@@ -190,6 +191,40 @@ bool WgcBackgroundResourceLedgerSnapshot::allReleased() const noexcept
         && liveItemClosedRegistrations == 0U;
 }
 
+std::string_view wgcBackgroundStopStageName(
+    const WgcBackgroundStopStage stage) noexcept
+{
+    switch (stage)
+    {
+    case WgcBackgroundStopStage::Stop:
+        return "stop";
+    case WgcBackgroundStopStage::FrameArrivedUnregister:
+        return "frame-arrived-unregister";
+    case WgcBackgroundStopStage::ItemClosedUnregister:
+        return "item-closed-unregister";
+    case WgcBackgroundStopStage::SessionClose:
+        return "session-close";
+    case WgcBackgroundStopStage::FramePoolClose:
+        return "frame-pool-close";
+    }
+    return "unknown";
+}
+
+std::string_view wgcBackgroundStopStageStateName(
+    const WgcBackgroundStopStageState state) noexcept
+{
+    switch (state)
+    {
+    case WgcBackgroundStopStageState::Begin:
+        return "begin";
+    case WgcBackgroundStopStageState::Succeeded:
+        return "succeeded";
+    case WgcBackgroundStopStageState::Failed:
+        return "failed";
+    }
+    return "unknown";
+}
+
 std::string wgcBackgroundResourceLedgerDiagnostic(
     const WgcBackgroundResourceLedgerSnapshot& snapshot)
 {
@@ -262,6 +297,8 @@ std::string wgcBackgroundStopDiagnostic(
            << (diagnostics.sessionCloseFailed ? "true" : "false")
            << ";WGC.Stop.FramePoolCloseFailed="
            << (diagnostics.framePoolCloseFailed ? "true" : "false")
+           << ";WGC.Stop.OwnerThreadMismatch="
+           << (diagnostics.ownerThreadMismatch ? "true" : "false")
            << ";WGC.Stop.Completed="
            << (diagnostics.completed ? "true" : "false")
            << ";WGC.Stop.OverallSucceeded="
@@ -422,6 +459,7 @@ struct WgcBackgroundSensor::Implementation
         , direct3dDevice(createWinrtDevice(sourceDevice))
         , item(std::move(sourceItem))
         , options(sourceOptions)
+        , ownerThreadId(GetCurrentThreadId())
         , ledger(sourceOptions.resourceLedger)
         , notification(std::make_shared<detail::WgcFrameNotification>())
     {
@@ -838,16 +876,23 @@ struct WgcBackgroundSensor::Implementation
             return;
         }
         const auto stopStartedAt = std::chrono::steady_clock::now();
+        detail::WgcBackgroundStopSequence sequence(
+            options.stopObserver,
+            ownerThreadId,
+            GetCurrentThreadId());
         stopDiagnostics.sensorPresent = true;
+        stopDiagnostics.ownerThreadMismatch = !sequence.ownerThreadMatched();
         notification->beginStop();
         if (frameArrivedRegistered && framePool)
         {
-            const auto unregisterStartedAt = std::chrono::steady_clock::now();
-            try
-            {
-                framePool.FrameArrived(frameArrivedToken);
-            }
-            catch (...)
+            const detail::WgcBackgroundStopOperationResult result =
+                sequence.run(
+                    WgcBackgroundStopStage::FrameArrivedUnregister,
+                    [this]()
+                    {
+                        framePool.FrameArrived(frameArrivedToken);
+                    });
+            if (!result.succeeded)
             {
                 // The pool may already be torn down after a device loss.
                 stopDiagnostics.frameArrivedUnregisterFailed = true;
@@ -857,17 +902,18 @@ struct WgcBackgroundSensor::Implementation
             recordResourceLedgerEvent(
                 ledger,
                 ResourceLedgerEvent::FrameArrivedUnregistered);
-            stopDiagnostics.frameArrivedUnregister =
-                std::chrono::steady_clock::now() - unregisterStartedAt;
+            stopDiagnostics.frameArrivedUnregister = result.elapsed;
         }
         if (itemClosedRegistered && item)
         {
-            const auto unregisterStartedAt = std::chrono::steady_clock::now();
-            try
-            {
-                item.Closed(itemClosedToken);
-            }
-            catch (...)
+            const detail::WgcBackgroundStopOperationResult result =
+                sequence.run(
+                    WgcBackgroundStopStage::ItemClosedUnregister,
+                    [this]()
+                    {
+                        item.Closed(itemClosedToken);
+                    });
+            if (!result.succeeded)
             {
                 // The item can close itself before the owner reaches shutdown.
                 stopDiagnostics.itemClosedUnregisterFailed = true;
@@ -877,17 +923,18 @@ struct WgcBackgroundSensor::Implementation
             recordResourceLedgerEvent(
                 ledger,
                 ResourceLedgerEvent::ItemClosedUnregistered);
-            stopDiagnostics.itemClosedUnregister =
-                std::chrono::steady_clock::now() - unregisterStartedAt;
+            stopDiagnostics.itemClosedUnregister = result.elapsed;
         }
         if (session)
         {
-            const auto closeStartedAt = std::chrono::steady_clock::now();
-            try
-            {
-                session.Close();
-            }
-            catch (...)
+            const detail::WgcBackgroundStopOperationResult result =
+                sequence.run(
+                    WgcBackgroundStopStage::SessionClose,
+                    [this]()
+                    {
+                        session.Close();
+                    });
+            if (!result.succeeded)
             {
                 // Shutdown must not replace an earlier rendering failure.
                 stopDiagnostics.sessionCloseFailed = true;
@@ -897,17 +944,18 @@ struct WgcBackgroundSensor::Implementation
             recordResourceLedgerEvent(
                 ledger,
                 ResourceLedgerEvent::SessionClosed);
-            stopDiagnostics.sessionClose =
-                std::chrono::steady_clock::now() - closeStartedAt;
+            stopDiagnostics.sessionClose = result.elapsed;
         }
         if (framePool)
         {
-            const auto closeStartedAt = std::chrono::steady_clock::now();
-            try
-            {
-                framePool.Close();
-            }
-            catch (...)
+            const detail::WgcBackgroundStopOperationResult result =
+                sequence.run(
+                    WgcBackgroundStopStage::FramePoolClose,
+                    [this]()
+                    {
+                        framePool.Close();
+                    });
+            if (!result.succeeded)
             {
                 // The device may already be removed during process shutdown.
                 stopDiagnostics.framePoolCloseFailed = true;
@@ -917,8 +965,7 @@ struct WgcBackgroundSensor::Implementation
             recordResourceLedgerEvent(
                 ledger,
                 ResourceLedgerEvent::FramePoolClosed);
-            stopDiagnostics.framePoolClose =
-                std::chrono::steady_clock::now() - closeStartedAt;
+            stopDiagnostics.framePoolClose = result.elapsed;
         }
         item = nullptr;
         direct3dDevice = nullptr;
@@ -934,7 +981,9 @@ struct WgcBackgroundSensor::Implementation
             !stopDiagnostics.frameArrivedUnregisterFailed
             && !stopDiagnostics.itemClosedUnregisterFailed
             && !stopDiagnostics.sessionCloseFailed
-            && !stopDiagnostics.framePoolCloseFailed;
+            && !stopDiagnostics.framePoolCloseFailed
+            && !stopDiagnostics.ownerThreadMismatch;
+        sequence.complete(stopDiagnostics.overallSucceeded);
     }
 
     ComPtr<ID3D11Device> device{};
@@ -943,6 +992,7 @@ struct WgcBackgroundSensor::Implementation
     Direct3D11CaptureFramePool framePool{nullptr};
     GraphicsCaptureSession session{nullptr};
     WgcBackgroundSensorOptions options{};
+    DWORD ownerThreadId{0U};
     WgcBackgroundSessionCapabilities capabilities{};
     std::shared_ptr<WgcBackgroundResourceLedger> ledger{};
     std::shared_ptr<detail::WgcFrameNotification> notification{};
