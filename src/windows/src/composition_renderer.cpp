@@ -30,7 +30,13 @@ constexpr CompositionOutputState scRgbOutputState{
     CompositionOutputTransfer::LinearScRgb,
     CompositionOutputFallback::None,
     true};
-constexpr CompositionOutputState conservativeSdrOutputState{
+constexpr CompositionOutputState requestedSdrOutputState{
+    DXGI_FORMAT_B8G8R8A8_UNORM,
+    DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709,
+    CompositionOutputTransfer::SdrGamma22,
+    CompositionOutputFallback::None,
+    false};
+constexpr CompositionOutputState fallbackSdrOutputState{
     DXGI_FORMAT_B8G8R8A8_UNORM,
     DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709,
     CompositionOutputTransfer::SdrGamma22,
@@ -57,8 +63,13 @@ constexpr SwapChainCandidateSpecification scRgbSwapChainCandidate{
     "IDXGIFactory2::CreateSwapChainForComposition(scRGB)",
     "IDXGISwapChain3::CheckColorSpaceSupport(scRGB present)",
     "IDXGISwapChain3::SetColorSpace1(scRGB)"};
-constexpr SwapChainCandidateSpecification conservativeSdrSwapChainCandidate{
-    conservativeSdrOutputState,
+constexpr SwapChainCandidateSpecification requestedSdrSwapChainCandidate{
+    requestedSdrOutputState,
+    "IDXGIFactory2::CreateSwapChainForComposition(BGRA8 SDR)",
+    "IDXGISwapChain3::CheckColorSpaceSupport(BGRA8 SDR present)",
+    "IDXGISwapChain3::SetColorSpace1(BGRA8 SDR)"};
+constexpr SwapChainCandidateSpecification fallbackSdrSwapChainCandidate{
+    fallbackSdrOutputState,
     "IDXGIFactory2::CreateSwapChainForComposition(BGRA8 SDR)",
     "IDXGISwapChain3::CheckColorSpaceSupport(BGRA8 SDR present)",
     "IDXGISwapChain3::SetColorSpace1(BGRA8 SDR)"};
@@ -122,6 +133,62 @@ constexpr SwapChainCandidateSpecification conservativeSdrSwapChainCandidate{
     }
     created.output = candidate.output;
     return created;
+}
+
+[[nodiscard]] CreatedCompositionSwapChain createPreferredCompositionSwapChain(
+    IDXGIFactory2* const factory,
+    ID3D11Device* const device,
+    const WindowSize size,
+    const CompositionOutputPreference preference)
+{
+    if (preference == CompositionOutputPreference::ConservativeSdr)
+    {
+        return createCompositionSwapChainCandidate(
+            factory,
+            device,
+            size,
+            requestedSdrSwapChainCandidate);
+    }
+    if (preference != CompositionOutputPreference::PreferLinearScRgb)
+    {
+        throw std::invalid_argument("Composition output preference is invalid");
+    }
+
+    try
+    {
+        return createCompositionSwapChainCandidate(
+            factory,
+            device,
+            size,
+            scRgbSwapChainCandidate);
+    }
+    catch (const HResultError& error)
+    {
+        if (isDeviceLostResult(error.result()))
+        {
+            throw;
+        }
+        // Runtime capability decides the transport. The binary retains both
+        // paths regardless of the SDK or Windows version used to compile it.
+        return createCompositionSwapChainCandidate(
+            factory,
+            device,
+            size,
+            fallbackSdrSwapChainCandidate);
+    }
+}
+
+[[nodiscard]] OutputRenegotiationStatus classifyOutputRenegotiation(
+    const CompositionOutputState& previous,
+    const CompositionOutputState& current) noexcept
+{
+    if (previous == current)
+    {
+        return OutputRenegotiationStatus::RecreatedSameContract;
+    }
+    return current.transfer == CompositionOutputTransfer::LinearScRgb
+        ? OutputRenegotiationStatus::ChangedToLinearScRgb
+        : OutputRenegotiationStatus::ChangedToSdr;
 }
 
 constexpr bafx::core::MonotonicTime minimumBackgroundCadencePeriod =
@@ -451,7 +518,8 @@ CompositionRenderer::CompositionRenderer(
     const WindowSize size,
     const FxBloomSettings bloomSettings,
     const WgcBackgroundStopObserver backgroundStopObserver,
-    const std::optional<LUID> requestedAdapterLuid)
+    const std::optional<LUID> requestedAdapterLuid,
+    const CompositionOutputPreference outputPreference)
     : window_(window)
     , bloomSettings_(bloomSettings)
     , size_(size)
@@ -459,6 +527,7 @@ CompositionRenderer::CompositionRenderer(
           std::make_shared<WgcBackgroundResourceLedger>())
     , backgroundStopObserver_(backgroundStopObserver)
     , requestedAdapterLuid_(requestedAdapterLuid)
+    , outputPreference_(outputPreference)
 {
     createDeviceResources();
 }
@@ -602,6 +671,99 @@ OutputAdapterRetargetStatus CompositionRenderer::retargetOutputAdapter(
         deviceRecoveryAttempted_ = previousDeviceRecoveryAttempted;
         std::rethrow_exception(retargetFailure);
     }
+}
+
+OutputRenegotiationResult CompositionRenderer::renegotiateOutput(
+    const CompositionOutputPreference preference)
+{
+    Microsoft::WRL::ComPtr<IDXGIDevice> dxgiDevice;
+    throwIfFailed(
+        device_.As(&dxgiDevice),
+        "ID3D11Device::QueryInterface(IDXGIDevice)");
+
+    Microsoft::WRL::ComPtr<IDXGIAdapter> adapter;
+    throwIfFailed(
+        dxgiDevice->GetAdapter(&adapter),
+        "IDXGIDevice::GetAdapter");
+
+    Microsoft::WRL::ComPtr<IDXGIFactory2> factory;
+    throwIfFailed(
+        adapter->GetParent(IID_PPV_ARGS(&factory)),
+        "IDXGIAdapter::GetParent");
+
+    CreatedCompositionSwapChain created = createPreferredCompositionSwapChain(
+        factory.Get(),
+        device_.Get(),
+        size_,
+        preference);
+
+    Microsoft::WRL::ComPtr<ID3D11Texture2D> replacementBackBuffer;
+    throwIfFailed(
+        created.swapChain->GetBuffer(
+            0U,
+            IID_PPV_ARGS(&replacementBackBuffer)),
+        "IDXGISwapChain::GetBuffer(output renegotiation)");
+
+    Microsoft::WRL::ComPtr<ID3D11RenderTargetView> replacementRenderTarget;
+    throwIfFailed(
+        device_->CreateRenderTargetView(
+            replacementBackBuffer.Get(),
+            nullptr,
+            &replacementRenderTarget),
+        "ID3D11Device::CreateRenderTargetView(output renegotiation)");
+
+    auto replacementFxRenderer = std::make_unique<FxGpuRenderer>(
+        device_.Get(),
+        context_.Get(),
+        size_,
+        bloomSettings_,
+        created.output.transfer);
+    replacementFxRenderer->setOverlayProfile(overlayProfile_);
+
+    throwIfFailed(
+        rootVisual_->SetContent(created.swapChain.Get()),
+        "IDCompositionVisual::SetContent(output renegotiation)");
+    const HRESULT commitResult = compositionDevice_->Commit();
+    if (FAILED(commitResult))
+    {
+        // SetContent mutates the retained visual before Commit. Restore the old
+        // content explicitly so a non-device failure leaves a usable renderer.
+        const HRESULT restoreContentResult = rootVisual_->SetContent(
+            swapChain_.Get());
+        const HRESULT restoreCommitResult = SUCCEEDED(restoreContentResult)
+            ? compositionDevice_->Commit()
+            : restoreContentResult;
+        if (FAILED(restoreCommitResult))
+        {
+            throwIfFailed(
+                restoreCommitResult,
+                "IDCompositionDevice::Commit(output renegotiation rollback)");
+        }
+        throwIfFailed(
+            commitResult,
+            "IDCompositionDevice::Commit(output renegotiation)");
+    }
+
+    const CompositionOutputPreference previousPreference = outputPreference_;
+    const CompositionOutputState previousOutput = deviceInfo_.output;
+    context_->OMSetRenderTargets(0U, nullptr, nullptr);
+    renderTarget_ = std::move(replacementRenderTarget);
+    backBuffer_ = std::move(replacementBackBuffer);
+    swapChain_ = std::move(created.swapChain);
+    frameLatencyHandle_ = std::move(created.frameLatencyHandle);
+    fxRenderer_ = std::move(replacementFxRenderer);
+    deviceInfo_.output = created.output;
+    outputPreference_ = preference;
+    lastCenterPixel_.reset();
+    backgroundPathLatch_.reset();
+    previousVisualBounds_.reset();
+
+    return OutputRenegotiationResult{
+        classifyOutputRenegotiation(previousOutput, deviceInfo_.output),
+        previousPreference,
+        outputPreference_,
+        previousOutput,
+        deviceInfo_.output};
 }
 
 std::string_view CompositionRenderer::deviceRecoveryFailure() const noexcept
@@ -1471,6 +1633,11 @@ HANDLE CompositionRenderer::backgroundFrameAvailableObject() const noexcept
         : nullptr;
 }
 
+WindowSize CompositionRenderer::outputSize() const noexcept
+{
+    return size_;
+}
+
 D3D_FEATURE_LEVEL CompositionRenderer::featureLevel() const noexcept
 {
     return featureLevel_;
@@ -1484,6 +1651,11 @@ const GraphicsDeviceInfo& CompositionRenderer::deviceInfo() const noexcept
 const CompositionOutputState& CompositionRenderer::outputState() const noexcept
 {
     return deviceInfo_.output;
+}
+
+CompositionOutputPreference CompositionRenderer::outputPreference() const noexcept
+{
+    return outputPreference_;
 }
 
 std::optional<PixelF> CompositionRenderer::lastCenterPixel() const noexcept
@@ -1664,29 +1836,11 @@ void CompositionRenderer::createSwapChain(const WindowSize size)
     Microsoft::WRL::ComPtr<IDXGIFactory2> factory;
     throwIfFailed(adapter->GetParent(IID_PPV_ARGS(&factory)), "IDXGIAdapter::GetParent");
 
-    CreatedCompositionSwapChain created{};
-    try
-    {
-        created = createCompositionSwapChainCandidate(
-            factory.Get(),
-            device_.Get(),
-            size,
-            scRgbSwapChainCandidate);
-    }
-    catch (const HResultError& error)
-    {
-        if (isDeviceLostResult(error.result()))
-        {
-            throw;
-        }
-        // FP16/scRGB is preferred, but a format or color-space capability
-        // failure must not prevent the complete binary from running in SDR.
-        created = createCompositionSwapChainCandidate(
-            factory.Get(),
-            device_.Get(),
-            size,
-            conservativeSdrSwapChainCandidate);
-    }
+    CreatedCompositionSwapChain created = createPreferredCompositionSwapChain(
+        factory.Get(),
+        device_.Get(),
+        size,
+        outputPreference_);
 
     // Publish only a fully configured candidate so shaders and diagnostics
     // cannot observe a partially initialized output transport.

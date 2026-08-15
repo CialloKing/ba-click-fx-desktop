@@ -82,6 +82,25 @@ enum class OutputAdapterRetargetStatus : std::uint8_t
     RecreatedWarpFallback
 };
 
+enum class OutputRenegotiationStatus : std::uint8_t
+{
+    RecreatedSameContract,
+    ChangedToLinearScRgb,
+    ChangedToSdr
+};
+
+struct OutputRenegotiationResult final
+{
+    OutputRenegotiationStatus status{
+        OutputRenegotiationStatus::RecreatedSameContract};
+    CompositionOutputPreference previousPreference{
+        CompositionOutputPreference::PreferLinearScRgb};
+    CompositionOutputPreference currentPreference{
+        CompositionOutputPreference::PreferLinearScRgb};
+    CompositionOutputState previous{};
+    CompositionOutputState current{};
+};
+
 enum class BackgroundFramePoolRecreateStatus : std::uint8_t
 {
     Recreated,
@@ -212,7 +231,9 @@ public:
         WindowSize size,
         FxBloomSettings bloomSettings = {},
         WgcBackgroundStopObserver backgroundStopObserver = {},
-        std::optional<LUID> requestedAdapterLuid = std::nullopt);
+        std::optional<LUID> requestedAdapterLuid = std::nullopt,
+        CompositionOutputPreference outputPreference =
+            CompositionOutputPreference::PreferLinearScRgb);
     ~CompositionRenderer();
 
     CompositionRenderer(const CompositionRenderer&) = delete;
@@ -225,6 +246,11 @@ public:
     // stopped by the same owner transaction before this call.
     [[nodiscard]] OutputAdapterRetargetStatus retargetOutputAdapter(
         std::optional<LUID> requestedAdapterLuid);
+    // Re-evaluate format and color-space support without replacing the D3D
+    // device. Candidate resources are published only after DComp accepts the
+    // new swap chain, so WGC and same-device FP16 snapshots remain valid.
+    [[nodiscard]] OutputRenegotiationResult renegotiateOutput(
+        CompositionOutputPreference preference);
     // Rebuild the D3D/DComp resource domain once after device removal. WGC is
     // stopped first so no old-device frame or snapshot can cross the boundary.
     [[nodiscard]] bool tryRecoverDevice() noexcept;
@@ -280,9 +306,11 @@ public:
     [[nodiscard]] HRESULT deviceRemovedNotificationResult() const noexcept;
     [[nodiscard]] HRESULT deviceRemovedReason() const noexcept;
     [[nodiscard]] HANDLE backgroundFrameAvailableObject() const noexcept;
+    [[nodiscard]] WindowSize outputSize() const noexcept;
     [[nodiscard]] D3D_FEATURE_LEVEL featureLevel() const noexcept;
     [[nodiscard]] const GraphicsDeviceInfo& deviceInfo() const noexcept;
     [[nodiscard]] const CompositionOutputState& outputState() const noexcept;
+    [[nodiscard]] CompositionOutputPreference outputPreference() const noexcept;
     [[nodiscard]] std::optional<PixelF> lastCenterPixel() const noexcept;
 
 private:
@@ -381,6 +409,8 @@ private:
     bool backgroundCaptureAfterRecoveryAllowed_{true};
     DeviceRecoveryDiagnostics deviceRecoveryDiagnostics_{};
     std::optional<LUID> requestedAdapterLuid_{};
+    CompositionOutputPreference outputPreference_{
+        CompositionOutputPreference::PreferLinearScRgb};
 };
 
 }

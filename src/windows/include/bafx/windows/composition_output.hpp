@@ -14,6 +14,12 @@ enum class CompositionOutputTransfer : std::uint8_t
     SdrGamma22
 };
 
+enum class CompositionOutputPreference : std::uint8_t
+{
+    ConservativeSdr,
+    PreferLinearScRgb
+};
+
 enum class CompositionOutputFallback : std::uint8_t
 {
     None,
@@ -27,6 +33,9 @@ struct CompositionOutputState final
     CompositionOutputTransfer transfer{CompositionOutputTransfer::Unknown};
     CompositionOutputFallback fallback{CompositionOutputFallback::None};
     bool extendedPremultiplied{false};
+
+    [[nodiscard]] bool operator==(
+        const CompositionOutputState&) const noexcept = default;
 };
 
 }
