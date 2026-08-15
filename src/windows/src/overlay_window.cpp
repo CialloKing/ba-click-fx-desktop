@@ -2,6 +2,7 @@
 
 #include "bafx/windows/error.hpp"
 
+#include <dbt.h>
 #include <shellapi.h>
 #include <windowsx.h>
 
@@ -764,6 +765,19 @@ LRESULT OverlayWindow::handleMessage(
         displayColorChangePending_ = true;
         invalidatePointerGeometry();
         return 0;
+
+    case WM_DEVICECHANGE:
+        if (role_ == OverlayWindowRole::HostShell
+            && (wParam == DBT_DEVNODES_CHANGED
+                || wParam == DBT_CONFIGCHANGED))
+        {
+            // A same-resolution monitor replacement may not emit
+            // WM_DISPLAYCHANGE. Feed device-tree changes into the existing
+            // coalesced topology transaction so target identity is rechecked.
+            recordDisplayTopologyChange(
+                DisplayTopologyChangeSource::DisplayConfiguration);
+        }
+        return DefWindowProcW(window_, message, wParam, lParam);
 
     case WM_SETTINGCHANGE:
         // Advanced Color/HDR changes are not guaranteed to alter rcMonitor.
