@@ -432,31 +432,33 @@ std::optional<DisplayColorCapabilities> queryDisplayColorCapabilities(
                     continue;
                 }
 
+                DisplayColorCapabilities capabilities{};
+                bool dxgiDescriptionAvailable = false;
                 ComPtr<IDXGIOutput6> output6;
-                if (FAILED(output.As(&output6)))
+                if (SUCCEEDED(output.As(&output6)))
                 {
-                    return std::nullopt;
+                    DXGI_OUTPUT_DESC1 description{};
+                    if (SUCCEEDED(output6->GetDesc1(&description)))
+                    {
+                        capabilities.colorSpace = description.ColorSpace;
+                        capabilities.bitsPerColor = description.BitsPerColor;
+                        capabilities.minimumLuminanceNits =
+                            description.MinLuminance;
+                        capabilities.maximumLuminanceNits =
+                            description.MaxLuminance;
+                        capabilities.maximumFullFrameLuminanceNits =
+                            description.MaxFullFrameLuminance;
+                        capabilities.luminanceMetadataValid =
+                            validLuminance(description.MinLuminance)
+                            && validLuminance(description.MaxLuminance)
+                            && validLuminance(
+                                description.MaxFullFrameLuminance)
+                            && description.MaxLuminance > 0.0F;
+                        capabilities.activeColorMode = inferColorMode(
+                            capabilities.colorSpace);
+                        dxgiDescriptionAvailable = true;
+                    }
                 }
-
-                DXGI_OUTPUT_DESC1 description{};
-                if (FAILED(output6->GetDesc1(&description)))
-                {
-                    return std::nullopt;
-                }
-                const bool luminanceMetadataValid =
-                    validLuminance(description.MinLuminance)
-                    && validLuminance(description.MaxLuminance)
-                    && validLuminance(description.MaxFullFrameLuminance)
-                    && description.MaxLuminance > 0.0F;
-                DisplayColorCapabilities capabilities{
-                    description.ColorSpace,
-                    description.BitsPerColor,
-                    description.MinLuminance,
-                    description.MaxLuminance,
-                    description.MaxFullFrameLuminance,
-                    luminanceMetadataValid};
-                capabilities.activeColorMode = inferColorMode(
-                    capabilities.colorSpace);
 
                 DXGI_ADAPTER_DESC1 adapterDescription{};
                 if (SUCCEEDED(adapter->GetDesc1(&adapterDescription)))
@@ -475,6 +477,13 @@ std::optional<DisplayColorCapabilities> queryDisplayColorCapabilities(
                     // topology so a missing hot-plug path cannot falsely enable
                     // HDR for the logical display.
                     queryDisplayConfigColorState(*display, capabilities);
+                }
+                if (!dxgiDescriptionAvailable
+                    && !capabilities.displayPathResolved)
+                {
+                    // Neither source could describe this output. Preserve the
+                    // existing null result instead of publishing empty facts.
+                    return std::nullopt;
                 }
                 return capabilities;
             }
