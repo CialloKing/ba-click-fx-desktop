@@ -1464,7 +1464,8 @@ CompositionRenderer::backgroundCaptureProducerCadence() const noexcept
 }
 
 BackgroundCadenceRefreshResult CompositionRenderer::refreshBackgroundCadence(
-    const HMONITOR monitor) noexcept
+    const HMONITOR monitor,
+    const std::optional<DisplayRefreshRate>& refreshRate) noexcept
 {
     if (!backgroundCaptureRequested_ || backgroundSensor_ == nullptr)
     {
@@ -1481,8 +1482,6 @@ BackgroundCadenceRefreshResult CompositionRenderer::refreshBackgroundCadence(
             backgroundRefreshPeriod_};
     }
 
-    const std::optional<DisplayRefreshRate> refreshRate =
-        queryDisplayRefreshRate(monitor);
     const std::optional<bafx::core::MonotonicTime> targetPeriod =
         refreshRate.has_value()
             ? refreshPeriod(*refreshRate)

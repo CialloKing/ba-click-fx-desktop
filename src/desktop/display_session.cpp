@@ -198,7 +198,12 @@ DisplaySession::updateTargetMetadata(DisplayTarget target) noexcept
     // DPI and refresh-rate changes preserve the physical resource domain.
     // Refresh only the sample-age policy so a mixed-refresh desktop does not
     // inherit the previous cadence or pay for a WGC session restart.
-    return renderer_.refreshBackgroundCadence(target_.monitor);
+    // Consume the same stabilized snapshot that updated target_. A second
+    // DisplayConfig query could transiently fail and leave producer cadence
+    // inconsistent with the metadata that triggered this update.
+    return renderer_.refreshBackgroundCadence(
+        target_.monitor,
+        target_.captureRefreshRate);
 }
 
 DisplaySessionRetargetResult DisplaySession::retargetFxOnly(

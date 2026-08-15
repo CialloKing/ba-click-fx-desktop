@@ -296,7 +296,9 @@ public:
     [[nodiscard]] WgcProducerCadenceState
         backgroundCaptureProducerCadence() const noexcept;
     [[nodiscard]] BackgroundCadenceRefreshResult
-        refreshBackgroundCadence(HMONITOR monitor) noexcept;
+        refreshBackgroundCadence(
+            HMONITOR monitor,
+            const std::optional<DisplayRefreshRate>& refreshRate) noexcept;
     [[nodiscard]] WgcBackgroundResourceLedgerSnapshot
         backgroundResourceLedger() const noexcept;
     [[nodiscard]] WgcBackgroundStopDiagnostics
