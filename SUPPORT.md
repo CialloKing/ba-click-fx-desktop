@@ -100,6 +100,10 @@
   `WGC background sample entered the final desktop composite` 仅为既有验收工具保留。
   `BackgroundSnapshot.Invalidated` 只在原快照有效时产生一次，记录失效原因和失效时两侧身份；帧号 `0`
   表示发生在 render frame 外的生命周期事务。正常 WGC generation 刷新不会写该事件，避免逐帧刷盘。
+- 主显示器拓扑通知由渲染所有者串行处理。`Display.Topology.Observed` 记录已应用和新观察到的
+  monitor/device/bounds；`BackgroundCapture.Transaction.Begin` 固定本次事务目标；只有目标 resize
+  真正完成后才写 `Display.Topology.Applied` 并更新支持报告。等待无边框权限时若又出现更新目标，旧事务
+  会先完成 WGC/可见性清理，但不会重放旧目标的 resize；最新目标随后以自己的事务提交。
 - RecordingCompatible 按 Web 版截图的透明覆盖层、`visual-max`、`bright-core`、`0.90` Alpha 上限、
   `source-over` 和未知透明背景设置拟合；LightBackground 使用同一策略，但将 Alpha 上限收紧为
   `0.85`。原生 DirectComposition 没有 DOM 背景表面的逐像素等价物，因此这两种模式都不读取桌面，
@@ -151,7 +155,9 @@ Windows“已安装的应用”执行，默认保留安装目录
   该结果不证明 packaged 权限拒绝或无边框成功；已有 schema 4 配置若显式保存了 `false`，迁移到当前
   schema 7 后仍保持该关闭状态。
 - 无论 WGC 是否可用，都不能移除 Layered/Transparent 样式来换取背景采样；这会破坏跨进程按钮点击。
-- 多显示器、跨显示器输入、多适配器和混合刷新率。
+- Host 已实现主显示器变化的事务化重绑定和负虚拟桌面坐标处理，但真实多显示器、跨显示器输入、
+  混合 DPI/刷新率、多适配器和热插拔矩阵仍为 `Not Run`。同分辨率换屏的确定性测试只证明目标身份
+  不会被尺寸相等掩盖，不等同于真实硬件验收。
 - device removed/reset 后已有事件通知、一次性重建实现和主动探针，但当前只证明通知注册及主动重建后的
   重新注册；真实 GPU reset、热插拔、跨适配器以及 device-lost 下 WGC 同步关闭仍未完成硬件验收，
   因此不属于本 Alpha 的支持范围。

@@ -46,6 +46,13 @@ FX-only 并恢复 `WDA_NONE`；重新允许边框后新会话与背景参与恢�
 packaged `Allowed/DeniedByUser/
 DeniedBySystem` 仍需独立快照证据，不能据实现或旧 portable 证据标记为通过。
 
+显示拓扑现按 monitor handle、设备名和物理边界识别目标，同尺寸换屏也会执行
+`StopSensor -> ResizeOutput -> StartSensor`。`WM_DISPLAYCHANGE`/`WM_DPICHANGED` 只发布失效信号，渲染
+所有者再固定一次目标并完成事务；负虚拟桌面原点不会被截断。若 `A -> B` 的无边框权限仍 Pending 时目标
+又变为 C，owner cancel 会丢弃 B 的旧 resize，C 必须以新事务提交；shutdown cancel 同样不会移动窗口。
+`Display.Topology.Observed/Applied` 和事务目标字段可区分观察、提交和实际应用。当前只有确定性测试与同屏
+有界探针，真实多屏、混合 DPI/刷新率、热插拔和跨适配器仍保持 `Not Run`。
+
 设备丢失路径现已接入 Host：渲染提交、Bloom 配置资源、swap-chain resize 或 WGC FramePool
 Recreate 遇到可识别的 DXGI device-lost HRESULT 时，整个 renderer 最多执行一次 D3D/DComp/WGC
 资源重建；渲染提交会用同一 CPU 快照重试一次，第二次故障直接退出并保留原始事件。恢复后 WGC

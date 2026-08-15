@@ -26,8 +26,9 @@
   完整 stop/fallback/restart 动作，普通 Start 失败不得错误触发 sticky 重启阻断；
 - 无边框授权是资源动作前的独立 `RequestBorderlessAccess`。`Pending` 不推进动作、不消耗固定 action
   budget，并保持原 effective path；拒绝、超时或所有者取消只生成一次 FX-only 回滚，含 resize 的最长
-  成功/失败序列不得超过 8 个动作。broker 拒绝、错误或超时对稳定请求保持终态；配置、resize、恢复或
-  shutdown 产生的 owner cancel 清除旧请求身份，使相同捕获配置可在新控制代次重新进入权限动作；
+  成功/失败序列不得超过 8 个动作。broker 拒绝、错误或超时保留当前事务的 resize 并对稳定请求保持终态；
+  配置、resize、恢复或 shutdown 产生的 owner cancel 必须丢弃旧目标 resize、清除旧请求身份，使相同捕获
+  配置可在新控制代次重新进入权限动作；
 - ROI alignment/guard；
 - finite sanitize、component-wise non-negative 与 isotonic test vectors；
 - fixed-step simulation 和 deterministic random；
@@ -76,6 +77,9 @@
 - 只有原快照有效时才产生一次 `BackgroundSnapshot.Invalidated`。参与和失效事件必须携带已应用的
   `Control.Generation`、`Frame.Id`、WGC epoch/generation 与 snapshot epoch/generation；参与证据只能来自
   成功 Present 后的帧诊断，模式切换后旧 snapshot identity 不得再次进入最终复合；
+- 显示目标身份必须包含 monitor handle、设备名和物理边界，同尺寸换屏不得归约为 no-op；拓扑失效只由
+  渲染所有者转换为 `StopSensor -> ResizeOutput -> StartSensor` 事务。`A -> B -> C` 权限取消不得执行 B 的
+  resize，shutdown cancel 不得移动窗口；`Display.Topology.Observed/Applied` 必须区分观察目标与已应用目标；
 - monitor/adapter rebuild。
 
 ### L3：硬件/视觉
@@ -84,6 +88,8 @@
 - portable `not-packaged`、packaged 权限拒绝和无边框成功必须作为三个独立单元格记录，不能互相替代；
 - 真实 device-lost 下 WGC stop 的阻塞阶段、退出码 `124` 和重启恢复必须作为独立单元格；当前保持
   `Not Run`，不能用子进程终止探针代替；
+- 真实多显示器、混合 DPI/刷新率、热插拔与跨适配器重绑定保持 `Not Run`；同屏通知探针和纯状态测试
+  不能替代这些单元格；
 - Unity Golden 时间序列；
 - SDR/HDR 与混合刷新率矩阵；
 - 外部录屏观察。
