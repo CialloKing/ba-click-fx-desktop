@@ -413,6 +413,13 @@ CaptureExclusionQueryStatus OverlayWindow::queryCaptureExcluded(
     return status;
 }
 
+bool OverlayWindow::takeDisplayTopologyChange() noexcept
+{
+    const bool pending = displayTopologyChangePending_;
+    displayTopologyChangePending_ = false;
+    return pending;
+}
+
 std::optional<WindowSize> OverlayWindow::takePendingResize() noexcept
 {
     return std::exchange(pendingResize_, std::nullopt);
@@ -437,6 +444,29 @@ PointerQueueDiagnostics OverlayWindow::takePointerQueueDiagnostics() noexcept
     return std::exchange(
         pointerQueueDiagnostics_,
         PointerQueueDiagnostics{});
+}
+
+void OverlayWindow::setBounds(const RECT bounds)
+{
+    const LONG width = bounds.right - bounds.left;
+    const LONG height = bounds.bottom - bounds.top;
+    if (window_ == nullptr || width <= 0 || height <= 0)
+    {
+        throw std::invalid_argument(
+            "Overlay bounds require a live window and positive dimensions");
+    }
+
+    if (!SetWindowPos(
+            window_,
+            nullptr,
+            bounds.left,
+            bounds.top,
+            width,
+            height,
+            SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_NOZORDER))
+    {
+        throwLastError("SetWindowPos(overlay bounds)");
+    }
 }
 
 void OverlayWindow::show()
@@ -600,22 +630,18 @@ LRESULT OverlayWindow::handleMessage(
         }
         return 0;
 
-    case WM_DPICHANGED:
-    {
-        const auto* suggested = reinterpret_cast<const RECT*>(lParam);
-        if (!SetWindowPos(
-                window_,
-                nullptr,
-                suggested->left,
-                suggested->top,
-                suggested->right - suggested->left,
-                suggested->bottom - suggested->top,
-                SWP_NOACTIVATE | SWP_NOZORDER))
-        {
-            requestClose();
-        }
+    case WM_DISPLAYCHANGE:
+        displayTopologyChangePending_ = true;
+        invalidatePointerGeometry();
         return 0;
-    }
+
+    case WM_DPICHANGED:
+        // The suggested rectangle preserves a normal window's logical size,
+        // but this surface must cover rcMonitor in physical pixels. Defer the
+        // move until the owner can stop and retarget WGC in the same update.
+        displayTopologyChangePending_ = true;
+        invalidatePointerGeometry();
+        return 0;
 
     case WM_CLOSE:
         requestClose();
@@ -858,6 +884,20 @@ void OverlayWindow::cancelPointer() noexcept
         return;
     }
 
+    POINT screenPosition{};
+    LARGE_INTEGER qpc{};
+    GetCursorPos(&screenPosition);
+    QueryPerformanceCounter(&qpc);
+    leftButtonDown_ = false;
+    pushPointerEvent(PointerEventKind::Cancel, screenPosition, qpc.QuadPart);
+}
+
+void OverlayWindow::invalidatePointerGeometry() noexcept
+{
+    // Screen-to-client conversion changes with the monitor origin. Discard
+    // queued coordinates and emit one hard release so no old-screen sample can
+    // create a click or trail after the fullscreen surface is repositioned.
+    pendingPointerEvents_.clear();
     POINT screenPosition{};
     LARGE_INTEGER qpc{};
     GetCursorPos(&screenPosition);

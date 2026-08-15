@@ -333,6 +333,7 @@ if(WIN32)
         gpu_timestamp_profiler_tests.cpp
         ipc_client_tests.cpp
         ipc_protocol_tests.cpp
+        overlay_window_tests.cpp
         pointer_event_tests.cpp
         wgc_frame_notification_tests.cpp
         wgc_idle_drain_policy_tests.cpp

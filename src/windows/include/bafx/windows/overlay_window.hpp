@@ -152,10 +152,14 @@ public:
     [[nodiscard]] CaptureExclusionStatus setCaptureExcluded(bool excluded) noexcept;
     [[nodiscard]] CaptureExclusionQueryStatus queryCaptureExcluded(
         bool excluded) const noexcept;
+    // Display messages only invalidate placement. The render owner consumes
+    // the signal so WGC teardown and output rebinding stay in one transaction.
+    [[nodiscard]] bool takeDisplayTopologyChange() noexcept;
     [[nodiscard]] std::optional<WindowSize> takePendingResize() noexcept;
     [[nodiscard]] std::vector<PointerEvent> takePointerEvents() noexcept;
     [[nodiscard]] PointerQueueDiagnostics takePointerQueueDiagnostics() noexcept;
 
+    void setBounds(RECT bounds);
     void show();
     void pollExitShortcut() noexcept;
     void pollPointerState() noexcept;
@@ -181,6 +185,7 @@ private:
         bool messageTimeValid = false) noexcept;
     void compactPendingPointerEvents() noexcept;
     void cancelPointer() noexcept;
+    void invalidatePointerGeometry() noexcept;
     void requestClose() noexcept;
     void addNotificationIcon() noexcept;
     void removeNotificationIcon() noexcept;
@@ -189,6 +194,7 @@ private:
     HINSTANCE instance_{nullptr};
     HWND window_{nullptr};
     WindowSize size_{};
+    bool displayTopologyChangePending_{false};
     std::optional<WindowSize> pendingResize_{};
     std::vector<PointerEvent> pendingPointerEvents_{};
     PointerQueueDiagnostics pointerQueueDiagnostics_{};
