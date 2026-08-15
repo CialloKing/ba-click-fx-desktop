@@ -2437,10 +2437,28 @@ int runApplication(
     // Advanced Color notifications first refresh monitor facts. A changed
     // transport is queued until the WGC owner reaches an idle transaction
     // boundary; duplicate notifications never recreate an unchanged output.
+    const auto colorRefreshStatusName =
+        [](const bafx::desktop::DisplaySessionColorRefreshStatus status)
+            noexcept -> std::string_view
+        {
+            switch (status)
+            {
+            case bafx::desktop::DisplaySessionColorRefreshStatus::Refreshed:
+                return "succeeded";
+            case bafx::desktop::DisplaySessionColorRefreshStatus::
+                RetainedTransactionSnapshot:
+                return "retained-target-snapshot";
+            case bafx::desktop::DisplaySessionColorRefreshStatus::Unavailable:
+                return "failed";
+            }
+            return "failed";
+        };
     const auto refreshDisplayColorState =
         [&](const std::string_view reason,
             const std::uint64_t generation,
-            const bool outputRebuiltForCurrentTarget)
+            const bool outputRebuiltForCurrentTarget,
+            const std::optional<bafx::windows::DisplayColorCapabilities>&
+                fallbackCapabilities)
         {
             const std::optional<bafx::windows::DisplayColorCapabilities>
                 previousCapabilities = displaySession.colorCapabilities();
@@ -2449,7 +2467,8 @@ int runApplication(
                 ? std::string(bafx::windows::displayColorModeName(
                     previousCapabilities->activeColorMode))
                 : "unknown";
-            displaySession.refreshColorCapabilities();
+            const bafx::desktop::DisplaySessionColorRefreshStatus refreshStatus =
+                displaySession.refreshColorCapabilities(fallbackCapabilities);
             if (displaySession.colorCapabilities().has_value())
             {
                 report.setPrimaryDisplayColorCapabilities(
@@ -2518,9 +2537,7 @@ int runApplication(
                 bafx::windows::DiagnosticField{"CurrentMode", currentMode},
                 bafx::windows::DiagnosticField{
                     "Query",
-                    displaySession.colorCapabilities().has_value()
-                        ? "succeeded"
-                        : "failed"},
+                    colorRefreshStatusName(refreshStatus)},
                 bafx::windows::DiagnosticField{
                     "Generation",
                     generationText},
@@ -2726,7 +2743,8 @@ int runApplication(
             refreshDisplayColorState(
                 "display-target-applied",
                 0U,
-                true);
+                true,
+                backgroundExecution.targetIntent.outputColorCapabilities);
             bafx::desktop::appendDisplayTopologyApplied(
                 logPath,
                 backgroundExecution.controlGeneration,
@@ -3051,7 +3069,8 @@ int runApplication(
                     ? std::string(bafx::windows::displayColorModeName(
                         previousCapabilities->activeColorMode))
                     : "unknown";
-                session.refreshColorCapabilities();
+                const bafx::desktop::DisplaySessionColorRefreshStatus
+                    refreshStatus = session.refreshColorCapabilities();
                 const std::string currentMode =
                     session.colorCapabilities().has_value()
                     ? std::string(bafx::windows::displayColorModeName(
@@ -3158,9 +3177,7 @@ int runApplication(
                     bafx::windows::DiagnosticField{"CurrentMode", currentMode},
                     bafx::windows::DiagnosticField{
                         "Query",
-                        session.colorCapabilities().has_value()
-                            ? "succeeded"
-                            : "failed"},
+                        colorRefreshStatusName(refreshStatus)},
                     bafx::windows::DiagnosticField{"Generation", generation},
                     bafx::windows::DiagnosticField{
                         "RequestedPreference",
@@ -3397,7 +3414,8 @@ int runApplication(
                         ? "display-power"
                         : "win32-notification"),
                 displayColorGeneration,
-                false);
+                false,
+                std::nullopt);
             renderInvalidated = true;
         }
         if (hostDisplayPowerBecameUnavailable)
@@ -3931,21 +3949,26 @@ int runApplication(
                 bafx::desktop::backgroundCaptureRequest(
                     config,
                     backgroundRetryToken);
+            const std::optional<bafx::windows::DisplayColorCapabilities>
+                targetColorCapabilities = displayTargetChanged
+                ? bafx::windows::queryDisplayColorCapabilities(
+                    pendingDisplayTarget->monitor)
+                : std::nullopt;
             const std::optional<
                 bafx::windows::CompositionOutputPreference>
                 targetOutputPreference = displayTargetChanged
                 ? std::optional<bafx::windows::CompositionOutputPreference>(
                     bafx::desktop::resolveDisplayOutputPreference(
                         displaySession.requestedOutputPreference(),
-                        bafx::windows::queryDisplayColorCapabilities(
-                            pendingDisplayTarget->monitor)))
+                        targetColorCapabilities))
                 : std::nullopt;
             const bafx::desktop::DisplayTargetIntent targetIntent{
                 displayTargetChanged
                     ? *pendingDisplayTarget
                     : appliedDisplayTarget,
                 displayTargetChanged,
-                targetOutputPreference};
+                targetOutputPreference,
+                targetColorCapabilities};
             const std::optional<bafx::windows::WindowSize> outputIntent =
                 displayTargetChanged
                     ? std::optional<bafx::windows::WindowSize>(

@@ -55,6 +55,13 @@ enum class DisplaySessionBackgroundRecoveryStatus : std::uint8_t
     Blocked
 };
 
+enum class DisplaySessionColorRefreshStatus : std::uint8_t
+{
+    Refreshed,
+    RetainedTransactionSnapshot,
+    Unavailable
+};
+
 struct DisplaySessionDeviceRecoveryResult final
 {
     bool recovered{false};
@@ -173,7 +180,9 @@ public:
     [[nodiscard]] bool secondaryBackgroundCaptureActive() const noexcept;
     [[nodiscard]] HANDLE secondaryBackgroundFrameAvailableObject() const noexcept;
     void shutdownSecondaryBackgroundCapture() noexcept;
-    void refreshColorCapabilities() noexcept;
+    [[nodiscard]] DisplaySessionColorRefreshStatus refreshColorCapabilities(
+        const std::optional<bafx::windows::DisplayColorCapabilities>& fallback =
+            std::nullopt) noexcept;
     void recordPresentedFrame(
         bool drawable,
         bafx::core::MonotonicTime startedAt,

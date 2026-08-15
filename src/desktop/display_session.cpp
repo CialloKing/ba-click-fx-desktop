@@ -387,7 +387,8 @@ DisplaySessionRetargetResult DisplaySession::retargetSecondary(
         acceptAppliedTarget(
             std::move(*state.pendingTarget),
             state.pendingWakeWindow);
-        refreshColorCapabilities();
+        static_cast<void>(refreshColorCapabilities(
+            state.pendingTargetColorCapabilities));
         state.pendingTarget.reset();
         state.pendingTargetOutputPreference.reset();
         state.pendingTargetColorCapabilities.reset();
@@ -604,7 +605,8 @@ DisplaySession::serviceSecondaryBackgroundCapture(
                     ? DisplayTargetIntent{
                         *state.pendingTarget,
                         true,
-                        state.pendingTargetOutputPreference}
+                        state.pendingTargetOutputPreference,
+                        state.pendingTargetColorCapabilities}
                     : DisplayTargetIntent{target_, false});
             const std::uint64_t generation = state.execution.transactionActive
                 ? state.execution.controlGeneration
@@ -1175,10 +1177,24 @@ void DisplaySession::shutdownSecondaryBackgroundCapture() noexcept
     secondaryBackgroundCapture_.reset();
 }
 
-void DisplaySession::refreshColorCapabilities() noexcept
+DisplaySessionColorRefreshStatus DisplaySession::refreshColorCapabilities(
+    const std::optional<bafx::windows::DisplayColorCapabilities>& fallback)
+    noexcept
 {
-    colorCapabilities_ = bafx::windows::queryDisplayColorCapabilities(
-        target_.monitor);
+    std::optional<bafx::windows::DisplayColorCapabilities> refreshed =
+        bafx::windows::queryDisplayColorCapabilities(target_.monitor);
+    if (refreshed.has_value())
+    {
+        colorCapabilities_ = std::move(refreshed);
+        return DisplaySessionColorRefreshStatus::Refreshed;
+    }
+    if (fallback.has_value())
+    {
+        colorCapabilities_ = fallback;
+        return DisplaySessionColorRefreshStatus::RetainedTransactionSnapshot;
+    }
+    colorCapabilities_.reset();
+    return DisplaySessionColorRefreshStatus::Unavailable;
 }
 
 void DisplaySession::recordPresentedFrame(
@@ -1346,7 +1362,7 @@ void DisplaySession::acceptPendingSecondaryTargetIfApplied(
     resetFramePacing();
     // The coordinator refreshes after comparing old/new modes. Secondary
     // sessions have no separate comparison owner, so refresh at commit time.
-    refreshColorCapabilities();
+    static_cast<void>(refreshColorCapabilities(previousCapabilities));
     const bafx::windows::CompositionOutputPreference targetPreference =
         resolveDisplayOutputPreference(
             requestedOutputPreference_,

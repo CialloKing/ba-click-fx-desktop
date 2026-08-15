@@ -1,5 +1,6 @@
 #pragma once
 
+#include "bafx/windows/display_capabilities.hpp"
 #include "bafx/windows/display_topology.hpp"
 #include "bafx/windows/fx_gpu_renderer.hpp"
 
@@ -238,12 +239,20 @@ struct DisplayTargetIntent
     // current swap-chain contract for size-only and capture-only transactions.
     std::optional<bafx::windows::CompositionOutputPreference>
         outputPreference{};
+    // Keep the capability sample that resolved outputPreference beside the
+    // target. A post-move query can fail transiently during hot-plug; that
+    // failure must not immediately undo the transport this transaction chose.
+    std::optional<bafx::windows::DisplayColorCapabilities>
+        outputColorCapabilities{};
 };
 
 [[nodiscard]] inline bool sameDisplayTargetIntent(
     const DisplayTargetIntent& left,
     const DisplayTargetIntent& right) noexcept
 {
+    // The capability sample is evidence for commit-time fallback, not intent
+    // identity. A newer sample with the same resolved transport must not cancel
+    // an in-flight permission request.
     return left.applyBounds == right.applyBounds
         && left.outputPreference == right.outputPreference
         && sameDisplayTarget(left.target, right.target)
