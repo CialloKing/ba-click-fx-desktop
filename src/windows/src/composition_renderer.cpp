@@ -466,6 +466,11 @@ CompositionFrameDiagnostics CompositionRenderer::renderFrame(
             setBackgroundCaptureFailure(failure);
             backgroundSensor_->stop();
             backgroundSensor_.reset();
+            // The producer is gone before the control transaction observes
+            // it.  Mark the request inactive now so a same-turn resize can
+            // rebuild the output instead of tripping the stop-before-resize
+            // guard on a dead sensor.
+            backgroundCaptureRequested_ = false;
             backgroundRefreshPeriod_ = bafx::core::MonotonicTime::zero();
             backgroundCompositeStatus_ = BackgroundCompositeStatus::CaptureFailed;
             // A failed session cannot continue the previous path safely: its
@@ -484,6 +489,10 @@ CompositionFrameDiagnostics CompositionRenderer::renderFrame(
             if (drainStatus == WgcBackgroundDrainStatus::Stopped)
             {
                 backgroundSensor_.reset();
+                // item.Closed is an asynchronous terminal event.  Do not
+                // let a resize arriving before the next control poll treat
+                // the already-destroyed producer as active.
+                backgroundCaptureRequested_ = false;
                 backgroundRefreshPeriod_ = bafx::core::MonotonicTime::zero();
                 // The capture session ended between visible frames. The next
                 // session must make an independent acquire decision.
