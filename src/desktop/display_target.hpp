@@ -146,16 +146,35 @@ struct DisplayTargetSnapshot
     const DisplayTarget& left,
     const DisplayTarget& right) noexcept
 {
+    if (left.sourceAdapterResolved != right.sourceAdapterResolved)
+    {
+        return false;
+    }
+    if (left.sourceAdapterResolved
+        && (left.sourceAdapterLuid.HighPart
+                != right.sourceAdapterLuid.HighPart
+            || left.sourceAdapterLuid.LowPart
+                != right.sourceAdapterLuid.LowPart))
+    {
+        return false;
+    }
     if (left.sourceIdentityResolved != right.sourceIdentityResolved)
     {
         return false;
     }
     return !left.sourceIdentityResolved
-        || (left.sourceAdapterLuid.HighPart
-                == right.sourceAdapterLuid.HighPart
-            && left.sourceAdapterLuid.LowPart
-                == right.sourceAdapterLuid.LowPart
-            && left.sourceId == right.sourceId);
+        || left.sourceId == right.sourceId;
+}
+
+[[nodiscard]] inline bool displayTargetResourceAdapterMatches(
+    const DisplayTarget& target,
+    const LUID actualAdapter,
+    const bool hardwareDevice) noexcept
+{
+    return !target.sourceAdapterResolved
+        || (hardwareDevice
+            && target.sourceAdapterLuid.HighPart == actualAdapter.HighPart
+            && target.sourceAdapterLuid.LowPart == actualAdapter.LowPart);
 }
 
 [[nodiscard]] inline bafx::windows::WindowSize displayTargetSize(

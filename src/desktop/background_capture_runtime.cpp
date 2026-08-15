@@ -941,7 +941,7 @@ BackgroundCaptureExecutionStatus executeBackgroundCaptureTransition(
             case bafx::windows::BackgroundCaptureActionKind::ResizeOutput:
             {
                 const std::optional<LUID> requestedAdapter =
-                    execution.targetIntent.target.sourceIdentityResolved
+                    execution.targetIntent.target.sourceAdapterResolved
                         ? std::optional<LUID>(
                             execution.targetIntent.target.sourceAdapterLuid)
                         : std::nullopt;

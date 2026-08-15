@@ -280,16 +280,31 @@ DisplayTarget stabilizeDisplayTargetObservation(
     DisplayTarget stabilized = observed;
     if (topologyStatus
             == bafx::windows::DisplayTopologyStatus::Complete
-        || !previous.sourceIdentityResolved
+        || !previous.sourceAdapterResolved
         || previous.deviceName != observed.deviceName)
     {
         return stabilized;
     }
 
-    const bool sourceResolutionRegressed =
-        !observed.sourceIdentityResolved;
-    if (!sourceResolutionRegressed
-        && !sameDisplaySourceIdentity(previous, observed))
+    const bool sourceAdapterChanged = observed.sourceAdapterResolved
+        && (observed.sourceAdapterLuid.HighPart
+                != previous.sourceAdapterLuid.HighPart
+            || observed.sourceAdapterLuid.LowPart
+                != previous.sourceAdapterLuid.LowPart);
+    if (sourceAdapterChanged)
+    {
+        // A unique DXGI output mapping is sufficient evidence that the old GPU
+        // domain is stale even while DisplayConfig has not recovered sourceId.
+        return stabilized;
+    }
+    const bool sourceIdentityChanged = previous.sourceIdentityResolved
+        && observed.sourceIdentityResolved
+        && (previous.sourceAdapterLuid.HighPart
+                != observed.sourceAdapterLuid.HighPart
+            || previous.sourceAdapterLuid.LowPart
+                != observed.sourceAdapterLuid.LowPart
+            || previous.sourceId != observed.sourceId);
+    if (sourceIdentityChanged)
     {
         return stabilized;
     }
@@ -298,9 +313,18 @@ DisplayTarget stabilizeDisplayTargetObservation(
     // QueryDisplayConfig can temporarily omit the GPU source during hot-plug.
     // Retain the last resolved GPU domain until a complete observation can
     // prove that the display source changed.
-    if (sourceResolutionRegressed)
+    const bool sourceAdapterResolutionRegressed =
+        !observed.sourceAdapterResolved;
+    if (sourceAdapterResolutionRegressed)
     {
         stabilized.sourceAdapterLuid = previous.sourceAdapterLuid;
+        stabilized.sourceAdapterResolved = true;
+    }
+    const bool sourceIdentityResolutionRegressed =
+        previous.sourceIdentityResolved
+        && !observed.sourceIdentityResolved;
+    if (sourceIdentityResolutionRegressed)
+    {
         stabilized.sourceId = previous.sourceId;
         stabilized.sourceIdentityResolved = true;
     }
@@ -309,7 +333,9 @@ DisplayTarget stabilizeDisplayTargetObservation(
         observed.physicalTargetCount < previous.physicalTargetCount
         || observed.physicalTargetIdentities.size()
             < previous.physicalTargetIdentities.size();
-    if (sourceResolutionRegressed || physicalTargetsRegressed)
+    if (sourceAdapterResolutionRegressed
+        || sourceIdentityResolutionRegressed
+        || physicalTargetsRegressed)
     {
         // A cloned path can disappear from only the partial snapshot. Its
         // cadence and endpoint set remain authoritative until a complete

@@ -147,11 +147,11 @@ DisplaySessionReconcileResult DisplaySessionManager::reconcileSecondaries(
         DisplaySession* const existing = findBySource(observedTarget);
         if (existing == nullptr)
         {
-            if (!observedTarget.sourceIdentityResolved)
+            if (!observedTarget.sourceAdapterResolved)
             {
-                // A new unresolved source has no safe adapter selection. Wait
-                // for the next topology notification instead of creating its
-                // renderer on the process-default GPU.
+                // A new target without either DisplayConfig or unique DXGI
+                // adapter evidence has no safe resource domain. Wait instead
+                // of creating its renderer on the process-default GPU.
                 continue;
             }
             try
@@ -221,9 +221,14 @@ DisplaySessionReconcileResult DisplaySessionManager::reconcileSecondaries(
         const bool sameSourceIdentity = sameDisplaySourceIdentity(
             existing->target(),
             target);
+        const bafx::windows::GraphicsDeviceInfo& deviceInfo =
+            existing->renderer().deviceInfo();
         const bool resourceDomainMatches =
-            !target.sourceIdentityResolved
-            || existing->renderer().deviceInfo().requestedAdapterMatched;
+            displayTargetResourceAdapterMatches(
+                target,
+                deviceInfo.adapterLuid,
+                deviceInfo.driverType
+                    == bafx::windows::GraphicsDriverType::Hardware);
         if (sameTarget && sameSourceIdentity && resourceDomainMatches)
         {
             bool boundsCorrected = false;

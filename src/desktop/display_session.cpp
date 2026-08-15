@@ -1058,7 +1058,7 @@ void DisplaySession::acceptPendingSecondaryTargetIfApplied(
 std::optional<LUID> DisplaySession::requestedAdapter(
     const DisplayTarget& target) noexcept
 {
-    return target.sourceIdentityResolved
+    return target.sourceAdapterResolved
         ? std::optional<LUID>(target.sourceAdapterLuid)
         : std::nullopt;
 }
