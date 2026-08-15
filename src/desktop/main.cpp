@@ -2583,6 +2583,162 @@ int runApplication(
         control.setBackgroundCaptureActive(renderer.backgroundCaptureActive());
         bafx::windows::appendDiagnosticLog(logPath, report);
     };
+    const auto processPendingBorderlessAccessChange =
+        [&](bool& renderInvalidated)
+    {
+        if (!borderlessAccessMonitorRequested
+            || !borderlessAccessMonitor.notificationPending())
+        {
+            return;
+        }
+
+        const std::optional<bafx::windows::BorderlessCaptureAccessStatus>
+            previousStatus = observedBorderlessAccessStatus;
+        const bafx::windows::BorderlessCaptureAccessHealthResult health =
+            borderlessAccessMonitor.observe();
+        observedBorderlessAccessStatus = health.status;
+        appendBorderlessAccessHealth(
+            logPath,
+            "access-changed",
+            borderlessAccessMonitor.active(),
+            health);
+
+        const bool accessAllowed = health.status
+            == bafx::windows::BorderlessCaptureAccessStatus::Allowed;
+        const bafx::fx::SimulationTime accessChangedAt = clock.now();
+        if (!accessAllowed)
+        {
+            backgroundRetryPending = false;
+            bool coordinatorCleaned = false;
+            bafx::desktop::BackgroundCaptureExecutionStatus cleanupStatus =
+                bafx::desktop::BackgroundCaptureExecutionStatus::Completed;
+            if (backgroundExecution.transactionActive)
+            {
+                cleanupStatus =
+                    bafx::desktop::cancelBackgroundCaptureTransition(
+                        backgroundTransition,
+                        window,
+                        renderer,
+                        backgroundExecution,
+                        bafx::desktop::
+                            BackgroundCaptureCancelResizePolicy::Preserve,
+                        "borderless-access-lost",
+                        logPath);
+                coordinatorCleaned = true;
+            }
+            else if (backgroundTransition.effectivePath()
+                == bafx::windows::
+                    EffectiveBackgroundCapturePath::BackgroundAware)
+            {
+                if (!backgroundTransition.beginBorderlessAccessLost())
+                {
+                    throw std::logic_error(
+                        "Borderless access loss could not enter cleanup transaction");
+                }
+                cleanupStatus =
+                    bafx::desktop::executeBackgroundCaptureTransition(
+                        backgroundTransition,
+                        window,
+                        renderer,
+                        bafx::desktop::DisplayTargetIntent{
+                            appliedDisplayTarget,
+                            false},
+                        appliedGeneration,
+                        backgroundExecution,
+                        logPath);
+                coordinatorCleaned = true;
+            }
+            if (cleanupStatus
+                != bafx::desktop::
+                    BackgroundCaptureExecutionStatus::Completed)
+            {
+                throw std::logic_error(
+                    "Borderless access cleanup unexpectedly remained pending");
+            }
+            if (coordinatorCleaned)
+            {
+                backgroundExecution.sensorFailure =
+                    bafx::windows::borderlessCaptureAccessHealthDiagnostic(
+                        health);
+                finishBackgroundCaptureTransaction(
+                    "borderless-access-lost");
+                renderInvalidated = true;
+            }
+            renderInvalidated = handleSecondaryBorderlessAccessLosses(
+                displaySessions,
+                displaySession,
+                accessChangedAt,
+                logPath)
+                || renderInvalidated;
+
+            const std::array fields{
+                bafx::windows::DiagnosticField{
+                    "Coordinator",
+                    coordinatorCleaned ? "fallback-fx-only" : "unchanged"},
+                bafx::windows::DiagnosticField{
+                    "Secondary",
+                    "fallback-requested"}};
+            bafx::windows::appendDiagnosticEvent(
+                logPath,
+                "WGC.BorderlessAccess.Revoked",
+                fields,
+                bafx::windows::DiagnosticLevel::Warning);
+            return;
+        }
+
+        if (!previousStatus.has_value()
+            || *previousStatus
+                == bafx::windows::BorderlessCaptureAccessStatus::Allowed)
+        {
+            return;
+        }
+
+        bool coordinatorRetryScheduled = false;
+        const bool coordinatorRestartEligible =
+            renderer.deviceInfo().driverType
+                == bafx::windows::GraphicsDriverType::Hardware
+            && renderer.backgroundCaptureRestartAllowed();
+        if (coordinatorRestartEligible
+            && !backgroundExecution.transactionActive
+            && (backgroundTransition.effectivePath()
+                    != bafx::windows::
+                        EffectiveBackgroundCapturePath::BackgroundAware
+                || !renderer.backgroundCaptureActive()))
+        {
+            if (backgroundRetryToken
+                == (std::numeric_limits<std::uint64_t>::max)())
+            {
+                throw std::runtime_error(
+                    "WGC retry token exhausted after borderless access recovery");
+            }
+            ++backgroundRetryToken;
+            backgroundRetryPending = true;
+            coordinatorRetryScheduled = true;
+        }
+        const bool secondaryRetryScheduled = retrySecondaryBorderlessAccess(
+            displaySessions,
+            displaySession,
+            appliedGeneration,
+            accessChangedAt,
+            logPath);
+        renderInvalidated = secondaryRetryScheduled || renderInvalidated;
+
+        const std::string retryToken = std::to_string(backgroundRetryToken);
+        const std::array fields{
+            bafx::windows::DiagnosticField{
+                "Coordinator",
+                coordinatorRetryScheduled
+                    ? "scheduled"
+                    : (coordinatorRestartEligible ? "unchanged" : "blocked")},
+            bafx::windows::DiagnosticField{
+                "Secondary",
+                secondaryRetryScheduled ? "scheduled" : "unchanged"},
+            bafx::windows::DiagnosticField{"RetryToken", retryToken}};
+        bafx::windows::appendDiagnosticEvent(
+            logPath,
+            "WGC.BorderlessAccess.Restored",
+            fields);
+    };
     std::vector<bafx::desktop::FramePacingWaitable> frameWaitables;
     std::vector<bafx::desktop::PausedWaitable> pausedWaitables;
     std::vector<bafx::desktop::DisplaySession*> readyDisplaySessions;
@@ -2608,6 +2764,9 @@ int runApplication(
 
         bool renderInvalidated = renderInvalidationPending;
         renderInvalidationPending = false;
+        // Access revocation must win over topology reconciliation and every
+        // transaction poll so no display can create a Session from stale state.
+        processPendingBorderlessAccessChange(renderInvalidated);
         const std::optional<bafx::windows::DisplayTopologyChange>
             hostTopologyChange = hostWindow.takeDisplayTopologyChange();
         const bool hostDisplayTopologyChanged = hostTopologyChange.has_value();
@@ -3322,158 +3481,6 @@ int runApplication(
         // pacing waits. Consume it now so a timeout cannot shift attribution
         // to a later control generation.
         appendPendingBackgroundSnapshotInvalidation();
-
-        if (borderlessAccessMonitorRequested
-            && borderlessAccessMonitor.notificationPending())
-        {
-            const std::optional<bafx::windows::BorderlessCaptureAccessStatus>
-                previousStatus = observedBorderlessAccessStatus;
-            const bafx::windows::BorderlessCaptureAccessHealthResult health =
-                borderlessAccessMonitor.observe();
-            observedBorderlessAccessStatus = health.status;
-            appendBorderlessAccessHealth(
-                logPath,
-                "access-changed",
-                borderlessAccessMonitor.active(),
-                health);
-
-            const bool accessAllowed = health.status
-                == bafx::windows::BorderlessCaptureAccessStatus::Allowed;
-            const bafx::fx::SimulationTime accessChangedAt = clock.now();
-            if (!accessAllowed)
-            {
-                backgroundRetryPending = false;
-                bool coordinatorCleaned = false;
-                bafx::desktop::BackgroundCaptureExecutionStatus cleanupStatus =
-                    bafx::desktop::BackgroundCaptureExecutionStatus::Completed;
-                if (backgroundExecution.transactionActive)
-                {
-                    cleanupStatus =
-                        bafx::desktop::cancelBackgroundCaptureTransition(
-                            backgroundTransition,
-                            window,
-                            renderer,
-                            backgroundExecution,
-                            bafx::desktop::
-                                BackgroundCaptureCancelResizePolicy::Preserve,
-                            "borderless-access-lost",
-                            logPath);
-                    coordinatorCleaned = true;
-                }
-                else if (backgroundTransition.effectivePath()
-                    == bafx::windows::
-                        EffectiveBackgroundCapturePath::BackgroundAware)
-                {
-                    if (!backgroundTransition.beginBorderlessAccessLost())
-                    {
-                        throw std::logic_error(
-                            "Borderless access loss could not enter cleanup transaction");
-                    }
-                    cleanupStatus =
-                        bafx::desktop::executeBackgroundCaptureTransition(
-                            backgroundTransition,
-                            window,
-                            renderer,
-                            bafx::desktop::DisplayTargetIntent{
-                                appliedDisplayTarget,
-                                false},
-                            appliedGeneration,
-                            backgroundExecution,
-                            logPath);
-                    coordinatorCleaned = true;
-                }
-                if (cleanupStatus
-                    != bafx::desktop::
-                        BackgroundCaptureExecutionStatus::Completed)
-                {
-                    throw std::logic_error(
-                        "Borderless access cleanup unexpectedly remained pending");
-                }
-                if (coordinatorCleaned)
-                {
-                    backgroundExecution.sensorFailure =
-                        bafx::windows::borderlessCaptureAccessHealthDiagnostic(
-                            health);
-                    finishBackgroundCaptureTransaction(
-                        "borderless-access-lost");
-                    renderInvalidated = true;
-                }
-                renderInvalidated = handleSecondaryBorderlessAccessLosses(
-                    displaySessions,
-                    displaySession,
-                    accessChangedAt,
-                    logPath)
-                    || renderInvalidated;
-
-                const std::array fields{
-                    bafx::windows::DiagnosticField{
-                        "Coordinator",
-                        coordinatorCleaned ? "fallback-fx-only" : "unchanged"},
-                    bafx::windows::DiagnosticField{
-                        "Secondary",
-                        "fallback-requested"}};
-                bafx::windows::appendDiagnosticEvent(
-                    logPath,
-                    "WGC.BorderlessAccess.Revoked",
-                    fields,
-                    bafx::windows::DiagnosticLevel::Warning);
-            }
-            else if (previousStatus.has_value()
-                && *previousStatus
-                    != bafx::windows::BorderlessCaptureAccessStatus::Allowed)
-            {
-                bool coordinatorRetryScheduled = false;
-                const bool coordinatorRestartEligible =
-                    renderer.deviceInfo().driverType
-                        == bafx::windows::GraphicsDriverType::Hardware
-                    && renderer.backgroundCaptureRestartAllowed();
-                if (coordinatorRestartEligible
-                    && !backgroundExecution.transactionActive
-                    && (backgroundTransition.effectivePath()
-                            != bafx::windows::
-                                EffectiveBackgroundCapturePath::BackgroundAware
-                        || !renderer.backgroundCaptureActive()))
-                {
-                    if (backgroundRetryToken
-                        == (std::numeric_limits<std::uint64_t>::max)())
-                    {
-                        throw std::runtime_error(
-                            "WGC retry token exhausted after borderless access recovery");
-                    }
-                    ++backgroundRetryToken;
-                    backgroundRetryPending = true;
-                    coordinatorRetryScheduled = true;
-                }
-                const bool secondaryRetryScheduled =
-                    retrySecondaryBorderlessAccess(
-                        displaySessions,
-                        displaySession,
-                        appliedGeneration,
-                        accessChangedAt,
-                        logPath);
-                renderInvalidated = secondaryRetryScheduled
-                    || renderInvalidated;
-
-                const std::string retryToken = std::to_string(
-                    backgroundRetryToken);
-                const std::array fields{
-                    bafx::windows::DiagnosticField{
-                        "Coordinator",
-                        coordinatorRetryScheduled
-                            ? "scheduled"
-                            : (coordinatorRestartEligible
-                                ? "unchanged"
-                                : "blocked")},
-                    bafx::windows::DiagnosticField{
-                        "Secondary",
-                        secondaryRetryScheduled ? "scheduled" : "unchanged"},
-                    bafx::windows::DiagnosticField{"RetryToken", retryToken}};
-                bafx::windows::appendDiagnosticEvent(
-                    logPath,
-                    "WGC.BorderlessAccess.Restored",
-                    fields);
-            }
-        }
 
         const bafx::fx::SimulationTime captureHealthNow = clock.now();
         if (captureExclusionHealthPoller.shouldQuery(
