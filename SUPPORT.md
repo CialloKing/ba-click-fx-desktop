@@ -41,6 +41,9 @@
   固定 8 槽查询环，每个渲染帧最多无阻塞轮询一次，不调用 `Flush` 或等待查询完成；日志会另外记录
   pending、环满跳过、disjoint、查询失败和取消回收数量。未取得 GPU 样本时相应指标保持
   `Available=false`，不会用 `0` 伪装结果；WGC、背景快照和 FX 阶段只统计原帧实际适用的样本。
+  `WGC.DrainPolicy=visible-every-frame-idle-sensor-only-max-20hz` 表示可见帧每帧尝试 drain，暂停或空闲时
+  最多每 `50 ms` 做一次 sensor-only 保鲜；`WGC.MaintenanceCycles` 统计这种不创建批次快照、不执行
+  Bloom、不 Present 的维护轮询，它不增加 `Window.FrameCount`。
   CPU/API 时间不代表 GPU 执行，GPU 时间戳也不包含 Present、DWM 合成、扫描输出或物理上屏；异步完成的
   样本还可能属于较早的报告窗口，日志中会保留对应 semantic 字段。
   帧等待另外记录 `FramePacing.DeviceRemovedWakes`；非零表示 D3D 设备移除通知直接唤醒过 Host，并会把该
@@ -59,6 +62,9 @@
   后不会污染下一次 stop。正常关闭完成后这些字段用于定位慢阶段；如果日志只留下
   `BackgroundCapture.Action.Begin=stop-sensor` 或 `Graphics.DeviceRecovery.Begin` 而没有对应完成记录，说明
   同步 WinRT 关闭调用可能没有返回。当前实现不能取消该系统调用，需连同轮转日志一起排查。
+  四个 `*Failed` 字段分别对应 FrameArrived/item.Closed 退订、Session Close 和 FramePool Close；
+  `OverallSucceeded=false` 时仍执行 included/FX-only 回退，并把 `SensorStopFailed` 保留到控制事务。
+  为避免旧 WinRT 资源被重新使用，本进程之后永久阻止 WGC 重启，必须完全重启 Host 才能再次尝试。
 - Host 会尝试通过 D3D11.4 注册 device-removed event。启动及每次成功资源恢复后，
   `Graphics.DeviceRemovalNotification.Status` 记录 `Phase`、`Available` 和 `RegistrationHRESULT`；接口
   不可用或注册失败时，活跃渲染等待仍以每 `250 ms` 一次的 device-removed reason 查询兜底，不会把注册
@@ -70,7 +76,11 @@
   `StartCapture` 前确认无边框会话，接口缺失、权限不足或系统仍要求边框时直接报告
   `Support.WGC=fallback-fx-only`，并把当前渲染批次回退到内部 FX-only transport，不会先启动带黄色
   边框的会话。切换到 `recording-compatible` 或 `light-background` 会关闭 WGC。日志中的
-  `WGC background sample entered the final desktop composite` 才表示背景样本已经进入最终 pass。
+  `BackgroundComposite.Participated` 才是背景样本进入最终 pass 的结构化判据；它记录已应用控制代次、
+  成功 Present 的帧号以及 WGC/快照 epoch/generation。旧文本
+  `WGC background sample entered the final desktop composite` 仅为既有验收工具保留。
+  `BackgroundSnapshot.Invalidated` 只在原快照有效时产生一次，记录失效原因和失效时两侧身份；帧号 `0`
+  表示发生在 render frame 外的生命周期事务。正常 WGC generation 刷新不会写该事件，避免逐帧刷盘。
 - RecordingCompatible 按 Web 版截图的透明覆盖层、`visual-max`、`bright-core`、`0.90` Alpha 上限、
   `source-over` 和未知透明背景设置拟合；LightBackground 使用同一策略，但将 Alpha 上限收紧为
   `0.85`。原生 DirectComposition 没有 DOM 背景表面的逐像素等价物，因此这两种模式都不读取桌面，

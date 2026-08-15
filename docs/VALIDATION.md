@@ -16,6 +16,8 @@
 
 - intensity 语义与 output policy；
 - background binary validity、路径单向锁存、饱和时间差与边界；
+- WGC stop 四阶段失败位、`OverallSucceeded`、失败后的 sticky 重启阻断、retry token 不可绕过，以及
+  included/FX-only 回退；背景快照失效单槽邮箱必须保留首个未消费原因和完整身份；
 - ROI alignment/guard；
 - finite sanitize、component-wise non-negative 与 isotonic test vectors；
 - fixed-step simulation 和 deterministic random；
@@ -48,6 +50,11 @@
   错误锁存，以及已确认 device-lost 到一次性 render/Present 恢复边界的路由；通知不可用时保留连续
   timeout 轮询，`desktop_frame_pacing_stall` 必须在自身截止时间内退出；
 - WGC session state machine，以及渲染阶段真实 stop 诊断跨无 sensor 清理动作的一次性交接；
+- 可见内容每帧 drain；暂停或空闲时的 sensor-only maintenance 只规定最高 `20 Hz`，不要求每秒精确
+  20 次，且不得创建批次快照、执行 Bloom/Present 或计作呈现帧；
+- 只有原快照有效时才产生一次 `BackgroundSnapshot.Invalidated`。参与和失效事件必须携带已应用的
+  `Control.Generation`、`Frame.Id`、WGC epoch/generation 与 snapshot epoch/generation；参与证据只能来自
+  成功 Present 后的帧诊断，模式切换后旧 snapshot identity 不得再次进入最终复合；
 - monitor/adapter rebuild。
 
 ### L3：硬件/视觉

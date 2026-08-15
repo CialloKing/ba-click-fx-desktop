@@ -173,6 +173,26 @@ python -B tools\verify-wgc-self-exclusion-spike.py `
   "--report=$output\verification.json"
 ```
 
+### 已执行产品模式切换与暂停保鲜子集证据
+
+- 产品模式切换、暂停保鲜和有效快照失效子集：`Passed`，capture commit `ab4be5a`，Windows
+  `10.0.19045`、RTX 4060 Laptop GPU `32.0.16.1074`、`3840x2160 @ 144 Hz` SDR。原始日志、
+  配置、IPC transcript、哈希和汇总见
+  [`artifacts/spikes/spk-002/rtx4060-win10-19045-mode-switch-snapshot-2026-08-15/README.md`](../artifacts/spikes/spk-002/rtx4060-win10-19045-mode-switch-snapshot-2026-08-15/README.md)。
+- `pause-maintenance` 完成
+  `background-aware -> recording-compatible -> background-aware -> Pause 2s -> Resume -> click -> Shutdown`，
+  控制代次为 `1 -> 2 -> 3 -> 4 -> 5`。无可见内容的暂停阶段有 `32` 次 sensor-only maintenance，
+  样本最大年龄 `29131 us`；取得/关闭 `377/377` 帧，最终有 `756` 个背景参与帧。
+- `live-snapshot-switch` 先观察到控制代次 1、WGC/快照 `epoch=1, generation=10` 的
+  `BackgroundComposite.Participated`，再切换到录屏兼容模式；控制代次 2 随后记录帧外
+  `BackgroundSnapshot.Invalidated`，原因为 `capture-disabled`，旧快照仍属于 epoch 1，且已刷新到
+  generation 11。旧快照不会跨事务进入第二个 Session。
+- 两个场景均以退出码 0 结束；最终 Frame/FramePool/Session 和两类事件注册全部配平，
+  `Failures=0`、`AllReleased=true`。旧文本参与标记仍保留，但新的结构化事件是身份和顺序判据。
+- 该证据不覆盖权限拒绝、无边框、外部录屏器、显示器关闭、长期压力/功耗、HDR、多显示器或真实
+  device lost/reset，也不能证明同步 WinRT `Close()` 永久不返回时可被取消。因此完整 SPK-002
+  继续为 `Not Run`，ADR-003/ADR-004/ADR-007 继续为 `Proposed`。
+
 ## SPK-003 / Spike C：Color/HDR 输出
 
 ### 场景

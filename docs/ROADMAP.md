@@ -2,7 +2,8 @@
 
 本路线图规定开发顺序；[VALIDATION.md](VALIDATION.md) 规定证据合同，
 [SPIKES.md](SPIKES.md) 规定发布前的硬件/API 验收。自 2026-08-14 起，当前迭代优先解决
-用户可感知的输入延迟、渲染成本和视觉差异，不再按 Spike 编号顺序扩张采集工具。
+用户可感知的输入延迟、渲染成本和视觉差异；2026-08-15 的优先级覆盖进一步暂缓第三阶段
+WGC/ROI 优化，当前直接收敛 WGC/背景感知可靠性，不再按 Spike 编号顺序扩张采集工具。
 
 完成新的 collector、verifier 或证据归档，只计作验证基础设施进展，不能单独计作用户功能更新。
 它们只有在解除当前体验问题或正式发布门槛时才进入主线排期。
@@ -18,7 +19,16 @@
   外部录屏、设备移除/重置和多显示器单元格，未执行项保持 `Not Run`。
 
 当前已落地的可靠性工作包括生产 WGC 资源账本日志、停止通知竞态修复，以及 WGC 失败后允许同轮
-窗口 resize 进入清理/重启事务。它们不改变动画或 ROI 画面合同。
+窗口 resize 进入清理/重启事务。stop 现在分别锁存 FrameArrived/item.Closed 退订、Session Close 和
+FramePool Close 失败，并汇总到 `OverallSucceeded`；任一阶段失败仍完成 included/FX-only 回退，保留
+`SensorStopFailed`，并在本进程永久阻止 WGC 重启，`retryToken` 不能绕过。它们不改变动画或 ROI 画面合同。
+
+可见帧始终 drain WGC；暂停或没有可见内容时，仅在首次、新 epoch、时钟回退或距上次尝试达到
+`50 ms` 时执行 sensor-only drain。该维护路径不创建批次背景快照、不执行 Bloom、不 Present，也不计入
+呈现帧数。背景快照成功参与和有效快照失效分别记录 `BackgroundComposite.Participated` 与
+`BackgroundSnapshot.Invalidated`，包含控制代次、帧号、WGC 与快照 epoch/generation 和失效原因。
+RTX 4060/Windows 10 的模式切换、暂停保鲜与存活快照失效子集已通过，证据见
+[`artifacts/spikes/spk-002/rtx4060-win10-19045-mode-switch-snapshot-2026-08-15`](../artifacts/spikes/spk-002/rtx4060-win10-19045-mode-switch-snapshot-2026-08-15/README.md)。
 
 设备丢失路径现已接入 Host：渲染提交、Bloom 配置资源、swap-chain resize 或 WGC FramePool
 Recreate 遇到可识别的 DXGI device-lost HRESULT 时，整个 renderer 最多执行一次 D3D/DComp/WGC
@@ -104,8 +114,8 @@ FP16 差异。
 
 基线确认瓶颈后，按下列顺序降低背景感知路径成本：
 
-1. 没有可见特效时保留必要的会话状态，但跳过不参与画面的背景 drain/copy；重新进入活跃状态时先取得
-   新鲜样本，不能复用过期桌面快照。
+1. 没有可见特效时保留会话，并把 sensor drain/copy 限制为最高 `20 Hz`；跳过批次背景快照、Bloom 和
+   Present。重新进入活跃状态时使用保鲜样本，不能复用已失效的桌面快照。
 2. 仅在特效存活期间处理背景，并验证暂停、模式切换和 WGC frame event 不会留下静态旧背景。
 3. 以活跃特效包围盒为基础加入 Bloom 半径、滤波核、移动余量和 mip 对齐所需的 guard band，建立
    局部 ROI 原型；边缘、尺寸或资源状态不满足合同时必须回退全屏路径。
