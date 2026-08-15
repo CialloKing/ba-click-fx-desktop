@@ -137,19 +137,27 @@ DisplaySessionReconcileResult DisplaySessionManager::reconcileSecondaries(
         return result;
     }
 
-    for (const DisplayTarget& target : snapshot.displays)
+    for (const DisplayTarget& observedTarget : snapshot.displays)
     {
-        if (sameDisplaySource(coordinator_->target(), target))
+        if (sameDisplaySource(coordinator_->target(), observedTarget))
         {
             continue;
         }
 
-        DisplaySession* const existing = findBySource(target);
+        DisplaySession* const existing = findBySource(observedTarget);
         if (existing == nullptr)
         {
+            if (!observedTarget.sourceIdentityResolved)
+            {
+                // A new unresolved source has no safe adapter selection. Wait
+                // for the next topology notification instead of creating its
+                // renderer on the process-default GPU.
+                continue;
+            }
             try
             {
-                std::unique_ptr<DisplaySession> session = createSession(target);
+                std::unique_ptr<DisplaySession> session =
+                    createSession(observedTarget);
                 session->show();
                 sessions_.push_back(std::move(session));
                 ++result.added;
@@ -157,12 +165,17 @@ DisplaySessionReconcileResult DisplaySessionManager::reconcileSecondaries(
             catch (const std::exception& error)
             {
                 result.failures.push_back(DisplaySessionFailure{
-                    target,
+                    observedTarget,
                     "create",
                     error.what()});
             }
             continue;
         }
+
+        const DisplayTarget target = stabilizeDisplayTargetObservation(
+            existing->target(),
+            observedTarget,
+            snapshot.status);
 
         if (existing->renderFaulted())
         {

@@ -3005,6 +3005,15 @@ int runApplication(
             }
             const bafx::desktop::DisplayTarget observedTarget =
                 observed != nullptr ? *observed : requestedTarget;
+            const bafx::desktop::DisplayTarget& expectedTarget =
+                pendingDisplayTarget.has_value()
+                    ? *pendingDisplayTarget
+                    : appliedDisplayTarget;
+            const bafx::desktop::DisplayTarget stabilizedObservedTarget =
+                bafx::desktop::stabilizeDisplayTargetObservation(
+                    expectedTarget,
+                    observedTarget,
+                    topology.status);
             bafx::desktop::appendDisplayTopologyObserved(
                 logPath,
                 backgroundExecution.transactionActive
@@ -3015,29 +3024,25 @@ int runApplication(
                 appliedDisplayDpi,
                 observedTarget,
                 window.effectiveDpi());
-            const bafx::desktop::DisplayTarget& expectedTarget =
-                pendingDisplayTarget.has_value()
-                    ? *pendingDisplayTarget
-                    : appliedDisplayTarget;
             const bool observedResourceDomainMismatch =
-                observedTarget.sourceIdentityResolved
+                stabilizedObservedTarget.sourceIdentityResolved
                 && !renderer.deviceInfo().requestedAdapterMatched;
             if (!bafx::desktop::sameDisplayTarget(
-                    observedTarget,
+                    stabilizedObservedTarget,
                     expectedTarget)
                 || !bafx::desktop::sameDisplaySourceIdentity(
-                    observedTarget,
+                    stabilizedObservedTarget,
                     expectedTarget)
                 || observedResourceDomainMismatch)
             {
-                pendingDisplayTarget = observedTarget;
+                pendingDisplayTarget = stabilizedObservedTarget;
             }
             else if (!pendingDisplayTarget.has_value())
             {
                 // A DPI-only notification can preserve rcMonitor. Reassert the
                 // physical fullscreen bounds without restarting a stable WGC
                 // target; any actual size correction is consumed below.
-                appliedDisplayTarget = observedTarget;
+                appliedDisplayTarget = stabilizedObservedTarget;
                 displaySession.updateTargetMetadata(appliedDisplayTarget);
                 window.setBounds(appliedDisplayTarget.bounds);
                 appliedDisplayDpi = window.effectiveDpi();

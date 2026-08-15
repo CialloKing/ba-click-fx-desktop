@@ -271,4 +271,33 @@ const DisplayTarget* findDisplayTargetAtPoint(
     return findDisplayTarget(snapshot, monitor);
 }
 
+DisplayTarget stabilizeDisplayTargetObservation(
+    const DisplayTarget& previous,
+    const DisplayTarget& observed,
+    const bafx::windows::DisplayTopologyStatus topologyStatus)
+{
+    DisplayTarget stabilized = observed;
+    if (topologyStatus
+            == bafx::windows::DisplayTopologyStatus::Complete
+        || !previous.sourceIdentityResolved
+        || observed.sourceIdentityResolved
+        || previous.deviceName != observed.deviceName)
+    {
+        return stabilized;
+    }
+
+    // EnumDisplayMonitors remains authoritative for screen geometry while
+    // QueryDisplayConfig can temporarily omit the GPU source during hot-plug.
+    // Retain the last resolved resource domain until a complete observation
+    // can prove that the display source or its physical endpoints changed.
+    stabilized.sourceAdapterLuid = previous.sourceAdapterLuid;
+    stabilized.sourceId = previous.sourceId;
+    stabilized.refreshRate = previous.refreshRate;
+    stabilized.captureRefreshRate = previous.captureRefreshRate;
+    stabilized.physicalTargetCount = previous.physicalTargetCount;
+    stabilized.sourceIdentityResolved = true;
+    stabilized.physicalTargetIdentities = previous.physicalTargetIdentities;
+    return stabilized;
+}
+
 }

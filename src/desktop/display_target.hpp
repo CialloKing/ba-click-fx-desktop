@@ -199,5 +199,9 @@ struct DisplayTargetIntent
 [[nodiscard]] const DisplayTarget* findDisplayTargetAtPoint(
     const DisplayTargetSnapshot& snapshot,
     POINT point) noexcept;
+[[nodiscard]] DisplayTarget stabilizeDisplayTargetObservation(
+    const DisplayTarget& previous,
+    const DisplayTarget& observed,
+    bafx::windows::DisplayTopologyStatus topologyStatus);
 
 }
