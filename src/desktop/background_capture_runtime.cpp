@@ -63,6 +63,8 @@ namespace
         return "sensor-stop-failed";
     case BackgroundCaptureFailure::BorderlessAccessFailed:
         return "borderless-access-failed";
+    case BackgroundCaptureFailure::BorderlessAccessCanceled:
+        return "borderless-access-canceled";
     case BackgroundCaptureFailure::ExclusionUnconfirmed:
         return "exclusion-unconfirmed";
     case BackgroundCaptureFailure::SensorStartFailed:
@@ -756,7 +758,7 @@ BackgroundCaptureExecutionStatus cancelBackgroundCaptureTransition(
     finishBackgroundCaptureAction(
         transition,
         execution,
-        bafx::windows::BackgroundCaptureActionObservation::Failed,
+        bafx::windows::BackgroundCaptureActionObservation::Canceled,
         logPath);
 
     return executeBackgroundCaptureTransition(

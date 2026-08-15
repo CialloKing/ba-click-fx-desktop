@@ -42,7 +42,8 @@ enum class BackgroundCaptureActionObservation : std::uint8_t
 {
     Pending,
     Succeeded,
-    Failed
+    Failed,
+    Canceled
 };
 
 struct BackgroundCaptureAction
@@ -70,6 +71,7 @@ enum class BackgroundCaptureFailure : std::uint8_t
     None,
     SensorStopFailed,
     BorderlessAccessFailed,
+    BorderlessAccessCanceled,
     ExclusionUnconfirmed,
     SensorStartFailed,
     FramePoolRecreateFailed,

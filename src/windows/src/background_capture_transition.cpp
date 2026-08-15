@@ -289,7 +289,14 @@ bool BackgroundCaptureTransition::applyObservation(
             == BackgroundCaptureActionKind::RequestBorderlessAccess;
     }
     if (observation != BackgroundCaptureActionObservation::Succeeded
-        && observation != BackgroundCaptureActionObservation::Failed)
+        && observation != BackgroundCaptureActionObservation::Failed
+        && observation != BackgroundCaptureActionObservation::Canceled)
+    {
+        return false;
+    }
+    if (observation == BackgroundCaptureActionObservation::Canceled
+        && action.kind
+            != BackgroundCaptureActionKind::RequestBorderlessAccess)
     {
         return false;
     }
@@ -309,6 +316,8 @@ bool BackgroundCaptureTransition::applyObservation(
     case BackgroundCaptureActionKind::RequestBorderlessAccess:
         if (!succeeded)
         {
+            const bool ownerCanceled =
+                observation == BackgroundCaptureActionObservation::Canceled;
             std::optional<BackgroundCaptureAction> pendingResize{};
             for (std::size_t index = actionIndex_; index < actionCount_; ++index)
             {
@@ -320,7 +329,9 @@ bool BackgroundCaptureTransition::applyObservation(
                 }
             }
 
-            pendingFailure_ = BackgroundCaptureFailure::BorderlessAccessFailed;
+            pendingFailure_ = ownerCanceled
+                ? BackgroundCaptureFailure::BorderlessAccessCanceled
+                : BackgroundCaptureFailure::BorderlessAccessFailed;
             completionPath_ = EffectiveBackgroundCapturePath::FxOnly;
             completionVisibilityUnknown_ = false;
             discardRemainingActions();
@@ -338,6 +349,13 @@ bool BackgroundCaptureTransition::applyObservation(
                 || *appliedOverlayProfile_ != FxOverlayProfile::FxOnlyFallback)
             {
                 appendAction(profileAction(FxOverlayProfile::FxOnlyFallback));
+            }
+            if (ownerCanceled)
+            {
+                // A superseding owner intent must be allowed to submit the
+                // same capture identity under its new generation. Broker
+                // denial remains terminal until an explicit retry token.
+                request_.reset();
             }
         }
         break;

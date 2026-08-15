@@ -234,6 +234,51 @@ BAFX_TEST(borderless_access_failure_runs_one_fx_only_rollback)
     BAFX_CHECK(!transition.nextAction().has_value());
 }
 
+BAFX_TEST(borderless_access_owner_cancel_allows_same_request_restart)
+{
+    BackgroundCaptureTransition transition;
+    const BackgroundCaptureRequest borderless =
+        backgroundAwareRequest(true, false);
+    BAFX_CHECK(
+        transition.beginRequest(borderless)
+        == BackgroundCaptureRequestResult::Started);
+
+    const auto permission = transition.nextAction();
+    BAFX_CHECK(permission.has_value());
+    BAFX_CHECK(
+        permission->kind
+        == BackgroundCaptureActionKind::RequestBorderlessAccess);
+    BAFX_CHECK(transition.applyObservation(
+        *permission,
+        BackgroundCaptureActionObservation::Canceled));
+    checkActions(
+        completeSuccessfully(transition),
+        {BackgroundCaptureActionKind::StopSensor,
+         BackgroundCaptureActionKind::SetAffinityIncluded,
+         BackgroundCaptureActionKind::ApplyOverlayProfile});
+    BAFX_CHECK(
+        transition.failure()
+        == BackgroundCaptureFailure::BorderlessAccessCanceled);
+
+    BAFX_CHECK(
+        transition.beginIntent(borderless, resizedOutput)
+        == BackgroundCaptureRequestResult::Started);
+    const auto retried = transition.nextAction();
+    BAFX_CHECK(retried.has_value());
+    BAFX_CHECK(
+        retried->kind
+        == BackgroundCaptureActionKind::RequestBorderlessAccess);
+    BAFX_CHECK(transition.applyObservation(*retried, true));
+    checkActions(
+        completeSuccessfully(transition, resizedOutput),
+        {BackgroundCaptureActionKind::ResizeOutput,
+         BackgroundCaptureActionKind::SetAffinityExcluded,
+         BackgroundCaptureActionKind::StartSensor});
+    BAFX_CHECK(
+        transition.effectivePath()
+        == EffectiveBackgroundCapturePath::BackgroundAware);
+}
+
 BAFX_TEST(borderless_start_failure_allows_system_border_recovery)
 {
     BackgroundCaptureTransition transition;
