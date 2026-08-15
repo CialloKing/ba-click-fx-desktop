@@ -173,10 +173,12 @@ public:
     void record(WgcBackgroundStopDiagnostics diagnostics) noexcept;
     void recordNoSensor() noexcept;
     [[nodiscard]] WgcBackgroundStopDiagnostics take() noexcept;
+    [[nodiscard]] bool restartAllowed() const noexcept;
 
 private:
     WgcBackgroundStopDiagnostics diagnostics_{};
     bool sensorStopPending_{false};
+    bool restartBlocked_{false};
 };
 
 }

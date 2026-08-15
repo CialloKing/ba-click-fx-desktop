@@ -222,6 +222,7 @@ public:
         tryRecreateBackgroundFramePool(WindowSize size) noexcept;
     void disableBackgroundCapture() noexcept;
     [[nodiscard]] bool backgroundCaptureActive() const noexcept;
+    [[nodiscard]] bool backgroundCaptureRestartAllowed() const noexcept;
     [[nodiscard]] bool backgroundCaptureBorderHidden() const noexcept;
     [[nodiscard]] bool backgroundCaptureCursorExcluded() const noexcept;
     [[nodiscard]] WgcBackgroundResourceLedgerSnapshot

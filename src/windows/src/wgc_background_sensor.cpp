@@ -287,6 +287,14 @@ void detail::WgcBackgroundStopMailbox::record(
     diagnostics.deferredReport = false;
     diagnostics_ = diagnostics;
     sensorStopPending_ = diagnostics.sensorPresent;
+    if (diagnostics.sensorPresent
+        && (!diagnostics.completed || !diagnostics.overallSucceeded))
+    {
+        // A failed WinRT close leaves ownership uncertain. Reading the
+        // diagnostic must never turn that process-lifetime fact back into an
+        // eligible WGC restart.
+        restartBlocked_ = true;
+    }
 }
 
 void detail::WgcBackgroundStopMailbox::recordNoSensor() noexcept
@@ -310,6 +318,11 @@ WgcBackgroundStopDiagnostics detail::WgcBackgroundStopMailbox::take() noexcept
     diagnostics_ = WgcBackgroundStopDiagnostics{};
     sensorStopPending_ = false;
     return result;
+}
+
+bool detail::WgcBackgroundStopMailbox::restartAllowed() const noexcept
+{
+    return !restartBlocked_;
 }
 
 void WgcBackgroundSensor::recordResourceLedgerEvent(

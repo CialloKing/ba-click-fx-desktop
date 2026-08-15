@@ -239,6 +239,8 @@ BAFX_TEST(wgc_stop_mailbox_preserves_a_sensor_stop_across_cleanup_noop)
 BAFX_TEST(wgc_stop_mailbox_does_not_reuse_consumed_sensor_evidence)
 {
     WgcBackgroundStopMailbox mailbox;
+    BAFX_CHECK(mailbox.restartAllowed());
+
     bafx::windows::WgcBackgroundStopDiagnostics diagnostics{};
     diagnostics.total = std::chrono::microseconds(51);
     diagnostics.sensorPresent = true;
@@ -255,4 +257,28 @@ BAFX_TEST(wgc_stop_mailbox_does_not_reuse_consumed_sensor_evidence)
     BAFX_CHECK(next.overallSucceeded);
     BAFX_CHECK(!next.deferredReport);
     BAFX_CHECK(next.total == std::chrono::nanoseconds::zero());
+    BAFX_CHECK(mailbox.restartAllowed());
+}
+
+BAFX_TEST(wgc_stop_mailbox_keeps_failed_stop_restart_blocked_after_read)
+{
+    WgcBackgroundStopMailbox mailbox;
+    bafx::windows::WgcBackgroundStopDiagnostics failed{};
+    failed.sensorPresent = true;
+    failed.completed = true;
+    failed.overallSucceeded = false;
+
+    mailbox.record(failed);
+    BAFX_CHECK(!mailbox.restartAllowed());
+
+    static_cast<void>(mailbox.take());
+    mailbox.recordNoSensor();
+    BAFX_CHECK(!mailbox.restartAllowed());
+
+    bafx::windows::WgcBackgroundStopDiagnostics succeeded{};
+    succeeded.sensorPresent = true;
+    succeeded.completed = true;
+    succeeded.overallSucceeded = true;
+    mailbox.record(succeeded);
+    BAFX_CHECK(!mailbox.restartAllowed());
 }

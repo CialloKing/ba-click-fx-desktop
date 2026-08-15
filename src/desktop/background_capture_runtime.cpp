@@ -280,10 +280,18 @@ void observeDeviceRecovery(
             != renderer.deviceInfo().adapterLuid.LowPart
         || previousDeviceInfo.adapterLuid.HighPart
             != renderer.deviceInfo().adapterLuid.HighPart;
+    const bafx::windows::WgcBackgroundStopDiagnostics stopDiagnostics =
+        appendBackgroundCaptureStopDiagnostics(logPath, renderer, eventName);
     sensorRestartAllowed =
         !result.deviceRecoveryAdapterChanged
         && renderer.deviceInfo().driverType
-            == bafx::windows::GraphicsDriverType::Hardware;
+            == bafx::windows::GraphicsDriverType::Hardware
+        && renderer.backgroundCaptureRestartAllowed();
+    if (!stopDiagnostics.overallSucceeded)
+    {
+        result.sensorFailure =
+            "WGC stop failed; capture restart blocked for this process";
+    }
     const bafx::windows::DeviceRecoveryDiagnostics diagnostics =
         renderer.deviceRecoveryDiagnostics();
     const std::string totalMicroseconds = std::to_string(
@@ -315,7 +323,6 @@ void observeDeviceRecovery(
         logPath,
         eventName,
         recoveryFields);
-    appendBackgroundCaptureStopDiagnostics(logPath, renderer, eventName);
 }
 
 }
@@ -649,8 +656,11 @@ BackgroundCaptureExecutionStatus executeBackgroundCaptureTransition(
                         execution.borderlessAccessConfirmed);
                 if (!execution.sensorRestartAllowed)
                 {
-                    execution.sensorFailure =
-                        "WGC restart blocked after graphics adapter change or WARP recovery";
+                    if (execution.sensorFailure.empty())
+                    {
+                        execution.sensorFailure =
+                            "WGC restart blocked after graphics adapter change or WARP recovery";
+                    }
                 }
                 if (!succeeded && !renderer.backgroundCaptureFailure().empty())
                 {

@@ -966,6 +966,7 @@ bool CompositionRenderer::tryEnableBackgroundCapture(
     backgroundCaptureRequested_ = exclusionConfirmed
         && monitor != nullptr
         && deviceInfo_.driverType == GraphicsDriverType::Hardware
+        && backgroundStopMailbox_.restartAllowed()
         && backgroundCaptureAfterRecoveryAllowed_
         && (allowSystemBorder || borderlessAccessConfirmed);
     backgroundMonitor_ = backgroundCaptureRequested_ ? monitor : nullptr;
@@ -983,6 +984,11 @@ bool CompositionRenderer::tryEnableBackgroundCapture(
         else if (deviceInfo_.driverType != GraphicsDriverType::Hardware)
         {
             setBackgroundCaptureFailure("WGC requires a hardware D3D11 device");
+        }
+        else if (!backgroundStopMailbox_.restartAllowed())
+        {
+            setBackgroundCaptureFailure(
+                "WGC restart requires a process restart after capture stop failure");
         }
         else if (!backgroundCaptureAfterRecoveryAllowed_)
         {
@@ -1073,6 +1079,12 @@ void CompositionRenderer::disableBackgroundCapture() noexcept
 bool CompositionRenderer::backgroundCaptureActive() const noexcept
 {
     return backgroundSensor_ != nullptr && backgroundSensor_->running();
+}
+
+bool CompositionRenderer::backgroundCaptureRestartAllowed() const noexcept
+{
+    return backgroundStopMailbox_.restartAllowed()
+        && backgroundCaptureAfterRecoveryAllowed_;
 }
 
 bool CompositionRenderer::backgroundCaptureBorderHidden() const noexcept

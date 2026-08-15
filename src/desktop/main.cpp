@@ -1272,7 +1272,8 @@ int runApplication(
                             == bafx::config::RenderMode::BackgroundAware
                         && !adapterChanged
                         && renderer.deviceInfo().driverType
-                            == bafx::windows::GraphicsDriverType::Hardware;
+                            == bafx::windows::GraphicsDriverType::Hardware
+                        && renderer.backgroundCaptureRestartAllowed();
                     if (retryEligible)
                     {
                         if (backgroundRetryToken
@@ -1766,7 +1767,8 @@ int runApplication(
                     appliedBackgroundRequest.sensorRequired
                     && !adapterChanged
                     && renderer.deviceInfo().driverType
-                        == bafx::windows::GraphicsDriverType::Hardware;
+                        == bafx::windows::GraphicsDriverType::Hardware
+                    && renderer.backgroundCaptureRestartAllowed();
                 if (backgroundRetryEligible
                     && backgroundRetryToken
                         == std::numeric_limits<std::uint64_t>::max())
@@ -2096,7 +2098,8 @@ int runApplication(
                     appliedBackgroundRequest.sensorRequired
                     && !backgroundExecution.deviceRecoveryAdapterChanged
                     && renderer.deviceInfo().driverType
-                        == bafx::windows::GraphicsDriverType::Hardware;
+                        == bafx::windows::GraphicsDriverType::Hardware
+                    && renderer.backgroundCaptureRestartAllowed();
                 backgroundRetryPending = false;
                 if (retryEligible)
                 {
