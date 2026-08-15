@@ -87,6 +87,10 @@ class VideoMetrics:
     baseline_frame: int
     baseline_seconds: float
     baseline_frame_sha256: str
+    background_expected_srgb8: tuple[int, int, int] | None
+    background_observed_mean_srgb8: tuple[float, float, float] | None
+    background_matching_pixel_fraction: float | None
+    background_maximum_channel_delta: int | None
     peak_baseline_frame: int
     peak_baseline_seconds: float
     peak_mean_absolute_luma_delta: float
@@ -207,6 +211,19 @@ def _boolean(value: Any, label: str) -> bool:
     return value
 
 
+def _srgb8(value: Any, label: str) -> tuple[int, int, int]:
+    channels = _list(value, label)
+    if len(channels) != 3:
+        raise ValidationError(f"{label} must have three channels")
+    result = tuple(
+        _integer(channel, f"{label}[{index}]")
+        for index, channel in enumerate(channels)
+    )
+    if any(channel > 255 for channel in result):
+        raise ValidationError(f"{label} channels must be <= 255")
+    return result
+
+
 def _exact(value: Any, expected: Any, label: str) -> None:
     if value != expected:
         raise ValidationError(f"{label} must be {expected!r}, got {value!r}")
@@ -224,9 +241,14 @@ def _sha256(path: Path) -> str:
 
 
 @lru_cache(maxsize=16)
-def _tool_sha256_snapshot(path: str, size: int, modified_ns: int) -> str:
-    # Size and timestamp keep the cache bounded without hiding tool updates.
-    del size, modified_ns
+def _tool_sha256_snapshot(
+    path: str,
+    size: int,
+    modified_ns: int,
+    file_id: int,
+) -> str:
+    # File identity prevents same-size, backdated replacements from reusing a hash.
+    del size, modified_ns, file_id
     return _sha256(Path(path))
 
 
@@ -234,15 +256,18 @@ def _verified_tool(command: str, expected_hash: str, label: str) -> str:
     resolved = shutil.which(command)
     if resolved is None:
         raise ValidationError(f"{label} executable is unavailable: {command}")
-    path = Path(resolved).resolve()
-    if path.is_symlink() or not path.is_file():
+    unresolved = Path(resolved)
+    if unresolved.is_symlink():
+        raise ValidationError(f"{label} executable must not be symbolic: {unresolved}")
+    path = unresolved.resolve()
+    if not path.is_file():
         raise ValidationError(f"{label} executable is missing or symbolic: {path}")
     try:
         metadata = path.stat()
     except OSError as error:
         raise ValidationError(f"unable to inspect {label} executable: {error}") from error
     actual_hash = _tool_sha256_snapshot(
-        str(path), metadata.st_size, metadata.st_mtime_ns
+        str(path), metadata.st_size, metadata.st_mtime_ns, metadata.st_ino
     )
     if actual_hash != expected_hash.lower():
         raise ValidationError(f"{label} executable hash differs from the manifest")
@@ -373,6 +398,10 @@ def _validate_commands(
         raise ValidationError("case.commands.host arguments do not match the contract")
 
     ffmpeg = _command_argv(commands["ffmpeg"], "case.commands.ffmpeg")
+    if Path(ffmpeg[0]).resolve() != Path(root_recorder["ffmpegPath"]).resolve():
+        raise ValidationError(
+            "case.commands.ffmpeg must execute capture.recorder.ffmpegPath"
+        )
     _require_argument_pair(ffmpeg, "-f", "gdigrab", "case.commands.ffmpeg")
     _require_argument_pair(ffmpeg, "-framerate", str(root_recorder["frameRate"]), "case.commands.ffmpeg")
     _require_argument_pair(ffmpeg, "-draw_mouse", "0", "case.commands.ffmpeg")
@@ -401,6 +430,10 @@ def _validate_commands(
         raise ValidationError("case.commands.ffmpeg must record video-only capture.mkv")
 
     ffprobe = _command_argv(commands["ffprobe"], "case.commands.ffprobe")
+    if Path(ffprobe[0]).resolve() != Path(root_recorder["ffprobePath"]).resolve():
+        raise ValidationError(
+            "case.commands.ffprobe must execute capture.recorder.ffprobePath"
+        )
     required_probe_arguments = {"-show_streams", "-show_format", VIDEO_NAME}
     if not required_probe_arguments.issubset(ffprobe):
         raise ValidationError("case.commands.ffprobe is incomplete")
@@ -708,11 +741,110 @@ def _compare_metadata(stored: dict[str, Any], fresh: dict[str, Any]) -> None:
             raise ValidationError(f"stored ffprobe metadata differs at {name}")
 
 
+def _run_binary_tool(
+    command: list[str],
+    timeout_seconds: float,
+    label: str,
+) -> bytes:
+    try:
+        result = subprocess.run(
+            command,
+            capture_output=True,
+            check=False,
+            timeout=timeout_seconds,
+        )
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise ValidationError(f"{label} failed: {error}") from error
+    if result.returncode != 0:
+        stderr = result.stderr.decode("utf-8", errors="replace").strip()
+        raise ValidationError(
+            f"{label} exited with {result.returncode}: {stderr}"
+        )
+    return result.stdout
+
+
+def _analyze_background_baseline(
+    path: Path,
+    executable: str,
+    timeout_seconds: float,
+    baseline_index: int,
+    width: int,
+    height: int,
+    expected_srgb8: tuple[int, int, int],
+) -> tuple[tuple[float, float, float], float, int]:
+    payload = _run_binary_tool(
+        [
+            executable,
+            "-v",
+            "error",
+            "-nostdin",
+            "-i",
+            str(path),
+            "-map",
+            "0:v:0",
+            "-vf",
+            f"select=eq(n\\,{baseline_index}),format=bgr0",
+            "-frames:v",
+            "1",
+            "-f",
+            "rawvideo",
+            "-pix_fmt",
+            "bgr0",
+            "pipe:1",
+        ],
+        timeout_seconds,
+        "ffmpeg controlled-background decode",
+    )
+    pixel_count = width * height
+    if len(payload) != pixel_count * 4:
+        raise ValidationError("ffmpeg returned a truncated BGR0 baseline frame")
+
+    expected_red, expected_green, expected_blue = expected_srgb8
+    red_sum = 0
+    green_sum = 0
+    blue_sum = 0
+    matching_pixels = 0
+    maximum_delta = 0
+    for offset in range(0, len(payload), 4):
+        blue = payload[offset]
+        green = payload[offset + 1]
+        red = payload[offset + 2]
+        red_sum += red
+        green_sum += green
+        blue_sum += blue
+        delta = max(
+            abs(red - expected_red),
+            abs(green - expected_green),
+            abs(blue - expected_blue),
+        )
+        maximum_delta = max(maximum_delta, delta)
+        if delta == 0:
+            matching_pixels += 1
+
+    matching_fraction = matching_pixels / pixel_count
+    means = (
+        red_sum / pixel_count,
+        green_sum / pixel_count,
+        blue_sum / pixel_count,
+    )
+    if matching_pixels != pixel_count:
+        raise ValidationError(
+            f"{path}: controlled background baseline mismatch: "
+            f"{matching_pixels}/{pixel_count} exact pixels, "
+            f"maximum channel delta {maximum_delta}"
+        )
+    return means, matching_fraction, maximum_delta
+
+
 def _analyze_video(
     path: Path,
     executable: str,
     timeout_seconds: float,
     frame_rate: float,
+    source_kind: str,
+    width: int,
+    height: int,
+    background_srgb8: tuple[int, int, int],
 ) -> VideoMetrics:
     command = [
         executable,
@@ -731,36 +863,45 @@ def _analyze_video(
         "gray",
         "pipe:1",
     ]
-    try:
-        result = subprocess.run(
-            command,
-            capture_output=True,
-            check=False,
-            timeout=timeout_seconds,
-        )
-    except (OSError, subprocess.TimeoutExpired) as error:
-        raise ValidationError(f"ffmpeg frame decode failed: {error}") from error
-    if result.returncode != 0:
-        stderr = result.stderr.decode("utf-8", errors="replace").strip()
-        raise ValidationError(
-            f"ffmpeg frame decode exited with {result.returncode}: {stderr}"
-        )
+    frame_payload = _run_binary_tool(
+        command,
+        timeout_seconds,
+        "ffmpeg frame decode",
+    )
     frame_bytes = ANALYSIS_WIDTH * ANALYSIS_HEIGHT
-    if len(result.stdout) % frame_bytes != 0:
+    if len(frame_payload) % frame_bytes != 0:
         raise ValidationError("ffmpeg returned a truncated gray frame")
-    frame_count = len(result.stdout) // frame_bytes
+    frame_count = len(frame_payload) // frame_bytes
     if frame_count < 2:
         raise ValidationError("video must decode to at least two frames")
 
     frames = [
-        result.stdout[offset : offset + frame_bytes]
-        for offset in range(0, len(result.stdout), frame_bytes)
+        frame_payload[offset : offset + frame_bytes]
+        for offset in range(0, len(frame_payload), frame_bytes)
     ]
     # GDI capture may expose an incomplete initialization frame. A one-second
     # warm-up remains before the delayed demo click and gives every cell the
     # same stable baseline without treating recorder startup as visual change.
     baseline_index = min(max(math.ceil(frame_rate), 1), frame_count - 1)
     baseline = frames[baseline_index]
+    if source_kind == "desktop":
+        background_means, background_fraction, background_maximum_delta = (
+            _analyze_background_baseline(
+                path,
+                executable,
+                timeout_seconds,
+                baseline_index,
+                width,
+                height,
+                background_srgb8,
+            )
+        )
+        background_expected = background_srgb8
+    else:
+        background_means = None
+        background_fraction = None
+        background_maximum_delta = None
+        background_expected = None
     peak_baseline = (baseline_index, -1.0, 0.0, 0)
     peak_adjacent = (baseline_index, -1.0)
     previous = baseline
@@ -794,6 +935,10 @@ def _analyze_video(
         baseline_frame=baseline_index,
         baseline_seconds=baseline_index / frame_rate,
         baseline_frame_sha256=hashlib.sha256(baseline).hexdigest(),
+        background_expected_srgb8=background_expected,
+        background_observed_mean_srgb8=background_means,
+        background_matching_pixel_fraction=background_fraction,
+        background_maximum_channel_delta=background_maximum_delta,
         peak_baseline_frame=peak_baseline[0],
         peak_baseline_seconds=peak_baseline[0] / frame_rate,
         peak_mean_absolute_luma_delta=peak_baseline[1],
@@ -856,52 +1001,84 @@ def _validate_root(
         fixture,
         {
             "kind",
-            "srgb8",
+            "requestedSrgb8",
+            "presentedSrgb8",
             "left",
             "top",
             "width",
             "height",
             "topmost",
             "noActivate",
-            "clickThrough",
+            "inputPolicy",
+            "windowEnabled",
             "handle",
+            "startupSampleCount",
+            "startupSamplesUniform",
             "stopTimeoutMs",
+            "stopped",
+            "stoppedAtUtc",
+            "stopFailure",
         },
         "capture.backgroundFixture",
     )
     _exact(
         _string(fixture["kind"], "capture.backgroundFixture.kind"),
-        "solid-srgb8-click-through",
+        "solid-disabled-window",
         "capture.backgroundFixture.kind",
     )
-    fixture_srgb_source = _list(
-        fixture["srgb8"], "capture.backgroundFixture.srgb8"
+    requested_srgb8 = _srgb8(
+        fixture["requestedSrgb8"], "capture.backgroundFixture.requestedSrgb8"
     )
-    if len(fixture_srgb_source) != 3:
-        raise ValidationError("capture.backgroundFixture.srgb8 must have three channels")
-    fixture_srgb8 = tuple(
-        _integer(channel, f"capture.backgroundFixture.srgb8[{index}]")
-        for index, channel in enumerate(fixture_srgb_source)
+    _exact(
+        requested_srgb8,
+        (30, 82, 146),
+        "capture.backgroundFixture.requestedSrgb8",
     )
-    if any(channel > 255 for channel in fixture_srgb8):
-        raise ValidationError("capture.backgroundFixture.srgb8 channels must be <= 255")
-    _exact(fixture_srgb8, (30, 82, 146), "capture.backgroundFixture.srgb8")
+    fixture_srgb8 = _srgb8(
+        fixture["presentedSrgb8"], "capture.backgroundFixture.presentedSrgb8"
+    )
     _exact(_integer(fixture["left"], "capture.backgroundFixture.left"), 0, "capture.backgroundFixture.left")
     _exact(_integer(fixture["top"], "capture.backgroundFixture.top"), 0, "capture.backgroundFixture.top")
     if not _boolean(fixture["topmost"], "capture.backgroundFixture.topmost"):
         raise ValidationError("capture.backgroundFixture.topmost must be true")
     if not _boolean(fixture["noActivate"], "capture.backgroundFixture.noActivate"):
         raise ValidationError("capture.backgroundFixture.noActivate must be true")
-    if not _boolean(fixture["clickThrough"], "capture.backgroundFixture.clickThrough"):
-        raise ValidationError("capture.backgroundFixture.clickThrough must be true")
+    _exact(
+        _string(fixture["inputPolicy"], "capture.backgroundFixture.inputPolicy"),
+        "disabled-window",
+        "capture.backgroundFixture.inputPolicy",
+    )
+    if _boolean(fixture["windowEnabled"], "capture.backgroundFixture.windowEnabled"):
+        raise ValidationError("capture.backgroundFixture.windowEnabled must be false")
     handle = _string(fixture["handle"], "capture.backgroundFixture.handle")
     if re.fullmatch(r"0x[1-9A-F][0-9A-F]*", handle) is None:
         raise ValidationError("capture.backgroundFixture.handle must be non-zero hex")
+    _exact(
+        _integer(
+            fixture["startupSampleCount"],
+            "capture.backgroundFixture.startupSampleCount",
+            1,
+        ),
+        5,
+        "capture.backgroundFixture.startupSampleCount",
+    )
+    if not _boolean(
+        fixture["startupSamplesUniform"],
+        "capture.backgroundFixture.startupSamplesUniform",
+    ):
+        raise ValidationError(
+            "capture.backgroundFixture.startupSamplesUniform must be true"
+        )
     _exact(
         _integer(fixture["stopTimeoutMs"], "capture.backgroundFixture.stopTimeoutMs", 1),
         5000,
         "capture.backgroundFixture.stopTimeoutMs",
     )
+    if not _boolean(fixture["stopped"], "capture.backgroundFixture.stopped"):
+        raise ValidationError("capture.backgroundFixture.stopped must be true")
+    _string(fixture["stoppedAtUtc"], "capture.backgroundFixture.stoppedAtUtc")
+    if fixture["stopFailure"] is not None:
+        raise ValidationError("capture.backgroundFixture.stopFailure must be null")
 
     host = _object(root["host"], "capture.host")
     _require_fields(
@@ -1027,6 +1204,7 @@ def _validate_case(
     root_host: dict[str, Any],
     root_recorder: dict[str, Any],
     capture_region: tuple[int, int, int, int],
+    background_srgb8: tuple[int, int, int],
     ffmpeg: str,
     ffprobe: str,
     timeout_seconds: float,
@@ -1192,6 +1370,10 @@ def _validate_case(
         ffmpeg,
         timeout_seconds,
         fresh_metadata["frame_rate"],
+        source_kind,
+        fresh_metadata["width"],
+        fresh_metadata["height"],
+        background_srgb8,
     )
     return CaseResult(
         case_id=case_id,
@@ -1235,6 +1417,14 @@ def validate_path(
         root_recorder["ffprobeSha256"],
         "ffprobe",
     )
+    if Path(root_recorder["ffmpegPath"]).resolve() != Path(verified_ffmpeg):
+        raise ValidationError(
+            "capture.recorder.ffmpegPath differs from the verified ffmpeg"
+        )
+    if Path(root_recorder["ffprobePath"]).resolve() != Path(verified_ffprobe):
+        raise ValidationError(
+            "capture.recorder.ffprobePath differs from the verified ffprobe"
+        )
     root = path.parent
     summaries = _list(document["cases"], "capture.cases")
     ids = [
@@ -1249,6 +1439,7 @@ def validate_path(
             root_host,
             root_recorder,
             capture_region,
+            background_srgb8,
             verified_ffmpeg,
             verified_ffprobe,
             timeout_seconds,

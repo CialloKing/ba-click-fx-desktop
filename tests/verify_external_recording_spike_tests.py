@@ -36,6 +36,7 @@ WIDTH = 64
 HEIGHT = 64
 FRAME_RATE = 10
 DURATION_SECONDS = 6
+REQUESTED_SRGB8 = (30, 82, 146)
 
 
 def _sha256(path: Path) -> str:
@@ -52,6 +53,22 @@ def _artifact_record(path: Path) -> dict[str, object]:
         "bytes": path.stat().st_size,
         "sha256": _sha256(path),
     }
+
+
+def _raw_video_frames(background_srgb8: tuple[int, int, int]) -> bytes:
+    red, green, blue = background_srgb8
+    background_pixel = bytes((blue, green, red, 0))
+    white_pixel = bytes((255, 255, 255, 0))
+    frames = bytearray()
+    for frame_index in range(FRAME_RATE * DURATION_SECONDS):
+        frame = bytearray(background_pixel * (WIDTH * HEIGHT))
+        if 23 <= frame_index <= 26:
+            for y in range(16, 48):
+                for x in range(16, 48):
+                    offset = (y * WIDTH + x) * 4
+                    frame[offset : offset + 4] = white_pixel
+        frames.extend(frame)
+    return bytes(frames)
 
 
 def _event(
@@ -147,39 +164,55 @@ def _process(pid: int, host: bool = False) -> dict[str, object]:
 @unittest.skipUnless(TOOLS_AVAILABLE, "ffmpeg and ffprobe are required")
 class ExternalRecordingFixture:
     video_payload: bytes
+    wrong_background_video_payload: bytes
     probe_document: dict[str, object]
 
     @classmethod
     def setUpClass(cls) -> None:
         with tempfile.TemporaryDirectory() as directory:
             video = Path(directory) / VERIFY.VIDEO_NAME
-            result = subprocess.run(
-                [
-                    str(FFMPEG),
-                    "-v",
-                    "error",
-                    "-nostdin",
-                    "-f",
-                    "lavfi",
-                    "-i",
-                    f"color=c=black:s={WIDTH}x{HEIGHT}:r={FRAME_RATE}:d={DURATION_SECONDS}",
-                    "-vf",
-                    "drawbox=x=16:y=16:w=32:h=32:color=white:t=fill:enable='between(t,2.3,2.6)'",
-                    "-an",
-                    "-c:v",
-                    "ffv1",
-                    "-level",
-                    "3",
-                    "-pix_fmt",
-                    "bgr0",
-                    str(video),
-                ],
-                capture_output=True,
-                timeout=10,
-                check=False,
-            )
-            if result.returncode != 0:
-                raise RuntimeError(result.stderr.decode(errors="replace"))
+            command = [
+                str(FFMPEG),
+                "-v",
+                "error",
+                "-nostdin",
+                "-f",
+                "rawvideo",
+                "-pixel_format",
+                "bgr0",
+                "-video_size",
+                f"{WIDTH}x{HEIGHT}",
+                "-framerate",
+                str(FRAME_RATE),
+                "-i",
+                "pipe:0",
+                "-an",
+                "-c:v",
+                "ffv1",
+                "-level",
+                "3",
+                "-pix_fmt",
+                "bgr0",
+                str(video),
+            ]
+
+            def encode(background_srgb8: tuple[int, int, int]) -> bytes:
+                result = subprocess.run(
+                    command,
+                    input=_raw_video_frames(background_srgb8),
+                    capture_output=True,
+                    timeout=10,
+                    check=False,
+                )
+                if result.returncode != 0:
+                    raise RuntimeError(result.stderr.decode(errors="replace"))
+                payload = video.read_bytes()
+                video.unlink()
+                return payload
+
+            cls.video_payload = encode(REQUESTED_SRGB8)
+            cls.wrong_background_video_payload = encode((0, 0, 0))
+            video.write_bytes(cls.video_payload)
             probe = subprocess.run(
                 [
                     str(FFPROBE),
@@ -198,7 +231,6 @@ class ExternalRecordingFixture:
             )
             if probe.returncode != 0:
                 raise RuntimeError(probe.stderr)
-            cls.video_payload = video.read_bytes()
             cls.probe_document = json.loads(probe.stdout)
 
 
@@ -221,17 +253,24 @@ class CaptureFixture:
             "workingTreeDirty": False,
             "capturedAtUtc": "2026-08-15T00:00:00.000Z",
             "backgroundFixture": {
-                "kind": "solid-srgb8-click-through",
-                "srgb8": [30, 82, 146],
+                "kind": "solid-disabled-window",
+                "requestedSrgb8": list(REQUESTED_SRGB8),
+                "presentedSrgb8": list(REQUESTED_SRGB8),
                 "left": 0,
                 "top": 0,
                 "width": WIDTH,
                 "height": HEIGHT,
                 "topmost": True,
                 "noActivate": True,
-                "clickThrough": True,
+                "inputPolicy": "disabled-window",
+                "windowEnabled": False,
                 "handle": "0x1234",
+                "startupSampleCount": 5,
+                "startupSamplesUniform": True,
                 "stopTimeoutMs": 5000,
+                "stopped": True,
+                "stoppedAtUtc": "2026-08-15T00:00:40.000Z",
+                "stopFailure": None,
             },
             "host": {
                 "sourcePath": "D:/fixture/ba-click-fx-desktop.exe",
@@ -474,6 +513,19 @@ class ExternalRecordingSpikeContractTests(ExternalRecordingFixture, unittest.Tes
             self.assertEqual(FRAME_RATE, case.video_metrics.baseline_frame)
             self.assertEqual(1.0, case.video_metrics.baseline_seconds)
             self.assertGreater(case.video_metrics.peak_mean_absolute_luma_delta, 0.0)
+            if case.source_kind == "desktop":
+                self.assertEqual(
+                    1.0,
+                    case.video_metrics.background_matching_pixel_fraction,
+                )
+                self.assertEqual(
+                    0,
+                    case.video_metrics.background_maximum_channel_delta,
+                )
+            else:
+                self.assertIsNone(
+                    case.video_metrics.background_matching_pixel_fraction
+                )
         aware = [
             case for case in result.cases if case.background_mode == "background-aware"
         ]
@@ -496,6 +548,31 @@ class ExternalRecordingSpikeContractTests(ExternalRecordingFixture, unittest.Tes
         self.fixture.root_document["recorder"]["ffmpegSha256"] = "0" * 64
         self.fixture.write_root()
         with self.assertRaisesRegex(VERIFY.ValidationError, "ffmpeg executable hash"):
+            self.validate()
+
+    def test_case_recorder_path_must_match_root_tool(self):
+        case_id = "desktop-background-aware"
+        self.fixture.cases[case_id]["commands"]["ffmpeg"]["argv"][0] = str(
+            FFPROBE
+        )
+        self.fixture.write_case(case_id)
+        self.fixture.write_root()
+        with self.assertRaisesRegex(
+            VERIFY.ValidationError,
+            "must execute capture.recorder.ffmpegPath",
+        ):
+            self.validate()
+
+    def test_desktop_video_must_contain_controlled_background(self):
+        self.fixture.rewrite_artifact(
+            "desktop-background-aware",
+            VERIFY.VIDEO_NAME,
+            self.wrong_background_video_payload,
+        )
+        with self.assertRaisesRegex(
+            VERIFY.ValidationError,
+            "controlled background baseline mismatch",
+        ):
             self.validate()
 
     def test_stored_ffprobe_metadata_is_rechecked(self):
@@ -571,10 +648,19 @@ class ExternalRecordingSpikeContractTests(ExternalRecordingFixture, unittest.Tes
         with self.assertRaisesRegex(VERIFY.ValidationError, "duplicate JSON field"):
             self.validate()
 
-    def test_controlled_background_must_remain_click_through(self):
-        self.fixture.root_document["backgroundFixture"]["clickThrough"] = False
+    def test_controlled_background_window_must_be_disabled(self):
+        self.fixture.root_document["backgroundFixture"]["windowEnabled"] = True
         self.fixture.write_root()
-        with self.assertRaisesRegex(VERIFY.ValidationError, "clickThrough must be true"):
+        with self.assertRaisesRegex(VERIFY.ValidationError, "windowEnabled must be false"):
+            self.validate()
+
+    def test_controlled_background_must_stop(self):
+        fixture = self.fixture.root_document["backgroundFixture"]
+        fixture["stopped"] = False
+        fixture["stoppedAtUtc"] = None
+        fixture["stopFailure"] = "timeout"
+        self.fixture.write_root()
+        with self.assertRaisesRegex(VERIFY.ValidationError, "stopped must be true"):
             self.validate()
 
     def test_cli_writes_scoped_atomic_report(self):
