@@ -4047,9 +4047,10 @@ int runApplication(
 
         const bool enteringPause = controlState.paused
             && !simulationTimeline.paused();
-        const bool shouldRender = !controlState.paused
-            || enteringPause
-            || renderInvalidated;
+        const bool shouldRender = !displayPowerUnavailable
+            && (!controlState.paused
+                || enteringPause
+                || renderInvalidated);
         std::optional<HRESULT> framePacingDeviceLoss;
         bafx::desktop::DisplaySession* secondaryRecoveredDuringPacing = nullptr;
         bool renderCoordinatorThisIteration = false;
@@ -4421,13 +4422,16 @@ int runApplication(
             // mistake a previous iteration's slot for current Present access.
             readyDisplaySessions.clear();
         }
-        renderInvalidationPending = maintainSecondaryBackgroundCaptures(
-            displaySessions,
-            displaySession,
-            readyDisplaySessions,
-            wallTime,
-            logPath)
-            || renderInvalidationPending;
+        if (!displayPowerUnavailable)
+        {
+            renderInvalidationPending = maintainSecondaryBackgroundCaptures(
+                displaySessions,
+                displaySession,
+                readyDisplaySessions,
+                wallTime,
+                logPath)
+                || renderInvalidationPending;
+        }
         if (options.demoClick
             && !demoStartedAt.has_value()
             && wallTime - applicationStartedAt
@@ -4997,7 +5001,7 @@ int runApplication(
                 }
             }
         }
-        else
+        else if (!displayPowerUnavailable)
         {
             // Product pause or another display's earlier frame slot can skip
             // this output. Drain only the sensor-owned sample so the next
@@ -5081,7 +5085,8 @@ int runApplication(
         }
         else if (const std::optional<bafx::windows::WindowSize> captureSize =
                      renderer.pendingBackgroundFramePoolSize();
-                 !backgroundExecution.transactionActive
+                 !displayPowerUnavailable
+                     && !backgroundExecution.transactionActive
                      && backgroundCaptureEnabled
                      && captureSize.has_value())
         {
@@ -5229,11 +5234,12 @@ int runApplication(
             performanceWindowStartedAt = clock.now();
         }
 
-        if (controlState.paused && !renderInvalidationPending)
+        if ((controlState.paused || displayPowerUnavailable)
+            && !renderInvalidationPending)
         {
-            // Pause freezes authored simulation state, not the desktop beneath
-            // it. A visible retained effect must follow WGC frame events so its
-            // source-over payload never keeps an obsolete light background.
+            // Pause keeps retained backgrounds current. A powered-off display
+            // instead needs the same bounded control/device wait so suppressing
+            // Present cannot turn the owner loop into a busy poll.
             pausedWaitables.clear();
             const auto& ownedSessions = displaySessions.sessions();
             for (std::size_t index = 0U; index < ownedSessions.size(); ++index)
