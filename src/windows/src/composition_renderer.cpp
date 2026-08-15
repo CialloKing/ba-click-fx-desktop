@@ -782,6 +782,7 @@ OutputRenegotiationResult CompositionRenderer::renegotiateOutputOnce(
     fxRenderer_ = std::move(replacementFxRenderer);
     deviceInfo_.output = created.output;
     outputPreference_ = preference;
+    deviceInfo_.outputPreference = outputPreference_;
     lastCenterPixel_.reset();
     backgroundPathLatch_.reset();
     previousVisualBounds_.reset();
@@ -1876,6 +1877,7 @@ void CompositionRenderer::createSwapChain(const WindowSize size)
     swapChain_ = std::move(created.swapChain);
     frameLatencyHandle_ = std::move(created.frameLatencyHandle);
     deviceInfo_.output = created.output;
+    deviceInfo_.outputPreference = outputPreference_;
 }
 
 void CompositionRenderer::createComposition(const HWND window)

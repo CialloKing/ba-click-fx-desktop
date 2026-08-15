@@ -446,6 +446,19 @@ void appendDiagnosticRecordUnlocked(
     return "unknown";
 }
 
+[[nodiscard]] std::string_view outputPreferenceName(
+    const CompositionOutputPreference preference) noexcept
+{
+    switch (preference)
+    {
+    case CompositionOutputPreference::ConservativeSdr:
+        return "conservative-sdr";
+    case CompositionOutputPreference::PreferLinearScRgb:
+        return "prefer-linear-scrgb";
+    }
+    return "unknown";
+}
+
 [[nodiscard]] std::string_view outputFallbackName(
     const CompositionOutputFallback fallback) noexcept
 {
@@ -849,6 +862,8 @@ std::string SupportReport::serialize() const
                << '\n'
                << "Graphics.OutputTransfer="
                << outputTransferName(deviceInfo_.output.transfer) << '\n'
+               << "Graphics.OutputPreference="
+               << outputPreferenceName(deviceInfo_.outputPreference) << '\n'
                << "Graphics.OutputExtendedPremultiplied="
                << (deviceInfo_.output.extendedPremultiplied
                        ? "true"

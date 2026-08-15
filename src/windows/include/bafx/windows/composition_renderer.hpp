@@ -153,6 +153,8 @@ struct GraphicsDeviceInfo
     // Keep the active swap-chain contract in the existing resource-domain
     // snapshot so every device rebuild refreshes support diagnostics atomically.
     CompositionOutputState output{};
+    CompositionOutputPreference outputPreference{
+        CompositionOutputPreference::ConservativeSdr};
 };
 
 struct RoiFrameDiagnostics
