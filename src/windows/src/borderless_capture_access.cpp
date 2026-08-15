@@ -5,8 +5,9 @@
 #include "bafx/windows/unique_handle.hpp"
 
 #include <appmodel.h>
+#include <roapi.h>
+#include <wrl/client.h>
 #include <winrt/Windows.Foundation.h>
-#include <winrt/Windows.Graphics.Capture.h>
 #include <winrt/Windows.Security.Authorization.AppCapabilityAccess.h>
 #include <winrt/base.h>
 
@@ -25,16 +26,53 @@ namespace bafx::windows
 namespace
 {
 
-using winrt::Windows::Graphics::Capture::GraphicsCaptureAccess;
-using winrt::Windows::Graphics::Capture::GraphicsCaptureAccessKind;
+using Microsoft::WRL::ComPtr;
 using winrt::Windows::Foundation::AsyncStatus;
 using winrt::Windows::Security::Authorization::AppCapabilityAccess::
     AppCapability;
 using winrt::Windows::Security::Authorization::AppCapabilityAccess::
     AppCapabilityAccessStatus;
+using BorderlessAccessAsyncOperation =
+    winrt::Windows::Foundation::IAsyncOperation<AppCapabilityAccessStatus>;
 
 constexpr wchar_t borderlessCapabilityName[] =
     L"graphicsCaptureWithoutBorder";
+constexpr wchar_t graphicsCaptureAccessClassName[] =
+    L"Windows.Graphics.Capture.GraphicsCaptureAccess";
+constexpr std::int32_t borderlessGraphicsCaptureAccessKind = 0;
+
+// GraphicsCaptureAccess is a Windows 11 contract. Keep the one-method ABI
+// local so an older SDK still compiles the complete permission path.
+MIDL_INTERFACE("743ED370-06EC-5040-A58A-901F0F757095")
+GraphicsCaptureAccessStaticsAbi : public IInspectable
+{
+public:
+    virtual HRESULT STDMETHODCALLTYPE RequestAccessAsync(
+        std::int32_t request,
+        IInspectable** operation) = 0;
+};
+
+[[nodiscard]] BorderlessAccessAsyncOperation
+requestBorderlessCaptureAccessAsync()
+{
+    const winrt::hstring className{graphicsCaptureAccessClassName};
+    ComPtr<GraphicsCaptureAccessStaticsAbi> factory;
+    winrt::check_hresult(RoGetActivationFactory(
+        winrt::get_abi(className),
+        IID_PPV_ARGS(&factory)));
+
+    ComPtr<IInspectable> operation;
+    winrt::check_hresult(factory->RequestAccessAsync(
+        borderlessGraphicsCaptureAccessKind,
+        &operation));
+    if (operation == nullptr)
+    {
+        winrt::throw_hresult(E_UNEXPECTED);
+    }
+    return BorderlessAccessAsyncOperation{
+        operation.Detach(),
+        winrt::take_ownership_from_abi};
+}
 
 class BorderlessAccessNotification final
 {
@@ -212,8 +250,7 @@ class WinrtBorderlessCaptureAccessOperation final
 {
 public:
     explicit WinrtBorderlessCaptureAccessOperation(
-        winrt::Windows::Foundation::IAsyncOperation<AppCapabilityAccessStatus>
-            operation) noexcept
+        BorderlessAccessAsyncOperation operation) noexcept
         : operation_(std::move(operation))
     {
     }
@@ -291,8 +328,7 @@ public:
     }
 
 private:
-    winrt::Windows::Foundation::IAsyncOperation<AppCapabilityAccessStatus>
-        operation_;
+    BorderlessAccessAsyncOperation operation_;
     mutable HRESULT observationError_{S_OK};
 };
 
@@ -616,8 +652,7 @@ void BorderlessCaptureAccessRequest::begin(
     try
     {
         operation_ = std::make_unique<WinrtBorderlessCaptureAccessOperation>(
-            GraphicsCaptureAccess::RequestAccessAsync(
-                GraphicsCaptureAccessKind::Borderless));
+            requestBorderlessCaptureAccessAsync());
     }
     catch (const winrt::hresult_error& error)
     {
