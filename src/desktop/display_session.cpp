@@ -34,6 +34,7 @@ struct DisplaySessionBackgroundCaptureState final
     bool rendererRecoveryPending{false};
     bool rendererRecoveryAdapterChanged{false};
     bool rendererRecoveryBackgroundWasActive{false};
+    bool powerRecoveryEligible{false};
     bool powerRecoveryPending{false};
 };
 
@@ -412,6 +413,7 @@ void DisplaySession::updateSecondaryBackgroundCaptureRequest(
     state.controlGeneration = controlGeneration;
     if (!state.request.sensorRequired)
     {
+        state.powerRecoveryEligible = false;
         state.powerRecoveryPending = false;
     }
     state.sensorWasActiveBeforeTransaction =
@@ -904,7 +906,13 @@ bool DisplaySession::requestSecondaryPowerRecovery(
 
     DisplaySessionBackgroundCaptureState& state =
         *secondaryBackgroundCapture_;
-    if (!state.request.sensorRequired || state.powerRecoveryPending)
+    const bool eligible = state.powerRecoveryEligible;
+    // A restore edge consumes the preceding unavailable edge exactly once,
+    // even when policy or hardware now blocks the actual restart.
+    state.powerRecoveryEligible = false;
+    if (!eligible
+        || !state.request.sensorRequired
+        || state.powerRecoveryPending)
     {
         return false;
     }
@@ -914,6 +922,25 @@ bool DisplaySession::requestSecondaryPowerRecovery(
     state.controlGeneration = controlGeneration;
     state.powerRecoveryPending = true;
     return true;
+}
+
+bool DisplaySession::recordSecondaryPowerUnavailable() noexcept
+{
+    if (secondaryBackgroundCapture_ == nullptr)
+    {
+        return false;
+    }
+
+    DisplaySessionBackgroundCaptureState& state =
+        *secondaryBackgroundCapture_;
+    state.powerRecoveryPending = false;
+    // Only a Sensor that is running at this owner-thread boundary belongs to
+    // the power transition. A stable FX-only terminal state must stay terminal.
+    state.powerRecoveryEligible = state.request.sensorRequired
+        && state.transition.effectivePath()
+            == bafx::windows::EffectiveBackgroundCapturePath::BackgroundAware
+        && renderer_.backgroundCaptureActive();
+    return state.powerRecoveryEligible;
 }
 
 bool DisplaySession::secondaryBackgroundCaptureInitialized() const noexcept

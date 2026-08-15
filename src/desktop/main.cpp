@@ -2320,6 +2320,7 @@ int runApplication(
     std::uint64_t backgroundCompositeFrames = 0U;
     std::uint64_t backgroundRetryToken = appliedBackgroundRequest.retryToken;
     bool backgroundRetryPending = false;
+    bool coordinatorPowerRecoveryEligible = false;
     std::optional<PendingOutputRenegotiation>
         pendingCoordinatorOutputRenegotiation{};
     std::optional<bafx::desktop::DisplayTarget> pendingDisplayTarget{};
@@ -2329,6 +2330,7 @@ int runApplication(
     bool lastPresentedDrawableContent = false;
     bool deviceRecoveryConsumed = backgroundExecution.deviceRecovered;
     bool recoveryProbePending = options.recoveryProbe;
+    bool displayPowerUnavailable = false;
     bafx::fx::SimulationTime lastFrameReadyAt = applicationStartedAt;
     bafx::fx::SimulationTime lastFramePacingDeviceProbeAt = applicationStartedAt;
     bafx::fx::SimulationTime performanceWindowStartedAt = applicationStartedAt;
@@ -2899,7 +2901,8 @@ int runApplication(
 
         std::optional<bafx::desktop::DisplayTargetSnapshot>
             polledDisplayTopology{};
-        if (loopObservedAt >= nextDisplayTopologyPollAt)
+        if (!displayPowerUnavailable
+            && loopObservedAt >= nextDisplayTopologyPollAt)
         {
             // Do not replay missed ticks after a stall. One current snapshot
             // is enough to converge without turning recovery into a busy loop.
@@ -2927,6 +2930,20 @@ int runApplication(
                 bafx::windows::DisplayTopologyChangeSource::Power);
         const bool hostDisplayPowerRestored = hostTopologyChange.has_value()
             && hostTopologyChange->powerRestored;
+        const bool hostDisplayPowerUnavailable = hostTopologyChange.has_value()
+            && hostTopologyChange->powerUnavailable;
+        if (hostTopologyChange.has_value()
+            && hostTopologyChange->powerUnavailable)
+        {
+            displayPowerUnavailable = true;
+        }
+        if (hostDisplayPowerRestored)
+        {
+            // A coalesced unavailable -> restored pair represents the final
+            // observable state. Recovery below performs one authoritative
+            // topology and color refresh for every display.
+            displayPowerUnavailable = false;
+        }
         if (hostTopologyChange.has_value())
         {
             appendDisplayTopologyInvalidated(
@@ -2969,13 +2986,14 @@ int runApplication(
             bool refreshSecondaryColor = colorPending
                 || hostDisplayPowerChanged;
             std::uint64_t secondaryColorGeneration = 0U;
-            if (session.colorMonitor().notificationPending())
+            if (!displayPowerUnavailable
+                && session.colorMonitor().notificationPending())
             {
                 secondaryColorGeneration =
                     session.colorMonitor().consumeNotification();
                 refreshSecondaryColor = true;
             }
-            if (refreshSecondaryColor)
+            if (refreshSecondaryColor && !displayPowerUnavailable)
             {
                 const std::optional<
                     bafx::windows::DisplayColorCapabilities>
@@ -3097,9 +3115,10 @@ int runApplication(
                     fields);
             }
         }
-        const bool displayTopologyChanged = hostDisplayTopologyChanged
-            || surfaceDisplayTopologyChanged
-            || polledDisplayTopology.has_value();
+        const bool displayTopologyChanged = !displayPowerUnavailable
+            && (hostDisplayTopologyChanged
+                || surfaceDisplayTopologyChanged
+                || polledDisplayTopology.has_value());
         if (surfaceDisplayTopologyChanged && !hostDisplayTopologyChanged)
         {
             // Per-monitor DPI notifications may reach only the affected
@@ -3109,14 +3128,15 @@ int runApplication(
         }
         const bool hostDisplayColorChanged =
             hostWindow.takeDisplayColorChange();
-        bool displayColorRefreshPending = hostDisplayColorChanged
-            || coordinatorSurfaceColorChanged;
+        bool displayColorRefreshPending = !displayPowerUnavailable
+            && (hostDisplayColorChanged || coordinatorSurfaceColorChanged);
         std::uint64_t displayColorGeneration = 0U;
-        if (displayColorMonitor.notificationPending())
+        if (!displayPowerUnavailable
+            && displayColorMonitor.notificationPending())
         {
             displayColorGeneration =
                 displayColorMonitor.consumeNotification();
-            displayColorRefreshPending = true;
+            displayColorRefreshPending = !displayPowerUnavailable;
         }
         if (displayTopologyChanged)
         {
@@ -3299,12 +3319,30 @@ int runApplication(
                 true);
             renderInvalidated = true;
         }
+        if (hostDisplayPowerUnavailable)
+        {
+            coordinatorPowerRecoveryEligible = backgroundCaptureEnabled
+                && renderer.backgroundCaptureActive();
+            for (const auto& ownedSession : displaySessions.sessions())
+            {
+                bafx::desktop::DisplaySession& session = *ownedSession;
+                if (&session != &displaySession && !session.renderFaulted())
+                {
+                    static_cast<void>(
+                        session.recordSecondaryPowerUnavailable());
+                }
+            }
+        }
         if (hostDisplayPowerRestored)
         {
             const bool captureRequested = controlState.config.background.mode
                 == bafx::config::RenderMode::BackgroundAware;
+            const bool coordinatorEligible =
+                coordinatorPowerRecoveryEligible;
+            coordinatorPowerRecoveryEligible = false;
             std::string_view coordinatorRecovery = "not-requested";
-            if (captureRequested
+            if (coordinatorEligible
+                && captureRequested
                 && renderer.deviceInfo().driverType
                     == bafx::windows::GraphicsDriverType::Hardware
                 && renderer.backgroundCaptureRestartAllowed())
@@ -3326,7 +3364,7 @@ int runApplication(
                     coordinatorRecovery = "already-pending";
                 }
             }
-            else if (captureRequested)
+            else if (coordinatorEligible && captureRequested)
             {
                 coordinatorRecovery = "blocked";
             }
@@ -3458,7 +3496,8 @@ int runApplication(
                 renderInvalidated = true;
             }
         }
-        if (pendingCoordinatorOutputRenegotiation.has_value()
+        if (!displayPowerUnavailable
+            && pendingCoordinatorOutputRenegotiation.has_value()
             && !backgroundExecution.transactionActive
             && !backgroundTransition.transitioning()
             && !configChanged
