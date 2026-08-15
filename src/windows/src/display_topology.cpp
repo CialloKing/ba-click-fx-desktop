@@ -267,7 +267,8 @@ DisplayTopologySnapshot queryActiveDisplayTopology() noexcept
             target.targetId = path.targetInfo.id;
             target.refreshRate = DisplayRefreshRate{
                 path.targetInfo.refreshRate.Numerator,
-                path.targetInfo.refreshRate.Denominator};
+                path.targetInfo.refreshRate.Denominator,
+                DisplayRefreshRateSource::DisplayConfigPath};
             target.rotation = path.targetInfo.rotation;
             target.scaling = path.targetInfo.scaling;
             target.outputTechnology = path.targetInfo.outputTechnology;

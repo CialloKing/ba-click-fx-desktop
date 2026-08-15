@@ -937,7 +937,8 @@ int runApplication(
     std::uint32_t appliedDisplayDpi = window.effectiveDpi();
     report.setPrimaryDpi(appliedDisplayDpi);
     if (const auto refreshRate =
-            bafx::windows::queryPrimaryCompositionRefreshRate();
+            bafx::windows::queryDisplayRefreshRate(
+                appliedDisplayTarget.monitor);
         refreshRate.has_value())
     {
         report.setPrimaryRefreshRate(*refreshRate);
@@ -1226,7 +1227,8 @@ int runApplication(
             appliedDisplayDpi = appliedDpi;
             report.setPrimaryDpi(appliedDpi);
             if (const auto refreshRate =
-                    bafx::windows::queryPrimaryCompositionRefreshRate();
+                    bafx::windows::queryDisplayRefreshRate(
+                        appliedDisplayTarget.monitor);
                 refreshRate.has_value())
             {
                 report.setPrimaryRefreshRate(*refreshRate);

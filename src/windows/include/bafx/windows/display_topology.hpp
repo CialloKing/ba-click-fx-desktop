@@ -11,10 +11,18 @@
 namespace bafx::windows
 {
 
+enum class DisplayRefreshRateSource : std::uint8_t
+{
+    DwmCompositionTiming,
+    DisplayConfigPath
+};
+
 struct DisplayRefreshRate final
 {
     std::uint32_t numerator{0U};
     std::uint32_t denominator{0U};
+    DisplayRefreshRateSource source{
+        DisplayRefreshRateSource::DwmCompositionTiming};
 };
 
 struct DisplayPhysicalTarget final

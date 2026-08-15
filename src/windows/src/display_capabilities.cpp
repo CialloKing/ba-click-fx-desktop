@@ -297,7 +297,8 @@ std::optional<DisplayRefreshRate> queryPrimaryCompositionRefreshRate() noexcept
     }
     return DisplayRefreshRate{
         timing.rateRefresh.uiNumerator,
-        timing.rateRefresh.uiDenominator};
+        timing.rateRefresh.uiDenominator,
+        DisplayRefreshRateSource::DwmCompositionTiming};
 }
 
 }

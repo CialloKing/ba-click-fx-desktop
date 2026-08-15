@@ -100,10 +100,10 @@ private:
 };
 
 [[nodiscard]] std::optional<bafx::core::MonotonicTime>
-primaryRefreshPeriod() noexcept
+displayRefreshPeriod(const HMONITOR monitor) noexcept
 {
     const std::optional<DisplayRefreshRate> refreshRate =
-        queryPrimaryCompositionRefreshRate();
+        queryDisplayRefreshRate(monitor);
     if (!refreshRate.has_value())
     {
         return std::nullopt;
@@ -1148,12 +1148,7 @@ bool CompositionRenderer::tryCreateBackgroundSensor() noexcept
     }
 
     const std::optional<bafx::core::MonotonicTime> refreshPeriod =
-        primaryRefreshPeriod();
-    if (!refreshPeriod.has_value())
-    {
-        setBackgroundCaptureFailure("display refresh period could not be determined");
-        return false;
-    }
+        displayRefreshPeriod(backgroundMonitor_);
 
     try
     {
@@ -1175,9 +1170,12 @@ bool CompositionRenderer::tryCreateBackgroundSensor() noexcept
         // Capture and presentation have independent cadence. On high-refresh
         // displays WGC can still arrive near 60 Hz, so using a 170/240 Hz
         // present period directly would make normal jitter toggle transport.
-        backgroundRefreshPeriod_ = std::max(
-            *refreshPeriod,
-            minimumBackgroundCadencePeriod);
+        // Unknown and mixed clone cadence uses a conservative 60 Hz freshness
+        // budget. A diagnostic uncertainty must not disable an otherwise valid
+        // capture session on a secondary display.
+        backgroundRefreshPeriod_ = refreshPeriod.has_value()
+            ? std::max(*refreshPeriod, minimumBackgroundCadencePeriod)
+            : minimumBackgroundCadencePeriod;
         return true;
     }
     catch (...)

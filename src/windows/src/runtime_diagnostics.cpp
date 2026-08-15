@@ -456,6 +456,19 @@ void appendDiagnosticRecordUnlocked(
     return "unknown";
 }
 
+[[nodiscard]] std::string_view refreshRateSourceName(
+    const DisplayRefreshRateSource source) noexcept
+{
+    switch (source)
+    {
+    case DisplayRefreshRateSource::DwmCompositionTiming:
+        return "dwm-composition-timing";
+    case DisplayRefreshRateSource::DisplayConfigPath:
+        return "display-config-path";
+    }
+    return "unknown";
+}
+
 [[nodiscard]] std::string hex32(const std::uint32_t value)
 {
     std::ostringstream stream;
@@ -641,7 +654,8 @@ std::string SupportReport::serialize() const
         const double hertz = static_cast<double>(refresh.numerator)
             / static_cast<double>(refresh.denominator);
         const double periodMicroseconds = 1'000'000.0 / hertz;
-        stream << "Display.RefreshRateSource=dwm-composition-timing\n"
+        stream << "Display.RefreshRateSource="
+               << refreshRateSourceName(refresh.source) << '\n'
                << "Display.RefreshRateNumerator=" << refresh.numerator << '\n'
                << "Display.RefreshRateDenominator=" << refresh.denominator << '\n'
                << std::fixed << std::setprecision(3)
