@@ -44,6 +44,11 @@
   CPU/API 时间不代表 GPU 执行，GPU 时间戳也不包含 Present、DWM 合成、扫描输出或物理上屏；异步完成的
   样本还可能属于较早的报告窗口，日志中会保留对应 semantic 字段。
   排障时请同时提供 `BAFX.config.json`、当前 `.log` 和仍存在的三个轮转备份。
+- 每个 `BackgroundCapture.Transaction.End` 后会追加累计的
+  `WGC.ResourceLedger.*` 记录，包含 Frame/FramePool/Session、两类事件注册的
+  created/closed/live 计数、recreate 次数和 `Failures`/`AllReleased`；它覆盖会话停止、
+  ContentSize 重建、item.Closed 和失败回退，即使 sensor 对象已经销毁也保留本次进程的账本。
+  账本格式化失败只写固定的 `Reason=formatter-failed` 降级事件，不会改变渲染事务结果。
 - WGC 只由 `background-aware` 模式使用。portable EXE 没有 package identity，也不会自行声明
   `graphicsCaptureWithoutBorder` capability。新配置默认允许 Windows 显示捕获边框；可见边框状态记录为
   `system-border=visible-allowed`。用户可在 Control Center 中取消勾选“允许黄色捕获边框”；关闭后会在
