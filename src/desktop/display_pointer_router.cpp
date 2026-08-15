@@ -98,9 +98,16 @@ DisplayPointerRouteResult DisplayPointerRouter::consumeFrame(
         : frameTime;
 
     DisplaySession* pressedSession = resolveSession(sessions, pressedTarget_);
-    if (pressedSession == nullptr)
+    const bool pressedStrokeLost = pressedTarget_.has_value()
+        && (pressedSession == nullptr
+            || !pressedSession->simulation().pointerHeld());
+    if (pressedStrokeLost)
     {
+        // A hot-plug can replace a session with another object for the same
+        // display source. Source identity alone does not prove that the new
+        // SimulationRuntime owns the physical press.
         pressedTarget_.reset();
+        pressedSession = nullptr;
     }
 
     if (down
@@ -160,9 +167,12 @@ DisplayPointerRouteResult DisplayPointerRouter::consumeFrame(
                     finalInputTime);
             }
         }
-        else if (pressedSession != nullptr)
+        else if (pressedSession != nullptr || pressedStrokeLost)
         {
-            pressedSession->simulation().pointerUp(frameTime);
+            if (pressedSession != nullptr)
+            {
+                pressedSession->simulation().pointerUp(frameTime);
+            }
             pressedTarget_.reset();
             pressedSession = nullptr;
             if (finalSession != nullptr)
