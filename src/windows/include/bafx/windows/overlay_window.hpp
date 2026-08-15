@@ -230,6 +230,9 @@ public:
     [[nodiscard]] WindowResizeDiagnostics takeWindowResizeDiagnostics() noexcept;
     [[nodiscard]] std::vector<PointerEvent> takePointerEvents() noexcept;
     [[nodiscard]] PointerQueueDiagnostics takePointerQueueDiagnostics() noexcept;
+    // Raw Input belongs to the Host shell, but a secondary surface can be the
+    // only window notified about a per-monitor DPI or geometry transition.
+    void invalidatePointerGeometry() noexcept;
 
     void setBounds(RECT bounds);
     void show();
@@ -257,7 +260,6 @@ private:
         bool messageTimeValid = false) noexcept;
     void compactPendingPointerEvents() noexcept;
     void cancelPointer() noexcept;
-    void invalidatePointerGeometry() noexcept;
     void recordDisplayTopologyChange(
         DisplayTopologyChangeSource source,
         std::uint32_t latestDpiX = 0U,

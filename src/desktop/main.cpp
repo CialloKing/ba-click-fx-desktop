@@ -2935,6 +2935,13 @@ int runApplication(
         }
         const bool displayTopologyChanged = hostDisplayTopologyChanged
             || surfaceDisplayTopologyChanged;
+        if (surfaceDisplayTopologyChanged && !hostDisplayTopologyChanged)
+        {
+            // Per-monitor DPI notifications may reach only the affected
+            // render surface. Raw Input is process-global on the Host shell,
+            // so retire coordinates captured in the previous screen domain.
+            hostWindow.invalidatePointerGeometry();
+        }
         const bool hostDisplayColorChanged =
             hostWindow.takeDisplayColorChange();
         bool displayColorRefreshPending = hostDisplayColorChanged
