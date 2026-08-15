@@ -2,7 +2,9 @@
 
 #include <windows.h>
 
+#include <cstddef>
 #include <cstdint>
+#include <span>
 
 namespace bafx::desktop
 {
@@ -20,6 +22,20 @@ struct FramePacingWaitResult
 {
     FramePacingWake wake{FramePacingWake::Failed};
     DWORD error{ERROR_SUCCESS};
+    std::size_t token{0U};
+};
+
+enum class FramePacingWaitableKind : std::uint8_t
+{
+    FrameReady,
+    DeviceRemoved
+};
+
+struct FramePacingWaitable final
+{
+    HANDLE handle{nullptr};
+    FramePacingWaitableKind kind{FramePacingWaitableKind::FrameReady};
+    std::size_t token{0U};
 };
 
 enum class PausedWaitWake : std::uint8_t
@@ -42,6 +58,12 @@ struct PausedWaitResult
 [[nodiscard]] FramePacingWaitResult waitForFrameOpportunity(
     HANDLE frameLatencyWaitable,
     HANDLE deviceRemovedWaitable,
+    DWORD timeoutMilliseconds) noexcept;
+
+// Mixed-refresh sessions contribute independent latency and device events.
+// The caller owns token interpretation and renders only the granted session.
+[[nodiscard]] FramePacingWaitResult waitForAnyFrameOpportunity(
+    std::span<const FramePacingWaitable> waitables,
     DWORD timeoutMilliseconds) noexcept;
 
 // A paused Host does not submit frames, but device removal must still wake it
