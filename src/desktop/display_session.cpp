@@ -8,6 +8,13 @@
 
 namespace bafx::desktop
 {
+struct PendingSecondaryOutputRenegotiation final
+{
+    bafx::windows::CompositionOutputPreference preference{
+        bafx::windows::CompositionOutputPreference::ConservativeSdr};
+    std::string reason{};
+};
+
 struct DisplaySessionBackgroundCaptureState final
 {
     bafx::windows::BackgroundCaptureTransition transition{};
@@ -18,6 +25,8 @@ struct DisplaySessionBackgroundCaptureState final
     std::string pendingSensorFailure{};
     CaptureExclusionHealthPoller exclusionHealthPoller{};
     std::optional<DisplayTarget> pendingTarget{};
+    std::optional<PendingSecondaryOutputRenegotiation>
+        pendingOutputRenegotiation{};
     HWND pendingWakeWindow{nullptr};
     bool outcomePending{false};
     bool sensorWasActiveBeforeTransaction{false};
@@ -342,6 +351,24 @@ void DisplaySession::updateSecondaryBackgroundCaptureRequest(
         bafx::core::MonotonicTime::zero()));
 }
 
+void DisplaySession::requestSecondaryOutputRenegotiation(
+    const bafx::windows::CompositionOutputPreference preference,
+    const std::string_view reason)
+{
+    if (secondaryBackgroundCapture_ == nullptr)
+    {
+        throw std::logic_error(
+            "Secondary background capture is not initialized");
+    }
+
+    // Collapse repeated OS notifications to the newest contract. The service
+    // owner performs the mutation only after any earlier WGC transaction ends.
+    secondaryBackgroundCapture_->pendingOutputRenegotiation =
+        PendingSecondaryOutputRenegotiation{
+            preference,
+            std::string(reason)};
+}
+
 DisplaySessionBackgroundCaptureServiceResult
 DisplaySession::serviceSecondaryBackgroundCapture(
     const bafx::core::MonotonicTime now)
@@ -422,6 +449,115 @@ DisplaySession::serviceSecondaryBackgroundCapture(
             }
         }
 
+        if (state.pendingOutputRenegotiation.has_value())
+        {
+            const PendingSecondaryOutputRenegotiation pending =
+                *state.pendingOutputRenegotiation;
+            state.pendingOutputRenegotiation.reset();
+            result.outputRenegotiationReason = pending.reason;
+
+            const bool backgroundCaptureWasEffective =
+                state.transition.effectivePath()
+                == bafx::windows::EffectiveBackgroundCapturePath::
+                    BackgroundAware;
+            const bool sensorWasActive = renderer_.backgroundCaptureActive();
+            const bool restartRequired = state.request.sensorRequired
+                && backgroundCaptureWasEffective;
+            if (restartRequired
+                && state.request.retryToken
+                    == std::numeric_limits<std::uint64_t>::max())
+            {
+                throw std::runtime_error(
+                    "Secondary WGC retry token exhausted before output renegotiation");
+            }
+
+            // Output resources and WGC textures share one device domain. Stop
+            // first even when the current request is FX-only so stale callback
+            // diagnostics are consumed before the swap chain is replaced.
+            renderer_.disableBackgroundCapture();
+            const bafx::windows::WgcBackgroundStopDiagnostics stopDiagnostics =
+                appendBackgroundCaptureStopDiagnostics(
+                    state.logPath,
+                    renderer_,
+                    "secondary-output-renegotiation");
+            const bafx::windows::GraphicsDeviceInfo previousDeviceInfo =
+                renderer_.deviceInfo();
+            bool recoveredDuringAttempt = false;
+            if (!stopDiagnostics.overallSucceeded)
+            {
+                result.outputRenegotiationFailure =
+                    "WGC stop failed before secondary output renegotiation";
+                state.pendingSensorFailure =
+                    result.outputRenegotiationFailure;
+            }
+            else
+            {
+                const bool recoveryBudgetWasConsumed =
+                    renderer_.deviceRecoveryBudgetConsumed();
+                try
+                {
+                    result.outputRenegotiation =
+                        renderer_.renegotiateOutput(pending.preference);
+                    recoveredDuringAttempt =
+                        result.outputRenegotiation->deviceRecovered;
+                }
+                catch (const std::exception& error)
+                {
+                    recoveredDuringAttempt = !recoveryBudgetWasConsumed
+                        && renderer_.deviceRecoveryBudgetConsumed();
+                    if (recoveredDuringAttempt
+                        && !renderer_.deviceRecoveryFailure().empty())
+                    {
+                        throw std::runtime_error(
+                            "Secondary output device recovery failed: "
+                            + std::string(renderer_.deviceRecoveryFailure()));
+                    }
+                    result.outputRenegotiationFailure = error.what();
+                }
+                catch (...)
+                {
+                    recoveredDuringAttempt = !recoveryBudgetWasConsumed
+                        && renderer_.deviceRecoveryBudgetConsumed();
+                    if (recoveredDuringAttempt
+                        && !renderer_.deviceRecoveryFailure().empty())
+                    {
+                        throw std::runtime_error(
+                            "Secondary output device recovery failed: "
+                            + std::string(renderer_.deviceRecoveryFailure()));
+                    }
+                    result.outputRenegotiationFailure =
+                        "unknown secondary output renegotiation failure";
+                }
+            }
+
+            result.deviceRecovered = result.deviceRecovered
+                || recoveredDuringAttempt;
+            result.renderInvalidated = true;
+            const bool adapterChanged =
+                previousDeviceInfo.adapterLuid.LowPart
+                    != renderer_.deviceInfo().adapterLuid.LowPart
+                || previousDeviceInfo.adapterLuid.HighPart
+                    != renderer_.deviceInfo().adapterLuid.HighPart;
+            const bool restartAllowed = restartRequired
+                && stopDiagnostics.overallSucceeded
+                && (!recoveredDuringAttempt
+                    || canRetryBackgroundCaptureAfterDeviceRecovery(
+                        true,
+                        sensorWasActive,
+                        adapterChanged,
+                        renderer_.deviceInfo().driverType,
+                        renderer_.backgroundCaptureRestartAllowed()));
+            if (restartAllowed)
+            {
+                ++state.request.retryToken;
+                state.sensorWasActiveBeforeTransaction = false;
+                requireStartedRequest(
+                    state.transition.beginRequest(state.request));
+                state.outcomePending = true;
+                continue;
+            }
+        }
+
         const bool active = renderer_.backgroundCaptureActive();
         const bool expectedActive = state.transition.effectivePath()
             == bafx::windows::EffectiveBackgroundCapturePath::BackgroundAware;
@@ -436,7 +572,10 @@ DisplaySession::serviceSecondaryBackgroundCapture(
             }
             state.sensorWasActiveBeforeTransaction = false;
             state.outcomePending = true;
-            state.pendingSensorFailure = stoppedReason;
+            if (state.pendingSensorFailure.empty())
+            {
+                state.pendingSensorFailure = stoppedReason;
+            }
             continue;
         }
 

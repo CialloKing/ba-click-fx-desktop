@@ -17,6 +17,7 @@
 #include <filesystem>
 #include <memory>
 #include <optional>
+#include <string>
 #include <string_view>
 
 namespace bafx::desktop
@@ -49,6 +50,10 @@ struct DisplaySessionBackgroundCaptureServiceResult final
     bool renderInvalidated{false};
     bool deviceRecovered{false};
     bool active{false};
+    std::optional<bafx::windows::OutputRenegotiationResult>
+        outputRenegotiation{};
+    std::string outputRenegotiationReason{};
+    std::string outputRenegotiationFailure{};
 };
 
 struct DisplaySessionBackgroundCaptureState;
@@ -104,6 +109,9 @@ public:
     void updateSecondaryBackgroundCaptureRequest(
         bafx::windows::BackgroundCaptureRequest request,
         std::uint64_t controlGeneration);
+    void requestSecondaryOutputRenegotiation(
+        bafx::windows::CompositionOutputPreference preference,
+        std::string_view reason);
     [[nodiscard]] DisplaySessionBackgroundCaptureServiceResult
         serviceSecondaryBackgroundCapture(bafx::core::MonotonicTime now);
     [[nodiscard]] bool secondaryBackgroundCaptureInitialized() const noexcept;
