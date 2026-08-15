@@ -164,6 +164,19 @@ if(Python3_Interpreter_FOUND)
             WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
             TIMEOUT 45
     )
+    add_test(
+        NAME external_recording_spike_contract
+        COMMAND
+            "${Python3_EXECUTABLE}"
+            -B
+            "${CMAKE_CURRENT_SOURCE_DIR}/verify_external_recording_spike_tests.py"
+    )
+    set_tests_properties(
+        external_recording_spike_contract
+        PROPERTIES
+            WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
+            TIMEOUT 30
+    )
     if(WIN32 AND BAFX_ENABLE_COMPOSITION_SPIKE_TESTS)
         add_test(
             NAME composition_spike_capture_verify
