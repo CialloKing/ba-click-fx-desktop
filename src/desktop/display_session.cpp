@@ -768,7 +768,10 @@ bool DisplaySession::retrySecondaryBorderlessAccess(
     if (!state.request.sensorRequired
         || state.request.allowSystemBorder
         || state.execution.transactionActive
-        || state.transition.transitioning())
+        || state.transition.transitioning()
+        || renderer_.deviceInfo().driverType
+            != bafx::windows::GraphicsDriverType::Hardware
+        || !renderer_.backgroundCaptureRestartAllowed())
     {
         return false;
     }

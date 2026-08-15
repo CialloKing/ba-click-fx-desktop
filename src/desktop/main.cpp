@@ -3421,7 +3421,12 @@ int runApplication(
                     != bafx::windows::BorderlessCaptureAccessStatus::Allowed)
             {
                 bool coordinatorRetryScheduled = false;
-                if (!backgroundExecution.transactionActive
+                const bool coordinatorRestartEligible =
+                    renderer.deviceInfo().driverType
+                        == bafx::windows::GraphicsDriverType::Hardware
+                    && renderer.backgroundCaptureRestartAllowed();
+                if (coordinatorRestartEligible
+                    && !backgroundExecution.transactionActive
                     && (backgroundTransition.effectivePath()
                             != bafx::windows::
                                 EffectiveBackgroundCapturePath::BackgroundAware
@@ -3452,7 +3457,11 @@ int runApplication(
                 const std::array fields{
                     bafx::windows::DiagnosticField{
                         "Coordinator",
-                        coordinatorRetryScheduled ? "scheduled" : "unchanged"},
+                        coordinatorRetryScheduled
+                            ? "scheduled"
+                            : (coordinatorRestartEligible
+                                ? "unchanged"
+                                : "blocked")},
                     bafx::windows::DiagnosticField{
                         "Secondary",
                         secondaryRetryScheduled ? "scheduled" : "unchanged"},
