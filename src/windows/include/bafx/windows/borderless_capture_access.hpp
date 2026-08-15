@@ -1,5 +1,7 @@
 #pragma once
 
+#include "bafx/windows/wgc_runtime_capabilities.hpp"
+
 #include <windows.h>
 
 #include <chrono>
@@ -49,6 +51,7 @@ struct BorderlessCaptureAccessResult
         BorderlessCaptureAccessAsyncStatus::NotStarted};
     std::uint32_t elapsedMilliseconds{0U};
     bool cancelRequested{false};
+    std::optional<BorderlessCaptureCapabilityResult> capability{};
 };
 
 class BorderlessCaptureAccessOperation
@@ -104,6 +107,7 @@ public:
 private:
     std::unique_ptr<BorderlessCaptureAccessOperation> operation_{};
     std::optional<BorderlessCaptureAccessResult> readyResult_{};
+    std::optional<BorderlessCaptureCapabilityResult> capability_{};
     Clock::time_point startedAt_{};
     std::chrono::milliseconds timeout_{};
     bool cancelRequested_{false};

@@ -64,6 +64,22 @@ using winrt::Windows::Security::Authorization::AppCapabilityAccess::
     return BorderlessCaptureAccessResult{failureStatus(error), error};
 }
 
+[[nodiscard]] BorderlessCaptureAccessResult capabilityFailureResult(
+    const BorderlessCaptureCapabilityResult& capability) noexcept
+{
+    const BorderlessCaptureAccessStatus status =
+        capability.status == BorderlessCaptureCapabilityStatus::ProbeFailed
+            ? failureStatus(capability.error)
+            : BorderlessCaptureAccessStatus::Unsupported;
+    BorderlessCaptureAccessResult result{
+        status,
+        capability.status == BorderlessCaptureCapabilityStatus::ProbeFailed
+            ? capability.error
+            : E_NOTIMPL};
+    result.capability = capability;
+    return result;
+}
+
 [[nodiscard]] BorderlessCaptureAccessResult identityResult(
     const PackageIdentityInfo& identity) noexcept
 {
@@ -282,6 +298,7 @@ void BorderlessCaptureAccessRequest::begin(
 {
     cancel(now);
     readyResult_.reset();
+    capability_.reset();
     startedAt_ = now;
     cancelRequested_ = false;
     if (!identity.present)
@@ -290,25 +307,33 @@ void BorderlessCaptureAccessRequest::begin(
         return;
     }
 
+    capability_ = queryBorderlessCaptureCapability();
+    if (!borderlessCaptureCapabilitySupported(*capability_))
+    {
+        readyResult_ = capabilityFailureResult(*capability_);
+        return;
+    }
+
     try
     {
-        begin(
-            std::make_unique<WinrtBorderlessCaptureAccessOperation>(
-                GraphicsCaptureAccess::RequestAccessAsync(
-                    GraphicsCaptureAccessKind::Borderless)),
-            now);
+        operation_ = std::make_unique<WinrtBorderlessCaptureAccessOperation>(
+            GraphicsCaptureAccess::RequestAccessAsync(
+                GraphicsCaptureAccessKind::Borderless));
     }
     catch (const winrt::hresult_error& error)
     {
         readyResult_ = failureResult(error.code());
+        readyResult_->capability = capability_;
     }
     catch (const std::bad_alloc&)
     {
         readyResult_ = failureResult(E_OUTOFMEMORY);
+        readyResult_->capability = capability_;
     }
     catch (...)
     {
         readyResult_ = failureResult(E_FAIL);
+        readyResult_->capability = capability_;
     }
 }
 
@@ -318,6 +343,7 @@ void BorderlessCaptureAccessRequest::begin(
 {
     cancel(now);
     readyResult_.reset();
+    capability_.reset();
     startedAt_ = now;
     cancelRequested_ = false;
     if (operation == nullptr)
@@ -336,6 +362,7 @@ BorderlessCaptureAccessPollResult BorderlessCaptureAccessRequest::poll(
         BorderlessCaptureAccessPollResult poll{};
         poll.result = readyResult_;
         readyResult_.reset();
+        capability_.reset();
         return poll;
     }
     if (operation_ == nullptr)
@@ -368,7 +395,9 @@ BorderlessCaptureAccessPollResult BorderlessCaptureAccessRequest::poll(
         asyncStatus,
         elapsed,
         cancelRequested_);
+    poll.result->capability = capability_;
     operation_.reset();
+    capability_.reset();
     return poll;
 }
 
@@ -400,6 +429,7 @@ void BorderlessCaptureAccessRequest::cancel(
             asyncStatus,
             elapsed,
             cancelRequested_};
+        readyResult_->capability = capability_;
         operation_.reset();
         return;
     }
@@ -408,6 +438,7 @@ void BorderlessCaptureAccessRequest::cancel(
         asyncStatus,
         elapsed,
         cancelRequested_);
+    readyResult_->capability = capability_;
     operation_.reset();
 }
 
@@ -487,6 +518,14 @@ std::string borderlessCaptureAccessDiagnostic(
            << ";ElapsedMs=" << result.elapsedMilliseconds
            << ";CancelRequested="
            << (result.cancelRequested ? "true" : "false");
+    if (result.capability.has_value())
+    {
+        stream << ";Capability="
+               << borderlessCaptureCapabilityStatusName(
+                      result.capability->status)
+               << ";CapabilityHRESULT="
+               << hexHresult(result.capability->error);
+    }
     return stream.str();
 }
 

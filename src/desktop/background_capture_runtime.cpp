@@ -612,11 +612,33 @@ void appendBorderlessCaptureAccessCheck(
         errorStream << "0x" << std::hex << std::uppercase << std::setw(8)
                     << std::setfill('0')
                     << static_cast<unsigned long>(result.error);
+        std::ostringstream capabilityErrorStream;
+        if (result.capability.has_value())
+        {
+            capabilityErrorStream
+                << "0x" << std::hex << std::uppercase << std::setw(8)
+                << std::setfill('0')
+                << static_cast<unsigned long>(result.capability->error);
+        }
+        else
+        {
+            capabilityErrorStream << "not-checked";
+        }
         const std::array values{
             std::to_string(controlGeneration),
             std::to_string(actionIndex),
             errorStream.str(),
-            std::to_string(result.elapsedMilliseconds)};
+            std::to_string(result.elapsedMilliseconds),
+            capabilityErrorStream.str(),
+            std::to_string(
+                bafx::windows::borderlessCaptureUniversalApiContractVersion)};
+        const auto presence = [&result](const bool present) noexcept
+            -> std::string_view
+        {
+            return result.capability.has_value()
+                ? (present ? "true" : "false")
+                : "not-checked";
+        };
         const std::array fields{
             bafx::windows::DiagnosticField{"Control.Generation", values[0]},
             bafx::windows::DiagnosticField{
@@ -645,7 +667,44 @@ void appendBorderlessCaptureAccessCheck(
                 "WGC.BorderlessAccess.Allowed",
                 bafx::windows::borderlessCaptureAccessAllowed(result)
                     ? "true"
-                    : "false"}};
+                    : "false"},
+            bafx::windows::DiagnosticField{
+                "WGC.BorderlessAccess.Capability.Status",
+                result.capability.has_value()
+                    ? bafx::windows::borderlessCaptureCapabilityStatusName(
+                          result.capability->status)
+                    : "not-checked"},
+            bafx::windows::DiagnosticField{
+                "WGC.BorderlessAccess.Capability.HRESULT",
+                values[4]},
+            bafx::windows::DiagnosticField{
+                "WGC.BorderlessAccess.Capability.ContractVersion",
+                values[5]},
+            bafx::windows::DiagnosticField{
+                "WGC.BorderlessAccess.Capability.ContractPresent",
+                presence(
+                    result.capability.has_value()
+                        && result.capability->universalApiContractV12)},
+            bafx::windows::DiagnosticField{
+                "WGC.BorderlessAccess.Capability.AccessTypePresent",
+                presence(
+                    result.capability.has_value()
+                        && result.capability->graphicsCaptureAccessType)},
+            bafx::windows::DiagnosticField{
+                "WGC.BorderlessAccess.Capability.RequestMethodPresent",
+                presence(
+                    result.capability.has_value()
+                        && result.capability->requestAccessAsyncMethod)},
+            bafx::windows::DiagnosticField{
+                "WGC.BorderlessAccess.Capability.BorderlessKindPresent",
+                presence(
+                    result.capability.has_value()
+                        && result.capability->borderlessAccessKind)},
+            bafx::windows::DiagnosticField{
+                "WGC.BorderlessAccess.Capability.BorderPropertyWriteable",
+                presence(
+                    result.capability.has_value()
+                        && result.capability->isBorderRequiredProperty)}};
         bafx::windows::appendDiagnosticEvent(
             logPath,
             "WGC.BorderlessAccess.Checked",
