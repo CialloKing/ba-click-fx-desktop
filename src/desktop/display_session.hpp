@@ -182,7 +182,7 @@ private:
         const bafx::windows::GraphicsDeviceInfo& previousDeviceInfo,
         bool backgroundWasActive) noexcept;
     void acceptPendingSecondaryTargetIfApplied(
-        DisplaySessionBackgroundCaptureState& state) noexcept;
+        DisplaySessionBackgroundCaptureState& state);
     [[nodiscard]] static std::optional<LUID> requestedAdapter(
         const DisplayTarget& target) noexcept;
 

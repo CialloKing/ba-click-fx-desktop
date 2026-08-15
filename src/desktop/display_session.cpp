@@ -259,17 +259,25 @@ DisplaySessionRetargetResult DisplaySession::retargetFxOnly(
 {
     try
     {
+        const std::optional<bafx::windows::DisplayColorCapabilities>
+            targetColorCapabilities =
+                bafx::windows::queryDisplayColorCapabilities(target.monitor);
+        const bafx::windows::CompositionOutputPreference targetPreference =
+            resolveDisplayOutputPreference(
+                requestedOutputPreference_,
+                targetColorCapabilities);
         const DisplayOutputRetargetResult output = retargetDisplayOutput(
             window_,
             renderer_,
             DisplayOutputRetargetIntent{
                 target.bounds,
                 requestedAdapter(target),
-                displayTargetSize(target)});
+                displayTargetSize(target),
+                targetPreference});
         lastPresentedDrawableContent_ = false;
         resetFramePacing();
         acceptAppliedTarget(std::move(target), wakeWindow);
-        refreshColorCapabilities();
+        colorCapabilities_ = targetColorCapabilities;
         clearRenderFault();
         return DisplaySessionRetargetResult{
             output.adapter,
@@ -1253,7 +1261,7 @@ DisplaySessionDeviceRecoveryResult DisplaySession::finishDeviceRecovery(
 }
 
 void DisplaySession::acceptPendingSecondaryTargetIfApplied(
-    DisplaySessionBackgroundCaptureState& state) noexcept
+    DisplaySessionBackgroundCaptureState& state)
 {
     if (!state.pendingTarget.has_value()
         || !displayTargetBoundsApplied(state.execution))
@@ -1269,6 +1277,26 @@ void DisplaySession::acceptPendingSecondaryTargetIfApplied(
     // The coordinator refreshes after comparing old/new modes. Secondary
     // sessions have no separate comparison owner, so refresh at commit time.
     refreshColorCapabilities();
+    const bafx::windows::CompositionOutputPreference targetPreference =
+        resolveDisplayOutputPreference(
+            requestedOutputPreference_,
+            colorCapabilities_);
+    if (renderer_.outputPreference() != targetPreference)
+    {
+        // WGC textures share the output device. Queue the existing serialized
+        // stop/recreate/restart path instead of replacing resources inline.
+        state.pendingOutputRenegotiation =
+            PendingSecondaryOutputRenegotiation{
+                targetPreference,
+                "display-target",
+                target_};
+    }
+    else
+    {
+        // The retarget already rebuilt or reaffirmed this transport on the new
+        // monitor. Any older color/configuration request is now redundant.
+        state.pendingOutputRenegotiation.reset();
+    }
     state.pendingTarget.reset();
     state.pendingWakeWindow = nullptr;
 }

@@ -84,6 +84,10 @@ DisplayOutputRetargetResult retargetDisplayOutput(
     const std::optional<LUID> previousAdapter =
         renderer.deviceInfo().requestedAdapterLuid;
     const bafx::windows::WindowSize previousOutputSize = renderer.outputSize();
+    const bafx::windows::CompositionOutputPreference previousPreference =
+        renderer.outputPreference();
+    const bafx::windows::CompositionOutputPreference targetPreference =
+        intent.outputPreference.value_or(previousPreference);
 
     DisplayOutputRetargetResult result{};
     try
@@ -109,15 +113,18 @@ DisplayOutputRetargetResult retargetDisplayOutput(
                 != bafx::windows::OutputAdapterRetargetStatus::Unchanged
             || result.output
                 == bafx::windows::OutputResizeStatus::DeviceRecovered;
-        if (intent.windowBounds.has_value()
-            && !outputResourceDomainRecreated)
+        const bool outputPreferenceChanged =
+            targetPreference != renderer.outputPreference();
+        if (outputPreferenceChanged
+            || (intent.windowBounds.has_value()
+                && !outputResourceDomainRecreated))
         {
-            // A same-adapter monitor move can also keep the old pixel size.
-            // Recreate the swap chain after moving the HWND so DXGI evaluates
-            // the new monitor's Advanced Color presentation contract.
+            // A same-adapter move can keep the old pixel size, while an HDR
+            // policy change can follow a resize-created SDR swap chain. In
+            // both cases DXGI must evaluate the target monitor after the move.
             result.deviceBeforeOutputRenegotiation = renderer.deviceInfo();
             result.outputRenegotiation = renderer.renegotiateOutput(
-                renderer.outputPreference());
+                targetPreference);
         }
         return result;
     }
@@ -166,14 +173,18 @@ DisplayOutputRetargetResult retargetDisplayOutput(
                 static_cast<void>(renderer.resizeOutput(previousOutputSize));
             }
 
-            if (previousBounds.has_value() || !outputSizeChanged)
+            const bool outputPreferenceChanged =
+                renderer.outputPreference() != previousPreference;
+            if (previousBounds.has_value()
+                || !outputSizeChanged
+                || outputPreferenceChanged)
             {
                 // A recovered device may have selected the moved monitor's
                 // color contract before a later operation failed. Re-evaluate
                 // after restoring the HWND; same-size resize failures also
                 // need a replacement swap chain to restore the released RTV.
                 static_cast<void>(renderer.renegotiateOutput(
-                    renderer.outputPreference()));
+                    previousPreference));
             }
         });
 

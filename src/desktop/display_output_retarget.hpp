@@ -26,6 +26,10 @@ struct DisplayOutputRetargetIntent final
     std::optional<RECT> windowBounds{};
     std::optional<LUID> requestedAdapterLuid{};
     bafx::windows::WindowSize outputSize{};
+    // Omitted callers preserve their current transport. FX-only retargets can
+    // provide the new monitor's resolved policy and commit it atomically.
+    std::optional<bafx::windows::CompositionOutputPreference>
+        outputPreference{};
 };
 
 struct DisplayOutputRetargetResult final
