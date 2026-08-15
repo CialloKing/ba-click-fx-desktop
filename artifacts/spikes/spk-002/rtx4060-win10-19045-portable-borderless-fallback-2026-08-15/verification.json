@@ -1,0 +1,136 @@
+{
+  "schema_version": 1,
+  "spike_id": "SPK-002-PORTABLE-BORDERLESS-FALLBACK",
+  "capture_revision": "85c1e9b",
+  "status": "accepted-subset",
+  "product_version": "0.1.0-alpha.12",
+  "os_version": "10.0.19045",
+  "gpu": "NVIDIA GeForce RTX 4060 Laptop GPU",
+  "driver_version": "32.0.16.1074",
+  "display": "3840x2160@144Hz SDR",
+  "executable_sha256": "0448B03E3370A0D170163B6AB20D3A0375816FCDF34C0087655975FEEE29F304",
+  "control_generations": [1, 2, 3],
+  "initial_background_aware": {
+    "state": "active",
+    "participation": {
+      "event_sequence": 20,
+      "control_generation": 1,
+      "frame_id": 1887,
+      "wgc_epoch": 1,
+      "wgc_generation": 8,
+      "snapshot_epoch": 1,
+      "snapshot_generation": 8
+    }
+  },
+  "portable_borderless_rejection": {
+    "state": "fallback-fx-only",
+    "capture_mode": "background-aware",
+    "permission": {
+      "event_sequence": 31,
+      "control_generation": 2,
+      "action_index": 3,
+      "status": "not-packaged",
+      "hresult": "0x80073D54",
+      "allowed": false
+    },
+    "action_sequence": [
+      "stop-sensor",
+      "set-affinity-excluded",
+      "apply-overlay-profile",
+      "start-sensor:false",
+      "stop-sensor",
+      "set-affinity-included"
+    ],
+    "capture_affinity_after_fallback": {
+      "requested": "0x00000000",
+      "observed": "0x00000000",
+      "confirmed": true
+    },
+    "snapshot_invalidation": {
+      "event_sequence": 44,
+      "control_generation": 2,
+      "frame_id": 0,
+      "wgc_epoch": 1,
+      "wgc_generation": 10,
+      "snapshot_epoch": 1,
+      "snapshot_generation": 10,
+      "reason": "capture-disabled"
+    },
+    "background_participation_events": 0,
+    "resource_ledger": {
+      "frames_acquired": 17,
+      "frames_closed": 17,
+      "frame_pools_created": 1,
+      "frame_pools_closed": 1,
+      "sessions_created": 1,
+      "sessions_closed": 1,
+      "frame_arrived_registrations": 1,
+      "frame_arrived_unregistrations": 1,
+      "item_closed_registrations": 1,
+      "item_closed_unregistrations": 1,
+      "failures": 0,
+      "all_released": true
+    },
+    "new_capture_resources_created_before_permission_decision": false
+  },
+  "visible_border_recovery": {
+    "state": "active",
+    "action_sequence": [
+      "stop-sensor",
+      "set-affinity-excluded",
+      "apply-overlay-profile",
+      "start-sensor:true"
+    ],
+    "participation": {
+      "event_sequence": 60,
+      "control_generation": 3,
+      "frame_id": 10003,
+      "wgc_epoch": 2,
+      "wgc_generation": 8,
+      "snapshot_epoch": 2,
+      "snapshot_generation": 8
+    },
+    "request_key_change_was_not_blocked_by_failed_start": true
+  },
+  "runtime": {
+    "duration_us": 2536718,
+    "rendered_frames": 10004,
+    "wgc_frames_acquired": 33,
+    "wgc_samples_accepted": 18,
+    "wgc_sample_age_max_us": 10866,
+    "background_participating_frames": 6,
+    "raw_input_messages": 4,
+    "button_edges": 4
+  },
+  "shutdown": {
+    "ipc_acknowledged": true,
+    "host_exit_code": 0,
+    "process_exited_event_count": 1,
+    "event_count": 67,
+    "event_sequence_gaps": 0,
+    "error_or_fatal_event_count": 0,
+    "resource_ledger": {
+      "frames_acquired": 33,
+      "frames_closed": 33,
+      "frame_pools_created": 2,
+      "frame_pools_closed": 2,
+      "sessions_created": 2,
+      "sessions_closed": 2,
+      "frame_arrived_registrations": 2,
+      "frame_arrived_unregistrations": 2,
+      "item_closed_registrations": 2,
+      "item_closed_unregistrations": 2,
+      "failures": 0,
+      "all_released": true
+    }
+  },
+  "artifact_hashes": {
+    "support_log_sha256": "5E5B3DC525B566E40A38AE802650CF5570776BBF9D12B257697266A74ED6A0B6",
+    "config_sha256": "8D00E9BB3FE112AF3965F9682403B347DBEA48054D284399ECD7A645C81741E7",
+    "ipc_transcript_sha256": "CC98C6A8CA3BAFFC775F1400A181BBE7303E8EBD7707F3913EB7FE1430C0DE03"
+  },
+  "packaged_permission_denied_status": "not-run",
+  "borderless_success_status": "not-run",
+  "full_spk_002_status": "not-run",
+  "related_adr_status": "proposed"
+}

@@ -1,0 +1,9 @@
+Startup {"generation":1,"paused":false,"shutdownRequested":false,"effectsEnabled":true,"backgroundCapture":"active","captureMode":"background-aware"}
+InitialClick Injected
+DisableSystemBorder OK {"background":{"allowSystemBorder":false,"cursorExcluded":true,"mode":"background-aware"},"effects":{"bloomIntensity":1,"bloomQuality":"high","clickEnabled":true,"enabled":true,"globalScale":1,"trailEnabled":true,"trailLength":1,"trailWidth":1},"input":{"leftClick":true,"middleClick":false,"rightClick":true,"samplingRateHz":0,"trailOnlyWhilePressed":true},"performance":{"framePacing":"match-display","idleOptimization":true},"schemaVersion":7,"system":{"closeToTray":true,"startMinimized":false,"startWithWindows":false}}
+Fallback {"generation":2,"paused":false,"shutdownRequested":false,"effectsEnabled":true,"backgroundCapture":"fallback-fx-only","captureMode":"background-aware"}
+AllowSystemBorder OK {"background":{"allowSystemBorder":true,"cursorExcluded":true,"mode":"background-aware"},"effects":{"bloomIntensity":1,"bloomQuality":"high","clickEnabled":true,"enabled":true,"globalScale":1,"trailEnabled":true,"trailLength":1,"trailWidth":1},"input":{"leftClick":true,"middleClick":false,"rightClick":true,"samplingRateHz":0,"trailOnlyWhilePressed":true},"performance":{"framePacing":"match-display","idleOptimization":true},"schemaVersion":7,"system":{"closeToTray":true,"startMinimized":false,"startWithWindows":false}}
+Restored {"generation":3,"paused":false,"shutdownRequested":false,"effectsEnabled":true,"backgroundCapture":"active","captureMode":"background-aware"}
+RecoveryClick Injected
+Shutdown OK {"shutdownRequested":true}
+ExitCode 0
