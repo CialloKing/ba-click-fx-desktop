@@ -204,6 +204,20 @@ const DisplayTarget* findDisplayTarget(
     return found == snapshot.displays.end() ? nullptr : &*found;
 }
 
+const DisplayTarget* findDisplayTargetBySource(
+    const DisplayTargetSnapshot& snapshot,
+    const DisplayTarget& reference) noexcept
+{
+    const auto found = std::find_if(
+        snapshot.displays.begin(),
+        snapshot.displays.end(),
+        [&reference](const DisplayTarget& display)
+        {
+            return sameDisplaySource(reference, display);
+        });
+    return found == snapshot.displays.end() ? nullptr : &*found;
+}
+
 const DisplayTarget* findDisplayTargetAtPoint(
     const DisplayTargetSnapshot& snapshot,
     const POINT point) noexcept

@@ -105,6 +105,9 @@ struct DisplayTargetIntent
 [[nodiscard]] const DisplayTarget* findDisplayTarget(
     const DisplayTargetSnapshot& snapshot,
     HMONITOR monitor) noexcept;
+[[nodiscard]] const DisplayTarget* findDisplayTargetBySource(
+    const DisplayTargetSnapshot& snapshot,
+    const DisplayTarget& reference) noexcept;
 [[nodiscard]] const DisplayTarget* findDisplayTargetAtPoint(
     const DisplayTargetSnapshot& snapshot,
     POINT point) noexcept;
