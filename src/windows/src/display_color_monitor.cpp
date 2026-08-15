@@ -1,6 +1,7 @@
 #include "bafx/windows/display_color_monitor.hpp"
 
-#include <windows.graphics.display.interop.h>
+#include <roapi.h>
+#include <wrl/client.h>
 #include <winrt/Windows.Foundation.h>
 #include <winrt/Windows.Graphics.Display.h>
 #include <winrt/base.h>
@@ -18,11 +19,58 @@ namespace bafx::windows
 namespace
 {
 
+using Microsoft::WRL::ComPtr;
+using winrt::Windows::Foundation::IInspectable;
+using winrt::Windows::Foundation::TypedEventHandler;
 using winrt::Windows::Graphics::Display::DisplayInformation;
 using winrt::Windows::Graphics::Display::IDisplayInformation;
 
 constexpr std::chrono::milliseconds initialRetryDelay{1000};
 constexpr std::chrono::milliseconds maximumRetryDelay{30000};
+constexpr wchar_t displayInformationClassName[] =
+    L"Windows.Graphics.Display.DisplayInformation";
+
+// Per-monitor DisplayInformation interop was published with Windows 11 22H2.
+// Keep its stable ABI local so older SDKs still emit the full runtime path.
+MIDL_INTERFACE("7449121C-382B-4705-8DA7-A795BA482013")
+DisplayInformationStaticsInteropAbi : public ::IInspectable
+{
+public:
+    virtual HRESULT STDMETHODCALLTYPE GetForWindow(
+        HWND window,
+        REFIID interfaceIdentifier,
+        void** displayInformation) = 0;
+    virtual HRESULT STDMETHODCALLTYPE GetForMonitor(
+        HMONITOR monitor,
+        REFIID interfaceIdentifier,
+        void** displayInformation) = 0;
+};
+
+// Advanced Color notifications live on IDisplayInformation5. Calling the ABI
+// directly keeps availability in the target OS instead of the build SDK.
+MIDL_INTERFACE("3A5442DC-2CDE-4A8D-80D1-21DC5ADCC1AA")
+DisplayInformation5Abi : public ::IInspectable
+{
+public:
+    virtual HRESULT STDMETHODCALLTYPE GetAdvancedColorInfo(
+        ::IInspectable** value) = 0;
+    virtual HRESULT STDMETHODCALLTYPE add_AdvancedColorInfoChanged(
+        void* handler,
+        winrt::event_token* token) = 0;
+    virtual HRESULT STDMETHODCALLTYPE remove_AdvancedColorInfoChanged(
+        winrt::event_token token) = 0;
+};
+
+[[nodiscard]] ComPtr<DisplayInformationStaticsInteropAbi>
+getDisplayInformationInteropFactory()
+{
+    const winrt::hstring className{displayInformationClassName};
+    ComPtr<DisplayInformationStaticsInteropAbi> factory;
+    winrt::check_hresult(RoGetActivationFactory(
+        reinterpret_cast<HSTRING>(winrt::get_abi(className)),
+        IID_PPV_ARGS(&factory)));
+    return factory;
+}
 
 class DisplayColorNotification final
 {
@@ -110,27 +158,37 @@ struct DisplayColorMonitor::Implementation
             notification = std::make_shared<DisplayColorNotification>(
                 wakeWindow);
 
-            const auto interop = winrt::get_activation_factory<
-                DisplayInformation,
-                IDisplayInformationStaticsInterop>();
+            const auto interop = getDisplayInformationInteropFactory();
             winrt::check_hresult(interop->GetForMonitor(
                 monitor,
                 winrt::guid_of<IDisplayInformation>(),
                 winrt::put_abi(displayInformation)));
 
+            auto* const displayInformationUnknown =
+                reinterpret_cast<IUnknown*>(
+                    winrt::get_abi(displayInformation));
+            winrt::check_hresult(displayInformationUnknown->QueryInterface(
+                IID_PPV_ARGS(&advancedColorInformation)));
+
             const std::shared_ptr<DisplayColorNotification> callback =
                 notification;
-            advancedColorChangedToken =
-                displayInformation.AdvancedColorInfoChanged(
-                    [callback](const auto&, const auto&) noexcept
-                    {
-                        callback->notify();
-                    });
+            const TypedEventHandler<DisplayInformation, IInspectable> handler{
+                [callback](const auto&, const auto&) noexcept
+                {
+                    callback->notify();
+                }};
+            winrt::check_hresult(
+                advancedColorInformation->add_AdvancedColorInfoChanged(
+                    winrt::get_abi(handler),
+                    &advancedColorChangedToken));
             advancedColorChangedRegistered = true;
 
             // Force the required DisplayInformation revision to be queried.
             // An older runtime then takes the explicit unsupported path.
-            static_cast<void>(displayInformation.GetAdvancedColorInfo());
+            ComPtr<::IInspectable> advancedColorInfo;
+            winrt::check_hresult(
+                advancedColorInformation->GetAdvancedColorInfo(
+                    &advancedColorInfo));
             observedGeneration = notification->generation();
             if (signalOwner)
             {
@@ -204,19 +262,19 @@ struct DisplayColorMonitor::Implementation
         }
         if (advancedColorChangedRegistered)
         {
-            try
-            {
-                displayInformation.AdvancedColorInfoChanged(
-                    advancedColorChangedToken);
-            }
-            catch (...)
+            if (advancedColorInformation != nullptr)
             {
                 // A hot-unplug can invalidate DisplayInformation before its
                 // owner removes the callback. Teardown is best-effort and the
                 // shared notification already rejects every late callback.
+                static_cast<void>(
+                    advancedColorInformation->remove_AdvancedColorInfoChanged(
+                        advancedColorChangedToken));
             }
             advancedColorChangedRegistered = false;
+            advancedColorChangedToken = {};
         }
+        advancedColorInformation.Reset();
         displayInformation = nullptr;
         notification.reset();
     }
@@ -230,6 +288,7 @@ struct DisplayColorMonitor::Implementation
     HMONITOR monitor{nullptr};
     HWND wakeWindow{nullptr};
     DisplayInformation displayInformation{nullptr};
+    ComPtr<DisplayInformation5Abi> advancedColorInformation{};
     winrt::event_token advancedColorChangedToken{};
     std::shared_ptr<DisplayColorNotification> notification{};
     Clock::time_point retryAt{};
