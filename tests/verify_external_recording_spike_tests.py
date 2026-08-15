@@ -344,7 +344,7 @@ class CaptureFixture:
         (directory / VERIFY.HOST_NAME).write_bytes(self.host_payload)
         (directory / VERIFY.CONFIG_NAME).write_text(
             json.dumps(
-                {"schemaVersion": 7, "background": {"mode": mode}}
+                {"schemaVersion": 8, "background": {"mode": mode}}
             ),
             encoding="utf-8",
         )

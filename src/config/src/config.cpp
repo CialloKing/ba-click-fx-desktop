@@ -670,10 +670,8 @@ private:
         output = RenderMode::BackgroundAware;
         return true;
     }
-    if (value == "recording-compatible" || value == "classic")
+    if (value == "recording-compatible")
     {
-        // Keep the alpha.9 spelling readable while converging new writes on
-        // the product name used by the Control Center.
         output = RenderMode::RecordingCompatible;
         return true;
     }
@@ -716,22 +714,22 @@ private:
     const std::string_view value,
     FramePacing& output) noexcept
 {
-    if (value == "match-display" || value == "matchDisplay")
+    if (value == "match-display")
     {
         output = FramePacing::MatchDisplay;
         return true;
     }
-    if (value == "60" || value == "fixed-60")
+    if (value == "60")
     {
         output = FramePacing::Fixed60;
         return true;
     }
-    if (value == "120" || value == "fixed-120")
+    if (value == "120")
     {
         output = FramePacing::Fixed120;
         return true;
     }
-    if (value == "144" || value == "fixed-144")
+    if (value == "144")
     {
         output = FramePacing::Fixed144;
         return true;

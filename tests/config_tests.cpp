@@ -106,12 +106,10 @@ BAFX_TEST(config_render_modes_use_canonical_wire_values)
     BAFX_CHECK(recordingCompatible.config.background.mode
         == bafx::config::RenderMode::RecordingCompatible);
 
-    const auto alpha9Alias = bafx::config::applyPatchJson(
+    const auto retiredAlias = bafx::config::applyPatchJson(
         base,
         R"json({"path":"background.mode","value":"classic"})json");
-    BAFX_CHECK(alpha9Alias.succeeded());
-    BAFX_CHECK(alpha9Alias.config.background.mode
-        == bafx::config::RenderMode::RecordingCompatible);
+    BAFX_CHECK(!retiredAlias.succeeded());
 
     const auto lightBackground = bafx::config::applyPatchJson(
         base,
@@ -226,99 +224,26 @@ BAFX_TEST(config_bloom_quality_preserves_the_unity_default_at_high)
         0.00001F);
 }
 
-BAFX_TEST(config_migration_maps_legacy_keys)
+BAFX_TEST(config_parser_rejects_non_current_schemas)
 {
-    const auto result = bafx::config::parseJson(R"json(
-        {
-            "schemaVersion": 1,
-            "enabled": false,
-            "scale": 1.75,
-            "trail": false,
-            "trailLength": 2.0,
-            "trailWidth": 1.5,
-            "bloom": 0.35,
-            "backgroundMode": "recording-compatible"
-        }
-    )json");
-    BAFX_CHECK(result.status == bafx::config::ConfigStatus::Migrated);
-    BAFX_CHECK(result.migrated());
-    BAFX_CHECK(result.config.schemaVersion == bafx::config::currentSchemaVersion);
-    BAFX_CHECK(!result.config.effects.enabled);
-    BAFX_CHECK(!result.config.effects.trailEnabled);
-    BAFX_CHECK(result.config.background.mode
-        == bafx::config::RenderMode::BackgroundAware);
-    BAFX_CHECK(result.config.background.allowSystemBorder);
-    BAFX_CHECK_NEAR(result.config.effects.globalScale, 1.75F, 0.00001F);
-    BAFX_CHECK_NEAR(result.config.effects.bloomIntensity, 0.35F, 0.00001F);
-}
-
-BAFX_TEST(config_schema_three_migrates_to_an_allowed_system_border)
-{
-    const auto result = bafx::config::parseJson(R"json(
-        {
-            "schemaVersion": 3,
-            "background": {
-                "mode": "background-aware",
-                "cursorExcluded": true
-            }
-        }
-    )json");
-    BAFX_CHECK(result.status == bafx::config::ConfigStatus::Migrated);
-    BAFX_CHECK(result.config.schemaVersion == bafx::config::currentSchemaVersion);
-    BAFX_CHECK(result.config.background.allowSystemBorder);
-}
-
-BAFX_TEST(config_schema_four_restarts_from_the_background_aware_render_mode)
-{
-    const auto result = bafx::config::parseJson(R"json(
-        {
-            "schemaVersion": 4,
-            "background": {
-                "mode": "recording-compatible",
-                "cursorExcluded": true,
-                "allowSystemBorder": false
-            }
-        }
-    )json");
-    BAFX_CHECK(result.status == bafx::config::ConfigStatus::Migrated);
-    BAFX_CHECK(result.config.background.mode
-        == bafx::config::RenderMode::BackgroundAware);
-    BAFX_CHECK(!result.config.background.allowSystemBorder);
-}
-
-BAFX_TEST(config_schema_five_preserves_the_effective_pressed_only_trail_behavior)
-{
-    const auto result = bafx::config::parseJson(R"json(
-        {
-            "schemaVersion": 5,
-            "input": {
-                "leftClick": false,
-                "rightClick": false,
-                "middleClick": true,
-                "trailOnlyWhilePressed": false
-            }
-        }
-    )json");
-    BAFX_CHECK(result.status == bafx::config::ConfigStatus::Migrated);
-    BAFX_CHECK(result.config.schemaVersion == bafx::config::currentSchemaVersion);
-    BAFX_CHECK(result.config.input.trailOnlyWhilePressed);
-    BAFX_CHECK(!result.config.input.leftClick);
-    BAFX_CHECK(!result.config.input.rightClick);
-    BAFX_CHECK(result.config.input.middleClick);
-}
-
-BAFX_TEST(config_schema_five_rejects_a_malformed_input_section_after_migration)
-{
-    const auto result = bafx::config::parseJson(
-        R"json({"schemaVersion":5,"input":false})json");
-    BAFX_CHECK(result.status == bafx::config::ConfigStatus::ValidationError);
+    for (std::uint32_t version = 1U;
+         version < bafx::config::currentSchemaVersion;
+         ++version)
+    {
+        const auto result = bafx::config::parseJson(
+            std::string("{\"schemaVersion\":")
+            + std::to_string(version)
+            + "}");
+        BAFX_CHECK(!result.succeeded());
+        BAFX_CHECK(result.status == bafx::config::ConfigStatus::UnsupportedSchema);
+    }
 }
 
 BAFX_TEST(config_current_schema_preserves_an_explicit_hidden_system_border)
 {
     const auto result = bafx::config::parseJson(R"json(
         {
-            "schemaVersion": 7,
+            "schemaVersion": 8,
             "background": {
                 "mode": "background-aware",
                 "cursorExcluded": true,
@@ -330,42 +255,26 @@ BAFX_TEST(config_current_schema_preserves_an_explicit_hidden_system_border)
     BAFX_CHECK(!result.config.background.allowSystemBorder);
 }
 
-BAFX_TEST(config_schema_six_migrates_to_unlimited_input_sampling)
-{
-    const auto result = bafx::config::parseJson(R"json(
-        {
-            "schemaVersion": 6,
-            "input": {
-                "trailOnlyWhilePressed": false
-            }
-        }
-    )json");
-    BAFX_CHECK(result.status == bafx::config::ConfigStatus::Migrated);
-    BAFX_CHECK(result.config.schemaVersion == bafx::config::currentSchemaVersion);
-    BAFX_CHECK(result.config.input.samplingRateHz == 0U);
-    BAFX_CHECK(!result.config.input.trailOnlyWhilePressed);
-}
-
 BAFX_TEST(config_parser_rejects_invalid_documents_and_values)
 {
     const auto missingVersion = bafx::config::parseJson("{}");
-    BAFX_CHECK(missingVersion.succeeded());
-    BAFX_CHECK(missingVersion.status == bafx::config::ConfigStatus::Migrated);
+    BAFX_CHECK(!missingVersion.succeeded());
+    BAFX_CHECK(missingVersion.status == bafx::config::ConfigStatus::ValidationError);
 
     const auto futureVersion = bafx::config::parseJson(
         R"json({"schemaVersion":99})json");
     BAFX_CHECK(futureVersion.status == bafx::config::ConfigStatus::UnsupportedSchema);
 
     const auto duplicateKey = bafx::config::parseJson(
-        R"json({"schemaVersion":7,"schemaVersion":7})json");
+        R"json({"schemaVersion":8,"schemaVersion":8})json");
     BAFX_CHECK(duplicateKey.status == bafx::config::ConfigStatus::ParseError);
 
     const auto invalidScale = bafx::config::parseJson(
-        R"json({"schemaVersion":7,"effects":{"globalScale":9.0}})json");
+        R"json({"schemaVersion":8,"effects":{"globalScale":9.0}})json");
     BAFX_CHECK(invalidScale.status == bafx::config::ConfigStatus::ValidationError);
 
     const auto malformed = bafx::config::parseJson(
-        R"json({"schemaVersion":7,"effects":{"enabled":tru}})json");
+        R"json({"schemaVersion":8,"effects":{"enabled":tru}})json");
     BAFX_CHECK(malformed.status == bafx::config::ConfigStatus::ParseError);
 }
 

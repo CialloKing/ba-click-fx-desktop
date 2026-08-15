@@ -131,7 +131,7 @@ class CaptureFixture:
             directory.mkdir()
             (directory / REPORTER.HOST_NAME).write_bytes(b"test-host")
             configuration = {
-                "schemaVersion": 7,
+                "schemaVersion": 8,
                 "background": {"mode": background_mode},
                 "effects": {"bloomQuality": "high"},
             }
