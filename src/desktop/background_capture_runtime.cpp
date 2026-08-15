@@ -481,6 +481,22 @@ bafx::windows::BackgroundCaptureRequest backgroundCaptureRequest(
         retryToken};
 }
 
+bool canRetryBackgroundCaptureAfterDeviceRecovery(
+    const bool captureRequested,
+    const bool sensorWasActive,
+    const bool adapterChanged,
+    const bafx::windows::GraphicsDriverType driverType,
+    const bool rendererRestartAllowed) noexcept
+{
+    // Recovery may replace only a Sensor that belonged to the failed device.
+    // A stable FX-only fallback must retain its terminal request identity.
+    return captureRequested
+        && sensorWasActive
+        && !adapterChanged
+        && driverType == bafx::windows::GraphicsDriverType::Hardware
+        && rendererRestartAllowed;
+}
+
 bafx::windows::WgcBackgroundStopDiagnostics
 appendBackgroundCaptureStopDiagnostics(
     const std::filesystem::path& logPath,

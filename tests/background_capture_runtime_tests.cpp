@@ -73,6 +73,50 @@ BAFX_TEST(capture_exclusion_health_poller_is_bounded_and_resets)
     BAFX_CHECK(poller.shouldQuery(true, std::chrono::seconds(3)));
 }
 
+BAFX_TEST(device_recovery_retry_requires_an_active_capture)
+{
+    BAFX_CHECK(bafx::desktop::canRetryBackgroundCaptureAfterDeviceRecovery(
+        true,
+        true,
+        false,
+        bafx::windows::GraphicsDriverType::Hardware,
+        true));
+    BAFX_CHECK(!bafx::desktop::canRetryBackgroundCaptureAfterDeviceRecovery(
+        true,
+        false,
+        false,
+        bafx::windows::GraphicsDriverType::Hardware,
+        true));
+    BAFX_CHECK(!bafx::desktop::canRetryBackgroundCaptureAfterDeviceRecovery(
+        false,
+        true,
+        false,
+        bafx::windows::GraphicsDriverType::Hardware,
+        true));
+}
+
+BAFX_TEST(device_recovery_retry_honors_resource_domain_gates)
+{
+    BAFX_CHECK(!bafx::desktop::canRetryBackgroundCaptureAfterDeviceRecovery(
+        true,
+        true,
+        true,
+        bafx::windows::GraphicsDriverType::Hardware,
+        true));
+    BAFX_CHECK(!bafx::desktop::canRetryBackgroundCaptureAfterDeviceRecovery(
+        true,
+        true,
+        false,
+        bafx::windows::GraphicsDriverType::Warp,
+        true));
+    BAFX_CHECK(!bafx::desktop::canRetryBackgroundCaptureAfterDeviceRecovery(
+        true,
+        true,
+        false,
+        bafx::windows::GraphicsDriverType::Hardware,
+        false));
+}
+
 BAFX_TEST(capture_exclusion_health_failure_log_preserves_recovery_evidence)
 {
     const TemporaryBackgroundCaptureLog log;

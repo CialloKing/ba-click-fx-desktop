@@ -49,7 +49,8 @@ DeniedBySystem` 仍需独立快照证据，不能据实现或旧 portable 证据
 设备丢失路径现已接入 Host：渲染提交、Bloom 配置资源、swap-chain resize 或 WGC FramePool
 Recreate 遇到可识别的 DXGI device-lost HRESULT 时，整个 renderer 最多执行一次 D3D/DComp/WGC
 资源重建；渲染提交会用同一 CPU 快照重试一次，第二次故障直接退出并保留原始事件。恢复后 WGC
-通过递增 `retryToken` 重新走有限事务；恢复到 WARP 或适配器变化时，renderer 会拒绝 WGC Start。
+仅在故障前 Sensor 实际活跃时通过递增 `retryToken` 重新走有限事务；已有 FX-only 终态不会被自动重启。
+恢复到 WARP 或适配器变化时，renderer 会拒绝 WGC Start。
 `--device-recovery-probe` 已作为有界 CTest 验证资源域主动重建和中心像素有效，但它不模拟真实
 设备移除，真实 device-reset、热插拔和跨适配器单元格仍保持 `Not Run`。
 

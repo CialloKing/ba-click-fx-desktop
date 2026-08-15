@@ -79,7 +79,8 @@
   `Graphics.DeviceRemovalNotification.Status` 记录 `Phase`、`Available` 和 `RegistrationHRESULT`；接口
   不可用或注册失败时，活跃渲染等待仍以每 `250 ms` 一次的 device-removed reason 查询兜底，不会把注册
   失败当作渲染失败。通知可用时，Host 暂停期间也等待该事件；信号会请求一个恢复帧，但不会推进冻结的
-  特效模拟时间。
+  特效模拟时间。设备恢复只会为故障前实际活跃的 WGC Sensor 安排一次重试；WDA 丢失、权限拒绝或
+  Session 停止形成的 FX-only 终态不会因无关的设备恢复而获得新 `retryToken`。
 - WGC 只由 `background-aware` 模式使用。portable EXE 没有 package identity，也不会自行声明
   `graphicsCaptureWithoutBorder` capability。新配置默认允许 Windows 显示捕获边框；可见边框状态记录为
   `system-border=visible-allowed`。用户可在 Control Center 中取消勾选“允许黄色捕获边框”；关闭后会在

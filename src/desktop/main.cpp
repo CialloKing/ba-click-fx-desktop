@@ -1322,6 +1322,8 @@ int runApplication(
                         && config.effects.trailEnabled
                         && !config.input.trailOnlyWhilePressed,
                     simulationTimeline.fromWallTime(clock.now()));
+                const bool backgroundCaptureWasActive =
+                    renderer.backgroundCaptureActive();
                 const bafx::windows::GraphicsDeviceInfo previousDeviceInfo =
                     renderer.deviceInfo();
                 const bool bloomDeviceRecovered = renderer.setBloomSettings(
@@ -1344,12 +1346,13 @@ int runApplication(
                         || previousDeviceInfo.adapterLuid.HighPart
                             != renderer.deviceInfo().adapterLuid.HighPart;
                     const bool retryEligible =
-                        config.background.mode
-                            == bafx::config::RenderMode::BackgroundAware
-                        && !adapterChanged
-                        && renderer.deviceInfo().driverType
-                            == bafx::windows::GraphicsDriverType::Hardware
-                        && renderer.backgroundCaptureRestartAllowed();
+                        bafx::desktop::canRetryBackgroundCaptureAfterDeviceRecovery(
+                            config.background.mode
+                                == bafx::config::RenderMode::BackgroundAware,
+                            backgroundCaptureWasActive,
+                            adapterChanged,
+                            renderer.deviceInfo().driverType,
+                            renderer.backgroundCaptureRestartAllowed());
                     if (retryEligible)
                     {
                         if (backgroundRetryToken
@@ -1364,6 +1367,9 @@ int runApplication(
                         bafx::windows::DiagnosticField{
                             "Adapter",
                             adapterChanged ? "changed" : "same"},
+                        bafx::windows::DiagnosticField{
+                            "WgcWasActive",
+                            backgroundCaptureWasActive ? "true" : "false"},
                         bafx::windows::DiagnosticField{
                             "WgcRetry",
                             retryEligible ? "scheduled" : "blocked"}};
@@ -1745,6 +1751,8 @@ int runApplication(
                     throw;
                 }
                 deviceRecoveryConsumed = true;
+                const bool backgroundCaptureWasActive =
+                    renderer.backgroundCaptureActive();
                 const bafx::windows::GraphicsDeviceInfo previousDeviceInfo =
                     renderer.deviceInfo();
                 const std::string originalError(error.what());
@@ -1927,11 +1935,12 @@ int runApplication(
                         backgroundTransition.effectivePath()));
 
                 const bool backgroundRetryEligible =
-                    appliedBackgroundRequest.sensorRequired
-                    && !adapterChanged
-                    && renderer.deviceInfo().driverType
-                        == bafx::windows::GraphicsDriverType::Hardware
-                    && renderer.backgroundCaptureRestartAllowed();
+                    bafx::desktop::canRetryBackgroundCaptureAfterDeviceRecovery(
+                        appliedBackgroundRequest.sensorRequired,
+                        backgroundCaptureWasActive,
+                        adapterChanged,
+                        renderer.deviceInfo().driverType,
+                        renderer.backgroundCaptureRestartAllowed());
                 if (backgroundRetryEligible
                     && backgroundRetryToken
                         == std::numeric_limits<std::uint64_t>::max())
@@ -1953,7 +1962,6 @@ int runApplication(
                 if (backgroundRetryEligible)
                 {
                     ++backgroundRetryToken;
-                    appliedBackgroundRequest.retryToken = backgroundRetryToken;
                 }
                 backgroundRetryPending = backgroundRetryEligible;
                 backgroundParticipationLogged = false;
@@ -1978,6 +1986,9 @@ int runApplication(
                     bafx::windows::DiagnosticField{
                         "Adapter",
                         adapterState},
+                    bafx::windows::DiagnosticField{
+                        "WgcWasActive",
+                        backgroundCaptureWasActive ? "true" : "false"},
                     bafx::windows::DiagnosticField{
                         "WgcRetryPending",
                         backgroundRetryPending ? "true" : "false"},
@@ -2236,6 +2247,8 @@ int runApplication(
                      && backgroundCaptureEnabled
                      && captureSize.has_value())
         {
+            const bool backgroundCaptureWasActive =
+                currentBackgroundCaptureActive;
             if (!backgroundTransition.beginFramePoolRecreate(*captureSize))
             {
                 throw std::logic_error(
@@ -2261,11 +2274,12 @@ int runApplication(
             if (backgroundExecution.deviceRecovered)
             {
                 const bool retryEligible =
-                    appliedBackgroundRequest.sensorRequired
-                    && !backgroundExecution.deviceRecoveryAdapterChanged
-                    && renderer.deviceInfo().driverType
-                        == bafx::windows::GraphicsDriverType::Hardware
-                    && renderer.backgroundCaptureRestartAllowed();
+                    bafx::desktop::canRetryBackgroundCaptureAfterDeviceRecovery(
+                        appliedBackgroundRequest.sensorRequired,
+                        backgroundCaptureWasActive,
+                        backgroundExecution.deviceRecoveryAdapterChanged,
+                        renderer.deviceInfo().driverType,
+                        renderer.backgroundCaptureRestartAllowed());
                 backgroundRetryPending = false;
                 if (retryEligible)
                 {
@@ -2276,7 +2290,6 @@ int runApplication(
                             "WGC retry token exhausted after frame pool recovery");
                     }
                     ++backgroundRetryToken;
-                    appliedBackgroundRequest.retryToken = backgroundRetryToken;
                     backgroundRetryPending = true;
                     const std::string retryTokenText = std::to_string(
                         backgroundRetryToken);

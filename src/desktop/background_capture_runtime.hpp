@@ -95,6 +95,13 @@ private:
     const bafx::config::Config& config,
     std::uint64_t retryToken = 0U) noexcept;
 
+[[nodiscard]] bool canRetryBackgroundCaptureAfterDeviceRecovery(
+    bool captureRequested,
+    bool sensorWasActive,
+    bool adapterChanged,
+    bafx::windows::GraphicsDriverType driverType,
+    bool rendererRestartAllowed) noexcept;
+
 [[nodiscard]] BackgroundCaptureExecutionStatus executeBackgroundCaptureTransition(
     bafx::windows::BackgroundCaptureTransition& transition,
     bafx::windows::OverlayWindow& window,
