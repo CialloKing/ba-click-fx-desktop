@@ -21,6 +21,8 @@ struct DisplaySessionManagerOptions final
     std::wstring_view surfaceTitle{};
     bafx::windows::FxBloomSettings bloomSettings{};
     bafx::windows::WgcBackgroundStopObserver backgroundStopObserver{};
+    bafx::windows::CompositionOutputPreference outputPreference{
+        bafx::windows::CompositionOutputPreference::ConservativeSdr};
     std::uint64_t simulationSeed{0U};
     float trailLengthMultiplier{1.0F};
     std::uint32_t inputSamplingRateHz{0U};
@@ -65,6 +67,7 @@ public:
     [[nodiscard]] std::size_t pruneCoordinatorDuplicates() noexcept;
     void updateCreationSettings(
         bafx::windows::FxBloomSettings bloomSettings,
+        bafx::windows::CompositionOutputPreference outputPreference,
         float trailLengthMultiplier,
         std::uint32_t inputSamplingRateHz,
         bool alwaysOnTrailEnabled) noexcept;
@@ -90,6 +93,8 @@ private:
     std::wstring surfaceTitle_{};
     bafx::windows::FxBloomSettings bloomSettings_{};
     bafx::windows::WgcBackgroundStopObserver backgroundStopObserver_{};
+    bafx::windows::CompositionOutputPreference outputPreference_{
+        bafx::windows::CompositionOutputPreference::ConservativeSdr};
     std::uint64_t simulationSeed_{0U};
     std::uint64_t sessionSequence_{0U};
     float trailLengthMultiplier_{1.0F};

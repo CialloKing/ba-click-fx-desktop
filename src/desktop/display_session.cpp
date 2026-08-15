@@ -17,7 +17,8 @@ DisplaySession::DisplaySession(DisplaySessionOptions options)
           window_.size(),
           options.bloomSettings,
           options.backgroundStopObserver,
-          requestedAdapter(target_)),
+          requestedAdapter(target_),
+          options.outputPreference),
       simulation_(options.simulationSeed)
 {
     colorMonitorStartResult_ = colorMonitor_.start(

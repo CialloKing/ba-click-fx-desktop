@@ -44,6 +44,7 @@ DisplaySessionManager::DisplaySessionManager(
       surfaceTitle_(options.surfaceTitle),
       bloomSettings_(options.bloomSettings),
       backgroundStopObserver_(options.backgroundStopObserver),
+      outputPreference_(options.outputPreference),
       simulationSeed_(options.simulationSeed),
       trailLengthMultiplier_(options.trailLengthMultiplier),
       inputSamplingRateHz_(options.inputSamplingRateHz),
@@ -205,11 +206,13 @@ std::size_t DisplaySessionManager::pruneCoordinatorDuplicates() noexcept
 
 void DisplaySessionManager::updateCreationSettings(
     const bafx::windows::FxBloomSettings bloomSettings,
+    const bafx::windows::CompositionOutputPreference outputPreference,
     const float trailLengthMultiplier,
     const std::uint32_t inputSamplingRateHz,
     const bool alwaysOnTrailEnabled) noexcept
 {
     bloomSettings_ = bloomSettings;
+    outputPreference_ = outputPreference;
     trailLengthMultiplier_ = trailLengthMultiplier;
     inputSamplingRateHz_ = inputSamplingRateHz;
     alwaysOnTrailEnabled_ = alwaysOnTrailEnabled;
@@ -270,6 +273,7 @@ std::unique_ptr<DisplaySession> DisplaySessionManager::createSession(
             surfaceTitle_,
             bloomSettings_,
             backgroundStopObserver_,
+            outputPreference_,
             nextSimulationSeed()});
     session->simulation().setTrailLengthMultiplier(trailLengthMultiplier_);
     session->simulation().setInputSamplingRateHz(inputSamplingRateHz_);

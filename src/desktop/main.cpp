@@ -169,6 +169,173 @@ void appendDeviceRemovedNotificationStatus(
         bafx::config::bloomDiffusionForQuality(effects.bloomQuality)};
 }
 
+[[nodiscard]] bafx::windows::CompositionOutputPreference makeOutputPreference(
+    const bafx::config::DisplayConfig& display) noexcept
+{
+    return display.hdrEnabled
+        ? bafx::windows::CompositionOutputPreference::PreferLinearScRgb
+        : bafx::windows::CompositionOutputPreference::ConservativeSdr;
+}
+
+[[nodiscard]] std::string_view outputPreferenceName(
+    const bafx::windows::CompositionOutputPreference preference) noexcept
+{
+    switch (preference)
+    {
+    case bafx::windows::CompositionOutputPreference::ConservativeSdr:
+        return "conservative-sdr";
+    case bafx::windows::CompositionOutputPreference::PreferLinearScRgb:
+        return "prefer-linear-scrgb";
+    }
+    return "unknown";
+}
+
+[[nodiscard]] std::string_view outputTransferName(
+    const bafx::windows::CompositionOutputTransfer transfer) noexcept
+{
+    switch (transfer)
+    {
+    case bafx::windows::CompositionOutputTransfer::Unknown:
+        return "unknown";
+    case bafx::windows::CompositionOutputTransfer::LinearScRgb:
+        return "linear-scrgb";
+    case bafx::windows::CompositionOutputTransfer::SdrGamma22:
+        return "sdr-gamma22";
+    }
+    return "unknown";
+}
+
+[[nodiscard]] std::string_view outputFallbackName(
+    const bafx::windows::CompositionOutputFallback fallback) noexcept
+{
+    switch (fallback)
+    {
+    case bafx::windows::CompositionOutputFallback::None:
+        return "none";
+    case bafx::windows::CompositionOutputFallback::ConservativeSdr:
+        return "conservative-sdr";
+    }
+    return "unknown";
+}
+
+[[nodiscard]] std::string_view outputRenegotiationStatusName(
+    const bafx::windows::OutputRenegotiationStatus status) noexcept
+{
+    switch (status)
+    {
+    case bafx::windows::OutputRenegotiationStatus::RecreatedSameContract:
+        return "recreated-same-contract";
+    case bafx::windows::OutputRenegotiationStatus::ChangedToLinearScRgb:
+        return "changed-to-linear-scrgb";
+    case bafx::windows::OutputRenegotiationStatus::ChangedToSdr:
+        return "changed-to-sdr";
+    }
+    return "unknown";
+}
+
+void appendOutputRenegotiation(
+    const std::filesystem::path& logPath,
+    const bafx::desktop::DisplaySession& session,
+    const std::string_view reason,
+    const bafx::windows::OutputRenegotiationResult& result) noexcept
+{
+    try
+    {
+        const std::string monitor =
+            bafx::desktop::formatDisplayTargetMonitor(session.target());
+        const std::string previousFormat = std::to_string(
+            static_cast<std::uint32_t>(result.previous.format));
+        const std::string currentFormat = std::to_string(
+            static_cast<std::uint32_t>(result.current.format));
+        const std::array fields{
+            bafx::windows::DiagnosticField{"Reason", reason},
+            bafx::windows::DiagnosticField{"Monitor", monitor},
+            bafx::windows::DiagnosticField{
+                "Status",
+                outputRenegotiationStatusName(result.status)},
+            bafx::windows::DiagnosticField{
+                "PreviousPreference",
+                outputPreferenceName(result.previousPreference)},
+            bafx::windows::DiagnosticField{
+                "CurrentPreference",
+                outputPreferenceName(result.currentPreference)},
+            bafx::windows::DiagnosticField{"PreviousFormat", previousFormat},
+            bafx::windows::DiagnosticField{"CurrentFormat", currentFormat},
+            bafx::windows::DiagnosticField{
+                "PreviousTransfer",
+                outputTransferName(result.previous.transfer)},
+            bafx::windows::DiagnosticField{
+                "CurrentTransfer",
+                outputTransferName(result.current.transfer)},
+            bafx::windows::DiagnosticField{
+                "Fallback",
+                outputFallbackName(result.current.fallback)}};
+        bafx::windows::appendDiagnosticEvent(
+            logPath,
+            "Display.Output.Renegotiated",
+            fields,
+            result.current.fallback ==
+                    bafx::windows::CompositionOutputFallback::None
+                ? bafx::windows::DiagnosticLevel::Info
+                : bafx::windows::DiagnosticLevel::Warning);
+    }
+    catch (...)
+    {
+        bafx::windows::appendDiagnosticLog(
+            logPath,
+            "Display output renegotiation diagnostics could not be formatted");
+    }
+}
+
+[[nodiscard]] bool tryRenegotiateOutput(
+    const std::filesystem::path& logPath,
+    bafx::desktop::DisplaySession& session,
+    const bafx::windows::CompositionOutputPreference preference,
+    const std::string_view reason) noexcept
+{
+    try
+    {
+        const bafx::windows::OutputRenegotiationResult result =
+            session.renderer().renegotiateOutput(preference);
+        appendOutputRenegotiation(logPath, session, reason, result);
+        return true;
+    }
+    catch (const std::exception& error)
+    {
+        try
+        {
+            const std::string monitor =
+                bafx::desktop::formatDisplayTargetMonitor(session.target());
+            const std::array fields{
+                bafx::windows::DiagnosticField{"Reason", reason},
+                bafx::windows::DiagnosticField{"Monitor", monitor},
+                bafx::windows::DiagnosticField{
+                    "RequestedPreference",
+                    outputPreferenceName(preference)},
+                bafx::windows::DiagnosticField{"Message", error.what()}};
+            bafx::windows::appendDiagnosticEvent(
+                logPath,
+                "Display.Output.RenegotiationFailed",
+                fields,
+                bafx::windows::DiagnosticLevel::Error);
+        }
+        catch (...)
+        {
+            bafx::windows::appendDiagnosticLog(
+                logPath,
+                "Display output renegotiation failure could not be formatted");
+        }
+        return false;
+    }
+    catch (...)
+    {
+        bafx::windows::appendDiagnosticLog(
+            logPath,
+            "Display output renegotiation failed with an unknown exception");
+        return false;
+    }
+}
+
 void applyVisualConfig(
     bafx::fx::FrameSnapshot& snapshot,
     const bafx::config::Config& config)
@@ -1153,6 +1320,7 @@ int runApplication(
             L"ba-click-fx-desktop",
             makeBloomSettings(config.effects),
             backgroundStopMonitor.observer(),
+            makeOutputPreference(config.display),
             makeRuntimeSeed(),
             config.effects.trailLength,
             config.input.samplingRateHz,
@@ -1361,7 +1529,9 @@ int runApplication(
         captureExclusionHealthPoller;
     MessageDispatchDiagnostics pendingMessageDispatch{};
     const auto refreshDisplayColorState =
-        [&](const std::string_view reason, const std::uint64_t generation)
+        [&](const std::string_view reason,
+            const std::uint64_t generation,
+            const bool renegotiateOutput)
         {
             const std::string previousMode =
                 displaySession.colorCapabilities().has_value()
@@ -1405,6 +1575,18 @@ int runApplication(
                 logPath,
                 "Display.ColorState.Refreshed",
                 fields);
+            if (renegotiateOutput
+                && renderer.outputPreference()
+                    == bafx::windows::CompositionOutputPreference::
+                        PreferLinearScRgb
+                && tryRenegotiateOutput(
+                    logPath,
+                    displaySession,
+                    renderer.outputPreference(),
+                    reason))
+            {
+                report.setDeviceInfo(renderer.deviceInfo());
+            }
             bafx::windows::appendDiagnosticLog(logPath, report);
         };
     const auto appendPendingBackgroundSnapshotInvalidation = [&]() noexcept
@@ -1506,7 +1688,10 @@ int runApplication(
                 bafx::windows::displayColorMonitorDiagnostic(monitorResult));
             // Register first, then query. A toggle racing the retarget either
             // lands in this snapshot or increments the monitor generation.
-            refreshDisplayColorState("display-target-applied", 0U);
+            refreshDisplayColorState(
+                "display-target-applied",
+                0U,
+                false);
             bafx::desktop::appendDisplayTopologyApplied(
                 logPath,
                 backgroundExecution.controlGeneration,
@@ -1638,6 +1823,19 @@ int runApplication(
                     logPath,
                     "Display.Session.ColorState.Refreshed",
                     fields);
+                if (session.renderer().outputPreference()
+                    == bafx::windows::CompositionOutputPreference::
+                        PreferLinearScRgb)
+                {
+                    renderInvalidated = tryRenegotiateOutput(
+                        logPath,
+                        session,
+                        session.renderer().outputPreference(),
+                        secondaryColorGeneration == 0U
+                            ? "win32-notification"
+                            : "advanced-color-event")
+                        || renderInvalidated;
+                }
             }
         }
         const bool displayTopologyChanged = hostDisplayTopologyChanged
@@ -1770,7 +1968,8 @@ int runApplication(
                 displayColorGeneration == 0U
                     ? "win32-notification"
                     : "advanced-color-event",
-                displayColorGeneration);
+                displayColorGeneration,
+                true);
             renderInvalidated = true;
         }
         const bafx::windows::WindowResizeDiagnostics resizeDiagnostics =
@@ -1872,7 +2071,15 @@ int runApplication(
             renderInvalidated = true;
             if (configChanged)
             {
+                const bafx::windows::CompositionOutputPreference
+                    previousOutputPreference = makeOutputPreference(
+                        config.display);
                 config = controlState.config;
+                const bafx::windows::CompositionOutputPreference
+                    currentOutputPreference = makeOutputPreference(
+                        config.display);
+                const bool outputPreferenceChanged =
+                    previousOutputPreference != currentOutputPreference;
                 const bool alwaysOnTrailEnabled = config.effects.enabled
                     && config.effects.trailEnabled
                     && !config.input.trailOnlyWhilePressed;
@@ -1882,6 +2089,7 @@ int runApplication(
                     simulationTimeline.fromWallTime(clock.now());
                 displaySessions.updateCreationSettings(
                     bloomSettings,
+                    currentOutputPreference,
                     config.effects.trailLength,
                     config.input.samplingRateHz,
                     alwaysOnTrailEnabled);
@@ -1992,6 +2200,22 @@ int runApplication(
                             session,
                             "apply-bloom-settings",
                             error.what());
+                    }
+                }
+                if (outputPreferenceChanged)
+                {
+                    for (const auto& ownedSession : displaySessions.sessions())
+                    {
+                        bafx::desktop::DisplaySession& session = *ownedSession;
+                        const bool applied = tryRenegotiateOutput(
+                            logPath,
+                            session,
+                            currentOutputPreference,
+                            "configuration");
+                        if (applied && &session == &displaySession)
+                        {
+                            report.setDeviceInfo(renderer.deviceInfo());
+                        }
                     }
                 }
             }

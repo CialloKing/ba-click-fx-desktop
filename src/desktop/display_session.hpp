@@ -26,6 +26,8 @@ struct DisplaySessionOptions final
     std::wstring_view title{};
     bafx::windows::FxBloomSettings bloomSettings{};
     bafx::windows::WgcBackgroundStopObserver backgroundStopObserver{};
+    bafx::windows::CompositionOutputPreference outputPreference{
+        bafx::windows::CompositionOutputPreference::ConservativeSdr};
     std::uint64_t simulationSeed{0U};
 };
 
