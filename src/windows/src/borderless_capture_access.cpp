@@ -769,20 +769,8 @@ BorderlessCaptureAccessAuthority::BorderlessCaptureAccessAuthority(
 }
 
 BorderlessCaptureAccessPollResult BorderlessCaptureAccessAuthority::poll(
-    const std::uint64_t retryToken,
     const Clock::time_point now) noexcept
 {
-    if (retryToken > retryToken_)
-    {
-        retryToken_ = retryToken;
-        if (terminalResult_.has_value()
-            && !borderlessCaptureAccessAllowed(*terminalResult_))
-        {
-            // An explicit retry may replace a process-wide failure, while an
-            // Allowed decision remains valid for every display session.
-            invalidate(now);
-        }
-    }
     if (terminalResult_.has_value())
     {
         return BorderlessCaptureAccessPollResult{false, terminalResult_};
@@ -809,6 +797,12 @@ void BorderlessCaptureAccessAuthority::invalidate(
     static_cast<void>(request_.poll(now));
     terminalResult_.reset();
     requestStarted_ = false;
+    if (generation_ != (std::numeric_limits<std::uint64_t>::max)())
+    {
+        // The epoch belongs to the process permission authority. Per-display
+        // WGC retry tokens must never decide when the system prompt is reset.
+        ++generation_;
+    }
 }
 
 bool BorderlessCaptureAccessAuthority::pending() const noexcept
@@ -819,6 +813,11 @@ bool BorderlessCaptureAccessAuthority::pending() const noexcept
 bool BorderlessCaptureAccessAuthority::terminal() const noexcept
 {
     return terminalResult_.has_value();
+}
+
+std::uint64_t BorderlessCaptureAccessAuthority::generation() const noexcept
+{
+    return generation_;
 }
 
 bool borderlessCaptureAccessAllowed(

@@ -169,18 +169,18 @@ public:
         BorderlessCaptureAccessAuthority&&) = delete;
 
     [[nodiscard]] BorderlessCaptureAccessPollResult poll(
-        std::uint64_t retryToken,
         Clock::time_point now = Clock::now()) noexcept;
     void invalidate(Clock::time_point now = Clock::now()) noexcept;
 
     [[nodiscard]] bool pending() const noexcept;
     [[nodiscard]] bool terminal() const noexcept;
+    [[nodiscard]] std::uint64_t generation() const noexcept;
 
 private:
     PackageIdentityInfo identity_{};
     BorderlessCaptureAccessRequest request_;
     std::optional<BorderlessCaptureAccessResult> terminalResult_{};
-    std::uint64_t retryToken_{0U};
+    std::uint64_t generation_{0U};
     bool requestStarted_{false};
 };
 

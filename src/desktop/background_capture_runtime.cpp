@@ -871,15 +871,8 @@ BackgroundCaptureExecutionStatus executeBackgroundCaptureTransition(
             case bafx::windows::BackgroundCaptureActionKind::
                 RequestBorderlessAccess:
             {
-                const std::optional<bafx::windows::BackgroundCaptureRequest>
-                    request = transition.request();
-                if (!request.has_value())
-                {
-                    throw std::logic_error(
-                        "Borderless access action lost its capture request");
-                }
                 const bafx::windows::BorderlessCaptureAccessPollResult poll =
-                    borderlessAccessAuthority.poll(request->retryToken);
+                    borderlessAccessAuthority.poll();
                 if (poll.pending)
                 {
                     if (!transition.applyObservation(
