@@ -166,6 +166,36 @@ struct DisplayTargetSnapshot
         || left.sourceId == right.sourceId;
 }
 
+[[nodiscard]] inline bool sameDisplayRefreshRate(
+    const std::optional<bafx::windows::DisplayRefreshRate>& left,
+    const std::optional<bafx::windows::DisplayRefreshRate>& right) noexcept
+{
+    if (left.has_value() != right.has_value())
+    {
+        return false;
+    }
+    return !left.has_value()
+        || (bafx::windows::equivalentDisplayRefreshRate(*left, *right)
+            && left->source == right->source);
+}
+
+[[nodiscard]] inline bool sameDisplayRuntimeMetadata(
+    const DisplayTarget& left,
+    const DisplayTarget& right) noexcept
+{
+    // The rate source is part of the contract: an equal rational can switch
+    // from a virtual DRR rate to a physical scan-out rate with different
+    // capture freshness semantics.
+    return left.dpiX == right.dpiX
+        && left.dpiY == right.dpiY
+        && sameDisplayRefreshRate(left.refreshRate, right.refreshRate)
+        && sameDisplayRefreshRate(
+            left.captureRefreshRate,
+            right.captureRefreshRate)
+        && left.primary == right.primary
+        && left.physicalTargetCount == right.physicalTargetCount;
+}
+
 [[nodiscard]] inline bool displayTargetResourceAdapterMatches(
     const DisplayTarget& target,
     const LUID actualAdapter,

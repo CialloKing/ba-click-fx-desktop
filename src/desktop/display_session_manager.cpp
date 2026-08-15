@@ -21,19 +21,6 @@ constexpr std::uint64_t sessionSeedStep = 0x9E3779B97F4A7C15ULL;
         && point.y < bounds.bottom;
 }
 
-[[nodiscard]] bool sameRefreshRate(
-    const std::optional<bafx::windows::DisplayRefreshRate>& left,
-    const std::optional<bafx::windows::DisplayRefreshRate>& right) noexcept
-{
-    if (left.has_value() != right.has_value())
-    {
-        return false;
-    }
-    return !left.has_value()
-        || (bafx::windows::equivalentDisplayRefreshRate(*left, *right)
-            && left->source == right->source);
-}
-
 [[nodiscard]] bool physicalTargetIdentityResolutionImproved(
     const DisplayTarget& previous,
     const DisplayTarget& current) noexcept
@@ -252,17 +239,8 @@ DisplaySessionReconcileResult DisplaySessionManager::reconcileSecondaries(
                     error.what()});
                 continue;
             }
-            const bool metadataChanged = existing->target().dpiX != target.dpiX
-                || existing->target().dpiY != target.dpiY
-                || !sameRefreshRate(
-                    existing->target().refreshRate,
-                    target.refreshRate)
-                || !sameRefreshRate(
-                    existing->target().captureRefreshRate,
-                    target.captureRefreshRate)
-                || existing->target().primary != target.primary
-                || existing->target().physicalTargetCount
-                    != target.physicalTargetCount
+            const bool metadataChanged =
+                !sameDisplayRuntimeMetadata(existing->target(), target)
                 || physicalTargetIdentityResolutionImproved(
                     existing->target(),
                     target);
