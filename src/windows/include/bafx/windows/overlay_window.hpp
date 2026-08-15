@@ -107,6 +107,36 @@ enum class RawMouseRegistration : std::uint8_t
     Disabled
 };
 
+enum class OverlayWindowRole : std::uint8_t
+{
+    HostShell,
+    RenderSurface
+};
+
+struct OverlayWindowOptions final
+{
+    // Render surfaces are topology-owned and never acquire process-global
+    // input or exit UI. The Raw Mouse option only applies to the Host shell.
+    OverlayWindowRole role{OverlayWindowRole::HostShell};
+    RawMouseRegistration rawMouseRegistration{RawMouseRegistration::Enabled};
+
+    [[nodiscard]] static constexpr OverlayWindowOptions hostShell(
+        const RawMouseRegistration rawMouse =
+            RawMouseRegistration::Enabled) noexcept
+    {
+        return OverlayWindowOptions{
+            OverlayWindowRole::HostShell,
+            rawMouse};
+    }
+
+    [[nodiscard]] static constexpr OverlayWindowOptions renderSurface() noexcept
+    {
+        return OverlayWindowOptions{
+            OverlayWindowRole::RenderSurface,
+            RawMouseRegistration::Disabled};
+    }
+};
+
 [[nodiscard]] constexpr std::uint32_t win32MessageQueueAgeMilliseconds(
     const std::uint32_t dispatchTick,
     const std::uint32_t messageTime) noexcept
@@ -143,6 +173,11 @@ public:
         RECT bounds,
         std::wstring_view title,
         RawMouseRegistration rawMouseRegistration = RawMouseRegistration::Enabled);
+    OverlayWindow(
+        HINSTANCE instance,
+        RECT bounds,
+        std::wstring_view title,
+        OverlayWindowOptions options);
     ~OverlayWindow();
 
     OverlayWindow(const OverlayWindow&) = delete;
@@ -150,6 +185,7 @@ public:
 
     [[nodiscard]] HWND handle() const noexcept;
     [[nodiscard]] WindowSize size() const noexcept;
+    [[nodiscard]] OverlayWindowRole role() const noexcept;
     // Per-monitor-v2 keeps client coordinates in physical pixels. Expose the
     // effective window DPI for diagnostics without changing that coordinate contract.
     [[nodiscard]] std::uint32_t effectiveDpi() const noexcept;
@@ -185,7 +221,7 @@ private:
     static ATOM registerWindowClass(HINSTANCE instance);
     void registerRawMouse();
     void unregisterRawMouse() noexcept;
-    void releaseInputRegistrations(HWND window) noexcept;
+    void releaseHostShellRegistrations(HWND window) noexcept;
     void handleRawInput(LPARAM lParam) noexcept;
     void pushPointerEvent(
         PointerEventKind kind,
@@ -203,6 +239,7 @@ private:
 
     HINSTANCE instance_{nullptr};
     HWND window_{nullptr};
+    OverlayWindowRole role_{OverlayWindowRole::HostShell};
     WindowSize size_{};
     bool displayTopologyChangePending_{false};
     bool displayColorChangePending_{false};

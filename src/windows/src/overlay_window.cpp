@@ -186,8 +186,28 @@ OverlayWindow::OverlayWindow(
     const RECT bounds,
     const std::wstring_view title,
     const RawMouseRegistration rawMouseRegistration)
-    : instance_(instance)
+    : OverlayWindow(
+          instance,
+          bounds,
+          title,
+          OverlayWindowOptions::hostShell(rawMouseRegistration))
 {
+}
+
+OverlayWindow::OverlayWindow(
+    HINSTANCE instance,
+    const RECT bounds,
+    const std::wstring_view title,
+    const OverlayWindowOptions options)
+    : instance_(instance),
+      role_(options.role)
+{
+    if (role_ != OverlayWindowRole::HostShell
+        && role_ != OverlayWindowRole::RenderSurface)
+    {
+        throw std::invalid_argument("Overlay window role is not recognized");
+    }
+
     registerWindowClass(instance_);
 
     const LONG width = bounds.right - bounds.left;
@@ -224,30 +244,33 @@ OverlayWindow::OverlayWindow(
 
     try
     {
-        pendingPointerEvents_.reserve(64);
-        if (rawMouseRegistration == RawMouseRegistration::Enabled)
+        if (role_ == OverlayWindowRole::HostShell)
         {
-            registerRawMouse();
+            pendingPointerEvents_.reserve(64);
+            if (options.rawMouseRegistration == RawMouseRegistration::Enabled)
+            {
+                registerRawMouse();
+            }
+            primaryExitHotKeyRegistered_ = RegisterHotKey(
+                window_,
+                primaryExitHotKeyIdentifier,
+                MOD_CONTROL | MOD_ALT | MOD_NOREPEAT,
+                VK_F12) != FALSE;
+            fallbackExitHotKeyRegistered_ = RegisterHotKey(
+                window_,
+                fallbackExitHotKeyIdentifier,
+                MOD_CONTROL | MOD_SHIFT | MOD_NOREPEAT,
+                VK_F12) != FALSE;
+            taskbarCreatedMessage_ = RegisterWindowMessageW(L"TaskbarCreated");
+            addNotificationIcon();
         }
-        primaryExitHotKeyRegistered_ = RegisterHotKey(
-            window_,
-            primaryExitHotKeyIdentifier,
-            MOD_CONTROL | MOD_ALT | MOD_NOREPEAT,
-            VK_F12) != FALSE;
-        fallbackExitHotKeyRegistered_ = RegisterHotKey(
-            window_,
-            fallbackExitHotKeyIdentifier,
-            MOD_CONTROL | MOD_SHIFT | MOD_NOREPEAT,
-            VK_F12) != FALSE;
-        taskbarCreatedMessage_ = RegisterWindowMessageW(L"TaskbarCreated");
-        addNotificationIcon();
     }
     catch (...)
     {
         // A throwing constructor does not run the destructor. Release every
         // process-global registration acquired after CreateWindowExW before
         // propagating the original initialization failure.
-        releaseInputRegistrations(window_);
+        releaseHostShellRegistrations(window_);
         if (window_ != nullptr)
         {
             const HWND window = window_;
@@ -260,7 +283,7 @@ OverlayWindow::OverlayWindow(
 
 OverlayWindow::~OverlayWindow()
 {
-    releaseInputRegistrations(window_);
+    releaseHostShellRegistrations(window_);
     if (window_ != nullptr)
     {
         const HWND window = window_;
@@ -277,6 +300,11 @@ HWND OverlayWindow::handle() const noexcept
 WindowSize OverlayWindow::size() const noexcept
 {
     return size_;
+}
+
+OverlayWindowRole OverlayWindow::role() const noexcept
+{
+    return role_;
 }
 
 std::uint32_t OverlayWindow::effectiveDpi() const noexcept
@@ -522,6 +550,11 @@ void OverlayWindow::show()
 
 void OverlayWindow::pollExitShortcut() noexcept
 {
+    if (role_ != OverlayWindowRole::HostShell)
+    {
+        return;
+    }
+
     const bool f12Down = (GetAsyncKeyState(VK_F12) & 0x8000) != 0;
     const bool controlDown = (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
     const bool altDown = (GetAsyncKeyState(VK_MENU) & 0x8000) != 0;
@@ -537,6 +570,11 @@ void OverlayWindow::pollExitShortcut() noexcept
 
 void OverlayWindow::pollPointerState() noexcept
 {
+    if (role_ != OverlayWindowRole::HostShell)
+    {
+        return;
+    }
+
     if (leftButtonDown_ && (GetAsyncKeyState(VK_LBUTTON) & 0x8000) == 0)
     {
         // Raw Input is normally lossless, but device changes and queue pressure
@@ -586,14 +624,17 @@ LRESULT OverlayWindow::handleMessage(
     const WPARAM wParam,
     const LPARAM lParam)
 {
-    if (taskbarCreatedMessage_ != 0U && message == taskbarCreatedMessage_)
+    if (role_ == OverlayWindowRole::HostShell
+        && taskbarCreatedMessage_ != 0U
+        && message == taskbarCreatedMessage_)
     {
         notificationIconAdded_ = false;
         addNotificationIcon();
         return 0;
     }
 
-    if (message == notificationIconMessage)
+    if (role_ == OverlayWindowRole::HostShell
+        && message == notificationIconMessage)
     {
         const UINT notificationMessage = LOWORD(lParam);
         if (notificationMessage == WM_CONTEXTMENU
@@ -620,11 +661,15 @@ LRESULT OverlayWindow::handleMessage(
         return 1;
 
     case WM_INPUT:
-        handleRawInput(lParam);
+        if (rawMouseRegistered_)
+        {
+            handleRawInput(lParam);
+        }
         return DefWindowProcW(window_, message, wParam, lParam);
 
     case WM_INPUT_DEVICE_CHANGE:
-        if (wParam == GIDC_REMOVAL)
+        if (role_ == OverlayWindowRole::HostShell
+            && wParam == GIDC_REMOVAL)
         {
             cancelPointer();
         }
@@ -636,8 +681,10 @@ LRESULT OverlayWindow::handleMessage(
         return 0;
 
     case WM_HOTKEY:
-        if (static_cast<int>(wParam) == primaryExitHotKeyIdentifier
-            || static_cast<int>(wParam) == fallbackExitHotKeyIdentifier)
+        if (role_ == OverlayWindowRole::HostShell
+            && (static_cast<int>(wParam) == primaryExitHotKeyIdentifier
+                || static_cast<int>(wParam)
+                    == fallbackExitHotKeyIdentifier))
         {
             requestClose();
             return 0;
@@ -645,7 +692,8 @@ LRESULT OverlayWindow::handleMessage(
         return DefWindowProcW(window_, message, wParam, lParam);
 
     case WM_COMMAND:
-        if (LOWORD(wParam) == notificationExitCommandIdentifier)
+        if (role_ == OverlayWindowRole::HostShell
+            && LOWORD(wParam) == notificationExitCommandIdentifier)
         {
             requestClose();
             return 0;
@@ -720,9 +768,14 @@ LRESULT OverlayWindow::handleMessage(
         return 0;
 
     case WM_DESTROY:
-        releaseInputRegistrations(window_);
+        releaseHostShellRegistrations(window_);
         closeRequested_ = true;
-        PostQuitMessage(0);
+        if (role_ == OverlayWindowRole::HostShell)
+        {
+            // Surface windows are topology-owned. Destroying one monitor must
+            // not terminate the process that owns the remaining surfaces.
+            PostQuitMessage(0);
+        }
         return 0;
 
     case WM_NCDESTROY:
@@ -785,7 +838,7 @@ void OverlayWindow::unregisterRawMouse() noexcept
     rawMouseRegistered_ = false;
 }
 
-void OverlayWindow::releaseInputRegistrations(const HWND window) noexcept
+void OverlayWindow::releaseHostShellRegistrations(const HWND window) noexcept
 {
     removeNotificationIcon();
     unregisterRawMouse();
@@ -966,6 +1019,11 @@ void OverlayWindow::cancelPointer() noexcept
 
 void OverlayWindow::invalidatePointerGeometry() noexcept
 {
+    if (role_ != OverlayWindowRole::HostShell)
+    {
+        return;
+    }
+
     // Screen-to-client conversion changes with the monitor origin. Discard
     // queued coordinates and emit one hard release so no old-screen sample can
     // create a click or trail after the fullscreen surface is repositioned.
