@@ -17,6 +17,8 @@ struct DisplaySessionBackgroundCaptureState final
     std::filesystem::path logPath{};
     std::string pendingSensorFailure{};
     CaptureExclusionHealthPoller exclusionHealthPoller{};
+    std::optional<DisplayTarget> pendingTarget{};
+    HWND pendingWakeWindow{nullptr};
     bool outcomePending{false};
     bool sensorWasActiveBeforeTransaction{false};
 };
@@ -185,6 +187,75 @@ DisplaySessionRetargetResult DisplaySession::retargetFxOnly(
     }
 }
 
+DisplaySessionRetargetResult DisplaySession::retargetSecondary(
+    DisplayTarget target,
+    const HWND wakeWindow)
+{
+    if (secondaryBackgroundCapture_ == nullptr)
+    {
+        return retargetFxOnly(std::move(target), wakeWindow);
+    }
+
+    DisplaySessionBackgroundCaptureState& state =
+        *secondaryBackgroundCapture_;
+    if (state.execution.transactionActive)
+    {
+        const BackgroundCaptureExecutionStatus canceled =
+            cancelBackgroundCaptureTransition(
+                state.transition,
+                window_,
+                renderer_,
+                state.execution,
+                BackgroundCaptureCancelResizePolicy::Discard,
+                "secondary-display-target",
+                state.logPath);
+        if (canceled != BackgroundCaptureExecutionStatus::Completed)
+        {
+            throw std::logic_error(
+                "Secondary display retarget cancellation remained pending");
+        }
+        appendSecondaryBackgroundOutcome(state, renderer_);
+    }
+
+    state.pendingTarget = std::move(target);
+    state.pendingWakeWindow = wakeWindow;
+    state.sensorWasActiveBeforeTransaction =
+        renderer_.backgroundCaptureActive();
+    const bafx::windows::BackgroundCaptureRequestResult requestResult =
+        state.transition.beginIntent(
+            state.request,
+            displayTargetSize(*state.pendingTarget));
+    if (requestResult ==
+        bafx::windows::BackgroundCaptureRequestResult::NoChange)
+    {
+        acceptAppliedTarget(
+            std::move(*state.pendingTarget),
+            state.pendingWakeWindow);
+        state.pendingTarget.reset();
+        state.pendingWakeWindow = nullptr;
+        return {};
+    }
+    requireStartedRequest(requestResult);
+    state.outcomePending = true;
+
+    static_cast<void>(serviceSecondaryBackgroundCapture(
+        bafx::core::MonotonicTime::zero()));
+    return DisplaySessionRetargetResult{
+        state.execution.outputAdapterRetargeted
+            ? (state.execution.outputAdapterWarpFallback
+                ? bafx::windows::OutputAdapterRetargetStatus::
+                    RecreatedWarpFallback
+                : bafx::windows::OutputAdapterRetargetStatus::
+                    RecreatedHardware)
+            : bafx::windows::OutputAdapterRetargetStatus::Unchanged,
+        state.execution.resizedOutputSize.has_value()
+            ? (state.execution.deviceRecovered
+                ? bafx::windows::OutputResizeStatus::DeviceRecovered
+                : bafx::windows::OutputResizeStatus::Resized)
+            : bafx::windows::OutputResizeStatus::Unchanged,
+        state.execution.transactionActive || state.transition.transitioning()};
+}
+
 void DisplaySession::initializeSecondaryBackgroundCapture(
     const bafx::windows::BackgroundCaptureRequest request,
     const std::uint64_t controlGeneration,
@@ -278,7 +349,9 @@ DisplaySession::serviceSecondaryBackgroundCapture(
         {
             const DisplayTargetIntent intent = state.execution.transactionActive
                 ? state.execution.targetIntent
-                : DisplayTargetIntent{target_, false};
+                : (state.pendingTarget.has_value()
+                    ? DisplayTargetIntent{*state.pendingTarget, true}
+                    : DisplayTargetIntent{target_, false});
             const std::uint64_t generation = state.execution.transactionActive
                 ? state.execution.controlGeneration
                 : state.controlGeneration;
@@ -300,6 +373,15 @@ DisplaySession::serviceSecondaryBackgroundCapture(
             result.renderInvalidated = true;
             result.deviceRecovered = result.deviceRecovered
                 || state.execution.deviceRecovered;
+            if (state.pendingTarget.has_value()
+                && displayTargetBoundsApplied(state.execution))
+            {
+                acceptAppliedTarget(
+                    std::move(*state.pendingTarget),
+                    state.pendingWakeWindow);
+                state.pendingTarget.reset();
+                state.pendingWakeWindow = nullptr;
+            }
             if (!state.pendingSensorFailure.empty()
                 && state.execution.sensorFailure.empty())
             {

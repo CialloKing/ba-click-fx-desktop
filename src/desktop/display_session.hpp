@@ -94,6 +94,9 @@ public:
     [[nodiscard]] DisplaySessionRetargetResult retargetFxOnly(
         DisplayTarget target,
         HWND wakeWindow);
+    [[nodiscard]] DisplaySessionRetargetResult retargetSecondary(
+        DisplayTarget target,
+        HWND wakeWindow);
     void initializeSecondaryBackgroundCapture(
         bafx::windows::BackgroundCaptureRequest request,
         std::uint64_t controlGeneration,

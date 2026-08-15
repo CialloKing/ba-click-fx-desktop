@@ -137,7 +137,7 @@ DisplaySessionReconcileResult DisplaySessionManager::reconcileSecondaries(
 
         try
         {
-            static_cast<void>(existing->retargetFxOnly(target, wakeWindow_));
+            static_cast<void>(existing->retargetSecondary(target, wakeWindow_));
             ++result.updated;
         }
         catch (const std::exception& error)
