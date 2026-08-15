@@ -2601,10 +2601,10 @@ int runApplication(
 
         const std::optional<bafx::windows::BorderlessCaptureAccessStatus>
             previousStatus = observedBorderlessAccessStatus;
-            const bafx::windows::BorderlessCaptureAccessHealthResult health =
-                borderlessAccessMonitor.observe();
-            borderlessAccessAuthority.invalidate();
-            observedBorderlessAccessStatus = health.status;
+        const bafx::windows::BorderlessCaptureAccessHealthResult health =
+            borderlessAccessMonitor.observe();
+        borderlessAccessAuthority.invalidate();
+        observedBorderlessAccessStatus = health.status;
         appendBorderlessAccessHealth(
             logPath,
             "access-changed",
