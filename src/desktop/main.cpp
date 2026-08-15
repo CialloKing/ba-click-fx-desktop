@@ -1947,11 +1947,14 @@ int runApplication(
             options.disableRawInput
                 ? bafx::windows::RawMouseRegistration::Disabled
                 : bafx::windows::RawMouseRegistration::Enabled));
+    bafx::windows::BorderlessCaptureAccessAuthority borderlessAccessAuthority(
+        packageIdentity);
     bafx::desktop::BackgroundCaptureStopMonitor backgroundStopMonitor(logPath);
     bafx::desktop::DisplaySessionManager displaySessions(
         bafx::desktop::DisplaySessionManagerOptions{
             instance,
             hostWindow.handle(),
+            &borderlessAccessAuthority,
             L"ba-click-fx-desktop",
             makeBloomSettings(config.effects),
             backgroundStopMonitor.observer(),
@@ -2049,6 +2052,9 @@ int runApplication(
 
         borderlessAccessMonitorRequested = required;
         observedBorderlessAccessStatus.reset();
+        // The system permission is process-wide. A policy boundary invalidates
+        // the shared result once; individual display transactions never do.
+        borderlessAccessAuthority.invalidate();
         if (!required)
         {
             borderlessAccessMonitor.stop();
@@ -2095,6 +2101,7 @@ int runApplication(
                     appliedDisplayTarget,
                     false},
                 control.snapshot().generation,
+                borderlessAccessAuthority,
                 backgroundExecution,
                 logPath);
     if (backgroundExecution.deviceRecovered)
@@ -2594,9 +2601,10 @@ int runApplication(
 
         const std::optional<bafx::windows::BorderlessCaptureAccessStatus>
             previousStatus = observedBorderlessAccessStatus;
-        const bafx::windows::BorderlessCaptureAccessHealthResult health =
-            borderlessAccessMonitor.observe();
-        observedBorderlessAccessStatus = health.status;
+            const bafx::windows::BorderlessCaptureAccessHealthResult health =
+                borderlessAccessMonitor.observe();
+            borderlessAccessAuthority.invalidate();
+            observedBorderlessAccessStatus = health.status;
         appendBorderlessAccessHealth(
             logPath,
             "access-changed",
@@ -2619,6 +2627,7 @@ int runApplication(
                         backgroundTransition,
                         window,
                         renderer,
+                        borderlessAccessAuthority,
                         backgroundExecution,
                         bafx::desktop::
                             BackgroundCaptureCancelResizePolicy::Preserve,
@@ -2644,6 +2653,7 @@ int runApplication(
                             appliedDisplayTarget,
                             false},
                         appliedGeneration,
+                        borderlessAccessAuthority,
                         backgroundExecution,
                         logPath);
                 coordinatorCleaned = true;
@@ -3154,6 +3164,7 @@ int runApplication(
                         backgroundTransition,
                         window,
                         renderer,
+                        borderlessAccessAuthority,
                         backgroundExecution,
                         cancelResizePolicy,
                         cancellationReason,
@@ -3168,6 +3179,7 @@ int runApplication(
                         renderer,
                         backgroundExecution.targetIntent,
                         backgroundExecution.controlGeneration,
+                        borderlessAccessAuthority,
                         backgroundExecution,
                         logPath);
             }
@@ -3445,6 +3457,7 @@ int runApplication(
                         renderer,
                         targetIntent,
                         controlState.generation,
+                        borderlessAccessAuthority,
                         backgroundExecution,
                         logPath);
                 backgroundRetryPending = false;
@@ -3521,6 +3534,7 @@ int runApplication(
                             backgroundTransition,
                             window,
                             renderer,
+                            borderlessAccessAuthority,
                             backgroundExecution,
                             bafx::desktop::BackgroundCaptureCancelResizePolicy::
                                 Preserve,
@@ -3543,6 +3557,7 @@ int runApplication(
                                 appliedDisplayTarget,
                                 false},
                             appliedGeneration,
+                            borderlessAccessAuthority,
                             backgroundExecution,
                             logPath);
                 }
@@ -4092,6 +4107,7 @@ int runApplication(
                                 backgroundTransition,
                                 window,
                                 renderer,
+                                borderlessAccessAuthority,
                                 backgroundExecution,
                                 bafx::desktop::
                                     BackgroundCaptureCancelResizePolicy::Preserve,
@@ -4142,6 +4158,7 @@ int runApplication(
                                         appliedDisplayTarget,
                                         false},
                                     appliedGeneration,
+                                    borderlessAccessAuthority,
                                     backgroundExecution,
                                     logPath);
                         if (stopStatus
@@ -4465,6 +4482,7 @@ int runApplication(
                     backgroundTransition,
                     window,
                     renderer,
+                    borderlessAccessAuthority,
                     backgroundExecution,
                     bafx::desktop::BackgroundCaptureCancelResizePolicy::Preserve,
                     "capture-session-stopped",
@@ -4498,6 +4516,7 @@ int runApplication(
                         appliedDisplayTarget,
                         false},
                     appliedGeneration,
+                    borderlessAccessAuthority,
                     backgroundExecution,
                     logPath);
             if (stopStatus
@@ -4535,6 +4554,7 @@ int runApplication(
                         appliedDisplayTarget,
                         false},
                     appliedGeneration,
+                    borderlessAccessAuthority,
                     backgroundExecution,
                     logPath);
             if (recreateStatus
@@ -4782,6 +4802,7 @@ int runApplication(
                 backgroundTransition,
                 window,
                 renderer,
+                borderlessAccessAuthority,
                 backgroundExecution,
                 bafx::desktop::BackgroundCaptureCancelResizePolicy::Discard,
                 "shutdown",

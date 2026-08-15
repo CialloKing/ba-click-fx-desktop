@@ -192,7 +192,6 @@ void beginBackgroundCaptureExecution(
     execution.transactionStartedAt = now;
     execution.actionStartedAt = {};
     execution.activeAction.reset();
-    execution.borderlessAccessRequest.reset();
 }
 
 void beginBackgroundCaptureAction(
@@ -818,6 +817,7 @@ BackgroundCaptureExecutionStatus executeBackgroundCaptureTransition(
     bafx::windows::CompositionRenderer& renderer,
     const DisplayTargetIntent& targetIntent,
     const std::uint64_t controlGeneration,
+    bafx::windows::BorderlessCaptureAccessAuthority& borderlessAccessAuthority,
     BackgroundCaptureExecutionResult& execution,
     const std::filesystem::path& logPath)
 {
@@ -871,15 +871,15 @@ BackgroundCaptureExecutionStatus executeBackgroundCaptureTransition(
             case bafx::windows::BackgroundCaptureActionKind::
                 RequestBorderlessAccess:
             {
-                if (execution.borderlessAccessRequest == nullptr)
+                const std::optional<bafx::windows::BackgroundCaptureRequest>
+                    request = transition.request();
+                if (!request.has_value())
                 {
-                    execution.borderlessAccessRequest = std::make_unique<
-                        bafx::windows::BorderlessCaptureAccessRequest>();
-                    execution.borderlessAccessRequest->begin(
-                        bafx::windows::queryCurrentPackageIdentity());
+                    throw std::logic_error(
+                        "Borderless access action lost its capture request");
                 }
                 const bafx::windows::BorderlessCaptureAccessPollResult poll =
-                    execution.borderlessAccessRequest->poll();
+                    borderlessAccessAuthority.poll(request->retryToken);
                 if (poll.pending)
                 {
                     if (!transition.applyObservation(
@@ -912,7 +912,6 @@ BackgroundCaptureExecutionStatus executeBackgroundCaptureTransition(
                         bafx::windows::borderlessCaptureAccessDiagnostic(
                             *poll.result);
                 }
-                execution.borderlessAccessRequest.reset();
                 break;
             }
             case bafx::windows::BackgroundCaptureActionKind::StopSensor:
@@ -1115,7 +1114,6 @@ BackgroundCaptureExecutionStatus executeBackgroundCaptureTransition(
     execution.transactionActive = false;
     execution.pending = false;
     execution.activeAction.reset();
-    execution.borderlessAccessRequest.reset();
     return BackgroundCaptureExecutionStatus::Completed;
 }
 
@@ -1246,6 +1244,7 @@ BackgroundCaptureExecutionStatus cancelBackgroundCaptureTransition(
     bafx::windows::BackgroundCaptureTransition& transition,
     bafx::windows::OverlayWindow& window,
     bafx::windows::CompositionRenderer& renderer,
+    bafx::windows::BorderlessCaptureAccessAuthority& borderlessAccessAuthority,
     BackgroundCaptureExecutionResult& execution,
     const BackgroundCaptureCancelResizePolicy resizePolicy,
     const std::string_view reason,
@@ -1259,8 +1258,7 @@ BackgroundCaptureExecutionStatus cancelBackgroundCaptureTransition(
         || !execution.activeAction.has_value()
         || execution.activeAction->kind
             != bafx::windows::BackgroundCaptureActionKind::
-                RequestBorderlessAccess
-        || execution.borderlessAccessRequest == nullptr)
+                RequestBorderlessAccess)
     {
         throw std::logic_error(
             "Only a pending borderless access action can be canceled");
@@ -1271,23 +1269,11 @@ BackgroundCaptureExecutionStatus cancelBackgroundCaptureTransition(
         execution,
         resizePolicy,
         reason);
-    execution.borderlessAccessRequest->cancel();
-    const bafx::windows::BorderlessCaptureAccessPollResult poll =
-        execution.borderlessAccessRequest->poll();
-    if (!poll.result.has_value())
-    {
-        throw std::logic_error(
-            "Canceled borderless access request did not produce a result");
-    }
-    appendBorderlessCaptureAccessCheck(
-        logPath,
-        execution.controlGeneration,
-        execution.actionIndex,
-        *poll.result);
+    // The system request belongs to the process authority. This transaction
+    // only withdraws its observation so another display can keep waiting.
     execution.sensorFailure = "Borderless access request canceled; reason=";
     execution.sensorFailure += reason;
     execution.borderlessAccessConfirmed = false;
-    execution.borderlessAccessRequest.reset();
     finishBackgroundCaptureAction(
         transition,
         execution,
@@ -1303,6 +1289,7 @@ BackgroundCaptureExecutionStatus cancelBackgroundCaptureTransition(
         renderer,
         execution.targetIntent,
         execution.controlGeneration,
+        borderlessAccessAuthority,
         execution,
         logPath);
 }

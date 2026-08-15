@@ -18,6 +18,8 @@ struct DisplaySessionManagerOptions final
 {
     HINSTANCE instance{nullptr};
     HWND wakeWindow{nullptr};
+    bafx::windows::BorderlessCaptureAccessAuthority*
+        borderlessAccessAuthority{nullptr};
     std::wstring_view surfaceTitle{};
     bafx::windows::FxBloomSettings bloomSettings{};
     bafx::windows::WgcBackgroundStopObserver backgroundStopObserver{};
@@ -91,6 +93,8 @@ private:
 
     HINSTANCE instance_{nullptr};
     HWND wakeWindow_{nullptr};
+    bafx::windows::BorderlessCaptureAccessAuthority*
+        borderlessAccessAuthority_{nullptr};
     std::wstring surfaceTitle_{};
     bafx::windows::FxBloomSettings bloomSettings_{};
     bafx::windows::WgcBackgroundStopObserver backgroundStopObserver_{};

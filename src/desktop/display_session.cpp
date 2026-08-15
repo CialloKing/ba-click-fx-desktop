@@ -68,7 +68,8 @@ void appendSecondaryBackgroundOutcome(
 }
 
 DisplaySession::DisplaySession(DisplaySessionOptions options)
-    : target_(std::move(options.target)),
+    : borderlessAccessAuthority_(options.borderlessAccessAuthority),
+      target_(std::move(options.target)),
       window_(
           options.instance,
           target_.bounds,
@@ -83,6 +84,11 @@ DisplaySession::DisplaySession(DisplaySessionOptions options)
           options.outputPreference),
       simulation_(options.simulationSeed)
 {
+    if (borderlessAccessAuthority_ == nullptr)
+    {
+        throw std::invalid_argument(
+            "Display session requires the process access authority");
+    }
     colorMonitorStartResult_ = colorMonitor_.start(
         target_.monitor,
         options.wakeWindow);
@@ -228,6 +234,7 @@ DisplaySessionRetargetResult DisplaySession::retargetSecondary(
                 state.transition,
                 window_,
                 renderer_,
+                *borderlessAccessAuthority_,
                 state.execution,
                 BackgroundCaptureCancelResizePolicy::Discard,
                 "secondary-display-target",
@@ -363,6 +370,7 @@ void DisplaySession::updateSecondaryBackgroundCaptureRequest(
                 state.transition,
                 window_,
                 renderer_,
+                *borderlessAccessAuthority_,
                 state.execution,
                 BackgroundCaptureCancelResizePolicy::Preserve,
                 "secondary-control-generation",
@@ -441,6 +449,7 @@ DisplaySession::serviceSecondaryBackgroundCapture(
                     renderer_,
                     intent,
                     generation,
+                    *borderlessAccessAuthority_,
                     state.execution,
                     state.logPath);
             if (status == BackgroundCaptureExecutionStatus::Pending)
@@ -716,6 +725,7 @@ DisplaySession::handleSecondaryBorderlessAccessLost(
                 state.transition,
                 window_,
                 renderer_,
+                *borderlessAccessAuthority_,
                 state.execution,
                 BackgroundCaptureCancelResizePolicy::Preserve,
                 "secondary-borderless-access-lost",

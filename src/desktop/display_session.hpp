@@ -6,6 +6,7 @@
 #include "bafx/fx/simulation_runtime.hpp"
 #include "bafx/fx/simulation_timeline.hpp"
 #include "bafx/windows/background_capture_transition.hpp"
+#include "bafx/windows/borderless_capture_access.hpp"
 #include "bafx/windows/composition_renderer.hpp"
 #include "bafx/windows/display_capabilities.hpp"
 #include "bafx/windows/display_color_monitor.hpp"
@@ -27,6 +28,8 @@ struct DisplaySessionOptions final
 {
     HINSTANCE instance{nullptr};
     HWND wakeWindow{nullptr};
+    bafx::windows::BorderlessCaptureAccessAuthority*
+        borderlessAccessAuthority{nullptr};
     DisplayTarget target{};
     std::wstring_view title{};
     bafx::windows::FxBloomSettings bloomSettings{};
@@ -159,6 +162,8 @@ private:
     [[nodiscard]] static std::optional<LUID> requestedAdapter(
         const DisplayTarget& target) noexcept;
 
+    bafx::windows::BorderlessCaptureAccessAuthority*
+        borderlessAccessAuthority_{nullptr};
     DisplayTarget target_{};
     bafx::windows::OverlayWindow window_;
     bafx::windows::CompositionRenderer renderer_;

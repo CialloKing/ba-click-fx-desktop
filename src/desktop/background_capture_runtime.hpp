@@ -14,7 +14,6 @@
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
-#include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -73,8 +72,6 @@ struct BackgroundCaptureExecutionResult
     std::chrono::steady_clock::time_point transactionStartedAt{};
     std::chrono::steady_clock::time_point actionStartedAt{};
     std::optional<bafx::windows::BackgroundCaptureAction> activeAction{};
-    std::unique_ptr<bafx::windows::BorderlessCaptureAccessRequest>
-        borderlessAccessRequest{};
 };
 
 [[nodiscard]] bool displayTargetBoundsApplied(
@@ -124,6 +121,7 @@ private:
     bafx::windows::CompositionRenderer& renderer,
     const DisplayTargetIntent& targetIntent,
     std::uint64_t controlGeneration,
+    bafx::windows::BorderlessCaptureAccessAuthority& borderlessAccessAuthority,
     BackgroundCaptureExecutionResult& execution,
     const std::filesystem::path& logPath);
 
@@ -131,6 +129,7 @@ private:
     bafx::windows::BackgroundCaptureTransition& transition,
     bafx::windows::OverlayWindow& window,
     bafx::windows::CompositionRenderer& renderer,
+    bafx::windows::BorderlessCaptureAccessAuthority& borderlessAccessAuthority,
     BackgroundCaptureExecutionResult& execution,
     BackgroundCaptureCancelResizePolicy resizePolicy,
     std::string_view reason,

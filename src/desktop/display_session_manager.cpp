@@ -74,6 +74,7 @@ DisplaySessionManager::DisplaySessionManager(
     DisplaySessionManagerOptions options)
     : instance_(options.instance),
       wakeWindow_(options.wakeWindow),
+      borderlessAccessAuthority_(options.borderlessAccessAuthority),
       surfaceTitle_(options.surfaceTitle),
       bloomSettings_(options.bloomSettings),
       backgroundStopObserver_(options.backgroundStopObserver),
@@ -83,6 +84,11 @@ DisplaySessionManager::DisplaySessionManager(
       inputSamplingRateHz_(options.inputSamplingRateHz),
       alwaysOnTrailEnabled_(options.alwaysOnTrailEnabled)
 {
+    if (borderlessAccessAuthority_ == nullptr)
+    {
+        throw std::invalid_argument(
+            "Display manager requires the process access authority");
+    }
 }
 
 DisplaySession& DisplaySessionManager::createCoordinator(DisplayTarget target)
@@ -387,6 +393,7 @@ std::unique_ptr<DisplaySession> DisplaySessionManager::createSession(
         DisplaySessionOptions{
             instance_,
             wakeWindow_,
+            borderlessAccessAuthority_,
             std::move(target),
             surfaceTitle_,
             bloomSettings_,
