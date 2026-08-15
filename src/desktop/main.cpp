@@ -1213,6 +1213,144 @@ void appendSecondaryRenderFailure(
     }
 }
 
+void appendSecondaryBackgroundCaptureFailure(
+    const std::filesystem::path& logPath,
+    const bafx::desktop::DisplaySession& session,
+    const std::string_view operation,
+    const std::string_view message) noexcept
+{
+    try
+    {
+        const std::string device =
+            bafx::desktop::displayTargetDeviceUtf8(session.target());
+        const std::string monitor =
+            bafx::desktop::formatDisplayTargetMonitor(session.target());
+        const std::array fields{
+            bafx::windows::DiagnosticField{"Operation", operation},
+            bafx::windows::DiagnosticField{"Device", device},
+            bafx::windows::DiagnosticField{"Monitor", monitor},
+            bafx::windows::DiagnosticField{"Message", message},
+            bafx::windows::DiagnosticField{"Fallback", "fx-only"}};
+        bafx::windows::appendDiagnosticEvent(
+            logPath,
+            "Display.Session.BackgroundCaptureFailed",
+            fields,
+            bafx::windows::DiagnosticLevel::Error);
+    }
+    catch (...)
+    {
+        bafx::windows::appendDiagnosticLog(
+            logPath,
+            "Secondary background capture failure could not be formatted");
+    }
+}
+
+void applySecondaryBackgroundCaptureRequest(
+    bafx::desktop::DisplaySessionManager& sessions,
+    bafx::desktop::DisplaySession& coordinator,
+    const bafx::windows::BackgroundCaptureRequest& request,
+    const std::uint64_t controlGeneration,
+    const std::filesystem::path& logPath) noexcept
+{
+    for (const auto& ownedSession : sessions.sessions())
+    {
+        bafx::desktop::DisplaySession& session = *ownedSession;
+        if (&session == &coordinator || session.renderFaulted())
+        {
+            continue;
+        }
+
+        try
+        {
+            if (session.secondaryBackgroundCaptureInitialized())
+            {
+                session.updateSecondaryBackgroundCaptureRequest(
+                    request,
+                    controlGeneration);
+            }
+            else
+            {
+                session.initializeSecondaryBackgroundCapture(
+                    request,
+                    controlGeneration,
+                    logPath);
+            }
+        }
+        catch (const std::exception& error)
+        {
+            // WGC is optional per surface. Retire only this transaction and
+            // preserve every other display plus this surface's FX-only path.
+            session.shutdownSecondaryBackgroundCapture();
+            appendSecondaryBackgroundCaptureFailure(
+                logPath,
+                session,
+                "apply-request",
+                error.what());
+        }
+        catch (...)
+        {
+            session.shutdownSecondaryBackgroundCapture();
+            appendSecondaryBackgroundCaptureFailure(
+                logPath,
+                session,
+                "apply-request",
+                "unknown exception");
+        }
+    }
+}
+
+[[nodiscard]] bool serviceSecondaryBackgroundCaptures(
+    bafx::desktop::DisplaySessionManager& sessions,
+    bafx::desktop::DisplaySession& coordinator,
+    const bafx::core::MonotonicTime now,
+    const std::filesystem::path& logPath) noexcept
+{
+    bool renderInvalidated = false;
+    for (const auto& ownedSession : sessions.sessions())
+    {
+        bafx::desktop::DisplaySession& session = *ownedSession;
+        if (&session == &coordinator)
+        {
+            continue;
+        }
+        if (session.renderFaulted())
+        {
+            session.shutdownSecondaryBackgroundCapture();
+            continue;
+        }
+        if (!session.secondaryBackgroundCaptureInitialized())
+        {
+            continue;
+        }
+
+        try
+        {
+            const bafx::desktop::DisplaySessionBackgroundCaptureServiceResult
+                result = session.serviceSecondaryBackgroundCapture(now);
+            renderInvalidated = result.renderInvalidated || renderInvalidated;
+        }
+        catch (const std::exception& error)
+        {
+            session.shutdownSecondaryBackgroundCapture();
+            appendSecondaryBackgroundCaptureFailure(
+                logPath,
+                session,
+                "service",
+                error.what());
+        }
+        catch (...)
+        {
+            session.shutdownSecondaryBackgroundCapture();
+            appendSecondaryBackgroundCaptureFailure(
+                logPath,
+                session,
+                "service",
+                "unknown exception");
+        }
+    }
+    return renderInvalidated;
+}
+
 SecondaryRenderSummary renderSecondarySessions(
     bafx::desktop::DisplaySessionManager& sessions,
     bafx::desktop::DisplaySession& coordinator,
@@ -1544,6 +1682,12 @@ int runApplication(
         "startup",
         initialReconcile,
         displaySessions.sessions().size());
+    applySecondaryBackgroundCaptureRequest(
+        displaySessions,
+        displaySession,
+        bafx::desktop::backgroundCaptureRequest(config),
+        control.snapshot().generation,
+        logPath);
 
     // A broker prompt may remain pending for user input. Expose the control
     // plane after the non-blocking first service step so WM_INPUT, rendering,
@@ -2122,6 +2266,14 @@ int runApplication(
                 "runtime-notification",
                 reconcile,
                 displaySessions.sessions().size());
+            // New topology sessions join the current request independently;
+            // existing sessions treat the stable request as a no-op.
+            applySecondaryBackgroundCaptureRequest(
+                displaySessions,
+                displaySession,
+                bafx::desktop::backgroundCaptureRequest(config),
+                appliedGeneration,
+                logPath);
 
             const bafx::desktop::DisplayTarget& requestedTarget =
                 pendingDisplayTarget.has_value()
@@ -2508,6 +2660,12 @@ int runApplication(
                         }
                     }
                 }
+                applySecondaryBackgroundCaptureRequest(
+                    displaySessions,
+                    displaySession,
+                    bafx::desktop::backgroundCaptureRequest(config),
+                    controlState.generation,
+                    logPath);
             }
             const bafx::windows::BackgroundCaptureRequest nextBackgroundRequest =
                 bafx::desktop::backgroundCaptureRequest(
@@ -2656,6 +2814,12 @@ int runApplication(
                 renderInvalidated = true;
             }
         }
+        renderInvalidated = serviceSecondaryBackgroundCaptures(
+            displaySessions,
+            displaySession,
+            captureHealthNow,
+            logPath)
+            || renderInvalidated;
 
         const bool enteringPause = controlState.paused
             && !simulationTimeline.paused();
