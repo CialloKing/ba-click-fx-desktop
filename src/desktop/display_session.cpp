@@ -517,7 +517,8 @@ DisplaySession::serviceSecondaryBackgroundCapture(
                     BackgroundAware;
             const bool sensorWasActive = renderer_.backgroundCaptureActive();
             const bool restartRequired = state.request.sensorRequired
-                && backgroundCaptureWasEffective;
+                && backgroundCaptureWasEffective
+                && sensorWasActive;
             if (restartRequired
                 && state.request.retryToken
                     == std::numeric_limits<std::uint64_t>::max())
