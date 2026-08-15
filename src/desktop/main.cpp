@@ -2997,10 +2997,13 @@ int runApplication(
                     topology,
                     appliedDisplayTarget);
             }
-            if (observed == nullptr)
+            if (observed == nullptr
+                && topology.status
+                    == bafx::windows::DisplayTopologyStatus::Complete)
             {
-                // The coordinator migrates only after its stable source is
-                // absent. A primary-role toggle alone must not move it.
+                // Only an authoritative snapshot can prove the old source is
+                // absent. A partial hot-plug query must retain the working
+                // resource domain instead of redirecting it to today's primary.
                 observed = bafx::desktop::findPrimaryDisplayTarget(topology);
             }
             const bafx::desktop::DisplayTarget observedTarget =
