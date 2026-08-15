@@ -524,6 +524,8 @@ void appendDiagnosticRecordUnlocked(
         return "display-config-path";
     case DisplayRefreshRateSource::DisplayConfigVirtualRefresh:
         return "display-config-virtual-refresh";
+    case DisplayRefreshRateSource::DisplayConfigPhysicalRefresh:
+        return "display-config-physical-refresh";
     }
     return "unknown";
 }

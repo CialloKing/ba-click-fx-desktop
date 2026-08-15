@@ -15,7 +15,8 @@ enum class DisplayRefreshRateSource : std::uint8_t
 {
     DwmCompositionTiming,
     DisplayConfigPath,
-    DisplayConfigVirtualRefresh
+    DisplayConfigVirtualRefresh,
+    DisplayConfigPhysicalRefresh
 };
 
 struct DisplayRefreshRate final
@@ -33,11 +34,13 @@ struct DisplayPhysicalTarget final
     std::wstring friendlyName{};
     std::wstring devicePath{};
     DisplayRefreshRate refreshRate{};
+    std::optional<DisplayRefreshRate> physicalRefreshRate{};
     DISPLAYCONFIG_ROTATION rotation{DISPLAYCONFIG_ROTATION_IDENTITY};
     DISPLAYCONFIG_SCALING scaling{DISPLAYCONFIG_SCALING_IDENTITY};
     DISPLAYCONFIG_VIDEO_OUTPUT_TECHNOLOGY outputTechnology{
         DISPLAYCONFIG_OUTPUT_TECHNOLOGY_OTHER};
     bool available{false};
+    bool dynamicRefreshRateBoosted{false};
 };
 
 struct ActiveDisplayMonitor final

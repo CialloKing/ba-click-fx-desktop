@@ -37,6 +37,53 @@ struct MonitorEnumeration
     return hertz >= 1.0 && hertz <= 1000.0;
 }
 
+[[nodiscard]] std::optional<DisplayRefreshRate> physicalRefreshRate(
+    const DISPLAYCONFIG_PATH_INFO& path,
+    const std::vector<DISPLAYCONFIG_MODE_INFO>& modes) noexcept
+{
+    constexpr UINT pathSupportsVirtualMode = 0x00000008U;
+    const bool virtualMode = (path.flags & pathSupportsVirtualMode) != 0U;
+    const UINT32 modeIndex = virtualMode
+        ? path.targetInfo.targetModeInfoIdx
+        : path.targetInfo.modeInfoIdx;
+    const UINT32 invalidIndex = virtualMode
+        ? 0x0000FFFFU
+        : 0xFFFFFFFFU;
+    if (modeIndex == invalidIndex || modeIndex >= modes.size())
+    {
+        return std::nullopt;
+    }
+
+    const DISPLAYCONFIG_MODE_INFO& mode = modes[modeIndex];
+    if (mode.infoType != DISPLAYCONFIG_MODE_INFO_TYPE_TARGET
+        || !sameLuid(mode.adapterId, path.targetInfo.adapterId)
+        || mode.id != path.targetInfo.id)
+    {
+        return std::nullopt;
+    }
+
+    const DISPLAYCONFIG_RATIONAL& physical =
+        mode.targetMode.targetVideoSignalInfo.vSyncFreq;
+    const DisplayRefreshRate result{
+        physical.Numerator,
+        physical.Denominator,
+        DisplayRefreshRateSource::DisplayConfigPhysicalRefresh};
+    return validRefreshRate(result)
+        ? std::optional<DisplayRefreshRate>(result)
+        : std::nullopt;
+}
+
+[[nodiscard]] DisplayRefreshRate captureCadenceRefreshRate(
+    const DisplayPhysicalTarget& target) noexcept
+{
+    if (target.dynamicRefreshRateBoosted
+        && target.physicalRefreshRate.has_value())
+    {
+        return *target.physicalRefreshRate;
+    }
+    return target.refreshRate;
+}
+
 BOOL CALLBACK collectMonitor(
     const HMONITOR monitor,
     HDC,
@@ -304,6 +351,10 @@ DisplayTopologySnapshot queryActiveDisplayTopology() noexcept
                 virtualRefreshRateAware
                     ? DisplayRefreshRateSource::DisplayConfigVirtualRefresh
                     : DisplayRefreshRateSource::DisplayConfigPath};
+            target.physicalRefreshRate = physicalRefreshRate(path, modes);
+            constexpr UINT dynamicRefreshRateBoostFlag = 0x00000010U;
+            target.dynamicRefreshRateBoosted = virtualRefreshRateAware
+                && (path.flags & dynamicRefreshRateBoostFlag) != 0U;
             target.rotation = path.targetInfo.rotation;
             target.scaling = path.targetInfo.scaling;
             target.outputTechnology = path.targetInfo.outputTechnology;
@@ -399,16 +450,18 @@ std::optional<DisplayRefreshRate> queryDisplayRefreshRate(
         return std::nullopt;
     }
 
-    const DisplayRefreshRate refreshRate =
-        display->physicalTargets.front().refreshRate;
+    const DisplayRefreshRate refreshRate = captureCadenceRefreshRate(
+        display->physicalTargets.front());
     if (!validRefreshRate(refreshRate))
     {
         return std::nullopt;
     }
     for (const DisplayPhysicalTarget& target : display->physicalTargets)
     {
-        if (target.refreshRate.numerator != refreshRate.numerator
-            || target.refreshRate.denominator != refreshRate.denominator)
+        const DisplayRefreshRate targetRefreshRate =
+            captureCadenceRefreshRate(target);
+        if (targetRefreshRate.numerator != refreshRate.numerator
+            || targetRefreshRate.denominator != refreshRate.denominator)
         {
             // A cloned source with different scan-out rates has no single
             // target cadence. The caller must retain a conservative fallback.
