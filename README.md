@@ -155,12 +155,11 @@ Visual Studio、Windows SDK、Inno Setup 或 PowerShell 依赖包；安装器已
 `%LOCALAPPDATA%`、当前工作目录或其他用户目录保存数据。Host 使用
 `Local\BAFX.Host.v1` 互斥体保证单实例。
 
-首次生成的 schema 7 配置将 `background.mode` 设为 `background-aware`，并将
-`background.allowSystemBorder` 设为 `true`；schema 1/2/3 配置迁移到当前版本时采用该值，schema 4
-迁移时缺失字段也使用该默认值，以便保留旧系统上的背景感知路径；schema 4 中已经显式保存的
-`false` 会原样保留。schema 5 虽然序列化了尚未接线的 `trailOnlyWhilePressed=false`，实际行为始终要求
-按住鼠标；迁移到 schema 6 时会归一为 `true`，避免升级后意外开启拖尾常驻。schema 6 迁移到
-schema 7 时新增 `input.samplingRateHz=0`，表示不在输入队列收敛之外再施加时间限频。只有
+首次生成的 schema 8 配置将 `background.mode` 设为 `background-aware`、
+`background.allowSystemBorder` 设为 `true`、`display.hdrEnabled` 设为 `false`，并以
+`input.trailOnlyWhilePressed=true`、`input.samplingRateHz=0` 保持按住拖尾且不额外限频。
+测试版只接受显式 `schemaVersion=8`：缺少版本、schema 1--7、未来版本和旧枚举别名都会被拒绝，
+Host 记录错误后仅在内存中使用当前默认值，不迁移也不改写原文件。只有
 `background-aware` 会启用 WGC；WGC 或捕获排除路径失败时，Host 将当前批次回退到内部
 FX-only coverage transport，支持报告仍记为 `fallback-fx-only`。这个故障回退不是一个可选的产品模式，
 也不会把背景感知配置改写成其他模式。
@@ -225,7 +224,7 @@ Resume
 Shutdown
 ```
 
-`SetConfig` 也接受完整的 schema 7 JSON 快照。路径补丁只允许配置库声明的产品字段，代次
+`SetConfig` 也接受完整的 schema 8 JSON 快照。路径补丁只允许配置库声明的产品字段，代次
 不匹配会返回 `generation_conflict`；所有命令均在下一帧由 Host 应用。
 
 `packed_fx_textures` 测试逐张解压 raw LZ4 Block，并锁定 RGBA8 texel 的尺寸、行距和 SHA-256。
