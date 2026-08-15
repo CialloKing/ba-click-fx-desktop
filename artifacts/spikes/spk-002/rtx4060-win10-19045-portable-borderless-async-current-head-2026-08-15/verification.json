@@ -1,0 +1,126 @@
+{
+  "schema_version": 1,
+  "spike_id": "SPK-002-PORTABLE-BORDERLESS-ASYNC-CURRENT-HEAD",
+  "capture_revision": "c3781f7",
+  "status": "accepted-subset",
+  "product_version": "0.1.0-alpha.12",
+  "os_version": "10.0.19045",
+  "gpu": "NVIDIA GeForce RTX 4060 Laptop GPU",
+  "driver_version": "32.0.16.1074",
+  "display": "3840x2160@144Hz SDR",
+  "executable_sha256": "E866C019F1A8F3237878EFB975F407304D525D904AFBD21E7AAFE375EB9293EA",
+  "deadlines_ms": {
+    "pipe_connect": 750,
+    "pipe_write": 1000,
+    "pipe_read": 1500,
+    "host_failsafe": 14000,
+    "shutdown_wait": 10000
+  },
+  "control_generations": [1, 2, 3],
+  "startup": {
+    "state": "active",
+    "capture_mode": "background-aware"
+  },
+  "portable_borderless_rejection": {
+    "state": "fallback-fx-only",
+    "capture_mode": "background-aware",
+    "permission": {
+      "event_sequence": 23,
+      "control_generation": 2,
+      "action_index": 0,
+      "status": "not-packaged",
+      "hresult": "0x80073D54",
+      "async_status": "not-started",
+      "elapsed_ms": 0,
+      "cancel_requested": false,
+      "allowed": false
+    },
+    "action_sequence": [
+      "request-borderless-access",
+      "stop-sensor",
+      "set-affinity-included"
+    ],
+    "capture_affinity_after_fallback": {
+      "event_sequence": 39,
+      "requested": "0x00000000",
+      "observed": "0x00000000",
+      "set_succeeded": true,
+      "query_succeeded": true
+    },
+    "resource_ledger": {
+      "event_sequence": 42,
+      "frames_acquired": 1,
+      "frames_closed": 1,
+      "frame_pools_created": 1,
+      "frame_pools_closed": 1,
+      "sessions_created": 1,
+      "sessions_closed": 1,
+      "frame_arrived_registrations": 1,
+      "frame_arrived_unregistrations": 1,
+      "item_closed_registrations": 1,
+      "item_closed_unregistrations": 1,
+      "failures": 0,
+      "all_released": true
+    },
+    "new_capture_resources_created_before_permission_decision": false
+  },
+  "visible_border_recovery": {
+    "state": "active",
+    "action_sequence": [
+      "stop-sensor",
+      "set-affinity-excluded",
+      "apply-overlay-profile",
+      "start-sensor"
+    ],
+    "participation": {
+      "event_sequence": 62,
+      "control_generation": 3,
+      "frame_id": 28125,
+      "wgc_epoch": 2,
+      "wgc_generation": 116,
+      "snapshot_epoch": 2,
+      "snapshot_generation": 116
+    }
+  },
+  "runtime": {
+    "rendered_frames": 28130,
+    "wgc_frames_acquired": 228,
+    "wgc_samples_accepted": 119,
+    "wgc_sample_age_max_us": 12770,
+    "background_participating_frames": 6,
+    "raw_input_messages": 0,
+    "button_edges": 0
+  },
+  "shutdown": {
+    "ipc_acknowledged": true,
+    "host_exit_code": 0,
+    "process_exited_event_count": 1,
+    "event_count": 79,
+    "event_sequence_gaps": 0,
+    "error_or_fatal_event_count": 0,
+    "resource_ledger": {
+      "frames_acquired": 228,
+      "frames_closed": 228,
+      "frame_pools_created": 2,
+      "frame_pools_closed": 2,
+      "sessions_created": 2,
+      "sessions_closed": 2,
+      "frame_arrived_registrations": 2,
+      "frame_arrived_unregistrations": 2,
+      "item_closed_registrations": 2,
+      "item_closed_unregistrations": 2,
+      "failures": 0,
+      "all_released": true
+    }
+  },
+  "artifact_hashes": {
+    "support_log_sha256": "9882D7966B2B6257DE1EE1EC9019D34EAE73C48FB45F6587E3BAF3EF9985DC3B",
+    "config_sha256": "8D00E9BB3FE112AF3965F9682403B347DBEA48054D284399ECD7A645C81741E7",
+    "ipc_transcript_sha256": "16EC69C808D7F6AA9A4E70DE8B5E2B0700ACB4EC86488672B860CB9FED485E73"
+  },
+  "packaged_permission_denied_status": "not-run",
+  "borderless_success_status": "not-run",
+  "external_recording_status": "not-run",
+  "full_spk_002_status": "not-run",
+  "related_adr_status": "proposed"
+}

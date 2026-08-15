@@ -1,0 +1,10 @@
+CaptureRevision c3781f7
+HostArgs --demo-click --demo-delay-ms=6000 --quit-after-ms=14000
+Startup GetState -> generation=1 backgroundCapture=active captureMode=background-aware
+DisableSystemBorder SetConfig generation=1 path=background.allowSystemBorder value=false -> OK
+Fallback GetState -> generation=2 backgroundCapture=fallback-fx-only captureMode=background-aware
+AllowSystemBorder SetConfig generation=2 path=background.allowSystemBorder value=true -> OK
+Restored GetState -> generation=3 backgroundCapture=active captureMode=background-aware
+DelayedDemoClick BackgroundComposite.Participated -> controlGeneration=3 frame=28125
+Shutdown -> OK
+ExitCode 0
