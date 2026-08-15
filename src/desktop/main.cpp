@@ -3225,11 +3225,8 @@ int runApplication(
                 observedTarget,
                 window.effectiveDpi());
             const bool observedResourceDomainMismatch =
-                !bafx::desktop::displayTargetResourceAdapterMatches(
-                    stabilizedObservedTarget,
-                    renderer.deviceInfo().adapterLuid,
-                    renderer.deviceInfo().driverType
-                        == bafx::windows::GraphicsDriverType::Hardware);
+                !displaySession.resourceDomainReadyForTarget(
+                    stabilizedObservedTarget);
             if (!bafx::desktop::sameDisplayTarget(
                     stabilizedObservedTarget,
                     expectedTarget)
@@ -3645,11 +3642,8 @@ int runApplication(
                 || !bafx::desktop::sameDisplaySourceIdentity(
                     *pendingDisplayTarget,
                     appliedDisplayTarget)
-                || !bafx::desktop::displayTargetResourceAdapterMatches(
-                    *pendingDisplayTarget,
-                    renderer.deviceInfo().adapterLuid,
-                    renderer.deviceInfo().driverType
-                        == bafx::windows::GraphicsDriverType::Hardware));
+                || !displaySession.resourceDomainReadyForTarget(
+                    *pendingDisplayTarget));
         if (configChanged
             || pendingOutputResize.has_value()
             || displayTargetChanged

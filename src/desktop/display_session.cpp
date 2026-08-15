@@ -172,6 +172,35 @@ bool DisplaySession::lastPresentedDrawableContent() const noexcept
     return lastPresentedDrawableContent_;
 }
 
+bool DisplaySession::resourceDomainReadyForTarget(
+    const DisplayTarget& target) const noexcept
+{
+    const bafx::windows::GraphicsDeviceInfo& device = renderer_.deviceInfo();
+    if (displayTargetResourceAdapterMatches(
+            target,
+            device.adapterLuid,
+            device.driverType == bafx::windows::GraphicsDriverType::Hardware))
+    {
+        return true;
+    }
+    if (device.driverType != bafx::windows::GraphicsDriverType::Warp
+        || !target.sourceAdapterResolved
+        || !device.requestedAdapterLuid.has_value()
+        || device.requestedAdapterLuid->HighPart
+            != target.sourceAdapterLuid.HighPart
+        || device.requestedAdapterLuid->LowPart
+            != target.sourceAdapterLuid.LowPart)
+    {
+        return false;
+    }
+
+    // A found adapter that rejected D3D creation is terminal for this resource
+    // domain. A previously absent adapter is retried only after DXGI can see it,
+    // so DRR or DPI metadata churn cannot recreate WARP once per poll.
+    return device.requestedAdapterFound
+        || !renderer_.requestedAdapterPresent();
+}
+
 bool DisplaySession::framePacingDue(
     const bafx::core::MonotonicTime now) const noexcept
 {

@@ -208,14 +208,8 @@ DisplaySessionReconcileResult DisplaySessionManager::reconcileSecondaries(
         const bool sameSourceIdentity = sameDisplaySourceIdentity(
             existing->target(),
             target);
-        const bafx::windows::GraphicsDeviceInfo& deviceInfo =
-            existing->renderer().deviceInfo();
         const bool resourceDomainMatches =
-            displayTargetResourceAdapterMatches(
-                target,
-                deviceInfo.adapterLuid,
-                deviceInfo.driverType
-                    == bafx::windows::GraphicsDriverType::Hardware);
+            existing->resourceDomainReadyForTarget(target);
         if (sameTarget && sameSourceIdentity && resourceDomainMatches)
         {
             bool boundsCorrected = false;

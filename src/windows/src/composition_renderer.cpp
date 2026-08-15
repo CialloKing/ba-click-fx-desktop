@@ -1698,6 +1698,46 @@ const GraphicsDeviceInfo& CompositionRenderer::deviceInfo() const noexcept
     return deviceInfo_;
 }
 
+bool CompositionRenderer::requestedAdapterPresent() const noexcept
+{
+    if (!requestedAdapterLuid_.has_value())
+    {
+        return true;
+    }
+
+    Microsoft::WRL::ComPtr<IDXGIFactory1> factory;
+    if (FAILED(CreateDXGIFactory1(IID_PPV_ARGS(&factory))))
+    {
+        return false;
+    }
+    for (UINT index = 0U;; ++index)
+    {
+        Microsoft::WRL::ComPtr<IDXGIAdapter1> adapter;
+        const HRESULT result = factory->EnumAdapters1(index, &adapter);
+        if (result == DXGI_ERROR_NOT_FOUND)
+        {
+            return false;
+        }
+        if (FAILED(result))
+        {
+            return false;
+        }
+
+        DXGI_ADAPTER_DESC1 description{};
+        if (FAILED(adapter->GetDesc1(&description)))
+        {
+            return false;
+        }
+        if (description.AdapterLuid.HighPart
+                == requestedAdapterLuid_->HighPart
+            && description.AdapterLuid.LowPart
+                == requestedAdapterLuid_->LowPart)
+        {
+            return true;
+        }
+    }
+}
+
 const CompositionOutputState& CompositionRenderer::outputState() const noexcept
 {
     return deviceInfo_.output;

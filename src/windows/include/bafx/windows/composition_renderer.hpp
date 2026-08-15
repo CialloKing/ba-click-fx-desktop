@@ -318,6 +318,9 @@ public:
     [[nodiscard]] WindowSize outputSize() const noexcept;
     [[nodiscard]] D3D_FEATURE_LEVEL featureLevel() const noexcept;
     [[nodiscard]] const GraphicsDeviceInfo& deviceInfo() const noexcept;
+    // Re-probes only the explicitly requested LUID. This is used to wake a
+    // stable WARP fallback after its physical adapter reappears.
+    [[nodiscard]] bool requestedAdapterPresent() const noexcept;
     [[nodiscard]] const CompositionOutputState& outputState() const noexcept;
     [[nodiscard]] CompositionOutputPreference outputPreference() const noexcept;
     [[nodiscard]] std::optional<PixelF> lastCenterPixel() const noexcept;

@@ -110,6 +110,8 @@ public:
         colorMonitorResult() const noexcept;
     [[nodiscard]] bool renderFaulted() const noexcept;
     [[nodiscard]] bool lastPresentedDrawableContent() const noexcept;
+    [[nodiscard]] bool resourceDomainReadyForTarget(
+        const DisplayTarget& target) const noexcept;
     [[nodiscard]] bool framePacingDue(
         bafx::core::MonotonicTime now) const noexcept;
     [[nodiscard]] std::optional<bafx::core::MonotonicTime>
