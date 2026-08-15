@@ -154,6 +154,46 @@ private:
     bool initialized_{false};
 };
 
+class BackgroundCaptureShutdownGuard final
+{
+public:
+    BackgroundCaptureShutdownGuard(
+        bafx::windows::CompositionRenderer& renderer,
+        const std::filesystem::path& logPath) noexcept
+        : renderer_(renderer), logPath_(logPath)
+    {
+    }
+
+    ~BackgroundCaptureShutdownGuard()
+    {
+        finalize("exception-unwind");
+    }
+
+    BackgroundCaptureShutdownGuard(
+        const BackgroundCaptureShutdownGuard&) = delete;
+    BackgroundCaptureShutdownGuard& operator=(
+        const BackgroundCaptureShutdownGuard&) = delete;
+
+    void finalize(const std::string_view phase) noexcept
+    {
+        if (finalized_)
+        {
+            return;
+        }
+        finalized_ = true;
+        renderer_.disableBackgroundCapture();
+        bafx::desktop::appendBackgroundCaptureResourceLedger(
+            logPath_,
+            renderer_,
+            phase);
+    }
+
+private:
+    bafx::windows::CompositionRenderer& renderer_;
+    const std::filesystem::path& logPath_;
+    bool finalized_{false};
+};
+
 class QpcClock final
 {
 public:
@@ -781,6 +821,7 @@ int runApplication(
         throw std::runtime_error("Desktop smoke test could not identify the D3D11 adapter");
     }
     renderer.setReadbackDiagnostics(options.smokeTest);
+    BackgroundCaptureShutdownGuard backgroundShutdown(renderer, logPath);
     // Startup and runtime changes share one finite transaction. A failed
     // request remains terminal until its key or explicit retry token changes.
     bafx::windows::BackgroundCaptureTransition backgroundTransition;
@@ -1315,11 +1356,7 @@ int runApplication(
     // Destructors are not visible in the support log.  Stop the producer
     // explicitly so the final ledger proves that the process released every
     // WGC resource before handing control back to Win32.
-    renderer.disableBackgroundCapture();
-    bafx::desktop::appendBackgroundCaptureResourceLedger(
-        logPath,
-        renderer,
-        "shutdown");
+    backgroundShutdown.finalize("shutdown");
     control.stop();
     return 0;
 }
