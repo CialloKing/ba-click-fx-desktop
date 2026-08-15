@@ -414,6 +414,29 @@ const DisplaySession* DisplaySessionManager::findBySource(
 
 DisplaySession* DisplaySessionManager::findAtPoint(const POINT point) noexcept
 {
+    const HMONITOR currentMonitor = MonitorFromPoint(
+        point,
+        MONITOR_DEFAULTTONULL);
+    if (currentMonitor != nullptr)
+    {
+        const auto exactMonitor = std::find_if(
+            sessions_.begin(),
+            sessions_.end(),
+            [point, currentMonitor](
+                const std::unique_ptr<DisplaySession>& session)
+            {
+                return session->target().monitor == currentMonitor
+                    && containsPoint(session->target().bounds, point);
+            });
+        if (exactMonitor != sessions_.end())
+        {
+            // A removed coordinator can overlap its replacement until the WGC
+            // retarget commits. Prefer the monitor Windows currently owns so
+            // input remains on the visible session during that transaction.
+            return exactMonitor->get();
+        }
+    }
+
     const auto found = std::find_if(
         sessions_.begin(),
         sessions_.end(),
