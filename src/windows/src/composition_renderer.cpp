@@ -1482,12 +1482,16 @@ BackgroundCadenceRefreshResult CompositionRenderer::refreshBackgroundCadence(
     backgroundRefreshPeriod_ = targetPeriod.has_value()
         ? std::max(*targetPeriod, minimumBackgroundCadencePeriod)
         : minimumBackgroundCadencePeriod;
+    const WgcProducerCadenceState producerCadence =
+        backgroundSensor_->configureMinimumUpdateInterval(
+            backgroundRefreshPeriod_);
     return BackgroundCadenceRefreshResult{
         targetPeriod.has_value()
             ? BackgroundCadenceRefreshStatus::TargetRate
             : BackgroundCadenceRefreshStatus::ConservativeFallback,
         refreshRate,
-        backgroundRefreshPeriod_};
+        backgroundRefreshPeriod_,
+        producerCadence};
 }
 
 WgcBackgroundResourceLedgerSnapshot
@@ -1547,6 +1551,9 @@ bool CompositionRenderer::tryCreateBackgroundSensor() noexcept
         sensorOptions.excludesOwnOverlay = true;
         sensorOptions.cursorExcluded = backgroundCursorExcluded_;
         sensorOptions.allowSystemBorder = backgroundSystemBorderAllowed_;
+        sensorOptions.minimumUpdateInterval = refreshPeriod.has_value()
+            ? std::max(*refreshPeriod, minimumBackgroundCadencePeriod)
+            : minimumBackgroundCadencePeriod;
         sensorOptions.resourceLedger = backgroundResourceLedger_;
         sensorOptions.stopObserver = backgroundStopObserver_;
         sensorOptions.stopResultObserver =

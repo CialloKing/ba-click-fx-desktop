@@ -124,6 +124,7 @@ struct BackgroundCadenceRefreshResult
         BackgroundCadenceRefreshStatus::Inactive};
     std::optional<DisplayRefreshRate> refreshRate{};
     std::chrono::nanoseconds appliedPeriod{};
+    WgcProducerCadenceState producerCadence{};
 };
 
 struct DeviceRecoveryDiagnostics

@@ -45,6 +45,26 @@ constexpr DirectXPixelFormat capturePixelFormat =
     DirectXPixelFormat::R16G16B16A16Float;
 constexpr DXGI_FORMAT captureDxgiFormat = DXGI_FORMAT_R16G16B16A16_FLOAT;
 
+// Windows 11 24H2 added IGraphicsCaptureSession5 after the original Windows
+// 10 SDK. Keep its documented ABI local so every build emits the same runtime
+// capability and only the target OS decides whether QueryInterface succeeds.
+struct GraphicsCaptureTimeSpanAbi final
+{
+    std::int64_t duration{0};
+};
+
+static_assert(sizeof(GraphicsCaptureTimeSpanAbi) == sizeof(std::int64_t));
+
+MIDL_INTERFACE("67C0EA62-1F85-5061-925A-239BE0AC09CB")
+GraphicsCaptureSession5Abi : public IInspectable
+{
+public:
+    virtual HRESULT STDMETHODCALLTYPE get_MinUpdateInterval(
+        GraphicsCaptureTimeSpanAbi* value) = 0;
+    virtual HRESULT STDMETHODCALLTYPE put_MinUpdateInterval(
+        GraphicsCaptureTimeSpanAbi value) = 0;
+};
+
 struct OwnedBackgroundTexture
 {
     ComPtr<ID3D11Texture2D> texture{};
@@ -635,6 +655,14 @@ struct WgcBackgroundSensor::Implementation
                         "IGraphicsCaptureSession2 cursor readback mismatched the request");
                 }
             }
+            if (options.minimumUpdateInterval.has_value()
+                && *options.minimumUpdateInterval
+                    > bafx::core::MonotonicTime::zero())
+            {
+                capabilities.producerCadence =
+                    configureMinimumUpdateInterval(
+                        *options.minimumUpdateInterval);
+            }
             try
             {
                 session.StartCapture();
@@ -846,6 +874,73 @@ struct WgcBackgroundSensor::Implementation
             sampleGeneration,
             isRunning && !closed,
             closed};
+    }
+
+    [[nodiscard]] WgcProducerCadenceState configureMinimumUpdateInterval(
+        const bafx::core::MonotonicTime interval) noexcept
+    {
+        WgcProducerCadenceState state{};
+        state.requested = interval;
+        if (!session || interval <= bafx::core::MonotonicTime::zero())
+        {
+            state.status = WgcProducerCadenceStatus::Rejected;
+            state.result = E_INVALIDARG;
+            capabilities.producerCadence = state;
+            return state;
+        }
+
+        ComPtr<GraphicsCaptureSession5Abi> cadenceSession;
+        auto* const sessionUnknown = reinterpret_cast<IUnknown*>(
+            winrt::get_abi(session));
+        const HRESULT queryResult = sessionUnknown->QueryInterface(
+            IID_PPV_ARGS(&cadenceSession));
+        if (FAILED(queryResult))
+        {
+            state.status = queryResult == E_NOINTERFACE
+                ? WgcProducerCadenceStatus::InterfaceUnavailable
+                : WgcProducerCadenceStatus::Rejected;
+            state.result = queryResult;
+            capabilities.producerCadence = state;
+            return state;
+        }
+
+        using winrt::Windows::Foundation::TimeSpan;
+        TimeSpan requested = std::chrono::duration_cast<TimeSpan>(interval);
+        if (requested <= TimeSpan::zero())
+        {
+            requested = TimeSpan{1};
+        }
+        const GraphicsCaptureTimeSpanAbi requestedAbi{requested.count()};
+        const HRESULT writeResult =
+            cadenceSession->put_MinUpdateInterval(requestedAbi);
+        if (FAILED(writeResult))
+        {
+            // Producer throttling is optional. Consumer-side cadence remains
+            // authoritative when the runtime rejects this newer property.
+            state.status = WgcProducerCadenceStatus::Rejected;
+            state.result = writeResult;
+            capabilities.producerCadence = state;
+            return state;
+        }
+
+        GraphicsCaptureTimeSpanAbi appliedAbi{};
+        const HRESULT readResult =
+            cadenceSession->get_MinUpdateInterval(&appliedAbi);
+        if (FAILED(readResult) || appliedAbi.duration <= 0)
+        {
+            state.status = WgcProducerCadenceStatus::Rejected;
+            state.result = FAILED(readResult) ? readResult : E_UNEXPECTED;
+            capabilities.producerCadence = state;
+            return state;
+        }
+
+        const TimeSpan applied{appliedAbi.duration};
+        state.status = WgcProducerCadenceStatus::Applied;
+        state.applied = std::chrono::duration_cast<
+            bafx::core::MonotonicTime>(applied);
+        state.result = S_OK;
+        capabilities.producerCadence = state;
+        return state;
     }
 
     void recreateFramePool(const WindowSize size)
@@ -1169,6 +1264,12 @@ WgcBackgroundSessionCapabilities WgcBackgroundSensor::capabilities() const noexc
     return implementation_->capabilities;
 }
 
+WgcProducerCadenceState WgcBackgroundSensor::configureMinimumUpdateInterval(
+    const bafx::core::MonotonicTime interval) noexcept
+{
+    return implementation_->configureMinimumUpdateInterval(interval);
+}
+
 WgcBackgroundResourceLedgerSnapshot
 WgcBackgroundSensor::resourceLedger() const noexcept
 {
@@ -1204,6 +1305,23 @@ void WgcBackgroundSensor::stop() noexcept
     {
         implementation_->stop();
     }
+}
+
+std::string_view wgcProducerCadenceStatusName(
+    const WgcProducerCadenceStatus status) noexcept
+{
+    switch (status)
+    {
+    case WgcProducerCadenceStatus::NotRequested:
+        return "not-requested";
+    case WgcProducerCadenceStatus::Applied:
+        return "applied";
+    case WgcProducerCadenceStatus::InterfaceUnavailable:
+        return "interface-unavailable";
+    case WgcProducerCadenceStatus::Rejected:
+        return "rejected";
+    }
+    return "unknown";
 }
 
 }

@@ -161,6 +161,9 @@ struct WgcBackgroundSensorOptions
     // Hardware probes can require an explicit enable/disable write and
     // readback. Product callers leave this unset to preserve old-OS fallback.
     std::optional<bool> cursorCaptureEnabledOverride{};
+    // Windows 11 24H2 can throttle the producer itself. Older systems keep
+    // the complete binary and use the renderer's bounded consumer cadence.
+    std::optional<bafx::core::MonotonicTime> minimumUpdateInterval{};
     // Called synchronously immediately before and after each uncancellable
     // WinRT stop operation. The observer must return promptly.
     WgcBackgroundStopObserver stopObserver{};
@@ -168,6 +171,23 @@ struct WgcBackgroundSensorOptions
     // after owning WinRT resources. The observer must return promptly because
     // the partially built object cannot be queried after this callback.
     WgcBackgroundStopResultObserver stopResultObserver{};
+};
+
+enum class WgcProducerCadenceStatus : std::uint8_t
+{
+    NotRequested,
+    Applied,
+    InterfaceUnavailable,
+    Rejected
+};
+
+struct WgcProducerCadenceState final
+{
+    WgcProducerCadenceStatus status{
+        WgcProducerCadenceStatus::NotRequested};
+    bafx::core::MonotonicTime requested{};
+    bafx::core::MonotonicTime applied{};
+    HRESULT result{S_FALSE};
 };
 
 struct WgcBackgroundSample
@@ -187,7 +207,11 @@ struct WgcBackgroundSessionCapabilities
     bool cursorExcluded{false};
     bool cursorCaptureEnabled{false};
     bool cursorControlConfirmed{false};
+    WgcProducerCadenceState producerCadence{};
 };
+
+[[nodiscard]] std::string_view wgcProducerCadenceStatusName(
+    WgcProducerCadenceStatus status) noexcept;
 
 enum class WgcBackgroundDrainStatus : std::uint8_t
 {
@@ -301,6 +325,8 @@ public:
     [[nodiscard]] WgcBackgroundTransportSnapshot transportSnapshot() const noexcept;
     [[nodiscard]] std::uint64_t expectedEpoch() const noexcept;
     [[nodiscard]] WgcBackgroundSessionCapabilities capabilities() const noexcept;
+    [[nodiscard]] WgcProducerCadenceState configureMinimumUpdateInterval(
+        bafx::core::MonotonicTime interval) noexcept;
     [[nodiscard]] WgcBackgroundResourceLedgerSnapshot resourceLedger() const noexcept;
     [[nodiscard]] WgcBackgroundStopDiagnostics stopDiagnostics() const noexcept;
     [[nodiscard]] HANDLE frameAvailableObject() const noexcept;
