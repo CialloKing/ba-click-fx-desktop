@@ -246,9 +246,11 @@ if(WIN32)
         bafx_desktop_input_tests
         test_main.cpp
         frame_pacing_tests.cpp
+        background_capture_runtime_tests.cpp
         performance_logging_tests.cpp
         performance_window_tests.cpp
         pointer_frame_dispatch_tests.cpp
+        "${PROJECT_SOURCE_DIR}/src/desktop/background_capture_runtime.cpp"
         "${PROJECT_SOURCE_DIR}/src/desktop/performance_logging.cpp"
     )
     target_link_libraries(

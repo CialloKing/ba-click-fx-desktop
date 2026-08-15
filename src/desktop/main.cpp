@@ -1099,6 +1099,18 @@ int runApplication(
     std::chrono::nanoseconds previousPerformanceLogWriteCpu{};
     bafx::desktop::WgcCallbackDeltaTracker wgcCallbackDeltaTracker;
     MessageDispatchDiagnostics pendingMessageDispatch{};
+    const auto appendPendingBackgroundSnapshotInvalidation = [&]() noexcept
+    {
+        const std::optional<bafx::windows::BackgroundSnapshotInvalidation>
+            invalidation = renderer.takeBackgroundSnapshotInvalidation();
+        if (invalidation.has_value())
+        {
+            bafx::desktop::appendBackgroundSnapshotInvalidation(
+                logPath,
+                appliedGeneration,
+                *invalidation);
+        }
+    };
     while (!quit && !window.closeRequested())
     {
         accumulateMessageDispatch(pendingMessageDispatch, dispatchMessages(quit));
@@ -1267,6 +1279,10 @@ int runApplication(
                 appliedOutputSize,
                 configurationReason);
         }
+        // A lifecycle transaction can invalidate a snapshot before frame
+        // pacing waits. Consume it now so a timeout cannot shift attribution
+        // to a later control generation.
+        appendPendingBackgroundSnapshotInvalidation();
 
         const bool enteringPause = controlState.paused
             && !simulationTimeline.paused();
@@ -1821,6 +1837,7 @@ int runApplication(
             }
             const bafx::windows::CompositionFrameDiagnostics&
                 completedFrameDiagnostics = *frameDiagnostics;
+            appendPendingBackgroundSnapshotInvalidation();
             const std::uint64_t producerCallbacks =
                 wgcCallbackDeltaTracker.observe(
                     completedFrameDiagnostics.wgcActive,
@@ -1854,6 +1871,16 @@ int runApplication(
             if (completedFrameDiagnostics.backgroundParticipated)
             {
                 ++backgroundCompositeFrames;
+                if (!backgroundParticipationLogged)
+                {
+                    // A successful Present is the first point where this
+                    // captured snapshot is proven to have reached final output.
+                    bafx::desktop::appendBackgroundCompositeParticipation(
+                        logPath,
+                        appliedGeneration,
+                        completedFrameDiagnostics);
+                    backgroundParticipationLogged = true;
+                }
             }
         }
         else
@@ -1877,6 +1904,7 @@ int runApplication(
                 maintenance.wgcIdleDrainAttempted,
                 maintenance.wgcIdleDrainSkipped));
         }
+        appendPendingBackgroundSnapshotInvalidation();
         bool currentBackgroundCaptureActive = renderer.backgroundCaptureActive();
         if (backgroundCaptureEnabled && !currentBackgroundCaptureActive)
         {
@@ -1995,18 +2023,8 @@ int runApplication(
                 "Background sensor became active outside its transaction");
         }
         control.setBackgroundCaptureActive(currentBackgroundCaptureActive);
-        if (shouldRender
-            && renderer.backgroundParticipatedInLastFrame()
-            && !backgroundParticipationLogged)
-        {
-            // Session startup alone does not prove that a captured desktop
-            // sample reached the shader. Log the first frame that actually did.
-            bafx::windows::appendDiagnosticLog(
-                logPath,
-                "WGC background sample entered the final desktop composite");
-            backgroundParticipationLogged = true;
-        }
-        else if (lastPresentedDrawableContent
+        appendPendingBackgroundSnapshotInvalidation();
+        if (lastPresentedDrawableContent
             && currentBackgroundCaptureActive
             && !backgroundParticipationLogged
             && !backgroundPendingDiagnosticLogged
@@ -2127,6 +2145,7 @@ int runApplication(
     // explicitly so the final ledger proves that the process released every
     // WGC resource before handing control back to Win32.
     backgroundShutdown.finalize("shutdown");
+    appendPendingBackgroundSnapshotInvalidation();
     control.stop();
     return 0;
 }

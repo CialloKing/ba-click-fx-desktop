@@ -96,6 +96,29 @@ namespace
     return "unknown";
 }
 
+[[nodiscard]] bafx::windows::DiagnosticLevel snapshotInvalidationLevel(
+    const bafx::windows::BackgroundSnapshotInvalidationReason reason) noexcept
+{
+    using bafx::windows::BackgroundSnapshotInvalidationReason;
+    switch (reason)
+    {
+    case BackgroundSnapshotInvalidationReason::WgcDrainFailed:
+    case BackgroundSnapshotInvalidationReason::WgcSessionStopped:
+    case BackgroundSnapshotInvalidationReason::SensorStartFailed:
+        return bafx::windows::DiagnosticLevel::Warning;
+    case BackgroundSnapshotInvalidationReason::VisibleBatchEnded:
+    case BackgroundSnapshotInvalidationReason::FxOnlyPathSelected:
+    case BackgroundSnapshotInvalidationReason::FramePoolReconfigureRequired:
+    case BackgroundSnapshotInvalidationReason::OutputResize:
+    case BackgroundSnapshotInvalidationReason::DeviceResourcesReleased:
+    case BackgroundSnapshotInvalidationReason::CaptureSessionReplaced:
+    case BackgroundSnapshotInvalidationReason::CaptureDisabled:
+    case BackgroundSnapshotInvalidationReason::SnapshotResourcesRecreated:
+        return bafx::windows::DiagnosticLevel::Info;
+    }
+    return bafx::windows::DiagnosticLevel::Warning;
+}
+
 void appendBackgroundCaptureActionBegin(
     const std::filesystem::path& logPath,
     const std::size_t index,
@@ -507,6 +530,94 @@ void appendBackgroundCaptureOutcome(
         message += "; capture-visibility=unknown";
     }
     bafx::windows::appendDiagnosticLog(logPath, message);
+}
+
+void appendBackgroundSnapshotInvalidation(
+    const std::filesystem::path& logPath,
+    const std::uint64_t controlGeneration,
+    const bafx::windows::BackgroundSnapshotInvalidation& invalidation) noexcept
+{
+    try
+    {
+        const std::array values{
+            std::to_string(controlGeneration),
+            std::to_string(invalidation.frameId),
+            std::to_string(invalidation.wgcEpoch),
+            std::to_string(invalidation.wgcGeneration),
+            std::to_string(invalidation.snapshotEpoch),
+            std::to_string(invalidation.snapshotGeneration)};
+        const std::array fields{
+            bafx::windows::DiagnosticField{"Control.Generation", values[0]},
+            bafx::windows::DiagnosticField{"Frame.Id", values[1]},
+            bafx::windows::DiagnosticField{"WGC.Epoch", values[2]},
+            bafx::windows::DiagnosticField{"WGC.Generation", values[3]},
+            bafx::windows::DiagnosticField{
+                "BackgroundSnapshot.Epoch",
+                values[4]},
+            bafx::windows::DiagnosticField{
+                "BackgroundSnapshot.Generation",
+                values[5]},
+            bafx::windows::DiagnosticField{
+                "BackgroundSnapshot.InvalidationReason",
+                bafx::windows::backgroundSnapshotInvalidationReasonName(
+                    invalidation.reason)}};
+        bafx::windows::appendDiagnosticEvent(
+            logPath,
+            "BackgroundSnapshot.Invalidated",
+            fields,
+            snapshotInvalidationLevel(invalidation.reason));
+    }
+    catch (...)
+    {
+        // Diagnostics must never block the lifecycle action that invalidated
+        // the snapshot or make an optional WGC path fatal.
+    }
+}
+
+void appendBackgroundCompositeParticipation(
+    const std::filesystem::path& logPath,
+    const std::uint64_t controlGeneration,
+    const bafx::windows::CompositionFrameDiagnostics& diagnostics) noexcept
+{
+    if (!diagnostics.backgroundParticipated)
+    {
+        return;
+    }
+
+    try
+    {
+        const std::array values{
+            std::to_string(controlGeneration),
+            std::to_string(diagnostics.frameId),
+            std::to_string(diagnostics.wgc.epoch),
+            std::to_string(diagnostics.wgc.acceptedGeneration),
+            std::to_string(diagnostics.backgroundSnapshotEpoch),
+            std::to_string(diagnostics.backgroundSnapshotGeneration)};
+        const std::array fields{
+            bafx::windows::DiagnosticField{"Control.Generation", values[0]},
+            bafx::windows::DiagnosticField{"Frame.Id", values[1]},
+            bafx::windows::DiagnosticField{"WGC.Epoch", values[2]},
+            bafx::windows::DiagnosticField{"WGC.Generation", values[3]},
+            bafx::windows::DiagnosticField{
+                "BackgroundSnapshot.Epoch",
+                values[4]},
+            bafx::windows::DiagnosticField{
+                "BackgroundSnapshot.Generation",
+                values[5]}};
+        bafx::windows::appendDiagnosticEvent(
+            logPath,
+            "BackgroundComposite.Participated",
+            fields);
+    }
+    catch (...)
+    {
+        // Keep the compatibility marker available even if field formatting
+        // could not allocate its temporary strings.
+    }
+
+    bafx::windows::appendDiagnosticLog(
+        logPath,
+        "WGC background sample entered the final desktop composite");
 }
 
 }

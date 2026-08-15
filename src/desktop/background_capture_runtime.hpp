@@ -6,6 +6,7 @@
 
 #include <windows.h>
 
+#include <cstdint>
 #include <filesystem>
 #include <optional>
 #include <string>
@@ -53,5 +54,15 @@ void appendBackgroundCaptureOutcome(
     const bafx::windows::BackgroundCaptureTransition& transition,
     const BackgroundCaptureExecutionResult& execution,
     const bafx::windows::CompositionRenderer& renderer);
+
+void appendBackgroundSnapshotInvalidation(
+    const std::filesystem::path& logPath,
+    std::uint64_t controlGeneration,
+    const bafx::windows::BackgroundSnapshotInvalidation& invalidation) noexcept;
+
+void appendBackgroundCompositeParticipation(
+    const std::filesystem::path& logPath,
+    std::uint64_t controlGeneration,
+    const bafx::windows::CompositionFrameDiagnostics& diagnostics) noexcept;
 
 }
