@@ -38,6 +38,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace
@@ -48,6 +49,7 @@ constexpr std::uint32_t maximumInputMessagesPerFrame = 4096U;
 constexpr auto smokeTestDeadline = std::chrono::seconds(5);
 constexpr auto performanceReportInterval = std::chrono::seconds(10);
 constexpr auto framePacingDeviceProbePeriod = std::chrono::milliseconds(250);
+constexpr auto displayTopologyPollPeriod = std::chrono::seconds(1);
 constexpr DWORD activeControlPollMilliseconds = 50U;
 constexpr DWORD pausedControlPollMilliseconds = 50U;
 
@@ -2273,6 +2275,8 @@ int runApplication(
     bafx::windows::appendDiagnosticLog(logPath, report);
 
     const bafx::fx::SimulationTime applicationStartedAt = clock.now();
+    bafx::fx::SimulationTime nextDisplayTopologyPollAt =
+        applicationStartedAt + displayTopologyPollPeriod;
     const auto runtimeDeadlineReached =
         [&](const bafx::fx::SimulationTime now)
     {
@@ -2888,9 +2892,26 @@ int runApplication(
         {
             break;
         }
-        if (runtimeDeadlineReached(clock.now()))
+        const bafx::fx::SimulationTime loopObservedAt = clock.now();
+        if (runtimeDeadlineReached(loopObservedAt))
         {
             break;
+        }
+
+        std::optional<bafx::desktop::DisplayTargetSnapshot>
+            polledDisplayTopology{};
+        if (loopObservedAt >= nextDisplayTopologyPollAt)
+        {
+            // Do not replay missed ticks after a stall. One current snapshot
+            // is enough to converge without turning recovery into a busy loop.
+            nextDisplayTopologyPollAt =
+                loopObservedAt + displayTopologyPollPeriod;
+            bafx::desktop::DisplayTargetSnapshot topology =
+                bafx::desktop::queryDisplayTargets();
+            if (displaySessions.topologyDiffers(topology))
+            {
+                polledDisplayTopology = std::move(topology);
+            }
         }
 
         bool renderInvalidated = renderInvalidationPending;
@@ -3078,7 +3099,8 @@ int runApplication(
             }
         }
         const bool displayTopologyChanged = hostDisplayTopologyChanged
-            || surfaceDisplayTopologyChanged;
+            || surfaceDisplayTopologyChanged
+            || polledDisplayTopology.has_value();
         if (surfaceDisplayTopologyChanged && !hostDisplayTopologyChanged)
         {
             // Per-monitor DPI notifications may reach only the affected
@@ -3099,13 +3121,19 @@ int runApplication(
         }
         if (displayTopologyChanged)
         {
-            const bafx::desktop::DisplayTargetSnapshot topology =
-                bafx::desktop::queryDisplayTargets();
+            const bool topologyDiscoveredByPoll =
+                polledDisplayTopology.has_value();
+            bafx::desktop::DisplayTargetSnapshot topology =
+                topologyDiscoveredByPoll
+                ? std::move(*polledDisplayTopology)
+                : bafx::desktop::queryDisplayTargets();
             const bafx::desktop::DisplaySessionReconcileResult reconcile =
                 displaySessions.reconcileSecondaries(topology);
             appendDisplaySessionReconcile(
                 logPath,
-                "runtime-notification",
+                topologyDiscoveredByPoll
+                    ? "runtime-poll"
+                    : "runtime-notification",
                 reconcile,
                 displaySessions.sessions().size());
             // New topology sessions join the current request independently;

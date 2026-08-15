@@ -67,6 +67,11 @@ public:
     [[nodiscard]] const DisplaySession& coordinator() const;
     [[nodiscard]] DisplaySessionReconcileResult reconcileSecondaries(
         const DisplayTargetSnapshot& snapshot);
+    // DRR and some dock transitions do not reliably emit a window message.
+    // Compare one shared snapshot before entering the heavier reconciliation
+    // transaction so the periodic fallback stays silent while state is stable.
+    [[nodiscard]] bool topologyDiffers(
+        const DisplayTargetSnapshot& snapshot) const noexcept;
     [[nodiscard]] std::size_t pruneCoordinatorDuplicates() noexcept;
     void updateCreationSettings(
         bafx::windows::FxBloomSettings bloomSettings,

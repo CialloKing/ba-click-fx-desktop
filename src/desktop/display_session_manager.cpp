@@ -299,6 +299,59 @@ DisplaySessionReconcileResult DisplaySessionManager::reconcileSecondaries(
     return result;
 }
 
+bool DisplaySessionManager::topologyDiffers(
+    const DisplayTargetSnapshot& snapshot) const noexcept
+{
+    if (coordinator_ == nullptr
+        || snapshot.status
+            == bafx::windows::DisplayTopologyStatus::QueryFailed
+        || snapshot.status
+            == bafx::windows::DisplayTopologyStatus::NoActiveDisplays)
+    {
+        return false;
+    }
+
+    for (const std::unique_ptr<DisplaySession>& session : sessions_)
+    {
+        const DisplayTarget* const observed = findDisplayTargetBySource(
+            snapshot,
+            session->target());
+        if (observed == nullptr)
+        {
+            if (snapshot.status
+                == bafx::windows::DisplayTopologyStatus::Complete)
+            {
+                return true;
+            }
+            continue;
+        }
+
+        const DisplayTarget stabilized = stabilizeDisplayTargetObservation(
+            session->target(),
+            *observed,
+            snapshot.status);
+        if (!sameDisplayTarget(session->target(), stabilized)
+            || !sameDisplaySourceIdentity(session->target(), stabilized)
+            || !sameDisplayRuntimeMetadata(session->target(), stabilized)
+            || physicalTargetIdentityResolutionImproved(
+                session->target(),
+                stabilized))
+        {
+            return true;
+        }
+    }
+
+    for (const DisplayTarget& observed : snapshot.displays)
+    {
+        if (findBySource(observed) == nullptr
+            && observed.sourceAdapterResolved)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
 std::size_t DisplaySessionManager::pruneCoordinatorDuplicates() noexcept
 {
     if (coordinator_ == nullptr)
