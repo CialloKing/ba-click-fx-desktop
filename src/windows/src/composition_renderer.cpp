@@ -341,9 +341,16 @@ CompositionRenderer::CompositionRenderer(
         context_.Get(),
         size_,
         bloomSettings);
+    registerDeviceRemovedNotification();
 }
 
-CompositionRenderer::~CompositionRenderer() = default;
+CompositionRenderer::~CompositionRenderer()
+{
+    // Preserve the original member-destruction order: WGC retains the device
+    // and must release its capture objects before the renderer drops D3D.
+    stopBackgroundSensor();
+    releaseDeviceResources();
+}
 
 bool CompositionRenderer::tryRecoverDevice() noexcept
 {
@@ -387,6 +394,7 @@ bool CompositionRenderer::tryRecoverDevice() noexcept
             bloomSettings_);
         fxRenderer_->setOverlayProfile(overlayProfile_);
         setReadbackDiagnostics(readbackDiagnosticsEnabled_);
+        registerDeviceRemovedNotification();
         backgroundCaptureAfterRecoveryAllowed_ =
             previousDeviceInfo.adapterLuid.LowPart
                 == deviceInfo_.adapterLuid.LowPart
@@ -523,6 +531,7 @@ bool CompositionRenderer::setBloomSettings(const FxBloomSettings settings)
 
 void CompositionRenderer::releaseDeviceResources() noexcept
 {
+    unregisterDeviceRemovedNotification();
     if (context_ != nullptr)
     {
         context_->OMSetRenderTargets(0U, nullptr, nullptr);
@@ -1152,6 +1161,18 @@ HANDLE CompositionRenderer::frameLatencyWaitableObject() const noexcept
     return frameLatencyHandle_.get();
 }
 
+HANDLE CompositionRenderer::deviceRemovedWaitableObject() const noexcept
+{
+    return deviceRemovedNotificationRegistered_
+        ? deviceRemovedHandle_.get()
+        : nullptr;
+}
+
+HRESULT CompositionRenderer::deviceRemovedNotificationResult() const noexcept
+{
+    return deviceRemovedNotificationResult_;
+}
+
 HRESULT CompositionRenderer::deviceRemovedReason() const noexcept
 {
     return device_ != nullptr
@@ -1350,6 +1371,49 @@ void CompositionRenderer::createRenderTarget()
     throwIfFailed(
         device_->CreateRenderTargetView(backBuffer_.Get(), nullptr, &renderTarget_),
         "ID3D11Device::CreateRenderTargetView");
+}
+
+void CompositionRenderer::registerDeviceRemovedNotification() noexcept
+{
+    unregisterDeviceRemovedNotification();
+    deviceRemovedNotificationResult_ = device_.As(&device4_);
+    if (FAILED(deviceRemovedNotificationResult_))
+    {
+        return;
+    }
+
+    deviceRemovedHandle_.reset(CreateEventW(nullptr, TRUE, FALSE, nullptr));
+    if (deviceRemovedHandle_.get() == nullptr)
+    {
+        deviceRemovedNotificationResult_ = HRESULT_FROM_WIN32(GetLastError());
+        device4_.Reset();
+        return;
+    }
+
+    DWORD cookie = 0U;
+    deviceRemovedNotificationResult_ = device4_->RegisterDeviceRemovedEvent(
+        deviceRemovedHandle_.get(),
+        &cookie);
+    if (FAILED(deviceRemovedNotificationResult_))
+    {
+        deviceRemovedHandle_.reset();
+        device4_.Reset();
+        return;
+    }
+    deviceRemovedCookie_ = cookie;
+    deviceRemovedNotificationRegistered_ = true;
+}
+
+void CompositionRenderer::unregisterDeviceRemovedNotification() noexcept
+{
+    if (deviceRemovedNotificationRegistered_ && device4_ != nullptr)
+    {
+        device4_->UnregisterDeviceRemoved(deviceRemovedCookie_);
+    }
+    deviceRemovedNotificationRegistered_ = false;
+    deviceRemovedCookie_ = 0U;
+    deviceRemovedHandle_.reset();
+    device4_.Reset();
 }
 
 void CompositionRenderer::resetBackgroundSnapshot() noexcept

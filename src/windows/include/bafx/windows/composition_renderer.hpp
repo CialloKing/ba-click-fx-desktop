@@ -10,7 +10,7 @@
 #include "bafx/windows/unique_handle.hpp"
 #include "bafx/windows/wgc_background_sensor.hpp"
 
-#include <d3d11.h>
+#include <d3d11_4.h>
 #include <dcomp.h>
 #include <dxgi1_4.h>
 #include <wrl/client.h>
@@ -212,6 +212,8 @@ public:
     void setReadbackDiagnostics(bool enabled);
 
     [[nodiscard]] HANDLE frameLatencyWaitableObject() const noexcept;
+    [[nodiscard]] HANDLE deviceRemovedWaitableObject() const noexcept;
+    [[nodiscard]] HRESULT deviceRemovedNotificationResult() const noexcept;
     [[nodiscard]] HRESULT deviceRemovedReason() const noexcept;
     [[nodiscard]] HANDLE backgroundFrameAvailableObject() const noexcept;
     [[nodiscard]] D3D_FEATURE_LEVEL featureLevel() const noexcept;
@@ -224,6 +226,8 @@ private:
     void createSwapChain(WindowSize size);
     void createComposition(HWND window);
     void createRenderTarget();
+    void registerDeviceRemovedNotification() noexcept;
+    void unregisterDeviceRemovedNotification() noexcept;
     void presentSwapChain();
     void releaseDeviceResources() noexcept;
     void resetBackgroundSnapshot() noexcept;
@@ -238,6 +242,7 @@ private:
 
     HWND window_{nullptr};
     Microsoft::WRL::ComPtr<ID3D11Device> device_{};
+    Microsoft::WRL::ComPtr<ID3D11Device4> device4_{};
     Microsoft::WRL::ComPtr<ID3D11DeviceContext> context_{};
     Microsoft::WRL::ComPtr<IDXGISwapChain3> swapChain_{};
     Microsoft::WRL::ComPtr<ID3D11Texture2D> backBuffer_{};
@@ -258,6 +263,10 @@ private:
     Microsoft::WRL::ComPtr<IDCompositionTarget> compositionTarget_{};
     Microsoft::WRL::ComPtr<IDCompositionVisual> rootVisual_{};
     UniqueHandle frameLatencyHandle_{};
+    UniqueHandle deviceRemovedHandle_{};
+    DWORD deviceRemovedCookie_{0U};
+    HRESULT deviceRemovedNotificationResult_{E_NOINTERFACE};
+    bool deviceRemovedNotificationRegistered_{false};
     std::unique_ptr<GpuTimestampProfiler> gpuTimestampProfiler_{};
     std::unique_ptr<FxGpuRenderer> fxRenderer_{};
     std::unique_ptr<WgcBackgroundSensor> backgroundSensor_{};
