@@ -2428,12 +2428,16 @@ int runApplication(
                 pendingDisplayTarget.has_value()
                     ? *pendingDisplayTarget
                     : appliedDisplayTarget;
+            const bool observedResourceDomainMismatch =
+                observedTarget.sourceIdentityResolved
+                && !renderer.deviceInfo().requestedAdapterMatched;
             if (!bafx::desktop::sameDisplayTarget(
                     observedTarget,
                     expectedTarget)
                 || !bafx::desktop::sameDisplaySourceIdentity(
                     observedTarget,
-                    expectedTarget))
+                    expectedTarget)
+                || observedResourceDomainMismatch)
             {
                 pendingDisplayTarget = observedTarget;
             }
@@ -2615,7 +2619,9 @@ int runApplication(
                     appliedDisplayTarget)
                 || !bafx::desktop::sameDisplaySourceIdentity(
                     *pendingDisplayTarget,
-                    appliedDisplayTarget));
+                    appliedDisplayTarget)
+                || (pendingDisplayTarget->sourceIdentityResolved
+                    && !renderer.deviceInfo().requestedAdapterMatched));
         if (configChanged
             || pendingOutputResize.has_value()
             || displayTargetChanged
