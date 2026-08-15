@@ -1,6 +1,7 @@
 #pragma once
 
 #include "bafx/windows/composition_renderer.hpp"
+#include "bafx/windows/display_capabilities.hpp"
 #include "bafx/windows/overlay_window.hpp"
 
 #include <windows.h>
@@ -10,6 +11,15 @@
 
 namespace bafx::desktop
 {
+
+// Keep the user's HDR request independent from the transport that is safe for
+// one current monitor. Unknown or contradictory display state must not promote
+// the final swap chain to scRGB.
+[[nodiscard]] bafx::windows::CompositionOutputPreference
+resolveDisplayOutputPreference(
+    bafx::windows::CompositionOutputPreference requested,
+    const std::optional<bafx::windows::DisplayColorCapabilities>& capabilities)
+    noexcept;
 
 struct DisplayOutputRetargetIntent final
 {

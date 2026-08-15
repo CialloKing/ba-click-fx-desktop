@@ -79,13 +79,18 @@ DisplaySession::DisplaySession(DisplaySessionOptions options)
           target_.bounds,
           options.title,
           bafx::windows::OverlayWindowOptions::renderSurface()),
+      requestedOutputPreference_(options.outputPreference),
+      colorCapabilities_(bafx::windows::queryDisplayColorCapabilities(
+          target_.monitor)),
       renderer_(
           window_.handle(),
           window_.size(),
           options.bloomSettings,
           options.backgroundStopObserver,
           requestedAdapter(target_),
-          options.outputPreference),
+          resolveDisplayOutputPreference(
+              requestedOutputPreference_,
+              colorCapabilities_)),
       simulation_(options.simulationSeed)
 {
     if (borderlessAccessAuthority_ == nullptr)
@@ -94,7 +99,6 @@ DisplaySession::DisplaySession(DisplaySessionOptions options)
             "Display session requires the process access authority");
     }
     static_cast<void>(colorMonitor_.start(target_.monitor, options.wakeWindow));
-    refreshColorCapabilities();
 }
 
 DisplaySession::~DisplaySession()
@@ -151,6 +155,18 @@ const std::optional<bafx::windows::DisplayColorCapabilities>&
 DisplaySession::colorCapabilities() const noexcept
 {
     return colorCapabilities_;
+}
+
+bafx::windows::CompositionOutputPreference
+DisplaySession::requestedOutputPreference() const noexcept
+{
+    return requestedOutputPreference_;
+}
+
+void DisplaySession::setRequestedOutputPreference(
+    const bafx::windows::CompositionOutputPreference preference) noexcept
+{
+    requestedOutputPreference_ = preference;
 }
 
 const bafx::windows::DisplayColorMonitorResult&

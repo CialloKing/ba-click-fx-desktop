@@ -42,6 +42,37 @@ void appendRollbackFailure(
 
 }
 
+bafx::windows::CompositionOutputPreference resolveDisplayOutputPreference(
+    const bafx::windows::CompositionOutputPreference requested,
+    const std::optional<bafx::windows::DisplayColorCapabilities>& capabilities)
+    noexcept
+{
+    using bafx::windows::CompositionOutputPreference;
+    using bafx::windows::DisplayColorMode;
+
+    if (requested == CompositionOutputPreference::ConservativeSdr
+        || !capabilities.has_value())
+    {
+        return CompositionOutputPreference::ConservativeSdr;
+    }
+
+    const bafx::windows::DisplayColorCapabilities& color = *capabilities;
+    if (color.advancedColorLimitedByPolicy
+        || (color.displayPathResolved
+            && (!color.advancedColorStateConsistent
+                || !color.advancedColorActive)))
+    {
+        return CompositionOutputPreference::ConservativeSdr;
+    }
+
+    if (color.activeColorMode == DisplayColorMode::Hdr
+        || color.activeColorMode == DisplayColorMode::WideColorGamut)
+    {
+        return CompositionOutputPreference::PreferLinearScRgb;
+    }
+    return CompositionOutputPreference::ConservativeSdr;
+}
+
 DisplayOutputRetargetResult retargetDisplayOutput(
     bafx::windows::OverlayWindow& window,
     bafx::windows::CompositionRenderer& renderer,

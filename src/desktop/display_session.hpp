@@ -106,6 +106,10 @@ public:
     [[nodiscard]] bafx::windows::DisplayColorMonitor& colorMonitor() noexcept;
     [[nodiscard]] const std::optional<bafx::windows::DisplayColorCapabilities>&
         colorCapabilities() const noexcept;
+    [[nodiscard]] bafx::windows::CompositionOutputPreference
+        requestedOutputPreference() const noexcept;
+    void setRequestedOutputPreference(
+        bafx::windows::CompositionOutputPreference preference) noexcept;
     [[nodiscard]] const bafx::windows::DisplayColorMonitorResult&
         colorMonitorResult() const noexcept;
     [[nodiscard]] bool renderFaulted() const noexcept;
@@ -186,11 +190,13 @@ private:
         borderlessAccessAuthority_{nullptr};
     DisplayTarget target_{};
     bafx::windows::OverlayWindow window_;
+    bafx::windows::CompositionOutputPreference requestedOutputPreference_{
+        bafx::windows::CompositionOutputPreference::ConservativeSdr};
+    std::optional<bafx::windows::DisplayColorCapabilities> colorCapabilities_{};
     bafx::windows::CompositionRenderer renderer_;
     bafx::fx::SimulationRuntime simulation_;
     bafx::fx::SimulationTimeline timeline_{};
     bafx::windows::DisplayColorMonitor colorMonitor_{};
-    std::optional<bafx::windows::DisplayColorCapabilities> colorCapabilities_{};
     std::optional<bafx::core::MonotonicTime> nextFramePacingDeadline_{};
     bool lastPresentedDrawableContent_{false};
     bool renderFaulted_{false};
