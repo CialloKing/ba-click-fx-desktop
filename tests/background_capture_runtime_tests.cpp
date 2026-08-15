@@ -56,6 +56,23 @@ private:
 
 }
 
+BAFX_TEST(capture_exclusion_health_poller_is_bounded_and_resets)
+{
+    bafx::desktop::CaptureExclusionHealthPoller poller;
+    BAFX_CHECK(!poller.shouldQuery(true, std::chrono::nanoseconds::zero()));
+    BAFX_CHECK(!poller.shouldQuery(true, std::chrono::milliseconds(999)));
+    BAFX_CHECK(poller.shouldQuery(true, std::chrono::seconds(1)));
+    BAFX_CHECK(!poller.shouldQuery(true, std::chrono::milliseconds(1500)));
+    BAFX_CHECK(poller.shouldQuery(true, std::chrono::seconds(9)));
+
+    BAFX_CHECK(!poller.shouldQuery(false, std::chrono::seconds(10)));
+    BAFX_CHECK(!poller.shouldQuery(true, std::chrono::seconds(20)));
+    BAFX_CHECK(poller.shouldQuery(true, std::chrono::seconds(21)));
+
+    BAFX_CHECK(!poller.shouldQuery(true, std::chrono::seconds(2)));
+    BAFX_CHECK(poller.shouldQuery(true, std::chrono::seconds(3)));
+}
+
 BAFX_TEST(background_snapshot_invalidation_log_preserves_causal_identity)
 {
     const TemporaryBackgroundCaptureLog log;

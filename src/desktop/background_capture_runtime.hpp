@@ -21,6 +21,20 @@
 namespace bafx::desktop
 {
 
+inline constexpr auto backgroundCaptureExclusionHealthInterval =
+    std::chrono::seconds(1);
+
+class CaptureExclusionHealthPoller final
+{
+public:
+    [[nodiscard]] bool shouldQuery(
+        bool captureActive,
+        std::chrono::nanoseconds now) noexcept;
+
+private:
+    std::optional<std::chrono::nanoseconds> lastObservedAt_{};
+};
+
 enum class BackgroundCaptureExecutionStatus : std::uint8_t
 {
     Pending,

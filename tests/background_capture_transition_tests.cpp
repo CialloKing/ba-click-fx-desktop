@@ -725,6 +725,30 @@ BAFX_TEST(background_capture_resize_rejects_zero_output_dimensions)
     BAFX_CHECK(!transition.nextAction().has_value());
 }
 
+BAFX_TEST(capture_exclusion_loss_stops_before_restoring_visibility)
+{
+    BackgroundCaptureTransition transition;
+    BAFX_CHECK(
+        transition.beginRequest(backgroundAwareRequest())
+        == BackgroundCaptureRequestResult::Started);
+    static_cast<void>(completeSuccessfully(transition));
+
+    BAFX_CHECK(transition.beginCaptureExclusionLost());
+    checkActions(
+        completeSuccessfully(transition),
+        {BackgroundCaptureActionKind::StopSensor,
+         BackgroundCaptureActionKind::SetAffinityIncluded,
+         BackgroundCaptureActionKind::ApplyOverlayProfile});
+    BAFX_CHECK(
+        transition.failure()
+        == BackgroundCaptureFailure::ExclusionUnconfirmed);
+    BAFX_CHECK(
+        transition.effectivePath() == EffectiveBackgroundCapturePath::FxOnly);
+    BAFX_CHECK(
+        transition.beginRequest(backgroundAwareRequest())
+        == BackgroundCaptureRequestResult::NoChange);
+}
+
 BAFX_TEST(fx_only_profile_resize_preserves_unknown_capture_visibility)
 {
     BackgroundCaptureTransition transition;

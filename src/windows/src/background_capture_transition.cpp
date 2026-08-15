@@ -232,6 +232,18 @@ bool BackgroundCaptureTransition::beginFramePoolRecreate(
 
 bool BackgroundCaptureTransition::beginSessionStopped() noexcept
 {
+    return beginActiveSensorFailure(BackgroundCaptureFailure::SessionStopped);
+}
+
+bool BackgroundCaptureTransition::beginCaptureExclusionLost() noexcept
+{
+    return beginActiveSensorFailure(
+        BackgroundCaptureFailure::ExclusionUnconfirmed);
+}
+
+bool BackgroundCaptureTransition::beginActiveSensorFailure(
+    const BackgroundCaptureFailure failure) noexcept
+{
     if (transitioning()
         || !request_.has_value()
         || !request_->sensorRequired
@@ -242,7 +254,7 @@ bool BackgroundCaptureTransition::beginSessionStopped() noexcept
 
     actionCount_ = 0U;
     actionIndex_ = 0U;
-    pendingFailure_ = BackgroundCaptureFailure::SessionStopped;
+    pendingFailure_ = failure;
     completionPath_ = EffectiveBackgroundCapturePath::FxOnly;
     completionVisibilityUnknown_ = false;
     appendAction(simpleAction(BackgroundCaptureActionKind::StopSensor));

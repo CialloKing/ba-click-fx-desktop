@@ -327,6 +327,34 @@ void observeDeviceRecovery(
 
 }
 
+bool CaptureExclusionHealthPoller::shouldQuery(
+    const bool captureActive,
+    const std::chrono::nanoseconds now) noexcept
+{
+    if (!captureActive)
+    {
+        lastObservedAt_.reset();
+        return false;
+    }
+    if (!lastObservedAt_.has_value() || now < *lastObservedAt_)
+    {
+        // Starting a sensor already performs a set/readback transaction. Delay
+        // the first health query, and restart the cadence after clock regression.
+        lastObservedAt_ = now;
+        return false;
+    }
+    if (now - *lastObservedAt_
+        < backgroundCaptureExclusionHealthInterval)
+    {
+        return false;
+    }
+
+    // Missed periods collapse into one query so a stalled Host cannot emit a
+    // burst of Win32 calls while it is recovering.
+    lastObservedAt_ = now;
+    return true;
+}
+
 BackgroundCaptureStopMonitor::BackgroundCaptureStopMonitor(
     const std::filesystem::path& logPath,
     const std::chrono::milliseconds timeout,

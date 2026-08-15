@@ -100,6 +100,7 @@ public:
         BackgroundCaptureRequest request) noexcept;
     [[nodiscard]] bool beginFramePoolRecreate(WindowSize captureSize) noexcept;
     [[nodiscard]] bool beginSessionStopped() noexcept;
+    [[nodiscard]] bool beginCaptureExclusionLost() noexcept;
 
     [[nodiscard]] std::optional<BackgroundCaptureAction> nextAction() const noexcept;
     // Observation must match nextAction(). Only an asynchronous borderless
@@ -132,6 +133,8 @@ private:
         WindowSize outputSize,
         bool stopActiveSensor,
         bool profileOnly) noexcept;
+    [[nodiscard]] bool beginActiveSensorFailure(
+        BackgroundCaptureFailure failure) noexcept;
     void appendBorderlessAccessRequestIfRequired(
         const BackgroundCaptureRequest& request) noexcept;
     void appendAction(BackgroundCaptureAction action) noexcept;
