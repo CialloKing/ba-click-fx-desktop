@@ -105,7 +105,8 @@ struct DisplayTargetIntent
     const DisplayTargetIntent& right) noexcept
 {
     return left.applyBounds == right.applyBounds
-        && sameDisplayTarget(left.target, right.target);
+        && sameDisplayTarget(left.target, right.target)
+        && sameDisplaySourceIdentity(left.target, right.target);
 }
 
 [[nodiscard]] std::string displayTargetDeviceUtf8(

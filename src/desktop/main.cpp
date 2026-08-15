@@ -2158,6 +2158,9 @@ int runApplication(
                     : appliedDisplayTarget;
             if (!bafx::desktop::sameDisplayTarget(
                     observedTarget,
+                    expectedTarget)
+                || !bafx::desktop::sameDisplaySourceIdentity(
+                    observedTarget,
                     expectedTarget))
             {
                 pendingDisplayTarget = observedTarget;

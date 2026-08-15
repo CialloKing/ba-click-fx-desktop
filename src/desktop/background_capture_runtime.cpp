@@ -1130,6 +1130,7 @@ void appendDisplayTopologyObserved(
         const std::string appliedDpiText = std::to_string(appliedDpi);
         const std::string windowDpiText = std::to_string(windowEffectiveDpi);
         const std::string changed = sameDisplayTarget(applied, observed)
+            && sameDisplaySourceIdentity(applied, observed)
             ? "false"
             : "true";
         const std::string dpiChanged = appliedDpi == windowEffectiveDpi
