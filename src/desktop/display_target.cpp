@@ -166,7 +166,11 @@ DisplayTargetSnapshot queryDisplayTargets() noexcept
                     DisplayPhysicalTargetIdentity{
                         physicalTarget.adapterLuid,
                         physicalTarget.targetId,
-                        physicalTarget.devicePath});
+                        physicalTarget.devicePath,
+                        physicalTarget.rotation,
+                        physicalTarget.scaling,
+                        physicalTarget.outputTechnology,
+                        physicalTarget.available});
             }
             std::sort(
                 target.physicalTargetIdentities.begin(),

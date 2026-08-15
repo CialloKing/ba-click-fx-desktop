@@ -18,6 +18,11 @@ struct DisplayPhysicalTargetIdentity final
     LUID adapterLuid{};
     std::uint32_t targetId{0U};
     std::wstring devicePath{};
+    DISPLAYCONFIG_ROTATION rotation{DISPLAYCONFIG_ROTATION_IDENTITY};
+    DISPLAYCONFIG_SCALING scaling{DISPLAYCONFIG_SCALING_IDENTITY};
+    DISPLAYCONFIG_VIDEO_OUTPUT_TECHNOLOGY outputTechnology{
+        DISPLAYCONFIG_OUTPUT_TECHNOLOGY_OTHER};
+    bool available{false};
 };
 
 struct DisplayTarget
@@ -71,9 +76,20 @@ struct DisplayTargetSnapshot
     // GET_TARGET_NAME can fail transiently during hot-plug. An unresolved path
     // is not evidence of replacement; compare it only when both snapshots have
     // an authoritative monitor device path.
-    return left.devicePath.empty()
+    const bool sameDevicePath = left.devicePath.empty()
         || right.devicePath.empty()
         || left.devicePath == right.devicePath;
+    if (!sameDevicePath)
+    {
+        return false;
+    }
+
+    // A 180-degree rotation or GPU scaling change can preserve rcMonitor and
+    // the target ID while invalidating capture/output coordinate contracts.
+    return left.rotation == right.rotation
+        && left.scaling == right.scaling
+        && left.outputTechnology == right.outputTechnology
+        && left.available == right.available;
 }
 
 [[nodiscard]] inline bool sameDisplayPhysicalTargets(
