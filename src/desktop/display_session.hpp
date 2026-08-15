@@ -52,6 +52,8 @@ struct DisplaySessionBackgroundCaptureServiceResult final
     bool active{false};
     std::optional<bafx::windows::OutputRenegotiationResult>
         outputRenegotiation{};
+    bafx::windows::CompositionOutputPreference outputRenegotiationPreference{
+        bafx::windows::CompositionOutputPreference::ConservativeSdr};
     std::string outputRenegotiationReason{};
     std::string outputRenegotiationFailure{};
 };

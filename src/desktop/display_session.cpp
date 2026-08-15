@@ -454,6 +454,7 @@ DisplaySession::serviceSecondaryBackgroundCapture(
             const PendingSecondaryOutputRenegotiation pending =
                 *state.pendingOutputRenegotiation;
             state.pendingOutputRenegotiation.reset();
+            result.outputRenegotiationPreference = pending.preference;
             result.outputRenegotiationReason = pending.reason;
 
             const bool backgroundCaptureWasEffective =
