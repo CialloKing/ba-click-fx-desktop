@@ -2323,10 +2323,13 @@ int runApplication(
             }
             if (refreshSecondaryColor)
             {
+                const std::optional<
+                    bafx::windows::DisplayColorCapabilities>
+                    previousCapabilities = session.colorCapabilities();
                 const std::string previousMode =
-                    session.colorCapabilities().has_value()
+                    previousCapabilities.has_value()
                     ? std::string(bafx::windows::displayColorModeName(
-                        session.colorCapabilities()->activeColorMode))
+                        previousCapabilities->activeColorMode))
                     : "unknown";
                 session.refreshColorCapabilities();
                 const std::string currentMode =
@@ -2340,6 +2343,78 @@ int runApplication(
                     bafx::desktop::displayTargetDeviceUtf8(session.target());
                 const std::string generation = std::to_string(
                     secondaryColorGeneration);
+                const std::string_view reason =
+                    secondaryColorGeneration == 0U
+                    ? "win32-notification"
+                    : "advanced-color-event";
+                const bafx::windows::CompositionOutputPreference preference =
+                    session.renderer().outputPreference();
+                const bool outputContractChanged =
+                    displayOutputContractChanged(
+                        preference,
+                        previousCapabilities,
+                        session.colorCapabilities());
+                std::string_view outputRenegotiation = "not-needed";
+                bool applyFxOnlyOutput = false;
+                if (outputContractChanged)
+                {
+                    renderInvalidated = true;
+                    if (session.secondaryBackgroundCaptureInitialized())
+                    {
+                        try
+                        {
+                            session.requestSecondaryOutputRenegotiation(
+                                preference,
+                                reason);
+                            outputRenegotiation = "queued";
+                        }
+                        catch (const std::exception& error)
+                        {
+                            // A queue-allocation failure must not strand a
+                            // working FX-only surface on the old color contract.
+                            session.shutdownSecondaryBackgroundCapture();
+                            appendSecondaryBackgroundCaptureFailure(
+                                logPath,
+                                session,
+                                "queue-output-renegotiation",
+                                error.what());
+                            applyFxOnlyOutput = true;
+                        }
+                        catch (...)
+                        {
+                            session.shutdownSecondaryBackgroundCapture();
+                            appendSecondaryBackgroundCaptureFailure(
+                                logPath,
+                                session,
+                                "queue-output-renegotiation",
+                                "unknown exception");
+                            applyFxOnlyOutput = true;
+                        }
+                    }
+                    else
+                    {
+                        applyFxOnlyOutput = true;
+                    }
+
+                    if (applyFxOnlyOutput)
+                    {
+                        const std::optional<
+                            bafx::windows::OutputRenegotiationResult> result =
+                            tryRenegotiateOutput(
+                                logPath,
+                                session,
+                                preference,
+                                reason);
+                        if (result.has_value())
+                        {
+                            outputRenegotiation = "applied-fx-only";
+                        }
+                        else
+                        {
+                            outputRenegotiation = "failed";
+                        }
+                    }
+                }
                 const std::array fields{
                     bafx::windows::DiagnosticField{"Device", device},
                     bafx::windows::DiagnosticField{"Monitor", monitor},
@@ -2352,7 +2427,13 @@ int runApplication(
                         session.colorCapabilities().has_value()
                             ? "succeeded"
                             : "failed"},
-                    bafx::windows::DiagnosticField{"Generation", generation}};
+                    bafx::windows::DiagnosticField{"Generation", generation},
+                    bafx::windows::DiagnosticField{
+                        "OutputContract",
+                        outputContractChanged ? "changed" : "unchanged"},
+                    bafx::windows::DiagnosticField{
+                        "OutputRenegotiation",
+                        outputRenegotiation}};
                 bafx::windows::appendDiagnosticEvent(
                     logPath,
                     "Display.Session.ColorState.Refreshed",
