@@ -18,6 +18,7 @@
 #include <memory>
 #include <new>
 #include <sstream>
+#include <utility>
 
 namespace bafx::windows
 {
@@ -757,6 +758,67 @@ bool BorderlessCaptureAccessRequest::active() const noexcept
 bool BorderlessCaptureAccessRequest::pending() const noexcept
 {
     return operation_ != nullptr;
+}
+
+BorderlessCaptureAccessAuthority::BorderlessCaptureAccessAuthority(
+    PackageIdentityInfo identity,
+    const std::chrono::milliseconds timeout)
+    : identity_(std::move(identity))
+    , request_(timeout)
+{
+}
+
+BorderlessCaptureAccessPollResult BorderlessCaptureAccessAuthority::poll(
+    const std::uint64_t retryToken,
+    const Clock::time_point now) noexcept
+{
+    if (retryToken > retryToken_)
+    {
+        retryToken_ = retryToken;
+        if (terminalResult_.has_value()
+            && !borderlessCaptureAccessAllowed(*terminalResult_))
+        {
+            // An explicit retry may replace a process-wide failure, while an
+            // Allowed decision remains valid for every display session.
+            invalidate(now);
+        }
+    }
+    if (terminalResult_.has_value())
+    {
+        return BorderlessCaptureAccessPollResult{false, terminalResult_};
+    }
+    if (!requestStarted_)
+    {
+        request_.begin(identity_, now);
+        requestStarted_ = true;
+    }
+
+    BorderlessCaptureAccessPollResult result = request_.poll(now);
+    if (result.result.has_value())
+    {
+        terminalResult_ = result.result;
+        requestStarted_ = false;
+    }
+    return result;
+}
+
+void BorderlessCaptureAccessAuthority::invalidate(
+    const Clock::time_point now) noexcept
+{
+    request_.cancel(now);
+    static_cast<void>(request_.poll(now));
+    terminalResult_.reset();
+    requestStarted_ = false;
+}
+
+bool BorderlessCaptureAccessAuthority::pending() const noexcept
+{
+    return requestStarted_ && request_.pending();
+}
+
+bool BorderlessCaptureAccessAuthority::terminal() const noexcept
+{
+    return terminalResult_.has_value();
 }
 
 bool borderlessCaptureAccessAllowed(

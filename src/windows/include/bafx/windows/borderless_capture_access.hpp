@@ -1,6 +1,7 @@
 #pragma once
 
 #include "bafx/windows/external_host_trust.hpp"
+#include "bafx/windows/package_identity.hpp"
 #include "bafx/windows/wgc_runtime_capabilities.hpp"
 
 #include <windows.h>
@@ -14,8 +15,6 @@
 
 namespace bafx::windows
 {
-
-struct PackageIdentityInfo;
 
 inline constexpr std::uint32_t borderlessCaptureAccessPromptTimeoutMilliseconds =
     120000U;
@@ -148,6 +147,41 @@ private:
     Clock::time_point startedAt_{};
     std::chrono::milliseconds timeout_{};
     bool cancelRequested_{false};
+};
+
+class BorderlessCaptureAccessAuthority final
+{
+public:
+    using Clock = BorderlessCaptureAccessRequest::Clock;
+
+    explicit BorderlessCaptureAccessAuthority(
+        PackageIdentityInfo identity,
+        std::chrono::milliseconds timeout = std::chrono::milliseconds(
+            borderlessCaptureAccessPromptTimeoutMilliseconds));
+
+    BorderlessCaptureAccessAuthority(
+        const BorderlessCaptureAccessAuthority&) = delete;
+    BorderlessCaptureAccessAuthority& operator=(
+        const BorderlessCaptureAccessAuthority&) = delete;
+    BorderlessCaptureAccessAuthority(
+        BorderlessCaptureAccessAuthority&&) = delete;
+    BorderlessCaptureAccessAuthority& operator=(
+        BorderlessCaptureAccessAuthority&&) = delete;
+
+    [[nodiscard]] BorderlessCaptureAccessPollResult poll(
+        std::uint64_t retryToken,
+        Clock::time_point now = Clock::now()) noexcept;
+    void invalidate(Clock::time_point now = Clock::now()) noexcept;
+
+    [[nodiscard]] bool pending() const noexcept;
+    [[nodiscard]] bool terminal() const noexcept;
+
+private:
+    PackageIdentityInfo identity_{};
+    BorderlessCaptureAccessRequest request_;
+    std::optional<BorderlessCaptureAccessResult> terminalResult_{};
+    std::uint64_t retryToken_{0U};
+    bool requestStarted_{false};
 };
 
 [[nodiscard]] bool borderlessCaptureAccessAllowed(
