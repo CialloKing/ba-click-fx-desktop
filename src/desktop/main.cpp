@@ -33,6 +33,7 @@
 #include <iomanip>
 #include <limits>
 #include <optional>
+#include <span>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -837,6 +838,7 @@ void appendSecondaryRenderFailure(
 SecondaryRenderSummary renderSecondarySessions(
     bafx::desktop::DisplaySessionManager& sessions,
     bafx::desktop::DisplaySession& coordinator,
+    const std::span<bafx::desktop::DisplaySession*> readySessions,
     const bafx::config::Config& config,
     const bafx::fx::SimulationTime renderTime,
     const bafx::core::MonotonicTime wallTime,
@@ -887,40 +889,19 @@ SecondaryRenderSummary renderSecondarySessions(
                 "Display.Session.DeviceRecovered",
                 fields,
                 bafx::windows::DiagnosticLevel::Warning);
+            // The recovered swap chain owns a new latency handle. An
+            // opportunity granted by the released handle cannot authorize a
+            // Present on this resource domain.
+            continue;
         }
 
-        const HANDLE frameLatency = sessionRenderer.frameLatencyWaitableObject();
-        if (frameLatency == nullptr)
-        {
-            session.markRenderFaulted();
-            ++summary.failed;
-            appendSecondaryRenderFailure(
-                logPath,
-                session,
-                "frame-latency-handle",
-                "renderer returned a null frame latency handle");
-            continue;
-        }
-        const DWORD frameState = WaitForSingleObject(frameLatency, 0U);
-        if (frameState == WAIT_TIMEOUT)
+        const bool frameReady = std::find(
+            readySessions.begin(),
+            readySessions.end(),
+            &session) != readySessions.end();
+        if (!frameReady)
         {
             ++summary.notReady;
-            continue;
-        }
-        if (frameState != WAIT_OBJECT_0)
-        {
-            const DWORD error = frameState == WAIT_FAILED
-                ? GetLastError()
-                : ERROR_INVALID_STATE;
-            const std::string message = "frame latency wait failed; error="
-                + std::to_string(error);
-            session.markRenderFaulted();
-            ++summary.failed;
-            appendSecondaryRenderFailure(
-                logPath,
-                session,
-                "frame-latency-wait",
-                message);
             continue;
         }
 
@@ -1427,6 +1408,10 @@ int runApplication(
         control.setBackgroundCaptureActive(renderer.backgroundCaptureActive());
         bafx::windows::appendDiagnosticLog(logPath, report);
     };
+    std::vector<bafx::desktop::FramePacingWaitable> frameWaitables;
+    std::vector<bafx::desktop::DisplaySession*> readyDisplaySessions;
+    frameWaitables.reserve(16U);
+    readyDisplaySessions.reserve(8U);
     while (!quit && !hostWindow.closeRequested())
     {
         accumulateMessageDispatch(pendingMessageDispatch, dispatchMessages(quit));
@@ -2019,23 +2004,100 @@ int runApplication(
             || enteringPause
             || renderInvalidated;
         std::optional<HRESULT> framePacingDeviceLoss;
+        bool renderCoordinatorThisIteration = false;
         if (shouldRender)
         {
+            frameWaitables.clear();
+            readyDisplaySessions.clear();
+            const auto& ownedSessions = displaySessions.sessions();
+            for (std::size_t index = 0U; index < ownedSessions.size(); ++index)
+            {
+                bafx::desktop::DisplaySession& session = *ownedSessions[index];
+                if (&session != &displaySession && session.renderFaulted())
+                {
+                    continue;
+                }
+                const HANDLE deviceRemoved =
+                    session.renderer().deviceRemovedWaitableObject();
+                if (deviceRemoved != nullptr)
+                {
+                    frameWaitables.push_back(
+                        bafx::desktop::FramePacingWaitable{
+                            deviceRemoved,
+                            bafx::desktop::FramePacingWaitableKind::
+                                DeviceRemoved,
+                            index});
+                }
+            }
+            for (std::size_t index = 0U; index < ownedSessions.size(); ++index)
+            {
+                bafx::desktop::DisplaySession& session = *ownedSessions[index];
+                if (&session != &displaySession && session.renderFaulted())
+                {
+                    continue;
+                }
+                if (options.framePacingStallProbe
+                    && &session != &displaySession)
+                {
+                    continue;
+                }
+                const HANDLE frameLatency = &session == &displaySession
+                        && options.framePacingStallProbe
+                    ? framePacingStallHandle.get()
+                    : session.renderer().frameLatencyWaitableObject();
+                if (frameLatency == nullptr)
+                {
+                    if (&session == &displaySession)
+                    {
+                        throw std::runtime_error(
+                            "Coordinator returned a null frame latency handle");
+                    }
+                    session.markRenderFaulted();
+                    appendSecondaryRenderFailure(
+                        logPath,
+                        session,
+                        "frame-latency-handle",
+                        "renderer returned a null frame latency handle");
+                    continue;
+                }
+                frameWaitables.push_back(
+                    bafx::desktop::FramePacingWaitable{
+                        frameLatency,
+                        bafx::desktop::FramePacingWaitableKind::FrameReady,
+                        index});
+            }
             const bafx::desktop::FramePacingWaitResult pacingWait =
-                bafx::desktop::waitForFrameOpportunity(
-                    options.framePacingStallProbe
-                        ? framePacingStallHandle.get()
-                        : renderer.frameLatencyWaitableObject(),
-                    renderer.deviceRemovedWaitableObject(),
+                bafx::desktop::waitForAnyFrameOpportunity(
+                    frameWaitables,
                     activeControlPollMilliseconds);
             performanceWindow.addFramePacingWake(pacingWait.wake);
+            bafx::desktop::DisplaySession* awakenedSession =
+                pacingWait.token < ownedSessions.size()
+                ? ownedSessions[pacingWait.token].get()
+                : nullptr;
             switch (pacingWait.wake)
             {
             case bafx::desktop::FramePacingWake::FrameReady:
-                lastFrameReadyAt = clock.now();
+                if (awakenedSession == nullptr)
+                {
+                    throw std::logic_error(
+                        "Frame pacing returned an unknown display token");
+                }
+                readyDisplaySessions.push_back(awakenedSession);
                 break;
             case bafx::desktop::FramePacingWake::DeviceRemoved:
             {
+                if (awakenedSession == nullptr)
+                {
+                    throw std::logic_error(
+                        "Device removal returned an unknown display token");
+                }
+                if (awakenedSession != &displaySession)
+                {
+                    // The secondary renderer owns its one-shot recovery and
+                    // cannot invalidate the coordinator's WGC transaction.
+                    break;
+                }
                 const bafx::fx::SimulationTime detectedAt = clock.now();
                 const HRESULT deviceResult = renderer.deviceRemovedReason();
                 appendFramePacingDeviceRecoveryDetection(
@@ -2110,6 +2172,73 @@ int runApplication(
                 framePacingDeviceLoss = deviceResult;
                 break;
             }
+            }
+
+            if (pacingWait.wake == bafx::desktop::FramePacingWake::FrameReady
+                || pacingWait.wake
+                    == bafx::desktop::FramePacingWake::DeviceRemoved)
+            {
+                for (const auto& ownedSession : ownedSessions)
+                {
+                    bafx::desktop::DisplaySession& session = *ownedSession;
+                    if (&session != &displaySession && session.renderFaulted())
+                    {
+                        continue;
+                    }
+                    if (std::find(
+                            readyDisplaySessions.begin(),
+                            readyDisplaySessions.end(),
+                            &session) != readyDisplaySessions.end())
+                    {
+                        continue;
+                    }
+                    const HANDLE frameLatency = &session == &displaySession
+                            && options.framePacingStallProbe
+                        ? framePacingStallHandle.get()
+                        : session.renderer().frameLatencyWaitableObject();
+                    if (frameLatency == nullptr)
+                    {
+                        continue;
+                    }
+                    const DWORD state = WaitForSingleObject(frameLatency, 0U);
+                    if (state == WAIT_OBJECT_0)
+                    {
+                        readyDisplaySessions.push_back(&session);
+                    }
+                    else if (state == WAIT_FAILED)
+                    {
+                        if (&session == &displaySession)
+                        {
+                            throw bafx::windows::HResultError(
+                                HRESULT_FROM_WIN32(GetLastError()),
+                                "WaitForSingleObject(coordinator frame latency)");
+                        }
+                        const DWORD error = GetLastError();
+                        session.markRenderFaulted();
+                        appendSecondaryRenderFailure(
+                            logPath,
+                            session,
+                            "frame-latency-poll",
+                            "wait failed; error=" + std::to_string(error));
+                    }
+                }
+            }
+
+            const bool coordinatorFrameReady = std::find(
+                    readyDisplaySessions.begin(),
+                    readyDisplaySessions.end(),
+                    &displaySession) != readyDisplaySessions.end();
+            renderCoordinatorThisIteration =
+                framePacingDeviceLoss.has_value() || coordinatorFrameReady;
+            if (coordinatorFrameReady)
+            {
+                lastFrameReadyAt = clock.now();
+            }
+            else if (renderInvalidated)
+            {
+                // A faster secondary can wake the Host before the coordinator
+                // has a slot. Retain primary resize/config/WGC invalidations.
+                renderInvalidationPending = true;
             }
         }
 
@@ -2209,7 +2338,7 @@ int runApplication(
                 ownedSession->simulation().advance(renderTime);
             }
         }
-        if (shouldRender)
+        if (renderCoordinatorThisIteration)
         {
             bafx::fx::FrameSnapshot snapshot = config.effects.enabled
                 ? simulation.snapshot(toViewport(window.size()), renderTime)
@@ -2680,9 +2809,9 @@ int runApplication(
         }
         else
         {
-            // Product pause freezes simulation and presentation, not the WGC
-            // producer. Drain only the sensor-owned sample so the next visible
-            // batch cannot begin from a FramePool entry accumulated while idle.
+            // Product pause or another display's earlier frame slot can skip
+            // this output. Drain only the sensor-owned sample so the next
+            // coordinator batch cannot inherit an accumulated WGC entry.
             const bafx::windows::BackgroundSensorMaintenanceDiagnostics
                 maintenance = renderer.serviceBackgroundCapture(wallTime);
             const std::uint64_t producerCallbacks =
@@ -2848,13 +2977,14 @@ int runApplication(
             static_cast<void>(renderSecondarySessions(
                 displaySessions,
                 displaySession,
+                readyDisplaySessions,
                 config,
                 renderTime,
                 wallTime,
                 !controlState.paused || enteringPause,
                 logPath));
         }
-        if (shouldRender && options.smokeTest)
+        if (renderCoordinatorThisIteration && options.smokeTest)
         {
             const std::optional<bafx::windows::PixelF> pixel =
                 renderer.lastCenterPixel();
@@ -2870,7 +3000,7 @@ int runApplication(
                     "Desktop smoke test did not render a finite center FX pixel");
             }
         }
-        if (shouldRender)
+        if (renderCoordinatorThisIteration)
         {
             if (!controlState.paused || enteringPause)
             {
