@@ -555,159 +555,6 @@ private:
     return iterator == object.end() ? nullptr : &iterator->second;
 }
 
-[[nodiscard]] JsonValue* member(
-    JsonValue::Object& object,
-    const std::string_view key) noexcept
-{
-    const auto iterator = object.find(key);
-    return iterator == object.end() ? nullptr : &iterator->second;
-}
-
-void copyAlias(
-    const JsonValue::Object& source,
-    const std::string_view sourceKey,
-    JsonValue::Object& destination,
-    const std::string_view destinationKey)
-{
-    if (destination.find(destinationKey) != destination.end())
-    {
-        return;
-    }
-    if (const JsonValue* value = member(source, sourceKey); value != nullptr)
-    {
-        destination.emplace(std::string(destinationKey), *value);
-    }
-}
-
-void moveAlias(
-    JsonValue::Object& source,
-    const std::string_view sourceKey,
-    JsonValue::Object& destination,
-    const std::string_view destinationKey)
-{
-    if (destination.find(destinationKey) != destination.end())
-    {
-        return;
-    }
-    const auto iterator = source.find(sourceKey);
-    if (iterator == source.end())
-    {
-        return;
-    }
-    destination.emplace(std::string(destinationKey), std::move(iterator->second));
-    source.erase(iterator);
-}
-
-[[nodiscard]] JsonValue::Object& ensureObject(
-    JsonValue::Object& parent,
-    const std::string_view key)
-{
-    auto iterator = parent.find(key);
-    if (iterator == parent.end())
-    {
-        iterator = parent.emplace(std::string(key), JsonValue(JsonValue::Object{})).first;
-    }
-    JsonValue::Object* object = objectOf(iterator->second);
-    if (object == nullptr)
-    {
-        iterator->second = JsonValue(JsonValue::Object{});
-        object = objectOf(iterator->second);
-    }
-    return *object;
-}
-
-void migrateV1ToV2(JsonValue::Object& root)
-{
-    JsonValue::Object& effects = ensureObject(root, "effects");
-    copyAlias(root, "enabled", effects, "enabled");
-    copyAlias(root, "scale", effects, "globalScale");
-    copyAlias(root, "trail", effects, "trailEnabled");
-    copyAlias(root, "trailLength", effects, "trailLength");
-    copyAlias(root, "trailWidth", effects, "trailWidth");
-    copyAlias(root, "bloom", effects, "bloomIntensity");
-
-    JsonValue::Object& background = ensureObject(root, "background");
-    copyAlias(root, "backgroundMode", background, "mode");
-    root["schemaVersion"] = JsonValue(2.0);
-}
-
-void migrateV2ToV3(JsonValue::Object& root)
-{
-    JsonValue::Object& effects = ensureObject(root, "effects");
-    moveAlias(effects, "scale", effects, "globalScale");
-    moveAlias(effects, "trail", effects, "trailEnabled");
-    moveAlias(effects, "bloom", effects, "bloomIntensity");
-
-    JsonValue::Object& background = ensureObject(root, "background");
-    moveAlias(root, "backgroundMode", background, "mode");
-    root["schemaVersion"] = JsonValue(3.0);
-}
-
-void migrateV3ToV4(JsonValue::Object& root)
-{
-    JsonValue::Object& background = ensureObject(root, "background");
-    if (background.find("allowSystemBorder") == background.end())
-    {
-        // Older schemas had no border policy. Prefer a working background
-        // sensor on Windows versions that require the privacy indicator.
-        background.emplace("allowSystemBorder", JsonValue(true));
-    }
-    root["schemaVersion"] = JsonValue(4.0);
-}
-
-void migrateV4ToV5(JsonValue::Object& root)
-{
-    JsonValue::Object& background = ensureObject(root, "background");
-    // Schema 5 replaces capture-oriented names with product render profiles.
-    // During Alpha development, retired modes restart from the new default.
-    background["mode"] = JsonValue(std::string("background-aware"));
-    root["schemaVersion"] = JsonValue(5.0);
-}
-
-void migrateV5ToV6(JsonValue::Object& root)
-{
-    auto inputIterator = root.find("input");
-    if (inputIterator == root.end())
-    {
-        inputIterator = root.emplace("input", JsonValue(JsonValue::Object{})).first;
-    }
-    JsonValue::Object* const input = objectOf(inputIterator->second);
-    // Schema 5 serialized this dormant field, while the Host always required
-    // a held button. Preserve that effective behavior instead of silently
-    // enabling a new always-on effect for existing profiles.
-    if (input != nullptr)
-    {
-        (*input)["trailOnlyWhilePressed"] = JsonValue(true);
-    }
-    root["schemaVersion"] = JsonValue(6.0);
-}
-
-void migrateV6ToV7(JsonValue::Object& root)
-{
-    auto inputIterator = root.find("input");
-    if (inputIterator == root.end())
-    {
-        inputIterator = root.emplace("input", JsonValue(JsonValue::Object{})).first;
-    }
-    JsonValue::Object* const input = objectOf(inputIterator->second);
-    if (input != nullptr && input->find("samplingRateHz") == input->end())
-    {
-        // Unlimited input retains the exact pre-schema-7 behavior and the
-        // extracted desktop-quality trail until the user opts into sampling.
-        input->emplace("samplingRateHz", JsonValue(0.0));
-    }
-    root["schemaVersion"] = JsonValue(7.0);
-}
-
-void migrateV7ToV8(JsonValue::Object& root)
-{
-    JsonValue::Object& display = ensureObject(root, "display");
-    // HDR output is an explicit opt-in. Existing profiles must keep the
-    // conservative SDR presentation contract after upgrading.
-    display["hdrEnabled"] = JsonValue(false);
-    root["schemaVersion"] = JsonValue(8.0);
-}
-
 [[nodiscard]] bool readBool(
     const JsonValue::Object& object,
     const std::string_view key,
@@ -1246,15 +1093,13 @@ void appendJsonValue(
 [[nodiscard]] bool readSchemaVersion(
     const JsonValue::Object& root,
     std::uint32_t& version,
-    bool& wasMissing,
     std::string& error)
 {
     const JsonValue* value = member(root, "schemaVersion");
     if (value == nullptr)
     {
-        version = 1U;
-        wasMissing = true;
-        return true;
+        error = "schemaVersion is required";
+        return false;
     }
     const double* parsed = std::get_if<double>(&value->storage);
     if (parsed == nullptr || !std::isfinite(*parsed)
@@ -1266,7 +1111,6 @@ void appendJsonValue(
         return false;
     }
     version = static_cast<std::uint32_t>(*parsed);
-    wasMissing = false;
     return true;
 }
 
@@ -1290,57 +1134,21 @@ void appendJsonValue(
             "configuration root must be an object"};
     }
 
-    JsonValue::Object root = *originalRoot;
     std::uint32_t version = 0U;
-    bool missingVersion = false;
     std::string error;
-    if (!readSchemaVersion(root, version, missingVersion, error))
+    if (!readSchemaVersion(*originalRoot, version, error))
     {
         return ConfigLoadResult{defaultConfig(), ConfigStatus::ValidationError, std::move(error)};
     }
-    if (version > currentSchemaVersion)
+    if (version != currentSchemaVersion)
     {
         return ConfigLoadResult{
             defaultConfig(),
             ConfigStatus::UnsupportedSchema,
-            "configuration schemaVersion is newer than this build"};
+            "configuration schemaVersion is not supported by this build"};
     }
 
-    const bool needsMigration = missingVersion || version < currentSchemaVersion;
-    while (version < currentSchemaVersion)
-    {
-        if (version == 1U)
-        {
-            migrateV1ToV2(root);
-        }
-        else if (version == 2U)
-        {
-            migrateV2ToV3(root);
-        }
-        else if (version == 3U)
-        {
-            migrateV3ToV4(root);
-        }
-        else if (version == 4U)
-        {
-            migrateV4ToV5(root);
-        }
-        else if (version == 5U)
-        {
-            migrateV5ToV6(root);
-        }
-        else if (version == 6U)
-        {
-            migrateV6ToV7(root);
-        }
-        else if (version == 7U)
-        {
-            migrateV7ToV8(root);
-        }
-        ++version;
-    }
-
-    Config config = parseCurrentConfig(root, error);
+    Config config = parseCurrentConfig(*originalRoot, error);
     if (!error.empty())
     {
         return ConfigLoadResult{defaultConfig(), ConfigStatus::ValidationError, std::move(error)};
@@ -1349,10 +1157,7 @@ void appendJsonValue(
     {
         return ConfigLoadResult{defaultConfig(), ConfigStatus::ValidationError, std::move(error)};
     }
-    return ConfigLoadResult{
-        config,
-        needsMigration ? ConfigStatus::Migrated : ConfigStatus::Ok,
-        needsMigration ? "configuration migrated to current schema" : std::string{}};
+    return ConfigLoadResult{config, ConfigStatus::Ok, {}};
 }
 
 [[nodiscard]] std::string makeTemporarySuffix()

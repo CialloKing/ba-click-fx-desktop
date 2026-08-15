@@ -103,7 +103,6 @@ enum class ConfigStatus : std::uint8_t
 {
     Ok,
     CreatedDefault,
-    Migrated,
     IoError,
     ParseError,
     UnsupportedSchema,
@@ -120,13 +119,7 @@ struct ConfigLoadResult
     [[nodiscard]] bool succeeded() const noexcept
     {
         return status == ConfigStatus::Ok
-            || status == ConfigStatus::CreatedDefault
-            || status == ConfigStatus::Migrated;
-    }
-
-    [[nodiscard]] bool migrated() const noexcept
-    {
-        return status == ConfigStatus::Migrated;
+            || status == ConfigStatus::CreatedDefault;
     }
 };
 
