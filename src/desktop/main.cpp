@@ -12,6 +12,7 @@
 #include "bafx/windows/runtime_diagnostics.hpp"
 #include "bafx/windows/unique_handle.hpp"
 #include "background_capture_runtime.hpp"
+#include "display_session.hpp"
 #include "frame_pacing.hpp"
 #include "host_control.hpp"
 #include "performance_logging.hpp"
@@ -928,11 +929,25 @@ int runApplication(
             options.disableRawInput
                 ? bafx::windows::RawMouseRegistration::Disabled
                 : bafx::windows::RawMouseRegistration::Enabled));
-    bafx::windows::OverlayWindow window(
-        instance,
-        appliedDisplayTarget.bounds,
-        L"ba-click-fx-desktop",
-        bafx::windows::OverlayWindowOptions::renderSurface());
+    bafx::desktop::BackgroundCaptureStopMonitor backgroundStopMonitor(logPath);
+    bafx::desktop::DisplaySession displaySession(
+        bafx::desktop::DisplaySessionOptions{
+            instance,
+            hostWindow.handle(),
+            appliedDisplayTarget,
+            L"ba-click-fx-desktop",
+            makeBloomSettings(config.effects),
+            backgroundStopMonitor.observer(),
+            makeRuntimeSeed()});
+    bafx::windows::OverlayWindow& window = displaySession.window();
+    bafx::windows::CompositionRenderer& renderer = displaySession.renderer();
+    bafx::fx::SimulationRuntime& simulation = displaySession.simulation();
+    bafx::fx::SimulationTimeline& simulationTimeline =
+        displaySession.timeline();
+    bafx::windows::PointerFrameAdapter& pointerFrameAdapter =
+        displaySession.pointerFrameAdapter();
+    bafx::windows::DisplayColorMonitor& displayColorMonitor =
+        displaySession.colorMonitor();
     std::uint32_t appliedDisplayDpi = window.effectiveDpi();
     report.setPrimaryDpi(appliedDisplayDpi);
     if (const auto refreshRate =
@@ -942,34 +957,17 @@ int runApplication(
     {
         report.setPrimaryRefreshRate(*refreshRate);
     }
-    bafx::windows::DisplayColorMonitor displayColorMonitor;
     const bafx::windows::DisplayColorMonitorResult displayColorMonitorStart =
-        displayColorMonitor.start(
-            appliedDisplayTarget.monitor,
-            hostWindow.handle());
+        displaySession.colorMonitorStartResult();
     bafx::windows::appendDiagnosticLog(
         logPath,
         bafx::windows::displayColorMonitorDiagnostic(
             displayColorMonitorStart));
-    std::optional<bafx::windows::DisplayColorCapabilities>
-        appliedDisplayColor =
-            bafx::windows::queryDisplayColorCapabilities(
-                appliedDisplayTarget.monitor);
-    if (appliedDisplayColor.has_value())
+    if (displaySession.colorCapabilities().has_value())
     {
-        report.setPrimaryDisplayColorCapabilities(*appliedDisplayColor);
+        report.setPrimaryDisplayColorCapabilities(
+            *displaySession.colorCapabilities());
     }
-    bafx::desktop::BackgroundCaptureStopMonitor backgroundStopMonitor(logPath);
-    const std::optional<LUID> requestedAdapterLuid =
-        appliedDisplayTarget.sourceIdentityResolved
-            ? std::optional<LUID>(appliedDisplayTarget.sourceAdapterLuid)
-            : std::nullopt;
-    bafx::windows::CompositionRenderer renderer(
-        window.handle(),
-        window.size(),
-        makeBloomSettings(config.effects),
-        backgroundStopMonitor.observer(),
-        requestedAdapterLuid);
     appendDeviceRemovedNotificationStatus(logPath, renderer, "startup");
     bafx::windows::UniqueHandle framePacingStallHandle;
     if (options.framePacingStallProbe)
@@ -1053,9 +1051,6 @@ int runApplication(
         config,
         appliedOutputSize,
         "startup");
-    bafx::fx::SimulationRuntime simulation(makeRuntimeSeed());
-    bafx::fx::SimulationTimeline simulationTimeline;
-    bafx::windows::PointerFrameAdapter pointerFrameAdapter;
     simulation.setTrailLengthMultiplier(config.effects.trailLength);
     simulation.setInputSamplingRateHz(config.input.samplingRateHz);
     simulation.setAlwaysOnTrailEnabled(
@@ -1139,26 +1134,26 @@ int runApplication(
     const auto refreshDisplayColorState =
         [&](const std::string_view reason, const std::uint64_t generation)
         {
-            const std::string previousMode = appliedDisplayColor.has_value()
+            const std::string previousMode =
+                displaySession.colorCapabilities().has_value()
                 ? std::string(bafx::windows::displayColorModeName(
-                    appliedDisplayColor->activeColorMode))
+                    displaySession.colorCapabilities()->activeColorMode))
                 : "unknown";
-            appliedDisplayColor =
-                bafx::windows::queryDisplayColorCapabilities(
-                    appliedDisplayTarget.monitor);
-            if (appliedDisplayColor.has_value())
+            displaySession.refreshColorCapabilities();
+            if (displaySession.colorCapabilities().has_value())
             {
                 report.setPrimaryDisplayColorCapabilities(
-                    *appliedDisplayColor);
+                    *displaySession.colorCapabilities());
             }
             else
             {
                 report.clearPrimaryDisplayColorCapabilities();
             }
 
-            const std::string currentMode = appliedDisplayColor.has_value()
+            const std::string currentMode =
+                displaySession.colorCapabilities().has_value()
                 ? std::string(bafx::windows::displayColorModeName(
-                    appliedDisplayColor->activeColorMode))
+                    displaySession.colorCapabilities()->activeColorMode))
                 : "unknown";
             const std::string monitor =
                 bafx::desktop::formatDisplayTargetMonitor(
@@ -1171,7 +1166,9 @@ int runApplication(
                 bafx::windows::DiagnosticField{"CurrentMode", currentMode},
                 bafx::windows::DiagnosticField{
                     "Query",
-                    appliedDisplayColor.has_value() ? "succeeded" : "failed"},
+                    displaySession.colorCapabilities().has_value()
+                        ? "succeeded"
+                        : "failed"},
                 bafx::windows::DiagnosticField{
                     "Generation",
                     generationText}};
@@ -1254,10 +1251,11 @@ int runApplication(
             {
                 report.setPrimaryRefreshRate({});
             }
+            displaySession.acceptAppliedTarget(
+                appliedDisplayTarget,
+                hostWindow.handle());
             const bafx::windows::DisplayColorMonitorResult monitorResult =
-                displayColorMonitor.start(
-                    appliedDisplayTarget.monitor,
-                    hostWindow.handle());
+                displaySession.colorMonitorStartResult();
             bafx::windows::appendDiagnosticLog(
                 logPath,
                 bafx::windows::displayColorMonitorDiagnostic(monitorResult));

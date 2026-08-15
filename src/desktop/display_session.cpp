@@ -96,9 +96,6 @@ void DisplaySession::acceptAppliedTarget(
     colorMonitorStartResult_ = colorMonitor_.start(
         target_.monitor,
         wakeWindow);
-    // Register first so a concurrent HDR toggle is either represented in this
-    // query or retained as a later color-monitor notification.
-    refreshColorCapabilities();
 }
 
 void DisplaySession::refreshColorCapabilities() noexcept

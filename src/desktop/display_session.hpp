@@ -58,8 +58,8 @@ public:
         colorMonitorStartResult() const noexcept;
 
     // Call only after the owner has transactionally moved the HWND and
-    // renderer resource domain. Monitoring is then rebound to the applied
-    // target before its current color state is sampled.
+    // renderer resource domain. Monitoring is rebound first; the owner then
+    // samples color state so it can compare the old and new target modes.
     void acceptAppliedTarget(DisplayTarget target, HWND wakeWindow) noexcept;
     void refreshColorCapabilities() noexcept;
     void show();
