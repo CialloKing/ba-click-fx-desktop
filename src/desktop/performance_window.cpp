@@ -211,14 +211,7 @@ void RuntimePerformanceWindow::addFrame(
         roiPhasePeriod_.add(sample.roiPhasePeriod);
     }
     wgcActiveFrames_ += sample.wgcActive ? 1U : 0U;
-    wgcDrainAttemptedFrames_ += sample.wgcDrainAttempted ? 1U : 0U;
-    wgcIdleDrainSkippedFrames_ += sample.wgcIdleDrainSkipped ? 1U : 0U;
-    wgcProducerCallbacks_ += sample.wgcProducerCallbacks;
-    wgcFramesAcquired_ += sample.wgcFramesAcquired;
-    wgcFramesSuperseded_ += sample.wgcFramesSuperseded;
-    wgcTimestampRejectedFrames_ += sample.wgcTimestampRejectedFrames;
-    wgcOwnedCopiesSubmitted_ += sample.wgcOwnedCopySubmitted ? 1U : 0U;
-    wgcSamplesAccepted_ += sample.wgcAccepted ? 1U : 0U;
+    addWgc(sample);
     backgroundSnapshotAttempts_ +=
         sample.backgroundSnapshotRefreshAttempted ? 1U : 0U;
     backgroundSnapshotsRefreshed_ +=
@@ -231,15 +224,6 @@ void RuntimePerformanceWindow::addFrame(
     bloomAndCompositeSubmitCpuMicroseconds_.add(
         sample.bloomAndCompositeSubmitCpuMicroseconds);
     presentCallCpuMicroseconds_.add(sample.presentCallCpuMicroseconds);
-    if (sample.wgcDrainAttempted)
-    {
-        wgcDrainCpuMicroseconds_.add(sample.wgcDrainCpuMicroseconds);
-    }
-    if (sample.wgcOwnedCopySubmitted)
-    {
-        wgcOwnedCopySubmitCpuMicroseconds_.add(
-            sample.wgcOwnedCopySubmitCpuMicroseconds);
-    }
     if (sample.backgroundSnapshotRefreshAttempted)
     {
         backgroundSnapshotSubmitCpuMicroseconds_.add(
@@ -301,6 +285,43 @@ void RuntimePerformanceWindow::addFrame(
     }
 }
 
+void RuntimePerformanceWindow::addBackgroundMaintenance(
+    const FramePerformanceSample& sample) noexcept
+{
+    // Maintenance has no swap-chain submission. Keep frame, ROI, GPU and
+    // Present statistics reserved for calls that actually render a frame.
+    if (!sample.wgcActive)
+    {
+        return;
+    }
+    ++wgcMaintenanceCycles_;
+    addWgc(sample);
+}
+
+void RuntimePerformanceWindow::addWgc(
+    const FramePerformanceSample& sample) noexcept
+{
+    wgcDrainAttemptedFrames_ += sample.wgcDrainAttempted ? 1U : 0U;
+    wgcIdleDrainAttemptedFrames_ +=
+        sample.wgcIdleDrainAttempted ? 1U : 0U;
+    wgcIdleDrainSkippedFrames_ += sample.wgcIdleDrainSkipped ? 1U : 0U;
+    wgcProducerCallbacks_ += sample.wgcProducerCallbacks;
+    wgcFramesAcquired_ += sample.wgcFramesAcquired;
+    wgcFramesSuperseded_ += sample.wgcFramesSuperseded;
+    wgcTimestampRejectedFrames_ += sample.wgcTimestampRejectedFrames;
+    wgcOwnedCopiesSubmitted_ += sample.wgcOwnedCopySubmitted ? 1U : 0U;
+    wgcSamplesAccepted_ += sample.wgcAccepted ? 1U : 0U;
+    if (sample.wgcDrainAttempted)
+    {
+        wgcDrainCpuMicroseconds_.add(sample.wgcDrainCpuMicroseconds);
+    }
+    if (sample.wgcOwnedCopySubmitted)
+    {
+        wgcOwnedCopySubmitCpuMicroseconds_.add(
+            sample.wgcOwnedCopySubmitCpuMicroseconds);
+    }
+}
+
 void RuntimePerformanceWindow::addFramePacingWake(
     const FramePacingWake wake) noexcept
 {
@@ -340,7 +361,9 @@ void RuntimePerformanceWindow::reset() noexcept
 {
     frameCount_ = 0U;
     wgcActiveFrames_ = 0U;
+    wgcMaintenanceCycles_ = 0U;
     wgcDrainAttemptedFrames_ = 0U;
+    wgcIdleDrainAttemptedFrames_ = 0U;
     wgcIdleDrainSkippedFrames_ = 0U;
     wgcProducerCallbacks_ = 0U;
     wgcFramesAcquired_ = 0U;
@@ -431,7 +454,9 @@ RuntimePerformanceSummary RuntimePerformanceWindow::summarize() const
     RuntimePerformanceSummary summary{};
     summary.frameCount = frameCount_;
     summary.wgcActiveFrames = wgcActiveFrames_;
+    summary.wgcMaintenanceCycles = wgcMaintenanceCycles_;
     summary.wgcDrainAttemptedFrames = wgcDrainAttemptedFrames_;
+    summary.wgcIdleDrainAttemptedFrames = wgcIdleDrainAttemptedFrames_;
     summary.wgcIdleDrainSkippedFrames = wgcIdleDrainSkippedFrames_;
     summary.wgcProducerCallbacks = wgcProducerCallbacks_;
     summary.wgcFramesAcquired = wgcFramesAcquired_;
@@ -538,6 +563,7 @@ RuntimePerformanceSummary RuntimePerformanceWindow::summarize() const
 bool RuntimePerformanceWindow::empty() const noexcept
 {
     return frameCount_ == 0U
+        && wgcMaintenanceCycles_ == 0U
         && rawInputMessages_ == 0U
         && moveEvents_ == 0U
         && buttonEdges_ == 0U

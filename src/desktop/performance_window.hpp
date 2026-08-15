@@ -59,6 +59,7 @@ struct FramePerformanceSample
     std::uint32_t wgcTimestampRejectedFrames{0U};
     bool wgcActive{false};
     bool wgcDrainAttempted{false};
+    bool wgcIdleDrainAttempted{false};
     bool wgcIdleDrainSkipped{false};
     bool wgcOwnedCopySubmitted{false};
     bool wgcAccepted{false};
@@ -109,7 +110,9 @@ struct RuntimePerformanceSummary
 {
     std::uint64_t frameCount{0U};
     std::uint64_t wgcActiveFrames{0U};
+    std::uint64_t wgcMaintenanceCycles{0U};
     std::uint64_t wgcDrainAttemptedFrames{0U};
+    std::uint64_t wgcIdleDrainAttemptedFrames{0U};
     std::uint64_t wgcIdleDrainSkippedFrames{0U};
     std::uint64_t wgcProducerCallbacks{0U};
     std::uint64_t wgcFramesAcquired{0U};
@@ -239,6 +242,10 @@ class RuntimePerformanceWindow final
 public:
     void addInput(const InputPerformanceSample& sample) noexcept;
     void addFrame(const FramePerformanceSample& sample) noexcept;
+    // A paused Host still services WGC, but that work is not a rendered frame.
+    // Only transport diagnostics are consumed by this narrow entry point.
+    void addBackgroundMaintenance(
+        const FramePerformanceSample& sample) noexcept;
     void addFramePacingWake(FramePacingWake wake) noexcept;
     void addDispatchToPresentReturn(std::uint64_t microseconds) noexcept;
     void addMessageToPresentReturn(std::uint64_t milliseconds) noexcept;
@@ -248,9 +255,13 @@ public:
     [[nodiscard]] bool empty() const noexcept;
 
 private:
+    void addWgc(const FramePerformanceSample& sample) noexcept;
+
     std::uint64_t frameCount_{0U};
     std::uint64_t wgcActiveFrames_{0U};
+    std::uint64_t wgcMaintenanceCycles_{0U};
     std::uint64_t wgcDrainAttemptedFrames_{0U};
+    std::uint64_t wgcIdleDrainAttemptedFrames_{0U};
     std::uint64_t wgcIdleDrainSkippedFrames_{0U};
     std::uint64_t wgcProducerCallbacks_{0U};
     std::uint64_t wgcFramesAcquired_{0U};

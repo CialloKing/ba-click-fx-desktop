@@ -135,11 +135,18 @@ BAFX_TEST(performance_log_preserves_metric_and_semantic_fields)
     BAFX_CHECK(text.find("ROI.LastAlignedWork.Right=128\n")
         != std::string::npos);
     BAFX_CHECK(text.find("Cpu.FrameTotal.P95=20000\n") != std::string::npos);
-    BAFX_CHECK(text.find("WGC.DrainPolicy=active-fx-only\n")
+    BAFX_CHECK(text.find(
+        "WGC.DrainPolicy=visible-every-frame-idle-sensor-only-max-20hz\n")
+        != std::string::npos);
+    BAFX_CHECK(text.find("WGC.MaintenanceCycles=0\n")
         != std::string::npos);
     BAFX_CHECK(text.find("WGC.DrainAttemptedFrames=1\n")
         != std::string::npos);
-    BAFX_CHECK(text.find("WGC.IdleDrainSkippedFrames=0\n")
+    BAFX_CHECK(text.find("WGC.VisibleDrainAttemptedFrames=1\n")
+        != std::string::npos);
+    BAFX_CHECK(text.find("WGC.IdleDrainAttemptedFrames=0\n")
+        != std::string::npos);
+    BAFX_CHECK(text.find("WGC.IdleDrainThrottledFrames=0\n")
         != std::string::npos);
     BAFX_CHECK(text.find("GPU.TimestampProfiler.Available=true\n")
         != std::string::npos);
@@ -164,6 +171,44 @@ BAFX_TEST(performance_log_preserves_metric_and_semantic_fields)
     BAFX_CHECK(text.find("FramePacing.Failures=0\n")
         != std::string::npos);
     BAFX_CHECK(text.find("Diagnostics.PreviousLogWriteCpuUs=123\n")
+        != std::string::npos);
+}
+
+BAFX_TEST(performance_log_distinguishes_idle_wgc_attempts_from_throttling)
+{
+    const TemporaryPerformanceLog log;
+    bafx::desktop::RuntimePerformanceWindow window;
+    window.addBackgroundMaintenance(bafx::desktop::FramePerformanceSample{
+        .wgcActive = true,
+        .wgcDrainAttempted = true,
+        .wgcIdleDrainAttempted = true});
+    window.addBackgroundMaintenance(bafx::desktop::FramePerformanceSample{
+        .wgcActive = true,
+        .wgcIdleDrainSkipped = true});
+
+    static_cast<void>(bafx::desktop::appendPerformanceInterval(
+        log.path(),
+        window.summarize(),
+        bafx::config::defaultConfig(),
+        bafx::desktop::PerformanceLogContext{
+            bafx::windows::WindowSize{1920U, 1080U},
+            bafx::windows::BackgroundCompositeStatus::WaitingForFrame,
+            false},
+        std::chrono::seconds(1),
+        std::chrono::microseconds(0),
+        false));
+
+    const std::string text = log.read();
+    BAFX_CHECK(text.find("WGC.ActiveFrames=0\n") != std::string::npos);
+    BAFX_CHECK(text.find("WGC.MaintenanceCycles=2\n")
+        != std::string::npos);
+    BAFX_CHECK(text.find("WGC.DrainAttemptedFrames=1\n")
+        != std::string::npos);
+    BAFX_CHECK(text.find("WGC.VisibleDrainAttemptedFrames=0\n")
+        != std::string::npos);
+    BAFX_CHECK(text.find("WGC.IdleDrainAttemptedFrames=1\n")
+        != std::string::npos);
+    BAFX_CHECK(text.find("WGC.IdleDrainThrottledFrames=1\n")
         != std::string::npos);
 }
 

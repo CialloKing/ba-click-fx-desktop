@@ -299,6 +299,7 @@ if(WIN32)
         ipc_protocol_tests.cpp
         pointer_event_tests.cpp
         wgc_frame_notification_tests.cpp
+        wgc_idle_drain_policy_tests.cpp
     )
     target_link_libraries(bafx_windows_tests PRIVATE bafx::windows)
     target_compile_features(bafx_windows_tests PRIVATE cxx_std_20)

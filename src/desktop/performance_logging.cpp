@@ -293,6 +293,12 @@ std::chrono::nanoseconds appendPerformanceInterval(
         DiagnosticFields fields;
         appendConfigurationFields(fields, config, context.outputSize);
         const std::uint64_t durationUs = microseconds(intervalDuration);
+        const std::uint64_t visibleDrainAttemptedFrames =
+            summary.wgcDrainAttemptedFrames
+                    >= summary.wgcIdleDrainAttemptedFrames
+                ? summary.wgcDrainAttemptedFrames
+                    - summary.wgcIdleDrainAttemptedFrames
+                : 0U;
         fields.add("Window.Final", finalInterval);
         fields.add("Window.DurationUs", durationUs);
         fields.add("Window.FrameCount", summary.frameCount);
@@ -362,12 +368,21 @@ std::chrono::nanoseconds appendPerformanceInterval(
             microseconds(previousLogWriteCpu));
 
         fields.add("WGC.ActiveFrames", summary.wgcActiveFrames);
-        fields.add("WGC.DrainPolicy", "active-fx-only");
+        fields.add("WGC.MaintenanceCycles", summary.wgcMaintenanceCycles);
+        fields.add(
+            "WGC.DrainPolicy",
+            "visible-every-frame-idle-sensor-only-max-20hz");
         fields.add(
             "WGC.DrainAttemptedFrames",
             summary.wgcDrainAttemptedFrames);
         fields.add(
-            "WGC.IdleDrainSkippedFrames",
+            "WGC.VisibleDrainAttemptedFrames",
+            visibleDrainAttemptedFrames);
+        fields.add(
+            "WGC.IdleDrainAttemptedFrames",
+            summary.wgcIdleDrainAttemptedFrames);
+        fields.add(
+            "WGC.IdleDrainThrottledFrames",
             summary.wgcIdleDrainSkippedFrames);
         fields.add("WGC.ProducerCallbacks", summary.wgcProducerCallbacks);
         fields.addDecimal(

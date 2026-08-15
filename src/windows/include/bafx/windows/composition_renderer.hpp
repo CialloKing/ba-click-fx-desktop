@@ -3,6 +3,7 @@
 #include "bafx/core/background_freshness.hpp"
 #include "bafx/core/roi.hpp"
 #include "bafx/fx/frame_bounds.hpp"
+#include "bafx/windows/detail/wgc_idle_drain_policy.hpp"
 #include "bafx/windows/fx_bloom_settings.hpp"
 #include "bafx/windows/fx_gpu_renderer.hpp"
 #include "bafx/windows/gpu_timestamp_profiler.hpp"
@@ -142,6 +143,7 @@ struct CompositionFrameDiagnostics
     std::uint32_t presentReturnedTickMilliseconds{0U};
     bool wgcActive{false};
     bool wgcDrainAttempted{false};
+    bool wgcIdleDrainAttempted{false};
     bool wgcIdleDrainSkipped{false};
     bool backgroundSampleAgeValid{false};
     bool backgroundSnapshotRefreshAttempted{false};
@@ -156,6 +158,16 @@ struct CompositionFrameDiagnostics
     std::size_t gpuTimestampPendingFrames{0U};
     bool gpuTimestampProfilerAvailable{false};
     bool gpuTimestampCheckpointFailure{false};
+};
+
+struct BackgroundSensorMaintenanceDiagnostics
+{
+    WgcBackgroundDrainDiagnostics wgc{};
+    std::chrono::nanoseconds wgcDrainInclusiveCpu{};
+    bool wgcActive{false};
+    bool wgcDrainAttempted{false};
+    bool wgcIdleDrainAttempted{false};
+    bool wgcIdleDrainSkipped{false};
 };
 
 class CompositionRenderer final
@@ -185,6 +197,12 @@ public:
         const bafx::fx::FrameSnapshot& snapshot,
         bafx::core::MonotonicTime wallTime = bafx::core::MonotonicTime::zero(),
         bool requireCurrentBackground = false);
+    // Keeps the bounded WGC queue fresh while the Host intentionally skips
+    // rendering. This never creates a batch snapshot or presents a frame.
+    [[nodiscard]] BackgroundSensorMaintenanceDiagnostics
+        serviceBackgroundCapture(
+            bafx::core::MonotonicTime wallTime =
+                bafx::core::MonotonicTime::zero()) noexcept;
     // SPK-001 must exercise the production FP16 swap chain and DComp target
     // without reconstructing them in a second renderer. The returned pixel is
     // captured before Present so DWM observation can be compared independently.
@@ -233,6 +251,10 @@ private:
     void resetBackgroundSnapshot() noexcept;
     void releaseBackgroundSnapshotResources() noexcept;
     void stopBackgroundSensor() noexcept;
+    [[nodiscard]] BackgroundSensorMaintenanceDiagnostics
+        drainBackgroundSensor(
+            bool hasDrawableContent,
+            bafx::core::MonotonicTime wallTime) noexcept;
     [[nodiscard]] bool captureBackgroundSnapshot(
         ID3D11ShaderResourceView* source) noexcept;
     void captureCenterPixel();
@@ -278,6 +300,7 @@ private:
     bool backgroundCursorExcluded_{true};
     bool backgroundSystemBorderAllowed_{false};
     bafx::core::BackgroundPathLatch backgroundPathLatch_{};
+    detail::WgcDrainPolicyState wgcDrainPolicyState_{};
     bool backgroundParticipatedInLastFrame_{false};
     BackgroundCompositeStatus backgroundCompositeStatus_{
         BackgroundCompositeStatus::Inactive};

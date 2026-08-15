@@ -208,8 +208,8 @@ public:
     // Must run on the same owner that drains and uses the immediate context.
     void recreateFramePool(WindowSize size);
     [[nodiscard]] std::optional<WgcBackgroundSample> latestSample() const noexcept;
-    // Idle render frames must observe producer progress without touching the
-    // capture queue or issuing a full-screen copy on the immediate context.
+    // The render owner can observe producer progress between bounded drains
+    // without touching the capture queue or issuing an immediate-context copy.
     [[nodiscard]] WgcBackgroundTransportSnapshot transportSnapshot() const noexcept;
     [[nodiscard]] std::uint64_t expectedEpoch() const noexcept;
     [[nodiscard]] WgcBackgroundSessionCapabilities capabilities() const noexcept;

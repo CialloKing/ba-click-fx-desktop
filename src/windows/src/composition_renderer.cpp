@@ -125,6 +125,33 @@ primaryRefreshPeriod() noexcept
     return period;
 }
 
+[[nodiscard]] bafx::core::MonotonicTime resolveMonotonicTime(
+    const bafx::core::MonotonicTime supplied) noexcept
+{
+    if (supplied != bafx::core::MonotonicTime::zero())
+    {
+        return supplied;
+    }
+
+    LARGE_INTEGER counter{};
+    LARGE_INTEGER frequency{};
+    if (!QueryPerformanceCounter(&counter)
+        || !QueryPerformanceFrequency(&frequency)
+        || frequency.QuadPart <= 0)
+    {
+        return supplied;
+    }
+
+    const auto seconds = counter.QuadPart / frequency.QuadPart;
+    const auto remainder = counter.QuadPart % frequency.QuadPart;
+    // Keep diagnostic callers on the same monotonic domain as the Host even
+    // when they use the legacy zero-time overload.
+    return std::chrono::duration_cast<bafx::core::MonotonicTime>(
+        std::chrono::seconds(seconds)
+        + std::chrono::nanoseconds(
+            remainder * 1'000'000'000LL / frequency.QuadPart));
+}
+
 [[nodiscard]] std::uint64_t nextEpoch(const std::uint64_t epoch) noexcept
 {
     return epoch == std::numeric_limits<std::uint64_t>::max()
@@ -593,146 +620,63 @@ CompositionFrameDiagnostics CompositionRenderer::renderFrame(
     backgroundCompositeStatus_ = backgroundSensor_ != nullptr
         ? BackgroundCompositeStatus::WaitingForFrame
         : BackgroundCompositeStatus::Inactive;
-    bafx::core::MonotonicTime effectiveWallTime = wallTime;
-    if (effectiveWallTime == bafx::core::MonotonicTime::zero())
+    const bafx::core::MonotonicTime effectiveWallTime =
+        resolveMonotonicTime(wallTime);
+    const BackgroundSensorMaintenanceDiagnostics maintenance =
+        drainBackgroundSensor(hasDrawableContent, effectiveWallTime);
+    diagnostics.wgc = maintenance.wgc;
+    diagnostics.wgcDrainInclusiveCpu = maintenance.wgcDrainInclusiveCpu;
+    diagnostics.wgcActive = maintenance.wgcActive;
+    diagnostics.wgcDrainAttempted = maintenance.wgcDrainAttempted;
+    diagnostics.wgcIdleDrainAttempted = maintenance.wgcIdleDrainAttempted;
+    diagnostics.wgcIdleDrainSkipped = maintenance.wgcIdleDrainSkipped;
+    const bool drainCanFeedVisibleFrame = maintenance.wgc.status
+            == WgcBackgroundDrainStatus::NoFrame
+        || maintenance.wgc.status == WgcBackgroundDrainStatus::Updated;
+    if (backgroundSensor_ != nullptr
+        && hasDrawableContent
+        && maintenance.wgcDrainAttempted
+        && drainCanFeedVisibleFrame)
     {
-        LARGE_INTEGER counter{};
-        if (QueryPerformanceCounter(&counter))
+        const std::optional<WgcBackgroundSample> sample =
+            backgroundSensor_->latestSample();
+        if (sample.has_value()
+            && sample->texture != nullptr
+            && sample->size.width == size_.width
+            && sample->size.height == size_.height
+            && backgroundRefreshPeriod_ > bafx::core::MonotonicTime::zero())
         {
-            LARGE_INTEGER frequency{};
-            if (QueryPerformanceFrequency(&frequency) && frequency.QuadPart > 0)
+            backgroundSample = sample;
+            if (effectiveWallTime >= sample->stamp.capturedAt)
             {
-                const auto seconds = counter.QuadPart / frequency.QuadPart;
-                const auto remainder = counter.QuadPart % frequency.QuadPart;
-                // Keep the legacy overload usable for diagnostics while the
-                // desktop host passes its calibrated QPC time explicitly.
-                const auto now = std::chrono::seconds(seconds)
-                    + std::chrono::nanoseconds(
-                        remainder * 1'000'000'000LL / frequency.QuadPart);
-                effectiveWallTime = std::chrono::duration_cast<
-                    bafx::core::MonotonicTime>(now);
+                diagnostics.backgroundSampleAge = effectiveWallTime
+                    - sample->stamp.capturedAt;
+                diagnostics.backgroundSampleAgeValid = true;
             }
+            acquireUsage = bafx::core::evaluateBackgroundUsage(
+                sample->stamp,
+                effectiveWallTime,
+                backgroundUsagePolicy(
+                    backgroundRefreshPeriod_,
+                    backgroundSensor_->expectedEpoch(),
+                    false,
+                    requireCurrentBackground));
+            retainUsage = bafx::core::evaluateBackgroundUsage(
+                sample->stamp,
+                effectiveWallTime,
+                backgroundUsagePolicy(
+                    backgroundRefreshPeriod_,
+                    backgroundSensor_->expectedEpoch(),
+                    true,
+                    requireCurrentBackground));
+            backgroundCompositeStatus_ = compositeStatus(acquireUsage.status);
         }
-    }
-    if (backgroundSensor_ != nullptr)
-    {
-        diagnostics.wgcActive = true;
-        const WgcBackgroundTransportSnapshot transport =
-            backgroundSensor_->transportSnapshot();
-        diagnostics.wgc.epoch = transport.epoch;
-        diagnostics.wgc.frameArrivedCallbacksTotal =
-            transport.frameArrivedCallbacksTotal;
-        diagnostics.wgc.acceptedGeneration = transport.acceptedGeneration;
-    }
-    if (backgroundSensor_ != nullptr && hasDrawableContent)
-    {
-        diagnostics.wgcDrainAttempted = true;
-        const auto stopFailedBackgroundCapture =
-            [this](const std::string_view failure) noexcept
+        else if (sample.has_value())
         {
-            setBackgroundCaptureFailure(failure);
-            stopBackgroundSensor();
-            // The producer is gone before the control transaction observes
-            // it.  Mark the request inactive now so a same-turn resize can
-            // rebuild the output instead of tripping the stop-before-resize
-            // guard on a dead sensor.
-            backgroundCaptureRequested_ = false;
-            backgroundRefreshPeriod_ = bafx::core::MonotonicTime::zero();
-            backgroundCompositeStatus_ = BackgroundCompositeStatus::CaptureFailed;
-            // A failed session cannot continue the previous path safely: its
-            // resource and epoch are no longer part of the active contract.
-            backgroundPathLatch_.reset();
-            resetBackgroundSnapshot();
-        };
-        try
-        {
-            const auto drainStartedAt = std::chrono::steady_clock::now();
-            diagnostics.wgc = backgroundSensor_->drainLatestDetailed(
-                context_.Get());
-            diagnostics.wgcDrainInclusiveCpu =
-                std::chrono::steady_clock::now() - drainStartedAt;
-            const WgcBackgroundDrainStatus drainStatus = diagnostics.wgc.status;
-            if (drainStatus == WgcBackgroundDrainStatus::Stopped)
-            {
-                stopBackgroundSensor();
-                // item.Closed is an asynchronous terminal event.  Do not
-                // let a resize arriving before the next control poll treat
-                // the already-destroyed producer as active.
-                backgroundCaptureRequested_ = false;
-                backgroundRefreshPeriod_ = bafx::core::MonotonicTime::zero();
-                // The capture session ended between visible frames. The next
-                // session must make an independent acquire decision.
-                backgroundPathLatch_.reset();
-                resetBackgroundSnapshot();
-            }
-            else if (drainStatus
-                == WgcBackgroundDrainStatus::ReconfigureRequired)
-            {
-                // The owner will execute Recreate through the capture
-                // transaction after this frame has selected FX-only.
-                backgroundPathLatch_.reset();
-                resetBackgroundSnapshot();
-            }
-            else
-            {
-                const std::optional<WgcBackgroundSample> sample =
-                    backgroundSensor_->latestSample();
-                if (sample.has_value()
-                    && sample->texture != nullptr
-                    && sample->size.width == size_.width
-                    && sample->size.height == size_.height
-                    && backgroundRefreshPeriod_ > bafx::core::MonotonicTime::zero())
-                {
-                    backgroundSample = sample;
-                    if (effectiveWallTime >= sample->stamp.capturedAt)
-                    {
-                        diagnostics.backgroundSampleAge = effectiveWallTime
-                            - sample->stamp.capturedAt;
-                        diagnostics.backgroundSampleAgeValid = true;
-                    }
-                    acquireUsage = bafx::core::evaluateBackgroundUsage(
-                        sample->stamp,
-                        effectiveWallTime,
-                        backgroundUsagePolicy(
-                            backgroundRefreshPeriod_,
-                            backgroundSensor_->expectedEpoch(),
-                            false,
-                            requireCurrentBackground));
-                    retainUsage = bafx::core::evaluateBackgroundUsage(
-                        sample->stamp,
-                        effectiveWallTime,
-                        backgroundUsagePolicy(
-                            backgroundRefreshPeriod_,
-                            backgroundSensor_->expectedEpoch(),
-                            true,
-                            requireCurrentBackground));
-                    backgroundCompositeStatus_ = compositeStatus(acquireUsage.status);
-                }
-                else if (sample.has_value())
-                {
-                    backgroundCompositeStatus_ = sample->texture == nullptr
-                        ? BackgroundCompositeStatus::InvalidContract
-                        : BackgroundCompositeStatus::SizeMismatch;
-                }
-            }
+            backgroundCompositeStatus_ = sample->texture == nullptr
+                ? BackgroundCompositeStatus::InvalidContract
+                : BackgroundCompositeStatus::SizeMismatch;
         }
-        catch (const std::exception& error)
-        {
-            // Background sensing is optional. A capture/device failure must
-            // never stop the FX-only interaction path. Preserve the original
-            // failure before destroying the sensor so Host cleanup can log it.
-            stopFailedBackgroundCapture(error.what());
-        }
-        catch (...)
-        {
-            stopFailedBackgroundCapture("unknown WGC drain failure");
-        }
-    }
-    else if (backgroundSensor_ != nullptr)
-    {
-        // The callback can continue coalescing producer progress while idle.
-        // The next visible frame drains the existing bounded queue once.
-        diagnostics.wgcIdleDrainSkipped = true;
     }
     gpuTimestampFrame.checkpoint(
         GpuTimestampCheckpoint::WgcDrainAndCopyComplete);
@@ -832,6 +776,100 @@ CompositionFrameDiagnostics CompositionRenderer::renderFrame(
     diagnostics.backgroundParticipated = backgroundParticipatedInLastFrame_;
     diagnostics.frameTotalCpu =
         std::chrono::steady_clock::now() - frameStartedAt;
+    return diagnostics;
+}
+
+BackgroundSensorMaintenanceDiagnostics
+CompositionRenderer::serviceBackgroundCapture(
+    const bafx::core::MonotonicTime wallTime) noexcept
+{
+    return drainBackgroundSensor(false, resolveMonotonicTime(wallTime));
+}
+
+BackgroundSensorMaintenanceDiagnostics
+CompositionRenderer::drainBackgroundSensor(
+    const bool hasDrawableContent,
+    const bafx::core::MonotonicTime wallTime) noexcept
+{
+    BackgroundSensorMaintenanceDiagnostics diagnostics{};
+    if (backgroundSensor_ == nullptr)
+    {
+        return diagnostics;
+    }
+
+    diagnostics.wgcActive = true;
+    const WgcBackgroundTransportSnapshot transport =
+        backgroundSensor_->transportSnapshot();
+    diagnostics.wgc.epoch = transport.epoch;
+    diagnostics.wgc.frameArrivedCallbacksTotal =
+        transport.frameArrivedCallbacksTotal;
+    diagnostics.wgc.acceptedGeneration = transport.acceptedGeneration;
+    const detail::WgcDrainPolicyDecision drainDecision =
+        detail::decideWgcDrain(
+            hasDrawableContent,
+            transport.epoch,
+            wallTime,
+            wgcDrainPolicyState_);
+    wgcDrainPolicyState_ = drainDecision.nextState;
+    diagnostics.wgcIdleDrainAttempted = drainDecision.action
+        == detail::WgcDrainPolicyAction::IdleAttempt;
+    diagnostics.wgcIdleDrainSkipped = drainDecision.action
+        == detail::WgcDrainPolicyAction::IdleThrottled;
+    if (diagnostics.wgcIdleDrainSkipped)
+    {
+        return diagnostics;
+    }
+
+    diagnostics.wgcDrainAttempted = true;
+    const auto stopFailedBackgroundCapture =
+        [this](const std::string_view failure) noexcept
+    {
+        setBackgroundCaptureFailure(failure);
+        stopBackgroundSensor();
+        // The producer is gone before the control transaction observes it.
+        // Mark the request inactive so same-turn resize remains transactional.
+        backgroundCaptureRequested_ = false;
+        backgroundRefreshPeriod_ = bafx::core::MonotonicTime::zero();
+        backgroundCompositeStatus_ = BackgroundCompositeStatus::CaptureFailed;
+        backgroundPathLatch_.reset();
+        resetBackgroundSnapshot();
+    };
+    try
+    {
+        const auto drainStartedAt = std::chrono::steady_clock::now();
+        diagnostics.wgc = backgroundSensor_->drainLatestDetailed(
+            context_.Get());
+        diagnostics.wgcDrainInclusiveCpu =
+            std::chrono::steady_clock::now() - drainStartedAt;
+        if (diagnostics.wgc.status == WgcBackgroundDrainStatus::Stopped)
+        {
+            stopBackgroundSensor();
+            // item.Closed is terminal even when observed between presentations.
+            backgroundCaptureRequested_ = false;
+            backgroundRefreshPeriod_ = bafx::core::MonotonicTime::zero();
+            backgroundCompositeStatus_ = BackgroundCompositeStatus::CaptureFailed;
+            backgroundPathLatch_.reset();
+            resetBackgroundSnapshot();
+        }
+        else if (diagnostics.wgc.status
+            == WgcBackgroundDrainStatus::ReconfigureRequired)
+        {
+            // The owner performs Recreate in its explicit lifecycle transaction.
+            backgroundCompositeStatus_ = BackgroundCompositeStatus::WaitingForFrame;
+            backgroundPathLatch_.reset();
+            resetBackgroundSnapshot();
+        }
+    }
+    catch (const std::exception& error)
+    {
+        // WGC is optional. Preserve the FX-only interaction path and expose the
+        // original failure to the owner before releasing the failed session.
+        stopFailedBackgroundCapture(error.what());
+    }
+    catch (...)
+    {
+        stopFailedBackgroundCapture("unknown WGC drain failure");
+    }
     return diagnostics;
 }
 
@@ -1440,6 +1478,9 @@ void CompositionRenderer::releaseBackgroundSnapshotResources() noexcept
 
 void CompositionRenderer::stopBackgroundSensor() noexcept
 {
+    // A replacement session must receive an immediate idle drain even when it
+    // starts within 50 ms of the previous producer.
+    wgcDrainPolicyState_ = detail::WgcDrainPolicyState{};
     if (backgroundSensor_ == nullptr)
     {
         backgroundStopMailbox_.recordNoSensor();

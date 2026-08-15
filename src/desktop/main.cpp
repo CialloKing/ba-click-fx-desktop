@@ -734,17 +734,46 @@ struct PointerConsumptionDiagnostics
         std::chrono::duration_cast<std::chrono::microseconds>(duration).count());
 }
 
+[[nodiscard]] bafx::desktop::FramePerformanceSample wgcPerformanceSample(
+    const bafx::windows::WgcBackgroundDrainDiagnostics& wgc,
+    const std::chrono::nanoseconds drainInclusiveCpu,
+    const std::uint64_t producerCallbacks,
+    const bool active,
+    const bool drainAttempted,
+    const bool idleDrainAttempted,
+    const bool idleDrainSkipped) noexcept
+{
+    bafx::desktop::FramePerformanceSample sample{};
+    sample.wgcDrainCpuMicroseconds = durationMicroseconds(drainInclusiveCpu);
+    sample.wgcOwnedCopySubmitCpuMicroseconds =
+        durationMicroseconds(wgc.ownedCopySubmitCpu);
+    sample.wgcProducerCallbacks = producerCallbacks;
+    sample.wgcFramesAcquired = wgc.framesAcquired;
+    sample.wgcFramesSuperseded = wgc.framesSuperseded;
+    sample.wgcTimestampRejectedFrames = wgc.timestampRejectedFrames;
+    sample.wgcActive = active;
+    sample.wgcDrainAttempted = drainAttempted;
+    sample.wgcIdleDrainAttempted = idleDrainAttempted;
+    sample.wgcIdleDrainSkipped = idleDrainSkipped;
+    sample.wgcOwnedCopySubmitted = wgc.ownedCopySubmitted;
+    sample.wgcAccepted = wgc.accepted;
+    return sample;
+}
+
 [[nodiscard]] bafx::desktop::FramePerformanceSample framePerformanceSample(
     const bafx::windows::CompositionFrameDiagnostics& frame,
     const std::uint64_t wgcProducerCallbacks,
     const bool diagnosticReadbackUsed) noexcept
 {
-    bafx::desktop::FramePerformanceSample sample{};
+    bafx::desktop::FramePerformanceSample sample = wgcPerformanceSample(
+        frame.wgc,
+        frame.wgcDrainInclusiveCpu,
+        wgcProducerCallbacks,
+        frame.wgcActive,
+        frame.wgcDrainAttempted,
+        frame.wgcIdleDrainAttempted,
+        frame.wgcIdleDrainSkipped);
     sample.frameTotalCpuMicroseconds = durationMicroseconds(frame.frameTotalCpu);
-    sample.wgcDrainCpuMicroseconds =
-        durationMicroseconds(frame.wgcDrainInclusiveCpu);
-    sample.wgcOwnedCopySubmitCpuMicroseconds =
-        durationMicroseconds(frame.wgc.ownedCopySubmitCpu);
     sample.backgroundSnapshotSubmitCpuMicroseconds =
         durationMicroseconds(frame.backgroundSnapshotSubmitCpu);
     sample.fxTotalSubmitCpuMicroseconds =
@@ -772,15 +801,6 @@ struct PointerConsumptionDiagnostics
     sample.roiDirtyRect = frame.roi.dirtyRect;
     sample.roiBloomOutput = frame.roi.bloomOutput;
     sample.roiAlignedWork = frame.roi.alignedWork;
-    sample.wgcProducerCallbacks = wgcProducerCallbacks;
-    sample.wgcFramesAcquired = frame.wgc.framesAcquired;
-    sample.wgcFramesSuperseded = frame.wgc.framesSuperseded;
-    sample.wgcTimestampRejectedFrames = frame.wgc.timestampRejectedFrames;
-    sample.wgcActive = frame.wgcActive;
-    sample.wgcDrainAttempted = frame.wgcDrainAttempted;
-    sample.wgcIdleDrainSkipped = frame.wgcIdleDrainSkipped;
-    sample.wgcOwnedCopySubmitted = frame.wgc.ownedCopySubmitted;
-    sample.wgcAccepted = frame.wgc.accepted;
     sample.backgroundSnapshotRefreshAttempted =
         frame.backgroundSnapshotRefreshAttempted;
     sample.backgroundSnapshotRefreshed = frame.backgroundSnapshotRefreshed;
@@ -1835,6 +1855,27 @@ int runApplication(
             {
                 ++backgroundCompositeFrames;
             }
+        }
+        else
+        {
+            // Product pause freezes simulation and presentation, not the WGC
+            // producer. Drain only the sensor-owned sample so the next visible
+            // batch cannot begin from a FramePool entry accumulated while idle.
+            const bafx::windows::BackgroundSensorMaintenanceDiagnostics
+                maintenance = renderer.serviceBackgroundCapture(wallTime);
+            const std::uint64_t producerCallbacks =
+                wgcCallbackDeltaTracker.observe(
+                    maintenance.wgcActive,
+                    maintenance.wgc.epoch,
+                    maintenance.wgc.frameArrivedCallbacksTotal);
+            performanceWindow.addBackgroundMaintenance(wgcPerformanceSample(
+                maintenance.wgc,
+                maintenance.wgcDrainInclusiveCpu,
+                producerCallbacks,
+                maintenance.wgcActive,
+                maintenance.wgcDrainAttempted,
+                maintenance.wgcIdleDrainAttempted,
+                maintenance.wgcIdleDrainSkipped));
         }
         bool currentBackgroundCaptureActive = renderer.backgroundCaptureActive();
         if (backgroundCaptureEnabled && !currentBackgroundCaptureActive)

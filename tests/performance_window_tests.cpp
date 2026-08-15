@@ -139,7 +139,9 @@ BAFX_TEST(runtime_performance_window_aggregates_input_and_render_contracts)
     const bafx::desktop::RuntimePerformanceSummary summary = window.summarize();
     BAFX_CHECK(summary.frameCount == 1U);
     BAFX_CHECK(summary.wgcActiveFrames == 1U);
+    BAFX_CHECK(summary.wgcMaintenanceCycles == 0U);
     BAFX_CHECK(summary.wgcDrainAttemptedFrames == 1U);
+    BAFX_CHECK(summary.wgcIdleDrainAttemptedFrames == 0U);
     BAFX_CHECK(summary.wgcIdleDrainSkippedFrames == 0U);
     BAFX_CHECK(summary.wgcProducerCallbacks == 6U);
     BAFX_CHECK(summary.wgcFramesAcquired == 2U);
@@ -178,6 +180,83 @@ BAFX_TEST(runtime_performance_window_aggregates_input_and_render_contracts)
     BAFX_CHECK(window.empty());
 }
 
+BAFX_TEST(runtime_performance_window_records_idle_wgc_drain_attempts)
+{
+    bafx::desktop::RuntimePerformanceWindow window;
+    window.addFrame(bafx::desktop::FramePerformanceSample{
+        .frameTotalCpuMicroseconds = 100U,
+        .wgcDrainCpuMicroseconds = 25U,
+        .wgcActive = true,
+        .wgcDrainAttempted = true,
+        .wgcIdleDrainAttempted = true});
+
+    const bafx::desktop::RuntimePerformanceSummary summary = window.summarize();
+    BAFX_CHECK(summary.wgcDrainAttemptedFrames == 1U);
+    BAFX_CHECK(summary.wgcIdleDrainAttemptedFrames == 1U);
+    BAFX_CHECK(summary.wgcIdleDrainSkippedFrames == 0U);
+    BAFX_CHECK(summary.wgcDrainCpuMicroseconds.sampleCount == 1U);
+    BAFX_CHECK(summary.wgcDrainCpuMicroseconds.maximum == 25U);
+}
+
+BAFX_TEST(runtime_performance_window_keeps_wgc_maintenance_out_of_frame_metrics)
+{
+    bafx::desktop::RuntimePerformanceWindow window;
+    window.addBackgroundMaintenance(bafx::desktop::FramePerformanceSample{
+        .frameTotalCpuMicroseconds = 900U,
+        .wgcDrainCpuMicroseconds = 25U,
+        .wgcOwnedCopySubmitCpuMicroseconds = 7U,
+        .presentCallCpuMicroseconds = 300U,
+        .wgcProducerCallbacks = 3U,
+        .wgcFramesAcquired = 2U,
+        .wgcFramesSuperseded = 1U,
+        .wgcActive = true,
+        .wgcDrainAttempted = true,
+        .wgcIdleDrainAttempted = true,
+        .wgcOwnedCopySubmitted = true,
+        .wgcAccepted = true,
+        .roiVisualBoundsStatus = bafx::fx::FrameBoundsStatus::Ok,
+        .roiPlanStatus = bafx::core::RoiStatus::Ok,
+        .roiDirtyRectAvailable = true,
+        .roiPlanAvailable = true,
+        .roiFullScreenPixels = 100U,
+        .roiBloomOutputPixels = 50U,
+        .roiAlignedWorkPixels = 64U,
+        .gpuRenderCommandSpanMicroseconds = 400U,
+        .gpuTimestampProfilerObserved = true,
+        .gpuFrameStarted = true,
+        .gpuFrameSubmitted = true,
+        .gpuSampleCompleted = true});
+
+    const bafx::desktop::RuntimePerformanceSummary summary = window.summarize();
+    BAFX_CHECK(summary.frameCount == 0U);
+    BAFX_CHECK(summary.wgcActiveFrames == 0U);
+    BAFX_CHECK(summary.wgcMaintenanceCycles == 1U);
+    BAFX_CHECK(summary.wgcDrainAttemptedFrames == 1U);
+    BAFX_CHECK(summary.wgcIdleDrainAttemptedFrames == 1U);
+    BAFX_CHECK(summary.wgcProducerCallbacks == 3U);
+    BAFX_CHECK(summary.wgcFramesAcquired == 2U);
+    BAFX_CHECK(summary.wgcFramesSuperseded == 1U);
+    BAFX_CHECK(summary.wgcOwnedCopiesSubmitted == 1U);
+    BAFX_CHECK(summary.wgcSamplesAccepted == 1U);
+    BAFX_CHECK(summary.wgcDrainCpuMicroseconds.sampleCount == 1U);
+    BAFX_CHECK(summary.wgcOwnedCopySubmitCpuMicroseconds.sampleCount == 1U);
+    BAFX_CHECK(summary.frameTotalCpuMicroseconds.sampleCount == 0U);
+    BAFX_CHECK(summary.presentCallCpuMicroseconds.sampleCount == 0U);
+    BAFX_CHECK(summary.roiVisualBoundsOkFrames == 0U);
+    BAFX_CHECK(summary.roiPlanFrames == 0U);
+    BAFX_CHECK(summary.roiFullScreenPixels.sampleCount == 0U);
+    BAFX_CHECK(summary.gpuFramesStarted == 0U);
+    BAFX_CHECK(summary.gpuFramesSubmitted == 0U);
+    BAFX_CHECK(summary.gpuSamplesCompleted == 0U);
+    BAFX_CHECK(summary.gpuRenderCommandSpanMicroseconds.sampleCount == 0U);
+    BAFX_CHECK(!window.empty());
+
+    window.reset();
+    window.addBackgroundMaintenance(bafx::desktop::FramePerformanceSample{});
+    BAFX_CHECK(window.empty());
+    BAFX_CHECK(window.summarize().wgcMaintenanceCycles == 0U);
+}
+
 BAFX_TEST(runtime_performance_window_excludes_idle_wgc_skips_from_drain_timing)
 {
     bafx::desktop::RuntimePerformanceWindow window;
@@ -191,6 +270,7 @@ BAFX_TEST(runtime_performance_window_excludes_idle_wgc_skips_from_drain_timing)
     const bafx::desktop::RuntimePerformanceSummary summary = window.summarize();
     BAFX_CHECK(summary.wgcActiveFrames == 1U);
     BAFX_CHECK(summary.wgcDrainAttemptedFrames == 0U);
+    BAFX_CHECK(summary.wgcIdleDrainAttemptedFrames == 0U);
     BAFX_CHECK(summary.wgcIdleDrainSkippedFrames == 1U);
     BAFX_CHECK(
         summary.wgcActiveFrames
@@ -201,7 +281,9 @@ BAFX_TEST(runtime_performance_window_excludes_idle_wgc_skips_from_drain_timing)
 
     window.reset();
     const bafx::desktop::RuntimePerformanceSummary reset = window.summarize();
+    BAFX_CHECK(reset.wgcMaintenanceCycles == 0U);
     BAFX_CHECK(reset.wgcDrainAttemptedFrames == 0U);
+    BAFX_CHECK(reset.wgcIdleDrainAttemptedFrames == 0U);
     BAFX_CHECK(reset.wgcIdleDrainSkippedFrames == 0U);
 }
 
