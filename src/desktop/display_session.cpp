@@ -478,8 +478,12 @@ DisplaySession::serviceSecondaryBackgroundCapture(
             appendSecondaryBackgroundOutcome(state, renderer_);
             if (state.execution.deviceRecovered)
             {
+                // Resize/output actions continue through StartSensor after a
+                // successful recovery. Do not replace that healthy session
+                // merely because the transaction also recorded a recovery.
                 const bool retryEligible =
-                    canRetryBackgroundCaptureAfterDeviceRecovery(
+                    !renderer_.backgroundCaptureActive()
+                    && canRetryBackgroundCaptureAfterDeviceRecovery(
                         state.request.sensorRequired,
                         state.sensorWasActiveBeforeTransaction,
                         state.execution.deviceRecoveryAdapterChanged,
