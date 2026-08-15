@@ -2,8 +2,10 @@
 
 #include "display_target.hpp"
 
+#include "bafx/core/background_freshness.hpp"
 #include "bafx/fx/simulation_runtime.hpp"
 #include "bafx/fx/simulation_timeline.hpp"
+#include "bafx/windows/background_capture_transition.hpp"
 #include "bafx/windows/composition_renderer.hpp"
 #include "bafx/windows/display_capabilities.hpp"
 #include "bafx/windows/display_color_monitor.hpp"
@@ -12,6 +14,8 @@
 #include <windows.h>
 
 #include <cstdint>
+#include <filesystem>
+#include <memory>
 #include <optional>
 #include <string_view>
 
@@ -37,7 +41,17 @@ struct DisplaySessionRetargetResult final
         bafx::windows::OutputAdapterRetargetStatus::Unchanged};
     bafx::windows::OutputResizeStatus output{
         bafx::windows::OutputResizeStatus::Unchanged};
+    bool pending{false};
 };
+
+struct DisplaySessionBackgroundCaptureServiceResult final
+{
+    bool renderInvalidated{false};
+    bool deviceRecovered{false};
+    bool active{false};
+};
+
+struct DisplaySessionBackgroundCaptureState;
 
 // Owns the window, graphics device and authored state for one display. Host
 // input, tray and process lifetime stay outside so additional sessions cannot
@@ -46,6 +60,7 @@ class DisplaySession final
 {
 public:
     explicit DisplaySession(DisplaySessionOptions options);
+    ~DisplaySession();
 
     DisplaySession(const DisplaySession&) = delete;
     DisplaySession& operator=(const DisplaySession&) = delete;
@@ -79,6 +94,19 @@ public:
     [[nodiscard]] DisplaySessionRetargetResult retargetFxOnly(
         DisplayTarget target,
         HWND wakeWindow);
+    void initializeSecondaryBackgroundCapture(
+        bafx::windows::BackgroundCaptureRequest request,
+        std::uint64_t controlGeneration,
+        const std::filesystem::path& logPath);
+    void updateSecondaryBackgroundCaptureRequest(
+        bafx::windows::BackgroundCaptureRequest request,
+        std::uint64_t controlGeneration);
+    [[nodiscard]] DisplaySessionBackgroundCaptureServiceResult
+        serviceSecondaryBackgroundCapture(bafx::core::MonotonicTime now);
+    [[nodiscard]] bool secondaryBackgroundCaptureInitialized() const noexcept;
+    [[nodiscard]] bool secondaryBackgroundCaptureActive() const noexcept;
+    [[nodiscard]] HANDLE secondaryBackgroundFrameAvailableObject() const noexcept;
+    void shutdownSecondaryBackgroundCapture() noexcept;
     void refreshColorCapabilities() noexcept;
     void markRenderFaulted() noexcept;
     void clearRenderFault() noexcept;
@@ -97,6 +125,8 @@ private:
     std::optional<bafx::windows::DisplayColorCapabilities> colorCapabilities_{};
     bafx::windows::DisplayColorMonitorResult colorMonitorStartResult_{};
     bool renderFaulted_{false};
+    std::unique_ptr<DisplaySessionBackgroundCaptureState>
+        secondaryBackgroundCapture_{};
 };
 
 }
