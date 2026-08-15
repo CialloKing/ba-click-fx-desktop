@@ -1,4 +1,5 @@
 #include "background_capture_runtime.hpp"
+#include "display_output_retarget.hpp"
 
 #include "bafx/windows/overlay_window.hpp"
 #include "bafx/windows/package_identity.hpp"
@@ -947,27 +948,25 @@ BackgroundCaptureExecutionStatus executeBackgroundCaptureTransition(
                 break;
             case bafx::windows::BackgroundCaptureActionKind::ResizeOutput:
             {
-                if (execution.targetIntent.applyBounds)
-                {
-                    window.setBounds(execution.targetIntent.target.bounds);
-                    if (window.size().width != action->outputSize.width
-                        || window.size().height != action->outputSize.height)
-                    {
-                        throw std::runtime_error(
-                            "Overlay client size does not match the display target");
-                    }
-                }
                 const std::optional<LUID> requestedAdapter =
                     execution.targetIntent.target.sourceIdentityResolved
                         ? std::optional<LUID>(
                             execution.targetIntent.target.sourceAdapterLuid)
                         : std::nullopt;
-                const bafx::windows::OutputAdapterRetargetStatus
-                    adapterStatus = renderer.retargetOutputAdapter(
-                        requestedAdapter);
-                execution.outputAdapterRetargeted = adapterStatus
+                const DisplayOutputRetargetResult retarget =
+                    retargetDisplayOutput(
+                        window,
+                        renderer,
+                        DisplayOutputRetargetIntent{
+                            execution.targetIntent.applyBounds
+                                ? std::optional<RECT>(
+                                    execution.targetIntent.target.bounds)
+                                : std::nullopt,
+                            requestedAdapter,
+                            action->outputSize});
+                execution.outputAdapterRetargeted = retarget.adapter
                     != bafx::windows::OutputAdapterRetargetStatus::Unchanged;
-                execution.outputAdapterWarpFallback = adapterStatus
+                execution.outputAdapterWarpFallback = retarget.adapter
                     == bafx::windows::OutputAdapterRetargetStatus::
                         RecreatedWarpFallback;
                 if (execution.outputAdapterWarpFallback)
@@ -976,17 +975,13 @@ BackgroundCaptureExecutionStatus executeBackgroundCaptureTransition(
                     execution.sensorFailure =
                         "Target display adapter fell back to WARP; WGC restart blocked";
                 }
-                const bafx::windows::GraphicsDeviceInfo previousDeviceInfo =
-                    renderer.deviceInfo();
-                const bafx::windows::OutputResizeStatus resizeStatus =
-                    renderer.resizeOutput(action->outputSize);
                 execution.resizedOutputSize = action->outputSize;
-                if (resizeStatus
+                if (retarget.output
                     == bafx::windows::OutputResizeStatus::DeviceRecovered)
                 {
                     observeDeviceRecovery(
                         execution,
-                        previousDeviceInfo,
+                        retarget.deviceBeforeResize,
                         renderer,
                         logPath,
                         "Graphics.DeviceRecovery.ResizeSucceeded",

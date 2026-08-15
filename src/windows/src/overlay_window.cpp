@@ -302,6 +302,21 @@ WindowSize OverlayWindow::size() const noexcept
     return size_;
 }
 
+RECT OverlayWindow::bounds() const
+{
+    if (window_ == nullptr)
+    {
+        throw std::runtime_error("Overlay window is not available");
+    }
+
+    RECT bounds{};
+    if (GetWindowRect(window_, &bounds) == FALSE)
+    {
+        throwLastError("GetWindowRect(overlay bounds)");
+    }
+    return bounds;
+}
+
 OverlayWindowRole OverlayWindow::role() const noexcept
 {
     return role_;

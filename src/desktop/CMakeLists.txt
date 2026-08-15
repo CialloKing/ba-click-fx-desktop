@@ -52,6 +52,7 @@ add_executable(
     ba_click_fx_desktop
     WIN32
         background_capture_runtime.cpp
+        display_output_retarget.cpp
         display_pointer_router.cpp
         display_session.cpp
         display_session_manager.cpp

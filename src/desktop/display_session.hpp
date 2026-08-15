@@ -72,9 +72,8 @@ public:
     // Refreshes DPI, cadence and primary-role metadata when the stable source
     // and render geometry have not changed.
     void updateTargetMetadata(DisplayTarget target) noexcept;
-    // Secondary sessions never own WGC. They can therefore update their
-    // resource domain directly without entering the primary capture state
-    // machine.
+    // Secondary sessions currently retarget their FX-only resource domain
+    // without entering the coordinator's WGC transaction.
     [[nodiscard]] DisplaySessionRetargetResult retargetFxOnly(
         DisplayTarget target,
         HWND wakeWindow);

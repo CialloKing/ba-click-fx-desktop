@@ -209,6 +209,7 @@ public:
 
     [[nodiscard]] HWND handle() const noexcept;
     [[nodiscard]] WindowSize size() const noexcept;
+    [[nodiscard]] RECT bounds() const;
     [[nodiscard]] OverlayWindowRole role() const noexcept;
     // Per-monitor-v2 keeps client coordinates in physical pixels. Expose the
     // effective window DPI for diagnostics without changing that coordinate contract.
