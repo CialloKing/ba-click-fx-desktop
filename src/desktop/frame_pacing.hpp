@@ -75,6 +75,8 @@ struct PausedWaitable final
     DWORD timeoutMilliseconds) noexcept;
 
 // Mixed-refresh sessions contribute independent latency and device events.
+// Every handle is polled; at most the Win32 limit is included in the blocking
+// wait, so unusually large virtual-display topologies remain bounded.
 // The caller owns token interpretation and renders only the granted session.
 [[nodiscard]] FramePacingWaitResult waitForAnyFrameOpportunity(
     std::span<const FramePacingWaitable> waitables,

@@ -1,5 +1,6 @@
 #include "frame_pacing.hpp"
 
+#include <algorithm>
 #include <array>
 
 namespace bafx::desktop
@@ -36,7 +37,7 @@ FramePacingWaitResult waitForAnyFrameOpportunity(
     const DWORD timeoutMilliseconds) noexcept
 {
     constexpr std::size_t maximumWaitables = MAXIMUM_WAIT_OBJECTS - 1U;
-    if (waitables.empty() || waitables.size() > maximumWaitables)
+    if (waitables.empty())
     {
         return FramePacingWaitResult{
             FramePacingWake::Failed,
@@ -55,11 +56,38 @@ FramePacingWaitResult waitForAnyFrameOpportunity(
                 ERROR_INVALID_HANDLE,
                 waitable.token};
         }
-        handles[index] = waitable.handle;
+        const DWORD state = WaitForSingleObject(waitable.handle, 0U);
+        if (state == WAIT_OBJECT_0)
+        {
+            return FramePacingWaitResult{
+                waitable.kind == FramePacingWaitableKind::DeviceRemoved
+                    ? FramePacingWake::DeviceRemoved
+                    : FramePacingWake::FrameReady,
+                ERROR_SUCCESS,
+                waitable.token};
+        }
+        if (state == WAIT_FAILED)
+        {
+            const DWORD error = GetLastError();
+            return FramePacingWaitResult{
+                FramePacingWake::Failed,
+                error == ERROR_SUCCESS ? ERROR_GEN_FAILURE : error,
+                waitable.token};
+        }
+        if (index < maximumWaitables)
+        {
+            handles[index] = waitable.handle;
+        }
     }
 
+    // Win32 can block on at most MAXIMUM_WAIT_OBJECTS minus the message queue.
+    // Handles beyond this window were still polled above and are observed on
+    // the next bounded control cycle instead of terminating a large topology.
+    const std::size_t blockingCount = (std::min)(
+        waitables.size(),
+        maximumWaitables);
     SetLastError(ERROR_SUCCESS);
-    const DWORD count = static_cast<DWORD>(waitables.size());
+    const DWORD count = static_cast<DWORD>(blockingCount);
     const DWORD result = MsgWaitForMultipleObjectsEx(
         count,
         handles.data(),
@@ -130,13 +158,6 @@ PausedWaitResult waitForAnyPausedInvalidation(
     const DWORD timeoutMilliseconds) noexcept
 {
     constexpr std::size_t maximumWaitables = MAXIMUM_WAIT_OBJECTS - 1U;
-    if (waitables.size() > maximumWaitables)
-    {
-        return PausedWaitResult{
-            PausedWaitWake::Failed,
-            ERROR_INVALID_PARAMETER};
-    }
-
     std::array<HANDLE, maximumWaitables> handles{};
     for (std::size_t index = 0U; index < waitables.size(); ++index)
     {
@@ -149,11 +170,35 @@ PausedWaitResult waitForAnyPausedInvalidation(
                 ERROR_INVALID_HANDLE,
                 waitable.token};
         }
-        handles[index] = waitable.handle;
+        const DWORD state = WaitForSingleObject(waitable.handle, 0U);
+        if (state == WAIT_OBJECT_0)
+        {
+            return PausedWaitResult{
+                waitable.kind == PausedWaitableKind::DeviceRemoved
+                    ? PausedWaitWake::DeviceRemoved
+                    : PausedWaitWake::BackgroundFrameReady,
+                ERROR_SUCCESS,
+                waitable.token};
+        }
+        if (state == WAIT_FAILED)
+        {
+            const DWORD error = GetLastError();
+            return PausedWaitResult{
+                PausedWaitWake::Failed,
+                error == ERROR_SUCCESS ? ERROR_GEN_FAILURE : error,
+                waitable.token};
+        }
+        if (index < maximumWaitables)
+        {
+            handles[index] = waitable.handle;
+        }
     }
 
+    const std::size_t blockingCount = (std::min)(
+        waitables.size(),
+        maximumWaitables);
     SetLastError(ERROR_SUCCESS);
-    const DWORD waitableCount = static_cast<DWORD>(waitables.size());
+    const DWORD waitableCount = static_cast<DWORD>(blockingCount);
     const DWORD result = MsgWaitForMultipleObjectsEx(
         waitableCount,
         waitableCount > 0U ? handles.data() : nullptr,
