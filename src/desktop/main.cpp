@@ -3220,10 +3220,10 @@ int runApplication(
                 window.setBounds(appliedDisplayTarget.bounds);
                 appliedDisplayDpi = window.effectiveDpi();
                 report.setPrimaryDpi(appliedDisplayDpi);
-                if (appliedDisplayTarget.refreshRate.has_value())
+                if (appliedDisplayTarget.captureRefreshRate.has_value())
                 {
                     report.setPrimaryRefreshRate(
-                        *appliedDisplayTarget.refreshRate);
+                        *appliedDisplayTarget.captureRefreshRate);
                 }
                 else
                 {
