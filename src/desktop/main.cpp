@@ -1121,6 +1121,9 @@ void appendDisplayTopologyInvalidated(
             bafx::windows::DiagnosticField{
                 "SuggestedBoundsValid",
                 change.suggestedBoundsValid ? "true" : "false"},
+            bafx::windows::DiagnosticField{
+                "PowerRestored",
+                change.powerRestored ? "true" : "false"},
             bafx::windows::DiagnosticField{"EffectiveDpi", observedDpi}};
         bafx::windows::appendDiagnosticEvent(
             logPath,

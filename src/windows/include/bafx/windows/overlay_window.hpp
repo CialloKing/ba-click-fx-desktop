@@ -46,6 +46,7 @@ struct DisplayTopologyChange
     RECT suggestedBounds{};
     bool dpiValid{false};
     bool suggestedBoundsValid{false};
+    bool powerRestored{false};
 };
 
 struct ExitUiStatus
@@ -267,7 +268,8 @@ private:
         DisplayTopologyChangeSource source,
         std::uint32_t latestDpiX = 0U,
         std::uint32_t latestDpiY = 0U,
-        const RECT* suggestedBounds = nullptr) noexcept;
+        const RECT* suggestedBounds = nullptr,
+        bool powerRestored = false) noexcept;
     void requestClose() noexcept;
     void addNotificationIcon() noexcept;
     void removeNotificationIcon() noexcept;
@@ -287,6 +289,7 @@ private:
     bool closeRequested_{false};
     bool rawMouseRegistered_{false};
     HPOWERNOTIFY displayPowerNotification_{nullptr};
+    std::optional<DWORD> consoleDisplayState_{};
     bool primaryExitHotKeyRegistered_{false};
     bool fallbackExitHotKeyRegistered_{false};
     bool notificationIconAdded_{false};

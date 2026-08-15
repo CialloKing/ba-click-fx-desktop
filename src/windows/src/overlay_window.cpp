@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <cstring>
 #include <iterator>
 #include <limits>
 #include <stdexcept>
@@ -74,13 +75,21 @@ constexpr GUID consoleDisplayStateSetting{
     return ERROR_SUCCESS;
 }
 
-[[nodiscard]] bool consoleDisplayStateChanged(const LPARAM lParam) noexcept
+[[nodiscard]] std::optional<DWORD> consoleDisplayState(
+    const LPARAM lParam) noexcept
 {
     const auto* const setting =
         reinterpret_cast<const POWERBROADCAST_SETTING*>(lParam);
-    return setting != nullptr
-        && IsEqualGUID(setting->PowerSetting, consoleDisplayStateSetting)
-        && setting->DataLength >= sizeof(DWORD);
+    if (setting == nullptr
+        || !IsEqualGUID(setting->PowerSetting, consoleDisplayStateSetting)
+        || setting->DataLength < sizeof(DWORD))
+    {
+        return std::nullopt;
+    }
+
+    DWORD state = 0U;
+    std::memcpy(&state, setting->Data, sizeof(state));
+    return state;
 }
 
 }
@@ -803,27 +812,53 @@ LRESULT OverlayWindow::handleMessage(
         return DefWindowProcW(window_, message, wParam, lParam);
 
     case WM_POWERBROADCAST:
+    {
         if (role_ != OverlayWindowRole::HostShell)
         {
             return DefWindowProcW(window_, message, wParam, lParam);
         }
-        if (wParam == PBT_APMSUSPEND
-            || wParam == PBT_APMRESUMEAUTOMATIC
+        if (wParam == PBT_APMSUSPEND)
+        {
+            consoleDisplayState_ = 0U;
+        }
+        const bool systemResumed = wParam == PBT_APMRESUMEAUTOMATIC
             || wParam == PBT_APMRESUMESUSPEND
-            || wParam == PBT_APMRESUMECRITICAL
-            || (wParam == PBT_POWERSETTINGCHANGE
-                && consoleDisplayStateChanged(lParam)))
+            || wParam == PBT_APMRESUMECRITICAL;
+        const std::optional<DWORD> displayState =
+            wParam == PBT_POWERSETTINGCHANGE
+            ? consoleDisplayState(lParam)
+            : std::nullopt;
+        const bool displayRestored = displayState.has_value()
+            && consoleDisplayState_.has_value()
+            && *consoleDisplayState_ == 0U
+            && *displayState != 0U;
+        if (displayState.has_value())
+        {
+            consoleDisplayState_ = *displayState;
+        }
+        if (systemResumed)
+        {
+            consoleDisplayState_ = 1U;
+        }
+        if (wParam == PBT_APMSUSPEND
+            || systemResumed
+            || displayState.has_value())
         {
             // The display can retain its monitor handle while the scan-out,
             // adapter or Advanced Color contract changes underneath it. The
             // render owner re-queries first and transacts every detected change.
             recordDisplayTopologyChange(
-                DisplayTopologyChangeSource::Power);
+                DisplayTopologyChangeSource::Power,
+                0U,
+                0U,
+                nullptr,
+                systemResumed || displayRestored);
             displayColorChangePending_ = true;
             invalidatePointerGeometry();
             return TRUE;
         }
         return DefWindowProcW(window_, message, wParam, lParam);
+    }
 
     case WM_DPICHANGED:
         // The suggested rectangle preserves a normal window's logical size,
@@ -864,7 +899,8 @@ void OverlayWindow::recordDisplayTopologyChange(
     const DisplayTopologyChangeSource source,
     const std::uint32_t latestDpiX,
     const std::uint32_t latestDpiY,
-    const RECT* const suggestedBounds) noexcept
+    const RECT* const suggestedBounds,
+    const bool powerRestored) noexcept
 {
     if (!pendingDisplayTopologyChange_.has_value())
     {
@@ -875,6 +911,7 @@ void OverlayWindow::recordDisplayTopologyChange(
     // A display transition can deliver several different messages before the
     // owner runs. Preserve every cause while keeping only the newest payload.
     pending.sourceMask |= displayTopologyChangeSourceMask(source);
+    pending.powerRestored = pending.powerRestored || powerRestored;
     if (latestDpiX != 0U && latestDpiY != 0U)
     {
         pending.latestDpiX = latestDpiX;
