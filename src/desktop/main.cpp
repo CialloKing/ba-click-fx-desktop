@@ -2515,7 +2515,7 @@ int runApplication(
     const auto refreshDisplayColorState =
         [&](const std::string_view reason,
             const std::uint64_t generation,
-            const bool scheduleOutputRenegotiation)
+            const bool outputRebuiltForCurrentTarget)
         {
             const std::optional<bafx::windows::DisplayColorCapabilities>
                 previousCapabilities = displaySession.colorCapabilities();
@@ -2559,13 +2559,19 @@ int runApplication(
                     bafx::desktop::resolveDisplayOutputPreference(
                         requestedPreference,
                         displaySession.colorCapabilities());
-            const bool outputContractChanged = scheduleOutputRenegotiation
-                && renderer.outputPreference() != currentPreference
-                && displayOutputContractChanged(
-                    previousPreference,
-                    currentPreference,
-                    previousCapabilities,
-                    displaySession.colorCapabilities());
+            const bool outputPreferenceMismatch =
+                renderer.outputPreference() != currentPreference;
+            const bool colorContractChanged = displayOutputContractChanged(
+                previousPreference,
+                currentPreference,
+                previousCapabilities,
+                displaySession.colorCapabilities());
+            // A target migration already recreated the swap chain after the
+            // HWND moved. Reconcile only a pre/post query disagreement there;
+            // ordinary color events must also rebuild same-transfer metadata.
+            const bool outputContractChanged = outputPreferenceMismatch
+                || (!outputRebuiltForCurrentTarget
+                    && colorContractChanged);
             if (outputContractChanged)
             {
                 pendingCoordinatorOutputRenegotiation =
@@ -2573,7 +2579,7 @@ int runApplication(
                         currentPreference,
                         std::string(reason)};
             }
-            else if (!scheduleOutputRenegotiation)
+            else if (outputRebuiltForCurrentTarget)
             {
                 // A completed display retarget already rebuilt or reaffirmed
                 // the output for the new monitor; discard stale notifications.
@@ -3447,7 +3453,7 @@ int runApplication(
                         ? "display-power"
                         : "win32-notification"),
                 displayColorGeneration,
-                true);
+                false);
             renderInvalidated = true;
         }
         if (hostDisplayPowerBecameUnavailable)
