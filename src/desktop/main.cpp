@@ -2991,8 +2991,13 @@ int runApplication(
                 bafx::desktop::findDisplayTargetBySource(
                     topology,
                     requestedTarget);
-            if (observed == nullptr)
+            if (observed == nullptr
+                && topology.status
+                    == bafx::windows::DisplayTopologyStatus::Complete)
             {
+                // A partial snapshot cannot revoke an already queued target.
+                // Fall back to the applied source only after the pending
+                // source is authoritatively absent.
                 observed = bafx::desktop::findDisplayTargetBySource(
                     topology,
                     appliedDisplayTarget);
