@@ -2094,7 +2094,7 @@ int runApplication(
         report.setPrimaryRefreshRate(*refreshRate);
     }
     const bafx::windows::DisplayColorMonitorResult displayColorMonitorStart =
-        displaySession.colorMonitorStartResult();
+        displaySession.colorMonitorResult();
     bafx::windows::appendDiagnosticLog(
         logPath,
         bafx::windows::displayColorMonitorDiagnostic(
@@ -2660,7 +2660,7 @@ int runApplication(
                     fields);
             }
             const bafx::windows::DisplayColorMonitorResult monitorResult =
-                displaySession.colorMonitorStartResult();
+                displaySession.colorMonitorResult();
             bafx::windows::appendDiagnosticLog(
                 logPath,
                 bafx::windows::displayColorMonitorDiagnostic(monitorResult));

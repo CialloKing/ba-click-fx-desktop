@@ -90,9 +90,7 @@ DisplaySession::DisplaySession(DisplaySessionOptions options)
         throw std::invalid_argument(
             "Display session requires the process access authority");
     }
-    colorMonitorStartResult_ = colorMonitor_.start(
-        target_.monitor,
-        options.wakeWindow);
+    static_cast<void>(colorMonitor_.start(target_.monitor, options.wakeWindow));
     refreshColorCapabilities();
 }
 
@@ -153,9 +151,12 @@ DisplaySession::colorCapabilities() const noexcept
 }
 
 const bafx::windows::DisplayColorMonitorResult&
-DisplaySession::colorMonitorStartResult() const noexcept
+DisplaySession::colorMonitorResult() const noexcept
 {
-    return colorMonitorStartResult_;
+    // The monitor can recover its WinRT subscription after construction.
+    // Return its live result so support diagnostics do not retain a stale
+    // startup failure after that retry succeeds.
+    return colorMonitor_.result();
 }
 
 bool DisplaySession::renderFaulted() const noexcept
@@ -186,9 +187,7 @@ void DisplaySession::acceptAppliedTarget(
     const HWND wakeWindow) noexcept
 {
     target_ = std::move(target);
-    colorMonitorStartResult_ = colorMonitor_.start(
-        target_.monitor,
-        wakeWindow);
+    static_cast<void>(colorMonitor_.start(target_.monitor, wakeWindow));
 }
 
 void DisplaySession::updateTargetMetadata(DisplayTarget target) noexcept

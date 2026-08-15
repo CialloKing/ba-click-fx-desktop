@@ -107,7 +107,7 @@ public:
     [[nodiscard]] const std::optional<bafx::windows::DisplayColorCapabilities>&
         colorCapabilities() const noexcept;
     [[nodiscard]] const bafx::windows::DisplayColorMonitorResult&
-        colorMonitorStartResult() const noexcept;
+        colorMonitorResult() const noexcept;
     [[nodiscard]] bool renderFaulted() const noexcept;
     [[nodiscard]] bool lastPresentedDrawableContent() const noexcept;
     [[nodiscard]] bool framePacingDue(
@@ -182,7 +182,6 @@ private:
     bafx::fx::SimulationTimeline timeline_{};
     bafx::windows::DisplayColorMonitor colorMonitor_{};
     std::optional<bafx::windows::DisplayColorCapabilities> colorCapabilities_{};
-    bafx::windows::DisplayColorMonitorResult colorMonitorStartResult_{};
     std::optional<bafx::core::MonotonicTime> nextFramePacingDeadline_{};
     bool lastPresentedDrawableContent_{false};
     bool renderFaulted_{false};
