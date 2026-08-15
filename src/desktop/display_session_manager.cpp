@@ -327,6 +327,7 @@ bool DisplaySessionManager::topologyDiffers(
         if (!sameDisplayTarget(session->target(), stabilized)
             || !sameDisplaySourceIdentity(session->target(), stabilized)
             || !sameDisplayRuntimeMetadata(session->target(), stabilized)
+            || !session->resourceDomainReadyForTarget(stabilized)
             || physicalTargetIdentityResolutionImproved(
                 session->target(),
                 stabilized))
