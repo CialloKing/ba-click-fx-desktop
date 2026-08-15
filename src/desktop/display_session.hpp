@@ -116,6 +116,8 @@ public:
     void show();
 
 private:
+    void acceptPendingSecondaryTargetIfApplied(
+        DisplaySessionBackgroundCaptureState& state) noexcept;
     [[nodiscard]] static std::optional<LUID> requestedAdapter(
         const DisplayTarget& target) noexcept;
 

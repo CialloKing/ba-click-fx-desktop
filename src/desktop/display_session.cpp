@@ -173,6 +173,7 @@ DisplaySessionRetargetResult DisplaySession::retargetFxOnly(
                 requestedAdapter(target),
                 displayTargetSize(target)});
         acceptAppliedTarget(std::move(target), wakeWindow);
+        refreshColorCapabilities();
         clearRenderFault();
         return DisplaySessionRetargetResult{
             output.adapter,
@@ -214,6 +215,7 @@ DisplaySessionRetargetResult DisplaySession::retargetSecondary(
             throw std::logic_error(
                 "Secondary display retarget cancellation remained pending");
         }
+        acceptPendingSecondaryTargetIfApplied(state);
         appendSecondaryBackgroundOutcome(state, renderer_);
     }
 
@@ -231,6 +233,7 @@ DisplaySessionRetargetResult DisplaySession::retargetSecondary(
         acceptAppliedTarget(
             std::move(*state.pendingTarget),
             state.pendingWakeWindow);
+        refreshColorCapabilities();
         state.pendingTarget.reset();
         state.pendingWakeWindow = nullptr;
         return {};
@@ -315,6 +318,10 @@ void DisplaySession::updateSecondaryBackgroundCaptureRequest(
             throw std::logic_error(
                 "Secondary background capture cancellation remained pending");
         }
+        // A preserved resize may have moved the surface before the new
+        // configuration generation starts. Commit that geometry now so
+        // pointer routing and monitor facts cannot remain on the old target.
+        acceptPendingSecondaryTargetIfApplied(state);
         appendSecondaryBackgroundOutcome(state, renderer_);
     }
 
@@ -373,15 +380,7 @@ DisplaySession::serviceSecondaryBackgroundCapture(
             result.renderInvalidated = true;
             result.deviceRecovered = result.deviceRecovered
                 || state.execution.deviceRecovered;
-            if (state.pendingTarget.has_value()
-                && displayTargetBoundsApplied(state.execution))
-            {
-                acceptAppliedTarget(
-                    std::move(*state.pendingTarget),
-                    state.pendingWakeWindow);
-                state.pendingTarget.reset();
-                state.pendingWakeWindow = nullptr;
-            }
+            acceptPendingSecondaryTargetIfApplied(state);
             if (!state.pendingSensorFailure.empty()
                 && state.execution.sensorFailure.empty())
             {
@@ -541,6 +540,25 @@ void DisplaySession::clearRenderFault() noexcept
 void DisplaySession::show()
 {
     window_.show();
+}
+
+void DisplaySession::acceptPendingSecondaryTargetIfApplied(
+    DisplaySessionBackgroundCaptureState& state) noexcept
+{
+    if (!state.pendingTarget.has_value()
+        || !displayTargetBoundsApplied(state.execution))
+    {
+        return;
+    }
+
+    acceptAppliedTarget(
+        std::move(*state.pendingTarget),
+        state.pendingWakeWindow);
+    // The coordinator refreshes after comparing old/new modes. Secondary
+    // sessions have no separate comparison owner, so refresh at commit time.
+    refreshColorCapabilities();
+    state.pendingTarget.reset();
+    state.pendingWakeWindow = nullptr;
 }
 
 std::optional<LUID> DisplaySession::requestedAdapter(
