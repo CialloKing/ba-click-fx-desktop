@@ -2012,23 +2012,24 @@ int runApplication(
             const HANDLE backgroundWaitable = lastPresentedDrawableContent
                 ? renderer.backgroundFrameAvailableObject()
                 : nullptr;
-            const DWORD backgroundWaitableCount = backgroundWaitable != nullptr
-                ? 1U
-                : 0U;
-            const DWORD waitResult = MsgWaitForMultipleObjectsEx(
-                backgroundWaitableCount,
-                backgroundWaitableCount > 0U ? &backgroundWaitable : nullptr,
-                pausedControlPollMilliseconds,
-                QS_ALLINPUT,
-                MWMO_INPUTAVAILABLE);
-            if (backgroundWaitableCount > 0U
-                && waitResult == WAIT_OBJECT_0)
+            const bafx::desktop::PausedWaitResult pausedWait =
+                bafx::desktop::waitForPausedInvalidation(
+                    renderer.deviceRemovedWaitableObject(),
+                    backgroundWaitable,
+                    pausedControlPollMilliseconds);
+            switch (pausedWait.wake)
             {
+            case bafx::desktop::PausedWaitWake::DeviceRemoved:
+            case bafx::desktop::PausedWaitWake::BackgroundFrameReady:
                 renderInvalidationPending = true;
-            }
-            if (waitResult == WAIT_FAILED)
-            {
-                bafx::windows::throwLastError("MsgWaitForMultipleObjectsEx");
+                break;
+            case bafx::desktop::PausedWaitWake::MessagesPending:
+            case bafx::desktop::PausedWaitWake::TimedOut:
+                break;
+            case bafx::desktop::PausedWaitWake::Failed:
+                throw bafx::windows::HResultError(
+                    HRESULT_FROM_WIN32(pausedWait.error),
+                    "MsgWaitForMultipleObjectsEx(paused Host)");
             }
         }
     }

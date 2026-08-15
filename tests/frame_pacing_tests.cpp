@@ -10,7 +10,9 @@ namespace
 {
 
 using bafx::desktop::FramePacingWake;
+using bafx::desktop::PausedWaitWake;
 using bafx::desktop::waitForFrameOpportunity;
+using bafx::desktop::waitForPausedInvalidation;
 
 class EventHandle final
 {
@@ -138,4 +140,81 @@ BAFX_TEST(frame_pacing_rejects_an_invalid_optional_device_handle)
         0U);
     BAFX_CHECK(result.wake == FramePacingWake::Failed);
     BAFX_CHECK(result.error == ERROR_INVALID_HANDLE);
+}
+
+BAFX_TEST(paused_wait_prioritizes_device_removal_over_a_background_frame)
+{
+    EventHandle deviceRemoved(true);
+    EventHandle backgroundFrame(true);
+
+    const auto result = waitForPausedInvalidation(
+        deviceRemoved.get(),
+        backgroundFrame.get(),
+        0U);
+    BAFX_CHECK(result.wake == PausedWaitWake::DeviceRemoved);
+    BAFX_CHECK(result.error == ERROR_SUCCESS);
+}
+
+BAFX_TEST(paused_wait_reports_a_background_frame_without_device_notification)
+{
+    EventHandle backgroundFrame(true);
+
+    const auto result = waitForPausedInvalidation(
+        nullptr,
+        backgroundFrame.get(),
+        0U);
+    BAFX_CHECK(result.wake == PausedWaitWake::BackgroundFrameReady);
+    BAFX_CHECK(result.error == ERROR_SUCCESS);
+}
+
+BAFX_TEST(paused_wait_allows_no_optional_handles)
+{
+    const auto result = waitForPausedInvalidation(nullptr, nullptr, 0U);
+    BAFX_CHECK(result.wake == PausedWaitWake::TimedOut);
+    BAFX_CHECK(result.error == ERROR_SUCCESS);
+}
+
+BAFX_TEST(paused_wait_reports_messages_without_optional_handles)
+{
+    MSG message{};
+    static_cast<void>(PeekMessageW(
+        &message,
+        nullptr,
+        pacingTestMessage,
+        pacingTestMessage,
+        PM_NOREMOVE));
+    BAFX_CHECK(PostThreadMessageW(
+        GetCurrentThreadId(),
+        pacingTestMessage,
+        0U,
+        0) != FALSE);
+
+    const auto result = waitForPausedInvalidation(nullptr, nullptr, 0U);
+    BAFX_CHECK(result.wake == PausedWaitWake::MessagesPending);
+    BAFX_CHECK(result.error == ERROR_SUCCESS);
+    BAFX_CHECK(PeekMessageW(
+        &message,
+        nullptr,
+        pacingTestMessage,
+        pacingTestMessage,
+        PM_REMOVE) != FALSE);
+}
+
+BAFX_TEST(paused_wait_rejects_invalid_optional_handles)
+{
+    EventHandle backgroundFrame(false);
+    const auto invalidDevice = waitForPausedInvalidation(
+        INVALID_HANDLE_VALUE,
+        backgroundFrame.get(),
+        0U);
+    BAFX_CHECK(invalidDevice.wake == PausedWaitWake::Failed);
+    BAFX_CHECK(invalidDevice.error == ERROR_INVALID_HANDLE);
+
+    EventHandle deviceRemoved(false);
+    const auto invalidBackground = waitForPausedInvalidation(
+        deviceRemoved.get(),
+        INVALID_HANDLE_VALUE,
+        0U);
+    BAFX_CHECK(invalidBackground.wake == PausedWaitWake::Failed);
+    BAFX_CHECK(invalidBackground.error == ERROR_INVALID_HANDLE);
 }

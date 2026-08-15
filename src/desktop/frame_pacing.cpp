@@ -74,4 +74,64 @@ FramePacingWaitResult waitForFrameOpportunity(
         error == ERROR_SUCCESS ? ERROR_GEN_FAILURE : error};
 }
 
+PausedWaitResult waitForPausedInvalidation(
+    const HANDLE deviceRemovedWaitable,
+    const HANDLE backgroundFrameWaitable,
+    const DWORD timeoutMilliseconds) noexcept
+{
+    if (deviceRemovedWaitable == INVALID_HANDLE_VALUE
+        || backgroundFrameWaitable == INVALID_HANDLE_VALUE)
+    {
+        return PausedWaitResult{
+            PausedWaitWake::Failed,
+            ERROR_INVALID_HANDLE};
+    }
+
+    const bool deviceNotificationAvailable = deviceRemovedWaitable != nullptr;
+    const bool backgroundFrameAvailable = backgroundFrameWaitable != nullptr;
+    std::array<HANDLE, 2U> waitables{};
+    DWORD waitableCount = 0U;
+    if (deviceNotificationAvailable)
+    {
+        // The device event is terminal for both the retained frame and WGC.
+        // Keep it first when both sources become ready at once.
+        waitables[waitableCount++] = deviceRemovedWaitable;
+    }
+    if (backgroundFrameAvailable)
+    {
+        waitables[waitableCount++] = backgroundFrameWaitable;
+    }
+
+    SetLastError(ERROR_SUCCESS);
+    const DWORD result = MsgWaitForMultipleObjectsEx(
+        waitableCount,
+        waitableCount > 0U ? waitables.data() : nullptr,
+        timeoutMilliseconds,
+        QS_ALLINPUT,
+        MWMO_INPUTAVAILABLE);
+    if (deviceNotificationAvailable && result == WAIT_OBJECT_0)
+    {
+        return PausedWaitResult{PausedWaitWake::DeviceRemoved};
+    }
+    const DWORD backgroundIndex = deviceNotificationAvailable ? 1U : 0U;
+    if (backgroundFrameAvailable
+        && result == WAIT_OBJECT_0 + backgroundIndex)
+    {
+        return PausedWaitResult{PausedWaitWake::BackgroundFrameReady};
+    }
+    if (result == WAIT_OBJECT_0 + waitableCount)
+    {
+        return PausedWaitResult{PausedWaitWake::MessagesPending};
+    }
+    if (result == WAIT_TIMEOUT)
+    {
+        return PausedWaitResult{PausedWaitWake::TimedOut};
+    }
+
+    const DWORD error = GetLastError();
+    return PausedWaitResult{
+        PausedWaitWake::Failed,
+        error == ERROR_SUCCESS ? ERROR_GEN_FAILURE : error};
+}
+
 }
