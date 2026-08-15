@@ -58,7 +58,7 @@ requestBorderlessCaptureAccessAsync()
     const winrt::hstring className{graphicsCaptureAccessClassName};
     ComPtr<GraphicsCaptureAccessStaticsAbi> factory;
     winrt::check_hresult(RoGetActivationFactory(
-        winrt::get_abi(className),
+        reinterpret_cast<HSTRING>(winrt::get_abi(className)),
         IID_PPV_ARGS(&factory)));
 
     ComPtr<IInspectable> operation;
