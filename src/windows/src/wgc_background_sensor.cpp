@@ -362,6 +362,25 @@ bool detail::WgcBackgroundStopMailbox::restartAllowed() const noexcept
     return !restartBlocked_;
 }
 
+WgcBackgroundStopResultObserver
+detail::WgcBackgroundStopMailbox::resultObserver() noexcept
+{
+    return WgcBackgroundStopResultObserver{this, &observeResult};
+}
+
+void detail::WgcBackgroundStopMailbox::observeResult(
+    const void* const context,
+    const WgcBackgroundStopDiagnostics& diagnostics) noexcept
+{
+    if (context == nullptr)
+    {
+        return;
+    }
+    auto& mailbox = *static_cast<detail::WgcBackgroundStopMailbox*>(
+        const_cast<void*>(context));
+    mailbox.record(diagnostics);
+}
+
 void WgcBackgroundSensor::recordResourceLedgerEvent(
     const std::shared_ptr<WgcBackgroundResourceLedger>& ledger,
     const ResourceLedgerEvent event) noexcept
@@ -984,6 +1003,9 @@ struct WgcBackgroundSensor::Implementation
             && !stopDiagnostics.framePoolCloseFailed
             && !stopDiagnostics.ownerThreadMismatch;
         sequence.complete(stopDiagnostics.overallSucceeded);
+        // Construction rollback has no published sensor object. Hand the final
+        // aggregate to its caller before this Implementation can disappear.
+        options.stopResultObserver.notify(stopDiagnostics);
     }
 
     ComPtr<ID3D11Device> device{};

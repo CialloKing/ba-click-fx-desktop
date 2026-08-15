@@ -1165,6 +1165,8 @@ bool CompositionRenderer::tryCreateBackgroundSensor() noexcept
         sensorOptions.allowSystemBorder = backgroundSystemBorderAllowed_;
         sensorOptions.resourceLedger = backgroundResourceLedger_;
         sensorOptions.stopObserver = backgroundStopObserver_;
+        sensorOptions.stopResultObserver =
+            backgroundStopMailbox_.resultObserver();
         backgroundSensor_ = std::make_unique<WgcBackgroundSensor>(
             device_.Get(),
             backgroundMonitor_,
@@ -1570,7 +1572,8 @@ void CompositionRenderer::stopBackgroundSensor() noexcept
     // session from that final value so a later Start cannot reuse an old stamp.
     backgroundEpoch_ = nextEpoch(backgroundSensor_->expectedEpoch());
     backgroundSensor_->stop();
-    backgroundStopMailbox_.record(backgroundSensor_->stopDiagnostics());
+    // stop() publishes the aggregate before reset, including constructor
+    // rollback paths where the sensor never reaches this member.
     backgroundSensor_.reset();
 }
 

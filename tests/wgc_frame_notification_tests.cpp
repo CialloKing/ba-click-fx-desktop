@@ -381,7 +381,7 @@ BAFX_TEST(wgc_stop_progress_names_are_stable)
         == "succeeded");
 }
 
-BAFX_TEST(wgc_stop_mailbox_preserves_a_sensor_stop_across_cleanup_noop)
+BAFX_TEST(wgc_stop_result_observer_preserves_a_failed_constructor_rollback)
 {
     WgcBackgroundStopMailbox mailbox;
     bafx::windows::WgcBackgroundStopDiagnostics diagnostics{};
@@ -392,7 +392,7 @@ BAFX_TEST(wgc_stop_mailbox_preserves_a_sensor_stop_across_cleanup_noop)
     diagnostics.completed = true;
     diagnostics.overallSucceeded = false;
 
-    mailbox.record(diagnostics);
+    mailbox.resultObserver().notify(diagnostics);
     mailbox.recordNoSensor();
     const bafx::windows::WgcBackgroundStopDiagnostics preserved =
         mailbox.take();
@@ -404,9 +404,10 @@ BAFX_TEST(wgc_stop_mailbox_preserves_a_sensor_stop_across_cleanup_noop)
     BAFX_CHECK(preserved.deferredReport);
     BAFX_CHECK(preserved.sessionClose == std::chrono::microseconds(37));
     BAFX_CHECK(preserved.total == std::chrono::microseconds(51));
+    BAFX_CHECK(!mailbox.restartAllowed());
 }
 
-BAFX_TEST(wgc_stop_mailbox_does_not_reuse_consumed_sensor_evidence)
+BAFX_TEST(wgc_stop_result_observer_keeps_a_successful_rollback_retryable)
 {
     WgcBackgroundStopMailbox mailbox;
     BAFX_CHECK(mailbox.restartAllowed());
@@ -417,8 +418,18 @@ BAFX_TEST(wgc_stop_mailbox_does_not_reuse_consumed_sensor_evidence)
     diagnostics.completed = true;
     diagnostics.overallSucceeded = true;
 
-    mailbox.record(diagnostics);
-    static_cast<void>(mailbox.take());
+    mailbox.resultObserver().notify(diagnostics);
+    mailbox.recordNoSensor();
+    const bafx::windows::WgcBackgroundStopDiagnostics preserved =
+        mailbox.take();
+
+    BAFX_CHECK(preserved.sensorPresent);
+    BAFX_CHECK(preserved.completed);
+    BAFX_CHECK(preserved.overallSucceeded);
+    BAFX_CHECK(preserved.deferredReport);
+    BAFX_CHECK(preserved.total == std::chrono::microseconds(51));
+    BAFX_CHECK(mailbox.restartAllowed());
+
     mailbox.recordNoSensor();
     const bafx::windows::WgcBackgroundStopDiagnostics next = mailbox.take();
 

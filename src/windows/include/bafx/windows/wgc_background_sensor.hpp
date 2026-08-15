@@ -87,6 +87,26 @@ struct WgcBackgroundStopObserver
     }
 };
 
+struct WgcBackgroundStopDiagnostics;
+
+using WgcBackgroundStopResultCallback = void (*)(
+    const void* context,
+    const WgcBackgroundStopDiagnostics& diagnostics) noexcept;
+
+struct WgcBackgroundStopResultObserver
+{
+    const void* context{nullptr};
+    WgcBackgroundStopResultCallback callback{nullptr};
+
+    void notify(const WgcBackgroundStopDiagnostics& diagnostics) const noexcept
+    {
+        if (callback != nullptr)
+        {
+            callback(context, diagnostics);
+        }
+    }
+};
+
 [[nodiscard]] std::string_view wgcBackgroundStopStageName(
     WgcBackgroundStopStage stage) noexcept;
 [[nodiscard]] std::string_view wgcBackgroundStopStageStateName(
@@ -144,6 +164,10 @@ struct WgcBackgroundSensorOptions
     // Called synchronously immediately before and after each uncancellable
     // WinRT stop operation. The observer must return promptly.
     WgcBackgroundStopObserver stopObserver{};
+    // Publish the aggregate synchronously even when sensor construction fails
+    // after owning WinRT resources. The observer must return promptly because
+    // the partially built object cannot be queried after this callback.
+    WgcBackgroundStopResultObserver stopResultObserver{};
 };
 
 struct WgcBackgroundSample
@@ -231,8 +255,13 @@ public:
     void recordNoSensor() noexcept;
     [[nodiscard]] WgcBackgroundStopDiagnostics take() noexcept;
     [[nodiscard]] bool restartAllowed() const noexcept;
+    [[nodiscard]] WgcBackgroundStopResultObserver resultObserver() noexcept;
 
 private:
+    static void observeResult(
+        const void* context,
+        const WgcBackgroundStopDiagnostics& diagnostics) noexcept;
+
     WgcBackgroundStopDiagnostics diagnostics_{};
     bool sensorStopPending_{false};
     bool restartBlocked_{false};
