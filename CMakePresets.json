@@ -42,6 +42,9 @@
       "configuration": "Release",
       "targets": [
         "ba_click_fx_desktop"
+      ],
+      "nativeToolOptions": [
+        "/nodeReuse:false"
       ]
     },
     {
