@@ -504,6 +504,46 @@ void appendOutputRenegotiationFailure(
     }
 }
 
+void appendOutputRenegotiationDiscarded(
+    const std::filesystem::path& logPath,
+    const bafx::desktop::DisplaySession& session,
+    const bafx::desktop::DisplayTarget& queuedTarget,
+    const bafx::windows::CompositionOutputPreference preference,
+    const std::string_view reason) noexcept
+{
+    try
+    {
+        const std::string queuedMonitor =
+            bafx::desktop::formatDisplayTargetMonitor(queuedTarget);
+        const std::string currentMonitor =
+            bafx::desktop::formatDisplayTargetMonitor(session.target());
+        const std::string queuedDevice =
+            bafx::desktop::displayTargetDeviceUtf8(queuedTarget);
+        const std::string currentDevice =
+            bafx::desktop::displayTargetDeviceUtf8(session.target());
+        const std::array fields{
+            bafx::windows::DiagnosticField{"Reason", reason},
+            bafx::windows::DiagnosticField{
+                "RequestedPreference",
+                outputPreferenceName(preference)},
+            bafx::windows::DiagnosticField{"Cause", "display-target-changed"},
+            bafx::windows::DiagnosticField{"QueuedMonitor", queuedMonitor},
+            bafx::windows::DiagnosticField{"CurrentMonitor", currentMonitor},
+            bafx::windows::DiagnosticField{"QueuedDevice", queuedDevice},
+            bafx::windows::DiagnosticField{"CurrentDevice", currentDevice}};
+        bafx::windows::appendDiagnosticEvent(
+            logPath,
+            "Display.Output.RenegotiationDiscarded",
+            fields);
+    }
+    catch (...)
+    {
+        bafx::windows::appendDiagnosticLog(
+            logPath,
+            "Discarded output renegotiation diagnostics could not be formatted");
+    }
+}
+
 [[nodiscard]] std::optional<bafx::windows::OutputRenegotiationResult>
 tryRenegotiateOutput(
     const std::filesystem::path& logPath,
@@ -1532,6 +1572,16 @@ void appendSecondaryBackgroundCaptureServiceResult(
     const bafx::desktop::DisplaySessionBackgroundCaptureServiceResult& result)
     noexcept
 {
+    if (result.outputRenegotiationDiscarded
+        && result.outputRenegotiationTarget.has_value())
+    {
+        appendOutputRenegotiationDiscarded(
+            logPath,
+            session,
+            *result.outputRenegotiationTarget,
+            result.outputRenegotiationPreference,
+            result.outputRenegotiationReason);
+    }
     if (result.outputRenegotiation.has_value())
     {
         appendOutputRenegotiation(
@@ -2927,7 +2977,8 @@ int runApplication(
                         {
                             session.requestSecondaryOutputRenegotiation(
                                 preference,
-                                reason);
+                                reason,
+                                session.target());
                             outputRenegotiation = "queued";
                         }
                         catch (const std::exception& error)

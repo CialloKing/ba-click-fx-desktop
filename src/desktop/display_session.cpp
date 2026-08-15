@@ -13,6 +13,7 @@ struct PendingSecondaryOutputRenegotiation final
     bafx::windows::CompositionOutputPreference preference{
         bafx::windows::CompositionOutputPreference::ConservativeSdr};
     std::string reason{};
+    std::optional<DisplayTarget> target{};
 };
 
 struct DisplaySessionBackgroundCaptureState final
@@ -413,7 +414,8 @@ void DisplaySession::updateSecondaryBackgroundCaptureRequest(
 
 void DisplaySession::requestSecondaryOutputRenegotiation(
     const bafx::windows::CompositionOutputPreference preference,
-    const std::string_view reason)
+    const std::string_view reason,
+    std::optional<DisplayTarget> target)
 {
     if (secondaryBackgroundCapture_ == nullptr)
     {
@@ -421,12 +423,24 @@ void DisplaySession::requestSecondaryOutputRenegotiation(
             "Secondary background capture is not initialized");
     }
 
-    // Collapse repeated OS notifications to the newest contract. The service
-    // owner performs the mutation only after any earlier WGC transaction ends.
+    const std::optional<PendingSecondaryOutputRenegotiation>& pending =
+        secondaryBackgroundCapture_->pendingOutputRenegotiation;
+    if (target.has_value()
+        && pending.has_value()
+        && !pending->target.has_value())
+    {
+        // A configuration request applies to whichever target commits next.
+        // A monitor event from the old target must not replace that policy.
+        return;
+    }
+
+    // Collapse repeated target notifications to the newest contract. The
+    // service owner performs the mutation after any earlier WGC transaction.
     secondaryBackgroundCapture_->pendingOutputRenegotiation =
         PendingSecondaryOutputRenegotiation{
             preference,
-            std::string(reason)};
+            std::string(reason),
+            std::move(target)};
 }
 
 DisplaySessionBackgroundCaptureServiceResult
@@ -537,6 +551,19 @@ DisplaySession::serviceSecondaryBackgroundCapture(
             state.pendingOutputRenegotiation.reset();
             result.outputRenegotiationPreference = pending.preference;
             result.outputRenegotiationReason = pending.reason;
+            const bool staleTarget = pending.target.has_value()
+                && (!sameDisplayTarget(*pending.target, target_)
+                    || !sameDisplaySourceIdentity(*pending.target, target_));
+            if (staleTarget)
+            {
+                // The retarget transaction already rebuilt the output for the
+                // new monitor. Never stop its fresh WGC session for an event
+                // that was sampled from the previous target.
+                result.outputRenegotiationDiscarded = true;
+                result.outputRenegotiationTarget = pending.target;
+                result.active = renderer_.backgroundCaptureActive();
+                return result;
+            }
 
             const bool backgroundCaptureWasEffective =
                 state.transition.effectivePath()

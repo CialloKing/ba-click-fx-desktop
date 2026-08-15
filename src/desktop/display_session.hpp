@@ -69,8 +69,10 @@ struct DisplaySessionBackgroundCaptureServiceResult final
     bool renderInvalidated{false};
     bool deviceRecovered{false};
     bool active{false};
+    bool outputRenegotiationDiscarded{false};
     std::optional<bafx::windows::OutputRenegotiationResult>
         outputRenegotiation{};
+    std::optional<DisplayTarget> outputRenegotiationTarget{};
     bafx::windows::CompositionOutputPreference outputRenegotiationPreference{
         bafx::windows::CompositionOutputPreference::ConservativeSdr};
     std::string outputRenegotiationReason{};
@@ -140,7 +142,8 @@ public:
         std::uint64_t controlGeneration);
     void requestSecondaryOutputRenegotiation(
         bafx::windows::CompositionOutputPreference preference,
-        std::string_view reason);
+        std::string_view reason,
+        std::optional<DisplayTarget> target = std::nullopt);
     [[nodiscard]] DisplaySessionBackgroundCaptureServiceResult
         serviceSecondaryBackgroundCapture(bafx::core::MonotonicTime now);
     [[nodiscard]] DisplaySessionBackgroundCaptureServiceResult
