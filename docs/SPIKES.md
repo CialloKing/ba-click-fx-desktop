@@ -206,14 +206,15 @@ python -B tools\verify-wgc-self-exclusion-spike.py `
 ### 当前实现证据
 
 - Host 已对 `DXGI_ERROR_DEVICE_REMOVED`、`DEVICE_RESET`、`DEVICE_HUNG` 和
-  `DRIVER_INTERNAL_ERROR` 建立一次性恢复边界；恢复失败或同一进程再次遇到 device-lost 时不再
-  重试，避免渲染线程进入无界重建循环。
+  `DRIVER_INTERNAL_ERROR` 建立 renderer 级一次性恢复边界，覆盖渲染提交、Bloom 配置资源、
+  swap-chain resize 和 WGC FramePool Recreate；恢复失败或同一进程再次遇到 device-lost 时不再
+  重试，避免渲染线程进入无界重建循环。恢复后 Adapter LUID 变化会阻止 WGC Start。
 - `--device-recovery-probe` 在 FX-only 模式下完成首帧、资源域重建和同快照重渲染，当前 CTest
   `desktop_device_recovery_probe` 通过；日志事件为 `Graphics.DeviceRecovery.Probe.Begin` 和
   `Graphics.DeviceRecovery.Probe.Succeeded`。
 - 该探针没有制造真实 GPU reset，也没有覆盖 WGC Session/FramePool 在 device-lost 中的系统级行为；
   因此本 Spike 的真实 device lost、跨适配器、热插拔和多显示器单元格仍为 `Not Run`，不能据此发布
-  完整硬件支持声明。
+  完整硬件支持声明。frame-latency wait 失效和同步 WGC stop 的阻塞上限也尚无真实故障证据。
 
 ## 状态模板
 

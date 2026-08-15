@@ -20,11 +20,13 @@
 当前已落地的可靠性工作包括生产 WGC 资源账本日志、停止通知竞态修复，以及 WGC 失败后允许同轮
 窗口 resize 进入清理/重启事务。它们不改变动画或 ROI 画面合同。
 
-设备丢失路径现已接入 Host：渲染帧遇到可识别的 DXGI device-lost HRESULT 时，进程最多执行一次
-D3D/DComp/WGC 资源重建，并用同一 CPU 快照重试一次；第二次故障直接退出并保留原始事件。恢复后
-WGC 通过递增 `retryToken` 在下一轮重新走有限事务，恢复到 WARP 或适配器变化时不自动重启 WGC。
+设备丢失路径现已接入 Host：渲染提交、Bloom 配置资源、swap-chain resize 或 WGC FramePool
+Recreate 遇到可识别的 DXGI device-lost HRESULT 时，整个 renderer 最多执行一次 D3D/DComp/WGC
+资源重建；渲染提交会用同一 CPU 快照重试一次，第二次故障直接退出并保留原始事件。恢复后 WGC
+通过递增 `retryToken` 重新走有限事务；恢复到 WARP 或适配器变化时，renderer 会拒绝 WGC Start。
 `--device-recovery-probe` 已作为有界 CTest 验证资源域主动重建和中心像素有效，但它不模拟真实
-设备移除，真实 device-reset、热插拔和跨适配器单元格仍保持 `Not Run`。
+设备移除，真实 device-reset、热插拔和跨适配器单元格仍保持 `Not Run`。frame-latency wait 句柄
+异常和 device-lost 时同步 WGC stop 的最坏阻塞时间也仍需真实故障注入验证。
 
 ## P0：输入、渲染与 Present 延迟诊断
 
