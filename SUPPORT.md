@@ -26,9 +26,9 @@
   `luminance-unknown`。
 - 首次生成的完整 schema 8 配置默认为 `background.mode=background-aware`、
   `background.allowSystemBorder=true`、`input.trailOnlyWhilePressed=true`、
-  `input.samplingRateHz=0` 和 `display.hdrEnabled=false`。测试版只接受字段完整的 schema 8；旧 schema、
-  缺失或未知字段以及旧枚举值均被拒绝。Host 保留无效原文件并以内存中的当前默认值继续运行，不迁移、
-  补齐或改写旧配置。背景感知授权、排除或会话失败时回退内部 FX-only transport；其余模式不启用 WGC。
+  `input.samplingRateHz=0` 和 `display.hdrEnabled=false`。测试版只接受字段完整的 schema 8；非当前 schema、
+  缺失或未知字段以及枚举别名均被拒绝。Host 保留无效原文件并以内存中的当前默认值继续运行，不迁移、
+  补齐或改写无效配置。背景感知授权、排除或会话失败时回退内部 FX-only transport；其余模式不启用 WGC。
 - 运行时用户数据采用 portable 规则：`BAFX.config.json`、`ba-click-fx-desktop-support.log`
   和支持报告只写入对应 EXE 所在目录。命令行支持报告即使传入绝对路径，也只采用文件名，
   不会写入 `%LOCALAPPDATA%`、当前工作目录或其他用户目录。

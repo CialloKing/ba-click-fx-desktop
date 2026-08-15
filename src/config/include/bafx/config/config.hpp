@@ -105,7 +105,6 @@ enum class ConfigStatus : std::uint8_t
     CreatedDefault,
     IoError,
     ParseError,
-    UnsupportedSchema,
     ValidationError,
     WriteError
 };

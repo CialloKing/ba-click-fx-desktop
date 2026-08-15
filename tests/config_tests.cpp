@@ -106,10 +106,10 @@ BAFX_TEST(config_render_modes_use_canonical_wire_values)
     BAFX_CHECK(recordingCompatible.config.background.mode
         == bafx::config::RenderMode::RecordingCompatible);
 
-    const auto retiredAlias = bafx::config::applyPatchJson(
+    const auto unknownMode = bafx::config::applyPatchJson(
         base,
-        R"json({"path":"background.mode","value":"classic"})json");
-    BAFX_CHECK(!retiredAlias.succeeded());
+        R"json({"path":"background.mode","value":"not-a-render-mode"})json");
+    BAFX_CHECK(!unknownMode.succeeded());
 
     const auto lightBackground = bafx::config::applyPatchJson(
         base,
@@ -118,10 +118,6 @@ BAFX_TEST(config_render_modes_use_canonical_wire_values)
     BAFX_CHECK(lightBackground.config.background.mode
         == bafx::config::RenderMode::LightBackground);
 
-    const auto retiredMode = bafx::config::applyPatchJson(
-        base,
-        R"json({"path":"background.mode","value":"fx-only"})json");
-    BAFX_CHECK(!retiredMode.succeeded());
 }
 
 BAFX_TEST(config_patch_controls_cursor_capture_policy)
@@ -226,16 +222,21 @@ BAFX_TEST(config_bloom_quality_preserves_the_unity_default_at_high)
 
 BAFX_TEST(config_parser_rejects_non_current_schemas)
 {
-    for (std::uint32_t version = 1U;
-         version < bafx::config::currentSchemaVersion;
-         ++version)
+    for (const std::uint32_t version :
+         {
+             bafx::config::currentSchemaVersion - 1U,
+             bafx::config::currentSchemaVersion + 1U
+         })
     {
         const auto result = bafx::config::parseJson(
             std::string("{\"schemaVersion\":")
             + std::to_string(version)
             + "}");
         BAFX_CHECK(!result.succeeded());
-        BAFX_CHECK(result.status == bafx::config::ConfigStatus::UnsupportedSchema);
+        BAFX_CHECK(result.status == bafx::config::ConfigStatus::ValidationError);
+        BAFX_CHECK(
+            result.message.find("schemaVersion must equal")
+            != std::string::npos);
     }
 }
 
@@ -270,10 +271,6 @@ BAFX_TEST(config_parser_rejects_invalid_documents_and_values)
     const auto missingVersion = bafx::config::parseJson("{}");
     BAFX_CHECK(!missingVersion.succeeded());
     BAFX_CHECK(missingVersion.status == bafx::config::ConfigStatus::ValidationError);
-
-    const auto futureVersion = bafx::config::parseJson(
-        R"json({"schemaVersion":99})json");
-    BAFX_CHECK(futureVersion.status == bafx::config::ConfigStatus::UnsupportedSchema);
 
     const auto duplicateKey = bafx::config::parseJson(
         R"json({"schemaVersion":8,"schemaVersion":8})json");
@@ -350,16 +347,16 @@ BAFX_TEST(config_patch_updates_whitelisted_field_and_checks_generation)
         bafx::config::toJson(base, false));
     BAFX_CHECK(!fullDocument.recognized);
 
-    const auto obsoleteMixedDocument = bafx::config::applyPatchJson(
+    const auto patchWithExtraField = bafx::config::applyPatchJson(
         base,
-        R"json({"schemaVersion":7,"oldField":true,"path":"effects.enabled","value":false})json");
-    BAFX_CHECK(obsoleteMixedDocument.recognized);
-    BAFX_CHECK(!obsoleteMixedDocument.succeeded());
+        R"json({"metadata":true,"path":"effects.enabled","value":false})json");
+    BAFX_CHECK(patchWithExtraField.recognized);
+    BAFX_CHECK(!patchWithExtraField.succeeded());
     BAFX_CHECK(
-        obsoleteMixedDocument.status
+        patchWithExtraField.status
         == bafx::config::ConfigStatus::ValidationError);
     BAFX_CHECK(
-        obsoleteMixedDocument.config.effects.enabled
+        patchWithExtraField.config.effects.enabled
         == base.effects.enabled);
 }
 

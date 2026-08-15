@@ -599,8 +599,8 @@ private:
             continue;
         }
 
-        // A schema bump must name every new field. Silently ignoring an old
-        // key would otherwise make an obsolete file appear to load correctly.
+        // A schema bump must name every field. Accepting undeclared data would
+        // make the current on-disk contract ambiguous.
         error = "config field '";
         if (!section.empty())
         {
@@ -1240,9 +1240,8 @@ void appendJsonValue(
     }
 }
 
-[[nodiscard]] bool readSchemaVersion(
+[[nodiscard]] bool validateCurrentSchemaVersion(
     const JsonValue::Object& root,
-    std::uint32_t& version,
     std::string& error)
 {
     const JsonValue* value = member(root, "schemaVersion");
@@ -1253,14 +1252,12 @@ void appendJsonValue(
     }
     const double* parsed = std::get_if<double>(&value->storage);
     if (parsed == nullptr || !std::isfinite(*parsed)
-        || *parsed < 1.0
-        || *parsed > static_cast<double>((std::numeric_limits<std::uint32_t>::max)())
-        || std::floor(*parsed) != *parsed)
+        || *parsed != static_cast<double>(currentSchemaVersion))
     {
-        error = "schemaVersion must be a positive integer";
+        error = "schemaVersion must equal "
+            + std::to_string(currentSchemaVersion);
         return false;
     }
-    version = static_cast<std::uint32_t>(*parsed);
     return true;
 }
 
@@ -1284,18 +1281,10 @@ void appendJsonValue(
             "configuration root must be an object"};
     }
 
-    std::uint32_t version = 0U;
     std::string error;
-    if (!readSchemaVersion(*originalRoot, version, error))
+    if (!validateCurrentSchemaVersion(*originalRoot, error))
     {
         return ConfigLoadResult{defaultConfig(), ConfigStatus::ValidationError, std::move(error)};
-    }
-    if (version != currentSchemaVersion)
-    {
-        return ConfigLoadResult{
-            defaultConfig(),
-            ConfigStatus::UnsupportedSchema,
-            "configuration schemaVersion is not supported by this build"};
     }
 
     Config config = parseCurrentConfig(*originalRoot, error);
@@ -1394,8 +1383,8 @@ ConfigPatchResult applyPatchJson(
                 continue;
             }
 
-            // A recognized patch must never hide an obsolete configuration
-            // document behind path/value members.
+            // Patch and full-document inputs are separate contracts. Reject
+            // extra members so malformed documents cannot be partly applied.
             return ConfigPatchResult{
                 base,
                 ConfigStatus::ValidationError,
