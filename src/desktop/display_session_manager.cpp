@@ -207,6 +207,27 @@ DisplaySessionReconcileResult DisplaySessionManager::reconcileSecondaries(
             || existing->renderer().deviceInfo().requestedAdapterMatched;
         if (sameTarget && sameSourceIdentity && resourceDomainMatches)
         {
+            bool boundsCorrected = false;
+            try
+            {
+                if (!sameDisplayBounds(
+                        existing->window().bounds(),
+                        target.bounds))
+                {
+                    // WM_DPICHANGED and external placement can alter only the
+                    // HWND while rcMonitor and the GPU domain stay stable.
+                    existing->window().setBounds(target.bounds);
+                    boundsCorrected = true;
+                }
+            }
+            catch (const std::exception& error)
+            {
+                result.failures.push_back(DisplaySessionFailure{
+                    target,
+                    "restore-bounds",
+                    error.what()});
+                continue;
+            }
             const bool metadataChanged = existing->target().dpiX != target.dpiX
                 || existing->target().dpiY != target.dpiY
                 || !sameRefreshRate(
@@ -224,6 +245,9 @@ DisplaySessionReconcileResult DisplaySessionManager::reconcileSecondaries(
             if (metadataChanged)
             {
                 existing->updateTargetMetadata(target);
+            }
+            if (boundsCorrected || metadataChanged)
+            {
                 ++result.updated;
             }
             continue;
