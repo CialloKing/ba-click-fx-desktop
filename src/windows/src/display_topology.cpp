@@ -240,16 +240,26 @@ BOOL CALLBACK collectMonitor(
             return FALSE;
         }
 
-        UINT dpiX = 96U;
-        UINT dpiY = 96U;
-        if (FAILED(GetDpiForMonitor(
-                monitor,
-                MDT_EFFECTIVE_DPI,
-                &dpiX,
-                &dpiY)))
+        UINT dpiX = 0U;
+        UINT dpiY = 0U;
+        const HRESULT dpiResult = GetDpiForMonitor(
+            monitor,
+            MDT_EFFECTIVE_DPI,
+            &dpiX,
+            &dpiY);
+        if (FAILED(dpiResult) || dpiX == 0U || dpiY == 0U)
         {
-            dpiX = 96U;
-            dpiY = 96U;
+            const LONG dpiError = FAILED(dpiResult)
+                ? static_cast<LONG>(HRESULT_CODE(dpiResult))
+                : ERROR_INVALID_DATA;
+            // A fabricated 96-DPI value would make this transient sample look
+            // authoritative and can resize a mixed-DPI surface incorrectly.
+            // Reject the enumeration so the owner keeps its last complete
+            // topology until the existing bounded poll obtains real facts.
+            enumeration.error = dpiError == ERROR_SUCCESS
+                ? ERROR_GEN_FAILURE
+                : dpiError;
+            return FALSE;
         }
 
         ActiveDisplayMonitor display{};
@@ -257,8 +267,8 @@ BOOL CALLBACK collectMonitor(
         display.gdiDeviceName = information.szDevice;
         display.bounds = information.rcMonitor;
         display.workArea = information.rcWork;
-        display.dpiX = dpiX == 0U ? 96U : dpiX;
-        display.dpiY = dpiY == 0U ? 96U : dpiY;
+        display.dpiX = dpiX;
+        display.dpiY = dpiY;
         display.primary = (information.dwFlags & MONITORINFOF_PRIMARY) != 0U;
         enumeration.displays.push_back(std::move(display));
         return TRUE;
