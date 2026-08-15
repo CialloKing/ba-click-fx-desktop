@@ -98,6 +98,19 @@ void DisplaySession::acceptAppliedTarget(
         wakeWindow);
 }
 
+DisplaySessionRetargetResult DisplaySession::retargetFxOnly(
+    DisplayTarget target,
+    const HWND wakeWindow)
+{
+    DisplaySessionRetargetResult result{};
+    result.adapter = renderer_.retargetOutputAdapter(
+        requestedAdapter(target));
+    window_.setBounds(target.bounds);
+    result.output = renderer_.resizeOutput(window_.size());
+    acceptAppliedTarget(std::move(target), wakeWindow);
+    return result;
+}
+
 void DisplaySession::refreshColorCapabilities() noexcept
 {
     colorCapabilities_ = bafx::windows::queryDisplayColorCapabilities(

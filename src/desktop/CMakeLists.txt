@@ -53,6 +53,7 @@ add_executable(
     WIN32
         background_capture_runtime.cpp
         display_session.cpp
+        display_session_manager.cpp
         display_target.cpp
         host_control.cpp
         main.cpp

@@ -29,6 +29,14 @@ struct DisplaySessionOptions final
     std::uint64_t simulationSeed{0U};
 };
 
+struct DisplaySessionRetargetResult final
+{
+    bafx::windows::OutputAdapterRetargetStatus adapter{
+        bafx::windows::OutputAdapterRetargetStatus::Unchanged};
+    bafx::windows::OutputResizeStatus output{
+        bafx::windows::OutputResizeStatus::Unchanged};
+};
+
 // Owns the window, graphics device and authored state for one display. Host
 // input, tray and process lifetime stay outside so additional sessions cannot
 // duplicate process-global registrations.
@@ -61,6 +69,12 @@ public:
     // renderer resource domain. Monitoring is rebound first; the owner then
     // samples color state so it can compare the old and new target modes.
     void acceptAppliedTarget(DisplayTarget target, HWND wakeWindow) noexcept;
+    // Secondary sessions never own WGC. They can therefore update their
+    // resource domain directly without entering the primary capture state
+    // machine.
+    [[nodiscard]] DisplaySessionRetargetResult retargetFxOnly(
+        DisplayTarget target,
+        HWND wakeWindow);
     void refreshColorCapabilities() noexcept;
     void show();
 
