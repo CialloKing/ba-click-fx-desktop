@@ -30,6 +30,9 @@ struct DisplaySessionBackgroundCaptureState final
     HWND pendingWakeWindow{nullptr};
     bool outcomePending{false};
     bool sensorWasActiveBeforeTransaction{false};
+    bool rendererRecoveryPending{false};
+    bool rendererRecoveryAdapterChanged{false};
+    bool rendererRecoveryBackgroundWasActive{false};
 };
 
 namespace
@@ -272,6 +275,35 @@ DisplaySessionRetargetResult DisplaySession::retargetSecondary(
         state.execution.transactionActive || state.transition.transitioning()};
 }
 
+DisplaySessionDeviceRecoveryResult DisplaySession::tryRecoverDevice() noexcept
+{
+    const bafx::windows::GraphicsDeviceInfo previousDeviceInfo =
+        renderer_.deviceInfo();
+    const bool backgroundWasActive = renderer_.backgroundCaptureActive();
+    if (!renderer_.tryRecoverDevice())
+    {
+        return DisplaySessionDeviceRecoveryResult{
+            false,
+            false,
+            backgroundWasActive,
+            DisplaySessionBackgroundRecoveryStatus::NotRequired};
+    }
+    return finishDeviceRecovery(previousDeviceInfo, backgroundWasActive);
+}
+
+DisplaySessionDeviceRecoveryResult DisplaySession::setBloomSettings(
+    const bafx::windows::FxBloomSettings settings)
+{
+    const bafx::windows::GraphicsDeviceInfo previousDeviceInfo =
+        renderer_.deviceInfo();
+    const bool backgroundWasActive = renderer_.backgroundCaptureActive();
+    if (!renderer_.setBloomSettings(settings))
+    {
+        return {};
+    }
+    return finishDeviceRecovery(previousDeviceInfo, backgroundWasActive);
+}
+
 void DisplaySession::initializeSecondaryBackgroundCapture(
     const bafx::windows::BackgroundCaptureRequest request,
     const std::uint64_t controlGeneration,
@@ -412,8 +444,6 @@ DisplaySession::serviceSecondaryBackgroundCapture(
             }
 
             result.renderInvalidated = true;
-            result.deviceRecovered = result.deviceRecovered
-                || state.execution.deviceRecovered;
             acceptPendingSecondaryTargetIfApplied(state);
             if (!state.pendingSensorFailure.empty()
                 && state.execution.sensorFailure.empty())
@@ -421,6 +451,24 @@ DisplaySession::serviceSecondaryBackgroundCapture(
                 state.execution.sensorFailure = state.pendingSensorFailure;
             }
             state.pendingSensorFailure.clear();
+            if (state.rendererRecoveryPending)
+            {
+                // Recovery can occur after an intent is queued but before its
+                // first action starts. Merge that fact only after execution
+                // has created its result object so it cannot be reset.
+                state.execution.deviceRecovered = true;
+                state.execution.deviceRecoveryAdapterChanged =
+                    state.execution.deviceRecoveryAdapterChanged
+                    || state.rendererRecoveryAdapterChanged;
+                state.sensorWasActiveBeforeTransaction =
+                    state.sensorWasActiveBeforeTransaction
+                    || state.rendererRecoveryBackgroundWasActive;
+                state.rendererRecoveryPending = false;
+                state.rendererRecoveryAdapterChanged = false;
+                state.rendererRecoveryBackgroundWasActive = false;
+            }
+            result.deviceRecovered = result.deviceRecovered
+                || state.execution.deviceRecovered;
             appendSecondaryBackgroundOutcome(state, renderer_);
             if (state.execution.deviceRecovered)
             {
@@ -687,6 +735,93 @@ void DisplaySession::clearRenderFault() noexcept
 void DisplaySession::show()
 {
     window_.show();
+}
+
+DisplaySessionDeviceRecoveryResult DisplaySession::finishDeviceRecovery(
+    const bafx::windows::GraphicsDeviceInfo& previousDeviceInfo,
+    const bool backgroundWasActive) noexcept
+{
+    const bool adapterChanged =
+        previousDeviceInfo.adapterLuid.LowPart
+            != renderer_.deviceInfo().adapterLuid.LowPart
+        || previousDeviceInfo.adapterLuid.HighPart
+            != renderer_.deviceInfo().adapterLuid.HighPart;
+    DisplaySessionDeviceRecoveryResult result{
+        true,
+        adapterChanged,
+        backgroundWasActive,
+        DisplaySessionBackgroundRecoveryStatus::NotRequired};
+    if (secondaryBackgroundCapture_ == nullptr || !backgroundWasActive)
+    {
+        return result;
+    }
+
+    DisplaySessionBackgroundCaptureState& state =
+        *secondaryBackgroundCapture_;
+    const bafx::windows::WgcBackgroundStopDiagnostics stopDiagnostics =
+        appendBackgroundCaptureStopDiagnostics(
+            state.logPath,
+            renderer_,
+            "secondary-device-recovery");
+    const bool retryEligible =
+        stopDiagnostics.overallSucceeded
+        && canRetryBackgroundCaptureAfterDeviceRecovery(
+            state.request.sensorRequired,
+            backgroundWasActive,
+            adapterChanged,
+            renderer_.deviceInfo().driverType,
+            renderer_.backgroundCaptureRestartAllowed());
+    if (!retryEligible)
+    {
+        result.background = DisplaySessionBackgroundRecoveryStatus::Blocked;
+        return result;
+    }
+
+    if (state.execution.transactionActive)
+    {
+        // Let the transaction that already owns this surface finish first. Its
+        // normal completion path will issue the monotonic retry token.
+        state.sensorWasActiveBeforeTransaction = true;
+        state.execution.deviceRecovered = true;
+        state.execution.deviceRecoveryAdapterChanged = adapterChanged;
+        result.background = DisplaySessionBackgroundRecoveryStatus::Queued;
+        return result;
+    }
+    if (state.transition.transitioning())
+    {
+        // The intent exists but executeBackgroundCaptureTransition has not yet
+        // initialized its result, which clears recovery flags. Preserve the
+        // fact separately and merge it at that transaction's completion.
+        state.rendererRecoveryPending = true;
+        state.rendererRecoveryAdapterChanged = adapterChanged;
+        state.rendererRecoveryBackgroundWasActive = backgroundWasActive;
+        result.background = DisplaySessionBackgroundRecoveryStatus::Queued;
+        return result;
+    }
+
+    if (state.request.retryToken
+        == (std::numeric_limits<std::uint64_t>::max)())
+    {
+        result.background = DisplaySessionBackgroundRecoveryStatus::Blocked;
+        return result;
+    }
+
+    try
+    {
+        ++state.request.retryToken;
+        state.sensorWasActiveBeforeTransaction = false;
+        requireStartedRequest(state.transition.beginRequest(state.request));
+        state.outcomePending = true;
+        result.background = DisplaySessionBackgroundRecoveryStatus::Queued;
+    }
+    catch (...)
+    {
+        // Device recovery succeeded, so preserve the FX surface and retire
+        // only the optional capture owner when its retry cannot be represented.
+        shutdownSecondaryBackgroundCapture();
+        result.background = DisplaySessionBackgroundRecoveryStatus::Blocked;
+    }
+    return result;
 }
 
 void DisplaySession::acceptPendingSecondaryTargetIfApplied(

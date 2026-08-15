@@ -45,6 +45,22 @@ struct DisplaySessionRetargetResult final
     bool pending{false};
 };
 
+enum class DisplaySessionBackgroundRecoveryStatus : std::uint8_t
+{
+    NotRequired,
+    Queued,
+    Blocked
+};
+
+struct DisplaySessionDeviceRecoveryResult final
+{
+    bool recovered{false};
+    bool adapterChanged{false};
+    bool backgroundWasActive{false};
+    DisplaySessionBackgroundRecoveryStatus background{
+        DisplaySessionBackgroundRecoveryStatus::NotRequired};
+};
+
 struct DisplaySessionBackgroundCaptureServiceResult final
 {
     bool renderInvalidated{false};
@@ -104,6 +120,9 @@ public:
     [[nodiscard]] DisplaySessionRetargetResult retargetSecondary(
         DisplayTarget target,
         HWND wakeWindow);
+    [[nodiscard]] DisplaySessionDeviceRecoveryResult tryRecoverDevice() noexcept;
+    [[nodiscard]] DisplaySessionDeviceRecoveryResult setBloomSettings(
+        bafx::windows::FxBloomSettings settings);
     void initializeSecondaryBackgroundCapture(
         bafx::windows::BackgroundCaptureRequest request,
         std::uint64_t controlGeneration,
@@ -126,6 +145,9 @@ public:
     void show();
 
 private:
+    [[nodiscard]] DisplaySessionDeviceRecoveryResult finishDeviceRecovery(
+        const bafx::windows::GraphicsDeviceInfo& previousDeviceInfo,
+        bool backgroundWasActive) noexcept;
     void acceptPendingSecondaryTargetIfApplied(
         DisplaySessionBackgroundCaptureState& state) noexcept;
     [[nodiscard]] static std::optional<LUID> requestedAdapter(

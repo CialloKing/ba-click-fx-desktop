@@ -1468,6 +1468,62 @@ void appendSecondaryBackgroundCaptureServiceResult(
     return renderInvalidated;
 }
 
+[[nodiscard]] std::string_view secondaryBackgroundRecoveryStatusName(
+    const bafx::desktop::DisplaySessionBackgroundRecoveryStatus status) noexcept
+{
+    switch (status)
+    {
+    case bafx::desktop::DisplaySessionBackgroundRecoveryStatus::NotRequired:
+        return "not-required";
+    case bafx::desktop::DisplaySessionBackgroundRecoveryStatus::Queued:
+        return "queued";
+    case bafx::desktop::DisplaySessionBackgroundRecoveryStatus::Blocked:
+        return "blocked";
+    }
+    return "unknown";
+}
+
+void appendSecondaryDeviceRecovery(
+    const std::filesystem::path& logPath,
+    const bafx::desktop::DisplaySession& session,
+    const bafx::desktop::DisplaySessionDeviceRecoveryResult& recovery,
+    const std::string_view eventName) noexcept
+{
+    try
+    {
+        const std::string monitor =
+            bafx::desktop::formatDisplayTargetMonitor(session.target());
+        const std::array fields{
+            bafx::windows::DiagnosticField{"Monitor", monitor},
+            bafx::windows::DiagnosticField{
+                "Driver",
+                session.renderer().deviceInfo().driverType
+                        == bafx::windows::GraphicsDriverType::Hardware
+                    ? "hardware"
+                    : "warp"},
+            bafx::windows::DiagnosticField{
+                "Adapter",
+                recovery.adapterChanged ? "changed" : "same"},
+            bafx::windows::DiagnosticField{
+                "WgcWasActive",
+                recovery.backgroundWasActive ? "true" : "false"},
+            bafx::windows::DiagnosticField{
+                "WgcRestart",
+                secondaryBackgroundRecoveryStatusName(recovery.background)}};
+        bafx::windows::appendDiagnosticEvent(
+            logPath,
+            eventName,
+            fields,
+            bafx::windows::DiagnosticLevel::Warning);
+    }
+    catch (...)
+    {
+        bafx::windows::appendDiagnosticLog(
+            logPath,
+            "Secondary device recovery could not be formatted");
+    }
+}
+
 SecondaryRenderSummary renderSecondarySessions(
     bafx::desktop::DisplaySessionManager& sessions,
     bafx::desktop::DisplaySession& coordinator,
@@ -1494,7 +1550,9 @@ SecondaryRenderSummary renderSecondarySessions(
         if (deviceRemoved != nullptr
             && WaitForSingleObject(deviceRemoved, 0U) == WAIT_OBJECT_0)
         {
-            if (!sessionRenderer.tryRecoverDevice())
+            const bafx::desktop::DisplaySessionDeviceRecoveryResult recovery =
+                session.tryRecoverDevice();
+            if (!recovery.recovered)
             {
                 session.markRenderFaulted();
                 ++summary.failed;
@@ -1507,21 +1565,11 @@ SecondaryRenderSummary renderSecondarySessions(
             }
             session.clearRenderFault();
             ++summary.recovered;
-            const std::string monitor =
-                bafx::desktop::formatDisplayTargetMonitor(session.target());
-            const std::array fields{
-                bafx::windows::DiagnosticField{"Monitor", monitor},
-                bafx::windows::DiagnosticField{
-                    "Driver",
-                    sessionRenderer.deviceInfo().driverType
-                            == bafx::windows::GraphicsDriverType::Hardware
-                        ? "hardware"
-                        : "warp"}};
-            bafx::windows::appendDiagnosticEvent(
+            appendSecondaryDeviceRecovery(
                 logPath,
-                "Display.Session.DeviceRecovered",
-                fields,
-                bafx::windows::DiagnosticLevel::Warning);
+                session,
+                recovery,
+                "Display.Session.DeviceRecovered");
             // The recovered swap chain owns a new latency handle. An
             // opportunity granted by the released handle cannot authorize a
             // Present on this resource domain.
@@ -1558,12 +1606,21 @@ SecondaryRenderSummary renderSecondarySessions(
         }
         catch (const bafx::windows::HResultError& error)
         {
-            if (bafx::windows::isDeviceLostResult(error.result())
-                && sessionRenderer.tryRecoverDevice())
+            if (bafx::windows::isDeviceLostResult(error.result()))
             {
-                session.clearRenderFault();
-                ++summary.recovered;
-                continue;
+                const bafx::desktop::DisplaySessionDeviceRecoveryResult
+                    recovery = session.tryRecoverDevice();
+                if (recovery.recovered)
+                {
+                    session.clearRenderFault();
+                    ++summary.recovered;
+                    appendSecondaryDeviceRecovery(
+                        logPath,
+                        session,
+                        recovery,
+                        "Display.Session.RenderDeviceRecovered");
+                    continue;
+                }
             }
             session.markRenderFaulted();
             ++summary.failed;
@@ -2813,23 +2870,16 @@ int runApplication(
                         settingsTime);
                     try
                     {
-                        const bool recovered =
-                            session.renderer().setBloomSettings(bloomSettings);
+                        const bafx::desktop::DisplaySessionDeviceRecoveryResult
+                            recovery = session.setBloomSettings(bloomSettings);
                         session.clearRenderFault();
-                        if (recovered)
+                        if (recovery.recovered)
                         {
-                            const std::string monitor =
-                                bafx::desktop::formatDisplayTargetMonitor(
-                                    session.target());
-                            const std::array fields{
-                                bafx::windows::DiagnosticField{
-                                    "Monitor",
-                                    monitor}};
-                            bafx::windows::appendDiagnosticEvent(
+                            appendSecondaryDeviceRecovery(
                                 logPath,
-                                "Display.Session.BloomDeviceRecovered",
-                                fields,
-                                bafx::windows::DiagnosticLevel::Warning);
+                                session,
+                                recovery,
+                                "Display.Session.BloomDeviceRecovered");
                         }
                     }
                     catch (const std::exception& error)
