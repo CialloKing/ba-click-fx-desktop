@@ -2,6 +2,8 @@
 
 #include <windows.h>
 
+#include <dxgi.h>
+
 #include <iomanip>
 #include <sstream>
 #include <stdexcept>
@@ -9,6 +11,14 @@
 
 namespace bafx::windows
 {
+
+[[nodiscard]] inline bool isDeviceLostResult(const HRESULT result) noexcept
+{
+    return result == DXGI_ERROR_DEVICE_REMOVED
+        || result == DXGI_ERROR_DEVICE_RESET
+        || result == DXGI_ERROR_DEVICE_HUNG
+        || result == DXGI_ERROR_DRIVER_INTERNAL_ERROR;
+}
 
 class HResultError final : public std::runtime_error
 {
@@ -54,4 +64,3 @@ inline void throwLastError(const std::string_view operation)
 }
 
 }
-

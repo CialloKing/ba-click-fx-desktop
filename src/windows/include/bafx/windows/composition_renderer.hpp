@@ -152,6 +152,10 @@ public:
     // Capture lifecycle is owned by BackgroundCaptureTransition. Callers must
     // stop any active sensor before replacing output-size resources.
     void resizeOutput(WindowSize size);
+    // Rebuild the D3D/DComp resource domain once after device removal. WGC is
+    // stopped first so no old-device frame or snapshot can cross the boundary.
+    [[nodiscard]] bool tryRecoverDevice() noexcept;
+    [[nodiscard]] std::string_view deviceRecoveryFailure() const noexcept;
     void setBloomSettings(FxBloomSettings settings);
     void setOverlayProfile(FxOverlayProfile profile);
     CompositionFrameDiagnostics renderFrame(
@@ -194,14 +198,17 @@ private:
     void createComposition(HWND window);
     void createRenderTarget();
     void presentSwapChain();
+    void releaseDeviceResources() noexcept;
     void resetBackgroundSnapshot() noexcept;
     void releaseBackgroundSnapshotResources() noexcept;
     [[nodiscard]] bool captureBackgroundSnapshot(
         ID3D11ShaderResourceView* source) noexcept;
     void captureCenterPixel();
     void setBackgroundCaptureFailure(std::string_view message) noexcept;
+    void setDeviceRecoveryFailure(std::string_view message) noexcept;
     [[nodiscard]] bool tryCreateBackgroundSensor() noexcept;
 
+    HWND window_{nullptr};
     Microsoft::WRL::ComPtr<ID3D11Device> device_{};
     Microsoft::WRL::ComPtr<ID3D11DeviceContext> context_{};
     Microsoft::WRL::ComPtr<IDXGISwapChain3> swapChain_{};
@@ -241,10 +248,13 @@ private:
     // a diagnostic allocation can never terminate the render process.
     std::array<char, 512U> backgroundCaptureFailure_{};
     std::size_t backgroundCaptureFailureLength_{0U};
+    std::array<char, 512U> deviceRecoveryFailure_{};
+    std::size_t deviceRecoveryFailureLength_{0U};
     bool readbackDiagnosticsEnabled_{false};
     D3D_FEATURE_LEVEL featureLevel_{D3D_FEATURE_LEVEL_11_0};
     GraphicsDeviceInfo deviceInfo_{};
     FxBloomSettings bloomSettings_{};
+    FxOverlayProfile overlayProfile_{FxOverlayProfile::FxOnlyFallback};
     std::optional<bafx::core::RectI> previousVisualBounds_{};
     WindowSize size_{};
     std::shared_ptr<WgcBackgroundResourceLedger> backgroundResourceLedger_{};

@@ -1,6 +1,7 @@
 #include "test_support.hpp"
 
 #include "bafx/windows/borderless_capture_access.hpp"
+#include "bafx/windows/error.hpp"
 #include "bafx/windows/package_identity.hpp"
 #include "bafx/windows/portable_paths.hpp"
 #include "bafx/windows/runtime_diagnostics.hpp"
@@ -92,6 +93,19 @@ BAFX_TEST(package_identity_probe_is_self_consistent)
         bafx::windows::packageIdentityDiagnostic(identity);
     BAFX_CHECK(diagnostic.find("Package.Identity=") != std::string::npos);
     BAFX_CHECK(diagnostic.find("FullNameError=0x") != std::string::npos);
+}
+
+BAFX_TEST(device_lost_hresult_classifier_covers_reset_and_driver_failures)
+{
+    BAFX_CHECK(
+        bafx::windows::isDeviceLostResult(DXGI_ERROR_DEVICE_REMOVED));
+    BAFX_CHECK(
+        bafx::windows::isDeviceLostResult(DXGI_ERROR_DEVICE_RESET));
+    BAFX_CHECK(
+        bafx::windows::isDeviceLostResult(DXGI_ERROR_DEVICE_HUNG));
+    BAFX_CHECK(
+        bafx::windows::isDeviceLostResult(DXGI_ERROR_DRIVER_INTERNAL_ERROR));
+    BAFX_CHECK(!bafx::windows::isDeviceLostResult(E_FAIL));
 }
 
 BAFX_TEST(borderless_access_diagnostic_names_are_stable)

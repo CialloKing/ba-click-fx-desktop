@@ -323,7 +323,8 @@ CompositionRenderer::CompositionRenderer(
     const HWND window,
     const WindowSize size,
     const FxBloomSettings bloomSettings)
-    : bloomSettings_(bloomSettings)
+    : window_(window)
+    , bloomSettings_(bloomSettings)
     , size_(size)
     , backgroundResourceLedger_(
           std::make_shared<WgcBackgroundResourceLedger>())
@@ -343,6 +344,63 @@ CompositionRenderer::CompositionRenderer(
 }
 
 CompositionRenderer::~CompositionRenderer() = default;
+
+bool CompositionRenderer::tryRecoverDevice() noexcept
+{
+    setDeviceRecoveryFailure({});
+    try
+    {
+        // WGC textures and the temporal snapshot belong to the old device;
+        // invalidate them before releasing the swap-chain resource domain.
+        disableBackgroundCapture();
+        previousVisualBounds_.reset();
+        lastCenterPixel_.reset();
+        backgroundCompositeStatus_ = BackgroundCompositeStatus::Inactive;
+        releaseDeviceResources();
+        deviceInfo_ = GraphicsDeviceInfo{};
+        featureLevel_ = D3D_FEATURE_LEVEL_11_0;
+
+        createDevice();
+        createSwapChain(size_);
+        createComposition(window_);
+        createRenderTarget();
+        gpuTimestampProfiler_ = std::make_unique<GpuTimestampProfiler>(
+            device_.Get(),
+            context_.Get());
+        fxRenderer_ = std::make_unique<FxGpuRenderer>(
+            device_.Get(),
+            context_.Get(),
+            size_,
+            bloomSettings_);
+        fxRenderer_->setOverlayProfile(overlayProfile_);
+        setReadbackDiagnostics(readbackDiagnosticsEnabled_);
+        return true;
+    }
+    catch (...)
+    {
+        try
+        {
+            throw;
+        }
+        catch (const std::exception& error)
+        {
+            setDeviceRecoveryFailure(error.what());
+        }
+        catch (...)
+        {
+            setDeviceRecoveryFailure("unknown device recovery failure");
+        }
+        releaseDeviceResources();
+        return false;
+    }
+}
+
+std::string_view CompositionRenderer::deviceRecoveryFailure() const noexcept
+{
+    return std::string_view(
+        deviceRecoveryFailure_.data(),
+        deviceRecoveryFailureLength_);
+}
 
 void CompositionRenderer::resizeOutput(const WindowSize size)
 {
@@ -387,9 +445,29 @@ void CompositionRenderer::setBloomSettings(const FxBloomSettings settings)
     fxRenderer_->setBloomSettings(settings);
 }
 
+void CompositionRenderer::releaseDeviceResources() noexcept
+{
+    if (context_ != nullptr)
+    {
+        context_->OMSetRenderTargets(0U, nullptr, nullptr);
+    }
+    gpuTimestampProfiler_.reset();
+    fxRenderer_.reset();
+    renderTarget_.Reset();
+    backBuffer_.Reset();
+    rootVisual_.Reset();
+    compositionTarget_.Reset();
+    compositionDevice_.Reset();
+    frameLatencyHandle_.reset();
+    swapChain_.Reset();
+    context_.Reset();
+    device_.Reset();
+}
+
 void CompositionRenderer::setOverlayProfile(const FxOverlayProfile profile)
 {
     fxRenderer_->setOverlayProfile(profile);
+    overlayProfile_ = profile;
 }
 
 CompositionFrameDiagnostics CompositionRenderer::renderFrame(
@@ -941,6 +1019,22 @@ std::string_view CompositionRenderer::backgroundCaptureFailure() const noexcept
         backgroundCaptureFailureLength_);
 }
 
+void CompositionRenderer::setDeviceRecoveryFailure(
+    const std::string_view message) noexcept
+{
+    const std::size_t length = std::min(
+        message.size(),
+        deviceRecoveryFailure_.size());
+    if (length > 0U)
+    {
+        std::copy_n(
+            message.data(),
+            length,
+            deviceRecoveryFailure_.data());
+    }
+    deviceRecoveryFailureLength_ = length;
+}
+
 void CompositionRenderer::setBackgroundCaptureFailure(
     const std::string_view message) noexcept
 {
@@ -992,6 +1086,10 @@ std::optional<PixelF> CompositionRenderer::lastCenterPixel() const noexcept
 
 void CompositionRenderer::createDevice()
 {
+    // A recovery attempt may follow a WARP fallback; reset the diagnostic
+    // default before probing hardware again so stale driver labels do not
+    // survive a successful rebuild.
+    deviceInfo_.driverType = GraphicsDriverType::Hardware;
     constexpr std::array featureLevels{
         D3D_FEATURE_LEVEL_11_1,
         D3D_FEATURE_LEVEL_11_0};
