@@ -46,6 +46,7 @@ struct DisplayTopologyChange
     RECT suggestedBounds{};
     bool dpiValid{false};
     bool suggestedBoundsValid{false};
+    bool powerUnavailable{false};
     bool powerRestored{false};
 };
 
@@ -269,6 +270,7 @@ private:
         std::uint32_t latestDpiX = 0U,
         std::uint32_t latestDpiY = 0U,
         const RECT* suggestedBounds = nullptr,
+        bool powerUnavailable = false,
         bool powerRestored = false) noexcept;
     void requestClose() noexcept;
     void addNotificationIcon() noexcept;

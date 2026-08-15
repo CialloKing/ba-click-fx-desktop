@@ -825,10 +825,9 @@ LRESULT OverlayWindow::handleMessage(
         {
             return DefWindowProcW(window_, message, wParam, lParam);
         }
-        if (wParam == PBT_APMSUSPEND)
-        {
-            consoleDisplayState_ = 0U;
-        }
+        const std::optional<DWORD> previousDisplayState =
+            consoleDisplayState_;
+        const bool systemSuspending = wParam == PBT_APMSUSPEND;
         const bool systemResumed = wParam == PBT_APMRESUMEAUTOMATIC
             || wParam == PBT_APMRESUMESUSPEND
             || wParam == PBT_APMRESUMECRITICAL;
@@ -836,10 +835,20 @@ LRESULT OverlayWindow::handleMessage(
             wParam == PBT_POWERSETTINGCHANGE
             ? consoleDisplayState(lParam)
             : std::nullopt;
+        const bool displayUnavailable = displayState.has_value()
+            && *displayState == 0U;
+        const bool displayBecameUnavailable = systemSuspending
+            || (displayUnavailable
+                && (!previousDisplayState.has_value()
+                    || *previousDisplayState != 0U));
         const bool displayRestored = displayState.has_value()
-            && consoleDisplayState_.has_value()
-            && *consoleDisplayState_ == 0U
+            && previousDisplayState.has_value()
+            && *previousDisplayState == 0U
             && *displayState != 0U;
+        if (systemSuspending)
+        {
+            consoleDisplayState_ = 0U;
+        }
         if (displayState.has_value())
         {
             consoleDisplayState_ = *displayState;
@@ -860,6 +869,7 @@ LRESULT OverlayWindow::handleMessage(
                 0U,
                 0U,
                 nullptr,
+                displayBecameUnavailable,
                 systemResumed || displayRestored);
             displayColorChangePending_ = true;
             invalidatePointerGeometry();
@@ -908,6 +918,7 @@ void OverlayWindow::recordDisplayTopologyChange(
     const std::uint32_t latestDpiX,
     const std::uint32_t latestDpiY,
     const RECT* const suggestedBounds,
+    const bool powerUnavailable,
     const bool powerRestored) noexcept
 {
     if (!pendingDisplayTopologyChange_.has_value())
@@ -919,6 +930,7 @@ void OverlayWindow::recordDisplayTopologyChange(
     // A display transition can deliver several different messages before the
     // owner runs. Preserve every cause while keeping only the newest payload.
     pending.sourceMask |= displayTopologyChangeSourceMask(source);
+    pending.powerUnavailable = pending.powerUnavailable || powerUnavailable;
     pending.powerRestored = pending.powerRestored || powerRestored;
     if (latestDpiX != 0U && latestDpiY != 0U)
     {
