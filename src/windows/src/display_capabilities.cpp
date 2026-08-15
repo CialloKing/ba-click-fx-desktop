@@ -47,6 +47,12 @@ static_assert(sizeof(AdvancedColorInfo2Abi) == 36U);
     return std::isfinite(value) && value >= 0.0F;
 }
 
+[[nodiscard]] bool sameLuid(const LUID left, const LUID right) noexcept
+{
+    return left.HighPart == right.HighPart
+        && left.LowPart == right.LowPart;
+}
+
 [[nodiscard]] bool hdrColorSpace(
     const DXGI_COLOR_SPACE_TYPE colorSpace) noexcept
 {
@@ -308,6 +314,8 @@ void queryDisplayConfigColorState(
     bool first = true;
     bool advancedColorStateConsistent = true;
     bool sdrWhiteLevelConsistent = true;
+    bool physicalTargetAdaptersConsistent = true;
+    LUID physicalTargetAdapter{};
     for (const DisplayPhysicalTarget& target : display.physicalTargets)
     {
         DisplayColorCapabilities sample = dxgiCapabilities;
@@ -315,6 +323,7 @@ void queryDisplayConfigColorState(
         querySdrWhiteLevel(target, sample);
         if (first)
         {
+            physicalTargetAdapter = target.adapterLuid;
             aggregate = sample;
             reference = sample;
             advancedColorStateConsistent =
@@ -326,6 +335,9 @@ void queryDisplayConfigColorState(
             continue;
         }
 
+        physicalTargetAdaptersConsistent =
+            physicalTargetAdaptersConsistent
+            && sameLuid(physicalTargetAdapter, target.adapterLuid);
         advancedColorStateConsistent = advancedColorStateConsistent
             && sameAdvancedColorState(reference, sample);
         sdrWhiteLevelConsistent = sdrWhiteLevelConsistent
@@ -335,7 +347,9 @@ void queryDisplayConfigColorState(
 
     capabilities = aggregate;
     capabilities.displayPathResolved = true;
-    capabilities.adapterLuid = display.sourceAdapterLuid;
+    capabilities.adapterLuid = physicalTargetAdaptersConsistent
+        ? physicalTargetAdapter
+        : LUID{};
     capabilities.physicalTargetCount = static_cast<std::uint32_t>(
         display.physicalTargets.size());
     capabilities.targetId = display.physicalTargets.size() == 1U
@@ -344,6 +358,18 @@ void queryDisplayConfigColorState(
     capabilities.advancedColorStateConsistent =
         advancedColorStateConsistent;
     capabilities.sdrWhiteLevelConsistent = sdrWhiteLevelConsistent;
+    capabilities.physicalTargetAdaptersConsistent =
+        physicalTargetAdaptersConsistent;
+    if (display.physicalTargets.size() > 1U)
+    {
+        // IDXGIOutput6 describes one enumerated output. A cloned source can
+        // drive panels with different luminance envelopes, so do not promote
+        // that one sample to source-wide metadata.
+        capabilities.minimumLuminanceNits = 0.0F;
+        capabilities.maximumLuminanceNits = 0.0F;
+        capabilities.maximumFullFrameLuminanceNits = 0.0F;
+        capabilities.luminanceMetadataValid = false;
+    }
 }
 
 }

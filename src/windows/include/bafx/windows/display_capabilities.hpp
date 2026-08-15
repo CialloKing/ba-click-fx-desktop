@@ -50,6 +50,7 @@ struct DisplayColorCapabilities final
     bool advancedColorInfoV2{false};
     bool advancedColorStateConsistent{false};
     bool sdrWhiteLevelConsistent{false};
+    bool physicalTargetAdaptersConsistent{false};
 };
 
 // This is capability evidence only. It does not mean the application's final

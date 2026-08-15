@@ -812,10 +812,19 @@ std::string SupportReport::serialize() const
             stream << "unknown";
         }
         stream << '\n'
-                << "Display.ColorPathAdapterLuid="
+                << "Display.ColorPathAdapterConsistent="
                 << (color.displayPathResolved
-                        ? luid(color.adapterLuid)
+                        ? (color.physicalTargetAdaptersConsistent
+                            ? "true"
+                            : "false")
                         : "unknown")
+                << '\n'
+                << "Display.ColorPathAdapterLuid="
+                << (!color.displayPathResolved
+                        ? "unknown"
+                        : (color.physicalTargetAdaptersConsistent
+                            ? luid(color.adapterLuid)
+                            : "multiple"))
                 << '\n'
                 << "Display.ColorPathTargetId=";
         if (!color.displayPathResolved)
@@ -878,6 +887,7 @@ std::string SupportReport::serialize() const
                 << "Display.WideColorUserEnabled=unknown\n"
                 << "Display.ColorPathResolved=unknown\n"
                 << "Display.ColorPathPhysicalTargetCount=unknown\n"
+                << "Display.ColorPathAdapterConsistent=unknown\n"
                 << "Display.ColorPathAdapterLuid=unknown\n"
                 << "Display.ColorPathTargetId=unknown\n"
                 << "Display.ColorEncoding=unknown\n"
