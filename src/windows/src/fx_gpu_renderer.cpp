@@ -453,15 +453,22 @@ struct FxGpuRenderer::Implementation
         ID3D11Device* sourceDevice,
         ID3D11DeviceContext* sourceContext,
         const WindowSize initialSize,
-        const FxBloomSettings initialBloomSettings)
+        const FxBloomSettings initialBloomSettings,
+        const CompositionOutputTransfer initialOutputTransfer)
         : device(sourceDevice)
         , context(sourceContext)
         , size(initialSize)
         , bloomSettings(initialBloomSettings)
+        , outputTransfer(initialOutputTransfer)
     {
         if (!hasValidBloomSettings(bloomSettings))
         {
             throw std::invalid_argument("FX Bloom settings are outside the supported range");
+        }
+        if (outputTransfer != CompositionOutputTransfer::LinearScRgb
+            && outputTransfer != CompositionOutputTransfer::SdrGamma22)
+        {
+            throw std::invalid_argument("FX output transfer is not renderable");
         }
         createPipeline();
         createTextures();
@@ -623,11 +630,20 @@ struct FxGpuRenderer::Implementation
             captureCompositePixelShader);
         createBloomPixelShader("DesktopCompositePixel", desktopCompositePixelShader);
         createBloomPixelShader(
+            "DesktopSdrCompositePixel",
+            desktopSdrCompositePixelShader);
+        createBloomPixelShader(
             "RecordingCompatibleCompositePixel",
             recordingCompatibleCompositePixelShader);
         createBloomPixelShader(
+            "RecordingCompatibleSdrCompositePixel",
+            recordingCompatibleSdrCompositePixelShader);
+        createBloomPixelShader(
             "LightBackgroundCompositePixel",
             lightBackgroundCompositePixelShader);
+        createBloomPixelShader(
+            "LightBackgroundSdrCompositePixel",
+            lightBackgroundSdrCompositePixelShader);
 
         D3D11_BUFFER_DESC constantDescription{};
         constantDescription.ByteWidth = sizeof(BloomConstants);
@@ -867,13 +883,30 @@ struct FxGpuRenderer::Implementation
         // take precedence over any unknown-background approximation.
         if (hasBackground || overlayProfile == FxOverlayProfile::FxOnlyFallback)
         {
-            return desktopCompositePixelShader.Get();
+            return outputTransferShader(
+                desktopCompositePixelShader,
+                desktopSdrCompositePixelShader);
         }
         if (overlayProfile == FxOverlayProfile::RecordingCompatible)
         {
-            return recordingCompatibleCompositePixelShader.Get();
+            return outputTransferShader(
+                recordingCompatibleCompositePixelShader,
+                recordingCompatibleSdrCompositePixelShader);
         }
-        return lightBackgroundCompositePixelShader.Get();
+        return outputTransferShader(
+            lightBackgroundCompositePixelShader,
+            lightBackgroundSdrCompositePixelShader);
+    }
+
+    [[nodiscard]] ID3D11PixelShader* outputTransferShader(
+        const ComPtr<ID3D11PixelShader>& linearShader,
+        const ComPtr<ID3D11PixelShader>& sdrShader) const noexcept
+    {
+        // Intermediate render targets remain linear FP16. Only the shader that
+        // writes the swap-chain target follows its negotiated transfer.
+        return outputTransfer == CompositionOutputTransfer::SdrGamma22
+            ? sdrShader.Get()
+            : linearShader.Get();
     }
 
     void stabilizeBackgroundFrame(
@@ -1447,6 +1480,8 @@ struct FxGpuRenderer::Implementation
     ComPtr<ID3D11DeviceContext> context{};
     WindowSize size{};
     FxBloomSettings bloomSettings{};
+    CompositionOutputTransfer outputTransfer{
+        CompositionOutputTransfer::LinearScRgb};
     ColorTarget directTarget{};
     ColorTarget crossTarget{};
     ColorTarget bloomSeedTarget{};
@@ -1469,8 +1504,11 @@ struct FxGpuRenderer::Implementation
     ComPtr<ID3D11PixelShader> compositePixelShader{};
     ComPtr<ID3D11PixelShader> captureCompositePixelShader{};
     ComPtr<ID3D11PixelShader> desktopCompositePixelShader{};
+    ComPtr<ID3D11PixelShader> desktopSdrCompositePixelShader{};
     ComPtr<ID3D11PixelShader> recordingCompatibleCompositePixelShader{};
+    ComPtr<ID3D11PixelShader> recordingCompatibleSdrCompositePixelShader{};
     ComPtr<ID3D11PixelShader> lightBackgroundCompositePixelShader{};
+    ComPtr<ID3D11PixelShader> lightBackgroundSdrCompositePixelShader{};
     ComPtr<ID3D11InputLayout> inputLayout{};
     ComPtr<ID3D11Buffer> vertexBuffer{};
     ComPtr<ID3D11Buffer> viewportBuffer{};
@@ -1495,12 +1533,14 @@ FxGpuRenderer::FxGpuRenderer(
     ID3D11Device* device,
     ID3D11DeviceContext* context,
     const WindowSize size,
-    const FxBloomSettings bloomSettings)
+    const FxBloomSettings bloomSettings,
+    const CompositionOutputTransfer outputTransfer)
     : implementation_(std::make_unique<Implementation>(
         device,
         context,
         size,
-        bloomSettings))
+        bloomSettings,
+        outputTransfer))
 {
 }
 

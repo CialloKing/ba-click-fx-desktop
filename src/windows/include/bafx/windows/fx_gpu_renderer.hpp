@@ -1,6 +1,7 @@
 #pragma once
 
 #include "bafx/fx/simulation.hpp"
+#include "bafx/windows/composition_output.hpp"
 #include "bafx/windows/fx_bloom_settings.hpp"
 #include "bafx/windows/gpu_texture_readback.hpp"
 #include "bafx/windows/overlay_window.hpp"
@@ -58,7 +59,9 @@ public:
         ID3D11Device* device,
         ID3D11DeviceContext* context,
         WindowSize size,
-        FxBloomSettings bloomSettings = {});
+        FxBloomSettings bloomSettings = {},
+        CompositionOutputTransfer outputTransfer =
+            CompositionOutputTransfer::LinearScRgb);
     ~FxGpuRenderer();
 
     FxGpuRenderer(const FxGpuRenderer&) = delete;

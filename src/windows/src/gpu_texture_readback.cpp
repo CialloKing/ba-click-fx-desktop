@@ -22,6 +22,8 @@ using Microsoft::WRL::ComPtr;
 
 static_assert(sizeof(Rgba16FloatPixel) == sizeof(std::uint16_t) * 4U);
 static_assert(std::is_trivially_copyable_v<Rgba16FloatPixel>);
+static_assert(sizeof(Bgra8UnormPixel) == sizeof(std::uint8_t) * 4U);
+static_assert(std::is_trivially_copyable_v<Bgra8UnormPixel>);
 
 void validateArguments(
     ID3D11DeviceContext* context,
@@ -239,6 +241,100 @@ Rgba16FloatImage readbackRgba16FloatTexture(
     }
     context->Unmap(staging.Get(), 0U);
     return image;
+}
+
+Bgra8UnormPixel readbackBgra8UnormPixel(
+    ID3D11DeviceContext* context,
+    ID3D11Texture2D* source,
+    const std::uint32_t x,
+    const std::uint32_t y)
+{
+    if (context == nullptr || source == nullptr)
+    {
+        throw std::invalid_argument(
+            "BGRA8 texture readback requires a context and source");
+    }
+
+    D3D11_TEXTURE2D_DESC sourceDescription{};
+    source->GetDesc(&sourceDescription);
+    if (sourceDescription.Format != DXGI_FORMAT_B8G8R8A8_UNORM)
+    {
+        throw std::invalid_argument(
+            "BGRA8 texture readback requires B8G8R8A8_UNORM");
+    }
+    if (sourceDescription.SampleDesc.Count != 1U)
+    {
+        throw std::invalid_argument(
+            "BGRA8 texture readback does not resolve multisampling");
+    }
+    if (x >= sourceDescription.Width || y >= sourceDescription.Height)
+    {
+        throw std::out_of_range(
+            "BGRA8 texture readback coordinate is outside the source");
+    }
+
+    ComPtr<ID3D11Device> sourceDevice;
+    ComPtr<ID3D11Device> contextDevice;
+    source->GetDevice(&sourceDevice);
+    context->GetDevice(&contextDevice);
+    if (sourceDevice.Get() != contextDevice.Get())
+    {
+        throw std::invalid_argument(
+            "BGRA8 texture and context belong to different devices");
+    }
+
+    D3D11_TEXTURE2D_DESC stagingDescription{};
+    stagingDescription.Width = 1U;
+    stagingDescription.Height = 1U;
+    stagingDescription.MipLevels = 1U;
+    stagingDescription.ArraySize = 1U;
+    stagingDescription.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+    stagingDescription.SampleDesc = DXGI_SAMPLE_DESC{1U, 0U};
+    stagingDescription.Usage = D3D11_USAGE_STAGING;
+    stagingDescription.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+
+    ComPtr<ID3D11Texture2D> staging;
+    throwIfFailed(
+        sourceDevice->CreateTexture2D(
+            &stagingDescription,
+            nullptr,
+            &staging),
+        "ID3D11Device::CreateTexture2D(BGRA8 pixel readback staging)");
+
+    const D3D11_BOX sourceBox{x, y, 0U, x + 1U, y + 1U, 1U};
+    context->CopySubresourceRegion(
+        staging.Get(),
+        0U,
+        0U,
+        0U,
+        0U,
+        source,
+        0U,
+        &sourceBox);
+
+    D3D11_MAPPED_SUBRESOURCE mapped{};
+    throwIfFailed(
+        context->Map(staging.Get(), 0U, D3D11_MAP_READ, 0U, &mapped),
+        "ID3D11DeviceContext::Map(BGRA8 pixel readback staging)");
+
+    Bgra8UnormPixel pixel{};
+    try
+    {
+        if (mapped.pData == nullptr
+            || mapped.RowPitch < sizeof(Bgra8UnormPixel))
+        {
+            throw std::runtime_error(
+                "BGRA8 mapped row cannot contain one pixel");
+        }
+        std::memcpy(&pixel, mapped.pData, sizeof(pixel));
+    }
+    catch (...)
+    {
+        context->Unmap(staging.Get(), 0U);
+        throw;
+    }
+    context->Unmap(staging.Get(), 0U);
+    return pixel;
 }
 
 }

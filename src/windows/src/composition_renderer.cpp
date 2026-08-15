@@ -30,6 +30,100 @@ constexpr CompositionOutputState scRgbOutputState{
     CompositionOutputTransfer::LinearScRgb,
     CompositionOutputFallback::None,
     true};
+constexpr CompositionOutputState conservativeSdrOutputState{
+    DXGI_FORMAT_B8G8R8A8_UNORM,
+    DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709,
+    CompositionOutputTransfer::SdrGamma22,
+    CompositionOutputFallback::ConservativeSdr,
+    false};
+
+struct SwapChainCandidateSpecification final
+{
+    CompositionOutputState output{};
+    std::string_view createOperation{};
+    std::string_view checkColorSpaceOperation{};
+    std::string_view setColorSpaceOperation{};
+};
+
+struct CreatedCompositionSwapChain final
+{
+    Microsoft::WRL::ComPtr<IDXGISwapChain3> swapChain{};
+    UniqueHandle frameLatencyHandle{};
+    CompositionOutputState output{};
+};
+
+constexpr SwapChainCandidateSpecification scRgbSwapChainCandidate{
+    scRgbOutputState,
+    "IDXGIFactory2::CreateSwapChainForComposition(scRGB)",
+    "IDXGISwapChain3::CheckColorSpaceSupport(scRGB present)",
+    "IDXGISwapChain3::SetColorSpace1(scRGB)"};
+constexpr SwapChainCandidateSpecification conservativeSdrSwapChainCandidate{
+    conservativeSdrOutputState,
+    "IDXGIFactory2::CreateSwapChainForComposition(BGRA8 SDR)",
+    "IDXGISwapChain3::CheckColorSpaceSupport(BGRA8 SDR present)",
+    "IDXGISwapChain3::SetColorSpace1(BGRA8 SDR)"};
+
+[[nodiscard]] CreatedCompositionSwapChain createCompositionSwapChainCandidate(
+    IDXGIFactory2* const factory,
+    ID3D11Device* const device,
+    const WindowSize size,
+    const SwapChainCandidateSpecification& candidate)
+{
+    DXGI_SWAP_CHAIN_DESC1 description{};
+    description.Width = size.width;
+    description.Height = size.height;
+    description.Format = candidate.output.format;
+    description.Stereo = FALSE;
+    description.SampleDesc = DXGI_SAMPLE_DESC{1, 0};
+    description.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+    description.BufferCount = 2;
+    description.Scaling = DXGI_SCALING_STRETCH;
+    description.SwapEffect = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
+    description.AlphaMode = DXGI_ALPHA_MODE_PREMULTIPLIED;
+    description.Flags = swapChainFlags;
+
+    Microsoft::WRL::ComPtr<IDXGISwapChain1> swapChain;
+    throwIfFailed(
+        factory->CreateSwapChainForComposition(
+            device,
+            &description,
+            nullptr,
+            &swapChain),
+        candidate.createOperation);
+
+    CreatedCompositionSwapChain created{};
+    throwIfFailed(
+        swapChain.As(&created.swapChain),
+        "IDXGISwapChain1::QueryInterface(IDXGISwapChain3)");
+
+    UINT colorSpaceSupport = 0U;
+    throwIfFailed(
+        created.swapChain->CheckColorSpaceSupport(
+            candidate.output.colorSpace,
+            &colorSpaceSupport),
+        candidate.checkColorSpaceOperation);
+    if ((colorSpaceSupport & DXGI_SWAP_CHAIN_COLOR_SPACE_SUPPORT_FLAG_PRESENT) == 0U)
+    {
+        // Never let DXGI silently reinterpret the final shader's transfer.
+        throwIfFailed(DXGI_ERROR_UNSUPPORTED, candidate.checkColorSpaceOperation);
+    }
+    throwIfFailed(
+        created.swapChain->SetColorSpace1(candidate.output.colorSpace),
+        candidate.setColorSpaceOperation);
+    throwIfFailed(
+        created.swapChain->SetMaximumFrameLatency(1),
+        "IDXGISwapChain2::SetMaximumFrameLatency");
+
+    created.frameLatencyHandle.reset(
+        created.swapChain->GetFrameLatencyWaitableObject());
+    if (created.frameLatencyHandle.get() == nullptr)
+    {
+        throwLastError("IDXGISwapChain2::GetFrameLatencyWaitableObject");
+    }
+    created.output = candidate.output;
+    return created;
+}
+
 constexpr bafx::core::MonotonicTime minimumBackgroundCadencePeriod =
     std::chrono::nanoseconds(16'666'667);
 constexpr bafx::core::MonotonicTime minimumBackgroundAcquireLifetime =
@@ -559,6 +653,7 @@ OutputResizeStatus CompositionRenderer::resizeOutput(const WindowSize size)
             context_->OMSetRenderTargets(0, nullptr, nullptr);
             renderTarget_.Reset();
             backBuffer_.Reset();
+            lastCenterPixel_.reset();
             throwIfFailed(
                 swapChain_->ResizeBuffers(
                     0,
@@ -634,6 +729,7 @@ void CompositionRenderer::releaseDeviceResources() noexcept
     compositionDevice_.Reset();
     frameLatencyHandle_.reset();
     swapChain_.Reset();
+    lastCenterPixel_.reset();
     context_.Reset();
     device_.Reset();
     deviceInfo_.output = CompositionOutputState{};
@@ -961,6 +1057,13 @@ CompositionRenderer::drainBackgroundSensor(
 
 PixelF CompositionRenderer::presentCompositionProbeColor(const PixelF color)
 {
+    if (deviceInfo_.output.transfer != CompositionOutputTransfer::LinearScRgb)
+    {
+        // ClearRenderTargetView bypasses the final composite shader. On BGRA8
+        // it cannot exercise the FP16 extended-premultiplied probe contract.
+        throw std::logic_error(
+            "Composition probe requires linear scRGB output");
+    }
     if (!std::isfinite(color.red)
         || !std::isfinite(color.green)
         || !std::isfinite(color.blue)
@@ -1513,7 +1616,8 @@ void CompositionRenderer::createDeviceResources()
         device_.Get(),
         context_.Get(),
         size_,
-        bloomSettings_);
+        bloomSettings_,
+        deviceInfo_.output.transfer);
     fxRenderer_->setOverlayProfile(overlayProfile_);
     setReadbackDiagnostics(readbackDiagnosticsEnabled_);
     registerDeviceRemovedNotification();
@@ -1560,57 +1664,35 @@ void CompositionRenderer::createSwapChain(const WindowSize size)
     Microsoft::WRL::ComPtr<IDXGIFactory2> factory;
     throwIfFailed(adapter->GetParent(IID_PPV_ARGS(&factory)), "IDXGIAdapter::GetParent");
 
-    DXGI_SWAP_CHAIN_DESC1 description{};
-    description.Width = size.width;
-    description.Height = size.height;
-    description.Format = scRgbOutputState.format;
-    description.Stereo = FALSE;
-    description.SampleDesc = DXGI_SAMPLE_DESC{1, 0};
-    description.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
-    description.BufferCount = 2;
-    description.Scaling = DXGI_SCALING_STRETCH;
-    description.SwapEffect = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
-    description.AlphaMode = DXGI_ALPHA_MODE_PREMULTIPLIED;
-    description.Flags = swapChainFlags;
-
-    Microsoft::WRL::ComPtr<IDXGISwapChain1> swapChain;
-    throwIfFailed(
-        factory->CreateSwapChainForComposition(
+    CreatedCompositionSwapChain created{};
+    try
+    {
+        created = createCompositionSwapChainCandidate(
+            factory.Get(),
             device_.Get(),
-            &description,
-            nullptr,
-            &swapChain),
-        "IDXGIFactory2::CreateSwapChainForComposition");
-    throwIfFailed(swapChain.As(&swapChain_), "IDXGISwapChain1::QueryInterface");
-
-    UINT colorSpaceSupport = 0U;
-    throwIfFailed(
-        swapChain_->CheckColorSpaceSupport(
-            scRgbOutputState.colorSpace,
-            &colorSpaceSupport),
-        "IDXGISwapChain3::CheckColorSpaceSupport(scRGB)");
-    if ((colorSpaceSupport & DXGI_SWAP_CHAIN_COLOR_SPACE_SUPPORT_FLAG_PRESENT) == 0U)
-    {
-        // The final shader emits linear premultiplied values. Continuing with
-        // DXGI's default gamma interpretation would silently change their hue.
-        throwIfFailed(
-            DXGI_ERROR_UNSUPPORTED,
-            "IDXGISwapChain3::CheckColorSpaceSupport(scRGB present)");
+            size,
+            scRgbSwapChainCandidate);
     }
-    throwIfFailed(
-        swapChain_->SetColorSpace1(scRgbOutputState.colorSpace),
-        "IDXGISwapChain3::SetColorSpace1(scRGB)");
-    throwIfFailed(swapChain_->SetMaximumFrameLatency(1), "IDXGISwapChain2::SetMaximumFrameLatency");
-
-    frameLatencyHandle_.reset(swapChain_->GetFrameLatencyWaitableObject());
-    if (frameLatencyHandle_.get() == nullptr)
+    catch (const HResultError& error)
     {
-        throwLastError("IDXGISwapChain2::GetFrameLatencyWaitableObject");
+        if (isDeviceLostResult(error.result()))
+        {
+            throw;
+        }
+        // FP16/scRGB is preferred, but a format or color-space capability
+        // failure must not prevent the complete binary from running in SDR.
+        created = createCompositionSwapChainCandidate(
+            factory.Get(),
+            device_.Get(),
+            size,
+            conservativeSdrSwapChainCandidate);
     }
 
-    // Publish only a fully configured swap chain. A later SDR fallback can use
-    // the same boundary without exposing a format whose shader contract failed.
-    deviceInfo_.output = scRgbOutputState;
+    // Publish only a fully configured candidate so shaders and diagnostics
+    // cannot observe a partially initialized output transport.
+    swapChain_ = std::move(created.swapChain);
+    frameLatencyHandle_ = std::move(created.frameLatencyHandle);
+    deviceInfo_.output = created.output;
 }
 
 void CompositionRenderer::createComposition(const HWND window)
@@ -1892,16 +1974,39 @@ void CompositionRenderer::captureCenterPixel()
     const UINT centerY = size_.height / 2U;
     // The one-pixel region keeps the interactive smoke test from synchronizing
     // and copying the full monitor-sized swap-chain buffer.
-    const Rgba16FloatImage image = readbackRgba16FloatTexture(
-        context_.Get(),
-        backBuffer_.Get(),
-        TextureReadbackRegion{centerX, centerY, 1U, 1U});
-    const Rgba16FloatPixel pixel = image.pixels.front();
-    lastCenterPixel_ = PixelF{
-        halfToFloat(pixel.red),
-        halfToFloat(pixel.green),
-        halfToFloat(pixel.blue),
-        halfToFloat(pixel.alpha)};
+    D3D11_TEXTURE2D_DESC description{};
+    backBuffer_->GetDesc(&description);
+    if (description.Format == DXGI_FORMAT_R16G16B16A16_FLOAT)
+    {
+        const Rgba16FloatImage image = readbackRgba16FloatTexture(
+            context_.Get(),
+            backBuffer_.Get(),
+            TextureReadbackRegion{centerX, centerY, 1U, 1U});
+        const Rgba16FloatPixel pixel = image.pixels.front();
+        lastCenterPixel_ = PixelF{
+            halfToFloat(pixel.red),
+            halfToFloat(pixel.green),
+            halfToFloat(pixel.blue),
+            halfToFloat(pixel.alpha)};
+        return;
+    }
+    if (description.Format == DXGI_FORMAT_B8G8R8A8_UNORM)
+    {
+        const Bgra8UnormPixel pixel = readbackBgra8UnormPixel(
+            context_.Get(),
+            backBuffer_.Get(),
+            centerX,
+            centerY);
+        constexpr float unormScale = 1.0F / 255.0F;
+        lastCenterPixel_ = PixelF{
+            static_cast<float>(pixel.red) * unormScale,
+            static_cast<float>(pixel.green) * unormScale,
+            static_cast<float>(pixel.blue) * unormScale,
+            static_cast<float>(pixel.alpha) * unormScale};
+        return;
+    }
+    throw std::logic_error(
+        "Composition center-pixel readback has an unsupported output format");
 }
 
 }

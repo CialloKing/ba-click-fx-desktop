@@ -619,7 +619,27 @@ float4 ResolveBackgroundAwareDesktopTransport(
     return float4(premultiplied, alpha);
 }
 
-float4 DesktopCompositePixel(FullscreenOutput input) : SV_Target0
+float4 EncodeConservativeSdrPremultiplied(float4 linearPremultiplied)
+{
+    const float alpha = saturate(linearPremultiplied.a);
+    if (alpha <= 0.000001)
+    {
+        return float4(0.0, 0.0, 0.0, 0.0);
+    }
+
+    // BGRA8 cannot carry additive RGB above Alpha or scRGB values above one.
+    // Preserve straight color through the transfer conversion, then restore a
+    // conventional premultiplied payload for DirectComposition.
+    const float3 straightLinear = saturate(
+        max(linearPremultiplied.rgb, 0.0) / alpha);
+    const float3 encodedStraight = LinearToSrgb(straightLinear);
+    const float3 encodedPremultiplied = min(
+        encodedStraight * alpha,
+        alpha);
+    return float4(encodedPremultiplied, alpha);
+}
+
+float4 ResolveDesktopComposite(FullscreenOutput input)
 {
     const float4 direct = Source0.Sample(LinearClampSampler, input.uv);
     const float2 offset = SourceTexelSize * (SampleScale * 0.5);
@@ -653,7 +673,18 @@ float4 DesktopCompositePixel(FullscreenOutput input) : SV_Target0
         ExposureGain);
 }
 
-float4 LightBackgroundCompositePixel(FullscreenOutput input) : SV_Target0
+float4 DesktopCompositePixel(FullscreenOutput input) : SV_Target0
+{
+    return ResolveDesktopComposite(input);
+}
+
+float4 DesktopSdrCompositePixel(FullscreenOutput input) : SV_Target0
+{
+    return EncodeConservativeSdrPremultiplied(
+        ResolveDesktopComposite(input));
+}
+
+float4 ResolveLightBackgroundComposite(FullscreenOutput input)
 {
     const float4 direct = Source0.Sample(LinearClampSampler, input.uv);
     const float2 offset = SourceTexelSize * (SampleScale * 0.5);
@@ -664,7 +695,18 @@ float4 LightBackgroundCompositePixel(FullscreenOutput input) : SV_Target0
         ExposureGain);
 }
 
-float4 RecordingCompatibleCompositePixel(FullscreenOutput input) : SV_Target0
+float4 LightBackgroundCompositePixel(FullscreenOutput input) : SV_Target0
+{
+    return ResolveLightBackgroundComposite(input);
+}
+
+float4 LightBackgroundSdrCompositePixel(FullscreenOutput input) : SV_Target0
+{
+    return EncodeConservativeSdrPremultiplied(
+        ResolveLightBackgroundComposite(input));
+}
+
+float4 ResolveRecordingCompatibleComposite(FullscreenOutput input)
 {
     const float4 direct = Source0.Sample(LinearClampSampler, input.uv);
     const float2 offset = SourceTexelSize * (SampleScale * 0.5);
@@ -673,6 +715,17 @@ float4 RecordingCompatibleCompositePixel(FullscreenOutput input) : SV_Target0
         direct,
         bloom,
         ExposureGain);
+}
+
+float4 RecordingCompatibleCompositePixel(FullscreenOutput input) : SV_Target0
+{
+    return ResolveRecordingCompatibleComposite(input);
+}
+
+float4 RecordingCompatibleSdrCompositePixel(FullscreenOutput input) : SV_Target0
+{
+    return EncodeConservativeSdrPremultiplied(
+        ResolveRecordingCompatibleComposite(input));
 }
 )hlsl";
 

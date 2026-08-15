@@ -4,6 +4,7 @@
 #include "bafx/core/roi.hpp"
 #include "bafx/fx/frame_bounds.hpp"
 #include "bafx/windows/background_snapshot_diagnostics.hpp"
+#include "bafx/windows/composition_output.hpp"
 #include "bafx/windows/detail/wgc_idle_drain_policy.hpp"
 #include "bafx/windows/display_topology.hpp"
 #include "bafx/windows/fx_bloom_settings.hpp"
@@ -50,28 +51,6 @@ enum class GraphicsDriverType : std::uint8_t
 {
     Hardware,
     Warp
-};
-
-enum class CompositionOutputTransfer : std::uint8_t
-{
-    Unknown,
-    LinearScRgb,
-    SdrGamma22
-};
-
-enum class CompositionOutputFallback : std::uint8_t
-{
-    None,
-    ConservativeSdr
-};
-
-struct CompositionOutputState final
-{
-    DXGI_FORMAT format{DXGI_FORMAT_UNKNOWN};
-    DXGI_COLOR_SPACE_TYPE colorSpace{DXGI_COLOR_SPACE_CUSTOM};
-    CompositionOutputTransfer transfer{CompositionOutputTransfer::Unknown};
-    CompositionOutputFallback fallback{CompositionOutputFallback::None};
-    bool extendedPremultiplied{false};
 };
 
 enum class BackgroundCompositeStatus : std::uint8_t

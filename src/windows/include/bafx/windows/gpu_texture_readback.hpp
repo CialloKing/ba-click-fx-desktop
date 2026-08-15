@@ -25,6 +25,14 @@ struct Rgba16FloatImage
     std::vector<Rgba16FloatPixel> pixels{};
 };
 
+struct Bgra8UnormPixel
+{
+    std::uint8_t blue{0U};
+    std::uint8_t green{0U};
+    std::uint8_t red{0U};
+    std::uint8_t alpha{0U};
+};
+
 struct TextureReadbackRegion
 {
     std::uint32_t left{0U};
@@ -43,5 +51,11 @@ struct TextureReadbackRegion
     ID3D11DeviceContext* context,
     ID3D11Texture2D* source,
     TextureReadbackRegion region);
+
+[[nodiscard]] Bgra8UnormPixel readbackBgra8UnormPixel(
+    ID3D11DeviceContext* context,
+    ID3D11Texture2D* source,
+    std::uint32_t x,
+    std::uint32_t y);
 
 }
