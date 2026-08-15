@@ -357,7 +357,9 @@ void DisplaySession::initializeSecondaryBackgroundCapture(
     state->controlGeneration = controlGeneration;
     state->logPath = logPath;
     state->powerUnavailable = powerUnavailable;
-    state->powerRecoveryEligible = powerUnavailable && request.sensorRequired;
+    // A session created while scan-out is unavailable was never active before
+    // the power edge. Park its request without manufacturing a recovery token.
+    state->powerRecoveryEligible = false;
     const bafx::windows::BackgroundCaptureRequestResult requestResult =
         powerUnavailable && request.sensorRequired
         ? state->transition.beginPowerSuspension(request)
@@ -424,12 +426,8 @@ void DisplaySession::updateSecondaryBackgroundCaptureRequest(
         state.powerRecoveryEligible = false;
         state.powerRecoveryPending = false;
     }
-    else if (state.powerUnavailable)
-    {
-        // A user-visible configuration change while the display is off is a
-        // fresh request, but its WGC producer must wait for the restore edge.
-        state.powerRecoveryEligible = true;
-    }
+    // While powered off, capture edits only update desired state. Eligibility
+    // remains the fact latched from the preceding live power edge.
     state.sensorWasActiveBeforeTransaction =
         renderer_.backgroundCaptureActive();
     const bafx::windows::BackgroundCaptureRequestResult requestResult =
@@ -967,13 +965,14 @@ DisplaySession::suspendSecondaryBackgroundCaptureForPower(
         *secondaryBackgroundCapture_;
     state.powerUnavailable = true;
     state.powerRecoveryPending = false;
-    // WGC may report its stop before WM_POWERBROADCAST is dispatched. The
-    // effective path records that this owner had committed BackgroundAware;
-    // an older terminal FX-only failure therefore remains ineligible.
+    // Only a producer still active at this owner boundary belongs to the power
+    // transition. Stable FX-only terminals and newly created sessions remain
+    // ineligible for an implicit restart.
     state.powerRecoveryEligible = state.powerRecoveryEligible
         || (state.request.sensorRequired
             && state.transition.effectivePath()
-                == bafx::windows::EffectiveBackgroundCapturePath::BackgroundAware);
+                == bafx::windows::EffectiveBackgroundCapturePath::BackgroundAware
+            && renderer_.backgroundCaptureActive());
     if (state.execution.transactionActive)
     {
         const BackgroundCaptureExecutionStatus canceled =

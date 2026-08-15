@@ -2935,6 +2935,7 @@ int runApplication(
             && hostTopologyChange->powerRestored;
         const bool hostDisplayPowerUnavailable = hostTopologyChange.has_value()
             && hostTopologyChange->powerUnavailable;
+        const bool displayPowerWasUnavailable = displayPowerUnavailable;
         if (hostTopologyChange.has_value()
             && hostTopologyChange->powerUnavailable)
         {
@@ -2947,6 +2948,12 @@ int runApplication(
             // topology and color refresh for every display.
             displayPowerUnavailable = false;
         }
+        const bool hostDisplayPowerBecameUnavailable =
+            hostDisplayPowerUnavailable
+            && !hostDisplayPowerRestored
+            && !displayPowerWasUnavailable;
+        const bool hostDisplayPowerBecameAvailable =
+            hostDisplayPowerRestored && displayPowerWasUnavailable;
         if (hostTopologyChange.has_value())
         {
             appendDisplayTopologyInvalidated(
@@ -3323,11 +3330,12 @@ int runApplication(
                 true);
             renderInvalidated = true;
         }
-        if (hostDisplayPowerUnavailable)
+        if (hostDisplayPowerBecameUnavailable)
         {
             coordinatorPowerRecoveryEligible =
                 coordinatorPowerRecoveryEligible
-                || backgroundCaptureEnabled;
+                || (backgroundCaptureEnabled
+                    && renderer.backgroundCaptureActive());
             backgroundRetryPending = false;
             bool coordinatorSuspended = false;
             if (backgroundExecution.transactionActive)
@@ -3454,7 +3462,7 @@ int runApplication(
                 "WGC.DisplayPower.Suspended",
                 fields);
         }
-        if (hostDisplayPowerRestored)
+        if (hostDisplayPowerBecameAvailable)
         {
             const bool captureRequested = controlState.config.background.mode
                 == bafx::config::RenderMode::BackgroundAware;
@@ -3880,21 +3888,11 @@ int runApplication(
                     ? std::optional<bafx::windows::WindowSize>(
                         bafx::desktop::displayTargetSize(targetIntent.target))
                     : pendingOutputResize;
-            const bool explicitCaptureChangeWhilePoweredOff =
-                displayPowerUnavailable
-                && configChanged
-                && nextBackgroundRequest.sensorRequired
-                && nextBackgroundRequest != appliedBackgroundRequest;
-            if (explicitCaptureChangeWhilePoweredOff)
-            {
-                // A control-plane change is a fresh user request. Remember it
-                // for the restore edge without creating WGC against a display
-                // whose scan-out and color contract are unavailable.
-                coordinatorPowerRecoveryEligible = true;
-            }
-            else if (displayPowerUnavailable
+            if (displayPowerUnavailable
                 && !nextBackgroundRequest.sensorRequired)
             {
+                // Disabling capture withdraws the latched recovery. Enabling or
+                // editing it cannot create pre-suspend activity retroactively.
                 coordinatorPowerRecoveryEligible = false;
             }
             const bafx::windows::BackgroundCaptureRequestResult requestResult =
