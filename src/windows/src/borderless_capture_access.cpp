@@ -440,10 +440,12 @@ void BorderlessCaptureAccessRequest::cancel(
     }
     if (asyncStatus == BorderlessCaptureAccessAsyncStatus::Started)
     {
-        const HRESULT error = operation_->error();
+        // ErrorCode has no terminal meaning while IAsyncInfo is still Started.
+        // Record the owner's cancellation boundary without inventing a broker
+        // decision that has not arrived.
         readyResult_ = BorderlessCaptureAccessResult{
             BorderlessCaptureAccessStatus::Canceled,
-            FAILED(error) ? error : HRESULT_FROM_WIN32(ERROR_CANCELLED),
+            HRESULT_FROM_WIN32(ERROR_CANCELLED),
             asyncStatus,
             elapsed,
             cancelRequested_};
