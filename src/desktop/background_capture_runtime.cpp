@@ -42,6 +42,14 @@ namespace
     return bafx::windows::FxOverlayProfile::FxOnlyFallback;
 }
 
+[[nodiscard]] std::string win32Hex(const DWORD value)
+{
+    std::ostringstream stream;
+    stream << "0x" << std::hex << std::uppercase << std::setw(8)
+           << std::setfill('0') << value;
+    return stream.str();
+}
+
 [[nodiscard]] std::string backgroundCaptureCapabilitiesDiagnostic(
     const bafx::windows::CompositionRenderer& renderer)
 {
@@ -49,6 +57,20 @@ namespace
     message += renderer.backgroundCaptureBorderHidden() ? "hidden" : "visible-allowed";
     message += "; cursor=";
     message += renderer.backgroundCaptureCursorExcluded() ? "excluded" : "captured";
+    const bafx::windows::WgcProducerCadenceState producer =
+        renderer.backgroundCaptureProducerCadence();
+    message += "; producer-cadence=";
+    message += bafx::windows::wgcProducerCadenceStatusName(producer.status);
+    message += "; producer-requested-us=";
+    message += std::to_string(
+        std::chrono::duration_cast<std::chrono::microseconds>(
+            producer.requested).count());
+    message += "; producer-applied-us=";
+    message += std::to_string(
+        std::chrono::duration_cast<std::chrono::microseconds>(
+            producer.applied).count());
+    message += "; producer-result=";
+    message += win32Hex(static_cast<DWORD>(producer.result));
     return message;
 }
 
@@ -104,14 +126,6 @@ namespace
         return "start-sensor";
     }
     return "unknown";
-}
-
-[[nodiscard]] std::string win32Hex(const DWORD value)
-{
-    std::ostringstream stream;
-    stream << "0x" << std::hex << std::uppercase << std::setw(8)
-           << std::setfill('0') << value;
-    return stream.str();
 }
 
 [[nodiscard]] bafx::windows::DiagnosticLevel snapshotInvalidationLevel(

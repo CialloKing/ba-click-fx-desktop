@@ -293,6 +293,8 @@ public:
     [[nodiscard]] bool backgroundCaptureRestartAllowed() const noexcept;
     [[nodiscard]] bool backgroundCaptureBorderHidden() const noexcept;
     [[nodiscard]] bool backgroundCaptureCursorExcluded() const noexcept;
+    [[nodiscard]] WgcProducerCadenceState
+        backgroundCaptureProducerCadence() const noexcept;
     [[nodiscard]] BackgroundCadenceRefreshResult
         refreshBackgroundCadence(HMONITOR monitor) noexcept;
     [[nodiscard]] WgcBackgroundResourceLedgerSnapshot

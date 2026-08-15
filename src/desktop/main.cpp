@@ -3204,13 +3204,36 @@ int runApplication(
                 const std::string periodMicroseconds = std::to_string(
                     std::chrono::duration_cast<std::chrono::microseconds>(
                         cadence.appliedPeriod).count());
+                const std::string producerRequestedMicroseconds =
+                    std::to_string(
+                        std::chrono::duration_cast<std::chrono::microseconds>(
+                            cadence.producerCadence.requested).count());
+                const std::string producerAppliedMicroseconds =
+                    std::to_string(
+                        std::chrono::duration_cast<std::chrono::microseconds>(
+                            cadence.producerCadence.applied).count());
+                const std::string producerResult = formatHresult(
+                    cadence.producerCadence.result);
                 const std::array cadenceFields{
                     bafx::windows::DiagnosticField{
                         "Status",
                         cadenceStatusName(cadence.status)},
                     bafx::windows::DiagnosticField{
                         "AppliedPeriodUs",
-                        periodMicroseconds}};
+                        periodMicroseconds},
+                    bafx::windows::DiagnosticField{
+                        "ProducerStatus",
+                        bafx::windows::wgcProducerCadenceStatusName(
+                            cadence.producerCadence.status)},
+                    bafx::windows::DiagnosticField{
+                        "ProducerRequestedPeriodUs",
+                        producerRequestedMicroseconds},
+                    bafx::windows::DiagnosticField{
+                        "ProducerAppliedPeriodUs",
+                        producerAppliedMicroseconds},
+                    bafx::windows::DiagnosticField{
+                        "ProducerHRESULT",
+                        producerResult}};
                 bafx::windows::appendDiagnosticEvent(
                     logPath,
                     "Display.Cadence.Refreshed",

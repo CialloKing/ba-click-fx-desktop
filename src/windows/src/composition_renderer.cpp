@@ -1455,6 +1455,14 @@ bool CompositionRenderer::backgroundCaptureCursorExcluded() const noexcept
         && backgroundSensor_->capabilities().cursorExcluded;
 }
 
+WgcProducerCadenceState
+CompositionRenderer::backgroundCaptureProducerCadence() const noexcept
+{
+    return backgroundSensor_ != nullptr
+        ? backgroundSensor_->capabilities().producerCadence
+        : WgcProducerCadenceState{};
+}
+
 BackgroundCadenceRefreshResult CompositionRenderer::refreshBackgroundCadence(
     const HMONITOR monitor) noexcept
 {
