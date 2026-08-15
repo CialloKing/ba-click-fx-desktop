@@ -9,6 +9,7 @@
 #include "bafx/windows/package_identity.hpp"
 #include "bafx/windows/portable_paths.hpp"
 #include "bafx/windows/runtime_diagnostics.hpp"
+#include "bafx/windows/unique_handle.hpp"
 #include "background_capture_runtime.hpp"
 #include "frame_pacing.hpp"
 #include "host_control.hpp"
@@ -42,6 +43,7 @@ constexpr std::uint32_t maximumMessagesPerFrame = 256U;
 constexpr std::uint32_t maximumInputMessagesPerFrame = 4096U;
 constexpr auto smokeTestDeadline = std::chrono::seconds(5);
 constexpr auto performanceReportInterval = std::chrono::seconds(10);
+constexpr auto framePacingDeviceProbePeriod = std::chrono::milliseconds(250);
 constexpr DWORD activeControlPollMilliseconds = 50U;
 constexpr DWORD pausedControlPollMilliseconds = 50U;
 
@@ -53,6 +55,47 @@ constexpr DWORD pausedControlPollMilliseconds = 50U;
            << std::setfill('0')
            << static_cast<unsigned long>(result);
     return stream.str();
+}
+
+[[nodiscard]] std::string_view framePacingWakeName(
+    const bafx::desktop::FramePacingWake wake) noexcept
+{
+    switch (wake)
+    {
+    case bafx::desktop::FramePacingWake::FrameReady:
+        return "frame-ready";
+    case bafx::desktop::FramePacingWake::MessagesPending:
+        return "messages-pending";
+    case bafx::desktop::FramePacingWake::TimedOut:
+        return "timed-out";
+    case bafx::desktop::FramePacingWake::Failed:
+        return "failed";
+    }
+    return "unknown";
+}
+
+void appendFramePacingDeviceRecoveryDetection(
+    const std::filesystem::path& logPath,
+    const bafx::desktop::FramePacingWaitResult wait,
+    const HRESULT deviceResult,
+    const bafx::fx::SimulationTime stalledFor)
+{
+    const std::string wake = std::string(framePacingWakeName(wait.wake));
+    const std::string waitError = std::to_string(wait.error);
+    const std::string deviceCode = formatHresult(deviceResult);
+    const std::string stalledMicroseconds = std::to_string(
+        std::chrono::duration_cast<std::chrono::microseconds>(
+            stalledFor).count());
+    const std::array fields{
+        bafx::windows::DiagnosticField{"Wake", wake},
+        bafx::windows::DiagnosticField{"WaitError", waitError},
+        bafx::windows::DiagnosticField{"DeviceHRESULT", deviceCode},
+        bafx::windows::DiagnosticField{"StalledUs", stalledMicroseconds}};
+    bafx::windows::appendDiagnosticEvent(
+        logPath,
+        "Graphics.DeviceRecovery.FramePacingDetected",
+        fields,
+        bafx::windows::DiagnosticLevel::Warning);
 }
 
 [[nodiscard]] std::string_view backgroundCompositeStatusName(
@@ -253,6 +296,7 @@ struct RunOptions
     bool supportInfoOnly{false};
     bool smokeTest{false};
     bool recoveryProbe{false};
+    bool framePacingStallProbe{false};
     bool demoClick{false};
     bool disableRawInput{false};
     std::uint32_t demoDelayMilliseconds{0U};
@@ -317,6 +361,13 @@ struct PointerConsumptionDiagnostics
             options.demoClick = true;
             options.demoAgeMilliseconds = 130U;
             options.frameLimit = 2U;
+        }
+        else if (argument == L"--frame-pacing-stall-probe")
+        {
+            // This internal probe replaces the DXGI latency handle with a
+            // permanently unsignaled event to verify bounded Host shutdown.
+            options.framePacingStallProbe = true;
+            options.disableRawInput = true;
         }
         else if (argument == L"--support-info")
         {
@@ -820,6 +871,17 @@ int runApplication(
         window.handle(),
         window.size(),
         makeBloomSettings(config.effects));
+    bafx::windows::UniqueHandle framePacingStallHandle;
+    if (options.framePacingStallProbe)
+    {
+        framePacingStallHandle.reset(
+            CreateEventW(nullptr, TRUE, FALSE, nullptr));
+        if (framePacingStallHandle.get() == nullptr)
+        {
+            bafx::windows::throwLastError(
+                "CreateEventW(frame pacing stall probe)");
+        }
+    }
     bafx::windows::WindowSize appliedOutputSize = window.size();
     report.setDeviceInfo(renderer.deviceInfo());
     report.setExitUiStatus(window.exitUiStatus());
@@ -896,6 +958,25 @@ int runApplication(
     window.show();
 
     const bafx::fx::SimulationTime applicationStartedAt = clock.now();
+    const auto runtimeDeadlineReached =
+        [&](const bafx::fx::SimulationTime now)
+    {
+        if (options.quitAfterMilliseconds.has_value()
+            && now - applicationStartedAt
+                >= std::chrono::milliseconds(*options.quitAfterMilliseconds))
+        {
+            return true;
+        }
+        if (options.smokeTest
+            && now - applicationStartedAt >= smokeTestDeadline)
+        {
+            // The deadline must remain reachable even when DXGI never grants
+            // another frame slot or the message queue stays continuously busy.
+            throw std::runtime_error(
+                "Desktop smoke test exceeded its five-second deadline");
+        }
+        return false;
+    };
     std::optional<bafx::fx::SimulationTime> demoStartedAt;
     const auto startDemoClick =
         [&](const bafx::fx::SimulationTime time)
@@ -926,6 +1007,8 @@ int runApplication(
     bool lastPresentedDrawableContent = false;
     bool deviceRecoveryConsumed = false;
     bool recoveryProbePending = options.recoveryProbe;
+    bafx::fx::SimulationTime lastFrameReadyAt = applicationStartedAt;
+    bafx::fx::SimulationTime lastFramePacingDeviceProbeAt = applicationStartedAt;
     bafx::fx::SimulationTime performanceWindowStartedAt = applicationStartedAt;
     bafx::desktop::RuntimePerformanceWindow performanceWindow;
     std::chrono::nanoseconds previousPerformanceLogWriteCpu{};
@@ -938,6 +1021,10 @@ int runApplication(
         window.pollPointerState();
         bafx::desktop::HostStateSnapshot controlState = control.snapshot();
         if (controlState.shutdownRequested || quit || window.closeRequested())
+        {
+            break;
+        }
+        if (runtimeDeadlineReached(clock.now()))
         {
             break;
         }
@@ -1093,19 +1180,48 @@ int runApplication(
         {
             const bafx::desktop::FramePacingWaitResult pacingWait =
                 bafx::desktop::waitForFrameOpportunity(
-                    renderer.frameLatencyWaitableObject(),
+                    options.framePacingStallProbe
+                        ? framePacingStallHandle.get()
+                        : renderer.frameLatencyWaitableObject(),
                     activeControlPollMilliseconds);
             performanceWindow.addFramePacingWake(pacingWait.wake);
             switch (pacingWait.wake)
             {
             case bafx::desktop::FramePacingWake::FrameReady:
+                lastFrameReadyAt = clock.now();
                 break;
             case bafx::desktop::FramePacingWake::MessagesPending:
             case bafx::desktop::FramePacingWake::TimedOut:
+            {
+                const bafx::fx::SimulationTime waitObservedAt = clock.now();
+                if (runtimeDeadlineReached(waitObservedAt))
+                {
+                    quit = true;
+                    continue;
+                }
+                const bafx::fx::SimulationTime stalledFor =
+                    waitObservedAt - lastFrameReadyAt;
+                if (stalledFor >= framePacingDeviceProbePeriod
+                    && waitObservedAt - lastFramePacingDeviceProbeAt
+                        >= framePacingDeviceProbePeriod)
+                {
+                    lastFramePacingDeviceProbeAt = waitObservedAt;
+                    const HRESULT deviceResult = renderer.deviceRemovedReason();
+                    if (bafx::windows::isDeviceLostResult(deviceResult))
+                    {
+                        appendFramePacingDeviceRecoveryDetection(
+                            logPath,
+                            pacingWait,
+                            deviceResult,
+                            stalledFor);
+                        break;
+                    }
+                }
                 // Preserve one-shot resize/config/background invalidations
                 // until a real swap-chain slot is available.
                 renderInvalidationPending = renderInvalidated;
                 continue;
+            }
             case bafx::desktop::FramePacingWake::Failed:
             {
                 const HRESULT deviceResult = renderer.deviceRemovedReason();
@@ -1119,20 +1235,11 @@ int runApplication(
                 // A removed D3D device can invalidate the latency object before
                 // Present reports the loss. Let this exact frame reach Present
                 // so the existing bounded recovery path owns all state changes.
-                const std::string waitError = std::to_string(pacingWait.error);
-                const std::string deviceCode = formatHresult(deviceResult);
-                const std::array fields{
-                    bafx::windows::DiagnosticField{
-                        "WaitError",
-                        waitError},
-                    bafx::windows::DiagnosticField{
-                        "DeviceHRESULT",
-                        deviceCode}};
-                bafx::windows::appendDiagnosticEvent(
+                appendFramePacingDeviceRecoveryDetection(
                     logPath,
-                    "Graphics.DeviceRecovery.FramePacingDetected",
-                    fields,
-                    bafx::windows::DiagnosticLevel::Warning);
+                    pacingWait,
+                    deviceResult,
+                    clock.now() - lastFrameReadyAt);
                 break;
             }
             }
@@ -1203,16 +1310,9 @@ int runApplication(
                 renderTime,
                 pointerEvents);
         }
-        if (options.quitAfterMilliseconds.has_value()
-            && wallTime - applicationStartedAt
-                >= std::chrono::milliseconds(*options.quitAfterMilliseconds))
+        if (runtimeDeadlineReached(wallTime))
         {
             break;
-        }
-        if (options.smokeTest && wallTime - applicationStartedAt >= smokeTestDeadline)
-        {
-            // A bounded smoke test must fail instead of hanging under a noisy input source.
-            throw std::runtime_error("Desktop smoke test exceeded its five-second deadline");
         }
         if ((!controlState.paused || enteringPause) && config.effects.enabled)
         {

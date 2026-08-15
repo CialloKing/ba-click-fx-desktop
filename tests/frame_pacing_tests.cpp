@@ -26,7 +26,10 @@ public:
 
     ~EventHandle()
     {
-        CloseHandle(handle_);
+        if (handle_ != nullptr)
+        {
+            CloseHandle(handle_);
+        }
     }
 
     EventHandle(const EventHandle&) = delete;
@@ -35,6 +38,12 @@ public:
     [[nodiscard]] HANDLE get() const noexcept
     {
         return handle_;
+    }
+
+    void close() noexcept
+    {
+        CloseHandle(handle_);
+        handle_ = nullptr;
     }
 
 private:
@@ -90,4 +99,15 @@ BAFX_TEST(frame_pacing_reports_timeout_and_invalid_handle)
     const auto invalid = waitForFrameOpportunity(nullptr, 0U);
     BAFX_CHECK(invalid.wake == FramePacingWake::Failed);
     BAFX_CHECK(invalid.error == ERROR_INVALID_HANDLE);
+}
+
+BAFX_TEST(frame_pacing_preserves_the_error_from_a_closed_handle)
+{
+    EventHandle frameReady(false);
+    const HANDLE closed = frameReady.get();
+    frameReady.close();
+
+    const auto result = waitForFrameOpportunity(closed, 0U);
+    BAFX_CHECK(result.wake == FramePacingWake::Failed);
+    BAFX_CHECK(result.error == ERROR_INVALID_HANDLE);
 }

@@ -126,8 +126,18 @@ if(BUILD_TESTING AND BAFX_ENABLE_DESKTOP_SMOKE_TESTS)
         NAME desktop_device_recovery_probe
         COMMAND $<TARGET_FILE:ba_click_fx_desktop> --device-recovery-probe
     )
+    add_test(
+        NAME desktop_frame_pacing_stall
+        COMMAND
+            $<TARGET_FILE:ba_click_fx_desktop>
+            --frame-pacing-stall-probe
+            --quit-after-ms=250
+    )
     set_tests_properties(
-        desktop_smoke desktop_timed_exit desktop_device_recovery_probe
+        desktop_smoke
+        desktop_timed_exit
+        desktop_device_recovery_probe
+        desktop_frame_pacing_stall
         PROPERTIES
             LABELS "integration;desktop"
             TIMEOUT 15
