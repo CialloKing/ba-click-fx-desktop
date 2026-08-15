@@ -247,6 +247,9 @@ void appendOutputRenegotiation(
             static_cast<std::uint32_t>(result.previous.format));
         const std::string currentFormat = std::to_string(
             static_cast<std::uint32_t>(result.current.format));
+        const std::string deviceRecovered = result.deviceRecovered
+            ? "true"
+            : "false";
         const std::array fields{
             bafx::windows::DiagnosticField{"Reason", reason},
             bafx::windows::DiagnosticField{"Monitor", monitor},
@@ -269,7 +272,10 @@ void appendOutputRenegotiation(
                 outputTransferName(result.current.transfer)},
             bafx::windows::DiagnosticField{
                 "Fallback",
-                outputFallbackName(result.current.fallback)}};
+                outputFallbackName(result.current.fallback)},
+            bafx::windows::DiagnosticField{
+                "DeviceRecovered",
+                deviceRecovered}};
         bafx::windows::appendDiagnosticEvent(
             logPath,
             "Display.Output.Renegotiated",
@@ -287,7 +293,8 @@ void appendOutputRenegotiation(
     }
 }
 
-[[nodiscard]] bool tryRenegotiateOutput(
+[[nodiscard]] std::optional<bafx::windows::OutputRenegotiationResult>
+tryRenegotiateOutput(
     const std::filesystem::path& logPath,
     bafx::desktop::DisplaySession& session,
     const bafx::windows::CompositionOutputPreference preference,
@@ -298,7 +305,7 @@ void appendOutputRenegotiation(
         const bafx::windows::OutputRenegotiationResult result =
             session.renderer().renegotiateOutput(preference);
         appendOutputRenegotiation(logPath, session, reason, result);
-        return true;
+        return result;
     }
     catch (const std::exception& error)
     {
@@ -325,14 +332,14 @@ void appendOutputRenegotiation(
                 logPath,
                 "Display output renegotiation failure could not be formatted");
         }
-        return false;
+        return std::nullopt;
     }
     catch (...)
     {
         bafx::windows::appendDiagnosticLog(
             logPath,
             "Display output renegotiation failed with an unknown exception");
-        return false;
+        return std::nullopt;
     }
 }
 
@@ -1528,6 +1535,92 @@ int runApplication(
     bafx::desktop::CaptureExclusionHealthPoller
         captureExclusionHealthPoller;
     MessageDispatchDiagnostics pendingMessageDispatch{};
+    const auto renegotiateCoordinatorOutput =
+        [&](const bafx::windows::CompositionOutputPreference preference,
+            const std::string_view reason)
+    {
+        const bool backgroundCaptureWasActive =
+            renderer.backgroundCaptureActive();
+        const bafx::windows::GraphicsDeviceInfo previousDeviceInfo =
+            renderer.deviceInfo();
+        const auto result = tryRenegotiateOutput(
+            logPath,
+            displaySession,
+            preference,
+            reason);
+        if (!result.has_value())
+        {
+            return false;
+        }
+
+        report.setDeviceInfo(renderer.deviceInfo());
+        if (!result->deviceRecovered)
+        {
+            return true;
+        }
+
+        // Device recovery stops WGC and invalidates its old-device resources.
+        // Advance the request key once so the normal transaction owner either
+        // restarts capture or records an FX-only fallback on the new domain.
+        deviceRecoveryConsumed = true;
+        bafx::desktop::appendBackgroundCaptureStopDiagnostics(
+            logPath,
+            renderer,
+            "output-renegotiation-device-recovery");
+        appendDeviceRemovedNotificationStatus(
+            logPath,
+            renderer,
+            "output-renegotiation-device-recovery");
+        const bool adapterChanged =
+            previousDeviceInfo.adapterLuid.LowPart
+                != renderer.deviceInfo().adapterLuid.LowPart
+            || previousDeviceInfo.adapterLuid.HighPart
+                != renderer.deviceInfo().adapterLuid.HighPart;
+        const bool retryEligible =
+            bafx::desktop::canRetryBackgroundCaptureAfterDeviceRecovery(
+                config.background.mode
+                    == bafx::config::RenderMode::BackgroundAware,
+                backgroundCaptureWasActive,
+                adapterChanged,
+                renderer.deviceInfo().driverType,
+                renderer.backgroundCaptureRestartAllowed());
+        if (backgroundRetryToken == std::numeric_limits<std::uint64_t>::max())
+        {
+            throw std::runtime_error(
+                "WGC reconciliation token exhausted after output recovery");
+        }
+        ++backgroundRetryToken;
+        backgroundRetryPending = true;
+        backgroundCaptureEnabled = false;
+        control.setBackgroundCaptureActive(false);
+        backgroundParticipationLogged = false;
+        backgroundPendingDiagnosticLogged = false;
+
+        const std::string retryTokenText = std::to_string(
+            backgroundRetryToken);
+        const std::array fields{
+            bafx::windows::DiagnosticField{
+                "Reason",
+                reason},
+            bafx::windows::DiagnosticField{
+                "Adapter",
+                adapterChanged ? "changed" : "same"},
+            bafx::windows::DiagnosticField{
+                "WgcWasActive",
+                backgroundCaptureWasActive ? "true" : "false"},
+            bafx::windows::DiagnosticField{
+                "WgcRetryEligible",
+                retryEligible ? "true" : "false"},
+            bafx::windows::DiagnosticField{
+                "ReconcileToken",
+                retryTokenText}};
+        bafx::windows::appendDiagnosticEvent(
+            logPath,
+            "Graphics.DeviceRecovery.OutputRenegotiationSucceeded",
+            fields,
+            bafx::windows::DiagnosticLevel::Warning);
+        return true;
+    };
     const auto refreshDisplayColorState =
         [&](const std::string_view reason,
             const std::uint64_t generation,
@@ -1579,9 +1672,7 @@ int runApplication(
                 && renderer.outputPreference()
                     == bafx::windows::CompositionOutputPreference::
                         PreferLinearScRgb
-                && tryRenegotiateOutput(
-                    logPath,
-                    displaySession,
+                && renegotiateCoordinatorOutput(
                     renderer.outputPreference(),
                     reason))
             {
@@ -2207,12 +2298,17 @@ int runApplication(
                     for (const auto& ownedSession : displaySessions.sessions())
                     {
                         bafx::desktop::DisplaySession& session = *ownedSession;
-                        const bool applied = tryRenegotiateOutput(
-                            logPath,
-                            session,
-                            currentOutputPreference,
-                            "configuration");
-                        if (applied && &session == &displaySession)
+                        const bool coordinator = &session == &displaySession;
+                        const bool applied = coordinator
+                            ? renegotiateCoordinatorOutput(
+                                currentOutputPreference,
+                                "configuration")
+                            : tryRenegotiateOutput(
+                                logPath,
+                                session,
+                                currentOutputPreference,
+                                "configuration").has_value();
+                        if (applied && coordinator)
                         {
                             report.setDeviceInfo(renderer.deviceInfo());
                         }
