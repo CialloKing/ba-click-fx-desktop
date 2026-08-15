@@ -137,7 +137,8 @@ public:
     void initializeSecondaryBackgroundCapture(
         bafx::windows::BackgroundCaptureRequest request,
         std::uint64_t controlGeneration,
-        const std::filesystem::path& logPath);
+        const std::filesystem::path& logPath,
+        bool powerUnavailable);
     void updateSecondaryBackgroundCaptureRequest(
         bafx::windows::BackgroundCaptureRequest request,
         std::uint64_t controlGeneration);
@@ -151,7 +152,9 @@ public:
         handleSecondaryBorderlessAccessLost(bafx::core::MonotonicTime now);
     [[nodiscard]] bool retrySecondaryBorderlessAccess(
         std::uint64_t controlGeneration);
-    [[nodiscard]] bool recordSecondaryPowerUnavailable() noexcept;
+    [[nodiscard]] DisplaySessionBackgroundCaptureServiceResult
+        suspendSecondaryBackgroundCaptureForPower(
+            bafx::core::MonotonicTime now);
     [[nodiscard]] bool requestSecondaryPowerRecovery(
         std::uint64_t controlGeneration) noexcept;
     [[nodiscard]] bool secondaryBackgroundCaptureInitialized() const noexcept;

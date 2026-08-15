@@ -34,6 +34,7 @@ struct DisplaySessionBackgroundCaptureState final
     bool rendererRecoveryPending{false};
     bool rendererRecoveryAdapterChanged{false};
     bool rendererRecoveryBackgroundWasActive{false};
+    bool powerUnavailable{false};
     bool powerRecoveryEligible{false};
     bool powerRecoveryPending{false};
 };
@@ -342,7 +343,8 @@ DisplaySessionDeviceRecoveryResult DisplaySession::setBloomSettings(
 void DisplaySession::initializeSecondaryBackgroundCapture(
     const bafx::windows::BackgroundCaptureRequest request,
     const std::uint64_t controlGeneration,
-    const std::filesystem::path& logPath)
+    const std::filesystem::path& logPath,
+    const bool powerUnavailable)
 {
     if (secondaryBackgroundCapture_ != nullptr)
     {
@@ -354,7 +356,13 @@ void DisplaySession::initializeSecondaryBackgroundCapture(
     state->request = request;
     state->controlGeneration = controlGeneration;
     state->logPath = logPath;
-    requireStartedRequest(state->transition.beginRequest(request));
+    state->powerUnavailable = powerUnavailable;
+    state->powerRecoveryEligible = powerUnavailable && request.sensorRequired;
+    const bafx::windows::BackgroundCaptureRequestResult requestResult =
+        powerUnavailable && request.sensorRequired
+        ? state->transition.beginPowerSuspension(request)
+        : state->transition.beginRequest(request);
+    requireStartedRequest(requestResult);
     state->outcomePending = true;
     secondaryBackgroundCapture_ = std::move(state);
     static_cast<void>(serviceSecondaryBackgroundCapture(
@@ -416,9 +424,19 @@ void DisplaySession::updateSecondaryBackgroundCaptureRequest(
         state.powerRecoveryEligible = false;
         state.powerRecoveryPending = false;
     }
+    else if (state.powerUnavailable)
+    {
+        // A user-visible configuration change while the display is off is a
+        // fresh request, but its WGC producer must wait for the restore edge.
+        state.powerRecoveryEligible = true;
+    }
     state.sensorWasActiveBeforeTransaction =
         renderer_.backgroundCaptureActive();
-    requireStartedRequest(state.transition.beginRequest(request));
+    const bafx::windows::BackgroundCaptureRequestResult requestResult =
+        state.powerUnavailable && request.sensorRequired
+        ? state.transition.beginPowerSuspension(request)
+        : state.transition.beginRequest(request);
+    requireStartedRequest(requestResult);
     state.outcomePending = true;
     static_cast<void>(serviceSecondaryBackgroundCapture(
         bafx::core::MonotonicTime::zero()));
@@ -554,6 +572,15 @@ DisplaySession::serviceSecondaryBackgroundCapture(
                     continue;
                 }
             }
+        }
+
+        if (state.powerUnavailable)
+        {
+            // Pending output/color work remains queued until the display has a
+            // scan-out contract again. In particular, do not interpret the
+            // intentionally stopped producer as an unexpected session loss.
+            result.active = renderer_.backgroundCaptureActive();
+            return result;
         }
 
         if (state.pendingOutputRenegotiation.has_value())
@@ -863,7 +890,8 @@ bool DisplaySession::retrySecondaryBorderlessAccess(
 
     DisplaySessionBackgroundCaptureState& state =
         *secondaryBackgroundCapture_;
-    if (!state.request.sensorRequired
+    if (state.powerUnavailable
+        || !state.request.sensorRequired
         || state.request.allowSystemBorder
         || state.execution.transactionActive
         || state.transition.transitioning()
@@ -909,6 +937,7 @@ bool DisplaySession::requestSecondaryPowerRecovery(
     const bool eligible = state.powerRecoveryEligible;
     // A restore edge consumes the preceding unavailable edge exactly once,
     // even when policy or hardware now blocks the actual restart.
+    state.powerUnavailable = false;
     state.powerRecoveryEligible = false;
     if (!eligible
         || !state.request.sensorRequired
@@ -924,23 +953,76 @@ bool DisplaySession::requestSecondaryPowerRecovery(
     return true;
 }
 
-bool DisplaySession::recordSecondaryPowerUnavailable() noexcept
+DisplaySessionBackgroundCaptureServiceResult
+DisplaySession::suspendSecondaryBackgroundCaptureForPower(
+    const bafx::core::MonotonicTime now)
 {
+    DisplaySessionBackgroundCaptureServiceResult result{};
     if (secondaryBackgroundCapture_ == nullptr)
     {
-        return false;
+        return result;
     }
 
     DisplaySessionBackgroundCaptureState& state =
         *secondaryBackgroundCapture_;
+    state.powerUnavailable = true;
     state.powerRecoveryPending = false;
-    // Only a Sensor that is running at this owner-thread boundary belongs to
-    // the power transition. A stable FX-only terminal state must stay terminal.
-    state.powerRecoveryEligible = state.request.sensorRequired
-        && state.transition.effectivePath()
-            == bafx::windows::EffectiveBackgroundCapturePath::BackgroundAware
-        && renderer_.backgroundCaptureActive();
-    return state.powerRecoveryEligible;
+    // WGC may report its stop before WM_POWERBROADCAST is dispatched. The
+    // effective path records that this owner had committed BackgroundAware;
+    // an older terminal FX-only failure therefore remains ineligible.
+    state.powerRecoveryEligible = state.powerRecoveryEligible
+        || (state.request.sensorRequired
+            && state.transition.effectivePath()
+                == bafx::windows::EffectiveBackgroundCapturePath::BackgroundAware);
+    if (state.execution.transactionActive)
+    {
+        const BackgroundCaptureExecutionStatus canceled =
+            cancelBackgroundCaptureTransition(
+                state.transition,
+                window_,
+                renderer_,
+                *borderlessAccessAuthority_,
+                state.execution,
+                BackgroundCaptureCancelResizePolicy::Preserve,
+                "secondary-display-power-unavailable",
+                state.logPath);
+        if (canceled != BackgroundCaptureExecutionStatus::Completed)
+        {
+            throw std::logic_error(
+                "Secondary display-power cancellation remained pending");
+        }
+        acceptPendingSecondaryTargetIfApplied(state);
+        appendSecondaryBackgroundOutcome(state, renderer_);
+        result.renderInvalidated = true;
+    }
+    else if (state.transition.transitioning())
+    {
+        throw std::logic_error(
+            "Secondary display-power suspension found an unowned transition");
+    }
+
+    if (!state.request.sensorRequired)
+    {
+        result.active = renderer_.backgroundCaptureActive();
+        return result;
+    }
+
+    const bafx::windows::BackgroundCaptureRequestResult requestResult =
+        state.transition.beginPowerSuspension(state.request);
+    if (requestResult
+        == bafx::windows::BackgroundCaptureRequestResult::NoChange)
+    {
+        result.active = renderer_.backgroundCaptureActive();
+        return result;
+    }
+    requireStartedRequest(requestResult);
+    state.sensorWasActiveBeforeTransaction = false;
+    state.outcomePending = true;
+    DisplaySessionBackgroundCaptureServiceResult suspended =
+        serviceSecondaryBackgroundCapture(now);
+    suspended.renderInvalidated =
+        suspended.renderInvalidated || result.renderInvalidated;
+    return suspended;
 }
 
 bool DisplaySession::secondaryBackgroundCaptureInitialized() const noexcept

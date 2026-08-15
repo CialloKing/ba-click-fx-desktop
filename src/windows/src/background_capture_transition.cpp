@@ -141,9 +141,11 @@ BackgroundCaptureTransition::beginPowerSuspension(
 
     actionCount_ = 0U;
     actionIndex_ = 0U;
-    pendingFailure_ = sensorRestartBlocked_
-        ? BackgroundCaptureFailure::SensorStopFailed
-        : BackgroundCaptureFailure::None;
+    pendingFailure_ = stableSuspension
+        ? failure_
+        : (sensorRestartBlocked_
+            ? BackgroundCaptureFailure::SensorStopFailed
+            : BackgroundCaptureFailure::None);
     completionPath_ = EffectiveBackgroundCapturePath::FxOnly;
     completionVisibilityUnknown_ = false;
 

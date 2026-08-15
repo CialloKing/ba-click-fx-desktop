@@ -1422,7 +1422,8 @@ void applySecondaryBackgroundCaptureRequest(
     bafx::desktop::DisplaySession& coordinator,
     const bafx::windows::BackgroundCaptureRequest& request,
     const std::uint64_t controlGeneration,
-    const std::filesystem::path& logPath) noexcept
+    const std::filesystem::path& logPath,
+    const bool powerUnavailable) noexcept
 {
     for (const auto& ownedSession : sessions.sessions())
     {
@@ -1445,7 +1446,8 @@ void applySecondaryBackgroundCaptureRequest(
                 session.initializeSecondaryBackgroundCapture(
                     request,
                     controlGeneration,
-                    logPath);
+                    logPath,
+                    powerUnavailable);
             }
         }
         catch (const std::exception& error)
@@ -2261,7 +2263,8 @@ int runApplication(
         displaySession,
         bafx::desktop::backgroundCaptureRequest(config),
         control.snapshot().generation,
-        logPath);
+        logPath,
+        false);
 
     // A broker prompt may remain pending for user input. Expose the control
     // plane after the non-blocking first service step so WM_INPUT, rendering,
@@ -3162,7 +3165,8 @@ int runApplication(
                 displaySession,
                 bafx::desktop::backgroundCaptureRequest(config),
                 appliedGeneration,
-                logPath);
+                logPath,
+                displayPowerUnavailable);
 
             const bafx::desktop::DisplayTarget& requestedTarget =
                 pendingDisplayTarget.has_value()
@@ -3321,17 +3325,134 @@ int runApplication(
         }
         if (hostDisplayPowerUnavailable)
         {
-            coordinatorPowerRecoveryEligible = backgroundCaptureEnabled
-                && renderer.backgroundCaptureActive();
+            coordinatorPowerRecoveryEligible =
+                coordinatorPowerRecoveryEligible
+                || backgroundCaptureEnabled;
+            backgroundRetryPending = false;
+            bool coordinatorSuspended = false;
+            if (backgroundExecution.transactionActive)
+            {
+                const bafx::desktop::BackgroundCaptureExecutionStatus canceled =
+                    bafx::desktop::cancelBackgroundCaptureTransition(
+                        backgroundTransition,
+                        window,
+                        renderer,
+                        borderlessAccessAuthority,
+                        backgroundExecution,
+                        bafx::desktop::
+                            BackgroundCaptureCancelResizePolicy::Preserve,
+                        "display-power-unavailable",
+                        logPath);
+                if (canceled
+                    != bafx::desktop::BackgroundCaptureExecutionStatus::Completed)
+                {
+                    throw std::logic_error(
+                        "Display-power cancellation remained pending");
+                }
+                finishBackgroundCaptureTransaction(
+                    "display-power-pending-cancel");
+                coordinatorSuspended = true;
+            }
+            else if (backgroundTransition.transitioning())
+            {
+                throw std::logic_error(
+                    "Display-power suspension found an unowned transaction");
+            }
+
+            if (appliedBackgroundRequest.sensorRequired)
+            {
+                const bafx::windows::BackgroundCaptureRequestResult requestResult =
+                    backgroundTransition.beginPowerSuspension(
+                        appliedBackgroundRequest);
+                if (requestResult
+                    == bafx::windows::BackgroundCaptureRequestResult::Started)
+                {
+                    const bafx::desktop::BackgroundCaptureExecutionStatus status =
+                        bafx::desktop::executeBackgroundCaptureTransition(
+                            backgroundTransition,
+                            window,
+                            renderer,
+                            bafx::desktop::DisplayTargetIntent{
+                                appliedDisplayTarget,
+                                false},
+                            appliedGeneration,
+                            borderlessAccessAuthority,
+                            backgroundExecution,
+                            logPath);
+                    if (status
+                        != bafx::desktop::
+                            BackgroundCaptureExecutionStatus::Completed)
+                    {
+                        throw std::logic_error(
+                            "Display-power suspension unexpectedly remained pending");
+                    }
+                    finishBackgroundCaptureTransaction(
+                        "display-power-suspended");
+                    coordinatorSuspended = true;
+                }
+                else if (requestResult
+                    != bafx::windows::BackgroundCaptureRequestResult::NoChange)
+                {
+                    throw std::logic_error(
+                        "Display-power suspension request was rejected");
+                }
+            }
+
+            std::size_t secondarySuspended = 0U;
+            const bafx::fx::SimulationTime powerChangedAt = clock.now();
             for (const auto& ownedSession : displaySessions.sessions())
             {
                 bafx::desktop::DisplaySession& session = *ownedSession;
                 if (&session != &displaySession && !session.renderFaulted())
                 {
-                    static_cast<void>(
-                        session.recordSecondaryPowerUnavailable());
+                    try
+                    {
+                        const bafx::desktop::
+                            DisplaySessionBackgroundCaptureServiceResult result =
+                                session.suspendSecondaryBackgroundCaptureForPower(
+                                    powerChangedAt);
+                        appendSecondaryBackgroundCaptureServiceResult(
+                            logPath,
+                            session,
+                            result);
+                        renderInvalidated =
+                            result.renderInvalidated || renderInvalidated;
+                        ++secondarySuspended;
+                    }
+                    catch (const std::exception& error)
+                    {
+                        session.shutdownSecondaryBackgroundCapture();
+                        appendSecondaryBackgroundCaptureFailure(
+                            logPath,
+                            session,
+                            "display-power-suspend",
+                            error.what());
+                    }
+                    catch (...)
+                    {
+                        session.shutdownSecondaryBackgroundCapture();
+                        appendSecondaryBackgroundCaptureFailure(
+                            logPath,
+                            session,
+                            "display-power-suspend",
+                            "unknown exception");
+                    }
                 }
             }
+            renderInvalidated = coordinatorSuspended || renderInvalidated;
+            const std::string secondaryCount = std::to_string(
+                secondarySuspended);
+            const std::array fields{
+                bafx::windows::DiagnosticField{
+                    "Coordinator",
+                    coordinatorSuspended ? "suspended" : "unchanged"},
+                bafx::windows::DiagnosticField{
+                    "SecondaryProcessed",
+                    secondaryCount}};
+            bafx::windows::appendDiagnosticEvent(
+                logPath,
+                "WGC.DisplayPower.Suspended",
+                fields);
         }
         if (hostDisplayPowerRestored)
         {
@@ -3370,18 +3491,15 @@ int runApplication(
             }
 
             std::size_t secondaryRecoveries = 0U;
-            if (captureRequested)
+            for (const auto& ownedSession : displaySessions.sessions())
             {
-                for (const auto& ownedSession : displaySessions.sessions())
+                bafx::desktop::DisplaySession& session = *ownedSession;
+                if (&session != &displaySession
+                    && !session.renderFaulted()
+                    && session.requestSecondaryPowerRecovery(
+                        controlState.generation))
                 {
-                    bafx::desktop::DisplaySession& session = *ownedSession;
-                    if (&session != &displaySession
-                        && !session.renderFaulted()
-                        && session.requestSecondaryPowerRecovery(
-                            controlState.generation))
-                    {
-                        ++secondaryRecoveries;
-                    }
+                    ++secondaryRecoveries;
                 }
             }
 
@@ -3673,7 +3791,8 @@ int runApplication(
                     displaySession,
                     bafx::desktop::backgroundCaptureRequest(config),
                     controlState.generation,
-                    logPath);
+                    logPath,
+                    displayPowerUnavailable);
                 if (outputPreferenceChanged)
                 {
                     pendingCoordinatorOutputRenegotiation.reset();
@@ -3761,8 +3880,30 @@ int runApplication(
                     ? std::optional<bafx::windows::WindowSize>(
                         bafx::desktop::displayTargetSize(targetIntent.target))
                     : pendingOutputResize;
+            const bool explicitCaptureChangeWhilePoweredOff =
+                displayPowerUnavailable
+                && configChanged
+                && nextBackgroundRequest.sensorRequired
+                && nextBackgroundRequest != appliedBackgroundRequest;
+            if (explicitCaptureChangeWhilePoweredOff)
+            {
+                // A control-plane change is a fresh user request. Remember it
+                // for the restore edge without creating WGC against a display
+                // whose scan-out and color contract are unavailable.
+                coordinatorPowerRecoveryEligible = true;
+            }
+            else if (displayPowerUnavailable
+                && !nextBackgroundRequest.sensorRequired)
+            {
+                coordinatorPowerRecoveryEligible = false;
+            }
             const bafx::windows::BackgroundCaptureRequestResult requestResult =
-                backgroundTransition.beginIntent(
+                displayPowerUnavailable
+                    && nextBackgroundRequest.sensorRequired
+                ? backgroundTransition.beginPowerSuspension(
+                    nextBackgroundRequest,
+                    outputIntent)
+                : backgroundTransition.beginIntent(
                     nextBackgroundRequest,
                     outputIntent);
             switch (requestResult)
