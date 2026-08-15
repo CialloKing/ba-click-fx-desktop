@@ -374,6 +374,42 @@ void appendOutputRenegotiation(
     }
 }
 
+void appendOutputRenegotiationFailure(
+    const std::filesystem::path& logPath,
+    const bafx::desktop::DisplaySession& session,
+    const bafx::windows::CompositionOutputPreference preference,
+    const std::string_view reason,
+    const std::string_view message,
+    const bool deviceRecovered = false) noexcept
+{
+    try
+    {
+        const std::string monitor =
+            bafx::desktop::formatDisplayTargetMonitor(session.target());
+        const std::array fields{
+            bafx::windows::DiagnosticField{"Reason", reason},
+            bafx::windows::DiagnosticField{"Monitor", monitor},
+            bafx::windows::DiagnosticField{
+                "RequestedPreference",
+                outputPreferenceName(preference)},
+            bafx::windows::DiagnosticField{"Message", message},
+            bafx::windows::DiagnosticField{
+                "DeviceRecovered",
+                deviceRecovered ? "true" : "false"}};
+        bafx::windows::appendDiagnosticEvent(
+            logPath,
+            "Display.Output.RenegotiationFailed",
+            fields,
+            bafx::windows::DiagnosticLevel::Error);
+    }
+    catch (...)
+    {
+        bafx::windows::appendDiagnosticLog(
+            logPath,
+            "Display output renegotiation failure could not be formatted");
+    }
+}
+
 [[nodiscard]] std::optional<bafx::windows::OutputRenegotiationResult>
 tryRenegotiateOutput(
     const std::filesystem::path& logPath,
@@ -390,36 +426,22 @@ tryRenegotiateOutput(
     }
     catch (const std::exception& error)
     {
-        try
-        {
-            const std::string monitor =
-                bafx::desktop::formatDisplayTargetMonitor(session.target());
-            const std::array fields{
-                bafx::windows::DiagnosticField{"Reason", reason},
-                bafx::windows::DiagnosticField{"Monitor", monitor},
-                bafx::windows::DiagnosticField{
-                    "RequestedPreference",
-                    outputPreferenceName(preference)},
-                bafx::windows::DiagnosticField{"Message", error.what()}};
-            bafx::windows::appendDiagnosticEvent(
-                logPath,
-                "Display.Output.RenegotiationFailed",
-                fields,
-                bafx::windows::DiagnosticLevel::Error);
-        }
-        catch (...)
-        {
-            bafx::windows::appendDiagnosticLog(
-                logPath,
-                "Display output renegotiation failure could not be formatted");
-        }
+        appendOutputRenegotiationFailure(
+            logPath,
+            session,
+            preference,
+            reason,
+            error.what());
         return std::nullopt;
     }
     catch (...)
     {
-        bafx::windows::appendDiagnosticLog(
+        appendOutputRenegotiationFailure(
             logPath,
-            "Display output renegotiation failed with an unknown exception");
+            session,
+            preference,
+            reason,
+            "unknown exception");
         return std::nullopt;
     }
 }
@@ -1299,6 +1321,32 @@ void applySecondaryBackgroundCaptureRequest(
     }
 }
 
+void appendSecondaryBackgroundCaptureServiceResult(
+    const std::filesystem::path& logPath,
+    const bafx::desktop::DisplaySession& session,
+    const bafx::desktop::DisplaySessionBackgroundCaptureServiceResult& result)
+    noexcept
+{
+    if (result.outputRenegotiation.has_value())
+    {
+        appendOutputRenegotiation(
+            logPath,
+            session,
+            result.outputRenegotiationReason,
+            *result.outputRenegotiation);
+    }
+    if (!result.outputRenegotiationFailure.empty())
+    {
+        appendOutputRenegotiationFailure(
+            logPath,
+            session,
+            result.outputRenegotiationPreference,
+            result.outputRenegotiationReason,
+            result.outputRenegotiationFailure,
+            result.deviceRecovered);
+    }
+}
+
 [[nodiscard]] bool serviceSecondaryBackgroundCaptures(
     bafx::desktop::DisplaySessionManager& sessions,
     bafx::desktop::DisplaySession& coordinator,
@@ -1328,6 +1376,10 @@ void applySecondaryBackgroundCaptureRequest(
             const bafx::desktop::DisplaySessionBackgroundCaptureServiceResult
                 result = session.serviceSecondaryBackgroundCapture(now);
             renderInvalidated = result.renderInvalidated || renderInvalidated;
+            appendSecondaryBackgroundCaptureServiceResult(
+                logPath,
+                session,
+                result);
         }
         catch (const std::exception& error)
         {
@@ -1345,6 +1397,71 @@ void applySecondaryBackgroundCaptureRequest(
                 logPath,
                 session,
                 "service",
+                "unknown exception");
+        }
+    }
+    return renderInvalidated;
+}
+
+[[nodiscard]] bool maintainSecondaryBackgroundCaptures(
+    bafx::desktop::DisplaySessionManager& sessions,
+    bafx::desktop::DisplaySession& coordinator,
+    const std::span<bafx::desktop::DisplaySession*> readySessions,
+    const bafx::core::MonotonicTime now,
+    const std::filesystem::path& logPath) noexcept
+{
+    bool renderInvalidated = false;
+    for (const auto& ownedSession : sessions.sessions())
+    {
+        bafx::desktop::DisplaySession& session = *ownedSession;
+        if (&session == &coordinator
+            || session.renderFaulted()
+            || !session.secondaryBackgroundCaptureInitialized()
+            || std::find(
+                readySessions.begin(),
+                readySessions.end(),
+                &session) != readySessions.end())
+        {
+            continue;
+        }
+
+        try
+        {
+            if (session.secondaryBackgroundCaptureActive())
+            {
+                // A WGC callback does not grant a swap-chain slot. Keep only
+                // the newest owned sample so a faster capture source cannot
+                // accumulate work behind a slower secondary Present cadence.
+                const bafx::windows::BackgroundSensorMaintenanceDiagnostics
+                    maintenance =
+                        session.renderer().serviceBackgroundCapture(now);
+                renderInvalidated = maintenance.wgc.accepted
+                    || renderInvalidated;
+            }
+            const bafx::desktop::DisplaySessionBackgroundCaptureServiceResult
+                result = session.serviceSecondaryBackgroundCapture(now);
+            renderInvalidated = result.renderInvalidated || renderInvalidated;
+            appendSecondaryBackgroundCaptureServiceResult(
+                logPath,
+                session,
+                result);
+        }
+        catch (const std::exception& error)
+        {
+            session.shutdownSecondaryBackgroundCapture();
+            appendSecondaryBackgroundCaptureFailure(
+                logPath,
+                session,
+                "maintenance",
+                error.what());
+        }
+        catch (...)
+        {
+            session.shutdownSecondaryBackgroundCapture();
+            appendSecondaryBackgroundCaptureFailure(
+                logPath,
+                session,
+                "maintenance",
                 "unknown exception");
         }
     }
@@ -2638,6 +2755,12 @@ int runApplication(
                             error.what());
                     }
                 }
+                applySecondaryBackgroundCaptureRequest(
+                    displaySessions,
+                    displaySession,
+                    bafx::desktop::backgroundCaptureRequest(config),
+                    controlState.generation,
+                    logPath);
                 if (outputPreferenceChanged)
                 {
                     pendingCoordinatorOutputRenegotiation.reset();
@@ -2645,27 +2768,71 @@ int runApplication(
                     {
                         bafx::desktop::DisplaySession& session = *ownedSession;
                         const bool coordinator = &session == &displaySession;
-                        const bool applied = coordinator
-                            ? renegotiateCoordinatorOutput(
+                        bool applied = false;
+                        if (coordinator)
+                        {
+                            applied = renegotiateCoordinatorOutput(
                                 currentOutputPreference,
-                                "configuration")
-                            : tryRenegotiateOutput(
+                                "configuration");
+                        }
+                        else if (session.secondaryBackgroundCaptureInitialized())
+                        {
+                            try
+                            {
+                                // The session service stops only this WGC
+                                // producer before replacing output resources,
+                                // then owns its restart or FX-only fallback.
+                                session.requestSecondaryOutputRenegotiation(
+                                    currentOutputPreference,
+                                    "configuration");
+                                applied = true;
+                            }
+                            catch (const std::exception& error)
+                            {
+                                session.shutdownSecondaryBackgroundCapture();
+                                appendSecondaryBackgroundCaptureFailure(
+                                    logPath,
+                                    session,
+                                    "queue-output-renegotiation",
+                                    error.what());
+                                applied = tryRenegotiateOutput(
+                                    logPath,
+                                    session,
+                                    currentOutputPreference,
+                                    "configuration-fx-only").has_value();
+                            }
+                            catch (...)
+                            {
+                                session.shutdownSecondaryBackgroundCapture();
+                                appendSecondaryBackgroundCaptureFailure(
+                                    logPath,
+                                    session,
+                                    "queue-output-renegotiation",
+                                    "unknown exception");
+                                applied = tryRenegotiateOutput(
+                                    logPath,
+                                    session,
+                                    currentOutputPreference,
+                                    "configuration-fx-only").has_value();
+                            }
+                        }
+                        else
+                        {
+                            // Capture initialization can fail independently.
+                            // The surviving FX-only surface must still honor
+                            // an explicit HDR/SDR output preference change.
+                            applied = tryRenegotiateOutput(
                                 logPath,
                                 session,
                                 currentOutputPreference,
-                                "configuration").has_value();
+                                "configuration-fx-only").has_value();
+                        }
                         if (applied && coordinator)
                         {
                             report.setDeviceInfo(renderer.deviceInfo());
                         }
                     }
                 }
-                applySecondaryBackgroundCaptureRequest(
-                    displaySessions,
-                    displaySession,
-                    bafx::desktop::backgroundCaptureRequest(config),
-                    controlState.generation,
-                    logPath);
             }
             const bafx::windows::BackgroundCaptureRequest nextBackgroundRequest =
                 bafx::desktop::backgroundCaptureRequest(
@@ -2970,8 +3137,17 @@ int runApplication(
                     }
                 }
                 // Preserve one-shot resize/config/background invalidations
-                // until a real swap-chain slot is available.
-                renderInvalidationPending = renderInvalidated;
+                // until a real swap-chain slot is available. WGC callbacks do
+                // not grant Present permission, but their producer queues must
+                // still be collapsed while every swap chain is back-pressured.
+                renderInvalidationPending =
+                    maintainSecondaryBackgroundCaptures(
+                        displaySessions,
+                        displaySession,
+                        readyDisplaySessions,
+                        waitObservedAt,
+                        logPath)
+                    || renderInvalidated;
                 continue;
             }
             case bafx::desktop::FramePacingWake::Failed:
@@ -3069,6 +3245,19 @@ int runApplication(
         pendingMessageDispatch = MessageDispatchDiagnostics{};
 
         const bafx::fx::SimulationTime wallTime = clock.now();
+        if (!shouldRender)
+        {
+            // The vector is populated only inside the pacing branch. Do not
+            // mistake a previous iteration's slot for current Present access.
+            readyDisplaySessions.clear();
+        }
+        renderInvalidationPending = maintainSecondaryBackgroundCaptures(
+            displaySessions,
+            displaySession,
+            readyDisplaySessions,
+            wallTime,
+            logPath)
+            || renderInvalidationPending;
         if (options.demoClick
             && !demoStartedAt.has_value()
             && wallTime - applicationStartedAt
@@ -3859,7 +4048,7 @@ int runApplication(
             performanceWindowStartedAt = clock.now();
         }
 
-        if (controlState.paused)
+        if (controlState.paused && !renderInvalidationPending)
         {
             // Pause freezes authored simulation state, not the desktop beneath
             // it. A visible retained effect must follow WGC frame events so its
@@ -3878,7 +4067,7 @@ int runApplication(
                 if (deviceRemoved != nullptr)
                 {
                     // Device loss invalidates a complete resource domain, so
-                    // keep all device events ahead of the coordinator WGC event.
+                    // keep every device event ahead of all WGC frame events.
                     pausedWaitables.push_back(
                         bafx::desktop::PausedWaitable{
                             deviceRemoved,
@@ -3886,17 +4075,27 @@ int runApplication(
                             index});
                 }
             }
-            const HANDLE backgroundWaitable = lastPresentedDrawableContent
-                ? renderer.backgroundFrameAvailableObject()
-                : nullptr;
-            if (backgroundWaitable != nullptr)
+            for (std::size_t index = 0U; index < ownedSessions.size(); ++index)
             {
-                pausedWaitables.push_back(
-                    bafx::desktop::PausedWaitable{
-                        backgroundWaitable,
-                        bafx::desktop::PausedWaitableKind::
-                            BackgroundFrameReady,
-                        0U});
+                bafx::desktop::DisplaySession& session = *ownedSessions[index];
+                if (&session != &displaySession && session.renderFaulted())
+                {
+                    continue;
+                }
+                const HANDLE backgroundWaitable = &session == &displaySession
+                    ? (lastPresentedDrawableContent
+                        ? renderer.backgroundFrameAvailableObject()
+                        : nullptr)
+                    : session.secondaryBackgroundFrameAvailableObject();
+                if (backgroundWaitable != nullptr)
+                {
+                    pausedWaitables.push_back(
+                        bafx::desktop::PausedWaitable{
+                            backgroundWaitable,
+                            bafx::desktop::PausedWaitableKind::
+                                BackgroundFrameReady,
+                            index});
+                }
             }
             const bafx::desktop::PausedWaitResult pausedWait =
                 bafx::desktop::waitForAnyPausedInvalidation(
@@ -3913,6 +4112,11 @@ int runApplication(
                 renderInvalidationPending = true;
                 break;
             case bafx::desktop::PausedWaitWake::BackgroundFrameReady:
+                if (pausedWait.token >= ownedSessions.size())
+                {
+                    throw std::logic_error(
+                        "Paused WGC wait returned an unknown display token");
+                }
                 renderInvalidationPending = true;
                 break;
             case bafx::desktop::PausedWaitWake::MessagesPending:
