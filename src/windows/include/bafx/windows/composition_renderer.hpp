@@ -260,6 +260,7 @@ public:
     [[nodiscard]] std::string_view deviceRecoveryFailure() const noexcept;
     [[nodiscard]] DeviceRecoveryDiagnostics
         deviceRecoveryDiagnostics() const noexcept;
+    [[nodiscard]] bool deviceRecoveryBudgetConsumed() const noexcept;
     [[nodiscard]] bool setBloomSettings(FxBloomSettings settings);
     void setOverlayProfile(FxOverlayProfile profile);
     CompositionFrameDiagnostics renderFrame(

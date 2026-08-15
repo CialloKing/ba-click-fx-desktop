@@ -807,6 +807,11 @@ CompositionRenderer::deviceRecoveryDiagnostics() const noexcept
     return deviceRecoveryDiagnostics_;
 }
 
+bool CompositionRenderer::deviceRecoveryBudgetConsumed() const noexcept
+{
+    return deviceRecoveryAttempted_;
+}
+
 OutputResizeStatus CompositionRenderer::resizeOutput(const WindowSize size)
 {
     if (size.width == 0U || size.height == 0U
