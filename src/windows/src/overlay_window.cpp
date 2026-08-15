@@ -26,6 +26,10 @@ constexpr int fallbackExitHotKeyIdentifier = 0xBAF1;
 constexpr UINT notificationIconIdentifier = 0xBAF2U;
 constexpr UINT notificationExitCommandIdentifier = 0xBAF3U;
 constexpr UINT notificationIconMessage = WM_APP + 1U;
+// WM_COLORSPACECHANGE is a stable Windows message ABI that may be absent from
+// an older build SDK. The runtime still delivers 0x032D when its output color
+// contract changes, so every build must keep this fallback listener.
+constexpr UINT colorSpaceChangeMessage = 0x032DU;
 constexpr std::size_t maximumPendingPointerEvents = 2048U;
 constexpr std::size_t pointerEventCompactionThreshold = 256U;
 // WDA_EXCLUDEFROMCAPTURE was added after the original Windows 10 SDK. Its
@@ -812,10 +816,11 @@ LRESULT OverlayWindow::handleMessage(
         }
         return DefWindowProcW(window_, message, wParam, lParam);
 
+    case colorSpaceChangeMessage:
     case WM_SETTINGCHANGE:
         // Advanced Color/HDR changes are not guaranteed to alter rcMonitor.
-        // Querying on the owner thread is cheap and also covers legacy systems
-        // where DisplayInformation monitor interop is unavailable.
+        // The system messages also cover runtimes where per-monitor
+        // DisplayInformation interop is unavailable.
         displayColorChangePending_ = true;
         return DefWindowProcW(window_, message, wParam, lParam);
 
