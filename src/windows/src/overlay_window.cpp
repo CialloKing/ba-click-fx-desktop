@@ -100,7 +100,7 @@ std::vector<PointerEvent> compactPointerEventBacklog(
 }
 
 PointerFrameSnapshot PointerFrameAdapter::consume(
-    const std::vector<PointerEvent>& events)
+    const std::span<const PointerEvent> events)
 {
     PointerFrameSnapshot frame{};
     frame.heldBefore = held_;

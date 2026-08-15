@@ -5,6 +5,7 @@
 
 #include <cstdint>
 #include <optional>
+#include <span>
 #include <string_view>
 #include <vector>
 
@@ -151,7 +152,7 @@ class PointerFrameAdapter final
 {
 public:
     [[nodiscard]] PointerFrameSnapshot consume(
-        const std::vector<PointerEvent>& events);
+        std::span<const PointerEvent> events);
 
     [[nodiscard]] bool held() const noexcept;
 
