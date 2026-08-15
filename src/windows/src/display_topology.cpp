@@ -76,9 +76,12 @@ struct MonitorEnumeration
 [[nodiscard]] DisplayRefreshRate captureCadenceRefreshRate(
     const DisplayPhysicalTarget& target) noexcept
 {
-    if (target.dynamicRefreshRateBoosted
-        && target.physicalRefreshRate.has_value())
+    if (target.physicalRefreshRate.has_value()
+        && (target.dynamicRefreshRateBoosted
+            || !validRefreshRate(target.refreshRate)))
     {
+        // A 0/0 virtual rate delegates selection to Windows. The target mode
+        // is still an actionable upper-bound cadence for capture freshness.
         return *target.physicalRefreshRate;
     }
     return target.refreshRate;
