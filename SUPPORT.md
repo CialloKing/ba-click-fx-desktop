@@ -73,10 +73,14 @@
 - WGC 只由 `background-aware` 模式使用。portable EXE 没有 package identity，也不会自行声明
   `graphicsCaptureWithoutBorder` capability。新配置默认允许 Windows 显示捕获边框；可见边框状态记录为
   `system-border=visible-allowed`。用户可在 Control Center 中取消勾选“允许黄色捕获边框”；关闭后会在
-  `StartCapture` 前确认无边框会话，接口缺失、权限不足或系统仍要求边框时直接报告
+  任何 stop、WDA/profile 变更或 `StartCapture` 前确认无边框会话。权限请求按帧非阻塞轮询，默认用户
+  提示截止时间为 `120 s`；等待期间 Host 继续处理输入、渲染、IPC 和退出。接口缺失、权限不足、超时
+  或系统仍要求边框时直接报告
   `Support.WGC=fallback-fx-only`，并把当前渲染批次回退到内部 FX-only transport，不会先启动带黄色
   边框的会话。每次权限结论由 `WGC.BorderlessAccess.Checked` 结构化记录控制代次、事务动作序号、
-  `AllowSystemBorder`、状态、HRESULT 和 Allowed；portable 身份的预期拒绝状态是 `not-packaged`，不能与
+  `AllowSystemBorder`、状态、HRESULT、`AsyncStatus`、`ElapsedMs`、`CancelRequested` 和 Allowed；配置、
+  resize、device recovery 或退出覆盖等待请求时，`BackgroundCapture.Transaction.Cancel` 记录旧控制代次、
+  动作序号和原因，终态与回滚各只记录一次。portable 身份的预期拒绝状态是 `not-packaged`，不能与
   packaged 用户/系统拒绝混为一谈。切换到 `recording-compatible` 或 `light-background` 会关闭 WGC。日志中的
   `BackgroundComposite.Participated` 才是背景样本进入最终 pass 的结构化判据；它记录已应用控制代次、
   成功 Present 的帧号以及 WGC/快照 epoch/generation。旧文本

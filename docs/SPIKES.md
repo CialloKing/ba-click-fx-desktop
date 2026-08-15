@@ -213,6 +213,9 @@ python -B tools\verify-wgc-self-exclusion-spike.py `
   `DeniedByUser`/`DeniedBySystem`，也不证明无边框成功、外部录屏、显示器关闭、长期压力/功耗、HDR、
   多显示器或真实 device lost/reset。因此完整 SPK-002 继续为 `Not Run`，
   ADR-003/ADR-004/ADR-007 继续为 `Proposed`。
+- 上述归档固定在 capture commit `85c1e9b`，不能证明当前 HEAD 的跨帧授权实现。当前实现已将权限请求移到
+  stop/WDA/profile 之前并移除同步 `100 ms` 等待；正式关闭当前 portable 单元格前仍需按相同硬件场景重跑
+  collector，packaged 允许/拒绝单元格继续独立保持 `Not Run`。
 
 ## SPK-003 / Spike C：Color/HDR 输出
 

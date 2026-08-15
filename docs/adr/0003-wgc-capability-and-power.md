@@ -40,6 +40,11 @@ portable Win32 EXE 不具备 MSIX package identity，也不能通过外部清单
 独立能力探测；请求排除时若无法确认则关闭该捕获会话并使用同一回退。
 `Support.WGC=fallback-fx-only` 只表示捕获会话未能安全启动，不是 Host 启动失败。
 
+授权请求不得同步等待 owner 线程。它作为 stop、WDA/profile 和 Session/FramePool 创建之前的独立事务
+动作跨帧轮询，使用 `120 s` 有限截止时间；Pending 保持现有 capture/effective path，Host 继续处理输入、
+呈现、IPC 和退出。配置、resize、device recovery 或 shutdown 覆盖请求时，所有者显式取消并用原控制
+代次记录终态，随后只执行一次 FX-only 回滚。
+
 背景合成只接受带有效时间戳、尺寸和自排除合同的帧；首个进入最终 pass 的样本会写入
 `WGC background sample entered the final desktop composite`，以便区分会话启动和实际参与。
 

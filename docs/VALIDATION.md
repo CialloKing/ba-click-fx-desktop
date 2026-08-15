@@ -20,6 +20,9 @@
   included/FX-only 回退；背景快照失效单槽邮箱必须保留首个未消费原因和完整身份；
 - `allowSystemBorder` 必须进入 capture request identity；`true -> false/Start 失败 -> true` 往返应执行
   完整 stop/fallback/restart 动作，普通 Start 失败不得错误触发 sticky 重启阻断；
+- 无边框授权是资源动作前的独立 `RequestBorderlessAccess`。`Pending` 不推进动作、不消耗固定 action
+  budget，并保持原 effective path；拒绝、超时或所有者取消只生成一次 FX-only 回滚，含 resize 的最长
+  成功/失败序列不得超过 8 个动作；
 - ROI alignment/guard；
 - finite sanitize、component-wise non-negative 与 isotonic test vectors；
 - fixed-step simulation 和 deterministic random；
@@ -52,8 +55,10 @@
   错误锁存，以及已确认 device-lost 到一次性 render/Present 恢复边界的路由；通知不可用时保留连续
   timeout 轮询，`desktop_frame_pacing_stall` 必须在自身截止时间内退出；
 - WGC session state machine，以及渲染阶段真实 stop 诊断跨无 sensor 清理动作的一次性交接；
-- 无边框权限预检必须在创建新 Session/FramePool 前完成，并以 `WGC.BorderlessAccess.Checked` 记录
-  `Control.Generation`、事务动作序号、`AllowSystemBorder`、状态、HRESULT 和 Allowed；拒绝后必须恢复
+- 无边框权限预检必须在 stop、WDA/profile 变更和新 Session/FramePool 之前开始；等待期间 Host 继续
+  消费消息、Raw Input、呈现和 IPC。`WGC.BorderlessAccess.Checked` 记录原始 `Control.Generation`、事务
+  动作序号、`AllowSystemBorder`、状态、HRESULT、`AsyncStatus`、`ElapsedMs`、`CancelRequested` 和
+  Allowed；配置变化、resize、device recovery 或退出必须显式取消旧请求并只回滚一次。拒绝后必须恢复
   `WDA_NONE`、保持请求模式为 `background-aware`、实际路径回退 FX-only，合法请求变化后仍可恢复 WGC；
 - 可见内容每帧 drain；暂停或空闲时的 sensor-only maintenance 只规定最高 `20 Hz`，不要求每秒精确
   20 次，且不得创建批次快照、执行 Bloom/Present 或计作呈现帧；
