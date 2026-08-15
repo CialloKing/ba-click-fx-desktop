@@ -1913,6 +1913,9 @@ int runApplication(
             if (pendingDisplayTarget.has_value()
                 && bafx::desktop::sameDisplayTarget(
                     *pendingDisplayTarget,
+                    appliedDisplayTarget)
+                && bafx::desktop::sameDisplaySourceIdentity(
+                    *pendingDisplayTarget,
                     appliedDisplayTarget))
             {
                 pendingDisplayTarget.reset();
@@ -2268,9 +2271,12 @@ int runApplication(
         {
             const bool displayTargetSupersedesTransaction =
                 pendingDisplayTarget.has_value()
-                && !bafx::desktop::sameDisplayTarget(
-                    *pendingDisplayTarget,
-                    backgroundExecution.targetIntent.target);
+                && (!bafx::desktop::sameDisplayTarget(
+                        *pendingDisplayTarget,
+                        backgroundExecution.targetIntent.target)
+                    || !bafx::desktop::sameDisplaySourceIdentity(
+                        *pendingDisplayTarget,
+                        backgroundExecution.targetIntent.target));
             bafx::desktop::BackgroundCaptureExecutionStatus executionStatus =
                 bafx::desktop::BackgroundCaptureExecutionStatus::Pending;
             if (configChanged
@@ -2335,9 +2341,12 @@ int runApplication(
                 || renderInvalidated;
         }
         const bool displayTargetChanged = pendingDisplayTarget.has_value()
-            && !bafx::desktop::sameDisplayTarget(
-                *pendingDisplayTarget,
-                appliedDisplayTarget);
+            && (!bafx::desktop::sameDisplayTarget(
+                    *pendingDisplayTarget,
+                    appliedDisplayTarget)
+                || !bafx::desktop::sameDisplaySourceIdentity(
+                    *pendingDisplayTarget,
+                    appliedDisplayTarget));
         if (configChanged
             || pendingOutputResize.has_value()
             || displayTargetChanged
