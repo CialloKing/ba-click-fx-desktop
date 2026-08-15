@@ -268,14 +268,15 @@ python -B tools\verify-wgc-self-exclusion-spike.py `
   返回后汇总各阶段与总耗时；渲染阶段的真实 stop 不会被随后无 sensor 清理覆盖，延后交接时记录
   `DeferredReport=true`。当前机器的正常 WGC 会话已产生
   `SensorPresent=true;Completed=true;DeferredReport=false` 的完整汇总记录；阶段异常继续清理、线程一致性和
-  双 stop 交接由单元测试覆盖。生产 watchdog 在 stop 开始前启动，默认 `10 s` 截止；超时会以退出码 `124`
-  强制结束 Host，最后一个 `StageState=begin` 用于定位阻塞调用。它不取消同步 Close，也不在旧 Session 状态
-  未知时继续执行 `WDA_NONE`。
+  双 stop 交接由单元测试覆盖。生产 watchdog 在 stop 开始前启动，默认 `10 s` 截止；独立子进程探针验证
+  默认终止处理器会产生精确退出码 `124`。超时不会继续执行 `WDA_NONE`；只有已写入的四个阶段级
+  `StageState=begin` 能定位具体阻塞调用，`Stop/begin` 只表示 watchdog 已启动。该边界不会取消同步 Close。
 - 当前机器已观察到通知注册及主动资源重建后的重新注册，但该探针没有制造真实 GPU reset，也没有覆盖
   WGC Session/FramePool 在 device-lost 中的系统级行为；
   因此本 Spike 的真实 device lost、跨适配器、热插拔和多显示器单元格仍为 `Not Run`，不能据此发布
-  完整硬件支持声明。frame-latency 恢复分支和 WGC stop 进程级硬截止已有模拟覆盖，但同步 WGC stop 在
-  device-lost 下实际会停在哪一阶段以及系统资源状态仍无真实故障证据。
+  完整硬件支持声明。frame-latency 恢复分支已有模拟覆盖，WGC stop 的生产终止处理器已有独立子进程覆盖，
+  但同步 WGC stop 在 device-lost 下是否触发退出码 `124`、实际会停在哪一阶段以及系统资源状态仍无真实
+  故障证据。
 
 ## 状态模板
 

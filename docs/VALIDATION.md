@@ -16,9 +16,9 @@
 
 - intensity 语义与 output policy；
 - background binary validity、路径单向锁存、饱和时间差与边界；
-- WGC stop 四阶段调用前后事件、异常后继续清理、owner/caller 线程一致性、`OverallSucceeded`、失败后的
-  sticky 重启阻断、retry token 不可绕过，以及 included/FX-only 回退；背景快照失效单槽邮箱必须保留
-  首个未消费原因和完整身份；
+- WGC stop 四阶段调用前后事件、能够返回的异常继续清理、owner/caller 线程一致性、`OverallSucceeded`、
+  失败后的 sticky 重启阻断、retry token 不可绕过，以及 included/FX-only 回退；watchdog 可注入处理器覆盖
+  arm/disarm、单次触发与重新启动；背景快照失效单槽邮箱必须保留首个未消费原因和完整身份；
 - `allowSystemBorder` 必须进入 capture request identity；`true -> false/Start 失败 -> true` 往返应执行
   完整 stop/fallback/restart 动作，普通 Start 失败不得错误触发 sticky 重启阻断；
 - 无边框授权是资源动作前的独立 `RequestBorderlessAccess`。`Pending` 不推进动作、不消耗固定 action
@@ -58,8 +58,9 @@
   timeout 轮询，`desktop_frame_pacing_stall` 必须在自身截止时间内退出；
 - WGC session state machine、每个不可取消 stop 调用前可独立观察的阶段检查点，以及渲染阶段真实 stop
   诊断跨无 sensor 清理动作的一次性交接；生产 watchdog 必须在 stop 首条日志前启动，正常完成时撤销，
-  默认 `10 s` 到期时调用进程终止处理器。可注入处理器覆盖撤销、单次触发与重新启动；检查点和 watchdog
-  只能定位并界定阻塞，不作为 WinRT Close 可取消或真实 device-lost 已通过的证据；
+  默认 `10 s` 到期时调用进程终止处理器。独立子进程探针必须通过生产默认处理器以精确退出码 `124` 结束；
+  超时不再继续 WDA/profile 动作。只有已成功写入的四个阶段级 `begin` 能定位具体阻塞调用，`Stop/begin`
+  只证明 watchdog 已启动；这些证据不表示 WinRT Close 可取消或真实 device-lost 已通过；
 - 无边框权限预检必须在 stop、WDA/profile 变更和新 Session/FramePool 之前开始；等待期间 Host 继续
   消费消息、Raw Input、呈现和 IPC。`WGC.BorderlessAccess.Checked` 记录原始 `Control.Generation`、事务
   动作序号、`AllowSystemBorder`、状态、HRESULT、`AsyncStatus`、`ElapsedMs`、`CancelRequested` 和
@@ -76,6 +77,8 @@
 
 - 四个 Spike；
 - portable `not-packaged`、packaged 权限拒绝和无边框成功必须作为三个独立单元格记录，不能互相替代；
+- 真实 device-lost 下 WGC stop 的阻塞阶段、退出码 `124` 和重启恢复必须作为独立单元格；当前保持
+  `Not Run`，不能用子进程终止探针代替；
 - Unity Golden 时间序列；
 - SDR/HDR 与混合刷新率矩阵；
 - 外部录屏观察。

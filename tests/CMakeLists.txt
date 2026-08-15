@@ -271,6 +271,37 @@ if(WIN32)
     )
 
     add_executable(
+        bafx_background_capture_stop_watchdog_probe
+        background_capture_stop_watchdog_process_probe.cpp
+    )
+    target_link_libraries(
+        bafx_background_capture_stop_watchdog_probe
+        PRIVATE
+            bafx::desktop_input
+    )
+    target_compile_features(
+        bafx_background_capture_stop_watchdog_probe
+        PRIVATE
+            cxx_std_20
+    )
+    bafx_enable_warnings(bafx_background_capture_stop_watchdog_probe)
+    add_test(
+        NAME background_capture_stop_watchdog_termination
+        COMMAND $<TARGET_FILE:bafx_background_capture_stop_watchdog_probe>
+    )
+    set_tests_properties(
+        background_capture_stop_watchdog_termination
+        PROPERTIES
+            LABELS "desktop;process-boundary"
+            TIMEOUT 10
+    )
+    set_target_properties(
+        bafx_background_capture_stop_watchdog_probe
+        PROPERTIES
+            FOLDER "Tests"
+    )
+
+    add_executable(
         bafx_host_control_tests
         test_main.cpp
         host_control_tests.cpp
