@@ -254,6 +254,13 @@ BackgroundCaptureExecutionResult executeBackgroundCaptureTransition(
         std::chrono::duration_cast<std::chrono::microseconds>(
             std::chrono::steady_clock::now() - transactionStartedAt).count());
     bafx::windows::appendDiagnosticLog(logPath, completion);
+    // Keep cumulative WGC ownership evidence beside every transaction.  A
+    // failed stop/recreate can otherwise look successful after the sensor
+    // pointer is released while an old WinRT resource is still live.
+    bafx::windows::appendDiagnosticLog(
+        logPath,
+        bafx::windows::wgcBackgroundResourceLedgerDiagnostic(
+            renderer.backgroundResourceLedger()));
     return result;
 }
 

@@ -11,6 +11,7 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <string>
 
 namespace bafx::windows
 {
@@ -37,6 +38,12 @@ struct WgcBackgroundResourceLedgerSnapshot
 
     [[nodiscard]] bool allReleased() const noexcept;
 };
+
+// Keep the production lifecycle evidence in the same stable key/value form
+// as the support log.  The formatter is also used by offline tests so a
+// future resource can not silently disappear from diagnostics.
+[[nodiscard]] std::string wgcBackgroundResourceLedgerDiagnostic(
+    const WgcBackgroundResourceLedgerSnapshot& snapshot);
 
 class WgcBackgroundResourceLedger final
 {

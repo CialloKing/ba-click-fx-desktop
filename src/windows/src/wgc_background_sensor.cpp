@@ -17,7 +17,9 @@
 #include <chrono>
 #include <limits>
 #include <memory>
+#include <sstream>
 #include <stdexcept>
+#include <string>
 #include <utility>
 
 namespace bafx::windows
@@ -186,6 +188,36 @@ bool WgcBackgroundResourceLedgerSnapshot::allReleased() const noexcept
         && liveSessions == 0U
         && liveFrameArrivedRegistrations == 0U
         && liveItemClosedRegistrations == 0U;
+}
+
+std::string wgcBackgroundResourceLedgerDiagnostic(
+    const WgcBackgroundResourceLedgerSnapshot& snapshot)
+{
+    std::ostringstream stream;
+    stream << "WGC.ResourceLedger.FramesAcquired=" << snapshot.framesAcquired
+           << ";FramesClosed=" << snapshot.framesClosed
+           << ";FramePoolsCreated=" << snapshot.framePoolsCreated
+           << ";FramePoolsClosed=" << snapshot.framePoolsClosed
+           << ";FramePoolsRecreated=" << snapshot.framePoolsRecreated
+           << ";SessionsCreated=" << snapshot.sessionsCreated
+           << ";SessionsClosed=" << snapshot.sessionsClosed
+           << ";FrameArrivedRegistrations="
+           << snapshot.frameArrivedRegistrations
+           << ";FrameArrivedUnregistrations="
+           << snapshot.frameArrivedUnregistrations
+           << ";ItemClosedRegistrations=" << snapshot.itemClosedRegistrations
+           << ";ItemClosedUnregistrations="
+           << snapshot.itemClosedUnregistrations
+           << ";LiveFrames=" << snapshot.liveFrames
+           << ";LiveFramePools=" << snapshot.liveFramePools
+           << ";LiveSessions=" << snapshot.liveSessions
+           << ";LiveFrameArrivedRegistrations="
+           << snapshot.liveFrameArrivedRegistrations
+           << ";LiveItemClosedRegistrations="
+           << snapshot.liveItemClosedRegistrations
+           << ";Failures=" << snapshot.failures
+           << ";AllReleased=" << (snapshot.allReleased() ? "true" : "false");
+    return stream.str();
 }
 
 WgcBackgroundResourceLedgerSnapshot

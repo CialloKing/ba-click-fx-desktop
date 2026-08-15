@@ -174,6 +174,8 @@ public:
     [[nodiscard]] bool backgroundCaptureActive() const noexcept;
     [[nodiscard]] bool backgroundCaptureBorderHidden() const noexcept;
     [[nodiscard]] bool backgroundCaptureCursorExcluded() const noexcept;
+    [[nodiscard]] WgcBackgroundResourceLedgerSnapshot
+        backgroundResourceLedger() const noexcept;
     [[nodiscard]] bool backgroundParticipatedInLastFrame() const noexcept;
     [[nodiscard]] BackgroundCompositeStatus backgroundCompositeStatus() const noexcept;
     [[nodiscard]] std::string_view backgroundCaptureFailure() const noexcept;
@@ -245,6 +247,7 @@ private:
     FxBloomSettings bloomSettings_{};
     std::optional<bafx::core::RectI> previousVisualBounds_{};
     WindowSize size_{};
+    std::shared_ptr<WgcBackgroundResourceLedger> backgroundResourceLedger_{};
     std::uint64_t frameId_{0U};
 };
 

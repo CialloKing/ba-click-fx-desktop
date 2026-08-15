@@ -323,7 +323,10 @@ CompositionRenderer::CompositionRenderer(
     const HWND window,
     const WindowSize size,
     const FxBloomSettings bloomSettings)
-    : bloomSettings_(bloomSettings), size_(size)
+    : bloomSettings_(bloomSettings)
+    , size_(size)
+    , backgroundResourceLedger_(
+          std::make_shared<WgcBackgroundResourceLedger>())
 {
     createDevice();
     createSwapChain(size);
@@ -824,6 +827,14 @@ bool CompositionRenderer::backgroundCaptureCursorExcluded() const noexcept
         && backgroundSensor_->capabilities().cursorExcluded;
 }
 
+WgcBackgroundResourceLedgerSnapshot
+CompositionRenderer::backgroundResourceLedger() const noexcept
+{
+    return backgroundResourceLedger_ != nullptr
+        ? backgroundResourceLedger_->snapshot()
+        : WgcBackgroundResourceLedgerSnapshot{};
+}
+
 bool CompositionRenderer::backgroundParticipatedInLastFrame() const noexcept
 {
     return backgroundParticipatedInLastFrame_;
@@ -879,7 +890,8 @@ bool CompositionRenderer::tryCreateBackgroundSensor() noexcept
                 backgroundEpoch_,
                 true,
                 backgroundCursorExcluded_,
-                backgroundSystemBorderAllowed_});
+                backgroundSystemBorderAllowed_,
+                backgroundResourceLedger_});
         backgroundEpoch_ = nextEpoch(backgroundEpoch_);
         // Capture and presentation have independent cadence. On high-refresh
         // displays WGC can still arrive near 60 Hz, so using a 170/240 Hz

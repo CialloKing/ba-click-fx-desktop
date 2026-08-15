@@ -5,6 +5,8 @@
 
 #include <windows.h>
 
+#include <string>
+
 using bafx::windows::detail::WgcFrameNotification;
 using bafx::windows::WgcBackgroundResourceLedger;
 using bafx::windows::WgcBackgroundResourceLedgerSnapshot;
@@ -130,4 +132,32 @@ BAFX_TEST(wgc_resource_ledger_requires_every_live_resource_to_be_released)
     snapshot.liveFrameArrivedRegistrations = 0U;
     snapshot.liveItemClosedRegistrations = 1U;
     BAFX_CHECK(!snapshot.allReleased());
+}
+
+BAFX_TEST(wgc_resource_ledger_diagnostic_includes_release_and_failure_evidence)
+{
+    WgcBackgroundResourceLedgerSnapshot snapshot{};
+    snapshot.framesAcquired = 4U;
+    snapshot.framesClosed = 3U;
+    snapshot.framePoolsCreated = 2U;
+    snapshot.framePoolsClosed = 1U;
+    snapshot.framePoolsRecreated = 1U;
+    snapshot.sessionsCreated = 2U;
+    snapshot.sessionsClosed = 1U;
+    snapshot.liveFrames = 1U;
+    snapshot.liveFramePools = 1U;
+    snapshot.liveSessions = 1U;
+    snapshot.failures = 2U;
+
+    const std::string diagnostic =
+        bafx::windows::wgcBackgroundResourceLedgerDiagnostic(snapshot);
+    BAFX_CHECK(
+        diagnostic.find("WGC.ResourceLedger.FramesAcquired=4")
+        != std::string::npos);
+    BAFX_CHECK(diagnostic.find("FramesClosed=3") != std::string::npos);
+    BAFX_CHECK(diagnostic.find("FramePoolsRecreated=1") != std::string::npos);
+    BAFX_CHECK(diagnostic.find("SessionsClosed=1") != std::string::npos);
+    BAFX_CHECK(diagnostic.find("LiveFramePools=1") != std::string::npos);
+    BAFX_CHECK(diagnostic.find("Failures=2") != std::string::npos);
+    BAFX_CHECK(diagnostic.find("AllReleased=false") != std::string::npos);
 }
