@@ -16,7 +16,6 @@
       },
       "binaryDir": "${sourceDir}/build/${presetName}",
       "cacheVariables": {
-        "CMAKE_SYSTEM_VERSION": "10.0.26100.0",
         "BUILD_TESTING": "ON",
         "BAFX_ENABLE_DESKTOP_SMOKE_TESTS": "ON"
       }
