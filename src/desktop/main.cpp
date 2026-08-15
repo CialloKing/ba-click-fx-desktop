@@ -1414,6 +1414,27 @@ int runApplication(
                 displayColorGeneration);
             renderInvalidated = true;
         }
+        const bafx::windows::WindowResizeDiagnostics resizeDiagnostics =
+            window.takeWindowResizeDiagnostics();
+        if (resizeDiagnostics.clientRectQueryFailures > 0U)
+        {
+            const std::string failureCount = std::to_string(
+                resizeDiagnostics.clientRectQueryFailures);
+            const std::string lastError = std::to_string(
+                resizeDiagnostics.lastClientRectQueryError);
+            const std::array fields{
+                bafx::windows::DiagnosticField{
+                    "FailureCount",
+                    failureCount},
+                bafx::windows::DiagnosticField{
+                    "LastWin32Error",
+                    lastError}};
+            bafx::windows::appendDiagnosticEvent(
+                logPath,
+                "Display.Surface.ClientRectQueryFailed",
+                fields,
+                bafx::windows::DiagnosticLevel::Warning);
+        }
         std::optional<bafx::windows::WindowSize> pendingOutputResize =
             window.takePendingResize();
         if (pendingOutputResize.has_value()
