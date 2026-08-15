@@ -763,6 +763,7 @@ LRESULT OverlayWindow::handleMessage(
         // move until the owner can stop and retarget WGC in the same update.
         recordDisplayTopologyChange(
             DisplayTopologyChangeSource::Dpi,
+            static_cast<std::uint32_t>(LOWORD(wParam)),
             static_cast<std::uint32_t>(HIWORD(wParam)),
             reinterpret_cast<const RECT*>(lParam));
         invalidatePointerGeometry();
@@ -793,7 +794,8 @@ LRESULT OverlayWindow::handleMessage(
 
 void OverlayWindow::recordDisplayTopologyChange(
     const DisplayTopologyChangeSource source,
-    const std::uint32_t latestDpi,
+    const std::uint32_t latestDpiX,
+    const std::uint32_t latestDpiY,
     const RECT* const suggestedBounds) noexcept
 {
     if (!pendingDisplayTopologyChange_.has_value())
@@ -805,9 +807,10 @@ void OverlayWindow::recordDisplayTopologyChange(
     // A display transition can deliver several different messages before the
     // owner runs. Preserve every cause while keeping only the newest payload.
     pending.sourceMask |= displayTopologyChangeSourceMask(source);
-    if (latestDpi != 0U)
+    if (latestDpiX != 0U && latestDpiY != 0U)
     {
-        pending.latestDpi = latestDpi;
+        pending.latestDpiX = latestDpiX;
+        pending.latestDpiY = latestDpiY;
         pending.dpiValid = true;
     }
     if (suggestedBounds != nullptr

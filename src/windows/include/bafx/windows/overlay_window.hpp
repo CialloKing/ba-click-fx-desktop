@@ -40,7 +40,8 @@ enum class DisplayTopologyChangeSource : std::uint8_t
 struct DisplayTopologyChange
 {
     std::uint8_t sourceMask{0U};
-    std::uint32_t latestDpi{0U};
+    std::uint32_t latestDpiX{0U};
+    std::uint32_t latestDpiY{0U};
     RECT suggestedBounds{};
     bool dpiValid{false};
     bool suggestedBoundsValid{false};
@@ -258,7 +259,8 @@ private:
     void invalidatePointerGeometry() noexcept;
     void recordDisplayTopologyChange(
         DisplayTopologyChangeSource source,
-        std::uint32_t latestDpi = 0U,
+        std::uint32_t latestDpiX = 0U,
+        std::uint32_t latestDpiY = 0U,
         const RECT* suggestedBounds = nullptr) noexcept;
     void requestClose() noexcept;
     void addNotificationIcon() noexcept;

@@ -675,8 +675,11 @@ void appendDisplayTopologyInvalidated(
         const std::string sources =
             formatDisplayTopologyChangeSources(change);
         const std::string sourceMask = std::to_string(change.sourceMask);
-        const std::string dpi = change.dpiValid
-            ? std::to_string(change.latestDpi)
+        const std::string dpiX = change.dpiValid
+            ? std::to_string(change.latestDpiX)
+            : "not-provided";
+        const std::string dpiY = change.dpiValid
+            ? std::to_string(change.latestDpiY)
             : "not-provided";
         const std::string suggestedBounds =
             formatTopologySuggestedBounds(change);
@@ -688,7 +691,8 @@ void appendDisplayTopologyInvalidated(
             bafx::windows::DiagnosticField{"SourceId", sourceId},
             bafx::windows::DiagnosticField{"Sources", sources},
             bafx::windows::DiagnosticField{"SourceMask", sourceMask},
-            bafx::windows::DiagnosticField{"Dpi", dpi},
+            bafx::windows::DiagnosticField{"DpiX", dpiX},
+            bafx::windows::DiagnosticField{"DpiY", dpiY},
             bafx::windows::DiagnosticField{
                 "DpiValid",
                 change.dpiValid ? "true" : "false"},
