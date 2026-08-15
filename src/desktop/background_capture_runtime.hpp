@@ -9,6 +9,7 @@
 #include <filesystem>
 #include <optional>
 #include <string>
+#include <string_view>
 
 namespace bafx::desktop
 {
@@ -28,6 +29,11 @@ struct BackgroundCaptureExecutionResult
     bafx::windows::CompositionRenderer& renderer,
     HMONITOR monitor,
     const std::filesystem::path& logPath);
+
+void appendBackgroundCaptureResourceLedger(
+    const std::filesystem::path& logPath,
+    const bafx::windows::CompositionRenderer& renderer,
+    std::string_view phase) noexcept;
 
 [[nodiscard]] bafx::windows::BackgroundCaptureStatus backgroundCaptureStatus(
     bafx::windows::EffectiveBackgroundCapturePath path) noexcept;

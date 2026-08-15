@@ -1312,6 +1312,14 @@ int runApplication(
         summary += std::to_string(renderedFrames);
         bafx::windows::appendDiagnosticLog(logPath, summary);
     }
+    // Destructors are not visible in the support log.  Stop the producer
+    // explicitly so the final ledger proves that the process released every
+    // WGC resource before handing control back to Win32.
+    renderer.disableBackgroundCapture();
+    bafx::desktop::appendBackgroundCaptureResourceLedger(
+        logPath,
+        renderer,
+        "shutdown");
     control.stop();
     return 0;
 }

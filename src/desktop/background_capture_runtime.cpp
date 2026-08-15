@@ -136,6 +136,33 @@ bafx::windows::BackgroundCaptureRequest backgroundCaptureRequest(
         0U};
 }
 
+void appendBackgroundCaptureResourceLedger(
+    const std::filesystem::path& logPath,
+    const bafx::windows::CompositionRenderer& renderer,
+    const std::string_view phase) noexcept
+{
+    try
+    {
+        const std::string ledgerDiagnostic =
+            bafx::windows::wgcBackgroundResourceLedgerDiagnostic(
+                renderer.backgroundResourceLedger());
+        std::string message = "BackgroundCapture.ResourceLedger.Phase=";
+        message += phase;
+        message += ";";
+        message += ledgerDiagnostic;
+        bafx::windows::appendDiagnosticLog(logPath, message);
+    }
+    catch (...)
+    {
+        // A diagnostic failure must never prevent the owner from completing
+        // the WGC cleanup it has already requested.
+        bafx::windows::appendDiagnosticLog(
+            logPath,
+            "BackgroundCapture.ResourceLedger.Phase="
+            "unknown;WGC.ResourceLedger=unavailable;Reason=formatter-failed");
+    }
+}
+
 BackgroundCaptureExecutionResult executeBackgroundCaptureTransition(
     bafx::windows::BackgroundCaptureTransition& transition,
     bafx::windows::OverlayWindow& window,
@@ -257,22 +284,7 @@ BackgroundCaptureExecutionResult executeBackgroundCaptureTransition(
     // Keep cumulative WGC ownership evidence beside every transaction.  A
     // failed stop/recreate can otherwise look successful after the sensor
     // pointer is released while an old WinRT resource is still live.
-    try
-    {
-        const std::string ledgerDiagnostic =
-            bafx::windows::wgcBackgroundResourceLedgerDiagnostic(
-                renderer.backgroundResourceLedger());
-        bafx::windows::appendDiagnosticLog(logPath, ledgerDiagnostic);
-    }
-    catch (...)
-    {
-        // Diagnostics are strictly best effort.  A low-memory formatter or a
-        // locked log file must not turn a completed lifecycle transaction into
-        // a rendering failure.
-        bafx::windows::appendDiagnosticLog(
-            logPath,
-            "WGC.ResourceLedger=unavailable;Reason=formatter-failed");
-    }
+    appendBackgroundCaptureResourceLedger(logPath, renderer, "transaction");
     return result;
 }
 
