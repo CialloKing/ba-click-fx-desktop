@@ -2905,6 +2905,8 @@ int runApplication(
             && displayTopologyChangeHasSource(
                 *hostTopologyChange,
                 bafx::windows::DisplayTopologyChangeSource::Power);
+        const bool hostDisplayPowerRestored = hostTopologyChange.has_value()
+            && hostTopologyChange->powerRestored;
         if (hostTopologyChange.has_value())
         {
             appendDisplayTopologyInvalidated(
@@ -3271,6 +3273,73 @@ int runApplication(
                 displayColorGeneration,
                 true);
             renderInvalidated = true;
+        }
+        if (hostDisplayPowerRestored)
+        {
+            const bool captureRequested = controlState.config.background.mode
+                == bafx::config::RenderMode::BackgroundAware;
+            std::string_view coordinatorRecovery = "not-requested";
+            if (captureRequested
+                && renderer.deviceInfo().driverType
+                    == bafx::windows::GraphicsDriverType::Hardware
+                && renderer.backgroundCaptureRestartAllowed())
+            {
+                if (!backgroundRetryPending)
+                {
+                    if (backgroundRetryToken
+                        == (std::numeric_limits<std::uint64_t>::max)())
+                    {
+                        throw std::runtime_error(
+                            "WGC retry token exhausted after display power recovery");
+                    }
+                    ++backgroundRetryToken;
+                    backgroundRetryPending = true;
+                    coordinatorRecovery = "scheduled";
+                }
+                else
+                {
+                    coordinatorRecovery = "already-pending";
+                }
+            }
+            else if (captureRequested)
+            {
+                coordinatorRecovery = "blocked";
+            }
+
+            std::size_t secondaryRecoveries = 0U;
+            if (captureRequested)
+            {
+                for (const auto& ownedSession : displaySessions.sessions())
+                {
+                    bafx::desktop::DisplaySession& session = *ownedSession;
+                    if (&session != &displaySession
+                        && !session.renderFaulted()
+                        && session.requestSecondaryPowerRecovery(
+                            controlState.generation))
+                    {
+                        ++secondaryRecoveries;
+                    }
+                }
+            }
+
+            const std::string retryToken = std::to_string(
+                backgroundRetryToken);
+            const std::string secondaryCount = std::to_string(
+                secondaryRecoveries);
+            const std::array fields{
+                bafx::windows::DiagnosticField{
+                    "Coordinator",
+                    coordinatorRecovery},
+                bafx::windows::DiagnosticField{
+                    "SecondaryQueued",
+                    secondaryCount},
+                bafx::windows::DiagnosticField{
+                    "RetryToken",
+                    retryToken}};
+            bafx::windows::appendDiagnosticEvent(
+                logPath,
+                "WGC.DisplayPowerRecovery.Requested",
+                fields);
         }
         const bafx::windows::WindowResizeDiagnostics resizeDiagnostics =
             window.takeWindowResizeDiagnostics();

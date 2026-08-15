@@ -150,6 +150,8 @@ public:
         handleSecondaryBorderlessAccessLost(bafx::core::MonotonicTime now);
     [[nodiscard]] bool retrySecondaryBorderlessAccess(
         std::uint64_t controlGeneration);
+    [[nodiscard]] bool requestSecondaryPowerRecovery(
+        std::uint64_t controlGeneration) noexcept;
     [[nodiscard]] bool secondaryBackgroundCaptureInitialized() const noexcept;
     [[nodiscard]] bool secondaryBackgroundCaptureActive() const noexcept;
     [[nodiscard]] HANDLE secondaryBackgroundFrameAvailableObject() const noexcept;

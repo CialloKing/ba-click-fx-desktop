@@ -34,6 +34,7 @@ struct DisplaySessionBackgroundCaptureState final
     bool rendererRecoveryPending{false};
     bool rendererRecoveryAdapterChanged{false};
     bool rendererRecoveryBackgroundWasActive{false};
+    bool powerRecoveryPending{false};
 };
 
 namespace
@@ -403,6 +404,10 @@ void DisplaySession::updateSecondaryBackgroundCaptureRequest(
 
     state.request = request;
     state.controlGeneration = controlGeneration;
+    if (!state.request.sensorRequired)
+    {
+        state.powerRecoveryPending = false;
+    }
     state.sensorWasActiveBeforeTransaction =
         renderer_.backgroundCaptureActive();
     requireStartedRequest(state.transition.beginRequest(request));
@@ -666,7 +671,36 @@ DisplaySession::serviceSecondaryBackgroundCapture(
             if (restartAllowed)
             {
                 ++state.request.retryToken;
+                // This restart already rebinds the post-resume output, so a
+                // queued power recovery must not immediately restart it again.
+                state.powerRecoveryPending = false;
                 state.sensorWasActiveBeforeTransaction = false;
+                requireStartedRequest(
+                    state.transition.beginRequest(state.request));
+                state.outcomePending = true;
+                continue;
+            }
+        }
+
+        if (state.powerRecoveryPending)
+        {
+            const bool retryAllowed = state.request.sensorRequired
+                && renderer_.deviceInfo().driverType
+                    == bafx::windows::GraphicsDriverType::Hardware
+                && renderer_.backgroundCaptureRestartAllowed();
+            state.powerRecoveryPending = false;
+            if (retryAllowed)
+            {
+                if (state.request.retryToken
+                    == (std::numeric_limits<std::uint64_t>::max)())
+                {
+                    throw std::runtime_error(
+                        "Secondary WGC retry token exhausted after display power recovery");
+                }
+
+                ++state.request.retryToken;
+                state.sensorWasActiveBeforeTransaction =
+                    renderer_.backgroundCaptureActive();
                 requireStartedRequest(
                     state.transition.beginRequest(state.request));
                 state.outcomePending = true;
@@ -851,6 +885,28 @@ bool DisplaySession::retrySecondaryBorderlessAccess(
     state.sensorWasActiveBeforeTransaction = false;
     requireStartedRequest(state.transition.beginRequest(state.request));
     state.outcomePending = true;
+    return true;
+}
+
+bool DisplaySession::requestSecondaryPowerRecovery(
+    const std::uint64_t controlGeneration) noexcept
+{
+    if (secondaryBackgroundCapture_ == nullptr)
+    {
+        return false;
+    }
+
+    DisplaySessionBackgroundCaptureState& state =
+        *secondaryBackgroundCapture_;
+    if (!state.request.sensorRequired || state.powerRecoveryPending)
+    {
+        return false;
+    }
+
+    // The display-power edge is the external state change that authorizes one
+    // retry. The service owner consumes it after any older output transaction.
+    state.controlGeneration = controlGeneration;
+    state.powerRecoveryPending = true;
     return true;
 }
 
