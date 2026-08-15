@@ -94,8 +94,17 @@ struct DisplayColorMonitor::Implementation
         }
         if (advancedColorChangedRegistered)
         {
-            displayInformation.AdvancedColorInfoChanged(
-                advancedColorChangedToken);
+            try
+            {
+                displayInformation.AdvancedColorInfoChanged(
+                    advancedColorChangedToken);
+            }
+            catch (...)
+            {
+                // A hot-unplug can invalidate DisplayInformation before its
+                // owner removes the callback. Teardown is best-effort and the
+                // shared notification already rejects every late callback.
+            }
             advancedColorChangedRegistered = false;
         }
         displayInformation = nullptr;
