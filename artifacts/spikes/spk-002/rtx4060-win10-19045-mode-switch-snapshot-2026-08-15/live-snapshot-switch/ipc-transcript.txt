@@ -1,0 +1,11 @@
+Startup {"generation":1,"paused":false,"shutdownRequested":false,"effectsEnabled":true,"backgroundCapture":"active","captureMode":"background-aware"}
+FirstParticipationObservedAtMs 936
+RecordingDuringFx {"generation":2,"paused":false,"shutdownRequested":false,"effectsEnabled":true,"backgroundCapture":"fallback-fx-only","captureMode":"recording-compatible"}
+CaptureDisabledInvalidationObserved true
+BackgroundRestored {"generation":3,"paused":false,"shutdownRequested":false,"effectsEnabled":true,"backgroundCapture":"active","captureMode":"background-aware"}
+Pause OK {"generation":4,"paused":true,"shutdownRequested":false,"effectsEnabled":true,"backgroundCapture":"active","captureMode":"background-aware"}
+PausedAfter2s {"generation":4,"paused":true,"shutdownRequested":false,"effectsEnabled":true,"backgroundCapture":"active","captureMode":"background-aware"}
+Resume OK {"generation":5,"paused":false,"shutdownRequested":false,"effectsEnabled":true,"backgroundCapture":"active","captureMode":"background-aware"}
+BeforeShutdown {"generation":5,"paused":false,"shutdownRequested":false,"effectsEnabled":true,"backgroundCapture":"active","captureMode":"background-aware"}
+Shutdown OK {"shutdownRequested":true}
+ExitCode 0

@@ -1,0 +1,99 @@
+{
+  "schema_version": 1,
+  "spike_id": "SPK-002-PRODUCT-MODE-SWITCH-SNAPSHOT",
+  "capture_revision": "ab4be5a",
+  "status": "accepted-subset",
+  "product_version": "0.1.0-alpha.12",
+  "os_version": "10.0.19045",
+  "gpu": "NVIDIA GeForce RTX 4060 Laptop GPU",
+  "driver_version": "32.0.16.1074",
+  "display": "3840x2160@144Hz SDR",
+  "executable_sha256": "87E300D32048272F95756CB973FD5ECD6B999016D3FB8A34C69F0FA19F082C40",
+  "pause_maintenance": {
+    "control_generations": [1, 2, 3, 4, 5],
+    "host_exit_code": 0,
+    "process_exited_event_count": 1,
+    "maintenance_cycles": 32,
+    "frames_acquired": 377,
+    "frames_closed": 377,
+    "background_sample_age_max_us": 29131,
+    "background_composite_frames": 756,
+    "participation": {
+      "event_sequence": 50,
+      "control_generation": 5,
+      "frame_id": 27945,
+      "wgc_epoch": 2,
+      "wgc_generation": 147,
+      "snapshot_epoch": 2,
+      "snapshot_generation": 147
+    },
+    "invalidation": {
+      "event_sequence": 52,
+      "control_generation": 5,
+      "frame_id": 28701,
+      "wgc_epoch": 2,
+      "wgc_generation": 187,
+      "snapshot_epoch": 2,
+      "snapshot_generation": 187,
+      "reason": "visible-batch-ended"
+    },
+    "resource_ledger": {
+      "frame_pools_created": 2,
+      "frame_pools_closed": 2,
+      "sessions_created": 2,
+      "sessions_closed": 2,
+      "frame_arrived_registrations": 2,
+      "frame_arrived_unregistrations": 2,
+      "item_closed_registrations": 2,
+      "item_closed_unregistrations": 2,
+      "failures": 0,
+      "all_released": true
+    },
+    "support_log_sha256": "4A3CEB0250338411916D23D0DB1599081D74A7E97B915436639063F87A5EAFBE"
+  },
+  "live_snapshot_switch": {
+    "control_generations": [1, 2, 3, 4, 5],
+    "host_exit_code": 0,
+    "process_exited_event_count": 1,
+    "frames_acquired": 167,
+    "frames_closed": 167,
+    "background_sample_age_max_us": 14793,
+    "background_composite_frames": 2,
+    "participation": {
+      "event_sequence": 20,
+      "control_generation": 1,
+      "frame_id": 2522,
+      "wgc_epoch": 1,
+      "wgc_generation": 10,
+      "snapshot_epoch": 1,
+      "snapshot_generation": 10
+    },
+    "invalidation": {
+      "event_sequence": 35,
+      "control_generation": 2,
+      "frame_id": 0,
+      "wgc_epoch": 1,
+      "wgc_generation": 11,
+      "snapshot_epoch": 1,
+      "snapshot_generation": 11,
+      "reason": "capture-disabled"
+    },
+    "participation_precedes_invalidation": true,
+    "old_epoch_invalidated_before_second_session": true,
+    "resource_ledger": {
+      "frame_pools_created": 2,
+      "frame_pools_closed": 2,
+      "sessions_created": 2,
+      "sessions_closed": 2,
+      "frame_arrived_registrations": 2,
+      "frame_arrived_unregistrations": 2,
+      "item_closed_registrations": 2,
+      "item_closed_unregistrations": 2,
+      "failures": 0,
+      "all_released": true
+    },
+    "support_log_sha256": "8DFAE6023D97E95CD272F523192BC7B69909846608F2702A0F4D702FE79488B2"
+  },
+  "full_spk_002_status": "not-run",
+  "related_adr_status": "proposed"
+}
