@@ -306,6 +306,174 @@ void querySdrWhiteLevel(
         && left.sdrWhiteLevelNits == right.sdrWhiteLevelNits;
 }
 
+struct DxgiAdapterConstraint final
+{
+    std::optional<LUID> adapterLuid{};
+    bool descriptionAllowed{true};
+};
+
+[[nodiscard]] DxgiAdapterConstraint resolveDxgiAdapterConstraint(
+    const DisplayTopologySnapshot& topology,
+    const ActiveDisplayMonitor* const display) noexcept
+{
+    if (display == nullptr)
+    {
+        return {};
+    }
+
+    if (topology.status == DisplayTopologyStatus::Complete
+        && !display->physicalTargets.empty())
+    {
+        const LUID targetAdapter =
+            display->physicalTargets.front().adapterLuid;
+        const bool sameTargetAdapter = std::all_of(
+            display->physicalTargets.begin(),
+            display->physicalTargets.end(),
+            [targetAdapter](const DisplayPhysicalTarget& target) noexcept
+            {
+                return sameLuid(targetAdapter, target.adapterLuid);
+            });
+        if (!sameTargetAdapter)
+        {
+            // A cloned source spanning adapters has no single DXGI output
+            // description. DisplayConfig can still provide the conservative
+            // Advanced Color state for the logical display.
+            return DxgiAdapterConstraint{std::nullopt, false};
+        }
+        return DxgiAdapterConstraint{targetAdapter, true};
+    }
+
+    if (display->sourceAdapterResolved)
+    {
+        return DxgiAdapterConstraint{display->sourceAdapterLuid, true};
+    }
+    return {};
+}
+
+[[nodiscard]] std::optional<DisplayColorCapabilities>
+describeDxgiOutput(
+    IDXGIOutput* const output,
+    const LUID adapterLuid) noexcept
+{
+    ComPtr<Output6Abi> output6;
+    if (FAILED(output->QueryInterface(IID_PPV_ARGS(&output6))))
+    {
+        return std::nullopt;
+    }
+
+    OutputDescription1Abi description{};
+    if (FAILED(output6->getDescription1(&description)))
+    {
+        return std::nullopt;
+    }
+
+    DisplayColorCapabilities capabilities{};
+    capabilities.colorSpace = description.colorSpace;
+    capabilities.bitsPerColor = description.bitsPerColor;
+    capabilities.minimumLuminanceNits = description.minimumLuminance;
+    capabilities.maximumLuminanceNits = description.maximumLuminance;
+    capabilities.maximumFullFrameLuminanceNits =
+        description.maximumFullFrameLuminance;
+    capabilities.luminanceMetadataValid =
+        validLuminance(description.minimumLuminance)
+        && validLuminance(description.maximumLuminance)
+        && validLuminance(description.maximumFullFrameLuminance)
+        && description.maximumLuminance > 0.0F;
+    capabilities.activeColorMode = inferColorMode(
+        capabilities.colorSpace);
+    capabilities.adapterLuid = adapterLuid;
+    return capabilities;
+}
+
+[[nodiscard]] std::optional<DisplayColorCapabilities>
+queryUniqueDxgiColorCapabilities(
+    const HMONITOR monitor,
+    const DxgiAdapterConstraint& constraint) noexcept
+{
+    if (!constraint.descriptionAllowed)
+    {
+        return std::nullopt;
+    }
+
+    ComPtr<IDXGIFactory1> factory;
+    if (FAILED(CreateDXGIFactory1(IID_PPV_ARGS(&factory))))
+    {
+        return std::nullopt;
+    }
+
+    std::size_t matchingOutputs = 0U;
+    std::optional<DisplayColorCapabilities> selected{};
+    for (UINT adapterIndex = 0U;; ++adapterIndex)
+    {
+        ComPtr<IDXGIAdapter1> adapter;
+        const HRESULT adapterResult = factory->EnumAdapters1(
+            adapterIndex,
+            &adapter);
+        if (adapterResult == DXGI_ERROR_NOT_FOUND)
+        {
+            break;
+        }
+        if (FAILED(adapterResult))
+        {
+            return std::nullopt;
+        }
+
+        DXGI_ADAPTER_DESC1 adapterDescription{};
+        if (FAILED(adapter->GetDesc1(&adapterDescription)))
+        {
+            return std::nullopt;
+        }
+        if (constraint.adapterLuid.has_value()
+            && !sameLuid(
+                *constraint.adapterLuid,
+                adapterDescription.AdapterLuid))
+        {
+            continue;
+        }
+
+        for (UINT outputIndex = 0U;; ++outputIndex)
+        {
+            ComPtr<IDXGIOutput> output;
+            const HRESULT outputResult = adapter->EnumOutputs(
+                outputIndex,
+                &output);
+            if (outputResult == DXGI_ERROR_NOT_FOUND)
+            {
+                break;
+            }
+            if (FAILED(outputResult))
+            {
+                return std::nullopt;
+            }
+
+            DXGI_OUTPUT_DESC legacyDescription{};
+            if (FAILED(output->GetDesc(&legacyDescription)))
+            {
+                return std::nullopt;
+            }
+            if (legacyDescription.Monitor != monitor)
+            {
+                continue;
+            }
+
+            ++matchingOutputs;
+            if (matchingOutputs == 1U)
+            {
+                selected = describeDxgiOutput(
+                    output.Get(),
+                    adapterDescription.AdapterLuid);
+            }
+            else
+            {
+                // A duplicated HMONITOR cannot safely inherit whichever
+                // output happened to enumerate first.
+                selected.reset();
+            }
+        }
+    }
+    return matchingOutputs == 1U ? selected : std::nullopt;
+}
+
 void mergePhysicalTargetColorState(
     DisplayColorCapabilities& aggregate,
     const DisplayColorCapabilities& sample) noexcept
@@ -447,110 +615,33 @@ std::optional<DisplayColorCapabilities> queryDisplayColorCapabilities(
 
     try
     {
-        ComPtr<IDXGIFactory1> factory;
-        if (FAILED(CreateDXGIFactory1(IID_PPV_ARGS(&factory))))
+        const DisplayTopologySnapshot topology = queryActiveDisplayTopology();
+        const ActiveDisplayMonitor* const display = findDisplayMonitor(
+            topology,
+            monitor);
+        const DxgiAdapterConstraint constraint =
+            resolveDxgiAdapterConstraint(topology, display);
+        std::optional<DisplayColorCapabilities> dxgiCapabilities =
+            queryUniqueDxgiColorCapabilities(monitor, constraint);
+        const bool dxgiDescriptionAvailable = dxgiCapabilities.has_value();
+        DisplayColorCapabilities capabilities =
+            dxgiCapabilities.value_or(DisplayColorCapabilities{});
+
+        if (display != nullptr
+            && topology.status == DisplayTopologyStatus::Complete)
         {
+            // A cloned source has one DXGI output contract but several
+            // physical Advanced Color states. Aggregate only a complete
+            // topology so a missing hot-plug path cannot falsely enable HDR.
+            queryDisplayConfigColorState(*display, capabilities);
+        }
+        if (!dxgiDescriptionAvailable && !capabilities.displayPathResolved)
+        {
+            // Neither source could describe this output. Preserve the null
+            // result instead of publishing empty or ambiguous DXGI facts.
             return std::nullopt;
         }
-
-        for (UINT adapterIndex = 0U;; ++adapterIndex)
-        {
-            ComPtr<IDXGIAdapter1> adapter;
-            const HRESULT adapterResult = factory->EnumAdapters1(
-                adapterIndex,
-                &adapter);
-            if (adapterResult == DXGI_ERROR_NOT_FOUND)
-            {
-                break;
-            }
-            if (FAILED(adapterResult))
-            {
-                return std::nullopt;
-            }
-
-            for (UINT outputIndex = 0U;; ++outputIndex)
-            {
-                ComPtr<IDXGIOutput> output;
-                const HRESULT outputResult = adapter->EnumOutputs(
-                    outputIndex,
-                    &output);
-                if (outputResult == DXGI_ERROR_NOT_FOUND)
-                {
-                    break;
-                }
-                if (FAILED(outputResult))
-                {
-                    return std::nullopt;
-                }
-
-                DXGI_OUTPUT_DESC legacyDescription{};
-                const HRESULT descriptionResult = output->GetDesc(
-                    &legacyDescription);
-                if (FAILED(descriptionResult))
-                {
-                    return std::nullopt;
-                }
-                if (legacyDescription.Monitor != monitor)
-                {
-                    continue;
-                }
-
-                DisplayColorCapabilities capabilities{};
-                bool dxgiDescriptionAvailable = false;
-                ComPtr<Output6Abi> output6;
-                if (SUCCEEDED(output.As(&output6)))
-                {
-                    OutputDescription1Abi description{};
-                    if (SUCCEEDED(output6->getDescription1(&description)))
-                    {
-                        capabilities.colorSpace = description.colorSpace;
-                        capabilities.bitsPerColor = description.bitsPerColor;
-                        capabilities.minimumLuminanceNits =
-                            description.minimumLuminance;
-                        capabilities.maximumLuminanceNits =
-                            description.maximumLuminance;
-                        capabilities.maximumFullFrameLuminanceNits =
-                            description.maximumFullFrameLuminance;
-                        capabilities.luminanceMetadataValid =
-                            validLuminance(description.minimumLuminance)
-                            && validLuminance(description.maximumLuminance)
-                            && validLuminance(
-                                description.maximumFullFrameLuminance)
-                            && description.maximumLuminance > 0.0F;
-                        capabilities.activeColorMode = inferColorMode(
-                            capabilities.colorSpace);
-                        dxgiDescriptionAvailable = true;
-                    }
-                }
-
-                DXGI_ADAPTER_DESC1 adapterDescription{};
-                if (SUCCEEDED(adapter->GetDesc1(&adapterDescription)))
-                {
-                    capabilities.adapterLuid = adapterDescription.AdapterLuid;
-                }
-                const DisplayTopologySnapshot topology =
-                    queryActiveDisplayTopology();
-                const ActiveDisplayMonitor* const display =
-                    findDisplayMonitor(topology, monitor);
-                if (display != nullptr
-                    && topology.status == DisplayTopologyStatus::Complete)
-                {
-                    // A cloned source has one DXGI output contract but several
-                    // physical Advanced Color states. Aggregate only a complete
-                    // topology so a missing hot-plug path cannot falsely enable
-                    // HDR for the logical display.
-                    queryDisplayConfigColorState(*display, capabilities);
-                }
-                if (!dxgiDescriptionAvailable
-                    && !capabilities.displayPathResolved)
-                {
-                    // Neither source could describe this output. Preserve the
-                    // existing null result instead of publishing empty facts.
-                    return std::nullopt;
-                }
-                return capabilities;
-            }
-        }
+        return capabilities;
     }
     catch (...)
     {
