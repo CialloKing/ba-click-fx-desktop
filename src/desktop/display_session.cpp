@@ -755,6 +755,46 @@ DisplaySession::handleSecondaryBorderlessAccessLost(
     return cleanup;
 }
 
+bool DisplaySession::retrySecondaryBorderlessAccess(
+    const std::uint64_t controlGeneration)
+{
+    if (secondaryBackgroundCapture_ == nullptr)
+    {
+        return false;
+    }
+
+    DisplaySessionBackgroundCaptureState& state =
+        *secondaryBackgroundCapture_;
+    if (!state.request.sensorRequired
+        || state.request.allowSystemBorder
+        || state.execution.transactionActive
+        || state.transition.transitioning())
+    {
+        return false;
+    }
+    if (state.transition.effectivePath()
+            == bafx::windows::EffectiveBackgroundCapturePath::BackgroundAware
+        && renderer_.backgroundCaptureActive())
+    {
+        return false;
+    }
+    if (state.request.retryToken
+        == (std::numeric_limits<std::uint64_t>::max)())
+    {
+        throw std::runtime_error(
+            "Secondary borderless access retry token exhausted");
+    }
+
+    // AccessChanged is the explicit recovery boundary. Advance this display's
+    // local token once so ordinary render iterations cannot reopen WGC.
+    ++state.request.retryToken;
+    state.controlGeneration = controlGeneration;
+    state.sensorWasActiveBeforeTransaction = false;
+    requireStartedRequest(state.transition.beginRequest(state.request));
+    state.outcomePending = true;
+    return true;
+}
+
 bool DisplaySession::secondaryBackgroundCaptureInitialized() const noexcept
 {
     return secondaryBackgroundCapture_ != nullptr;
