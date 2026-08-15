@@ -80,7 +80,8 @@
   成功 Present 后的帧诊断，模式切换后旧 snapshot identity 不得再次进入最终复合；
 - 显示目标身份必须包含 monitor handle、设备名和物理边界，同尺寸换屏不得归约为 no-op；拓扑失效只由
   渲染所有者转换为 `StopSensor -> ResizeOutput -> StartSensor` 事务。`A -> B -> C` 权限取消不得执行 B 的
-  resize，shutdown cancel 不得移动窗口；`Display.Topology.Observed/Applied` 必须区分观察目标与已应用目标；
+  resize，shutdown cancel 不得移动窗口；`Display.Topology.Observed/Applied` 必须区分观察目标与已应用目标，
+  同屏 DPI-only 通知必须同时记录已应用 DPI、窗口有效 DPI 和变化标记；
 - monitor/adapter rebuild。
 
 ### L3：硬件/视觉

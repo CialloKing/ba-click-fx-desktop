@@ -975,7 +975,9 @@ void appendDisplayTopologyObserved(
     const std::uint64_t controlGeneration,
     const bool transactionActive,
     const DisplayTarget& applied,
-    const DisplayTarget& observed) noexcept
+    const std::uint32_t appliedDpi,
+    const DisplayTarget& observed,
+    const std::uint32_t windowEffectiveDpi) noexcept
 {
     try
     {
@@ -987,7 +989,12 @@ void appendDisplayTopologyObserved(
         const std::string observedMonitor = formatDisplayTargetMonitor(observed);
         const std::string observedDevice = displayTargetDeviceUtf8(observed);
         const std::string observedBounds = formatDisplayTargetBounds(observed);
+        const std::string appliedDpiText = std::to_string(appliedDpi);
+        const std::string windowDpiText = std::to_string(windowEffectiveDpi);
         const std::string changed = sameDisplayTarget(applied, observed)
+            ? "false"
+            : "true";
+        const std::string dpiChanged = appliedDpi == windowEffectiveDpi
             ? "false"
             : "true";
         const std::array fields{
@@ -1003,6 +1010,9 @@ void appendDisplayTopologyObserved(
                 "Display.Applied.Bounds",
                 appliedBounds},
             bafx::windows::DiagnosticField{
+                "Display.Applied.Dpi",
+                appliedDpiText},
+            bafx::windows::DiagnosticField{
                 "Display.Observed.Monitor",
                 observedMonitor},
             bafx::windows::DiagnosticField{
@@ -1011,7 +1021,13 @@ void appendDisplayTopologyObserved(
             bafx::windows::DiagnosticField{
                 "Display.Observed.Bounds",
                 observedBounds},
-            bafx::windows::DiagnosticField{"Display.Changed", changed}};
+            bafx::windows::DiagnosticField{"Display.Changed", changed},
+            bafx::windows::DiagnosticField{
+                "Window.EffectiveDpi",
+                windowDpiText},
+            bafx::windows::DiagnosticField{
+                "Window.DpiChanged",
+                dpiChanged}};
         bafx::windows::appendDiagnosticEvent(
             logPath,
             "Display.Topology.Observed",

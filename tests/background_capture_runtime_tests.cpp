@@ -166,7 +166,9 @@ BAFX_TEST(display_topology_logs_observed_and_committed_targets)
         17U,
         true,
         first,
-        second);
+        96U,
+        second,
+        144U);
     bafx::desktop::appendDisplayTopologyApplied(
         log.path(),
         17U,
@@ -182,6 +184,9 @@ BAFX_TEST(display_topology_logs_observed_and_committed_targets)
     BAFX_CHECK(contents.find("Control.Generation=17") != std::string::npos);
     BAFX_CHECK(contents.find("Transaction.Active=true") != std::string::npos);
     BAFX_CHECK(contents.find("Display.Changed=true") != std::string::npos);
+    BAFX_CHECK(contents.find("Display.Applied.Dpi=96") != std::string::npos);
+    BAFX_CHECK(contents.find("Window.EffectiveDpi=144") != std::string::npos);
+    BAFX_CHECK(contents.find("Window.DpiChanged=true") != std::string::npos);
     BAFX_CHECK(contents.find("Display.Applied.Device=\\\\.\\DISPLAY2")
         != std::string::npos);
     BAFX_CHECK(contents.find("Display.Applied.Bounds=2560x1440@-2560,0")

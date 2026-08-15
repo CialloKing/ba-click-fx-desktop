@@ -102,7 +102,8 @@
   `BackgroundSnapshot.Invalidated` 只在原快照有效时产生一次，记录失效原因和失效时两侧身份；帧号 `0`
   表示发生在 render frame 外的生命周期事务。正常 WGC generation 刷新不会写该事件，避免逐帧刷盘。
 - 主显示器拓扑通知由渲染所有者串行处理。`Display.Topology.Observed` 记录已应用和新观察到的
-  monitor/device/bounds；`BackgroundCapture.Transaction.Begin` 固定本次事务目标；只有目标 resize
+  monitor/device/bounds、上次已应用 DPI、通知时窗口有效 DPI 和 DPI 变化标记；
+  `BackgroundCapture.Transaction.Begin` 固定本次事务目标；只有目标 resize
   真正完成后才写 `Display.Topology.Applied` 并更新支持报告。等待无边框权限时若又出现更新目标，旧事务
   会先完成 WGC/可见性清理，但不会重放旧目标的 resize；最新目标随后以自己的事务提交。仅配置代次、
   device recovery 或会话故障取消且没有新几何替代时，会保留已消费的 resize，避免输出永久停留在旧尺寸。

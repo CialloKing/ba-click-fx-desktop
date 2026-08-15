@@ -933,7 +933,8 @@ int runApplication(
         options.disableRawInput
             ? bafx::windows::RawMouseRegistration::Disabled
             : bafx::windows::RawMouseRegistration::Enabled);
-    report.setPrimaryDpi(window.effectiveDpi());
+    std::uint32_t appliedDisplayDpi = window.effectiveDpi();
+    report.setPrimaryDpi(appliedDisplayDpi);
     if (const auto refreshRate =
             bafx::windows::queryPrimaryCompositionRefreshRate();
         refreshRate.has_value())
@@ -1166,6 +1167,7 @@ int runApplication(
             }
             report.setPrimaryMonitor(appliedDisplayTarget.bounds);
             const std::uint32_t appliedDpi = window.effectiveDpi();
+            appliedDisplayDpi = appliedDpi;
             report.setPrimaryDpi(appliedDpi);
             if (const auto refreshRate =
                     bafx::windows::queryPrimaryCompositionRefreshRate();
@@ -1241,7 +1243,9 @@ int runApplication(
                     : appliedGeneration,
                 backgroundExecution.transactionActive,
                 appliedDisplayTarget,
-                observedTarget);
+                appliedDisplayDpi,
+                observedTarget,
+                window.effectiveDpi());
             const bafx::desktop::DisplayTarget& expectedTarget =
                 pendingDisplayTarget.has_value()
                     ? *pendingDisplayTarget
@@ -1258,7 +1262,8 @@ int runApplication(
                 // physical fullscreen bounds without restarting a stable WGC
                 // target; any actual size correction is consumed below.
                 window.setBounds(appliedDisplayTarget.bounds);
-                report.setPrimaryDpi(window.effectiveDpi());
+                appliedDisplayDpi = window.effectiveDpi();
+                report.setPrimaryDpi(appliedDisplayDpi);
             }
         }
         std::optional<bafx::windows::WindowSize> pendingOutputResize =

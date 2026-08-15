@@ -139,7 +139,9 @@ void appendDisplayTopologyObserved(
     std::uint64_t controlGeneration,
     bool transactionActive,
     const DisplayTarget& applied,
-    const DisplayTarget& observed) noexcept;
+    std::uint32_t appliedDpi,
+    const DisplayTarget& observed,
+    std::uint32_t windowEffectiveDpi) noexcept;
 
 void appendDisplayTopologyApplied(
     const std::filesystem::path& logPath,
