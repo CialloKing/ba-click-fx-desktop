@@ -2100,12 +2100,10 @@ int runApplication(
         }};
     std::uint32_t appliedDisplayDpi = window.effectiveDpi();
     report.setPrimaryDpi(appliedDisplayDpi);
-    if (const auto refreshRate =
-            bafx::windows::queryDisplayRefreshRate(
-                appliedDisplayTarget.monitor);
-        refreshRate.has_value())
+    if (appliedDisplayTarget.captureRefreshRate.has_value())
     {
-        report.setPrimaryRefreshRate(*refreshRate);
+        report.setPrimaryRefreshRate(
+            *appliedDisplayTarget.captureRefreshRate);
     }
     const bafx::windows::DisplayColorMonitorResult displayColorMonitorStart =
         displaySession.colorMonitorResult();
@@ -2648,12 +2646,10 @@ int runApplication(
             const std::uint32_t appliedDpi = window.effectiveDpi();
             appliedDisplayDpi = appliedDpi;
             report.setPrimaryDpi(appliedDpi);
-            if (const auto refreshRate =
-                    bafx::windows::queryDisplayRefreshRate(
-                        appliedDisplayTarget.monitor);
-                refreshRate.has_value())
+            if (appliedDisplayTarget.captureRefreshRate.has_value())
             {
-                report.setPrimaryRefreshRate(*refreshRate);
+                report.setPrimaryRefreshRate(
+                    *appliedDisplayTarget.captureRefreshRate);
             }
             else
             {
