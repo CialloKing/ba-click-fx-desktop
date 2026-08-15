@@ -156,6 +156,36 @@ DisplayTargetSnapshot queryDisplayTargets() noexcept
             target.physicalTargetCount = display.physicalTargets.size();
             target.primary = display.primary;
             target.sourceIdentityResolved = display.sourceIdentityResolved;
+            target.physicalTargetIdentities.reserve(
+                display.physicalTargets.size());
+            for (const bafx::windows::DisplayPhysicalTarget& physicalTarget :
+                 display.physicalTargets)
+            {
+                target.physicalTargetIdentities.push_back(
+                    DisplayPhysicalTargetIdentity{
+                        physicalTarget.adapterLuid,
+                        physicalTarget.targetId});
+            }
+            std::sort(
+                target.physicalTargetIdentities.begin(),
+                target.physicalTargetIdentities.end(),
+                [](const DisplayPhysicalTargetIdentity& left,
+                   const DisplayPhysicalTargetIdentity& right) noexcept
+                {
+                    if (left.adapterLuid.HighPart
+                        != right.adapterLuid.HighPart)
+                    {
+                        return left.adapterLuid.HighPart
+                            < right.adapterLuid.HighPart;
+                    }
+                    if (left.adapterLuid.LowPart
+                        != right.adapterLuid.LowPart)
+                    {
+                        return left.adapterLuid.LowPart
+                            < right.adapterLuid.LowPart;
+                    }
+                    return left.targetId < right.targetId;
+                });
             result.displays.push_back(std::move(target));
         }
     }

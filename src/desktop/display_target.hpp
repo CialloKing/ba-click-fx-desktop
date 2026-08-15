@@ -13,6 +13,12 @@
 namespace bafx::desktop
 {
 
+struct DisplayPhysicalTargetIdentity final
+{
+    LUID adapterLuid{};
+    std::uint32_t targetId{0U};
+};
+
 struct DisplayTarget
 {
     HMONITOR monitor{nullptr};
@@ -27,6 +33,7 @@ struct DisplayTarget
     std::size_t physicalTargetCount{0U};
     bool primary{false};
     bool sourceIdentityResolved{false};
+    std::vector<DisplayPhysicalTargetIdentity> physicalTargetIdentities{};
 };
 
 struct DisplayTargetSnapshot
@@ -47,13 +54,47 @@ struct DisplayTargetSnapshot
         && left.bottom == right.bottom;
 }
 
+[[nodiscard]] inline bool sameDisplayPhysicalTargetIdentity(
+    const DisplayPhysicalTargetIdentity& left,
+    const DisplayPhysicalTargetIdentity& right) noexcept
+{
+    return left.adapterLuid.HighPart == right.adapterLuid.HighPart
+        && left.adapterLuid.LowPart == right.adapterLuid.LowPart
+        && left.targetId == right.targetId;
+}
+
+[[nodiscard]] inline bool sameDisplayPhysicalTargets(
+    const DisplayTarget& left,
+    const DisplayTarget& right) noexcept
+{
+    if (left.physicalTargetIdentities.size()
+        != right.physicalTargetIdentities.size())
+    {
+        return false;
+    }
+    for (std::size_t index = 0U;
+         index < left.physicalTargetIdentities.size();
+         ++index)
+    {
+        if (!sameDisplayPhysicalTargetIdentity(
+                left.physicalTargetIdentities[index],
+                right.physicalTargetIdentities[index]))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
 [[nodiscard]] inline bool sameDisplayTarget(
     const DisplayTarget& left,
     const DisplayTarget& right) noexcept
 {
     return left.monitor == right.monitor
         && left.deviceName == right.deviceName
-        && sameDisplayBounds(left.bounds, right.bounds);
+        && sameDisplayBounds(left.bounds, right.bounds)
+        && left.physicalTargetCount == right.physicalTargetCount
+        && sameDisplayPhysicalTargets(left, right);
 }
 
 [[nodiscard]] inline bool sameDisplaySource(
