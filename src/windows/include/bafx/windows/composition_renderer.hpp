@@ -71,6 +71,14 @@ enum class OutputResizeStatus : std::uint8_t
     DeviceRecovered
 };
 
+enum class BackgroundFramePoolRecreateStatus : std::uint8_t
+{
+    Recreated,
+    Failed,
+    DeviceRecovered,
+    DeviceRecoveryFailed
+};
+
 struct GraphicsDeviceInfo
 {
     GraphicsDriverType driverType{GraphicsDriverType::Hardware};
@@ -180,7 +188,8 @@ public:
         bool allowSystemBorder = false) noexcept;
     [[nodiscard]] std::optional<WindowSize>
         pendingBackgroundFramePoolSize() const noexcept;
-    [[nodiscard]] bool tryRecreateBackgroundFramePool(WindowSize size) noexcept;
+    [[nodiscard]] BackgroundFramePoolRecreateStatus
+        tryRecreateBackgroundFramePool(WindowSize size) noexcept;
     void disableBackgroundCapture() noexcept;
     [[nodiscard]] bool backgroundCaptureActive() const noexcept;
     [[nodiscard]] bool backgroundCaptureBorderHidden() const noexcept;

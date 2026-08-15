@@ -125,6 +125,43 @@ void appendBackgroundCaptureActionEnd(
     bafx::windows::appendDiagnosticLog(logPath, message);
 }
 
+void observeDeviceRecovery(
+    BackgroundCaptureExecutionResult& result,
+    const bafx::windows::GraphicsDeviceInfo& previousDeviceInfo,
+    const bafx::windows::CompositionRenderer& renderer,
+    const std::filesystem::path& logPath,
+    const std::string_view eventName,
+    bool& sensorRestartAllowed)
+{
+    result.deviceRecovered = true;
+    result.deviceRecoveryAdapterChanged =
+        previousDeviceInfo.adapterLuid.LowPart
+            != renderer.deviceInfo().adapterLuid.LowPart
+        || previousDeviceInfo.adapterLuid.HighPart
+            != renderer.deviceInfo().adapterLuid.HighPart;
+    sensorRestartAllowed =
+        !result.deviceRecoveryAdapterChanged
+        && renderer.deviceInfo().driverType
+            == bafx::windows::GraphicsDriverType::Hardware;
+    const std::array recoveryFields{
+        bafx::windows::DiagnosticField{
+            "Adapter",
+            result.deviceRecoveryAdapterChanged ? "changed" : "same"},
+        bafx::windows::DiagnosticField{
+            "Driver",
+            renderer.deviceInfo().driverType
+                    == bafx::windows::GraphicsDriverType::Hardware
+                ? "hardware"
+                : "warp"},
+        bafx::windows::DiagnosticField{
+            "WgcRestartAllowed",
+            sensorRestartAllowed ? "true" : "false"}};
+    bafx::windows::appendDiagnosticEvent(
+        logPath,
+        eventName,
+        recoveryFields);
+}
+
 }
 
 bafx::windows::BackgroundCaptureRequest backgroundCaptureRequest(
@@ -226,51 +263,56 @@ BackgroundCaptureExecutionResult executeBackgroundCaptureTransition(
                 if (resizeStatus
                     == bafx::windows::OutputResizeStatus::DeviceRecovered)
                 {
-                    result.deviceRecovered = true;
-                    result.deviceRecoveryAdapterChanged =
-                        previousDeviceInfo.adapterLuid.LowPart
-                            != renderer.deviceInfo().adapterLuid.LowPart
-                        || previousDeviceInfo.adapterLuid.HighPart
-                            != renderer.deviceInfo().adapterLuid.HighPart;
-                    sensorRestartAllowed =
-                        !result.deviceRecoveryAdapterChanged
-                        && renderer.deviceInfo().driverType
-                            == bafx::windows::GraphicsDriverType::Hardware;
-                    const std::array recoveryFields{
-                        bafx::windows::DiagnosticField{
-                            "Adapter",
-                            result.deviceRecoveryAdapterChanged
-                                ? "changed"
-                                : "same"},
-                        bafx::windows::DiagnosticField{
-                            "Driver",
-                            renderer.deviceInfo().driverType
-                                    == bafx::windows::GraphicsDriverType::Hardware
-                                ? "hardware"
-                                : "warp"},
-                        bafx::windows::DiagnosticField{
-                            "WgcRestartAllowed",
-                            sensorRestartAllowed ? "true" : "false"}};
-                    bafx::windows::appendDiagnosticEvent(
+                    observeDeviceRecovery(
+                        result,
+                        previousDeviceInfo,
+                        renderer,
                         logPath,
                         "Graphics.DeviceRecovery.ResizeSucceeded",
-                        recoveryFields);
+                        sensorRestartAllowed);
                 }
                 succeeded = true;
                 break;
             }
             case bafx::windows::BackgroundCaptureActionKind::RecreateFramePool:
-                succeeded = renderer.tryRecreateBackgroundFramePool(
+            {
+                const bafx::windows::GraphicsDeviceInfo previousDeviceInfo =
+                    renderer.deviceInfo();
+                const bafx::windows::BackgroundFramePoolRecreateStatus
+                    recreateStatus = renderer.tryRecreateBackgroundFramePool(
                     action->captureSize);
-                if (succeeded)
+                switch (recreateStatus)
                 {
+                case bafx::windows::BackgroundFramePoolRecreateStatus::Recreated:
+                    succeeded = true;
                     result.recreatedFramePoolSize = action->captureSize;
+                    break;
+                case bafx::windows::BackgroundFramePoolRecreateStatus::Failed:
+                    succeeded = false;
+                    break;
+                case bafx::windows::BackgroundFramePoolRecreateStatus::
+                    DeviceRecovered:
+                    succeeded = false;
+                    observeDeviceRecovery(
+                        result,
+                        previousDeviceInfo,
+                        renderer,
+                        logPath,
+                        "Graphics.DeviceRecovery.FramePoolSucceeded",
+                        sensorRestartAllowed);
+                    break;
+                case bafx::windows::BackgroundFramePoolRecreateStatus::
+                    DeviceRecoveryFailed:
+                    throw std::runtime_error(
+                        "Graphics device recovery failed during WGC frame pool recreate: "
+                        + std::string(renderer.deviceRecoveryFailure()));
                 }
-                else if (!renderer.backgroundCaptureFailure().empty())
+                if (!succeeded && !renderer.backgroundCaptureFailure().empty())
                 {
                     result.sensorFailure = renderer.backgroundCaptureFailure();
                 }
                 break;
+            }
             case bafx::windows::BackgroundCaptureActionKind::StartSensor:
                 // Start is emitted only after WDA exclusion was confirmed in
                 // this transaction, so stale affinity cannot enable capture.

@@ -884,38 +884,46 @@ CompositionRenderer::pendingBackgroundFramePoolSize() const noexcept
     return backgroundSensor_->pendingFramePoolSize();
 }
 
-bool CompositionRenderer::tryRecreateBackgroundFramePool(
+BackgroundFramePoolRecreateStatus
+CompositionRenderer::tryRecreateBackgroundFramePool(
     const WindowSize size) noexcept
 {
     if (backgroundSensor_ == nullptr)
     {
         setBackgroundCaptureFailure(
             "WGC frame pool recreate requires an active sensor");
-        return false;
+        return BackgroundFramePoolRecreateStatus::Failed;
     }
 
     try
     {
         backgroundSensor_->recreateFramePool(size);
         setBackgroundCaptureFailure({});
-        return true;
+        return BackgroundFramePoolRecreateStatus::Recreated;
+    }
+    catch (const HResultError& error)
+    {
+        if (!isDeviceLostResult(error.result()))
+        {
+            setBackgroundCaptureFailure(error.what());
+            return BackgroundFramePoolRecreateStatus::Failed;
+        }
+        const bool recovered = tryRecoverDevice();
+        setBackgroundCaptureFailure(error.what());
+        return recovered
+            ? BackgroundFramePoolRecreateStatus::DeviceRecovered
+            : BackgroundFramePoolRecreateStatus::DeviceRecoveryFailed;
+    }
+    catch (const std::exception& error)
+    {
+        setBackgroundCaptureFailure(error.what());
+        return BackgroundFramePoolRecreateStatus::Failed;
     }
     catch (...)
     {
-        try
-        {
-            throw;
-        }
-        catch (const std::exception& error)
-        {
-            setBackgroundCaptureFailure(error.what());
-        }
-        catch (...)
-        {
-            setBackgroundCaptureFailure(
-                "unknown WGC frame pool recreate failure");
-        }
-        return false;
+        setBackgroundCaptureFailure(
+            "unknown WGC frame pool recreate failure");
+        return BackgroundFramePoolRecreateStatus::Failed;
     }
 }
 

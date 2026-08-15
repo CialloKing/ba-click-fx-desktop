@@ -1553,6 +1553,39 @@ int runApplication(
                 renderer,
                 primaryMonitor.handle,
                 logPath);
+            if (backgroundExecution.deviceRecovered)
+            {
+                deviceRecoveryConsumed = true;
+                report.setDeviceInfo(renderer.deviceInfo());
+                const bool retryEligible =
+                    appliedBackgroundRequest.sensorRequired
+                    && !backgroundExecution.deviceRecoveryAdapterChanged
+                    && renderer.deviceInfo().driverType
+                        == bafx::windows::GraphicsDriverType::Hardware;
+                backgroundRetryPending = false;
+                if (retryEligible)
+                {
+                    if (backgroundRetryToken
+                        == std::numeric_limits<std::uint64_t>::max())
+                    {
+                        throw std::runtime_error(
+                            "WGC retry token exhausted after frame pool recovery");
+                    }
+                    ++backgroundRetryToken;
+                    appliedBackgroundRequest.retryToken = backgroundRetryToken;
+                    backgroundRetryPending = true;
+                    const std::string retryTokenText = std::to_string(
+                        backgroundRetryToken);
+                    const std::array retryFields{
+                        bafx::windows::DiagnosticField{
+                            "RetryToken",
+                            retryTokenText}};
+                    bafx::windows::appendDiagnosticEvent(
+                        logPath,
+                        "Graphics.DeviceRecovery.FramePoolRetryScheduled",
+                        retryFields);
+                }
+            }
             backgroundCaptureEnabled = backgroundTransition.effectivePath()
                 == bafx::windows::EffectiveBackgroundCapturePath::BackgroundAware;
             backgroundParticipationLogged = false;
