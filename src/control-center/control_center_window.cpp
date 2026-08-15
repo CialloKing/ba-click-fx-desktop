@@ -726,6 +726,11 @@ bool ControlCenterWindow::createControls()
         L"允许黄色捕获边框",
         BS_AUTOCHECKBOX | WS_TABSTOP,
         ControlId::AllowSystemBorder);
+    hdrEnabled_ = createChild(
+        L"BUTTON",
+        L"启用 HDR 屏幕输出",
+        BS_AUTOCHECKBOX | WS_TABSTOP,
+        ControlId::HdrEnabled);
     pauseButton_ = createChild(
         L"BUTTON",
         L"暂停特效",
@@ -763,6 +768,7 @@ bool ControlCenterWindow::createControls()
         backgroundMode_,
         cursorExcluded_,
         allowSystemBorder_,
+        hdrEnabled_,
         pauseButton_,
         refreshButton_,
         hostLifecycleButton_,
@@ -984,6 +990,7 @@ void ControlCenterWindow::applyFonts() const noexcept
         backgroundMode_,
         cursorExcluded_,
         allowSystemBorder_,
+        hdrEnabled_,
         pauseButton_,
         refreshButton_,
         hostLifecycleButton_,
@@ -1235,9 +1242,15 @@ void ControlCenterWindow::layoutControls(
         rightContentWidth,
         scale(30));
     moveControl(
+        hdrEnabled_,
+        rightContentX,
+        contentTop + scale(165),
+        rightContentWidth,
+        scale(30));
+    moveControl(
         pauseButton_,
         rightContentX,
-        contentTop + scale(179),
+        contentTop + scale(211),
         rightContentWidth,
         scale(38));
 
@@ -1246,19 +1259,19 @@ void ControlCenterWindow::layoutControls(
     moveControl(
         refreshButton_,
         rightContentX,
-        contentTop + scale(229),
+        contentTop + scale(261),
         actionWidth,
         scale(38));
     moveControl(
         hostLifecycleButton_,
         rightContentX + actionWidth + actionGap,
-        contentTop + scale(229),
+        contentTop + scale(261),
         actionWidth,
         scale(38));
     moveControl(
         resetDefaultsButton_,
         rightContentX,
-        contentTop + scale(279),
+        contentTop + scale(311),
         rightContentWidth,
         scale(38));
 
@@ -1401,6 +1414,14 @@ void ControlCenterWindow::onCommand(
             applyPatch(
                 "background.allowSystemBorder",
                 isChecked(allowSystemBorder_) ? "true" : "false");
+        }
+        break;
+    case ControlId::HdrEnabled:
+        if (notificationCode == BN_CLICKED)
+        {
+            applyPatch(
+                "display.hdrEnabled",
+                isChecked(hdrEnabled_) ? "true" : "false");
         }
         break;
     case ControlId::Refresh:
@@ -1714,6 +1735,7 @@ void ControlCenterWindow::updateControls(
     setChecked(
         allowSystemBorder_,
         config.background.allowSystemBorder);
+    setChecked(hdrEnabled_, config.display.hdrEnabled);
     SetWindowTextW(pauseButton_, paused_ ? L"恢复特效" : L"暂停特效");
 
     updatingControls_ = false;
@@ -2071,6 +2093,7 @@ void ControlCenterWindow::setConnected(const bool connected) noexcept
         backgroundMode_,
         cursorExcluded_,
         allowSystemBorder_,
+        hdrEnabled_,
         pauseButton_,
         resetDefaultsButton_};
     for (const HWND control : controls)

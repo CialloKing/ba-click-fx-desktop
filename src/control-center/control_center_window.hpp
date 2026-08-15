@@ -47,6 +47,7 @@ private:
         BackgroundMode,
         CursorExcluded,
         AllowSystemBorder,
+        HdrEnabled,
         Refresh,
         HostLifecycle,
         ResetDefaults
@@ -183,6 +184,7 @@ private:
     HWND backgroundMode_{nullptr};
     HWND cursorExcluded_{nullptr};
     HWND allowSystemBorder_{nullptr};
+    HWND hdrEnabled_{nullptr};
     HWND pauseButton_{nullptr};
     HWND refreshButton_{nullptr};
     HWND hostLifecycleButton_{nullptr};
