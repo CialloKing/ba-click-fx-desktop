@@ -3763,6 +3763,40 @@ int runApplication(
                 pending.reason)
                 || renderInvalidated;
         }
+        if (!displayPowerUnavailable
+            && outputPreferenceReconcilePending
+            && !pendingCoordinatorOutputRenegotiation.has_value()
+            && !backgroundExecution.transactionActive
+            && !backgroundTransition.transitioning()
+            && !backgroundRetryPending
+            && !configChanged
+            && !pendingOutputResize.has_value()
+            && !pendingDisplayTarget.has_value()
+            && displaySession.resourceDomainReadyForTarget(
+                appliedDisplayTarget))
+        {
+            // Clear before applying so a failing driver path cannot turn the
+            // main loop into an unbounded reconstruction cycle.
+            outputPreferenceReconcilePending = false;
+            const bafx::windows::CompositionOutputPreference requested =
+                makeOutputPreference(config.display);
+            renderInvalidated = reconcileRequestedOutputPreferences(
+                requested,
+                "stable-display",
+                "stable-display-fx-only")
+                || renderInvalidated;
+            const std::array fields{
+                bafx::windows::DiagnosticField{
+                    "RequestedPreference",
+                    outputPreferenceName(requested)},
+                bafx::windows::DiagnosticField{
+                    "CoordinatorResourceDomain",
+                    "ready"}};
+            bafx::windows::appendDiagnosticEvent(
+                logPath,
+                "Display.Output.ReconciliationExecuted",
+                fields);
+        }
         const bool displayTargetChanged = pendingDisplayTarget.has_value()
             && (!bafx::desktop::sameDisplayTarget(
                     *pendingDisplayTarget,
@@ -3775,9 +3809,7 @@ int runApplication(
         if (configChanged
             || pendingOutputResize.has_value()
             || displayTargetChanged
-            || backgroundRetryPending
-            || (!displayPowerUnavailable
-                && outputPreferenceReconcilePending))
+            || backgroundRetryPending)
         {
             renderInvalidated = true;
             if (configChanged)
@@ -3936,19 +3968,20 @@ int runApplication(
                     // contract. Keep the newest user intent and reconcile it
                     // once the restore edge has refreshed per-monitor facts.
                     outputPreferenceReconcilePending = true;
+                    const std::array fields{
+                        bafx::windows::DiagnosticField{
+                            "RequestedPreference",
+                            outputPreferenceName(currentOutputPreference)},
+                        bafx::windows::DiagnosticField{
+                            "DisplayPower",
+                            displayPowerUnavailable
+                                ? "unavailable"
+                                : "available"}};
+                    bafx::windows::appendDiagnosticEvent(
+                        logPath,
+                        "Display.Output.ReconciliationQueued",
+                        fields);
                 }
-            }
-            if (!displayPowerUnavailable
-                && outputPreferenceReconcilePending)
-            {
-                // Clear before applying so a failing driver path cannot turn
-                // the main loop into an unbounded reconstruction cycle.
-                outputPreferenceReconcilePending = false;
-                renderInvalidated = reconcileRequestedOutputPreferences(
-                    makeOutputPreference(config.display),
-                    "configuration",
-                    "configuration-fx-only")
-                    || renderInvalidated;
             }
             const bafx::windows::BackgroundCaptureRequest nextBackgroundRequest =
                 bafx::desktop::backgroundCaptureRequest(
