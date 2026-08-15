@@ -27,12 +27,19 @@ Recreate 遇到可识别的 DXGI device-lost HRESULT 时，整个 renderer 最�
 `--device-recovery-probe` 已作为有界 CTest 验证资源域主动重建和中心像素有效，但它不模拟真实
 设备移除，真实 device-reset、热插拔和跨适配器单元格仍保持 `Not Run`。
 
-frame-latency wait 的 Win32 错误现会在调用点锁存；等待失败或连续 `250 ms` 未得到 FrameReady 时，
-Host 查询 D3D device-removed reason，只有可识别的 device-lost 才进入上述一次性恢复边界。运行截止检查
-已移到所有 `TimedOut`/`MessagesPending` 的 `continue` 之前，`desktop_frame_pacing_stall` 使用永久不信号
-句柄验证 `--quit-after-ms` 不会再等到 CTest 外层超时。WGC stop 同时记录 FrameArrived/Closed 退订、
-Session Close、FramePool Close 和总耗时；正常 WGC 会话已观察到完整阶段记录。该冒烟结果不覆盖
-device-lost 时不可取消 WinRT Close 的最坏阻塞时间，该单元格仍需真实故障注入并保持 `Not Run`。
+Host 现在优先使用可选的 `ID3D11Device4::RegisterDeviceRemovedEvent`：设备移除句柄排在 frame-latency
+句柄之前，同时信号时先进入设备恢复；异常信号不会被手动复位，而是立即失败，避免对 manual-reset 句柄
+形成忙循环。启动和每次成功恢复后都会记录 `Graphics.DeviceRemovalNotification.Status` 的可用状态与注册
+HRESULT，`Performance.Interval` 另记 `FramePacing.DeviceRemovedWakes`，非零时提升为 Warning。当前机器已验证
+通知注册和主动恢复后的重新注册，但没有制造真实 device-lost。
+
+接口不可用或注册失败时，Host 保留原有轮询兜底：frame-latency wait 的 Win32 错误在调用点锁存；等待失败
+或连续 `250 ms` 未得到 FrameReady 时查询 D3D device-removed reason，只有可识别的 device-lost 才进入上述
+一次性恢复边界。运行截止检查已移到所有 `TimedOut`/`MessagesPending` 的 `continue` 之前，
+`desktop_frame_pacing_stall` 使用永久不信号句柄验证 `--quit-after-ms` 不会再等到 CTest 外层超时。WGC stop
+同时记录 FrameArrived/Closed 退订、Session Close、FramePool Close 和总耗时；正常 WGC 会话已观察到完整
+阶段记录。该冒烟结果不覆盖 device-lost 时不可取消 WinRT Close 的最坏阻塞时间，该单元格仍需真实故障
+注入并保持 `Not Run`。
 
 ## P0：输入、渲染与 Present 延迟诊断
 

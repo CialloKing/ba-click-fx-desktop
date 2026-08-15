@@ -43,6 +43,8 @@
   `Available=false`，不会用 `0` 伪装结果；WGC、背景快照和 FX 阶段只统计原帧实际适用的样本。
   CPU/API 时间不代表 GPU 执行，GPU 时间戳也不包含 Present、DWM 合成、扫描输出或物理上屏；异步完成的
   样本还可能属于较早的报告窗口，日志中会保留对应 semantic 字段。
+  帧等待另外记录 `FramePacing.DeviceRemovedWakes`；非零表示 D3D 设备移除通知直接唤醒过 Host，并会把该
+  性能窗提升为 Warning。它只说明通知路径被触发，不等同于恢复已经成功。
   排障时请同时提供 `BAFX.config.json`、当前 `.log` 和仍存在的三个轮转备份。
 - 每个 `BackgroundCapture.Transaction.End` 后会追加累计的
   `WGC.ResourceLedger.*` 记录，包含 Frame/FramePool/Session、两类事件注册的
@@ -55,6 +57,9 @@
   `SessionCloseUs`、`FramePoolCloseUs` 和 `TotalUs`。正常关闭完成后这些字段用于定位慢阶段；如果日志只
   留下 `BackgroundCapture.Action.Begin=stop-sensor` 或 `Graphics.DeviceRecovery.Begin` 而没有对应完成
   记录，说明同步 WinRT 关闭调用可能没有返回。当前实现不能取消该系统调用，需连同轮转日志一起排查。
+- Host 会尝试通过 D3D11.4 注册 device-removed event。启动及每次成功资源恢复后，
+  `Graphics.DeviceRemovalNotification.Status` 记录 `Phase`、`Available` 和 `RegistrationHRESULT`；接口
+  不可用或注册失败时仍以每 `250 ms` 一次的 device-removed reason 查询兜底，不会把注册失败当作渲染失败。
 - WGC 只由 `background-aware` 模式使用。portable EXE 没有 package identity，也不会自行声明
   `graphicsCaptureWithoutBorder` capability。新配置默认允许 Windows 显示捕获边框；可见边框状态记录为
   `system-border=visible-allowed`。用户可在 Control Center 中取消勾选“允许黄色捕获边框”；关闭后会在
@@ -112,8 +117,9 @@ Windows“已安装的应用”执行，默认保留安装目录
   FX-only。已有 schema 4 配置若显式保存了 `false`，迁移到当前 schema 7 后仍保持该关闭状态。
 - 无论 WGC 是否可用，都不能移除 Layered/Transparent 样式来换取背景采样；这会破坏跨进程按钮点击。
 - 多显示器、跨显示器输入、多适配器和混合刷新率。
-- device removed/reset 后已有一次性重建实现和主动探针，但真实 GPU reset、热插拔、跨适配器以及
-  device-lost 下 WGC 同步关闭仍未完成硬件验收，因此不属于本 Alpha 的支持范围。
+- device removed/reset 后已有事件通知、一次性重建实现和主动探针，但当前只证明通知注册及主动重建后的
+  重新注册；真实 GPU reset、热插拔、跨适配器以及 device-lost 下 WGC 同步关闭仍未完成硬件验收，
+  因此不属于本 Alpha 的支持范围。
 - 开机启动、自动更新、公有代码签名，以及无边框 WGC 的跨版本稳定性。方案 C 安装器已经作为普通用户发布
   通道提供，但其背景感知能力仍受 Windows 版本、权限和显卡环境影响；portable ZIP 继续作为无安装权限的备选。
 
