@@ -21,7 +21,8 @@ struct BackgroundCaptureExecutionResult
 };
 
 [[nodiscard]] bafx::windows::BackgroundCaptureRequest backgroundCaptureRequest(
-    const bafx::config::Config& config) noexcept;
+    const bafx::config::Config& config,
+    std::uint64_t retryToken = 0U) noexcept;
 
 [[nodiscard]] BackgroundCaptureExecutionResult executeBackgroundCaptureTransition(
     bafx::windows::BackgroundCaptureTransition& transition,

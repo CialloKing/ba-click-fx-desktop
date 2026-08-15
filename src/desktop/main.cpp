@@ -26,6 +26,7 @@
 #include <cstdlib>
 #include <exception>
 #include <filesystem>
+#include <limits>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -890,10 +891,13 @@ int runApplication(
     std::uint32_t renderedFrames = 0;
     std::uint64_t backgroundCompositeFrames = 0U;
     std::uint64_t appliedGeneration = control.snapshot().generation;
+    std::uint64_t backgroundRetryToken = appliedBackgroundRequest.retryToken;
+    bool backgroundRetryPending = false;
     bool backgroundParticipationLogged = false;
     bool backgroundPendingDiagnosticLogged = false;
     bool renderInvalidationPending = false;
     bool lastPresentedDrawableContent = false;
+    bool deviceRecoveryConsumed = false;
     bafx::fx::SimulationTime performanceWindowStartedAt = applicationStartedAt;
     bafx::desktop::RuntimePerformanceWindow performanceWindow;
     std::chrono::nanoseconds previousPerformanceLogWriteCpu{};
@@ -923,7 +927,9 @@ int runApplication(
             pendingOutputResize.reset();
         }
         const bool configChanged = controlState.generation != appliedGeneration;
-        if (configChanged || pendingOutputResize.has_value())
+        if (configChanged
+            || pendingOutputResize.has_value()
+            || backgroundRetryPending)
         {
             renderInvalidated = true;
             if (configChanged)
@@ -942,7 +948,9 @@ int runApplication(
                 renderer.setBloomSettings(makeBloomSettings(config.effects));
             }
             const bafx::windows::BackgroundCaptureRequest nextBackgroundRequest =
-                bafx::desktop::backgroundCaptureRequest(config);
+                bafx::desktop::backgroundCaptureRequest(
+                    config,
+                    backgroundRetryToken);
             const bafx::windows::BackgroundCaptureRequestResult requestResult =
                 backgroundTransition.beginIntent(
                     nextBackgroundRequest,
@@ -975,10 +983,12 @@ int runApplication(
                     renderer);
                 backgroundParticipationLogged = false;
                 backgroundPendingDiagnosticLogged = false;
+                backgroundRetryPending = false;
                 bafx::windows::appendDiagnosticLog(logPath, report);
                 break;
             case bafx::windows::BackgroundCaptureRequestResult::NoChange:
                 appliedBackgroundRequest = nextBackgroundRequest;
+                backgroundRetryPending = false;
                 break;
             case bafx::windows::BackgroundCaptureRequestResult::Busy:
                 throw std::logic_error(
@@ -991,7 +1001,9 @@ int runApplication(
                 ? (pendingOutputResize.has_value()
                     ? "control-and-output-resize"
                     : "control-generation")
-                : "output-resize";
+                : (pendingOutputResize.has_value()
+                    ? "output-resize"
+                    : "background-retry");
             bafx::desktop::appendAppliedConfiguration(
                 logPath,
                 config,
@@ -1117,39 +1129,259 @@ int runApplication(
             // A paused DComp surface can persist indefinitely. Its last frame
             // may only bake a current background; normal animation tolerates
             // short WGC cadence gaps without modulating FX energy.
-            const bafx::windows::CompositionFrameDiagnostics frameDiagnostics =
-                renderer.renderFrame(snapshot, wallTime, controlState.paused);
+            std::optional<
+                bafx::windows::CompositionFrameDiagnostics> frameDiagnostics;
+            try
+            {
+                frameDiagnostics = renderer.renderFrame(
+                    snapshot,
+                    wallTime,
+                    controlState.paused);
+            }
+            catch (const bafx::windows::HResultError& error)
+            {
+                if (!bafx::windows::isDeviceLostResult(error.result())
+                    || deviceRecoveryConsumed)
+                {
+                    if (bafx::windows::isDeviceLostResult(error.result())
+                        && deviceRecoveryConsumed)
+                    {
+                        const std::string resultCode = std::to_string(
+                            static_cast<long long>(error.result()));
+                        const std::array suppressedFields{
+                            bafx::windows::DiagnosticField{
+                                "HRESULT",
+                                resultCode},
+                            bafx::windows::DiagnosticField{
+                                "Reason",
+                                "process recovery budget exhausted"}};
+                        bafx::windows::appendDiagnosticEvent(
+                            logPath,
+                            "Graphics.DeviceRecovery.Suppressed",
+                            suppressedFields,
+                            bafx::windows::DiagnosticLevel::Error);
+                    }
+                    throw;
+                }
+                deviceRecoveryConsumed = true;
+                const bafx::windows::GraphicsDeviceInfo previousDeviceInfo =
+                    renderer.deviceInfo();
+                const std::string originalError(error.what());
+                const std::string resultCode = std::to_string(
+                    static_cast<long long>(error.result()));
+                const std::array recoveryFields{
+                    bafx::windows::DiagnosticField{
+                        "HRESULT",
+                        resultCode},
+                    bafx::windows::DiagnosticField{
+                        "Message",
+                        originalError},
+                    bafx::windows::DiagnosticField{
+                        "Attempt",
+                        "1"}};
+                bafx::windows::appendDiagnosticEvent(
+                    logPath,
+                    "Graphics.DeviceRecovery.Begin",
+                    recoveryFields,
+                    bafx::windows::DiagnosticLevel::Warning);
+
+                if (!renderer.tryRecoverDevice())
+                {
+                    const std::string recoveryFailure(
+                        renderer.deviceRecoveryFailure());
+                    const std::array failureFields{
+                        bafx::windows::DiagnosticField{
+                            "OriginalHRESULT",
+                            resultCode},
+                        bafx::windows::DiagnosticField{
+                            "RecoveryError",
+                            recoveryFailure}};
+                    bafx::windows::appendDiagnosticEvent(
+                        logPath,
+                        "Graphics.DeviceRecovery.Failed",
+                        failureFields,
+                        bafx::windows::DiagnosticLevel::Error);
+                    throw error;
+                }
+
+                report.setDeviceInfo(renderer.deviceInfo());
+                const bool adapterChanged =
+                    previousDeviceInfo.adapterLuid.LowPart
+                        != renderer.deviceInfo().adapterLuid.LowPart
+                    || previousDeviceInfo.adapterLuid.HighPart
+                        != renderer.deviceInfo().adapterLuid.HighPart;
+                if (backgroundTransition.effectivePath()
+                        == bafx::windows::EffectiveBackgroundCapturePath::
+                            BackgroundAware
+                    && backgroundTransition.request().has_value()
+                    && backgroundTransition.request()->sensorRequired)
+                {
+                    if (!backgroundTransition.beginSessionStopped())
+                    {
+                        const std::array failureFields{
+                            bafx::windows::DiagnosticField{
+                                "OriginalHRESULT",
+                                resultCode},
+                            bafx::windows::DiagnosticField{
+                                "RecoveryError",
+                                "WGC stop transaction was not accepted"}};
+                        bafx::windows::appendDiagnosticEvent(
+                            logPath,
+                            "Graphics.DeviceRecovery.Failed",
+                            failureFields,
+                            bafx::windows::DiagnosticLevel::Error);
+                        throw error;
+                    }
+                    try
+                    {
+                        const bafx::desktop::BackgroundCaptureExecutionResult
+                            stopExecution =
+                                bafx::desktop::executeBackgroundCaptureTransition(
+                                    backgroundTransition,
+                                    window,
+                                    renderer,
+                                    primaryMonitor.handle,
+                                    logPath);
+                        backgroundCaptureEnabled = false;
+                        control.setBackgroundCaptureActive(false);
+                        report.setBackgroundCaptureStatus(
+                            bafx::desktop::backgroundCaptureStatus(
+                                backgroundTransition.effectivePath()));
+                        bafx::desktop::appendBackgroundCaptureOutcome(
+                            logPath,
+                            appliedBackgroundRequest,
+                            backgroundTransition,
+                            stopExecution,
+                            renderer);
+                    }
+                    catch (...)
+                    {
+                        const std::array failureFields{
+                            bafx::windows::DiagnosticField{
+                                "OriginalHRESULT",
+                                resultCode},
+                            bafx::windows::DiagnosticField{
+                                "RecoveryError",
+                                "WGC stop transaction failed"}};
+                        bafx::windows::appendDiagnosticEvent(
+                            logPath,
+                            "Graphics.DeviceRecovery.Failed",
+                            failureFields,
+                            bafx::windows::DiagnosticLevel::Error);
+                        throw error;
+                    }
+                }
+                else
+                {
+                    backgroundCaptureEnabled = false;
+                    control.setBackgroundCaptureActive(false);
+                }
+                report.setBackgroundCaptureStatus(
+                    bafx::desktop::backgroundCaptureStatus(
+                        backgroundTransition.effectivePath()));
+
+                if (backgroundRetryToken
+                    == std::numeric_limits<std::uint64_t>::max())
+                {
+                    const std::array failureFields{
+                        bafx::windows::DiagnosticField{
+                            "OriginalHRESULT",
+                            resultCode},
+                        bafx::windows::DiagnosticField{
+                            "RecoveryError",
+                            "retry token exhausted"}};
+                    bafx::windows::appendDiagnosticEvent(
+                        logPath,
+                        "Graphics.DeviceRecovery.Failed",
+                        failureFields,
+                        bafx::windows::DiagnosticLevel::Error);
+                    throw error;
+                }
+                ++backgroundRetryToken;
+                appliedBackgroundRequest.retryToken = backgroundRetryToken;
+                backgroundRetryPending =
+                    appliedBackgroundRequest.sensorRequired
+                    && !adapterChanged;
+                backgroundParticipationLogged = false;
+                backgroundPendingDiagnosticLogged = false;
+                std::string adapterState = adapterChanged
+                    ? "changed"
+                    : "same";
+                const std::string retryTokenText = std::to_string(
+                    backgroundRetryToken);
+                const std::array successFields{
+                    bafx::windows::DiagnosticField{
+                        "RetryToken",
+                        retryTokenText},
+                    bafx::windows::DiagnosticField{
+                        "Adapter",
+                        adapterState},
+                    bafx::windows::DiagnosticField{
+                        "WgcRetryPending",
+                        backgroundRetryPending ? "true" : "false"}};
+                bafx::windows::appendDiagnosticEvent(
+                    logPath,
+                    "Graphics.DeviceRecovery.Succeeded",
+                    successFields);
+                try
+                {
+                    // Retry the exact CPU snapshot and wall-clock sample once;
+                    // no simulation/input event is consumed twice.
+                    frameDiagnostics = renderer.renderFrame(
+                        snapshot,
+                        wallTime,
+                        controlState.paused);
+                }
+                catch (...)
+                {
+                    const std::array failureFields{
+                        bafx::windows::DiagnosticField{
+                            "OriginalHRESULT",
+                            resultCode},
+                        bafx::windows::DiagnosticField{
+                            "RecoveryError",
+                            "retry render failed"}};
+                    bafx::windows::appendDiagnosticEvent(
+                        logPath,
+                        "Graphics.DeviceRecovery.Failed",
+                        failureFields,
+                        bafx::windows::DiagnosticLevel::Error);
+                    throw error;
+                }
+            }
+            const bafx::windows::CompositionFrameDiagnostics&
+                completedFrameDiagnostics = *frameDiagnostics;
             const std::uint64_t producerCallbacks =
                 wgcCallbackDeltaTracker.observe(
-                    frameDiagnostics.wgcActive,
-                    frameDiagnostics.wgc.epoch,
-                    frameDiagnostics.wgc.frameArrivedCallbacksTotal);
+                    completedFrameDiagnostics.wgcActive,
+                    completedFrameDiagnostics.wgc.epoch,
+                    completedFrameDiagnostics.wgc.frameArrivedCallbacksTotal);
             performanceWindow.addFrame(framePerformanceSample(
-                frameDiagnostics,
+                completedFrameDiagnostics,
                 producerCallbacks,
                 options.smokeTest));
             for (const PointerLatencyOrigin& origin :
                  pointerConsumption.acceptedDowns)
             {
                 if (origin.dispatchQpc > 0
-                    && frameDiagnostics.presentReturnedQpc
+                    && completedFrameDiagnostics.presentReturnedQpc
                         >= origin.dispatchQpc)
                 {
                     performanceWindow.addDispatchToPresentReturn(
                         durationMicroseconds(
                             clock.fromCounter(
-                                frameDiagnostics.presentReturnedQpc)
+                                completedFrameDiagnostics.presentReturnedQpc)
                             - clock.fromCounter(origin.dispatchQpc)));
                 }
                 if (origin.messageTimeValid)
                 {
                     performanceWindow.addMessageToPresentReturn(
                         bafx::windows::win32MessageQueueAgeMilliseconds(
-                            frameDiagnostics.presentReturnedTickMilliseconds,
+                            completedFrameDiagnostics.presentReturnedTickMilliseconds,
                             origin.messageTimeMilliseconds));
                 }
             }
-            if (frameDiagnostics.backgroundParticipated)
+            if (completedFrameDiagnostics.backgroundParticipated)
             {
                 ++backgroundCompositeFrames;
             }

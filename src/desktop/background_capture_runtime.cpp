@@ -4,6 +4,7 @@
 
 #include <chrono>
 #include <cstddef>
+#include <cstdint>
 #include <optional>
 #include <stdexcept>
 #include <string_view>
@@ -126,14 +127,15 @@ void appendBackgroundCaptureActionEnd(
 }
 
 bafx::windows::BackgroundCaptureRequest backgroundCaptureRequest(
-    const bafx::config::Config& config) noexcept
+    const bafx::config::Config& config,
+    const std::uint64_t retryToken) noexcept
 {
     return bafx::windows::BackgroundCaptureRequest{
         wantsBackgroundCapture(config),
         overlayProfileForRenderMode(config.background.mode),
         config.background.cursorExcluded,
         config.background.allowSystemBorder,
-        0U};
+        retryToken};
 }
 
 void appendBackgroundCaptureResourceLedger(

@@ -357,7 +357,6 @@ bool CompositionRenderer::tryRecoverDevice() noexcept
         lastCenterPixel_.reset();
         backgroundCompositeStatus_ = BackgroundCompositeStatus::Inactive;
         releaseDeviceResources();
-        deviceInfo_ = GraphicsDeviceInfo{};
         featureLevel_ = D3D_FEATURE_LEVEL_11_0;
 
         createDevice();
@@ -451,6 +450,10 @@ void CompositionRenderer::releaseDeviceResources() noexcept
     {
         context_->OMSetRenderTargets(0U, nullptr, nullptr);
     }
+    // Snapshot views are created on the same device as the swap chain. Keep
+    // this helper self-contained so an exceptional recovery path cannot leave
+    // old-device views alive behind the new resource domain.
+    releaseBackgroundSnapshotResources();
     gpuTimestampProfiler_.reset();
     fxRenderer_.reset();
     renderTarget_.Reset();
