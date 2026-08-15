@@ -99,6 +99,7 @@ struct OutputRenegotiationResult final
         CompositionOutputPreference::ConservativeSdr};
     CompositionOutputState previous{};
     CompositionOutputState current{};
+    bool deviceRecovered{false};
 };
 
 enum class BackgroundFramePoolRecreateStatus : std::uint8_t
@@ -314,6 +315,8 @@ public:
     [[nodiscard]] std::optional<PixelF> lastCenterPixel() const noexcept;
 
 private:
+    [[nodiscard]] OutputRenegotiationResult renegotiateOutputOnce(
+        CompositionOutputPreference preference);
     void createDevice();
     void createDeviceResources();
     void collectDeviceInfo();

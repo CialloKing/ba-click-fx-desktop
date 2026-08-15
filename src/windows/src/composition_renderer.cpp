@@ -676,6 +676,34 @@ OutputAdapterRetargetStatus CompositionRenderer::retargetOutputAdapter(
 OutputRenegotiationResult CompositionRenderer::renegotiateOutput(
     const CompositionOutputPreference preference)
 {
+    bool recovered = false;
+    for (;;)
+    {
+        try
+        {
+            OutputRenegotiationResult result =
+                renegotiateOutputOnce(preference);
+            result.deviceRecovered = recovered;
+            return result;
+        }
+        catch (const HResultError& error)
+        {
+            if (recovered || !isDeviceLostResult(error.result()))
+            {
+                throw;
+            }
+            recovered = true;
+            if (!tryRecoverDevice())
+            {
+                throw;
+            }
+        }
+    }
+}
+
+OutputRenegotiationResult CompositionRenderer::renegotiateOutputOnce(
+    const CompositionOutputPreference preference)
+{
     Microsoft::WRL::ComPtr<IDXGIDevice> dxgiDevice;
     throwIfFailed(
         device_.As(&dxgiDevice),
@@ -763,7 +791,8 @@ OutputRenegotiationResult CompositionRenderer::renegotiateOutput(
         previousPreference,
         outputPreference_,
         previousOutput,
-        deviceInfo_.output};
+        deviceInfo_.output,
+        false};
 }
 
 std::string_view CompositionRenderer::deviceRecoveryFailure() const noexcept
