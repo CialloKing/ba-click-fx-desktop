@@ -686,6 +686,74 @@ DisplaySession::serviceSecondaryBackgroundCapture(
         "Secondary background capture service exceeded its transition budget");
 }
 
+DisplaySessionBackgroundCaptureServiceResult
+DisplaySession::handleSecondaryBorderlessAccessLost(
+    const bafx::core::MonotonicTime now)
+{
+    DisplaySessionBackgroundCaptureServiceResult result{};
+    if (secondaryBackgroundCapture_ == nullptr)
+    {
+        return result;
+    }
+
+    DisplaySessionBackgroundCaptureState& state =
+        *secondaryBackgroundCapture_;
+    if (!state.request.sensorRequired || state.request.allowSystemBorder)
+    {
+        result.active = renderer_.backgroundCaptureActive();
+        return result;
+    }
+
+    if (state.execution.transactionActive)
+    {
+        const BackgroundCaptureExecutionStatus canceled =
+            cancelBackgroundCaptureTransition(
+                state.transition,
+                window_,
+                renderer_,
+                state.execution,
+                BackgroundCaptureCancelResizePolicy::Preserve,
+                "secondary-borderless-access-lost",
+                state.logPath);
+        if (canceled != BackgroundCaptureExecutionStatus::Completed)
+        {
+            throw std::logic_error(
+                "Secondary borderless access cancellation remained pending");
+        }
+        acceptPendingSecondaryTargetIfApplied(state);
+        appendSecondaryBackgroundOutcome(state, renderer_);
+        result.renderInvalidated = true;
+    }
+    else if (state.transition.transitioning())
+    {
+        throw std::logic_error(
+            "Secondary borderless access loss found an unowned transition");
+    }
+
+    if (state.transition.effectivePath()
+            != bafx::windows::EffectiveBackgroundCapturePath::BackgroundAware
+        || !renderer_.backgroundCaptureActive())
+    {
+        result.active = renderer_.backgroundCaptureActive();
+        return result;
+    }
+
+    state.sensorWasActiveBeforeTransaction = true;
+    state.pendingSensorFailure =
+        "Borderless capture access was revoked while WGC was active";
+    if (!state.transition.beginBorderlessAccessLost())
+    {
+        throw std::logic_error(
+            "Secondary borderless access loss could not enter cleanup");
+    }
+    state.outcomePending = true;
+    DisplaySessionBackgroundCaptureServiceResult cleanup =
+        serviceSecondaryBackgroundCapture(now);
+    cleanup.renderInvalidated =
+        cleanup.renderInvalidated || result.renderInvalidated;
+    return cleanup;
+}
+
 bool DisplaySession::secondaryBackgroundCaptureInitialized() const noexcept
 {
     return secondaryBackgroundCapture_ != nullptr;

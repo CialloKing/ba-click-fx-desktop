@@ -136,6 +136,8 @@ public:
         std::string_view reason);
     [[nodiscard]] DisplaySessionBackgroundCaptureServiceResult
         serviceSecondaryBackgroundCapture(bafx::core::MonotonicTime now);
+    [[nodiscard]] DisplaySessionBackgroundCaptureServiceResult
+        handleSecondaryBorderlessAccessLost(bafx::core::MonotonicTime now);
     [[nodiscard]] bool secondaryBackgroundCaptureInitialized() const noexcept;
     [[nodiscard]] bool secondaryBackgroundCaptureActive() const noexcept;
     [[nodiscard]] HANDLE secondaryBackgroundFrameAvailableObject() const noexcept;
