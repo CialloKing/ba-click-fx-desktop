@@ -16,8 +16,9 @@
 
 - intensity 语义与 output policy；
 - background binary validity、路径单向锁存、饱和时间差与边界；
-- WGC stop 四阶段失败位、`OverallSucceeded`、失败后的 sticky 重启阻断、retry token 不可绕过，以及
-  included/FX-only 回退；背景快照失效单槽邮箱必须保留首个未消费原因和完整身份；
+- WGC stop 四阶段调用前后事件、异常后继续清理、owner/caller 线程一致性、`OverallSucceeded`、失败后的
+  sticky 重启阻断、retry token 不可绕过，以及 included/FX-only 回退；背景快照失效单槽邮箱必须保留
+  首个未消费原因和完整身份；
 - `allowSystemBorder` 必须进入 capture request identity；`true -> false/Start 失败 -> true` 往返应执行
   完整 stop/fallback/restart 动作，普通 Start 失败不得错误触发 sticky 重启阻断；
 - 无边框授权是资源动作前的独立 `RequestBorderlessAccess`。`Pending` 不推进动作、不消耗固定 action
@@ -55,7 +56,8 @@
 - 可选 D3D11.4 device-removed event 对 frame-latency 和暂停态 WGC 背景帧的等待优先级、异常可选句柄、
   错误锁存，以及已确认 device-lost 到一次性 render/Present 恢复边界的路由；通知不可用时保留连续
   timeout 轮询，`desktop_frame_pacing_stall` 必须在自身截止时间内退出；
-- WGC session state machine，以及渲染阶段真实 stop 诊断跨无 sensor 清理动作的一次性交接；
+- WGC session state machine、每个不可取消 stop 调用前可独立观察的阶段检查点，以及渲染阶段真实 stop
+  诊断跨无 sensor 清理动作的一次性交接；检查点只能定位阻塞，不作为 WinRT Close 可取消的证据；
 - 无边框权限预检必须在 stop、WDA/profile 变更和新 Session/FramePool 之前开始；等待期间 Host 继续
   消费消息、Raw Input、呈现和 IPC。`WGC.BorderlessAccess.Checked` 记录原始 `Control.Generation`、事务
   动作序号、`AllowSystemBorder`、状态、HRESULT、`AsyncStatus`、`ElapsedMs`、`CancelRequested` 和

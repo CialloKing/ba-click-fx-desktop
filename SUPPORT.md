@@ -59,11 +59,13 @@
 - 每次 WGC stop 还会记录 `WGC.Stop.SensorPresent/Completed/DeferredReport`、FrameArrived/Closed 两类事件
   退订耗时、`SessionCloseUs`、`FramePoolCloseUs` 和 `TotalUs`。渲染阶段已经停止 sensor、随后清理事务再次
   执行无 sensor stop 时，真实耗时会保留到首次日志消费并标记 `DeferredReport=true`，不会被零值覆盖；消费
-  后不会污染下一次 stop。正常关闭完成后这些字段用于定位慢阶段；如果日志只留下
-  `BackgroundCapture.Action.Begin=stop-sensor` 或 `Graphics.DeviceRecovery.Begin` 而没有对应完成记录，说明
-  同步 WinRT 关闭调用可能没有返回。当前实现不能取消该系统调用，需连同轮转日志一起排查。
+  后不会污染下一次 stop。四个同步调用前后还会各写一条 `BackgroundCapture.StopProgress`，其中
+  `WGC.Stop.Stage/StageState` 指出当前阶段与 `begin|succeeded|failed`，owner/caller 线程字段用于发现跨线程
+  误用。如果某个 `begin` 后没有同阶段结果，说明该同步 WinRT 调用可能没有返回；当前实现不能取消该系统
+  调用，需连同轮转日志一起排查。
   四个 `*Failed` 字段分别对应 FrameArrived/item.Closed 退订、Session Close 和 FramePool Close；
-  `OverallSucceeded=false` 时仍执行 included/FX-only 回退，并把 `SensorStopFailed` 保留到控制事务。
+  `OwnerThreadMismatch=true` 或任一阶段失败时 `OverallSucceeded=false`，仍执行 included/FX-only 回退，并把
+  `SensorStopFailed` 保留到控制事务。
   为避免旧 WinRT 资源被重新使用，本进程之后永久阻止 WGC 重启，必须完全重启 Host 才能再次尝试。
 - Host 会尝试通过 D3D11.4 注册 device-removed event。启动及每次成功资源恢复后，
   `Graphics.DeviceRemovalNotification.Status` 记录 `Phase`、`Available` 和 `RegistrationHRESULT`；接口

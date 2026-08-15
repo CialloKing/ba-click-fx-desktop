@@ -64,10 +64,12 @@ HRESULT，`Performance.Interval` 另记 `FramePacing.DeviceRemovedWakes`，非�
 或连续 `250 ms` 未得到 FrameReady 时查询 D3D device-removed reason，只有可识别的 device-lost 才进入上述
 一次性恢复边界。运行截止检查已移到所有 `TimedOut`/`MessagesPending` 的 `continue` 之前，
 `desktop_frame_pacing_stall` 使用永久不信号句柄验证 `--quit-after-ms` 不会再等到 CTest 外层超时。WGC stop
-同时记录 FrameArrived/Closed 退订、Session Close、FramePool Close 和总耗时；渲染阶段先完成的真实 stop
-会跨随后无 sensor 清理动作保留到首次日志消费，并以 `DeferredReport=true` 标识。正常 WGC 会话已观察到
-完整阶段记录，双 stop 交接由确定性单元测试覆盖。该证据不覆盖 device-lost 时不可取消 WinRT Close 的
-最坏阻塞时间，该单元格仍需真实故障注入并保持 `Not Run`。
+会在 FrameArrived/Closed 退订、Session Close 和 FramePool Close 的每次调用前后分别写入
+`BackgroundCapture.StopProgress`，包含阶段、状态和 owner/caller 线程；即使调用不返回，最后一条完整日志
+也能指出阻塞阶段。调用返回后仍汇总各阶段与总耗时；渲染阶段先完成的真实 stop 会跨随后无 sensor 清理
+动作保留到首次日志消费，并以 `DeferredReport=true` 标识。异常继续清理、线程不一致和双 stop 交接由
+确定性单元测试覆盖。该诊断不能取消 device-lost 时的 WinRT Close，最坏阻塞时间仍需真实故障注入并保持
+`Not Run`。
 
 ## P0：输入、渲染与 Present 延迟诊断
 
