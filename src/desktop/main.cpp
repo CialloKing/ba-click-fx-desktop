@@ -281,6 +281,31 @@ private:
     bool finalized_{false};
 };
 
+[[nodiscard]] bafx::desktop::HostControlStartResult publishControlService(
+    bafx::desktop::HostControlPlane& control,
+    bafx::windows::SupportReport& report,
+    const std::filesystem::path& logPath,
+    const bool backgroundCaptureActive)
+{
+    const bafx::desktop::HostControlStartResult result =
+        control.start(backgroundCaptureActive);
+    report.setControlServiceAvailable(result.serviceStarted);
+    if (!result.serviceStarted)
+    {
+        bafx::windows::appendDiagnosticLog(
+            logPath,
+            std::string("IPC control service unavailable; continuing without Control Center; error=")
+                + std::to_string(control.ipcLastError()));
+    }
+    else
+    {
+        bafx::windows::appendDiagnosticLog(
+            logPath,
+            "IPC control service started");
+    }
+    return result;
+}
+
 class QpcClock final
 {
 public:
@@ -917,21 +942,13 @@ int runApplication(
     bafx::windows::WindowSize appliedOutputSize = window.size();
     report.setDeviceInfo(renderer.deviceInfo());
     report.setExitUiStatus(window.exitUiStatus());
-    const bool controlServiceStarted = control.start();
-    report.setControlServiceAvailable(controlServiceStarted);
-    if (!controlServiceStarted)
-    {
-        bafx::windows::appendDiagnosticLog(
-            logPath,
-            std::string("IPC control service unavailable; continuing without Control Center; error=")
-                + std::to_string(control.ipcLastError()));
-    }
-    else
-    {
-        bafx::windows::appendDiagnosticLog(logPath, "IPC control service started");
-    }
     if (options.supportInfoOnly)
     {
+        static_cast<void>(publishControlService(
+            control,
+            report,
+            logPath,
+            false));
         report.setBackgroundCaptureStatus(
             bafx::windows::BackgroundCaptureStatus::NotProbed);
         bafx::windows::appendDiagnosticLog(logPath, report);
@@ -978,7 +995,6 @@ int runApplication(
         backgroundTransition,
         backgroundExecution,
         renderer);
-    bafx::windows::appendDiagnosticLog(logPath, report);
     bafx::desktop::appendAppliedConfiguration(
         logPath,
         config,
@@ -995,6 +1011,17 @@ int runApplication(
             && !config.input.trailOnlyWhilePressed,
         bafx::fx::SimulationTime{});
     window.show();
+
+    // Do not expose SetConfig until the initial renderer state is complete.
+    // start() latches this baseline before its worker can accept a request.
+    const bafx::desktop::HostControlStartResult controlStart =
+        publishControlService(
+            control,
+            report,
+            logPath,
+            renderer.backgroundCaptureActive());
+    std::uint64_t appliedGeneration = controlStart.appliedGeneration;
+    bafx::windows::appendDiagnosticLog(logPath, report);
 
     const bafx::fx::SimulationTime applicationStartedAt = clock.now();
     const auto runtimeDeadlineReached =
@@ -1037,7 +1064,6 @@ int runApplication(
     bool quit = false;
     std::uint32_t renderedFrames = 0;
     std::uint64_t backgroundCompositeFrames = 0U;
-    std::uint64_t appliedGeneration = control.snapshot().generation;
     std::uint64_t backgroundRetryToken = appliedBackgroundRequest.retryToken;
     bool backgroundRetryPending = false;
     bool backgroundParticipationLogged = false;

@@ -124,12 +124,24 @@ DWORD SingleInstanceGuard::lastError() const noexcept
 HostControlPlane::HostControlPlane(
     std::filesystem::path configPath,
     bafx::config::Config initialConfig)
+    : HostControlPlane(
+          std::move(configPath),
+          std::move(initialConfig),
+          bafx::windows::NamedPipeIpcServer::Options{})
+{
+}
+
+HostControlPlane::HostControlPlane(
+    std::filesystem::path configPath,
+    bafx::config::Config initialConfig,
+    bafx::windows::NamedPipeIpcServer::Options ipcOptions)
     : configPath_(std::move(configPath))
     , config_(std::move(initialConfig))
     , ipc_([this](const bafx::windows::IpcRequest& request)
            {
                return handle(request);
-           })
+           },
+           std::move(ipcOptions))
 {
 }
 
@@ -138,9 +150,16 @@ HostControlPlane::~HostControlPlane()
     stop();
 }
 
-bool HostControlPlane::start() noexcept
+HostControlStartResult HostControlPlane::start(
+    const bool backgroundCaptureActive) noexcept
 {
-    return ipc_.start();
+    std::lock_guard<std::mutex> lock(mutex_);
+    backgroundCaptureActive_ = backgroundCaptureActive;
+    const std::uint64_t appliedGeneration = generation_;
+    // Keep the mutex until the server thread exists. An immediate SetConfig
+    // may advance the generation only after this applied baseline is latched.
+    const bool serviceStarted = ipc_.start();
+    return HostControlStartResult{appliedGeneration, serviceStarted};
 }
 
 void HostControlPlane::stop() noexcept

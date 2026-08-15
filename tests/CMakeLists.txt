@@ -268,6 +268,29 @@ if(WIN32)
     )
 
     add_executable(
+        bafx_host_control_tests
+        test_main.cpp
+        host_control_tests.cpp
+        "${PROJECT_SOURCE_DIR}/src/desktop/host_control.cpp"
+    )
+    target_include_directories(
+        bafx_host_control_tests
+        PRIVATE
+            "${PROJECT_SOURCE_DIR}/src/desktop"
+    )
+    target_link_libraries(
+        bafx_host_control_tests
+        PRIVATE
+            bafx::config
+            bafx::windows
+    )
+    target_compile_features(bafx_host_control_tests PRIVATE cxx_std_20)
+    bafx_enable_warnings(bafx_host_control_tests)
+    add_test(NAME host_control_startup COMMAND bafx_host_control_tests)
+    set_tests_properties(host_control_startup PROPERTIES TIMEOUT 10)
+    set_target_properties(bafx_host_control_tests PROPERTIES FOLDER "Tests")
+
+    add_executable(
         bafx_windows_tests
         test_main.cpp
         background_capture_transition_tests.cpp

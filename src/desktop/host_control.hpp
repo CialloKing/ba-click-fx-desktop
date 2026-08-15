@@ -23,6 +23,12 @@ struct HostStateSnapshot final
     bool backgroundCaptureActive{false};
 };
 
+struct HostControlStartResult final
+{
+    std::uint64_t appliedGeneration{0U};
+    bool serviceStarted{false};
+};
+
 class SingleInstanceGuard final
 {
 public:
@@ -49,12 +55,19 @@ public:
     HostControlPlane(
         std::filesystem::path configPath,
         bafx::config::Config initialConfig);
+    HostControlPlane(
+        std::filesystem::path configPath,
+        bafx::config::Config initialConfig,
+        bafx::windows::NamedPipeIpcServer::Options ipcOptions);
     ~HostControlPlane();
 
     HostControlPlane(const HostControlPlane&) = delete;
     HostControlPlane& operator=(const HostControlPlane&) = delete;
 
-    [[nodiscard]] bool start() noexcept;
+    // Publish the initialized renderer state and latch its configuration
+    // generation before the pipe can accept the first control request.
+    [[nodiscard]] HostControlStartResult start(
+        bool backgroundCaptureActive) noexcept;
     void stop() noexcept;
 
     [[nodiscard]] HostStateSnapshot snapshot() const;
