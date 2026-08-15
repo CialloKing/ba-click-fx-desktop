@@ -2155,7 +2155,11 @@ int run(const ProbeOptions& options)
         reportPhase("renderer-create.begin");
         bafx::windows::CompositionRenderer renderer(
             overlay.handle(),
-            overlay.size());
+            overlay.size(),
+            {},
+            {},
+            std::nullopt,
+            bafx::windows::CompositionOutputPreference::PreferLinearScRgb);
         const bafx::windows::GraphicsDeviceInfo rendererDevice =
             renderer.deviceInfo();
         if (rendererDevice.driverType

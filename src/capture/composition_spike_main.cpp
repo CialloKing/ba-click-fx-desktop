@@ -1230,7 +1230,11 @@ void pumpMessages(Deadline& deadline)
         L"ba-click-fx SPK-001 overlay");
     bafx::windows::CompositionRenderer renderer(
         overlay.handle(),
-        overlay.size());
+        overlay.size(),
+        {},
+        {},
+        std::nullopt,
+        bafx::windows::CompositionOutputPreference::PreferLinearScRgb);
     const bafx::windows::CaptureExclusionStatus affinity =
         overlay.setCaptureExcluded(false);
     if (!affinity.confirmed() || affinity.observedAffinity != WDA_NONE)

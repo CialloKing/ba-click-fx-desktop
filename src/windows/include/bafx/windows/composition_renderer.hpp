@@ -94,9 +94,9 @@ struct OutputRenegotiationResult final
     OutputRenegotiationStatus status{
         OutputRenegotiationStatus::RecreatedSameContract};
     CompositionOutputPreference previousPreference{
-        CompositionOutputPreference::PreferLinearScRgb};
+        CompositionOutputPreference::ConservativeSdr};
     CompositionOutputPreference currentPreference{
-        CompositionOutputPreference::PreferLinearScRgb};
+        CompositionOutputPreference::ConservativeSdr};
     CompositionOutputState previous{};
     CompositionOutputState current{};
 };
@@ -233,7 +233,7 @@ public:
         WgcBackgroundStopObserver backgroundStopObserver = {},
         std::optional<LUID> requestedAdapterLuid = std::nullopt,
         CompositionOutputPreference outputPreference =
-            CompositionOutputPreference::PreferLinearScRgb);
+            CompositionOutputPreference::ConservativeSdr);
     ~CompositionRenderer();
 
     CompositionRenderer(const CompositionRenderer&) = delete;
@@ -410,7 +410,7 @@ private:
     DeviceRecoveryDiagnostics deviceRecoveryDiagnostics_{};
     std::optional<LUID> requestedAdapterLuid_{};
     CompositionOutputPreference outputPreference_{
-        CompositionOutputPreference::PreferLinearScRgb};
+        CompositionOutputPreference::ConservativeSdr};
 };
 
 }
