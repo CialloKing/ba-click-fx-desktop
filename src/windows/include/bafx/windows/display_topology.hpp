@@ -54,6 +54,7 @@ struct ActiveDisplayMonitor final
     std::uint32_t dpiX{96U};
     std::uint32_t dpiY{96U};
     std::vector<DisplayPhysicalTarget> physicalTargets{};
+    std::optional<DisplayRefreshRate> captureRefreshRate{};
     bool primary{false};
     bool sourceIdentityResolved{false};
 };

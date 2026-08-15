@@ -136,6 +136,9 @@ DisplaySessionReconcileResult DisplaySessionManager::reconcileSecondaries(
                 || !sameRefreshRate(
                     existing->target().refreshRate,
                     target.refreshRate)
+                || !sameRefreshRate(
+                    existing->target().captureRefreshRate,
+                    target.captureRefreshRate)
                 || existing->target().primary != target.primary
                 || existing->target().physicalTargetCount
                     != target.physicalTargetCount;

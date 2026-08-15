@@ -23,6 +23,7 @@ struct DisplayTarget
     std::uint32_t dpiX{96U};
     std::uint32_t dpiY{96U};
     std::optional<bafx::windows::DisplayRefreshRate> refreshRate{};
+    std::optional<bafx::windows::DisplayRefreshRate> captureRefreshRate{};
     std::size_t physicalTargetCount{0U};
     bool primary{false};
     bool sourceIdentityResolved{false};

@@ -84,6 +84,35 @@ struct MonitorEnumeration
     return target.refreshRate;
 }
 
+[[nodiscard]] std::optional<DisplayRefreshRate> commonCaptureRefreshRate(
+    const ActiveDisplayMonitor& display) noexcept
+{
+    if (display.physicalTargets.empty())
+    {
+        return std::nullopt;
+    }
+
+    const DisplayRefreshRate refreshRate = captureCadenceRefreshRate(
+        display.physicalTargets.front());
+    if (!validRefreshRate(refreshRate))
+    {
+        return std::nullopt;
+    }
+    for (const DisplayPhysicalTarget& target : display.physicalTargets)
+    {
+        const DisplayRefreshRate targetRefreshRate =
+            captureCadenceRefreshRate(target);
+        if (targetRefreshRate.numerator != refreshRate.numerator
+            || targetRefreshRate.denominator != refreshRate.denominator)
+        {
+            // A cloned source with different scan-out rates has no single
+            // capture cadence. Callers retain their conservative fallback.
+            return std::nullopt;
+        }
+    }
+    return refreshRate;
+}
+
 BOOL CALLBACK collectMonitor(
     const HMONITOR monitor,
     HDC,
@@ -394,7 +423,7 @@ DisplayTopologySnapshot queryActiveDisplayTopology() noexcept
             }
         }
 
-        for (const ActiveDisplayMonitor& display : snapshot.displays)
+        for (ActiveDisplayMonitor& display : snapshot.displays)
         {
             if (!display.sourceIdentityResolved
                 || display.physicalTargets.empty())
@@ -404,6 +433,7 @@ DisplayTopologySnapshot queryActiveDisplayTopology() noexcept
                     snapshot.error,
                     ERROR_NOT_FOUND);
             }
+            display.captureRefreshRate = commonCaptureRefreshRate(display);
         }
         return snapshot;
     }
@@ -445,30 +475,11 @@ std::optional<DisplayRefreshRate> queryDisplayRefreshRate(
     const ActiveDisplayMonitor* const display = findDisplayMonitor(
         snapshot,
         monitor);
-    if (display == nullptr || display->physicalTargets.empty())
+    if (display == nullptr)
     {
         return std::nullopt;
     }
-
-    const DisplayRefreshRate refreshRate = captureCadenceRefreshRate(
-        display->physicalTargets.front());
-    if (!validRefreshRate(refreshRate))
-    {
-        return std::nullopt;
-    }
-    for (const DisplayPhysicalTarget& target : display->physicalTargets)
-    {
-        const DisplayRefreshRate targetRefreshRate =
-            captureCadenceRefreshRate(target);
-        if (targetRefreshRate.numerator != refreshRate.numerator
-            || targetRefreshRate.denominator != refreshRate.denominator)
-        {
-            // A cloned source with different scan-out rates has no single
-            // target cadence. The caller must retain a conservative fallback.
-            return std::nullopt;
-        }
-    }
-    return refreshRate;
+    return display->captureRefreshRate;
 }
 
 }
