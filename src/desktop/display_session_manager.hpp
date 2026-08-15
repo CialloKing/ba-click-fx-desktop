@@ -43,6 +43,7 @@ struct DisplaySessionReconcileResult final
     LONG topologyError{ERROR_GEN_FAILURE};
     std::size_t added{0U};
     std::size_t updated{0U};
+    std::size_t recreated{0U};
     std::size_t removed{0U};
     bool removalsDeferred{false};
     std::vector<DisplaySessionFailure> failures{};

@@ -813,6 +813,7 @@ void appendDisplaySessionReconcile(
         const std::string active = std::to_string(activeSessionCount);
         const std::string added = std::to_string(result.added);
         const std::string updated = std::to_string(result.updated);
+        const std::string recreated = std::to_string(result.recreated);
         const std::string removed = std::to_string(result.removed);
         const std::string failures = std::to_string(result.failures.size());
         const std::array fields{
@@ -824,6 +825,7 @@ void appendDisplaySessionReconcile(
             bafx::windows::DiagnosticField{"ActiveSessions", active},
             bafx::windows::DiagnosticField{"Added", added},
             bafx::windows::DiagnosticField{"Updated", updated},
+            bafx::windows::DiagnosticField{"Recreated", recreated},
             bafx::windows::DiagnosticField{"Removed", removed},
             bafx::windows::DiagnosticField{
                 "RemovalsDeferred",

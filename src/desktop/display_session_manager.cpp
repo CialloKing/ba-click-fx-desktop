@@ -125,6 +125,46 @@ DisplaySessionReconcileResult DisplaySessionManager::reconcileSecondaries(
             continue;
         }
 
+        if (existing->renderFaulted())
+        {
+            if (snapshot.status
+                != bafx::windows::DisplayTopologyStatus::Complete)
+            {
+                // A partial QueryDisplayConfig result cannot safely choose a
+                // replacement adapter. Retain the faulted session until a
+                // later authoritative topology notification.
+                continue;
+            }
+            try
+            {
+                std::unique_ptr<DisplaySession> replacement =
+                    createSession(target);
+                replacement->show();
+                const auto slot = std::find_if(
+                    sessions_.begin(),
+                    sessions_.end(),
+                    [existing](const std::unique_ptr<DisplaySession>& session)
+                    {
+                        return session.get() == existing;
+                    });
+                if (slot == sessions_.end())
+                {
+                    throw std::logic_error(
+                        "Faulted display session lost its ownership slot");
+                }
+                *slot = std::move(replacement);
+                ++result.recreated;
+            }
+            catch (const std::exception& error)
+            {
+                result.failures.push_back(DisplaySessionFailure{
+                    target,
+                    "recreate",
+                    error.what()});
+            }
+            continue;
+        }
+
         const bool sameTarget = sameDisplayTarget(existing->target(), target);
         const bool sameSourceIdentity = sameDisplaySourceIdentity(
             existing->target(),
