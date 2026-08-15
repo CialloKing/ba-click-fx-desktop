@@ -2,6 +2,7 @@
 
 #include "bafx/windows/overlay_window.hpp"
 
+#include <array>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
@@ -173,6 +174,7 @@ BackgroundCaptureExecutionResult executeBackgroundCaptureTransition(
     const std::filesystem::path& logPath)
 {
     BackgroundCaptureExecutionResult result{};
+    bool sensorRestartAllowed = true;
     const auto transactionStartedAt = std::chrono::steady_clock::now();
     std::size_t executedActionCount = 0U;
     for (std::size_t index = 0U;
@@ -216,9 +218,47 @@ BackgroundCaptureExecutionResult executeBackgroundCaptureTransition(
                 succeeded = true;
                 break;
             case bafx::windows::BackgroundCaptureActionKind::ResizeOutput:
-                renderer.resizeOutput(action->outputSize);
+            {
+                const bafx::windows::GraphicsDeviceInfo previousDeviceInfo =
+                    renderer.deviceInfo();
+                const bafx::windows::OutputResizeStatus resizeStatus =
+                    renderer.resizeOutput(action->outputSize);
+                if (resizeStatus
+                    == bafx::windows::OutputResizeStatus::DeviceRecovered)
+                {
+                    result.deviceRecovered = true;
+                    result.deviceRecoveryAdapterChanged =
+                        previousDeviceInfo.adapterLuid.LowPart
+                            != renderer.deviceInfo().adapterLuid.LowPart
+                        || previousDeviceInfo.adapterLuid.HighPart
+                            != renderer.deviceInfo().adapterLuid.HighPart;
+                    sensorRestartAllowed =
+                        !result.deviceRecoveryAdapterChanged
+                        && renderer.deviceInfo().driverType
+                            == bafx::windows::GraphicsDriverType::Hardware;
+                    const std::array recoveryFields{
+                        bafx::windows::DiagnosticField{
+                            "Adapter",
+                            result.deviceRecoveryAdapterChanged
+                                ? "changed"
+                                : "same"},
+                        bafx::windows::DiagnosticField{
+                            "Driver",
+                            renderer.deviceInfo().driverType
+                                    == bafx::windows::GraphicsDriverType::Hardware
+                                ? "hardware"
+                                : "warp"},
+                        bafx::windows::DiagnosticField{
+                            "WgcRestartAllowed",
+                            sensorRestartAllowed ? "true" : "false"}};
+                    bafx::windows::appendDiagnosticEvent(
+                        logPath,
+                        "Graphics.DeviceRecovery.ResizeSucceeded",
+                        recoveryFields);
+                }
                 succeeded = true;
                 break;
+            }
             case bafx::windows::BackgroundCaptureActionKind::RecreateFramePool:
                 succeeded = renderer.tryRecreateBackgroundFramePool(
                     action->captureSize);
@@ -234,11 +274,17 @@ BackgroundCaptureExecutionResult executeBackgroundCaptureTransition(
             case bafx::windows::BackgroundCaptureActionKind::StartSensor:
                 // Start is emitted only after WDA exclusion was confirmed in
                 // this transaction, so stale affinity cannot enable capture.
-                succeeded = renderer.tryEnableBackgroundCapture(
-                    monitor,
-                    true,
-                    action->cursorExcluded,
-                    action->allowSystemBorder);
+                succeeded = sensorRestartAllowed
+                    && renderer.tryEnableBackgroundCapture(
+                        monitor,
+                        true,
+                        action->cursorExcluded,
+                        action->allowSystemBorder);
+                if (!sensorRestartAllowed)
+                {
+                    result.sensorFailure =
+                        "WGC restart blocked after graphics adapter change or WARP recovery";
+                }
                 if (!succeeded && !renderer.backgroundCaptureFailure().empty())
                 {
                     result.sensorFailure = renderer.backgroundCaptureFailure();

@@ -993,6 +993,11 @@ int runApplication(
                     renderer,
                     primaryMonitor.handle,
                     logPath);
+                if (backgroundExecution.deviceRecovered)
+                {
+                    deviceRecoveryConsumed = true;
+                    report.setDeviceInfo(renderer.deviceInfo());
+                }
                 if (pendingOutputResize.has_value())
                 {
                     appliedOutputSize = *pendingOutputResize;

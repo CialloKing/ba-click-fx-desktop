@@ -18,6 +18,8 @@ struct BackgroundCaptureExecutionResult
 {
     std::string sensorFailure{};
     std::optional<bafx::windows::WindowSize> recreatedFramePoolSize{};
+    bool deviceRecovered{false};
+    bool deviceRecoveryAdapterChanged{false};
 };
 
 [[nodiscard]] bafx::windows::BackgroundCaptureRequest backgroundCaptureRequest(

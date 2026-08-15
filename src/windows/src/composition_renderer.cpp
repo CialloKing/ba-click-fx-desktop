@@ -348,6 +348,12 @@ CompositionRenderer::~CompositionRenderer() = default;
 bool CompositionRenderer::tryRecoverDevice() noexcept
 {
     setDeviceRecoveryFailure({});
+    if (deviceRecoveryAttempted_)
+    {
+        setDeviceRecoveryFailure("device recovery budget exhausted");
+        return false;
+    }
+    deviceRecoveryAttempted_ = true;
     GraphicsDeviceInfo previousDeviceInfo{};
     try
     {
@@ -405,12 +411,12 @@ std::string_view CompositionRenderer::deviceRecoveryFailure() const noexcept
         deviceRecoveryFailureLength_);
 }
 
-void CompositionRenderer::resizeOutput(const WindowSize size)
+OutputResizeStatus CompositionRenderer::resizeOutput(const WindowSize size)
 {
     if (size.width == 0U || size.height == 0U
         || (size.width == size_.width && size.height == size_.height))
     {
-        return;
+        return OutputResizeStatus::Unchanged;
     }
 
     if (backgroundSensor_ != nullptr || backgroundCaptureRequested_)
@@ -419,27 +425,55 @@ void CompositionRenderer::resizeOutput(const WindowSize size)
             "Output resize requires a completed capture-stop transaction");
     }
 
-    // A resized swap chain starts a new capture contract. Do not carry the
-    // previous visible batch's path into the new session while its first
-    // correctly sized WGC frame is still pending.
-    backgroundPathLatch_.reset();
-    releaseBackgroundSnapshotResources();
-    previousVisualBounds_.reset();
+    bool recovered = false;
+    for (;;)
+    {
+        if (size.width == size_.width && size.height == size_.height)
+        {
+            return recovered
+                ? OutputResizeStatus::DeviceRecovered
+                : OutputResizeStatus::Unchanged;
+        }
+        try
+        {
+            // A resized swap chain starts a new capture contract. Do not carry
+            // the previous visible batch's path into the new session while its
+            // first correctly sized WGC frame is still pending.
+            backgroundPathLatch_.reset();
+            releaseBackgroundSnapshotResources();
+            previousVisualBounds_.reset();
 
-    context_->OMSetRenderTargets(0, nullptr, nullptr);
-    renderTarget_.Reset();
-    backBuffer_.Reset();
-    throwIfFailed(
-        swapChain_->ResizeBuffers(
-            0,
-            size.width,
-            size.height,
-            DXGI_FORMAT_UNKNOWN,
-            swapChainFlags),
-        "IDXGISwapChain::ResizeBuffers");
-    size_ = size;
-    createRenderTarget();
-    fxRenderer_->resize(size);
+            context_->OMSetRenderTargets(0, nullptr, nullptr);
+            renderTarget_.Reset();
+            backBuffer_.Reset();
+            throwIfFailed(
+                swapChain_->ResizeBuffers(
+                    0,
+                    size.width,
+                    size.height,
+                    DXGI_FORMAT_UNKNOWN,
+                    swapChainFlags),
+                "IDXGISwapChain::ResizeBuffers");
+            size_ = size;
+            createRenderTarget();
+            fxRenderer_->resize(size);
+            return recovered
+                ? OutputResizeStatus::DeviceRecovered
+                : OutputResizeStatus::Resized;
+        }
+        catch (const HResultError& error)
+        {
+            if (recovered || !isDeviceLostResult(error.result()))
+            {
+                throw;
+            }
+            recovered = true;
+            if (!tryRecoverDevice())
+            {
+                throw;
+            }
+        }
+    }
 }
 
 void CompositionRenderer::setBloomSettings(const FxBloomSettings settings)

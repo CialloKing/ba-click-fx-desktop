@@ -64,6 +64,13 @@ enum class BackgroundCompositeStatus : std::uint8_t
     Participating
 };
 
+enum class OutputResizeStatus : std::uint8_t
+{
+    Unchanged,
+    Resized,
+    DeviceRecovered
+};
+
 struct GraphicsDeviceInfo
 {
     GraphicsDriverType driverType{GraphicsDriverType::Hardware};
@@ -151,7 +158,7 @@ public:
 
     // Capture lifecycle is owned by BackgroundCaptureTransition. Callers must
     // stop any active sensor before replacing output-size resources.
-    void resizeOutput(WindowSize size);
+    [[nodiscard]] OutputResizeStatus resizeOutput(WindowSize size);
     // Rebuild the D3D/DComp resource domain once after device removal. WGC is
     // stopped first so no old-device frame or snapshot can cross the boundary.
     [[nodiscard]] bool tryRecoverDevice() noexcept;
@@ -259,6 +266,7 @@ private:
     WindowSize size_{};
     std::shared_ptr<WgcBackgroundResourceLedger> backgroundResourceLedger_{};
     std::uint64_t frameId_{0U};
+    bool deviceRecoveryAttempted_{false};
 };
 
 }
