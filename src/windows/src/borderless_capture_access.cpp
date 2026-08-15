@@ -440,18 +440,12 @@ BorderlessCaptureAccessMonitor::start() noexcept
         const std::uint64_t generation =
             implementation->notification->generation();
         implementation->observedGeneration = generation;
-        if (status != BorderlessCaptureAccessStatus::Allowed)
-        {
-            return BorderlessCaptureAccessHealthResult{
-                status,
-                E_ACCESSDENIED,
-                generation};
-        }
-
         implementation_ = std::move(implementation);
         return BorderlessCaptureAccessHealthResult{
-            BorderlessCaptureAccessStatus::Allowed,
-            S_OK,
+            status,
+            status == BorderlessCaptureAccessStatus::Allowed
+                ? S_OK
+                : E_ACCESSDENIED,
             generation};
     }
     catch (const winrt::hresult_error& error)
