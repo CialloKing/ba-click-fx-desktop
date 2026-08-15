@@ -5,8 +5,6 @@
 #include <wrl/client.h>
 
 #include <cmath>
-#include <cwchar>
-#include <vector>
 
 namespace bafx::windows
 {
@@ -14,12 +12,6 @@ namespace
 {
 
 using Microsoft::WRL::ComPtr;
-
-struct DisplayPathTarget
-{
-    LUID adapterLuid{};
-    std::uint32_t targetId{0U};
-};
 
 [[nodiscard]] bool validLuminance(const float value) noexcept
 {
@@ -48,92 +40,8 @@ struct DisplayPathTarget
     return DisplayColorMode::Unknown;
 }
 
-[[nodiscard]] std::optional<DisplayPathTarget> findDisplayPathTarget(
-    const HMONITOR monitor) noexcept
-{
-    MONITORINFOEXW monitorInformation{};
-    monitorInformation.cbSize = sizeof(monitorInformation);
-    if (!GetMonitorInfoW(monitor, &monitorInformation))
-    {
-        return std::nullopt;
-    }
-
-    constexpr UINT queryFlags = QDC_ONLY_ACTIVE_PATHS
-        | QDC_VIRTUAL_MODE_AWARE;
-    for (std::uint32_t attempt = 0U; attempt < 3U; ++attempt)
-    {
-        UINT32 pathCount = 0U;
-        UINT32 modeCount = 0U;
-        if (GetDisplayConfigBufferSizes(
-                queryFlags,
-                &pathCount,
-                &modeCount) != ERROR_SUCCESS)
-        {
-            return std::nullopt;
-        }
-
-        std::vector<DISPLAYCONFIG_PATH_INFO> paths(pathCount);
-        std::vector<DISPLAYCONFIG_MODE_INFO> modes(modeCount);
-        const LONG queryResult = QueryDisplayConfig(
-            queryFlags,
-            &pathCount,
-            paths.data(),
-            &modeCount,
-            modes.data(),
-            nullptr);
-        if (queryResult == ERROR_INSUFFICIENT_BUFFER)
-        {
-            // A hot-plug can change the required counts between the two API
-            // calls. Retry from a new snapshot rather than mixing topologies.
-            continue;
-        }
-        if (queryResult != ERROR_SUCCESS)
-        {
-            return std::nullopt;
-        }
-        paths.resize(pathCount);
-
-        std::optional<DisplayPathTarget> matchingTarget{};
-        for (const DISPLAYCONFIG_PATH_INFO& path : paths)
-        {
-            DISPLAYCONFIG_SOURCE_DEVICE_NAME sourceName{};
-            sourceName.header.type =
-                DISPLAYCONFIG_DEVICE_INFO_GET_SOURCE_NAME;
-            sourceName.header.size = sizeof(sourceName);
-            sourceName.header.adapterId = path.sourceInfo.adapterId;
-            sourceName.header.id = path.sourceInfo.id;
-            if (DisplayConfigGetDeviceInfo(&sourceName.header)
-                    != ERROR_SUCCESS
-                || _wcsicmp(
-                       sourceName.viewGdiDeviceName,
-                       monitorInformation.szDevice) != 0)
-            {
-                continue;
-            }
-            const DisplayPathTarget target{
-                path.targetInfo.adapterId,
-                path.targetInfo.id};
-            if (matchingTarget.has_value()
-                && (matchingTarget->adapterLuid.HighPart
-                        != target.adapterLuid.HighPart
-                    || matchingTarget->adapterLuid.LowPart
-                        != target.adapterLuid.LowPart
-                    || matchingTarget->targetId != target.targetId))
-            {
-                // A cloned GDI source may drive more than one physical target.
-                // HMONITOR cannot identify which target owns the color state,
-                // so reporting either one would be fabricated capability data.
-                return std::nullopt;
-            }
-            matchingTarget = target;
-        }
-        return matchingTarget;
-    }
-    return std::nullopt;
-}
-
 void queryAdvancedColorState(
-    const DisplayPathTarget& target,
+    const DisplayPhysicalTarget& target,
     DisplayColorCapabilities& capabilities) noexcept
 {
     DISPLAYCONFIG_GET_ADVANCED_COLOR_INFO_2 advancedColor2{};
@@ -209,7 +117,7 @@ void queryAdvancedColorState(
 }
 
 void querySdrWhiteLevel(
-    const DisplayPathTarget& target,
+    const DisplayPhysicalTarget& target,
     DisplayColorCapabilities& capabilities) noexcept
 {
     DISPLAYCONFIG_SDR_WHITE_LEVEL whiteLevel{};
@@ -328,15 +236,20 @@ std::optional<DisplayColorCapabilities> queryDisplayColorCapabilities(
                 {
                     capabilities.adapterLuid = adapterDescription.AdapterLuid;
                 }
-                const std::optional<DisplayPathTarget> target =
-                    findDisplayPathTarget(monitor);
-                if (target.has_value())
+                const DisplayTopologySnapshot topology =
+                    queryActiveDisplayTopology();
+                const ActiveDisplayMonitor* const display =
+                    findDisplayMonitor(topology, monitor);
+                if (display != nullptr
+                    && display->physicalTargets.size() == 1U)
                 {
+                    const DisplayPhysicalTarget& target =
+                        display->physicalTargets.front();
                     capabilities.displayPathResolved = true;
-                    capabilities.adapterLuid = target->adapterLuid;
-                    capabilities.targetId = target->targetId;
-                    queryAdvancedColorState(*target, capabilities);
-                    querySdrWhiteLevel(*target, capabilities);
+                    capabilities.adapterLuid = target.adapterLuid;
+                    capabilities.targetId = target.targetId;
+                    queryAdvancedColorState(target, capabilities);
+                    querySdrWhiteLevel(target, capabilities);
                 }
                 return capabilities;
             }
