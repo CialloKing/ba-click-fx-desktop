@@ -621,7 +621,10 @@ OutputAdapterRetargetStatus CompositionRenderer::retargetOutputAdapter(
             || (left->HighPart == right->HighPart
                 && left->LowPart == right->LowPart);
     };
-    if (sameRequestedAdapter(requestedAdapterLuid_, requestedAdapterLuid))
+    // A WARP fallback did not satisfy an explicit adapter request. Keep that
+    // request retryable when a later topology transaction observes the GPU.
+    if (sameRequestedAdapter(requestedAdapterLuid_, requestedAdapterLuid)
+        && deviceInfo_.requestedAdapterMatched)
     {
         return OutputAdapterRetargetStatus::Unchanged;
     }

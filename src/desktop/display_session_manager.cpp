@@ -129,7 +129,10 @@ DisplaySessionReconcileResult DisplaySessionManager::reconcileSecondaries(
         const bool sameSourceIdentity = sameDisplaySourceIdentity(
             existing->target(),
             target);
-        if (sameTarget && sameSourceIdentity)
+        const bool resourceDomainMatches =
+            !target.sourceIdentityResolved
+            || existing->renderer().deviceInfo().requestedAdapterMatched;
+        if (sameTarget && sameSourceIdentity && resourceDomainMatches)
         {
             const bool metadataChanged = existing->target().dpiX != target.dpiX
                 || existing->target().dpiY != target.dpiY
