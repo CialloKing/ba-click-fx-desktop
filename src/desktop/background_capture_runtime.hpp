@@ -2,13 +2,16 @@
 
 #include "bafx/config/config.hpp"
 #include "bafx/windows/background_capture_transition.hpp"
+#include "bafx/windows/borderless_capture_access.hpp"
 #include "bafx/windows/runtime_diagnostics.hpp"
 
 #include <windows.h>
 
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
+#include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -16,24 +19,53 @@
 namespace bafx::desktop
 {
 
+enum class BackgroundCaptureExecutionStatus : std::uint8_t
+{
+    Pending,
+    Completed
+};
+
 struct BackgroundCaptureExecutionResult
 {
     std::string sensorFailure{};
+    std::optional<bafx::windows::WindowSize> resizedOutputSize{};
     std::optional<bafx::windows::WindowSize> recreatedFramePoolSize{};
     bool deviceRecovered{false};
     bool deviceRecoveryAdapterChanged{false};
+    bool transactionActive{false};
+    bool pending{false};
+    bool sensorRestartAllowed{true};
+    bool borderlessAccessConfirmed{false};
+    std::uint64_t controlGeneration{0U};
+    std::size_t actionIndex{0U};
+    std::size_t executedActionCount{0U};
+    std::chrono::steady_clock::time_point transactionStartedAt{};
+    std::chrono::steady_clock::time_point actionStartedAt{};
+    std::optional<bafx::windows::BackgroundCaptureAction> activeAction{};
+    std::unique_ptr<bafx::windows::BorderlessCaptureAccessRequest>
+        borderlessAccessRequest{};
 };
 
 [[nodiscard]] bafx::windows::BackgroundCaptureRequest backgroundCaptureRequest(
     const bafx::config::Config& config,
     std::uint64_t retryToken = 0U) noexcept;
 
-[[nodiscard]] BackgroundCaptureExecutionResult executeBackgroundCaptureTransition(
+[[nodiscard]] BackgroundCaptureExecutionStatus executeBackgroundCaptureTransition(
     bafx::windows::BackgroundCaptureTransition& transition,
     bafx::windows::OverlayWindow& window,
     bafx::windows::CompositionRenderer& renderer,
     HMONITOR monitor,
     std::uint64_t controlGeneration,
+    BackgroundCaptureExecutionResult& execution,
+    const std::filesystem::path& logPath);
+
+[[nodiscard]] BackgroundCaptureExecutionStatus cancelBackgroundCaptureTransition(
+    bafx::windows::BackgroundCaptureTransition& transition,
+    bafx::windows::OverlayWindow& window,
+    bafx::windows::CompositionRenderer& renderer,
+    HMONITOR monitor,
+    BackgroundCaptureExecutionResult& execution,
+    std::string_view reason,
     const std::filesystem::path& logPath);
 
 void appendBorderlessCaptureAccessCheck(

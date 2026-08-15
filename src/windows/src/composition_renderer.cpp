@@ -1,6 +1,5 @@
 #include "bafx/windows/composition_renderer.hpp"
 
-#include "bafx/windows/borderless_capture_access.hpp"
 #include "bafx/windows/display_capabilities.hpp"
 #include "bafx/windows/error.hpp"
 #include "bafx/windows/fx_gpu_renderer.hpp"
@@ -952,10 +951,10 @@ bool CompositionRenderer::tryEnableBackgroundCapture(
     const HMONITOR monitor,
     const bool exclusionConfirmed,
     const bool cursorExcluded,
-    const bool allowSystemBorder) noexcept
+    const bool allowSystemBorder,
+    const bool borderlessAccessConfirmed) noexcept
 {
     setBackgroundCaptureFailure({});
-    borderlessCaptureAccessResult_.reset();
     // Re-enabling capture replaces the producer and therefore starts a new
     // visible-batch decision, even when the monitor and options are unchanged.
     backgroundPathLatch_.reset();
@@ -967,7 +966,8 @@ bool CompositionRenderer::tryEnableBackgroundCapture(
     backgroundCaptureRequested_ = exclusionConfirmed
         && monitor != nullptr
         && deviceInfo_.driverType == GraphicsDriverType::Hardware
-        && backgroundCaptureAfterRecoveryAllowed_;
+        && backgroundCaptureAfterRecoveryAllowed_
+        && (allowSystemBorder || borderlessAccessConfirmed);
     backgroundMonitor_ = backgroundCaptureRequested_ ? monitor : nullptr;
     backgroundRefreshPeriod_ = bafx::core::MonotonicTime::zero();
     if (!backgroundCaptureRequested_)
@@ -988,6 +988,13 @@ bool CompositionRenderer::tryEnableBackgroundCapture(
         {
             setBackgroundCaptureFailure(
                 "WGC restart requires a process restart after graphics adapter change");
+        }
+        else if (!allowSystemBorder && !borderlessAccessConfirmed)
+        {
+            // Permission is an owner-thread preflight action. Sensor creation
+            // must never synchronously invoke the broker as a hidden fallback.
+            setBackgroundCaptureFailure(
+                "borderless capture access was not confirmed");
         }
         return false;
     }
@@ -1100,15 +1107,6 @@ CompositionRenderer::takeBackgroundSnapshotInvalidation() noexcept
     return backgroundSnapshotInvalidationMailbox_.take();
 }
 
-std::optional<BorderlessCaptureAccessResult>
-CompositionRenderer::takeBorderlessCaptureAccessResult() noexcept
-{
-    const std::optional<BorderlessCaptureAccessResult> result =
-        borderlessCaptureAccessResult_;
-    borderlessCaptureAccessResult_.reset();
-    return result;
-}
-
 bool CompositionRenderer::backgroundParticipatedInLastFrame() const noexcept
 {
     return backgroundParticipatedInLastFrame_;
@@ -1133,20 +1131,6 @@ bool CompositionRenderer::tryCreateBackgroundSensor() noexcept
     {
         setBackgroundCaptureFailure("Windows Graphics Capture is not supported");
         return false;
-    }
-
-    if (!backgroundSystemBorderAllowed_)
-    {
-        const BorderlessCaptureAccessResult access =
-            requestBorderlessCaptureAccess();
-        // Preserve the typed broker decision until the owner records it. The
-        // fallback text alone cannot distinguish permission states reliably.
-        borderlessCaptureAccessResult_ = access;
-        if (!borderlessCaptureAccessAllowed(access))
-        {
-            setBackgroundCaptureFailure(borderlessCaptureAccessDiagnostic(access));
-            return false;
-        }
     }
 
     const std::optional<bafx::core::MonotonicTime> refreshPeriod =

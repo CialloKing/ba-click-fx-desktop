@@ -261,55 +261,6 @@ private:
 
 }
 
-BorderlessCaptureAccessResult requestBorderlessCaptureAccess(
-    const PackageIdentityInfo& identity) noexcept
-{
-    try
-    {
-        if (!identity.present)
-        {
-            return identityResult(identity);
-        }
-
-        const auto operation = GraphicsCaptureAccess::RequestAccessAsync(
-            GraphicsCaptureAccessKind::Borderless);
-        const AsyncStatus asyncStatus = operation.wait_for(
-            std::chrono::milliseconds(
-                borderlessCaptureAccessTimeoutMilliseconds));
-        if (asyncStatus == AsyncStatus::Started)
-        {
-            // Permission is optional. Cancel at a fixed boundary instead of
-            // allowing .get() to stall the render/input owner indefinitely.
-            try
-            {
-                operation.Cancel();
-            }
-            catch (...)
-            {
-                // Timeout remains the actionable result even if cancellation
-                // races completion or the broker has already disconnected.
-            }
-            return BorderlessCaptureAccessResult{
-                BorderlessCaptureAccessStatus::TimedOut,
-                HRESULT_FROM_WIN32(ERROR_TIMEOUT)};
-        }
-        return BorderlessCaptureAccessResult{
-            mapStatus(operation.GetResults()),
-            S_OK};
-    }
-    catch (const winrt::hresult_error& error)
-    {
-        const HRESULT code = error.code();
-        return failureResult(code);
-    }
-    catch (...)
-    {
-        return BorderlessCaptureAccessResult{
-            BorderlessCaptureAccessStatus::Failed,
-            E_FAIL};
-    }
-}
-
 BorderlessCaptureAccessRequest::BorderlessCaptureAccessRequest(
     const std::chrono::milliseconds timeout) noexcept
     : timeout_(timeout > std::chrono::milliseconds::zero()
@@ -468,11 +419,6 @@ bool BorderlessCaptureAccessRequest::active() const noexcept
 bool BorderlessCaptureAccessRequest::pending() const noexcept
 {
     return operation_ != nullptr;
-}
-
-BorderlessCaptureAccessResult requestBorderlessCaptureAccess() noexcept
-{
-    return requestBorderlessCaptureAccess(queryCurrentPackageIdentity());
 }
 
 bool borderlessCaptureAccessAllowed(

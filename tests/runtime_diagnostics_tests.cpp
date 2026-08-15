@@ -139,8 +139,12 @@ BAFX_TEST(borderless_access_preserves_package_identity_probe_failures)
         {},
         static_cast<DWORD>(APPMODEL_ERROR_NO_PACKAGE),
         static_cast<DWORD>(APPMODEL_ERROR_NO_PACKAGE)};
+    bafx::windows::BorderlessCaptureAccessRequest portableRequest;
+    portableRequest.begin(notPackaged);
+    const auto portablePoll = portableRequest.poll();
+    BAFX_CHECK(portablePoll.result.has_value());
     const bafx::windows::BorderlessCaptureAccessResult portable =
-        bafx::windows::requestBorderlessCaptureAccess(notPackaged);
+        *portablePoll.result;
     BAFX_CHECK(
         portable.status
         == bafx::windows::BorderlessCaptureAccessStatus::NotPackaged);
@@ -154,8 +158,12 @@ BAFX_TEST(borderless_access_preserves_package_identity_probe_failures)
         {},
         ERROR_NOT_ENOUGH_MEMORY,
         ERROR_NOT_ENOUGH_MEMORY};
+    bafx::windows::BorderlessCaptureAccessRequest failureRequest;
+    failureRequest.begin(probeFailed);
+    const auto failurePoll = failureRequest.poll();
+    BAFX_CHECK(failurePoll.result.has_value());
     const bafx::windows::BorderlessCaptureAccessResult failure =
-        bafx::windows::requestBorderlessCaptureAccess(probeFailed);
+        *failurePoll.result;
     BAFX_CHECK(
         failure.status
         == bafx::windows::BorderlessCaptureAccessStatus::Failed);

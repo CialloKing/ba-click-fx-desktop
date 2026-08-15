@@ -146,7 +146,10 @@ BAFX_TEST(borderless_access_log_preserves_permission_decision)
     const TemporaryBackgroundCaptureLog log;
     const bafx::windows::BorderlessCaptureAccessResult result{
         bafx::windows::BorderlessCaptureAccessStatus::NotPackaged,
-        HRESULT_FROM_WIN32(APPMODEL_ERROR_NO_PACKAGE)};
+        HRESULT_FROM_WIN32(APPMODEL_ERROR_NO_PACKAGE),
+        bafx::windows::BorderlessCaptureAccessAsyncStatus::Canceled,
+        4321U,
+        true};
 
     bafx::desktop::appendBorderlessCaptureAccessCheck(
         log.path(),
@@ -170,6 +173,15 @@ BAFX_TEST(borderless_access_log_preserves_permission_decision)
         != std::string::npos);
     BAFX_CHECK(
         contents.find("WGC.BorderlessAccess.HRESULT=0x80073D54")
+        != std::string::npos);
+    BAFX_CHECK(
+        contents.find("WGC.BorderlessAccess.AsyncStatus=canceled")
+        != std::string::npos);
+    BAFX_CHECK(
+        contents.find("WGC.BorderlessAccess.ElapsedMs=4321")
+        != std::string::npos);
+    BAFX_CHECK(
+        contents.find("WGC.BorderlessAccess.CancelRequested=true")
         != std::string::npos);
     BAFX_CHECK(
         contents.find("WGC.BorderlessAccess.Allowed=false")

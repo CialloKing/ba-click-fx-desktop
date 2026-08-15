@@ -10,7 +10,7 @@
 namespace bafx::windows
 {
 
-inline constexpr std::size_t maximumBackgroundCaptureActions = 6U;
+inline constexpr std::size_t maximumBackgroundCaptureActions = 8U;
 
 struct BackgroundCaptureRequest
 {
@@ -28,6 +28,7 @@ struct BackgroundCaptureRequest
 
 enum class BackgroundCaptureActionKind : std::uint8_t
 {
+    RequestBorderlessAccess,
     StopSensor,
     ResizeOutput,
     RecreateFramePool,
@@ -35,6 +36,13 @@ enum class BackgroundCaptureActionKind : std::uint8_t
     SetAffinityIncluded,
     ApplyOverlayProfile,
     StartSensor
+};
+
+enum class BackgroundCaptureActionObservation : std::uint8_t
+{
+    Pending,
+    Succeeded,
+    Failed
 };
 
 struct BackgroundCaptureAction
@@ -61,6 +69,7 @@ enum class BackgroundCaptureFailure : std::uint8_t
 {
     None,
     SensorStopFailed,
+    BorderlessAccessFailed,
     ExclusionUnconfirmed,
     SensorStartFailed,
     FramePoolRecreateFailed,
@@ -91,8 +100,13 @@ public:
     [[nodiscard]] bool beginSessionStopped() noexcept;
 
     [[nodiscard]] std::optional<BackgroundCaptureAction> nextAction() const noexcept;
-    // Observation must match nextAction(). Resize/Profile are infallible owner
-    // operations and reject a false observation without advancing.
+    // Observation must match nextAction(). Only an asynchronous borderless
+    // access request may remain pending without advancing the transaction.
+    [[nodiscard]] bool applyObservation(
+        const BackgroundCaptureAction& action,
+        BackgroundCaptureActionObservation observation) noexcept;
+    // Preserve the synchronous owner contract while permission acquisition
+    // uses the tri-state overload above.
     [[nodiscard]] bool applyObservation(
         const BackgroundCaptureAction& action,
         bool succeeded) noexcept;
@@ -116,6 +130,8 @@ private:
         WindowSize outputSize,
         bool stopActiveSensor,
         bool profileOnly) noexcept;
+    void appendBorderlessAccessRequestIfRequired(
+        const BackgroundCaptureRequest& request) noexcept;
     void appendAction(BackgroundCaptureAction action) noexcept;
     void discardRemainingActions() noexcept;
     void finishIfComplete() noexcept;

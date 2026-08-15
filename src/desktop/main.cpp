@@ -991,14 +991,17 @@ int runApplication(
     {
         throw std::logic_error("Initial background capture request was invalid");
     }
-    bafx::desktop::BackgroundCaptureExecutionResult backgroundExecution =
-        bafx::desktop::executeBackgroundCaptureTransition(
-            backgroundTransition,
-            window,
-            renderer,
-            primaryMonitor.handle,
-            control.snapshot().generation,
-            logPath);
+    bafx::desktop::BackgroundCaptureExecutionResult backgroundExecution{};
+    const bafx::desktop::BackgroundCaptureExecutionStatus
+        initialBackgroundExecutionStatus =
+            bafx::desktop::executeBackgroundCaptureTransition(
+                backgroundTransition,
+                window,
+                renderer,
+                primaryMonitor.handle,
+                control.snapshot().generation,
+                backgroundExecution,
+                logPath);
     if (backgroundExecution.deviceRecovered)
     {
         appendDeviceRemovedNotificationStatus(
@@ -1010,12 +1013,16 @@ int runApplication(
         == bafx::windows::EffectiveBackgroundCapturePath::BackgroundAware;
     report.setBackgroundCaptureStatus(
         bafx::desktop::backgroundCaptureStatus(backgroundTransition.effectivePath()));
-    bafx::desktop::appendBackgroundCaptureOutcome(
-        logPath,
-        appliedBackgroundRequest,
-        backgroundTransition,
-        backgroundExecution,
-        renderer);
+    if (initialBackgroundExecutionStatus
+        == bafx::desktop::BackgroundCaptureExecutionStatus::Completed)
+    {
+        bafx::desktop::appendBackgroundCaptureOutcome(
+            logPath,
+            appliedBackgroundRequest,
+            backgroundTransition,
+            backgroundExecution,
+            renderer);
+    }
     bafx::desktop::appendAppliedConfiguration(
         logPath,
         config,
@@ -1033,8 +1040,9 @@ int runApplication(
         bafx::fx::SimulationTime{});
     window.show();
 
-    // Do not expose SetConfig until the initial renderer state is complete.
-    // start() latches this baseline before its worker can accept a request.
+    // A broker prompt may remain pending for user input. Expose the control
+    // plane after the non-blocking first service step so WM_INPUT, rendering,
+    // shutdown, and a superseding configuration remain responsive.
     const bafx::desktop::HostControlStartResult controlStart =
         publishControlService(
             control,
@@ -1112,6 +1120,43 @@ int runApplication(
                 *invalidation);
         }
     };
+    const auto finishBackgroundCaptureTransaction =
+        [&](const std::string_view recoveryPhase)
+    {
+        if (backgroundExecution.transactionActive)
+        {
+            throw std::logic_error(
+                "Pending background capture transaction cannot be finalized");
+        }
+        if (backgroundExecution.deviceRecovered)
+        {
+            appendDeviceRemovedNotificationStatus(
+                logPath,
+                renderer,
+                recoveryPhase);
+            deviceRecoveryConsumed = true;
+            report.setDeviceInfo(renderer.deviceInfo());
+        }
+        if (backgroundExecution.resizedOutputSize.has_value())
+        {
+            appliedOutputSize = *backgroundExecution.resizedOutputSize;
+        }
+        backgroundCaptureEnabled = backgroundTransition.effectivePath()
+            == bafx::windows::EffectiveBackgroundCapturePath::BackgroundAware;
+        report.setBackgroundCaptureStatus(
+            bafx::desktop::backgroundCaptureStatus(
+                backgroundTransition.effectivePath()));
+        bafx::desktop::appendBackgroundCaptureOutcome(
+            logPath,
+            appliedBackgroundRequest,
+            backgroundTransition,
+            backgroundExecution,
+            renderer);
+        backgroundParticipationLogged = false;
+        backgroundPendingDiagnosticLogged = false;
+        control.setBackgroundCaptureActive(renderer.backgroundCaptureActive());
+        bafx::windows::appendDiagnosticLog(logPath, report);
+    };
     while (!quit && !window.closeRequested())
     {
         accumulateMessageDispatch(pendingMessageDispatch, dispatchMessages(quit));
@@ -1140,6 +1185,49 @@ int runApplication(
             pendingOutputResize.reset();
         }
         const bool configChanged = controlState.generation != appliedGeneration;
+        if (backgroundExecution.transactionActive)
+        {
+            bafx::desktop::BackgroundCaptureExecutionStatus executionStatus =
+                bafx::desktop::BackgroundCaptureExecutionStatus::Pending;
+            if (configChanged
+                || pendingOutputResize.has_value()
+                || backgroundRetryPending)
+            {
+                const std::string_view cancellationReason = configChanged
+                    ? "control-generation"
+                    : (pendingOutputResize.has_value()
+                        ? "output-resize"
+                        : "background-retry");
+                executionStatus =
+                    bafx::desktop::cancelBackgroundCaptureTransition(
+                        backgroundTransition,
+                        window,
+                        renderer,
+                        primaryMonitor.handle,
+                        backgroundExecution,
+                        cancellationReason,
+                        logPath);
+            }
+            else
+            {
+                executionStatus =
+                    bafx::desktop::executeBackgroundCaptureTransition(
+                        backgroundTransition,
+                        window,
+                        renderer,
+                        primaryMonitor.handle,
+                        backgroundExecution.controlGeneration,
+                        backgroundExecution,
+                        logPath);
+            }
+            if (executionStatus
+                == bafx::desktop::BackgroundCaptureExecutionStatus::Completed)
+            {
+                finishBackgroundCaptureTransaction(
+                    "pending-background-recovery");
+                renderInvalidated = true;
+            }
+        }
         if (configChanged
             || pendingOutputResize.has_value()
             || backgroundRetryPending)
@@ -1219,44 +1307,26 @@ int runApplication(
             switch (requestResult)
             {
             case bafx::windows::BackgroundCaptureRequestResult::Started:
+            {
                 appliedBackgroundRequest = nextBackgroundRequest;
-                backgroundExecution = bafx::desktop::executeBackgroundCaptureTransition(
-                    backgroundTransition,
-                    window,
-                    renderer,
-                    primaryMonitor.handle,
-                    controlState.generation,
-                    logPath);
-                if (backgroundExecution.deviceRecovered)
-                {
-                    appendDeviceRemovedNotificationStatus(
-                        logPath,
+                const bafx::desktop::BackgroundCaptureExecutionStatus status =
+                    bafx::desktop::executeBackgroundCaptureTransition(
+                        backgroundTransition,
+                        window,
                         renderer,
-                        "control-background-recovery");
-                    deviceRecoveryConsumed = true;
-                    report.setDeviceInfo(renderer.deviceInfo());
-                }
-                if (pendingOutputResize.has_value())
-                {
-                    appliedOutputSize = *pendingOutputResize;
-                }
-                backgroundCaptureEnabled = backgroundTransition.effectivePath()
-                    == bafx::windows::EffectiveBackgroundCapturePath::
-                        BackgroundAware;
-                report.setBackgroundCaptureStatus(
-                    bafx::desktop::backgroundCaptureStatus(
-                        backgroundTransition.effectivePath()));
-                bafx::desktop::appendBackgroundCaptureOutcome(
-                    logPath,
-                    appliedBackgroundRequest,
-                    backgroundTransition,
-                    backgroundExecution,
-                    renderer);
-                backgroundParticipationLogged = false;
-                backgroundPendingDiagnosticLogged = false;
+                        primaryMonitor.handle,
+                        controlState.generation,
+                        backgroundExecution,
+                        logPath);
                 backgroundRetryPending = false;
-                bafx::windows::appendDiagnosticLog(logPath, report);
+                if (status
+                    == bafx::desktop::BackgroundCaptureExecutionStatus::Completed)
+                {
+                    finishBackgroundCaptureTransaction(
+                        "control-background-recovery");
+                }
                 break;
+            }
             case bafx::windows::BackgroundCaptureRequestResult::NoChange:
                 appliedBackgroundRequest = nextBackgroundRequest;
                 backgroundRetryPending = false;
@@ -1574,6 +1644,28 @@ int runApplication(
                         != renderer.deviceInfo().adapterLuid.LowPart
                     || previousDeviceInfo.adapterLuid.HighPart
                         != renderer.deviceInfo().adapterLuid.HighPart;
+                if (backgroundExecution.transactionActive)
+                {
+                    const bafx::desktop::BackgroundCaptureExecutionStatus
+                        canceled =
+                            bafx::desktop::cancelBackgroundCaptureTransition(
+                                backgroundTransition,
+                                window,
+                                renderer,
+                                primaryMonitor.handle,
+                                backgroundExecution,
+                                "device-recovery",
+                                logPath);
+                    if (canceled
+                        != bafx::desktop::BackgroundCaptureExecutionStatus::
+                            Completed)
+                    {
+                        throw std::logic_error(
+                            "Device recovery could not cancel pending WGC access");
+                    }
+                    finishBackgroundCaptureTransaction(
+                        "device-recovery-pending-cancel");
+                }
                 if (backgroundTransition.effectivePath()
                         == bafx::windows::EffectiveBackgroundCapturePath::
                             BackgroundAware
@@ -1599,15 +1691,23 @@ int runApplication(
                     }
                     try
                     {
-                        const bafx::desktop::BackgroundCaptureExecutionResult
-                            stopExecution =
+                        const bafx::desktop::BackgroundCaptureExecutionStatus
+                            stopStatus =
                                 bafx::desktop::executeBackgroundCaptureTransition(
                                     backgroundTransition,
                                     window,
                                     renderer,
                                     primaryMonitor.handle,
                                     appliedGeneration,
+                                    backgroundExecution,
                                     logPath);
+                        if (stopStatus
+                            != bafx::desktop::BackgroundCaptureExecutionStatus::
+                                Completed)
+                        {
+                            throw std::logic_error(
+                                "WGC stop transaction unexpectedly became pending");
+                        }
                         backgroundCaptureEnabled = false;
                         control.setBackgroundCaptureActive(false);
                         report.setBackgroundCaptureStatus(
@@ -1617,7 +1717,7 @@ int runApplication(
                             logPath,
                             appliedBackgroundRequest,
                             backgroundTransition,
-                            stopExecution,
+                            backgroundExecution,
                             renderer);
                     }
                     catch (const std::exception& stopError)
@@ -1909,7 +2009,32 @@ int runApplication(
         }
         appendPendingBackgroundSnapshotInvalidation();
         bool currentBackgroundCaptureActive = renderer.backgroundCaptureActive();
-        if (backgroundCaptureEnabled && !currentBackgroundCaptureActive)
+        if (backgroundExecution.transactionActive
+            && backgroundCaptureEnabled
+            && !currentBackgroundCaptureActive)
+        {
+            const bafx::desktop::BackgroundCaptureExecutionStatus canceled =
+                bafx::desktop::cancelBackgroundCaptureTransition(
+                    backgroundTransition,
+                    window,
+                    renderer,
+                    primaryMonitor.handle,
+                    backgroundExecution,
+                    "capture-session-stopped",
+                    logPath);
+            if (canceled
+                != bafx::desktop::BackgroundCaptureExecutionStatus::Completed)
+            {
+                throw std::logic_error(
+                    "Stopped WGC session could not cancel pending access");
+            }
+            finishBackgroundCaptureTransaction(
+                "background-pending-stop-recovery");
+            currentBackgroundCaptureActive = renderer.backgroundCaptureActive();
+        }
+        if (!backgroundExecution.transactionActive
+            && backgroundCaptureEnabled
+            && !currentBackgroundCaptureActive)
         {
             const std::string stoppedReason(renderer.backgroundCaptureFailure());
             if (!backgroundTransition.beginSessionStopped())
@@ -1917,66 +2042,56 @@ int runApplication(
                 throw std::logic_error(
                     "Background capture stop could not enter cleanup transaction");
             }
-            backgroundExecution = bafx::desktop::executeBackgroundCaptureTransition(
-                backgroundTransition,
-                window,
-                renderer,
-                primaryMonitor.handle,
-                appliedGeneration,
-                logPath);
-            if (backgroundExecution.deviceRecovered)
-            {
-                appendDeviceRemovedNotificationStatus(
-                    logPath,
+            const bafx::desktop::BackgroundCaptureExecutionStatus stopStatus =
+                bafx::desktop::executeBackgroundCaptureTransition(
+                    backgroundTransition,
+                    window,
                     renderer,
-                    "background-stop-recovery");
-                deviceRecoveryConsumed = true;
-                report.setDeviceInfo(renderer.deviceInfo());
+                    primaryMonitor.handle,
+                    appliedGeneration,
+                    backgroundExecution,
+                    logPath);
+            if (stopStatus
+                != bafx::desktop::BackgroundCaptureExecutionStatus::Completed)
+            {
+                throw std::logic_error(
+                    "WGC stop transaction unexpectedly became pending");
             }
             if (backgroundExecution.sensorFailure.empty())
             {
                 backgroundExecution.sensorFailure = stoppedReason;
             }
-            backgroundCaptureEnabled = backgroundTransition.effectivePath()
-                == bafx::windows::EffectiveBackgroundCapturePath::BackgroundAware;
-            backgroundParticipationLogged = false;
-            backgroundPendingDiagnosticLogged = false;
-            report.setBackgroundCaptureStatus(
-                bafx::desktop::backgroundCaptureStatus(
-                    backgroundTransition.effectivePath()));
-            bafx::desktop::appendBackgroundCaptureOutcome(
-                logPath,
-                appliedBackgroundRequest,
-                backgroundTransition,
-                backgroundExecution,
-                renderer);
-            bafx::windows::appendDiagnosticLog(logPath, report);
+            finishBackgroundCaptureTransaction("background-stop-recovery");
             currentBackgroundCaptureActive = renderer.backgroundCaptureActive();
         }
         else if (const std::optional<bafx::windows::WindowSize> captureSize =
                      renderer.pendingBackgroundFramePoolSize();
-                 backgroundCaptureEnabled && captureSize.has_value())
+                 !backgroundExecution.transactionActive
+                     && backgroundCaptureEnabled
+                     && captureSize.has_value())
         {
             if (!backgroundTransition.beginFramePoolRecreate(*captureSize))
             {
                 throw std::logic_error(
                     "WGC frame pool resize could not enter its transaction");
             }
-            backgroundExecution = bafx::desktop::executeBackgroundCaptureTransition(
-                backgroundTransition,
-                window,
-                renderer,
-                primaryMonitor.handle,
-                appliedGeneration,
-                logPath);
+            const bafx::desktop::BackgroundCaptureExecutionStatus recreateStatus =
+                bafx::desktop::executeBackgroundCaptureTransition(
+                    backgroundTransition,
+                    window,
+                    renderer,
+                    primaryMonitor.handle,
+                    appliedGeneration,
+                    backgroundExecution,
+                    logPath);
+            if (recreateStatus
+                != bafx::desktop::BackgroundCaptureExecutionStatus::Completed)
+            {
+                throw std::logic_error(
+                    "WGC frame pool recreate unexpectedly became pending");
+            }
             if (backgroundExecution.deviceRecovered)
             {
-                appendDeviceRemovedNotificationStatus(
-                    logPath,
-                    renderer,
-                    "frame-pool-recovery");
-                deviceRecoveryConsumed = true;
-                report.setDeviceInfo(renderer.deviceInfo());
                 const bool retryEligible =
                     appliedBackgroundRequest.sensorRequired
                     && !backgroundExecution.deviceRecoveryAdapterChanged
@@ -2006,20 +2121,7 @@ int runApplication(
                         retryFields);
                 }
             }
-            backgroundCaptureEnabled = backgroundTransition.effectivePath()
-                == bafx::windows::EffectiveBackgroundCapturePath::BackgroundAware;
-            backgroundParticipationLogged = false;
-            backgroundPendingDiagnosticLogged = false;
-            report.setBackgroundCaptureStatus(
-                bafx::desktop::backgroundCaptureStatus(
-                    backgroundTransition.effectivePath()));
-            bafx::desktop::appendBackgroundCaptureOutcome(
-                logPath,
-                appliedBackgroundRequest,
-                backgroundTransition,
-                backgroundExecution,
-                renderer);
-            bafx::windows::appendDiagnosticLog(logPath, report);
+            finishBackgroundCaptureTransaction("frame-pool-recovery");
             currentBackgroundCaptureActive = renderer.backgroundCaptureActive();
         }
         if (!backgroundCaptureEnabled && currentBackgroundCaptureActive)
@@ -2122,6 +2224,25 @@ int runApplication(
                     "MsgWaitForMultipleObjectsEx(paused Host)");
             }
         }
+    }
+    if (backgroundExecution.transactionActive)
+    {
+        const bafx::desktop::BackgroundCaptureExecutionStatus canceled =
+            bafx::desktop::cancelBackgroundCaptureTransition(
+                backgroundTransition,
+                window,
+                renderer,
+                primaryMonitor.handle,
+                backgroundExecution,
+                "shutdown",
+                logPath);
+        if (canceled
+            != bafx::desktop::BackgroundCaptureExecutionStatus::Completed)
+        {
+            throw std::logic_error(
+                "Shutdown could not cancel pending background capture access");
+        }
+        finishBackgroundCaptureTransaction("shutdown-pending-cancel");
     }
     const bafx::fx::SimulationTime finalPerformanceTime = clock.now();
     if (!performanceWindow.empty())

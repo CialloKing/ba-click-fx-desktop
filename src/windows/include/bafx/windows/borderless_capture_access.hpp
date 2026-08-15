@@ -14,7 +14,6 @@ namespace bafx::windows
 
 struct PackageIdentityInfo;
 
-inline constexpr std::uint32_t borderlessCaptureAccessTimeoutMilliseconds = 100U;
 inline constexpr std::uint32_t borderlessCaptureAccessPromptTimeoutMilliseconds =
     120000U;
 
@@ -109,13 +108,6 @@ private:
     std::chrono::milliseconds timeout_{};
     bool cancelRequested_{false};
 };
-
-[[nodiscard]] BorderlessCaptureAccessResult requestBorderlessCaptureAccess() noexcept;
-
-// Accept a caller-owned identity snapshot so diagnostic collectors can retain
-// exactly the evidence used to decide whether a broker request is legal.
-[[nodiscard]] BorderlessCaptureAccessResult requestBorderlessCaptureAccess(
-    const PackageIdentityInfo& identity) noexcept;
 
 [[nodiscard]] bool borderlessCaptureAccessAllowed(
     const BorderlessCaptureAccessResult& result) noexcept;

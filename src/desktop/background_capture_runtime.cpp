@@ -1,6 +1,7 @@
 #include "background_capture_runtime.hpp"
 
 #include "bafx/windows/overlay_window.hpp"
+#include "bafx/windows/package_identity.hpp"
 
 #include <array>
 #include <chrono>
@@ -60,6 +61,8 @@ namespace
         return "none";
     case BackgroundCaptureFailure::SensorStopFailed:
         return "sensor-stop-failed";
+    case BackgroundCaptureFailure::BorderlessAccessFailed:
+        return "borderless-access-failed";
     case BackgroundCaptureFailure::ExclusionUnconfirmed:
         return "exclusion-unconfirmed";
     case BackgroundCaptureFailure::SensorStartFailed:
@@ -80,6 +83,8 @@ namespace
     using bafx::windows::BackgroundCaptureActionKind;
     switch (kind)
     {
+    case BackgroundCaptureActionKind::RequestBorderlessAccess:
+        return "request-borderless-access";
     case BackgroundCaptureActionKind::StopSensor:
         return "stop-sensor";
     case BackgroundCaptureActionKind::ResizeOutput:
@@ -150,6 +155,113 @@ void appendBackgroundCaptureActionEnd(
     message += std::to_string(
         std::chrono::duration_cast<std::chrono::microseconds>(elapsed).count());
     bafx::windows::appendDiagnosticLog(logPath, message);
+}
+
+void beginBackgroundCaptureExecution(
+    BackgroundCaptureExecutionResult& execution,
+    const std::uint64_t controlGeneration,
+    const std::chrono::steady_clock::time_point now)
+{
+    execution.sensorFailure.clear();
+    execution.resizedOutputSize.reset();
+    execution.recreatedFramePoolSize.reset();
+    execution.deviceRecovered = false;
+    execution.deviceRecoveryAdapterChanged = false;
+    execution.transactionActive = true;
+    execution.pending = false;
+    execution.sensorRestartAllowed = true;
+    execution.borderlessAccessConfirmed = false;
+    execution.controlGeneration = controlGeneration;
+    execution.actionIndex = 0U;
+    execution.executedActionCount = 0U;
+    execution.transactionStartedAt = now;
+    execution.actionStartedAt = {};
+    execution.activeAction.reset();
+    execution.borderlessAccessRequest.reset();
+}
+
+void beginBackgroundCaptureAction(
+    BackgroundCaptureExecutionResult& execution,
+    const bafx::windows::BackgroundCaptureAction& action,
+    const std::filesystem::path& logPath)
+{
+    if (execution.activeAction.has_value())
+    {
+        if (*execution.activeAction != action)
+        {
+            throw std::logic_error(
+                "Background capture action changed while it was pending");
+        }
+        return;
+    }
+
+    execution.activeAction = action;
+    execution.actionStartedAt = std::chrono::steady_clock::now();
+    appendBackgroundCaptureActionBegin(
+        logPath,
+        execution.actionIndex,
+        action.kind);
+}
+
+void finishBackgroundCaptureAction(
+    bafx::windows::BackgroundCaptureTransition& transition,
+    BackgroundCaptureExecutionResult& execution,
+    const bafx::windows::BackgroundCaptureActionObservation observation,
+    const std::filesystem::path& logPath)
+{
+    if (!execution.activeAction.has_value()
+        || observation == bafx::windows::BackgroundCaptureActionObservation::Pending)
+    {
+        throw std::logic_error(
+            "Background capture action completion was not terminal");
+    }
+
+    const bafx::windows::BackgroundCaptureAction action =
+        *execution.activeAction;
+    appendBackgroundCaptureActionEnd(
+        logPath,
+        execution.actionIndex,
+        action.kind,
+        observation
+            == bafx::windows::BackgroundCaptureActionObservation::Succeeded,
+        std::chrono::steady_clock::now() - execution.actionStartedAt);
+    if (!transition.applyObservation(action, observation))
+    {
+        throw std::logic_error(
+            "Background capture transition rejected its current action");
+    }
+    ++execution.actionIndex;
+    ++execution.executedActionCount;
+    execution.activeAction.reset();
+    execution.pending = false;
+}
+
+void appendBackgroundCaptureCancellation(
+    const std::filesystem::path& logPath,
+    const BackgroundCaptureExecutionResult& execution,
+    const std::string_view reason) noexcept
+{
+    try
+    {
+        const std::array values{
+            std::to_string(execution.controlGeneration),
+            std::to_string(execution.actionIndex)};
+        const std::array fields{
+            bafx::windows::DiagnosticField{"Control.Generation", values[0]},
+            bafx::windows::DiagnosticField{
+                "Transaction.ActionIndex",
+                values[1]},
+            bafx::windows::DiagnosticField{"Reason", reason}};
+        bafx::windows::appendDiagnosticEvent(
+            logPath,
+            "BackgroundCapture.Transaction.Cancel",
+            fields,
+            bafx::windows::DiagnosticLevel::Warning);
+    }
+    catch (...)
+    {
+        // Diagnostics must not prevent an owner-requested broker cancellation.
+    }
 }
 
 void observeDeviceRecovery(
@@ -260,7 +372,8 @@ void appendBorderlessCaptureAccessCheck(
         const std::array values{
             std::to_string(controlGeneration),
             std::to_string(actionIndex),
-            errorStream.str()};
+            errorStream.str(),
+            std::to_string(result.elapsedMilliseconds)};
         const std::array fields{
             bafx::windows::DiagnosticField{"Control.Generation", values[0]},
             bafx::windows::DiagnosticField{
@@ -275,6 +388,16 @@ void appendBorderlessCaptureAccessCheck(
             bafx::windows::DiagnosticField{
                 "WGC.BorderlessAccess.HRESULT",
                 values[2]},
+            bafx::windows::DiagnosticField{
+                "WGC.BorderlessAccess.AsyncStatus",
+                bafx::windows::borderlessCaptureAccessAsyncStatusName(
+                    result.asyncStatus)},
+            bafx::windows::DiagnosticField{
+                "WGC.BorderlessAccess.ElapsedMs",
+                values[3]},
+            bafx::windows::DiagnosticField{
+                "WGC.BorderlessAccess.CancelRequested",
+                result.cancelRequested ? "true" : "false"},
             bafx::windows::DiagnosticField{
                 "WGC.BorderlessAccess.Allowed",
                 bafx::windows::borderlessCaptureAccessAllowed(result)
@@ -321,36 +444,106 @@ void appendBackgroundCaptureResourceLedger(
     }
 }
 
-BackgroundCaptureExecutionResult executeBackgroundCaptureTransition(
+BackgroundCaptureExecutionStatus executeBackgroundCaptureTransition(
     bafx::windows::BackgroundCaptureTransition& transition,
     bafx::windows::OverlayWindow& window,
     bafx::windows::CompositionRenderer& renderer,
     const HMONITOR monitor,
     const std::uint64_t controlGeneration,
+    BackgroundCaptureExecutionResult& execution,
     const std::filesystem::path& logPath)
 {
-    BackgroundCaptureExecutionResult result{};
-    bool sensorRestartAllowed = true;
-    const auto transactionStartedAt = std::chrono::steady_clock::now();
-    std::size_t executedActionCount = 0U;
-    for (std::size_t index = 0U;
-         index < bafx::windows::maximumBackgroundCaptureActions;
-         ++index)
+    if (!execution.transactionActive)
     {
+        if (!transition.transitioning())
+        {
+            return BackgroundCaptureExecutionStatus::Completed;
+        }
+        beginBackgroundCaptureExecution(
+            execution,
+            controlGeneration,
+            std::chrono::steady_clock::now());
+    }
+    else if (execution.controlGeneration != controlGeneration)
+    {
+        throw std::logic_error(
+            "Background capture generation changed without canceling its transaction");
+    }
+
+    while (transition.transitioning())
+    {
+        if (execution.executedActionCount
+            >= bafx::windows::maximumBackgroundCaptureActions)
+        {
+            appendBackgroundCaptureResourceLedger(
+                logPath,
+                renderer,
+                "budget-exceeded");
+            throw std::logic_error(
+                "Background capture transition exceeded its fixed action budget");
+        }
+
         const std::optional<bafx::windows::BackgroundCaptureAction> action =
             transition.nextAction();
         if (!action.has_value())
         {
-            break;
+            throw std::logic_error(
+                "Background capture transition lost its current action");
         }
 
-        appendBackgroundCaptureActionBegin(logPath, index, action->kind);
-        const auto actionStartedAt = std::chrono::steady_clock::now();
+        beginBackgroundCaptureAction(execution, *action, logPath);
         bool succeeded = false;
         try
         {
             switch (action->kind)
             {
+            case bafx::windows::BackgroundCaptureActionKind::
+                RequestBorderlessAccess:
+            {
+                if (execution.borderlessAccessRequest == nullptr)
+                {
+                    execution.borderlessAccessRequest = std::make_unique<
+                        bafx::windows::BorderlessCaptureAccessRequest>();
+                    execution.borderlessAccessRequest->begin(
+                        bafx::windows::queryCurrentPackageIdentity());
+                }
+                const bafx::windows::BorderlessCaptureAccessPollResult poll =
+                    execution.borderlessAccessRequest->poll();
+                if (poll.pending)
+                {
+                    if (!transition.applyObservation(
+                            *action,
+                            bafx::windows::
+                                BackgroundCaptureActionObservation::Pending))
+                    {
+                        throw std::logic_error(
+                            "Background capture transition rejected pending access");
+                    }
+                    execution.pending = true;
+                    return BackgroundCaptureExecutionStatus::Pending;
+                }
+                if (!poll.result.has_value())
+                {
+                    throw std::logic_error(
+                        "Borderless access request ended without a result");
+                }
+                appendBorderlessCaptureAccessCheck(
+                    logPath,
+                    execution.controlGeneration,
+                    execution.actionIndex,
+                    *poll.result);
+                execution.borderlessAccessConfirmed =
+                    bafx::windows::borderlessCaptureAccessAllowed(*poll.result);
+                succeeded = execution.borderlessAccessConfirmed;
+                if (!succeeded)
+                {
+                    execution.sensorFailure =
+                        bafx::windows::borderlessCaptureAccessDiagnostic(
+                            *poll.result);
+                }
+                execution.borderlessAccessRequest.reset();
+                break;
+            }
             case bafx::windows::BackgroundCaptureActionKind::StopSensor:
                 renderer.disableBackgroundCapture();
                 succeeded = appendBackgroundCaptureStopDiagnostics(
@@ -359,8 +552,8 @@ BackgroundCaptureExecutionResult executeBackgroundCaptureTransition(
                     "transaction").overallSucceeded;
                 if (!succeeded)
                 {
-                    sensorRestartAllowed = false;
-                    result.sensorFailure =
+                    execution.sensorRestartAllowed = false;
+                    execution.sensorFailure =
                         "WGC stop failed; capture restart blocked for this process";
                 }
                 break;
@@ -388,16 +581,17 @@ BackgroundCaptureExecutionResult executeBackgroundCaptureTransition(
                     renderer.deviceInfo();
                 const bafx::windows::OutputResizeStatus resizeStatus =
                     renderer.resizeOutput(action->outputSize);
+                execution.resizedOutputSize = action->outputSize;
                 if (resizeStatus
                     == bafx::windows::OutputResizeStatus::DeviceRecovered)
                 {
                     observeDeviceRecovery(
-                        result,
+                        execution,
                         previousDeviceInfo,
                         renderer,
                         logPath,
                         "Graphics.DeviceRecovery.ResizeSucceeded",
-                        sensorRestartAllowed);
+                        execution.sensorRestartAllowed);
                 }
                 succeeded = true;
                 break;
@@ -413,7 +607,7 @@ BackgroundCaptureExecutionResult executeBackgroundCaptureTransition(
                 {
                 case bafx::windows::BackgroundFramePoolRecreateStatus::Recreated:
                     succeeded = true;
-                    result.recreatedFramePoolSize = action->captureSize;
+                    execution.recreatedFramePoolSize = action->captureSize;
                     break;
                 case bafx::windows::BackgroundFramePoolRecreateStatus::Failed:
                     succeeded = false;
@@ -422,12 +616,12 @@ BackgroundCaptureExecutionResult executeBackgroundCaptureTransition(
                     DeviceRecovered:
                     succeeded = false;
                     observeDeviceRecovery(
-                        result,
+                        execution,
                         previousDeviceInfo,
                         renderer,
                         logPath,
                         "Graphics.DeviceRecovery.FramePoolSucceeded",
-                        sensorRestartAllowed);
+                        execution.sensorRestartAllowed);
                     break;
                 case bafx::windows::BackgroundFramePoolRecreateStatus::
                     DeviceRecoveryFailed:
@@ -437,37 +631,28 @@ BackgroundCaptureExecutionResult executeBackgroundCaptureTransition(
                 }
                 if (!succeeded && !renderer.backgroundCaptureFailure().empty())
                 {
-                    result.sensorFailure = renderer.backgroundCaptureFailure();
+                    execution.sensorFailure = renderer.backgroundCaptureFailure();
                 }
                 break;
             }
             case bafx::windows::BackgroundCaptureActionKind::StartSensor:
                 // Start is emitted only after WDA exclusion was confirmed in
                 // this transaction, so stale affinity cannot enable capture.
-                succeeded = sensorRestartAllowed
+                succeeded = execution.sensorRestartAllowed
                     && renderer.tryEnableBackgroundCapture(
                         monitor,
                         true,
                         action->cursorExcluded,
-                        action->allowSystemBorder);
-                if (const auto access =
-                        renderer.takeBorderlessCaptureAccessResult();
-                    access.has_value())
+                        action->allowSystemBorder,
+                        execution.borderlessAccessConfirmed);
+                if (!execution.sensorRestartAllowed)
                 {
-                    appendBorderlessCaptureAccessCheck(
-                        logPath,
-                        controlGeneration,
-                        index,
-                        *access);
-                }
-                if (!sensorRestartAllowed)
-                {
-                    result.sensorFailure =
+                    execution.sensorFailure =
                         "WGC restart blocked after graphics adapter change or WARP recovery";
                 }
                 if (!succeeded && !renderer.backgroundCaptureFailure().empty())
                 {
-                    result.sensorFailure = renderer.backgroundCaptureFailure();
+                    execution.sensorFailure = renderer.backgroundCaptureFailure();
                 }
                 break;
             }
@@ -476,56 +661,112 @@ BackgroundCaptureExecutionResult executeBackgroundCaptureTransition(
         {
             appendBackgroundCaptureActionEnd(
                 logPath,
-                index,
+                execution.actionIndex,
                 action->kind,
                 false,
-                std::chrono::steady_clock::now() - actionStartedAt);
+                std::chrono::steady_clock::now() - execution.actionStartedAt);
             appendBackgroundCaptureResourceLedger(
                 logPath,
                 renderer,
                 "action-failed");
             throw;
         }
-        appendBackgroundCaptureActionEnd(
-            logPath,
-            index,
-            action->kind,
-            succeeded,
-            std::chrono::steady_clock::now() - actionStartedAt);
-        ++executedActionCount;
-
-        if (!transition.applyObservation(*action, succeeded))
+        try
+        {
+            finishBackgroundCaptureAction(
+                transition,
+                execution,
+                succeeded
+                    ? bafx::windows::
+                        BackgroundCaptureActionObservation::Succeeded
+                    : bafx::windows::BackgroundCaptureActionObservation::Failed,
+                logPath);
+        }
+        catch (...)
         {
             appendBackgroundCaptureResourceLedger(
                 logPath,
                 renderer,
                 "transition-rejected");
-            throw std::logic_error(
-                "Background capture transition rejected its current action");
+            throw;
         }
-    }
-    if (transition.transitioning())
-    {
-        appendBackgroundCaptureResourceLedger(
-            logPath,
-            renderer,
-            "budget-exceeded");
-        throw std::logic_error(
-            "Background capture transition exceeded its fixed action budget");
     }
 
     std::string completion = "BackgroundCapture.Transaction.End;Actions=";
-    completion += std::to_string(executedActionCount);
+    completion += std::to_string(execution.executedActionCount);
     completion += ";ElapsedUs=";
     completion += std::to_string(
         std::chrono::duration_cast<std::chrono::microseconds>(
-            std::chrono::steady_clock::now() - transactionStartedAt).count());
+            std::chrono::steady_clock::now()
+            - execution.transactionStartedAt).count());
     bafx::windows::appendDiagnosticLog(logPath, completion);
     // Keep cumulative WGC ownership evidence beside every transaction.  A
     // failed stop/recreate can otherwise look successful after the sensor
     // pointer is released while an old WinRT resource is still live.
     appendBackgroundCaptureResourceLedger(logPath, renderer, "transaction");
-    return result;
+    execution.transactionActive = false;
+    execution.pending = false;
+    execution.activeAction.reset();
+    execution.borderlessAccessRequest.reset();
+    return BackgroundCaptureExecutionStatus::Completed;
+}
+
+BackgroundCaptureExecutionStatus cancelBackgroundCaptureTransition(
+    bafx::windows::BackgroundCaptureTransition& transition,
+    bafx::windows::OverlayWindow& window,
+    bafx::windows::CompositionRenderer& renderer,
+    const HMONITOR monitor,
+    BackgroundCaptureExecutionResult& execution,
+    const std::string_view reason,
+    const std::filesystem::path& logPath)
+{
+    if (!execution.transactionActive)
+    {
+        return BackgroundCaptureExecutionStatus::Completed;
+    }
+    if (!execution.pending
+        || !execution.activeAction.has_value()
+        || execution.activeAction->kind
+            != bafx::windows::BackgroundCaptureActionKind::
+                RequestBorderlessAccess
+        || execution.borderlessAccessRequest == nullptr)
+    {
+        throw std::logic_error(
+            "Only a pending borderless access action can be canceled");
+    }
+
+    appendBackgroundCaptureCancellation(logPath, execution, reason);
+    execution.borderlessAccessRequest->cancel();
+    const bafx::windows::BorderlessCaptureAccessPollResult poll =
+        execution.borderlessAccessRequest->poll();
+    if (!poll.result.has_value())
+    {
+        throw std::logic_error(
+            "Canceled borderless access request did not produce a result");
+    }
+    appendBorderlessCaptureAccessCheck(
+        logPath,
+        execution.controlGeneration,
+        execution.actionIndex,
+        *poll.result);
+    execution.sensorFailure = "Borderless access request canceled; reason=";
+    execution.sensorFailure += reason;
+    execution.borderlessAccessConfirmed = false;
+    execution.borderlessAccessRequest.reset();
+    finishBackgroundCaptureAction(
+        transition,
+        execution,
+        bafx::windows::BackgroundCaptureActionObservation::Failed,
+        logPath);
+
+    return executeBackgroundCaptureTransition(
+        transition,
+        window,
+        renderer,
+        monitor,
+        execution.controlGeneration,
+        execution,
+        logPath);
 }
 
 bafx::windows::BackgroundCaptureStatus backgroundCaptureStatus(

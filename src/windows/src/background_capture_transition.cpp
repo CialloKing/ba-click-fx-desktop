@@ -52,6 +52,14 @@ namespace
     return action;
 }
 
+[[nodiscard]] BackgroundCaptureAction borderlessAccessAction() noexcept
+{
+    BackgroundCaptureAction action{};
+    action.kind = BackgroundCaptureActionKind::RequestBorderlessAccess;
+    action.allowSystemBorder = false;
+    return action;
+}
+
 [[nodiscard]] bool equivalentStableRequest(
     const BackgroundCaptureRequest& left,
     const BackgroundCaptureRequest& right) noexcept
@@ -257,11 +265,37 @@ bool BackgroundCaptureTransition::applyObservation(
     const BackgroundCaptureAction& action,
     const bool succeeded) noexcept
 {
+    return applyObservation(
+        action,
+        succeeded
+            ? BackgroundCaptureActionObservation::Succeeded
+            : BackgroundCaptureActionObservation::Failed);
+}
+
+bool BackgroundCaptureTransition::applyObservation(
+    const BackgroundCaptureAction& action,
+    const BackgroundCaptureActionObservation observation) noexcept
+{
     const std::optional<BackgroundCaptureAction> expected = nextAction();
     if (!expected.has_value() || action != *expected)
     {
         return false;
     }
+    if (observation == BackgroundCaptureActionObservation::Pending)
+    {
+        // Permission completion is delivered asynchronously. All owner-side
+        // actions are synchronous and must either succeed or fail immediately.
+        return action.kind
+            == BackgroundCaptureActionKind::RequestBorderlessAccess;
+    }
+    if (observation != BackgroundCaptureActionObservation::Succeeded
+        && observation != BackgroundCaptureActionObservation::Failed)
+    {
+        return false;
+    }
+
+    const bool succeeded =
+        observation == BackgroundCaptureActionObservation::Succeeded;
     if (!succeeded
         && (action.kind == BackgroundCaptureActionKind::ResizeOutput
             || action.kind == BackgroundCaptureActionKind::ApplyOverlayProfile))
@@ -272,6 +306,41 @@ bool BackgroundCaptureTransition::applyObservation(
     ++actionIndex_;
     switch (action.kind)
     {
+    case BackgroundCaptureActionKind::RequestBorderlessAccess:
+        if (!succeeded)
+        {
+            std::optional<BackgroundCaptureAction> pendingResize{};
+            for (std::size_t index = actionIndex_; index < actionCount_; ++index)
+            {
+                if (actions_[index].kind
+                    == BackgroundCaptureActionKind::ResizeOutput)
+                {
+                    pendingResize = actions_[index];
+                    break;
+                }
+            }
+
+            pendingFailure_ = BackgroundCaptureFailure::BorderlessAccessFailed;
+            completionPath_ = EffectiveBackgroundCapturePath::FxOnly;
+            completionVisibilityUnknown_ = false;
+            discardRemainingActions();
+            // Permission is decided before ownership or visibility changes.
+            // A denial therefore runs one explicit FX-only rollback and keeps
+            // a coalesced output resize from being lost with the start plan.
+            appendAction(simpleAction(BackgroundCaptureActionKind::StopSensor));
+            appendAction(simpleAction(
+                BackgroundCaptureActionKind::SetAffinityIncluded));
+            if (pendingResize.has_value())
+            {
+                appendAction(*pendingResize);
+            }
+            if (!appliedOverlayProfile_.has_value()
+                || *appliedOverlayProfile_ != FxOverlayProfile::FxOnlyFallback)
+            {
+                appendAction(profileAction(FxOverlayProfile::FxOnlyFallback));
+            }
+        }
+        break;
     case BackgroundCaptureActionKind::StopSensor:
         if (!succeeded)
         {
@@ -380,6 +449,7 @@ void BackgroundCaptureTransition::beginFullRequest(
         : EffectiveBackgroundCapturePath::FxOnly;
     completionVisibilityUnknown_ = false;
 
+    appendBorderlessAccessRequestIfRequired(request);
     appendAction(simpleAction(BackgroundCaptureActionKind::StopSensor));
     if (request.sensorRequired)
     {
@@ -434,6 +504,7 @@ void BackgroundCaptureTransition::beginBackgroundAwareResize(
     completionPath_ = EffectiveBackgroundCapturePath::BackgroundAware;
     completionVisibilityUnknown_ = false;
 
+    appendBorderlessAccessRequestIfRequired(request);
     if (stopActiveSensor)
     {
         appendAction(simpleAction(BackgroundCaptureActionKind::StopSensor));
@@ -481,6 +552,17 @@ void BackgroundCaptureTransition::beginFxOnlyResize(
     }
     appendAction(resizeAction(outputSize));
     appendAction(profileAction(request.overlayProfile));
+}
+
+void BackgroundCaptureTransition::appendBorderlessAccessRequestIfRequired(
+    const BackgroundCaptureRequest& request) noexcept
+{
+    if (request.sensorRequired && !request.allowSystemBorder)
+    {
+        // Permission must resolve before stopping an existing producer or
+        // changing WDA/profile state, so denial has no speculative side effect.
+        appendAction(borderlessAccessAction());
+    }
 }
 
 void BackgroundCaptureTransition::appendAction(
