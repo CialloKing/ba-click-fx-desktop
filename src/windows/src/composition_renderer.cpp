@@ -1489,9 +1489,14 @@ BackgroundCadenceRefreshResult CompositionRenderer::refreshBackgroundCadence(
     backgroundRefreshPeriod_ = targetPeriod.has_value()
         ? std::max(*targetPeriod, minimumBackgroundCadencePeriod)
         : minimumBackgroundCadencePeriod;
+    // Freshness tolerates the ordinary 60 Hz WGC jitter, but producer
+    // throttling must follow a known 120/144 Hz or DRR boost target. Coupling
+    // both policies here would silently cap high-refresh capture at 60 Hz.
+    const bafx::core::MonotonicTime producerPeriod =
+        targetPeriod.value_or(minimumBackgroundCadencePeriod);
     const WgcProducerCadenceState producerCadence =
         backgroundSensor_->configureMinimumUpdateInterval(
-            backgroundRefreshPeriod_);
+            producerPeriod);
     return BackgroundCadenceRefreshResult{
         targetPeriod.has_value()
             ? BackgroundCadenceRefreshStatus::TargetRate
@@ -1558,9 +1563,11 @@ bool CompositionRenderer::tryCreateBackgroundSensor() noexcept
         sensorOptions.excludesOwnOverlay = true;
         sensorOptions.cursorExcluded = backgroundCursorExcluded_;
         sensorOptions.allowSystemBorder = backgroundSystemBorderAllowed_;
-        sensorOptions.minimumUpdateInterval = refreshPeriod.has_value()
-            ? std::max(*refreshPeriod, minimumBackgroundCadencePeriod)
-            : minimumBackgroundCadencePeriod;
+        // Producer cadence follows an authoritative target rate. The separate
+        // freshness window below remains no tighter than 60 Hz so normal WGC
+        // delivery jitter does not destabilize the background path.
+        sensorOptions.minimumUpdateInterval = refreshPeriod.value_or(
+            minimumBackgroundCadencePeriod);
         sensorOptions.resourceLedger = backgroundResourceLedger_;
         sensorOptions.stopObserver = backgroundStopObserver_;
         sensorOptions.stopResultObserver =
