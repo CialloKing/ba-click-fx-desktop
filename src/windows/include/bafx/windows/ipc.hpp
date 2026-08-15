@@ -112,6 +112,9 @@ public:
     void stop() noexcept;
 
     [[nodiscard]] bool running() const noexcept;
+    // Shutdown becomes observable only after its response has entered the
+    // pipe. Owners can then stop their main loop without cancelling the ack.
+    [[nodiscard]] bool stopRequested() const noexcept;
     [[nodiscard]] DWORD lastError() const noexcept;
 
 private:
@@ -146,7 +149,6 @@ private:
         OVERLAPPED& overlapped,
         HANDLE operationEvent) noexcept;
     void workerMain(UniqueHandle pipe) noexcept;
-    [[nodiscard]] bool stopRequested() const noexcept;
     [[nodiscard]] bool waitForStop(DWORD timeout) const noexcept;
     void setLastError(DWORD error) noexcept;
 
@@ -156,6 +158,7 @@ private:
     IpcRequestHandler handler_{};
     Options options_{};
     std::atomic_bool running_{false};
+    std::atomic_bool stopRequestedFlag_{false};
     std::atomic<DWORD> lastError_{ERROR_SUCCESS};
 };
 

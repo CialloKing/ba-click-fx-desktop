@@ -99,3 +99,30 @@ BAFX_TEST(host_control_start_latches_generation_before_accepting_set_config)
         current.config.background.mode
         == bafx::config::RenderMode::RecordingCompatible);
 }
+
+BAFX_TEST(host_control_observes_shutdown_after_the_client_receives_its_ack)
+{
+    TemporaryConfigDirectory temporary;
+    bafx::windows::NamedPipeIpcServer::Options serverOptions{};
+    serverOptions.pipeName = testPipeName();
+    serverOptions.ioTimeoutMilliseconds = 500U;
+    serverOptions.retryDelayMilliseconds = 10U;
+    bafx::desktop::HostControlPlane control(
+        temporary.configPath(),
+        bafx::config::defaultConfig(),
+        serverOptions);
+    BAFX_CHECK(control.start(false).serviceStarted);
+
+    bafx::windows::IpcClientOptions clientOptions{};
+    clientOptions.pipeName = serverOptions.pipeName;
+    clientOptions.timeoutMilliseconds = 1'000U;
+    const bafx::windows::NamedPipeIpcClient client(clientOptions);
+    const bafx::windows::IpcClientResponse response =
+        client.transact("Shutdown");
+    const bafx::desktop::HostStateSnapshot stopped = control.snapshot();
+    control.stop();
+
+    BAFX_CHECK(response.succeeded());
+    BAFX_CHECK(response.payload == "{\"shutdownRequested\":true}");
+    BAFX_CHECK(stopped.shutdownRequested);
+}

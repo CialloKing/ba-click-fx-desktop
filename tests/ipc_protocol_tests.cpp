@@ -1,10 +1,12 @@
 #include "test_support.hpp"
 
 #include "bafx/windows/ipc.hpp"
+#include "bafx/windows/ipc_client.hpp"
 
 #include <windows.h>
 
 #include <array>
+#include <atomic>
 #include <chrono>
 #include <string>
 
@@ -174,4 +176,42 @@ BAFX_TEST(ipc_server_round_trips_a_request)
     BAFX_CHECK(received);
     BAFX_CHECK(
         responses == "OK {\"enabled\":true}\nOK {\"enabled\":true}\n");
+}
+
+BAFX_TEST(ipc_server_publishes_shutdown_only_after_writing_the_response)
+{
+    NamedPipeIpcServer::Options options{};
+    options.pipeName = testPipeName() + L".shutdown";
+    options.ioTimeoutMilliseconds = 500U;
+    options.retryDelayMilliseconds = 10U;
+    std::atomic_bool handlerReceivedShutdown{false};
+    std::atomic_bool handlerObservedStop{true};
+    NamedPipeIpcServer* serverAddress = nullptr;
+    NamedPipeIpcServer server(
+        [&](const IpcRequest& request)
+        {
+            handlerReceivedShutdown.store(
+                request.command == IpcCommand::Shutdown,
+                std::memory_order_release);
+            handlerObservedStop.store(
+                serverAddress->stopRequested(),
+                std::memory_order_release);
+            return IpcResponse::success("{\"shutdownRequested\":true}");
+        },
+        options);
+    serverAddress = &server;
+    BAFX_CHECK(server.start());
+
+    IpcClientOptions clientOptions{};
+    clientOptions.pipeName = options.pipeName;
+    clientOptions.timeoutMilliseconds = 1'000U;
+    const NamedPipeIpcClient client(clientOptions);
+    const IpcClientResponse response = client.transact("Shutdown");
+
+    BAFX_CHECK(response.succeeded());
+    BAFX_CHECK(response.payload == "{\"shutdownRequested\":true}");
+    BAFX_CHECK(handlerReceivedShutdown.load(std::memory_order_acquire));
+    BAFX_CHECK(!handlerObservedStop.load(std::memory_order_acquire));
+    BAFX_CHECK(server.stopRequested());
+    server.stop();
 }

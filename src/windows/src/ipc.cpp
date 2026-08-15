@@ -244,6 +244,7 @@ bool NamedPipeIpcServer::start() noexcept
     }
 
     setLastError(ERROR_SUCCESS);
+    stopRequestedFlag_.store(false, std::memory_order_release);
     stopEvent_.reset(CreateEventW(nullptr, TRUE, FALSE, nullptr));
     if (stopEvent_.get() == nullptr)
     {
@@ -280,6 +281,7 @@ bool NamedPipeIpcServer::start() noexcept
 void NamedPipeIpcServer::stop() noexcept
 {
     std::lock_guard<std::mutex> lock(lifecycleMutex_);
+    stopRequestedFlag_.store(true, std::memory_order_release);
     if (!worker_.joinable())
     {
         running_.store(false, std::memory_order_release);
@@ -519,6 +521,9 @@ bool NamedPipeIpcServer::processLine(
         }
         if (response.stopServer)
         {
+            // Publish shutdown only after writeAll has completed. The Host
+            // owner may destroy this server as soon as it observes the flag.
+            stopRequestedFlag_.store(true, std::memory_order_release);
             static_cast<void>(SetEvent(stopEvent_.get()));
         }
         return !response.closeConnection && !response.stopServer;
@@ -752,8 +757,7 @@ void NamedPipeIpcServer::workerMain(UniqueHandle pipe) noexcept
 
 bool NamedPipeIpcServer::stopRequested() const noexcept
 {
-    return stopEvent_.get() != nullptr
-        && WaitForSingleObject(stopEvent_.get(), 0U) == WAIT_OBJECT_0;
+    return stopRequestedFlag_.load(std::memory_order_acquire);
 }
 
 bool NamedPipeIpcServer::waitForStop(const DWORD timeout) const noexcept

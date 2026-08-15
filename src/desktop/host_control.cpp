@@ -174,7 +174,7 @@ HostStateSnapshot HostControlPlane::snapshot() const
         config_,
         generation_,
         paused_,
-        shutdownRequested_.load(std::memory_order_acquire),
+        ipc_.stopRequested(),
         backgroundCaptureActive_};
 }
 
@@ -218,7 +218,7 @@ bafx::windows::IpcResponse HostControlPlane::handle(
                 config_,
                 generation_,
                 paused_,
-                shutdownRequested_.load(std::memory_order_acquire),
+                ipc_.stopRequested(),
                 backgroundCaptureActive_}));
         }
 
@@ -231,12 +231,11 @@ bafx::windows::IpcResponse HostControlPlane::handle(
                 config_,
                 generation_,
                 paused_,
-                shutdownRequested_.load(std::memory_order_acquire),
+                ipc_.stopRequested(),
                 backgroundCaptureActive_}));
         }
 
         case bafx::windows::IpcCommand::Shutdown:
-            shutdownRequested_.store(true, std::memory_order_release);
             return bafx::windows::IpcResponse::success(
                 "{\"shutdownRequested\":true}");
         }

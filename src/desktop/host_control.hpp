@@ -5,7 +5,6 @@
 
 #include <windows.h>
 
-#include <atomic>
 #include <cstdint>
 #include <filesystem>
 #include <mutex>
@@ -86,7 +85,6 @@ private:
     bafx::config::Config config_{};
     std::uint64_t generation_{1U};
     bool paused_{false};
-    std::atomic_bool shutdownRequested_{false};
     bool backgroundCaptureActive_{false};
     bafx::windows::NamedPipeIpcServer ipc_;
 };
