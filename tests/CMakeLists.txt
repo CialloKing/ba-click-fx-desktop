@@ -293,6 +293,7 @@ if(WIN32)
     add_executable(
         bafx_windows_tests
         test_main.cpp
+        background_snapshot_diagnostics_tests.cpp
         background_capture_transition_tests.cpp
         gpu_timestamp_profiler_tests.cpp
         ipc_client_tests.cpp

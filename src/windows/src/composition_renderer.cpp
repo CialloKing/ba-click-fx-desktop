@@ -397,6 +397,9 @@ bool CompositionRenderer::tryRecoverDevice() noexcept
         // WGC textures and the temporal snapshot belong to the old device;
         // invalidate them before releasing the swap-chain resource domain.
         const auto backgroundStopStartedAt = std::chrono::steady_clock::now();
+        resetBackgroundSnapshot(
+            BackgroundSnapshotInvalidationReason::DeviceResourcesReleased,
+            0U);
         disableBackgroundCapture();
         deviceRecoveryDiagnostics_.backgroundStop =
             std::chrono::steady_clock::now() - backgroundStopStartedAt;
@@ -496,7 +499,8 @@ OutputResizeStatus CompositionRenderer::resizeOutput(const WindowSize size)
             // the previous visible batch's path into the new session while its
             // first correctly sized WGC frame is still pending.
             backgroundPathLatch_.reset();
-            releaseBackgroundSnapshotResources();
+            releaseBackgroundSnapshotResources(
+                BackgroundSnapshotInvalidationReason::OutputResize);
             previousVisualBounds_.reset();
 
             context_->OMSetRenderTargets(0, nullptr, nullptr);
@@ -566,7 +570,8 @@ void CompositionRenderer::releaseDeviceResources() noexcept
     // Snapshot views are created on the same device as the swap chain. Keep
     // this helper self-contained so an exceptional recovery path cannot leave
     // old-device views alive behind the new resource domain.
-    releaseBackgroundSnapshotResources();
+    releaseBackgroundSnapshotResources(
+        BackgroundSnapshotInvalidationReason::DeviceResourcesReleased);
     gpuTimestampProfiler_.reset();
     fxRenderer_.reset();
     renderTarget_.Reset();
@@ -614,7 +619,9 @@ CompositionFrameDiagnostics CompositionRenderer::renderFrame(
         // A new visible batch gets a fresh desktop reference. Keeping the
         // previous copy across an idle frame would make a later click inherit
         // an unrelated background and reintroduce a bright-surface pulse.
-        resetBackgroundSnapshot();
+        resetBackgroundSnapshot(
+            BackgroundSnapshotInvalidationReason::VisibleBatchEnded,
+            diagnostics.frameId);
     }
     backgroundParticipatedInLastFrame_ = false;
     backgroundCompositeStatus_ = backgroundSensor_ != nullptr
@@ -623,7 +630,10 @@ CompositionFrameDiagnostics CompositionRenderer::renderFrame(
     const bafx::core::MonotonicTime effectiveWallTime =
         resolveMonotonicTime(wallTime);
     const BackgroundSensorMaintenanceDiagnostics maintenance =
-        drainBackgroundSensor(hasDrawableContent, effectiveWallTime);
+        drainBackgroundSensor(
+            hasDrawableContent,
+            effectiveWallTime,
+            diagnostics.frameId);
     diagnostics.wgc = maintenance.wgc;
     diagnostics.wgcDrainInclusiveCpu = maintenance.wgcDrainInclusiveCpu;
     diagnostics.wgcActive = maintenance.wgcActive;
@@ -704,13 +714,15 @@ CompositionFrameDiagnostics CompositionRenderer::renderFrame(
         {
             const auto snapshotStartedAt = std::chrono::steady_clock::now();
             snapshotRefreshed = captureBackgroundSnapshot(
-                backgroundSample->texture);
+                backgroundSample->texture,
+                diagnostics.frameId);
             diagnostics.backgroundSnapshotSubmitCpu =
                 std::chrono::steady_clock::now() - snapshotStartedAt;
         }
         if (snapshotRefreshed)
         {
             backgroundSnapshotValid_ = true;
+            backgroundSnapshotEpoch_ = backgroundSample->stamp.epoch;
             backgroundSnapshotGeneration_ = backgroundSample->generation;
             diagnostics.backgroundSnapshotRefreshed = true;
         }
@@ -733,7 +745,9 @@ CompositionFrameDiagnostics CompositionRenderer::renderFrame(
     else
     {
         // A new FX-only batch must not inherit a previous batch's snapshot.
-        resetBackgroundSnapshot();
+        resetBackgroundSnapshot(
+            BackgroundSnapshotInvalidationReason::FxOnlyPathSelected,
+            diagnostics.frameId);
         if (hasDrawableContent
             && backgroundSample.has_value()
             && acquireUsage.enabled)
@@ -774,6 +788,12 @@ CompositionFrameDiagnostics CompositionRenderer::renderFrame(
     diagnostics.presentReturnedTickMilliseconds = GetTickCount();
     diagnostics.backgroundStatus = backgroundCompositeStatus_;
     diagnostics.backgroundParticipated = backgroundParticipatedInLastFrame_;
+    if (diagnostics.backgroundParticipated)
+    {
+        diagnostics.backgroundSnapshotEpoch = backgroundSnapshotEpoch_;
+        diagnostics.backgroundSnapshotGeneration =
+            backgroundSnapshotGeneration_;
+    }
     diagnostics.frameTotalCpu =
         std::chrono::steady_clock::now() - frameStartedAt;
     return diagnostics;
@@ -783,13 +803,17 @@ BackgroundSensorMaintenanceDiagnostics
 CompositionRenderer::serviceBackgroundCapture(
     const bafx::core::MonotonicTime wallTime) noexcept
 {
-    return drainBackgroundSensor(false, resolveMonotonicTime(wallTime));
+    return drainBackgroundSensor(
+        false,
+        resolveMonotonicTime(wallTime),
+        0U);
 }
 
 BackgroundSensorMaintenanceDiagnostics
 CompositionRenderer::drainBackgroundSensor(
     const bool hasDrawableContent,
-    const bafx::core::MonotonicTime wallTime) noexcept
+    const bafx::core::MonotonicTime wallTime,
+    const std::uint64_t frameId) noexcept
 {
     BackgroundSensorMaintenanceDiagnostics diagnostics{};
     if (backgroundSensor_ == nullptr)
@@ -822,17 +846,20 @@ CompositionRenderer::drainBackgroundSensor(
 
     diagnostics.wgcDrainAttempted = true;
     const auto stopFailedBackgroundCapture =
-        [this](const std::string_view failure) noexcept
+        [this, frameId](const std::string_view failure) noexcept
     {
         setBackgroundCaptureFailure(failure);
-        stopBackgroundSensor();
         // The producer is gone before the control transaction observes it.
-        // Mark the request inactive so same-turn resize remains transactional.
+        // Marking the request inactive keeps same-turn resize transactional.
         backgroundCaptureRequested_ = false;
         backgroundRefreshPeriod_ = bafx::core::MonotonicTime::zero();
         backgroundCompositeStatus_ = BackgroundCompositeStatus::CaptureFailed;
         backgroundPathLatch_.reset();
-        resetBackgroundSnapshot();
+        // Capture the producer identity before stop releases its diagnostics.
+        resetBackgroundSnapshot(
+            BackgroundSnapshotInvalidationReason::WgcDrainFailed,
+            frameId);
+        stopBackgroundSensor();
     };
     try
     {
@@ -843,13 +870,15 @@ CompositionRenderer::drainBackgroundSensor(
             std::chrono::steady_clock::now() - drainStartedAt;
         if (diagnostics.wgc.status == WgcBackgroundDrainStatus::Stopped)
         {
-            stopBackgroundSensor();
             // item.Closed is terminal even when observed between presentations.
             backgroundCaptureRequested_ = false;
             backgroundRefreshPeriod_ = bafx::core::MonotonicTime::zero();
             backgroundCompositeStatus_ = BackgroundCompositeStatus::CaptureFailed;
             backgroundPathLatch_.reset();
-            resetBackgroundSnapshot();
+            resetBackgroundSnapshot(
+                BackgroundSnapshotInvalidationReason::WgcSessionStopped,
+                frameId);
+            stopBackgroundSensor();
         }
         else if (diagnostics.wgc.status
             == WgcBackgroundDrainStatus::ReconfigureRequired)
@@ -857,7 +886,10 @@ CompositionRenderer::drainBackgroundSensor(
             // The owner performs Recreate in its explicit lifecycle transaction.
             backgroundCompositeStatus_ = BackgroundCompositeStatus::WaitingForFrame;
             backgroundPathLatch_.reset();
-            resetBackgroundSnapshot();
+            resetBackgroundSnapshot(
+                BackgroundSnapshotInvalidationReason::
+                    FramePoolReconfigureRequired,
+                frameId);
         }
     }
     catch (const std::exception& error)
@@ -926,7 +958,8 @@ bool CompositionRenderer::tryEnableBackgroundCapture(
     // Re-enabling capture replaces the producer and therefore starts a new
     // visible-batch decision, even when the monitor and options are unchanged.
     backgroundPathLatch_.reset();
-    releaseBackgroundSnapshotResources();
+    releaseBackgroundSnapshotResources(
+        BackgroundSnapshotInvalidationReason::CaptureSessionReplaced);
     stopBackgroundSensor();
     backgroundCursorExcluded_ = cursorExcluded;
     backgroundSystemBorderAllowed_ = allowSystemBorder;
@@ -1019,7 +1052,8 @@ void CompositionRenderer::disableBackgroundCapture() noexcept
     // Disabling capture invalidates any latched Background-aware path before
     // the next FX-only frame is presented.
     backgroundPathLatch_.reset();
-    releaseBackgroundSnapshotResources();
+    releaseBackgroundSnapshotResources(
+        BackgroundSnapshotInvalidationReason::CaptureDisabled);
     backgroundCaptureRequested_ = false;
     backgroundMonitor_ = nullptr;
     backgroundSystemBorderAllowed_ = false;
@@ -1057,6 +1091,12 @@ WgcBackgroundStopDiagnostics
 CompositionRenderer::takeBackgroundStopDiagnostics() noexcept
 {
     return backgroundStopMailbox_.take();
+}
+
+std::optional<BackgroundSnapshotInvalidation>
+CompositionRenderer::takeBackgroundSnapshotInvalidation() noexcept
+{
+    return backgroundSnapshotInvalidationMailbox_.take();
 }
 
 bool CompositionRenderer::backgroundParticipatedInLastFrame() const noexcept
@@ -1132,7 +1172,9 @@ bool CompositionRenderer::tryCreateBackgroundSensor() noexcept
         // Sensor construction can fail after allocating part of a session;
         // clear the latch so a later retry cannot inherit that partial state.
         backgroundPathLatch_.reset();
-        resetBackgroundSnapshot();
+        resetBackgroundSnapshot(
+            BackgroundSnapshotInvalidationReason::SensorStartFailed,
+            0U);
         try
         {
             throw;
@@ -1454,17 +1496,43 @@ void CompositionRenderer::unregisterDeviceRemovedNotification() noexcept
     device4_.Reset();
 }
 
-void CompositionRenderer::resetBackgroundSnapshot() noexcept
+void CompositionRenderer::resetBackgroundSnapshot(
+    const BackgroundSnapshotInvalidationReason reason,
+    const std::uint64_t frameId) noexcept
 {
+    if (backgroundSnapshotValid_)
+    {
+        std::uint64_t wgcEpoch = backgroundSnapshotEpoch_;
+        std::uint64_t wgcGeneration = backgroundSnapshotGeneration_;
+        if (backgroundSensor_ != nullptr)
+        {
+            const WgcBackgroundTransportSnapshot transport =
+                backgroundSensor_->transportSnapshot();
+            wgcEpoch = transport.epoch;
+            wgcGeneration = transport.acceptedGeneration;
+        }
+        backgroundSnapshotInvalidationMailbox_.record(
+            BackgroundSnapshotInvalidation{
+                reason,
+                frameId,
+                wgcEpoch,
+                wgcGeneration,
+                backgroundSnapshotEpoch_,
+                backgroundSnapshotGeneration_});
+    }
+
     // Invalidate the batch without releasing the monitor-sized allocations;
     // repeated clicks should seed the existing ping-pong pair instead of
     // stalling D3D11 on two fresh full-screen textures every time.
+    backgroundSnapshotEpoch_ = 0U;
     backgroundSnapshotGeneration_ = 0U;
     backgroundSnapshotValid_ = false;
 }
 
-void CompositionRenderer::releaseBackgroundSnapshotResources() noexcept
+void CompositionRenderer::releaseBackgroundSnapshotResources(
+    const BackgroundSnapshotInvalidationReason reason) noexcept
 {
+    resetBackgroundSnapshot(reason, 0U);
     backgroundSnapshotShaderResource_.Reset();
     backgroundSnapshotRenderTarget_.Reset();
     backgroundSnapshotTexture_.Reset();
@@ -1472,8 +1540,6 @@ void CompositionRenderer::releaseBackgroundSnapshotResources() noexcept
     backgroundCandidateRenderTarget_.Reset();
     backgroundCandidateTexture_.Reset();
     backgroundSnapshotSize_ = WindowSize{};
-    backgroundSnapshotGeneration_ = 0U;
-    backgroundSnapshotValid_ = false;
 }
 
 void CompositionRenderer::stopBackgroundSensor() noexcept
@@ -1496,7 +1562,8 @@ void CompositionRenderer::stopBackgroundSensor() noexcept
 }
 
 bool CompositionRenderer::captureBackgroundSnapshot(
-    ID3D11ShaderResourceView* const source) noexcept
+    ID3D11ShaderResourceView* const source,
+    const std::uint64_t frameId) noexcept
 {
     if (source == nullptr || device_ == nullptr || context_ == nullptr)
     {
@@ -1592,7 +1659,10 @@ bool CompositionRenderer::captureBackgroundSnapshot(
             backgroundCandidateShaderResource_ =
                 std::move(replacementCandidateShaderResource);
             backgroundSnapshotSize_ = size_;
-            backgroundSnapshotValid_ = false;
+            resetBackgroundSnapshot(
+                BackgroundSnapshotInvalidationReason::
+                    SnapshotResourcesRecreated,
+                frameId);
         }
 
         if (!backgroundSnapshotValid_)

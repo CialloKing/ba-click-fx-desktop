@@ -3,6 +3,7 @@
 #include "bafx/core/background_freshness.hpp"
 #include "bafx/core/roi.hpp"
 #include "bafx/fx/frame_bounds.hpp"
+#include "bafx/windows/background_snapshot_diagnostics.hpp"
 #include "bafx/windows/detail/wgc_idle_drain_policy.hpp"
 #include "bafx/windows/fx_bloom_settings.hpp"
 #include "bafx/windows/fx_gpu_renderer.hpp"
@@ -133,6 +134,8 @@ struct CompositionFrameDiagnostics
     FxRenderCpuDiagnostics fx{};
     BackgroundCompositeStatus backgroundStatus{
         BackgroundCompositeStatus::Inactive};
+    std::uint64_t backgroundSnapshotEpoch{0U};
+    std::uint64_t backgroundSnapshotGeneration{0U};
     std::chrono::nanoseconds frameTotalCpu{};
     std::chrono::nanoseconds wgcDrainInclusiveCpu{};
     std::chrono::nanoseconds backgroundSnapshotSubmitCpu{};
@@ -224,6 +227,8 @@ public:
         backgroundResourceLedger() const noexcept;
     [[nodiscard]] WgcBackgroundStopDiagnostics
         takeBackgroundStopDiagnostics() noexcept;
+    [[nodiscard]] std::optional<BackgroundSnapshotInvalidation>
+        takeBackgroundSnapshotInvalidation() noexcept;
     [[nodiscard]] bool backgroundParticipatedInLastFrame() const noexcept;
     [[nodiscard]] BackgroundCompositeStatus backgroundCompositeStatus() const noexcept;
     [[nodiscard]] std::string_view backgroundCaptureFailure() const noexcept;
@@ -248,15 +253,20 @@ private:
     void unregisterDeviceRemovedNotification() noexcept;
     void presentSwapChain();
     void releaseDeviceResources() noexcept;
-    void resetBackgroundSnapshot() noexcept;
-    void releaseBackgroundSnapshotResources() noexcept;
+    void resetBackgroundSnapshot(
+        BackgroundSnapshotInvalidationReason reason,
+        std::uint64_t frameId) noexcept;
+    void releaseBackgroundSnapshotResources(
+        BackgroundSnapshotInvalidationReason reason) noexcept;
     void stopBackgroundSensor() noexcept;
     [[nodiscard]] BackgroundSensorMaintenanceDiagnostics
         drainBackgroundSensor(
             bool hasDrawableContent,
-            bafx::core::MonotonicTime wallTime) noexcept;
+            bafx::core::MonotonicTime wallTime,
+            std::uint64_t frameId) noexcept;
     [[nodiscard]] bool captureBackgroundSnapshot(
-        ID3D11ShaderResourceView* source) noexcept;
+        ID3D11ShaderResourceView* source,
+        std::uint64_t frameId) noexcept;
     void captureCenterPixel();
     void setBackgroundCaptureFailure(std::string_view message) noexcept;
     void setDeviceRecoveryFailure(std::string_view message) noexcept;
@@ -279,6 +289,7 @@ private:
     Microsoft::WRL::ComPtr<ID3D11RenderTargetView> backgroundCandidateRenderTarget_{};
     Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> backgroundCandidateShaderResource_{};
     WindowSize backgroundSnapshotSize_{};
+    std::uint64_t backgroundSnapshotEpoch_{0U};
     std::uint64_t backgroundSnapshotGeneration_{0U};
     bool backgroundSnapshotValid_{false};
     Microsoft::WRL::ComPtr<IDCompositionDevice> compositionDevice_{};
@@ -319,6 +330,8 @@ private:
     WindowSize size_{};
     std::shared_ptr<WgcBackgroundResourceLedger> backgroundResourceLedger_{};
     detail::WgcBackgroundStopMailbox backgroundStopMailbox_{};
+    detail::BackgroundSnapshotInvalidationMailbox
+        backgroundSnapshotInvalidationMailbox_{};
     std::uint64_t frameId_{0U};
     bool deviceRecoveryAttempted_{false};
     bool backgroundCaptureAfterRecoveryAllowed_{true};
