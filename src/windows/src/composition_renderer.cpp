@@ -676,29 +676,27 @@ OutputAdapterRetargetStatus CompositionRenderer::retargetOutputAdapter(
 OutputRenegotiationResult CompositionRenderer::renegotiateOutput(
     const CompositionOutputPreference preference)
 {
-    bool recovered = false;
-    for (;;)
+    try
     {
-        try
+        return renegotiateOutputOnce(preference);
+    }
+    catch (const HResultError& error)
+    {
+        if (!isDeviceLostResult(error.result()))
         {
-            OutputRenegotiationResult result =
-                renegotiateOutputOnce(preference);
-            result.deviceRecovered = recovered;
-            return result;
+            throw;
         }
-        catch (const HResultError& error)
+        if (!tryRecoverDevice())
         {
-            if (recovered || !isDeviceLostResult(error.result()))
-            {
-                throw;
-            }
-            recovered = true;
-            if (!tryRecoverDevice())
-            {
-                throw;
-            }
+            throw;
         }
     }
+
+    // Recovery has a one-shot budget. A second device-loss exception escapes
+    // directly instead of re-entering an open-ended retry loop.
+    OutputRenegotiationResult result = renegotiateOutputOnce(preference);
+    result.deviceRecovered = true;
+    return result;
 }
 
 OutputRenegotiationResult CompositionRenderer::renegotiateOutputOnce(
