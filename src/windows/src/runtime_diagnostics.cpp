@@ -763,6 +763,13 @@ std::string SupportReport::serialize() const
                 << "Display.AdvancedColorLimitedByPolicy="
                 << (color.advancedColorLimitedByPolicy ? "true" : "false")
                 << '\n'
+                << "Display.AdvancedColorStateConsistent="
+                << (color.displayPathResolved
+                        ? (color.advancedColorStateConsistent
+                            ? "true"
+                            : "false")
+                        : "unknown")
+                << '\n'
                 << "Display.AdvancedColorBitsPerChannel=";
         if (color.displayConfigBitsPerColorChannel > 0U)
         {
@@ -795,14 +802,45 @@ std::string SupportReport::serialize() const
                 << '\n'
                 << "Display.ColorPathResolved="
                 << (color.displayPathResolved ? "true" : "false") << '\n'
+                << "Display.ColorPathPhysicalTargetCount=";
+        if (color.displayPathResolved)
+        {
+            stream << color.physicalTargetCount;
+        }
+        else
+        {
+            stream << "unknown";
+        }
+        stream << '\n'
                 << "Display.ColorPathAdapterLuid="
-                << luid(color.adapterLuid) << '\n'
-                << "Display.ColorPathTargetId=" << color.targetId << '\n'
+                << (color.displayPathResolved
+                        ? luid(color.adapterLuid)
+                        : "unknown")
+                << '\n'
+                << "Display.ColorPathTargetId=";
+        if (!color.displayPathResolved)
+        {
+            stream << "unknown";
+        }
+        else if (color.physicalTargetCount == 1U)
+        {
+            stream << color.targetId;
+        }
+        else
+        {
+            stream << "multiple";
+        }
+        stream << '\n'
                 << "Display.ColorEncoding="
                 << colorEncodingName(color.colorEncoding) << '\n'
                 << "Display.SdrWhiteLevelQueryResult="
                 << hex32(static_cast<std::uint32_t>(
                        color.sdrWhiteLevelQueryResult))
+                << '\n'
+                << "Display.SdrWhiteLevelConsistent="
+                << (color.displayPathResolved
+                        ? (color.sdrWhiteLevelConsistent ? "true" : "false")
+                        : "unknown")
                 << '\n'
                 << "Display.SdrWhiteLevelNits=";
         if (color.sdrWhiteLevelValid)
@@ -832,16 +870,19 @@ std::string SupportReport::serialize() const
                 << "Display.AdvancedColorSupported=unknown\n"
                 << "Display.AdvancedColorActive=unknown\n"
                 << "Display.AdvancedColorLimitedByPolicy=unknown\n"
+                << "Display.AdvancedColorStateConsistent=unknown\n"
                 << "Display.AdvancedColorBitsPerChannel=unknown\n"
                 << "Display.HdrSupported=unknown\n"
                 << "Display.HdrUserEnabled=unknown\n"
                 << "Display.WideColorSupported=unknown\n"
                 << "Display.WideColorUserEnabled=unknown\n"
                 << "Display.ColorPathResolved=unknown\n"
+                << "Display.ColorPathPhysicalTargetCount=unknown\n"
                 << "Display.ColorPathAdapterLuid=unknown\n"
                 << "Display.ColorPathTargetId=unknown\n"
                 << "Display.ColorEncoding=unknown\n"
                 << "Display.SdrWhiteLevelQueryResult=unknown\n"
+                << "Display.SdrWhiteLevelConsistent=unknown\n"
                 << "Display.SdrWhiteLevelNits=unknown\n"
                 << "Display.MinLuminanceNits=unknown\n"
                << "Display.MaxLuminanceNits=unknown\n"

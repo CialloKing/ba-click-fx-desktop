@@ -4,6 +4,7 @@
 #include <dxgi1_6.h>
 #include <wrl/client.h>
 
+#include <algorithm>
 #include <cmath>
 
 namespace bafx::windows
@@ -184,6 +185,167 @@ void querySdrWhiteLevel(
     }
 }
 
+[[nodiscard]] LONG firstQueryFailure(
+    const LONG aggregate,
+    const LONG sample) noexcept
+{
+    return aggregate == ERROR_SUCCESS ? sample : aggregate;
+}
+
+[[nodiscard]] std::uint32_t conservativeBitsPerChannel(
+    const std::uint32_t aggregate,
+    const std::uint32_t sample) noexcept
+{
+    if (aggregate == 0U || sample == 0U)
+    {
+        return 0U;
+    }
+    return (std::min)(aggregate, sample);
+}
+
+[[nodiscard]] bool sameAdvancedColorState(
+    const DisplayColorCapabilities& left,
+    const DisplayColorCapabilities& right) noexcept
+{
+    return left.advancedColorQueryResult == ERROR_SUCCESS
+        && right.advancedColorQueryResult == ERROR_SUCCESS
+        && left.activeColorMode == right.activeColorMode
+        && left.colorEncoding == right.colorEncoding
+        && left.displayConfigBitsPerColorChannel
+            == right.displayConfigBitsPerColorChannel
+        && left.advancedColorSupported == right.advancedColorSupported
+        && left.advancedColorActive == right.advancedColorActive
+        && left.advancedColorLimitedByPolicy
+            == right.advancedColorLimitedByPolicy
+        && left.highDynamicRangeSupported
+            == right.highDynamicRangeSupported
+        && left.highDynamicRangeUserEnabled
+            == right.highDynamicRangeUserEnabled
+        && left.wideColorSupported == right.wideColorSupported
+        && left.wideColorUserEnabled == right.wideColorUserEnabled
+        && left.advancedColorInfoV2 == right.advancedColorInfoV2;
+}
+
+[[nodiscard]] bool sameSdrWhiteLevel(
+    const DisplayColorCapabilities& left,
+    const DisplayColorCapabilities& right) noexcept
+{
+    return left.sdrWhiteLevelQueryResult == ERROR_SUCCESS
+        && right.sdrWhiteLevelQueryResult == ERROR_SUCCESS
+        && left.sdrWhiteLevelValid
+        && right.sdrWhiteLevelValid
+        && left.sdrWhiteLevelNits == right.sdrWhiteLevelNits;
+}
+
+void mergePhysicalTargetColorState(
+    DisplayColorCapabilities& aggregate,
+    const DisplayColorCapabilities& sample) noexcept
+{
+    aggregate.advancedColorQueryResult = firstQueryFailure(
+        aggregate.advancedColorQueryResult,
+        sample.advancedColorQueryResult);
+    aggregate.sdrWhiteLevelQueryResult = firstQueryFailure(
+        aggregate.sdrWhiteLevelQueryResult,
+        sample.sdrWhiteLevelQueryResult);
+    if (aggregate.activeColorMode != sample.activeColorMode)
+    {
+        aggregate.activeColorMode = DisplayColorMode::Unknown;
+    }
+    if (aggregate.colorEncoding != sample.colorEncoding)
+    {
+        aggregate.colorEncoding =
+            DISPLAYCONFIG_COLOR_ENCODING_FORCE_UINT32;
+    }
+    aggregate.displayConfigBitsPerColorChannel =
+        conservativeBitsPerChannel(
+            aggregate.displayConfigBitsPerColorChannel,
+            sample.displayConfigBitsPerColorChannel);
+    aggregate.advancedColorSupported = aggregate.advancedColorSupported
+        && sample.advancedColorSupported;
+    aggregate.advancedColorActive = aggregate.advancedColorActive
+        && sample.advancedColorActive;
+    aggregate.advancedColorLimitedByPolicy =
+        aggregate.advancedColorLimitedByPolicy
+        || sample.advancedColorLimitedByPolicy;
+    aggregate.highDynamicRangeSupported =
+        aggregate.highDynamicRangeSupported
+        && sample.highDynamicRangeSupported;
+    aggregate.highDynamicRangeUserEnabled =
+        aggregate.highDynamicRangeUserEnabled
+        && sample.highDynamicRangeUserEnabled;
+    aggregate.wideColorSupported = aggregate.wideColorSupported
+        && sample.wideColorSupported;
+    aggregate.wideColorUserEnabled = aggregate.wideColorUserEnabled
+        && sample.wideColorUserEnabled;
+    aggregate.advancedColorInfoV2 = aggregate.advancedColorInfoV2
+        && sample.advancedColorInfoV2;
+
+    if (aggregate.sdrWhiteLevelValid && sample.sdrWhiteLevelValid)
+    {
+        aggregate.sdrWhiteLevelNits = (std::min)(
+            aggregate.sdrWhiteLevelNits,
+            sample.sdrWhiteLevelNits);
+    }
+    else
+    {
+        aggregate.sdrWhiteLevelValid = false;
+        aggregate.sdrWhiteLevelNits = 0.0F;
+    }
+}
+
+void queryDisplayConfigColorState(
+    const ActiveDisplayMonitor& display,
+    DisplayColorCapabilities& capabilities) noexcept
+{
+    if (!display.sourceIdentityResolved || display.physicalTargets.empty())
+    {
+        return;
+    }
+
+    const DisplayColorCapabilities dxgiCapabilities = capabilities;
+    DisplayColorCapabilities aggregate = dxgiCapabilities;
+    DisplayColorCapabilities reference = dxgiCapabilities;
+    bool first = true;
+    bool advancedColorStateConsistent = true;
+    bool sdrWhiteLevelConsistent = true;
+    for (const DisplayPhysicalTarget& target : display.physicalTargets)
+    {
+        DisplayColorCapabilities sample = dxgiCapabilities;
+        queryAdvancedColorState(target, sample);
+        querySdrWhiteLevel(target, sample);
+        if (first)
+        {
+            aggregate = sample;
+            reference = sample;
+            advancedColorStateConsistent =
+                sample.advancedColorQueryResult == ERROR_SUCCESS;
+            sdrWhiteLevelConsistent = sample.sdrWhiteLevelQueryResult
+                    == ERROR_SUCCESS
+                && sample.sdrWhiteLevelValid;
+            first = false;
+            continue;
+        }
+
+        advancedColorStateConsistent = advancedColorStateConsistent
+            && sameAdvancedColorState(reference, sample);
+        sdrWhiteLevelConsistent = sdrWhiteLevelConsistent
+            && sameSdrWhiteLevel(reference, sample);
+        mergePhysicalTargetColorState(aggregate, sample);
+    }
+
+    capabilities = aggregate;
+    capabilities.displayPathResolved = true;
+    capabilities.adapterLuid = display.sourceAdapterLuid;
+    capabilities.physicalTargetCount = static_cast<std::uint32_t>(
+        display.physicalTargets.size());
+    capabilities.targetId = display.physicalTargets.size() == 1U
+        ? display.physicalTargets.front().targetId
+        : 0U;
+    capabilities.advancedColorStateConsistent =
+        advancedColorStateConsistent;
+    capabilities.sdrWhiteLevelConsistent = sdrWhiteLevelConsistent;
+}
+
 }
 
 std::optional<DisplayColorCapabilities> queryDisplayColorCapabilities(
@@ -280,15 +442,13 @@ std::optional<DisplayColorCapabilities> queryDisplayColorCapabilities(
                 const ActiveDisplayMonitor* const display =
                     findDisplayMonitor(topology, monitor);
                 if (display != nullptr
-                    && display->physicalTargets.size() == 1U)
+                    && topology.status == DisplayTopologyStatus::Complete)
                 {
-                    const DisplayPhysicalTarget& target =
-                        display->physicalTargets.front();
-                    capabilities.displayPathResolved = true;
-                    capabilities.adapterLuid = target.adapterLuid;
-                    capabilities.targetId = target.targetId;
-                    queryAdvancedColorState(target, capabilities);
-                    querySdrWhiteLevel(target, capabilities);
+                    // A cloned source has one DXGI output contract but several
+                    // physical Advanced Color states. Aggregate only a complete
+                    // topology so a missing hot-plug path cannot falsely enable
+                    // HDR for the logical display.
+                    queryDisplayConfigColorState(*display, capabilities);
                 }
                 return capabilities;
             }

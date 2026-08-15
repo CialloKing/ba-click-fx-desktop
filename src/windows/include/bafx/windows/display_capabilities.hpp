@@ -31,6 +31,7 @@ struct DisplayColorCapabilities final
     DisplayColorMode activeColorMode{DisplayColorMode::Unknown};
     LUID adapterLuid{};
     std::uint32_t targetId{0U};
+    std::uint32_t physicalTargetCount{0U};
     DISPLAYCONFIG_COLOR_ENCODING colorEncoding{
         DISPLAYCONFIG_COLOR_ENCODING_FORCE_UINT32};
     std::uint32_t displayConfigBitsPerColorChannel{0U};
@@ -47,6 +48,8 @@ struct DisplayColorCapabilities final
     bool wideColorUserEnabled{false};
     bool sdrWhiteLevelValid{false};
     bool advancedColorInfoV2{false};
+    bool advancedColorStateConsistent{false};
+    bool sdrWhiteLevelConsistent{false};
 };
 
 // This is capability evidence only. It does not mean the application's final
