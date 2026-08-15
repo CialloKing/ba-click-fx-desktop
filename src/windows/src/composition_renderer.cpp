@@ -622,8 +622,7 @@ CompositionFrameDiagnostics CompositionRenderer::renderFrame(
             [this](const std::string_view failure) noexcept
         {
             setBackgroundCaptureFailure(failure);
-            backgroundSensor_->stop();
-            backgroundSensor_.reset();
+            stopBackgroundSensor();
             // The producer is gone before the control transaction observes
             // it.  Mark the request inactive now so a same-turn resize can
             // rebuild the output instead of tripping the stop-before-resize
@@ -646,7 +645,7 @@ CompositionFrameDiagnostics CompositionRenderer::renderFrame(
             const WgcBackgroundDrainStatus drainStatus = diagnostics.wgc.status;
             if (drainStatus == WgcBackgroundDrainStatus::Stopped)
             {
-                backgroundSensor_.reset();
+                stopBackgroundSensor();
                 // item.Closed is an asynchronous terminal event.  Do not
                 // let a resize arriving before the next control poll treat
                 // the already-destroyed producer as active.
@@ -881,11 +880,7 @@ bool CompositionRenderer::tryEnableBackgroundCapture(
     // visible-batch decision, even when the monitor and options are unchanged.
     backgroundPathLatch_.reset();
     releaseBackgroundSnapshotResources();
-    if (backgroundSensor_ != nullptr)
-    {
-        backgroundSensor_->stop();
-        backgroundSensor_.reset();
-    }
+    stopBackgroundSensor();
     backgroundCursorExcluded_ = cursorExcluded;
     backgroundSystemBorderAllowed_ = allowSystemBorder;
     backgroundCaptureRequested_ = exclusionConfirmed
@@ -983,12 +978,7 @@ void CompositionRenderer::disableBackgroundCapture() noexcept
     backgroundSystemBorderAllowed_ = false;
     backgroundRefreshPeriod_ = bafx::core::MonotonicTime::zero();
     setBackgroundCaptureFailure({});
-    if (backgroundSensor_ != nullptr)
-    {
-        backgroundSensor_->stop();
-        backgroundSensor_.reset();
-    }
-    backgroundEpoch_ = nextEpoch(backgroundEpoch_);
+    stopBackgroundSensor();
 }
 
 bool CompositionRenderer::backgroundCaptureActive() const noexcept
@@ -1376,6 +1366,20 @@ void CompositionRenderer::releaseBackgroundSnapshotResources() noexcept
     backgroundSnapshotSize_ = WindowSize{};
     backgroundSnapshotGeneration_ = 0U;
     backgroundSnapshotValid_ = false;
+}
+
+void CompositionRenderer::stopBackgroundSensor() noexcept
+{
+    if (backgroundSensor_ == nullptr)
+    {
+        return;
+    }
+
+    // FramePool::Recreate advances the sensor-owned epoch. Derive the next
+    // session from that final value so a later Start cannot reuse an old stamp.
+    backgroundEpoch_ = nextEpoch(backgroundSensor_->expectedEpoch());
+    backgroundSensor_->stop();
+    backgroundSensor_.reset();
 }
 
 bool CompositionRenderer::captureBackgroundSnapshot(

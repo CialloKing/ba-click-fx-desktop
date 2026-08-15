@@ -226,6 +226,7 @@ private:
     void releaseDeviceResources() noexcept;
     void resetBackgroundSnapshot() noexcept;
     void releaseBackgroundSnapshotResources() noexcept;
+    void stopBackgroundSensor() noexcept;
     [[nodiscard]] bool captureBackgroundSnapshot(
         ID3D11ShaderResourceView* source) noexcept;
     void captureCenterPixel();
