@@ -226,6 +226,7 @@ void appendConfigurationFields(
     fields.add("Background.Mode", bafx::config::toString(config.background.mode));
     fields.add("Background.CursorExcluded", config.background.cursorExcluded);
     fields.add("Background.AllowSystemBorder", config.background.allowSystemBorder);
+    fields.add("Display.HdrEnabled", config.display.hdrEnabled);
     fields.add("Input.LeftClick", config.input.leftClick);
     fields.add("Input.RightClick", config.input.rightClick);
     fields.add("Input.MiddleClick", config.input.middleClick);

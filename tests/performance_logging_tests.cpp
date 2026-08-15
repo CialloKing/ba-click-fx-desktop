@@ -280,6 +280,7 @@ BAFX_TEST(configuration_log_records_the_reason_and_reproduction_context)
     bafx::config::Config config = bafx::config::defaultConfig();
     config.input.samplingRateHz = 240U;
     config.effects.bloomIntensity = 0.5F;
+    config.display.hdrEnabled = true;
 
     bafx::desktop::appendAppliedConfiguration(
         log.path(),
@@ -294,6 +295,7 @@ BAFX_TEST(configuration_log_records_the_reason_and_reproduction_context)
         != std::string::npos);
     BAFX_CHECK(text.find("Effects.BloomIntensity=0.500\n")
         != std::string::npos);
+    BAFX_CHECK(text.find("Display.HdrEnabled=true\n") != std::string::npos);
     BAFX_CHECK(text.find("Input.SamplingRateHz=240\n") != std::string::npos);
     BAFX_CHECK(text.find("Output.Width=3840\n") != std::string::npos);
 }
