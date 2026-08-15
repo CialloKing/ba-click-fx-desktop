@@ -280,23 +280,45 @@ DisplayTarget stabilizeDisplayTargetObservation(
     if (topologyStatus
             == bafx::windows::DisplayTopologyStatus::Complete
         || !previous.sourceIdentityResolved
-        || observed.sourceIdentityResolved
         || previous.deviceName != observed.deviceName)
+    {
+        return stabilized;
+    }
+
+    const bool sourceResolutionRegressed =
+        !observed.sourceIdentityResolved;
+    if (!sourceResolutionRegressed
+        && !sameDisplaySourceIdentity(previous, observed))
     {
         return stabilized;
     }
 
     // EnumDisplayMonitors remains authoritative for screen geometry while
     // QueryDisplayConfig can temporarily omit the GPU source during hot-plug.
-    // Retain the last resolved resource domain until a complete observation
-    // can prove that the display source or its physical endpoints changed.
-    stabilized.sourceAdapterLuid = previous.sourceAdapterLuid;
-    stabilized.sourceId = previous.sourceId;
-    stabilized.refreshRate = previous.refreshRate;
-    stabilized.captureRefreshRate = previous.captureRefreshRate;
-    stabilized.physicalTargetCount = previous.physicalTargetCount;
-    stabilized.sourceIdentityResolved = true;
-    stabilized.physicalTargetIdentities = previous.physicalTargetIdentities;
+    // Retain the last resolved GPU domain until a complete observation can
+    // prove that the display source changed.
+    if (sourceResolutionRegressed)
+    {
+        stabilized.sourceAdapterLuid = previous.sourceAdapterLuid;
+        stabilized.sourceId = previous.sourceId;
+        stabilized.sourceIdentityResolved = true;
+    }
+
+    const bool physicalTargetsRegressed =
+        observed.physicalTargetCount < previous.physicalTargetCount
+        || observed.physicalTargetIdentities.size()
+            < previous.physicalTargetIdentities.size();
+    if (sourceResolutionRegressed || physicalTargetsRegressed)
+    {
+        // A cloned path can disappear from only the partial snapshot. Its
+        // cadence and endpoint set remain authoritative until a complete
+        // query confirms an actual clone removal.
+        stabilized.refreshRate = previous.refreshRate;
+        stabilized.captureRefreshRate = previous.captureRefreshRate;
+        stabilized.physicalTargetCount = previous.physicalTargetCount;
+        stabilized.physicalTargetIdentities =
+            previous.physicalTargetIdentities;
+    }
     return stabilized;
 }
 
