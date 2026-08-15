@@ -145,7 +145,7 @@ function Read-InstallStateWithBackup
         {
             Assert-ProtectedStateAcl -Path $candidate
             $candidateState = Get-Content -LiteralPath $candidate -Raw | ConvertFrom-Json
-            if ([int]$candidateState.schema -ne 1 -or
+            if ([int]$candidateState.schema -notin @(1, 2) -or
                 [string]$candidateState.packageName -ne 'CialloKing.BaClickFxDesktop' -or
                 [string]$candidateState.applicationId -ne 'BaClickFxDesktop' -or
                 [string]$candidateState.publisher -ne 'CN=BaClickFx.Local')
@@ -212,7 +212,7 @@ foreach ($propertyName in @(
     }
 }
 $stateInvalid = `
-    ([int]$state.schema -ne 1) -or `
+    ([int]$state.schema -notin @(1, 2)) -or `
     ([string]$state.packageName -ne 'CialloKing.BaClickFxDesktop') -or `
     ([string]$state.applicationId -ne 'BaClickFxDesktop') -or `
     ([string]$state.publisher -ne 'CN=BaClickFx.Local') -or `

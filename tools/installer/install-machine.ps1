@@ -420,6 +420,90 @@ function Get-ZipEntrySha256
     }
 }
 
+function Get-CertificateSha256
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [Security.Cryptography.X509Certificates.X509Certificate2]$Certificate
+    )
+
+    $sha256 = [Security.Cryptography.SHA256]::Create()
+    try
+    {
+        return ([BitConverter]::ToString(
+            $sha256.ComputeHash($Certificate.RawData))).Replace('-', '')
+    }
+    finally
+    {
+        $sha256.Dispose()
+    }
+}
+
+function Assert-IdentityIntegrityMaterial
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [object]$State,
+
+        [Parameter(Mandatory = $true)]
+        [string]$InstallRoot,
+
+        [Parameter(Mandatory = $true)]
+        [string]$PackagePath
+    )
+
+    foreach ($propertyName in @(
+        'hostFile',
+        'hostSha256',
+        'packageSha256',
+        'certificateSha256'))
+    {
+        if ($null -eq $State.PSObject.Properties[$propertyName])
+        {
+            throw "Protected identity state is missing: $propertyName"
+        }
+    }
+    if ([string]$State.hostFile -ne 'ba-click-fx-desktop.exe' -or
+        [IO.Path]::GetFileName([string]$State.hostFile) -ne [string]$State.hostFile)
+    {
+        throw 'Protected identity state has an invalid Host file name.'
+    }
+    foreach ($hashProperty in @('hostSha256', 'packageSha256', 'certificateSha256'))
+    {
+        if ([string]$State.$hashProperty -notmatch '^[0-9A-Fa-f]{64}$')
+        {
+            throw "Protected identity state has an invalid hash: $hashProperty"
+        }
+    }
+
+    $hostPath = Join-Path $InstallRoot ([string]$State.hostFile)
+    if (-not (Test-Path -LiteralPath $hostPath -PathType Leaf) -or
+        (Get-FileHash -LiteralPath $hostPath -Algorithm SHA256).Hash -ne
+            [string]$State.hostSha256)
+    {
+        throw 'Protected identity state does not match the installed Host.'
+    }
+    if (-not (Test-Path -LiteralPath $PackagePath -PathType Leaf) -or
+        (Get-FileHash -LiteralPath $PackagePath -Algorithm SHA256).Hash -ne
+            [string]$State.packageSha256)
+    {
+        throw 'Protected identity state does not match the signed package.'
+    }
+
+    $certificatePath =
+        "Cert:\LocalMachine\TrustedPeople\$([string]$State.certificateThumbprint)"
+    if (-not (Test-Path -LiteralPath $certificatePath))
+    {
+        throw 'Protected identity state certificate is not trusted.'
+    }
+    $certificate = Get-Item -LiteralPath $certificatePath
+    if ((Get-CertificateSha256 -Certificate $certificate) -ne
+        [string]$State.certificateSha256)
+    {
+        throw 'Protected identity state certificate hash mismatch.'
+    }
+}
+
 function Assert-IdentityPayload
 {
     param(
@@ -678,6 +762,20 @@ function Assert-IdentityPayload
             $archive.Dispose()
         }
 
+        # Persist the values that were validated from the final signed files,
+        # not the unsigned release metadata. The protected journal is rewritten
+        # only after all three integrity domains agree.
+        $journal.hostFile = 'ba-click-fx-desktop.exe'
+        $journal.hostSha256 = $externalHostHash
+        $journal.packageSha256 =
+            (Get-FileHash -LiteralPath $signedPackagePath -Algorithm SHA256).Hash
+        $journal.certificateSha256 = Get-CertificateSha256 `
+            -Certificate $certificate
+        Write-ProtectedJson `
+            -Path $PendingStatePath `
+            -Value $journal `
+            -ReadSid ([string]$PendingStateSeed.userSid)
+
         # The package is already trusted through its public certificate. The
         # private key must not survive Prepare, because it is not needed after
         # the one package signature has been produced.
@@ -865,7 +963,8 @@ function Assert-InstallStateObject
             throw "Protected install state is missing: $propertyName"
         }
     }
-    if ([int]$State.schema -ne 1)
+    $schema = [int]$State.schema
+    if ($schema -notin @(1, 2))
     {
         throw 'Protected install state has an unsupported schema.'
     }
@@ -954,6 +1053,13 @@ function Assert-InstallStateObject
         $packageFile -notmatch '\.msix$')
     {
         throw 'Protected install state has an unsafe package file name.'
+    }
+    if ($schema -eq 2)
+    {
+        Assert-IdentityIntegrityMaterial `
+            -State $State `
+            -InstallRoot $InstallRoot `
+            -PackagePath (Join-Path (Join-Path $InstallRoot 'Identity') $packageFile)
     }
     return $State
 }
@@ -1140,7 +1246,9 @@ function Assert-PendingStateObject
         [object]$State,
 
         [Parameter(Mandatory = $true)]
-        [string]$InstallRoot
+        [string]$InstallRoot,
+
+        [switch]$RequireIntegrity
     )
 
     foreach ($propertyName in @(
@@ -1231,6 +1339,13 @@ function Assert-PendingStateObject
     if ([IO.Path]::GetFullPath([string]$State.packagePath) -ne $expectedPackagePath)
     {
         throw 'Protected pending state points to a different package file.'
+    }
+    if ($RequireIntegrity)
+    {
+        Assert-IdentityIntegrityMaterial `
+            -State $State `
+            -InstallRoot $InstallRoot `
+            -PackagePath $expectedPackagePath
     }
     foreach ($fullName in @($State.preexistingPackageFullNames))
     {
@@ -1582,7 +1697,8 @@ if ($Phase -eq 'Prepare')
         $pendingState = Get-Content -LiteralPath $machineStateFullPath -Raw | ConvertFrom-Json
         $pendingState = Assert-PendingStateObject `
             -State $pendingState `
-            -InstallRoot $installRoot
+            -InstallRoot $installRoot `
+            -RequireIntegrity
         Initialize-IdentityConfig -InstallRoot $installRoot -DataDirectory $dataDirectory
         exit 0
     }
@@ -1621,7 +1737,10 @@ if ($Phase -eq 'Prepare')
 
 Assert-ProtectedStateAcl -Path $machineStateFullPath
 $pendingState = Get-Content -LiteralPath $machineStateFullPath -Raw | ConvertFrom-Json
-$pendingState = Assert-PendingStateObject -State $pendingState -InstallRoot $installRoot
+$pendingState = Assert-PendingStateObject `
+    -State $pendingState `
+    -InstallRoot $installRoot `
+    -RequireIntegrity
 try
 {
     $registrationResult = Read-RegistrationResult `
@@ -1648,7 +1767,7 @@ try
         [string]$pendingState.packageFile
     )
     $installState = [ordered]@{
-        schema = 1
+        schema = 2
         transactionId = [string]$pendingState.transactionId
         packageName = [string]$pendingState.packageName
         applicationId = [string]$pendingState.applicationId
@@ -1659,10 +1778,14 @@ try
         packageFullName = [string]$registrationResult.packageFullName
         packageFamilyName = [string]$registrationResult.packageFamilyName
         certificateThumbprint = [string]$pendingState.certificateThumbprint
+        certificateSha256 = [string]$pendingState.certificateSha256
         certificateInstalledBySetup = [bool]$certificateInstalledBySetup
         externalLocation = $installRoot
         installedUserSid = [string]$pendingState.userSid
+        hostFile = [string]$pendingState.hostFile
+        hostSha256 = [string]$pendingState.hostSha256
         packageFile = [string]$pendingState.packageFile
+        packageSha256 = [string]$pendingState.packageSha256
         ownedCertificateThumbprints = Join-Ledger `
             -Values $ownedCertificateThumbprints `
             -Separator Comma
