@@ -181,6 +181,7 @@ public sealed class BafxExternalRecordingBackgroundForm : Form
         AutoScaleMode = AutoScaleMode.None;
         BackColor = color;
         Bounds = bounds;
+        Enabled = false;
         FormBorderStyle = FormBorderStyle.None;
         ShowInTaskbar = false;
         StartPosition = FormStartPosition.Manual;
@@ -222,8 +223,106 @@ public sealed class BafxExternalRecordingBackgroundHost
     private BafxExternalRecordingBackgroundForm form;
     private Exception startupError;
 
+    public int ObservedRed { get; private set; }
+    public int ObservedGreen { get; private set; }
+    public int ObservedBlue { get; private set; }
+    public int SampleCount { get; private set; }
+    public bool InputDisabled { get; private set; }
+
     [DllImport("user32.dll")]
     private static extern IntPtr SetThreadDpiAwarenessContext(IntPtr context);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetDC(IntPtr window);
+
+    [DllImport("user32.dll")]
+    private static extern int ReleaseDC(IntPtr window, IntPtr deviceContext);
+
+    [DllImport("user32.dll")]
+    private static extern bool IsWindowEnabled(IntPtr window);
+
+    [DllImport("user32.dll")]
+    private static extern bool EnableWindow(IntPtr window, bool enable);
+
+    [DllImport("gdi32.dll")]
+    private static extern uint GetPixel(IntPtr deviceContext, int x, int y);
+
+    [DllImport("dwmapi.dll")]
+    private static extern int DwmFlush();
+
+    private void VerifyPresentedBackground(
+        int width,
+        int height)
+    {
+        EnableWindow(form.Handle, false);
+        int flushResult = DwmFlush();
+        if (flushResult < 0)
+        {
+            throw new InvalidOperationException(
+                string.Format("DwmFlush failed with HRESULT 0x{0:X8}", flushResult));
+        }
+        InputDisabled = !IsWindowEnabled(form.Handle);
+        if (!InputDisabled)
+        {
+            throw new InvalidOperationException("controlled background accepts input");
+        }
+
+        IntPtr deviceContext = GetDC(IntPtr.Zero);
+        if (deviceContext == IntPtr.Zero)
+        {
+            throw new InvalidOperationException("GetDC(desktop) failed");
+        }
+        try
+        {
+            int offset = Math.Max(1, Math.Min(128, Math.Min(width, height) / 4));
+            int centerX = width / 2;
+            int centerY = height / 2;
+            int[,] points = new int[,]
+            {
+                { centerX, centerY },
+                { centerX - offset, centerY },
+                { centerX + offset, centerY },
+                { centerX, centerY - offset },
+                { centerX, centerY + offset },
+            };
+            uint? firstSample = null;
+            for (int index = 0; index < points.GetLength(0); ++index)
+            {
+                uint observed = GetPixel(deviceContext, points[index, 0], points[index, 1]);
+                if (observed == 0xFFFFFFFF)
+                {
+                    throw new InvalidOperationException(
+                        string.Format(
+                            "controlled background readback failed at ({0},{1})",
+                            points[index, 0],
+                            points[index, 1]));
+                }
+                if (!firstSample.HasValue)
+                {
+                    ObservedRed = (int)(observed & 0xFF);
+                    ObservedGreen = (int)((observed >> 8) & 0xFF);
+                    ObservedBlue = (int)((observed >> 16) & 0xFF);
+                    firstSample = observed;
+                }
+                else if (observed != firstSample.Value)
+                {
+                    throw new InvalidOperationException(
+                        string.Format(
+                            "controlled background is not uniform at ({0},{1}): " +
+                            "first 0x{2:X6}, observed 0x{3:X6}",
+                            points[index, 0],
+                            points[index, 1],
+                            firstSample.Value,
+                            observed));
+                }
+            }
+            SampleCount = points.GetLength(0);
+        }
+        finally
+        {
+            ReleaseDC(IntPtr.Zero, deviceContext);
+        }
+    }
 
     public IntPtr Start(
         int width,
@@ -247,7 +346,29 @@ public sealed class BafxExternalRecordingBackgroundHost
                     form = new BafxExternalRecordingBackgroundForm(
                         new Rectangle(0, 0, width, height),
                         Color.FromArgb(red, green, blue));
-                    form.Shown += (_, __) => ready.Set();
+                    form.Shown += (_, __) =>
+                    {
+                        form.BeginInvoke(
+                            new Action(
+                                () =>
+                                {
+                                    try
+                                    {
+                                        form.Refresh();
+                                        VerifyPresentedBackground(
+                                            width,
+                                            height);
+                                    }
+                                    catch (Exception error)
+                                    {
+                                        startupError = error;
+                                    }
+                                    finally
+                                    {
+                                        ready.Set();
+                                    }
+                                }));
+                    };
                     Application.Run(form);
                 }
                 catch (Exception error)
@@ -1337,10 +1458,12 @@ $backgroundFixture = Start-ControlledBackground `
     -Height $primaryDisplayMode.height `
     -Srgb8 $backgroundSrgb8 `
     -TimeoutMilliseconds $backgroundStopTimeoutMilliseconds
+$manifestPath = Join-Path $outputRoot 'capture.json'
+$manifest = $null
+$collectionException = $null
 try
 {
 $null = New-Item -ItemType Directory -Path $outputRoot
-$manifestPath = Join-Path $outputRoot 'capture.json'
 $matrix = @(
     [ordered]@{
         caseId = 'desktop-background-aware'
@@ -1372,17 +1495,27 @@ $manifest = [ordered]@{
     workingTreeDirty = $false
     capturedAtUtc = [DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ss.fffZ')
     backgroundFixture = [ordered]@{
-        kind = 'solid-srgb8-click-through'
-        srgb8 = $backgroundSrgb8
+        kind = 'solid-disabled-window'
+        requestedSrgb8 = $backgroundSrgb8
+        presentedSrgb8 = @(
+            $backgroundFixture.host.ObservedRed,
+            $backgroundFixture.host.ObservedGreen,
+            $backgroundFixture.host.ObservedBlue)
         left = 0
         top = 0
         width = $primaryDisplayMode.width
         height = $primaryDisplayMode.height
         topmost = $true
         noActivate = $true
-        clickThrough = $true
+        inputPolicy = 'disabled-window'
+        windowEnabled = -not $backgroundFixture.host.InputDisabled
         handle = ('0x{0:X}' -f [int64]$backgroundFixture.handle)
+        startupSampleCount = $backgroundFixture.host.SampleCount
+        startupSamplesUniform = $true
         stopTimeoutMs = $backgroundStopTimeoutMilliseconds
+        stopped = $false
+        stoppedAtUtc = $null
+        stopFailure = $null
     }
     host = [ordered]@{
         sourcePath = $executablePath
@@ -1483,7 +1616,7 @@ $failedCases = @($manifest.cases | Where-Object { $_.status -ne 'captured' })
 $matrixIncomplete = $manifest.cases.Count -ne $matrix.Count
 if ($failedCases.Count -eq 0 -and -not $matrixIncomplete)
 {
-    $manifest.captureStatus = 'captured'
+    $manifest.captureStatus = 'captured-pending-background-stop'
 }
 else
 {
@@ -1514,12 +1647,82 @@ if ($failedCases.Count -ne 0 -or $matrixIncomplete)
     throw "External recording collection failed: $failedNames. Evidence: $outputRoot"
 }
 
-Write-Host "External recording matrix completed: $outputRoot"
 }
-finally
+catch
 {
-    if (-not $backgroundFixture.host.Stop($backgroundStopTimeoutMilliseconds))
+    $collectionException = $_.Exception
+}
+
+$backgroundStopException = $null
+$backgroundStopped = $false
+try
+{
+    $backgroundStopped = $backgroundFixture.host.Stop(
+        $backgroundStopTimeoutMilliseconds)
+    if (-not $backgroundStopped)
     {
-        throw 'Controlled background did not stop within its 5000 ms timeout'
+        $backgroundStopException = [TimeoutException]::new(
+            'Controlled background did not stop within its 5000 ms timeout')
     }
 }
+catch
+{
+    $backgroundStopException = $_.Exception
+}
+
+if ($null -ne $manifest)
+{
+    $manifest.backgroundFixture.stopped = $backgroundStopped
+    $manifest.backgroundFixture.stoppedAtUtc = if ($backgroundStopped)
+    {
+        [DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ss.fffZ')
+    }
+    else
+    {
+        $null
+    }
+    $manifest.backgroundFixture.stopFailure = if ($null -eq $backgroundStopException)
+    {
+        $null
+    }
+    else
+    {
+        $backgroundStopException.Message
+    }
+    if ($null -ne $collectionException)
+    {
+        $manifest.captureStatus = 'failed'
+        if (-not $manifest.Contains('failure'))
+        {
+            $manifest['failure'] = $collectionException.Message
+        }
+    }
+    elseif ($null -ne $backgroundStopException)
+    {
+        $manifest.captureStatus = 'failed'
+        $manifest['failure'] = $backgroundStopException.Message
+    }
+    elseif ($manifest.captureStatus -eq 'captured-pending-background-stop')
+    {
+        $manifest.captureStatus = 'captured'
+    }
+    $manifest['completedAtUtc'] = [DateTime]::UtcNow.ToString(
+        'yyyy-MM-ddTHH:mm:ss.fffZ')
+    Write-JsonFile -Path $manifestPath -Value $manifest
+}
+
+if ($null -ne $collectionException)
+{
+    if ($null -ne $backgroundStopException)
+    {
+        $collectionException.Data['BackgroundStopFailure'] =
+            $backgroundStopException.Message
+    }
+    throw $collectionException
+}
+if ($null -ne $backgroundStopException)
+{
+    throw $backgroundStopException
+}
+
+Write-Host "External recording matrix completed: $outputRoot"
