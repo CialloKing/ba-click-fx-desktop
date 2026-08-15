@@ -119,6 +119,19 @@ BackgroundCaptureRequestResult BackgroundCaptureTransition::beginIntent(
     {
         return BackgroundCaptureRequestResult::Busy;
     }
+    if (sensorRestartBlocked_ && request.sensorRequired)
+    {
+        // A failed WinRT stop leaves resource ownership uncertain. Resizing
+        // the FX-only transport is safe, but this process must not create a
+        // replacement capture session on top of possibly live resources.
+        request_ = request;
+        if (!outputSize.has_value())
+        {
+            return BackgroundCaptureRequestResult::NoChange;
+        }
+        beginResizeOnly(*outputSize);
+        return BackgroundCaptureRequestResult::Started;
+    }
     const bool stableRequest = request_.has_value()
         && equivalentStableRequest(*request_, request);
     if (stableRequest && !outputSize.has_value())
@@ -250,8 +263,7 @@ bool BackgroundCaptureTransition::applyObservation(
         return false;
     }
     if (!succeeded
-        && (action.kind == BackgroundCaptureActionKind::StopSensor
-            || action.kind == BackgroundCaptureActionKind::ResizeOutput
+        && (action.kind == BackgroundCaptureActionKind::ResizeOutput
             || action.kind == BackgroundCaptureActionKind::ApplyOverlayProfile))
     {
         return false;
@@ -260,6 +272,23 @@ bool BackgroundCaptureTransition::applyObservation(
     ++actionIndex_;
     switch (action.kind)
     {
+    case BackgroundCaptureActionKind::StopSensor:
+        if (!succeeded)
+        {
+            pendingFailure_ = BackgroundCaptureFailure::SensorStopFailed;
+            completionPath_ = EffectiveBackgroundCapturePath::FxOnly;
+            completionVisibilityUnknown_ = false;
+            sensorRestartBlocked_ = true;
+            discardRemainingActions();
+            appendAction(simpleAction(
+                BackgroundCaptureActionKind::SetAffinityIncluded));
+            if (!appliedOverlayProfile_.has_value()
+                || *appliedOverlayProfile_ != FxOverlayProfile::FxOnlyFallback)
+            {
+                appendAction(profileAction(FxOverlayProfile::FxOnlyFallback));
+            }
+        }
+        break;
     case BackgroundCaptureActionKind::SetAffinityExcluded:
         if (!succeeded)
         {
@@ -308,7 +337,6 @@ bool BackgroundCaptureTransition::applyObservation(
     case BackgroundCaptureActionKind::ApplyOverlayProfile:
         appliedOverlayProfile_ = action.overlayProfile;
         break;
-    case BackgroundCaptureActionKind::StopSensor:
     case BackgroundCaptureActionKind::ResizeOutput:
         break;
     }
@@ -344,7 +372,9 @@ void BackgroundCaptureTransition::beginFullRequest(
 {
     actionCount_ = 0U;
     actionIndex_ = 0U;
-    pendingFailure_ = BackgroundCaptureFailure::None;
+    pendingFailure_ = sensorRestartBlocked_
+        ? BackgroundCaptureFailure::SensorStopFailed
+        : BackgroundCaptureFailure::None;
     completionPath_ = request.sensorRequired
         ? EffectiveBackgroundCapturePath::BackgroundAware
         : EffectiveBackgroundCapturePath::FxOnly;
@@ -437,7 +467,9 @@ void BackgroundCaptureTransition::beginFxOnlyResize(
     }
     else
     {
-        pendingFailure_ = BackgroundCaptureFailure::None;
+        pendingFailure_ = sensorRestartBlocked_
+            ? BackgroundCaptureFailure::SensorStopFailed
+            : BackgroundCaptureFailure::None;
         completionPath_ = EffectiveBackgroundCapturePath::FxOnly;
         completionVisibilityUnknown_ = false;
     }

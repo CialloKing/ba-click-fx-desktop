@@ -186,12 +186,23 @@ BAFX_TEST(wgc_stop_diagnostic_reports_each_uncancellable_phase)
     diagnostics.framePoolClose = std::chrono::microseconds(44);
     diagnostics.total = std::chrono::microseconds(123);
     diagnostics.sensorPresent = true;
+    diagnostics.itemClosedUnregisterFailed = true;
+    diagnostics.sessionCloseFailed = true;
     diagnostics.completed = true;
+    diagnostics.overallSucceeded = false;
 
     const std::string text =
         bafx::windows::wgcBackgroundStopDiagnostic(diagnostics);
     BAFX_CHECK(text.find("WGC.Stop.SensorPresent=true") != std::string::npos);
+    BAFX_CHECK(text.find("FrameArrivedUnregisterFailed=false")
+        != std::string::npos);
+    BAFX_CHECK(text.find("ItemClosedUnregisterFailed=true")
+        != std::string::npos);
+    BAFX_CHECK(text.find("SessionCloseFailed=true") != std::string::npos);
+    BAFX_CHECK(text.find("FramePoolCloseFailed=false") != std::string::npos);
     BAFX_CHECK(text.find("WGC.Stop.Completed=true") != std::string::npos);
+    BAFX_CHECK(text.find("WGC.Stop.OverallSucceeded=false")
+        != std::string::npos);
     BAFX_CHECK(text.find("WGC.Stop.DeferredReport=false") != std::string::npos);
     BAFX_CHECK(text.find("FrameArrivedUnregisterUs=11") != std::string::npos);
     BAFX_CHECK(text.find("ItemClosedUnregisterUs=22") != std::string::npos);
@@ -207,7 +218,9 @@ BAFX_TEST(wgc_stop_mailbox_preserves_a_sensor_stop_across_cleanup_noop)
     diagnostics.sessionClose = std::chrono::microseconds(37);
     diagnostics.total = std::chrono::microseconds(51);
     diagnostics.sensorPresent = true;
+    diagnostics.sessionCloseFailed = true;
     diagnostics.completed = true;
+    diagnostics.overallSucceeded = false;
 
     mailbox.record(diagnostics);
     mailbox.recordNoSensor();
@@ -216,6 +229,8 @@ BAFX_TEST(wgc_stop_mailbox_preserves_a_sensor_stop_across_cleanup_noop)
 
     BAFX_CHECK(preserved.sensorPresent);
     BAFX_CHECK(preserved.completed);
+    BAFX_CHECK(preserved.sessionCloseFailed);
+    BAFX_CHECK(!preserved.overallSucceeded);
     BAFX_CHECK(preserved.deferredReport);
     BAFX_CHECK(preserved.sessionClose == std::chrono::microseconds(37));
     BAFX_CHECK(preserved.total == std::chrono::microseconds(51));
@@ -228,6 +243,7 @@ BAFX_TEST(wgc_stop_mailbox_does_not_reuse_consumed_sensor_evidence)
     diagnostics.total = std::chrono::microseconds(51);
     diagnostics.sensorPresent = true;
     diagnostics.completed = true;
+    diagnostics.overallSucceeded = true;
 
     mailbox.record(diagnostics);
     static_cast<void>(mailbox.take());
@@ -236,6 +252,7 @@ BAFX_TEST(wgc_stop_mailbox_does_not_reuse_consumed_sensor_evidence)
 
     BAFX_CHECK(!next.sensorPresent);
     BAFX_CHECK(next.completed);
+    BAFX_CHECK(next.overallSucceeded);
     BAFX_CHECK(!next.deferredReport);
     BAFX_CHECK(next.total == std::chrono::nanoseconds::zero());
 }

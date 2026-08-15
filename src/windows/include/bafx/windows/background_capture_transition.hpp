@@ -60,6 +60,7 @@ enum class EffectiveBackgroundCapturePath : std::uint8_t
 enum class BackgroundCaptureFailure : std::uint8_t
 {
     None,
+    SensorStopFailed,
     ExclusionUnconfirmed,
     SensorStartFailed,
     FramePoolRecreateFailed,
@@ -90,8 +91,8 @@ public:
     [[nodiscard]] bool beginSessionStopped() noexcept;
 
     [[nodiscard]] std::optional<BackgroundCaptureAction> nextAction() const noexcept;
-    // Observation must match nextAction(). Stop/Resize/Profile are infallible
-    // owner operations and reject a false observation without advancing.
+    // Observation must match nextAction(). Resize/Profile are infallible owner
+    // operations and reject a false observation without advancing.
     [[nodiscard]] bool applyObservation(
         const BackgroundCaptureAction& action,
         bool succeeded) noexcept;
@@ -131,6 +132,7 @@ private:
     BackgroundCaptureFailure pendingFailure_{BackgroundCaptureFailure::None};
     std::optional<FxOverlayProfile> appliedOverlayProfile_{};
     bool completionVisibilityUnknown_{false};
+    bool sensorRestartBlocked_{false};
 };
 
 }

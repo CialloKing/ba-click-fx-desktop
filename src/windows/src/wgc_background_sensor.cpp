@@ -254,8 +254,18 @@ std::string wgcBackgroundStopDiagnostic(
     std::ostringstream stream;
     stream << "WGC.Stop.SensorPresent="
            << (diagnostics.sensorPresent ? "true" : "false")
+           << ";WGC.Stop.FrameArrivedUnregisterFailed="
+           << (diagnostics.frameArrivedUnregisterFailed ? "true" : "false")
+           << ";WGC.Stop.ItemClosedUnregisterFailed="
+           << (diagnostics.itemClosedUnregisterFailed ? "true" : "false")
+           << ";WGC.Stop.SessionCloseFailed="
+           << (diagnostics.sessionCloseFailed ? "true" : "false")
+           << ";WGC.Stop.FramePoolCloseFailed="
+           << (diagnostics.framePoolCloseFailed ? "true" : "false")
            << ";WGC.Stop.Completed="
            << (diagnostics.completed ? "true" : "false")
+           << ";WGC.Stop.OverallSucceeded="
+           << (diagnostics.overallSucceeded ? "true" : "false")
            << ";WGC.Stop.DeferredReport="
            << (diagnostics.deferredReport ? "true" : "false")
            << ";WGC.Stop.FrameArrivedUnregisterUs="
@@ -291,6 +301,7 @@ void detail::WgcBackgroundStopMailbox::recordNoSensor() noexcept
 
     diagnostics_ = WgcBackgroundStopDiagnostics{};
     diagnostics_.completed = true;
+    diagnostics_.overallSucceeded = true;
 }
 
 WgcBackgroundStopDiagnostics detail::WgcBackgroundStopMailbox::take() noexcept
@@ -826,6 +837,7 @@ struct WgcBackgroundSensor::Implementation
             catch (...)
             {
                 // The pool may already be torn down after a device loss.
+                stopDiagnostics.frameArrivedUnregisterFailed = true;
                 recordResourceLedgerEvent(ledger, ResourceLedgerEvent::Failure);
             }
             frameArrivedRegistered = false;
@@ -845,6 +857,7 @@ struct WgcBackgroundSensor::Implementation
             catch (...)
             {
                 // The item can close itself before the owner reaches shutdown.
+                stopDiagnostics.itemClosedUnregisterFailed = true;
                 recordResourceLedgerEvent(ledger, ResourceLedgerEvent::Failure);
             }
             itemClosedRegistered = false;
@@ -864,6 +877,7 @@ struct WgcBackgroundSensor::Implementation
             catch (...)
             {
                 // Shutdown must not replace an earlier rendering failure.
+                stopDiagnostics.sessionCloseFailed = true;
                 recordResourceLedgerEvent(ledger, ResourceLedgerEvent::Failure);
             }
             session = nullptr;
@@ -883,6 +897,7 @@ struct WgcBackgroundSensor::Implementation
             catch (...)
             {
                 // The device may already be removed during process shutdown.
+                stopDiagnostics.framePoolCloseFailed = true;
                 recordResourceLedgerEvent(ledger, ResourceLedgerEvent::Failure);
             }
             framePool = nullptr;
@@ -902,6 +917,11 @@ struct WgcBackgroundSensor::Implementation
         stopDiagnostics.total =
             std::chrono::steady_clock::now() - stopStartedAt;
         stopDiagnostics.completed = true;
+        stopDiagnostics.overallSucceeded =
+            !stopDiagnostics.frameArrivedUnregisterFailed
+            && !stopDiagnostics.itemClosedUnregisterFailed
+            && !stopDiagnostics.sessionCloseFailed
+            && !stopDiagnostics.framePoolCloseFailed;
     }
 
     ComPtr<ID3D11Device> device{};

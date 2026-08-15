@@ -149,7 +149,12 @@ struct WgcBackgroundStopDiagnostics
     std::chrono::nanoseconds framePoolClose{};
     std::chrono::nanoseconds total{};
     bool sensorPresent{false};
+    bool frameArrivedUnregisterFailed{false};
+    bool itemClosedUnregisterFailed{false};
+    bool sessionCloseFailed{false};
+    bool framePoolCloseFailed{false};
     bool completed{false};
+    bool overallSucceeded{false};
     bool deferredReport{false};
 };
 

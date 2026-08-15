@@ -56,6 +56,8 @@ namespace
     {
     case BackgroundCaptureFailure::None:
         return "none";
+    case BackgroundCaptureFailure::SensorStopFailed:
+        return "sensor-stop-failed";
     case BackgroundCaptureFailure::ExclusionUnconfirmed:
         return "exclusion-unconfirmed";
     case BackgroundCaptureFailure::SensorStartFailed:
@@ -191,15 +193,16 @@ bafx::windows::BackgroundCaptureRequest backgroundCaptureRequest(
         retryToken};
 }
 
-void appendBackgroundCaptureStopDiagnostics(
+bafx::windows::WgcBackgroundStopDiagnostics
+appendBackgroundCaptureStopDiagnostics(
     const std::filesystem::path& logPath,
     bafx::windows::CompositionRenderer& renderer,
     const std::string_view phase) noexcept
 {
+    const bafx::windows::WgcBackgroundStopDiagnostics diagnostics =
+        renderer.takeBackgroundStopDiagnostics();
     try
     {
-        const bafx::windows::WgcBackgroundStopDiagnostics diagnostics =
-            renderer.takeBackgroundStopDiagnostics();
         std::string message = "BackgroundCapture.Stop.Phase=";
         message += phase;
         message += ";";
@@ -214,6 +217,7 @@ void appendBackgroundCaptureStopDiagnostics(
             "BackgroundCapture.Stop.Phase=unknown;WGC.Stop=unavailable;"
             "Reason=formatter-failed");
     }
+    return diagnostics;
 }
 
 void appendBackgroundCaptureResourceLedger(
@@ -274,11 +278,16 @@ BackgroundCaptureExecutionResult executeBackgroundCaptureTransition(
             {
             case bafx::windows::BackgroundCaptureActionKind::StopSensor:
                 renderer.disableBackgroundCapture();
-                appendBackgroundCaptureStopDiagnostics(
+                succeeded = appendBackgroundCaptureStopDiagnostics(
                     logPath,
                     renderer,
-                    "transaction");
-                succeeded = true;
+                    "transaction").overallSucceeded;
+                if (!succeeded)
+                {
+                    sensorRestartAllowed = false;
+                    result.sensorFailure =
+                        "WGC stop failed; capture restart blocked for this process";
+                }
                 break;
             case bafx::windows::BackgroundCaptureActionKind::SetAffinityExcluded:
             case bafx::windows::BackgroundCaptureActionKind::SetAffinityIncluded:
