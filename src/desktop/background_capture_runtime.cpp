@@ -128,7 +128,7 @@ void appendBackgroundCaptureActionEnd(
 void observeDeviceRecovery(
     BackgroundCaptureExecutionResult& result,
     const bafx::windows::GraphicsDeviceInfo& previousDeviceInfo,
-    const bafx::windows::CompositionRenderer& renderer,
+    bafx::windows::CompositionRenderer& renderer,
     const std::filesystem::path& logPath,
     const std::string_view eventName,
     bool& sensorRestartAllowed)
@@ -193,16 +193,18 @@ bafx::windows::BackgroundCaptureRequest backgroundCaptureRequest(
 
 void appendBackgroundCaptureStopDiagnostics(
     const std::filesystem::path& logPath,
-    const bafx::windows::CompositionRenderer& renderer,
+    bafx::windows::CompositionRenderer& renderer,
     const std::string_view phase) noexcept
 {
     try
     {
+        const bafx::windows::WgcBackgroundStopDiagnostics diagnostics =
+            renderer.takeBackgroundStopDiagnostics();
         std::string message = "BackgroundCapture.Stop.Phase=";
         message += phase;
         message += ";";
         message += bafx::windows::wgcBackgroundStopDiagnostic(
-            renderer.backgroundStopDiagnostics());
+            diagnostics);
         bafx::windows::appendDiagnosticLog(logPath, message);
     }
     catch (...)

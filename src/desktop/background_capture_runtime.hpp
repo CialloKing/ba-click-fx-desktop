@@ -40,7 +40,7 @@ void appendBackgroundCaptureResourceLedger(
 
 void appendBackgroundCaptureStopDiagnostics(
     const std::filesystem::path& logPath,
-    const bafx::windows::CompositionRenderer& renderer,
+    bafx::windows::CompositionRenderer& renderer,
     std::string_view phase) noexcept;
 
 [[nodiscard]] bafx::windows::BackgroundCaptureStatus backgroundCaptureStatus(

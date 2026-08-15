@@ -1016,9 +1016,9 @@ CompositionRenderer::backgroundResourceLedger() const noexcept
 }
 
 WgcBackgroundStopDiagnostics
-CompositionRenderer::backgroundStopDiagnostics() const noexcept
+CompositionRenderer::takeBackgroundStopDiagnostics() noexcept
 {
-    return backgroundStopDiagnostics_;
+    return backgroundStopMailbox_.take();
 }
 
 bool CompositionRenderer::backgroundParticipatedInLastFrame() const noexcept
@@ -1440,10 +1440,9 @@ void CompositionRenderer::releaseBackgroundSnapshotResources() noexcept
 
 void CompositionRenderer::stopBackgroundSensor() noexcept
 {
-    backgroundStopDiagnostics_ = WgcBackgroundStopDiagnostics{};
     if (backgroundSensor_ == nullptr)
     {
-        backgroundStopDiagnostics_.completed = true;
+        backgroundStopMailbox_.recordNoSensor();
         return;
     }
 
@@ -1451,7 +1450,7 @@ void CompositionRenderer::stopBackgroundSensor() noexcept
     // session from that final value so a later Start cannot reuse an old stamp.
     backgroundEpoch_ = nextEpoch(backgroundSensor_->expectedEpoch());
     backgroundSensor_->stop();
-    backgroundStopDiagnostics_ = backgroundSensor_->stopDiagnostics();
+    backgroundStopMailbox_.record(backgroundSensor_->stopDiagnostics());
     backgroundSensor_.reset();
 }
 

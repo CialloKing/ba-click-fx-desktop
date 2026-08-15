@@ -9,6 +9,7 @@
 #include <string>
 
 using bafx::windows::detail::WgcFrameNotification;
+using bafx::windows::detail::WgcBackgroundStopMailbox;
 using bafx::windows::WgcBackgroundResourceLedger;
 using bafx::windows::WgcBackgroundResourceLedgerSnapshot;
 
@@ -191,9 +192,50 @@ BAFX_TEST(wgc_stop_diagnostic_reports_each_uncancellable_phase)
         bafx::windows::wgcBackgroundStopDiagnostic(diagnostics);
     BAFX_CHECK(text.find("WGC.Stop.SensorPresent=true") != std::string::npos);
     BAFX_CHECK(text.find("WGC.Stop.Completed=true") != std::string::npos);
+    BAFX_CHECK(text.find("WGC.Stop.DeferredReport=false") != std::string::npos);
     BAFX_CHECK(text.find("FrameArrivedUnregisterUs=11") != std::string::npos);
     BAFX_CHECK(text.find("ItemClosedUnregisterUs=22") != std::string::npos);
     BAFX_CHECK(text.find("SessionCloseUs=33") != std::string::npos);
     BAFX_CHECK(text.find("FramePoolCloseUs=44") != std::string::npos);
     BAFX_CHECK(text.find("WGC.Stop.TotalUs=123") != std::string::npos);
+}
+
+BAFX_TEST(wgc_stop_mailbox_preserves_a_sensor_stop_across_cleanup_noop)
+{
+    WgcBackgroundStopMailbox mailbox;
+    bafx::windows::WgcBackgroundStopDiagnostics diagnostics{};
+    diagnostics.sessionClose = std::chrono::microseconds(37);
+    diagnostics.total = std::chrono::microseconds(51);
+    diagnostics.sensorPresent = true;
+    diagnostics.completed = true;
+
+    mailbox.record(diagnostics);
+    mailbox.recordNoSensor();
+    const bafx::windows::WgcBackgroundStopDiagnostics preserved =
+        mailbox.take();
+
+    BAFX_CHECK(preserved.sensorPresent);
+    BAFX_CHECK(preserved.completed);
+    BAFX_CHECK(preserved.deferredReport);
+    BAFX_CHECK(preserved.sessionClose == std::chrono::microseconds(37));
+    BAFX_CHECK(preserved.total == std::chrono::microseconds(51));
+}
+
+BAFX_TEST(wgc_stop_mailbox_does_not_reuse_consumed_sensor_evidence)
+{
+    WgcBackgroundStopMailbox mailbox;
+    bafx::windows::WgcBackgroundStopDiagnostics diagnostics{};
+    diagnostics.total = std::chrono::microseconds(51);
+    diagnostics.sensorPresent = true;
+    diagnostics.completed = true;
+
+    mailbox.record(diagnostics);
+    static_cast<void>(mailbox.take());
+    mailbox.recordNoSensor();
+    const bafx::windows::WgcBackgroundStopDiagnostics next = mailbox.take();
+
+    BAFX_CHECK(!next.sensorPresent);
+    BAFX_CHECK(next.completed);
+    BAFX_CHECK(!next.deferredReport);
+    BAFX_CHECK(next.total == std::chrono::nanoseconds::zero());
 }

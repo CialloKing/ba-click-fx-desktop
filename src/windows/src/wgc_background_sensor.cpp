@@ -256,6 +256,8 @@ std::string wgcBackgroundStopDiagnostic(
            << (diagnostics.sensorPresent ? "true" : "false")
            << ";WGC.Stop.Completed="
            << (diagnostics.completed ? "true" : "false")
+           << ";WGC.Stop.DeferredReport="
+           << (diagnostics.deferredReport ? "true" : "false")
            << ";WGC.Stop.FrameArrivedUnregisterUs="
            << microseconds(diagnostics.frameArrivedUnregister)
            << ";WGC.Stop.ItemClosedUnregisterUs="
@@ -267,6 +269,36 @@ std::string wgcBackgroundStopDiagnostic(
            << ";WGC.Stop.TotalUs="
            << microseconds(diagnostics.total);
     return stream.str();
+}
+
+void detail::WgcBackgroundStopMailbox::record(
+    WgcBackgroundStopDiagnostics diagnostics) noexcept
+{
+    diagnostics.deferredReport = false;
+    diagnostics_ = diagnostics;
+    sensorStopPending_ = diagnostics.sensorPresent;
+}
+
+void detail::WgcBackgroundStopMailbox::recordNoSensor() noexcept
+{
+    if (sensorStopPending_)
+    {
+        // The owner has not logged the preceding render-side stop yet. Mark
+        // the handoff instead of replacing its phase timings with zeroes.
+        diagnostics_.deferredReport = true;
+        return;
+    }
+
+    diagnostics_ = WgcBackgroundStopDiagnostics{};
+    diagnostics_.completed = true;
+}
+
+WgcBackgroundStopDiagnostics detail::WgcBackgroundStopMailbox::take() noexcept
+{
+    const WgcBackgroundStopDiagnostics result = diagnostics_;
+    diagnostics_ = WgcBackgroundStopDiagnostics{};
+    sensorStopPending_ = false;
+    return result;
 }
 
 void WgcBackgroundSensor::recordResourceLedgerEvent(

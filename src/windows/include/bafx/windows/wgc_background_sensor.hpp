@@ -150,10 +150,31 @@ struct WgcBackgroundStopDiagnostics
     std::chrono::nanoseconds total{};
     bool sensorPresent{false};
     bool completed{false};
+    bool deferredReport{false};
 };
 
 [[nodiscard]] std::string wgcBackgroundStopDiagnostic(
     const WgcBackgroundStopDiagnostics& diagnostics);
+
+namespace detail
+{
+
+// A render-side failure can stop WGC before the Host enters its cleanup
+// transaction. Preserve that one meaningful result until the logger consumes
+// it; the transaction's required no-sensor stop must not erase the evidence.
+class WgcBackgroundStopMailbox final
+{
+public:
+    void record(WgcBackgroundStopDiagnostics diagnostics) noexcept;
+    void recordNoSensor() noexcept;
+    [[nodiscard]] WgcBackgroundStopDiagnostics take() noexcept;
+
+private:
+    WgcBackgroundStopDiagnostics diagnostics_{};
+    bool sensorStopPending_{false};
+};
+
+}
 
 class WgcBackgroundSensor final
 {
