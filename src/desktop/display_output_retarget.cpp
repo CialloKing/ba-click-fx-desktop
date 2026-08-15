@@ -25,6 +25,20 @@ struct ResolvedDisplayOutputContract final
         const ResolvedDisplayOutputContract&) const noexcept = default;
 };
 
+[[nodiscard]] std::uint32_t resolveDisplayBitsPerColor(
+    const bafx::windows::DisplayColorCapabilities& capabilities) noexcept
+{
+    if (capabilities.bitsPerColor > 0U)
+    {
+        return capabilities.bitsPerColor;
+    }
+
+    // Some runtime/driver combinations expose Advanced Color through
+    // DisplayConfig while IDXGIOutput6 remains unavailable. The application
+    // binary must still observe scan-out bit-depth changes in that case.
+    return capabilities.displayConfigBitsPerColorChannel;
+}
+
 [[nodiscard]] std::optional<ResolvedDisplayOutputContract>
 resolveDisplayOutputContract(
     const bafx::windows::CompositionOutputPreference preference,
@@ -56,7 +70,7 @@ resolveDisplayOutputContract(
         DXGI_FORMAT_R16G16B16A16_FLOAT,
         DXGI_COLOR_SPACE_RGB_FULL_G10_NONE_P709,
         capabilities->colorSpace,
-        capabilities->bitsPerColor,
+        resolveDisplayBitsPerColor(*capabilities),
         capabilities->activeColorMode,
         capabilities->colorEncoding,
         capabilities->advancedColorActive};
