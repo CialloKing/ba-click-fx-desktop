@@ -2972,10 +2972,11 @@ int runApplication(
         }
         const bool hostDisplayPowerBecameUnavailable =
             hostDisplayPowerUnavailable
-            && !hostDisplayPowerRestored
             && !displayPowerWasUnavailable;
         const bool hostDisplayPowerBecameAvailable =
-            hostDisplayPowerRestored && displayPowerWasUnavailable;
+            hostDisplayPowerRestored
+            && (displayPowerWasUnavailable
+                || hostDisplayPowerBecameUnavailable);
         if (hostTopologyChange.has_value())
         {
             appendDisplayTopologyInvalidated(
@@ -3370,8 +3371,7 @@ int runApplication(
         {
             coordinatorPowerRecoveryEligible =
                 coordinatorPowerRecoveryEligible
-                || (backgroundCaptureEnabled
-                    && renderer.backgroundCaptureActive());
+                || backgroundCaptureEnabled;
             backgroundRetryPending = false;
             bool coordinatorSuspended = false;
             if (backgroundExecution.transactionActive)
@@ -3938,11 +3938,21 @@ int runApplication(
                     ? std::optional<bafx::windows::WindowSize>(
                         bafx::desktop::displayTargetSize(targetIntent.target))
                     : pendingOutputResize;
-            if (displayPowerUnavailable
+            const bool explicitCaptureChangeWhilePoweredOff =
+                displayPowerUnavailable
+                && configChanged
+                && nextBackgroundRequest.sensorRequired
+                && nextBackgroundRequest != appliedBackgroundRequest;
+            if (explicitCaptureChangeWhilePoweredOff)
+            {
+                // The user request is authoritative even though its producer
+                // must remain parked until a display-restored edge arrives.
+                coordinatorPowerRecoveryEligible = true;
+            }
+            else if (displayPowerUnavailable
                 && !nextBackgroundRequest.sensorRequired)
             {
-                // Disabling capture withdraws the latched recovery. Enabling or
-                // editing it cannot create pre-suspend activity retroactively.
+                // Disabling capture withdraws any earlier recovery request.
                 coordinatorPowerRecoveryEligible = false;
             }
             const bafx::windows::BackgroundCaptureRequestResult requestResult =

@@ -402,9 +402,9 @@ void DisplaySession::initializeSecondaryBackgroundCapture(
     state->controlGeneration = controlGeneration;
     state->logPath = logPath;
     state->powerUnavailable = powerUnavailable;
-    // A session created while scan-out is unavailable was never active before
-    // the power edge. Park its request without manufacturing a recovery token.
-    state->powerRecoveryEligible = false;
+    // An explicit request created while scan-out is unavailable still belongs
+    // to this owner. Park it now and consume it once the display is restored.
+    state->powerRecoveryEligible = powerUnavailable && request.sensorRequired;
     const bafx::windows::BackgroundCaptureRequestResult requestResult =
         powerUnavailable && request.sensorRequired
         ? state->transition.beginPowerSuspension(request)
@@ -471,8 +471,12 @@ void DisplaySession::updateSecondaryBackgroundCaptureRequest(
         state.powerRecoveryEligible = false;
         state.powerRecoveryPending = false;
     }
-    // While powered off, capture edits only update desired state. Eligibility
-    // remains the fact latched from the preceding live power edge.
+    else if (state.powerUnavailable)
+    {
+        // A control-plane change is a fresh explicit request. It cannot start
+        // WGC while scan-out is unavailable, so retain it for the restore edge.
+        state.powerRecoveryEligible = true;
+    }
     state.sensorWasActiveBeforeTransaction =
         renderer_.backgroundCaptureActive();
     const bafx::windows::BackgroundCaptureRequestResult requestResult =
@@ -1010,14 +1014,13 @@ DisplaySession::suspendSecondaryBackgroundCaptureForPower(
         *secondaryBackgroundCapture_;
     state.powerUnavailable = true;
     state.powerRecoveryPending = false;
-    // Only a producer still active at this owner boundary belongs to the power
-    // transition. Stable FX-only terminals and newly created sessions remain
-    // ineligible for an implicit restart.
+    // WGC may report its stop before the power message reaches this owner. The
+    // committed effective path is the durable evidence; an older terminal
+    // FX-only failure remains ineligible for an implicit restart.
     state.powerRecoveryEligible = state.powerRecoveryEligible
         || (state.request.sensorRequired
             && state.transition.effectivePath()
-                == bafx::windows::EffectiveBackgroundCapturePath::BackgroundAware
-            && renderer_.backgroundCaptureActive());
+                == bafx::windows::EffectiveBackgroundCapturePath::BackgroundAware);
     if (state.execution.transactionActive)
     {
         const BackgroundCaptureExecutionStatus canceled =
