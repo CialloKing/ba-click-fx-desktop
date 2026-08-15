@@ -14,9 +14,12 @@ namespace
 
 using Microsoft::WRL::ComPtr;
 
-// Windows 11 added device-info type 15 after the original Windows 10 SDK.
-// Keep its documented fixed ABI local so an older SDK can still compile a
-// binary that discovers the newer contract at runtime.
+// Keep Advanced Color device-info contracts local. Build SDK selection must
+// not decide whether the resulting binary can probe a newer Windows runtime.
+constexpr DISPLAYCONFIG_DEVICE_INFO_TYPE getAdvancedColorInfoType =
+    static_cast<DISPLAYCONFIG_DEVICE_INFO_TYPE>(9);
+constexpr DISPLAYCONFIG_DEVICE_INFO_TYPE getSdrWhiteLevelType =
+    static_cast<DISPLAYCONFIG_DEVICE_INFO_TYPE>(11);
 constexpr DISPLAYCONFIG_DEVICE_INFO_TYPE getAdvancedColorInfo2Type =
     static_cast<DISPLAYCONFIG_DEVICE_INFO_TYPE>(15);
 constexpr std::uint32_t advancedColorSupportedMask = 1U << 0U;
@@ -40,7 +43,24 @@ struct AdvancedColorInfo2Abi final
     std::uint32_t activeColorMode{advancedColorModeSdr};
 };
 
+struct AdvancedColorInfoAbi final
+{
+    DISPLAYCONFIG_DEVICE_INFO_HEADER header{};
+    std::uint32_t flags{0U};
+    DISPLAYCONFIG_COLOR_ENCODING colorEncoding{
+        DISPLAYCONFIG_COLOR_ENCODING_FORCE_UINT32};
+    std::uint32_t bitsPerColorChannel{0U};
+};
+
+struct SdrWhiteLevelAbi final
+{
+    DISPLAYCONFIG_DEVICE_INFO_HEADER header{};
+    std::uint32_t sdrWhiteLevel{0U};
+};
+
 static_assert(sizeof(AdvancedColorInfo2Abi) == 36U);
+static_assert(sizeof(AdvancedColorInfoAbi) == 32U);
+static_assert(sizeof(SdrWhiteLevelAbi) == 24U);
 
 [[nodiscard]] bool validLuminance(const float value) noexcept
 {
@@ -124,9 +144,8 @@ void queryAdvancedColorState(
         return;
     }
 
-    DISPLAYCONFIG_GET_ADVANCED_COLOR_INFO advancedColor{};
-    advancedColor.header.type =
-        DISPLAYCONFIG_DEVICE_INFO_GET_ADVANCED_COLOR_INFO;
+    AdvancedColorInfoAbi advancedColor{};
+    advancedColor.header.type = getAdvancedColorInfoType;
     advancedColor.header.size = sizeof(advancedColor);
     advancedColor.header.adapterId = target.adapterLuid;
     advancedColor.header.id = target.targetId;
@@ -138,11 +157,11 @@ void queryAdvancedColorState(
     }
 
     capabilities.advancedColorSupported =
-        advancedColor.advancedColorSupported != 0U;
+        (advancedColor.flags & advancedColorSupportedMask) != 0U;
     capabilities.advancedColorActive =
-        advancedColor.advancedColorEnabled != 0U;
+        (advancedColor.flags & advancedColorActiveMask) != 0U;
     capabilities.advancedColorLimitedByPolicy =
-        advancedColor.advancedColorForceDisabled != 0U;
+        (advancedColor.flags & advancedColorLimitedByPolicyMask) != 0U;
     capabilities.colorEncoding = advancedColor.colorEncoding;
     capabilities.displayConfigBitsPerColorChannel =
         advancedColor.bitsPerColorChannel;
@@ -166,8 +185,8 @@ void querySdrWhiteLevel(
     const DisplayPhysicalTarget& target,
     DisplayColorCapabilities& capabilities) noexcept
 {
-    DISPLAYCONFIG_SDR_WHITE_LEVEL whiteLevel{};
-    whiteLevel.header.type = DISPLAYCONFIG_DEVICE_INFO_GET_SDR_WHITE_LEVEL;
+    SdrWhiteLevelAbi whiteLevel{};
+    whiteLevel.header.type = getSdrWhiteLevelType;
     whiteLevel.header.size = sizeof(whiteLevel);
     whiteLevel.header.adapterId = target.adapterLuid;
     whiteLevel.header.id = target.targetId;
@@ -180,7 +199,7 @@ void querySdrWhiteLevel(
 
     constexpr float standardSdrWhiteNits = 80.0F;
     constexpr float fixedPointScale = 1000.0F;
-    const float nits = static_cast<float>(whiteLevel.SDRWhiteLevel)
+    const float nits = static_cast<float>(whiteLevel.sdrWhiteLevel)
         * standardSdrWhiteNits / fixedPointScale;
     capabilities.sdrWhiteLevelValid = std::isfinite(nits)
         && nits > 0.0F
