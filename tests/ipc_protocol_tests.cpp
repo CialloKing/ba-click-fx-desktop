@@ -8,6 +8,7 @@
 #include <array>
 #include <atomic>
 #include <chrono>
+#include <cstddef>
 #include <string>
 
 using namespace bafx::windows;
@@ -178,7 +179,7 @@ BAFX_TEST(ipc_server_round_trips_a_request)
         responses == "OK {\"enabled\":true}\nOK {\"enabled\":true}\n");
 }
 
-BAFX_TEST(ipc_server_publishes_shutdown_only_after_writing_the_response)
+BAFX_TEST(ipc_server_publishes_shutdown_after_the_client_consumes_the_response)
 {
     NamedPipeIpcServer::Options options{};
     options.pipeName = testPipeName() + L".shutdown";
@@ -212,6 +213,12 @@ BAFX_TEST(ipc_server_publishes_shutdown_only_after_writing_the_response)
     BAFX_CHECK(response.payload == "{\"shutdownRequested\":true}");
     BAFX_CHECK(handlerReceivedShutdown.load(std::memory_order_acquire));
     BAFX_CHECK(!handlerObservedStop.load(std::memory_order_acquire));
+    for (std::size_t attempt = 0U;
+         attempt < 200U && !server.stopRequested();
+         ++attempt)
+    {
+        Sleep(1U);
+    }
     BAFX_CHECK(server.stopRequested());
     server.stop();
 }

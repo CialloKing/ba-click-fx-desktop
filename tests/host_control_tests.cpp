@@ -7,6 +7,7 @@
 #include <windows.h>
 
 #include <chrono>
+#include <cstddef>
 #include <filesystem>
 #include <string>
 
@@ -119,7 +120,14 @@ BAFX_TEST(host_control_observes_shutdown_after_the_client_receives_its_ack)
     const bafx::windows::NamedPipeIpcClient client(clientOptions);
     const bafx::windows::IpcClientResponse response =
         client.transact("Shutdown");
-    const bafx::desktop::HostStateSnapshot stopped = control.snapshot();
+    bafx::desktop::HostStateSnapshot stopped = control.snapshot();
+    for (std::size_t attempt = 0U;
+         attempt < 200U && !stopped.shutdownRequested;
+         ++attempt)
+    {
+        Sleep(1U);
+        stopped = control.snapshot();
+    }
     control.stop();
 
     BAFX_CHECK(response.succeeded());

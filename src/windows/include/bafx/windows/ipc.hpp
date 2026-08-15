@@ -113,7 +113,7 @@ public:
 
     [[nodiscard]] bool running() const noexcept;
     // Shutdown becomes observable only after its response has entered the
-    // pipe. Owners can then stop their main loop without cancelling the ack.
+    // pipe and the client has had a bounded chance to consume it.
     [[nodiscard]] bool stopRequested() const noexcept;
     [[nodiscard]] DWORD lastError() const noexcept;
 
@@ -148,6 +148,7 @@ private:
         HANDLE pipe,
         OVERLAPPED& overlapped,
         HANDLE operationEvent) noexcept;
+    void waitForShutdownClientCompletion(HANDLE pipe) noexcept;
     void workerMain(UniqueHandle pipe) noexcept;
     [[nodiscard]] bool waitForStop(DWORD timeout) const noexcept;
     void setLastError(DWORD error) noexcept;

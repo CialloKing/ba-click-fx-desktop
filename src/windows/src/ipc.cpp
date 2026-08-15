@@ -521,8 +521,10 @@ bool NamedPipeIpcServer::processLine(
         }
         if (response.stopServer)
         {
-            // Publish shutdown only after writeAll has completed. The Host
-            // owner may destroy this server as soon as it observes the flag.
+            // A completed pipe write can still be discarded by an immediate
+            // server disconnect. Wait for the one-request client to close,
+            // bounded by the normal I/O deadline, before publishing shutdown.
+            waitForShutdownClientCompletion(pipe);
             stopRequestedFlag_.store(true, std::memory_order_release);
             static_cast<void>(SetEvent(stopEvent_.get()));
         }
@@ -689,6 +691,60 @@ void NamedPipeIpcServer::cancelAndDrain(
     // Cancellation completes the overlapped request and signals its event.
     // Waiting here keeps the event and pipe lifetime ordered before returning.
     static_cast<void>(WaitForSingleObject(operationEvent, INFINITE));
+}
+
+void NamedPipeIpcServer::waitForShutdownClientCompletion(
+    const HANDLE pipe) noexcept
+{
+    std::array<char, 1U> ignored{};
+    UniqueHandle operationEvent(CreateEventW(nullptr, TRUE, FALSE, nullptr));
+    if (operationEvent.get() == nullptr)
+    {
+        return;
+    }
+
+    OVERLAPPED overlapped{};
+    overlapped.hEvent = operationEvent.get();
+    DWORD transferred = 0U;
+    const BOOL read = ReadFile(
+        pipe,
+        ignored.data(),
+        static_cast<DWORD>(ignored.size()),
+        &transferred,
+        &overlapped);
+    if (read != FALSE)
+    {
+        return;
+    }
+    const DWORD readError = GetLastError();
+    if (readError == ERROR_BROKEN_PIPE || readError == ERROR_NO_DATA)
+    {
+        return;
+    }
+    if (readError != ERROR_IO_PENDING)
+    {
+        return;
+    }
+
+    const HANDLE handles[] = {stopEvent_.get(), operationEvent.get()};
+    const DWORD waitResult = WaitForMultipleObjects(
+        2U,
+        handles,
+        FALSE,
+        options_.ioTimeoutMilliseconds);
+    if (waitResult == WAIT_OBJECT_0 + 1U)
+    {
+        static_cast<void>(GetOverlappedResult(
+            pipe,
+            &overlapped,
+            &transferred,
+            FALSE));
+        return;
+    }
+
+    // A client that never reads or closes must delay shutdown only until the
+    // existing IPC deadline. Overlapped pipe reads are cancellable here.
+    cancelAndDrain(pipe, overlapped, operationEvent.get());
 }
 
 void NamedPipeIpcServer::workerMain(UniqueHandle pipe) noexcept
