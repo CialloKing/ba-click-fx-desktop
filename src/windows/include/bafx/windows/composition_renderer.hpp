@@ -5,6 +5,7 @@
 #include "bafx/fx/frame_bounds.hpp"
 #include "bafx/windows/background_snapshot_diagnostics.hpp"
 #include "bafx/windows/detail/wgc_idle_drain_policy.hpp"
+#include "bafx/windows/display_topology.hpp"
 #include "bafx/windows/fx_bloom_settings.hpp"
 #include "bafx/windows/fx_gpu_renderer.hpp"
 #include "bafx/windows/gpu_timestamp_profiler.hpp"
@@ -86,6 +87,22 @@ enum class BackgroundFramePoolRecreateStatus : std::uint8_t
     Failed,
     DeviceRecovered,
     DeviceRecoveryFailed
+};
+
+enum class BackgroundCadenceRefreshStatus : std::uint8_t
+{
+    Inactive,
+    WrongMonitor,
+    TargetRate,
+    ConservativeFallback
+};
+
+struct BackgroundCadenceRefreshResult
+{
+    BackgroundCadenceRefreshStatus status{
+        BackgroundCadenceRefreshStatus::Inactive};
+    std::optional<DisplayRefreshRate> refreshRate{};
+    std::chrono::nanoseconds appliedPeriod{};
 };
 
 struct DeviceRecoveryDiagnostics
@@ -241,6 +258,8 @@ public:
     [[nodiscard]] bool backgroundCaptureRestartAllowed() const noexcept;
     [[nodiscard]] bool backgroundCaptureBorderHidden() const noexcept;
     [[nodiscard]] bool backgroundCaptureCursorExcluded() const noexcept;
+    [[nodiscard]] BackgroundCadenceRefreshResult
+        refreshBackgroundCadence(HMONITOR monitor) noexcept;
     [[nodiscard]] WgcBackgroundResourceLedgerSnapshot
         backgroundResourceLedger() const noexcept;
     [[nodiscard]] WgcBackgroundStopDiagnostics

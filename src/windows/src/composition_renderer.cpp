@@ -100,17 +100,10 @@ private:
 };
 
 [[nodiscard]] std::optional<bafx::core::MonotonicTime>
-displayRefreshPeriod(const HMONITOR monitor) noexcept
+refreshPeriod(const DisplayRefreshRate& refreshRate) noexcept
 {
-    const std::optional<DisplayRefreshRate> refreshRate =
-        queryDisplayRefreshRate(monitor);
-    if (!refreshRate.has_value())
-    {
-        return std::nullopt;
-    }
-
-    const double seconds = static_cast<double>(refreshRate->denominator)
-        / static_cast<double>(refreshRate->numerator);
+    const double seconds = static_cast<double>(refreshRate.denominator)
+        / static_cast<double>(refreshRate.numerator);
     if (!std::isfinite(seconds) || seconds <= 0.0 || seconds > 1.0)
     {
         return std::nullopt;
@@ -122,6 +115,16 @@ displayRefreshPeriod(const HMONITOR monitor) noexcept
         return std::nullopt;
     }
     return period;
+}
+
+[[nodiscard]] std::optional<bafx::core::MonotonicTime>
+displayRefreshPeriod(const HMONITOR monitor) noexcept
+{
+    const std::optional<DisplayRefreshRate> refreshRate =
+        queryDisplayRefreshRate(monitor);
+    return refreshRate.has_value()
+        ? refreshPeriod(*refreshRate)
+        : std::nullopt;
 }
 
 [[nodiscard]] bafx::core::MonotonicTime resolveMonotonicTime(
@@ -1141,6 +1144,41 @@ bool CompositionRenderer::backgroundCaptureCursorExcluded() const noexcept
 {
     return backgroundSensor_ != nullptr
         && backgroundSensor_->capabilities().cursorExcluded;
+}
+
+BackgroundCadenceRefreshResult CompositionRenderer::refreshBackgroundCadence(
+    const HMONITOR monitor) noexcept
+{
+    if (!backgroundCaptureRequested_ || backgroundSensor_ == nullptr)
+    {
+        return BackgroundCadenceRefreshResult{
+            BackgroundCadenceRefreshStatus::Inactive,
+            std::nullopt,
+            backgroundRefreshPeriod_};
+    }
+    if (monitor == nullptr || monitor != backgroundMonitor_)
+    {
+        return BackgroundCadenceRefreshResult{
+            BackgroundCadenceRefreshStatus::WrongMonitor,
+            std::nullopt,
+            backgroundRefreshPeriod_};
+    }
+
+    const std::optional<DisplayRefreshRate> refreshRate =
+        queryDisplayRefreshRate(monitor);
+    const std::optional<bafx::core::MonotonicTime> targetPeriod =
+        refreshRate.has_value()
+            ? refreshPeriod(*refreshRate)
+            : std::nullopt;
+    backgroundRefreshPeriod_ = targetPeriod.has_value()
+        ? std::max(*targetPeriod, minimumBackgroundCadencePeriod)
+        : minimumBackgroundCadencePeriod;
+    return BackgroundCadenceRefreshResult{
+        targetPeriod.has_value()
+            ? BackgroundCadenceRefreshStatus::TargetRate
+            : BackgroundCadenceRefreshStatus::ConservativeFallback,
+        refreshRate,
+        backgroundRefreshPeriod_};
 }
 
 WgcBackgroundResourceLedgerSnapshot

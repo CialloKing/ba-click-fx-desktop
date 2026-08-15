@@ -1336,9 +1336,54 @@ int runApplication(
                 // A DPI-only notification can preserve rcMonitor. Reassert the
                 // physical fullscreen bounds without restarting a stable WGC
                 // target; any actual size correction is consumed below.
+                appliedDisplayTarget = observedTarget;
                 window.setBounds(appliedDisplayTarget.bounds);
                 appliedDisplayDpi = window.effectiveDpi();
                 report.setPrimaryDpi(appliedDisplayDpi);
+                if (appliedDisplayTarget.refreshRate.has_value())
+                {
+                    report.setPrimaryRefreshRate(
+                        *appliedDisplayTarget.refreshRate);
+                }
+                else
+                {
+                    report.setPrimaryRefreshRate({});
+                }
+
+                const bafx::windows::BackgroundCadenceRefreshResult
+                    cadence = renderer.refreshBackgroundCadence(
+                        appliedDisplayTarget.monitor);
+                const auto cadenceStatusName = [](const auto status)
+                    -> std::string_view
+                {
+                    switch (status)
+                    {
+                    case bafx::windows::BackgroundCadenceRefreshStatus::Inactive:
+                        return "inactive";
+                    case bafx::windows::BackgroundCadenceRefreshStatus::WrongMonitor:
+                        return "wrong-monitor";
+                    case bafx::windows::BackgroundCadenceRefreshStatus::TargetRate:
+                        return "target-rate";
+                    case bafx::windows::BackgroundCadenceRefreshStatus::
+                        ConservativeFallback:
+                        return "conservative-fallback";
+                    }
+                    return "unknown";
+                };
+                const std::string periodMicroseconds = std::to_string(
+                    std::chrono::duration_cast<std::chrono::microseconds>(
+                        cadence.appliedPeriod).count());
+                const std::array cadenceFields{
+                    bafx::windows::DiagnosticField{
+                        "Status",
+                        cadenceStatusName(cadence.status)},
+                    bafx::windows::DiagnosticField{
+                        "AppliedPeriodUs",
+                        periodMicroseconds}};
+                bafx::windows::appendDiagnosticEvent(
+                    logPath,
+                    "Display.Cadence.Refreshed",
+                    cadenceFields);
             }
         }
         if (displayColorRefreshPending
