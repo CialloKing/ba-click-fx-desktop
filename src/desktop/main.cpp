@@ -492,24 +492,16 @@ struct PointerConsumptionDiagnostics
 
 [[nodiscard]] bafx::desktop::DisplayTarget primaryDisplayTarget()
 {
-    POINT origin{0, 0};
-    const HMONITOR monitor = MonitorFromPoint(origin, MONITOR_DEFAULTTOPRIMARY);
-    MONITORINFOEXW information{};
-    information.cbSize = sizeof(information);
-    if (!GetMonitorInfoW(monitor, &information))
-    {
-        bafx::windows::throwLastError("GetMonitorInfoW");
-    }
-    if (information.rcMonitor.right <= information.rcMonitor.left
-        || information.rcMonitor.bottom <= information.rcMonitor.top)
+    const bafx::desktop::DisplayTargetSnapshot snapshot =
+        bafx::desktop::queryDisplayTargets();
+    const bafx::desktop::DisplayTarget* const target =
+        bafx::desktop::findPrimaryDisplayTarget(snapshot);
+    if (target == nullptr)
     {
         throw std::runtime_error(
-            "Primary monitor reported non-positive physical bounds");
+            "No active display target with positive physical bounds");
     }
-    return bafx::desktop::DisplayTarget{
-        monitor,
-        information.szDevice,
-        information.rcMonitor};
+    return *target;
 }
 
 [[nodiscard]] MessageDispatchDiagnostics dispatchMessages(bool& quit)
