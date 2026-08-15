@@ -83,6 +83,11 @@ DisplaySession::colorMonitorStartResult() const noexcept
     return colorMonitorStartResult_;
 }
 
+bool DisplaySession::renderFaulted() const noexcept
+{
+    return renderFaulted_;
+}
+
 void DisplaySession::acceptAppliedTarget(
     DisplayTarget target,
     const HWND wakeWindow) noexcept
@@ -108,6 +113,7 @@ DisplaySessionRetargetResult DisplaySession::retargetFxOnly(
     window_.setBounds(target.bounds);
     result.output = renderer_.resizeOutput(window_.size());
     acceptAppliedTarget(std::move(target), wakeWindow);
+    clearRenderFault();
     return result;
 }
 
@@ -115,6 +121,16 @@ void DisplaySession::refreshColorCapabilities() noexcept
 {
     colorCapabilities_ = bafx::windows::queryDisplayColorCapabilities(
         target_.monitor);
+}
+
+void DisplaySession::markRenderFaulted() noexcept
+{
+    renderFaulted_ = true;
+}
+
+void DisplaySession::clearRenderFault() noexcept
+{
+    renderFaulted_ = false;
 }
 
 void DisplaySession::show()

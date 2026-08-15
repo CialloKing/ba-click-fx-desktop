@@ -792,6 +792,187 @@ void appendDisplaySessionReconcile(
     return sample;
 }
 
+struct SecondaryRenderSummary final
+{
+    std::size_t rendered{0U};
+    std::size_t notReady{0U};
+    std::size_t recovered{0U};
+    std::size_t failed{0U};
+};
+
+void appendSecondaryRenderFailure(
+    const std::filesystem::path& logPath,
+    const bafx::desktop::DisplaySession& session,
+    const std::string_view operation,
+    const std::string_view message) noexcept
+{
+    try
+    {
+        const std::string device =
+            bafx::desktop::displayTargetDeviceUtf8(session.target());
+        const std::string monitor =
+            bafx::desktop::formatDisplayTargetMonitor(session.target());
+        const std::string bounds =
+            bafx::desktop::formatDisplayTargetBounds(session.target());
+        const std::array fields{
+            bafx::windows::DiagnosticField{"Operation", operation},
+            bafx::windows::DiagnosticField{"Device", device},
+            bafx::windows::DiagnosticField{"Monitor", monitor},
+            bafx::windows::DiagnosticField{"Bounds", bounds},
+            bafx::windows::DiagnosticField{"Message", message}};
+        bafx::windows::appendDiagnosticEvent(
+            logPath,
+            "Display.Session.RenderFailed",
+            fields,
+            bafx::windows::DiagnosticLevel::Error);
+    }
+    catch (...)
+    {
+        bafx::windows::appendDiagnosticLog(
+            logPath,
+            "Secondary display render failure could not be formatted");
+    }
+}
+
+SecondaryRenderSummary renderSecondarySessions(
+    bafx::desktop::DisplaySessionManager& sessions,
+    bafx::desktop::DisplaySession& coordinator,
+    const bafx::config::Config& config,
+    const bafx::fx::SimulationTime renderTime,
+    const bafx::core::MonotonicTime wallTime,
+    const bool commitSimulationFrame,
+    const std::filesystem::path& logPath)
+{
+    SecondaryRenderSummary summary{};
+    for (const auto& ownedSession : sessions.sessions())
+    {
+        bafx::desktop::DisplaySession& session = *ownedSession;
+        if (&session == &coordinator || session.renderFaulted())
+        {
+            continue;
+        }
+
+        bafx::windows::CompositionRenderer& sessionRenderer =
+            session.renderer();
+        const HANDLE deviceRemoved =
+            sessionRenderer.deviceRemovedWaitableObject();
+        if (deviceRemoved != nullptr
+            && WaitForSingleObject(deviceRemoved, 0U) == WAIT_OBJECT_0)
+        {
+            if (!sessionRenderer.tryRecoverDevice())
+            {
+                session.markRenderFaulted();
+                ++summary.failed;
+                appendSecondaryRenderFailure(
+                    logPath,
+                    session,
+                    "device-recovery",
+                    sessionRenderer.deviceRecoveryFailure());
+                continue;
+            }
+            session.clearRenderFault();
+            ++summary.recovered;
+            const std::string monitor =
+                bafx::desktop::formatDisplayTargetMonitor(session.target());
+            const std::array fields{
+                bafx::windows::DiagnosticField{"Monitor", monitor},
+                bafx::windows::DiagnosticField{
+                    "Driver",
+                    sessionRenderer.deviceInfo().driverType
+                            == bafx::windows::GraphicsDriverType::Hardware
+                        ? "hardware"
+                        : "warp"}};
+            bafx::windows::appendDiagnosticEvent(
+                logPath,
+                "Display.Session.DeviceRecovered",
+                fields,
+                bafx::windows::DiagnosticLevel::Warning);
+        }
+
+        const HANDLE frameLatency = sessionRenderer.frameLatencyWaitableObject();
+        if (frameLatency == nullptr)
+        {
+            session.markRenderFaulted();
+            ++summary.failed;
+            appendSecondaryRenderFailure(
+                logPath,
+                session,
+                "frame-latency-handle",
+                "renderer returned a null frame latency handle");
+            continue;
+        }
+        const DWORD frameState = WaitForSingleObject(frameLatency, 0U);
+        if (frameState == WAIT_TIMEOUT)
+        {
+            ++summary.notReady;
+            continue;
+        }
+        if (frameState != WAIT_OBJECT_0)
+        {
+            const DWORD error = frameState == WAIT_FAILED
+                ? GetLastError()
+                : ERROR_INVALID_STATE;
+            const std::string message = "frame latency wait failed; error="
+                + std::to_string(error);
+            session.markRenderFaulted();
+            ++summary.failed;
+            appendSecondaryRenderFailure(
+                logPath,
+                session,
+                "frame-latency-wait",
+                message);
+            continue;
+        }
+
+        bafx::fx::FrameSnapshot snapshot = config.effects.enabled
+            ? session.simulation().snapshot(
+                toViewport(session.window().size()),
+                renderTime)
+            : bafx::fx::FrameSnapshot{};
+        applyVisualConfig(snapshot, config);
+        try
+        {
+            static_cast<void>(sessionRenderer.renderFrame(
+                snapshot,
+                wallTime,
+                false));
+            if (commitSimulationFrame)
+            {
+                session.simulation().onFrameRendered(renderTime);
+            }
+            ++summary.rendered;
+        }
+        catch (const bafx::windows::HResultError& error)
+        {
+            if (bafx::windows::isDeviceLostResult(error.result())
+                && sessionRenderer.tryRecoverDevice())
+            {
+                session.clearRenderFault();
+                ++summary.recovered;
+                continue;
+            }
+            session.markRenderFaulted();
+            ++summary.failed;
+            appendSecondaryRenderFailure(
+                logPath,
+                session,
+                "render",
+                error.what());
+        }
+        catch (const std::exception& error)
+        {
+            session.markRenderFaulted();
+            ++summary.failed;
+            appendSecondaryRenderFailure(
+                logPath,
+                session,
+                "render",
+                error.what());
+        }
+    }
+    return summary;
+}
+
 int runApplication(
     const HINSTANCE instance,
     const RunOptions options,
@@ -1562,22 +1743,32 @@ int runApplication(
             if (configChanged)
             {
                 config = controlState.config;
+                const bool alwaysOnTrailEnabled = config.effects.enabled
+                    && config.effects.trailEnabled
+                    && !config.input.trailOnlyWhilePressed;
+                const bafx::windows::FxBloomSettings bloomSettings =
+                    makeBloomSettings(config.effects);
+                const bafx::fx::SimulationTime settingsTime =
+                    simulationTimeline.fromWallTime(clock.now());
+                displaySessions.updateCreationSettings(
+                    bloomSettings,
+                    config.effects.trailLength,
+                    config.input.samplingRateHz,
+                    alwaysOnTrailEnabled);
                 // Host owns the render thread, so applying the immutable control
                 // snapshot here makes input, length and Bloom changes take effect
                 // on the next frame without cross-thread renderer mutation.
                 simulation.setTrailLengthMultiplier(config.effects.trailLength);
                 simulation.setInputSamplingRateHz(config.input.samplingRateHz);
                 simulation.setAlwaysOnTrailEnabled(
-                    config.effects.enabled
-                        && config.effects.trailEnabled
-                        && !config.input.trailOnlyWhilePressed,
-                    simulationTimeline.fromWallTime(clock.now()));
+                    alwaysOnTrailEnabled,
+                    settingsTime);
                 const bool backgroundCaptureWasActive =
                     renderer.backgroundCaptureActive();
                 const bafx::windows::GraphicsDeviceInfo previousDeviceInfo =
                     renderer.deviceInfo();
                 const bool bloomDeviceRecovered = renderer.setBloomSettings(
-                    makeBloomSettings(config.effects));
+                    bloomSettings);
                 if (bloomDeviceRecovered)
                 {
                     bafx::desktop::appendBackgroundCaptureStopDiagnostics(
@@ -1627,6 +1818,51 @@ int runApplication(
                         logPath,
                         "Graphics.DeviceRecovery.BloomSettingsSucceeded",
                         recoveryFields);
+                }
+                for (const auto& ownedSession : displaySessions.sessions())
+                {
+                    bafx::desktop::DisplaySession& session = *ownedSession;
+                    if (&session == &displaySession)
+                    {
+                        continue;
+                    }
+                    session.simulation().setTrailLengthMultiplier(
+                        config.effects.trailLength);
+                    session.simulation().setInputSamplingRateHz(
+                        config.input.samplingRateHz);
+                    session.simulation().setAlwaysOnTrailEnabled(
+                        alwaysOnTrailEnabled,
+                        settingsTime);
+                    try
+                    {
+                        const bool recovered =
+                            session.renderer().setBloomSettings(bloomSettings);
+                        session.clearRenderFault();
+                        if (recovered)
+                        {
+                            const std::string monitor =
+                                bafx::desktop::formatDisplayTargetMonitor(
+                                    session.target());
+                            const std::array fields{
+                                bafx::windows::DiagnosticField{
+                                    "Monitor",
+                                    monitor}};
+                            bafx::windows::appendDiagnosticEvent(
+                                logPath,
+                                "Display.Session.BloomDeviceRecovered",
+                                fields,
+                                bafx::windows::DiagnosticLevel::Warning);
+                        }
+                    }
+                    catch (const std::exception& error)
+                    {
+                        session.markRenderFaulted();
+                        appendSecondaryRenderFailure(
+                            logPath,
+                            session,
+                            "apply-bloom-settings",
+                            error.what());
+                    }
                 }
             }
             const bafx::windows::BackgroundCaptureRequest nextBackgroundRequest =
@@ -1968,7 +2204,10 @@ int runApplication(
         }
         if ((!controlState.paused || enteringPause) && config.effects.enabled)
         {
-            simulation.advance(renderTime);
+            for (const auto& ownedSession : displaySessions.sessions())
+            {
+                ownedSession->simulation().advance(renderTime);
+            }
         }
         if (shouldRender)
         {
@@ -2603,6 +2842,17 @@ int runApplication(
                 renderer.backgroundCompositeStatus());
             bafx::windows::appendDiagnosticLog(logPath, diagnostic);
             backgroundPendingDiagnosticLogged = true;
+        }
+        if (shouldRender)
+        {
+            static_cast<void>(renderSecondarySessions(
+                displaySessions,
+                displaySession,
+                config,
+                renderTime,
+                wallTime,
+                !controlState.paused || enteringPause,
+                logPath));
         }
         if (shouldRender && options.smokeTest)
         {

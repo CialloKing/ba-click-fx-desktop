@@ -203,6 +203,18 @@ std::size_t DisplaySessionManager::pruneCoordinatorDuplicates() noexcept
     return removed;
 }
 
+void DisplaySessionManager::updateCreationSettings(
+    const bafx::windows::FxBloomSettings bloomSettings,
+    const float trailLengthMultiplier,
+    const std::uint32_t inputSamplingRateHz,
+    const bool alwaysOnTrailEnabled) noexcept
+{
+    bloomSettings_ = bloomSettings;
+    trailLengthMultiplier_ = trailLengthMultiplier;
+    inputSamplingRateHz_ = inputSamplingRateHz;
+    alwaysOnTrailEnabled_ = alwaysOnTrailEnabled;
+}
+
 DisplaySession* DisplaySessionManager::findBySource(
     const DisplayTarget& target) noexcept
 {

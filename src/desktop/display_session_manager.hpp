@@ -63,6 +63,11 @@ public:
     [[nodiscard]] DisplaySessionReconcileResult reconcileSecondaries(
         const DisplayTargetSnapshot& snapshot);
     [[nodiscard]] std::size_t pruneCoordinatorDuplicates() noexcept;
+    void updateCreationSettings(
+        bafx::windows::FxBloomSettings bloomSettings,
+        float trailLengthMultiplier,
+        std::uint32_t inputSamplingRateHz,
+        bool alwaysOnTrailEnabled) noexcept;
 
     [[nodiscard]] DisplaySession* findBySource(
         const DisplayTarget& target) noexcept;

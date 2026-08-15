@@ -63,6 +63,7 @@ public:
         colorCapabilities() const noexcept;
     [[nodiscard]] const bafx::windows::DisplayColorMonitorResult&
         colorMonitorStartResult() const noexcept;
+    [[nodiscard]] bool renderFaulted() const noexcept;
 
     // Call only after the owner has transactionally moved the HWND and
     // renderer resource domain. Monitoring is rebound first; the owner then
@@ -78,6 +79,8 @@ public:
         DisplayTarget target,
         HWND wakeWindow);
     void refreshColorCapabilities() noexcept;
+    void markRenderFaulted() noexcept;
+    void clearRenderFault() noexcept;
     void show();
 
 private:
@@ -92,6 +95,7 @@ private:
     bafx::windows::DisplayColorMonitor colorMonitor_{};
     std::optional<bafx::windows::DisplayColorCapabilities> colorCapabilities_{};
     bafx::windows::DisplayColorMonitorResult colorMonitorStartResult_{};
+    bool renderFaulted_{false};
 };
 
 }
