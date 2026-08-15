@@ -24,12 +24,11 @@
 - 支持报告会记录主屏 DPI、DXGI 色彩空间、位深和亮度元数据；这些只是当前输出快照，不能据此
   宣称 HDR、Advanced Color 或物理 nits 输出已经受支持。驱动未提供有效亮度时会记录
   `luminance-unknown`。
-- 首次生成的 schema 7 配置默认为 `background.mode=background-aware`，同时设置
-  `background.allowSystemBorder=true`。schema 1/2/3 迁移时默认允许系统边框；schema 4 迁移时缺失字段
-  也使用该默认值，但已有 schema 4 中显式保存的 `false` 会原样保留。背景感知授权、排除或会话失败时
-  回退内部 FX-only transport；其余模式不启用 WGC。schema 5 迁移会把当时未接线的拖尾按键策略归一为
-  “仅按住时”，因此新增的“拖尾常驻”默认关闭，必须由用户显式开启。schema 6 迁移会新增
-  `input.samplingRateHz=0`，保持不施加额外时间限频的输入行为。
+- 首次生成的完整 schema 8 配置默认为 `background.mode=background-aware`、
+  `background.allowSystemBorder=true`、`input.trailOnlyWhilePressed=true`、
+  `input.samplingRateHz=0` 和 `display.hdrEnabled=false`。测试版只接受字段完整的 schema 8；旧 schema、
+  缺失或未知字段以及旧枚举值均被拒绝。Host 保留无效原文件并以内存中的当前默认值继续运行，不迁移、
+  补齐或改写旧配置。背景感知授权、排除或会话失败时回退内部 FX-only transport；其余模式不启用 WGC。
 - 运行时用户数据采用 portable 规则：`BAFX.config.json`、`ba-click-fx-desktop-support.log`
   和支持报告只写入对应 EXE 所在目录。命令行支持报告即使传入绝对路径，也只采用文件名，
   不会写入 `%LOCALAPPDATA%`、当前工作目录或其他用户目录。
@@ -156,8 +155,7 @@ Windows“已安装的应用”执行，默认保留安装目录
   重新允许边框后 WGC 和背景参与可以恢复。
   原始证据见
   [`artifacts/spikes/spk-002/rtx4060-win10-19045-portable-borderless-async-current-head-2026-08-15`](artifacts/spikes/spk-002/rtx4060-win10-19045-portable-borderless-async-current-head-2026-08-15/README.md)。
-  该结果不证明 packaged 权限拒绝或无边框成功，也不覆盖 Windows 11 权限 UI 的 Pending、取消或超时路径；
-  已有 schema 4 配置若显式保存了 `false`，迁移到当前 schema 7 后仍保持该关闭状态。
+  该结果不证明 packaged 权限拒绝或无边框成功，也不覆盖 Windows 11 权限 UI 的 Pending、取消或超时路径。
 - 无论 WGC 是否可用，都不能移除 Layered/Transparent 样式来换取背景采样；这会破坏跨进程按钮点击。
 - Host 已实现主显示器变化的事务化重绑定和负虚拟桌面坐标处理，但真实多显示器、跨显示器输入、
   混合 DPI/刷新率、多适配器和热插拔矩阵仍为 `Not Run`。同分辨率换屏的确定性测试只证明目标身份
