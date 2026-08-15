@@ -1524,6 +1524,34 @@ void appendSecondaryDeviceRecovery(
     }
 }
 
+[[nodiscard]] bool recoverSecondaryDisplaySession(
+    const std::filesystem::path& logPath,
+    bafx::desktop::DisplaySession& session,
+    const std::string_view failureOperation,
+    const std::string_view successEvent) noexcept
+{
+    const bafx::desktop::DisplaySessionDeviceRecoveryResult recovery =
+        session.tryRecoverDevice();
+    if (!recovery.recovered)
+    {
+        session.markRenderFaulted();
+        appendSecondaryRenderFailure(
+            logPath,
+            session,
+            failureOperation,
+            session.renderer().deviceRecoveryFailure());
+        return false;
+    }
+
+    session.clearRenderFault();
+    appendSecondaryDeviceRecovery(
+        logPath,
+        session,
+        recovery,
+        successEvent);
+    return true;
+}
+
 SecondaryRenderSummary renderSecondarySessions(
     bafx::desktop::DisplaySessionManager& sessions,
     bafx::desktop::DisplaySession& coordinator,
@@ -1550,26 +1578,16 @@ SecondaryRenderSummary renderSecondarySessions(
         if (deviceRemoved != nullptr
             && WaitForSingleObject(deviceRemoved, 0U) == WAIT_OBJECT_0)
         {
-            const bafx::desktop::DisplaySessionDeviceRecoveryResult recovery =
-                session.tryRecoverDevice();
-            if (!recovery.recovered)
-            {
-                session.markRenderFaulted();
-                ++summary.failed;
-                appendSecondaryRenderFailure(
+            if (!recoverSecondaryDisplaySession(
                     logPath,
                     session,
                     "device-recovery",
-                    sessionRenderer.deviceRecoveryFailure());
+                    "Display.Session.DeviceRecovered"))
+            {
+                ++summary.failed;
                 continue;
             }
-            session.clearRenderFault();
             ++summary.recovered;
-            appendSecondaryDeviceRecovery(
-                logPath,
-                session,
-                recovery,
-                "Display.Session.DeviceRecovered");
             // The recovered swap chain owns a new latency handle. An
             // opportunity granted by the released handle cannot authorize a
             // Present on this resource domain.
@@ -1608,19 +1626,17 @@ SecondaryRenderSummary renderSecondarySessions(
         {
             if (bafx::windows::isDeviceLostResult(error.result()))
             {
-                const bafx::desktop::DisplaySessionDeviceRecoveryResult
-                    recovery = session.tryRecoverDevice();
-                if (recovery.recovered)
-                {
-                    session.clearRenderFault();
-                    ++summary.recovered;
-                    appendSecondaryDeviceRecovery(
+                if (recoverSecondaryDisplaySession(
                         logPath,
                         session,
-                        recovery,
-                        "Display.Session.RenderDeviceRecovered");
+                        "render-device-recovery",
+                        "Display.Session.RenderDeviceRecovered"))
+                {
+                    ++summary.recovered;
                     continue;
                 }
+                ++summary.failed;
+                continue;
             }
             session.markRenderFaulted();
             ++summary.failed;
@@ -3131,6 +3147,7 @@ int runApplication(
             || enteringPause
             || renderInvalidated;
         std::optional<HRESULT> framePacingDeviceLoss;
+        bafx::desktop::DisplaySession* secondaryRecoveredDuringPacing = nullptr;
         bool renderCoordinatorThisIteration = false;
         if (shouldRender)
         {
@@ -3221,8 +3238,17 @@ int runApplication(
                 }
                 if (awakenedSession != &displaySession)
                 {
-                    // The secondary renderer owns its one-shot recovery and
-                    // cannot invalidate the coordinator's WGC transaction.
+                    // Recover before any WGC maintenance can observe the
+                    // failed sensor as inactive and erase restart eligibility.
+                    if (recoverSecondaryDisplaySession(
+                            logPath,
+                            *awakenedSession,
+                            "frame-pacing-device-recovery",
+                            "Display.Session.FramePacingDeviceRecovered"))
+                    {
+                        secondaryRecoveredDuringPacing = awakenedSession;
+                        renderInvalidationPending = true;
+                    }
                     break;
                 }
                 const bafx::fx::SimulationTime detectedAt = clock.now();
@@ -3319,6 +3345,12 @@ int runApplication(
                     bafx::desktop::DisplaySession& session = *ownedSession;
                     if (&session != &displaySession && session.renderFaulted())
                     {
+                        continue;
+                    }
+                    if (&session == secondaryRecoveredDuringPacing)
+                    {
+                        // The wake belonged to the released device. Wait for a
+                        // fresh opportunity from the replacement swap chain.
                         continue;
                     }
                     if (std::find(
@@ -4246,7 +4278,22 @@ int runApplication(
                     throw std::logic_error(
                         "Paused wait returned an unknown display token");
                 }
-                renderInvalidationPending = true;
+                if (ownedSessions[pausedWait.token].get() == &displaySession)
+                {
+                    renderInvalidationPending = true;
+                }
+                else
+                {
+                    // Paused mode has no intervening render pass. Recover here
+                    // so the next maintenance pass only sees the new device.
+                    renderInvalidationPending =
+                        recoverSecondaryDisplaySession(
+                            logPath,
+                            *ownedSessions[pausedWait.token],
+                            "paused-device-recovery",
+                            "Display.Session.PausedDeviceRecovered")
+                        || renderInvalidationPending;
+                }
                 break;
             case bafx::desktop::PausedWaitWake::BackgroundFrameReady:
                 if (pausedWait.token >= ownedSessions.size())
