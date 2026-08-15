@@ -41,7 +41,9 @@ FX-only 并恢复 `WDA_NONE`；重新允许边框后新会话与背景参与恢�
 跨帧动作，使用 `120 s` 有限截止时间。Pending 不停止旧 Sensor、不改变 WDA/profile、不创建 FramePool
 或 Session；原控制代次、动作起点、累计动作数和恢复禁令跨帧保留。配置变化、resize、device recovery
 和退出会显式取消旧请求并执行一次 FX-only 回滚。自动化覆盖 Pending 不推进、截止竞态、取消幂等和最长
-动作序列；portable `not-packaged` 本地回退已复跑，但 Windows 11 packaged `Allowed/DeniedByUser/
+动作序列；owner cancel 与 broker failure 已分离，前者允许相同捕获身份在新控制代次重新申请，后者仍是
+稳定终态，避免权限 UI 被渲染循环重复触发。portable `not-packaged` 本地回退已复跑，但 Windows 11
+packaged `Allowed/DeniedByUser/
 DeniedBySystem` 仍需独立快照证据，不能据实现或旧 portable 证据标记为通过。
 
 设备丢失路径现已接入 Host：渲染提交、Bloom 配置资源、swap-chain resize 或 WGC FramePool

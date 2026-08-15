@@ -22,7 +22,8 @@
   完整 stop/fallback/restart 动作，普通 Start 失败不得错误触发 sticky 重启阻断；
 - 无边框授权是资源动作前的独立 `RequestBorderlessAccess`。`Pending` 不推进动作、不消耗固定 action
   budget，并保持原 effective path；拒绝、超时或所有者取消只生成一次 FX-only 回滚，含 resize 的最长
-  成功/失败序列不得超过 8 个动作；
+  成功/失败序列不得超过 8 个动作。broker 拒绝、错误或超时对稳定请求保持终态；配置、resize、恢复或
+  shutdown 产生的 owner cancel 清除旧请求身份，使相同捕获配置可在新控制代次重新进入权限动作；
 - ROI alignment/guard；
 - finite sanitize、component-wise non-negative 与 isotonic test vectors；
 - fixed-step simulation 和 deterministic random；

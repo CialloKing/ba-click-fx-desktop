@@ -80,7 +80,9 @@
   边框的会话。每次权限结论由 `WGC.BorderlessAccess.Checked` 结构化记录控制代次、事务动作序号、
   `AllowSystemBorder`、状态、HRESULT、`AsyncStatus`、`ElapsedMs`、`CancelRequested` 和 Allowed；配置、
   resize、device recovery 或退出覆盖等待请求时，`BackgroundCapture.Transaction.Cancel` 记录旧控制代次、
-  动作序号和原因，终态与回滚各只记录一次。portable 身份的预期拒绝状态是 `not-packaged`，不能与
+  动作序号和原因，终态与回滚各只记录一次；被新意图覆盖后，相同捕获配置可在新代次重新申请。broker
+  拒绝、错误或超时仍是稳定终态，不会由渲染循环自动重复弹出权限 UI。portable 身份的预期拒绝状态是
+  `not-packaged`，不能与
   packaged 用户/系统拒绝混为一谈。切换到 `recording-compatible` 或 `light-background` 会关闭 WGC。日志中的
   `BackgroundComposite.Participated` 才是背景样本进入最终 pass 的结构化判据；它记录已应用控制代次、
   成功 Present 的帧号以及 WGC/快照 epoch/generation。旧文本
