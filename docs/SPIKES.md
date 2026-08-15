@@ -194,29 +194,30 @@ python -B tools\verify-wgc-self-exclusion-spike.py `
   `10 s` 时以退出码 `124` 结束进程，而不是继续 WDA 回滚或复用旧 Session；该进程边界不等同于 WinRT
   清理成功。因此完整 SPK-002 继续为 `Not Run`，ADR-003/ADR-004/ADR-007 继续为 `Proposed`。
 
-### 已执行 portable 无边框拒绝与恢复子集证据
+### 已执行 portable 异步无边框拒绝与恢复子集证据
 
 - portable `not-packaged` 拒绝、FX-only 回退和允许系统边框后的恢复子集：`Passed`，capture commit
-  `85c1e9b`，Windows `10.0.19045`、RTX 4060 Laptop GPU `32.0.16.1074`、
+  `c3781f7`，Windows `10.0.19045`、RTX 4060 Laptop GPU `32.0.16.1074`、
   `3840x2160 @ 144 Hz` SDR。原始日志、配置、IPC transcript、哈希和汇总见
-  [`artifacts/spikes/spk-002/rtx4060-win10-19045-portable-borderless-fallback-2026-08-15/README.md`](../artifacts/spikes/spk-002/rtx4060-win10-19045-portable-borderless-fallback-2026-08-15/README.md)。
+  [`artifacts/spikes/spk-002/rtx4060-win10-19045-portable-borderless-async-current-head-2026-08-15/README.md`](../artifacts/spikes/spk-002/rtx4060-win10-19045-portable-borderless-async-current-head-2026-08-15/README.md)。
 - 场景始终保持 `background-aware`，按
-  `allowSystemBorder=true -> false -> true` 切换。控制代次 1 的背景样本进入最终复合；代次 2 在创建
-  第二个 Session/FramePool 前记录 `WGC.BorderlessAccess.Checked=not-packaged / 0x80073D54 / false`，
-  严格执行 stop、自排除、profile、失败 start、清理 stop 和 included 恢复，实际路径为
-  `fallback-fx-only`，且没有背景参与事件。
-- 代次 2 的 WDA 最终请求/回读均为 `0x00000000`，旧快照以 `capture-disabled` 失效。重新允许边框后，
-  控制代次 3 创建第二个 WGC 会话并重新出现背景参与，证明普通 Start 失败没有错误锁住合法请求变化。
-- 最终获取/关闭 `33/33` 帧；FramePool、Session、FrameArrived 和 item.Closed 注册均为 `2/2`，
-  `Failures=0`、`AllReleased=true`。`Shutdown` 已收到 IPC 确认，Host 退出码为 0，67 个事件序号连续，
+  `allowSystemBorder=true -> false -> true` 切换。控制代次 2 的异步预检在任何新 WDA 排除、Session 或
+  FramePool 创建前于事件 23 记录
+  `WGC.BorderlessAccess.Checked=not-packaged / 0x80073D54 / not-started / false`，随后严格执行
+  `request-borderless-access -> stop-sensor -> set-affinity-included` 并进入 `fallback-fx-only`。
+- 代次 2 的事件 39 记录 WDA 最终请求/回读均为 `0x00000000`；事件 42 证明首组 Session、FramePool
+  和事件注册已配平，拒绝事务没有创建第二组捕获资源。重新允许边框后，
+  控制代次 3 创建第二个 WGC 会话；恢复完成后的延迟 demo click 重新产生背景参与。
+- 最终获取/关闭 `228/228` 帧；FramePool、Session、FrameArrived 和 item.Closed 注册均为 `2/2`，
+  `Failures=0`、`AllReleased=true`。`Shutdown` 已收到 IPC 确认，Host 退出码为 0，79 个事件序号连续，
   没有 Error/Fatal 或遗留 Host 进程。
 - 该结果只覆盖 portable EXE 的 `not-packaged` 早期拒绝，不是 packaged
   `DeniedByUser`/`DeniedBySystem`，也不证明无边框成功、外部录屏、显示器关闭、长期压力/功耗、HDR、
-  多显示器或真实 device lost/reset。因此完整 SPK-002 继续为 `Not Run`，
+  多显示器或真实 device lost/reset；`not-started` 立即返回也不覆盖 Windows 11 权限 UI 长时间 Pending、
+  用户取消或截止竞态。因此完整 SPK-002 继续为 `Not Run`，
   ADR-003/ADR-004/ADR-007 继续为 `Proposed`。
-- 上述归档固定在 capture commit `85c1e9b`，不能证明当前 HEAD 的跨帧授权实现。当前实现已将权限请求移到
-  stop/WDA/profile 之前并移除同步 `100 ms` 等待；正式关闭当前 portable 单元格前仍需按相同硬件场景重跑
-  collector，packaged 允许/拒绝单元格继续独立保持 `Not Run`。
+- 本次归档固定在 capture commit `c3781f7`，验证当前跨帧授权实现在 portable 身份下的早期拒绝和恢复；
+  packaged 允许/拒绝单元格继续独立保持 `Not Run`。
 
 ## SPK-003 / Spike C：Color/HDR 输出
 

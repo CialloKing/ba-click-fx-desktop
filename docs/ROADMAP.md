@@ -30,10 +30,11 @@ FramePool Close 失败，并汇总到 `OverallSucceeded`；任一阶段失败仍
 RTX 4060/Windows 10 的模式切换、暂停保鲜与存活快照失效子集已通过，证据见
 [`artifacts/spikes/spk-002/rtx4060-win10-19045-mode-switch-snapshot-2026-08-15`](../artifacts/spikes/spk-002/rtx4060-win10-19045-mode-switch-snapshot-2026-08-15/README.md)。
 
-同一机器上的 portable 无边框拒绝与恢复子集也已通过：允许系统边框时 WGC 正常参与，关闭边框后以
-`WGC.BorderlessAccess.Checked=not-packaged / 0x80073D54` 在创建新 Session/FramePool 前拒绝，事务回退
-FX-only 并恢复 `WDA_NONE`；重新允许边框后新会话与背景参与恢复。证据见
-[`artifacts/spikes/spk-002/rtx4060-win10-19045-portable-borderless-fallback-2026-08-15`](../artifacts/spikes/spk-002/rtx4060-win10-19045-portable-borderless-fallback-2026-08-15/README.md)。
+同一机器上的 portable 无边框拒绝与恢复子集也已在 capture commit `c3781f7` 通过：允许系统边框时 WGC
+正常参与，关闭边框后以 `WGC.BorderlessAccess.Checked=not-packaged / 0x80073D54 / not-started` 在 stop、
+WDA 变化和新 Session/FramePool 创建前得出结论，事务随后回退 FX-only 并恢复 `WDA_NONE`；重新允许边框后
+新会话与背景参与恢复。证据见
+[`artifacts/spikes/spk-002/rtx4060-win10-19045-portable-borderless-async-current-head-2026-08-15`](../artifacts/spikes/spk-002/rtx4060-win10-19045-portable-borderless-async-current-head-2026-08-15/README.md)。
 这只关闭 portable `not-packaged` 单元格，不覆盖 packaged 权限拒绝或无边框成功，完整 SPK-002 仍为
 `Not Run`。
 
@@ -44,7 +45,8 @@ FX-only 并恢复 `WDA_NONE`；重新允许边框后新会话与背景参与恢�
 动作序列；owner cancel 与 broker failure 已分离，前者允许相同捕获身份在新控制代次重新申请，后者仍是
 稳定终态，避免权限 UI 被渲染循环重复触发。portable `not-packaged` 本地回退已复跑，但 Windows 11
 packaged `Allowed/DeniedByUser/
-DeniedBySystem` 仍需独立快照证据，不能据实现或旧 portable 证据标记为通过。
+DeniedBySystem` 仍需独立快照证据，不能据实现或本次 portable 证据标记为通过。
+portable 的 `not-started` 立即返回也不覆盖 Windows 11 权限 UI 长时间 Pending、用户取消或截止竞态。
 
 显示拓扑现按 monitor handle、设备名和物理边界识别目标，同尺寸换屏也会执行
 `StopSensor -> ResizeOutput -> StartSensor`。`WM_DISPLAYCHANGE`/`WM_DPICHANGED` 只发布失效信号，渲染

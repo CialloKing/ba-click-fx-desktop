@@ -151,12 +151,13 @@ Windows“已安装的应用”执行，默认保留安装目录
   `background-aware` 启动失败或会话中止后回退内部 FX-only transport，并撤销窗口捕获排除，避免
   回退画面被录屏器隐藏；`recording-compatible` 和 `light-background` 始终关闭 WGC。
 - 当前 Windows 10 19045 portable 实测中，允许可见系统边框时 WGC 会话和背景参与正常；关闭黄色边框后，
-  package identity 预检以 `not-packaged / 0x80073D54` 在新 Session/FramePool 创建前拒绝，回退
-  FX-only、恢复 `WDA_NONE`，且该控制代次没有背景参与。重新允许边框后 WGC 和背景参与可以恢复。
+  当前跨帧 package identity 预检以 `not-packaged / 0x80073D54 / not-started` 在 stop、WDA 变化和新
+  Session/FramePool 创建前拒绝，随后回退 FX-only、恢复 `WDA_NONE`，且该控制代次没有背景参与。
+  重新允许边框后 WGC 和背景参与可以恢复。
   原始证据见
-  [`artifacts/spikes/spk-002/rtx4060-win10-19045-portable-borderless-fallback-2026-08-15`](artifacts/spikes/spk-002/rtx4060-win10-19045-portable-borderless-fallback-2026-08-15/README.md)。
-  该结果不证明 packaged 权限拒绝或无边框成功；已有 schema 4 配置若显式保存了 `false`，迁移到当前
-  schema 7 后仍保持该关闭状态。
+  [`artifacts/spikes/spk-002/rtx4060-win10-19045-portable-borderless-async-current-head-2026-08-15`](artifacts/spikes/spk-002/rtx4060-win10-19045-portable-borderless-async-current-head-2026-08-15/README.md)。
+  该结果不证明 packaged 权限拒绝或无边框成功，也不覆盖 Windows 11 权限 UI 的 Pending、取消或超时路径；
+  已有 schema 4 配置若显式保存了 `false`，迁移到当前 schema 7 后仍保持该关闭状态。
 - 无论 WGC 是否可用，都不能移除 Layered/Transparent 样式来换取背景采样；这会破坏跨进程按钮点击。
 - Host 已实现主显示器变化的事务化重绑定和负虚拟桌面坐标处理，但真实多显示器、跨显示器输入、
   混合 DPI/刷新率、多适配器和热插拔矩阵仍为 `Not Run`。同分辨率换屏的确定性测试只证明目标身份
