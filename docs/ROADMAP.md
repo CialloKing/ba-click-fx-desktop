@@ -58,6 +58,13 @@ DisplayConfig 拓扑瞬时不完整、查询失败或找不到目标时，DXGI-o
 身份、DPI/刷新率、请求与实际 Adapter、颜色能力、请求/解析/实际输出策略、WGC 状态和 renderer fault，
 使副屏或跨适配器故障能够归属到具体会话。该诊断闭环不改变真实硬件矩阵的 `Not Run` 状态。
 
+暂停保留帧的背景时效合同也已统一：主协调屏与副屏在 `background-aware` 下都要求当前 WGC 样本，
+不能把此前的桌面快照长期固化在 DirectComposition 表面。最终输出重协商统一使用三次有限预算；耗尽后
+只有实际保守 SDR 可以作为安全回退，非 SDR 或未知 transport 必须 fail-closed。副屏会隐藏并以独立
+`OutputContractFaulted` 锁存等待有效输出恢复，无关的 Bloom/输入配置成功不能重新显示旧 HDR 表面；
+协调屏会在记录 `Display.Output.RenegotiationExhausted` 和支持快照后隐藏并终止 Host。这些是失败处置逻辑，
+不改变真实 HDR、多显示器、混合 DPI/刷新率硬件矩阵仍为 `Not Run` 的结论。
+
 ## 当前优先级覆盖（2026-08-15）
 
 按当前迭代决定，暂跳过第三阶段的 WGC/ROI 成本优化实现：

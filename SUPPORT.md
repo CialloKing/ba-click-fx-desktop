@@ -25,6 +25,11 @@
   DisplayConfig 身份、请求/实际 GPU、HDR/Advanced Color、最终输出策略、WGC 状态和渲染故障；
   这些只是当前运行快照，不能据此宣称 HDR、多显示器、Advanced Color 或物理 nits 输出已经受支持。
   驱动未提供有效亮度时会记录 `luminance-unknown`。
+- 主副屏的最终输出重协商都最多尝试三次，后续尝试按一秒显示维护节拍执行。预算耗尽时，只有实际
+  transport 已满足保守 SDR 才接受安全回退；仍为 scRGB、未知或其他不满足 SDR 合同的输出会 fail-closed。
+  副屏立即隐藏并锁存 `Display.Session[n].OutputContractFaulted=true`，普通 Bloom 或输入配置成功不会解除；
+  只有实际输出重新满足当前策略、完整拓扑重建或资源恢复才能重新显示。协调屏会先隐藏，再终止 Host，
+  防止旧 HDR 表面继续驻留。`Display.Output.RenegotiationExhausted` 会记录请求/实际映射和最终处置。
 - 首次生成的完整 schema 8 配置默认为 `background.mode=background-aware`、
   `background.allowSystemBorder=true`、`input.trailOnlyWhilePressed=true`、
   `input.samplingRateHz=0` 和 `display.hdrEnabled=false`。测试版只接受字段完整的 schema 8；非当前 schema、
@@ -44,6 +49,8 @@
   `WGC.DrainPolicy=visible-every-frame-idle-sensor-only-max-20hz` 表示可见帧每帧尝试 drain，暂停或空闲时
   最多每 `50 ms` 做一次 sensor-only 保鲜；`WGC.MaintenanceCycles` 统计这种不创建批次快照、不执行
   Bloom、不 Present 的维护轮询，它不增加 `Window.FrameCount`。
+  进入暂停时，主协调屏和每个副屏都只有在当前 WGC 背景可用时才允许提交保留帧；没有当前样本时不会
+  把旧桌面快照固化到可长期驻留的 DirectComposition 表面。FX-only 模式不受该背景时效门槛影响。
   CPU/API 时间不代表 GPU 执行，GPU 时间戳也不包含 Present、DWM 合成、扫描输出或物理上屏；异步完成的
   样本还可能属于较早的报告窗口，日志中会保留对应 semantic 字段。
   帧等待另外记录 `FramePacing.DeviceRemovedWakes`；非零表示 D3D 设备移除通知直接唤醒过 Host，并会把该
