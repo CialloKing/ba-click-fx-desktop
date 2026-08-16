@@ -129,7 +129,8 @@ public:
     // Web API compatible animation controls. They scale particle/trail age,
     // not the host clock, so input timestamps and pause semantics stay intact.
     // Active simulations use the timestamped overload to settle the preceding
-    // source-time interval before the new multiplier becomes effective.
+    // source-time interval before the new multiplier becomes effective. The
+    // overload without a timestamp is intentionally initialization-only.
     void setClickTimeScale(float timeScale) noexcept;
     void setClickTimeScale(float timeScale, SimulationTime time) noexcept;
     void setTrailTimeScale(float timeScale) noexcept;

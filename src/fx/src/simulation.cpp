@@ -499,6 +499,12 @@ void Simulation::updateUnityTrailTimeScale(const float timeScale)
 
 void Simulation::setClickTimeScale(const float timeScale) noexcept
 {
+    if (active_)
+    {
+        // There is no honest boundary at which to split elapsed source time.
+        // Ignore ambiguous live updates instead of rewriting particle history.
+        return;
+    }
     setClickTimeScale(timeScale, clickTimeSourceAt_);
 }
 
@@ -514,6 +520,11 @@ void Simulation::setClickTimeScale(
 
 void Simulation::setTrailTimeScale(const float timeScale) noexcept
 {
+    if (active_)
+    {
+        // Live callers must provide the source timestamp that owns the change.
+        return;
+    }
     setTrailTimeScale(timeScale, trailTimeSourceAt_);
 }
 
