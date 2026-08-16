@@ -199,6 +199,13 @@ function Set-IdentityInstallConfig
         throw "Host did not create the identity configuration: $configPath"
     }
     $config = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json
+    $schemaVersionProperty = $config.PSObject.Properties['schemaVersion']
+    if ($null -eq $schemaVersionProperty `
+        -or -not ($schemaVersionProperty.Value -is [ValueType]) `
+        -or [double]$schemaVersionProperty.Value -ne 8.0)
+    {
+        throw 'Generated configuration must use schemaVersion 8.'
+    }
     $backgroundProperty = $config.PSObject.Properties['background']
     if ($null -eq $backgroundProperty -or $null -eq $backgroundProperty.Value)
     {
@@ -207,7 +214,9 @@ function Set-IdentityInstallConfig
     $allowSystemBorderProperty = $config.background.PSObject.Properties['allowSystemBorder']
     if ($null -eq $allowSystemBorderProperty)
     {
-        $config.background | Add-Member -MemberType NoteProperty -Name 'allowSystemBorder' -Value $true
+        # The test build accepts only the complete current schema. An installer
+        # must not make an obsolete document appear current by filling fields.
+        throw 'Generated configuration has no background.allowSystemBorder field.'
     }
     if ($DisableSystemBorder)
     {
