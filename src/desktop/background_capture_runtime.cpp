@@ -1058,7 +1058,8 @@ BackgroundCaptureExecutionStatus executeBackgroundCaptureTransition(
                         true,
                         action->cursorExcluded,
                         action->allowSystemBorder,
-                        execution.borderlessAccessConfirmed);
+                        execution.borderlessAccessConfirmed,
+                        execution.targetIntent.target.captureRefreshRate);
                 if (!execution.sensorRestartAllowed)
                 {
                     if (execution.sensorFailure.empty())

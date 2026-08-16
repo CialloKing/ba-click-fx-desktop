@@ -283,7 +283,9 @@ public:
         bool exclusionConfirmed,
         bool cursorExcluded = true,
         bool allowSystemBorder = false,
-        bool borderlessAccessConfirmed = false) noexcept;
+        bool borderlessAccessConfirmed = false,
+        const std::optional<DisplayRefreshRate>& refreshRate =
+            std::nullopt) noexcept;
     [[nodiscard]] std::optional<WindowSize>
         pendingBackgroundFramePoolSize() const noexcept;
     [[nodiscard]] BackgroundFramePoolRecreateStatus
@@ -355,7 +357,8 @@ private:
     void captureCenterPixel();
     void setBackgroundCaptureFailure(std::string_view message) noexcept;
     void setDeviceRecoveryFailure(std::string_view message) noexcept;
-    [[nodiscard]] bool tryCreateBackgroundSensor() noexcept;
+    [[nodiscard]] bool tryCreateBackgroundSensor(
+        const std::optional<DisplayRefreshRate>& refreshRate) noexcept;
 
     HWND window_{nullptr};
     Microsoft::WRL::ComPtr<ID3D11Device> device_{};

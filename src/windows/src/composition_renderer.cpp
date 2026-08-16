@@ -282,16 +282,6 @@ refreshPeriod(const DisplayRefreshRate& refreshRate) noexcept
     return period;
 }
 
-[[nodiscard]] std::optional<bafx::core::MonotonicTime>
-displayRefreshPeriod(const HMONITOR monitor) noexcept
-{
-    const std::optional<DisplayRefreshRate> refreshRate =
-        queryDisplayRefreshRate(monitor);
-    return refreshRate.has_value()
-        ? refreshPeriod(*refreshRate)
-        : std::nullopt;
-}
-
 [[nodiscard]] bafx::core::MonotonicTime resolveMonotonicTime(
     const bafx::core::MonotonicTime supplied) noexcept
 {
@@ -1308,7 +1298,8 @@ bool CompositionRenderer::tryEnableBackgroundCapture(
     const bool exclusionConfirmed,
     const bool cursorExcluded,
     const bool allowSystemBorder,
-    const bool borderlessAccessConfirmed) noexcept
+    const bool borderlessAccessConfirmed,
+    const std::optional<DisplayRefreshRate>& refreshRate) noexcept
 {
     setBackgroundCaptureFailure({});
     // Re-enabling capture replaces the producer and therefore starts a new
@@ -1361,7 +1352,7 @@ bool CompositionRenderer::tryEnableBackgroundCapture(
         return false;
     }
 
-    return tryCreateBackgroundSensor();
+    return tryCreateBackgroundSensor(refreshRate);
 }
 
 std::optional<WindowSize>
@@ -1536,7 +1527,8 @@ BackgroundCompositeStatus CompositionRenderer::backgroundCompositeStatus() const
     return backgroundCompositeStatus_;
 }
 
-bool CompositionRenderer::tryCreateBackgroundSensor() noexcept
+bool CompositionRenderer::tryCreateBackgroundSensor(
+    const std::optional<DisplayRefreshRate>& requestedRefreshRate) noexcept
 {
     if (!backgroundCaptureRequested_ || backgroundMonitor_ == nullptr)
     {
@@ -1552,8 +1544,10 @@ bool CompositionRenderer::tryCreateBackgroundSensor() noexcept
         return false;
     }
 
-    const std::optional<bafx::core::MonotonicTime> refreshPeriod =
-        displayRefreshPeriod(backgroundMonitor_);
+    const std::optional<bafx::core::MonotonicTime> targetRefreshPeriod =
+        requestedRefreshRate.has_value()
+        ? refreshPeriod(*requestedRefreshRate)
+        : std::nullopt;
 
     try
     {
@@ -1566,7 +1560,7 @@ bool CompositionRenderer::tryCreateBackgroundSensor() noexcept
         // Producer cadence follows an authoritative target rate. The separate
         // freshness window below remains no tighter than 60 Hz so normal WGC
         // delivery jitter does not destabilize the background path.
-        sensorOptions.minimumUpdateInterval = refreshPeriod.value_or(
+        sensorOptions.minimumUpdateInterval = targetRefreshPeriod.value_or(
             minimumBackgroundCadencePeriod);
         sensorOptions.resourceLedger = backgroundResourceLedger_;
         sensorOptions.stopObserver = backgroundStopObserver_;
@@ -1583,8 +1577,8 @@ bool CompositionRenderer::tryCreateBackgroundSensor() noexcept
         // Unknown and mixed clone cadence uses a conservative 60 Hz freshness
         // budget. A diagnostic uncertainty must not disable an otherwise valid
         // capture session on a secondary display.
-        backgroundRefreshPeriod_ = refreshPeriod.has_value()
-            ? std::max(*refreshPeriod, minimumBackgroundCadencePeriod)
+        backgroundRefreshPeriod_ = targetRefreshPeriod.has_value()
+            ? std::max(*targetRefreshPeriod, minimumBackgroundCadencePeriod)
             : minimumBackgroundCadencePeriod;
         return true;
     }
