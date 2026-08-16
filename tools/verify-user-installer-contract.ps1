@@ -421,6 +421,10 @@ function Test-InnoPayloadContract
         -Description 'installer recognizes structured PowerShell diagnostics'
     Assert-TextContains `
         -Text $inno `
+        -Pattern 'LastPowerShellRawOutput[\s\S]*PowerShell output:' `
+        -Description 'unstructured early PowerShell errors remain visible'
+    Assert-TextContains `
+        -Text $inno `
         -Pattern 'LoadPowerShellDiagnostic[\s\S]*\.diagnostic\.txt' `
         -Description 'original-user diagnostic sidecars are copied into the installer log'
     Assert-TextContains `

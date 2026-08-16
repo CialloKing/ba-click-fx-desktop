@@ -88,6 +88,7 @@ var
   RollbackResultPath: String;
   RecoveryRequired: Boolean;
   LastPowerShellFailureSummary: String;
+  LastPowerShellRawOutput: String;
   LastPowerShellOutputError: String;
 
 function QuoteArgument(const Value: String): String;
@@ -136,7 +137,28 @@ end;
 procedure ResetPowerShellDiagnostics;
 begin
   LastPowerShellFailureSummary := '';
+  LastPowerShellRawOutput := '';
   LastPowerShellOutputError := '';
+end;
+
+procedure RememberPowerShellRawOutput(const S: String);
+var
+  Remaining: Integer;
+begin
+  if Length(LastPowerShellRawOutput) >= 2400 then
+  begin
+    Exit;
+  end;
+  Remaining := 2400 - Length(LastPowerShellRawOutput);
+  if LastPowerShellRawOutput = '' then
+  begin
+    LastPowerShellRawOutput := Copy(S, 1, Remaining);
+  end
+  else if Remaining > 2 then
+  begin
+    LastPowerShellRawOutput := LastPowerShellRawOutput + #13#10 +
+      Copy(S, 1, Remaining - 2);
+  end;
 end;
 
 procedure HandlePowerShellOutput(
@@ -160,6 +182,7 @@ begin
     Exit;
   end;
   Log('  ' + S);
+  RememberPowerShellRawOutput(S);
   if Pos(FailurePrefix, S) = 1 then
   begin
     LastPowerShellFailureSummary :=
@@ -302,6 +325,12 @@ begin
   begin
     Result := Result + #13#10 +
       DecodePowerShellFailureSummary(LastPowerShellFailureSummary);
+  end;
+  if (LastPowerShellFailureSummary = '') and
+    (LastPowerShellRawOutput <> '') then
+  begin
+    Result := Result + #13#10 +
+      'PowerShell output: ' + LastPowerShellRawOutput;
   end;
   if LastPowerShellOutputError <> '' then
   begin
