@@ -303,6 +303,12 @@ bool BackgroundCaptureTransition::beginBorderlessAccessLost() noexcept
         BackgroundCaptureFailure::BorderlessAccessFailed);
 }
 
+bool BackgroundCaptureTransition::beginCaptureSizeMismatch() noexcept
+{
+    return beginActiveSensorFailure(
+        BackgroundCaptureFailure::CaptureSizeMismatch);
+}
+
 bool BackgroundCaptureTransition::beginActiveSensorFailure(
     const BackgroundCaptureFailure failure) noexcept
 {

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "display_capture_size_tracker.hpp"
 #include "display_target.hpp"
 
 #include "bafx/core/background_freshness.hpp"
@@ -187,6 +188,8 @@ public:
     [[nodiscard]] bool secondaryBackgroundCaptureActive() const noexcept;
     [[nodiscard]] HANDLE secondaryBackgroundFrameAvailableObject() const noexcept;
     [[nodiscard]] bool takeTopologyRefreshRequest() noexcept;
+    void observeSecondaryCaptureTopology(
+        const DisplayTargetSnapshot& topology) noexcept;
     void shutdownSecondaryBackgroundCapture() noexcept;
     [[nodiscard]] bool colorRefreshRetryPending() const noexcept;
     [[nodiscard]] std::uint32_t colorRefreshRetriesRemaining() const noexcept;
@@ -227,7 +230,6 @@ private:
     std::optional<bafx::core::MonotonicTime> nextFramePacingDeadline_{};
     bool lastPresentedDrawableContent_{false};
     bool renderFaulted_{false};
-    bool topologyRefreshRequested_{false};
     std::uint32_t colorRefreshRetriesRemaining_{0U};
     std::unique_ptr<DisplaySessionBackgroundCaptureState>
         secondaryBackgroundCapture_{};

@@ -98,6 +98,8 @@ namespace
         return "inclusion-unconfirmed";
     case BackgroundCaptureFailure::SessionStopped:
         return "session-stopped";
+    case BackgroundCaptureFailure::CaptureSizeMismatch:
+        return "capture-size-mismatch";
     }
     return "unknown";
 }

@@ -25,6 +25,7 @@ struct DisplaySessionBackgroundCaptureState final
     std::filesystem::path logPath{};
     std::string pendingSensorFailure{};
     CaptureExclusionHealthPoller exclusionHealthPoller{};
+    DisplayCaptureSizeTracker captureSizeTracker{};
     std::optional<DisplayTarget> pendingTarget{};
     std::optional<bafx::windows::CompositionOutputPreference>
         pendingTargetOutputPreference{};
@@ -294,6 +295,12 @@ void DisplaySession::acceptAppliedTarget(
         colorCapabilities_.reset();
         colorRefreshRetriesRemaining_ = maximumColorRefreshRetries;
     }
+    if (secondaryBackgroundCapture_ != nullptr)
+    {
+        // A topology transaction creates a new output contract. A size sample
+        // from the preceding target cannot decide the new WGC session's fate.
+        secondaryBackgroundCapture_->captureSizeTracker.reset();
+    }
     static_cast<void>(colorMonitor_.start(target_.monitor, wakeWindow));
 }
 
@@ -394,6 +401,7 @@ DisplaySessionRetargetResult DisplaySession::retargetSecondary(
         targetColorCapabilities);
     state.pendingTargetColorCapabilities = targetColorCapabilities;
     state.pendingTarget = std::move(target);
+    state.captureSizeTracker.reset();
     state.pendingWakeWindow = wakeWindow;
     state.sensorWasActiveBeforeTransaction =
         renderer_.backgroundCaptureActive();
@@ -546,6 +554,7 @@ void DisplaySession::updateSecondaryBackgroundCaptureRequest(
 
     state.request = request;
     state.controlGeneration = controlGeneration;
+    state.captureSizeTracker.reset();
     if (!state.request.sensorRequired)
     {
         state.powerRecoveryEligible = false;
@@ -719,6 +728,7 @@ DisplaySession::serviceSecondaryBackgroundCapture(
             const PendingSecondaryOutputRenegotiation pending =
                 *state.pendingOutputRenegotiation;
             state.pendingOutputRenegotiation.reset();
+            state.captureSizeTracker.reset();
             result.outputRenegotiationPreference = pending.preference;
             result.outputRenegotiationReason = pending.reason;
             const bool staleTarget = pending.target.has_value()
@@ -897,20 +907,37 @@ DisplaySession::serviceSecondaryBackgroundCapture(
 
         if (active)
         {
+            const std::optional<DisplayCaptureSizeMismatch> mismatch =
+                state.captureSizeTracker.takeConfirmedMismatch();
+            if (mismatch.has_value())
+            {
+                state.pendingSensorFailure =
+                    formatDisplayCaptureSizeMismatch(*mismatch);
+                if (!state.transition.beginCaptureSizeMismatch())
+                {
+                    throw std::logic_error(
+                        "Secondary confirmed WGC size mismatch could not enter cleanup");
+                }
+                state.sensorWasActiveBeforeTransaction = true;
+                state.outcomePending = true;
+                continue;
+            }
+        }
+
+        if (active)
+        {
             if (const std::optional<bafx::windows::WindowSize> captureSize =
                     renderer_.pendingBackgroundFramePoolSize();
                 captureSize.has_value())
             {
                 const bafx::windows::WindowSize outputSize =
                     renderer_.outputSize();
-                if (captureSize->width != outputSize.width
-                    || captureSize->height != outputSize.height)
-                {
-                    // WGC can publish rotation or mode dimensions before the
-                    // shell posts a topology message. Recreate the producer,
-                    // but also ask the owner to confirm physical placement.
-                    topologyRefreshRequested_ = true;
-                }
+                // WGC can publish rotation or mode dimensions before the shell
+                // posts a topology message. Recreate the producer, but require
+                // topology confirmation before treating a mismatch as fatal.
+                static_cast<void>(state.captureSizeTracker.observeCaptureSize(
+                    *captureSize,
+                    outputSize));
                 if (!state.transition.beginFramePoolRecreate(*captureSize))
                 {
                     throw std::logic_error(
@@ -1107,6 +1134,7 @@ DisplaySession::suspendSecondaryBackgroundCaptureForPower(
     DisplaySessionBackgroundCaptureState& state =
         *secondaryBackgroundCapture_;
     state.powerUnavailable = true;
+    state.captureSizeTracker.reset();
     state.powerRecoveryPending = false;
     // WGC may report its stop before the power message reaches this owner. The
     // committed effective path is the durable evidence; an older terminal
@@ -1186,7 +1214,37 @@ HANDLE DisplaySession::secondaryBackgroundFrameAvailableObject() const noexcept
 
 bool DisplaySession::takeTopologyRefreshRequest() noexcept
 {
-    return std::exchange(topologyRefreshRequested_, false);
+    return secondaryBackgroundCapture_ != nullptr
+        && secondaryBackgroundCapture_->captureSizeTracker
+            .takeTopologyRefreshRequest();
+}
+
+void DisplaySession::observeSecondaryCaptureTopology(
+    const DisplayTargetSnapshot& topology) noexcept
+{
+    if (secondaryBackgroundCapture_ == nullptr
+        || topology.status != bafx::windows::DisplayTopologyStatus::Complete)
+    {
+        return;
+    }
+
+    const DisplayTarget& expected = reconciliationTarget();
+    const DisplayTarget* observed = findDisplayTargetBySource(
+        topology,
+        expected);
+    if (observed == nullptr)
+    {
+        observed = findDisplayTargetByLogicalSlot(topology, expected);
+    }
+    if (observed == nullptr)
+    {
+        // Reconciliation owns authoritative removal. Do not diagnose a size
+        // mismatch for a display absent from the complete snapshot.
+        return;
+    }
+
+    secondaryBackgroundCapture_->captureSizeTracker.confirmOutputSize(
+        displayTargetSize(*observed));
 }
 
 void DisplaySession::shutdownSecondaryBackgroundCapture() noexcept
@@ -1333,6 +1391,7 @@ DisplaySessionDeviceRecoveryResult DisplaySession::finishDeviceRecovery(
 
     DisplaySessionBackgroundCaptureState& state =
         *secondaryBackgroundCapture_;
+    state.captureSizeTracker.reset();
     const bafx::windows::WgcBackgroundStopDiagnostics stopDiagnostics =
         appendBackgroundCaptureStopDiagnostics(
             state.logPath,

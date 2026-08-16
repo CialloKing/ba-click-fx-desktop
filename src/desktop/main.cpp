@@ -2379,6 +2379,7 @@ int runApplication(
     std::optional<PendingOutputRenegotiation>
         pendingCoordinatorOutputRenegotiation{};
     std::optional<bafx::desktop::DisplayTarget> pendingDisplayTarget{};
+    bafx::desktop::DisplayCaptureSizeTracker coordinatorCaptureSizeTracker{};
     bool backgroundParticipationLogged = false;
     bool backgroundPendingDiagnosticLogged = false;
     bool renderInvalidationPending = false;
@@ -2395,6 +2396,40 @@ int runApplication(
     bafx::desktop::CaptureExclusionHealthPoller
         captureExclusionHealthPoller;
     MessageDispatchDiagnostics pendingMessageDispatch{};
+    const auto observeCaptureTopology =
+        [&](const bafx::desktop::DisplayTargetSnapshot& topology)
+    {
+        for (const auto& ownedSession : displaySessions.sessions())
+        {
+            if (ownedSession.get() != &displaySession)
+            {
+                ownedSession->observeSecondaryCaptureTopology(topology);
+            }
+        }
+        if (topology.status
+            != bafx::windows::DisplayTopologyStatus::Complete)
+        {
+            return;
+        }
+
+        const bafx::desktop::DisplayTarget& expected =
+            pendingDisplayTarget.has_value()
+            ? *pendingDisplayTarget
+            : appliedDisplayTarget;
+        const bafx::desktop::DisplayTarget* observed =
+            bafx::desktop::findDisplayTargetBySource(topology, expected);
+        if (observed == nullptr)
+        {
+            observed = bafx::desktop::findDisplayTargetByLogicalSlot(
+                topology,
+                expected);
+        }
+        if (observed != nullptr)
+        {
+            coordinatorCaptureSizeTracker.confirmOutputSize(
+                bafx::desktop::displayTargetSize(*observed));
+        }
+    };
     const auto renegotiateCoordinatorOutput =
         [&](const bafx::windows::CompositionOutputPreference preference,
             const std::string_view reason)
@@ -2416,6 +2451,7 @@ int runApplication(
 
         const bafx::windows::GraphicsDeviceInfo previousDeviceInfo =
             renderer.deviceInfo();
+        coordinatorCaptureSizeTracker.reset();
         // WGC shares this D3D resource domain. Retire it before replacing the
         // final swap chain so no callback can retain an old-domain texture.
         renderer.disableBackgroundCapture();
@@ -2821,6 +2857,7 @@ int runApplication(
         if (backgroundExecution.resizedOutputSize.has_value())
         {
             appliedOutputSize = *backgroundExecution.resizedOutputSize;
+            coordinatorCaptureSizeTracker.reset();
         }
         if (bafx::desktop::displayTargetBoundsApplied(backgroundExecution))
         {
@@ -2890,6 +2927,10 @@ int runApplication(
         }
         backgroundCaptureEnabled = backgroundTransition.effectivePath()
             == bafx::windows::EffectiveBackgroundCapturePath::BackgroundAware;
+        if (!backgroundCaptureEnabled || backgroundExecution.deviceRecovered)
+        {
+            coordinatorCaptureSizeTracker.reset();
+        }
         report.setBackgroundCaptureStatus(
             bafx::desktop::backgroundCaptureStatus(
                 backgroundTransition.effectivePath()));
@@ -3093,17 +3134,28 @@ int runApplication(
             break;
         }
 
-        for (const auto& ownedSession : displaySessions.sessions())
+        bool captureTopologyRefreshRequested = false;
+        if (!displayPowerUnavailable)
         {
-            bafx::desktop::DisplaySession& session = *ownedSession;
-            if (&session != &displaySession
-                && session.takeTopologyRefreshRequest()
-                && nextDisplayTopologyPollAt > loopObservedAt)
+            captureTopologyRefreshRequested =
+                coordinatorCaptureSizeTracker.takeTopologyRefreshRequest();
+            for (const auto& ownedSession : displaySessions.sessions())
             {
-                // Consume a WGC size lead before evaluating this iteration's
-                // poll deadline, so rotation does not wait for the 1 s fallback.
-                nextDisplayTopologyPollAt = loopObservedAt;
+                bafx::desktop::DisplaySession& session = *ownedSession;
+                if (&session != &displaySession)
+                {
+                    captureTopologyRefreshRequested =
+                        session.takeTopologyRefreshRequest()
+                        || captureTopologyRefreshRequested;
+                }
             }
+        }
+        if (captureTopologyRefreshRequested
+            && nextDisplayTopologyPollAt > loopObservedAt)
+        {
+            // Consume a WGC size lead before evaluating this iteration's poll
+            // deadline, so rotation does not wait for the 1 s fallback.
+            nextDisplayTopologyPollAt = loopObservedAt;
         }
 
         std::optional<bafx::desktop::DisplayTargetSnapshot>
@@ -3118,6 +3170,7 @@ int runApplication(
                 loopObservedAt + displayTopologyPollPeriod;
             bafx::desktop::DisplayTargetSnapshot topology =
                 bafx::desktop::queryDisplayTargets();
+            observeCaptureTopology(topology);
             if (displaySessions.topologyDiffers(topology))
             {
                 polledDisplayTopology = std::move(topology);
@@ -3145,6 +3198,7 @@ int runApplication(
             && hostTopologyChange->powerUnavailable)
         {
             displayPowerUnavailable = true;
+            coordinatorCaptureSizeTracker.reset();
         }
         if (hostDisplayPowerRestored)
         {
@@ -3402,6 +3456,10 @@ int runApplication(
                 topologyDiscoveredByPoll
                 ? std::move(*polledDisplayTopology)
                 : bafx::desktop::queryDisplayTargets();
+            if (!topologyDiscoveredByPoll)
+            {
+                observeCaptureTopology(topology);
+            }
             const bafx::desktop::DisplaySessionReconcileResult reconcile =
                 displaySessions.reconcileSecondaries(topology);
             appendDisplaySessionReconcile(
@@ -5324,6 +5382,45 @@ int runApplication(
         }
         if (!backgroundExecution.transactionActive
             && backgroundCaptureEnabled
+            && currentBackgroundCaptureActive)
+        {
+            const std::optional<bafx::desktop::DisplayCaptureSizeMismatch>
+                mismatch =
+                    coordinatorCaptureSizeTracker.takeConfirmedMismatch();
+            if (mismatch.has_value())
+            {
+                if (!backgroundTransition.beginCaptureSizeMismatch())
+                {
+                    throw std::logic_error(
+                        "Confirmed WGC size mismatch could not enter cleanup");
+                }
+                const bafx::desktop::BackgroundCaptureExecutionStatus status =
+                    bafx::desktop::executeBackgroundCaptureTransition(
+                        backgroundTransition,
+                        window,
+                        renderer,
+                        bafx::desktop::DisplayTargetIntent{
+                            appliedDisplayTarget,
+                            false},
+                        appliedGeneration,
+                        borderlessAccessAuthority,
+                        backgroundExecution,
+                        logPath);
+                if (status
+                    != bafx::desktop::BackgroundCaptureExecutionStatus::Completed)
+                {
+                    throw std::logic_error(
+                        "WGC size mismatch cleanup unexpectedly became pending");
+                }
+                backgroundExecution.sensorFailure =
+                    bafx::desktop::formatDisplayCaptureSizeMismatch(*mismatch);
+                finishBackgroundCaptureTransaction("capture-size-mismatch");
+                currentBackgroundCaptureActive =
+                    renderer.backgroundCaptureActive();
+            }
+        }
+        if (!backgroundExecution.transactionActive
+            && backgroundCaptureEnabled
             && !currentBackgroundCaptureActive)
         {
             const std::string stoppedReason(renderer.backgroundCaptureFailure());
@@ -5366,15 +5463,12 @@ int runApplication(
         {
             const bool backgroundCaptureWasActive =
                 currentBackgroundCaptureActive;
-            if ((captureSize->width != appliedOutputSize.width
-                    || captureSize->height != appliedOutputSize.height)
-                && nextDisplayTopologyPollAt > wallTime)
-            {
-                // The capture item may observe rotation before rcMonitor. The
-                // next owner iteration confirms geometry instead of accepting
-                // WGC dimensions as authority for moving the overlay window.
-                nextDisplayTopologyPollAt = wallTime;
-            }
+            // Recreate promptly, but let a complete DisplayConfig snapshot
+            // decide whether the output should follow or WGC must fall back.
+            static_cast<void>(
+                coordinatorCaptureSizeTracker.observeCaptureSize(
+                    *captureSize,
+                    appliedOutputSize));
             if (!backgroundTransition.beginFramePoolRecreate(*captureSize))
             {
                 throw std::logic_error(

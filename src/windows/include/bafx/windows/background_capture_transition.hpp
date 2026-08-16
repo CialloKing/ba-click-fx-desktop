@@ -79,7 +79,8 @@ enum class BackgroundCaptureFailure : std::uint8_t
     SensorStartFailed,
     FramePoolRecreateFailed,
     InclusionUnconfirmed,
-    SessionStopped
+    SessionStopped,
+    CaptureSizeMismatch
 };
 
 enum class BackgroundCaptureRequestResult : std::uint8_t
@@ -111,6 +112,7 @@ public:
     [[nodiscard]] bool beginSessionStopped() noexcept;
     [[nodiscard]] bool beginCaptureExclusionLost() noexcept;
     [[nodiscard]] bool beginBorderlessAccessLost() noexcept;
+    [[nodiscard]] bool beginCaptureSizeMismatch() noexcept;
 
     [[nodiscard]] std::optional<BackgroundCaptureAction> nextAction() const noexcept;
     // Observation must match nextAction(). Only an asynchronous borderless
