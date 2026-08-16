@@ -310,7 +310,6 @@ function Get-IdentityTemplateContentHash
         [string]$Path
     )
 
-    Add-Type -AssemblyName System.IO.Compression.FileSystem
     $archive = [IO.Compression.ZipFile]::OpenRead($Path)
     try
     {
@@ -610,9 +609,6 @@ function Assert-IdentityPayload
         [Parameter(Mandatory = $true)]
         [object]$PendingStateSeed
     )
-
-    Add-Type -AssemblyName System.IO.Compression
-    Add-Type -AssemblyName System.IO.Compression.FileSystem
 
     $identityDirectory = Join-Path $InstallRoot 'Identity'
     $metadataBaseName = "CialloKing.BaClickFxDesktop-$PackageVersion"
@@ -1750,6 +1746,11 @@ trap
 $script:InstallerStep = 'validate-environment'
 Assert-Administrator
 Assert-WindowsPowerShell
+$script:InstallerStep = 'load-compression-runtime'
+# Upgrade validation reads the previous MSIX before preparing the new package,
+# so both ZIP assemblies must be available independently of that later path.
+Add-Type -AssemblyName System.IO.Compression
+Add-Type -AssemblyName System.IO.Compression.FileSystem
 $script:InstallerStep = 'resolve-installer-paths'
 $installRoot = Resolve-ProtectedProgramFilesPath `
     -Path $InstallDirectory `
