@@ -51,6 +51,7 @@ public:
     void setClickParticleSettings(
         ClickParticleSettings settings,
         SimulationTime time) noexcept;
+    void setShardParticleSettings(ShardParticleSettings settings) noexcept;
     void setTrailLengthMultiplier(float multiplier) noexcept;
     void setInputSamplingRateHz(std::uint32_t rateHz) noexcept;
     void setAlwaysOnTrailEnabled(bool enabled, SimulationTime time);
@@ -86,6 +87,7 @@ private:
     float clickTimeScale_{1.0F};
     float trailTimeScale_{1.0F};
     ClickParticleSettings clickParticleSettings_{};
+    ShardParticleSettings shardParticleSettings_{};
     std::uint32_t inputSamplingRateHz_{0U};
     std::optional<SimulationTime> lastInputSampleAt_{};
     std::vector<RuntimeInstance> instances_{};

@@ -170,6 +170,43 @@ BAFX_TEST(click_triangle_atlas_frames_are_sampled_per_particle)
     BAFX_CHECK(foundNonAlternatingFrames);
 }
 
+BAFX_TEST(click_shard_settings_use_web_reference_pixel_units)
+{
+    Simulation simulation(20260716U);
+    ShardParticleSettings settings{};
+    settings.clickCount = 3U;
+    settings.clickLifetimeMinMs = 100.0F;
+    settings.clickLifetimeMaxMs = 100.0F;
+    settings.clickRadius = 0.0F;
+    settings.clickSpeedMin = 0.0F;
+    settings.clickSpeedMax = 0.0F;
+    settings.sizeMin = 54.0F;
+    settings.sizeMax = 54.0F;
+    simulation.setShardParticleSettings(settings);
+    simulation.pointerDown(goldenCenter, goldenViewport, 0ns);
+
+    const auto visible = spritesOfKind(
+        simulation.snapshot(goldenViewport, 50ms),
+        SpriteKind::Triangle);
+    BAFX_CHECK(visible.size() == 3U);
+    for (const Sprite* const shard : visible)
+    {
+        BAFX_CHECK_NEAR(shard->centerPixels.x, goldenCenter.x, 1.0e-4F);
+        BAFX_CHECK_NEAR(shard->centerPixels.y, goldenCenter.y, 1.0e-4F);
+        BAFX_CHECK(shard->sizePixels > 0.0F);
+        BAFX_CHECK_NEAR(
+            shard->sizePixels,
+            visible.front()->sizePixels,
+            1.0e-5F);
+    }
+
+    BAFX_CHECK(
+        countKind(
+            simulation.snapshot(goldenViewport, 150ms),
+            SpriteKind::Triangle)
+        == 0U);
+}
+
 BAFX_TEST(dissolve_ring_custom_data_follows_the_unity_particle_update_phase)
 {
     constexpr std::array sampleTimes{
@@ -1114,6 +1151,46 @@ BAFX_TEST(click_particle_spawn_settings_only_apply_to_new_activations)
         replacementRings.front()->sizePixels,
         originalRings.front()->sizePixels * 2.0F,
         1.0e-4F);
+}
+
+BAFX_TEST(shard_spawn_settings_only_affect_new_particles)
+{
+    SimulationRuntime runtime(20260716U);
+    ShardParticleSettings initial{};
+    initial.clickCount = 1U;
+    runtime.setShardParticleSettings(initial);
+    runtime.pointerDown(goldenCenter, goldenViewport, 0ns);
+    runtime.advance(1ns);
+
+    ShardParticleSettings replacement = initial;
+    replacement.clickCount = 3U;
+    replacement.sizeMin = 540.0F;
+    replacement.sizeMax = 540.0F;
+    runtime.setShardParticleSettings(replacement);
+    runtime.pointerMove(
+        PointF{goldenCenter.x + 200.0F, goldenCenter.y},
+        goldenViewport,
+        30ms);
+
+    const auto activeShards = spritesOfKind(
+        runtime.snapshot(goldenViewport, 100ms),
+        SpriteKind::Triangle);
+    BAFX_CHECK(activeShards.size() == 2U);
+    // The click shard retained its sampled size, while the drag shard emitted
+    // after the update used the new shared Web size range.
+    BAFX_CHECK(
+        activeShards.back()->sizePixels
+        > activeShards.front()->sizePixels * 5.0F);
+
+    runtime.pointerUp(100ms);
+    runtime.onFrameRendered(1100ms);
+    BAFX_CHECK(runtime.instanceCount() == 0U);
+    runtime.pointerDown(goldenCenter, goldenViewport, 1200ms);
+    BAFX_CHECK(
+        countKind(
+            runtime.snapshot(goldenViewport, 1200ms + 1ns),
+            SpriteKind::Triangle)
+        == 3U);
 }
 
 BAFX_TEST(click_particle_lifetimes_apply_to_an_existing_activation)

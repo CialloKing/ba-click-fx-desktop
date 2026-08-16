@@ -113,6 +113,21 @@ struct ClickParticleSettings
     float ringsRotationDirection{-1.0F};
 };
 
+// Values use the Web API's 1080p reference-pixel contract. Each click shard
+// locks these spawn inputs when it is created, so later changes cannot rewrite
+// an existing particle's trajectory or lifetime.
+struct ShardParticleSettings
+{
+    std::uint32_t clickCount{4U};
+    float clickLifetimeMinMs{600.0F};
+    float clickLifetimeMaxMs{700.0F};
+    float clickRadius{49.8769488F};
+    float clickSpeedMin{49.8769488F};
+    float clickSpeedMax{66.5025984F};
+    float sizeMin{16.6256496F};
+    float sizeMax{33.2512992F};
+};
+
 // Moving particles must scale around their own emission pivot; changing only
 // their quad size detaches click shards from the disk and ring.
 void applyGlobalScale(FrameSnapshot& snapshot, float scale) noexcept;
@@ -158,6 +173,7 @@ public:
     void setClickParticleSettings(
         ClickParticleSettings settings,
         SimulationTime time) noexcept;
+    void setShardParticleSettings(ShardParticleSettings settings) noexcept;
 
     // Product settings may change during an active stroke. Retain the
     // existing points and apply the new lifetime on the next simulation step.
@@ -287,6 +303,7 @@ private:
     float clickTimeScale_{1.0F};
     float trailTimeScale_{1.0F};
     ClickParticleSettings clickParticleSettings_{};
+    ShardParticleSettings shardParticleSettings_{};
     bool trailParkingMode_{false};
     bool trailRendererEnabled_{true};
     ClickParticleStepStates particleStepStates_{};

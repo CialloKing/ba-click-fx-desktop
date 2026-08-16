@@ -165,6 +165,7 @@ void SimulationRuntime::pointerMove(
         alwaysOnTrail_->setTrailLengthMultiplier(trailLengthMultiplier_);
         alwaysOnTrail_->setClickTimeScale(clickTimeScale_);
         alwaysOnTrail_->setTrailTimeScale(trailTimeScale_);
+        alwaysOnTrail_->setShardParticleSettings(shardParticleSettings_);
         alwaysOnTrail_->startTrail(screenPosition, viewport, simulationTime);
         return;
     }
@@ -320,6 +321,20 @@ void SimulationRuntime::setClickParticleSettings(
     if (alwaysOnTrail_.has_value())
     {
         alwaysOnTrail_->setClickParticleSettings(settings);
+    }
+}
+
+void SimulationRuntime::setShardParticleSettings(
+    const ShardParticleSettings settings) noexcept
+{
+    shardParticleSettings_ = settings;
+    for (RuntimeInstance& runtimeInstance : instances_)
+    {
+        runtimeInstance.simulation.setShardParticleSettings(settings);
+    }
+    if (alwaysOnTrail_.has_value())
+    {
+        alwaysOnTrail_->setShardParticleSettings(settings);
     }
 }
 
@@ -502,6 +517,7 @@ Simulation& SimulationRuntime::acquirePressedInstance(
     // Spawn-only count and radius settings must be installed after pool reuse
     // but before pointerDown samples this activation's particles.
     instance.setClickParticleSettings(clickParticleSettings_);
+    instance.setShardParticleSettings(shardParticleSettings_);
     instance.setTrailLengthMultiplier(trailLengthMultiplier_);
     instance.setClickTimeScale(clickTimeScale_);
     instance.setTrailTimeScale(trailTimeScale_);

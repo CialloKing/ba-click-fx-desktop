@@ -14,7 +14,6 @@ namespace
 {
 
 constexpr float triangleLocalScale = 0.3078824F;
-constexpr float clickShapeRadiusWorld = 0.3F * triangleLocalScale;
 constexpr float dragShapeRadiusWorld = 0.15F * triangleLocalScale;
 constexpr float dragEmissionStepWorld = 1.0F / 5.0F;
 constexpr float trailPointStepWorld = 0.01F;
@@ -35,6 +34,9 @@ constexpr float maximumParticleLifetimeMs = 10000.0F;
 constexpr std::uint32_t maximumRingCount = 64U;
 constexpr float maximumRingRadius = 2000.0F;
 constexpr float maximumRingAngularVelocityMultiplier = 100.0F;
+constexpr std::uint32_t maximumClickShardCount = 1000U;
+constexpr float maximumShardRadiusOrSpeed = 5000.0F;
+constexpr float maximumShardSize = 2000.0F;
 constexpr float maximumParticleTimestepSeconds = 0.03F;
 constexpr std::uint32_t maximumDragParticles = 50U;
 constexpr double releaseLifetimeSeconds = 1.0;
@@ -130,6 +132,51 @@ struct ColorKey
         defaults.ringsRotationDirection,
         -1.0F,
         1.0F);
+    return settings;
+}
+
+[[nodiscard]] ShardParticleSettings normalizeShardParticleSettings(
+    ShardParticleSettings settings) noexcept
+{
+    const ShardParticleSettings defaults{};
+    settings.clickCount = std::min(
+        settings.clickCount,
+        maximumClickShardCount);
+    settings.clickLifetimeMinMs = normalizeFiniteRange(
+        settings.clickLifetimeMinMs,
+        defaults.clickLifetimeMinMs,
+        minimumParticleLifetimeMs,
+        maximumParticleLifetimeMs);
+    settings.clickLifetimeMaxMs = normalizeFiniteRange(
+        settings.clickLifetimeMaxMs,
+        defaults.clickLifetimeMaxMs,
+        minimumParticleLifetimeMs,
+        maximumParticleLifetimeMs);
+    settings.clickRadius = normalizeFiniteRange(
+        settings.clickRadius,
+        defaults.clickRadius,
+        0.0F,
+        maximumShardRadiusOrSpeed);
+    settings.clickSpeedMin = normalizeFiniteRange(
+        settings.clickSpeedMin,
+        defaults.clickSpeedMin,
+        0.0F,
+        maximumShardRadiusOrSpeed);
+    settings.clickSpeedMax = normalizeFiniteRange(
+        settings.clickSpeedMax,
+        defaults.clickSpeedMax,
+        0.0F,
+        maximumShardRadiusOrSpeed);
+    settings.sizeMin = normalizeFiniteRange(
+        settings.sizeMin,
+        defaults.sizeMin,
+        0.0F,
+        maximumShardSize);
+    settings.sizeMax = normalizeFiniteRange(
+        settings.sizeMax,
+        defaults.sizeMax,
+        0.0F,
+        maximumShardSize);
     return settings;
 }
 
@@ -528,10 +575,11 @@ Simulation::Simulation(const std::uint64_t seed)
     , random_(seed)
     , atlasRandom_(seed ^ atlasRandomStream)
 {
-    // rings.count is sampled on pointerDown. Reserve its validated upper bound
-    // so the first high-count click does not allocate on the input path.
+    // Ring and click-shard counts are sampled on pointerDown. Reserve their
+    // validated upper bounds so a configured burst does not allocate on the
+    // latency-sensitive input path.
     rings_.reserve(maximumRingCount);
-    triangles_.reserve(4U + maximumDragParticles);
+    triangles_.reserve(maximumClickShardCount + maximumDragParticles);
     trail_.reserve(128);
     trailParkingPoints_.reserve(128);
 }
@@ -662,6 +710,15 @@ void Simulation::setClickParticleSettings(
             particleStepStatesAt(time).dissolveRings.particleAgeSeconds);
     }
     clickParticleSettings_ = normalized;
+}
+
+void Simulation::setShardParticleSettings(
+    const ShardParticleSettings settings) noexcept
+{
+    // Every value is consumed only while a shard is born. Updating this state
+    // during a stroke therefore affects later drag shards without mutating any
+    // already emitted click or drag particle.
+    shardParticleSettings_ = normalizeShardParticleSettings(settings);
 }
 
 void Simulation::pointerDown(
@@ -1253,17 +1310,33 @@ void Simulation::relocatePendingClick(
 
 void Simulation::emitClickTriangles(const SimulationTime clickTime)
 {
-    for (std::uint32_t index = 0; index < 4U; ++index)
+    const float radiusWorld = shardParticleSettings_.clickRadius
+        / referenceWorldToPixels;
+    const float speedMinimumWorld = shardParticleSettings_.clickSpeedMin
+        / referenceWorldToPixels;
+    const float speedMaximumWorld = shardParticleSettings_.clickSpeedMax
+        / referenceWorldToPixels;
+    const float sizeMinimumWorld = shardParticleSettings_.sizeMin
+        / referenceWorldToPixels;
+    const float sizeMaximumWorld = shardParticleSettings_.sizeMax
+        / referenceWorldToPixels;
+    for (std::uint32_t index = 0;
+         index < shardParticleSettings_.clickCount;
+         ++index)
     {
         // Unity's Circle arc is Random: burst particles sample independent positions.
         const float angle = random_.range(0.0F, 2.0F * std::numbers::pi_v<float>);
         const PointF radial = direction(angle);
         triangles_.push_back(MovingParticle{
-            add(effectOriginWorld_, multiply(radial, clickShapeRadiusWorld)),
-            multiply(radial, random_.range(0.3F, 0.4F) * triangleLocalScale),
+            add(effectOriginWorld_, multiply(radial, radiusWorld)),
+            multiply(
+                radial,
+                random_.range(speedMinimumWorld, speedMaximumWorld)),
             clickTime,
-            random_.range(0.6F, 0.7F),
-            random_.range(0.1F, 0.2F) * triangleLocalScale,
+            millisecondsToSeconds(random_.range(
+                shardParticleSettings_.clickLifetimeMinMs,
+                shardParticleSettings_.clickLifetimeMaxMs)),
+            random_.range(sizeMinimumWorld, sizeMaximumWorld),
             atlasRandom_.unit() < 0.5F ? 0U : 1U,
             false,
             effectOriginWorld_});
@@ -1288,12 +1361,16 @@ void Simulation::emitDragTriangle(
 
     const float angle = random_.range(0.0F, 2.0F * std::numbers::pi_v<float>);
     const PointF radial = direction(angle);
+    const float sizeMinimumWorld = shardParticleSettings_.sizeMin
+        / referenceWorldToPixels;
+    const float sizeMaximumWorld = shardParticleSettings_.sizeMax
+        / referenceWorldToPixels;
     triangles_.push_back(MovingParticle{
         add(worldPosition, multiply(radial, dragShapeRadiusWorld)),
         multiply(radial, random_.range(0.2F, 0.3F) * triangleLocalScale),
         trailTime,
         random_.range(0.2F, 0.4F),
-        random_.range(0.1F, 0.2F) * triangleLocalScale,
+        random_.range(sizeMinimumWorld, sizeMaximumWorld),
         atlasRandom_.unit() < 0.5F ? 0U : 1U,
         true,
         worldPosition});
