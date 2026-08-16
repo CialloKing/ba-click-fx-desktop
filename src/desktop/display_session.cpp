@@ -381,12 +381,20 @@ DisplaySessionRetargetResult DisplaySession::retargetFxOnly(
         lastPresentedDrawableContent_ = false;
         resetFramePacing();
         acceptAppliedTarget(std::move(target), wakeWindow);
-        colorCapabilities_ = targetColorCapabilities;
-        colorRefreshRetriesRemaining_ = targetColorCapabilities.has_value()
-                && bafx::windows::displayColorStateComplete(
-                    *targetColorCapabilities)
-            ? 0U
-            : maximumColorRefreshRetries;
+        if (targetColorCapabilities.has_value()
+            && bafx::windows::displayColorStateComplete(
+                *targetColorCapabilities))
+        {
+            colorCapabilities_ = targetColorCapabilities;
+            colorRefreshRetriesRemaining_ = 0U;
+        }
+        else
+        {
+            // A target migration may briefly expose only a partial
+            // DisplayConfig path. Keep the last complete contract (or remain
+            // unavailable for a new source) until the bounded retry succeeds.
+            colorRefreshRetriesRemaining_ = maximumColorRefreshRetries;
+        }
         clearRenderFault();
         return DisplaySessionRetargetResult{
             output.adapter,
@@ -1426,7 +1434,8 @@ DisplaySessionColorRefreshStatus DisplaySession::refreshColorCapabilities(
         // last complete HDR contract during a mode transition.
         colorRefreshRetriesRemaining_ = maximumColorRefreshRetries;
     }
-    if (fallback.has_value())
+    if (fallback.has_value()
+        && bafx::windows::displayColorStateComplete(*fallback))
     {
         colorCapabilities_ = fallback;
         return DisplaySessionColorRefreshStatus::RetainedTransactionSnapshot;
