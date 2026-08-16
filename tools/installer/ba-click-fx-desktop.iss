@@ -69,6 +69,38 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 ; jrsoftware/issrc commit 5680c948e1de07e71cbd27cad7d4f5e75223afba.
 Name: "chinesesimplified"; MessagesFile: "{#SourcePath}\ChineseSimplified.isl"
 
+[CustomMessages]
+english.OriginalUserTempUnavailable=The original user temporary directory is unavailable.
+chinesesimplified.OriginalUserTempUnavailable=无法访问原始用户的临时目录。
+english.PowerShellFailedWithExitCode=%1 failed with exit code %2.
+chinesesimplified.PowerShellFailedWithExitCode=%1失败，退出代码为 %2。
+english.PowerShellCouldNotStart=%1 could not be started.
+chinesesimplified.PowerShellCouldNotStart=无法启动“%1”操作。
+english.PowerShellCouldNotStartWin32=%1 could not be started. Win32 error %2: %3.
+chinesesimplified.PowerShellCouldNotStartWin32=无法启动“%1”操作。Win32 错误 %2：%3。
+english.PowerShellOutput=PowerShell output: %1
+chinesesimplified.PowerShellOutput=PowerShell 输出：%1
+english.OutputCaptureDetail=Output capture detail: %1
+chinesesimplified.OutputCaptureDetail=输出捕获详情：%1
+english.DetailedInstallerLog=Detailed installer log: %1
+chinesesimplified.DetailedInstallerLog=详细安装日志：%1
+english.CaptureOriginalUserContext=Capturing the original user context
+chinesesimplified.CaptureOriginalUserContext=捕获原始用户上下文
+english.PrepareMachineInstallation=Preparing the machine installation
+chinesesimplified.PrepareMachineInstallation=准备计算机级安装
+english.RegisterPackage=Registering the package
+chinesesimplified.RegisterPackage=注册程序包
+english.FinalizeMachineInstallation=Finalizing the machine installation
+chinesesimplified.FinalizeMachineInstallation=完成计算机级安装
+english.RollbackPendingInstallation=Rolling back the pending installation
+chinesesimplified.RollbackPendingInstallation=回滚未完成的安装
+english.RemoveMachineIdentity=Removing the machine identity
+chinesesimplified.RemoveMachineIdentity=移除计算机身份
+english.RollbackRecovery=Rollback also failed. The installation files and recovery state were retained; reopen Control Center to repair the installation.
+chinesesimplified.RollbackRecovery=回滚也失败了。安装文件和恢复状态已保留；请重新打开控制中心修复安装。
+english.FinalizeRepair=The package was committed, but final cleanup needs another repair pass from Control Center.
+chinesesimplified.FinalizeRepair=程序包已提交，但最终清理仍需在控制中心中再次执行修复。
+
 [Files]
 Source: "{#StageRoot}\ba-click-fx-desktop.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#StageRoot}\BAFX.ControlCenter.exe"; DestDir: "{app}"; Flags: ignoreversion
@@ -119,7 +151,7 @@ begin
   TempRoot := GetEnv('TEMP');
   if TempRoot = '' then
   begin
-    RaiseException('The original user temporary directory is unavailable.');
+    RaiseException(CustomMessage('OriginalUserTempUnavailable'));
   end;
   Result := GenerateUniqueName(TempRoot, '.json');
 end;
@@ -319,15 +351,21 @@ function FormatPowerShellFailure(
 begin
   if Started then
   begin
-    Result := Description + ' failed with exit code ' + IntToStr(ExitCode) + '.';
+    Result := FmtMessage(
+      CustomMessage('PowerShellFailedWithExitCode'), [Description, IntToStr(ExitCode)]);
   end
   else
   begin
-    Result := Description + ' could not be started.';
     if ExitCode >= 0 then
     begin
-      Result := Result + ' Win32 error ' + IntToStr(ExitCode) + ': ' +
-        SysErrorMessage(ExitCode) + '.';
+      Result := FmtMessage(
+        CustomMessage('PowerShellCouldNotStartWin32'), [
+          Description, IntToStr(ExitCode), SysErrorMessage(ExitCode)]);
+    end
+    else
+    begin
+      Result := FmtMessage(
+        CustomMessage('PowerShellCouldNotStart'), [Description]);
     end;
   end;
   if LastPowerShellFailureSummary <> '' then
@@ -339,12 +377,12 @@ begin
     (LastPowerShellRawOutput <> '') then
   begin
     Result := Result + #13#10 +
-      'PowerShell output: ' + LastPowerShellRawOutput;
+      FmtMessage(CustomMessage('PowerShellOutput'), [LastPowerShellRawOutput]);
   end;
   if LastPowerShellOutputError <> '' then
   begin
     Result := Result + #13#10 +
-      'Output capture detail: ' + LastPowerShellOutputError;
+      FmtMessage(CustomMessage('OutputCaptureDetail'), [LastPowerShellOutputError]);
   end;
 end;
 
@@ -356,7 +394,8 @@ begin
   LogPath := ExpandConstant('{log}');
   if LogPath <> '' then
   begin
-    Result := Result + #13#10#13#10 + 'Detailed installer log: ' + LogPath;
+    Result := Result + #13#10#13#10 +
+      FmtMessage(CustomMessage('DetailedInstallerLog'), [LogPath]);
   end;
 end;
 
@@ -493,7 +532,7 @@ begin
   RollbackResultPath := CreateOriginalUserStatePath();
 
   RequirePowerShellSuccess(
-    'Capturing the original user context',
+    CustomMessage('CaptureOriginalUserContext'),
     AddBackslash(InstallerRoot) + 'capture-user-context.ps1',
     '-OutputPath ' + QuoteArgument(UserContextPath),
     True,
@@ -515,13 +554,13 @@ begin
     ExitCode) then
   begin
     PrimaryFailure := FormatPowerShellFailure(
-      'Preparing the machine installation', False, ExitCode);
+      CustomMessage('PrepareMachineInstallation'), False, ExitCode);
     RaiseException(IncludeInstallerLog(PrimaryFailure));
   end;
   if ExitCode <> 0 then
   begin
     PrimaryFailure := FormatPowerShellFailure(
-      'Preparing the machine installation', True, ExitCode);
+      CustomMessage('PrepareMachineInstallation'), True, ExitCode);
     RunBestEffortRollback(
       InstallRoot,
       InstallerRoot,
@@ -531,8 +570,7 @@ begin
     begin
       ShowRecoveryFailure(
         PrimaryFailure,
-        'Rollback also failed. The installation files and recovery state ' +
-          'were retained; reopen Control Center to repair the installation.');
+        CustomMessage('RollbackRecovery'));
       Exit;
     end;
     RaiseException(IncludeInstallerLog(PrimaryFailure));
@@ -549,7 +587,7 @@ begin
   begin
     LogRegistrationResult;
     PrimaryFailure := FormatPowerShellFailure(
-      'Registering the package', False, ExitCode);
+      CustomMessage('RegisterPackage'), False, ExitCode);
     RunBestEffortRollback(
       InstallRoot,
       InstallerRoot,
@@ -559,8 +597,7 @@ begin
     begin
       ShowRecoveryFailure(
         PrimaryFailure,
-        'Rollback also failed. The installation files and recovery state ' +
-          'were retained; reopen Control Center to repair the installation.');
+        CustomMessage('RollbackRecovery'));
       Exit;
     end;
     RaiseException(IncludeInstallerLog(PrimaryFailure));
@@ -569,7 +606,7 @@ begin
   if ExitCode <> 0 then
   begin
     PrimaryFailure := FormatPowerShellFailure(
-      'Registering the package', True, ExitCode);
+      CustomMessage('RegisterPackage'), True, ExitCode);
     RunBestEffortRollback(
       InstallRoot,
       InstallerRoot,
@@ -579,8 +616,7 @@ begin
     begin
       ShowRecoveryFailure(
         PrimaryFailure,
-        'Rollback also failed. The installation files and recovery state ' +
-          'were retained; reopen Control Center to repair the installation.');
+        CustomMessage('RollbackRecovery'));
       Exit;
     end;
     RaiseException(IncludeInstallerLog(PrimaryFailure));
@@ -594,7 +630,7 @@ begin
     ExitCode) then
   begin
     PrimaryFailure := FormatPowerShellFailure(
-      'Finalizing the machine installation', False, ExitCode);
+      CustomMessage('FinalizeMachineInstallation'), False, ExitCode);
     RunBestEffortRollback(
       InstallRoot,
       InstallerRoot,
@@ -604,8 +640,7 @@ begin
     begin
       ShowRecoveryFailure(
         PrimaryFailure,
-        'Rollback also failed. The installation files and recovery state ' +
-          'were retained; reopen Control Center to repair the installation.');
+        CustomMessage('RollbackRecovery'));
       Exit;
     end;
     RaiseException(IncludeInstallerLog(PrimaryFailure));
@@ -613,14 +648,13 @@ begin
   if ExitCode <> 0 then
   begin
     PrimaryFailure := FormatPowerShellFailure(
-      'Finalizing the machine installation', True, ExitCode);
+      CustomMessage('FinalizeMachineInstallation'), True, ExitCode);
     if FileExists(AddBackslash(InstallerRoot) + 'INSTALL-STATE.json') and
       not FileExists(MachineStatePath) then
     begin
       ShowRecoveryFailure(
         PrimaryFailure,
-        'The package was committed, but final cleanup needs another repair ' +
-          'pass from Control Center.');
+        CustomMessage('FinalizeRepair'));
       Exit;
     end;
     RunBestEffortRollback(
@@ -632,8 +666,7 @@ begin
     begin
       ShowRecoveryFailure(
         PrimaryFailure,
-        'Rollback also failed. The installation files and recovery state ' +
-          'were retained; reopen Control Center to repair the installation.');
+        CustomMessage('RollbackRecovery'));
       Exit;
     end;
     RaiseException(IncludeInstallerLog(PrimaryFailure));
@@ -696,12 +729,12 @@ begin
       ExitCode) then
     begin
       RaiseException(IncludeInstallerLog(FormatPowerShellFailure(
-        'Rolling back the pending installation', False, ExitCode)));
+        CustomMessage('RollbackPendingInstallation'), False, ExitCode)));
     end;
     if ExitCode <> 0 then
     begin
       RaiseException(IncludeInstallerLog(FormatPowerShellFailure(
-        'Rolling back the pending installation', True, ExitCode)));
+        CustomMessage('RollbackPendingInstallation'), True, ExitCode)));
     end;
     if not FileExists(InstallStatePath) then
     begin
@@ -720,11 +753,11 @@ begin
     ExitCode) then
   begin
     RaiseException(IncludeInstallerLog(FormatPowerShellFailure(
-      'Removing the machine identity', False, ExitCode)));
+      CustomMessage('RemoveMachineIdentity'), False, ExitCode)));
   end;
   if ExitCode <> 0 then
   begin
     RaiseException(IncludeInstallerLog(FormatPowerShellFailure(
-      'Removing the machine identity', True, ExitCode)));
+      CustomMessage('RemoveMachineIdentity'), True, ExitCode)));
   end;
 end;

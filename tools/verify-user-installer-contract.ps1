@@ -401,6 +401,22 @@ function Test-InnoPayloadContract
         -Text $inno `
         -Pattern '\{cm:LaunchProgram,BAFX Control Center\}' `
         -Description 'localized post-install Control Center action'
+    Assert-TextContains `
+        -Text $inno `
+        -Pattern 'english\.PowerShellFailedWithExitCode=[^\r\n]+[\s\S]*chinesesimplified\.PowerShellFailedWithExitCode=[^\r\n]+' `
+        -Description 'localized installer failure summary'
+    Assert-TextContains `
+        -Text $inno `
+        -Pattern 'english\.RollbackRecovery=[^\r\n]+[\s\S]*chinesesimplified\.RollbackRecovery=[^\r\n]+' `
+        -Description 'localized installer recovery guidance'
+    Assert-TextContains `
+        -Text $inno `
+        -Pattern "CustomMessage\('PrepareMachineInstallation'\)[\s\S]*CustomMessage\('RegisterPackage'\)[\s\S]*CustomMessage\('FinalizeMachineInstallation'\)" `
+        -Description 'machine install phases use localized descriptions'
+    Assert-TextExcludes `
+        -Text $inno `
+        -Pattern "FormatPowerShellFailure\(\s*'[^']+'" `
+        -Description 'hard-coded user-facing PowerShell phase descriptions'
     $filesSectionMatch = [regex]::Match(
         $inno,
         '(?ms)^\[Files\]\s*(?<body>.*?)(?=^\[|\z)')
@@ -452,7 +468,7 @@ function Test-InnoPayloadContract
         -Description 'installer recognizes structured PowerShell diagnostics'
     Assert-TextContains `
         -Text $inno `
-        -Pattern 'LastPowerShellRawOutput[\s\S]*PowerShell output:' `
+        -Pattern "LastPowerShellRawOutput[\s\S]*CustomMessage\('PowerShellOutput'\)" `
         -Description 'unstructured early PowerShell errors remain visible'
     Assert-TextContains `
         -Text $inno `
