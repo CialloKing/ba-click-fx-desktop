@@ -1442,14 +1442,10 @@ private:
     root.emplace("disk", JsonValue(std::move(disk)));
     root.emplace("rings", JsonValue(std::move(rings)));
     root.emplace("shards", JsonValue(std::move(shards)));
-    root.emplace("trailAlways", JsonValue(!config.input.trailOnlyWhilePressed));
     root.emplace("trailEnabled", JsonValue(config.effects.trailEnabled));
     root.emplace(
         "trailTimeScale",
         JsonValue(static_cast<double>(config.effects.trailTimeScale)));
-    root.emplace(
-        "inputSamplingRate",
-        JsonValue(static_cast<double>(config.input.samplingRateHz)));
     root.emplace("trail", JsonValue(std::move(trail)));
     root.emplace("bloom", JsonValue(std::move(bloom)));
     return JsonValue(std::move(root));
@@ -1685,10 +1681,51 @@ ConfigLoadResult parseJson(const std::string_view json) noexcept
 namespace
 {
 
+[[nodiscard]] bool isSupportedFxParameterPath(
+    const std::string_view path) noexcept
+{
+    static constexpr std::string_view paths[] = {
+        "clickEnabled",
+        "clickTimeScale",
+        "opacity",
+        "scale",
+        "trailEnabled",
+        "trailTimeScale",
+        "disk.lifetimeMs",
+        "disk.radius",
+        "rings.angularVelocityMultiplier",
+        "rings.count",
+        "rings.hdrIntensity",
+        "rings.lifetimeMs",
+        "rings.radiusMax",
+        "rings.radiusMin",
+        "rings.rotationDirection",
+        "shards.clickCount",
+        "shards.clickLifetimeMaxMs",
+        "shards.clickLifetimeMinMs",
+        "shards.clickRadius",
+        "shards.clickSpeedMax",
+        "shards.clickSpeedMin",
+        "shards.hdrIntensity",
+        "shards.sizeMax",
+        "shards.sizeMin",
+        "trail.lifetimeMs",
+        "trail.trailOpacity",
+        "trail.width",
+        "bloom.clamp",
+        "bloom.diffusion",
+        "bloom.intensity",
+        "bloom.softKnee",
+        "bloom.threshold"};
+    return std::find(std::begin(paths), std::end(paths), path)
+        != std::end(paths);
+}
+
 [[nodiscard]] ConfigPatchResult applyPatchJsonImpl(
     const Config& base,
     const std::string_view json,
-    const bool validateCandidate) noexcept
+    const bool validateCandidate,
+    const bool fxOnly) noexcept
 {
     try
     {
@@ -1749,6 +1786,18 @@ namespace
                 base,
                 ConfigStatus::ValidationError,
                 "patch path must be a non-empty string",
+                true,
+                std::nullopt};
+        }
+        if (fxOnly && !isSupportedFxParameterPath(*path))
+        {
+            // The FX API mirrors a deliberate Web-compatible subset. Keeping
+            // this gate before value parsing prevents product settings from
+            // leaking through aliases that happen to share the patch parser.
+            return ConfigPatchResult{
+                base,
+                ConfigStatus::ValidationError,
+                "FX parameter path '" + *path + "' is not supported",
                 true,
                 std::nullopt};
         }
@@ -2186,12 +2235,23 @@ ConfigPatchResult applyPatchJson(
     const Config& base,
     const std::string_view json) noexcept
 {
-    return applyPatchJsonImpl(base, json, true);
+    return applyPatchJsonImpl(base, json, true, false);
 }
 
-ConfigBatchPatchResult applyPatchBatchJson(
+ConfigPatchResult applyFxPatchJson(
     const Config& base,
     const std::string_view json) noexcept
+{
+    return applyPatchJsonImpl(base, json, true, true);
+}
+
+namespace
+{
+
+[[nodiscard]] ConfigBatchPatchResult applyPatchBatchJsonImpl(
+    const Config& base,
+    const std::string_view json,
+    const bool fxOnly) noexcept
 {
     try
     {
@@ -2258,6 +2318,15 @@ ConfigBatchPatchResult applyPatchBatchJson(
             {
                 continue;
             }
+            if (fxOnly && !isSupportedFxParameterPath(entry.first))
+            {
+                return ConfigBatchPatchResult{
+                    base,
+                    ConfigStatus::ValidationError,
+                    "FX parameter path '" + entry.first + "' is not supported",
+                    true,
+                    expectedGeneration};
+            }
             JsonValue::Object single;
             single.emplace("path", JsonValue(entry.first));
             single.emplace("value", entry.second);
@@ -2269,7 +2338,8 @@ ConfigBatchPatchResult applyPatchBatchJson(
             const ConfigPatchResult result = applyPatchJsonImpl(
                 candidate,
                 singleJson,
-                false);
+                false,
+                fxOnly);
             if (!result.succeeded())
             {
                 return ConfigBatchPatchResult{
@@ -2317,6 +2387,15 @@ ConfigBatchPatchResult applyPatchBatchJson(
     }
 }
 
+}
+
+ConfigBatchPatchResult applyPatchBatchJson(
+    const Config& base,
+    const std::string_view json) noexcept
+{
+    return applyPatchBatchJsonImpl(base, json, false);
+}
+
 ConfigPatchResult setFxParam(
     const Config& base,
     const std::string_view path,
@@ -2342,7 +2421,7 @@ ConfigPatchResult setFxParam(
         patch.emplace("value", *value);
         std::string request;
         appendJsonValue(JsonValue(std::move(patch)), request, false, 0U);
-        return applyPatchJson(base, request);
+        return applyFxPatchJson(base, request);
     }
     catch (const std::exception& error)
     {
@@ -2368,7 +2447,7 @@ ConfigBatchPatchResult setFxParams(
     const Config& base,
     const std::string_view patchJson) noexcept
 {
-    return applyPatchBatchJson(base, patchJson);
+    return applyPatchBatchJsonImpl(base, patchJson, true);
 }
 
 std::string getFxConfig(const Config& config, const bool pretty)

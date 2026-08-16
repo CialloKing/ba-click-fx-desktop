@@ -210,6 +210,12 @@ struct ConfigSaveResult
     const Config& base,
     std::string_view json) noexcept;
 
+// Applies one IPC-style patch through the canonical FX path surface. Product
+// settings such as input, display, background, and system remain SetConfig-only.
+[[nodiscard]] ConfigPatchResult applyFxPatchJson(
+    const Config& base,
+    std::string_view json) noexcept;
+
 // Applies a Web-style object of flat dot paths atomically. Every value is
 // validated against the same single-patch contract before the result changes.
 [[nodiscard]] ConfigBatchPatchResult applyPatchBatchJson(

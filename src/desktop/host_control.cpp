@@ -271,25 +271,45 @@ bafx::windows::IpcResponse HostControlPlane::handleSetFxParams(
     const std::string_view payload,
     const bool batch) noexcept
 {
-    if (!batch)
-    {
-        return handleSetConfig(payload);
-    }
-
     bafx::config::Config baseConfig;
     {
         std::lock_guard<std::mutex> lock(mutex_);
         baseConfig = config_;
     }
-    const bafx::config::ConfigBatchPatchResult patch =
-        bafx::config::setFxParams(baseConfig, payload);
-    if (!patch.succeeded())
+
+    bafx::config::Config candidate{};
+    std::optional<std::uint64_t> expectedGeneration;
+    if (batch)
     {
-        return bafx::windows::IpcResponse::failure(
-            "invalid_fx_params",
-            patch.message.empty() ? "FX parameter patch is invalid" : patch.message);
+        const bafx::config::ConfigBatchPatchResult patch =
+            bafx::config::setFxParams(baseConfig, payload);
+        if (!patch.succeeded())
+        {
+            return bafx::windows::IpcResponse::failure(
+                "invalid_fx_params",
+                patch.message.empty()
+                    ? "FX parameter patch is invalid"
+                    : patch.message);
+        }
+        candidate = patch.config;
+        expectedGeneration = patch.expectedGeneration;
     }
-    if (!patch.expectedGeneration.has_value())
+    else
+    {
+        const bafx::config::ConfigPatchResult patch =
+            bafx::config::applyFxPatchJson(baseConfig, payload);
+        if (!patch.succeeded())
+        {
+            return bafx::windows::IpcResponse::failure(
+                "invalid_fx_params",
+                patch.message.empty()
+                    ? "FX parameter patch is invalid"
+                    : patch.message);
+        }
+        candidate = patch.config;
+        expectedGeneration = patch.expectedGeneration;
+    }
+    if (!expectedGeneration.has_value())
     {
         return bafx::windows::IpcResponse::failure(
             "invalid_fx_params",
@@ -297,21 +317,21 @@ bafx::windows::IpcResponse HostControlPlane::handleSetFxParams(
     }
 
     std::lock_guard<std::mutex> lock(mutex_);
-    if (*patch.expectedGeneration != generation_)
+    if (*expectedGeneration != generation_)
     {
         return bafx::windows::IpcResponse::failure(
             "generation_conflict",
             "configuration generation changed; refresh before retrying");
     }
     const bafx::config::ConfigSaveResult saved =
-        bafx::config::saveConfigAtomic(configPath_, patch.config);
+        bafx::config::saveConfigAtomic(configPath_, candidate);
     if (!saved.succeeded())
     {
         return bafx::windows::IpcResponse::failure(
             "config_write_failed",
             saved.message.empty() ? "configuration could not be saved" : saved.message);
     }
-    config_ = patch.config;
+    config_ = candidate;
     ++generation_;
     return bafx::windows::IpcResponse::success(
         bafx::config::getFxConfig(config_, false));

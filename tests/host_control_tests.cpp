@@ -221,10 +221,8 @@ BAFX_TEST(host_control_fx_config_and_single_param_round_trip_over_ipc)
     BAFX_CHECK(fetched.succeeded());
     BAFX_CHECK(fetched.payload == bafx::config::getFxConfig(initial, false));
     BAFX_CHECK(fetched.payload.find("\"schemaVersion\"") == std::string::npos);
-    BAFX_CHECK(fetched.payload.find("\"trailAlways\":true") != std::string::npos);
-    BAFX_CHECK(
-        fetched.payload.find("\"inputSamplingRate\":120")
-        != std::string::npos);
+    BAFX_CHECK(fetched.payload.find("\"trailAlways\"") == std::string::npos);
+    BAFX_CHECK(fetched.payload.find("\"inputSamplingRate\"") == std::string::npos);
     BAFX_CHECK(fetched.payload.find("\"lifetimeMs\":350")
         != std::string::npos);
     BAFX_CHECK(fetched.payload.find("\"count\":4") != std::string::npos);
@@ -250,6 +248,16 @@ BAFX_TEST(host_control_fx_config_and_single_param_round_trip_over_ipc)
         persisted.config.effects.diskLifetimeMs,
         500.0F,
         0.00001F);
+
+    const bafx::windows::IpcClientResponse rejectedDisplay = client.transact(
+        "SetFxParam {\"generation\":2,\"path\":\"display.hdrEnabled\",\"value\":true}");
+    const bafx::desktop::HostStateSnapshot afterRejectedDisplay =
+        control.snapshot();
+    BAFX_CHECK(rejectedDisplay.transportSucceeded());
+    BAFX_CHECK(!rejectedDisplay.succeeded());
+    BAFX_CHECK(rejectedDisplay.errorCode == "invalid_fx_params");
+    BAFX_CHECK(afterRejectedDisplay.generation == 2U);
+    BAFX_CHECK(!afterRejectedDisplay.config.display.hdrEnabled);
 
     const bafx::windows::IpcClientResponse stale = client.transact(
         "SetFxParam {\"generation\":1,\"path\":\"disk.lifetimeMs\",\"value\":750}");
@@ -387,6 +395,21 @@ BAFX_TEST(host_control_fx_batch_is_atomic_and_reset_preserves_other_sections)
         persistedAfterRejected.config.effects.bloomSoftKnee,
         0.5F,
         0.00001F);
+
+    const bafx::windows::IpcClientResponse rejectedProductPath = client.transact(
+        "SetFxParams {\"generation\":2,\"patch\":{"
+        "\"opacity\":0.75,\"input.samplingRateHz\":30}}");
+    const bafx::desktop::HostStateSnapshot afterRejectedProductPath =
+        control.snapshot();
+    BAFX_CHECK(rejectedProductPath.transportSucceeded());
+    BAFX_CHECK(!rejectedProductPath.succeeded());
+    BAFX_CHECK(rejectedProductPath.errorCode == "invalid_fx_params");
+    BAFX_CHECK(afterRejectedProductPath.generation == 2U);
+    BAFX_CHECK_NEAR(
+        afterRejectedProductPath.config.effects.opacity,
+        0.25F,
+        0.00001F);
+    BAFX_CHECK(afterRejectedProductPath.config.input.samplingRateHz == 144U);
 
     const bafx::windows::IpcClientResponse reset =
         client.transact("ResetFxConfig");

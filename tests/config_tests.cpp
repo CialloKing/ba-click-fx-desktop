@@ -374,6 +374,8 @@ BAFX_TEST(config_current_effect_fields_round_trip_through_file)
     {
         BAFX_CHECK(fxConfig.find(fragment) != std::string::npos);
     }
+    BAFX_CHECK(fxConfig.find("\"trailAlways\"") == std::string::npos);
+    BAFX_CHECK(fxConfig.find("\"inputSamplingRate\"") == std::string::npos);
 
     removeTestTree(path);
 }
@@ -667,6 +669,21 @@ BAFX_TEST(config_fx_parameter_boundaries_normalize_web_units)
         BAFX_CHECK(result.config.effects.clickTimeScale == base.effects.clickTimeScale);
         BAFX_CHECK(result.config.effects.bloomClamp == base.effects.bloomClamp);
     }
+
+    for (const std::string_view nonFxPath : {
+             "background.mode",
+             "display.hdrEnabled",
+             "input.samplingRateHz",
+             "performance.idleOptimization",
+             "system.startWithWindows",
+             "trailAlways",
+             "inputSamplingRate",
+             "effects.opacity"})
+    {
+        const auto result = bafx::config::setFxParam(base, nonFxPath, "true");
+        BAFX_CHECK(!result.succeeded());
+        BAFX_CHECK(result.status == bafx::config::ConfigStatus::ValidationError);
+    }
 }
 
 BAFX_TEST(config_fx_parameter_batch_is_atomic_and_preserves_generation)
@@ -727,6 +744,15 @@ BAFX_TEST(config_fx_parameter_batch_is_atomic_and_preserves_generation)
     BAFX_CHECK(rejected.config.effects.opacity == base.effects.opacity);
     BAFX_CHECK(rejected.config.effects.bloomSoftKnee == base.effects.bloomSoftKnee);
 
+    const auto rejectedProductPath = bafx::config::setFxParams(
+        base,
+        R"json({"generation":7,"patch":{"opacity":0.25,"display.hdrEnabled":true}})json");
+    BAFX_CHECK(!rejectedProductPath.succeeded());
+    BAFX_CHECK(rejectedProductPath.expectedGeneration.has_value());
+    BAFX_CHECK(*rejectedProductPath.expectedGeneration == 7U);
+    BAFX_CHECK(rejectedProductPath.config.effects.opacity == base.effects.opacity);
+    BAFX_CHECK(rejectedProductPath.config.display.hdrEnabled == base.display.hdrEnabled);
+
     const auto reversedRanges = bafx::config::setFxParams(
         base,
         R"json({"patch":{"shards.clickLifetimeMinMs":900,"shards.clickLifetimeMaxMs":800,"shards.clickSpeedMin":90,"shards.clickSpeedMax":80,"shards.sizeMin":50,"shards.sizeMax":40}})json");
@@ -777,10 +803,9 @@ BAFX_TEST(config_bloom_quality_is_derived_from_continuous_diffusion)
         bafx::config::toJson(continuous.config, false).find("bloomQuality")
         == std::string::npos);
 
-    const auto preset = bafx::config::setFxParam(
+    const auto preset = bafx::config::applyPatchJson(
         continuous.config,
-        "effects.bloomQuality",
-        "\"low\"");
+        R"json({"path":"effects.bloomQuality","value":"low"})json");
     BAFX_CHECK(preset.succeeded());
     BAFX_CHECK_NEAR(preset.config.effects.bloomDiffusion, 4.0F, 0.00001F);
     BAFX_CHECK(
