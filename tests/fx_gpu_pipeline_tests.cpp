@@ -253,6 +253,26 @@ struct WarpDevice
     return snapshot;
 }
 
+[[nodiscard]] bafx::fx::FrameSnapshot makeDissolveRingSnapshot()
+{
+    bafx::fx::FrameSnapshot snapshot{};
+    snapshot.active = true;
+    snapshot.sprites.push_back(bafx::fx::Sprite{
+        bafx::fx::SpriteKind::DissolveRing,
+        bafx::fx::PointF{
+            static_cast<float>(testSize.width) * 0.5F,
+            static_cast<float>(testSize.height) * 0.5F},
+        112.0F,
+        0.0F,
+        bafx::fx::ColorF{1.0F, 1.0F, 1.0F, 1.0F},
+        5.992157F,
+        0.5F,
+        0U,
+        4550,
+        false});
+    return snapshot;
+}
+
 [[nodiscard]] bafx::fx::FrameSnapshot makeTriangleTransportSnapshot(
     const float particleAlpha,
     const float artisticIntensity)
@@ -1757,6 +1777,43 @@ BAFX_TEST(warp_capture_preserves_directional_alpha_layer_contract)
     // equality check that rejects valid non-Bloom or propagated-Bloom pixels.
     BAFX_CHECK(foundBloomExpandedAlpha);
     BAFX_CHECK(foundNonBloomDirectAlpha);
+}
+
+BAFX_TEST(warp_global_opacity_preserves_dissolve_shape_and_scales_once)
+{
+    ComApartment apartment;
+    const WarpDevice graphics = createWarpDevice();
+    FxGpuRenderer renderer(graphics.device.Get(), graphics.context.Get(), testSize);
+    const RenderTarget target = createRenderTarget(graphics.device.Get());
+
+    const auto renderDirect = [&](const float opacity)
+    {
+        bafx::fx::FrameSnapshot snapshot = makeDissolveRingSnapshot();
+        snapshot.globalOpacity = opacity;
+        return toFloatPixels(
+            renderer.renderAndCapture(snapshot, target.view.Get()).directSurface);
+    };
+    const std::vector<ReadbackPixel> full = renderDirect(1.0F);
+    const std::vector<ReadbackPixel> half = renderDirect(0.5F);
+
+    std::size_t comparedPixels = 0U;
+    for (std::size_t index = 0U; index < full.size(); ++index)
+    {
+        const bool fullVisible = full[index].alpha > 1.0e-4F;
+        const bool halfVisible = half[index].alpha > 1.0e-4F;
+        BAFX_CHECK(fullVisible == halfVisible);
+        if (full[index].alpha <= 0.05F)
+        {
+            continue;
+        }
+
+        ++comparedPixels;
+        BAFX_CHECK_NEAR(half[index].alpha, full[index].alpha * 0.5F, 2.0e-3F);
+        BAFX_CHECK_NEAR(half[index].red, full[index].red * 0.5F, 8.0e-3F);
+        BAFX_CHECK_NEAR(half[index].green, full[index].green * 0.5F, 8.0e-3F);
+        BAFX_CHECK_NEAR(half[index].blue, full[index].blue * 0.5F, 8.0e-3F);
+    }
+    BAFX_CHECK(comparedPixels > 100U);
 }
 
 BAFX_TEST(warp_pipeline_applies_runtime_bloom_intensity_and_quality)

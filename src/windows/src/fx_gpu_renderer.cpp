@@ -51,6 +51,7 @@ struct SpriteVertex
     float dissolveThreshold{0.0F};
     float bloomEnabled{0.0F};
     float coverageFactor{1.0F};
+    float globalOpacity{1.0F};
 };
 
 struct ViewportConstants
@@ -307,7 +308,8 @@ struct ColorTarget
     const float intensity,
     const float dissolveThreshold,
     const bool contributesBloom,
-    const float coverageFactor = 1.0F) noexcept
+    const float coverageFactor = 1.0F,
+    const float globalOpacity = 1.0F) noexcept
 {
     return SpriteVertex{
         {x, y},
@@ -316,7 +318,8 @@ struct ColorTarget
         intensity,
         dissolveThreshold,
         contributesBloom ? 1.0F : 0.0F,
-        coverageFactor};
+        coverageFactor,
+        globalOpacity};
 }
 
 [[nodiscard]] float evaluateTrailLongitudinalCoverage(const float progress) noexcept
@@ -338,7 +341,8 @@ struct ColorTarget
 }
 
 [[nodiscard]] std::array<SpriteVertex, 6> makeSpriteVertices(
-    const bafx::fx::Sprite& sprite) noexcept
+    const bafx::fx::Sprite& sprite,
+    const float globalOpacity) noexcept
 {
     const float halfSize = sprite.sizePixels * 0.5F;
     const float cosine = std::cos(sprite.rotationRadians);
@@ -371,7 +375,11 @@ struct ColorTarget
         {maximumU, 1.0F},
         {minimumU, 1.0F}}};
 
-    const auto vertex = [&sprite, &positions, &uvs](const std::size_t index)
+    const auto vertex = [
+                            &sprite,
+                            &positions,
+                            &uvs,
+                            globalOpacity](const std::size_t index)
     {
         return makeVertex(
             positions[index][0],
@@ -381,13 +389,17 @@ struct ColorTarget
             sprite.color,
             sprite.artisticIntensity,
             sprite.dissolveThreshold,
-            sprite.contributesBloom);
+            sprite.contributesBloom,
+            1.0F,
+            globalOpacity);
     };
     return {vertex(0), vertex(1), vertex(2), vertex(0), vertex(2), vertex(3)};
 }
 
 [[nodiscard]] std::array<SpriteVertex, bafx::core::unityRingIndexCount>
-makeRingVertices(const bafx::fx::Sprite& sprite) noexcept
+makeRingVertices(
+    const bafx::fx::Sprite& sprite,
+    const float globalOpacity) noexcept
 {
     // Cylinder002 is regular, so its exact topology can remain code-generated.
     static const bafx::core::UnityRingMesh mesh = bafx::core::makeUnityRingMesh();
@@ -410,7 +422,9 @@ makeRingVertices(const bafx::fx::Sprite& sprite) noexcept
             sprite.color,
             sprite.artisticIntensity,
             sprite.dissolveThreshold,
-            sprite.contributesBloom);
+            sprite.contributesBloom,
+            1.0F,
+            globalOpacity);
     }
     return vertices;
 }
@@ -418,7 +432,8 @@ makeRingVertices(const bafx::fx::Sprite& sprite) noexcept
 [[nodiscard]] std::vector<SpriteVertex> makeTrailVertices(
     const std::span<const bafx::fx::TrailPoint> trail,
     const float trailWidthPixels,
-    const float opacity = 1.0F)
+    const float opacity,
+    const float globalOpacity)
 {
     if (trail.size() < 2U || trailWidthPixels <= 0.0F)
     {
@@ -453,10 +468,11 @@ makeRingVertices(const bafx::fx::Sprite& sprite) noexcept
                 trailColor.g,
                 trailColor.b,
                 opacity},
-            trailArtisticIntensity * opacity,
+            trailArtisticIntensity,
             0.0F,
             true,
-            evaluateTrailLongitudinalCoverage(vertex.progress)));
+            evaluateTrailLongitudinalCoverage(vertex.progress),
+            globalOpacity));
     }
     return vertices;
 }
@@ -534,6 +550,10 @@ struct FxGpuRenderer::Implementation
             D3D11_INPUT_ELEMENT_DESC{
                 "TEXCOORD", 4, DXGI_FORMAT_R32_FLOAT, 0,
                 static_cast<UINT>(offsetof(SpriteVertex, coverageFactor)),
+                D3D11_INPUT_PER_VERTEX_DATA, 0},
+            D3D11_INPUT_ELEMENT_DESC{
+                "TEXCOORD", 5, DXGI_FORMAT_R32_FLOAT, 0,
+                static_cast<UINT>(offsetof(SpriteVertex, globalOpacity)),
                 D3D11_INPUT_PER_VERTEX_DATA, 0}};
         throwIfFailed(
             device->CreateInputLayout(
@@ -1287,13 +1307,17 @@ struct FxGpuRenderer::Implementation
         context->Draw(static_cast<UINT>(vertices.size()), 0);
     }
 
-    void drawSprite(const bafx::fx::Sprite& sprite)
+    void drawSprite(
+        const bafx::fx::Sprite& sprite,
+        const float globalOpacity)
     {
         switch (sprite.kind)
         {
         case bafx::fx::SpriteKind::CenterDisk:
         {
-            const std::array<SpriteVertex, 6> vertices = makeSpriteVertices(sprite);
+            const std::array<SpriteVertex, 6> vertices = makeSpriteVertices(
+                sprite,
+                globalOpacity);
             drawVertices(
                 vertices,
                 circleTexture.Get(),
@@ -1305,7 +1329,7 @@ struct FxGpuRenderer::Implementation
 
         case bafx::fx::SpriteKind::DissolveRing:
         {
-            const auto vertices = makeRingVertices(sprite);
+            const auto vertices = makeRingVertices(sprite, globalOpacity);
             drawVertices(
                 vertices,
                 ringTexture.Get(),
@@ -1317,7 +1341,9 @@ struct FxGpuRenderer::Implementation
 
         case bafx::fx::SpriteKind::Triangle:
         {
-            const std::array<SpriteVertex, 6> vertices = makeSpriteVertices(sprite);
+            const std::array<SpriteVertex, 6> vertices = makeSpriteVertices(
+                sprite,
+                globalOpacity);
             drawVertices(
                 vertices,
                 triangleTexture.Get(),
@@ -1399,18 +1425,20 @@ struct FxGpuRenderer::Implementation
         while (index < snapshot.sprites.size()
             && snapshot.sprites[index].renderQueue <= trailRenderQueue)
         {
-            drawSprite(snapshot.sprites[index]);
+            drawSprite(snapshot.sprites[index], snapshot.globalOpacity);
             ++index;
         }
         const auto drawTrail = [this](
                                    const std::span<const bafx::fx::TrailPoint> points,
                                    const float widthPixels,
-                                   const float opacity)
+                                   const float opacity,
+                                   const float globalOpacity)
         {
             const std::vector<SpriteVertex> trailVertices = makeTrailVertices(
                 points,
                 widthPixels,
-                opacity);
+                opacity,
+                globalOpacity);
             drawVertices(
                 trailVertices,
                 trailTexture.Get(),
@@ -1423,18 +1451,23 @@ struct FxGpuRenderer::Implementation
             drawTrail(
                 snapshot.trail,
                 snapshot.trailWidthPixels,
-                snapshot.trailOpacity);
+                snapshot.trailOpacity,
+                snapshot.globalOpacity);
         }
         else
         {
             for (const bafx::fx::TrailStroke& stroke : snapshot.trailStrokes)
             {
-                drawTrail(stroke.points, stroke.widthPixels, stroke.opacity);
+                drawTrail(
+                    stroke.points,
+                    stroke.widthPixels,
+                    stroke.opacity,
+                    snapshot.globalOpacity);
             }
         }
         while (index < snapshot.sprites.size())
         {
-            drawSprite(snapshot.sprites[index]);
+            drawSprite(snapshot.sprites[index], snapshot.globalOpacity);
             ++index;
         }
 

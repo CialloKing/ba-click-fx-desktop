@@ -72,6 +72,9 @@ struct FrameSnapshot
     float trailWidthPixels{0.0F};
     float trailOpacity{1.0F};
     std::vector<TrailStroke> trailStrokes{};
+    // Host opacity is evaluated after the Unity material. Keeping it separate
+    // prevents opacity changes from moving Dissolve clip boundaries.
+    float globalOpacity{1.0F};
     bool active{false};
     bool pointerHeld{false};
 

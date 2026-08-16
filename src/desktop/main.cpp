@@ -865,19 +865,12 @@ void applyVisualConfig(
         snapshot.trailWidthPixels = 0.0F;
     }
 
-    const float opacity = std::clamp(config.effects.opacity, 0.0F, 1.0F);
-    for (bafx::fx::Sprite& sprite : snapshot.sprites)
-    {
-        // Scale both coverage and artistic emission. Scaling alpha alone
-        // would leave Cross/Additive materials visibly bright at opacity 0.
-        sprite.color.a *= opacity;
-        sprite.artisticIntensity *= opacity;
-    }
-    snapshot.trailOpacity *= opacity;
-    for (bafx::fx::TrailStroke& stroke : snapshot.trailStrokes)
-    {
-        stroke.opacity *= opacity;
-    }
+    // The renderer applies this after Unity material evaluation. Mutating
+    // particle Alpha here would change Dissolve geometry and square emission.
+    snapshot.globalOpacity = std::clamp(
+        config.effects.opacity,
+        0.0F,
+        1.0F);
 
     bafx::fx::applyGlobalScale(snapshot, config.effects.globalScale);
     const float trailScale = config.effects.trailWidth;

@@ -24,6 +24,7 @@ struct VertexInput
     float dissolveThreshold : TEXCOORD2;
     float bloomEnabled : TEXCOORD3;
     float coverageFactor : TEXCOORD4;
+    float globalOpacity : TEXCOORD5;
 };
 
 struct PixelInput
@@ -35,6 +36,7 @@ struct PixelInput
     float dissolveThreshold : TEXCOORD2;
     float bloomEnabled : TEXCOORD3;
     float coverageFactor : TEXCOORD4;
+    float globalOpacity : TEXCOORD5;
 };
 
 struct MaterialOutput
@@ -60,6 +62,7 @@ PixelInput SpriteVertex(VertexInput input)
     output.dissolveThreshold = input.dissolveThreshold;
     output.bloomEnabled = input.bloomEnabled;
     output.coverageFactor = input.coverageFactor;
+    output.globalOpacity = input.globalOpacity;
     return output;
 }
 
@@ -67,11 +70,14 @@ MaterialOutput CrossPixel(PixelInput input)
 {
     const float4 sampleValue = MaterialTexture.Sample(MaterialSampler, input.uv);
     const float shape = sampleValue.r;
+    const float globalOpacity = saturate(input.globalOpacity);
     const float3 emission = sampleValue.rgb
         * input.color.rgb
         * input.intensity
-        * shape;
-    const float coverage = saturate(shape * input.color.a);
+        * shape
+        * globalOpacity;
+    const float coverage = saturate(shape * input.color.a)
+        * globalOpacity;
 
     MaterialOutput output;
     output.direct = float4(emission, coverage);
@@ -88,12 +94,15 @@ MaterialOutput CrossPixel(PixelInput input)
 MaterialOutput DissolvePixel(PixelInput input)
 {
     const float4 sampleValue = MaterialTexture.Sample(MaterialSampler, input.uv);
-    const float coverage = sampleValue.a * input.color.a;
-    clip(coverage - input.dissolveThreshold);
+    const float materialCoverage = sampleValue.a * input.color.a;
+    clip(materialCoverage - input.dissolveThreshold);
+    const float globalOpacity = saturate(input.globalOpacity);
+    const float coverage = materialCoverage * globalOpacity;
     const float3 emission = sampleValue.rgb
         * input.color.rgb
         * input.intensity
-        * coverage;
+        * materialCoverage
+        * globalOpacity;
 
     MaterialOutput output;
     output.direct = float4(emission, coverage);
@@ -108,11 +117,14 @@ MaterialOutput DissolvePixel(PixelInput input)
 MaterialOutput AdditivePixel(PixelInput input)
 {
     const float4 sampleValue = MaterialTexture.Sample(MaterialSampler, input.uv);
-    const float coverage = sampleValue.a * input.color.a;
+    const float materialCoverage = sampleValue.a * input.color.a;
+    const float globalOpacity = saturate(input.globalOpacity);
+    const float coverage = materialCoverage * globalOpacity;
     const float3 emission = sampleValue.rgb
         * input.color.rgb
         * input.intensity
-        * coverage;
+        * materialCoverage
+        * globalOpacity;
 
     MaterialOutput output;
     output.direct = float4(emission, coverage);
@@ -131,16 +143,19 @@ MaterialOutput TrailPixel(PixelInput input)
     const float edgeDistance = min(input.uv.y, 1.0 - input.uv.y);
     const float footprint = max(fwidth(input.uv.y) * 0.5, 0.000001);
     const float geometryCoverage = smoothstep(0.0, footprint, edgeDistance);
-    const float coverage = saturate(
+    const float materialCoverage = saturate(
         sampleValue.a
         * particleOpacity
         * saturate(input.coverageFactor)
         * geometryCoverage);
+    const float globalOpacity = saturate(input.globalOpacity);
+    const float coverage = materialCoverage * globalOpacity;
     // Desktop Coverage is transport metadata. Unity emission must not be dimmed by it.
     const float3 emission = sampleValue.rgb
         * input.color.rgb
         * input.intensity
-        * particleOpacity;
+        * particleOpacity
+        * globalOpacity;
 
     MaterialOutput output;
     output.direct = float4(emission, coverage);
