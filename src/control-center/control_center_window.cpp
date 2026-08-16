@@ -667,6 +667,11 @@ bool ControlCenterWindow::createControls()
         L"圆环参数",
         BS_AUTORADIOBUTTON | WS_TABSTOP,
         ControlId::AdvancedRingsSection);
+    advancedClickShardsSectionButton_ = createChild(
+        L"BUTTON",
+        L"点击碎片",
+        BS_AUTORADIOBUTTON | WS_TABSTOP,
+        ControlId::AdvancedClickShardsSection);
     advancedBloomSectionButton_ = createChild(
         L"BUTTON",
         L"Bloom 参数",
@@ -894,6 +899,71 @@ bool ControlCenterWindow::createControls()
             "rings.rotationDirection",
             ControlId::RingsRotationDirection);
 
+    const bool clickShardSlidersCreated = createSlider(
+        shardsClickCount_,
+        L"点击碎片数量",
+        0.0,
+        12.0,
+        1.0,
+        "shards.clickCount",
+        ControlId::ShardsClickCount)
+        && createSlider(
+            shardsClickLifetimeMinMs_,
+            L"寿命下限 (ms)",
+            100.0,
+            1000.0,
+            1.0,
+            "shards.clickLifetimeMinMs",
+            ControlId::ShardsClickLifetimeMinMs)
+        && createSlider(
+            shardsClickLifetimeMaxMs_,
+            L"寿命上限 (ms)",
+            100.0,
+            1000.0,
+            1.0,
+            "shards.clickLifetimeMaxMs",
+            ControlId::ShardsClickLifetimeMaxMs)
+        && createSlider(
+            shardsClickRadius_,
+            L"出生半径",
+            0.0,
+            200.0,
+            0.01,
+            "shards.clickRadius",
+            ControlId::ShardsClickRadius)
+        && createSlider(
+            shardsClickSpeedMin_,
+            L"速度下限",
+            0.0,
+            200.0,
+            0.01,
+            "shards.clickSpeedMin",
+            ControlId::ShardsClickSpeedMin)
+        && createSlider(
+            shardsClickSpeedMax_,
+            L"速度上限",
+            0.0,
+            200.0,
+            0.01,
+            "shards.clickSpeedMax",
+            ControlId::ShardsClickSpeedMax)
+        && createSlider(
+            shardsSizeMin_,
+            L"尺寸下限",
+            0.0,
+            100.0,
+            0.01,
+            "shards.sizeMin",
+            ControlId::ShardsSizeMin)
+        && createSlider(
+            shardsSizeMax_,
+            L"尺寸上限",
+            0.0,
+            100.0,
+            0.01,
+            "shards.sizeMax",
+            ControlId::ShardsSizeMax);
+
     advancedTimingHeading_ = createChild(
         L"BUTTON",
         L"Web API 时间与透明度",
@@ -905,6 +975,10 @@ bool ControlCenterWindow::createControls()
     advancedRingsHeading_ = createChild(
         L"BUTTON",
         L"Web API 圆环参数",
+        BS_GROUPBOX);
+    advancedClickShardsHeading_ = createChild(
+        L"BUTTON",
+        L"Web API 点击碎片",
         BS_GROUPBOX);
     advancedBloomHeading_ = createChild(
         L"BUTTON",
@@ -1013,15 +1087,18 @@ bool ControlCenterWindow::createControls()
         advancedTimingHeading_,
         advancedParticlesHeading_,
         advancedRingsHeading_,
+        advancedClickShardsHeading_,
         advancedBloomHeading_,
         advancedTimingSectionButton_,
         advancedParticlesSectionButton_,
         advancedRingsSectionButton_,
+        advancedClickShardsSectionButton_,
         advancedBloomSectionButton_};
     if (!slidersCreated
         || !advancedSlidersCreated
         || !particleSlidersCreated
         || !ringSlidersCreated
+        || !clickShardSlidersCreated
         || std::ranges::find(required, nullptr) != required.end())
     {
         return false;
@@ -1289,6 +1366,30 @@ void ControlCenterWindow::applyFonts() const noexcept
         shardsHdrIntensity_.label,
         shardsHdrIntensity_.trackbar,
         shardsHdrIntensity_.valueText,
+        shardsClickCount_.label,
+        shardsClickCount_.trackbar,
+        shardsClickCount_.valueText,
+        shardsClickLifetimeMinMs_.label,
+        shardsClickLifetimeMinMs_.trackbar,
+        shardsClickLifetimeMinMs_.valueText,
+        shardsClickLifetimeMaxMs_.label,
+        shardsClickLifetimeMaxMs_.trackbar,
+        shardsClickLifetimeMaxMs_.valueText,
+        shardsClickRadius_.label,
+        shardsClickRadius_.trackbar,
+        shardsClickRadius_.valueText,
+        shardsClickSpeedMin_.label,
+        shardsClickSpeedMin_.trackbar,
+        shardsClickSpeedMin_.valueText,
+        shardsClickSpeedMax_.label,
+        shardsClickSpeedMax_.trackbar,
+        shardsClickSpeedMax_.valueText,
+        shardsSizeMin_.label,
+        shardsSizeMin_.trackbar,
+        shardsSizeMin_.valueText,
+        shardsSizeMax_.label,
+        shardsSizeMax_.trackbar,
+        shardsSizeMax_.valueText,
         trailOpacity_.label,
         trailOpacity_.trackbar,
         trailOpacity_.valueText,
@@ -1309,10 +1410,12 @@ void ControlCenterWindow::applyFonts() const noexcept
     setControlFont(advancedTimingHeading_, sectionFont_);
     setControlFont(advancedParticlesHeading_, sectionFont_);
     setControlFont(advancedRingsHeading_, sectionFont_);
+    setControlFont(advancedClickShardsHeading_, sectionFont_);
     setControlFont(advancedBloomHeading_, sectionFont_);
     setControlFont(advancedTimingSectionButton_, normalFont_);
     setControlFont(advancedParticlesSectionButton_, normalFont_);
     setControlFont(advancedRingsSectionButton_, normalFont_);
+    setControlFont(advancedClickShardsSectionButton_, normalFont_);
     setControlFont(advancedBloomSectionButton_, normalFont_);
 }
 
@@ -1502,8 +1605,13 @@ void ControlCenterWindow::layoutControls(
 
     if (activePage_ == Page::Advanced)
     {
-        const int sectionButtonWidth = scale(150);
         const int sectionButtonGap = scale(8);
+        constexpr int sectionButtonCount = 5;
+        const int sectionButtonWidth = (std::max)(
+            scale(1),
+            (clientWidth - margin * 2
+                - sectionButtonGap * (sectionButtonCount - 1))
+                / sectionButtonCount);
         moveControl(
             advancedTimingSectionButton_,
             margin,
@@ -1517,14 +1625,20 @@ void ControlCenterWindow::layoutControls(
             sectionButtonWidth,
             scale(30));
         moveControl(
-            advancedBloomSectionButton_,
+            advancedRingsSectionButton_,
+            margin + (sectionButtonWidth + sectionButtonGap) * 2,
+            contentTop,
+            sectionButtonWidth,
+            scale(30));
+        moveControl(
+            advancedClickShardsSectionButton_,
             margin + (sectionButtonWidth + sectionButtonGap) * 3,
             contentTop,
             sectionButtonWidth,
             scale(30));
         moveControl(
-            advancedRingsSectionButton_,
-            margin + (sectionButtonWidth + sectionButtonGap) * 2,
+            advancedBloomSectionButton_,
+            margin + (sectionButtonWidth + sectionButtonGap) * 4,
             contentTop,
             sectionButtonWidth,
             scale(30));
@@ -1549,6 +1663,7 @@ void ControlCenterWindow::layoutControls(
         const int rowTop = panelTop + scale(32);
         const int nextRowTop = rowTop + scale(50);
         const int thirdRowTop = nextRowTop + scale(50);
+        const int fourthRowTop = thirdRowTop + scale(50);
 
         switch (activeAdvancedSection_)
         {
@@ -1648,6 +1763,62 @@ void ControlCenterWindow::layoutControls(
                 ringsRotationDirection_,
                 right,
                 thirdRowTop,
+                columnWidth,
+                scale(40));
+            break;
+        case AdvancedSection::ClickShards:
+            moveControl(
+                advancedClickShardsHeading_,
+                margin,
+                panelTop,
+                groupWidth,
+                groupHeight);
+            layoutSlider(
+                shardsClickCount_,
+                left,
+                rowTop,
+                columnWidth,
+                scale(40));
+            layoutSlider(
+                shardsClickRadius_,
+                right,
+                rowTop,
+                columnWidth,
+                scale(40));
+            layoutSlider(
+                shardsClickLifetimeMinMs_,
+                left,
+                nextRowTop,
+                columnWidth,
+                scale(40));
+            layoutSlider(
+                shardsClickLifetimeMaxMs_,
+                right,
+                nextRowTop,
+                columnWidth,
+                scale(40));
+            layoutSlider(
+                shardsClickSpeedMin_,
+                left,
+                thirdRowTop,
+                columnWidth,
+                scale(40));
+            layoutSlider(
+                shardsClickSpeedMax_,
+                right,
+                thirdRowTop,
+                columnWidth,
+                scale(40));
+            layoutSlider(
+                shardsSizeMin_,
+                left,
+                fourthRowTop,
+                columnWidth,
+                scale(40));
+            layoutSlider(
+                shardsSizeMax_,
+                right,
+                fourthRowTop,
                 columnWidth,
                 scale(40));
             break;
@@ -1919,6 +2090,13 @@ void ControlCenterWindow::updatePageVisibility() noexcept
             : BST_UNCHECKED,
         0));
     static_cast<void>(SendMessageW(
+        advancedClickShardsSectionButton_,
+        BM_SETCHECK,
+        activeAdvancedSection_ == AdvancedSection::ClickShards
+            ? BST_CHECKED
+            : BST_UNCHECKED,
+        0));
+    static_cast<void>(SendMessageW(
         advancedBloomSectionButton_,
         BM_SETCHECK,
         activeAdvancedSection_ == AdvancedSection::Bloom
@@ -1964,6 +2142,7 @@ void ControlCenterWindow::updatePageVisibility() noexcept
         advancedTimingSectionButton_,
         advancedParticlesSectionButton_,
         advancedRingsSectionButton_,
+        advancedClickShardsSectionButton_,
         advancedBloomSectionButton_};
     for (const HWND control : advancedSectionButtons)
     {
@@ -2040,6 +2219,39 @@ void ControlCenterWindow::updatePageVisibility() noexcept
     for (const HWND control : advancedRingControls)
     {
         setPageControlVisible(control, rings);
+    }
+
+    const bool clickShards = advanced
+        && activeAdvancedSection_ == AdvancedSection::ClickShards;
+    const std::array advancedClickShardControls{
+        advancedClickShardsHeading_,
+        shardsClickCount_.label,
+        shardsClickCount_.trackbar,
+        shardsClickCount_.valueText,
+        shardsClickLifetimeMinMs_.label,
+        shardsClickLifetimeMinMs_.trackbar,
+        shardsClickLifetimeMinMs_.valueText,
+        shardsClickLifetimeMaxMs_.label,
+        shardsClickLifetimeMaxMs_.trackbar,
+        shardsClickLifetimeMaxMs_.valueText,
+        shardsClickRadius_.label,
+        shardsClickRadius_.trackbar,
+        shardsClickRadius_.valueText,
+        shardsClickSpeedMin_.label,
+        shardsClickSpeedMin_.trackbar,
+        shardsClickSpeedMin_.valueText,
+        shardsClickSpeedMax_.label,
+        shardsClickSpeedMax_.trackbar,
+        shardsClickSpeedMax_.valueText,
+        shardsSizeMin_.label,
+        shardsSizeMin_.trackbar,
+        shardsSizeMin_.valueText,
+        shardsSizeMax_.label,
+        shardsSizeMax_.trackbar,
+        shardsSizeMax_.valueText};
+    for (const HWND control : advancedClickShardControls)
+    {
+        setPageControlVisible(control, clickShards);
     }
 
     const bool bloom = advanced
@@ -2121,6 +2333,12 @@ void ControlCenterWindow::onCommand(
         if (notificationCode == BN_CLICKED)
         {
             selectAdvancedSection(AdvancedSection::Rings);
+        }
+        break;
+    case ControlId::AdvancedClickShardsSection:
+        if (notificationCode == BN_CLICKED)
+        {
+            selectAdvancedSection(AdvancedSection::ClickShards);
         }
         break;
     case ControlId::AdvancedBloomSection:
@@ -2282,6 +2500,14 @@ void ControlCenterWindow::onCommand(
     case ControlId::RingsAngularVelocityMultiplier:
     case ControlId::RingsRotationDirection:
     case ControlId::ShardsHdrIntensity:
+    case ControlId::ShardsClickCount:
+    case ControlId::ShardsClickLifetimeMinMs:
+    case ControlId::ShardsClickLifetimeMaxMs:
+    case ControlId::ShardsClickRadius:
+    case ControlId::ShardsClickSpeedMin:
+    case ControlId::ShardsClickSpeedMax:
+    case ControlId::ShardsSizeMin:
+    case ControlId::ShardsSizeMax:
     case ControlId::TrailOpacity:
         break;
     }
@@ -2318,6 +2544,14 @@ void ControlCenterWindow::onSliderChanged(const HWND trackbar)
         &ringsAngularVelocityMultiplier_,
         &ringsRotationDirection_,
         &shardsHdrIntensity_,
+        &shardsClickCount_,
+        &shardsClickLifetimeMinMs_,
+        &shardsClickLifetimeMaxMs_,
+        &shardsClickRadius_,
+        &shardsClickSpeedMin_,
+        &shardsClickSpeedMax_,
+        &shardsSizeMin_,
+        &shardsSizeMax_,
         &trailOpacity_};
     for (SliderControl* const slider : sliders)
     {
@@ -2591,6 +2825,22 @@ void ControlCenterWindow::updateControls(
         ringsRotationDirection_,
         config.effects.ringsRotationDirection);
     setSliderValue(shardsHdrIntensity_, config.effects.shardsHdrIntensity);
+    setSliderValue(shardsClickCount_, config.effects.shardsClickCount);
+    setSliderValue(
+        shardsClickLifetimeMinMs_,
+        config.effects.shardsClickLifetimeMinMs);
+    setSliderValue(
+        shardsClickLifetimeMaxMs_,
+        config.effects.shardsClickLifetimeMaxMs);
+    setSliderValue(shardsClickRadius_, config.effects.shardsClickRadius);
+    setSliderValue(
+        shardsClickSpeedMin_,
+        config.effects.shardsClickSpeedMin);
+    setSliderValue(
+        shardsClickSpeedMax_,
+        config.effects.shardsClickSpeedMax);
+    setSliderValue(shardsSizeMin_, config.effects.shardsSizeMin);
+    setSliderValue(shardsSizeMax_, config.effects.shardsSizeMax);
     setSliderValue(trailOpacity_, config.effects.trailOpacity);
     static_cast<void>(SendMessageW(
         bloomQuality_,
@@ -2979,6 +3229,14 @@ void ControlCenterWindow::setConnected(const bool connected) noexcept
         ringsAngularVelocityMultiplier_.trackbar,
         ringsRotationDirection_.trackbar,
         shardsHdrIntensity_.trackbar,
+        shardsClickCount_.trackbar,
+        shardsClickLifetimeMinMs_.trackbar,
+        shardsClickLifetimeMaxMs_.trackbar,
+        shardsClickRadius_.trackbar,
+        shardsClickSpeedMin_.trackbar,
+        shardsClickSpeedMax_.trackbar,
+        shardsSizeMin_.trackbar,
+        shardsSizeMax_.trackbar,
         trailOpacity_.trackbar,
         bloomQuality_,
         backgroundMode_,

@@ -39,6 +39,7 @@ private:
         AdvancedTimingSection,
         AdvancedParticlesSection,
         AdvancedRingsSection,
+        AdvancedClickShardsSection,
         AdvancedBloomSection,
         EffectsEnabled,
         ClickEnabled,
@@ -68,6 +69,14 @@ private:
         RingsAngularVelocityMultiplier,
         RingsRotationDirection,
         ShardsHdrIntensity,
+        ShardsClickCount,
+        ShardsClickLifetimeMinMs,
+        ShardsClickLifetimeMaxMs,
+        ShardsClickRadius,
+        ShardsClickSpeedMin,
+        ShardsClickSpeedMax,
+        ShardsSizeMin,
+        ShardsSizeMax,
         TrailOpacity,
         BackgroundMode,
         CursorExcluded,
@@ -106,6 +115,7 @@ private:
         Timing,
         Particles,
         Rings,
+        ClickShards,
         Bloom
     };
 
@@ -239,16 +249,26 @@ private:
     SliderControl ringsAngularVelocityMultiplier_{};
     SliderControl ringsRotationDirection_{};
     SliderControl shardsHdrIntensity_{};
+    SliderControl shardsClickCount_{};
+    SliderControl shardsClickLifetimeMinMs_{};
+    SliderControl shardsClickLifetimeMaxMs_{};
+    SliderControl shardsClickRadius_{};
+    SliderControl shardsClickSpeedMin_{};
+    SliderControl shardsClickSpeedMax_{};
+    SliderControl shardsSizeMin_{};
+    SliderControl shardsSizeMax_{};
     SliderControl trailOpacity_{};
     HWND basicPageButton_{nullptr};
     HWND advancedPageButton_{nullptr};
     HWND advancedTimingSectionButton_{nullptr};
     HWND advancedParticlesSectionButton_{nullptr};
     HWND advancedRingsSectionButton_{nullptr};
+    HWND advancedClickShardsSectionButton_{nullptr};
     HWND advancedBloomSectionButton_{nullptr};
     HWND advancedTimingHeading_{nullptr};
     HWND advancedParticlesHeading_{nullptr};
     HWND advancedRingsHeading_{nullptr};
+    HWND advancedClickShardsHeading_{nullptr};
     HWND advancedBloomHeading_{nullptr};
     HWND bloomQualityLabel_{nullptr};
     HWND bloomQuality_{nullptr};
