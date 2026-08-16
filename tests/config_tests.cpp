@@ -56,6 +56,10 @@ BAFX_TEST(config_defaults_round_trip_through_versioned_json)
     BAFX_CHECK_NEAR(defaults.effects.clickTimeScale, 1.0F, 0.00001F);
     BAFX_CHECK_NEAR(defaults.effects.trailTimeScale, 1.0F, 0.00001F);
     BAFX_CHECK_NEAR(defaults.effects.trailLifetimeMs, 300.0F, 0.00001F);
+    BAFX_CHECK_NEAR(defaults.effects.diskRadius, 32.4F, 0.00001F);
+    BAFX_CHECK_NEAR(defaults.effects.ringsHdrIntensity, 5.992157F, 0.00001F);
+    BAFX_CHECK_NEAR(defaults.effects.shardsHdrIntensity, 5.992157F, 0.00001F);
+    BAFX_CHECK_NEAR(defaults.effects.trailOpacity, 1.0F, 0.00001F);
     BAFX_CHECK_NEAR(defaults.effects.bloomIntensity, 1.7F, 0.00001F);
     BAFX_CHECK_NEAR(defaults.effects.bloomDiffusion, 7.0F, 0.00001F);
     BAFX_CHECK_NEAR(defaults.effects.bloomThreshold, 1.0F, 0.00001F);
@@ -99,6 +103,22 @@ BAFX_TEST(config_defaults_round_trip_through_versioned_json)
         defaults.effects.trailLifetimeMs,
         0.00001F);
     BAFX_CHECK_NEAR(
+        parsed.config.effects.diskRadius,
+        defaults.effects.diskRadius,
+        0.00001F);
+    BAFX_CHECK_NEAR(
+        parsed.config.effects.ringsHdrIntensity,
+        defaults.effects.ringsHdrIntensity,
+        0.00001F);
+    BAFX_CHECK_NEAR(
+        parsed.config.effects.shardsHdrIntensity,
+        defaults.effects.shardsHdrIntensity,
+        0.00001F);
+    BAFX_CHECK_NEAR(
+        parsed.config.effects.trailOpacity,
+        defaults.effects.trailOpacity,
+        0.00001F);
+    BAFX_CHECK_NEAR(
         parsed.config.effects.bloomIntensity,
         defaults.effects.bloomIntensity,
         0.00001F);
@@ -134,6 +154,10 @@ BAFX_TEST(config_current_effect_fields_round_trip_through_file)
     value.effects.trailLifetimeMs = 450.0F;
     value.effects.trailLength = 1.5F;
     value.effects.trailWidth = 1.25F;
+    value.effects.diskRadius = 48.0F;
+    value.effects.ringsHdrIntensity = 4.0F;
+    value.effects.shardsHdrIntensity = 8.0F;
+    value.effects.trailOpacity = 0.55F;
     value.effects.bloomIntensity = 3.4F;
     value.effects.bloomDiffusion = 8.5F;
     value.effects.bloomThreshold = 0.75F;
@@ -146,6 +170,10 @@ BAFX_TEST(config_current_effect_fields_round_trip_through_file)
              "clickTimeScale",
              "trailTimeScale",
              "trailLifetimeMs",
+             "diskRadius",
+             "ringsHdrIntensity",
+             "shardsHdrIntensity",
+             "trailOpacity",
              "bloomDiffusion",
              "bloomThreshold",
              "bloomSoftKnee",
@@ -165,6 +193,10 @@ BAFX_TEST(config_current_effect_fields_round_trip_through_file)
     BAFX_CHECK_NEAR(loaded.config.effects.trailLifetimeMs, 450.0F, 0.00001F);
     BAFX_CHECK_NEAR(loaded.config.effects.trailLength, 1.5F, 0.00001F);
     BAFX_CHECK_NEAR(loaded.config.effects.trailWidth, 1.25F, 0.00001F);
+    BAFX_CHECK_NEAR(loaded.config.effects.diskRadius, 48.0F, 0.00001F);
+    BAFX_CHECK_NEAR(loaded.config.effects.ringsHdrIntensity, 4.0F, 0.00001F);
+    BAFX_CHECK_NEAR(loaded.config.effects.shardsHdrIntensity, 8.0F, 0.00001F);
+    BAFX_CHECK_NEAR(loaded.config.effects.trailOpacity, 0.55F, 0.00001F);
     BAFX_CHECK_NEAR(loaded.config.effects.bloomIntensity, 3.4F, 0.00001F);
     BAFX_CHECK_NEAR(loaded.config.effects.bloomDiffusion, 8.5F, 0.00001F);
     BAFX_CHECK_NEAR(loaded.config.effects.bloomThreshold, 0.75F, 0.00001F);
@@ -227,6 +259,43 @@ BAFX_TEST(config_fx_parameter_boundaries_normalize_web_units)
         "3.4");
     BAFX_CHECK(bloomIntensity.succeeded());
     BAFX_CHECK_NEAR(bloomIntensity.config.effects.bloomIntensity, 3.4F, 0.00001F);
+
+    const auto diskRadius = bafx::config::setFxParam(
+        base,
+        "disk.radius",
+        "48");
+    BAFX_CHECK(diskRadius.succeeded());
+    BAFX_CHECK_NEAR(diskRadius.config.effects.diskRadius, 48.0F, 0.00001F);
+
+    const auto ringIntensity = bafx::config::setFxParam(
+        base,
+        "rings.hdrIntensity",
+        "4.5");
+    BAFX_CHECK(ringIntensity.succeeded());
+    BAFX_CHECK_NEAR(
+        ringIntensity.config.effects.ringsHdrIntensity,
+        4.5F,
+        0.00001F);
+
+    const auto shardIntensity = bafx::config::setFxParam(
+        base,
+        "shards.hdrIntensity",
+        "7.5");
+    BAFX_CHECK(shardIntensity.succeeded());
+    BAFX_CHECK_NEAR(
+        shardIntensity.config.effects.shardsHdrIntensity,
+        7.5F,
+        0.00001F);
+
+    const auto trailOpacity = bafx::config::setFxParam(
+        base,
+        "trail.trailOpacity",
+        "0.4");
+    BAFX_CHECK(trailOpacity.succeeded());
+    BAFX_CHECK_NEAR(
+        trailOpacity.config.effects.trailOpacity,
+        0.4F,
+        0.00001F);
 
     const auto diffusionMinimum = bafx::config::setFxParam(
         base,

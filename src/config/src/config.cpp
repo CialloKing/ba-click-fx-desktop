@@ -874,6 +874,10 @@ private:
                     "clickTimeScale",
                     "trailTimeScale",
                     "trailLifetimeMs",
+                    "diskRadius",
+                    "ringsHdrIntensity",
+                    "shardsHdrIntensity",
+                    "trailOpacity",
                     "bloomIntensity",
                     "bloomDiffusion",
                     "bloomThreshold",
@@ -969,6 +973,30 @@ private:
             "trailLifetimeMs",
             "effects",
             config.effects.trailLifetimeMs,
+            error)
+        || !readFloat(
+            *effects,
+            "diskRadius",
+            "effects",
+            config.effects.diskRadius,
+            error)
+        || !readFloat(
+            *effects,
+            "ringsHdrIntensity",
+            "effects",
+            config.effects.ringsHdrIntensity,
+            error)
+        || !readFloat(
+            *effects,
+            "shardsHdrIntensity",
+            "effects",
+            config.effects.shardsHdrIntensity,
+            error)
+        || !readFloat(
+            *effects,
+            "trailOpacity",
+            "effects",
+            config.effects.trailOpacity,
             error)
         || !readFloat(
             *effects,
@@ -1118,12 +1146,16 @@ private:
     effects.emplace("bloomIntensity", JsonValue(static_cast<double>(config.effects.bloomIntensity)));
     effects.emplace("clickEnabled", JsonValue(config.effects.clickEnabled));
     effects.emplace("clickTimeScale", JsonValue(static_cast<double>(config.effects.clickTimeScale)));
+    effects.emplace("diskRadius", JsonValue(static_cast<double>(config.effects.diskRadius)));
     effects.emplace("enabled", JsonValue(config.effects.enabled));
     effects.emplace("globalScale", JsonValue(static_cast<double>(config.effects.globalScale)));
     effects.emplace("opacity", JsonValue(static_cast<double>(config.effects.opacity)));
+    effects.emplace("ringsHdrIntensity", JsonValue(static_cast<double>(config.effects.ringsHdrIntensity)));
+    effects.emplace("shardsHdrIntensity", JsonValue(static_cast<double>(config.effects.shardsHdrIntensity)));
     effects.emplace("trailEnabled", JsonValue(config.effects.trailEnabled));
     effects.emplace("trailLength", JsonValue(static_cast<double>(config.effects.trailLength)));
     effects.emplace("trailLifetimeMs", JsonValue(static_cast<double>(config.effects.trailLifetimeMs)));
+    effects.emplace("trailOpacity", JsonValue(static_cast<double>(config.effects.trailOpacity)));
     effects.emplace("trailTimeScale", JsonValue(static_cast<double>(config.effects.trailTimeScale)));
     effects.emplace("trailWidth", JsonValue(static_cast<double>(config.effects.trailWidth)));
     effects.emplace("bloomClamp", JsonValue(static_cast<double>(config.effects.bloomClamp)));
@@ -1168,6 +1200,21 @@ private:
 
 [[nodiscard]] JsonValue makeFxConfigJson(const Config& config)
 {
+    JsonValue::Object disk;
+    disk.emplace(
+        "radius",
+        JsonValue(static_cast<double>(config.effects.diskRadius)));
+
+    JsonValue::Object rings;
+    rings.emplace(
+        "hdrIntensity",
+        JsonValue(static_cast<double>(config.effects.ringsHdrIntensity)));
+
+    JsonValue::Object shards;
+    shards.emplace(
+        "hdrIntensity",
+        JsonValue(static_cast<double>(config.effects.shardsHdrIntensity)));
+
     JsonValue::Object trail;
     trail.emplace(
         "lifetimeMs",
@@ -1176,6 +1223,9 @@ private:
         "width",
         JsonValue(static_cast<double>(
             config.effects.trailWidth * referenceTrailWidthPixels)));
+    trail.emplace(
+        "trailOpacity",
+        JsonValue(static_cast<double>(config.effects.trailOpacity)));
 
     JsonValue::Object bloom;
     bloom.emplace(
@@ -1201,6 +1251,9 @@ private:
         JsonValue(static_cast<double>(config.effects.clickTimeScale)));
     root.emplace("opacity", JsonValue(static_cast<double>(config.effects.opacity)));
     root.emplace("scale", JsonValue(static_cast<double>(config.effects.globalScale)));
+    root.emplace("disk", JsonValue(std::move(disk)));
+    root.emplace("rings", JsonValue(std::move(rings)));
+    root.emplace("shards", JsonValue(std::move(shards)));
     root.emplace("trailAlways", JsonValue(!config.input.trailOnlyWhilePressed));
     root.emplace("trailEnabled", JsonValue(config.effects.trailEnabled));
     root.emplace(
@@ -1660,6 +1713,25 @@ ConfigPatchResult applyPatchJson(
             || *path == "trailTimeScale")
         {
             valueAccepted = readPatchFloat(result.effects.trailTimeScale);
+        }
+        else if (*path == "effects.diskRadius" || *path == "disk.radius")
+        {
+            valueAccepted = readPatchFloat(result.effects.diskRadius);
+        }
+        else if (*path == "effects.ringsHdrIntensity"
+            || *path == "rings.hdrIntensity")
+        {
+            valueAccepted = readPatchFloat(result.effects.ringsHdrIntensity);
+        }
+        else if (*path == "effects.shardsHdrIntensity"
+            || *path == "shards.hdrIntensity")
+        {
+            valueAccepted = readPatchFloat(result.effects.shardsHdrIntensity);
+        }
+        else if (*path == "effects.trailOpacity"
+            || *path == "trail.trailOpacity")
+        {
+            valueAccepted = readPatchFloat(result.effects.trailOpacity);
         }
         else if (*path == "trailAlways")
         {
@@ -2245,6 +2317,30 @@ bool validateConfig(const Config& config, std::string* error) noexcept
         || config.effects.trailLifetimeMs > 2000.0F)
     {
         return failValidation("effects.trailLifetimeMs must be within [0, 2000]");
+    }
+    if (!std::isfinite(config.effects.diskRadius)
+        || config.effects.diskRadius < 1.0F
+        || config.effects.diskRadius > 2000.0F)
+    {
+        return failValidation("effects.diskRadius must be within [1, 2000]");
+    }
+    if (!std::isfinite(config.effects.ringsHdrIntensity)
+        || config.effects.ringsHdrIntensity < 0.0F
+        || config.effects.ringsHdrIntensity > 64.0F)
+    {
+        return failValidation("effects.ringsHdrIntensity must be within [0, 64]");
+    }
+    if (!std::isfinite(config.effects.shardsHdrIntensity)
+        || config.effects.shardsHdrIntensity < 0.0F
+        || config.effects.shardsHdrIntensity > 64.0F)
+    {
+        return failValidation("effects.shardsHdrIntensity must be within [0, 64]");
+    }
+    if (!std::isfinite(config.effects.trailOpacity)
+        || config.effects.trailOpacity < 0.0F
+        || config.effects.trailOpacity > 1.0F)
+    {
+        return failValidation("effects.trailOpacity must be within [0, 1]");
     }
     if (!std::isfinite(config.effects.bloomIntensity)
         || config.effects.bloomIntensity < 0.0F

@@ -72,6 +72,16 @@ void checkEffectsEqual(
     BAFX_CHECK_NEAR(actual.clickTimeScale, expected.clickTimeScale, 0.00001F);
     BAFX_CHECK_NEAR(actual.trailTimeScale, expected.trailTimeScale, 0.00001F);
     BAFX_CHECK_NEAR(actual.trailLifetimeMs, expected.trailLifetimeMs, 0.00001F);
+    BAFX_CHECK_NEAR(actual.diskRadius, expected.diskRadius, 0.00001F);
+    BAFX_CHECK_NEAR(
+        actual.ringsHdrIntensity,
+        expected.ringsHdrIntensity,
+        0.00001F);
+    BAFX_CHECK_NEAR(
+        actual.shardsHdrIntensity,
+        expected.shardsHdrIntensity,
+        0.00001F);
+    BAFX_CHECK_NEAR(actual.trailOpacity, expected.trailOpacity, 0.00001F);
     BAFX_CHECK_NEAR(actual.bloomIntensity, expected.bloomIntensity, 0.00001F);
     BAFX_CHECK_NEAR(actual.bloomDiffusion, expected.bloomDiffusion, 0.00001F);
     BAFX_CHECK_NEAR(actual.bloomThreshold, expected.bloomThreshold, 0.00001F);

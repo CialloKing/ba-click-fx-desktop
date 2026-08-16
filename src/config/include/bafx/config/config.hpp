@@ -9,7 +9,7 @@
 namespace bafx::config
 {
 
-inline constexpr std::uint32_t currentSchemaVersion = 10U;
+inline constexpr std::uint32_t currentSchemaVersion = 11U;
 
 enum class RenderMode : std::uint8_t
 {
@@ -53,6 +53,11 @@ struct EffectsConfig
     // The Web API exposes trail lifetime in milliseconds; retain the native
     // multiplier for the existing compact control and derive it at runtime.
     float trailLifetimeMs{300.0F};
+    // Web parameter defaults converted at the 1920x1080 reference viewport.
+    float diskRadius{32.4F};
+    float ringsHdrIntensity{5.992157F};
+    float shardsHdrIntensity{5.992157F};
+    float trailOpacity{1.0F};
     // Web API equivalent: bloom.intensity. Unity's serialized default is 1.7.
     float bloomIntensity{1.7F};
     float bloomDiffusion{7.0F};
