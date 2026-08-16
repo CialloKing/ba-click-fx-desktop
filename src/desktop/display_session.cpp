@@ -2,6 +2,7 @@
 #include "background_capture_runtime.hpp"
 #include "display_output_retarget.hpp"
 
+#include <chrono>
 #include <limits>
 #include <stdexcept>
 #include <utility>
@@ -14,6 +15,8 @@ struct PendingSecondaryOutputRenegotiation final
         bafx::windows::CompositionOutputPreference::ConservativeSdr};
     std::string reason{};
     std::optional<DisplayTarget> target{};
+    std::uint32_t attemptsRemaining{maximumOutputRenegotiationAttempts};
+    bafx::core::MonotonicTime retryNotBefore{};
 };
 
 struct DisplaySessionBackgroundCaptureState final
@@ -48,6 +51,7 @@ namespace
 {
 
 constexpr std::uint32_t maximumColorRefreshRetries = 3U;
+constexpr auto outputRenegotiationRetryDelay = std::chrono::seconds(1);
 
 void requireStartedRequest(
     const bafx::windows::BackgroundCaptureRequestResult result)
@@ -735,11 +739,11 @@ DisplaySession::serviceSecondaryBackgroundCapture(
             return result;
         }
 
-        if (state.pendingOutputRenegotiation.has_value())
+        if (state.pendingOutputRenegotiation.has_value()
+            && state.pendingOutputRenegotiation->retryNotBefore <= now)
         {
-            const PendingSecondaryOutputRenegotiation pending =
+            PendingSecondaryOutputRenegotiation pending =
                 *state.pendingOutputRenegotiation;
-            state.pendingOutputRenegotiation.reset();
             state.captureSizeTracker.reset();
             result.outputRenegotiationPreference = pending.preference;
             result.outputRenegotiationReason = pending.reason;
@@ -748,6 +752,7 @@ DisplaySession::serviceSecondaryBackgroundCapture(
                     || !sameDisplaySourceIdentity(*pending.target, target_));
             if (staleTarget)
             {
+                state.pendingOutputRenegotiation.reset();
                 // The retarget transaction already rebuilt the output for the
                 // new monitor. Never stop its fresh WGC session for an event
                 // that was sampled from the previous target.
@@ -832,6 +837,24 @@ DisplaySession::serviceSecondaryBackgroundCapture(
                     result.outputRenegotiationFailure =
                         "unknown secondary output renegotiation failure";
                 }
+            }
+
+            if (result.outputRenegotiation.has_value())
+            {
+                state.pendingOutputRenegotiation.reset();
+            }
+            else if (pending.attemptsRemaining > 1U)
+            {
+                --pending.attemptsRemaining;
+                pending.retryNotBefore = now + outputRenegotiationRetryDelay;
+                state.pendingOutputRenegotiation = std::move(pending);
+                result.outputRenegotiationRetryPending = true;
+                result.outputRenegotiationRetriesRemaining =
+                    state.pendingOutputRenegotiation->attemptsRemaining;
+            }
+            else
+            {
+                state.pendingOutputRenegotiation.reset();
             }
 
             if (recoveredDuringAttempt)

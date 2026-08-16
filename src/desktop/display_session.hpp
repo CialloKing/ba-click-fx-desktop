@@ -25,6 +25,8 @@
 namespace bafx::desktop
 {
 
+inline constexpr std::uint32_t maximumOutputRenegotiationAttempts = 3U;
+
 struct DisplaySessionOptions final
 {
     HINSTANCE instance{nullptr};
@@ -92,6 +94,8 @@ struct DisplaySessionBackgroundCaptureServiceResult final
         bafx::windows::CompositionOutputPreference::ConservativeSdr};
     std::string outputRenegotiationReason{};
     std::string outputRenegotiationFailure{};
+    bool outputRenegotiationRetryPending{false};
+    std::uint32_t outputRenegotiationRetriesRemaining{0U};
 };
 
 struct DisplaySessionBackgroundCaptureState;

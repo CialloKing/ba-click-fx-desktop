@@ -561,6 +561,41 @@ void appendOutputRenegotiationFailure(
     }
 }
 
+void appendOutputRenegotiationRetryScheduled(
+    const std::filesystem::path& logPath,
+    const bafx::desktop::DisplaySession& session,
+    const bafx::windows::CompositionOutputPreference preference,
+    const std::string_view reason,
+    const std::uint32_t retriesRemaining,
+    const std::string_view cadence) noexcept
+{
+    try
+    {
+        const std::string monitor =
+            bafx::desktop::formatDisplayTargetMonitor(session.target());
+        const std::string remaining = std::to_string(retriesRemaining);
+        const std::array fields{
+            bafx::windows::DiagnosticField{"Reason", reason},
+            bafx::windows::DiagnosticField{"Monitor", monitor},
+            bafx::windows::DiagnosticField{
+                "RequestedPreference",
+                outputPreferenceName(preference)},
+            bafx::windows::DiagnosticField{"RetriesRemaining", remaining},
+            bafx::windows::DiagnosticField{"Cadence", cadence}};
+        bafx::windows::appendDiagnosticEvent(
+            logPath,
+            "Display.Output.RenegotiationRetryScheduled",
+            fields,
+            bafx::windows::DiagnosticLevel::Warning);
+    }
+    catch (...)
+    {
+        bafx::windows::appendDiagnosticLog(
+            logPath,
+            "Display output renegotiation retry diagnostics could not be formatted");
+    }
+}
+
 void appendOutputRenegotiationDiscarded(
     const std::filesystem::path& logPath,
     const bafx::desktop::DisplaySession& session,
@@ -1670,6 +1705,16 @@ void appendSecondaryBackgroundCaptureServiceResult(
             result.outputRenegotiationReason,
             result.outputRenegotiationFailure,
             result.deviceRecovered);
+    }
+    if (result.outputRenegotiationRetryPending)
+    {
+        appendOutputRenegotiationRetryScheduled(
+            logPath,
+            session,
+            result.outputRenegotiationPreference,
+            result.outputRenegotiationReason,
+            result.outputRenegotiationRetriesRemaining,
+            "one-second-monotonic");
     }
 }
 
