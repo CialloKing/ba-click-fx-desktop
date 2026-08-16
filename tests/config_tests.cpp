@@ -57,7 +57,7 @@ BAFX_TEST(config_defaults_round_trip_through_versioned_json)
     BAFX_CHECK_NEAR(defaults.effects.trailTimeScale, 1.0F, 0.00001F);
     BAFX_CHECK_NEAR(defaults.effects.trailLifetimeMs, 300.0F, 0.00001F);
     BAFX_CHECK_NEAR(defaults.effects.diskLifetimeMs, 200.0F, 0.00001F);
-    BAFX_CHECK_NEAR(defaults.effects.diskRadius, 32.4F, 0.00001F);
+    BAFX_CHECK_NEAR(defaults.effects.diskRadius, 64.8F, 0.00001F);
     BAFX_CHECK(defaults.effects.ringsCount == 2U);
     BAFX_CHECK_NEAR(defaults.effects.ringsLifetimeMs, 600.0F, 0.00001F);
     BAFX_CHECK_NEAR(defaults.effects.ringsRadiusMin, 68.92571232F, 0.00001F);

@@ -876,7 +876,10 @@ void applyVisualConfig(
     bafx::fx::FrameSnapshot& snapshot,
     const bafx::config::Config& config)
 {
-    constexpr float unityDiskRadiusAtReferenceHeight = 32.4F;
+    // The public Web value is a radius, while Sprite stores the Unity quad's
+    // full extent. Scaling against the Web default preserves the authored
+    // native geometry at radius 64.8.
+    constexpr float unityDiskRadiusAtReferenceHeight = 64.8F;
     constexpr float unityHdrIntensity = 5.992157F;
     if (!config.effects.enabled)
     {
