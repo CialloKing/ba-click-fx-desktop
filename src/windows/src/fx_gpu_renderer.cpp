@@ -2,6 +2,7 @@
 
 #include "bafx/windows/gpu_timestamp_profiler.hpp"
 
+#include "bafx/core/color_space.hpp"
 #include "bafx/core/unity_bloom.hpp"
 #include "bafx/core/unity_ring_mesh.hpp"
 #include "bafx/core/unity_trail_mesh.hpp"
@@ -36,10 +37,9 @@ constexpr std::int32_t trailRenderQueue = 4499;
 constexpr float trailCoverageFadeStart = 0.248532F;
 constexpr float trailCoverageFadeEnd = 0.97941558F;
 constexpr std::size_t initialVertexCapacity = bafx::core::unityRingIndexCount;
-constexpr float unityBloomIntensity = 1.7F;
-constexpr float minimumBloomDiffusion = 1.0F;
+constexpr float minimumBloomDiffusion = 0.0F;
 constexpr float maximumBloomDiffusion = 10.0F;
-constexpr float maximumBloomIntensityMultiplier = 8.0F;
+constexpr float maximumBloomIntensity = 10.0F;
 constexpr float scRgbNitsPerUnit = 80.0F;
 
 struct SpriteVertex
@@ -84,20 +84,20 @@ struct ColorTarget
 
 [[nodiscard]] bool hasValidBloomSettings(const FxBloomSettings settings) noexcept
 {
-    return std::isfinite(settings.intensityMultiplier)
-        && settings.intensityMultiplier >= 0.0F
-        && settings.intensityMultiplier <= maximumBloomIntensityMultiplier
+    return std::isfinite(settings.intensity)
+        && settings.intensity >= 0.0F
+        && settings.intensity <= maximumBloomIntensity
         && std::isfinite(settings.diffusion)
         && settings.diffusion >= minimumBloomDiffusion
         && settings.diffusion <= maximumBloomDiffusion
         && std::isfinite(settings.threshold)
         && settings.threshold >= 0.0F
-        && settings.threshold <= 5.0F
+        && settings.threshold <= 64.0F
         && std::isfinite(settings.softKnee)
         && settings.softKnee >= 0.0F
         && settings.softKnee <= 1.0F
         && std::isfinite(settings.clampValue)
-        && settings.clampValue >= 1.0F
+        && settings.clampValue >= 0.0F
         && settings.clampValue <= 65504.0F;
 }
 
@@ -105,7 +105,7 @@ struct ColorTarget
     const FxBloomSettings left,
     const FxBloomSettings right) noexcept
 {
-    return left.intensityMultiplier == right.intensityMultiplier
+    return left.intensity == right.intensity
         && left.diffusion == right.diffusion
         && left.threshold == right.threshold
         && left.softKnee == right.softKnee
@@ -790,15 +790,12 @@ struct FxGpuRenderer::Implementation
                 bafx::core::UnityBloomSettings{
                     bloomSettings.diffusion,
                     0.0F,
-                    unityBloomIntensity});
+                    bloomSettings.intensity});
         if (planResult.status != bafx::core::UnityBloomStatus::Ok)
         {
             throw std::runtime_error("Unity Bloom planner rejected the swap-chain extent");
         }
         bloomPlan = planResult.plan;
-        // The config is intentionally a multiplier around the captured Unity
-        // exposure, so one leaves the golden/default output unchanged.
-        bloomPlan.exposureGain *= bloomSettings.intensityMultiplier;
     }
 
     void createBloomTargets()
@@ -1046,11 +1043,14 @@ struct FxGpuRenderer::Implementation
         constants.sourceTexelSize[1] = 1.0F / static_cast<float>(sourceExtent.height);
         constants.sampleScale = sampleScale;
         constants.exposureGain = exposureGain;
-        constants.threshold = bloomSettings.threshold;
-        // The shader divides by Knee; Unity's zero-knee serialized value is
-        // represented by the historical epsilon rather than a NaN path.
-        constants.knee = (std::max)(bloomSettings.softKnee, 0.00001F);
-        constants.clampValue = bloomSettings.clampValue;
+        const float thresholdLinear =
+            bafx::core::unityGammaToLinearChannel(bloomSettings.threshold);
+        constants.threshold = thresholdLinear;
+        // Unity derives knee from the linear threshold before adding epsilon;
+        // using the Gamma value changes the soft threshold for HDR inputs.
+        constants.knee = thresholdLinear * bloomSettings.softKnee + 0.00001F;
+        constants.clampValue = bafx::core::unityGammaToLinearChannel(
+            bloomSettings.clampValue);
         constants.backgroundTransportEnabled = backgroundTransportEnabled
             ? 1.0F
             : 0.0F;

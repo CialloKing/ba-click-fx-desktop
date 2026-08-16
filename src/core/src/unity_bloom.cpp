@@ -10,7 +10,7 @@ namespace
 
 constexpr float naturalLogarithmOfTwo = 0.6931471805599453F;
 constexpr float maximumDiffusion = 10.0F;
-constexpr float minimumDiffusion = 1.0F;
+constexpr float minimumDiffusion = 0.0F;
 
 [[nodiscard]] std::int32_t makeInitialDimension(
     const std::int32_t sourceDimension,

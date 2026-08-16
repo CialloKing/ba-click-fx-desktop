@@ -494,7 +494,7 @@ void populateRoiDiagnostics(
         bafx::core::UnityBloomSettings{
             bloomSettings.diffusion,
             0.0F,
-            1.7F});
+            bloomSettings.intensity});
     if (bloom.status != bafx::core::UnityBloomStatus::Ok)
     {
         diagnostics.roi.planStatus = bafx::core::RoiStatus::InvalidFootprint;

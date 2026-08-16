@@ -57,7 +57,7 @@ BAFX_TEST(unity_bloom_preserves_clamped_iteration_and_fraction_rules)
 {
     auto result = planUnityBloom(
         BloomExtent{1, 1},
-        UnityBloomSettings{1.0F, 0.0F, 0.0F});
+        UnityBloomSettings{0.0F, 0.0F, 0.0F});
     BAFX_CHECK(result.status == UnityBloomStatus::Ok);
     BAFX_CHECK(result.plan.mipCount == 1U);
     BAFX_CHECK(result.plan.mipChain[0].width == 1);
@@ -101,7 +101,7 @@ BAFX_TEST(unity_bloom_rejects_invalid_inputs_without_a_partial_plan)
 
     result = planUnityBloom(
         BloomExtent{1920, 1080},
-        UnityBloomSettings{0.5F, 0.0F, 1.7F});
+        UnityBloomSettings{-0.5F, 0.0F, 1.7F});
     BAFX_CHECK(result.status == UnityBloomStatus::InvalidDiffusion);
 
     result = planUnityBloom(

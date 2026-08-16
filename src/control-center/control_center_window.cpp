@@ -712,9 +712,9 @@ bool ControlCenterWindow::createControls()
             bloomIntensity_,
             L"Bloom 强度",
             0.0,
-            8.0,
+            10.0,
             0.05,
-            "effects.bloomIntensity",
+            "bloom.intensity",
             ControlId::BloomIntensity);
 
     const bool advancedSlidersCreated = createSlider(
@@ -752,7 +752,7 @@ bool ControlCenterWindow::createControls()
         && createSlider(
             bloomDiffusion_,
             L"Bloom 扩散",
-            1.0,
+            0.0,
             10.0,
             0.01,
             "bloom.diffusion",
@@ -761,7 +761,7 @@ bool ControlCenterWindow::createControls()
             bloomThreshold_,
             L"Bloom 阈值",
             0.0,
-            5.0,
+            64.0,
             0.01,
             "bloom.threshold",
             ControlId::BloomThreshold)
@@ -776,7 +776,7 @@ bool ControlCenterWindow::createControls()
         && createSlider(
             bloomClamp_,
             L"Bloom 亮度上限",
-            1.0,
+            0.0,
             65504.0,
             1.0,
             "bloom.clamp",

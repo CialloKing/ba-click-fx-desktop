@@ -52,7 +52,8 @@ struct EffectsConfig
     // The Web API exposes trail lifetime in milliseconds; retain the native
     // multiplier for the existing compact control and derive it at runtime.
     float trailLifetimeMs{300.0F};
-    float bloomIntensity{1.0F};
+    // Web API equivalent: bloom.intensity. Unity's serialized default is 1.7.
+    float bloomIntensity{1.7F};
     float bloomDiffusion{7.0F};
     float bloomThreshold{1.0F};
     float bloomSoftKnee{0.0F};

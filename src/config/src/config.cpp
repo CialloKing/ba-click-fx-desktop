@@ -30,7 +30,6 @@ namespace bafx::config
 namespace
 {
 
-constexpr float unityBloomIntensity = 1.7F;
 constexpr float referenceTrailWidthPixels = 2.7F;
 
 struct JsonValue
@@ -1199,8 +1198,7 @@ private:
         JsonValue(static_cast<double>(config.effects.bloomDiffusion)));
     bloom.emplace(
         "intensity",
-        JsonValue(static_cast<double>(
-            config.effects.bloomIntensity * unityBloomIntensity)));
+        JsonValue(static_cast<double>(config.effects.bloomIntensity)));
     bloom.emplace(
         "softKnee",
         JsonValue(static_cast<double>(config.effects.bloomSoftKnee)));
@@ -1698,8 +1696,7 @@ ConfigPatchResult applyPatchJson(
             valueAccepted = readPatchFloat(webIntensity);
             if (valueAccepted)
             {
-                result.effects.bloomIntensity = webIntensity
-                    / unityBloomIntensity;
+                result.effects.bloomIntensity = webIntensity;
             }
         }
         else if (*path == "effects.bloomDiffusion"
@@ -2272,21 +2269,21 @@ bool validateConfig(const Config& config, std::string* error) noexcept
     }
     if (!std::isfinite(config.effects.bloomIntensity)
         || config.effects.bloomIntensity < 0.0F
-        || config.effects.bloomIntensity > 8.0F)
+        || config.effects.bloomIntensity > 10.0F)
     {
-        return failValidation("effects.bloomIntensity must be within [0, 8]");
+        return failValidation("effects.bloomIntensity must be within [0, 10]");
     }
     if (!std::isfinite(config.effects.bloomDiffusion)
-        || config.effects.bloomDiffusion < 1.0F
+        || config.effects.bloomDiffusion < 0.0F
         || config.effects.bloomDiffusion > 10.0F)
     {
-        return failValidation("effects.bloomDiffusion must be within [1, 10]");
+        return failValidation("effects.bloomDiffusion must be within [0, 10]");
     }
     if (!std::isfinite(config.effects.bloomThreshold)
         || config.effects.bloomThreshold < 0.0F
-        || config.effects.bloomThreshold > 5.0F)
+        || config.effects.bloomThreshold > 64.0F)
     {
-        return failValidation("effects.bloomThreshold must be within [0, 5]");
+        return failValidation("effects.bloomThreshold must be within [0, 64]");
     }
     if (!std::isfinite(config.effects.bloomSoftKnee)
         || config.effects.bloomSoftKnee < 0.0F
@@ -2295,10 +2292,10 @@ bool validateConfig(const Config& config, std::string* error) noexcept
         return failValidation("effects.bloomSoftKnee must be within [0, 1]");
     }
     if (!std::isfinite(config.effects.bloomClamp)
-        || config.effects.bloomClamp < 1.0F
+        || config.effects.bloomClamp < 0.0F
         || config.effects.bloomClamp > 65504.0F)
     {
-        return failValidation("effects.bloomClamp must be within [1, 65504]");
+        return failValidation("effects.bloomClamp must be within [0, 65504]");
     }
     if (config.input.samplingRateHz > 1000U)
     {
