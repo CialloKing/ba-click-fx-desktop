@@ -155,10 +155,10 @@ Visual Studio、Windows SDK、Inno Setup 或 PowerShell 依赖包；安装器已
 `%LOCALAPPDATA%`、当前工作目录或其他用户目录保存数据。Host 使用
 `Local\BAFX.Host.v1` 互斥体保证单实例。
 
-首次生成的 schema 12 配置将 `background.mode` 设为 `background-aware`、
+首次生成的 schema 13 配置将 `background.mode` 设为 `background-aware`、
 `background.allowSystemBorder` 设为 `true`、`display.hdrEnabled` 设为 `false`，并以
 `input.trailOnlyWhilePressed=true`、`input.samplingRateHz=0` 保持按住拖尾且不额外限频。
-测试版只接受字段完整的显式 `schemaVersion=12`：缺少版本、section 或字段，非当前版本、
+测试版只接受字段完整的显式 `schemaVersion=13`：缺少版本、section 或字段，非当前版本、
 未知字段和枚举别名都会被拒绝。Host 记录错误后仅在内存中使用当前默认值，不补齐、不迁移也不改写
 原文件。只有
 `background-aware` 会启用 WGC；WGC 或捕获排除路径失败时，Host 将当前批次回退到内部
@@ -174,12 +174,13 @@ FX-only，不会先启动带黄色边框的会话。无论该开关如何设置�
 `BAFX.ControlCenter.exe` 已作为独立的 Win32 进程接入该 Pipe。Host 保持运行时，Control Center
 可以读取状态、暂停或恢复特效。基础页提供启用状态、点击特效、鼠标拖尾、拖尾常驻、效果大小、拖尾长度、
 拖尾宽度、输入采样率上限、Bloom 强度与 Bloom 质量；高级页再按“时间与透明度”“粒子与材质”
-“圆环参数”“Bloom 参数”分成四个二级页面。粒子与材质页直接使用与 Web 相同的
+“圆环参数”“点击碎片”“Bloom 参数”分成五个二级页面。粒子与材质页直接使用与 Web 相同的
 `disk.radius`、`disk.lifetimeMs`、`rings.hdrIntensity`、`shards.hdrIntensity` 和
 `trail.trailOpacity` 路径；圆环页提供 `rings.count`、`rings.lifetimeMs`、
 `rings.radiusMin`、`rings.radiusMax`、`rings.angularVelocityMultiplier` 和
-`rings.rotationDirection`。另外两页提供透明度、点击/拖尾时间倍率、拖尾寿命，以及 Bloom 扩散、
-阈值、软阈值和亮度上限。背景区域包含指针排除、系统捕获边框和默认关闭的 HDR 输出开关。
+`rings.rotationDirection`；点击碎片页提供 `shards.clickCount`、点击寿命上下限、出生半径、速度上下限和
+`shards.sizeMin`/`shards.sizeMax`。其余两页提供透明度、点击/拖尾时间倍率、拖尾寿命，以及 Bloom
+扩散、阈值、软阈值和亮度上限。背景区域包含指针排除、系统捕获边框和默认关闭的 HDR 输出开关。
 调整结果在下一帧交给 Host。“拖尾常驻”默认关闭；开启后
 无需按住鼠标，普通移动也会生成纯拖尾，但不会伪造点击圆盘或圆环。这是参考 Web 行为提供的原生产品增强，
 不属于游戏原脚本的按压 FX 路径。数值控件会合并连续拖动后的写入，避免为每个滑块像素都写一次配置。
@@ -239,7 +240,7 @@ Resume
 Shutdown
 ```
 
-`SetConfig` 也接受完整的 schema 12 JSON 快照。`GetFxConfig`、`SetFxParam`、原子批量的
+`SetConfig` 也接受完整的 schema 13 JSON 快照。`GetFxConfig`、`SetFxParam`、原子批量的
 `SetFxParams` 和 `ResetFxConfig` 对应 Web 的实例 API 命名；当前只返回和接受已经接入 Native
 模拟或材质求值的参数。`ResetFxConfig` 只恢复 `effects`，保留背景、HDR、输入和系统设置；Control Center
 中的“重置默认”则使用完整 schema 恢复全部持久化设置。路径补丁只允许配置库声明的产品字段，代次不匹配会返回
