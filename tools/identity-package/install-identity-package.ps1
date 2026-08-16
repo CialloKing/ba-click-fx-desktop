@@ -137,6 +137,54 @@ function Write-Utf8NoBom
     [IO.File]::WriteAllText($Path, $Content, $encoding)
 }
 
+function Assert-ConfigObjectFields
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [AllowNull()]
+        [object]$Value,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Path,
+
+        [Parameter(Mandatory = $true)]
+        [string[]]$ExpectedFields
+    )
+
+    if ($null -eq $Value -or $Value -isnot [PSCustomObject])
+    {
+        throw "Generated configuration field '$Path' must be an object."
+    }
+
+    $actualFields = @(
+        $Value.PSObject.Properties |
+            ForEach-Object { $_.Name }
+    )
+    $missingFields = @(
+        $ExpectedFields |
+            Where-Object { $actualFields -notcontains $_ }
+    )
+    $unknownFields = @(
+        $actualFields |
+            Where-Object { $ExpectedFields -notcontains $_ }
+    )
+    if ($missingFields.Count -eq 0 -and $unknownFields.Count -eq 0)
+    {
+        return
+    }
+
+    $details = New-Object Collections.Generic.List[string]
+    if ($missingFields.Count -gt 0)
+    {
+        $details.Add("missing=$($missingFields -join ',')")
+    }
+    if ($unknownFields.Count -gt 0)
+    {
+        $details.Add("unknown=$($unknownFields -join ',')")
+    }
+    throw "Generated configuration field '$Path' does not match schemaVersion 12 ($($details -join '; '))."
+}
+
 function Set-IdentityInstallConfig
 {
     param(
@@ -202,22 +250,84 @@ function Set-IdentityInstallConfig
     $schemaVersionProperty = $config.PSObject.Properties['schemaVersion']
     if ($null -eq $schemaVersionProperty `
         -or -not ($schemaVersionProperty.Value -is [ValueType]) `
-        -or [double]$schemaVersionProperty.Value -ne 8.0)
+        -or [double]$schemaVersionProperty.Value -ne 12.0)
     {
-        throw 'Generated configuration must use schemaVersion 8.'
+        throw 'Generated configuration must use schemaVersion 12.'
     }
-    $backgroundProperty = $config.PSObject.Properties['background']
-    if ($null -eq $backgroundProperty -or $null -eq $backgroundProperty.Value)
-    {
-        throw 'Generated configuration has no background object.'
-    }
-    $allowSystemBorderProperty = $config.background.PSObject.Properties['allowSystemBorder']
-    if ($null -eq $allowSystemBorderProperty)
-    {
-        # The test build accepts only the complete current schema. An installer
-        # must not make an obsolete document appear current by filling fields.
-        throw 'Generated configuration has no background.allowSystemBorder field.'
-    }
+
+    # The Host keeps an invalid persisted document while using defaults only in
+    # memory. Verify the exact shape before editing so installation cannot make
+    # a stale document look like a valid current-schema configuration.
+    Assert-ConfigObjectFields `
+        -Value $config `
+        -Path '$' `
+        -ExpectedFields @(
+            'schemaVersion',
+            'effects',
+            'background',
+            'display',
+            'input',
+            'performance',
+            'system'
+        )
+    Assert-ConfigObjectFields `
+        -Value $config.effects `
+        -Path 'effects' `
+        -ExpectedFields @(
+            'enabled',
+            'globalScale',
+            'opacity',
+            'clickEnabled',
+            'trailEnabled',
+            'trailLength',
+            'trailWidth',
+            'clickTimeScale',
+            'trailTimeScale',
+            'trailLifetimeMs',
+            'diskLifetimeMs',
+            'diskRadius',
+            'ringsCount',
+            'ringsLifetimeMs',
+            'ringsRadiusMin',
+            'ringsRadiusMax',
+            'ringsAngularVelocityMultiplier',
+            'ringsRotationDirection',
+            'ringsHdrIntensity',
+            'shardsHdrIntensity',
+            'trailOpacity',
+            'bloomIntensity',
+            'bloomDiffusion',
+            'bloomThreshold',
+            'bloomSoftKnee',
+            'bloomClamp'
+        )
+    Assert-ConfigObjectFields `
+        -Value $config.background `
+        -Path 'background' `
+        -ExpectedFields @('mode', 'cursorExcluded', 'allowSystemBorder')
+    Assert-ConfigObjectFields `
+        -Value $config.display `
+        -Path 'display' `
+        -ExpectedFields @('hdrEnabled')
+    Assert-ConfigObjectFields `
+        -Value $config.input `
+        -Path 'input' `
+        -ExpectedFields @(
+            'leftClick',
+            'rightClick',
+            'middleClick',
+            'trailOnlyWhilePressed',
+            'samplingRateHz'
+        )
+    Assert-ConfigObjectFields `
+        -Value $config.performance `
+        -Path 'performance' `
+        -ExpectedFields @('idleOptimization', 'framePacing')
+    Assert-ConfigObjectFields `
+        -Value $config.system `
+        -Path 'system' `
+        -ExpectedFields @('startWithWindows', 'startMinimized', 'closeToTray')
+
     if ($DisableSystemBorder)
     {
         $config.background.allowSystemBorder = $false

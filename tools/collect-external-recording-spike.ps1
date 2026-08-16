@@ -786,14 +786,32 @@ function New-RecordingConfiguration
             hdrEnabled = $false
         }
         effects = [ordered]@{
-            bloomIntensity = 1
-            bloomQuality = 'high'
-            clickEnabled = $true
             enabled = $true
             globalScale = 1
+            opacity = 1
+            clickEnabled = $true
             trailEnabled = $true
             trailLength = 1
             trailWidth = 1
+            clickTimeScale = 1
+            trailTimeScale = 1
+            trailLifetimeMs = 300
+            diskLifetimeMs = 200
+            diskRadius = 32.4
+            ringsCount = 2
+            ringsLifetimeMs = 600
+            ringsRadiusMin = 68.92571232
+            ringsRadiusMax = 80.41333104
+            ringsAngularVelocityMultiplier = 11.170107
+            ringsRotationDirection = -1
+            ringsHdrIntensity = 5.992157
+            shardsHdrIntensity = 5.992157
+            trailOpacity = 1
+            bloomIntensity = 1.7
+            bloomDiffusion = 7
+            bloomThreshold = 1
+            bloomSoftKnee = 0
+            bloomClamp = 65472
         }
         input = [ordered]@{
             leftClick = $true
@@ -806,7 +824,7 @@ function New-RecordingConfiguration
             framePacing = 'match-display'
             idleOptimization = $true
         }
-        schemaVersion = 8
+        schemaVersion = 12
         system = [ordered]@{
             closeToTray = $true
             startMinimized = $false
