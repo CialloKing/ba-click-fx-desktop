@@ -239,6 +239,7 @@ public:
 
     void setBounds(RECT bounds);
     void show();
+    void hide() noexcept;
     void pollExitShortcut() noexcept;
     void pollPointerState() noexcept;
 

@@ -1619,11 +1619,20 @@ void DisplaySession::resetFramePacing() noexcept
 
 void DisplaySession::markRenderFaulted() noexcept
 {
+    window_.hide();
     renderFaulted_ = true;
 }
 
-void DisplaySession::clearRenderFault() noexcept
+void DisplaySession::clearRenderFault()
 {
+    if (!renderFaulted_)
+    {
+        return;
+    }
+
+    // Re-expose the surface only after its caller has rebuilt or validated the
+    // resource domain. show() also reasserts the topmost non-activating state.
+    window_.show();
     renderFaulted_ = false;
 }
 

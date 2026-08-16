@@ -599,6 +599,14 @@ void OverlayWindow::show()
     }
 }
 
+void OverlayWindow::hide() noexcept
+{
+    // A faulted DirectComposition surface can otherwise retain its last frame
+    // indefinitely. Hiding the HWND is the fail-closed boundary even when the
+    // graphics device can no longer submit a transparent replacement frame.
+    ShowWindow(window_, SW_HIDE);
+}
+
 void OverlayWindow::pollExitShortcut() noexcept
 {
     if (role_ != OverlayWindowRole::HostShell)

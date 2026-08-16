@@ -212,7 +212,7 @@ public:
         bafx::core::MonotonicTime minimumPeriod) noexcept;
     void resetFramePacing() noexcept;
     void markRenderFaulted() noexcept;
-    void clearRenderFault() noexcept;
+    void clearRenderFault();
     void show();
 
 private:
