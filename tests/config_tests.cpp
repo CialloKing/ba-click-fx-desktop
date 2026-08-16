@@ -7,6 +7,8 @@
 #include <fstream>
 #include <iterator>
 #include <string>
+#include <string_view>
+#include <utility>
 
 namespace
 {
@@ -50,7 +52,15 @@ BAFX_TEST(config_defaults_round_trip_through_versioned_json)
     BAFX_CHECK(defaults.input.trailOnlyWhilePressed);
     BAFX_CHECK(defaults.input.samplingRateHz == 0U);
     BAFX_CHECK_NEAR(defaults.effects.globalScale, 1.0F, 0.00001F);
-    BAFX_CHECK_NEAR(defaults.effects.bloomIntensity, 1.0F, 0.00001F);
+    BAFX_CHECK_NEAR(defaults.effects.opacity, 1.0F, 0.00001F);
+    BAFX_CHECK_NEAR(defaults.effects.clickTimeScale, 1.0F, 0.00001F);
+    BAFX_CHECK_NEAR(defaults.effects.trailTimeScale, 1.0F, 0.00001F);
+    BAFX_CHECK_NEAR(defaults.effects.trailLifetimeMs, 300.0F, 0.00001F);
+    BAFX_CHECK_NEAR(defaults.effects.bloomIntensity, 1.7F, 0.00001F);
+    BAFX_CHECK_NEAR(defaults.effects.bloomDiffusion, 7.0F, 0.00001F);
+    BAFX_CHECK_NEAR(defaults.effects.bloomThreshold, 1.0F, 0.00001F);
+    BAFX_CHECK_NEAR(defaults.effects.bloomSoftKnee, 0.0F, 0.00001F);
+    BAFX_CHECK_NEAR(defaults.effects.bloomClamp, 65472.0F, 0.00001F);
 
     const std::string document = bafx::config::toJson(defaults);
     const auto parsed = bafx::config::parseJson(document);
@@ -73,9 +83,205 @@ BAFX_TEST(config_defaults_round_trip_through_versioned_json)
         defaults.effects.globalScale,
         0.00001F);
     BAFX_CHECK_NEAR(
+        parsed.config.effects.opacity,
+        defaults.effects.opacity,
+        0.00001F);
+    BAFX_CHECK_NEAR(
+        parsed.config.effects.clickTimeScale,
+        defaults.effects.clickTimeScale,
+        0.00001F);
+    BAFX_CHECK_NEAR(
+        parsed.config.effects.trailTimeScale,
+        defaults.effects.trailTimeScale,
+        0.00001F);
+    BAFX_CHECK_NEAR(
+        parsed.config.effects.trailLifetimeMs,
+        defaults.effects.trailLifetimeMs,
+        0.00001F);
+    BAFX_CHECK_NEAR(
         parsed.config.effects.bloomIntensity,
         defaults.effects.bloomIntensity,
         0.00001F);
+    BAFX_CHECK_NEAR(
+        parsed.config.effects.bloomDiffusion,
+        defaults.effects.bloomDiffusion,
+        0.00001F);
+    BAFX_CHECK_NEAR(
+        parsed.config.effects.bloomThreshold,
+        defaults.effects.bloomThreshold,
+        0.00001F);
+    BAFX_CHECK_NEAR(
+        parsed.config.effects.bloomSoftKnee,
+        defaults.effects.bloomSoftKnee,
+        0.00001F);
+    BAFX_CHECK_NEAR(
+        parsed.config.effects.bloomClamp,
+        defaults.effects.bloomClamp,
+        0.00001F);
+}
+
+BAFX_TEST(config_schema_nine_effect_fields_round_trip_through_file)
+{
+    const fs::path path = testPath();
+    const fs::path root = path.parent_path();
+    std::error_code cleanupError;
+    fs::remove_all(root, cleanupError);
+
+    bafx::config::Config value = bafx::config::defaultConfig();
+    value.effects.opacity = 0.35F;
+    value.effects.clickTimeScale = 0.25F;
+    value.effects.trailTimeScale = 3.5F;
+    value.effects.trailLifetimeMs = 450.0F;
+    value.effects.trailLength = 1.5F;
+    value.effects.trailWidth = 1.25F;
+    value.effects.bloomIntensity = 3.4F;
+    value.effects.bloomDiffusion = 8.5F;
+    value.effects.bloomThreshold = 0.75F;
+    value.effects.bloomSoftKnee = 0.4F;
+    value.effects.bloomClamp = 4096.0F;
+
+    const std::string serialized = bafx::config::toJson(value, false);
+    for (const std::string_view field : {
+             "opacity",
+             "clickTimeScale",
+             "trailTimeScale",
+             "trailLifetimeMs",
+             "bloomDiffusion",
+             "bloomThreshold",
+             "bloomSoftKnee",
+             "bloomClamp"})
+    {
+        BAFX_CHECK(serialized.find(std::string("\"") + std::string(field) + "\"")
+            != std::string::npos);
+    }
+
+    BAFX_CHECK(bafx::config::saveConfigAtomic(path, value).succeeded());
+    const auto loaded = bafx::config::loadConfig(path);
+    BAFX_CHECK(loaded.status == bafx::config::ConfigStatus::Ok);
+    BAFX_CHECK(loaded.config.schemaVersion == bafx::config::currentSchemaVersion);
+    BAFX_CHECK_NEAR(loaded.config.effects.opacity, 0.35F, 0.00001F);
+    BAFX_CHECK_NEAR(loaded.config.effects.clickTimeScale, 0.25F, 0.00001F);
+    BAFX_CHECK_NEAR(loaded.config.effects.trailTimeScale, 3.5F, 0.00001F);
+    BAFX_CHECK_NEAR(loaded.config.effects.trailLifetimeMs, 450.0F, 0.00001F);
+    BAFX_CHECK_NEAR(loaded.config.effects.trailLength, 1.5F, 0.00001F);
+    BAFX_CHECK_NEAR(loaded.config.effects.trailWidth, 1.25F, 0.00001F);
+    BAFX_CHECK_NEAR(loaded.config.effects.bloomIntensity, 3.4F, 0.00001F);
+    BAFX_CHECK_NEAR(loaded.config.effects.bloomDiffusion, 8.5F, 0.00001F);
+    BAFX_CHECK_NEAR(loaded.config.effects.bloomThreshold, 0.75F, 0.00001F);
+    BAFX_CHECK_NEAR(loaded.config.effects.bloomSoftKnee, 0.4F, 0.00001F);
+    BAFX_CHECK_NEAR(loaded.config.effects.bloomClamp, 4096.0F, 0.00001F);
+
+    removeTestTree(path);
+}
+
+BAFX_TEST(config_fx_parameter_boundaries_normalize_web_units)
+{
+    const bafx::config::Config base = bafx::config::defaultConfig();
+
+    const auto opacityMinimum = bafx::config::setFxParam(
+        base,
+        "opacity",
+        "0");
+    BAFX_CHECK(opacityMinimum.succeeded());
+    BAFX_CHECK_NEAR(opacityMinimum.config.effects.opacity, 0.0F, 0.00001F);
+
+    const auto opacityMaximum = bafx::config::setFxParam(
+        base,
+        "opacity",
+        "1");
+    BAFX_CHECK(opacityMaximum.succeeded());
+    BAFX_CHECK_NEAR(opacityMaximum.config.effects.opacity, 1.0F, 0.00001F);
+
+    const auto clickMinimum = bafx::config::setFxParam(
+        base,
+        "clickTimeScale",
+        "0.01");
+    BAFX_CHECK(clickMinimum.succeeded());
+    BAFX_CHECK_NEAR(clickMinimum.config.effects.clickTimeScale, 0.01F, 0.00001F);
+
+    const auto trailMaximum = bafx::config::setFxParam(
+        base,
+        "trailTimeScale",
+        "4");
+    BAFX_CHECK(trailMaximum.succeeded());
+    BAFX_CHECK_NEAR(trailMaximum.config.effects.trailTimeScale, 4.0F, 0.00001F);
+
+    const auto lifetime = bafx::config::setFxParam(
+        base,
+        "trail.lifetimeMs",
+        "900");
+    BAFX_CHECK(lifetime.succeeded());
+    BAFX_CHECK_NEAR(lifetime.config.effects.trailLifetimeMs, 900.0F, 0.00001F);
+    BAFX_CHECK_NEAR(lifetime.config.effects.trailLength, 3.0F, 0.00001F);
+
+    const auto width = bafx::config::setFxParam(
+        base,
+        "trail.width",
+        "10.8");
+    BAFX_CHECK(width.succeeded());
+    BAFX_CHECK_NEAR(width.config.effects.trailWidth, 4.0F, 0.00001F);
+
+    const auto bloomIntensity = bafx::config::setFxParam(
+        base,
+        "bloom.intensity",
+        "3.4");
+    BAFX_CHECK(bloomIntensity.succeeded());
+    BAFX_CHECK_NEAR(bloomIntensity.config.effects.bloomIntensity, 3.4F, 0.00001F);
+
+    const auto diffusionMinimum = bafx::config::setFxParam(
+        base,
+        "bloom.diffusion",
+        "0");
+    BAFX_CHECK(diffusionMinimum.succeeded());
+    BAFX_CHECK_NEAR(diffusionMinimum.config.effects.bloomDiffusion, 0.0F, 0.00001F);
+
+    const auto clampMaximum = bafx::config::setFxParam(
+        base,
+        "bloom.clamp",
+        "65504");
+    BAFX_CHECK(clampMaximum.succeeded());
+    BAFX_CHECK_NEAR(clampMaximum.config.effects.bloomClamp, 65504.0F, 0.00001F);
+
+    for (const auto& invalid : {
+             std::pair{"opacity", "-0.01"},
+             std::pair{"opacity", "1.01"},
+             std::pair{"clickTimeScale", "0.009"},
+             std::pair{"trailTimeScale", "4.01"},
+             std::pair{"bloom.softKnee", "1.01"},
+             std::pair{"bloom.clamp", "-0.01"}})
+    {
+        const auto result = bafx::config::setFxParam(
+            base,
+            invalid.first,
+            invalid.second);
+        BAFX_CHECK(!result.succeeded());
+        BAFX_CHECK(result.config.effects.opacity == base.effects.opacity);
+        BAFX_CHECK(result.config.effects.clickTimeScale == base.effects.clickTimeScale);
+        BAFX_CHECK(result.config.effects.bloomClamp == base.effects.bloomClamp);
+    }
+}
+
+BAFX_TEST(config_fx_parameter_batch_is_atomic_and_preserves_generation)
+{
+    const bafx::config::Config base = bafx::config::defaultConfig();
+    const auto batch = bafx::config::setFxParams(
+        base,
+        R"json({"generation":7,"patch":{"opacity":0.25,"clickTimeScale":2,"trail.lifetimeMs":600,"bloom.intensity":4.2}})json");
+    BAFX_CHECK(batch.succeeded());
+    BAFX_CHECK(batch.expectedGeneration.has_value());
+    BAFX_CHECK(*batch.expectedGeneration == 7U);
+    BAFX_CHECK_NEAR(batch.config.effects.opacity, 0.25F, 0.00001F);
+    BAFX_CHECK_NEAR(batch.config.effects.clickTimeScale, 2.0F, 0.00001F);
+    BAFX_CHECK_NEAR(batch.config.effects.trailLifetimeMs, 600.0F, 0.00001F);
+    BAFX_CHECK_NEAR(batch.config.effects.trailLength, 2.0F, 0.00001F);
+    BAFX_CHECK_NEAR(batch.config.effects.bloomIntensity, 4.2F, 0.00001F);
+
+    const auto rejected = bafx::config::setFxParams(
+        base,
+        R"json({"generation":7,"patch":{"opacity":0.25,"bloom.softKnee":2}})json");
+    BAFX_CHECK(!rejected.succeeded());
+    BAFX_CHECK(rejected.config.effects.opacity == base.effects.opacity);
+    BAFX_CHECK(rejected.config.effects.bloomSoftKnee == base.effects.bloomSoftKnee);
 }
 
 BAFX_TEST(config_render_modes_use_canonical_wire_values)
@@ -242,8 +448,10 @@ BAFX_TEST(config_parser_rejects_non_current_schemas)
 
 BAFX_TEST(config_current_schema_requires_every_section_and_field)
 {
+    const std::string currentSchema = std::to_string(
+        bafx::config::currentSchemaVersion);
     const auto missingSection = bafx::config::parseJson(
-        R"json({"schemaVersion":8})json");
+        std::string("{\"schemaVersion\":") + currentSchema + "}");
     BAFX_CHECK(
         missingSection.status == bafx::config::ConfigStatus::ValidationError);
     BAFX_CHECK(
@@ -268,12 +476,18 @@ BAFX_TEST(config_current_schema_requires_every_section_and_field)
 
 BAFX_TEST(config_parser_rejects_invalid_documents_and_values)
 {
+    const std::string currentSchema = std::to_string(
+        bafx::config::currentSchemaVersion);
     const auto missingVersion = bafx::config::parseJson("{}");
     BAFX_CHECK(!missingVersion.succeeded());
     BAFX_CHECK(missingVersion.status == bafx::config::ConfigStatus::ValidationError);
 
     const auto duplicateKey = bafx::config::parseJson(
-        R"json({"schemaVersion":8,"schemaVersion":8})json");
+        std::string("{\"schemaVersion\":")
+            + currentSchema
+            + ",\"schemaVersion\":"
+            + currentSchema
+            + "}");
     BAFX_CHECK(duplicateKey.status == bafx::config::ConfigStatus::ParseError);
 
     bafx::config::Config invalidConfig = bafx::config::defaultConfig();
@@ -283,7 +497,9 @@ BAFX_TEST(config_parser_rejects_invalid_documents_and_values)
     BAFX_CHECK(invalidScale.status == bafx::config::ConfigStatus::ValidationError);
 
     const auto malformed = bafx::config::parseJson(
-        R"json({"schemaVersion":8,"effects":{"enabled":tru}})json");
+        std::string("{\"schemaVersion\":")
+            + currentSchema
+            + ",\"effects\":{\"enabled\":tru}}");
     BAFX_CHECK(malformed.status == bafx::config::ConfigStatus::ParseError);
 }
 
@@ -311,7 +527,7 @@ BAFX_TEST(config_atomic_save_load_and_failure_preserves_previous_file)
     BAFX_CHECK(loaded.config.input.samplingRateHz == 30U);
 
     const std::string beforeInvalidSave = readFile(path);
-    value.effects.bloomIntensity = 9.0F;
+    value.effects.bloomIntensity = 10.1F;
     const auto invalidSave = bafx::config::saveConfigAtomic(path, value);
     BAFX_CHECK(invalidSave.status == bafx::config::ConfigStatus::ValidationError);
     BAFX_CHECK(readFile(path) == beforeInvalidSave);
