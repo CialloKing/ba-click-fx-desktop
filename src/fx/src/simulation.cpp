@@ -528,7 +528,9 @@ Simulation::Simulation(const std::uint64_t seed)
     , random_(seed)
     , atlasRandom_(seed ^ atlasRandomStream)
 {
-    rings_.reserve(2);
+    // rings.count is sampled on pointerDown. Reserve its validated upper bound
+    // so the first high-count click does not allocate on the input path.
+    rings_.reserve(maximumRingCount);
     triangles_.reserve(4U + maximumDragParticles);
     trail_.reserve(128);
     trailParkingPoints_.reserve(128);
