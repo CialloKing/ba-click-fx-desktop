@@ -51,6 +51,9 @@ struct DisplayColorCapabilities final
     bool advancedColorStateConsistent{false};
     bool sdrWhiteLevelConsistent{false};
     bool physicalTargetAdaptersConsistent{false};
+    DisplayTopologyStatus displayConfigTopologyStatus{
+        DisplayTopologyStatus::QueryFailed};
+    LONG displayConfigTopologyError{ERROR_GEN_FAILURE};
 };
 
 // This is capability evidence only. It does not mean the application's final
@@ -58,9 +61,11 @@ struct DisplayColorCapabilities final
 [[nodiscard]] std::optional<DisplayColorCapabilities>
 queryDisplayColorCapabilities(HMONITOR monitor) noexcept;
 
-// A DXGI-only snapshot is complete on older systems. Once DisplayConfig has
-// resolved the physical path, every Advanced Color target must have answered
-// consistently before the snapshot may replace a last-known output contract.
+// A DXGI-only snapshot is complete only when DisplayConfig explicitly reports
+// that the runtime does not support topology queries. Transient topology
+// failures must not replace a last-known output contract. Once DisplayConfig
+// resolves the physical path, every Advanced Color target must have answered
+// consistently before the snapshot may replace that contract.
 [[nodiscard]] bool displayColorStateComplete(
     const DisplayColorCapabilities& capabilities) noexcept;
 

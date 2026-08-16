@@ -626,6 +626,8 @@ std::optional<DisplayColorCapabilities> queryDisplayColorCapabilities(
         const bool dxgiDescriptionAvailable = dxgiCapabilities.has_value();
         DisplayColorCapabilities capabilities =
             dxgiCapabilities.value_or(DisplayColorCapabilities{});
+        capabilities.displayConfigTopologyStatus = topology.status;
+        capabilities.displayConfigTopologyError = topology.error;
 
         if (display != nullptr
             && topology.status == DisplayTopologyStatus::Complete)
@@ -655,10 +657,13 @@ bool displayColorStateComplete(
 {
     if (!capabilities.displayPathResolved)
     {
-        // IDXGIOutput6 is the only available source on runtimes where the
-        // DisplayConfig path cannot be resolved. Do not turn OS age into a
-        // permanent retry condition.
-        return true;
+        // GetDisplayConfigBufferSizes documents ERROR_NOT_SUPPORTED for
+        // runtimes without a WDDM DisplayConfig provider. That stable absence
+        // may use DXGI alone; every other missing path can be transient during
+        // hot-plug or a mode switch and must keep the bounded retry active.
+        return capabilities.displayConfigTopologyStatus
+                == DisplayTopologyStatus::Incomplete
+            && capabilities.displayConfigTopologyError == ERROR_NOT_SUPPORTED;
     }
     return capabilities.advancedColorQueryResult == ERROR_SUCCESS
         && capabilities.advancedColorStateConsistent;
