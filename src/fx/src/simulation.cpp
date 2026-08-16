@@ -471,7 +471,9 @@ void Simulation::updateUnityTrailTimeScale(const float timeScale)
 {
     const float normalized = std::isfinite(timeScale)
         ? std::clamp(timeScale, 0.0F, maximumTimeScale)
-        : 1.0F;
+        : timeScale;
+    // C# floating-point comparison sends NaN and negative infinity through
+    // the low-scale branch; replacing either with a default changes parking.
     if (normalized > trailParkingTimeScaleThreshold)
     {
         if (trailParkingMode_)
