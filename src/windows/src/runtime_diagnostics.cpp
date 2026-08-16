@@ -459,6 +459,44 @@ void appendDiagnosticRecordUnlocked(
     return "unknown";
 }
 
+[[nodiscard]] std::string_view outputMappingName(
+    const CompositionOutputMappingMode mapping) noexcept
+{
+    switch (mapping)
+    {
+    case CompositionOutputMappingMode::ConservativeSdr:
+        return "conservative-sdr";
+    case CompositionOutputMappingMode::AdvancedColorScRgb:
+        return "advanced-color-scrgb";
+    case CompositionOutputMappingMode::HdrSceneReferredScRgb:
+        return "hdr-scene-referred-scrgb";
+    }
+    return "unknown";
+}
+
+[[nodiscard]] std::string_view intensitySemanticsName(
+    const bafx::core::IntensitySemantics semantics) noexcept
+{
+    switch (semantics)
+    {
+    case bafx::core::IntensitySemantics::ArtisticRelative:
+        return "artistic-relative";
+    case bafx::core::IntensitySemantics::ReferenceWhiteRelative:
+        return "reference-white-relative";
+    case bafx::core::IntensitySemantics::AbsoluteNits:
+        return "absolute-nits";
+    }
+    return "unknown";
+}
+
+[[nodiscard]] std::string outputReferenceWhiteNits(
+    const CompositionOutputMapping& mapping)
+{
+    return mapping.referenceWhiteValid
+        ? std::to_string(mapping.referenceWhiteNits)
+        : "unknown";
+}
+
 [[nodiscard]] std::string_view outputFallbackName(
     const CompositionOutputFallback fallback) noexcept
 {
@@ -743,9 +781,16 @@ std::string SupportReport::serialize() const
         {
             stream << "unknown";
         }
+        const bool preferenceSatisfied =
+            summary.actualOutputPreference.has_value()
+            && *summary.actualOutputPreference
+                == summary.resolvedOutputPreference;
         stream << '\n'
                << "Display.Output.PreferenceSatisfied="
-               << (summary.outputPreferenceSatisfied ? "true" : "false")
+               << (preferenceSatisfied ? "true" : "false")
+               << '\n'
+               << "Display.Output.PolicySatisfied="
+               << (summary.outputPolicySatisfied ? "true" : "false")
                << '\n'
                << "Display.ColorSnapshotComplete="
                << (summary.colorSnapshotComplete ? "true" : "false") << '\n'
@@ -761,6 +806,7 @@ std::string SupportReport::serialize() const
                << "Display.Output.ResolvedPreference=unknown\n"
                << "Display.Output.ActualPreference=unknown\n"
                << "Display.Output.PreferenceSatisfied=unknown\n"
+               << "Display.Output.PolicySatisfied=unknown\n"
                << "Display.ColorSnapshotComplete=unknown\n"
                << "Display.HdrCapabilityObserved=unknown\n"
                << "Display.HdrActive=unknown\n";
@@ -977,6 +1023,10 @@ std::string SupportReport::serialize() const
 
     if (hasDeviceInfo_)
     {
+        const std::string outputReferenceWhite =
+            outputReferenceWhiteNits(deviceInfo_.output.mapping);
+        const std::string policyReferenceWhite =
+            outputReferenceWhiteNits(deviceInfo_.outputPolicy.mapping);
         stream << "Graphics.DriverType=" << driverType(deviceInfo_.driverType) << '\n'
                << "Graphics.Adapter="
                << sanitize(wideToUtf8(deviceInfo_.adapterDescription)) << '\n'
@@ -1025,12 +1075,41 @@ std::string SupportReport::serialize() const
                << '\n'
                << "Graphics.OutputTransfer="
                << outputTransferName(deviceInfo_.output.transfer) << '\n'
+               << "Graphics.OutputMapping="
+               << outputMappingName(deviceInfo_.output.mapping.mode) << '\n'
+               << "Graphics.OutputIntensitySemantics="
+               << intensitySemanticsName(
+                      deviceInfo_.output.mapping.intensitySemantics)
+               << '\n'
+               << "Graphics.OutputReferenceWhiteValid="
+               << (deviceInfo_.output.mapping.referenceWhiteValid
+                       ? "true"
+                       : "false")
+               << '\n'
+               << "Graphics.OutputReferenceWhiteNits="
+               << outputReferenceWhite << '\n'
                << "Graphics.OutputPreference="
                << outputPreferenceName(deviceInfo_.outputPreference) << '\n'
                << "Graphics.OutputPreferenceSatisfied="
                << (compositionOutputSatisfiesPreference(
                        deviceInfo_.output,
                        deviceInfo_.outputPreference)
+                       ? "true"
+                       : "false")
+               << '\n'
+               << "Graphics.OutputPolicyMapping="
+               << outputMappingName(deviceInfo_.outputPolicy.mapping.mode)
+               << '\n'
+               << "Graphics.OutputPolicyIntensitySemantics="
+               << intensitySemanticsName(
+                      deviceInfo_.outputPolicy.mapping.intensitySemantics)
+               << '\n'
+               << "Graphics.OutputPolicyReferenceWhiteNits="
+               << policyReferenceWhite << '\n'
+               << "Graphics.OutputPolicySatisfied="
+               << (compositionOutputSatisfiesPolicy(
+                       deviceInfo_.output,
+                       deviceInfo_.outputPolicy)
                        ? "true"
                        : "false")
                << '\n'

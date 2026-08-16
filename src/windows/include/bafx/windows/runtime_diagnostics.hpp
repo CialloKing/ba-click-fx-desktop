@@ -53,7 +53,7 @@ struct DisplayRuntimeSummary final
     CompositionOutputPreference resolvedOutputPreference{
         CompositionOutputPreference::ConservativeSdr};
     std::optional<CompositionOutputPreference> actualOutputPreference{};
-    bool outputPreferenceSatisfied{false};
+    bool outputPolicySatisfied{false};
     bool colorSnapshotComplete{false};
     bool hdrCapabilityObserved{false};
     bool hdrActive{false};

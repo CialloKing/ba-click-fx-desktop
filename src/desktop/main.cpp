@@ -439,6 +439,44 @@ struct PendingOutputRenegotiation final
     return "unknown";
 }
 
+[[nodiscard]] std::string_view outputMappingName(
+    const bafx::windows::CompositionOutputMappingMode mapping) noexcept
+{
+    switch (mapping)
+    {
+    case bafx::windows::CompositionOutputMappingMode::ConservativeSdr:
+        return "conservative-sdr";
+    case bafx::windows::CompositionOutputMappingMode::AdvancedColorScRgb:
+        return "advanced-color-scrgb";
+    case bafx::windows::CompositionOutputMappingMode::HdrSceneReferredScRgb:
+        return "hdr-scene-referred-scrgb";
+    }
+    return "unknown";
+}
+
+[[nodiscard]] std::string_view intensitySemanticsName(
+    const bafx::core::IntensitySemantics semantics) noexcept
+{
+    switch (semantics)
+    {
+    case bafx::core::IntensitySemantics::ArtisticRelative:
+        return "artistic-relative";
+    case bafx::core::IntensitySemantics::ReferenceWhiteRelative:
+        return "reference-white-relative";
+    case bafx::core::IntensitySemantics::AbsoluteNits:
+        return "absolute-nits";
+    }
+    return "unknown";
+}
+
+[[nodiscard]] std::string outputReferenceWhiteNits(
+    const bafx::windows::CompositionOutputMapping& mapping)
+{
+    return mapping.referenceWhiteValid
+        ? std::to_string(mapping.referenceWhiteNits)
+        : "unknown";
+}
+
 [[nodiscard]] std::string_view outputFallbackName(
     const bafx::windows::CompositionOutputFallback fallback) noexcept
 {
@@ -486,10 +524,24 @@ void appendOutputRenegotiation(
         const std::string deviceRecovered = result.deviceRecovered
             ? "true"
             : "false";
+        const bafx::windows::CompositionOutputPolicy& requestedPolicy =
+            session.renderer().outputPolicy();
+        const std::string previousReferenceWhite =
+            outputReferenceWhiteNits(result.previous.mapping);
+        const std::string currentReferenceWhite =
+            outputReferenceWhiteNits(result.current.mapping);
+        const std::string requestedReferenceWhite =
+            outputReferenceWhiteNits(requestedPolicy.mapping);
         const std::string_view preferenceSatisfied =
             bafx::windows::compositionOutputSatisfiesPreference(
                 result.current,
                 result.currentPreference)
+            ? "true"
+            : "false";
+        const std::string_view policySatisfied =
+            bafx::windows::compositionOutputSatisfiesPolicy(
+                result.current,
+                requestedPolicy)
             ? "true"
             : "false";
         const std::array fields{
@@ -513,11 +565,36 @@ void appendOutputRenegotiation(
                 "CurrentTransfer",
                 outputTransferName(result.current.transfer)},
             bafx::windows::DiagnosticField{
+                "PreviousMapping",
+                outputMappingName(result.previous.mapping.mode)},
+            bafx::windows::DiagnosticField{
+                "CurrentMapping",
+                outputMappingName(result.current.mapping.mode)},
+            bafx::windows::DiagnosticField{
+                "RequestedMapping",
+                outputMappingName(requestedPolicy.mapping.mode)},
+            bafx::windows::DiagnosticField{
+                "IntensitySemantics",
+                intensitySemanticsName(
+                    result.current.mapping.intensitySemantics)},
+            bafx::windows::DiagnosticField{
+                "PreviousReferenceWhiteNits",
+                previousReferenceWhite},
+            bafx::windows::DiagnosticField{
+                "CurrentReferenceWhiteNits",
+                currentReferenceWhite},
+            bafx::windows::DiagnosticField{
+                "RequestedReferenceWhiteNits",
+                requestedReferenceWhite},
+            bafx::windows::DiagnosticField{
                 "Fallback",
                 outputFallbackName(result.current.fallback)},
             bafx::windows::DiagnosticField{
                 "PreferenceSatisfied",
                 preferenceSatisfied},
+            bafx::windows::DiagnosticField{
+                "PolicySatisfied",
+                policySatisfied},
             bafx::windows::DiagnosticField{
                 "DeviceRecovered",
                 deviceRecovered}};
@@ -541,7 +618,7 @@ void appendOutputRenegotiation(
 void appendOutputRenegotiationFailure(
     const std::filesystem::path& logPath,
     const bafx::desktop::DisplaySession& session,
-    const bafx::windows::CompositionOutputPreference preference,
+    const bafx::windows::CompositionOutputPolicy policy,
     const std::string_view reason,
     const std::string_view message,
     const bool deviceRecovered = false) noexcept
@@ -550,12 +627,23 @@ void appendOutputRenegotiationFailure(
     {
         const std::string monitor =
             bafx::desktop::formatDisplayTargetMonitor(session.target());
+        const std::string referenceWhite =
+            outputReferenceWhiteNits(policy.mapping);
         const std::array fields{
             bafx::windows::DiagnosticField{"Reason", reason},
             bafx::windows::DiagnosticField{"Monitor", monitor},
             bafx::windows::DiagnosticField{
                 "RequestedPreference",
-                outputPreferenceName(preference)},
+                outputPreferenceName(policy.preference)},
+            bafx::windows::DiagnosticField{
+                "RequestedMapping",
+                outputMappingName(policy.mapping.mode)},
+            bafx::windows::DiagnosticField{
+                "IntensitySemantics",
+                intensitySemanticsName(policy.mapping.intensitySemantics)},
+            bafx::windows::DiagnosticField{
+                "ReferenceWhiteNits",
+                referenceWhite},
             bafx::windows::DiagnosticField{"Message", message},
             bafx::windows::DiagnosticField{
                 "DeviceRecovered",
@@ -577,7 +665,7 @@ void appendOutputRenegotiationFailure(
 void appendOutputRenegotiationRetryScheduled(
     const std::filesystem::path& logPath,
     const bafx::desktop::DisplaySession& session,
-    const bafx::windows::CompositionOutputPreference preference,
+    const bafx::windows::CompositionOutputPolicy policy,
     const std::string_view reason,
     const std::uint32_t retriesRemaining,
     const std::string_view cadence) noexcept
@@ -587,12 +675,20 @@ void appendOutputRenegotiationRetryScheduled(
         const std::string monitor =
             bafx::desktop::formatDisplayTargetMonitor(session.target());
         const std::string remaining = std::to_string(retriesRemaining);
+        const std::string referenceWhite =
+            outputReferenceWhiteNits(policy.mapping);
         const std::array fields{
             bafx::windows::DiagnosticField{"Reason", reason},
             bafx::windows::DiagnosticField{"Monitor", monitor},
             bafx::windows::DiagnosticField{
                 "RequestedPreference",
-                outputPreferenceName(preference)},
+                outputPreferenceName(policy.preference)},
+            bafx::windows::DiagnosticField{
+                "RequestedMapping",
+                outputMappingName(policy.mapping.mode)},
+            bafx::windows::DiagnosticField{
+                "ReferenceWhiteNits",
+                referenceWhite},
             bafx::windows::DiagnosticField{"RetriesRemaining", remaining},
             bafx::windows::DiagnosticField{"Cadence", cadence}};
         bafx::windows::appendDiagnosticEvent(
@@ -613,7 +709,7 @@ void appendOutputRenegotiationDiscarded(
     const std::filesystem::path& logPath,
     const bafx::desktop::DisplaySession& session,
     const bafx::desktop::DisplayTarget& queuedTarget,
-    const bafx::windows::CompositionOutputPreference preference,
+    const bafx::windows::CompositionOutputPolicy policy,
     const std::string_view reason) noexcept
 {
     try
@@ -626,11 +722,19 @@ void appendOutputRenegotiationDiscarded(
             bafx::desktop::displayTargetDeviceUtf8(queuedTarget);
         const std::string currentDevice =
             bafx::desktop::displayTargetDeviceUtf8(session.target());
+        const std::string referenceWhite =
+            outputReferenceWhiteNits(policy.mapping);
         const std::array fields{
             bafx::windows::DiagnosticField{"Reason", reason},
             bafx::windows::DiagnosticField{
                 "RequestedPreference",
-                outputPreferenceName(preference)},
+                outputPreferenceName(policy.preference)},
+            bafx::windows::DiagnosticField{
+                "RequestedMapping",
+                outputMappingName(policy.mapping.mode)},
+            bafx::windows::DiagnosticField{
+                "ReferenceWhiteNits",
+                referenceWhite},
             bafx::windows::DiagnosticField{"Cause", "display-target-changed"},
             bafx::windows::DiagnosticField{"QueuedMonitor", queuedMonitor},
             bafx::windows::DiagnosticField{"CurrentMonitor", currentMonitor},
@@ -668,7 +772,7 @@ tryRenegotiateOutput(
         appendOutputRenegotiationFailure(
             logPath,
             session,
-            policy.preference,
+            policy,
             reason,
             error.what());
         return std::nullopt;
@@ -678,7 +782,7 @@ tryRenegotiateOutput(
         appendOutputRenegotiationFailure(
             logPath,
             session,
-            policy.preference,
+            policy,
             reason,
             "unknown exception");
         return std::nullopt;
@@ -1698,7 +1802,7 @@ void appendSecondaryBackgroundCaptureServiceResult(
             logPath,
             session,
             *result.outputRenegotiationTarget,
-            result.outputRenegotiationPolicy.preference,
+            result.outputRenegotiationPolicy,
             result.outputRenegotiationReason);
     }
     if (result.outputRenegotiation.has_value())
@@ -1714,7 +1818,7 @@ void appendSecondaryBackgroundCaptureServiceResult(
         appendOutputRenegotiationFailure(
             logPath,
             session,
-            result.outputRenegotiationPolicy.preference,
+            result.outputRenegotiationPolicy,
             result.outputRenegotiationReason,
             result.outputRenegotiationFailure,
             result.deviceRecovered);
@@ -1724,7 +1828,7 @@ void appendSecondaryBackgroundCaptureServiceResult(
         appendOutputRenegotiationRetryScheduled(
             logPath,
             session,
-            result.outputRenegotiationPolicy.preference,
+            result.outputRenegotiationPolicy,
             result.outputRenegotiationReason,
             result.outputRenegotiationRetriesRemaining,
             "one-second-monotonic");
@@ -2729,7 +2833,7 @@ int runApplication(
             appendOutputRenegotiationRetryScheduled(
                 logPath,
                 displaySession,
-                pendingCoordinatorOutputRenegotiation->policy.preference,
+                pendingCoordinatorOutputRenegotiation->policy,
                 pendingCoordinatorOutputRenegotiation->reason,
                 pendingCoordinatorOutputRenegotiation->attemptsRemaining,
                 "display-maintenance");
