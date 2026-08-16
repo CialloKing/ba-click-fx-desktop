@@ -391,6 +391,18 @@ function Test-InnoPayloadContract
         -Description 'installer language is re-detected instead of inherited from an older release'
     Assert-TextContains `
         -Text $inno `
+        -Pattern '(?m)^DisableDirPage=yes$' `
+        -Description 'protected machine installer does not offer an unsafe custom directory'
+    Assert-TextContains `
+        -Text $inno `
+        -Pattern '(?m)^UsePreviousAppDir=no$' `
+        -Description 'installer does not inherit an unsupported alpha install directory'
+    Assert-TextContains `
+        -Text $inno `
+        -Pattern 'function\s+PrepareToInstall[\s\S]*\{autopf\}\\ba-click-fx-desktop[\s\S]*CompareText[\s\S]*ProtectedInstallDirectoryRequired' `
+        -Description 'install directory is rejected before privileged payload files are copied'
+    Assert-TextContains `
+        -Text $inno `
         -Pattern 'Name:\s*"english"[\s\S]*Name:\s*"chinesesimplified"[\s\S]*ChineseSimplified\.isl' `
         -Description 'English and Simplified Chinese installer languages'
     Assert-TextContains `
@@ -401,6 +413,10 @@ function Test-InnoPayloadContract
         -Text $inno `
         -Pattern '\{cm:LaunchProgram,BAFX Control Center\}' `
         -Description 'localized post-install Control Center action'
+    Assert-TextContains `
+        -Text $inno `
+        -Pattern '(?m)^Filename:\s*"\{app\}\\BAFX\.ControlCenter\.exe";[^\r\n]*Check:\s*MachineInstallationCompleted$' `
+        -Description 'Control Center launches only after machine installation succeeds'
     Assert-TextContains `
         -Text $inno `
         -Pattern 'english\.PowerShellFailedWithExitCode=[^\r\n]+[\s\S]*chinesesimplified\.PowerShellFailedWithExitCode=[^\r\n]+' `

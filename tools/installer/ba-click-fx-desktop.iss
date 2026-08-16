@@ -36,6 +36,8 @@ VersionInfoCompany={#PublisherName}
 VersionInfoDescription=BAFX click effects installer
 VersionInfoProductName={#ProductName}
 DefaultDirName={autopf}\ba-click-fx-desktop
+DisableDirPage=yes
+UsePreviousAppDir=no
 DefaultGroupName=ba-click-fx-desktop
 DisableProgramGroupPage=yes
 LicenseFile={#StageRoot}\LICENSE.txt
@@ -100,6 +102,8 @@ english.RollbackRecovery=Rollback also failed. The installation files and recove
 chinesesimplified.RollbackRecovery=回滚也失败了。安装文件和恢复状态已保留；请重新打开控制中心修复安装。
 english.FinalizeRepair=The package was committed, but final cleanup needs another repair pass from Control Center.
 chinesesimplified.FinalizeRepair=程序包已提交，但最终清理仍需在控制中心中再次执行修复。
+english.ProtectedInstallDirectoryRequired=For security, this installer must use the protected Program Files directory: %1
+chinesesimplified.ProtectedInstallDirectoryRequired=为保证安装安全，本安装器必须使用受保护的 Program Files 目录：%1
 
 [Files]
 Source: "{#StageRoot}\ba-click-fx-desktop.exe"; DestDir: "{app}"; Flags: ignoreversion
@@ -115,7 +119,7 @@ Name: "{autodesktop}\BAFX Control Center"; Filename: "{app}\BAFX.ControlCenter.e
 Name: "{autoprograms}\ba-click-fx-desktop\{cm:UninstallProgram,{#ProductName}}"; Filename: "{uninstallexe}"
 
 [Run]
-Filename: "{app}\BAFX.ControlCenter.exe"; Description: "{cm:LaunchProgram,BAFX Control Center}"; WorkingDir: "{app}"; Flags: postinstall nowait skipifsilent runasoriginaluser
+Filename: "{app}\BAFX.ControlCenter.exe"; Description: "{cm:LaunchProgram,BAFX Control Center}"; WorkingDir: "{app}"; Flags: postinstall nowait skipifsilent runasoriginaluser; Check: MachineInstallationCompleted
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{app}\Identity"
@@ -128,6 +132,7 @@ var
   RegistrationResultPath: String;
   RollbackResultPath: String;
   RecoveryRequired: Boolean;
+  MachineInstallationSucceeded: Boolean;
   LastPowerShellFailureSummary: String;
   LastPowerShellRawOutput: String;
   LastPowerShellOutputError: String;
@@ -139,6 +144,30 @@ begin
   Escaped := Value;
   StringChangeEx(Escaped, '"', '""', True);
   Result := '"' + Escaped + '"';
+end;
+
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+var
+  InstallRoot: String;
+  ProtectedRoot: String;
+begin
+  InstallRoot := AddBackslash(ExpandConstant('{app}'));
+  ProtectedRoot := AddBackslash(
+    ExpandConstant('{autopf}\ba-click-fx-desktop'));
+  if CompareText(InstallRoot, ProtectedRoot) <> 0 then
+  begin
+    // Machine signing executes privileged payloads from {app}. Reject a
+    // command-line directory override before any files reach that directory.
+    Result := FmtMessage(
+      CustomMessage('ProtectedInstallDirectoryRequired'), [ProtectedRoot]);
+    Exit;
+  end;
+  Result := '';
+end;
+
+function MachineInstallationCompleted(): Boolean;
+begin
+  Result := MachineInstallationSucceeded;
 end;
 
 function CreateOriginalUserStatePath(): String;
@@ -671,6 +700,7 @@ begin
     end;
     RaiseException(IncludeInstallerLog(PrimaryFailure));
   end;
+  MachineInstallationSucceeded := True;
 end;
 
 function GetCustomSetupExitCode: Integer;
