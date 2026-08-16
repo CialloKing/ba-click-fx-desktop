@@ -77,10 +77,16 @@ struct DisplayTargetSnapshot
 
     // GET_TARGET_NAME can fail transiently during hot-plug. An unresolved path
     // is not evidence of replacement; compare it only when both snapshots have
-    // an authoritative monitor device path.
+    // an authoritative monitor device path. Device interface paths follow the
+    // Win32 case-insensitive identity contract even if a driver changes casing.
     const bool sameDevicePath = left.devicePath.empty()
         || right.devicePath.empty()
-        || left.devicePath == right.devicePath;
+        || CompareStringOrdinal(
+                left.devicePath.c_str(),
+                -1,
+                right.devicePath.c_str(),
+                -1,
+                TRUE) == CSTR_EQUAL;
     if (!sameDevicePath)
     {
         return false;
