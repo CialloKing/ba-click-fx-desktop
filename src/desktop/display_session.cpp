@@ -224,6 +224,20 @@ void DisplaySession::setRequestedOutputPreference(
     const bafx::windows::CompositionOutputPreference preference) noexcept
 {
     requestedOutputPreference_ = preference;
+    if (secondaryBackgroundCapture_ == nullptr)
+    {
+        return;
+    }
+
+    const bafx::windows::CompositionOutputPreference effectivePreference =
+        resolveDisplayOutputPreference(preference, colorCapabilities_);
+    if (renderer_.outputPreference() == effectivePreference)
+    {
+        // A newer user policy can already match the applied transport while
+        // an older failed renegotiation is waiting for its retry deadline.
+        // Withdraw that stale request before it can restore the old policy.
+        secondaryBackgroundCapture_->pendingOutputRenegotiation.reset();
+    }
 }
 
 const bafx::windows::DisplayColorMonitorResult&
