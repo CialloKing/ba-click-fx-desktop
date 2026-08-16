@@ -26,6 +26,12 @@ include(CompilerWarnings)
 include(CTest)
 
 if(WIN32)
+    if(DEFINED BAFX_POWERSHELL_EXECUTABLE
+        AND NOT EXISTS "${BAFX_POWERSHELL_EXECUTABLE}")
+        # Microsoft Store updates replace their versioned install directory.
+        # Drop a stale cached path so an existing build tree remains usable.
+        unset(BAFX_POWERSHELL_EXECUTABLE CACHE)
+    endif()
     find_program(BAFX_POWERSHELL_EXECUTABLE NAMES pwsh powershell)
 endif()
 
