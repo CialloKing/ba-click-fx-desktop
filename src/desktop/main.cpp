@@ -2756,10 +2756,19 @@ int runApplication(
                     && colorContractChanged);
             if (outputContractChanged)
             {
-                pendingCoordinatorOutputRenegotiation =
-                    PendingOutputRenegotiation{
-                        currentPreference,
-                        std::string(reason)};
+                const bool duplicatePendingContract =
+                    pendingCoordinatorOutputRenegotiation.has_value()
+                    && pendingCoordinatorOutputRenegotiation->preference
+                        == currentPreference;
+                if (!duplicatePendingContract)
+                {
+                    // A duplicate OS notification must not reset the finite
+                    // retry budget of the same desired transport contract.
+                    pendingCoordinatorOutputRenegotiation =
+                        PendingOutputRenegotiation{
+                            currentPreference,
+                            std::string(reason)};
+                }
             }
             else if (outputRebuiltForCurrentTarget)
             {
