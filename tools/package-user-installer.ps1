@@ -288,6 +288,7 @@ try
 
     foreach ($scriptName in @(
         'capture-user-context.ps1',
+        'installer-diagnostics.ps1',
         'install-machine.ps1',
         'register-user-package.ps1',
         'unregister-machine.ps1'

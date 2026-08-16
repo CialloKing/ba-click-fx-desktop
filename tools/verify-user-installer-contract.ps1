@@ -219,6 +219,7 @@ function Test-PowerShellScriptContracts
     $scriptPaths = @(
         'tools/package-user-installer.ps1',
         'tools/installer/capture-user-context.ps1',
+        'tools/installer/installer-diagnostics.ps1',
         'tools/installer/install-machine.ps1',
         'tools/installer/register-user-package.ps1',
         'tools/installer/unregister-machine.ps1',
@@ -236,6 +237,7 @@ function Test-InstallerScriptWhitelist
     $expectedFiles = @(
         'ba-click-fx-desktop.iss',
         'capture-user-context.ps1',
+        'installer-diagnostics.ps1',
         'install-machine.ps1',
         'register-user-package.ps1',
         'unregister-machine.ps1'
@@ -251,6 +253,7 @@ function Test-InstallerScriptWhitelist
         -Text $packager `
         -Pattern (('\$scriptName\s+in\s+@\(\s*' +
             '\x27capture-user-context\.ps1\x27\s*,\s*' +
+            '\x27installer-diagnostics\.ps1\x27\s*,\s*' +
             '\x27install-machine\.ps1\x27\s*,\s*' +
             '\x27register-user-package\.ps1\x27\s*,\s*' +
             '\x27unregister-machine\.ps1\x27\s*\)')) `
@@ -297,6 +300,29 @@ function Test-InstallerScriptWhitelist
         -Text $installMachine `
         -Pattern 'Start-Process[\s\S]*-Wait[\s\S]*\$hostProcess\.ExitCode' `
         -Description 'identity bootstrap uses an explicit GUI process exit code'
+    Assert-TextContains `
+        -Text $installMachine `
+        -Pattern 'Write-BafxInstallerFailure[\s\S]*-Phase\s+\$Phase[\s\S]*-Step\s+\$script:InstallerStep' `
+        -Description 'machine phases emit structured failure diagnostics'
+    Assert-TextContains `
+        -Text $installMachine `
+        -Pattern 'Add-InstallerRelatedFailure[\s\S]*rollback-failed-prepare[\s\S]*rollback-failed-finalize' `
+        -Description 'machine rollback failures remain secondary to the root cause'
+    Assert-TextExcludes `
+        -Text $installMachine `
+        -Pattern 'throw\s+\$(prepare|finalize)Error\b' `
+        -Description 'lossy machine failure string rethrow'
+
+    $diagnostics = Read-RepositoryText `
+        -RelativePath 'tools/installer/installer-diagnostics.ps1'
+    Assert-TextContains `
+        -Text $diagnostics `
+        -Pattern 'BAFX_INSTALL_FAILURE:' `
+        -Description 'installer failure summary marker'
+    Assert-TextContains `
+        -Text $diagnostics `
+        -Pattern 'BAFX_INSTALL_DIAGNOSTIC_JSON:' `
+        -Description 'installer diagnostic JSON marker'
 
     $controlCenterResource = Read-RepositoryText `
         -RelativePath 'src/control-center/BAFX.ControlCenter.rc.in'
@@ -764,6 +790,104 @@ function Test-RegistrationFailureDiagnostics
     }
 }
 
+function Test-InstallerFailureDiagnostics
+{
+    $temporaryParent = [IO.Path]::GetFullPath([IO.Path]::GetTempPath())
+    $temporaryRoot = Join-Path `
+        $temporaryParent `
+        ('bafx-installer-diagnostic-' + [Guid]::NewGuid().ToString('N'))
+    try
+    {
+        New-Item -ItemType Directory -Path $temporaryRoot | Out-Null
+        $diagnosticPath = Join-Path $temporaryRoot 'failure.txt'
+        . (Resolve-RepositoryPath `
+            -RelativePath 'tools/installer/installer-diagnostics.ps1')
+
+        $failure = $null
+        try
+        {
+            throw [IO.IOException]::new(
+                "diagnostic`r`nprobe failure; step=forged")
+        }
+        catch
+        {
+            $failure = $_
+        }
+        $rollbackFailure = $null
+        try
+        {
+            throw [UnauthorizedAccessException]::new('rollback probe failure')
+        }
+        catch
+        {
+            $rollbackFailure = $_
+        }
+        $relatedFailure = New-BafxInstallerRelatedFailure `
+            -ErrorRecord $rollbackFailure `
+            -Step 'rollback-diagnostic-probe'
+        Write-BafxInstallerFailure `
+            -ErrorRecord $failure `
+            -Phase 'Prepare' `
+            -Step 'diagnostic-probe' `
+            -ProductVersion '0.1.0-alpha.13' `
+            -PackageVersion '0.1.0.13' `
+            -DiagnosticPath $diagnosticPath `
+            -RelatedFailures @($relatedFailure) `
+            -SuppressConsole
+
+        $lines = @(Get-Content -LiteralPath $diagnosticPath)
+        Assert-True `
+            -Condition ($lines.Count -eq 2) `
+            -Message 'Installer failure diagnostic must contain summary and JSON lines.'
+        Assert-True `
+            -Condition (
+                $lines[0].StartsWith(
+                    'BAFX_INSTALL_FAILURE: phase=Prepare; step=diagnostic-probe;') -and
+                $lines[0].Contains('message=diagnostic probe failure%3B step%3Dforged;')) `
+            -Message 'Installer failure summary is not safely single-line encoded.'
+        $jsonPrefix = 'BAFX_INSTALL_DIAGNOSTIC_JSON: '
+        Assert-True `
+            -Condition $lines[1].StartsWith($jsonPrefix) `
+            -Message 'Installer failure diagnostic omitted structured JSON.'
+        $diagnostic = $lines[1].Substring($jsonPrefix.Length) | ConvertFrom-Json
+        Assert-True `
+            -Condition (
+                [int]$diagnostic.schema -eq 1 -and
+                [string]$diagnostic.event -eq 'BAFX.InstallerFailure' -and
+                [string]$diagnostic.powerShellVersion -match '^\d+\.' -and
+                [string]$diagnostic.processArchitecture -in @('x86', 'x64') -and
+                [string]$diagnostic.phase -eq 'Prepare' -and
+                [string]$diagnostic.step -eq 'diagnostic-probe' -and
+                [string]$diagnostic.message -eq 'diagnostic probe failure; step=forged' -and
+                [string]$diagnostic.exceptionType -eq 'System.IO.IOException' -and
+                [string]$diagnostic.hresult -match '^0x[0-9A-F]{8}$' -and
+                [int]$diagnostic.scriptLine -gt 0 -and
+                @($diagnostic.relatedErrors).Count -eq 1 -and
+                [string]$diagnostic.relatedErrors[0].step -eq
+                    'rollback-diagnostic-probe' -and
+                [string]$diagnostic.relatedErrors[0].exceptionType -eq
+                    'System.UnauthorizedAccessException') `
+            -Message 'Installer failure diagnostic fields are incomplete.'
+    }
+    finally
+    {
+        $resolvedTemporaryRoot = [IO.Path]::GetFullPath($temporaryRoot)
+        if ($resolvedTemporaryRoot.StartsWith(
+                $temporaryParent,
+                [StringComparison]::OrdinalIgnoreCase) -and
+            [IO.Path]::GetFileName($resolvedTemporaryRoot).StartsWith(
+                'bafx-installer-diagnostic-',
+                [StringComparison]::Ordinal))
+        {
+            Remove-Item `
+                -LiteralPath $resolvedTemporaryRoot `
+                -Recurse `
+                -Force `
+                -ErrorAction SilentlyContinue
+        }
+    }
+}
+
 $repositoryRootValue = $RepositoryRoot
 if ([string]::IsNullOrWhiteSpace($repositoryRootValue))
 {
@@ -783,5 +907,6 @@ Test-SparsePackageContract
 Test-UninstallerBackupFallback
 Test-PortableZipContract
 Test-RegistrationFailureDiagnostics
+Test-InstallerFailureDiagnostics
 
 Write-Host "User installer contracts verified (PowerShell $($PSVersionTable.PSVersion))."

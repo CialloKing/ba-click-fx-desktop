@@ -25,6 +25,44 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'installer-diagnostics.ps1')
+$script:InstallerStep = 'initialize'
+$script:InstallerRelatedFailures = New-Object Collections.Generic.List[object]
+
+function Add-InstallerRelatedFailure
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [Management.Automation.ErrorRecord]$ErrorRecord,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Step
+    )
+
+    $script:InstallerRelatedFailures.Add((New-BafxInstallerRelatedFailure `
+            -ErrorRecord $ErrorRecord `
+            -Step $Step))
+}
+
+function Stop-InstallerWithFailure
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [Management.Automation.ErrorRecord]$ErrorRecord,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Step
+    )
+
+    Write-BafxInstallerFailure `
+        -ErrorRecord $ErrorRecord `
+        -Phase $Phase `
+        -Step $Step `
+        -ProductVersion $ProductVersion `
+        -PackageVersion $PackageVersion `
+        -RelatedFailures $script:InstallerRelatedFailures.ToArray()
+    exit 1
+}
 
 function Assert-Administrator
 {
@@ -582,11 +620,14 @@ function Assert-IdentityPayload
     $certificateWasPresent = $false
     $certificatePrivateKeyRemoved = $false
     $signedPackagePath = $null
+    $identityFailureRecord = $null
+    $identityFailureStep = ''
     $publicCertificatePath = Join-Path (
         [IO.Path]::GetTempPath()) ('bafx-identity-' + [Guid]::NewGuid().ToString('N') + '.cer')
 
     try
     {
+        $script:InstallerStep = 'create-signing-certificate'
         $certificate = New-SelfSignedCertificate `
             -Type CodeSigningCert `
             -Subject ([string]$metadata.publisher) `
@@ -668,6 +709,7 @@ function Assert-IdentityPayload
             -Path $PendingStatePath `
             -Value $journal `
             -ReadSid ([string]$PendingStateSeed.userSid)
+        $script:InstallerStep = 'export-signing-certificate'
         Export-Certificate `
             -Cert $certificate `
             -FilePath $publicCertificatePath `
@@ -679,6 +721,7 @@ function Assert-IdentityPayload
         $certificateWasPresent = $null -ne $existingCertificate
         if (-not $certificateWasPresent)
         {
+            $script:InstallerStep = 'trust-signing-certificate'
             $imported = Import-Certificate `
                 -FilePath $publicCertificatePath `
                 -CertStoreLocation 'Cert:\LocalMachine\TrustedPeople'
@@ -690,6 +733,7 @@ function Assert-IdentityPayload
 
         $signedPackagePath = [string]$journal.packagePath
         Copy-Item -LiteralPath $templatePath -Destination $signedPackagePath -Force
+        $script:InstallerStep = 'sign-identity-package'
         & $signerPath `
             '--package' $signedPackagePath `
             '--thumbprint' $certificateThumbprint `
@@ -699,6 +743,7 @@ function Assert-IdentityPayload
             throw "Native identity signer failed with exit code $LASTEXITCODE."
         }
 
+        $script:InstallerStep = 'verify-identity-signature'
         $signature = Get-AuthenticodeSignature -LiteralPath $signedPackagePath
         $signatureInvalid = `
             ($signature.Status -ne [Management.Automation.SignatureStatus]::Valid) -or `
@@ -709,6 +754,7 @@ function Assert-IdentityPayload
             throw "Sparse package signature is invalid: $($signature.StatusMessage)"
         }
 
+        $script:InstallerStep = 'verify-signed-identity-payload'
         $archive = [IO.Compression.ZipFile]::OpenRead($signedPackagePath)
         try
         {
@@ -779,6 +825,7 @@ function Assert-IdentityPayload
         # The package is already trusted through its public certificate. The
         # private key must not survive Prepare, because it is not needed after
         # the one package signature has been produced.
+        $script:InstallerStep = 'delete-signing-private-key'
         $privateCertificatePath = "Cert:\LocalMachine\My\$certificateThumbprint"
         Remove-Item `
             -LiteralPath $privateCertificatePath `
@@ -800,45 +847,120 @@ function Assert-IdentityPayload
     }
     catch
     {
-        if ($null -ne $signedPackagePath -and
-            (Test-Path -LiteralPath $signedPackagePath -PathType Leaf))
+        $identityFailureRecord = $_
+        $identityFailureStep = $script:InstallerStep
+        try
         {
-            Remove-Item -LiteralPath $signedPackagePath -Force
-        }
-        if ($null -ne $certificate)
-        {
-            $certificateThumbprint = ([string]$certificate.Thumbprint).ToUpperInvariant()
-            $privateCertificatePath = "Cert:\LocalMachine\My\$certificateThumbprint"
-            if (-not $certificatePrivateKeyRemoved -and
-                (Test-Path -LiteralPath $privateCertificatePath))
+            if ($null -ne $signedPackagePath -and
+                (Test-Path -LiteralPath $signedPackagePath -PathType Leaf))
             {
-                Remove-Item `
-                    -LiteralPath $privateCertificatePath `
-                    -DeleteKey `
-                    -Force
+                Remove-Item -LiteralPath $signedPackagePath -Force
             }
         }
-        if ($null -ne $certificate -and -not $certificateWasPresent)
+        catch
         {
-            $trusted = Get-ChildItem -Path 'Cert:\LocalMachine\TrustedPeople' |
-                Where-Object { $_.Thumbprint -eq ([string]$certificate.Thumbprint).ToUpperInvariant() } |
-                Select-Object -First 1
-            if ($null -ne $trusted)
+            Add-InstallerRelatedFailure `
+                -ErrorRecord $_ `
+                -Step 'cleanup-failed-identity-package'
+        }
+        try
+        {
+            if ($null -ne $certificate)
             {
-                Remove-Item -LiteralPath $trusted.PSPath -Force
+                $certificateThumbprint = ([string]$certificate.Thumbprint).ToUpperInvariant()
+                $privateCertificatePath = "Cert:\LocalMachine\My\$certificateThumbprint"
+                if (-not $certificatePrivateKeyRemoved -and
+                    (Test-Path -LiteralPath $privateCertificatePath))
+                {
+                    Remove-Item `
+                        -LiteralPath $privateCertificatePath `
+                        -DeleteKey `
+                        -Force
+                }
             }
         }
-        throw
+        catch
+        {
+            Add-InstallerRelatedFailure `
+                -ErrorRecord $_ `
+                -Step 'cleanup-failed-private-certificate'
+        }
+        try
+        {
+            if ($null -ne $certificate -and -not $certificateWasPresent)
+            {
+                $trusted = Get-ChildItem -Path 'Cert:\LocalMachine\TrustedPeople' |
+                    Where-Object {
+                        $_.Thumbprint -eq ([string]$certificate.Thumbprint).ToUpperInvariant()
+                    } |
+                    Select-Object -First 1
+                if ($null -ne $trusted)
+                {
+                    Remove-Item -LiteralPath $trusted.PSPath -Force
+                }
+            }
+        }
+        catch
+        {
+            Add-InstallerRelatedFailure `
+                -ErrorRecord $_ `
+                -Step 'cleanup-failed-trusted-certificate'
+        }
+        $script:InstallerStep = $identityFailureStep
+        throw $identityFailureRecord
     }
     finally
     {
+        $finalizerFailureRecord = $null
+        $finalizerFailureStep = ''
         if ($null -ne $certificate)
         {
-            $certificate.Dispose()
+            try
+            {
+                $certificate.Dispose()
+            }
+            catch
+            {
+                if ($null -ne $identityFailureRecord)
+                {
+                    Add-InstallerRelatedFailure `
+                        -ErrorRecord $_ `
+                        -Step 'dispose-signing-certificate'
+                }
+                else
+                {
+                    $finalizerFailureRecord = $_
+                    $finalizerFailureStep = 'dispose-signing-certificate'
+                }
+            }
         }
-        if (Test-Path -LiteralPath $publicCertificatePath -PathType Leaf)
+        try
         {
-            Remove-Item -LiteralPath $publicCertificatePath -Force
+            if (Test-Path -LiteralPath $publicCertificatePath -PathType Leaf)
+            {
+                Remove-Item -LiteralPath $publicCertificatePath -Force
+            }
+        }
+        catch
+        {
+            if ($null -ne $identityFailureRecord -or
+                $null -ne $finalizerFailureRecord)
+            {
+                Add-InstallerRelatedFailure `
+                    -ErrorRecord $_ `
+                    -Step 'delete-temporary-public-certificate'
+            }
+            else
+            {
+                $finalizerFailureRecord = $_
+                $finalizerFailureStep = 'delete-temporary-public-certificate'
+            }
+        }
+        if ($null -eq $identityFailureRecord -and
+            $null -ne $finalizerFailureRecord)
+        {
+            $script:InstallerStep = $finalizerFailureStep
+            throw $finalizerFailureRecord
         }
     }
 }
@@ -1547,8 +1669,17 @@ function Read-RegistrationResult
     return $result
 }
 
+trap
+{
+    Stop-InstallerWithFailure `
+        -ErrorRecord $_ `
+        -Step $script:InstallerStep
+}
+
+$script:InstallerStep = 'validate-environment'
 Assert-Administrator
 Assert-WindowsPowerShell
+$script:InstallerStep = 'resolve-installer-paths'
 $installRoot = Resolve-ProtectedInstallRoot -Path $InstallDirectory
 $userContextFullPath = Assert-TemporaryStatePath -Path $UserContextPath
 $registrationResultFullPath = Assert-TemporaryStatePath -Path $RegistrationResultPath
@@ -1567,10 +1698,13 @@ if ($Phase -eq 'Rollback')
     {
         exit 0
     }
+    $script:InstallerStep = 'validate-pending-rollback'
     Assert-ProtectedStateAcl -Path $machineStateFullPath
     $pendingState = Get-Content -LiteralPath $machineStateFullPath -Raw | ConvertFrom-Json
     $pendingState = Assert-PendingStateObject -State $pendingState -InstallRoot $installRoot
+    $script:InstallerStep = 'rollback-pending-transaction'
     Invoke-PendingRollback -State $pendingState
+    $script:InstallerStep = 'delete-pending-state'
     Remove-Item -LiteralPath $machineStateFullPath -Force
     exit 0
 }
@@ -1579,10 +1713,12 @@ if ($Phase -eq 'Prepare')
 {
     $identity = $null
     $pendingState = $null
+    $prepareFailureStep = ''
     try
     {
         if (Test-Path -LiteralPath $machineStateFullPath -PathType Leaf)
         {
+            $script:InstallerStep = 'recover-stale-transaction'
             Assert-ProtectedStateAcl -Path $machineStateFullPath
             $stalePending = Get-Content -LiteralPath $machineStateFullPath -Raw | ConvertFrom-Json
             $stalePending = Assert-PendingStateObject `
@@ -1613,17 +1749,21 @@ if ($Phase -eq 'Prepare')
                 Remove-Item -LiteralPath $machineStateFullPath -Force
             }
         }
+        $script:InstallerStep = 'read-original-user-context'
         $context = Get-Content -LiteralPath $userContextFullPath -Raw | ConvertFrom-Json
         if ([int]$context.schema -ne 1 -or [string]$context.userSid -notmatch '^S-1-[0-9-]+$')
         {
             throw 'The original user context is invalid.'
         }
 
+        $script:InstallerStep = 'validate-installer-payload'
         Assert-PayloadManifest -InstallRoot $installRoot
         $dataDirectory = Join-Path $installRoot 'data'
+        $script:InstallerStep = 'read-existing-install-state'
         $oldInstallState = Read-OldInstallState `
             -InstallRoot $installRoot `
             -UserSid ([string]$context.userSid)
+        $script:InstallerStep = 'grant-data-directory-access'
         Grant-DataDirectoryAccess -Path $dataDirectory -UserSid ([string]$context.userSid)
         $metadataPath = Join-Path (Join-Path $installRoot 'Identity') `
             "CialloKing.BaClickFxDesktop-$PackageVersion.identity-template.json"
@@ -1635,6 +1775,7 @@ if ($Phase -eq 'Prepare')
         }
         $templatePath = Join-Path (Join-Path $installRoot 'Identity') `
             ([string]$metadata.templateFile)
+        $script:InstallerStep = 'inspect-existing-package-registrations'
         $preexistingFullNames = @(
             Get-AppxPackage `
                 -User ([string]$context.userSid) `
@@ -1659,6 +1800,7 @@ if ($Phase -eq 'Prepare')
         {
             throw 'An untracked package registration exists beside the protected install state.'
         }
+        $script:InstallerStep = 'validate-same-version-repair'
         if ($null -ne $oldInstallState -and
             [string]$oldInstallState.productVersion -eq $ProductVersion -and
             $null -ne $oldInstallState.PSObject.Properties['templateSha256'] -and
@@ -1689,27 +1831,32 @@ if ($Phase -eq 'Prepare')
             oldInstallState = $oldInstallState
             preparedUtc = [DateTime]::UtcNow.ToString('o')
         }
+        $script:InstallerStep = 'prepare-identity-package'
         $identity = Assert-IdentityPayload `
             -InstallRoot $installRoot `
             -PendingStatePath $machineStateFullPath `
             -PendingStateSeed $pendingSeed
+        $script:InstallerStep = 'validate-prepared-identity'
         Assert-ProtectedStateAcl -Path $machineStateFullPath
         $pendingState = Get-Content -LiteralPath $machineStateFullPath -Raw | ConvertFrom-Json
         $pendingState = Assert-PendingStateObject `
             -State $pendingState `
             -InstallRoot $installRoot `
             -RequireIntegrity
+        $script:InstallerStep = 'bootstrap-host-configuration'
         Initialize-IdentityConfig -InstallRoot $installRoot -DataDirectory $dataDirectory
         exit 0
     }
     catch
     {
-        $prepareError = $_.Exception.Message
+        $prepareErrorRecord = $_
+        $prepareFailureStep = $script:InstallerStep
         if ($null -ne $pendingState -or
             (Test-Path -LiteralPath $machineStateFullPath -PathType Leaf))
         {
             try
             {
+                $script:InstallerStep = 'rollback-failed-prepare'
                 if ($null -eq $pendingState)
                 {
                     Assert-ProtectedStateAcl -Path $machineStateFullPath
@@ -1728,13 +1875,19 @@ if ($Phase -eq 'Prepare')
             }
             catch
             {
-                throw "Prepare failed: $prepareError Rollback failed: $($_.Exception.Message)"
+                Add-InstallerRelatedFailure `
+                    -ErrorRecord $_ `
+                    -Step 'rollback-failed-prepare'
             }
         }
-        throw $prepareError
+        $script:InstallerStep = $prepareFailureStep
+        Stop-InstallerWithFailure `
+            -ErrorRecord $prepareErrorRecord `
+            -Step $prepareFailureStep
     }
 }
 
+$script:InstallerStep = 'validate-finalize-state'
 Assert-ProtectedStateAcl -Path $machineStateFullPath
 $pendingState = Get-Content -LiteralPath $machineStateFullPath -Raw | ConvertFrom-Json
 $pendingState = Assert-PendingStateObject `
@@ -1743,6 +1896,7 @@ $pendingState = Assert-PendingStateObject `
     -RequireIntegrity
 try
 {
+    $script:InstallerStep = 'read-package-registration-result'
     $registrationResult = Read-RegistrationResult `
         -Path $registrationResultFullPath `
         -State $pendingState
@@ -1794,6 +1948,7 @@ try
             -Separator Pipe
         installedUtc = [DateTime]::UtcNow.ToString('o')
     }
+    $script:InstallerStep = 'commit-install-state'
     Write-ProtectedInstallState `
         -Path $installStatePath `
         -Value $installState `
@@ -1802,16 +1957,23 @@ try
 }
 catch
 {
-    $finalizeError = $_.Exception.Message
+    $finalizeErrorRecord = $_
+    $finalizeFailureStep = $script:InstallerStep
     try
     {
+        $script:InstallerStep = 'rollback-failed-finalize'
         Invoke-PendingRollback -State $pendingState
     }
     catch
     {
-        throw "Finalize failed: $finalizeError Rollback failed: $($_.Exception.Message)"
+        Add-InstallerRelatedFailure `
+            -ErrorRecord $_ `
+            -Step 'rollback-failed-finalize'
     }
-    throw $finalizeError
+    $script:InstallerStep = $finalizeFailureStep
+    Stop-InstallerWithFailure `
+        -ErrorRecord $finalizeErrorRecord `
+        -Step $finalizeFailureStep
 }
 
 # Cleanup after the protected commit is best effort. The state ledger is
@@ -1819,6 +1981,7 @@ catch
 # be retried on the next repair or uninstall.
 try
 {
+    $script:InstallerStep = 'clean-obsolete-identity-artifacts'
     $committedState = Read-OldInstallState `
         -InstallRoot $installRoot `
         -UserSid ([string]$pendingState.userSid)
