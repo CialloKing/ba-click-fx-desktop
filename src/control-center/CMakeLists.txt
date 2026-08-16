@@ -11,6 +11,7 @@ add_executable(
         config_commands.cpp
         control_center_layout.cpp
         control_center_window.cpp
+        display_state.cpp
         package_activation.cpp
         host_state.cpp
         main.cpp
