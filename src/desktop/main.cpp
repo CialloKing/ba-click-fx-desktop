@@ -2218,6 +2218,32 @@ int runApplication(
         report.setPrimaryDisplayColorCapabilities(
             *displaySession.colorCapabilities());
     }
+    const auto updateDisplayRuntimeSummary = [&]() noexcept
+    {
+        const auto& capabilities = displaySession.colorCapabilities();
+        const bool colorSnapshotComplete = capabilities.has_value()
+            && bafx::windows::displayColorStateComplete(*capabilities);
+        const bool hdrCapabilityObserved = capabilities.has_value()
+            && (capabilities->advancedColorInfoV2
+                || capabilities->advancedColorQueryResult == ERROR_SUCCESS
+                || capabilities->advancedColorSupported
+                || capabilities->highDynamicRangeSupported
+                || capabilities->activeColorMode
+                    == bafx::windows::DisplayColorMode::Hdr);
+        const bool hdrActive = capabilities.has_value()
+            && capabilities->activeColorMode
+                == bafx::windows::DisplayColorMode::Hdr
+            && capabilities->advancedColorActive;
+        report.setDisplayRuntimeSummary(
+            bafx::windows::DisplayRuntimeSummary{
+                displaySessions.sessions().size(),
+                displaySession.requestedOutputPreference(),
+                renderer.outputPreference(),
+                colorSnapshotComplete,
+                hdrCapabilityObserved,
+                hdrActive});
+    };
+    updateDisplayRuntimeSummary();
     appendDeviceRemovedNotificationStatus(logPath, renderer, "startup");
     bafx::windows::UniqueHandle framePacingStallHandle;
     if (options.framePacingStallProbe)
@@ -2242,6 +2268,7 @@ int runApplication(
             false));
         report.setBackgroundCaptureStatus(
             bafx::windows::BackgroundCaptureStatus::NotProbed);
+        updateDisplayRuntimeSummary();
         bafx::windows::appendDiagnosticLog(logPath, report);
         bafx::windows::writeSupportReport(*options.supportInfoPath, report);
         return 0;
@@ -2357,6 +2384,7 @@ int runApplication(
         "startup",
         initialReconcile,
         displaySessions.sessions().size());
+    updateDisplayRuntimeSummary();
     applySecondaryBackgroundCaptureRequest(
         displaySessions,
         displaySession,
@@ -2375,6 +2403,7 @@ int runApplication(
             logPath,
             renderer.backgroundCaptureActive());
     std::uint64_t appliedGeneration = controlStart.appliedGeneration;
+    updateDisplayRuntimeSummary();
     bafx::windows::appendDiagnosticLog(logPath, report);
 
     const bafx::fx::SimulationTime applicationStartedAt = clock.now();
@@ -2568,6 +2597,7 @@ int runApplication(
                     renderer,
                     "output-renegotiation-device-recovery-failed");
                 report.setDeviceInfo(renderer.deviceInfo());
+                updateDisplayRuntimeSummary();
                 bafx::windows::appendDiagnosticLog(logPath, report);
 
                 const std::string recoveryFailure(
@@ -2806,6 +2836,7 @@ int runApplication(
                 logPath,
                 "Display.ColorState.Refreshed",
                 fields);
+            updateDisplayRuntimeSummary();
             bafx::windows::appendDiagnosticLog(logPath, report);
         };
     const auto reconcileRequestedOutputPreferences =
@@ -3036,6 +3067,7 @@ int runApplication(
         backgroundParticipationLogged = false;
         backgroundPendingDiagnosticLogged = false;
         control.setBackgroundCaptureActive(renderer.backgroundCaptureActive());
+        updateDisplayRuntimeSummary();
         bafx::windows::appendDiagnosticLog(logPath, report);
     };
     const auto processPendingBorderlessAccessChange =
@@ -3562,6 +3594,7 @@ int runApplication(
                     : "runtime-notification",
                 reconcile,
                 displaySessions.sessions().size());
+            updateDisplayRuntimeSummary();
             // New topology sessions join the current request independently;
             // existing sessions treat the stable request as a no-op.
             applySecondaryBackgroundCaptureRequest(

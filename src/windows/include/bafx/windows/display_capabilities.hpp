@@ -67,8 +67,10 @@ queryDisplayColorCapabilities(HMONITOR monitor) noexcept;
 [[nodiscard]] std::string_view displayColorModeName(
     DisplayColorMode mode) noexcept;
 
-// The product currently targets the primary monitor only. DWM's rational
-// composition cadence is more useful for latency budgets than a rounded DEVMODE Hz.
+// This legacy helper intentionally reports the primary composition cadence.
+// Per-display sessions use their target-specific refresh snapshot instead;
+// DWM's rational cadence is more useful for latency budgets than a rounded
+// DEVMODE Hz.
 [[nodiscard]] std::optional<DisplayRefreshRate>
 queryPrimaryCompositionRefreshRate() noexcept;
 

@@ -222,10 +222,36 @@ BAFX_TEST(support_report_contains_alpha_scope_and_graphics_facts)
     report.setExitUiStatus(bafx::windows::ExitUiStatus{true, false, true});
     report.setConfigurationSchemaVersion(3U);
     report.setControlServiceAvailable(true);
+    report.setDisplayRuntimeSummary(
+        bafx::windows::DisplayRuntimeSummary{
+            2U,
+            bafx::windows::CompositionOutputPreference::PreferLinearScRgb,
+            bafx::windows::CompositionOutputPreference::ConservativeSdr,
+            true,
+            true,
+            false});
 
     const std::string text = report.serialize();
     BAFX_CHECK(text.find("Product.Version=0.1.0-alpha.2") != std::string::npos);
-    BAFX_CHECK(text.find("Support.Scope=single-primary-monitor;fx-only-or-wgc;sdr-tested")
+    BAFX_CHECK(text.find(
+        "Support.Scope=multi-display-runtime;fx-only-or-wgc;hardware-validation-not-run")
+        != std::string::npos);
+    BAFX_CHECK(text.find("Support.HDR=implemented-not-verified")
+        != std::string::npos);
+    BAFX_CHECK(text.find("Support.HDR.Validation=not-run")
+        != std::string::npos);
+    BAFX_CHECK(text.find("Support.MultiDisplay=implemented-not-verified")
+        != std::string::npos);
+    BAFX_CHECK(text.find("Display.SessionCount=2") != std::string::npos);
+    BAFX_CHECK(text.find(
+        "Display.Output.RequestedPreference=prefer-linear-scrgb")
+        != std::string::npos);
+    BAFX_CHECK(text.find(
+        "Display.Output.EffectivePreference=conservative-sdr")
+        != std::string::npos);
+    BAFX_CHECK(text.find("Display.ColorSnapshotComplete=true")
+        != std::string::npos);
+    BAFX_CHECK(text.find("Display.HdrCapabilityObserved=true")
         != std::string::npos);
     BAFX_CHECK(text.find("Support.WGC=not-probed") != std::string::npos);
     BAFX_CHECK(text.find("Configuration.SchemaVersion=3") != std::string::npos);

@@ -640,6 +640,12 @@ void SupportReport::setBackgroundCaptureStatus(
     backgroundCaptureStatus_ = status;
 }
 
+void SupportReport::setDisplayRuntimeSummary(
+    const DisplayRuntimeSummary& summary) noexcept
+{
+    displayRuntimeSummary_ = summary;
+}
+
 void SupportReport::setConfigurationSchemaVersion(
     const std::uint32_t version) noexcept
 {
@@ -685,10 +691,12 @@ std::string SupportReport::serialize() const
            << "Product.Name=ba-click-fx-desktop\n"
            << "Product.Version=" << sanitize(version_) << '\n'
            << "Status=" << (failure_.empty() ? "Ready" : "Failed") << '\n'
-           << "Support.Scope=single-primary-monitor;fx-only-or-wgc;sdr-tested\n"
-           << "Support.HDR=not-supported\n"
+           << "Support.Scope=multi-display-runtime;fx-only-or-wgc;hardware-validation-not-run\n"
+           << "Support.HDR=implemented-not-verified\n"
+           << "Support.HDR.Validation=not-run\n"
            << "Support.WGC=" << backgroundStatus() << '\n'
-           << "Support.MultiDisplay=not-supported\n"
+           << "Support.MultiDisplay=implemented-not-verified\n"
+           << "Support.MultiDisplay.Validation=not-run\n"
            << "Configuration.SchemaVersion=";
     if (configurationSchemaVersion_.has_value())
     {
@@ -715,6 +723,32 @@ std::string SupportReport::serialize() const
         stream << "unknown";
     }
     stream << '\n';
+    if (displayRuntimeSummary_.has_value())
+    {
+        const DisplayRuntimeSummary& summary = *displayRuntimeSummary_;
+        stream << "Display.SessionCount=" << summary.sessionCount << '\n'
+               << "Display.Output.RequestedPreference="
+               << outputPreferenceName(summary.requestedOutputPreference)
+               << '\n'
+               << "Display.Output.EffectivePreference="
+               << outputPreferenceName(summary.effectiveOutputPreference)
+               << '\n'
+               << "Display.ColorSnapshotComplete="
+               << (summary.colorSnapshotComplete ? "true" : "false") << '\n'
+               << "Display.HdrCapabilityObserved="
+               << (summary.hdrCapabilityObserved ? "true" : "false") << '\n'
+               << "Display.HdrActive="
+               << (summary.hdrActive ? "true" : "false") << '\n';
+    }
+    else
+    {
+        stream << "Display.SessionCount=not-observed\n"
+               << "Display.Output.RequestedPreference=unknown\n"
+               << "Display.Output.EffectivePreference=unknown\n"
+               << "Display.ColorSnapshotComplete=unknown\n"
+               << "Display.HdrCapabilityObserved=unknown\n"
+               << "Display.HdrActive=unknown\n";
+    }
     if (primaryRefreshRate_.has_value())
     {
         const DisplayRefreshRate& refresh = *primaryRefreshRate_;

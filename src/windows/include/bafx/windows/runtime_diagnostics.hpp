@@ -4,6 +4,7 @@
 #include "bafx/windows/display_capabilities.hpp"
 #include "bafx/windows/display_color_monitor.hpp"
 
+#include <cstddef>
 #include <filesystem>
 #include <cstdint>
 #include <optional>
@@ -44,6 +45,18 @@ struct DiagnosticLogRetention
     std::uint32_t backupCount{3U};
 };
 
+struct DisplayRuntimeSummary final
+{
+    std::size_t sessionCount{0U};
+    CompositionOutputPreference requestedOutputPreference{
+        CompositionOutputPreference::ConservativeSdr};
+    CompositionOutputPreference effectiveOutputPreference{
+        CompositionOutputPreference::ConservativeSdr};
+    bool colorSnapshotComplete{false};
+    bool hdrCapabilityObserved{false};
+    bool hdrActive{false};
+};
+
 class SupportReport final
 {
 public:
@@ -60,6 +73,8 @@ public:
     void setDeviceInfo(const GraphicsDeviceInfo& info);
     void setExitUiStatus(const ExitUiStatus& status);
     void setBackgroundCaptureStatus(BackgroundCaptureStatus status) noexcept;
+    void setDisplayRuntimeSummary(
+        const DisplayRuntimeSummary& summary) noexcept;
     void setConfigurationSchemaVersion(std::uint32_t version) noexcept;
     void setControlServiceAvailable(bool available) noexcept;
     void setLogPath(const std::filesystem::path& path);
@@ -83,6 +98,7 @@ private:
     ExitUiStatus exitUiStatus_{};
     BackgroundCaptureStatus backgroundCaptureStatus_{
         BackgroundCaptureStatus::NotProbed};
+    std::optional<DisplayRuntimeSummary> displayRuntimeSummary_{};
     std::optional<std::uint32_t> configurationSchemaVersion_{};
     bool controlServiceAvailable_{false};
     bool hasDeviceInfo_{false};
