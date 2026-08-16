@@ -30,8 +30,15 @@ DPI 和 Windows 11 运行时逻辑提前到测试与硬件证据之前，不再�
 `HMONITOR`/GDI 逻辑槽保持位置连续，但 D3D/WGC 资源域仍严格按目标 Adapter LUID 重建；异步迁移会
 锁存目标屏的 HDR/Advanced Color 能力，提交后查询短暂失败不会立即撤销已经选择的输出合同；DXGI
 色彩元数据只接受与 DisplayConfig 目标适配器唯一匹配的输出，重复 `HMONITOR`、跨适配器克隆或
-`IDXGIOutput6` 缺失时继续使用保守的 DisplayConfig 路径。这些仅表示代码逻辑和链接已闭合，真实 HDR、
-多显示器、混合 DPI/刷新率及跨适配器硬件矩阵仍保持 `Not Run`。
+`IDXGIOutput6` 缺失时继续使用保守的 DisplayConfig 路径。Advanced Color 查询瞬时失败会保留同一输出
+最后有效的能力快照，并按显示维护节拍有限重试，不会在主循环中反复探测或立刻把 HDR 传输降回 SDR。
+
+WGC 报告旋转/模式尺寸领先于 Shell 通知时，Host 会立即请求权威拓扑刷新并先重建 FramePool；完整
+DisplayConfig 快照若确认输出已跟随新尺寸，则继续正常迁移，若仍不一致则终止该 WGC 会话并回退
+FX-only，避免永久保留无法复合的 producer。已知 120/144 Hz 或 DRR boost 目标会按真实周期请求
+`IGraphicsCaptureSession5::MinUpdateInterval`，60 Hz 下限只用于背景时效容差；跨屏异步事务直接把锁存的
+`captureRefreshRate` 传给新会话，不会在权限等待后重新查询出另一份 DRR 状态。这些仅表示代码逻辑和
+链接已闭合，真实 HDR、多显示器、混合 DPI/刷新率及跨适配器硬件矩阵仍保持 `Not Run`。
 
 ## 当前优先级覆盖（2026-08-15）
 
