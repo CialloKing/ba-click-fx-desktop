@@ -69,6 +69,10 @@ void applyBackgroundReferenceWhite(
 {
     if (!capabilities.has_value())
     {
+        // A missing probe cannot prove either ordinary SDR or the stable
+        // legacy DXGI-only exception. Keep the final output conservative, but
+        // prevent physical WGC pixels from entering Unity's relative domain.
+        mapping.backgroundReferenceWhiteRequired = true;
         return;
     }
 

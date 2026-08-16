@@ -153,6 +153,24 @@ BAFX_TEST(non_positive_reference_white_cannot_promote_hdr_output)
     BAFX_CHECK(!policy.mapping.backgroundReferenceWhiteValid);
 }
 
+BAFX_TEST(missing_color_capabilities_require_background_fail_closed)
+{
+    const bafx::windows::CompositionOutputPolicy policy =
+        resolveDisplayOutputPolicy(
+            bafx::windows::CompositionOutputPreference::ConservativeSdr,
+            std::nullopt);
+
+    BAFX_CHECK(
+        policy.preference
+        == bafx::windows::CompositionOutputPreference::ConservativeSdr);
+    BAFX_CHECK(policy.mapping.backgroundReferenceWhiteRequired);
+    BAFX_CHECK(!policy.mapping.backgroundReferenceWhiteValid);
+    BAFX_CHECK_NEAR(
+        policy.mapping.backgroundReferenceWhiteNits,
+        0.0F,
+        0.0F);
+}
+
 BAFX_TEST(legacy_dxgi_only_hdr_may_keep_unit_background_white)
 {
     bafx::windows::DisplayColorCapabilities capabilities =
