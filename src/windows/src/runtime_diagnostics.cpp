@@ -21,6 +21,7 @@
 #include <stdexcept>
 #include <string>
 #include <system_error>
+#include <utility>
 
 namespace bafx::windows
 {
@@ -624,6 +625,242 @@ void appendDiagnosticRecordUnlocked(
     return wideToUtf8(path.wstring());
 }
 
+[[nodiscard]] constexpr std::string_view booleanName(
+    const bool value) noexcept
+{
+    return value ? "true" : "false";
+}
+
+void appendSessionRefreshRate(
+    std::ostringstream& stream,
+    const std::string_view prefix,
+    const std::string_view name,
+    const std::optional<DisplayRefreshRate>& refreshRate)
+{
+    stream << prefix << name << ".Source=";
+    if (!refreshRate.has_value()
+        || refreshRate->numerator == 0U
+        || refreshRate->denominator == 0U)
+    {
+        stream << "unknown\n"
+               << prefix << name << ".Numerator=unknown\n"
+               << prefix << name << ".Denominator=unknown\n"
+               << prefix << name << ".Hz=unknown\n";
+        return;
+    }
+
+    const double hertz = static_cast<double>(refreshRate->numerator)
+        / static_cast<double>(refreshRate->denominator);
+    stream << refreshRateSourceName(refreshRate->source) << '\n'
+           << prefix << name << ".Numerator="
+           << refreshRate->numerator << '\n'
+           << prefix << name << ".Denominator="
+           << refreshRate->denominator << '\n'
+           << std::fixed << std::setprecision(3)
+           << prefix << name << ".Hz=" << hertz << '\n';
+}
+
+void appendDisplaySessionRuntimeSummary(
+    std::ostringstream& stream,
+    const std::size_t index,
+    const DisplaySessionRuntimeSummary& session)
+{
+    const std::string prefix = "Display.Session["
+        + std::to_string(index) + "].";
+    const CompositionOutputState& output = session.deviceInfo.output;
+    const std::optional<CompositionOutputPreference> actualPreference =
+        effectiveCompositionOutputPreference(output);
+
+    stream << prefix << "Role="
+           << (session.coordinator ? "coordinator" : "secondary") << '\n'
+           << prefix << "Primary=" << booleanName(session.primary) << '\n'
+           << prefix << "Monitor=" << sanitize(session.monitor) << '\n'
+           << prefix << "Device=" << sanitize(session.device) << '\n'
+           << prefix << "Bounds="
+           << (session.bounds.right - session.bounds.left) << 'x'
+           << (session.bounds.bottom - session.bounds.top) << '@'
+           << session.bounds.left << ',' << session.bounds.top << '\n'
+           << prefix << "TargetDpiX=" << session.targetDpiX << '\n'
+           << prefix << "TargetDpiY=" << session.targetDpiY << '\n'
+           << prefix << "WindowDpi=" << session.windowDpi << '\n';
+    appendSessionRefreshRate(
+        stream,
+        prefix,
+        "DisplayRefreshRate",
+        session.displayRefreshRate);
+    appendSessionRefreshRate(
+        stream,
+        prefix,
+        "CaptureRefreshRate",
+        session.captureRefreshRate);
+
+    stream << prefix << "SourceAdapterResolved="
+           << booleanName(session.sourceAdapterResolved) << '\n'
+           << prefix << "SourceAdapterLuid="
+           << (session.sourceAdapterResolved
+                ? luid(session.sourceAdapterLuid)
+                : "unknown")
+           << '\n'
+           << prefix << "SourceIdentityResolved="
+           << booleanName(session.sourceIdentityResolved) << '\n'
+           << prefix << "SourceId=";
+    if (session.sourceIdentityResolved)
+    {
+        stream << session.sourceId;
+    }
+    else
+    {
+        stream << "unknown";
+    }
+    stream << '\n'
+           << prefix << "PhysicalTargetCount="
+           << session.physicalTargetCount << '\n'
+           << prefix << "Graphics.DriverType="
+           << driverType(session.deviceInfo.driverType) << '\n'
+           << prefix << "Graphics.Adapter="
+           << sanitize(wideToUtf8(session.deviceInfo.adapterDescription)) << '\n'
+           << prefix << "Graphics.AdapterLuid="
+           << luid(session.deviceInfo.adapterLuid) << '\n'
+           << prefix << "Graphics.RequestedAdapterLuid=";
+    if (session.deviceInfo.requestedAdapterLuid.has_value())
+    {
+        stream << luid(*session.deviceInfo.requestedAdapterLuid);
+    }
+    else
+    {
+        stream << "default";
+    }
+    stream << '\n'
+           << prefix << "Graphics.RequestedAdapterFound="
+           << booleanName(session.deviceInfo.requestedAdapterFound) << '\n'
+           << prefix << "Graphics.RequestedAdapterMatched="
+           << booleanName(session.deviceInfo.requestedAdapterMatched) << '\n'
+           << prefix << "ColorMonitor.Status="
+           << displayColorMonitorStatusName(session.colorMonitorResult.status)
+           << '\n'
+           << prefix << "ColorMonitor.HRESULT="
+           << hex32(static_cast<std::uint32_t>(
+                  session.colorMonitorResult.error))
+           << '\n'
+           << prefix << "ColorMonitor.Generation="
+           << session.colorMonitorResult.generation << '\n';
+
+    if (session.colorCapabilities.has_value())
+    {
+        const DisplayColorCapabilities& color = *session.colorCapabilities;
+        const bool complete = displayColorStateComplete(color);
+        const bool hdrActive = complete
+            && color.activeColorMode == DisplayColorMode::Hdr
+            && (!color.displayPathResolved || color.advancedColorActive);
+        stream << prefix << "Color.SnapshotComplete="
+               << booleanName(complete) << '\n'
+               << prefix << "Color.ActiveMode="
+               << displayColorModeName(color.activeColorMode) << '\n'
+               << prefix << "Color.DxgiColorSpace="
+               << colorSpaceName(color.colorSpace) << '\n'
+               << prefix << "Color.AdvancedColorActive="
+               << booleanName(color.advancedColorActive) << '\n'
+               << prefix << "Color.HdrSupported="
+               << (color.advancedColorInfoV2
+                    ? booleanName(color.highDynamicRangeSupported)
+                    : "unknown")
+               << '\n'
+               << prefix << "Color.HdrUserEnabled="
+               << (color.advancedColorInfoV2
+                    ? booleanName(color.highDynamicRangeUserEnabled)
+                    : "unknown")
+               << '\n'
+               << prefix << "Color.HdrActive="
+               << booleanName(hdrActive) << '\n'
+               << prefix << "Color.TopologyStatus="
+               << displayTopologyStatusName(
+                      color.displayConfigTopologyStatus)
+               << '\n'
+               << prefix << "Color.TopologyError="
+               << hex32(static_cast<std::uint32_t>(
+                      color.displayConfigTopologyError))
+               << '\n'
+               << prefix << "Color.SdrWhiteLevelRetained="
+               << booleanName(color.sdrWhiteLevelRetained) << '\n'
+               << prefix << "Color.SdrWhiteLevelNits=";
+        if (color.sdrWhiteLevelValid)
+        {
+            stream << std::fixed << std::setprecision(3)
+                   << color.sdrWhiteLevelNits;
+        }
+        else
+        {
+            stream << "unknown";
+        }
+        stream << '\n';
+    }
+    else
+    {
+        stream << prefix << "Color.SnapshotComplete=unknown\n"
+               << prefix << "Color.ActiveMode=unknown\n"
+               << prefix << "Color.DxgiColorSpace=unknown\n"
+               << prefix << "Color.AdvancedColorActive=unknown\n"
+               << prefix << "Color.HdrSupported=unknown\n"
+               << prefix << "Color.HdrUserEnabled=unknown\n"
+               << prefix << "Color.HdrActive=unknown\n"
+               << prefix << "Color.TopologyStatus=unknown\n"
+               << prefix << "Color.TopologyError=unknown\n"
+               << prefix << "Color.SdrWhiteLevelRetained=unknown\n"
+               << prefix << "Color.SdrWhiteLevelNits=unknown\n";
+    }
+
+    stream << prefix << "Output.RequestedPreference="
+           << outputPreferenceName(session.requestedOutputPreference) << '\n'
+           << prefix << "Output.ResolvedPreference="
+           << outputPreferenceName(
+                  session.resolvedOutputPolicy.preference)
+           << '\n'
+           << prefix << "Output.ResolvedMapping="
+           << outputMappingName(session.resolvedOutputPolicy.mapping.mode)
+           << '\n'
+           << prefix << "Output.ResolvedReferenceWhiteNits="
+           << outputReferenceWhiteNits(
+                  session.resolvedOutputPolicy.mapping)
+           << '\n'
+           << prefix << "Output.ActualPreference=";
+    if (actualPreference.has_value())
+    {
+        stream << outputPreferenceName(*actualPreference);
+    }
+    else
+    {
+        stream << "unknown";
+    }
+    stream << '\n'
+           << prefix << "Output.Format="
+           << outputFormatName(output.format) << '\n'
+           << prefix << "Output.ColorSpace="
+           << colorSpaceName(output.colorSpace) << '\n'
+           << prefix << "Output.Transfer="
+           << outputTransferName(output.transfer) << '\n'
+           << prefix << "Output.Mapping="
+           << outputMappingName(output.mapping.mode) << '\n'
+           << prefix << "Output.ReferenceWhiteNits="
+           << outputReferenceWhiteNits(output.mapping) << '\n'
+           << prefix << "Output.Fallback="
+           << outputFallbackName(output.fallback) << '\n'
+           << prefix << "Output.ExtendedPremultiplied="
+           << booleanName(output.extendedPremultiplied) << '\n'
+           << prefix << "Output.PolicySatisfied="
+           << booleanName(session.outputPolicySatisfied) << '\n'
+           << prefix << "WGC.Active="
+           << booleanName(session.backgroundCaptureActive) << '\n'
+           << prefix << "WGC.RestartAllowed="
+           << booleanName(session.backgroundCaptureRestartAllowed) << '\n'
+           << prefix << "WGC.Failure="
+           << (session.backgroundCaptureFailure.empty()
+                ? "none"
+                : sanitize(session.backgroundCaptureFailure))
+           << '\n'
+           << prefix << "RenderFaulted="
+           << booleanName(session.renderFaulted) << '\n';
+}
+
 }
 
 SupportReport::SupportReport(const std::string_view version)
@@ -695,10 +932,9 @@ void SupportReport::setBackgroundCaptureStatus(
     backgroundCaptureStatus_ = status;
 }
 
-void SupportReport::setDisplayRuntimeSummary(
-    const DisplayRuntimeSummary& summary) noexcept
+void SupportReport::setDisplayRuntimeSummary(DisplayRuntimeSummary summary)
 {
-    displayRuntimeSummary_ = summary;
+    displayRuntimeSummary_ = std::move(summary);
 }
 
 void SupportReport::setConfigurationSchemaVersion(
@@ -814,7 +1050,21 @@ std::string SupportReport::serialize() const
                << "Display.HdrCapabilityObserved="
                << (summary.hdrCapabilityObserved ? "true" : "false") << '\n'
                << "Display.HdrActive="
-               << (summary.hdrActive ? "true" : "false") << '\n';
+               << (summary.hdrActive ? "true" : "false") << '\n'
+               << "Display.SessionSnapshotCount="
+               << summary.sessions.size() << '\n'
+               << "Display.SessionSnapshotComplete="
+               << booleanName(summary.sessions.size() == summary.sessionCount)
+               << '\n';
+        for (std::size_t index = 0U;
+             index < summary.sessions.size();
+             ++index)
+        {
+            appendDisplaySessionRuntimeSummary(
+                stream,
+                index,
+                summary.sessions[index]);
+        }
     }
     else
     {
@@ -826,7 +1076,9 @@ std::string SupportReport::serialize() const
                << "Display.Output.PolicySatisfied=unknown\n"
                << "Display.ColorSnapshotComplete=unknown\n"
                << "Display.HdrCapabilityObserved=unknown\n"
-               << "Display.HdrActive=unknown\n";
+               << "Display.HdrActive=unknown\n"
+               << "Display.SessionSnapshotCount=not-observed\n"
+               << "Display.SessionSnapshotComplete=unknown\n";
     }
     if (primaryRefreshRate_.has_value())
     {

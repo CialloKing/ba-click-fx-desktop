@@ -2332,7 +2332,7 @@ int runApplication(
         report.setPrimaryDisplayColorCapabilities(
             *displaySession.colorCapabilities());
     }
-    const auto updateDisplayRuntimeSummary = [&]() noexcept
+    const auto updateDisplayRuntimeSummary = [&]()
     {
         const auto& capabilities = displaySession.colorCapabilities();
         const bool colorSnapshotComplete = capabilities.has_value()
@@ -2355,9 +2355,92 @@ int runApplication(
             bafx::desktop::resolveDisplayOutputPolicy(
                 displaySession.requestedOutputPreference(),
                 capabilities);
+
+        std::vector<bafx::windows::DisplaySessionRuntimeSummary>
+            sessionSummaries;
+        sessionSummaries.reserve(displaySessions.sessions().size());
+        for (const auto& ownedSession : displaySessions.sessions())
+        {
+            const bafx::desktop::DisplayTarget& target =
+                ownedSession->target();
+            const auto& sessionCapabilities =
+                ownedSession->colorCapabilities();
+            const bafx::windows::CompositionOutputPolicy sessionPolicy =
+                bafx::desktop::resolveDisplayOutputPolicy(
+                    ownedSession->requestedOutputPreference(),
+                    sessionCapabilities);
+            const bafx::windows::CompositionOutputState& sessionOutput =
+                ownedSession->renderer().outputState();
+
+            bafx::windows::DisplaySessionRuntimeSummary summary{};
+            summary.monitor =
+                bafx::desktop::formatDisplayTargetMonitor(target);
+            summary.device = bafx::desktop::displayTargetDeviceUtf8(target);
+            summary.bounds = target.bounds;
+            summary.targetDpiX = target.dpiX;
+            summary.targetDpiY = target.dpiY;
+            summary.windowDpi = ownedSession->window().effectiveDpi();
+            summary.displayRefreshRate = target.refreshRate;
+            summary.captureRefreshRate = target.captureRefreshRate;
+            summary.sourceAdapterLuid = target.sourceAdapterLuid;
+            summary.sourceId = target.sourceId;
+            summary.physicalTargetCount = target.physicalTargetCount;
+            summary.deviceInfo = ownedSession->renderer().deviceInfo();
+            summary.requestedOutputPreference =
+                ownedSession->requestedOutputPreference();
+            summary.resolvedOutputPolicy = sessionPolicy;
+            summary.colorCapabilities = sessionCapabilities;
+            summary.colorMonitorResult =
+                ownedSession->colorMonitorResult();
+            summary.backgroundCaptureFailure = std::string(
+                ownedSession->renderer().backgroundCaptureFailure());
+            summary.coordinator = ownedSession.get() == &displaySession;
+            summary.primary = target.primary;
+            summary.sourceAdapterResolved = target.sourceAdapterResolved;
+            summary.sourceIdentityResolved = target.sourceIdentityResolved;
+            summary.outputPolicySatisfied =
+                ownedSession->renderer().outputPolicy() == sessionPolicy
+                && bafx::windows::compositionOutputSatisfiesPolicy(
+                    sessionOutput,
+                    sessionPolicy);
+            summary.backgroundCaptureActive =
+                ownedSession->renderer().backgroundCaptureActive();
+            summary.backgroundCaptureRestartAllowed =
+                ownedSession->renderer().backgroundCaptureRestartAllowed();
+            summary.renderFaulted = ownedSession->renderFaulted();
+            sessionSummaries.push_back(std::move(summary));
+        }
+        std::sort(
+            sessionSummaries.begin(),
+            sessionSummaries.end(),
+            [](const auto& left, const auto& right)
+            {
+                if (left.coordinator != right.coordinator)
+                {
+                    return left.coordinator;
+                }
+                if (left.bounds.top != right.bounds.top)
+                {
+                    return left.bounds.top < right.bounds.top;
+                }
+                if (left.bounds.left != right.bounds.left)
+                {
+                    return left.bounds.left < right.bounds.left;
+                }
+                if (left.bounds.bottom != right.bounds.bottom)
+                {
+                    return left.bounds.bottom < right.bounds.bottom;
+                }
+                if (left.bounds.right != right.bounds.right)
+                {
+                    return left.bounds.right < right.bounds.right;
+                }
+                return left.device < right.device;
+            });
+        const std::size_t sessionCount = sessionSummaries.size();
         report.setDisplayRuntimeSummary(
             bafx::windows::DisplayRuntimeSummary{
-                displaySessions.sessions().size(),
+                sessionCount,
                 displaySession.requestedOutputPreference(),
                 resolvedPolicy.preference,
                 bafx::windows::effectiveCompositionOutputPreference(output),
@@ -2367,7 +2450,8 @@ int runApplication(
                         resolvedPolicy),
                 colorSnapshotComplete,
                 hdrCapabilityObserved,
-                hdrActive});
+                hdrActive,
+                std::move(sessionSummaries)});
     };
     updateDisplayRuntimeSummary();
     appendDeviceRemovedNotificationStatus(logPath, renderer, "startup");

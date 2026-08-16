@@ -11,6 +11,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace bafx::windows
 {
@@ -45,6 +46,36 @@ struct DiagnosticLogRetention
     std::uint32_t backupCount{3U};
 };
 
+struct DisplaySessionRuntimeSummary final
+{
+    std::string monitor{};
+    std::string device{};
+    RECT bounds{};
+    std::uint32_t targetDpiX{0U};
+    std::uint32_t targetDpiY{0U};
+    std::uint32_t windowDpi{0U};
+    std::optional<DisplayRefreshRate> displayRefreshRate{};
+    std::optional<DisplayRefreshRate> captureRefreshRate{};
+    LUID sourceAdapterLuid{};
+    std::uint32_t sourceId{0U};
+    std::size_t physicalTargetCount{0U};
+    GraphicsDeviceInfo deviceInfo{};
+    CompositionOutputPreference requestedOutputPreference{
+        CompositionOutputPreference::ConservativeSdr};
+    CompositionOutputPolicy resolvedOutputPolicy{};
+    std::optional<DisplayColorCapabilities> colorCapabilities{};
+    DisplayColorMonitorResult colorMonitorResult{};
+    std::string backgroundCaptureFailure{};
+    bool coordinator{false};
+    bool primary{false};
+    bool sourceAdapterResolved{false};
+    bool sourceIdentityResolved{false};
+    bool outputPolicySatisfied{false};
+    bool backgroundCaptureActive{false};
+    bool backgroundCaptureRestartAllowed{false};
+    bool renderFaulted{false};
+};
+
 struct DisplayRuntimeSummary final
 {
     std::size_t sessionCount{0U};
@@ -57,6 +88,7 @@ struct DisplayRuntimeSummary final
     bool colorSnapshotComplete{false};
     bool hdrCapabilityObserved{false};
     bool hdrActive{false};
+    std::vector<DisplaySessionRuntimeSummary> sessions{};
 };
 
 class SupportReport final
@@ -75,8 +107,7 @@ public:
     void setDeviceInfo(const GraphicsDeviceInfo& info);
     void setExitUiStatus(const ExitUiStatus& status);
     void setBackgroundCaptureStatus(BackgroundCaptureStatus status) noexcept;
-    void setDisplayRuntimeSummary(
-        const DisplayRuntimeSummary& summary) noexcept;
+    void setDisplayRuntimeSummary(DisplayRuntimeSummary summary);
     void setConfigurationSchemaVersion(std::uint32_t version) noexcept;
     void setControlServiceAvailable(bool available) noexcept;
     void setLogPath(const std::filesystem::path& path);
