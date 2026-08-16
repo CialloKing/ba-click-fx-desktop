@@ -935,8 +935,8 @@ function Test-InstallerFailureDiagnostics
             -ErrorRecord $failure `
             -Phase 'Prepare' `
             -Step 'diagnostic-probe' `
-            -ProductVersion '0.1.0-alpha.13' `
-            -PackageVersion '0.1.0.13' `
+            -ProductVersion '0.1.0-alpha.14' `
+            -PackageVersion '0.1.0.14' `
             -DiagnosticPath $diagnosticPath `
             -RelatedFailures @($relatedFailure) `
             -SuppressConsole
