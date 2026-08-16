@@ -215,8 +215,20 @@ void appendConfigurationFields(
     fields.add("Effects.ClickEnabled", config.effects.clickEnabled);
     fields.add("Effects.TrailEnabled", config.effects.trailEnabled);
     fields.addDecimal("Effects.GlobalScale", config.effects.globalScale);
+    fields.addDecimal("Effects.Opacity", config.effects.opacity);
     fields.addDecimal("Effects.TrailLength", config.effects.trailLength);
     fields.addDecimal("Effects.TrailWidth", config.effects.trailWidth);
+    fields.addDecimal("Effects.ClickTimeScale", config.effects.clickTimeScale);
+    fields.addDecimal("Effects.TrailTimeScale", config.effects.trailTimeScale);
+    fields.addDecimal("Effects.TrailLifetimeMs", config.effects.trailLifetimeMs);
+    fields.addDecimal("Effects.DiskRadius", config.effects.diskRadius);
+    fields.addDecimal(
+        "Effects.RingsHdrIntensity",
+        config.effects.ringsHdrIntensity);
+    fields.addDecimal(
+        "Effects.ShardsHdrIntensity",
+        config.effects.shardsHdrIntensity);
+    fields.addDecimal("Effects.TrailOpacity", config.effects.trailOpacity);
     fields.addDecimal("Effects.BloomIntensity", config.effects.bloomIntensity);
     fields.add("Effects.BloomQuality", bafx::config::toString(
         bafx::config::bloomQualityForDiffusion(
@@ -224,6 +236,9 @@ void appendConfigurationFields(
     fields.addDecimal(
         "Effects.BloomDiffusion",
         config.effects.bloomDiffusion);
+    fields.addDecimal("Effects.BloomThreshold", config.effects.bloomThreshold);
+    fields.addDecimal("Effects.BloomSoftKnee", config.effects.bloomSoftKnee);
+    fields.addDecimal("Effects.BloomClamp", config.effects.bloomClamp);
     fields.add("Background.Mode", bafx::config::toString(config.background.mode));
     fields.add("Background.CursorExcluded", config.background.cursorExcluded);
     fields.add("Background.AllowSystemBorder", config.background.allowSystemBorder);

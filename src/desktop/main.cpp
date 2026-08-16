@@ -849,6 +849,8 @@ void applyVisualConfig(
     bafx::fx::FrameSnapshot& snapshot,
     const bafx::config::Config& config)
 {
+    constexpr float unityDiskRadiusAtReferenceHeight = 32.4F;
+    constexpr float unityHdrIntensity = 5.992157F;
     if (!config.effects.enabled)
     {
         snapshot = bafx::fx::FrameSnapshot{};
@@ -871,6 +873,33 @@ void applyVisualConfig(
         config.effects.opacity,
         0.0F,
         1.0F);
+
+    const float diskRadiusScale = config.effects.diskRadius
+        / unityDiskRadiusAtReferenceHeight;
+    const float ringsHdrScale = config.effects.ringsHdrIntensity
+        / unityHdrIntensity;
+    const float shardsHdrScale = config.effects.shardsHdrIntensity
+        / unityHdrIntensity;
+    for (bafx::fx::Sprite& sprite : snapshot.sprites)
+    {
+        switch (sprite.kind)
+        {
+        case bafx::fx::SpriteKind::CenterDisk:
+            sprite.sizePixels *= diskRadiusScale;
+            break;
+        case bafx::fx::SpriteKind::DissolveRing:
+            sprite.artisticIntensity *= ringsHdrScale;
+            break;
+        case bafx::fx::SpriteKind::Triangle:
+            sprite.artisticIntensity *= shardsHdrScale;
+            break;
+        }
+    }
+    snapshot.trailOpacity *= config.effects.trailOpacity;
+    for (bafx::fx::TrailStroke& stroke : snapshot.trailStrokes)
+    {
+        stroke.opacity *= config.effects.trailOpacity;
+    }
 
     bafx::fx::applyGlobalScale(snapshot, config.effects.globalScale);
     const float trailScale = config.effects.trailWidth;
