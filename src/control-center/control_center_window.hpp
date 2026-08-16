@@ -34,6 +34,8 @@ private:
     enum class ControlId : int
     {
         Pause = 100,
+        BasicPage,
+        AdvancedPage,
         EffectsEnabled,
         ClickEnabled,
         TrailEnabled,
@@ -43,6 +45,14 @@ private:
         TrailWidth,
         InputSamplingRate,
         BloomIntensity,
+        Opacity,
+        ClickTimeScale,
+        TrailTimeScale,
+        TrailLifetimeMs,
+        BloomDiffusion,
+        BloomThreshold,
+        BloomSoftKnee,
+        BloomClamp,
         BloomQuality,
         BackgroundMode,
         CursorExcluded,
@@ -68,6 +78,12 @@ private:
     {
         std::string path{};
         std::string valueJson{};
+    };
+
+    enum class Page : std::uint8_t
+    {
+        Basic,
+        Advanced
     };
 
     static LRESULT CALLBACK windowProcedure(
@@ -102,6 +118,8 @@ private:
     void applyDpiMetrics() const noexcept;
     void adaptLayoutToMonitor(HMONITOR monitor, bool force);
     void layoutControls(int clientWidth, int clientHeight) const noexcept;
+    void selectPage(Page page) noexcept;
+    void setPageControlVisible(HWND control, bool visible) const noexcept;
     void redrawWindowTree() const noexcept;
     void layoutSlider(
         const SliderControl& slider,
@@ -178,6 +196,18 @@ private:
     SliderControl trailWidth_{};
     SliderControl inputSamplingRate_{};
     SliderControl bloomIntensity_{};
+    SliderControl opacity_{};
+    SliderControl clickTimeScale_{};
+    SliderControl trailTimeScale_{};
+    SliderControl trailLifetimeMs_{};
+    SliderControl bloomDiffusion_{};
+    SliderControl bloomThreshold_{};
+    SliderControl bloomSoftKnee_{};
+    SliderControl bloomClamp_{};
+    HWND basicPageButton_{nullptr};
+    HWND advancedPageButton_{nullptr};
+    HWND advancedTimingHeading_{nullptr};
+    HWND advancedBloomHeading_{nullptr};
     HWND bloomQualityLabel_{nullptr};
     HWND bloomQuality_{nullptr};
     HWND backgroundHeading_{nullptr};
@@ -208,6 +238,7 @@ private:
     bool hostShutdownCommandAcknowledged_{false};
     bool updatingControls_{false};
     bool interactiveMoveResize_{false};
+    Page activePage_{Page::Basic};
 };
 
 }

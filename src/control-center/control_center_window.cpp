@@ -640,6 +640,16 @@ bool ControlCenterWindow::createControls()
         L"STATIC",
         L"",
         SS_LEFT | SS_NOPREFIX);
+    basicPageButton_ = createChild(
+        L"BUTTON",
+        L"基础设置",
+        BS_AUTORADIOBUTTON | WS_TABSTOP,
+        ControlId::BasicPage);
+    advancedPageButton_ = createChild(
+        L"BUTTON",
+        L"高级参数",
+        BS_AUTORADIOBUTTON | WS_TABSTOP,
+        ControlId::AdvancedPage);
     effectsHeading_ = createChild(
         L"BUTTON",
         L"特效",
@@ -706,6 +716,80 @@ bool ControlCenterWindow::createControls()
             0.05,
             "effects.bloomIntensity",
             ControlId::BloomIntensity);
+
+    const bool advancedSlidersCreated = createSlider(
+        opacity_,
+        L"透明度 (opacity)",
+        0.0,
+        1.0,
+        0.01,
+        "effects.opacity",
+        ControlId::Opacity)
+        && createSlider(
+            clickTimeScale_,
+            L"点击速度 (clickTimeScale)",
+            0.01,
+            4.0,
+            0.01,
+            "effects.clickTimeScale",
+            ControlId::ClickTimeScale)
+        && createSlider(
+            trailTimeScale_,
+            L"拖尾速度 (trailTimeScale)",
+            0.01,
+            4.0,
+            0.01,
+            "effects.trailTimeScale",
+            ControlId::TrailTimeScale)
+        && createSlider(
+            trailLifetimeMs_,
+            L"拖尾寿命 (trail.lifetimeMs)",
+            0.0,
+            2000.0,
+            1.0,
+            "trail.lifetimeMs",
+            ControlId::TrailLifetimeMs)
+        && createSlider(
+            bloomDiffusion_,
+            L"扩散 (bloom.diffusion)",
+            1.0,
+            10.0,
+            0.01,
+            "bloom.diffusion",
+            ControlId::BloomDiffusion)
+        && createSlider(
+            bloomThreshold_,
+            L"阈值 (bloom.threshold)",
+            0.0,
+            5.0,
+            0.01,
+            "bloom.threshold",
+            ControlId::BloomThreshold)
+        && createSlider(
+            bloomSoftKnee_,
+            L"软阈值 (bloom.softKnee)",
+            0.0,
+            1.0,
+            0.01,
+            "bloom.softKnee",
+            ControlId::BloomSoftKnee)
+        && createSlider(
+            bloomClamp_,
+            L"亮度上限 (bloom.clamp)",
+            1.0,
+            65504.0,
+            1.0,
+            "bloom.clamp",
+            ControlId::BloomClamp);
+
+    advancedTimingHeading_ = createChild(
+        L"BUTTON",
+        L"Web API 时间与透明度",
+        BS_GROUPBOX);
+    advancedBloomHeading_ = createChild(
+        L"BUTTON",
+        L"Web API Bloom",
+        BS_GROUPBOX);
 
     bloomQualityLabel_ = createChild(
         L"STATIC",
@@ -786,6 +870,8 @@ bool ControlCenterWindow::createControls()
         titleText_,
         statusText_,
         messageText_,
+        basicPageButton_,
+        advancedPageButton_,
         effectsHeading_,
         effectsEnabled_,
         clickEnabled_,
@@ -802,8 +888,11 @@ bool ControlCenterWindow::createControls()
         pauseButton_,
         refreshButton_,
         hostLifecycleButton_,
-        resetDefaultsButton_};
+        resetDefaultsButton_,
+        advancedTimingHeading_,
+        advancedBloomHeading_};
     if (!slidersCreated
+        || !advancedSlidersCreated
         || std::ranges::find(required, nullptr) != required.end())
     {
         return false;
@@ -811,6 +900,7 @@ bool ControlCenterWindow::createControls()
 
     applyFonts();
     applyDpiMetrics();
+    selectPage(Page::Basic);
     return true;
 }
 
@@ -995,6 +1085,8 @@ void ControlCenterWindow::applyFonts() const noexcept
     const std::array normalControls{
         statusText_,
         messageText_,
+        basicPageButton_,
+        advancedPageButton_,
         effectsEnabled_,
         clickEnabled_,
         trailEnabled_,
@@ -1014,17 +1106,37 @@ void ControlCenterWindow::applyFonts() const noexcept
         bloomIntensity_.label,
         bloomIntensity_.trackbar,
         bloomIntensity_.valueText,
+        opacity_.label,
+        opacity_.trackbar,
+        opacity_.valueText,
+        clickTimeScale_.label,
+        clickTimeScale_.trackbar,
+        clickTimeScale_.valueText,
+        trailTimeScale_.label,
+        trailTimeScale_.trackbar,
+        trailTimeScale_.valueText,
+        trailLifetimeMs_.label,
+        trailLifetimeMs_.trackbar,
+        trailLifetimeMs_.valueText,
+        bloomDiffusion_.label,
+        bloomDiffusion_.trackbar,
+        bloomDiffusion_.valueText,
+        bloomThreshold_.label,
+        bloomThreshold_.trackbar,
+        bloomThreshold_.valueText,
+        bloomSoftKnee_.label,
+        bloomSoftKnee_.trackbar,
+        bloomSoftKnee_.valueText,
+        bloomClamp_.label,
+        bloomClamp_.trackbar,
+        bloomClamp_.valueText,
         bloomQualityLabel_,
         bloomQuality_,
         backgroundModeLabel_,
         backgroundMode_,
         cursorExcluded_,
         allowSystemBorder_,
-        hdrEnabled_,
-        pauseButton_,
-        refreshButton_,
-        hostLifecycleButton_,
-        resetDefaultsButton_};
+        hdrEnabled_};
     for (const HWND control : normalControls)
     {
         setControlFont(control, normalFont_);
@@ -1032,6 +1144,8 @@ void ControlCenterWindow::applyFonts() const noexcept
     setControlFont(titleText_, titleFont_);
     setControlFont(effectsHeading_, sectionFont_);
     setControlFont(backgroundHeading_, sectionFont_);
+    setControlFont(advancedTimingHeading_, sectionFont_);
+    setControlFont(advancedBloomHeading_, sectionFont_);
 }
 
 void ControlCenterWindow::applyDpiMetrics() const noexcept
@@ -1197,10 +1311,142 @@ void ControlCenterWindow::layoutControls(
 
     moveControl(titleText_, margin, scale(16), clientWidth - margin * 2, scale(36));
     moveControl(statusText_, margin, scale(54), clientWidth - margin * 2, scale(24));
-    const int messageHeight = scale(56);
+    // Keep the status line compact so the page tabs have their own stable
+    // band at every DPI; long diagnostics remain available in message text.
+    const int messageHeight = scale(24);
     moveControl(messageText_, margin, scale(82), clientWidth - margin * 2, messageHeight);
 
     const int contentTop = scale(146);
+    const int tabWidth = scale(132);
+    const int tabGap = scale(8);
+    moveControl(
+        basicPageButton_,
+        margin,
+        scale(116),
+        tabWidth,
+        scale(30));
+    moveControl(
+        advancedPageButton_,
+        margin + tabWidth + tabGap,
+        scale(116),
+        tabWidth,
+        scale(30));
+
+    if (activePage_ == Page::Advanced)
+    {
+        const int gap = scale(24);
+        const int columnWidth = (std::max)(
+            scale(1),
+            (clientWidth - margin * 2 - gap) / 2);
+        const int rightColumnX = margin + columnWidth + gap;
+        const int actionHeight = scale(38);
+        const int actionGap = scale(10);
+        const int actionY = (std::max)(
+            contentTop + scale(300),
+            clientHeight - margin - actionHeight);
+        const int groupHeight = (std::max)(
+            scale(300),
+            actionY - contentTop - scale(12));
+        const int inset = scale(16);
+        const int left = margin + inset;
+        const int right = rightColumnX + inset;
+        const int innerLeftWidth = (std::max)(scale(1), columnWidth - inset * 2);
+        const int innerRightWidth = innerLeftWidth;
+        moveControl(
+            advancedTimingHeading_,
+            margin,
+            contentTop,
+            columnWidth,
+            groupHeight);
+        moveControl(
+            advancedBloomHeading_,
+            rightColumnX,
+            contentTop,
+            columnWidth,
+            groupHeight);
+
+        int timingTop = contentTop + scale(32);
+        layoutSlider(opacity_, left, timingTop, innerLeftWidth, scale(40));
+        timingTop += scale(50);
+        layoutSlider(
+            clickTimeScale_,
+            left,
+            timingTop,
+            innerLeftWidth,
+            scale(40));
+        timingTop += scale(50);
+        layoutSlider(
+            trailTimeScale_,
+            left,
+            timingTop,
+            innerLeftWidth,
+            scale(40));
+        timingTop += scale(50);
+        layoutSlider(
+            trailLifetimeMs_,
+            left,
+            timingTop,
+            innerLeftWidth,
+            scale(40));
+
+        int bloomTop = contentTop + scale(32);
+        layoutSlider(
+            bloomDiffusion_,
+            right,
+            bloomTop,
+            innerRightWidth,
+            scale(40));
+        bloomTop += scale(50);
+        layoutSlider(
+            bloomThreshold_,
+            right,
+            bloomTop,
+            innerRightWidth,
+            scale(40));
+        bloomTop += scale(50);
+        layoutSlider(
+            bloomSoftKnee_,
+            right,
+            bloomTop,
+            innerRightWidth,
+            scale(40));
+        bloomTop += scale(50);
+        layoutSlider(
+            bloomClamp_,
+            right,
+            bloomTop,
+            innerRightWidth,
+            scale(40));
+
+        const int actionWidth = (clientWidth - margin * 2 - actionGap * 3) / 4;
+        moveControl(
+            pauseButton_,
+            margin,
+            actionY,
+            actionWidth,
+            actionHeight);
+        moveControl(
+            refreshButton_,
+            margin + (actionWidth + actionGap),
+            actionY,
+            actionWidth,
+            actionHeight);
+        moveControl(
+            hostLifecycleButton_,
+            margin + (actionWidth + actionGap) * 2,
+            actionY,
+            actionWidth,
+            actionHeight);
+        moveControl(
+            resetDefaultsButton_,
+            margin + (actionWidth + actionGap) * 3,
+            actionY,
+            actionWidth,
+            actionHeight);
+        redrawWindowTree();
+        return;
+    }
+
     const int groupHeight = (std::max)(
         scale(350),
         clientHeight - contentTop - margin);
@@ -1347,6 +1593,112 @@ void ControlCenterWindow::layoutSlider(
         height);
 }
 
+void ControlCenterWindow::setPageControlVisible(
+    const HWND control,
+    const bool visible) const noexcept
+{
+    if (control != nullptr)
+    {
+        ShowWindow(control, visible ? SW_SHOW : SW_HIDE);
+    }
+}
+
+void ControlCenterWindow::selectPage(const Page page) noexcept
+{
+    activePage_ = page;
+    const bool advanced = activePage_ == Page::Advanced;
+    static_cast<void>(SendMessageW(
+        basicPageButton_,
+        BM_SETCHECK,
+        advanced ? BST_UNCHECKED : BST_CHECKED,
+        0));
+    static_cast<void>(SendMessageW(
+        advancedPageButton_,
+        BM_SETCHECK,
+        advanced ? BST_CHECKED : BST_UNCHECKED,
+        0));
+
+    const std::array basicControls{
+        effectsHeading_,
+        effectsEnabled_,
+        clickEnabled_,
+        trailEnabled_,
+        trailAlwaysOn_,
+        globalScale_.label,
+        globalScale_.trackbar,
+        globalScale_.valueText,
+        trailLength_.label,
+        trailLength_.trackbar,
+        trailLength_.valueText,
+        trailWidth_.label,
+        trailWidth_.trackbar,
+        trailWidth_.valueText,
+        inputSamplingRate_.label,
+        inputSamplingRate_.trackbar,
+        inputSamplingRate_.valueText,
+        bloomIntensity_.label,
+        bloomIntensity_.trackbar,
+        bloomIntensity_.valueText,
+        bloomQualityLabel_,
+        bloomQuality_,
+        backgroundHeading_,
+        backgroundModeLabel_,
+        backgroundMode_,
+        cursorExcluded_,
+        allowSystemBorder_,
+        hdrEnabled_,
+        pauseButton_,
+        refreshButton_,
+        hostLifecycleButton_,
+        resetDefaultsButton_};
+    for (const HWND control : basicControls)
+    {
+        setPageControlVisible(control, !advanced);
+    }
+
+    const std::array advancedControls{
+        advancedTimingHeading_,
+        advancedBloomHeading_,
+        opacity_.label,
+        opacity_.trackbar,
+        opacity_.valueText,
+        clickTimeScale_.label,
+        clickTimeScale_.trackbar,
+        clickTimeScale_.valueText,
+        trailTimeScale_.label,
+        trailTimeScale_.trackbar,
+        trailTimeScale_.valueText,
+        trailLifetimeMs_.label,
+        trailLifetimeMs_.trackbar,
+        trailLifetimeMs_.valueText,
+        bloomDiffusion_.label,
+        bloomDiffusion_.trackbar,
+        bloomDiffusion_.valueText,
+        bloomThreshold_.label,
+        bloomThreshold_.trackbar,
+        bloomThreshold_.valueText,
+        bloomSoftKnee_.label,
+        bloomSoftKnee_.trackbar,
+        bloomSoftKnee_.valueText,
+        bloomClamp_.label,
+        bloomClamp_.trackbar,
+        bloomClamp_.valueText};
+    for (const HWND control : advancedControls)
+    {
+        setPageControlVisible(control, advanced);
+    }
+
+    if (window_ != nullptr)
+    {
+        RECT client{};
+        if (GetClientRect(window_, &client) != FALSE)
+        {
+            layoutControls(client.right, client.bottom);
+        }
+        redrawWindowTree();
+    }
+}
+
 int ControlCenterWindow::scale(const int logicalPixels) const noexcept
 {
     return MulDiv(logicalPixels, static_cast<int>(layoutDpi_), 96);
@@ -1363,6 +1715,18 @@ void ControlCenterWindow::onCommand(
 
     switch (static_cast<ControlId>(id))
     {
+    case ControlId::BasicPage:
+        if (notificationCode == BN_CLICKED)
+        {
+            selectPage(Page::Basic);
+        }
+        break;
+    case ControlId::AdvancedPage:
+        if (notificationCode == BN_CLICKED)
+        {
+            selectPage(Page::Advanced);
+        }
+        break;
     case ControlId::Pause:
         if (notificationCode == BN_CLICKED)
         {
@@ -1494,6 +1858,14 @@ void ControlCenterWindow::onCommand(
     case ControlId::TrailWidth:
     case ControlId::InputSamplingRate:
     case ControlId::BloomIntensity:
+    case ControlId::Opacity:
+    case ControlId::ClickTimeScale:
+    case ControlId::TrailTimeScale:
+    case ControlId::TrailLifetimeMs:
+    case ControlId::BloomDiffusion:
+    case ControlId::BloomThreshold:
+    case ControlId::BloomSoftKnee:
+    case ControlId::BloomClamp:
         break;
     }
 }
@@ -1510,7 +1882,15 @@ void ControlCenterWindow::onSliderChanged(const HWND trackbar)
         &trailLength_,
         &trailWidth_,
         &inputSamplingRate_,
-        &bloomIntensity_};
+        &bloomIntensity_,
+        &opacity_,
+        &clickTimeScale_,
+        &trailTimeScale_,
+        &trailLifetimeMs_,
+        &bloomDiffusion_,
+        &bloomThreshold_,
+        &bloomSoftKnee_,
+        &bloomClamp_};
     for (SliderControl* const slider : sliders)
     {
         if (slider->trackbar == trackbar)
@@ -1761,6 +2141,14 @@ void ControlCenterWindow::updateControls(
     setSliderValue(trailWidth_, config.effects.trailWidth);
     setSliderValue(inputSamplingRate_, config.input.samplingRateHz);
     setSliderValue(bloomIntensity_, config.effects.bloomIntensity);
+    setSliderValue(opacity_, config.effects.opacity);
+    setSliderValue(clickTimeScale_, config.effects.clickTimeScale);
+    setSliderValue(trailTimeScale_, config.effects.trailTimeScale);
+    setSliderValue(trailLifetimeMs_, config.effects.trailLifetimeMs);
+    setSliderValue(bloomDiffusion_, config.effects.bloomDiffusion);
+    setSliderValue(bloomThreshold_, config.effects.bloomThreshold);
+    setSliderValue(bloomSoftKnee_, config.effects.bloomSoftKnee);
+    setSliderValue(bloomClamp_, config.effects.bloomClamp);
     static_cast<void>(SendMessageW(
         bloomQuality_,
         CB_SETCURSEL,
