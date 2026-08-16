@@ -40,6 +40,14 @@ FX-only，避免永久保留无法复合的 producer。已知 120/144 Hz 或 DRR
 `captureRefreshRate` 传给新会话，不会在权限等待后重新查询出另一份 DRR 状态。这些仅表示代码逻辑和
 链接已闭合，真实 HDR、多显示器、混合 DPI/刷新率及跨适配器硬件矩阵仍保持 `Not Run`。
 
+DisplayConfig 拓扑瞬时不完整、查询失败或找不到目标时，DXGI-only 色彩结果不再覆盖最后有效 HDR
+合同；只有运行时明确返回 `ERROR_NOT_SUPPORTED` 才接受该旧系统兜底。颜色模式可以先更新，但同一
+物理目标的 SDR reference white 查询失败时会保留最后有效值并继续三次有限重试，避免 HDR 映射瞬时
+回落到 `1.0`。次屏在无边框权限等待期间收到新的 DPI/DRR 元数据时，会原位更新 pending target 和
+执行中的 target intent，不取消权限事务，后续 WGC StartSensor 直接使用最新捕获刷新率。支持报告会记录
+颜色拓扑状态/错误码、reference white 是否保留及已经消费的通知 generation；这些仍是生产逻辑与诊断
+合同，不能替代真实 HDR 和混合显示器验收。
+
 ## 当前优先级覆盖（2026-08-15）
 
 按当前迭代决定，暂跳过第三阶段的 WGC/ROI 成本优化实现：
