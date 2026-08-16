@@ -29,7 +29,11 @@ enum class IpcCommand : std::uint8_t
 {
     GetState,
     GetConfig,
+    GetFxConfig,
     SetConfig,
+    SetFxParam,
+    SetFxParams,
+    ResetFxConfig,
     Pause,
     Resume,
     Shutdown

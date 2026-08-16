@@ -150,6 +150,20 @@ struct ConfigPatchResult
     }
 };
 
+struct ConfigBatchPatchResult
+{
+    Config config{};
+    ConfigStatus status{ConfigStatus::ParseError};
+    std::string message{};
+    bool recognized{false};
+    std::optional<std::uint64_t> expectedGeneration{};
+
+    [[nodiscard]] bool succeeded() const noexcept
+    {
+        return recognized && status == ConfigStatus::Ok;
+    }
+};
+
 struct ConfigSaveResult
 {
     ConfigStatus status{ConfigStatus::Ok};
@@ -171,6 +185,26 @@ struct ConfigSaveResult
 [[nodiscard]] ConfigPatchResult applyPatchJson(
     const Config& base,
     std::string_view json) noexcept;
+
+// Applies a Web-style object of flat dot paths atomically. Every value is
+// validated against the same single-patch contract before the result changes.
+[[nodiscard]] ConfigBatchPatchResult applyPatchBatchJson(
+    const Config& base,
+    std::string_view json) noexcept;
+
+// Public names mirror the Web instance API while retaining the native Config
+// value object for IPC and non-Windows callers.
+[[nodiscard]] ConfigPatchResult setFxParam(
+    const Config& base,
+    std::string_view path,
+    std::string_view valueJson) noexcept;
+[[nodiscard]] ConfigBatchPatchResult setFxParams(
+    const Config& base,
+    std::string_view patchJson) noexcept;
+[[nodiscard]] std::string getFxConfig(
+    const Config& config,
+    bool pretty = false);
+[[nodiscard]] Config resetFxConfig() noexcept;
 
 [[nodiscard]] std::string toJson(
     const Config& config,

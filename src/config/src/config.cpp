@@ -30,6 +30,9 @@ namespace bafx::config
 namespace
 {
 
+constexpr float unityBloomIntensity = 1.7F;
+constexpr float referenceTrailWidthPixels = 2.7F;
+
 struct JsonValue
 {
     using Object = std::map<std::string, JsonValue, std::less<>>;
@@ -1176,6 +1179,55 @@ private:
     return JsonValue(std::move(root));
 }
 
+[[nodiscard]] JsonValue makeFxConfigJson(const Config& config)
+{
+    JsonValue::Object trail;
+    trail.emplace(
+        "lifetimeMs",
+        JsonValue(static_cast<double>(config.effects.trailLifetimeMs)));
+    trail.emplace(
+        "width",
+        JsonValue(static_cast<double>(
+            config.effects.trailWidth * referenceTrailWidthPixels)));
+
+    JsonValue::Object bloom;
+    bloom.emplace(
+        "clamp",
+        JsonValue(static_cast<double>(config.effects.bloomClamp)));
+    bloom.emplace(
+        "diffusion",
+        JsonValue(static_cast<double>(config.effects.bloomDiffusion)));
+    bloom.emplace(
+        "intensity",
+        JsonValue(static_cast<double>(
+            config.effects.bloomIntensity * unityBloomIntensity)));
+    bloom.emplace(
+        "softKnee",
+        JsonValue(static_cast<double>(config.effects.bloomSoftKnee)));
+    bloom.emplace(
+        "threshold",
+        JsonValue(static_cast<double>(config.effects.bloomThreshold)));
+
+    JsonValue::Object root;
+    root.emplace("clickEnabled", JsonValue(config.effects.clickEnabled));
+    root.emplace(
+        "clickTimeScale",
+        JsonValue(static_cast<double>(config.effects.clickTimeScale)));
+    root.emplace("opacity", JsonValue(static_cast<double>(config.effects.opacity)));
+    root.emplace("scale", JsonValue(static_cast<double>(config.effects.globalScale)));
+    root.emplace("trailAlways", JsonValue(!config.input.trailOnlyWhilePressed));
+    root.emplace("trailEnabled", JsonValue(config.effects.trailEnabled));
+    root.emplace(
+        "trailTimeScale",
+        JsonValue(static_cast<double>(config.effects.trailTimeScale)));
+    root.emplace(
+        "inputSamplingRate",
+        JsonValue(static_cast<double>(config.input.samplingRateHz)));
+    root.emplace("trail", JsonValue(std::move(trail)));
+    root.emplace("bloom", JsonValue(std::move(bloom)));
+    return JsonValue(std::move(root));
+}
+
 void appendEscapedString(std::string& output, const std::string_view value)
 {
     static constexpr char hex[] = "0123456789ABCDEF";
@@ -1599,9 +1651,19 @@ ConfigPatchResult applyPatchJson(
                     / 300.0F;
             }
         }
-        else if (*path == "effects.trailWidth" || *path == "trail.width")
+        else if (*path == "effects.trailWidth")
         {
             valueAccepted = readPatchFloat(result.effects.trailWidth);
+        }
+        else if (*path == "trail.width")
+        {
+            float webWidth = 0.0F;
+            valueAccepted = readPatchFloat(webWidth);
+            if (valueAccepted)
+            {
+                result.effects.trailWidth = webWidth
+                    / referenceTrailWidthPixels;
+            }
         }
         else if (*path == "effects.clickTimeScale"
             || *path == "clickTimeScale")
@@ -1626,10 +1688,19 @@ ConfigPatchResult applyPatchJson(
         {
             valueAccepted = readPatchUnsignedInteger(result.input.samplingRateHz);
         }
-        else if (*path == "effects.bloomIntensity"
-            || *path == "bloom.intensity")
+        else if (*path == "effects.bloomIntensity")
         {
             valueAccepted = readPatchFloat(result.effects.bloomIntensity);
+        }
+        else if (*path == "bloom.intensity")
+        {
+            float webIntensity = 0.0F;
+            valueAccepted = readPatchFloat(webIntensity);
+            if (valueAccepted)
+            {
+                result.effects.bloomIntensity = webIntensity
+                    / unityBloomIntensity;
+            }
         }
         else if (*path == "effects.bloomDiffusion"
             || *path == "bloom.diffusion")
@@ -1777,6 +1848,188 @@ ConfigPatchResult applyPatchJson(
             false,
             std::nullopt};
     }
+}
+
+ConfigBatchPatchResult applyPatchBatchJson(
+    const Config& base,
+    const std::string_view json) noexcept
+{
+    try
+    {
+        JsonParser parser(json);
+        const std::optional<JsonValue> parsed = parser.parse();
+        if (!parsed.has_value())
+        {
+            return ConfigBatchPatchResult{
+                base,
+                ConfigStatus::ParseError,
+                parser.error().empty() ? "invalid parameter patch JSON" : parser.error(),
+                false};
+        }
+
+        const JsonValue::Object* root = objectOf(*parsed);
+        if (root == nullptr)
+        {
+            return ConfigBatchPatchResult{
+                base,
+                ConfigStatus::ParseError,
+                "parameter patch root must be an object",
+                false};
+        }
+
+        std::optional<std::uint64_t> expectedGeneration;
+        if (const JsonValue* generation = member(*root, "generation");
+            generation != nullptr)
+        {
+            const double* number = std::get_if<double>(&generation->storage);
+            if (number == nullptr
+                || !std::isfinite(*number)
+                || *number < 0.0
+                || std::floor(*number) != *number
+                || *number
+                    > static_cast<double>((std::numeric_limits<std::uint64_t>::max)()))
+            {
+                return ConfigBatchPatchResult{
+                    base,
+                    ConfigStatus::ValidationError,
+                    "parameter patch generation must be a non-negative integer",
+                    true};
+            }
+            expectedGeneration = static_cast<std::uint64_t>(*number);
+        }
+
+        const JsonValue::Object* patchObject = root;
+        if (const JsonValue* nested = member(*root, "patch"); nested != nullptr)
+        {
+            patchObject = objectOf(*nested);
+            if (patchObject == nullptr)
+            {
+                return ConfigBatchPatchResult{
+                    base,
+                    ConfigStatus::ValidationError,
+                    "parameter patch field 'patch' must be an object",
+                    true};
+            }
+        }
+
+        Config candidate = base;
+        for (const auto& entry : *patchObject)
+        {
+            if (entry.first == "generation" || entry.first == "patch")
+            {
+                continue;
+            }
+            JsonValue::Object single;
+            single.emplace("path", JsonValue(entry.first));
+            single.emplace("value", entry.second);
+            std::string singleJson;
+            appendJsonValue(JsonValue(std::move(single)), singleJson, false, 0U);
+            const ConfigPatchResult result = applyPatchJson(candidate, singleJson);
+            if (!result.succeeded())
+            {
+                return ConfigBatchPatchResult{
+                    base,
+                    result.status,
+                    "parameter '" + entry.first + "' rejected: "
+                        + (result.message.empty() ? "invalid value" : result.message),
+                    true,
+                    expectedGeneration};
+            }
+            candidate = result.config;
+        }
+        return ConfigBatchPatchResult{
+            candidate,
+            ConfigStatus::Ok,
+            {},
+            true,
+            expectedGeneration};
+    }
+    catch (const std::exception& error)
+    {
+        return ConfigBatchPatchResult{
+            base,
+            ConfigStatus::ParseError,
+            std::string("parameter patch failed: ") + error.what(),
+            false};
+    }
+    catch (...)
+    {
+        return ConfigBatchPatchResult{
+            base,
+            ConfigStatus::ParseError,
+            "parameter patch failed",
+            false};
+    }
+}
+
+ConfigPatchResult setFxParam(
+    const Config& base,
+    const std::string_view path,
+    const std::string_view valueJson) noexcept
+{
+    try
+    {
+        JsonValue::Object patch;
+        patch.emplace("path", JsonValue(std::string(path)));
+        JsonParser valueParser(valueJson);
+        const std::optional<JsonValue> value = valueParser.parse();
+        if (!value.has_value())
+        {
+            return ConfigPatchResult{
+                base,
+                ConfigStatus::ParseError,
+                valueParser.error().empty()
+                    ? "FX parameter value is invalid"
+                    : valueParser.error(),
+                false,
+                std::nullopt};
+        }
+        patch.emplace("value", *value);
+        std::string request;
+        appendJsonValue(JsonValue(std::move(patch)), request, false, 0U);
+        return applyPatchJson(base, request);
+    }
+    catch (const std::exception& error)
+    {
+        return ConfigPatchResult{
+            base,
+            ConfigStatus::ParseError,
+            std::string("setFxParam failed: ") + error.what(),
+            false,
+            std::nullopt};
+    }
+    catch (...)
+    {
+        return ConfigPatchResult{
+            base,
+            ConfigStatus::ParseError,
+            "setFxParam failed",
+            false,
+            std::nullopt};
+    }
+}
+
+ConfigBatchPatchResult setFxParams(
+    const Config& base,
+    const std::string_view patchJson) noexcept
+{
+    return applyPatchBatchJson(base, patchJson);
+}
+
+std::string getFxConfig(const Config& config, const bool pretty)
+{
+    std::string output;
+    appendJsonValue(makeFxConfigJson(config), output, pretty, 0U);
+    if (pretty)
+    {
+        output.push_back('\n');
+    }
+    return output;
+}
+
+Config resetFxConfig() noexcept
+{
+    return defaultConfig();
 }
 
 std::string toJson(const Config& config, const bool pretty)

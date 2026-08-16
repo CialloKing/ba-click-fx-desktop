@@ -55,9 +55,25 @@ constexpr std::size_t maximumParserLineBytes = 1U * 1024U * 1024U;
     {
         return IpcCommand::GetConfig;
     }
+    if (name == "GetFxConfig")
+    {
+        return IpcCommand::GetFxConfig;
+    }
     if (name == "SetConfig")
     {
         return IpcCommand::SetConfig;
+    }
+    if (name == "SetFxParam")
+    {
+        return IpcCommand::SetFxParam;
+    }
+    if (name == "SetFxParams")
+    {
+        return IpcCommand::SetFxParams;
+    }
+    if (name == "ResetFxConfig")
+    {
+        return IpcCommand::ResetFxConfig;
     }
     if (name == "Pause")
     {
@@ -76,7 +92,9 @@ constexpr std::size_t maximumParserLineBytes = 1U * 1024U * 1024U;
 
 [[nodiscard]] bool commandAcceptsPayload(const IpcCommand command) noexcept
 {
-    return command == IpcCommand::SetConfig;
+    return command == IpcCommand::SetConfig
+        || command == IpcCommand::SetFxParam
+        || command == IpcCommand::SetFxParams;
 }
 
 [[nodiscard]] bool isTransientPipeError(const DWORD error) noexcept
@@ -142,7 +160,7 @@ IpcParseResult parseIpcRequest(const std::string_view line)
     if (commandAcceptsPayload(*command) && payload.empty())
     {
         result.errorCode = "missing_payload";
-        result.errorMessage = "SetConfig requires a payload";
+        result.errorMessage = "configuration command requires a payload";
         return result;
     }
     if (!commandAcceptsPayload(*command) && !payload.empty())
