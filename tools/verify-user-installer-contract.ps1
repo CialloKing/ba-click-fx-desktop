@@ -313,6 +313,13 @@ function Test-InstallerScriptWhitelist
         -Pattern 'throw\s+\$(prepare|finalize)Error\b' `
         -Description 'lossy machine failure string rethrow'
 
+    $captureUserContext = Read-RepositoryText `
+        -RelativePath 'tools/installer/capture-user-context.ps1'
+    Assert-TextContains `
+        -Text $captureUserContext `
+        -Pattern 'Write-BafxInstallerFailure[\s\S]*CaptureUserContext[\s\S]*\.diagnostic\.txt' `
+        -Description 'original-user context failures create a diagnostic sidecar'
+
     $diagnostics = Read-RepositoryText `
         -RelativePath 'tools/installer/installer-diagnostics.ps1'
     Assert-TextContains `
