@@ -14,6 +14,36 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'installer-diagnostics.ps1')
+$script:InstallerStep = 'initialize'
+$script:InstallerPhase = if ($Rollback)
+{
+    'RollbackUserPackage'
+}
+else
+{
+    'RegisterUserPackage'
+}
+$script:InstallerDiagnosticPath = "$ResultPath.diagnostic.txt"
+$script:InstallerState = $null
+$script:InstallerProductVersion = ''
+$script:InstallerPackageVersion = ''
+$script:InstallerRelatedFailures = New-Object Collections.Generic.List[object]
+
+function Add-InstallerRelatedFailure
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [Management.Automation.ErrorRecord]$ErrorRecord,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Step
+    )
+
+    $script:InstallerRelatedFailures.Add((New-BafxInstallerRelatedFailure `
+            -ErrorRecord $ErrorRecord `
+            -Step $Step))
+}
 
 function Write-Utf8NoBom
 {
@@ -57,6 +87,73 @@ function Write-Result
         completedUtc = [DateTime]::UtcNow.ToString('o')
     }
     Write-Utf8NoBom -Path $ResultPath -Content ($result | ConvertTo-Json -Depth 4)
+}
+
+function Stop-RegistrationWithFailure
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [Management.Automation.ErrorRecord]$ErrorRecord,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Step,
+
+        [string]$ResultErrorMessage = ''
+    )
+
+    $failureMessage = if ([string]::IsNullOrWhiteSpace($ResultErrorMessage))
+    {
+        $ErrorRecord.Exception.Message
+    }
+    else
+    {
+        $ResultErrorMessage
+    }
+    try
+    {
+        if (-not (Test-Path -LiteralPath $ResultPath -PathType Leaf))
+        {
+            if ($null -ne $script:InstallerState)
+            {
+                Write-Result `
+                    -Succeeded $false `
+                    -Package $null `
+                    -State $script:InstallerState `
+                    -ErrorMessage $failureMessage
+            }
+            else
+            {
+                # Validation may fail before protected state is readable. Keep
+                # a minimal result so the elevated parent can still distinguish
+                # script failure from a process launch failure.
+                $diagnosticResult = [ordered]@{
+                    schema = 1
+                    succeeded = $false
+                    error = $failureMessage
+                    completedUtc = [DateTime]::UtcNow.ToString('o')
+                }
+                Write-Utf8NoBom `
+                    -Path $ResultPath `
+                    -Content ($diagnosticResult | ConvertTo-Json -Depth 3)
+            }
+        }
+    }
+    catch
+    {
+        Add-InstallerRelatedFailure `
+            -ErrorRecord $_ `
+            -Step 'write-fallback-registration-result'
+    }
+
+    Write-BafxInstallerFailure `
+        -ErrorRecord $ErrorRecord `
+        -Phase $script:InstallerPhase `
+        -Step $Step `
+        -ProductVersion $script:InstallerProductVersion `
+        -PackageVersion $script:InstallerPackageVersion `
+        -DiagnosticPath $script:InstallerDiagnosticPath `
+        -RelatedFailures $script:InstallerRelatedFailures.ToArray()
+    exit 1
 }
 
 function Assert-ProtectedStateAcl
@@ -118,6 +215,7 @@ function Assert-PendingState
         'packageName',
         'applicationId',
         'publisher',
+        'productVersion',
         'packageVersion',
         'templateSha256',
         'packagePath',
@@ -140,6 +238,8 @@ function Assert-PendingState
         [string]$State.packageName -ne 'CialloKing.BaClickFxDesktop' -or
         [string]$State.applicationId -ne 'BaClickFxDesktop' -or
         [string]$State.publisher -ne 'CN=BaClickFx.Local' -or
+        [string]$State.productVersion -notmatch
+            '^[0-9]+\.[0-9]+\.[0-9]+-alpha\.[0-9]+$' -or
         [string]$State.packageVersion -notmatch '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$')
     {
         throw 'Protected pending state contains invalid identity data.'
@@ -312,50 +412,37 @@ function Remove-PreviousPackageForReplacement
 
 trap
 {
-    $diagnosticError = $_.Exception.Message
-    try
-    {
-        if (-not (Test-Path -LiteralPath $ResultPath -PathType Leaf))
-        {
-            # Validation can fail before protected state is available. Preserve
-            # a minimal result so the hidden original-user process remains
-            # diagnosable from the parent installer log.
-            $diagnosticResult = [ordered]@{
-                schema = 1
-                succeeded = $false
-                error = $diagnosticError
-                completedUtc = [DateTime]::UtcNow.ToString('o')
-            }
-            Write-Utf8NoBom `
-                -Path $ResultPath `
-                -Content ($diagnosticResult | ConvertTo-Json -Depth 3)
-        }
-    }
-    catch
-    {
-        # The original failure remains authoritative when diagnostics cannot be written.
-    }
-    [Console]::Error.WriteLine($diagnosticError)
-    exit 1
+    Stop-RegistrationWithFailure `
+        -ErrorRecord $_ `
+        -Step $script:InstallerStep
 }
 
+$script:InstallerStep = 'validate-powershell'
 if ($PSVersionTable.PSEdition -ne 'Desktop')
 {
     throw 'Package registration requires Windows PowerShell 5.1.'
 }
 
+$script:InstallerStep = 'resolve-installer-paths'
 $installRoot = [IO.Path]::GetFullPath($InstallDirectory)
 $machineStateFullPath = [IO.Path]::GetFullPath($MachineStatePath)
+$resultFullPath = [IO.Path]::GetFullPath($ResultPath)
+$script:InstallerDiagnosticPath = "$resultFullPath.diagnostic.txt"
 $expectedStatePath = [IO.Path]::GetFullPath(
     (Join-Path $installRoot 'Installer\PREPARE-STATE.json'))
 if ($machineStateFullPath -ne $expectedStatePath)
 {
     throw 'Protected pending state must remain in the Installer directory.'
 }
+$script:InstallerStep = 'validate-protected-pending-state'
 Assert-ProtectedStateAcl -Path $machineStateFullPath
 $machineState = Get-Content -LiteralPath $machineStateFullPath -Raw | ConvertFrom-Json
 Assert-PendingState -State $machineState -InstallRoot $installRoot
+$script:InstallerState = $machineState
+$script:InstallerProductVersion = [string]$machineState.productVersion
+$script:InstallerPackageVersion = [string]$machineState.packageVersion
 
+$script:InstallerStep = 'validate-original-user'
 $currentIdentity = [Security.Principal.WindowsIdentity]::GetCurrent()
 if ($null -eq $currentIdentity.User -or
     $currentIdentity.User.Value -ne [string]$machineState.userSid)
@@ -365,7 +452,9 @@ if ($null -eq $currentIdentity.User -or
 
 if ($Rollback)
 {
+    $script:InstallerStep = 'remove-new-package-registrations'
     Remove-NewPackages -State $machineState
+    $script:InstallerStep = 'restore-previous-package-registration'
     Restore-PreviousPackage -State $machineState -InstallRoot $installRoot
     exit 0
 }
@@ -375,6 +464,7 @@ $packagePath = [string]$machineState.packagePath
 $registeredPackage = $null
 try
 {
+    $script:InstallerStep = 'inspect-current-package-registrations'
     $currentFullNames = @(
         Get-AppxPackage -Name $packageName -ErrorAction Stop |
             ForEach-Object { [string]$_.PackageFullName }
@@ -388,14 +478,17 @@ try
         throw 'Package registrations changed after the protected prepare phase.'
     }
 
+    $script:InstallerStep = 'remove-previous-package-registration'
     Remove-PreviousPackageForReplacement -State $machineState
 
+    $script:InstallerStep = 'register-identity-package'
     Add-AppxPackage `
         -Path $packagePath `
         -ExternalLocation $installRoot `
         -ForceApplicationShutdown `
         -ForceUpdateFromAnyVersion
 
+    $script:InstallerStep = 'verify-package-registration'
     $registered = @(
         Get-AppxPackage -Name $packageName -ErrorAction Stop |
             Where-Object { [string]$_.Version -eq [string]$machineState.packageVersion }
@@ -405,6 +498,7 @@ try
         throw 'Add-AppxPackage did not produce exactly one expected registration.'
     }
     $registeredPackage = $registered[0]
+    $script:InstallerStep = 'write-registration-result'
     Write-Result `
         -Succeeded $true `
         -Package $registeredPackage `
@@ -412,19 +506,27 @@ try
 }
 catch
 {
+    $registrationErrorRecord = $_
+    $registrationFailureStep = $script:InstallerStep
     $registrationError = $_.Exception.Message
     try
     {
+        $script:InstallerStep = 'rollback-new-package-registrations'
         Remove-NewPackages -State $machineState
+        $script:InstallerStep = 'rollback-previous-package-registration'
         Restore-PreviousPackage -State $machineState -InstallRoot $installRoot
     }
     catch
     {
         $registrationError =
             "$registrationError Rollback failed: $($_.Exception.Message)"
+        Add-InstallerRelatedFailure `
+            -ErrorRecord $_ `
+            -Step $script:InstallerStep
     }
     try
     {
+        $script:InstallerStep = 'write-registration-failure-result'
         Write-Result `
             -Succeeded $false `
             -Package $null `
@@ -435,6 +537,13 @@ catch
     {
         $registrationError =
             "$registrationError Result write failed: $($_.Exception.Message)"
+        Add-InstallerRelatedFailure `
+            -ErrorRecord $_ `
+            -Step 'write-registration-failure-result'
     }
-    throw $registrationError
+    $script:InstallerStep = $registrationFailureStep
+    Stop-RegistrationWithFailure `
+        -ErrorRecord $registrationErrorRecord `
+        -Step $registrationFailureStep `
+        -ResultErrorMessage $registrationError
 }

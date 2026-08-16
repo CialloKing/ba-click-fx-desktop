@@ -320,6 +320,17 @@ function Test-InstallerScriptWhitelist
         -Pattern 'Write-BafxInstallerFailure[\s\S]*CaptureUserContext[\s\S]*\.diagnostic\.txt' `
         -Description 'original-user context failures create a diagnostic sidecar'
 
+    $registerUserPackage = Read-RepositoryText `
+        -RelativePath 'tools/installer/register-user-package.ps1'
+    Assert-TextContains `
+        -Text $registerUserPackage `
+        -Pattern 'Write-BafxInstallerFailure[\s\S]*InstallerDiagnosticPath[\s\S]*RelatedFailures' `
+        -Description 'user package failures retain structured and related diagnostics'
+    Assert-TextExcludes `
+        -Text $registerUserPackage `
+        -Pattern 'throw\s+\$registrationError\b' `
+        -Description 'lossy package registration failure string rethrow'
+
     $diagnostics = Read-RepositoryText `
         -RelativePath 'tools/installer/installer-diagnostics.ps1'
     Assert-TextContains `
@@ -745,6 +756,7 @@ function Test-RegistrationFailureDiagnostics
         New-Item -ItemType Directory -Path $installerRoot -Force | Out-Null
         $missingStatePath = Join-Path $installerRoot 'PREPARE-STATE.json'
         $resultPath = Join-Path $temporaryRoot 'registration-result.json'
+        $diagnosticPath = "$resultPath.diagnostic.txt"
         $registrationScript = Resolve-RepositoryPath `
             -RelativePath 'tools/installer/register-user-package.ps1'
         $windowsPowerShell = Get-Command powershell.exe -ErrorAction Stop | Select-Object -First 1
@@ -781,6 +793,27 @@ function Test-RegistrationFailureDiagnostics
         Assert-True `
             -Condition (-not [string]::IsNullOrWhiteSpace([string]$result.error)) `
             -Message 'Early registration failure diagnostic omitted the error.'
+        Assert-True `
+            -Condition (Test-Path -LiteralPath $diagnosticPath -PathType Leaf) `
+            -Message 'Early registration failure did not create a structured sidecar.'
+        $diagnosticLines = @(Get-Content -LiteralPath $diagnosticPath)
+        Assert-True `
+            -Condition (
+                $diagnosticLines.Count -eq 2 -and
+                $diagnosticLines[0].StartsWith('BAFX_INSTALL_FAILURE:')) `
+            -Message 'Registration diagnostic sidecar has an invalid summary contract.'
+        $diagnosticPrefix = 'BAFX_INSTALL_DIAGNOSTIC_JSON: '
+        Assert-True `
+            -Condition $diagnosticLines[1].StartsWith($diagnosticPrefix) `
+            -Message 'Registration diagnostic sidecar omitted structured JSON.'
+        $diagnostic =
+            $diagnosticLines[1].Substring($diagnosticPrefix.Length) | ConvertFrom-Json
+        Assert-True `
+            -Condition (
+                [string]$diagnostic.phase -eq 'RegisterUserPackage' -and
+                [string]$diagnostic.step -eq 'validate-protected-pending-state' -and
+                [int]$diagnostic.scriptLine -gt 0) `
+            -Message 'Registration diagnostic sidecar omitted the failing step.'
     }
     finally
     {
