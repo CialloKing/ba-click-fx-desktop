@@ -38,8 +38,11 @@ constexpr ULONGLONG hostShutdownTimeoutMilliseconds = 10'000U;
 // WGC/D3D startup can take several seconds on a cold process. The control
 // center keeps probing long enough for that process to become controllable.
 constexpr std::uint32_t hostRetryLimit = 40U;
+// Group boxes are visual siblings rather than opaque child containers. The
+// parent must paint behind them so a live resize erases vacated control pixels.
 constexpr DWORD controlCenterWindowStyle =
-    WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN | WS_CLIPSIBLINGS;
+    WS_OVERLAPPEDWINDOW | WS_CLIPSIBLINGS;
+static_assert((controlCenterWindowStyle & WS_CLIPCHILDREN) == 0U);
 
 [[nodiscard]] std::wstring hresultText(const HRESULT result)
 {
