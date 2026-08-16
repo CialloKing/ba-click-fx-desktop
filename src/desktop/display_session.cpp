@@ -350,7 +350,30 @@ DisplaySession::colorMonitorResult() const noexcept
 
 bool DisplaySession::renderFaulted() const noexcept
 {
-    return renderFaulted_;
+    return renderFaulted_ || outputContractFaulted_;
+}
+
+bool DisplaySession::outputContractFaulted() const noexcept
+{
+    return outputContractFaulted_;
+}
+
+bool DisplaySession::outputContractRecoveryActionable() const noexcept
+{
+    if (!outputContractFaulted_ || secondaryBackgroundCapture_ == nullptr)
+    {
+        return false;
+    }
+
+    const bafx::windows::CompositionOutputPolicy effectivePolicy =
+        resolveDisplayOutputPolicy(
+            requestedOutputPreference_,
+            colorCapabilities_);
+    return secondaryBackgroundCapture_->pendingOutputRenegotiation.has_value()
+        || (renderer_.outputPolicy() == effectivePolicy
+            && bafx::windows::compositionOutputSatisfiesPolicy(
+                renderer_.outputState(),
+                effectivePolicy));
 }
 
 bool DisplaySession::lastPresentedDrawableContent() const noexcept
@@ -489,6 +512,7 @@ DisplaySessionRetargetResult DisplaySession::retargetFxOnly(
             colorRefreshRetriesRemaining_ = maximumColorRefreshRetries;
         }
         clearRenderFault();
+        clearOutputContractFault();
         return DisplaySessionRetargetResult{
             output.adapter,
             output.output};
@@ -801,6 +825,22 @@ DisplaySession::serviceSecondaryBackgroundCapture(
 
     DisplaySessionBackgroundCaptureState& state =
         *secondaryBackgroundCapture_;
+    if (outputContractFaulted_)
+    {
+        const bafx::windows::CompositionOutputPolicy effectivePolicy =
+            resolveDisplayOutputPolicy(
+                requestedOutputPreference_,
+                colorCapabilities_);
+        if (renderer_.outputPolicy() == effectivePolicy
+            && bafx::windows::compositionOutputSatisfiesPolicy(
+                renderer_.outputState(),
+                effectivePolicy))
+        {
+            // A newer explicit policy can accept the retained transport. Only
+            // that concrete output fact may re-expose a fail-closed surface.
+            clearOutputContractFault();
+        }
+    }
     constexpr std::size_t maximumServiceTransitions = 4U;
     for (std::size_t attempt = 0U;
          attempt < maximumServiceTransitions;
@@ -1034,6 +1074,7 @@ DisplaySession::serviceSecondaryBackgroundCapture(
             if (outputPolicySatisfied)
             {
                 state.pendingOutputRenegotiation.reset();
+                clearOutputContractFault();
             }
             else if (pending.attemptsRemaining > 1U)
             {
@@ -1065,7 +1106,7 @@ DisplaySession::serviceSecondaryBackgroundCapture(
                     result.deviceRecovered = result.deviceRecovered
                         || recoveredDuringAttempt;
                     result.renderInvalidated = true;
-                    markRenderFaulted();
+                    markOutputContractFaulted();
                     result.active = false;
                     return result;
                 }
@@ -1641,6 +1682,12 @@ void DisplaySession::markRenderFaulted() noexcept
     renderFaulted_ = true;
 }
 
+void DisplaySession::markOutputContractFaulted() noexcept
+{
+    window_.hide();
+    outputContractFaulted_ = true;
+}
+
 void DisplaySession::clearRenderFault()
 {
     if (!renderFaulted_)
@@ -1648,10 +1695,29 @@ void DisplaySession::clearRenderFault()
         return;
     }
 
-    // Re-expose the surface only after its caller has rebuilt or validated the
-    // resource domain. show() also reasserts the topmost non-activating state.
-    window_.show();
+    if (!outputContractFaulted_)
+    {
+        // Re-expose only after every independent fault latch is clear. show()
+        // also reasserts the topmost non-activating state.
+        window_.show();
+    }
     renderFaulted_ = false;
+}
+
+void DisplaySession::clearOutputContractFault()
+{
+    if (!outputContractFaulted_)
+    {
+        return;
+    }
+
+    if (!renderFaulted_)
+    {
+        // Output recovery is independent of Bloom or Present recovery. Do not
+        // expose the surface while either contract remains untrustworthy.
+        window_.show();
+    }
+    outputContractFaulted_ = false;
 }
 
 void DisplaySession::show()

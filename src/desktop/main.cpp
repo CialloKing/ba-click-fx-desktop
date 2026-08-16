@@ -1688,7 +1688,9 @@ void applySecondaryBackgroundCaptureRequest(
     for (const auto& ownedSession : sessions.sessions())
     {
         bafx::desktop::DisplaySession& session = *ownedSession;
-        if (&session == &coordinator || session.renderFaulted())
+        if (&session == &coordinator
+            || (session.renderFaulted()
+                && !session.outputContractFaulted()))
         {
             continue;
         }
@@ -1929,7 +1931,8 @@ void appendSecondaryBackgroundCaptureServiceResult(
         {
             continue;
         }
-        if (session.renderFaulted())
+        if (session.renderFaulted()
+            && !session.outputContractRecoveryActionable())
         {
             session.shutdownSecondaryBackgroundCapture();
             continue;
@@ -1988,7 +1991,8 @@ void appendSecondaryBackgroundCaptureServiceResult(
     {
         bafx::desktop::DisplaySession& session = *ownedSession;
         if (&session == &coordinator
-            || session.renderFaulted()
+            || (session.renderFaulted()
+                && !session.outputContractRecoveryActionable())
             || !session.secondaryBackgroundCaptureInitialized()
             || std::find(
                 readySessions.begin(),
@@ -2474,6 +2478,8 @@ int runApplication(
             summary.backgroundCaptureRestartAllowed =
                 ownedSession->renderer().backgroundCaptureRestartAllowed();
             summary.renderFaulted = ownedSession->renderFaulted();
+            summary.outputContractFaulted =
+                ownedSession->outputContractFaulted();
             sessionSummaries.push_back(std::move(summary));
         }
         std::sort(

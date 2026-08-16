@@ -74,6 +74,7 @@ struct DisplaySessionRuntimeSummary final
     bool backgroundCaptureActive{false};
     bool backgroundCaptureRestartAllowed{false};
     bool renderFaulted{false};
+    bool outputContractFaulted{false};
 };
 
 struct DisplayRuntimeSummary final

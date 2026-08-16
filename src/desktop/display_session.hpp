@@ -144,6 +144,8 @@ public:
     [[nodiscard]] const bafx::windows::DisplayColorMonitorResult&
         colorMonitorResult() const noexcept;
     [[nodiscard]] bool renderFaulted() const noexcept;
+    [[nodiscard]] bool outputContractFaulted() const noexcept;
+    [[nodiscard]] bool outputContractRecoveryActionable() const noexcept;
     [[nodiscard]] bool lastPresentedDrawableContent() const noexcept;
     [[nodiscard]] bool resourceDomainReadyForTarget(
         const DisplayTarget& target) const noexcept;
@@ -214,7 +216,9 @@ public:
         bafx::core::MonotonicTime minimumPeriod) noexcept;
     void resetFramePacing() noexcept;
     void markRenderFaulted() noexcept;
+    void markOutputContractFaulted() noexcept;
     void clearRenderFault();
+    void clearOutputContractFault();
     void show();
 
 private:
@@ -240,6 +244,7 @@ private:
     std::optional<bafx::core::MonotonicTime> nextFramePacingDeadline_{};
     bool lastPresentedDrawableContent_{false};
     bool renderFaulted_{false};
+    bool outputContractFaulted_{false};
     std::uint32_t colorRefreshRetriesRemaining_{0U};
     std::unique_ptr<DisplaySessionBackgroundCaptureState>
         secondaryBackgroundCapture_{};

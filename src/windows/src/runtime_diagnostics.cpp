@@ -858,7 +858,9 @@ void appendDisplaySessionRuntimeSummary(
                 : sanitize(session.backgroundCaptureFailure))
            << '\n'
            << prefix << "RenderFaulted="
-           << booleanName(session.renderFaulted) << '\n';
+           << booleanName(session.renderFaulted) << '\n'
+           << prefix << "OutputContractFaulted="
+           << booleanName(session.outputContractFaulted) << '\n';
 }
 
 }
