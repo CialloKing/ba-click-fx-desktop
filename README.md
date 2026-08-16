@@ -17,9 +17,16 @@ Control Center、本地 IPC 与独立测试包；当前人工特效审核和支�
 为准。涉及 DirectComposition、Windows Graphics Capture、HDR/Advanced Color 和多适配器的结论，
 必须取得仓库中定义的 Spike 证据或接受明确的 fallback 后，相关 ADR 才能标记为 Accepted。
 
-Host 现在会把主显示器 DPI、DXGI 色彩空间、位深和驱动提供的亮度元数据写入支持报告。这些字段只用于
-后续 HDR/显示 Spike 的能力证据；`Support.HDR=not-supported` 在完整输出矩阵通过前保持不变，亮度为零时
-也会显式标记为未知，而不会把零值解释成显示器真实亮度。
+Host 现在会把主协调屏摘要和稳定排序的逐显示器运行状态写入支持报告，并通过 `GetDisplayState` IPC
+提供边界、DPI、显示/捕获刷新率、GPU、请求/解析/实际输出、HDR、WGC 与故障状态。Control Center
+只展示 Host 报告的实际状态；未知能力保持未知，不会根据用户请求或代码路径伪装成已支持。
+这些字段只用于后续 HDR/显示 Spike 的能力证据；`Support.HDR=not-supported` 在完整输出矩阵通过前保持
+不变，亮度为零时也会显式标记为未知，而不会把零值解释成显示器真实亮度。
+
+WGC 的 FP16 scRGB 背景像素使用独立的背景 reference white 转入 Unity 相对工作空间；粒子、材质、
+Trail 和 Bloom 继续按游戏合同在线性 FP16 中计算。最终呈现阶段才使用目标屏的输出 reference white
+区分 SDR/HDR 映射。两类白点互不替代；HDR/WCG 下背景白点未知时保留捕获会话预热，但背景不得参与
+合成，当前帧安全回退 FX-only。
 
 ## 冻结的技术方向
 
@@ -157,7 +164,8 @@ Visual Studio、Windows SDK、Inno Setup 或 PowerShell 依赖包；安装器已
 
 首次生成的 schema 13 配置将 `background.mode` 设为 `background-aware`、
 `background.allowSystemBorder` 设为 `true`、`display.hdrEnabled` 设为 `false`，并以
-`input.trailOnlyWhilePressed=true`、`input.samplingRateHz=0` 保持按住拖尾且不额外限频。
+`performance.framePacing=match-display`、`input.trailOnlyWhilePressed=true`、`input.samplingRateHz=0`
+保持跟随显示器帧率、按住拖尾且不额外限制输入 Move。
 测试版只接受字段完整的显式 `schemaVersion=13`：缺少版本、section 或字段，非当前版本、
 未知字段和枚举别名都会被拒绝。Host 记录错误后仅在内存中使用当前默认值，不补齐、不迁移也不改写
 原文件。只有
@@ -172,8 +180,9 @@ FX-only，不会先启动带黄色边框的会话。无论该开关如何设置�
 优先级，任何自排除冲突都必须回退 FX-only。
 
 `BAFX.ControlCenter.exe` 已作为独立的 Win32 进程接入该 Pipe。Host 保持运行时，Control Center
-可以读取状态、暂停或恢复特效。基础页提供启用状态、点击特效、鼠标拖尾、拖尾常驻、效果大小、拖尾长度、
-拖尾宽度、输入采样率上限、Bloom 强度与 Bloom 质量；高级页再按“时间与透明度”“粒子与材质”
+可以读取状态、暂停或恢复特效。三个顶层页面分别为“基础”“高级”和“显示与性能”。基础页提供启用状态、
+点击特效、鼠标拖尾、拖尾常驻、效果大小、拖尾长度、拖尾宽度、输入采样率上限、Bloom 强度与 Bloom 质量，
+并管理背景模式、指针排除和系统捕获边框；高级页再按“时间与透明度”“粒子与材质”
 “圆环参数”“点击碎片”“Bloom 参数”分成五个二级页面。粒子与材质页直接使用与 Web 相同的
 `disk.radius`、`disk.lifetimeMs`、`rings.hdrIntensity`、`shards.hdrIntensity` 和
 `trail.trailOpacity` 路径；圆环页提供 `rings.count`、`rings.lifetimeMs`、
@@ -181,7 +190,10 @@ FX-only，不会先启动带黄色边框的会话。无论该开关如何设置�
 `rings.rotationDirection`；点击碎片页提供 `shards.clickCount`、点击寿命上下限、出生半径、速度上下限和
 `shards.sizeMin`/`shards.sizeMax`；最后两个尺寸参数按 Web 合同同时作用于点击与拖尾碎片。其余两页提供
 透明度、点击/拖尾时间倍率、拖尾寿命，以及 Bloom
-扩散、阈值、软阈值和亮度上限。背景区域包含指针排除、系统捕获边框和默认关闭的 HDR 输出开关。
+扩散、阈值、软阈值和亮度上限。“显示与性能”页通过 `GetDisplayState` 选择并查看每个显示会话的
+实际边界、DPI、刷新率、GPU、色彩/输出策略、WGC 和故障状态，并提供默认关闭的全局 HDR 请求以及
+`match-display`、`60`、`120`、`144` 四种 `performance.framePacing` 策略。选择器刷新后尽量保留
+同一显示器；状态缺失或解析失败时显示错误，而不会把请求状态显示为实际能力。
 调整结果在下一帧交给 Host。“拖尾常驻”默认关闭；开启后
 无需按住鼠标，普通移动也会生成纯拖尾，但不会伪造点击圆盘或圆环。这是参考 Web 行为提供的原生产品增强，
 不属于游戏原脚本的按压 FX 路径。数值控件会合并连续拖动后的写入，避免为每个滑块像素都写一次配置。
@@ -223,6 +235,7 @@ DirectComposition 的 FP16 预乘透明 surface 承担最接近的传输角色�
 
 ```text
 GetState
+GetDisplayState
 GetConfig
 GetFxConfig
 SetConfig {"generation":1,"path":"effects.globalScale","value":1.25}
@@ -232,6 +245,8 @@ SetConfig {"generation":1,"path":"background.mode","value":"background-aware"}
 SetConfig {"generation":1,"path":"background.mode","value":"recording-compatible"}
 SetConfig {"generation":1,"path":"background.mode","value":"light-background"}
 SetConfig {"generation":1,"path":"background.allowSystemBorder","value":false}
+SetConfig {"generation":1,"path":"display.hdrEnabled","value":true}
+SetConfig {"generation":1,"path":"performance.framePacing","value":"120"}
 SetFxParam {"generation":1,"path":"disk.radius","value":40}
 SetFxParam {"generation":1,"path":"disk.lifetimeMs","value":250}
 SetFxParams {"generation":1,"patch":{"rings.count":3,"rings.lifetimeMs":700,"rings.radiusMin":60,"rings.radiusMax":90,"rings.angularVelocityMultiplier":12,"rings.rotationDirection":-1}}
@@ -242,7 +257,8 @@ Resume
 Shutdown
 ```
 
-`SetConfig` 也接受完整的 schema 13 JSON 快照。`GetFxConfig`、`SetFxParam`、原子批量的
+`GetDisplayState` 返回独立于配置代次的逐屏运行状态快照；它不修改配置，也不代表其中的实验能力已经
+完成硬件验收。`SetConfig` 也接受完整的 schema 13 JSON 快照。`GetFxConfig`、`SetFxParam`、原子批量的
 `SetFxParams` 和 `ResetFxConfig` 对应 Web 的实例 API 命名；当前只返回和接受已经接入 Native
 模拟或材质求值的参数。FX 快照不包含 `trailAlways`、`inputSamplingRate`、HDR、背景或系统字段；这些
 产品设置只通过 `GetConfig`/`SetConfig` 管理。`ResetFxConfig` 只恢复 `effects`，保留背景、HDR、输入和系统设置；Control Center

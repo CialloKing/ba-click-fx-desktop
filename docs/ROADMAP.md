@@ -48,6 +48,11 @@ DisplayConfig 拓扑瞬时不完整、查询失败或找不到目标时，DXGI-o
 颜色拓扑状态/错误码、reference white 是否保留及已经消费的通知 generation；这些仍是生产逻辑与诊断
 合同，不能替代真实 HDR 和混合显示器验收。
 
+颜色管线现在明确分离两类白点：WGC 的物理 scRGB 背景先用背景 reference white 转入 Unity 相对工作空间，
+Unity authored color、粒子、材质、Trail 与 Bloom 继续在线性 FP16 中求值；最终输出时才使用目标屏输出
+reference white 进行 SDR/HDR 映射。HDR/WCG 要求背景白点而该值未知时，Host 保留 WGC producer 预热，
+但失效旧背景快照并强制 FX-only，不能用最终输出白点或固定 `1.0` 代替背景输入合同。
+
 主协调屏现在遵守相同合同：目标身份和资源域未变化时，权限等待期间的新 DPI、物理/虚拟刷新率及更完整
 的 DisplayConfig 设备路径会同时合并到 pending target 与执行中的 target intent，不取消最长 `120 s` 的
 无边框权限请求，也不替换该事务已经锁存的 HDR 输出策略和颜色快照。`StartSensor` 因而直接使用最新
@@ -57,6 +62,12 @@ DisplayConfig 拓扑瞬时不完整、查询失败或找不到目标时，DXGI-o
 支持报告现在保留主协调屏快速摘要，并输出稳定排序的 `Display.Session[n]` 逐屏快照。每个快照覆盖显示
 身份、DPI/刷新率、请求与实际 Adapter、颜色能力、请求/解析/实际输出策略、WGC 状态和 renderer fault，
 使副屏或跨适配器故障能够归属到具体会话。该诊断闭环不改变真实硬件矩阵的 `Not Run` 状态。
+
+同一逐屏快照现已通过只读 `GetDisplayState` IPC 暴露给 Control Center。“显示与性能”顶层页可以保留
+显示器选择并展示实际边界、DPI、显示/捕获刷新率、GPU、输出、HDR、WGC 与故障状态；全局配置入口提供
+默认关闭的 HDR 请求，以及 `match-display`、`60`、`120`、`144` 四档帧率策略。解析失败或 Host 报告
+未知能力时 UI 显示不可用/未知，不以配置请求推导支持状态。这是代码逻辑与诊断入口，真实 HDR、多显示器、
+混合 DPI/刷新率及跨适配器硬件矩阵仍为 `Not Run`。
 
 暂停保留帧的背景时效合同也已统一：主协调屏与副屏在 `background-aware` 下都要求当前 WGC 样本，
 不能把此前的桌面快照长期固化在 DirectComposition 表面。最终输出重协商统一使用三次有限预算；耗尽后

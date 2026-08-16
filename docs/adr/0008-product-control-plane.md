@@ -21,10 +21,12 @@
    NUL/换行注入和超限请求都返回可诊断错误而不终止 Host。
 4. Host 通过用户范围的命名互斥体保证单实例；管道服务在独立线程运行，Render Owner 只
    在帧边界消费已校验的命令。Control Center 退出不会影响 Host。
-5. 基础配置协议保留 `GetState`、`GetConfig`、`SetConfig <schema-13-json>`、
+5. 基础配置协议保留 `GetState`、`GetDisplayState`、`GetConfig`、`SetConfig <schema-13-json>`、
    `SetConfig {generation,path,value}`、`Pause`、`Resume` 和 `Shutdown`。路径更新只允许
    配置库声明的产品字段，并在 generation 不匹配时返回冲突。响应中的 `generation` 用于
-   客户端判断快照是否变化；Preset/Profile 等更高层功能在此协议稳定后再增加。
+   客户端判断快照是否变化；`GetDisplayState` 使用独立运行状态代次，返回有界的逐屏只读快照，包含
+   边界、DPI、显示/捕获刷新率、GPU、请求/解析/实际输出、HDR、WGC 和故障状态。未知能力保持 `null`
+   或 `unknown`，不能从配置请求推导。Preset/Profile 等更高层功能在此协议稳定后再增加。
 6. `background.mode` 的产品 wire values 与 Control Center 显示名固定如下：
    `background-aware`（背景感知）、`recording-compatible`（录屏兼容拟合）和
    `light-background`（浅色背景优化）。只有背景感知启用 WGC；WGC 失败时回退内部 FX-only
@@ -66,6 +68,11 @@
     中存在某个路径就宣称 Native 已实现该参数。FX 快照和写入白名单不包含输入、HDR、背景、性能或系统
     字段；这些产品配置必须通过 `GetConfig`/`SetConfig` 读写，因此 `ResetFxConfig` 的作用域始终只对应
     `effects`。
+11. Control Center 增加“显示与性能”顶层页。显示器选择器消费 `GetDisplayState`，刷新时优先保留同一
+    显示会话，并展示 Host 实际报告的边界、DPI、刷新率、GPU、色彩/输出策略、WGC 和故障；严格解析失败、
+    空会话或未知字段状态必须显式显示为不可用，不得伪装成支持。该页同时通过 `SetConfig` 管理默认关闭的
+    `display.hdrEnabled`，以及 `performance.framePacing` 的 `match-display`、`60`、`120`、`144` 四个
+    wire values。它们是全局请求，不覆盖逐屏实际状态，也不构成 HDR、多显示器或混合 DPI/刷新率支持声明。
 
 ## 取舍
 
@@ -73,6 +80,8 @@
   的瓶颈。
 - 控制面只暴露经过配置校验且已接入 Native 求值的产品或 Web 参数；内部 shader、mesh 和 render graph
   常量仍由 Renderer 维护，避免 UI 形成不受控的 GPU 依赖。
+- 配置快照表达用户请求，`GetDisplayState` 表达 Host 的逐屏实际运行结果。两者使用独立代次和失败状态，
+  避免控制面把“已请求 HDR”误显示成“当前输出 HDR”。
 - 当配置文件损坏或管道不可用时，Host 继续使用内存默认值并写入诊断日志；不会为了保存
   配置阻塞或关闭特效。
 
@@ -91,3 +100,6 @@
 - 一个 Host 进程能同时服务至少一个客户端；第二个 Host 启动会快速退出。
 - `GetState`/`SetConfig`/`SetFxParam`/`SetFxParams` 在下一帧可观察，批量参数必须全部通过校验后才提交；
   `Shutdown` 能使 Host 正常退出且无残留进程。
+- `GetDisplayState` 返回独立代次和稳定顺序的逐屏快照；Control Center 能保留选择并区分请求、解析、实际
+  输出及未知能力。真实 HDR、多显示器、混合 DPI/刷新率和跨适配器矩阵在硬件执行前保持 `Not Run`，
+  本 ADR 继续为 `Proposed`。

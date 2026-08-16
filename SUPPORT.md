@@ -13,8 +13,9 @@
   `rings.count`、`rings.lifetimeMs`、`rings.radiusMin`、`rings.radiusMax`、
   `rings.angularVelocityMultiplier`、`rings.rotationDirection`、`rings.hdrIntensity`、
   `shards.hdrIntensity`、`shards.clickCount`、点击寿命上下限、出生半径、速度上下限、
-  `shards.sizeMin`/`shards.sizeMax`、`trail.trailOpacity`、Bloom 扩散/阈值/软阈值/亮度上限等参数。背景区域还提供
-  指针排除、系统捕获边框和默认关闭的 HDR 输出开关。
+  `shards.sizeMin`/`shards.sizeMax`、`trail.trailOpacity`、Bloom 扩散/阈值/软阈值/亮度上限等参数。基础页还提供
+  背景模式、指针排除和系统捕获边框。“显示与性能”页选择并显示 Host 的逐屏实际状态，提供默认关闭的
+  全局 HDR 请求，以及跟随显示器、固定 `60/120/144 FPS` 四种帧率策略。
   所有改动会通过本地 Named Pipe 在下一帧应用到正在运行的 Host；
   “重置默认”经确认后恢复全部持久化设置，但保留当前暂停或运行状态。
 - 每次输入消费/呈现更新只为按压 FX 使用一份帧边界当前位置，并以同一 `renderTime` 按
@@ -32,6 +33,12 @@
   DisplayConfig 身份、请求/实际 GPU、HDR/Advanced Color、最终输出策略、WGC 状态和渲染故障；
   这些只是当前运行快照，不能据此宣称 HDR、多显示器、Advanced Color 或物理 nits 输出已经受支持。
   驱动未提供有效亮度时会记录 `luminance-unknown`。
+- `GetDisplayState` 通过本地 IPC 返回逐屏边界、DPI、刷新率、GPU、请求/解析/实际输出、HDR、WGC 与故障状态；
+  Control Center 只解析并显示这份有界快照。未知布尔能力使用 `null`，缺失、超限或格式错误会显示为状态不可用，
+  不会把全局 HDR 请求或当前配置冒充为实际支持状态。
+- WGC FP16 scRGB 背景使用独立的背景 reference white 转入 Unity 相对工作空间；Unity authored color、粒子、
+  材质、Trail 和 Bloom 仍在线性 FP16 中计算，最终呈现阶段才使用输出 reference white 选择 SDR/HDR 映射。
+  HDR/WCG 下背景白点未知时 WGC 可保持预热，但该背景不得进入合成，当前画面回退 FX-only。
 - 主副屏的最终输出重协商都最多尝试三次，后续尝试按一秒显示维护节拍执行。预算耗尽时，只有实际
   transport 已满足保守 SDR 才接受安全回退；仍为 scRGB、未知或其他不满足 SDR 合同的输出会 fail-closed。
   副屏立即隐藏并锁存 `Display.Session[n].OutputContractFaulted=true`，普通 Bloom 或输入配置成功不会解除；
@@ -39,7 +46,7 @@
   防止旧 HDR 表面继续驻留。`Display.Output.RenegotiationExhausted` 会记录请求/实际映射和最终处置。
 - 首次生成的完整 schema 13 配置默认为 `background.mode=background-aware`、
   `background.allowSystemBorder=true`、`input.trailOnlyWhilePressed=true`、
-  `input.samplingRateHz=0` 和 `display.hdrEnabled=false`。测试版只接受字段完整的 schema 13；非当前 schema、
+  `input.samplingRateHz=0`、`display.hdrEnabled=false` 和 `performance.framePacing=match-display`。测试版只接受字段完整的 schema 13；非当前 schema、
   缺失或未知字段以及枚举别名均被拒绝。Host 保留无效原文件并以内存中的当前默认值继续运行，不迁移、
   补齐或改写无效配置。背景感知授权、排除或会话失败时回退内部 FX-only transport；其余模式不启用 WGC。
 - portable 运行时把 `BAFX.config.json`、`ba-click-fx-desktop-support.log` 和支持报告写入 EXE 所在目录；
@@ -166,7 +173,8 @@ Windows“已安装的应用”执行，默认保留安装目录
 
 - HDR、Advanced Color 和物理 nits 输出声明。
 - WGC 背景感知的外部录屏兼容性、会话长时间压力与 packaged 权限允许/拒绝矩阵。Control Center 中三种模式和
-  “允许黄色捕获边框”仍是实验入口；本 Alpha 不将 WGC、录屏兼容性或 HDR 作为可依赖的效果路径。
+  “允许黄色捕获边框”仍是实验入口；“显示与性能”页的 HDR 开关、逐屏状态和帧率策略同样只是生产代码入口与
+  诊断视图。本 Alpha 不将 WGC、录屏兼容性、HDR、多显示器或混合 DPI/刷新率作为可依赖的效果路径。
   `background-aware` 启动失败或会话中止后回退内部 FX-only transport，并撤销窗口捕获排除，避免
   回退画面被录屏器隐藏；`recording-compatible` 和 `light-background` 始终关闭 WGC。
 - 当前 Windows 10 19045 portable 实测中，允许可见系统边框时 WGC 会话和背景参与正常；关闭黄色边框后，
@@ -200,7 +208,7 @@ Windows“已安装的应用”执行，默认保留安装目录
 - `ba-click-fx-desktop.exe --frame-pacing-stall-probe --quit-after-ms=250`：内部回归入口，以永久不信号句柄
   验证运行截止检查不会被帧等待 timeout 绕过。
 - `BAFX.ControlCenter.exe`：在 Host 已运行时打开 Win32 设置窗口，通过本地 IPC 读取并调整三种
-  渲染模式及 FX 参数；它不是独立渲染器。
+  渲染模式、FX 参数、HDR 请求和帧率策略，并用 `GetDisplayState` 查看逐屏实际状态；它不是独立渲染器。
 
 smoke 只证明当前 Windows 会话中的基本渲染链路可用。运行日志中的
 `Support.WGC=active` 表示本次背景感知会话成功创建了 WGC 路径；随后出现背景合成日志才表示样本已
