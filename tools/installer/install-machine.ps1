@@ -390,6 +390,15 @@ function Assert-PayloadManifest
     {
         throw 'The installer payload manifest has an unexpected version.'
     }
+    $hostEntries = @(
+        @($manifest.files) |
+            Where-Object { [string]$_.path -eq 'ba-click-fx-desktop.exe' }
+    )
+    if ($hostEntries.Count -ne 1 -or
+        [string]$hostEntries[0].sha256 -notmatch '^[0-9A-Fa-f]{64}$')
+    {
+        throw 'The installer payload manifest must identify exactly one Host.'
+    }
     $rootPrefix = $InstallRoot.TrimEnd('\') + '\'
     foreach ($entry in @($manifest.files))
     {
@@ -408,6 +417,7 @@ function Assert-PayloadManifest
             -ExpectedBytes ([Int64]$entry.bytes) `
             -ExpectedSha256 ([string]$entry.sha256)
     }
+    return ([string]$hostEntries[0].sha256).ToUpperInvariant()
 }
 
 function Get-ZipEntrySha256
@@ -469,7 +479,7 @@ function Assert-IdentityIntegrityMaterial
         [Parameter(Mandatory = $true)]
         [string]$PackagePath,
 
-        [switch]$CurrentHostVerifiedByPayload
+        [string]$ExpectedReplacementHostSha256 = ''
     )
 
     foreach ($propertyName in @(
@@ -503,11 +513,19 @@ function Assert-IdentityIntegrityMaterial
         throw 'Protected identity state does not match the signed package.'
     }
 
-    if ($CurrentHostVerifiedByPayload)
+    $hostPath = Join-Path $InstallRoot ([string]$State.hostFile)
+    if (-not [string]::IsNullOrWhiteSpace($ExpectedReplacementHostSha256))
     {
         # Inno replaces the live Host before Prepare. Authenticate the previous
-        # Host through its retained signed package while the payload manifest
-        # independently authenticates the new live file.
+        # Host through its retained signed package, and bind the new live file
+        # to the exact hash returned by the validated payload manifest.
+        if ($ExpectedReplacementHostSha256 -notmatch '^[0-9A-Fa-f]{64}$' -or
+            -not (Test-Path -LiteralPath $hostPath -PathType Leaf) -or
+            (Get-FileHash -LiteralPath $hostPath -Algorithm SHA256).Hash -ne
+                $ExpectedReplacementHostSha256)
+        {
+            throw 'The replacement Host does not match the validated installer payload.'
+        }
         $archive = [IO.Compression.ZipFile]::OpenRead($PackagePath)
         try
         {
@@ -526,7 +544,6 @@ function Assert-IdentityIntegrityMaterial
     }
     else
     {
-        $hostPath = Join-Path $InstallRoot ([string]$State.hostFile)
         if (-not (Test-Path -LiteralPath $hostPath -PathType Leaf) -or
             (Get-FileHash -LiteralPath $hostPath -Algorithm SHA256).Hash -ne
                 [string]$State.hostSha256)
@@ -1071,7 +1088,7 @@ function Assert-InstallStateObject
         [Parameter(Mandatory = $true)]
         [string]$ExpectedUserSid,
 
-        [switch]$CurrentHostVerifiedByPayload
+        [string]$ExpectedReplacementHostSha256 = ''
     )
 
     foreach ($propertyName in @(
@@ -1187,11 +1204,20 @@ function Assert-InstallStateObject
     }
     if ($schema -eq 2)
     {
+        $replacementHostSha256 = ''
+        if (-not [string]::IsNullOrWhiteSpace($ExpectedReplacementHostSha256) -and
+            ([string]$State.productVersion -ne $ProductVersion -and
+                [string]$State.packageVersion -ne $PackageVersion))
+        {
+            # Only a real version transition can make the committed Host hash
+            # differ from the Inno payload that is already on disk.
+            $replacementHostSha256 = $ExpectedReplacementHostSha256
+        }
         Assert-IdentityIntegrityMaterial `
             -State $State `
             -InstallRoot $InstallRoot `
             -PackagePath (Join-Path (Join-Path $InstallRoot 'Identity') $packageFile) `
-            -CurrentHostVerifiedByPayload:$CurrentHostVerifiedByPayload
+            -ExpectedReplacementHostSha256 $replacementHostSha256
     }
     return $State
 }
@@ -1205,7 +1231,7 @@ function Read-OldInstallState
         [Parameter(Mandatory = $true)]
         [string]$UserSid,
 
-        [switch]$CurrentHostVerifiedByPayload
+        [string]$ExpectedReplacementHostSha256 = ''
     )
 
     $path = Join-Path $InstallRoot 'Installer\INSTALL-STATE.json'
@@ -1229,7 +1255,7 @@ function Read-OldInstallState
                 -State $state `
                 -InstallRoot $InstallRoot `
                 -ExpectedUserSid $UserSid `
-                -CurrentHostVerifiedByPayload:$CurrentHostVerifiedByPayload
+                -ExpectedReplacementHostSha256 $ExpectedReplacementHostSha256
             if ($candidate -ne $path)
             {
                 Copy-Item -LiteralPath $candidate -Destination $path -Force
@@ -1732,7 +1758,7 @@ if ($Phase -eq 'Prepare')
     try
     {
         $script:InstallerStep = 'validate-installer-payload'
-        Assert-PayloadManifest -InstallRoot $installRoot
+        $replacementHostSha256 = Assert-PayloadManifest -InstallRoot $installRoot
         if (Test-Path -LiteralPath $machineStateFullPath -PathType Leaf)
         {
             $script:InstallerStep = 'recover-stale-transaction'
@@ -1746,8 +1772,7 @@ if ($Phase -eq 'Prepare')
             {
                 $committedState = Read-OldInstallState `
                     -InstallRoot $installRoot `
-                    -UserSid ([string]$stalePending.userSid) `
-                    -CurrentHostVerifiedByPayload
+                    -UserSid ([string]$stalePending.userSid)
             }
             catch
             {
@@ -1779,7 +1804,7 @@ if ($Phase -eq 'Prepare')
         $oldInstallState = Read-OldInstallState `
             -InstallRoot $installRoot `
             -UserSid ([string]$context.userSid) `
-            -CurrentHostVerifiedByPayload
+            -ExpectedReplacementHostSha256 $replacementHostSha256
         $script:InstallerStep = 'grant-data-directory-access'
         Grant-DataDirectoryAccess -Path $dataDirectory -UserSid ([string]$context.userSid)
         $metadataPath = Join-Path (Join-Path $installRoot 'Identity') `
