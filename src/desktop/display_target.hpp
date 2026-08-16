@@ -123,6 +123,41 @@ struct DisplayTargetSnapshot
     return true;
 }
 
+[[nodiscard]] inline bool displayPhysicalTargetIdentityResolutionImproved(
+    const DisplayTarget& previous,
+    const DisplayTarget& current) noexcept
+{
+    if (previous.physicalTargetIdentities.size()
+        != current.physicalTargetIdentities.size())
+    {
+        return false;
+    }
+
+    bool improved = false;
+    for (std::size_t index = 0U;
+         index < previous.physicalTargetIdentities.size();
+         ++index)
+    {
+        const DisplayPhysicalTargetIdentity& oldIdentity =
+            previous.physicalTargetIdentities[index];
+        const DisplayPhysicalTargetIdentity& newIdentity =
+            current.physicalTargetIdentities[index];
+        if (!oldIdentity.devicePath.empty()
+            && newIdentity.devicePath.empty())
+        {
+            // Keep an authoritative path while DisplayConfig is transiently
+            // incomplete; losing evidence is not a metadata improvement.
+            return false;
+        }
+        if (oldIdentity.devicePath.empty()
+            && !newIdentity.devicePath.empty())
+        {
+            improved = true;
+        }
+    }
+    return improved;
+}
+
 [[nodiscard]] inline bool sameDisplayTarget(
     const DisplayTarget& left,
     const DisplayTarget& right) noexcept
@@ -215,6 +250,14 @@ struct DisplayTargetSnapshot
             right.captureRefreshRate)
         && left.primary == right.primary
         && left.physicalTargetCount == right.physicalTargetCount;
+}
+
+[[nodiscard]] inline bool displayTargetMetadataChanged(
+    const DisplayTarget& previous,
+    const DisplayTarget& current) noexcept
+{
+    return !sameDisplayRuntimeMetadata(previous, current)
+        || displayPhysicalTargetIdentityResolutionImproved(previous, current);
 }
 
 [[nodiscard]] inline bool displayTargetResourceAdapterMatches(

@@ -3895,15 +3895,86 @@ int runApplication(
             const bool observedResourceDomainMismatch =
                 !displaySession.resourceDomainReadyForTarget(
                     stabilizedObservedTarget);
-            if (!bafx::desktop::sameDisplayTarget(
+            const bool observedTargetIdentityChanged =
+                !bafx::desktop::sameDisplayTarget(
                     stabilizedObservedTarget,
                     expectedTarget)
                 || !bafx::desktop::sameDisplaySourceIdentity(
                     stabilizedObservedTarget,
                     expectedTarget)
-                || observedResourceDomainMismatch)
+                || observedResourceDomainMismatch;
+            const bool pendingMetadataAdvanced =
+                pendingDisplayTarget.has_value()
+                && !observedTargetIdentityChanged
+                && bafx::desktop::displayTargetMetadataChanged(
+                    expectedTarget,
+                    stabilizedObservedTarget);
+            const bool activeTransactionOwnsExpectedTarget =
+                backgroundExecution.transactionActive
+                && bafx::desktop::sameDisplayTarget(
+                    backgroundExecution.targetIntent.target,
+                    expectedTarget)
+                && bafx::desktop::sameDisplaySourceIdentity(
+                    backgroundExecution.targetIntent.target,
+                    expectedTarget);
+            if (observedTargetIdentityChanged)
             {
                 pendingDisplayTarget = stabilizedObservedTarget;
+            }
+            else if (pendingMetadataAdvanced)
+            {
+                // RequestBorderlessAccess can remain pending while DRR or DPI
+                // changes on the destination. Advance the target snapshot in
+                // place so StartSensor consumes the latest cadence without
+                // canceling the permission request or replacing its HDR policy.
+                pendingDisplayTarget = stabilizedObservedTarget;
+                if (activeTransactionOwnsExpectedTarget)
+                {
+                    backgroundExecution.targetIntent.target =
+                        stabilizedObservedTarget;
+                }
+
+                const std::string dpi =
+                    std::to_string(stabilizedObservedTarget.dpiX)
+                    + "x"
+                    + std::to_string(stabilizedObservedTarget.dpiY);
+                const auto formatRefreshRate = [](const auto& refreshRate)
+                {
+                    return refreshRate.has_value()
+                        ? std::to_string(refreshRate->numerator)
+                            + "/"
+                            + std::to_string(refreshRate->denominator)
+                        : std::string("unknown");
+                };
+                const std::string displayRefreshRate = formatRefreshRate(
+                    stabilizedObservedTarget.refreshRate);
+                const std::string captureRefreshRate = formatRefreshRate(
+                    stabilizedObservedTarget.captureRefreshRate);
+                const std::string monitor =
+                    bafx::desktop::formatDisplayTargetMonitor(
+                        stabilizedObservedTarget);
+                const std::string device =
+                    bafx::desktop::displayTargetDeviceUtf8(
+                        stabilizedObservedTarget);
+                const std::array fields{
+                    bafx::windows::DiagnosticField{"Monitor", monitor},
+                    bafx::windows::DiagnosticField{"Device", device},
+                    bafx::windows::DiagnosticField{"Dpi", dpi},
+                    bafx::windows::DiagnosticField{
+                        "DisplayRefreshRate",
+                        displayRefreshRate},
+                    bafx::windows::DiagnosticField{
+                        "CaptureRefreshRate",
+                        captureRefreshRate},
+                    bafx::windows::DiagnosticField{
+                        "ActiveTransactionUpdated",
+                        activeTransactionOwnsExpectedTarget
+                            ? "true"
+                            : "false"}};
+                bafx::windows::appendDiagnosticEvent(
+                    logPath,
+                    "Display.Coordinator.PendingMetadataAdvanced",
+                    fields);
             }
             else if (!pendingDisplayTarget.has_value())
             {

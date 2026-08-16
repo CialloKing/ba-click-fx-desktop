@@ -21,40 +21,6 @@ constexpr std::uint64_t sessionSeedStep = 0x9E3779B97F4A7C15ULL;
         && point.y < bounds.bottom;
 }
 
-[[nodiscard]] bool physicalTargetIdentityResolutionImproved(
-    const DisplayTarget& previous,
-    const DisplayTarget& current) noexcept
-{
-    if (previous.physicalTargetIdentities.size()
-        != current.physicalTargetIdentities.size())
-    {
-        return false;
-    }
-    bool improved = false;
-    for (std::size_t index = 0U;
-         index < previous.physicalTargetIdentities.size();
-         ++index)
-    {
-        const DisplayPhysicalTargetIdentity& oldIdentity =
-            previous.physicalTargetIdentities[index];
-        const DisplayPhysicalTargetIdentity& newIdentity =
-            current.physicalTargetIdentities[index];
-        if (!oldIdentity.devicePath.empty()
-            && newIdentity.devicePath.empty())
-        {
-            // Keep the last authoritative path while any cloned target is in
-            // a transiently incomplete DisplayConfig snapshot.
-            return false;
-        }
-        if (oldIdentity.devicePath.empty()
-            && !newIdentity.devicePath.empty())
-        {
-            improved = true;
-        }
-    }
-    return improved;
-}
-
 }
 
 DisplaySessionManager::DisplaySessionManager(
@@ -216,10 +182,7 @@ DisplaySessionReconcileResult DisplaySessionManager::reconcileSecondaries(
             // and source. Merge DPI/DRR metadata without canceling a
             // long-running permission request.
             const bool metadataChanged =
-                !sameDisplayRuntimeMetadata(reconciliationTarget, target)
-                || physicalTargetIdentityResolutionImproved(
-                    reconciliationTarget,
-                    target);
+                displayTargetMetadataChanged(reconciliationTarget, target);
             if (metadataChanged
                 && existing->updatePendingTargetMetadata(target))
             {
@@ -258,10 +221,7 @@ DisplaySessionReconcileResult DisplaySessionManager::reconcileSecondaries(
                 continue;
             }
             const bool metadataChanged =
-                !sameDisplayRuntimeMetadata(existing->target(), target)
-                || physicalTargetIdentityResolutionImproved(
-                    existing->target(),
-                    target);
+                displayTargetMetadataChanged(existing->target(), target);
             if (metadataChanged)
             {
                 static_cast<void>(existing->updateTargetMetadata(target));
@@ -364,10 +324,7 @@ bool DisplaySessionManager::topologyDiffers(
             snapshot.status);
         if (session->retargetPendingFor(stabilized))
         {
-            if (!sameDisplayRuntimeMetadata(expected, stabilized)
-                || physicalTargetIdentityResolutionImproved(
-                    expected,
-                    stabilized))
+            if (displayTargetMetadataChanged(expected, stabilized))
             {
                 return true;
             }
@@ -377,7 +334,7 @@ bool DisplaySessionManager::topologyDiffers(
             || !sameDisplaySourceIdentity(expected, stabilized)
             || !sameDisplayRuntimeMetadata(expected, stabilized)
             || !session->resourceDomainReadyForTarget(stabilized)
-            || physicalTargetIdentityResolutionImproved(
+            || displayPhysicalTargetIdentityResolutionImproved(
                 expected,
                 stabilized))
         {
