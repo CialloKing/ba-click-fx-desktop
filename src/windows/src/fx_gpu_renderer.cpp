@@ -88,7 +88,16 @@ struct ColorTarget
         && settings.intensityMultiplier <= maximumBloomIntensityMultiplier
         && std::isfinite(settings.diffusion)
         && settings.diffusion >= minimumBloomDiffusion
-        && settings.diffusion <= maximumBloomDiffusion;
+        && settings.diffusion <= maximumBloomDiffusion
+        && std::isfinite(settings.threshold)
+        && settings.threshold >= 0.0F
+        && settings.threshold <= 5.0F
+        && std::isfinite(settings.softKnee)
+        && settings.softKnee >= 0.0F
+        && settings.softKnee <= 1.0F
+        && std::isfinite(settings.clampValue)
+        && settings.clampValue >= 1.0F
+        && settings.clampValue <= 65504.0F;
 }
 
 [[nodiscard]] bool sameBloomSettings(
@@ -96,7 +105,10 @@ struct ColorTarget
     const FxBloomSettings right) noexcept
 {
     return left.intensityMultiplier == right.intensityMultiplier
-        && left.diffusion == right.diffusion;
+        && left.diffusion == right.diffusion
+        && left.threshold == right.threshold
+        && left.softKnee == right.softKnee
+        && left.clampValue == right.clampValue;
 }
 
 [[nodiscard]] bool isValidOverlayProfile(
@@ -405,7 +417,8 @@ makeRingVertices(const bafx::fx::Sprite& sprite) noexcept
 
 [[nodiscard]] std::vector<SpriteVertex> makeTrailVertices(
     const std::span<const bafx::fx::TrailPoint> trail,
-    const float trailWidthPixels)
+    const float trailWidthPixels,
+    const float opacity = 1.0F)
 {
     if (trail.size() < 2U || trailWidthPixels <= 0.0F)
     {
@@ -439,8 +452,8 @@ makeRingVertices(const bafx::fx::Sprite& sprite) noexcept
                 trailColor.r,
                 trailColor.g,
                 trailColor.b,
-                1.0F},
-            trailArtisticIntensity,
+                opacity},
+            trailArtisticIntensity * opacity,
             0.0F,
             true,
             evaluateTrailLongitudinalCoverage(vertex.progress)));
@@ -1001,18 +1014,23 @@ struct FxGpuRenderer::Implementation
         context->VSSetConstantBuffers(0, 1, &viewportConstant);
     }
 
-    [[nodiscard]] static BloomConstants makeBloomConstants(
+    [[nodiscard]] BloomConstants makeBloomConstants(
         const bafx::core::BloomExtent sourceExtent,
         const float sampleScale,
         const float exposureGain,
         const bool backgroundTransportEnabled = false,
-        const float referenceWhiteScale = 1.0F) noexcept
+        const float referenceWhiteScale = 1.0F) const noexcept
     {
         BloomConstants constants{};
         constants.sourceTexelSize[0] = 1.0F / static_cast<float>(sourceExtent.width);
         constants.sourceTexelSize[1] = 1.0F / static_cast<float>(sourceExtent.height);
         constants.sampleScale = sampleScale;
         constants.exposureGain = exposureGain;
+        constants.threshold = bloomSettings.threshold;
+        // The shader divides by Knee; Unity's zero-knee serialized value is
+        // represented by the historical epsilon rather than a NaN path.
+        constants.knee = (std::max)(bloomSettings.softKnee, 0.00001F);
+        constants.clampValue = bloomSettings.clampValue;
         constants.backgroundTransportEnabled = backgroundTransportEnabled
             ? 1.0F
             : 0.0F;
@@ -1386,11 +1404,13 @@ struct FxGpuRenderer::Implementation
         }
         const auto drawTrail = [this](
                                    const std::span<const bafx::fx::TrailPoint> points,
-                                   const float widthPixels)
+                                   const float widthPixels,
+                                   const float opacity)
         {
             const std::vector<SpriteVertex> trailVertices = makeTrailVertices(
                 points,
-                widthPixels);
+                widthPixels,
+                opacity);
             drawVertices(
                 trailVertices,
                 trailTexture.Get(),
@@ -1400,13 +1420,16 @@ struct FxGpuRenderer::Implementation
         };
         if (snapshot.trailStrokes.empty())
         {
-            drawTrail(snapshot.trail, snapshot.trailWidthPixels);
+            drawTrail(
+                snapshot.trail,
+                snapshot.trailWidthPixels,
+                snapshot.trailOpacity);
         }
         else
         {
             for (const bafx::fx::TrailStroke& stroke : snapshot.trailStrokes)
             {
-                drawTrail(stroke.points, stroke.widthPixels);
+                drawTrail(stroke.points, stroke.widthPixels, stroke.opacity);
             }
         }
         while (index < snapshot.sprites.size())

@@ -42,6 +42,8 @@ public:
     void advance(SimulationTime time);
     void onFrameRendered(SimulationTime time);
     void updateUnityTrailTimeScale(float timeScale);
+    void setClickTimeScale(float timeScale) noexcept;
+    void setTrailTimeScale(float timeScale) noexcept;
     void setTrailLengthMultiplier(float multiplier) noexcept;
     void setInputSamplingRateHz(std::uint32_t rateHz) noexcept;
     void setAlwaysOnTrailEnabled(bool enabled, SimulationTime time);
@@ -74,6 +76,8 @@ private:
     bool pointerActive_{false};
     bool alwaysOnTrailEnabled_{false};
     float trailLengthMultiplier_{1.0F};
+    float clickTimeScale_{1.0F};
+    float trailTimeScale_{1.0F};
     std::uint32_t inputSamplingRateHz_{0U};
     std::optional<SimulationTime> lastInputSampleAt_{};
     std::vector<RuntimeInstance> instances_{};

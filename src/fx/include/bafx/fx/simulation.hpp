@@ -62,6 +62,7 @@ struct TrailStroke
 {
     std::vector<TrailPoint> points{};
     float widthPixels{0.0F};
+    float opacity{1.0F};
 };
 
 struct FrameSnapshot
@@ -69,6 +70,7 @@ struct FrameSnapshot
     std::vector<Sprite> sprites{};
     std::vector<TrailPoint> trail{};
     float trailWidthPixels{0.0F};
+    float trailOpacity{1.0F};
     std::vector<TrailStroke> trailStrokes{};
     bool active{false};
     bool pointerHeld{false};
@@ -120,6 +122,11 @@ public:
     // Mirrors FxTrailTimeScale.Update. This is an explicit game-time-scale
     // input and is intentionally separate from the desktop pause timeline.
     void updateUnityTrailTimeScale(float timeScale);
+
+    // Web API compatible animation controls. They scale particle/trail age,
+    // not the host clock, so input timestamps and pause semantics stay intact.
+    void setClickTimeScale(float timeScale) noexcept;
+    void setTrailTimeScale(float timeScale) noexcept;
 
     // Product settings may change during an active stroke. Retain the
     // existing points and apply the new lifetime on the next simulation step.
@@ -229,6 +236,8 @@ private:
     PointF lastEmissionWorld_{};
     float dragDistanceRemainderWorld_{0.0F};
     float trailLengthMultiplier_{1.0F};
+    float clickTimeScale_{1.0F};
+    float trailTimeScale_{1.0F};
     bool trailParkingMode_{false};
     bool trailRendererEnabled_{true};
     ClickParticleStepStates particleStepStates_{};

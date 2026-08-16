@@ -35,7 +35,9 @@ DisplaySessionManager::DisplaySessionManager(
       simulationSeed_(options.simulationSeed),
       trailLengthMultiplier_(options.trailLengthMultiplier),
       inputSamplingRateHz_(options.inputSamplingRateHz),
-      alwaysOnTrailEnabled_(options.alwaysOnTrailEnabled)
+      alwaysOnTrailEnabled_(options.alwaysOnTrailEnabled),
+      clickTimeScale_(options.clickTimeScale),
+      trailTimeScale_(options.trailTimeScale)
 {
     if (borderlessAccessAuthority_ == nullptr)
     {
@@ -406,13 +408,17 @@ void DisplaySessionManager::updateCreationSettings(
     const bafx::windows::CompositionOutputPreference outputPreference,
     const float trailLengthMultiplier,
     const std::uint32_t inputSamplingRateHz,
-    const bool alwaysOnTrailEnabled) noexcept
+    const bool alwaysOnTrailEnabled,
+    const float clickTimeScale,
+    const float trailTimeScale) noexcept
 {
     bloomSettings_ = bloomSettings;
     outputPreference_ = outputPreference;
     trailLengthMultiplier_ = trailLengthMultiplier;
     inputSamplingRateHz_ = inputSamplingRateHz;
     alwaysOnTrailEnabled_ = alwaysOnTrailEnabled;
+    clickTimeScale_ = clickTimeScale;
+    trailTimeScale_ = trailTimeScale;
 }
 
 DisplaySession* DisplaySessionManager::findBySource(
@@ -614,6 +620,8 @@ std::unique_ptr<DisplaySession> DisplaySessionManager::createSession(
             outputPreference_,
             nextSimulationSeed()});
     session->simulation().setTrailLengthMultiplier(trailLengthMultiplier_);
+    session->simulation().setClickTimeScale(clickTimeScale_);
+    session->simulation().setTrailTimeScale(trailTimeScale_);
     session->simulation().setInputSamplingRateHz(inputSamplingRateHz_);
     session->simulation().setAlwaysOnTrailEnabled(
         alwaysOnTrailEnabled_,

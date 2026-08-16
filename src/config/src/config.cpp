@@ -1012,6 +1012,9 @@ private:
         error = "config field 'effects.bloomQuality' has an unknown value";
         return config;
     }
+    // trailLifetimeMs is the Web-facing source of truth. The legacy compact
+    // multiplier is serialized as a derived convenience value only.
+    config.effects.trailLength = config.effects.trailLifetimeMs / 300.0F;
 
     if (!readBool(
             *background,
@@ -2021,10 +2024,10 @@ bool validateConfig(const Config& config, std::string* error) noexcept
         return failValidation("effects.bloomIntensity must be within [0, 8]");
     }
     if (!std::isfinite(config.effects.bloomDiffusion)
-        || config.effects.bloomDiffusion < 0.0F
+        || config.effects.bloomDiffusion < 1.0F
         || config.effects.bloomDiffusion > 10.0F)
     {
-        return failValidation("effects.bloomDiffusion must be within [0, 10]");
+        return failValidation("effects.bloomDiffusion must be within [1, 10]");
     }
     if (!std::isfinite(config.effects.bloomThreshold)
         || config.effects.bloomThreshold < 0.0F

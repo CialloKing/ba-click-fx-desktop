@@ -347,7 +347,10 @@ void appendDeviceRemovedNotificationStatus(
 {
     return bafx::windows::FxBloomSettings{
         effects.bloomIntensity,
-        bafx::config::bloomDiffusionForQuality(effects.bloomQuality)};
+        effects.bloomDiffusion,
+        effects.bloomThreshold,
+        effects.bloomSoftKnee,
+        effects.bloomClamp};
 }
 
 [[nodiscard]] bafx::windows::CompositionOutputPreference makeOutputPreference(
@@ -860,6 +863,20 @@ void applyVisualConfig(
         snapshot.trail.clear();
         snapshot.trailStrokes.clear();
         snapshot.trailWidthPixels = 0.0F;
+    }
+
+    const float opacity = std::clamp(config.effects.opacity, 0.0F, 1.0F);
+    for (bafx::fx::Sprite& sprite : snapshot.sprites)
+    {
+        // Scale both coverage and artistic emission. Scaling alpha alone
+        // would leave Cross/Additive materials visibly bright at opacity 0.
+        sprite.color.a *= opacity;
+        sprite.artisticIntensity *= opacity;
+    }
+    snapshot.trailOpacity *= opacity;
+    for (bafx::fx::TrailStroke& stroke : snapshot.trailStrokes)
+    {
+        stroke.opacity *= opacity;
     }
 
     bafx::fx::applyGlobalScale(snapshot, config.effects.globalScale);
@@ -2366,7 +2383,9 @@ int runApplication(
             config.input.samplingRateHz,
             config.effects.enabled
                 && config.effects.trailEnabled
-                && !config.input.trailOnlyWhilePressed});
+                && !config.input.trailOnlyWhilePressed,
+            config.effects.clickTimeScale,
+            config.effects.trailTimeScale});
     bafx::desktop::DisplaySession& displaySession =
         displaySessions.createCoordinator(appliedDisplayTarget);
     bafx::windows::OverlayWindow& window = displaySession.window();
@@ -4661,11 +4680,15 @@ int runApplication(
                     currentOutputPreference,
                     config.effects.trailLength,
                     config.input.samplingRateHz,
-                    alwaysOnTrailEnabled);
+                    alwaysOnTrailEnabled,
+                    config.effects.clickTimeScale,
+                    config.effects.trailTimeScale);
                 // Host owns the render thread, so applying the immutable control
                 // snapshot here makes input, length and Bloom changes take effect
                 // on the next frame without cross-thread renderer mutation.
                 simulation.setTrailLengthMultiplier(config.effects.trailLength);
+                simulation.setClickTimeScale(config.effects.clickTimeScale);
+                simulation.setTrailTimeScale(config.effects.trailTimeScale);
                 simulation.setInputSamplingRateHz(config.input.samplingRateHz);
                 simulation.setAlwaysOnTrailEnabled(
                     alwaysOnTrailEnabled,
@@ -4738,6 +4761,10 @@ int runApplication(
                     }
                     session.simulation().setTrailLengthMultiplier(
                         config.effects.trailLength);
+                    session.simulation().setClickTimeScale(
+                        config.effects.clickTimeScale);
+                    session.simulation().setTrailTimeScale(
+                        config.effects.trailTimeScale);
                     session.simulation().setInputSamplingRateHz(
                         config.input.samplingRateHz);
                     session.simulation().setAlwaysOnTrailEnabled(

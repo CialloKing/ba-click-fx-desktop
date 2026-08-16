@@ -29,6 +29,8 @@ struct DisplaySessionManagerOptions final
     float trailLengthMultiplier{1.0F};
     std::uint32_t inputSamplingRateHz{0U};
     bool alwaysOnTrailEnabled{false};
+    float clickTimeScale{1.0F};
+    float trailTimeScale{1.0F};
 };
 
 struct DisplaySessionFailure final
@@ -78,7 +80,9 @@ public:
         bafx::windows::CompositionOutputPreference outputPreference,
         float trailLengthMultiplier,
         std::uint32_t inputSamplingRateHz,
-        bool alwaysOnTrailEnabled) noexcept;
+        bool alwaysOnTrailEnabled,
+        float clickTimeScale,
+        float trailTimeScale) noexcept;
 
     [[nodiscard]] DisplaySession* findBySource(
         const DisplayTarget& target) noexcept;
@@ -114,6 +118,8 @@ private:
     float trailLengthMultiplier_{1.0F};
     std::uint32_t inputSamplingRateHz_{0U};
     bool alwaysOnTrailEnabled_{false};
+    float clickTimeScale_{1.0F};
+    float trailTimeScale_{1.0F};
     DisplaySession* coordinator_{nullptr};
     std::vector<std::unique_ptr<DisplaySession>> sessions_{};
 };

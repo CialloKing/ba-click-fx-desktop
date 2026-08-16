@@ -222,7 +222,7 @@ void appendConfigurationFields(
         config.effects.bloomQuality));
     fields.addDecimal(
         "Effects.BloomDiffusion",
-        bafx::config::bloomDiffusionForQuality(config.effects.bloomQuality));
+        config.effects.bloomDiffusion);
     fields.add("Background.Mode", bafx::config::toString(config.background.mode));
     fields.add("Background.CursorExcluded", config.background.cursorExcluded);
     fields.add("Background.AllowSystemBorder", config.background.allowSystemBorder);

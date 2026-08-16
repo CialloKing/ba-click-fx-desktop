@@ -25,6 +25,8 @@ constexpr double trailLifetimeSeconds = 0.3;
 constexpr float trailParkingTimeScaleThreshold = 0.19F;
 constexpr float minimumTrailLengthMultiplier = 0.0F;
 constexpr float maximumTrailLengthMultiplier = 3.0F;
+constexpr float minimumTimeScale = 0.01F;
+constexpr float maximumTimeScale = 4.0F;
 constexpr float trailWidthWorld = 0.005F;
 constexpr float ringLifetimeSeconds = 0.6F;
 constexpr float ringAngularVelocityMultiplier = 11.170107F;
@@ -63,6 +65,16 @@ struct ColorKey
         multiplier,
         minimumTrailLengthMultiplier,
         maximumTrailLengthMultiplier);
+}
+
+[[nodiscard]] float normalizeTimeScale(const float timeScale) noexcept
+{
+    if (!std::isfinite(timeScale))
+    {
+        return 1.0F;
+    }
+
+    return std::clamp(timeScale, minimumTimeScale, maximumTimeScale);
 }
 
 template<std::size_t keyCount>
@@ -457,7 +469,10 @@ void Simulation::setTrailLengthMultiplier(const float multiplier) noexcept
 
 void Simulation::updateUnityTrailTimeScale(const float timeScale)
 {
-    if (timeScale > trailParkingTimeScaleThreshold)
+    const float normalized = std::isfinite(timeScale)
+        ? std::clamp(timeScale, 0.0F, maximumTimeScale)
+        : 1.0F;
+    if (normalized > trailParkingTimeScaleThreshold)
     {
         if (trailParkingMode_)
         {
@@ -478,6 +493,16 @@ void Simulation::updateUnityTrailTimeScale(const float timeScale)
     {
         stepTrailParkingSequence();
     }
+}
+
+void Simulation::setClickTimeScale(const float timeScale) noexcept
+{
+    clickTimeScale_ = normalizeTimeScale(timeScale);
+}
+
+void Simulation::setTrailTimeScale(const float timeScale) noexcept
+{
+    trailTimeScale_ = normalizeTimeScale(timeScale);
 }
 
 void Simulation::pointerDown(
@@ -572,7 +597,9 @@ void Simulation::advance(const SimulationTime time)
     {
         advanceClickParticleStepStates(
             particleStepStates_,
-            time - lastAdvancedAt_);
+            SimulationTime{static_cast<SimulationTime::rep>(
+                static_cast<double>((time - lastAdvancedAt_).count())
+                    * static_cast<double>(clickTimeScale_))});
     }
 
     lastAdvancedAt_ = time;
@@ -583,10 +610,12 @@ void Simulation::advance(const SimulationTime time)
         const auto trailEnd = std::remove_if(
             trail_.begin(),
             trail_.end(),
-            [time, effectiveTrailLifetime](const StoredTrailPoint& point)
+            [this, time, effectiveTrailLifetime](const StoredTrailPoint& point)
             {
                 return effectiveTrailLifetime <= 0.0
-                    || ageSeconds(time, point.createdAt) >= effectiveTrailLifetime;
+                    || ageSeconds(time, point.createdAt)
+                        * static_cast<double>(trailTimeScale_)
+                        >= effectiveTrailLifetime;
             });
         trail_.erase(trailEnd, trail_.end());
     }
@@ -598,12 +627,15 @@ void Simulation::advance(const SimulationTime time)
     const auto particleEnd = std::remove_if(
         triangles_.begin(),
         triangles_.end(),
-        [time, clickTriangleAge, clickTrianglesEmitted](
+        [this, time, clickTriangleAge, clickTrianglesEmitted](
             const MovingParticle& particle)
         {
             if (particle.dragParticle)
             {
                 return ageSeconds(time, particle.bornAt)
+                    * static_cast<double>(particle.dragParticle
+                        ? trailTimeScale_
+                        : clickTimeScale_)
                     > particle.lifetimeSeconds;
             }
 
@@ -697,7 +729,10 @@ FrameSnapshot Simulation::snapshot(const Viewport viewport, const SimulationTime
 
     for (const MovingParticle& particle : triangles_)
     {
-        const double elapsed = ageSeconds(time, particle.bornAt);
+        const double elapsed = ageSeconds(time, particle.bornAt)
+            * static_cast<double>(particle.dragParticle
+                ? trailTimeScale_
+                : clickTimeScale_);
         if (elapsed <= 0.0)
         {
             continue;
@@ -748,7 +783,10 @@ FrameSnapshot Simulation::snapshot(const Viewport viewport, const SimulationTime
     for (const StoredTrailPoint& point : trail_)
     {
         const float normalizedAge = clampUnit(
-            static_cast<float>(ageSeconds(time, point.createdAt) / effectiveTrailLifetime));
+            static_cast<float>(
+                ageSeconds(time, point.createdAt)
+                    * static_cast<double>(trailTimeScale_)
+                    / effectiveTrailLifetime));
         frame.trail.push_back(TrailPoint{worldToScreen(point.world, viewport), normalizedAge});
     }
 
@@ -824,7 +862,10 @@ Simulation::ClickParticleStepStates Simulation::particleStepStatesAt(
     {
         // Snapshot is intentionally read-only. Capture tools query arbitrary
         // future ages, so complete the pending interval on a disposable copy.
-        advanceClickParticleStepStates(states, time - lastAdvancedAt_);
+        const SimulationTime elapsed{static_cast<SimulationTime::rep>(
+            static_cast<double>((time - lastAdvancedAt_).count())
+                * static_cast<double>(clickTimeScale_))};
+        advanceClickParticleStepStates(states, elapsed);
     }
     return states;
 }
@@ -1009,7 +1050,9 @@ void Simulation::appendTrailPoint(const PointF worldPosition, const SimulationTi
 
     const double effectiveTrailLifetime = trailLifetimeSeconds
         * static_cast<double>(trailLengthMultiplier_);
-    if (ageSeconds(time, trail_.back().createdAt) >= effectiveTrailLifetime)
+    if (ageSeconds(time, trail_.back().createdAt)
+            * static_cast<double>(trailTimeScale_)
+        >= effectiveTrailLifetime)
     {
         // An expired anchor must not connect movement across an idle interval.
         trail_.clear();

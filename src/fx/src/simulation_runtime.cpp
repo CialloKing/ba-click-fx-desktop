@@ -151,6 +151,8 @@ void SimulationRuntime::pointerMove(
         // pre-toggle or off-screen coordinate would draw a false long segment.
         alwaysOnTrail_.emplace(nextAmbientSeed());
         alwaysOnTrail_->setTrailLengthMultiplier(trailLengthMultiplier_);
+        alwaysOnTrail_->setClickTimeScale(clickTimeScale_);
+        alwaysOnTrail_->setTrailTimeScale(trailTimeScale_);
         alwaysOnTrail_->startTrail(screenPosition, viewport, simulationTime);
         return;
     }
@@ -236,6 +238,36 @@ void SimulationRuntime::updateUnityTrailTimeScale(const float timeScale)
     if (alwaysOnTrail_.has_value())
     {
         alwaysOnTrail_->updateUnityTrailTimeScale(timeScale);
+    }
+}
+
+void SimulationRuntime::setClickTimeScale(const float timeScale) noexcept
+{
+    clickTimeScale_ = std::isfinite(timeScale)
+        ? std::clamp(timeScale, 0.01F, 4.0F)
+        : 1.0F;
+    for (RuntimeInstance& runtimeInstance : instances_)
+    {
+        runtimeInstance.simulation.setClickTimeScale(clickTimeScale_);
+    }
+    if (alwaysOnTrail_.has_value())
+    {
+        alwaysOnTrail_->setClickTimeScale(clickTimeScale_);
+    }
+}
+
+void SimulationRuntime::setTrailTimeScale(const float timeScale) noexcept
+{
+    trailTimeScale_ = std::isfinite(timeScale)
+        ? std::clamp(timeScale, 0.01F, 4.0F)
+        : 1.0F;
+    for (RuntimeInstance& runtimeInstance : instances_)
+    {
+        runtimeInstance.simulation.setTrailTimeScale(trailTimeScale_);
+    }
+    if (alwaysOnTrail_.has_value())
+    {
+        alwaysOnTrail_->setTrailTimeScale(trailTimeScale_);
     }
 }
 
@@ -401,6 +433,8 @@ Simulation& SimulationRuntime::acquirePressedInstance(
 
     Simulation& instance = instances_.back().simulation;
     instance.setTrailLengthMultiplier(trailLengthMultiplier_);
+    instance.setClickTimeScale(clickTimeScale_);
+    instance.setTrailTimeScale(trailTimeScale_);
     return instance;
 }
 
