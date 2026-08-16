@@ -31,7 +31,11 @@
       "name": "alpha-release",
       "displayName": "Build Alpha Release",
       "configurePreset": "alpha-x64",
-      "configuration": "Release"
+      "configuration": "Release",
+      "jobs": 2,
+      "nativeToolOptions": [
+        "/nodeReuse:false"
+      ]
     },
     {
       "name": "alpha-host-release",
