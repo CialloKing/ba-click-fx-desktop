@@ -320,6 +320,22 @@ function Test-InstallerScriptWhitelist
         -Text $installMachine `
         -Pattern 'throw\s+\$(prepare|finalize)Error\b' `
         -Description 'lossy machine failure string rethrow'
+    Assert-TextContains `
+        -Text $installMachine `
+        -Pattern 'hostEntries[\s\S]*Count\s+-ne\s+1[\s\S]*return\s+\(\[string\]\$hostEntries\[0\]\.sha256\)' `
+        -Description 'validated payload identifies exactly one replacement Host hash'
+    Assert-TextContains `
+        -Text $installMachine `
+        -Pattern '\$replacementHostSha256\s*=\s*Assert-PayloadManifest[\s\S]*read-existing-install-state[\s\S]*\-ExpectedReplacementHostSha256\s+\$replacementHostSha256' `
+        -Description 'Prepare binds old-state validation to the replacement Host hash'
+    Assert-TextContains `
+        -Text $installMachine `
+        -Pattern 'State\.productVersion\s+-ne\s+\$ProductVersion\s+-and[\s\S]*State\.packageVersion\s+-ne\s+\$PackageVersion' `
+        -Description 'replacement Host allowance is limited to a full version transition'
+    Assert-TextContains `
+        -Text $installMachine `
+        -Pattern 'Assert-ReplacementHostIntegrity[\s\S]*\-CurrentHostSha256\s+\$currentHostSha256[\s\S]*\-ArchivedHostSha256\s+\$archivedHostHash' `
+        -Description 'live and archived Host hashes use the replacement integrity contract'
 
     $captureUserContext = Read-RepositoryText `
         -RelativePath 'tools/installer/capture-user-context.ps1'
@@ -864,6 +880,43 @@ function Assert-ProtectedStateAcl
     }
 }
 
+function Test-UpgradeHostIntegrityContract
+{
+    $ast = Get-ParsedScript `
+        -RelativePath 'tools/installer/install-machine.ps1'
+    $assertionText = Get-FunctionText `
+        -Ast $ast `
+        -Name 'Assert-ReplacementHostIntegrity'
+    . ([scriptblock]::Create($assertionText))
+
+    $committedHash = (('A' * 64) -join '')
+    $replacementHash = (('B' * 64) -join '')
+    Assert-ReplacementHostIntegrity `
+        -CurrentHostSha256 $replacementHash `
+        -ExpectedReplacementHostSha256 $replacementHash `
+        -ArchivedHostSha256 $committedHash `
+        -CommittedHostSha256 $committedHash
+
+    Assert-Throws `
+        -Action {
+            Assert-ReplacementHostIntegrity `
+                -CurrentHostSha256 (('C' * 64) -join '') `
+                -ExpectedReplacementHostSha256 $replacementHash `
+                -ArchivedHostSha256 $committedHash `
+                -CommittedHostSha256 $committedHash
+        } `
+        -Description 'replacement Host outside the validated payload'
+    Assert-Throws `
+        -Action {
+            Assert-ReplacementHostIntegrity `
+                -CurrentHostSha256 $replacementHash `
+                -ExpectedReplacementHostSha256 $replacementHash `
+                -ArchivedHostSha256 (('D' * 64) -join '') `
+                -CommittedHostSha256 $committedHash
+        } `
+        -Description 'old state whose archived Host does not match'
+}
+
 function Test-PortableZipContract
 {
     $portableVerifier = Read-RepositoryText -RelativePath 'tools/verify-alpha-package.ps1'
@@ -1101,6 +1154,7 @@ Test-InstallerScriptWhitelist
 Test-InnoPayloadContract
 Test-SparsePackageContract
 Test-UninstallerBackupFallback
+Test-UpgradeHostIntegrityContract
 Test-PortableZipContract
 Test-RegistrationFailureDiagnostics
 Test-InstallerFailureDiagnostics
