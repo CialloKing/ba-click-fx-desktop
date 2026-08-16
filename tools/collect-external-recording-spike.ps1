@@ -807,7 +807,8 @@ function New-RecordingConfiguration
             ringsHdrIntensity = 5.992157
             shardsHdrIntensity = 5.992157
             trailOpacity = 1
-            bloomIntensity = 1.7
+            # Keep historical recording evidence comparable across schemas.
+            bloomIntensity = 1
             bloomDiffusion = 7
             bloomThreshold = 1
             bloomSoftKnee = 0
