@@ -379,6 +379,9 @@ std::uint64_t DisplayColorMonitor::consumeNotification() noexcept
     const std::uint64_t generation =
         implementation_->notification->generation();
     implementation_->observedGeneration = generation;
+    // Support reports expose the last owner-consumed generation, not merely
+    // the generation captured when the WinRT subscription was created.
+    result_.generation = generation;
     return generation;
 }
 

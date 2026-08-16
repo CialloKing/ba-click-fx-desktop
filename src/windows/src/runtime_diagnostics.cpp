@@ -568,6 +568,23 @@ void appendDiagnosticRecordUnlocked(
     return "unknown";
 }
 
+[[nodiscard]] std::string_view displayTopologyStatusName(
+    const DisplayTopologyStatus status) noexcept
+{
+    switch (status)
+    {
+    case DisplayTopologyStatus::Complete:
+        return "complete";
+    case DisplayTopologyStatus::Incomplete:
+        return "incomplete";
+    case DisplayTopologyStatus::NoActiveDisplays:
+        return "no-active-displays";
+    case DisplayTopologyStatus::QueryFailed:
+        return "query-failed";
+    }
+    return "unknown";
+}
+
 [[nodiscard]] std::string hex32(const std::uint32_t value)
 {
     std::ostringstream stream;
@@ -919,6 +936,14 @@ std::string SupportReport::serialize() const
                         ? (color.wideColorUserEnabled ? "true" : "false")
                         : "unknown")
                 << '\n'
+                << "Display.ColorTopologyStatus="
+                << displayTopologyStatusName(
+                       color.displayConfigTopologyStatus)
+                << '\n'
+                << "Display.ColorTopologyError="
+                << hex32(static_cast<std::uint32_t>(
+                       color.displayConfigTopologyError))
+                << '\n'
                 << "Display.ColorPathResolved="
                 << (color.displayPathResolved ? "true" : "false") << '\n'
                 << "Display.ColorPathPhysicalTargetCount=";
@@ -1009,6 +1034,8 @@ std::string SupportReport::serialize() const
                 << "Display.HdrUserEnabled=unknown\n"
                 << "Display.WideColorSupported=unknown\n"
                 << "Display.WideColorUserEnabled=unknown\n"
+                << "Display.ColorTopologyStatus=unknown\n"
+                << "Display.ColorTopologyError=unknown\n"
                 << "Display.ColorPathResolved=unknown\n"
                 << "Display.ColorPathPhysicalTargetCount=unknown\n"
                 << "Display.ColorPathAdapterConsistent=unknown\n"
@@ -1017,6 +1044,7 @@ std::string SupportReport::serialize() const
                 << "Display.ColorEncoding=unknown\n"
                 << "Display.SdrWhiteLevelQueryResult=unknown\n"
                 << "Display.SdrWhiteLevelConsistent=unknown\n"
+                << "Display.SdrWhiteLevelRetained=unknown\n"
                 << "Display.SdrWhiteLevelNits=unknown\n"
                 << "Display.MinLuminanceNits=unknown\n"
                << "Display.MaxLuminanceNits=unknown\n"
