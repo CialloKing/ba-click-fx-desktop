@@ -622,6 +622,21 @@ void DisplaySession::requestSecondaryOutputRenegotiation(
         return;
     }
 
+    const bool sameTargetContract = pending.has_value()
+        && pending->target.has_value() == target.has_value()
+        && (!target.has_value()
+            || (sameDisplayTarget(*pending->target, *target)
+                && sameDisplaySourceIdentity(*pending->target, *target)));
+    if (pending.has_value()
+        && pending->preference == preference
+        && sameTargetContract)
+    {
+        // Duplicate color notifications describe the same desired state.
+        // Preserve the existing deadline and finite failure budget instead of
+        // turning repeated OS events into an unbounded retry source.
+        return;
+    }
+
     // Collapse repeated target notifications to the newest contract. The
     // service owner performs the mutation after any earlier WGC transaction.
     secondaryBackgroundCapture_->pendingOutputRenegotiation =
