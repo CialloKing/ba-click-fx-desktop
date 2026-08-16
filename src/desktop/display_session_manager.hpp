@@ -51,9 +51,9 @@ struct DisplaySessionReconcileResult final
     std::vector<DisplaySessionFailure> failures{};
 };
 
-// Reconciles independent per-display resource domains. One coordinator
-// session remains under the Host's WGC transaction; every other session is
-// FX-only until it gains its own capture state machine.
+// Reconciles independent per-display resource domains. The coordinator keeps
+// the Host-owned WGC transaction while every secondary owns an equivalent
+// session-local capture state machine.
 class DisplaySessionManager final
 {
 public:
