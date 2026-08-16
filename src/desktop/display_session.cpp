@@ -682,6 +682,15 @@ DisplaySession::serviceSecondaryBackgroundCapture(
             }
             result.deviceRecovered = result.deviceRecovered
                 || state.execution.deviceRecovered;
+            if (renderer_.backgroundCaptureActive())
+            {
+                // Permission can remain pending while DRR metadata advances.
+                // Start from the transaction snapshot, then converge once to
+                // the latest committed metadata without recreating the Sensor.
+                static_cast<void>(renderer_.refreshBackgroundCadence(
+                    target_.monitor,
+                    target_.captureRefreshRate));
+            }
             appendSecondaryBackgroundOutcome(state, renderer_);
             if (state.execution.deviceRecovered)
             {

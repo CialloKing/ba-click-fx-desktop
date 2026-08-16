@@ -2931,6 +2931,15 @@ int runApplication(
         {
             coordinatorCaptureSizeTracker.reset();
         }
+        if (backgroundCaptureEnabled && renderer.backgroundCaptureActive())
+        {
+            // The target snapshot makes StartSensor deterministic across an
+            // asynchronous permission wait. Reconcile any newer DRR metadata
+            // that the owner committed while that request was pending.
+            static_cast<void>(renderer.refreshBackgroundCadence(
+                displaySession.target().monitor,
+                displaySession.target().captureRefreshRate));
+        }
         report.setBackgroundCaptureStatus(
             bafx::desktop::backgroundCaptureStatus(
                 backgroundTransition.effectivePath()));
