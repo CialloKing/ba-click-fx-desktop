@@ -3807,13 +3807,18 @@ int runApplication(
             && displayTopologyChangeHasSource(
                 *hostTopologyChange,
                 bafx::windows::DisplayTopologyChangeSource::Power);
-        const bool hostDisplayPowerRestored = hostTopologyChange.has_value()
+        // Internal render probes validate an off-screen D3D readback and must
+        // not inherit the operator's monitor power state. Product runs still
+        // suspend WGC and presentation until the display is restored.
+        const bool honorDisplayPowerState = !options.smokeTest;
+        const bool hostDisplayPowerRestored = honorDisplayPowerState
+            && hostTopologyChange.has_value()
             && hostTopologyChange->powerRestored;
-        const bool hostDisplayPowerUnavailable = hostTopologyChange.has_value()
+        const bool hostDisplayPowerUnavailable = honorDisplayPowerState
+            && hostTopologyChange.has_value()
             && hostTopologyChange->powerUnavailable;
         const bool displayPowerWasUnavailable = displayPowerUnavailable;
-        if (hostTopologyChange.has_value()
-            && hostTopologyChange->powerUnavailable)
+        if (hostDisplayPowerUnavailable)
         {
             displayPowerUnavailable = true;
             coordinatorCaptureSizeTracker.reset();
