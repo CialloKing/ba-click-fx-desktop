@@ -144,6 +144,39 @@ bafx::windows::CompositionOutputPreference resolveDisplayOutputPreference(
     return CompositionOutputPreference::ConservativeSdr;
 }
 
+bafx::windows::CompositionOutputPolicy resolveDisplayOutputPolicy(
+    const bafx::windows::CompositionOutputPreference requested,
+    const std::optional<bafx::windows::DisplayColorCapabilities>& capabilities)
+    noexcept
+{
+    using bafx::windows::CompositionOutputMappingMode;
+    using bafx::windows::CompositionOutputPolicy;
+    using bafx::windows::CompositionOutputPreference;
+    using bafx::windows::DisplayColorMode;
+
+    CompositionOutputPolicy policy{};
+    policy.preference = resolveDisplayOutputPreference(requested, capabilities);
+    if (policy.preference == CompositionOutputPreference::ConservativeSdr
+        || !capabilities.has_value())
+    {
+        return policy;
+    }
+
+    const bafx::windows::DisplayColorCapabilities& color = *capabilities;
+    policy.mapping.mode = color.activeColorMode == DisplayColorMode::Hdr
+        ? CompositionOutputMappingMode::HdrSceneReferredScRgb
+        : CompositionOutputMappingMode::AdvancedColorScRgb;
+    // The fixed-point white level belongs to the monitor output contract. It
+    // must never rescale the game's ArtisticRelative material values.
+    if (color.sdrWhiteLevelValid
+        && (!color.displayPathResolved || color.sdrWhiteLevelConsistent))
+    {
+        policy.mapping.referenceWhiteNits = color.sdrWhiteLevelNits;
+        policy.mapping.referenceWhiteValid = true;
+    }
+    return policy;
+}
+
 bool displayOutputContractChanged(
     const bafx::windows::CompositionOutputPreference previousPreference,
     const bafx::windows::CompositionOutputPreference currentPreference,

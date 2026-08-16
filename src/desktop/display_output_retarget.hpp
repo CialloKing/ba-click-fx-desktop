@@ -21,6 +21,15 @@ resolveDisplayOutputPreference(
     const std::optional<bafx::windows::DisplayColorCapabilities>& capabilities)
     noexcept;
 
+// Resolve one complete final-output policy from the user's global opt-in and
+// the current monitor. Unity-authored FP16 values remain ArtisticRelative;
+// reference-white metadata is carried only for the final output boundary.
+[[nodiscard]] bafx::windows::CompositionOutputPolicy
+resolveDisplayOutputPolicy(
+    bafx::windows::CompositionOutputPreference requested,
+    const std::optional<bafx::windows::DisplayColorCapabilities>& capabilities)
+    noexcept;
+
 // A stable scRGB application preference can still cross into a different DWM
 // output contract when the monitor's Advanced Color state changes.
 [[nodiscard]] bool displayOutputContractChanged(

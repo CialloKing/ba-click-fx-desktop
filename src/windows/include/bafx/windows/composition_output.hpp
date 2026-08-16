@@ -1,5 +1,7 @@
 #pragma once
 
+#include "bafx/core/intensity.hpp"
+
 #include <dxgi1_4.h>
 
 #include <cstdint>
@@ -25,6 +27,38 @@ enum class CompositionOutputFallback : std::uint8_t
 {
     None,
     ConservativeSdr
+};
+
+enum class CompositionOutputMappingMode : std::uint8_t
+{
+    ConservativeSdr,
+    AdvancedColorScRgb,
+    HdrSceneReferredScRgb
+};
+
+struct CompositionOutputMapping final
+{
+    CompositionOutputMappingMode mode{
+        CompositionOutputMappingMode::ConservativeSdr};
+    // Unity material values remain artistic throughout the FP16 pipeline.
+    // Reference white is output metadata, not an implicit authoring scale.
+    bafx::core::IntensitySemantics intensitySemantics{
+        bafx::core::IntensitySemantics::ArtisticRelative};
+    float referenceWhiteNits{0.0F};
+    bool referenceWhiteValid{false};
+
+    [[nodiscard]] bool operator==(
+        const CompositionOutputMapping&) const noexcept = default;
+};
+
+struct CompositionOutputPolicy final
+{
+    CompositionOutputPreference preference{
+        CompositionOutputPreference::ConservativeSdr};
+    CompositionOutputMapping mapping{};
+
+    [[nodiscard]] bool operator==(
+        const CompositionOutputPolicy&) const noexcept = default;
 };
 
 struct CompositionOutputState final
