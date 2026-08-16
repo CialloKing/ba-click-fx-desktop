@@ -407,6 +407,9 @@ struct PendingOutputRenegotiation final
     bafx::windows::CompositionOutputPreference preference{
         bafx::windows::CompositionOutputPreference::ConservativeSdr};
     std::string reason{};
+    std::uint32_t attemptsRemaining{
+        bafx::desktop::maximumOutputRenegotiationAttempts};
+    bool retryPending{false};
 };
 
 [[nodiscard]] std::string_view outputPreferenceName(
@@ -2639,6 +2642,26 @@ int runApplication(
             bafx::windows::DiagnosticLevel::Warning);
         return true;
     };
+    const auto retainFailedCoordinatorOutputRenegotiation =
+        [&](PendingOutputRenegotiation pending)
+        {
+            if (pending.attemptsRemaining <= 1U)
+            {
+                pendingCoordinatorOutputRenegotiation.reset();
+                return;
+            }
+
+            --pending.attemptsRemaining;
+            pending.retryPending = true;
+            pendingCoordinatorOutputRenegotiation = std::move(pending);
+            appendOutputRenegotiationRetryScheduled(
+                logPath,
+                displaySession,
+                pendingCoordinatorOutputRenegotiation->preference,
+                pendingCoordinatorOutputRenegotiation->reason,
+                pendingCoordinatorOutputRenegotiation->attemptsRemaining,
+                "display-maintenance");
+        };
     // Advanced Color notifications first refresh monitor facts. A changed
     // transport is queued until the WGC owner reaches an idle transaction
     // boundary; duplicate notifications never recreate an unchanged output.
@@ -2801,6 +2824,13 @@ int runApplication(
                 if (coordinator)
                 {
                     applied = renegotiateCoordinatorOutput(effective, reason);
+                    if (!applied)
+                    {
+                        retainFailedCoordinatorOutputRenegotiation(
+                            PendingOutputRenegotiation{
+                                effective,
+                                std::string(reason)});
+                    }
                 }
                 else if (session.secondaryBackgroundCaptureInitialized())
                 {
@@ -4003,6 +4033,8 @@ int runApplication(
         }
         if (!displayPowerUnavailable
             && pendingCoordinatorOutputRenegotiation.has_value()
+            && (!pendingCoordinatorOutputRenegotiation->retryPending
+                || displayMaintenanceDue)
             && !backgroundExecution.transactionActive
             && !backgroundTransition.transitioning()
             && !configChanged
@@ -4011,11 +4043,20 @@ int runApplication(
         {
             const PendingOutputRenegotiation pending =
                 *pendingCoordinatorOutputRenegotiation;
-            pendingCoordinatorOutputRenegotiation.reset();
-            renderInvalidated = renegotiateCoordinatorOutput(
+            const bool applied = renegotiateCoordinatorOutput(
                 pending.preference,
-                pending.reason)
-                || renderInvalidated;
+                pending.reason);
+            // Even a failed attempt may have retired WGC resources. Force one
+            // frame while the bounded retry keeps the requested transport.
+            renderInvalidated = true;
+            if (applied)
+            {
+                pendingCoordinatorOutputRenegotiation.reset();
+            }
+            else
+            {
+                retainFailedCoordinatorOutputRenegotiation(pending);
+            }
         }
         if (!displayPowerUnavailable
             && outputPreferenceReconcilePending
@@ -4029,8 +4070,8 @@ int runApplication(
             && displaySession.resourceDomainReadyForTarget(
                 appliedDisplayTarget))
         {
-            // Clear before applying so a failing driver path cannot turn the
-            // main loop into an unbounded reconstruction cycle.
+            // Consume the policy edge once. A failed coordinator mutation is
+            // retained separately with a finite maintenance-cadence budget.
             outputPreferenceReconcilePending = false;
             const bafx::windows::CompositionOutputPreference requested =
                 makeOutputPreference(config.display);
@@ -4221,6 +4262,7 @@ int runApplication(
                     // A powered-off display has no actionable scan-out
                     // contract. Keep the newest user intent and reconcile it
                     // once the restore edge has refreshed per-monitor facts.
+                    pendingCoordinatorOutputRenegotiation.reset();
                     outputPreferenceReconcilePending = true;
                     const std::array fields{
                         bafx::windows::DiagnosticField{
