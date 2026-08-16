@@ -95,6 +95,8 @@ struct DisplaySessionBackgroundCaptureServiceResult final
     std::string outputRenegotiationFailure{};
     bool outputRenegotiationRetryPending{false};
     std::uint32_t outputRenegotiationRetriesRemaining{0U};
+    bool outputRenegotiationExhausted{false};
+    bool outputRenegotiationFailedClosed{false};
 };
 
 struct DisplaySessionBackgroundCaptureState;

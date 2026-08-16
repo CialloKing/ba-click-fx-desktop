@@ -1051,6 +1051,24 @@ DisplaySession::serviceSecondaryBackgroundCapture(
             else
             {
                 state.pendingOutputRenegotiation.reset();
+                result.outputRenegotiationExhausted = true;
+                const DisplayOutputExhaustionDisposition disposition =
+                    resolveDisplayOutputExhaustionDisposition(
+                        renderer_.outputState());
+                if (disposition
+                    == DisplayOutputExhaustionDisposition::FailClosed)
+                {
+                    // No more maintenance retries are allowed on this edge.
+                    // Hide the retained DComp surface until an explicit
+                    // configuration, topology or device recovery recreates it.
+                    result.outputRenegotiationFailedClosed = true;
+                    result.deviceRecovered = result.deviceRecovered
+                        || recoveredDuringAttempt;
+                    result.renderInvalidated = true;
+                    markRenderFaulted();
+                    result.active = false;
+                    return result;
+                }
             }
 
             if (recoveredDuringAttempt)

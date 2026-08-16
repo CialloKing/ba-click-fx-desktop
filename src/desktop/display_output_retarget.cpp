@@ -186,6 +186,17 @@ bafx::windows::CompositionOutputPolicy resolveDisplayOutputPolicy(
     return policy;
 }
 
+DisplayOutputExhaustionDisposition
+resolveDisplayOutputExhaustionDisposition(
+    const bafx::windows::CompositionOutputState& output) noexcept
+{
+    return bafx::windows::compositionOutputSatisfiesPreference(
+               output,
+               bafx::windows::CompositionOutputPreference::ConservativeSdr)
+        ? DisplayOutputExhaustionDisposition::AcceptConservativeFallback
+        : DisplayOutputExhaustionDisposition::FailClosed;
+}
+
 bool displayOutputContractChanged(
     const bafx::windows::CompositionOutputPreference previousPreference,
     const bafx::windows::CompositionOutputPreference currentPreference,

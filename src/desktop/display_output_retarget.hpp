@@ -6,6 +6,7 @@
 
 #include <windows.h>
 
+#include <cstdint>
 #include <optional>
 #include <stdexcept>
 
@@ -29,6 +30,18 @@ resolveDisplayOutputPolicy(
     bafx::windows::CompositionOutputPreference requested,
     const std::optional<bafx::windows::DisplayColorCapabilities>& capabilities)
     noexcept;
+
+enum class DisplayOutputExhaustionDisposition : std::uint8_t
+{
+    AcceptConservativeFallback,
+    FailClosed
+};
+
+// A finite retry may stop only after the actual transport is conservative SDR.
+// Keeping an old scRGB or unknown surface would violate explicit HDR opt-in.
+[[nodiscard]] DisplayOutputExhaustionDisposition
+resolveDisplayOutputExhaustionDisposition(
+    const bafx::windows::CompositionOutputState& output) noexcept;
 
 // A stable scRGB application preference can still cross into a different DWM
 // output contract when the monitor's Advanced Color state changes.

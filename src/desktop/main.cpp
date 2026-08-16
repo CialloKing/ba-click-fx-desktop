@@ -705,6 +705,59 @@ void appendOutputRenegotiationRetryScheduled(
     }
 }
 
+void appendOutputRenegotiationExhausted(
+    const std::filesystem::path& logPath,
+    const bafx::desktop::DisplaySession& session,
+    const bafx::windows::CompositionOutputPolicy policy,
+    const std::string_view reason,
+    const bafx::desktop::DisplayOutputExhaustionDisposition disposition)
+    noexcept
+{
+    try
+    {
+        const bafx::windows::CompositionOutputState& output =
+            session.renderer().outputState();
+        const std::string monitor =
+            bafx::desktop::formatDisplayTargetMonitor(session.target());
+        const bool failClosed = disposition
+            == bafx::desktop::DisplayOutputExhaustionDisposition::FailClosed;
+        const std::array fields{
+            bafx::windows::DiagnosticField{"Reason", reason},
+            bafx::windows::DiagnosticField{"Monitor", monitor},
+            bafx::windows::DiagnosticField{
+                "RequestedPreference",
+                outputPreferenceName(policy.preference)},
+            bafx::windows::DiagnosticField{
+                "RequestedMapping",
+                outputMappingName(policy.mapping.mode)},
+            bafx::windows::DiagnosticField{
+                "ActualTransfer",
+                outputTransferName(output.transfer)},
+            bafx::windows::DiagnosticField{
+                "ActualMapping",
+                outputMappingName(output.mapping.mode)},
+            bafx::windows::DiagnosticField{
+                "Fallback",
+                outputFallbackName(output.fallback)},
+            bafx::windows::DiagnosticField{
+                "Disposition",
+                failClosed ? "fail-closed" : "accept-conservative-fallback"}};
+        bafx::windows::appendDiagnosticEvent(
+            logPath,
+            "Display.Output.RenegotiationExhausted",
+            fields,
+            failClosed
+                ? bafx::windows::DiagnosticLevel::Error
+                : bafx::windows::DiagnosticLevel::Warning);
+    }
+    catch (...)
+    {
+        bafx::windows::appendDiagnosticLog(
+            logPath,
+            "Exhausted output renegotiation diagnostics could not be formatted");
+    }
+}
+
 void appendOutputRenegotiationDiscarded(
     const std::filesystem::path& logPath,
     const bafx::desktop::DisplaySession& session,
@@ -1833,6 +1886,18 @@ void appendSecondaryBackgroundCaptureServiceResult(
             result.outputRenegotiationRetriesRemaining,
             "one-second-monotonic");
     }
+    if (result.outputRenegotiationExhausted)
+    {
+        appendOutputRenegotiationExhausted(
+            logPath,
+            session,
+            result.outputRenegotiationPolicy,
+            result.outputRenegotiationReason,
+            result.outputRenegotiationFailedClosed
+                ? bafx::desktop::DisplayOutputExhaustionDisposition::FailClosed
+                : bafx::desktop::DisplayOutputExhaustionDisposition::
+                    AcceptConservativeFallback);
+    }
 }
 
 [[nodiscard]] bool secondaryDeviceRemovalPending(
@@ -2908,7 +2973,32 @@ int runApplication(
         {
             if (pending.attemptsRemaining <= 1U)
             {
+                const bafx::desktop::DisplayOutputExhaustionDisposition
+                    disposition =
+                        bafx::desktop::
+                            resolveDisplayOutputExhaustionDisposition(
+                                renderer.outputState());
+                appendOutputRenegotiationExhausted(
+                    logPath,
+                    displaySession,
+                    pending.policy,
+                    pending.reason,
+                    disposition);
                 pendingCoordinatorOutputRenegotiation.reset();
+                if (disposition
+                    == bafx::desktop::
+                        DisplayOutputExhaustionDisposition::FailClosed)
+                {
+                    // The Host shell owns the coordinator surface. Hiding it
+                    // before terminating guarantees an old scRGB contract
+                    // cannot remain visible after the user's SDR request.
+                    displaySession.markRenderFaulted();
+                    report.setDeviceInfo(renderer.deviceInfo());
+                    updateDisplayRuntimeSummary();
+                    bafx::windows::appendDiagnosticLog(logPath, report);
+                    throw std::runtime_error(
+                        "Coordinator output renegotiation exhausted while a non-SDR transport remained active");
+                }
                 return;
             }
 
