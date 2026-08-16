@@ -2893,11 +2893,15 @@ void ControlCenterWindow::applyPatch(
     }
     if (response.errorCode == "generation_conflict")
     {
-        setInfo(L"配置已变化", L"已刷新 Host 的最新设置，请再次调整。");
         static_cast<void>(refreshFromHost());
+        setInfo(L"配置已变化", L"已刷新 Host 的最新设置，请再次调整。");
         return;
     }
-    setError(describeResponse(response));
+    const std::wstring error = describeResponse(response);
+    // A rejected write left the Host unchanged. Restore every optimistic
+    // control value before presenting the failure so the UI remains truthful.
+    static_cast<void>(refreshFromHost());
+    setError(error);
 }
 
 void ControlCenterWindow::sendCommand(const std::string_view command)
