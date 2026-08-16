@@ -454,21 +454,22 @@ struct FxGpuRenderer::Implementation
         ID3D11DeviceContext* sourceContext,
         const WindowSize initialSize,
         const FxBloomSettings initialBloomSettings,
-        const CompositionOutputTransfer initialOutputTransfer)
+        const CompositionOutputMapping initialOutputMapping)
         : device(sourceDevice)
         , context(sourceContext)
         , size(initialSize)
         , bloomSettings(initialBloomSettings)
-        , outputTransfer(initialOutputTransfer)
+        , outputMapping(initialOutputMapping)
     {
         if (!hasValidBloomSettings(bloomSettings))
         {
             throw std::invalid_argument("FX Bloom settings are outside the supported range");
         }
-        if (outputTransfer != CompositionOutputTransfer::LinearScRgb
-            && outputTransfer != CompositionOutputTransfer::SdrGamma22)
+        if (outputMapping.intensitySemantics
+            != bafx::core::IntensitySemantics::ArtisticRelative)
         {
-            throw std::invalid_argument("FX output transfer is not renderable");
+            throw std::invalid_argument(
+                "FX output mapping requires ArtisticRelative intensity");
         }
         createPipeline();
         createTextures();
@@ -904,7 +905,7 @@ struct FxGpuRenderer::Implementation
     {
         // Intermediate render targets remain linear FP16. Only the shader that
         // writes the swap-chain target follows its negotiated transfer.
-        return outputTransfer == CompositionOutputTransfer::SdrGamma22
+        return outputMapping.mode == CompositionOutputMappingMode::ConservativeSdr
             ? sdrShader.Get()
             : linearShader.Get();
     }
@@ -1480,8 +1481,9 @@ struct FxGpuRenderer::Implementation
     ComPtr<ID3D11DeviceContext> context{};
     WindowSize size{};
     FxBloomSettings bloomSettings{};
-    CompositionOutputTransfer outputTransfer{
-        CompositionOutputTransfer::LinearScRgb};
+    CompositionOutputMapping outputMapping{
+        compositionOutputPolicyFor(
+            CompositionOutputPreference::PreferLinearScRgb).mapping};
     ColorTarget directTarget{};
     ColorTarget crossTarget{};
     ColorTarget bloomSeedTarget{};
@@ -1534,13 +1536,13 @@ FxGpuRenderer::FxGpuRenderer(
     ID3D11DeviceContext* context,
     const WindowSize size,
     const FxBloomSettings bloomSettings,
-    const CompositionOutputTransfer outputTransfer)
+    const CompositionOutputMapping outputMapping)
     : implementation_(std::make_unique<Implementation>(
         device,
         context,
         size,
         bloomSettings,
-        outputTransfer))
+        outputMapping))
 {
 }
 

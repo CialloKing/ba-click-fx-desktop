@@ -156,6 +156,7 @@ struct GraphicsDeviceInfo
     CompositionOutputState output{};
     CompositionOutputPreference outputPreference{
         CompositionOutputPreference::ConservativeSdr};
+    CompositionOutputPolicy outputPolicy{};
 };
 
 struct RoiFrameDiagnostics
@@ -236,8 +237,17 @@ public:
         FxBloomSettings bloomSettings = {},
         WgcBackgroundStopObserver backgroundStopObserver = {},
         std::optional<LUID> requestedAdapterLuid = std::nullopt,
-        CompositionOutputPreference outputPreference =
-            CompositionOutputPreference::ConservativeSdr);
+        CompositionOutputPolicy outputPolicy = compositionOutputPolicyFor(
+            CompositionOutputPreference::ConservativeSdr));
+    // Capture probes that only exercise the transport may omit monitor color
+    // metadata. Desktop production code must use the policy overload above.
+    CompositionRenderer(
+        HWND window,
+        WindowSize size,
+        FxBloomSettings bloomSettings,
+        WgcBackgroundStopObserver backgroundStopObserver,
+        std::optional<LUID> requestedAdapterLuid,
+        CompositionOutputPreference outputPreference);
     ~CompositionRenderer();
 
     CompositionRenderer(const CompositionRenderer&) = delete;
@@ -253,6 +263,8 @@ public:
     // Re-evaluate format and color-space support without replacing the D3D
     // device. Candidate resources are published only after DComp accepts the
     // new swap chain, so WGC and same-device FP16 snapshots remain valid.
+    [[nodiscard]] OutputRenegotiationResult renegotiateOutput(
+        CompositionOutputPolicy policy);
     [[nodiscard]] OutputRenegotiationResult renegotiateOutput(
         CompositionOutputPreference preference);
     // Rebuild the D3D/DComp resource domain once after device removal. WGC is
@@ -325,11 +337,12 @@ public:
     [[nodiscard]] bool requestedAdapterPresent() const noexcept;
     [[nodiscard]] const CompositionOutputState& outputState() const noexcept;
     [[nodiscard]] CompositionOutputPreference outputPreference() const noexcept;
+    [[nodiscard]] const CompositionOutputPolicy& outputPolicy() const noexcept;
     [[nodiscard]] std::optional<PixelF> lastCenterPixel() const noexcept;
 
 private:
     [[nodiscard]] OutputRenegotiationResult renegotiateOutputOnce(
-        CompositionOutputPreference preference);
+        CompositionOutputPolicy policy);
     void createDevice();
     void createDeviceResources();
     void collectDeviceInfo();
@@ -426,8 +439,7 @@ private:
     bool backgroundCaptureAfterRecoveryAllowed_{true};
     DeviceRecoveryDiagnostics deviceRecoveryDiagnostics_{};
     std::optional<LUID> requestedAdapterLuid_{};
-    CompositionOutputPreference outputPreference_{
-        CompositionOutputPreference::ConservativeSdr};
+    CompositionOutputPolicy outputPolicy_{};
 };
 
 }

@@ -29,18 +29,24 @@ constexpr CompositionOutputState scRgbOutputState{
     DXGI_COLOR_SPACE_RGB_FULL_G10_NONE_P709,
     CompositionOutputTransfer::LinearScRgb,
     CompositionOutputFallback::None,
+    compositionOutputPolicyFor(
+        CompositionOutputPreference::PreferLinearScRgb).mapping,
     true};
 constexpr CompositionOutputState requestedSdrOutputState{
     DXGI_FORMAT_B8G8R8A8_UNORM,
     DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709,
     CompositionOutputTransfer::SdrGamma22,
     CompositionOutputFallback::None,
+    compositionOutputPolicyFor(
+        CompositionOutputPreference::ConservativeSdr).mapping,
     false};
 constexpr CompositionOutputState fallbackSdrOutputState{
     DXGI_FORMAT_B8G8R8A8_UNORM,
     DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709,
     CompositionOutputTransfer::SdrGamma22,
     CompositionOutputFallback::ConservativeSdr,
+    compositionOutputPolicyFor(
+        CompositionOutputPreference::ConservativeSdr).mapping,
     false};
 
 struct SwapChainCandidateSpecification final
@@ -139,28 +145,36 @@ constexpr SwapChainCandidateSpecification fallbackSdrSwapChainCandidate{
     IDXGIFactory2* const factory,
     ID3D11Device* const device,
     const WindowSize size,
-    const CompositionOutputPreference preference)
+    const CompositionOutputPolicy& policy)
 {
-    if (preference == CompositionOutputPreference::ConservativeSdr)
+    if (policy.preference == CompositionOutputPreference::ConservativeSdr)
     {
+        if (policy.mapping != requestedSdrOutputState.mapping)
+        {
+            throw std::invalid_argument(
+                "Conservative SDR output policy has a non-SDR mapping");
+        }
         return createCompositionSwapChainCandidate(
             factory,
             device,
             size,
             requestedSdrSwapChainCandidate);
     }
-    if (preference != CompositionOutputPreference::PreferLinearScRgb)
+    if (policy.preference != CompositionOutputPreference::PreferLinearScRgb
+        || policy.mapping.mode == CompositionOutputMappingMode::ConservativeSdr)
     {
-        throw std::invalid_argument("Composition output preference is invalid");
+        throw std::invalid_argument("Composition output policy is invalid");
     }
 
     try
     {
-        return createCompositionSwapChainCandidate(
+        CreatedCompositionSwapChain created = createCompositionSwapChainCandidate(
             factory,
             device,
             size,
             scRgbSwapChainCandidate);
+        created.output.mapping = policy.mapping;
+        return created;
     }
     catch (const HResultError& error)
     {
@@ -509,7 +523,7 @@ CompositionRenderer::CompositionRenderer(
     const FxBloomSettings bloomSettings,
     const WgcBackgroundStopObserver backgroundStopObserver,
     const std::optional<LUID> requestedAdapterLuid,
-    const CompositionOutputPreference outputPreference)
+    const CompositionOutputPolicy outputPolicy)
     : window_(window)
     , bloomSettings_(bloomSettings)
     , size_(size)
@@ -517,9 +531,26 @@ CompositionRenderer::CompositionRenderer(
           std::make_shared<WgcBackgroundResourceLedger>())
     , backgroundStopObserver_(backgroundStopObserver)
     , requestedAdapterLuid_(requestedAdapterLuid)
-    , outputPreference_(outputPreference)
+    , outputPolicy_(outputPolicy)
 {
     createDeviceResources();
+}
+
+CompositionRenderer::CompositionRenderer(
+    const HWND window,
+    const WindowSize size,
+    const FxBloomSettings bloomSettings,
+    const WgcBackgroundStopObserver backgroundStopObserver,
+    const std::optional<LUID> requestedAdapterLuid,
+    const CompositionOutputPreference outputPreference)
+    : CompositionRenderer(
+          window,
+          size,
+          bloomSettings,
+          backgroundStopObserver,
+          requestedAdapterLuid,
+          compositionOutputPolicyFor(outputPreference))
+{
 }
 
 CompositionRenderer::~CompositionRenderer()
@@ -667,11 +698,11 @@ OutputAdapterRetargetStatus CompositionRenderer::retargetOutputAdapter(
 }
 
 OutputRenegotiationResult CompositionRenderer::renegotiateOutput(
-    const CompositionOutputPreference preference)
+    const CompositionOutputPolicy policy)
 {
     try
     {
-        return renegotiateOutputOnce(preference);
+        return renegotiateOutputOnce(policy);
     }
     catch (const HResultError& error)
     {
@@ -687,13 +718,19 @@ OutputRenegotiationResult CompositionRenderer::renegotiateOutput(
 
     // Recovery has a one-shot budget. A second device-loss exception escapes
     // directly instead of re-entering an open-ended retry loop.
-    OutputRenegotiationResult result = renegotiateOutputOnce(preference);
+    OutputRenegotiationResult result = renegotiateOutputOnce(policy);
     result.deviceRecovered = true;
     return result;
 }
 
-OutputRenegotiationResult CompositionRenderer::renegotiateOutputOnce(
+OutputRenegotiationResult CompositionRenderer::renegotiateOutput(
     const CompositionOutputPreference preference)
+{
+    return renegotiateOutput(compositionOutputPolicyFor(preference));
+}
+
+OutputRenegotiationResult CompositionRenderer::renegotiateOutputOnce(
+    const CompositionOutputPolicy policy)
 {
     Microsoft::WRL::ComPtr<IDXGIDevice> dxgiDevice;
     throwIfFailed(
@@ -714,7 +751,7 @@ OutputRenegotiationResult CompositionRenderer::renegotiateOutputOnce(
         factory.Get(),
         device_.Get(),
         size_,
-        preference);
+        policy);
 
     Microsoft::WRL::ComPtr<ID3D11Texture2D> replacementBackBuffer;
     throwIfFailed(
@@ -736,7 +773,7 @@ OutputRenegotiationResult CompositionRenderer::renegotiateOutputOnce(
         context_.Get(),
         size_,
         bloomSettings_,
-        created.output.transfer);
+        created.output.mapping);
     replacementFxRenderer->setOverlayProfile(overlayProfile_);
 
     throwIfFailed(
@@ -763,7 +800,7 @@ OutputRenegotiationResult CompositionRenderer::renegotiateOutputOnce(
             "IDCompositionDevice::Commit(output renegotiation)");
     }
 
-    const CompositionOutputPreference previousPreference = outputPreference_;
+    const CompositionOutputPolicy previousPolicy = outputPolicy_;
     const CompositionOutputState previousOutput = deviceInfo_.output;
     context_->OMSetRenderTargets(0U, nullptr, nullptr);
     renderTarget_ = std::move(replacementRenderTarget);
@@ -772,16 +809,17 @@ OutputRenegotiationResult CompositionRenderer::renegotiateOutputOnce(
     frameLatencyHandle_ = std::move(created.frameLatencyHandle);
     fxRenderer_ = std::move(replacementFxRenderer);
     deviceInfo_.output = created.output;
-    outputPreference_ = preference;
-    deviceInfo_.outputPreference = outputPreference_;
+    outputPolicy_ = policy;
+    deviceInfo_.outputPreference = outputPolicy_.preference;
+    deviceInfo_.outputPolicy = outputPolicy_;
     lastCenterPixel_.reset();
     backgroundPathLatch_.reset();
     previousVisualBounds_.reset();
 
     return OutputRenegotiationResult{
         classifyOutputRenegotiation(previousOutput, deviceInfo_.output),
-        previousPreference,
-        outputPreference_,
+        previousPolicy.preference,
+        outputPolicy_.preference,
         previousOutput,
         deviceInfo_.output,
         false};
@@ -1746,7 +1784,12 @@ const CompositionOutputState& CompositionRenderer::outputState() const noexcept
 
 CompositionOutputPreference CompositionRenderer::outputPreference() const noexcept
 {
-    return outputPreference_;
+    return outputPolicy_.preference;
+}
+
+const CompositionOutputPolicy& CompositionRenderer::outputPolicy() const noexcept
+{
+    return outputPolicy_;
 }
 
 std::optional<PixelF> CompositionRenderer::lastCenterPixel() const noexcept
@@ -1880,7 +1923,7 @@ void CompositionRenderer::createDeviceResources()
         context_.Get(),
         size_,
         bloomSettings_,
-        deviceInfo_.output.transfer);
+        deviceInfo_.output.mapping);
     fxRenderer_->setOverlayProfile(overlayProfile_);
     setReadbackDiagnostics(readbackDiagnosticsEnabled_);
     registerDeviceRemovedNotification();
@@ -1931,14 +1974,15 @@ void CompositionRenderer::createSwapChain(const WindowSize size)
         factory.Get(),
         device_.Get(),
         size,
-        outputPreference_);
+        outputPolicy_);
 
     // Publish only a fully configured candidate so shaders and diagnostics
     // cannot observe a partially initialized output transport.
     swapChain_ = std::move(created.swapChain);
     frameLatencyHandle_ = std::move(created.frameLatencyHandle);
     deviceInfo_.output = created.output;
-    deviceInfo_.outputPreference = outputPreference_;
+    deviceInfo_.outputPreference = outputPolicy_.preference;
+    deviceInfo_.outputPolicy = outputPolicy_;
 }
 
 void CompositionRenderer::createComposition(const HWND window)

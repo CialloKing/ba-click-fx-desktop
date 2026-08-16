@@ -60,8 +60,8 @@ public:
         ID3D11DeviceContext* context,
         WindowSize size,
         FxBloomSettings bloomSettings = {},
-        CompositionOutputTransfer outputTransfer =
-            CompositionOutputTransfer::LinearScRgb);
+        CompositionOutputMapping outputMapping = compositionOutputPolicyFor(
+            CompositionOutputPreference::PreferLinearScRgb).mapping);
     ~FxGpuRenderer();
 
     FxGpuRenderer(const FxGpuRenderer&) = delete;

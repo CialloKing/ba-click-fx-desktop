@@ -61,12 +61,28 @@ struct CompositionOutputPolicy final
         const CompositionOutputPolicy&) const noexcept = default;
 };
 
+[[nodiscard]] constexpr CompositionOutputPolicy compositionOutputPolicyFor(
+    const CompositionOutputPreference preference) noexcept
+{
+    CompositionOutputPolicy policy{};
+    policy.preference = preference;
+    if (preference == CompositionOutputPreference::PreferLinearScRgb)
+    {
+        // Callers without monitor metadata still need an explicit linear
+        // mapping. Production display sessions replace this with a per-screen
+        // HDR or Advanced Color policy before presenting.
+        policy.mapping.mode = CompositionOutputMappingMode::AdvancedColorScRgb;
+    }
+    return policy;
+}
+
 struct CompositionOutputState final
 {
     DXGI_FORMAT format{DXGI_FORMAT_UNKNOWN};
     DXGI_COLOR_SPACE_TYPE colorSpace{DXGI_COLOR_SPACE_CUSTOM};
     CompositionOutputTransfer transfer{CompositionOutputTransfer::Unknown};
     CompositionOutputFallback fallback{CompositionOutputFallback::None};
+    CompositionOutputMapping mapping{};
     bool extendedPremultiplied{false};
 
     [[nodiscard]] bool operator==(
@@ -98,6 +114,14 @@ effectiveCompositionOutputPreference(
     // The fallback marker explains how SDR was selected; the transfer remains
     // the authoritative fact when comparing against the current policy.
     return effective.has_value() && *effective == preference;
+}
+
+[[nodiscard]] constexpr bool compositionOutputSatisfiesPolicy(
+    const CompositionOutputState& output,
+    const CompositionOutputPolicy& policy) noexcept
+{
+    return compositionOutputSatisfiesPreference(output, policy.preference)
+        && output.mapping == policy.mapping;
 }
 
 }
