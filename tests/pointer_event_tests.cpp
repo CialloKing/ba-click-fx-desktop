@@ -2,6 +2,7 @@
 
 #include "bafx/windows/overlay_window.hpp"
 
+#include <initializer_list>
 #include <utility>
 #include <vector>
 
@@ -22,6 +23,15 @@ namespace
         timestamp,
         messageTimeMilliseconds,
         messageTimeMilliseconds != 0U};
+}
+
+[[nodiscard]] PointerFrameSnapshot consume(
+    PointerFrameAdapter& adapter,
+    const std::initializer_list<PointerEvent> events)
+{
+    return adapter.consume(std::span<const PointerEvent>(
+        events.begin(),
+        events.size()));
 }
 
 }
@@ -212,7 +222,7 @@ BAFX_TEST(pointer_frame_adapter_keeps_held_state_across_empty_frames)
 {
     PointerFrameAdapter adapter;
 
-    const PointerFrameSnapshot down = adapter.consume({
+    const PointerFrameSnapshot down = consume(adapter, {
         event(PointerEventKind::LeftButtonDown, 10, 100, 1U)});
     BAFX_CHECK(!down.heldBefore);
     BAFX_CHECK(down.heldAfter);
@@ -220,7 +230,7 @@ BAFX_TEST(pointer_frame_adapter_keeps_held_state_across_empty_frames)
     BAFX_CHECK(down.edges[0].kind == PointerEventKind::LeftButtonDown);
     BAFX_CHECK(adapter.held());
 
-    const PointerFrameSnapshot empty = adapter.consume({});
+    const PointerFrameSnapshot empty = consume(adapter, {});
     BAFX_CHECK(empty.heldBefore);
     BAFX_CHECK(empty.heldAfter);
     BAFX_CHECK(empty.edges.empty());
@@ -232,7 +242,7 @@ BAFX_TEST(pointer_frame_adapter_keeps_held_state_across_empty_frames)
 BAFX_TEST(pointer_frame_adapter_latches_free_down_move_at_the_final_sample)
 {
     PointerFrameAdapter adapter;
-    const PointerFrameSnapshot frame = adapter.consume({
+    const PointerFrameSnapshot frame = consume(adapter, {
         event(PointerEventKind::LeftButtonDown, 10, 100, 1U),
         event(PointerEventKind::Move, 20, 200, 2U)});
 
@@ -251,10 +261,10 @@ BAFX_TEST(pointer_frame_adapter_latches_free_down_move_at_the_final_sample)
 BAFX_TEST(pointer_frame_adapter_release_frame_reports_move_without_remaining_held)
 {
     PointerFrameAdapter adapter;
-    static_cast<void>(adapter.consume({
+    static_cast<void>(consume(adapter, {
         event(PointerEventKind::LeftButtonDown, 10, 100)}));
 
-    const PointerFrameSnapshot frame = adapter.consume({
+    const PointerFrameSnapshot frame = consume(adapter, {
         event(PointerEventKind::Move, 20, 200),
         event(PointerEventKind::LeftButtonUp, 30, 300)});
 
@@ -272,7 +282,7 @@ BAFX_TEST(pointer_frame_adapter_release_frame_reports_move_without_remaining_hel
 BAFX_TEST(pointer_frame_adapter_down_move_up_is_one_released_frame_state)
 {
     PointerFrameAdapter adapter;
-    const PointerFrameSnapshot frame = adapter.consume({
+    const PointerFrameSnapshot frame = consume(adapter, {
         event(PointerEventKind::LeftButtonDown, 10, 100),
         event(PointerEventKind::Move, 20, 200),
         event(PointerEventKind::LeftButtonUp, 30, 300)});
@@ -291,7 +301,7 @@ BAFX_TEST(pointer_frame_adapter_down_move_up_is_one_released_frame_state)
 BAFX_TEST(pointer_frame_adapter_ignores_duplicate_state_edges)
 {
     PointerFrameAdapter adapter;
-    const PointerFrameSnapshot down = adapter.consume({
+    const PointerFrameSnapshot down = consume(adapter, {
         event(PointerEventKind::LeftButtonDown, 10, 100),
         event(PointerEventKind::LeftButtonDown, 20, 200)});
     BAFX_CHECK(down.edges.size() == 1U);
@@ -300,7 +310,7 @@ BAFX_TEST(pointer_frame_adapter_ignores_duplicate_state_edges)
     BAFX_CHECK(down.latestNonCancelSample.has_value());
     BAFX_CHECK(down.latestNonCancelSample->screenPosition.x == 20);
 
-    const PointerFrameSnapshot up = adapter.consume({
+    const PointerFrameSnapshot up = consume(adapter, {
         event(PointerEventKind::LeftButtonUp, 30, 300),
         event(PointerEventKind::LeftButtonUp, 40, 400)});
     BAFX_CHECK(up.edges.size() == 1U);
@@ -309,7 +319,7 @@ BAFX_TEST(pointer_frame_adapter_ignores_duplicate_state_edges)
     BAFX_CHECK(up.latestNonCancelSample.has_value());
     BAFX_CHECK(up.latestNonCancelSample->screenPosition.x == 40);
 
-    const PointerFrameSnapshot strayUp = adapter.consume({
+    const PointerFrameSnapshot strayUp = consume(adapter, {
         event(PointerEventKind::LeftButtonUp, 50, 500)});
     BAFX_CHECK(strayUp.edges.empty());
     BAFX_CHECK(!strayUp.heldAfter);
@@ -318,10 +328,10 @@ BAFX_TEST(pointer_frame_adapter_ignores_duplicate_state_edges)
 BAFX_TEST(pointer_frame_adapter_cancel_hard_releases_without_replacing_position)
 {
     PointerFrameAdapter adapter;
-    static_cast<void>(adapter.consume({
+    static_cast<void>(consume(adapter, {
         event(PointerEventKind::LeftButtonDown, 10, 100)}));
 
-    const PointerFrameSnapshot frame = adapter.consume({
+    const PointerFrameSnapshot frame = consume(adapter, {
         event(PointerEventKind::Move, 20, 200, 2U),
         event(PointerEventKind::Cancel, 999, 300, 3U)});
 
@@ -334,7 +344,7 @@ BAFX_TEST(pointer_frame_adapter_cancel_hard_releases_without_replacing_position)
     BAFX_CHECK(frame.latestNonCancelSample->qpcTimestamp == 200);
     BAFX_CHECK(!adapter.held());
 
-    const PointerFrameSnapshot duplicateCancel = adapter.consume({
+    const PointerFrameSnapshot duplicateCancel = consume(adapter, {
         event(PointerEventKind::Cancel, 1000, 400)});
     BAFX_CHECK(duplicateCancel.edges.size() == 1U);
     BAFX_CHECK(duplicateCancel.edges[0].kind == PointerEventKind::Cancel);
@@ -345,7 +355,7 @@ BAFX_TEST(pointer_frame_adapter_cancel_hard_releases_without_replacing_position)
 BAFX_TEST(pointer_frame_adapter_classifies_moves_by_the_order_of_edges)
 {
     PointerFrameAdapter adapter;
-    const PointerFrameSnapshot frame = adapter.consume({
+    const PointerFrameSnapshot frame = consume(adapter, {
         event(PointerEventKind::Move, 10, 100),
         event(PointerEventKind::LeftButtonDown, 20, 200),
         event(PointerEventKind::Move, 30, 300),
@@ -365,7 +375,7 @@ BAFX_TEST(pointer_frame_adapter_classifies_moves_by_the_order_of_edges)
 BAFX_TEST(pointer_frame_adapter_preserves_down_up_down_order)
 {
     PointerFrameAdapter adapter;
-    const PointerFrameSnapshot frame = adapter.consume({
+    const PointerFrameSnapshot frame = consume(adapter, {
         event(PointerEventKind::LeftButtonDown, 10, 100),
         event(PointerEventKind::LeftButtonUp, 20, 200),
         event(PointerEventKind::LeftButtonDown, 30, 300)});
@@ -385,7 +395,7 @@ BAFX_TEST(pointer_frame_adapter_preserves_down_up_down_order)
 BAFX_TEST(pointer_frame_adapter_does_not_promote_a_prior_held_epoch_move)
 {
     PointerFrameAdapter adapter;
-    const PointerFrameSnapshot frame = adapter.consume({
+    const PointerFrameSnapshot frame = consume(adapter, {
         event(PointerEventKind::LeftButtonDown, 10, 100),
         event(PointerEventKind::Move, 20, 200),
         event(PointerEventKind::LeftButtonUp, 30, 300),
@@ -401,7 +411,7 @@ BAFX_TEST(pointer_frame_adapter_does_not_promote_a_prior_held_epoch_move)
 BAFX_TEST(pointer_frame_adapter_does_not_promote_a_pre_edge_free_move)
 {
     PointerFrameAdapter adapter;
-    const PointerFrameSnapshot frame = adapter.consume({
+    const PointerFrameSnapshot frame = consume(adapter, {
         event(PointerEventKind::Move, 10, 100),
         event(PointerEventKind::LeftButtonDown, 20, 200),
         event(PointerEventKind::LeftButtonUp, 30, 300)});
@@ -418,10 +428,10 @@ BAFX_TEST(pointer_frame_adapter_does_not_promote_a_pre_edge_free_move)
 BAFX_TEST(pointer_frame_adapter_promotes_a_move_after_up_in_the_final_free_epoch)
 {
     PointerFrameAdapter adapter;
-    static_cast<void>(adapter.consume({
+    static_cast<void>(consume(adapter, {
         event(PointerEventKind::LeftButtonDown, 10, 100)}));
 
-    const PointerFrameSnapshot frame = adapter.consume({
+    const PointerFrameSnapshot frame = consume(adapter, {
         event(PointerEventKind::LeftButtonUp, 20, 200),
         event(PointerEventKind::Move, 30, 300)});
 
@@ -436,7 +446,7 @@ BAFX_TEST(pointer_frame_adapter_promotes_a_move_after_up_in_the_final_free_epoch
 BAFX_TEST(pointer_frame_adapter_records_cancel_while_already_free)
 {
     PointerFrameAdapter adapter;
-    const PointerFrameSnapshot frame = adapter.consume({
+    const PointerFrameSnapshot frame = consume(adapter, {
         event(PointerEventKind::Move, 10, 100),
         event(PointerEventKind::Cancel, 999, 200)});
 
