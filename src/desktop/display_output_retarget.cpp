@@ -20,6 +20,7 @@ struct ResolvedDisplayOutputContract final
     DISPLAYCONFIG_COLOR_ENCODING colorEncoding{
         DISPLAYCONFIG_COLOR_ENCODING_FORCE_UINT32};
     bool advancedColorActive{false};
+    bafx::windows::CompositionOutputMapping mapping{};
 
     [[nodiscard]] bool operator==(
         const ResolvedDisplayOutputContract&) const noexcept = default;
@@ -55,7 +56,10 @@ resolveDisplayOutputContract(
             8U,
             bafx::windows::DisplayColorMode::Sdr,
             DISPLAYCONFIG_COLOR_ENCODING_RGB,
-            false};
+            false,
+            bafx::windows::compositionOutputPolicyFor(
+                bafx::windows::CompositionOutputPreference::ConservativeSdr)
+                .mapping};
     }
     if (preference
             != bafx::windows::CompositionOutputPreference::PreferLinearScRgb
@@ -66,6 +70,8 @@ resolveDisplayOutputContract(
 
     // scRGB keeps a fixed application-side FP16 contract. Monitor-side color
     // facts remain part of the key because DWM can remap the same transport.
+    const bafx::windows::CompositionOutputPolicy policy =
+        resolveDisplayOutputPolicy(preference, capabilities);
     return ResolvedDisplayOutputContract{
         DXGI_FORMAT_R16G16B16A16_FLOAT,
         DXGI_COLOR_SPACE_RGB_FULL_G10_NONE_P709,
@@ -73,7 +79,8 @@ resolveDisplayOutputContract(
         resolveDisplayBitsPerColor(*capabilities),
         capabilities->activeColorMode,
         capabilities->colorEncoding,
-        capabilities->advancedColorActive};
+        capabilities->advancedColorActive,
+        policy.mapping};
 }
 
 [[nodiscard]] std::string describeException(
@@ -209,10 +216,10 @@ DisplayOutputRetargetResult retargetDisplayOutput(
     const std::optional<LUID> previousAdapter =
         renderer.deviceInfo().requestedAdapterLuid;
     const bafx::windows::WindowSize previousOutputSize = renderer.outputSize();
-    const bafx::windows::CompositionOutputPreference previousPreference =
-        renderer.outputPreference();
-    const bafx::windows::CompositionOutputPreference targetPreference =
-        intent.outputPreference.value_or(previousPreference);
+    const bafx::windows::CompositionOutputPolicy previousPolicy =
+        renderer.outputPolicy();
+    const bafx::windows::CompositionOutputPolicy targetPolicy =
+        intent.outputPolicy.value_or(previousPolicy);
 
     DisplayOutputRetargetResult result{};
     try
@@ -238,12 +245,12 @@ DisplayOutputRetargetResult retargetDisplayOutput(
                 != bafx::windows::OutputAdapterRetargetStatus::Unchanged
             || result.output
                 == bafx::windows::OutputResizeStatus::DeviceRecovered;
-        const bool outputPreferenceUnsatisfied =
-            targetPreference != renderer.outputPreference()
-            || !bafx::windows::compositionOutputSatisfiesPreference(
+        const bool outputPolicyUnsatisfied =
+            targetPolicy != renderer.outputPolicy()
+            || !bafx::windows::compositionOutputSatisfiesPolicy(
                 renderer.outputState(),
-                targetPreference);
-        if (outputPreferenceUnsatisfied
+                targetPolicy);
+        if (outputPolicyUnsatisfied
             || (intent.windowBounds.has_value()
                 && !outputResourceDomainRecreated))
         {
@@ -252,7 +259,7 @@ DisplayOutputRetargetResult retargetDisplayOutput(
             // both cases DXGI must evaluate the target monitor after the move.
             result.deviceBeforeOutputRenegotiation = renderer.deviceInfo();
             result.outputRenegotiation = renderer.renegotiateOutput(
-                targetPreference);
+                targetPolicy);
         }
         return result;
     }
@@ -301,18 +308,18 @@ DisplayOutputRetargetResult retargetDisplayOutput(
                 static_cast<void>(renderer.resizeOutput(previousOutputSize));
             }
 
-            const bool outputPreferenceChanged =
-                renderer.outputPreference() != previousPreference;
+            const bool outputPolicyChanged =
+                renderer.outputPolicy() != previousPolicy;
             if (previousBounds.has_value()
                 || !outputSizeChanged
-                || outputPreferenceChanged)
+                || outputPolicyChanged)
             {
                 // A recovered device may have selected the moved monitor's
                 // color contract before a later operation failed. Re-evaluate
                 // after restoring the HWND; same-size resize failures also
                 // need a replacement swap chain to restore the released RTV.
                 static_cast<void>(renderer.renegotiateOutput(
-                    previousPreference));
+                    previousPolicy));
             }
         });
 

@@ -46,8 +46,7 @@ struct DisplayOutputRetargetIntent final
     bafx::windows::WindowSize outputSize{};
     // Omitted callers preserve their current transport. FX-only retargets can
     // provide the new monitor's resolved policy and commit it atomically.
-    std::optional<bafx::windows::CompositionOutputPreference>
-        outputPreference{};
+    std::optional<bafx::windows::CompositionOutputPolicy> outputPolicy{};
 };
 
 struct DisplayOutputRetargetResult final

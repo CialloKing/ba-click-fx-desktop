@@ -972,7 +972,7 @@ BackgroundCaptureExecutionStatus executeBackgroundCaptureTransition(
                                 : std::nullopt,
                             requestedAdapter,
                             action->outputSize,
-                            execution.targetIntent.outputPreference});
+                            execution.targetIntent.outputPolicy});
                 execution.outputAdapterRetargeted = retarget.adapter
                     != bafx::windows::OutputAdapterRetargetStatus::Unchanged;
                 execution.outputAdapterWarpFallback = retarget.adapter

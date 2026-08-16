@@ -243,9 +243,8 @@ struct DisplayTargetIntent
     // A display migration must carry the target monitor's resolved transport
     // through any asynchronous WGC permission wait. Omitting it preserves the
     // current swap-chain contract for size-only and capture-only transactions.
-    std::optional<bafx::windows::CompositionOutputPreference>
-        outputPreference{};
-    // Keep the capability sample that resolved outputPreference beside the
+    std::optional<bafx::windows::CompositionOutputPolicy> outputPolicy{};
+    // Keep the capability sample that resolved outputPolicy beside the
     // target. A post-move query can fail transiently during hot-plug; that
     // failure must not immediately undo the transport this transaction chose.
     std::optional<bafx::windows::DisplayColorCapabilities>
@@ -260,7 +259,7 @@ struct DisplayTargetIntent
     // identity. A newer sample with the same resolved transport must not cancel
     // an in-flight permission request.
     return left.applyBounds == right.applyBounds
-        && left.outputPreference == right.outputPreference
+        && left.outputPolicy == right.outputPolicy
         && sameDisplayTarget(left.target, right.target)
         && sameDisplaySourceIdentity(left.target, right.target);
 }

@@ -90,8 +90,7 @@ struct DisplaySessionBackgroundCaptureServiceResult final
     std::optional<bafx::windows::OutputRenegotiationResult>
         outputRenegotiation{};
     std::optional<DisplayTarget> outputRenegotiationTarget{};
-    bafx::windows::CompositionOutputPreference outputRenegotiationPreference{
-        bafx::windows::CompositionOutputPreference::ConservativeSdr};
+    bafx::windows::CompositionOutputPolicy outputRenegotiationPolicy{};
     std::string outputRenegotiationReason{};
     std::string outputRenegotiationFailure{};
     bool outputRenegotiationRetryPending{false};
@@ -174,7 +173,7 @@ public:
         bafx::windows::BackgroundCaptureRequest request,
         std::uint64_t controlGeneration);
     void requestSecondaryOutputRenegotiation(
-        bafx::windows::CompositionOutputPreference preference,
+        bafx::windows::CompositionOutputPolicy policy,
         std::string_view reason,
         std::optional<DisplayTarget> target = std::nullopt);
     [[nodiscard]] DisplaySessionBackgroundCaptureServiceResult

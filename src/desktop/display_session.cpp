@@ -11,8 +11,7 @@ namespace bafx::desktop
 {
 struct PendingSecondaryOutputRenegotiation final
 {
-    bafx::windows::CompositionOutputPreference preference{
-        bafx::windows::CompositionOutputPreference::ConservativeSdr};
+    bafx::windows::CompositionOutputPolicy policy{};
     std::string reason{};
     std::optional<DisplayTarget> target{};
     std::uint32_t attemptsRemaining{maximumOutputRenegotiationAttempts};
@@ -31,8 +30,8 @@ struct DisplaySessionBackgroundCaptureState final
     CaptureExclusionHealthPoller exclusionHealthPoller{};
     DisplayCaptureSizeTracker captureSizeTracker{};
     std::optional<DisplayTarget> pendingTarget{};
-    std::optional<bafx::windows::CompositionOutputPreference>
-        pendingTargetOutputPreference{};
+    std::optional<bafx::windows::CompositionOutputPolicy>
+        pendingTargetOutputPolicy{};
     std::optional<bafx::windows::DisplayColorCapabilities>
         pendingTargetColorCapabilities{};
     std::optional<PendingSecondaryOutputRenegotiation>
@@ -118,7 +117,7 @@ DisplaySession::DisplaySession(DisplaySessionOptions options)
           options.bloomSettings,
           options.backgroundStopObserver,
           requestedAdapter(target_),
-          resolveDisplayOutputPreference(
+          resolveDisplayOutputPolicy(
               requestedOutputPreference_,
               colorCapabilities_)),
       simulation_(options.simulationSeed)
@@ -247,12 +246,12 @@ void DisplaySession::setRequestedOutputPreference(
         return;
     }
 
-    const bafx::windows::CompositionOutputPreference effectivePreference =
-        resolveDisplayOutputPreference(preference, colorCapabilities_);
-    if (renderer_.outputPreference() == effectivePreference
-        && bafx::windows::compositionOutputSatisfiesPreference(
+    const bafx::windows::CompositionOutputPolicy effectivePolicy =
+        resolveDisplayOutputPolicy(preference, colorCapabilities_);
+    if (renderer_.outputPolicy() == effectivePolicy
+        && bafx::windows::compositionOutputSatisfiesPolicy(
             renderer_.outputState(),
-            effectivePreference))
+            effectivePolicy))
     {
         // A newer user policy can already match the applied transport while
         // an older failed renegotiation is waiting for its retry deadline.
@@ -369,8 +368,8 @@ DisplaySessionRetargetResult DisplaySession::retargetFxOnly(
         const std::optional<bafx::windows::DisplayColorCapabilities>
             targetColorCapabilities =
                 bafx::windows::queryDisplayColorCapabilities(target.monitor);
-        const bafx::windows::CompositionOutputPreference targetPreference =
-            resolveDisplayOutputPreference(
+        const bafx::windows::CompositionOutputPolicy targetPolicy =
+            resolveDisplayOutputPolicy(
                 requestedOutputPreference_,
                 targetColorCapabilities);
         const DisplayOutputRetargetResult output = retargetDisplayOutput(
@@ -380,7 +379,7 @@ DisplaySessionRetargetResult DisplaySession::retargetFxOnly(
                 target.bounds,
                 requestedAdapter(target),
                 displayTargetSize(target),
-                targetPreference});
+                targetPolicy});
         lastPresentedDrawableContent_ = false;
         resetFramePacing();
         acceptAppliedTarget(std::move(target), wakeWindow);
@@ -450,7 +449,7 @@ DisplaySessionRetargetResult DisplaySession::retargetSecondary(
     const std::optional<bafx::windows::DisplayColorCapabilities>
         targetColorCapabilities =
             bafx::windows::queryDisplayColorCapabilities(target.monitor);
-    state.pendingTargetOutputPreference = resolveDisplayOutputPreference(
+    state.pendingTargetOutputPolicy = resolveDisplayOutputPolicy(
         requestedOutputPreference_,
         targetColorCapabilities);
     state.pendingTargetColorCapabilities = targetColorCapabilities;
@@ -472,7 +471,7 @@ DisplaySessionRetargetResult DisplaySession::retargetSecondary(
         static_cast<void>(refreshColorCapabilities(
             state.pendingTargetColorCapabilities));
         state.pendingTarget.reset();
-        state.pendingTargetOutputPreference.reset();
+        state.pendingTargetOutputPolicy.reset();
         state.pendingTargetColorCapabilities.reset();
         state.pendingWakeWindow = nullptr;
         return {};
@@ -553,21 +552,21 @@ void DisplaySession::initializeSecondaryBackgroundCapture(
         : state->transition.beginRequest(request);
     requireStartedRequest(requestResult);
     state->outcomePending = true;
-    const bafx::windows::CompositionOutputPreference effectivePreference =
-        resolveDisplayOutputPreference(
+    const bafx::windows::CompositionOutputPolicy effectivePolicy =
+        resolveDisplayOutputPolicy(
             requestedOutputPreference_,
             colorCapabilities_);
-    if (renderer_.outputPreference() != effectivePreference
-        || !bafx::windows::compositionOutputSatisfiesPreference(
+    if (renderer_.outputPolicy() != effectivePolicy
+        || !bafx::windows::compositionOutputSatisfiesPolicy(
             renderer_.outputState(),
-            effectivePreference))
+            effectivePolicy))
     {
         // Startup fallback is a valid drawing surface, not proof that the
         // desired transport is permanently unavailable. Reuse the bounded
         // secondary retry owner after its capture transaction reaches idle.
         state->pendingOutputRenegotiation =
             PendingSecondaryOutputRenegotiation{
-                effectivePreference,
+                effectivePolicy,
                 "initial-output-fallback",
                 target_};
     }
@@ -654,7 +653,7 @@ void DisplaySession::updateSecondaryBackgroundCaptureRequest(
 }
 
 void DisplaySession::requestSecondaryOutputRenegotiation(
-    const bafx::windows::CompositionOutputPreference preference,
+    const bafx::windows::CompositionOutputPolicy policy,
     const std::string_view reason,
     std::optional<DisplayTarget> target)
 {
@@ -681,7 +680,7 @@ void DisplaySession::requestSecondaryOutputRenegotiation(
             || (sameDisplayTarget(*pending->target, *target)
                 && sameDisplaySourceIdentity(*pending->target, *target)));
     if (pending.has_value()
-        && pending->preference == preference
+        && pending->policy == policy
         && sameTargetContract)
     {
         // Duplicate color notifications describe the same desired state.
@@ -694,7 +693,7 @@ void DisplaySession::requestSecondaryOutputRenegotiation(
     // service owner performs the mutation after any earlier WGC transaction.
     secondaryBackgroundCapture_->pendingOutputRenegotiation =
         PendingSecondaryOutputRenegotiation{
-            preference,
+            policy,
             std::string(reason),
             std::move(target)};
 }
@@ -724,7 +723,7 @@ DisplaySession::serviceSecondaryBackgroundCapture(
                     ? DisplayTargetIntent{
                         *state.pendingTarget,
                         true,
-                        state.pendingTargetOutputPreference,
+                        state.pendingTargetOutputPolicy,
                         state.pendingTargetColorCapabilities}
                     : DisplayTargetIntent{target_, false});
             const std::uint64_t generation = state.execution.transactionActive
@@ -841,7 +840,7 @@ DisplaySession::serviceSecondaryBackgroundCapture(
             PendingSecondaryOutputRenegotiation pending =
                 *state.pendingOutputRenegotiation;
             state.captureSizeTracker.reset();
-            result.outputRenegotiationPreference = pending.preference;
+            result.outputRenegotiationPolicy = pending.policy;
             result.outputRenegotiationReason = pending.reason;
             const bool staleTarget = pending.target.has_value()
                 && (!sameDisplayTarget(*pending.target, target_)
@@ -900,7 +899,7 @@ DisplaySession::serviceSecondaryBackgroundCapture(
                 try
                 {
                     result.outputRenegotiation =
-                        renderer_.renegotiateOutput(pending.preference);
+                        renderer_.renegotiateOutput(pending.policy);
                     lastPresentedDrawableContent_ = false;
                     resetFramePacing();
                     recoveredDuringAttempt =
@@ -935,13 +934,13 @@ DisplaySession::serviceSecondaryBackgroundCapture(
                 }
             }
 
-            const bool outputPreferenceSatisfied =
+            const bool outputPolicySatisfied =
                 result.outputRenegotiation.has_value()
-                && renderer_.outputPreference() == pending.preference
-                && bafx::windows::compositionOutputSatisfiesPreference(
+                && renderer_.outputPolicy() == pending.policy
+                && bafx::windows::compositionOutputSatisfiesPolicy(
                     renderer_.outputState(),
-                    pending.preference);
-            if (outputPreferenceSatisfied)
+                    pending.policy);
+            if (outputPolicySatisfied)
             {
                 state.pendingOutputRenegotiation.reset();
             }
@@ -1541,26 +1540,26 @@ DisplaySessionDeviceRecoveryResult DisplaySession::finishDeviceRecovery(
 
     DisplaySessionBackgroundCaptureState& state =
         *secondaryBackgroundCapture_;
-    const bafx::windows::CompositionOutputPreference effectivePreference =
-        resolveDisplayOutputPreference(
+    const bafx::windows::CompositionOutputPolicy effectivePolicy =
+        resolveDisplayOutputPolicy(
             requestedOutputPreference_,
             colorCapabilities_);
-    const bool outputPreferenceSatisfied =
-        renderer_.outputPreference() == effectivePreference
-        && bafx::windows::compositionOutputSatisfiesPreference(
+    const bool outputPolicySatisfied =
+        renderer_.outputPolicy() == effectivePolicy
+        && bafx::windows::compositionOutputSatisfiesPolicy(
             renderer_.outputState(),
-            effectivePreference);
+            effectivePolicy);
     const bool duplicateOutputRetry =
         state.pendingOutputRenegotiation.has_value()
-        && state.pendingOutputRenegotiation->preference == effectivePreference;
-    if (!outputPreferenceSatisfied && !duplicateOutputRetry)
+        && state.pendingOutputRenegotiation->policy == effectivePolicy;
+    if (!outputPolicySatisfied && !duplicateOutputRetry)
     {
         // Device recovery recreates the swap chain independently of WGC. A
         // soft SDR fallback therefore needs its own finite retry window even
         // when the background sensor was inactive.
         state.pendingOutputRenegotiation =
             PendingSecondaryOutputRenegotiation{
-                effectivePreference,
+                effectivePolicy,
                 "device-recovery-output-fallback",
                 target_};
     }
@@ -1650,15 +1649,14 @@ void DisplaySession::acceptPendingSecondaryTargetIfApplied(
         // resource state to preserve. Retaining it would make topology
         // reconciliation mistake a failed migration for committed progress.
         state.pendingTarget.reset();
-        state.pendingTargetOutputPreference.reset();
+        state.pendingTargetOutputPolicy.reset();
         state.pendingTargetColorCapabilities.reset();
         state.pendingWakeWindow = nullptr;
         return;
     }
 
-    const bafx::windows::CompositionOutputPreference transactionPreference =
-        state.pendingTargetOutputPreference.value_or(
-            renderer_.outputPreference());
+    const bafx::windows::CompositionOutputPolicy transactionPolicy =
+        state.pendingTargetOutputPolicy.value_or(renderer_.outputPolicy());
     const std::optional<bafx::windows::DisplayColorCapabilities>
         transactionCapabilities = state.pendingTargetColorCapabilities;
     acceptAppliedTarget(
@@ -1669,26 +1667,26 @@ void DisplaySession::acceptPendingSecondaryTargetIfApplied(
     // The coordinator refreshes after comparing old/new modes. Secondary
     // sessions have no separate comparison owner, so refresh at commit time.
     static_cast<void>(refreshColorCapabilities(transactionCapabilities));
-    const bafx::windows::CompositionOutputPreference targetPreference =
-        resolveDisplayOutputPreference(
+    const bafx::windows::CompositionOutputPolicy targetPolicy =
+        resolveDisplayOutputPolicy(
             requestedOutputPreference_,
             colorCapabilities_);
     const bool outputContractChanged = displayOutputContractChanged(
-        transactionPreference,
-        targetPreference,
+        transactionPolicy.preference,
+        targetPolicy.preference,
         transactionCapabilities,
         colorCapabilities_);
-    if (renderer_.outputPreference() != targetPreference
-        || !bafx::windows::compositionOutputSatisfiesPreference(
+    if (renderer_.outputPolicy() != targetPolicy
+        || !bafx::windows::compositionOutputSatisfiesPolicy(
             renderer_.outputState(),
-            targetPreference)
+            targetPolicy)
         || outputContractChanged)
     {
         // WGC textures share the output device. Queue the existing serialized
         // stop/recreate/restart path instead of replacing resources inline.
         state.pendingOutputRenegotiation =
             PendingSecondaryOutputRenegotiation{
-                targetPreference,
+                targetPolicy,
                 "display-target",
                 target_};
     }
@@ -1699,7 +1697,7 @@ void DisplaySession::acceptPendingSecondaryTargetIfApplied(
         state.pendingOutputRenegotiation.reset();
     }
     state.pendingTarget.reset();
-    state.pendingTargetOutputPreference.reset();
+    state.pendingTargetOutputPolicy.reset();
     state.pendingTargetColorCapabilities.reset();
     state.pendingWakeWindow = nullptr;
 }

@@ -404,8 +404,7 @@ void appendBorderlessAccessHealth(
 
 struct PendingOutputRenegotiation final
 {
-    bafx::windows::CompositionOutputPreference preference{
-        bafx::windows::CompositionOutputPreference::ConservativeSdr};
+    bafx::windows::CompositionOutputPolicy policy{};
     std::string reason{};
     std::uint32_t attemptsRemaining{
         bafx::desktop::maximumOutputRenegotiationAttempts};
@@ -652,13 +651,13 @@ void appendOutputRenegotiationDiscarded(
 tryRenegotiateOutput(
     const std::filesystem::path& logPath,
     bafx::desktop::DisplaySession& session,
-    const bafx::windows::CompositionOutputPreference preference,
+    const bafx::windows::CompositionOutputPolicy policy,
     const std::string_view reason) noexcept
 {
     try
     {
         const bafx::windows::OutputRenegotiationResult result =
-            session.renderer().renegotiateOutput(preference);
+            session.renderer().renegotiateOutput(policy);
         appendOutputRenegotiation(logPath, session, reason, result);
         return result;
     }
@@ -667,7 +666,7 @@ tryRenegotiateOutput(
         appendOutputRenegotiationFailure(
             logPath,
             session,
-            preference,
+            policy.preference,
             reason,
             error.what());
         return std::nullopt;
@@ -677,7 +676,7 @@ tryRenegotiateOutput(
         appendOutputRenegotiationFailure(
             logPath,
             session,
-            preference,
+            policy.preference,
             reason,
             "unknown exception");
         return std::nullopt;
@@ -1697,7 +1696,7 @@ void appendSecondaryBackgroundCaptureServiceResult(
             logPath,
             session,
             *result.outputRenegotiationTarget,
-            result.outputRenegotiationPreference,
+            result.outputRenegotiationPolicy.preference,
             result.outputRenegotiationReason);
     }
     if (result.outputRenegotiation.has_value())
@@ -1713,7 +1712,7 @@ void appendSecondaryBackgroundCaptureServiceResult(
         appendOutputRenegotiationFailure(
             logPath,
             session,
-            result.outputRenegotiationPreference,
+            result.outputRenegotiationPolicy.preference,
             result.outputRenegotiationReason,
             result.outputRenegotiationFailure,
             result.deviceRecovered);
@@ -1723,7 +1722,7 @@ void appendSecondaryBackgroundCaptureServiceResult(
         appendOutputRenegotiationRetryScheduled(
             logPath,
             session,
-            result.outputRenegotiationPreference,
+            result.outputRenegotiationPolicy.preference,
             result.outputRenegotiationReason,
             result.outputRenegotiationRetriesRemaining,
             "one-second-monotonic");
@@ -2246,20 +2245,20 @@ int runApplication(
                 || capabilities->advancedColorActive);
         const bafx::windows::CompositionOutputState& output =
             renderer.outputState();
-        const bafx::windows::CompositionOutputPreference resolvedPreference =
-            bafx::desktop::resolveDisplayOutputPreference(
+        const bafx::windows::CompositionOutputPolicy resolvedPolicy =
+            bafx::desktop::resolveDisplayOutputPolicy(
                 displaySession.requestedOutputPreference(),
                 capabilities);
         report.setDisplayRuntimeSummary(
             bafx::windows::DisplayRuntimeSummary{
                 displaySessions.sessions().size(),
                 displaySession.requestedOutputPreference(),
-                resolvedPreference,
+                resolvedPolicy.preference,
                 bafx::windows::effectiveCompositionOutputPreference(output),
-                renderer.outputPreference() == resolvedPreference
-                    && bafx::windows::compositionOutputSatisfiesPreference(
+                renderer.outputPolicy() == resolvedPolicy
+                    && bafx::windows::compositionOutputSatisfiesPolicy(
                         output,
-                        resolvedPreference),
+                        resolvedPolicy),
                 colorSnapshotComplete,
                 hdrCapabilityObserved,
                 hdrActive});
@@ -2474,21 +2473,21 @@ int runApplication(
     bool backgroundRetryPending = false;
     bool coordinatorPowerRecoveryEligible = false;
     bool outputPreferenceReconcilePending = false;
-    const bafx::windows::CompositionOutputPreference
-        initialCoordinatorOutputPreference =
-            bafx::desktop::resolveDisplayOutputPreference(
+    const bafx::windows::CompositionOutputPolicy
+        initialCoordinatorOutputPolicy =
+            bafx::desktop::resolveDisplayOutputPolicy(
                 displaySession.requestedOutputPreference(),
                 displaySession.colorCapabilities());
     std::optional<PendingOutputRenegotiation>
         pendingCoordinatorOutputRenegotiation =
-            renderer.outputPreference() == initialCoordinatorOutputPreference
-            && bafx::windows::compositionOutputSatisfiesPreference(
+            renderer.outputPolicy() == initialCoordinatorOutputPolicy
+            && bafx::windows::compositionOutputSatisfiesPolicy(
                 renderer.outputState(),
-                initialCoordinatorOutputPreference)
+                initialCoordinatorOutputPolicy)
             ? std::nullopt
             : std::optional<PendingOutputRenegotiation>(
                 PendingOutputRenegotiation{
-                    initialCoordinatorOutputPreference,
+                    initialCoordinatorOutputPolicy,
                     "initial-output-fallback"});
     std::optional<bafx::desktop::DisplayTarget> pendingDisplayTarget{};
     bafx::desktop::DisplayCaptureSizeTracker coordinatorCaptureSizeTracker{};
@@ -2543,7 +2542,7 @@ int runApplication(
         }
     };
     const auto renegotiateCoordinatorOutput =
-        [&](const bafx::windows::CompositionOutputPreference preference,
+        [&](const bafx::windows::CompositionOutputPolicy policy,
             const std::string_view reason)
     {
         const bool backgroundCaptureWasActive =
@@ -2586,7 +2585,7 @@ int runApplication(
                 bafx::windows::DiagnosticField{"Monitor", monitor},
                 bafx::windows::DiagnosticField{
                     "RequestedPreference",
-                    outputPreferenceName(preference)},
+                    outputPreferenceName(policy.preference)},
                 bafx::windows::DiagnosticField{
                     "WgcWasActive",
                     backgroundCaptureWasActive ? "true" : "false"},
@@ -2613,7 +2612,7 @@ int runApplication(
         const auto result = tryRenegotiateOutput(
             logPath,
             displaySession,
-            preference,
+            policy,
             reason);
         if (!result.has_value())
         {
@@ -2660,14 +2659,14 @@ int runApplication(
 
         report.setDeviceInfo(renderer.deviceInfo());
         updateDisplayRuntimeSummary();
-        const bool outputPreferenceSatisfied =
-            renderer.outputPreference() == preference
-            && bafx::windows::compositionOutputSatisfiesPreference(
+        const bool outputPolicySatisfied =
+            renderer.outputPolicy() == policy
+            && bafx::windows::compositionOutputSatisfiesPolicy(
                 renderer.outputState(),
-                preference);
+                policy);
         if (!result->deviceRecovered)
         {
-            return outputPreferenceSatisfied;
+            return outputPolicySatisfied;
         }
 
         // The explicit stop above already scheduled reconciliation. Recovery
@@ -2711,7 +2710,7 @@ int runApplication(
             "Graphics.DeviceRecovery.OutputRenegotiationSucceeded",
             fields,
             bafx::windows::DiagnosticLevel::Warning);
-        return outputPreferenceSatisfied;
+        return outputPolicySatisfied;
     };
     const auto retainFailedCoordinatorOutputRenegotiation =
         [&](PendingOutputRenegotiation pending)
@@ -2728,7 +2727,7 @@ int runApplication(
             appendOutputRenegotiationRetryScheduled(
                 logPath,
                 displaySession,
-                pendingCoordinatorOutputRenegotiation->preference,
+                pendingCoordinatorOutputRenegotiation->policy.preference,
                 pendingCoordinatorOutputRenegotiation->reason,
                 pendingCoordinatorOutputRenegotiation->attemptsRemaining,
                 "display-maintenance");
@@ -2736,20 +2735,19 @@ int runApplication(
     const auto queueCoordinatorOutputRecoveryIfNeeded =
         [&](const std::string_view reason)
         {
-            const bafx::windows::CompositionOutputPreference preference =
-                bafx::desktop::resolveDisplayOutputPreference(
+            const bafx::windows::CompositionOutputPolicy policy =
+                bafx::desktop::resolveDisplayOutputPolicy(
                     displaySession.requestedOutputPreference(),
                     displaySession.colorCapabilities());
-            const bool outputPreferenceSatisfied =
-                renderer.outputPreference() == preference
-                && bafx::windows::compositionOutputSatisfiesPreference(
+            const bool outputPolicySatisfied =
+                renderer.outputPolicy() == policy
+                && bafx::windows::compositionOutputSatisfiesPolicy(
                     renderer.outputState(),
-                    preference);
+                    policy);
             const bool duplicatePending =
                 pendingCoordinatorOutputRenegotiation.has_value()
-                && pendingCoordinatorOutputRenegotiation->preference
-                    == preference;
-            if (outputPreferenceSatisfied || duplicatePending)
+                && pendingCoordinatorOutputRenegotiation->policy == policy;
+            if (outputPolicySatisfied || duplicatePending)
             {
                 return;
             }
@@ -2759,7 +2757,7 @@ int runApplication(
             // output budget cannot silently become an unbounded retry loop.
             pendingCoordinatorOutputRenegotiation =
                 PendingOutputRenegotiation{
-                    preference,
+                    policy,
                     std::string(reason)};
             const std::string attempts = std::to_string(
                 pendingCoordinatorOutputRenegotiation->attemptsRemaining);
@@ -2767,7 +2765,7 @@ int runApplication(
                 bafx::windows::DiagnosticField{"Reason", reason},
                 bafx::windows::DiagnosticField{
                     "RequestedPreference",
-                    outputPreferenceName(preference)},
+                    outputPreferenceName(policy.preference)},
                 bafx::windows::DiagnosticField{
                     "ActualTransfer",
                     outputTransferName(renderer.outputState().transfer)},
@@ -2781,18 +2779,18 @@ int runApplication(
                 fields,
                 bafx::windows::DiagnosticLevel::Warning);
         };
-    const auto secondaryOutputPreferenceSatisfied =
+    const auto secondaryOutputPolicySatisfied =
         [](const bafx::desktop::DisplaySession& session,
-           const bafx::windows::CompositionOutputPreference preference) noexcept
+           const bafx::windows::CompositionOutputPolicy policy) noexcept
         {
-            return session.renderer().outputPreference() == preference
-                && bafx::windows::compositionOutputSatisfiesPreference(
+            return session.renderer().outputPolicy() == policy
+                && bafx::windows::compositionOutputSatisfiesPolicy(
                     session.renderer().outputState(),
-                    preference);
+                    policy);
         };
     const auto queueSecondaryOutputRenegotiation =
         [&](bafx::desktop::DisplaySession& session,
-            const bafx::windows::CompositionOutputPreference preference,
+            const bafx::windows::CompositionOutputPolicy policy,
             const std::string_view reason) noexcept
         {
             try
@@ -2809,13 +2807,13 @@ int runApplication(
                         logPath,
                         displayPowerUnavailable);
                 }
-                if (!secondaryOutputPreferenceSatisfied(session, preference))
+                if (!secondaryOutputPolicySatisfied(session, policy))
                 {
                     // Binding the request to the applied target preserves the
                     // budget created during initialization instead of replacing
                     // it with an indistinguishable global request.
                     session.requestSecondaryOutputRenegotiation(
-                        preference,
+                        policy,
                         reason,
                         session.target());
                 }
@@ -2909,46 +2907,44 @@ int runApplication(
             const bafx::windows::CompositionOutputPreference
                 requestedPreference =
                     displaySession.requestedOutputPreference();
-            const bafx::windows::CompositionOutputPreference
-                previousPreference =
-                    bafx::desktop::resolveDisplayOutputPreference(
-                        requestedPreference,
-                        previousCapabilities);
-            const bafx::windows::CompositionOutputPreference
-                currentPreference =
-                    bafx::desktop::resolveDisplayOutputPreference(
-                        requestedPreference,
-                        displaySession.colorCapabilities());
-            const bool outputPreferenceMismatch =
-                renderer.outputPreference() != currentPreference
-                || !bafx::windows::compositionOutputSatisfiesPreference(
+            const bafx::windows::CompositionOutputPolicy previousPolicy =
+                bafx::desktop::resolveDisplayOutputPolicy(
+                    requestedPreference,
+                    previousCapabilities);
+            const bafx::windows::CompositionOutputPolicy currentPolicy =
+                bafx::desktop::resolveDisplayOutputPolicy(
+                    requestedPreference,
+                    displaySession.colorCapabilities());
+            const bool outputPolicyMismatch =
+                renderer.outputPolicy() != currentPolicy
+                || !bafx::windows::compositionOutputSatisfiesPolicy(
                     renderer.outputState(),
-                    currentPreference);
+                    currentPolicy);
             const bool colorContractChanged =
                 bafx::desktop::displayOutputContractChanged(
-                    previousPreference,
-                    currentPreference,
+                    previousPolicy.preference,
+                    currentPolicy.preference,
                     previousCapabilities,
                     displaySession.colorCapabilities());
             // A target migration already recreated the swap chain after the
             // HWND moved. Reconcile only a pre/post query disagreement there;
             // ordinary color events must also rebuild same-transfer metadata.
-            const bool outputContractChanged = outputPreferenceMismatch
+            const bool outputContractChanged = outputPolicyMismatch
                 || (!outputRebuiltForCurrentTarget
                     && colorContractChanged);
             if (outputContractChanged)
             {
                 const bool duplicatePendingContract =
                     pendingCoordinatorOutputRenegotiation.has_value()
-                    && pendingCoordinatorOutputRenegotiation->preference
-                        == currentPreference;
+                    && pendingCoordinatorOutputRenegotiation->policy
+                        == currentPolicy;
                 if (!duplicatePendingContract)
                 {
                     // A duplicate OS notification must not reset the finite
                     // retry budget of the same desired transport contract.
                     pendingCoordinatorOutputRenegotiation =
                         PendingOutputRenegotiation{
-                            currentPreference,
+                            currentPolicy,
                             std::string(reason)};
                 }
             }
@@ -2977,7 +2973,7 @@ int runApplication(
                     outputPreferenceName(requestedPreference)},
                 bafx::windows::DiagnosticField{
                     "ResolvedPreference",
-                    outputPreferenceName(currentPreference)},
+                    outputPreferenceName(currentPolicy.preference)},
                 bafx::windows::DiagnosticField{
                     "OutputContract",
                     outputContractChanged ? "changed" : "unchanged"},
@@ -3002,14 +2998,14 @@ int runApplication(
             {
                 bafx::desktop::DisplaySession& session = *ownedSession;
                 const bool coordinator = &session == &displaySession;
-                const bafx::windows::CompositionOutputPreference effective =
-                    bafx::desktop::resolveDisplayOutputPreference(
+                const bafx::windows::CompositionOutputPolicy effectivePolicy =
+                    bafx::desktop::resolveDisplayOutputPolicy(
                         requested,
                         session.colorCapabilities());
-                if (session.renderer().outputPreference() == effective
-                    && bafx::windows::compositionOutputSatisfiesPreference(
+                if (session.renderer().outputPolicy() == effectivePolicy
+                    && bafx::windows::compositionOutputSatisfiesPolicy(
                         session.renderer().outputState(),
-                        effective))
+                        effectivePolicy))
                 {
                     continue;
                 }
@@ -3018,12 +3014,14 @@ int runApplication(
                 bool applied = false;
                 if (coordinator)
                 {
-                    applied = renegotiateCoordinatorOutput(effective, reason);
+                    applied = renegotiateCoordinatorOutput(
+                        effectivePolicy,
+                        reason);
                     if (!applied)
                     {
                         retainFailedCoordinatorOutputRenegotiation(
                             PendingOutputRenegotiation{
-                                effective,
+                                effectivePolicy,
                                 std::string(reason)});
                     }
                 }
@@ -3031,7 +3029,7 @@ int runApplication(
                 {
                     applied = queueSecondaryOutputRenegotiation(
                         session,
-                        effective,
+                        effectivePolicy,
                         reason);
                     if (!applied)
                     {
@@ -3040,12 +3038,12 @@ int runApplication(
                             tryRenegotiateOutput(
                                 logPath,
                                 session,
-                                effective,
+                                effectivePolicy,
                                 fxOnlyReason);
                         applied = result.has_value()
-                            && secondaryOutputPreferenceSatisfied(
+                            && secondaryOutputPolicySatisfied(
                                 session,
-                                effective);
+                                effectivePolicy);
                     }
                 }
                 if (applied && coordinator)
@@ -3570,24 +3568,23 @@ int runApplication(
                 const bafx::windows::CompositionOutputPreference
                     requestedPreference =
                         session.requestedOutputPreference();
-                const bafx::windows::CompositionOutputPreference
-                    previousPreference =
-                        bafx::desktop::resolveDisplayOutputPreference(
-                            requestedPreference,
-                            previousCapabilities);
-                const bafx::windows::CompositionOutputPreference preference =
-                    bafx::desktop::resolveDisplayOutputPreference(
+                const bafx::windows::CompositionOutputPolicy previousPolicy =
+                    bafx::desktop::resolveDisplayOutputPolicy(
+                        requestedPreference,
+                        previousCapabilities);
+                const bafx::windows::CompositionOutputPolicy policy =
+                    bafx::desktop::resolveDisplayOutputPolicy(
                         requestedPreference,
                         session.colorCapabilities());
-                const bool outputPreferenceMismatch =
-                    session.renderer().outputPreference() != preference
-                    || !bafx::windows::compositionOutputSatisfiesPreference(
+                const bool outputPolicyMismatch =
+                    session.renderer().outputPolicy() != policy
+                    || !bafx::windows::compositionOutputSatisfiesPolicy(
                         session.renderer().outputState(),
-                        preference);
-                const bool outputContractChanged = outputPreferenceMismatch
+                        policy);
+                const bool outputContractChanged = outputPolicyMismatch
                     || bafx::desktop::displayOutputContractChanged(
-                        previousPreference,
-                        preference,
+                        previousPolicy.preference,
+                        policy.preference,
                         previousCapabilities,
                         session.colorCapabilities());
                 std::string_view outputRenegotiation = "not-needed";
@@ -3596,14 +3593,14 @@ int runApplication(
                     renderInvalidated = true;
                     const bool queued = queueSecondaryOutputRenegotiation(
                         session,
-                        preference,
+                        policy,
                         reason);
                     if (queued)
                     {
                         outputRenegotiation =
-                            secondaryOutputPreferenceSatisfied(
+                            secondaryOutputPolicySatisfied(
                                 session,
-                                preference)
+                                policy)
                             ? "applied-during-owner-initialization"
                             : "queued";
                     }
@@ -3617,12 +3614,12 @@ int runApplication(
                             tryRenegotiateOutput(
                                 logPath,
                                 session,
-                                preference,
+                                policy,
                                 reason);
                         outputRenegotiation = result.has_value()
-                            && secondaryOutputPreferenceSatisfied(
+                            && secondaryOutputPolicySatisfied(
                                 session,
-                                preference)
+                                policy)
                             ? "applied-fx-only"
                             : (result.has_value()
                                 ? "fallback-unsatisfied"
@@ -3648,7 +3645,7 @@ int runApplication(
                         outputPreferenceName(requestedPreference)},
                     bafx::windows::DiagnosticField{
                         "ResolvedPreference",
-                        outputPreferenceName(preference)},
+                        outputPreferenceName(policy.preference)},
                     bafx::windows::DiagnosticField{
                         "OutputContract",
                         outputContractChanged ? "changed" : "unchanged"},
@@ -4203,7 +4200,7 @@ int runApplication(
             const PendingOutputRenegotiation pending =
                 *pendingCoordinatorOutputRenegotiation;
             const bool applied = renegotiateCoordinatorOutput(
-                pending.preference,
+                pending.policy,
                 pending.reason);
             // Even a failed attempt may have retired WGC resources. Force one
             // frame while the bounded retry keeps the requested transport.
@@ -4450,11 +4447,10 @@ int runApplication(
                 ? bafx::windows::queryDisplayColorCapabilities(
                     pendingDisplayTarget->monitor)
                 : std::nullopt;
-            const std::optional<
-                bafx::windows::CompositionOutputPreference>
-                targetOutputPreference = displayTargetChanged
-                ? std::optional<bafx::windows::CompositionOutputPreference>(
-                    bafx::desktop::resolveDisplayOutputPreference(
+            const std::optional<bafx::windows::CompositionOutputPolicy>
+                targetOutputPolicy = displayTargetChanged
+                ? std::optional<bafx::windows::CompositionOutputPolicy>(
+                    bafx::desktop::resolveDisplayOutputPolicy(
                         displaySession.requestedOutputPreference(),
                         targetColorCapabilities))
                 : std::nullopt;
@@ -4463,7 +4459,7 @@ int runApplication(
                     ? *pendingDisplayTarget
                     : appliedDisplayTarget,
                 displayTargetChanged,
-                targetOutputPreference,
+                targetOutputPolicy,
                 targetColorCapabilities};
             const std::optional<bafx::windows::WindowSize> outputIntent =
                 displayTargetChanged
