@@ -179,7 +179,8 @@ FX-only，不会先启动带黄色边框的会话。无论该开关如何设置�
 `trail.trailOpacity` 路径；圆环页提供 `rings.count`、`rings.lifetimeMs`、
 `rings.radiusMin`、`rings.radiusMax`、`rings.angularVelocityMultiplier` 和
 `rings.rotationDirection`；点击碎片页提供 `shards.clickCount`、点击寿命上下限、出生半径、速度上下限和
-`shards.sizeMin`/`shards.sizeMax`。其余两页提供透明度、点击/拖尾时间倍率、拖尾寿命，以及 Bloom
+`shards.sizeMin`/`shards.sizeMax`；最后两个尺寸参数按 Web 合同同时作用于点击与拖尾碎片。其余两页提供
+透明度、点击/拖尾时间倍率、拖尾寿命，以及 Bloom
 扩散、阈值、软阈值和亮度上限。背景区域包含指针排除、系统捕获边框和默认关闭的 HDR 输出开关。
 调整结果在下一帧交给 Host。“拖尾常驻”默认关闭；开启后
 无需按住鼠标，普通移动也会生成纯拖尾，但不会伪造点击圆盘或圆环。这是参考 Web 行为提供的原生产品增强，

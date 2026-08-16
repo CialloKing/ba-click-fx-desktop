@@ -949,7 +949,7 @@ bool ControlCenterWindow::createControls()
             ControlId::ShardsClickSpeedMax)
         && createSlider(
             shardsSizeMin_,
-            L"尺寸下限",
+            L"共享碎片尺寸下限",
             0.0,
             100.0,
             0.01,
@@ -957,7 +957,7 @@ bool ControlCenterWindow::createControls()
             ControlId::ShardsSizeMin)
         && createSlider(
             shardsSizeMax_,
-            L"尺寸上限",
+            L"共享碎片尺寸上限",
             0.0,
             100.0,
             0.01,

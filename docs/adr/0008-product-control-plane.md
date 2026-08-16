@@ -60,7 +60,8 @@
     `rings.count`、`rings.lifetimeMs`、`rings.radiusMin`、`rings.radiusMax`、
     `rings.angularVelocityMultiplier`、`rings.rotationDirection`、`rings.hdrIntensity`、
     `shards.hdrIntensity`、`shards.clickCount`、点击寿命上下限、出生半径、速度上下限、
-    `shards.sizeMin`、`shards.sizeMax` 和 `trail.trailOpacity`。IPC 同时提供 `GetFxConfig`、`SetFxParam`、原子批量的
+    `shards.sizeMin`、`shards.sizeMax` 和 `trail.trailOpacity`；其中两个尺寸路径与 Web 一致，同时作用于
+    点击和拖尾碎片。IPC 同时提供 `GetFxConfig`、`SetFxParam`、原子批量的
     `SetFxParams` 与 `ResetFxConfig`；只暴露已经接入 Native 模拟或材质求值的子集，不能根据 Web Schema
     中存在某个路径就宣称 Native 已实现该参数。FX 快照和写入白名单不包含输入、HDR、背景、性能或系统
     字段；这些产品配置必须通过 `GetConfig`/`SetConfig` 读写，因此 `ResetFxConfig` 的作用域始终只对应
