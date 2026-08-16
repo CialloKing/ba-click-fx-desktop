@@ -715,7 +715,7 @@ bool ControlCenterWindow::createControls()
             trailLength_,
             L"拖尾长度",
             0.0,
-            2000.0 / 300.0,
+            10000.0 / 300.0,
             0.05,
             "effects.trailLength",
             ControlId::TrailLength)
@@ -772,7 +772,7 @@ bool ControlCenterWindow::createControls()
             trailLifetimeMs_,
             L"拖尾寿命 (ms)",
             0.0,
-            2000.0,
+            10000.0,
             1.0,
             "trail.lifetimeMs",
             ControlId::TrailLifetimeMs)

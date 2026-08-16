@@ -32,7 +32,7 @@ namespace
 
 constexpr float referenceTrailWidthPixels = 2.7F;
 constexpr float unityTrailLifetimeMs = 300.0F;
-constexpr float maximumTrailLifetimeMs = 2000.0F;
+constexpr float maximumTrailLifetimeMs = 10000.0F;
 constexpr float maximumTrailLengthMultiplier =
     maximumTrailLifetimeMs / unityTrailLifetimeMs;
 
@@ -2669,7 +2669,7 @@ bool validateConfig(const Config& config, std::string* error) noexcept
         || config.effects.trailLength > maximumTrailLengthMultiplier)
     {
         return failValidation(
-            "effects.trailLength must correspond to trailLifetimeMs within [0, 2000]");
+            "effects.trailLength must correspond to trailLifetimeMs within [0, 10000]");
     }
     if (!std::isfinite(config.effects.trailWidth)
         || config.effects.trailWidth < 0.1F
@@ -2693,7 +2693,7 @@ bool validateConfig(const Config& config, std::string* error) noexcept
         || config.effects.trailLifetimeMs < 0.0F
         || config.effects.trailLifetimeMs > maximumTrailLifetimeMs)
     {
-        return failValidation("effects.trailLifetimeMs must be within [0, 2000]");
+        return failValidation("effects.trailLifetimeMs must be within [0, 10000]");
     }
     if (!std::isfinite(config.effects.diskRadius)
         || config.effects.diskRadius < 1.0F

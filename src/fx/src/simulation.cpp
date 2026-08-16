@@ -23,7 +23,7 @@ constexpr double trailLifetimeSeconds = 0.3;
 // observed by the game and therefore owns this native simulation contract.
 constexpr float trailParkingTimeScaleThreshold = 0.19F;
 constexpr float minimumTrailLengthMultiplier = 0.0F;
-constexpr float maximumTrailLengthMultiplier = 2000.0F / 300.0F;
+constexpr float maximumTrailLengthMultiplier = 10000.0F / 300.0F;
 constexpr float minimumTimeScale = 0.01F;
 constexpr float maximumTimeScale = 4.0F;
 constexpr float trailWidthWorld = 0.005F;

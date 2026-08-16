@@ -13,7 +13,7 @@ namespace
 constexpr std::uint64_t randomStreamStep = 0x9E3779B97F4A7C15ULL;
 constexpr std::uint64_t ambientRandomStream = 0xD1B54A32D192ED03ULL;
 constexpr float minimumTrailLengthMultiplier = 0.0F;
-constexpr float maximumTrailLengthMultiplier = 2000.0F / 300.0F;
+constexpr float maximumTrailLengthMultiplier = 10000.0F / 300.0F;
 constexpr float minimumTimeScale = 0.01F;
 constexpr float maximumTimeScale = 4.0F;
 constexpr std::uint32_t maximumInputSamplingRateHz = 1000U;

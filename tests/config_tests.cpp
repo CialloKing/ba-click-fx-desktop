@@ -415,12 +415,12 @@ BAFX_TEST(config_fx_parameter_boundaries_normalize_web_units)
     const auto lifetime = bafx::config::setFxParam(
         base,
         "trail.lifetimeMs",
-        "2000");
+        "10000");
     BAFX_CHECK(lifetime.succeeded());
-    BAFX_CHECK_NEAR(lifetime.config.effects.trailLifetimeMs, 2000.0F, 0.00001F);
+    BAFX_CHECK_NEAR(lifetime.config.effects.trailLifetimeMs, 10000.0F, 0.00001F);
     BAFX_CHECK_NEAR(
         lifetime.config.effects.trailLength,
-        2000.0F / 300.0F,
+        10000.0F / 300.0F,
         0.00001F);
 
     const auto width = bafx::config::setFxParam(
@@ -637,7 +637,7 @@ BAFX_TEST(config_fx_parameter_boundaries_normalize_web_units)
              std::pair{"opacity", "1.01"},
              std::pair{"clickTimeScale", "0.009"},
              std::pair{"trailTimeScale", "4.01"},
-             std::pair{"trail.lifetimeMs", "2000.01"},
+             std::pair{"trail.lifetimeMs", "10000.01"},
              std::pair{"disk.lifetimeMs", "0"},
              std::pair{"disk.lifetimeMs", "10001"},
              std::pair{"rings.count", "65"},

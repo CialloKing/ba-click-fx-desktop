@@ -1706,7 +1706,7 @@ BAFX_TEST(release_waits_for_each_spawned_click_shard_lifetime)
 BAFX_TEST(release_waits_for_web_configured_trail_lifetime)
 {
     Simulation simulation;
-    simulation.setTrailLengthMultiplier(2000.0F / 300.0F);
+    simulation.setTrailLengthMultiplier(10000.0F / 300.0F);
     simulation.startTrail(goldenCenter, goldenViewport, 0ns);
     simulation.pointerMove(
         PointF{goldenCenter.x + 200.0F, goldenCenter.y},
@@ -1714,14 +1714,14 @@ BAFX_TEST(release_waits_for_web_configured_trail_lifetime)
         10ms);
     simulation.pointerUp(20ms);
 
-    simulation.advance(1020ms);
-    BAFX_CHECK(simulation.snapshot(goldenViewport, 1020ms).trail.size() >= 2U);
-    simulation.onFrameRendered(1020ms);
+    simulation.advance(5020ms);
+    BAFX_CHECK(simulation.snapshot(goldenViewport, 5020ms).trail.size() >= 2U);
+    simulation.onFrameRendered(5020ms);
     BAFX_CHECK(simulation.active());
 
-    simulation.advance(2020ms);
-    BAFX_CHECK(simulation.snapshot(goldenViewport, 2020ms).trail.empty());
-    simulation.onFrameRendered(2020ms);
+    simulation.advance(10020ms);
+    BAFX_CHECK(simulation.snapshot(goldenViewport, 10020ms).trail.empty());
+    simulation.onFrameRendered(10020ms);
     BAFX_CHECK(!simulation.active());
 }
 
