@@ -7,6 +7,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'installer-diagnostics.ps1')
+. (Join-Path $PSScriptRoot 'protected-paths.ps1')
 $script:InstallerStep = 'initialize'
 $script:InstallerProductVersion = ''
 $script:InstallerPackageVersion = ''
@@ -19,27 +20,6 @@ function Assert-Administrator
     {
         throw 'Uninstall requires administrator privileges.'
     }
-}
-
-function Resolve-ProtectedInstallRoot
-{
-    param(
-        [Parameter(Mandatory = $true)]
-        [string]$Path
-    )
-
-    $resolved = [IO.Path]::GetFullPath($Path)
-    $roots = @($env:ProgramFiles, ${env:ProgramFiles(x86)}) |
-        Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
-        ForEach-Object { [IO.Path]::GetFullPath($_).TrimEnd('\') + '\' }
-    foreach ($root in $roots)
-    {
-        if ($resolved.StartsWith($root, [StringComparison]::OrdinalIgnoreCase))
-        {
-            return $resolved
-        }
-    }
-    throw "The uninstall directory is outside Program Files: $resolved"
 }
 
 function Assert-ExpectedProcessIsStopped
@@ -199,7 +179,9 @@ if ($PSVersionTable.PSEdition -ne 'Desktop')
 }
 
 $script:InstallerStep = 'resolve-install-root'
-$installRoot = Resolve-ProtectedInstallRoot -Path $InstallDirectory
+$installRoot = Resolve-ProtectedProgramFilesPath `
+    -Path $InstallDirectory `
+    -Description 'uninstall directory'
 $statePath = Join-Path $installRoot 'Installer\INSTALL-STATE.json'
 $pendingPath = Join-Path $installRoot 'Installer\PREPARE-STATE.json'
 $script:InstallerStep = 'check-pending-installation-transaction'

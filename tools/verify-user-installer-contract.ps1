@@ -221,6 +221,7 @@ function Test-PowerShellScriptContracts
         'tools/installer/capture-user-context.ps1',
         'tools/installer/installer-diagnostics.ps1',
         'tools/installer/install-machine.ps1',
+        'tools/installer/protected-paths.ps1',
         'tools/installer/register-user-package.ps1',
         'tools/installer/unregister-machine.ps1',
         'tools/verify-user-installer-contract.ps1'
@@ -240,6 +241,7 @@ function Test-InstallerScriptWhitelist
         'ChineseSimplified.isl',
         'installer-diagnostics.ps1',
         'install-machine.ps1',
+        'protected-paths.ps1',
         'register-user-package.ps1',
         'unregister-machine.ps1'
     )
@@ -256,6 +258,7 @@ function Test-InstallerScriptWhitelist
             '\x27capture-user-context\.ps1\x27\s*,\s*' +
             '\x27installer-diagnostics\.ps1\x27\s*,\s*' +
             '\x27install-machine\.ps1\x27\s*,\s*' +
+            '\x27protected-paths\.ps1\x27\s*,\s*' +
             '\x27register-user-package\.ps1\x27\s*,\s*' +
             '\x27unregister-machine\.ps1\x27\s*\)')) `
         -Description 'explicit runtime installer script whitelist'
@@ -346,6 +349,17 @@ function Test-InstallerScriptWhitelist
         -Text $unregisterMachine `
         -Pattern 'ensure-host-process-stopped[\s\S]*remove-installed-user-package[\s\S]*remove-owned-certificates' `
         -Description 'machine uninstall reports stable resource cleanup steps'
+
+    $protectedPaths = Read-RepositoryText `
+        -RelativePath 'tools/installer/protected-paths.ps1'
+    Assert-TextContains `
+        -Text $protectedPaths `
+        -Pattern 'function\s+Get-ProtectedProgramFilesRoots[\s\S]*ProgramW6432[\s\S]*ProgramFilesDir' `
+        -Description 'shared installer validation recognizes relocated Program Files roots'
+    Assert-TextContains `
+        -Text ($installMachine + $unregisterMachine) `
+        -Pattern 'installer-diagnostics\.ps1[\s\S]*protected-paths\.ps1[\s\S]*Resolve-ProtectedProgramFilesPath' `
+        -Description 'machine install and uninstall share protected path validation'
 
     $diagnostics = Read-RepositoryText `
         -RelativePath 'tools/installer/installer-diagnostics.ps1'
