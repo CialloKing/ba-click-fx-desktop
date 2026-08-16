@@ -17,6 +17,7 @@ struct PendingSecondaryOutputRenegotiation final
     std::optional<DisplayTarget> target{};
     std::uint32_t attemptsRemaining{maximumOutputRenegotiationAttempts};
     bafx::core::MonotonicTime retryNotBefore{};
+    bool retryDeadlineNeedsAnchor{false};
 };
 
 struct DisplaySessionBackgroundCaptureState final
@@ -740,6 +741,16 @@ DisplaySession::serviceSecondaryBackgroundCapture(
         }
 
         if (state.pendingOutputRenegotiation.has_value()
+            && state.pendingOutputRenegotiation->retryDeadlineNeedsAnchor
+            && now > bafx::core::MonotonicTime::zero())
+        {
+            // Some transaction entry points use zero for immediate service.
+            // Anchor the delay only after the Host supplies real QPC time.
+            state.pendingOutputRenegotiation->retryNotBefore =
+                now + outputRenegotiationRetryDelay;
+            state.pendingOutputRenegotiation->retryDeadlineNeedsAnchor = false;
+        }
+        if (state.pendingOutputRenegotiation.has_value()
             && state.pendingOutputRenegotiation->retryNotBefore <= now)
         {
             PendingSecondaryOutputRenegotiation pending =
@@ -846,7 +857,11 @@ DisplaySession::serviceSecondaryBackgroundCapture(
             else if (pending.attemptsRemaining > 1U)
             {
                 --pending.attemptsRemaining;
-                pending.retryNotBefore = now + outputRenegotiationRetryDelay;
+                pending.retryDeadlineNeedsAnchor =
+                    now == bafx::core::MonotonicTime::zero();
+                pending.retryNotBefore = pending.retryDeadlineNeedsAnchor
+                    ? bafx::core::MonotonicTime::max()
+                    : now + outputRenegotiationRetryDelay;
                 state.pendingOutputRenegotiation = std::move(pending);
                 result.outputRenegotiationRetryPending = true;
                 result.outputRenegotiationRetriesRemaining =
