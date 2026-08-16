@@ -44,6 +44,8 @@ OutputBaseFilename={#OutputBaseName}
 Compression=lzma2/ultra64
 SolidCompression=yes
 WizardStyle=modern
+ShowLanguageDialog=no
+LanguageDetectionMethod=uilanguage
 PrivilegesRequired=admin
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
@@ -60,6 +62,9 @@ ChangesAssociations=no
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
+; Keep the installer self-contained. This translation is pinned from
+; jrsoftware/issrc commit 5680c948e1de07e71cbd27cad7d4f5e75223afba.
+Name: "chinesesimplified"; MessagesFile: "{#SourcePath}\ChineseSimplified.isl"
 
 [Files]
 Source: "{#StageRoot}\ba-click-fx-desktop.exe"; DestDir: "{app}"; Flags: ignoreversion
@@ -72,10 +77,10 @@ Source: "{#StageRoot}\Installer\*"; DestDir: "{app}\Installer"; Flags: ignorever
 [Icons]
 Name: "{autoprograms}\ba-click-fx-desktop\BAFX Control Center"; Filename: "{app}\BAFX.ControlCenter.exe"; WorkingDir: "{app}"
 Name: "{autodesktop}\BAFX Control Center"; Filename: "{app}\BAFX.ControlCenter.exe"; WorkingDir: "{app}"
-Name: "{autoprograms}\ba-click-fx-desktop\Uninstall ba-click-fx-desktop"; Filename: "{uninstallexe}"
+Name: "{autoprograms}\ba-click-fx-desktop\{cm:UninstallProgram,{#ProductName}}"; Filename: "{uninstallexe}"
 
 [Run]
-Filename: "{app}\BAFX.ControlCenter.exe"; Description: "Launch BAFX Control Center"; WorkingDir: "{app}"; Flags: postinstall nowait skipifsilent runasoriginaluser
+Filename: "{app}\BAFX.ControlCenter.exe"; Description: "{cm:LaunchProgram,BAFX Control Center}"; WorkingDir: "{app}"; Flags: postinstall nowait skipifsilent runasoriginaluser
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{app}\Identity"

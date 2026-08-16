@@ -237,6 +237,7 @@ function Test-InstallerScriptWhitelist
     $expectedFiles = @(
         'ba-click-fx-desktop.iss',
         'capture-user-context.ps1',
+        'ChineseSimplified.isl',
         'installer-diagnostics.ps1',
         'install-machine.ps1',
         'register-user-package.ps1',
@@ -372,8 +373,30 @@ function Test-InstallerScriptWhitelist
 function Test-InnoPayloadContract
 {
     $inno = Read-RepositoryText -RelativePath 'tools/installer/ba-click-fx-desktop.iss'
+    $chineseMessages = Read-RepositoryText `
+        -RelativePath 'tools/installer/ChineseSimplified.isl'
     $packager = Read-RepositoryText -RelativePath 'tools/package-user-installer.ps1'
     $identityBuilder = Read-RepositoryText -RelativePath 'tools/identity-package/build-identity-package.ps1'
+    Assert-TextContains `
+        -Text $inno `
+        -Pattern '(?m)^ShowLanguageDialog=no$' `
+        -Description 'automatic installer language selection without a prompt'
+    Assert-TextContains `
+        -Text $inno `
+        -Pattern '(?m)^LanguageDetectionMethod=uilanguage$' `
+        -Description 'Windows UI language based installer selection'
+    Assert-TextContains `
+        -Text $inno `
+        -Pattern 'Name:\s*"english"[\s\S]*Name:\s*"chinesesimplified"[\s\S]*ChineseSimplified\.isl' `
+        -Description 'English and Simplified Chinese installer languages'
+    Assert-TextContains `
+        -Text $chineseMessages `
+        -Pattern '(?m)^LanguageID=\$0804$' `
+        -Description 'Simplified Chinese Windows language identifier'
+    Assert-TextContains `
+        -Text $inno `
+        -Pattern '\{cm:LaunchProgram,BAFX Control Center\}' `
+        -Description 'localized post-install Control Center action'
     $filesSectionMatch = [regex]::Match(
         $inno,
         '(?ms)^\[Files\]\s*(?<body>.*?)(?=^\[|\z)')
