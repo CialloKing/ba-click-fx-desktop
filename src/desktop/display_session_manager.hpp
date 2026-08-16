@@ -31,6 +31,7 @@ struct DisplaySessionManagerOptions final
     bool alwaysOnTrailEnabled{false};
     float clickTimeScale{1.0F};
     float trailTimeScale{1.0F};
+    bafx::fx::ClickParticleSettings clickParticleSettings{};
 };
 
 struct DisplaySessionFailure final
@@ -82,7 +83,8 @@ public:
         std::uint32_t inputSamplingRateHz,
         bool alwaysOnTrailEnabled,
         float clickTimeScale,
-        float trailTimeScale) noexcept;
+        float trailTimeScale,
+        bafx::fx::ClickParticleSettings clickParticleSettings) noexcept;
 
     [[nodiscard]] DisplaySession* findBySource(
         const DisplayTarget& target) noexcept;
@@ -120,6 +122,7 @@ private:
     bool alwaysOnTrailEnabled_{false};
     float clickTimeScale_{1.0F};
     float trailTimeScale_{1.0F};
+    bafx::fx::ClickParticleSettings clickParticleSettings_{};
     DisplaySession* coordinator_{nullptr};
     std::vector<std::unique_ptr<DisplaySession>> sessions_{};
 };

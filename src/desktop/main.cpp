@@ -353,6 +353,19 @@ void appendDeviceRemovedNotificationStatus(
         effects.bloomClamp};
 }
 
+[[nodiscard]] bafx::fx::ClickParticleSettings makeClickParticleSettings(
+    const bafx::config::EffectsConfig& effects) noexcept
+{
+    return bafx::fx::ClickParticleSettings{
+        effects.diskLifetimeMs,
+        effects.ringsCount,
+        effects.ringsLifetimeMs,
+        effects.ringsRadiusMin,
+        effects.ringsRadiusMax,
+        effects.ringsAngularVelocityMultiplier,
+        effects.ringsRotationDirection};
+}
+
 [[nodiscard]] bafx::windows::CompositionOutputPreference makeOutputPreference(
     const bafx::config::DisplayConfig& display) noexcept
 {
@@ -2407,7 +2420,8 @@ int runApplication(
                 && config.effects.trailEnabled
                 && !config.input.trailOnlyWhilePressed,
             config.effects.clickTimeScale,
-            config.effects.trailTimeScale});
+            config.effects.trailTimeScale,
+            makeClickParticleSettings(config.effects)});
     bafx::desktop::DisplaySession& displaySession =
         displaySessions.createCoordinator(appliedDisplayTarget);
     bafx::windows::OverlayWindow& window = displaySession.window();
@@ -4695,6 +4709,8 @@ int runApplication(
                     && !config.input.trailOnlyWhilePressed;
                 const bafx::windows::FxBloomSettings bloomSettings =
                     makeBloomSettings(config.effects);
+                const bafx::fx::ClickParticleSettings clickParticleSettings =
+                    makeClickParticleSettings(config.effects);
                 const bafx::fx::SimulationTime settingsTime =
                     simulationTimeline.fromWallTime(clock.now());
                 displaySessions.updateCreationSettings(
@@ -4704,13 +4720,17 @@ int runApplication(
                     config.input.samplingRateHz,
                     alwaysOnTrailEnabled,
                     config.effects.clickTimeScale,
-                    config.effects.trailTimeScale);
+                    config.effects.trailTimeScale,
+                    clickParticleSettings);
                 // Host owns the render thread, so applying the immutable control
                 // snapshot here makes input, length and Bloom changes take effect
                 // on the next frame without cross-thread renderer mutation.
                 simulation.setTrailLengthMultiplier(config.effects.trailLength);
                 simulation.setClickTimeScale(
                     config.effects.clickTimeScale,
+                    settingsTime);
+                simulation.setClickParticleSettings(
+                    clickParticleSettings,
                     settingsTime);
                 simulation.setTrailTimeScale(
                     config.effects.trailTimeScale,
@@ -4789,6 +4809,9 @@ int runApplication(
                         config.effects.trailLength);
                     session.simulation().setClickTimeScale(
                         config.effects.clickTimeScale,
+                        settingsTime);
+                    session.simulation().setClickParticleSettings(
+                        clickParticleSettings,
                         settingsTime);
                     session.simulation().setTrailTimeScale(
                         config.effects.trailTimeScale,

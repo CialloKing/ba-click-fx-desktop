@@ -28,8 +28,13 @@ constexpr float maximumTrailLengthMultiplier = 3.0F;
 constexpr float minimumTimeScale = 0.01F;
 constexpr float maximumTimeScale = 4.0F;
 constexpr float trailWidthWorld = 0.005F;
-constexpr float ringLifetimeSeconds = 0.6F;
-constexpr float ringAngularVelocityMultiplier = 11.170107F;
+constexpr float referenceWorldToPixels = 540.0F;
+constexpr float webRingMeshOuterRadius = 1.0636684F;
+constexpr float minimumParticleLifetimeMs = 1.0F;
+constexpr float maximumParticleLifetimeMs = 10000.0F;
+constexpr std::uint32_t maximumRingCount = 64U;
+constexpr float maximumRingRadius = 2000.0F;
+constexpr float maximumRingAngularVelocityMultiplier = 100.0F;
 constexpr float maximumParticleTimestepSeconds = 0.03F;
 constexpr std::uint32_t maximumDragParticles = 50U;
 constexpr double releaseLifetimeSeconds = 1.0;
@@ -75,6 +80,68 @@ struct ColorKey
     }
 
     return std::clamp(timeScale, minimumTimeScale, maximumTimeScale);
+}
+
+[[nodiscard]] float normalizeFiniteRange(
+    const float value,
+    const float fallback,
+    const float minimum,
+    const float maximum) noexcept
+{
+    if (!std::isfinite(value))
+    {
+        return fallback;
+    }
+    return std::clamp(value, minimum, maximum);
+}
+
+[[nodiscard]] ClickParticleSettings normalizeClickParticleSettings(
+    ClickParticleSettings settings) noexcept
+{
+    const ClickParticleSettings defaults{};
+    settings.diskLifetimeMs = normalizeFiniteRange(
+        settings.diskLifetimeMs,
+        defaults.diskLifetimeMs,
+        minimumParticleLifetimeMs,
+        maximumParticleLifetimeMs);
+    settings.ringsCount = std::min(settings.ringsCount, maximumRingCount);
+    settings.ringsLifetimeMs = normalizeFiniteRange(
+        settings.ringsLifetimeMs,
+        defaults.ringsLifetimeMs,
+        minimumParticleLifetimeMs,
+        maximumParticleLifetimeMs);
+    settings.ringsRadiusMin = normalizeFiniteRange(
+        settings.ringsRadiusMin,
+        defaults.ringsRadiusMin,
+        0.0F,
+        maximumRingRadius);
+    settings.ringsRadiusMax = normalizeFiniteRange(
+        settings.ringsRadiusMax,
+        defaults.ringsRadiusMax,
+        0.0F,
+        maximumRingRadius);
+    settings.ringsAngularVelocityMultiplier = normalizeFiniteRange(
+        settings.ringsAngularVelocityMultiplier,
+        defaults.ringsAngularVelocityMultiplier,
+        0.0F,
+        maximumRingAngularVelocityMultiplier);
+    settings.ringsRotationDirection = normalizeFiniteRange(
+        settings.ringsRotationDirection,
+        defaults.ringsRotationDirection,
+        -1.0F,
+        1.0F);
+    return settings;
+}
+
+[[nodiscard]] float millisecondsToSeconds(const float milliseconds) noexcept
+{
+    return milliseconds * 0.001F;
+}
+
+[[nodiscard]] float referenceRadiusToStartSizeWorld(
+    const float radiusPixels) noexcept
+{
+    return radiusPixels / (referenceWorldToPixels * webRingMeshOuterRadius);
 }
 
 template<std::size_t keyCount>
@@ -169,29 +236,51 @@ template<std::size_t keyCount>
 
 [[nodiscard]] float ringRotationDelta(
     const float angularBlend,
-    const float normalizedAge) noexcept
+    const float fromAgeSeconds,
+    const float toAgeSeconds,
+    const ClickParticleSettings& settings) noexcept
 {
+    if (toAgeSeconds <= fromAgeSeconds)
+    {
+        return 0.0F;
+    }
+
     constexpr std::array minimumKeys{
         CurveKey{0.14903903F, 1.0F, 0.0F, 0.0F},
         CurveKey{1.0F, 0.45561826F, 0.0F, 0.0F}};
     constexpr std::array maximumKeys{
         CurveKey{0.15865384F, 0.79881656F, 0.0F, 0.0F},
         CurveKey{1.0F, -0.06509134F, 0.0F, 0.0F}};
-    const float minimumIntegral = integrateHermiteCurve(
+    const float lifetimeSeconds = millisecondsToSeconds(
+        settings.ringsLifetimeMs);
+    const float fromNormalizedAge = fromAgeSeconds / lifetimeSeconds;
+    const float toNormalizedAge = toAgeSeconds / lifetimeSeconds;
+    const float minimumIntegralFrom = integrateHermiteCurve(
         minimumKeys,
-        normalizedAge);
-    const float maximumIntegral = integrateHermiteCurve(
+        fromNormalizedAge);
+    const float minimumIntegralTo = integrateHermiteCurve(
+        minimumKeys,
+        toNormalizedAge);
+    const float maximumIntegralFrom = integrateHermiteCurve(
         maximumKeys,
-        normalizedAge);
+        fromNormalizedAge);
+    const float maximumIntegralTo = integrateHermiteCurve(
+        maximumKeys,
+        toNormalizedAge);
     const float blend = clampUnit(angularBlend);
-    const float blendedIntegral = minimumIntegral
-        + (maximumIntegral - minimumIntegral) * blend;
+    const float blendedIntegralFrom = minimumIntegralFrom
+        + (maximumIntegralFrom - minimumIntegralFrom) * blend;
+    const float blendedIntegralTo = minimumIntegralTo
+        + (maximumIntegralTo - minimumIntegralTo) * blend;
 
     // Unity stores angular velocity over normalized lifetime, so integrate in
     // curve space and multiply by the particle lifetime to recover radians.
-    return blendedIntegral
-        * ringAngularVelocityMultiplier
-        * ringLifetimeSeconds;
+    // Web Canvas positive rotation is screen-clockwise; native mesh rotation
+    // is screen-counterclockwise, so the public direction changes sign here.
+    return (blendedIntegralTo - blendedIntegralFrom)
+        * settings.ringsAngularVelocityMultiplier
+        * lifetimeSeconds
+        * -settings.ringsRotationDirection;
 }
 
 [[nodiscard]] float length(const PointF value) noexcept
@@ -538,6 +627,41 @@ void Simulation::setTrailTimeScale(
     trailTimeScale_ = normalizeTimeScale(timeScale);
 }
 
+void Simulation::setClickParticleSettings(
+    const ClickParticleSettings settings) noexcept
+{
+    if (active_)
+    {
+        // Motion changes need a source-time boundary to preserve prior turns.
+        return;
+    }
+    clickParticleSettings_ = normalizeClickParticleSettings(settings);
+}
+
+void Simulation::setClickParticleSettings(
+    const ClickParticleSettings settings,
+    const SimulationTime time) noexcept
+{
+    const ClickParticleSettings normalized = normalizeClickParticleSettings(
+        settings);
+    const bool motionChanged =
+        normalized.ringsLifetimeMs
+            != clickParticleSettings_.ringsLifetimeMs
+        || normalized.ringsAngularVelocityMultiplier
+            != clickParticleSettings_.ringsAngularVelocityMultiplier
+        || normalized.ringsRotationDirection
+            != clickParticleSettings_.ringsRotationDirection;
+    if (motionChanged && active_ && clickEffectEnabled_ && !rings_.empty())
+    {
+        // The old motion parameters own every click-time interval through this
+        // boundary. Only later motion may observe the replacement settings.
+        accumulateClickTime(time);
+        settleRingRotation(
+            particleStepStatesAt(time).dissolveRings.particleAgeSeconds);
+    }
+    clickParticleSettings_ = normalized;
+}
+
 void Simulation::pointerDown(
     const PointF screenPosition,
     const Viewport viewport,
@@ -723,12 +847,14 @@ FrameSnapshot Simulation::snapshot(const Viewport viewport, const SimulationTime
     const ClickParticleStepStates particleStates = particleStepStatesAt(time);
     const SimulationTime snapshotTrailTime = trailTimeAt(time);
     const ParticleStepState& centerDiskState = particleStates.centerDisk;
+    const float diskLifetimeSeconds = millisecondsToSeconds(
+        clickParticleSettings_.diskLifetimeMs);
     if (clickEffectEnabled_
         && centerDiskState.burstEmitted
-        && centerDiskState.particleAgeSeconds <= 0.2F)
+        && centerDiskState.particleAgeSeconds <= diskLifetimeSeconds)
     {
         const float normalizedAge =
-            centerDiskState.particleAgeSeconds / 0.2F;
+            centerDiskState.particleAgeSeconds / diskLifetimeSeconds;
         frame.sprites.push_back(Sprite{
             SpriteKind::CenterDisk,
             worldToScreen(effectOriginWorld_, viewport),
@@ -744,6 +870,8 @@ FrameSnapshot Simulation::snapshot(const Viewport viewport, const SimulationTime
 
     const ParticleStepState& dissolveRingState =
         particleStates.dissolveRings;
+    const float ringLifetimeSeconds = millisecondsToSeconds(
+        clickParticleSettings_.ringsLifetimeMs);
     if (dissolveRingState.burstEmitted
         && dissolveRingState.particleAgeSeconds <= ringLifetimeSeconds)
     {
@@ -763,7 +891,12 @@ FrameSnapshot Simulation::snapshot(const Viewport viewport, const SimulationTime
                 worldToScreen(effectOriginWorld_, viewport),
                 size,
                 ring.initialRotationRadians
-                    + ringRotationDelta(ring.angularBlend, normalizedAge),
+                    + ring.settledRotationRadians
+                    + ringRotationDelta(
+                        ring.angularBlend,
+                        ring.rotationAnchorAgeSeconds,
+                        dissolveRingState.particleAgeSeconds,
+                        clickParticleSettings_),
                 ringColor(normalizedAge),
                 5.992157F,
                 dissolveThreshold(customNormalizedAge),
@@ -918,6 +1051,19 @@ Simulation::ClickParticleStepStates Simulation::particleStepStatesAt(
     return states;
 }
 
+void Simulation::settleRingRotation(const float particleAgeSeconds) noexcept
+{
+    for (RingParticle& ring : rings_)
+    {
+        ring.settledRotationRadians += ringRotationDelta(
+            ring.angularBlend,
+            ring.rotationAnchorAgeSeconds,
+            particleAgeSeconds,
+            clickParticleSettings_);
+        ring.rotationAnchorAgeSeconds = particleAgeSeconds;
+    }
+}
+
 PointF Simulation::screenToWorld(const PointF screen, const Viewport viewport) noexcept
 {
     if (viewport.width == 0U || viewport.height == 0U)
@@ -1013,12 +1159,20 @@ void Simulation::reset(const PointF worldPosition, const SimulationTime time)
     resetState(worldPosition, time);
     clickEffectEnabled_ = true;
 
-    for (std::uint32_t index = 0; index < 2U; ++index)
+    const float radiusMinimumWorld = referenceRadiusToStartSizeWorld(
+        clickParticleSettings_.ringsRadiusMin);
+    const float radiusMaximumWorld = referenceRadiusToStartSizeWorld(
+        clickParticleSettings_.ringsRadiusMax);
+    for (std::uint32_t index = 0;
+         index < clickParticleSettings_.ringsCount;
+         ++index)
     {
         rings_.push_back(RingParticle{
-            random_.range(0.12F, 0.14F),
+            random_.range(radiusMinimumWorld, radiusMaximumWorld),
             random_.range(0.0F, 2.0F * std::numbers::pi_v<float>),
-            random_.unit()});
+            random_.unit(),
+            0.0F,
+            0.0F});
     }
     emitClickTriangles(SimulationTime::zero());
     appendTrailPoint(worldPosition, trailTime_);

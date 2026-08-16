@@ -47,6 +47,10 @@ public:
     void setClickTimeScale(float timeScale, SimulationTime time) noexcept;
     void setTrailTimeScale(float timeScale) noexcept;
     void setTrailTimeScale(float timeScale, SimulationTime time) noexcept;
+    void setClickParticleSettings(ClickParticleSettings settings) noexcept;
+    void setClickParticleSettings(
+        ClickParticleSettings settings,
+        SimulationTime time) noexcept;
     void setTrailLengthMultiplier(float multiplier) noexcept;
     void setInputSamplingRateHz(std::uint32_t rateHz) noexcept;
     void setAlwaysOnTrailEnabled(bool enabled, SimulationTime time);
@@ -81,6 +85,7 @@ private:
     float trailLengthMultiplier_{1.0F};
     float clickTimeScale_{1.0F};
     float trailTimeScale_{1.0F};
+    ClickParticleSettings clickParticleSettings_{};
     std::uint32_t inputSamplingRateHz_{0U};
     std::optional<SimulationTime> lastInputSampleAt_{};
     std::vector<RuntimeInstance> instances_{};

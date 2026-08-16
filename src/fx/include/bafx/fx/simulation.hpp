@@ -99,6 +99,20 @@ struct FrameSnapshot
     }
 };
 
+// Public values keep the Web API's units. The extracted Unity defaults remain
+// the identity configuration, while the simulation converts reference pixels
+// to world units only when a ring particle is born.
+struct ClickParticleSettings
+{
+    float diskLifetimeMs{200.0F};
+    std::uint32_t ringsCount{2U};
+    float ringsLifetimeMs{600.0F};
+    float ringsRadiusMin{68.92571232F};
+    float ringsRadiusMax{80.41333104F};
+    float ringsAngularVelocityMultiplier{11.170107F};
+    float ringsRotationDirection{-1.0F};
+};
+
 // Moving particles must scale around their own emission pivot; changing only
 // their quad size detaches click shards from the disk and ring.
 void applyGlobalScale(FrameSnapshot& snapshot, float scale) noexcept;
@@ -136,6 +150,15 @@ public:
     void setTrailTimeScale(float timeScale) noexcept;
     void setTrailTimeScale(float timeScale, SimulationTime time) noexcept;
 
+    // Count and radius bounds are spawn-time inputs. Lifetime and angular
+    // motion affect live particles, but never extend FX_Touch's fixed one-second
+    // post-release pool deadline. The timestamped overload settles rotation at
+    // the old parameters before installing a new motion segment.
+    void setClickParticleSettings(ClickParticleSettings settings) noexcept;
+    void setClickParticleSettings(
+        ClickParticleSettings settings,
+        SimulationTime time) noexcept;
+
     // Product settings may change during an active stroke. Retain the
     // existing points and apply the new lifetime on the next simulation step.
     void setTrailLengthMultiplier(float multiplier) noexcept;
@@ -163,6 +186,8 @@ private:
         float startSizeWorld{0.0F};
         float initialRotationRadians{0.0F};
         float angularBlend{0.0F};
+        float settledRotationRadians{0.0F};
+        float rotationAnchorAgeSeconds{0.0F};
     };
 
     struct StoredTrailPoint
@@ -235,6 +260,7 @@ private:
         SimulationTime elapsed) noexcept;
     [[nodiscard]] ClickParticleStepStates particleStepStatesAt(
         SimulationTime time) const noexcept;
+    void settleRingRotation(float particleAgeSeconds) noexcept;
 
     std::uint64_t baseSeed_{0};
     std::uint64_t activationCount_{0};
@@ -260,6 +286,7 @@ private:
     float trailLengthMultiplier_{1.0F};
     float clickTimeScale_{1.0F};
     float trailTimeScale_{1.0F};
+    ClickParticleSettings clickParticleSettings_{};
     bool trailParkingMode_{false};
     bool trailRendererEnabled_{true};
     ClickParticleStepStates particleStepStates_{};

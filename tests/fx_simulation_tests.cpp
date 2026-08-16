@@ -1063,6 +1063,144 @@ BAFX_TEST(runtime_click_time_scale_change_preserves_elapsed_history)
         > 1.0e-3F);
 }
 
+BAFX_TEST(click_particle_spawn_settings_only_apply_to_new_activations)
+{
+    SimulationRuntime runtime;
+    ClickParticleSettings initial{};
+    initial.ringsCount = 3U;
+    initial.ringsRadiusMin = 50.0F;
+    initial.ringsRadiusMax = 50.0F;
+    runtime.setClickParticleSettings(initial);
+    runtime.pointerDown(goldenCenter, goldenViewport, 0ns);
+
+    const FrameSnapshot beforeChange = runtime.snapshot(goldenViewport, 1ns);
+    const auto originalRings = spritesOfKind(
+        beforeChange,
+        SpriteKind::DissolveRing);
+    BAFX_CHECK(originalRings.size() == 3U);
+
+    ClickParticleSettings replacement = initial;
+    replacement.ringsCount = 1U;
+    replacement.ringsRadiusMin = 100.0F;
+    replacement.ringsRadiusMax = 100.0F;
+    runtime.setClickParticleSettings(replacement, 1ns);
+    const FrameSnapshot retainedFrame = runtime.snapshot(
+        goldenViewport,
+        1ns);
+    const auto retainedRings = spritesOfKind(
+        retainedFrame,
+        SpriteKind::DissolveRing);
+    BAFX_CHECK(retainedRings.size() == originalRings.size());
+    for (std::size_t index = 0U; index < originalRings.size(); ++index)
+    {
+        BAFX_CHECK_NEAR(
+            retainedRings[index]->sizePixels,
+            originalRings[index]->sizePixels,
+            0.0F);
+    }
+
+    runtime.pointerUp(10ms);
+    runtime.onFrameRendered(1010ms);
+    BAFX_CHECK(runtime.instanceCount() == 0U);
+    runtime.pointerDown(goldenCenter, goldenViewport, 1100ms);
+    const FrameSnapshot replacementFrame = runtime.snapshot(
+        goldenViewport,
+        1100ms + 1ns);
+    const auto replacementRings = spritesOfKind(
+        replacementFrame,
+        SpriteKind::DissolveRing);
+    BAFX_CHECK(replacementRings.size() == 1U);
+    BAFX_CHECK_NEAR(
+        replacementRings.front()->sizePixels,
+        originalRings.front()->sizePixels * 2.0F,
+        1.0e-4F);
+}
+
+BAFX_TEST(click_particle_lifetimes_apply_to_an_existing_activation)
+{
+    Simulation simulation;
+    simulation.pointerDown(goldenCenter, goldenViewport, 0ns);
+
+    ClickParticleSettings shortLived{};
+    shortLived.diskLifetimeMs = 50.0F;
+    shortLived.ringsLifetimeMs = 50.0F;
+    simulation.setClickParticleSettings(shortLived, 100ms);
+    const FrameSnapshot shortened = simulation.snapshot(goldenViewport, 100ms);
+    BAFX_CHECK(countKind(shortened, SpriteKind::CenterDisk) == 0U);
+    BAFX_CHECK(countKind(shortened, SpriteKind::DissolveRing) == 0U);
+
+    ClickParticleSettings extended = shortLived;
+    extended.diskLifetimeMs = 500.0F;
+    extended.ringsLifetimeMs = 800.0F;
+    simulation.setClickParticleSettings(extended, 100ms);
+    const FrameSnapshot lengthened = simulation.snapshot(goldenViewport, 100ms);
+    BAFX_CHECK(countKind(lengthened, SpriteKind::CenterDisk) == 1U);
+    BAFX_CHECK(countKind(lengthened, SpriteKind::DissolveRing) == 2U);
+}
+
+BAFX_TEST(ring_motion_hot_update_is_continuous_and_maps_web_direction)
+{
+    Simulation simulation;
+    simulation.pointerDown(goldenCenter, goldenViewport, 0ns);
+    const FrameSnapshot beforeFrame = simulation.snapshot(
+        goldenViewport,
+        300ms);
+    const auto before = spritesOfKind(
+        beforeFrame,
+        SpriteKind::DissolveRing);
+
+    ClickParticleSettings clockwiseWeb{};
+    clockwiseWeb.ringsRotationDirection = 1.0F;
+    clockwiseWeb.ringsAngularVelocityMultiplier *= 2.0F;
+    simulation.setClickParticleSettings(clockwiseWeb, 300ms);
+    const FrameSnapshot boundaryFrame = simulation.snapshot(
+        goldenViewport,
+        300ms);
+    const auto boundary = spritesOfKind(
+        boundaryFrame,
+        SpriteKind::DissolveRing);
+    BAFX_CHECK(boundary.size() == before.size());
+    for (std::size_t index = 0U; index < before.size(); ++index)
+    {
+        BAFX_CHECK_NEAR(
+            boundary[index]->rotationRadians,
+            before[index]->rotationRadians,
+            1.0e-6F);
+    }
+
+    const FrameSnapshot reversedFrame = simulation.snapshot(
+        goldenViewport,
+        350ms);
+    const auto reversed = spritesOfKind(
+        reversedFrame,
+        SpriteKind::DissolveRing);
+    for (std::size_t index = 0U; index < boundary.size(); ++index)
+    {
+        // Positive Canvas rotation is clockwise, so the native world-space
+        // angle must decrease to produce the same screen-space direction.
+        BAFX_CHECK(
+            reversed[index]->rotationRadians
+            < boundary[index]->rotationRadians);
+    }
+
+    ClickParticleSettings stopped = clockwiseWeb;
+    stopped.ringsRotationDirection = 0.0F;
+    simulation.setClickParticleSettings(stopped, 350ms);
+    const FrameSnapshot stoppedLaterFrame = simulation.snapshot(
+        goldenViewport,
+        400ms);
+    const auto stoppedLater = spritesOfKind(
+        stoppedLaterFrame,
+        SpriteKind::DissolveRing);
+    for (std::size_t index = 0U; index < reversed.size(); ++index)
+    {
+        BAFX_CHECK_NEAR(
+            stoppedLater[index]->rotationRadians,
+            reversed[index]->rotationRadians,
+            1.0e-6F);
+    }
+}
+
 BAFX_TEST(trail_time_scale_change_preserves_existing_visual_age)
 {
     SimulationRuntime runtime;

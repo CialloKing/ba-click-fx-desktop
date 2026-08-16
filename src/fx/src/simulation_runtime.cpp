@@ -309,6 +309,35 @@ void SimulationRuntime::setTrailTimeScale(
     }
 }
 
+void SimulationRuntime::setClickParticleSettings(
+    const ClickParticleSettings settings) noexcept
+{
+    clickParticleSettings_ = settings;
+    for (RuntimeInstance& runtimeInstance : instances_)
+    {
+        runtimeInstance.simulation.setClickParticleSettings(settings);
+    }
+    if (alwaysOnTrail_.has_value())
+    {
+        alwaysOnTrail_->setClickParticleSettings(settings);
+    }
+}
+
+void SimulationRuntime::setClickParticleSettings(
+    const ClickParticleSettings settings,
+    const SimulationTime time) noexcept
+{
+    clickParticleSettings_ = settings;
+    for (RuntimeInstance& runtimeInstance : instances_)
+    {
+        runtimeInstance.simulation.setClickParticleSettings(settings, time);
+    }
+    if (alwaysOnTrail_.has_value())
+    {
+        alwaysOnTrail_->setClickParticleSettings(settings, time);
+    }
+}
+
 void SimulationRuntime::setTrailLengthMultiplier(const float multiplier) noexcept
 {
     trailLengthMultiplier_ = normalizeTrailLengthMultiplier(multiplier);
@@ -470,6 +499,9 @@ Simulation& SimulationRuntime::acquirePressedInstance(
     }
 
     Simulation& instance = instances_.back().simulation;
+    // Spawn-only count and radius settings must be installed after pool reuse
+    // but before pointerDown samples this activation's particles.
+    instance.setClickParticleSettings(clickParticleSettings_);
     instance.setTrailLengthMultiplier(trailLengthMultiplier_);
     instance.setClickTimeScale(clickTimeScale_);
     instance.setTrailTimeScale(trailTimeScale_);
