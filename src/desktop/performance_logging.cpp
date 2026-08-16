@@ -239,6 +239,24 @@ void appendConfigurationFields(
     fields.addDecimal(
         "Effects.ShardsHdrIntensity",
         config.effects.shardsHdrIntensity);
+    fields.add("Effects.ShardsClickCount", config.effects.shardsClickCount);
+    fields.addDecimal(
+        "Effects.ShardsClickLifetimeMinMs",
+        config.effects.shardsClickLifetimeMinMs);
+    fields.addDecimal(
+        "Effects.ShardsClickLifetimeMaxMs",
+        config.effects.shardsClickLifetimeMaxMs);
+    fields.addDecimal(
+        "Effects.ShardsClickRadius",
+        config.effects.shardsClickRadius);
+    fields.addDecimal(
+        "Effects.ShardsClickSpeedMin",
+        config.effects.shardsClickSpeedMin);
+    fields.addDecimal(
+        "Effects.ShardsClickSpeedMax",
+        config.effects.shardsClickSpeedMax);
+    fields.addDecimal("Effects.ShardsSizeMin", config.effects.shardsSizeMin);
+    fields.addDecimal("Effects.ShardsSizeMax", config.effects.shardsSizeMax);
     fields.addDecimal("Effects.TrailOpacity", config.effects.trailOpacity);
     fields.addDecimal("Effects.BloomIntensity", config.effects.bloomIntensity);
     fields.add("Effects.BloomQuality", bafx::config::toString(
