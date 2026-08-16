@@ -645,13 +645,28 @@ bool ControlCenterWindow::createControls()
     basicPageButton_ = createChild(
         L"BUTTON",
         L"基础设置",
-        BS_AUTORADIOBUTTON | WS_TABSTOP,
+        BS_AUTORADIOBUTTON | WS_GROUP | WS_TABSTOP,
         ControlId::BasicPage);
     advancedPageButton_ = createChild(
         L"BUTTON",
         L"高级参数",
         BS_AUTORADIOBUTTON | WS_TABSTOP,
         ControlId::AdvancedPage);
+    advancedTimingSectionButton_ = createChild(
+        L"BUTTON",
+        L"时间与透明度",
+        BS_AUTORADIOBUTTON | WS_GROUP | WS_TABSTOP,
+        ControlId::AdvancedTimingSection);
+    advancedParticlesSectionButton_ = createChild(
+        L"BUTTON",
+        L"粒子参数",
+        BS_AUTORADIOBUTTON | WS_TABSTOP,
+        ControlId::AdvancedParticlesSection);
+    advancedBloomSectionButton_ = createChild(
+        L"BUTTON",
+        L"Bloom 参数",
+        BS_AUTORADIOBUTTON | WS_TABSTOP,
+        ControlId::AdvancedBloomSection);
     effectsHeading_ = createChild(
         L"BUTTON",
         L"特效",
@@ -784,9 +799,46 @@ bool ControlCenterWindow::createControls()
             "bloom.clamp",
             ControlId::BloomClamp);
 
+    const bool particleSlidersCreated = createSlider(
+        diskRadius_,
+        L"光盘半径",
+        20.0,
+        120.0,
+        0.01,
+        "disk.radius",
+        ControlId::DiskRadius)
+        && createSlider(
+            ringsHdrIntensity_,
+            L"圆环 HDR 强度",
+            0.0,
+            8.0,
+            0.01,
+            "rings.hdrIntensity",
+            ControlId::RingsHdrIntensity)
+        && createSlider(
+            shardsHdrIntensity_,
+            L"碎片 HDR 强度",
+            0.0,
+            8.0,
+            0.01,
+            "shards.hdrIntensity",
+            ControlId::ShardsHdrIntensity)
+        && createSlider(
+            trailOpacity_,
+            L"拖尾透明度",
+            0.0,
+            1.0,
+            0.01,
+            "trail.trailOpacity",
+            ControlId::TrailOpacity);
+
     advancedTimingHeading_ = createChild(
         L"BUTTON",
         L"Web API 时间与透明度",
+        BS_GROUPBOX);
+    advancedParticlesHeading_ = createChild(
+        L"BUTTON",
+        L"Web API 粒子参数",
         BS_GROUPBOX);
     advancedBloomHeading_ = createChild(
         L"BUTTON",
@@ -893,9 +945,14 @@ bool ControlCenterWindow::createControls()
         hostLifecycleButton_,
         resetDefaultsButton_,
         advancedTimingHeading_,
-        advancedBloomHeading_};
+        advancedParticlesHeading_,
+        advancedBloomHeading_,
+        advancedTimingSectionButton_,
+        advancedParticlesSectionButton_,
+        advancedBloomSectionButton_};
     if (!slidersCreated
         || !advancedSlidersCreated
+        || !particleSlidersCreated
         || std::ranges::find(required, nullptr) != required.end())
     {
         return false;
@@ -1133,6 +1190,18 @@ void ControlCenterWindow::applyFonts() const noexcept
         bloomClamp_.label,
         bloomClamp_.trackbar,
         bloomClamp_.valueText,
+        diskRadius_.label,
+        diskRadius_.trackbar,
+        diskRadius_.valueText,
+        ringsHdrIntensity_.label,
+        ringsHdrIntensity_.trackbar,
+        ringsHdrIntensity_.valueText,
+        shardsHdrIntensity_.label,
+        shardsHdrIntensity_.trackbar,
+        shardsHdrIntensity_.valueText,
+        trailOpacity_.label,
+        trailOpacity_.trackbar,
+        trailOpacity_.valueText,
         bloomQualityLabel_,
         bloomQuality_,
         backgroundModeLabel_,
@@ -1148,7 +1217,11 @@ void ControlCenterWindow::applyFonts() const noexcept
     setControlFont(effectsHeading_, sectionFont_);
     setControlFont(backgroundHeading_, sectionFont_);
     setControlFont(advancedTimingHeading_, sectionFont_);
+    setControlFont(advancedParticlesHeading_, sectionFont_);
     setControlFont(advancedBloomHeading_, sectionFont_);
+    setControlFont(advancedTimingSectionButton_, normalFont_);
+    setControlFont(advancedParticlesSectionButton_, normalFont_);
+    setControlFont(advancedBloomSectionButton_, normalFont_);
 }
 
 void ControlCenterWindow::applyDpiMetrics() const noexcept
@@ -1337,89 +1410,136 @@ void ControlCenterWindow::layoutControls(
 
     if (activePage_ == Page::Advanced)
     {
-        const int gap = scale(24);
-        const int columnWidth = (std::max)(
-            scale(1),
-            (clientWidth - margin * 2 - gap) / 2);
-        const int rightColumnX = margin + columnWidth + gap;
+        const int sectionButtonWidth = scale(150);
+        const int sectionButtonGap = scale(8);
+        moveControl(
+            advancedTimingSectionButton_,
+            margin,
+            contentTop,
+            sectionButtonWidth,
+            scale(30));
+        moveControl(
+            advancedParticlesSectionButton_,
+            margin + sectionButtonWidth + sectionButtonGap,
+            contentTop,
+            sectionButtonWidth,
+            scale(30));
+        moveControl(
+            advancedBloomSectionButton_,
+            margin + (sectionButtonWidth + sectionButtonGap) * 2,
+            contentTop,
+            sectionButtonWidth,
+            scale(30));
+
+        const int panelTop = contentTop + scale(38);
         const int actionHeight = scale(38);
         const int actionGap = scale(10);
         const int actionY = (std::max)(
-            contentTop + scale(300),
+            panelTop + scale(262),
             clientHeight - margin - actionHeight);
         const int groupHeight = (std::max)(
-            scale(300),
-            actionY - contentTop - scale(12));
+            scale(262),
+            actionY - panelTop - scale(12));
+        const int groupWidth = clientWidth - margin * 2;
         const int inset = scale(16);
+        const int advancedColumnGap = scale(24);
+        const int columnWidth = (std::max)(
+            scale(1),
+            (groupWidth - inset * 2 - advancedColumnGap) / 2);
         const int left = margin + inset;
-        const int right = rightColumnX + inset;
-        const int innerLeftWidth = (std::max)(scale(1), columnWidth - inset * 2);
-        const int innerRightWidth = innerLeftWidth;
-        moveControl(
-            advancedTimingHeading_,
-            margin,
-            contentTop,
-            columnWidth,
-            groupHeight);
-        moveControl(
-            advancedBloomHeading_,
-            rightColumnX,
-            contentTop,
-            columnWidth,
-            groupHeight);
+        const int right = left + columnWidth + advancedColumnGap;
+        const int rowTop = panelTop + scale(32);
+        const int nextRowTop = rowTop + scale(50);
 
-        int timingTop = contentTop + scale(32);
-        layoutSlider(opacity_, left, timingTop, innerLeftWidth, scale(40));
-        timingTop += scale(50);
-        layoutSlider(
-            clickTimeScale_,
-            left,
-            timingTop,
-            innerLeftWidth,
-            scale(40));
-        timingTop += scale(50);
-        layoutSlider(
-            trailTimeScale_,
-            left,
-            timingTop,
-            innerLeftWidth,
-            scale(40));
-        timingTop += scale(50);
-        layoutSlider(
-            trailLifetimeMs_,
-            left,
-            timingTop,
-            innerLeftWidth,
-            scale(40));
-
-        int bloomTop = contentTop + scale(32);
-        layoutSlider(
-            bloomDiffusion_,
-            right,
-            bloomTop,
-            innerRightWidth,
-            scale(40));
-        bloomTop += scale(50);
-        layoutSlider(
-            bloomThreshold_,
-            right,
-            bloomTop,
-            innerRightWidth,
-            scale(40));
-        bloomTop += scale(50);
-        layoutSlider(
-            bloomSoftKnee_,
-            right,
-            bloomTop,
-            innerRightWidth,
-            scale(40));
-        bloomTop += scale(50);
-        layoutSlider(
-            bloomClamp_,
-            right,
-            bloomTop,
-            innerRightWidth,
-            scale(40));
+        switch (activeAdvancedSection_)
+        {
+        case AdvancedSection::Timing:
+            moveControl(
+                advancedTimingHeading_,
+                margin,
+                panelTop,
+                groupWidth,
+                groupHeight);
+            layoutSlider(opacity_, left, rowTop, columnWidth, scale(40));
+            layoutSlider(
+                clickTimeScale_,
+                left,
+                nextRowTop,
+                columnWidth,
+                scale(40));
+            layoutSlider(
+                trailTimeScale_,
+                right,
+                rowTop,
+                columnWidth,
+                scale(40));
+            layoutSlider(
+                trailLifetimeMs_,
+                right,
+                nextRowTop,
+                columnWidth,
+                scale(40));
+            break;
+        case AdvancedSection::Particles:
+            moveControl(
+                advancedParticlesHeading_,
+                margin,
+                panelTop,
+                groupWidth,
+                groupHeight);
+            layoutSlider(diskRadius_, left, rowTop, columnWidth, scale(40));
+            layoutSlider(
+                ringsHdrIntensity_,
+                left,
+                nextRowTop,
+                columnWidth,
+                scale(40));
+            layoutSlider(
+                shardsHdrIntensity_,
+                right,
+                rowTop,
+                columnWidth,
+                scale(40));
+            layoutSlider(
+                trailOpacity_,
+                right,
+                nextRowTop,
+                columnWidth,
+                scale(40));
+            break;
+        case AdvancedSection::Bloom:
+            moveControl(
+                advancedBloomHeading_,
+                margin,
+                panelTop,
+                groupWidth,
+                groupHeight);
+            layoutSlider(
+                bloomDiffusion_,
+                left,
+                rowTop,
+                columnWidth,
+                scale(40));
+            layoutSlider(
+                bloomThreshold_,
+                left,
+                nextRowTop,
+                columnWidth,
+                scale(40));
+            layoutSlider(
+                bloomSoftKnee_,
+                right,
+                rowTop,
+                columnWidth,
+                scale(40));
+            layoutSlider(
+                bloomClamp_,
+                right,
+                nextRowTop,
+                columnWidth,
+                scale(40));
+            break;
+        }
 
         const int actionWidth = (clientWidth - margin * 2 - actionGap * 3) / 4;
         moveControl(
@@ -1609,16 +1729,50 @@ void ControlCenterWindow::setPageControlVisible(
 void ControlCenterWindow::selectPage(const Page page) noexcept
 {
     activePage_ = page;
-    const bool advanced = activePage_ == Page::Advanced;
+    updatePageVisibility();
+}
+
+void ControlCenterWindow::selectAdvancedSection(
+    const AdvancedSection section) noexcept
+{
+    activeAdvancedSection_ = section;
+    updatePageVisibility();
+}
+
+void ControlCenterWindow::updatePageVisibility() noexcept
+{
+    const bool basic = activePage_ == Page::Basic;
+    const bool advanced = !basic;
     static_cast<void>(SendMessageW(
         basicPageButton_,
         BM_SETCHECK,
-        advanced ? BST_UNCHECKED : BST_CHECKED,
+        basic ? BST_CHECKED : BST_UNCHECKED,
         0));
     static_cast<void>(SendMessageW(
         advancedPageButton_,
         BM_SETCHECK,
         advanced ? BST_CHECKED : BST_UNCHECKED,
+        0));
+    static_cast<void>(SendMessageW(
+        advancedTimingSectionButton_,
+        BM_SETCHECK,
+        activeAdvancedSection_ == AdvancedSection::Timing
+            ? BST_CHECKED
+            : BST_UNCHECKED,
+        0));
+    static_cast<void>(SendMessageW(
+        advancedParticlesSectionButton_,
+        BM_SETCHECK,
+        activeAdvancedSection_ == AdvancedSection::Particles
+            ? BST_CHECKED
+            : BST_UNCHECKED,
+        0));
+    static_cast<void>(SendMessageW(
+        advancedBloomSectionButton_,
+        BM_SETCHECK,
+        activeAdvancedSection_ == AdvancedSection::Bloom
+            ? BST_CHECKED
+            : BST_UNCHECKED,
         0));
 
     const std::array basicControls{
@@ -1652,12 +1806,22 @@ void ControlCenterWindow::selectPage(const Page page) noexcept
         hdrEnabled_};
     for (const HWND control : basicControls)
     {
-        setPageControlVisible(control, !advanced);
+        setPageControlVisible(control, basic);
     }
 
-    const std::array advancedControls{
+    const std::array advancedSectionButtons{
+        advancedTimingSectionButton_,
+        advancedParticlesSectionButton_,
+        advancedBloomSectionButton_};
+    for (const HWND control : advancedSectionButtons)
+    {
+        setPageControlVisible(control, advanced);
+    }
+
+    const bool timing = advanced
+        && activeAdvancedSection_ == AdvancedSection::Timing;
+    const std::array advancedTimingControls{
         advancedTimingHeading_,
-        advancedBloomHeading_,
         opacity_.label,
         opacity_.trackbar,
         opacity_.valueText,
@@ -1669,7 +1833,37 @@ void ControlCenterWindow::selectPage(const Page page) noexcept
         trailTimeScale_.valueText,
         trailLifetimeMs_.label,
         trailLifetimeMs_.trackbar,
-        trailLifetimeMs_.valueText,
+        trailLifetimeMs_.valueText};
+    for (const HWND control : advancedTimingControls)
+    {
+        setPageControlVisible(control, timing);
+    }
+
+    const bool particles = advanced
+        && activeAdvancedSection_ == AdvancedSection::Particles;
+    const std::array advancedParticleControls{
+        advancedParticlesHeading_,
+        diskRadius_.label,
+        diskRadius_.trackbar,
+        diskRadius_.valueText,
+        ringsHdrIntensity_.label,
+        ringsHdrIntensity_.trackbar,
+        ringsHdrIntensity_.valueText,
+        shardsHdrIntensity_.label,
+        shardsHdrIntensity_.trackbar,
+        shardsHdrIntensity_.valueText,
+        trailOpacity_.label,
+        trailOpacity_.trackbar,
+        trailOpacity_.valueText};
+    for (const HWND control : advancedParticleControls)
+    {
+        setPageControlVisible(control, particles);
+    }
+
+    const bool bloom = advanced
+        && activeAdvancedSection_ == AdvancedSection::Bloom;
+    const std::array advancedBloomControls{
+        advancedBloomHeading_,
         bloomDiffusion_.label,
         bloomDiffusion_.trackbar,
         bloomDiffusion_.valueText,
@@ -1682,9 +1876,9 @@ void ControlCenterWindow::selectPage(const Page page) noexcept
         bloomClamp_.label,
         bloomClamp_.trackbar,
         bloomClamp_.valueText};
-    for (const HWND control : advancedControls)
+    for (const HWND control : advancedBloomControls)
     {
-        setPageControlVisible(control, advanced);
+        setPageControlVisible(control, bloom);
     }
 
     if (window_ != nullptr)
@@ -1692,7 +1886,10 @@ void ControlCenterWindow::selectPage(const Page page) noexcept
         RECT client{};
         if (GetClientRect(window_, &client) != FALSE)
         {
-            layoutControls(client.right, client.bottom);
+            layoutControls(
+                client.right - client.left,
+                client.bottom - client.top);
+            return;
         }
         redrawWindowTree();
     }
@@ -1724,6 +1921,24 @@ void ControlCenterWindow::onCommand(
         if (notificationCode == BN_CLICKED)
         {
             selectPage(Page::Advanced);
+        }
+        break;
+    case ControlId::AdvancedTimingSection:
+        if (notificationCode == BN_CLICKED)
+        {
+            selectAdvancedSection(AdvancedSection::Timing);
+        }
+        break;
+    case ControlId::AdvancedParticlesSection:
+        if (notificationCode == BN_CLICKED)
+        {
+            selectAdvancedSection(AdvancedSection::Particles);
+        }
+        break;
+    case ControlId::AdvancedBloomSection:
+        if (notificationCode == BN_CLICKED)
+        {
+            selectAdvancedSection(AdvancedSection::Bloom);
         }
         break;
     case ControlId::Pause:
@@ -1869,6 +2084,10 @@ void ControlCenterWindow::onCommand(
     case ControlId::BloomThreshold:
     case ControlId::BloomSoftKnee:
     case ControlId::BloomClamp:
+    case ControlId::DiskRadius:
+    case ControlId::RingsHdrIntensity:
+    case ControlId::ShardsHdrIntensity:
+    case ControlId::TrailOpacity:
         break;
     }
 }
@@ -1893,7 +2112,11 @@ void ControlCenterWindow::onSliderChanged(const HWND trackbar)
         &bloomDiffusion_,
         &bloomThreshold_,
         &bloomSoftKnee_,
-        &bloomClamp_};
+        &bloomClamp_,
+        &diskRadius_,
+        &ringsHdrIntensity_,
+        &shardsHdrIntensity_,
+        &trailOpacity_};
     for (SliderControl* const slider : sliders)
     {
         if (slider->trackbar == trackbar)
@@ -2152,6 +2375,10 @@ void ControlCenterWindow::updateControls(
     setSliderValue(bloomThreshold_, config.effects.bloomThreshold);
     setSliderValue(bloomSoftKnee_, config.effects.bloomSoftKnee);
     setSliderValue(bloomClamp_, config.effects.bloomClamp);
+    setSliderValue(diskRadius_, config.effects.diskRadius);
+    setSliderValue(ringsHdrIntensity_, config.effects.ringsHdrIntensity);
+    setSliderValue(shardsHdrIntensity_, config.effects.shardsHdrIntensity);
+    setSliderValue(trailOpacity_, config.effects.trailOpacity);
     static_cast<void>(SendMessageW(
         bloomQuality_,
         CB_SETCURSEL,
@@ -2529,6 +2756,10 @@ void ControlCenterWindow::setConnected(const bool connected) noexcept
         bloomThreshold_.trackbar,
         bloomSoftKnee_.trackbar,
         bloomClamp_.trackbar,
+        diskRadius_.trackbar,
+        ringsHdrIntensity_.trackbar,
+        shardsHdrIntensity_.trackbar,
+        trailOpacity_.trackbar,
         bloomQuality_,
         backgroundMode_,
         cursorExcluded_,

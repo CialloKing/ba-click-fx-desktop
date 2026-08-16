@@ -36,6 +36,9 @@ private:
         Pause = 100,
         BasicPage,
         AdvancedPage,
+        AdvancedTimingSection,
+        AdvancedParticlesSection,
+        AdvancedBloomSection,
         EffectsEnabled,
         ClickEnabled,
         TrailEnabled,
@@ -54,6 +57,10 @@ private:
         BloomSoftKnee,
         BloomClamp,
         BloomQuality,
+        DiskRadius,
+        RingsHdrIntensity,
+        ShardsHdrIntensity,
+        TrailOpacity,
         BackgroundMode,
         CursorExcluded,
         AllowSystemBorder,
@@ -84,6 +91,13 @@ private:
     {
         Basic,
         Advanced
+    };
+
+    enum class AdvancedSection : std::uint8_t
+    {
+        Timing,
+        Particles,
+        Bloom
     };
 
     static LRESULT CALLBACK windowProcedure(
@@ -119,6 +133,8 @@ private:
     void adaptLayoutToMonitor(HMONITOR monitor, bool force);
     void layoutControls(int clientWidth, int clientHeight) const noexcept;
     void selectPage(Page page) noexcept;
+    void selectAdvancedSection(AdvancedSection section) noexcept;
+    void updatePageVisibility() noexcept;
     void setPageControlVisible(HWND control, bool visible) const noexcept;
     void redrawWindowTree() const noexcept;
     void layoutSlider(
@@ -204,9 +220,17 @@ private:
     SliderControl bloomThreshold_{};
     SliderControl bloomSoftKnee_{};
     SliderControl bloomClamp_{};
+    SliderControl diskRadius_{};
+    SliderControl ringsHdrIntensity_{};
+    SliderControl shardsHdrIntensity_{};
+    SliderControl trailOpacity_{};
     HWND basicPageButton_{nullptr};
     HWND advancedPageButton_{nullptr};
+    HWND advancedTimingSectionButton_{nullptr};
+    HWND advancedParticlesSectionButton_{nullptr};
+    HWND advancedBloomSectionButton_{nullptr};
     HWND advancedTimingHeading_{nullptr};
+    HWND advancedParticlesHeading_{nullptr};
     HWND advancedBloomHeading_{nullptr};
     HWND bloomQualityLabel_{nullptr};
     HWND bloomQuality_{nullptr};
@@ -239,6 +263,7 @@ private:
     bool updatingControls_{false};
     bool interactiveMoveResize_{false};
     Page activePage_{Page::Basic};
+    AdvancedSection activeAdvancedSection_{AdvancedSection::Timing};
 };
 
 }
