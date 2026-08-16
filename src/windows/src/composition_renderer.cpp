@@ -200,6 +200,13 @@ constexpr SwapChainCandidateSpecification fallbackSdrSwapChainCandidate{
     {
         return OutputRenegotiationStatus::RecreatedSameContract;
     }
+    if (previous.transfer == current.transfer)
+    {
+        // Reference white and HDR mapping can change without changing the
+        // scRGB transport. Report that distinction instead of claiming that
+        // an already-linear swap chain changed to linear scRGB.
+        return OutputRenegotiationStatus::ChangedWithinTransfer;
+    }
     return current.transfer == CompositionOutputTransfer::LinearScRgb
         ? OutputRenegotiationStatus::ChangedToLinearScRgb
         : OutputRenegotiationStatus::ChangedToSdr;

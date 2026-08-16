@@ -459,6 +459,8 @@ struct PendingOutputRenegotiation final
     {
     case bafx::windows::OutputRenegotiationStatus::RecreatedSameContract:
         return "recreated-same-contract";
+    case bafx::windows::OutputRenegotiationStatus::ChangedWithinTransfer:
+        return "changed-within-transfer";
     case bafx::windows::OutputRenegotiationStatus::ChangedToLinearScRgb:
         return "changed-to-linear-scrgb";
     case bafx::windows::OutputRenegotiationStatus::ChangedToSdr:

@@ -85,6 +85,7 @@ enum class OutputAdapterRetargetStatus : std::uint8_t
 enum class OutputRenegotiationStatus : std::uint8_t
 {
     RecreatedSameContract,
+    ChangedWithinTransfer,
     ChangedToLinearScRgb,
     ChangedToSdr
 };
