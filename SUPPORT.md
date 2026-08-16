@@ -8,8 +8,10 @@
   `light-background`（浅色背景优化）。背景感知启用 WGC，失败时回退内部 FX-only transport；
   其余两项关闭 WGC。
 - `BAFX.ControlCenter.exe` 的原生 Win32 控制面：基础页管理启用状态、点击特效、鼠标拖尾、拖尾常驻、效果大小、
-  拖尾长度、拖尾宽度、输入采样率上限、Bloom 强度和 Bloom 质量；高级页按时间、粒子和 Bloom 分为三个二级页面，
-  并提供透明度、点击/拖尾时间倍率、拖尾寿命、`disk.radius`、`rings.hdrIntensity`、
+  拖尾长度、拖尾宽度、输入采样率上限、Bloom 强度和 Bloom 质量；高级页按时间、粒子与材质、圆环和 Bloom
+  分为四个二级页面，并提供透明度、点击/拖尾时间倍率、拖尾寿命、`disk.radius`、`disk.lifetimeMs`、
+  `rings.count`、`rings.lifetimeMs`、`rings.radiusMin`、`rings.radiusMax`、
+  `rings.angularVelocityMultiplier`、`rings.rotationDirection`、`rings.hdrIntensity`、
   `shards.hdrIntensity`、`trail.trailOpacity`、Bloom 扩散/阈值/软阈值/亮度上限等参数。背景区域还提供
   指针排除、系统捕获边框和默认关闭的 HDR 输出开关。
   所有改动会通过本地 Named Pipe 在下一帧应用到正在运行的 Host；
@@ -34,9 +36,9 @@
   副屏立即隐藏并锁存 `Display.Session[n].OutputContractFaulted=true`，普通 Bloom 或输入配置成功不会解除；
   只有实际输出重新满足当前策略、完整拓扑重建或资源恢复才能重新显示。协调屏会先隐藏，再终止 Host，
   防止旧 HDR 表面继续驻留。`Display.Output.RenegotiationExhausted` 会记录请求/实际映射和最终处置。
-- 首次生成的完整 schema 11 配置默认为 `background.mode=background-aware`、
+- 首次生成的完整 schema 12 配置默认为 `background.mode=background-aware`、
   `background.allowSystemBorder=true`、`input.trailOnlyWhilePressed=true`、
-  `input.samplingRateHz=0` 和 `display.hdrEnabled=false`。测试版只接受字段完整的 schema 11；非当前 schema、
+  `input.samplingRateHz=0` 和 `display.hdrEnabled=false`。测试版只接受字段完整的 schema 12；非当前 schema、
   缺失或未知字段以及枚举别名均被拒绝。Host 保留无效原文件并以内存中的当前默认值继续运行，不迁移、
   补齐或改写无效配置。背景感知授权、排除或会话失败时回退内部 FX-only transport；其余模式不启用 WGC。
 - portable 运行时把 `BAFX.config.json`、`ba-click-fx-desktop-support.log` 和支持报告写入 EXE 所在目录；
