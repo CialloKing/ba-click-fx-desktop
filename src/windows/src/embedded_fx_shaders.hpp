@@ -163,6 +163,8 @@ cbuffer BloomConstants : register(b0)
     float Knee;
     float ClampValue;
     float BackgroundTransportEnabled;
+    float ReferenceWhiteScale;
+    float3 Padding;
 };
 
 Texture2D<float4> Source0 : register(t0);
@@ -217,15 +219,23 @@ float3 SrgbPremultipliedToLinearPremultiplied(
 
 float3 StabilizeCapturedBackground(float3 sample)
 {
-    const float3 nonNegative = max(sample, 0.0);
-    const float3 distanceFromReferenceWhite = abs(nonNegative - 1.0);
+    const float referenceWhite = max(ReferenceWhiteScale, 0.000001);
+    const float3 distanceFromReferenceWhite = abs(sample - referenceWhite);
     const float3 referenceWhiteBlend = 1.0 - smoothstep(
-        BackgroundReferenceWhitePlateau,
-        BackgroundReferenceWhiteFilterEnd,
+        BackgroundReferenceWhitePlateau * referenceWhite,
+        BackgroundReferenceWhiteFilterEnd * referenceWhite,
         distanceFromReferenceWhite);
-    // WGC can alternate between adjacent FP16 values around scRGB 1.0. Use a
-    // continuous local filter there without quantizing unrelated gradients.
-    return lerp(nonNegative, 1.0, referenceWhiteBlend);
+    // WGC can alternate between adjacent FP16 values around the negotiated
+    // display white. Scale the narrow filter with that physical scRGB value.
+    // Negative scRGB is valid undershoot and must survive background transport.
+    return lerp(sample, referenceWhite, referenceWhiteBlend);
+}
+
+float3 CapturedBackgroundToWorking(float3 physicalScRgb)
+{
+    // WGC FP16 samples are physical scRGB, where one unit is 80 nits. Unity's
+    // authored values remain relative to the display's negotiated SDR white.
+    return physicalScRgb / max(ReferenceWhiteScale, 0.000001);
 }
 
 struct FullscreenOutput
@@ -288,14 +298,18 @@ float4 DifferentialPrefilterPixel(FullscreenOutput input) : SV_Target0
         + SourceTexelSize * float2(-1.0, 1.0);
     const float2 bottomRight = input.uv
         + SourceTexelSize * float2(1.0, 1.0);
-    const float3 backgroundTopLeft = StabilizeCapturedBackground(
-        Source1.Sample(LinearClampSampler, topLeft).rgb);
-    const float3 backgroundTopRight = StabilizeCapturedBackground(
-        Source1.Sample(LinearClampSampler, topRight).rgb);
-    const float3 backgroundBottomLeft = StabilizeCapturedBackground(
-        Source1.Sample(LinearClampSampler, bottomLeft).rgb);
-    const float3 backgroundBottomRight = StabilizeCapturedBackground(
-        Source1.Sample(LinearClampSampler, bottomRight).rgb);
+    const float3 backgroundTopLeft = CapturedBackgroundToWorking(
+        StabilizeCapturedBackground(
+            Source1.Sample(LinearClampSampler, topLeft).rgb));
+    const float3 backgroundTopRight = CapturedBackgroundToWorking(
+        StabilizeCapturedBackground(
+            Source1.Sample(LinearClampSampler, topRight).rgb));
+    const float3 backgroundBottomLeft = CapturedBackgroundToWorking(
+        StabilizeCapturedBackground(
+            Source1.Sample(LinearClampSampler, bottomLeft).rgb));
+    const float3 backgroundBottomRight = CapturedBackgroundToWorking(
+        StabilizeCapturedBackground(
+            Source1.Sample(LinearClampSampler, bottomRight).rgb));
     const float backgroundOcclusionTopLeft = saturate(
         Source2.Sample(LinearClampSampler, topLeft).g);
     const float backgroundOcclusionTopRight = saturate(
@@ -568,7 +582,8 @@ float4 ResolveBackgroundAwareDesktopTransport(
     float4 bloom,
     float occlusion,
     float3 capturedBackground,
-    float exposureGain)
+    float exposureGain,
+    float referenceWhiteScale)
 {
     // Preserve continuous scRGB outside a narrow reference-white noise band.
     const float3 background = StabilizeCapturedBackground(capturedBackground);
@@ -604,19 +619,24 @@ float4 ResolveBackgroundAwareDesktopTransport(
     // `coverage` policy. Only the Cross2 background attenuation is represented
     // by the source-over term; it must not scale an independent trail RGB peak
     // back down to its Coverage Alpha.
-    const float3 additiveEmission = max(direct.rgb, 0.0)
-        + max(bloom.rgb, 0.0) * exposureGain;
+    const float3 additiveEmission = (
+        max(direct.rgb, 0.0)
+        + max(bloom.rgb, 0.0) * exposureGain) * referenceWhiteScale;
     const float3 backgroundCoveragePayload = background * max(
         alpha - crossCoverage,
         0.0);
-    const float3 premultiplied = max(
-        additiveEmission + backgroundCoveragePayload,
-        0.0);
+    const float3 premultiplied = additiveEmission + backgroundCoveragePayload;
 
     // The captured background is baked into the payload only as required to
     // reproduce Unity's target. Extended premultiplied transport intentionally
-    // permits additive RGB to exceed Coverage Alpha.
+    // permits additive RGB to exceed Coverage Alpha. Keep its signed physical
+    // scRGB values intact; only relative FX emission is mapped to output white.
     return float4(premultiplied, alpha);
+}
+
+float4 ScaleFxForOutput(float4 relativeFx)
+{
+    return float4(relativeFx.rgb * ReferenceWhiteScale, relativeFx.a);
 }
 
 float4 EncodeConservativeSdrPremultiplied(float4 linearPremultiplied)
@@ -650,11 +670,12 @@ float4 ResolveDesktopComposite(FullscreenOutput input)
         const float4 cross = Source4.Sample(
             LinearClampSampler,
             input.uv);
-        resolved = ResolveFxOnlyDesktopTransport(
-            direct,
-            bloom,
-            cross,
-            ExposureGain);
+        resolved = ScaleFxForOutput(
+            ResolveFxOnlyDesktopTransport(
+                direct,
+                bloom,
+                cross,
+                ExposureGain));
     }
     else
     {
@@ -672,7 +693,8 @@ float4 ResolveDesktopComposite(FullscreenOutput input)
             bloom,
             occlusion,
             background,
-            ExposureGain);
+            ExposureGain,
+            ReferenceWhiteScale);
     }
     return resolved;
 }
@@ -693,10 +715,11 @@ float4 ResolveLightBackgroundComposite(FullscreenOutput input)
     const float4 direct = Source0.Sample(LinearClampSampler, input.uv);
     const float2 offset = SourceTexelSize * (SampleScale * 0.5);
     const float4 bloom = FourTap(Source1, input.uv, offset);
-    return ResolveLightBackgroundDesktopTransport(
-        direct,
-        bloom,
-        ExposureGain);
+    return ScaleFxForOutput(
+        ResolveLightBackgroundDesktopTransport(
+            direct,
+            bloom,
+            ExposureGain));
 }
 
 float4 LightBackgroundCompositePixel(FullscreenOutput input) : SV_Target0
@@ -715,10 +738,11 @@ float4 ResolveRecordingCompatibleComposite(FullscreenOutput input)
     const float4 direct = Source0.Sample(LinearClampSampler, input.uv);
     const float2 offset = SourceTexelSize * (SampleScale * 0.5);
     const float4 bloom = FourTap(Source1, input.uv, offset);
-    return ResolveRecordingCompatibleDesktopTransport(
-        direct,
-        bloom,
-        ExposureGain);
+    return ScaleFxForOutput(
+        ResolveRecordingCompatibleDesktopTransport(
+            direct,
+            bloom,
+            ExposureGain));
 }
 
 float4 RecordingCompatibleCompositePixel(FullscreenOutput input) : SV_Target0

@@ -40,6 +40,7 @@ constexpr float unityBloomIntensity = 1.7F;
 constexpr float minimumBloomDiffusion = 1.0F;
 constexpr float maximumBloomDiffusion = 10.0F;
 constexpr float maximumBloomIntensityMultiplier = 8.0F;
+constexpr float scRgbNitsPerUnit = 80.0F;
 
 struct SpriteVertex
 {
@@ -67,9 +68,11 @@ struct BloomConstants
     float knee{0.00001F};
     float clampValue{65472.0F};
     float backgroundTransportEnabled{0.0F};
+    float referenceWhiteScale{1.0F};
+    float padding[3]{};
 };
 
-static_assert(sizeof(BloomConstants) == 32U);
+static_assert(sizeof(BloomConstants) == 48U);
 
 struct ColorTarget
 {
@@ -952,7 +955,12 @@ struct FxGpuRenderer::Implementation
             temporalBackgroundPixelShader.Get(),
             previous,
             current,
-            makeBloomConstants(extent, 1.0F, 0.0F));
+            makeBloomConstants(
+                extent,
+                1.0F,
+                0.0F,
+                false,
+                referenceWhiteScale()));
     }
 
     void configureFramePipeline()
@@ -997,7 +1005,8 @@ struct FxGpuRenderer::Implementation
         const bafx::core::BloomExtent sourceExtent,
         const float sampleScale,
         const float exposureGain,
-        const bool backgroundTransportEnabled = false) noexcept
+        const bool backgroundTransportEnabled = false,
+        const float referenceWhiteScale = 1.0F) noexcept
     {
         BloomConstants constants{};
         constants.sourceTexelSize[0] = 1.0F / static_cast<float>(sourceExtent.width);
@@ -1007,7 +1016,23 @@ struct FxGpuRenderer::Implementation
         constants.backgroundTransportEnabled = backgroundTransportEnabled
             ? 1.0F
             : 0.0F;
+        constants.referenceWhiteScale = referenceWhiteScale;
         return constants;
+    }
+
+    [[nodiscard]] float referenceWhiteScale() const noexcept
+    {
+        if (outputMapping.mode
+                != CompositionOutputMappingMode::HdrSceneReferredScRgb
+            || !outputMapping.referenceWhiteValid
+            || !std::isfinite(outputMapping.referenceWhiteNits)
+            || outputMapping.referenceWhiteNits <= 0.0F)
+        {
+            // SDR and unresolved HDR metadata preserve the Unity reference
+            // domain. Only a negotiated HDR white maps relative FX to scRGB.
+            return 1.0F;
+        }
+        return outputMapping.referenceWhiteNits / scRgbNitsPerUnit;
     }
 
     void drawFullscreen(
@@ -1118,6 +1143,7 @@ struct FxGpuRenderer::Implementation
             static_cast<std::int32_t>(size.width),
             static_cast<std::int32_t>(size.height)};
         const bafx::core::BloomExtent firstExtent = bloomPlan.mipChain[0];
+        const float outputReferenceWhiteScale = referenceWhiteScale();
         drawFullscreen(
             bloomDownTargets[0].renderTarget.Get(),
             firstExtent,
@@ -1129,7 +1155,9 @@ struct FxGpuRenderer::Implementation
             makeBloomConstants(
                 sourceExtent,
                 bloomPlan.sampleScale,
-                0.0F),
+                0.0F,
+                false,
+                outputReferenceWhiteScale),
             background.has_value()
                 ? occlusionTarget.shaderResource.Get()
                 : nullptr);
@@ -1173,7 +1201,8 @@ struct FxGpuRenderer::Implementation
             firstExtent,
             bloomPlan.sampleScale,
             bloomPlan.exposureGain,
-            background.has_value());
+            background.has_value(),
+            outputReferenceWhiteScale);
         if (bloomResultDestination == nullptr)
         {
             drawFullscreen(
