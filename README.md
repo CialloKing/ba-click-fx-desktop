@@ -243,7 +243,8 @@ Shutdown
 
 `SetConfig` 也接受完整的 schema 13 JSON 快照。`GetFxConfig`、`SetFxParam`、原子批量的
 `SetFxParams` 和 `ResetFxConfig` 对应 Web 的实例 API 命名；当前只返回和接受已经接入 Native
-模拟或材质求值的参数。`ResetFxConfig` 只恢复 `effects`，保留背景、HDR、输入和系统设置；Control Center
+模拟或材质求值的参数。FX 快照不包含 `trailAlways`、`inputSamplingRate`、HDR、背景或系统字段；这些
+产品设置只通过 `GetConfig`/`SetConfig` 管理。`ResetFxConfig` 只恢复 `effects`，保留背景、HDR、输入和系统设置；Control Center
 中的“重置默认”则使用完整 schema 恢复全部持久化设置。路径补丁只允许配置库声明的产品字段，代次不匹配会返回
 `generation_conflict`；所有命令均在下一帧由 Host 应用。
 
