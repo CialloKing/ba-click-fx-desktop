@@ -1644,6 +1644,259 @@ BAFX_TEST(release_cleanup_is_independent_of_monitor_refresh_rate)
     }
 }
 
+BAFX_TEST(release_waits_for_web_configured_click_particle_lifetimes)
+{
+    Simulation simulation;
+    ClickParticleSettings clickSettings{};
+    clickSettings.diskLifetimeMs = 2500.0F;
+    clickSettings.ringsLifetimeMs = 2000.0F;
+    simulation.setClickParticleSettings(clickSettings);
+
+    ShardParticleSettings shardSettings{};
+    shardSettings.clickCount = 0U;
+    simulation.setShardParticleSettings(shardSettings);
+    simulation.pointerDown(goldenCenter, goldenViewport, 0ns);
+    simulation.pointerUp(10ms);
+
+    simulation.advance(1010ms);
+    const FrameSnapshot extended = simulation.snapshot(goldenViewport, 1010ms);
+    BAFX_CHECK(countKind(extended, SpriteKind::CenterDisk) == 1U);
+    BAFX_CHECK(countKind(extended, SpriteKind::DissolveRing) == 2U);
+    simulation.onFrameRendered(1010ms);
+    BAFX_CHECK(simulation.active());
+
+    simulation.advance(2600ms);
+    const FrameSnapshot completed = simulation.snapshot(goldenViewport, 2600ms);
+    BAFX_CHECK(countKind(completed, SpriteKind::CenterDisk) == 0U);
+    BAFX_CHECK(countKind(completed, SpriteKind::DissolveRing) == 0U);
+    simulation.onFrameRendered(2600ms);
+    BAFX_CHECK(!simulation.active());
+}
+
+BAFX_TEST(release_waits_for_each_spawned_click_shard_lifetime)
+{
+    Simulation simulation;
+    ClickParticleSettings clickSettings{};
+    clickSettings.diskLifetimeMs = 1.0F;
+    clickSettings.ringsCount = 0U;
+    simulation.setClickParticleSettings(clickSettings);
+
+    ShardParticleSettings shardSettings{};
+    shardSettings.clickCount = 1U;
+    shardSettings.clickLifetimeMinMs = 2500.0F;
+    shardSettings.clickLifetimeMaxMs = 2500.0F;
+    simulation.setShardParticleSettings(shardSettings);
+    simulation.pointerDown(goldenCenter, goldenViewport, 0ns);
+    simulation.pointerUp(10ms);
+
+    simulation.advance(1010ms);
+    BAFX_CHECK(
+        countKind(
+            simulation.snapshot(goldenViewport, 1010ms),
+            SpriteKind::Triangle)
+        == 1U);
+    simulation.onFrameRendered(1010ms);
+    BAFX_CHECK(simulation.active());
+
+    simulation.advance(2600ms);
+    simulation.onFrameRendered(2600ms);
+    BAFX_CHECK(!simulation.active());
+}
+
+BAFX_TEST(release_waits_for_web_configured_trail_lifetime)
+{
+    Simulation simulation;
+    simulation.setTrailLengthMultiplier(2000.0F / 300.0F);
+    simulation.startTrail(goldenCenter, goldenViewport, 0ns);
+    simulation.pointerMove(
+        PointF{goldenCenter.x + 200.0F, goldenCenter.y},
+        goldenViewport,
+        10ms);
+    simulation.pointerUp(20ms);
+
+    simulation.advance(1020ms);
+    BAFX_CHECK(simulation.snapshot(goldenViewport, 1020ms).trail.size() >= 2U);
+    simulation.onFrameRendered(1020ms);
+    BAFX_CHECK(simulation.active());
+
+    simulation.advance(2020ms);
+    BAFX_CHECK(simulation.snapshot(goldenViewport, 2020ms).trail.empty());
+    simulation.onFrameRendered(2020ms);
+    BAFX_CHECK(!simulation.active());
+}
+
+BAFX_TEST(release_uses_virtual_click_time_for_visible_lifetime)
+{
+    Simulation simulation;
+    ClickParticleSettings clickSettings{};
+    clickSettings.diskLifetimeMs = 200.0F;
+    clickSettings.ringsCount = 0U;
+    simulation.setClickParticleSettings(clickSettings);
+
+    ShardParticleSettings shardSettings{};
+    shardSettings.clickCount = 0U;
+    simulation.setShardParticleSettings(shardSettings);
+    simulation.setClickTimeScale(0.1F);
+    simulation.pointerDown(goldenCenter, goldenViewport, 0ns);
+    simulation.pointerUp(10ms);
+
+    simulation.advance(1010ms);
+    BAFX_CHECK(
+        countKind(
+            simulation.snapshot(goldenViewport, 1010ms),
+            SpriteKind::CenterDisk)
+        == 1U);
+    simulation.onFrameRendered(1010ms);
+    BAFX_CHECK(simulation.active());
+
+    simulation.advance(3010ms);
+    simulation.onFrameRendered(3010ms);
+    BAFX_CHECK(!simulation.active());
+}
+
+BAFX_TEST(trail_parking_keeps_the_unity_root_release_deadline)
+{
+    Simulation simulation;
+    simulation.setTrailLengthMultiplier(2000.0F / 300.0F);
+    simulation.startTrail(goldenCenter, goldenViewport, 0ns);
+    simulation.pointerMove(
+        PointF{goldenCenter.x + 200.0F, goldenCenter.y},
+        goldenViewport,
+        10ms);
+    simulation.updateUnityTrailTimeScale(0.19F);
+    simulation.pointerUp(20ms);
+
+    simulation.advance(1019ms);
+    simulation.onFrameRendered(1019ms);
+    BAFX_CHECK(simulation.active());
+    BAFX_CHECK(simulation.snapshot(goldenViewport, 1019ms).trail.size() >= 2U);
+
+    simulation.advance(1020ms);
+    simulation.onFrameRendered(1020ms);
+    BAFX_CHECK(!simulation.active());
+}
+
+BAFX_TEST(trail_parking_clears_at_one_second_while_a_long_click_child_survives)
+{
+    Simulation simulation;
+    ClickParticleSettings clickSettings{};
+    clickSettings.diskLifetimeMs = 2500.0F;
+    clickSettings.ringsCount = 0U;
+    simulation.setClickParticleSettings(clickSettings);
+
+    ShardParticleSettings shardSettings{};
+    shardSettings.clickCount = 0U;
+    simulation.setShardParticleSettings(shardSettings);
+    simulation.setTrailLengthMultiplier(2000.0F / 300.0F);
+    simulation.pointerDown(goldenCenter, goldenViewport, 0ns);
+    simulation.advance(1ns);
+    simulation.pointerMove(
+        PointF{goldenCenter.x + 200.0F, goldenCenter.y},
+        goldenViewport,
+        10ms);
+    simulation.updateUnityTrailTimeScale(0.19F);
+    simulation.pointerUp(20ms);
+
+    simulation.advance(1020ms);
+    const FrameSnapshot boundary = simulation.snapshot(goldenViewport, 1020ms);
+    BAFX_CHECK(boundary.trail.size() >= 2U);
+    BAFX_CHECK(countKind(boundary, SpriteKind::CenterDisk) == 1U);
+    simulation.onFrameRendered(1020ms);
+
+    const FrameSnapshot retainedClick = simulation.snapshot(
+        goldenViewport,
+        1020ms);
+    BAFX_CHECK(simulation.active());
+    BAFX_CHECK(retainedClick.trail.empty());
+    BAFX_CHECK(countKind(retainedClick, SpriteKind::CenterDisk) == 1U);
+
+    simulation.advance(2600ms);
+    simulation.onFrameRendered(2600ms);
+    BAFX_CHECK(!simulation.active());
+}
+
+BAFX_TEST(lifetime_hot_updates_extend_and_then_shorten_release_retention)
+{
+    Simulation simulation;
+    ClickParticleSettings clickSettings{};
+    clickSettings.diskLifetimeMs = 500.0F;
+    clickSettings.ringsCount = 0U;
+    simulation.setClickParticleSettings(clickSettings);
+
+    ShardParticleSettings shardSettings{};
+    shardSettings.clickCount = 0U;
+    simulation.setShardParticleSettings(shardSettings);
+    simulation.pointerDown(goldenCenter, goldenViewport, 0ns);
+    simulation.pointerUp(10ms);
+
+    ClickParticleSettings extended = clickSettings;
+    extended.diskLifetimeMs = 2500.0F;
+    simulation.setClickParticleSettings(extended, 900ms);
+    simulation.advance(1010ms);
+    simulation.onFrameRendered(1010ms);
+    BAFX_CHECK(simulation.active());
+
+    ClickParticleSettings shortened = extended;
+    shortened.diskLifetimeMs = 100.0F;
+    simulation.setClickParticleSettings(shortened, 1200ms);
+    simulation.advance(1200ms);
+    BAFX_CHECK(
+        countKind(
+            simulation.snapshot(goldenViewport, 1200ms),
+            SpriteKind::CenterDisk)
+        == 0U);
+    simulation.onFrameRendered(1200ms);
+    BAFX_CHECK(!simulation.active());
+}
+
+BAFX_TEST(runtime_returns_extended_release_to_the_pool_after_children_complete)
+{
+    SimulationRuntime runtime;
+    ClickParticleSettings clickSettings{};
+    clickSettings.diskLifetimeMs = 2500.0F;
+    clickSettings.ringsCount = 0U;
+    runtime.setClickParticleSettings(clickSettings);
+
+    ShardParticleSettings shardSettings{};
+    shardSettings.clickCount = 0U;
+    runtime.setShardParticleSettings(shardSettings);
+    runtime.pointerDown(goldenCenter, goldenViewport, 0ns);
+    runtime.pointerUp(10ms);
+
+    runtime.advance(1010ms);
+    runtime.onFrameRendered(1010ms);
+    BAFX_CHECK(runtime.instanceCount() == 1U);
+    BAFX_CHECK(runtime.pooledInstanceCount() == 0U);
+
+    runtime.advance(2600ms);
+    runtime.onFrameRendered(2600ms);
+    BAFX_CHECK(runtime.instanceCount() == 0U);
+    BAFX_CHECK(runtime.pooledInstanceCount() == 1U);
+}
+
+BAFX_TEST(validated_slowest_click_lifetime_has_a_finite_release_bound)
+{
+    Simulation simulation;
+    ClickParticleSettings clickSettings{};
+    clickSettings.diskLifetimeMs = 10000.0F;
+    clickSettings.ringsCount = 0U;
+    simulation.setClickParticleSettings(clickSettings);
+
+    ShardParticleSettings shardSettings{};
+    shardSettings.clickCount = 0U;
+    simulation.setShardParticleSettings(shardSettings);
+    simulation.setClickTimeScale(0.01F);
+    simulation.pointerDown(goldenCenter, goldenViewport, 0ns);
+    simulation.pointerUp(10ms);
+
+    // onFrameRendered may be called directly by lifecycle tests. It must use
+    // the read-only virtual-time projection rather than stale advance state.
+    simulation.onFrameRendered(1000s);
+    BAFX_CHECK(simulation.active());
+    simulation.onFrameRendered(1004s);
+    BAFX_CHECK(!simulation.active());
+}
+
 BAFX_TEST(rapid_clicks_keep_released_effects_alive)
 {
     SimulationRuntime runtime;

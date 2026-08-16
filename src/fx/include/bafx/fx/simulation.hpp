@@ -165,10 +165,11 @@ public:
     void setTrailTimeScale(float timeScale) noexcept;
     void setTrailTimeScale(float timeScale, SimulationTime time) noexcept;
 
-    // Count and radius bounds are spawn-time inputs. Lifetime and angular
-    // motion affect live particles, but never extend FX_Touch's fixed one-second
-    // post-release pool deadline. The timestamped overload settles rotation at
-    // the old parameters before installing a new motion segment.
+    // Count and radius bounds are spawn-time inputs. Disk/ring lifetime and
+    // angular motion affect live particles. A visible Web-configured child may
+    // extend retention beyond Unity's one-second post-release floor, within the
+    // validated lifetime/time-scale ceiling. The timestamped overload settles
+    // rotation at the old parameters before installing a new motion segment.
     void setClickParticleSettings(ClickParticleSettings settings) noexcept;
     void setClickParticleSettings(
         ClickParticleSettings settings,
@@ -275,6 +276,8 @@ private:
         ClickParticleStepStates& states,
         SimulationTime elapsed) noexcept;
     [[nodiscard]] ClickParticleStepStates particleStepStatesAt(
+        SimulationTime time) const noexcept;
+    [[nodiscard]] bool hasVisibleSystemsAfterFrame(
         SimulationTime time) const noexcept;
     void settleRingRotation(float particleAgeSeconds) noexcept;
 

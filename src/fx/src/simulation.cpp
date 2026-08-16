@@ -40,6 +40,12 @@ constexpr float maximumShardSize = 2000.0F;
 constexpr float maximumParticleTimestepSeconds = 0.03F;
 constexpr std::uint32_t maximumDragParticles = 50U;
 constexpr double releaseLifetimeSeconds = 1.0;
+// The zero-delay burst consumes at most one particle step without aging. Add
+// that step before converting the longest validated child to the slowest clock.
+constexpr double maximumReleaseRetentionSeconds =
+    (static_cast<double>(maximumParticleLifetimeMs) * 0.001
+        + static_cast<double>(maximumParticleTimestepSeconds))
+    / static_cast<double>(minimumTimeScale);
 constexpr std::uint64_t atlasRandomStream = 0xD1B54A32D192ED03ULL;
 
 struct CurveKey
@@ -880,16 +886,122 @@ void Simulation::onFrameRendered(const SimulationTime time)
         return;
     }
 
-    if (ageSeconds(time, releasedAt_) >= releaseLifetimeSeconds)
+    const double releasedAgeSeconds = ageSeconds(time, releasedAt_);
+    if (releasedAgeSeconds < releaseLifetimeSeconds)
     {
-        // The source converts the one-second root duration to 60 UI frames.
-        // Preserve that visual lifetime across desktop refresh rates; cleanup
-        // remains post-Present so the boundary frame is still drawable.
-        active_ = false;
-        rings_.clear();
-        triangles_.clear();
+        return;
+    }
+
+    if (trailParkingMode_)
+    {
+        // FXTouch.Stop clears the authored TrailRenderer at the Unity root
+        // deadline even when a Web-configured click child keeps this pooled
+        // instance alive. Preserve only the sibling parking cache/state.
         trail_.clear();
     }
+
+    if (releasedAgeSeconds < maximumReleaseRetentionSeconds
+        && hasVisibleSystemsAfterFrame(time))
+    {
+        return;
+    }
+
+    // The default Unity contract still owns the first second. Web lifetime
+    // overrides may extend a child beyond it, while the validated public
+    // lifetime and time-scale ranges provide a finite upper cleanup bound.
+    active_ = false;
+    rings_.clear();
+    triangles_.clear();
+    trail_.clear();
+}
+
+bool Simulation::hasVisibleSystemsAfterFrame(
+    const SimulationTime time) const noexcept
+{
+    const ClickParticleStepStates clickStates = particleStepStatesAt(time);
+    if (clickEffectEnabled_)
+    {
+        const bool diskWillRemainVisible =
+            !clickStates.centerDisk.burstEmitted
+            || clickStates.centerDisk.particleAgeSeconds
+                < millisecondsToSeconds(clickParticleSettings_.diskLifetimeMs);
+        if (diskWillRemainVisible)
+        {
+            return true;
+        }
+
+        const bool ringsWillRemainVisible = !rings_.empty()
+            && (!clickStates.dissolveRings.burstEmitted
+                || clickStates.dissolveRings.particleAgeSeconds
+                    < millisecondsToSeconds(
+                        clickParticleSettings_.ringsLifetimeMs));
+        if (ringsWillRemainVisible)
+        {
+            return true;
+        }
+    }
+
+    const SimulationTime currentTrailTime = trailTimeAt(time);
+    for (const MovingParticle& particle : triangles_)
+    {
+        if (particle.dragParticle)
+        {
+            if (ageSeconds(currentTrailTime, particle.bornAt)
+                < particle.lifetimeSeconds)
+            {
+                return true;
+            }
+            continue;
+        }
+
+        if (clickEffectEnabled_
+            && (!clickStates.clickTriangles.burstEmitted
+                || clickStates.clickTriangles.particleAgeSeconds
+                    < particle.lifetimeSeconds))
+        {
+            return true;
+        }
+    }
+
+    if (!trailRendererEnabled_
+        || trailLengthMultiplier_ <= 0.0F
+        || trail_.size() < 2U)
+    {
+        return false;
+    }
+
+    if (trailParkingMode_)
+    {
+        // Parking belongs to the authored Unity path and never extends the
+        // root deadline. onFrameRendered clears its visible geometry first.
+        return false;
+    }
+
+    const double effectiveTrailLifetime = trailLifetimeSeconds
+        * static_cast<double>(trailLengthMultiplier_);
+    const StoredTrailPoint* firstVisiblePoint = nullptr;
+    for (const StoredTrailPoint& point : trail_)
+    {
+        if (ageSeconds(currentTrailTime, point.createdAt)
+            >= effectiveTrailLifetime)
+        {
+            continue;
+        }
+
+        if (firstVisiblePoint == nullptr)
+        {
+            firstVisiblePoint = &point;
+            continue;
+        }
+
+        if (point.world.x != firstVisiblePoint->world.x
+            || point.world.y != firstVisiblePoint->world.y)
+        {
+            return true;
+        }
+    }
+
+    return false;
 }
 
 FrameSnapshot Simulation::snapshot(const Viewport viewport, const SimulationTime time) const
