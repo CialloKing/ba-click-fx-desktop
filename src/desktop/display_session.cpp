@@ -243,6 +243,27 @@ bool DisplaySession::retargetPendingFor(
         && sameDisplaySourceIdentity(pending, target);
 }
 
+bool DisplaySession::updatePendingTargetMetadata(
+    DisplayTarget target) noexcept
+{
+    if (!retargetPendingFor(target))
+    {
+        return false;
+    }
+
+    DisplaySessionBackgroundCaptureState& state =
+        *secondaryBackgroundCapture_;
+    state.pendingTarget = std::move(target);
+    if (state.execution.transactionActive)
+    {
+        // RequestBorderlessAccess is the only asynchronous action. Updating
+        // this snapshot before it completes lets StartSensor consume the
+        // latest DRR cadence without restarting the permission request.
+        state.execution.targetIntent.target = *state.pendingTarget;
+    }
+    return true;
+}
+
 bafx::windows::OverlayWindow& DisplaySession::window() noexcept
 {
     return window_;

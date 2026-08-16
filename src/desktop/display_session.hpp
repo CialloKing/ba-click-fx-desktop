@@ -120,6 +120,11 @@ public:
     [[nodiscard]] const DisplayTarget& reconciliationTarget() const noexcept;
     [[nodiscard]] bool retargetPendingFor(
         const DisplayTarget& target) const noexcept;
+    // A pending permission transaction owns stable geometry and adapter
+    // identity, but DPI/DRR metadata may advance while the user responds.
+    // Merge that metadata without canceling the bounded transaction.
+    [[nodiscard]] bool updatePendingTargetMetadata(
+        DisplayTarget target) noexcept;
     [[nodiscard]] bafx::windows::OverlayWindow& window() noexcept;
     [[nodiscard]] const bafx::windows::OverlayWindow& window() const noexcept;
     [[nodiscard]] bafx::windows::CompositionRenderer& renderer() noexcept;

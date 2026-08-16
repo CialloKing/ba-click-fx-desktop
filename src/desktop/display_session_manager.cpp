@@ -213,8 +213,18 @@ DisplaySessionReconcileResult DisplaySessionManager::reconcileSecondaries(
         if (existing->retargetPendingFor(target))
         {
             // The pending WGC transaction already owns this exact placement
-            // and source. Do not cancel a long-running permission request just
-            // because another display caused reconciliation in the meantime.
+            // and source. Merge DPI/DRR metadata without canceling a
+            // long-running permission request.
+            const bool metadataChanged =
+                !sameDisplayRuntimeMetadata(reconciliationTarget, target)
+                || physicalTargetIdentityResolutionImproved(
+                    reconciliationTarget,
+                    target);
+            if (metadataChanged
+                && existing->updatePendingTargetMetadata(target))
+            {
+                ++result.updated;
+            }
             continue;
         }
 
@@ -354,6 +364,13 @@ bool DisplaySessionManager::topologyDiffers(
             snapshot.status);
         if (session->retargetPendingFor(stabilized))
         {
+            if (!sameDisplayRuntimeMetadata(expected, stabilized)
+                || physicalTargetIdentityResolutionImproved(
+                    expected,
+                    stabilized))
+            {
+                return true;
+            }
             continue;
         }
         if (!sameDisplayTarget(expected, stabilized)
