@@ -155,10 +155,10 @@ Visual Studio、Windows SDK、Inno Setup 或 PowerShell 依赖包；安装器已
 `%LOCALAPPDATA%`、当前工作目录或其他用户目录保存数据。Host 使用
 `Local\BAFX.Host.v1` 互斥体保证单实例。
 
-首次生成的 schema 8 配置将 `background.mode` 设为 `background-aware`、
+首次生成的 schema 11 配置将 `background.mode` 设为 `background-aware`、
 `background.allowSystemBorder` 设为 `true`、`display.hdrEnabled` 设为 `false`，并以
 `input.trailOnlyWhilePressed=true`、`input.samplingRateHz=0` 保持按住拖尾且不额外限频。
-测试版只接受字段完整的显式 `schemaVersion=8`：缺少版本、section 或字段，非当前版本、
+测试版只接受字段完整的显式 `schemaVersion=11`：缺少版本、section 或字段，非当前版本、
 未知字段和枚举别名都会被拒绝。Host 记录错误后仅在内存中使用当前默认值，不补齐、不迁移也不改写
 原文件。只有
 `background-aware` 会启用 WGC；WGC 或捕获排除路径失败时，Host 将当前批次回退到内部
@@ -172,10 +172,16 @@ FX-only，不会先启动带黄色边框的会话。无论该开关如何设置�
 优先级，任何自排除冲突都必须回退 FX-only。
 
 `BAFX.ControlCenter.exe` 已作为独立的 Win32 进程接入该 Pipe。Host 保持运行时，Control Center
-可以读取状态、暂停或恢复特效，并将下列效果配置在下一帧交给 Host：启用状态、点击特效、鼠标拖尾、
-拖尾常驻、效果大小、拖尾长度、拖尾宽度、输入采样率上限、Bloom 强度与 Bloom 质量。“拖尾常驻”默认关闭；开启后
+可以读取状态、暂停或恢复特效。基础页提供启用状态、点击特效、鼠标拖尾、拖尾常驻、效果大小、拖尾长度、
+拖尾宽度、输入采样率上限、Bloom 强度与 Bloom 质量；高级页再按“时间与透明度”“粒子参数”“Bloom 参数”
+分成三个二级页面。粒子页直接使用与 Web 相同的 `disk.radius`、`rings.hdrIntensity`、
+`shards.hdrIntensity` 和 `trail.trailOpacity` 路径；另外两页提供透明度、点击/拖尾时间倍率、拖尾寿命，
+以及 Bloom 扩散、阈值、软阈值和亮度上限。背景区域包含指针排除、系统捕获边框和默认关闭的 HDR 输出开关。
+调整结果在下一帧交给 Host。“拖尾常驻”默认关闭；开启后
 无需按住鼠标，普通移动也会生成纯拖尾，但不会伪造点击圆盘或圆环。这是参考 Web 行为提供的原生产品增强，
 不属于游戏原脚本的按压 FX 路径。数值控件会合并连续拖动后的写入，避免为每个滑块像素都写一次配置。
+`bloom.intensity` 是 Web/Unity 原始标量，默认值为 `1.7`、有效范围为 `0..10`，不是相对 `1.0` 的倍率。
+Bloom 质量只是 diffusion 的派生预设：紧凑、适中、原版、极宽分别对应 `4/6/7/10`，其他值显示为“自定义”。
 
 控制中心的“重置默认”按钮会先请求确认，再用内置默认 schema 整体替换持久化配置。它不会恢复已经
 暂停的特效；需要继续显示时仍应单独点击“恢复特效”。
@@ -213,6 +219,7 @@ DirectComposition 的 FP16 预乘透明 surface 承担最接近的传输角色�
 ```text
 GetState
 GetConfig
+GetFxConfig
 SetConfig {"generation":1,"path":"effects.globalScale","value":1.25}
 SetConfig {"generation":1,"path":"input.trailOnlyWhilePressed","value":false}
 SetConfig {"generation":1,"path":"input.samplingRateHz","value":30}
@@ -220,13 +227,19 @@ SetConfig {"generation":1,"path":"background.mode","value":"background-aware"}
 SetConfig {"generation":1,"path":"background.mode","value":"recording-compatible"}
 SetConfig {"generation":1,"path":"background.mode","value":"light-background"}
 SetConfig {"generation":1,"path":"background.allowSystemBorder","value":false}
+SetFxParam {"generation":1,"path":"disk.radius","value":40}
+SetFxParams {"generation":1,"patch":{"rings.hdrIntensity":6,"shards.hdrIntensity":6,"trail.trailOpacity":0.8}}
+ResetFxConfig
 Pause
 Resume
 Shutdown
 ```
 
-`SetConfig` 也接受完整的 schema 8 JSON 快照。路径补丁只允许配置库声明的产品字段，代次
-不匹配会返回 `generation_conflict`；所有命令均在下一帧由 Host 应用。
+`SetConfig` 也接受完整的 schema 11 JSON 快照。`GetFxConfig`、`SetFxParam`、原子批量的
+`SetFxParams` 和 `ResetFxConfig` 对应 Web 的实例 API 命名；当前只返回和接受已经接入 Native
+模拟或材质求值的参数。`ResetFxConfig` 只恢复 `effects`，保留背景、HDR、输入和系统设置；Control Center
+中的“重置默认”则使用完整 schema 恢复全部持久化设置。路径补丁只允许配置库声明的产品字段，代次不匹配会返回
+`generation_conflict`；所有命令均在下一帧由 Host 应用。
 
 `packed_fx_textures` 测试逐张解压 raw LZ4 Block，并锁定 RGBA8 texel 的尺寸、行距和 SHA-256。
 生成器是仅供维护者使用的开发工具；只有在更新 Unity 真值快照时才需要运行，输入 PNG、Node.js 和
