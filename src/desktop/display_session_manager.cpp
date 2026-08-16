@@ -399,13 +399,24 @@ std::size_t DisplaySessionManager::pruneCoordinatorDuplicates() noexcept
         sessions_.end(),
         [&](const std::unique_ptr<DisplaySession>& session)
         {
+            const bool intentDuplicatesCoordinator = sameDisplaySource(
+                    session->reconciliationTarget(),
+                    coordinator_->target())
+                || sameDisplayLogicalSlot(
+                    session->reconciliationTarget(),
+                    coordinator_->target());
+            const bool appliedTargetDuplicatesCoordinator = sameDisplaySource(
+                    session->target(),
+                    coordinator_->target())
+                || sameDisplayLogicalSlot(
+                    session->target(),
+                    coordinator_->target());
+            // A secondary HWND remains on its applied target until an
+            // asynchronous retarget commits. Once the coordinator owns that
+            // display, retaining either identity would overlap two surfaces.
             const bool remove = session.get() != coordinator_
-                && (sameDisplaySource(
-                        session->reconciliationTarget(),
-                        coordinator_->target())
-                    || sameDisplayLogicalSlot(
-                        session->reconciliationTarget(),
-                        coordinator_->target()));
+                && (intentDuplicatesCoordinator
+                    || appliedTargetDuplicatesCoordinator);
             if (remove)
             {
                 ++removed;
