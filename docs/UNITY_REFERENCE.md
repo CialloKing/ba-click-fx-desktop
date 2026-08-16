@@ -171,8 +171,11 @@ OS 指针输入；首次观察位置包含 shape offset 和观察前已累积的
   一秒美术寿命，并明确采用刷新率无关的 `1 s` 仿真时间作为 **ReconstructionChoice**：边界帧呈现后
   才停止并归还对象，桌面暂停期间不消费这段时间。若字面按 60 次 Present 回收，`120/144/240 Hz`
   会分别约在 `500/417/250 ms` 截断最长 `600-700 ms` 的碎片，因此不作为当前桌面合同。
-  Web 风格的 `disk.lifetimeMs` 与 `rings.lifetimeMs` 只调整各子粒子的归一化年龄，不延长这段固定
-  `1 s` 根对象回收期限；较长寿命或较慢 `clickTimeScale` 仍可能在释放后被根合同截断。
+  Unity 的 `1 s` 仍是默认与最短池驻留期；Web 风格的圆盘、圆环、碎片和普通拖尾若在该边界后仍
+  可绘制，则根对象继续保留到最后一个子系统自然结束。回收判断使用当前寿命与独立时间倍率，并以
+  最大合法粒子寿命、最慢倍率和一次粒子步进推导有限硬截止。`FxTrailTimeScale` parking 仍遵循
+  Unity 根期限：即使较长的 Web 点击子系统继续存活，其可见 Trail 也会在释放后 `1 s` 清除，只保留
+  原脚本会跨对象池激活保存的 parking 缓存和 Renderer 状态。
 - Web 版的 coalesced events 与未按键常驻拖尾只作为 native/Web 产品增强，不是 Unity 路径真值。原生会
   按原序无损保留同帧多个 Raw Input 边沿，仅用于诊断和 native 扩展，且含边沿帧不会从尾随 Move
   重启常驻段；严格效果路径将边沿归约为 Down/Held/Up 布尔帧态并按脚本的 Down→Held→Up 顺序执行，
