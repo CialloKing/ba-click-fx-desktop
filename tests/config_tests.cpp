@@ -69,6 +69,26 @@ BAFX_TEST(config_defaults_round_trip_through_versioned_json)
     BAFX_CHECK_NEAR(defaults.effects.ringsRotationDirection, -1.0F, 0.00001F);
     BAFX_CHECK_NEAR(defaults.effects.ringsHdrIntensity, 5.992157F, 0.00001F);
     BAFX_CHECK_NEAR(defaults.effects.shardsHdrIntensity, 5.992157F, 0.00001F);
+    BAFX_CHECK(defaults.effects.shardsClickCount == 4U);
+    BAFX_CHECK_NEAR(
+        defaults.effects.shardsClickLifetimeMinMs,
+        600.0F,
+        0.00001F);
+    BAFX_CHECK_NEAR(
+        defaults.effects.shardsClickLifetimeMaxMs,
+        700.0F,
+        0.00001F);
+    BAFX_CHECK_NEAR(defaults.effects.shardsClickRadius, 49.8769488F, 0.00001F);
+    BAFX_CHECK_NEAR(
+        defaults.effects.shardsClickSpeedMin,
+        49.8769488F,
+        0.00001F);
+    BAFX_CHECK_NEAR(
+        defaults.effects.shardsClickSpeedMax,
+        66.5025984F,
+        0.00001F);
+    BAFX_CHECK_NEAR(defaults.effects.shardsSizeMin, 16.6256496F, 0.00001F);
+    BAFX_CHECK_NEAR(defaults.effects.shardsSizeMax, 33.2512992F, 0.00001F);
     BAFX_CHECK_NEAR(defaults.effects.trailOpacity, 1.0F, 0.00001F);
     BAFX_CHECK_NEAR(defaults.effects.bloomIntensity, 1.7F, 0.00001F);
     BAFX_CHECK_NEAR(defaults.effects.bloomDiffusion, 7.0F, 0.00001F);
@@ -149,6 +169,37 @@ BAFX_TEST(config_defaults_round_trip_through_versioned_json)
         parsed.config.effects.shardsHdrIntensity,
         defaults.effects.shardsHdrIntensity,
         0.00001F);
+    BAFX_CHECK(
+        parsed.config.effects.shardsClickCount
+        == defaults.effects.shardsClickCount);
+    BAFX_CHECK_NEAR(
+        parsed.config.effects.shardsClickLifetimeMinMs,
+        defaults.effects.shardsClickLifetimeMinMs,
+        0.00001F);
+    BAFX_CHECK_NEAR(
+        parsed.config.effects.shardsClickLifetimeMaxMs,
+        defaults.effects.shardsClickLifetimeMaxMs,
+        0.00001F);
+    BAFX_CHECK_NEAR(
+        parsed.config.effects.shardsClickRadius,
+        defaults.effects.shardsClickRadius,
+        0.00001F);
+    BAFX_CHECK_NEAR(
+        parsed.config.effects.shardsClickSpeedMin,
+        defaults.effects.shardsClickSpeedMin,
+        0.00001F);
+    BAFX_CHECK_NEAR(
+        parsed.config.effects.shardsClickSpeedMax,
+        defaults.effects.shardsClickSpeedMax,
+        0.00001F);
+    BAFX_CHECK_NEAR(
+        parsed.config.effects.shardsSizeMin,
+        defaults.effects.shardsSizeMin,
+        0.00001F);
+    BAFX_CHECK_NEAR(
+        parsed.config.effects.shardsSizeMax,
+        defaults.effects.shardsSizeMax,
+        0.00001F);
     BAFX_CHECK_NEAR(
         parsed.config.effects.trailOpacity,
         defaults.effects.trailOpacity,
@@ -199,6 +250,14 @@ BAFX_TEST(config_current_effect_fields_round_trip_through_file)
     value.effects.ringsRotationDirection = 0.5F;
     value.effects.ringsHdrIntensity = 4.0F;
     value.effects.shardsHdrIntensity = 8.0F;
+    value.effects.shardsClickCount = 9U;
+    value.effects.shardsClickLifetimeMinMs = 250.0F;
+    value.effects.shardsClickLifetimeMaxMs = 850.0F;
+    value.effects.shardsClickRadius = 72.5F;
+    value.effects.shardsClickSpeedMin = 25.0F;
+    value.effects.shardsClickSpeedMax = 125.0F;
+    value.effects.shardsSizeMin = 12.0F;
+    value.effects.shardsSizeMax = 44.0F;
     value.effects.trailOpacity = 0.55F;
     value.effects.bloomIntensity = 3.4F;
     value.effects.bloomDiffusion = 8.5F;
@@ -222,6 +281,14 @@ BAFX_TEST(config_current_effect_fields_round_trip_through_file)
              "ringsRotationDirection",
              "ringsHdrIntensity",
              "shardsHdrIntensity",
+             "shardsClickCount",
+             "shardsClickLifetimeMinMs",
+             "shardsClickLifetimeMaxMs",
+             "shardsClickRadius",
+             "shardsClickSpeedMin",
+             "shardsClickSpeedMax",
+             "shardsSizeMin",
+             "shardsSizeMax",
              "trailOpacity",
              "bloomDiffusion",
              "bloomThreshold",
@@ -258,6 +325,29 @@ BAFX_TEST(config_current_effect_fields_round_trip_through_file)
         0.00001F);
     BAFX_CHECK_NEAR(loaded.config.effects.ringsHdrIntensity, 4.0F, 0.00001F);
     BAFX_CHECK_NEAR(loaded.config.effects.shardsHdrIntensity, 8.0F, 0.00001F);
+    BAFX_CHECK(loaded.config.effects.shardsClickCount == 9U);
+    BAFX_CHECK_NEAR(
+        loaded.config.effects.shardsClickLifetimeMinMs,
+        250.0F,
+        0.00001F);
+    BAFX_CHECK_NEAR(
+        loaded.config.effects.shardsClickLifetimeMaxMs,
+        850.0F,
+        0.00001F);
+    BAFX_CHECK_NEAR(
+        loaded.config.effects.shardsClickRadius,
+        72.5F,
+        0.00001F);
+    BAFX_CHECK_NEAR(
+        loaded.config.effects.shardsClickSpeedMin,
+        25.0F,
+        0.00001F);
+    BAFX_CHECK_NEAR(
+        loaded.config.effects.shardsClickSpeedMax,
+        125.0F,
+        0.00001F);
+    BAFX_CHECK_NEAR(loaded.config.effects.shardsSizeMin, 12.0F, 0.00001F);
+    BAFX_CHECK_NEAR(loaded.config.effects.shardsSizeMax, 44.0F, 0.00001F);
     BAFX_CHECK_NEAR(loaded.config.effects.trailOpacity, 0.55F, 0.00001F);
     BAFX_CHECK_NEAR(loaded.config.effects.bloomIntensity, 3.4F, 0.00001F);
     BAFX_CHECK_NEAR(loaded.config.effects.bloomDiffusion, 8.5F, 0.00001F);
@@ -272,7 +362,15 @@ BAFX_TEST(config_current_effect_fields_round_trip_through_file)
              "\"radiusMin\":45",
              "\"radiusMax\":95",
              "\"angularVelocityMultiplier\":14.5",
-             "\"rotationDirection\":0.5"})
+             "\"rotationDirection\":0.5",
+             "\"clickCount\":9",
+             "\"clickLifetimeMinMs\":250",
+             "\"clickLifetimeMaxMs\":850",
+             "\"clickRadius\":72.5",
+             "\"clickSpeedMin\":25",
+             "\"clickSpeedMax\":125",
+             "\"sizeMin\":12",
+             "\"sizeMax\":44"})
     {
         BAFX_CHECK(fxConfig.find(fragment) != std::string::npos);
     }
@@ -428,6 +526,83 @@ BAFX_TEST(config_fx_parameter_boundaries_normalize_web_units)
         7.5F,
         0.00001F);
 
+    const auto shardCount = bafx::config::setFxParam(
+        base,
+        "shards.clickCount",
+        "1000");
+    BAFX_CHECK(shardCount.succeeded());
+    BAFX_CHECK(shardCount.config.effects.shardsClickCount == 1000U);
+
+    const auto shardLifetimeMin = bafx::config::setFxParam(
+        base,
+        "shards.clickLifetimeMinMs",
+        "100");
+    BAFX_CHECK(shardLifetimeMin.succeeded());
+    BAFX_CHECK_NEAR(
+        shardLifetimeMin.config.effects.shardsClickLifetimeMinMs,
+        100.0F,
+        0.00001F);
+
+    const auto shardLifetimeMax = bafx::config::setFxParam(
+        base,
+        "shards.clickLifetimeMaxMs",
+        "10000");
+    BAFX_CHECK(shardLifetimeMax.succeeded());
+    BAFX_CHECK_NEAR(
+        shardLifetimeMax.config.effects.shardsClickLifetimeMaxMs,
+        10000.0F,
+        0.00001F);
+
+    const auto shardRadius = bafx::config::setFxParam(
+        base,
+        "shards.clickRadius",
+        "5000");
+    BAFX_CHECK(shardRadius.succeeded());
+    BAFX_CHECK_NEAR(
+        shardRadius.config.effects.shardsClickRadius,
+        5000.0F,
+        0.00001F);
+
+    const auto shardSpeedMin = bafx::config::setFxParam(
+        base,
+        "shards.clickSpeedMin",
+        "0");
+    BAFX_CHECK(shardSpeedMin.succeeded());
+    BAFX_CHECK_NEAR(
+        shardSpeedMin.config.effects.shardsClickSpeedMin,
+        0.0F,
+        0.00001F);
+
+    const auto shardSpeedMax = bafx::config::setFxParam(
+        base,
+        "shards.clickSpeedMax",
+        "5000");
+    BAFX_CHECK(shardSpeedMax.succeeded());
+    BAFX_CHECK_NEAR(
+        shardSpeedMax.config.effects.shardsClickSpeedMax,
+        5000.0F,
+        0.00001F);
+
+    const auto shardSizeMin = bafx::config::setFxParam(
+        base,
+        "shards.sizeMin",
+        "0");
+    BAFX_CHECK(shardSizeMin.succeeded());
+    BAFX_CHECK_NEAR(
+        shardSizeMin.config.effects.shardsSizeMin,
+        0.0F,
+        0.00001F);
+
+    const auto shardSizeMax = bafx::config::setFxParam(
+        base,
+        "shards.sizeMax",
+        "2000");
+    BAFX_CHECK(shardSizeMax.succeeded());
+    BAFX_CHECK_NEAR(
+        shardSizeMax.config.effects.shardsSizeMax,
+        2000.0F,
+        0.00001F);
+
     const auto trailOpacity = bafx::config::setFxParam(
         base,
         "trail.trailOpacity",
@@ -467,6 +642,21 @@ BAFX_TEST(config_fx_parameter_boundaries_normalize_web_units)
              std::pair{"rings.angularVelocityMultiplier", "100.01"},
              std::pair{"rings.rotationDirection", "-1.01"},
              std::pair{"rings.rotationDirection", "1.01"},
+             std::pair{"shards.clickCount", "1001"},
+             std::pair{"shards.clickCount", "2.5"},
+             std::pair{"shards.clickLifetimeMinMs", "0"},
+             std::pair{"shards.clickLifetimeMaxMs", "10001"},
+             std::pair{"shards.clickLifetimeMinMs", "701"},
+             std::pair{"shards.clickLifetimeMaxMs", "599"},
+             std::pair{"shards.clickRadius", "5000.01"},
+             std::pair{"shards.clickSpeedMin", "5000.01"},
+             std::pair{"shards.clickSpeedMax", "-0.01"},
+             std::pair{"shards.clickSpeedMin", "66.51"},
+             std::pair{"shards.clickSpeedMax", "49.87"},
+             std::pair{"shards.sizeMin", "2000.01"},
+             std::pair{"shards.sizeMax", "-0.01"},
+             std::pair{"shards.sizeMin", "33.26"},
+             std::pair{"shards.sizeMax", "16.62"},
              std::pair{"bloom.softKnee", "1.01"},
              std::pair{"bloom.clamp", "-0.01"}})
     {
@@ -486,7 +676,7 @@ BAFX_TEST(config_fx_parameter_batch_is_atomic_and_preserves_generation)
     const bafx::config::Config base = bafx::config::defaultConfig();
     const auto batch = bafx::config::setFxParams(
         base,
-        R"json({"generation":7,"patch":{"opacity":0.25,"clickTimeScale":2,"trail.lifetimeMs":600,"disk.lifetimeMs":350,"rings.count":4,"rings.lifetimeMs":900,"rings.radiusMin":45,"rings.radiusMax":95,"rings.angularVelocityMultiplier":14.5,"rings.rotationDirection":0.5,"bloom.intensity":4.2}})json");
+        R"json({"generation":7,"patch":{"opacity":0.25,"clickTimeScale":2,"trail.lifetimeMs":600,"disk.lifetimeMs":350,"rings.count":4,"rings.lifetimeMs":900,"rings.radiusMin":45,"rings.radiusMax":95,"rings.angularVelocityMultiplier":14.5,"rings.rotationDirection":0.5,"shards.clickCount":7,"shards.clickLifetimeMinMs":100,"shards.clickLifetimeMaxMs":200,"shards.clickRadius":75,"shards.clickSpeedMin":10,"shards.clickSpeedMax":20,"shards.sizeMin":1,"shards.sizeMax":2,"bloom.intensity":4.2}})json");
     BAFX_CHECK(batch.succeeded());
     BAFX_CHECK(batch.expectedGeneration.has_value());
     BAFX_CHECK(*batch.expectedGeneration == 7U);
@@ -507,6 +697,29 @@ BAFX_TEST(config_fx_parameter_batch_is_atomic_and_preserves_generation)
         batch.config.effects.ringsRotationDirection,
         0.5F,
         0.00001F);
+    BAFX_CHECK(batch.config.effects.shardsClickCount == 7U);
+    BAFX_CHECK_NEAR(
+        batch.config.effects.shardsClickLifetimeMinMs,
+        100.0F,
+        0.00001F);
+    BAFX_CHECK_NEAR(
+        batch.config.effects.shardsClickLifetimeMaxMs,
+        200.0F,
+        0.00001F);
+    BAFX_CHECK_NEAR(
+        batch.config.effects.shardsClickRadius,
+        75.0F,
+        0.00001F);
+    BAFX_CHECK_NEAR(
+        batch.config.effects.shardsClickSpeedMin,
+        10.0F,
+        0.00001F);
+    BAFX_CHECK_NEAR(
+        batch.config.effects.shardsClickSpeedMax,
+        20.0F,
+        0.00001F);
+    BAFX_CHECK_NEAR(batch.config.effects.shardsSizeMin, 1.0F, 0.00001F);
+    BAFX_CHECK_NEAR(batch.config.effects.shardsSizeMax, 2.0F, 0.00001F);
     BAFX_CHECK_NEAR(batch.config.effects.bloomIntensity, 4.2F, 0.00001F);
 
     const auto rejected = bafx::config::setFxParams(
@@ -515,6 +728,16 @@ BAFX_TEST(config_fx_parameter_batch_is_atomic_and_preserves_generation)
     BAFX_CHECK(!rejected.succeeded());
     BAFX_CHECK(rejected.config.effects.opacity == base.effects.opacity);
     BAFX_CHECK(rejected.config.effects.bloomSoftKnee == base.effects.bloomSoftKnee);
+
+    const auto rejectedRange = bafx::config::setFxParams(
+        base,
+        R"json({"patch":{"opacity":0.25,"shards.clickLifetimeMinMs":900,"shards.clickLifetimeMaxMs":800}})json");
+    BAFX_CHECK(!rejectedRange.succeeded());
+    BAFX_CHECK(rejectedRange.config.effects.opacity == base.effects.opacity);
+    BAFX_CHECK_NEAR(
+        rejectedRange.config.effects.shardsClickLifetimeMinMs,
+        base.effects.shardsClickLifetimeMinMs,
+        0.00001F);
 }
 
 BAFX_TEST(config_bloom_quality_is_derived_from_continuous_diffusion)
@@ -751,6 +974,20 @@ BAFX_TEST(config_current_schema_requires_every_section_and_field)
     BAFX_CHECK(
         missingCurrentEffectField.message.find(
             "config field 'effects.ringsCount' is required")
+        != std::string::npos);
+
+    document = bafx::config::toJson(config, false);
+    const std::string shardCountField = R"json("shardsClickCount":4,)json";
+    const std::size_t shardCountPosition = document.find(shardCountField);
+    BAFX_CHECK(shardCountPosition != std::string::npos);
+    document.erase(shardCountPosition, shardCountField.size());
+
+    const auto missingShardField = bafx::config::parseJson(document);
+    BAFX_CHECK(
+        missingShardField.status == bafx::config::ConfigStatus::ValidationError);
+    BAFX_CHECK(
+        missingShardField.message.find(
+            "config field 'effects.shardsClickCount' is required")
         != std::string::npos);
 }
 

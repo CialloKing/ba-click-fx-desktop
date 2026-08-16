@@ -9,7 +9,7 @@
 namespace bafx::config
 {
 
-inline constexpr std::uint32_t currentSchemaVersion = 12U;
+inline constexpr std::uint32_t currentSchemaVersion = 13U;
 
 enum class RenderMode : std::uint8_t
 {
@@ -64,6 +64,16 @@ struct EffectsConfig
     float ringsRotationDirection{-1.0F};
     float ringsHdrIntensity{5.992157F};
     float shardsHdrIntensity{5.992157F};
+    // Click shard values use the Web API's 1920x1080 reference-pixel units.
+    // The simulation converts them to Unity world units at its boundary.
+    std::uint32_t shardsClickCount{4U};
+    float shardsClickLifetimeMinMs{600.0F};
+    float shardsClickLifetimeMaxMs{700.0F};
+    float shardsClickRadius{49.8769488F};
+    float shardsClickSpeedMin{49.8769488F};
+    float shardsClickSpeedMax{66.5025984F};
+    float shardsSizeMin{16.6256496F};
+    float shardsSizeMax{33.2512992F};
     float trailOpacity{1.0F};
     // Web API equivalent: bloom.intensity. Unity's serialized default is 1.7.
     float bloomIntensity{1.7F};

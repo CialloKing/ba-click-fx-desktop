@@ -884,6 +884,14 @@ private:
                     "ringsRotationDirection",
                     "ringsHdrIntensity",
                     "shardsHdrIntensity",
+                    "shardsClickCount",
+                    "shardsClickLifetimeMinMs",
+                    "shardsClickLifetimeMaxMs",
+                    "shardsClickRadius",
+                    "shardsClickSpeedMin",
+                    "shardsClickSpeedMax",
+                    "shardsSizeMin",
+                    "shardsSizeMax",
                     "trailOpacity",
                     "bloomIntensity",
                     "bloomDiffusion",
@@ -1040,6 +1048,54 @@ private:
             "shardsHdrIntensity",
             "effects",
             config.effects.shardsHdrIntensity,
+            error)
+        || !readUnsignedInteger(
+            *effects,
+            "shardsClickCount",
+            "effects",
+            config.effects.shardsClickCount,
+            error)
+        || !readFloat(
+            *effects,
+            "shardsClickLifetimeMinMs",
+            "effects",
+            config.effects.shardsClickLifetimeMinMs,
+            error)
+        || !readFloat(
+            *effects,
+            "shardsClickLifetimeMaxMs",
+            "effects",
+            config.effects.shardsClickLifetimeMaxMs,
+            error)
+        || !readFloat(
+            *effects,
+            "shardsClickRadius",
+            "effects",
+            config.effects.shardsClickRadius,
+            error)
+        || !readFloat(
+            *effects,
+            "shardsClickSpeedMin",
+            "effects",
+            config.effects.shardsClickSpeedMin,
+            error)
+        || !readFloat(
+            *effects,
+            "shardsClickSpeedMax",
+            "effects",
+            config.effects.shardsClickSpeedMax,
+            error)
+        || !readFloat(
+            *effects,
+            "shardsSizeMin",
+            "effects",
+            config.effects.shardsSizeMin,
+            error)
+        || !readFloat(
+            *effects,
+            "shardsSizeMax",
+            "effects",
+            config.effects.shardsSizeMax,
             error)
         || !readFloat(
             *effects,
@@ -1212,6 +1268,28 @@ private:
         "ringsRotationDirection",
         JsonValue(static_cast<double>(config.effects.ringsRotationDirection)));
     effects.emplace("shardsHdrIntensity", JsonValue(static_cast<double>(config.effects.shardsHdrIntensity)));
+    effects.emplace("shardsClickCount", JsonValue(static_cast<double>(config.effects.shardsClickCount)));
+    effects.emplace(
+        "shardsClickLifetimeMaxMs",
+        JsonValue(static_cast<double>(config.effects.shardsClickLifetimeMaxMs)));
+    effects.emplace(
+        "shardsClickLifetimeMinMs",
+        JsonValue(static_cast<double>(config.effects.shardsClickLifetimeMinMs)));
+    effects.emplace(
+        "shardsClickRadius",
+        JsonValue(static_cast<double>(config.effects.shardsClickRadius)));
+    effects.emplace(
+        "shardsClickSpeedMax",
+        JsonValue(static_cast<double>(config.effects.shardsClickSpeedMax)));
+    effects.emplace(
+        "shardsClickSpeedMin",
+        JsonValue(static_cast<double>(config.effects.shardsClickSpeedMin)));
+    effects.emplace(
+        "shardsSizeMax",
+        JsonValue(static_cast<double>(config.effects.shardsSizeMax)));
+    effects.emplace(
+        "shardsSizeMin",
+        JsonValue(static_cast<double>(config.effects.shardsSizeMin)));
     effects.emplace("trailEnabled", JsonValue(config.effects.trailEnabled));
     effects.emplace("trailLength", JsonValue(static_cast<double>(config.effects.trailLength)));
     effects.emplace("trailLifetimeMs", JsonValue(static_cast<double>(config.effects.trailLifetimeMs)));
@@ -1293,8 +1371,32 @@ private:
 
     JsonValue::Object shards;
     shards.emplace(
+        "clickCount",
+        JsonValue(static_cast<double>(config.effects.shardsClickCount)));
+    shards.emplace(
+        "clickLifetimeMaxMs",
+        JsonValue(static_cast<double>(config.effects.shardsClickLifetimeMaxMs)));
+    shards.emplace(
+        "clickLifetimeMinMs",
+        JsonValue(static_cast<double>(config.effects.shardsClickLifetimeMinMs)));
+    shards.emplace(
+        "clickRadius",
+        JsonValue(static_cast<double>(config.effects.shardsClickRadius)));
+    shards.emplace(
+        "clickSpeedMax",
+        JsonValue(static_cast<double>(config.effects.shardsClickSpeedMax)));
+    shards.emplace(
+        "clickSpeedMin",
+        JsonValue(static_cast<double>(config.effects.shardsClickSpeedMin)));
+    shards.emplace(
         "hdrIntensity",
         JsonValue(static_cast<double>(config.effects.shardsHdrIntensity)));
+    shards.emplace(
+        "sizeMax",
+        JsonValue(static_cast<double>(config.effects.shardsSizeMax)));
+    shards.emplace(
+        "sizeMin",
+        JsonValue(static_cast<double>(config.effects.shardsSizeMin)));
 
     JsonValue::Object trail;
     trail.emplace(
@@ -1575,9 +1677,13 @@ ConfigLoadResult parseJson(const std::string_view json) noexcept
     }
 }
 
-ConfigPatchResult applyPatchJson(
+namespace
+{
+
+[[nodiscard]] ConfigPatchResult applyPatchJsonImpl(
     const Config& base,
-    const std::string_view json) noexcept
+    const std::string_view json,
+    const bool validateCandidate) noexcept
 {
     try
     {
@@ -1844,6 +1950,51 @@ ConfigPatchResult applyPatchJson(
         {
             valueAccepted = readPatchFloat(result.effects.shardsHdrIntensity);
         }
+        else if (*path == "effects.shardsClickCount"
+            || *path == "shards.clickCount")
+        {
+            valueAccepted = readPatchUnsignedInteger(
+                result.effects.shardsClickCount);
+        }
+        else if (*path == "effects.shardsClickLifetimeMinMs"
+            || *path == "shards.clickLifetimeMinMs")
+        {
+            valueAccepted = readPatchFloat(
+                result.effects.shardsClickLifetimeMinMs);
+        }
+        else if (*path == "effects.shardsClickLifetimeMaxMs"
+            || *path == "shards.clickLifetimeMaxMs")
+        {
+            valueAccepted = readPatchFloat(
+                result.effects.shardsClickLifetimeMaxMs);
+        }
+        else if (*path == "effects.shardsClickRadius"
+            || *path == "shards.clickRadius")
+        {
+            valueAccepted = readPatchFloat(result.effects.shardsClickRadius);
+        }
+        else if (*path == "effects.shardsClickSpeedMin"
+            || *path == "shards.clickSpeedMin")
+        {
+            valueAccepted = readPatchFloat(
+                result.effects.shardsClickSpeedMin);
+        }
+        else if (*path == "effects.shardsClickSpeedMax"
+            || *path == "shards.clickSpeedMax")
+        {
+            valueAccepted = readPatchFloat(
+                result.effects.shardsClickSpeedMax);
+        }
+        else if (*path == "effects.shardsSizeMin"
+            || *path == "shards.sizeMin")
+        {
+            valueAccepted = readPatchFloat(result.effects.shardsSizeMin);
+        }
+        else if (*path == "effects.shardsSizeMax"
+            || *path == "shards.sizeMax")
+        {
+            valueAccepted = readPatchFloat(result.effects.shardsSizeMax);
+        }
         else if (*path == "effects.trailOpacity"
             || *path == "trail.trailOpacity")
         {
@@ -1988,7 +2139,7 @@ ConfigPatchResult applyPatchJson(
         }
 
         std::string validationError;
-        if (!validateConfig(result, &validationError))
+        if (validateCandidate && !validateConfig(result, &validationError))
         {
             return ConfigPatchResult{
                 base,
@@ -2022,6 +2173,15 @@ ConfigPatchResult applyPatchJson(
             false,
             std::nullopt};
     }
+}
+
+}
+
+ConfigPatchResult applyPatchJson(
+    const Config& base,
+    const std::string_view json) noexcept
+{
+    return applyPatchJsonImpl(base, json, true);
 }
 
 ConfigBatchPatchResult applyPatchBatchJson(
@@ -2098,7 +2258,13 @@ ConfigBatchPatchResult applyPatchBatchJson(
             single.emplace("value", entry.second);
             std::string singleJson;
             appendJsonValue(JsonValue(std::move(single)), singleJson, false, 0U);
-            const ConfigPatchResult result = applyPatchJson(candidate, singleJson);
+            // A batch is one transaction. Defer relational validation until
+            // every endpoint is present so valid range moves do not fail on
+            // an implementation-order intermediate state.
+            const ConfigPatchResult result = applyPatchJsonImpl(
+                candidate,
+                singleJson,
+                false);
             if (!result.succeeded())
             {
                 return ConfigBatchPatchResult{
@@ -2110,6 +2276,16 @@ ConfigBatchPatchResult applyPatchBatchJson(
                     expectedGeneration};
             }
             candidate = result.config;
+        }
+        std::string validationError;
+        if (!validateConfig(candidate, &validationError))
+        {
+            return ConfigBatchPatchResult{
+                base,
+                ConfigStatus::ValidationError,
+                std::move(validationError),
+                true,
+                expectedGeneration};
         }
         return ConfigBatchPatchResult{
             candidate,
@@ -2493,6 +2669,78 @@ bool validateConfig(const Config& config, std::string* error) noexcept
         || config.effects.shardsHdrIntensity > 64.0F)
     {
         return failValidation("effects.shardsHdrIntensity must be within [0, 64]");
+    }
+    if (config.effects.shardsClickCount > 1000U)
+    {
+        return failValidation("effects.shardsClickCount must be within [0, 1000]");
+    }
+    if (!std::isfinite(config.effects.shardsClickLifetimeMinMs)
+        || config.effects.shardsClickLifetimeMinMs < 1.0F
+        || config.effects.shardsClickLifetimeMinMs > 10000.0F)
+    {
+        return failValidation(
+            "effects.shardsClickLifetimeMinMs must be within [1, 10000]");
+    }
+    if (!std::isfinite(config.effects.shardsClickLifetimeMaxMs)
+        || config.effects.shardsClickLifetimeMaxMs < 1.0F
+        || config.effects.shardsClickLifetimeMaxMs > 10000.0F)
+    {
+        return failValidation(
+            "effects.shardsClickLifetimeMaxMs must be within [1, 10000]");
+    }
+    if (config.effects.shardsClickLifetimeMinMs
+        > config.effects.shardsClickLifetimeMaxMs)
+    {
+        return failValidation(
+            "effects.shardsClickLifetimeMinMs must not exceed "
+            "effects.shardsClickLifetimeMaxMs");
+    }
+    if (!std::isfinite(config.effects.shardsClickRadius)
+        || config.effects.shardsClickRadius < 0.0F
+        || config.effects.shardsClickRadius > 5000.0F)
+    {
+        return failValidation(
+            "effects.shardsClickRadius must be within [0, 5000]");
+    }
+    if (!std::isfinite(config.effects.shardsClickSpeedMin)
+        || config.effects.shardsClickSpeedMin < 0.0F
+        || config.effects.shardsClickSpeedMin > 5000.0F)
+    {
+        return failValidation(
+            "effects.shardsClickSpeedMin must be within [0, 5000]");
+    }
+    if (!std::isfinite(config.effects.shardsClickSpeedMax)
+        || config.effects.shardsClickSpeedMax < 0.0F
+        || config.effects.shardsClickSpeedMax > 5000.0F)
+    {
+        return failValidation(
+            "effects.shardsClickSpeedMax must be within [0, 5000]");
+    }
+    if (config.effects.shardsClickSpeedMin
+        > config.effects.shardsClickSpeedMax)
+    {
+        return failValidation(
+            "effects.shardsClickSpeedMin must not exceed "
+            "effects.shardsClickSpeedMax");
+    }
+    if (!std::isfinite(config.effects.shardsSizeMin)
+        || config.effects.shardsSizeMin < 0.0F
+        || config.effects.shardsSizeMin > 2000.0F)
+    {
+        return failValidation(
+            "effects.shardsSizeMin must be within [0, 2000]");
+    }
+    if (!std::isfinite(config.effects.shardsSizeMax)
+        || config.effects.shardsSizeMax < 0.0F
+        || config.effects.shardsSizeMax > 2000.0F)
+    {
+        return failValidation(
+            "effects.shardsSizeMax must be within [0, 2000]");
+    }
+    if (config.effects.shardsSizeMin > config.effects.shardsSizeMax)
+    {
+        return failValidation(
+            "effects.shardsSizeMin must not exceed effects.shardsSizeMax");
     }
     if (!std::isfinite(config.effects.trailOpacity)
         || config.effects.trailOpacity < 0.0F
