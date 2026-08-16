@@ -467,6 +467,32 @@ function Get-CertificateSha256
     }
 }
 
+function Assert-ReplacementHostIntegrity
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$CurrentHostSha256,
+
+        [Parameter(Mandatory = $true)]
+        [string]$ExpectedReplacementHostSha256,
+
+        [Parameter(Mandatory = $true)]
+        [string]$ArchivedHostSha256,
+
+        [Parameter(Mandatory = $true)]
+        [string]$CommittedHostSha256
+    )
+
+    if ($CurrentHostSha256 -ne $ExpectedReplacementHostSha256)
+    {
+        throw 'The replacement Host does not match the validated installer payload.'
+    }
+    if ($ArchivedHostSha256 -ne $CommittedHostSha256)
+    {
+        throw 'Protected identity state does not match the archived Host.'
+    }
+}
+
 function Assert-IdentityIntegrityMaterial
 {
     param(
@@ -514,15 +540,22 @@ function Assert-IdentityIntegrityMaterial
     }
 
     $hostPath = Join-Path $InstallRoot ([string]$State.hostFile)
+    if (-not (Test-Path -LiteralPath $hostPath -PathType Leaf))
+    {
+        if (-not [string]::IsNullOrWhiteSpace($ExpectedReplacementHostSha256))
+        {
+            throw 'The replacement Host does not match the validated installer payload.'
+        }
+        throw 'Protected identity state does not match the installed Host.'
+    }
+    $currentHostSha256 =
+        (Get-FileHash -LiteralPath $hostPath -Algorithm SHA256).Hash
     if (-not [string]::IsNullOrWhiteSpace($ExpectedReplacementHostSha256))
     {
         # Inno replaces the live Host before Prepare. Authenticate the previous
         # Host through its retained signed package, and bind the new live file
         # to the exact hash returned by the validated payload manifest.
-        if ($ExpectedReplacementHostSha256 -notmatch '^[0-9A-Fa-f]{64}$' -or
-            -not (Test-Path -LiteralPath $hostPath -PathType Leaf) -or
-            (Get-FileHash -LiteralPath $hostPath -Algorithm SHA256).Hash -ne
-                $ExpectedReplacementHostSha256)
+        if ($ExpectedReplacementHostSha256 -notmatch '^[0-9A-Fa-f]{64}$')
         {
             throw 'The replacement Host does not match the validated installer payload.'
         }
@@ -537,16 +570,15 @@ function Assert-IdentityIntegrityMaterial
         {
             $archive.Dispose()
         }
-        if ($archivedHostHash -ne [string]$State.hostSha256)
-        {
-            throw 'Protected identity state does not match the archived Host.'
-        }
+        Assert-ReplacementHostIntegrity `
+            -CurrentHostSha256 $currentHostSha256 `
+            -ExpectedReplacementHostSha256 $ExpectedReplacementHostSha256 `
+            -ArchivedHostSha256 $archivedHostHash `
+            -CommittedHostSha256 ([string]$State.hostSha256)
     }
     else
     {
-        if (-not (Test-Path -LiteralPath $hostPath -PathType Leaf) -or
-            (Get-FileHash -LiteralPath $hostPath -Algorithm SHA256).Hash -ne
-                [string]$State.hostSha256)
+        if ($currentHostSha256 -ne [string]$State.hostSha256)
         {
             throw 'Protected identity state does not match the installed Host.'
         }
