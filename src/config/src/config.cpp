@@ -31,6 +31,10 @@ namespace
 {
 
 constexpr float referenceTrailWidthPixels = 2.7F;
+constexpr float unityTrailLifetimeMs = 300.0F;
+constexpr float maximumTrailLifetimeMs = 2000.0F;
+constexpr float maximumTrailLengthMultiplier =
+    maximumTrailLifetimeMs / unityTrailLifetimeMs;
 
 struct JsonValue
 {
@@ -1138,7 +1142,8 @@ private:
     }
     // trailLifetimeMs is the Web-facing source of truth. The legacy compact
     // multiplier is serialized as a derived convenience value only.
-    config.effects.trailLength = config.effects.trailLifetimeMs / 300.0F;
+    config.effects.trailLength = config.effects.trailLifetimeMs
+        / unityTrailLifetimeMs;
 
     if (!readBool(
             *background,
@@ -1865,7 +1870,7 @@ namespace
             if (valueAccepted)
             {
                 result.effects.trailLifetimeMs = result.effects.trailLength
-                    * 300.0F;
+                    * unityTrailLifetimeMs;
             }
         }
         else if (*path == "trail.lifetimeMs")
@@ -1874,7 +1879,7 @@ namespace
             if (valueAccepted)
             {
                 result.effects.trailLength = result.effects.trailLifetimeMs
-                    / 300.0F;
+                    / unityTrailLifetimeMs;
             }
         }
         else if (*path == "effects.trailWidth")
@@ -2582,9 +2587,10 @@ bool validateConfig(const Config& config, std::string* error) noexcept
     }
     if (!std::isfinite(config.effects.trailLength)
         || config.effects.trailLength < 0.0F
-        || config.effects.trailLength > 3.0F)
+        || config.effects.trailLength > maximumTrailLengthMultiplier)
     {
-        return failValidation("effects.trailLength must be within [0, 3]");
+        return failValidation(
+            "effects.trailLength must correspond to trailLifetimeMs within [0, 2000]");
     }
     if (!std::isfinite(config.effects.trailWidth)
         || config.effects.trailWidth < 0.1F
@@ -2606,7 +2612,7 @@ bool validateConfig(const Config& config, std::string* error) noexcept
     }
     if (!std::isfinite(config.effects.trailLifetimeMs)
         || config.effects.trailLifetimeMs < 0.0F
-        || config.effects.trailLifetimeMs > 2000.0F)
+        || config.effects.trailLifetimeMs > maximumTrailLifetimeMs)
     {
         return failValidation("effects.trailLifetimeMs must be within [0, 2000]");
     }
