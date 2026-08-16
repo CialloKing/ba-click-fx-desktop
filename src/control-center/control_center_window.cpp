@@ -415,6 +415,18 @@ LRESULT ControlCenterWindow::handleMessage(
     case WM_TIMER:
         onTimer(static_cast<UINT_PTR>(wParam));
         return 0;
+    case WM_WINDOWPOSCHANGING:
+    {
+        auto* position = reinterpret_cast<WINDOWPOS*>(lParam);
+        if (position != nullptr && (position->flags & SWP_NOSIZE) == 0U)
+        {
+            // The top-level sizing transaction otherwise copies its old
+            // client bitmap after child controls have moved. Discarding those
+            // pixels lets the complete WM_SIZE redraw become authoritative.
+            position->flags |= SWP_NOCOPYBITS;
+        }
+        return DefWindowProcW(window_, message, wParam, lParam);
+    }
     case WM_SIZE:
     {
         RECT client{};
