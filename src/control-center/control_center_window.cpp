@@ -193,6 +193,105 @@ void setControlFont(const HWND control, const HFONT font) noexcept
     return -1;
 }
 
+[[nodiscard]] int framePacingIndex(
+    const bafx::config::FramePacing pacing) noexcept
+{
+    switch (pacing)
+    {
+    case bafx::config::FramePacing::MatchDisplay:
+        return 0;
+    case bafx::config::FramePacing::Fixed60:
+        return 1;
+    case bafx::config::FramePacing::Fixed120:
+        return 2;
+    case bafx::config::FramePacing::Fixed144:
+        return 3;
+    }
+    return -1;
+}
+
+[[nodiscard]] std::string displaySessionKey(
+    const DisplaySessionState& session)
+{
+    return session.device + '\n' + session.monitor;
+}
+
+[[nodiscard]] std::wstring driverStateText(
+    const DisplayDriverState driver)
+{
+    switch (driver)
+    {
+    case DisplayDriverState::Hardware:
+        return L"硬件";
+    case DisplayDriverState::Warp:
+        return L"WARP 软件渲染";
+    case DisplayDriverState::Unknown:
+        return L"未知";
+    }
+    return L"未知";
+}
+
+[[nodiscard]] std::wstring outputStateText(
+    const DisplayOutputState output)
+{
+    switch (output)
+    {
+    case DisplayOutputState::ConservativeSdr:
+        return L"保守 SDR";
+    case DisplayOutputState::LinearScRgb:
+        return L"线性 scRGB";
+    case DisplayOutputState::Unknown:
+        return L"未知";
+    }
+    return L"未知";
+}
+
+[[nodiscard]] std::wstring colorStateText(const DisplayColorState color)
+{
+    switch (color)
+    {
+    case DisplayColorState::Sdr:
+        return L"SDR";
+    case DisplayColorState::WideColorGamut:
+        return L"广色域";
+    case DisplayColorState::Hdr:
+        return L"HDR";
+    case DisplayColorState::Unknown:
+        return L"未知";
+    }
+    return L"未知";
+}
+
+[[nodiscard]] std::wstring optionalBooleanText(
+    const std::optional<bool> value,
+    const std::wstring_view trueText,
+    const std::wstring_view falseText)
+{
+    if (!value.has_value())
+    {
+        return L"未知";
+    }
+    return std::wstring(*value ? trueText : falseText);
+}
+
+[[nodiscard]] std::wstring refreshRateText(
+    const std::optional<DisplayRefreshState>& refresh)
+{
+    if (!refresh.has_value()
+        || refresh->numerator == 0U
+        || refresh->denominator == 0U)
+    {
+        return L"未知";
+    }
+
+    const double hertz = static_cast<double>(refresh->numerator)
+        / static_cast<double>(refresh->denominator);
+    std::wostringstream stream;
+    stream.imbue(std::locale::classic());
+    stream << std::fixed << std::setprecision(2) << hertz << L" Hz";
+    return stream.str();
+}
+
 }
 
 ControlCenterWindow::ControlCenterWindow(const HINSTANCE instance) noexcept
@@ -652,6 +751,11 @@ bool ControlCenterWindow::createControls()
         L"高级参数",
         BS_AUTORADIOBUTTON | WS_TABSTOP,
         ControlId::AdvancedPage);
+    displayPageButton_ = createChild(
+        L"BUTTON",
+        L"显示与性能",
+        BS_AUTORADIOBUTTON | WS_TABSTOP,
+        ControlId::DisplayPage);
     advancedTimingSectionButton_ = createChild(
         L"BUTTON",
         L"时间与透明度",
@@ -1035,11 +1139,78 @@ bool ControlCenterWindow::createControls()
         L"允许黄色捕获边框",
         BS_AUTOCHECKBOX | WS_TABSTOP,
         ControlId::AllowSystemBorder);
+
+    displaySettingsHeading_ = createChild(
+        L"BUTTON",
+        L"显示与性能",
+        BS_GROUPBOX);
+    displaySelectorLabel_ = createChild(
+        L"STATIC",
+        L"运行状态显示器",
+        SS_LEFT | SS_NOPREFIX);
+    displaySelector_ = createChild(
+        WC_COMBOBOXW,
+        L"",
+        CBS_DROPDOWNLIST | CBS_HASSTRINGS | WS_VSCROLL | WS_TABSTOP,
+        ControlId::DisplaySelector);
+    if (displaySelector_ != nullptr)
+    {
+        static_cast<void>(SendMessageW(
+            displaySelector_,
+            CB_SETMINVISIBLE,
+            8U,
+            0));
+    }
+    displaySummaryText_ = createChild(
+        L"STATIC",
+        L"逐屏状态尚未加载",
+        SS_LEFT | SS_NOPREFIX);
     hdrEnabled_ = createChild(
         L"BUTTON",
-        L"启用 HDR 屏幕输出",
+        L"全局请求 HDR 屏幕输出",
         BS_AUTOCHECKBOX | WS_TABSTOP,
         ControlId::HdrEnabled);
+    framePacingLabel_ = createChild(
+        L"STATIC",
+        L"全局帧率策略",
+        SS_LEFT | SS_NOPREFIX);
+    framePacing_ = createChild(
+        WC_COMBOBOXW,
+        L"",
+        CBS_DROPDOWNLIST | CBS_HASSTRINGS | WS_VSCROLL | WS_TABSTOP,
+        ControlId::FramePacing);
+    if (framePacing_ != nullptr)
+    {
+        static_cast<void>(SendMessageW(
+            framePacing_,
+            CB_ADDSTRING,
+            0U,
+            reinterpret_cast<LPARAM>(L"跟随显示器")));
+        static_cast<void>(SendMessageW(
+            framePacing_,
+            CB_ADDSTRING,
+            0U,
+            reinterpret_cast<LPARAM>(L"固定 60 FPS")));
+        static_cast<void>(SendMessageW(
+            framePacing_,
+            CB_ADDSTRING,
+            0U,
+            reinterpret_cast<LPARAM>(L"固定 120 FPS")));
+        static_cast<void>(SendMessageW(
+            framePacing_,
+            CB_ADDSTRING,
+            0U,
+            reinterpret_cast<LPARAM>(L"固定 144 FPS")));
+        static_cast<void>(SendMessageW(framePacing_, CB_SETMINVISIBLE, 4U, 0));
+    }
+    displayDetailsHeading_ = createChild(
+        L"BUTTON",
+        L"所选显示器实际状态",
+        BS_GROUPBOX);
+    displayDetailsText_ = createChild(
+        L"STATIC",
+        L"Host 连接后显示逐屏运行状态。",
+        SS_LEFT | SS_NOPREFIX);
     pauseButton_ = createChild(
         L"BUTTON",
         L"暂停特效",
@@ -1067,6 +1238,7 @@ bool ControlCenterWindow::createControls()
         messageText_,
         basicPageButton_,
         advancedPageButton_,
+        displayPageButton_,
         effectsHeading_,
         effectsEnabled_,
         clickEnabled_,
@@ -1079,7 +1251,15 @@ bool ControlCenterWindow::createControls()
         backgroundMode_,
         cursorExcluded_,
         allowSystemBorder_,
+        displaySettingsHeading_,
+        displaySelectorLabel_,
+        displaySelector_,
+        displaySummaryText_,
         hdrEnabled_,
+        framePacingLabel_,
+        framePacing_,
+        displayDetailsHeading_,
+        displayDetailsText_,
         pauseButton_,
         refreshButton_,
         hostLifecycleButton_,
@@ -1293,6 +1473,7 @@ void ControlCenterWindow::applyFonts() const noexcept
         messageText_,
         basicPageButton_,
         advancedPageButton_,
+        displayPageButton_,
         effectsEnabled_,
         clickEnabled_,
         trailEnabled_,
@@ -1399,7 +1580,13 @@ void ControlCenterWindow::applyFonts() const noexcept
         backgroundMode_,
         cursorExcluded_,
         allowSystemBorder_,
-        hdrEnabled_};
+        displaySelectorLabel_,
+        displaySelector_,
+        displaySummaryText_,
+        hdrEnabled_,
+        framePacingLabel_,
+        framePacing_,
+        displayDetailsText_};
     for (const HWND control : normalControls)
     {
         setControlFont(control, normalFont_);
@@ -1412,6 +1599,8 @@ void ControlCenterWindow::applyFonts() const noexcept
     setControlFont(advancedRingsHeading_, sectionFont_);
     setControlFont(advancedClickShardsHeading_, sectionFont_);
     setControlFont(advancedBloomHeading_, sectionFont_);
+    setControlFont(displaySettingsHeading_, sectionFont_);
+    setControlFont(displayDetailsHeading_, sectionFont_);
     setControlFont(advancedTimingSectionButton_, normalFont_);
     setControlFont(advancedParticlesSectionButton_, normalFont_);
     setControlFont(advancedRingsSectionButton_, normalFont_);
@@ -1423,7 +1612,9 @@ void ControlCenterWindow::applyDpiMetrics() const noexcept
 {
     const std::array comboBoxes{
         bloomQuality_,
-        backgroundMode_};
+        backgroundMode_,
+        displaySelector_,
+        framePacing_};
     for (const HWND comboBox : comboBoxes)
     {
         if (comboBox == nullptr)
@@ -1602,6 +1793,121 @@ void ControlCenterWindow::layoutControls(
         scale(120),
         tabWidth,
         scale(30));
+    moveControl(
+        displayPageButton_,
+        margin + (tabWidth + tabGap) * 2,
+        scale(120),
+        tabWidth,
+        scale(30));
+
+    if (activePage_ == Page::DisplayPerformance)
+    {
+        const int actionHeight = scale(38);
+        const int actionGap = scale(10);
+        const int actionY = (std::max)(
+            contentTop + scale(262),
+            clientHeight - margin - actionHeight);
+        const int panelHeight = (std::max)(
+            scale(262),
+            actionY - contentTop - scale(12));
+        const int settingsWidth = (std::clamp)(
+            clientWidth / 3,
+            scale(300),
+            scale(360));
+        const int detailsX = margin + settingsWidth + columnGap;
+        const int detailsWidth = (std::max)(
+            scale(1),
+            clientWidth - detailsX - margin);
+        const int inset = scale(16);
+        const int settingsContentX = margin + inset;
+        const int settingsContentWidth = (std::max)(
+            scale(1),
+            settingsWidth - inset * 2);
+
+        moveControl(
+            displaySettingsHeading_,
+            margin,
+            contentTop,
+            settingsWidth,
+            panelHeight);
+        moveControl(
+            displaySelectorLabel_,
+            settingsContentX,
+            contentTop + scale(30),
+            settingsContentWidth,
+            scale(22));
+        moveControl(
+            displaySelector_,
+            settingsContentX,
+            contentTop + scale(52),
+            settingsContentWidth,
+            scale(34));
+        moveControl(
+            displaySummaryText_,
+            settingsContentX,
+            contentTop + scale(94),
+            settingsContentWidth,
+            scale(48));
+        moveControl(
+            hdrEnabled_,
+            settingsContentX,
+            contentTop + scale(148),
+            settingsContentWidth,
+            scale(30));
+        moveControl(
+            framePacingLabel_,
+            settingsContentX,
+            contentTop + scale(184),
+            settingsContentWidth,
+            scale(22));
+        moveControl(
+            framePacing_,
+            settingsContentX,
+            contentTop + scale(206),
+            settingsContentWidth,
+            scale(34));
+
+        moveControl(
+            displayDetailsHeading_,
+            detailsX,
+            contentTop,
+            detailsWidth,
+            panelHeight);
+        moveControl(
+            displayDetailsText_,
+            detailsX + inset,
+            contentTop + scale(30),
+            (std::max)(scale(1), detailsWidth - inset * 2),
+            (std::max)(scale(1), panelHeight - scale(46)));
+
+        const int actionWidth = (clientWidth - margin * 2 - actionGap * 3) / 4;
+        moveControl(
+            pauseButton_,
+            margin,
+            actionY,
+            actionWidth,
+            actionHeight);
+        moveControl(
+            refreshButton_,
+            margin + actionWidth + actionGap,
+            actionY,
+            actionWidth,
+            actionHeight);
+        moveControl(
+            hostLifecycleButton_,
+            margin + (actionWidth + actionGap) * 2,
+            actionY,
+            actionWidth,
+            actionHeight);
+        moveControl(
+            resetDefaultsButton_,
+            margin + (actionWidth + actionGap) * 3,
+            actionY,
+            actionWidth,
+            actionHeight);
+        redrawWindowTree();
+        return;
+    }
 
     if (activePage_ == Page::Advanced)
     {
@@ -1956,15 +2262,9 @@ void ControlCenterWindow::layoutControls(
         rightContentWidth,
         scale(30));
     moveControl(
-        hdrEnabled_,
-        rightContentX,
-        contentTop + scale(165),
-        rightContentWidth,
-        scale(30));
-    moveControl(
         pauseButton_,
         rightContentX,
-        contentTop + scale(211),
+        contentTop + scale(179),
         rightContentWidth,
         scale(38));
 
@@ -1973,19 +2273,19 @@ void ControlCenterWindow::layoutControls(
     moveControl(
         refreshButton_,
         rightContentX,
-        contentTop + scale(261),
+        contentTop + scale(229),
         actionWidth,
         scale(38));
     moveControl(
         hostLifecycleButton_,
         rightContentX + actionWidth + actionGap,
-        contentTop + scale(261),
+        contentTop + scale(229),
         actionWidth,
         scale(38));
     moveControl(
         resetDefaultsButton_,
         rightContentX,
-        contentTop + scale(311),
+        contentTop + scale(279),
         rightContentWidth,
         scale(38));
 
@@ -2057,7 +2357,8 @@ void ControlCenterWindow::selectAdvancedSection(
 void ControlCenterWindow::updatePageVisibility() noexcept
 {
     const bool basic = activePage_ == Page::Basic;
-    const bool advanced = !basic;
+    const bool advanced = activePage_ == Page::Advanced;
+    const bool display = activePage_ == Page::DisplayPerformance;
     static_cast<void>(SendMessageW(
         basicPageButton_,
         BM_SETCHECK,
@@ -2067,6 +2368,11 @@ void ControlCenterWindow::updatePageVisibility() noexcept
         advancedPageButton_,
         BM_SETCHECK,
         advanced ? BST_CHECKED : BST_UNCHECKED,
+        0));
+    static_cast<void>(SendMessageW(
+        displayPageButton_,
+        BM_SETCHECK,
+        display ? BST_CHECKED : BST_UNCHECKED,
         0));
     static_cast<void>(SendMessageW(
         advancedTimingSectionButton_,
@@ -2131,8 +2437,7 @@ void ControlCenterWindow::updatePageVisibility() noexcept
         backgroundModeLabel_,
         backgroundMode_,
         cursorExcluded_,
-        allowSystemBorder_,
-        hdrEnabled_};
+        allowSystemBorder_};
     for (const HWND control : basicControls)
     {
         setPageControlVisible(control, basic);
@@ -2275,6 +2580,21 @@ void ControlCenterWindow::updatePageVisibility() noexcept
         setPageControlVisible(control, bloom);
     }
 
+    const std::array displayControls{
+        displaySettingsHeading_,
+        displaySelectorLabel_,
+        displaySelector_,
+        displaySummaryText_,
+        hdrEnabled_,
+        framePacingLabel_,
+        framePacing_,
+        displayDetailsHeading_,
+        displayDetailsText_};
+    for (const HWND control : displayControls)
+    {
+        setPageControlVisible(control, display);
+    }
+
     if (window_ != nullptr)
     {
         RECT client{};
@@ -2315,6 +2635,12 @@ void ControlCenterWindow::onCommand(
         if (notificationCode == BN_CLICKED)
         {
             selectPage(Page::Advanced);
+        }
+        break;
+    case ControlId::DisplayPage:
+        if (notificationCode == BN_CLICKED)
+        {
+            selectPage(Page::DisplayPerformance);
         }
         break;
     case ControlId::AdvancedTimingSection:
@@ -2444,12 +2770,41 @@ void ControlCenterWindow::onCommand(
                 isChecked(allowSystemBorder_) ? "true" : "false");
         }
         break;
+    case ControlId::DisplaySelector:
+        if (notificationCode == CBN_SELCHANGE)
+        {
+            updateDisplayDetails();
+        }
+        break;
     case ControlId::HdrEnabled:
         if (notificationCode == BN_CLICKED)
         {
             applyPatch(
                 "display.hdrEnabled",
                 isChecked(hdrEnabled_) ? "true" : "false");
+        }
+        break;
+    case ControlId::FramePacing:
+        if (notificationCode == CBN_SELCHANGE)
+        {
+            switch (SendMessageW(framePacing_, CB_GETCURSEL, 0U, 0))
+            {
+            case 0:
+                applyPatch("performance.framePacing", "\"match-display\"");
+                break;
+            case 1:
+                applyPatch("performance.framePacing", "\"60\"");
+                break;
+            case 2:
+                applyPatch("performance.framePacing", "\"120\"");
+                break;
+            case 3:
+                applyPatch("performance.framePacing", "\"144\"");
+                break;
+            default:
+                setError(L"未知的帧率策略选择。");
+                break;
+            }
         }
         break;
     case ControlId::Refresh:
@@ -2782,6 +3137,30 @@ bool ControlCenterWindow::refreshFromHost()
         return false;
     }
 
+    displayState_ = {};
+    displayStateError_.clear();
+    const bafx::windows::IpcClientResponse displayResponse =
+        client_.transact("GetDisplayState");
+    if (!displayResponse.succeeded())
+    {
+        displayStateError_ = L"逐屏运行状态读取失败："
+            + describeResponse(displayResponse);
+    }
+    else
+    {
+        DisplayStateParseResult display = parseDisplayState(
+            displayResponse.payload);
+        if (display.succeeded())
+        {
+            displayState_ = std::move(*display.state);
+        }
+        else
+        {
+            displayStateError_ = L"逐屏运行状态格式无效："
+                + utf8ToWide(display.error);
+        }
+    }
+
     updateControls(*state.state, config.config);
     return true;
 }
@@ -2857,7 +3236,7 @@ void ControlCenterWindow::updateControls(
     setChecked(
         allowSystemBorder_,
         config.background.allowSystemBorder);
-    setChecked(hdrEnabled_, config.display.hdrEnabled);
+    updateDisplayControls(config);
     SetWindowTextW(pauseButton_, paused_ ? L"恢复特效" : L"暂停特效");
 
     updatingControls_ = false;
@@ -2872,6 +3251,226 @@ void ControlCenterWindow::updateControls(
     {
         clearInfo();
     }
+}
+
+void ControlCenterWindow::updateDisplayControls(
+    const bafx::config::Config& config)
+{
+    setChecked(hdrEnabled_, config.display.hdrEnabled);
+    static_cast<void>(SendMessageW(
+        framePacing_,
+        CB_SETCURSEL,
+        framePacingIndex(config.performance.framePacing),
+        0));
+
+    static_cast<void>(SendMessageW(displaySelector_, CB_RESETCONTENT, 0U, 0));
+    if (!displayStateError_.empty() || displayState_.sessions.empty())
+    {
+        updateDisplayDetails();
+        return;
+    }
+
+    LRESULT selectedIndex = CB_ERR;
+    LRESULT primaryIndex = CB_ERR;
+    LRESULT coordinatorIndex = CB_ERR;
+    for (std::size_t index = 0U;
+         index < displayState_.sessions.size();
+         ++index)
+    {
+        const DisplaySessionState& session = displayState_.sessions[index];
+        std::wstring label = utf8ToWide(session.device);
+        if (!session.monitor.empty())
+        {
+            label += L" | " + utf8ToWide(session.monitor);
+        }
+        if (session.primary && session.coordinator)
+        {
+            label += L"（主显示器，帧协调器）";
+        }
+        else if (session.primary)
+        {
+            label += L"（主显示器）";
+        }
+        else if (session.coordinator)
+        {
+            label += L"（帧协调器）";
+        }
+
+        const LRESULT comboIndex = SendMessageW(
+            displaySelector_,
+            CB_ADDSTRING,
+            0U,
+            reinterpret_cast<LPARAM>(label.c_str()));
+        if (comboIndex == CB_ERR || comboIndex == CB_ERRSPACE)
+        {
+            displayStateError_ = L"显示器列表无法分配足够的界面资源。";
+            static_cast<void>(SendMessageW(
+                displaySelector_,
+                CB_RESETCONTENT,
+                0U,
+                0));
+            updateDisplayDetails();
+            return;
+        }
+        static_cast<void>(SendMessageW(
+            displaySelector_,
+            CB_SETITEMDATA,
+            static_cast<WPARAM>(comboIndex),
+            static_cast<LPARAM>(index)));
+
+        if (displaySessionKey(session) == selectedDisplayKey_)
+        {
+            selectedIndex = comboIndex;
+        }
+        if (session.primary && primaryIndex == CB_ERR)
+        {
+            primaryIndex = comboIndex;
+        }
+        if (session.coordinator && coordinatorIndex == CB_ERR)
+        {
+            coordinatorIndex = comboIndex;
+        }
+    }
+
+    if (selectedIndex == CB_ERR)
+    {
+        selectedIndex = primaryIndex != CB_ERR
+            ? primaryIndex
+            : coordinatorIndex;
+    }
+    if (selectedIndex == CB_ERR)
+    {
+        selectedIndex = 0;
+    }
+    static_cast<void>(SendMessageW(
+        displaySelector_,
+        CB_SETCURSEL,
+        static_cast<WPARAM>(selectedIndex),
+        0));
+    updateDisplayDetails();
+}
+
+void ControlCenterWindow::updateDisplayDetails()
+{
+    if (!displayStateError_.empty())
+    {
+        SetWindowTextW(displaySummaryText_, L"逐屏运行状态不可用");
+        SetWindowTextW(displayDetailsText_, displayStateError_.c_str());
+        return;
+    }
+    if (displayState_.sessions.empty())
+    {
+        SetWindowTextW(displaySummaryText_, L"Host 当前没有活动显示会话");
+        SetWindowTextW(
+            displayDetailsText_,
+            L"等待 Host 创建显示会话后刷新状态。");
+        return;
+    }
+
+    const LRESULT selected = SendMessageW(
+        displaySelector_,
+        CB_GETCURSEL,
+        0U,
+        0);
+    if (selected == CB_ERR)
+    {
+        SetWindowTextW(displaySummaryText_, L"尚未选择显示器");
+        SetWindowTextW(displayDetailsText_, L"请选择一个显示器查看状态。");
+        return;
+    }
+    const LRESULT itemData = SendMessageW(
+        displaySelector_,
+        CB_GETITEMDATA,
+        static_cast<WPARAM>(selected),
+        0);
+    if (itemData == CB_ERR
+        || static_cast<std::size_t>(itemData) >= displayState_.sessions.size())
+    {
+        SetWindowTextW(displaySummaryText_, L"显示器状态索引无效");
+        SetWindowTextW(
+            displayDetailsText_,
+            L"请刷新状态以重新同步显示器列表。");
+        return;
+    }
+
+    const DisplaySessionState& session = displayState_.sessions[
+        static_cast<std::size_t>(itemData)];
+    selectedDisplayKey_ = displaySessionKey(session);
+
+    std::wstring summary = L"Host 报告 "
+        + std::to_wstring(displayState_.sessions.size())
+        + L" 个显示会话 | 状态代次 "
+        + std::to_wstring(displayState_.generation);
+    SetWindowTextW(displaySummaryText_, summary.c_str());
+
+    const std::int64_t width = static_cast<std::int64_t>(session.right)
+        - static_cast<std::int64_t>(session.left);
+    const std::int64_t height = static_cast<std::int64_t>(session.bottom)
+        - static_cast<std::int64_t>(session.top);
+    const std::wstring role = session.primary
+        ? (session.coordinator ? L"主显示器、帧协调器" : L"主显示器")
+        : (session.coordinator ? L"帧协调器" : L"扩展显示器");
+    const std::wstring captureState = session.backgroundCaptureActive
+        ? L"活动"
+        : L"未活动";
+    const std::wstring restartState = session.backgroundCaptureRestartAllowed
+        ? L"允许"
+        : L"不允许";
+
+    std::wstring faultState;
+    if (!session.renderFaulted && !session.outputContractFaulted)
+    {
+        faultState = L"无";
+    }
+    else
+    {
+        if (session.renderFaulted)
+        {
+            faultState = L"渲染故障";
+        }
+        if (session.outputContractFaulted)
+        {
+            if (!faultState.empty())
+            {
+                faultState += L"、";
+            }
+            faultState += L"输出合同故障";
+        }
+    }
+
+    std::wostringstream details;
+    details << L"设备：" << utf8ToWide(session.device)
+            << L" | " << utf8ToWide(session.monitor)
+            << L"\r\n角色：" << role
+            << L"\r\n桌面：" << width << L" x " << height
+            << L" @ (" << session.left << L", " << session.top << L")"
+            << L" | DPI：" << session.windowDpi
+            << L" / " << session.targetDpiX << L" x " << session.targetDpiY
+            << L"\r\n刷新率：显示 " << refreshRateText(session.displayRefresh)
+            << L" | 捕获 " << refreshRateText(session.captureRefresh)
+            << L"\r\nGPU：" << utf8ToWide(session.adapter)
+            << L" | 驱动：" << driverStateText(session.driver)
+            << L"\r\n\r\n配置 HDR 请求："
+            << (isChecked(hdrEnabled_) ? L"开启" : L"关闭")
+            << L"\r\n输出：请求 " << outputStateText(session.requestedOutput)
+            << L" | 解析 " << outputStateText(session.resolvedOutput)
+            << L" | 实际 " << outputStateText(session.actualOutput)
+            << L"\r\n策略满足："
+            << (session.outputPolicySatisfied ? L"是" : L"否")
+            << L" | 系统色彩：" << colorStateText(session.colorMode)
+            << L"\r\nHDR："
+            << optionalBooleanText(session.hdrSupported, L"支持", L"不支持")
+            << L" / "
+            << optionalBooleanText(session.hdrActive, L"已激活", L"未激活")
+            << L"\r\n背景采样：" << captureState
+            << L" | 重启：" << restartState
+            << L"\r\n运行故障：" << faultState;
+    if (!session.backgroundCaptureFailure.empty())
+    {
+        details << L"\r\n捕获错误："
+                << utf8ToWide(session.backgroundCaptureFailure);
+    }
+    SetWindowTextW(displayDetailsText_, details.str().c_str());
 }
 
 void ControlCenterWindow::applyPatch(
@@ -3247,6 +3846,7 @@ void ControlCenterWindow::setConnected(const bool connected) noexcept
         cursorExcluded_,
         allowSystemBorder_,
         hdrEnabled_,
+        framePacing_,
         pauseButton_,
         resetDefaultsButton_};
     for (const HWND control : controls)
@@ -3255,6 +3855,24 @@ void ControlCenterWindow::setConnected(const bool connected) noexcept
         {
             EnableWindow(control, enabled);
         }
+    }
+    if (!connected)
+    {
+        displayState_ = {};
+        displayStateError_ = L"Host 未连接，逐屏运行状态不可用。";
+        static_cast<void>(SendMessageW(
+            displaySelector_,
+            CB_RESETCONTENT,
+            0U,
+            0));
+        updateDisplayDetails();
+    }
+    if (displaySelector_ != nullptr)
+    {
+        const bool selectorEnabled = connected
+            && displayStateError_.empty()
+            && !displayState_.sessions.empty();
+        EnableWindow(displaySelector_, selectorEnabled ? TRUE : FALSE);
     }
     updateHostLifecycleButton();
 }

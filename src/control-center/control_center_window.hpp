@@ -1,5 +1,6 @@
 #pragma once
 
+#include "display_state.hpp"
 #include "host_state.hpp"
 
 #include "bafx/config/config.hpp"
@@ -36,6 +37,7 @@ private:
         Pause = 100,
         BasicPage,
         AdvancedPage,
+        DisplayPage,
         AdvancedTimingSection,
         AdvancedParticlesSection,
         AdvancedRingsSection,
@@ -81,7 +83,9 @@ private:
         BackgroundMode,
         CursorExcluded,
         AllowSystemBorder,
+        DisplaySelector,
         HdrEnabled,
+        FramePacing,
         Refresh,
         HostLifecycle,
         ResetDefaults
@@ -107,7 +111,8 @@ private:
     enum class Page : std::uint8_t
     {
         Basic,
-        Advanced
+        Advanced,
+        DisplayPerformance
     };
 
     enum class AdvancedSection : std::uint8_t
@@ -155,6 +160,8 @@ private:
     void selectAdvancedSection(AdvancedSection section) noexcept;
     void updatePageVisibility() noexcept;
     void setPageControlVisible(HWND control, bool visible) const noexcept;
+    void updateDisplayControls(const bafx::config::Config& config);
+    void updateDisplayDetails();
     void redrawWindowTree() const noexcept;
     void layoutSlider(
         const SliderControl& slider,
@@ -260,6 +267,7 @@ private:
     SliderControl trailOpacity_{};
     HWND basicPageButton_{nullptr};
     HWND advancedPageButton_{nullptr};
+    HWND displayPageButton_{nullptr};
     HWND advancedTimingSectionButton_{nullptr};
     HWND advancedParticlesSectionButton_{nullptr};
     HWND advancedRingsSectionButton_{nullptr};
@@ -277,7 +285,15 @@ private:
     HWND backgroundMode_{nullptr};
     HWND cursorExcluded_{nullptr};
     HWND allowSystemBorder_{nullptr};
+    HWND displaySettingsHeading_{nullptr};
+    HWND displaySelectorLabel_{nullptr};
+    HWND displaySelector_{nullptr};
+    HWND displaySummaryText_{nullptr};
     HWND hdrEnabled_{nullptr};
+    HWND framePacingLabel_{nullptr};
+    HWND framePacing_{nullptr};
+    HWND displayDetailsHeading_{nullptr};
+    HWND displayDetailsText_{nullptr};
     HWND pauseButton_{nullptr};
     HWND refreshButton_{nullptr};
     HWND hostLifecycleButton_{nullptr};
@@ -286,6 +302,9 @@ private:
     bafx::windows::NamedPipeIpcClient client_{};
     bafx::windows::UniqueHandle hostLifetimeMutex_{};
     std::optional<PendingPatch> pendingPatch_{};
+    DisplayState displayState_{};
+    std::wstring displayStateError_{};
+    std::string selectedDisplayKey_{};
     std::uint64_t generation_{0U};
     std::uint32_t hostRetryAttempts_{0U};
     ULONGLONG hostShutdownDeadlineTicks_{0U};
