@@ -81,6 +81,24 @@ void appendSecondaryBackgroundOutcome(
     state.outcomePending = false;
 }
 
+template <typename Operation>
+[[nodiscard]] auto runSecondaryDisplayMutation(
+    DisplaySession& session,
+    Operation&& operation)
+{
+    try
+    {
+        return std::forward<Operation>(operation)();
+    }
+    catch (const DisplayOutputRollbackError&)
+    {
+        // A failed rollback no longer owns a trustworthy HWND/D3D domain.
+        // Isolate it before any caller can resume frame pacing on the surface.
+        session.markRenderFaulted();
+        throw;
+    }
+}
+
 }
 
 DisplaySession::DisplaySession(DisplaySessionOptions options)
@@ -397,15 +415,18 @@ DisplaySessionRetargetResult DisplaySession::retargetSecondary(
     if (state.execution.transactionActive)
     {
         const BackgroundCaptureExecutionStatus canceled =
-            cancelBackgroundCaptureTransition(
-                state.transition,
-                window_,
-                renderer_,
-                *borderlessAccessAuthority_,
-                state.execution,
-                BackgroundCaptureCancelResizePolicy::Discard,
-                "secondary-display-target",
-                state.logPath);
+            runSecondaryDisplayMutation(*this, [&]()
+            {
+                return cancelBackgroundCaptureTransition(
+                    state.transition,
+                    window_,
+                    renderer_,
+                    *borderlessAccessAuthority_,
+                    state.execution,
+                    BackgroundCaptureCancelResizePolicy::Discard,
+                    "secondary-display-target",
+                    state.logPath);
+            });
         if (canceled != BackgroundCaptureExecutionStatus::Completed)
         {
             throw std::logic_error(
@@ -553,15 +574,18 @@ void DisplaySession::updateSecondaryBackgroundCaptureRequest(
     if (state.execution.transactionActive)
     {
         const BackgroundCaptureExecutionStatus canceled =
-            cancelBackgroundCaptureTransition(
-                state.transition,
-                window_,
-                renderer_,
-                *borderlessAccessAuthority_,
-                state.execution,
-                BackgroundCaptureCancelResizePolicy::Preserve,
-                "secondary-control-generation",
-                state.logPath);
+            runSecondaryDisplayMutation(*this, [&]()
+            {
+                return cancelBackgroundCaptureTransition(
+                    state.transition,
+                    window_,
+                    renderer_,
+                    *borderlessAccessAuthority_,
+                    state.execution,
+                    BackgroundCaptureCancelResizePolicy::Preserve,
+                    "secondary-control-generation",
+                    state.logPath);
+            });
         if (canceled != BackgroundCaptureExecutionStatus::Completed)
         {
             throw std::logic_error(
@@ -678,15 +702,18 @@ DisplaySession::serviceSecondaryBackgroundCapture(
                 ? state.execution.controlGeneration
                 : state.controlGeneration;
             const BackgroundCaptureExecutionStatus status =
-                executeBackgroundCaptureTransition(
-                    state.transition,
-                    window_,
-                    renderer_,
-                    intent,
-                    generation,
-                    *borderlessAccessAuthority_,
-                    state.execution,
-                    state.logPath);
+                runSecondaryDisplayMutation(*this, [&]()
+                {
+                    return executeBackgroundCaptureTransition(
+                        state.transition,
+                        window_,
+                        renderer_,
+                        intent,
+                        generation,
+                        *borderlessAccessAuthority_,
+                        state.execution,
+                        state.logPath);
+                });
             if (status == BackgroundCaptureExecutionStatus::Pending)
             {
                 result.active = renderer_.backgroundCaptureActive();
@@ -1079,15 +1106,18 @@ DisplaySession::handleSecondaryBorderlessAccessLost(
     if (state.execution.transactionActive)
     {
         const BackgroundCaptureExecutionStatus canceled =
-            cancelBackgroundCaptureTransition(
-                state.transition,
-                window_,
-                renderer_,
-                *borderlessAccessAuthority_,
-                state.execution,
-                BackgroundCaptureCancelResizePolicy::Preserve,
-                "secondary-borderless-access-lost",
-                state.logPath);
+            runSecondaryDisplayMutation(*this, [&]()
+            {
+                return cancelBackgroundCaptureTransition(
+                    state.transition,
+                    window_,
+                    renderer_,
+                    *borderlessAccessAuthority_,
+                    state.execution,
+                    BackgroundCaptureCancelResizePolicy::Preserve,
+                    "secondary-borderless-access-lost",
+                    state.logPath);
+            });
         if (canceled != BackgroundCaptureExecutionStatus::Completed)
         {
             throw std::logic_error(
@@ -1225,15 +1255,18 @@ DisplaySession::suspendSecondaryBackgroundCaptureForPower(
     if (state.execution.transactionActive)
     {
         const BackgroundCaptureExecutionStatus canceled =
-            cancelBackgroundCaptureTransition(
-                state.transition,
-                window_,
-                renderer_,
-                *borderlessAccessAuthority_,
-                state.execution,
-                BackgroundCaptureCancelResizePolicy::Preserve,
-                "secondary-display-power-unavailable",
-                state.logPath);
+            runSecondaryDisplayMutation(*this, [&]()
+            {
+                return cancelBackgroundCaptureTransition(
+                    state.transition,
+                    window_,
+                    renderer_,
+                    *borderlessAccessAuthority_,
+                    state.execution,
+                    BackgroundCaptureCancelResizePolicy::Preserve,
+                    "secondary-display-power-unavailable",
+                    state.logPath);
+            });
         if (canceled != BackgroundCaptureExecutionStatus::Completed)
         {
             throw std::logic_error(
