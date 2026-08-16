@@ -970,6 +970,11 @@ std::string SupportReport::serialize() const
                         ? (color.sdrWhiteLevelConsistent ? "true" : "false")
                         : "unknown")
                 << '\n'
+                << "Display.SdrWhiteLevelRetained="
+                << (color.displayPathResolved
+                        ? (color.sdrWhiteLevelRetained ? "true" : "false")
+                        : "unknown")
+                << '\n'
                 << "Display.SdrWhiteLevelNits=";
         if (color.sdrWhiteLevelValid)
         {

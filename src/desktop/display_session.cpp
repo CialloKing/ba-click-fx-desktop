@@ -53,6 +53,63 @@ namespace
 constexpr std::uint32_t maximumColorRefreshRetries = 3U;
 constexpr auto outputRenegotiationRetryDelay = std::chrono::seconds(1);
 
+[[nodiscard]] bool sameLuid(const LUID left, const LUID right) noexcept
+{
+    return left.HighPart == right.HighPart
+        && left.LowPart == right.LowPart;
+}
+
+[[nodiscard]] bool referenceWhiteCurrent(
+    const bafx::windows::DisplayColorCapabilities& capabilities) noexcept
+{
+    // A DXGI-only runtime has no DisplayConfig white-level contract to retry.
+    return !capabilities.displayPathResolved
+        || (capabilities.sdrWhiteLevelQueryResult == ERROR_SUCCESS
+            && capabilities.sdrWhiteLevelConsistent
+            && capabilities.sdrWhiteLevelValid);
+}
+
+[[nodiscard]] bool sameColorPhysicalTarget(
+    const bafx::windows::DisplayColorCapabilities& left,
+    const bafx::windows::DisplayColorCapabilities& right) noexcept
+{
+    if (!left.displayPathResolved
+        || !right.displayPathResolved
+        || left.physicalTargetCount == 0U
+        || left.physicalTargetCount != right.physicalTargetCount
+        || !left.physicalTargetAdaptersConsistent
+        || !right.physicalTargetAdaptersConsistent
+        || !sameLuid(left.adapterLuid, right.adapterLuid))
+    {
+        return false;
+    }
+    return left.physicalTargetCount != 1U
+        || left.targetId == right.targetId;
+}
+
+[[nodiscard]] bool retainReferenceWhite(
+    bafx::windows::DisplayColorCapabilities& destination,
+    const std::optional<bafx::windows::DisplayColorCapabilities>& source)
+    noexcept
+{
+    if (referenceWhiteCurrent(destination)
+        || !source.has_value()
+        || !source->sdrWhiteLevelValid
+        || (!source->sdrWhiteLevelConsistent
+            && !source->sdrWhiteLevelRetained)
+        || !sameColorPhysicalTarget(destination, *source))
+    {
+        return false;
+    }
+
+    // Preserve only the last known value. Keep the current query HRESULT and
+    // consistency bit so diagnostics still show why the retry remains open.
+    destination.sdrWhiteLevelNits = source->sdrWhiteLevelNits;
+    destination.sdrWhiteLevelValid = true;
+    destination.sdrWhiteLevelRetained = true;
+    return true;
+}
+
 void requireStartedRequest(
     const bafx::windows::BackgroundCaptureRequestResult result)
 {
@@ -128,7 +185,8 @@ DisplaySession::DisplaySession(DisplaySessionOptions options)
             "Display session requires the process access authority");
     }
     if (!colorCapabilities_.has_value()
-        || !bafx::windows::displayColorStateComplete(*colorCapabilities_))
+        || !bafx::windows::displayColorStateComplete(*colorCapabilities_)
+        || !referenceWhiteCurrent(*colorCapabilities_))
     {
         // Startup can race a display-mode transition. A partial DisplayConfig
         // snapshot is diagnostic evidence, not a stable output decision.
@@ -387,8 +445,20 @@ DisplaySessionRetargetResult DisplaySession::retargetFxOnly(
             && bafx::windows::displayColorStateComplete(
                 *targetColorCapabilities))
         {
-            colorCapabilities_ = targetColorCapabilities;
-            colorRefreshRetriesRemaining_ = 0U;
+            const bool currentWhite = referenceWhiteCurrent(
+                *targetColorCapabilities);
+            std::optional<bafx::windows::DisplayColorCapabilities> accepted =
+                targetColorCapabilities;
+            if (!currentWhite)
+            {
+                static_cast<void>(retainReferenceWhite(
+                    *accepted,
+                    colorCapabilities_));
+            }
+            colorCapabilities_ = std::move(accepted);
+            colorRefreshRetriesRemaining_ = currentWhite
+                ? 0U
+                : maximumColorRefreshRetries;
         }
         else
         {
@@ -1444,8 +1514,29 @@ DisplaySessionColorRefreshStatus DisplaySession::refreshColorCapabilities(
     if (refreshed.has_value()
         && bafx::windows::displayColorStateComplete(*refreshed))
     {
+        const bool currentWhite = referenceWhiteCurrent(*refreshed);
+        if (!currentWhite
+            && !retainReferenceWhite(*refreshed, fallback))
+        {
+            static_cast<void>(retainReferenceWhite(
+                *refreshed,
+                colorCapabilities_));
+        }
         colorCapabilities_ = std::move(refreshed);
-        colorRefreshRetriesRemaining_ = 0U;
+        if (currentWhite)
+        {
+            colorRefreshRetriesRemaining_ = 0U;
+        }
+        else if (request == DisplaySessionColorRefreshRequest::Retry)
+        {
+            --colorRefreshRetriesRemaining_;
+        }
+        else
+        {
+            // Commit the new color mode immediately, but keep a bounded retry
+            // for the reference-white metadata that maps it to the panel.
+            colorRefreshRetriesRemaining_ = maximumColorRefreshRetries;
+        }
         return DisplaySessionColorRefreshStatus::Refreshed;
     }
 
@@ -1463,7 +1554,12 @@ DisplaySessionColorRefreshStatus DisplaySession::refreshColorCapabilities(
     if (fallback.has_value()
         && bafx::windows::displayColorStateComplete(*fallback))
     {
-        colorCapabilities_ = fallback;
+        std::optional<bafx::windows::DisplayColorCapabilities> retained =
+            fallback;
+        static_cast<void>(retainReferenceWhite(
+            *retained,
+            colorCapabilities_));
+        colorCapabilities_ = std::move(retained);
         return DisplaySessionColorRefreshStatus::RetainedTransactionSnapshot;
     }
     if (colorCapabilities_.has_value())

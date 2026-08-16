@@ -176,7 +176,9 @@ bafx::windows::CompositionOutputPolicy resolveDisplayOutputPolicy(
     // The fixed-point white level belongs to the monitor output contract. It
     // must never rescale the game's ArtisticRelative material values.
     if (color.sdrWhiteLevelValid
-        && (!color.displayPathResolved || color.sdrWhiteLevelConsistent))
+        && (!color.displayPathResolved
+            || color.sdrWhiteLevelConsistent
+            || color.sdrWhiteLevelRetained))
     {
         policy.mapping.referenceWhiteNits = color.sdrWhiteLevelNits;
         policy.mapping.referenceWhiteValid = true;

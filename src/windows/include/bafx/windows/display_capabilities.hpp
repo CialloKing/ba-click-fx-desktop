@@ -50,6 +50,7 @@ struct DisplayColorCapabilities final
     bool advancedColorInfoV2{false};
     bool advancedColorStateConsistent{false};
     bool sdrWhiteLevelConsistent{false};
+    bool sdrWhiteLevelRetained{false};
     bool physicalTargetAdaptersConsistent{false};
     DisplayTopologyStatus displayConfigTopologyStatus{
         DisplayTopologyStatus::QueryFailed};
