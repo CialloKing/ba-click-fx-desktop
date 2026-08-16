@@ -162,8 +162,9 @@ public:
     // and render geometry have not changed.
     [[nodiscard]] bafx::windows::BackgroundCadenceRefreshResult
         updateTargetMetadata(DisplayTarget target) noexcept;
-    // Secondary sessions currently retarget their FX-only resource domain
-    // without entering the coordinator's WGC transaction.
+    // Sessions without a secondary WGC owner can retarget the output directly.
+    // Once initialized, retargetSecondary serializes WGC stop, output migration
+    // and restart through that display's independent transaction owner.
     [[nodiscard]] DisplaySessionRetargetResult retargetFxOnly(
         DisplayTarget target,
         HWND wakeWindow);
