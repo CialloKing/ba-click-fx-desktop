@@ -65,14 +65,37 @@ private:
 };
 
 constexpr std::string_view validInstallState =
-    R"json({"schema":1,"packageFamilyName":"CialloKing.BaClickFxDesktop_abc123","applicationId":"BaClickFxDesktop"})json";
+    R"json({
+  "schema": 2,
+  "transactionId": "0123456789abcdef0123456789abcdef",
+  "packageName": "CialloKing.BaClickFxDesktop",
+  "applicationId": "BaClickFxDesktop",
+  "publisher": "CN=BaClickFx.Local",
+  "productVersion": "0.1.0-alpha.15",
+  "packageVersion": "0.1.0.15",
+  "templateSha256": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+  "packageFullName": "CialloKing.BaClickFxDesktop_0.1.0.15_x64__abc123",
+  "packageFamilyName": "CialloKing.BaClickFxDesktop_abc123",
+  "certificateThumbprint": "1111111111111111111111111111111111111111",
+  "certificateSha256": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+  "certificateInstalledBySetup": true,
+  "externalLocation": "C:\\Program Files\\BAFX",
+  "installedUserSid": "S-1-5-21-1",
+  "hostFile": "ba-click-fx-desktop.exe",
+  "hostSha256": "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
+  "packageFile": "identity.msix",
+  "packageSha256": "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "ownedCertificateThumbprints": "1111111111111111111111111111111111111111",
+  "ownedPackageFiles": "identity.msix",
+  "installedUtc": "2026-08-16T00:00:00.0000000Z"
+})json";
 
 }
 
 BAFX_TEST(package_activation_state_builds_aumid)
 {
     const auto result = bafx::control_center::parsePackageActivationState(
-        R"json({"schema":1,"packageFamilyName":"CialloKing.BaClickFxDesktop_abc123","applicationId":"BaClickFxDesktop"})json");
+        validInstallState);
 
     BAFX_CHECK(result.succeeded());
     BAFX_CHECK(result.installStatePresent);
@@ -80,10 +103,20 @@ BAFX_TEST(package_activation_state_builds_aumid)
         == L"CialloKing.BaClickFxDesktop_abc123!BaClickFxDesktop");
 }
 
+BAFX_TEST(package_activation_state_rejects_legacy_schema)
+{
+    const auto result = bafx::control_center::parsePackageActivationState(
+        R"json({"schema":1,"packageFamilyName":"CialloKing.BaClickFxDesktop_abc123","applicationId":"BaClickFxDesktop"})json");
+
+    BAFX_CHECK(result.installStatePresent);
+    BAFX_CHECK(!result.succeeded());
+    BAFX_CHECK(result.error.find(L"expected 2, found 1") != std::wstring::npos);
+}
+
 BAFX_TEST(package_activation_state_rejects_wrong_application)
 {
     const auto result = bafx::control_center::parsePackageActivationState(
-        R"json({"schema":1,"packageFamilyName":"CialloKing.BaClickFxDesktop_abc123","applicationId":"Other"})json");
+        R"json({"schema":2,"packageFamilyName":"CialloKing.BaClickFxDesktop_abc123","applicationId":"Other"})json");
 
     BAFX_CHECK(result.installStatePresent);
     BAFX_CHECK(!result.succeeded());
@@ -93,7 +126,7 @@ BAFX_TEST(package_activation_state_rejects_wrong_application)
 BAFX_TEST(package_activation_state_rejects_nested_values)
 {
     const auto result = bafx::control_center::parsePackageActivationState(
-        R"json({"schema":1,"packageFamilyName":{"value":"bad"},"applicationId":"BaClickFxDesktop"})json");
+        R"json({"schema":2,"packageFamilyName":{"value":"bad"},"applicationId":"BaClickFxDesktop"})json");
 
     BAFX_CHECK(result.installStatePresent);
     BAFX_CHECK(!result.succeeded());

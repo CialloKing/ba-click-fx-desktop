@@ -642,6 +642,23 @@ function Test-SparsePackageContract
 
     $controlCenter = Read-RepositoryText -RelativePath 'src/control-center/control_center_window.cpp'
     $activation = Read-RepositoryText -RelativePath 'src/control-center/package_activation.cpp'
+    $writtenInstallStateSchema = [regex]::Match(
+        $machineInstaller,
+        '(?s)\$installState\s*=\s*\[ordered\]@\{.*?schema\s*=\s*([0-9]+)')
+    $acceptedInstallStateSchema = [regex]::Match(
+        $activation,
+        'expectedInstallStateSchema\s*=\s*([0-9]+)U')
+    Assert-True `
+        -Condition $writtenInstallStateSchema.Success `
+        -Message 'Installer contract could not find the written install-state schema.'
+    Assert-True `
+        -Condition $acceptedInstallStateSchema.Success `
+        -Message 'Installer contract could not find the Control Center install-state schema.'
+    Assert-True `
+        -Condition (
+            $writtenInstallStateSchema.Groups[1].Value -eq
+                $acceptedInstallStateSchema.Groups[1].Value) `
+        -Message 'Installer and Control Center install-state schemas differ.'
     $activationSources = $controlCenter + "`n" + $activation
     Assert-TextContains `
         -Text $activationSources `

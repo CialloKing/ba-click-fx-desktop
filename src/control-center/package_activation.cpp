@@ -17,6 +17,7 @@ namespace
 {
 
 constexpr std::size_t maximumInstallStateBytes = 64U * 1024U;
+constexpr unsigned int expectedInstallStateSchema = 2U;
 constexpr std::string_view expectedPackageFamilyPrefix =
     "CialloKing.BaClickFxDesktop_";
 constexpr std::string_view expectedApplicationId = "BaClickFxDesktop";
@@ -116,9 +117,18 @@ public:
         {
             return fail(L"Install state has trailing characters.");
         }
-        if (!hasSchema || schema != 1U)
+        if (!hasSchema)
         {
-            return fail(L"Install state schema is unsupported.");
+            return fail(L"Install state is missing schema.");
+        }
+        if (schema != expectedInstallStateSchema)
+        {
+            std::wstring message = L"Install state schema is unsupported; expected ";
+            message += std::to_wstring(expectedInstallStateSchema);
+            message += L", found ";
+            message += std::to_wstring(schema);
+            message += L".";
+            return fail(message);
         }
         if (!packageFamilyName.has_value() || !applicationId.has_value())
         {
