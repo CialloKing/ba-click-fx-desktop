@@ -182,7 +182,7 @@ function Assert-ConfigObjectFields
     {
         $details.Add("unknown=$($unknownFields -join ',')")
     }
-    throw "Generated configuration field '$Path' does not match schemaVersion 12 ($($details -join '; '))."
+    throw "Generated configuration field '$Path' does not match schemaVersion 13 ($($details -join '; '))."
 }
 
 function Set-IdentityInstallConfig
@@ -250,9 +250,9 @@ function Set-IdentityInstallConfig
     $schemaVersionProperty = $config.PSObject.Properties['schemaVersion']
     if ($null -eq $schemaVersionProperty `
         -or -not ($schemaVersionProperty.Value -is [ValueType]) `
-        -or [double]$schemaVersionProperty.Value -ne 12.0)
+        -or [double]$schemaVersionProperty.Value -ne 13.0)
     {
-        throw 'Generated configuration must use schemaVersion 12.'
+        throw 'Generated configuration must use schemaVersion 13.'
     }
 
     # The Host keeps an invalid persisted document while using defaults only in
@@ -294,6 +294,14 @@ function Set-IdentityInstallConfig
             'ringsRotationDirection',
             'ringsHdrIntensity',
             'shardsHdrIntensity',
+            'shardsClickCount',
+            'shardsClickLifetimeMinMs',
+            'shardsClickLifetimeMaxMs',
+            'shardsClickRadius',
+            'shardsClickSpeedMin',
+            'shardsClickSpeedMax',
+            'shardsSizeMin',
+            'shardsSizeMax',
             'trailOpacity',
             'bloomIntensity',
             'bloomDiffusion',

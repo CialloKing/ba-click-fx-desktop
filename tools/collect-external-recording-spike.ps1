@@ -797,7 +797,7 @@ function New-RecordingConfiguration
             trailTimeScale = 1
             trailLifetimeMs = 300
             diskLifetimeMs = 200
-            diskRadius = 32.4
+            diskRadius = 64.8
             ringsCount = 2
             ringsLifetimeMs = 600
             ringsRadiusMin = 68.92571232
@@ -806,6 +806,14 @@ function New-RecordingConfiguration
             ringsRotationDirection = -1
             ringsHdrIntensity = 5.992157
             shardsHdrIntensity = 5.992157
+            shardsClickCount = 4
+            shardsClickLifetimeMinMs = 600
+            shardsClickLifetimeMaxMs = 700
+            shardsClickRadius = 49.8769488
+            shardsClickSpeedMin = 49.8769488
+            shardsClickSpeedMax = 66.5025984
+            shardsSizeMin = 16.6256496
+            shardsSizeMax = 33.2512992
             trailOpacity = 1
             # Keep historical recording evidence comparable across schemas.
             bloomIntensity = 1
@@ -825,7 +833,7 @@ function New-RecordingConfiguration
             framePacing = 'match-display'
             idleOptimization = $true
         }
-        schemaVersion = 12
+        schemaVersion = 13
         system = [ordered]@{
             closeToTray = $true
             startMinimized = $false
