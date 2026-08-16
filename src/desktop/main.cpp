@@ -2106,6 +2106,7 @@ SecondaryRenderSummary renderSecondarySessions(
     const bafx::fx::SimulationTime renderTime,
     const bafx::core::MonotonicTime wallTime,
     const bool commitSimulationFrame,
+    const bool requireCurrentBackground,
     const std::filesystem::path& logPath)
 {
     SecondaryRenderSummary summary{};
@@ -2165,7 +2166,7 @@ SecondaryRenderSummary renderSecondarySessions(
             static_cast<void>(sessionRenderer.renderFrame(
                 snapshot,
                 wallTime,
-                false));
+                requireCurrentBackground));
             session.recordPresentedFrame(
                 snapshot.hasDrawableContent(),
                 wallTime,
@@ -6078,6 +6079,10 @@ int runApplication(
                 renderTime,
                 wallTime,
                 !controlState.paused || enteringPause,
+                // Paused DComp surfaces can persist indefinitely. Secondary
+                // displays need the same fresh-background boundary as the
+                // coordinator before retaining that frame.
+                controlState.paused,
                 logPath));
         }
         if (renderCoordinatorThisIteration && options.smokeTest)
