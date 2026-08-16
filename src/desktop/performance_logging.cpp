@@ -219,7 +219,8 @@ void appendConfigurationFields(
     fields.addDecimal("Effects.TrailWidth", config.effects.trailWidth);
     fields.addDecimal("Effects.BloomIntensity", config.effects.bloomIntensity);
     fields.add("Effects.BloomQuality", bafx::config::toString(
-        config.effects.bloomQuality));
+        bafx::config::bloomQualityForDiffusion(
+            config.effects.bloomDiffusion)));
     fields.addDecimal(
         "Effects.BloomDiffusion",
         config.effects.bloomDiffusion);

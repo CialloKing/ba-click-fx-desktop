@@ -878,8 +878,7 @@ private:
                     "bloomDiffusion",
                     "bloomThreshold",
                     "bloomSoftKnee",
-                    "bloomClamp",
-                    "bloomQuality"},
+                    "bloomClamp"},
                 "effects",
                 error)
         || !validateKnownMembers(
@@ -1004,16 +1003,6 @@ private:
     {
         return config;
     }
-    std::string quality;
-    if (!readEnum(*effects, "bloomQuality", "effects", quality, error))
-    {
-        return config;
-    }
-    if (!parseBloomQuality(quality, config.effects.bloomQuality))
-    {
-        error = "config field 'effects.bloomQuality' has an unknown value";
-        return config;
-    }
     // trailLifetimeMs is the Web-facing source of truth. The legacy compact
     // multiplier is serialized as a derived convenience value only.
     config.effects.trailLength = config.effects.trailLifetimeMs / 300.0F;
@@ -1127,7 +1116,6 @@ private:
 {
     JsonValue::Object effects;
     effects.emplace("bloomIntensity", JsonValue(static_cast<double>(config.effects.bloomIntensity)));
-    effects.emplace("bloomQuality", JsonValue(std::string(toString(config.effects.bloomQuality))));
     effects.emplace("clickEnabled", JsonValue(config.effects.clickEnabled));
     effects.emplace("clickTimeScale", JsonValue(static_cast<double>(config.effects.clickTimeScale)));
     effects.emplace("enabled", JsonValue(config.effects.enabled));
@@ -1722,12 +1710,13 @@ ConfigPatchResult applyPatchJson(
         else if (*path == "effects.bloomQuality")
         {
             std::string quality;
+            BloomQuality parsedQuality = BloomQuality::High;
             valueAccepted = readPatchString(quality)
-                && parseBloomQuality(quality, result.effects.bloomQuality);
+                && parseBloomQuality(quality, parsedQuality);
             if (valueAccepted)
             {
                 result.effects.bloomDiffusion =
-                    bloomDiffusionForQuality(result.effects.bloomQuality);
+                    bloomDiffusionForQuality(parsedQuality);
             }
         }
         else if (*path == "background.mode")
@@ -2205,16 +2194,6 @@ bool validateConfig(const Config& config, std::string* error) noexcept
     default:
         return failValidation("background.mode is not a recognized render mode");
     }
-    switch (config.effects.bloomQuality)
-    {
-    case BloomQuality::Low:
-    case BloomQuality::Medium:
-    case BloomQuality::High:
-    case BloomQuality::Ultra:
-        break;
-    default:
-        return failValidation("effects.bloomQuality is not a recognized quality");
-    }
     switch (config.performance.framePacing)
     {
     case FramePacing::MatchDisplay:
@@ -2330,6 +2309,8 @@ std::string_view toString(const BloomQuality quality) noexcept
         return "high";
     case BloomQuality::Ultra:
         return "ultra";
+    case BloomQuality::Custom:
+        return "custom";
     }
     return "high";
 }
@@ -2346,11 +2327,29 @@ float bloomDiffusionForQuality(const BloomQuality quality) noexcept
         return 7.0F;
     case BloomQuality::Ultra:
         return 10.0F;
+    case BloomQuality::Custom:
+        break;
     }
 
     // A malformed enum must retain the reference visual rather than select a
     // stronger pyramid unexpectedly. Config validation rejects it upstream.
     return 7.0F;
+}
+
+BloomQuality bloomQualityForDiffusion(const float diffusion) noexcept
+{
+    for (const BloomQuality quality : {
+             BloomQuality::Low,
+             BloomQuality::Medium,
+             BloomQuality::High,
+             BloomQuality::Ultra})
+    {
+        if (diffusion == bloomDiffusionForQuality(quality))
+        {
+            return quality;
+        }
+    }
+    return BloomQuality::Custom;
 }
 
 std::string_view toString(const FramePacing pacing) noexcept

@@ -120,7 +120,7 @@ BAFX_TEST(config_defaults_round_trip_through_versioned_json)
         0.00001F);
 }
 
-BAFX_TEST(config_schema_nine_effect_fields_round_trip_through_file)
+BAFX_TEST(config_current_effect_fields_round_trip_through_file)
 {
     const fs::path path = testPath();
     const fs::path root = path.parent_path();
@@ -282,6 +282,38 @@ BAFX_TEST(config_fx_parameter_batch_is_atomic_and_preserves_generation)
     BAFX_CHECK(!rejected.succeeded());
     BAFX_CHECK(rejected.config.effects.opacity == base.effects.opacity);
     BAFX_CHECK(rejected.config.effects.bloomSoftKnee == base.effects.bloomSoftKnee);
+}
+
+BAFX_TEST(config_bloom_quality_is_derived_from_continuous_diffusion)
+{
+    const bafx::config::Config base = bafx::config::defaultConfig();
+    BAFX_CHECK(
+        bafx::config::bloomQualityForDiffusion(base.effects.bloomDiffusion)
+        == bafx::config::BloomQuality::High);
+
+    const auto continuous = bafx::config::setFxParam(
+        base,
+        "bloom.diffusion",
+        "8.5");
+    BAFX_CHECK(continuous.succeeded());
+    BAFX_CHECK(
+        bafx::config::bloomQualityForDiffusion(
+            continuous.config.effects.bloomDiffusion)
+        == bafx::config::BloomQuality::Custom);
+    BAFX_CHECK(
+        bafx::config::toJson(continuous.config, false).find("bloomQuality")
+        == std::string::npos);
+
+    const auto preset = bafx::config::setFxParam(
+        continuous.config,
+        "effects.bloomQuality",
+        "\"low\"");
+    BAFX_CHECK(preset.succeeded());
+    BAFX_CHECK_NEAR(preset.config.effects.bloomDiffusion, 4.0F, 0.00001F);
+    BAFX_CHECK(
+        bafx::config::bloomQualityForDiffusion(
+            preset.config.effects.bloomDiffusion)
+        == bafx::config::BloomQuality::Low);
 }
 
 BAFX_TEST(config_render_modes_use_canonical_wire_values)

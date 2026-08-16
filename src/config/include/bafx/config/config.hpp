@@ -9,7 +9,7 @@
 namespace bafx::config
 {
 
-inline constexpr std::uint32_t currentSchemaVersion = 9U;
+inline constexpr std::uint32_t currentSchemaVersion = 10U;
 
 enum class RenderMode : std::uint8_t
 {
@@ -23,7 +23,8 @@ enum class BloomQuality : std::uint8_t
     Low,
     Medium,
     High,
-    Ultra
+    Ultra,
+    Custom
 };
 
 enum class FramePacing : std::uint8_t
@@ -58,7 +59,6 @@ struct EffectsConfig
     float bloomThreshold{1.0F};
     float bloomSoftKnee{0.0F};
     float bloomClamp{65472.0F};
-    BloomQuality bloomQuality{BloomQuality::High};
 };
 
 struct BackgroundConfig
@@ -229,5 +229,8 @@ struct ConfigSaveResult
 // Maps product quality choices onto the existing Unity Bloom diffusion range.
 // High deliberately remains at the extracted game's verified diffusion of 7.
 [[nodiscard]] float bloomDiffusionForQuality(BloomQuality quality) noexcept;
+// The continuous Web parameter is the source of truth. Product presets are a
+// derived Control Center view, with Custom representing every other value.
+[[nodiscard]] BloomQuality bloomQualityForDiffusion(float diffusion) noexcept;
 
 }

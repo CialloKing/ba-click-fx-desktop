@@ -77,7 +77,6 @@ void checkEffectsEqual(
     BAFX_CHECK_NEAR(actual.bloomThreshold, expected.bloomThreshold, 0.00001F);
     BAFX_CHECK_NEAR(actual.bloomSoftKnee, expected.bloomSoftKnee, 0.00001F);
     BAFX_CHECK_NEAR(actual.bloomClamp, expected.bloomClamp, 0.00001F);
-    BAFX_CHECK(actual.bloomQuality == expected.bloomQuality);
 }
 
 }

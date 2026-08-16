@@ -173,6 +173,8 @@ void setControlFont(const HWND control, const HFONT font) noexcept
         return 2;
     case bafx::config::BloomQuality::Ultra:
         return 3;
+    case bafx::config::BloomQuality::Custom:
+        return 4;
     }
     return -1;
 }
@@ -806,7 +808,8 @@ bool ControlCenterWindow::createControls()
         static_cast<void>(SendMessageW(bloomQuality_, CB_ADDSTRING, 0U, reinterpret_cast<LPARAM>(L"适中")));
         static_cast<void>(SendMessageW(bloomQuality_, CB_ADDSTRING, 0U, reinterpret_cast<LPARAM>(L"原版")));
         static_cast<void>(SendMessageW(bloomQuality_, CB_ADDSTRING, 0U, reinterpret_cast<LPARAM>(L"极宽")));
-        static_cast<void>(SendMessageW(bloomQuality_, CB_SETMINVISIBLE, 4U, 0));
+        static_cast<void>(SendMessageW(bloomQuality_, CB_ADDSTRING, 0U, reinterpret_cast<LPARAM>(L"自定义")));
+        static_cast<void>(SendMessageW(bloomQuality_, CB_SETMINVISIBLE, 5U, 0));
     }
 
     backgroundHeading_ = createChild(
@@ -1774,6 +1777,10 @@ void ControlCenterWindow::onCommand(
             case 3:
                 applyPatch("effects.bloomQuality", "\"ultra\"");
                 break;
+            case 4:
+                // Custom is a derived state selected by the continuous slider.
+                // Selecting it cannot invent a missing diffusion value.
+                break;
             default:
                 setError(L"未知的 Bloom 质量选择。");
                 break;
@@ -2148,7 +2155,8 @@ void ControlCenterWindow::updateControls(
     static_cast<void>(SendMessageW(
         bloomQuality_,
         CB_SETCURSEL,
-        qualityIndex(config.effects.bloomQuality),
+        qualityIndex(bafx::config::bloomQualityForDiffusion(
+            config.effects.bloomDiffusion)),
         0));
     static_cast<void>(SendMessageW(
         backgroundMode_,
