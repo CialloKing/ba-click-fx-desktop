@@ -8,8 +8,7 @@
   "configurePresets": [
     {
       "name": "alpha-x64",
-      "displayName": "Alpha x64 (Visual Studio 2026)",
-      "generator": "Visual Studio 18 2026",
+      "displayName": "Alpha x64 (installed Visual Studio)",
       "architecture": {
         "value": "x64",
         "strategy": "set"
