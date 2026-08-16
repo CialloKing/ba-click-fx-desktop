@@ -142,6 +142,11 @@ Package 注册和 Control Center 快捷方式创建。安装完成后打开 Cont
 Windows“已安装的应用”执行，默认保留安装目录
 下的 `data` 用户配置；需要无管理员权限时可改用 portable ZIP，但它没有 Package Identity。
 
+安装或卸载失败时，错误框会显示失败阶段、步骤、HRESULT、脚本行号和 Inno 日志的完整路径。反馈问题时请
+提供该日志文件，不要只提供错误框截图。日志中的 `BAFX_INSTALL_FAILURE:` 是便于人工定位的单行摘要，
+`BAFX_INSTALL_DIAGNOSTIC_JSON:` 保存 PowerShell 版本、Windows 版本、异常类型、ErrorDetails、调用位置、
+内部异常和回滚/清理关联错误。日志可能包含本机用户名与目录路径，公开上传前应先检查这些信息。
+
 ## 尚未支持或尚未验证
 
 - HDR、Advanced Color 和物理 nits 输出声明。
