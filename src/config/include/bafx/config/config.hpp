@@ -9,7 +9,7 @@
 namespace bafx::config
 {
 
-inline constexpr std::uint32_t currentSchemaVersion = 8U;
+inline constexpr std::uint32_t currentSchemaVersion = 9U;
 
 enum class RenderMode : std::uint8_t
 {
@@ -38,11 +38,25 @@ struct EffectsConfig
 {
     bool enabled{true};
     float globalScale{1.0F};
+    // Web API equivalent: opacity. This is applied to the final FX payload
+    // while Unity-authored linear RGB and Bloom emission remain unchanged.
+    float opacity{1.0F};
     bool clickEnabled{true};
     bool trailEnabled{true};
     float trailLength{1.0F};
     float trailWidth{1.0F};
+    // These are independent Web-style animation speed controls. A value of
+    // one preserves the extracted Unity timeline exactly.
+    float clickTimeScale{1.0F};
+    float trailTimeScale{1.0F};
+    // The Web API exposes trail lifetime in milliseconds; retain the native
+    // multiplier for the existing compact control and derive it at runtime.
+    float trailLifetimeMs{300.0F};
     float bloomIntensity{1.0F};
+    float bloomDiffusion{7.0F};
+    float bloomThreshold{1.0F};
+    float bloomSoftKnee{0.0F};
+    float bloomClamp{65472.0F};
     BloomQuality bloomQuality{BloomQuality::High};
 };
 

@@ -864,11 +864,19 @@ private:
                 {
                     "enabled",
                     "globalScale",
+                    "opacity",
                     "clickEnabled",
                     "trailEnabled",
                     "trailLength",
                     "trailWidth",
+                    "clickTimeScale",
+                    "trailTimeScale",
+                    "trailLifetimeMs",
                     "bloomIntensity",
+                    "bloomDiffusion",
+                    "bloomThreshold",
+                    "bloomSoftKnee",
+                    "bloomClamp",
                     "bloomQuality"},
                 "effects",
                 error)
@@ -913,6 +921,12 @@ private:
             "effects",
             config.effects.globalScale,
             error)
+        || !readFloat(
+            *effects,
+            "opacity",
+            "effects",
+            config.effects.opacity,
+            error)
         || !readBool(
             *effects,
             "clickEnabled",
@@ -939,9 +953,51 @@ private:
             error)
         || !readFloat(
             *effects,
+            "clickTimeScale",
+            "effects",
+            config.effects.clickTimeScale,
+            error)
+        || !readFloat(
+            *effects,
+            "trailTimeScale",
+            "effects",
+            config.effects.trailTimeScale,
+            error)
+        || !readFloat(
+            *effects,
+            "trailLifetimeMs",
+            "effects",
+            config.effects.trailLifetimeMs,
+            error)
+        || !readFloat(
+            *effects,
             "bloomIntensity",
             "effects",
             config.effects.bloomIntensity,
+            error)
+        || !readFloat(
+            *effects,
+            "bloomDiffusion",
+            "effects",
+            config.effects.bloomDiffusion,
+            error)
+        || !readFloat(
+            *effects,
+            "bloomThreshold",
+            "effects",
+            config.effects.bloomThreshold,
+            error)
+        || !readFloat(
+            *effects,
+            "bloomSoftKnee",
+            "effects",
+            config.effects.bloomSoftKnee,
+            error)
+        || !readFloat(
+            *effects,
+            "bloomClamp",
+            "effects",
+            config.effects.bloomClamp,
             error))
     {
         return config;
@@ -1068,11 +1124,19 @@ private:
     effects.emplace("bloomIntensity", JsonValue(static_cast<double>(config.effects.bloomIntensity)));
     effects.emplace("bloomQuality", JsonValue(std::string(toString(config.effects.bloomQuality))));
     effects.emplace("clickEnabled", JsonValue(config.effects.clickEnabled));
+    effects.emplace("clickTimeScale", JsonValue(static_cast<double>(config.effects.clickTimeScale)));
     effects.emplace("enabled", JsonValue(config.effects.enabled));
     effects.emplace("globalScale", JsonValue(static_cast<double>(config.effects.globalScale)));
+    effects.emplace("opacity", JsonValue(static_cast<double>(config.effects.opacity)));
     effects.emplace("trailEnabled", JsonValue(config.effects.trailEnabled));
     effects.emplace("trailLength", JsonValue(static_cast<double>(config.effects.trailLength)));
+    effects.emplace("trailLifetimeMs", JsonValue(static_cast<double>(config.effects.trailLifetimeMs)));
+    effects.emplace("trailTimeScale", JsonValue(static_cast<double>(config.effects.trailTimeScale)));
     effects.emplace("trailWidth", JsonValue(static_cast<double>(config.effects.trailWidth)));
+    effects.emplace("bloomClamp", JsonValue(static_cast<double>(config.effects.bloomClamp)));
+    effects.emplace("bloomDiffusion", JsonValue(static_cast<double>(config.effects.bloomDiffusion)));
+    effects.emplace("bloomSoftKnee", JsonValue(static_cast<double>(config.effects.bloomSoftKnee)));
+    effects.emplace("bloomThreshold", JsonValue(static_cast<double>(config.effects.bloomThreshold)));
 
     JsonValue::Object background;
     background.emplace("allowSystemBorder", JsonValue(config.background.allowSystemBorder));
@@ -1483,15 +1547,26 @@ ConfigPatchResult applyPatchJson(
         };
 
         bool valueAccepted = false;
+        // Accept the public Web API spellings in addition to the persisted
+        // native namespace. Keeping the aliases here makes IPC clients and
+        // future Control Center pages share one validation contract.
         if (*path == "effects.enabled")
         {
             valueAccepted = readPatchBool(result.effects.enabled);
         }
-        else if (*path == "effects.globalScale")
+        else if (*path == "effects.globalScale" || *path == "scale")
         {
             valueAccepted = readPatchFloat(result.effects.globalScale);
         }
+        else if (*path == "effects.opacity" || *path == "opacity")
+        {
+            valueAccepted = readPatchFloat(result.effects.opacity);
+        }
         else if (*path == "effects.clickEnabled")
+        {
+            valueAccepted = readPatchBool(result.effects.clickEnabled);
+        }
+        else if (*path == "clickEnabled")
         {
             valueAccepted = readPatchBool(result.effects.clickEnabled);
         }
@@ -1499,23 +1574,90 @@ ConfigPatchResult applyPatchJson(
         {
             valueAccepted = readPatchBool(result.effects.trailEnabled);
         }
+        else if (*path == "trailEnabled")
+        {
+            valueAccepted = readPatchBool(result.effects.trailEnabled);
+        }
         else if (*path == "effects.trailLength")
         {
             valueAccepted = readPatchFloat(result.effects.trailLength);
+            if (valueAccepted)
+            {
+                result.effects.trailLifetimeMs = result.effects.trailLength
+                    * 300.0F;
+            }
         }
-        else if (*path == "effects.trailWidth")
+        else if (*path == "trail.lifetimeMs")
+        {
+            valueAccepted = readPatchFloat(result.effects.trailLifetimeMs);
+            if (valueAccepted)
+            {
+                result.effects.trailLength = result.effects.trailLifetimeMs
+                    / 300.0F;
+            }
+        }
+        else if (*path == "effects.trailWidth" || *path == "trail.width")
         {
             valueAccepted = readPatchFloat(result.effects.trailWidth);
         }
-        else if (*path == "effects.bloomIntensity")
+        else if (*path == "effects.clickTimeScale"
+            || *path == "clickTimeScale")
+        {
+            valueAccepted = readPatchFloat(result.effects.clickTimeScale);
+        }
+        else if (*path == "effects.trailTimeScale"
+            || *path == "trailTimeScale")
+        {
+            valueAccepted = readPatchFloat(result.effects.trailTimeScale);
+        }
+        else if (*path == "trailAlways")
+        {
+            bool trailAlways = false;
+            valueAccepted = readPatchBool(trailAlways);
+            if (valueAccepted)
+            {
+                result.input.trailOnlyWhilePressed = !trailAlways;
+            }
+        }
+        else if (*path == "inputSamplingRate")
+        {
+            valueAccepted = readPatchUnsignedInteger(result.input.samplingRateHz);
+        }
+        else if (*path == "effects.bloomIntensity"
+            || *path == "bloom.intensity")
         {
             valueAccepted = readPatchFloat(result.effects.bloomIntensity);
+        }
+        else if (*path == "effects.bloomDiffusion"
+            || *path == "bloom.diffusion")
+        {
+            valueAccepted = readPatchFloat(result.effects.bloomDiffusion);
+        }
+        else if (*path == "effects.bloomThreshold"
+            || *path == "bloom.threshold")
+        {
+            valueAccepted = readPatchFloat(result.effects.bloomThreshold);
+        }
+        else if (*path == "effects.bloomSoftKnee"
+            || *path == "bloom.softKnee")
+        {
+            valueAccepted = readPatchFloat(result.effects.bloomSoftKnee);
+        }
+        else if (*path == "effects.bloomClamp"
+            || *path == "bloom.clamp")
+        {
+            valueAccepted = readPatchFloat(result.effects.bloomClamp);
         }
         else if (*path == "effects.bloomQuality")
         {
             std::string quality;
             valueAccepted = readPatchString(quality)
                 && parseBloomQuality(quality, result.effects.bloomQuality);
+            if (valueAccepted)
+            {
+                result.effects.bloomDiffusion =
+                    bloomDiffusionForQuality(result.effects.bloomQuality);
+            }
         }
         else if (*path == "background.mode")
         {
@@ -1836,6 +1978,12 @@ bool validateConfig(const Config& config, std::string* error) noexcept
     {
         return failValidation("effects.globalScale must be within [0.1, 4]");
     }
+    if (!std::isfinite(config.effects.opacity)
+        || config.effects.opacity < 0.0F
+        || config.effects.opacity > 1.0F)
+    {
+        return failValidation("effects.opacity must be within [0, 1]");
+    }
     if (!std::isfinite(config.effects.trailLength)
         || config.effects.trailLength < 0.0F
         || config.effects.trailLength > 3.0F)
@@ -1848,11 +1996,53 @@ bool validateConfig(const Config& config, std::string* error) noexcept
     {
         return failValidation("effects.trailWidth must be within [0.1, 4]");
     }
+    if (!std::isfinite(config.effects.clickTimeScale)
+        || config.effects.clickTimeScale < 0.01F
+        || config.effects.clickTimeScale > 4.0F)
+    {
+        return failValidation("effects.clickTimeScale must be within [0.01, 4]");
+    }
+    if (!std::isfinite(config.effects.trailTimeScale)
+        || config.effects.trailTimeScale < 0.01F
+        || config.effects.trailTimeScale > 4.0F)
+    {
+        return failValidation("effects.trailTimeScale must be within [0.01, 4]");
+    }
+    if (!std::isfinite(config.effects.trailLifetimeMs)
+        || config.effects.trailLifetimeMs < 0.0F
+        || config.effects.trailLifetimeMs > 2000.0F)
+    {
+        return failValidation("effects.trailLifetimeMs must be within [0, 2000]");
+    }
     if (!std::isfinite(config.effects.bloomIntensity)
         || config.effects.bloomIntensity < 0.0F
         || config.effects.bloomIntensity > 8.0F)
     {
         return failValidation("effects.bloomIntensity must be within [0, 8]");
+    }
+    if (!std::isfinite(config.effects.bloomDiffusion)
+        || config.effects.bloomDiffusion < 0.0F
+        || config.effects.bloomDiffusion > 10.0F)
+    {
+        return failValidation("effects.bloomDiffusion must be within [0, 10]");
+    }
+    if (!std::isfinite(config.effects.bloomThreshold)
+        || config.effects.bloomThreshold < 0.0F
+        || config.effects.bloomThreshold > 5.0F)
+    {
+        return failValidation("effects.bloomThreshold must be within [0, 5]");
+    }
+    if (!std::isfinite(config.effects.bloomSoftKnee)
+        || config.effects.bloomSoftKnee < 0.0F
+        || config.effects.bloomSoftKnee > 1.0F)
+    {
+        return failValidation("effects.bloomSoftKnee must be within [0, 1]");
+    }
+    if (!std::isfinite(config.effects.bloomClamp)
+        || config.effects.bloomClamp < 1.0F
+        || config.effects.bloomClamp > 65504.0F)
+    {
+        return failValidation("effects.bloomClamp must be within [1, 65504]");
     }
     if (config.input.samplingRateHz > 1000U)
     {
