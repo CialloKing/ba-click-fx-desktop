@@ -178,6 +178,24 @@ function Assert-Throws
     Assert-True -Condition $threw -Message "Expected failure did not occur: $Description"
 }
 
+function Get-CompressionRuntimeLoadStatements
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$InstallMachine
+    )
+
+    $matches = @(
+        [regex]::Matches(
+            $InstallMachine,
+            '(?m)^[ \t]*Add-Type\s+-AssemblyName\s+System\.IO\.Compression(?:\.FileSystem)?[ \t]*$')
+    )
+    Assert-True `
+        -Condition ($matches.Count -eq 2) `
+        -Message 'Installer compression assemblies must load once at startup.'
+    return @($matches | ForEach-Object { $_.Value.Trim() })
+}
+
 function Test-VersionMapping
 {
     $scriptPath = 'tools/package-user-installer.ps1'
@@ -336,6 +354,11 @@ function Test-InstallerScriptWhitelist
         -Text $installMachine `
         -Pattern 'Assert-ReplacementHostIntegrity[\s\S]*\-CurrentHostSha256\s+\$currentHostSha256[\s\S]*\-ArchivedHostSha256\s+\$archivedHostHash' `
         -Description 'live and archived Host hashes use the replacement integrity contract'
+    Assert-TextContains `
+        -Text $installMachine `
+        -Pattern "InstallerStep\s*=\s*'load-compression-runtime'[\s\S]*Add-Type\s+-AssemblyName\s+System\.IO\.Compression[\s\S]*Add-Type\s+-AssemblyName\s+System\.IO\.Compression\.FileSystem[\s\S]*InstallerStep\s*=\s*'resolve-installer-paths'" `
+        -Description 'ZIP runtime loads before any existing install state is read'
+    $null = Get-CompressionRuntimeLoadStatements -InstallMachine $installMachine
 
     $captureUserContext = Read-RepositoryText `
         -RelativePath 'tools/installer/capture-user-context.ps1'
@@ -398,6 +421,83 @@ function Test-InstallerScriptWhitelist
         -Text $controlCenterResource `
         -Pattern 'VALUE\s+"ProductVersion",\s+"@BAFX_VERSION@\\0"' `
         -Description 'Control Center product version resource'
+}
+
+function Test-CompressionRuntimeColdStart
+{
+    $installMachine = Read-RepositoryText `
+        -RelativePath 'tools/installer/install-machine.ps1'
+    $loadStatements = @(
+        Get-CompressionRuntimeLoadStatements -InstallMachine $installMachine
+    )
+    $childScriptLines = @(
+        'Set-StrictMode -Version Latest',
+        '$ErrorActionPreference = ''Stop''',
+        'if ($PSVersionTable.PSEdition -ne ''Desktop'' -or $PSVersionTable.PSVersion.Major -ne 5)',
+        '{',
+        '    throw "Expected Windows PowerShell 5.1, found $($PSVersionTable.PSVersion)."',
+        '}',
+        '$zipTypeBefore = ''IO.Compression.ZipFile'' -as [type]',
+        'if ($null -ne $zipTypeBefore)',
+        '{',
+        '    throw ''ZipFile resolved before the production startup statements.''',
+        '}'
+    )
+    $childScriptLines += $loadStatements
+    $childScriptLines += @(
+        '$zipTypeAfter = ''IO.Compression.ZipFile'' -as [type]',
+        'if ($null -eq $zipTypeAfter)',
+        '{',
+        '    throw ''ZipFile did not resolve after the production startup statements.''',
+        '}'
+    )
+    $childScript = $childScriptLines -join [Environment]::NewLine
+    $encodedCommand = [Convert]::ToBase64String(
+        [Text.Encoding]::Unicode.GetBytes($childScript))
+    $windowsPowerShell =
+        Get-Command powershell.exe -CommandType Application -ErrorAction Stop |
+            Select-Object -First 1
+    $process = $null
+    $timeoutMilliseconds = 5000
+    try
+    {
+        $process = Start-Process `
+            -FilePath $windowsPowerShell.Source `
+            -ArgumentList @(
+                '-NoLogo',
+                '-NoProfile',
+                '-NonInteractive',
+                '-ExecutionPolicy',
+                'Bypass',
+                '-EncodedCommand',
+                $encodedCommand) `
+            -WindowStyle Hidden `
+            -PassThru
+
+        # A broken child probe must not stall packaging or release jobs.
+        if (-not $process.WaitForExit($timeoutMilliseconds))
+        {
+            Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+            $null = $process.WaitForExit(1000)
+            throw "Compression cold-start probe exceeded the $timeoutMilliseconds ms timeout."
+        }
+        if ($process.ExitCode -ne 0)
+        {
+            throw "Compression cold-start probe failed with exit code $($process.ExitCode)."
+        }
+    }
+    finally
+    {
+        if ($null -ne $process)
+        {
+            if (-not $process.HasExited)
+            {
+                Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+                $null = $process.WaitForExit(1000)
+            }
+            $process.Dispose()
+        }
+    }
 }
 
 function Test-InnoPayloadContract
@@ -1151,6 +1251,7 @@ if (-not (Test-Path -LiteralPath $repositoryRoot -PathType Container))
 Test-PowerShellScriptContracts
 Test-VersionMapping
 Test-InstallerScriptWhitelist
+Test-CompressionRuntimeColdStart
 Test-InnoPayloadContract
 Test-SparsePackageContract
 Test-UninstallerBackupFallback
