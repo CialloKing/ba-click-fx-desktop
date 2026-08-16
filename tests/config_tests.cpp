@@ -650,17 +650,11 @@ BAFX_TEST(config_fx_parameter_boundaries_normalize_web_units)
              std::pair{"shards.clickCount", "2.5"},
              std::pair{"shards.clickLifetimeMinMs", "0"},
              std::pair{"shards.clickLifetimeMaxMs", "10001"},
-             std::pair{"shards.clickLifetimeMinMs", "701"},
-             std::pair{"shards.clickLifetimeMaxMs", "599"},
              std::pair{"shards.clickRadius", "5000.01"},
              std::pair{"shards.clickSpeedMin", "5000.01"},
              std::pair{"shards.clickSpeedMax", "-0.01"},
-             std::pair{"shards.clickSpeedMin", "66.51"},
-             std::pair{"shards.clickSpeedMax", "49.87"},
              std::pair{"shards.sizeMin", "2000.01"},
              std::pair{"shards.sizeMax", "-0.01"},
-             std::pair{"shards.sizeMin", "33.26"},
-             std::pair{"shards.sizeMax", "16.62"},
              std::pair{"bloom.softKnee", "1.01"},
              std::pair{"bloom.clamp", "-0.01"}})
     {
@@ -733,14 +727,33 @@ BAFX_TEST(config_fx_parameter_batch_is_atomic_and_preserves_generation)
     BAFX_CHECK(rejected.config.effects.opacity == base.effects.opacity);
     BAFX_CHECK(rejected.config.effects.bloomSoftKnee == base.effects.bloomSoftKnee);
 
-    const auto rejectedRange = bafx::config::setFxParams(
+    const auto reversedRanges = bafx::config::setFxParams(
         base,
-        R"json({"patch":{"opacity":0.25,"shards.clickLifetimeMinMs":900,"shards.clickLifetimeMaxMs":800}})json");
-    BAFX_CHECK(!rejectedRange.succeeded());
-    BAFX_CHECK(rejectedRange.config.effects.opacity == base.effects.opacity);
+        R"json({"patch":{"shards.clickLifetimeMinMs":900,"shards.clickLifetimeMaxMs":800,"shards.clickSpeedMin":90,"shards.clickSpeedMax":80,"shards.sizeMin":50,"shards.sizeMax":40}})json");
+    BAFX_CHECK(reversedRanges.succeeded());
     BAFX_CHECK_NEAR(
-        rejectedRange.config.effects.shardsClickLifetimeMinMs,
-        base.effects.shardsClickLifetimeMinMs,
+        reversedRanges.config.effects.shardsClickLifetimeMinMs,
+        900.0F,
+        0.00001F);
+    BAFX_CHECK_NEAR(
+        reversedRanges.config.effects.shardsClickLifetimeMaxMs,
+        800.0F,
+        0.00001F);
+    BAFX_CHECK_NEAR(
+        reversedRanges.config.effects.shardsClickSpeedMin,
+        90.0F,
+        0.00001F);
+    BAFX_CHECK_NEAR(
+        reversedRanges.config.effects.shardsClickSpeedMax,
+        80.0F,
+        0.00001F);
+    BAFX_CHECK_NEAR(
+        reversedRanges.config.effects.shardsSizeMin,
+        50.0F,
+        0.00001F);
+    BAFX_CHECK_NEAR(
+        reversedRanges.config.effects.shardsSizeMax,
+        40.0F,
         0.00001F);
 }
 

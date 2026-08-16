@@ -2694,13 +2694,6 @@ bool validateConfig(const Config& config, std::string* error) noexcept
         return failValidation(
             "effects.shardsClickLifetimeMaxMs must be within [1, 10000]");
     }
-    if (config.effects.shardsClickLifetimeMinMs
-        > config.effects.shardsClickLifetimeMaxMs)
-    {
-        return failValidation(
-            "effects.shardsClickLifetimeMinMs must not exceed "
-            "effects.shardsClickLifetimeMaxMs");
-    }
     if (!std::isfinite(config.effects.shardsClickRadius)
         || config.effects.shardsClickRadius < 0.0F
         || config.effects.shardsClickRadius > 5000.0F)
@@ -2722,13 +2715,6 @@ bool validateConfig(const Config& config, std::string* error) noexcept
         return failValidation(
             "effects.shardsClickSpeedMax must be within [0, 5000]");
     }
-    if (config.effects.shardsClickSpeedMin
-        > config.effects.shardsClickSpeedMax)
-    {
-        return failValidation(
-            "effects.shardsClickSpeedMin must not exceed "
-            "effects.shardsClickSpeedMax");
-    }
     if (!std::isfinite(config.effects.shardsSizeMin)
         || config.effects.shardsSizeMin < 0.0F
         || config.effects.shardsSizeMin > 2000.0F)
@@ -2742,11 +2728,6 @@ bool validateConfig(const Config& config, std::string* error) noexcept
     {
         return failValidation(
             "effects.shardsSizeMax must be within [0, 2000]");
-    }
-    if (config.effects.shardsSizeMin > config.effects.shardsSizeMax)
-    {
-        return failValidation(
-            "effects.shardsSizeMin must not exceed effects.shardsSizeMax");
     }
     if (!std::isfinite(config.effects.trailOpacity)
         || config.effects.trailOpacity < 0.0F

@@ -65,7 +65,8 @@ struct EffectsConfig
     float ringsHdrIntensity{5.992157F};
     float shardsHdrIntensity{5.992157F};
     // Click shard values use the Web API's 1920x1080 reference-pixel units.
-    // The simulation converts them to Unity world units at its boundary.
+    // Linked Min/Max endpoints may cross, as on the Web; interpolation remains
+    // valid in either order and the simulation converts units at its boundary.
     std::uint32_t shardsClickCount{4U};
     float shardsClickLifetimeMinMs{600.0F};
     float shardsClickLifetimeMaxMs{700.0F};
