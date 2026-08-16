@@ -497,11 +497,31 @@ void Simulation::updateUnityTrailTimeScale(const float timeScale)
 
 void Simulation::setClickTimeScale(const float timeScale) noexcept
 {
+    setClickTimeScale(timeScale, clickTimeSourceAt_);
+}
+
+void Simulation::setClickTimeScale(
+    const float timeScale,
+    const SimulationTime time) noexcept
+{
+    // Match the Web clock contract: the old multiplier owns all source time
+    // through the configuration boundary; only later intervals use the new one.
+    accumulateClickTime(time);
     clickTimeScale_ = normalizeTimeScale(timeScale);
 }
 
 void Simulation::setTrailTimeScale(const float timeScale) noexcept
 {
+    setTrailTimeScale(timeScale, trailTimeSourceAt_);
+}
+
+void Simulation::setTrailTimeScale(
+    const float timeScale,
+    const SimulationTime time) noexcept
+{
+    // Trail vertices and drag particles share this virtual clock. Settling it
+    // first prevents an active stroke from jumping when the multiplier changes.
+    synchronizeTrailTime(time);
     trailTimeScale_ = normalizeTimeScale(timeScale);
 }
 
@@ -520,7 +540,7 @@ void Simulation::startTrail(
 {
     const PointF worldPosition = screenToWorld(screenPosition, viewport);
     resetState(worldPosition, time);
-    appendTrailPoint(worldPosition, time);
+    appendTrailPoint(worldPosition, trailTime_);
 }
 
 void Simulation::pointerMove(
@@ -536,20 +556,27 @@ void Simulation::pointerMove(
     // Input can be drained after the compositor has already advanced past its
     // QPC sample. Preserve that sample while preventing pointer-time rollback.
     const SimulationTime sampleTime = std::max(time, pointerSampleAt_);
+    synchronizeTrailTime(sampleTime);
+    const SimulationTime sampleTrailTime = trailTime_;
     const PointF nextWorld = screenToWorld(screenPosition, viewport);
     if (clickEffectEnabled_ && firstAdvancePending_)
     {
         // TouchEffectCreater reads Input.mousePosition for both CreateEffect
         // and SetDragPosition in one Update. Before Unity's first particle
         // step, only the final transform exists; no travelled segment exists.
-        relocatePendingClick(nextWorld, sampleTime);
+        relocatePendingClick(nextWorld, sampleTime, sampleTrailTime);
         return;
     }
 
-    emitAlongDrag(pointerWorld_, nextWorld, pointerSampleAt_, sampleTime);
+    emitAlongDrag(
+        pointerWorld_,
+        nextWorld,
+        pointerTrailSampleAt_,
+        sampleTrailTime);
     pointerWorld_ = nextWorld;
     pointerSampleAt_ = sampleTime;
-    appendTrailPoint(pointerWorld_, sampleTime);
+    pointerTrailSampleAt_ = sampleTrailTime;
+    appendTrailPoint(pointerWorld_, sampleTrailTime);
 }
 
 void Simulation::pointerUp(const SimulationTime time)
@@ -560,6 +587,8 @@ void Simulation::pointerUp(const SimulationTime time)
     }
     pointerHeld_ = false;
     pointerSampleAt_ = std::max(pointerSampleAt_, time);
+    synchronizeTrailTime(pointerSampleAt_);
+    pointerTrailSampleAt_ = trailTime_;
     releasedAt_ = pointerSampleAt_;
 }
 
@@ -572,6 +601,8 @@ void Simulation::pointerCancel(const SimulationTime time)
 
     pointerHeld_ = false;
     pointerSampleAt_ = std::max(pointerSampleAt_, time);
+    synchronizeTrailTime(pointerSampleAt_);
+    pointerTrailSampleAt_ = trailTime_;
     releasedAt_ = pointerSampleAt_;
     dragDistanceRemainderWorld_ = 0.0F;
     // Unity routes Canceled and Ended through the same delayed Stop path, so
@@ -593,14 +624,19 @@ void Simulation::advance(const SimulationTime time)
         pointerSampleAt_ = std::max(pointerSampleAt_, time);
     }
     firstAdvancePending_ = false;
+    accumulateClickTime(time);
+    synchronizeTrailTime(time);
+    if (pointerHeld_)
+    {
+        pointerTrailSampleAt_ = trailTime_;
+    }
     if (clickEffectEnabled_)
     {
         advanceClickParticleStepStates(
             particleStepStates_,
-            SimulationTime{static_cast<SimulationTime::rep>(
-                static_cast<double>((time - lastAdvancedAt_).count())
-                    * static_cast<double>(clickTimeScale_))});
+            pendingClickTime_);
     }
+    pendingClickTime_ = SimulationTime::zero();
 
     lastAdvancedAt_ = time;
     const double effectiveTrailLifetime = trailLifetimeSeconds
@@ -610,11 +646,10 @@ void Simulation::advance(const SimulationTime time)
         const auto trailEnd = std::remove_if(
             trail_.begin(),
             trail_.end(),
-            [this, time, effectiveTrailLifetime](const StoredTrailPoint& point)
+            [this, effectiveTrailLifetime](const StoredTrailPoint& point)
             {
                 return effectiveTrailLifetime <= 0.0
-                    || ageSeconds(time, point.createdAt)
-                        * static_cast<double>(trailTimeScale_)
+                    || ageSeconds(trailTime_, point.createdAt)
                         >= effectiveTrailLifetime;
             });
         trail_.erase(trailEnd, trail_.end());
@@ -627,15 +662,12 @@ void Simulation::advance(const SimulationTime time)
     const auto particleEnd = std::remove_if(
         triangles_.begin(),
         triangles_.end(),
-        [this, time, clickTriangleAge, clickTrianglesEmitted](
+        [this, clickTriangleAge, clickTrianglesEmitted](
             const MovingParticle& particle)
         {
             if (particle.dragParticle)
             {
-                return ageSeconds(time, particle.bornAt)
-                    * static_cast<double>(particle.dragParticle
-                        ? trailTimeScale_
-                        : clickTimeScale_)
+                return ageSeconds(trailTime_, particle.bornAt)
                     > particle.lifetimeSeconds;
             }
 
@@ -676,6 +708,7 @@ FrameSnapshot Simulation::snapshot(const Viewport viewport, const SimulationTime
     }
 
     const ClickParticleStepStates particleStates = particleStepStatesAt(time);
+    const SimulationTime snapshotTrailTime = trailTimeAt(time);
     const ParticleStepState& centerDiskState = particleStates.centerDisk;
     if (clickEffectEnabled_
         && centerDiskState.burstEmitted
@@ -729,17 +762,16 @@ FrameSnapshot Simulation::snapshot(const Viewport viewport, const SimulationTime
 
     for (const MovingParticle& particle : triangles_)
     {
-        const double elapsed = ageSeconds(time, particle.bornAt)
-            * static_cast<double>(particle.dragParticle
-                ? trailTimeScale_
-                : clickTimeScale_);
-        if (elapsed <= 0.0)
+        double age = 0.0;
+        if (particle.dragParticle)
         {
-            continue;
+            age = ageSeconds(snapshotTrailTime, particle.bornAt);
+            if (age <= 0.0)
+            {
+                continue;
+            }
         }
-
-        double age = elapsed;
-        if (!particle.dragParticle)
+        else
         {
             const ParticleStepState& clickTriangleState =
                 particleStates.clickTriangles;
@@ -784,8 +816,7 @@ FrameSnapshot Simulation::snapshot(const Viewport viewport, const SimulationTime
     {
         const float normalizedAge = clampUnit(
             static_cast<float>(
-                ageSeconds(time, point.createdAt)
-                    * static_cast<double>(trailTimeScale_)
+                ageSeconds(snapshotTrailTime, point.createdAt)
                     / effectiveTrailLifetime));
         frame.trail.push_back(TrailPoint{worldToScreen(point.world, viewport), normalizedAge});
     }
@@ -858,13 +889,17 @@ Simulation::ClickParticleStepStates Simulation::particleStepStatesAt(
     const SimulationTime time) const noexcept
 {
     ClickParticleStepStates states = particleStepStates_;
-    if (clickEffectEnabled_ && time > lastAdvancedAt_)
+    SimulationTime elapsed = pendingClickTime_;
+    if (time > clickTimeSourceAt_)
+    {
+        elapsed += scaledDuration(
+            time - clickTimeSourceAt_,
+            clickTimeScale_);
+    }
+    if (clickEffectEnabled_ && elapsed > SimulationTime::zero())
     {
         // Snapshot is intentionally read-only. Capture tools query arbitrary
-        // future ages, so complete the pending interval on a disposable copy.
-        const SimulationTime elapsed{static_cast<SimulationTime::rep>(
-            static_cast<double>((time - lastAdvancedAt_).count())
-                * static_cast<double>(clickTimeScale_))};
+        // future ages, so complete the pending virtual interval on a copy.
         advanceClickParticleStepStates(states, elapsed);
     }
     return states;
@@ -908,6 +943,58 @@ double Simulation::ageSeconds(const SimulationTime now, const SimulationTime the
     return std::chrono::duration<double>(now - then).count();
 }
 
+SimulationTime Simulation::scaledDuration(
+    const SimulationTime duration,
+    const float timeScale) noexcept
+{
+    if (duration <= SimulationTime::zero())
+    {
+        return SimulationTime::zero();
+    }
+
+    return SimulationTime{static_cast<SimulationTime::rep>(
+        static_cast<double>(duration.count())
+            * static_cast<double>(timeScale))};
+}
+
+void Simulation::accumulateClickTime(const SimulationTime time) noexcept
+{
+    if (time <= clickTimeSourceAt_)
+    {
+        return;
+    }
+
+    pendingClickTime_ += scaledDuration(
+        time - clickTimeSourceAt_,
+        clickTimeScale_);
+    clickTimeSourceAt_ = time;
+}
+
+void Simulation::synchronizeTrailTime(const SimulationTime time) noexcept
+{
+    if (time <= trailTimeSourceAt_)
+    {
+        return;
+    }
+
+    trailTime_ += scaledDuration(
+        time - trailTimeSourceAt_,
+        trailTimeScale_);
+    trailTimeSourceAt_ = time;
+}
+
+SimulationTime Simulation::trailTimeAt(const SimulationTime time) const noexcept
+{
+    if (time <= trailTimeSourceAt_)
+    {
+        return trailTime_;
+    }
+
+    return trailTime_ + scaledDuration(
+        time - trailTimeSourceAt_,
+        trailTimeScale_);
+}
+
 void Simulation::reset(const PointF worldPosition, const SimulationTime time)
 {
     resetState(worldPosition, time);
@@ -920,8 +1007,8 @@ void Simulation::reset(const PointF worldPosition, const SimulationTime time)
             random_.range(0.0F, 2.0F * std::numbers::pi_v<float>),
             random_.unit()});
     }
-    emitClickTriangles(time);
-    appendTrailPoint(worldPosition, time);
+    emitClickTriangles(SimulationTime::zero());
+    appendTrailPoint(worldPosition, trailTime_);
 }
 
 void Simulation::resetState(
@@ -942,6 +1029,12 @@ void Simulation::resetState(
     startedAt_ = time;
     lastAdvancedAt_ = time;
     releasedAt_ = time;
+    clickTimeSourceAt_ = time;
+    pendingClickTime_ = SimulationTime::zero();
+    // A pooled instance is inactive between activations. Keep its virtual
+    // trail position, but anchor the next interval at the new source time.
+    trailTimeSourceAt_ = time;
+    pointerTrailSampleAt_ = trailTime_;
     effectOriginWorld_ = worldPosition;
     pointerWorld_ = worldPosition;
     pointerSampleAt_ = time;
@@ -958,12 +1051,14 @@ void Simulation::resetState(
 
 void Simulation::relocatePendingClick(
     const PointF worldPosition,
-    const SimulationTime time)
+    const SimulationTime time,
+    const SimulationTime trailTime)
 {
     const PointF offset = subtract(worldPosition, effectOriginWorld_);
     effectOriginWorld_ = worldPosition;
     pointerWorld_ = worldPosition;
     pointerSampleAt_ = time;
+    pointerTrailSampleAt_ = trailTime;
     lastEmissionWorld_ = worldPosition;
     dragDistanceRemainderWorld_ = 0.0F;
 
@@ -982,12 +1077,12 @@ void Simulation::relocatePendingClick(
 
     if (!trail_.empty())
     {
-        trail_.front() = StoredTrailPoint{worldPosition, time};
+        trail_.front() = StoredTrailPoint{worldPosition, trailTime};
         trail_.resize(1U);
     }
 }
 
-void Simulation::emitClickTriangles(const SimulationTime time)
+void Simulation::emitClickTriangles(const SimulationTime clickTime)
 {
     for (std::uint32_t index = 0; index < 4U; ++index)
     {
@@ -997,7 +1092,7 @@ void Simulation::emitClickTriangles(const SimulationTime time)
         triangles_.push_back(MovingParticle{
             add(effectOriginWorld_, multiply(radial, clickShapeRadiusWorld)),
             multiply(radial, random_.range(0.3F, 0.4F) * triangleLocalScale),
-            time,
+            clickTime,
             random_.range(0.6F, 0.7F),
             random_.range(0.1F, 0.2F) * triangleLocalScale,
             atlasRandom_.unit() < 0.5F ? 0U : 1U,
@@ -1006,7 +1101,9 @@ void Simulation::emitClickTriangles(const SimulationTime time)
     }
 }
 
-void Simulation::emitDragTriangle(const PointF worldPosition, const SimulationTime time)
+void Simulation::emitDragTriangle(
+    const PointF worldPosition,
+    const SimulationTime trailTime)
 {
     const auto dragCount = static_cast<std::uint32_t>(std::count_if(
         triangles_.begin(),
@@ -1025,7 +1122,7 @@ void Simulation::emitDragTriangle(const PointF worldPosition, const SimulationTi
     triangles_.push_back(MovingParticle{
         add(worldPosition, multiply(radial, dragShapeRadiusWorld)),
         multiply(radial, random_.range(0.2F, 0.3F) * triangleLocalScale),
-        time,
+        trailTime,
         random_.range(0.2F, 0.4F),
         random_.range(0.1F, 0.2F) * triangleLocalScale,
         atlasRandom_.unit() < 0.5F ? 0U : 1U,
@@ -1033,7 +1130,9 @@ void Simulation::emitDragTriangle(const PointF worldPosition, const SimulationTi
         worldPosition});
 }
 
-void Simulation::appendTrailPoint(const PointF worldPosition, const SimulationTime time)
+void Simulation::appendTrailPoint(
+    const PointF worldPosition,
+    const SimulationTime trailTime)
 {
     if (trailLengthMultiplier_ <= 0.0F
         || trailParkingMode_
@@ -1044,19 +1143,18 @@ void Simulation::appendTrailPoint(const PointF worldPosition, const SimulationTi
 
     if (trail_.empty())
     {
-        trail_.push_back(StoredTrailPoint{worldPosition, time});
+        trail_.push_back(StoredTrailPoint{worldPosition, trailTime});
         return;
     }
 
     const double effectiveTrailLifetime = trailLifetimeSeconds
         * static_cast<double>(trailLengthMultiplier_);
-    if (ageSeconds(time, trail_.back().createdAt)
-            * static_cast<double>(trailTimeScale_)
+    if (ageSeconds(trailTime, trail_.back().createdAt)
         >= effectiveTrailLifetime)
     {
         // An expired anchor must not connect movement across an idle interval.
         trail_.clear();
-        trail_.push_back(StoredTrailPoint{worldPosition, time});
+        trail_.push_back(StoredTrailPoint{worldPosition, trailTime});
         return;
     }
 
@@ -1068,7 +1166,7 @@ void Simulation::appendTrailPoint(const PointF worldPosition, const SimulationTi
 
     // Unity's TrailRenderer samples the transform once per rendered update.
     // MinVertexDistance filters samples; it does not tessellate a frame jump.
-    trail_.push_back(StoredTrailPoint{worldPosition, time});
+    trail_.push_back(StoredTrailPoint{worldPosition, trailTime});
 }
 
 void Simulation::initTrailNormalMode()
@@ -1122,8 +1220,8 @@ void Simulation::finishTrailParkingSequence()
 void Simulation::emitAlongDrag(
     const PointF from,
     const PointF to,
-    const SimulationTime fromTime,
-    const SimulationTime toTime)
+    const SimulationTime fromTrailTime,
+    const SimulationTime toTrailTime)
 {
     const PointF segment = subtract(to, from);
     const float segmentLength = length(segment);
@@ -1141,7 +1239,7 @@ void Simulation::emitAlongDrag(
         const PointF position = add(from, multiply(segment, interpolation));
         emitDragTriangle(
             position,
-            interpolateTime(fromTime, toTime, interpolation));
+            interpolateTime(fromTrailTime, toTrailTime, interpolation));
         lastEmissionWorld_ = position;
         dragDistanceRemainderWorld_ = 0.0F;
         distanceUntilEmission = dragEmissionStepWorld;

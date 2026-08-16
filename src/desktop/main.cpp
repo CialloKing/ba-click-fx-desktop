@@ -4687,8 +4687,12 @@ int runApplication(
                 // snapshot here makes input, length and Bloom changes take effect
                 // on the next frame without cross-thread renderer mutation.
                 simulation.setTrailLengthMultiplier(config.effects.trailLength);
-                simulation.setClickTimeScale(config.effects.clickTimeScale);
-                simulation.setTrailTimeScale(config.effects.trailTimeScale);
+                simulation.setClickTimeScale(
+                    config.effects.clickTimeScale,
+                    settingsTime);
+                simulation.setTrailTimeScale(
+                    config.effects.trailTimeScale,
+                    settingsTime);
                 simulation.setInputSamplingRateHz(config.input.samplingRateHz);
                 simulation.setAlwaysOnTrailEnabled(
                     alwaysOnTrailEnabled,
@@ -4762,9 +4766,11 @@ int runApplication(
                     session.simulation().setTrailLengthMultiplier(
                         config.effects.trailLength);
                     session.simulation().setClickTimeScale(
-                        config.effects.clickTimeScale);
+                        config.effects.clickTimeScale,
+                        settingsTime);
                     session.simulation().setTrailTimeScale(
-                        config.effects.trailTimeScale);
+                        config.effects.trailTimeScale,
+                        settingsTime);
                     session.simulation().setInputSamplingRateHz(
                         config.input.samplingRateHz);
                     session.simulation().setAlwaysOnTrailEnabled(

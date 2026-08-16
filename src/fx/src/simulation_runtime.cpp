@@ -14,6 +14,8 @@ constexpr std::uint64_t randomStreamStep = 0x9E3779B97F4A7C15ULL;
 constexpr std::uint64_t ambientRandomStream = 0xD1B54A32D192ED03ULL;
 constexpr float minimumTrailLengthMultiplier = 0.0F;
 constexpr float maximumTrailLengthMultiplier = 3.0F;
+constexpr float minimumTimeScale = 0.01F;
+constexpr float maximumTimeScale = 4.0F;
 constexpr std::uint32_t maximumInputSamplingRateHz = 1000U;
 
 [[nodiscard]] float normalizeTrailLengthMultiplier(const float multiplier) noexcept
@@ -27,6 +29,16 @@ constexpr std::uint32_t maximumInputSamplingRateHz = 1000U;
         multiplier,
         minimumTrailLengthMultiplier,
         maximumTrailLengthMultiplier);
+}
+
+[[nodiscard]] float normalizeTimeScale(const float timeScale) noexcept
+{
+    if (!std::isfinite(timeScale))
+    {
+        return 1.0F;
+    }
+
+    return std::clamp(timeScale, minimumTimeScale, maximumTimeScale);
 }
 
 }
@@ -243,9 +255,7 @@ void SimulationRuntime::updateUnityTrailTimeScale(const float timeScale)
 
 void SimulationRuntime::setClickTimeScale(const float timeScale) noexcept
 {
-    clickTimeScale_ = std::isfinite(timeScale)
-        ? std::clamp(timeScale, 0.01F, 4.0F)
-        : 1.0F;
+    clickTimeScale_ = normalizeTimeScale(timeScale);
     for (RuntimeInstance& runtimeInstance : instances_)
     {
         runtimeInstance.simulation.setClickTimeScale(clickTimeScale_);
@@ -256,11 +266,24 @@ void SimulationRuntime::setClickTimeScale(const float timeScale) noexcept
     }
 }
 
+void SimulationRuntime::setClickTimeScale(
+    const float timeScale,
+    const SimulationTime time) noexcept
+{
+    clickTimeScale_ = normalizeTimeScale(timeScale);
+    for (RuntimeInstance& runtimeInstance : instances_)
+    {
+        runtimeInstance.simulation.setClickTimeScale(clickTimeScale_, time);
+    }
+    if (alwaysOnTrail_.has_value())
+    {
+        alwaysOnTrail_->setClickTimeScale(clickTimeScale_, time);
+    }
+}
+
 void SimulationRuntime::setTrailTimeScale(const float timeScale) noexcept
 {
-    trailTimeScale_ = std::isfinite(timeScale)
-        ? std::clamp(timeScale, 0.01F, 4.0F)
-        : 1.0F;
+    trailTimeScale_ = normalizeTimeScale(timeScale);
     for (RuntimeInstance& runtimeInstance : instances_)
     {
         runtimeInstance.simulation.setTrailTimeScale(trailTimeScale_);
@@ -268,6 +291,21 @@ void SimulationRuntime::setTrailTimeScale(const float timeScale) noexcept
     if (alwaysOnTrail_.has_value())
     {
         alwaysOnTrail_->setTrailTimeScale(trailTimeScale_);
+    }
+}
+
+void SimulationRuntime::setTrailTimeScale(
+    const float timeScale,
+    const SimulationTime time) noexcept
+{
+    trailTimeScale_ = normalizeTimeScale(timeScale);
+    for (RuntimeInstance& runtimeInstance : instances_)
+    {
+        runtimeInstance.simulation.setTrailTimeScale(trailTimeScale_, time);
+    }
+    if (alwaysOnTrail_.has_value())
+    {
+        alwaysOnTrail_->setTrailTimeScale(trailTimeScale_, time);
     }
 }
 

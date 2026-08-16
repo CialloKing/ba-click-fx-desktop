@@ -125,8 +125,12 @@ public:
 
     // Web API compatible animation controls. They scale particle/trail age,
     // not the host clock, so input timestamps and pause semantics stay intact.
+    // Active simulations use the timestamped overload to settle the preceding
+    // source-time interval before the new multiplier becomes effective.
     void setClickTimeScale(float timeScale) noexcept;
+    void setClickTimeScale(float timeScale, SimulationTime time) noexcept;
     void setTrailTimeScale(float timeScale) noexcept;
+    void setTrailTimeScale(float timeScale, SimulationTime time) noexcept;
 
     // Product settings may change during an active stroke. Retain the
     // existing points and apply the new lifetime on the next simulation step.
@@ -194,13 +198,19 @@ private:
     [[nodiscard]] static PointF worldToScreen(PointF world, Viewport viewport) noexcept;
     [[nodiscard]] static float worldToPixels(Viewport viewport) noexcept;
     [[nodiscard]] static double ageSeconds(SimulationTime now, SimulationTime then) noexcept;
+    [[nodiscard]] static SimulationTime scaledDuration(
+        SimulationTime duration,
+        float timeScale) noexcept;
 
     void reset(PointF worldPosition, SimulationTime time);
     void resetState(PointF worldPosition, SimulationTime time);
-    void relocatePendingClick(PointF worldPosition, SimulationTime time);
-    void emitClickTriangles(SimulationTime time);
-    void emitDragTriangle(PointF worldPosition, SimulationTime time);
-    void appendTrailPoint(PointF worldPosition, SimulationTime time);
+    void relocatePendingClick(
+        PointF worldPosition,
+        SimulationTime time,
+        SimulationTime trailTime);
+    void emitClickTriangles(SimulationTime clickTime);
+    void emitDragTriangle(PointF worldPosition, SimulationTime trailTime);
+    void appendTrailPoint(PointF worldPosition, SimulationTime trailTime);
     void initTrailNormalMode();
     void initTrailParkingMode();
     void stepTrailParkingSequence();
@@ -208,8 +218,11 @@ private:
     void emitAlongDrag(
         PointF from,
         PointF to,
-        SimulationTime fromTime,
-        SimulationTime toTime);
+        SimulationTime fromTrailTime,
+        SimulationTime toTrailTime);
+    void accumulateClickTime(SimulationTime time) noexcept;
+    void synchronizeTrailTime(SimulationTime time) noexcept;
+    [[nodiscard]] SimulationTime trailTimeAt(SimulationTime time) const noexcept;
     static void advanceParticleStepState(
         ParticleStepState& state,
         SimulationTime elapsed) noexcept;
@@ -230,6 +243,11 @@ private:
     SimulationTime startedAt_{};
     SimulationTime lastAdvancedAt_{};
     SimulationTime releasedAt_{};
+    SimulationTime clickTimeSourceAt_{};
+    SimulationTime pendingClickTime_{};
+    SimulationTime trailTimeSourceAt_{};
+    SimulationTime trailTime_{};
+    SimulationTime pointerTrailSampleAt_{};
     PointF effectOriginWorld_{};
     PointF pointerWorld_{};
     SimulationTime pointerSampleAt_{};

@@ -1037,6 +1037,67 @@ BAFX_TEST(drag_particle_age_starts_at_the_distance_interpolated_birth_time)
         0.0F);
 }
 
+BAFX_TEST(runtime_click_time_scale_change_preserves_elapsed_history)
+{
+    SimulationRuntime runtime;
+    runtime.pointerDown(goldenCenter, goldenViewport, 0ns);
+
+    const FrameSnapshot beforeChange = runtime.snapshot(goldenViewport, 100ms);
+    runtime.setClickTimeScale(2.0F, 100ms);
+    const FrameSnapshot afterChange = runtime.snapshot(goldenViewport, 100ms);
+
+    // The setter boundary is not a simulation step. Existing particles must
+    // therefore be bit-identical until source time advances past that boundary.
+    BAFX_CHECK(beforeChange.sprites.size() == afterChange.sprites.size());
+    for (std::size_t index = 0U; index < beforeChange.sprites.size(); ++index)
+    {
+        checkSpriteEqual(afterChange.sprites[index], beforeChange.sprites[index]);
+    }
+
+    const FrameSnapshot advanced = runtime.snapshot(goldenViewport, 125ms);
+    BAFX_CHECK(countKind(advanced, SpriteKind::CenterDisk) == 1U);
+    BAFX_CHECK(
+        std::abs(
+            firstKind(advanced, SpriteKind::CenterDisk).sizePixels
+            - firstKind(afterChange, SpriteKind::CenterDisk).sizePixels)
+        > 1.0e-3F);
+}
+
+BAFX_TEST(trail_time_scale_change_preserves_existing_visual_age)
+{
+    SimulationRuntime runtime;
+    constexpr PointF start{100.0F, 100.0F};
+    constexpr PointF end{600.0F, 100.0F};
+    runtime.continuePointerStroke(start, goldenViewport, 0ns, 0ns);
+    runtime.advance(1ns);
+    runtime.pointerMove(end, goldenViewport, 100ms);
+
+    const FrameSnapshot beforeChange = runtime.snapshot(goldenViewport, 100ms);
+    runtime.setTrailTimeScale(4.0F, 100ms);
+    const FrameSnapshot afterChange = runtime.snapshot(goldenViewport, 100ms);
+
+    BAFX_CHECK(beforeChange.trail.size() == 2U);
+    BAFX_CHECK(beforeChange.sprites.size() == afterChange.sprites.size());
+    BAFX_CHECK(beforeChange.trail.size() == afterChange.trail.size());
+    for (std::size_t index = 0U; index < beforeChange.sprites.size(); ++index)
+    {
+        checkSpriteEqual(afterChange.sprites[index], beforeChange.sprites[index]);
+    }
+    for (std::size_t index = 0U; index < beforeChange.trail.size(); ++index)
+    {
+        BAFX_CHECK(
+            afterChange.trail[index].normalizedAge
+            == beforeChange.trail[index].normalizedAge);
+    }
+
+    // After the boundary, 25 ms of source time at 4x advances the shared
+    // trail clock by 100 ms without rewriting either point's prior 100 ms.
+    const FrameSnapshot advanced = runtime.snapshot(goldenViewport, 125ms);
+    BAFX_CHECK(advanced.trail.size() == 2U);
+    BAFX_CHECK_NEAR(advanced.trail.front().normalizedAge, 2.0F / 3.0F, 1.0e-6F);
+    BAFX_CHECK_NEAR(advanced.trail.back().normalizedAge, 1.0F / 3.0F, 1.0e-6F);
+}
+
 BAFX_TEST(pointer_cancel_keeps_the_current_trail_until_it_naturally_expires)
 {
     Simulation simulation;
