@@ -102,6 +102,7 @@ private:
     void applyDpiMetrics() const noexcept;
     void adaptLayoutToMonitor(HMONITOR monitor, bool force);
     void layoutControls(int clientWidth, int clientHeight) const noexcept;
+    void redrawWindowTree() const noexcept;
     void layoutSlider(
         const SliderControl& slider,
         int x,

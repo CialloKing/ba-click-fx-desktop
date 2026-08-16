@@ -35,6 +35,7 @@ constexpr UINT hostRetryDelayMilliseconds = 250U;
 constexpr UINT hostShutdownPollDelayMilliseconds = 100U;
 constexpr DWORD controlCenterIpcTimeoutMilliseconds = 100U;
 constexpr ULONGLONG hostShutdownTimeoutMilliseconds = 10'000U;
+constexpr UINT redrawAfterInteractiveResizeMessage = WM_APP + 1U;
 // WGC/D3D startup can take several seconds on a cold process. The control
 // center keeps probing long enough for that process to become controllable.
 constexpr std::uint32_t hostRetryLimit = 40U;
@@ -130,9 +131,9 @@ void moveControl(
 {
     if (control != nullptr)
     {
-        // Discard copied child pixels, but keep normal invalidation enabled.
-        // SWP_NOREDRAW also suppresses the exposed parent region, which can
-        // leave stale control pixels behind during live resize.
+        // Suppress intermediate paints while the sibling controls overlap.
+        // layoutControls() redraws the complete parent and child tree after
+        // every control has reached its final position.
         static_cast<void>(SetWindowPos(
             control,
             nullptr,
@@ -142,6 +143,7 @@ void moveControl(
             height,
             SWP_NOACTIVATE
                 | SWP_NOCOPYBITS
+                | SWP_NOREDRAW
                 | SWP_NOOWNERZORDER
                 | SWP_NOZORDER));
     }
@@ -432,6 +434,20 @@ LRESULT ControlCenterWindow::handleMessage(
         adaptLayoutToMonitor(
             MonitorFromWindow(window_, MONITOR_DEFAULTTONEAREST),
             false);
+        // Windows can retain the last backing surface until the modal sizing
+        // loop returns. Repaint once more from the normal message loop so the
+        // final child layout and parent background are committed together.
+        if (PostMessageW(
+                window_,
+                redrawAfterInteractiveResizeMessage,
+                0U,
+                0) == FALSE)
+        {
+            redrawWindowTree();
+        }
+        return 0;
+    case redrawAfterInteractiveResizeMessage:
+        redrawWindowTree();
         return 0;
     case WM_MOVE:
         if (!interactiveMoveResize_)
@@ -1151,9 +1167,9 @@ void ControlCenterWindow::layoutControls(
         return;
     }
 
-    // SetWindowPos records each control's vacated and occupied regions. The
-    // final redraw consumes the merged update region after the layout is
-    // complete, rather than allowing stale pixels to survive live resize.
+    // Keep all sibling moves paint-free while their overlapping rectangles are
+    // changing. The final redraw below is the single committed frame for the
+    // complete layout, including the parent background.
 
     const int margin = scale(24);
     const int columnGap = scale(24);
@@ -1276,6 +1292,16 @@ void ControlCenterWindow::layoutControls(
         contentTop + scale(311),
         rightContentWidth,
         scale(38));
+
+    redrawWindowTree();
+}
+
+void ControlCenterWindow::redrawWindowTree() const noexcept
+{
+    if (window_ == nullptr)
+    {
+        return;
+    }
 
     static_cast<void>(RedrawWindow(
         window_,
