@@ -467,7 +467,7 @@ DisplaySession* DisplaySessionManager::findForReconciliation(
         return exactSource->get();
     }
 
-    const auto logicalSlot = std::find_if(
+    const auto reconciliationSlot = std::find_if(
         sessions_.begin(),
         sessions_.end(),
         [this, &target](const std::unique_ptr<DisplaySession>& session)
@@ -477,7 +477,36 @@ DisplaySession* DisplaySessionManager::findForReconciliation(
                     session->reconciliationTarget(),
                     target);
         });
-    return logicalSlot == sessions_.end() ? nullptr : logicalSlot->get();
+    if (reconciliationSlot != sessions_.end())
+    {
+        return reconciliationSlot->get();
+    }
+
+    // A target can disappear while its asynchronous retarget owns the
+    // reconciliation identity. Match the still-applied source afterwards so
+    // the owner can cancel that stale intent instead of deleting a live surface.
+    const auto appliedSource = std::find_if(
+        sessions_.begin(),
+        sessions_.end(),
+        [this, &target](const std::unique_ptr<DisplaySession>& session)
+        {
+            return session.get() != coordinator_
+                && sameDisplaySource(session->target(), target);
+        });
+    if (appliedSource != sessions_.end())
+    {
+        return appliedSource->get();
+    }
+
+    const auto appliedSlot = std::find_if(
+        sessions_.begin(),
+        sessions_.end(),
+        [this, &target](const std::unique_ptr<DisplaySession>& session)
+        {
+            return session.get() != coordinator_
+                && sameDisplayLogicalSlot(session->target(), target);
+        });
+    return appliedSlot == sessions_.end() ? nullptr : appliedSlot->get();
 }
 
 const DisplaySession* DisplaySessionManager::findForReconciliation(
@@ -498,7 +527,7 @@ const DisplaySession* DisplaySessionManager::findForReconciliation(
         return exactSource->get();
     }
 
-    const auto logicalSlot = std::find_if(
+    const auto reconciliationSlot = std::find_if(
         sessions_.begin(),
         sessions_.end(),
         [this, &target](const std::unique_ptr<DisplaySession>& session)
@@ -508,7 +537,33 @@ const DisplaySession* DisplaySessionManager::findForReconciliation(
                     session->reconciliationTarget(),
                     target);
         });
-    return logicalSlot == sessions_.end() ? nullptr : logicalSlot->get();
+    if (reconciliationSlot != sessions_.end())
+    {
+        return reconciliationSlot->get();
+    }
+
+    const auto appliedSource = std::find_if(
+        sessions_.begin(),
+        sessions_.end(),
+        [this, &target](const std::unique_ptr<DisplaySession>& session)
+        {
+            return session.get() != coordinator_
+                && sameDisplaySource(session->target(), target);
+        });
+    if (appliedSource != sessions_.end())
+    {
+        return appliedSource->get();
+    }
+
+    const auto appliedSlot = std::find_if(
+        sessions_.begin(),
+        sessions_.end(),
+        [this, &target](const std::unique_ptr<DisplaySession>& session)
+        {
+            return session.get() != coordinator_
+                && sameDisplayLogicalSlot(session->target(), target);
+        });
+    return appliedSlot == sessions_.end() ? nullptr : appliedSlot->get();
 }
 
 DisplaySession* DisplaySessionManager::findAtPoint(const POINT point) noexcept
