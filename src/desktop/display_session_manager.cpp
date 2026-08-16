@@ -296,9 +296,16 @@ DisplaySessionReconcileResult DisplaySessionManager::reconcileSecondaries(
             {
                 return false;
             }
-            const bool remove = !targetPresent(
+            const bool intentPresent = targetPresent(
                 snapshot,
                 session->reconciliationTarget());
+            const bool appliedTargetPresent = targetPresent(
+                snapshot,
+                session->target());
+            // A failed cancellation can leave a stale pending target while
+            // the applied monitor is still connected. Retain that live owner
+            // so the next bounded topology poll can retry the rollback.
+            const bool remove = !intentPresent && !appliedTargetPresent;
             if (remove)
             {
                 ++result.removed;
