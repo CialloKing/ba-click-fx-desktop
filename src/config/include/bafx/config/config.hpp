@@ -9,7 +9,7 @@
 namespace bafx::config
 {
 
-inline constexpr std::uint32_t currentSchemaVersion = 11U;
+inline constexpr std::uint32_t currentSchemaVersion = 12U;
 
 enum class RenderMode : std::uint8_t
 {
@@ -54,7 +54,14 @@ struct EffectsConfig
     // multiplier for the existing compact control and derive it at runtime.
     float trailLifetimeMs{300.0F};
     // Web parameter defaults converted at the 1920x1080 reference viewport.
+    float diskLifetimeMs{200.0F};
     float diskRadius{32.4F};
+    std::uint32_t ringsCount{2U};
+    float ringsLifetimeMs{600.0F};
+    float ringsRadiusMin{68.92571232F};
+    float ringsRadiusMax{80.41333104F};
+    float ringsAngularVelocityMultiplier{11.170107F};
+    float ringsRotationDirection{-1.0F};
     float ringsHdrIntensity{5.992157F};
     float shardsHdrIntensity{5.992157F};
     float trailOpacity{1.0F};

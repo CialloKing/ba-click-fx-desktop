@@ -279,6 +279,13 @@ BAFX_TEST(configuration_log_records_the_reason_and_reproduction_context)
     const TemporaryPerformanceLog log;
     bafx::config::Config config = bafx::config::defaultConfig();
     config.input.samplingRateHz = 240U;
+    config.effects.diskLifetimeMs = 350.0F;
+    config.effects.ringsCount = 4U;
+    config.effects.ringsLifetimeMs = 900.0F;
+    config.effects.ringsRadiusMin = 45.0F;
+    config.effects.ringsRadiusMax = 95.0F;
+    config.effects.ringsAngularVelocityMultiplier = 14.5F;
+    config.effects.ringsRotationDirection = 0.5F;
     config.effects.bloomIntensity = 0.5F;
     config.display.hdrEnabled = true;
 
@@ -292,6 +299,20 @@ BAFX_TEST(configuration_log_records_the_reason_and_reproduction_context)
     BAFX_CHECK(text.find("Event.Name=Configuration.Applied\n")
         != std::string::npos);
     BAFX_CHECK(text.find("Configuration.Reason=test-change\n")
+        != std::string::npos);
+    BAFX_CHECK(text.find("Effects.DiskLifetimeMs=350.000\n")
+        != std::string::npos);
+    BAFX_CHECK(text.find("Effects.RingsCount=4\n") != std::string::npos);
+    BAFX_CHECK(text.find("Effects.RingsLifetimeMs=900.000\n")
+        != std::string::npos);
+    BAFX_CHECK(text.find("Effects.RingsRadiusMin=45.000\n")
+        != std::string::npos);
+    BAFX_CHECK(text.find("Effects.RingsRadiusMax=95.000\n")
+        != std::string::npos);
+    BAFX_CHECK(text.find(
+        "Effects.RingsAngularVelocityMultiplier=14.500\n")
+        != std::string::npos);
+    BAFX_CHECK(text.find("Effects.RingsRotationDirection=0.500\n")
         != std::string::npos);
     BAFX_CHECK(text.find("Effects.BloomIntensity=0.500\n")
         != std::string::npos);

@@ -874,7 +874,14 @@ private:
                     "clickTimeScale",
                     "trailTimeScale",
                     "trailLifetimeMs",
+                    "diskLifetimeMs",
                     "diskRadius",
+                    "ringsCount",
+                    "ringsLifetimeMs",
+                    "ringsRadiusMin",
+                    "ringsRadiusMax",
+                    "ringsAngularVelocityMultiplier",
+                    "ringsRotationDirection",
                     "ringsHdrIntensity",
                     "shardsHdrIntensity",
                     "trailOpacity",
@@ -976,9 +983,51 @@ private:
             error)
         || !readFloat(
             *effects,
+            "diskLifetimeMs",
+            "effects",
+            config.effects.diskLifetimeMs,
+            error)
+        || !readFloat(
+            *effects,
             "diskRadius",
             "effects",
             config.effects.diskRadius,
+            error)
+        || !readUnsignedInteger(
+            *effects,
+            "ringsCount",
+            "effects",
+            config.effects.ringsCount,
+            error)
+        || !readFloat(
+            *effects,
+            "ringsLifetimeMs",
+            "effects",
+            config.effects.ringsLifetimeMs,
+            error)
+        || !readFloat(
+            *effects,
+            "ringsRadiusMin",
+            "effects",
+            config.effects.ringsRadiusMin,
+            error)
+        || !readFloat(
+            *effects,
+            "ringsRadiusMax",
+            "effects",
+            config.effects.ringsRadiusMax,
+            error)
+        || !readFloat(
+            *effects,
+            "ringsAngularVelocityMultiplier",
+            "effects",
+            config.effects.ringsAngularVelocityMultiplier,
+            error)
+        || !readFloat(
+            *effects,
+            "ringsRotationDirection",
+            "effects",
+            config.effects.ringsRotationDirection,
             error)
         || !readFloat(
             *effects,
@@ -1146,11 +1195,22 @@ private:
     effects.emplace("bloomIntensity", JsonValue(static_cast<double>(config.effects.bloomIntensity)));
     effects.emplace("clickEnabled", JsonValue(config.effects.clickEnabled));
     effects.emplace("clickTimeScale", JsonValue(static_cast<double>(config.effects.clickTimeScale)));
+    effects.emplace("diskLifetimeMs", JsonValue(static_cast<double>(config.effects.diskLifetimeMs)));
     effects.emplace("diskRadius", JsonValue(static_cast<double>(config.effects.diskRadius)));
     effects.emplace("enabled", JsonValue(config.effects.enabled));
     effects.emplace("globalScale", JsonValue(static_cast<double>(config.effects.globalScale)));
     effects.emplace("opacity", JsonValue(static_cast<double>(config.effects.opacity)));
+    effects.emplace(
+        "ringsAngularVelocityMultiplier",
+        JsonValue(static_cast<double>(config.effects.ringsAngularVelocityMultiplier)));
+    effects.emplace("ringsCount", JsonValue(static_cast<double>(config.effects.ringsCount)));
     effects.emplace("ringsHdrIntensity", JsonValue(static_cast<double>(config.effects.ringsHdrIntensity)));
+    effects.emplace("ringsLifetimeMs", JsonValue(static_cast<double>(config.effects.ringsLifetimeMs)));
+    effects.emplace("ringsRadiusMax", JsonValue(static_cast<double>(config.effects.ringsRadiusMax)));
+    effects.emplace("ringsRadiusMin", JsonValue(static_cast<double>(config.effects.ringsRadiusMin)));
+    effects.emplace(
+        "ringsRotationDirection",
+        JsonValue(static_cast<double>(config.effects.ringsRotationDirection)));
     effects.emplace("shardsHdrIntensity", JsonValue(static_cast<double>(config.effects.shardsHdrIntensity)));
     effects.emplace("trailEnabled", JsonValue(config.effects.trailEnabled));
     effects.emplace("trailLength", JsonValue(static_cast<double>(config.effects.trailLength)));
@@ -1202,13 +1262,34 @@ private:
 {
     JsonValue::Object disk;
     disk.emplace(
+        "lifetimeMs",
+        JsonValue(static_cast<double>(config.effects.diskLifetimeMs)));
+    disk.emplace(
         "radius",
         JsonValue(static_cast<double>(config.effects.diskRadius)));
 
     JsonValue::Object rings;
     rings.emplace(
+        "angularVelocityMultiplier",
+        JsonValue(static_cast<double>(config.effects.ringsAngularVelocityMultiplier)));
+    rings.emplace(
+        "count",
+        JsonValue(static_cast<double>(config.effects.ringsCount)));
+    rings.emplace(
         "hdrIntensity",
         JsonValue(static_cast<double>(config.effects.ringsHdrIntensity)));
+    rings.emplace(
+        "lifetimeMs",
+        JsonValue(static_cast<double>(config.effects.ringsLifetimeMs)));
+    rings.emplace(
+        "radiusMax",
+        JsonValue(static_cast<double>(config.effects.ringsRadiusMax)));
+    rings.emplace(
+        "radiusMin",
+        JsonValue(static_cast<double>(config.effects.ringsRadiusMin)));
+    rings.emplace(
+        "rotationDirection",
+        JsonValue(static_cast<double>(config.effects.ringsRotationDirection)));
 
     JsonValue::Object shards;
     shards.emplace(
@@ -1717,6 +1798,41 @@ ConfigPatchResult applyPatchJson(
         else if (*path == "effects.diskRadius" || *path == "disk.radius")
         {
             valueAccepted = readPatchFloat(result.effects.diskRadius);
+        }
+        else if (*path == "effects.diskLifetimeMs"
+            || *path == "disk.lifetimeMs")
+        {
+            valueAccepted = readPatchFloat(result.effects.diskLifetimeMs);
+        }
+        else if (*path == "effects.ringsCount" || *path == "rings.count")
+        {
+            valueAccepted = readPatchUnsignedInteger(result.effects.ringsCount);
+        }
+        else if (*path == "effects.ringsLifetimeMs"
+            || *path == "rings.lifetimeMs")
+        {
+            valueAccepted = readPatchFloat(result.effects.ringsLifetimeMs);
+        }
+        else if (*path == "effects.ringsRadiusMin"
+            || *path == "rings.radiusMin")
+        {
+            valueAccepted = readPatchFloat(result.effects.ringsRadiusMin);
+        }
+        else if (*path == "effects.ringsRadiusMax"
+            || *path == "rings.radiusMax")
+        {
+            valueAccepted = readPatchFloat(result.effects.ringsRadiusMax);
+        }
+        else if (*path == "effects.ringsAngularVelocityMultiplier"
+            || *path == "rings.angularVelocityMultiplier")
+        {
+            valueAccepted = readPatchFloat(
+                result.effects.ringsAngularVelocityMultiplier);
+        }
+        else if (*path == "effects.ringsRotationDirection"
+            || *path == "rings.rotationDirection")
+        {
+            valueAccepted = readPatchFloat(result.effects.ringsRotationDirection);
         }
         else if (*path == "effects.ringsHdrIntensity"
             || *path == "rings.hdrIntensity")
@@ -2323,6 +2439,48 @@ bool validateConfig(const Config& config, std::string* error) noexcept
         || config.effects.diskRadius > 2000.0F)
     {
         return failValidation("effects.diskRadius must be within [1, 2000]");
+    }
+    if (!std::isfinite(config.effects.diskLifetimeMs)
+        || config.effects.diskLifetimeMs < 1.0F
+        || config.effects.diskLifetimeMs > 10000.0F)
+    {
+        return failValidation("effects.diskLifetimeMs must be within [1, 10000]");
+    }
+    if (config.effects.ringsCount > 64U)
+    {
+        return failValidation("effects.ringsCount must be within [0, 64]");
+    }
+    if (!std::isfinite(config.effects.ringsLifetimeMs)
+        || config.effects.ringsLifetimeMs < 1.0F
+        || config.effects.ringsLifetimeMs > 10000.0F)
+    {
+        return failValidation("effects.ringsLifetimeMs must be within [1, 10000]");
+    }
+    if (!std::isfinite(config.effects.ringsRadiusMin)
+        || config.effects.ringsRadiusMin < 0.0F
+        || config.effects.ringsRadiusMin > 2000.0F)
+    {
+        return failValidation("effects.ringsRadiusMin must be within [0, 2000]");
+    }
+    if (!std::isfinite(config.effects.ringsRadiusMax)
+        || config.effects.ringsRadiusMax < 0.0F
+        || config.effects.ringsRadiusMax > 2000.0F)
+    {
+        return failValidation("effects.ringsRadiusMax must be within [0, 2000]");
+    }
+    if (!std::isfinite(config.effects.ringsAngularVelocityMultiplier)
+        || config.effects.ringsAngularVelocityMultiplier < 0.0F
+        || config.effects.ringsAngularVelocityMultiplier > 100.0F)
+    {
+        return failValidation(
+            "effects.ringsAngularVelocityMultiplier must be within [0, 100]");
+    }
+    if (!std::isfinite(config.effects.ringsRotationDirection)
+        || config.effects.ringsRotationDirection < -1.0F
+        || config.effects.ringsRotationDirection > 1.0F)
+    {
+        return failValidation(
+            "effects.ringsRotationDirection must be within [-1, 1]");
     }
     if (!std::isfinite(config.effects.ringsHdrIntensity)
         || config.effects.ringsHdrIntensity < 0.0F

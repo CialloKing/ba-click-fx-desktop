@@ -221,7 +221,18 @@ void appendConfigurationFields(
     fields.addDecimal("Effects.ClickTimeScale", config.effects.clickTimeScale);
     fields.addDecimal("Effects.TrailTimeScale", config.effects.trailTimeScale);
     fields.addDecimal("Effects.TrailLifetimeMs", config.effects.trailLifetimeMs);
+    fields.addDecimal("Effects.DiskLifetimeMs", config.effects.diskLifetimeMs);
     fields.addDecimal("Effects.DiskRadius", config.effects.diskRadius);
+    fields.add("Effects.RingsCount", config.effects.ringsCount);
+    fields.addDecimal("Effects.RingsLifetimeMs", config.effects.ringsLifetimeMs);
+    fields.addDecimal("Effects.RingsRadiusMin", config.effects.ringsRadiusMin);
+    fields.addDecimal("Effects.RingsRadiusMax", config.effects.ringsRadiusMax);
+    fields.addDecimal(
+        "Effects.RingsAngularVelocityMultiplier",
+        config.effects.ringsAngularVelocityMultiplier);
+    fields.addDecimal(
+        "Effects.RingsRotationDirection",
+        config.effects.ringsRotationDirection);
     fields.addDecimal(
         "Effects.RingsHdrIntensity",
         config.effects.ringsHdrIntensity);

@@ -56,7 +56,17 @@ BAFX_TEST(config_defaults_round_trip_through_versioned_json)
     BAFX_CHECK_NEAR(defaults.effects.clickTimeScale, 1.0F, 0.00001F);
     BAFX_CHECK_NEAR(defaults.effects.trailTimeScale, 1.0F, 0.00001F);
     BAFX_CHECK_NEAR(defaults.effects.trailLifetimeMs, 300.0F, 0.00001F);
+    BAFX_CHECK_NEAR(defaults.effects.diskLifetimeMs, 200.0F, 0.00001F);
     BAFX_CHECK_NEAR(defaults.effects.diskRadius, 32.4F, 0.00001F);
+    BAFX_CHECK(defaults.effects.ringsCount == 2U);
+    BAFX_CHECK_NEAR(defaults.effects.ringsLifetimeMs, 600.0F, 0.00001F);
+    BAFX_CHECK_NEAR(defaults.effects.ringsRadiusMin, 68.92571232F, 0.00001F);
+    BAFX_CHECK_NEAR(defaults.effects.ringsRadiusMax, 80.41333104F, 0.00001F);
+    BAFX_CHECK_NEAR(
+        defaults.effects.ringsAngularVelocityMultiplier,
+        11.170107F,
+        0.00001F);
+    BAFX_CHECK_NEAR(defaults.effects.ringsRotationDirection, -1.0F, 0.00001F);
     BAFX_CHECK_NEAR(defaults.effects.ringsHdrIntensity, 5.992157F, 0.00001F);
     BAFX_CHECK_NEAR(defaults.effects.shardsHdrIntensity, 5.992157F, 0.00001F);
     BAFX_CHECK_NEAR(defaults.effects.trailOpacity, 1.0F, 0.00001F);
@@ -103,8 +113,33 @@ BAFX_TEST(config_defaults_round_trip_through_versioned_json)
         defaults.effects.trailLifetimeMs,
         0.00001F);
     BAFX_CHECK_NEAR(
+        parsed.config.effects.diskLifetimeMs,
+        defaults.effects.diskLifetimeMs,
+        0.00001F);
+    BAFX_CHECK_NEAR(
         parsed.config.effects.diskRadius,
         defaults.effects.diskRadius,
+        0.00001F);
+    BAFX_CHECK(parsed.config.effects.ringsCount == defaults.effects.ringsCount);
+    BAFX_CHECK_NEAR(
+        parsed.config.effects.ringsLifetimeMs,
+        defaults.effects.ringsLifetimeMs,
+        0.00001F);
+    BAFX_CHECK_NEAR(
+        parsed.config.effects.ringsRadiusMin,
+        defaults.effects.ringsRadiusMin,
+        0.00001F);
+    BAFX_CHECK_NEAR(
+        parsed.config.effects.ringsRadiusMax,
+        defaults.effects.ringsRadiusMax,
+        0.00001F);
+    BAFX_CHECK_NEAR(
+        parsed.config.effects.ringsAngularVelocityMultiplier,
+        defaults.effects.ringsAngularVelocityMultiplier,
+        0.00001F);
+    BAFX_CHECK_NEAR(
+        parsed.config.effects.ringsRotationDirection,
+        defaults.effects.ringsRotationDirection,
         0.00001F);
     BAFX_CHECK_NEAR(
         parsed.config.effects.ringsHdrIntensity,
@@ -154,7 +189,14 @@ BAFX_TEST(config_current_effect_fields_round_trip_through_file)
     value.effects.trailLifetimeMs = 450.0F;
     value.effects.trailLength = 1.5F;
     value.effects.trailWidth = 1.25F;
+    value.effects.diskLifetimeMs = 350.0F;
     value.effects.diskRadius = 48.0F;
+    value.effects.ringsCount = 5U;
+    value.effects.ringsLifetimeMs = 900.0F;
+    value.effects.ringsRadiusMin = 45.0F;
+    value.effects.ringsRadiusMax = 95.0F;
+    value.effects.ringsAngularVelocityMultiplier = 14.5F;
+    value.effects.ringsRotationDirection = 0.5F;
     value.effects.ringsHdrIntensity = 4.0F;
     value.effects.shardsHdrIntensity = 8.0F;
     value.effects.trailOpacity = 0.55F;
@@ -170,7 +212,14 @@ BAFX_TEST(config_current_effect_fields_round_trip_through_file)
              "clickTimeScale",
              "trailTimeScale",
              "trailLifetimeMs",
+             "diskLifetimeMs",
              "diskRadius",
+             "ringsCount",
+             "ringsLifetimeMs",
+             "ringsRadiusMin",
+             "ringsRadiusMax",
+             "ringsAngularVelocityMultiplier",
+             "ringsRotationDirection",
              "ringsHdrIntensity",
              "shardsHdrIntensity",
              "trailOpacity",
@@ -193,7 +242,20 @@ BAFX_TEST(config_current_effect_fields_round_trip_through_file)
     BAFX_CHECK_NEAR(loaded.config.effects.trailLifetimeMs, 450.0F, 0.00001F);
     BAFX_CHECK_NEAR(loaded.config.effects.trailLength, 1.5F, 0.00001F);
     BAFX_CHECK_NEAR(loaded.config.effects.trailWidth, 1.25F, 0.00001F);
+    BAFX_CHECK_NEAR(loaded.config.effects.diskLifetimeMs, 350.0F, 0.00001F);
     BAFX_CHECK_NEAR(loaded.config.effects.diskRadius, 48.0F, 0.00001F);
+    BAFX_CHECK(loaded.config.effects.ringsCount == 5U);
+    BAFX_CHECK_NEAR(loaded.config.effects.ringsLifetimeMs, 900.0F, 0.00001F);
+    BAFX_CHECK_NEAR(loaded.config.effects.ringsRadiusMin, 45.0F, 0.00001F);
+    BAFX_CHECK_NEAR(loaded.config.effects.ringsRadiusMax, 95.0F, 0.00001F);
+    BAFX_CHECK_NEAR(
+        loaded.config.effects.ringsAngularVelocityMultiplier,
+        14.5F,
+        0.00001F);
+    BAFX_CHECK_NEAR(
+        loaded.config.effects.ringsRotationDirection,
+        0.5F,
+        0.00001F);
     BAFX_CHECK_NEAR(loaded.config.effects.ringsHdrIntensity, 4.0F, 0.00001F);
     BAFX_CHECK_NEAR(loaded.config.effects.shardsHdrIntensity, 8.0F, 0.00001F);
     BAFX_CHECK_NEAR(loaded.config.effects.trailOpacity, 0.55F, 0.00001F);
@@ -202,6 +264,18 @@ BAFX_TEST(config_current_effect_fields_round_trip_through_file)
     BAFX_CHECK_NEAR(loaded.config.effects.bloomThreshold, 0.75F, 0.00001F);
     BAFX_CHECK_NEAR(loaded.config.effects.bloomSoftKnee, 0.4F, 0.00001F);
     BAFX_CHECK_NEAR(loaded.config.effects.bloomClamp, 4096.0F, 0.00001F);
+
+    const std::string fxConfig = bafx::config::getFxConfig(loaded.config, false);
+    for (const std::string_view fragment : {
+             "\"lifetimeMs\":350",
+             "\"count\":5",
+             "\"radiusMin\":45",
+             "\"radiusMax\":95",
+             "\"angularVelocityMultiplier\":14.5",
+             "\"rotationDirection\":0.5"})
+    {
+        BAFX_CHECK(fxConfig.find(fragment) != std::string::npos);
+    }
 
     removeTestTree(path);
 }
@@ -267,6 +341,73 @@ BAFX_TEST(config_fx_parameter_boundaries_normalize_web_units)
     BAFX_CHECK(diskRadius.succeeded());
     BAFX_CHECK_NEAR(diskRadius.config.effects.diskRadius, 48.0F, 0.00001F);
 
+    const auto diskLifetime = bafx::config::setFxParam(
+        base,
+        "disk.lifetimeMs",
+        "500");
+    BAFX_CHECK(diskLifetime.succeeded());
+    BAFX_CHECK_NEAR(
+        diskLifetime.config.effects.diskLifetimeMs,
+        500.0F,
+        0.00001F);
+
+    const auto ringsCount = bafx::config::setFxParam(
+        base,
+        "rings.count",
+        "64");
+    BAFX_CHECK(ringsCount.succeeded());
+    BAFX_CHECK(ringsCount.config.effects.ringsCount == 64U);
+
+    const auto ringsLifetime = bafx::config::setFxParam(
+        base,
+        "rings.lifetimeMs",
+        "2000");
+    BAFX_CHECK(ringsLifetime.succeeded());
+    BAFX_CHECK_NEAR(
+        ringsLifetime.config.effects.ringsLifetimeMs,
+        2000.0F,
+        0.00001F);
+
+    const auto ringsRadiusMin = bafx::config::setFxParam(
+        base,
+        "rings.radiusMin",
+        "100");
+    BAFX_CHECK(ringsRadiusMin.succeeded());
+    BAFX_CHECK_NEAR(
+        ringsRadiusMin.config.effects.ringsRadiusMin,
+        100.0F,
+        0.00001F);
+
+    const auto ringsRadiusMax = bafx::config::setFxParam(
+        base,
+        "rings.radiusMax",
+        "30");
+    BAFX_CHECK(ringsRadiusMax.succeeded());
+    BAFX_CHECK_NEAR(
+        ringsRadiusMax.config.effects.ringsRadiusMax,
+        30.0F,
+        0.00001F);
+
+    const auto angularVelocity = bafx::config::setFxParam(
+        base,
+        "rings.angularVelocityMultiplier",
+        "100");
+    BAFX_CHECK(angularVelocity.succeeded());
+    BAFX_CHECK_NEAR(
+        angularVelocity.config.effects.ringsAngularVelocityMultiplier,
+        100.0F,
+        0.00001F);
+
+    const auto rotationDirection = bafx::config::setFxParam(
+        base,
+        "rings.rotationDirection",
+        "0.5");
+    BAFX_CHECK(rotationDirection.succeeded());
+    BAFX_CHECK_NEAR(
+        rotationDirection.config.effects.ringsRotationDirection,
+        0.5F,
+        0.00001F);
+
     const auto ringIntensity = bafx::config::setFxParam(
         base,
         "rings.hdrIntensity",
@@ -316,6 +457,16 @@ BAFX_TEST(config_fx_parameter_boundaries_normalize_web_units)
              std::pair{"opacity", "1.01"},
              std::pair{"clickTimeScale", "0.009"},
              std::pair{"trailTimeScale", "4.01"},
+             std::pair{"disk.lifetimeMs", "0"},
+             std::pair{"disk.lifetimeMs", "10001"},
+             std::pair{"rings.count", "65"},
+             std::pair{"rings.count", "2.5"},
+             std::pair{"rings.lifetimeMs", "0"},
+             std::pair{"rings.radiusMin", "-0.01"},
+             std::pair{"rings.radiusMax", "2000.01"},
+             std::pair{"rings.angularVelocityMultiplier", "100.01"},
+             std::pair{"rings.rotationDirection", "-1.01"},
+             std::pair{"rings.rotationDirection", "1.01"},
              std::pair{"bloom.softKnee", "1.01"},
              std::pair{"bloom.clamp", "-0.01"}})
     {
@@ -335,7 +486,7 @@ BAFX_TEST(config_fx_parameter_batch_is_atomic_and_preserves_generation)
     const bafx::config::Config base = bafx::config::defaultConfig();
     const auto batch = bafx::config::setFxParams(
         base,
-        R"json({"generation":7,"patch":{"opacity":0.25,"clickTimeScale":2,"trail.lifetimeMs":600,"bloom.intensity":4.2}})json");
+        R"json({"generation":7,"patch":{"opacity":0.25,"clickTimeScale":2,"trail.lifetimeMs":600,"disk.lifetimeMs":350,"rings.count":4,"rings.lifetimeMs":900,"rings.radiusMin":45,"rings.radiusMax":95,"rings.angularVelocityMultiplier":14.5,"rings.rotationDirection":0.5,"bloom.intensity":4.2}})json");
     BAFX_CHECK(batch.succeeded());
     BAFX_CHECK(batch.expectedGeneration.has_value());
     BAFX_CHECK(*batch.expectedGeneration == 7U);
@@ -343,6 +494,19 @@ BAFX_TEST(config_fx_parameter_batch_is_atomic_and_preserves_generation)
     BAFX_CHECK_NEAR(batch.config.effects.clickTimeScale, 2.0F, 0.00001F);
     BAFX_CHECK_NEAR(batch.config.effects.trailLifetimeMs, 600.0F, 0.00001F);
     BAFX_CHECK_NEAR(batch.config.effects.trailLength, 2.0F, 0.00001F);
+    BAFX_CHECK_NEAR(batch.config.effects.diskLifetimeMs, 350.0F, 0.00001F);
+    BAFX_CHECK(batch.config.effects.ringsCount == 4U);
+    BAFX_CHECK_NEAR(batch.config.effects.ringsLifetimeMs, 900.0F, 0.00001F);
+    BAFX_CHECK_NEAR(batch.config.effects.ringsRadiusMin, 45.0F, 0.00001F);
+    BAFX_CHECK_NEAR(batch.config.effects.ringsRadiusMax, 95.0F, 0.00001F);
+    BAFX_CHECK_NEAR(
+        batch.config.effects.ringsAngularVelocityMultiplier,
+        14.5F,
+        0.00001F);
+    BAFX_CHECK_NEAR(
+        batch.config.effects.ringsRotationDirection,
+        0.5F,
+        0.00001F);
     BAFX_CHECK_NEAR(batch.config.effects.bloomIntensity, 4.2F, 0.00001F);
 
     const auto rejected = bafx::config::setFxParams(
@@ -572,6 +736,21 @@ BAFX_TEST(config_current_schema_requires_every_section_and_field)
         missingField.status == bafx::config::ConfigStatus::ValidationError);
     BAFX_CHECK(
         missingField.message.find("config field 'display.hdrEnabled' is required")
+        != std::string::npos);
+
+    document = bafx::config::toJson(config, false);
+    const std::string ringsCountField = R"json("ringsCount":2,)json";
+    const std::size_t ringsCountPosition = document.find(ringsCountField);
+    BAFX_CHECK(ringsCountPosition != std::string::npos);
+    document.erase(ringsCountPosition, ringsCountField.size());
+
+    const auto missingCurrentEffectField = bafx::config::parseJson(document);
+    BAFX_CHECK(
+        missingCurrentEffectField.status
+        == bafx::config::ConfigStatus::ValidationError);
+    BAFX_CHECK(
+        missingCurrentEffectField.message.find(
+            "config field 'effects.ringsCount' is required")
         != std::string::npos);
 }
 

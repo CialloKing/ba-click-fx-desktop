@@ -72,7 +72,20 @@ void checkEffectsEqual(
     BAFX_CHECK_NEAR(actual.clickTimeScale, expected.clickTimeScale, 0.00001F);
     BAFX_CHECK_NEAR(actual.trailTimeScale, expected.trailTimeScale, 0.00001F);
     BAFX_CHECK_NEAR(actual.trailLifetimeMs, expected.trailLifetimeMs, 0.00001F);
+    BAFX_CHECK_NEAR(actual.diskLifetimeMs, expected.diskLifetimeMs, 0.00001F);
     BAFX_CHECK_NEAR(actual.diskRadius, expected.diskRadius, 0.00001F);
+    BAFX_CHECK(actual.ringsCount == expected.ringsCount);
+    BAFX_CHECK_NEAR(actual.ringsLifetimeMs, expected.ringsLifetimeMs, 0.00001F);
+    BAFX_CHECK_NEAR(actual.ringsRadiusMin, expected.ringsRadiusMin, 0.00001F);
+    BAFX_CHECK_NEAR(actual.ringsRadiusMax, expected.ringsRadiusMax, 0.00001F);
+    BAFX_CHECK_NEAR(
+        actual.ringsAngularVelocityMultiplier,
+        expected.ringsAngularVelocityMultiplier,
+        0.00001F);
+    BAFX_CHECK_NEAR(
+        actual.ringsRotationDirection,
+        expected.ringsRotationDirection,
+        0.00001F);
     BAFX_CHECK_NEAR(
         actual.ringsHdrIntensity,
         expected.ringsHdrIntensity,
@@ -176,6 +189,13 @@ BAFX_TEST(host_control_fx_config_and_single_param_round_trip_over_ipc)
     initial.effects.trailLifetimeMs = 600.0F;
     initial.effects.trailLength = 2.0F;
     initial.effects.trailWidth = 2.0F;
+    initial.effects.diskLifetimeMs = 350.0F;
+    initial.effects.ringsCount = 4U;
+    initial.effects.ringsLifetimeMs = 900.0F;
+    initial.effects.ringsRadiusMin = 45.0F;
+    initial.effects.ringsRadiusMax = 95.0F;
+    initial.effects.ringsAngularVelocityMultiplier = 14.5F;
+    initial.effects.ringsRotationDirection = 0.5F;
     initial.effects.bloomIntensity = 3.5F;
     initial.effects.bloomDiffusion = 8.0F;
     initial.input.trailOnlyWhilePressed = false;
@@ -205,20 +225,34 @@ BAFX_TEST(host_control_fx_config_and_single_param_round_trip_over_ipc)
     BAFX_CHECK(
         fetched.payload.find("\"inputSamplingRate\":120")
         != std::string::npos);
+    BAFX_CHECK(fetched.payload.find("\"lifetimeMs\":350")
+        != std::string::npos);
+    BAFX_CHECK(fetched.payload.find("\"count\":4") != std::string::npos);
+    BAFX_CHECK(fetched.payload.find("\"radiusMin\":45")
+        != std::string::npos);
+    BAFX_CHECK(fetched.payload.find("\"radiusMax\":95")
+        != std::string::npos);
+    BAFX_CHECK(fetched.payload.find("\"angularVelocityMultiplier\":14.5")
+        != std::string::npos);
+    BAFX_CHECK(fetched.payload.find("\"rotationDirection\":0.5")
+        != std::string::npos);
 
     const bafx::windows::IpcClientResponse changed = client.transact(
-        "SetFxParam {\"generation\":1,\"path\":\"opacity\",\"value\":0.25}");
+        "SetFxParam {\"generation\":1,\"path\":\"disk.lifetimeMs\",\"value\":500}");
     BAFX_CHECK(changed.succeeded());
     const bafx::desktop::HostStateSnapshot applied = control.snapshot();
     BAFX_CHECK(applied.generation == 2U);
-    BAFX_CHECK_NEAR(applied.config.effects.opacity, 0.25F, 0.00001F);
+    BAFX_CHECK_NEAR(applied.config.effects.diskLifetimeMs, 500.0F, 0.00001F);
 
     const auto persisted = bafx::config::loadConfig(temporary.configPath());
     BAFX_CHECK(persisted.status == bafx::config::ConfigStatus::Ok);
-    BAFX_CHECK_NEAR(persisted.config.effects.opacity, 0.25F, 0.00001F);
+    BAFX_CHECK_NEAR(
+        persisted.config.effects.diskLifetimeMs,
+        500.0F,
+        0.00001F);
 
     const bafx::windows::IpcClientResponse stale = client.transact(
-        "SetFxParam {\"generation\":1,\"path\":\"opacity\",\"value\":0.75}");
+        "SetFxParam {\"generation\":1,\"path\":\"disk.lifetimeMs\",\"value\":750}");
     const bafx::desktop::HostStateSnapshot afterStale = control.snapshot();
     control.stop();
 
@@ -226,7 +260,7 @@ BAFX_TEST(host_control_fx_config_and_single_param_round_trip_over_ipc)
     BAFX_CHECK(!stale.succeeded());
     BAFX_CHECK(stale.errorCode == "generation_conflict");
     BAFX_CHECK(afterStale.generation == 2U);
-    BAFX_CHECK_NEAR(afterStale.config.effects.opacity, 0.25F, 0.00001F);
+    BAFX_CHECK_NEAR(afterStale.config.effects.diskLifetimeMs, 500.0F, 0.00001F);
 }
 
 BAFX_TEST(host_control_fx_batch_is_atomic_and_reset_preserves_other_sections)
@@ -258,6 +292,10 @@ BAFX_TEST(host_control_fx_batch_is_atomic_and_reset_preserves_other_sections)
         "SetFxParams {\"generation\":1,\"patch\":{"
         "\"opacity\":0.25,\"clickTimeScale\":2,\"trailTimeScale\":3,"
         "\"trail.lifetimeMs\":600,\"trail.width\":5.4,"
+        "\"disk.lifetimeMs\":350,\"rings.count\":4,"
+        "\"rings.lifetimeMs\":900,\"rings.radiusMin\":45,"
+        "\"rings.radiusMax\":95,\"rings.angularVelocityMultiplier\":14.5,"
+        "\"rings.rotationDirection\":0.5,"
         "\"bloom.intensity\":4.2,\"bloom.diffusion\":0,"
         "\"bloom.threshold\":2,\"bloom.softKnee\":0.5,"
         "\"bloom.clamp\":4096}}");
@@ -271,6 +309,19 @@ BAFX_TEST(host_control_fx_batch_is_atomic_and_reset_preserves_other_sections)
     BAFX_CHECK_NEAR(applied.config.effects.trailLifetimeMs, 600.0F, 0.00001F);
     BAFX_CHECK_NEAR(applied.config.effects.trailLength, 2.0F, 0.00001F);
     BAFX_CHECK_NEAR(applied.config.effects.trailWidth, 2.0F, 0.00001F);
+    BAFX_CHECK_NEAR(applied.config.effects.diskLifetimeMs, 350.0F, 0.00001F);
+    BAFX_CHECK(applied.config.effects.ringsCount == 4U);
+    BAFX_CHECK_NEAR(applied.config.effects.ringsLifetimeMs, 900.0F, 0.00001F);
+    BAFX_CHECK_NEAR(applied.config.effects.ringsRadiusMin, 45.0F, 0.00001F);
+    BAFX_CHECK_NEAR(applied.config.effects.ringsRadiusMax, 95.0F, 0.00001F);
+    BAFX_CHECK_NEAR(
+        applied.config.effects.ringsAngularVelocityMultiplier,
+        14.5F,
+        0.00001F);
+    BAFX_CHECK_NEAR(
+        applied.config.effects.ringsRotationDirection,
+        0.5F,
+        0.00001F);
     BAFX_CHECK_NEAR(applied.config.effects.bloomIntensity, 4.2F, 0.00001F);
     BAFX_CHECK_NEAR(applied.config.effects.bloomDiffusion, 0.0F, 0.00001F);
     BAFX_CHECK_NEAR(applied.config.effects.bloomThreshold, 2.0F, 0.00001F);
@@ -283,6 +334,31 @@ BAFX_TEST(host_control_fx_batch_is_atomic_and_reset_preserves_other_sections)
     BAFX_CHECK_NEAR(
         persistedBatch.config.effects.trailLifetimeMs,
         600.0F,
+        0.00001F);
+    BAFX_CHECK_NEAR(
+        persistedBatch.config.effects.diskLifetimeMs,
+        350.0F,
+        0.00001F);
+    BAFX_CHECK(persistedBatch.config.effects.ringsCount == 4U);
+    BAFX_CHECK_NEAR(
+        persistedBatch.config.effects.ringsLifetimeMs,
+        900.0F,
+        0.00001F);
+    BAFX_CHECK_NEAR(
+        persistedBatch.config.effects.ringsRadiusMin,
+        45.0F,
+        0.00001F);
+    BAFX_CHECK_NEAR(
+        persistedBatch.config.effects.ringsRadiusMax,
+        95.0F,
+        0.00001F);
+    BAFX_CHECK_NEAR(
+        persistedBatch.config.effects.ringsAngularVelocityMultiplier,
+        14.5F,
+        0.00001F);
+    BAFX_CHECK_NEAR(
+        persistedBatch.config.effects.ringsRotationDirection,
+        0.5F,
         0.00001F);
     BAFX_CHECK_NEAR(
         persistedBatch.config.effects.bloomIntensity,
