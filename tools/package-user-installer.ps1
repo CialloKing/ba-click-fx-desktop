@@ -120,13 +120,14 @@ function Resolve-Iscc
     {
         $candidates.Add((Get-FullPath -Path $RequestedPath -BaseDirectory $RepositoryRoot))
     }
+    $candidates.Add(
+        (Join-Path $RepositoryRoot 'artifacts\local\inno-6.7.3\ISCC.exe'))
     $command = Get-Command iscc.exe -ErrorAction SilentlyContinue | Select-Object -First 1
     if ($null -ne $command)
     {
         $candidates.Add($command.Source)
     }
     foreach ($path in @(
-        (Join-Path $RepositoryRoot 'artifacts\local\inno-6.7.3\ISCC.exe'),
         (Join-Path $env:LOCALAPPDATA 'Programs\Inno Setup 6\ISCC.exe'),
         (Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'),
         (Join-Path $env:ProgramFiles 'Inno Setup 6\ISCC.exe')
@@ -145,6 +146,35 @@ function Resolve-Iscc
         }
     }
     throw 'ISCC.exe was not found. Install Inno Setup 6 or pass -ISCC.'
+}
+
+function Assert-IsccDiagnosticsSupport
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path
+    )
+
+    $minimumVersion = [Version]'6.3.0'
+    $historyPath = Join-Path ([IO.Path]::GetDirectoryName($Path)) 'whatsnew.htm'
+    if (-not (Test-Path -LiteralPath $historyPath -PathType Leaf))
+    {
+        throw "Cannot verify the Inno Setup version because its revision history is missing: $historyPath"
+    }
+    $history = Get-Content -LiteralPath $historyPath -Raw
+    $versionMatch = [regex]::Match(
+        $history,
+        '<span\s+class="ver">\s*([0-9]+\.[0-9]+(?:\.[0-9]+)?)\s*</span>',
+        [Text.RegularExpressions.RegexOptions]::IgnoreCase)
+    if (-not $versionMatch.Success)
+    {
+        throw "Cannot determine the Inno Setup version from: $historyPath"
+    }
+    $detectedVersion = [Version]$versionMatch.Groups[1].Value
+    if ($detectedVersion -lt $minimumVersion)
+    {
+        throw "Inno Setup $minimumVersion or newer is required for installer diagnostics; detected $detectedVersion at $Path"
+    }
 }
 
 function Get-CMakeLinker
@@ -213,6 +243,7 @@ if ($null -eq $cmake)
     throw 'cmake.exe was not found on PATH.'
 }
 $isccPath = Resolve-Iscc -RequestedPath $ISCC -RepositoryRoot $repositoryRoot
+Assert-IsccDiagnosticsSupport -Path $isccPath
 $version = Get-BafxVersion -VersionFile (Join-Path $repositoryRoot 'cmake\Version.cmake')
 $numericVersions = Get-NumericVersions -Version $version
 $numericVersion = [string]$numericVersions.numericVersion

@@ -278,6 +278,10 @@ function Test-InstallerScriptWhitelist
         -Text $packager `
         -Pattern 'Assert-ExecutableVersion[\s\S]*-NumericVersion\s+\$numericVersion' `
         -Description 'Host and Control Center version-resource verification'
+    Assert-TextContains `
+        -Text $packager `
+        -Pattern 'Assert-IsccDiagnosticsSupport[\s\S]*minimumVersion\s*=\s*\[Version\]\x276\.3\.0\x27' `
+        -Description 'Inno compiler supports output capture and uninstall logging'
 
     $installMachine = Read-RepositoryText -RelativePath 'tools/installer/install-machine.ps1'
     Assert-TextContains `
