@@ -30,6 +30,16 @@ BAFX_TEST(ipc_parser_accepts_supported_commands)
     BAFX_CHECK(getState.request->command == IpcCommand::GetState);
     BAFX_CHECK(getState.request->payload.empty());
 
+    const IpcParseResult getConfig = parseIpcRequest("GetConfig");
+    BAFX_CHECK(getConfig.succeeded());
+    BAFX_CHECK(getConfig.request->command == IpcCommand::GetConfig);
+    BAFX_CHECK(getConfig.request->payload.empty());
+
+    const IpcParseResult getFxConfig = parseIpcRequest("GetFxConfig");
+    BAFX_CHECK(getFxConfig.succeeded());
+    BAFX_CHECK(getFxConfig.request->command == IpcCommand::GetFxConfig);
+    BAFX_CHECK(getFxConfig.request->payload.empty());
+
     const IpcParseResult setConfig = parseIpcRequest(
         "SetConfig {\"generation\":428,\"path\":\"trail.width\"}");
     BAFX_CHECK(setConfig.succeeded());
@@ -37,6 +47,27 @@ BAFX_TEST(ipc_parser_accepts_supported_commands)
     BAFX_CHECK(
         setConfig.request->payload
         == "{\"generation\":428,\"path\":\"trail.width\"}");
+
+    const IpcParseResult setFxParam = parseIpcRequest(
+        "SetFxParam {\"generation\":1,\"path\":\"opacity\",\"value\":0.5}");
+    BAFX_CHECK(setFxParam.succeeded());
+    BAFX_CHECK(setFxParam.request->command == IpcCommand::SetFxParam);
+    BAFX_CHECK(
+        setFxParam.request->payload
+        == "{\"generation\":1,\"path\":\"opacity\",\"value\":0.5}");
+
+    const IpcParseResult setFxParams = parseIpcRequest(
+        "SetFxParams {\"generation\":1,\"patch\":{\"opacity\":0.5}}");
+    BAFX_CHECK(setFxParams.succeeded());
+    BAFX_CHECK(setFxParams.request->command == IpcCommand::SetFxParams);
+    BAFX_CHECK(
+        setFxParams.request->payload
+        == "{\"generation\":1,\"patch\":{\"opacity\":0.5}}");
+
+    const IpcParseResult resetFxConfig = parseIpcRequest("ResetFxConfig");
+    BAFX_CHECK(resetFxConfig.succeeded());
+    BAFX_CHECK(resetFxConfig.request->command == IpcCommand::ResetFxConfig);
+    BAFX_CHECK(resetFxConfig.request->payload.empty());
 
     const IpcParseResult shutdown = parseIpcRequest("Shutdown");
     BAFX_CHECK(shutdown.succeeded());
@@ -48,6 +79,19 @@ BAFX_TEST(ipc_parser_rejects_invalid_payload_shapes)
     const IpcParseResult missing = parseIpcRequest("SetConfig");
     BAFX_CHECK(!missing.succeeded());
     BAFX_CHECK(missing.errorCode == "missing_payload");
+
+    const IpcParseResult missingFxParam = parseIpcRequest("SetFxParam");
+    BAFX_CHECK(!missingFxParam.succeeded());
+    BAFX_CHECK(missingFxParam.errorCode == "missing_payload");
+
+    const IpcParseResult missingFxParams = parseIpcRequest("SetFxParams");
+    BAFX_CHECK(!missingFxParams.succeeded());
+    BAFX_CHECK(missingFxParams.errorCode == "missing_payload");
+
+    const IpcParseResult resetWithPayload = parseIpcRequest(
+        "ResetFxConfig now");
+    BAFX_CHECK(!resetWithPayload.succeeded());
+    BAFX_CHECK(resetWithPayload.errorCode == "unexpected_payload");
 
     const IpcParseResult unexpected = parseIpcRequest("Pause now");
     BAFX_CHECK(!unexpected.succeeded());
