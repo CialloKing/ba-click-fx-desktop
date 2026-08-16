@@ -387,6 +387,10 @@ function Test-InnoPayloadContract
         -Description 'Windows UI language based installer selection'
     Assert-TextContains `
         -Text $inno `
+        -Pattern '(?m)^UsePreviousLanguage=no$' `
+        -Description 'installer language is re-detected instead of inherited from an older release'
+    Assert-TextContains `
+        -Text $inno `
         -Pattern 'Name:\s*"english"[\s\S]*Name:\s*"chinesesimplified"[\s\S]*ChineseSimplified\.isl' `
         -Description 'English and Simplified Chinese installer languages'
     Assert-TextContains `

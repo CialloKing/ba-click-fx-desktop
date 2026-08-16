@@ -46,6 +46,9 @@ SolidCompression=yes
 WizardStyle=modern
 ShowLanguageDialog=no
 LanguageDetectionMethod=uilanguage
+; Earlier alpha installers only contained English. Re-detect on every run so
+; upgrades cannot inherit that obsolete choice on a Chinese Windows install.
+UsePreviousLanguage=no
 PrivilegesRequired=admin
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
