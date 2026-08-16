@@ -1479,24 +1479,24 @@ void ControlCenterWindow::layoutControls(
 
     moveControl(titleText_, margin, scale(16), clientWidth - margin * 2, scale(36));
     moveControl(statusText_, margin, scale(54), clientWidth - margin * 2, scale(24));
-    // Keep the status line compact so the page tabs have their own stable
-    // band at every DPI; long diagnostics remain available in message text.
-    const int messageHeight = scale(24);
+    // setInfo() writes a title and detail on separate lines. Reserve both lines
+    // while keeping the page-tab band fixed across DPI transitions.
+    const int messageHeight = scale(36);
     moveControl(messageText_, margin, scale(82), clientWidth - margin * 2, messageHeight);
 
-    const int contentTop = scale(146);
+    const int contentTop = scale(150);
     const int tabWidth = scale(132);
     const int tabGap = scale(8);
     moveControl(
         basicPageButton_,
         margin,
-        scale(116),
+        scale(120),
         tabWidth,
         scale(30));
     moveControl(
         advancedPageButton_,
         margin + tabWidth + tabGap,
-        scale(116),
+        scale(120),
         tabWidth,
         scale(30));
 
