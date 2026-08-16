@@ -719,7 +719,7 @@ bool ControlCenterWindow::createControls()
 
     const bool advancedSlidersCreated = createSlider(
         opacity_,
-        L"透明度 (opacity)",
+        L"透明度",
         0.0,
         1.0,
         0.01,
@@ -727,7 +727,7 @@ bool ControlCenterWindow::createControls()
         ControlId::Opacity)
         && createSlider(
             clickTimeScale_,
-            L"点击速度 (clickTimeScale)",
+            L"点击动画速度",
             0.01,
             4.0,
             0.01,
@@ -735,7 +735,7 @@ bool ControlCenterWindow::createControls()
             ControlId::ClickTimeScale)
         && createSlider(
             trailTimeScale_,
-            L"拖尾速度 (trailTimeScale)",
+            L"拖尾动画速度",
             0.01,
             4.0,
             0.01,
@@ -743,7 +743,7 @@ bool ControlCenterWindow::createControls()
             ControlId::TrailTimeScale)
         && createSlider(
             trailLifetimeMs_,
-            L"拖尾寿命 (trail.lifetimeMs)",
+            L"拖尾寿命 (ms)",
             0.0,
             2000.0,
             1.0,
@@ -751,7 +751,7 @@ bool ControlCenterWindow::createControls()
             ControlId::TrailLifetimeMs)
         && createSlider(
             bloomDiffusion_,
-            L"扩散 (bloom.diffusion)",
+            L"Bloom 扩散",
             1.0,
             10.0,
             0.01,
@@ -759,7 +759,7 @@ bool ControlCenterWindow::createControls()
             ControlId::BloomDiffusion)
         && createSlider(
             bloomThreshold_,
-            L"阈值 (bloom.threshold)",
+            L"Bloom 阈值",
             0.0,
             5.0,
             0.01,
@@ -767,7 +767,7 @@ bool ControlCenterWindow::createControls()
             ControlId::BloomThreshold)
         && createSlider(
             bloomSoftKnee_,
-            L"软阈值 (bloom.softKnee)",
+            L"Bloom 软阈值",
             0.0,
             1.0,
             0.01,
@@ -775,7 +775,7 @@ bool ControlCenterWindow::createControls()
             ControlId::BloomSoftKnee)
         && createSlider(
             bloomClamp_,
-            L"亮度上限 (bloom.clamp)",
+            L"Bloom 亮度上限",
             1.0,
             65504.0,
             1.0,
@@ -1646,11 +1646,7 @@ void ControlCenterWindow::selectPage(const Page page) noexcept
         backgroundMode_,
         cursorExcluded_,
         allowSystemBorder_,
-        hdrEnabled_,
-        pauseButton_,
-        refreshButton_,
-        hostLifecycleButton_,
-        resetDefaultsButton_};
+        hdrEnabled_};
     for (const HWND control : basicControls)
     {
         setPageControlVisible(control, !advanced);
@@ -2517,6 +2513,14 @@ void ControlCenterWindow::setConnected(const bool connected) noexcept
         trailWidth_.trackbar,
         inputSamplingRate_.trackbar,
         bloomIntensity_.trackbar,
+        opacity_.trackbar,
+        clickTimeScale_.trackbar,
+        trailTimeScale_.trackbar,
+        trailLifetimeMs_.trackbar,
+        bloomDiffusion_.trackbar,
+        bloomThreshold_.trackbar,
+        bloomSoftKnee_.trackbar,
+        bloomClamp_.trackbar,
         bloomQuality_,
         backgroundMode_,
         cursorExcluded_,
