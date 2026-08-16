@@ -471,6 +471,21 @@ function Test-InnoPayloadContract
         -Text $inno `
         -Pattern '\{tmp\}\\bafx-[A-Za-z-]*(user-context|registration-result)\.json' `
         -Description 'original-user state avoids the protected Inno temp directory'
+
+    $uninstallCode = [regex]::Match(
+        $inno,
+        '(?ms)procedure\s+CurUninstallStepChanged\b[\s\S]*\z')
+    Assert-True `
+        -Condition $uninstallCode.Success `
+        -Message 'Inno uninstall code is missing.'
+    Assert-TextExcludes `
+        -Text $uninstallCode.Value `
+        -Pattern 'ExecAsOriginalUser|register-user-package\.ps1' `
+        -Description 'original-user execution during uninstall'
+    Assert-TextContains `
+        -Text $uninstallCode.Value `
+        -Pattern 'install-machine\.ps1[\s\S]*\-Phase Rollback[\s\S]*no committed state remains' `
+        -Description 'pending uninstall uses elevated rollback and handles first-install state'
     Assert-TextContains `
         -Text $inno `
         -Pattern '\-Phase Prepare' `

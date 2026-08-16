@@ -628,7 +628,8 @@ var
   ExitCode: Integer;
   InstallRoot: String;
   InstallerRoot: String;
-  MachineStatePath: String;
+  InstallStatePath: String;
+  CommonArguments: String;
 begin
   if CurUninstallStep <> usUninstall then
   begin
@@ -637,26 +638,40 @@ begin
   InstallRoot := ExpandConstant('{app}');
   InstallerRoot := AddBackslash(InstallRoot) + 'Installer';
   MachineStatePath := AddBackslash(InstallerRoot) + 'PREPARE-STATE.json';
+  InstallStatePath := AddBackslash(InstallerRoot) + 'INSTALL-STATE.json';
+  UserContextPath := CreateOriginalUserStatePath();
   RegistrationResultPath := CreateOriginalUserStatePath();
   if FileExists(MachineStatePath) then
   begin
-    if not RunPowerShell(
-      AddBackslash(InstallerRoot) + 'register-user-package.ps1',
+    CommonArguments :=
       '-InstallDirectory ' + QuoteArgument(InstallRoot) +
-        ' -MachineStatePath ' + QuoteArgument(MachineStatePath) +
-        ' -ResultPath ' + QuoteArgument(RegistrationResultPath) +
-        ' -Rollback',
-      True,
-      RegistrationResultPath + '.diagnostic.txt',
+      ' -UserContextPath ' + QuoteArgument(UserContextPath) +
+      ' -MachineStatePath ' + QuoteArgument(MachineStatePath) +
+      ' -RegistrationResultPath ' + QuoteArgument(RegistrationResultPath) +
+      ' -ProductVersion ' + QuoteArgument('{#ProductVersion}') +
+      ' -PackageVersion ' + QuoteArgument('{#PackageVersion}');
+    if not RunPowerShell(
+      AddBackslash(InstallerRoot) + 'install-machine.ps1',
+      '-Phase Rollback ' + CommonArguments,
+      False,
+      '',
       ExitCode) then
     begin
       RaiseException(IncludeInstallerLog(FormatPowerShellFailure(
-        'Rolling back the pending user package', False, ExitCode)));
+        'Rolling back the pending installation', False, ExitCode)));
     end;
     if ExitCode <> 0 then
     begin
       RaiseException(IncludeInstallerLog(FormatPowerShellFailure(
-        'Rolling back the pending user package', True, ExitCode)));
+        'Rolling back the pending installation', True, ExitCode)));
+    end;
+    if not FileExists(InstallStatePath) then
+    begin
+      // A first installation can fail before a committed state exists. The
+      // machine rollback removed its package, certificate, and journal, so
+      // Inno can now delete the copied application files directly.
+      Log('Pending first installation rolled back; no committed state remains.');
+      Exit;
     end;
   end;
   if not RunPowerShell(
