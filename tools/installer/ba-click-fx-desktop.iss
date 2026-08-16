@@ -71,6 +71,7 @@ Source: "{#StageRoot}\Installer\*"; DestDir: "{app}\Installer"; Flags: ignorever
 
 [Icons]
 Name: "{autoprograms}\ba-click-fx-desktop\BAFX Control Center"; Filename: "{app}\BAFX.ControlCenter.exe"; WorkingDir: "{app}"
+Name: "{autodesktop}\BAFX Control Center"; Filename: "{app}\BAFX.ControlCenter.exe"; WorkingDir: "{app}"
 Name: "{autoprograms}\ba-click-fx-desktop\Uninstall ba-click-fx-desktop"; Filename: "{uninstallexe}"
 
 [Run]

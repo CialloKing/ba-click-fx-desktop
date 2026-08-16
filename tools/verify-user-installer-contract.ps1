@@ -409,6 +409,10 @@ function Test-InnoPayloadContract
         -Description 'post-install Control Center launch uses the original user'
     Assert-TextContains `
         -Text $inno `
+        -Pattern '(?m)^Name:\s*"\{autodesktop\}\\BAFX Control Center";\s*Filename:\s*"\{app\}\\BAFX\.ControlCenter\.exe";\s*WorkingDir:\s*"\{app\}"\s*$' `
+        -Description 'Control Center desktop shortcut follows the installation scope'
+    Assert-TextContains `
+        -Text $inno `
         -Pattern 'ExecAsOriginalUser' `
         -Description 'registration is executed for the installing user'
     Assert-TextContains `

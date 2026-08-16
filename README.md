@@ -135,7 +135,7 @@ Visual Studio、Windows SDK、Inno Setup 或 PowerShell 依赖包；安装器已
 
 1. 从 Release 下载与系统匹配的 `*-setup-windows-x64.exe`，同时下载同名 `.sha256`，按页面提供的哈希校验文件。
 2. 双击安装器并确认一次 UAC。安装器会把程序放到 `Program Files`，为当前用户注册方案 C Package Identity，
-   然后打开 Control Center。
+   在开始菜单和桌面创建 Control Center 快捷方式，然后打开 Control Center。
 3. 在 Control Center 中点击“启动 Host”，再按需选择“背景感知”“录屏兼容拟合”或“浅色背景优化”。
    关闭 Control Center 不会停止 Host；可以从通知区域退出 Host。
 4. 卸载时使用开始菜单中的卸载项或 Windows“已安装的应用”。默认保留程序目录下的 `data` 配置，重新安装
