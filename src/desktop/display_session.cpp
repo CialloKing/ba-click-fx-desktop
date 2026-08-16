@@ -105,10 +105,11 @@ DisplaySession::DisplaySession(DisplaySessionOptions options)
         throw std::invalid_argument(
             "Display session requires the process access authority");
     }
-    if (!colorCapabilities_.has_value())
+    if (!colorCapabilities_.has_value()
+        || !bafx::windows::displayColorStateComplete(*colorCapabilities_))
     {
-        // Startup can race a display-mode transition. Let the normal Host
-        // maintenance cadence retry without blocking construction.
+        // Startup can race a display-mode transition. A partial DisplayConfig
+        // snapshot is diagnostic evidence, not a stable output decision.
         colorRefreshRetriesRemaining_ = maximumColorRefreshRetries;
     }
     static_cast<void>(colorMonitor_.start(target_.monitor, options.wakeWindow));
@@ -345,6 +346,8 @@ DisplaySessionRetargetResult DisplaySession::retargetFxOnly(
         acceptAppliedTarget(std::move(target), wakeWindow);
         colorCapabilities_ = targetColorCapabilities;
         colorRefreshRetriesRemaining_ = targetColorCapabilities.has_value()
+                && bafx::windows::displayColorStateComplete(
+                    *targetColorCapabilities)
             ? 0U
             : maximumColorRefreshRetries;
         clearRenderFault();
@@ -1304,7 +1307,8 @@ DisplaySessionColorRefreshStatus DisplaySession::refreshColorCapabilities(
 
     std::optional<bafx::windows::DisplayColorCapabilities> refreshed =
         bafx::windows::queryDisplayColorCapabilities(target_.monitor);
-    if (refreshed.has_value())
+    if (refreshed.has_value()
+        && bafx::windows::displayColorStateComplete(*refreshed))
     {
         colorCapabilities_ = std::move(refreshed);
         colorRefreshRetriesRemaining_ = 0U;
@@ -1317,8 +1321,9 @@ DisplaySessionColorRefreshStatus DisplaySession::refreshColorCapabilities(
     }
     else
     {
-        // A new OS notification opens one bounded retry window. Repeated
-        // failures then settle without turning the main loop into a probe loop.
+        // A new OS notification opens one bounded retry window. This also
+        // covers partial DisplayConfig snapshots, which must not replace the
+        // last complete HDR contract during a mode transition.
         colorRefreshRetriesRemaining_ = maximumColorRefreshRetries;
     }
     if (fallback.has_value())

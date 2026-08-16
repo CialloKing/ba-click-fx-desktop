@@ -58,6 +58,12 @@ struct DisplayColorCapabilities final
 [[nodiscard]] std::optional<DisplayColorCapabilities>
 queryDisplayColorCapabilities(HMONITOR monitor) noexcept;
 
+// A DXGI-only snapshot is complete on older systems. Once DisplayConfig has
+// resolved the physical path, every Advanced Color target must have answered
+// consistently before the snapshot may replace a last-known output contract.
+[[nodiscard]] bool displayColorStateComplete(
+    const DisplayColorCapabilities& capabilities) noexcept;
+
 [[nodiscard]] std::string_view displayColorModeName(
     DisplayColorMode mode) noexcept;
 

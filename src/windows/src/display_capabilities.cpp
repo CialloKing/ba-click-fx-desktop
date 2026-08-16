@@ -650,6 +650,20 @@ std::optional<DisplayColorCapabilities> queryDisplayColorCapabilities(
     return std::nullopt;
 }
 
+bool displayColorStateComplete(
+    const DisplayColorCapabilities& capabilities) noexcept
+{
+    if (!capabilities.displayPathResolved)
+    {
+        // IDXGIOutput6 is the only available source on runtimes where the
+        // DisplayConfig path cannot be resolved. Do not turn OS age into a
+        // permanent retry condition.
+        return true;
+    }
+    return capabilities.advancedColorQueryResult == ERROR_SUCCESS
+        && capabilities.advancedColorStateConsistent;
+}
+
 std::string_view displayColorModeName(const DisplayColorMode mode) noexcept
 {
     switch (mode)
