@@ -38,6 +38,7 @@ private:
         AdvancedPage,
         AdvancedTimingSection,
         AdvancedParticlesSection,
+        AdvancedRingsSection,
         AdvancedBloomSection,
         EffectsEnabled,
         ClickEnabled,
@@ -58,7 +59,14 @@ private:
         BloomClamp,
         BloomQuality,
         DiskRadius,
+        DiskLifetimeMs,
         RingsHdrIntensity,
+        RingsCount,
+        RingsLifetimeMs,
+        RingsRadiusMin,
+        RingsRadiusMax,
+        RingsAngularVelocityMultiplier,
+        RingsRotationDirection,
         ShardsHdrIntensity,
         TrailOpacity,
         BackgroundMode,
@@ -97,6 +105,7 @@ private:
     {
         Timing,
         Particles,
+        Rings,
         Bloom
     };
 
@@ -221,16 +230,25 @@ private:
     SliderControl bloomSoftKnee_{};
     SliderControl bloomClamp_{};
     SliderControl diskRadius_{};
+    SliderControl diskLifetimeMs_{};
     SliderControl ringsHdrIntensity_{};
+    SliderControl ringsCount_{};
+    SliderControl ringsLifetimeMs_{};
+    SliderControl ringsRadiusMin_{};
+    SliderControl ringsRadiusMax_{};
+    SliderControl ringsAngularVelocityMultiplier_{};
+    SliderControl ringsRotationDirection_{};
     SliderControl shardsHdrIntensity_{};
     SliderControl trailOpacity_{};
     HWND basicPageButton_{nullptr};
     HWND advancedPageButton_{nullptr};
     HWND advancedTimingSectionButton_{nullptr};
     HWND advancedParticlesSectionButton_{nullptr};
+    HWND advancedRingsSectionButton_{nullptr};
     HWND advancedBloomSectionButton_{nullptr};
     HWND advancedTimingHeading_{nullptr};
     HWND advancedParticlesHeading_{nullptr};
+    HWND advancedRingsHeading_{nullptr};
     HWND advancedBloomHeading_{nullptr};
     HWND bloomQualityLabel_{nullptr};
     HWND bloomQuality_{nullptr};

@@ -659,9 +659,14 @@ bool ControlCenterWindow::createControls()
         ControlId::AdvancedTimingSection);
     advancedParticlesSectionButton_ = createChild(
         L"BUTTON",
-        L"粒子参数",
+        L"粒子与材质",
         BS_AUTORADIOBUTTON | WS_TABSTOP,
         ControlId::AdvancedParticlesSection);
+    advancedRingsSectionButton_ = createChild(
+        L"BUTTON",
+        L"圆环参数",
+        BS_AUTORADIOBUTTON | WS_TABSTOP,
+        ControlId::AdvancedRingsSection);
     advancedBloomSectionButton_ = createChild(
         L"BUTTON",
         L"Bloom 参数",
@@ -808,6 +813,14 @@ bool ControlCenterWindow::createControls()
         "disk.radius",
         ControlId::DiskRadius)
         && createSlider(
+            diskLifetimeMs_,
+            L"光盘寿命 (ms)",
+            50.0,
+            500.0,
+            1.0,
+            "disk.lifetimeMs",
+            ControlId::DiskLifetimeMs)
+        && createSlider(
             ringsHdrIntensity_,
             L"圆环 HDR 强度",
             0.0,
@@ -832,13 +845,66 @@ bool ControlCenterWindow::createControls()
             "trail.trailOpacity",
             ControlId::TrailOpacity);
 
+    const bool ringSlidersCreated = createSlider(
+        ringsCount_,
+        L"圆环数量",
+        0.0,
+        6.0,
+        1.0,
+        "rings.count",
+        ControlId::RingsCount)
+        && createSlider(
+            ringsLifetimeMs_,
+            L"圆环寿命 (ms)",
+            50.0,
+            2000.0,
+            1.0,
+            "rings.lifetimeMs",
+            ControlId::RingsLifetimeMs)
+        && createSlider(
+            ringsRadiusMin_,
+            L"圆环最小半径",
+            20.0,
+            120.0,
+            0.01,
+            "rings.radiusMin",
+            ControlId::RingsRadiusMin)
+        && createSlider(
+            ringsRadiusMax_,
+            L"圆环最大半径",
+            20.0,
+            120.0,
+            0.01,
+            "rings.radiusMax",
+            ControlId::RingsRadiusMax)
+        && createSlider(
+            ringsAngularVelocityMultiplier_,
+            L"圆环角速度倍率",
+            1.0,
+            30.0,
+            0.01,
+            "rings.angularVelocityMultiplier",
+            ControlId::RingsAngularVelocityMultiplier)
+        && createSlider(
+            ringsRotationDirection_,
+            L"圆环旋转方向",
+            -1.0,
+            1.0,
+            2.0,
+            "rings.rotationDirection",
+            ControlId::RingsRotationDirection);
+
     advancedTimingHeading_ = createChild(
         L"BUTTON",
         L"Web API 时间与透明度",
         BS_GROUPBOX);
     advancedParticlesHeading_ = createChild(
         L"BUTTON",
-        L"Web API 粒子参数",
+        L"Web API 粒子与材质",
+        BS_GROUPBOX);
+    advancedRingsHeading_ = createChild(
+        L"BUTTON",
+        L"Web API 圆环参数",
         BS_GROUPBOX);
     advancedBloomHeading_ = createChild(
         L"BUTTON",
@@ -946,13 +1012,16 @@ bool ControlCenterWindow::createControls()
         resetDefaultsButton_,
         advancedTimingHeading_,
         advancedParticlesHeading_,
+        advancedRingsHeading_,
         advancedBloomHeading_,
         advancedTimingSectionButton_,
         advancedParticlesSectionButton_,
+        advancedRingsSectionButton_,
         advancedBloomSectionButton_};
     if (!slidersCreated
         || !advancedSlidersCreated
         || !particleSlidersCreated
+        || !ringSlidersCreated
         || std::ranges::find(required, nullptr) != required.end())
     {
         return false;
@@ -1193,9 +1262,30 @@ void ControlCenterWindow::applyFonts() const noexcept
         diskRadius_.label,
         diskRadius_.trackbar,
         diskRadius_.valueText,
+        diskLifetimeMs_.label,
+        diskLifetimeMs_.trackbar,
+        diskLifetimeMs_.valueText,
         ringsHdrIntensity_.label,
         ringsHdrIntensity_.trackbar,
         ringsHdrIntensity_.valueText,
+        ringsCount_.label,
+        ringsCount_.trackbar,
+        ringsCount_.valueText,
+        ringsLifetimeMs_.label,
+        ringsLifetimeMs_.trackbar,
+        ringsLifetimeMs_.valueText,
+        ringsRadiusMin_.label,
+        ringsRadiusMin_.trackbar,
+        ringsRadiusMin_.valueText,
+        ringsRadiusMax_.label,
+        ringsRadiusMax_.trackbar,
+        ringsRadiusMax_.valueText,
+        ringsAngularVelocityMultiplier_.label,
+        ringsAngularVelocityMultiplier_.trackbar,
+        ringsAngularVelocityMultiplier_.valueText,
+        ringsRotationDirection_.label,
+        ringsRotationDirection_.trackbar,
+        ringsRotationDirection_.valueText,
         shardsHdrIntensity_.label,
         shardsHdrIntensity_.trackbar,
         shardsHdrIntensity_.valueText,
@@ -1218,9 +1308,11 @@ void ControlCenterWindow::applyFonts() const noexcept
     setControlFont(backgroundHeading_, sectionFont_);
     setControlFont(advancedTimingHeading_, sectionFont_);
     setControlFont(advancedParticlesHeading_, sectionFont_);
+    setControlFont(advancedRingsHeading_, sectionFont_);
     setControlFont(advancedBloomHeading_, sectionFont_);
     setControlFont(advancedTimingSectionButton_, normalFont_);
     setControlFont(advancedParticlesSectionButton_, normalFont_);
+    setControlFont(advancedRingsSectionButton_, normalFont_);
     setControlFont(advancedBloomSectionButton_, normalFont_);
 }
 
@@ -1426,6 +1518,12 @@ void ControlCenterWindow::layoutControls(
             scale(30));
         moveControl(
             advancedBloomSectionButton_,
+            margin + (sectionButtonWidth + sectionButtonGap) * 3,
+            contentTop,
+            sectionButtonWidth,
+            scale(30));
+        moveControl(
+            advancedRingsSectionButton_,
             margin + (sectionButtonWidth + sectionButtonGap) * 2,
             contentTop,
             sectionButtonWidth,
@@ -1450,6 +1548,7 @@ void ControlCenterWindow::layoutControls(
         const int right = left + columnWidth + advancedColumnGap;
         const int rowTop = panelTop + scale(32);
         const int nextRowTop = rowTop + scale(50);
+        const int thirdRowTop = nextRowTop + scale(50);
 
         switch (activeAdvancedSection_)
         {
@@ -1489,21 +1588,66 @@ void ControlCenterWindow::layoutControls(
                 groupHeight);
             layoutSlider(diskRadius_, left, rowTop, columnWidth, scale(40));
             layoutSlider(
-                ringsHdrIntensity_,
+                diskLifetimeMs_,
                 left,
                 nextRowTop,
                 columnWidth,
                 scale(40));
             layoutSlider(
-                shardsHdrIntensity_,
+                trailOpacity_,
+                left,
+                thirdRowTop,
+                columnWidth,
+                scale(40));
+            layoutSlider(
+                ringsHdrIntensity_,
                 right,
                 rowTop,
                 columnWidth,
                 scale(40));
             layoutSlider(
-                trailOpacity_,
+                shardsHdrIntensity_,
                 right,
                 nextRowTop,
+                columnWidth,
+                scale(40));
+            break;
+        case AdvancedSection::Rings:
+            moveControl(
+                advancedRingsHeading_,
+                margin,
+                panelTop,
+                groupWidth,
+                groupHeight);
+            layoutSlider(ringsCount_, left, rowTop, columnWidth, scale(40));
+            layoutSlider(
+                ringsLifetimeMs_,
+                right,
+                rowTop,
+                columnWidth,
+                scale(40));
+            layoutSlider(
+                ringsRadiusMin_,
+                left,
+                nextRowTop,
+                columnWidth,
+                scale(40));
+            layoutSlider(
+                ringsRadiusMax_,
+                right,
+                nextRowTop,
+                columnWidth,
+                scale(40));
+            layoutSlider(
+                ringsAngularVelocityMultiplier_,
+                left,
+                thirdRowTop,
+                columnWidth,
+                scale(40));
+            layoutSlider(
+                ringsRotationDirection_,
+                right,
+                thirdRowTop,
                 columnWidth,
                 scale(40));
             break;
@@ -1768,6 +1912,13 @@ void ControlCenterWindow::updatePageVisibility() noexcept
             : BST_UNCHECKED,
         0));
     static_cast<void>(SendMessageW(
+        advancedRingsSectionButton_,
+        BM_SETCHECK,
+        activeAdvancedSection_ == AdvancedSection::Rings
+            ? BST_CHECKED
+            : BST_UNCHECKED,
+        0));
+    static_cast<void>(SendMessageW(
         advancedBloomSectionButton_,
         BM_SETCHECK,
         activeAdvancedSection_ == AdvancedSection::Bloom
@@ -1812,6 +1963,7 @@ void ControlCenterWindow::updatePageVisibility() noexcept
     const std::array advancedSectionButtons{
         advancedTimingSectionButton_,
         advancedParticlesSectionButton_,
+        advancedRingsSectionButton_,
         advancedBloomSectionButton_};
     for (const HWND control : advancedSectionButtons)
     {
@@ -1846,6 +1998,9 @@ void ControlCenterWindow::updatePageVisibility() noexcept
         diskRadius_.label,
         diskRadius_.trackbar,
         diskRadius_.valueText,
+        diskLifetimeMs_.label,
+        diskLifetimeMs_.trackbar,
+        diskLifetimeMs_.valueText,
         ringsHdrIntensity_.label,
         ringsHdrIntensity_.trackbar,
         ringsHdrIntensity_.valueText,
@@ -1858,6 +2013,33 @@ void ControlCenterWindow::updatePageVisibility() noexcept
     for (const HWND control : advancedParticleControls)
     {
         setPageControlVisible(control, particles);
+    }
+
+    const bool rings = advanced
+        && activeAdvancedSection_ == AdvancedSection::Rings;
+    const std::array advancedRingControls{
+        advancedRingsHeading_,
+        ringsCount_.label,
+        ringsCount_.trackbar,
+        ringsCount_.valueText,
+        ringsLifetimeMs_.label,
+        ringsLifetimeMs_.trackbar,
+        ringsLifetimeMs_.valueText,
+        ringsRadiusMin_.label,
+        ringsRadiusMin_.trackbar,
+        ringsRadiusMin_.valueText,
+        ringsRadiusMax_.label,
+        ringsRadiusMax_.trackbar,
+        ringsRadiusMax_.valueText,
+        ringsAngularVelocityMultiplier_.label,
+        ringsAngularVelocityMultiplier_.trackbar,
+        ringsAngularVelocityMultiplier_.valueText,
+        ringsRotationDirection_.label,
+        ringsRotationDirection_.trackbar,
+        ringsRotationDirection_.valueText};
+    for (const HWND control : advancedRingControls)
+    {
+        setPageControlVisible(control, rings);
     }
 
     const bool bloom = advanced
@@ -1933,6 +2115,12 @@ void ControlCenterWindow::onCommand(
         if (notificationCode == BN_CLICKED)
         {
             selectAdvancedSection(AdvancedSection::Particles);
+        }
+        break;
+    case ControlId::AdvancedRingsSection:
+        if (notificationCode == BN_CLICKED)
+        {
+            selectAdvancedSection(AdvancedSection::Rings);
         }
         break;
     case ControlId::AdvancedBloomSection:
@@ -2085,7 +2273,14 @@ void ControlCenterWindow::onCommand(
     case ControlId::BloomSoftKnee:
     case ControlId::BloomClamp:
     case ControlId::DiskRadius:
+    case ControlId::DiskLifetimeMs:
     case ControlId::RingsHdrIntensity:
+    case ControlId::RingsCount:
+    case ControlId::RingsLifetimeMs:
+    case ControlId::RingsRadiusMin:
+    case ControlId::RingsRadiusMax:
+    case ControlId::RingsAngularVelocityMultiplier:
+    case ControlId::RingsRotationDirection:
     case ControlId::ShardsHdrIntensity:
     case ControlId::TrailOpacity:
         break;
@@ -2114,7 +2309,14 @@ void ControlCenterWindow::onSliderChanged(const HWND trackbar)
         &bloomSoftKnee_,
         &bloomClamp_,
         &diskRadius_,
+        &diskLifetimeMs_,
         &ringsHdrIntensity_,
+        &ringsCount_,
+        &ringsLifetimeMs_,
+        &ringsRadiusMin_,
+        &ringsRadiusMax_,
+        &ringsAngularVelocityMultiplier_,
+        &ringsRotationDirection_,
         &shardsHdrIntensity_,
         &trailOpacity_};
     for (SliderControl* const slider : sliders)
@@ -2376,7 +2578,18 @@ void ControlCenterWindow::updateControls(
     setSliderValue(bloomSoftKnee_, config.effects.bloomSoftKnee);
     setSliderValue(bloomClamp_, config.effects.bloomClamp);
     setSliderValue(diskRadius_, config.effects.diskRadius);
+    setSliderValue(diskLifetimeMs_, config.effects.diskLifetimeMs);
     setSliderValue(ringsHdrIntensity_, config.effects.ringsHdrIntensity);
+    setSliderValue(ringsCount_, config.effects.ringsCount);
+    setSliderValue(ringsLifetimeMs_, config.effects.ringsLifetimeMs);
+    setSliderValue(ringsRadiusMin_, config.effects.ringsRadiusMin);
+    setSliderValue(ringsRadiusMax_, config.effects.ringsRadiusMax);
+    setSliderValue(
+        ringsAngularVelocityMultiplier_,
+        config.effects.ringsAngularVelocityMultiplier);
+    setSliderValue(
+        ringsRotationDirection_,
+        config.effects.ringsRotationDirection);
     setSliderValue(shardsHdrIntensity_, config.effects.shardsHdrIntensity);
     setSliderValue(trailOpacity_, config.effects.trailOpacity);
     static_cast<void>(SendMessageW(
@@ -2757,7 +2970,14 @@ void ControlCenterWindow::setConnected(const bool connected) noexcept
         bloomSoftKnee_.trackbar,
         bloomClamp_.trackbar,
         diskRadius_.trackbar,
+        diskLifetimeMs_.trackbar,
         ringsHdrIntensity_.trackbar,
+        ringsCount_.trackbar,
+        ringsLifetimeMs_.trackbar,
+        ringsRadiusMin_.trackbar,
+        ringsRadiusMax_.trackbar,
+        ringsAngularVelocityMultiplier_.trackbar,
+        ringsRotationDirection_.trackbar,
         shardsHdrIntensity_.trackbar,
         trailOpacity_.trackbar,
         bloomQuality_,
