@@ -644,33 +644,37 @@ float4 ResolveDesktopComposite(FullscreenOutput input)
     const float4 direct = Source0.Sample(LinearClampSampler, input.uv);
     const float2 offset = SourceTexelSize * (SampleScale * 0.5);
     const float4 bloom = FourTap(Source1, input.uv, offset);
+    float4 resolved = float4(0.0, 0.0, 0.0, 0.0);
     if (BackgroundTransportEnabled <= 0.0)
     {
         const float4 cross = Source4.Sample(
             LinearClampSampler,
             input.uv);
-        return ResolveFxOnlyDesktopTransport(
+        resolved = ResolveFxOnlyDesktopTransport(
             direct,
             bloom,
             cross,
             ExposureGain);
     }
-
-    const float occlusion = Source2.Sample(
-        LinearClampSampler,
-        input.uv).r;
-    const float3 background = Source3.Sample(
-        LinearClampSampler,
-        input.uv).rgb;
-    // The render owner latches one complete visual path. Differential Bloom
-    // and the background payload arrive together so capture cadence cannot
-    // switch either layer independently.
-    return ResolveBackgroundAwareDesktopTransport(
-        direct,
-        bloom,
-        occlusion,
-        background,
-        ExposureGain);
+    else
+    {
+        const float occlusion = Source2.Sample(
+            LinearClampSampler,
+            input.uv).r;
+        const float3 background = Source3.Sample(
+            LinearClampSampler,
+            input.uv).rgb;
+        // The render owner latches one complete visual path. Differential Bloom
+        // and the background payload arrive together so capture cadence cannot
+        // switch either layer independently.
+        resolved = ResolveBackgroundAwareDesktopTransport(
+            direct,
+            bloom,
+            occlusion,
+            background,
+            ExposureGain);
+    }
+    return resolved;
 }
 
 float4 DesktopCompositePixel(FullscreenOutput input) : SV_Target0
