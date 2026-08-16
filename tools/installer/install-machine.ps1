@@ -467,7 +467,9 @@ function Assert-IdentityIntegrityMaterial
         [string]$InstallRoot,
 
         [Parameter(Mandatory = $true)]
-        [string]$PackagePath
+        [string]$PackagePath,
+
+        [switch]$CurrentHostVerifiedByPayload
     )
 
     foreach ($propertyName in @(
@@ -494,18 +496,43 @@ function Assert-IdentityIntegrityMaterial
         }
     }
 
-    $hostPath = Join-Path $InstallRoot ([string]$State.hostFile)
-    if (-not (Test-Path -LiteralPath $hostPath -PathType Leaf) -or
-        (Get-FileHash -LiteralPath $hostPath -Algorithm SHA256).Hash -ne
-            [string]$State.hostSha256)
-    {
-        throw 'Protected identity state does not match the installed Host.'
-    }
     if (-not (Test-Path -LiteralPath $PackagePath -PathType Leaf) -or
         (Get-FileHash -LiteralPath $PackagePath -Algorithm SHA256).Hash -ne
             [string]$State.packageSha256)
     {
         throw 'Protected identity state does not match the signed package.'
+    }
+
+    if ($CurrentHostVerifiedByPayload)
+    {
+        # Inno replaces the live Host before Prepare. Authenticate the previous
+        # Host through its retained signed package while the payload manifest
+        # independently authenticates the new live file.
+        $archive = [IO.Compression.ZipFile]::OpenRead($PackagePath)
+        try
+        {
+            $archivedHostHash = Get-ZipEntrySha256 `
+                -Archive $archive `
+                -EntryName ([string]$State.hostFile)
+        }
+        finally
+        {
+            $archive.Dispose()
+        }
+        if ($archivedHostHash -ne [string]$State.hostSha256)
+        {
+            throw 'Protected identity state does not match the archived Host.'
+        }
+    }
+    else
+    {
+        $hostPath = Join-Path $InstallRoot ([string]$State.hostFile)
+        if (-not (Test-Path -LiteralPath $hostPath -PathType Leaf) -or
+            (Get-FileHash -LiteralPath $hostPath -Algorithm SHA256).Hash -ne
+                [string]$State.hostSha256)
+        {
+            throw 'Protected identity state does not match the installed Host.'
+        }
     }
 
     $certificatePath =
@@ -1042,7 +1069,9 @@ function Assert-InstallStateObject
         [string]$InstallRoot,
 
         [Parameter(Mandatory = $true)]
-        [string]$ExpectedUserSid
+        [string]$ExpectedUserSid,
+
+        [switch]$CurrentHostVerifiedByPayload
     )
 
     foreach ($propertyName in @(
@@ -1161,7 +1190,8 @@ function Assert-InstallStateObject
         Assert-IdentityIntegrityMaterial `
             -State $State `
             -InstallRoot $InstallRoot `
-            -PackagePath (Join-Path (Join-Path $InstallRoot 'Identity') $packageFile)
+            -PackagePath (Join-Path (Join-Path $InstallRoot 'Identity') $packageFile) `
+            -CurrentHostVerifiedByPayload:$CurrentHostVerifiedByPayload
     }
     return $State
 }
@@ -1173,7 +1203,9 @@ function Read-OldInstallState
         [string]$InstallRoot,
 
         [Parameter(Mandatory = $true)]
-        [string]$UserSid
+        [string]$UserSid,
+
+        [switch]$CurrentHostVerifiedByPayload
     )
 
     $path = Join-Path $InstallRoot 'Installer\INSTALL-STATE.json'
@@ -1196,7 +1228,8 @@ function Read-OldInstallState
             $validated = Assert-InstallStateObject `
                 -State $state `
                 -InstallRoot $InstallRoot `
-                -ExpectedUserSid $UserSid
+                -ExpectedUserSid $UserSid `
+                -CurrentHostVerifiedByPayload:$CurrentHostVerifiedByPayload
             if ($candidate -ne $path)
             {
                 Copy-Item -LiteralPath $candidate -Destination $path -Force
@@ -1698,6 +1731,8 @@ if ($Phase -eq 'Prepare')
     $prepareFailureStep = ''
     try
     {
+        $script:InstallerStep = 'validate-installer-payload'
+        Assert-PayloadManifest -InstallRoot $installRoot
         if (Test-Path -LiteralPath $machineStateFullPath -PathType Leaf)
         {
             $script:InstallerStep = 'recover-stale-transaction'
@@ -1711,7 +1746,8 @@ if ($Phase -eq 'Prepare')
             {
                 $committedState = Read-OldInstallState `
                     -InstallRoot $installRoot `
-                    -UserSid ([string]$stalePending.userSid)
+                    -UserSid ([string]$stalePending.userSid) `
+                    -CurrentHostVerifiedByPayload
             }
             catch
             {
@@ -1738,13 +1774,12 @@ if ($Phase -eq 'Prepare')
             throw 'The original user context is invalid.'
         }
 
-        $script:InstallerStep = 'validate-installer-payload'
-        Assert-PayloadManifest -InstallRoot $installRoot
         $dataDirectory = Join-Path $installRoot 'data'
         $script:InstallerStep = 'read-existing-install-state'
         $oldInstallState = Read-OldInstallState `
             -InstallRoot $installRoot `
-            -UserSid ([string]$context.userSid)
+            -UserSid ([string]$context.userSid) `
+            -CurrentHostVerifiedByPayload
         $script:InstallerStep = 'grant-data-directory-access'
         Grant-DataDirectoryAccess -Path $dataDirectory -UserSid ([string]$context.userSid)
         $metadataPath = Join-Path (Join-Path $installRoot 'Identity') `
