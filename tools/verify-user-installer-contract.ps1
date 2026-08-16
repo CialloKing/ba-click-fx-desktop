@@ -331,6 +331,17 @@ function Test-InstallerScriptWhitelist
         -Pattern 'throw\s+\$registrationError\b' `
         -Description 'lossy package registration failure string rethrow'
 
+    $unregisterMachine = Read-RepositoryText `
+        -RelativePath 'tools/installer/unregister-machine.ps1'
+    Assert-TextContains `
+        -Text $unregisterMachine `
+        -Pattern 'Write-BafxInstallerFailure[\s\S]*UninstallMachine[\s\S]*InstallerStep' `
+        -Description 'machine uninstall emits structured failure diagnostics'
+    Assert-TextContains `
+        -Text $unregisterMachine `
+        -Pattern 'ensure-host-process-stopped[\s\S]*remove-installed-user-package[\s\S]*remove-owned-certificates' `
+        -Description 'machine uninstall reports stable resource cleanup steps'
+
     $diagnostics = Read-RepositoryText `
         -RelativePath 'tools/installer/installer-diagnostics.ps1'
     Assert-TextContains `

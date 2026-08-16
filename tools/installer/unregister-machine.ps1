@@ -6,6 +6,10 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'installer-diagnostics.ps1')
+$script:InstallerStep = 'initialize'
+$script:InstallerProductVersion = ''
+$script:InstallerPackageVersion = ''
 
 function Assert-Administrator
 {
@@ -175,20 +179,37 @@ function Read-InstallStateWithBackup
     throw "Protected install state and its backup are invalid: $($errors -join ' | ')"
 }
 
+$script:InstallerStep = 'validate-administrator'
+trap
+{
+    Write-BafxInstallerFailure `
+        -ErrorRecord $_ `
+        -Phase 'UninstallMachine' `
+        -Step $script:InstallerStep `
+        -ProductVersion $script:InstallerProductVersion `
+        -PackageVersion $script:InstallerPackageVersion
+    exit 1
+}
+
 Assert-Administrator
+$script:InstallerStep = 'validate-powershell'
 if ($PSVersionTable.PSEdition -ne 'Desktop')
 {
     throw 'Uninstall requires Windows PowerShell 5.1.'
 }
 
+$script:InstallerStep = 'resolve-install-root'
 $installRoot = Resolve-ProtectedInstallRoot -Path $InstallDirectory
 $statePath = Join-Path $installRoot 'Installer\INSTALL-STATE.json'
 $pendingPath = Join-Path $installRoot 'Installer\PREPARE-STATE.json'
+$script:InstallerStep = 'check-pending-installation-transaction'
 if (Test-Path -LiteralPath $pendingPath -PathType Leaf)
 {
     throw 'A pending installation transaction remains; complete rollback before uninstalling.'
 }
+$script:InstallerStep = 'read-protected-install-state'
 $state = Read-InstallStateWithBackup -Path $statePath -InstallRoot $installRoot
+$script:InstallerStep = 'validate-protected-install-state'
 foreach ($propertyName in @(
     'schema',
     'packageName',
@@ -211,6 +232,8 @@ foreach ($propertyName in @(
         throw "Protected install state is missing: $propertyName"
     }
 }
+$script:InstallerProductVersion = [string]$state.productVersion
+$script:InstallerPackageVersion = [string]$state.packageVersion
 $stateInvalid = `
     ([int]$state.schema -notin @(1, 2)) -or `
     ([string]$state.packageName -ne 'CialloKing.BaClickFxDesktop') -or `
@@ -237,9 +260,12 @@ if ([IO.Path]::IsPathRooted($packageFile) -or
     throw 'Protected install state has an unsafe package file name.'
 }
 
+$script:InstallerStep = 'ensure-host-process-stopped'
 Assert-ExpectedProcessIsStopped -ExecutablePath (Join-Path $installRoot 'ba-click-fx-desktop.exe')
+$script:InstallerStep = 'ensure-control-center-process-stopped'
 Assert-ExpectedProcessIsStopped -ExecutablePath (Join-Path $installRoot 'BAFX.ControlCenter.exe')
 
+$script:InstallerStep = 'query-installed-user-package'
 $registered = @(
     Get-AppxPackage `
         -User ([string]$state.installedUserSid) `
@@ -251,12 +277,14 @@ $target = $registered |
     Select-Object -First 1
 if ($null -ne $target)
 {
+    $script:InstallerStep = 'remove-installed-user-package'
     Remove-AppxPackage `
         -Package $target.PackageFullName `
         -User ([string]$state.installedUserSid) `
         -ErrorAction Stop
 }
 
+$script:InstallerStep = 'wait-for-user-package-removal'
 $remaining = @()
 for ($attempt = 0; $attempt -lt 15; ++$attempt)
 {
@@ -278,6 +306,7 @@ if ($remaining.Count -gt 0)
     throw 'Sparse package registration remains after uninstall.'
 }
 
+$script:InstallerStep = 'query-other-user-packages'
 $otherUserPackages = @(
     Get-AppxPackage -AllUsers -Name ([string]$state.packageName) -ErrorAction Stop
 )
@@ -286,6 +315,7 @@ if ($otherUserPackages.Count -gt 0)
     throw 'Another user package registration remains; keeping shared files and certificate.'
 }
 
+$script:InstallerStep = 'remove-owned-identity-packages'
 $ownedFiles = Split-Ledger -Value $state.ownedPackageFiles -Separator Pipe
 foreach ($ownedFile in $ownedFiles)
 {
@@ -307,6 +337,7 @@ foreach ($ownedFile in $ownedFiles)
     }
 }
 
+$script:InstallerStep = 'remove-owned-certificates'
 foreach ($thumbprint in (Split-Ledger `
         -Value $state.ownedCertificateThumbprints `
         -Separator Comma))
@@ -345,6 +376,7 @@ foreach ($thumbprint in (Split-Ledger `
     }
 }
 
+$script:InstallerStep = 'delete-protected-install-state'
 foreach ($installStatePath in @($statePath, "$statePath.bak"))
 {
     if (Test-Path -LiteralPath $installStatePath -PathType Leaf)
