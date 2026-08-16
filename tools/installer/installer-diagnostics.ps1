@@ -294,7 +294,9 @@ function Write-BafxInstallerFailure
             {
                 [IO.Directory]::CreateDirectory($directory) | Out-Null
             }
-            $encoding = New-Object Text.UTF8Encoding -ArgumentList $false
+            # Inno's Unicode loader needs an explicit signature to preserve
+            # localized exception text written by the original-user process.
+            $encoding = New-Object Text.UTF8Encoding -ArgumentList $true
             [IO.File]::WriteAllLines($fullPath, $lines, $encoding)
         }
     }

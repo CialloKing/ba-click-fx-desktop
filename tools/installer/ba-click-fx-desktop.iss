@@ -51,6 +51,7 @@ MinVersion=10.0.19041
 CloseApplications=yes
 RestartApplications=no
 SetupLogging=yes
+UninstallLogging=yes
 Uninstallable=yes
 UninstallDisplayName={#ProductName}
 UninstallDisplayIcon={app}\BAFX.ControlCenter.exe
@@ -84,7 +85,10 @@ var
   UserContextPath: String;
   MachineStatePath: String;
   RegistrationResultPath: String;
+  RollbackResultPath: String;
   RecoveryRequired: Boolean;
+  LastPowerShellFailureSummary: String;
+  LastPowerShellOutputError: String;
 
 function QuoteArgument(const Value: String): String;
 var
@@ -115,10 +119,79 @@ begin
   if UserContextPath <> '' then
   begin
     DeleteFile(UserContextPath);
+    DeleteFile(UserContextPath + '.diagnostic.txt');
   end;
   if RegistrationResultPath <> '' then
   begin
     DeleteFile(RegistrationResultPath);
+    DeleteFile(RegistrationResultPath + '.diagnostic.txt');
+  end;
+  if RollbackResultPath <> '' then
+  begin
+    DeleteFile(RollbackResultPath);
+    DeleteFile(RollbackResultPath + '.diagnostic.txt');
+  end;
+end;
+
+procedure ResetPowerShellDiagnostics;
+begin
+  LastPowerShellFailureSummary := '';
+  LastPowerShellOutputError := '';
+end;
+
+procedure HandlePowerShellOutput(
+  const S: String;
+  const Error, FirstLine: Boolean);
+var
+  FailurePrefix: String;
+  JsonPrefix: String;
+begin
+  FailurePrefix := 'BAFX_INSTALL_FAILURE: ';
+  JsonPrefix := 'BAFX_INSTALL_DIAGNOSTIC_JSON: ';
+  if FirstLine then
+  begin
+    Log('PowerShell output follows:');
+  end;
+  if Error then
+  begin
+    // Error reports output-capture failure, not a line written to stderr.
+    LastPowerShellOutputError := S;
+    Log('PowerShell output capture failed: ' + S);
+    Exit;
+  end;
+  Log('  ' + S);
+  if Pos(FailurePrefix, S) = 1 then
+  begin
+    LastPowerShellFailureSummary :=
+      Copy(S, Length(FailurePrefix) + 1, Length(S));
+  end
+  else if Pos(JsonPrefix, S) = 1 then
+  begin
+    Log('PowerShell structured diagnostic captured.');
+  end;
+end;
+
+procedure LoadPowerShellDiagnostic(const DiagnosticPath: String);
+var
+  I: Integer;
+  Lines: TArrayOfString;
+begin
+  if not FileExists(DiagnosticPath) then
+  begin
+    Log('PowerShell diagnostic sidecar was not created: ' + DiagnosticPath);
+    Exit;
+  end;
+  if not LoadStringsFromFile(DiagnosticPath, Lines) then
+  begin
+    LastPowerShellOutputError :=
+      'The PowerShell diagnostic sidecar could not be read.';
+    Log(LastPowerShellOutputError + ' Path: ' + DiagnosticPath);
+    Exit;
+  end;
+  Log('PowerShell diagnostic sidecar follows: ' + DiagnosticPath);
+  for I := 0 to GetArrayLength(Lines) - 1 do
+  begin
+    HandlePowerShellOutput(Lines[I], False, I = 0);
   end;
 end;
 
@@ -126,11 +199,13 @@ function RunPowerShell(
   const ScriptPath: String;
   const Arguments: String;
   const AsOriginalUser: Boolean;
+  const DiagnosticPath: String;
   var ExitCode: Integer): Boolean;
 var
   ContextName: String;
   Parameters: String;
 begin
+  ResetPowerShellDiagnostics;
   if AsOriginalUser then
   begin
     ContextName := 'original-user';
@@ -142,26 +217,40 @@ begin
   Parameters := '-NoLogo -NoProfile -ExecutionPolicy Bypass -File ' +
     QuoteArgument(ScriptPath) + ' ' + Arguments;
   ExitCode := -1;
+  Result := False;
   Log('PowerShell [' + ContextName + '] starting: ' + ScriptPath + ' ' + Arguments);
-  if AsOriginalUser then
+  try
+    if AsOriginalUser then
+    begin
+      Result := ExecAsOriginalUser(
+        ExpandConstant('{#PowerShellPath}'),
+        Parameters,
+        '',
+        SW_HIDE,
+        ewWaitUntilTerminated,
+        ExitCode);
+    end
+    else
+    begin
+      Result := ExecAndLogOutput(
+        ExpandConstant('{#PowerShellPath}'),
+        Parameters,
+        '',
+        SW_SHOWNORMAL,
+        ewWaitUntilTerminated,
+        ExitCode,
+        @HandlePowerShellOutput);
+    end;
+  except
+    LastPowerShellOutputError := GetExceptionMessage;
+    Log('PowerShell [' + ContextName + '] execution raised: ' +
+      LastPowerShellOutputError);
+    Result := False;
+  end;
+  if AsOriginalUser and (DiagnosticPath <> '') and
+    (FileExists(DiagnosticPath) or not Result or (ExitCode <> 0)) then
   begin
-    Result := ExecAsOriginalUser(
-      ExpandConstant('{#PowerShellPath}'),
-      Parameters,
-      '',
-      SW_HIDE,
-      ewWaitUntilTerminated,
-      ExitCode);
-  end
-  else
-  begin
-    Result := Exec(
-      ExpandConstant('{#PowerShellPath}'),
-      Parameters,
-      '',
-      SW_HIDE,
-      ewWaitUntilTerminated,
-      ExitCode);
+    LoadPowerShellDiagnostic(DiagnosticPath);
   end;
   if Result then
   begin
@@ -170,8 +259,79 @@ begin
   end
   else
   begin
-    Log('PowerShell [' + ContextName + '] could not be started: ' + ScriptPath);
+    if ExitCode >= 0 then
+    begin
+      Log('PowerShell [' + ContextName + '] could not be started: ' +
+        ScriptPath + '; Win32 error ' + IntToStr(ExitCode) + ': ' +
+        SysErrorMessage(ExitCode));
+    end
+    else
+    begin
+      Log('PowerShell [' + ContextName + '] could not be started: ' + ScriptPath);
+    end;
   end;
+end;
+
+function DecodePowerShellFailureSummary(const Value: String): String;
+begin
+  Result := Value;
+  StringChangeEx(Result, '%3B', ';', True);
+  StringChangeEx(Result, '%3D', '=', True);
+  StringChangeEx(Result, '%25', '%', True);
+end;
+
+function FormatPowerShellFailure(
+  const Description: String;
+  const Started: Boolean;
+  const ExitCode: Integer): String;
+begin
+  if Started then
+  begin
+    Result := Description + ' failed with exit code ' + IntToStr(ExitCode) + '.';
+  end
+  else
+  begin
+    Result := Description + ' could not be started.';
+    if ExitCode >= 0 then
+    begin
+      Result := Result + ' Win32 error ' + IntToStr(ExitCode) + ': ' +
+        SysErrorMessage(ExitCode) + '.';
+    end;
+  end;
+  if LastPowerShellFailureSummary <> '' then
+  begin
+    Result := Result + #13#10 +
+      DecodePowerShellFailureSummary(LastPowerShellFailureSummary);
+  end;
+  if LastPowerShellOutputError <> '' then
+  begin
+    Result := Result + #13#10 +
+      'Output capture detail: ' + LastPowerShellOutputError;
+  end;
+end;
+
+function IncludeInstallerLog(const MessageText: String): String;
+var
+  LogPath: String;
+begin
+  Result := MessageText;
+  LogPath := ExpandConstant('{log}');
+  if LogPath <> '' then
+  begin
+    Result := Result + #13#10#13#10 + 'Detailed installer log: ' + LogPath;
+  end;
+end;
+
+procedure ShowRecoveryFailure(
+  const FailureText: String;
+  const RecoveryText: String);
+begin
+  RecoveryRequired := True;
+  SuppressibleMsgBox(
+    IncludeInstallerLog(FailureText + #13#10#13#10 + RecoveryText),
+    mbError,
+    MB_OK,
+    IDOK);
 end;
 
 procedure LogRegistrationResult;
@@ -200,17 +360,25 @@ procedure RequirePowerShellSuccess(
   const Description: String;
   const ScriptPath: String;
   const Arguments: String;
-  const AsOriginalUser: Boolean);
+  const AsOriginalUser: Boolean;
+  const DiagnosticPath: String);
 var
   ExitCode: Integer;
 begin
-  if not RunPowerShell(ScriptPath, Arguments, AsOriginalUser, ExitCode) then
+  if not RunPowerShell(
+    ScriptPath,
+    Arguments,
+    AsOriginalUser,
+    DiagnosticPath,
+    ExitCode) then
   begin
-    RaiseException(Description + ' could not be started.');
+    RaiseException(IncludeInstallerLog(
+      FormatPowerShellFailure(Description, False, ExitCode)));
   end;
   if ExitCode <> 0 then
   begin
-    RaiseException(Description + ' failed with exit code ' + IntToStr(ExitCode) + '.');
+    RaiseException(IncludeInstallerLog(
+      FormatPowerShellFailure(Description, True, ExitCode)));
   end;
 end;
 
@@ -232,9 +400,10 @@ begin
     AddBackslash(InstallerRoot) + 'register-user-package.ps1',
     '-InstallDirectory ' + QuoteArgument(InstallRoot) +
       ' -MachineStatePath ' + QuoteArgument(MachineStatePath) +
-      ' -ResultPath ' + QuoteArgument(RegistrationResultPath) +
+      ' -ResultPath ' + QuoteArgument(RollbackResultPath) +
       ' -Rollback',
     True,
+    RollbackResultPath + '.diagnostic.txt',
     ExitCode) then
   begin
     Succeeded := False;
@@ -253,6 +422,7 @@ begin
     AddBackslash(InstallerRoot) + 'install-machine.ps1',
     '-Phase Rollback ' + CommonArguments,
     False,
+    '',
     ExitCode) then
   begin
     Succeeded := False;
@@ -269,6 +439,7 @@ var
   InstallerRoot: String;
   CommonArguments: String;
   ExitCode: Integer;
+  PrimaryFailure: String;
   RollbackSucceeded: Boolean;
 begin
   if CurStep <> ssPostInstall then
@@ -281,12 +452,14 @@ begin
   UserContextPath := CreateOriginalUserStatePath();
   MachineStatePath := AddBackslash(InstallerRoot) + 'PREPARE-STATE.json';
   RegistrationResultPath := CreateOriginalUserStatePath();
+  RollbackResultPath := CreateOriginalUserStatePath();
 
   RequirePowerShellSuccess(
     'Capturing the original user context',
     AddBackslash(InstallerRoot) + 'capture-user-context.ps1',
     '-OutputPath ' + QuoteArgument(UserContextPath),
-    True);
+    True,
+    UserContextPath + '.diagnostic.txt');
 
   CommonArguments :=
     '-InstallDirectory ' + QuoteArgument(InstallRoot) +
@@ -300,12 +473,17 @@ begin
     AddBackslash(InstallerRoot) + 'install-machine.ps1',
     '-Phase Prepare ' + CommonArguments,
     False,
+    '',
     ExitCode) then
   begin
-    RaiseException('Preparing the machine installation could not be started.');
+    PrimaryFailure := FormatPowerShellFailure(
+      'Preparing the machine installation', False, ExitCode);
+    RaiseException(IncludeInstallerLog(PrimaryFailure));
   end;
   if ExitCode <> 0 then
   begin
+    PrimaryFailure := FormatPowerShellFailure(
+      'Preparing the machine installation', True, ExitCode);
     RunBestEffortRollback(
       InstallRoot,
       InstallerRoot,
@@ -313,16 +491,13 @@ begin
       RollbackSucceeded);
     if not RollbackSucceeded then
     begin
-      RecoveryRequired := True;
-      SuppressibleMsgBox(
-        'Preparation failed. The installation files and recovery state were retained; reopen Control Center to repair the installation.',
-        mbError,
-        MB_OK,
-        IDOK);
+      ShowRecoveryFailure(
+        PrimaryFailure,
+        'Rollback also failed. The installation files and recovery state ' +
+          'were retained; reopen Control Center to repair the installation.');
       Exit;
     end;
-    RaiseException('Preparing the machine installation failed with exit code ' +
-      IntToStr(ExitCode) + '.');
+    RaiseException(IncludeInstallerLog(PrimaryFailure));
   end;
 
   if not RunPowerShell(
@@ -331,19 +506,12 @@ begin
       ' -MachineStatePath ' + QuoteArgument(MachineStatePath) +
       ' -ResultPath ' + QuoteArgument(RegistrationResultPath),
     True,
+    RegistrationResultPath + '.diagnostic.txt',
     ExitCode) then
   begin
     LogRegistrationResult;
-    RunBestEffortRollback(
-      InstallRoot,
-      InstallerRoot,
-      CommonArguments,
-      RollbackSucceeded);
-    RaiseException('Registering the package could not be started.');
-  end;
-  LogRegistrationResult;
-  if ExitCode <> 0 then
-  begin
+    PrimaryFailure := FormatPowerShellFailure(
+      'Registering the package', False, ExitCode);
     RunBestEffortRollback(
       InstallRoot,
       InstallerRoot,
@@ -351,41 +519,70 @@ begin
       RollbackSucceeded);
     if not RollbackSucceeded then
     begin
-      RecoveryRequired := True;
-      SuppressibleMsgBox(
-        'Package registration failed. The installation files and recovery state were retained; reopen Control Center to repair the installation.',
-        mbError,
-        MB_OK,
-        IDOK);
+      ShowRecoveryFailure(
+        PrimaryFailure,
+        'Rollback also failed. The installation files and recovery state ' +
+          'were retained; reopen Control Center to repair the installation.');
       Exit;
     end;
-    RaiseException('Registering the package failed with exit code ' + IntToStr(ExitCode) + '.');
+    RaiseException(IncludeInstallerLog(PrimaryFailure));
+  end;
+  LogRegistrationResult;
+  if ExitCode <> 0 then
+  begin
+    PrimaryFailure := FormatPowerShellFailure(
+      'Registering the package', True, ExitCode);
+    RunBestEffortRollback(
+      InstallRoot,
+      InstallerRoot,
+      CommonArguments,
+      RollbackSucceeded);
+    if not RollbackSucceeded then
+    begin
+      ShowRecoveryFailure(
+        PrimaryFailure,
+        'Rollback also failed. The installation files and recovery state ' +
+          'were retained; reopen Control Center to repair the installation.');
+      Exit;
+    end;
+    RaiseException(IncludeInstallerLog(PrimaryFailure));
   end;
 
   if not RunPowerShell(
     AddBackslash(InstallerRoot) + 'install-machine.ps1',
     '-Phase Finalize ' + CommonArguments,
     False,
+    '',
     ExitCode) then
   begin
+    PrimaryFailure := FormatPowerShellFailure(
+      'Finalizing the machine installation', False, ExitCode);
     RunBestEffortRollback(
       InstallRoot,
       InstallerRoot,
       CommonArguments,
       RollbackSucceeded);
-    RaiseException('Finalizing the machine installation could not be started.');
+    if not RollbackSucceeded then
+    begin
+      ShowRecoveryFailure(
+        PrimaryFailure,
+        'Rollback also failed. The installation files and recovery state ' +
+          'were retained; reopen Control Center to repair the installation.');
+      Exit;
+    end;
+    RaiseException(IncludeInstallerLog(PrimaryFailure));
   end;
   if ExitCode <> 0 then
   begin
+    PrimaryFailure := FormatPowerShellFailure(
+      'Finalizing the machine installation', True, ExitCode);
     if FileExists(AddBackslash(InstallerRoot) + 'INSTALL-STATE.json') and
       not FileExists(MachineStatePath) then
     begin
-      RecoveryRequired := True;
-      SuppressibleMsgBox(
-        'The package was committed, but final cleanup needs another repair pass from Control Center.',
-        mbError,
-        MB_OK,
-        IDOK);
+      ShowRecoveryFailure(
+        PrimaryFailure,
+        'The package was committed, but final cleanup needs another repair ' +
+          'pass from Control Center.');
       Exit;
     end;
     RunBestEffortRollback(
@@ -395,15 +592,13 @@ begin
       RollbackSucceeded);
     if not RollbackSucceeded then
     begin
-      RecoveryRequired := True;
-      SuppressibleMsgBox(
-        'Finalization failed. The installation files and recovery state were retained; reopen Control Center to repair the installation.',
-        mbError,
-        MB_OK,
-        IDOK);
+      ShowRecoveryFailure(
+        PrimaryFailure,
+        'Rollback also failed. The installation files and recovery state ' +
+          'were retained; reopen Control Center to repair the installation.');
       Exit;
     end;
-    RaiseException('Package registration or finalization failed; rollback was attempted.');
+    RaiseException(IncludeInstallerLog(PrimaryFailure));
   end;
 end;
 
@@ -452,25 +647,31 @@ begin
         ' -ResultPath ' + QuoteArgument(RegistrationResultPath) +
         ' -Rollback',
       True,
+      RegistrationResultPath + '.diagnostic.txt',
       ExitCode) then
     begin
-      RaiseException('The pending package rollback could not be started.');
+      RaiseException(IncludeInstallerLog(FormatPowerShellFailure(
+        'Rolling back the pending user package', False, ExitCode)));
     end;
     if ExitCode <> 0 then
     begin
-      RaiseException('The pending package rollback failed with exit code ' + IntToStr(ExitCode) + '.');
+      RaiseException(IncludeInstallerLog(FormatPowerShellFailure(
+        'Rolling back the pending user package', True, ExitCode)));
     end;
   end;
   if not RunPowerShell(
     ExpandConstant('{app}\Installer\unregister-machine.ps1'),
     '-InstallDirectory ' + QuoteArgument(InstallRoot),
     False,
+    '',
     ExitCode) then
   begin
-    RaiseException('The identity uninstaller could not be started.');
+    RaiseException(IncludeInstallerLog(FormatPowerShellFailure(
+      'Removing the machine identity', False, ExitCode)));
   end;
   if ExitCode <> 0 then
   begin
-    RaiseException('The identity uninstaller failed with exit code ' + IntToStr(ExitCode) + '.');
+    RaiseException(IncludeInstallerLog(FormatPowerShellFailure(
+      'Removing the machine identity', True, ExitCode)));
   end;
 end;

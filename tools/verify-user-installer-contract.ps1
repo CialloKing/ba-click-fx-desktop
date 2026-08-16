@@ -409,6 +409,34 @@ function Test-InnoPayloadContract
         -Description 'registration is executed for the installing user'
     Assert-TextContains `
         -Text $inno `
+        -Pattern 'ExecAndLogOutput[\s\S]*@HandlePowerShellOutput' `
+        -Description 'elevated PowerShell output is copied into the installer log'
+    Assert-TextContains `
+        -Text $inno `
+        -Pattern 'BAFX_INSTALL_FAILURE:[\s\S]*BAFX_INSTALL_DIAGNOSTIC_JSON:' `
+        -Description 'installer recognizes structured PowerShell diagnostics'
+    Assert-TextContains `
+        -Text $inno `
+        -Pattern 'LoadPowerShellDiagnostic[\s\S]*\.diagnostic\.txt' `
+        -Description 'original-user diagnostic sidecars are copied into the installer log'
+    Assert-TextContains `
+        -Text $inno `
+        -Pattern '(?m)^SetupLogging=yes\s*$[\s\S]*^UninstallLogging=yes\s*$' `
+        -Description 'setup and uninstall log files are enabled'
+    Assert-TextContains `
+        -Text $inno `
+        -Pattern 'ExpandConstant\(\x27\{log\}\x27\)' `
+        -Description 'failure messages expose the detailed installer log path'
+    Assert-TextContains `
+        -Text $inno `
+        -Pattern 'RollbackResultPath[\s\S]*\x27 -ResultPath \x27\s*\+\s*QuoteArgument\(RollbackResultPath\)' `
+        -Description 'rollback diagnostics cannot overwrite registration diagnostics'
+    Assert-TextContains `
+        -Text $inno `
+        -Pattern 'PrimaryFailure\s*:=\s*FormatPowerShellFailure[\s\S]{0,500}RunBestEffortRollback' `
+        -Description 'the first failure is saved before rollback starts'
+    Assert-TextContains `
+        -Text $inno `
         -Pattern 'PowerShell \[\x27 \+ ContextName \+ \x27\] exited with code' `
         -Description 'PowerShell execution context and exit code logging'
     Assert-TextContains `
@@ -433,7 +461,7 @@ function Test-InnoPayloadContract
         -Description 'original-user state uses unique user TEMP files'
     Assert-TextContains `
         -Text $inno `
-        -Pattern 'procedure\s+DeinitializeSetup[\s\S]*DeleteTransientState[\s\S]*procedure\s+DeinitializeUninstall[\s\S]*DeleteTransientState' `
+        -Pattern 'DeleteFile\([^\r\n]+\.diagnostic\.txt[\s\S]*procedure\s+DeinitializeSetup[\s\S]*DeleteTransientState[\s\S]*procedure\s+DeinitializeUninstall[\s\S]*DeleteTransientState' `
         -Description 'transient original-user state is removed after setup and uninstall'
     Assert-TextExcludes `
         -Text $inno `
@@ -611,7 +639,7 @@ function Test-SparsePackageContract
         -Description 'installer preserves the default visible system border'
     Assert-TextContains `
         -Text $inno `
-        -Pattern 'recovery state were retained[\s\S]*Exit' `
+        -Pattern 'recovery state[\s\S]*were retained[\s\S]*Exit' `
         -Description 'failed setup retains recovery payload'
 
     $registration = Read-RepositoryText -RelativePath 'tools/installer/register-user-package.ps1'
