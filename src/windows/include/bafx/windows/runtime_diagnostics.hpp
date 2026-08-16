@@ -50,8 +50,10 @@ struct DisplayRuntimeSummary final
     std::size_t sessionCount{0U};
     CompositionOutputPreference requestedOutputPreference{
         CompositionOutputPreference::ConservativeSdr};
-    CompositionOutputPreference effectiveOutputPreference{
+    CompositionOutputPreference resolvedOutputPreference{
         CompositionOutputPreference::ConservativeSdr};
+    std::optional<CompositionOutputPreference> actualOutputPreference{};
+    bool outputPreferenceSatisfied{false};
     bool colorSnapshotComplete{false};
     bool hdrCapabilityObserved{false};
     bool hdrActive{false};

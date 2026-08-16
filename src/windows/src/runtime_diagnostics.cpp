@@ -730,8 +730,22 @@ std::string SupportReport::serialize() const
                << "Display.Output.RequestedPreference="
                << outputPreferenceName(summary.requestedOutputPreference)
                << '\n'
-               << "Display.Output.EffectivePreference="
-               << outputPreferenceName(summary.effectiveOutputPreference)
+               << "Display.Output.ResolvedPreference="
+               << outputPreferenceName(summary.resolvedOutputPreference)
+               << '\n'
+               << "Display.Output.ActualPreference=";
+        if (summary.actualOutputPreference.has_value())
+        {
+            stream << outputPreferenceName(
+                *summary.actualOutputPreference);
+        }
+        else
+        {
+            stream << "unknown";
+        }
+        stream << '\n'
+               << "Display.Output.PreferenceSatisfied="
+               << (summary.outputPreferenceSatisfied ? "true" : "false")
                << '\n'
                << "Display.ColorSnapshotComplete="
                << (summary.colorSnapshotComplete ? "true" : "false") << '\n'
@@ -744,7 +758,9 @@ std::string SupportReport::serialize() const
     {
         stream << "Display.SessionCount=not-observed\n"
                << "Display.Output.RequestedPreference=unknown\n"
-               << "Display.Output.EffectivePreference=unknown\n"
+               << "Display.Output.ResolvedPreference=unknown\n"
+               << "Display.Output.ActualPreference=unknown\n"
+               << "Display.Output.PreferenceSatisfied=unknown\n"
                << "Display.ColorSnapshotComplete=unknown\n"
                << "Display.HdrCapabilityObserved=unknown\n"
                << "Display.HdrActive=unknown\n";
@@ -1011,6 +1027,13 @@ std::string SupportReport::serialize() const
                << outputTransferName(deviceInfo_.output.transfer) << '\n'
                << "Graphics.OutputPreference="
                << outputPreferenceName(deviceInfo_.outputPreference) << '\n'
+               << "Graphics.OutputPreferenceSatisfied="
+               << (compositionOutputSatisfiesPreference(
+                       deviceInfo_.output,
+                       deviceInfo_.outputPreference)
+                       ? "true"
+                       : "false")
+               << '\n'
                << "Graphics.OutputExtendedPremultiplied="
                << (deviceInfo_.output.extendedPremultiplied
                        ? "true"

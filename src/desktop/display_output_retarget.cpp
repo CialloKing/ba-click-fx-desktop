@@ -118,8 +118,12 @@ bafx::windows::CompositionOutputPreference resolveDisplayOutputPreference(
     using bafx::windows::DisplayColorMode;
 
     if (requested == CompositionOutputPreference::ConservativeSdr
-        || !capabilities.has_value())
+        || !capabilities.has_value()
+        || !bafx::windows::displayColorStateComplete(*capabilities))
     {
+        // A partial DisplayConfig sample may still contain stale HDR bits.
+        // Keep the final transport conservative until one complete snapshot
+        // can own the output decision.
         return CompositionOutputPreference::ConservativeSdr;
     }
 
@@ -201,9 +205,12 @@ DisplayOutputRetargetResult retargetDisplayOutput(
                 != bafx::windows::OutputAdapterRetargetStatus::Unchanged
             || result.output
                 == bafx::windows::OutputResizeStatus::DeviceRecovered;
-        const bool outputPreferenceChanged =
-            targetPreference != renderer.outputPreference();
-        if (outputPreferenceChanged
+        const bool outputPreferenceUnsatisfied =
+            targetPreference != renderer.outputPreference()
+            || !bafx::windows::compositionOutputSatisfiesPreference(
+                renderer.outputState(),
+                targetPreference);
+        if (outputPreferenceUnsatisfied
             || (intent.windowBounds.has_value()
                 && !outputResourceDomainRecreated))
         {

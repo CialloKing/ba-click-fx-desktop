@@ -249,7 +249,10 @@ void DisplaySession::setRequestedOutputPreference(
 
     const bafx::windows::CompositionOutputPreference effectivePreference =
         resolveDisplayOutputPreference(preference, colorCapabilities_);
-    if (renderer_.outputPreference() == effectivePreference)
+    if (renderer_.outputPreference() == effectivePreference
+        && bafx::windows::compositionOutputSatisfiesPreference(
+            renderer_.outputState(),
+            effectivePreference))
     {
         // A newer user policy can already match the applied transport while
         // an older failed renegotiation is waiting for its retry deadline.
@@ -550,6 +553,24 @@ void DisplaySession::initializeSecondaryBackgroundCapture(
         : state->transition.beginRequest(request);
     requireStartedRequest(requestResult);
     state->outcomePending = true;
+    const bafx::windows::CompositionOutputPreference effectivePreference =
+        resolveDisplayOutputPreference(
+            requestedOutputPreference_,
+            colorCapabilities_);
+    if (renderer_.outputPreference() != effectivePreference
+        || !bafx::windows::compositionOutputSatisfiesPreference(
+            renderer_.outputState(),
+            effectivePreference))
+    {
+        // Startup fallback is a valid drawing surface, not proof that the
+        // desired transport is permanently unavailable. Reuse the bounded
+        // secondary retry owner after its capture transaction reaches idle.
+        state->pendingOutputRenegotiation =
+            PendingSecondaryOutputRenegotiation{
+                effectivePreference,
+                "initial-output-fallback",
+                target_};
+    }
     secondaryBackgroundCapture_ = std::move(state);
     static_cast<void>(serviceSecondaryBackgroundCapture(
         bafx::core::MonotonicTime::zero()));
@@ -914,7 +935,13 @@ DisplaySession::serviceSecondaryBackgroundCapture(
                 }
             }
 
-            if (result.outputRenegotiation.has_value())
+            const bool outputPreferenceSatisfied =
+                result.outputRenegotiation.has_value()
+                && renderer_.outputPreference() == pending.preference
+                && bafx::windows::compositionOutputSatisfiesPreference(
+                    renderer_.outputState(),
+                    pending.preference);
+            if (outputPreferenceSatisfied)
             {
                 state.pendingOutputRenegotiation.reset();
             }
@@ -1507,13 +1534,41 @@ DisplaySessionDeviceRecoveryResult DisplaySession::finishDeviceRecovery(
         adapterChanged,
         backgroundWasActive,
         DisplaySessionBackgroundRecoveryStatus::NotRequired};
-    if (secondaryBackgroundCapture_ == nullptr || !backgroundWasActive)
+    if (secondaryBackgroundCapture_ == nullptr)
     {
         return result;
     }
 
     DisplaySessionBackgroundCaptureState& state =
         *secondaryBackgroundCapture_;
+    const bafx::windows::CompositionOutputPreference effectivePreference =
+        resolveDisplayOutputPreference(
+            requestedOutputPreference_,
+            colorCapabilities_);
+    const bool outputPreferenceSatisfied =
+        renderer_.outputPreference() == effectivePreference
+        && bafx::windows::compositionOutputSatisfiesPreference(
+            renderer_.outputState(),
+            effectivePreference);
+    const bool duplicateOutputRetry =
+        state.pendingOutputRenegotiation.has_value()
+        && state.pendingOutputRenegotiation->preference == effectivePreference;
+    if (!outputPreferenceSatisfied && !duplicateOutputRetry)
+    {
+        // Device recovery recreates the swap chain independently of WGC. A
+        // soft SDR fallback therefore needs its own finite retry window even
+        // when the background sensor was inactive.
+        state.pendingOutputRenegotiation =
+            PendingSecondaryOutputRenegotiation{
+                effectivePreference,
+                "device-recovery-output-fallback",
+                target_};
+    }
+    if (!backgroundWasActive)
+    {
+        return result;
+    }
+
     state.captureSizeTracker.reset();
     const bafx::windows::WgcBackgroundStopDiagnostics stopDiagnostics =
         appendBackgroundCaptureStopDiagnostics(
@@ -1601,11 +1656,11 @@ void DisplaySession::acceptPendingSecondaryTargetIfApplied(
         return;
     }
 
-    const bafx::windows::CompositionOutputPreference previousPreference =
+    const bafx::windows::CompositionOutputPreference transactionPreference =
         state.pendingTargetOutputPreference.value_or(
             renderer_.outputPreference());
     const std::optional<bafx::windows::DisplayColorCapabilities>
-        previousCapabilities = state.pendingTargetColorCapabilities;
+        transactionCapabilities = state.pendingTargetColorCapabilities;
     acceptAppliedTarget(
         std::move(*state.pendingTarget),
         state.pendingWakeWindow);
@@ -1613,17 +1668,20 @@ void DisplaySession::acceptPendingSecondaryTargetIfApplied(
     resetFramePacing();
     // The coordinator refreshes after comparing old/new modes. Secondary
     // sessions have no separate comparison owner, so refresh at commit time.
-    static_cast<void>(refreshColorCapabilities(previousCapabilities));
+    static_cast<void>(refreshColorCapabilities(transactionCapabilities));
     const bafx::windows::CompositionOutputPreference targetPreference =
         resolveDisplayOutputPreference(
             requestedOutputPreference_,
             colorCapabilities_);
     const bool outputContractChanged = displayOutputContractChanged(
-        previousPreference,
+        transactionPreference,
         targetPreference,
-        previousCapabilities,
+        transactionCapabilities,
         colorCapabilities_);
     if (renderer_.outputPreference() != targetPreference
+        || !bafx::windows::compositionOutputSatisfiesPreference(
+            renderer_.outputState(),
+            targetPreference)
         || outputContractChanged)
     {
         // WGC textures share the output device. Queue the existing serialized

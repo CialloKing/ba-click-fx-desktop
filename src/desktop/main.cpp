@@ -485,6 +485,12 @@ void appendOutputRenegotiation(
         const std::string deviceRecovered = result.deviceRecovered
             ? "true"
             : "false";
+        const std::string_view preferenceSatisfied =
+            bafx::windows::compositionOutputSatisfiesPreference(
+                result.current,
+                result.currentPreference)
+            ? "true"
+            : "false";
         const std::array fields{
             bafx::windows::DiagnosticField{"Reason", reason},
             bafx::windows::DiagnosticField{"Monitor", monitor},
@@ -508,6 +514,9 @@ void appendOutputRenegotiation(
             bafx::windows::DiagnosticField{
                 "Fallback",
                 outputFallbackName(result.current.fallback)},
+            bafx::windows::DiagnosticField{
+                "PreferenceSatisfied",
+                preferenceSatisfied},
             bafx::windows::DiagnosticField{
                 "DeviceRecovered",
                 deviceRecovered}};
@@ -2230,15 +2239,27 @@ int runApplication(
                 || capabilities->highDynamicRangeSupported
                 || capabilities->activeColorMode
                     == bafx::windows::DisplayColorMode::Hdr);
-        const bool hdrActive = capabilities.has_value()
+        const bool hdrActive = colorSnapshotComplete
             && capabilities->activeColorMode
                 == bafx::windows::DisplayColorMode::Hdr
-            && capabilities->advancedColorActive;
+            && (!capabilities->displayPathResolved
+                || capabilities->advancedColorActive);
+        const bafx::windows::CompositionOutputState& output =
+            renderer.outputState();
+        const bafx::windows::CompositionOutputPreference resolvedPreference =
+            bafx::desktop::resolveDisplayOutputPreference(
+                displaySession.requestedOutputPreference(),
+                capabilities);
         report.setDisplayRuntimeSummary(
             bafx::windows::DisplayRuntimeSummary{
                 displaySessions.sessions().size(),
                 displaySession.requestedOutputPreference(),
-                renderer.outputPreference(),
+                resolvedPreference,
+                bafx::windows::effectiveCompositionOutputPreference(output),
+                renderer.outputPreference() == resolvedPreference
+                    && bafx::windows::compositionOutputSatisfiesPreference(
+                        output,
+                        resolvedPreference),
                 colorSnapshotComplete,
                 hdrCapabilityObserved,
                 hdrActive});
@@ -2453,8 +2474,22 @@ int runApplication(
     bool backgroundRetryPending = false;
     bool coordinatorPowerRecoveryEligible = false;
     bool outputPreferenceReconcilePending = false;
+    const bafx::windows::CompositionOutputPreference
+        initialCoordinatorOutputPreference =
+            bafx::desktop::resolveDisplayOutputPreference(
+                displaySession.requestedOutputPreference(),
+                displaySession.colorCapabilities());
     std::optional<PendingOutputRenegotiation>
-        pendingCoordinatorOutputRenegotiation{};
+        pendingCoordinatorOutputRenegotiation =
+            renderer.outputPreference() == initialCoordinatorOutputPreference
+            && bafx::windows::compositionOutputSatisfiesPreference(
+                renderer.outputState(),
+                initialCoordinatorOutputPreference)
+            ? std::nullopt
+            : std::optional<PendingOutputRenegotiation>(
+                PendingOutputRenegotiation{
+                    initialCoordinatorOutputPreference,
+                    "initial-output-fallback"});
     std::optional<bafx::desktop::DisplayTarget> pendingDisplayTarget{};
     bafx::desktop::DisplayCaptureSizeTracker coordinatorCaptureSizeTracker{};
     bool backgroundParticipationLogged = false;
@@ -2624,9 +2659,15 @@ int runApplication(
         }
 
         report.setDeviceInfo(renderer.deviceInfo());
+        updateDisplayRuntimeSummary();
+        const bool outputPreferenceSatisfied =
+            renderer.outputPreference() == preference
+            && bafx::windows::compositionOutputSatisfiesPreference(
+                renderer.outputState(),
+                preference);
         if (!result->deviceRecovered)
         {
-            return true;
+            return outputPreferenceSatisfied;
         }
 
         // The explicit stop above already scheduled reconciliation. Recovery
@@ -2670,7 +2711,7 @@ int runApplication(
             "Graphics.DeviceRecovery.OutputRenegotiationSucceeded",
             fields,
             bafx::windows::DiagnosticLevel::Warning);
-        return true;
+        return outputPreferenceSatisfied;
     };
     const auto retainFailedCoordinatorOutputRenegotiation =
         [&](PendingOutputRenegotiation pending)
@@ -2691,6 +2732,114 @@ int runApplication(
                 pendingCoordinatorOutputRenegotiation->reason,
                 pendingCoordinatorOutputRenegotiation->attemptsRemaining,
                 "display-maintenance");
+        };
+    const auto queueCoordinatorOutputRecoveryIfNeeded =
+        [&](const std::string_view reason)
+        {
+            const bafx::windows::CompositionOutputPreference preference =
+                bafx::desktop::resolveDisplayOutputPreference(
+                    displaySession.requestedOutputPreference(),
+                    displaySession.colorCapabilities());
+            const bool outputPreferenceSatisfied =
+                renderer.outputPreference() == preference
+                && bafx::windows::compositionOutputSatisfiesPreference(
+                    renderer.outputState(),
+                    preference);
+            const bool duplicatePending =
+                pendingCoordinatorOutputRenegotiation.has_value()
+                && pendingCoordinatorOutputRenegotiation->preference
+                    == preference;
+            if (outputPreferenceSatisfied || duplicatePending)
+            {
+                return;
+            }
+
+            // A device/resource-domain recovery is a new finite recovery edge.
+            // Ordinary WGC transactions never call this helper, so an exhausted
+            // output budget cannot silently become an unbounded retry loop.
+            pendingCoordinatorOutputRenegotiation =
+                PendingOutputRenegotiation{
+                    preference,
+                    std::string(reason)};
+            const std::string attempts = std::to_string(
+                pendingCoordinatorOutputRenegotiation->attemptsRemaining);
+            const std::array fields{
+                bafx::windows::DiagnosticField{"Reason", reason},
+                bafx::windows::DiagnosticField{
+                    "RequestedPreference",
+                    outputPreferenceName(preference)},
+                bafx::windows::DiagnosticField{
+                    "ActualTransfer",
+                    outputTransferName(renderer.outputState().transfer)},
+                bafx::windows::DiagnosticField{
+                    "Fallback",
+                    outputFallbackName(renderer.outputState().fallback)},
+                bafx::windows::DiagnosticField{"Attempts", attempts}};
+            bafx::windows::appendDiagnosticEvent(
+                logPath,
+                "Display.Output.RecoveryReconciliationQueued",
+                fields,
+                bafx::windows::DiagnosticLevel::Warning);
+        };
+    const auto secondaryOutputPreferenceSatisfied =
+        [](const bafx::desktop::DisplaySession& session,
+           const bafx::windows::CompositionOutputPreference preference) noexcept
+        {
+            return session.renderer().outputPreference() == preference
+                && bafx::windows::compositionOutputSatisfiesPreference(
+                    session.renderer().outputState(),
+                    preference);
+        };
+    const auto queueSecondaryOutputRenegotiation =
+        [&](bafx::desktop::DisplaySession& session,
+            const bafx::windows::CompositionOutputPreference preference,
+            const std::string_view reason) noexcept
+        {
+            try
+            {
+                if (!session.secondaryBackgroundCaptureInitialized())
+                {
+                    // Keep output retries owned by the same serialized state
+                    // even when WGC itself is disabled or previously retired.
+                    session.initializeSecondaryBackgroundCapture(
+                        bafx::desktop::backgroundCaptureRequest(
+                            config,
+                            backgroundRetryToken),
+                        appliedGeneration,
+                        logPath,
+                        displayPowerUnavailable);
+                }
+                if (!secondaryOutputPreferenceSatisfied(session, preference))
+                {
+                    // Binding the request to the applied target preserves the
+                    // budget created during initialization instead of replacing
+                    // it with an indistinguishable global request.
+                    session.requestSecondaryOutputRenegotiation(
+                        preference,
+                        reason,
+                        session.target());
+                }
+                return true;
+            }
+            catch (const std::exception& error)
+            {
+                session.shutdownSecondaryBackgroundCapture();
+                appendSecondaryBackgroundCaptureFailure(
+                    logPath,
+                    session,
+                    "queue-output-renegotiation",
+                    error.what());
+            }
+            catch (...)
+            {
+                session.shutdownSecondaryBackgroundCapture();
+                appendSecondaryBackgroundCaptureFailure(
+                    logPath,
+                    session,
+                    "queue-output-renegotiation",
+                    "unknown exception");
+            }
+            return false;
         };
     // Advanced Color notifications first refresh monitor facts. A changed
     // transport is queued until the WGC owner reaches an idle transaction
@@ -2771,7 +2920,10 @@ int runApplication(
                         requestedPreference,
                         displaySession.colorCapabilities());
             const bool outputPreferenceMismatch =
-                renderer.outputPreference() != currentPreference;
+                renderer.outputPreference() != currentPreference
+                || !bafx::windows::compositionOutputSatisfiesPreference(
+                    renderer.outputState(),
+                    currentPreference);
             const bool colorContractChanged =
                 bafx::desktop::displayOutputContractChanged(
                     previousPreference,
@@ -2824,7 +2976,7 @@ int runApplication(
                     "RequestedPreference",
                     outputPreferenceName(requestedPreference)},
                 bafx::windows::DiagnosticField{
-                    "EffectivePreference",
+                    "ResolvedPreference",
                     outputPreferenceName(currentPreference)},
                 bafx::windows::DiagnosticField{
                     "OutputContract",
@@ -2854,7 +3006,10 @@ int runApplication(
                     bafx::desktop::resolveDisplayOutputPreference(
                         requested,
                         session.colorCapabilities());
-                if (session.renderer().outputPreference() == effective)
+                if (session.renderer().outputPreference() == effective
+                    && bafx::windows::compositionOutputSatisfiesPreference(
+                        session.renderer().outputState(),
+                        effective))
                 {
                     continue;
                 }
@@ -2872,53 +3027,26 @@ int runApplication(
                                 std::string(reason)});
                     }
                 }
-                else if (session.secondaryBackgroundCaptureInitialized())
-                {
-                    try
-                    {
-                        // The secondary owner serializes WGC stop, output
-                        // replacement and restart on its normal service path.
-                        session.requestSecondaryOutputRenegotiation(
-                            effective,
-                            reason);
-                        applied = true;
-                    }
-                    catch (const std::exception& error)
-                    {
-                        session.shutdownSecondaryBackgroundCapture();
-                        appendSecondaryBackgroundCaptureFailure(
-                            logPath,
-                            session,
-                            "queue-output-renegotiation",
-                            error.what());
-                        applied = tryRenegotiateOutput(
-                            logPath,
-                            session,
-                            effective,
-                            fxOnlyReason).has_value();
-                    }
-                    catch (...)
-                    {
-                        session.shutdownSecondaryBackgroundCapture();
-                        appendSecondaryBackgroundCaptureFailure(
-                            logPath,
-                            session,
-                            "queue-output-renegotiation",
-                            "unknown exception");
-                        applied = tryRenegotiateOutput(
-                            logPath,
-                            session,
-                            effective,
-                            fxOnlyReason).has_value();
-                    }
-                }
                 else
                 {
-                    applied = tryRenegotiateOutput(
-                        logPath,
+                    applied = queueSecondaryOutputRenegotiation(
                         session,
                         effective,
-                        fxOnlyReason).has_value();
+                        reason);
+                    if (!applied)
+                    {
+                        const std::optional<
+                            bafx::windows::OutputRenegotiationResult> result =
+                            tryRenegotiateOutput(
+                                logPath,
+                                session,
+                                effective,
+                                fxOnlyReason);
+                        applied = result.has_value()
+                            && secondaryOutputPreferenceSatisfied(
+                                session,
+                                effective);
+                    }
                 }
                 if (applied && coordinator)
                 {
@@ -3039,6 +3167,13 @@ int runApplication(
                 previousDisplayTarget,
                 appliedDisplayTarget,
                 appliedDpi);
+        }
+        if (backgroundExecution.deviceRecovered
+            || backgroundExecution.outputAdapterRetargeted)
+        {
+            // Resolve after committing a pending target so the new monitor's
+            // complete color snapshot owns the recovery contract.
+            queueCoordinatorOutputRecoveryIfNeeded(recoveryPhase);
         }
         backgroundCaptureEnabled = backgroundTransition.effectivePath()
             == bafx::windows::EffectiveBackgroundCapturePath::BackgroundAware;
@@ -3444,57 +3579,39 @@ int runApplication(
                     bafx::desktop::resolveDisplayOutputPreference(
                         requestedPreference,
                         session.colorCapabilities());
-                const bool outputContractChanged =
-                    bafx::desktop::displayOutputContractChanged(
+                const bool outputPreferenceMismatch =
+                    session.renderer().outputPreference() != preference
+                    || !bafx::windows::compositionOutputSatisfiesPreference(
+                        session.renderer().outputState(),
+                        preference);
+                const bool outputContractChanged = outputPreferenceMismatch
+                    || bafx::desktop::displayOutputContractChanged(
                         previousPreference,
                         preference,
                         previousCapabilities,
                         session.colorCapabilities());
                 std::string_view outputRenegotiation = "not-needed";
-                bool applyFxOnlyOutput = false;
                 if (outputContractChanged)
                 {
                     renderInvalidated = true;
-                    if (session.secondaryBackgroundCaptureInitialized())
+                    const bool queued = queueSecondaryOutputRenegotiation(
+                        session,
+                        preference,
+                        reason);
+                    if (queued)
                     {
-                        try
-                        {
-                            session.requestSecondaryOutputRenegotiation(
-                                preference,
-                                reason,
-                                session.target());
-                            outputRenegotiation = "queued";
-                        }
-                        catch (const std::exception& error)
-                        {
-                            // A queue-allocation failure must not strand a
-                            // working FX-only surface on the old color contract.
-                            session.shutdownSecondaryBackgroundCapture();
-                            appendSecondaryBackgroundCaptureFailure(
-                                logPath,
+                        outputRenegotiation =
+                            secondaryOutputPreferenceSatisfied(
                                 session,
-                                "queue-output-renegotiation",
-                                error.what());
-                            applyFxOnlyOutput = true;
-                        }
-                        catch (...)
-                        {
-                            session.shutdownSecondaryBackgroundCapture();
-                            appendSecondaryBackgroundCaptureFailure(
-                                logPath,
-                                session,
-                                "queue-output-renegotiation",
-                                "unknown exception");
-                            applyFxOnlyOutput = true;
-                        }
+                                preference)
+                            ? "applied-during-owner-initialization"
+                            : "queued";
                     }
                     else
                     {
-                        applyFxOnlyOutput = true;
-                    }
-
-                    if (applyFxOnlyOutput)
-                    {
+                        // Allocation or transaction setup can still fail. Keep
+                        // the FX-only surface usable, but never call a soft SDR
+                        // fallback success unless its actual transfer matches.
                         const std::optional<
                             bafx::windows::OutputRenegotiationResult> result =
                             tryRenegotiateOutput(
@@ -3502,14 +3619,14 @@ int runApplication(
                                 session,
                                 preference,
                                 reason);
-                        if (result.has_value())
-                        {
-                            outputRenegotiation = "applied-fx-only";
-                        }
-                        else
-                        {
-                            outputRenegotiation = "failed";
-                        }
+                        outputRenegotiation = result.has_value()
+                            && secondaryOutputPreferenceSatisfied(
+                                session,
+                                preference)
+                            ? "applied-fx-only"
+                            : (result.has_value()
+                                ? "fallback-unsatisfied"
+                                : "failed");
                     }
                 }
                 const std::array fields{
@@ -3530,7 +3647,7 @@ int runApplication(
                         "RequestedPreference",
                         outputPreferenceName(requestedPreference)},
                     bafx::windows::DiagnosticField{
-                        "EffectivePreference",
+                        "ResolvedPreference",
                         outputPreferenceName(preference)},
                     bafx::windows::DiagnosticField{
                         "OutputContract",
@@ -4216,6 +4333,9 @@ int runApplication(
                         "bloom-device-recovery");
                     deviceRecoveryConsumed = true;
                     report.setDeviceInfo(renderer.deviceInfo());
+                    queueCoordinatorOutputRecoveryIfNeeded(
+                        "bloom-device-recovery-output");
+                    updateDisplayRuntimeSummary();
                     const bool adapterChanged =
                         previousDeviceInfo.adapterLuid.LowPart
                             != renderer.deviceInfo().adapterLuid.LowPart
@@ -5109,6 +5229,9 @@ int runApplication(
                     renderer,
                     "render-device-recovery");
                 report.setDeviceInfo(renderer.deviceInfo());
+                queueCoordinatorOutputRecoveryIfNeeded(
+                    "render-device-recovery-output");
+                updateDisplayRuntimeSummary();
                 const bool adapterChanged =
                     previousDeviceInfo.adapterLuid.LowPart
                         != renderer.deviceInfo().adapterLuid.LowPart
@@ -5380,6 +5503,9 @@ int runApplication(
                         renderer,
                         "device-recovery-probe");
                     report.setDeviceInfo(renderer.deviceInfo());
+                    queueCoordinatorOutputRecoveryIfNeeded(
+                        "device-recovery-probe-output");
+                    updateDisplayRuntimeSummary();
                     const bafx::windows::DeviceRecoveryDiagnostics diagnostics =
                         renderer.deviceRecoveryDiagnostics();
                     const std::string totalMicroseconds = std::to_string(

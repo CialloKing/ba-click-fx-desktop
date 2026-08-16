@@ -227,6 +227,8 @@ BAFX_TEST(support_report_contains_alpha_scope_and_graphics_facts)
             2U,
             bafx::windows::CompositionOutputPreference::PreferLinearScRgb,
             bafx::windows::CompositionOutputPreference::ConservativeSdr,
+            bafx::windows::CompositionOutputPreference::ConservativeSdr,
+            true,
             true,
             true,
             false});
@@ -247,7 +249,12 @@ BAFX_TEST(support_report_contains_alpha_scope_and_graphics_facts)
         "Display.Output.RequestedPreference=prefer-linear-scrgb")
         != std::string::npos);
     BAFX_CHECK(text.find(
-        "Display.Output.EffectivePreference=conservative-sdr")
+        "Display.Output.ResolvedPreference=conservative-sdr")
+        != std::string::npos);
+    BAFX_CHECK(text.find(
+        "Display.Output.ActualPreference=conservative-sdr")
+        != std::string::npos);
+    BAFX_CHECK(text.find("Display.Output.PreferenceSatisfied=true")
         != std::string::npos);
     BAFX_CHECK(text.find("Display.ColorSnapshotComplete=true")
         != std::string::npos);
@@ -261,6 +268,8 @@ BAFX_TEST(support_report_contains_alpha_scope_and_graphics_facts)
     BAFX_CHECK(text.find("Graphics.Adapter=Microsoft Basic Render Driver")
         != std::string::npos);
     BAFX_CHECK(text.find("Graphics.FeatureLevel=11_0") != std::string::npos);
+    BAFX_CHECK(text.find("Graphics.OutputPreferenceSatisfied=false")
+        != std::string::npos);
     BAFX_CHECK(text.find("Display.PrimaryDpi=144") != std::string::npos);
     BAFX_CHECK(text.find("Display.RefreshRateSource=dwm-composition-timing")
         != std::string::npos);

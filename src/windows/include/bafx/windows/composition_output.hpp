@@ -3,6 +3,7 @@
 #include <dxgi1_4.h>
 
 #include <cstdint>
+#include <optional>
 
 namespace bafx::windows
 {
@@ -37,5 +38,32 @@ struct CompositionOutputState final
     [[nodiscard]] bool operator==(
         const CompositionOutputState&) const noexcept = default;
 };
+
+[[nodiscard]] constexpr std::optional<CompositionOutputPreference>
+effectiveCompositionOutputPreference(
+    const CompositionOutputState& output) noexcept
+{
+    switch (output.transfer)
+    {
+    case CompositionOutputTransfer::LinearScRgb:
+        return CompositionOutputPreference::PreferLinearScRgb;
+    case CompositionOutputTransfer::SdrGamma22:
+        return CompositionOutputPreference::ConservativeSdr;
+    case CompositionOutputTransfer::Unknown:
+        return std::nullopt;
+    }
+    return std::nullopt;
+}
+
+[[nodiscard]] constexpr bool compositionOutputSatisfiesPreference(
+    const CompositionOutputState& output,
+    const CompositionOutputPreference preference) noexcept
+{
+    const std::optional<CompositionOutputPreference> effective =
+        effectiveCompositionOutputPreference(output);
+    // The fallback marker explains how SDR was selected; the transfer remains
+    // the authoritative fact when comparing against the current policy.
+    return effective.has_value() && *effective == preference;
+}
 
 }
