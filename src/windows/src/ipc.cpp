@@ -51,6 +51,10 @@ constexpr std::size_t maximumParserLineBytes = 1U * 1024U * 1024U;
     {
         return IpcCommand::GetState;
     }
+    if (name == "GetDisplayState")
+    {
+        return IpcCommand::GetDisplayState;
+    }
     if (name == "GetConfig")
     {
         return IpcCommand::GetConfig;

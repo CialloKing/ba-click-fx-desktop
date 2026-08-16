@@ -179,6 +179,94 @@ BAFX_TEST(host_control_observes_shutdown_after_the_client_receives_its_ack)
     BAFX_CHECK(stopped.shutdownRequested);
 }
 
+BAFX_TEST(host_control_publishes_one_immutable_display_state_snapshot)
+{
+    TemporaryConfigDirectory temporary;
+    bafx::windows::NamedPipeIpcServer::Options serverOptions{};
+    serverOptions.pipeName = testPipeName() + L".display-state";
+    serverOptions.ioTimeoutMilliseconds = 500U;
+    serverOptions.retryDelayMilliseconds = 10U;
+    bafx::desktop::HostControlPlane control(
+        temporary.configPath(),
+        bafx::config::defaultConfig(),
+        serverOptions);
+    BAFX_CHECK(control.start(false).serviceStarted);
+
+    bafx::windows::DisplaySessionRuntimeSummary session{};
+    session.monitor = "monitor-1";
+    session.device = R"(\\.\DISPLAY1)";
+    session.bounds = RECT{0, 0, 3840, 2160};
+    session.targetDpiX = 144U;
+    session.targetDpiY = 144U;
+    session.windowDpi = 144U;
+    session.displayRefreshRate = bafx::windows::DisplayRefreshRate{
+        144'000U,
+        1'001U,
+        bafx::windows::DisplayRefreshRateSource::DisplayConfigPath};
+    session.captureRefreshRate = bafx::windows::DisplayRefreshRate{
+        60U,
+        1U,
+        bafx::windows::DisplayRefreshRateSource::DisplayConfigPath};
+    session.deviceInfo.adapterDescription = L"Test Adapter";
+    session.deviceInfo.driverType = bafx::windows::GraphicsDriverType::Hardware;
+    session.requestedOutputPreference =
+        bafx::windows::CompositionOutputPreference::PreferLinearScRgb;
+    session.resolvedOutputPolicy = bafx::windows::compositionOutputPolicyFor(
+        bafx::windows::CompositionOutputPreference::PreferLinearScRgb);
+    session.deviceInfo.output.transfer =
+        bafx::windows::CompositionOutputTransfer::LinearScRgb;
+    session.outputPolicySatisfied = true;
+    session.coordinator = true;
+    session.primary = true;
+    session.backgroundCaptureActive = true;
+    session.backgroundCaptureRestartAllowed = true;
+
+    bafx::windows::DisplayColorCapabilities color{};
+    color.displayPathResolved = true;
+    color.advancedColorQueryResult = ERROR_SUCCESS;
+    color.advancedColorStateConsistent = true;
+    color.activeColorMode = bafx::windows::DisplayColorMode::Hdr;
+    color.advancedColorActive = true;
+    color.highDynamicRangeSupported = true;
+    session.colorCapabilities = color;
+
+    bafx::windows::DisplayRuntimeSummary summary{};
+    summary.sessionCount = 1U;
+    summary.sessions.push_back(session);
+    control.setDisplayRuntimeSummary(summary);
+
+    bafx::windows::IpcClientOptions clientOptions{};
+    clientOptions.pipeName = serverOptions.pipeName;
+    clientOptions.timeoutMilliseconds = 1'000U;
+    const bafx::windows::NamedPipeIpcClient client(clientOptions);
+    const bafx::windows::IpcClientResponse response =
+        client.transact("GetDisplayState");
+    const bafx::desktop::DisplayStateSnapshot snapshot =
+        control.displaySnapshot();
+    control.stop();
+
+    BAFX_CHECK(response.succeeded());
+    BAFX_CHECK(response.payload.find("\"generation\":1")
+        != std::string::npos);
+    BAFX_CHECK(response.payload.find("\"device\":\"\\\\\\\\.\\\\DISPLAY1\"")
+        != std::string::npos);
+    BAFX_CHECK(response.payload.find("\"displayRefresh\":{\"numerator\":144000")
+        != std::string::npos);
+    BAFX_CHECK(response.payload.find("\"requestedOutput\":\"linear-scrgb\"")
+        != std::string::npos);
+    BAFX_CHECK(response.payload.find("\"resolvedOutput\":\"linear-scrgb\"")
+        != std::string::npos);
+    BAFX_CHECK(response.payload.find("\"actualOutput\":\"linear-scrgb\"")
+        != std::string::npos);
+    BAFX_CHECK(response.payload.find("\"hdrSupported\":true")
+        != std::string::npos);
+    BAFX_CHECK(response.payload.find("\"hdrActive\":true")
+        != std::string::npos);
+    BAFX_CHECK(snapshot.generation == 1U);
+    BAFX_CHECK(snapshot.runtime.sessions.size() == 1U);
+    BAFX_CHECK(snapshot.runtime.sessions.front().device == session.device);
+}
+
 BAFX_TEST(host_control_fx_config_and_single_param_round_trip_over_ipc)
 {
     TemporaryConfigDirectory temporary;

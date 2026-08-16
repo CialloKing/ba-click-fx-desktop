@@ -2583,20 +2583,23 @@ int runApplication(
                 return left.device < right.device;
             });
         const std::size_t sessionCount = sessionSummaries.size();
-        report.setDisplayRuntimeSummary(
-            bafx::windows::DisplayRuntimeSummary{
-                sessionCount,
-                displaySession.requestedOutputPreference(),
-                resolvedPolicy.preference,
-                bafx::windows::effectiveCompositionOutputPreference(output),
-                renderer.outputPolicy() == resolvedPolicy
-                    && bafx::windows::compositionOutputSatisfiesPolicy(
-                        output,
-                        resolvedPolicy),
-                colorSnapshotComplete,
-                hdrCapabilityObserved,
-                hdrActive,
-                std::move(sessionSummaries)});
+        bafx::windows::DisplayRuntimeSummary runtimeSummary{
+            sessionCount,
+            displaySession.requestedOutputPreference(),
+            resolvedPolicy.preference,
+            bafx::windows::effectiveCompositionOutputPreference(output),
+            renderer.outputPolicy() == resolvedPolicy
+                && bafx::windows::compositionOutputSatisfiesPolicy(
+                    output,
+                    resolvedPolicy),
+            colorSnapshotComplete,
+            hdrCapabilityObserved,
+            hdrActive,
+            std::move(sessionSummaries)};
+        // The support report and Control Center consume the same immutable
+        // product snapshot, so neither can drift from the live per-screen view.
+        report.setDisplayRuntimeSummary(runtimeSummary);
+        control.setDisplayRuntimeSummary(std::move(runtimeSummary));
     };
     updateDisplayRuntimeSummary();
     appendDeviceRemovedNotificationStatus(logPath, renderer, "startup");

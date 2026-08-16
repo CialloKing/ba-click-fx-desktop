@@ -2,6 +2,7 @@
 
 #include "bafx/windows/portable_paths.hpp"
 
+#include <limits>
 #include <sstream>
 #include <utility>
 
@@ -61,6 +62,104 @@ namespace
 [[nodiscard]] std::string statusName(const bool active)
 {
     return active ? "active" : "fallback-fx-only";
+}
+
+[[nodiscard]] std::string wideToUtf8(const std::wstring_view value)
+{
+    if (value.empty())
+    {
+        return {};
+    }
+    if (value.size()
+        > static_cast<std::size_t>((std::numeric_limits<int>::max)()))
+    {
+        return {};
+    }
+
+    const int characterCount = static_cast<int>(value.size());
+    const int byteCount = WideCharToMultiByte(
+        CP_UTF8,
+        WC_ERR_INVALID_CHARS,
+        value.data(),
+        characterCount,
+        nullptr,
+        0,
+        nullptr,
+        nullptr);
+    if (byteCount <= 0)
+    {
+        return {};
+    }
+
+    std::string result(static_cast<std::size_t>(byteCount), '\0');
+    const int converted = WideCharToMultiByte(
+        CP_UTF8,
+        WC_ERR_INVALID_CHARS,
+        value.data(),
+        characterCount,
+        result.data(),
+        byteCount,
+        nullptr,
+        nullptr);
+    if (converted != byteCount)
+    {
+        return {};
+    }
+    return result;
+}
+
+[[nodiscard]] std::string_view outputPreferenceName(
+    const bafx::windows::CompositionOutputPreference preference) noexcept
+{
+    switch (preference)
+    {
+    case bafx::windows::CompositionOutputPreference::ConservativeSdr:
+        return "conservative-sdr";
+    case bafx::windows::CompositionOutputPreference::PreferLinearScRgb:
+        return "linear-scrgb";
+    }
+    return "unknown";
+}
+
+[[nodiscard]] std::string_view driverTypeName(
+    const bafx::windows::GraphicsDriverType driver) noexcept
+{
+    switch (driver)
+    {
+    case bafx::windows::GraphicsDriverType::Hardware:
+        return "hardware";
+    case bafx::windows::GraphicsDriverType::Warp:
+        return "warp";
+    }
+    return "unknown";
+}
+
+void appendOptionalBoolean(
+    std::ostringstream& stream,
+    const std::optional<bool> value)
+{
+    if (!value.has_value())
+    {
+        stream << "null";
+        return;
+    }
+    stream << jsonBool(*value);
+}
+
+void appendRefreshRate(
+    std::ostringstream& stream,
+    const std::optional<bafx::windows::DisplayRefreshRate>& refreshRate)
+{
+    if (!refreshRate.has_value()
+        || refreshRate->numerator == 0U
+        || refreshRate->denominator == 0U)
+    {
+        stream << "null";
+        return;
+    }
+    stream << "{\"numerator\":" << refreshRate->numerator
+           << ",\"denominator\":" << refreshRate->denominator
+           << "}";
 }
 
 }
@@ -178,10 +277,26 @@ HostStateSnapshot HostControlPlane::snapshot() const
         backgroundCaptureActive_};
 }
 
+DisplayStateSnapshot HostControlPlane::displaySnapshot() const
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    return DisplayStateSnapshot{
+        displayRuntimeSummary_,
+        displayRuntimeGeneration_};
+}
+
 void HostControlPlane::setBackgroundCaptureActive(const bool active) noexcept
 {
     std::lock_guard<std::mutex> lock(mutex_);
     backgroundCaptureActive_ = active;
+}
+
+void HostControlPlane::setDisplayRuntimeSummary(
+    bafx::windows::DisplayRuntimeSummary summary)
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    displayRuntimeSummary_ = std::move(summary);
+    ++displayRuntimeGeneration_;
 }
 
 DWORD HostControlPlane::ipcLastError() const noexcept
@@ -198,6 +313,10 @@ bafx::windows::IpcResponse HostControlPlane::handle(
         {
         case bafx::windows::IpcCommand::GetState:
             return bafx::windows::IpcResponse::success(stateJson(snapshot()));
+
+        case bafx::windows::IpcCommand::GetDisplayState:
+            return bafx::windows::IpcResponse::success(
+                displayStateJson(displaySnapshot()));
 
         case bafx::windows::IpcCommand::GetConfig:
         {
@@ -438,6 +557,99 @@ std::string HostControlPlane::stateJson(const HostStateSnapshot& state)
            << ",\"captureMode\":"
            << jsonEscape(bafx::config::toString(state.config.background.mode))
            << "}";
+    return stream.str();
+}
+
+std::string HostControlPlane::displayStateJson(
+    const DisplayStateSnapshot& state)
+{
+    std::ostringstream stream;
+    stream << "{\"generation\":" << state.generation
+           << ",\"sessions\":[";
+    for (std::size_t index = 0U;
+         index < state.runtime.sessions.size();
+         ++index)
+    {
+        if (index != 0U)
+        {
+            stream << ',';
+        }
+
+        const bafx::windows::DisplaySessionRuntimeSummary& session =
+            state.runtime.sessions[index];
+        const bool colorComplete = session.colorCapabilities.has_value()
+            && bafx::windows::displayColorStateComplete(
+                *session.colorCapabilities);
+        const std::optional<bool> hdrSupported = colorComplete
+            ? std::optional<bool>(
+                session.colorCapabilities->highDynamicRangeSupported)
+            : std::nullopt;
+        const std::optional<bool> hdrActive = colorComplete
+            ? std::optional<bool>(
+                session.colorCapabilities->activeColorMode
+                    == bafx::windows::DisplayColorMode::Hdr
+                && (!session.colorCapabilities->displayPathResolved
+                    || session.colorCapabilities->advancedColorActive))
+            : std::nullopt;
+        const std::optional<bafx::windows::CompositionOutputPreference>
+            actualOutput =
+                bafx::windows::effectiveCompositionOutputPreference(
+                    session.deviceInfo.output);
+
+        stream << "{\"monitor\":" << jsonEscape(session.monitor)
+               << ",\"device\":" << jsonEscape(session.device)
+               << ",\"coordinator\":" << jsonBool(session.coordinator)
+               << ",\"primary\":" << jsonBool(session.primary)
+               << ",\"left\":" << session.bounds.left
+               << ",\"top\":" << session.bounds.top
+               << ",\"right\":" << session.bounds.right
+               << ",\"bottom\":" << session.bounds.bottom
+               << ",\"targetDpiX\":" << session.targetDpiX
+               << ",\"targetDpiY\":" << session.targetDpiY
+               << ",\"windowDpi\":" << session.windowDpi
+               << ",\"displayRefresh\":";
+        appendRefreshRate(stream, session.displayRefreshRate);
+        stream << ",\"captureRefresh\":";
+        appendRefreshRate(stream, session.captureRefreshRate);
+        stream << ",\"adapter\":"
+               << jsonEscape(wideToUtf8(
+                    session.deviceInfo.adapterDescription))
+               << ",\"driver\":"
+               << jsonEscape(driverTypeName(session.deviceInfo.driverType))
+               << ",\"requestedOutput\":"
+               << jsonEscape(outputPreferenceName(
+                    session.requestedOutputPreference))
+               << ",\"resolvedOutput\":"
+               << jsonEscape(outputPreferenceName(
+                    session.resolvedOutputPolicy.preference))
+               << ",\"actualOutput\":"
+               << jsonEscape(actualOutput.has_value()
+                    ? outputPreferenceName(*actualOutput)
+                    : std::string_view{"unknown"})
+               << ",\"outputPolicySatisfied\":"
+               << jsonBool(session.outputPolicySatisfied)
+               << ",\"colorMode\":"
+               << jsonEscape(colorComplete
+                    ? bafx::windows::displayColorModeName(
+                        session.colorCapabilities->activeColorMode)
+                    : std::string_view{"unknown"})
+               << ",\"hdrSupported\":";
+        appendOptionalBoolean(stream, hdrSupported);
+        stream << ",\"hdrActive\":";
+        appendOptionalBoolean(stream, hdrActive);
+        stream << ",\"backgroundCaptureActive\":"
+               << jsonBool(session.backgroundCaptureActive)
+               << ",\"backgroundCaptureRestartAllowed\":"
+               << jsonBool(session.backgroundCaptureRestartAllowed)
+               << ",\"backgroundCaptureFailure\":"
+               << jsonEscape(session.backgroundCaptureFailure)
+               << ",\"renderFaulted\":"
+               << jsonBool(session.renderFaulted)
+               << ",\"outputContractFaulted\":"
+               << jsonBool(session.outputContractFaulted)
+               << '}';
+    }
+    stream << "]}";
     return stream.str();
 }
 

@@ -28,6 +28,7 @@ inline constexpr std::size_t kDefaultIpcMaxResponseBytes = 256U * 1024U;
 enum class IpcCommand : std::uint8_t
 {
     GetState,
+    GetDisplayState,
     GetConfig,
     GetFxConfig,
     SetConfig,

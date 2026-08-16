@@ -30,6 +30,12 @@ BAFX_TEST(ipc_parser_accepts_supported_commands)
     BAFX_CHECK(getState.request->command == IpcCommand::GetState);
     BAFX_CHECK(getState.request->payload.empty());
 
+    const IpcParseResult getDisplayState = parseIpcRequest("GetDisplayState");
+    BAFX_CHECK(getDisplayState.succeeded());
+    BAFX_CHECK(
+        getDisplayState.request->command == IpcCommand::GetDisplayState);
+    BAFX_CHECK(getDisplayState.request->payload.empty());
+
     const IpcParseResult getConfig = parseIpcRequest("GetConfig");
     BAFX_CHECK(getConfig.succeeded());
     BAFX_CHECK(getConfig.request->command == IpcCommand::GetConfig);
