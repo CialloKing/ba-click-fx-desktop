@@ -139,6 +139,7 @@ namespace
     case BackgroundSnapshotInvalidationReason::WgcDrainFailed:
     case BackgroundSnapshotInvalidationReason::WgcSessionStopped:
     case BackgroundSnapshotInvalidationReason::SensorStartFailed:
+    case BackgroundSnapshotInvalidationReason::ReferenceWhiteUnavailable:
         return bafx::windows::DiagnosticLevel::Warning;
     case BackgroundSnapshotInvalidationReason::VisibleBatchEnded:
     case BackgroundSnapshotInvalidationReason::FxOnlyPathSelected:

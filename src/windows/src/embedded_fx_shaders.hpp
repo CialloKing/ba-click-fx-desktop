@@ -178,8 +178,9 @@ cbuffer BloomConstants : register(b0)
     float Knee;
     float ClampValue;
     float BackgroundTransportEnabled;
-    float ReferenceWhiteScale;
-    float3 Padding;
+    float BackgroundReferenceWhiteScale;
+    float OutputReferenceWhiteScale;
+    float2 Padding;
 };
 
 Texture2D<float4> Source0 : register(t0);
@@ -234,7 +235,9 @@ float3 SrgbPremultipliedToLinearPremultiplied(
 
 float3 StabilizeCapturedBackground(float3 sample)
 {
-    const float referenceWhite = max(ReferenceWhiteScale, 0.000001);
+    const float referenceWhite = max(
+        BackgroundReferenceWhiteScale,
+        0.000001);
     const float3 distanceFromReferenceWhite = abs(sample - referenceWhite);
     const float3 referenceWhiteBlend = 1.0 - smoothstep(
         BackgroundReferenceWhitePlateau * referenceWhite,
@@ -250,7 +253,9 @@ float3 CapturedBackgroundToWorking(float3 physicalScRgb)
 {
     // WGC FP16 samples are physical scRGB, where one unit is 80 nits. Unity's
     // authored values remain relative to the display's negotiated SDR white.
-    return physicalScRgb / max(ReferenceWhiteScale, 0.000001);
+    return physicalScRgb / max(
+        BackgroundReferenceWhiteScale,
+        0.000001);
 }
 
 struct FullscreenOutput
@@ -598,10 +603,12 @@ float4 ResolveBackgroundAwareDesktopTransport(
     float occlusion,
     float3 capturedBackground,
     float exposureGain,
-    float referenceWhiteScale)
+    float outputReferenceWhiteScale,
+    float backgroundOutputScale)
 {
     // Preserve continuous scRGB outside a narrow reference-white noise band.
-    const float3 background = StabilizeCapturedBackground(capturedBackground);
+    const float3 background = StabilizeCapturedBackground(capturedBackground)
+        * backgroundOutputScale;
 
     // Keep Alpha tied to the authored Coverage/Bloom envelope used by the Web
     // coverage path. WGC is asynchronous to DWM, so inverse-solving Alpha from
@@ -636,7 +643,7 @@ float4 ResolveBackgroundAwareDesktopTransport(
     // back down to its Coverage Alpha.
     const float3 additiveEmission = (
         max(direct.rgb, 0.0)
-        + max(bloom.rgb, 0.0) * exposureGain) * referenceWhiteScale;
+        + max(bloom.rgb, 0.0) * exposureGain) * outputReferenceWhiteScale;
     const float3 backgroundCoveragePayload = background * max(
         alpha - crossCoverage,
         0.0);
@@ -651,7 +658,7 @@ float4 ResolveBackgroundAwareDesktopTransport(
 
 float4 ScaleFxForOutput(float4 relativeFx)
 {
-    return float4(relativeFx.rgb * ReferenceWhiteScale, relativeFx.a);
+    return float4(relativeFx.rgb * OutputReferenceWhiteScale, relativeFx.a);
 }
 
 float4 EncodeConservativeSdrPremultiplied(float4 linearPremultiplied)
@@ -674,7 +681,9 @@ float4 EncodeConservativeSdrPremultiplied(float4 linearPremultiplied)
     return float4(encodedPremultiplied, alpha);
 }
 
-float4 ResolveDesktopComposite(FullscreenOutput input)
+float4 ResolveDesktopComposite(
+    FullscreenOutput input,
+    float backgroundOutputScale)
 {
     const float4 direct = Source0.Sample(LinearClampSampler, input.uv);
     const float2 offset = SourceTexelSize * (SampleScale * 0.5);
@@ -709,20 +718,23 @@ float4 ResolveDesktopComposite(FullscreenOutput input)
             occlusion,
             background,
             ExposureGain,
-            ReferenceWhiteScale);
+            OutputReferenceWhiteScale,
+            backgroundOutputScale);
     }
     return resolved;
 }
 
 float4 DesktopCompositePixel(FullscreenOutput input) : SV_Target0
 {
-    return ResolveDesktopComposite(input);
+    return ResolveDesktopComposite(input, 1.0);
 }
 
 float4 DesktopSdrCompositePixel(FullscreenOutput input) : SV_Target0
 {
     return EncodeConservativeSdrPremultiplied(
-        ResolveDesktopComposite(input));
+        ResolveDesktopComposite(
+            input,
+            1.0 / max(BackgroundReferenceWhiteScale, 0.000001)));
 }
 
 float4 ResolveLightBackgroundComposite(FullscreenOutput input)

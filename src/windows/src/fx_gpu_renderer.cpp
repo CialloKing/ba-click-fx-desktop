@@ -69,8 +69,9 @@ struct BloomConstants
     float knee{0.00001F};
     float clampValue{65472.0F};
     float backgroundTransportEnabled{0.0F};
-    float referenceWhiteScale{1.0F};
-    float padding[3]{};
+    float backgroundReferenceWhiteScale{1.0F};
+    float outputReferenceWhiteScale{1.0F};
+    float padding[2]{};
 };
 
 static_assert(sizeof(BloomConstants) == 48U);
@@ -990,7 +991,8 @@ struct FxGpuRenderer::Implementation
                 1.0F,
                 0.0F,
                 false,
-                referenceWhiteScale()));
+                backgroundReferenceWhiteScale(),
+                outputReferenceWhiteScale()));
     }
 
     void configureFramePipeline()
@@ -1036,7 +1038,8 @@ struct FxGpuRenderer::Implementation
         const float sampleScale,
         const float exposureGain,
         const bool backgroundTransportEnabled = false,
-        const float referenceWhiteScale = 1.0F) const noexcept
+        const float backgroundReferenceWhiteScale = 1.0F,
+        const float outputReferenceWhiteScale = 1.0F) const noexcept
     {
         BloomConstants constants{};
         constants.sourceTexelSize[0] = 1.0F / static_cast<float>(sourceExtent.width);
@@ -1054,11 +1057,25 @@ struct FxGpuRenderer::Implementation
         constants.backgroundTransportEnabled = backgroundTransportEnabled
             ? 1.0F
             : 0.0F;
-        constants.referenceWhiteScale = referenceWhiteScale;
+        constants.backgroundReferenceWhiteScale =
+            backgroundReferenceWhiteScale;
+        constants.outputReferenceWhiteScale = outputReferenceWhiteScale;
         return constants;
     }
 
-    [[nodiscard]] float referenceWhiteScale() const noexcept
+    [[nodiscard]] float backgroundReferenceWhiteScale() const noexcept
+    {
+        if (!outputMapping.backgroundReferenceWhiteValid
+            || !std::isfinite(outputMapping.backgroundReferenceWhiteNits)
+            || outputMapping.backgroundReferenceWhiteNits <= 0.0F)
+        {
+            return 1.0F;
+        }
+        return outputMapping.backgroundReferenceWhiteNits
+            / scRgbNitsPerUnit;
+    }
+
+    [[nodiscard]] float outputReferenceWhiteScale() const noexcept
     {
         if (outputMapping.mode
                 != CompositionOutputMappingMode::HdrSceneReferredScRgb
@@ -1181,7 +1198,8 @@ struct FxGpuRenderer::Implementation
             static_cast<std::int32_t>(size.width),
             static_cast<std::int32_t>(size.height)};
         const bafx::core::BloomExtent firstExtent = bloomPlan.mipChain[0];
-        const float outputReferenceWhiteScale = referenceWhiteScale();
+        const float backgroundWhiteScale = backgroundReferenceWhiteScale();
+        const float outputWhiteScale = outputReferenceWhiteScale();
         drawFullscreen(
             bloomDownTargets[0].renderTarget.Get(),
             firstExtent,
@@ -1195,7 +1213,8 @@ struct FxGpuRenderer::Implementation
                 bloomPlan.sampleScale,
                 0.0F,
                 false,
-                outputReferenceWhiteScale),
+                backgroundWhiteScale,
+                outputWhiteScale),
             background.has_value()
                 ? occlusionTarget.shaderResource.Get()
                 : nullptr);
@@ -1240,7 +1259,8 @@ struct FxGpuRenderer::Implementation
             bloomPlan.sampleScale,
             bloomPlan.exposureGain,
             background.has_value(),
-            outputReferenceWhiteScale);
+            backgroundWhiteScale,
+            outputWhiteScale);
         if (bloomResultDestination == nullptr)
         {
             drawFullscreen(

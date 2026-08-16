@@ -19,6 +19,7 @@ enum class BackgroundSnapshotInvalidationReason : std::uint8_t
     CaptureSessionReplaced,
     CaptureDisabled,
     SensorStartFailed,
+    ReferenceWhiteUnavailable,
     SnapshotResourcesRecreated
 };
 

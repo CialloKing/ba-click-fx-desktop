@@ -498,6 +498,14 @@ void appendDiagnosticRecordUnlocked(
         : "unknown";
 }
 
+[[nodiscard]] std::string backgroundReferenceWhiteNits(
+    const CompositionOutputMapping& mapping)
+{
+    return mapping.backgroundReferenceWhiteValid
+        ? std::to_string(mapping.backgroundReferenceWhiteNits)
+        : "unknown";
+}
+
 [[nodiscard]] std::string_view outputFallbackName(
     const CompositionOutputFallback fallback) noexcept
 {
@@ -820,6 +828,20 @@ void appendDisplaySessionRuntimeSummary(
            << '\n'
            << prefix << "Output.ResolvedReferenceWhiteNits="
            << outputReferenceWhiteNits(
+                   session.resolvedOutputPolicy.mapping)
+           << '\n'
+           << prefix << "Output.ResolvedBackgroundReferenceWhiteRequired="
+           << booleanName(
+                  session.resolvedOutputPolicy.mapping
+                      .backgroundReferenceWhiteRequired)
+           << '\n'
+           << prefix << "Output.ResolvedBackgroundReferenceWhiteValid="
+           << booleanName(
+                  session.resolvedOutputPolicy.mapping
+                      .backgroundReferenceWhiteValid)
+           << '\n'
+           << prefix << "Output.ResolvedBackgroundReferenceWhiteNits="
+           << backgroundReferenceWhiteNits(
                   session.resolvedOutputPolicy.mapping)
            << '\n'
            << prefix << "Output.ActualPreference=";
@@ -842,6 +864,13 @@ void appendDisplaySessionRuntimeSummary(
            << outputMappingName(output.mapping.mode) << '\n'
            << prefix << "Output.ReferenceWhiteNits="
            << outputReferenceWhiteNits(output.mapping) << '\n'
+           << prefix << "Output.BackgroundReferenceWhiteRequired="
+           << booleanName(output.mapping.backgroundReferenceWhiteRequired)
+           << '\n'
+           << prefix << "Output.BackgroundReferenceWhiteValid="
+           << booleanName(output.mapping.backgroundReferenceWhiteValid) << '\n'
+           << prefix << "Output.BackgroundReferenceWhiteNits="
+           << backgroundReferenceWhiteNits(output.mapping) << '\n'
            << prefix << "Output.Fallback="
            << outputFallbackName(output.fallback) << '\n'
            << prefix << "Output.ExtendedPremultiplied="
@@ -1314,6 +1343,10 @@ std::string SupportReport::serialize() const
             outputReferenceWhiteNits(deviceInfo_.output.mapping);
         const std::string policyReferenceWhite =
             outputReferenceWhiteNits(deviceInfo_.outputPolicy.mapping);
+        const std::string outputBackgroundReferenceWhite =
+            backgroundReferenceWhiteNits(deviceInfo_.output.mapping);
+        const std::string policyBackgroundReferenceWhite =
+            backgroundReferenceWhiteNits(deviceInfo_.outputPolicy.mapping);
         stream << "Graphics.DriverType=" << driverType(deviceInfo_.driverType) << '\n'
                << "Graphics.Adapter="
                << sanitize(wideToUtf8(deviceInfo_.adapterDescription)) << '\n'
@@ -1375,6 +1408,18 @@ std::string SupportReport::serialize() const
                << '\n'
                << "Graphics.OutputReferenceWhiteNits="
                << outputReferenceWhite << '\n'
+               << "Graphics.OutputBackgroundReferenceWhiteRequired="
+               << (deviceInfo_.output.mapping.backgroundReferenceWhiteRequired
+                       ? "true"
+                       : "false")
+               << '\n'
+               << "Graphics.OutputBackgroundReferenceWhiteValid="
+               << (deviceInfo_.output.mapping.backgroundReferenceWhiteValid
+                       ? "true"
+                       : "false")
+               << '\n'
+               << "Graphics.OutputBackgroundReferenceWhiteNits="
+               << outputBackgroundReferenceWhite << '\n'
                << "Graphics.OutputPreference="
                << outputPreferenceName(deviceInfo_.outputPreference) << '\n'
                << "Graphics.OutputPreferenceSatisfied="
@@ -1393,6 +1438,20 @@ std::string SupportReport::serialize() const
                << '\n'
                << "Graphics.OutputPolicyReferenceWhiteNits="
                << policyReferenceWhite << '\n'
+               << "Graphics.OutputPolicyBackgroundReferenceWhiteRequired="
+               << (deviceInfo_.outputPolicy.mapping
+                           .backgroundReferenceWhiteRequired
+                       ? "true"
+                       : "false")
+               << '\n'
+               << "Graphics.OutputPolicyBackgroundReferenceWhiteValid="
+               << (deviceInfo_.outputPolicy.mapping
+                           .backgroundReferenceWhiteValid
+                       ? "true"
+                       : "false")
+               << '\n'
+               << "Graphics.OutputPolicyBackgroundReferenceWhiteNits="
+               << policyBackgroundReferenceWhite << '\n'
                << "Graphics.OutputPolicySatisfied="
                << (compositionOutputSatisfiesPolicy(
                        deviceInfo_.output,

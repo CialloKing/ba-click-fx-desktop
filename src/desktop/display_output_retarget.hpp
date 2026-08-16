@@ -22,9 +22,9 @@ resolveDisplayOutputPreference(
     const std::optional<bafx::windows::DisplayColorCapabilities>& capabilities)
     noexcept;
 
-// Resolve one complete final-output policy from the user's global opt-in and
-// the current monitor. Unity-authored FP16 values remain ArtisticRelative;
-// reference-white metadata is carried only for the final output boundary.
+// Resolve one complete output policy from the user's global opt-in and the
+// current monitor. Unity-authored FP16 values remain ArtisticRelative; the
+// WGC background white and final-output white stay separate in the mapping.
 [[nodiscard]] bafx::windows::CompositionOutputPolicy
 resolveDisplayOutputPolicy(
     bafx::windows::CompositionOutputPreference requested,

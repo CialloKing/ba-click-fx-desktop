@@ -28,6 +28,8 @@ std::string_view backgroundSnapshotInvalidationReasonName(
         return "capture-disabled";
     case BackgroundSnapshotInvalidationReason::SensorStartFailed:
         return "sensor-start-failed";
+    case BackgroundSnapshotInvalidationReason::ReferenceWhiteUnavailable:
+        return "reference-white-unavailable";
     case BackgroundSnapshotInvalidationReason::SnapshotResourcesRecreated:
         return "snapshot-resources-recreated";
     }

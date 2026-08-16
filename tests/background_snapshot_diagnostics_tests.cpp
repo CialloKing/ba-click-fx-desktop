@@ -35,6 +35,9 @@ BAFX_TEST(background_snapshot_invalidation_reason_names_are_stable)
         std::pair{BackgroundSnapshotInvalidationReason::SensorStartFailed,
                   std::string_view("sensor-start-failed")},
         std::pair{
+            BackgroundSnapshotInvalidationReason::ReferenceWhiteUnavailable,
+            std::string_view("reference-white-unavailable")},
+        std::pair{
             BackgroundSnapshotInvalidationReason::SnapshotResourcesRecreated,
             std::string_view("snapshot-resources-recreated")}};
 

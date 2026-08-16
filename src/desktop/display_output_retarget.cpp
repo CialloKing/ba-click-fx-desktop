@@ -1,5 +1,6 @@
 #include "display_output_retarget.hpp"
 
+#include <cmath>
 #include <exception>
 #include <string>
 #include <string_view>
@@ -26,6 +27,63 @@ struct ResolvedDisplayOutputContract final
         const ResolvedDisplayOutputContract&) const noexcept = default;
 };
 
+[[nodiscard]] bool hasReliableReferenceWhite(
+    const bafx::windows::DisplayColorCapabilities& capabilities) noexcept
+{
+    return capabilities.sdrWhiteLevelValid
+        && std::isfinite(capabilities.sdrWhiteLevelNits)
+        && capabilities.sdrWhiteLevelNits > 0.0F
+        && (!capabilities.displayPathResolved
+            || capabilities.sdrWhiteLevelConsistent
+            || capabilities.sdrWhiteLevelRetained);
+}
+
+[[nodiscard]] bool requiresBackgroundReferenceWhite(
+    const bafx::windows::DisplayColorCapabilities& capabilities) noexcept
+{
+    using bafx::windows::DisplayColorMode;
+    using bafx::windows::DisplayTopologyStatus;
+
+    const bool extendedColorActive =
+        capabilities.activeColorMode == DisplayColorMode::Hdr
+        || capabilities.activeColorMode == DisplayColorMode::WideColorGamut;
+    if (!extendedColorActive)
+    {
+        return false;
+    }
+
+    // ERROR_NOT_SUPPORTED is the stable legacy DXGI-only contract. On that
+    // path Windows exposes no DisplayConfig SDR white level, so preserving the
+    // historical one-unit mapping is the only available deterministic policy.
+    const bool legacyDxgiOnly = !capabilities.displayPathResolved
+        && capabilities.displayConfigTopologyStatus
+            == DisplayTopologyStatus::Incomplete
+        && capabilities.displayConfigTopologyError == ERROR_NOT_SUPPORTED;
+    return !legacyDxgiOnly;
+}
+
+void applyBackgroundReferenceWhite(
+    bafx::windows::CompositionOutputMapping& mapping,
+    const std::optional<bafx::windows::DisplayColorCapabilities>& capabilities)
+    noexcept
+{
+    if (!capabilities.has_value())
+    {
+        return;
+    }
+
+    mapping.backgroundReferenceWhiteRequired =
+        requiresBackgroundReferenceWhite(*capabilities);
+    if (!hasReliableReferenceWhite(*capabilities))
+    {
+        return;
+    }
+
+    mapping.backgroundReferenceWhiteNits =
+        capabilities->sdrWhiteLevelNits;
+    mapping.backgroundReferenceWhiteValid = true;
+}
+
 [[nodiscard]] std::uint32_t resolveDisplayBitsPerColor(
     const bafx::windows::DisplayColorCapabilities& capabilities) noexcept
 {
@@ -49,6 +107,11 @@ resolveDisplayOutputContract(
     if (preference
         == bafx::windows::CompositionOutputPreference::ConservativeSdr)
     {
+        bafx::windows::CompositionOutputMapping mapping =
+            bafx::windows::compositionOutputPolicyFor(
+                bafx::windows::CompositionOutputPreference::ConservativeSdr)
+                .mapping;
+        applyBackgroundReferenceWhite(mapping, capabilities);
         return ResolvedDisplayOutputContract{
             DXGI_FORMAT_B8G8R8A8_UNORM,
             DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709,
@@ -57,9 +120,7 @@ resolveDisplayOutputContract(
             bafx::windows::DisplayColorMode::Sdr,
             DISPLAYCONFIG_COLOR_ENCODING_RGB,
             false,
-            bafx::windows::compositionOutputPolicyFor(
-                bafx::windows::CompositionOutputPreference::ConservativeSdr)
-                .mapping};
+            mapping};
     }
     if (preference
             != bafx::windows::CompositionOutputPreference::PreferLinearScRgb
@@ -143,8 +204,10 @@ bafx::windows::CompositionOutputPreference resolveDisplayOutputPreference(
         return CompositionOutputPreference::ConservativeSdr;
     }
 
-    if (color.activeColorMode == DisplayColorMode::Hdr
-        || color.activeColorMode == DisplayColorMode::WideColorGamut)
+    const bool extendedColorActive =
+        color.activeColorMode == DisplayColorMode::Hdr
+        || color.activeColorMode == DisplayColorMode::WideColorGamut;
+    if (extendedColorActive && hasReliableReferenceWhite(color))
     {
         return CompositionOutputPreference::PreferLinearScRgb;
     }
@@ -163,6 +226,7 @@ bafx::windows::CompositionOutputPolicy resolveDisplayOutputPolicy(
 
     CompositionOutputPolicy policy{};
     policy.preference = resolveDisplayOutputPreference(requested, capabilities);
+    applyBackgroundReferenceWhite(policy.mapping, capabilities);
     if (policy.preference == CompositionOutputPreference::ConservativeSdr
         || !capabilities.has_value())
     {
@@ -175,10 +239,7 @@ bafx::windows::CompositionOutputPolicy resolveDisplayOutputPolicy(
         : CompositionOutputMappingMode::AdvancedColorScRgb;
     // The fixed-point white level belongs to the monitor output contract. It
     // must never rescale the game's ArtisticRelative material values.
-    if (color.sdrWhiteLevelValid
-        && (!color.displayPathResolved
-            || color.sdrWhiteLevelConsistent
-            || color.sdrWhiteLevelRetained))
+    if (hasReliableReferenceWhite(color))
     {
         policy.mapping.referenceWhiteNits = color.sdrWhiteLevelNits;
         policy.mapping.referenceWhiteValid = true;

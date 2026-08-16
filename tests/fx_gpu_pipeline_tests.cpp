@@ -809,6 +809,71 @@ BAFX_TEST(warp_background_path_uses_full_differential_bloom)
     BAFX_CHECK(backgroundAware[center].blue > 0.5F);
 }
 
+BAFX_TEST(warp_sdr_background_white_preserves_unity_working_space)
+{
+    ComApartment apartment;
+    const WarpDevice graphics = createWarpDevice();
+    const bafx::fx::FrameSnapshot snapshot = makeDiskSnapshot(true);
+
+    CompositionOutputMapping referenceMapping{};
+    CompositionOutputMapping physicalMapping{};
+    physicalMapping.backgroundReferenceWhiteNits = 200.0F;
+    physicalMapping.backgroundReferenceWhiteValid = true;
+    FxGpuRenderer referenceRenderer(
+        graphics.device.Get(),
+        graphics.context.Get(),
+        testSize,
+        FxBloomSettings{},
+        referenceMapping);
+    FxGpuRenderer physicalRenderer(
+        graphics.device.Get(),
+        graphics.context.Get(),
+        testSize,
+        FxBloomSettings{},
+        physicalMapping);
+
+    const RenderTarget referenceBackground = createRenderTarget(
+        graphics.device.Get());
+    const RenderTarget physicalBackground = createRenderTarget(
+        graphics.device.Get());
+    constexpr std::array<float, 4> referenceColor{0.2F, 0.4F, 0.7F, 1.0F};
+    constexpr float physicalWhiteScale = 200.0F / 80.0F;
+    constexpr std::array<float, 4> physicalColor{
+        referenceColor[0] * physicalWhiteScale,
+        referenceColor[1] * physicalWhiteScale,
+        referenceColor[2] * physicalWhiteScale,
+        1.0F};
+    graphics.context->ClearRenderTargetView(
+        referenceBackground.view.Get(),
+        referenceColor.data());
+    graphics.context->ClearRenderTargetView(
+        physicalBackground.view.Get(),
+        physicalColor.data());
+
+    const RenderTarget referenceTarget = createRenderTarget(
+        graphics.device.Get());
+    const RenderTarget physicalTarget = createRenderTarget(
+        graphics.device.Get());
+    referenceRenderer.render(
+        snapshot,
+        referenceTarget.view.Get(),
+        BackgroundRenderInput{referenceBackground.shaderResource.Get()});
+    physicalRenderer.render(
+        snapshot,
+        physicalTarget.view.Get(),
+        BackgroundRenderInput{physicalBackground.shaderResource.Get()});
+    const std::vector<ReadbackPixel> reference = readback(
+        graphics.context.Get(),
+        referenceTarget.texture.Get());
+    const std::vector<ReadbackPixel> physical = readback(
+        graphics.context.Get(),
+        physicalTarget.texture.Get());
+
+    // The WGC frame is physical scRGB, but both Bloom and the BGRA8 final pass
+    // must observe the same Unity-relative background as the 80-nit baseline.
+    BAFX_CHECK(maximumRgbaDelta(reference, physical) <= 5.0e-3F);
+}
+
 BAFX_TEST(warp_usable_background_age_never_modulates_click_or_trail)
 {
     ComApartment apartment;

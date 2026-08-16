@@ -175,6 +175,10 @@ BAFX_TEST(all_embedded_fx_shader_entries_compile_with_warnings_as_errors)
         ShaderEntry{unityBloomShaderSource, "DesktopCompositePixel", "ps_5_0"},
         ShaderEntry{
             unityBloomShaderSource,
+            "DesktopSdrCompositePixel",
+            "ps_5_0"},
+        ShaderEntry{
+            unityBloomShaderSource,
             "RecordingCompatibleCompositePixel",
             "ps_5_0"},
         ShaderEntry{
@@ -232,6 +236,7 @@ BAFX_TEST(bloom_shader_reflection_locks_resources_and_constant_layout)
         "UpsamplePixel",
         "CompositePixel",
         "DesktopCompositePixel",
+        "DesktopSdrCompositePixel",
         "RecordingCompatibleCompositePixel",
         "LightBackgroundCompositePixel"};
     for (const char* entryPoint : entries)
@@ -262,6 +267,18 @@ BAFX_TEST(bloom_shader_reflection_locks_resources_and_constant_layout)
             "BackgroundTransportEnabled",
             28U,
             4U));
+        BAFX_CHECK(hasConstantVariable(
+            reflection.Get(),
+            "BloomConstants",
+            "BackgroundReferenceWhiteScale",
+            32U,
+            4U));
+        BAFX_CHECK(hasConstantVariable(
+            reflection.Get(),
+            "BloomConstants",
+            "OutputReferenceWhiteScale",
+            36U,
+            4U));
         BAFX_CHECK(!hasConstantVariable(
             reflection.Get(),
             "BloomConstants",
@@ -273,17 +290,20 @@ BAFX_TEST(bloom_shader_reflection_locks_resources_and_constant_layout)
             || std::string_view(entryPoint) == "UpsamplePixel"
             || std::string_view(entryPoint) == "CompositePixel"
             || std::string_view(entryPoint) == "DesktopCompositePixel"
+            || std::string_view(entryPoint) == "DesktopSdrCompositePixel"
             || std::string_view(entryPoint) == "RecordingCompatibleCompositePixel"
             || std::string_view(entryPoint) == "LightBackgroundCompositePixel")
         {
             BAFX_CHECK(hasBinding(reflection.Get(), "Source1", D3D_SIT_TEXTURE, 1U));
         }
         if (std::string_view(entryPoint) == "DifferentialPrefilterPixel"
-            || std::string_view(entryPoint) == "DesktopCompositePixel")
+            || std::string_view(entryPoint) == "DesktopCompositePixel"
+            || std::string_view(entryPoint) == "DesktopSdrCompositePixel")
         {
             BAFX_CHECK(hasBinding(reflection.Get(), "Source2", D3D_SIT_TEXTURE, 2U));
         }
-        if (std::string_view(entryPoint) == "DesktopCompositePixel")
+        if (std::string_view(entryPoint) == "DesktopCompositePixel"
+            || std::string_view(entryPoint) == "DesktopSdrCompositePixel")
         {
             BAFX_CHECK(hasBinding(reflection.Get(), "Source3", D3D_SIT_TEXTURE, 3U));
             BAFX_CHECK(hasBinding(reflection.Get(), "Source4", D3D_SIT_TEXTURE, 4U));

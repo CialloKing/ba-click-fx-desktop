@@ -64,6 +64,27 @@ struct CreatedCompositionSwapChain final
     CompositionOutputState output{};
 };
 
+[[nodiscard]] bool hasValidBackgroundReferenceWhiteContract(
+    const CompositionOutputMapping& mapping) noexcept
+{
+    if (!mapping.backgroundReferenceWhiteValid)
+    {
+        return mapping.backgroundReferenceWhiteNits == 0.0F;
+    }
+    return std::isfinite(mapping.backgroundReferenceWhiteNits)
+        && mapping.backgroundReferenceWhiteNits > 0.0F;
+}
+
+[[nodiscard]] bool backgroundReferenceWhiteUnavailable(
+    const CompositionOutputMapping& mapping) noexcept
+{
+    return mapping.backgroundReferenceWhiteRequired
+        && !mapping.backgroundReferenceWhiteValid;
+}
+
+constexpr std::string_view backgroundReferenceWhiteUnavailableFailure =
+    "WGC background reference white is required but unavailable";
+
 constexpr SwapChainCandidateSpecification scRgbSwapChainCandidate{
     scRgbOutputState,
     "IDXGIFactory2::CreateSwapChainForComposition(scRGB)",
@@ -149,21 +170,41 @@ constexpr SwapChainCandidateSpecification fallbackSdrSwapChainCandidate{
 {
     if (policy.preference == CompositionOutputPreference::ConservativeSdr)
     {
-        if (policy.mapping != requestedSdrOutputState.mapping)
+        if (policy.mapping.mode
+                != CompositionOutputMappingMode::ConservativeSdr
+            || policy.mapping.intensitySemantics
+                != requestedSdrOutputState.mapping.intensitySemantics
+            || policy.mapping.referenceWhiteValid
+            || policy.mapping.referenceWhiteNits != 0.0F
+            || !hasValidBackgroundReferenceWhiteContract(policy.mapping))
         {
             throw std::invalid_argument(
                 "Conservative SDR output policy has a non-SDR mapping");
         }
-        return createCompositionSwapChainCandidate(
+        CreatedCompositionSwapChain created = createCompositionSwapChainCandidate(
             factory,
             device,
             size,
             requestedSdrSwapChainCandidate);
+        created.output.mapping = policy.mapping;
+        return created;
     }
     if (policy.preference != CompositionOutputPreference::PreferLinearScRgb
-        || policy.mapping.mode == CompositionOutputMappingMode::ConservativeSdr)
+        || policy.mapping.mode == CompositionOutputMappingMode::ConservativeSdr
+        || !hasValidBackgroundReferenceWhiteContract(policy.mapping))
     {
         throw std::invalid_argument("Composition output policy is invalid");
+    }
+    if (policy.mapping.mode
+            == CompositionOutputMappingMode::HdrSceneReferredScRgb
+        && (!policy.mapping.referenceWhiteValid
+            || !std::isfinite(policy.mapping.referenceWhiteNits)
+            || policy.mapping.referenceWhiteNits <= 0.0F))
+    {
+        // An unverified white level cannot be represented as a verified HDR
+        // scene-referred contract. Production should have resolved this to SDR.
+        throw std::invalid_argument(
+            "HDR output policy requires a verified reference white");
     }
 
     try
@@ -184,11 +225,18 @@ constexpr SwapChainCandidateSpecification fallbackSdrSwapChainCandidate{
         }
         // Runtime capability decides the transport. The binary retains both
         // paths regardless of the SDK or Windows version used to compile it.
-        return createCompositionSwapChainCandidate(
+        CreatedCompositionSwapChain created = createCompositionSwapChainCandidate(
             factory,
             device,
             size,
             fallbackSdrSwapChainCandidate);
+        created.output.mapping.backgroundReferenceWhiteNits =
+            policy.mapping.backgroundReferenceWhiteNits;
+        created.output.mapping.backgroundReferenceWhiteValid =
+            policy.mapping.backgroundReferenceWhiteValid;
+        created.output.mapping.backgroundReferenceWhiteRequired =
+            policy.mapping.backgroundReferenceWhiteRequired;
+        return created;
     }
 }
 
@@ -993,11 +1041,21 @@ CompositionFrameDiagnostics CompositionRenderer::renderFrame(
         diagnostics);
     const auto frameStartedAt = std::chrono::steady_clock::now();
     const bool hasDrawableContent = snapshot.hasDrawableContent();
+    const bool referenceWhiteUnavailable = backgroundSensor_ != nullptr
+        && backgroundReferenceWhiteUnavailable(deviceInfo_.output.mapping);
     std::optional<BackgroundRenderInput> background;
     std::optional<WgcBackgroundSample> backgroundSample;
     bafx::core::BackgroundUsageDecision acquireUsage{};
     bafx::core::BackgroundUsageDecision retainUsage{};
-    if (!hasDrawableContent)
+    if (referenceWhiteUnavailable)
+    {
+        // This cause must win the single-slot diagnostic mailbox even if the
+        // visible batch happens to end on the same frame.
+        resetBackgroundSnapshot(
+            BackgroundSnapshotInvalidationReason::ReferenceWhiteUnavailable,
+            diagnostics.frameId);
+    }
+    else if (!hasDrawableContent)
     {
         // A new visible batch gets a fresh desktop reference. Keeping the
         // previous copy across an idle frame would make a later click inherit
@@ -1010,6 +1068,23 @@ CompositionFrameDiagnostics CompositionRenderer::renderFrame(
     backgroundCompositeStatus_ = backgroundSensor_ != nullptr
         ? BackgroundCompositeStatus::WaitingForFrame
         : BackgroundCompositeStatus::Inactive;
+    if (referenceWhiteUnavailable)
+    {
+        // Keep the producer warm so a later display-policy refresh can recover
+        // without synchronously creating WGC on the first visible frame. Only
+        // the unsafe consumer path and any old-scale snapshot are disabled.
+        backgroundPathLatch_.forceFxOnly();
+        backgroundCompositeStatus_ = BackgroundCompositeStatus::InvalidPolicy;
+        setBackgroundCaptureFailure(
+            backgroundReferenceWhiteUnavailableFailure);
+    }
+    else if (backgroundCaptureFailure()
+        == backgroundReferenceWhiteUnavailableFailure)
+    {
+        // Do not erase an unrelated WGC failure. This exact renderer-owned
+        // reason is cleared when a new output contract supplies the white.
+        setBackgroundCaptureFailure({});
+    }
     const bafx::core::MonotonicTime effectiveWallTime =
         resolveMonotonicTime(wallTime);
     const BackgroundSensorMaintenanceDiagnostics maintenance =
@@ -1027,6 +1102,7 @@ CompositionFrameDiagnostics CompositionRenderer::renderFrame(
             == WgcBackgroundDrainStatus::NoFrame
         || maintenance.wgc.status == WgcBackgroundDrainStatus::Updated;
     if (backgroundSensor_ != nullptr
+        && !referenceWhiteUnavailable
         && hasDrawableContent
         && maintenance.wgcDrainAttempted
         && drainCanFeedVisibleFrame)

@@ -44,8 +44,17 @@ struct CompositionOutputMapping final
     // Reference white is output metadata, not an implicit authoring scale.
     bafx::core::IntensitySemantics intensitySemantics{
         bafx::core::IntensitySemantics::ArtisticRelative};
+    // Final-output white is intentionally independent from the WGC capture
+    // white. A conservative SDR swap chain still needs the latter to convert
+    // physical scRGB background pixels into Unity's relative working space.
     float referenceWhiteNits{0.0F};
     bool referenceWhiteValid{false};
+    float backgroundReferenceWhiteNits{0.0F};
+    bool backgroundReferenceWhiteValid{false};
+    // HDR/WCG WGC pixels are physical scRGB. When this bit is set, an unknown
+    // white level must disable background participation instead of assuming
+    // the legacy one-unit reference white.
+    bool backgroundReferenceWhiteRequired{false};
 
     [[nodiscard]] bool operator==(
         const CompositionOutputMapping&) const noexcept = default;
