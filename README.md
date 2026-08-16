@@ -234,6 +234,7 @@ SetConfig {"generation":1,"path":"background.allowSystemBorder","value":false}
 SetFxParam {"generation":1,"path":"disk.radius","value":40}
 SetFxParam {"generation":1,"path":"disk.lifetimeMs","value":250}
 SetFxParams {"generation":1,"patch":{"rings.count":3,"rings.lifetimeMs":700,"rings.radiusMin":60,"rings.radiusMax":90,"rings.angularVelocityMultiplier":12,"rings.rotationDirection":-1}}
+SetFxParams {"generation":1,"patch":{"shards.clickCount":6,"shards.clickLifetimeMinMs":500,"shards.clickLifetimeMaxMs":650,"shards.clickRadius":55,"shards.clickSpeedMin":45,"shards.clickSpeedMax":75,"shards.sizeMin":14,"shards.sizeMax":30}}
 ResetFxConfig
 Pause
 Resume
