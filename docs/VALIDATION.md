@@ -138,6 +138,9 @@
 frame 才能产生新的 `BackgroundSnapshot`；旧 iteration、跳序事件和清理阶段的 frame 只能被丢弃并记录
 原因。任何 `NotVerified` 都是证据不足，不得折算为 `Rejected` 或 `Passed`。
 
+目标机运行脚本拒绝文件路径和非空输出目录，确保 collector/verifier 重跑不会覆盖既有 JSON、原始帧
+或诊断日志；重跑必须使用新的 revision 或显式指定新的输出目录。
+
 ## 3. Golden case 契约
 
 每个 case 固定：
