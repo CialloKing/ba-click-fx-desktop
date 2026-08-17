@@ -17,6 +17,14 @@ namespace
         && left.bottom == right.bottom;
 }
 
+template <typename Window>
+concept HasAsynchronousPointerStatePoll = requires(Window& window)
+{
+    window.pollPointerState();
+};
+
+static_assert(!HasAsynchronousPointerStatePoll<OverlayWindow>);
+
 }
 
 BAFX_TEST(raw_pointer_stroke_only_cancels_for_device_removal)

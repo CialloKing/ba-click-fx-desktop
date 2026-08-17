@@ -838,6 +838,32 @@ BAFX_TEST(drag_uses_world_distance_for_trail_and_particles)
     BAFX_CHECK_NEAR(frame.trailWidthPixels, 2.7425F, 1.0e-4F);
 }
 
+BAFX_TEST(pressed_runtime_survives_empty_frames_before_trail_move)
+{
+    constexpr PointF start{100.0F, 100.0F};
+    constexpr PointF end{600.0F, 100.0F};
+    SimulationRuntime runtime;
+
+    runtime.pointerDown(start, goldenViewport, 0ms);
+    runtime.advance(1ms);
+    // A held mouse can remain stationary for any number of render frames.
+    runtime.advance(10ms);
+
+    BAFX_CHECK(runtime.pointerHeld());
+    BAFX_CHECK(!runtime.alwaysOnTrailEnabled());
+
+    runtime.pointerMove(end, goldenViewport, 20ms);
+    const FrameSnapshot frame = runtime.snapshot(goldenViewport, 20ms);
+
+    BAFX_CHECK(runtime.pointerHeld());
+    BAFX_CHECK(frame.trailStrokes.size() == 1U);
+    BAFX_CHECK(frame.trail.size() >= 2U);
+    BAFX_CHECK_NEAR(frame.trail.front().positionPixels.x, start.x, 1.0e-3F);
+    BAFX_CHECK_NEAR(frame.trail.front().positionPixels.y, start.y, 1.0e-3F);
+    BAFX_CHECK_NEAR(frame.trail.back().positionPixels.x, end.x, 1.0e-3F);
+    BAFX_CHECK_NEAR(frame.trail.back().positionPixels.y, end.y, 1.0e-3F);
+}
+
 BAFX_TEST(pointer_moves_before_first_advance_match_unitys_final_update_position)
 {
     Simulation simulation;

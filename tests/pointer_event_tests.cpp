@@ -237,6 +237,18 @@ BAFX_TEST(pointer_frame_adapter_keeps_held_state_across_empty_frames)
     BAFX_CHECK(!empty.latestNonCancelSample.has_value());
     BAFX_CHECK(!empty.latestMoveSample.has_value());
     BAFX_CHECK(adapter.held());
+
+    const PointerFrameSnapshot move = consume(adapter, {
+        event(PointerEventKind::Move, 30, 300, 3U)});
+    BAFX_CHECK(move.heldBefore);
+    BAFX_CHECK(move.heldAfter);
+    BAFX_CHECK(move.edges.empty());
+    BAFX_CHECK(move.hasFinalHeldMove);
+    BAFX_CHECK(!move.hasFinalFreeMove);
+    BAFX_CHECK(move.latestMoveSample.has_value());
+    BAFX_CHECK(move.latestMoveSample->screenPosition.x == 30);
+    BAFX_CHECK(move.latestMoveSample->qpcTimestamp == 300);
+    BAFX_CHECK(adapter.held());
 }
 
 BAFX_TEST(pointer_frame_adapter_latches_free_down_move_at_the_final_sample)
