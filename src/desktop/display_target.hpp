@@ -42,6 +42,8 @@ struct DisplayTarget
     bool sourceAdapterResolved{false};
     bool sourceIdentityResolved{false};
     std::vector<DisplayPhysicalTargetIdentity> physicalTargetIdentities{};
+    bafx::windows::DisplayTopologyStatus topologyStatus{
+        bafx::windows::DisplayTopologyStatus::QueryFailed};
 };
 
 struct DisplayTargetSnapshot
@@ -158,6 +160,41 @@ struct DisplayTargetSnapshot
     return improved;
 }
 
+[[nodiscard]] inline bool displaySourceIdentityResolutionImproved(
+    const DisplayTarget& previous,
+    const DisplayTarget& current) noexcept
+{
+    const bool knownAdapterChanged = previous.sourceAdapterResolved
+        && current.sourceAdapterResolved
+        && (previous.sourceAdapterLuid.HighPart
+                != current.sourceAdapterLuid.HighPart
+            || previous.sourceAdapterLuid.LowPart
+                != current.sourceAdapterLuid.LowPart);
+    if (knownAdapterChanged)
+    {
+        return false;
+    }
+
+    return (!previous.sourceAdapterResolved
+            && current.sourceAdapterResolved)
+        || (!previous.sourceIdentityResolved
+            && current.sourceIdentityResolved);
+}
+
+[[nodiscard]] inline bool displayColorCapabilityEvidenceImproved(
+    const DisplayTarget& previous,
+    const DisplayTarget& current) noexcept
+{
+    const bool topologyRecovered =
+        previous.topologyStatus
+            != bafx::windows::DisplayTopologyStatus::Complete
+        && current.topologyStatus
+            == bafx::windows::DisplayTopologyStatus::Complete;
+    return displaySourceIdentityResolutionImproved(previous, current)
+        || displayPhysicalTargetIdentityResolutionImproved(previous, current)
+        || topologyRecovered;
+}
+
 [[nodiscard]] inline bool sameDisplayTarget(
     const DisplayTarget& left,
     const DisplayTarget& right) noexcept
@@ -249,7 +286,8 @@ struct DisplayTargetSnapshot
             left.captureRefreshRate,
             right.captureRefreshRate)
         && left.primary == right.primary
-        && left.physicalTargetCount == right.physicalTargetCount;
+        && left.physicalTargetCount == right.physicalTargetCount
+        && left.topologyStatus == right.topologyStatus;
 }
 
 [[nodiscard]] inline bool displayTargetMetadataChanged(

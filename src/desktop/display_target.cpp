@@ -414,6 +414,12 @@ DisplayTargetSnapshot queryDisplayTargets() noexcept
         result.error = ERROR_GEN_FAILURE;
         result.displays.clear();
     }
+    for (DisplayTarget& display : result.displays)
+    {
+        // Every target must carry the final snapshot quality. An invalid later
+        // monitor can downgrade an observation after an earlier target was read.
+        display.topologyStatus = result.status;
+    }
     return result;
 }
 
@@ -492,6 +498,7 @@ DisplayTarget stabilizeDisplayTargetObservation(
     const bafx::windows::DisplayTopologyStatus topologyStatus)
 {
     DisplayTarget stabilized = observed;
+    stabilized.topologyStatus = topologyStatus;
     if (topologyStatus
             == bafx::windows::DisplayTopologyStatus::Complete
         || !previous.sourceAdapterResolved
