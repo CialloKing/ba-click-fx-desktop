@@ -1047,6 +1047,21 @@ bool ControlCenterWindow::createControls()
         L"拖尾常驻",
         BS_AUTOCHECKBOX | WS_TABSTOP,
         ControlId::TrailAlwaysOn);
+    leftClickEnabled_ = createChild(
+        L"BUTTON",
+        L"左键触发",
+        BS_AUTOCHECKBOX | WS_TABSTOP,
+        ControlId::LeftClickEnabled);
+    rightClickEnabled_ = createChild(
+        L"BUTTON",
+        L"右键触发",
+        BS_AUTOCHECKBOX | WS_TABSTOP,
+        ControlId::RightClickEnabled);
+    middleClickEnabled_ = createChild(
+        L"BUTTON",
+        L"中键触发",
+        BS_AUTOCHECKBOX | WS_TABSTOP,
+        ControlId::MiddleClickEnabled);
 
     const bool slidersCreated = createSlider(
         globalScale_,
@@ -1493,6 +1508,9 @@ bool ControlCenterWindow::createControls()
         clickEnabled_,
         trailEnabled_,
         trailAlwaysOn_,
+        leftClickEnabled_,
+        rightClickEnabled_,
+        middleClickEnabled_,
         bloomQualityLabel_,
         bloomQuality_,
         backgroundHeading_,
@@ -1732,6 +1750,9 @@ void ControlCenterWindow::applyFonts() const noexcept
         clickEnabled_,
         trailEnabled_,
         trailAlwaysOn_,
+        leftClickEnabled_,
+        rightClickEnabled_,
+        middleClickEnabled_,
         globalScale_.label,
         globalScale_.trackbar,
         globalScale_.valueText,
@@ -2494,7 +2515,7 @@ void ControlCenterWindow::layoutControls(
     }
 
     const int groupHeight = (std::max)(
-        scale(350),
+        scale(384),
         clientHeight - contentTop - margin);
     moveControl(effectsHeading_, margin, contentTop, leftWidth, groupHeight);
 
@@ -2513,7 +2534,29 @@ void ControlCenterWindow::layoutControls(
         groupWidth - checkboxWidth * 3,
         scale(30));
 
-    int sliderTop = checkboxTop + scale(34);
+    // Keep the button-specific input switches on their own row so translated
+    // labels remain readable on the smallest supported DPI-scaled layout.
+    const int inputCheckboxTop = checkboxTop + scale(32);
+    moveControl(
+        leftClickEnabled_,
+        groupLeft,
+        inputCheckboxTop,
+        checkboxWidth,
+        scale(30));
+    moveControl(
+        rightClickEnabled_,
+        groupLeft + checkboxWidth,
+        inputCheckboxTop,
+        checkboxWidth,
+        scale(30));
+    moveControl(
+        middleClickEnabled_,
+        groupLeft + checkboxWidth * 2,
+        inputCheckboxTop,
+        checkboxWidth,
+        scale(30));
+
+    int sliderTop = inputCheckboxTop + scale(34);
     layoutSlider(globalScale_, groupLeft, sliderTop, groupWidth, scale(40));
     sliderTop += scale(46);
     layoutSlider(trailLength_, groupLeft, sliderTop, groupWidth, scale(40));
@@ -2718,6 +2761,9 @@ void ControlCenterWindow::updatePageVisibility() noexcept
         clickEnabled_,
         trailEnabled_,
         trailAlwaysOn_,
+        leftClickEnabled_,
+        rightClickEnabled_,
+        middleClickEnabled_,
         globalScale_.label,
         globalScale_.trackbar,
         globalScale_.valueText,
@@ -3012,6 +3058,30 @@ void ControlCenterWindow::onCommand(
             applyPatch(
                 "input.trailOnlyWhilePressed",
                 isChecked(trailAlwaysOn_) ? "false" : "true");
+        }
+        break;
+    case ControlId::LeftClickEnabled:
+        if (notificationCode == BN_CLICKED)
+        {
+            applyPatch(
+                "input.leftClick",
+                isChecked(leftClickEnabled_) ? "true" : "false");
+        }
+        break;
+    case ControlId::RightClickEnabled:
+        if (notificationCode == BN_CLICKED)
+        {
+            applyPatch(
+                "input.rightClick",
+                isChecked(rightClickEnabled_) ? "true" : "false");
+        }
+        break;
+    case ControlId::MiddleClickEnabled:
+        if (notificationCode == BN_CLICKED)
+        {
+            applyPatch(
+                "input.middleClick",
+                isChecked(middleClickEnabled_) ? "true" : "false");
         }
         break;
     case ControlId::BloomQuality:
@@ -3512,6 +3582,9 @@ void ControlCenterWindow::updateControls(
     setChecked(clickEnabled_, config.effects.clickEnabled);
     setChecked(trailEnabled_, config.effects.trailEnabled);
     setChecked(trailAlwaysOn_, !config.input.trailOnlyWhilePressed);
+    setChecked(leftClickEnabled_, config.input.leftClick);
+    setChecked(rightClickEnabled_, config.input.rightClick);
+    setChecked(middleClickEnabled_, config.input.middleClick);
     setSliderValue(globalScale_, config.effects.globalScale);
     setSliderValue(trailLength_, config.effects.trailLength);
     setSliderValue(trailWidth_, config.effects.trailWidth);
@@ -4469,6 +4542,9 @@ void ControlCenterWindow::setConnected(const bool connected) noexcept
         clickEnabled_,
         trailEnabled_,
         trailAlwaysOn_,
+        leftClickEnabled_,
+        rightClickEnabled_,
+        middleClickEnabled_,
         globalScale_.trackbar,
         trailLength_.trackbar,
         trailWidth_.trackbar,

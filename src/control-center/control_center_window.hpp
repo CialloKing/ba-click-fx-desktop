@@ -47,6 +47,9 @@ private:
         ClickEnabled,
         TrailEnabled,
         TrailAlwaysOn,
+        LeftClickEnabled,
+        RightClickEnabled,
+        MiddleClickEnabled,
         GlobalScale,
         TrailLength,
         TrailWidth,
@@ -245,6 +248,9 @@ private:
     HWND clickEnabled_{nullptr};
     HWND trailEnabled_{nullptr};
     HWND trailAlwaysOn_{nullptr};
+    HWND leftClickEnabled_{nullptr};
+    HWND rightClickEnabled_{nullptr};
+    HWND middleClickEnabled_{nullptr};
     SliderControl globalScale_{};
     SliderControl trailLength_{};
     SliderControl trailWidth_{};
