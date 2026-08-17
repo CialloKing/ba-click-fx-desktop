@@ -259,6 +259,7 @@ if(WIN32)
         bafx_desktop_input_tests
         test_main.cpp
         background_capture_stop_watchdog_tests.cpp
+        display_policy_tests.cpp
         display_target_tests.cpp
         frame_pacing_tests.cpp
         background_capture_runtime_tests.cpp
@@ -267,6 +268,7 @@ if(WIN32)
         pointer_frame_dispatch_tests.cpp
         "${PROJECT_SOURCE_DIR}/src/desktop/background_capture_runtime.cpp"
         "${PROJECT_SOURCE_DIR}/src/desktop/display_output_retarget.cpp"
+        "${PROJECT_SOURCE_DIR}/src/desktop/display_policy.cpp"
         "${PROJECT_SOURCE_DIR}/src/desktop/display_target.cpp"
         "${PROJECT_SOURCE_DIR}/src/desktop/performance_logging.cpp"
     )
