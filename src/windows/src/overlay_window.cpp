@@ -610,6 +610,11 @@ WindowResizeDiagnostics OverlayWindow::takeWindowResizeDiagnostics() noexcept
         WindowResizeDiagnostics{});
 }
 
+bool OverlayWindow::pointerEventsPending() const noexcept
+{
+    return !pendingPointerEvents_.empty();
+}
+
 std::vector<PointerEvent> OverlayWindow::takePointerEvents() noexcept
 {
     std::vector<PointerEvent> events;

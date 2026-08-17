@@ -292,6 +292,7 @@ public:
     [[nodiscard]] bool takeDisplayColorChange() noexcept;
     [[nodiscard]] std::optional<WindowSize> takePendingResize() noexcept;
     [[nodiscard]] WindowResizeDiagnostics takeWindowResizeDiagnostics() noexcept;
+    [[nodiscard]] bool pointerEventsPending() const noexcept;
     [[nodiscard]] std::vector<PointerEvent> takePointerEvents() noexcept;
     [[nodiscard]] PointerQueueDiagnostics takePointerQueueDiagnostics() noexcept;
     void setPointerButtonPolicy(PointerButtonPolicy policy) noexcept;

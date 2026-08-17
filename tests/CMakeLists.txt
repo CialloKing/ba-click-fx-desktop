@@ -262,6 +262,7 @@ if(WIN32)
         display_policy_tests.cpp
         display_target_tests.cpp
         frame_pacing_tests.cpp
+        idle_render_policy_tests.cpp
         background_capture_runtime_tests.cpp
         performance_logging_tests.cpp
         performance_window_tests.cpp

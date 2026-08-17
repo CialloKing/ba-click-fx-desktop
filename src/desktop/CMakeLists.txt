@@ -20,6 +20,7 @@ add_library(
     STATIC
         background_capture_stop_watchdog.cpp
         frame_pacing.cpp
+        idle_render_policy.cpp
         performance_window.cpp
         pointer_frame_dispatch.cpp
 )

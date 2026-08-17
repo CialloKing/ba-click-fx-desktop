@@ -19,6 +19,7 @@
 #include "display_session_manager.hpp"
 #include "frame_pacing.hpp"
 #include "host_control.hpp"
+#include "idle_render_policy.hpp"
 #include "performance_logging.hpp"
 #include "performance_window.hpp"
 
@@ -5278,10 +5279,44 @@ int runApplication(
 
         const bool enteringPause = controlState.paused
             && !simulationTimeline.paused();
-        const bool shouldRender = !displayPowerUnavailable
-            && (!controlState.paused
-                || enteringPause
-                || renderInvalidated);
+        const bafx::fx::SimulationTime idleProbeTime =
+            simulationTimeline.fromWallTime(captureHealthNow);
+        bool activeEffects = false;
+        bool presentedDrawableContent = false;
+        bool inputDisplayAvailable = false;
+        for (const auto& ownedSession : displaySessions.sessions())
+        {
+            const bafx::desktop::DisplaySession& session = *ownedSession;
+            if (!session.effectsEnabled()
+                || (&session != &displaySession && session.renderFaulted()))
+            {
+                continue;
+            }
+            inputDisplayAvailable = true;
+            activeEffects = session.simulation().renderingRequired(idleProbeTime)
+                || activeEffects;
+            presentedDrawableContent = session.lastPresentedDrawableContent()
+                || presentedDrawableContent;
+        }
+        const bool shouldRender = bafx::desktop::shouldRenderForIdlePolicy(
+            bafx::desktop::IdleRenderPolicyInput{
+                displayPowerUnavailable,
+                controlState.paused,
+                enteringPause,
+                renderInvalidated,
+                config.performance.idleOptimization,
+                options.demoClick
+                    || options.smokeTest
+                    || options.recoveryProbe
+                    || options.framePacingStallProbe
+                    || options.frameLimit.has_value(),
+                config.effects.enabled
+                    && (config.effects.clickEnabled
+                        || config.effects.trailEnabled)
+                    && inputDisplayAvailable
+                    && hostWindow.pointerEventsPending(),
+                activeEffects,
+                presentedDrawableContent});
         std::optional<HRESULT> framePacingDeviceLoss;
         bafx::desktop::DisplaySession* secondaryRecoveredDuringPacing = nullptr;
         bool renderCoordinatorThisIteration = false;
@@ -6520,12 +6555,13 @@ int runApplication(
             performanceWindowStartedAt = clock.now();
         }
 
-        if ((controlState.paused || displayPowerUnavailable)
+        if ((controlState.paused || displayPowerUnavailable || !shouldRender)
             && !renderInvalidationPending)
         {
-            // Pause keeps retained backgrounds current. While display power is
-            // unavailable, GPU and WGC signals are not actionable and may stay
-            // signaled until recovery, so only bounded control waits are safe.
+            // Pause and idle optimization keep their sessions warm without
+            // continuously acquiring swap-chain slots. While display power is
+            // unavailable, GPU and WGC signals may remain signaled, so only
+            // bounded control waits are safe.
             pausedWaitables.clear();
             const auto& ownedSessions = displaySessions.sessions();
             if (!displayPowerUnavailable)
