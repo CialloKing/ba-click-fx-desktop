@@ -328,8 +328,8 @@ template<std::size_t keyCount>
 
     // Unity stores angular velocity over normalized lifetime, so integrate in
     // curve space and multiply by the particle lifetime to recover radians.
-    // Web Canvas positive rotation is screen-clockwise; native mesh rotation
-    // is screen-counterclockwise, so the public direction changes sign here.
+    // The public direction is screen-clockwise while native mesh rotation is
+    // screen-counterclockwise, so the API boundary changes sign here.
     return (blendedIntegralTo - blendedIntegralFrom)
         * settings.ringsAngularVelocityMultiplier
         * lifetimeSeconds
@@ -657,8 +657,8 @@ void Simulation::setClickTimeScale(
     const float timeScale,
     const SimulationTime time) noexcept
 {
-    // Match the Web clock contract: the old multiplier owns all source time
-    // through the configuration boundary; only later intervals use the new one.
+    // The old multiplier owns all source time through the configuration
+    // boundary; only later intervals use the new value.
     accumulateClickTime(time);
     clickTimeScale_ = normalizeTimeScale(timeScale);
 }
@@ -895,7 +895,7 @@ void Simulation::onFrameRendered(const SimulationTime time)
     if (trailParkingMode_)
     {
         // FXTouch.Stop clears the authored TrailRenderer at the Unity root
-        // deadline even when a Web-configured click child keeps this pooled
+        // deadline even when a configured click child keeps this pooled
         // instance alive. Preserve only the sibling parking cache/state.
         trail_.clear();
     }
@@ -906,8 +906,8 @@ void Simulation::onFrameRendered(const SimulationTime time)
         return;
     }
 
-    // The default Unity contract still owns the first second. Web lifetime
-    // overrides may extend a child beyond it, while the validated public
+    // The default Unity contract still owns the first second. Native lifetime
+    // settings may extend a child beyond it, while the validated public
     // lifetime and time-scale ranges provide a finite upper cleanup bound.
     active_ = false;
     rings_.clear();

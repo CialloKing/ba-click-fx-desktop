@@ -9,13 +9,15 @@
   其余两项关闭 WGC。
 - `BAFX.ControlCenter.exe` 的原生 Win32 控制面：基础页管理启用状态、点击特效、鼠标拖尾、拖尾常驻、效果大小、
   拖尾长度、拖尾宽度、输入采样率上限、Bloom 强度和 Bloom 质量；高级页按时间、粒子与材质、圆环、点击碎片和
-  Bloom 分为五个二级页面，并提供透明度、点击/拖尾时间倍率、拖尾寿命、`disk.radius`、`disk.lifetimeMs`、
-  `rings.count`、`rings.lifetimeMs`、`rings.radiusMin`、`rings.radiusMax`、
-  `rings.angularVelocityMultiplier`、`rings.rotationDirection`、`rings.hdrIntensity`、
-  `shards.hdrIntensity`、`shards.clickCount`、点击寿命上下限、出生半径、速度上下限、
-  `shards.sizeMin`/`shards.sizeMax`、`trail.trailOpacity`、Bloom 扩散/阈值/软阈值/亮度上限等参数。基础页还提供
+  Bloom 分为五个二级页面，并通过原生 `effects.*` 路径提供透明度、点击/拖尾时间倍率、拖尾寿命、
+  `effects.diskRadius`、`effects.diskLifetimeMs`、`effects.ringsCount`、`effects.ringsLifetimeMs`、
+  `effects.ringsRadiusMin`、`effects.ringsRadiusMax`、`effects.ringsAngularVelocityMultiplier`、
+  `effects.ringsRotationDirection`、`effects.ringsHdrIntensity`、`effects.shardsHdrIntensity`、
+  `effects.shardsClickCount`、点击寿命上下限、出生半径、速度上下限、`effects.shardsSizeMin`、
+  `effects.shardsSizeMax`、`effects.trailOpacity`、Bloom 扩散/阈值/软阈值/亮度上限等参数。基础页还提供
   背景模式、指针排除和系统捕获边框。“显示与性能”页选择并显示 Host 的逐屏实际状态，提供默认关闭的
-  全局 HDR 请求，以及跟随显示器、固定 `60/120/144 FPS` 四种帧率策略。
+  全局 HDR 请求，以及跟随显示器、固定 `60/120/144 FPS` 四种帧率策略；具有稳定标识的显示器还可
+  独立控制特效、HDR 请求和帧率策略。
   所有改动会通过本地 Named Pipe 在下一帧应用到正在运行的 Host；
   “重置默认”经确认后恢复全部持久化设置，但保留当前暂停或运行状态。
 - 每次输入消费/呈现更新只为按压 FX 使用一份帧边界当前位置，并以同一 `renderTime` 按
@@ -25,7 +27,7 @@
   Down/Held/Up 布尔帧态并按 Down→Held→Up 执行，Cancel 最后作为 native 硬边界处理。Unity
   `2021.3.45f1` Player 已确认 `Down-Up-Down` 的聚合帧三态同时为 true；其他边沿排列及游戏所用
   Unity `2021.3.56f2` 仍未验证。含任一边沿的帧不会从尾随 Move 重启常驻拖尾。
-- 拖尾常驻是 native/Web 增强，不生成点击 burst。Unity TrailRenderer 的空间参数仍保持
+- 拖尾常驻是桌面版原生增强，不生成点击 burst。Unity TrailRenderer 的空间参数仍保持
   `m_MinVertexDistance=0.01`。
 - D3D11 硬件设备；硬件设备创建失败时尝试 WARP 软件设备。
 - 当前验证范围为普通 SDR 桌面合成路径。
@@ -33,7 +35,8 @@
   DisplayConfig 身份、请求/实际 GPU、HDR/Advanced Color、最终输出策略、WGC 状态和渲染故障；
   这些只是当前运行快照，不能据此宣称 HDR、多显示器、Advanced Color 或物理 nits 输出已经受支持。
   驱动未提供有效亮度时会记录 `luminance-unknown`。
-- `GetDisplayState` 通过本地 IPC 返回逐屏边界、DPI、刷新率、GPU、请求/解析/实际输出、HDR、WGC 与故障状态；
+- `GetDisplayState` 通过本地 IPC 返回逐屏边界、DPI、刷新率、GPU、已应用特效/HDR/帧率策略、
+  请求/解析/实际输出、HDR、WGC 与故障状态；
   Control Center 只解析并显示这份有界快照。未知布尔能力使用 `null`，缺失、超限或格式错误会显示为状态不可用，
   不会把全局 HDR 请求或当前配置冒充为实际支持状态。
 - WGC FP16 scRGB 背景使用独立的背景 reference white 转入 Unity 相对工作空间；Unity authored color、粒子、
@@ -44,9 +47,9 @@
   副屏立即隐藏并锁存 `Display.Session[n].OutputContractFaulted=true`，普通 Bloom 或输入配置成功不会解除；
   只有实际输出重新满足当前策略、完整拓扑重建或资源恢复才能重新显示。协调屏会先隐藏，再终止 Host，
   防止旧 HDR 表面继续驻留。`Display.Output.RenegotiationExhausted` 会记录请求/实际映射和最终处置。
-- 首次生成的完整 schema 13 配置默认为 `background.mode=background-aware`、
+- 首次生成的完整 schema 14 配置默认为 `background.mode=background-aware`、
   `background.allowSystemBorder=true`、`input.trailOnlyWhilePressed=true`、
-  `input.samplingRateHz=0`、`display.hdrEnabled=false` 和 `performance.framePacing=match-display`。测试版只接受字段完整的 schema 13；非当前 schema、
+  `input.samplingRateHz=0`、`display.hdrEnabled=false` 和 `performance.framePacing=match-display`。测试版只接受字段完整的 schema 14；非当前 schema、
   缺失或未知字段以及枚举别名均被拒绝。Host 保留无效原文件并以内存中的当前默认值继续运行，不迁移、
   补齐或改写无效配置。背景感知授权、排除或会话失败时回退内部 FX-only transport；其余模式不启用 WGC。
 - portable 运行时把 `BAFX.config.json`、`ba-click-fx-desktop-support.log` 和支持报告写入 EXE 所在目录；

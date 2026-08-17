@@ -2,7 +2,7 @@
 
 `ba-click-fx-desktop` 是从零实现的 Windows 原生桌面点击特效。项目不复用
 `ba-click-fx` 的 JavaScript、WebGL 或 WebGPU 渲染代码；Unity/游戏资源是视觉真值，
-Web 版本只作为行为与参数语义参考。
+Web 版本只作为历史行为对照，不定义本项目的配置、IPC 或单位合同。
 
 Release Host 运行时是单文件：Visual C++ 运行库静态链接，Circle、Grad Ring、Triangle Atlas、Trail
 四张参考纹理的 RGBA8 texel 以 raw LZ4 Block 无损压缩为 C 字节串，直接编译进 EXE。启动时逐张分配
@@ -162,11 +162,11 @@ Visual Studio、Windows SDK、Inno Setup 或 PowerShell 依赖包；安装器已
 `%LOCALAPPDATA%`、当前工作目录或其他用户目录保存数据。Host 使用
 `Local\BAFX.Host.v1` 互斥体保证单实例。
 
-首次生成的 schema 13 配置将 `background.mode` 设为 `background-aware`、
+首次生成的 schema 14 配置将 `background.mode` 设为 `background-aware`、
 `background.allowSystemBorder` 设为 `true`、`display.hdrEnabled` 设为 `false`，并以
 `performance.framePacing=match-display`、`input.trailOnlyWhilePressed=true`、`input.samplingRateHz=0`
 保持跟随显示器帧率、按住拖尾且不额外限制输入 Move。
-测试版只接受字段完整的显式 `schemaVersion=13`：缺少版本、section 或字段，非当前版本、
+测试版只接受字段完整的显式 `schemaVersion=14`：缺少版本、section 或字段，非当前版本、
 未知字段和枚举别名都会被拒绝。Host 记录错误后仅在内存中使用当前默认值，不补齐、不迁移也不改写
 原文件。只有
 `background-aware` 会启用 WGC；WGC 或捕获排除路径失败时，Host 将当前批次回退到内部
@@ -183,21 +183,23 @@ FX-only，不会先启动带黄色边框的会话。无论该开关如何设置�
 可以读取状态、暂停或恢复特效。三个顶层页面分别为“基础”“高级”和“显示与性能”。基础页提供启用状态、
 点击特效、鼠标拖尾、拖尾常驻、效果大小、拖尾长度、拖尾宽度、输入采样率上限、Bloom 强度与 Bloom 质量，
 并管理背景模式、指针排除和系统捕获边框；高级页再按“时间与透明度”“粒子与材质”
-“圆环参数”“点击碎片”“Bloom 参数”分成五个二级页面。粒子与材质页直接使用与 Web 相同的
-`disk.radius`、`disk.lifetimeMs`、`rings.hdrIntensity`、`shards.hdrIntensity` 和
-`trail.trailOpacity` 路径；圆环页提供 `rings.count`、`rings.lifetimeMs`、
-`rings.radiusMin`、`rings.radiusMax`、`rings.angularVelocityMultiplier` 和
-`rings.rotationDirection`；点击碎片页提供 `shards.clickCount`、点击寿命上下限、出生半径、速度上下限和
-`shards.sizeMin`/`shards.sizeMax`；最后两个尺寸参数按 Web 合同同时作用于点击与拖尾碎片。其余两页提供
+“圆环参数”“点击碎片”“Bloom 参数”分成五个二级页面。所有控件只使用项目原生的
+`effects.*` 配置路径，例如 `effects.diskRadius`、`effects.diskLifetimeMs`、
+`effects.ringsCount`、`effects.ringsLifetimeMs`、`effects.ringsRadiusMin`、
+`effects.ringsRadiusMax`、`effects.ringsAngularVelocityMultiplier`、
+`effects.ringsRotationDirection`、`effects.shardsClickCount`、`effects.shardsSizeMin`、
+`effects.shardsSizeMax` 和 `effects.trailOpacity`。两个碎片尺寸字段由原生模拟统一应用于点击与拖尾碎片。其余两页提供
 透明度、点击/拖尾时间倍率、拖尾寿命，以及 Bloom
 扩散、阈值、软阈值和亮度上限。“显示与性能”页通过 `GetDisplayState` 选择并查看每个显示会话的
 实际边界、DPI、刷新率、GPU、色彩/输出策略、WGC 和故障状态，并提供默认关闭的全局 HDR 请求以及
-`match-display`、`60`、`120`、`144` 四种 `performance.framePacing` 策略。选择器刷新后尽量保留
-同一显示器；状态缺失或解析失败时显示错误，而不会把请求状态显示为实际能力。
+`match-display`、`60`、`120`、`144` 四种 `performance.framePacing` 策略。具有稳定 DisplayConfig
+标识的显示器可以启用独立设置，分别控制特效、HDR 请求和帧率策略；关闭独立设置后恢复继承全局值。
+没有稳定标识的会话仍可查看，但逐屏写入控件保持禁用。选择器刷新后尽量保留同一显示器；状态缺失或
+解析失败时显示错误，而不会把请求状态显示为实际能力。
 调整结果在下一帧交给 Host。“拖尾常驻”默认关闭；开启后
-无需按住鼠标，普通移动也会生成纯拖尾，但不会伪造点击圆盘或圆环。这是参考 Web 行为提供的原生产品增强，
+无需按住鼠标，普通移动也会生成纯拖尾，但不会伪造点击圆盘或圆环。这是桌面版的原生产品增强，
 不属于游戏原脚本的按压 FX 路径。数值控件会合并连续拖动后的写入，避免为每个滑块像素都写一次配置。
-`bloom.intensity` 是 Web/Unity 原始标量，默认值为 `1.7`、有效范围为 `0..10`，不是相对 `1.0` 的倍率。
+`effects.bloomIntensity` 是 Unity Bloom 强度标量，默认值为 `1.7`、有效范围为 `0..10`，不是相对 `1.0` 的倍率。
 Bloom 质量只是 diffusion 的派生预设：紧凑、适中、原版、极宽分别对应 `4/6/7/10`，其他值显示为“自定义”。
 
 控制中心的“重置默认”按钮会先请求确认，再用内置默认 schema 整体替换持久化配置。它不会恢复已经
@@ -213,8 +215,8 @@ Unity `2021.3.56f2` 仍未验证。没有待消费的位置时不会仅为输入
 `advance` 推进距离发射的时间基线。
 
 “输入采样率上限 (Hz)”默认值 `0` 表示不额外限频；`1..1000` 仅使用位置样本的消息分派 QPC 推进
-可选输入采样相位。QPC 不决定模拟动作时间、帧态归约、严格路径执行顺序或释放时刻。`30 Hz` 是参考 Web 版提供的手机客户端
-视觉近似，`15 Hz` 折线更明显，`60 Hz` 更平滑；这些是人工审核入口，不是从 Prefab 提取出的固定客户端
+可选输入采样相位。QPC 不决定模拟动作时间、帧态归约、严格路径执行顺序或释放时刻。`30 Hz` 是低功耗视觉
+审核预设，`15 Hz` 折线更明显，`60 Hz` 更平滑；这些是人工审核入口，不是从 Prefab 提取出的固定客户端
 帧率，也不会修改 Unity TrailRenderer 的 `m_MinVertexDistance=0.01`、`time=0.3` 或
 `widthMultiplier=0.005`。
 
@@ -247,20 +249,23 @@ SetConfig {"generation":1,"path":"background.mode","value":"light-background"}
 SetConfig {"generation":1,"path":"background.allowSystemBorder","value":false}
 SetConfig {"generation":1,"path":"display.hdrEnabled","value":true}
 SetConfig {"generation":1,"path":"performance.framePacing","value":"120"}
-SetFxParam {"generation":1,"path":"disk.radius","value":40}
-SetFxParam {"generation":1,"path":"disk.lifetimeMs","value":250}
-SetFxParams {"generation":1,"patch":{"rings.count":3,"rings.lifetimeMs":700,"rings.radiusMin":60,"rings.radiusMax":90,"rings.angularVelocityMultiplier":12,"rings.rotationDirection":-1}}
-SetFxParams {"generation":1,"patch":{"shards.clickCount":6,"shards.clickLifetimeMinMs":500,"shards.clickLifetimeMaxMs":650,"shards.clickRadius":55,"shards.clickSpeedMin":45,"shards.clickSpeedMax":75,"shards.sizeMin":14,"shards.sizeMax":30}}
+SetFxParam {"generation":1,"path":"effects.diskRadius","value":40}
+SetFxParam {"generation":1,"path":"effects.diskLifetimeMs","value":250}
+SetFxParams {"generation":1,"patch":{"effects.ringsCount":3,"effects.ringsLifetimeMs":700,"effects.ringsRadiusMin":60,"effects.ringsRadiusMax":90,"effects.ringsAngularVelocityMultiplier":12,"effects.ringsRotationDirection":-1}}
+SetFxParams {"generation":1,"patch":{"effects.shardsClickCount":6,"effects.shardsClickLifetimeMinMs":500,"effects.shardsClickLifetimeMaxMs":650,"effects.shardsClickRadius":55,"effects.shardsClickSpeedMin":45,"effects.shardsClickSpeedMax":75,"effects.shardsSizeMin":14,"effects.shardsSizeMax":30}}
+SetDisplayOverride {"generation":1,"displayKey":"displayconfig-v1-sha256:...","enabled":true,"hdrEnabled":false,"framePacing":"120"}
+RemoveDisplayOverride {"generation":1,"displayKey":"displayconfig-v1-sha256:..."}
 ResetFxConfig
 Pause
 Resume
 Shutdown
 ```
 
-`GetDisplayState` 返回独立于配置代次的逐屏运行状态快照；它不修改配置，也不代表其中的实验能力已经
-完成硬件验收。`SetConfig` 也接受完整的 schema 13 JSON 快照。`GetFxConfig`、`SetFxParam`、原子批量的
-`SetFxParams` 和 `ResetFxConfig` 对应 Web 的实例 API 命名；当前只返回和接受已经接入 Native
-模拟或材质求值的参数。FX 快照不包含 `trailAlways`、`inputSamplingRate`、HDR、背景或系统字段；这些
+`GetDisplayState` 返回独立于配置代次的逐屏运行状态快照，并报告每个会话实际应用的特效启用、HDR 请求
+和帧率策略；它不修改配置，也不代表其中的实验能力已经完成硬件验收。`SetConfig` 也接受完整的 schema 14
+JSON 快照。`GetFxConfig`、`SetFxParam`、原子批量的 `SetFxParams` 和 `ResetFxConfig` 是本项目的原生
+特效控制接口。`GetFxConfig` 返回平面的 `EffectsConfig` 字段，写入路径只接受唯一的 `effects.*`
+命名空间，不接受 Web 别名或额外单位换算。FX 快照不包含 HDR、背景、输入、性能或系统字段；这些
 产品设置只通过 `GetConfig`/`SetConfig` 管理。`ResetFxConfig` 只恢复 `effects`，保留背景、HDR、输入和系统设置；Control Center
 中的“重置默认”则使用完整 schema 恢复全部持久化设置。路径补丁只允许配置库声明的产品字段，代次不匹配会返回
 `generation_conflict`；所有命令均在下一帧由 Host 应用。
