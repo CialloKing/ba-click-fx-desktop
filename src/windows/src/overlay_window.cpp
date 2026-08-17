@@ -728,15 +728,10 @@ LRESULT OverlayWindow::handleMessage(
 
     case WM_INPUT_DEVICE_CHANGE:
         if (role_ == OverlayWindowRole::HostShell
-            && wParam == GIDC_REMOVAL)
+            && rawPointerMessageCancelsStroke(message, wParam))
         {
             cancelPointer();
         }
-        return 0;
-
-    case WM_CANCELMODE:
-    case WM_CAPTURECHANGED:
-        cancelPointer();
         return 0;
 
     case WM_HOTKEY:

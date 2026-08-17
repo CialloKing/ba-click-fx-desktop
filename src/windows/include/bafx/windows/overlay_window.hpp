@@ -128,6 +128,15 @@ struct PointerQueueDiagnostics
     std::uint32_t maximumWin32QueueAgeMilliseconds{0U};
 };
 
+[[nodiscard]] constexpr bool rawPointerMessageCancelsStroke(
+    const UINT message,
+    const WPARAM wParam) noexcept
+{
+    // Raw Input is process-global and does not own Win32 mouse capture.
+    // Only removal of the producing device proves that its held stroke ended.
+    return message == WM_INPUT_DEVICE_CHANGE && wParam == GIDC_REMOVAL;
+}
+
 enum class RawMouseRegistration : std::uint8_t
 {
     Enabled,

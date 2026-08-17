@@ -19,6 +19,18 @@ namespace
 
 }
 
+BAFX_TEST(raw_pointer_stroke_ignores_traditional_capture_changes)
+{
+    BAFX_CHECK(!rawPointerMessageCancelsStroke(WM_CANCELMODE, 0U));
+    BAFX_CHECK(!rawPointerMessageCancelsStroke(WM_CAPTURECHANGED, 0U));
+    BAFX_CHECK(!rawPointerMessageCancelsStroke(
+        WM_INPUT_DEVICE_CHANGE,
+        GIDC_ARRIVAL));
+    BAFX_CHECK(rawPointerMessageCancelsStroke(
+        WM_INPUT_DEVICE_CHANGE,
+        GIDC_REMOVAL));
+}
+
 BAFX_TEST(overlay_publishes_display_topology_changes_once)
 {
     OverlayWindow window(
