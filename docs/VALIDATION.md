@@ -123,6 +123,21 @@
 和 packaged 权限矩阵也保持 `Not Run`；离线 verifier、编译成功或单机 API 调用成功均不能替代这些
 硬件/权限证据。
 
+### Session-local 后续门禁
+
+后续验证按以下顺序推进，后一阶段不得用前一阶段的模拟或离线结果替代：
+
+| 阶段 | 必须产出 | 通过条件 | 未通过处理 |
+| --- | --- | --- | --- |
+| 合同冻结 | schema、阈值、verifier 测试 | 离线合同全通过，默认真实 CTest 关闭 | 只修合同/测试，不改产品路径 |
+| 目标机单机 | `session-exclusion.json`、原始 FP16、预览、日志、`verification.json` | `Available + Passed`、三阶段 ROI、iteration、ledger、watchdog 全通过 | 标记 `Unavailable`/`Rejected`/`NotVerified`/`Failed`，不得接入生产 |
+| 硬件/权限矩阵 | 每个 OS/GPU/显示器/色彩/身份独立目录 | 目标支持矩阵所需单元格逐格通过 | 缺失单元格保持 `Not Run`，收窄支持声明 |
+| 生产接入评审 | 状态机设计、故障注入、回退诊断和真实回归 | Session-local、旧 WDA、FX-only 三条路径可区分且顺序正确 | 保持旧 WDA 默认路径，禁止发布新能力 |
+
+生产接入前必须证明 snapshot 发布边界：Set 成功后，只有收到并验证对应 configuration iteration 的
+frame 才能产生新的 `BackgroundSnapshot`；旧 iteration、跳序事件和清理阶段的 frame 只能被丢弃并记录
+原因。任何 `NotVerified` 都是证据不足，不得折算为 `Rejected` 或 `Passed`。
+
 ## 3. Golden case 契约
 
 每个 case 固定：

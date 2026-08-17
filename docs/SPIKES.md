@@ -210,6 +210,48 @@ ledger 全部通过；Set/Get 调用成功但 iteration 或清理证据不足时
 configuration iteration 的 frame 前不发布新的 `BackgroundSnapshot`；失败时按固定顺序回退到旧 WDA，
 再失败才进入 FX-only。生产诊断必须区分三条实际路径。
 
+### 后续执行计划
+
+本 Spike 的后续工作分为四个阶段。阶段之间有硬门槛，未满足时只更新证据和文档，不改生产捕获路径。
+
+1. **冻结合同并准备目标机执行（当前阶段，已完成）**
+   - 保持 collector、verifier、JSON schema 和阈值版本不变；后续任何合同变更必须提升 schema/contract
+     版本并增加回归样本。
+   - 只运行离线合同测试、编译和路径审计；默认不打开真实桌面 CTest，避免把当前机器的未验证结果
+     写成能力结论。
+   - 使用带进程外超时的 `tools\run-wgc-session-exclusion-spike.ps1`，保证 collector 卡在 WinRT
+     调用时仍能留下日志并被父进程终止。
+
+2. **单机真实桌面证据（下一执行阶段）**
+   - 在目标系统记录 OS build、Windows SDK、GPU/driver、主显示器分辨率、刷新率、色彩模式和位深，
+     并确认 Overlay 使用 `WDA_NONE`。
+   - 只执行 `baseline -> excluded -> restored`；每阶段等待 marker 和目标 configuration iteration
+     的稳定 frame，保留原始 `.rgba16f`、预览、诊断日志和 verifier 输出。
+   - 只有 `capability.status=Available`、`evidence.result=Passed`、WindowId 往返一致、三阶段 ROI
+     判据通过且全部资源 ledger 归零，才可把该机器单元格标为 `Passed`。
+   - QI 不支持标为 `Unavailable`；Set/Get 被拒绝标为 `Rejected`；iteration 或像素关联不稳定标为
+     `NotVerified`。后三者都不能触发产品接入。
+
+3. **硬件/权限矩阵扩展（单机 Passed 后）**
+   - 至少分别记录主显示器 SDR、第二显示器/不同刷新率、HDR 或 Advanced Color、portable 与 packaged
+     权限身份；每个单元格独立保存 JSON 和原始帧，不能用同一结果复制填充。
+   - 外部录屏/OBS 只作为观察证据，不能改变 Session-local 能力判定；device lost、热插拔、跨适配器
+     和混合 DPI 继续沿 SPK-004 单独执行。
+   - 任一矩阵单元格缺失、资源清理失败、watchdog 超时或出现旧 frame 参与，都将该单元格保留为
+     `Not Run`/`Failed`，并阻止生产接入评审。
+
+4. **生产接入评审与渐进发布（全部矩阵满足后）**
+   - 将 `BackgroundCaptureTransition` 的新路径设计为显式事务：保持 `WDA_NONE`，创建 Session 后
+     设置 WindowId 列表，等待对应 configuration iteration 的 frame，再发布新的 snapshot。
+   - 失败回退严格执行 `SessionLocalExclusion -> LegacyGlobalExclusion -> FxOnly`；每次回退记录实际
+     路径、QI/Set/Get HRESULT、iteration 和 snapshot 身份，不把旧 WDA 成功误报为 Session-local。
+   - 先补状态机/失败注入/资源 ledger 自动化，再做真实桌面回归和外部录屏观察；ADR-004 只有在证据
+     可审计且能力矩阵完整后才允许从 `Proposed` 进入决策流程。
+
+执行停止条件固定为：真实目标系统尚未达到 `Available + Passed`、证据目录逃逸、JSON 重复/未知字段、
+非有限 FP16、ROI 阈值被放宽、iteration 无法关联、watchdog 超时或任一资源 ledger 未归零。停止时保留
+失败产物和原因，不删除、不覆盖先前证据。
+
 ### 已执行产品模式切换与暂停保鲜子集证据
 
 - 产品模式切换、暂停保鲜和有效快照失效子集：`Passed`，capture commit `ab4be5a`，Windows
