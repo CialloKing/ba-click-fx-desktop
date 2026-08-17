@@ -4099,18 +4099,6 @@ int runApplication(
                     : "runtime-notification",
                 reconcile,
                 displaySessions.sessions().size());
-            static_cast<void>(refreshDisplaySessionPolicies(
-                simulationTimeline.fromWallTime(clock.now())));
-            updateDisplayRuntimeSummary();
-            // New topology sessions join the current request independently;
-            // existing sessions treat the stable request as a no-op.
-            applySecondaryBackgroundCaptureRequest(
-                displaySessions,
-                displaySession,
-                bafx::desktop::backgroundCaptureRequest(config),
-                appliedGeneration,
-                logPath,
-                displayPowerUnavailable);
 
             const bafx::desktop::DisplayTarget& requestedTarget =
                 pendingDisplayTarget.has_value()
@@ -4339,6 +4327,23 @@ int runApplication(
                     "Display.Cadence.Refreshed",
                     cadenceFields);
             }
+
+            // A complete topology can add the coordinator's stable display
+            // key without changing its resource domain. Resolve policy only
+            // after committing that metadata so this snapshot cannot publish
+            // one stale inherited-policy iteration.
+            static_cast<void>(refreshDisplaySessionPolicies(
+                simulationTimeline.fromWallTime(clock.now())));
+            updateDisplayRuntimeSummary();
+            // New topology sessions join the current request independently;
+            // existing sessions treat the stable request as a no-op.
+            applySecondaryBackgroundCaptureRequest(
+                displaySessions,
+                displaySession,
+                bafx::desktop::backgroundCaptureRequest(config),
+                appliedGeneration,
+                logPath,
+                displayPowerUnavailable);
         }
         if (displayColorRefreshPending
             && !pendingDisplayTarget.has_value())
