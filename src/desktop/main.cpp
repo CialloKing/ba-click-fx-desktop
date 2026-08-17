@@ -10,6 +10,7 @@
 #include "bafx/windows/package_identity.hpp"
 #include "bafx/windows/portable_paths.hpp"
 #include "bafx/windows/runtime_diagnostics.hpp"
+#include "bafx/windows/startup_registration.hpp"
 #include "bafx/windows/unique_handle.hpp"
 #include "background_capture_runtime.hpp"
 #include "display_output_retarget.hpp"
@@ -64,6 +65,154 @@ constexpr DWORD pausedControlPollMilliseconds = 50U;
            << std::setfill('0')
            << static_cast<unsigned long>(result);
     return stream.str();
+}
+
+[[nodiscard]] std::string wideToUtf8(const std::wstring_view value)
+{
+    if (value.empty())
+    {
+        return {};
+    }
+    if (value.size()
+        > static_cast<std::size_t>((std::numeric_limits<int>::max)()))
+    {
+        return "<utf8-conversion-failed>";
+    }
+    const int characterCount = static_cast<int>(value.size());
+    const int required = WideCharToMultiByte(
+        CP_UTF8,
+        WC_ERR_INVALID_CHARS,
+        value.data(),
+        characterCount,
+        nullptr,
+        0,
+        nullptr,
+        nullptr);
+    if (required <= 0)
+    {
+        return "<utf8-conversion-failed>";
+    }
+    std::string output(static_cast<std::size_t>(required), '\0');
+    const int written = WideCharToMultiByte(
+        CP_UTF8,
+        WC_ERR_INVALID_CHARS,
+        value.data(),
+        characterCount,
+        output.data(),
+        required,
+        nullptr,
+        nullptr);
+    return written == required
+        ? output
+        : std::string("<utf8-conversion-failed>");
+}
+
+[[nodiscard]] std::string_view startupRegistrationStatusName(
+    const bafx::windows::StartupRegistrationStatus status) noexcept
+{
+    switch (status)
+    {
+    case bafx::windows::StartupRegistrationStatus::Unchanged:
+        return "unchanged";
+    case bafx::windows::StartupRegistrationStatus::Updated:
+        return "updated";
+    case bafx::windows::StartupRegistrationStatus::Removed:
+        return "removed";
+    case bafx::windows::StartupRegistrationStatus::Failed:
+        return "failed";
+    }
+    return "unknown";
+}
+
+[[nodiscard]] std::string_view configLoadStatusName(
+    const bafx::config::ConfigStatus status) noexcept
+{
+    switch (status)
+    {
+    case bafx::config::ConfigStatus::Ok:
+        return "ok";
+    case bafx::config::ConfigStatus::CreatedDefault:
+        return "created-default";
+    case bafx::config::ConfigStatus::IoError:
+        return "io-error";
+    case bafx::config::ConfigStatus::ParseError:
+        return "parse-error";
+    case bafx::config::ConfigStatus::ValidationError:
+        return "validation-error";
+    case bafx::config::ConfigStatus::WriteError:
+        return "write-error";
+    }
+    return "unknown";
+}
+
+void reconcileControlCenterStartupRegistration(
+    const bafx::config::SystemConfig& system,
+    const std::filesystem::path& logPath,
+    const std::string_view reason) noexcept
+{
+    try
+    {
+        const std::filesystem::path executable =
+            bafx::windows::executableDirectory() / L"BAFX.ControlCenter.exe";
+        const bafx::windows::StartupRegistrationResult result =
+            bafx::windows::applyControlCenterStartupRegistration(
+                executable,
+                system.startWithWindows,
+                system.startMinimized);
+        const std::string error = std::to_string(result.error);
+        const std::string command = wideToUtf8(result.commandLine);
+        const std::string target = wideToUtf8(executable.wstring());
+        const std::string_view commandField = command.empty()
+            ? std::string_view("none")
+            : std::string_view(command);
+        const std::array fields{
+            bafx::windows::DiagnosticField{"Reason", reason},
+            bafx::windows::DiagnosticField{
+                "RequestedEnabled",
+                system.startWithWindows ? "true" : "false"},
+            bafx::windows::DiagnosticField{
+                "RequestedMinimized",
+                system.startMinimized ? "true" : "false"},
+            bafx::windows::DiagnosticField{
+                "Status",
+                startupRegistrationStatusName(result.status)},
+            bafx::windows::DiagnosticField{"Win32Error", error},
+            bafx::windows::DiagnosticField{"Target", target},
+            bafx::windows::DiagnosticField{
+                "Command",
+                commandField}};
+        bafx::windows::appendDiagnosticEvent(
+            logPath,
+            "System.StartupRegistration",
+            fields,
+            result.succeeded()
+                ? bafx::windows::DiagnosticLevel::Info
+                : bafx::windows::DiagnosticLevel::Error);
+    }
+    catch (const std::exception& error)
+    {
+        const std::array fields{
+            bafx::windows::DiagnosticField{"Reason", reason},
+            bafx::windows::DiagnosticField{"Message", error.what()}};
+        bafx::windows::appendDiagnosticEvent(
+            logPath,
+            "System.StartupRegistration",
+            fields,
+            bafx::windows::DiagnosticLevel::Error);
+    }
+    catch (...)
+    {
+        const std::array fields{
+            bafx::windows::DiagnosticField{"Reason", reason},
+            bafx::windows::DiagnosticField{
+                "Message",
+                "unknown startup registration failure"}};
+        bafx::windows::appendDiagnosticEvent(
+            logPath,
+            "System.StartupRegistration",
+            fields,
+            bafx::windows::DiagnosticLevel::Error);
+    }
 }
 
 [[nodiscard]] std::string formatDisplayRefreshRate(
@@ -1143,6 +1292,20 @@ struct RunOptions
     bool disableRawInput{false};
     std::uint32_t demoDelayMilliseconds{0U};
 };
+
+[[nodiscard]] bool productSystemIntegrationEnabled(
+    const RunOptions& options) noexcept
+{
+    return !options.frameLimit.has_value()
+        && !options.demoAgeMilliseconds.has_value()
+        && !options.quitAfterMilliseconds.has_value()
+        && !options.supportInfoOnly
+        && !options.smokeTest
+        && !options.recoveryProbe
+        && !options.framePacingStallProbe
+        && !options.demoClick
+        && !options.disableRawInput;
+}
 
 struct MessageDispatchDiagnostics
 {
@@ -2411,6 +2574,9 @@ int runApplication(
     bafx::config::Config config = loadedConfig.succeeded()
         ? loadedConfig.config
         : bafx::config::defaultConfig();
+    bool systemConfigurationAuthoritative =
+        loadedConfig.status == bafx::config::ConfigStatus::Ok;
+    std::string systemConfigurationMessage = loadedConfig.message;
     if (!loadedConfig.succeeded())
     {
         bafx::windows::appendDiagnosticLog(
@@ -2424,9 +2590,14 @@ int runApplication(
             bafx::config::saveConfigAtomic(configPath, config);
         if (!saved.succeeded())
         {
+            systemConfigurationMessage = saved.message;
             bafx::windows::appendDiagnosticLog(
                 logPath,
                 "Configuration bootstrap save failed: " + saved.message);
+        }
+        else
+        {
+            systemConfigurationAuthoritative = true;
         }
     }
     if (options.smokeTest)
@@ -2440,6 +2611,36 @@ int runApplication(
         // Keep the probe independent from WGC so it measures only the D3D/DComp
         // resource-domain rebuild. It is not a device-removed hardware test.
         config.background.mode = bafx::config::RenderMode::RecordingCompatible;
+    }
+    const bool systemIntegrationEnabled =
+        productSystemIntegrationEnabled(options);
+    if (systemIntegrationEnabled && systemConfigurationAuthoritative)
+    {
+        reconcileControlCenterStartupRegistration(
+            config.system,
+            logPath,
+            "startup");
+    }
+    else if (systemIntegrationEnabled)
+    {
+        const std::string_view configurationDetail =
+            systemConfigurationMessage.empty()
+                ? std::string_view("configuration state is not authoritative")
+                : std::string_view(systemConfigurationMessage);
+        const std::array fields{
+            bafx::windows::DiagnosticField{"Reason", "startup"},
+            bafx::windows::DiagnosticField{"Status", "skipped"},
+            bafx::windows::DiagnosticField{
+                "ConfigStatus",
+                configLoadStatusName(loadedConfig.status)},
+            bafx::windows::DiagnosticField{
+                "Message",
+                configurationDetail}};
+        bafx::windows::appendDiagnosticEvent(
+            logPath,
+            "System.StartupRegistration",
+            fields,
+            bafx::windows::DiagnosticLevel::Warning);
     }
 
     bafx::desktop::HostControlPlane control(configPath, config);
@@ -4893,7 +5094,19 @@ int runApplication(
             renderInvalidated = true;
             if (configChanged)
             {
+                const bafx::config::SystemConfig previousSystem = config.system;
                 config = controlState.config;
+                if (systemIntegrationEnabled
+                    && (previousSystem.startWithWindows
+                            != config.system.startWithWindows
+                        || previousSystem.startMinimized
+                            != config.system.startMinimized))
+                {
+                    reconcileControlCenterStartupRegistration(
+                        config.system,
+                        logPath,
+                        "configuration");
+                }
                 hostWindow.setPointerButtonPolicy(
                     makePointerButtonPolicy(config.input));
                 configureBorderlessAccessMonitor(config, "configuration");
