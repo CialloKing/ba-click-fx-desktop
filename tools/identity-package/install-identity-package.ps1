@@ -182,7 +182,7 @@ function Assert-ConfigObjectFields
     {
         $details.Add("unknown=$($unknownFields -join ',')")
     }
-    throw "Generated configuration field '$Path' does not match schemaVersion 13 ($($details -join '; '))."
+    throw "Generated configuration field '$Path' does not match schemaVersion 14 ($($details -join '; '))."
 }
 
 function Set-IdentityInstallConfig
@@ -250,9 +250,9 @@ function Set-IdentityInstallConfig
     $schemaVersionProperty = $config.PSObject.Properties['schemaVersion']
     if ($null -eq $schemaVersionProperty `
         -or -not ($schemaVersionProperty.Value -is [ValueType]) `
-        -or [double]$schemaVersionProperty.Value -ne 13.0)
+        -or [double]$schemaVersionProperty.Value -ne 14.0)
     {
-        throw 'Generated configuration must use schemaVersion 13.'
+        throw 'Generated configuration must use schemaVersion 14.'
     }
 
     # The Host keeps an invalid persisted document while using defaults only in
@@ -316,7 +316,14 @@ function Set-IdentityInstallConfig
     Assert-ConfigObjectFields `
         -Value $config.display `
         -Path 'display' `
-        -ExpectedFields @('hdrEnabled')
+        -ExpectedFields @('hdrEnabled', 'overrides')
+    if ($config.display.overrides -isnot [Array] `
+        -or @($config.display.overrides).Count -ne 0)
+    {
+        # Bootstrap always creates defaults. Refuse an unexpected policy so
+        # package installation cannot silently rewrite another display setup.
+        throw 'Generated configuration field ''display.overrides'' must be an empty array.'
+    }
     Assert-ConfigObjectFields `
         -Value $config.input `
         -Path 'input' `

@@ -784,6 +784,7 @@ function New-RecordingConfiguration
         }
         display = [ordered]@{
             hdrEnabled = $false
+            overrides = @()
         }
         effects = [ordered]@{
             enabled = $true
@@ -833,7 +834,7 @@ function New-RecordingConfiguration
             framePacing = 'match-display'
             idleOptimization = $true
         }
-        schemaVersion = 13
+        schemaVersion = 14
         system = [ordered]@{
             closeToTray = $true
             startMinimized = $false
