@@ -1776,6 +1776,20 @@ void requireMatchingImages(
     unavailable.observedDisplayAffinity = observedAffinity;
     if (!exclusion.confirmed)
     {
+        // Frame3 is an independent capability probe. Even when Set/Get is
+        // rejected, consume one ordinary frame so Rejected is not mislabeled
+        // Unavailable merely because no evidence stage was entered.
+        static_cast<void>(renderer.presentCompositionProbeColor(probeLinear));
+        bafx::windows::throwIfFailed(
+            DwmFlush(),
+            "DwmFlush(session exclusion rejected-list probe)");
+        static_cast<void>(captureAttempt(
+            renderer,
+            sensor,
+            context,
+            clock,
+            region,
+            deadline));
         return unavailable;
     }
     const DWORD observedExtendedStyle =
