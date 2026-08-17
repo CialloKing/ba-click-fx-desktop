@@ -1,6 +1,7 @@
 #include "test_support.hpp"
 
 #include "host_control.hpp"
+#include "display_state.hpp"
 
 #include "bafx/windows/ipc_client.hpp"
 
@@ -344,6 +345,15 @@ BAFX_TEST(host_control_publishes_one_immutable_display_state_snapshot)
         client.transact("GetDisplayState");
     const bafx::desktop::DisplayStateSnapshot snapshot =
         control.displaySnapshot();
+
+    color.advancedColorInfoV2 = false;
+    session.colorCapabilities = color;
+    session.colorObservation = color;
+    summary.sessions.clear();
+    summary.sessions.push_back(session);
+    control.setDisplayRuntimeSummary(summary, 1U);
+    const bafx::windows::IpcClientResponse legacyColorResponse =
+        client.transact("GetDisplayState");
     control.stop();
 
     BAFX_CHECK(response.succeeded());
@@ -404,6 +414,39 @@ BAFX_TEST(host_control_publishes_one_immutable_display_state_snapshot)
         == "displayconfig-v1-sha256:offline-display");
     BAFX_CHECK(snapshot.runtime.sessions.size() == 1U);
     BAFX_CHECK(snapshot.runtime.sessions.front().device == session.device);
+
+    const bafx::control_center::DisplayStateParseResult parsed =
+        bafx::control_center::parseDisplayState(response.payload);
+    BAFX_CHECK(parsed.succeeded());
+    BAFX_CHECK(parsed.state->schemaVersion == 2U);
+    BAFX_CHECK(parsed.state->runtimeGeneration == 1U);
+    BAFX_CHECK(parsed.state->configGeneration == 1U);
+    BAFX_CHECK(parsed.state->offlineOverrides.size() == 1U);
+    BAFX_CHECK(parsed.state->offlineOverrides.front().displayKey
+        == "displayconfig-v1-sha256:offline-display");
+    BAFX_CHECK(parsed.state->sessions.size() == 1U);
+    BAFX_CHECK(parsed.state->sessions.front().colorQueryGeneration == 4U);
+    BAFX_CHECK(parsed.state->sessions.front().physicalCadence.size() == 1U);
+
+    std::string unknownSessionField = response.payload;
+    unknownSessionField.insert(
+        unknownSessionField.find("\"monitor\":"),
+        "\"futureSessionField\":true,");
+    BAFX_CHECK(!bafx::control_center::parseDisplayState(
+        unknownSessionField).succeeded());
+
+    std::string duplicateSessionField = response.payload;
+    duplicateSessionField.insert(
+        duplicateSessionField.find("\"monitor\":"),
+        "\"monitor\":\"duplicate\",");
+    BAFX_CHECK(!bafx::control_center::parseDisplayState(
+        duplicateSessionField).succeeded());
+
+    BAFX_CHECK(legacyColorResponse.succeeded());
+    BAFX_CHECK(legacyColorResponse.payload.find("\"hdrSupported\":null")
+        != std::string::npos);
+    BAFX_CHECK(legacyColorResponse.payload.find("\"hdrUserEnabled\":null")
+        != std::string::npos);
 }
 
 BAFX_TEST(host_control_fx_config_and_single_param_round_trip_over_ipc)

@@ -3584,7 +3584,7 @@ void ControlCenterWindow::updateDisplayDetails()
     std::wstring summary = L"Host 报告 "
         + std::to_wstring(displayState_.sessions.size())
         + L" 个显示会话 | 状态代次 "
-        + std::to_wstring(displayState_.generation);
+        + std::to_wstring(displayState_.runtimeGeneration);
     SetWindowTextW(displaySummaryText_, summary.c_str());
 
     const std::int64_t width = static_cast<std::int64_t>(session.right)

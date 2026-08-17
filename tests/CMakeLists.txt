@@ -324,11 +324,13 @@ if(WIN32)
         test_main.cpp
         host_control_tests.cpp
         "${PROJECT_SOURCE_DIR}/src/desktop/host_control.cpp"
+        "${PROJECT_SOURCE_DIR}/src/control-center/display_state.cpp"
     )
     target_include_directories(
         bafx_host_control_tests
         PRIVATE
             "${PROJECT_SOURCE_DIR}/src/desktop"
+            "${PROJECT_SOURCE_DIR}/src/control-center"
     )
     target_link_libraries(
         bafx_host_control_tests
@@ -378,9 +380,11 @@ if(WIN32)
         test_main.cpp
         control_center_commands_tests.cpp
         control_center_layout_tests.cpp
+        display_state_tests.cpp
         package_activation_tests.cpp
         "${PROJECT_SOURCE_DIR}/src/control-center/config_commands.cpp"
         "${PROJECT_SOURCE_DIR}/src/control-center/control_center_layout.cpp"
+        "${PROJECT_SOURCE_DIR}/src/control-center/display_state.cpp"
         "${PROJECT_SOURCE_DIR}/src/control-center/package_activation.cpp"
     )
     target_include_directories(

@@ -1,6 +1,7 @@
 #include "display_state.hpp"
 
 #include <charconv>
+#include <cmath>
 #include <cstddef>
 #include <limits>
 #include <string>
@@ -14,7 +15,130 @@ namespace
 constexpr std::size_t maximumDocumentBytes = 256U * 1024U;
 constexpr std::size_t maximumStringBytes = 16U * 1024U;
 constexpr std::size_t maximumSessions = 64U;
-constexpr std::uint64_t requiredSessionFields = (1ULL << 31U) - 1ULL;
+constexpr std::size_t maximumPhysicalTargets = 64U;
+constexpr std::size_t maximumOfflineOverrides = 64U;
+
+enum class RootField : std::uint32_t
+{
+    SchemaVersion,
+    RuntimeGeneration,
+    ConfigGeneration,
+    AppliedConfigGeneration,
+    TopologyStatus,
+    TopologyError,
+    OfflineOverridesAuthoritative,
+    OfflineOverrides,
+    Sessions,
+    Count
+};
+
+enum class SessionField : std::uint32_t
+{
+    Monitor,
+    Device,
+    DisplayKey,
+    Coordinator,
+    Primary,
+    EffectsEnabled,
+    HdrEnabled,
+    FramePacing,
+    SourceAdapterResolved,
+    SourceIdentityResolved,
+    SourceId,
+    PhysicalTargetCount,
+    Left,
+    Top,
+    Right,
+    Bottom,
+    TargetDpiX,
+    TargetDpiY,
+    WindowDpi,
+    DisplayRefresh,
+    CaptureRefresh,
+    CaptureCadenceStatus,
+    ProducerPolicyRefresh,
+    FreshnessPolicyRefresh,
+    FreshnessPeriodUs,
+    ProducerCadenceStatus,
+    ProducerRequestedPeriodUs,
+    ProducerAppliedPeriodUs,
+    ProducerResult,
+    Adapter,
+    Driver,
+    RequestedOutput,
+    ResolvedOutput,
+    ActualOutput,
+    OutputPolicySatisfied,
+    ResolvedOutputMapping,
+    ActualOutputMapping,
+    OutputFallbackResult,
+    ColorMode,
+    HdrSupported,
+    HdrActive,
+    ColorMonitorStatus,
+    ColorMonitorHresult,
+    ColorMonitorGeneration,
+    ColorQueryGeneration,
+    ColorSnapshotDisposition,
+    ColorSnapshotComplete,
+    AdvancedColorQueryResult,
+    AdvancedColorLimitedByPolicy,
+    HdrUserEnabled,
+    SdrWhiteLevelQueryResult,
+    SdrWhiteLevelNits,
+    SdrWhiteLevelRetained,
+    SdrWhiteLevelConsistent,
+    ColorRefreshRetriesRemaining,
+    CadenceFallbackReason,
+    PhysicalCadence,
+    OutputFallback,
+    BackgroundCaptureActive,
+    BackgroundCaptureRestartAllowed,
+    BackgroundCaptureFailure,
+    RenderFaulted,
+    OutputContractFaulted,
+    Count
+};
+
+enum class PhysicalCadenceField : std::uint32_t
+{
+    VirtualRefresh,
+    PhysicalRefresh,
+    CaptureRefresh,
+    DrrBoosted,
+    Available,
+    Count
+};
+
+enum class OfflineOverrideField : std::uint32_t
+{
+    DisplayKey,
+    EffectsEnabled,
+    HdrEnabled,
+    FramePacing,
+    Count
+};
+
+template <typename Field>
+[[nodiscard]] constexpr std::uint64_t requiredFieldMask() noexcept
+{
+    constexpr std::uint32_t count = static_cast<std::uint32_t>(Field::Count);
+    static_assert(count <= 64U);
+    if constexpr (count == 64U)
+    {
+        return (std::numeric_limits<std::uint64_t>::max)();
+    }
+    return (1ULL << count) - 1ULL;
+}
+
+constexpr std::uint64_t requiredRootFields =
+    requiredFieldMask<RootField>();
+constexpr std::uint64_t requiredSessionFields =
+    requiredFieldMask<SessionField>();
+constexpr std::uint64_t requiredPhysicalCadenceFields =
+    requiredFieldMask<PhysicalCadenceField>();
+constexpr std::uint64_t requiredOfflineOverrideFields =
+    requiredFieldMask<OfflineOverrideField>();
 
 class DisplayStateJsonParser final
 {
@@ -38,8 +162,7 @@ public:
             return failure("display state must be an object");
         }
 
-        bool generationSeen = false;
-        bool sessionsSeen = false;
+        std::uint64_t seen = 0U;
         skipWhitespace();
         if (consume('}'))
         {
@@ -60,23 +183,85 @@ public:
             }
             skipWhitespace();
 
-            if (key == "generation")
+            if (key == "schemaVersion")
             {
-                if (generationSeen || !parseUnsigned(state.generation))
+                if (!markField(seen, RootField::SchemaVersion)
+                    || !parseUnsigned(state.schemaVersion)
+                    || state.schemaVersion != 2U)
                 {
                     return failure(
-                        "generation must be one unsigned integer");
+                        "schemaVersion must be exactly 2");
                 }
-                generationSeen = true;
+            }
+            else if (key == "runtimeGeneration")
+            {
+                if (!markField(seen, RootField::RuntimeGeneration)
+                    || !parseUnsigned(state.runtimeGeneration))
+                {
+                    return failure(
+                        "runtimeGeneration must be one unsigned integer");
+                }
+            }
+            else if (key == "configGeneration")
+            {
+                if (!markField(seen, RootField::ConfigGeneration)
+                    || !parseUnsigned(state.configGeneration))
+                {
+                    return failure("configGeneration is invalid");
+                }
+            }
+            else if (key == "appliedConfigGeneration")
+            {
+                if (!markField(seen, RootField::AppliedConfigGeneration)
+                    || !parseUnsigned(state.appliedConfigGeneration))
+                {
+                    return failure("appliedConfigGeneration is invalid");
+                }
+            }
+            else if (key == "topologyStatus")
+            {
+                if (!markField(seen, RootField::TopologyStatus)
+                    || !parseTopology(state.topologyStatus))
+                {
+                    return failure("topologyStatus is invalid");
+                }
+            }
+            else if (key == "topologyError")
+            {
+                if (!markField(seen, RootField::TopologyError)
+                    || !parseUnsigned(state.topologyError))
+                {
+                    return failure("topologyError is invalid");
+                }
+            }
+            else if (key == "offlineOverridesAuthoritative")
+            {
+                if (!markField(
+                        seen,
+                        RootField::OfflineOverridesAuthoritative)
+                    || !parseBoolean(
+                        state.offlineOverridesAuthoritative))
+                {
+                    return failure(
+                        "offlineOverridesAuthoritative is invalid");
+                }
+            }
+            else if (key == "offlineOverrides")
+            {
+                if (!markField(seen, RootField::OfflineOverrides)
+                    || !parseOfflineOverrides(state.offlineOverrides))
+                {
+                    return failure("offlineOverrides is invalid");
+                }
             }
             else if (key == "sessions")
             {
-                if (sessionsSeen || !parseSessions(state.sessions))
+                if (!markField(seen, RootField::Sessions)
+                    || !parseSessions(state.sessions))
                 {
                     return failure(
                         "sessions must be one valid display array");
                 }
-                sessionsSeen = true;
             }
             else
             {
@@ -101,9 +286,18 @@ public:
         {
             return failure("display state has trailing characters");
         }
-        if (!generationSeen || !sessionsSeen)
+        if (seen != requiredRootFields)
         {
             return failure("display state is missing a required property");
+        }
+        const bool completeTopology = state.topologyStatus
+            == DisplayTopologyState::Complete;
+        if (state.offlineOverridesAuthoritative != completeTopology
+            || (!state.offlineOverridesAuthoritative
+                && !state.offlineOverrides.empty()))
+        {
+            return failure(
+                "offline override authority contradicts topology status");
         }
 
         DisplayStateParseResult result{};
@@ -112,6 +306,128 @@ public:
     }
 
 private:
+    [[nodiscard]] bool parseOfflineOverrides(
+        std::vector<bafx::config::DisplayOverrideConfig>& output)
+    {
+        if (!consume('['))
+        {
+            return false;
+        }
+        skipWhitespace();
+        if (consume(']'))
+        {
+            return true;
+        }
+
+        while (position_ < input_.size())
+        {
+            if (output.size() >= maximumOfflineOverrides)
+            {
+                return false;
+            }
+            bafx::config::DisplayOverrideConfig value{};
+            if (!parseOfflineOverride(value))
+            {
+                return false;
+            }
+            if (!output.empty()
+                && value.displayKey <= output.back().displayKey)
+            {
+                // Host serializes the sorted configuration order. Requiring
+                // it here also rejects duplicate keys without a second set.
+                return false;
+            }
+            output.push_back(std::move(value));
+            skipWhitespace();
+            if (consume(']'))
+            {
+                return true;
+            }
+            if (!consume(','))
+            {
+                return false;
+            }
+            skipWhitespace();
+        }
+        return false;
+    }
+
+    [[nodiscard]] bool parseOfflineOverride(
+        bafx::config::DisplayOverrideConfig& output)
+    {
+        if (!consume('{'))
+        {
+            return false;
+        }
+        skipWhitespace();
+
+        std::uint64_t seen = 0U;
+        while (position_ < input_.size())
+        {
+            std::string key;
+            if (!parseString(key))
+            {
+                return false;
+            }
+            skipWhitespace();
+            if (!consume(':'))
+            {
+                return false;
+            }
+            skipWhitespace();
+
+            if (key == "displayKey")
+            {
+                if (!markField(seen, OfflineOverrideField::DisplayKey)
+                    || !parseString(output.displayKey)
+                    || output.displayKey.empty())
+                {
+                    return false;
+                }
+            }
+            else if (key == "effectsEnabled")
+            {
+                if (!markField(seen, OfflineOverrideField::EffectsEnabled)
+                    || !parseBoolean(output.enabled))
+                {
+                    return false;
+                }
+            }
+            else if (key == "hdrEnabled")
+            {
+                if (!markField(seen, OfflineOverrideField::HdrEnabled)
+                    || !parseBoolean(output.hdrEnabled))
+                {
+                    return false;
+                }
+            }
+            else if (key == "framePacing")
+            {
+                if (!markField(seen, OfflineOverrideField::FramePacing)
+                    || !parseFramePacing(output.framePacing))
+                {
+                    return false;
+                }
+            }
+            else
+            {
+                return false;
+            }
+
+            skipWhitespace();
+            if (consume('}'))
+            {
+                return seen == requiredOfflineOverrideFields;
+            }
+            if (!consume(','))
+            {
+                return false;
+            }
+            skipWhitespace();
+        }
+        return false;
+    }
+
     [[nodiscard]] bool parseSessions(
         std::vector<DisplaySessionState>& sessions)
     {
@@ -199,143 +515,328 @@ private:
     {
         if (key == "monitor")
         {
-            return markField(seen, 0U) && parseString(session.monitor);
+            return markField(seen, SessionField::Monitor)
+                && parseString(session.monitor);
         }
         if (key == "device")
         {
-            return markField(seen, 1U) && parseString(session.device);
+            return markField(seen, SessionField::Device)
+                && parseString(session.device);
         }
         if (key == "displayKey")
         {
-            return markField(seen, 27U)
+            return markField(seen, SessionField::DisplayKey)
                 && parseOptionalString(session.displayKey);
         }
         if (key == "coordinator")
         {
-            return markField(seen, 2U) && parseBoolean(session.coordinator);
+            return markField(seen, SessionField::Coordinator)
+                && parseBoolean(session.coordinator);
         }
         if (key == "primary")
         {
-            return markField(seen, 3U) && parseBoolean(session.primary);
+            return markField(seen, SessionField::Primary)
+                && parseBoolean(session.primary);
         }
         if (key == "effectsEnabled")
         {
-            return markField(seen, 28U)
+            return markField(seen, SessionField::EffectsEnabled)
                 && parseBoolean(session.effectsEnabled);
         }
         if (key == "hdrEnabled")
         {
-            return markField(seen, 29U)
+            return markField(seen, SessionField::HdrEnabled)
                 && parseBoolean(session.hdrEnabled);
         }
         if (key == "framePacing")
         {
-            return markField(seen, 30U)
+            return markField(seen, SessionField::FramePacing)
                 && parseFramePacing(session.framePacing);
+        }
+        if (key == "sourceAdapterResolved")
+        {
+            return markField(seen, SessionField::SourceAdapterResolved)
+                && parseBoolean(session.sourceAdapterResolved);
+        }
+        if (key == "sourceIdentityResolved")
+        {
+            return markField(seen, SessionField::SourceIdentityResolved)
+                && parseBoolean(session.sourceIdentityResolved);
+        }
+        if (key == "sourceId")
+        {
+            return markField(seen, SessionField::SourceId)
+                && parseOptionalUnsigned(session.sourceId);
+        }
+        if (key == "physicalTargetCount")
+        {
+            return markField(seen, SessionField::PhysicalTargetCount)
+                && parseUnsigned(session.physicalTargetCount);
         }
         if (key == "left")
         {
-            return markField(seen, 4U) && parseSigned(session.left);
+            return markField(seen, SessionField::Left)
+                && parseSigned(session.left);
         }
         if (key == "top")
         {
-            return markField(seen, 5U) && parseSigned(session.top);
+            return markField(seen, SessionField::Top)
+                && parseSigned(session.top);
         }
         if (key == "right")
         {
-            return markField(seen, 6U) && parseSigned(session.right);
+            return markField(seen, SessionField::Right)
+                && parseSigned(session.right);
         }
         if (key == "bottom")
         {
-            return markField(seen, 7U) && parseSigned(session.bottom);
+            return markField(seen, SessionField::Bottom)
+                && parseSigned(session.bottom);
         }
         if (key == "targetDpiX")
         {
-            return markField(seen, 8U) && parseUnsigned(session.targetDpiX);
+            return markField(seen, SessionField::TargetDpiX)
+                && parseUnsigned(session.targetDpiX);
         }
         if (key == "targetDpiY")
         {
-            return markField(seen, 9U) && parseUnsigned(session.targetDpiY);
+            return markField(seen, SessionField::TargetDpiY)
+                && parseUnsigned(session.targetDpiY);
         }
         if (key == "windowDpi")
         {
-            return markField(seen, 10U) && parseUnsigned(session.windowDpi);
+            return markField(seen, SessionField::WindowDpi)
+                && parseUnsigned(session.windowDpi);
         }
         if (key == "displayRefresh")
         {
-            return markField(seen, 11U)
+            return markField(seen, SessionField::DisplayRefresh)
                 && parseRefreshRate(session.displayRefresh);
         }
         if (key == "captureRefresh")
         {
-            return markField(seen, 12U)
+            return markField(seen, SessionField::CaptureRefresh)
                 && parseRefreshRate(session.captureRefresh);
+        }
+        if (key == "captureCadenceStatus")
+        {
+            return markField(seen, SessionField::CaptureCadenceStatus)
+                && parseCaptureCadenceStatus(
+                    session.captureCadenceStatus);
+        }
+        if (key == "producerPolicyRefresh")
+        {
+            return markField(seen, SessionField::ProducerPolicyRefresh)
+                && parseRefreshRate(session.producerPolicyRefresh);
+        }
+        if (key == "freshnessPolicyRefresh")
+        {
+            return markField(seen, SessionField::FreshnessPolicyRefresh)
+                && parseRefreshRate(session.freshnessPolicyRefresh);
+        }
+        if (key == "freshnessPeriodUs")
+        {
+            return markField(seen, SessionField::FreshnessPeriodUs)
+                && parseUnsigned(session.freshnessPeriodUs);
+        }
+        if (key == "producerCadenceStatus")
+        {
+            return markField(seen, SessionField::ProducerCadenceStatus)
+                && parseProducerCadenceStatus(
+                    session.producerCadenceStatus);
+        }
+        if (key == "producerRequestedPeriodUs")
+        {
+            return markField(seen, SessionField::ProducerRequestedPeriodUs)
+                && parseUnsigned(session.producerRequestedPeriodUs);
+        }
+        if (key == "producerAppliedPeriodUs")
+        {
+            return markField(seen, SessionField::ProducerAppliedPeriodUs)
+                && parseUnsigned(session.producerAppliedPeriodUs);
+        }
+        if (key == "producerResult")
+        {
+            return markField(seen, SessionField::ProducerResult)
+                && parseSigned(session.producerResult);
         }
         if (key == "adapter")
         {
-            return markField(seen, 13U) && parseString(session.adapter);
+            return markField(seen, SessionField::Adapter)
+                && parseString(session.adapter);
         }
         if (key == "driver")
         {
-            return markField(seen, 14U) && parseDriver(session.driver);
+            return markField(seen, SessionField::Driver)
+                && parseDriver(session.driver);
         }
         if (key == "requestedOutput")
         {
-            return markField(seen, 15U)
+            return markField(seen, SessionField::RequestedOutput)
                 && parseOutput(session.requestedOutput);
         }
         if (key == "resolvedOutput")
         {
-            return markField(seen, 16U)
+            return markField(seen, SessionField::ResolvedOutput)
                 && parseOutput(session.resolvedOutput);
         }
         if (key == "actualOutput")
         {
-            return markField(seen, 17U)
+            return markField(seen, SessionField::ActualOutput)
                 && parseOutput(session.actualOutput);
         }
         if (key == "outputPolicySatisfied")
         {
-            return markField(seen, 18U)
+            return markField(seen, SessionField::OutputPolicySatisfied)
                 && parseBoolean(session.outputPolicySatisfied);
+        }
+        if (key == "resolvedOutputMapping")
+        {
+            return markField(seen, SessionField::ResolvedOutputMapping)
+                && parseOutputMapping(session.resolvedOutputMapping);
+        }
+        if (key == "actualOutputMapping")
+        {
+            return markField(seen, SessionField::ActualOutputMapping)
+                && parseOutputMapping(session.actualOutputMapping);
+        }
+        if (key == "outputFallbackResult")
+        {
+            return markField(seen, SessionField::OutputFallbackResult)
+                && parseSigned(session.outputFallbackResult);
         }
         if (key == "colorMode")
         {
-            return markField(seen, 19U) && parseColor(session.colorMode);
+            return markField(seen, SessionField::ColorMode)
+                && parseColor(session.colorMode);
         }
         if (key == "hdrSupported")
         {
-            return markField(seen, 20U)
+            return markField(seen, SessionField::HdrSupported)
                 && parseOptionalBoolean(session.hdrSupported);
         }
         if (key == "hdrActive")
         {
-            return markField(seen, 21U)
+            return markField(seen, SessionField::HdrActive)
                 && parseOptionalBoolean(session.hdrActive);
+        }
+        if (key == "colorMonitorStatus")
+        {
+            return markField(seen, SessionField::ColorMonitorStatus)
+                && parseColorMonitorStatus(session.colorMonitorStatus);
+        }
+        if (key == "colorMonitorHresult")
+        {
+            return markField(seen, SessionField::ColorMonitorHresult)
+                && parseSigned(session.colorMonitorHresult);
+        }
+        if (key == "colorMonitorGeneration")
+        {
+            return markField(seen, SessionField::ColorMonitorGeneration)
+                && parseUnsigned(session.colorMonitorGeneration);
+        }
+        if (key == "colorQueryGeneration")
+        {
+            return markField(seen, SessionField::ColorQueryGeneration)
+                && parseUnsigned(session.colorQueryGeneration);
+        }
+        if (key == "colorSnapshotDisposition")
+        {
+            return markField(seen, SessionField::ColorSnapshotDisposition)
+                && parseColorSnapshotDisposition(
+                    session.colorSnapshotDisposition);
+        }
+        if (key == "colorSnapshotComplete")
+        {
+            return markField(seen, SessionField::ColorSnapshotComplete)
+                && parseBoolean(session.colorSnapshotComplete);
+        }
+        if (key == "advancedColorQueryResult")
+        {
+            return markField(seen, SessionField::AdvancedColorQueryResult)
+                && parseOptionalSigned(session.advancedColorQueryResult);
+        }
+        if (key == "advancedColorLimitedByPolicy")
+        {
+            return markField(
+                    seen,
+                    SessionField::AdvancedColorLimitedByPolicy)
+                && parseOptionalBoolean(
+                    session.advancedColorLimitedByPolicy);
+        }
+        if (key == "hdrUserEnabled")
+        {
+            return markField(seen, SessionField::HdrUserEnabled)
+                && parseOptionalBoolean(session.hdrUserEnabled);
+        }
+        if (key == "sdrWhiteLevelQueryResult")
+        {
+            return markField(seen, SessionField::SdrWhiteLevelQueryResult)
+                && parseOptionalSigned(
+                    session.sdrWhiteLevelQueryResult);
+        }
+        if (key == "sdrWhiteLevelNits")
+        {
+            return markField(seen, SessionField::SdrWhiteLevelNits)
+                && parseOptionalFloat(session.sdrWhiteLevelNits);
+        }
+        if (key == "sdrWhiteLevelRetained")
+        {
+            return markField(seen, SessionField::SdrWhiteLevelRetained)
+                && parseOptionalBoolean(session.sdrWhiteLevelRetained);
+        }
+        if (key == "sdrWhiteLevelConsistent")
+        {
+            return markField(seen, SessionField::SdrWhiteLevelConsistent)
+                && parseOptionalBoolean(session.sdrWhiteLevelConsistent);
+        }
+        if (key == "colorRefreshRetriesRemaining")
+        {
+            return markField(
+                    seen,
+                    SessionField::ColorRefreshRetriesRemaining)
+                && parseUnsigned(session.colorRefreshRetriesRemaining);
+        }
+        if (key == "cadenceFallbackReason")
+        {
+            return markField(seen, SessionField::CadenceFallbackReason)
+                && parseCadenceFallback(session.cadenceFallbackReason);
+        }
+        if (key == "physicalCadence")
+        {
+            return markField(seen, SessionField::PhysicalCadence)
+                && parsePhysicalCadence(session.physicalCadence);
+        }
+        if (key == "outputFallback")
+        {
+            return markField(seen, SessionField::OutputFallback)
+                && parseOutputFallback(session.outputFallback);
         }
         if (key == "backgroundCaptureActive")
         {
-            return markField(seen, 22U)
+            return markField(seen, SessionField::BackgroundCaptureActive)
                 && parseBoolean(session.backgroundCaptureActive);
         }
         if (key == "backgroundCaptureRestartAllowed")
         {
-            return markField(seen, 23U)
+            return markField(
+                    seen,
+                    SessionField::BackgroundCaptureRestartAllowed)
                 && parseBoolean(session.backgroundCaptureRestartAllowed);
         }
         if (key == "backgroundCaptureFailure")
         {
-            return markField(seen, 24U)
+            return markField(seen, SessionField::BackgroundCaptureFailure)
                 && parseString(session.backgroundCaptureFailure);
         }
         if (key == "renderFaulted")
         {
-            return markField(seen, 25U)
+            return markField(seen, SessionField::RenderFaulted)
                 && parseBoolean(session.renderFaulted);
         }
         if (key == "outputContractFaulted")
         {
-            return markField(seen, 26U)
+            return markField(seen, SessionField::OutputContractFaulted)
                 && parseBoolean(session.outputContractFaulted);
         }
         return false;
@@ -415,6 +916,134 @@ private:
         return false;
     }
 
+    [[nodiscard]] bool parsePhysicalCadence(
+        std::vector<DisplayPhysicalCadenceState>& output)
+    {
+        if (!consume('['))
+        {
+            return false;
+        }
+        skipWhitespace();
+        if (consume(']'))
+        {
+            return true;
+        }
+
+        while (position_ < input_.size())
+        {
+            if (output.size() >= maximumPhysicalTargets)
+            {
+                return false;
+            }
+            DisplayPhysicalCadenceState physical{};
+            if (!parsePhysicalCadenceTarget(physical))
+            {
+                return false;
+            }
+            output.push_back(std::move(physical));
+            skipWhitespace();
+            if (consume(']'))
+            {
+                return true;
+            }
+            if (!consume(','))
+            {
+                return false;
+            }
+            skipWhitespace();
+        }
+        return false;
+    }
+
+    [[nodiscard]] bool parsePhysicalCadenceTarget(
+        DisplayPhysicalCadenceState& output)
+    {
+        if (!consume('{'))
+        {
+            return false;
+        }
+        skipWhitespace();
+
+        std::uint64_t seen = 0U;
+        while (position_ < input_.size())
+        {
+            std::string key;
+            if (!parseString(key))
+            {
+                return false;
+            }
+            skipWhitespace();
+            if (!consume(':'))
+            {
+                return false;
+            }
+            skipWhitespace();
+
+            if (key == "virtualRefresh")
+            {
+                if (!markField(
+                        seen,
+                        PhysicalCadenceField::VirtualRefresh)
+                    || !parseRefreshRate(output.virtualRefresh))
+                {
+                    return false;
+                }
+            }
+            else if (key == "physicalRefresh")
+            {
+                if (!markField(
+                        seen,
+                        PhysicalCadenceField::PhysicalRefresh)
+                    || !parseRefreshRate(output.physicalRefresh))
+                {
+                    return false;
+                }
+            }
+            else if (key == "captureRefresh")
+            {
+                if (!markField(
+                        seen,
+                        PhysicalCadenceField::CaptureRefresh)
+                    || !parseRefreshRate(output.captureRefresh))
+                {
+                    return false;
+                }
+            }
+            else if (key == "drrBoosted")
+            {
+                if (!markField(seen, PhysicalCadenceField::DrrBoosted)
+                    || !parseBoolean(output.drrBoosted))
+                {
+                    return false;
+                }
+            }
+            else if (key == "available")
+            {
+                if (!markField(seen, PhysicalCadenceField::Available)
+                    || !parseBoolean(output.available))
+                {
+                    return false;
+                }
+            }
+            else
+            {
+                return false;
+            }
+
+            skipWhitespace();
+            if (consume('}'))
+            {
+                return seen == requiredPhysicalCadenceFields;
+            }
+            if (!consume(','))
+            {
+                return false;
+            }
+            skipWhitespace();
+        }
+        return false;
+    }
+
     [[nodiscard]] bool parseDriver(DisplayDriverState& output)
     {
         std::string token;
@@ -460,6 +1089,99 @@ private:
         if (token == "unknown")
         {
             output = DisplayOutputState::Unknown;
+            return true;
+        }
+        return false;
+    }
+
+    [[nodiscard]] bool parseCaptureCadenceStatus(
+        DisplayCaptureCadenceState& output)
+    {
+        std::string token;
+        if (!parseString(token))
+        {
+            return false;
+        }
+        if (token == "inactive")
+        {
+            output = DisplayCaptureCadenceState::Inactive;
+            return true;
+        }
+        if (token == "wrong-monitor")
+        {
+            output = DisplayCaptureCadenceState::WrongMonitor;
+            return true;
+        }
+        if (token == "target-rate")
+        {
+            output = DisplayCaptureCadenceState::TargetRate;
+            return true;
+        }
+        if (token == "conservative-fallback")
+        {
+            output = DisplayCaptureCadenceState::ConservativeFallback;
+            return true;
+        }
+        return false;
+    }
+
+    [[nodiscard]] bool parseProducerCadenceStatus(
+        DisplayProducerCadenceState& output)
+    {
+        std::string token;
+        if (!parseString(token))
+        {
+            return false;
+        }
+        if (token == "not-requested")
+        {
+            output = DisplayProducerCadenceState::NotRequested;
+            return true;
+        }
+        if (token == "applied")
+        {
+            output = DisplayProducerCadenceState::Applied;
+            return true;
+        }
+        if (token == "interface-unavailable")
+        {
+            output = DisplayProducerCadenceState::InterfaceUnavailable;
+            return true;
+        }
+        if (token == "rejected")
+        {
+            output = DisplayProducerCadenceState::Rejected;
+            return true;
+        }
+        return false;
+    }
+
+    [[nodiscard]] bool parseOutputMapping(
+        DisplayOutputMappingState& output)
+    {
+        std::string token;
+        if (!parseString(token))
+        {
+            return false;
+        }
+        if (token == "conservative-sdr")
+        {
+            output = DisplayOutputMappingState::ConservativeSdr;
+            return true;
+        }
+        if (token == "advanced-color-scrgb")
+        {
+            output = DisplayOutputMappingState::AdvancedColorScRgb;
+            return true;
+        }
+        if (token == "hdr-scene-referred-scrgb")
+        {
+            output = DisplayOutputMappingState::HdrSceneReferredScRgb;
+            return true;
+        }
+        if (token == "unknown")
+        {
+            output = DisplayOutputMappingState::Unknown;
             return true;
         }
         return false;
@@ -526,6 +1248,161 @@ private:
         return false;
     }
 
+    [[nodiscard]] bool parseTopology(DisplayTopologyState& output)
+    {
+        std::string token;
+        if (!parseString(token))
+        {
+            return false;
+        }
+        if (token == "complete")
+        {
+            output = DisplayTopologyState::Complete;
+            return true;
+        }
+        if (token == "incomplete")
+        {
+            output = DisplayTopologyState::Incomplete;
+            return true;
+        }
+        if (token == "no-active-displays")
+        {
+            output = DisplayTopologyState::NoActiveDisplays;
+            return true;
+        }
+        if (token == "query-failed")
+        {
+            output = DisplayTopologyState::QueryFailed;
+            return true;
+        }
+        return false;
+    }
+
+    [[nodiscard]] bool parseColorMonitorStatus(
+        DisplayColorMonitorState& output)
+    {
+        std::string token;
+        if (!parseString(token))
+        {
+            return false;
+        }
+        if (token == "active")
+        {
+            output = DisplayColorMonitorState::Active;
+            return true;
+        }
+        if (token == "invalid-target")
+        {
+            output = DisplayColorMonitorState::InvalidTarget;
+            return true;
+        }
+        if (token == "unsupported")
+        {
+            output = DisplayColorMonitorState::Unsupported;
+            return true;
+        }
+        if (token == "failed")
+        {
+            output = DisplayColorMonitorState::Failed;
+            return true;
+        }
+        return false;
+    }
+
+    [[nodiscard]] bool parseColorSnapshotDisposition(
+        DisplayColorSnapshotState& output)
+    {
+        std::string token;
+        if (!parseString(token))
+        {
+            return false;
+        }
+        if (token == "fresh")
+        {
+            output = DisplayColorSnapshotState::Fresh;
+            return true;
+        }
+        if (token == "retained-transaction")
+        {
+            output = DisplayColorSnapshotState::RetainedTransaction;
+            return true;
+        }
+        if (token == "retained-last-known")
+        {
+            output = DisplayColorSnapshotState::RetainedLastKnown;
+            return true;
+        }
+        if (token == "unavailable")
+        {
+            output = DisplayColorSnapshotState::Unavailable;
+            return true;
+        }
+        return false;
+    }
+
+    [[nodiscard]] bool parseCadenceFallback(
+        DisplayCadenceFallbackState& output)
+    {
+        std::string token;
+        if (!parseString(token))
+        {
+            return false;
+        }
+        if (token == "none")
+        {
+            output = DisplayCadenceFallbackState::None;
+            return true;
+        }
+        if (token == "no-physical-targets")
+        {
+            output = DisplayCadenceFallbackState::NoPhysicalTargets;
+            return true;
+        }
+        if (token == "physical-target-unavailable")
+        {
+            output = DisplayCadenceFallbackState::PhysicalTargetUnavailable;
+            return true;
+        }
+        if (token == "drr-physical-refresh-rate-unavailable")
+        {
+            output = DisplayCadenceFallbackState::
+                DrrPhysicalRefreshRateUnavailable;
+            return true;
+        }
+        if (token == "invalid-effective-refresh-rate")
+        {
+            output = DisplayCadenceFallbackState::InvalidEffectiveRefreshRate;
+            return true;
+        }
+        if (token == "mixed-clone-refresh-rates")
+        {
+            output = DisplayCadenceFallbackState::MixedCloneRefreshRates;
+            return true;
+        }
+        return false;
+    }
+
+    [[nodiscard]] bool parseOutputFallback(
+        DisplayOutputFallbackState& output)
+    {
+        std::string token;
+        if (!parseString(token))
+        {
+            return false;
+        }
+        if (token == "none")
+        {
+            output = DisplayOutputFallbackState::None;
+            return true;
+        }
+        if (token == "conservative-sdr")
+        {
+            output = DisplayOutputFallbackState::ConservativeSdr;
+            return true;
+        }
+        return false;
+    }
+
     [[nodiscard]] bool parseOptionalBoolean(std::optional<bool>& output)
     {
         if (consumeLiteral("null"))
@@ -556,6 +1433,70 @@ private:
             return false;
         }
         output = std::move(value);
+        return true;
+    }
+
+    [[nodiscard]] bool parseOptionalSigned(
+        std::optional<std::int32_t>& output) noexcept
+    {
+        if (consumeLiteral("null"))
+        {
+            output.reset();
+            return true;
+        }
+        std::int32_t value = 0;
+        if (!parseSigned(value))
+        {
+            return false;
+        }
+        output = value;
+        return true;
+    }
+
+    [[nodiscard]] bool parseOptionalUnsigned(
+        std::optional<std::uint32_t>& output) noexcept
+    {
+        if (consumeLiteral("null"))
+        {
+            output.reset();
+            return true;
+        }
+        std::uint32_t value = 0U;
+        if (!parseUnsigned(value))
+        {
+            return false;
+        }
+        output = value;
+        return true;
+    }
+
+    [[nodiscard]] bool parseOptionalFloat(
+        std::optional<float>& output) noexcept
+    {
+        if (consumeLiteral("null"))
+        {
+            output.reset();
+            return true;
+        }
+        const std::size_t begin = position_;
+        if (!scanNumber())
+        {
+            return false;
+        }
+        float value = 0.0F;
+        const auto result = std::from_chars(
+            input_.data() + begin,
+            input_.data() + position_,
+            value,
+            std::chars_format::general);
+        if (result.ec != std::errc{}
+            || result.ptr != input_.data() + position_
+            || !std::isfinite(value)
+            || value < 0.0F)
+        {
+            return false;
+        }
+        output = value;
         return true;
     }
 
@@ -650,6 +1591,55 @@ private:
             ++position_;
         }
         return position_ > begin;
+    }
+
+    [[nodiscard]] bool scanNumber() noexcept
+    {
+        if (position_ < input_.size() && input_[position_] == '-')
+        {
+            ++position_;
+        }
+        if (!scanIntegerDigits())
+        {
+            return false;
+        }
+        if (position_ < input_.size() && input_[position_] == '.')
+        {
+            ++position_;
+            const std::size_t fractionalBegin = position_;
+            while (position_ < input_.size()
+                && input_[position_] >= '0'
+                && input_[position_] <= '9')
+            {
+                ++position_;
+            }
+            if (position_ == fractionalBegin)
+            {
+                return false;
+            }
+        }
+        if (position_ < input_.size()
+            && (input_[position_] == 'e' || input_[position_] == 'E'))
+        {
+            ++position_;
+            if (position_ < input_.size()
+                && (input_[position_] == '+' || input_[position_] == '-'))
+            {
+                ++position_;
+            }
+            const std::size_t exponentBegin = position_;
+            while (position_ < input_.size()
+                && input_[position_] >= '0'
+                && input_[position_] <= '9')
+            {
+                ++position_;
+            }
+            if (position_ == exponentBegin)
+            {
+                return false;
+            }
+        }
+        return true;
     }
 
     [[nodiscard]] bool parseString(std::string& output)
@@ -819,11 +1809,13 @@ private:
         }
     }
 
+    template <typename Field>
     [[nodiscard]] static bool markField(
         std::uint64_t& seen,
-        const std::uint32_t field) noexcept
+        const Field field) noexcept
     {
-        const std::uint64_t mask = 1ULL << field;
+        const std::uint32_t index = static_cast<std::uint32_t>(field);
+        const std::uint64_t mask = 1ULL << index;
         if ((seen & mask) != 0U)
         {
             return false;
