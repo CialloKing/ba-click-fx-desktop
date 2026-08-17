@@ -367,6 +367,78 @@ BAFX_TEST(config_display_override_patch_is_atomic_and_canonical)
     BAFX_CHECK(!validationError.empty());
 }
 
+BAFX_TEST(config_display_override_commands_mutate_only_the_addressed_key)
+{
+    bafx::config::Config base = bafx::config::defaultConfig();
+    std::string error;
+    BAFX_CHECK(bafx::config::setDisplayOverride(
+        base,
+        bafx::config::DisplayOverrideConfig{
+            "displayconfig-v1-sha256:other",
+            true,
+            false,
+            bafx::config::FramePacing::Fixed60},
+        &error));
+
+    const bafx::config::ConfigPatchResult set =
+        bafx::config::applyDisplayOverrideJson(
+            base,
+            R"json({"generation":41,"displayKey":"displayconfig-v1-sha256:selected","enabled":false,"hdrEnabled":true,"framePacing":"120"})json");
+    BAFX_CHECK(set.succeeded());
+    BAFX_CHECK(set.expectedGeneration.has_value());
+    BAFX_CHECK(*set.expectedGeneration == 41U);
+    BAFX_CHECK(set.config.display.overrides.size() == 2U);
+    const bafx::config::DisplayOverrideConfig* selected =
+        bafx::config::findDisplayOverride(
+            set.config.display,
+            "displayconfig-v1-sha256:selected");
+    BAFX_CHECK(selected != nullptr);
+    BAFX_CHECK(!selected->enabled);
+    BAFX_CHECK(selected->hdrEnabled);
+    BAFX_CHECK(
+        selected->framePacing == bafx::config::FramePacing::Fixed120);
+    BAFX_CHECK(bafx::config::findDisplayOverride(
+        set.config.display,
+        "displayconfig-v1-sha256:other") != nullptr);
+
+    const bafx::config::ConfigPatchResult removed =
+        bafx::config::removeDisplayOverrideJson(
+            set.config,
+            R"json({"generation":42,"displayKey":"displayconfig-v1-sha256:selected"})json");
+    BAFX_CHECK(removed.succeeded());
+    BAFX_CHECK(removed.expectedGeneration.has_value());
+    BAFX_CHECK(*removed.expectedGeneration == 42U);
+    BAFX_CHECK(bafx::config::findDisplayOverride(
+        removed.config.display,
+        "displayconfig-v1-sha256:selected") == nullptr);
+    BAFX_CHECK(bafx::config::findDisplayOverride(
+        removed.config.display,
+        "displayconfig-v1-sha256:other") != nullptr);
+}
+
+BAFX_TEST(config_display_override_commands_reject_partial_or_ambiguous_payloads)
+{
+    const bafx::config::Config base = bafx::config::defaultConfig();
+    for (const std::string_view payload : {
+             R"json({"displayKey":"displayconfig-v1-sha256:x","enabled":true,"hdrEnabled":false})json",
+             R"json({"displayKey":"displayconfig-v1-sha256:x","enabled":true,"hdrEnabled":false,"framePacing":"adaptive"})json",
+             R"json({"displayKey":"displayconfig-v1-sha256:x","enabled":true,"hdrEnabled":false,"framePacing":"60","extra":1})json",
+             R"json({"displayKey":"\u001f","enabled":true,"hdrEnabled":false,"framePacing":"60"})json"})
+    {
+        const bafx::config::ConfigPatchResult rejected =
+            bafx::config::applyDisplayOverrideJson(base, payload);
+        BAFX_CHECK(!rejected.succeeded());
+        BAFX_CHECK(rejected.config.display.overrides.empty());
+    }
+
+    const bafx::config::ConfigPatchResult invalidRemoval =
+        bafx::config::removeDisplayOverrideJson(
+            base,
+            R"json({"displayKey":"displayconfig-v1-sha256:x","enabled":true})json");
+    BAFX_CHECK(!invalidRemoval.succeeded());
+    BAFX_CHECK(invalidRemoval.config.display.overrides.empty());
+}
+
 BAFX_TEST(config_current_effect_fields_round_trip_through_file)
 {
     const fs::path path = testPath();

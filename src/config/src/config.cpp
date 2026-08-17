@@ -2415,6 +2415,232 @@ ConfigPatchResult applyFxPatchJson(
 namespace
 {
 
+[[nodiscard]] bool readMutationGeneration(
+    const JsonValue::Object& root,
+    std::optional<std::uint64_t>& generation,
+    std::string& error)
+{
+    const JsonValue* value = member(root, "generation");
+    if (value == nullptr)
+    {
+        generation.reset();
+        return true;
+    }
+
+    const double* number = std::get_if<double>(&value->storage);
+    if (number == nullptr
+        || !std::isfinite(*number)
+        || *number < 0.0
+        || std::floor(*number) != *number
+        || *number
+            > static_cast<double>((std::numeric_limits<std::uint64_t>::max)()))
+    {
+        error = "display override generation must be a non-negative integer";
+        return false;
+    }
+    generation = static_cast<std::uint64_t>(*number);
+    return true;
+}
+
+[[nodiscard]] ConfigPatchResult applyDisplayOverrideMutationJsonImpl(
+    const Config& base,
+    const std::string_view json,
+    const bool remove) noexcept
+{
+    try
+    {
+        JsonParser parser(json);
+        const std::optional<JsonValue> parsed = parser.parse();
+        if (!parsed.has_value())
+        {
+            return ConfigPatchResult{
+                base,
+                ConfigStatus::ParseError,
+                parser.error().empty()
+                    ? "invalid display override JSON"
+                    : parser.error(),
+                true,
+                std::nullopt};
+        }
+
+        const JsonValue::Object* root = objectOf(*parsed);
+        if (root == nullptr)
+        {
+            return ConfigPatchResult{
+                base,
+                ConfigStatus::ParseError,
+                "display override root must be an object",
+                true,
+                std::nullopt};
+        }
+
+        std::string error;
+        const bool knownMembers = remove
+            ? validateKnownMembers(
+                *root,
+                {"generation", "displayKey"},
+                "display override removal",
+                error)
+            : validateKnownMembers(
+                *root,
+                {
+                    "generation",
+                    "displayKey",
+                    "enabled",
+                    "hdrEnabled",
+                    "framePacing"},
+                "display override update",
+                error);
+        if (!knownMembers)
+        {
+            return ConfigPatchResult{
+                base,
+                ConfigStatus::ValidationError,
+                std::move(error),
+                true,
+                std::nullopt};
+        }
+
+        std::optional<std::uint64_t> expectedGeneration;
+        std::string displayKey;
+        if (!readMutationGeneration(*root, expectedGeneration, error)
+            || !readString(
+                *root,
+                "displayKey",
+                remove
+                    ? "display override removal"
+                    : "display override update",
+                displayKey,
+                error))
+        {
+            return ConfigPatchResult{
+                base,
+                ConfigStatus::ValidationError,
+                std::move(error),
+                true,
+                expectedGeneration};
+        }
+        if (!validDisplayKey(displayKey))
+        {
+            return ConfigPatchResult{
+                base,
+                ConfigStatus::ValidationError,
+                "display override key is not valid",
+                true,
+                expectedGeneration};
+        }
+
+        Config candidate = base;
+        if (remove)
+        {
+            static_cast<void>(removeDisplayOverride(candidate, displayKey));
+        }
+        else
+        {
+            DisplayOverrideConfig overrideConfig{};
+            overrideConfig.displayKey = std::move(displayKey);
+            std::string framePacing;
+            if (!readBool(
+                    *root,
+                    "enabled",
+                    "display override update",
+                    overrideConfig.enabled,
+                    error)
+                || !readBool(
+                    *root,
+                    "hdrEnabled",
+                    "display override update",
+                    overrideConfig.hdrEnabled,
+                    error)
+                || !readEnum(
+                    *root,
+                    "framePacing",
+                    "display override update",
+                    framePacing,
+                    error)
+                || !parseFramePacing(
+                    framePacing,
+                    overrideConfig.framePacing))
+            {
+                if (error.empty())
+                {
+                    error = "display override framePacing has an unknown value";
+                }
+                return ConfigPatchResult{
+                    base,
+                    ConfigStatus::ValidationError,
+                    std::move(error),
+                    true,
+                    expectedGeneration};
+            }
+            if (!setDisplayOverride(candidate, std::move(overrideConfig), &error))
+            {
+                return ConfigPatchResult{
+                    base,
+                    ConfigStatus::ValidationError,
+                    std::move(error),
+                    true,
+                    expectedGeneration};
+            }
+        }
+
+        std::string validationError;
+        if (!validateConfig(candidate, &validationError))
+        {
+            return ConfigPatchResult{
+                base,
+                ConfigStatus::ValidationError,
+                std::move(validationError),
+                true,
+                expectedGeneration};
+        }
+        return ConfigPatchResult{
+            std::move(candidate),
+            ConfigStatus::Ok,
+            {},
+            true,
+            expectedGeneration};
+    }
+    catch (const std::exception& exception)
+    {
+        return ConfigPatchResult{
+            base,
+            ConfigStatus::ParseError,
+            std::string("display override mutation failed: ")
+                + exception.what(),
+            true,
+            std::nullopt};
+    }
+    catch (...)
+    {
+        return ConfigPatchResult{
+            base,
+            ConfigStatus::ParseError,
+            "display override mutation failed",
+            true,
+            std::nullopt};
+    }
+}
+
+}
+
+ConfigPatchResult applyDisplayOverrideJson(
+    const Config& base,
+    const std::string_view json) noexcept
+{
+    return applyDisplayOverrideMutationJsonImpl(base, json, false);
+}
+
+ConfigPatchResult removeDisplayOverrideJson(
+    const Config& base,
+    const std::string_view json) noexcept
+{
+    return applyDisplayOverrideMutationJsonImpl(base, json, true);
+}
+
+namespace
+{
+
 [[nodiscard]] ConfigBatchPatchResult applyPatchBatchJsonImpl(
     const Config& base,
     const std::string_view json,

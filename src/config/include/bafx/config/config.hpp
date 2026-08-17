@@ -237,6 +237,15 @@ struct ConfigSaveResult
     const Config& base,
     std::string_view json) noexcept;
 
+// Applies one display override by stable key. These commands intentionally do
+// not expose vector indices because topology refreshes can reorder sessions.
+[[nodiscard]] ConfigPatchResult applyDisplayOverrideJson(
+    const Config& base,
+    std::string_view json) noexcept;
+[[nodiscard]] ConfigPatchResult removeDisplayOverrideJson(
+    const Config& base,
+    std::string_view json) noexcept;
+
 // Applies one IPC-style patch through the canonical FX path surface. Product
 // settings such as input, display, background, and system remain SetConfig-only.
 [[nodiscard]] ConfigPatchResult applyFxPatchJson(
