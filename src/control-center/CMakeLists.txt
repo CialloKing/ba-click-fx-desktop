@@ -44,6 +44,7 @@ target_link_libraries(
         bafx::config
         comctl32
         ole32
+        shell32
         user32
 )
 bafx_enable_warnings(bafx_control_center)

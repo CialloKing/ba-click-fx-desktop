@@ -7,6 +7,7 @@
 #include "bafx/windows/portable_paths.hpp"
 
 #include <commctrl.h>
+#include <shellapi.h>
 
 #include <algorithm>
 #include <array>
@@ -36,6 +37,10 @@ constexpr UINT hostShutdownPollDelayMilliseconds = 100U;
 constexpr DWORD controlCenterIpcTimeoutMilliseconds = 100U;
 constexpr ULONGLONG hostShutdownTimeoutMilliseconds = 10'000U;
 constexpr UINT redrawAfterInteractiveResizeMessage = WM_APP + 1U;
+constexpr UINT trayNotificationMessage = WM_APP + 2U;
+constexpr UINT trayIconIdentifier = 1U;
+constexpr UINT trayRestoreCommand = 1U;
+constexpr UINT trayExitCommand = 2U;
 constexpr std::size_t offlineDisplayItemBase = 1U << 16U;
 // WGC/D3D startup can take several seconds on a cold process. The control
 // center keeps probing long enough for that process to become controllable.
@@ -539,6 +544,7 @@ ControlCenterWindow::ControlCenterWindow(const HINSTANCE instance) noexcept
     : instance_(instance)
     , client_(controlCenterIpcOptions())
 {
+    taskbarCreatedMessage_ = RegisterWindowMessageW(L"TaskbarCreated");
 }
 
 ControlCenterWindow::~ControlCenterWindow()
@@ -757,6 +763,18 @@ LRESULT ControlCenterWindow::handleMessage(
     const WPARAM wParam,
     const LPARAM lParam)
 {
+    if (taskbarCreatedMessage_ != 0U && message == taskbarCreatedMessage_)
+    {
+        // Explorer owns the notification area and drops all icons when it
+        // restarts. Re-add ours only when the current configuration owns it.
+        trayIconAdded_ = false;
+        if (config_.system.closeToTray)
+        {
+            static_cast<void>(ensureTrayIcon());
+        }
+        return 0;
+    }
+
     switch (message)
     {
     case WM_COMMAND:
@@ -767,6 +785,20 @@ LRESULT ControlCenterWindow::handleMessage(
         return 0;
     case WM_TIMER:
         onTimer(static_cast<UINT_PTR>(wParam));
+        return 0;
+    case trayNotificationMessage:
+        if (wParam != trayIconIdentifier)
+        {
+            return 0;
+        }
+        if (lParam == WM_LBUTTONUP || lParam == WM_LBUTTONDBLCLK)
+        {
+            restoreFromTray();
+        }
+        else if (lParam == WM_RBUTTONUP || lParam == WM_CONTEXTMENU)
+        {
+            showTrayMenu();
+        }
         return 0;
     case WM_WINDOWPOSCHANGING:
     {
@@ -940,8 +972,13 @@ LRESULT ControlCenterWindow::handleMessage(
             && config_.system.closeToTray)
         {
             commitPendingPatch();
-            ShowWindow(window_, SW_HIDE);
-            return 0;
+            if (ensureTrayIcon())
+            {
+                ShowWindow(window_, SW_HIDE);
+                return 0;
+            }
+            // Never leave the process running without a visible recovery
+            // entry when Explorer rejects notification-area registration.
         }
         return DefWindowProcW(window_, message, wParam, lParam);
     case WM_CLOSE:
@@ -952,6 +989,7 @@ LRESULT ControlCenterWindow::handleMessage(
         KillTimer(window_, patchTimerId);
         KillTimer(window_, hostRetryTimerId);
         KillTimer(window_, hostShutdownTimerId);
+        removeTrayIcon();
         hostLifetimeMutex_.reset();
         PostQuitMessage(0);
         return 0;
@@ -3775,6 +3813,15 @@ void ControlCenterWindow::updateControls(
     config_ = config;
     updatingControls_ = true;
 
+    if (config.system.closeToTray)
+    {
+        static_cast<void>(ensureTrayIcon());
+    }
+    else
+    {
+        removeTrayIcon();
+    }
+
     setChecked(effectsEnabled_, config.effects.enabled);
     setChecked(clickEnabled_, config.effects.clickEnabled);
     setChecked(trailEnabled_, config.effects.trailEnabled);
@@ -4727,6 +4774,110 @@ void ControlCenterWindow::updateHostLifecycleButton() const noexcept
     if (refreshButton_ != nullptr)
     {
         EnableWindow(refreshButton_, lifecycleEnabled);
+    }
+}
+
+bool ControlCenterWindow::ensureTrayIcon() noexcept
+{
+    if (trayIconAdded_)
+    {
+        return true;
+    }
+    if (window_ == nullptr)
+    {
+        return false;
+    }
+
+    NOTIFYICONDATAW icon{};
+    icon.cbSize = sizeof(icon);
+    icon.hWnd = window_;
+    icon.uID = trayIconIdentifier;
+    icon.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP;
+    icon.uCallbackMessage = trayNotificationMessage;
+    icon.hIcon = LoadIconW(nullptr, IDI_APPLICATION);
+    constexpr std::wstring_view tooltip = L"BAFX Control Center";
+    const std::size_t tooltipLength = (std::min)(
+        tooltip.size(),
+        std::size(icon.szTip) - 1U);
+    std::copy_n(tooltip.data(), tooltipLength, icon.szTip);
+    icon.szTip[tooltipLength] = L'\0';
+    trayIconAdded_ = Shell_NotifyIconW(NIM_ADD, &icon) != FALSE;
+    return trayIconAdded_;
+}
+
+void ControlCenterWindow::removeTrayIcon() noexcept
+{
+    if (!trayIconAdded_ || window_ == nullptr)
+    {
+        return;
+    }
+
+    NOTIFYICONDATAW icon{};
+    icon.cbSize = sizeof(icon);
+    icon.hWnd = window_;
+    icon.uID = trayIconIdentifier;
+    static_cast<void>(Shell_NotifyIconW(NIM_DELETE, &icon));
+    trayIconAdded_ = false;
+}
+
+void ControlCenterWindow::restoreFromTray() noexcept
+{
+    if (window_ == nullptr)
+    {
+        return;
+    }
+    ShowWindow(window_, SW_RESTORE);
+    static_cast<void>(SetForegroundWindow(window_));
+}
+
+void ControlCenterWindow::showTrayMenu()
+{
+    if (window_ == nullptr)
+    {
+        return;
+    }
+    const HMENU menu = CreatePopupMenu();
+    if (menu == nullptr)
+    {
+        return;
+    }
+
+    static_cast<void>(AppendMenuW(
+        menu,
+        MF_STRING | MF_DEFAULT,
+        trayRestoreCommand,
+        L"打开控制中心"));
+    static_cast<void>(AppendMenuW(
+        menu,
+        MF_STRING,
+        trayExitCommand,
+        L"退出控制中心"));
+    POINT cursor{};
+    if (GetCursorPos(&cursor) == FALSE)
+    {
+        DestroyMenu(menu);
+        return;
+    }
+
+    static_cast<void>(SetForegroundWindow(window_));
+    const UINT command = TrackPopupMenu(
+        menu,
+        TPM_RIGHTBUTTON | TPM_RETURNCMD | TPM_NONOTIFY,
+        cursor.x,
+        cursor.y,
+        0,
+        window_,
+        nullptr);
+    DestroyMenu(menu);
+    static_cast<void>(PostMessageW(window_, WM_NULL, 0U, 0));
+    if (command == trayRestoreCommand)
+    {
+        restoreFromTray();
+    }
+    else if (command == trayExitCommand)
+    {
+        commitPendingPatch();
+        DestroyWindow(window_);
     }
 }
 

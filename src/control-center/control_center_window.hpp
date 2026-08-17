@@ -209,6 +209,10 @@ private:
     void finishHostShutdown() noexcept;
     void recoverHostShutdown(std::wstring_view message);
     void updateHostLifecycleButton() const noexcept;
+    [[nodiscard]] bool ensureTrayIcon() noexcept;
+    void removeTrayIcon() noexcept;
+    void restoreFromTray() noexcept;
+    void showTrayMenu();
 
     void setConnected(bool connected) noexcept;
     void setInfo(std::wstring_view title, std::wstring_view message);
@@ -344,6 +348,7 @@ private:
     std::uint64_t generation_{0U};
     std::uint32_t hostRetryAttempts_{0U};
     ULONGLONG hostShutdownDeadlineTicks_{0U};
+    UINT taskbarCreatedMessage_{0U};
     bool connected_{false};
     // IPC can be unavailable while the Host is still initializing. Keep this
     // process-level state separate so the lifecycle button can still request
@@ -355,6 +360,7 @@ private:
     bool hostShutdownCommandAcknowledged_{false};
     bool updatingControls_{false};
     bool interactiveMoveResize_{false};
+    bool trayIconAdded_{false};
     Page activePage_{Page::Basic};
     AdvancedSection activeAdvancedSection_{AdvancedSection::Timing};
 };
