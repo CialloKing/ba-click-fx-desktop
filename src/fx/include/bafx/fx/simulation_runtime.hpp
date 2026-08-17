@@ -60,6 +60,10 @@ public:
     void setAlwaysOnTrailEnabled(bool enabled, SimulationTime time);
 
     [[nodiscard]] FrameSnapshot snapshot(Viewport viewport, SimulationTime time) const;
+    // Pressed FX instances retain Unity's presentation-bound cleanup. The
+    // ambient instance may stay allocated only as a future Move anchor, so it
+    // requires frames only while it still owns visible geometry.
+    [[nodiscard]] bool renderingRequired(SimulationTime time) const noexcept;
     [[nodiscard]] bool active() const noexcept;
     [[nodiscard]] bool pointerHeld() const noexcept;
     [[nodiscard]] bool alwaysOnTrailEnabled() const noexcept;

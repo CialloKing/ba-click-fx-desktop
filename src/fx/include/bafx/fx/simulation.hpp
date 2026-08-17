@@ -181,6 +181,7 @@ public:
     void setTrailLengthMultiplier(float multiplier) noexcept;
 
     [[nodiscard]] FrameSnapshot snapshot(Viewport viewport, SimulationTime time) const;
+    [[nodiscard]] bool hasDrawableContent(SimulationTime time) const noexcept;
     [[nodiscard]] bool active() const noexcept;
     [[nodiscard]] bool pointerHeld() const noexcept;
     [[nodiscard]] bool firstAdvancePending() const noexcept;

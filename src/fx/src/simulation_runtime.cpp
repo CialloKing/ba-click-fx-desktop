@@ -461,6 +461,16 @@ FrameSnapshot SimulationRuntime::snapshot(
     return combined;
 }
 
+bool SimulationRuntime::renderingRequired(const SimulationTime time) const noexcept
+{
+    if (!instances_.empty())
+    {
+        return true;
+    }
+    return alwaysOnTrail_.has_value()
+        && alwaysOnTrail_->hasDrawableContent(time);
+}
+
 bool SimulationRuntime::active() const noexcept
 {
     return !instances_.empty() || alwaysOnTrail_.has_value();

@@ -1148,6 +1148,51 @@ FrameSnapshot Simulation::snapshot(const Viewport viewport, const SimulationTime
     return frame;
 }
 
+bool Simulation::hasDrawableContent(const SimulationTime time) const noexcept
+{
+    if (!active_)
+    {
+        return false;
+    }
+
+    const ClickParticleStepStates particleStates = particleStepStatesAt(time);
+    if (clickEffectEnabled_
+        && particleStates.centerDisk.burstEmitted
+        && particleStates.centerDisk.particleAgeSeconds
+            <= millisecondsToSeconds(clickParticleSettings_.diskLifetimeMs))
+    {
+        return true;
+    }
+    if (!rings_.empty()
+        && particleStates.dissolveRings.burstEmitted
+        && particleStates.dissolveRings.particleAgeSeconds
+            <= millisecondsToSeconds(clickParticleSettings_.ringsLifetimeMs))
+    {
+        return true;
+    }
+
+    const SimulationTime currentTrailTime = trailTimeAt(time);
+    for (const MovingParticle& particle : triangles_)
+    {
+        if (particle.dragParticle)
+        {
+            const double age = ageSeconds(currentTrailTime, particle.bornAt);
+            if (age > 0.0 && age <= particle.lifetimeSeconds)
+            {
+                return true;
+            }
+            continue;
+        }
+        if (particleStates.clickTriangles.burstEmitted
+            && particleStates.clickTriangles.particleAgeSeconds
+                <= particle.lifetimeSeconds)
+        {
+            return true;
+        }
+    }
+    return !trail_.empty();
+}
+
 bool Simulation::active() const noexcept
 {
     return active_;

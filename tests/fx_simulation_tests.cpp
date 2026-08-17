@@ -2326,6 +2326,23 @@ BAFX_TEST(disabling_always_on_trail_stops_new_free_move_geometry)
     BAFX_CHECK(!runtime.active());
 }
 
+BAFX_TEST(ambient_trail_stops_requiring_frames_after_geometry_expires)
+{
+    SimulationRuntime runtime;
+    runtime.setAlwaysOnTrailEnabled(true, 0ns);
+    runtime.pointerMove(PointF{100.0F, 100.0F}, goldenViewport, 10ms);
+    runtime.pointerMove(PointF{400.0F, 100.0F}, goldenViewport, 40ms);
+    runtime.advance(40ms);
+    BAFX_CHECK(runtime.renderingRequired(40ms));
+
+    runtime.advance(2s);
+    BAFX_CHECK(runtime.active());
+    BAFX_CHECK(!runtime.renderingRequired(2s));
+
+    runtime.pointerMove(PointF{800.0F, 100.0F}, goldenViewport, 2010ms);
+    BAFX_CHECK(runtime.renderingRequired(2010ms));
+}
+
 BAFX_TEST(canceling_a_held_pointer_allows_always_on_trail_to_restart)
 {
     SimulationRuntime runtime;
