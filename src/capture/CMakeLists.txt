@@ -159,7 +159,6 @@ target_link_libraries(
         bafx::windows
         gdi32
         ole32
-        OneCoreUAP
         windowscodecs
 )
 bafx_enable_warnings(ba_fx_wgc_session_exclusion_spike)

@@ -19,6 +19,12 @@ SCRIPT_PATH = (
     / "tools"
     / "verify-wgc-session-exclusion-spike.py"
 )
+SOURCE_PATH = (
+    Path(__file__).resolve().parents[1]
+    / "src"
+    / "capture"
+    / "wgc_session_exclusion_spike_main.cpp"
+)
 RUNBOOK_PATH = (
     Path(__file__).resolve().parents[1]
     / "tools"
@@ -488,6 +494,13 @@ class SessionExclusionVerifierTests(unittest.TestCase):
 
     def validate(self) -> VERIFY.VerificationResult:
         return VERIFY.validate_capture(self.document, self.directory)
+
+    def test_window_id_interop_is_resolved_dynamically(self) -> None:
+        source = SOURCE_PATH.read_text(encoding="utf-8")
+        self.assertIn("LoadLibraryW", source)
+        self.assertIn("GetProcAddress", source)
+        self.assertIn("return E_NOINTERFACE", source)
+        self.assertNotIn("GetWindowIdFromWindow(", source)
 
     def write_document(self, name: str = "session-exclusion.json") -> Path:
         path = self.directory / name

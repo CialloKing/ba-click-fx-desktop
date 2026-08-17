@@ -1013,6 +1013,56 @@ void ledgerFrameClosed(CaptureDocument::ResourceLedger& ledger)
     --ledger.liveFrames;
 }
 
+using GetWindowIdFromWindowFunction =
+    HRESULT(WINAPI*)(HWND, ABI::Windows::UI::WindowId*);
+
+class WindowIdInteropResolver final
+{
+public:
+    WindowIdInteropResolver() noexcept
+        : module_(LoadLibraryW(L"ext-ms-win-windowing-external-l1-1-0.dll"))
+    {
+        if (module_ != nullptr)
+        {
+            function_ = reinterpret_cast<GetWindowIdFromWindowFunction>(
+                GetProcAddress(module_, "GetWindowIdFromWindow"));
+            if (function_ == nullptr)
+            {
+                FreeLibrary(module_);
+                module_ = nullptr;
+            }
+        }
+    }
+
+    ~WindowIdInteropResolver()
+    {
+        if (module_ != nullptr)
+        {
+            FreeLibrary(module_);
+        }
+    }
+
+    WindowIdInteropResolver(const WindowIdInteropResolver&) = delete;
+    WindowIdInteropResolver& operator=(const WindowIdInteropResolver&) = delete;
+
+    [[nodiscard]] HRESULT getWindowId(
+        const HWND window,
+        ABI::Windows::UI::WindowId* const id) const noexcept
+    {
+        if (function_ == nullptr)
+        {
+            // Keep unsupported systems observable as Unavailable. A static
+            // import would make the loader terminate the collector first.
+            return E_NOINTERFACE;
+        }
+        return function_(window, id);
+    }
+
+private:
+    HMODULE module_{nullptr};
+    GetWindowIdFromWindowFunction function_{nullptr};
+};
+
 class SessionCapture final
 {
 public:
@@ -1126,7 +1176,10 @@ public:
     {
         SessionExclusionStatus status{};
         ABI::Windows::UI::WindowId abiWindowId{};
-        status.windowIdResult = GetWindowIdFromWindow(overlay, &abiWindowId);
+        const WindowIdInteropResolver windowIdInterop{};
+        status.windowIdResult = windowIdInterop.getWindowId(
+            overlay,
+            &abiWindowId);
         if (FAILED(status.windowIdResult))
         {
             return status;
