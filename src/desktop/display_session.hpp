@@ -236,6 +236,7 @@ public:
     void shutdownSecondaryBackgroundCapture() noexcept;
     [[nodiscard]] bool colorRefreshRetryPending() const noexcept;
     [[nodiscard]] std::uint32_t colorRefreshRetriesRemaining() const noexcept;
+    [[nodiscard]] bool takeColorCapabilityObservationRequest() noexcept;
     [[nodiscard]] DisplaySessionColorRefreshStatus refreshColorCapabilities(
         const std::optional<bafx::windows::DisplayColorCapabilities>& fallback =
             std::nullopt,
@@ -280,6 +281,7 @@ private:
     bool renderFaulted_{false};
     bool outputContractFaulted_{false};
     std::uint32_t colorRefreshRetriesRemaining_{0U};
+    bool colorCapabilityObservationPending_{false};
     std::unique_ptr<DisplaySessionBackgroundCaptureState>
         secondaryBackgroundCapture_{};
 };

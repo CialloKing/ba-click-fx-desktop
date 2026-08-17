@@ -202,7 +202,14 @@ DisplaySessionReconcileResult DisplaySessionManager::reconcileSecondaries(
             target);
         const bool resourceDomainMatches =
             existing->resourceDomainReadyForTarget(target);
-        if (sameTarget && sameSourceIdentity && resourceDomainMatches)
+        const bool sourceIdentityRecovery =
+            displaySourceIdentityResolutionImproved(
+                existing->target(),
+                target)
+            && resourceDomainMatches;
+        if (sameTarget
+            && (sameSourceIdentity || sourceIdentityRecovery)
+            && resourceDomainMatches)
         {
             bool boundsCorrected = false;
             try
@@ -327,6 +334,12 @@ bool DisplaySessionManager::topologyDiffers(
             expected,
             *observed,
             snapshot.status);
+        const bool sourceIdentityCompatible =
+            sameDisplaySourceIdentity(expected, stabilized)
+            || (displaySourceIdentityResolutionImproved(
+                    expected,
+                    stabilized)
+                && session->resourceDomainReadyForTarget(stabilized));
         if (session->retargetPendingFor(stabilized))
         {
             if (displayTargetMetadataChanged(expected, stabilized))
@@ -336,7 +349,7 @@ bool DisplaySessionManager::topologyDiffers(
             continue;
         }
         if (!sameDisplayTarget(expected, stabilized)
-            || !sameDisplaySourceIdentity(expected, stabilized)
+            || !sourceIdentityCompatible
             || !sameDisplayRuntimeMetadata(expected, stabilized)
             || !session->resourceDomainReadyForTarget(stabilized)
             || displayPhysicalTargetIdentityResolutionImproved(

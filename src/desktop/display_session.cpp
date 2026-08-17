@@ -242,8 +242,12 @@ bool DisplaySession::retargetPendingFor(
     }
 
     const DisplayTarget& pending = *state.pendingTarget;
+    const bool sourceIdentityCompatible =
+        sameDisplaySourceIdentity(pending, target)
+        || (displaySourceIdentityResolutionImproved(pending, target)
+            && resourceDomainReadyForTarget(target));
     return sameDisplayTarget(pending, target)
-        && sameDisplaySourceIdentity(pending, target);
+        && sourceIdentityCompatible;
 }
 
 bool DisplaySession::updatePendingTargetMetadata(
@@ -256,13 +260,39 @@ bool DisplaySession::updatePendingTargetMetadata(
 
     DisplaySessionBackgroundCaptureState& state =
         *secondaryBackgroundCapture_;
+    const bool colorEvidenceImproved =
+        displayColorCapabilityEvidenceImproved(*state.pendingTarget, target);
     state.pendingTarget = std::move(target);
+    if (colorEvidenceImproved)
+    {
+        // A permission transaction may outlive the partial DisplayConfig
+        // snapshot that created it. Refresh only the pending monitor's sample;
+        // the active output contract remains owned by target_.
+        const std::optional<bafx::windows::DisplayColorCapabilities> refreshed =
+            bafx::windows::queryDisplayColorCapabilities(
+                state.pendingTarget->monitor);
+        if (refreshed.has_value()
+            && bafx::windows::displayColorStateComplete(*refreshed))
+        {
+            state.pendingTargetColorCapabilities = refreshed;
+            state.pendingTargetOutputPolicy = resolveDisplayOutputPolicy(
+                requestedOutputPreference_,
+                state.pendingTargetColorCapabilities);
+        }
+    }
     if (state.execution.transactionActive)
     {
         // RequestBorderlessAccess is the only asynchronous action. Updating
         // this snapshot before it completes lets StartSensor consume the
         // latest DRR cadence without restarting the permission request.
         state.execution.targetIntent.target = *state.pendingTarget;
+        if (colorEvidenceImproved)
+        {
+            state.execution.targetIntent.outputPolicy =
+                state.pendingTargetOutputPolicy;
+            state.execution.targetIntent.outputColorCapabilities =
+                state.pendingTargetColorCapabilities;
+        }
     }
     return true;
 }
@@ -483,9 +513,14 @@ void DisplaySession::acceptAppliedTarget(
     DisplayTarget target,
     const HWND wakeWindow) noexcept
 {
+    const bool sourceIdentityResolution =
+        sameDisplayTarget(target_, target)
+        && displaySourceIdentityResolutionImproved(target_, target);
     const bool sourceChanged = target_.monitor != target.monitor
-        || !sameDisplaySourceIdentity(target_, target);
+        || (!sameDisplaySourceIdentity(target_, target)
+            && !sourceIdentityResolution);
     target_ = std::move(target);
+    colorCapabilityObservationPending_ = false;
     if (sourceChanged)
     {
         // Capabilities describe one physical output. Never use a coherent
@@ -505,6 +540,9 @@ void DisplaySession::acceptAppliedTarget(
 bafx::windows::BackgroundCadenceRefreshResult
 DisplaySession::updateTargetMetadata(DisplayTarget target) noexcept
 {
+    colorCapabilityObservationPending_ =
+        colorCapabilityObservationPending_
+        || displayColorCapabilityEvidenceImproved(target_, target);
     target_ = std::move(target);
     // DPI and refresh-rate changes preserve the physical resource domain.
     // Refresh only the sample-age policy so a mixed-refresh desktop does not
@@ -1630,6 +1668,13 @@ bool DisplaySession::colorRefreshRetryPending() const noexcept
 std::uint32_t DisplaySession::colorRefreshRetriesRemaining() const noexcept
 {
     return colorRefreshRetriesRemaining_;
+}
+
+bool DisplaySession::takeColorCapabilityObservationRequest() noexcept
+{
+    const bool pending = colorCapabilityObservationPending_;
+    colorCapabilityObservationPending_ = false;
+    return pending;
 }
 
 DisplaySessionColorRefreshStatus DisplaySession::refreshColorCapabilities(

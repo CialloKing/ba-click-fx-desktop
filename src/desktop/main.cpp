@@ -3902,8 +3902,12 @@ int runApplication(
             // The console display-state subscription is process-global and
             // belongs to the Host shell. Fan its generation out so every
             // monitor revalidates HDR/WCG after sleep, dimming or power-on.
+            const bool topologyColorObservationPending =
+                !displayPowerUnavailable
+                && session.takeColorCapabilityObservationRequest();
             bool secondaryColorObservationPending = colorPending
-                || hostDisplayPowerChanged;
+                || hostDisplayPowerChanged
+                || topologyColorObservationPending;
             std::uint64_t secondaryColorGeneration = 0U;
             if (!displayPowerUnavailable
                 && session.colorMonitor().notificationPending())
@@ -3955,7 +3959,9 @@ int runApplication(
                     ? "advanced-color-event"
                     : (hostDisplayPowerChanged
                         ? "display-power"
-                        : "win32-notification"));
+                        : (topologyColorObservationPending
+                            ? "topology-recovered"
+                            : "win32-notification")));
                 const bafx::windows::CompositionOutputPreference
                     requestedPreference =
                         session.requestedOutputPreference();
@@ -4062,8 +4068,13 @@ int runApplication(
         }
         const bool hostDisplayColorChanged =
             hostWindow.takeDisplayColorChange();
+        const bool topologyColorObservationPending =
+            !displayPowerUnavailable
+            && displaySession.takeColorCapabilityObservationRequest();
         bool displayColorObservationPending = !displayPowerUnavailable
-            && (hostDisplayColorChanged || coordinatorSurfaceColorChanged);
+            && (hostDisplayColorChanged
+                || coordinatorSurfaceColorChanged
+                || topologyColorObservationPending);
         std::uint64_t displayColorGeneration = 0U;
         if (!displayPowerUnavailable
             && displayColorMonitor.notificationPending())
@@ -4170,13 +4181,19 @@ int runApplication(
             const bool observedResourceDomainMismatch =
                 !displaySession.resourceDomainReadyForTarget(
                     stabilizedObservedTarget);
+            const bool observedSourceIdentityCompatible =
+                bafx::desktop::sameDisplaySourceIdentity(
+                    stabilizedObservedTarget,
+                    expectedTarget)
+                || (bafx::desktop::displaySourceIdentityResolutionImproved(
+                        expectedTarget,
+                        stabilizedObservedTarget)
+                    && !observedResourceDomainMismatch);
             const bool observedTargetIdentityChanged =
                 !bafx::desktop::sameDisplayTarget(
                     stabilizedObservedTarget,
                     expectedTarget)
-                || !bafx::desktop::sameDisplaySourceIdentity(
-                    stabilizedObservedTarget,
-                    expectedTarget)
+                || !observedSourceIdentityCompatible
                 || observedResourceDomainMismatch;
             const bool pendingMetadataAdvanced =
                 pendingDisplayTarget.has_value()
@@ -4355,7 +4372,9 @@ int runApplication(
                     ? "advanced-color-event"
                     : (hostDisplayPowerChanged
                         ? "display-power"
-                        : "win32-notification")),
+                        : (topologyColorObservationPending
+                            ? "topology-recovered"
+                            : "win32-notification"))),
                 displayColorGeneration,
                 false,
                 std::nullopt,

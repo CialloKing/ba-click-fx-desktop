@@ -295,7 +295,7 @@ struct DisplayTargetSnapshot
     const DisplayTarget& current) noexcept
 {
     return !sameDisplayRuntimeMetadata(previous, current)
-        || displayPhysicalTargetIdentityResolutionImproved(previous, current);
+        || displayColorCapabilityEvidenceImproved(previous, current);
 }
 
 [[nodiscard]] inline bool displayTargetResourceAdapterMatches(
