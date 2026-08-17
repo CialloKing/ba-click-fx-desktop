@@ -145,6 +145,19 @@ else
 }
 
 $OutputDirectory = [IO.Path]::GetFullPath($OutputDirectory)
+if (Test-Path -LiteralPath $OutputDirectory -PathType Leaf)
+{
+    throw "Session exclusion output path is a file: $OutputDirectory"
+}
+if (Test-Path -LiteralPath $OutputDirectory -PathType Container)
+{
+    $existingEntry = Get-ChildItem -LiteralPath $OutputDirectory -Force |
+        Select-Object -First 1
+    if ($null -ne $existingEntry)
+    {
+        throw "Session exclusion output directory is not empty; choose a new directory to preserve prior evidence: $OutputDirectory"
+    }
+}
 $null = New-Item -ItemType Directory -Force -Path $OutputDirectory
 
 $captureJsonPath = Join-Path $OutputDirectory 'session-exclusion.json'

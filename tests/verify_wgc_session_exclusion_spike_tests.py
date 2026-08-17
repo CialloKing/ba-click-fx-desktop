@@ -705,6 +705,15 @@ class SessionExclusionVerifierTests(unittest.TestCase):
             self.assertIn(required, runbook)
         self.assertNotIn("Remove-Item", runbook)
 
+    def test_target_machine_runbook_preserves_existing_evidence(self) -> None:
+        runbook = RUNBOOK_PATH.read_text(encoding="utf-8")
+        self.assertIn(
+            "Get-ChildItem -LiteralPath $OutputDirectory -Force",
+            runbook,
+        )
+        self.assertIn("output directory is not empty", runbook)
+        self.assertIn("choose a new directory to preserve prior evidence", runbook)
+
     def test_cli_rejects_duplicate_fields(self) -> None:
         path = self.directory / "duplicate-session-exclusion.json"
         path.write_text('{"schema":"a","schema":"b"}', encoding="utf-8")
