@@ -27,7 +27,7 @@ jobs:
             os: windows-2022
             sdk: "10.0.19041.0"
           - name: windows-sdk-26100
-            os: windows-2025
+            os: windows-2022
             sdk: "10.0.26100.0"
 
     steps:
