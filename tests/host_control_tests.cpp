@@ -145,6 +145,48 @@ BAFX_TEST(host_control_start_latches_generation_before_accepting_set_config)
         == bafx::config::RenderMode::RecordingCompatible);
 }
 
+BAFX_TEST(host_control_serializes_display_override_mutations_by_generation)
+{
+    TemporaryConfigDirectory temporary;
+    bafx::windows::NamedPipeIpcServer::Options serverOptions{};
+    serverOptions.pipeName = testPipeName() + L".display-override";
+    serverOptions.ioTimeoutMilliseconds = 500U;
+    serverOptions.retryDelayMilliseconds = 10U;
+    bafx::desktop::HostControlPlane control(
+        temporary.configPath(),
+        bafx::config::defaultConfig(),
+        serverOptions);
+    BAFX_CHECK(control.start(false).serviceStarted);
+
+    bafx::windows::IpcClientOptions clientOptions{};
+    clientOptions.pipeName = serverOptions.pipeName;
+    clientOptions.timeoutMilliseconds = 1'000U;
+    const bafx::windows::NamedPipeIpcClient client(clientOptions);
+    const std::string key = "displayconfig-v1-sha256:test-panel";
+    const bafx::windows::IpcClientResponse added = client.transact(
+        "SetDisplayOverride {\"generation\":1,\"displayKey\":\""
+        + key
+        + "\",\"enabled\":false,\"hdrEnabled\":true,"
+          "\"framePacing\":\"120\"}");
+    BAFX_CHECK(added.succeeded());
+
+    const bafx::windows::IpcClientResponse stale = client.transact(
+        "RemoveDisplayOverride {\"generation\":1,\"displayKey\":\""
+        + key + "\"}");
+    BAFX_CHECK(!stale.succeeded());
+    BAFX_CHECK(stale.errorCode == "generation_conflict");
+
+    const bafx::windows::IpcClientResponse removed = client.transact(
+        "RemoveDisplayOverride {\"generation\":2,\"displayKey\":\""
+        + key + "\"}");
+    BAFX_CHECK(removed.succeeded());
+    const bafx::desktop::HostStateSnapshot current = control.snapshot();
+    control.stop();
+
+    BAFX_CHECK(current.generation == 3U);
+    BAFX_CHECK(current.config.display.overrides.empty());
+}
+
 BAFX_TEST(host_control_observes_shutdown_after_the_client_receives_its_ack)
 {
     TemporaryConfigDirectory temporary;

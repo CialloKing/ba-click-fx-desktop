@@ -335,6 +335,12 @@ bafx::windows::IpcResponse HostControlPlane::handle(
         case bafx::windows::IpcCommand::SetConfig:
             return handleSetConfig(request.payload);
 
+        case bafx::windows::IpcCommand::SetDisplayOverride:
+            return handleDisplayOverrideMutation(request.payload, false);
+
+        case bafx::windows::IpcCommand::RemoveDisplayOverride:
+            return handleDisplayOverrideMutation(request.payload, true);
+
         case bafx::windows::IpcCommand::SetFxParam:
             return handleSetFxParams(request.payload, false);
 
@@ -540,6 +546,57 @@ bafx::windows::IpcResponse HostControlPlane::handleSetConfig(
             saved.message.empty() ? "configuration could not be saved" : saved.message);
     }
     config_ = candidate;
+    ++generation_;
+    return bafx::windows::IpcResponse::success(
+        bafx::config::toJson(config_, false));
+}
+
+bafx::windows::IpcResponse HostControlPlane::handleDisplayOverrideMutation(
+    const std::string_view payload,
+    const bool remove) noexcept
+{
+    bafx::config::Config baseConfig;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        baseConfig = config_;
+    }
+
+    const bafx::config::ConfigPatchResult mutation = remove
+        ? bafx::config::removeDisplayOverrideJson(baseConfig, payload)
+        : bafx::config::applyDisplayOverrideJson(baseConfig, payload);
+    if (!mutation.succeeded())
+    {
+        return bafx::windows::IpcResponse::failure(
+            "invalid_display_override",
+            mutation.message.empty()
+                ? "display override mutation is invalid"
+                : mutation.message);
+    }
+    if (!mutation.expectedGeneration.has_value())
+    {
+        return bafx::windows::IpcResponse::failure(
+            "invalid_display_override",
+            "display override generation is required");
+    }
+
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (*mutation.expectedGeneration != generation_)
+    {
+        return bafx::windows::IpcResponse::failure(
+            "generation_conflict",
+            "configuration generation changed; refresh before retrying");
+    }
+    const bafx::config::ConfigSaveResult saved =
+        bafx::config::saveConfigAtomic(configPath_, mutation.config);
+    if (!saved.succeeded())
+    {
+        return bafx::windows::IpcResponse::failure(
+            "config_write_failed",
+            saved.message.empty()
+                ? "display override could not be saved"
+                : saved.message);
+    }
+    config_ = mutation.config;
     ++generation_;
     return bafx::windows::IpcResponse::success(
         bafx::config::toJson(config_, false));

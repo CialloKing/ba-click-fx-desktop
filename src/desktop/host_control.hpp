@@ -90,6 +90,9 @@ private:
         const bafx::windows::IpcRequest& request) noexcept;
     [[nodiscard]] bafx::windows::IpcResponse handleSetConfig(
         std::string_view payload) noexcept;
+    [[nodiscard]] bafx::windows::IpcResponse handleDisplayOverrideMutation(
+        std::string_view payload,
+        bool remove) noexcept;
     [[nodiscard]] bafx::windows::IpcResponse handleSetFxParams(
         std::string_view payload,
         bool batch) noexcept;
