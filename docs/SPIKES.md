@@ -222,6 +222,18 @@ configuration iteration 的 frame 前不发布新的 `BackgroundSnapshot`；失�
    - 使用带进程外超时的 `tools\run-wgc-session-exclusion-spike.ps1`，保证 collector 卡在 WinRT
      调用时仍能留下日志并被父进程终止。
 
+   目标机执行入口示例：
+
+   ```powershell
+   cmake --build --preset alpha-release --target ba_fx_wgc_session_exclusion_spike
+   powershell -NoProfile -File tools\run-wgc-session-exclusion-spike.ps1 `
+     -Executable build\alpha-x64\src\capture\Release\ba-click-fx-wgc-session-exclusion-spike.exe
+   ```
+
+   脚本默认把结果写入 `artifacts\local\spikes\spk-002-session-exclusion\<machine>-<revision>\`，
+   可用 `-OutputDirectory`、`-CaptureTimeoutMilliseconds` 和 `-ProcessTimeoutMilliseconds` 覆盖；
+   collector/verifier 的 stdout/stderr 也会保存在同一目录。
+
 2. **单机真实桌面证据（下一执行阶段）**
    - 在目标系统记录 OS build、Windows SDK、GPU/driver、主显示器分辨率、刷新率、色彩模式和位深，
      并确认 Overlay 使用 `WDA_NONE`。
