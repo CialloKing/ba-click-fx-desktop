@@ -68,6 +68,16 @@
   只证明 watchdog 已启动；这些证据不表示 WinRT Close 可取消或真实 device-lost 已通过；
 - 活跃 WGC 的 WDA 只读回查成功只进入性能窗计数；失败必须产生一次含控制代次、事务状态、期望/观察 affinity
   和 Win32 错误的结构化事件，并在下一次 Present 前完成 WGC stop 与 FX-only 回退；
+- WGC Session 专属排除 Spike 必须在 `WDA_NONE` 下运行，并对 capture Session 运行时 QI
+  `IDisplayGraphicsCaptureSession`、`IGraphicsCaptureSession7`，对 frame 运行时 QI
+  `IDirect3D11CaptureFrame3`。每个 QI 和 Set/Get 排除列表调用都记录原始 HRESULT；SDK 头文件可见性
+  不得替代运行时能力。Set/Get 成功还必须回读完全相同的 Overlay WindowId，且 Set 返回的
+  configuration iteration 与后续 frame iteration 建立可重复、可判定的关系；关系不稳定时只能报告
+  `NotVerified`，不得发布新的背景快照或宣称生产可用；
+- Session 排除离线 verifier 必须从 baseline/excluded/restored 原始 `.rgba16f` 重算 Overlay ROI、远端
+  control ROI、哈希、最大误差和改变像素数，并拒绝非有限 FP16、黑色保护面伪证、旧 frame、错误
+  iteration、跳序、WindowId 不匹配、放宽阈值、重复字段、伪造汇总和输出目录路径逃逸。Frame、
+  FramePool、Session、FrameArrived 与 Item.Closed 的创建/释放 ledger 必须全部归零，watchdog 不得超时；
 - 无边框权限预检必须在 stop、WDA/profile 变更和新 Session/FramePool 之前开始；等待期间 Host 继续
   消费消息、Raw Input、呈现和 IPC。`WGC.BorderlessAccess.Checked` 记录原始 `Control.Generation`、事务
   动作序号、`AllowSystemBorder`、状态、HRESULT、`AsyncStatus`、`ElapsedMs`、`CancelRequested` 和
@@ -90,6 +100,16 @@
 ### L3：硬件/视觉
 
 - 四个 Spike；
+- Session 专属排除能力与像素证据必须分层记录。`capability.status` 仅允许
+  `Unavailable | Available | Rejected | NotVerified`，`evidence.result` 仅允许
+  `Passed | Failed | Not Run`；QI 明确不支持归 `Unavailable`，接口存在但 Set/Get 被系统拒绝归
+  `Rejected`，只有 Set/Get 往返成功才可归 `Available`，而 `Passed` 还要求 iteration、三阶段像素和
+  资源清理全部通过。Spike 失败只报告能力，不改变产品运行状态；
+- 生产接入前，Session 专属排除必须在真实目标系统达到 `Available + Passed` 并补齐所需硬件矩阵。
+  接入顺序固定为 `SessionLocalExclusion -> LegacyGlobalExclusion -> FxOnly`：先保持 Overlay
+  `WDA_NONE`，创建 Session 后设置 WindowId 排除列表，并在对应 configuration iteration 的 frame 到达前
+  禁止发布新的 `BackgroundSnapshot`；Session-local 失败才回退旧 WDA，再失败才进入 FX-only，诊断必须
+  区分三条实际路径；
 - portable `not-packaged`、packaged 权限拒绝和无边框成功必须作为三个独立单元格记录，不能互相替代；
 - 真实 device-lost 下 WGC stop 的阻塞阶段、退出码 `124` 和重启恢复必须作为独立单元格；当前保持
   `Not Run`，不能用子进程终止探针代替；
@@ -98,6 +118,10 @@
 - Unity Golden 时间序列；
 - SDR/HDR 与混合刷新率矩阵；
 - 外部录屏观察。
+
+当前 Session 专属排除真实桌面单元格为 `Not Run`。外部录屏/OBS、HDR、多显示器、真实 device lost
+和 packaged 权限矩阵也保持 `Not Run`；离线 verifier、编译成功或单机 API 调用成功均不能替代这些
+硬件/权限证据。
 
 ## 3. Golden case 契约
 
