@@ -2916,12 +2916,22 @@ void classifyCapabilityWithoutEvidence(CaptureDocument& document)
 {
     if (!hasAllRequiredInterfaces(document.interfaces))
     {
-        document.capabilityStatus = hasUnavailableRequiredInterface(
-            document.interfaces)
-            ? CapabilityStatus::Unavailable
-            : CapabilityStatus::Rejected;
-        document.evidenceResult = EvidenceResult::NotRun;
-        document.failureReason = "Required WGC session exclusion interfaces are unavailable";
+        if (hasUnavailableRequiredInterface(document.interfaces))
+        {
+            document.capabilityStatus = CapabilityStatus::Unavailable;
+            document.evidenceResult = EvidenceResult::NotRun;
+            document.failureReason =
+                "Required WGC session exclusion interfaces are unavailable";
+        }
+        else
+        {
+            // A non-standard QI failure does not prove either support or an
+            // operational Set/Get rejection, so keep the capability unverified.
+            document.capabilityStatus = CapabilityStatus::NotVerified;
+            document.evidenceResult = EvidenceResult::Failed;
+            document.failureReason =
+                "Required WGC session exclusion interface QI failed unexpectedly";
+        }
         return;
     }
 
