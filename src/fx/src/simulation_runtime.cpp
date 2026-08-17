@@ -195,6 +195,17 @@ void SimulationRuntime::pointerCancel(const SimulationTime time)
     retireAlwaysOnTrail(time);
 }
 
+void SimulationRuntime::discardActiveEffects() noexcept
+{
+    pointerActive_ = false;
+    resetInputSamplingPhase();
+    instances_.clear();
+    alwaysOnTrail_.reset();
+    // A pooled FXTouch can retain FxTrailTimeScale parking state. Reusing it
+    // after a hard display disable could restore geometry from the old owner.
+    unityPool_.clear();
+}
+
 void SimulationRuntime::endAlwaysOnTrail(const SimulationTime time)
 {
     retireAlwaysOnTrail(time);

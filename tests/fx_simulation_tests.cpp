@@ -1919,6 +1919,109 @@ BAFX_TEST(rapid_clicks_keep_released_effects_alive)
     BAFX_CHECK_NEAR(disks[1]->centerPixels.x, secondClick.x, 1.0e-3F);
 }
 
+BAFX_TEST(discard_active_effects_removes_all_drawable_state_immediately)
+{
+    SimulationRuntime runtime;
+    runtime.setAlwaysOnTrailEnabled(true, 0ns);
+    runtime.pointerMove(PointF{100.0F, 100.0F}, goldenViewport, 10ms);
+    runtime.pointerMove(PointF{400.0F, 100.0F}, goldenViewport, 30ms);
+    runtime.pointerDown(PointF{600.0F, 300.0F}, goldenViewport, 40ms);
+    runtime.pointerUp(50ms);
+    runtime.pointerDown(PointF{900.0F, 500.0F}, goldenViewport, 60ms);
+
+    BAFX_CHECK(runtime.active());
+    BAFX_CHECK(runtime.pointerHeld());
+    BAFX_CHECK(runtime.instanceCount() == 3U);
+
+    runtime.discardActiveEffects();
+    const FrameSnapshot discarded = runtime.snapshot(goldenViewport, 60ms);
+    BAFX_CHECK(!runtime.active());
+    BAFX_CHECK(!runtime.pointerHeld());
+    BAFX_CHECK(runtime.instanceCount() == 0U);
+    BAFX_CHECK(runtime.pooledInstanceCount() == 0U);
+    BAFX_CHECK(!discarded.active);
+    BAFX_CHECK(!discarded.pointerHeld);
+    BAFX_CHECK(discarded.sprites.empty());
+    BAFX_CHECK(discarded.trail.empty());
+    BAFX_CHECK(discarded.trailStrokes.empty());
+
+    runtime.advance(10s);
+    runtime.onFrameRendered(10s);
+    BAFX_CHECK(!runtime.snapshot(goldenViewport, 10s).hasDrawableContent());
+}
+
+BAFX_TEST(discard_active_effects_preserves_configuration_and_resets_sampling_phase)
+{
+    SimulationRuntime runtime;
+    ClickParticleSettings clickSettings{};
+    clickSettings.ringsCount = 3U;
+    runtime.setClickParticleSettings(clickSettings);
+    ShardParticleSettings shardSettings{};
+    shardSettings.clickCount = 2U;
+    runtime.setShardParticleSettings(shardSettings);
+    runtime.setClickTimeScale(0.5F);
+    runtime.setTrailTimeScale(0.75F);
+    runtime.setTrailLengthMultiplier(2.0F);
+    runtime.setInputSamplingRateHz(10U);
+    runtime.setAlwaysOnTrailEnabled(true, 0ns);
+
+    runtime.pointerMove(PointF{100.0F, 100.0F}, goldenViewport, 0ms);
+    runtime.pointerMove(PointF{300.0F, 100.0F}, goldenViewport, 50ms);
+    runtime.discardActiveEffects();
+
+    BAFX_CHECK(runtime.alwaysOnTrailEnabled());
+    // A hard reset starts a new sampling epoch, so this sub-interval Move must
+    // become the next ambient stroke's anchor instead of being rate-limited.
+    runtime.pointerMove(PointF{700.0F, 400.0F}, goldenViewport, 60ms);
+    runtime.pointerMove(PointF{900.0F, 400.0F}, goldenViewport, 160ms);
+    const FrameSnapshot ambient = runtime.snapshot(goldenViewport, 160ms);
+    BAFX_CHECK(ambient.trail.size() >= 2U);
+    BAFX_CHECK_NEAR(
+        ambient.trail.front().positionPixels.x,
+        700.0F,
+        1.0e-3F);
+
+    runtime.discardActiveEffects();
+    runtime.pointerDown(goldenCenter, goldenViewport, 200ms);
+    const FrameSnapshot click = runtime.snapshot(goldenViewport, 250ms);
+    BAFX_CHECK(countKind(click, SpriteKind::DissolveRing) == 3U);
+    BAFX_CHECK(countKind(click, SpriteKind::Triangle) == 2U);
+}
+
+BAFX_TEST(discard_active_effects_preserves_the_unity_random_stream_position)
+{
+    constexpr std::uint64_t seed = 0x12345678U;
+    SimulationRuntime recycled(seed);
+    SimulationRuntime discarded(seed);
+
+    recycled.pointerDown(goldenCenter, goldenViewport, 0ns);
+    discarded.pointerDown(goldenCenter, goldenViewport, 0ns);
+    recycled.pointerUp(10ms);
+    discarded.pointerUp(10ms);
+    recycled.advance(1010ms);
+    recycled.onFrameRendered(1010ms);
+    discarded.discardActiveEffects();
+
+    BAFX_CHECK(recycled.pooledInstanceCount() == 1U);
+    BAFX_CHECK(discarded.pooledInstanceCount() == 0U);
+    recycled.pointerDown(goldenCenter, goldenViewport, 1100ms);
+    discarded.pointerDown(goldenCenter, goldenViewport, 1100ms);
+    const FrameSnapshot recycledFrame = recycled.snapshot(
+        goldenViewport,
+        1150ms);
+    const FrameSnapshot discardedFrame = discarded.snapshot(
+        goldenViewport,
+        1150ms);
+
+    BAFX_CHECK(recycledFrame.sprites.size() == discardedFrame.sprites.size());
+    for (std::size_t index = 0U; index < recycledFrame.sprites.size(); ++index)
+    {
+        checkSpriteEqual(
+            recycledFrame.sprites[index],
+            discardedFrame.sprites[index]);
+    }
+}
+
 BAFX_TEST(runtime_forwards_game_trail_parking_to_all_live_instances)
 {
     SimulationRuntime runtime;

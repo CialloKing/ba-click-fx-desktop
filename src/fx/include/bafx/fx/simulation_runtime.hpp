@@ -38,6 +38,9 @@ public:
         SimulationTime inputTime);
     void pointerUp(SimulationTime time);
     void pointerCancel(SimulationTime time);
+    // Removes drawable state immediately when a display stops owning effects.
+    // Unlike pointerCancel, this deliberately does not preserve natural fade.
+    void discardActiveEffects() noexcept;
     void endAlwaysOnTrail(SimulationTime time);
     void advance(SimulationTime time);
     void onFrameRendered(SimulationTime time);
