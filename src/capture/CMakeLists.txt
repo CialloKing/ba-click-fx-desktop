@@ -136,6 +136,40 @@ set_target_properties(
         OUTPUT_NAME "ba-click-fx-wgc-self-exclusion-spike"
 )
 
+add_executable(
+    ba_fx_wgc_session_exclusion_spike
+    capture_artifact_writer.cpp
+    spike_runtime.cpp
+    wgc_session_exclusion_spike_main.cpp
+)
+target_compile_features(ba_fx_wgc_session_exclusion_spike PRIVATE cxx_std_20)
+set(bafx_capture_windows_sdk_version "${CMAKE_VS_WINDOWS_TARGET_PLATFORM_VERSION}")
+if(NOT bafx_capture_windows_sdk_version)
+    set(bafx_capture_windows_sdk_version "${CMAKE_SYSTEM_VERSION}")
+endif()
+target_compile_definitions(
+    ba_fx_wgc_session_exclusion_spike
+    PRIVATE
+        BAFX_CAPTURE_VERSION="${BAFX_VERSION}"
+        BAFX_CAPTURE_WINDOWS_SDK_VERSION="${bafx_capture_windows_sdk_version}"
+)
+target_link_libraries(
+    ba_fx_wgc_session_exclusion_spike
+    PRIVATE
+        bafx::windows
+        gdi32
+        ole32
+        OneCoreUAP
+        windowscodecs
+)
+bafx_enable_warnings(ba_fx_wgc_session_exclusion_spike)
+set_target_properties(
+    ba_fx_wgc_session_exclusion_spike
+    PROPERTIES
+        FOLDER "Validation"
+        OUTPUT_NAME "ba-click-fx-wgc-session-exclusion-spike"
+)
+
 option(
     BAFX_ENABLE_COMPOSITION_SPIKE_TESTS
     "Register the interactive DirectComposition/WGC composition spike"
@@ -154,6 +188,11 @@ option(
 option(
     BAFX_ENABLE_WGC_SELF_EXCLUSION_SPIKE_TESTS
     "Register the WDA self-exclusion WGC pixel spike"
+    OFF
+)
+option(
+    BAFX_ENABLE_WGC_SESSION_EXCLUSION_SPIKE_TESTS
+    "Register the session-local WGC exclusion pixel spike"
     OFF
 )
 if(BUILD_TESTING AND BAFX_ENABLE_COMPOSITION_SPIKE_TESTS)
@@ -221,6 +260,24 @@ if(BUILD_TESTING AND BAFX_ENABLE_WGC_SELF_EXCLUSION_SPIKE_TESTS)
     )
     set_tests_properties(
         wgc_self_exclusion_spike_capture
+        PROPERTIES
+            LABELS "integration;desktop;gpu;spike;capture-exclusion"
+            RUN_SERIAL TRUE
+            TIMEOUT 30
+    )
+endif()
+
+if(BUILD_TESTING AND BAFX_ENABLE_WGC_SESSION_EXCLUSION_SPIKE_TESTS)
+    add_test(
+        NAME wgc_session_exclusion_spike_capture
+        COMMAND
+            ba_fx_wgc_session_exclusion_spike
+            "--output=${CMAKE_CURRENT_BINARY_DIR}/ctest-wgc-session-exclusion-spike"
+            --revision=ctest
+            --timeout-ms=15000
+    )
+    set_tests_properties(
+        wgc_session_exclusion_spike_capture
         PROPERTIES
             LABELS "integration;desktop;gpu;spike;capture-exclusion"
             RUN_SERIAL TRUE
