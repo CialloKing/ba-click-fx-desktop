@@ -35,10 +35,11 @@
   DisplayConfig 身份、请求/实际 GPU、HDR/Advanced Color、最终输出策略、WGC 状态和渲染故障；
   这些只是当前运行快照，不能据此宣称 HDR、多显示器、Advanced Color 或物理 nits 输出已经受支持。
   驱动未提供有效亮度时会记录 `luminance-unknown`。
-- `GetDisplayState` 通过本地 IPC 返回逐屏边界、DPI、刷新率、GPU、已应用特效/HDR/帧率策略、
-  请求/解析/实际输出、HDR、WGC 与故障状态；
-  Control Center 只解析并显示这份有界快照。未知布尔能力使用 `null`，缺失、超限或格式错误会显示为状态不可用，
-  不会把全局 HDR 请求或当前配置冒充为实际支持状态。
+- `GetDisplayState` schema 2 通过本地 IPC 返回全局拓扑、配置/应用代次、权威离线 override、逐屏来源身份、
+  物理/捕获刷新率、DRR、GPU、颜色查询 HRESULT、SDR white level、已应用特效/HDR/帧率策略、
+  请求/解析/实际输出、cadence/output fallback、WGC 与故障状态。Control Center 严格拒绝旧 schema 以及
+  未知、重复、缺失或超限字段；未知布尔能力使用 `null`，不会把全局 HDR 请求或当前配置冒充为实际支持状态。
+  完整拓扑下可删除未连接显示器的遗留 override；该条目不会显示伪造的 HDR 或刷新率状态。
 - WGC FP16 scRGB 背景使用独立的背景 reference white 转入 Unity 相对工作空间；Unity authored color、粒子、
   材质、Trail 和 Bloom 仍在线性 FP16 中计算，最终呈现阶段才使用输出 reference white 选择 SDR/HDR 映射。
   HDR/WCG 下背景白点未知时 WGC 可保持预热，但该背景不得进入合成，当前画面回退 FX-only。
@@ -191,6 +192,11 @@ Windows“已安装的应用”执行，默认保留安装目录
 - Host 已实现主显示器变化的事务化重绑定和负虚拟桌面坐标处理，但真实多显示器、跨显示器输入、
   混合 DPI/刷新率、多适配器和热插拔矩阵仍为 `Not Run`。同分辨率换屏的确定性测试只证明目标身份
   不会被尺寸相等掩盖，不等同于真实硬件验收。
+- 协调屏拓扑补全会在同一轮原子应用目标、`displayKey`、override、HDR 和帧率策略；不完整快照继续保留
+  最后有效资源域。Advanced Color 只有在专用颜色通知、DisplayInformation generation、显示恢复或物理
+  路径证据改善时重开一次三次有限查询窗口，普通 DPI/刷新率通知不会无限重置预算。混合克隆刷新率冲突时
+  WGC producer 和背景时效明确回退 `60 Hz`，Present 仍由交换链 waitable 驱动。这些是生产逻辑，相关
+  真实硬件单元格仍为 `Not Run`。
 - device removed/reset 后已有事件通知、一次性重建实现和主动探针，但当前只证明通知注册及主动重建后的
   重新注册；真实 GPU reset、热插拔、跨适配器以及 device-lost 下 WGC 同步关闭仍未完成硬件验收，
   因此不属于本 Alpha 的支持范围。

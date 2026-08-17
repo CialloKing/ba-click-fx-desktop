@@ -82,6 +82,9 @@
   渲染所有者转换为 `StopSensor -> ResizeOutput -> StartSensor` 事务。`A -> B -> C` 权限取消不得执行 B 的
   resize，shutdown cancel 不得移动窗口；`Display.Topology.Observed/Applied` 必须区分观察目标与已应用目标，
   同屏 DPI-only 通知必须同时记录已应用 DPI、窗口有效 DPI 和变化标记；
+- `GetDisplayState` schema 2 必须拒绝旧版本以及未知、重复和缺失字段，并能解析 Host 真实生成的完整会话；
+  离线 override 只在全局拓扑完整时具有权威性。Windows SDK 19041/26100 Actions 均构建 Host、
+  Control Center 和 Identity Signer 的完整目标，不以当前运行系统缺少 Windows 11 API 为测试失败条件；
 - monitor/adapter rebuild。
 
 ### L3：硬件/视觉

@@ -25,6 +25,25 @@ DPI 和 Windows 11 运行时逻辑提前到测试与硬件证据之前，不再�
   也不保留未知字段或枚举别名；
 - 每项逻辑保持独立中文提交，只做有硬超时的编译或静态检查，避免构建和外部命令无界等待。
 
+## Alpha 25 显示逻辑收敛（2026-08-17）
+
+Alpha 25 的生产代码阶段已完成以下合同，阶段末仍只执行一次完整 Release、CTest 和安装包验证：
+
+- 协调屏目标先在同一快照中补全，再依次生成 `displayKey`、解析 override 并应用 HDR/帧率策略；
+  `Incomplete -> Complete` 不再等待第二次系统通知，不完整快照继续保留最后有效资源域；
+- 显示路径、Adapter 身份或 DisplayConfig 完整性恢复时立即重开一次颜色查询窗口，随后最多有限重试三次；
+  普通 DPI/刷新率通知不重置预算，查询期间继续使用最后完整颜色合同；
+- 所有克隆物理目标刷新率一致时采用实际有效值；冲突或不可确定时 WGC producer 与背景时效回退
+  `60 Hz`，Present 继续由交换链 waitable 驱动；
+- `GetDisplayState` 已升级为严格 schema 2，Host 与 Control Center 同版本更新，不提供旧协议兼容层。
+  它报告全局拓扑、颜色查询、HDR 用户状态、SDR white level、物理 cadence、回退原因和权威离线 override；
+  Control Center 使用可滚动诊断区展示 Host 实际状态，并允许原子删除未连接显示器的遗留策略；
+- `windows-build-compat.yml` 以 SDK `10.0.19041.0` 和 `10.0.26100.0` 构建 Host、Control Center、
+  Identity Signer 的完整二进制。Windows 11 能力保持运行时探测，Windows 10 不因缺少能力而裁剪功能。
+
+这些提交不修改 Unity 粒子、Trail、材质、Bloom 或线性 FP16 工作空间。HDR 继续默认关闭，只在最终
+输出映射阶段与 SDR 区分；真实 HDR、混合 DPI/刷新率、热插拔、跨适配器与 packaged WGC 仍为 `Not Run`。
+
 当前生产代码已经完成这一轮显示运行时收敛：Host 会验证主线程实际运行在 Per-Monitor V2
 物理像素上下文，DPI 查询失败或返回零值时保留上一次完整拓扑；显示源跨适配器变化时，会话按
 `HMONITOR`/GDI 逻辑槽保持位置连续，但 D3D/WGC 资源域仍严格按目标 Adapter LUID 重建；异步迁移会

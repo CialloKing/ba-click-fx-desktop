@@ -29,9 +29,10 @@ Control Center、本地 IPC 与独立测试包；当前人工特效审核和支�
 为准。涉及 DirectComposition、Windows Graphics Capture、HDR/Advanced Color 和多适配器的结论，
 必须取得仓库中定义的 Spike 证据或接受明确的 fallback 后，相关 ADR 才能标记为 Accepted。
 
-Host 现在会把主协调屏摘要和稳定排序的逐显示器运行状态写入支持报告，并通过 `GetDisplayState` IPC
-提供边界、DPI、显示/捕获刷新率、GPU、请求/解析/实际输出、HDR、WGC 与故障状态。Control Center
-只展示 Host 报告的实际状态；未知能力保持未知，不会根据用户请求或代码路径伪装成已支持。
+Host 现在会把主协调屏摘要和稳定排序的逐显示器运行状态写入支持报告，并通过严格的
+`GetDisplayState` schema 2 提供拓扑完整性、配置/应用代次、来源身份、物理/捕获刷新率、DRR、GPU、
+颜色查询 HRESULT、SDR white level、请求/解析/实际输出、cadence/output fallback、WGC 与故障状态。
+Control Center 只展示 Host 报告的实际能力；未知能力保持未知，不会根据用户请求或代码路径伪装成已支持。
 这些字段只用于后续 HDR/显示 Spike 的能力证据；`Support.HDR=not-supported` 在完整输出矩阵通过前保持
 不变，亮度为零时也会显式标记为未知，而不会把零值解释成显示器真实亮度。
 
@@ -99,6 +100,10 @@ cmake --build --preset alpha-host-release --parallel 4
 ```
 
 `alpha-release-verify` 仍然保留完整 Release 构建和 CTest 流程；它不是快速迭代命令。
+
+`.github/workflows/windows-build-compat.yml` 使用 VS2022 分别以 Windows SDK `10.0.19041.0` 和
+`10.0.26100.0` 构建 Host、Control Center 与 Identity Signer 的完整二进制。Windows 11 API 始终采用
+运行时能力探测；旧 SDK/Windows 10 构建不能通过裁剪产品目标来规避这些功能。
 
 DirectComposition smoke test 需要交互式桌面，因此默认不进入普通 CTest：
 
@@ -203,11 +208,13 @@ FX-only，不会先启动带黄色边框的会话。无论该开关如何设置�
 `effects.shardsSizeMax` 和 `effects.trailOpacity`。两个碎片尺寸字段由原生模拟统一应用于点击与拖尾碎片。其余两页提供
 透明度、点击/拖尾时间倍率、拖尾寿命，以及 Bloom
 扩散、阈值、软阈值和亮度上限。“显示与性能”页通过 `GetDisplayState` 选择并查看每个显示会话的
-实际边界、DPI、刷新率、GPU、色彩/输出策略、WGC 和故障状态，并提供默认关闭的全局 HDR 请求以及
+实际边界、DPI、物理/捕获刷新率、DRR、颜色查询、SDR white level、色彩/输出回退、WGC 和故障状态，
+并提供默认关闭的全局 HDR 请求以及
 `match-display`、`60`、`120`、`144` 四种 `performance.framePacing` 策略。具有稳定 DisplayConfig
 标识的显示器可以启用独立设置，分别控制特效、HDR 请求和帧率策略；关闭独立设置后恢复继承全局值。
-没有稳定标识的会话仍可查看，但逐屏写入控件保持禁用。选择器刷新后尽量保留同一显示器；状态缺失或
-解析失败时显示错误，而不会把请求状态显示为实际能力。
+没有稳定标识的会话仍可查看，但逐屏写入控件保持禁用。完整拓扑下，选择器还会列出未连接显示器的
+遗留 override；这些条目没有伪造的运行状态，只能通过现有原子命令删除。诊断文本使用可滚动只读区域，
+选择器刷新后尽量保留同一显示器；状态缺失或解析失败时显示错误，而不会把请求状态显示为实际能力。
 调整结果在下一帧交给 Host。“拖尾常驻”默认关闭；开启后
 无需按住鼠标，普通移动也会生成纯拖尾，但不会伪造点击圆盘或圆环。这是桌面版的原生产品增强，
 不属于游戏原脚本的按压 FX 路径。数值控件会合并连续拖动后的写入，避免为每个滑块像素都写一次配置。
@@ -273,8 +280,10 @@ Resume
 Shutdown
 ```
 
-`GetDisplayState` 返回独立于配置代次的逐屏运行状态快照，并报告每个会话实际应用的特效启用、HDR 请求
-和帧率策略；它不修改配置，也不代表其中的实验能力已经完成硬件验收。`SetConfig` 也接受完整的 schema 14
+`GetDisplayState` 只接受同版本 Host 生成的严格 schema 2：未知、重复、缺失字段和旧 schema 都会被
+Control Center 拒绝。它返回独立运行代次、配置/应用代次、全局拓扑状态、权威离线 override 列表，以及
+每个会话实际应用的特效、HDR、颜色、cadence 和输出状态；它不修改配置，也不代表其中的实验能力已经完成
+硬件验收。`SetConfig` 也接受完整的 schema 14
 JSON 快照。`GetFxConfig`、`SetFxParam`、原子批量的 `SetFxParams` 和 `ResetFxConfig` 是本项目的原生
 特效控制接口。`GetFxConfig` 返回平面的 `EffectsConfig` 字段，写入路径只接受唯一的 `effects.*`
 命名空间，不接受 Web 别名或额外单位换算。FX 快照不包含 HDR、背景、输入、性能或系统字段；这些

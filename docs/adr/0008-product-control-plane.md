@@ -24,9 +24,11 @@
 5. 基础配置协议保留 `GetState`、`GetDisplayState`、`GetConfig`、`SetConfig <schema-14-json>`、
    `SetConfig {generation,path,value}`、`Pause`、`Resume` 和 `Shutdown`。路径更新只允许
    配置库声明的产品字段，并在 generation 不匹配时返回冲突。响应中的 `generation` 用于
-   客户端判断快照是否变化；`GetDisplayState` 使用独立运行状态代次，返回有界的逐屏只读快照，包含
-   边界、DPI、显示/捕获刷新率、GPU、已应用特效/HDR/帧率策略、请求/解析/实际输出、HDR、WGC 和故障状态。未知能力保持 `null`
-   或 `unknown`，不能从配置请求推导。Preset/Profile 等更高层功能在此协议稳定后再增加。
+   客户端判断快照是否变化；`GetDisplayState` 固定使用严格 schema 2 和独立运行状态代次，同时报告
+   配置/应用代次、全局拓扑状态、权威离线 override，以及逐屏来源身份、物理 cadence、颜色查询、
+   SDR white level、GPU、已应用特效/HDR/帧率策略、请求/解析/实际输出、fallback、WGC 和故障状态。
+   旧 schema、未知、重复或缺失字段均被拒绝，不增加兼容别名；未知能力保持 `null` 或 `unknown`，不能从
+   配置请求推导。Preset/Profile 等更高层功能在此协议稳定后再增加。
 6. `background.mode` 的产品 wire values 与 Control Center 显示名固定如下：
    `background-aware`（背景感知）、`recording-compatible`（录屏兼容拟合）和
    `light-background`（浅色背景优化）。只有背景感知启用 WGC；WGC 失败时回退内部 FX-only
@@ -68,12 +70,15 @@
     FX 快照和写入白名单不包含输入、HDR、背景、性能或系统字段；这些产品配置必须通过
     `GetConfig`/`SetConfig` 读写，因此 `ResetFxConfig` 的作用域始终只对应 `effects`。
 11. Control Center 增加“显示与性能”顶层页。显示器选择器消费 `GetDisplayState`，刷新时优先保留同一
-    显示会话，并展示 Host 实际报告的边界、DPI、刷新率、GPU、色彩/输出策略、WGC 和故障；严格解析失败、
+    显示会话，并在可滚动只读区域展示 Host 实际报告的边界、DPI、物理/捕获刷新率、DRR、颜色查询、
+    SDR white level、GPU、色彩/输出策略、fallback、WGC 和故障；严格解析失败、
     空会话或未知字段状态必须显式显示为不可用，不得伪装成支持。该页同时通过 `SetConfig` 管理默认关闭的
     `display.hdrEnabled`，以及 `performance.framePacing` 的 `match-display`、`60`、`120`、`144` 四个
     wire values。具有稳定 DisplayConfig 标识的会话可通过原子的 `SetDisplayOverride` 和
     `RemoveDisplayOverride` 创建或删除完整逐屏策略；完整策略同时包含特效启用、HDR 请求和帧率模式，
-    避免部分写入意外继承另一字段。无稳定标识时只允许查看，禁止持久化覆盖。配置请求不构成 HDR、
+    避免部分写入意外继承另一字段。全局拓扑完整时，schema 2 还列出未连接显示器的遗留 override；
+    Control Center 不为它伪造运行状态，只允许通过同一原子删除命令清理。无稳定标识时只允许查看，
+    禁止持久化覆盖。配置请求不构成 HDR、
     多显示器或混合 DPI/刷新率支持声明。
 
 ## 取舍
@@ -102,6 +107,7 @@
 - 一个 Host 进程能同时服务至少一个客户端；第二个 Host 启动会快速退出。
 - `GetState`/`SetConfig`/`SetFxParam`/`SetFxParams` 在下一帧可观察，批量参数必须全部通过校验后才提交；
   `Shutdown` 能使 Host 正常退出且无残留进程。
-- `GetDisplayState` 返回独立代次和稳定顺序的逐屏快照；Control Center 能保留选择，区分配置与实际应用的
-  逐屏策略，并区分请求、解析、实际输出及未知能力。真实 HDR、多显示器、混合 DPI/刷新率和跨适配器矩阵在硬件执行前保持 `Not Run`，
+- `GetDisplayState` schema 2 返回独立运行/配置/应用代次、全局拓扑、权威离线 override 和稳定顺序的
+  逐屏快照；Control Center 能保留选择，区分配置与实际应用的逐屏策略，并区分请求、解析、实际输出、
+  fallback 及未知能力。真实 HDR、多显示器、混合 DPI/刷新率和跨适配器矩阵在硬件执行前保持 `Not Run`，
   本 ADR 继续为 `Proposed`。
