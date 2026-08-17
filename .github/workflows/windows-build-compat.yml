@@ -26,9 +26,11 @@ jobs:
           - name: windows-10-sdk-19041
             os: windows-2022
             sdk: "10.0.19041.0"
+            legacy_cppwinrt: "true"
           - name: windows-sdk-26100
             os: windows-2022
             sdk: "10.0.26100.0"
+            legacy_cppwinrt: "false"
 
     steps:
       - name: Check out source
@@ -73,6 +75,7 @@ jobs:
         run: |
           $buildDirectory = "build/compat-${{ matrix.name }}"
           $projectPaths = @(
+              'src/windows/bafx_windows.vcxproj',
               'src/desktop/ba_click_fx_desktop.vcxproj',
               'src/control-center/bafx_control_center.vcxproj',
               'src/identity-signer/bafx_identity_signer.vcxproj'
@@ -99,6 +102,44 @@ jobs:
               }
               "$relativePath -> Windows SDK $selectedSdk"
           }
+
+          $windowsProjectPath = Join-Path $buildDirectory 'src/windows/bafx_windows.vcxproj'
+          $windowsProjectText = Get-Content -LiteralPath $windowsProjectPath -Raw
+          $expectedLegacySources = @()
+          if ('${{ matrix.legacy_cppwinrt }}' -eq 'true')
+          {
+              $expectedLegacySources = @(
+                  'borderless_capture_access.cpp',
+                  'display_color_monitor.cpp',
+                  'external_host_trust.cpp',
+                  'wgc_background_sensor.cpp',
+                  'wgc_runtime_capabilities.cpp'
+              )
+          }
+          $projectSourceNodes = [regex]::Matches(
+              $windowsProjectText,
+              '<ClCompile Include="([^"]+)"(?:\s*/>|>(.*?)</ClCompile>)',
+              [Text.RegularExpressions.RegexOptions]::Singleline)
+          $actualLegacySources = @(
+              foreach ($sourceNode in $projectSourceNodes)
+              {
+                  $sourceBody = $sourceNode.Groups[2].Value
+                  if (($sourceBody -match '/await') -and ($sourceBody -match '_SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS'))
+                  {
+                      [IO.Path]::GetFileName($sourceNode.Groups[1].Value)
+                  }
+              }
+          )
+          $actualLegacySources = @($actualLegacySources | Sort-Object)
+          $expectedLegacySources = @($expectedLegacySources | Sort-Object)
+          $sourceDifference = Compare-Object `
+              -ReferenceObject @($expectedLegacySources) `
+              -DifferenceObject @($actualLegacySources)
+          if ($null -ne $sourceDifference)
+          {
+              throw "C++/WinRT coroutine source contract mismatch. Expected [$($expectedLegacySources -join ', ')], found [$($actualLegacySources -join ', ')]."
+          }
+          "C++/WinRT legacy coroutine source count -> $($actualLegacySources.Count)"
 
       - name: Build complete product binaries
         shell: pwsh
