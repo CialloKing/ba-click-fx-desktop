@@ -36,6 +36,7 @@ constexpr UINT hostShutdownPollDelayMilliseconds = 100U;
 constexpr DWORD controlCenterIpcTimeoutMilliseconds = 100U;
 constexpr ULONGLONG hostShutdownTimeoutMilliseconds = 10'000U;
 constexpr UINT redrawAfterInteractiveResizeMessage = WM_APP + 1U;
+constexpr std::size_t offlineDisplayItemBase = 1U << 16U;
 // WGC/D3D startup can take several seconds on a cold process. The control
 // center keeps probing long enough for that process to become controllable.
 constexpr std::uint32_t hostRetryLimit = 40U;
@@ -290,6 +291,12 @@ void initializeFramePacingCombo(const HWND comboBox) noexcept
     return "transient:" + session.device + '\n' + session.monitor;
 }
 
+[[nodiscard]] std::string offlineDisplayIdentity(
+    const bafx::config::DisplayOverrideConfig& overrideConfig)
+{
+    return "stable:" + overrideConfig.displayKey;
+}
+
 [[nodiscard]] std::wstring driverStateText(
     const DisplayDriverState driver)
 {
@@ -363,6 +370,166 @@ void initializeFramePacingCombo(const HWND comboBox) noexcept
     std::wostringstream stream;
     stream.imbue(std::locale::classic());
     stream << std::fixed << std::setprecision(2) << hertz << L" Hz";
+    return stream.str();
+}
+
+[[nodiscard]] std::wstring topologyStateText(
+    const DisplayTopologyState state)
+{
+    switch (state)
+    {
+    case DisplayTopologyState::Complete:
+        return L"完整";
+    case DisplayTopologyState::Incomplete:
+        return L"不完整";
+    case DisplayTopologyState::NoActiveDisplays:
+        return L"没有活动显示器";
+    case DisplayTopologyState::QueryFailed:
+        return L"查询失败";
+    }
+    return L"未知";
+}
+
+[[nodiscard]] std::wstring colorMonitorStateText(
+    const DisplayColorMonitorState state)
+{
+    switch (state)
+    {
+    case DisplayColorMonitorState::Active:
+        return L"活动";
+    case DisplayColorMonitorState::InvalidTarget:
+        return L"目标无效";
+    case DisplayColorMonitorState::Unsupported:
+        return L"系统不支持";
+    case DisplayColorMonitorState::Failed:
+        return L"失败";
+    }
+    return L"未知";
+}
+
+[[nodiscard]] std::wstring colorSnapshotStateText(
+    const DisplayColorSnapshotState state)
+{
+    switch (state)
+    {
+    case DisplayColorSnapshotState::Fresh:
+        return L"最新完整合同";
+    case DisplayColorSnapshotState::RetainedTransaction:
+        return L"事务内保留";
+    case DisplayColorSnapshotState::RetainedLastKnown:
+        return L"保留最后完整合同";
+    case DisplayColorSnapshotState::Unavailable:
+        return L"不可用";
+    }
+    return L"未知";
+}
+
+[[nodiscard]] std::wstring cadenceFallbackText(
+    const DisplayCadenceFallbackState state)
+{
+    switch (state)
+    {
+    case DisplayCadenceFallbackState::None:
+        return L"无";
+    case DisplayCadenceFallbackState::NoPhysicalTargets:
+        return L"没有物理目标";
+    case DisplayCadenceFallbackState::PhysicalTargetUnavailable:
+        return L"物理目标不可用";
+    case DisplayCadenceFallbackState::DrrPhysicalRefreshRateUnavailable:
+        return L"DRR 物理刷新率不可用";
+    case DisplayCadenceFallbackState::InvalidEffectiveRefreshRate:
+        return L"有效刷新率无效";
+    case DisplayCadenceFallbackState::MixedCloneRefreshRates:
+        return L"克隆目标刷新率冲突，采用 60 Hz";
+    }
+    return L"未知";
+}
+
+[[nodiscard]] std::wstring captureCadenceText(
+    const DisplayCaptureCadenceState state)
+{
+    switch (state)
+    {
+    case DisplayCaptureCadenceState::Inactive:
+        return L"未活动";
+    case DisplayCaptureCadenceState::WrongMonitor:
+        return L"捕获目标不匹配";
+    case DisplayCaptureCadenceState::TargetRate:
+        return L"采用目标刷新率";
+    case DisplayCaptureCadenceState::ConservativeFallback:
+        return L"保守回退";
+    }
+    return L"未知";
+}
+
+[[nodiscard]] std::wstring producerCadenceText(
+    const DisplayProducerCadenceState state)
+{
+    switch (state)
+    {
+    case DisplayProducerCadenceState::NotRequested:
+        return L"未请求";
+    case DisplayProducerCadenceState::Applied:
+        return L"已应用";
+    case DisplayProducerCadenceState::InterfaceUnavailable:
+        return L"接口不可用";
+    case DisplayProducerCadenceState::Rejected:
+        return L"系统拒绝";
+    }
+    return L"未知";
+}
+
+[[nodiscard]] std::wstring outputMappingText(
+    const DisplayOutputMappingState state)
+{
+    switch (state)
+    {
+    case DisplayOutputMappingState::ConservativeSdr:
+        return L"保守 SDR";
+    case DisplayOutputMappingState::AdvancedColorScRgb:
+        return L"Advanced Color scRGB";
+    case DisplayOutputMappingState::HdrSceneReferredScRgb:
+        return L"HDR scene-referred scRGB";
+    case DisplayOutputMappingState::Unknown:
+        return L"未知";
+    }
+    return L"未知";
+}
+
+[[nodiscard]] std::wstring outputFallbackText(
+    const DisplayOutputFallbackState state)
+{
+    switch (state)
+    {
+    case DisplayOutputFallbackState::None:
+        return L"无";
+    case DisplayOutputFallbackState::ConservativeSdr:
+        return L"回退到保守 SDR";
+    }
+    return L"未知";
+}
+
+[[nodiscard]] std::wstring optionalHresultText(
+    const std::optional<std::int32_t> result)
+{
+    if (!result.has_value())
+    {
+        return L"未查询";
+    }
+    return hresultText(static_cast<HRESULT>(*result));
+}
+
+[[nodiscard]] std::wstring optionalNitsText(
+    const std::optional<float> nits)
+{
+    if (!nits.has_value())
+    {
+        return L"未知";
+    }
+
+    std::wostringstream stream;
+    stream.imbue(std::locale::classic());
+    stream << std::fixed << std::setprecision(2) << *nits << L" nits";
     return stream.str();
 }
 
@@ -1220,7 +1387,7 @@ bool ControlCenterWindow::createControls()
         BS_GROUPBOX);
     displaySelectorLabel_ = createChild(
         L"STATIC",
-        L"运行状态显示器",
+        L"显示器与离线独立设置",
         SS_LEFT | SS_NOPREFIX);
     displaySelector_ = createChild(
         WC_COMBOBOXW,
@@ -1284,9 +1451,15 @@ bool ControlCenterWindow::createControls()
         L"所选显示器设置与状态",
         BS_GROUPBOX);
     displayDetailsText_ = createChild(
-        L"STATIC",
+        L"EDIT",
         L"Host 连接后显示逐屏运行状态。",
-        SS_LEFT | SS_NOPREFIX);
+        ES_LEFT
+            | ES_MULTILINE
+            | ES_READONLY
+            | ES_AUTOVSCROLL
+            | WS_BORDER
+            | WS_VSCROLL
+            | WS_TABSTOP);
     pauseButton_ = createChild(
         L"BUTTON",
         L"暂停特效",
@@ -3426,7 +3599,9 @@ void ControlCenterWindow::updateDisplayControls(
         0));
 
     static_cast<void>(SendMessageW(displaySelector_, CB_RESETCONTENT, 0U, 0));
-    if (!displayStateError_.empty() || displayState_.sessions.empty())
+    if (!displayStateError_.empty()
+        || (displayState_.sessions.empty()
+            && displayState_.offlineOverrides.empty()))
     {
         updateDisplayPolicyControls();
         updateDisplayDetails();
@@ -3495,6 +3670,45 @@ void ControlCenterWindow::updateDisplayControls(
         }
     }
 
+    for (std::size_t index = 0U;
+         index < displayState_.offlineOverrides.size();
+         ++index)
+    {
+        const bafx::config::DisplayOverrideConfig& overrideConfig =
+            displayState_.offlineOverrides[index];
+        const std::wstring label = L"离线独立设置 | "
+            + utf8ToWide(overrideConfig.displayKey);
+        const LRESULT comboIndex = SendMessageW(
+            displaySelector_,
+            CB_ADDSTRING,
+            0U,
+            reinterpret_cast<LPARAM>(label.c_str()));
+        if (comboIndex == CB_ERR || comboIndex == CB_ERRSPACE)
+        {
+            displayStateError_ = L"显示器列表无法分配足够的界面资源。";
+            static_cast<void>(SendMessageW(
+                displaySelector_,
+                CB_RESETCONTENT,
+                0U,
+                0));
+            updateDisplayDetails();
+            return;
+        }
+
+        // Keep disconnected policies outside the active-session index range.
+        // The item remains removable without pretending it has runtime state.
+        static_cast<void>(SendMessageW(
+            displaySelector_,
+            CB_SETITEMDATA,
+            static_cast<WPARAM>(comboIndex),
+            static_cast<LPARAM>(offlineDisplayItemBase + index)));
+        if (offlineDisplayIdentity(overrideConfig)
+            == selectedDisplayIdentity_)
+        {
+            selectedIndex = comboIndex;
+        }
+    }
+
     if (selectedIndex == CB_ERR)
     {
         selectedIndex = primaryIndex != CB_ERR
@@ -3520,20 +3734,43 @@ void ControlCenterWindow::updateDisplayPolicyControls() noexcept
     updatingControls_ = true;
 
     const DisplaySessionState* const session = selectedDisplaySession();
-    const bool hasStableKey = session != nullptr
-        && session->displayKey.has_value();
+    const bafx::config::DisplayOverrideConfig* const offlineOverride =
+        selectedOfflineDisplayOverride();
+    const std::string* displayKey = nullptr;
+    if (session != nullptr && session->displayKey.has_value())
+    {
+        displayKey = &*session->displayKey;
+    }
+    else if (offlineOverride != nullptr)
+    {
+        displayKey = &offlineOverride->displayKey;
+    }
+
     const bafx::config::DisplayOverrideConfig* overrideConfig = nullptr;
-    if (hasStableKey)
+    if (offlineOverride != nullptr)
+    {
+        overrideConfig = offlineOverride;
+    }
+    else if (displayKey != nullptr)
     {
         overrideConfig = bafx::config::findDisplayOverride(
             config_.display,
-            *session->displayKey);
+            *displayKey);
     }
 
     const bool independent = overrideConfig != nullptr;
-    const bafx::config::ResolvedDisplayPolicy policy = hasStableKey
-        ? bafx::config::resolveDisplayPolicy(config_, *session->displayKey)
+    bafx::config::ResolvedDisplayPolicy policy = displayKey != nullptr
+        ? bafx::config::resolveDisplayPolicy(config_, *displayKey)
         : bafx::config::resolveDisplayPolicy(config_, {});
+    if (offlineOverride != nullptr)
+    {
+        // Offline entries come from the Host's authoritative schema-2 list.
+        // Do not replace that runtime fact with a separately fetched config.
+        policy.enabled = offlineOverride->enabled;
+        policy.hdrEnabled = offlineOverride->hdrEnabled;
+        policy.framePacing = offlineOverride->framePacing;
+        policy.overridden = true;
+    }
     setChecked(displayIndependent_, independent);
     setChecked(displayEffectsEnabled_, policy.enabled);
     setChecked(displayHdrEnabled_, policy.hdrEnabled);
@@ -3543,9 +3780,13 @@ void ControlCenterWindow::updateDisplayPolicyControls() noexcept
         framePacingIndex(policy.framePacing),
         0));
 
-    const bool canWrite = connected_ && hasStableKey;
+    const bool canWrite = connected_ && displayKey != nullptr;
     EnableWindow(displayIndependent_, canWrite ? TRUE : FALSE);
-    const BOOL policyEnabled = canWrite && independent ? TRUE : FALSE;
+    const BOOL policyEnabled = canWrite
+            && independent
+            && offlineOverride == nullptr
+        ? TRUE
+        : FALSE;
     EnableWindow(displayEffectsEnabled_, policyEnabled);
     EnableWindow(displayHdrEnabled_, policyEnabled);
     EnableWindow(displayFramePacingLabel_, policyEnabled);
@@ -3562,30 +3803,56 @@ void ControlCenterWindow::updateDisplayDetails()
         SetWindowTextW(displayDetailsText_, displayStateError_.c_str());
         return;
     }
-    if (displayState_.sessions.empty())
-    {
-        SetWindowTextW(displaySummaryText_, L"Host 当前没有活动显示会话");
-        SetWindowTextW(
-            displayDetailsText_,
-            L"等待 Host 创建显示会话后刷新状态。");
-        return;
-    }
+
+    std::wostringstream summary;
+    summary << L"拓扑 " << topologyStateText(displayState_.topologyStatus)
+            << L" | 会话 " << displayState_.sessions.size()
+            << L" | 离线 " << displayState_.offlineOverrides.size()
+            << L"\r\n代次 R/C/A " << displayState_.runtimeGeneration
+            << L" / " << displayState_.configGeneration
+            << L" / " << displayState_.appliedConfigGeneration;
+    SetWindowTextW(displaySummaryText_, summary.str().c_str());
 
     const DisplaySessionState* const selectedSession = selectedDisplaySession();
-    if (selectedSession == nullptr)
+    const bafx::config::DisplayOverrideConfig* const offlineOverride =
+        selectedOfflineDisplayOverride();
+    if (selectedSession == nullptr && offlineOverride == nullptr)
     {
-        SetWindowTextW(displaySummaryText_, L"尚未选择显示器");
-        SetWindowTextW(displayDetailsText_, L"请选择一个显示器查看状态。");
+        SetWindowTextW(
+            displayDetailsText_,
+            displayState_.sessions.empty()
+                    && displayState_.offlineOverrides.empty()
+                ? L"Host 当前没有可显示的活动会话或离线独立设置。"
+                : L"请选择一个显示器或离线独立设置查看状态。");
         return;
     }
+
+    if (offlineOverride != nullptr)
+    {
+        selectedDisplayIdentity_ = offlineDisplayIdentity(*offlineOverride);
+        std::wostringstream details;
+        details << L"全局拓扑："
+                << topologyStateText(displayState_.topologyStatus)
+                << L" | 错误 "
+                << hresultText(static_cast<HRESULT>(
+                    displayState_.topologyError))
+                << L" | 离线列表：权威"
+                << L"\r\n离线独立设置\r\n显示标识："
+                << utf8ToWide(offlineOverride->displayKey)
+                << L"\r\n特效："
+                << (offlineOverride->enabled ? L"开启" : L"关闭")
+                << L" | HDR 请求："
+                << (offlineOverride->hdrEnabled ? L"开启" : L"关闭")
+                << L" | "
+                << framePacingText(offlineOverride->framePacing)
+                << L"\r\n此显示器当前未连接，因此没有可报告的 HDR、颜色、"
+                   L"刷新率或输出运行状态。取消“使用独立设置”可删除此策略。";
+        SetWindowTextW(displayDetailsText_, details.str().c_str());
+        return;
+    }
+
     const DisplaySessionState& session = *selectedSession;
     selectedDisplayIdentity_ = displaySessionIdentity(session);
-
-    std::wstring summary = L"Host 报告 "
-        + std::to_wstring(displayState_.sessions.size())
-        + L" 个显示会话 | 状态代次 "
-        + std::to_wstring(displayState_.runtimeGeneration);
-    SetWindowTextW(displaySummaryText_, summary.c_str());
 
     const std::int64_t width = static_cast<std::int64_t>(session.right)
         - static_cast<std::int64_t>(session.left);
@@ -3607,6 +3874,9 @@ void ControlCenterWindow::updateDisplayDetails()
     const std::wstring policySource = policy.overridden
         ? L"独立设置"
         : (session.displayKey.has_value() ? L"全局继承" : L"全局继承（无稳定标识）");
+    const std::wstring sourceId = session.sourceId.has_value()
+        ? std::to_wstring(*session.sourceId)
+        : L"未知";
 
     std::wstring faultState;
     if (!session.renderFaulted && !session.outputContractFaulted)
@@ -3630,44 +3900,139 @@ void ControlCenterWindow::updateDisplayDetails()
     }
 
     std::wostringstream details;
-    details << L"设备：" << utf8ToWide(session.device)
+    details << L"全局拓扑："
+            << topologyStateText(displayState_.topologyStatus)
+            << L" | 错误 "
+            << hresultText(static_cast<HRESULT>(
+                displayState_.topologyError))
+            << L" | 离线列表 "
+            << (displayState_.offlineOverridesAuthoritative
+                ? L"权威"
+                : L"待拓扑恢复")
+            << L"\r\n设备：" << utf8ToWide(session.device)
             << L" | " << utf8ToWide(session.monitor)
             << L"\r\n角色：" << role
+            << L" | 显示标识："
+            << (session.displayKey.has_value()
+                ? utf8ToWide(*session.displayKey)
+                : L"未知")
             << L"\r\n桌面：" << width << L" x " << height
             << L" @ (" << session.left << L", " << session.top << L")"
             << L" | DPI：" << session.windowDpi
             << L" / " << session.targetDpiX << L" x " << session.targetDpiY
-            << L"\r\n刷新率：显示 " << refreshRateText(session.displayRefresh)
-            << L" | 捕获 " << refreshRateText(session.captureRefresh)
+            << L"\r\n来源身份：Adapter "
+            << (session.sourceAdapterResolved ? L"已解析" : L"未解析")
+            << L" | Source "
+            << (session.sourceIdentityResolved ? L"已解析" : L"未解析")
+            << L" | ID " << sourceId
+            << L" | 物理目标 " << session.physicalTargetCount
             << L"\r\nGPU：" << utf8ToWide(session.adapter)
             << L" | 驱动：" << driverStateText(session.driver)
-            << L"\r\n配置：" << policySource
+            << L"\r\n配置请求：" << policySource
             << L" | 特效 " << (policy.enabled ? L"开启" : L"关闭")
             << L" | HDR " << (policy.hdrEnabled ? L"开启" : L"关闭")
             << L" | " << framePacingText(policy.framePacing)
-            << L"\r\n已应用：特效 "
+            << L"\r\nHost 已应用：特效 "
             << (session.effectsEnabled ? L"开启" : L"关闭")
             << L" | HDR " << (session.hdrEnabled ? L"开启" : L"关闭")
             << L" | " << framePacingText(session.framePacing)
+            << L"\r\n刷新率：显示 " << refreshRateText(session.displayRefresh)
+            << L" | 捕获 " << refreshRateText(session.captureRefresh)
+            << L" | 捕获策略 "
+            << captureCadenceText(session.captureCadenceStatus)
+            << L"\r\n刷新率策略：producer "
+            << refreshRateText(session.producerPolicyRefresh)
+            << L" | freshness "
+            << refreshRateText(session.freshnessPolicyRefresh)
+            << L" / " << session.freshnessPeriodUs << L" us"
+            << L"\r\nWGC producer："
+            << producerCadenceText(session.producerCadenceStatus)
+            << L" | 请求 " << session.producerRequestedPeriodUs << L" us"
+            << L" | 实际 " << session.producerAppliedPeriodUs << L" us"
+            << L" | 结果 "
+            << hresultText(static_cast<HRESULT>(session.producerResult))
+            << L"\r\nCadence 回退："
+            << cadenceFallbackText(session.cadenceFallbackReason)
             << L"\r\n输出：请求 " << outputStateText(session.requestedOutput)
             << L" | 解析 " << outputStateText(session.resolvedOutput)
             << L" | 实际 " << outputStateText(session.actualOutput)
-            << L"\r\n策略满足："
+            << L"\r\n输出映射：解析 "
+            << outputMappingText(session.resolvedOutputMapping)
+            << L" | 实际 "
+            << outputMappingText(session.actualOutputMapping)
+            << L"\r\n输出回退：" << outputFallbackText(session.outputFallback)
+            << L" | 结果 "
+            << hresultText(static_cast<HRESULT>(session.outputFallbackResult))
+            << L" | 策略满足 "
             << (session.outputPolicySatisfied ? L"是" : L"否")
-            << L" | 系统色彩：" << colorStateText(session.colorMode)
-            << L"\r\nHDR："
+            << L"\r\n系统实际色彩：" << colorStateText(session.colorMode)
+            << L" | HDR "
             << optionalBooleanText(session.hdrSupported, L"支持", L"不支持")
             << L" / "
             << optionalBooleanText(session.hdrActive, L"已激活", L"未激活")
+            << L" | 用户开关 "
+            << optionalBooleanText(
+                session.hdrUserEnabled,
+                L"开启",
+                L"关闭")
+            << L" | 策略限制 "
+            << optionalBooleanText(
+                session.advancedColorLimitedByPolicy,
+                L"是",
+                L"否")
+            << L"\r\n颜色监视："
+            << colorMonitorStateText(session.colorMonitorStatus)
+            << L" | HRESULT "
+            << hresultText(static_cast<HRESULT>(session.colorMonitorHresult))
+            << L" | 监视代次 " << session.colorMonitorGeneration
+            << L" | 查询代次 " << session.colorQueryGeneration
+            << L"\r\n颜色合同："
+            << colorSnapshotStateText(session.colorSnapshotDisposition)
+            << L" | 完整 "
+            << (session.colorSnapshotComplete ? L"是" : L"否")
+            << L" | 剩余重试 " << session.colorRefreshRetriesRemaining
+            << L"\r\nAdvanced Color 查询："
+            << optionalHresultText(session.advancedColorQueryResult)
+            << L"\r\nSDR white level："
+            << optionalNitsText(session.sdrWhiteLevelNits)
+            << L" | 查询 "
+            << optionalHresultText(session.sdrWhiteLevelQueryResult)
+            << L" | 保留 "
+            << optionalBooleanText(
+                session.sdrWhiteLevelRetained,
+                L"是",
+                L"否")
+            << L" | 物理目标一致 "
+            << optionalBooleanText(
+                session.sdrWhiteLevelConsistent,
+                L"是",
+                L"否")
             << L"\r\n背景采样：" << captureState
             << L" | 重启：" << restartState
             << L"\r\n运行故障：" << faultState;
+
+    for (std::size_t index = 0U;
+         index < session.physicalCadence.size();
+         ++index)
+    {
+        const DisplayPhysicalCadenceState& physical =
+            session.physicalCadence[index];
+        details << L"\r\n物理目标 " << index + 1U
+                << L"：虚拟 " << refreshRateText(physical.virtualRefresh)
+                << L" | 物理 " << refreshRateText(physical.physicalRefresh)
+                << L" | 捕获 " << refreshRateText(physical.captureRefresh)
+                << L" | DRR boost "
+                << (physical.drrBoosted ? L"是" : L"否")
+                << L" | 可用 " << (physical.available ? L"是" : L"否");
+    }
     if (!session.backgroundCaptureFailure.empty())
     {
         details << L"\r\n捕获错误："
                 << utf8ToWide(session.backgroundCaptureFailure);
     }
     SetWindowTextW(displayDetailsText_, details.str().c_str());
+    static_cast<void>(SendMessageW(displayDetailsText_, EM_SETSEL, 0U, 0));
+    static_cast<void>(SendMessageW(displayDetailsText_, EM_SCROLLCARET, 0U, 0));
 }
 
 void ControlCenterWindow::setSelectedDisplayOverride()
@@ -3704,7 +4069,24 @@ void ControlCenterWindow::setSelectedDisplayOverride()
 void ControlCenterWindow::removeSelectedDisplayOverride()
 {
     const DisplaySessionState* const session = selectedDisplaySession();
-    if (session == nullptr || !session->displayKey.has_value())
+    const bafx::config::DisplayOverrideConfig* const offlineOverride =
+        selectedOfflineDisplayOverride();
+    const std::string* displayKey = nullptr;
+    bool overrideExists = false;
+    if (offlineOverride != nullptr)
+    {
+        displayKey = &offlineOverride->displayKey;
+        overrideExists = true;
+    }
+    else if (session != nullptr && session->displayKey.has_value())
+    {
+        displayKey = &*session->displayKey;
+        overrideExists = bafx::config::findDisplayOverride(
+            config_.display,
+            *displayKey) != nullptr;
+    }
+
+    if (displayKey == nullptr)
     {
         updateDisplayPolicyControls();
         setInfo(
@@ -3712,9 +4094,7 @@ void ControlCenterWindow::removeSelectedDisplayOverride()
             L"Host 未提供此显示器的稳定标识；请刷新状态后重试。");
         return;
     }
-    if (bafx::config::findDisplayOverride(
-            config_.display,
-            *session->displayKey) == nullptr)
+    if (!overrideExists)
     {
         updateDisplayPolicyControls();
         updateDisplayDetails();
@@ -3723,7 +4103,7 @@ void ControlCenterWindow::removeSelectedDisplayOverride()
 
     applyDisplayPolicyCommand(removeDisplayOverrideRequest(
         generation_,
-        *session->displayKey));
+        *displayKey));
 }
 
 void ControlCenterWindow::applyDisplayPolicyCommand(std::string command)
@@ -4219,6 +4599,42 @@ const DisplaySessionState* ControlCenterWindow::selectedDisplaySession()
         return nullptr;
     }
     return &displayState_.sessions[static_cast<std::size_t>(itemData)];
+}
+
+const bafx::config::DisplayOverrideConfig*
+ControlCenterWindow::selectedOfflineDisplayOverride() const noexcept
+{
+    if (displaySelector_ == nullptr)
+    {
+        return nullptr;
+    }
+    const LRESULT selected = SendMessageW(
+        displaySelector_,
+        CB_GETCURSEL,
+        0U,
+        0);
+    if (selected == CB_ERR)
+    {
+        return nullptr;
+    }
+    const LRESULT itemData = SendMessageW(
+        displaySelector_,
+        CB_GETITEMDATA,
+        static_cast<WPARAM>(selected),
+        0);
+    if (itemData == CB_ERR
+        || itemData < static_cast<LRESULT>(offlineDisplayItemBase))
+    {
+        return nullptr;
+    }
+
+    const std::size_t index = static_cast<std::size_t>(itemData)
+        - offlineDisplayItemBase;
+    if (index >= displayState_.offlineOverrides.size())
+    {
+        return nullptr;
+    }
+    return &displayState_.offlineOverrides[index];
 }
 
 double ControlCenterWindow::sliderValue(const SliderControl& slider) const noexcept

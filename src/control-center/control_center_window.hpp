@@ -210,6 +210,8 @@ private:
     void setChecked(HWND control, bool checked) const noexcept;
     [[nodiscard]] const DisplaySessionState* selectedDisplaySession()
         const noexcept;
+    [[nodiscard]] const bafx::config::DisplayOverrideConfig*
+        selectedOfflineDisplayOverride() const noexcept;
     [[nodiscard]] double sliderValue(const SliderControl& slider) const noexcept;
     void setSliderValue(SliderControl& slider, double value) const noexcept;
     void updateSliderValueText(const SliderControl& slider) const noexcept;
