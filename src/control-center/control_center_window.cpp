@@ -1395,6 +1395,11 @@ bool ControlCenterWindow::createControls()
         L"允许黄色捕获边框",
         BS_AUTOCHECKBOX | WS_TABSTOP,
         ControlId::AllowSystemBorder);
+    idleOptimization_ = createChild(
+        L"BUTTON",
+        L"空闲时降低资源占用",
+        BS_AUTOCHECKBOX | WS_TABSTOP,
+        ControlId::IdleOptimization);
 
     displaySettingsHeading_ = createChild(
         L"BUTTON",
@@ -1518,6 +1523,7 @@ bool ControlCenterWindow::createControls()
         backgroundMode_,
         cursorExcluded_,
         allowSystemBorder_,
+        idleOptimization_,
         displaySettingsHeading_,
         displaySelectorLabel_,
         displaySelector_,
@@ -1855,6 +1861,7 @@ void ControlCenterWindow::applyFonts() const noexcept
         backgroundMode_,
         cursorExcluded_,
         allowSystemBorder_,
+        idleOptimization_,
         displaySelectorLabel_,
         displaySelector_,
         displaySummaryText_,
@@ -2607,9 +2614,15 @@ void ControlCenterWindow::layoutControls(
         rightContentWidth,
         scale(30));
     moveControl(
+        idleOptimization_,
+        rightContentX,
+        contentTop + scale(165),
+        rightContentWidth,
+        scale(30));
+    moveControl(
         pauseButton_,
         rightContentX,
-        contentTop + scale(179),
+        contentTop + scale(201),
         rightContentWidth,
         scale(38));
 
@@ -2618,19 +2631,19 @@ void ControlCenterWindow::layoutControls(
     moveControl(
         refreshButton_,
         rightContentX,
-        contentTop + scale(229),
+        contentTop + scale(249),
         actionWidth,
         scale(38));
     moveControl(
         hostLifecycleButton_,
         rightContentX + actionWidth + actionGap,
-        contentTop + scale(229),
+        contentTop + scale(249),
         actionWidth,
         scale(38));
     moveControl(
         resetDefaultsButton_,
         rightContentX,
-        contentTop + scale(279),
+        contentTop + scale(297),
         rightContentWidth,
         scale(38));
 
@@ -2785,7 +2798,8 @@ void ControlCenterWindow::updatePageVisibility() noexcept
         backgroundModeLabel_,
         backgroundMode_,
         cursorExcluded_,
-        allowSystemBorder_};
+        allowSystemBorder_,
+        idleOptimization_};
     for (const HWND control : basicControls)
     {
         setPageControlVisible(control, basic);
@@ -3145,6 +3159,14 @@ void ControlCenterWindow::onCommand(
             applyPatch(
                 "background.allowSystemBorder",
                 isChecked(allowSystemBorder_) ? "true" : "false");
+        }
+        break;
+    case ControlId::IdleOptimization:
+        if (notificationCode == BN_CLICKED)
+        {
+            applyPatch(
+                "performance.idleOptimization",
+                isChecked(idleOptimization_) ? "true" : "false");
         }
         break;
     case ControlId::DisplaySelector:
@@ -3644,6 +3666,7 @@ void ControlCenterWindow::updateControls(
     setChecked(
         allowSystemBorder_,
         config.background.allowSystemBorder);
+    setChecked(idleOptimization_, config.performance.idleOptimization);
     updateDisplayControls(config);
     SetWindowTextW(pauseButton_, paused_ ? L"恢复特效" : L"暂停特效");
 
@@ -4581,6 +4604,7 @@ void ControlCenterWindow::setConnected(const bool connected) noexcept
         backgroundMode_,
         cursorExcluded_,
         allowSystemBorder_,
+        idleOptimization_,
         hdrEnabled_,
         framePacing_,
         pauseButton_,

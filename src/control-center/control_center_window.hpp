@@ -86,6 +86,7 @@ private:
         BackgroundMode,
         CursorExcluded,
         AllowSystemBorder,
+        IdleOptimization,
         DisplaySelector,
         HdrEnabled,
         FramePacing,
@@ -303,6 +304,7 @@ private:
     HWND backgroundMode_{nullptr};
     HWND cursorExcluded_{nullptr};
     HWND allowSystemBorder_{nullptr};
+    HWND idleOptimization_{nullptr};
     HWND displaySettingsHeading_{nullptr};
     HWND displaySelectorLabel_{nullptr};
     HWND displaySelector_{nullptr};
