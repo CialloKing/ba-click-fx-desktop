@@ -924,6 +924,15 @@ LRESULT ControlCenterWindow::handleMessage(
         }
         return 0;
     }
+    case WM_SYSCOMMAND:
+        if ((wParam & 0xFFF0U) == SC_CLOSE
+            && config_.system.closeToTray)
+        {
+            commitPendingPatch();
+            ShowWindow(window_, SW_HIDE);
+            return 0;
+        }
+        return DefWindowProcW(window_, message, wParam, lParam);
     case WM_CLOSE:
         commitPendingPatch();
         DestroyWindow(window_);
@@ -997,6 +1006,11 @@ bool ControlCenterWindow::createControls()
         L"显示与性能",
         BS_AUTORADIOBUTTON | WS_TABSTOP,
         ControlId::DisplayPage);
+    systemPageButton_ = createChild(
+        L"BUTTON",
+        L"系统",
+        BS_AUTORADIOBUTTON | WS_TABSTOP,
+        ControlId::SystemPage);
     advancedTimingSectionButton_ = createChild(
         L"BUTTON",
         L"时间与透明度",
@@ -1400,6 +1414,25 @@ bool ControlCenterWindow::createControls()
         L"空闲时降低资源占用",
         BS_AUTOCHECKBOX | WS_TABSTOP,
         ControlId::IdleOptimization);
+    systemSettingsHeading_ = createChild(
+        L"BUTTON",
+        L"系统行为",
+        BS_GROUPBOX);
+    startWithWindows_ = createChild(
+        L"BUTTON",
+        L"随 Windows 启动",
+        BS_AUTOCHECKBOX | WS_TABSTOP,
+        ControlId::StartWithWindows);
+    startMinimized_ = createChild(
+        L"BUTTON",
+        L"启动时最小化控制中心",
+        BS_AUTOCHECKBOX | WS_TABSTOP,
+        ControlId::StartMinimized);
+    closeToTray_ = createChild(
+        L"BUTTON",
+        L"关闭控制中心时隐藏到托盘",
+        BS_AUTOCHECKBOX | WS_TABSTOP,
+        ControlId::CloseToTray);
 
     displaySettingsHeading_ = createChild(
         L"BUTTON",
@@ -1508,6 +1541,7 @@ bool ControlCenterWindow::createControls()
         basicPageButton_,
         advancedPageButton_,
         displayPageButton_,
+        systemPageButton_,
         effectsHeading_,
         effectsEnabled_,
         clickEnabled_,
@@ -1524,6 +1558,10 @@ bool ControlCenterWindow::createControls()
         cursorExcluded_,
         allowSystemBorder_,
         idleOptimization_,
+        systemSettingsHeading_,
+        startWithWindows_,
+        startMinimized_,
+        closeToTray_,
         displaySettingsHeading_,
         displaySelectorLabel_,
         displaySelector_,
@@ -1752,6 +1790,7 @@ void ControlCenterWindow::applyFonts() const noexcept
         basicPageButton_,
         advancedPageButton_,
         displayPageButton_,
+        systemPageButton_,
         effectsEnabled_,
         clickEnabled_,
         trailEnabled_,
@@ -1862,6 +1901,9 @@ void ControlCenterWindow::applyFonts() const noexcept
         cursorExcluded_,
         allowSystemBorder_,
         idleOptimization_,
+        startWithWindows_,
+        startMinimized_,
+        closeToTray_,
         displaySelectorLabel_,
         displaySelector_,
         displaySummaryText_,
@@ -1885,6 +1927,7 @@ void ControlCenterWindow::applyFonts() const noexcept
     setControlFont(titleText_, titleFont_);
     setControlFont(effectsHeading_, sectionFont_);
     setControlFont(backgroundHeading_, sectionFont_);
+    setControlFont(systemSettingsHeading_, sectionFont_);
     setControlFont(advancedTimingHeading_, sectionFont_);
     setControlFont(advancedParticlesHeading_, sectionFont_);
     setControlFont(advancedRingsHeading_, sectionFont_);
@@ -2091,6 +2134,12 @@ void ControlCenterWindow::layoutControls(
         scale(120),
         tabWidth,
         scale(30));
+    moveControl(
+        systemPageButton_,
+        margin + (tabWidth + tabGap) * 3,
+        scale(120),
+        tabWidth,
+        scale(30));
 
     if (activePage_ == Page::DisplayPerformance)
     {
@@ -2209,6 +2258,75 @@ void ControlCenterWindow::layoutControls(
             contentTop + scale(124),
             detailsContentWidth,
             (std::max)(scale(1), panelHeight - scale(140)));
+
+        const int actionWidth = (clientWidth - margin * 2 - actionGap * 3) / 4;
+        moveControl(
+            pauseButton_,
+            margin,
+            actionY,
+            actionWidth,
+            actionHeight);
+        moveControl(
+            refreshButton_,
+            margin + actionWidth + actionGap,
+            actionY,
+            actionWidth,
+            actionHeight);
+        moveControl(
+            hostLifecycleButton_,
+            margin + (actionWidth + actionGap) * 2,
+            actionY,
+            actionWidth,
+            actionHeight);
+        moveControl(
+            resetDefaultsButton_,
+            margin + (actionWidth + actionGap) * 3,
+            actionY,
+            actionWidth,
+            actionHeight);
+        redrawWindowTree();
+        return;
+    }
+
+    if (activePage_ == Page::System)
+    {
+        const int actionHeight = scale(38);
+        const int actionGap = scale(10);
+        const int actionY = (std::max)(
+            contentTop + scale(192),
+            clientHeight - margin - actionHeight);
+        const int panelHeight = (std::max)(
+            scale(160),
+            actionY - contentTop - scale(12));
+        const int panelWidth = clientWidth - margin * 2;
+        const int inset = scale(16);
+        const int contentX = margin + inset;
+        const int contentWidth = (std::max)(scale(1), panelWidth - inset * 2);
+
+        moveControl(
+            systemSettingsHeading_,
+            margin,
+            contentTop,
+            panelWidth,
+            panelHeight);
+        moveControl(
+            startWithWindows_,
+            contentX,
+            contentTop + scale(32),
+            contentWidth,
+            scale(30));
+        moveControl(
+            startMinimized_,
+            contentX,
+            contentTop + scale(64),
+            contentWidth,
+            scale(30));
+        moveControl(
+            closeToTray_,
+            contentX,
+            contentTop + scale(96),
+            contentWidth,
+            scale(30));
 
         const int actionWidth = (clientWidth - margin * 2 - actionGap * 3) / 4;
         moveControl(
@@ -2717,6 +2835,7 @@ void ControlCenterWindow::updatePageVisibility() noexcept
     const bool basic = activePage_ == Page::Basic;
     const bool advanced = activePage_ == Page::Advanced;
     const bool display = activePage_ == Page::DisplayPerformance;
+    const bool system = activePage_ == Page::System;
     static_cast<void>(SendMessageW(
         basicPageButton_,
         BM_SETCHECK,
@@ -2731,6 +2850,11 @@ void ControlCenterWindow::updatePageVisibility() noexcept
         displayPageButton_,
         BM_SETCHECK,
         display ? BST_CHECKED : BST_UNCHECKED,
+        0));
+    static_cast<void>(SendMessageW(
+        systemPageButton_,
+        BM_SETCHECK,
+        system ? BST_CHECKED : BST_UNCHECKED,
         0));
     static_cast<void>(SendMessageW(
         advancedTimingSectionButton_,
@@ -2962,6 +3086,16 @@ void ControlCenterWindow::updatePageVisibility() noexcept
         setPageControlVisible(control, display);
     }
 
+    const std::array systemControls{
+        systemSettingsHeading_,
+        startWithWindows_,
+        startMinimized_,
+        closeToTray_};
+    for (const HWND control : systemControls)
+    {
+        setPageControlVisible(control, system);
+    }
+
     if (window_ != nullptr)
     {
         RECT client{};
@@ -3008,6 +3142,12 @@ void ControlCenterWindow::onCommand(
         if (notificationCode == BN_CLICKED)
         {
             selectPage(Page::DisplayPerformance);
+        }
+        break;
+    case ControlId::SystemPage:
+        if (notificationCode == BN_CLICKED)
+        {
+            selectPage(Page::System);
         }
         break;
     case ControlId::AdvancedTimingSection:
@@ -3167,6 +3307,30 @@ void ControlCenterWindow::onCommand(
             applyPatch(
                 "performance.idleOptimization",
                 isChecked(idleOptimization_) ? "true" : "false");
+        }
+        break;
+    case ControlId::StartWithWindows:
+        if (notificationCode == BN_CLICKED)
+        {
+            applyPatch(
+                "system.startWithWindows",
+                isChecked(startWithWindows_) ? "true" : "false");
+        }
+        break;
+    case ControlId::StartMinimized:
+        if (notificationCode == BN_CLICKED)
+        {
+            applyPatch(
+                "system.startMinimized",
+                isChecked(startMinimized_) ? "true" : "false");
+        }
+        break;
+    case ControlId::CloseToTray:
+        if (notificationCode == BN_CLICKED)
+        {
+            applyPatch(
+                "system.closeToTray",
+                isChecked(closeToTray_) ? "true" : "false");
         }
         break;
     case ControlId::DisplaySelector:
@@ -3667,6 +3831,9 @@ void ControlCenterWindow::updateControls(
         allowSystemBorder_,
         config.background.allowSystemBorder);
     setChecked(idleOptimization_, config.performance.idleOptimization);
+    setChecked(startWithWindows_, config.system.startWithWindows);
+    setChecked(startMinimized_, config.system.startMinimized);
+    setChecked(closeToTray_, config.system.closeToTray);
     updateDisplayControls(config);
     SetWindowTextW(pauseButton_, paused_ ? L"恢复特效" : L"暂停特效");
 
@@ -4605,6 +4772,9 @@ void ControlCenterWindow::setConnected(const bool connected) noexcept
         cursorExcluded_,
         allowSystemBorder_,
         idleOptimization_,
+        startWithWindows_,
+        startMinimized_,
+        closeToTray_,
         hdrEnabled_,
         framePacing_,
         pauseButton_,

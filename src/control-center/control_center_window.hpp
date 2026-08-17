@@ -38,6 +38,7 @@ private:
         BasicPage,
         AdvancedPage,
         DisplayPage,
+        SystemPage,
         AdvancedTimingSection,
         AdvancedParticlesSection,
         AdvancedRingsSection,
@@ -87,6 +88,9 @@ private:
         CursorExcluded,
         AllowSystemBorder,
         IdleOptimization,
+        StartWithWindows,
+        StartMinimized,
+        CloseToTray,
         DisplaySelector,
         HdrEnabled,
         FramePacing,
@@ -120,7 +124,8 @@ private:
     {
         Basic,
         Advanced,
-        DisplayPerformance
+        DisplayPerformance,
+        System
     };
 
     enum class AdvancedSection : std::uint8_t
@@ -287,6 +292,7 @@ private:
     HWND basicPageButton_{nullptr};
     HWND advancedPageButton_{nullptr};
     HWND displayPageButton_{nullptr};
+    HWND systemPageButton_{nullptr};
     HWND advancedTimingSectionButton_{nullptr};
     HWND advancedParticlesSectionButton_{nullptr};
     HWND advancedRingsSectionButton_{nullptr};
@@ -305,6 +311,10 @@ private:
     HWND cursorExcluded_{nullptr};
     HWND allowSystemBorder_{nullptr};
     HWND idleOptimization_{nullptr};
+    HWND systemSettingsHeading_{nullptr};
+    HWND startWithWindows_{nullptr};
+    HWND startMinimized_{nullptr};
+    HWND closeToTray_{nullptr};
     HWND displaySettingsHeading_{nullptr};
     HWND displaySelectorLabel_{nullptr};
     HWND displaySelector_{nullptr};
