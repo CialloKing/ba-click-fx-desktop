@@ -165,6 +165,19 @@ if(Python3_Interpreter_FOUND)
             TIMEOUT 45
     )
     add_test(
+        NAME wgc_session_exclusion_spike_contract
+        COMMAND
+            "${Python3_EXECUTABLE}"
+            -B
+            "${CMAKE_CURRENT_SOURCE_DIR}/verify_wgc_session_exclusion_spike_tests.py"
+    )
+    set_tests_properties(
+        wgc_session_exclusion_spike_contract
+        PROPERTIES
+            WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
+            TIMEOUT 45
+    )
+    add_test(
         NAME external_recording_spike_contract
         COMMAND
             "${Python3_EXECUTABLE}"
@@ -249,7 +262,26 @@ if(Python3_Interpreter_FOUND)
                 DEPENDS wgc_self_exclusion_spike_capture
                 LABELS "integration;desktop;gpu;spike;capture-exclusion"
                 RUN_SERIAL TRUE
-                TIMEOUT 15
+            TIMEOUT 15
+        )
+    endif()
+    if(WIN32 AND BAFX_ENABLE_WGC_SESSION_EXCLUSION_SPIKE_TESTS)
+        add_test(
+            NAME wgc_session_exclusion_spike_capture_verify
+            COMMAND
+                "${Python3_EXECUTABLE}"
+                -B
+                "${PROJECT_SOURCE_DIR}/tools/verify-wgc-session-exclusion-spike.py"
+                "${PROJECT_BINARY_DIR}/src/capture/ctest-wgc-session-exclusion-spike/session-exclusion.json"
+                "--report=${PROJECT_BINARY_DIR}/src/capture/ctest-wgc-session-exclusion-spike/verification.json"
+        )
+        set_tests_properties(
+            wgc_session_exclusion_spike_capture_verify
+            PROPERTIES
+                DEPENDS wgc_session_exclusion_spike_capture
+                LABELS "integration;desktop;gpu;spike;capture-exclusion"
+                RUN_SERIAL TRUE
+                TIMEOUT 10
         )
     endif()
 endif()
