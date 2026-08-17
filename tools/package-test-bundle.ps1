@@ -6,6 +6,8 @@ param(
     # selects and invokes the native toolchain, so no separate MSBuild path is needed.
     [string]$MSBuild,
 
+    [switch]$SkipBuild,
+
     [switch]$SkipVerification
 )
 
@@ -146,10 +148,13 @@ if (Test-Path -LiteralPath $checksumPath -PathType Leaf)
 
 New-Item -ItemType Directory -Path $outputRoot -Force | Out-Null
 
-Invoke-Checked -Description 'CMake configure' -FilePath $cmake.Source `
-    -Arguments @('--preset', 'alpha-x64') -WorkingDirectory $repositoryRoot
-Invoke-Checked -Description 'Host Release build' -FilePath $cmake.Source `
-    -Arguments @('--build', '--preset', 'alpha-release') -WorkingDirectory $repositoryRoot
+if (-not $SkipBuild)
+{
+    Invoke-Checked -Description 'CMake configure' -FilePath $cmake.Source `
+        -Arguments @('--preset', 'alpha-x64') -WorkingDirectory $repositoryRoot
+    Invoke-Checked -Description 'Host Release build' -FilePath $cmake.Source `
+        -Arguments @('--build', '--preset', 'alpha-release') -WorkingDirectory $repositoryRoot
+}
 
 $hostExecutable = Join-Path $repositoryRoot 'build\alpha-x64\src\desktop\Release\ba-click-fx-desktop.exe'
 $controlCenterExecutable = Join-Path $repositoryRoot 'build\alpha-x64\src\control-center\Release\BAFX.ControlCenter.exe'
