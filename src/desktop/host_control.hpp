@@ -3,6 +3,7 @@
 #include "bafx/config/config.hpp"
 #include "bafx/windows/ipc.hpp"
 #include "bafx/windows/runtime_diagnostics.hpp"
+#include "bafx/windows/startup_registration.hpp"
 
 #include <windows.h>
 
@@ -28,6 +29,24 @@ struct HostControlStartResult final
 {
     std::uint64_t appliedGeneration{0U};
     bool serviceStarted{false};
+};
+
+enum class HostSystemIntegrationPhase
+{
+    Apply,
+    Compensate
+};
+
+struct HostSystemIntegration final
+{
+    using ApplyStartupRegistration =
+        bafx::windows::StartupRegistrationResult (*)(
+            const void* context,
+            const bafx::config::SystemConfig& system,
+            HostSystemIntegrationPhase phase) noexcept;
+
+    const void* context{nullptr};
+    ApplyStartupRegistration applyStartupRegistration{nullptr};
 };
 
 struct DisplayStateSnapshot final
@@ -70,6 +89,15 @@ public:
         std::filesystem::path configPath,
         bafx::config::Config initialConfig,
         bafx::windows::NamedPipeIpcServer::Options ipcOptions);
+    HostControlPlane(
+        std::filesystem::path configPath,
+        bafx::config::Config initialConfig,
+        HostSystemIntegration systemIntegration);
+    HostControlPlane(
+        std::filesystem::path configPath,
+        bafx::config::Config initialConfig,
+        bafx::windows::NamedPipeIpcServer::Options ipcOptions,
+        HostSystemIntegration systemIntegration);
     ~HostControlPlane();
 
     HostControlPlane(const HostControlPlane&) = delete;
@@ -116,6 +144,7 @@ private:
     std::uint64_t appliedConfigGeneration_{0U};
     bool paused_{false};
     bool backgroundCaptureActive_{false};
+    HostSystemIntegration systemIntegration_{};
     bafx::windows::NamedPipeIpcServer ipc_;
 };
 

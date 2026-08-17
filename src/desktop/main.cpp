@@ -36,6 +36,7 @@
 #include <filesystem>
 #include <iomanip>
 #include <limits>
+#include <new>
 #include <optional>
 #include <span>
 #include <sstream>
@@ -145,14 +146,14 @@ constexpr DWORD pausedControlPollMilliseconds = 50U;
     return "unknown";
 }
 
-void reconcileControlCenterStartupRegistration(
+[[nodiscard]] bafx::windows::StartupRegistrationResult
+reconcileControlCenterStartupRegistration(
     const bafx::config::SystemConfig& system,
     const std::filesystem::path& logPath,
     const std::string_view reason) noexcept
 {
-    std::string_view operation =
-        bafx::windows::startupRegistrationOperationName(
-            bafx::windows::StartupRegistrationOperation::ValidateTarget);
+    bafx::windows::StartupRegistrationOperation operation =
+        bafx::windows::StartupRegistrationOperation::ValidateTarget;
     try
     {
         const std::filesystem::path executable =
@@ -162,8 +163,7 @@ void reconcileControlCenterStartupRegistration(
                 executable,
                 system.startWithWindows,
                 system.startMinimized);
-        operation = bafx::windows::startupRegistrationOperationName(
-            result.operation);
+        operation = result.operation;
         const std::string error = std::to_string(result.error);
         const std::string command = wideToUtf8(result.commandLine);
         const std::string target = wideToUtf8(executable.wstring());
@@ -183,7 +183,7 @@ void reconcileControlCenterStartupRegistration(
                 startupRegistrationStatusName(result.status)},
             bafx::windows::DiagnosticField{
                 "Operation",
-                operation},
+                bafx::windows::startupRegistrationOperationName(operation)},
             bafx::windows::DiagnosticField{"Win32Error", error},
             bafx::windows::DiagnosticField{"Target", target},
             bafx::windows::DiagnosticField{
@@ -196,24 +196,59 @@ void reconcileControlCenterStartupRegistration(
             result.succeeded()
                 ? bafx::windows::DiagnosticLevel::Info
                 : bafx::windows::DiagnosticLevel::Error);
+        return result;
     }
-    catch (const std::exception& error)
+    catch (const std::bad_alloc& error)
     {
+        const std::string win32Error = std::to_string(ERROR_NOT_ENOUGH_MEMORY);
         const std::array fields{
             bafx::windows::DiagnosticField{"Reason", reason},
-            bafx::windows::DiagnosticField{"Operation", operation},
+            bafx::windows::DiagnosticField{
+                "Operation",
+                bafx::windows::startupRegistrationOperationName(operation)},
+            bafx::windows::DiagnosticField{"Win32Error", win32Error},
             bafx::windows::DiagnosticField{"Message", error.what()}};
         bafx::windows::appendDiagnosticEvent(
             logPath,
             "System.StartupRegistration",
             fields,
             bafx::windows::DiagnosticLevel::Error);
+        return bafx::windows::StartupRegistrationResult{
+            bafx::windows::StartupRegistrationStatus::Failed,
+            operation,
+            ERROR_NOT_ENOUGH_MEMORY,
+            {}};
+    }
+    catch (const std::exception& error)
+    {
+        const std::string win32Error = std::to_string(ERROR_UNHANDLED_EXCEPTION);
+        const std::array fields{
+            bafx::windows::DiagnosticField{"Reason", reason},
+            bafx::windows::DiagnosticField{
+                "Operation",
+                bafx::windows::startupRegistrationOperationName(operation)},
+            bafx::windows::DiagnosticField{"Win32Error", win32Error},
+            bafx::windows::DiagnosticField{"Message", error.what()}};
+        bafx::windows::appendDiagnosticEvent(
+            logPath,
+            "System.StartupRegistration",
+            fields,
+            bafx::windows::DiagnosticLevel::Error);
+        return bafx::windows::StartupRegistrationResult{
+            bafx::windows::StartupRegistrationStatus::Failed,
+            operation,
+            ERROR_UNHANDLED_EXCEPTION,
+            {}};
     }
     catch (...)
     {
+        const std::string win32Error = std::to_string(ERROR_UNHANDLED_EXCEPTION);
         const std::array fields{
             bafx::windows::DiagnosticField{"Reason", reason},
-            bafx::windows::DiagnosticField{"Operation", operation},
+            bafx::windows::DiagnosticField{
+                "Operation",
+                bafx::windows::startupRegistrationOperationName(operation)},
+            bafx::windows::DiagnosticField{"Win32Error", win32Error},
             bafx::windows::DiagnosticField{
                 "Message",
                 "unknown startup registration failure"}};
@@ -222,6 +257,11 @@ void reconcileControlCenterStartupRegistration(
             "System.StartupRegistration",
             fields,
             bafx::windows::DiagnosticLevel::Error);
+        return bafx::windows::StartupRegistrationResult{
+            bafx::windows::StartupRegistrationStatus::Failed,
+            operation,
+            ERROR_UNHANDLED_EXCEPTION,
+            {}};
     }
 }
 
@@ -2626,10 +2666,10 @@ int runApplication(
         productSystemIntegrationEnabled(options);
     if (systemIntegrationEnabled && systemConfigurationAuthoritative)
     {
-        reconcileControlCenterStartupRegistration(
+        static_cast<void>(reconcileControlCenterStartupRegistration(
             config.system,
             logPath,
-            "startup");
+            "startup"));
     }
     else if (systemIntegrationEnabled)
     {
@@ -2654,7 +2694,31 @@ int runApplication(
             bafx::windows::DiagnosticLevel::Warning);
     }
 
-    bafx::desktop::HostControlPlane control(configPath, config);
+    bafx::desktop::HostSystemIntegration hostSystemIntegration{};
+    if (systemIntegrationEnabled)
+    {
+        hostSystemIntegration.context = &logPath;
+        hostSystemIntegration.applyStartupRegistration = [](
+            const void* const context,
+            const bafx::config::SystemConfig& system,
+            const bafx::desktop::HostSystemIntegrationPhase phase) noexcept
+        {
+            const auto* const integrationLogPath =
+                static_cast<const std::filesystem::path*>(context);
+            const std::string_view reason =
+                phase == bafx::desktop::HostSystemIntegrationPhase::Apply
+                ? std::string_view("configuration")
+                : std::string_view("configuration-compensation");
+            return reconcileControlCenterStartupRegistration(
+                system,
+                *integrationLogPath,
+                reason);
+        };
+    }
+    bafx::desktop::HostControlPlane control(
+        configPath,
+        config,
+        hostSystemIntegration);
     std::uint64_t appliedGeneration = control.snapshot().generation;
     report.setConfigurationSchemaVersion(config.schemaVersion);
     bafx::desktop::DisplayTarget appliedDisplayTarget = primaryDisplayTarget();
@@ -5105,19 +5169,7 @@ int runApplication(
             renderInvalidated = true;
             if (configChanged)
             {
-                const bafx::config::SystemConfig previousSystem = config.system;
                 config = controlState.config;
-                if (systemIntegrationEnabled
-                    && (previousSystem.startWithWindows
-                            != config.system.startWithWindows
-                        || previousSystem.startMinimized
-                            != config.system.startMinimized))
-                {
-                    reconcileControlCenterStartupRegistration(
-                        config.system,
-                        logPath,
-                        "configuration");
-                }
                 hostWindow.setPointerButtonPolicy(
                     makePointerButtonPolicy(config.input));
                 configureBorderlessAccessMonitor(config, "configuration");

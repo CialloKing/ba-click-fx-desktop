@@ -69,6 +69,57 @@ namespace
     return active ? "active" : "fallback-fx-only";
 }
 
+[[nodiscard]] bool startupRegistrationSettingsEqual(
+    const bafx::config::SystemConfig& left,
+    const bafx::config::SystemConfig& right) noexcept
+{
+    return left.startWithWindows == right.startWithWindows
+        && left.startMinimized == right.startMinimized;
+}
+
+[[nodiscard]] std::string_view systemIntegrationPhaseName(
+    const HostSystemIntegrationPhase phase) noexcept
+{
+    switch (phase)
+    {
+    case HostSystemIntegrationPhase::Apply:
+        return "apply";
+    case HostSystemIntegrationPhase::Compensate:
+        return "compensate";
+    }
+    return "unknown";
+}
+
+[[nodiscard]] std::string_view startupRegistrationStatusName(
+    const bafx::windows::StartupRegistrationStatus status) noexcept
+{
+    switch (status)
+    {
+    case bafx::windows::StartupRegistrationStatus::Unchanged:
+        return "unchanged";
+    case bafx::windows::StartupRegistrationStatus::Updated:
+        return "updated";
+    case bafx::windows::StartupRegistrationStatus::Removed:
+        return "removed";
+    case bafx::windows::StartupRegistrationStatus::Failed:
+        return "failed";
+    }
+    return "unknown";
+}
+
+[[nodiscard]] std::string systemIntegrationResultDetails(
+    const HostSystemIntegrationPhase phase,
+    const bafx::windows::StartupRegistrationResult& result)
+{
+    std::ostringstream stream;
+    stream << "phase=" << systemIntegrationPhaseName(phase)
+           << "; operation="
+           << bafx::windows::startupRegistrationOperationName(result.operation)
+           << "; status=" << startupRegistrationStatusName(result.status)
+           << "; win32-error=" << result.error;
+    return stream.str();
+}
+
 [[nodiscard]] std::string wideToUtf8(const std::wstring_view value)
 {
     if (value.empty())
@@ -387,7 +438,8 @@ HostControlPlane::HostControlPlane(
     : HostControlPlane(
           std::move(configPath),
           std::move(initialConfig),
-          bafx::windows::NamedPipeIpcServer::Options{})
+          bafx::windows::NamedPipeIpcServer::Options{},
+          HostSystemIntegration{})
 {
 }
 
@@ -395,8 +447,34 @@ HostControlPlane::HostControlPlane(
     std::filesystem::path configPath,
     bafx::config::Config initialConfig,
     bafx::windows::NamedPipeIpcServer::Options ipcOptions)
+    : HostControlPlane(
+          std::move(configPath),
+          std::move(initialConfig),
+          std::move(ipcOptions),
+          HostSystemIntegration{})
+{
+}
+
+HostControlPlane::HostControlPlane(
+    std::filesystem::path configPath,
+    bafx::config::Config initialConfig,
+    HostSystemIntegration systemIntegration)
+    : HostControlPlane(
+          std::move(configPath),
+          std::move(initialConfig),
+          bafx::windows::NamedPipeIpcServer::Options{},
+          systemIntegration)
+{
+}
+
+HostControlPlane::HostControlPlane(
+    std::filesystem::path configPath,
+    bafx::config::Config initialConfig,
+    bafx::windows::NamedPipeIpcServer::Options ipcOptions,
+    HostSystemIntegration systemIntegration)
     : configPath_(std::move(configPath))
     , config_(std::move(initialConfig))
+    , systemIntegration_(systemIntegration)
     , ipc_([this](const bafx::windows::IpcRequest& request)
            {
                return handle(request);
@@ -727,10 +805,66 @@ bafx::windows::IpcResponse HostControlPlane::handleSetConfig(
             "generation_conflict",
             "configuration generation changed; refresh before retrying");
     }
+
+    const bool systemIntegrationChanged =
+        !startupRegistrationSettingsEqual(config_.system, candidate.system);
+    if (systemIntegrationChanged)
+    {
+        const bafx::windows::StartupRegistrationResult applied =
+            systemIntegration_.applyStartupRegistration == nullptr
+            ? bafx::windows::StartupRegistrationResult{
+                bafx::windows::StartupRegistrationStatus::Failed,
+                bafx::windows::StartupRegistrationOperation::ValidateCommand,
+                ERROR_NOT_SUPPORTED,
+                {}}
+            : systemIntegration_.applyStartupRegistration(
+                systemIntegration_.context,
+                candidate.system,
+                HostSystemIntegrationPhase::Apply);
+        if (!applied.succeeded())
+        {
+            return bafx::windows::IpcResponse::failure(
+                "system_integration_failed",
+                systemIntegrationResultDetails(
+                    HostSystemIntegrationPhase::Apply,
+                    applied));
+        }
+    }
+
     const bafx::config::ConfigSaveResult saved =
         bafx::config::saveConfigAtomic(configPath_, candidate);
     if (!saved.succeeded())
     {
+        if (systemIntegrationChanged)
+        {
+            // The registry was changed first so a successful IPC response can
+            // never expose a saved configuration whose external state differs.
+            // Restore the authoritative current config when the file commit
+            // fails, and report compensation failure as the higher-risk error.
+            const bafx::windows::StartupRegistrationResult compensated =
+                systemIntegration_.applyStartupRegistration(
+                    systemIntegration_.context,
+                    config_.system,
+                    HostSystemIntegrationPhase::Compensate);
+            const std::string compensation = systemIntegrationResultDetails(
+                HostSystemIntegrationPhase::Compensate,
+                compensated);
+            if (!compensated.succeeded())
+            {
+                const std::string saveError = saved.message.empty()
+                    ? "configuration could not be saved"
+                    : saved.message;
+                return bafx::windows::IpcResponse::failure(
+                    "system_integration_failed",
+                    compensation + "; config-write-error=" + saveError);
+            }
+            return bafx::windows::IpcResponse::failure(
+                "config_write_failed",
+                (saved.message.empty()
+                    ? std::string("configuration could not be saved")
+                    : saved.message)
+                    + "; " + compensation);
+        }
         return bafx::windows::IpcResponse::failure(
             "config_write_failed",
             saved.message.empty() ? "configuration could not be saved" : saved.message);

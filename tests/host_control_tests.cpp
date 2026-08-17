@@ -11,6 +11,7 @@
 #include <cstddef>
 #include <filesystem>
 #include <string>
+#include <vector>
 
 namespace
 {
@@ -47,8 +48,54 @@ public:
         return path_ / L"BAFX.config.json";
     }
 
+    [[nodiscard]] const std::filesystem::path& directoryPath() const noexcept
+    {
+        return path_;
+    }
+
 private:
     std::filesystem::path path_{};
+};
+
+struct StartupRegistrationInvocation final
+{
+    bafx::config::SystemConfig system{};
+    bafx::desktop::HostSystemIntegrationPhase phase{
+        bafx::desktop::HostSystemIntegrationPhase::Apply};
+};
+
+struct FakeSystemIntegration final
+{
+    std::vector<bafx::windows::StartupRegistrationResult> results{};
+    mutable std::vector<StartupRegistrationInvocation> invocations{};
+    mutable std::size_t nextResult{0U};
+
+    [[nodiscard]] bafx::desktop::HostSystemIntegration dependency() const noexcept
+    {
+        return bafx::desktop::HostSystemIntegration{
+            this,
+            &FakeSystemIntegration::apply};
+    }
+
+    [[nodiscard]] static bafx::windows::StartupRegistrationResult apply(
+        const void* const context,
+        const bafx::config::SystemConfig& system,
+        const bafx::desktop::HostSystemIntegrationPhase phase) noexcept
+    {
+        const auto* const integration =
+            static_cast<const FakeSystemIntegration*>(context);
+        integration->invocations.push_back(
+            StartupRegistrationInvocation{system, phase});
+        if (integration->nextResult < integration->results.size())
+        {
+            return integration->results[integration->nextResult++];
+        }
+        return bafx::windows::StartupRegistrationResult{
+            bafx::windows::StartupRegistrationStatus::Unchanged,
+            bafx::windows::StartupRegistrationOperation::QueryValue,
+            ERROR_SUCCESS,
+            {}};
+    }
 };
 
 [[nodiscard]] std::wstring testPipeName()
@@ -144,6 +191,220 @@ BAFX_TEST(host_control_start_latches_generation_before_accepting_set_config)
     BAFX_CHECK(
         current.config.background.mode
         == bafx::config::RenderMode::RecordingCompatible);
+}
+
+BAFX_TEST(host_control_rejects_system_patch_when_external_apply_fails)
+{
+    TemporaryConfigDirectory temporary;
+    FakeSystemIntegration integration{};
+    integration.results.push_back(
+        bafx::windows::StartupRegistrationResult{
+            bafx::windows::StartupRegistrationStatus::Failed,
+            bafx::windows::StartupRegistrationOperation::SetValue,
+            ERROR_ACCESS_DENIED,
+            {}});
+    bafx::windows::NamedPipeIpcServer::Options serverOptions{};
+    serverOptions.pipeName = testPipeName() + L".system-apply-failure";
+    serverOptions.ioTimeoutMilliseconds = 500U;
+    serverOptions.retryDelayMilliseconds = 10U;
+    bafx::desktop::HostControlPlane control(
+        temporary.configPath(),
+        bafx::config::defaultConfig(),
+        serverOptions,
+        integration.dependency());
+    BAFX_CHECK(control.start(false).serviceStarted);
+
+    bafx::windows::IpcClientOptions clientOptions{};
+    clientOptions.pipeName = serverOptions.pipeName;
+    clientOptions.timeoutMilliseconds = 1'000U;
+    const bafx::windows::NamedPipeIpcClient client(clientOptions);
+    const bafx::windows::IpcClientResponse response = client.transact(
+        "SetConfig {\"generation\":1,\"path\":\"system.startWithWindows\","
+        "\"value\":true}");
+    const bafx::desktop::HostStateSnapshot current = control.snapshot();
+    control.stop();
+
+    BAFX_CHECK(response.transportSucceeded());
+    BAFX_CHECK(!response.succeeded());
+    BAFX_CHECK(response.errorCode == "system_integration_failed");
+    BAFX_CHECK(response.errorMessage.find("phase=apply") != std::string::npos);
+    BAFX_CHECK(
+        response.errorMessage.find("operation=set-value")
+        != std::string::npos);
+    BAFX_CHECK(
+        response.errorMessage.find("win32-error=5")
+        != std::string::npos);
+    BAFX_CHECK(current.generation == 1U);
+    BAFX_CHECK(!current.config.system.startWithWindows);
+    BAFX_CHECK(!std::filesystem::exists(temporary.configPath()));
+    BAFX_CHECK(integration.invocations.size() == 1U);
+    BAFX_CHECK(integration.invocations[0].system.startWithWindows);
+    BAFX_CHECK(
+        integration.invocations[0].phase
+        == bafx::desktop::HostSystemIntegrationPhase::Apply);
+}
+
+BAFX_TEST(host_control_full_config_applies_system_integration_before_commit)
+{
+    TemporaryConfigDirectory temporary;
+    FakeSystemIntegration integration{};
+    integration.results.push_back(
+        bafx::windows::StartupRegistrationResult{
+            bafx::windows::StartupRegistrationStatus::Updated,
+            bafx::windows::StartupRegistrationOperation::SetValue,
+            ERROR_SUCCESS,
+            {}});
+    bafx::windows::NamedPipeIpcServer::Options serverOptions{};
+    serverOptions.pipeName = testPipeName() + L".system-full-config";
+    serverOptions.ioTimeoutMilliseconds = 500U;
+    serverOptions.retryDelayMilliseconds = 10U;
+    bafx::desktop::HostControlPlane control(
+        temporary.configPath(),
+        bafx::config::defaultConfig(),
+        serverOptions,
+        integration.dependency());
+    BAFX_CHECK(control.start(false).serviceStarted);
+
+    bafx::config::Config candidate = bafx::config::defaultConfig();
+    candidate.system.startWithWindows = true;
+    candidate.system.startMinimized = true;
+    candidate.system.closeToTray = false;
+    candidate.background.mode =
+        bafx::config::RenderMode::RecordingCompatible;
+    bafx::windows::IpcClientOptions clientOptions{};
+    clientOptions.pipeName = serverOptions.pipeName;
+    clientOptions.timeoutMilliseconds = 1'000U;
+    const bafx::windows::NamedPipeIpcClient client(clientOptions);
+    const bafx::windows::IpcClientResponse response = client.transact(
+        "SetConfig " + bafx::config::toJson(candidate, false));
+    const bafx::desktop::HostStateSnapshot current = control.snapshot();
+    control.stop();
+
+    BAFX_CHECK(response.succeeded());
+    BAFX_CHECK(current.generation == 2U);
+    BAFX_CHECK(current.config.system.startWithWindows);
+    BAFX_CHECK(current.config.system.startMinimized);
+    BAFX_CHECK(!current.config.system.closeToTray);
+    BAFX_CHECK(integration.invocations.size() == 1U);
+    BAFX_CHECK(integration.invocations[0].system.startWithWindows);
+    BAFX_CHECK(integration.invocations[0].system.startMinimized);
+    const bafx::config::ConfigLoadResult persisted =
+        bafx::config::loadConfig(temporary.configPath());
+    BAFX_CHECK(persisted.status == bafx::config::ConfigStatus::Ok);
+    BAFX_CHECK(persisted.config.system.startWithWindows);
+    BAFX_CHECK(persisted.config.system.startMinimized);
+}
+
+BAFX_TEST(host_control_compensates_external_state_when_config_save_fails)
+{
+    TemporaryConfigDirectory temporary;
+    FakeSystemIntegration integration{};
+    integration.results = {
+        bafx::windows::StartupRegistrationResult{
+            bafx::windows::StartupRegistrationStatus::Updated,
+            bafx::windows::StartupRegistrationOperation::SetValue,
+            ERROR_SUCCESS,
+            {}},
+        bafx::windows::StartupRegistrationResult{
+            bafx::windows::StartupRegistrationStatus::Removed,
+            bafx::windows::StartupRegistrationOperation::DeleteValue,
+            ERROR_SUCCESS,
+            {}}};
+    bafx::windows::NamedPipeIpcServer::Options serverOptions{};
+    serverOptions.pipeName = testPipeName() + L".system-compensation";
+    serverOptions.ioTimeoutMilliseconds = 500U;
+    serverOptions.retryDelayMilliseconds = 10U;
+    bafx::desktop::HostControlPlane control(
+        temporary.directoryPath(),
+        bafx::config::defaultConfig(),
+        serverOptions,
+        integration.dependency());
+    BAFX_CHECK(control.start(false).serviceStarted);
+
+    bafx::windows::IpcClientOptions clientOptions{};
+    clientOptions.pipeName = serverOptions.pipeName;
+    clientOptions.timeoutMilliseconds = 1'000U;
+    const bafx::windows::NamedPipeIpcClient client(clientOptions);
+    const bafx::windows::IpcClientResponse response = client.transact(
+        "SetConfig {\"generation\":1,\"path\":\"system.startWithWindows\","
+        "\"value\":true}");
+    const bafx::desktop::HostStateSnapshot current = control.snapshot();
+    control.stop();
+
+    BAFX_CHECK(!response.succeeded());
+    BAFX_CHECK(response.errorCode == "config_write_failed");
+    BAFX_CHECK(
+        response.errorMessage.find("phase=compensate")
+        != std::string::npos);
+    BAFX_CHECK(
+        response.errorMessage.find("operation=delete-value")
+        != std::string::npos);
+    BAFX_CHECK(
+        response.errorMessage.find("win32-error=0")
+        != std::string::npos);
+    BAFX_CHECK(current.generation == 1U);
+    BAFX_CHECK(!current.config.system.startWithWindows);
+    BAFX_CHECK(integration.invocations.size() == 2U);
+    BAFX_CHECK(integration.invocations[0].system.startWithWindows);
+    BAFX_CHECK(!integration.invocations[1].system.startWithWindows);
+    BAFX_CHECK(
+        integration.invocations[1].phase
+        == bafx::desktop::HostSystemIntegrationPhase::Compensate);
+}
+
+BAFX_TEST(host_control_reports_compensation_phase_and_win32_failure)
+{
+    TemporaryConfigDirectory temporary;
+    FakeSystemIntegration integration{};
+    integration.results = {
+        bafx::windows::StartupRegistrationResult{
+            bafx::windows::StartupRegistrationStatus::Updated,
+            bafx::windows::StartupRegistrationOperation::SetValue,
+            ERROR_SUCCESS,
+            {}},
+        bafx::windows::StartupRegistrationResult{
+            bafx::windows::StartupRegistrationStatus::Failed,
+            bafx::windows::StartupRegistrationOperation::DeleteValue,
+            ERROR_ACCESS_DENIED,
+            {}}};
+    bafx::windows::NamedPipeIpcServer::Options serverOptions{};
+    serverOptions.pipeName = testPipeName() + L".system-compensation-failure";
+    serverOptions.ioTimeoutMilliseconds = 500U;
+    serverOptions.retryDelayMilliseconds = 10U;
+    bafx::desktop::HostControlPlane control(
+        temporary.directoryPath(),
+        bafx::config::defaultConfig(),
+        serverOptions,
+        integration.dependency());
+    BAFX_CHECK(control.start(false).serviceStarted);
+
+    bafx::windows::IpcClientOptions clientOptions{};
+    clientOptions.pipeName = serverOptions.pipeName;
+    clientOptions.timeoutMilliseconds = 1'000U;
+    const bafx::windows::NamedPipeIpcClient client(clientOptions);
+    const bafx::windows::IpcClientResponse response = client.transact(
+        "SetConfig {\"generation\":1,\"path\":\"system.startWithWindows\","
+        "\"value\":true}");
+    const bafx::desktop::HostStateSnapshot current = control.snapshot();
+    control.stop();
+
+    BAFX_CHECK(!response.succeeded());
+    BAFX_CHECK(response.errorCode == "system_integration_failed");
+    BAFX_CHECK(
+        response.errorMessage.find("phase=compensate")
+        != std::string::npos);
+    BAFX_CHECK(
+        response.errorMessage.find("operation=delete-value")
+        != std::string::npos);
+    BAFX_CHECK(
+        response.errorMessage.find("win32-error=5")
+        != std::string::npos);
+    BAFX_CHECK(
+        response.errorMessage.find("config-write-error=")
+        != std::string::npos);
+    BAFX_CHECK(current.generation == 1U);
+    BAFX_CHECK(!current.config.system.startWithWindows);
+    BAFX_CHECK(integration.invocations.size() == 2U);
 }
 
 BAFX_TEST(host_control_serializes_display_override_mutations_by_generation)
