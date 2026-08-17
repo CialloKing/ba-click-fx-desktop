@@ -438,6 +438,7 @@ DisplaySessionPolicyChange DisplaySessionManager::refreshRuntimePolicies()
             : DisplaySessionRuntimePolicy{
                 true,
                 outputPreference_,
+                bafx::config::FramePacing::MatchDisplay,
                 bafx::core::MonotonicTime::zero()};
         const DisplaySessionPolicyChange change =
             session->applyRuntimePolicy(policy);
@@ -647,6 +648,7 @@ std::unique_ptr<DisplaySession> DisplaySessionManager::createSession(
         : DisplaySessionRuntimePolicy{
             true,
             outputPreference_,
+            bafx::config::FramePacing::MatchDisplay,
             bafx::core::MonotonicTime::zero()};
     auto session = std::make_unique<DisplaySession>(
         DisplaySessionOptions{

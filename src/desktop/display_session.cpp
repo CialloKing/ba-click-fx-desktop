@@ -167,6 +167,7 @@ DisplaySession::DisplaySession(DisplaySessionOptions options)
           bafx::windows::OverlayWindowOptions::renderSurface()),
       effectsEnabled_(options.runtimePolicy.effectsEnabled),
       requestedOutputPreference_(options.runtimePolicy.outputPreference),
+      framePacing_(options.runtimePolicy.framePacing),
       colorCapabilities_(bafx::windows::queryDisplayColorCapabilities(
           target_.monitor)),
       renderer_(
@@ -323,6 +324,11 @@ bool DisplaySession::effectsEnabled() const noexcept
     return effectsEnabled_;
 }
 
+bafx::config::FramePacing DisplaySession::framePacing() const noexcept
+{
+    return framePacing_;
+}
+
 bafx::core::MonotonicTime DisplaySession::minimumFramePeriod() const noexcept
 {
     return minimumFramePeriod_;
@@ -334,9 +340,11 @@ DisplaySessionPolicyChange DisplaySession::applyRuntimePolicy(
     const DisplaySessionPolicyChange change{
         effectsEnabled_ != policy.effectsEnabled,
         requestedOutputPreference_ != policy.outputPreference,
-        minimumFramePeriod_ != policy.minimumFramePeriod};
+        framePacing_ != policy.framePacing
+            || minimumFramePeriod_ != policy.minimumFramePeriod};
 
     effectsEnabled_ = policy.effectsEnabled;
+    framePacing_ = policy.framePacing;
     minimumFramePeriod_ = policy.minimumFramePeriod;
     if (change.framePacingChanged || change.effectsEnabledChanged)
     {

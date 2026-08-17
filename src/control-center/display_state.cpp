@@ -14,7 +14,7 @@ namespace
 constexpr std::size_t maximumDocumentBytes = 256U * 1024U;
 constexpr std::size_t maximumStringBytes = 16U * 1024U;
 constexpr std::size_t maximumSessions = 64U;
-constexpr std::uint64_t requiredSessionFields = (1ULL << 28U) - 1ULL;
+constexpr std::uint64_t requiredSessionFields = (1ULL << 31U) - 1ULL;
 
 class DisplayStateJsonParser final
 {
@@ -217,6 +217,21 @@ private:
         if (key == "primary")
         {
             return markField(seen, 3U) && parseBoolean(session.primary);
+        }
+        if (key == "effectsEnabled")
+        {
+            return markField(seen, 28U)
+                && parseBoolean(session.effectsEnabled);
+        }
+        if (key == "hdrEnabled")
+        {
+            return markField(seen, 29U)
+                && parseBoolean(session.hdrEnabled);
+        }
+        if (key == "framePacing")
+        {
+            return markField(seen, 30U)
+                && parseFramePacing(session.framePacing);
         }
         if (key == "left")
         {
@@ -445,6 +460,37 @@ private:
         if (token == "unknown")
         {
             output = DisplayOutputState::Unknown;
+            return true;
+        }
+        return false;
+    }
+
+    [[nodiscard]] bool parseFramePacing(
+        bafx::config::FramePacing& output)
+    {
+        std::string token;
+        if (!parseString(token))
+        {
+            return false;
+        }
+        if (token == "match-display")
+        {
+            output = bafx::config::FramePacing::MatchDisplay;
+            return true;
+        }
+        if (token == "60")
+        {
+            output = bafx::config::FramePacing::Fixed60;
+            return true;
+        }
+        if (token == "120")
+        {
+            output = bafx::config::FramePacing::Fixed120;
+            return true;
+        }
+        if (token == "144")
+        {
+            output = bafx::config::FramePacing::Fixed144;
             return true;
         }
         return false;

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "bafx/config/config.hpp"
+
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -44,6 +46,10 @@ struct DisplaySessionState final
     std::optional<std::string> displayKey{};
     bool coordinator{false};
     bool primary{false};
+    bool effectsEnabled{true};
+    bool hdrEnabled{false};
+    bafx::config::FramePacing framePacing{
+        bafx::config::FramePacing::MatchDisplay};
     std::int32_t left{0};
     std::int32_t top{0};
     std::int32_t right{0};

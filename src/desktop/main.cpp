@@ -368,6 +368,7 @@ void appendDeviceRemovedNotificationStatus(
     return bafx::desktop::DisplaySessionRuntimePolicy{
         config.effects.enabled && resolved.enabled,
         resolved.outputPreference,
+        resolved.framePacing,
         resolved.fixedFramePeriod.value_or(
             bafx::core::MonotonicTime::zero())};
 }
@@ -2524,6 +2525,11 @@ int runApplication(
                 ownedSession->colorMonitorResult();
             summary.backgroundCaptureFailure = std::string(
                 ownedSession->renderer().backgroundCaptureFailure());
+            summary.framePacing = std::string(
+                bafx::config::toString(ownedSession->framePacing()));
+            summary.effectsEnabled = ownedSession->effectsEnabled();
+            summary.hdrEnabled = ownedSession->requestedOutputPreference()
+                == bafx::windows::CompositionOutputPreference::PreferLinearScRgb;
             summary.coordinator = ownedSession.get() == &displaySession;
             summary.primary = target.primary;
             summary.sourceAdapterResolved = target.sourceAdapterResolved;

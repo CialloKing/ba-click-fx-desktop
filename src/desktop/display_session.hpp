@@ -3,6 +3,7 @@
 #include "display_capture_size_tracker.hpp"
 #include "display_target.hpp"
 
+#include "bafx/config/config.hpp"
 #include "bafx/core/background_freshness.hpp"
 #include "bafx/fx/simulation_runtime.hpp"
 #include "bafx/fx/simulation_timeline.hpp"
@@ -32,6 +33,8 @@ struct DisplaySessionRuntimePolicy final
     bool effectsEnabled{true};
     bafx::windows::CompositionOutputPreference outputPreference{
         bafx::windows::CompositionOutputPreference::ConservativeSdr};
+    bafx::config::FramePacing framePacing{
+        bafx::config::FramePacing::MatchDisplay};
     bafx::core::MonotonicTime minimumFramePeriod{};
 };
 
@@ -161,6 +164,7 @@ public:
     [[nodiscard]] bafx::windows::CompositionOutputPreference
         requestedOutputPreference() const noexcept;
     [[nodiscard]] bool effectsEnabled() const noexcept;
+    [[nodiscard]] bafx::config::FramePacing framePacing() const noexcept;
     [[nodiscard]] bafx::core::MonotonicTime minimumFramePeriod()
         const noexcept;
     [[nodiscard]] DisplaySessionPolicyChange applyRuntimePolicy(
@@ -263,6 +267,8 @@ private:
     bool effectsEnabled_{true};
     bafx::windows::CompositionOutputPreference requestedOutputPreference_{
         bafx::windows::CompositionOutputPreference::ConservativeSdr};
+    bafx::config::FramePacing framePacing_{
+        bafx::config::FramePacing::MatchDisplay};
     std::optional<bafx::windows::DisplayColorCapabilities> colorCapabilities_{};
     bafx::windows::CompositionRenderer renderer_;
     bafx::fx::SimulationRuntime simulation_;

@@ -263,6 +263,9 @@ BAFX_TEST(host_control_publishes_one_immutable_display_state_snapshot)
     session.primary = true;
     session.backgroundCaptureActive = true;
     session.backgroundCaptureRestartAllowed = true;
+    session.effectsEnabled = false;
+    session.hdrEnabled = true;
+    session.framePacing = "120";
 
     bafx::windows::DisplayColorCapabilities color{};
     color.displayPathResolved = true;
@@ -307,6 +310,12 @@ BAFX_TEST(host_control_publishes_one_immutable_display_state_snapshot)
     BAFX_CHECK(response.payload.find("\"hdrSupported\":true")
         != std::string::npos);
     BAFX_CHECK(response.payload.find("\"hdrActive\":true")
+        != std::string::npos);
+    BAFX_CHECK(response.payload.find("\"effectsEnabled\":false")
+        != std::string::npos);
+    BAFX_CHECK(response.payload.find("\"hdrEnabled\":true")
+        != std::string::npos);
+    BAFX_CHECK(response.payload.find("\"framePacing\":\"120\"")
         != std::string::npos);
     BAFX_CHECK(snapshot.generation == 1U);
     BAFX_CHECK(snapshot.runtime.sessions.size() == 1U);

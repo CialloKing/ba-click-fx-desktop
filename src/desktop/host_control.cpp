@@ -666,6 +666,9 @@ std::string HostControlPlane::displayStateJson(
         }
         stream << ",\"coordinator\":" << jsonBool(session.coordinator)
                << ",\"primary\":" << jsonBool(session.primary)
+               << ",\"effectsEnabled\":" << jsonBool(session.effectsEnabled)
+               << ",\"hdrEnabled\":" << jsonBool(session.hdrEnabled)
+               << ",\"framePacing\":" << jsonEscape(session.framePacing)
                << ",\"left\":" << session.bounds.left
                << ",\"top\":" << session.bounds.top
                << ",\"right\":" << session.bounds.right

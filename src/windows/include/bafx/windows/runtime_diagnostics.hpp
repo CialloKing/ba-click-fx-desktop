@@ -69,6 +69,9 @@ struct DisplaySessionRuntimeSummary final
     std::optional<DisplayColorCapabilities> colorCapabilities{};
     DisplayColorMonitorResult colorMonitorResult{};
     std::string backgroundCaptureFailure{};
+    std::string framePacing{"match-display"};
+    bool effectsEnabled{true};
+    bool hdrEnabled{false};
     bool coordinator{false};
     bool primary{false};
     bool sourceAdapterResolved{false};

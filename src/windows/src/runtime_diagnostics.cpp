@@ -689,6 +689,12 @@ void appendDisplaySessionRuntimeSummary(
                 ? sanitize(*session.displayKey)
                 : "unavailable")
            << '\n'
+           << prefix << "Policy.EffectsEnabled="
+           << booleanName(session.effectsEnabled) << '\n'
+           << prefix << "Policy.HdrEnabled="
+           << booleanName(session.hdrEnabled) << '\n'
+           << prefix << "Policy.FramePacing="
+           << sanitize(session.framePacing) << '\n'
            << prefix << "Bounds="
            << (session.bounds.right - session.bounds.left) << 'x'
            << (session.bounds.bottom - session.bounds.top) << '@'
