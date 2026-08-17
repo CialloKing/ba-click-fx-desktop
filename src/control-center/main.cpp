@@ -6,6 +6,7 @@
 #include <commctrl.h>
 
 #include <array>
+#include <cstdlib>
 #include <fstream>
 #include <string>
 #include <string_view>
@@ -15,6 +16,30 @@ namespace
 
 constexpr std::wstring_view controlCenterMutexName = L"Local\\BAFX.ControlCenter.v1";
 constexpr std::wstring_view controlCenterWindowTitle = L"BAFX Control Center";
+
+struct LaunchOptions final
+{
+    bool startup{false};
+    bool minimized{false};
+};
+
+[[nodiscard]] LaunchOptions launchOptions() noexcept
+{
+    LaunchOptions options{};
+    for (int index = 1; index < __argc; ++index)
+    {
+        const std::wstring_view argument(__wargv[index]);
+        if (argument == L"--startup")
+        {
+            options.startup = true;
+        }
+        else if (argument == L"--minimized")
+        {
+            options.minimized = true;
+        }
+    }
+    return options;
+}
 
 void recordStartupFailure(const std::wstring_view message) noexcept
 {
@@ -138,7 +163,11 @@ int WINAPI wWinMain(
     try
     {
         bafx::control_center::ControlCenterWindow window(instance);
-        if (!window.create(showCommand))
+        const LaunchOptions options = launchOptions();
+        const int effectiveShowCommand = options.minimized
+            ? SW_SHOWMINIMIZED
+            : showCommand;
+        if (!window.create(effectiveShowCommand, options.startup))
         {
             const std::wstring message = describeWin32Failure(window.lastError());
             recordStartupFailure(message);

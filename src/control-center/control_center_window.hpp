@@ -27,7 +27,7 @@ public:
     ControlCenterWindow(const ControlCenterWindow&) = delete;
     ControlCenterWindow& operator=(const ControlCenterWindow&) = delete;
 
-    [[nodiscard]] bool create(int showCommand);
+    [[nodiscard]] bool create(int showCommand, bool startHostOnLaunch);
     [[nodiscard]] int runMessageLoop() const noexcept;
     [[nodiscard]] DWORD lastError() const noexcept;
 

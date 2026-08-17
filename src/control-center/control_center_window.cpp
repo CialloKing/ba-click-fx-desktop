@@ -555,7 +555,9 @@ ControlCenterWindow::~ControlCenterWindow()
     destroyFonts();
 }
 
-bool ControlCenterWindow::create(const int showCommand)
+bool ControlCenterWindow::create(
+    const int showCommand,
+    const bool startHostOnLaunch)
 {
     if (!registerWindowClass())
     {
@@ -665,7 +667,16 @@ bool ControlCenterWindow::create(const int showCommand)
 
     if (!refreshFromHost())
     {
-        scheduleHostRefreshRetry();
+        if (startHostOnLaunch)
+        {
+            // The Run entry launches the Control Center so packaged and
+            // portable activation continue to share one Host startup path.
+            startHostFromBundle();
+        }
+        else
+        {
+            scheduleHostRefreshRetry();
+        }
     }
     else
     {
