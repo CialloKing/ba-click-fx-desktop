@@ -1,15 +1,19 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <filesystem>
 #include <optional>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace bafx::config
 {
 
-inline constexpr std::uint32_t currentSchemaVersion = 13U;
+inline constexpr std::uint32_t currentSchemaVersion = 14U;
+inline constexpr std::size_t maximumDisplayOverrides = 64U;
+inline constexpr std::size_t maximumDisplayKeyBytes = 4096U;
 
 enum class RenderMode : std::uint8_t
 {
@@ -33,6 +37,17 @@ enum class FramePacing : std::uint8_t
     Fixed60,
     Fixed120,
     Fixed144
+};
+
+struct DisplayOverrideConfig final
+{
+    // The Host derives this opaque key only from authoritative DisplayConfig
+    // target paths. GDI names and HMONITOR values are deliberately excluded
+    // because they are not stable across boots or topology changes.
+    std::string displayKey{};
+    bool enabled{true};
+    bool hdrEnabled{false};
+    FramePacing framePacing{FramePacing::MatchDisplay};
 };
 
 struct EffectsConfig
@@ -100,6 +115,10 @@ struct DisplayConfig
     // Unity-authored color and Bloom always remain linear HDR internally.
     // This flag only opts the final desktop transport into scRGB output.
     bool hdrEnabled{false};
+    // A display without a matching entry inherits the global HDR request and
+    // performance.framePacing. Entries are complete policies so a partially
+    // written override can never silently inherit a different field.
+    std::vector<DisplayOverrideConfig> overrides{};
 };
 
 struct InputConfig
@@ -135,6 +154,14 @@ struct Config
     InputConfig input{};
     PerformanceConfig performance{};
     SystemConfig system{};
+};
+
+struct ResolvedDisplayPolicy final
+{
+    bool enabled{true};
+    bool hdrEnabled{false};
+    FramePacing framePacing{FramePacing::MatchDisplay};
+    bool overridden{false};
 };
 
 enum class ConfigStatus : std::uint8_t
@@ -250,6 +277,20 @@ struct ConfigSaveResult
 [[nodiscard]] bool validateConfig(
     const Config& config,
     std::string* error = nullptr) noexcept;
+
+[[nodiscard]] const DisplayOverrideConfig* findDisplayOverride(
+    const DisplayConfig& display,
+    std::string_view displayKey) noexcept;
+[[nodiscard]] ResolvedDisplayPolicy resolveDisplayPolicy(
+    const Config& config,
+    std::string_view displayKey) noexcept;
+[[nodiscard]] bool setDisplayOverride(
+    Config& config,
+    DisplayOverrideConfig overrideConfig,
+    std::string* error = nullptr) noexcept;
+[[nodiscard]] bool removeDisplayOverride(
+    Config& config,
+    std::string_view displayKey) noexcept;
 
 [[nodiscard]] std::string_view toString(RenderMode mode) noexcept;
 [[nodiscard]] std::string_view toString(BloomQuality quality) noexcept;

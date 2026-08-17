@@ -803,6 +803,125 @@ private:
     return false;
 }
 
+[[nodiscard]] bool validDisplayKey(const std::string_view key) noexcept
+{
+    if (key.empty() || key.size() > maximumDisplayKeyBytes)
+    {
+        return false;
+    }
+    return std::all_of(
+        key.begin(),
+        key.end(),
+        [](const unsigned char character)
+        {
+            return character >= 0x20U && character != 0x7FU;
+        });
+}
+
+[[nodiscard]] bool readDisplayOverrides(
+    const JsonValue& value,
+    std::vector<DisplayOverrideConfig>& output,
+    std::string& error)
+{
+    const JsonValue::Array* array = std::get_if<JsonValue::Array>(
+        &value.storage);
+    if (array == nullptr)
+    {
+        error = "config field 'display.overrides' must be an array";
+        return false;
+    }
+    if (array->size() > maximumDisplayOverrides)
+    {
+        error = "config field 'display.overrides' exceeds the display limit";
+        return false;
+    }
+
+    std::vector<DisplayOverrideConfig> parsed;
+    parsed.reserve(array->size());
+    for (std::size_t index = 0U; index < array->size(); ++index)
+    {
+        const JsonValue::Object* object = objectOf((*array)[index]);
+        const std::string section = "display.overrides["
+            + std::to_string(index) + "]";
+        if (object == nullptr)
+        {
+            error = "config field '" + section + "' must be an object";
+            return false;
+        }
+        if (!validateKnownMembers(
+                *object,
+                {"displayKey", "enabled", "hdrEnabled", "framePacing"},
+                section,
+                error))
+        {
+            return false;
+        }
+
+        DisplayOverrideConfig overrideConfig{};
+        std::string framePacing;
+        if (!readString(
+                *object,
+                "displayKey",
+                section,
+                overrideConfig.displayKey,
+                error)
+            || !readBool(
+                *object,
+                "enabled",
+                section,
+                overrideConfig.enabled,
+                error)
+            || !readBool(
+                *object,
+                "hdrEnabled",
+                section,
+                overrideConfig.hdrEnabled,
+                error)
+            || !readEnum(
+                *object,
+                "framePacing",
+                section,
+                framePacing,
+                error))
+        {
+            return false;
+        }
+        if (!validDisplayKey(overrideConfig.displayKey))
+        {
+            error = "config field '" + section
+                + ".displayKey' is not a valid persistent display key";
+            return false;
+        }
+        if (!parseFramePacing(framePacing, overrideConfig.framePacing))
+        {
+            error = "config field '" + section
+                + ".framePacing' has an unknown value";
+            return false;
+        }
+        if (std::find_if(
+                parsed.begin(),
+                parsed.end(),
+                [&](const DisplayOverrideConfig& current)
+                {
+                    return current.displayKey == overrideConfig.displayKey;
+                }) != parsed.end())
+        {
+            error = "config field 'display.overrides' contains a duplicate displayKey";
+            return false;
+        }
+        parsed.push_back(std::move(overrideConfig));
+    }
+    std::sort(
+        parsed.begin(),
+        parsed.end(),
+        [](const DisplayOverrideConfig& left, const DisplayOverrideConfig& right)
+        {
+            return left.displayKey < right.displayKey;
+        });
+    output = std::move(parsed);
+    return true;
+}
+
 [[nodiscard]] bool readRequiredObject(
     const JsonValue::Object& parent,
     const std::string_view key,
@@ -911,7 +1030,7 @@ private:
                 error)
         || !validateKnownMembers(
                 *display,
-                {"hdrEnabled"},
+                {"hdrEnabled", "overrides"},
                 "display",
                 error)
         || !validateKnownMembers(
@@ -1180,6 +1299,19 @@ private:
     {
         return config;
     }
+    const JsonValue* displayOverrides = requiredMember(
+        *display,
+        "overrides",
+        "display",
+        error);
+    if (displayOverrides == nullptr
+        || !readDisplayOverrides(
+            *displayOverrides,
+            config.display.overrides,
+            error))
+    {
+        return config;
+    }
 
     if (!readBool(*input, "leftClick", "input", config.input.leftClick, error)
         || !readBool(*input, "rightClick", "input", config.input.rightClick, error)
@@ -1313,6 +1445,24 @@ private:
 
     JsonValue::Object display;
     display.emplace("hdrEnabled", JsonValue(config.display.hdrEnabled));
+    JsonValue::Array displayOverrides;
+    displayOverrides.reserve(config.display.overrides.size());
+    for (const DisplayOverrideConfig& overrideConfig : config.display.overrides)
+    {
+        JsonValue::Object serializedOverride;
+        serializedOverride.emplace(
+            "displayKey",
+            JsonValue(overrideConfig.displayKey));
+        serializedOverride.emplace("enabled", JsonValue(overrideConfig.enabled));
+        serializedOverride.emplace(
+            "framePacing",
+            JsonValue(std::string(toString(overrideConfig.framePacing))));
+        serializedOverride.emplace(
+            "hdrEnabled",
+            JsonValue(overrideConfig.hdrEnabled));
+        displayOverrides.emplace_back(JsonValue(std::move(serializedOverride)));
+    }
+    display.emplace("overrides", JsonValue(std::move(displayOverrides)));
 
     JsonValue::Object input;
     input.emplace("leftClick", JsonValue(config.input.leftClick));
@@ -2130,6 +2280,23 @@ namespace
         {
             valueAccepted = readPatchBool(result.display.hdrEnabled);
         }
+        else if (*path == "display.overrides")
+        {
+            std::string overrideError;
+            valueAccepted = readDisplayOverrides(
+                *value,
+                result.display.overrides,
+                overrideError);
+            if (!valueAccepted)
+            {
+                return ConfigPatchResult{
+                    base,
+                    ConfigStatus::ValidationError,
+                    std::move(overrideError),
+                    true,
+                    expectedGeneration};
+            }
+        }
         else if (*path == "input.leftClick")
         {
             valueAccepted = readPatchBool(result.input.leftClick);
@@ -2618,6 +2785,149 @@ ConfigSaveResult saveConfigAtomic(
     }
 }
 
+const DisplayOverrideConfig* findDisplayOverride(
+    const DisplayConfig& display,
+    const std::string_view displayKey) noexcept
+{
+    const auto found = std::lower_bound(
+        display.overrides.begin(),
+        display.overrides.end(),
+        displayKey,
+        [](const DisplayOverrideConfig& current, const std::string_view key)
+        {
+            return current.displayKey < key;
+        });
+    if (found == display.overrides.end() || found->displayKey != displayKey)
+    {
+        return nullptr;
+    }
+    return &*found;
+}
+
+ResolvedDisplayPolicy resolveDisplayPolicy(
+    const Config& config,
+    const std::string_view displayKey) noexcept
+{
+    ResolvedDisplayPolicy result{
+        true,
+        config.display.hdrEnabled,
+        config.performance.framePacing,
+        false};
+    const DisplayOverrideConfig* overrideConfig = findDisplayOverride(
+        config.display,
+        displayKey);
+    if (overrideConfig == nullptr)
+    {
+        return result;
+    }
+
+    result.enabled = overrideConfig->enabled;
+    result.hdrEnabled = overrideConfig->hdrEnabled;
+    result.framePacing = overrideConfig->framePacing;
+    result.overridden = true;
+    return result;
+}
+
+bool setDisplayOverride(
+    Config& config,
+    DisplayOverrideConfig overrideConfig,
+    std::string* error) noexcept
+{
+    const auto fail = [error](const std::string_view message)
+    {
+        if (error != nullptr)
+        {
+            *error = std::string(message);
+        }
+        return false;
+    };
+
+    if (!validDisplayKey(overrideConfig.displayKey))
+    {
+        return fail("display override key is not valid");
+    }
+    switch (overrideConfig.framePacing)
+    {
+    case FramePacing::MatchDisplay:
+    case FramePacing::Fixed60:
+    case FramePacing::Fixed120:
+    case FramePacing::Fixed144:
+        break;
+    default:
+        return fail("display override frame pacing is not recognized");
+    }
+
+    try
+    {
+        // Build a candidate first so allocation failure or validation cannot
+        // leave the live configuration with a partially replaced policy.
+        Config candidate = config;
+        auto found = std::lower_bound(
+            candidate.display.overrides.begin(),
+            candidate.display.overrides.end(),
+            overrideConfig.displayKey,
+            [](const DisplayOverrideConfig& current, const std::string_view key)
+            {
+                return current.displayKey < key;
+            });
+        if (found != candidate.display.overrides.end()
+            && found->displayKey == overrideConfig.displayKey)
+        {
+            *found = std::move(overrideConfig);
+        }
+        else
+        {
+            if (candidate.display.overrides.size() >= maximumDisplayOverrides)
+            {
+                return fail("display override limit has been reached");
+            }
+            candidate.display.overrides.insert(found, std::move(overrideConfig));
+        }
+
+        std::string validationError;
+        if (!validateConfig(candidate, &validationError))
+        {
+            return fail(validationError);
+        }
+        config = std::move(candidate);
+        if (error != nullptr)
+        {
+            error->clear();
+        }
+        return true;
+    }
+    catch (const std::exception& exception)
+    {
+        return fail(std::string("unable to set display override: ")
+            + exception.what());
+    }
+    catch (...)
+    {
+        return fail("unable to set display override");
+    }
+}
+
+bool removeDisplayOverride(
+    Config& config,
+    const std::string_view displayKey) noexcept
+{
+    const auto found = std::lower_bound(
+        config.display.overrides.begin(),
+        config.display.overrides.end(),
+        displayKey,
+        [](const DisplayOverrideConfig& current, const std::string_view key)
+        {
+            return current.displayKey < key;
+        });
+    if (found == config.display.overrides.end()
+        || found->displayKey != displayKey)
+    {
+        return false;
+    }
+    config.display.overrides.erase(found);
+    return true;
+}
+
 bool validateConfig(const Config& config, std::string* error) noexcept
 {
     const auto failValidation = [error](const std::string_view message)
@@ -2651,6 +2961,37 @@ bool validateConfig(const Config& config, std::string* error) noexcept
         break;
     default:
         return failValidation("performance.framePacing is not recognized");
+    }
+    if (config.display.overrides.size() > maximumDisplayOverrides)
+    {
+        return failValidation("display.overrides exceeds the display limit");
+    }
+    std::string_view previousDisplayKey;
+    for (const DisplayOverrideConfig& overrideConfig : config.display.overrides)
+    {
+        if (!validDisplayKey(overrideConfig.displayKey))
+        {
+            return failValidation("display override key is not valid");
+        }
+        if (!previousDisplayKey.empty()
+            && overrideConfig.displayKey <= previousDisplayKey)
+        {
+            return failValidation(
+                "display.overrides must be sorted and contain unique keys");
+        }
+        previousDisplayKey = overrideConfig.displayKey;
+
+        switch (overrideConfig.framePacing)
+        {
+        case FramePacing::MatchDisplay:
+        case FramePacing::Fixed60:
+        case FramePacing::Fixed120:
+        case FramePacing::Fixed144:
+            break;
+        default:
+            return failValidation(
+                "display override frame pacing is not recognized");
+        }
     }
     if (!std::isfinite(config.effects.globalScale)
         || config.effects.globalScale < 0.1F

@@ -224,6 +224,147 @@ BAFX_TEST(config_defaults_round_trip_through_versioned_json)
         parsed.config.effects.bloomClamp,
         defaults.effects.bloomClamp,
         0.00001F);
+    BAFX_CHECK(defaults.display.overrides.empty());
+    BAFX_CHECK(parsed.config.display.overrides.empty());
+}
+
+BAFX_TEST(config_display_overrides_resolve_complete_per_display_policies)
+{
+    bafx::config::Config config = bafx::config::defaultConfig();
+    config.display.hdrEnabled = true;
+    config.performance.framePacing = bafx::config::FramePacing::Fixed60;
+
+    const auto inherited = bafx::config::resolveDisplayPolicy(
+        config,
+        "displayconfig:unconfigured");
+    BAFX_CHECK(inherited.enabled);
+    BAFX_CHECK(inherited.hdrEnabled);
+    BAFX_CHECK(
+        inherited.framePacing == bafx::config::FramePacing::Fixed60);
+    BAFX_CHECK(!inherited.overridden);
+
+    std::string error;
+    BAFX_CHECK(bafx::config::setDisplayOverride(
+        config,
+        bafx::config::DisplayOverrideConfig{
+            "displayconfig:target-b",
+            false,
+            false,
+            bafx::config::FramePacing::Fixed144},
+        &error));
+    BAFX_CHECK(error.empty());
+    BAFX_CHECK(bafx::config::setDisplayOverride(
+        config,
+        bafx::config::DisplayOverrideConfig{
+            "displayconfig:target-a",
+            true,
+            true,
+            bafx::config::FramePacing::Fixed120},
+        &error));
+    BAFX_CHECK(config.display.overrides.size() == 2U);
+    BAFX_CHECK(
+        config.display.overrides[0].displayKey
+        == "displayconfig:target-a");
+    BAFX_CHECK(
+        config.display.overrides[1].displayKey
+        == "displayconfig:target-b");
+
+    const auto overridden = bafx::config::resolveDisplayPolicy(
+        config,
+        "displayconfig:target-b");
+    BAFX_CHECK(!overridden.enabled);
+    BAFX_CHECK(!overridden.hdrEnabled);
+    BAFX_CHECK(
+        overridden.framePacing == bafx::config::FramePacing::Fixed144);
+    BAFX_CHECK(overridden.overridden);
+
+    BAFX_CHECK(bafx::config::setDisplayOverride(
+        config,
+        bafx::config::DisplayOverrideConfig{
+            "displayconfig:target-b",
+            true,
+            true,
+            bafx::config::FramePacing::MatchDisplay},
+        &error));
+    BAFX_CHECK(config.display.overrides.size() == 2U);
+    BAFX_CHECK(
+        bafx::config::findDisplayOverride(
+            config.display,
+            "displayconfig:target-b")->enabled);
+
+    BAFX_CHECK(bafx::config::removeDisplayOverride(
+        config,
+        "displayconfig:target-a"));
+    BAFX_CHECK(!bafx::config::removeDisplayOverride(
+        config,
+        "displayconfig:target-a"));
+    BAFX_CHECK(config.display.overrides.size() == 1U);
+
+    bafx::config::DisplayOverrideConfig invalid{};
+    invalid.displayKey.assign(1U, '\x1f');
+    const bafx::config::Config beforeInvalid = config;
+    BAFX_CHECK(!bafx::config::setDisplayOverride(config, invalid, &error));
+    BAFX_CHECK(!error.empty());
+    BAFX_CHECK(
+        config.display.overrides.size()
+        == beforeInvalid.display.overrides.size());
+}
+
+BAFX_TEST(config_display_override_patch_is_atomic_and_canonical)
+{
+    const bafx::config::Config base = bafx::config::defaultConfig();
+    const auto patched = bafx::config::applyPatchJson(
+        base,
+        R"json({"generation":9,"path":"display.overrides","value":[{"displayKey":"displayconfig:target-b","enabled":false,"hdrEnabled":true,"framePacing":"144"},{"displayKey":"displayconfig:target-a","enabled":true,"hdrEnabled":false,"framePacing":"60"}]})json");
+    BAFX_CHECK(patched.succeeded());
+    BAFX_CHECK(patched.expectedGeneration.has_value());
+    BAFX_CHECK(*patched.expectedGeneration == 9U);
+    BAFX_CHECK(patched.config.display.overrides.size() == 2U);
+    BAFX_CHECK(
+        patched.config.display.overrides[0].displayKey
+        == "displayconfig:target-a");
+    BAFX_CHECK(
+        patched.config.display.overrides[1].displayKey
+        == "displayconfig:target-b");
+
+    const auto roundTrip = bafx::config::parseJson(
+        bafx::config::toJson(patched.config, false));
+    BAFX_CHECK(roundTrip.succeeded());
+    BAFX_CHECK(roundTrip.config.display.overrides.size() == 2U);
+    BAFX_CHECK(
+        roundTrip.config.display.overrides[1].framePacing
+        == bafx::config::FramePacing::Fixed144);
+
+    for (const std::string_view value : {
+             R"json([{"displayKey":"displayconfig:duplicate","enabled":true,"hdrEnabled":false,"framePacing":"match-display"},{"displayKey":"displayconfig:duplicate","enabled":false,"hdrEnabled":true,"framePacing":"120"}])json",
+             R"json([{"displayKey":"displayconfig:partial","enabled":true,"hdrEnabled":false}])json",
+             R"json({"displayKey":"displayconfig:not-an-array"})json"})
+    {
+        const auto rejected = bafx::config::applyPatchJson(
+            base,
+            std::string("{\"path\":\"display.overrides\",\"value\":")
+                + std::string(value)
+                + "}");
+        BAFX_CHECK(!rejected.succeeded());
+        BAFX_CHECK(rejected.recognized);
+        BAFX_CHECK(rejected.config.display.overrides.empty());
+    }
+
+    bafx::config::Config unsorted = base;
+    unsorted.display.overrides = {
+        bafx::config::DisplayOverrideConfig{
+            "displayconfig:z",
+            true,
+            false,
+            bafx::config::FramePacing::MatchDisplay},
+        bafx::config::DisplayOverrideConfig{
+            "displayconfig:a",
+            true,
+            false,
+            bafx::config::FramePacing::MatchDisplay}};
+    std::string validationError;
+    BAFX_CHECK(!bafx::config::validateConfig(unsorted, &validationError));
+    BAFX_CHECK(!validationError.empty());
 }
 
 BAFX_TEST(config_current_effect_fields_round_trip_through_file)
@@ -991,7 +1132,7 @@ BAFX_TEST(config_current_schema_requires_every_section_and_field)
     bafx::config::Config config = bafx::config::defaultConfig();
     config.background.allowSystemBorder = false;
     std::string document = bafx::config::toJson(config, false);
-    const std::string field = R"json("hdrEnabled":false)json";
+    const std::string field = R"json("hdrEnabled":false,)json";
     const std::size_t fieldPosition = document.find(field);
     BAFX_CHECK(fieldPosition != std::string::npos);
     document.erase(fieldPosition, field.size());
@@ -1001,6 +1142,21 @@ BAFX_TEST(config_current_schema_requires_every_section_and_field)
         missingField.status == bafx::config::ConfigStatus::ValidationError);
     BAFX_CHECK(
         missingField.message.find("config field 'display.hdrEnabled' is required")
+        != std::string::npos);
+
+    document = bafx::config::toJson(config, false);
+    const std::string overridesField = R"json(,"overrides":[])json";
+    const std::size_t overridesPosition = document.find(overridesField);
+    BAFX_CHECK(overridesPosition != std::string::npos);
+    document.erase(overridesPosition, overridesField.size());
+
+    const auto missingOverrides = bafx::config::parseJson(document);
+    BAFX_CHECK(
+        missingOverrides.status
+        == bafx::config::ConfigStatus::ValidationError);
+    BAFX_CHECK(
+        missingOverrides.message.find(
+            "config field 'display.overrides' is required")
         != std::string::npos);
 
     document = bafx::config::toJson(config, false);
