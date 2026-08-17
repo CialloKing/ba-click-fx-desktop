@@ -80,6 +80,50 @@ function Assert-ProtectedStateAcl
     }
 }
 
+function Remove-InstalledUserStartupRegistration
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$InstalledUserSid
+    )
+
+    $sid = [Security.Principal.SecurityIdentifier]::new($InstalledUserSid)
+    if ($sid.Value -ne $InstalledUserSid)
+    {
+        throw 'Protected install state has a non-canonical installed user SID.'
+    }
+
+    $usersRoot = $null
+    $runKey = $null
+    try
+    {
+        $usersRoot = [Microsoft.Win32.RegistryKey]::OpenBaseKey(
+            [Microsoft.Win32.RegistryHive]::Users,
+            [Microsoft.Win32.RegistryView]::Default)
+        $runSubKey = "$($sid.Value)\Software\Microsoft\Windows\CurrentVersion\Run"
+        $runKey = $usersRoot.OpenSubKey($runSubKey, $true)
+        if ($null -eq $runKey)
+        {
+            return
+        }
+
+        # DeleteValue with throwOnMissingValue=false keeps repeated uninstall
+        # attempts idempotent and never removes neighboring startup entries.
+        $runKey.DeleteValue('BAFX Control Center', $false)
+    }
+    finally
+    {
+        if ($null -ne $runKey)
+        {
+            $runKey.Dispose()
+        }
+        if ($null -ne $usersRoot)
+        {
+            $usersRoot.Dispose()
+        }
+    }
+}
+
 function Split-Ledger
 {
     param(
@@ -246,6 +290,10 @@ $script:InstallerStep = 'ensure-host-process-stopped'
 Assert-ExpectedProcessIsStopped -ExecutablePath (Join-Path $installRoot 'ba-click-fx-desktop.exe')
 $script:InstallerStep = 'ensure-control-center-process-stopped'
 Assert-ExpectedProcessIsStopped -ExecutablePath (Join-Path $installRoot 'BAFX.ControlCenter.exe')
+
+$script:InstallerStep = 'remove-installed-user-startup-registration'
+Remove-InstalledUserStartupRegistration `
+    -InstalledUserSid ([string]$state.installedUserSid)
 
 $script:InstallerStep = 'query-installed-user-package'
 $registered = @(

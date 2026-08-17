@@ -386,7 +386,7 @@ function Test-InstallerScriptWhitelist
         -Description 'machine uninstall emits structured failure diagnostics'
     Assert-TextContains `
         -Text $unregisterMachine `
-        -Pattern 'ensure-host-process-stopped[\s\S]*remove-installed-user-package[\s\S]*remove-owned-certificates' `
+        -Pattern 'ensure-host-process-stopped[\s\S]*remove-installed-user-startup-registration[\s\S]*remove-installed-user-package[\s\S]*remove-owned-certificates' `
         -Description 'machine uninstall reports stable resource cleanup steps'
 
     $protectedPaths = Read-RepositoryText `
@@ -901,6 +901,31 @@ function Test-SparsePackageContract
         -Text $uninstaller `
         -Pattern 'foreach\s*\(\$installStatePath\s+in\s+@\(\$statePath,\s*"\$statePath\.bak"\)\)[\s\S]*Test-Path[\s\S]*Remove-Item' `
         -Description 'guarded primary and backup install-state cleanup'
+    $uninstallerAst = Get-ParsedScript `
+        -RelativePath 'tools/installer/unregister-machine.ps1'
+    $startupCleanup = Get-FunctionText `
+        -Ast $uninstallerAst `
+        -Name 'Remove-InstalledUserStartupRegistration'
+    Assert-TextContains `
+        -Text $startupCleanup `
+        -Pattern 'SecurityIdentifier\]::new\(\$InstalledUserSid\)[\s\S]*\$sid\.Value\s+-ne\s+\$InstalledUserSid' `
+        -Description 'startup cleanup validates the protected installed-user SID'
+    Assert-TextContains `
+        -Text $startupCleanup `
+        -Pattern 'RegistryHive\]::Users[\s\S]*\$\(\$sid\.Value\)\\Software\\Microsoft\\Windows\\CurrentVersion\\Run' `
+        -Description 'startup cleanup targets only the installed user Run key'
+    Assert-TextContains `
+        -Text $startupCleanup `
+        -Pattern '\.DeleteValue\(\s*''BAFX Control Center''\s*,\s*\$false\s*\)' `
+        -Description 'startup cleanup removes only the BAFX Control Center value idempotently'
+    Assert-TextExcludes `
+        -Text $startupCleanup `
+        -Pattern '(DeleteSubKey|DeleteSubKeyTree|Remove-Item)' `
+        -Description 'startup cleanup deleting a registry key'
+    Assert-TextContains `
+        -Text $uninstaller `
+        -Pattern 'InstallerStep\s*=\s*''remove-installed-user-startup-registration''[\s\S]*Remove-InstalledUserStartupRegistration\s+`?\s*-InstalledUserSid\s+\(\[string\]\$state\.installedUserSid\)[\s\S]*InstallerStep\s*=\s*''query-installed-user-package''' `
+        -Description 'startup cleanup uses protected state before uninstalling files'
 }
 
 function Test-UninstallerBackupFallback
