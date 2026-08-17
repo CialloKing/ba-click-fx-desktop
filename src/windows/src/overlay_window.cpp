@@ -123,18 +123,21 @@ PointerButtonMergeResult RawPointerButtonMerger::update(
     if (down)
     {
         physicalDownMask_ |= buttonMask;
-        if (!wasDown
-            && !held_
-            && (enabledMask() & buttonMask) != 0U)
+        if (!wasDown && (enabledMask() & buttonMask) != 0U)
         {
-            held_ = true;
-            return PointerButtonMergeResult::Down;
+            participatingDownMask_ |= buttonMask;
+            if (!held_)
+            {
+                held_ = true;
+                return PointerButtonMergeResult::Down;
+            }
         }
         return PointerButtonMergeResult::None;
     }
 
     physicalDownMask_ &= static_cast<std::uint8_t>(~buttonMask);
-    if (held_ && (physicalDownMask_ & enabledMask()) == 0U)
+    participatingDownMask_ &= static_cast<std::uint8_t>(~buttonMask);
+    if (held_ && participatingDownMask_ == 0U)
     {
         held_ = false;
         return PointerButtonMergeResult::Up;
@@ -146,11 +149,12 @@ bool RawPointerButtonMerger::setPolicy(
     const PointerButtonPolicy policy) noexcept
 {
     policy_ = policy;
-    if (held_ && (physicalDownMask_ & enabledMask()) == 0U)
+    participatingDownMask_ &= enabledMask();
+    if (held_ && participatingDownMask_ == 0U)
     {
         // A policy edit is not a physical button release. End the old stroke
-        // with Cancel and retain physical state so re-enabling cannot invent a
-        // Down edge until the user releases and presses the button again.
+        // with Cancel. The participation mask stays clear so re-enabling a
+        // physically held button cannot influence a later stroke.
         held_ = false;
         return true;
     }
@@ -161,6 +165,7 @@ bool RawPointerButtonMerger::reset() noexcept
 {
     const bool wasHeld = held_;
     physicalDownMask_ = 0U;
+    participatingDownMask_ = 0U;
     held_ = false;
     return wasHeld;
 }

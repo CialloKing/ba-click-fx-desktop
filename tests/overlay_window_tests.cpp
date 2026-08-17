@@ -116,6 +116,29 @@ BAFX_TEST(raw_pointer_button_policy_preserves_an_enabled_handoff)
         == PointerButtonMergeResult::Up);
 }
 
+BAFX_TEST(raw_pointer_button_cancelled_by_policy_cannot_hold_a_later_stroke)
+{
+    RawPointerButtonMerger buttons;
+    BAFX_CHECK(
+        buttons.update(RawPointerButton::Left, true)
+        == PointerButtonMergeResult::Down);
+    BAFX_CHECK(buttons.setPolicy(PointerButtonPolicy{false, true, false}));
+
+    // Re-enabling the still-held left button must not make it participate
+    // until a new physical Down arrives after its matching Up.
+    BAFX_CHECK(!buttons.setPolicy(PointerButtonPolicy{true, true, false}));
+    BAFX_CHECK(
+        buttons.update(RawPointerButton::Right, true)
+        == PointerButtonMergeResult::Down);
+    BAFX_CHECK(
+        buttons.update(RawPointerButton::Right, false)
+        == PointerButtonMergeResult::Up);
+    BAFX_CHECK(!buttons.held());
+    BAFX_CHECK(
+        buttons.update(RawPointerButton::Left, false)
+        == PointerButtonMergeResult::None);
+}
+
 BAFX_TEST(overlay_publishes_display_topology_changes_once)
 {
     OverlayWindow window(

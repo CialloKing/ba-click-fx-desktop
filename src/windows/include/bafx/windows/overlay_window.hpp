@@ -131,6 +131,7 @@ private:
 
     PointerButtonPolicy policy_{};
     std::uint8_t physicalDownMask_{0U};
+    std::uint8_t participatingDownMask_{0U};
     bool held_{false};
 };
 
