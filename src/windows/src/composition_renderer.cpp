@@ -262,6 +262,10 @@ constexpr SwapChainCandidateSpecification fallbackSdrSwapChainCandidate{
 
 constexpr bafx::core::MonotonicTime minimumBackgroundCadencePeriod =
     std::chrono::nanoseconds(16'666'667);
+constexpr DisplayRefreshRate conservativeBackgroundRefreshRate{
+    60U,
+    1U,
+    DisplayRefreshRateSource::ConservativeFallback};
 constexpr bafx::core::MonotonicTime minimumBackgroundAcquireLifetime =
     std::chrono::milliseconds(100);
 constexpr bafx::core::MonotonicTime minimumBackgroundRetainLifetime =
@@ -349,6 +353,55 @@ refreshPeriod(const DisplayRefreshRate& refreshRate) noexcept
         return std::nullopt;
     }
     return period;
+}
+
+struct BackgroundCadencePolicy final
+{
+    BackgroundCadenceRefreshStatus status{
+        BackgroundCadenceRefreshStatus::ConservativeFallback};
+    DisplayRefreshRate producerRefreshRate{
+        conservativeBackgroundRefreshRate};
+    DisplayRefreshRate freshnessRefreshRate{
+        conservativeBackgroundRefreshRate};
+    bafx::core::MonotonicTime producerPeriod{
+        minimumBackgroundCadencePeriod};
+    bafx::core::MonotonicTime freshnessPeriod{
+        minimumBackgroundCadencePeriod};
+};
+
+[[nodiscard]] BackgroundCadencePolicy resolveBackgroundCadencePolicy(
+    const std::optional<DisplayRefreshRate>& refreshRate) noexcept
+{
+    if (!refreshRate.has_value())
+    {
+        return {};
+    }
+    const std::optional<bafx::core::MonotonicTime> targetPeriod =
+        refreshPeriod(*refreshRate);
+    if (!targetPeriod.has_value())
+    {
+        return {};
+    }
+
+    BackgroundCadencePolicy policy{};
+    policy.status = BackgroundCadenceRefreshStatus::TargetRate;
+    policy.producerRefreshRate = *refreshRate;
+    policy.producerPeriod = *targetPeriod;
+    const bool noFasterThanFreshnessCeiling =
+        static_cast<std::uint64_t>(refreshRate->numerator)
+        <= static_cast<std::uint64_t>(
+            conservativeBackgroundRefreshRate.numerator)
+            * refreshRate->denominator;
+    if (noFasterThanFreshnessCeiling)
+    {
+        policy.freshnessRefreshRate = *refreshRate;
+        policy.freshnessPeriod = std::max(
+            *targetPeriod,
+            minimumBackgroundCadencePeriod);
+    }
+    // WGC delivery jitter can still be near 60 Hz on a high-refresh display.
+    // A looser freshness window must not be reported as the producer policy.
+    return policy;
 }
 
 [[nodiscard]] bafx::core::MonotonicTime resolveMonotonicTime(
@@ -1438,6 +1491,9 @@ bool CompositionRenderer::tryEnableBackgroundCapture(
         && backgroundCaptureAfterRecoveryAllowed_
         && (allowSystemBorder || borderlessAccessConfirmed);
     backgroundMonitor_ = backgroundCaptureRequested_ ? monitor : nullptr;
+    backgroundTargetRefreshRate_ = backgroundCaptureRequested_
+        ? refreshRate
+        : std::nullopt;
     backgroundRefreshPeriod_ = bafx::core::MonotonicTime::zero();
     if (!backgroundCaptureRequested_)
     {
@@ -1538,6 +1594,7 @@ void CompositionRenderer::disableBackgroundCapture() noexcept
         BackgroundSnapshotInvalidationReason::CaptureDisabled);
     backgroundCaptureRequested_ = false;
     backgroundMonitor_ = nullptr;
+    backgroundTargetRefreshRate_.reset();
     backgroundSystemBorderAllowed_ = false;
     backgroundRefreshPeriod_ = bafx::core::MonotonicTime::zero();
     setBackgroundCaptureFailure({});
@@ -1575,6 +1632,30 @@ CompositionRenderer::backgroundCaptureProducerCadence() const noexcept
         : WgcProducerCadenceState{};
 }
 
+BackgroundCadenceRefreshResult
+CompositionRenderer::backgroundCaptureCadence() const noexcept
+{
+    if (!backgroundCaptureActive())
+    {
+        return BackgroundCadenceRefreshResult{
+            BackgroundCadenceRefreshStatus::Inactive,
+            std::nullopt,
+            std::nullopt,
+            std::nullopt,
+            backgroundRefreshPeriod_};
+    }
+
+    const BackgroundCadencePolicy policy = resolveBackgroundCadencePolicy(
+        backgroundTargetRefreshRate_);
+    return BackgroundCadenceRefreshResult{
+        policy.status,
+        backgroundTargetRefreshRate_,
+        policy.producerRefreshRate,
+        policy.freshnessRefreshRate,
+        backgroundRefreshPeriod_,
+        backgroundCaptureProducerCadence()};
+}
+
 BackgroundCadenceRefreshResult CompositionRenderer::refreshBackgroundCadence(
     const HMONITOR monitor,
     const std::optional<DisplayRefreshRate>& refreshRate) noexcept
@@ -1584,6 +1665,8 @@ BackgroundCadenceRefreshResult CompositionRenderer::refreshBackgroundCadence(
         return BackgroundCadenceRefreshResult{
             BackgroundCadenceRefreshStatus::Inactive,
             std::nullopt,
+            std::nullopt,
+            std::nullopt,
             backgroundRefreshPeriod_};
     }
     if (monitor == nullptr || monitor != backgroundMonitor_)
@@ -1591,29 +1674,23 @@ BackgroundCadenceRefreshResult CompositionRenderer::refreshBackgroundCadence(
         return BackgroundCadenceRefreshResult{
             BackgroundCadenceRefreshStatus::WrongMonitor,
             std::nullopt,
+            std::nullopt,
+            std::nullopt,
             backgroundRefreshPeriod_};
     }
 
-    const std::optional<bafx::core::MonotonicTime> targetPeriod =
-        refreshRate.has_value()
-            ? refreshPeriod(*refreshRate)
-            : std::nullopt;
-    backgroundRefreshPeriod_ = targetPeriod.has_value()
-        ? std::max(*targetPeriod, minimumBackgroundCadencePeriod)
-        : minimumBackgroundCadencePeriod;
-    // Freshness tolerates the ordinary 60 Hz WGC jitter, but producer
-    // throttling must follow a known 120/144 Hz or DRR boost target. Coupling
-    // both policies here would silently cap high-refresh capture at 60 Hz.
-    const bafx::core::MonotonicTime producerPeriod =
-        targetPeriod.value_or(minimumBackgroundCadencePeriod);
+    backgroundTargetRefreshRate_ = refreshRate;
+    const BackgroundCadencePolicy policy = resolveBackgroundCadencePolicy(
+        backgroundTargetRefreshRate_);
+    backgroundRefreshPeriod_ = policy.freshnessPeriod;
     const WgcProducerCadenceState producerCadence =
         backgroundSensor_->configureMinimumUpdateInterval(
-            producerPeriod);
+            policy.producerPeriod);
     return BackgroundCadenceRefreshResult{
-        targetPeriod.has_value()
-            ? BackgroundCadenceRefreshStatus::TargetRate
-            : BackgroundCadenceRefreshStatus::ConservativeFallback,
+        policy.status,
         refreshRate,
+        policy.producerRefreshRate,
+        policy.freshnessRefreshRate,
         backgroundRefreshPeriod_,
         producerCadence};
 }
@@ -1665,10 +1742,8 @@ bool CompositionRenderer::tryCreateBackgroundSensor(
         return false;
     }
 
-    const std::optional<bafx::core::MonotonicTime> targetRefreshPeriod =
-        requestedRefreshRate.has_value()
-        ? refreshPeriod(*requestedRefreshRate)
-        : std::nullopt;
+    const BackgroundCadencePolicy cadence = resolveBackgroundCadencePolicy(
+        requestedRefreshRate);
 
     try
     {
@@ -1681,8 +1756,7 @@ bool CompositionRenderer::tryCreateBackgroundSensor(
         // Producer cadence follows an authoritative target rate. The separate
         // freshness window below remains no tighter than 60 Hz so normal WGC
         // delivery jitter does not destabilize the background path.
-        sensorOptions.minimumUpdateInterval = targetRefreshPeriod.value_or(
-            minimumBackgroundCadencePeriod);
+        sensorOptions.minimumUpdateInterval = cadence.producerPeriod;
         sensorOptions.resourceLedger = backgroundResourceLedger_;
         sensorOptions.stopObserver = backgroundStopObserver_;
         sensorOptions.stopResultObserver =
@@ -1698,9 +1772,8 @@ bool CompositionRenderer::tryCreateBackgroundSensor(
         // Unknown and mixed clone cadence uses a conservative 60 Hz freshness
         // budget. A diagnostic uncertainty must not disable an otherwise valid
         // capture session on a secondary display.
-        backgroundRefreshPeriod_ = targetRefreshPeriod.has_value()
-            ? std::max(*targetRefreshPeriod, minimumBackgroundCadencePeriod)
-            : minimumBackgroundCadencePeriod;
+        backgroundTargetRefreshRate_ = requestedRefreshRate;
+        backgroundRefreshPeriod_ = cadence.freshnessPeriod;
         return true;
     }
     catch (...)

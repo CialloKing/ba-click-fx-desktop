@@ -46,6 +46,15 @@ struct DiagnosticLogRetention
     std::uint32_t backupCount{3U};
 };
 
+struct DisplayPhysicalCadenceRuntimeSummary final
+{
+    std::optional<DisplayRefreshRate> virtualRefreshRate{};
+    std::optional<DisplayRefreshRate> physicalRefreshRate{};
+    std::optional<DisplayRefreshRate> captureRefreshRate{};
+    bool dynamicRefreshRateBoosted{false};
+    bool available{false};
+};
+
 struct DisplaySessionRuntimeSummary final
 {
     std::string monitor{};
@@ -59,6 +68,15 @@ struct DisplaySessionRuntimeSummary final
     std::uint32_t windowDpi{0U};
     std::optional<DisplayRefreshRate> displayRefreshRate{};
     std::optional<DisplayRefreshRate> captureRefreshRate{};
+    DisplayCaptureCadenceFallbackReason captureCadenceFallbackReason{
+        DisplayCaptureCadenceFallbackReason::NoPhysicalTargets};
+    BackgroundCadenceRefreshStatus captureCadenceStatus{
+        BackgroundCadenceRefreshStatus::Inactive};
+    std::optional<DisplayRefreshRate> producerPolicyRefreshRate{};
+    std::optional<DisplayRefreshRate> freshnessPolicyRefreshRate{};
+    std::chrono::nanoseconds freshnessPolicyPeriod{};
+    WgcProducerCadenceState producerCadence{};
+    std::vector<DisplayPhysicalCadenceRuntimeSummary> physicalCadence{};
     LUID sourceAdapterLuid{};
     std::uint32_t sourceId{0U};
     std::size_t physicalTargetCount{0U};

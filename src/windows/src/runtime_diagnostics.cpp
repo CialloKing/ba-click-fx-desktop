@@ -573,6 +573,8 @@ void appendDiagnosticRecordUnlocked(
         return "display-config-virtual-refresh";
     case DisplayRefreshRateSource::DisplayConfigPhysicalRefresh:
         return "display-config-physical-refresh";
+    case DisplayRefreshRateSource::ConservativeFallback:
+        return "conservative-fallback";
     }
     return "unknown";
 }
@@ -712,6 +714,69 @@ void appendDisplaySessionRuntimeSummary(
         prefix,
         "CaptureRefreshRate",
         session.captureRefreshRate);
+    stream << prefix << "CaptureCadence.FallbackReason="
+           << displayCaptureCadenceFallbackReasonName(
+                session.captureCadenceFallbackReason)
+           << '\n'
+           << prefix << "CaptureCadence.Status="
+           << backgroundCadenceRefreshStatusName(
+                session.captureCadenceStatus)
+           << '\n';
+    appendSessionRefreshRate(
+        stream,
+        prefix,
+        "CaptureCadence.ProducerPolicyRefreshRate",
+        session.producerPolicyRefreshRate);
+    appendSessionRefreshRate(
+        stream,
+        prefix,
+        "CaptureCadence.FreshnessPolicyRefreshRate",
+        session.freshnessPolicyRefreshRate);
+    stream << prefix << "CaptureCadence.FreshnessPolicyPeriodNs="
+           << session.freshnessPolicyPeriod.count() << '\n'
+           << prefix << "CaptureCadence.Producer.Status="
+           << wgcProducerCadenceStatusName(
+                session.producerCadence.status)
+           << '\n'
+           << prefix << "CaptureCadence.Producer.RequestedPeriodNs="
+           << session.producerCadence.requested.count() << '\n'
+           << prefix << "CaptureCadence.Producer.AppliedPeriodNs="
+           << session.producerCadence.applied.count() << '\n'
+           << prefix << "CaptureCadence.Producer.HRESULT="
+           << hex32(static_cast<std::uint32_t>(
+                session.producerCadence.result))
+           << '\n'
+           << prefix << "CaptureCadence.PhysicalTargetCount="
+           << session.physicalCadence.size() << '\n';
+    for (std::size_t targetIndex = 0U;
+         targetIndex < session.physicalCadence.size();
+         ++targetIndex)
+    {
+        const DisplayPhysicalCadenceRuntimeSummary& cadence =
+            session.physicalCadence[targetIndex];
+        const std::string targetPrefix = prefix
+            + "CaptureCadence.PhysicalTarget["
+            + std::to_string(targetIndex) + "].";
+        appendSessionRefreshRate(
+            stream,
+            targetPrefix,
+            "VirtualRefreshRate",
+            cadence.virtualRefreshRate);
+        appendSessionRefreshRate(
+            stream,
+            targetPrefix,
+            "PhysicalRefreshRate",
+            cadence.physicalRefreshRate);
+        appendSessionRefreshRate(
+            stream,
+            targetPrefix,
+            "CaptureRefreshRate",
+            cadence.captureRefreshRate);
+        stream << targetPrefix << "DrrBoost="
+               << booleanName(cadence.dynamicRefreshRateBoosted) << '\n'
+               << targetPrefix << "Available="
+               << booleanName(cadence.available) << '\n';
+    }
 
     stream << prefix << "SourceAdapterResolved="
            << booleanName(session.sourceAdapterResolved) << '\n'

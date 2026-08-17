@@ -10,10 +10,12 @@
 #include <d3d11.h>
 
 #include <array>
+#include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
 #include <string>
+#include <utility>
 
 namespace
 {
@@ -323,6 +325,75 @@ BAFX_TEST(diagnostic_events_are_structured_and_keep_equals_inside_values)
     BAFX_CHECK(
         text.find("Runtime.Detail=left=right continued\n")
         != std::string::npos);
+}
+
+BAFX_TEST(support_report_serializes_per_display_capture_cadence)
+{
+    bafx::windows::DisplaySessionRuntimeSummary session{};
+    session.captureCadenceFallbackReason =
+        bafx::windows::DisplayCaptureCadenceFallbackReason::
+            MixedCloneRefreshRates;
+    session.captureCadenceStatus =
+        bafx::windows::BackgroundCadenceRefreshStatus::ConservativeFallback;
+    session.producerPolicyRefreshRate = bafx::windows::DisplayRefreshRate{
+        60U,
+        1U,
+        bafx::windows::DisplayRefreshRateSource::ConservativeFallback};
+    session.freshnessPolicyRefreshRate = session.producerPolicyRefreshRate;
+    session.freshnessPolicyPeriod = std::chrono::nanoseconds(16'666'667);
+    session.producerCadence.status =
+        bafx::windows::WgcProducerCadenceStatus::Applied;
+    session.producerCadence.requested = std::chrono::nanoseconds(16'666'667);
+    session.producerCadence.applied = std::chrono::nanoseconds(16'666'667);
+    session.producerCadence.result = S_OK;
+    session.physicalCadence.push_back(
+        bafx::windows::DisplayPhysicalCadenceRuntimeSummary{
+            bafx::windows::DisplayRefreshRate{
+                60U,
+                1U,
+                bafx::windows::DisplayRefreshRateSource::
+                    DisplayConfigVirtualRefresh},
+            bafx::windows::DisplayRefreshRate{
+                144U,
+                1U,
+                bafx::windows::DisplayRefreshRateSource::
+                    DisplayConfigPhysicalRefresh},
+            bafx::windows::DisplayRefreshRate{
+                144U,
+                1U,
+                bafx::windows::DisplayRefreshRateSource::
+                    DisplayConfigPhysicalRefresh},
+            true,
+            true});
+
+    bafx::windows::DisplayRuntimeSummary runtime{};
+    runtime.sessionCount = 1U;
+    runtime.sessions.push_back(std::move(session));
+    bafx::windows::SupportReport report("test");
+    report.setDisplayRuntimeSummary(std::move(runtime));
+    const std::string text = report.serialize();
+
+    BAFX_CHECK(text.find(
+        "Display.Session[0].CaptureCadence.FallbackReason="
+        "mixed-clone-refresh-rates") != std::string::npos);
+    BAFX_CHECK(text.find(
+        "Display.Session[0].CaptureCadence.Status="
+        "conservative-fallback") != std::string::npos);
+    BAFX_CHECK(text.find(
+        "Display.Session[0].CaptureCadence.ProducerPolicyRefreshRate.Hz="
+        "60.000") != std::string::npos);
+    BAFX_CHECK(text.find(
+        "Display.Session[0].CaptureCadence.FreshnessPolicyPeriodNs="
+        "16666667") != std::string::npos);
+    BAFX_CHECK(text.find(
+        "Display.Session[0].CaptureCadence.Producer.Status=applied")
+        != std::string::npos);
+    BAFX_CHECK(text.find(
+        "Display.Session[0].CaptureCadence.PhysicalTarget[0]."
+        "CaptureRefreshRate.Hz=144.000") != std::string::npos);
+    BAFX_CHECK(text.find(
+        "Display.Session[0].CaptureCadence.PhysicalTarget[0]."
+        "DrrBoost=true") != std::string::npos);
 }
 
 BAFX_TEST(diagnostic_log_rotation_keeps_a_bounded_backup_chain)

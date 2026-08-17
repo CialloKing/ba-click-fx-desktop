@@ -65,6 +65,51 @@ constexpr DWORD pausedControlPollMilliseconds = 50U;
     return stream.str();
 }
 
+[[nodiscard]] std::string formatDisplayRefreshRate(
+    const std::optional<bafx::windows::DisplayRefreshRate>& refreshRate)
+{
+    if (!refreshRate.has_value())
+    {
+        return "unknown";
+    }
+    return std::to_string(refreshRate->numerator)
+        + "/" + std::to_string(refreshRate->denominator);
+}
+
+[[nodiscard]] std::string formatPhysicalCadence(
+    const bafx::desktop::DisplayTarget& target)
+{
+    std::ostringstream stream;
+    for (std::size_t index = 0U;
+         index < target.physicalTargetIdentities.size();
+         ++index)
+    {
+        if (index != 0U)
+        {
+            stream << ';';
+        }
+        const bafx::desktop::DisplayPhysicalTargetIdentity& physicalTarget =
+            target.physicalTargetIdentities[index];
+        stream << index
+               << ":virtual="
+               << formatDisplayRefreshRate(
+                    physicalTarget.virtualRefreshRate)
+               << ",physical="
+               << formatDisplayRefreshRate(
+                    physicalTarget.physicalRefreshRate)
+               << ",capture="
+               << formatDisplayRefreshRate(
+                    physicalTarget.captureRefreshRate)
+               << ",drr="
+               << (physicalTarget.dynamicRefreshRateBoosted
+                    ? "boosted"
+                    : "normal")
+               << ",available="
+               << (physicalTarget.available ? "true" : "false");
+    }
+    return stream.str().empty() ? "none" : stream.str();
+}
+
 [[nodiscard]] std::string_view dpiAwarenessContextName(
     const DPI_AWARENESS_CONTEXT context) noexcept
 {
@@ -2500,6 +2545,8 @@ int runApplication(
                     sessionCapabilities);
             const bafx::windows::CompositionOutputState& sessionOutput =
                 ownedSession->renderer().outputState();
+            const bafx::windows::BackgroundCadenceRefreshResult cadence =
+                ownedSession->renderer().backgroundCaptureCadence();
 
             bafx::windows::DisplaySessionRuntimeSummary summary{};
             summary.monitor =
@@ -2513,6 +2560,28 @@ int runApplication(
             summary.windowDpi = ownedSession->window().effectiveDpi();
             summary.displayRefreshRate = target.refreshRate;
             summary.captureRefreshRate = target.captureRefreshRate;
+            summary.captureCadenceFallbackReason =
+                target.captureCadenceFallbackReason;
+            summary.captureCadenceStatus = cadence.status;
+            summary.producerPolicyRefreshRate =
+                cadence.producerPolicyRefreshRate;
+            summary.freshnessPolicyRefreshRate =
+                cadence.freshnessPolicyRefreshRate;
+            summary.freshnessPolicyPeriod = cadence.appliedPeriod;
+            summary.producerCadence = cadence.producerCadence;
+            summary.physicalCadence.reserve(
+                target.physicalTargetIdentities.size());
+            for (const bafx::desktop::DisplayPhysicalTargetIdentity&
+                    physicalTarget : target.physicalTargetIdentities)
+            {
+                summary.physicalCadence.push_back(
+                    bafx::windows::DisplayPhysicalCadenceRuntimeSummary{
+                        physicalTarget.virtualRefreshRate,
+                        physicalTarget.physicalRefreshRate,
+                        physicalTarget.captureRefreshRate,
+                        physicalTarget.dynamicRefreshRateBoosted,
+                        physicalTarget.available});
+            }
             summary.sourceAdapterLuid = target.sourceAdapterLuid;
             summary.sourceId = target.sourceId;
             summary.physicalTargetCount = target.physicalTargetCount;
@@ -4229,17 +4298,11 @@ int runApplication(
                     std::to_string(stabilizedObservedTarget.dpiX)
                     + "x"
                     + std::to_string(stabilizedObservedTarget.dpiY);
-                const auto formatRefreshRate = [](const auto& refreshRate)
-                {
-                    return refreshRate.has_value()
-                        ? std::to_string(refreshRate->numerator)
-                            + "/"
-                            + std::to_string(refreshRate->denominator)
-                        : std::string("unknown");
-                };
-                const std::string displayRefreshRate = formatRefreshRate(
+                const std::string displayRefreshRate =
+                    formatDisplayRefreshRate(
                     stabilizedObservedTarget.refreshRate);
-                const std::string captureRefreshRate = formatRefreshRate(
+                const std::string captureRefreshRate =
+                    formatDisplayRefreshRate(
                     stabilizedObservedTarget.captureRefreshRate);
                 const std::string monitor =
                     bafx::desktop::formatDisplayTargetMonitor(
@@ -4288,23 +4351,6 @@ int runApplication(
                     report.setPrimaryRefreshRate({});
                 }
 
-                const auto cadenceStatusName = [](const auto status)
-                    -> std::string_view
-                {
-                    switch (status)
-                    {
-                    case bafx::windows::BackgroundCadenceRefreshStatus::Inactive:
-                        return "inactive";
-                    case bafx::windows::BackgroundCadenceRefreshStatus::WrongMonitor:
-                        return "wrong-monitor";
-                    case bafx::windows::BackgroundCadenceRefreshStatus::TargetRate:
-                        return "target-rate";
-                    case bafx::windows::BackgroundCadenceRefreshStatus::
-                        ConservativeFallback:
-                        return "conservative-fallback";
-                    }
-                    return "unknown";
-                };
                 const std::string periodMicroseconds = std::to_string(
                     std::chrono::duration_cast<std::chrono::microseconds>(
                         cadence.appliedPeriod).count());
@@ -4318,10 +4364,48 @@ int runApplication(
                             cadence.producerCadence.applied).count());
                 const std::string producerResult = formatHresult(
                     cadence.producerCadence.result);
+                const std::string targetRefreshRate =
+                    formatDisplayRefreshRate(cadence.refreshRate);
+                const std::string producerPolicyRefreshRate =
+                    formatDisplayRefreshRate(
+                        cadence.producerPolicyRefreshRate);
+                const std::string freshnessPolicyRefreshRate =
+                    formatDisplayRefreshRate(
+                        cadence.freshnessPolicyRefreshRate);
+                const std::string physicalCadence =
+                    formatPhysicalCadence(appliedDisplayTarget);
+                const bool drrBoosted = std::ranges::any_of(
+                    appliedDisplayTarget.physicalTargetIdentities,
+                    [](const auto& target) noexcept
+                    {
+                        return target.dynamicRefreshRateBoosted;
+                    });
                 const std::array cadenceFields{
                     bafx::windows::DiagnosticField{
                         "Status",
-                        cadenceStatusName(cadence.status)},
+                        bafx::windows::backgroundCadenceRefreshStatusName(
+                            cadence.status)},
+                    bafx::windows::DiagnosticField{
+                        "TargetRefreshRate",
+                        targetRefreshRate},
+                    bafx::windows::DiagnosticField{
+                        "ProducerPolicyRefreshRate",
+                        producerPolicyRefreshRate},
+                    bafx::windows::DiagnosticField{
+                        "FreshnessPolicyRefreshRate",
+                        freshnessPolicyRefreshRate},
+                    bafx::windows::DiagnosticField{
+                        "FallbackReason",
+                        bafx::windows::
+                            displayCaptureCadenceFallbackReasonName(
+                                appliedDisplayTarget.
+                                    captureCadenceFallbackReason)},
+                    bafx::windows::DiagnosticField{
+                        "PhysicalTargets",
+                        physicalCadence},
+                    bafx::windows::DiagnosticField{
+                        "DrrBoost",
+                        drrBoosted ? "boosted" : "normal"},
                     bafx::windows::DiagnosticField{
                         "AppliedPeriodUs",
                         periodMicroseconds},

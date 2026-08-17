@@ -354,6 +354,8 @@ DisplayTargetSnapshot queryDisplayTargets() noexcept
             target.dpiY = display.dpiY;
             target.refreshRate = commonRefreshRate(display);
             target.captureRefreshRate = display.captureRefreshRate;
+            target.captureCadenceFallbackReason =
+                display.captureCadenceFallbackReason;
             target.physicalTargetCount = display.physicalTargets.size();
             target.primary = display.primary;
             target.sourceAdapterResolved = display.sourceAdapterResolved;
@@ -371,7 +373,14 @@ DisplayTargetSnapshot queryDisplayTargets() noexcept
                         physicalTarget.rotation,
                         physicalTarget.scaling,
                         physicalTarget.outputTechnology,
-                        physicalTarget.available});
+                        physicalTarget.available,
+                        validRefreshRate(physicalTarget.refreshRate)
+                            ? std::optional<bafx::windows::DisplayRefreshRate>(
+                                physicalTarget.refreshRate)
+                            : std::nullopt,
+                        physicalTarget.physicalRefreshRate,
+                        physicalTarget.captureRefreshRate,
+                        physicalTarget.dynamicRefreshRateBoosted});
             }
             std::sort(
                 target.physicalTargetIdentities.begin(),
@@ -563,6 +572,8 @@ DisplayTarget stabilizeDisplayTargetObservation(
         // query confirms an actual clone removal.
         stabilized.refreshRate = previous.refreshRate;
         stabilized.captureRefreshRate = previous.captureRefreshRate;
+        stabilized.captureCadenceFallbackReason =
+            previous.captureCadenceFallbackReason;
         stabilized.physicalTargetCount = previous.physicalTargetCount;
         stabilized.physicalTargetIdentities =
             previous.physicalTargetIdentities;

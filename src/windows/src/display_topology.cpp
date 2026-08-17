@@ -181,48 +181,6 @@ void resolveSourceAdaptersFromDxgi(
         : std::nullopt;
 }
 
-[[nodiscard]] DisplayRefreshRate captureCadenceRefreshRate(
-    const DisplayPhysicalTarget& target) noexcept
-{
-    if (target.physicalRefreshRate.has_value()
-        && (target.dynamicRefreshRateBoosted
-            || !validRefreshRate(target.refreshRate)))
-    {
-        // A 0/0 virtual rate delegates selection to Windows. The target mode
-        // is still an actionable upper-bound cadence for capture freshness.
-        return *target.physicalRefreshRate;
-    }
-    return target.refreshRate;
-}
-
-[[nodiscard]] std::optional<DisplayRefreshRate> commonCaptureRefreshRate(
-    const ActiveDisplayMonitor& display) noexcept
-{
-    if (display.physicalTargets.empty())
-    {
-        return std::nullopt;
-    }
-
-    const DisplayRefreshRate refreshRate = captureCadenceRefreshRate(
-        display.physicalTargets.front());
-    if (!validRefreshRate(refreshRate))
-    {
-        return std::nullopt;
-    }
-    for (const DisplayPhysicalTarget& target : display.physicalTargets)
-    {
-        const DisplayRefreshRate targetRefreshRate =
-            captureCadenceRefreshRate(target);
-        if (!equivalentDisplayRefreshRate(targetRefreshRate, refreshRate))
-        {
-            // A cloned source with different scan-out rates has no single
-            // capture cadence. Callers retain their conservative fallback.
-            return std::nullopt;
-        }
-    }
-    return refreshRate;
-}
-
 BOOL CALLBACK collectMonitor(
     const HMONITOR monitor,
     HDC,
@@ -403,6 +361,95 @@ void recordFirstError(
 
 }
 
+std::optional<DisplayRefreshRate>
+resolveDisplayPhysicalCaptureRefreshRate(
+    const DisplayPhysicalTarget& target) noexcept
+{
+    if (target.dynamicRefreshRateBoosted)
+    {
+        // The virtual rate describes the unboosted cadence. A boost flag is
+        // useful only together with the physical target mode selected by DWM.
+        return target.physicalRefreshRate;
+    }
+    if (validRefreshRate(target.refreshRate))
+    {
+        return target.refreshRate;
+    }
+    // A 0/0 virtual rate delegates selection to Windows. The target mode is
+    // still an actionable upper-bound cadence when DRR is not boosting it.
+    return target.physicalRefreshRate;
+}
+
+DisplayCaptureCadenceResolution resolveDisplayCaptureCadence(
+    const std::vector<DisplayPhysicalTarget>& targets) noexcept
+{
+    if (targets.empty())
+    {
+        return {};
+    }
+    if (std::ranges::any_of(
+            targets,
+            [](const DisplayPhysicalTarget& target) noexcept
+            {
+                return !target.available;
+            }))
+    {
+        return DisplayCaptureCadenceResolution{
+            std::nullopt,
+            DisplayCaptureCadenceFallbackReason::PhysicalTargetUnavailable};
+    }
+    if (std::ranges::any_of(
+            targets,
+            [](const DisplayPhysicalTarget& target) noexcept
+            {
+                return target.dynamicRefreshRateBoosted
+                    && !target.physicalRefreshRate.has_value();
+            }))
+    {
+        return DisplayCaptureCadenceResolution{
+            std::nullopt,
+            DisplayCaptureCadenceFallbackReason::
+                DrrPhysicalRefreshRateUnavailable};
+    }
+
+    const std::optional<DisplayRefreshRate> refreshRate =
+        resolveDisplayPhysicalCaptureRefreshRate(targets.front());
+    if (!refreshRate.has_value() || !validRefreshRate(*refreshRate))
+    {
+        return DisplayCaptureCadenceResolution{
+            std::nullopt,
+            DisplayCaptureCadenceFallbackReason::
+                InvalidEffectiveRefreshRate};
+    }
+    for (const DisplayPhysicalTarget& target : targets)
+    {
+        const std::optional<DisplayRefreshRate> targetRefreshRate =
+            resolveDisplayPhysicalCaptureRefreshRate(target);
+        if (!targetRefreshRate.has_value()
+            || !validRefreshRate(*targetRefreshRate))
+        {
+            return DisplayCaptureCadenceResolution{
+                std::nullopt,
+                DisplayCaptureCadenceFallbackReason::
+                    InvalidEffectiveRefreshRate};
+        }
+        if (!equivalentDisplayRefreshRate(
+                *targetRefreshRate,
+                *refreshRate))
+        {
+            // Present remains swap-chain driven. Only WGC producer cadence and
+            // background freshness need this conservative single-rate policy.
+            return DisplayCaptureCadenceResolution{
+                std::nullopt,
+                DisplayCaptureCadenceFallbackReason::
+                    MixedCloneRefreshRates};
+        }
+    }
+    return DisplayCaptureCadenceResolution{
+        refreshRate,
+        DisplayCaptureCadenceFallbackReason::None};
+}
+
 DisplayTopologySnapshot queryActiveDisplayTopology() noexcept
 {
     DisplayTopologySnapshot snapshot{};
@@ -506,6 +553,8 @@ DisplayTopologySnapshot queryActiveDisplayTopology() noexcept
             constexpr UINT dynamicRefreshRateBoostFlag = 0x00000010U;
             target.dynamicRefreshRateBoosted = virtualRefreshRateAware
                 && (path.flags & dynamicRefreshRateBoostFlag) != 0U;
+            target.captureRefreshRate =
+                resolveDisplayPhysicalCaptureRefreshRate(target);
             target.rotation = path.targetInfo.rotation;
             target.scaling = path.targetInfo.scaling;
             target.outputTechnology = path.targetInfo.outputTechnology;
@@ -556,7 +605,10 @@ DisplayTopologySnapshot queryActiveDisplayTopology() noexcept
                     snapshot.error,
                     ERROR_NOT_FOUND);
             }
-            display.captureRefreshRate = commonCaptureRefreshRate(display);
+            const DisplayCaptureCadenceResolution cadence =
+                resolveDisplayCaptureCadence(display.physicalTargets);
+            display.captureRefreshRate = cadence.refreshRate;
+            display.captureCadenceFallbackReason = cadence.fallbackReason;
         }
         return snapshot;
     }

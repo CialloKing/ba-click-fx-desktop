@@ -24,6 +24,10 @@ struct DisplayPhysicalTargetIdentity final
     DISPLAYCONFIG_VIDEO_OUTPUT_TECHNOLOGY outputTechnology{
         DISPLAYCONFIG_OUTPUT_TECHNOLOGY_OTHER};
     bool available{false};
+    std::optional<bafx::windows::DisplayRefreshRate> virtualRefreshRate{};
+    std::optional<bafx::windows::DisplayRefreshRate> physicalRefreshRate{};
+    std::optional<bafx::windows::DisplayRefreshRate> captureRefreshRate{};
+    bool dynamicRefreshRateBoosted{false};
 };
 
 struct DisplayTarget
@@ -37,6 +41,10 @@ struct DisplayTarget
     std::uint32_t dpiY{96U};
     std::optional<bafx::windows::DisplayRefreshRate> refreshRate{};
     std::optional<bafx::windows::DisplayRefreshRate> captureRefreshRate{};
+    bafx::windows::DisplayCaptureCadenceFallbackReason
+        captureCadenceFallbackReason{
+            bafx::windows::DisplayCaptureCadenceFallbackReason::
+                NoPhysicalTargets};
     std::size_t physicalTargetCount{0U};
     bool primary{false};
     bool sourceAdapterResolved{false};
@@ -272,6 +280,41 @@ struct DisplayTargetSnapshot
             && left->source == right->source);
 }
 
+[[nodiscard]] inline bool sameDisplayPhysicalTargetCadence(
+    const DisplayTarget& left,
+    const DisplayTarget& right) noexcept
+{
+    if (left.physicalTargetIdentities.size()
+        != right.physicalTargetIdentities.size())
+    {
+        return false;
+    }
+    for (std::size_t index = 0U;
+         index < left.physicalTargetIdentities.size();
+         ++index)
+    {
+        const DisplayPhysicalTargetIdentity& leftTarget =
+            left.physicalTargetIdentities[index];
+        const DisplayPhysicalTargetIdentity& rightTarget =
+            right.physicalTargetIdentities[index];
+        if (!sameDisplayRefreshRate(
+                leftTarget.virtualRefreshRate,
+                rightTarget.virtualRefreshRate)
+            || !sameDisplayRefreshRate(
+                leftTarget.physicalRefreshRate,
+                rightTarget.physicalRefreshRate)
+            || !sameDisplayRefreshRate(
+                leftTarget.captureRefreshRate,
+                rightTarget.captureRefreshRate)
+            || leftTarget.dynamicRefreshRateBoosted
+                != rightTarget.dynamicRefreshRateBoosted)
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
 [[nodiscard]] inline bool sameDisplayRuntimeMetadata(
     const DisplayTarget& left,
     const DisplayTarget& right) noexcept
@@ -285,6 +328,9 @@ struct DisplayTargetSnapshot
         && sameDisplayRefreshRate(
             left.captureRefreshRate,
             right.captureRefreshRate)
+        && left.captureCadenceFallbackReason
+            == right.captureCadenceFallbackReason
+        && sameDisplayPhysicalTargetCadence(left, right)
         && left.primary == right.primary
         && left.physicalTargetCount == right.physicalTargetCount
         && left.topologyStatus == right.topologyStatus;

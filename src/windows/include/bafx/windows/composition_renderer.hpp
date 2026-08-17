@@ -119,11 +119,32 @@ enum class BackgroundCadenceRefreshStatus : std::uint8_t
     ConservativeFallback
 };
 
+[[nodiscard]] constexpr std::string_view backgroundCadenceRefreshStatusName(
+    const BackgroundCadenceRefreshStatus status) noexcept
+{
+    switch (status)
+    {
+    case BackgroundCadenceRefreshStatus::Inactive:
+        return "inactive";
+    case BackgroundCadenceRefreshStatus::WrongMonitor:
+        return "wrong-monitor";
+    case BackgroundCadenceRefreshStatus::TargetRate:
+        return "target-rate";
+    case BackgroundCadenceRefreshStatus::ConservativeFallback:
+        return "conservative-fallback";
+    }
+    return "unknown";
+}
+
 struct BackgroundCadenceRefreshResult
 {
     BackgroundCadenceRefreshStatus status{
         BackgroundCadenceRefreshStatus::Inactive};
     std::optional<DisplayRefreshRate> refreshRate{};
+    // Producer throttling and sample freshness intentionally use different
+    // rates above 60 Hz. Present remains owned by the swap-chain waitable.
+    std::optional<DisplayRefreshRate> producerPolicyRefreshRate{};
+    std::optional<DisplayRefreshRate> freshnessPolicyRefreshRate{};
     std::chrono::nanoseconds appliedPeriod{};
     WgcProducerCadenceState producerCadence{};
 };
@@ -311,6 +332,8 @@ public:
     [[nodiscard]] WgcProducerCadenceState
         backgroundCaptureProducerCadence() const noexcept;
     [[nodiscard]] BackgroundCadenceRefreshResult
+        backgroundCaptureCadence() const noexcept;
+    [[nodiscard]] BackgroundCadenceRefreshResult
         refreshBackgroundCadence(
             HMONITOR monitor,
             const std::optional<DisplayRefreshRate>& refreshRate) noexcept;
@@ -407,6 +430,7 @@ private:
     std::unique_ptr<WgcBackgroundSensor> backgroundSensor_{};
     std::optional<PixelF> lastCenterPixel_{};
     bafx::core::MonotonicTime backgroundRefreshPeriod_{};
+    std::optional<DisplayRefreshRate> backgroundTargetRefreshRate_{};
     HMONITOR backgroundMonitor_{nullptr};
     std::uint64_t backgroundEpoch_{1U};
     bool backgroundCaptureRequested_{false};

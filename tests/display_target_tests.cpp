@@ -4,8 +4,10 @@
 #include "display_target.hpp"
 
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <utility>
+#include <vector>
 
 using namespace bafx::desktop;
 
@@ -44,6 +46,80 @@ namespace
     return identity;
 }
 
+[[nodiscard]] bafx::windows::DisplayPhysicalTarget cadenceTarget(
+    const std::uint32_t virtualHertz,
+    const std::optional<std::uint32_t> physicalHertz,
+    const bool boosted = false)
+{
+    bafx::windows::DisplayPhysicalTarget target{};
+    target.refreshRate = bafx::windows::DisplayRefreshRate{
+        virtualHertz,
+        1U,
+        bafx::windows::DisplayRefreshRateSource::
+            DisplayConfigVirtualRefresh};
+    if (physicalHertz.has_value())
+    {
+        target.physicalRefreshRate = bafx::windows::DisplayRefreshRate{
+            *physicalHertz,
+            1U,
+            bafx::windows::DisplayRefreshRateSource::
+                DisplayConfigPhysicalRefresh};
+    }
+    target.available = true;
+    target.dynamicRefreshRateBoosted = boosted;
+    return target;
+}
+
+}
+
+BAFX_TEST(display_capture_cadence_uses_consistent_clone_refresh_rate)
+{
+    const std::vector targets{
+        cadenceTarget(120U, 120U),
+        cadenceTarget(120U, 120U)};
+    const bafx::windows::DisplayCaptureCadenceResolution cadence =
+        bafx::windows::resolveDisplayCaptureCadence(targets);
+
+    BAFX_CHECK(cadence.refreshRate.has_value());
+    BAFX_CHECK(cadence.refreshRate->numerator == 120U);
+    BAFX_CHECK(
+        cadence.fallbackReason
+        == bafx::windows::DisplayCaptureCadenceFallbackReason::None);
+}
+
+BAFX_TEST(display_capture_cadence_rejects_mixed_clone_refresh_rates)
+{
+    const std::vector targets{
+        cadenceTarget(120U, 120U),
+        cadenceTarget(60U, 60U)};
+    const bafx::windows::DisplayCaptureCadenceResolution cadence =
+        bafx::windows::resolveDisplayCaptureCadence(targets);
+
+    BAFX_CHECK(!cadence.refreshRate.has_value());
+    BAFX_CHECK(
+        cadence.fallbackReason
+        == bafx::windows::DisplayCaptureCadenceFallbackReason::
+            MixedCloneRefreshRates);
+}
+
+BAFX_TEST(display_capture_cadence_requires_physical_rate_for_drr_boost)
+{
+    const std::vector resolvedTargets{
+        cadenceTarget(60U, 144U, true)};
+    const bafx::windows::DisplayCaptureCadenceResolution resolved =
+        bafx::windows::resolveDisplayCaptureCadence(resolvedTargets);
+    BAFX_CHECK(resolved.refreshRate.has_value());
+    BAFX_CHECK(resolved.refreshRate->numerator == 144U);
+
+    const std::vector unresolvedTargets{
+        cadenceTarget(60U, std::nullopt, true)};
+    const bafx::windows::DisplayCaptureCadenceResolution unresolved =
+        bafx::windows::resolveDisplayCaptureCadence(unresolvedTargets);
+    BAFX_CHECK(!unresolved.refreshRate.has_value());
+    BAFX_CHECK(
+        unresolved.fallbackReason
+        == bafx::windows::DisplayCaptureCadenceFallbackReason::
+            DrrPhysicalRefreshRateUnavailable);
 }
 
 BAFX_TEST(display_target_identity_includes_monitor_device_and_bounds)
