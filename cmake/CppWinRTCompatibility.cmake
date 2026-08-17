@@ -43,6 +43,21 @@ function(bafx_configure_cppwinrt_coroutines target_name)
         "Use the legacy MSVC coroutine TS for the selected C++/WinRT projection"
         FORCE
     )
+    # The Windows 10 (19041) C++/WinRT projection is known to require the
+    # retired MSVC coroutine TS.  A nested Visual Studio try_compile can
+    # silently include a newer projection even when CMAKE_SYSTEM_VERSION is
+    # pinned, so a successful standard probe is not evidence that the product
+    # compile will work.  Select the conservative path for this SDK family;
+    # newer SDKs still use the capability probe below.
+    set(cppwinrt_requires_legacy_coroutines FALSE)
+    if(cppwinrt_selected_windows_sdk
+        AND cppwinrt_selected_windows_sdk VERSION_LESS "10.0.22000.0")
+        set(cppwinrt_requires_legacy_coroutines TRUE)
+        message(
+            STATUS
+            "C++/WinRT legacy coroutine path required by Windows SDK ${cppwinrt_selected_windows_sdk}"
+        )
+    endif()
     set(
         cppwinrt_probe_source
         [=[
@@ -54,20 +69,22 @@ int cppwinrtCoroutineProbe()
 }
 ]=]
     )
-    try_compile(
-        cppwinrt_supports_standard_coroutines
-        SOURCE_FROM_CONTENT
-            cppwinrt_standard_coroutine_probe.cpp
-            "${cppwinrt_probe_source}"
-        CMAKE_FLAGS ${cppwinrt_probe_cmake_flags}
-        CXX_STANDARD 20
-        CXX_STANDARD_REQUIRED ON
-        CXX_EXTENSIONS OFF
-        NO_CACHE
-        OUTPUT_VARIABLE cppwinrt_standard_probe_output
-    )
-    if(cppwinrt_supports_standard_coroutines)
-        return()
+    if(NOT cppwinrt_requires_legacy_coroutines)
+        try_compile(
+            cppwinrt_supports_standard_coroutines
+            SOURCE_FROM_CONTENT
+                cppwinrt_standard_coroutine_probe.cpp
+                "${cppwinrt_probe_source}"
+            CMAKE_FLAGS ${cppwinrt_probe_cmake_flags}
+            CXX_STANDARD 20
+            CXX_STANDARD_REQUIRED ON
+            CXX_EXTENSIONS OFF
+            NO_CACHE
+            OUTPUT_VARIABLE cppwinrt_standard_probe_output
+        )
+        if(cppwinrt_supports_standard_coroutines)
+            return()
+        endif()
     endif()
 
     # SDK 19041's projection hard-codes the retired coroutine TS. Restrict the
