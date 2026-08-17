@@ -122,6 +122,12 @@ function Invoke-BoundedProcess
 $revisionValue = Get-Revision
 $resolvedExecutable = Resolve-RepositoryPath -Path $Executable
 $verifierPath = Join-Path $repositoryRoot 'tools\verify-wgc-session-exclusion-spike.py'
+$minimumProcessTimeoutMilliseconds = $CaptureTimeoutMilliseconds + 5000
+
+if ($ProcessTimeoutMilliseconds -lt $minimumProcessTimeoutMilliseconds)
+{
+    throw "Process timeout must be at least capture timeout plus 5000 ms so the collector watchdog can write failure evidence."
+}
 
 if (-not (Test-Path -LiteralPath $resolvedExecutable -PathType Leaf))
 {

@@ -234,6 +234,8 @@ configuration iteration 的 frame 前不发布新的 `BackgroundSnapshot`；失�
    可用 `-OutputDirectory`、`-CaptureTimeoutMilliseconds` 和 `-ProcessTimeoutMilliseconds` 覆盖；
    collector/verifier 的 stdout/stderr 也会保存在同一目录。为避免同一 revision 的重跑覆盖旧证据，
    目标目录必须不存在或为空；需要重跑时应传入新的 `-OutputDirectory`，而不是清理旧目录。
+   `ProcessTimeoutMilliseconds` 必须至少比 `CaptureTimeoutMilliseconds` 多 `5000 ms`，为 collector
+   watchdog 和失败证据写入保留进程外缓冲。
 
 2. **单机真实桌面证据（下一执行阶段）**
    - 在目标系统记录 OS build、Windows SDK、GPU/driver、主显示器分辨率、刷新率、色彩模式和位深，

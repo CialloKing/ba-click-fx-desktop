@@ -139,7 +139,8 @@ frame 才能产生新的 `BackgroundSnapshot`；旧 iteration、跳序事件和�
 原因。任何 `NotVerified` 都是证据不足，不得折算为 `Rejected` 或 `Passed`。
 
 目标机运行脚本拒绝文件路径和非空输出目录，确保 collector/verifier 重跑不会覆盖既有 JSON、原始帧
-或诊断日志；重跑必须使用新的 revision 或显式指定新的输出目录。
+或诊断日志；重跑必须使用新的 revision 或显式指定新的输出目录。父进程超时还必须比 collector
+采集超时至少多 `5000 ms`，否则脚本会拒绝启动，避免父进程先于 collector watchdog 终止而丢失失败证据。
 
 ## 3. Golden case 契约
 
