@@ -250,7 +250,6 @@ public:
     void show();
     void hide() noexcept;
     void pollExitShortcut() noexcept;
-    void pollPointerState() noexcept;
 
 private:
     static LRESULT CALLBACK windowProcedure(

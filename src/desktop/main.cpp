@@ -3764,7 +3764,6 @@ int runApplication(
     {
         accumulateMessageDispatch(pendingMessageDispatch, dispatchMessages(quit));
         hostWindow.pollExitShortcut();
-        hostWindow.pollPointerState();
         bafx::desktop::HostStateSnapshot controlState = control.snapshot();
         if (controlState.shutdownRequested
             || quit

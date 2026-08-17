@@ -19,8 +19,9 @@ namespace
 
 }
 
-BAFX_TEST(raw_pointer_stroke_ignores_traditional_capture_changes)
+BAFX_TEST(raw_pointer_stroke_only_cancels_for_device_removal)
 {
+    BAFX_CHECK(!rawPointerMessageCancelsStroke(WM_INPUT, 0U));
     BAFX_CHECK(!rawPointerMessageCancelsStroke(WM_CANCELMODE, 0U));
     BAFX_CHECK(!rawPointerMessageCancelsStroke(WM_CAPTURECHANGED, 0U));
     BAFX_CHECK(!rawPointerMessageCancelsStroke(

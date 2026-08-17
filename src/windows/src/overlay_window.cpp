@@ -627,21 +627,6 @@ void OverlayWindow::pollExitShortcut() noexcept
     exitShortcutDown_ = shortcutDown;
 }
 
-void OverlayWindow::pollPointerState() noexcept
-{
-    if (role_ != OverlayWindowRole::HostShell)
-    {
-        return;
-    }
-
-    if (leftButtonDown_ && (GetAsyncKeyState(VK_LBUTTON) & 0x8000) == 0)
-    {
-        // Raw Input is normally lossless, but device changes and queue pressure
-        // still need a physical-state escape from a permanently held stroke.
-        cancelPointer();
-    }
-}
-
 LRESULT CALLBACK OverlayWindow::windowProcedure(
     const HWND window,
     const UINT message,
@@ -982,6 +967,10 @@ void OverlayWindow::registerRawMouse()
     RAWINPUTDEVICE mouse{};
     mouse.usUsagePage = 0x01;
     mouse.usUsage = 0x02;
+    // INPUTSINK delivers the matching Raw Up while this non-activating overlay
+    // is in the background. Do not mix this ordered stream with an asynchronous
+    // key-state poll: that query may be unavailable across desktop or integrity
+    // boundaries and would turn a valid held stroke into a false cancellation.
     mouse.dwFlags = RIDEV_INPUTSINK | RIDEV_DEVNOTIFY;
     mouse.hwndTarget = window_;
     if (!RegisterRawInputDevices(&mouse, 1, sizeof(mouse)))
