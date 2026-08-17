@@ -3,6 +3,7 @@
 #include "config_commands.hpp"
 #include "control_center_layout.hpp"
 #include "package_activation.hpp"
+#include "startup_config.hpp"
 
 #include "bafx/windows/portable_paths.hpp"
 
@@ -663,7 +664,7 @@ bool ControlCenterWindow::create(
     {
         layoutControls(client.right, client.bottom);
     }
-    updateControls(HostState{}, bafx::config::defaultConfig());
+    updateControls(HostState{}, loadStartupConfig(executableDirectory()));
     hostRunning_ = hostMutexPresent();
     setConnected(false);
     SetWindowTextW(statusText_, L"正在连接 Host...");

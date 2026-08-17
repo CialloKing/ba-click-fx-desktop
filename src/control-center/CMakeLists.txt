@@ -13,6 +13,7 @@ add_executable(
         control_center_window.cpp
         display_state.cpp
         package_activation.cpp
+        startup_config.cpp
         host_state.cpp
         main.cpp
         "${PROJECT_SOURCE_DIR}/src/windows/src/package_identity.cpp"
