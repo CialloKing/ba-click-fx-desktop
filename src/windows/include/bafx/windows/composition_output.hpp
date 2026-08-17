@@ -91,6 +91,9 @@ struct CompositionOutputState final
     DXGI_COLOR_SPACE_TYPE colorSpace{DXGI_COLOR_SPACE_CUSTOM};
     CompositionOutputTransfer transfer{CompositionOutputTransfer::Unknown};
     CompositionOutputFallback fallback{CompositionOutputFallback::None};
+    // Keep the failed requested transport operation even when the fallback
+    // swap chain is created successfully, so diagnostics identify the cause.
+    HRESULT fallbackResult{S_OK};
     CompositionOutputMapping mapping{};
     bool extendedPremultiplied{false};
 

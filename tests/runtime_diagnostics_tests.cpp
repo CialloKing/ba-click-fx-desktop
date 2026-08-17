@@ -429,6 +429,9 @@ BAFX_TEST(support_report_distinguishes_retained_color_from_latest_query)
     session.colorSnapshotDisposition = "retained-last-known";
     session.colorQueryGeneration = 7U;
     session.colorRefreshRetriesRemaining = 2U;
+    session.deviceInfo.output.fallback =
+        bafx::windows::CompositionOutputFallback::ConservativeSdr;
+    session.deviceInfo.output.fallbackResult = DXGI_ERROR_UNSUPPORTED;
 
     bafx::windows::DisplayRuntimeSummary runtime{};
     runtime.sessionCount = 1U;
@@ -471,6 +474,9 @@ BAFX_TEST(support_report_distinguishes_retained_color_from_latest_query)
         != std::string::npos);
     BAFX_CHECK(text.find(
         "Display.Session[0].Color.TopologyStatus=complete")
+        != std::string::npos);
+    BAFX_CHECK(text.find(
+        "Display.Session[0].Output.FallbackHRESULT=0x887A0004")
         != std::string::npos);
 }
 

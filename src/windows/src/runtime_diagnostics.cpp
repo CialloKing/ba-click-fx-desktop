@@ -1001,6 +1001,8 @@ void appendDisplaySessionRuntimeSummary(
            << backgroundReferenceWhiteNits(output.mapping) << '\n'
            << prefix << "Output.Fallback="
            << outputFallbackName(output.fallback) << '\n'
+           << prefix << "Output.FallbackHRESULT="
+           << hex32(static_cast<std::uint32_t>(output.fallbackResult)) << '\n'
            << prefix << "Output.ExtendedPremultiplied="
            << booleanName(output.extendedPremultiplied) << '\n'
            << prefix << "Output.PolicySatisfied="
@@ -1601,6 +1603,10 @@ std::string SupportReport::serialize() const
                << '\n'
                << "Graphics.OutputFallback="
                << outputFallbackName(deviceInfo_.output.fallback) << '\n'
+               << "Graphics.OutputFallbackHResult="
+               << hex32(static_cast<std::uint32_t>(
+                      deviceInfo_.output.fallbackResult))
+               << '\n'
                << "Graphics.HardwareCreateHResult="
                << hex32(static_cast<std::uint32_t>(deviceInfo_.hardwareCreateResult)) << '\n'
                << "Graphics.HardwareFallback="

@@ -29,6 +29,7 @@ constexpr CompositionOutputState scRgbOutputState{
     DXGI_COLOR_SPACE_RGB_FULL_G10_NONE_P709,
     CompositionOutputTransfer::LinearScRgb,
     CompositionOutputFallback::None,
+    S_OK,
     compositionOutputPolicyFor(
         CompositionOutputPreference::PreferLinearScRgb).mapping,
     true};
@@ -37,6 +38,7 @@ constexpr CompositionOutputState requestedSdrOutputState{
     DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709,
     CompositionOutputTransfer::SdrGamma22,
     CompositionOutputFallback::None,
+    S_OK,
     compositionOutputPolicyFor(
         CompositionOutputPreference::ConservativeSdr).mapping,
     false};
@@ -45,6 +47,7 @@ constexpr CompositionOutputState fallbackSdrOutputState{
     DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709,
     CompositionOutputTransfer::SdrGamma22,
     CompositionOutputFallback::ConservativeSdr,
+    S_OK,
     compositionOutputPolicyFor(
         CompositionOutputPreference::ConservativeSdr).mapping,
     false};
@@ -230,6 +233,7 @@ constexpr SwapChainCandidateSpecification fallbackSdrSwapChainCandidate{
             device,
             size,
             fallbackSdrSwapChainCandidate);
+        created.output.fallbackResult = error.result();
         created.output.mapping.backgroundReferenceWhiteNits =
             policy.mapping.backgroundReferenceWhiteNits;
         created.output.mapping.backgroundReferenceWhiteValid =
