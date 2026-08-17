@@ -1,5 +1,9 @@
 #include "bafx/windows/startup_registration.hpp"
 
+#include <cstdint>
+#include <limits>
+#include <new>
+#include <system_error>
 #include <utility>
 #include <vector>
 
@@ -43,13 +47,29 @@ private:
 };
 
 [[nodiscard]] StartupRegistrationResult failure(
+    const StartupRegistrationOperation operation,
     const DWORD error,
     std::wstring commandLine = {}) noexcept
 {
     return StartupRegistrationResult{
         StartupRegistrationStatus::Failed,
+        operation,
         error,
         std::move(commandLine)};
+}
+
+[[nodiscard]] DWORD win32Error(const std::error_code& error) noexcept
+{
+    // MSVC reports filesystem failures through system_category with native
+    // Win32 values. Guard the conversion so foreign categories cannot turn a
+    // negative or oversized value into a misleading Windows error.
+    const auto value = static_cast<std::int64_t>(error.value());
+    if (value <= 0
+        || value > static_cast<std::int64_t>((std::numeric_limits<DWORD>::max)()))
+    {
+        return ERROR_GEN_FAILURE;
+    }
+    return static_cast<DWORD>(value);
 }
 
 [[nodiscard]] StartupRegistrationResult removeRegistration() noexcept
@@ -64,25 +84,32 @@ private:
     if (openStatus == ERROR_FILE_NOT_FOUND)
     {
         return StartupRegistrationResult{
-            StartupRegistrationStatus::Unchanged};
+            StartupRegistrationStatus::Unchanged,
+            StartupRegistrationOperation::OpenKey};
     }
     if (openStatus != ERROR_SUCCESS)
     {
-        return failure(static_cast<DWORD>(openStatus));
+        return failure(
+            StartupRegistrationOperation::OpenKey,
+            static_cast<DWORD>(openStatus));
     }
 
     const LSTATUS deleteStatus = RegDeleteValueW(key.get(), startupValueName);
     if (deleteStatus == ERROR_FILE_NOT_FOUND)
     {
         return StartupRegistrationResult{
-            StartupRegistrationStatus::Unchanged};
+            StartupRegistrationStatus::Unchanged,
+            StartupRegistrationOperation::DeleteValue};
     }
     if (deleteStatus != ERROR_SUCCESS)
     {
-        return failure(static_cast<DWORD>(deleteStatus));
+        return failure(
+            StartupRegistrationOperation::DeleteValue,
+            static_cast<DWORD>(deleteStatus));
     }
     return StartupRegistrationResult{
-        StartupRegistrationStatus::Removed};
+        StartupRegistrationStatus::Removed,
+        StartupRegistrationOperation::DeleteValue};
 }
 
 [[nodiscard]] LSTATUS queryRegistration(
@@ -127,6 +154,29 @@ private:
 
 }
 
+std::string_view startupRegistrationOperationName(
+    const StartupRegistrationOperation operation) noexcept
+{
+    switch (operation)
+    {
+    case StartupRegistrationOperation::ValidateCommand:
+        return "validate-command";
+    case StartupRegistrationOperation::ValidateTarget:
+        return "validate-target";
+    case StartupRegistrationOperation::OpenKey:
+        return "open-key";
+    case StartupRegistrationOperation::QueryValue:
+        return "query-value";
+    case StartupRegistrationOperation::CreateKey:
+        return "create-key";
+    case StartupRegistrationOperation::SetValue:
+        return "set-value";
+    case StartupRegistrationOperation::DeleteValue:
+        return "delete-value";
+    }
+    return "unknown";
+}
+
 std::wstring controlCenterStartupCommandLine(
     const std::filesystem::path& executable,
     const bool startMinimized)
@@ -150,6 +200,8 @@ StartupRegistrationResult applyControlCenterStartupRegistration(
     const bool enabled,
     const bool startMinimized) noexcept
 {
+    StartupRegistrationOperation operation =
+        StartupRegistrationOperation::ValidateCommand;
     try
     {
         if (!enabled)
@@ -162,13 +214,29 @@ StartupRegistrationResult applyControlCenterStartupRegistration(
             startMinimized);
         if (commandLine.empty())
         {
-            return failure(ERROR_INVALID_NAME);
-        }
-        if (!std::filesystem::is_regular_file(executable))
-        {
-            return failure(ERROR_FILE_NOT_FOUND, std::move(commandLine));
+            return failure(operation, ERROR_INVALID_NAME);
         }
 
+        operation = StartupRegistrationOperation::ValidateTarget;
+        std::error_code targetError;
+        const bool targetIsRegularFile =
+            std::filesystem::is_regular_file(executable, targetError);
+        if (targetError)
+        {
+            return failure(
+                operation,
+                win32Error(targetError),
+                std::move(commandLine));
+        }
+        if (!targetIsRegularFile)
+        {
+            return failure(
+                operation,
+                ERROR_FILE_NOT_FOUND,
+                std::move(commandLine));
+        }
+
+        operation = StartupRegistrationOperation::CreateKey;
         RegistryKey key;
         const LSTATUS createStatus = RegCreateKeyExW(
             HKEY_CURRENT_USER,
@@ -183,16 +251,19 @@ StartupRegistrationResult applyControlCenterStartupRegistration(
         if (createStatus != ERROR_SUCCESS)
         {
             return failure(
+                operation,
                 static_cast<DWORD>(createStatus),
                 std::move(commandLine));
         }
 
+        operation = StartupRegistrationOperation::QueryValue;
         std::wstring existing;
         const LSTATUS queryStatus = queryRegistration(key.get(), existing);
         if (queryStatus == ERROR_SUCCESS && existing == commandLine)
         {
             return StartupRegistrationResult{
                 StartupRegistrationStatus::Unchanged,
+                operation,
                 ERROR_SUCCESS,
                 std::move(commandLine)};
         }
@@ -201,10 +272,12 @@ StartupRegistrationResult applyControlCenterStartupRegistration(
             && queryStatus != ERROR_DATATYPE_MISMATCH)
         {
             return failure(
+                operation,
                 static_cast<DWORD>(queryStatus),
                 std::move(commandLine));
         }
 
+        operation = StartupRegistrationOperation::SetValue;
         const DWORD byteCount = static_cast<DWORD>(
             (commandLine.size() + 1U) * sizeof(wchar_t));
         const LSTATUS setStatus = RegSetValueExW(
@@ -217,17 +290,23 @@ StartupRegistrationResult applyControlCenterStartupRegistration(
         if (setStatus != ERROR_SUCCESS)
         {
             return failure(
+                operation,
                 static_cast<DWORD>(setStatus),
                 std::move(commandLine));
         }
         return StartupRegistrationResult{
             StartupRegistrationStatus::Updated,
+            operation,
             ERROR_SUCCESS,
             std::move(commandLine)};
     }
+    catch (const std::bad_alloc&)
+    {
+        return failure(operation, ERROR_NOT_ENOUGH_MEMORY);
+    }
     catch (...)
     {
-        return failure(ERROR_NOT_ENOUGH_MEMORY);
+        return failure(operation, ERROR_UNHANDLED_EXCEPTION);
     }
 }
 

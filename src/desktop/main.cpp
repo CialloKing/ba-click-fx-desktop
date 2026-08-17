@@ -150,6 +150,9 @@ void reconcileControlCenterStartupRegistration(
     const std::filesystem::path& logPath,
     const std::string_view reason) noexcept
 {
+    std::string_view operation =
+        bafx::windows::startupRegistrationOperationName(
+            bafx::windows::StartupRegistrationOperation::ValidateTarget);
     try
     {
         const std::filesystem::path executable =
@@ -159,6 +162,8 @@ void reconcileControlCenterStartupRegistration(
                 executable,
                 system.startWithWindows,
                 system.startMinimized);
+        operation = bafx::windows::startupRegistrationOperationName(
+            result.operation);
         const std::string error = std::to_string(result.error);
         const std::string command = wideToUtf8(result.commandLine);
         const std::string target = wideToUtf8(executable.wstring());
@@ -176,6 +181,9 @@ void reconcileControlCenterStartupRegistration(
             bafx::windows::DiagnosticField{
                 "Status",
                 startupRegistrationStatusName(result.status)},
+            bafx::windows::DiagnosticField{
+                "Operation",
+                operation},
             bafx::windows::DiagnosticField{"Win32Error", error},
             bafx::windows::DiagnosticField{"Target", target},
             bafx::windows::DiagnosticField{
@@ -193,6 +201,7 @@ void reconcileControlCenterStartupRegistration(
     {
         const std::array fields{
             bafx::windows::DiagnosticField{"Reason", reason},
+            bafx::windows::DiagnosticField{"Operation", operation},
             bafx::windows::DiagnosticField{"Message", error.what()}};
         bafx::windows::appendDiagnosticEvent(
             logPath,
@@ -204,6 +213,7 @@ void reconcileControlCenterStartupRegistration(
     {
         const std::array fields{
             bafx::windows::DiagnosticField{"Reason", reason},
+            bafx::windows::DiagnosticField{"Operation", operation},
             bafx::windows::DiagnosticField{
                 "Message",
                 "unknown startup registration failure"}};
@@ -2630,6 +2640,7 @@ int runApplication(
         const std::array fields{
             bafx::windows::DiagnosticField{"Reason", "startup"},
             bafx::windows::DiagnosticField{"Status", "skipped"},
+            bafx::windows::DiagnosticField{"Operation", "not-run"},
             bafx::windows::DiagnosticField{
                 "ConfigStatus",
                 configLoadStatusName(loadedConfig.status)},

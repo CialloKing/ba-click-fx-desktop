@@ -4,6 +4,7 @@
 
 #include <filesystem>
 #include <string>
+#include <string_view>
 
 namespace bafx::windows
 {
@@ -16,9 +17,22 @@ enum class StartupRegistrationStatus
     Failed
 };
 
+enum class StartupRegistrationOperation
+{
+    ValidateCommand,
+    ValidateTarget,
+    OpenKey,
+    QueryValue,
+    CreateKey,
+    SetValue,
+    DeleteValue
+};
+
 struct StartupRegistrationResult final
 {
     StartupRegistrationStatus status{StartupRegistrationStatus::Failed};
+    StartupRegistrationOperation operation{
+        StartupRegistrationOperation::ValidateCommand};
     DWORD error{ERROR_SUCCESS};
     std::wstring commandLine{};
 
@@ -27,6 +41,9 @@ struct StartupRegistrationResult final
         return status != StartupRegistrationStatus::Failed;
     }
 };
+
+[[nodiscard]] std::string_view startupRegistrationOperationName(
+    StartupRegistrationOperation operation) noexcept;
 
 [[nodiscard]] std::wstring controlCenterStartupCommandLine(
     const std::filesystem::path& executable,
