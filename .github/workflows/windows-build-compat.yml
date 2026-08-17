@@ -1,0 +1,140 @@
+name: Windows build compatibility
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-build-compat-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-products:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: windows-10-sdk-19041
+            os: windows-2022
+            sdk: "10.0.19041.0"
+          - name: windows-sdk-26100
+            os: windows-2025
+            sdk: "10.0.26100.0"
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Verify requested Windows SDK is installed
+        shell: pwsh
+        run: |
+          $windowsKits = Join-Path ${env:ProgramFiles(x86)} 'Windows Kits\10'
+          $requiredSdkDirectories = @(
+              (Join-Path $windowsKits 'Include\${{ matrix.sdk }}'),
+              (Join-Path $windowsKits 'Lib\${{ matrix.sdk }}')
+          )
+          foreach ($sdkDirectory in $requiredSdkDirectories)
+          {
+              if (-not (Test-Path -LiteralPath $sdkDirectory -PathType Container))
+              {
+                  throw "Requested Windows SDK component is not installed: $sdkDirectory"
+              }
+          }
+
+      - name: Configure product build
+        shell: pwsh
+        run: |
+          $buildDirectory = "build/compat-${{ matrix.name }}"
+          $arguments = @(
+              '-S', '.',
+              '-B', $buildDirectory,
+              '-G', 'Visual Studio 17 2022',
+              '-A', 'x64',
+              '-DBUILD_TESTING=OFF',
+              '-DCMAKE_SYSTEM_VERSION=${{ matrix.sdk }}'
+          )
+          & cmake @arguments
+          if ($LASTEXITCODE -ne 0)
+          {
+              exit $LASTEXITCODE
+          }
+
+      - name: Verify selected Windows SDK
+        shell: pwsh
+        run: |
+          $buildDirectory = "build/compat-${{ matrix.name }}"
+          $projectPaths = @(
+              'src/desktop/ba_click_fx_desktop.vcxproj',
+              'src/control-center/bafx_control_center.vcxproj',
+              'src/identity-signer/bafx_identity_signer.vcxproj'
+          )
+          foreach ($relativePath in $projectPaths)
+          {
+              $projectPath = Join-Path $buildDirectory $relativePath
+              if (-not (Test-Path -LiteralPath $projectPath -PathType Leaf))
+              {
+                  throw "Expected product project was not generated: $projectPath"
+              }
+              $projectText = Get-Content -LiteralPath $projectPath -Raw
+              $match = [regex]::Match(
+                  $projectText,
+                  '<WindowsTargetPlatformVersion>([^<]+)</WindowsTargetPlatformVersion>')
+              if (-not $match.Success)
+              {
+                  throw "Generated project does not declare a Windows SDK: $projectPath"
+              }
+              $selectedSdk = $match.Groups[1].Value
+              if ($selectedSdk -ne '${{ matrix.sdk }}')
+              {
+                  throw "CMake selected Windows SDK $selectedSdk instead of ${{ matrix.sdk }} for $projectPath."
+              }
+              "$relativePath -> Windows SDK $selectedSdk"
+          }
+
+      - name: Build complete product binaries
+        shell: pwsh
+        run: |
+          & cmake --build "build/compat-${{ matrix.name }}" `
+              --config Release `
+              --target ba_click_fx_desktop bafx_control_center bafx_identity_signer `
+              -- /m:1 /nodeReuse:false
+          if ($LASTEXITCODE -ne 0)
+          {
+              exit $LASTEXITCODE
+          }
+
+      - name: Stage product binaries
+        shell: pwsh
+        run: |
+          $buildDirectory = "build/compat-${{ matrix.name }}"
+          $stageDirectory = Join-Path $buildDirectory 'artifacts'
+          New-Item -ItemType Directory -Path $stageDirectory | Out-Null
+          $productPaths = @(
+              (Join-Path $buildDirectory 'src/desktop/Release/ba-click-fx-desktop.exe'),
+              (Join-Path $buildDirectory 'src/control-center/Release/BAFX.ControlCenter.exe'),
+              (Join-Path $buildDirectory 'src/identity-signer/Release/BAFX.IdentitySigner.exe')
+          )
+          foreach ($productPath in $productPaths)
+          {
+              if (-not (Test-Path -LiteralPath $productPath -PathType Leaf))
+              {
+                  throw "Expected product binary was not built: $productPath"
+              }
+              Copy-Item -LiteralPath $productPath -Destination $stageDirectory
+          }
+
+      - name: Upload product binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}
+          path: build/compat-${{ matrix.name }}/artifacts
+          if-no-files-found: error
