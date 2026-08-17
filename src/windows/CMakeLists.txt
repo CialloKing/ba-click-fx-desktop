@@ -27,6 +27,16 @@ add_library(
 )
 add_library(bafx::windows ALIAS bafx_windows)
 
+include(CppWinRTCompatibility)
+bafx_configure_cppwinrt_coroutines(
+    bafx_windows
+    src/borderless_capture_access.cpp
+    src/display_color_monitor.cpp
+    src/external_host_trust.cpp
+    src/wgc_background_sensor.cpp
+    src/wgc_runtime_capabilities.cpp
+)
+
 target_include_directories(
     bafx_windows
     PUBLIC
