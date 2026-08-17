@@ -19,6 +19,11 @@ SCRIPT_PATH = (
     / "tools"
     / "verify-wgc-session-exclusion-spike.py"
 )
+RUNBOOK_PATH = (
+    Path(__file__).resolve().parents[1]
+    / "tools"
+    / "run-wgc-session-exclusion-spike.ps1"
+)
 SPEC = importlib.util.spec_from_file_location(
     "verify_wgc_session_exclusion_spike", SCRIPT_PATH
 )
@@ -686,6 +691,19 @@ class SessionExclusionVerifierTests(unittest.TestCase):
         self.document["evidence"]["watchdog"]["hardTimeoutMs"] += 1
         with self.assertRaisesRegex(VERIFY.ValidationError, "inconsistent"):
             self.validate()
+
+    def test_target_machine_runbook_keeps_collector_bounded(self) -> None:
+        runbook = RUNBOOK_PATH.read_text(encoding="utf-8")
+        for required in (
+            "Start-Process",
+            "WaitForExit($TimeoutMilliseconds)",
+            "$process.Kill()",
+            "--timeout-ms=$CaptureTimeoutMilliseconds",
+            "verify-wgc-session-exclusion-spike.py",
+            "verification.json",
+        ):
+            self.assertIn(required, runbook)
+        self.assertNotIn("Remove-Item", runbook)
 
     def test_cli_rejects_duplicate_fields(self) -> None:
         path = self.directory / "duplicate-session-exclusion.json"
