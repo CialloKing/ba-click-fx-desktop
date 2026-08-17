@@ -799,6 +799,10 @@ void appendDisplaySessionRuntimeSummary(
     stream << '\n'
            << prefix << "PhysicalTargetCount="
            << session.physicalTargetCount << '\n'
+           << prefix << "Topology.Status="
+           << displayTopologyStatusName(session.topologyStatus) << '\n'
+           << prefix << "Topology.Error="
+           << hex32(static_cast<std::uint32_t>(session.topologyError)) << '\n'
            << prefix << "Graphics.DriverType="
            << driverType(session.deviceInfo.driverType) << '\n'
            << prefix << "Graphics.Adapter="
@@ -827,7 +831,54 @@ void appendDisplaySessionRuntimeSummary(
                   session.colorMonitorResult.error))
            << '\n'
            << prefix << "ColorMonitor.Generation="
-           << session.colorMonitorResult.generation << '\n';
+           << session.colorMonitorResult.generation << '\n'
+           << prefix << "Color.SnapshotDisposition="
+           << sanitize(session.colorSnapshotDisposition) << '\n'
+           << prefix << "Color.Query.Generation="
+           << session.colorQueryGeneration << '\n'
+           << prefix << "Color.Query.RetriesRemaining="
+           << session.colorRefreshRetriesRemaining << '\n';
+
+    if (session.colorObservation.has_value())
+    {
+        const DisplayColorCapabilities& observation = *session.colorObservation;
+        const bool advancedColorKnown =
+            observation.advancedColorQueryResult == ERROR_SUCCESS
+            && observation.advancedColorStateConsistent;
+        stream << prefix << "Color.Query.SnapshotComplete="
+               << booleanName(displayColorStateComplete(observation)) << '\n'
+               << prefix << "Color.Query.AdvancedColorResult="
+               << hex32(static_cast<std::uint32_t>(
+                      observation.advancedColorQueryResult))
+               << '\n'
+               << prefix << "Color.Query.SdrWhiteLevelResult="
+               << hex32(static_cast<std::uint32_t>(
+                      observation.sdrWhiteLevelQueryResult))
+               << '\n'
+               << prefix << "Color.Query.TopologyStatus="
+               << displayTopologyStatusName(
+                      observation.displayConfigTopologyStatus)
+               << '\n'
+               << prefix << "Color.Query.TopologyError="
+               << hex32(static_cast<std::uint32_t>(
+                      observation.displayConfigTopologyError))
+               << '\n'
+               << prefix << "Color.Query.AdvancedColorLimitedByPolicy="
+               << (advancedColorKnown
+                    ? booleanName(observation.advancedColorLimitedByPolicy)
+                    : "unknown")
+               << '\n';
+    }
+    else
+    {
+        stream << prefix << "Color.Query.SnapshotComplete=unknown\n"
+               << prefix << "Color.Query.AdvancedColorResult=unknown\n"
+               << prefix << "Color.Query.SdrWhiteLevelResult=unknown\n"
+               << prefix << "Color.Query.TopologyStatus=unknown\n"
+               << prefix << "Color.Query.TopologyError=unknown\n"
+               << prefix
+               << "Color.Query.AdvancedColorLimitedByPolicy=unknown\n";
+    }
 
     if (session.colorCapabilities.has_value())
     {
@@ -1125,6 +1176,11 @@ std::string SupportReport::serialize() const
     {
         const DisplayRuntimeSummary& summary = *displayRuntimeSummary_;
         stream << "Display.SessionCount=" << summary.sessionCount << '\n'
+               << "Display.Topology.Status="
+               << displayTopologyStatusName(summary.topologyStatus) << '\n'
+               << "Display.Topology.Error="
+               << hex32(static_cast<std::uint32_t>(summary.topologyError))
+               << '\n'
                << "Display.Output.RequestedPreference="
                << outputPreferenceName(summary.requestedOutputPreference)
                << '\n'
@@ -1176,6 +1232,8 @@ std::string SupportReport::serialize() const
     else
     {
         stream << "Display.SessionCount=not-observed\n"
+               << "Display.Topology.Status=unknown\n"
+               << "Display.Topology.Error=unknown\n"
                << "Display.Output.RequestedPreference=unknown\n"
                << "Display.Output.ResolvedPreference=unknown\n"
                << "Display.Output.ActualPreference=unknown\n"

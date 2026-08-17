@@ -85,7 +85,10 @@ struct DisplaySessionRuntimeSummary final
         CompositionOutputPreference::ConservativeSdr};
     CompositionOutputPolicy resolvedOutputPolicy{};
     std::optional<DisplayColorCapabilities> colorCapabilities{};
+    std::optional<DisplayColorCapabilities> colorObservation{};
     DisplayColorMonitorResult colorMonitorResult{};
+    std::string colorSnapshotDisposition{"unavailable"};
+    std::uint64_t colorQueryGeneration{0U};
     std::string backgroundCaptureFailure{};
     std::string framePacing{"match-display"};
     bool effectsEnabled{true};
@@ -94,6 +97,9 @@ struct DisplaySessionRuntimeSummary final
     bool primary{false};
     bool sourceAdapterResolved{false};
     bool sourceIdentityResolved{false};
+    DisplayTopologyStatus topologyStatus{DisplayTopologyStatus::QueryFailed};
+    LONG topologyError{ERROR_GEN_FAILURE};
+    std::uint32_t colorRefreshRetriesRemaining{0U};
     bool outputPolicySatisfied{false};
     bool backgroundCaptureActive{false};
     bool backgroundCaptureRestartAllowed{false};
@@ -113,6 +119,8 @@ struct DisplayRuntimeSummary final
     bool colorSnapshotComplete{false};
     bool hdrCapabilityObserved{false};
     bool hdrActive{false};
+    DisplayTopologyStatus topologyStatus{DisplayTopologyStatus::QueryFailed};
+    LONG topologyError{ERROR_GEN_FAILURE};
     std::vector<DisplaySessionRuntimeSummary> sessions{};
 };
 

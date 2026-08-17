@@ -2435,6 +2435,9 @@ int runApplication(
     bafx::desktop::HostControlPlane control(configPath, config);
     report.setConfigurationSchemaVersion(config.schemaVersion);
     bafx::desktop::DisplayTarget appliedDisplayTarget = primaryDisplayTarget();
+    bafx::windows::DisplayTopologyStatus latestDisplayTopologyStatus =
+        appliedDisplayTarget.topologyStatus;
+    LONG latestDisplayTopologyError = appliedDisplayTarget.topologyError;
     report.setPrimaryMonitor(appliedDisplayTarget.bounds);
     constexpr RECT hostShellBounds{0L, 0L, 1L, 1L};
     bafx::windows::OverlayWindow hostWindow(
@@ -2590,8 +2593,14 @@ int runApplication(
                 ownedSession->requestedOutputPreference();
             summary.resolvedOutputPolicy = sessionPolicy;
             summary.colorCapabilities = sessionCapabilities;
+            summary.colorObservation = ownedSession->colorObservation();
             summary.colorMonitorResult =
                 ownedSession->colorMonitorResult();
+            summary.colorSnapshotDisposition = std::string(
+                bafx::desktop::displaySessionColorRefreshStatusName(
+                    ownedSession->colorSnapshotStatus()));
+            summary.colorQueryGeneration =
+                ownedSession->colorQueryGeneration();
             summary.backgroundCaptureFailure = std::string(
                 ownedSession->renderer().backgroundCaptureFailure());
             summary.framePacing = std::string(
@@ -2603,6 +2612,10 @@ int runApplication(
             summary.primary = target.primary;
             summary.sourceAdapterResolved = target.sourceAdapterResolved;
             summary.sourceIdentityResolved = target.sourceIdentityResolved;
+            summary.topologyStatus = target.topologyStatus;
+            summary.topologyError = target.topologyError;
+            summary.colorRefreshRetriesRemaining =
+                ownedSession->colorRefreshRetriesRemaining();
             summary.outputPolicySatisfied =
                 ownedSession->renderer().outputPolicy() == sessionPolicy
                 && bafx::windows::compositionOutputSatisfiesPolicy(
@@ -2645,19 +2658,24 @@ int runApplication(
                 return left.device < right.device;
             });
         const std::size_t sessionCount = sessionSummaries.size();
-        bafx::windows::DisplayRuntimeSummary runtimeSummary{
-            sessionCount,
-            displaySession.requestedOutputPreference(),
-            resolvedPolicy.preference,
-            bafx::windows::effectiveCompositionOutputPreference(output),
+        bafx::windows::DisplayRuntimeSummary runtimeSummary{};
+        runtimeSummary.sessionCount = sessionCount;
+        runtimeSummary.requestedOutputPreference =
+            displaySession.requestedOutputPreference();
+        runtimeSummary.resolvedOutputPreference = resolvedPolicy.preference;
+        runtimeSummary.actualOutputPreference =
+            bafx::windows::effectiveCompositionOutputPreference(output);
+        runtimeSummary.outputPolicySatisfied =
             renderer.outputPolicy() == resolvedPolicy
-                && bafx::windows::compositionOutputSatisfiesPolicy(
-                    output,
-                    resolvedPolicy),
-            colorSnapshotComplete,
-            hdrCapabilityObserved,
-            hdrActive,
-            std::move(sessionSummaries)};
+            && bafx::windows::compositionOutputSatisfiesPolicy(
+                output,
+                resolvedPolicy);
+        runtimeSummary.colorSnapshotComplete = colorSnapshotComplete;
+        runtimeSummary.hdrCapabilityObserved = hdrCapabilityObserved;
+        runtimeSummary.hdrActive = hdrActive;
+        runtimeSummary.topologyStatus = latestDisplayTopologyStatus;
+        runtimeSummary.topologyError = latestDisplayTopologyError;
+        runtimeSummary.sessions = std::move(sessionSummaries);
         // The support report and Control Center consume the same immutable
         // product snapshot, so neither can drift from the live per-screen view.
         report.setDisplayRuntimeSummary(runtimeSummary);
@@ -2797,6 +2815,8 @@ int runApplication(
     displaySession.show();
     const bafx::desktop::DisplayTargetSnapshot initialDisplayTopology =
         bafx::desktop::queryDisplayTargets();
+    latestDisplayTopologyStatus = initialDisplayTopology.status;
+    latestDisplayTopologyError = initialDisplayTopology.error;
     const bafx::desktop::DisplaySessionReconcileResult initialReconcile =
         displaySessions.reconcileSecondaries(initialDisplayTopology);
     appendDisplaySessionReconcile(
@@ -2931,7 +2951,13 @@ int runApplication(
     MessageDispatchDiagnostics pendingMessageDispatch{};
     const auto observeCaptureTopology =
         [&](const bafx::desktop::DisplayTargetSnapshot& topology)
+            -> bool
     {
+        const bool summaryChanged = latestDisplayTopologyStatus
+                != topology.status
+            || latestDisplayTopologyError != topology.error;
+        latestDisplayTopologyStatus = topology.status;
+        latestDisplayTopologyError = topology.error;
         for (const auto& ownedSession : displaySessions.sessions())
         {
             if (ownedSession.get() != &displaySession)
@@ -2942,7 +2968,7 @@ int runApplication(
         if (topology.status
             != bafx::windows::DisplayTopologyStatus::Complete)
         {
-            return;
+            return summaryChanged;
         }
 
         const bafx::desktop::DisplayTarget& expected =
@@ -2962,6 +2988,7 @@ int runApplication(
             coordinatorCaptureSizeTracker.confirmOutputSize(
                 bafx::desktop::displayTargetSize(*observed));
         }
+        return summaryChanged;
     };
     const auto renegotiateCoordinatorOutput =
         [&](const bafx::windows::CompositionOutputPolicy policy,
@@ -3882,10 +3909,19 @@ int runApplication(
                 loopObservedAt + displayTopologyPollPeriod;
             bafx::desktop::DisplayTargetSnapshot topology =
                 bafx::desktop::queryDisplayTargets();
-            observeCaptureTopology(topology);
-            if (displaySessions.topologyDiffers(topology))
+            const bool topologySummaryChanged =
+                observeCaptureTopology(topology);
+            const bool topologyDiffers =
+                displaySessions.topologyDiffers(topology);
+            if (topologyDiffers)
             {
                 polledDisplayTopology = std::move(topology);
+            }
+            else if (topologySummaryChanged)
+            {
+                // Query failures retain all session resources, but the IPC
+                // snapshot must still expose the newest authoritative error.
+                updateDisplayRuntimeSummary();
             }
         }
 
@@ -4121,6 +4157,10 @@ int runApplication(
                     logPath,
                     "Display.Session.ColorState.Refreshed",
                     fields);
+                // A stable output policy can still gain a newer color query
+                // result or consume retry budget. Publish those facts even
+                // when no renderer transaction was required.
+                updateDisplayRuntimeSummary();
             }
         }
         const bool displayTopologyChanged = !displayPowerUnavailable
@@ -4167,7 +4207,7 @@ int runApplication(
                 : bafx::desktop::queryDisplayTargets();
             if (!topologyDiscoveredByPoll)
             {
-                observeCaptureTopology(topology);
+                static_cast<void>(observeCaptureTopology(topology));
             }
             const bafx::desktop::DisplaySessionReconcileResult reconcile =
                 displaySessions.reconcileSecondaries(topology);
@@ -4225,8 +4265,12 @@ int runApplication(
                 // resource domain instead of redirecting it to today's primary.
                 observed = bafx::desktop::findPrimaryDisplayTarget(topology);
             }
-            const bafx::desktop::DisplayTarget observedTarget =
+            bafx::desktop::DisplayTarget observedTarget =
                 observed != nullptr ? *observed : requestedTarget;
+            // A missing target retains the working resource identity, but its
+            // metadata still belongs to this failed topology observation.
+            observedTarget.topologyStatus = topology.status;
+            observedTarget.topologyError = topology.error;
             const bafx::desktop::DisplayTarget& expectedTarget =
                 pendingDisplayTarget.has_value()
                     ? *pendingDisplayTarget

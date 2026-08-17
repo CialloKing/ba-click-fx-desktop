@@ -52,6 +52,7 @@ struct DisplayTarget
     std::vector<DisplayPhysicalTargetIdentity> physicalTargetIdentities{};
     bafx::windows::DisplayTopologyStatus topologyStatus{
         bafx::windows::DisplayTopologyStatus::QueryFailed};
+    LONG topologyError{ERROR_GEN_FAILURE};
 };
 
 struct DisplayTargetSnapshot
@@ -338,7 +339,8 @@ struct DisplayTargetSnapshot
         && sameDisplayPhysicalTargetCadence(left, right)
         && left.primary == right.primary
         && left.physicalTargetCount == right.physicalTargetCount
-        && left.topologyStatus == right.topologyStatus;
+        && left.topologyStatus == right.topologyStatus
+        && left.topologyError == right.topologyError;
 }
 
 [[nodiscard]] inline bool displayTargetMetadataChanged(

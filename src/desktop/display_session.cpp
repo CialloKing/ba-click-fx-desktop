@@ -170,6 +170,7 @@ DisplaySession::DisplaySession(DisplaySessionOptions options)
       framePacing_(options.runtimePolicy.framePacing),
       colorCapabilities_(bafx::windows::queryDisplayColorCapabilities(
           target_.monitor)),
+      colorObservation_(colorCapabilities_),
       renderer_(
           window_.handle(),
           window_.size(),
@@ -182,6 +183,10 @@ DisplaySession::DisplaySession(DisplaySessionOptions options)
       simulation_(options.simulationSeed),
       minimumFramePeriod_(options.runtimePolicy.minimumFramePeriod)
 {
+    colorQueryGeneration_ = 1U;
+    colorSnapshotStatus_ = colorCapabilities_.has_value()
+        ? DisplaySessionColorRefreshStatus::Refreshed
+        : DisplaySessionColorRefreshStatus::Unavailable;
     if (borderlessAccessAuthority_ == nullptr)
     {
         throw std::invalid_argument(
@@ -526,7 +531,9 @@ void DisplaySession::acceptAppliedTarget(
         // Capabilities describe one physical output. Never use a coherent
         // snapshot from the previous source as evidence for the new target.
         colorCapabilities_.reset();
+        colorObservation_.reset();
         colorRefreshRetriesRemaining_ = maximumColorRefreshRetries;
+        colorSnapshotStatus_ = DisplaySessionColorRefreshStatus::Unavailable;
     }
     if (secondaryBackgroundCapture_ != nullptr)
     {
@@ -579,6 +586,8 @@ DisplaySessionRetargetResult DisplaySession::retargetFxOnly(
         lastPresentedDrawableContent_ = false;
         resetFramePacing();
         acceptAppliedTarget(std::move(target), wakeWindow);
+        colorObservation_ = targetColorCapabilities;
+        ++colorQueryGeneration_;
         if (targetColorCapabilities.has_value()
             && bafx::windows::displayColorStateComplete(
                 *targetColorCapabilities))
@@ -594,6 +603,7 @@ DisplaySessionRetargetResult DisplaySession::retargetFxOnly(
                     colorCapabilities_));
             }
             colorCapabilities_ = std::move(accepted);
+            colorSnapshotStatus_ = DisplaySessionColorRefreshStatus::Refreshed;
             colorRefreshRetriesRemaining_ = currentWhite
                 ? 0U
                 : maximumColorRefreshRetries;
@@ -604,6 +614,9 @@ DisplaySessionRetargetResult DisplaySession::retargetFxOnly(
             // DisplayConfig path. Keep the last complete contract (or remain
             // unavailable for a new source) until the bounded retry succeeds.
             colorRefreshRetriesRemaining_ = maximumColorRefreshRetries;
+            colorSnapshotStatus_ = colorCapabilities_.has_value()
+                ? DisplaySessionColorRefreshStatus::RetainedLastKnownSnapshot
+                : DisplaySessionColorRefreshStatus::Unavailable;
         }
         clearRenderFault();
         clearOutputContractFault();
@@ -1670,6 +1683,23 @@ std::uint32_t DisplaySession::colorRefreshRetriesRemaining() const noexcept
     return colorRefreshRetriesRemaining_;
 }
 
+DisplaySessionColorRefreshStatus DisplaySession::colorSnapshotStatus()
+    const noexcept
+{
+    return colorSnapshotStatus_;
+}
+
+const std::optional<bafx::windows::DisplayColorCapabilities>&
+DisplaySession::colorObservation() const noexcept
+{
+    return colorObservation_;
+}
+
+std::uint64_t DisplaySession::colorQueryGeneration() const noexcept
+{
+    return colorQueryGeneration_;
+}
+
 bool DisplaySession::takeColorCapabilityObservationRequest() noexcept
 {
     const bool pending = colorCapabilityObservationPending_;
@@ -1685,13 +1715,13 @@ DisplaySessionColorRefreshStatus DisplaySession::refreshColorCapabilities(
     if (request == DisplaySessionColorRefreshRequest::Retry
         && colorRefreshRetriesRemaining_ == 0U)
     {
-        return colorCapabilities_.has_value()
-            ? DisplaySessionColorRefreshStatus::RetainedLastKnownSnapshot
-            : DisplaySessionColorRefreshStatus::Unavailable;
+        return colorSnapshotStatus_;
     }
 
     std::optional<bafx::windows::DisplayColorCapabilities> refreshed =
         bafx::windows::queryDisplayColorCapabilities(target_.monitor);
+    colorObservation_ = refreshed;
+    ++colorQueryGeneration_;
     if (refreshed.has_value()
         && bafx::windows::displayColorStateComplete(*refreshed))
     {
@@ -1704,6 +1734,7 @@ DisplaySessionColorRefreshStatus DisplaySession::refreshColorCapabilities(
                 colorCapabilities_));
         }
         colorCapabilities_ = std::move(refreshed);
+        colorSnapshotStatus_ = DisplaySessionColorRefreshStatus::Refreshed;
         if (currentWhite)
         {
             colorRefreshRetriesRemaining_ = 0U;
@@ -1741,12 +1772,17 @@ DisplaySessionColorRefreshStatus DisplaySession::refreshColorCapabilities(
             *retained,
             colorCapabilities_));
         colorCapabilities_ = std::move(retained);
+        colorSnapshotStatus_ =
+            DisplaySessionColorRefreshStatus::RetainedTransactionSnapshot;
         return DisplaySessionColorRefreshStatus::RetainedTransactionSnapshot;
     }
     if (colorCapabilities_.has_value())
     {
+        colorSnapshotStatus_ =
+            DisplaySessionColorRefreshStatus::RetainedLastKnownSnapshot;
         return DisplaySessionColorRefreshStatus::RetainedLastKnownSnapshot;
     }
+    colorSnapshotStatus_ = DisplaySessionColorRefreshStatus::Unavailable;
     return DisplaySessionColorRefreshStatus::Unavailable;
 }
 

@@ -396,6 +396,81 @@ BAFX_TEST(support_report_serializes_per_display_capture_cadence)
         "DrrBoost=true") != std::string::npos);
 }
 
+BAFX_TEST(support_report_distinguishes_retained_color_from_latest_query)
+{
+    bafx::windows::DisplayColorCapabilities accepted{};
+    accepted.displayPathResolved = true;
+    accepted.advancedColorQueryResult = ERROR_SUCCESS;
+    accepted.advancedColorStateConsistent = true;
+    accepted.sdrWhiteLevelQueryResult = ERROR_SUCCESS;
+    accepted.sdrWhiteLevelConsistent = true;
+    accepted.sdrWhiteLevelValid = true;
+    accepted.sdrWhiteLevelNits = 203.0F;
+    accepted.displayConfigTopologyStatus =
+        bafx::windows::DisplayTopologyStatus::Complete;
+    accepted.displayConfigTopologyError = ERROR_SUCCESS;
+
+    bafx::windows::DisplayColorCapabilities observation{};
+    observation.advancedColorQueryResult = ERROR_GEN_FAILURE;
+    observation.sdrWhiteLevelQueryResult = ERROR_RETRY;
+    observation.displayConfigTopologyStatus =
+        bafx::windows::DisplayTopologyStatus::Incomplete;
+    observation.displayConfigTopologyError = ERROR_RETRY;
+
+    bafx::windows::DisplaySessionRuntimeSummary session{};
+    session.topologyStatus =
+        bafx::windows::DisplayTopologyStatus::Incomplete;
+    session.topologyError = ERROR_RETRY;
+    session.colorCapabilities = accepted;
+    session.colorObservation = observation;
+    session.colorSnapshotDisposition = "retained-last-known";
+    session.colorQueryGeneration = 7U;
+    session.colorRefreshRetriesRemaining = 2U;
+
+    bafx::windows::DisplayRuntimeSummary runtime{};
+    runtime.sessionCount = 1U;
+    runtime.topologyStatus =
+        bafx::windows::DisplayTopologyStatus::Incomplete;
+    runtime.topologyError = ERROR_RETRY;
+    runtime.sessions.push_back(std::move(session));
+
+    bafx::windows::SupportReport report("test");
+    report.setDisplayRuntimeSummary(std::move(runtime));
+    const std::string text = report.serialize();
+
+    BAFX_CHECK(text.find("Display.Topology.Status=incomplete")
+        != std::string::npos);
+    BAFX_CHECK(text.find("Display.Topology.Error=0x000004D5")
+        != std::string::npos);
+    BAFX_CHECK(text.find(
+        "Display.Session[0].Topology.Status=incomplete")
+        != std::string::npos);
+    BAFX_CHECK(text.find(
+        "Display.Session[0].Color.SnapshotDisposition=retained-last-known")
+        != std::string::npos);
+    BAFX_CHECK(text.find(
+        "Display.Session[0].Color.Query.Generation=7")
+        != std::string::npos);
+    BAFX_CHECK(text.find(
+        "Display.Session[0].Color.Query.RetriesRemaining=2")
+        != std::string::npos);
+    BAFX_CHECK(text.find(
+        "Display.Session[0].Color.Query.SnapshotComplete=false")
+        != std::string::npos);
+    BAFX_CHECK(text.find(
+        "Display.Session[0].Color.Query.AdvancedColorResult=0x0000001F")
+        != std::string::npos);
+    BAFX_CHECK(text.find(
+        "Display.Session[0].Color.Query.TopologyStatus=incomplete")
+        != std::string::npos);
+    BAFX_CHECK(text.find(
+        "Display.Session[0].Color.Query.AdvancedColorLimitedByPolicy=unknown")
+        != std::string::npos);
+    BAFX_CHECK(text.find(
+        "Display.Session[0].Color.TopologyStatus=complete")
+        != std::string::npos);
+}
+
 BAFX_TEST(diagnostic_log_rotation_keeps_a_bounded_backup_chain)
 {
     const TemporaryDiagnosticDirectory temporary;

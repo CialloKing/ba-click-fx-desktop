@@ -456,6 +456,7 @@ DisplayTargetSnapshot queryDisplayTargets() noexcept
         // Every target must carry the final snapshot quality. An invalid later
         // monitor can downgrade an observation after an earlier target was read.
         display.topologyStatus = result.status;
+        display.topologyError = result.error;
     }
     return result;
 }

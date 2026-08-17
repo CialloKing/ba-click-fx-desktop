@@ -90,6 +90,24 @@ enum class DisplaySessionColorRefreshStatus : std::uint8_t
     Unavailable
 };
 
+[[nodiscard]] constexpr std::string_view
+displaySessionColorRefreshStatusName(
+    const DisplaySessionColorRefreshStatus status) noexcept
+{
+    switch (status)
+    {
+    case DisplaySessionColorRefreshStatus::Refreshed:
+        return "fresh";
+    case DisplaySessionColorRefreshStatus::RetainedTransactionSnapshot:
+        return "retained-transaction";
+    case DisplaySessionColorRefreshStatus::RetainedLastKnownSnapshot:
+        return "retained-last-known";
+    case DisplaySessionColorRefreshStatus::Unavailable:
+        return "unavailable";
+    }
+    return "unavailable";
+}
+
 enum class DisplaySessionColorRefreshRequest : std::uint8_t
 {
     Observation,
@@ -236,6 +254,12 @@ public:
     void shutdownSecondaryBackgroundCapture() noexcept;
     [[nodiscard]] bool colorRefreshRetryPending() const noexcept;
     [[nodiscard]] std::uint32_t colorRefreshRetriesRemaining() const noexcept;
+    [[nodiscard]] DisplaySessionColorRefreshStatus colorSnapshotStatus()
+        const noexcept;
+    [[nodiscard]] const std::optional<
+        bafx::windows::DisplayColorCapabilities>& colorObservation()
+        const noexcept;
+    [[nodiscard]] std::uint64_t colorQueryGeneration() const noexcept;
     [[nodiscard]] bool takeColorCapabilityObservationRequest() noexcept;
     [[nodiscard]] DisplaySessionColorRefreshStatus refreshColorCapabilities(
         const std::optional<bafx::windows::DisplayColorCapabilities>& fallback =
@@ -271,6 +295,7 @@ private:
     bafx::config::FramePacing framePacing_{
         bafx::config::FramePacing::MatchDisplay};
     std::optional<bafx::windows::DisplayColorCapabilities> colorCapabilities_{};
+    std::optional<bafx::windows::DisplayColorCapabilities> colorObservation_{};
     bafx::windows::CompositionRenderer renderer_;
     bafx::fx::SimulationRuntime simulation_;
     bafx::fx::SimulationTimeline timeline_{};
@@ -281,6 +306,9 @@ private:
     bool renderFaulted_{false};
     bool outputContractFaulted_{false};
     std::uint32_t colorRefreshRetriesRemaining_{0U};
+    std::uint64_t colorQueryGeneration_{0U};
+    DisplaySessionColorRefreshStatus colorSnapshotStatus_{
+        DisplaySessionColorRefreshStatus::Unavailable};
     bool colorCapabilityObservationPending_{false};
     std::unique_ptr<DisplaySessionBackgroundCaptureState>
         secondaryBackgroundCapture_{};
