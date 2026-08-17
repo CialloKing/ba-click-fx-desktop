@@ -72,15 +72,20 @@ struct DisplayTargetSnapshot
         && left.bottom == right.bottom;
 }
 
+[[nodiscard]] inline bool sameDisplayPhysicalTargetEndpoint(
+    const DisplayPhysicalTargetIdentity& left,
+    const DisplayPhysicalTargetIdentity& right) noexcept
+{
+    return left.adapterLuid.HighPart == right.adapterLuid.HighPart
+        && left.adapterLuid.LowPart == right.adapterLuid.LowPart
+        && left.targetId == right.targetId;
+}
+
 [[nodiscard]] inline bool sameDisplayPhysicalTargetIdentity(
     const DisplayPhysicalTargetIdentity& left,
     const DisplayPhysicalTargetIdentity& right) noexcept
 {
-    const bool stableEndpoint =
-        left.adapterLuid.HighPart == right.adapterLuid.HighPart
-        && left.adapterLuid.LowPart == right.adapterLuid.LowPart
-        && left.targetId == right.targetId;
-    if (!stableEndpoint)
+    if (!sameDisplayPhysicalTargetEndpoint(left, right))
     {
         return false;
     }

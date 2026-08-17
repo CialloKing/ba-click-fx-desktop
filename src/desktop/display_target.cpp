@@ -175,6 +175,34 @@ void appendBigEndianUint64(
     return std::isfinite(hertz) && hertz >= 1.0 && hertz <= 1000.0;
 }
 
+void retainResolvedPhysicalTargetPaths(
+    std::vector<DisplayPhysicalTargetIdentity>& observed,
+    const std::vector<DisplayPhysicalTargetIdentity>& previous)
+{
+    for (DisplayPhysicalTargetIdentity& current : observed)
+    {
+        if (!current.devicePath.empty())
+        {
+            continue;
+        }
+        const auto oldTarget = std::find_if(
+            previous.begin(),
+            previous.end(),
+            [&current](const DisplayPhysicalTargetIdentity& candidate) noexcept
+            {
+                return !candidate.devicePath.empty()
+                    && sameDisplayPhysicalTargetEndpoint(candidate, current);
+            });
+        if (oldTarget != previous.end())
+        {
+            // GET_TARGET_NAME may fail while the path and cadence query still
+            // succeeds. Preserve only identity evidence; current metadata
+            // remains authoritative for this incomplete observation.
+            current.devicePath = oldTarget->devicePath;
+        }
+    }
+}
+
 [[nodiscard]] std::optional<bafx::windows::DisplayRefreshRate>
 commonRefreshRate(const bafx::windows::ActiveDisplayMonitor& display) noexcept
 {
@@ -577,6 +605,14 @@ DisplayTarget stabilizeDisplayTargetObservation(
         stabilized.physicalTargetCount = previous.physicalTargetCount;
         stabilized.physicalTargetIdentities =
             previous.physicalTargetIdentities;
+    }
+    else
+    {
+        // Equal target counts do not prove every target-name query succeeded.
+        // Keep stable per-display keys without hiding an actual endpoint swap.
+        retainResolvedPhysicalTargetPaths(
+            stabilized.physicalTargetIdentities,
+            previous.physicalTargetIdentities);
     }
     return stabilized;
 }

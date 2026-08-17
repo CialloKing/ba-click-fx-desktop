@@ -264,6 +264,76 @@ BAFX_TEST(persistent_display_key_rejects_incomplete_physical_identity)
     BAFX_CHECK(!displayTargetPersistentKey(incompleteClone).has_value());
 }
 
+BAFX_TEST(incomplete_topology_retains_path_for_the_same_physical_endpoint)
+{
+    DisplayTarget previous{};
+    previous.deviceName = L"\\\\.\\DISPLAY1";
+    previous.dpiX = 96U;
+    previous.dpiY = 96U;
+    previous.sourceAdapterLuid = LUID{10U, 1};
+    previous.sourceId = 2U;
+    previous.sourceAdapterResolved = true;
+    previous.sourceIdentityResolved = true;
+    previous.physicalTargetCount = 1U;
+    previous.captureRefreshRate = bafx::windows::DisplayRefreshRate{
+        60U,
+        1U,
+        bafx::windows::DisplayRefreshRateSource::DisplayConfigPath};
+    previous.physicalTargetIdentities = {
+        physicalTarget(L"\\\\?\\DISPLAY#PANEL-A#1#{GUID}")};
+    previous.physicalTargetIdentities.front().adapterLuid = LUID{20U, 3};
+    previous.physicalTargetIdentities.front().targetId = 4U;
+
+    DisplayTarget observed = previous;
+    observed.dpiX = 144U;
+    observed.dpiY = 144U;
+    observed.captureRefreshRate = bafx::windows::DisplayRefreshRate{
+        120U,
+        1U,
+        bafx::windows::DisplayRefreshRateSource::DisplayConfigPath};
+    observed.physicalTargetIdentities.front().devicePath.clear();
+    observed.physicalTargetIdentities.front().captureRefreshRate =
+        observed.captureRefreshRate;
+
+    const DisplayTarget stabilized = stabilizeDisplayTargetObservation(
+        previous,
+        observed,
+        bafx::windows::DisplayTopologyStatus::Incomplete);
+    BAFX_CHECK(stabilized.dpiX == 144U);
+    BAFX_CHECK(stabilized.captureRefreshRate.has_value());
+    BAFX_CHECK(stabilized.captureRefreshRate->numerator == 120U);
+    BAFX_CHECK(
+        stabilized.physicalTargetIdentities.front().devicePath
+        == previous.physicalTargetIdentities.front().devicePath);
+    BAFX_CHECK(
+        displayTargetPersistentKey(stabilized)
+        == displayTargetPersistentKey(previous));
+}
+
+BAFX_TEST(incomplete_topology_does_not_inherit_path_across_endpoint_change)
+{
+    DisplayTarget previous{};
+    previous.deviceName = L"\\\\.\\DISPLAY1";
+    previous.sourceAdapterResolved = true;
+    previous.physicalTargetCount = 1U;
+    previous.physicalTargetIdentities = {
+        physicalTarget(L"\\\\?\\DISPLAY#PANEL-A#1#{GUID}")};
+    previous.physicalTargetIdentities.front().adapterLuid = LUID{20U, 3};
+    previous.physicalTargetIdentities.front().targetId = 4U;
+
+    DisplayTarget observed = previous;
+    observed.physicalTargetIdentities.front().targetId = 5U;
+    observed.physicalTargetIdentities.front().devicePath.clear();
+
+    const DisplayTarget stabilized = stabilizeDisplayTargetObservation(
+        previous,
+        observed,
+        bafx::windows::DisplayTopologyStatus::Incomplete);
+    BAFX_CHECK(
+        stabilized.physicalTargetIdentities.front().devicePath.empty());
+    BAFX_CHECK(!displayTargetPersistentKey(stabilized).has_value());
+}
+
 BAFX_TEST(conservative_sdr_keeps_verified_background_reference_white)
 {
     const bafx::windows::DisplayColorCapabilities capabilities =
