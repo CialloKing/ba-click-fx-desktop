@@ -7,7 +7,8 @@
   `background-aware`（背景感知）、`recording-compatible`（录屏兼容拟合）和
   `light-background`（浅色背景优化）。背景感知启用 WGC，失败时回退内部 FX-only transport；
   其余两项关闭 WGC。
-- `BAFX.ControlCenter.exe` 的原生 Win32 控制面：基础页管理启用状态、点击特效、鼠标拖尾、拖尾常驻、效果大小、
+- `BAFX.ControlCenter.exe` 的原生 Win32 控制面：基础页管理启用状态、点击特效、鼠标拖尾、拖尾常驻、
+  左/右/中键触发策略、效果大小、
   拖尾长度、拖尾宽度、输入采样率上限、Bloom 强度和 Bloom 质量；高级页按时间、粒子与材质、圆环、点击碎片和
   Bloom 分为五个二级页面，并通过原生 `effects.*` 路径提供透明度、点击/拖尾时间倍率、拖尾寿命、
   `effects.diskRadius`、`effects.diskLifetimeMs`、`effects.ringsCount`、`effects.ringsLifetimeMs`、
@@ -15,9 +16,11 @@
   `effects.ringsRotationDirection`、`effects.ringsHdrIntensity`、`effects.shardsHdrIntensity`、
   `effects.shardsClickCount`、点击寿命上下限、出生半径、速度上下限、`effects.shardsSizeMin`、
   `effects.shardsSizeMax`、`effects.trailOpacity`、Bloom 扩散/阈值/软阈值/亮度上限等参数。基础页还提供
-  背景模式、指针排除和系统捕获边框。“显示与性能”页选择并显示 Host 的逐屏实际状态，提供默认关闭的
+  背景模式、指针排除、系统捕获边框和空闲资源优化。“显示与性能”页选择并显示 Host 的逐屏实际状态，
+  提供默认关闭的
   全局 HDR 请求，以及跟随显示器、固定 `60/120/144 FPS` 四种帧率策略；具有稳定标识的显示器还可
-  独立控制特效、HDR 请求和帧率策略。
+  独立控制特效、HDR 请求和帧率策略。“系统”页提供随 Windows 启动、启动时最小化和关闭时隐藏到托盘；
+  启用随 Windows 启动后，登录时由 Control Center 复用正常激活路径启动 Host。
   所有改动会通过本地 Named Pipe 在下一帧应用到正在运行的 Host；
   “重置默认”经确认后恢复全部持久化设置，但保留当前暂停或运行状态。
 - 每次输入消费/呈现更新只为按压 FX 使用一份帧边界当前位置，并以同一 `renderTime` 按
@@ -143,7 +146,8 @@
 直接运行 `ba-click-fx-desktop.exe` 后，窗口保持鼠标穿透。右键通知区域中的程序图标并选择
 `Exit` 可退出；也可按 `Ctrl+Alt+F12` 或备用的 `Ctrl+Shift+F12`。即使系统热键注册被占用，
 程序仍会轮询同一组合键作为兜底。需要调整效果时，先启动 Host，再从同一目录启动
-`BAFX.ControlCenter.exe`；Control Center 与 Host 是独立进程，关闭控制窗口不会停止 Host。
+`BAFX.ControlCenter.exe`；Control Center 与 Host 是独立进程，关闭或退出控制窗口不会停止 Host。启用托盘隐藏后，
+通知区域图标可重新打开或单独退出 Control Center；Explorer 重启后会自动恢复该入口。
 
 可用下列命令生成完整测试包。脚本会构建 Release Host 与 Control Center，并验证 ZIP 中的文件清单、
 校验和、可执行文件依赖和 Control Center 启动；输出包位于
@@ -166,7 +170,8 @@ Package 注册和 Control Center 快捷方式创建。安装完成后打开 Cont
 可单独安装的证书、MSIX、私钥或 SDK 工具；Setup 内部携带的是未签名模板和约束到 `LocalMachine\My` 的原生
 签名器。公钥只导入 `LocalMachine\TrustedPeople`，签名后使用 `-DeleteKey` 删除私钥。卸载可从开始菜单或
 Windows“已安装的应用”执行，默认保留安装目录
-下的 `data` 用户配置；需要无管理员权限时可改用 portable ZIP，但它没有 Package Identity。
+下的 `data` 用户配置；卸载会按安装用户 SID 删除本程序自己的 `BAFX Control Center` 开机启动值，
+不删除 Run 键或其他程序的启动项。需要无管理员权限时可改用 portable ZIP，但它没有 Package Identity。
 
 安装或卸载失败时，错误框会显示失败阶段、步骤、HRESULT、脚本行号和 Inno 日志的完整路径。反馈问题时请
 提供该日志文件，不要只提供错误框截图。日志中的 `BAFX_INSTALL_FAILURE:` 是便于人工定位的单行摘要，
@@ -200,7 +205,7 @@ Windows“已安装的应用”执行，默认保留安装目录
 - device removed/reset 后已有事件通知、一次性重建实现和主动探针，但当前只证明通知注册及主动重建后的
   重新注册；真实 GPU reset、热插拔、跨适配器以及 device-lost 下 WGC 同步关闭仍未完成硬件验收，
   因此不属于本 Alpha 的支持范围。
-- 开机启动、自动更新、公有代码签名，以及无边框 WGC 的跨版本稳定性。方案 C 安装器已经作为普通用户发布
+- 自动更新、公有代码签名，以及无边框 WGC 的跨版本稳定性。方案 C 安装器已经作为普通用户发布
   通道提供，但其背景感知能力仍受 Windows 版本、权限和显卡环境影响；portable ZIP 继续作为无安装权限的备选。
 
 这些能力即使存在实验代码或架构文档，也不属于本 Alpha 的支持合同。
