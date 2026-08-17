@@ -80,6 +80,282 @@ function Assert-ProtectedStateAcl
     }
 }
 
+function Test-RegistryHiveMounted
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$HiveName
+    )
+
+    if ([string]::IsNullOrWhiteSpace($HiveName) -or $HiveName.Contains('\'))
+    {
+        throw 'Registry hive name is unsafe.'
+    }
+
+    $usersRoot = $null
+    $hiveKey = $null
+    try
+    {
+        $usersRoot = [Microsoft.Win32.RegistryKey]::OpenBaseKey(
+            [Microsoft.Win32.RegistryHive]::Users,
+            [Microsoft.Win32.RegistryView]::Default)
+        $hiveKey = $usersRoot.OpenSubKey($HiveName, $false)
+        return $null -ne $hiveKey
+    }
+    finally
+    {
+        if ($null -ne $hiveKey)
+        {
+            $hiveKey.Dispose()
+        }
+        if ($null -ne $usersRoot)
+        {
+            $usersRoot.Dispose()
+        }
+    }
+}
+
+function Get-InstalledUserProfileHivePath
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$InstalledUserSid
+    )
+
+    $localMachine = $null
+    $profileKey = $null
+    try
+    {
+        # ProfileList is machine-protected and avoids trusting a path supplied
+        # by the invoking user or by the uninstall command line.
+        $localMachine = [Microsoft.Win32.RegistryKey]::OpenBaseKey(
+            [Microsoft.Win32.RegistryHive]::LocalMachine,
+            [Microsoft.Win32.RegistryView]::Registry64)
+        $profileListPath =
+            "SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList\$InstalledUserSid"
+        $profileKey = $localMachine.OpenSubKey($profileListPath, $false)
+        if ($null -eq $profileKey)
+        {
+            throw 'Installed user profile is missing from the protected ProfileList.'
+        }
+
+        $profileImagePath = $profileKey.GetValue(
+            'ProfileImagePath',
+            $null,
+            [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
+        if ($null -eq $profileImagePath -or
+            [string]::IsNullOrWhiteSpace([string]$profileImagePath))
+        {
+            throw 'Installed user ProfileList entry has no profile path.'
+        }
+        $profileValueKind = $profileKey.GetValueKind('ProfileImagePath')
+        if ($profileValueKind -notin @(
+                [Microsoft.Win32.RegistryValueKind]::String,
+                [Microsoft.Win32.RegistryValueKind]::ExpandString))
+        {
+            throw 'Installed user ProfileList path has an unsupported registry type.'
+        }
+
+        $profilePathText = [string]$profileImagePath
+        $systemDriveToken = '%SystemDrive%'
+        if ($profilePathText.StartsWith(
+                $systemDriveToken,
+                [StringComparison]::OrdinalIgnoreCase))
+        {
+            # The elevated uninstaller inherits a caller-controlled environment.
+            # Derive SystemDrive from Windows itself instead of expanding it.
+            $windowsDirectory = [Environment]::GetFolderPath(
+                [Environment+SpecialFolder]::Windows)
+            $systemDrive = [IO.Path]::GetPathRoot($windowsDirectory).TrimEnd('\')
+            $expandedProfilePath =
+                $systemDrive + $profilePathText.Substring($systemDriveToken.Length)
+        }
+        elseif ($profilePathText.StartsWith(
+                '%',
+                [StringComparison]::Ordinal))
+        {
+            throw 'Installed user ProfileList path uses an unsupported environment token.'
+        }
+        else
+        {
+            $expandedProfilePath = $profilePathText
+        }
+        if (-not [IO.Path]::IsPathRooted($expandedProfilePath))
+        {
+            throw 'Installed user ProfileList path is not absolute.'
+        }
+        $profilePath = [IO.Path]::GetFullPath($expandedProfilePath)
+        $hivePath = [IO.Path]::GetFullPath((Join-Path $profilePath 'NTUSER.DAT'))
+        if (-not (Test-Path -LiteralPath $hivePath -PathType Leaf))
+        {
+            throw "Installed user registry hive is missing: $hivePath"
+        }
+        return $hivePath
+    }
+    finally
+    {
+        if ($null -ne $profileKey)
+        {
+            $profileKey.Dispose()
+        }
+        if ($null -ne $localMachine)
+        {
+            $localMachine.Dispose()
+        }
+    }
+}
+
+function Invoke-BoundedRegistryHiveCommand
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [ValidateSet('Load', 'Unload')]
+        [string]$Operation,
+
+        [Parameter(Mandatory = $true)]
+        [string]$HiveName,
+
+        [string]$HiveFilePath = '',
+
+        [ValidateRange(1000, 60000)]
+        [int]$TimeoutMilliseconds = 10000
+    )
+
+    if ($HiveName -notmatch '^BAFX_Uninstall_[0-9]+_[0-9a-f]{32}$')
+    {
+        throw 'Temporary registry hive name is unsafe.'
+    }
+    if ($Operation -eq 'Load' -and
+        ([string]::IsNullOrWhiteSpace($HiveFilePath) -or $HiveFilePath.Contains('"')))
+    {
+        throw 'Temporary registry hive file path is unsafe.'
+    }
+
+    $systemDirectory = [Environment]::GetFolderPath(
+        [Environment+SpecialFolder]::System)
+    $registryUtility = Join-Path $systemDirectory 'reg.exe'
+    if (-not (Test-Path -LiteralPath $registryUtility -PathType Leaf))
+    {
+        throw "Windows registry utility is missing: $registryUtility"
+    }
+
+    $startInfo = [Diagnostics.ProcessStartInfo]::new()
+    $startInfo.FileName = $registryUtility
+    $startInfo.UseShellExecute = $false
+    $startInfo.CreateNoWindow = $true
+    $target = "HKU\$HiveName"
+    if ($Operation -eq 'Load')
+    {
+        $startInfo.Arguments = "load $target `"$HiveFilePath`""
+    }
+    else
+    {
+        $startInfo.Arguments = "unload $target"
+    }
+
+    $process = $null
+    try
+    {
+        $process = [Diagnostics.Process]::Start($startInfo)
+        if ($null -eq $process)
+        {
+            throw "Registry hive $Operation process did not start."
+        }
+        if (-not $process.WaitForExit($TimeoutMilliseconds))
+        {
+            $process.Kill()
+            if (-not $process.WaitForExit(1000))
+            {
+                throw "Registry hive $Operation process could not be stopped after timeout."
+            }
+            throw "Registry hive $Operation exceeded the $TimeoutMilliseconds ms timeout."
+        }
+        if ($process.ExitCode -ne 0)
+        {
+            throw "Registry hive $Operation failed with exit code $($process.ExitCode)."
+        }
+    }
+    finally
+    {
+        if ($null -ne $process)
+        {
+            try
+            {
+                if (-not $process.HasExited)
+                {
+                    $process.Kill()
+                    if (-not $process.WaitForExit(1000))
+                    {
+                        throw "Registry hive $Operation process remained after cancellation."
+                    }
+                }
+            }
+            finally
+            {
+                $process.Dispose()
+            }
+        }
+    }
+}
+
+function Remove-StartupValueFromLoadedHive
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$HiveName
+    )
+
+    if ([string]::IsNullOrWhiteSpace($HiveName) -or $HiveName.Contains('\'))
+    {
+        throw 'Registry hive name is unsafe.'
+    }
+
+    $usersRoot = $null
+    $hiveKey = $null
+    $runKey = $null
+    try
+    {
+        $usersRoot = [Microsoft.Win32.RegistryKey]::OpenBaseKey(
+            [Microsoft.Win32.RegistryHive]::Users,
+            [Microsoft.Win32.RegistryView]::Default)
+        $hiveKey = $usersRoot.OpenSubKey($HiveName, $false)
+        if ($null -eq $hiveKey)
+        {
+            throw "Registry hive is not mounted: HKEY_USERS\$HiveName"
+        }
+        $runKey = $hiveKey.OpenSubKey(
+            'Software\Microsoft\Windows\CurrentVersion\Run',
+            $true)
+        if ($null -eq $runKey)
+        {
+            return
+        }
+
+        # DeleteValue with throwOnMissingValue=false keeps repeated uninstall
+        # attempts idempotent and never removes neighboring startup entries.
+        $runKey.DeleteValue('BAFX Control Center', $false)
+        if ('BAFX Control Center' -in @($runKey.GetValueNames()))
+        {
+            throw 'BAFX Control Center startup registration remains after deletion.'
+        }
+    }
+    finally
+    {
+        if ($null -ne $runKey)
+        {
+            $runKey.Dispose()
+        }
+        if ($null -ne $hiveKey)
+        {
+            $hiveKey.Dispose()
+        }
+        if ($null -ne $usersRoot)
+        {
+            $usersRoot.Dispose()
+        }
+    }
+}
+
 function Remove-InstalledUserStartupRegistration
 {
     param(
@@ -93,33 +369,58 @@ function Remove-InstalledUserStartupRegistration
         throw 'Protected install state has a non-canonical installed user SID.'
     }
 
-    $usersRoot = $null
-    $runKey = $null
+    if (Test-RegistryHiveMounted -HiveName $sid.Value)
+    {
+        Remove-StartupValueFromLoadedHive -HiveName $sid.Value
+        return
+    }
+
+    $script:InstallerStep = 'resolve-installed-user-profile-hive'
+    $hivePath = Get-InstalledUserProfileHivePath -InstalledUserSid $sid.Value
+    $temporaryHiveName =
+        "BAFX_Uninstall_${PID}_$([Guid]::NewGuid().ToString('N'))"
+    if (Test-RegistryHiveMounted -HiveName $temporaryHiveName)
+    {
+        throw 'Generated temporary registry hive name is already mounted.'
+    }
+    $loadAttempted = $false
+    $failureStep = ''
     try
     {
-        $usersRoot = [Microsoft.Win32.RegistryKey]::OpenBaseKey(
-            [Microsoft.Win32.RegistryHive]::Users,
-            [Microsoft.Win32.RegistryView]::Default)
-        $runSubKey = "$($sid.Value)\Software\Microsoft\Windows\CurrentVersion\Run"
-        $runKey = $usersRoot.OpenSubKey($runSubKey, $true)
-        if ($null -eq $runKey)
-        {
-            return
-        }
+        $script:InstallerStep = 'load-installed-user-registry-hive'
+        $loadAttempted = $true
+        Invoke-BoundedRegistryHiveCommand `
+            -Operation Load `
+            -HiveName $temporaryHiveName `
+            -HiveFilePath $hivePath
 
-        # DeleteValue with throwOnMissingValue=false keeps repeated uninstall
-        # attempts idempotent and never removes neighboring startup entries.
-        $runKey.DeleteValue('BAFX Control Center', $false)
+        $script:InstallerStep = 'remove-installed-user-startup-registration'
+        Remove-StartupValueFromLoadedHive -HiveName $temporaryHiveName
+    }
+    catch
+    {
+        $failureStep = $script:InstallerStep
+        throw
     }
     finally
     {
-        if ($null -ne $runKey)
+        if ($loadAttempted)
         {
-            $runKey.Dispose()
-        }
-        if ($null -ne $usersRoot)
-        {
-            $usersRoot.Dispose()
+            $script:InstallerStep = 'unload-installed-user-registry-hive'
+            if (Test-RegistryHiveMounted -HiveName $temporaryHiveName)
+            {
+                Invoke-BoundedRegistryHiveCommand `
+                    -Operation Unload `
+                    -HiveName $temporaryHiveName
+                if (Test-RegistryHiveMounted -HiveName $temporaryHiveName)
+                {
+                    throw 'Temporary installed-user registry hive remains after unload.'
+                }
+            }
+            if (-not [string]::IsNullOrWhiteSpace($failureStep))
+            {
+                $script:InstallerStep = $failureStep
+            }
         }
     }
 }

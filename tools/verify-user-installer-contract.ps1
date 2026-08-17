@@ -903,6 +903,15 @@ function Test-SparsePackageContract
         -Description 'guarded primary and backup install-state cleanup'
     $uninstallerAst = Get-ParsedScript `
         -RelativePath 'tools/installer/unregister-machine.ps1'
+    $profileHiveResolver = Get-FunctionText `
+        -Ast $uninstallerAst `
+        -Name 'Get-InstalledUserProfileHivePath'
+    $registryHiveCommand = Get-FunctionText `
+        -Ast $uninstallerAst `
+        -Name 'Invoke-BoundedRegistryHiveCommand'
+    $startupValueCleanup = Get-FunctionText `
+        -Ast $uninstallerAst `
+        -Name 'Remove-StartupValueFromLoadedHive'
     $startupCleanup = Get-FunctionText `
         -Ast $uninstallerAst `
         -Name 'Remove-InstalledUserStartupRegistration'
@@ -911,17 +920,45 @@ function Test-SparsePackageContract
         -Pattern 'SecurityIdentifier\]::new\(\$InstalledUserSid\)[\s\S]*\$sid\.Value\s+-ne\s+\$InstalledUserSid' `
         -Description 'startup cleanup validates the protected installed-user SID'
     Assert-TextContains `
-        -Text $startupCleanup `
-        -Pattern 'RegistryHive\]::Users[\s\S]*\$\(\$sid\.Value\)\\Software\\Microsoft\\Windows\\CurrentVersion\\Run' `
-        -Description 'startup cleanup targets only the installed user Run key'
+        -Text $profileHiveResolver `
+        -Pattern 'RegistryHive\]::LocalMachine[\s\S]*RegistryView\]::Registry64[\s\S]*ProfileList\\\$InstalledUserSid' `
+        -Description 'offline startup cleanup trusts the machine ProfileList SID mapping'
     Assert-TextContains `
-        -Text $startupCleanup `
+        -Text $profileHiveResolver `
+        -Pattern 'ProfileImagePath[\s\S]*DoNotExpandEnvironmentNames[\s\S]*Join-Path\s+\$profilePath\s+''NTUSER\.DAT''[\s\S]*Test-Path\s+-LiteralPath\s+\$hivePath\s+-PathType\s+Leaf' `
+        -Description 'offline startup cleanup resolves an existing NTUSER.DAT'
+    Assert-TextContains `
+        -Text $profileHiveResolver `
+        -Pattern 'SpecialFolder\]::Windows[\s\S]*GetPathRoot\(\$windowsDirectory\)[\s\S]*unsupported environment token' `
+        -Description 'ProfileList expansion does not trust the invoking environment'
+    Assert-TextContains `
+        -Text $registryHiveCommand `
+        -Pattern 'ValidateSet\(''Load'',\s*''Unload''\)[\s\S]*TimeoutMilliseconds\s*=\s*10000[\s\S]*WaitForExit\(\$TimeoutMilliseconds\)[\s\S]*\.Kill\(\)' `
+        -Description 'offline registry hive commands have a hard timeout'
+    Assert-TextContains `
+        -Text $registryHiveCommand `
+        -Pattern 'SpecialFolder\]::System[\s\S]*reg\.exe[\s\S]*ExitCode\s+-ne\s+0[\s\S]*throw' `
+        -Description 'offline registry hive command failures propagate'
+    Assert-TextContains `
+        -Text $startupValueCleanup `
         -Pattern '\.DeleteValue\(\s*''BAFX Control Center''\s*,\s*\$false\s*\)' `
         -Description 'startup cleanup removes only the BAFX Control Center value idempotently'
+    Assert-TextContains `
+        -Text $startupValueCleanup `
+        -Pattern 'Software\\Microsoft\\Windows\\CurrentVersion\\Run[\s\S]*GetValueNames\(\)' `
+        -Description 'startup cleanup verifies the exact Run value was removed'
     Assert-TextExcludes `
-        -Text $startupCleanup `
+        -Text $startupValueCleanup `
         -Pattern '(DeleteSubKey|DeleteSubKeyTree|Remove-Item)' `
         -Description 'startup cleanup deleting a registry key'
+    Assert-TextContains `
+        -Text $startupCleanup `
+        -Pattern 'Test-RegistryHiveMounted\s+-HiveName\s+\$sid\.Value[\s\S]*Get-InstalledUserProfileHivePath[\s\S]*BAFX_Uninstall_\$\{PID\}_\$\(\[Guid\]::NewGuid\(\)\.ToString\(''N''\)\)[\s\S]*Test-RegistryHiveMounted\s+-HiveName\s+\$temporaryHiveName[\s\S]*already mounted' `
+        -Description 'offline startup cleanup uses a unique temporary HKU mount'
+    Assert-TextContains `
+        -Text $startupCleanup `
+        -Pattern 'try[\s\S]*\$loadAttempted\s*=\s*\$true[\s\S]*-Operation\s+Load[\s\S]*Remove-StartupValueFromLoadedHive[\s\S]*finally[\s\S]*\$loadAttempted[\s\S]*-Operation\s+Unload[\s\S]*remains after unload' `
+        -Description 'offline startup cleanup always verifies temporary hive unload'
     Assert-TextContains `
         -Text $uninstaller `
         -Pattern 'InstallerStep\s*=\s*''remove-installed-user-startup-registration''[\s\S]*Remove-InstalledUserStartupRegistration\s+`?\s*-InstalledUserSid\s+\(\[string\]\$state\.installedUserSid\)[\s\S]*InstallerStep\s*=\s*''query-installed-user-package''' `
@@ -939,6 +976,7 @@ function Assert-ProtectedStateAcl
 {
     param([string]$Path)
 }
+
 '@ + "`n" + $reader
     $readerModule = New-Module -ScriptBlock ([scriptblock]::Create($moduleText))
 
@@ -1001,6 +1039,131 @@ function Assert-ProtectedStateAcl
                 -Recurse `
                 -Force `
                 -ErrorAction SilentlyContinue
+        }
+    }
+}
+
+function Test-UninstallerOfflineHiveFailureContract
+{
+    $ast = Get-ParsedScript `
+        -RelativePath 'tools/installer/unregister-machine.ps1'
+    $cleanup = Get-FunctionText `
+        -Ast $ast `
+        -Name 'Remove-InstalledUserStartupRegistration'
+    $moduleText = @'
+Set-StrictMode -Version Latest
+$script:InstallerStep = ''
+$script:ProbeFailure = ''
+$script:ProbeMounted = $false
+$script:ProbeEvents = New-Object Collections.Generic.List[string]
+
+function Test-RegistryHiveMounted
+{
+    param([string]$HiveName)
+    return $script:ProbeMounted
+}
+
+function Get-InstalledUserProfileHivePath
+{
+    param([string]$InstalledUserSid)
+    $script:ProbeEvents.Add('Resolve')
+    return 'C:\TrustedProfile\NTUSER.DAT'
+}
+
+function Invoke-BoundedRegistryHiveCommand
+{
+    param(
+        [string]$Operation,
+        [string]$HiveName,
+        [string]$HiveFilePath = '')
+    $script:ProbeEvents.Add($Operation)
+    if ($Operation -eq 'Load')
+    {
+        # Model reg.exe reporting failure after the hive became visible.
+        $script:ProbeMounted = $true
+    }
+    if ($script:ProbeFailure -eq $Operation)
+    {
+        throw "Probe $Operation failure."
+    }
+    if ($Operation -eq 'Unload')
+    {
+        $script:ProbeMounted = $false
+    }
+}
+
+function Remove-StartupValueFromLoadedHive
+{
+    param([string]$HiveName)
+    $script:ProbeEvents.Add('Remove')
+    if ($script:ProbeFailure -eq 'Remove')
+    {
+        throw 'Probe Remove failure.'
+    }
+}
+'@ + "`n" + $cleanup
+    $probeModule = New-Module -ScriptBlock ([scriptblock]::Create($moduleText))
+    try
+    {
+        $expectedEvents = @{
+            Load = @('Resolve', 'Load', 'Unload')
+            Remove = @('Resolve', 'Load', 'Remove', 'Unload')
+            Unload = @('Resolve', 'Load', 'Remove', 'Unload')
+        }
+        $expectedSteps = @{
+            Load = 'load-installed-user-registry-hive'
+            Remove = 'remove-installed-user-startup-registration'
+            Unload = 'unload-installed-user-registry-hive'
+        }
+        foreach ($failure in @('Load', 'Remove', 'Unload'))
+        {
+            $result = & $probeModule {
+                param($Failure)
+                $script:InstallerStep = 'remove-installed-user-startup-registration'
+                $script:ProbeFailure = $Failure
+                $script:ProbeMounted = $false
+                $script:ProbeEvents.Clear()
+                $failureMessage = ''
+                try
+                {
+                    Remove-InstalledUserStartupRegistration `
+                        -InstalledUserSid 'S-1-5-21-1000-1000-1000-1000'
+                }
+                catch
+                {
+                    $failureMessage = $_.Exception.Message
+                }
+                return [PSCustomObject]@{
+                    failureMessage = $failureMessage
+                    events = @($script:ProbeEvents)
+                    mounted = $script:ProbeMounted
+                    installerStep = $script:InstallerStep
+                }
+            } $failure
+
+            Assert-True `
+                -Condition (-not [string]::IsNullOrWhiteSpace($result.failureMessage)) `
+                -Message "Offline hive $failure failure did not propagate."
+            Assert-ArrayEquals `
+                -Expected $expectedEvents[$failure] `
+                -Actual @($result.events) `
+                -Description "offline hive $failure failure cleanup order"
+            Assert-True `
+                -Condition ([string]$result.installerStep -eq $expectedSteps[$failure]) `
+                -Message "Offline hive $failure failure reported the wrong uninstall step."
+            if ($failure -ne 'Unload')
+            {
+                Assert-True `
+                    -Condition (-not [bool]$result.mounted) `
+                    -Message "Offline hive $failure failure left the temporary hive mounted."
+            }
+        }
+    }
+    finally
+    {
+        if ($null -ne $probeModule)
+        {
+            Remove-Module -ModuleInfo $probeModule -Force -ErrorAction SilentlyContinue
         }
     }
 }
@@ -1280,6 +1443,7 @@ Test-CompressionRuntimeColdStart
 Test-InnoPayloadContract
 Test-SparsePackageContract
 Test-UninstallerBackupFallback
+Test-UninstallerOfflineHiveFailureContract
 Test-UpgradeHostIntegrityContract
 Test-PortableZipContract
 Test-RegistrationFailureDiagnostics
