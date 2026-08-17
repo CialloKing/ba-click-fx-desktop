@@ -143,11 +143,11 @@ int cppwinrtCoroutineProbe()
             COMPILE_DEFINITIONS
                 _SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS
             # SDK 19041's projection includes <experimental/coroutine> and
-            # is incompatible with the standard C++20 coroutine mode.  Keep
-            # the rest of the target on C++20, but compile WinRT consumers in
-            # the language mode expected by that projection.
+            # relies on non-dependent lookup in its generated headers.  Keep
+            # the target on C++20 (the sources use std::span), while selecting
+            # the old coroutine switch and lookup behavior for WinRT files.
             COMPILE_OPTIONS
-                "/await;/std:c++17"
+                "/await;/Zc:twoPhase-"
     )
     message(
         STATUS
