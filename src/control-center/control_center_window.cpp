@@ -2536,7 +2536,7 @@ void ControlCenterWindow::layoutControls(
 
     // Keep the button-specific input switches on their own row so translated
     // labels remain readable on the smallest supported DPI-scaled layout.
-    const int inputCheckboxTop = checkboxTop + scale(28);
+    const int inputCheckboxTop = checkboxTop + scale(30);
     moveControl(
         leftClickEnabled_,
         groupLeft,
