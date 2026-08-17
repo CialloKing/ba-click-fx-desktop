@@ -684,6 +684,11 @@ void appendDisplaySessionRuntimeSummary(
            << prefix << "Primary=" << booleanName(session.primary) << '\n'
            << prefix << "Monitor=" << sanitize(session.monitor) << '\n'
            << prefix << "Device=" << sanitize(session.device) << '\n'
+           << prefix << "PersistentKey="
+           << (session.displayKey.has_value()
+                ? sanitize(*session.displayKey)
+                : "unavailable")
+           << '\n'
            << prefix << "Bounds="
            << (session.bounds.right - session.bounds.left) << 'x'
            << (session.bounds.bottom - session.bounds.top) << '@'

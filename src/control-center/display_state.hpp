@@ -41,6 +41,7 @@ struct DisplaySessionState final
 {
     std::string monitor{};
     std::string device{};
+    std::optional<std::string> displayKey{};
     bool coordinator{false};
     bool primary{false};
     std::int32_t left{0};

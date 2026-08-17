@@ -2519,6 +2519,8 @@ int runApplication(
             summary.monitor =
                 bafx::desktop::formatDisplayTargetMonitor(target);
             summary.device = bafx::desktop::displayTargetDeviceUtf8(target);
+            summary.displayKey =
+                bafx::desktop::displayTargetPersistentKey(target);
             summary.bounds = target.bounds;
             summary.targetDpiX = target.dpiX;
             summary.targetDpiY = target.dpiY;

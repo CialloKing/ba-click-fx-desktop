@@ -50,6 +50,9 @@ struct DisplaySessionRuntimeSummary final
 {
     std::string monitor{};
     std::string device{};
+    // Null means DisplayConfig did not provide every physical target path, so
+    // callers must not persist a policy under a transient fallback identity.
+    std::optional<std::string> displayKey{};
     RECT bounds{};
     std::uint32_t targetDpiX{0U};
     std::uint32_t targetDpiY{0U};

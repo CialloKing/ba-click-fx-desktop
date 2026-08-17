@@ -14,7 +14,7 @@ namespace
 constexpr std::size_t maximumDocumentBytes = 256U * 1024U;
 constexpr std::size_t maximumStringBytes = 16U * 1024U;
 constexpr std::size_t maximumSessions = 64U;
-constexpr std::uint64_t requiredSessionFields = (1ULL << 27U) - 1ULL;
+constexpr std::uint64_t requiredSessionFields = (1ULL << 28U) - 1ULL;
 
 class DisplayStateJsonParser final
 {
@@ -204,6 +204,11 @@ private:
         if (key == "device")
         {
             return markField(seen, 1U) && parseString(session.device);
+        }
+        if (key == "displayKey")
+        {
+            return markField(seen, 27U)
+                && parseOptionalString(session.displayKey);
         }
         if (key == "coordinator")
         {
@@ -488,6 +493,23 @@ private:
             return false;
         }
         output = value;
+        return true;
+    }
+
+    [[nodiscard]] bool parseOptionalString(
+        std::optional<std::string>& output)
+    {
+        if (consumeLiteral("null"))
+        {
+            output.reset();
+            return true;
+        }
+        std::string value;
+        if (!parseString(value))
+        {
+            return false;
+        }
+        output = std::move(value);
         return true;
     }
 

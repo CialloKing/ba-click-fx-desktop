@@ -195,6 +195,7 @@ BAFX_TEST(host_control_publishes_one_immutable_display_state_snapshot)
     bafx::windows::DisplaySessionRuntimeSummary session{};
     session.monitor = "monitor-1";
     session.device = R"(\\.\DISPLAY1)";
+    session.displayKey = "displayconfig-v1-sha256:test-display";
     session.bounds = RECT{0, 0, 3840, 2160};
     session.targetDpiX = 144U;
     session.targetDpiY = 144U;
@@ -249,6 +250,9 @@ BAFX_TEST(host_control_publishes_one_immutable_display_state_snapshot)
     BAFX_CHECK(response.payload.find("\"generation\":1")
         != std::string::npos);
     BAFX_CHECK(response.payload.find("\"device\":\"\\\\\\\\.\\\\DISPLAY1\"")
+        != std::string::npos);
+    BAFX_CHECK(response.payload.find(
+        "\"displayKey\":\"displayconfig-v1-sha256:test-display\"")
         != std::string::npos);
     BAFX_CHECK(response.payload.find("\"displayRefresh\":{\"numerator\":144000")
         != std::string::npos);

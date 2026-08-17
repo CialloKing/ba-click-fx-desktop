@@ -598,7 +598,16 @@ std::string HostControlPlane::displayStateJson(
 
         stream << "{\"monitor\":" << jsonEscape(session.monitor)
                << ",\"device\":" << jsonEscape(session.device)
-               << ",\"coordinator\":" << jsonBool(session.coordinator)
+               << ",\"displayKey\":";
+        if (session.displayKey.has_value())
+        {
+            stream << jsonEscape(*session.displayKey);
+        }
+        else
+        {
+            stream << "null";
+        }
+        stream << ",\"coordinator\":" << jsonBool(session.coordinator)
                << ",\"primary\":" << jsonBool(session.primary)
                << ",\"left\":" << session.bounds.left
                << ",\"top\":" << session.bounds.top
