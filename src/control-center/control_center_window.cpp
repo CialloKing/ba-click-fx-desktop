@@ -2515,14 +2515,14 @@ void ControlCenterWindow::layoutControls(
     }
 
     const int groupHeight = (std::max)(
-        scale(384),
+        scale(350),
         clientHeight - contentTop - margin);
     moveControl(effectsHeading_, margin, contentTop, leftWidth, groupHeight);
 
     const int groupInset = scale(16);
     const int groupLeft = margin + groupInset;
     const int groupWidth = (std::max)(scale(1), leftWidth - groupInset * 2);
-    const int checkboxTop = contentTop + scale(32);
+    const int checkboxTop = contentTop + scale(24);
     const int checkboxWidth = groupWidth / 4;
     moveControl(effectsEnabled_, groupLeft, checkboxTop, checkboxWidth, scale(30));
     moveControl(clickEnabled_, groupLeft + checkboxWidth, checkboxTop, checkboxWidth, scale(30));
@@ -2536,7 +2536,7 @@ void ControlCenterWindow::layoutControls(
 
     // Keep the button-specific input switches on their own row so translated
     // labels remain readable on the smallest supported DPI-scaled layout.
-    const int inputCheckboxTop = checkboxTop + scale(32);
+    const int inputCheckboxTop = checkboxTop + scale(28);
     moveControl(
         leftClickEnabled_,
         groupLeft,
@@ -2556,17 +2556,17 @@ void ControlCenterWindow::layoutControls(
         checkboxWidth,
         scale(30));
 
-    int sliderTop = inputCheckboxTop + scale(34);
+    int sliderTop = inputCheckboxTop + scale(30);
     layoutSlider(globalScale_, groupLeft, sliderTop, groupWidth, scale(40));
-    sliderTop += scale(46);
+    sliderTop += scale(44);
     layoutSlider(trailLength_, groupLeft, sliderTop, groupWidth, scale(40));
-    sliderTop += scale(46);
+    sliderTop += scale(44);
     layoutSlider(trailWidth_, groupLeft, sliderTop, groupWidth, scale(40));
-    sliderTop += scale(46);
+    sliderTop += scale(44);
     layoutSlider(inputSamplingRate_, groupLeft, sliderTop, groupWidth, scale(40));
-    sliderTop += scale(46);
+    sliderTop += scale(44);
     layoutSlider(bloomIntensity_, groupLeft, sliderTop, groupWidth, scale(40));
-    sliderTop += scale(48);
+    sliderTop += scale(44);
 
     const int labelWidth = scale(106);
     moveControl(bloomQualityLabel_, groupLeft, sliderTop, labelWidth, scale(34));
