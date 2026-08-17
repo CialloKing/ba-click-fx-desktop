@@ -32,6 +32,7 @@ DisplaySessionManager::DisplaySessionManager(
       bloomSettings_(options.bloomSettings),
       backgroundStopObserver_(options.backgroundStopObserver),
       outputPreference_(options.outputPreference),
+      policyResolver_(std::move(options.policyResolver)),
       simulationSeed_(options.simulationSeed),
       trailLengthMultiplier_(options.trailLengthMultiplier),
       inputSamplingRateHz_(options.inputSamplingRateHz),
@@ -427,6 +428,29 @@ void DisplaySessionManager::updateCreationSettings(
     shardParticleSettings_ = shardParticleSettings;
 }
 
+DisplaySessionPolicyChange DisplaySessionManager::refreshRuntimePolicies()
+{
+    DisplaySessionPolicyChange aggregate{};
+    for (const std::unique_ptr<DisplaySession>& session : sessions_)
+    {
+        const DisplaySessionRuntimePolicy policy = policyResolver_
+            ? policyResolver_(session->target())
+            : DisplaySessionRuntimePolicy{
+                true,
+                outputPreference_,
+                bafx::core::MonotonicTime::zero()};
+        const DisplaySessionPolicyChange change =
+            session->applyRuntimePolicy(policy);
+        aggregate.effectsEnabledChanged = aggregate.effectsEnabledChanged
+            || change.effectsEnabledChanged;
+        aggregate.outputPreferenceChanged = aggregate.outputPreferenceChanged
+            || change.outputPreferenceChanged;
+        aggregate.framePacingChanged = aggregate.framePacingChanged
+            || change.framePacingChanged;
+    }
+    return aggregate;
+}
+
 DisplaySession* DisplaySessionManager::findBySource(
     const DisplayTarget& target) noexcept
 {
@@ -435,7 +459,8 @@ DisplaySession* DisplaySessionManager::findBySource(
         sessions_.end(),
         [&target](const std::unique_ptr<DisplaySession>& session)
         {
-            return sameDisplaySource(session->target(), target);
+            return session->effectsEnabled()
+                && sameDisplaySource(session->target(), target);
         });
     return found == sessions_.end() ? nullptr : found->get();
 }
@@ -448,7 +473,8 @@ const DisplaySession* DisplaySessionManager::findBySource(
         sessions_.end(),
         [&target](const std::unique_ptr<DisplaySession>& session)
         {
-            return sameDisplaySource(session->target(), target);
+            return session->effectsEnabled()
+                && sameDisplaySource(session->target(), target);
         });
     return found == sessions_.end() ? nullptr : found->get();
 }
@@ -583,7 +609,8 @@ DisplaySession* DisplaySessionManager::findAtPoint(const POINT point) noexcept
             [point, currentMonitor](
                 const std::unique_ptr<DisplaySession>& session)
             {
-                return session->target().monitor == currentMonitor
+                return session->effectsEnabled()
+                    && session->target().monitor == currentMonitor
                     && containsPoint(session->target().bounds, point);
             });
         if (exactMonitor != sessions_.end())
@@ -600,7 +627,8 @@ DisplaySession* DisplaySessionManager::findAtPoint(const POINT point) noexcept
         sessions_.end(),
         [point](const std::unique_ptr<DisplaySession>& session)
         {
-            return containsPoint(session->target().bounds, point);
+            return session->effectsEnabled()
+                && containsPoint(session->target().bounds, point);
         });
     return found == sessions_.end() ? nullptr : found->get();
 }
@@ -614,6 +642,12 @@ DisplaySessionManager::sessions() const noexcept
 std::unique_ptr<DisplaySession> DisplaySessionManager::createSession(
     DisplayTarget target)
 {
+    const DisplaySessionRuntimePolicy policy = policyResolver_
+        ? policyResolver_(target)
+        : DisplaySessionRuntimePolicy{
+            true,
+            outputPreference_,
+            bafx::core::MonotonicTime::zero()};
     auto session = std::make_unique<DisplaySession>(
         DisplaySessionOptions{
             instance_,
@@ -623,7 +657,7 @@ std::unique_ptr<DisplaySession> DisplaySessionManager::createSession(
             surfaceTitle_,
             bloomSettings_,
             backgroundStopObserver_,
-            outputPreference_,
+            policy,
             nextSimulationSeed()});
     session->simulation().setTrailLengthMultiplier(trailLengthMultiplier_);
     session->simulation().setClickTimeScale(clickTimeScale_);

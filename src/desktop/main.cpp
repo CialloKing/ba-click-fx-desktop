@@ -13,6 +13,7 @@
 #include "bafx/windows/unique_handle.hpp"
 #include "background_capture_runtime.hpp"
 #include "display_output_retarget.hpp"
+#include "display_policy.hpp"
 #include "display_pointer_router.hpp"
 #include "display_session.hpp"
 #include "display_session_manager.hpp"
@@ -215,36 +216,6 @@ void requirePhysicalPixelDpiContract(
     return "unknown";
 }
 
-[[nodiscard]] std::optional<bafx::core::MonotonicTime>
-fixedFramePacingPeriod(const bafx::config::FramePacing pacing) noexcept
-{
-    std::uint32_t framesPerSecond = 0U;
-    switch (pacing)
-    {
-    case bafx::config::FramePacing::MatchDisplay:
-        return std::nullopt;
-    case bafx::config::FramePacing::Fixed60:
-        framesPerSecond = 60U;
-        break;
-    case bafx::config::FramePacing::Fixed120:
-        framesPerSecond = 120U;
-        break;
-    case bafx::config::FramePacing::Fixed144:
-        framesPerSecond = 144U;
-        break;
-    }
-    if (framesPerSecond == 0U)
-    {
-        return std::nullopt;
-    }
-
-    const std::int64_t second = std::chrono::duration_cast<
-        bafx::core::MonotonicTime>(std::chrono::seconds(1)).count();
-    return bafx::core::MonotonicTime{
-        (second + static_cast<std::int64_t>(framesPerSecond) - 1LL)
-        / static_cast<std::int64_t>(framesPerSecond)};
-}
-
 [[nodiscard]] DWORD cadenceFallbackTimeoutMilliseconds(
     const bafx::core::MonotonicTime delay) noexcept
 {
@@ -386,6 +357,19 @@ void appendDeviceRemovedNotificationStatus(
     return display.hdrEnabled
         ? bafx::windows::CompositionOutputPreference::PreferLinearScRgb
         : bafx::windows::CompositionOutputPreference::ConservativeSdr;
+}
+
+[[nodiscard]] bafx::desktop::DisplaySessionRuntimePolicy makeRuntimePolicy(
+    const bafx::config::Config& config,
+    const bafx::desktop::DisplayTarget& target) noexcept
+{
+    const bafx::desktop::ResolvedDisplaySessionPolicy resolved =
+        bafx::desktop::resolveDisplaySessionPolicy(config, target);
+    return bafx::desktop::DisplaySessionRuntimePolicy{
+        config.effects.enabled && resolved.enabled,
+        resolved.outputPreference,
+        resolved.fixedFramePeriod.value_or(
+            bafx::core::MonotonicTime::zero())};
 }
 
 [[nodiscard]] bool borderlessAccessMonitoringRequired(
@@ -2248,13 +2232,12 @@ SecondaryRenderSummary renderSecondarySessions(
     const std::filesystem::path& logPath)
 {
     SecondaryRenderSummary summary{};
-    const bafx::core::MonotonicTime minimumFramePeriod =
-        fixedFramePacingPeriod(config.performance.framePacing).value_or(
-            bafx::core::MonotonicTime::zero());
     for (const auto& ownedSession : sessions.sessions())
     {
         bafx::desktop::DisplaySession& session = *ownedSession;
-        if (&session == &coordinator || session.renderFaulted())
+        if (&session == &coordinator
+            || !session.effectsEnabled()
+            || session.renderFaulted())
         {
             continue;
         }
@@ -2293,11 +2276,9 @@ SecondaryRenderSummary renderSecondarySessions(
             continue;
         }
 
-        bafx::fx::FrameSnapshot snapshot = config.effects.enabled
-            ? session.simulation().snapshot(
-                toViewport(session.window().size()),
-                renderTime)
-            : bafx::fx::FrameSnapshot{};
+        bafx::fx::FrameSnapshot snapshot = session.simulation().snapshot(
+            toViewport(session.window().size()),
+            renderTime);
         applyVisualConfig(snapshot, config);
         try
         {
@@ -2307,8 +2288,7 @@ SecondaryRenderSummary renderSecondarySessions(
                 requireCurrentBackground));
             session.recordPresentedFrame(
                 snapshot.hasDrawableContent(),
-                wallTime,
-                minimumFramePeriod);
+                wallTime);
             if (commitSimulationFrame)
             {
                 session.simulation().onFrameRendered(renderTime);
@@ -2397,6 +2377,7 @@ int runApplication(
     {
         // Smoke must still exercise the renderer even when a user disabled FX.
         config.effects.enabled = true;
+        config.display.overrides.clear();
     }
     if (options.recoveryProbe)
     {
@@ -2430,6 +2411,10 @@ int runApplication(
             makeBloomSettings(config.effects),
             backgroundStopMonitor.observer(),
             makeOutputPreference(config.display),
+            [&config](const bafx::desktop::DisplayTarget& target)
+            {
+                return makeRuntimePolicy(config, target);
+            },
             makeRuntimeSeed(),
             config.effects.trailLength,
             config.input.samplingRateHz,
@@ -2829,12 +2814,34 @@ int runApplication(
                 PendingOutputRenegotiation{
                     initialCoordinatorOutputPolicy,
                     "initial-output-fallback"});
+    bool lastPresentedDrawableContent = false;
+    const auto refreshDisplaySessionPolicies =
+        [&](const bafx::fx::SimulationTime time)
+        {
+            const bafx::desktop::DisplaySessionPolicyChange change =
+                displaySessions.refreshRuntimePolicies();
+            if (change.effectsEnabledChanged)
+            {
+                // Router ownership outlives one input frame. Cancel it after
+                // a policy edge so Up/Move cannot leak into a disabled panel.
+                pointerRouter.cancelAll(displaySessions, time);
+                if (!displaySession.effectsEnabled())
+                {
+                    lastPresentedDrawableContent = false;
+                }
+            }
+            if (change.outputPreferenceChanged)
+            {
+                pendingCoordinatorOutputRenegotiation.reset();
+                outputPreferenceReconcilePending = true;
+            }
+            return change;
+        };
     std::optional<bafx::desktop::DisplayTarget> pendingDisplayTarget{};
     bafx::desktop::DisplayCaptureSizeTracker coordinatorCaptureSizeTracker{};
     bool backgroundParticipationLogged = false;
     bool backgroundPendingDiagnosticLogged = false;
     bool renderInvalidationPending = false;
-    bool lastPresentedDrawableContent = false;
     bool deviceRecoveryConsumed = backgroundExecution.deviceRecovered;
     bool recoveryProbePending = options.recoveryProbe;
     bool displayPowerUnavailable = false;
@@ -3353,8 +3360,7 @@ int runApplication(
             bafx::windows::appendDiagnosticLog(logPath, report);
         };
     const auto reconcileRequestedOutputPreferences =
-        [&](const bafx::windows::CompositionOutputPreference requested,
-            const std::string_view reason,
+        [&](const std::string_view reason,
             const std::string_view fxOnlyReason) -> bool
         {
             bool renderRequired = false;
@@ -3363,6 +3369,8 @@ int runApplication(
             {
                 bafx::desktop::DisplaySession& session = *ownedSession;
                 const bool coordinator = &session == &displaySession;
+                const bafx::windows::CompositionOutputPreference requested =
+                    session.requestedOutputPreference();
                 const bafx::windows::CompositionOutputPolicy effectivePolicy =
                     bafx::desktop::resolveDisplayOutputPolicy(
                         requested,
@@ -3372,6 +3380,7 @@ int runApplication(
                         session.renderer().outputState(),
                         effectivePolicy))
                 {
+                    session.show();
                     continue;
                 }
 
@@ -3414,6 +3423,10 @@ int runApplication(
                 if (applied && coordinator)
                 {
                     report.setDeviceInfo(renderer.deviceInfo());
+                }
+                if (applied)
+                {
+                    session.show();
                 }
             }
             return renderRequired;
@@ -3496,6 +3509,8 @@ int runApplication(
             displaySession.acceptAppliedTarget(
                 appliedDisplayTarget,
                 hostWindow.handle());
+            static_cast<void>(refreshDisplaySessionPolicies(
+                simulationTimeline.fromWallTime(clock.now())));
             const std::size_t duplicateSessionsRemoved =
                 displaySessions.pruneCoordinatorDuplicates();
             if (duplicateSessionsRemoved > 0U)
@@ -4078,6 +4093,8 @@ int runApplication(
                     : "runtime-notification",
                 reconcile,
                 displaySessions.sessions().size());
+            static_cast<void>(refreshDisplaySessionPolicies(
+                simulationTimeline.fromWallTime(clock.now())));
             updateDisplayRuntimeSummary();
             // New topology sessions join the current request independently;
             // existing sessions treat the stable request as a no-op.
@@ -4671,9 +4688,8 @@ int runApplication(
             // retained separately with a finite maintenance-cadence budget.
             outputPreferenceReconcilePending = false;
             const bafx::windows::CompositionOutputPreference requested =
-                makeOutputPreference(config.display);
+                displaySession.requestedOutputPreference();
             renderInvalidated = reconcileRequestedOutputPreferences(
-                requested,
                 "stable-display",
                 "stable-display-fx-only")
                 || renderInvalidated;
@@ -4706,32 +4722,11 @@ int runApplication(
             renderInvalidated = true;
             if (configChanged)
             {
-                const bafx::config::FramePacing previousFramePacing =
-                    config.performance.framePacing;
-                const bafx::windows::CompositionOutputPreference
-                    previousOutputPreference = makeOutputPreference(
-                        config.display);
                 config = controlState.config;
-                if (config.performance.framePacing != previousFramePacing)
-                {
-                    // A new policy starts a fresh cadence epoch. Reusing a
-                    // deadline from a different rate would delay its first frame.
-                    for (const auto& ownedSession : displaySessions.sessions())
-                    {
-                        ownedSession->resetFramePacing();
-                    }
-                }
                 configureBorderlessAccessMonitor(config, "configuration");
                 const bafx::windows::CompositionOutputPreference
                     currentOutputPreference = makeOutputPreference(
                         config.display);
-                const bool outputPreferenceChanged =
-                    previousOutputPreference != currentOutputPreference;
-                for (const auto& ownedSession : displaySessions.sessions())
-                {
-                    ownedSession->setRequestedOutputPreference(
-                        currentOutputPreference);
-                }
                 const bool alwaysOnTrailEnabled = config.effects.enabled
                     && config.effects.trailEnabled
                     && !config.input.trailOnlyWhilePressed;
@@ -4743,6 +4738,8 @@ int runApplication(
                     makeShardParticleSettings(config.effects);
                 const bafx::fx::SimulationTime settingsTime =
                     simulationTimeline.fromWallTime(clock.now());
+                const bafx::desktop::DisplaySessionPolicyChange policyChange =
+                    refreshDisplaySessionPolicies(settingsTime);
                 displaySessions.updateCreationSettings(
                     bloomSettings,
                     currentOutputPreference,
@@ -4886,17 +4883,16 @@ int runApplication(
                     controlState.generation,
                     logPath,
                     displayPowerUnavailable);
-                if (outputPreferenceChanged)
+                if (policyChange.outputPreferenceChanged)
                 {
                     // A powered-off display has no actionable scan-out
                     // contract. Keep the newest user intent and reconcile it
                     // once the restore edge has refreshed per-monitor facts.
-                    pendingCoordinatorOutputRenegotiation.reset();
-                    outputPreferenceReconcilePending = true;
                     const std::array fields{
                         bafx::windows::DiagnosticField{
                             "RequestedPreference",
-                            outputPreferenceName(currentOutputPreference)},
+                            outputPreferenceName(
+                                displaySession.requestedOutputPreference())},
                         bafx::windows::DiagnosticField{
                             "DisplayPower",
                             displayPowerUnavailable
@@ -5116,15 +5112,13 @@ int runApplication(
             readyDisplaySessions.clear();
             const auto& ownedSessions = displaySessions.sessions();
             const bafx::core::MonotonicTime pacingObservedAt = clock.now();
-            const std::optional<bafx::core::MonotonicTime>
-                minimumFramePeriod =
-                    fixedFramePacingPeriod(config.performance.framePacing);
             std::optional<bafx::core::MonotonicTime>
                 earliestCadenceDeadline{};
             for (std::size_t index = 0U; index < ownedSessions.size(); ++index)
             {
                 bafx::desktop::DisplaySession& session = *ownedSessions[index];
-                if (&session != &displaySession && session.renderFaulted())
+                if (!session.effectsEnabled()
+                    || (&session != &displaySession && session.renderFaulted()))
                 {
                     continue;
                 }
@@ -5155,7 +5149,8 @@ int runApplication(
             for (std::size_t index = 0U; index < ownedSessions.size(); ++index)
             {
                 bafx::desktop::DisplaySession& session = *ownedSessions[index];
-                if (&session != &displaySession && session.renderFaulted())
+                if (!session.effectsEnabled()
+                    || (&session != &displaySession && session.renderFaulted()))
                 {
                     continue;
                 }
@@ -5164,7 +5159,8 @@ int runApplication(
                 {
                     continue;
                 }
-                if (minimumFramePeriod.has_value()
+                if (session.minimumFramePeriod()
+                        > bafx::core::MonotonicTime::zero()
                     && !session.framePacingDue(pacingObservedAt))
                 {
                     const std::optional<bafx::core::MonotonicTime> deadline =
@@ -5396,7 +5392,9 @@ int runApplication(
                 for (const auto& ownedSession : ownedSessions)
                 {
                     bafx::desktop::DisplaySession& session = *ownedSession;
-                    if (&session != &displaySession && session.renderFaulted())
+                    if (!session.effectsEnabled()
+                        || (&session != &displaySession
+                            && session.renderFaulted()))
                     {
                         continue;
                     }
@@ -5406,7 +5404,8 @@ int runApplication(
                         // fresh opportunity from the replacement swap chain.
                         continue;
                     }
-                    if (minimumFramePeriod.has_value()
+                    if (session.minimumFramePeriod()
+                            > bafx::core::MonotonicTime::zero()
                         && !session.framePacingDue(frameReadyPollAt))
                     {
                         continue;
@@ -5582,7 +5581,7 @@ int runApplication(
         }
         if (renderCoordinatorThisIteration)
         {
-            bafx::fx::FrameSnapshot snapshot = config.effects.enabled
+            bafx::fx::FrameSnapshot snapshot = displaySession.effectsEnabled()
                 ? simulation.snapshot(toViewport(window.size()), renderTime)
                 : bafx::fx::FrameSnapshot{};
             applyVisualConfig(snapshot, config);
@@ -6013,10 +6012,7 @@ int runApplication(
                 completedFrameDiagnostics = *frameDiagnostics;
             displaySession.recordPresentedFrame(
                 lastPresentedDrawableContent,
-                wallTime,
-                fixedFramePacingPeriod(
-                    config.performance.framePacing).value_or(
-                        bafx::core::MonotonicTime::zero()));
+                wallTime);
             appendPendingBackgroundSnapshotInvalidation();
             const std::uint64_t producerCallbacks =
                 wgcCallbackDeltaTracker.observe(

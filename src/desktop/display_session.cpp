@@ -165,7 +165,8 @@ DisplaySession::DisplaySession(DisplaySessionOptions options)
           target_.bounds,
           options.title,
           bafx::windows::OverlayWindowOptions::renderSurface()),
-      requestedOutputPreference_(options.outputPreference),
+      effectsEnabled_(options.runtimePolicy.effectsEnabled),
+      requestedOutputPreference_(options.runtimePolicy.outputPreference),
       colorCapabilities_(bafx::windows::queryDisplayColorCapabilities(
           target_.monitor)),
       renderer_(
@@ -177,7 +178,8 @@ DisplaySession::DisplaySession(DisplaySessionOptions options)
           resolveDisplayOutputPolicy(
               requestedOutputPreference_,
               colorCapabilities_)),
-      simulation_(options.simulationSeed)
+      simulation_(options.simulationSeed),
+      minimumFramePeriod_(options.runtimePolicy.minimumFramePeriod)
 {
     if (borderlessAccessAuthority_ == nullptr)
     {
@@ -314,6 +316,52 @@ bafx::windows::CompositionOutputPreference
 DisplaySession::requestedOutputPreference() const noexcept
 {
     return requestedOutputPreference_;
+}
+
+bool DisplaySession::effectsEnabled() const noexcept
+{
+    return effectsEnabled_;
+}
+
+bafx::core::MonotonicTime DisplaySession::minimumFramePeriod() const noexcept
+{
+    return minimumFramePeriod_;
+}
+
+DisplaySessionPolicyChange DisplaySession::applyRuntimePolicy(
+    const DisplaySessionRuntimePolicy policy) noexcept
+{
+    const DisplaySessionPolicyChange change{
+        effectsEnabled_ != policy.effectsEnabled,
+        requestedOutputPreference_ != policy.outputPreference,
+        minimumFramePeriod_ != policy.minimumFramePeriod};
+
+    effectsEnabled_ = policy.effectsEnabled;
+    minimumFramePeriod_ = policy.minimumFramePeriod;
+    if (change.framePacingChanged || change.effectsEnabledChanged)
+    {
+        // A deadline belongs to one cadence contract. Reusing it after a rate
+        // change can delay the first frame or cause a catch-up presentation.
+        resetFramePacing();
+    }
+    setRequestedOutputPreference(policy.outputPreference);
+
+    if (!effectsEnabled_)
+    {
+        if (change.effectsEnabledChanged)
+        {
+            // Disabled sessions stay allocated for fast hot-plug and HDR
+            // recovery, but authored state must never reappear on re-enable.
+            simulation_.discardActiveEffects();
+            lastPresentedDrawableContent_ = false;
+        }
+        window_.hide();
+    }
+    else if (change.effectsEnabledChanged || change.outputPreferenceChanged)
+    {
+        show();
+    }
+    return change;
 }
 
 void DisplaySession::setRequestedOutputPreference(
@@ -1651,11 +1699,10 @@ DisplaySessionColorRefreshStatus DisplaySession::refreshColorCapabilities(
 
 void DisplaySession::recordPresentedFrame(
     const bool drawable,
-    const bafx::core::MonotonicTime startedAt,
-    const bafx::core::MonotonicTime minimumPeriod) noexcept
+    const bafx::core::MonotonicTime startedAt) noexcept
 {
     lastPresentedDrawableContent_ = drawable;
-    if (minimumPeriod <= bafx::core::MonotonicTime::zero())
+    if (minimumFramePeriod_ <= bafx::core::MonotonicTime::zero())
     {
         nextFramePacingDeadline_.reset();
         return;
@@ -1663,12 +1710,12 @@ void DisplaySession::recordPresentedFrame(
 
     const bafx::core::MonotonicTime followingDeadline =
         nextFramePacingDeadline_.has_value()
-        ? *nextFramePacingDeadline_ + minimumPeriod
-        : startedAt + minimumPeriod;
+        ? *nextFramePacingDeadline_ + minimumFramePeriod_
+        : startedAt + minimumFramePeriod_;
     // A delayed display must not submit a burst to catch up with missed ticks.
     nextFramePacingDeadline_ = followingDeadline > startedAt
         ? followingDeadline
-        : startedAt + minimumPeriod;
+        : startedAt + minimumFramePeriod_;
 }
 
 void DisplaySession::resetFramePacing() noexcept
@@ -1695,13 +1742,13 @@ void DisplaySession::clearRenderFault()
         return;
     }
 
+    renderFaulted_ = false;
     if (!outputContractFaulted_)
     {
         // Re-expose only after every independent fault latch is clear. show()
         // also reasserts the topmost non-activating state.
-        window_.show();
+        show();
     }
-    renderFaulted_ = false;
 }
 
 void DisplaySession::clearOutputContractFault()
@@ -1711,17 +1758,37 @@ void DisplaySession::clearOutputContractFault()
         return;
     }
 
+    outputContractFaulted_ = false;
     if (!renderFaulted_)
     {
         // Output recovery is independent of Bloom or Present recovery. Do not
         // expose the surface while either contract remains untrustworthy.
-        window_.show();
+        show();
     }
-    outputContractFaulted_ = false;
 }
 
 void DisplaySession::show()
 {
+    if (!effectsEnabled_ || renderFaulted())
+    {
+        window_.hide();
+        return;
+    }
+
+    const bafx::windows::CompositionOutputPolicy effectivePolicy =
+        resolveDisplayOutputPolicy(
+            requestedOutputPreference_,
+            colorCapabilities_);
+    if (renderer_.outputPolicy() != effectivePolicy
+        || !bafx::windows::compositionOutputSatisfiesPolicy(
+            renderer_.outputState(),
+            effectivePolicy))
+    {
+        // Enabling a display while its HDR transport is being renegotiated
+        // must not expose one frame using the previous color contract.
+        window_.hide();
+        return;
+    }
     window_.show();
 }
 

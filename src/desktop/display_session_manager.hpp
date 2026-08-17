@@ -6,6 +6,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -13,6 +14,9 @@
 
 namespace bafx::desktop
 {
+
+using DisplaySessionPolicyResolver = std::function<
+    DisplaySessionRuntimePolicy(const DisplayTarget&)>;
 
 struct DisplaySessionManagerOptions final
 {
@@ -25,6 +29,7 @@ struct DisplaySessionManagerOptions final
     bafx::windows::WgcBackgroundStopObserver backgroundStopObserver{};
     bafx::windows::CompositionOutputPreference outputPreference{
         bafx::windows::CompositionOutputPreference::ConservativeSdr};
+    DisplaySessionPolicyResolver policyResolver{};
     std::uint64_t simulationSeed{0U};
     float trailLengthMultiplier{1.0F};
     std::uint32_t inputSamplingRateHz{0U};
@@ -87,6 +92,7 @@ public:
         float trailTimeScale,
         bafx::fx::ClickParticleSettings clickParticleSettings,
         bafx::fx::ShardParticleSettings shardParticleSettings) noexcept;
+    [[nodiscard]] DisplaySessionPolicyChange refreshRuntimePolicies();
 
     [[nodiscard]] DisplaySession* findBySource(
         const DisplayTarget& target) noexcept;
@@ -117,6 +123,7 @@ private:
     bafx::windows::WgcBackgroundStopObserver backgroundStopObserver_{};
     bafx::windows::CompositionOutputPreference outputPreference_{
         bafx::windows::CompositionOutputPreference::ConservativeSdr};
+    DisplaySessionPolicyResolver policyResolver_{};
     std::uint64_t simulationSeed_{0U};
     std::uint64_t sessionSequence_{0U};
     float trailLengthMultiplier_{1.0F};

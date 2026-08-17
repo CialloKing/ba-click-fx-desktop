@@ -27,6 +27,28 @@ namespace bafx::desktop
 
 inline constexpr std::uint32_t maximumOutputRenegotiationAttempts = 3U;
 
+struct DisplaySessionRuntimePolicy final
+{
+    bool effectsEnabled{true};
+    bafx::windows::CompositionOutputPreference outputPreference{
+        bafx::windows::CompositionOutputPreference::ConservativeSdr};
+    bafx::core::MonotonicTime minimumFramePeriod{};
+};
+
+struct DisplaySessionPolicyChange final
+{
+    bool effectsEnabledChanged{false};
+    bool outputPreferenceChanged{false};
+    bool framePacingChanged{false};
+
+    [[nodiscard]] bool changed() const noexcept
+    {
+        return effectsEnabledChanged
+            || outputPreferenceChanged
+            || framePacingChanged;
+    }
+};
+
 struct DisplaySessionOptions final
 {
     HINSTANCE instance{nullptr};
@@ -37,8 +59,7 @@ struct DisplaySessionOptions final
     std::wstring_view title{};
     bafx::windows::FxBloomSettings bloomSettings{};
     bafx::windows::WgcBackgroundStopObserver backgroundStopObserver{};
-    bafx::windows::CompositionOutputPreference outputPreference{
-        bafx::windows::CompositionOutputPreference::ConservativeSdr};
+    DisplaySessionRuntimePolicy runtimePolicy{};
     std::uint64_t simulationSeed{0U};
 };
 
@@ -139,6 +160,11 @@ public:
         colorCapabilities() const noexcept;
     [[nodiscard]] bafx::windows::CompositionOutputPreference
         requestedOutputPreference() const noexcept;
+    [[nodiscard]] bool effectsEnabled() const noexcept;
+    [[nodiscard]] bafx::core::MonotonicTime minimumFramePeriod()
+        const noexcept;
+    [[nodiscard]] DisplaySessionPolicyChange applyRuntimePolicy(
+        DisplaySessionRuntimePolicy policy) noexcept;
     void setRequestedOutputPreference(
         bafx::windows::CompositionOutputPreference preference) noexcept;
     [[nodiscard]] const bafx::windows::DisplayColorMonitorResult&
@@ -213,8 +239,7 @@ public:
             DisplaySessionColorRefreshRequest::Observation) noexcept;
     void recordPresentedFrame(
         bool drawable,
-        bafx::core::MonotonicTime startedAt,
-        bafx::core::MonotonicTime minimumPeriod) noexcept;
+        bafx::core::MonotonicTime startedAt) noexcept;
     void resetFramePacing() noexcept;
     void markRenderFaulted() noexcept;
     void markOutputContractFaulted() noexcept;
@@ -235,6 +260,7 @@ private:
         borderlessAccessAuthority_{nullptr};
     DisplayTarget target_{};
     bafx::windows::OverlayWindow window_;
+    bool effectsEnabled_{true};
     bafx::windows::CompositionOutputPreference requestedOutputPreference_{
         bafx::windows::CompositionOutputPreference::ConservativeSdr};
     std::optional<bafx::windows::DisplayColorCapabilities> colorCapabilities_{};
@@ -242,6 +268,7 @@ private:
     bafx::fx::SimulationRuntime simulation_;
     bafx::fx::SimulationTimeline timeline_{};
     bafx::windows::DisplayColorMonitor colorMonitor_{};
+    bafx::core::MonotonicTime minimumFramePeriod_{};
     std::optional<bafx::core::MonotonicTime> nextFramePacingDeadline_{};
     bool lastPresentedDrawableContent_{false};
     bool renderFaulted_{false};
