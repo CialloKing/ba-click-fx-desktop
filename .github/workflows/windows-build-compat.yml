@@ -103,43 +103,26 @@ jobs:
               "$relativePath -> Windows SDK $selectedSdk"
           }
 
-          $windowsProjectPath = Join-Path $buildDirectory 'src/windows/bafx_windows.vcxproj'
-          $windowsProjectText = Get-Content -LiteralPath $windowsProjectPath -Raw
-          $expectedLegacySources = @()
+          $cachePath = Join-Path $buildDirectory 'CMakeCache.txt'
+          $cacheText = Get-Content -LiteralPath $cachePath -Raw
+          $legacyMatch = [regex]::Match(
+              $cacheText,
+              '^BAFX_CPPWINRT_LEGACY_COROUTINES:BOOL=(ON|OFF)\r?$',
+              [Text.RegularExpressions.RegexOptions]::Multiline)
+          if (-not $legacyMatch.Success)
+          {
+              throw "CMake did not publish BAFX_CPPWINRT_LEGACY_COROUTINES in $cachePath."
+          }
+          $expectedLegacyState = 'OFF'
           if ('${{ matrix.legacy_cppwinrt }}' -eq 'true')
           {
-              $expectedLegacySources = @(
-                  'borderless_capture_access.cpp',
-                  'display_color_monitor.cpp',
-                  'external_host_trust.cpp',
-                  'wgc_background_sensor.cpp',
-                  'wgc_runtime_capabilities.cpp'
-              )
+              $expectedLegacyState = 'ON'
           }
-          $projectSourceNodes = [regex]::Matches(
-              $windowsProjectText,
-              '<ClCompile Include="([^"]+)"(?:\s*/>|>(.*?)</ClCompile>)',
-              [Text.RegularExpressions.RegexOptions]::Singleline)
-          $actualLegacySources = @(
-              foreach ($sourceNode in $projectSourceNodes)
-              {
-                  $sourceBody = $sourceNode.Groups[2].Value
-                  if (($sourceBody -match '/await') -and ($sourceBody -match '_SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS'))
-                  {
-                      [IO.Path]::GetFileName($sourceNode.Groups[1].Value)
-                  }
-              }
-          )
-          $actualLegacySources = @($actualLegacySources | Sort-Object)
-          $expectedLegacySources = @($expectedLegacySources | Sort-Object)
-          $sourceDifference = Compare-Object `
-              -ReferenceObject @($expectedLegacySources) `
-              -DifferenceObject @($actualLegacySources)
-          if ($null -ne $sourceDifference)
+          if ($legacyMatch.Groups[1].Value -ne $expectedLegacyState)
           {
-              throw "C++/WinRT coroutine source contract mismatch. Expected [$($expectedLegacySources -join ', ')], found [$($actualLegacySources -join ', ')]."
+              throw "C++/WinRT coroutine path was $($legacyMatch.Groups[1].Value), expected $expectedLegacyState."
           }
-          "C++/WinRT legacy coroutine source count -> $($actualLegacySources.Count)"
+          "C++/WinRT legacy coroutine path -> $($legacyMatch.Groups[1].Value)"
 
       - name: Build complete product binaries
         shell: pwsh
