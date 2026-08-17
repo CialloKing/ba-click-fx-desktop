@@ -173,6 +173,43 @@ python -B tools\verify-wgc-self-exclusion-spike.py `
   "--report=$output\verification.json"
 ```
 
+### 待执行 WGC Session 专属排除 Spike
+
+为验证新版 WGC 是否支持只对当前 capture Session 排除 overlay，新增独立 collector
+`ba_fx_wgc_session_exclusion_spike`。该 Spike 不改变产品默认路径，不移除
+`WDA_EXCLUDEFROMCAPTURE`，也不接入 `WgcBackgroundSensor`；不采用 Overlay hide/show 或上一帧
+FX 反解。未来产品路径固定为：
+
+```text
+SessionLocalExclusion -> LegacyGlobalExclusion -> FxOnly
+```
+
+collector 固定使用 `WDA_NONE`，创建带 FP16 marker 的测试 Overlay 和 monitor capture Session，依次
+采集 `baseline -> excluded -> restored` 三阶段。它运行时 QueryInterface 探测
+`IDisplayGraphicsCaptureSession`、`IGraphicsCaptureSession7` 和 `IDirect3D11CaptureFrame3`，并使用
+`GetWindowIdFromWindow` 生成 WindowId；编译时 SDK 存在不代表运行时能力存在。Set/Get 排除列表必须
+完成 WindowId 往返校验，记录返回的 configuration iteration，并以 frame 的同一 iteration 建立稳定、
+可重复的对应关系后才能判定像素结果。
+
+能力与证据分开记录：`capability.status` 为 `Unavailable | Available | Rejected | NotVerified`，
+`evidence.result` 为 `Passed | Failed | Not Run`。`Available + Passed` 要求三阶段 overlay ROI
+差异、远端 control ROI 不变、iteration 关联、FP16 有限性和 Frame/FramePool/Session/事件注册
+ledger 全部通过；Set/Get 调用成功但 iteration 或清理证据不足时只能是 `NotVerified`。接口明确
+不支持归 `Unavailable`，接口存在但 Set/Get 被拒绝归 `Rejected`。Spike 失败只报告能力，不改变
+产品运行状态。
+
+输出固定写入
+`artifacts\local\spikes\spk-002-session-exclusion\<machine>-<revision>\`，至少包含
+`session-exclusion.json`、`verification.json`、原始 `.rgba16f` 与预览、`README.md` 和诊断日志。
+离线 `wgc_session_exclusion_spike_contract` 始终注册；真实桌面测试默认关闭，仅在
+`BAFX_ENABLE_WGC_SESSION_EXCLUSION_SPIKE_TESTS=ON` 时注册，并使用 `RUN_SERIAL` 与 30 秒进程外超时。
+
+当前状态：`Not Run`。外部录屏/OBS、HDR、多显示器、device lost 和 packaged 权限矩阵均保持
+`Not Run`，不能用本 Spike 替代。只有真实目标系统达到 `Available + Passed` 并补齐所需硬件矩阵后，
+才允许进入产品接入评审：创建 WGC Session 后设置 Session-local WindowId 排除列表，在收到对应
+configuration iteration 的 frame 前不发布新的 `BackgroundSnapshot`；失败时按固定顺序回退到旧 WDA，
+再失败才进入 FX-only。生产诊断必须区分三条实际路径。
+
 ### 已执行产品模式切换与暂停保鲜子集证据
 
 - 产品模式切换、暂停保鲜和有效快照失效子集：`Passed`，capture commit `ab4be5a`，Windows
