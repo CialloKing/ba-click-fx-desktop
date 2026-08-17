@@ -4,6 +4,8 @@
 #include "display_target.hpp"
 
 #include <cstdint>
+#include <string>
+#include <utility>
 
 using namespace bafx::desktop;
 
@@ -32,6 +34,14 @@ namespace
     capabilities.sdrWhiteLevelValid = referenceWhiteValid;
     capabilities.sdrWhiteLevelConsistent = referenceWhiteValid;
     return capabilities;
+}
+
+[[nodiscard]] DisplayPhysicalTargetIdentity physicalTarget(
+    std::wstring devicePath)
+{
+    DisplayPhysicalTargetIdentity identity{};
+    identity.devicePath = std::move(devicePath);
+    return identity;
 }
 
 }
@@ -94,6 +104,88 @@ BAFX_TEST(display_target_diagnostic_format_preserves_identity_and_origin)
     const std::string monitorText = formatDisplayTargetMonitor(target);
     BAFX_CHECK(monitorText.starts_with("0x"));
     BAFX_CHECK(monitorText.ends_with("2A"));
+}
+
+BAFX_TEST(persistent_display_key_uses_only_case_normalized_target_path)
+{
+    DisplayTarget first{};
+    first.monitor = monitor(1U);
+    first.deviceName = L"\\\\.\\DISPLAY1";
+    first.physicalTargetCount = 1U;
+    first.physicalTargetIdentities = {
+        physicalTarget(L"\\\\?\\DISPLAY#ACME123#A1#{GUID}")};
+
+    DisplayTarget samePanel{};
+    samePanel.monitor = monitor(99U);
+    samePanel.deviceName = L"\\\\.\\DISPLAY9";
+    samePanel.physicalTargetCount = 1U;
+    samePanel.physicalTargetIdentities = {
+        physicalTarget(L"\\\\?\\display#acme123#a1#{guid}")};
+
+    const std::optional<std::string> firstKey =
+        displayTargetPersistentKey(first);
+    const std::optional<std::string> secondKey =
+        displayTargetPersistentKey(samePanel);
+    BAFX_CHECK(firstKey.has_value());
+    BAFX_CHECK(secondKey.has_value());
+    BAFX_CHECK(*firstKey == *secondKey);
+    BAFX_CHECK(firstKey->starts_with("displayconfig-v1-sha256:"));
+    BAFX_CHECK(firstKey->size() == 88U);
+    BAFX_CHECK(firstKey->find("DISPLAY") == std::string::npos);
+    BAFX_CHECK(
+        *firstKey
+        == "displayconfig-v1-sha256:"
+           "f1aed1f41a34c5ab7f75b3dee7d107672bae6a21e04cf7e3e793e65c4b99aa0e");
+}
+
+BAFX_TEST(persistent_display_key_canonicalizes_clone_order)
+{
+    DisplayTarget first{};
+    first.physicalTargetCount = 2U;
+    first.physicalTargetIdentities = {
+        physicalTarget(L"\\\\?\\DISPLAY#PANEL-B#2#{GUID}"),
+        physicalTarget(L"\\\\?\\DISPLAY#PANEL-A#1#{GUID}")};
+
+    DisplayTarget reversed{};
+    reversed.physicalTargetCount = 2U;
+    reversed.physicalTargetIdentities = {
+        physicalTarget(L"\\\\?\\display#panel-a#1#{guid}"),
+        physicalTarget(L"\\\\?\\display#panel-b#2#{guid}")};
+
+    const std::optional<std::string> firstKey =
+        displayTargetPersistentKey(first);
+    const std::optional<std::string> reversedKey =
+        displayTargetPersistentKey(reversed);
+    BAFX_CHECK(firstKey.has_value());
+    BAFX_CHECK(reversedKey.has_value());
+    BAFX_CHECK(*firstKey == *reversedKey);
+
+    reversed.physicalTargetIdentities[1U].devicePath =
+        L"\\\\?\\display#panel-c#3#{guid}";
+    const std::optional<std::string> changedKey =
+        displayTargetPersistentKey(reversed);
+    BAFX_CHECK(changedKey.has_value());
+    BAFX_CHECK(*changedKey != *firstKey);
+}
+
+BAFX_TEST(persistent_display_key_rejects_incomplete_physical_identity)
+{
+    DisplayTarget noPhysicalTarget{};
+    noPhysicalTarget.monitor = monitor(1U);
+    noPhysicalTarget.deviceName = L"\\\\.\\DISPLAY1";
+    BAFX_CHECK(!displayTargetPersistentKey(noPhysicalTarget).has_value());
+
+    DisplayTarget incompleteClone{};
+    incompleteClone.monitor = monitor(2U);
+    incompleteClone.deviceName = L"\\\\.\\DISPLAY2";
+    incompleteClone.physicalTargetCount = 2U;
+    incompleteClone.physicalTargetIdentities = {
+        physicalTarget(L"\\\\?\\DISPLAY#PANEL-A#1#{GUID}"),
+        physicalTarget(L"")};
+    BAFX_CHECK(!displayTargetPersistentKey(incompleteClone).has_value());
+
+    incompleteClone.physicalTargetIdentities.pop_back();
+    BAFX_CHECK(!displayTargetPersistentKey(incompleteClone).has_value());
 }
 
 BAFX_TEST(conservative_sdr_keeps_verified_background_reference_white)

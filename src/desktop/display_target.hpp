@@ -309,6 +309,12 @@ struct DisplayTargetIntent
 
 [[nodiscard]] std::string displayTargetDeviceUtf8(
     const DisplayTarget& target);
+// Persistent policy identity is intentionally narrower than session identity:
+// only authoritative DisplayConfig physical target paths may contribute.
+// The returned value is an opaque versioned SHA-256 key; raw paths are never
+// persisted in the configuration contract.
+[[nodiscard]] std::optional<std::string> displayTargetPersistentKey(
+    const DisplayTarget& target) noexcept;
 [[nodiscard]] std::string formatDisplayTargetMonitor(
     const DisplayTarget& target);
 [[nodiscard]] std::string formatDisplayTargetBounds(

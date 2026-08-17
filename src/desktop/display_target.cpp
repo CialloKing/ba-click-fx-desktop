@@ -1,20 +1,162 @@
 #include "display_target.hpp"
 
 #include <windows.h>
+#include <bcrypt.h>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdint>
 #include <iomanip>
+#include <limits>
 #include <new>
+#include <optional>
 #include <sstream>
 #include <string>
+#include <string_view>
 #include <utility>
+#include <vector>
 
 namespace bafx::desktop
 {
 namespace
 {
+
+constexpr std::string_view displayKeyDomain = "bafx-display-target-key-v1";
+constexpr std::string_view displayKeyPrefix = "displayconfig-v1-sha256:";
+constexpr std::size_t sha256ByteCount = 32U;
+
+[[nodiscard]] std::optional<std::string> normalizeDevicePathUtf8(
+    const std::wstring_view path)
+{
+    if (path.empty()
+        || path.size()
+            > static_cast<std::size_t>((std::numeric_limits<int>::max)())
+        || std::ranges::any_of(
+            path,
+            [](const wchar_t character) noexcept
+            {
+                return static_cast<std::uint32_t>(character) < 0x20U;
+            }))
+    {
+        return std::nullopt;
+    }
+
+    const int sourceLength = static_cast<int>(path.size());
+    const int normalizedLength = LCMapStringEx(
+        LOCALE_NAME_INVARIANT,
+        LCMAP_LOWERCASE,
+        path.data(),
+        sourceLength,
+        nullptr,
+        0,
+        nullptr,
+        nullptr,
+        0);
+    if (normalizedLength <= 0)
+    {
+        return std::nullopt;
+    }
+
+    std::wstring normalized(
+        static_cast<std::size_t>(normalizedLength),
+        L'\0');
+    const int normalizedWritten = LCMapStringEx(
+        LOCALE_NAME_INVARIANT,
+        LCMAP_LOWERCASE,
+        path.data(),
+        sourceLength,
+        normalized.data(),
+        normalizedLength,
+        nullptr,
+        nullptr,
+        0);
+    if (normalizedWritten != normalizedLength)
+    {
+        return std::nullopt;
+    }
+
+    const int utf8Length = WideCharToMultiByte(
+        CP_UTF8,
+        WC_ERR_INVALID_CHARS,
+        normalized.data(),
+        normalizedLength,
+        nullptr,
+        0,
+        nullptr,
+        nullptr);
+    if (utf8Length <= 0)
+    {
+        return std::nullopt;
+    }
+
+    std::string utf8(static_cast<std::size_t>(utf8Length), '\0');
+    const int utf8Written = WideCharToMultiByte(
+        CP_UTF8,
+        WC_ERR_INVALID_CHARS,
+        normalized.data(),
+        normalizedLength,
+        utf8.data(),
+        utf8Length,
+        nullptr,
+        nullptr);
+    if (utf8Written != utf8Length)
+    {
+        return std::nullopt;
+    }
+    return utf8;
+}
+
+void appendBigEndianUint64(
+    std::string& output,
+    const std::uint64_t value)
+{
+    for (int shift = 56; shift >= 0; shift -= 8)
+    {
+        output.push_back(static_cast<char>((value >> shift) & 0xFFU));
+    }
+}
+
+[[nodiscard]] std::optional<std::array<UCHAR, sha256ByteCount>> sha256(
+    const std::string_view input) noexcept
+{
+    if (input.size() > (std::numeric_limits<ULONG>::max)())
+    {
+        return std::nullopt;
+    }
+
+    std::array<UCHAR, sha256ByteCount> digest{};
+    // The SHA-256 pseudo-handle is immutable and available on every supported
+    // Windows 10/11 target, so key generation owns no provider lifetime.
+    const NTSTATUS hashStatus = BCryptHash(
+        BCRYPT_SHA256_ALG_HANDLE,
+        nullptr,
+        0U,
+        reinterpret_cast<PUCHAR>(const_cast<char*>(input.data())),
+        static_cast<ULONG>(input.size()),
+        digest.data(),
+        static_cast<ULONG>(digest.size()));
+    if (hashStatus < 0)
+    {
+        return std::nullopt;
+    }
+    return digest;
+}
+
+[[nodiscard]] std::string hexDigest(
+    const std::array<UCHAR, sha256ByteCount>& digest)
+{
+    constexpr std::string_view digits = "0123456789abcdef";
+    std::string result;
+    result.reserve(displayKeyPrefix.size() + digest.size() * 2U);
+    result.append(displayKeyPrefix);
+    for (const UCHAR byte : digest)
+    {
+        result.push_back(digits[(byte >> 4U) & 0x0FU]);
+        result.push_back(digits[byte & 0x0FU]);
+    }
+    return result;
+}
 
 [[nodiscard]] bool validBounds(const RECT& bounds) noexcept
 {
@@ -93,6 +235,64 @@ std::string displayTargetDeviceUtf8(const DisplayTarget& target)
         nullptr,
         nullptr);
     return written == required ? converted : "invalid-utf8";
+}
+
+std::optional<std::string> displayTargetPersistentKey(
+    const DisplayTarget& target) noexcept
+{
+    try
+    {
+        if (target.physicalTargetCount == 0U
+            || target.physicalTargetCount
+                != target.physicalTargetIdentities.size())
+        {
+            return std::nullopt;
+        }
+
+        std::vector<std::string> paths;
+        paths.reserve(target.physicalTargetIdentities.size());
+        for (const DisplayPhysicalTargetIdentity& identity :
+             target.physicalTargetIdentities)
+        {
+            std::optional<std::string> path = normalizeDevicePathUtf8(
+                identity.devicePath);
+            if (!path.has_value())
+            {
+                // A partial clone must not collapse onto the key of its one
+                // resolved endpoint and silently consume that panel's policy.
+                return std::nullopt;
+            }
+            paths.push_back(std::move(*path));
+        }
+        std::sort(paths.begin(), paths.end());
+
+        std::string canonical;
+        canonical.reserve(displayKeyDomain.size() + 1U + 8U);
+        canonical.append(displayKeyDomain);
+        canonical.push_back('\0');
+        appendBigEndianUint64(
+            canonical,
+            static_cast<std::uint64_t>(paths.size()));
+        for (const std::string& path : paths)
+        {
+            appendBigEndianUint64(
+                canonical,
+                static_cast<std::uint64_t>(path.size()));
+            canonical.append(path);
+        }
+
+        const std::optional<std::array<UCHAR, sha256ByteCount>> digest =
+            sha256(canonical);
+        return digest.has_value()
+            ? std::optional<std::string>(hexDigest(*digest))
+            : std::nullopt;
+    }
+    catch (...)
+    {
+        // Persistent identity is optional. Resource or conversion failures
+        // must disable overrides rather than fabricate a transient fallback.
+        return std::nullopt;
+    }
 }
 
 std::string formatDisplayTargetMonitor(const DisplayTarget& target)
