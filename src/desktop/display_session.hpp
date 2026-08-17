@@ -294,8 +294,8 @@ private:
         bafx::windows::CompositionOutputPreference::ConservativeSdr};
     bafx::config::FramePacing framePacing_{
         bafx::config::FramePacing::MatchDisplay};
-    std::optional<bafx::windows::DisplayColorCapabilities> colorCapabilities_{};
     std::optional<bafx::windows::DisplayColorCapabilities> colorObservation_{};
+    std::optional<bafx::windows::DisplayColorCapabilities> colorCapabilities_{};
     bafx::windows::CompositionRenderer renderer_;
     bafx::fx::SimulationRuntime simulation_;
     bafx::fx::SimulationTimeline timeline_{};

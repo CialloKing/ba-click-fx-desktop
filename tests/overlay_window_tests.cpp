@@ -50,9 +50,17 @@ BAFX_TEST(overlay_publishes_display_topology_changes_once)
     static_cast<void>(window.takePendingResize());
 
     BAFX_CHECK(!window.takeDisplayTopologyChange());
+    BAFX_CHECK(!window.takeDisplayColorChange());
     SendMessageW(window.handle(), WM_DISPLAYCHANGE, 32U, MAKELPARAM(1920, 1080));
     BAFX_CHECK(window.takeDisplayTopologyChange());
     BAFX_CHECK(!window.takeDisplayTopologyChange());
+    BAFX_CHECK(!window.takeDisplayColorChange());
+
+    SendMessageW(window.handle(), WM_SETTINGCHANGE, 0U, 0U);
+    BAFX_CHECK(!window.takeDisplayColorChange());
+    SendMessageW(window.handle(), 0x032DU, 0U, 0U);
+    BAFX_CHECK(window.takeDisplayColorChange());
+    BAFX_CHECK(!window.takeDisplayColorChange());
 }
 
 BAFX_TEST(overlay_defers_dpi_placement_to_the_render_owner)

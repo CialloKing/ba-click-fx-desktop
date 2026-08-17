@@ -799,10 +799,11 @@ void appendDisplaySessionRuntimeSummary(
     stream << '\n'
            << prefix << "PhysicalTargetCount="
            << session.physicalTargetCount << '\n'
-           << prefix << "Topology.Status="
-           << displayTopologyStatusName(session.topologyStatus) << '\n'
-           << prefix << "Topology.Error="
-           << hex32(static_cast<std::uint32_t>(session.topologyError)) << '\n'
+           << prefix << "SourceTopology.Status="
+           << displayTopologyStatusName(session.sourceTopologyStatus) << '\n'
+           << prefix << "SourceTopology.Error="
+           << hex32(static_cast<std::uint32_t>(session.sourceTopologyError))
+           << '\n'
            << prefix << "Graphics.DriverType="
            << driverType(session.deviceInfo.driverType) << '\n'
            << prefix << "Graphics.Adapter="

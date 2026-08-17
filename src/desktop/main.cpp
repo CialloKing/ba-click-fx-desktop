@@ -2612,8 +2612,8 @@ int runApplication(
             summary.primary = target.primary;
             summary.sourceAdapterResolved = target.sourceAdapterResolved;
             summary.sourceIdentityResolved = target.sourceIdentityResolved;
-            summary.topologyStatus = target.topologyStatus;
-            summary.topologyError = target.topologyError;
+            summary.sourceTopologyStatus = target.topologyStatus;
+            summary.sourceTopologyError = target.topologyError;
             summary.colorRefreshRetriesRemaining =
                 ownedSession->colorRefreshRetriesRemaining();
             summary.outputPolicySatisfied =
@@ -5066,9 +5066,15 @@ int runApplication(
                     config,
                     backgroundRetryToken);
             const std::optional<bafx::windows::DisplayColorCapabilities>
-                targetColorCapabilities = displayTargetChanged
+                targetColorObservation = displayTargetChanged
                 ? bafx::windows::queryDisplayColorCapabilities(
                     pendingDisplayTarget->monitor)
+                : std::nullopt;
+            const std::optional<bafx::windows::DisplayColorCapabilities>
+                targetColorCapabilities = targetColorObservation.has_value()
+                    && bafx::windows::displayColorStateComplete(
+                        *targetColorObservation)
+                ? targetColorObservation
                 : std::nullopt;
             const std::optional<bafx::windows::CompositionOutputPolicy>
                 targetOutputPolicy = displayTargetChanged

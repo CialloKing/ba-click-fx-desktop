@@ -786,7 +786,6 @@ LRESULT OverlayWindow::handleMessage(
     case WM_DISPLAYCHANGE:
         recordDisplayTopologyChange(
             DisplayTopologyChangeSource::DisplayConfiguration);
-        displayColorChangePending_ = true;
         invalidatePointerGeometry();
         return 0;
 
@@ -805,10 +804,10 @@ LRESULT OverlayWindow::handleMessage(
         return DefWindowProcW(window_, message, wParam, lParam);
 
     case colorSpaceChangeMessage:
-    case WM_SETTINGCHANGE:
         // Advanced Color/HDR changes are not guaranteed to alter rcMonitor.
-        // The system messages also cover runtimes where per-monitor
-        // DisplayInformation interop is unavailable.
+        // This dedicated message covers runtimes where per-monitor
+        // DisplayInformation interop is unavailable. Generic settings and
+        // refresh-rate broadcasts must not reopen the finite query budget.
         displayColorChangePending_ = true;
         return DefWindowProcW(window_, message, wParam, lParam);
 
@@ -864,7 +863,9 @@ LRESULT OverlayWindow::handleMessage(
                 nullptr,
                 displayBecameUnavailable,
                 systemResumed || displayRestored);
-            displayColorChangePending_ = true;
+            displayColorChangePending_ = displayColorChangePending_
+                || systemResumed
+                || displayRestored;
             invalidatePointerGeometry();
             return TRUE;
         }

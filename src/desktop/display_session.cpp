@@ -53,6 +53,18 @@ namespace
 constexpr std::uint32_t maximumColorRefreshRetries = 3U;
 constexpr auto outputRenegotiationRetryDelay = std::chrono::seconds(1);
 
+[[nodiscard]] std::optional<bafx::windows::DisplayColorCapabilities>
+completeColorSnapshot(
+    const std::optional<bafx::windows::DisplayColorCapabilities>& observation)
+{
+    if (!observation.has_value()
+        || !bafx::windows::displayColorStateComplete(*observation))
+    {
+        return std::nullopt;
+    }
+    return observation;
+}
+
 [[nodiscard]] bool sameLuid(const LUID left, const LUID right) noexcept
 {
     return left.HighPart == right.HighPart
@@ -168,9 +180,9 @@ DisplaySession::DisplaySession(DisplaySessionOptions options)
       effectsEnabled_(options.runtimePolicy.effectsEnabled),
       requestedOutputPreference_(options.runtimePolicy.outputPreference),
       framePacing_(options.runtimePolicy.framePacing),
-      colorCapabilities_(bafx::windows::queryDisplayColorCapabilities(
+      colorObservation_(bafx::windows::queryDisplayColorCapabilities(
           target_.monitor)),
-      colorObservation_(colorCapabilities_),
+      colorCapabilities_(completeColorSnapshot(colorObservation_)),
       renderer_(
           window_.handle(),
           window_.size(),
@@ -185,7 +197,6 @@ DisplaySession::DisplaySession(DisplaySessionOptions options)
 {
     colorQueryGeneration_ = 1U;
     colorSnapshotStatus_ = colorCapabilities_.has_value()
-            && bafx::windows::displayColorStateComplete(*colorCapabilities_)
         ? DisplaySessionColorRefreshStatus::Refreshed
         : DisplaySessionColorRefreshStatus::Unavailable;
     if (borderlessAccessAuthority_ == nullptr)
@@ -194,7 +205,6 @@ DisplaySession::DisplaySession(DisplaySessionOptions options)
             "Display session requires the process access authority");
     }
     if (!colorCapabilities_.has_value()
-        || !bafx::windows::displayColorStateComplete(*colorCapabilities_)
         || !referenceWhiteCurrent(*colorCapabilities_))
     {
         // Startup can race a display-mode transition. A partial DisplayConfig
@@ -570,8 +580,19 @@ DisplaySessionRetargetResult DisplaySession::retargetFxOnly(
     try
     {
         const std::optional<bafx::windows::DisplayColorCapabilities>
-            targetColorCapabilities =
+            targetColorObservation =
                 bafx::windows::queryDisplayColorCapabilities(target.monitor);
+        std::optional<bafx::windows::DisplayColorCapabilities>
+            targetColorCapabilities =
+                completeColorSnapshot(targetColorObservation);
+        bool retainedLastKnownColor = false;
+        if (!targetColorCapabilities.has_value()
+            && sameDisplaySourceIdentity(target_, target)
+            && colorCapabilities_.has_value())
+        {
+            targetColorCapabilities = colorCapabilities_;
+            retainedLastKnownColor = true;
+        }
         const bafx::windows::CompositionOutputPolicy targetPolicy =
             resolveDisplayOutputPolicy(
                 requestedOutputPreference_,
@@ -587,11 +608,9 @@ DisplaySessionRetargetResult DisplaySession::retargetFxOnly(
         lastPresentedDrawableContent_ = false;
         resetFramePacing();
         acceptAppliedTarget(std::move(target), wakeWindow);
-        colorObservation_ = targetColorCapabilities;
+        colorObservation_ = targetColorObservation;
         ++colorQueryGeneration_;
-        if (targetColorCapabilities.has_value()
-            && bafx::windows::displayColorStateComplete(
-                *targetColorCapabilities))
+        if (targetColorCapabilities.has_value())
         {
             const bool currentWhite = referenceWhiteCurrent(
                 *targetColorCapabilities);
@@ -604,10 +623,13 @@ DisplaySessionRetargetResult DisplaySession::retargetFxOnly(
                     colorCapabilities_));
             }
             colorCapabilities_ = std::move(accepted);
-            colorSnapshotStatus_ = DisplaySessionColorRefreshStatus::Refreshed;
-            colorRefreshRetriesRemaining_ = currentWhite
-                ? 0U
-                : maximumColorRefreshRetries;
+            colorSnapshotStatus_ = retainedLastKnownColor
+                ? DisplaySessionColorRefreshStatus::RetainedLastKnownSnapshot
+                : DisplaySessionColorRefreshStatus::Refreshed;
+            colorRefreshRetriesRemaining_ = retainedLastKnownColor
+                || !currentWhite
+                ? maximumColorRefreshRetries
+                : 0U;
         }
         else
         {
@@ -670,8 +692,11 @@ DisplaySessionRetargetResult DisplaySession::retargetSecondary(
     }
 
     const std::optional<bafx::windows::DisplayColorCapabilities>
-        targetColorCapabilities =
+        targetColorObservation =
             bafx::windows::queryDisplayColorCapabilities(target.monitor);
+    const std::optional<bafx::windows::DisplayColorCapabilities>
+        targetColorCapabilities =
+            completeColorSnapshot(targetColorObservation);
     state.pendingTargetOutputPolicy = resolveDisplayOutputPolicy(
         requestedOutputPreference_,
         targetColorCapabilities);
@@ -1777,7 +1802,8 @@ DisplaySessionColorRefreshStatus DisplaySession::refreshColorCapabilities(
             DisplaySessionColorRefreshStatus::RetainedTransactionSnapshot;
         return DisplaySessionColorRefreshStatus::RetainedTransactionSnapshot;
     }
-    if (colorCapabilities_.has_value())
+    if (colorCapabilities_.has_value()
+        && bafx::windows::displayColorStateComplete(*colorCapabilities_))
     {
         colorSnapshotStatus_ =
             DisplaySessionColorRefreshStatus::RetainedLastKnownSnapshot;

@@ -97,8 +97,9 @@ struct DisplaySessionRuntimeSummary final
     bool primary{false};
     bool sourceAdapterResolved{false};
     bool sourceIdentityResolved{false};
-    DisplayTopologyStatus topologyStatus{DisplayTopologyStatus::QueryFailed};
-    LONG topologyError{ERROR_GEN_FAILURE};
+    DisplayTopologyStatus sourceTopologyStatus{
+        DisplayTopologyStatus::QueryFailed};
+    LONG sourceTopologyError{ERROR_GEN_FAILURE};
     std::uint32_t colorRefreshRetriesRemaining{0U};
     bool outputPolicySatisfied{false};
     bool backgroundCaptureActive{false};

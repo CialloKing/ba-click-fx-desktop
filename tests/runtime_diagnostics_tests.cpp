@@ -421,9 +421,9 @@ BAFX_TEST(support_report_distinguishes_retained_color_from_latest_query)
     observation.displayConfigTopologyError = ERROR_RETRY;
 
     bafx::windows::DisplaySessionRuntimeSummary session{};
-    session.topologyStatus =
+    session.sourceTopologyStatus =
         bafx::windows::DisplayTopologyStatus::Incomplete;
-    session.topologyError = ERROR_RETRY;
+    session.sourceTopologyError = ERROR_RETRY;
     session.colorCapabilities = accepted;
     session.colorObservation = observation;
     session.colorSnapshotDisposition = "retained-last-known";
@@ -446,7 +446,7 @@ BAFX_TEST(support_report_distinguishes_retained_color_from_latest_query)
     BAFX_CHECK(text.find("Display.Topology.Error=0x000004D5")
         != std::string::npos);
     BAFX_CHECK(text.find(
-        "Display.Session[0].Topology.Status=incomplete")
+        "Display.Session[0].SourceTopology.Status=incomplete")
         != std::string::npos);
     BAFX_CHECK(text.find(
         "Display.Session[0].Color.SnapshotDisposition=retained-last-known")
