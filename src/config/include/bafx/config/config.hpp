@@ -54,21 +54,21 @@ struct EffectsConfig
 {
     bool enabled{true};
     float globalScale{1.0F};
-    // Web API equivalent: opacity. This is applied to the final FX payload
-    // while Unity-authored linear RGB and Bloom emission remain unchanged.
+    // Opacity is applied to the final FX payload while Unity-authored linear
+    // RGB and Bloom emission remain unchanged.
     float opacity{1.0F};
     bool clickEnabled{true};
     bool trailEnabled{true};
     float trailLength{1.0F};
     float trailWidth{1.0F};
-    // These are independent Web-style animation speed controls. A value of
-    // one preserves the extracted Unity timeline exactly.
+    // These independent animation speed controls preserve the extracted
+    // Unity timeline exactly when set to one.
     float clickTimeScale{1.0F};
     float trailTimeScale{1.0F};
-    // The Web API exposes trail lifetime in milliseconds; retain the native
-    // multiplier for the existing compact control and derive it at runtime.
+    // Lifetime is the canonical duration; trailLength is its normalized
+    // runtime multiplier and remains synchronized by the configuration API.
     float trailLifetimeMs{300.0F};
-    // Web parameter defaults converted at the 1920x1080 reference viewport.
+    // Spatial values use reference pixels at the 1920x1080 viewport.
     float diskLifetimeMs{200.0F};
     float diskRadius{64.8F};
     std::uint32_t ringsCount{2U};
@@ -79,9 +79,9 @@ struct EffectsConfig
     float ringsRotationDirection{-1.0F};
     float ringsHdrIntensity{5.992157F};
     float shardsHdrIntensity{5.992157F};
-    // Click shard values use the Web API's 1920x1080 reference-pixel units.
-    // Linked Min/Max endpoints may cross, as on the Web; interpolation remains
-    // valid in either order and the simulation converts units at its boundary.
+    // Click shard values use 1920x1080 reference-pixel units. Linked Min/Max
+    // endpoints may cross; interpolation remains valid in either order and
+    // the simulation converts units at its boundary.
     std::uint32_t shardsClickCount{4U};
     float shardsClickLifetimeMinMs{600.0F};
     float shardsClickLifetimeMaxMs{700.0F};
@@ -91,7 +91,7 @@ struct EffectsConfig
     float shardsSizeMin{16.6256496F};
     float shardsSizeMax{33.2512992F};
     float trailOpacity{1.0F};
-    // Web API equivalent: bloom.intensity. Unity's serialized default is 1.7.
+    // Unity's serialized Bloom intensity default is 1.7.
     float bloomIntensity{1.7F};
     float bloomDiffusion{7.0F};
     float bloomThreshold{1.0F};
@@ -252,14 +252,14 @@ struct ConfigSaveResult
     const Config& base,
     std::string_view json) noexcept;
 
-// Applies a Web-style object of flat dot paths atomically. Every value is
+// Applies an object of canonical native dot paths atomically. Every value is
 // validated against the same single-patch contract before the result changes.
 [[nodiscard]] ConfigBatchPatchResult applyPatchBatchJson(
     const Config& base,
     std::string_view json) noexcept;
 
-// Public names mirror the Web instance API while retaining the native Config
-// value object for IPC and non-Windows callers.
+// These helpers expose the native EffectsConfig contract to IPC and
+// non-Windows callers. Parameter paths always use the effects.* namespace.
 [[nodiscard]] ConfigPatchResult setFxParam(
     const Config& base,
     std::string_view path,
@@ -308,8 +308,8 @@ struct ConfigSaveResult
 // Maps product quality choices onto the existing Unity Bloom diffusion range.
 // High deliberately remains at the extracted game's verified diffusion of 7.
 [[nodiscard]] float bloomDiffusionForQuality(BloomQuality quality) noexcept;
-// The continuous Web parameter is the source of truth. Product presets are a
-// derived Control Center view, with Custom representing every other value.
+// The continuous diffusion value is the source of truth. Product presets are
+// a derived Control Center view, with Custom representing every other value.
 [[nodiscard]] BloomQuality bloomQualityForDiffusion(float diffusion) noexcept;
 
 }

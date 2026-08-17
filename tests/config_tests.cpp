@@ -570,64 +570,92 @@ BAFX_TEST(config_current_effect_fields_round_trip_through_file)
 
     const std::string fxConfig = bafx::config::getFxConfig(loaded.config, false);
     for (const std::string_view fragment : {
-             "\"lifetimeMs\":350",
-             "\"count\":5",
-             "\"radiusMin\":45",
-             "\"radiusMax\":95",
-             "\"angularVelocityMultiplier\":14.5",
-             "\"rotationDirection\":0.5",
-             "\"clickCount\":9",
-             "\"clickLifetimeMinMs\":250",
-             "\"clickLifetimeMaxMs\":850",
-             "\"clickRadius\":72.5",
-             "\"clickSpeedMin\":25",
-             "\"clickSpeedMax\":125",
-             "\"sizeMin\":12",
-             "\"sizeMax\":44"})
+             "\"diskLifetimeMs\":350",
+             "\"ringsCount\":5",
+             "\"ringsRadiusMin\":45",
+             "\"ringsRadiusMax\":95",
+             "\"ringsAngularVelocityMultiplier\":14.5",
+             "\"ringsRotationDirection\":0.5",
+             "\"shardsClickCount\":9",
+             "\"shardsClickLifetimeMinMs\":250",
+             "\"shardsClickLifetimeMaxMs\":850",
+             "\"shardsClickRadius\":72.5",
+             "\"shardsClickSpeedMin\":25",
+             "\"shardsClickSpeedMax\":125",
+             "\"shardsSizeMin\":12",
+             "\"shardsSizeMax\":44"})
     {
         BAFX_CHECK(fxConfig.find(fragment) != std::string::npos);
     }
-    BAFX_CHECK(fxConfig.find("\"trailAlways\"") == std::string::npos);
-    BAFX_CHECK(fxConfig.find("\"inputSamplingRate\"") == std::string::npos);
+    BAFX_CHECK(fxConfig.find("\"effects\"") == std::string::npos);
+    BAFX_CHECK(fxConfig.find("\"samplingRateHz\"") == std::string::npos);
+    BAFX_CHECK(
+        fxConfig.find("\"trailOnlyWhilePressed\"")
+        == std::string::npos);
 
     removeTestTree(path);
 }
 
-BAFX_TEST(config_fx_parameter_boundaries_normalize_web_units)
+BAFX_TEST(config_fx_parameter_boundaries_use_native_paths)
 {
     const bafx::config::Config base = bafx::config::defaultConfig();
 
+    const auto disabled = bafx::config::setFxParam(
+        base,
+        "effects.enabled",
+        "false");
+    BAFX_CHECK(disabled.succeeded());
+    BAFX_CHECK(!disabled.config.effects.enabled);
+
+    const auto globalScale = bafx::config::setFxParam(
+        base,
+        "effects.globalScale",
+        "2");
+    BAFX_CHECK(globalScale.succeeded());
+    BAFX_CHECK_NEAR(globalScale.config.effects.globalScale, 2.0F, 0.00001F);
+
+    const auto trailLength = bafx::config::setFxParam(
+        base,
+        "effects.trailLength",
+        "2");
+    BAFX_CHECK(trailLength.succeeded());
+    BAFX_CHECK_NEAR(trailLength.config.effects.trailLength, 2.0F, 0.00001F);
+    BAFX_CHECK_NEAR(
+        trailLength.config.effects.trailLifetimeMs,
+        600.0F,
+        0.00001F);
+
     const auto opacityMinimum = bafx::config::setFxParam(
         base,
-        "opacity",
+        "effects.opacity",
         "0");
     BAFX_CHECK(opacityMinimum.succeeded());
     BAFX_CHECK_NEAR(opacityMinimum.config.effects.opacity, 0.0F, 0.00001F);
 
     const auto opacityMaximum = bafx::config::setFxParam(
         base,
-        "opacity",
+        "effects.opacity",
         "1");
     BAFX_CHECK(opacityMaximum.succeeded());
     BAFX_CHECK_NEAR(opacityMaximum.config.effects.opacity, 1.0F, 0.00001F);
 
     const auto clickMinimum = bafx::config::setFxParam(
         base,
-        "clickTimeScale",
+        "effects.clickTimeScale",
         "0.01");
     BAFX_CHECK(clickMinimum.succeeded());
     BAFX_CHECK_NEAR(clickMinimum.config.effects.clickTimeScale, 0.01F, 0.00001F);
 
     const auto trailMaximum = bafx::config::setFxParam(
         base,
-        "trailTimeScale",
+        "effects.trailTimeScale",
         "4");
     BAFX_CHECK(trailMaximum.succeeded());
     BAFX_CHECK_NEAR(trailMaximum.config.effects.trailTimeScale, 4.0F, 0.00001F);
 
     const auto lifetime = bafx::config::setFxParam(
         base,
-        "trail.lifetimeMs",
+        "effects.trailLifetimeMs",
         "10000");
     BAFX_CHECK(lifetime.succeeded());
     BAFX_CHECK_NEAR(lifetime.config.effects.trailLifetimeMs, 10000.0F, 0.00001F);
@@ -638,28 +666,28 @@ BAFX_TEST(config_fx_parameter_boundaries_normalize_web_units)
 
     const auto width = bafx::config::setFxParam(
         base,
-        "trail.width",
-        "10.8");
+        "effects.trailWidth",
+        "4");
     BAFX_CHECK(width.succeeded());
     BAFX_CHECK_NEAR(width.config.effects.trailWidth, 4.0F, 0.00001F);
 
     const auto bloomIntensity = bafx::config::setFxParam(
         base,
-        "bloom.intensity",
+        "effects.bloomIntensity",
         "3.4");
     BAFX_CHECK(bloomIntensity.succeeded());
     BAFX_CHECK_NEAR(bloomIntensity.config.effects.bloomIntensity, 3.4F, 0.00001F);
 
     const auto diskRadius = bafx::config::setFxParam(
         base,
-        "disk.radius",
+        "effects.diskRadius",
         "48");
     BAFX_CHECK(diskRadius.succeeded());
     BAFX_CHECK_NEAR(diskRadius.config.effects.diskRadius, 48.0F, 0.00001F);
 
     const auto diskLifetime = bafx::config::setFxParam(
         base,
-        "disk.lifetimeMs",
+        "effects.diskLifetimeMs",
         "500");
     BAFX_CHECK(diskLifetime.succeeded());
     BAFX_CHECK_NEAR(
@@ -669,14 +697,14 @@ BAFX_TEST(config_fx_parameter_boundaries_normalize_web_units)
 
     const auto ringsCount = bafx::config::setFxParam(
         base,
-        "rings.count",
+        "effects.ringsCount",
         "64");
     BAFX_CHECK(ringsCount.succeeded());
     BAFX_CHECK(ringsCount.config.effects.ringsCount == 64U);
 
     const auto ringsLifetime = bafx::config::setFxParam(
         base,
-        "rings.lifetimeMs",
+        "effects.ringsLifetimeMs",
         "2000");
     BAFX_CHECK(ringsLifetime.succeeded());
     BAFX_CHECK_NEAR(
@@ -686,7 +714,7 @@ BAFX_TEST(config_fx_parameter_boundaries_normalize_web_units)
 
     const auto ringsRadiusMin = bafx::config::setFxParam(
         base,
-        "rings.radiusMin",
+        "effects.ringsRadiusMin",
         "100");
     BAFX_CHECK(ringsRadiusMin.succeeded());
     BAFX_CHECK_NEAR(
@@ -696,7 +724,7 @@ BAFX_TEST(config_fx_parameter_boundaries_normalize_web_units)
 
     const auto ringsRadiusMax = bafx::config::setFxParam(
         base,
-        "rings.radiusMax",
+        "effects.ringsRadiusMax",
         "30");
     BAFX_CHECK(ringsRadiusMax.succeeded());
     BAFX_CHECK_NEAR(
@@ -706,7 +734,7 @@ BAFX_TEST(config_fx_parameter_boundaries_normalize_web_units)
 
     const auto angularVelocity = bafx::config::setFxParam(
         base,
-        "rings.angularVelocityMultiplier",
+        "effects.ringsAngularVelocityMultiplier",
         "100");
     BAFX_CHECK(angularVelocity.succeeded());
     BAFX_CHECK_NEAR(
@@ -716,7 +744,7 @@ BAFX_TEST(config_fx_parameter_boundaries_normalize_web_units)
 
     const auto rotationDirection = bafx::config::setFxParam(
         base,
-        "rings.rotationDirection",
+        "effects.ringsRotationDirection",
         "0.5");
     BAFX_CHECK(rotationDirection.succeeded());
     BAFX_CHECK_NEAR(
@@ -726,7 +754,7 @@ BAFX_TEST(config_fx_parameter_boundaries_normalize_web_units)
 
     const auto ringIntensity = bafx::config::setFxParam(
         base,
-        "rings.hdrIntensity",
+        "effects.ringsHdrIntensity",
         "4.5");
     BAFX_CHECK(ringIntensity.succeeded());
     BAFX_CHECK_NEAR(
@@ -736,7 +764,7 @@ BAFX_TEST(config_fx_parameter_boundaries_normalize_web_units)
 
     const auto shardIntensity = bafx::config::setFxParam(
         base,
-        "shards.hdrIntensity",
+        "effects.shardsHdrIntensity",
         "7.5");
     BAFX_CHECK(shardIntensity.succeeded());
     BAFX_CHECK_NEAR(
@@ -746,14 +774,14 @@ BAFX_TEST(config_fx_parameter_boundaries_normalize_web_units)
 
     const auto shardCount = bafx::config::setFxParam(
         base,
-        "shards.clickCount",
+        "effects.shardsClickCount",
         "1000");
     BAFX_CHECK(shardCount.succeeded());
     BAFX_CHECK(shardCount.config.effects.shardsClickCount == 1000U);
 
     const auto shardLifetimeMin = bafx::config::setFxParam(
         base,
-        "shards.clickLifetimeMinMs",
+        "effects.shardsClickLifetimeMinMs",
         "100");
     BAFX_CHECK(shardLifetimeMin.succeeded());
     BAFX_CHECK_NEAR(
@@ -763,7 +791,7 @@ BAFX_TEST(config_fx_parameter_boundaries_normalize_web_units)
 
     const auto shardLifetimeMax = bafx::config::setFxParam(
         base,
-        "shards.clickLifetimeMaxMs",
+        "effects.shardsClickLifetimeMaxMs",
         "10000");
     BAFX_CHECK(shardLifetimeMax.succeeded());
     BAFX_CHECK_NEAR(
@@ -773,7 +801,7 @@ BAFX_TEST(config_fx_parameter_boundaries_normalize_web_units)
 
     const auto shardRadius = bafx::config::setFxParam(
         base,
-        "shards.clickRadius",
+        "effects.shardsClickRadius",
         "5000");
     BAFX_CHECK(shardRadius.succeeded());
     BAFX_CHECK_NEAR(
@@ -783,7 +811,7 @@ BAFX_TEST(config_fx_parameter_boundaries_normalize_web_units)
 
     const auto shardSpeedMin = bafx::config::setFxParam(
         base,
-        "shards.clickSpeedMin",
+        "effects.shardsClickSpeedMin",
         "0");
     BAFX_CHECK(shardSpeedMin.succeeded());
     BAFX_CHECK_NEAR(
@@ -793,7 +821,7 @@ BAFX_TEST(config_fx_parameter_boundaries_normalize_web_units)
 
     const auto shardSpeedMax = bafx::config::setFxParam(
         base,
-        "shards.clickSpeedMax",
+        "effects.shardsClickSpeedMax",
         "5000");
     BAFX_CHECK(shardSpeedMax.succeeded());
     BAFX_CHECK_NEAR(
@@ -803,7 +831,7 @@ BAFX_TEST(config_fx_parameter_boundaries_normalize_web_units)
 
     const auto shardSizeMin = bafx::config::setFxParam(
         base,
-        "shards.sizeMin",
+        "effects.shardsSizeMin",
         "0");
     BAFX_CHECK(shardSizeMin.succeeded());
     BAFX_CHECK_NEAR(
@@ -813,7 +841,7 @@ BAFX_TEST(config_fx_parameter_boundaries_normalize_web_units)
 
     const auto shardSizeMax = bafx::config::setFxParam(
         base,
-        "shards.sizeMax",
+        "effects.shardsSizeMax",
         "2000");
     BAFX_CHECK(shardSizeMax.succeeded());
     BAFX_CHECK_NEAR(
@@ -823,7 +851,7 @@ BAFX_TEST(config_fx_parameter_boundaries_normalize_web_units)
 
     const auto trailOpacity = bafx::config::setFxParam(
         base,
-        "trail.trailOpacity",
+        "effects.trailOpacity",
         "0.4");
     BAFX_CHECK(trailOpacity.succeeded());
     BAFX_CHECK_NEAR(
@@ -833,45 +861,45 @@ BAFX_TEST(config_fx_parameter_boundaries_normalize_web_units)
 
     const auto diffusionMinimum = bafx::config::setFxParam(
         base,
-        "bloom.diffusion",
+        "effects.bloomDiffusion",
         "0");
     BAFX_CHECK(diffusionMinimum.succeeded());
     BAFX_CHECK_NEAR(diffusionMinimum.config.effects.bloomDiffusion, 0.0F, 0.00001F);
 
     const auto clampMaximum = bafx::config::setFxParam(
         base,
-        "bloom.clamp",
+        "effects.bloomClamp",
         "65504");
     BAFX_CHECK(clampMaximum.succeeded());
     BAFX_CHECK_NEAR(clampMaximum.config.effects.bloomClamp, 65504.0F, 0.00001F);
 
     for (const auto& invalid : {
-             std::pair{"opacity", "-0.01"},
-             std::pair{"opacity", "1.01"},
-             std::pair{"clickTimeScale", "0.009"},
-             std::pair{"trailTimeScale", "4.01"},
-             std::pair{"trail.lifetimeMs", "10000.01"},
-             std::pair{"disk.lifetimeMs", "0"},
-             std::pair{"disk.lifetimeMs", "10001"},
-             std::pair{"rings.count", "65"},
-             std::pair{"rings.count", "2.5"},
-             std::pair{"rings.lifetimeMs", "0"},
-             std::pair{"rings.radiusMin", "-0.01"},
-             std::pair{"rings.radiusMax", "2000.01"},
-             std::pair{"rings.angularVelocityMultiplier", "100.01"},
-             std::pair{"rings.rotationDirection", "-1.01"},
-             std::pair{"rings.rotationDirection", "1.01"},
-             std::pair{"shards.clickCount", "1001"},
-             std::pair{"shards.clickCount", "2.5"},
-             std::pair{"shards.clickLifetimeMinMs", "0"},
-             std::pair{"shards.clickLifetimeMaxMs", "10001"},
-             std::pair{"shards.clickRadius", "5000.01"},
-             std::pair{"shards.clickSpeedMin", "5000.01"},
-             std::pair{"shards.clickSpeedMax", "-0.01"},
-             std::pair{"shards.sizeMin", "2000.01"},
-             std::pair{"shards.sizeMax", "-0.01"},
-             std::pair{"bloom.softKnee", "1.01"},
-             std::pair{"bloom.clamp", "-0.01"}})
+             std::pair{"effects.opacity", "-0.01"},
+             std::pair{"effects.opacity", "1.01"},
+             std::pair{"effects.clickTimeScale", "0.009"},
+             std::pair{"effects.trailTimeScale", "4.01"},
+             std::pair{"effects.trailLifetimeMs", "10000.01"},
+             std::pair{"effects.diskLifetimeMs", "0"},
+             std::pair{"effects.diskLifetimeMs", "10001"},
+             std::pair{"effects.ringsCount", "65"},
+             std::pair{"effects.ringsCount", "2.5"},
+             std::pair{"effects.ringsLifetimeMs", "0"},
+             std::pair{"effects.ringsRadiusMin", "-0.01"},
+             std::pair{"effects.ringsRadiusMax", "2000.01"},
+             std::pair{"effects.ringsAngularVelocityMultiplier", "100.01"},
+             std::pair{"effects.ringsRotationDirection", "-1.01"},
+             std::pair{"effects.ringsRotationDirection", "1.01"},
+             std::pair{"effects.shardsClickCount", "1001"},
+             std::pair{"effects.shardsClickCount", "2.5"},
+             std::pair{"effects.shardsClickLifetimeMinMs", "0"},
+             std::pair{"effects.shardsClickLifetimeMaxMs", "10001"},
+             std::pair{"effects.shardsClickRadius", "5000.01"},
+             std::pair{"effects.shardsClickSpeedMin", "5000.01"},
+             std::pair{"effects.shardsClickSpeedMax", "-0.01"},
+             std::pair{"effects.shardsSizeMin", "2000.01"},
+             std::pair{"effects.shardsSizeMax", "-0.01"},
+             std::pair{"effects.bloomSoftKnee", "1.01"},
+             std::pair{"effects.bloomClamp", "-0.01"}})
     {
         const auto result = bafx::config::setFxParam(
             base,
@@ -888,15 +916,38 @@ BAFX_TEST(config_fx_parameter_boundaries_normalize_web_units)
              "display.hdrEnabled",
              "input.samplingRateHz",
              "performance.idleOptimization",
-             "system.startWithWindows",
-             "trailAlways",
-             "inputSamplingRate",
-             "effects.opacity"})
+             "system.startWithWindows"})
     {
         const auto result = bafx::config::setFxParam(base, nonFxPath, "true");
         BAFX_CHECK(!result.succeeded());
         BAFX_CHECK(result.status == bafx::config::ConfigStatus::ValidationError);
     }
+
+    for (const std::string_view retiredWebPath : {
+             "opacity",
+             "scale",
+             "disk.radius",
+             "rings.count",
+             "shards.clickCount",
+             "trail.lifetimeMs",
+             "trail.width",
+             "bloom.intensity"})
+    {
+        const auto result = bafx::config::setFxParam(
+            base,
+            retiredWebPath,
+            "1");
+        BAFX_CHECK(!result.succeeded());
+        BAFX_CHECK(result.status == bafx::config::ConfigStatus::ValidationError);
+    }
+
+    const auto retiredGeneralPath = bafx::config::applyPatchJson(
+        base,
+        R"json({"path":"opacity","value":0.5})json");
+    BAFX_CHECK(!retiredGeneralPath.succeeded());
+    BAFX_CHECK(
+        retiredGeneralPath.status
+        == bafx::config::ConfigStatus::ValidationError);
 }
 
 BAFX_TEST(config_fx_parameter_batch_is_atomic_and_preserves_generation)
@@ -904,7 +955,7 @@ BAFX_TEST(config_fx_parameter_batch_is_atomic_and_preserves_generation)
     const bafx::config::Config base = bafx::config::defaultConfig();
     const auto batch = bafx::config::setFxParams(
         base,
-        R"json({"generation":7,"patch":{"opacity":0.25,"clickTimeScale":2,"trail.lifetimeMs":600,"disk.lifetimeMs":350,"rings.count":4,"rings.lifetimeMs":900,"rings.radiusMin":45,"rings.radiusMax":95,"rings.angularVelocityMultiplier":14.5,"rings.rotationDirection":0.5,"shards.clickCount":7,"shards.clickLifetimeMinMs":100,"shards.clickLifetimeMaxMs":200,"shards.clickRadius":75,"shards.clickSpeedMin":10,"shards.clickSpeedMax":20,"shards.sizeMin":1,"shards.sizeMax":2,"bloom.intensity":4.2}})json");
+        R"json({"generation":7,"patch":{"effects.opacity":0.25,"effects.clickTimeScale":2,"effects.trailLifetimeMs":600,"effects.diskLifetimeMs":350,"effects.ringsCount":4,"effects.ringsLifetimeMs":900,"effects.ringsRadiusMin":45,"effects.ringsRadiusMax":95,"effects.ringsAngularVelocityMultiplier":14.5,"effects.ringsRotationDirection":0.5,"effects.shardsClickCount":7,"effects.shardsClickLifetimeMinMs":100,"effects.shardsClickLifetimeMaxMs":200,"effects.shardsClickRadius":75,"effects.shardsClickSpeedMin":10,"effects.shardsClickSpeedMax":20,"effects.shardsSizeMin":1,"effects.shardsSizeMax":2,"effects.bloomIntensity":4.2}})json");
     BAFX_CHECK(batch.succeeded());
     BAFX_CHECK(batch.expectedGeneration.has_value());
     BAFX_CHECK(*batch.expectedGeneration == 7U);
@@ -952,14 +1003,14 @@ BAFX_TEST(config_fx_parameter_batch_is_atomic_and_preserves_generation)
 
     const auto rejected = bafx::config::setFxParams(
         base,
-        R"json({"generation":7,"patch":{"opacity":0.25,"bloom.softKnee":2}})json");
+        R"json({"generation":7,"patch":{"effects.opacity":0.25,"effects.bloomSoftKnee":2}})json");
     BAFX_CHECK(!rejected.succeeded());
     BAFX_CHECK(rejected.config.effects.opacity == base.effects.opacity);
     BAFX_CHECK(rejected.config.effects.bloomSoftKnee == base.effects.bloomSoftKnee);
 
     const auto rejectedProductPath = bafx::config::setFxParams(
         base,
-        R"json({"generation":7,"patch":{"opacity":0.25,"display.hdrEnabled":true}})json");
+        R"json({"generation":7,"patch":{"effects.opacity":0.25,"display.hdrEnabled":true}})json");
     BAFX_CHECK(!rejectedProductPath.succeeded());
     BAFX_CHECK(rejectedProductPath.expectedGeneration.has_value());
     BAFX_CHECK(*rejectedProductPath.expectedGeneration == 7U);
@@ -968,7 +1019,7 @@ BAFX_TEST(config_fx_parameter_batch_is_atomic_and_preserves_generation)
 
     const auto reversedRanges = bafx::config::setFxParams(
         base,
-        R"json({"patch":{"shards.clickLifetimeMinMs":900,"shards.clickLifetimeMaxMs":800,"shards.clickSpeedMin":90,"shards.clickSpeedMax":80,"shards.sizeMin":50,"shards.sizeMax":40}})json");
+        R"json({"patch":{"effects.shardsClickLifetimeMinMs":900,"effects.shardsClickLifetimeMaxMs":800,"effects.shardsClickSpeedMin":90,"effects.shardsClickSpeedMax":80,"effects.shardsSizeMin":50,"effects.shardsSizeMax":40}})json");
     BAFX_CHECK(reversedRanges.succeeded());
     BAFX_CHECK_NEAR(
         reversedRanges.config.effects.shardsClickLifetimeMinMs,
@@ -1005,7 +1056,7 @@ BAFX_TEST(config_bloom_quality_is_derived_from_continuous_diffusion)
 
     const auto continuous = bafx::config::setFxParam(
         base,
-        "bloom.diffusion",
+        "effects.bloomDiffusion",
         "8.5");
     BAFX_CHECK(continuous.succeeded());
     BAFX_CHECK(

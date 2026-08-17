@@ -99,9 +99,9 @@ struct FrameSnapshot
     }
 };
 
-// Public values keep the Web API's units. The extracted Unity defaults remain
-// the identity configuration, while the simulation converts reference pixels
-// to world units only when a ring particle is born.
+// Public values use the native 1080p reference-pixel contract. The extracted
+// Unity defaults remain the identity configuration, while the simulation
+// converts reference pixels to world units only when a ring particle is born.
 struct ClickParticleSettings
 {
     float diskLifetimeMs{200.0F};
@@ -113,9 +113,9 @@ struct ClickParticleSettings
     float ringsRotationDirection{-1.0F};
 };
 
-// Values use the Web API's 1080p reference-pixel contract. Each click shard
-// locks these spawn inputs when it is created, so later changes cannot rewrite
-// an existing particle's trajectory or lifetime.
+// Values use the native 1080p reference-pixel contract. Each click shard locks
+// these spawn inputs when it is created, so later changes cannot rewrite an
+// existing particle's trajectory or lifetime.
 struct ShardParticleSettings
 {
     std::uint32_t clickCount{4U};
@@ -155,8 +155,8 @@ public:
     // input and is intentionally separate from the desktop pause timeline.
     void updateUnityTrailTimeScale(float timeScale);
 
-    // Web API compatible animation controls. They scale particle/trail age,
-    // not the host clock, so input timestamps and pause semantics stay intact.
+    // Animation controls scale particle/trail age, not the host clock, so
+    // input timestamps and pause semantics stay intact.
     // Active simulations use the timestamped overload to settle the preceding
     // source-time interval before the new multiplier becomes effective. The
     // overload without a timestamp is intentionally initialization-only.
@@ -166,7 +166,7 @@ public:
     void setTrailTimeScale(float timeScale, SimulationTime time) noexcept;
 
     // Count and radius bounds are spawn-time inputs. Disk/ring lifetime and
-    // angular motion affect live particles. A visible Web-configured child may
+    // angular motion affect live particles. A configured visible child may
     // extend retention beyond Unity's one-second post-release floor, within the
     // validated lifetime/time-scale ceiling. The timestamped overload settles
     // rotation at the old parameters before installing a new motion segment.

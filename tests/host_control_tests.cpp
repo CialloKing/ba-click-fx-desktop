@@ -355,22 +355,26 @@ BAFX_TEST(host_control_fx_config_and_single_param_round_trip_over_ipc)
     BAFX_CHECK(fetched.succeeded());
     BAFX_CHECK(fetched.payload == bafx::config::getFxConfig(initial, false));
     BAFX_CHECK(fetched.payload.find("\"schemaVersion\"") == std::string::npos);
-    BAFX_CHECK(fetched.payload.find("\"trailAlways\"") == std::string::npos);
-    BAFX_CHECK(fetched.payload.find("\"inputSamplingRate\"") == std::string::npos);
-    BAFX_CHECK(fetched.payload.find("\"lifetimeMs\":350")
+    BAFX_CHECK(
+        fetched.payload.find("\"trailOnlyWhilePressed\"")
+        == std::string::npos);
+    BAFX_CHECK(
+        fetched.payload.find("\"samplingRateHz\"")
+        == std::string::npos);
+    BAFX_CHECK(fetched.payload.find("\"diskLifetimeMs\":350")
         != std::string::npos);
-    BAFX_CHECK(fetched.payload.find("\"count\":4") != std::string::npos);
-    BAFX_CHECK(fetched.payload.find("\"radiusMin\":45")
+    BAFX_CHECK(fetched.payload.find("\"ringsCount\":4") != std::string::npos);
+    BAFX_CHECK(fetched.payload.find("\"ringsRadiusMin\":45")
         != std::string::npos);
-    BAFX_CHECK(fetched.payload.find("\"radiusMax\":95")
+    BAFX_CHECK(fetched.payload.find("\"ringsRadiusMax\":95")
         != std::string::npos);
-    BAFX_CHECK(fetched.payload.find("\"angularVelocityMultiplier\":14.5")
+    BAFX_CHECK(fetched.payload.find("\"ringsAngularVelocityMultiplier\":14.5")
         != std::string::npos);
-    BAFX_CHECK(fetched.payload.find("\"rotationDirection\":0.5")
+    BAFX_CHECK(fetched.payload.find("\"ringsRotationDirection\":0.5")
         != std::string::npos);
 
     const bafx::windows::IpcClientResponse changed = client.transact(
-        "SetFxParam {\"generation\":1,\"path\":\"disk.lifetimeMs\",\"value\":500}");
+        "SetFxParam {\"generation\":1,\"path\":\"effects.diskLifetimeMs\",\"value\":500}");
     BAFX_CHECK(changed.succeeded());
     const bafx::desktop::HostStateSnapshot applied = control.snapshot();
     BAFX_CHECK(applied.generation == 2U);
@@ -394,7 +398,7 @@ BAFX_TEST(host_control_fx_config_and_single_param_round_trip_over_ipc)
     BAFX_CHECK(!afterRejectedDisplay.config.display.hdrEnabled);
 
     const bafx::windows::IpcClientResponse stale = client.transact(
-        "SetFxParam {\"generation\":1,\"path\":\"disk.lifetimeMs\",\"value\":750}");
+        "SetFxParam {\"generation\":1,\"path\":\"effects.diskLifetimeMs\",\"value\":750}");
     const bafx::desktop::HostStateSnapshot afterStale = control.snapshot();
     control.stop();
 
@@ -432,15 +436,16 @@ BAFX_TEST(host_control_fx_batch_is_atomic_and_reset_preserves_other_sections)
 
     const bafx::windows::IpcClientResponse changed = client.transact(
         "SetFxParams {\"generation\":1,\"patch\":{"
-        "\"opacity\":0.25,\"clickTimeScale\":2,\"trailTimeScale\":3,"
-        "\"trail.lifetimeMs\":600,\"trail.width\":5.4,"
-        "\"disk.lifetimeMs\":350,\"rings.count\":4,"
-        "\"rings.lifetimeMs\":900,\"rings.radiusMin\":45,"
-        "\"rings.radiusMax\":95,\"rings.angularVelocityMultiplier\":14.5,"
-        "\"rings.rotationDirection\":0.5,"
-        "\"bloom.intensity\":4.2,\"bloom.diffusion\":0,"
-        "\"bloom.threshold\":2,\"bloom.softKnee\":0.5,"
-        "\"bloom.clamp\":4096}}");
+        "\"effects.opacity\":0.25,\"effects.clickTimeScale\":2,"
+        "\"effects.trailTimeScale\":3,\"effects.trailLifetimeMs\":600,"
+        "\"effects.trailWidth\":2,\"effects.diskLifetimeMs\":350,"
+        "\"effects.ringsCount\":4,\"effects.ringsLifetimeMs\":900,"
+        "\"effects.ringsRadiusMin\":45,\"effects.ringsRadiusMax\":95,"
+        "\"effects.ringsAngularVelocityMultiplier\":14.5,"
+        "\"effects.ringsRotationDirection\":0.5,"
+        "\"effects.bloomIntensity\":4.2,\"effects.bloomDiffusion\":0,"
+        "\"effects.bloomThreshold\":2,\"effects.bloomSoftKnee\":0.5,"
+        "\"effects.bloomClamp\":4096}}");
     BAFX_CHECK(changed.succeeded());
     const bafx::desktop::HostStateSnapshot applied = control.snapshot();
     BAFX_CHECK(applied.generation == 2U);
@@ -509,7 +514,7 @@ BAFX_TEST(host_control_fx_batch_is_atomic_and_reset_preserves_other_sections)
 
     const bafx::windows::IpcClientResponse rejected = client.transact(
         "SetFxParams {\"generation\":2,\"patch\":{"
-        "\"opacity\":0.75,\"bloom.softKnee\":2}}");
+        "\"effects.opacity\":0.75,\"effects.bloomSoftKnee\":2}}");
     const bafx::desktop::HostStateSnapshot afterRejected = control.snapshot();
     BAFX_CHECK(rejected.transportSucceeded());
     BAFX_CHECK(!rejected.succeeded());
@@ -532,7 +537,7 @@ BAFX_TEST(host_control_fx_batch_is_atomic_and_reset_preserves_other_sections)
 
     const bafx::windows::IpcClientResponse rejectedProductPath = client.transact(
         "SetFxParams {\"generation\":2,\"patch\":{"
-        "\"opacity\":0.75,\"input.samplingRateHz\":30}}");
+        "\"effects.opacity\":0.75,\"input.samplingRateHz\":30}}");
     const bafx::desktop::HostStateSnapshot afterRejectedProductPath =
         control.snapshot();
     BAFX_CHECK(rejectedProductPath.transportSucceeded());

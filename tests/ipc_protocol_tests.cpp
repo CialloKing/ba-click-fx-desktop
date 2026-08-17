@@ -69,20 +69,20 @@ BAFX_TEST(ipc_parser_accepts_supported_commands)
     BAFX_CHECK(!removeDisplay.request->payload.empty());
 
     const IpcParseResult setFxParam = parseIpcRequest(
-        "SetFxParam {\"generation\":1,\"path\":\"opacity\",\"value\":0.5}");
+        "SetFxParam {\"generation\":1,\"path\":\"effects.opacity\",\"value\":0.5}");
     BAFX_CHECK(setFxParam.succeeded());
     BAFX_CHECK(setFxParam.request->command == IpcCommand::SetFxParam);
     BAFX_CHECK(
         setFxParam.request->payload
-        == "{\"generation\":1,\"path\":\"opacity\",\"value\":0.5}");
+        == "{\"generation\":1,\"path\":\"effects.opacity\",\"value\":0.5}");
 
     const IpcParseResult setFxParams = parseIpcRequest(
-        "SetFxParams {\"generation\":1,\"patch\":{\"opacity\":0.5}}");
+        "SetFxParams {\"generation\":1,\"patch\":{\"effects.opacity\":0.5}}");
     BAFX_CHECK(setFxParams.succeeded());
     BAFX_CHECK(setFxParams.request->command == IpcCommand::SetFxParams);
     BAFX_CHECK(
         setFxParams.request->payload
-        == "{\"generation\":1,\"patch\":{\"opacity\":0.5}}");
+        == "{\"generation\":1,\"patch\":{\"effects.opacity\":0.5}}");
 
     const IpcParseResult resetFxConfig = parseIpcRequest("ResetFxConfig");
     BAFX_CHECK(resetFxConfig.succeeded());
