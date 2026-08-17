@@ -1,5 +1,8 @@
 #pragma once
 
+#include <array>
+#include <cstddef>
+#include <string>
 #include <string_view>
 
 namespace bafx::windows
@@ -168,7 +171,11 @@ MaterialOutput TrailPixel(PixelInput input)
 }
 )hlsl";
 
-inline constexpr std::string_view unityBloomShaderSource = R"hlsl(
+namespace detail
+{
+
+inline constexpr std::array<std::string_view, 3> unityBloomShaderSourceChunks{
+    R"hlsl(
 cbuffer BloomConstants : register(b0)
 {
     float2 SourceTexelSize;
@@ -425,7 +432,8 @@ float4 CompositePixel(FullscreenOutput input) : SV_Target0
     const float4 direct = Source0.Sample(LinearClampSampler, input.uv);
     return ResolveComposite(direct, ResolveBloomResult(input));
 }
-
+)hlsl",
+    R"hlsl(
 struct CaptureCompositeOutput
 {
     float4 finalOverlay : SV_Target0;
@@ -596,7 +604,8 @@ float4 ResolveLightBackgroundDesktopTransport(
         0.85,
         0.35);
 }
-
+)hlsl",
+    R"hlsl(
 float4 ResolveBackgroundAwareDesktopTransport(
     float4 direct,
     float4 bloom,
@@ -782,6 +791,35 @@ float4 RecordingCompatibleSdrCompositePixel(FullscreenOutput input) : SV_Target0
     return EncodeConservativeSdrPremultiplied(
         ResolveRecordingCompatibleComposite(input));
 }
-)hlsl";
+)hlsl"};
+
+// Older MSVC front ends reject individual string literals near 16 KiB before
+// semantic analysis. Keep headroom so the embedded shader remains cross-SDK.
+inline constexpr std::size_t maximumEmbeddedShaderChunkSize = 12U * 1024U;
+static_assert(unityBloomShaderSourceChunks[0].size() < maximumEmbeddedShaderChunkSize);
+static_assert(unityBloomShaderSourceChunks[1].size() < maximumEmbeddedShaderChunkSize);
+static_assert(unityBloomShaderSourceChunks[2].size() < maximumEmbeddedShaderChunkSize);
+
+inline constexpr std::size_t unityBloomShaderSourceSize =
+    unityBloomShaderSourceChunks[0].size()
+    + unityBloomShaderSourceChunks[1].size()
+    + unityBloomShaderSourceChunks[2].size();
+
+}
+
+[[nodiscard]] inline std::string_view unityBloomShaderSource()
+{
+    static const std::string source = []()
+    {
+        std::string result;
+        result.reserve(detail::unityBloomShaderSourceSize);
+        for (const std::string_view chunk : detail::unityBloomShaderSourceChunks)
+        {
+            result.append(chunk.data(), chunk.size());
+        }
+        return result;
+    }();
+    return std::string_view(source.data(), source.size());
+}
 
 }

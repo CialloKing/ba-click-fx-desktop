@@ -643,7 +643,7 @@ struct FxGpuRenderer::Implementation
     void createBloomPipeline()
     {
         const ComPtr<ID3DBlob> vertexByteCode = compileShader(
-            unityBloomShaderSource,
+            unityBloomShaderSource(),
             "FullscreenVertex",
             "vs_5_0");
         throwIfFailed(
@@ -716,7 +716,7 @@ struct FxGpuRenderer::Implementation
         ComPtr<ID3D11PixelShader>& output)
     {
         const ComPtr<ID3DBlob> byteCode = compileShader(
-            unityBloomShaderSource,
+            unityBloomShaderSource(),
             entryPoint,
             "ps_5_0");
         throwIfFailed(

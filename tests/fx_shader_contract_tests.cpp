@@ -160,29 +160,29 @@ struct ShaderEntry
 
 BAFX_TEST(all_embedded_fx_shader_entries_compile_with_warnings_as_errors)
 {
-    constexpr std::array entries{
+    const std::array entries{
         ShaderEntry{fxMaterialsShaderSource, "SpriteVertex", "vs_5_0"},
         ShaderEntry{fxMaterialsShaderSource, "CrossPixel", "ps_5_0"},
         ShaderEntry{fxMaterialsShaderSource, "DissolvePixel", "ps_5_0"},
         ShaderEntry{fxMaterialsShaderSource, "AdditivePixel", "ps_5_0"},
         ShaderEntry{fxMaterialsShaderSource, "TrailPixel", "ps_5_0"},
-        ShaderEntry{unityBloomShaderSource, "FullscreenVertex", "vs_5_0"},
-        ShaderEntry{unityBloomShaderSource, "PrefilterPixel", "ps_5_0"},
-        ShaderEntry{unityBloomShaderSource, "DifferentialPrefilterPixel", "ps_5_0"},
-        ShaderEntry{unityBloomShaderSource, "DownsamplePixel", "ps_5_0"},
-        ShaderEntry{unityBloomShaderSource, "UpsamplePixel", "ps_5_0"},
-        ShaderEntry{unityBloomShaderSource, "CompositePixel", "ps_5_0"},
-        ShaderEntry{unityBloomShaderSource, "DesktopCompositePixel", "ps_5_0"},
+        ShaderEntry{unityBloomShaderSource(), "FullscreenVertex", "vs_5_0"},
+        ShaderEntry{unityBloomShaderSource(), "PrefilterPixel", "ps_5_0"},
+        ShaderEntry{unityBloomShaderSource(), "DifferentialPrefilterPixel", "ps_5_0"},
+        ShaderEntry{unityBloomShaderSource(), "DownsamplePixel", "ps_5_0"},
+        ShaderEntry{unityBloomShaderSource(), "UpsamplePixel", "ps_5_0"},
+        ShaderEntry{unityBloomShaderSource(), "CompositePixel", "ps_5_0"},
+        ShaderEntry{unityBloomShaderSource(), "DesktopCompositePixel", "ps_5_0"},
         ShaderEntry{
-            unityBloomShaderSource,
+            unityBloomShaderSource(),
             "DesktopSdrCompositePixel",
             "ps_5_0"},
         ShaderEntry{
-            unityBloomShaderSource,
+            unityBloomShaderSource(),
             "RecordingCompatibleCompositePixel",
             "ps_5_0"},
         ShaderEntry{
-            unityBloomShaderSource,
+            unityBloomShaderSource(),
             "LightBackgroundCompositePixel",
             "ps_5_0"}};
 
@@ -242,7 +242,7 @@ BAFX_TEST(bloom_shader_reflection_locks_resources_and_constant_layout)
     for (const char* entryPoint : entries)
     {
         const auto reflection = compileAndReflect(
-            ShaderEntry{unityBloomShaderSource, entryPoint, "ps_5_0"});
+            ShaderEntry{unityBloomShaderSource(), entryPoint, "ps_5_0"});
         BAFX_CHECK(hasBinding(reflection.Get(), "BloomConstants", D3D_SIT_CBUFFER, 0U));
         BAFX_CHECK(hasBinding(reflection.Get(), "Source0", D3D_SIT_TEXTURE, 0U));
         BAFX_CHECK(hasBinding(
