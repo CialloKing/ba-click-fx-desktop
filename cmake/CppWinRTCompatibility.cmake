@@ -11,15 +11,38 @@ function(bafx_configure_cppwinrt_coroutines target_name)
 
     set(CMAKE_TRY_COMPILE_TARGET_TYPE STATIC_LIBRARY)
     set(cppwinrt_probe_cmake_flags)
-    if(CMAKE_VS_WINDOWS_TARGET_PLATFORM_VERSION)
+    set(cppwinrt_selected_windows_sdk "${CMAKE_VS_WINDOWS_TARGET_PLATFORM_VERSION}")
+    if(NOT cppwinrt_selected_windows_sdk
+        AND DEFINED CACHE{CMAKE_SYSTEM_VERSION})
+        get_property(
+            cppwinrt_selected_windows_sdk
+            CACHE CMAKE_SYSTEM_VERSION
+            PROPERTY VALUE
+        )
+    endif()
+    if(cppwinrt_selected_windows_sdk
+        AND cppwinrt_selected_windows_sdk MATCHES "^[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+$")
         # A nested Visual Studio try_compile otherwise selects the newest
         # installed SDK instead of the SDK selected by the product build.
         list(
             APPEND
             cppwinrt_probe_cmake_flags
-            "-DCMAKE_SYSTEM_VERSION:STRING=${CMAKE_VS_WINDOWS_TARGET_PLATFORM_VERSION}"
+            "-DCMAKE_SYSTEM_VERSION:STRING=${cppwinrt_selected_windows_sdk}"
         )
     endif()
+    if(cppwinrt_selected_windows_sdk)
+        message(
+            STATUS
+            "C++/WinRT coroutine probe SDK: ${cppwinrt_selected_windows_sdk}"
+        )
+    endif()
+    set(
+        BAFX_CPPWINRT_LEGACY_COROUTINES
+        OFF
+        CACHE BOOL
+        "Use the legacy MSVC coroutine TS for the selected C++/WinRT projection"
+        FORCE
+    )
     set(
         cppwinrt_probe_source
         [=[
@@ -89,6 +112,13 @@ int cppwinrtCoroutineProbe()
         )
     endif()
 
+    set(
+        BAFX_CPPWINRT_LEGACY_COROUTINES
+        ON
+        CACHE BOOL
+        "Use the legacy MSVC coroutine TS for the selected C++/WinRT projection"
+        FORCE
+    )
     set_source_files_properties(
         ${ARGN}
         TARGET_DIRECTORY ${target_name}
