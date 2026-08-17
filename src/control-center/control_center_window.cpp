@@ -1070,23 +1070,23 @@ bool ControlCenterWindow::createControls()
 
     advancedTimingHeading_ = createChild(
         L"BUTTON",
-        L"Web API 时间与透明度",
+        L"时间与透明度",
         BS_GROUPBOX);
     advancedParticlesHeading_ = createChild(
         L"BUTTON",
-        L"Web API 粒子与材质",
+        L"粒子与材质",
         BS_GROUPBOX);
     advancedRingsHeading_ = createChild(
         L"BUTTON",
-        L"Web API 圆环参数",
+        L"圆环参数",
         BS_GROUPBOX);
     advancedClickShardsHeading_ = createChild(
         L"BUTTON",
-        L"Web API 点击碎片",
+        L"点击碎片",
         BS_GROUPBOX);
     advancedBloomHeading_ = createChild(
         L"BUTTON",
-        L"Web API Bloom",
+        L"Bloom 参数",
         BS_GROUPBOX);
 
     bloomQualityLabel_ = createChild(
