@@ -1,8 +1,20 @@
 # ba-click-fx-desktop
 
 `ba-click-fx-desktop` 是从零实现的 Windows 原生桌面点击特效。项目不复用
-`ba-click-fx` 的 JavaScript、WebGL 或 WebGPU 渲染代码；Unity/游戏资源是视觉真值，
+[ba-click-fx](https://github.com/CialloKing/ba-click-fx) 的 JavaScript、WebGL 或 WebGPU 渲染代码；Unity/游戏资源是视觉真值，
 Web 版本只作为历史行为对照，不定义本项目的配置、IPC 或单位合同。
+
+## 网页版 ba-click-fx
+
+[ba-click-fx](https://github.com/CialloKing/ba-click-fx) 是面向浏览器的蔚蓝档案点击特效与鼠标拖尾库，
+从 Unity `FX_Touch.prefab` 的粒子系统和 `TrailRenderer` 参数移植而来。它使用 WebGL2 作为主要渲染路径，
+并提供 WebGPU、Canvas 2D、软件 Bloom 和原生辉光等回退方案；在浏览器和显示链支持时，还可以尝试 WebGPU HDR 输出。
+
+网页版可以通过[在线演示](https://ba-click-fx.cialloking.top)直接体验，也可以作为浏览器扩展安装，或通过 npm、CDN
+集成到自己的网页中。它提供点击特效、拖尾、主题颜色、透明度、尺寸、Bloom 和输入采样等运行时配置，适合网页和浏览器扩展场景。
+
+本项目的桌面版与网页版共享 Unity/游戏资源这一视觉参考，但桌面版使用 C++20、Win32、Direct3D 11、HLSL
+和 DirectComposition 重新实现渲染、输入和透明覆盖层；两者的配置、IPC、渲染后端和单位合同彼此独立。
 
 Release Host 运行时是单文件：Visual C++ 运行库静态链接，Circle、Grad Ring、Triangle Atlas、Trail
 四张参考纹理的 RGBA8 texel 以 raw LZ4 Block 无损压缩为 C 字节串，直接编译进 EXE。启动时逐张分配
