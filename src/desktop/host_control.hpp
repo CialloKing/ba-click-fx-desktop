@@ -10,6 +10,7 @@
 #include <filesystem>
 #include <mutex>
 #include <string>
+#include <vector>
 
 namespace bafx::desktop
 {
@@ -32,7 +33,11 @@ struct HostControlStartResult final
 struct DisplayStateSnapshot final
 {
     bafx::windows::DisplayRuntimeSummary runtime{};
-    std::uint64_t generation{0U};
+    std::vector<bafx::config::DisplayOverrideConfig> offlineOverrides{};
+    std::uint64_t runtimeGeneration{0U};
+    std::uint64_t configGeneration{0U};
+    std::uint64_t appliedConfigGeneration{0U};
+    bool offlineOverridesAuthoritative{false};
 };
 
 class SingleInstanceGuard final
@@ -82,7 +87,8 @@ public:
     // The render owner publishes one immutable cross-display view. Pipe
     // clients never inspect live renderer or WGC objects from the IPC thread.
     void setDisplayRuntimeSummary(
-        bafx::windows::DisplayRuntimeSummary summary);
+        bafx::windows::DisplayRuntimeSummary summary,
+        std::uint64_t appliedConfigGeneration);
     [[nodiscard]] DWORD ipcLastError() const noexcept;
 
 private:
@@ -107,6 +113,7 @@ private:
     std::uint64_t generation_{1U};
     bafx::windows::DisplayRuntimeSummary displayRuntimeSummary_{};
     std::uint64_t displayRuntimeGeneration_{0U};
+    std::uint64_t appliedConfigGeneration_{0U};
     bool paused_{false};
     bool backgroundCaptureActive_{false};
     bafx::windows::NamedPipeIpcServer ipc_;

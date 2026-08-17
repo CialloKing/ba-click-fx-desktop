@@ -228,9 +228,24 @@ BAFX_TEST(host_control_publishes_one_immutable_display_state_snapshot)
     serverOptions.pipeName = testPipeName() + L".display-state";
     serverOptions.ioTimeoutMilliseconds = 500U;
     serverOptions.retryDelayMilliseconds = 10U;
+    bafx::config::Config initialConfig = bafx::config::defaultConfig();
+    BAFX_CHECK(bafx::config::setDisplayOverride(
+        initialConfig,
+        bafx::config::DisplayOverrideConfig{
+            "displayconfig-v1-sha256:test-display",
+            false,
+            true,
+            bafx::config::FramePacing::Fixed120}));
+    BAFX_CHECK(bafx::config::setDisplayOverride(
+        initialConfig,
+        bafx::config::DisplayOverrideConfig{
+            "displayconfig-v1-sha256:offline-display",
+            true,
+            false,
+            bafx::config::FramePacing::Fixed60}));
     bafx::desktop::HostControlPlane control(
         temporary.configPath(),
-        bafx::config::defaultConfig(),
+        initialConfig,
         serverOptions);
     BAFX_CHECK(control.start(false).serviceStarted);
 
@@ -250,6 +265,29 @@ BAFX_TEST(host_control_publishes_one_immutable_display_state_snapshot)
         60U,
         1U,
         bafx::windows::DisplayRefreshRateSource::DisplayConfigPath};
+    session.captureCadenceStatus =
+        bafx::windows::BackgroundCadenceRefreshStatus::TargetRate;
+    session.captureCadenceFallbackReason =
+        bafx::windows::DisplayCaptureCadenceFallbackReason::None;
+    session.producerPolicyRefreshRate = session.displayRefreshRate;
+    session.freshnessPolicyRefreshRate = session.captureRefreshRate;
+    session.freshnessPolicyPeriod = std::chrono::microseconds(16'667);
+    session.producerCadence.status =
+        bafx::windows::WgcProducerCadenceStatus::Applied;
+    session.producerCadence.requested = std::chrono::microseconds(6'951);
+    session.producerCadence.applied = std::chrono::microseconds(6'951);
+    session.producerCadence.result = S_OK;
+    session.physicalCadence.push_back(
+        bafx::windows::DisplayPhysicalCadenceRuntimeSummary{
+            session.displayRefreshRate,
+            session.displayRefreshRate,
+            session.displayRefreshRate,
+            true,
+            true});
+    session.sourceAdapterResolved = true;
+    session.sourceIdentityResolved = true;
+    session.sourceId = 7U;
+    session.physicalTargetCount = 1U;
     session.deviceInfo.adapterDescription = L"Test Adapter";
     session.deviceInfo.driverType = bafx::windows::GraphicsDriverType::Hardware;
     session.requestedOutputPreference =
@@ -258,6 +296,7 @@ BAFX_TEST(host_control_publishes_one_immutable_display_state_snapshot)
         bafx::windows::CompositionOutputPreference::PreferLinearScRgb);
     session.deviceInfo.output.transfer =
         bafx::windows::CompositionOutputTransfer::LinearScRgb;
+    session.deviceInfo.output.mapping = session.resolvedOutputPolicy.mapping;
     session.outputPolicySatisfied = true;
     session.coordinator = true;
     session.primary = true;
@@ -273,13 +312,29 @@ BAFX_TEST(host_control_publishes_one_immutable_display_state_snapshot)
     color.advancedColorStateConsistent = true;
     color.activeColorMode = bafx::windows::DisplayColorMode::Hdr;
     color.advancedColorActive = true;
+    color.advancedColorInfoV2 = true;
     color.highDynamicRangeSupported = true;
+    color.highDynamicRangeUserEnabled = true;
+    color.sdrWhiteLevelQueryResult = ERROR_SUCCESS;
+    color.sdrWhiteLevelConsistent = true;
+    color.sdrWhiteLevelValid = true;
+    color.sdrWhiteLevelNits = 203.0F;
     session.colorCapabilities = color;
+    session.colorObservation = color;
+    session.colorMonitorResult.status =
+        bafx::windows::DisplayColorMonitorStatus::Active;
+    session.colorMonitorResult.error = S_OK;
+    session.colorMonitorResult.generation = 9U;
+    session.colorSnapshotDisposition = "fresh";
+    session.colorQueryGeneration = 4U;
 
     bafx::windows::DisplayRuntimeSummary summary{};
     summary.sessionCount = 1U;
+    summary.topologyStatus =
+        bafx::windows::DisplayTopologyStatus::Complete;
+    summary.topologyError = ERROR_SUCCESS;
     summary.sessions.push_back(session);
-    control.setDisplayRuntimeSummary(summary);
+    control.setDisplayRuntimeSummary(summary, 1U);
 
     bafx::windows::IpcClientOptions clientOptions{};
     clientOptions.pipeName = serverOptions.pipeName;
@@ -292,7 +347,19 @@ BAFX_TEST(host_control_publishes_one_immutable_display_state_snapshot)
     control.stop();
 
     BAFX_CHECK(response.succeeded());
-    BAFX_CHECK(response.payload.find("\"generation\":1")
+    BAFX_CHECK(response.payload.find("\"schemaVersion\":2")
+        != std::string::npos);
+    BAFX_CHECK(response.payload.find("\"runtimeGeneration\":1")
+        != std::string::npos);
+    BAFX_CHECK(response.payload.find("\"configGeneration\":1")
+        != std::string::npos);
+    BAFX_CHECK(response.payload.find("\"appliedConfigGeneration\":1")
+        != std::string::npos);
+    BAFX_CHECK(response.payload.find(
+        "\"offlineOverridesAuthoritative\":true")
+        != std::string::npos);
+    BAFX_CHECK(response.payload.find(
+        "\"displayKey\":\"displayconfig-v1-sha256:offline-display\"")
         != std::string::npos);
     BAFX_CHECK(response.payload.find("\"device\":\"\\\\\\\\.\\\\DISPLAY1\"")
         != std::string::npos);
@@ -317,7 +384,24 @@ BAFX_TEST(host_control_publishes_one_immutable_display_state_snapshot)
         != std::string::npos);
     BAFX_CHECK(response.payload.find("\"framePacing\":\"120\"")
         != std::string::npos);
-    BAFX_CHECK(snapshot.generation == 1U);
+    BAFX_CHECK(response.payload.find(
+        "\"captureCadenceStatus\":\"target-rate\"")
+        != std::string::npos);
+    BAFX_CHECK(response.payload.find("\"producerAppliedPeriodUs\":6951")
+        != std::string::npos);
+    BAFX_CHECK(response.payload.find("\"hdrUserEnabled\":true")
+        != std::string::npos);
+    BAFX_CHECK(response.payload.find("\"sdrWhiteLevelNits\":203")
+        != std::string::npos);
+    BAFX_CHECK(response.payload.find("\"outputFallbackResult\":0")
+        != std::string::npos);
+    BAFX_CHECK(snapshot.runtimeGeneration == 1U);
+    BAFX_CHECK(snapshot.configGeneration == 1U);
+    BAFX_CHECK(snapshot.appliedConfigGeneration == 1U);
+    BAFX_CHECK(snapshot.offlineOverridesAuthoritative);
+    BAFX_CHECK(snapshot.offlineOverrides.size() == 1U);
+    BAFX_CHECK(snapshot.offlineOverrides.front().displayKey
+        == "displayconfig-v1-sha256:offline-display");
     BAFX_CHECK(snapshot.runtime.sessions.size() == 1U);
     BAFX_CHECK(snapshot.runtime.sessions.front().device == session.device);
 }

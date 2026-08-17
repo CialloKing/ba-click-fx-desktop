@@ -2433,6 +2433,7 @@ int runApplication(
     }
 
     bafx::desktop::HostControlPlane control(configPath, config);
+    std::uint64_t appliedGeneration = control.snapshot().generation;
     report.setConfigurationSchemaVersion(config.schemaVersion);
     bafx::desktop::DisplayTarget appliedDisplayTarget = primaryDisplayTarget();
     bafx::windows::DisplayTopologyStatus latestDisplayTopologyStatus =
@@ -2679,7 +2680,9 @@ int runApplication(
         // The support report and Control Center consume the same immutable
         // product snapshot, so neither can drift from the live per-screen view.
         report.setDisplayRuntimeSummary(runtimeSummary);
-        control.setDisplayRuntimeSummary(std::move(runtimeSummary));
+        control.setDisplayRuntimeSummary(
+            std::move(runtimeSummary),
+            appliedGeneration);
     };
     updateDisplayRuntimeSummary();
     appendDeviceRemovedNotificationStatus(logPath, renderer, "startup");
@@ -2842,7 +2845,7 @@ int runApplication(
             report,
             logPath,
             renderer.backgroundCaptureActive());
-    std::uint64_t appliedGeneration = controlStart.appliedGeneration;
+    appliedGeneration = controlStart.appliedGeneration;
     updateDisplayRuntimeSummary();
     bafx::windows::appendDiagnosticLog(logPath, report);
 
@@ -5156,6 +5159,7 @@ int runApplication(
                 throw std::logic_error("Background capture request was invalid");
             }
             appliedGeneration = controlState.generation;
+            updateDisplayRuntimeSummary();
             const std::string_view configurationReason = configChanged
                 ? (displayTargetChanged
                     ? "control-and-display-target"

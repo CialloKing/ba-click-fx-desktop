@@ -2,6 +2,11 @@
 
 #include "bafx/windows/portable_paths.hpp"
 
+#include <algorithm>
+#include <array>
+#include <charconv>
+#include <chrono>
+#include <cmath>
 #include <limits>
 #include <sstream>
 #include <utility>
@@ -134,6 +139,51 @@ namespace
     return "unknown";
 }
 
+[[nodiscard]] std::string_view topologyStatusName(
+    const bafx::windows::DisplayTopologyStatus status) noexcept
+{
+    switch (status)
+    {
+    case bafx::windows::DisplayTopologyStatus::Complete:
+        return "complete";
+    case bafx::windows::DisplayTopologyStatus::Incomplete:
+        return "incomplete";
+    case bafx::windows::DisplayTopologyStatus::NoActiveDisplays:
+        return "no-active-displays";
+    case bafx::windows::DisplayTopologyStatus::QueryFailed:
+        return "query-failed";
+    }
+    return "query-failed";
+}
+
+[[nodiscard]] std::string_view outputFallbackName(
+    const bafx::windows::CompositionOutputFallback fallback) noexcept
+{
+    switch (fallback)
+    {
+    case bafx::windows::CompositionOutputFallback::None:
+        return "none";
+    case bafx::windows::CompositionOutputFallback::ConservativeSdr:
+        return "conservative-sdr";
+    }
+    return "none";
+}
+
+[[nodiscard]] std::string_view outputMappingName(
+    const bafx::windows::CompositionOutputMappingMode mode) noexcept
+{
+    switch (mode)
+    {
+    case bafx::windows::CompositionOutputMappingMode::ConservativeSdr:
+        return "conservative-sdr";
+    case bafx::windows::CompositionOutputMappingMode::AdvancedColorScRgb:
+        return "advanced-color-scrgb";
+    case bafx::windows::CompositionOutputMappingMode::HdrSceneReferredScRgb:
+        return "hdr-scene-referred-scrgb";
+    }
+    return "unknown";
+}
+
 void appendOptionalBoolean(
     std::ostringstream& stream,
     const std::optional<bool> value)
@@ -144,6 +194,55 @@ void appendOptionalBoolean(
         return;
     }
     stream << jsonBool(*value);
+}
+
+void appendOptionalSigned(
+    std::ostringstream& stream,
+    const std::optional<std::int32_t> value)
+{
+    if (!value.has_value())
+    {
+        stream << "null";
+        return;
+    }
+    stream << *value;
+}
+
+void appendOptionalUnsigned(
+    std::ostringstream& stream,
+    const std::optional<std::uint32_t> value)
+{
+    if (!value.has_value())
+    {
+        stream << "null";
+        return;
+    }
+    stream << *value;
+}
+
+void appendOptionalFloat(
+    std::ostringstream& stream,
+    const std::optional<float> value)
+{
+    if (!value.has_value() || !std::isfinite(*value))
+    {
+        stream << "null";
+        return;
+    }
+
+    std::array<char, 64U> buffer{};
+    const auto converted = std::to_chars(
+        buffer.data(),
+        buffer.data() + buffer.size(),
+        *value,
+        std::chars_format::general,
+        (std::numeric_limits<float>::max_digits10));
+    if (converted.ec != std::errc{})
+    {
+        stream << "null";
+        return;
+    }
+    stream.write(buffer.data(), converted.ptr - buffer.data());
 }
 
 void appendRefreshRate(
@@ -160,6 +259,68 @@ void appendRefreshRate(
     stream << "{\"numerator\":" << refreshRate->numerator
            << ",\"denominator\":" << refreshRate->denominator
            << "}";
+}
+
+void appendPhysicalCadence(
+    std::ostringstream& stream,
+    const std::vector<
+        bafx::windows::DisplayPhysicalCadenceRuntimeSummary>& targets)
+{
+    stream << '[';
+    for (std::size_t index = 0U; index < targets.size(); ++index)
+    {
+        if (index != 0U)
+        {
+            stream << ',';
+        }
+        const auto& target = targets[index];
+        stream << "{\"virtualRefresh\":";
+        appendRefreshRate(stream, target.virtualRefreshRate);
+        stream << ",\"physicalRefresh\":";
+        appendRefreshRate(stream, target.physicalRefreshRate);
+        stream << ",\"captureRefresh\":";
+        appendRefreshRate(stream, target.captureRefreshRate);
+        stream << ",\"drrBoosted\":"
+               << jsonBool(target.dynamicRefreshRateBoosted)
+               << ",\"available\":" << jsonBool(target.available)
+               << '}';
+    }
+    stream << ']';
+}
+
+[[nodiscard]] std::uint64_t nonNegativeMicroseconds(
+    const bafx::core::MonotonicTime duration) noexcept
+{
+    const auto microseconds =
+        std::chrono::duration_cast<std::chrono::microseconds>(duration).count();
+    return microseconds > 0
+        ? static_cast<std::uint64_t>(microseconds)
+        : 0U;
+}
+
+void appendOfflineOverrides(
+    std::ostringstream& stream,
+    const std::vector<bafx::config::DisplayOverrideConfig>& overrides)
+{
+    stream << '[';
+    for (std::size_t index = 0U; index < overrides.size(); ++index)
+    {
+        if (index != 0U)
+        {
+            stream << ',';
+        }
+        const bafx::config::DisplayOverrideConfig& overrideConfig =
+            overrides[index];
+        stream << "{\"displayKey\":"
+               << jsonEscape(overrideConfig.displayKey)
+               << ",\"effectsEnabled\":" << jsonBool(overrideConfig.enabled)
+               << ",\"hdrEnabled\":" << jsonBool(overrideConfig.hdrEnabled)
+               << ",\"framePacing\":"
+               << jsonEscape(bafx::config::toString(
+                    overrideConfig.framePacing))
+               << '}';
+    }
+    stream << ']';
 }
 
 }
@@ -280,9 +441,36 @@ HostStateSnapshot HostControlPlane::snapshot() const
 DisplayStateSnapshot HostControlPlane::displaySnapshot() const
 {
     std::lock_guard<std::mutex> lock(mutex_);
-    return DisplayStateSnapshot{
-        displayRuntimeSummary_,
-        displayRuntimeGeneration_};
+    DisplayStateSnapshot snapshot{};
+    snapshot.runtime = displayRuntimeSummary_;
+    snapshot.runtimeGeneration = displayRuntimeGeneration_;
+    snapshot.configGeneration = generation_;
+    snapshot.appliedConfigGeneration = appliedConfigGeneration_;
+    snapshot.offlineOverridesAuthoritative =
+        displayRuntimeSummary_.topologyStatus
+        == bafx::windows::DisplayTopologyStatus::Complete;
+    if (!snapshot.offlineOverridesAuthoritative)
+    {
+        return snapshot;
+    }
+
+    for (const bafx::config::DisplayOverrideConfig& overrideConfig :
+         config_.display.overrides)
+    {
+        const bool connected = std::ranges::any_of(
+            displayRuntimeSummary_.sessions,
+            [&overrideConfig](
+                const bafx::windows::DisplaySessionRuntimeSummary& session)
+            {
+                return session.displayKey.has_value()
+                    && *session.displayKey == overrideConfig.displayKey;
+            });
+        if (!connected)
+        {
+            snapshot.offlineOverrides.push_back(overrideConfig);
+        }
+    }
+    return snapshot;
 }
 
 void HostControlPlane::setBackgroundCaptureActive(const bool active) noexcept
@@ -292,10 +480,12 @@ void HostControlPlane::setBackgroundCaptureActive(const bool active) noexcept
 }
 
 void HostControlPlane::setDisplayRuntimeSummary(
-    bafx::windows::DisplayRuntimeSummary summary)
+    bafx::windows::DisplayRuntimeSummary summary,
+    const std::uint64_t appliedConfigGeneration)
 {
     std::lock_guard<std::mutex> lock(mutex_);
     displayRuntimeSummary_ = std::move(summary);
+    appliedConfigGeneration_ = appliedConfigGeneration;
     ++displayRuntimeGeneration_;
 }
 
@@ -621,8 +811,20 @@ std::string HostControlPlane::displayStateJson(
     const DisplayStateSnapshot& state)
 {
     std::ostringstream stream;
-    stream << "{\"generation\":" << state.generation
-           << ",\"sessions\":[";
+    stream << "{\"schemaVersion\":2"
+           << ",\"runtimeGeneration\":" << state.runtimeGeneration
+           << ",\"configGeneration\":" << state.configGeneration
+           << ",\"appliedConfigGeneration\":"
+           << state.appliedConfigGeneration
+           << ",\"topologyStatus\":"
+           << jsonEscape(topologyStatusName(state.runtime.topologyStatus))
+           << ",\"topologyError\":"
+           << static_cast<std::uint32_t>(state.runtime.topologyError)
+           << ",\"offlineOverridesAuthoritative\":"
+           << jsonBool(state.offlineOverridesAuthoritative)
+           << ",\"offlineOverrides\":";
+    appendOfflineOverrides(stream, state.offlineOverrides);
+    stream << ",\"sessions\":[";
     for (std::size_t index = 0U;
          index < state.runtime.sessions.size();
          ++index)
@@ -637,7 +839,9 @@ std::string HostControlPlane::displayStateJson(
         const bool colorComplete = session.colorCapabilities.has_value()
             && bafx::windows::displayColorStateComplete(
                 *session.colorCapabilities);
-        const std::optional<bool> hdrSupported = colorComplete
+        const bool colorV2Credible = colorComplete
+            && session.colorCapabilities->advancedColorInfoV2;
+        const std::optional<bool> hdrSupported = colorV2Credible
             ? std::optional<bool>(
                 session.colorCapabilities->highDynamicRangeSupported)
             : std::nullopt;
@@ -647,6 +851,39 @@ std::string HostControlPlane::displayStateJson(
                     == bafx::windows::DisplayColorMode::Hdr
                 && (!session.colorCapabilities->displayPathResolved
                     || session.colorCapabilities->advancedColorActive))
+            : std::nullopt;
+        const std::optional<bool> hdrUserEnabled = colorV2Credible
+            ? std::optional<bool>(
+                session.colorCapabilities->highDynamicRangeUserEnabled)
+            : std::nullopt;
+        const bool whiteLevelKnown = colorComplete
+            && session.colorCapabilities->sdrWhiteLevelValid;
+        const std::optional<float> sdrWhiteLevelNits = whiteLevelKnown
+            ? std::optional<float>(
+                session.colorCapabilities->sdrWhiteLevelNits)
+            : std::nullopt;
+        const std::optional<bool> sdrWhiteLevelRetained = colorComplete
+            ? std::optional<bool>(
+                session.colorCapabilities->sdrWhiteLevelRetained)
+            : std::nullopt;
+        const std::optional<std::int32_t> advancedColorQueryResult =
+            session.colorObservation.has_value()
+                ? std::optional<std::int32_t>(static_cast<std::int32_t>(
+                    session.colorObservation->advancedColorQueryResult))
+                : std::nullopt;
+        const std::optional<std::int32_t> sdrWhiteLevelQueryResult =
+            session.colorObservation.has_value()
+                ? std::optional<std::int32_t>(static_cast<std::int32_t>(
+                    session.colorObservation->sdrWhiteLevelQueryResult))
+                : std::nullopt;
+        const std::optional<bool> advancedColorLimitedByPolicy = colorComplete
+                ? std::optional<bool>(
+                    session.colorCapabilities
+                        ->advancedColorLimitedByPolicy)
+                : std::nullopt;
+        const std::optional<bool> sdrWhiteLevelConsistent = colorComplete
+            ? std::optional<bool>(
+                session.colorCapabilities->sdrWhiteLevelConsistent)
             : std::nullopt;
         const std::optional<bafx::windows::CompositionOutputPreference>
             actualOutput =
@@ -669,6 +906,18 @@ std::string HostControlPlane::displayStateJson(
                << ",\"effectsEnabled\":" << jsonBool(session.effectsEnabled)
                << ",\"hdrEnabled\":" << jsonBool(session.hdrEnabled)
                << ",\"framePacing\":" << jsonEscape(session.framePacing)
+               << ",\"sourceAdapterResolved\":"
+               << jsonBool(session.sourceAdapterResolved)
+               << ",\"sourceIdentityResolved\":"
+               << jsonBool(session.sourceIdentityResolved)
+               << ",\"sourceId\":";
+        appendOptionalUnsigned(
+            stream,
+            session.sourceIdentityResolved
+                ? std::optional<std::uint32_t>(session.sourceId)
+                : std::nullopt);
+        stream << ",\"physicalTargetCount\":"
+               << session.physicalTargetCount
                << ",\"left\":" << session.bounds.left
                << ",\"top\":" << session.bounds.top
                << ",\"right\":" << session.bounds.right
@@ -680,6 +929,33 @@ std::string HostControlPlane::displayStateJson(
         appendRefreshRate(stream, session.displayRefreshRate);
         stream << ",\"captureRefresh\":";
         appendRefreshRate(stream, session.captureRefreshRate);
+        stream << ",\"captureCadenceStatus\":"
+               << jsonEscape(
+                    bafx::windows::backgroundCadenceRefreshStatusName(
+                        session.captureCadenceStatus))
+               << ",\"cadenceFallbackReason\":"
+               << jsonEscape(
+                    bafx::windows::displayCaptureCadenceFallbackReasonName(
+                        session.captureCadenceFallbackReason))
+               << ",\"producerPolicyRefresh\":";
+        appendRefreshRate(stream, session.producerPolicyRefreshRate);
+        stream << ",\"freshnessPolicyRefresh\":";
+        appendRefreshRate(stream, session.freshnessPolicyRefreshRate);
+        stream << ",\"freshnessPeriodUs\":"
+               << nonNegativeMicroseconds(session.freshnessPolicyPeriod)
+               << ",\"producerCadenceStatus\":"
+               << jsonEscape(bafx::windows::wgcProducerCadenceStatusName(
+                    session.producerCadence.status))
+               << ",\"producerRequestedPeriodUs\":"
+               << nonNegativeMicroseconds(
+                    session.producerCadence.requested)
+               << ",\"producerAppliedPeriodUs\":"
+               << nonNegativeMicroseconds(session.producerCadence.applied)
+               << ",\"producerResult\":"
+               << static_cast<std::int32_t>(
+                    session.producerCadence.result)
+               << ",\"physicalCadence\":";
+        appendPhysicalCadence(stream, session.physicalCadence);
         stream << ",\"adapter\":"
                << jsonEscape(wideToUtf8(
                     session.deviceInfo.adapterDescription))
@@ -697,6 +973,18 @@ std::string HostControlPlane::displayStateJson(
                     : std::string_view{"unknown"})
                << ",\"outputPolicySatisfied\":"
                << jsonBool(session.outputPolicySatisfied)
+               << ",\"resolvedOutputMapping\":"
+               << jsonEscape(outputMappingName(
+                    session.resolvedOutputPolicy.mapping.mode))
+               << ",\"actualOutputMapping\":"
+               << jsonEscape(outputMappingName(
+                    session.deviceInfo.output.mapping.mode))
+               << ",\"outputFallback\":"
+               << jsonEscape(outputFallbackName(
+                    session.deviceInfo.output.fallback))
+               << ",\"outputFallbackResult\":"
+               << static_cast<std::int32_t>(
+                    session.deviceInfo.output.fallbackResult)
                << ",\"colorMode\":"
                << jsonEscape(colorComplete
                     ? bafx::windows::displayColorModeName(
@@ -706,6 +994,36 @@ std::string HostControlPlane::displayStateJson(
         appendOptionalBoolean(stream, hdrSupported);
         stream << ",\"hdrActive\":";
         appendOptionalBoolean(stream, hdrActive);
+        stream << ",\"colorMonitorStatus\":"
+               << jsonEscape(bafx::windows::displayColorMonitorStatusName(
+                    session.colorMonitorResult.status))
+               << ",\"colorMonitorHresult\":"
+               << static_cast<std::int32_t>(
+                    session.colorMonitorResult.error)
+               << ",\"colorMonitorGeneration\":"
+               << session.colorMonitorResult.generation
+               << ",\"colorQueryGeneration\":"
+               << session.colorQueryGeneration
+               << ",\"colorSnapshotDisposition\":"
+               << jsonEscape(session.colorSnapshotDisposition)
+               << ",\"colorSnapshotComplete\":"
+               << jsonBool(colorComplete)
+               << ",\"advancedColorQueryResult\":";
+        appendOptionalSigned(stream, advancedColorQueryResult);
+        stream << ",\"advancedColorLimitedByPolicy\":";
+        appendOptionalBoolean(stream, advancedColorLimitedByPolicy);
+        stream << ",\"hdrUserEnabled\":";
+        appendOptionalBoolean(stream, hdrUserEnabled);
+        stream << ",\"sdrWhiteLevelQueryResult\":";
+        appendOptionalSigned(stream, sdrWhiteLevelQueryResult);
+        stream << ",\"sdrWhiteLevelNits\":";
+        appendOptionalFloat(stream, sdrWhiteLevelNits);
+        stream << ",\"sdrWhiteLevelRetained\":";
+        appendOptionalBoolean(stream, sdrWhiteLevelRetained);
+        stream << ",\"sdrWhiteLevelConsistent\":";
+        appendOptionalBoolean(stream, sdrWhiteLevelConsistent);
+        stream << ",\"colorRefreshRetriesRemaining\":"
+               << session.colorRefreshRetriesRemaining;
         stream << ",\"backgroundCaptureActive\":"
                << jsonBool(session.backgroundCaptureActive)
                << ",\"backgroundCaptureRestartAllowed\":"
