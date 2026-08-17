@@ -87,6 +87,53 @@ enum class PointerEventKind : std::uint8_t
     Cancel
 };
 
+struct PointerButtonPolicy final
+{
+    bool left{true};
+    bool right{true};
+    bool middle{false};
+};
+
+enum class RawPointerButton : std::uint8_t
+{
+    Left,
+    Right,
+    Middle
+};
+
+enum class PointerButtonMergeResult : std::uint8_t
+{
+    None,
+    Down,
+    Up
+};
+
+// Unity exposes one primary pointer regardless of which configured physical
+// mouse button drives it. This reducer keeps that merge independent from the
+// Win32 message plumbing and preserves a single ordered Down/Held/Up stream.
+class RawPointerButtonMerger final
+{
+public:
+    explicit RawPointerButtonMerger(
+        PointerButtonPolicy policy = {}) noexcept;
+
+    [[nodiscard]] PointerButtonMergeResult update(
+        RawPointerButton button,
+        bool down) noexcept;
+    // Returns true when an active logical stroke must be cancelled. Enabling
+    // a button that is already physically down never synthesizes a new click.
+    [[nodiscard]] bool setPolicy(PointerButtonPolicy policy) noexcept;
+    [[nodiscard]] bool reset() noexcept;
+    [[nodiscard]] bool held() const noexcept;
+
+private:
+    [[nodiscard]] std::uint8_t enabledMask() const noexcept;
+
+    PointerButtonPolicy policy_{};
+    std::uint8_t physicalDownMask_{0U};
+    bool held_{false};
+};
+
 struct PointerEvent
 {
     PointerEventKind kind{PointerEventKind::Move};
@@ -155,21 +202,25 @@ struct OverlayWindowOptions final
     // input or exit UI. The Raw Mouse option only applies to the Host shell.
     OverlayWindowRole role{OverlayWindowRole::HostShell};
     RawMouseRegistration rawMouseRegistration{RawMouseRegistration::Enabled};
+    PointerButtonPolicy pointerButtons{};
 
     [[nodiscard]] static constexpr OverlayWindowOptions hostShell(
         const RawMouseRegistration rawMouse =
-            RawMouseRegistration::Enabled) noexcept
+            RawMouseRegistration::Enabled,
+        const PointerButtonPolicy pointerButtons = {}) noexcept
     {
         return OverlayWindowOptions{
             OverlayWindowRole::HostShell,
-            rawMouse};
+            rawMouse,
+            pointerButtons};
     }
 
     [[nodiscard]] static constexpr OverlayWindowOptions renderSurface() noexcept
     {
         return OverlayWindowOptions{
             OverlayWindowRole::RenderSurface,
-            RawMouseRegistration::Disabled};
+            RawMouseRegistration::Disabled,
+            {}};
     }
 };
 
@@ -242,6 +293,7 @@ public:
     [[nodiscard]] WindowResizeDiagnostics takeWindowResizeDiagnostics() noexcept;
     [[nodiscard]] std::vector<PointerEvent> takePointerEvents() noexcept;
     [[nodiscard]] PointerQueueDiagnostics takePointerQueueDiagnostics() noexcept;
+    void setPointerButtonPolicy(PointerButtonPolicy policy) noexcept;
     // Raw Input belongs to the Host shell, but a secondary surface can be the
     // only window notified about a per-monitor DPI or geometry transition.
     void invalidatePointerGeometry() noexcept;
@@ -274,6 +326,7 @@ private:
         bool messageTimeValid = false) noexcept;
     void compactPendingPointerEvents() noexcept;
     void cancelPointer() noexcept;
+    void pushPointerCancellation() noexcept;
     void recordDisplayTopologyChange(
         DisplayTopologyChangeSource source,
         std::uint32_t latestDpiX = 0U,
@@ -305,7 +358,7 @@ private:
     bool fallbackExitHotKeyRegistered_{false};
     bool notificationIconAdded_{false};
     bool exitShortcutDown_{false};
-    bool leftButtonDown_{false};
+    RawPointerButtonMerger pointerButtons_{};
     UINT taskbarCreatedMessage_{0U};
     NOTIFYICONDATAW notificationIcon_{};
 };

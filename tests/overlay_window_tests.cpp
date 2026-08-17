@@ -40,6 +40,82 @@ BAFX_TEST(raw_pointer_stroke_only_cancels_for_device_removal)
         GIDC_REMOVAL));
 }
 
+BAFX_TEST(raw_pointer_buttons_merge_into_one_logical_stroke)
+{
+    RawPointerButtonMerger buttons;
+
+    BAFX_CHECK(
+        buttons.update(RawPointerButton::Left, true)
+        == PointerButtonMergeResult::Down);
+    BAFX_CHECK(
+        buttons.update(RawPointerButton::Right, true)
+        == PointerButtonMergeResult::None);
+    BAFX_CHECK(
+        buttons.update(RawPointerButton::Left, false)
+        == PointerButtonMergeResult::None);
+    BAFX_CHECK(buttons.held());
+    BAFX_CHECK(
+        buttons.update(RawPointerButton::Right, false)
+        == PointerButtonMergeResult::Up);
+    BAFX_CHECK(!buttons.held());
+
+    BAFX_CHECK(
+        buttons.update(RawPointerButton::Middle, true)
+        == PointerButtonMergeResult::None);
+    BAFX_CHECK(
+        buttons.update(RawPointerButton::Middle, false)
+        == PointerButtonMergeResult::None);
+
+    RawPointerButtonMerger middleOnly(
+        PointerButtonPolicy{false, false, true});
+    BAFX_CHECK(
+        middleOnly.update(RawPointerButton::Middle, true)
+        == PointerButtonMergeResult::Down);
+    BAFX_CHECK(
+        middleOnly.update(RawPointerButton::Left, true)
+        == PointerButtonMergeResult::None);
+    BAFX_CHECK(
+        middleOnly.update(RawPointerButton::Middle, false)
+        == PointerButtonMergeResult::Up);
+}
+
+BAFX_TEST(raw_pointer_button_policy_cancels_without_synthesizing_a_click)
+{
+    RawPointerButtonMerger buttons;
+    BAFX_CHECK(
+        buttons.update(RawPointerButton::Left, true)
+        == PointerButtonMergeResult::Down);
+
+    BAFX_CHECK(buttons.setPolicy(PointerButtonPolicy{false, true, false}));
+    BAFX_CHECK(!buttons.held());
+    BAFX_CHECK(!buttons.setPolicy(PointerButtonPolicy{true, true, false}));
+    BAFX_CHECK(
+        buttons.update(RawPointerButton::Left, false)
+        == PointerButtonMergeResult::None);
+    BAFX_CHECK(
+        buttons.update(RawPointerButton::Left, true)
+        == PointerButtonMergeResult::Down);
+}
+
+BAFX_TEST(raw_pointer_button_policy_preserves_an_enabled_handoff)
+{
+    RawPointerButtonMerger buttons;
+    BAFX_CHECK(
+        buttons.update(RawPointerButton::Left, true)
+        == PointerButtonMergeResult::Down);
+    BAFX_CHECK(
+        buttons.update(RawPointerButton::Right, true)
+        == PointerButtonMergeResult::None);
+
+    BAFX_CHECK(!buttons.setPolicy(PointerButtonPolicy{false, true, true}));
+    BAFX_CHECK(
+        buttons.update(RawPointerButton::Left, false)
+        == PointerButtonMergeResult::None);
+    BAFX_CHECK(
+        buttons.update(RawPointerButton::Right, false)
+        == PointerButtonMergeResult::Up);
+}
+
 BAFX_TEST(overlay_publishes_display_topology_changes_once)
 {
     OverlayWindow window(

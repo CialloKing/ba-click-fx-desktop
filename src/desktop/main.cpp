@@ -404,6 +404,15 @@ void appendDeviceRemovedNotificationStatus(
         : bafx::windows::CompositionOutputPreference::ConservativeSdr;
 }
 
+[[nodiscard]] bafx::windows::PointerButtonPolicy makePointerButtonPolicy(
+    const bafx::config::InputConfig& input) noexcept
+{
+    return bafx::windows::PointerButtonPolicy{
+        input.leftClick,
+        input.rightClick,
+        input.middleClick};
+}
+
 [[nodiscard]] bafx::desktop::DisplaySessionRuntimePolicy makeRuntimePolicy(
     const bafx::config::Config& config,
     const bafx::desktop::DisplayTarget& target) noexcept
@@ -2448,7 +2457,8 @@ int runApplication(
         bafx::windows::OverlayWindowOptions::hostShell(
             options.disableRawInput
                 ? bafx::windows::RawMouseRegistration::Disabled
-                : bafx::windows::RawMouseRegistration::Enabled));
+                : bafx::windows::RawMouseRegistration::Enabled,
+            makePointerButtonPolicy(config.input)));
     bafx::windows::BorderlessCaptureAccessAuthority borderlessAccessAuthority(
         packageIdentity);
     bafx::desktop::BackgroundCaptureStopMonitor backgroundStopMonitor(logPath);
@@ -4883,6 +4893,8 @@ int runApplication(
             if (configChanged)
             {
                 config = controlState.config;
+                hostWindow.setPointerButtonPolicy(
+                    makePointerButtonPolicy(config.input));
                 configureBorderlessAccessMonitor(config, "configuration");
                 const bafx::windows::CompositionOutputPreference
                     currentOutputPreference = makeOutputPreference(

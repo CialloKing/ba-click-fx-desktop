@@ -42,6 +42,12 @@ constexpr GUID consoleDisplayStateSetting{
     0x47A0,
     {0x8F, 0x24, 0xC2, 0x8D, 0x93, 0x6F, 0xDA, 0x47}};
 
+[[nodiscard]] constexpr std::uint8_t rawPointerButtonMask(
+    const RawPointerButton button) noexcept
+{
+    return static_cast<std::uint8_t>(1U << static_cast<std::uint8_t>(button));
+}
+
 [[nodiscard]] std::uint32_t checkedDimension(const LONG value)
 {
     if (value <= 0)
@@ -100,6 +106,86 @@ constexpr GUID consoleDisplayStateSetting{
     return state;
 }
 
+}
+
+RawPointerButtonMerger::RawPointerButtonMerger(
+    const PointerButtonPolicy policy) noexcept
+    : policy_(policy)
+{
+}
+
+PointerButtonMergeResult RawPointerButtonMerger::update(
+    const RawPointerButton button,
+    const bool down) noexcept
+{
+    const std::uint8_t buttonMask = rawPointerButtonMask(button);
+    const bool wasDown = (physicalDownMask_ & buttonMask) != 0U;
+    if (down)
+    {
+        physicalDownMask_ |= buttonMask;
+        if (!wasDown
+            && !held_
+            && (enabledMask() & buttonMask) != 0U)
+        {
+            held_ = true;
+            return PointerButtonMergeResult::Down;
+        }
+        return PointerButtonMergeResult::None;
+    }
+
+    physicalDownMask_ &= static_cast<std::uint8_t>(~buttonMask);
+    if (held_ && (physicalDownMask_ & enabledMask()) == 0U)
+    {
+        held_ = false;
+        return PointerButtonMergeResult::Up;
+    }
+    return PointerButtonMergeResult::None;
+}
+
+bool RawPointerButtonMerger::setPolicy(
+    const PointerButtonPolicy policy) noexcept
+{
+    policy_ = policy;
+    if (held_ && (physicalDownMask_ & enabledMask()) == 0U)
+    {
+        // A policy edit is not a physical button release. End the old stroke
+        // with Cancel and retain physical state so re-enabling cannot invent a
+        // Down edge until the user releases and presses the button again.
+        held_ = false;
+        return true;
+    }
+    return false;
+}
+
+bool RawPointerButtonMerger::reset() noexcept
+{
+    const bool wasHeld = held_;
+    physicalDownMask_ = 0U;
+    held_ = false;
+    return wasHeld;
+}
+
+bool RawPointerButtonMerger::held() const noexcept
+{
+    return held_;
+}
+
+std::uint8_t RawPointerButtonMerger::enabledMask() const noexcept
+{
+    std::uint8_t mask = 0U;
+    if (policy_.left)
+    {
+        mask |= rawPointerButtonMask(RawPointerButton::Left);
+    }
+    if (policy_.right)
+    {
+        mask |= rawPointerButtonMask(RawPointerButton::Right);
+    }
+    if (policy_.middle)
+    {
+        mask |= rawPointerButtonMask(RawPointerButton::Middle);
+    }
+    return mask;
 }
 
 std::vector<PointerEvent> coalescePointerMoves(
@@ -232,7 +318,8 @@ OverlayWindow::OverlayWindow(
     const std::wstring_view title,
     const OverlayWindowOptions options)
     : instance_(instance),
-      role_(options.role)
+      role_(options.role),
+      pointerButtons_(options.pointerButtons)
 {
     if (role_ != OverlayWindowRole::HostShell
         && role_ != OverlayWindowRole::RenderSurface)
@@ -537,6 +624,15 @@ PointerQueueDiagnostics OverlayWindow::takePointerQueueDiagnostics() noexcept
     return std::exchange(
         pointerQueueDiagnostics_,
         PointerQueueDiagnostics{});
+}
+
+void OverlayWindow::setPointerButtonPolicy(
+    const PointerButtonPolicy policy) noexcept
+{
+    if (pointerButtons_.setPolicy(policy))
+    {
+        pushPointerCancellation();
+    }
 }
 
 void OverlayWindow::setBounds(const RECT bounds)
@@ -1087,15 +1183,51 @@ void OverlayWindow::handleRawInput(const LPARAM lParam) noexcept
     }
 
     const USHORT buttons = input.data.mouse.usButtonFlags;
+    const auto applyButton = [this,
+                              screenPosition,
+                              qpc,
+                              messageTimeMilliseconds,
+                              messageTime](
+                                 const RawPointerButton button,
+                                 const bool down) noexcept
+    {
+        const PointerButtonMergeResult result = pointerButtons_.update(
+            button,
+            down);
+        if (result == PointerButtonMergeResult::Down)
+        {
+            pushPointerEvent(
+                PointerEventKind::LeftButtonDown,
+                screenPosition,
+                qpc.QuadPart,
+                messageTimeMilliseconds,
+                messageTime != 0xFFFFFFFFU);
+        }
+        else if (result == PointerButtonMergeResult::Up)
+        {
+            pushPointerEvent(
+                PointerEventKind::LeftButtonUp,
+                screenPosition,
+                qpc.QuadPart,
+                messageTimeMilliseconds,
+                messageTime != 0xFFFFFFFFU);
+        }
+    };
+
+    // Process every Down before Move and every Up after Move. When Windows
+    // reports a button handoff in one packet this preserves one uninterrupted
+    // logical stroke instead of creating an artificial Up/Down pair.
     if ((buttons & RI_MOUSE_LEFT_BUTTON_DOWN) != 0U)
     {
-        leftButtonDown_ = true;
-        pushPointerEvent(
-            PointerEventKind::LeftButtonDown,
-            screenPosition,
-            qpc.QuadPart,
-            messageTimeMilliseconds,
-            messageTime != 0xFFFFFFFFU);
+        applyButton(RawPointerButton::Left, true);
+    }
+    if ((buttons & RI_MOUSE_RIGHT_BUTTON_DOWN) != 0U)
+    {
+        applyButton(RawPointerButton::Right, true);
+    }
+    if ((buttons & RI_MOUSE_MIDDLE_BUTTON_DOWN) != 0U)
+    {
+        applyButton(RawPointerButton::Middle, true);
     }
 
     if (input.data.mouse.lLastX != 0 || input.data.mouse.lLastY != 0)
@@ -1110,13 +1242,15 @@ void OverlayWindow::handleRawInput(const LPARAM lParam) noexcept
 
     if ((buttons & RI_MOUSE_LEFT_BUTTON_UP) != 0U)
     {
-        leftButtonDown_ = false;
-        pushPointerEvent(
-            PointerEventKind::LeftButtonUp,
-            screenPosition,
-            qpc.QuadPart,
-            messageTimeMilliseconds,
-            messageTime != 0xFFFFFFFFU);
+        applyButton(RawPointerButton::Left, false);
+    }
+    if ((buttons & RI_MOUSE_RIGHT_BUTTON_UP) != 0U)
+    {
+        applyButton(RawPointerButton::Right, false);
+    }
+    if ((buttons & RI_MOUSE_MIDDLE_BUTTON_UP) != 0U)
+    {
+        applyButton(RawPointerButton::Middle, false);
     }
 }
 
@@ -1190,16 +1324,20 @@ void OverlayWindow::compactPendingPointerEvents() noexcept
 
 void OverlayWindow::cancelPointer() noexcept
 {
-    if (!leftButtonDown_)
+    if (!pointerButtons_.reset())
     {
         return;
     }
 
+    pushPointerCancellation();
+}
+
+void OverlayWindow::pushPointerCancellation() noexcept
+{
     POINT screenPosition{};
     LARGE_INTEGER qpc{};
     GetCursorPos(&screenPosition);
     QueryPerformanceCounter(&qpc);
-    leftButtonDown_ = false;
     pushPointerEvent(PointerEventKind::Cancel, screenPosition, qpc.QuadPart);
 }
 
@@ -1218,7 +1356,7 @@ void OverlayWindow::invalidatePointerGeometry() noexcept
     LARGE_INTEGER qpc{};
     GetCursorPos(&screenPosition);
     QueryPerformanceCounter(&qpc);
-    leftButtonDown_ = false;
+    static_cast<void>(pointerButtons_.reset());
     pushPointerEvent(PointerEventKind::Cancel, screenPosition, qpc.QuadPart);
 }
 
