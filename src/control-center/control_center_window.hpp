@@ -86,6 +86,10 @@ private:
         DisplaySelector,
         HdrEnabled,
         FramePacing,
+        DisplayIndependent,
+        DisplayEffectsEnabled,
+        DisplayHdrEnabled,
+        DisplayFramePacing,
         Refresh,
         HostLifecycle,
         ResetDefaults
@@ -161,6 +165,7 @@ private:
     void updatePageVisibility() noexcept;
     void setPageControlVisible(HWND control, bool visible) const noexcept;
     void updateDisplayControls(const bafx::config::Config& config);
+    void updateDisplayPolicyControls() noexcept;
     void updateDisplayDetails();
     void redrawWindowTree() const noexcept;
     void layoutSlider(
@@ -182,6 +187,9 @@ private:
         const HostState& state,
         const bafx::config::Config& config);
     void applyPatch(std::string_view path, std::string_view valueJson);
+    void setSelectedDisplayOverride();
+    void removeSelectedDisplayOverride();
+    void applyDisplayPolicyCommand(std::string command);
     void sendCommand(std::string_view command);
     void resetDefaults();
     void startHostFromBundle();
@@ -200,6 +208,8 @@ private:
 
     [[nodiscard]] bool isChecked(HWND control) const noexcept;
     void setChecked(HWND control, bool checked) const noexcept;
+    [[nodiscard]] const DisplaySessionState* selectedDisplaySession()
+        const noexcept;
     [[nodiscard]] double sliderValue(const SliderControl& slider) const noexcept;
     void setSliderValue(SliderControl& slider, double value) const noexcept;
     void updateSliderValueText(const SliderControl& slider) const noexcept;
@@ -292,6 +302,11 @@ private:
     HWND hdrEnabled_{nullptr};
     HWND framePacingLabel_{nullptr};
     HWND framePacing_{nullptr};
+    HWND displayIndependent_{nullptr};
+    HWND displayEffectsEnabled_{nullptr};
+    HWND displayHdrEnabled_{nullptr};
+    HWND displayFramePacingLabel_{nullptr};
+    HWND displayFramePacing_{nullptr};
     HWND displayDetailsHeading_{nullptr};
     HWND displayDetailsText_{nullptr};
     HWND pauseButton_{nullptr};
@@ -302,9 +317,10 @@ private:
     bafx::windows::NamedPipeIpcClient client_{};
     bafx::windows::UniqueHandle hostLifetimeMutex_{};
     std::optional<PendingPatch> pendingPatch_{};
+    bafx::config::Config config_{};
     DisplayState displayState_{};
     std::wstring displayStateError_{};
-    std::string selectedDisplayKey_{};
+    std::string selectedDisplayIdentity_{};
     std::uint64_t generation_{0U};
     std::uint32_t hostRetryAttempts_{0U};
     ULONGLONG hostShutdownDeadlineTicks_{0U};

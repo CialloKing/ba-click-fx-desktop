@@ -210,10 +210,84 @@ void setControlFont(const HWND control, const HFONT font) noexcept
     return -1;
 }
 
-[[nodiscard]] std::string displaySessionKey(
+[[nodiscard]] std::optional<bafx::config::FramePacing> selectedFramePacing(
+    const HWND comboBox) noexcept
+{
+    if (comboBox == nullptr)
+    {
+        return std::nullopt;
+    }
+
+    switch (SendMessageW(comboBox, CB_GETCURSEL, 0U, 0))
+    {
+    case 0:
+        return bafx::config::FramePacing::MatchDisplay;
+    case 1:
+        return bafx::config::FramePacing::Fixed60;
+    case 2:
+        return bafx::config::FramePacing::Fixed120;
+    case 3:
+        return bafx::config::FramePacing::Fixed144;
+    default:
+        return std::nullopt;
+    }
+}
+
+[[nodiscard]] std::wstring framePacingText(
+    const bafx::config::FramePacing pacing)
+{
+    switch (pacing)
+    {
+    case bafx::config::FramePacing::MatchDisplay:
+        return L"跟随显示器";
+    case bafx::config::FramePacing::Fixed60:
+        return L"固定 60 FPS";
+    case bafx::config::FramePacing::Fixed120:
+        return L"固定 120 FPS";
+    case bafx::config::FramePacing::Fixed144:
+        return L"固定 144 FPS";
+    }
+    return L"未知";
+}
+
+void initializeFramePacingCombo(const HWND comboBox) noexcept
+{
+    if (comboBox == nullptr)
+    {
+        return;
+    }
+
+    static constexpr std::array labels{
+        L"跟随显示器",
+        L"固定 60 FPS",
+        L"固定 120 FPS",
+        L"固定 144 FPS"};
+    for (const wchar_t* label : labels)
+    {
+        static_cast<void>(SendMessageW(
+            comboBox,
+            CB_ADDSTRING,
+            0U,
+            reinterpret_cast<LPARAM>(label)));
+    }
+    static_cast<void>(SendMessageW(
+        comboBox,
+        CB_SETMINVISIBLE,
+        labels.size(),
+        0));
+}
+
+[[nodiscard]] std::string displaySessionIdentity(
     const DisplaySessionState& session)
 {
-    return session.device + '\n' + session.monitor;
+    if (session.displayKey.has_value())
+    {
+        return "stable:" + *session.displayKey;
+    }
+
+    // A transient identity keeps the same row selected while the Host state
+    // refreshes. It must never be used as a persisted configuration key.
+    return "transient:" + session.device + '\n' + session.monitor;
 }
 
 [[nodiscard]] std::wstring driverStateText(
@@ -845,7 +919,7 @@ bool ControlCenterWindow::createControls()
             0.0,
             10.0,
             0.05,
-            "bloom.intensity",
+            "effects.bloomIntensity",
             ControlId::BloomIntensity);
 
     const bool advancedSlidersCreated = createSlider(
@@ -878,7 +952,7 @@ bool ControlCenterWindow::createControls()
             0.0,
             10000.0,
             1.0,
-            "trail.lifetimeMs",
+            "effects.trailLifetimeMs",
             ControlId::TrailLifetimeMs)
         && createSlider(
             bloomDiffusion_,
@@ -886,7 +960,7 @@ bool ControlCenterWindow::createControls()
             0.0,
             10.0,
             0.01,
-            "bloom.diffusion",
+            "effects.bloomDiffusion",
             ControlId::BloomDiffusion)
         && createSlider(
             bloomThreshold_,
@@ -894,7 +968,7 @@ bool ControlCenterWindow::createControls()
             0.0,
             64.0,
             0.01,
-            "bloom.threshold",
+            "effects.bloomThreshold",
             ControlId::BloomThreshold)
         && createSlider(
             bloomSoftKnee_,
@@ -902,7 +976,7 @@ bool ControlCenterWindow::createControls()
             0.0,
             1.0,
             0.01,
-            "bloom.softKnee",
+            "effects.bloomSoftKnee",
             ControlId::BloomSoftKnee)
         && createSlider(
             bloomClamp_,
@@ -910,7 +984,7 @@ bool ControlCenterWindow::createControls()
             0.0,
             65504.0,
             1.0,
-            "bloom.clamp",
+            "effects.bloomClamp",
             ControlId::BloomClamp);
 
     const bool particleSlidersCreated = createSlider(
@@ -919,7 +993,7 @@ bool ControlCenterWindow::createControls()
         20.0,
         120.0,
         0.01,
-        "disk.radius",
+        "effects.diskRadius",
         ControlId::DiskRadius)
         && createSlider(
             diskLifetimeMs_,
@@ -927,7 +1001,7 @@ bool ControlCenterWindow::createControls()
             50.0,
             500.0,
             1.0,
-            "disk.lifetimeMs",
+            "effects.diskLifetimeMs",
             ControlId::DiskLifetimeMs)
         && createSlider(
             ringsHdrIntensity_,
@@ -935,7 +1009,7 @@ bool ControlCenterWindow::createControls()
             0.0,
             8.0,
             0.01,
-            "rings.hdrIntensity",
+            "effects.ringsHdrIntensity",
             ControlId::RingsHdrIntensity)
         && createSlider(
             shardsHdrIntensity_,
@@ -943,7 +1017,7 @@ bool ControlCenterWindow::createControls()
             0.0,
             8.0,
             0.01,
-            "shards.hdrIntensity",
+            "effects.shardsHdrIntensity",
             ControlId::ShardsHdrIntensity)
         && createSlider(
             trailOpacity_,
@@ -951,7 +1025,7 @@ bool ControlCenterWindow::createControls()
             0.0,
             1.0,
             0.01,
-            "trail.trailOpacity",
+            "effects.trailOpacity",
             ControlId::TrailOpacity);
 
     const bool ringSlidersCreated = createSlider(
@@ -960,7 +1034,7 @@ bool ControlCenterWindow::createControls()
         0.0,
         6.0,
         1.0,
-        "rings.count",
+        "effects.ringsCount",
         ControlId::RingsCount)
         && createSlider(
             ringsLifetimeMs_,
@@ -968,7 +1042,7 @@ bool ControlCenterWindow::createControls()
             50.0,
             2000.0,
             1.0,
-            "rings.lifetimeMs",
+            "effects.ringsLifetimeMs",
             ControlId::RingsLifetimeMs)
         && createSlider(
             ringsRadiusMin_,
@@ -976,7 +1050,7 @@ bool ControlCenterWindow::createControls()
             20.0,
             120.0,
             0.01,
-            "rings.radiusMin",
+            "effects.ringsRadiusMin",
             ControlId::RingsRadiusMin)
         && createSlider(
             ringsRadiusMax_,
@@ -984,7 +1058,7 @@ bool ControlCenterWindow::createControls()
             20.0,
             120.0,
             0.01,
-            "rings.radiusMax",
+            "effects.ringsRadiusMax",
             ControlId::RingsRadiusMax)
         && createSlider(
             ringsAngularVelocityMultiplier_,
@@ -992,7 +1066,7 @@ bool ControlCenterWindow::createControls()
             1.0,
             30.0,
             0.01,
-            "rings.angularVelocityMultiplier",
+            "effects.ringsAngularVelocityMultiplier",
             ControlId::RingsAngularVelocityMultiplier)
         && createSlider(
             ringsRotationDirection_,
@@ -1000,7 +1074,7 @@ bool ControlCenterWindow::createControls()
             -1.0,
             1.0,
             2.0,
-            "rings.rotationDirection",
+            "effects.ringsRotationDirection",
             ControlId::RingsRotationDirection);
 
     const bool clickShardSlidersCreated = createSlider(
@@ -1009,7 +1083,7 @@ bool ControlCenterWindow::createControls()
         0.0,
         12.0,
         1.0,
-        "shards.clickCount",
+        "effects.shardsClickCount",
         ControlId::ShardsClickCount)
         && createSlider(
             shardsClickLifetimeMinMs_,
@@ -1017,7 +1091,7 @@ bool ControlCenterWindow::createControls()
             100.0,
             1000.0,
             1.0,
-            "shards.clickLifetimeMinMs",
+            "effects.shardsClickLifetimeMinMs",
             ControlId::ShardsClickLifetimeMinMs)
         && createSlider(
             shardsClickLifetimeMaxMs_,
@@ -1025,7 +1099,7 @@ bool ControlCenterWindow::createControls()
             100.0,
             1000.0,
             1.0,
-            "shards.clickLifetimeMaxMs",
+            "effects.shardsClickLifetimeMaxMs",
             ControlId::ShardsClickLifetimeMaxMs)
         && createSlider(
             shardsClickRadius_,
@@ -1033,7 +1107,7 @@ bool ControlCenterWindow::createControls()
             0.0,
             200.0,
             0.01,
-            "shards.clickRadius",
+            "effects.shardsClickRadius",
             ControlId::ShardsClickRadius)
         && createSlider(
             shardsClickSpeedMin_,
@@ -1041,7 +1115,7 @@ bool ControlCenterWindow::createControls()
             0.0,
             200.0,
             0.01,
-            "shards.clickSpeedMin",
+            "effects.shardsClickSpeedMin",
             ControlId::ShardsClickSpeedMin)
         && createSlider(
             shardsClickSpeedMax_,
@@ -1049,7 +1123,7 @@ bool ControlCenterWindow::createControls()
             0.0,
             200.0,
             0.01,
-            "shards.clickSpeedMax",
+            "effects.shardsClickSpeedMax",
             ControlId::ShardsClickSpeedMax)
         && createSlider(
             shardsSizeMin_,
@@ -1057,7 +1131,7 @@ bool ControlCenterWindow::createControls()
             0.0,
             100.0,
             0.01,
-            "shards.sizeMin",
+            "effects.shardsSizeMin",
             ControlId::ShardsSizeMin)
         && createSlider(
             shardsSizeMax_,
@@ -1065,7 +1139,7 @@ bool ControlCenterWindow::createControls()
             0.0,
             100.0,
             0.01,
-            "shards.sizeMax",
+            "effects.shardsSizeMax",
             ControlId::ShardsSizeMax);
 
     advancedTimingHeading_ = createChild(
@@ -1179,33 +1253,35 @@ bool ControlCenterWindow::createControls()
         L"",
         CBS_DROPDOWNLIST | CBS_HASSTRINGS | WS_VSCROLL | WS_TABSTOP,
         ControlId::FramePacing);
-    if (framePacing_ != nullptr)
-    {
-        static_cast<void>(SendMessageW(
-            framePacing_,
-            CB_ADDSTRING,
-            0U,
-            reinterpret_cast<LPARAM>(L"跟随显示器")));
-        static_cast<void>(SendMessageW(
-            framePacing_,
-            CB_ADDSTRING,
-            0U,
-            reinterpret_cast<LPARAM>(L"固定 60 FPS")));
-        static_cast<void>(SendMessageW(
-            framePacing_,
-            CB_ADDSTRING,
-            0U,
-            reinterpret_cast<LPARAM>(L"固定 120 FPS")));
-        static_cast<void>(SendMessageW(
-            framePacing_,
-            CB_ADDSTRING,
-            0U,
-            reinterpret_cast<LPARAM>(L"固定 144 FPS")));
-        static_cast<void>(SendMessageW(framePacing_, CB_SETMINVISIBLE, 4U, 0));
-    }
+    initializeFramePacingCombo(framePacing_);
+    displayIndependent_ = createChild(
+        L"BUTTON",
+        L"使用独立设置",
+        BS_AUTOCHECKBOX | WS_TABSTOP,
+        ControlId::DisplayIndependent);
+    displayEffectsEnabled_ = createChild(
+        L"BUTTON",
+        L"在此显示器启用特效",
+        BS_AUTOCHECKBOX | WS_TABSTOP,
+        ControlId::DisplayEffectsEnabled);
+    displayHdrEnabled_ = createChild(
+        L"BUTTON",
+        L"在此显示器请求 HDR 输出",
+        BS_AUTOCHECKBOX | WS_TABSTOP,
+        ControlId::DisplayHdrEnabled);
+    displayFramePacingLabel_ = createChild(
+        L"STATIC",
+        L"独立帧率策略",
+        SS_LEFT | SS_NOPREFIX);
+    displayFramePacing_ = createChild(
+        WC_COMBOBOXW,
+        L"",
+        CBS_DROPDOWNLIST | CBS_HASSTRINGS | WS_VSCROLL | WS_TABSTOP,
+        ControlId::DisplayFramePacing);
+    initializeFramePacingCombo(displayFramePacing_);
     displayDetailsHeading_ = createChild(
         L"BUTTON",
-        L"所选显示器实际状态",
+        L"所选显示器设置与状态",
         BS_GROUPBOX);
     displayDetailsText_ = createChild(
         L"STATIC",
@@ -1258,6 +1334,11 @@ bool ControlCenterWindow::createControls()
         hdrEnabled_,
         framePacingLabel_,
         framePacing_,
+        displayIndependent_,
+        displayEffectsEnabled_,
+        displayHdrEnabled_,
+        displayFramePacingLabel_,
+        displayFramePacing_,
         displayDetailsHeading_,
         displayDetailsText_,
         pauseButton_,
@@ -1586,6 +1667,11 @@ void ControlCenterWindow::applyFonts() const noexcept
         hdrEnabled_,
         framePacingLabel_,
         framePacing_,
+        displayIndependent_,
+        displayEffectsEnabled_,
+        displayHdrEnabled_,
+        displayFramePacingLabel_,
+        displayFramePacing_,
         displayDetailsText_,
         pauseButton_,
         refreshButton_,
@@ -1618,7 +1704,8 @@ void ControlCenterWindow::applyDpiMetrics() const noexcept
         bloomQuality_,
         backgroundMode_,
         displaySelector_,
-        framePacing_};
+        framePacing_,
+        displayFramePacing_};
     for (const HWND comboBox : comboBoxes)
     {
         if (comboBox == nullptr)
@@ -1877,12 +1964,50 @@ void ControlCenterWindow::layoutControls(
             contentTop,
             detailsWidth,
             panelHeight);
+        const int detailsContentX = detailsX + inset;
+        const int detailsContentWidth = (std::max)(
+            scale(1),
+            detailsWidth - inset * 2);
+        const int policyColumnGap = scale(12);
+        const int policyColumnWidth = (std::max)(
+            scale(1),
+            (detailsContentWidth - policyColumnGap) / 2);
+        moveControl(
+            displayIndependent_,
+            detailsContentX,
+            contentTop + scale(28),
+            policyColumnWidth,
+            scale(30));
+        moveControl(
+            displayEffectsEnabled_,
+            detailsContentX + policyColumnWidth + policyColumnGap,
+            contentTop + scale(28),
+            policyColumnWidth,
+            scale(30));
+        moveControl(
+            displayHdrEnabled_,
+            detailsContentX,
+            contentTop + scale(62),
+            policyColumnWidth,
+            scale(30));
+        moveControl(
+            displayFramePacingLabel_,
+            detailsContentX + policyColumnWidth + policyColumnGap,
+            contentTop + scale(62),
+            policyColumnWidth,
+            scale(22));
+        moveControl(
+            displayFramePacing_,
+            detailsContentX + policyColumnWidth + policyColumnGap,
+            contentTop + scale(84),
+            policyColumnWidth,
+            scale(34));
         moveControl(
             displayDetailsText_,
-            detailsX + inset,
-            contentTop + scale(30),
-            (std::max)(scale(1), detailsWidth - inset * 2),
-            (std::max)(scale(1), panelHeight - scale(46)));
+            detailsContentX,
+            contentTop + scale(124),
+            detailsContentWidth,
+            (std::max)(scale(1), panelHeight - scale(140)));
 
         const int actionWidth = (clientWidth - margin * 2 - actionGap * 3) / 4;
         moveControl(
@@ -2592,6 +2717,11 @@ void ControlCenterWindow::updatePageVisibility() noexcept
         hdrEnabled_,
         framePacingLabel_,
         framePacing_,
+        displayIndependent_,
+        displayEffectsEnabled_,
+        displayHdrEnabled_,
+        displayFramePacingLabel_,
+        displayFramePacing_,
         displayDetailsHeading_,
         displayDetailsText_};
     for (const HWND control : displayControls)
@@ -2777,6 +2907,7 @@ void ControlCenterWindow::onCommand(
     case ControlId::DisplaySelector:
         if (notificationCode == CBN_SELCHANGE)
         {
+            updateDisplayPolicyControls();
             updateDisplayDetails();
         }
         break;
@@ -2809,6 +2940,32 @@ void ControlCenterWindow::onCommand(
                 setError(L"未知的帧率策略选择。");
                 break;
             }
+        }
+        break;
+    case ControlId::DisplayIndependent:
+        if (notificationCode == BN_CLICKED)
+        {
+            if (isChecked(displayIndependent_))
+            {
+                setSelectedDisplayOverride();
+            }
+            else
+            {
+                removeSelectedDisplayOverride();
+            }
+        }
+        break;
+    case ControlId::DisplayEffectsEnabled:
+    case ControlId::DisplayHdrEnabled:
+        if (notificationCode == BN_CLICKED)
+        {
+            setSelectedDisplayOverride();
+        }
+        break;
+    case ControlId::DisplayFramePacing:
+        if (notificationCode == CBN_SELCHANGE)
+        {
+            setSelectedDisplayOverride();
         }
         break;
     case ControlId::Refresh:
@@ -3175,6 +3332,7 @@ void ControlCenterWindow::updateControls(
 {
     generation_ = state.generation;
     paused_ = state.paused;
+    config_ = config;
     updatingControls_ = true;
 
     setChecked(effectsEnabled_, config.effects.enabled);
@@ -3270,6 +3428,7 @@ void ControlCenterWindow::updateDisplayControls(
     static_cast<void>(SendMessageW(displaySelector_, CB_RESETCONTENT, 0U, 0));
     if (!displayStateError_.empty() || displayState_.sessions.empty())
     {
+        updateDisplayPolicyControls();
         updateDisplayDetails();
         return;
     }
@@ -3322,7 +3481,7 @@ void ControlCenterWindow::updateDisplayControls(
             static_cast<WPARAM>(comboIndex),
             static_cast<LPARAM>(index)));
 
-        if (displaySessionKey(session) == selectedDisplayKey_)
+        if (displaySessionIdentity(session) == selectedDisplayIdentity_)
         {
             selectedIndex = comboIndex;
         }
@@ -3351,7 +3510,48 @@ void ControlCenterWindow::updateDisplayControls(
         CB_SETCURSEL,
         static_cast<WPARAM>(selectedIndex),
         0));
+    updateDisplayPolicyControls();
     updateDisplayDetails();
+}
+
+void ControlCenterWindow::updateDisplayPolicyControls() noexcept
+{
+    const bool wasUpdating = updatingControls_;
+    updatingControls_ = true;
+
+    const DisplaySessionState* const session = selectedDisplaySession();
+    const bool hasStableKey = session != nullptr
+        && session->displayKey.has_value();
+    const bafx::config::DisplayOverrideConfig* overrideConfig = nullptr;
+    if (hasStableKey)
+    {
+        overrideConfig = bafx::config::findDisplayOverride(
+            config_.display,
+            *session->displayKey);
+    }
+
+    const bool independent = overrideConfig != nullptr;
+    const bafx::config::ResolvedDisplayPolicy policy = hasStableKey
+        ? bafx::config::resolveDisplayPolicy(config_, *session->displayKey)
+        : bafx::config::resolveDisplayPolicy(config_, {});
+    setChecked(displayIndependent_, independent);
+    setChecked(displayEffectsEnabled_, policy.enabled);
+    setChecked(displayHdrEnabled_, policy.hdrEnabled);
+    static_cast<void>(SendMessageW(
+        displayFramePacing_,
+        CB_SETCURSEL,
+        framePacingIndex(policy.framePacing),
+        0));
+
+    const bool canWrite = connected_ && hasStableKey;
+    EnableWindow(displayIndependent_, canWrite ? TRUE : FALSE);
+    const BOOL policyEnabled = canWrite && independent ? TRUE : FALSE;
+    EnableWindow(displayEffectsEnabled_, policyEnabled);
+    EnableWindow(displayHdrEnabled_, policyEnabled);
+    EnableWindow(displayFramePacingLabel_, policyEnabled);
+    EnableWindow(displayFramePacing_, policyEnabled);
+
+    updatingControls_ = wasUpdating;
 }
 
 void ControlCenterWindow::updateDisplayDetails()
@@ -3371,35 +3571,15 @@ void ControlCenterWindow::updateDisplayDetails()
         return;
     }
 
-    const LRESULT selected = SendMessageW(
-        displaySelector_,
-        CB_GETCURSEL,
-        0U,
-        0);
-    if (selected == CB_ERR)
+    const DisplaySessionState* const selectedSession = selectedDisplaySession();
+    if (selectedSession == nullptr)
     {
         SetWindowTextW(displaySummaryText_, L"尚未选择显示器");
         SetWindowTextW(displayDetailsText_, L"请选择一个显示器查看状态。");
         return;
     }
-    const LRESULT itemData = SendMessageW(
-        displaySelector_,
-        CB_GETITEMDATA,
-        static_cast<WPARAM>(selected),
-        0);
-    if (itemData == CB_ERR
-        || static_cast<std::size_t>(itemData) >= displayState_.sessions.size())
-    {
-        SetWindowTextW(displaySummaryText_, L"显示器状态索引无效");
-        SetWindowTextW(
-            displayDetailsText_,
-            L"请刷新状态以重新同步显示器列表。");
-        return;
-    }
-
-    const DisplaySessionState& session = displayState_.sessions[
-        static_cast<std::size_t>(itemData)];
-    selectedDisplayKey_ = displaySessionKey(session);
+    const DisplaySessionState& session = *selectedSession;
+    selectedDisplayIdentity_ = displaySessionIdentity(session);
 
     std::wstring summary = L"Host 报告 "
         + std::to_wstring(displayState_.sessions.size())
@@ -3420,6 +3600,13 @@ void ControlCenterWindow::updateDisplayDetails()
     const std::wstring restartState = session.backgroundCaptureRestartAllowed
         ? L"允许"
         : L"不允许";
+    const bafx::config::ResolvedDisplayPolicy policy =
+        session.displayKey.has_value()
+        ? bafx::config::resolveDisplayPolicy(config_, *session.displayKey)
+        : bafx::config::resolveDisplayPolicy(config_, {});
+    const std::wstring policySource = policy.overridden
+        ? L"独立设置"
+        : (session.displayKey.has_value() ? L"全局继承" : L"全局继承（无稳定标识）");
 
     std::wstring faultState;
     if (!session.renderFaulted && !session.outputContractFaulted)
@@ -3454,8 +3641,10 @@ void ControlCenterWindow::updateDisplayDetails()
             << L" | 捕获 " << refreshRateText(session.captureRefresh)
             << L"\r\nGPU：" << utf8ToWide(session.adapter)
             << L" | 驱动：" << driverStateText(session.driver)
-            << L"\r\n\r\n配置 HDR 请求："
-            << (isChecked(hdrEnabled_) ? L"开启" : L"关闭")
+            << L"\r\n配置：" << policySource
+            << L" | 特效 " << (policy.enabled ? L"开启" : L"关闭")
+            << L" | HDR " << (policy.hdrEnabled ? L"开启" : L"关闭")
+            << L" | " << framePacingText(policy.framePacing)
             << L"\r\n输出：请求 " << outputStateText(session.requestedOutput)
             << L" | 解析 " << outputStateText(session.resolvedOutput)
             << L" | 实际 " << outputStateText(session.actualOutput)
@@ -3475,6 +3664,89 @@ void ControlCenterWindow::updateDisplayDetails()
                 << utf8ToWide(session.backgroundCaptureFailure);
     }
     SetWindowTextW(displayDetailsText_, details.str().c_str());
+}
+
+void ControlCenterWindow::setSelectedDisplayOverride()
+{
+    const DisplaySessionState* const session = selectedDisplaySession();
+    if (session == nullptr || !session->displayKey.has_value())
+    {
+        updateDisplayPolicyControls();
+        setInfo(
+            L"无法保存独立设置",
+            L"Host 未提供此显示器的稳定标识；请刷新状态后重试。");
+        return;
+    }
+
+    const std::optional<bafx::config::FramePacing> framePacing =
+        selectedFramePacing(displayFramePacing_);
+    if (!framePacing.has_value())
+    {
+        updateDisplayPolicyControls();
+        setError(L"未知的逐显示器帧率策略选择。");
+        return;
+    }
+
+    bafx::config::DisplayOverrideConfig overrideConfig{};
+    overrideConfig.displayKey = *session->displayKey;
+    overrideConfig.enabled = isChecked(displayEffectsEnabled_);
+    overrideConfig.hdrEnabled = isChecked(displayHdrEnabled_);
+    overrideConfig.framePacing = *framePacing;
+    applyDisplayPolicyCommand(setDisplayOverrideRequest(
+        generation_,
+        overrideConfig));
+}
+
+void ControlCenterWindow::removeSelectedDisplayOverride()
+{
+    const DisplaySessionState* const session = selectedDisplaySession();
+    if (session == nullptr || !session->displayKey.has_value())
+    {
+        updateDisplayPolicyControls();
+        setInfo(
+            L"无法恢复全局设置",
+            L"Host 未提供此显示器的稳定标识；请刷新状态后重试。");
+        return;
+    }
+    if (bafx::config::findDisplayOverride(
+            config_.display,
+            *session->displayKey) == nullptr)
+    {
+        updateDisplayPolicyControls();
+        updateDisplayDetails();
+        return;
+    }
+
+    applyDisplayPolicyCommand(removeDisplayOverrideRequest(
+        generation_,
+        *session->displayKey));
+}
+
+void ControlCenterWindow::applyDisplayPolicyCommand(std::string command)
+{
+    if (!connected_)
+    {
+        updateDisplayPolicyControls();
+        setInfo(L"Host 未连接", L"请先启动 Host，然后刷新状态。");
+        return;
+    }
+
+    const bafx::windows::IpcClientResponse response = client_.transact(command);
+    if (response.succeeded())
+    {
+        static_cast<void>(refreshFromHost());
+        return;
+    }
+    if (response.errorCode == "generation_conflict")
+    {
+        static_cast<void>(refreshFromHost());
+        setInfo(L"配置已变化", L"已刷新 Host 的最新设置，请再次调整。");
+        return;
+    }
+
+    const std::wstring error = describeResponse(response);
+    static_cast<void>(refreshFromHost());
+    setError(error);
 }
 
 void ControlCenterWindow::applyPatch(
@@ -3878,6 +4150,7 @@ void ControlCenterWindow::setConnected(const bool connected) noexcept
             && !displayState_.sessions.empty();
         EnableWindow(displaySelector_, selectorEnabled ? TRUE : FALSE);
     }
+    updateDisplayPolicyControls();
     updateHostLifecycleButton();
 }
 
@@ -3913,6 +4186,35 @@ void ControlCenterWindow::setChecked(
         BM_SETCHECK,
         checked ? BST_CHECKED : BST_UNCHECKED,
         0));
+}
+
+const DisplaySessionState* ControlCenterWindow::selectedDisplaySession()
+    const noexcept
+{
+    if (displaySelector_ == nullptr)
+    {
+        return nullptr;
+    }
+    const LRESULT selected = SendMessageW(
+        displaySelector_,
+        CB_GETCURSEL,
+        0U,
+        0);
+    if (selected == CB_ERR)
+    {
+        return nullptr;
+    }
+    const LRESULT itemData = SendMessageW(
+        displaySelector_,
+        CB_GETITEMDATA,
+        static_cast<WPARAM>(selected),
+        0);
+    if (itemData == CB_ERR
+        || static_cast<std::size_t>(itemData) >= displayState_.sessions.size())
+    {
+        return nullptr;
+    }
+    return &displayState_.sessions[static_cast<std::size_t>(itemData)];
 }
 
 double ControlCenterWindow::sliderValue(const SliderControl& slider) const noexcept
