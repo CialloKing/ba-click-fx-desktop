@@ -185,6 +185,7 @@ DisplaySession::DisplaySession(DisplaySessionOptions options)
 {
     colorQueryGeneration_ = 1U;
     colorSnapshotStatus_ = colorCapabilities_.has_value()
+            && bafx::windows::displayColorStateComplete(*colorCapabilities_)
         ? DisplaySessionColorRefreshStatus::Refreshed
         : DisplaySessionColorRefreshStatus::Unavailable;
     if (borderlessAccessAuthority_ == nullptr)

@@ -224,16 +224,19 @@ BAFX_TEST(support_report_contains_alpha_scope_and_graphics_facts)
     report.setExitUiStatus(bafx::windows::ExitUiStatus{true, false, true});
     report.setConfigurationSchemaVersion(3U);
     report.setControlServiceAvailable(true);
-    report.setDisplayRuntimeSummary(
-        bafx::windows::DisplayRuntimeSummary{
-            2U,
-            bafx::windows::CompositionOutputPreference::PreferLinearScRgb,
-            bafx::windows::CompositionOutputPreference::ConservativeSdr,
-            bafx::windows::CompositionOutputPreference::ConservativeSdr,
-            true,
-            true,
-            true,
-            false});
+    bafx::windows::DisplayRuntimeSummary runtime{};
+    runtime.sessionCount = 2U;
+    runtime.requestedOutputPreference =
+        bafx::windows::CompositionOutputPreference::PreferLinearScRgb;
+    runtime.resolvedOutputPreference =
+        bafx::windows::CompositionOutputPreference::ConservativeSdr;
+    runtime.actualOutputPreference =
+        bafx::windows::CompositionOutputPreference::ConservativeSdr;
+    runtime.outputPolicySatisfied = true;
+    runtime.colorSnapshotComplete = true;
+    runtime.hdrCapabilityObserved = true;
+    runtime.hdrActive = false;
+    report.setDisplayRuntimeSummary(std::move(runtime));
 
     const std::string text = report.serialize();
     BAFX_CHECK(text.find("Product.Version=0.1.0-alpha.2") != std::string::npos);
