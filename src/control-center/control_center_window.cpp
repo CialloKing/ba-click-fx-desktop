@@ -1586,7 +1586,11 @@ void ControlCenterWindow::applyFonts() const noexcept
         hdrEnabled_,
         framePacingLabel_,
         framePacing_,
-        displayDetailsText_};
+        displayDetailsText_,
+        pauseButton_,
+        refreshButton_,
+        hostLifecycleButton_,
+        resetDefaultsButton_};
     for (const HWND control : normalControls)
     {
         setControlFont(control, normalFont_);
