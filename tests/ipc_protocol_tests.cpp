@@ -54,6 +54,20 @@ BAFX_TEST(ipc_parser_accepts_supported_commands)
         setConfig.request->payload
         == "{\"generation\":428,\"path\":\"trail.width\"}");
 
+    const IpcParseResult setDisplay = parseIpcRequest(
+        "SetDisplayOverride {\"generation\":8,\"displayKey\":\"key\"}");
+    BAFX_CHECK(setDisplay.succeeded());
+    BAFX_CHECK(
+        setDisplay.request->command == IpcCommand::SetDisplayOverride);
+    BAFX_CHECK(!setDisplay.request->payload.empty());
+
+    const IpcParseResult removeDisplay = parseIpcRequest(
+        "RemoveDisplayOverride {\"generation\":9,\"displayKey\":\"key\"}");
+    BAFX_CHECK(removeDisplay.succeeded());
+    BAFX_CHECK(
+        removeDisplay.request->command == IpcCommand::RemoveDisplayOverride);
+    BAFX_CHECK(!removeDisplay.request->payload.empty());
+
     const IpcParseResult setFxParam = parseIpcRequest(
         "SetFxParam {\"generation\":1,\"path\":\"opacity\",\"value\":0.5}");
     BAFX_CHECK(setFxParam.succeeded());
@@ -85,6 +99,11 @@ BAFX_TEST(ipc_parser_rejects_invalid_payload_shapes)
     const IpcParseResult missing = parseIpcRequest("SetConfig");
     BAFX_CHECK(!missing.succeeded());
     BAFX_CHECK(missing.errorCode == "missing_payload");
+
+    const IpcParseResult missingDisplay = parseIpcRequest(
+        "SetDisplayOverride");
+    BAFX_CHECK(!missingDisplay.succeeded());
+    BAFX_CHECK(missingDisplay.errorCode == "missing_payload");
 
     const IpcParseResult missingFxParam = parseIpcRequest("SetFxParam");
     BAFX_CHECK(!missingFxParam.succeeded());

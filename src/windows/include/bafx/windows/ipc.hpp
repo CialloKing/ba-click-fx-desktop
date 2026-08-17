@@ -32,6 +32,8 @@ enum class IpcCommand : std::uint8_t
     GetConfig,
     GetFxConfig,
     SetConfig,
+    SetDisplayOverride,
+    RemoveDisplayOverride,
     SetFxParam,
     SetFxParams,
     ResetFxConfig,

@@ -67,6 +67,14 @@ constexpr std::size_t maximumParserLineBytes = 1U * 1024U * 1024U;
     {
         return IpcCommand::SetConfig;
     }
+    if (name == "SetDisplayOverride")
+    {
+        return IpcCommand::SetDisplayOverride;
+    }
+    if (name == "RemoveDisplayOverride")
+    {
+        return IpcCommand::RemoveDisplayOverride;
+    }
     if (name == "SetFxParam")
     {
         return IpcCommand::SetFxParam;
@@ -97,6 +105,8 @@ constexpr std::size_t maximumParserLineBytes = 1U * 1024U * 1024U;
 [[nodiscard]] bool commandAcceptsPayload(const IpcCommand command) noexcept
 {
     return command == IpcCommand::SetConfig
+        || command == IpcCommand::SetDisplayOverride
+        || command == IpcCommand::RemoveDisplayOverride
         || command == IpcCommand::SetFxParam
         || command == IpcCommand::SetFxParams;
 }
