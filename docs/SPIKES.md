@@ -208,7 +208,7 @@ ledger 全部通过；Set/Get 调用成功但 iteration 或清理证据不足时
 当前支持能力仍未建立。首个目标机单元格已执行并由 verifier 接受，但结果为
 `capability.status=Unavailable`、`evidence.result=Not Run`（Windows `10.0.19045`、SDK `10.0.26100.0`、
 RTX 4060 Laptop GPU；证据目录为
-`artifacts\local\spikes\spk-002-session-exclusion\runbook-dotnet2-ca13627\`）。这证明旧系统能
+`artifacts\local\spikes\spk-002-session-exclusion\DESKTOP-AE81VOU-1c7bd07\`）。这证明旧系统能
 启动并如实记录 QI 不支持，不能证明 Session-local 能力。外部录屏/OBS、HDR、多显示器、device lost 和
 packaged 权限矩阵均保持 `Not Run`，不能用本 Spike 替代。只有真实目标系统达到 `Available + Passed` 并补齐所需硬件矩阵后，
 才允许进入产品接入评审：创建 WGC Session 后设置 Session-local WindowId 排除列表，在收到对应
