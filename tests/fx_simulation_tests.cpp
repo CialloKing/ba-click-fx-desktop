@@ -149,6 +149,9 @@ BAFX_TEST(core_effects_mode_keeps_non_bloom_effects)
     Simulation simulation;
     simulation.setEffectsMode(SimulationEffectsMode::Core);
     simulation.pointerDown(goldenCenter, goldenViewport, 0ns);
+    // snapshot() only projects a future frame; advance the authored first
+    // update before treating the next move as a drag segment.
+    simulation.advance(50ms);
 
     const FrameSnapshot frame = simulation.snapshot(goldenViewport, 50ms);
     BAFX_CHECK(simulation.effectsMode() == SimulationEffectsMode::Core);
