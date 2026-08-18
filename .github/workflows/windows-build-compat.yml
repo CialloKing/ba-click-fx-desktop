@@ -36,6 +36,31 @@ jobs:
       - name: Check out source
         uses: actions/checkout@v4
 
+      - name: Report installed Windows SDKs
+        shell: pwsh
+        run: |
+          $windowsKits = Join-Path ${env:ProgramFiles(x86)} 'Windows Kits\10'
+          $includeRoot = Join-Path $windowsKits 'Include'
+          $libRoot = Join-Path $windowsKits 'Lib'
+          $includeVersions = @(
+              Get-ChildItem -LiteralPath $includeRoot -Directory |
+                  Where-Object { $_.Name -match '^10\.0\.[0-9]+\.0$' } |
+                  Select-Object -ExpandProperty Name
+          )
+          $libVersions = @(
+              Get-ChildItem -LiteralPath $libRoot -Directory |
+                  Where-Object { $_.Name -match '^10\.0\.[0-9]+\.0$' } |
+                  Select-Object -ExpandProperty Name
+          )
+          $usableVersions = @(
+              $includeVersions |
+                  Where-Object { $libVersions -contains $_ } |
+                  Sort-Object
+          )
+          Write-Host "Installed Windows SDK Include versions: $($includeVersions -join ', ')"
+          Write-Host "Installed Windows SDK Lib versions: $($libVersions -join ', ')"
+          Write-Host "Usable Windows SDK versions (Include + Lib): $($usableVersions -join ', ')"
+
       - name: Verify requested Windows SDK is installed
         shell: pwsh
         run: |
