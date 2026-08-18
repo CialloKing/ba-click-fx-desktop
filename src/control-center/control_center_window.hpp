@@ -101,6 +101,7 @@ private:
         DisplayFramePacing,
         Refresh,
         HostLifecycle,
+        ClearLogs,
         ResetDefaults
     };
 
@@ -201,6 +202,7 @@ private:
     void removeSelectedDisplayOverride();
     void applyDisplayPolicyCommand(std::string command);
     void sendCommand(std::string_view command);
+    void clearDiagnosticLogs();
     void resetDefaults();
     void startHostFromBundle();
     void stopHost();
@@ -339,6 +341,7 @@ private:
     HWND pauseButton_{nullptr};
     HWND refreshButton_{nullptr};
     HWND hostLifecycleButton_{nullptr};
+    HWND clearLogsButton_{nullptr};
     HWND resetDefaultsButton_{nullptr};
 
     bafx::windows::NamedPipeIpcClient client_{};

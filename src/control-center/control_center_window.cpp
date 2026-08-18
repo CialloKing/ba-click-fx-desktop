@@ -13,6 +13,7 @@
 
 #include <algorithm>
 #include <array>
+#include <charconv>
 #include <cmath>
 #include <filesystem>
 #include <iomanip>
@@ -1514,6 +1515,11 @@ bool ControlCenterWindow::createControls()
         L"关闭控制中心时隐藏到托盘",
         BS_AUTOCHECKBOX | WS_TABSTOP,
         ControlId::CloseToTray);
+    clearLogsButton_ = createChild(
+        L"BUTTON",
+        L"清理诊断日志",
+        BS_PUSHBUTTON | WS_TABSTOP,
+        ControlId::ClearLogs);
 
     displaySettingsHeading_ = createChild(
         L"BUTTON",
@@ -1662,6 +1668,7 @@ bool ControlCenterWindow::createControls()
         pauseButton_,
         refreshButton_,
         hostLifecycleButton_,
+        clearLogsButton_,
         resetDefaultsButton_,
         advancedTimingHeading_,
         advancedParticlesHeading_,
@@ -2004,6 +2011,7 @@ void ControlCenterWindow::applyFonts() const noexcept
         pauseButton_,
         refreshButton_,
         hostLifecycleButton_,
+        clearLogsButton_,
         resetDefaultsButton_};
     for (const HWND control : normalControls)
     {
@@ -2411,6 +2419,12 @@ void ControlCenterWindow::layoutControls(
             closeToTray_,
             contentX,
             contentTop + scale(96),
+            contentWidth,
+            scale(30));
+        moveControl(
+            clearLogsButton_,
+            contentX,
+            contentTop + scale(132),
             contentWidth,
             scale(30));
 
@@ -3190,7 +3204,8 @@ void ControlCenterWindow::updatePageVisibility() noexcept
         systemSettingsHeading_,
         startWithWindows_,
         startMinimized_,
-        closeToTray_};
+        closeToTray_,
+        clearLogsButton_};
     for (const HWND control : systemControls)
     {
         setPageControlVisible(control, system);
@@ -3593,6 +3608,12 @@ void ControlCenterWindow::onCommand(
             {
                 startHostFromBundle();
             }
+        }
+        break;
+    case ControlId::ClearLogs:
+        if (notificationCode == BN_CLICKED)
+        {
+            clearDiagnosticLogs();
         }
         break;
     case ControlId::ResetDefaults:
@@ -4630,6 +4651,97 @@ void ControlCenterWindow::sendCommand(const std::string_view command)
     static_cast<void>(refreshFromHost());
 }
 
+void ControlCenterWindow::clearDiagnosticLogs()
+{
+    if (!connected_)
+    {
+        setInfo(L"Host 未连接", L"请先启动 Host，然后清理诊断日志。\r\n"
+            L"日志文件位于 Host 的 data 目录。回退配置不会受影响。");
+        return;
+    }
+
+    const int choice = MessageBoxW(
+        window_,
+        L"确定删除当前诊断日志和轮转备份吗？\r\n\r\n"
+        L"这不会停止 Host 或修改配置；删除后会重新写入一条清理结果日志。",
+        L"清理诊断日志",
+        MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2);
+    if (choice != IDYES)
+    {
+        return;
+    }
+
+    const bafx::windows::IpcClientResponse response = client_.transact(
+        "ClearLogs");
+    if (!response.succeeded())
+    {
+        setError(describeResponse(response));
+        return;
+    }
+
+    // The Host owns the JSON response contract. Parse only the three unsigned
+    // counters needed for the user-facing summary and reject malformed data.
+    const auto readCounter = [&response](const std::string_view name)
+        -> std::optional<std::uint64_t>
+    {
+        const std::string needle = "\"" + std::string(name) + "\":";
+        const std::size_t start = response.payload.find(needle);
+        if (start == std::string::npos)
+        {
+            return std::nullopt;
+        }
+        const std::size_t valueStart = start + needle.size();
+        std::size_t valueEnd = valueStart;
+        while (valueEnd < response.payload.size()
+            && response.payload[valueEnd] >= '0'
+            && response.payload[valueEnd] <= '9')
+        {
+            ++valueEnd;
+        }
+        if (valueEnd == valueStart
+            || (valueEnd < response.payload.size()
+                && response.payload[valueEnd] != ','
+                && response.payload[valueEnd] != '}'))
+        {
+            return std::nullopt;
+        }
+        std::uint64_t value = 0U;
+        const auto parsed = std::from_chars(
+            response.payload.data() + valueStart,
+            response.payload.data() + valueEnd,
+            value);
+        if (parsed.ec != std::errc{} || parsed.ptr != response.payload.data() + valueEnd)
+        {
+            return std::nullopt;
+        }
+        return value;
+    };
+
+    const std::optional<std::uint64_t> removedFiles = readCounter(
+        "removedFiles");
+    const std::optional<std::uint64_t> removedBytes = readCounter(
+        "removedBytes");
+    const std::optional<std::uint64_t> failedFiles = readCounter(
+        "failedFiles");
+    if (!removedFiles.has_value()
+        || !removedBytes.has_value()
+        || !failedFiles.has_value())
+    {
+        setInfo(
+            L"日志已清理，但统计响应无法解析",
+            L"Host 已完成清理。请提交新的诊断日志以便检查清理结果。");
+        return;
+    }
+
+    const std::wstring summary =
+        L"删除文件：" + std::to_wstring(*removedFiles)
+        + L"；释放空间：" + std::to_wstring(*removedBytes)
+        + L" 字节；失败文件：" + std::to_wstring(*failedFiles);
+    setInfo(
+        *failedFiles == 0U ? L"诊断日志已清理" : L"诊断日志部分清理",
+        summary);
+}
+
 void ControlCenterWindow::resetDefaults()
 {
     if (!connected_)
@@ -5076,6 +5188,7 @@ void ControlCenterWindow::setConnected(const bool connected) noexcept
         hdrEnabled_,
         framePacing_,
         pauseButton_,
+        clearLogsButton_,
         resetDefaultsButton_};
     for (const HWND control : controls)
     {
