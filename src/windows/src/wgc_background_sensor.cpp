@@ -47,7 +47,6 @@ using winrt::Windows::Graphics::Capture::GraphicsCaptureSession;
 using winrt::Windows::Graphics::DirectX::Direct3D11::IDirect3DDevice;
 using winrt::Windows::Graphics::DirectX::DirectXPixelFormat;
 using winrt::Windows::Graphics::SizeInt32;
-using winrt::Windows::UI::WindowId;
 
 constexpr int captureBufferCount = 2;
 static_assert(captureBufferCount > 0);
@@ -883,6 +882,14 @@ struct WgcBackgroundSensor::Implementation
                 "session window exclusion requires a live Overlay HWND");
         }
 
+#if defined(BAFX_WGC_WINDOW_ID_PROJECTION_UNAVAILABLE)
+        // SDK 19041 has no projected WindowId value type.  The optional
+        // capability remains runtime-gated, but this binary cannot construct
+        // the WinRT iterable required by SetWindowExclusionList.
+        rejectSessionWindowExclusion(
+            E_NOINTERFACE,
+            "session window exclusion WindowId projection is unavailable");
+#else
         ComPtr<DisplayGraphicsCaptureSessionAbi> displaySession;
         sessionWindowExclusionState->displaySessionQueryResult =
             sessionUnknown->QueryInterface(IID_PPV_ARGS(&displaySession));
@@ -985,6 +992,7 @@ struct WgcBackgroundSensor::Implementation
         sessionWindowExclusionState->status =
             WgcSessionWindowExclusionStatus::Applied;
         publishSessionWindowExclusionState();
+#endif
     }
 
     ~Implementation()
