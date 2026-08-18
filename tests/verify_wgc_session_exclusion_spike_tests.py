@@ -710,6 +710,8 @@ class SessionExclusionVerifierTests(unittest.TestCase):
         for required in (
             "System.Diagnostics.ProcessStartInfo",
             "ReadToEndAsync",
+            "$quotedArguments",
+            "'\"' + $_ + '\"'",
             "WaitForExit($TimeoutMilliseconds)",
             "$process.Kill()",
             "--timeout-ms=$CaptureTimeoutMilliseconds",
