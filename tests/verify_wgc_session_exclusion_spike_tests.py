@@ -708,7 +708,8 @@ class SessionExclusionVerifierTests(unittest.TestCase):
     def test_target_machine_runbook_keeps_collector_bounded(self) -> None:
         runbook = RUNBOOK_PATH.read_text(encoding="utf-8")
         for required in (
-            "Start-Process",
+            "System.Diagnostics.ProcessStartInfo",
+            "ReadToEndAsync",
             "WaitForExit($TimeoutMilliseconds)",
             "$process.Kill()",
             "--timeout-ms=$CaptureTimeoutMilliseconds",

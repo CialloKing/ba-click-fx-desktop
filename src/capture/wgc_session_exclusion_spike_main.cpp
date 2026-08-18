@@ -3013,6 +3013,11 @@ int run(const ProbeOptions& options)
         options.timeoutMilliseconds + watchdogGraceMilliseconds);
     CaptureDocument document{};
     document.options = options;
+    // Keep the intended three-stage contract visible even when interface QI
+    // fails before any capture stage can run.
+    document.includedBefore.requestedExcluded = false;
+    document.excluded.requestedExcluded = true;
+    document.includedAfter.requestedExcluded = false;
     document.capturedAtUtc = utcTimestamp();
     try
     {

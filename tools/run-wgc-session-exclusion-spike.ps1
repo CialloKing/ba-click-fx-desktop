@@ -76,15 +76,32 @@ function Invoke-BoundedProcess
     )
 
     $process = $null
+    $stdoutTask = $null
+    $stderrTask = $null
+    $stdoutWritten = $false
+    $stderrWritten = $false
     try
     {
-        $process = Start-Process `
-            -FilePath $FilePath `
-            -ArgumentList $ArgumentList `
-            -WorkingDirectory $WorkingDirectory `
-            -RedirectStandardOutput $StandardOutputPath `
-            -RedirectStandardError $StandardErrorPath `
-            -PassThru
+        $startInfo = New-Object System.Diagnostics.ProcessStartInfo
+        $startInfo.FileName = $FilePath
+        $startInfo.WorkingDirectory = $WorkingDirectory
+        $startInfo.UseShellExecute = $false
+        $startInfo.CreateNoWindow = $true
+        $startInfo.RedirectStandardOutput = $true
+        $startInfo.RedirectStandardError = $true
+        $quotedArguments = @(
+            $ArgumentList | ForEach-Object { '"' + $_ + '"' }
+        )
+        $startInfo.Arguments = $quotedArguments -join ' '
+
+        $process = New-Object System.Diagnostics.Process
+        $process.StartInfo = $startInfo
+        if (-not $process.Start())
+        {
+            throw "Unable to start process: $FilePath"
+        }
+        $stdoutTask = $process.StandardOutput.ReadToEndAsync()
+        $stderrTask = $process.StandardError.ReadToEndAsync()
 
         if (-not $process.WaitForExit($TimeoutMilliseconds))
         {
@@ -100,7 +117,20 @@ function Invoke-BoundedProcess
             throw "$FilePath exceeded the $TimeoutMilliseconds ms process timeout."
         }
 
-        return $process.ExitCode
+        $null = $process.WaitForExit()
+        $stdoutText = $stdoutTask.GetAwaiter().GetResult()
+        $stderrText = $stderrTask.GetAwaiter().GetResult()
+        [IO.File]::WriteAllText(
+            $StandardOutputPath,
+            $stdoutText,
+            (New-Object System.Text.UTF8Encoding($false)))
+        $stdoutWritten = $true
+        [IO.File]::WriteAllText(
+            $StandardErrorPath,
+            $stderrText,
+            (New-Object System.Text.UTF8Encoding($false)))
+        $stderrWritten = $true
+        return [int]$process.ExitCode
     }
     finally
     {
@@ -115,6 +145,38 @@ function Invoke-BoundedProcess
             {
                 # The caller still receives the original process failure or timeout.
             }
+        }
+        if ($null -ne $stdoutTask -and -not $stdoutWritten -and $stdoutTask.IsCompleted)
+        {
+            try
+            {
+                [IO.File]::WriteAllText(
+                    $StandardOutputPath,
+                    $stdoutTask.GetAwaiter().GetResult(),
+                    (New-Object System.Text.UTF8Encoding($false)))
+            }
+            catch
+            {
+                # Keep the original process error as the useful failure reason.
+            }
+        }
+        if ($null -ne $stderrTask -and -not $stderrWritten -and $stderrTask.IsCompleted)
+        {
+            try
+            {
+                [IO.File]::WriteAllText(
+                    $StandardErrorPath,
+                    $stderrTask.GetAwaiter().GetResult(),
+                    (New-Object System.Text.UTF8Encoding($false)))
+            }
+            catch
+            {
+                # Keep the original process error as the useful failure reason.
+            }
+        }
+        if ($null -ne $process)
+        {
+            $process.Dispose()
         }
     }
 }
