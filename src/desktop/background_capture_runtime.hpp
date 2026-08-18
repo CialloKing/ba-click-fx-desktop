@@ -65,6 +65,7 @@ struct BackgroundCaptureExecutionResult
     bool pending{false};
     bool sensorRestartAllowed{true};
     bool borderlessAccessConfirmed{false};
+    bool captureExclusionConfirmed{false};
     DisplayTargetIntent targetIntent{};
     std::uint64_t controlGeneration{0U};
     std::size_t actionIndex{0U};

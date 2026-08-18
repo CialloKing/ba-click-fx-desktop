@@ -4,6 +4,7 @@
 #include "bafx/core/roi.hpp"
 #include "bafx/fx/frame_bounds.hpp"
 #include "bafx/windows/background_snapshot_diagnostics.hpp"
+#include "bafx/windows/background_capture_transition.hpp"
 #include "bafx/windows/composition_output.hpp"
 #include "bafx/windows/detail/wgc_idle_drain_policy.hpp"
 #include "bafx/windows/display_topology.hpp"
@@ -318,6 +319,8 @@ public:
         bool cursorExcluded = true,
         bool allowSystemBorder = false,
         bool borderlessAccessConfirmed = false,
+        BackgroundCaptureRequest::ExclusionMode exclusionMode =
+            BackgroundCaptureRequest::ExclusionMode::LegacyGlobal,
         const std::optional<DisplayRefreshRate>& refreshRate =
             std::nullopt) noexcept;
     [[nodiscard]] std::optional<WindowSize>
@@ -346,6 +349,8 @@ public:
     [[nodiscard]] bool backgroundParticipatedInLastFrame() const noexcept;
     [[nodiscard]] BackgroundCompositeStatus backgroundCompositeStatus() const noexcept;
     [[nodiscard]] std::string_view backgroundCaptureFailure() const noexcept;
+    [[nodiscard]] WgcSessionWindowExclusionState
+        backgroundSessionWindowExclusion() const noexcept;
     void setReadbackDiagnostics(bool enabled);
 
     [[nodiscard]] HANDLE frameLatencyWaitableObject() const noexcept;
@@ -434,6 +439,7 @@ private:
     HMONITOR backgroundMonitor_{nullptr};
     std::uint64_t backgroundEpoch_{1U};
     bool backgroundCaptureRequested_{false};
+    bool backgroundRequireSessionWindowExclusion_{false};
     bool backgroundCursorExcluded_{true};
     bool backgroundSystemBorderAllowed_{false};
     bafx::core::BackgroundPathLatch backgroundPathLatch_{};
@@ -455,6 +461,8 @@ private:
     std::optional<bafx::core::RectI> previousVisualBounds_{};
     WindowSize size_{};
     std::shared_ptr<WgcBackgroundResourceLedger> backgroundResourceLedger_{};
+    std::shared_ptr<WgcSessionWindowExclusionState>
+        backgroundSessionWindowExclusionState_{};
     WgcBackgroundStopObserver backgroundStopObserver_{};
     detail::WgcBackgroundStopMailbox backgroundStopMailbox_{};
     detail::BackgroundSnapshotInvalidationMailbox

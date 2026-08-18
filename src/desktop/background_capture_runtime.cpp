@@ -22,7 +22,36 @@ namespace
 [[nodiscard]] bool wantsBackgroundCapture(
     const bafx::config::Config& config) noexcept
 {
-    return config.background.mode == bafx::config::RenderMode::BackgroundAware;
+    return config.background.mode == bafx::config::RenderMode::BackgroundAware
+        || config.background.mode
+            == bafx::config::RenderMode::RecordingCompatible;
+}
+
+[[nodiscard]] std::string_view backgroundCaptureExclusionModeName(
+    const bafx::windows::BackgroundCaptureRequest::ExclusionMode mode) noexcept
+{
+    return mode
+        == bafx::windows::BackgroundCaptureRequest::ExclusionMode::SessionLocal
+        ? "SessionLocalExclusion"
+        : "LegacyGlobalExclusion";
+}
+
+[[nodiscard]] std::string_view effectiveBackgroundCapturePathName(
+    const bafx::windows::EffectiveBackgroundCapturePath path) noexcept
+{
+    using bafx::windows::EffectiveBackgroundCapturePath;
+    switch (path)
+    {
+    case EffectiveBackgroundCapturePath::BackgroundAware:
+        return "LegacyGlobalExclusion";
+    case EffectiveBackgroundCapturePath::SessionLocalExclusion:
+        return "SessionLocalExclusion";
+    case EffectiveBackgroundCapturePath::FxOnly:
+        return "FxOnly";
+    case EffectiveBackgroundCapturePath::FxOnlyCaptureVisibilityUnknown:
+        return "FxOnlyCaptureVisibilityUnknown";
+    }
+    return "FxOnlyCaptureVisibilityUnknown";
 }
 
 [[nodiscard]] bafx::windows::FxOverlayProfile overlayProfileForRenderMode(
@@ -71,6 +100,41 @@ namespace
             producer.applied).count());
     message += "; producer-result=";
     message += win32Hex(static_cast<DWORD>(producer.result));
+    const bafx::windows::WgcSessionWindowExclusionState exclusion =
+        renderer.backgroundSessionWindowExclusion();
+    message += "; session-local-exclusion=";
+    message += bafx::windows::wgcSessionWindowExclusionStatusName(
+        exclusion.status);
+    message += "; display-session-qi=";
+    message += win32Hex(
+        static_cast<DWORD>(exclusion.displaySessionQueryResult));
+    message += "; session7-qi=";
+    message += win32Hex(
+        static_cast<DWORD>(exclusion.sessionIterationQueryResult));
+    message += "; frame3-qi=";
+    message += win32Hex(static_cast<DWORD>(exclusion.frameQueryResult));
+    message += "; window-id-result=";
+    message += win32Hex(static_cast<DWORD>(exclusion.windowIdResult));
+    message += "; set-result=";
+    message += win32Hex(static_cast<DWORD>(exclusion.setResult));
+    message += "; get-result=";
+    message += win32Hex(static_cast<DWORD>(exclusion.getResult));
+    message += "; requested-window-id=";
+    message += std::to_string(exclusion.requestedWindowId);
+    message += "; observed-window-id=";
+    message += std::to_string(exclusion.observedWindowId);
+    message += "; set-iteration=";
+    message += std::to_string(exclusion.setIteration);
+    message += "; session-iteration=";
+    message += std::to_string(exclusion.sessionIteration);
+    message += "; frame-iteration=";
+    message += std::to_string(exclusion.lastFrameIteration);
+    message += "; rejected-iteration-frames=";
+    message += std::to_string(exclusion.rejectedFrameCount);
+    message += "; consecutive-rejected-iteration-frames=";
+    message += std::to_string(exclusion.consecutiveRejectedFrameCount);
+    message += "; iteration-confirmed=";
+    message += exclusion.frameIterationConfirmed ? "true" : "false";
     return message;
 }
 
@@ -92,6 +156,8 @@ namespace
         return "exclusion-unconfirmed";
     case BackgroundCaptureFailure::SensorStartFailed:
         return "sensor-start-failed";
+    case BackgroundCaptureFailure::SessionExclusionFailed:
+        return "session-exclusion-failed";
     case BackgroundCaptureFailure::FramePoolRecreateFailed:
         return "frame-pool-recreate-failed";
     case BackgroundCaptureFailure::InclusionUnconfirmed:
@@ -157,12 +223,21 @@ namespace
 void appendBackgroundCaptureActionBegin(
     const std::filesystem::path& logPath,
     const std::size_t index,
-    const bafx::windows::BackgroundCaptureActionKind kind)
+    const bafx::windows::BackgroundCaptureAction& action)
 {
     std::string message = "BackgroundCapture.Action.Begin=";
-    message += backgroundCaptureActionName(kind);
+    message += backgroundCaptureActionName(action.kind);
     message += ";Index=";
     message += std::to_string(index);
+    if (action.kind == bafx::windows::BackgroundCaptureActionKind::StartSensor
+        || action.kind
+            == bafx::windows::BackgroundCaptureActionKind::SetAffinityExcluded
+        || action.kind
+            == bafx::windows::BackgroundCaptureActionKind::SetAffinityIncluded)
+    {
+        message += ";ExclusionMode=";
+        message += backgroundCaptureExclusionModeName(action.exclusionMode);
+    }
     bafx::windows::appendDiagnosticLog(logPath, message);
 }
 
@@ -202,6 +277,7 @@ void beginBackgroundCaptureExecution(
     execution.pending = false;
     execution.sensorRestartAllowed = true;
     execution.borderlessAccessConfirmed = false;
+    execution.captureExclusionConfirmed = false;
     execution.targetIntent = targetIntent;
     execution.controlGeneration = controlGeneration;
     execution.actionIndex = 0U;
@@ -231,7 +307,7 @@ void beginBackgroundCaptureAction(
     appendBackgroundCaptureActionBegin(
         logPath,
         execution.actionIndex,
-        action.kind);
+        action);
 }
 
 void appendBackgroundCaptureTransactionTarget(
@@ -568,12 +644,19 @@ bafx::windows::BackgroundCaptureRequest backgroundCaptureRequest(
     const bafx::config::Config& config,
     const std::uint64_t retryToken) noexcept
 {
+    const bool sessionLocal = config.background.mode
+        == bafx::config::RenderMode::RecordingCompatible;
     return bafx::windows::BackgroundCaptureRequest{
         wantsBackgroundCapture(config),
         overlayProfileForRenderMode(config.background.mode),
         config.background.cursorExcluded,
         config.background.allowSystemBorder,
-        retryToken};
+        retryToken,
+        sessionLocal
+            ? bafx::windows::BackgroundCaptureRequest::ExclusionMode::
+                SessionLocal
+            : bafx::windows::BackgroundCaptureRequest::ExclusionMode::
+                LegacyGlobal};
 }
 
 bool canRetryBackgroundCaptureAfterDeviceRecovery(
@@ -949,6 +1032,7 @@ BackgroundCaptureExecutionStatus executeBackgroundCaptureTransition(
                     logPath,
                     bafx::windows::captureExclusionDiagnostic(status));
                 succeeded = status.confirmed();
+                execution.captureExclusionConfirmed = succeeded;
                 break;
             }
             case bafx::windows::BackgroundCaptureActionKind::ApplyOverlayProfile:
@@ -1051,16 +1135,24 @@ BackgroundCaptureExecutionStatus executeBackgroundCaptureTransition(
                 break;
             }
             case bafx::windows::BackgroundCaptureActionKind::StartSensor:
-                // Start is emitted only after WDA exclusion was confirmed in
-                // this transaction, so stale affinity cannot enable capture.
+                // Start is emitted only after the requested affinity state was
+                // confirmed, so Session-local capture never starts while WDA
+                // still hides the overlay globally.
                 succeeded = execution.sensorRestartAllowed
+                    && execution.captureExclusionConfirmed
                     && renderer.tryEnableBackgroundCapture(
                         execution.targetIntent.target.monitor,
-                        true,
+                        execution.captureExclusionConfirmed,
                         action->cursorExcluded,
                         action->allowSystemBorder,
                         execution.borderlessAccessConfirmed,
+                        action->exclusionMode,
                         execution.targetIntent.target.captureRefreshRate);
+                if (!execution.captureExclusionConfirmed && !succeeded)
+                {
+                    execution.sensorFailure =
+                        "capture affinity was not confirmed before WGC start";
+                }
                 if (!execution.sensorRestartAllowed)
                 {
                     if (execution.sensorFailure.empty())
@@ -1072,6 +1164,46 @@ BackgroundCaptureExecutionStatus executeBackgroundCaptureTransition(
                 if (!succeeded && !renderer.backgroundCaptureFailure().empty())
                 {
                     execution.sensorFailure = renderer.backgroundCaptureFailure();
+                }
+                if (!succeeded
+                    && action->exclusionMode
+                        == bafx::windows::BackgroundCaptureRequest::
+                            ExclusionMode::SessionLocal)
+                {
+                    const bafx::windows::WgcSessionWindowExclusionState state =
+                        renderer.backgroundSessionWindowExclusion();
+                    std::string diagnostic = "SessionLocalExclusion=";
+                    diagnostic += bafx::windows::
+                        wgcSessionWindowExclusionStatusName(state.status);
+                    diagnostic += ";QI.DisplaySession=";
+                    diagnostic += win32Hex(
+                        static_cast<DWORD>(state.displaySessionQueryResult));
+                    diagnostic += ";QI.SessionIteration=";
+                    diagnostic += win32Hex(
+                        static_cast<DWORD>(state.sessionIterationQueryResult));
+                    diagnostic += ";QI.Frame3=";
+                    diagnostic += win32Hex(
+                        static_cast<DWORD>(state.frameQueryResult));
+                    diagnostic += ";WindowId.Get=";
+                    diagnostic += win32Hex(
+                        static_cast<DWORD>(state.windowIdResult));
+                    diagnostic += ";Set=";
+                    diagnostic += win32Hex(static_cast<DWORD>(state.setResult));
+                    diagnostic += ";Get=";
+                    diagnostic += win32Hex(static_cast<DWORD>(state.getResult));
+                    diagnostic += ";SetIteration=";
+                    diagnostic += std::to_string(state.setIteration);
+                    diagnostic += ";SessionIteration=";
+                    diagnostic += std::to_string(state.sessionIteration);
+                    diagnostic += ";WindowIdRoundTrip=";
+                    diagnostic += state.windowIdRoundTripConfirmed
+                        ? "true"
+                        : "false";
+                    if (!execution.sensorFailure.empty())
+                    {
+                        execution.sensorFailure += ";";
+                    }
+                    execution.sensorFailure += diagnostic;
                 }
                 break;
             }
@@ -1314,6 +1446,7 @@ bafx::windows::BackgroundCaptureStatus backgroundCaptureStatus(
     switch (path)
     {
     case EffectiveBackgroundCapturePath::BackgroundAware:
+    case EffectiveBackgroundCapturePath::SessionLocalExclusion:
         return BackgroundCaptureStatus::Active;
     case EffectiveBackgroundCapturePath::FxOnly:
         return BackgroundCaptureStatus::FallbackFxOnly;
@@ -1330,9 +1463,28 @@ void appendBackgroundCaptureOutcome(
     const BackgroundCaptureExecutionResult& execution,
     const bafx::windows::CompositionRenderer& renderer)
 {
-    if (transition.effectivePath()
-        == bafx::windows::EffectiveBackgroundCapturePath::BackgroundAware)
+    const bafx::windows::EffectiveBackgroundCapturePath effectivePath =
+        transition.effectivePath();
+    if (effectivePath
+            == bafx::windows::EffectiveBackgroundCapturePath::BackgroundAware
+        || effectivePath
+            == bafx::windows::EffectiveBackgroundCapturePath::
+                SessionLocalExclusion)
     {
+        std::string pathMessage = "BackgroundCapture.EffectivePath=";
+        pathMessage += effectiveBackgroundCapturePathName(effectivePath);
+        pathMessage += ";RequestedExclusionMode=";
+        pathMessage += backgroundCaptureExclusionModeName(
+            request.exclusionMode);
+        pathMessage += ";WGC=enabled";
+        pathMessage += ";TransitionFailure=";
+        pathMessage += backgroundCaptureFailureName(transition.failure());
+        if (!execution.sensorFailure.empty())
+        {
+            pathMessage += ";FallbackReason=";
+            pathMessage += execution.sensorFailure;
+        }
+        bafx::windows::appendDiagnosticLog(logPath, pathMessage);
         if (execution.recreatedFramePoolSize.has_value())
         {
             std::string message = "WGC frame pool recreated; size=";
@@ -1369,6 +1521,10 @@ void appendBackgroundCaptureOutcome(
     {
         message += "; capture-visibility=unknown";
     }
+    message += "; effective-path=";
+    message += effectiveBackgroundCapturePathName(effectivePath);
+    message += "; requested-exclusion-mode=";
+    message += backgroundCaptureExclusionModeName(request.exclusionMode);
     bafx::windows::appendDiagnosticLog(logPath, message);
 }
 
@@ -1419,6 +1575,60 @@ void appendBackgroundCompositeParticipation(
     const std::uint64_t controlGeneration,
     const bafx::windows::CompositionFrameDiagnostics& diagnostics) noexcept
 {
+    if (diagnostics.wgc.configurationIterationRejectedFrames > 0U)
+    {
+        try
+        {
+            const std::array values{
+                std::to_string(controlGeneration),
+                std::to_string(
+                    diagnostics.wgc.configurationIterationRejectedFrames),
+                std::to_string(
+                    diagnostics.wgc.configurationIterationRejectedFramesTotal),
+                std::to_string(
+                    diagnostics.wgc.
+                        configurationIterationConsecutiveRejectedFrames),
+                std::to_string(
+                    diagnostics.wgc.expectedFrameConfigurationIteration),
+                std::to_string(diagnostics.wgc.frameConfigurationIteration),
+                win32Hex(static_cast<DWORD>(
+                    diagnostics.wgc.frameConfigurationQueryResult)),
+                win32Hex(static_cast<DWORD>(
+                    diagnostics.wgc.frameConfigurationIterationResult))};
+            const std::array fields{
+                bafx::windows::DiagnosticField{"Control.Generation", values[0]},
+                bafx::windows::DiagnosticField{
+                    "WGC.ConfigurationIteration.RejectedFrames",
+                    values[1]},
+                bafx::windows::DiagnosticField{
+                    "WGC.ConfigurationIteration.RejectedFramesTotal",
+                    values[2]},
+                bafx::windows::DiagnosticField{
+                    "WGC.ConfigurationIteration.ConsecutiveRejectedFrames",
+                    values[3]},
+                bafx::windows::DiagnosticField{
+                    "WGC.ConfigurationIteration.Expected",
+                    values[4]},
+                bafx::windows::DiagnosticField{
+                    "WGC.ConfigurationIteration.Frame",
+                    values[5]},
+                bafx::windows::DiagnosticField{
+                    "WGC.ConfigurationIteration.FrameQi",
+                    values[6]},
+                bafx::windows::DiagnosticField{
+                    "WGC.ConfigurationIteration.FrameRead",
+                    values[7]}};
+            bafx::windows::appendDiagnosticEvent(
+                logPath,
+                "WGC.ConfigurationIteration.Rejected",
+                fields,
+                bafx::windows::DiagnosticLevel::Warning);
+        }
+        catch (...)
+        {
+            // Iteration evidence is best effort and must not affect rendering.
+        }
+    }
     if (!diagnostics.backgroundParticipated)
     {
         return;
@@ -1432,7 +1642,25 @@ void appendBackgroundCompositeParticipation(
             std::to_string(diagnostics.wgc.epoch),
             std::to_string(diagnostics.wgc.acceptedGeneration),
             std::to_string(diagnostics.backgroundSnapshotEpoch),
-            std::to_string(diagnostics.backgroundSnapshotGeneration)};
+            std::to_string(diagnostics.backgroundSnapshotGeneration),
+            std::to_string(
+                diagnostics.wgc.expectedFrameConfigurationIteration),
+            std::to_string(diagnostics.wgc.frameConfigurationIteration),
+            std::to_string(
+                diagnostics.wgc.configurationIterationRejectedFrames),
+            std::to_string(
+                diagnostics.wgc.configurationIterationRejectedFramesTotal),
+            std::to_string(
+                diagnostics.wgc.
+                    configurationIterationConsecutiveRejectedFrames),
+            win32Hex(static_cast<DWORD>(
+                diagnostics.wgc.frameConfigurationQueryResult)),
+            win32Hex(static_cast<DWORD>(
+                diagnostics.wgc.frameConfigurationIterationResult)),
+            std::string(
+                diagnostics.wgc.frameConfigurationIterationConfirmed
+                    ? "true"
+                    : "false")};
         const std::array fields{
             bafx::windows::DiagnosticField{"Control.Generation", values[0]},
             bafx::windows::DiagnosticField{"Frame.Id", values[1]},
@@ -1443,7 +1671,31 @@ void appendBackgroundCompositeParticipation(
                 values[4]},
             bafx::windows::DiagnosticField{
                 "BackgroundSnapshot.Generation",
-                values[5]}};
+                values[5]},
+            bafx::windows::DiagnosticField{
+                "WGC.ConfigurationIteration.Expected",
+                values[6]},
+            bafx::windows::DiagnosticField{
+                "WGC.ConfigurationIteration.Frame",
+                values[7]},
+            bafx::windows::DiagnosticField{
+                "WGC.ConfigurationIteration.RejectedFrames",
+                values[8]},
+            bafx::windows::DiagnosticField{
+                "WGC.ConfigurationIteration.RejectedFramesTotal",
+                values[9]},
+            bafx::windows::DiagnosticField{
+                "WGC.ConfigurationIteration.ConsecutiveRejectedFrames",
+                values[10]},
+            bafx::windows::DiagnosticField{
+                "WGC.ConfigurationIteration.FrameQi",
+                values[11]},
+            bafx::windows::DiagnosticField{
+                "WGC.ConfigurationIteration.FrameRead",
+                values[12]},
+            bafx::windows::DiagnosticField{
+                "WGC.ConfigurationIteration.Confirmed",
+                values[13]}};
         bafx::windows::appendDiagnosticEvent(
             logPath,
             "BackgroundComposite.Participated",

@@ -1,3 +1,7 @@
+#ifndef ENABLE_WINRT_EXPERIMENTAL_TYPES
+#define ENABLE_WINRT_EXPERIMENTAL_TYPES
+#endif
+
 #include "bafx/windows/wgc_background_sensor.hpp"
 
 #include "bafx/windows/detail/wgc_frame_notification.hpp"
@@ -6,13 +10,16 @@
 
 #include <windows.graphics.capture.interop.h>
 #include <windows.graphics.directx.direct3d11.interop.h>
+#include <windows.ui.interop.h>
 #include <wrl/client.h>
 
 #include <winrt/Windows.Foundation.h>
+#include <winrt/Windows.Foundation.Collections.h>
 #include <winrt/Windows.Graphics.Capture.h>
 #include <winrt/Windows.Graphics.DirectX.Direct3D11.h>
 #include <winrt/Windows.Graphics.DirectX.h>
 #include <winrt/Windows.Graphics.h>
+#include <winrt/Windows.UI.h>
 #include <winrt/base.h>
 
 #include <chrono>
@@ -36,6 +43,7 @@ using winrt::Windows::Graphics::Capture::GraphicsCaptureSession;
 using winrt::Windows::Graphics::DirectX::Direct3D11::IDirect3DDevice;
 using winrt::Windows::Graphics::DirectX::DirectXPixelFormat;
 using winrt::Windows::Graphics::SizeInt32;
+using winrt::Windows::UI::WindowId;
 
 constexpr int captureBufferCount = 2;
 static_assert(captureBufferCount > 0);
@@ -44,6 +52,54 @@ constexpr std::uint32_t maximumFramesPerDrain =
 constexpr DirectXPixelFormat capturePixelFormat =
     DirectXPixelFormat::R16G16B16A16Float;
 constexpr DXGI_FORMAT captureDxgiFormat = DXGI_FORMAT_R16G16B16A16_FLOAT;
+
+using GetWindowIdFromWindowFunction =
+    HRESULT(WINAPI*)(HWND, ABI::Windows::UI::WindowId*);
+
+class WindowIdInteropResolver final
+{
+public:
+    WindowIdInteropResolver() noexcept
+        : module_(LoadLibraryW(L"ext-ms-win-windowing-external-l1-1-0.dll"))
+    {
+        if (module_ != nullptr)
+        {
+            function_ = reinterpret_cast<GetWindowIdFromWindowFunction>(
+                GetProcAddress(module_, "GetWindowIdFromWindow"));
+            if (function_ == nullptr)
+            {
+                FreeLibrary(module_);
+                module_ = nullptr;
+            }
+        }
+    }
+
+    ~WindowIdInteropResolver()
+    {
+        if (module_ != nullptr)
+        {
+            FreeLibrary(module_);
+        }
+    }
+
+    WindowIdInteropResolver(const WindowIdInteropResolver&) = delete;
+    WindowIdInteropResolver& operator=(const WindowIdInteropResolver&) = delete;
+
+    [[nodiscard]] HRESULT getWindowId(
+        const HWND window,
+        ABI::Windows::UI::WindowId* const id) const noexcept
+    {
+        if (function_ == nullptr)
+        {
+            return E_NOINTERFACE;
+        }
+        return function_(window, id);
+    }
+
+private:
+    HMODULE module_{nullptr};
+    GetWindowIdFromWindowFunction function_{nullptr};
+};
 
 // Cursor and border controls were added after the original Windows 10 SDK.
 // Keep their stable WinRT ABI local so an older build machine does not remove
@@ -205,6 +261,78 @@ struct OwnedBackgroundTexture
         return 1U;
     }
     return generation + 1U;
+}
+
+}
+
+std::string_view wgcSessionWindowExclusionStatusName(
+    const WgcSessionWindowExclusionStatus status) noexcept
+{
+    switch (status)
+    {
+    case WgcSessionWindowExclusionStatus::NotRequested:
+        return "not-requested";
+    case WgcSessionWindowExclusionStatus::Applied:
+        return "applied";
+    case WgcSessionWindowExclusionStatus::InterfaceUnavailable:
+        return "interface-unavailable";
+    case WgcSessionWindowExclusionStatus::Rejected:
+        return "rejected";
+    }
+    return "rejected";
+}
+
+namespace detail
+{
+
+bool sessionWindowExclusionFrameMatches(
+    const bool required,
+    const HRESULT frameQueryResult,
+    const HRESULT frameIterationResult,
+    const std::uint64_t expectedIteration,
+    const std::uint64_t frameIteration) noexcept
+{
+    return !required
+        || (SUCCEEDED(frameQueryResult)
+            && SUCCEEDED(frameIterationResult)
+            && frameIteration == expectedIteration);
+}
+
+bool observeSessionWindowExclusionFrame(
+    WgcSessionWindowExclusionState& state,
+    const HRESULT frameQueryResult,
+    const HRESULT frameIterationResult,
+    const std::uint64_t frameIteration) noexcept
+{
+    state.frameQueryResult = frameQueryResult;
+    state.frameIterationResult = frameIterationResult;
+    state.lastFrameIteration = frameIteration;
+    const bool matched = sessionWindowExclusionFrameMatches(
+        true,
+        frameQueryResult,
+        frameIterationResult,
+        state.setIteration,
+        frameIteration);
+    if (!matched)
+    {
+        // Keep lifetime evidence without turning separated stale frames into
+        // the consecutive instability threshold used for runtime fallback.
+        if (state.rejectedFrameCount
+            < (std::numeric_limits<std::uint64_t>::max)())
+        {
+            ++state.rejectedFrameCount;
+        }
+        if (state.consecutiveRejectedFrameCount
+            < (std::numeric_limits<std::uint64_t>::max)())
+        {
+            ++state.consecutiveRejectedFrameCount;
+        }
+        return false;
+    }
+
+    state.consecutiveRejectedFrameCount = 0U;
+    state.frameIterationConfirmed = true;
+    return true;
 }
 
 }
@@ -523,6 +651,10 @@ struct WgcBackgroundSensor::Implementation
         , options(sourceOptions)
         , ownerThreadId(GetCurrentThreadId())
         , ledger(sourceOptions.resourceLedger)
+        , sessionWindowExclusionState(
+              sourceOptions.sessionWindowExclusionState != nullptr
+                  ? sourceOptions.sessionWindowExclusionState
+                  : std::make_shared<WgcSessionWindowExclusionState>())
         , notification(std::make_shared<detail::WgcFrameNotification>())
     {
         if (sourceDevice == nullptr)
@@ -693,6 +825,10 @@ struct WgcBackgroundSensor::Implementation
                     configureMinimumUpdateInterval(
                         *options.minimumUpdateInterval);
             }
+            // Exclusion must be the final session configuration so the
+            // returned iteration also covers border, cursor, and cadence
+            // writes performed above.
+            configureSessionWindowExclusion(sessionUnknown);
             try
             {
                 session.StartCapture();
@@ -708,6 +844,152 @@ struct WgcBackgroundSensor::Implementation
             stop();
             throw;
         }
+    }
+
+    void publishSessionWindowExclusionState() noexcept
+    {
+        capabilities.sessionWindowExclusion = *sessionWindowExclusionState;
+    }
+
+    void rejectSessionWindowExclusion(
+        const HRESULT result,
+        const std::string_view operation)
+    {
+        sessionWindowExclusionState->status =
+            result == E_NOINTERFACE
+            ? WgcSessionWindowExclusionStatus::InterfaceUnavailable
+            : WgcSessionWindowExclusionStatus::Rejected;
+        publishSessionWindowExclusionState();
+        throw HResultError(result, std::string(operation));
+    }
+
+    void configureSessionWindowExclusion(IUnknown* const sessionUnknown)
+    {
+        if (!options.requireSessionWindowExclusion)
+        {
+            publishSessionWindowExclusionState();
+            return;
+        }
+        if (sessionUnknown == nullptr
+            || options.excludedWindow == nullptr
+            || !IsWindow(options.excludedWindow))
+        {
+            rejectSessionWindowExclusion(
+                E_INVALIDARG,
+                "session window exclusion requires a live Overlay HWND");
+        }
+
+        ComPtr<ABI::Windows::Graphics::Capture::
+            IDisplayGraphicsCaptureSession> displaySession;
+        sessionWindowExclusionState->displaySessionQueryResult =
+            sessionUnknown->QueryInterface(IID_PPV_ARGS(&displaySession));
+        if (FAILED(
+                sessionWindowExclusionState->displaySessionQueryResult))
+        {
+            rejectSessionWindowExclusion(
+                sessionWindowExclusionState->displaySessionQueryResult,
+                "GraphicsCaptureSession::QueryInterface("
+                "IDisplayGraphicsCaptureSession)");
+        }
+
+        ComPtr<ABI::Windows::Graphics::Capture::IGraphicsCaptureSession7>
+            sessionIteration;
+        sessionWindowExclusionState->sessionIterationQueryResult =
+            sessionUnknown->QueryInterface(IID_PPV_ARGS(&sessionIteration));
+        if (FAILED(
+                sessionWindowExclusionState->sessionIterationQueryResult))
+        {
+            rejectSessionWindowExclusion(
+                sessionWindowExclusionState->sessionIterationQueryResult,
+                "GraphicsCaptureSession::QueryInterface("
+                "IGraphicsCaptureSession7)");
+        }
+
+        ABI::Windows::UI::WindowId abiWindowId{};
+        const WindowIdInteropResolver windowIdInterop{};
+        sessionWindowExclusionState->windowIdResult =
+            windowIdInterop.getWindowId(
+                options.excludedWindow,
+                &abiWindowId);
+        if (FAILED(sessionWindowExclusionState->windowIdResult))
+        {
+            rejectSessionWindowExclusion(
+                sessionWindowExclusionState->windowIdResult,
+                "GetWindowIdFromWindow(session window exclusion)");
+        }
+        sessionWindowExclusionState->requestedWindowId = abiWindowId.Value;
+
+        auto values = winrt::single_threaded_vector<WindowId>();
+        values.Append(WindowId{abiWindowId.Value});
+        const auto iterable = values.as<
+            winrt::Windows::Foundation::Collections::IIterable<WindowId>>();
+        using AbiWindowIdIterable =
+            ABI::Windows::Foundation::Collections::
+                __FIIterable_1_Windows__CUI__CWindowId_t;
+        sessionWindowExclusionState->setResult =
+            displaySession->SetWindowExclusionList(
+                reinterpret_cast<AbiWindowIdIterable*>(
+                    winrt::get_abi(iterable)),
+                &sessionWindowExclusionState->setIteration);
+        if (FAILED(sessionWindowExclusionState->setResult))
+        {
+            rejectSessionWindowExclusion(
+                sessionWindowExclusionState->setResult,
+                "IDisplayGraphicsCaptureSession::SetWindowExclusionList");
+        }
+
+        using AbiWindowIdVectorView =
+            ABI::Windows::Foundation::Collections::
+                __FIVectorView_1_Windows__CUI__CWindowId_t;
+        AbiWindowIdVectorView* rawView = nullptr;
+        sessionWindowExclusionState->getResult =
+            displaySession->GetWindowExclusionList(&rawView);
+        if (FAILED(sessionWindowExclusionState->getResult)
+            || rawView == nullptr)
+        {
+            rejectSessionWindowExclusion(
+                FAILED(sessionWindowExclusionState->getResult)
+                    ? sessionWindowExclusionState->getResult
+                    : E_UNEXPECTED,
+                "IDisplayGraphicsCaptureSession::GetWindowExclusionList");
+        }
+
+        winrt::Windows::Foundation::Collections::IVectorView<WindowId> view(
+            rawView,
+            winrt::take_ownership_from_abi);
+        if (view.Size() == 1U)
+        {
+            sessionWindowExclusionState->observedWindowId =
+                view.GetAt(0U).Value;
+        }
+        sessionWindowExclusionState->windowIdRoundTripConfirmed =
+            view.Size() == 1U
+            && sessionWindowExclusionState->observedWindowId
+                == sessionWindowExclusionState->requestedWindowId;
+        if (!sessionWindowExclusionState->windowIdRoundTripConfirmed)
+        {
+            rejectSessionWindowExclusion(
+                E_FAIL,
+                "session window exclusion WindowId readback mismatch");
+        }
+
+        sessionWindowExclusionState->sessionIterationResult =
+            sessionIteration->get_ConfigurationIteration(
+                &sessionWindowExclusionState->sessionIteration);
+        if (FAILED(sessionWindowExclusionState->sessionIterationResult)
+            || sessionWindowExclusionState->sessionIteration
+                != sessionWindowExclusionState->setIteration)
+        {
+            rejectSessionWindowExclusion(
+                FAILED(sessionWindowExclusionState->sessionIterationResult)
+                    ? sessionWindowExclusionState->sessionIterationResult
+                    : E_FAIL,
+                "session window exclusion configuration iteration mismatch");
+        }
+
+        sessionWindowExclusionState->status =
+            WgcSessionWindowExclusionStatus::Applied;
+        publishSessionWindowExclusionState();
     }
 
     ~Implementation()
@@ -805,6 +1087,56 @@ struct WgcBackgroundSensor::Implementation
             // wake is harmless when the queue contained exactly the budget.
             const bool queuedFramesMayRemain =
                 consumedFrameCount == maximumFramesPerDrain;
+
+            if (options.requireSessionWindowExclusion)
+            {
+                ComPtr<ABI::Windows::Graphics::Capture::
+                    IDirect3D11CaptureFrame3> frameIteration;
+                const HRESULT frameQueryResult =
+                    reinterpret_cast<IUnknown*>(
+                        winrt::get_abi(latest))->QueryInterface(
+                            IID_PPV_ARGS(&frameIteration));
+                HRESULT frameIterationResult = S_FALSE;
+                std::uint64_t frameConfigurationIteration = 0U;
+                if (SUCCEEDED(frameQueryResult))
+                {
+                    frameIterationResult = frameIteration->
+                        get_ConfigurationIteration(
+                            &frameConfigurationIteration);
+                }
+                const bool frameIterationMatched =
+                    detail::observeSessionWindowExclusionFrame(
+                        *sessionWindowExclusionState,
+                        frameQueryResult,
+                        frameIterationResult,
+                        frameConfigurationIteration);
+                diagnostics.frameConfigurationQueryResult = frameQueryResult;
+                diagnostics.frameConfigurationIterationResult =
+                    frameIterationResult;
+                diagnostics.expectedFrameConfigurationIteration =
+                    sessionWindowExclusionState->setIteration;
+                diagnostics.frameConfigurationIteration =
+                    frameConfigurationIteration;
+                diagnostics.configurationIterationRejectedFramesTotal =
+                    sessionWindowExclusionState->rejectedFrameCount;
+                diagnostics.configurationIterationConsecutiveRejectedFrames =
+                    sessionWindowExclusionState->
+                        consecutiveRejectedFrameCount;
+                diagnostics.frameConfigurationIterationConfirmed =
+                    sessionWindowExclusionState->frameIterationConfirmed;
+                if (!frameIterationMatched)
+                {
+                    ++diagnostics.configurationIterationRejectedFrames;
+                    publishSessionWindowExclusionState();
+                    closeOwnedFrame(latest);
+                    notification->resetAfterDrain(
+                        observedGeneration,
+                        queuedFramesMayRemain);
+                    return diagnostics;
+                }
+                sessionWindowExclusionState->frameIterationConfirmed = true;
+                publishSessionWindowExclusionState();
+            }
 
             const SizeInt32 contentSize = latest.ContentSize();
             const WindowSize checkedContentSize = checkedSize(contentSize);
@@ -1142,6 +1474,8 @@ struct WgcBackgroundSensor::Implementation
     DWORD ownerThreadId{0U};
     WgcBackgroundSessionCapabilities capabilities{};
     std::shared_ptr<WgcBackgroundResourceLedger> ledger{};
+    std::shared_ptr<WgcSessionWindowExclusionState>
+        sessionWindowExclusionState{};
     std::shared_ptr<detail::WgcFrameNotification> notification{};
     OwnedBackgroundTexture ownedTexture{};
     std::optional<WgcBackgroundSample> latestBackground{};

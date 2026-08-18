@@ -92,10 +92,12 @@ void appendRecordingCompatibleDiagnostic(
             ? std::string_view("LightBackground")
             : std::string_view("BackgroundAware"));
     const std::string_view effectivePath =
-        recordingCompatible || lightBackground
-        ? std::string_view("fx-only")
-        : std::string_view("background-aware");
-    const std::string_view wgc = recordingCompatible || lightBackground
+        recordingCompatible
+        ? std::string_view("session-local-requested")
+        : (lightBackground
+            ? std::string_view("fx-only")
+            : std::string_view("legacy-global-requested"));
+    const std::string_view wgc = lightBackground
         ? std::string_view("disabled")
         : std::string_view("runtime-managed");
     const std::string_view alphaLimit = recordingCompatible
@@ -693,8 +695,14 @@ void appendDeviceRemovedNotificationStatus(
 [[nodiscard]] bool borderlessAccessMonitoringRequired(
     const bafx::config::Config& config) noexcept
 {
-    return config.background.mode == bafx::config::RenderMode::BackgroundAware
+    return config.background.mode != bafx::config::RenderMode::LightBackground
         && !config.background.allowSystemBorder;
+}
+
+[[nodiscard]] bool backgroundCaptureRequestedByConfig(
+    const bafx::config::Config& config) noexcept
+{
+    return config.background.mode != bafx::config::RenderMode::LightBackground;
 }
 
 void appendBorderlessAccessHealth(
@@ -3200,8 +3208,9 @@ int runApplication(
             renderer,
             "startup-background-recovery");
     }
-    bool backgroundCaptureEnabled = backgroundTransition.effectivePath()
-        == bafx::windows::EffectiveBackgroundCapturePath::BackgroundAware;
+    bool backgroundCaptureEnabled =
+        bafx::windows::isActiveBackgroundCapturePath(
+            backgroundTransition.effectivePath());
     report.setBackgroundCaptureStatus(
         bafx::desktop::backgroundCaptureStatus(backgroundTransition.effectivePath()));
     if (initialBackgroundExecutionStatus
@@ -3404,8 +3413,7 @@ int runApplication(
         const bool backgroundCaptureWasActive =
             renderer.backgroundCaptureActive();
         const bool backgroundCaptureRequested =
-            config.background.mode
-            == bafx::config::RenderMode::BackgroundAware;
+            backgroundCaptureRequestedByConfig(config);
         const bool backgroundCaptureRestartRequired =
             backgroundCaptureRequested && backgroundCaptureEnabled;
         if (backgroundCaptureRestartRequired
@@ -4062,8 +4070,9 @@ int runApplication(
             // complete color snapshot owns the recovery contract.
             queueCoordinatorOutputRecoveryIfNeeded(recoveryPhase);
         }
-        backgroundCaptureEnabled = backgroundTransition.effectivePath()
-            == bafx::windows::EffectiveBackgroundCapturePath::BackgroundAware;
+        backgroundCaptureEnabled =
+            bafx::windows::isActiveBackgroundCapturePath(
+                backgroundTransition.effectivePath());
         if (!backgroundCaptureEnabled || backgroundExecution.deviceRecovered)
         {
             coordinatorCaptureSizeTracker.reset();
@@ -4137,9 +4146,8 @@ int runApplication(
                         logPath);
                 coordinatorCleaned = true;
             }
-            else if (backgroundTransition.effectivePath()
-                == bafx::windows::
-                    EffectiveBackgroundCapturePath::BackgroundAware)
+            else if (bafx::windows::isActiveBackgroundCapturePath(
+                backgroundTransition.effectivePath()))
             {
                 if (!backgroundTransition.beginBorderlessAccessLost())
                 {
@@ -4212,9 +4220,8 @@ int runApplication(
             && renderer.backgroundCaptureRestartAllowed();
         if (coordinatorRestartEligible
             && !backgroundExecution.transactionActive
-            && (backgroundTransition.effectivePath()
-                    != bafx::windows::
-                        EffectiveBackgroundCapturePath::BackgroundAware
+            && (!bafx::windows::isActiveBackgroundCapturePath(
+                    backgroundTransition.effectivePath())
                 || !renderer.backgroundCaptureActive()))
         {
             if (backgroundRetryToken
@@ -5051,8 +5058,8 @@ int runApplication(
         }
         if (hostDisplayPowerBecameAvailable)
         {
-            const bool captureRequested = controlState.config.background.mode
-                == bafx::config::RenderMode::BackgroundAware;
+            const bool captureRequested = backgroundCaptureRequestedByConfig(
+                controlState.config);
             const bool coordinatorEligible =
                 coordinatorPowerRecoveryEligible;
             coordinatorPowerRecoveryEligible = false;
@@ -5362,8 +5369,7 @@ int runApplication(
                             != renderer.deviceInfo().adapterLuid.HighPart;
                     const bool retryEligible =
                         bafx::desktop::canRetryBackgroundCaptureAfterDeviceRecovery(
-                            config.background.mode
-                                == bafx::config::RenderMode::BackgroundAware,
+                            backgroundCaptureRequestedByConfig(config),
                             backgroundCaptureWasActive,
                             adapterChanged,
                             renderer.deviceInfo().driverType,
@@ -5589,8 +5595,13 @@ int runApplication(
         appendPendingBackgroundSnapshotInvalidation();
 
         const bafx::fx::SimulationTime captureHealthNow = clock.now();
+        const bool legacyGlobalCaptureActive =
+            backgroundTransition.effectivePath()
+                == bafx::windows::EffectiveBackgroundCapturePath::
+                    BackgroundAware
+            && renderer.backgroundCaptureActive();
         if (captureExclusionHealthPoller.shouldQuery(
-                renderer.backgroundCaptureActive(),
+                legacyGlobalCaptureActive,
                 captureHealthNow))
         {
             const bafx::windows::CaptureExclusionQueryStatus affinity =
@@ -6333,9 +6344,8 @@ int runApplication(
                     finishBackgroundCaptureTransaction(
                         "device-recovery-pending-cancel");
                 }
-                if (backgroundTransition.effectivePath()
-                        == bafx::windows::EffectiveBackgroundCapturePath::
-                            BackgroundAware
+                if (bafx::windows::isActiveBackgroundCapturePath(
+                        backgroundTransition.effectivePath())
                     && backgroundTransition.request().has_value()
                     && backgroundTransition.request()->sensorRequired)
                 {
@@ -6651,17 +6661,26 @@ int runApplication(
                             origin.messageTimeMilliseconds));
                 }
             }
+            const bool iterationRejected =
+                completedFrameDiagnostics.wgc.
+                    configurationIterationRejectedFrames > 0U;
+            const bool firstBackgroundParticipation =
+                completedFrameDiagnostics.backgroundParticipated
+                && !backgroundParticipationLogged;
+            if (iterationRejected || firstBackgroundParticipation)
+            {
+                // Rejected Session-local frames never participate in the
+                // composite, so their evidence must not depend on that marker.
+                bafx::desktop::appendBackgroundCompositeParticipation(
+                    logPath,
+                    appliedGeneration,
+                    completedFrameDiagnostics);
+            }
             if (completedFrameDiagnostics.backgroundParticipated)
             {
                 ++backgroundCompositeFrames;
-                if (!backgroundParticipationLogged)
+                if (firstBackgroundParticipation)
                 {
-                    // A successful Present is the first point where this
-                    // captured snapshot is proven to have reached final output.
-                    bafx::desktop::appendBackgroundCompositeParticipation(
-                        logPath,
-                        appliedGeneration,
-                        completedFrameDiagnostics);
                     backgroundParticipationLogged = true;
                 }
             }
@@ -6673,6 +6692,15 @@ int runApplication(
             // coordinator batch cannot inherit an accumulated WGC entry.
             const bafx::windows::BackgroundSensorMaintenanceDiagnostics
                 maintenance = renderer.serviceBackgroundCapture(wallTime);
+            if (maintenance.wgc.configurationIterationRejectedFrames > 0U)
+            {
+                bafx::windows::CompositionFrameDiagnostics diagnostics{};
+                diagnostics.wgc = maintenance.wgc;
+                bafx::desktop::appendBackgroundCompositeParticipation(
+                    logPath,
+                    appliedGeneration,
+                    diagnostics);
+            }
             const std::uint64_t producerCallbacks =
                 wgcCallbackDeltaTracker.observe(
                     maintenance.wgcActive,

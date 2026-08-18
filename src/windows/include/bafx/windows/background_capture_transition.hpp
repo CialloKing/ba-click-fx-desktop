@@ -10,7 +10,7 @@
 namespace bafx::windows
 {
 
-inline constexpr std::size_t maximumBackgroundCaptureActions = 8U;
+inline constexpr std::size_t maximumBackgroundCaptureActions = 10U;
 
 struct BackgroundCaptureRequest
 {
@@ -21,6 +21,14 @@ struct BackgroundCaptureRequest
     // A stable request is terminal after failure. Increment this only for an
     // explicit retry so the render loop cannot restart WGC indefinitely.
     std::uint64_t retryToken{0U};
+    // Legacy background-aware capture hides the overlay globally. The test
+    // path keeps WDA_NONE and asks only its own WGC session to exclude it.
+    enum class ExclusionMode : std::uint8_t
+    {
+        LegacyGlobal,
+        SessionLocal
+    };
+    ExclusionMode exclusionMode{ExclusionMode::LegacyGlobal};
 
     [[nodiscard]] bool operator==(
         const BackgroundCaptureRequest&) const noexcept = default;
@@ -57,6 +65,8 @@ struct BackgroundCaptureAction
     WindowSize captureSize{};
     bool cursorExcluded{true};
     bool allowSystemBorder{true};
+    BackgroundCaptureRequest::ExclusionMode exclusionMode{
+        BackgroundCaptureRequest::ExclusionMode::LegacyGlobal};
 
     [[nodiscard]] bool operator==(
         const BackgroundCaptureAction& other) const noexcept;
@@ -65,9 +75,17 @@ struct BackgroundCaptureAction
 enum class EffectiveBackgroundCapturePath : std::uint8_t
 {
     BackgroundAware,
+    SessionLocalExclusion,
     FxOnly,
     FxOnlyCaptureVisibilityUnknown
 };
+
+[[nodiscard]] constexpr bool isActiveBackgroundCapturePath(
+    const EffectiveBackgroundCapturePath path) noexcept
+{
+    return path == EffectiveBackgroundCapturePath::BackgroundAware
+        || path == EffectiveBackgroundCapturePath::SessionLocalExclusion;
+}
 
 enum class BackgroundCaptureFailure : std::uint8_t
 {
@@ -77,6 +95,7 @@ enum class BackgroundCaptureFailure : std::uint8_t
     BorderlessAccessCanceled,
     ExclusionUnconfirmed,
     SensorStartFailed,
+    SessionExclusionFailed,
     FramePoolRecreateFailed,
     InclusionUnconfirmed,
     SessionStopped,

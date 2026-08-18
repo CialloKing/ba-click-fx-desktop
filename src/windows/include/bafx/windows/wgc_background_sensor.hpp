@@ -40,6 +40,58 @@ struct WgcBackgroundResourceLedgerSnapshot
     [[nodiscard]] bool allReleased() const noexcept;
 };
 
+enum class WgcSessionWindowExclusionStatus : std::uint8_t
+{
+    NotRequested,
+    Applied,
+    InterfaceUnavailable,
+    Rejected
+};
+
+struct WgcSessionWindowExclusionState final
+{
+    WgcSessionWindowExclusionStatus status{
+        WgcSessionWindowExclusionStatus::NotRequested};
+    HRESULT displaySessionQueryResult{S_FALSE};
+    HRESULT sessionIterationQueryResult{S_FALSE};
+    HRESULT windowIdResult{S_FALSE};
+    HRESULT setResult{S_FALSE};
+    HRESULT getResult{S_FALSE};
+    HRESULT sessionIterationResult{S_FALSE};
+    HRESULT frameQueryResult{S_FALSE};
+    HRESULT frameIterationResult{S_FALSE};
+    std::uint64_t requestedWindowId{0U};
+    std::uint64_t observedWindowId{0U};
+    std::uint64_t setIteration{0U};
+    std::uint64_t sessionIteration{0U};
+    std::uint64_t lastFrameIteration{0U};
+    std::uint64_t rejectedFrameCount{0U};
+    std::uint64_t consecutiveRejectedFrameCount{0U};
+    bool windowIdRoundTripConfirmed{false};
+    bool frameIterationConfirmed{false};
+};
+
+[[nodiscard]] std::string_view wgcSessionWindowExclusionStatusName(
+    WgcSessionWindowExclusionStatus status) noexcept;
+
+namespace detail
+{
+
+[[nodiscard]] bool sessionWindowExclusionFrameMatches(
+    bool required,
+    HRESULT frameQueryResult,
+    HRESULT frameIterationResult,
+    std::uint64_t expectedIteration,
+    std::uint64_t frameIteration) noexcept;
+
+[[nodiscard]] bool observeSessionWindowExclusionFrame(
+    WgcSessionWindowExclusionState& state,
+    HRESULT frameQueryResult,
+    HRESULT frameIterationResult,
+    std::uint64_t frameIteration) noexcept;
+
+}
+
 enum class WgcBackgroundStopStage : std::uint8_t
 {
     Stop,
@@ -171,6 +223,15 @@ struct WgcBackgroundSensorOptions
     // after owning WinRT resources. The observer must return promptly because
     // the partially built object cannot be queried after this callback.
     WgcBackgroundStopResultObserver stopResultObserver{};
+    // Session-local exclusion keeps the Overlay visible to external capture
+    // while this sensor receives only the desktop beneath its own HWND.
+    bool requireSessionWindowExclusion{false};
+    HWND excludedWindow{nullptr};
+    // Keep capability and failure evidence alive if construction rolls back
+    // before a WgcBackgroundSensor object can be published. These fields stay
+    // at the end to preserve existing positional aggregate initializers.
+    std::shared_ptr<WgcSessionWindowExclusionState>
+        sessionWindowExclusionState{};
 };
 
 enum class WgcProducerCadenceStatus : std::uint8_t
@@ -207,6 +268,7 @@ struct WgcBackgroundSessionCapabilities
     bool cursorExcluded{false};
     bool cursorCaptureEnabled{false};
     bool cursorControlConfirmed{false};
+    WgcSessionWindowExclusionState sessionWindowExclusion{};
     WgcProducerCadenceState producerCadence{};
 };
 
@@ -227,11 +289,19 @@ struct WgcBackgroundDrainDiagnostics
     std::uint32_t framesAcquired{0U};
     std::uint32_t framesSuperseded{0U};
     std::uint32_t timestampRejectedFrames{0U};
+    std::uint32_t configurationIterationRejectedFrames{0U};
     bool ownedCopySubmitted{false};
     bool accepted{false};
     std::uint64_t epoch{0U};
     std::uint64_t frameArrivedCallbacksTotal{0U};
     std::uint64_t acceptedGeneration{0U};
+    HRESULT frameConfigurationQueryResult{S_FALSE};
+    HRESULT frameConfigurationIterationResult{S_FALSE};
+    std::uint64_t expectedFrameConfigurationIteration{0U};
+    std::uint64_t frameConfigurationIteration{0U};
+    std::uint64_t configurationIterationRejectedFramesTotal{0U};
+    std::uint64_t configurationIterationConsecutiveRejectedFrames{0U};
+    bool frameConfigurationIterationConfirmed{false};
     // This is only the CPU duration of issuing CopySubresourceRegion.
     std::chrono::nanoseconds ownedCopySubmitCpu{};
 };

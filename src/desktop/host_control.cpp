@@ -567,10 +567,12 @@ void HostControlPlane::appendRecordingCompatibleDiagnostic(
             ? std::string_view("LightBackground")
             : std::string_view("BackgroundAware"));
     const std::string_view effectivePath =
-        recordingCompatible || lightBackground
-        ? std::string_view("fx-only")
-        : std::string_view("background-aware");
-    const std::string_view wgc = recordingCompatible || lightBackground
+        recordingCompatible
+        ? std::string_view("session-local-requested")
+        : (lightBackground
+            ? std::string_view("fx-only")
+            : std::string_view("legacy-global-requested"));
+    const std::string_view wgc = lightBackground
         ? std::string_view("disabled")
         : std::string_view("runtime-managed");
     const std::string_view alphaLimit = recordingCompatible

@@ -1122,9 +1122,8 @@ DisplaySession::serviceSecondaryBackgroundCapture(
             }
 
             const bool backgroundCaptureWasEffective =
-                state.transition.effectivePath()
-                == bafx::windows::EffectiveBackgroundCapturePath::
-                    BackgroundAware;
+                bafx::windows::isActiveBackgroundCapturePath(
+                    state.transition.effectivePath());
             const bool sensorWasActive = renderer_.backgroundCaptureActive();
             const bool restartRequired = state.request.sensorRequired
                 && backgroundCaptureWasEffective
@@ -1308,8 +1307,9 @@ DisplaySession::serviceSecondaryBackgroundCapture(
         }
 
         const bool active = renderer_.backgroundCaptureActive();
-        const bool expectedActive = state.transition.effectivePath()
-            == bafx::windows::EffectiveBackgroundCapturePath::BackgroundAware;
+        const bool expectedActive =
+            bafx::windows::isActiveBackgroundCapturePath(
+                state.transition.effectivePath());
         if (expectedActive && !active)
         {
             const std::string stoppedReason(
@@ -1371,7 +1371,10 @@ DisplaySession::serviceSecondaryBackgroundCapture(
                 continue;
             }
 
-            if (state.exclusionHealthPoller.shouldQuery(true, now))
+            if (state.transition.effectivePath()
+                    == bafx::windows::EffectiveBackgroundCapturePath::
+                        BackgroundAware
+                && state.exclusionHealthPoller.shouldQuery(true, now))
             {
                 const bafx::windows::CaptureExclusionQueryStatus affinity =
                     window_.queryCaptureExcluded(true);
@@ -1450,8 +1453,8 @@ DisplaySession::handleSecondaryBorderlessAccessLost(
             "Secondary borderless access loss found an unowned transition");
     }
 
-    if (state.transition.effectivePath()
-            != bafx::windows::EffectiveBackgroundCapturePath::BackgroundAware
+    if (!bafx::windows::isActiveBackgroundCapturePath(
+            state.transition.effectivePath())
         || !renderer_.backgroundCaptureActive())
     {
         result.active = renderer_.backgroundCaptureActive();
@@ -1495,8 +1498,8 @@ bool DisplaySession::retrySecondaryBorderlessAccess(
     {
         return false;
     }
-    if (state.transition.effectivePath()
-            == bafx::windows::EffectiveBackgroundCapturePath::BackgroundAware
+    if (bafx::windows::isActiveBackgroundCapturePath(
+            state.transition.effectivePath())
         && renderer_.backgroundCaptureActive())
     {
         return false;
@@ -1567,8 +1570,8 @@ DisplaySession::suspendSecondaryBackgroundCaptureForPower(
     // FX-only failure remains ineligible for an implicit restart.
     state.powerRecoveryEligible = state.powerRecoveryEligible
         || (state.request.sensorRequired
-            && state.transition.effectivePath()
-                == bafx::windows::EffectiveBackgroundCapturePath::BackgroundAware);
+            && bafx::windows::isActiveBackgroundCapturePath(
+                state.transition.effectivePath()));
     if (state.execution.transactionActive)
     {
         const BackgroundCaptureExecutionStatus canceled =

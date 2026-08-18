@@ -24,6 +24,7 @@ namespace
 {
 
 constexpr UINT swapChainFlags = DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT;
+constexpr std::uint64_t maximumSessionWindowExclusionRejectedFrames = 8U;
 constexpr CompositionOutputState scRgbOutputState{
     DXGI_FORMAT_R16G16B16A16_FLOAT,
     DXGI_COLOR_SPACE_RGB_FULL_G10_NONE_P709,
@@ -1404,8 +1405,21 @@ CompositionRenderer::drainBackgroundSensor(
             backgroundPathLatch_.reset();
             resetBackgroundSnapshot(
                 BackgroundSnapshotInvalidationReason::
-                    FramePoolReconfigureRequired,
+                FramePoolReconfigureRequired,
                 frameId);
+        }
+        else if (backgroundRequireSessionWindowExclusion_
+            && diagnostics.wgc.configurationIterationRejectedFrames > 0U
+            && backgroundSensor_->capabilities()
+                    .sessionWindowExclusion.consecutiveRejectedFrameCount
+                >= maximumSessionWindowExclusionRejectedFrames)
+        {
+            // A short run of old frames is expected after SetWindowExclusionList.
+            // Repeated mismatch means the runtime cannot establish a stable
+            // configuration-to-frame relation, so fail closed and let the
+            // transition state machine choose LegacyGlobal or FX-only.
+            stopFailedBackgroundCapture(
+                "WGC Session-local exclusion configuration iteration did not stabilize");
         }
     }
     catch (const std::exception& error)
@@ -1477,6 +1491,7 @@ bool CompositionRenderer::tryEnableBackgroundCapture(
     const bool cursorExcluded,
     const bool allowSystemBorder,
     const bool borderlessAccessConfirmed,
+    const BackgroundCaptureRequest::ExclusionMode exclusionMode,
     const std::optional<DisplayRefreshRate>& refreshRate) noexcept
 {
     setBackgroundCaptureFailure({});
@@ -1488,6 +1503,8 @@ bool CompositionRenderer::tryEnableBackgroundCapture(
     stopBackgroundSensor();
     backgroundCursorExcluded_ = cursorExcluded;
     backgroundSystemBorderAllowed_ = allowSystemBorder;
+    backgroundRequireSessionWindowExclusion_ = exclusionMode
+        == BackgroundCaptureRequest::ExclusionMode::SessionLocal;
     backgroundCaptureRequested_ = exclusionConfirmed
         && monitor != nullptr
         && deviceInfo_.driverType == GraphicsDriverType::Hardware
@@ -1533,6 +1550,8 @@ bool CompositionRenderer::tryEnableBackgroundCapture(
         return false;
     }
 
+    backgroundSessionWindowExclusionState_ =
+        std::make_shared<WgcSessionWindowExclusionState>();
     return tryCreateBackgroundSensor(refreshRate);
 }
 
@@ -1597,6 +1616,7 @@ void CompositionRenderer::disableBackgroundCapture() noexcept
     releaseBackgroundSnapshotResources(
         BackgroundSnapshotInvalidationReason::CaptureDisabled);
     backgroundCaptureRequested_ = false;
+    backgroundRequireSessionWindowExclusion_ = false;
     backgroundMonitor_ = nullptr;
     backgroundTargetRefreshRate_.reset();
     backgroundSystemBorderAllowed_ = false;
@@ -1757,6 +1777,11 @@ bool CompositionRenderer::tryCreateBackgroundSensor(
         sensorOptions.excludesOwnOverlay = true;
         sensorOptions.cursorExcluded = backgroundCursorExcluded_;
         sensorOptions.allowSystemBorder = backgroundSystemBorderAllowed_;
+        sensorOptions.requireSessionWindowExclusion =
+            backgroundRequireSessionWindowExclusion_;
+        sensorOptions.excludedWindow = window_;
+        sensorOptions.sessionWindowExclusionState =
+            backgroundSessionWindowExclusionState_;
         // Producer cadence follows an authoritative target rate. The separate
         // freshness window below remains no tighter than 60 Hz so normal WGC
         // delivery jitter does not destabilize the background path.
@@ -1811,6 +1836,18 @@ std::string_view CompositionRenderer::backgroundCaptureFailure() const noexcept
     return std::string_view(
         backgroundCaptureFailure_.data(),
         backgroundCaptureFailureLength_);
+}
+
+WgcSessionWindowExclusionState
+CompositionRenderer::backgroundSessionWindowExclusion() const noexcept
+{
+    if (backgroundSensor_ != nullptr)
+    {
+        return backgroundSensor_->capabilities().sessionWindowExclusion;
+    }
+    return backgroundSessionWindowExclusionState_ != nullptr
+        ? *backgroundSessionWindowExclusionState_
+        : WgcSessionWindowExclusionState{};
 }
 
 void CompositionRenderer::setDeviceRecoveryFailure(

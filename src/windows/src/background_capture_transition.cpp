@@ -43,13 +43,32 @@ namespace
 }
 
 [[nodiscard]] BackgroundCaptureAction startAction(
-    const BackgroundCaptureRequest& request) noexcept
+    const BackgroundCaptureRequest& request,
+    const BackgroundCaptureRequest::ExclusionMode exclusionMode) noexcept
 {
     BackgroundCaptureAction action{};
     action.kind = BackgroundCaptureActionKind::StartSensor;
     action.cursorExcluded = request.cursorExcluded;
     action.allowSystemBorder = request.allowSystemBorder;
+    action.exclusionMode = exclusionMode;
     return action;
+}
+
+[[nodiscard]] BackgroundCaptureAction affinityAction(
+    const BackgroundCaptureActionKind kind,
+    const BackgroundCaptureRequest::ExclusionMode exclusionMode) noexcept
+{
+    BackgroundCaptureAction action = simpleAction(kind);
+    action.exclusionMode = exclusionMode;
+    return action;
+}
+
+[[nodiscard]] bool isSessionLocalRequest(
+    const BackgroundCaptureRequest& request) noexcept
+{
+    return request.sensorRequired
+        && request.exclusionMode
+            == BackgroundCaptureRequest::ExclusionMode::SessionLocal;
 }
 
 [[nodiscard]] BackgroundCaptureAction borderlessAccessAction() noexcept
@@ -66,7 +85,8 @@ namespace
 {
     if (left.sensorRequired != right.sensorRequired
         || left.overlayProfile != right.overlayProfile
-        || left.retryToken != right.retryToken)
+        || left.retryToken != right.retryToken
+        || left.exclusionMode != right.exclusionMode)
     {
         return false;
     }
@@ -91,7 +111,8 @@ bool BackgroundCaptureAction::operator==(
         && captureSize.width == other.captureSize.width
         && captureSize.height == other.captureSize.height
         && cursorExcluded == other.cursorExcluded
-        && allowSystemBorder == other.allowSystemBorder;
+        && allowSystemBorder == other.allowSystemBorder
+        && exclusionMode == other.exclusionMode;
 }
 
 bool isValidBackgroundCaptureRequest(
@@ -99,7 +120,11 @@ bool isValidBackgroundCaptureRequest(
 {
     if (request.sensorRequired)
     {
-        return request.overlayProfile == FxOverlayProfile::FxOnlyFallback;
+        return request.exclusionMode
+                == BackgroundCaptureRequest::ExclusionMode::SessionLocal
+            ? request.overlayProfile
+                == FxOverlayProfile::RecordingCompatible
+            : request.overlayProfile == FxOverlayProfile::FxOnlyFallback;
     }
     return request.overlayProfile != FxOverlayProfile::FxOnlyFallback;
 }
@@ -132,7 +157,9 @@ BackgroundCaptureTransition::beginPowerSuspension(
 
     const bool stableSuspension = request_.has_value()
         && equivalentStableRequest(*request_, request)
-        && effectivePath_ != EffectiveBackgroundCapturePath::BackgroundAware;
+        && effectivePath_ != EffectiveBackgroundCapturePath::BackgroundAware
+        && effectivePath_
+            != EffectiveBackgroundCapturePath::SessionLocalExclusion;
     request_ = request;
     if (stableSuspension && !outputSize.has_value())
     {
@@ -153,7 +180,9 @@ BackgroundCaptureTransition::beginPowerSuspension(
     // resource domain. Including the HWND prevents a parked overlay from
     // remaining invisible to external capture while no background is sampled.
     appendAction(simpleAction(BackgroundCaptureActionKind::StopSensor));
-    appendAction(simpleAction(BackgroundCaptureActionKind::SetAffinityIncluded));
+    appendAction(affinityAction(
+        BackgroundCaptureActionKind::SetAffinityIncluded,
+        request.exclusionMode));
     if (outputSize.has_value())
     {
         appendAction(resizeAction(*outputSize));
@@ -209,7 +238,9 @@ BackgroundCaptureRequestResult BackgroundCaptureTransition::beginIntent(
         && !request.sensorRequired
         && request_->retryToken == request.retryToken;
     const bool activeBackgroundAware =
-        effectivePath_ == EffectiveBackgroundCapturePath::BackgroundAware;
+        effectivePath_ == EffectiveBackgroundCapturePath::BackgroundAware
+        || effectivePath_
+            == EffectiveBackgroundCapturePath::SessionLocalExclusion;
     const bool applyProfile = !appliedOverlayProfile_.has_value()
         || *appliedOverlayProfile_ != request.overlayProfile;
     request_ = request;
@@ -272,7 +303,9 @@ bool BackgroundCaptureTransition::beginFramePoolRecreate(
         || captureSize.height == 0U
         || !request_.has_value()
         || !request_->sensorRequired
-        || effectivePath_ != EffectiveBackgroundCapturePath::BackgroundAware)
+        || (effectivePath_ != EffectiveBackgroundCapturePath::BackgroundAware
+            && effectivePath_
+                != EffectiveBackgroundCapturePath::SessionLocalExclusion))
     {
         return false;
     }
@@ -280,7 +313,10 @@ bool BackgroundCaptureTransition::beginFramePoolRecreate(
     actionCount_ = 0U;
     actionIndex_ = 0U;
     pendingFailure_ = BackgroundCaptureFailure::None;
-    completionPath_ = EffectiveBackgroundCapturePath::BackgroundAware;
+    completionPath_ = effectivePath_ == EffectiveBackgroundCapturePath::
+            SessionLocalExclusion
+        ? EffectiveBackgroundCapturePath::SessionLocalExclusion
+        : EffectiveBackgroundCapturePath::BackgroundAware;
     completionVisibilityUnknown_ = false;
     appendAction(recreateFramePoolAction(captureSize));
     return true;
@@ -315,7 +351,9 @@ bool BackgroundCaptureTransition::beginActiveSensorFailure(
     if (transitioning()
         || !request_.has_value()
         || !request_->sensorRequired
-        || effectivePath_ != EffectiveBackgroundCapturePath::BackgroundAware)
+        || (effectivePath_ != EffectiveBackgroundCapturePath::BackgroundAware
+            && effectivePath_
+                != EffectiveBackgroundCapturePath::SessionLocalExclusion))
     {
         return false;
     }
@@ -323,11 +361,32 @@ bool BackgroundCaptureTransition::beginActiveSensorFailure(
     actionCount_ = 0U;
     actionIndex_ = 0U;
     pendingFailure_ = failure;
-    completionPath_ = EffectiveBackgroundCapturePath::FxOnly;
+    const bool sessionLocal = effectivePath_
+        == EffectiveBackgroundCapturePath::SessionLocalExclusion;
+    completionPath_ = sessionLocal
+        ? EffectiveBackgroundCapturePath::BackgroundAware
+        : EffectiveBackgroundCapturePath::FxOnly;
     completionVisibilityUnknown_ = false;
     appendAction(simpleAction(BackgroundCaptureActionKind::StopSensor));
-    appendAction(simpleAction(BackgroundCaptureActionKind::SetAffinityIncluded));
-    appendAction(profileAction(FxOverlayProfile::FxOnlyFallback));
+    appendAction(affinityAction(
+        BackgroundCaptureActionKind::SetAffinityIncluded,
+        sessionLocal
+            ? BackgroundCaptureRequest::ExclusionMode::SessionLocal
+            : BackgroundCaptureRequest::ExclusionMode::LegacyGlobal));
+    if (sessionLocal)
+    {
+        appendAction(profileAction(FxOverlayProfile::FxOnlyFallback));
+        appendAction(affinityAction(
+            BackgroundCaptureActionKind::SetAffinityExcluded,
+            BackgroundCaptureRequest::ExclusionMode::LegacyGlobal));
+        appendAction(startAction(
+            *request_,
+            BackgroundCaptureRequest::ExclusionMode::LegacyGlobal));
+    }
+    else
+    {
+        appendAction(profileAction(FxOverlayProfile::FxOnlyFallback));
+    }
     return true;
 }
 
@@ -469,30 +528,78 @@ bool BackgroundCaptureTransition::applyObservation(
             pendingFailure_ = BackgroundCaptureFailure::ExclusionUnconfirmed;
             completionPath_ = EffectiveBackgroundCapturePath::FxOnly;
             discardRemainingActions();
-            appendAction(simpleAction(
-                BackgroundCaptureActionKind::SetAffinityIncluded));
+            appendAction(affinityAction(
+                BackgroundCaptureActionKind::SetAffinityIncluded,
+                BackgroundCaptureRequest::ExclusionMode::LegacyGlobal));
             appendAction(profileAction(FxOverlayProfile::FxOnlyFallback));
         }
         break;
     case BackgroundCaptureActionKind::SetAffinityIncluded:
         if (!succeeded)
         {
-            if (pendingFailure_ == BackgroundCaptureFailure::None)
+            const bool sessionLocal = action.exclusionMode
+                == BackgroundCaptureRequest::ExclusionMode::SessionLocal;
+            if (sessionLocal)
             {
-                pendingFailure_ = BackgroundCaptureFailure::InclusionUnconfirmed;
+                // WDA_NONE is a prerequisite for the Session-local path. Do
+                // not create a WGC session while the overlay visibility state
+                // is unknown; leave the process in the explicit FX-only
+                // visibility-unknown state instead.
+                pendingFailure_ = BackgroundCaptureFailure::
+                    SessionExclusionFailed;
+                completionPath_ = EffectiveBackgroundCapturePath::FxOnly;
+                completionVisibilityUnknown_ = true;
+                discardRemainingActions();
+                appendAction(profileAction(FxOverlayProfile::FxOnlyFallback));
             }
-            completionVisibilityUnknown_ = true;
+            else
+            {
+                if (pendingFailure_ == BackgroundCaptureFailure::None)
+                {
+                    pendingFailure_ = BackgroundCaptureFailure::
+                        InclusionUnconfirmed;
+                }
+                completionVisibilityUnknown_ = true;
+            }
         }
         break;
     case BackgroundCaptureActionKind::StartSensor:
         if (!succeeded)
         {
-            pendingFailure_ = BackgroundCaptureFailure::SensorStartFailed;
-            completionPath_ = EffectiveBackgroundCapturePath::FxOnly;
-            discardRemainingActions();
-            appendAction(simpleAction(BackgroundCaptureActionKind::StopSensor));
-            appendAction(simpleAction(
-                BackgroundCaptureActionKind::SetAffinityIncluded));
+            const bool sessionLocal = action.exclusionMode
+                == BackgroundCaptureRequest::ExclusionMode::SessionLocal;
+            if (sessionLocal && request_.has_value())
+            {
+                // A Session-local failure is recoverable through the legacy
+                // global exclusion path. Preserve the original failure as
+                // evidence while making the fallback sequence explicit.
+                pendingFailure_ = BackgroundCaptureFailure::
+                    SessionExclusionFailed;
+                completionPath_ = EffectiveBackgroundCapturePath::
+                    BackgroundAware;
+                completionVisibilityUnknown_ = false;
+                discardRemainingActions();
+                appendAction(simpleAction(
+                    BackgroundCaptureActionKind::StopSensor));
+                appendAction(affinityAction(
+                    BackgroundCaptureActionKind::SetAffinityExcluded,
+                    BackgroundCaptureRequest::ExclusionMode::LegacyGlobal));
+                appendAction(profileAction(FxOverlayProfile::FxOnlyFallback));
+                appendAction(startAction(
+                    *request_,
+                    BackgroundCaptureRequest::ExclusionMode::LegacyGlobal));
+            }
+            else
+            {
+                pendingFailure_ = BackgroundCaptureFailure::SensorStartFailed;
+                completionPath_ = EffectiveBackgroundCapturePath::FxOnly;
+                discardRemainingActions();
+                appendAction(simpleAction(
+                    BackgroundCaptureActionKind::StopSensor));
+                appendAction(affinityAction(
+                    BackgroundCaptureActionKind::SetAffinityIncluded,
+                    BackgroundCaptureRequest::ExclusionMode::LegacyGlobal));
+            }
         }
         break;
     case BackgroundCaptureActionKind::RecreateFramePool:
@@ -550,7 +657,9 @@ void BackgroundCaptureTransition::beginFullRequest(
         ? BackgroundCaptureFailure::SensorStopFailed
         : BackgroundCaptureFailure::None;
     completionPath_ = request.sensorRequired
-        ? EffectiveBackgroundCapturePath::BackgroundAware
+        ? (isSessionLocalRequest(request)
+            ? EffectiveBackgroundCapturePath::SessionLocalExclusion
+            : EffectiveBackgroundCapturePath::BackgroundAware)
         : EffectiveBackgroundCapturePath::FxOnly;
     completionVisibilityUnknown_ = false;
 
@@ -558,15 +667,19 @@ void BackgroundCaptureTransition::beginFullRequest(
     appendAction(simpleAction(BackgroundCaptureActionKind::StopSensor));
     if (request.sensorRequired)
     {
-        appendAction(simpleAction(
-            BackgroundCaptureActionKind::SetAffinityExcluded));
+        appendAction(affinityAction(
+            isSessionLocalRequest(request)
+                ? BackgroundCaptureActionKind::SetAffinityIncluded
+                : BackgroundCaptureActionKind::SetAffinityExcluded,
+            request.exclusionMode));
         appendAction(profileAction(request.overlayProfile));
-        appendAction(startAction(request));
+        appendAction(startAction(request, request.exclusionMode));
     }
     else
     {
-        appendAction(simpleAction(
-            BackgroundCaptureActionKind::SetAffinityIncluded));
+        appendAction(affinityAction(
+            BackgroundCaptureActionKind::SetAffinityIncluded,
+            BackgroundCaptureRequest::ExclusionMode::LegacyGlobal));
         appendAction(profileAction(request.overlayProfile));
     }
 }
@@ -606,7 +719,10 @@ void BackgroundCaptureTransition::beginBackgroundAwareResize(
     actionCount_ = 0U;
     actionIndex_ = 0U;
     pendingFailure_ = BackgroundCaptureFailure::None;
-    completionPath_ = EffectiveBackgroundCapturePath::BackgroundAware;
+    const bool sessionLocal = isSessionLocalRequest(request);
+    completionPath_ = sessionLocal
+        ? EffectiveBackgroundCapturePath::SessionLocalExclusion
+        : EffectiveBackgroundCapturePath::BackgroundAware;
     completionVisibilityUnknown_ = false;
 
     appendBorderlessAccessRequestIfRequired(request);
@@ -615,12 +731,16 @@ void BackgroundCaptureTransition::beginBackgroundAwareResize(
         appendAction(simpleAction(BackgroundCaptureActionKind::StopSensor));
     }
     appendAction(resizeAction(outputSize));
-    appendAction(simpleAction(BackgroundCaptureActionKind::SetAffinityExcluded));
+    appendAction(affinityAction(
+        sessionLocal
+            ? BackgroundCaptureActionKind::SetAffinityIncluded
+            : BackgroundCaptureActionKind::SetAffinityExcluded,
+        request.exclusionMode));
     if (applyProfile)
     {
         appendAction(profileAction(request.overlayProfile));
     }
-    appendAction(startAction(request));
+    appendAction(startAction(request, request.exclusionMode));
 }
 
 void BackgroundCaptureTransition::beginFxOnlyResize(
