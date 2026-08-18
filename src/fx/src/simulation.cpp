@@ -612,6 +612,33 @@ void Simulation::setTrailLengthMultiplier(const float multiplier) noexcept
     }
 }
 
+void Simulation::setEffectsMode(const SimulationEffectsMode mode) noexcept
+{
+    if (effectsMode_ == mode)
+    {
+        return;
+    }
+
+    effectsMode_ = mode;
+    // A mode switch must not carry expensive geometry into the next profile.
+    // The runtime also drops the owning instance, but clearing here keeps the
+    // standalone Simulation contract deterministic for tests and tools.
+    active_ = false;
+    pointerHeld_ = false;
+    clickEffectEnabled_ = false;
+    rings_.clear();
+    triangles_.clear();
+    trail_.clear();
+    trailParkingPoints_.clear();
+    trailParkingMode_ = false;
+    trailRendererEnabled_ = mode != SimulationEffectsMode::Core;
+}
+
+SimulationEffectsMode Simulation::effectsMode() const noexcept
+{
+    return effectsMode_;
+}
+
 void Simulation::updateUnityTrailTimeScale(const float timeScale)
 {
     const float normalized = std::isfinite(timeScale)
@@ -742,6 +769,10 @@ void Simulation::startTrail(
 {
     const PointF worldPosition = screenToWorld(screenPosition, viewport);
     resetState(worldPosition, time);
+    if (effectsMode_ == SimulationEffectsMode::Core)
+    {
+        return;
+    }
     appendTrailPoint(worldPosition, trailTime_);
 }
 
@@ -751,6 +782,10 @@ void Simulation::pointerMove(
     const SimulationTime time)
 {
     if (!active_ || !pointerHeld_)
+    {
+        return;
+    }
+    if (effectsMode_ == SimulationEffectsMode::Core)
     {
         return;
     }
@@ -827,6 +862,21 @@ void Simulation::advance(const SimulationTime time)
     }
     firstAdvancePending_ = false;
     accumulateClickTime(time);
+    if (effectsMode_ == SimulationEffectsMode::Core)
+    {
+        if (clickEffectEnabled_)
+        {
+            advanceParticleStepState(
+                particleStepStates_.centerDisk,
+                pendingClickTime_);
+            advanceParticleStepState(
+                particleStepStates_.dissolveRings,
+                pendingClickTime_);
+        }
+        pendingClickTime_ = SimulationTime::zero();
+        lastAdvancedAt_ = time;
+        return;
+    }
     synchronizeTrailTime(time);
     if (pointerHeld_)
     {
@@ -939,6 +989,10 @@ bool Simulation::hasVisibleSystemsAfterFrame(
         {
             return true;
         }
+    }
+    if (effectsMode_ == SimulationEffectsMode::Core)
+    {
+        return false;
     }
 
     const SimulationTime currentTrailTime = trailTimeAt(time);
@@ -1170,6 +1224,10 @@ bool Simulation::hasDrawableContent(const SimulationTime time) const noexcept
     {
         return true;
     }
+    if (effectsMode_ == SimulationEffectsMode::Core)
+    {
+        return false;
+    }
 
     const SimulationTime currentTrailTime = trailTimeAt(time);
     for (const MovingParticle& particle : triangles_)
@@ -1262,7 +1320,15 @@ Simulation::ClickParticleStepStates Simulation::particleStepStatesAt(
     {
         // Snapshot is intentionally read-only. Capture tools query arbitrary
         // future ages, so complete the pending virtual interval on a copy.
-        advanceClickParticleStepStates(states, elapsed);
+        if (effectsMode_ == SimulationEffectsMode::Core)
+        {
+            advanceParticleStepState(states.centerDisk, elapsed);
+            advanceParticleStepState(states.dissolveRings, elapsed);
+        }
+        else
+        {
+            advanceClickParticleStepStates(states, elapsed);
+        }
     }
     return states;
 }
@@ -1379,8 +1445,11 @@ void Simulation::reset(const PointF worldPosition, const SimulationTime time)
         clickParticleSettings_.ringsRadiusMin);
     const float radiusMaximumWorld = referenceRadiusToStartSizeWorld(
         clickParticleSettings_.ringsRadiusMax);
+    const std::uint32_t ringCount = effectsMode_ == SimulationEffectsMode::Core
+        ? std::min(clickParticleSettings_.ringsCount, 1U)
+        : clickParticleSettings_.ringsCount;
     for (std::uint32_t index = 0;
-         index < clickParticleSettings_.ringsCount;
+         index < ringCount;
          ++index)
     {
         rings_.push_back(RingParticle{
@@ -1390,8 +1459,11 @@ void Simulation::reset(const PointF worldPosition, const SimulationTime time)
             0.0F,
             0.0F});
     }
-    emitClickTriangles(SimulationTime::zero());
-    appendTrailPoint(worldPosition, trailTime_);
+    if (effectsMode_ != SimulationEffectsMode::Core)
+    {
+        emitClickTriangles(SimulationTime::zero());
+        appendTrailPoint(worldPosition, trailTime_);
+    }
 }
 
 void Simulation::resetState(

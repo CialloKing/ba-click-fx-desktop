@@ -36,6 +36,14 @@ enum class SpriteKind : std::uint8_t
     Triangle
 };
 
+// Core mode keeps only the cheapest click primitives. It is separate from
+// presentation profiles so users can retain their normal visual settings.
+enum class SimulationEffectsMode : std::uint8_t
+{
+    Full,
+    Core
+};
+
 struct Sprite
 {
     SpriteKind kind{SpriteKind::CenterDisk};
@@ -179,6 +187,8 @@ public:
     // Product settings may change during an active stroke. Retain the
     // existing points and apply the new lifetime on the next simulation step.
     void setTrailLengthMultiplier(float multiplier) noexcept;
+    void setEffectsMode(SimulationEffectsMode mode) noexcept;
+    [[nodiscard]] SimulationEffectsMode effectsMode() const noexcept;
 
     [[nodiscard]] FrameSnapshot snapshot(Viewport viewport, SimulationTime time) const;
     [[nodiscard]] bool hasDrawableContent(SimulationTime time) const noexcept;
@@ -304,6 +314,7 @@ private:
     PointF lastEmissionWorld_{};
     float dragDistanceRemainderWorld_{0.0F};
     float trailLengthMultiplier_{1.0F};
+    SimulationEffectsMode effectsMode_{SimulationEffectsMode::Full};
     float clickTimeScale_{1.0F};
     float trailTimeScale_{1.0F};
     ClickParticleSettings clickParticleSettings_{};

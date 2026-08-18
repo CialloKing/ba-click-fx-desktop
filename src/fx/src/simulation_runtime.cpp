@@ -119,6 +119,11 @@ void SimulationRuntime::pointerMove(
     const SimulationTime simulationTime,
     const SimulationTime inputTime)
 {
+    if (effectsMode_ == SimulationEffectsMode::Core)
+    {
+        // Ordinary Move events have no visual work in Core mode.
+        return;
+    }
     if (pointerActive_ && !instances_.empty())
     {
         Simulation& instance = instances_.back().simulation;
@@ -397,11 +402,35 @@ void SimulationRuntime::setAlwaysOnTrailEnabled(
     const bool enabled,
     const SimulationTime time)
 {
-    alwaysOnTrailEnabled_ = enabled;
+    alwaysOnTrailEnabled_ = enabled
+        && effectsMode_ != SimulationEffectsMode::Core;
     if (!alwaysOnTrailEnabled_)
     {
         retireAlwaysOnTrail(time);
     }
+}
+
+void SimulationRuntime::setEffectsMode(
+    const SimulationEffectsMode mode,
+    const SimulationTime time) noexcept
+{
+    if (effectsMode_ == mode)
+    {
+        return;
+    }
+
+    discardActiveEffects();
+    effectsMode_ = mode;
+    if (mode == SimulationEffectsMode::Core)
+    {
+        alwaysOnTrailEnabled_ = false;
+    }
+    (void)time;
+}
+
+SimulationEffectsMode SimulationRuntime::effectsMode() const noexcept
+{
+    return effectsMode_;
 }
 
 FrameSnapshot SimulationRuntime::snapshot(
@@ -542,6 +571,7 @@ Simulation& SimulationRuntime::acquirePressedInstance(
     instance.setTrailLengthMultiplier(trailLengthMultiplier_);
     instance.setClickTimeScale(clickTimeScale_);
     instance.setTrailTimeScale(trailTimeScale_);
+    instance.setEffectsMode(effectsMode_);
     return instance;
 }
 
