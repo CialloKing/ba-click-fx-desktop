@@ -2122,3 +2122,25 @@ BAFX_TEST(warp_capture_never_exports_stale_layers_for_an_empty_frame)
     BAFX_CHECK(capture.bloomResult.pixels.empty());
     BAFX_CHECK(isZeroImage(capture.finalOverlay));
 }
+
+BAFX_TEST(warp_core_profile_keeps_trail_without_bloom_layers)
+{
+    ComApartment apartment;
+    const WarpDevice graphics = createWarpDevice();
+    FxGpuRenderer renderer(graphics.device.Get(), graphics.context.Get(), testSize);
+    renderer.setOverlayProfile(FxOverlayProfile::Core);
+    const RenderTarget target = createRenderTarget(graphics.device.Get());
+
+    const FxGpuFrameCapture capture = renderer.renderAndCapture(
+        makeDiskAndTrailSnapshot(),
+        target.view.Get());
+
+    BAFX_CHECK(!capture.directSurface.pixels.empty());
+    BAFX_CHECK(capture.bloomSeed.pixels.empty());
+    BAFX_CHECK(capture.bloomDown.empty());
+    BAFX_CHECK(capture.bloomUp.empty());
+    BAFX_CHECK(capture.bloomResult.pixels.empty());
+    BAFX_CHECK(
+        maximumRgbOutsideSprite(toFloatPixels(capture.finalOverlay))
+        > 1.0e-3F);
+}

@@ -36,8 +36,8 @@ enum class SpriteKind : std::uint8_t
     Triangle
 };
 
-// Core mode keeps only the cheapest click primitives. It is separate from
-// presentation profiles so users can retain their normal visual settings.
+// Core mode keeps all non-Bloom effect primitives. Presentation profiles still
+// decide background transport independently from this simulation mode.
 enum class SimulationEffectsMode : std::uint8_t
 {
     Full,

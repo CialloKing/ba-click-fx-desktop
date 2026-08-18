@@ -631,7 +631,7 @@ void Simulation::setEffectsMode(const SimulationEffectsMode mode) noexcept
     trail_.clear();
     trailParkingPoints_.clear();
     trailParkingMode_ = false;
-    trailRendererEnabled_ = mode != SimulationEffectsMode::Core;
+    trailRendererEnabled_ = true;
 }
 
 SimulationEffectsMode Simulation::effectsMode() const noexcept
@@ -769,10 +769,6 @@ void Simulation::startTrail(
 {
     const PointF worldPosition = screenToWorld(screenPosition, viewport);
     resetState(worldPosition, time);
-    if (effectsMode_ == SimulationEffectsMode::Core)
-    {
-        return;
-    }
     appendTrailPoint(worldPosition, trailTime_);
 }
 
@@ -785,11 +781,6 @@ void Simulation::pointerMove(
     {
         return;
     }
-    if (effectsMode_ == SimulationEffectsMode::Core)
-    {
-        return;
-    }
-
     // Input can be drained after the compositor has already advanced past its
     // QPC sample. Preserve that sample while preventing pointer-time rollback.
     const SimulationTime sampleTime = std::max(time, pointerSampleAt_);
@@ -862,21 +853,6 @@ void Simulation::advance(const SimulationTime time)
     }
     firstAdvancePending_ = false;
     accumulateClickTime(time);
-    if (effectsMode_ == SimulationEffectsMode::Core)
-    {
-        if (clickEffectEnabled_)
-        {
-            advanceParticleStepState(
-                particleStepStates_.centerDisk,
-                pendingClickTime_);
-            advanceParticleStepState(
-                particleStepStates_.dissolveRings,
-                pendingClickTime_);
-        }
-        pendingClickTime_ = SimulationTime::zero();
-        lastAdvancedAt_ = time;
-        return;
-    }
     synchronizeTrailTime(time);
     if (pointerHeld_)
     {
@@ -990,11 +966,6 @@ bool Simulation::hasVisibleSystemsAfterFrame(
             return true;
         }
     }
-    if (effectsMode_ == SimulationEffectsMode::Core)
-    {
-        return false;
-    }
-
     const SimulationTime currentTrailTime = trailTimeAt(time);
     for (const MovingParticle& particle : triangles_)
     {
@@ -1224,11 +1195,6 @@ bool Simulation::hasDrawableContent(const SimulationTime time) const noexcept
     {
         return true;
     }
-    if (effectsMode_ == SimulationEffectsMode::Core)
-    {
-        return false;
-    }
-
     const SimulationTime currentTrailTime = trailTimeAt(time);
     for (const MovingParticle& particle : triangles_)
     {
@@ -1320,15 +1286,7 @@ Simulation::ClickParticleStepStates Simulation::particleStepStatesAt(
     {
         // Snapshot is intentionally read-only. Capture tools query arbitrary
         // future ages, so complete the pending virtual interval on a copy.
-        if (effectsMode_ == SimulationEffectsMode::Core)
-        {
-            advanceParticleStepState(states.centerDisk, elapsed);
-            advanceParticleStepState(states.dissolveRings, elapsed);
-        }
-        else
-        {
-            advanceClickParticleStepStates(states, elapsed);
-        }
+        advanceClickParticleStepStates(states, elapsed);
     }
     return states;
 }
@@ -1445,9 +1403,7 @@ void Simulation::reset(const PointF worldPosition, const SimulationTime time)
         clickParticleSettings_.ringsRadiusMin);
     const float radiusMaximumWorld = referenceRadiusToStartSizeWorld(
         clickParticleSettings_.ringsRadiusMax);
-    const std::uint32_t ringCount = effectsMode_ == SimulationEffectsMode::Core
-        ? std::min(clickParticleSettings_.ringsCount, 1U)
-        : clickParticleSettings_.ringsCount;
+    const std::uint32_t ringCount = clickParticleSettings_.ringsCount;
     for (std::uint32_t index = 0;
          index < ringCount;
          ++index)
@@ -1459,11 +1415,8 @@ void Simulation::reset(const PointF worldPosition, const SimulationTime time)
             0.0F,
             0.0F});
     }
-    if (effectsMode_ != SimulationEffectsMode::Core)
-    {
-        emitClickTriangles(SimulationTime::zero());
-        appendTrailPoint(worldPosition, trailTime_);
-    }
+    emitClickTriangles(SimulationTime::zero());
+    appendTrailPoint(worldPosition, trailTime_);
 }
 
 void Simulation::resetState(

@@ -45,8 +45,8 @@ DPI 和 Windows 11 运行时逻辑提前到测试与硬件证据之前，不再�
 
 ## 核心性能模式与静默日志维护（2026-08-18）
 
-- `performance.effectsMode=core` 作为用户主动选择的低配测试模式开放；它只保留中心圆盘和一个圆环，
-  跳过碎片、拖尾、Bloom 及背景捕获计算，固定 60 FPS、保守 SDR 和 FX-only。默认 `full` 模式及正式
+- `performance.effectsMode=core` 作为用户主动选择的低配测试模式开放；它保留中心圆盘、圆环、点击/拖拽
+  碎片和拖尾，仅跳过 Bloom 及背景捕获计算，固定 60 FPS、保守 SDR 和 FX-only。默认 `full` 模式及正式
   背景路径不变，core 也不能替代 WGC Session-local Spike。
 - 诊断日志采用单文件 `8 MiB`、三个备份、约 `32 MiB` 总预算。Host 通过 `ClearLogs` 提供静默清理接口，
   Control Center 系统页在确认后调用该接口并显示清理统计；用户反馈只需提交清理后的日志，不要求额外诊断包。

@@ -144,7 +144,7 @@ BAFX_TEST(unity_click_timeline_has_expected_system_counts)
     BAFX_CHECK(countKind(frame, SpriteKind::DissolveRing) == 0U);
 }
 
-BAFX_TEST(core_effects_mode_keeps_only_disk_and_one_ring)
+BAFX_TEST(core_effects_mode_keeps_non_bloom_effects)
 {
     Simulation simulation;
     simulation.setEffectsMode(SimulationEffectsMode::Core);
@@ -153,14 +153,14 @@ BAFX_TEST(core_effects_mode_keeps_only_disk_and_one_ring)
     const FrameSnapshot frame = simulation.snapshot(goldenViewport, 50ms);
     BAFX_CHECK(simulation.effectsMode() == SimulationEffectsMode::Core);
     BAFX_CHECK(countKind(frame, SpriteKind::CenterDisk) == 1U);
-    BAFX_CHECK(countKind(frame, SpriteKind::DissolveRing) == 1U);
-    BAFX_CHECK(countKind(frame, SpriteKind::Triangle) == 0U);
-    BAFX_CHECK(frame.trail.empty());
+    BAFX_CHECK(countKind(frame, SpriteKind::DissolveRing) == 2U);
+    BAFX_CHECK(countKind(frame, SpriteKind::Triangle) == 4U);
+    BAFX_CHECK(frame.trail.size() == 1U);
 
     simulation.pointerMove(PointF{1200.0F, 600.0F}, goldenViewport, 100ms);
     const FrameSnapshot moved = simulation.snapshot(goldenViewport, 150ms);
-    BAFX_CHECK(countKind(moved, SpriteKind::Triangle) == 0U);
-    BAFX_CHECK(moved.trail.empty());
+    BAFX_CHECK(countKind(moved, SpriteKind::Triangle) > 4U);
+    BAFX_CHECK(moved.trail.size() >= 2U);
 }
 
 BAFX_TEST(core_effects_mode_switch_discards_existing_geometry)
@@ -175,8 +175,8 @@ BAFX_TEST(core_effects_mode_switch_discards_existing_geometry)
 
     simulation.pointerDown(goldenCenter, goldenViewport, 100ms);
     const FrameSnapshot coreFrame = simulation.snapshot(goldenViewport, 150ms);
-    BAFX_CHECK(countKind(coreFrame, SpriteKind::DissolveRing) == 1U);
-    BAFX_CHECK(countKind(coreFrame, SpriteKind::Triangle) == 0U);
+    BAFX_CHECK(countKind(coreFrame, SpriteKind::DissolveRing) == 2U);
+    BAFX_CHECK(countKind(coreFrame, SpriteKind::Triangle) == 4U);
 }
 
 BAFX_TEST(click_triangle_atlas_frames_are_sampled_per_particle)

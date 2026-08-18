@@ -52,9 +52,9 @@ Trail 和 Bloom 继续按游戏合同在线性 FP16 中计算。最终呈现阶�
   WGC 和完整的 Differential Bloom；`recording-compatible` 关闭 WGC，拟合 Web 版透明覆盖层的
   `visual-max`、`bright-core`、`0.90` Alpha 上限和 source-over；`light-background` 使用同一颜色策略，
   但将桌面 Alpha 上限收紧为 `0.85`。
-- `performance.effectsMode` 提供 `full` 和 `core` 两个特效计算档位。`core` 是面向低性能机器的主动
-  测试模式，只保留中心圆盘和一个圆环，跳过碎片、拖尾和 Bloom 计算；它固定使用保守 SDR、60 FPS、
-  FX-only 路径并关闭 WGC，不代表完整特效的视觉等价或 WGC 能力。
+- `performance.effectsMode` 提供 `full` 和 `core` 两个特效计算档位。`core` 面向低性能机器保留中心圆盘、
+  圆环、点击/拖拽碎片和拖尾，只跳过 Bloom 计算；它固定使用保守 SDR、60 FPS、FX-only 路径并关闭 WGC，
+  不代表完整背景合成或 HDR 能力。
 - 最终透明交换链使用 FP16 扩展预乘输出；普通 SDR 下不得承诺白底仍有加法余量。
 - 三角碎片保留清晰的 HDR 直接能量，同时按游戏 `FX_SHADER_Additive_0` 进入全场景 Bloom，
   因此既有锐利核心也有对应的模糊光晕。

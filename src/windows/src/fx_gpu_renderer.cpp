@@ -1589,9 +1589,55 @@ struct FxGpuRenderer::Implementation
             target.data(),
             nullptr);
         configureFramePipeline();
-        for (const bafx::fx::Sprite& sprite : snapshot.sprites)
+        std::size_t index = 0U;
+        while (index < snapshot.sprites.size()
+            && snapshot.sprites[index].renderQueue <= trailRenderQueue)
         {
-            drawSprite(sprite, snapshot.globalOpacity);
+            drawSprite(snapshot.sprites[index], snapshot.globalOpacity);
+            ++index;
+        }
+        const auto drawTrail = [this](
+                                   const std::span<const bafx::fx::TrailPoint> points,
+                                   const float widthPixels,
+                                   const float opacity,
+                                   const float globalOpacity)
+        {
+            const std::vector<SpriteVertex> trailVertices = makeTrailVertices(
+                points,
+                widthPixels,
+                opacity,
+                globalOpacity,
+                theme);
+            drawVertices(
+                trailVertices,
+                trailTexture.Get(),
+                repeatSampler.Get(),
+                trailPixelShader.Get(),
+                emissionBlendState.Get());
+        };
+        if (snapshot.trailStrokes.empty())
+        {
+            drawTrail(
+                snapshot.trail,
+                snapshot.trailWidthPixels,
+                snapshot.trailOpacity,
+                snapshot.globalOpacity);
+        }
+        else
+        {
+            for (const bafx::fx::TrailStroke& stroke : snapshot.trailStrokes)
+            {
+                drawTrail(
+                    stroke.points,
+                    stroke.widthPixels,
+                    stroke.opacity,
+                    snapshot.globalOpacity);
+            }
+        }
+        while (index < snapshot.sprites.size())
+        {
+            drawSprite(snapshot.sprites[index], snapshot.globalOpacity);
+            ++index;
         }
         context->OMSetRenderTargets(0, nullptr, nullptr);
         diagnostics.materialsSubmit = std::chrono::steady_clock::now()

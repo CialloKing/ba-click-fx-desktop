@@ -39,9 +39,9 @@ enum class FramePacing : std::uint8_t
     Fixed144
 };
 
-// Core keeps only the click disk and one dissolve ring. It is a separate
-// performance axis so the Unity-faithful Full profile remains the default and
-// background transport choices do not silently change particle semantics.
+// Core keeps the authored click, ring, shard, and trail effects while omitting
+// Bloom and background transport. It is a separate performance axis so the
+// Unity-faithful Full profile remains the default.
 enum class EffectsMode : std::uint8_t
 {
     Full,

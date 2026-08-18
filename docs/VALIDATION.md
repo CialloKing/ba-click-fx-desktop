@@ -44,9 +44,10 @@
   `recording-compatible` wire value 和 schema 不变，`LightBackground` 的 `0.85` Alpha 合同与测试
   模式的 `0.90` Alpha 合同分别验证。该测试仅覆盖透明 overlay 的外部录屏观察，不作为 Session-local
   exclusion 能力证据。
-- `performance.effectsMode=core` 的低配测试合同：只创建中心圆盘和一个圆环，跳过碎片、拖尾、Bloom
-  与 WGC/背景捕获，固定保守 SDR 和 60 FPS；切换进入或离开 core 时清理旧几何，日志记录请求档位与实际
-  FX-only 路径。该模式只评估低性能机器的流畅度，不作为完整视觉或 Session-local exclusion 证据。
+- `performance.effectsMode=core` 的低配测试合同：保留中心圆盘、圆环、点击/拖拽碎片和拖尾，仅跳过
+  Bloom 与 WGC/背景捕获，固定保守 SDR 和 60 FPS；切换进入或离开 core 时清理旧几何，日志记录请求档位与
+  实际 FX-only 路径。该模式只评估低性能机器的流畅度，不作为完整背景合成、HDR 或 Session-local
+  exclusion 证据。
 - 诊断日志留存合同：当前文件最大 `8 MiB`，最多三个轮转备份，总预算约 `32 MiB`；轮转、遗留备份清理、
   超大记录压缩标记和 `ClearLogs` 返回的删除统计均保持可审计。清理失败只报告失败文件数，不改变运行配置。
 
