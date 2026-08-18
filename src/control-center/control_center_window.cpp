@@ -201,6 +201,12 @@ void setControlFont(const HWND control, const HFONT font) noexcept
     return -1;
 }
 
+[[nodiscard]] int effectsModeIndex(
+    const bafx::config::EffectsMode mode) noexcept
+{
+    return mode == bafx::config::EffectsMode::Core ? 1 : 0;
+}
+
 [[nodiscard]] int framePacingIndex(
     const bafx::config::FramePacing pacing) noexcept
 {
@@ -1092,6 +1098,30 @@ bool ControlCenterWindow::createControls()
         L"特效",
         BS_GROUPBOX);
 
+    effectsModeLabel_ = createChild(
+        L"STATIC",
+        L"性能模式",
+        SS_LEFT | SS_NOPREFIX);
+    effectsMode_ = createChild(
+        WC_COMBOBOXW,
+        L"",
+        CBS_DROPDOWNLIST | CBS_HASSTRINGS | WS_VSCROLL | WS_TABSTOP,
+        ControlId::EffectsMode);
+    if (effectsMode_ != nullptr)
+    {
+        static_cast<void>(SendMessageW(
+            effectsMode_,
+            CB_ADDSTRING,
+            0U,
+            reinterpret_cast<LPARAM>(L"完整特效")));
+        static_cast<void>(SendMessageW(
+            effectsMode_,
+            CB_ADDSTRING,
+            0U,
+            reinterpret_cast<LPARAM>(L"核心性能模式（低配测试）")));
+        static_cast<void>(SendMessageW(effectsMode_, CB_SETMINVISIBLE, 2U, 0));
+    }
+
     effectsEnabled_ = createChild(
         L"BUTTON",
         L"启用特效",
@@ -1595,6 +1625,8 @@ bool ControlCenterWindow::createControls()
         systemPageButton_,
         effectsHeading_,
         effectsEnabled_,
+        effectsModeLabel_,
+        effectsMode_,
         clickEnabled_,
         trailEnabled_,
         trailAlwaysOn_,
@@ -1843,6 +1875,8 @@ void ControlCenterWindow::applyFonts() const noexcept
         displayPageButton_,
         systemPageButton_,
         effectsEnabled_,
+        effectsModeLabel_,
+        effectsMode_,
         clickEnabled_,
         trailEnabled_,
         trailAlwaysOn_,
@@ -1997,6 +2031,7 @@ void ControlCenterWindow::applyDpiMetrics() const noexcept
 {
     const std::array comboBoxes{
         bloomQuality_,
+        effectsMode_,
         backgroundMode_,
         displaySelector_,
         framePacing_,
@@ -2698,7 +2733,19 @@ void ControlCenterWindow::layoutControls(
     const int groupInset = scale(16);
     const int groupLeft = margin + groupInset;
     const int groupWidth = (std::max)(scale(1), leftWidth - groupInset * 2);
-    const int checkboxTop = contentTop + scale(24);
+    moveControl(
+        effectsModeLabel_,
+        groupLeft,
+        contentTop + scale(28),
+        groupWidth,
+        scale(22));
+    moveControl(
+        effectsMode_,
+        groupLeft,
+        contentTop + scale(50),
+        groupWidth,
+        scale(34));
+    const int checkboxTop = contentTop + scale(88);
     const int checkboxWidth = groupWidth / 4;
     moveControl(effectsEnabled_, groupLeft, checkboxTop, checkboxWidth, scale(30));
     moveControl(clickEnabled_, groupLeft + checkboxWidth, checkboxTop, checkboxWidth, scale(30));
@@ -2946,6 +2993,8 @@ void ControlCenterWindow::updatePageVisibility() noexcept
     const std::array basicControls{
         effectsHeading_,
         effectsEnabled_,
+        effectsModeLabel_,
+        effectsMode_,
         clickEnabled_,
         trailEnabled_,
         trailAlwaysOn_,
@@ -3241,6 +3290,28 @@ void ControlCenterWindow::onCommand(
         if (notificationCode == BN_CLICKED)
         {
             applyPatch("effects.enabled", isChecked(effectsEnabled_) ? "true" : "false");
+        }
+        break;
+    case ControlId::EffectsMode:
+        if (notificationCode == CBN_SELCHANGE)
+        {
+            const LRESULT selected = SendMessageW(
+                effectsMode_,
+                CB_GETCURSEL,
+                0U,
+                0U);
+            if (selected == 0)
+            {
+                applyPatch("performance.effectsMode", "\"full\"");
+            }
+            else if (selected == 1)
+            {
+                applyPatch("performance.effectsMode", "\"core\"");
+            }
+            else
+            {
+                setError(L"未知的性能模式选择。");
+            }
         }
         break;
     case ControlId::ClickEnabled:
@@ -3882,6 +3953,11 @@ void ControlCenterWindow::updateControls(
     }
 
     setChecked(effectsEnabled_, config.effects.enabled);
+    static_cast<void>(SendMessageW(
+        effectsMode_,
+        CB_SETCURSEL,
+        effectsModeIndex(config.performance.effectsMode),
+        0));
     setChecked(clickEnabled_, config.effects.clickEnabled);
     setChecked(trailEnabled_, config.effects.trailEnabled);
     setChecked(trailAlwaysOn_, !config.input.trailOnlyWhilePressed);
@@ -4950,6 +5026,7 @@ void ControlCenterWindow::setConnected(const bool connected) noexcept
     const BOOL enabled = connected ? TRUE : FALSE;
     const std::array controls{
         effectsEnabled_,
+        effectsMode_,
         clickEnabled_,
         trailEnabled_,
         trailAlwaysOn_,

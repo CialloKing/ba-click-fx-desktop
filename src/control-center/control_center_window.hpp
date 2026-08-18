@@ -45,6 +45,7 @@ private:
         AdvancedClickShardsSection,
         AdvancedBloomSection,
         EffectsEnabled,
+        EffectsMode,
         ClickEnabled,
         TrailEnabled,
         TrailAlwaysOn,
@@ -255,6 +256,8 @@ private:
     HWND messageText_{nullptr};
     HWND effectsHeading_{nullptr};
     HWND effectsEnabled_{nullptr};
+    HWND effectsModeLabel_{nullptr};
+    HWND effectsMode_{nullptr};
     HWND clickEnabled_{nullptr};
     HWND trailEnabled_{nullptr};
     HWND trailAlwaysOn_{nullptr};
