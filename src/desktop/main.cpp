@@ -9,6 +9,7 @@
 #include "bafx/windows/overlay_window.hpp"
 #include "bafx/windows/package_identity.hpp"
 #include "bafx/windows/portable_paths.hpp"
+#include "bafx/windows/recording_compatibility.hpp"
 #include "bafx/windows/runtime_diagnostics.hpp"
 #include "bafx/windows/startup_registration.hpp"
 #include "bafx/windows/unique_handle.hpp"
@@ -66,6 +67,68 @@ constexpr DWORD pausedControlPollMilliseconds = 50U;
            << std::setfill('0')
            << static_cast<unsigned long>(result);
     return stream.str();
+}
+
+void appendRecordingCompatibleDiagnostic(
+    const std::filesystem::path& logPath,
+    const bafx::windows::RecordingCompatibleAvailability& availability,
+    const std::string_view eventName,
+    const std::string_view requestedMode,
+    const std::string_view effectiveMode,
+    const std::string_view reason,
+    const std::string_view persistence) noexcept
+{
+    const std::string detectedVersion =
+        bafx::windows::recordingCompatibleVersionString(availability);
+    const std::string detectedBuild = std::to_string(availability.build);
+    const std::string minimumBuild = std::to_string(
+        bafx::windows::minimumRecordingCompatibleBuild);
+    const bool recordingCompatible =
+        effectiveMode == "recording-compatible";
+    const bool lightBackground = effectiveMode == "light-background";
+    const std::string_view appliedProfile = recordingCompatible
+        ? std::string_view("RecordingCompatible")
+        : (lightBackground
+            ? std::string_view("LightBackground")
+            : std::string_view("BackgroundAware"));
+    const std::string_view effectivePath =
+        recordingCompatible || lightBackground
+        ? std::string_view("fx-only")
+        : std::string_view("background-aware");
+    const std::string_view wgc = recordingCompatible || lightBackground
+        ? std::string_view("disabled")
+        : std::string_view("runtime-managed");
+    const std::string_view alphaLimit = recordingCompatible
+        ? std::string_view("0.90")
+        : (lightBackground
+            ? std::string_view("0.85")
+            : std::string_view("profile-dependent"));
+    const std::array fields{
+        bafx::windows::DiagnosticField{"OS.Version", detectedVersion},
+        bafx::windows::DiagnosticField{"OS.Build", detectedBuild},
+        bafx::windows::DiagnosticField{"RecordingCompatible.MinimumBuild", minimumBuild},
+        bafx::windows::DiagnosticField{
+            "RecordingCompatible.Eligibility",
+            availability.supported ? "available" : "unavailable"},
+        bafx::windows::DiagnosticField{"RequestedMode", requestedMode},
+        bafx::windows::DiagnosticField{"AppliedProfile", appliedProfile},
+        bafx::windows::DiagnosticField{"EffectiveMode", effectiveMode},
+        bafx::windows::DiagnosticField{"EffectivePath", effectivePath},
+        bafx::windows::DiagnosticField{"WGC", wgc},
+        bafx::windows::DiagnosticField{"AlphaLimit", alphaLimit},
+        bafx::windows::DiagnosticField{"Generation", "1"},
+        bafx::windows::DiagnosticField{
+            "ApplicationRevision",
+            bafx::desktop::version},
+        bafx::windows::DiagnosticField{"Reason", reason},
+        bafx::windows::DiagnosticField{"Persistence", persistence}};
+    bafx::windows::appendDiagnosticEvent(
+        logPath,
+        eventName,
+        fields,
+        availability.supported
+            ? bafx::windows::DiagnosticLevel::Info
+            : bafx::windows::DiagnosticLevel::Warning);
 }
 
 [[nodiscard]] std::string wideToUtf8(const std::wstring_view value)
@@ -2621,6 +2684,9 @@ int runApplication(
     const std::filesystem::path configPath = bafx::desktop::defaultConfigPath();
     const bafx::config::ConfigLoadResult loadedConfig =
         bafx::config::loadConfig(configPath);
+    const bafx::windows::RecordingCompatibleAvailability
+        recordingCompatibleAvailability =
+            bafx::windows::queryRecordingCompatibleAvailability();
     bafx::config::Config config = loadedConfig.succeeded()
         ? loadedConfig.config
         : bafx::config::defaultConfig();
@@ -2650,6 +2716,17 @@ int runApplication(
             systemConfigurationAuthoritative = true;
         }
     }
+    appendRecordingCompatibleDiagnostic(
+        logPath,
+        recordingCompatibleAvailability,
+        std::string("recording-compatible-test: ")
+            + bafx::windows::recordingCompatibleAvailabilityReasonName(
+                recordingCompatibleAvailability.reason),
+        bafx::config::toString(config.background.mode),
+        bafx::config::toString(config.background.mode),
+        bafx::windows::recordingCompatibleAvailabilityReasonName(
+            recordingCompatibleAvailability.reason),
+        "not-applicable");
     if (options.smokeTest)
     {
         // Smoke must still exercise the renderer even when a user disabled FX.
@@ -2660,7 +2737,45 @@ int runApplication(
     {
         // Keep the probe independent from WGC so it measures only the D3D/DComp
         // resource-domain rebuild. It is not a device-removed hardware test.
-        config.background.mode = bafx::config::RenderMode::RecordingCompatible;
+        if (recordingCompatibleAvailability.supported)
+        {
+            config.background.mode =
+                bafx::config::RenderMode::RecordingCompatible;
+        }
+        else
+        {
+            appendRecordingCompatibleDiagnostic(
+                logPath,
+                recordingCompatibleAvailability,
+                "recording-compatible-test: recovery-probe-rejected",
+                "recording-compatible",
+                bafx::config::toString(config.background.mode),
+                bafx::windows::recordingCompatibleAvailabilityReasonName(
+                    recordingCompatibleAvailability.reason),
+                "not-applicable");
+        }
+    }
+    if (config.background.mode
+            == bafx::config::RenderMode::RecordingCompatible
+        && !recordingCompatibleAvailability.supported)
+    {
+        config.background.mode = bafx::config::RenderMode::LightBackground;
+        const bafx::config::ConfigSaveResult saved =
+            bafx::config::saveConfigAtomic(configPath, config);
+        systemConfigurationAuthoritative = saved.succeeded();
+        if (!saved.succeeded())
+        {
+            systemConfigurationMessage = saved.message;
+        }
+        appendRecordingCompatibleDiagnostic(
+            logPath,
+            recordingCompatibleAvailability,
+            "recording-compatible-test: fallback",
+            "recording-compatible",
+            "light-background",
+            bafx::windows::recordingCompatibleAvailabilityReasonName(
+                recordingCompatibleAvailability.reason),
+            saved.succeeded() ? "saved" : "save-failed");
     }
     const bool systemIntegrationEnabled =
         productSystemIntegrationEnabled(options);
@@ -2718,7 +2833,9 @@ int runApplication(
     bafx::desktop::HostControlPlane control(
         configPath,
         config,
-        hostSystemIntegration);
+        bafx::windows::NamedPipeIpcServer::Options{},
+        hostSystemIntegration,
+        recordingCompatibleAvailability);
     std::uint64_t appliedGeneration = control.snapshot().generation;
     report.setConfigurationSchemaVersion(config.schemaVersion);
     bafx::desktop::DisplayTarget appliedDisplayTarget = primaryDisplayTarget();
