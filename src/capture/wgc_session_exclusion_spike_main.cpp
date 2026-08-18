@@ -1,5 +1,6 @@
 #include "bafx/windows/composition_renderer.hpp"
 #include "bafx/windows/display_capabilities.hpp"
+#include "bafx/windows/detail/wgc_experimental_abi.hpp"
 #include "bafx/windows/error.hpp"
 #include "bafx/windows/gpu_texture_readback.hpp"
 #include "bafx/windows/overlay_window.hpp"
@@ -18,7 +19,6 @@
 #include <windows.h>
 #include <windows.graphics.capture.interop.h>
 #include <windows.graphics.directx.direct3d11.interop.h>
-#include <windows.ui.interop.h>
 #include <winternl.h>
 
 #include <d3d11.h>
@@ -62,6 +62,10 @@ using bafx::capture::ComApartment;
 using bafx::capture::Deadline;
 using bafx::capture::ProcessWatchdog;
 using bafx::capture::QpcClock;
+using bafx::windows::detail::Direct3D11CaptureFrame3Abi;
+using bafx::windows::detail::DisplayGraphicsCaptureSessionAbi;
+using bafx::windows::detail::GraphicsCaptureSession7Abi;
+using bafx::windows::detail::WindowIdAbi;
 using winrt::Windows::Graphics::Capture::Direct3D11CaptureFrame;
 using winrt::Windows::Graphics::Capture::Direct3D11CaptureFramePool;
 using winrt::Windows::Graphics::Capture::GraphicsCaptureItem;
@@ -1014,7 +1018,7 @@ void ledgerFrameClosed(CaptureDocument::ResourceLedger& ledger)
 }
 
 using GetWindowIdFromWindowFunction =
-    HRESULT(WINAPI*)(HWND, ABI::Windows::UI::WindowId*);
+    HRESULT(WINAPI*)(HWND, WindowIdAbi*);
 
 class WindowIdInteropResolver final
 {
@@ -1047,7 +1051,7 @@ public:
 
     [[nodiscard]] HRESULT getWindowId(
         const HWND window,
-        ABI::Windows::UI::WindowId* const id) const noexcept
+        WindowIdAbi* const id) const noexcept
     {
         if (function_ == nullptr)
         {
@@ -1175,7 +1179,7 @@ public:
         const HWND overlay)
     {
         SessionExclusionStatus status{};
-        ABI::Windows::UI::WindowId abiWindowId{};
+        WindowIdAbi abiWindowId{};
         const WindowIdInteropResolver windowIdInterop{};
         status.windowIdResult = windowIdInterop.getWindowId(
             overlay,
@@ -1199,16 +1203,10 @@ public:
         }
         const auto iterable = values.as<
             winrt::Windows::Foundation::Collections::IIterable<WindowId>>();
-        using AbiWindowIdIterable =
-            ABI::Windows::Foundation::Collections::
-                __FIIterable_1_Windows__CUI__CWindowId_t;
         status.setResult = displaySession_->SetWindowExclusionList(
-            reinterpret_cast<AbiWindowIdIterable*>(winrt::get_abi(iterable)),
+            winrt::get_abi(iterable),
             &status.setIteration);
-        using AbiWindowIdVectorView =
-            ABI::Windows::Foundation::Collections::
-                __FIVectorView_1_Windows__CUI__CWindowId_t;
-        AbiWindowIdVectorView* rawView = nullptr;
+        void* rawView = nullptr;
         status.getResult = displaySession_->GetWindowExclusionList(&rawView);
         if (SUCCEEDED(status.getResult) && rawView != nullptr)
         {
@@ -1254,8 +1252,7 @@ public:
             static_cast<std::uint32_t>(size.Height)};
         try
         {
-            ComPtr<ABI::Windows::Graphics::Capture::IDirect3D11CaptureFrame3>
-                frame3;
+            ComPtr<Direct3D11CaptureFrame3Abi> frame3;
             interfaces_.frame3Qi = reinterpret_cast<IUnknown*>(
                 winrt::get_abi(frame))->QueryInterface(IID_PPV_ARGS(&frame3));
             if (SUCCEEDED(interfaces_.frame3Qi))
@@ -1408,9 +1405,8 @@ private:
     GraphicsCaptureItem item_{nullptr};
     Direct3D11CaptureFramePool framePool_{nullptr};
     GraphicsCaptureSession session_{nullptr};
-    ComPtr<ABI::Windows::Graphics::Capture::IDisplayGraphicsCaptureSession>
-        displaySession_{};
-    ComPtr<ABI::Windows::Graphics::Capture::IGraphicsCaptureSession7> session7_{};
+    ComPtr<DisplayGraphicsCaptureSessionAbi> displaySession_{};
+    ComPtr<GraphicsCaptureSession7Abi> session7_{};
     CaptureDocument::ResourceLedger& ledger_;
     CaptureDocument::InterfaceProbe& interfaces_;
     HANDLE frameEvent_{nullptr};

@@ -5,12 +5,12 @@
 #include "bafx/windows/wgc_background_sensor.hpp"
 
 #include "bafx/windows/detail/wgc_frame_notification.hpp"
+#include "bafx/windows/detail/wgc_experimental_abi.hpp"
 #include "bafx/windows/detail/wgc_stop_sequence.hpp"
 #include "bafx/windows/error.hpp"
 
 #include <windows.graphics.capture.interop.h>
 #include <windows.graphics.directx.direct3d11.interop.h>
-#include <windows.ui.interop.h>
 #include <wrl/client.h>
 
 #include <winrt/Windows.Foundation.h>
@@ -36,6 +36,10 @@ namespace
 {
 
 using Microsoft::WRL::ComPtr;
+using bafx::windows::detail::Direct3D11CaptureFrame3Abi;
+using bafx::windows::detail::DisplayGraphicsCaptureSessionAbi;
+using bafx::windows::detail::GraphicsCaptureSession7Abi;
+using bafx::windows::detail::WindowIdAbi;
 using winrt::Windows::Graphics::Capture::Direct3D11CaptureFrame;
 using winrt::Windows::Graphics::Capture::Direct3D11CaptureFramePool;
 using winrt::Windows::Graphics::Capture::GraphicsCaptureItem;
@@ -54,7 +58,7 @@ constexpr DirectXPixelFormat capturePixelFormat =
 constexpr DXGI_FORMAT captureDxgiFormat = DXGI_FORMAT_R16G16B16A16_FLOAT;
 
 using GetWindowIdFromWindowFunction =
-    HRESULT(WINAPI*)(HWND, ABI::Windows::UI::WindowId*);
+    HRESULT(WINAPI*)(HWND, WindowIdAbi*);
 
 class WindowIdInteropResolver final
 {
@@ -87,7 +91,7 @@ public:
 
     [[nodiscard]] HRESULT getWindowId(
         const HWND window,
-        ABI::Windows::UI::WindowId* const id) const noexcept
+        WindowIdAbi* const id) const noexcept
     {
         if (function_ == nullptr)
         {
@@ -879,8 +883,7 @@ struct WgcBackgroundSensor::Implementation
                 "session window exclusion requires a live Overlay HWND");
         }
 
-        ComPtr<ABI::Windows::Graphics::Capture::
-            IDisplayGraphicsCaptureSession> displaySession;
+        ComPtr<DisplayGraphicsCaptureSessionAbi> displaySession;
         sessionWindowExclusionState->displaySessionQueryResult =
             sessionUnknown->QueryInterface(IID_PPV_ARGS(&displaySession));
         if (FAILED(
@@ -892,8 +895,7 @@ struct WgcBackgroundSensor::Implementation
                 "IDisplayGraphicsCaptureSession)");
         }
 
-        ComPtr<ABI::Windows::Graphics::Capture::IGraphicsCaptureSession7>
-            sessionIteration;
+        ComPtr<GraphicsCaptureSession7Abi> sessionIteration;
         sessionWindowExclusionState->sessionIterationQueryResult =
             sessionUnknown->QueryInterface(IID_PPV_ARGS(&sessionIteration));
         if (FAILED(
@@ -905,7 +907,7 @@ struct WgcBackgroundSensor::Implementation
                 "IGraphicsCaptureSession7)");
         }
 
-        ABI::Windows::UI::WindowId abiWindowId{};
+        WindowIdAbi abiWindowId{};
         const WindowIdInteropResolver windowIdInterop{};
         sessionWindowExclusionState->windowIdResult =
             windowIdInterop.getWindowId(
@@ -923,13 +925,9 @@ struct WgcBackgroundSensor::Implementation
         values.Append(WindowId{abiWindowId.Value});
         const auto iterable = values.as<
             winrt::Windows::Foundation::Collections::IIterable<WindowId>>();
-        using AbiWindowIdIterable =
-            ABI::Windows::Foundation::Collections::
-                __FIIterable_1_Windows__CUI__CWindowId_t;
         sessionWindowExclusionState->setResult =
             displaySession->SetWindowExclusionList(
-                reinterpret_cast<AbiWindowIdIterable*>(
-                    winrt::get_abi(iterable)),
+                winrt::get_abi(iterable),
                 &sessionWindowExclusionState->setIteration);
         if (FAILED(sessionWindowExclusionState->setResult))
         {
@@ -938,10 +936,7 @@ struct WgcBackgroundSensor::Implementation
                 "IDisplayGraphicsCaptureSession::SetWindowExclusionList");
         }
 
-        using AbiWindowIdVectorView =
-            ABI::Windows::Foundation::Collections::
-                __FIVectorView_1_Windows__CUI__CWindowId_t;
-        AbiWindowIdVectorView* rawView = nullptr;
+        void* rawView = nullptr;
         sessionWindowExclusionState->getResult =
             displaySession->GetWindowExclusionList(&rawView);
         if (FAILED(sessionWindowExclusionState->getResult)
@@ -1090,8 +1085,7 @@ struct WgcBackgroundSensor::Implementation
 
             if (options.requireSessionWindowExclusion)
             {
-                ComPtr<ABI::Windows::Graphics::Capture::
-                    IDirect3D11CaptureFrame3> frameIteration;
+                ComPtr<Direct3D11CaptureFrame3Abi> frameIteration;
                 const HRESULT frameQueryResult =
                     reinterpret_cast<IUnknown*>(
                         winrt::get_abi(latest))->QueryInterface(
