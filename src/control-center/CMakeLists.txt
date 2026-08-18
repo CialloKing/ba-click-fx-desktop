@@ -45,6 +45,7 @@ target_link_libraries(
     bafx_control_center
     PRIVATE
         bafx::config
+        comdlg32
         comctl32
         ole32
         shell32

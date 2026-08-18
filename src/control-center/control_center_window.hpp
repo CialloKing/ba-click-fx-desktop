@@ -85,6 +85,9 @@ private:
         ShardsSizeMin,
         ShardsSizeMax,
         TrailOpacity,
+        ThemeColorEdit,
+        ThemeColorPreview,
+        ThemeColorChoose,
         BackgroundMode,
         CursorExcluded,
         AllowSystemBorder,
@@ -189,8 +192,11 @@ private:
 
     void onCommand(int id, int notificationCode);
     void onSliderChanged(HWND trackbar);
+    void commitThemeColor();
+    void chooseThemeColor();
     void queueNumberPatch(const SliderControl& slider);
     void commitPendingPatch();
+    void applyPatchRequest(std::string command);
     void onTimer(UINT_PTR timerId);
 
     [[nodiscard]] bool refreshFromHost();
@@ -233,10 +239,15 @@ private:
     void updateSliderValueText(const SliderControl& slider) const noexcept;
 
     [[nodiscard]] static std::wstring utf8ToWide(std::string_view value);
+    [[nodiscard]] static std::string wideToUtf8(std::wstring_view value);
     [[nodiscard]] static std::wstring describeResponse(
         const bafx::windows::IpcClientResponse& response);
     [[nodiscard]] static std::string numberJson(double value);
     [[nodiscard]] static std::string patchRequest(
+        std::uint64_t generation,
+        std::string_view path,
+        std::string_view valueJson);
+    [[nodiscard]] static std::string fxPatchRequest(
         std::uint64_t generation,
         std::string_view path,
         std::string_view valueJson);
@@ -298,6 +309,10 @@ private:
     SliderControl shardsSizeMin_{};
     SliderControl shardsSizeMax_{};
     SliderControl trailOpacity_{};
+    HWND themeColorLabel_{nullptr};
+    HWND themeColorEdit_{nullptr};
+    HWND themeColorPreview_{nullptr};
+    HWND themeColorChoose_{nullptr};
     HWND basicPageButton_{nullptr};
     HWND advancedPageButton_{nullptr};
     HWND displayPageButton_{nullptr};

@@ -9,12 +9,14 @@
 #include "bafx/windows/portable_paths.hpp"
 
 #include <commctrl.h>
+#include <commdlg.h>
 #include <shellapi.h>
 
 #include <algorithm>
 #include <array>
 #include <charconv>
 #include <cmath>
+#include <cstdio>
 #include <filesystem>
 #include <iomanip>
 #include <locale>
@@ -45,6 +47,9 @@ constexpr UINT trayIconIdentifier = 1U;
 constexpr UINT trayRestoreCommand = 1U;
 constexpr UINT trayExitCommand = 2U;
 constexpr std::size_t offlineDisplayItemBase = 1U << 16U;
+constexpr int themeColorReturnNotification = 0x7FFF;
+constexpr wchar_t themeColorEditOriginalProcedureProperty[] =
+    L"BAFX.ControlCenter.ThemeColorEditOriginalProcedure";
 // WGC/D3D startup can take several seconds on a cold process. The control
 // center keeps probing long enough for that process to become controllable.
 constexpr std::uint32_t hostRetryLimit = 40U;
@@ -168,6 +173,67 @@ void setControlFont(const HWND control, const HFONT font) noexcept
             reinterpret_cast<WPARAM>(font),
             TRUE));
     }
+}
+
+[[nodiscard]] COLORREF themeColorRef(const std::string_view value) noexcept
+{
+    if (value.size() != 7U || value.front() != '#')
+    {
+        return RGB(76, 167, 255);
+    }
+    const auto channel = [](const char high, const char low) noexcept
+    {
+        const auto nibble = [](const char character) noexcept
+        {
+            if (character >= '0' && character <= '9')
+            {
+                return static_cast<unsigned int>(character - '0');
+            }
+            if (character >= 'a' && character <= 'f')
+            {
+                return static_cast<unsigned int>(character - 'a' + 10);
+            }
+            if (character >= 'A' && character <= 'F')
+            {
+                return static_cast<unsigned int>(character - 'A' + 10);
+            }
+            return 0U;
+        };
+        return (nibble(high) << 4U) | nibble(low);
+    };
+    return RGB(
+        channel(value[1], value[2]),
+        channel(value[3], value[4]),
+        channel(value[5], value[6]));
+}
+
+LRESULT CALLBACK themeColorEditProcedure(
+    const HWND edit,
+    const UINT message,
+    const WPARAM wParam,
+    const LPARAM lParam) noexcept
+{
+    const WNDPROC original = reinterpret_cast<WNDPROC>(GetPropW(
+        edit,
+        themeColorEditOriginalProcedureProperty));
+    if (message == WM_KEYDOWN && wParam == VK_RETURN)
+    {
+        const HWND parent = GetParent(edit);
+        if (parent != nullptr)
+        {
+            static_cast<void>(SendMessageW(
+                parent,
+                WM_COMMAND,
+                MAKEWPARAM(
+                    GetDlgCtrlID(edit),
+                    themeColorReturnNotification),
+                reinterpret_cast<LPARAM>(edit)));
+        }
+        return 0;
+    }
+    return original == nullptr
+        ? DefWindowProcW(edit, message, wParam, lParam)
+        : CallWindowProcW(original, edit, message, wParam, lParam);
 }
 
 [[nodiscard]] int qualityIndex(const bafx::config::BloomQuality quality) noexcept
@@ -789,6 +855,31 @@ LRESULT ControlCenterWindow::handleMessage(
     case WM_COMMAND:
         onCommand(LOWORD(wParam), HIWORD(wParam));
         return 0;
+    case WM_DRAWITEM:
+    {
+        const auto* drawItem = reinterpret_cast<const DRAWITEMSTRUCT*>(lParam);
+        if (drawItem == nullptr
+            || drawItem->CtlID != static_cast<UINT>(ControlId::ThemeColorPreview))
+        {
+            return 0;
+        }
+        const COLORREF color = themeColorRef(config_.effects.themeColor);
+        HBRUSH brush = CreateSolidBrush(color);
+        if (brush != nullptr)
+        {
+            FillRect(drawItem->hDC, &drawItem->rcItem, brush);
+            DeleteObject(brush);
+        }
+        FrameRect(
+            drawItem->hDC,
+            &drawItem->rcItem,
+            static_cast<HBRUSH>(GetStockObject(BLACK_BRUSH)));
+        if ((drawItem->itemState & ODS_FOCUS) != 0U)
+        {
+            DrawFocusRect(drawItem->hDC, &drawItem->rcItem);
+        }
+        return TRUE;
+    }
     case WM_HSCROLL:
         onSliderChanged(reinterpret_cast<HWND>(lParam));
         return 0;
@@ -995,6 +1086,12 @@ LRESULT ControlCenterWindow::handleMessage(
         DestroyWindow(window_);
         return 0;
     case WM_DESTROY:
+        if (themeColorEdit_ != nullptr)
+        {
+            RemovePropW(
+                themeColorEdit_,
+                themeColorEditOriginalProcedureProperty);
+        }
         KillTimer(window_, patchTimerId);
         KillTimer(window_, hostRetryTimerId);
         KillTimer(window_, hostShutdownTimerId);
@@ -1420,6 +1517,37 @@ bool ControlCenterWindow::createControls()
             "effects.shardsSizeMax",
             ControlId::ShardsSizeMax);
 
+    themeColorLabel_ = createChild(
+        L"STATIC",
+        L"主题色",
+        SS_LEFT | SS_CENTERIMAGE | SS_NOPREFIX);
+    themeColorEdit_ = createChild(
+        L"EDIT",
+        L"#4ca7ff",
+        ES_AUTOHSCROLL | WS_BORDER | WS_TABSTOP,
+        ControlId::ThemeColorEdit);
+    themeColorPreview_ = createChild(
+        L"STATIC",
+        L"",
+        SS_OWNERDRAW | WS_TABSTOP,
+        ControlId::ThemeColorPreview);
+    themeColorChoose_ = createChild(
+        L"BUTTON",
+        L"取色...",
+        BS_PUSHBUTTON | WS_TABSTOP,
+        ControlId::ThemeColorChoose);
+    if (themeColorEdit_ != nullptr)
+    {
+        const WNDPROC original = reinterpret_cast<WNDPROC>(SetWindowLongPtrW(
+            themeColorEdit_,
+            GWLP_WNDPROC,
+            reinterpret_cast<LONG_PTR>(themeColorEditProcedure)));
+        static_cast<void>(SetPropW(
+            themeColorEdit_,
+            themeColorEditOriginalProcedureProperty,
+            reinterpret_cast<HANDLE>(original)));
+    }
+
     advancedTimingHeading_ = createChild(
         L"BUTTON",
         L"时间与透明度",
@@ -1675,6 +1803,10 @@ bool ControlCenterWindow::createControls()
         advancedRingsHeading_,
         advancedClickShardsHeading_,
         advancedBloomHeading_,
+        themeColorLabel_,
+        themeColorEdit_,
+        themeColorPreview_,
+        themeColorChoose_,
         advancedTimingSectionButton_,
         advancedParticlesSectionButton_,
         advancedRingsSectionButton_,
@@ -1986,6 +2118,10 @@ void ControlCenterWindow::applyFonts() const noexcept
         trailOpacity_.label,
         trailOpacity_.trackbar,
         trailOpacity_.valueText,
+        themeColorLabel_,
+        themeColorEdit_,
+        themeColorPreview_,
+        themeColorChoose_,
         bloomQualityLabel_,
         bloomQuality_,
         backgroundModeLabel_,
@@ -2580,6 +2716,30 @@ void ControlCenterWindow::layoutControls(
                 nextRowTop,
                 columnWidth,
                 scale(40));
+            moveControl(
+                themeColorLabel_,
+                left,
+                fourthRowTop,
+                scale(72),
+                scale(40));
+            moveControl(
+                themeColorEdit_,
+                left + scale(78),
+                fourthRowTop,
+                scale(112),
+                scale(40));
+            moveControl(
+                themeColorPreview_,
+                left + scale(196),
+                fourthRowTop,
+                scale(40),
+                scale(40));
+            moveControl(
+                themeColorChoose_,
+                left + scale(242),
+                fourthRowTop,
+                scale(78),
+                scale(40));
             break;
         case AdvancedSection::Rings:
             moveControl(
@@ -3093,7 +3253,11 @@ void ControlCenterWindow::updatePageVisibility() noexcept
         shardsHdrIntensity_.valueText,
         trailOpacity_.label,
         trailOpacity_.trackbar,
-        trailOpacity_.valueText};
+        trailOpacity_.valueText,
+        themeColorLabel_,
+        themeColorEdit_,
+        themeColorPreview_,
+        themeColorChoose_};
     for (const HWND control : advancedParticleControls)
     {
         setPageControlVisible(control, particles);
@@ -3655,6 +3819,19 @@ void ControlCenterWindow::onCommand(
     case ControlId::ShardsSizeMax:
     case ControlId::TrailOpacity:
         break;
+    case ControlId::ThemeColorEdit:
+        if (notificationCode == EN_KILLFOCUS
+            || notificationCode == themeColorReturnNotification)
+        {
+            commitThemeColor();
+        }
+        break;
+    case ControlId::ThemeColorChoose:
+        if (notificationCode == BN_CLICKED)
+        {
+            chooseThemeColor();
+        }
+        break;
     }
 }
 
@@ -3707,6 +3884,80 @@ void ControlCenterWindow::onSliderChanged(const HWND trackbar)
             return;
         }
     }
+}
+
+void ControlCenterWindow::commitThemeColor()
+{
+    if (updatingControls_ || themeColorEdit_ == nullptr)
+    {
+        return;
+    }
+    if (!connected_)
+    {
+        SetWindowTextW(
+            themeColorEdit_,
+            utf8ToWide(config_.effects.themeColor).c_str());
+        setInfo(L"Host 未连接", L"请先启动 Host，然后设置主题色。");
+        return;
+    }
+
+    const int length = GetWindowTextLengthW(themeColorEdit_);
+    if (length < 0)
+    {
+        return;
+    }
+    std::wstring text(static_cast<std::size_t>(length) + 1U, L'\0');
+    const int copied = GetWindowTextW(
+        themeColorEdit_,
+        text.data(),
+        static_cast<int>(text.size()));
+    if (copied < 0)
+    {
+        return;
+    }
+    text.resize(static_cast<std::size_t>(copied));
+    const std::string value = wideToUtf8(text);
+    const std::string valueJson = std::string("\"") + value + "\"";
+    applyPatchRequest(fxPatchRequest(
+        generation_,
+        "effects.themeColor",
+        valueJson));
+}
+
+void ControlCenterWindow::chooseThemeColor()
+{
+    if (!connected_)
+    {
+        setInfo(L"Host 未连接", L"请先启动 Host，然后设置主题色。");
+        return;
+    }
+
+    static COLORREF customColors[16]{};
+    CHOOSECOLORW chooser{};
+    chooser.lStructSize = sizeof(chooser);
+    chooser.hwndOwner = window_;
+    chooser.rgbResult = themeColorRef(config_.effects.themeColor);
+    chooser.lpCustColors = customColors;
+    chooser.Flags = CC_FULLOPEN | CC_RGBINIT;
+    if (ChooseColorW(&chooser) == FALSE)
+    {
+        return;
+    }
+
+    char value[8]{};
+    const int written = std::snprintf(
+        value,
+        sizeof(value),
+        "#%02x%02x%02x",
+        static_cast<unsigned int>(GetRValue(chooser.rgbResult)),
+        static_cast<unsigned int>(GetGValue(chooser.rgbResult)),
+        static_cast<unsigned int>(GetBValue(chooser.rgbResult)));
+    if (written != 7)
+    {
+        return;
+    }
+    SetWindowTextW(themeColorEdit_, utf8ToWide(value).c_str());
+    commitThemeColor();
 }
 
 void ControlCenterWindow::queueNumberPatch(const SliderControl& slider)
@@ -4029,6 +4280,10 @@ void ControlCenterWindow::updateControls(
     setSliderValue(shardsSizeMin_, config.effects.shardsSizeMin);
     setSliderValue(shardsSizeMax_, config.effects.shardsSizeMax);
     setSliderValue(trailOpacity_, config.effects.trailOpacity);
+    SetWindowTextW(
+        themeColorEdit_,
+        utf8ToWide(config.effects.themeColor).c_str());
+    InvalidateRect(themeColorPreview_, nullptr, TRUE);
     static_cast<void>(SendMessageW(
         bloomQuality_,
         CB_SETCURSEL,
@@ -4614,14 +4869,18 @@ void ControlCenterWindow::applyPatch(
     const std::string_view path,
     const std::string_view valueJson)
 {
+    applyPatchRequest(patchRequest(generation_, path, valueJson));
+}
+
+void ControlCenterWindow::applyPatchRequest(std::string command)
+{
     if (!connected_)
     {
         setInfo(L"Host 未连接", L"请先启动 Host，然后刷新状态。");
         return;
     }
 
-    const bafx::windows::IpcClientResponse response = client_.transact(
-        patchRequest(generation_, path, valueJson));
+    const bafx::windows::IpcClientResponse response = client_.transact(command);
     if (response.succeeded())
     {
         static_cast<void>(refreshFromHost());
@@ -5379,6 +5638,45 @@ std::wstring ControlCenterWindow::utf8ToWide(const std::string_view value)
     return result;
 }
 
+std::string ControlCenterWindow::wideToUtf8(const std::wstring_view value)
+{
+    if (value.empty())
+    {
+        return {};
+    }
+    if (value.size() > static_cast<std::size_t>((std::numeric_limits<int>::max)()))
+    {
+        return {};
+    }
+    const int count = WideCharToMultiByte(
+        CP_UTF8,
+        WC_ERR_INVALID_CHARS,
+        value.data(),
+        static_cast<int>(value.size()),
+        nullptr,
+        0,
+        nullptr,
+        nullptr);
+    if (count <= 0)
+    {
+        return {};
+    }
+    std::string result(static_cast<std::size_t>(count), '\0');
+    if (WideCharToMultiByte(
+            CP_UTF8,
+            WC_ERR_INVALID_CHARS,
+            value.data(),
+            static_cast<int>(value.size()),
+            result.data(),
+            count,
+            nullptr,
+            nullptr) != count)
+    {
+        return {};
+    }
+    return result;
+}
+
 std::wstring ControlCenterWindow::describeResponse(
     const bafx::windows::IpcClientResponse& response)
 {
@@ -5407,6 +5705,16 @@ std::string ControlCenterWindow::patchRequest(
     const std::string_view valueJson)
 {
     return "SetConfig {\"generation\":" + std::to_string(generation)
+        + ",\"path\":\"" + std::string(path)
+        + "\",\"value\":" + std::string(valueJson) + "}";
+}
+
+std::string ControlCenterWindow::fxPatchRequest(
+    const std::uint64_t generation,
+    const std::string_view path,
+    const std::string_view valueJson)
+{
+    return "SetFxParam {\"generation\":" + std::to_string(generation)
         + ",\"path\":\"" + std::string(path)
         + "\",\"value\":" + std::string(valueJson) + "}";
 }
