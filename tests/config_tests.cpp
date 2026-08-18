@@ -51,6 +51,9 @@ BAFX_TEST(config_defaults_round_trip_through_versioned_json)
     BAFX_CHECK(defaults.background.allowSystemBorder);
     BAFX_CHECK(defaults.input.trailOnlyWhilePressed);
     BAFX_CHECK(defaults.input.samplingRateHz == 0U);
+    BAFX_CHECK(
+        defaults.performance.effectsMode
+        == bafx::config::EffectsMode::Full);
     BAFX_CHECK_NEAR(defaults.effects.globalScale, 1.0F, 0.00001F);
     BAFX_CHECK_NEAR(defaults.effects.opacity, 1.0F, 0.00001F);
     BAFX_CHECK_NEAR(defaults.effects.clickTimeScale, 1.0F, 0.00001F);
@@ -479,6 +482,7 @@ BAFX_TEST(config_current_effect_fields_round_trip_through_file)
     value.effects.bloomClamp = 4096.0F;
 
     const std::string serialized = bafx::config::toJson(value, false);
+    BAFX_CHECK(serialized.find("\"effectsMode\":\"full\"") != std::string::npos);
     for (const std::string_view field : {
              "opacity",
              "clickTimeScale",
@@ -1222,22 +1226,53 @@ BAFX_TEST(config_bloom_quality_preserves_the_unity_default_at_high)
 
 BAFX_TEST(config_parser_rejects_non_current_schemas)
 {
-    for (const std::uint32_t version :
-         {
-             bafx::config::currentSchemaVersion - 1U,
-             bafx::config::currentSchemaVersion + 1U
-         })
-    {
-        const auto result = bafx::config::parseJson(
-            std::string("{\"schemaVersion\":")
-            + std::to_string(version)
-            + "}");
-        BAFX_CHECK(!result.succeeded());
-        BAFX_CHECK(result.status == bafx::config::ConfigStatus::ValidationError);
-        BAFX_CHECK(
-            result.message.find("schemaVersion must equal")
-            != std::string::npos);
-    }
+    const auto future = bafx::config::parseJson(
+        std::string("{\"schemaVersion\":")
+        + std::to_string(bafx::config::currentSchemaVersion + 1U)
+        + "}");
+    BAFX_CHECK(!future.succeeded());
+    BAFX_CHECK(future.status == bafx::config::ConfigStatus::ValidationError);
+    BAFX_CHECK(
+        future.message.find("schemaVersion must equal")
+        != std::string::npos);
+
+    bafx::config::Config legacy = bafx::config::defaultConfig();
+    legacy.performance.effectsMode = bafx::config::EffectsMode::Full;
+    std::string legacyJson = bafx::config::toJson(legacy, false);
+    const std::string currentVersionField = "\"schemaVersion\":"
+        + std::to_string(bafx::config::currentSchemaVersion);
+    const std::size_t versionPosition = legacyJson.find(currentVersionField);
+    BAFX_CHECK(versionPosition != std::string::npos);
+    legacyJson.replace(
+        versionPosition,
+        currentVersionField.size(),
+        "\"schemaVersion\":14");
+    const std::string effectsModeField = "\"effectsMode\":\"full\",";
+    const std::size_t effectsModePosition = legacyJson.find(effectsModeField);
+    BAFX_CHECK(effectsModePosition != std::string::npos);
+    legacyJson.erase(effectsModePosition, effectsModeField.size());
+    const auto migrated = bafx::config::parseJson(legacyJson);
+    bafx::test::check(migrated.succeeded(), migrated.message);
+    BAFX_CHECK(migrated.config.schemaVersion == bafx::config::currentSchemaVersion);
+    BAFX_CHECK(
+        migrated.config.performance.effectsMode
+        == bafx::config::EffectsMode::Full);
+}
+
+BAFX_TEST(config_patch_controls_effects_mode)
+{
+    const bafx::config::Config base = bafx::config::defaultConfig();
+    const auto result = bafx::config::applyPatchJson(
+        base,
+        "{\"generation\":1,\"path\":\"performance.effectsMode\",\"value\":\"core\"}");
+    BAFX_CHECK(result.succeeded());
+    BAFX_CHECK(
+        result.config.performance.effectsMode
+        == bafx::config::EffectsMode::Core);
+    BAFX_CHECK(
+        bafx::config::toJson(result.config, false).find(
+            "\"effectsMode\":\"core\"")
+        != std::string::npos);
 }
 
 BAFX_TEST(config_current_schema_requires_every_section_and_field)

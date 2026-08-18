@@ -11,7 +11,7 @@
 namespace bafx::config
 {
 
-inline constexpr std::uint32_t currentSchemaVersion = 14U;
+inline constexpr std::uint32_t currentSchemaVersion = 15U;
 inline constexpr std::size_t maximumDisplayOverrides = 64U;
 inline constexpr std::size_t maximumDisplayKeyBytes = 4096U;
 
@@ -37,6 +37,15 @@ enum class FramePacing : std::uint8_t
     Fixed60,
     Fixed120,
     Fixed144
+};
+
+// Core keeps only the click disk and one dissolve ring. It is a separate
+// performance axis so the Unity-faithful Full profile remains the default and
+// background transport choices do not silently change particle semantics.
+enum class EffectsMode : std::uint8_t
+{
+    Full,
+    Core
 };
 
 struct DisplayOverrideConfig final
@@ -136,6 +145,7 @@ struct PerformanceConfig
 {
     bool idleOptimization{true};
     FramePacing framePacing{FramePacing::MatchDisplay};
+    EffectsMode effectsMode{EffectsMode::Full};
 };
 
 struct SystemConfig
@@ -304,6 +314,7 @@ struct ConfigSaveResult
 [[nodiscard]] std::string_view toString(RenderMode mode) noexcept;
 [[nodiscard]] std::string_view toString(BloomQuality quality) noexcept;
 [[nodiscard]] std::string_view toString(FramePacing pacing) noexcept;
+[[nodiscard]] std::string_view toString(EffectsMode mode) noexcept;
 
 // Maps product quality choices onto the existing Unity Bloom diffusion range.
 // High deliberately remains at the extracted game's verified diffusion of 7.

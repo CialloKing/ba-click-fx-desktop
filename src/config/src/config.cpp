@@ -802,6 +802,23 @@ private:
     return false;
 }
 
+[[nodiscard]] bool parseEffectsMode(
+    const std::string_view value,
+    EffectsMode& output) noexcept
+{
+    if (value == "full")
+    {
+        output = EffectsMode::Full;
+        return true;
+    }
+    if (value == "core")
+    {
+        output = EffectsMode::Core;
+        return true;
+    }
+    return false;
+}
+
 [[nodiscard]] bool validDisplayKey(const std::string_view key) noexcept
 {
     if (key.empty() || key.size() > maximumDisplayKeyBytes)
@@ -1044,7 +1061,7 @@ private:
                 error)
         || !validateKnownMembers(
                 *performance,
-                {"idleOptimization", "framePacing"},
+                {"idleOptimization", "framePacing", "effectsMode"},
                 "performance",
                 error)
         || !validateKnownMembers(
@@ -1355,6 +1372,21 @@ private:
         error = "config field 'performance.framePacing' has an unknown value";
         return config;
     }
+    std::string effectsMode;
+    if (!readEnum(
+            *performance,
+            "effectsMode",
+            "performance",
+            effectsMode,
+            error))
+    {
+        return config;
+    }
+    if (!parseEffectsMode(effectsMode, config.performance.effectsMode))
+    {
+        error = "config field 'performance.effectsMode' has an unknown value";
+        return config;
+    }
 
     if (!readBool(
             *system,
@@ -1479,6 +1511,7 @@ private:
 
     JsonValue::Object performance;
     performance.emplace("framePacing", JsonValue(std::string(toString(config.performance.framePacing))));
+    performance.emplace("effectsMode", JsonValue(std::string(toString(config.performance.effectsMode))));
     performance.emplace("idleOptimization", JsonValue(config.performance.idleOptimization));
 
     JsonValue::Object system;
@@ -1654,6 +1687,43 @@ void appendJsonValue(
     return true;
 }
 
+// Schema 15 adds one independent performance selector. Treat schema 14 as a
+// lossless migration because omitting the new field has the same meaning as
+// the historical Full profile. Newer or older unknown schemas remain strict.
+[[nodiscard]] bool migrateSchema14To15(
+    JsonValue::Object& root,
+    std::string& error)
+{
+    const JsonValue* versionValue = member(root, "schemaVersion");
+    const double* version = versionValue == nullptr
+        ? nullptr
+        : std::get_if<double>(&versionValue->storage);
+    if (version == nullptr || !std::isfinite(*version))
+    {
+        error = "schemaVersion is required";
+        return false;
+    }
+    if (*version != 14.0)
+    {
+        return false;
+    }
+
+    const auto performanceIterator = root.find("performance");
+    if (performanceIterator != root.end())
+    {
+        JsonValue::Object* performance = objectOf(performanceIterator->second);
+        if (performance != nullptr
+            && performance->find("effectsMode") == performance->end())
+        {
+            performance->emplace(
+                "effectsMode",
+                JsonValue(std::string("full")));
+        }
+    }
+    root["schemaVersion"] = JsonValue(static_cast<double>(currentSchemaVersion));
+    return true;
+}
+
 [[nodiscard]] ConfigLoadResult parseValue(std::string_view json)
 {
     JsonParser parser(json);
@@ -1665,7 +1735,7 @@ void appendJsonValue(
             ConfigStatus::ParseError,
             parser.error().empty() ? "invalid JSON" : parser.error()};
     }
-    const JsonValue::Object* originalRoot = objectOf(*parsed);
+    JsonValue::Object* originalRoot = objectOf(*parsed);
     if (originalRoot == nullptr)
     {
         return ConfigLoadResult{
@@ -1675,7 +1745,19 @@ void appendJsonValue(
     }
 
     std::string error;
-    if (!validateCurrentSchemaVersion(*originalRoot, error))
+    const JsonValue* versionValue = member(*originalRoot, "schemaVersion");
+    const double* version = versionValue == nullptr
+        ? nullptr
+        : std::get_if<double>(&versionValue->storage);
+    const bool migrated = version != nullptr
+        && std::isfinite(*version)
+        && *version == 14.0
+        && migrateSchema14To15(*originalRoot, error);
+    if (!error.empty())
+    {
+        return ConfigLoadResult{defaultConfig(), ConfigStatus::ValidationError, std::move(error)};
+    }
+    if (!migrated && !validateCurrentSchemaVersion(*originalRoot, error))
     {
         return ConfigLoadResult{defaultConfig(), ConfigStatus::ValidationError, std::move(error)};
     }
@@ -2163,6 +2245,12 @@ namespace
             std::string pacing;
             valueAccepted = readPatchString(pacing)
                 && parseFramePacing(pacing, result.performance.framePacing);
+        }
+        else if (*path == "performance.effectsMode")
+        {
+            std::string mode;
+            valueAccepted = readPatchString(mode)
+                && parseEffectsMode(mode, result.performance.effectsMode);
         }
         else if (*path == "system.startWithWindows")
         {
@@ -3025,6 +3113,14 @@ bool validateConfig(const Config& config, std::string* error) noexcept
     default:
         return failValidation("performance.framePacing is not recognized");
     }
+    switch (config.performance.effectsMode)
+    {
+    case EffectsMode::Full:
+    case EffectsMode::Core:
+        break;
+    default:
+        return failValidation("performance.effectsMode is not recognized");
+    }
     if (config.display.overrides.size() > maximumDisplayOverrides)
     {
         return failValidation("display.overrides exceeds the display limit");
@@ -3338,6 +3434,18 @@ std::string_view toString(const FramePacing pacing) noexcept
         return "144";
     }
     return "match-display";
+}
+
+std::string_view toString(const EffectsMode mode) noexcept
+{
+    switch (mode)
+    {
+    case EffectsMode::Full:
+        return "full";
+    case EffectsMode::Core:
+        return "core";
+    }
+    return "full";
 }
 
 }
