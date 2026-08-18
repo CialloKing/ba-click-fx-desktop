@@ -119,9 +119,12 @@
 - SDR/HDR 与混合刷新率矩阵；
 - 外部录屏观察。
 
-当前 Session 专属排除真实桌面单元格为 `Not Run`。外部录屏/OBS、HDR、多显示器、真实 device lost
-和 packaged 权限矩阵也保持 `Not Run`；离线 verifier、编译成功或单机 API 调用成功均不能替代这些
-硬件/权限证据。
+当前首个目标机单元格已执行并由离线 verifier 接受，证据目录为
+`artifacts\local\spikes\spk-002-session-exclusion\runbook-dotnet2-ca13627\`；其能力结果为
+`capability.status=Unavailable`、`evidence.result=Not Run`，三个必需接口 QI 均返回 `E_NOINTERFACE`。
+这只证明旧系统能启动 collector 并审计“不支持”，不构成 Session-local 能力通过；支持矩阵和生产门禁
+仍保持 `Not Run`。外部录屏/OBS、HDR、多显示器、真实 device lost 和 packaged 权限矩阵也保持
+`Not Run`；离线 verifier、编译成功或单机 API 调用成功均不能替代这些硬件/权限证据。
 
 ### Session-local 后续门禁
 

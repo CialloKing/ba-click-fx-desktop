@@ -187,9 +187,10 @@ SessionLocalExclusion -> LegacyGlobalExclusion -> FxOnly
 collector 固定使用 `WDA_NONE`，创建带 FP16 marker 的测试 Overlay 和 monitor capture Session，依次
 采集 `baseline -> excluded -> restored` 三阶段。它运行时 QueryInterface 探测
 `IDisplayGraphicsCaptureSession`、`IGraphicsCaptureSession7` 和 `IDirect3D11CaptureFrame3`，并使用
-`GetWindowIdFromWindow` 生成 WindowId；编译时 SDK 存在不代表运行时能力存在。Set/Get 排除列表必须
-完成 WindowId 往返校验，记录返回的 configuration iteration，并以 frame 的同一 iteration 建立稳定、
-可重复的对应关系后才能判定像素结果。
+`GetWindowIdFromWindow` 生成 WindowId。该可选 API 通过 `LoadLibraryW`/`GetProcAddress` 动态解析，
+因此旧系统能启动 collector 并报告 `Unavailable`，不会在 Loader 阶段因静态 API-set 导入而退出；编译时
+SDK 存在不代表运行时能力存在。Set/Get 排除列表必须完成 WindowId 往返校验，记录返回的 configuration
+iteration，并以 frame 的同一 iteration 建立稳定、可重复的对应关系后才能判定像素结果。
 
 能力与证据分开记录：`capability.status` 为 `Unavailable | Available | Rejected | NotVerified`，
 `evidence.result` 为 `Passed | Failed | Not Run`。`Available + Passed` 要求三阶段 overlay ROI
@@ -204,8 +205,12 @@ ledger 全部通过；Set/Get 调用成功但 iteration 或清理证据不足时
 离线 `wgc_session_exclusion_spike_contract` 始终注册；真实桌面测试默认关闭，仅在
 `BAFX_ENABLE_WGC_SESSION_EXCLUSION_SPIKE_TESTS=ON` 时注册，并使用 `RUN_SERIAL` 与 30 秒进程外超时。
 
-当前状态：`Not Run`。外部录屏/OBS、HDR、多显示器、device lost 和 packaged 权限矩阵均保持
-`Not Run`，不能用本 Spike 替代。只有真实目标系统达到 `Available + Passed` 并补齐所需硬件矩阵后，
+当前支持能力仍未建立。首个目标机单元格已执行并由 verifier 接受，但结果为
+`capability.status=Unavailable`、`evidence.result=Not Run`（Windows `10.0.19045`、SDK `10.0.26100.0`、
+RTX 4060 Laptop GPU；证据目录为
+`artifacts\local\spikes\spk-002-session-exclusion\runbook-dotnet2-ca13627\`）。这证明旧系统能
+启动并如实记录 QI 不支持，不能证明 Session-local 能力。外部录屏/OBS、HDR、多显示器、device lost 和
+packaged 权限矩阵均保持 `Not Run`，不能用本 Spike 替代。只有真实目标系统达到 `Available + Passed` 并补齐所需硬件矩阵后，
 才允许进入产品接入评审：创建 WGC Session 后设置 Session-local WindowId 排除列表，在收到对应
 configuration iteration 的 frame 前不发布新的 `BackgroundSnapshot`；失败时按固定顺序回退到旧 WDA，
 再失败才进入 FX-only。生产诊断必须区分三条实际路径。
@@ -214,13 +219,14 @@ configuration iteration 的 frame 前不发布新的 `BackgroundSnapshot`；失�
 
 本 Spike 的后续工作分为四个阶段。阶段之间有硬门槛，未满足时只更新证据和文档，不改生产捕获路径。
 
-1. **冻结合同并准备目标机执行（当前阶段，已完成）**
+1. **冻结合同并准备目标机执行（已完成）**
    - 保持 collector、verifier、JSON schema 和阈值版本不变；后续任何合同变更必须提升 schema/contract
      版本并增加回归样本。
    - 只运行离线合同测试、编译和路径审计；默认不打开真实桌面 CTest，避免把当前机器的未验证结果
      写成能力结论。
-   - 使用带进程外超时的 `tools\run-wgc-session-exclusion-spike.ps1`，保证 collector 卡在 WinRT
-     调用时仍能留下日志并被父进程终止。
+   - 使用带进程外超时的 `tools\run-wgc-session-exclusion-spike.ps1`；入口使用直接的 .NET
+     `ProcessStartInfo`，兼容 Windows PowerShell 5.1，保证 collector 卡在 WinRT 调用时仍能留下日志并
+     被父进程终止。
 
    目标机执行入口示例：
 
@@ -237,11 +243,14 @@ configuration iteration 的 frame 前不发布新的 `BackgroundSnapshot`；失�
    `ProcessTimeoutMilliseconds` 必须至少比 `CaptureTimeoutMilliseconds` 多 `5000 ms`，为 collector
    watchdog 和失败证据写入保留进程外缓冲。
 
-2. **单机真实桌面证据（下一执行阶段）**
+2. **单机真实桌面证据（已执行，能力门槛未通过）**
    - 在目标系统记录 OS build、Windows SDK、GPU/driver、主显示器分辨率、刷新率、色彩模式和位深，
      并确认 Overlay 使用 `WDA_NONE`。
    - 只执行 `baseline -> excluded -> restored`；每阶段等待 marker 和目标 configuration iteration
      的稳定 frame，保留原始 `.rgba16f`、预览、诊断日志和 verifier 输出。
+   - 本次单元格的 verifier 结果为 `accepted`，但 `capability.status=Unavailable`、
+     `evidence.result=Not Run`，三个接口 QI 均返回 `E_NOINTERFACE`；因此只完成“不支持能力的可审计报告”，
+     没有产生可用于像素判定的三阶段帧。
    - 只有 `capability.status=Available`、`evidence.result=Passed`、WindowId 往返一致、三阶段 ROI
      判据通过且全部资源 ledger 归零，才可把该机器单元格标为 `Passed`。
    - QI 不支持标为 `Unavailable`；Set/Get 被拒绝标为 `Rejected`；iteration 或像素关联不稳定标为
