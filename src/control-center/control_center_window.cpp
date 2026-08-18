@@ -5,6 +5,7 @@
 #include "package_activation.hpp"
 #include "startup_config.hpp"
 
+#include "bafx/windows/recording_compatibility.hpp"
 #include "bafx/windows/portable_paths.hpp"
 
 #include <commctrl.h>
@@ -1444,7 +1445,7 @@ bool ControlCenterWindow::createControls()
     if (backgroundMode_ != nullptr)
     {
         static_cast<void>(SendMessageW(backgroundMode_, CB_ADDSTRING, 0U, reinterpret_cast<LPARAM>(L"背景感知")));
-        static_cast<void>(SendMessageW(backgroundMode_, CB_ADDSTRING, 0U, reinterpret_cast<LPARAM>(L"录屏兼容拟合")));
+        static_cast<void>(SendMessageW(backgroundMode_, CB_ADDSTRING, 0U, reinterpret_cast<LPARAM>(L"录屏兼容（测试，仅 Windows 11 26H1 及以后）")));
         static_cast<void>(SendMessageW(backgroundMode_, CB_ADDSTRING, 0U, reinterpret_cast<LPARAM>(L"浅色背景优化")));
         static_cast<void>(SendMessageW(backgroundMode_, CB_SETMINVISIBLE, 3U, 0));
     }
@@ -3324,7 +3325,45 @@ void ControlCenterWindow::onCommand(
                 applyPatch("background.mode", "\"background-aware\"");
                 break;
             case 1:
+            {
+                const bafx::windows::RecordingCompatibleAvailability availability =
+                    bafx::windows::queryRecordingCompatibleAvailability();
+                if (!availability.supported)
+                {
+                    const int previousIndex = renderModeIndex(
+                        config_.background.mode);
+                    static_cast<void>(SendMessageW(
+                        backgroundMode_,
+                        CB_SETCURSEL,
+                        previousIndex < 0 ? 0 : previousIndex,
+                        0));
+                    if (!availability.versionQuerySucceeded)
+                    {
+                        MessageBoxW(
+                            window_,
+                            L"录屏兼容测试模式仅支持 Windows 11 26H1 及以后（OS build 28000 或更高）。\r\n当前系统版本无法确认，设置未更改。",
+                            L"录屏兼容测试模式",
+                            MB_OK | MB_ICONWARNING);
+                    }
+                    else
+                    {
+                        const std::wstring detectedVersion = utf8ToWide(
+                            bafx::windows::recordingCompatibleVersionString(
+                                availability));
+                        const std::wstring message =
+                            L"录屏兼容测试模式仅支持 Windows 11 26H1 及以后（OS build 28000 或更高）。\r\n当前系统为 "
+                            + detectedVersion
+                            + L"，设置未更改。";
+                        MessageBoxW(
+                            window_,
+                            message.c_str(),
+                            L"录屏兼容测试模式",
+                            MB_OK | MB_ICONWARNING);
+                    }
+                    break;
+                }
                 applyPatch("background.mode", "\"recording-compatible\"");
+            }
                 break;
             case 2:
                 applyPatch("background.mode", "\"light-background\"");
