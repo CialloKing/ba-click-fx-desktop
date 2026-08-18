@@ -18,6 +18,95 @@ using bafx::windows::detail::WgcBackgroundStopSequence;
 using bafx::windows::WgcBackgroundResourceLedger;
 using bafx::windows::WgcBackgroundResourceLedgerSnapshot;
 
+BAFX_TEST(session_window_exclusion_requires_a_matching_frame_iteration)
+{
+    using bafx::windows::detail::sessionWindowExclusionFrameMatches;
+    BAFX_CHECK(sessionWindowExclusionFrameMatches(
+        false,
+        E_NOINTERFACE,
+        E_NOINTERFACE,
+        11U,
+        2U));
+    BAFX_CHECK(sessionWindowExclusionFrameMatches(
+        true,
+        S_OK,
+        S_OK,
+        11U,
+        11U));
+    BAFX_CHECK(!sessionWindowExclusionFrameMatches(
+        true,
+        S_OK,
+        S_OK,
+        11U,
+        10U));
+    BAFX_CHECK(!sessionWindowExclusionFrameMatches(
+        true,
+        E_NOINTERFACE,
+        S_OK,
+        11U,
+        11U));
+}
+
+BAFX_TEST(session_window_exclusion_fallback_requires_consecutive_rejections)
+{
+    using bafx::windows::WgcSessionWindowExclusionState;
+    using bafx::windows::detail::observeSessionWindowExclusionFrame;
+
+    WgcSessionWindowExclusionState state{};
+    state.setIteration = 11U;
+    for (std::uint64_t frameIteration = 1U;
+         frameIteration < 8U;
+         ++frameIteration)
+    {
+        BAFX_CHECK(!observeSessionWindowExclusionFrame(
+            state,
+            S_OK,
+            S_OK,
+            frameIteration));
+    }
+    BAFX_CHECK(state.rejectedFrameCount == 7U);
+    BAFX_CHECK(state.consecutiveRejectedFrameCount == 7U);
+
+    BAFX_CHECK(observeSessionWindowExclusionFrame(
+        state,
+        S_OK,
+        S_OK,
+        11U));
+    BAFX_CHECK(state.frameIterationConfirmed);
+    BAFX_CHECK(state.rejectedFrameCount == 7U);
+    BAFX_CHECK(state.consecutiveRejectedFrameCount == 0U);
+
+    BAFX_CHECK(!observeSessionWindowExclusionFrame(
+        state,
+        E_NOINTERFACE,
+        S_FALSE,
+        0U));
+    BAFX_CHECK(state.rejectedFrameCount == 8U);
+    BAFX_CHECK(state.consecutiveRejectedFrameCount == 1U);
+}
+
+BAFX_TEST(session_window_exclusion_status_names_are_stable)
+{
+    using bafx::windows::WgcSessionWindowExclusionStatus;
+    using bafx::windows::wgcSessionWindowExclusionStatusName;
+    BAFX_CHECK(
+        wgcSessionWindowExclusionStatusName(
+            WgcSessionWindowExclusionStatus::NotRequested)
+        == "not-requested");
+    BAFX_CHECK(
+        wgcSessionWindowExclusionStatusName(
+            WgcSessionWindowExclusionStatus::Applied)
+        == "applied");
+    BAFX_CHECK(
+        wgcSessionWindowExclusionStatusName(
+            WgcSessionWindowExclusionStatus::InterfaceUnavailable)
+        == "interface-unavailable");
+    BAFX_CHECK(
+        wgcSessionWindowExclusionStatusName(
+            WgcSessionWindowExclusionStatus::Rejected)
+        == "rejected");
+}
+
 namespace
 {
 

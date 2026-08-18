@@ -36,6 +36,18 @@ constexpr WindowSize supersedingOutput{1920U, 1080U};
     return BackgroundCaptureRequest{false, profile, true, true, retryToken};
 }
 
+[[nodiscard]] BackgroundCaptureRequest sessionLocalRequest(
+    const std::uint64_t retryToken = 0U)
+{
+    return BackgroundCaptureRequest{
+        true,
+        FxOverlayProfile::RecordingCompatible,
+        true,
+        true,
+        retryToken,
+        BackgroundCaptureRequest::ExclusionMode::SessionLocal};
+}
+
 [[nodiscard]] std::vector<BackgroundCaptureActionKind> completeSuccessfully(
     BackgroundCaptureTransition& transition,
     const std::optional<WindowSize> expectedOutputSize = std::nullopt)
@@ -95,6 +107,106 @@ BAFX_TEST(background_aware_uses_the_transactional_start_order)
         transition.effectivePath()
         == EffectiveBackgroundCapturePath::BackgroundAware);
     BAFX_CHECK(transition.failure() == BackgroundCaptureFailure::None);
+}
+
+BAFX_TEST(session_local_uses_wda_none_and_publishes_a_distinct_path)
+{
+    BackgroundCaptureTransition transition;
+    BAFX_CHECK(
+        transition.beginRequest(sessionLocalRequest())
+        == BackgroundCaptureRequestResult::Started);
+
+    const auto stop = transition.nextAction();
+    BAFX_CHECK(stop.has_value());
+    BAFX_CHECK(stop->kind == BackgroundCaptureActionKind::StopSensor);
+    BAFX_CHECK(transition.applyObservation(*stop, true));
+
+    const auto include = transition.nextAction();
+    BAFX_CHECK(include.has_value());
+    BAFX_CHECK(
+        include->kind == BackgroundCaptureActionKind::SetAffinityIncluded);
+    BAFX_CHECK(
+        include->exclusionMode
+        == BackgroundCaptureRequest::ExclusionMode::SessionLocal);
+    BAFX_CHECK(transition.applyObservation(*include, true));
+
+    const auto profile = transition.nextAction();
+    BAFX_CHECK(profile.has_value());
+    BAFX_CHECK(
+        profile->overlayProfile == FxOverlayProfile::RecordingCompatible);
+    BAFX_CHECK(transition.applyObservation(*profile, true));
+
+    const auto start = transition.nextAction();
+    BAFX_CHECK(start.has_value());
+    BAFX_CHECK(start->kind == BackgroundCaptureActionKind::StartSensor);
+    BAFX_CHECK(
+        start->exclusionMode
+        == BackgroundCaptureRequest::ExclusionMode::SessionLocal);
+    BAFX_CHECK(transition.applyObservation(*start, true));
+    BAFX_CHECK(!transition.nextAction().has_value());
+    BAFX_CHECK(
+        transition.effectivePath()
+        == EffectiveBackgroundCapturePath::SessionLocalExclusion);
+    BAFX_CHECK(isActiveBackgroundCapturePath(transition.effectivePath()));
+}
+
+BAFX_TEST(session_local_start_failure_falls_back_to_legacy_global_exclusion)
+{
+    BackgroundCaptureTransition transition;
+    BAFX_CHECK(
+        transition.beginRequest(sessionLocalRequest())
+        == BackgroundCaptureRequestResult::Started);
+
+    while (const auto action = transition.nextAction())
+    {
+        if (action->kind == BackgroundCaptureActionKind::StartSensor)
+        {
+            BAFX_CHECK(
+                action->exclusionMode
+                == BackgroundCaptureRequest::ExclusionMode::SessionLocal);
+            BAFX_CHECK(transition.applyObservation(*action, false));
+            break;
+        }
+        BAFX_CHECK(transition.applyObservation(*action, true));
+    }
+
+    checkActions(
+        completeSuccessfully(transition),
+        {BackgroundCaptureActionKind::StopSensor,
+         BackgroundCaptureActionKind::SetAffinityExcluded,
+         BackgroundCaptureActionKind::ApplyOverlayProfile,
+         BackgroundCaptureActionKind::StartSensor});
+    BAFX_CHECK(
+        transition.effectivePath()
+        == EffectiveBackgroundCapturePath::BackgroundAware);
+    BAFX_CHECK(
+        transition.failure() == BackgroundCaptureFailure::SessionExclusionFailed);
+}
+
+BAFX_TEST(session_local_affinity_failure_never_starts_wgc)
+{
+    BackgroundCaptureTransition transition;
+    BAFX_CHECK(
+        transition.beginRequest(sessionLocalRequest())
+        == BackgroundCaptureRequestResult::Started);
+
+    const auto stop = transition.nextAction();
+    BAFX_CHECK(stop.has_value());
+    BAFX_CHECK(transition.applyObservation(*stop, true));
+    const auto include = transition.nextAction();
+    BAFX_CHECK(include.has_value());
+    BAFX_CHECK(transition.applyObservation(*include, false));
+    const auto profile = transition.nextAction();
+    BAFX_CHECK(profile.has_value());
+    BAFX_CHECK(
+        profile->kind == BackgroundCaptureActionKind::ApplyOverlayProfile);
+    BAFX_CHECK(transition.applyObservation(*profile, true));
+    BAFX_CHECK(!transition.nextAction().has_value());
+    BAFX_CHECK(
+        transition.effectivePath()
+        == EffectiveBackgroundCapturePath::FxOnlyCaptureVisibilityUnknown);
+    BAFX_CHECK(
+        transition.failure() == BackgroundCaptureFailure::SessionExclusionFailed);
 }
 
 BAFX_TEST(recording_and_light_modes_stop_include_then_apply_profile)

@@ -76,4 +76,20 @@ BAFX_TEST(recording_compatibility_diagnostic_record_keeps_requested_and_effectiv
     BAFX_CHECK(record.find("WGC=disabled") != std::string::npos);
     BAFX_CHECK(record.find("AlphaLimit=0.85") != std::string::npos);
     BAFX_CHECK(record.find("Generation=7") != std::string::npos);
+
+    const std::string appliedRecord =
+        bafx::windows::recordingCompatibleControlCenterDiagnosticRecord(
+            availability,
+            "recording-compatible-test: applied",
+            "recording-compatible",
+            "recording-compatible",
+            "available",
+            8U);
+    BAFX_CHECK(
+        appliedRecord.find("EffectivePath=session-local-requested")
+        != std::string::npos);
+    BAFX_CHECK(
+        appliedRecord.find("WGC=runtime-managed") != std::string::npos);
+    BAFX_CHECK(
+        appliedRecord.find("AlphaLimit=0.90") != std::string::npos);
 }

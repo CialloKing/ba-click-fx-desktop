@@ -127,6 +127,43 @@ BAFX_TEST(device_recovery_retry_requires_an_active_capture)
         true));
 }
 
+BAFX_TEST(background_capture_request_selects_session_local_for_recording_mode)
+{
+    bafx::config::Config config{};
+    config.background.mode = bafx::config::RenderMode::RecordingCompatible;
+    const bafx::windows::BackgroundCaptureRequest request =
+        bafx::desktop::backgroundCaptureRequest(config, 7U);
+    BAFX_CHECK(request.sensorRequired);
+    BAFX_CHECK(
+        request.overlayProfile
+        == bafx::windows::FxOverlayProfile::RecordingCompatible);
+    BAFX_CHECK(
+        request.exclusionMode
+        == bafx::windows::BackgroundCaptureRequest::ExclusionMode::SessionLocal);
+    BAFX_CHECK(request.retryToken == 7U);
+}
+
+BAFX_TEST(background_capture_request_keeps_legacy_and_fx_only_modes_distinct)
+{
+    bafx::config::Config backgroundAware{};
+    backgroundAware.background.mode =
+        bafx::config::RenderMode::BackgroundAware;
+    const auto legacy = bafx::desktop::backgroundCaptureRequest(backgroundAware);
+    BAFX_CHECK(legacy.sensorRequired);
+    BAFX_CHECK(
+        legacy.exclusionMode
+        == bafx::windows::BackgroundCaptureRequest::ExclusionMode::LegacyGlobal);
+
+    bafx::config::Config lightBackground{};
+    lightBackground.background.mode =
+        bafx::config::RenderMode::LightBackground;
+    const auto fxOnly = bafx::desktop::backgroundCaptureRequest(lightBackground);
+    BAFX_CHECK(!fxOnly.sensorRequired);
+    BAFX_CHECK(
+        fxOnly.exclusionMode
+        == bafx::windows::BackgroundCaptureRequest::ExclusionMode::LegacyGlobal);
+}
+
 BAFX_TEST(device_recovery_retry_honors_resource_domain_gates)
 {
     BAFX_CHECK(!bafx::desktop::canRetryBackgroundCaptureAfterDeviceRecovery(
@@ -322,6 +359,11 @@ BAFX_TEST(background_composite_participation_log_keeps_legacy_marker)
     diagnostics.frameId = 31U;
     diagnostics.wgc.epoch = 37U;
     diagnostics.wgc.acceptedGeneration = 41U;
+    diagnostics.wgc.frameConfigurationQueryResult = S_OK;
+    diagnostics.wgc.frameConfigurationIterationResult = S_OK;
+    diagnostics.wgc.expectedFrameConfigurationIteration = 42U;
+    diagnostics.wgc.frameConfigurationIteration = 42U;
+    diagnostics.wgc.frameConfigurationIterationConfirmed = true;
     diagnostics.backgroundSnapshotEpoch = 43U;
     diagnostics.backgroundSnapshotGeneration = 47U;
     diagnostics.backgroundParticipated = true;
@@ -346,9 +388,70 @@ BAFX_TEST(background_composite_participation_log_keeps_legacy_marker)
         contents.find("BackgroundSnapshot.Generation=47")
         != std::string::npos);
     BAFX_CHECK(
+        contents.find("WGC.ConfigurationIteration.Frame=42")
+        != std::string::npos);
+    BAFX_CHECK(
+        contents.find("WGC.ConfigurationIteration.Expected=42")
+        != std::string::npos);
+    BAFX_CHECK(
+        contents.find("WGC.ConfigurationIteration.FrameQi=0x00000000")
+        != std::string::npos);
+    BAFX_CHECK(
+        contents.find("WGC.ConfigurationIteration.FrameRead=0x00000000")
+        != std::string::npos);
+    BAFX_CHECK(
+        contents.find("WGC.ConfigurationIteration.Confirmed=true")
+        != std::string::npos);
+    BAFX_CHECK(
         contents.find("Event.Name=Message\nEvent.Message="
                       "WGC background sample entered the final desktop composite")
         != std::string::npos);
+}
+
+BAFX_TEST(background_iteration_rejection_is_logged_without_participation)
+{
+    const TemporaryBackgroundCaptureLog log;
+    bafx::windows::CompositionFrameDiagnostics diagnostics{};
+    diagnostics.frameId = 67U;
+    diagnostics.wgc.frameConfigurationQueryResult = E_NOINTERFACE;
+    diagnostics.wgc.frameConfigurationIterationResult = S_FALSE;
+    diagnostics.wgc.expectedFrameConfigurationIteration = 6U;
+    diagnostics.wgc.frameConfigurationIteration = 5U;
+    diagnostics.wgc.configurationIterationRejectedFrames = 1U;
+    diagnostics.wgc.configurationIterationRejectedFramesTotal = 9U;
+    diagnostics.wgc.configurationIterationConsecutiveRejectedFrames = 2U;
+
+    bafx::desktop::appendBackgroundCompositeParticipation(
+        log.path(),
+        71U,
+        diagnostics);
+
+    const std::string contents = log.read();
+    BAFX_CHECK(
+        contents.find("Event.Name=WGC.ConfigurationIteration.Rejected")
+        != std::string::npos);
+    BAFX_CHECK(
+        contents.find("WGC.ConfigurationIteration.RejectedFrames=1")
+        != std::string::npos);
+    BAFX_CHECK(
+        contents.find("WGC.ConfigurationIteration.Frame=5")
+        != std::string::npos);
+    BAFX_CHECK(
+        contents.find("WGC.ConfigurationIteration.Expected=6")
+        != std::string::npos);
+    BAFX_CHECK(
+        contents.find("WGC.ConfigurationIteration.RejectedFramesTotal=9")
+        != std::string::npos);
+    BAFX_CHECK(
+        contents.find(
+            "WGC.ConfigurationIteration.ConsecutiveRejectedFrames=2")
+        != std::string::npos);
+    BAFX_CHECK(
+        contents.find("WGC.ConfigurationIteration.FrameQi=0x80004002")
+        != std::string::npos);
+    BAFX_CHECK(
+        contents.find("Event.Name=BackgroundComposite.Participated")
+        == std::string::npos);
 }
 
 BAFX_TEST(background_composite_participation_log_rejects_unpresented_frame)
