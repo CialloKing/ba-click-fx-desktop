@@ -33,10 +33,15 @@ DPI 和 Windows 11 运行时逻辑提前到测试与硬件证据之前，不再�
 - Host 独立执行同一门禁。绕过 UI 的请求返回 `unsupported_os_build` 或
   `os_version_unavailable`，不增加 generation、不修改持久化配置；旧配置启动时回退到
   `light-background`，保存失败仍保持内存中的回退模式；
-- 测试模式继续关闭 WGC，使用 FX-only、`RecordingCompatible` Profile 和 `0.90` Alpha 上限；
-  `LightBackground` 继续保持 `0.85`，不复制测试参数；
-- 日志按实际 OS build、GPU/driver、录屏器、SDR/HDR、显示器数量和结果分类。用户日志只能用于评估
-  透明 Overlay 的外部录屏表现，不能把 `ModeApplied` 或录屏可见性升级为 Session-local exclusion 证明。
+- build `>= 28000` 的测试模式请求 Session-local WGC：保持 `WDA_NONE`，使用
+  `RecordingCompatible` Profile，并在当前 Session 排除 Overlay WindowId；对应 configuration iteration
+  的 frame 到达前不发布新的背景快照。Session-local 启动/运行失败时顺序回退到旧 WDA，再失败进入 FX-only；
+- 默认 `BackgroundAware` 继续使用旧的 LegacyGlobal WDA 路径，`LightBackground` 继续保持 `0.85`，测试模式
+  的 `0.90` Alpha 上限不复制到正式浅色背景模式；
+- 日志按实际路径区分 `SessionLocalExclusion`、`LegacyGlobalExclusion`、`FxOnly`，并记录 QI、Set/Get、
+  WindowId、iteration、旧帧丢弃和资源清理证据。用户日志只能用于评估透明 Overlay 的外部录屏表现，不能把
+  `ModeApplied` 或录屏可见性升级为 Session-local exclusion 通过证据；
+- 日志同时按实际 OS build、GPU/driver、录屏器、SDR/HDR、显示器数量和结果分类。
 
 ## Alpha 25 显示逻辑收敛（2026-08-17）
 

@@ -116,6 +116,9 @@
   `WDA_NONE`，创建 Session 后设置 WindowId 排除列表，并在对应 configuration iteration 的 frame 到达前
   禁止发布新的 `BackgroundSnapshot`；Session-local 失败才回退旧 WDA，再失败才进入 FX-only，诊断必须
   区分三条实际路径；
+- 当前代码已将上述顺序接入用户主动选择的 `recording-compatible` 测试模式：build `>= 28000` 时
+  请求 Session-local WGC，失败时回退旧 WDA/FX-only；默认 `BackgroundAware` 仍保持旧 WDA 路径。
+  该接入只证明状态机、日志和回退契约已闭合，不把本机旧系统的 `Unavailable` 结果升级为能力通过。
 - portable `not-packaged`、packaged 权限拒绝和无边框成功必须作为三个独立单元格记录，不能互相替代；
 - 真实 device-lost 下 WGC stop 的阻塞阶段、退出码 `124` 和重启恢复必须作为独立单元格；当前保持
   `Not Run`，不能用子进程终止探针代替；
@@ -128,8 +131,8 @@
 当前首个目标机单元格已执行并由离线 verifier 接受，证据目录为
 `artifacts\local\spikes\spk-002-session-exclusion\DESKTOP-AE81VOU-1c7bd07\`；其能力结果为
 `capability.status=Unavailable`、`evidence.result=Not Run`，三个必需接口 QI 均返回 `E_NOINTERFACE`。
-这只证明旧系统能启动 collector 并审计“不支持”，不构成 Session-local 能力通过；支持矩阵和生产门禁
-仍保持 `Not Run`。外部录屏/OBS、HDR、多显示器、真实 device lost 和 packaged 权限矩阵也保持
+这只证明旧系统能启动 collector 并审计“不支持”，不构成 Session-local 能力通过；真实目标支持矩阵和
+默认路径提升门禁仍保持 `Not Run`。外部录屏/OBS、HDR、多显示器、真实 device lost 和 packaged 权限矩阵也保持
 `Not Run`；离线 verifier、编译成功或单机 API 调用成功均不能替代这些硬件/权限证据。
 
 ### Session-local 后续门禁

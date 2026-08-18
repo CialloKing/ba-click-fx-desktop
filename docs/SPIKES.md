@@ -176,12 +176,12 @@ python -B tools\verify-wgc-self-exclusion-spike.py `
   "--report=$output\verification.json"
 ```
 
-### 待执行 WGC Session 专属排除 Spike
+### WGC Session 专属排除 Spike 与测试模式接入
 
 为验证新版 WGC 是否支持只对当前 capture Session 排除 overlay，新增独立 collector
-`ba_fx_wgc_session_exclusion_spike`。该 Spike 不改变产品默认路径，不移除
-`WDA_EXCLUDEFROMCAPTURE`，也不接入 `WgcBackgroundSensor`；不采用 Overlay hide/show 或上一帧
-FX 反解。未来产品路径固定为：
+`ba_fx_wgc_session_exclusion_spike`。该 Spike 不改变产品默认路径、不移除
+`WDA_EXCLUDEFROMCAPTURE`；测试模式通过现有 `WgcBackgroundSensor` 使用同一运行时探测。不采用
+Overlay hide/show 或上一帧 FX 反解。实际回退路径固定为：
 
 ```text
 SessionLocalExclusion -> LegacyGlobalExclusion -> FxOnly
@@ -214,13 +214,16 @@ RTX 4060 Laptop GPU；证据目录为
 `artifacts\local\spikes\spk-002-session-exclusion\DESKTOP-AE81VOU-1c7bd07\`）。这证明旧系统能
 启动并如实记录 QI 不支持，不能证明 Session-local 能力。外部录屏/OBS、HDR、多显示器、device lost 和
 packaged 权限矩阵均保持 `Not Run`，不能用本 Spike 替代。只有真实目标系统达到 `Available + Passed` 并补齐所需硬件矩阵后，
-才允许进入产品接入评审：创建 WGC Session 后设置 Session-local WindowId 排除列表，在收到对应
-configuration iteration 的 frame 前不发布新的 `BackgroundSnapshot`；失败时按固定顺序回退到旧 WDA，
-再失败才进入 FX-only。生产诊断必须区分三条实际路径。
+才允许评审是否把测试路径提升为默认产品路径。当前 build `>= 28000` 的用户可主动选择
+`recording-compatible` 测试模式：Overlay 使用 `WDA_NONE`，创建 Session 后设置 Session-local WindowId
+排除列表，在收到对应 configuration iteration 的 frame 前不发布新的 `BackgroundSnapshot`；失败时按固定
+顺序回退到旧 WDA，再失败才进入 FX-only。生产诊断必须区分三条实际路径。旧系统仍由版本门禁拒绝，不能
+把本机 `Unavailable` 结果误报为测试通过。
 
 ### 后续执行计划
 
-本 Spike 的后续工作分为四个阶段。阶段之间有硬门槛，未满足时只更新证据和文档，不改生产捕获路径。
+本 Spike 与测试模式的后续工作分为四个阶段。阶段之间有硬门槛；默认 `BackgroundAware` 路径保持不变，
+未满足证据门槛时只允许用户主动测试和更新证据，不把 Session-local 提升为默认能力。
 
 1. **冻结合同并准备目标机执行（已完成）**
    - 保持 collector、verifier、JSON schema 和阈值版本不变；后续任何合同变更必须提升 schema/contract
@@ -267,7 +270,7 @@ configuration iteration 的 frame 前不发布新的 `BackgroundSnapshot`；失�
    - 任一矩阵单元格缺失、资源清理失败、watchdog 超时或出现旧 frame 参与，都将该单元格保留为
      `Not Run`/`Failed`，并阻止生产接入评审。
 
-4. **生产接入评审与渐进发布（全部矩阵满足后）**
+4. **默认路径接入评审与渐进发布（全部矩阵满足后）**
    - 将 `BackgroundCaptureTransition` 的新路径设计为显式事务：保持 `WDA_NONE`，创建 Session 后
      设置 WindowId 列表，等待对应 configuration iteration 的 frame，再发布新的 snapshot。
    - 失败回退严格执行 `SessionLocalExclusion -> LegacyGlobalExclusion -> FxOnly`；每次回退记录实际
