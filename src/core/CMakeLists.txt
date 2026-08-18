@@ -6,6 +6,7 @@ add_library(
         src/intensity.cpp
         src/material.cpp
         src/roi.cpp
+        src/theme_color.cpp
         src/unity_bloom.cpp
         src/unity_ring_mesh.cpp
         src/unity_trail_mesh.cpp

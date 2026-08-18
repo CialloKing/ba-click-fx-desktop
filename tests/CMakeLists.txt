@@ -7,6 +7,7 @@ add_executable(
     intensity_tests.cpp
     material_tests.cpp
     roi_tests.cpp
+    theme_color_tests.cpp
     unity_bloom_tests.cpp
     unity_ring_mesh_tests.cpp
     unity_trail_mesh_tests.cpp
