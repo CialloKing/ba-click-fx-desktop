@@ -11,7 +11,7 @@
 namespace bafx::config
 {
 
-inline constexpr std::uint32_t currentSchemaVersion = 15U;
+inline constexpr std::uint32_t currentSchemaVersion = 16U;
 inline constexpr std::size_t maximumDisplayOverrides = 64U;
 inline constexpr std::size_t maximumDisplayKeyBytes = 4096U;
 
@@ -62,6 +62,9 @@ struct DisplayOverrideConfig final
 struct EffectsConfig
 {
     bool enabled{true};
+    // User-authored sRGB theme color. The renderer maps the Unity palette
+    // relative to this value while preserving the default identity path.
+    std::string themeColor{"#4ca7ff"};
     float globalScale{1.0F};
     // Opacity is applied to the final FX payload while Unity-authored linear
     // RGB and Bloom emission remain unchanged.

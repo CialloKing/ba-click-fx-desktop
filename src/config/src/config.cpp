@@ -834,6 +834,32 @@ private:
         });
 }
 
+[[nodiscard]] bool normalizeThemeColor(std::string& value) noexcept
+{
+    if (value.size() != 7U || value.front() != '#')
+    {
+        return false;
+    }
+    for (std::size_t index = 1U; index < value.size(); ++index)
+    {
+        const unsigned char character =
+            static_cast<unsigned char>(value[index]);
+        const bool hexadecimal =
+            (character >= '0' && character <= '9')
+            || (character >= 'a' && character <= 'f')
+            || (character >= 'A' && character <= 'F');
+        if (!hexadecimal)
+        {
+            return false;
+        }
+        if (character >= 'A' && character <= 'F')
+        {
+            value[index] = static_cast<char>(character + ('a' - 'A'));
+        }
+    }
+    return true;
+}
+
 [[nodiscard]] bool readDisplayOverrides(
     const JsonValue& value,
     std::vector<DisplayOverrideConfig>& output,
@@ -1004,6 +1030,7 @@ private:
                 *effects,
                 {
                     "enabled",
+                    "themeColor",
                     "globalScale",
                     "opacity",
                     "clickEnabled",
@@ -1074,7 +1101,21 @@ private:
     }
 
     if (!readBool(*effects, "enabled", "effects", config.effects.enabled, error)
-        || !readFloat(
+        || !readString(
+            *effects,
+            "themeColor",
+            "effects",
+            config.effects.themeColor,
+            error)
+        || !normalizeThemeColor(config.effects.themeColor))
+    {
+        if (error.empty())
+        {
+            error = "config field 'effects.themeColor' must be #rrggbb";
+        }
+        return config;
+    }
+    if (!readFloat(
             *effects,
             "globalScale",
             "effects",
@@ -1417,12 +1458,15 @@ private:
     const EffectsConfig& config)
 {
     JsonValue::Object effects;
+    std::string themeColor = config.themeColor;
+    static_cast<void>(normalizeThemeColor(themeColor));
     effects.emplace("bloomIntensity", JsonValue(static_cast<double>(config.bloomIntensity)));
     effects.emplace("clickEnabled", JsonValue(config.clickEnabled));
     effects.emplace("clickTimeScale", JsonValue(static_cast<double>(config.clickTimeScale)));
     effects.emplace("diskLifetimeMs", JsonValue(static_cast<double>(config.diskLifetimeMs)));
     effects.emplace("diskRadius", JsonValue(static_cast<double>(config.diskRadius)));
     effects.emplace("enabled", JsonValue(config.enabled));
+    effects.emplace("themeColor", JsonValue(std::move(themeColor)));
     effects.emplace("globalScale", JsonValue(static_cast<double>(config.globalScale)));
     effects.emplace("opacity", JsonValue(static_cast<double>(config.opacity)));
     effects.emplace(
@@ -1720,6 +1764,42 @@ void appendJsonValue(
                 JsonValue(std::string("full")));
         }
     }
+    root["schemaVersion"] = JsonValue(15.0);
+    return true;
+}
+
+// Schema 16 adds the persisted theme color. Omitting it retains the shipped
+// blue so existing profiles keep their exact rendering contract.
+[[nodiscard]] bool migrateSchema15To16(
+    JsonValue::Object& root,
+    std::string& error)
+{
+    const JsonValue* versionValue = member(root, "schemaVersion");
+    const double* version = versionValue == nullptr
+        ? nullptr
+        : std::get_if<double>(&versionValue->storage);
+    if (version == nullptr || !std::isfinite(*version))
+    {
+        error = "schemaVersion is required";
+        return false;
+    }
+    if (*version != 15.0)
+    {
+        return false;
+    }
+
+    const auto effectsIterator = root.find("effects");
+    if (effectsIterator != root.end())
+    {
+        JsonValue::Object* effects = objectOf(effectsIterator->second);
+        if (effects != nullptr
+            && effects->find("themeColor") == effects->end())
+        {
+            effects->emplace(
+                "themeColor",
+                JsonValue(std::string("#4ca7ff")));
+        }
+    }
     root["schemaVersion"] = JsonValue(static_cast<double>(currentSchemaVersion));
     return true;
 }
@@ -1749,10 +1829,22 @@ void appendJsonValue(
     const double* version = versionValue == nullptr
         ? nullptr
         : std::get_if<double>(&versionValue->storage);
-    const bool migrated = version != nullptr
-        && std::isfinite(*version)
-        && *version == 14.0
-        && migrateSchema14To15(*originalRoot, error);
+    bool migrated = false;
+    if (version != nullptr && std::isfinite(*version))
+    {
+        if (*version == 14.0)
+        {
+            migrated = migrateSchema14To15(*originalRoot, error);
+            if (migrated && error.empty())
+            {
+                migrated = migrateSchema15To16(*originalRoot, error);
+            }
+        }
+        else if (*version == 15.0)
+        {
+            migrated = migrateSchema15To16(*originalRoot, error);
+        }
+    }
     if (!error.empty())
     {
         return ConfigLoadResult{defaultConfig(), ConfigStatus::ValidationError, std::move(error)};
@@ -1828,6 +1920,7 @@ namespace
         "effects.diskLifetimeMs",
         "effects.diskRadius",
         "effects.enabled",
+        "effects.themeColor",
         "effects.globalScale",
         "effects.opacity",
         "effects.ringsAngularVelocityMultiplier",
@@ -2020,6 +2113,11 @@ namespace
         if (*path == "effects.enabled")
         {
             valueAccepted = readPatchBool(result.effects.enabled);
+        }
+        else if (*path == "effects.themeColor")
+        {
+            valueAccepted = readPatchString(result.effects.themeColor)
+                && normalizeThemeColor(result.effects.themeColor);
         }
         else if (*path == "effects.globalScale")
         {
@@ -3093,6 +3191,11 @@ bool validateConfig(const Config& config, std::string* error) noexcept
     if (config.schemaVersion != currentSchemaVersion)
     {
         return failValidation("config schemaVersion does not match the current schema");
+    }
+    std::string normalizedThemeColor = config.effects.themeColor;
+    if (!normalizeThemeColor(normalizedThemeColor))
+    {
+        return failValidation("effects.themeColor must be #rrggbb");
     }
     switch (config.background.mode)
     {

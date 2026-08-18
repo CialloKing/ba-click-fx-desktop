@@ -44,6 +44,7 @@ BAFX_TEST(config_defaults_round_trip_through_versioned_json)
     const bafx::config::Config defaults = bafx::config::defaultConfig();
     BAFX_CHECK(defaults.schemaVersion == bafx::config::currentSchemaVersion);
     BAFX_CHECK(defaults.effects.enabled);
+    BAFX_CHECK(defaults.effects.themeColor == "#4ca7ff");
     BAFX_CHECK(
         defaults.background.mode
         == bafx::config::RenderMode::BackgroundAware);
@@ -104,6 +105,7 @@ BAFX_TEST(config_defaults_round_trip_through_versioned_json)
     BAFX_CHECK(parsed.succeeded());
     BAFX_CHECK(parsed.status == bafx::config::ConfigStatus::Ok);
     BAFX_CHECK(parsed.config.schemaVersion == defaults.schemaVersion);
+    BAFX_CHECK(parsed.config.effects.themeColor == defaults.effects.themeColor);
     BAFX_CHECK(parsed.config.background.mode == defaults.background.mode);
     BAFX_CHECK(
         parsed.config.background.cursorExcluded
@@ -450,6 +452,7 @@ BAFX_TEST(config_current_effect_fields_round_trip_through_file)
     fs::remove_all(root, cleanupError);
 
     bafx::config::Config value = bafx::config::defaultConfig();
+    value.effects.themeColor = "#FF6969";
     value.effects.opacity = 0.35F;
     value.effects.clickTimeScale = 0.25F;
     value.effects.trailTimeScale = 3.5F;
@@ -483,6 +486,7 @@ BAFX_TEST(config_current_effect_fields_round_trip_through_file)
 
     const std::string serialized = bafx::config::toJson(value, false);
     BAFX_CHECK(serialized.find("\"effectsMode\":\"full\"") != std::string::npos);
+    BAFX_CHECK(serialized.find("\"themeColor\":\"#ff6969\"") != std::string::npos);
     for (const std::string_view field : {
              "opacity",
              "clickTimeScale",
@@ -520,6 +524,7 @@ BAFX_TEST(config_current_effect_fields_round_trip_through_file)
     const auto loaded = bafx::config::loadConfig(path);
     BAFX_CHECK(loaded.status == bafx::config::ConfigStatus::Ok);
     BAFX_CHECK(loaded.config.schemaVersion == bafx::config::currentSchemaVersion);
+    BAFX_CHECK(loaded.config.effects.themeColor == "#ff6969");
     BAFX_CHECK_NEAR(loaded.config.effects.opacity, 0.35F, 0.00001F);
     BAFX_CHECK_NEAR(loaded.config.effects.clickTimeScale, 0.25F, 0.00001F);
     BAFX_CHECK_NEAR(loaded.config.effects.trailTimeScale, 3.5F, 0.00001F);
@@ -610,6 +615,23 @@ BAFX_TEST(config_fx_parameter_boundaries_use_native_paths)
         "false");
     BAFX_CHECK(disabled.succeeded());
     BAFX_CHECK(!disabled.config.effects.enabled);
+
+    const auto themeColor = bafx::config::setFxParam(
+        base,
+        "effects.themeColor",
+        "\"#FF6969\"");
+    BAFX_CHECK(themeColor.succeeded());
+    BAFX_CHECK(themeColor.config.effects.themeColor == "#ff6969");
+
+    const auto invalidThemeColor = bafx::config::setFxParam(
+        base,
+        "effects.themeColor",
+        "\"#ff6969cc\"");
+    BAFX_CHECK(!invalidThemeColor.succeeded());
+    BAFX_CHECK(invalidThemeColor.recognized);
+    BAFX_CHECK(
+        invalidThemeColor.config.effects.themeColor
+        == base.effects.themeColor);
 
     const auto globalScale = bafx::config::setFxParam(
         base,
@@ -959,10 +981,11 @@ BAFX_TEST(config_fx_parameter_batch_is_atomic_and_preserves_generation)
     const bafx::config::Config base = bafx::config::defaultConfig();
     const auto batch = bafx::config::setFxParams(
         base,
-        R"json({"generation":7,"patch":{"effects.opacity":0.25,"effects.clickTimeScale":2,"effects.trailLifetimeMs":600,"effects.diskLifetimeMs":350,"effects.ringsCount":4,"effects.ringsLifetimeMs":900,"effects.ringsRadiusMin":45,"effects.ringsRadiusMax":95,"effects.ringsAngularVelocityMultiplier":14.5,"effects.ringsRotationDirection":0.5,"effects.shardsClickCount":7,"effects.shardsClickLifetimeMinMs":100,"effects.shardsClickLifetimeMaxMs":200,"effects.shardsClickRadius":75,"effects.shardsClickSpeedMin":10,"effects.shardsClickSpeedMax":20,"effects.shardsSizeMin":1,"effects.shardsSizeMax":2,"effects.bloomIntensity":4.2}})json");
+        R"json({"generation":7,"patch":{"effects.themeColor":"#FF6969","effects.opacity":0.25,"effects.clickTimeScale":2,"effects.trailLifetimeMs":600,"effects.diskLifetimeMs":350,"effects.ringsCount":4,"effects.ringsLifetimeMs":900,"effects.ringsRadiusMin":45,"effects.ringsRadiusMax":95,"effects.ringsAngularVelocityMultiplier":14.5,"effects.ringsRotationDirection":0.5,"effects.shardsClickCount":7,"effects.shardsClickLifetimeMinMs":100,"effects.shardsClickLifetimeMaxMs":200,"effects.shardsClickRadius":75,"effects.shardsClickSpeedMin":10,"effects.shardsClickSpeedMax":20,"effects.shardsSizeMin":1,"effects.shardsSizeMax":2,"effects.bloomIntensity":4.2}})json");
     BAFX_CHECK(batch.succeeded());
     BAFX_CHECK(batch.expectedGeneration.has_value());
     BAFX_CHECK(*batch.expectedGeneration == 7U);
+    BAFX_CHECK(batch.config.effects.themeColor == "#ff6969");
     BAFX_CHECK_NEAR(batch.config.effects.opacity, 0.25F, 0.00001F);
     BAFX_CHECK_NEAR(batch.config.effects.clickTimeScale, 2.0F, 0.00001F);
     BAFX_CHECK_NEAR(batch.config.effects.trailLifetimeMs, 600.0F, 0.00001F);
@@ -1007,10 +1030,10 @@ BAFX_TEST(config_fx_parameter_batch_is_atomic_and_preserves_generation)
 
     const auto rejected = bafx::config::setFxParams(
         base,
-        R"json({"generation":7,"patch":{"effects.opacity":0.25,"effects.bloomSoftKnee":2}})json");
+        R"json({"generation":7,"patch":{"effects.opacity":0.25,"effects.themeColor":"red"}})json");
     BAFX_CHECK(!rejected.succeeded());
     BAFX_CHECK(rejected.config.effects.opacity == base.effects.opacity);
-    BAFX_CHECK(rejected.config.effects.bloomSoftKnee == base.effects.bloomSoftKnee);
+    BAFX_CHECK(rejected.config.effects.themeColor == base.effects.themeColor);
 
     const auto rejectedProductPath = bafx::config::setFxParams(
         base,
@@ -1251,12 +1274,34 @@ BAFX_TEST(config_parser_rejects_non_current_schemas)
     const std::size_t effectsModePosition = legacyJson.find(effectsModeField);
     BAFX_CHECK(effectsModePosition != std::string::npos);
     legacyJson.erase(effectsModePosition, effectsModeField.size());
+    const std::string themeColorField = R"json("themeColor":"#4ca7ff",)json";
+    const std::size_t themeColorPosition = legacyJson.find(themeColorField);
+    BAFX_CHECK(themeColorPosition != std::string::npos);
+    legacyJson.erase(themeColorPosition, themeColorField.size());
     const auto migrated = bafx::config::parseJson(legacyJson);
     bafx::test::check(migrated.succeeded(), migrated.message);
     BAFX_CHECK(migrated.config.schemaVersion == bafx::config::currentSchemaVersion);
     BAFX_CHECK(
         migrated.config.performance.effectsMode
         == bafx::config::EffectsMode::Full);
+    BAFX_CHECK(migrated.config.effects.themeColor == "#4ca7ff");
+
+    std::string schema15Json = bafx::config::toJson(legacy, false);
+    const std::size_t schema15VersionPosition = schema15Json.find(currentVersionField);
+    BAFX_CHECK(schema15VersionPosition != std::string::npos);
+    schema15Json.replace(
+        schema15VersionPosition,
+        currentVersionField.size(),
+        "\"schemaVersion\":15");
+    const std::size_t schema15ThemeColorPosition = schema15Json.find(themeColorField);
+    BAFX_CHECK(schema15ThemeColorPosition != std::string::npos);
+    schema15Json.erase(schema15ThemeColorPosition, themeColorField.size());
+    const auto migratedSchema15 = bafx::config::parseJson(schema15Json);
+    bafx::test::check(migratedSchema15.succeeded(), migratedSchema15.message);
+    BAFX_CHECK(
+        migratedSchema15.config.schemaVersion
+        == bafx::config::currentSchemaVersion);
+    BAFX_CHECK(migratedSchema15.config.effects.themeColor == "#4ca7ff");
 }
 
 BAFX_TEST(config_patch_controls_effects_mode)
@@ -1330,6 +1375,21 @@ BAFX_TEST(config_current_schema_requires_every_section_and_field)
     BAFX_CHECK(
         missingCurrentEffectField.message.find(
             "config field 'effects.ringsCount' is required")
+        != std::string::npos);
+
+    document = bafx::config::toJson(config, false);
+    const std::string themeColorField = R"json("themeColor":"#4ca7ff",)json";
+    const std::size_t themeColorPosition = document.find(themeColorField);
+    BAFX_CHECK(themeColorPosition != std::string::npos);
+    document.erase(themeColorPosition, themeColorField.size());
+
+    const auto missingThemeColor = bafx::config::parseJson(document);
+    BAFX_CHECK(
+        missingThemeColor.status
+        == bafx::config::ConfigStatus::ValidationError);
+    BAFX_CHECK(
+        missingThemeColor.message.find(
+            "config field 'effects.themeColor' is required")
         != std::string::npos);
 
     document = bafx::config::toJson(config, false);
