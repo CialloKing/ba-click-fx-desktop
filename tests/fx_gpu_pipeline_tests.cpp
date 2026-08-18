@@ -416,6 +416,28 @@ struct WarpDevice
     return maximum;
 }
 
+[[nodiscard]] std::array<float, 3U> maximumRgbChannelsInBox(
+    const std::vector<ReadbackPixel>& pixels,
+    const std::uint32_t left,
+    const std::uint32_t top,
+    const std::uint32_t right,
+    const std::uint32_t bottom) noexcept
+{
+    std::array<float, 3U> maximum{};
+    for (std::uint32_t y = top; y < bottom; ++y)
+    {
+        for (std::uint32_t x = left; x < right; ++x)
+        {
+            const ReadbackPixel& pixel =
+                pixels[static_cast<std::size_t>(y) * testSize.width + x];
+            maximum[0] = (std::max)(maximum[0], pixel.red);
+            maximum[1] = (std::max)(maximum[1], pixel.green);
+            maximum[2] = (std::max)(maximum[2], pixel.blue);
+        }
+    }
+    return maximum;
+}
+
 void checkFiniteAndNonNegative(const std::vector<ReadbackPixel>& pixels)
 {
     for (const ReadbackPixel& pixel : pixels)
@@ -662,6 +684,114 @@ BAFX_TEST(warp_pipeline_separates_direct_emission_and_multilevel_bloom_seed)
         1.0e-3F);
     BAFX_CHECK(maximumRgbOutsideSprite(directPixels) <= 1.0e-6F);
     BAFX_CHECK(maximumRgbOutsideSprite(bloomPixels) > 1.0e-3F);
+}
+
+BAFX_TEST(warp_theme_color_changes_every_native_effect_layer)
+{
+    ComApartment apartment;
+    const WarpDevice graphics = createWarpDevice();
+    FxGpuRenderer renderer(graphics.device.Get(), graphics.context.Get(), testSize);
+    renderer.setBloomSettings(FxBloomSettings{0.0F, 7.0F});
+
+    struct LayerCase final
+    {
+        bafx::fx::FrameSnapshot snapshot{};
+        std::uint32_t left{0U};
+        std::uint32_t top{0U};
+        std::uint32_t right{0U};
+        std::uint32_t bottom{0U};
+    };
+    LayerCase trailCase{makeTwoTrailSnapshot(), 16U, 48U, 120U, 80U};
+    LayerCase diskCase{makeDiskSnapshot(false), 96U, 96U, 160U, 160U};
+    LayerCase ringCase{makeDissolveRingSnapshot(), 64U, 64U, 192U, 192U};
+    LayerCase triangleCase{makeTriangleSnapshot(), 96U, 96U, 160U, 160U};
+    const bafx::fx::ColorF baseBlueColor{
+        srgbToLinearChannel(76.0F / 255.0F),
+        srgbToLinearChannel(167.0F / 255.0F),
+        1.0F,
+        1.0F};
+    diskCase.snapshot.sprites.front().color = baseBlueColor;
+    ringCase.snapshot.sprites.front().color = baseBlueColor;
+    triangleCase.snapshot.sprites.front().color = baseBlueColor;
+
+    for (const LayerCase& layer : {trailCase, diskCase, ringCase, triangleCase})
+    {
+        const RenderTarget defaultTarget = createRenderTarget(
+            graphics.device.Get());
+        renderer.setThemeColor("#4ca7ff");
+        renderer.render(layer.snapshot, defaultTarget.view.Get());
+        const std::array<float, 3U> defaultChannels = maximumRgbChannelsInBox(
+            readback(graphics.context.Get(), defaultTarget.texture.Get()),
+            layer.left,
+            layer.top,
+            layer.right,
+            layer.bottom);
+
+        const RenderTarget redTarget = createRenderTarget(graphics.device.Get());
+        renderer.setThemeColor("#ff0000");
+        renderer.render(layer.snapshot, redTarget.view.Get());
+        const std::array<float, 3U> redChannels = maximumRgbChannelsInBox(
+            readback(graphics.context.Get(), redTarget.texture.Get()),
+            layer.left,
+            layer.top,
+            layer.right,
+            layer.bottom);
+        BAFX_CHECK(defaultChannels[2] > 1.0e-3F);
+        BAFX_CHECK(redChannels[0] > redChannels[2]);
+        BAFX_CHECK(redChannels[0] > 1.0e-3F);
+    }
+}
+
+BAFX_TEST(warp_theme_coverage_scale_only_limits_unknown_background_alpha)
+{
+    ComApartment apartment;
+    const WarpDevice graphics = createWarpDevice();
+    FxGpuRenderer renderer(graphics.device.Get(), graphics.context.Get(), testSize);
+    const bafx::fx::FrameSnapshot snapshot = makeDiskAndTrailSnapshot();
+
+    renderer.setThemeColor("#4ca7ff");
+    const RenderTarget defaultTarget = createRenderTarget(graphics.device.Get());
+    renderer.render(snapshot, defaultTarget.view.Get());
+    const std::vector<ReadbackPixel> defaultPixels = readback(
+        graphics.context.Get(),
+        defaultTarget.texture.Get());
+
+    renderer.setThemeColor("#000001");
+    const RenderTarget nearBlackTarget = createRenderTarget(graphics.device.Get());
+    renderer.render(snapshot, nearBlackTarget.view.Get());
+    const std::vector<ReadbackPixel> nearBlackPixels = readback(
+        graphics.context.Get(),
+        nearBlackTarget.texture.Get());
+    BAFX_CHECK(
+        maximumAlphaInBox(nearBlackPixels, 96U, 96U, 160U, 160U)
+        < maximumAlphaInBox(defaultPixels, 96U, 96U, 160U, 160U) / 200.0F);
+
+    const RenderTarget background = createRenderTarget(graphics.device.Get());
+    constexpr std::array<float, 4U> backgroundColor{0.25F, 0.5F, 0.75F, 1.0F};
+    graphics.context->ClearRenderTargetView(background.view.Get(), backgroundColor.data());
+    renderer.setThemeColor("#4ca7ff");
+    const RenderTarget awareDefaultTarget = createRenderTarget(graphics.device.Get());
+    renderer.render(
+        snapshot,
+        awareDefaultTarget.view.Get(),
+        BackgroundRenderInput{background.shaderResource.Get()});
+    const std::vector<ReadbackPixel> awareDefault = readback(
+        graphics.context.Get(),
+        awareDefaultTarget.texture.Get());
+    renderer.setThemeColor("#000001");
+    const RenderTarget awareNearBlackTarget = createRenderTarget(graphics.device.Get());
+    renderer.render(
+        snapshot,
+        awareNearBlackTarget.view.Get(),
+        BackgroundRenderInput{background.shaderResource.Get()});
+    const std::vector<ReadbackPixel> awareNearBlack = readback(
+        graphics.context.Get(),
+        awareNearBlackTarget.texture.Get());
+    BAFX_CHECK(maximumRgbaDelta(awareDefault, awareNearBlack) > 1.0e-3F);
+    BAFX_CHECK(
+        maximumAlphaInBox(awareNearBlack, 96U, 96U, 160U, 160U)
+        > maximumAlphaInBox(nearBlackPixels, 96U, 96U, 160U, 160U) * 10.0F
+            + 0.01F);
 }
 
 BAFX_TEST(warp_light_background_profile_uses_visual_max_source_over_capacity)

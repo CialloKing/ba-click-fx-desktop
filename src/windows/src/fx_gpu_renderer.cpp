@@ -3,6 +3,7 @@
 #include "bafx/windows/gpu_timestamp_profiler.hpp"
 
 #include "bafx/core/color_space.hpp"
+#include "bafx/core/theme_color.hpp"
 #include "bafx/core/unity_bloom.hpp"
 #include "bafx/core/unity_ring_mesh.hpp"
 #include "bafx/core/unity_trail_mesh.hpp"
@@ -71,7 +72,8 @@ struct BloomConstants
     float backgroundTransportEnabled{0.0F};
     float backgroundReferenceWhiteScale{1.0F};
     float outputReferenceWhiteScale{1.0F};
-    float padding[2]{};
+    float themeCoverageScale{1.0F};
+    float padding{0.0F};
 };
 
 static_assert(sizeof(BloomConstants) == 48U);
@@ -344,7 +346,8 @@ struct ColorTarget
 
 [[nodiscard]] std::array<SpriteVertex, 6> makeSpriteVertices(
     const bafx::fx::Sprite& sprite,
-    const float globalOpacity) noexcept
+    const float globalOpacity,
+    const bafx::core::RelativeOklchTheme& theme) noexcept
 {
     const float halfSize = sprite.sizePixels * 0.5F;
     const float cosine = std::cos(sprite.rotationRadians);
@@ -377,18 +380,26 @@ struct ColorTarget
         {maximumU, 1.0F},
         {minimumU, 1.0F}}};
 
+    const bafx::core::Float3 mappedColor = bafx::core::applyRelativeOklchTheme(
+        bafx::core::Float3{sprite.color.r, sprite.color.g, sprite.color.b},
+        theme);
     const auto vertex = [
                             &sprite,
                             &positions,
                             &uvs,
-                            globalOpacity](const std::size_t index)
+                            globalOpacity,
+                            mappedColor](const std::size_t index)
     {
         return makeVertex(
             positions[index][0],
             positions[index][1],
             uvs[index][0],
             uvs[index][1],
-            sprite.color,
+            bafx::fx::ColorF{
+                mappedColor.r,
+                mappedColor.g,
+                mappedColor.b,
+                sprite.color.a},
             sprite.artisticIntensity,
             sprite.dissolveThreshold,
             sprite.contributesBloom,
@@ -401,7 +412,8 @@ struct ColorTarget
 [[nodiscard]] std::array<SpriteVertex, bafx::core::unityRingIndexCount>
 makeRingVertices(
     const bafx::fx::Sprite& sprite,
-    const float globalOpacity) noexcept
+    const float globalOpacity,
+    const bafx::core::RelativeOklchTheme& theme) noexcept
 {
     // Cylinder002 is regular, so its exact topology can remain code-generated.
     static const bafx::core::UnityRingMesh mesh = bafx::core::makeUnityRingMesh();
@@ -410,6 +422,9 @@ makeRingVertices(
         / (2.0F * bafx::core::unityRingOuterRadius);
     const float cosine = std::cos(sprite.rotationRadians);
     const float sine = std::sin(sprite.rotationRadians);
+    const bafx::core::Float3 mappedColor = bafx::core::applyRelativeOklchTheme(
+        bafx::core::Float3{sprite.color.r, sprite.color.g, sprite.color.b},
+        theme);
     for (std::size_t index = 0U; index < mesh.indices.size(); ++index)
     {
         const bafx::core::UnityRingVertex& source =
@@ -421,7 +436,11 @@ makeRingVertices(
             sprite.centerPixels.y - rotatedY * scale,
             source.u,
             source.v,
-            sprite.color,
+            bafx::fx::ColorF{
+                mappedColor.r,
+                mappedColor.g,
+                mappedColor.b,
+                sprite.color.a},
             sprite.artisticIntensity,
             sprite.dissolveThreshold,
             sprite.contributesBloom,
@@ -435,7 +454,8 @@ makeRingVertices(
     const std::span<const bafx::fx::TrailPoint> trail,
     const float trailWidthPixels,
     const float opacity,
-    const float globalOpacity)
+    const float globalOpacity,
+    const bafx::core::RelativeOklchTheme& theme)
 {
     if (trail.size() < 2U || trailWidthPixels <= 0.0F)
     {
@@ -460,15 +480,17 @@ makeRingVertices(
     {
         const bafx::core::Float3 trailColor =
             bafx::core::evaluateUnityTrailColor(vertex.progress);
+        const bafx::core::Float3 mappedColor =
+            bafx::core::applyRelativeOklchTheme(trailColor, theme);
         vertices.push_back(makeVertex(
             vertex.x,
             vertex.y,
             1.0F - vertex.progress,
             vertex.transverse,
             bafx::fx::ColorF{
-                trailColor.r,
-                trailColor.g,
-                trailColor.b,
+                mappedColor.r,
+                mappedColor.g,
+                mappedColor.b,
                 opacity},
             trailArtisticIntensity,
             0.0F,
@@ -904,6 +926,17 @@ struct FxGpuRenderer::Implementation
         createBloomTargets();
     }
 
+    void setThemeColor(const std::string_view themeColor)
+    {
+        const std::optional<bafx::core::RelativeOklchTheme> parsed =
+            bafx::core::createRelativeOklchTheme(themeColor);
+        if (!parsed.has_value())
+        {
+            throw std::invalid_argument("FX theme color must be #rrggbb");
+        }
+        theme = *parsed;
+    }
+
     void setOverlayProfile(const FxOverlayProfile nextProfile)
     {
         if (!isValidOverlayProfile(nextProfile))
@@ -1062,6 +1095,7 @@ struct FxGpuRenderer::Implementation
         constants.backgroundReferenceWhiteScale =
             backgroundReferenceWhiteScale;
         constants.outputReferenceWhiteScale = outputReferenceWhiteScale;
+        constants.themeCoverageScale = theme.coverageScale;
         return constants;
     }
 
@@ -1339,7 +1373,8 @@ struct FxGpuRenderer::Implementation
         {
             const std::array<SpriteVertex, 6> vertices = makeSpriteVertices(
                 sprite,
-                globalOpacity);
+                globalOpacity,
+                theme);
             drawVertices(
                 vertices,
                 circleTexture.Get(),
@@ -1351,7 +1386,7 @@ struct FxGpuRenderer::Implementation
 
         case bafx::fx::SpriteKind::DissolveRing:
         {
-            const auto vertices = makeRingVertices(sprite, globalOpacity);
+            const auto vertices = makeRingVertices(sprite, globalOpacity, theme);
             drawVertices(
                 vertices,
                 ringTexture.Get(),
@@ -1365,7 +1400,8 @@ struct FxGpuRenderer::Implementation
         {
             const std::array<SpriteVertex, 6> vertices = makeSpriteVertices(
                 sprite,
-                globalOpacity);
+                globalOpacity,
+                theme);
             drawVertices(
                 vertices,
                 triangleTexture.Get(),
@@ -1464,7 +1500,8 @@ struct FxGpuRenderer::Implementation
                 points,
                 widthPixels,
                 opacity,
-                globalOpacity);
+                globalOpacity,
+                theme);
             drawVertices(
                 trailVertices,
                 trailTexture.Get(),
@@ -1722,6 +1759,7 @@ struct FxGpuRenderer::Implementation
     ComPtr<ID3D11ShaderResourceView> trailTexture{};
     std::size_t vertexCapacity{0U};
     FxOverlayProfile overlayProfile{FxOverlayProfile::FxOnlyFallback};
+    bafx::core::RelativeOklchTheme theme{};
 };
 
 FxGpuRenderer::FxGpuRenderer(
@@ -1749,6 +1787,11 @@ void FxGpuRenderer::resize(const WindowSize size)
 void FxGpuRenderer::setBloomSettings(const FxBloomSettings settings)
 {
     implementation_->setBloomSettings(settings);
+}
+
+void FxGpuRenderer::setThemeColor(const std::string_view themeColor)
+{
+    implementation_->setThemeColor(themeColor);
 }
 
 void FxGpuRenderer::setOverlayProfile(const FxOverlayProfile profile)

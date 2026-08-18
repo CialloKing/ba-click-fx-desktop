@@ -14,6 +14,7 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <string_view>
 #include <vector>
 
 namespace bafx::windows
@@ -70,6 +71,7 @@ public:
 
     void resize(WindowSize size);
     void setBloomSettings(FxBloomSettings settings);
+    void setThemeColor(std::string_view themeColor);
     void setOverlayProfile(FxOverlayProfile profile);
     // WGC and DComp run on independent clocks. Filter accepted captures before
     // they feed both Differential Bloom and the final source-over transport so

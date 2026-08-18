@@ -187,7 +187,8 @@ cbuffer BloomConstants : register(b0)
     float BackgroundTransportEnabled;
     float BackgroundReferenceWhiteScale;
     float OutputReferenceWhiteScale;
-    float2 Padding;
+    float ThemeCoverageScale;
+    float Padding;
 };
 
 Texture2D<float4> Source0 : register(t0);
@@ -469,7 +470,11 @@ float4 ResolveFxOnlyDesktopTransport(
     const float requestedCapacity = crossCoverage + residualCapacity;
     const float transportCapacity = saturate(requestedCapacity);
     const float overlayAlphaLimit = 250.0 / 255.0;
-    const float alpha = min(transportCapacity, overlayAlphaLimit);
+    const float alpha = min(
+        ThemeCoverageScale >= 0.999999
+            ? transportCapacity
+            : transportCapacity * saturate(ThemeCoverageScale),
+        overlayAlphaLimit);
 
     if (alpha <= 0.000001)
     {
@@ -536,7 +541,11 @@ float4 ResolveUnknownBackgroundDesktopTransport(
     // Unknown-background source-over follows the Web transparent-overlay
     // contract: visual-max chooses the larger independent envelope instead of
     // summing Alpha, then the selected preset applies its explicit cap.
-    const float alpha = min(max(sceneCoverage, bloomTransport), alphaLimit);
+    const float alpha = min(
+        ThemeCoverageScale >= 0.999999
+            ? max(sceneCoverage, bloomTransport)
+            : max(sceneCoverage, bloomTransport) * saturate(ThemeCoverageScale),
+        alphaLimit);
     if (alpha <= 0.000001)
     {
         return float4(0.0, 0.0, 0.0, 0.0);
@@ -796,8 +805,14 @@ float4 RecordingCompatibleSdrCompositePixel(FullscreenOutput input) : SV_Target0
 // material surface is already the complete low-cost FX payload.
 float4 CoreCompositePixel(FullscreenOutput input) : SV_Target0
 {
+    const float4 direct = Source0.Sample(LinearClampSampler, input.uv);
+    if (ThemeCoverageScale >= 0.999999)
+    {
+        return EncodeConservativeSdrPremultiplied(direct);
+    }
+    const float alpha = saturate(direct.a * ThemeCoverageScale);
     return EncodeConservativeSdrPremultiplied(
-        Source0.Sample(LinearClampSampler, input.uv));
+        float4(min(max(direct.rgb, 0.0), alpha), alpha));
 }
 )hlsl"};
 

@@ -2876,6 +2876,7 @@ int runApplication(
             &borderlessAccessAuthority,
             L"ba-click-fx-desktop",
             makeBloomSettings(config.effects),
+            config.effects.themeColor,
             backgroundStopMonitor.observer(),
             makeOutputPreference(config.display),
             [&config](const bafx::desktop::DisplayTarget& target)
@@ -5320,6 +5321,7 @@ int runApplication(
                     refreshDisplaySessionPolicies(settingsTime);
                 displaySessions.updateCreationSettings(
                     bloomSettings,
+                    config.effects.themeColor,
                     currentOutputPreference,
                     config.effects.trailLength,
                     config.input.samplingRateHz,
@@ -5352,6 +5354,7 @@ int runApplication(
                     renderer.deviceInfo();
                 const bool bloomDeviceRecovered = renderer.setBloomSettings(
                     bloomSettings);
+                renderer.setThemeColor(config.effects.themeColor);
                 if (bloomDeviceRecovered)
                 {
                     bafx::desktop::appendBackgroundCaptureStopDiagnostics(
@@ -5433,6 +5436,7 @@ int runApplication(
                     {
                         const bafx::desktop::DisplaySessionDeviceRecoveryResult
                             recovery = session.setBloomSettings(bloomSettings);
+                        session.renderer().setThemeColor(config.effects.themeColor);
                         session.clearRenderFault();
                         if (recovery.recovered)
                         {

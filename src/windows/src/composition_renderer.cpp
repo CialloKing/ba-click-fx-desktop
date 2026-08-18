@@ -888,6 +888,7 @@ OutputRenegotiationResult CompositionRenderer::renegotiateOutputOnce(
         bloomSettings_,
         created.output.mapping);
     replacementFxRenderer->setOverlayProfile(overlayProfile_);
+    replacementFxRenderer->setThemeColor(themeColor_);
 
     throwIfFailed(
         rootVisual_->SetContent(created.swapChain.Get()),
@@ -1045,6 +1046,12 @@ bool CompositionRenderer::setBloomSettings(const FxBloomSettings settings)
         // already-updated bloomSettings_ value.
         return true;
     }
+}
+
+void CompositionRenderer::setThemeColor(const std::string_view themeColor)
+{
+    fxRenderer_->setThemeColor(themeColor);
+    themeColor_ = std::string(themeColor);
 }
 
 void CompositionRenderer::releaseDeviceResources() noexcept
@@ -2121,6 +2128,7 @@ void CompositionRenderer::createDeviceResources()
         size_,
         bloomSettings_,
         deviceInfo_.output.mapping);
+    fxRenderer_->setThemeColor(themeColor_);
     fxRenderer_->setOverlayProfile(overlayProfile_);
     setReadbackDiagnostics(readbackDiagnosticsEnabled_);
     registerDeviceRemovedNotification();

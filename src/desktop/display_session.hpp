@@ -65,6 +65,7 @@ struct DisplaySessionOptions final
     DisplayTarget target{};
     std::wstring_view title{};
     bafx::windows::FxBloomSettings bloomSettings{};
+    std::string_view themeColor{"#4ca7ff"};
     bafx::windows::WgcBackgroundStopObserver backgroundStopObserver{};
     DisplaySessionRuntimePolicy runtimePolicy{};
     std::uint64_t simulationSeed{0U};

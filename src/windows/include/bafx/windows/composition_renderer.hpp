@@ -298,6 +298,7 @@ public:
         deviceRecoveryDiagnostics() const noexcept;
     [[nodiscard]] bool deviceRecoveryBudgetConsumed() const noexcept;
     [[nodiscard]] bool setBloomSettings(FxBloomSettings settings);
+    void setThemeColor(std::string_view themeColor);
     void setOverlayProfile(FxOverlayProfile profile);
     CompositionFrameDiagnostics renderFrame(
         const bafx::fx::FrameSnapshot& snapshot,
@@ -457,6 +458,7 @@ private:
     D3D_FEATURE_LEVEL featureLevel_{D3D_FEATURE_LEVEL_11_0};
     GraphicsDeviceInfo deviceInfo_{};
     FxBloomSettings bloomSettings_{};
+    std::string themeColor_{"#4ca7ff"};
     FxOverlayProfile overlayProfile_{FxOverlayProfile::FxOnlyFallback};
     std::optional<bafx::core::RectI> previousVisualBounds_{};
     WindowSize size_{};

@@ -30,6 +30,7 @@ DisplaySessionManager::DisplaySessionManager(
       borderlessAccessAuthority_(options.borderlessAccessAuthority),
       surfaceTitle_(options.surfaceTitle),
       bloomSettings_(options.bloomSettings),
+      themeColor_(std::move(options.themeColor)),
       backgroundStopObserver_(options.backgroundStopObserver),
       outputPreference_(options.outputPreference),
       policyResolver_(std::move(options.policyResolver)),
@@ -421,6 +422,7 @@ std::size_t DisplaySessionManager::pruneCoordinatorDuplicates() noexcept
 
 void DisplaySessionManager::updateCreationSettings(
     const bafx::windows::FxBloomSettings bloomSettings,
+    const std::string_view themeColor,
     const bafx::windows::CompositionOutputPreference outputPreference,
     const float trailLengthMultiplier,
     const std::uint32_t inputSamplingRateHz,
@@ -431,6 +433,7 @@ void DisplaySessionManager::updateCreationSettings(
     const bafx::fx::ShardParticleSettings shardParticleSettings) noexcept
 {
     bloomSettings_ = bloomSettings;
+    themeColor_ = themeColor;
     outputPreference_ = outputPreference;
     trailLengthMultiplier_ = trailLengthMultiplier;
     inputSamplingRateHz_ = inputSamplingRateHz;
@@ -671,6 +674,7 @@ std::unique_ptr<DisplaySession> DisplaySessionManager::createSession(
             std::move(target),
             surfaceTitle_,
             bloomSettings_,
+            themeColor_,
             backgroundStopObserver_,
             policy,
             nextSimulationSeed()});

@@ -26,6 +26,7 @@ struct DisplaySessionManagerOptions final
         borderlessAccessAuthority{nullptr};
     std::wstring_view surfaceTitle{};
     bafx::windows::FxBloomSettings bloomSettings{};
+    std::string themeColor{"#4ca7ff"};
     bafx::windows::WgcBackgroundStopObserver backgroundStopObserver{};
     bafx::windows::CompositionOutputPreference outputPreference{
         bafx::windows::CompositionOutputPreference::ConservativeSdr};
@@ -84,6 +85,7 @@ public:
     [[nodiscard]] std::size_t pruneCoordinatorDuplicates() noexcept;
     void updateCreationSettings(
         bafx::windows::FxBloomSettings bloomSettings,
+        std::string_view themeColor,
         bafx::windows::CompositionOutputPreference outputPreference,
         float trailLengthMultiplier,
         std::uint32_t inputSamplingRateHz,
@@ -120,6 +122,7 @@ private:
         borderlessAccessAuthority_{nullptr};
     std::wstring surfaceTitle_{};
     bafx::windows::FxBloomSettings bloomSettings_{};
+    std::string themeColor_{"#4ca7ff"};
     bafx::windows::WgcBackgroundStopObserver backgroundStopObserver_{};
     bafx::windows::CompositionOutputPreference outputPreference_{
         bafx::windows::CompositionOutputPreference::ConservativeSdr};

@@ -195,6 +195,7 @@ DisplaySession::DisplaySession(DisplaySessionOptions options)
       simulation_(options.simulationSeed),
       minimumFramePeriod_(options.runtimePolicy.minimumFramePeriod)
 {
+    renderer_.setThemeColor(options.themeColor);
     colorQueryGeneration_ = 1U;
     colorSnapshotStatus_ = colorCapabilities_.has_value()
         ? DisplaySessionColorRefreshStatus::Refreshed
