@@ -791,6 +791,14 @@ float4 RecordingCompatibleSdrCompositePixel(FullscreenOutput input) : SV_Target0
     return EncodeConservativeSdrPremultiplied(
         ResolveRecordingCompatibleComposite(input));
 }
+
+// Core mode deliberately omits Bloom and background transport. The direct
+// material surface is already the complete low-cost FX payload.
+float4 CoreCompositePixel(FullscreenOutput input) : SV_Target0
+{
+    return EncodeConservativeSdrPremultiplied(
+        Source0.Sample(LinearClampSampler, input.uv));
+}
 )hlsl"};
 
 // Older MSVC front ends reject individual string literals near 16 KiB before

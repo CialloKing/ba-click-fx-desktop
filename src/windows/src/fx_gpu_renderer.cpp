@@ -121,6 +121,7 @@ struct ColorTarget
     case FxOverlayProfile::FxOnlyFallback:
     case FxOverlayProfile::RecordingCompatible:
     case FxOverlayProfile::LightBackground:
+    case FxOverlayProfile::Core:
         return true;
     }
     return false;
@@ -682,6 +683,7 @@ struct FxGpuRenderer::Implementation
         createBloomPixelShader(
             "LightBackgroundSdrCompositePixel",
             lightBackgroundSdrCompositePixelShader);
+        createBloomPixelShader("CoreCompositePixel", coreCompositePixelShader);
 
         D3D11_BUFFER_DESC constantDescription{};
         constantDescription.ByteWidth = sizeof(BloomConstants);
@@ -1385,6 +1387,10 @@ struct FxGpuRenderer::Implementation
     {
         FxRenderCpuDiagnostics diagnostics{};
         const auto totalStartedAt = std::chrono::steady_clock::now();
+        if (overlayProfile == FxOverlayProfile::Core)
+        {
+            return renderCore(snapshot, destination, gpuTimestampProfiler);
+        }
         if (background.has_value() && background->shaderResource == nullptr)
         {
             background.reset();
@@ -1514,6 +1520,69 @@ struct FxGpuRenderer::Implementation
         return diagnostics;
     }
 
+    FxRenderCpuDiagnostics renderCore(
+        const bafx::fx::FrameSnapshot& snapshot,
+        ID3D11RenderTargetView* destination,
+        GpuTimestampProfiler* const gpuTimestampProfiler)
+    {
+        FxRenderCpuDiagnostics diagnostics{};
+        const auto startedAt = std::chrono::steady_clock::now();
+        constexpr std::array<float, 4> transparent{0.0F, 0.0F, 0.0F, 0.0F};
+        if (!hasVisualContent(snapshot))
+        {
+            context->ClearRenderTargetView(destination, transparent.data());
+            if (gpuTimestampProfiler != nullptr)
+            {
+                (void)gpuTimestampProfiler->checkpoint(
+                    GpuTimestampCheckpoint::FxMaterialsComplete);
+            }
+            diagnostics.totalSubmit = std::chrono::steady_clock::now()
+                - startedAt;
+            return diagnostics;
+        }
+
+        diagnostics.visualContent = true;
+        context->ClearRenderTargetView(
+            directTarget.renderTarget.Get(),
+            transparent.data());
+        const std::array<ID3D11RenderTargetView*, 1> target{
+            directTarget.renderTarget.Get()};
+        context->OMSetRenderTargets(
+            static_cast<UINT>(target.size()),
+            target.data(),
+            nullptr);
+        configureFramePipeline();
+        for (const bafx::fx::Sprite& sprite : snapshot.sprites)
+        {
+            drawSprite(sprite, snapshot.globalOpacity);
+        }
+        context->OMSetRenderTargets(0, nullptr, nullptr);
+        diagnostics.materialsSubmit = std::chrono::steady_clock::now()
+            - startedAt;
+        if (gpuTimestampProfiler != nullptr)
+        {
+            (void)gpuTimestampProfiler->checkpoint(
+                GpuTimestampCheckpoint::FxMaterialsComplete);
+        }
+
+        const bafx::core::BloomExtent sourceExtent{
+            static_cast<std::int32_t>(size.width),
+            static_cast<std::int32_t>(size.height)};
+        const auto compositeStartedAt = std::chrono::steady_clock::now();
+        drawFullscreen(
+            destination,
+            sourceExtent,
+            coreCompositePixelShader.Get(),
+            directTarget.shaderResource.Get(),
+            nullptr,
+            makeBloomConstants(sourceExtent, 0.0F, 0.0F));
+        context->OMSetRenderTargets(0, nullptr, nullptr);
+        diagnostics.bloomAndCompositeSubmit = std::chrono::steady_clock::now()
+            - compositeStartedAt;
+        diagnostics.totalSubmit = std::chrono::steady_clock::now() - startedAt;
+        return diagnostics;
+    }
+
     void ensureBloomResultTarget()
     {
         if (bloomResultTarget.texture == nullptr)
@@ -1528,6 +1597,24 @@ struct FxGpuRenderer::Implementation
         const bafx::fx::FrameSnapshot& snapshot,
         ID3D11RenderTargetView* destination)
     {
+        if (overlayProfile == FxOverlayProfile::Core)
+        {
+            const bool visualContent = hasVisualContent(snapshot);
+            renderCore(snapshot, destination, nullptr);
+            FxGpuFrameCapture capture{};
+            const ComPtr<ID3D11Texture2D> destinationTexture =
+                textureFromRenderTarget(destination);
+            capture.finalOverlay = readbackRgba16FloatTexture(
+                context.Get(),
+                destinationTexture.Get());
+            if (visualContent)
+            {
+                capture.directSurface = readbackRgba16FloatTexture(
+                    context.Get(),
+                    directTarget.texture.Get());
+            }
+            return capture;
+        }
         const bool visualContent = hasVisualContent(snapshot);
         if (visualContent)
         {
@@ -1616,6 +1703,7 @@ struct FxGpuRenderer::Implementation
     ComPtr<ID3D11PixelShader> recordingCompatibleSdrCompositePixelShader{};
     ComPtr<ID3D11PixelShader> lightBackgroundCompositePixelShader{};
     ComPtr<ID3D11PixelShader> lightBackgroundSdrCompositePixelShader{};
+    ComPtr<ID3D11PixelShader> coreCompositePixelShader{};
     ComPtr<ID3D11InputLayout> inputLayout{};
     ComPtr<ID3D11Buffer> vertexBuffer{};
     ComPtr<ID3D11Buffer> viewportBuffer{};

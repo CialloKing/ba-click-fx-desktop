@@ -49,7 +49,8 @@ enum class FxOverlayProfile : std::uint8_t
 {
     FxOnlyFallback,
     RecordingCompatible,
-    LightBackground
+    LightBackground,
+    Core
 };
 
 class FxGpuRenderer final
