@@ -890,6 +890,8 @@ struct WgcBackgroundSensor::Implementation
             E_NOINTERFACE,
             "session window exclusion WindowId projection is unavailable");
 #else
+        using winrt::Windows::UI::WindowId;
+
         ComPtr<DisplayGraphicsCaptureSessionAbi> displaySession;
         sessionWindowExclusionState->displaySessionQueryResult =
             sessionUnknown->QueryInterface(IID_PPV_ARGS(&displaySession));
