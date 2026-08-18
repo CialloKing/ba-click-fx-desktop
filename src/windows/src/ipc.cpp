@@ -95,6 +95,10 @@ constexpr std::size_t maximumParserLineBytes = 1U * 1024U * 1024U;
     {
         return IpcCommand::Resume;
     }
+    if (name == "ClearLogs")
+    {
+        return IpcCommand::ClearLogs;
+    }
     if (name == "Shutdown")
     {
         return IpcCommand::Shutdown;

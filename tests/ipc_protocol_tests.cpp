@@ -89,6 +89,11 @@ BAFX_TEST(ipc_parser_accepts_supported_commands)
     BAFX_CHECK(resetFxConfig.request->command == IpcCommand::ResetFxConfig);
     BAFX_CHECK(resetFxConfig.request->payload.empty());
 
+    const IpcParseResult clearLogs = parseIpcRequest("ClearLogs");
+    BAFX_CHECK(clearLogs.succeeded());
+    BAFX_CHECK(clearLogs.request->command == IpcCommand::ClearLogs);
+    BAFX_CHECK(clearLogs.request->payload.empty());
+
     const IpcParseResult shutdown = parseIpcRequest("Shutdown");
     BAFX_CHECK(shutdown.succeeded());
     BAFX_CHECK(shutdown.request->command == IpcCommand::Shutdown);
@@ -117,6 +122,11 @@ BAFX_TEST(ipc_parser_rejects_invalid_payload_shapes)
         "ResetFxConfig now");
     BAFX_CHECK(!resetWithPayload.succeeded());
     BAFX_CHECK(resetWithPayload.errorCode == "unexpected_payload");
+
+    const IpcParseResult clearLogsWithPayload = parseIpcRequest(
+        "ClearLogs now");
+    BAFX_CHECK(!clearLogsWithPayload.succeeded());
+    BAFX_CHECK(clearLogsWithPayload.errorCode == "unexpected_payload");
 
     const IpcParseResult unexpected = parseIpcRequest("Pause now");
     BAFX_CHECK(!unexpected.succeeded());

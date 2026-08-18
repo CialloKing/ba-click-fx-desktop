@@ -39,6 +39,7 @@ enum class IpcCommand : std::uint8_t
     ResetFxConfig,
     Pause,
     Resume,
+    ClearLogs,
     Shutdown
 };
 

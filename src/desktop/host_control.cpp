@@ -752,6 +752,9 @@ bafx::windows::IpcResponse HostControlPlane::handle(
                 backgroundCaptureActive_}));
         }
 
+        case bafx::windows::IpcCommand::ClearLogs:
+            return handleClearLogs();
+
         case bafx::windows::IpcCommand::Shutdown:
             return bafx::windows::IpcResponse::success(
                 "{\"shutdownRequested\":true}");
@@ -868,6 +871,34 @@ bafx::windows::IpcResponse HostControlPlane::handleResetFxConfig() noexcept
     ++generation_;
     return bafx::windows::IpcResponse::success(
         bafx::config::getFxConfig(config_, false));
+}
+
+bafx::windows::IpcResponse HostControlPlane::handleClearLogs() noexcept
+{
+    const std::filesystem::path logPath =
+        bafx::windows::defaultDiagnosticLogPath();
+    const bafx::windows::DiagnosticLogCleanupResult cleanup =
+        bafx::windows::clearDiagnosticLogs(logPath);
+    const std::string removedFiles = std::to_string(cleanup.removedFiles);
+    const std::string removedBytes = std::to_string(cleanup.removedBytes);
+    const std::string failedFiles = std::to_string(cleanup.failedFiles);
+    const std::array fields{
+        bafx::windows::DiagnosticField{"Log.Cleanup.RemovedFiles", removedFiles},
+        bafx::windows::DiagnosticField{"Log.Cleanup.RemovedBytes", removedBytes},
+        bafx::windows::DiagnosticField{"Log.Cleanup.FailedFiles", failedFiles}};
+    bafx::windows::appendDiagnosticEvent(
+        logPath,
+        "Log.Cleanup",
+        fields,
+        cleanup.failedFiles == 0U
+            ? bafx::windows::DiagnosticLevel::Info
+            : bafx::windows::DiagnosticLevel::Warning);
+
+    std::ostringstream response;
+    response << "{\"removedFiles\":" << cleanup.removedFiles
+             << ",\"removedBytes\":" << cleanup.removedBytes
+             << ",\"failedFiles\":" << cleanup.failedFiles << '}';
+    return bafx::windows::IpcResponse::success(response.str());
 }
 
 bafx::windows::IpcResponse HostControlPlane::handleSetConfig(

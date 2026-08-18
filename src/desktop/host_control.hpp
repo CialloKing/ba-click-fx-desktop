@@ -139,6 +139,7 @@ private:
         std::string_view payload,
         bool batch) noexcept;
     [[nodiscard]] bafx::windows::IpcResponse handleResetFxConfig() noexcept;
+    [[nodiscard]] bafx::windows::IpcResponse handleClearLogs() noexcept;
     [[nodiscard]] static std::string stateJson(const HostStateSnapshot& state);
     [[nodiscard]] static std::string displayStateJson(
         const DisplayStateSnapshot& state);
