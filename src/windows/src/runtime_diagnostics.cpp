@@ -1,10 +1,10 @@
 #include "bafx/windows/runtime_diagnostics.hpp"
 
 #include "bafx/windows/portable_paths.hpp"
+#include "bafx/windows/recording_compatibility.hpp"
 #include "bafx/windows/unique_handle.hpp"
 
 #include <windows.h>
-#include <winternl.h>
 
 #include <algorithm>
 #include <array>
@@ -348,32 +348,8 @@ void appendDiagnosticRecordUnlocked(
 
 [[nodiscard]] std::string osVersion()
 {
-    using RtlGetVersion = LONG(WINAPI*)(PRTL_OSVERSIONINFOW);
-    const HMODULE module = GetModuleHandleW(L"ntdll.dll");
-    if (module == nullptr)
-    {
-        return "unknown";
-    }
-
-    const auto function = reinterpret_cast<RtlGetVersion>(
-        GetProcAddress(module, "RtlGetVersion"));
-    if (function == nullptr)
-    {
-        return "unknown";
-    }
-
-    RTL_OSVERSIONINFOW version{};
-    version.dwOSVersionInfoSize = sizeof(version);
-    if (function(&version) != 0L)
-    {
-        return "unknown";
-    }
-
-    std::ostringstream stream;
-    stream << version.dwMajorVersion << '.'
-           << version.dwMinorVersion << '.'
-           << version.dwBuildNumber;
-    return stream.str();
+    return recordingCompatibleVersionString(
+        queryRecordingCompatibleAvailability());
 }
 
 [[nodiscard]] std::string nativeArchitecture()
