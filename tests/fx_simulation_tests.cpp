@@ -185,8 +185,11 @@ BAFX_TEST(click_shard_settings_use_web_reference_pixel_units)
     simulation.setShardParticleSettings(settings);
     simulation.pointerDown(goldenCenter, goldenViewport, 0ns);
 
+    const FrameSnapshot visibleFrame = simulation.snapshot(
+        goldenViewport,
+        50ms);
     const auto visible = spritesOfKind(
-        simulation.snapshot(goldenViewport, 50ms),
+        visibleFrame,
         SpriteKind::Triangle);
     BAFX_CHECK(visible.size() == 3U);
     for (const Sprite* const shard : visible)
