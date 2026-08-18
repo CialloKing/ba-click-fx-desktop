@@ -51,13 +51,17 @@ ResolvedDisplaySessionPolicy resolveDisplaySessionPolicy(
                 ? std::string_view(*result.displayKey)
                 : std::string_view{});
     result.enabled = resolved.enabled;
-    result.hdrEnabled = resolved.hdrEnabled;
-    result.framePacing = resolved.framePacing;
+    const bool coreMode = config.performance.effectsMode
+        == bafx::config::EffectsMode::Core;
+    result.hdrEnabled = coreMode ? false : resolved.hdrEnabled;
+    result.framePacing = coreMode
+        ? bafx::config::FramePacing::Fixed60
+        : resolved.framePacing;
     result.overridden = resolved.overridden;
-    result.outputPreference = resolved.hdrEnabled
+    result.outputPreference = !coreMode && resolved.hdrEnabled
         ? bafx::windows::CompositionOutputPreference::PreferLinearScRgb
         : bafx::windows::CompositionOutputPreference::ConservativeSdr;
-    result.fixedFramePeriod = fixedFramePacingPeriod(resolved.framePacing);
+    result.fixedFramePeriod = fixedFramePacingPeriod(result.framePacing);
     return result;
 }
 

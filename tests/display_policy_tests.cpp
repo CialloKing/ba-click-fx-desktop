@@ -91,3 +91,24 @@ BAFX_TEST(display_policy_fixed_period_uses_a_non_early_deadline)
             bafx::config::FramePacing::Fixed144)
         == bafx::core::MonotonicTime{6'944'445LL});
 }
+
+BAFX_TEST(display_policy_core_mode_forces_conservative_fixed_sixty)
+{
+    bafx::config::Config config = bafx::config::defaultConfig();
+    config.display.hdrEnabled = true;
+    config.performance.framePacing = bafx::config::FramePacing::Fixed144;
+    config.performance.effectsMode = bafx::config::EffectsMode::Core;
+
+    const bafx::desktop::ResolvedDisplaySessionPolicy policy =
+        bafx::desktop::resolveDisplaySessionPolicy(
+            config,
+            bafx::desktop::DisplayTarget{});
+    BAFX_CHECK(!policy.hdrEnabled);
+    BAFX_CHECK(
+        policy.outputPreference
+        == bafx::windows::CompositionOutputPreference::ConservativeSdr);
+    BAFX_CHECK(policy.framePacing == bafx::config::FramePacing::Fixed60);
+    BAFX_CHECK(
+        policy.fixedFramePeriod
+        == bafx::core::MonotonicTime{16'666'667LL});
+}

@@ -164,6 +164,21 @@ BAFX_TEST(background_capture_request_keeps_legacy_and_fx_only_modes_distinct)
         == bafx::windows::BackgroundCaptureRequest::ExclusionMode::LegacyGlobal);
 }
 
+BAFX_TEST(core_effects_mode_disables_background_capture)
+{
+    bafx::config::Config config = bafx::config::defaultConfig();
+    config.background.mode = bafx::config::RenderMode::BackgroundAware;
+    config.performance.effectsMode = bafx::config::EffectsMode::Core;
+
+    const auto request = bafx::desktop::backgroundCaptureRequest(config);
+    BAFX_CHECK(!request.sensorRequired);
+    BAFX_CHECK(
+        request.overlayProfile == bafx::windows::FxOverlayProfile::Core);
+    BAFX_CHECK(
+        request.exclusionMode
+        == bafx::windows::BackgroundCaptureRequest::ExclusionMode::LegacyGlobal);
+}
+
 BAFX_TEST(device_recovery_retry_honors_resource_domain_gates)
 {
     BAFX_CHECK(!bafx::desktop::canRetryBackgroundCaptureAfterDeviceRecovery(

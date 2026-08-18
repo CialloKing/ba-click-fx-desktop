@@ -22,6 +22,10 @@ namespace
 [[nodiscard]] bool wantsBackgroundCapture(
     const bafx::config::Config& config) noexcept
 {
+    if (config.performance.effectsMode == bafx::config::EffectsMode::Core)
+    {
+        return false;
+    }
     return config.background.mode == bafx::config::RenderMode::BackgroundAware
         || config.background.mode
             == bafx::config::RenderMode::RecordingCompatible;
@@ -55,8 +59,13 @@ namespace
 }
 
 [[nodiscard]] bafx::windows::FxOverlayProfile overlayProfileForRenderMode(
-    const bafx::config::RenderMode mode) noexcept
+    const bafx::config::Config& config) noexcept
 {
+    if (config.performance.effectsMode == bafx::config::EffectsMode::Core)
+    {
+        return bafx::windows::FxOverlayProfile::Core;
+    }
+    const bafx::config::RenderMode mode = config.background.mode;
     switch (mode)
     {
     case bafx::config::RenderMode::RecordingCompatible:
@@ -644,11 +653,13 @@ bafx::windows::BackgroundCaptureRequest backgroundCaptureRequest(
     const bafx::config::Config& config,
     const std::uint64_t retryToken) noexcept
 {
-    const bool sessionLocal = config.background.mode
+    const bool sessionLocal = config.performance.effectsMode
+        != bafx::config::EffectsMode::Core
+        && config.background.mode
         == bafx::config::RenderMode::RecordingCompatible;
     return bafx::windows::BackgroundCaptureRequest{
         wantsBackgroundCapture(config),
-        overlayProfileForRenderMode(config.background.mode),
+        overlayProfileForRenderMode(config),
         config.background.cursorExcluded,
         config.background.allowSystemBorder,
         retryToken,

@@ -199,6 +199,9 @@ DisplaySession::DisplaySession(DisplaySessionOptions options)
     colorSnapshotStatus_ = colorCapabilities_.has_value()
         ? DisplaySessionColorRefreshStatus::Refreshed
         : DisplaySessionColorRefreshStatus::Unavailable;
+    simulation_.setEffectsMode(
+        options.runtimePolicy.effectsMode,
+        bafx::fx::SimulationTime{});
     if (borderlessAccessAuthority_ == nullptr)
     {
         throw std::invalid_argument(
@@ -387,11 +390,19 @@ DisplaySessionPolicyChange DisplaySession::applyRuntimePolicy(
         effectsEnabled_ != policy.effectsEnabled,
         requestedOutputPreference_ != policy.outputPreference,
         framePacing_ != policy.framePacing
-            || minimumFramePeriod_ != policy.minimumFramePeriod};
+            || minimumFramePeriod_ != policy.minimumFramePeriod,
+        simulation_.effectsMode() != policy.effectsMode};
 
     effectsEnabled_ = policy.effectsEnabled;
     framePacing_ = policy.framePacing;
     minimumFramePeriod_ = policy.minimumFramePeriod;
+    if (change.effectsModeChanged)
+    {
+        simulation_.setEffectsMode(
+            policy.effectsMode,
+            bafx::fx::SimulationTime{});
+        lastPresentedDrawableContent_ = false;
+    }
     if (change.framePacingChanged || change.effectsEnabledChanged)
     {
         // A deadline belongs to one cadence contract. Reusing it after a rate

@@ -36,6 +36,8 @@ struct DisplaySessionRuntimePolicy final
     bafx::config::FramePacing framePacing{
         bafx::config::FramePacing::MatchDisplay};
     bafx::core::MonotonicTime minimumFramePeriod{};
+    bafx::fx::SimulationEffectsMode effectsMode{
+        bafx::fx::SimulationEffectsMode::Full};
 };
 
 struct DisplaySessionPolicyChange final
@@ -43,12 +45,14 @@ struct DisplaySessionPolicyChange final
     bool effectsEnabledChanged{false};
     bool outputPreferenceChanged{false};
     bool framePacingChanged{false};
+    bool effectsModeChanged{false};
 
     [[nodiscard]] bool changed() const noexcept
     {
         return effectsEnabledChanged
             || outputPreferenceChanged
-            || framePacingChanged;
+            || framePacingChanged
+            || effectsModeChanged;
     }
 };
 

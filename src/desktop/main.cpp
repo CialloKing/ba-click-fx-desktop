@@ -689,20 +689,25 @@ void appendDeviceRemovedNotificationStatus(
         resolved.outputPreference,
         resolved.framePacing,
         resolved.fixedFramePeriod.value_or(
-            bafx::core::MonotonicTime::zero())};
+            bafx::core::MonotonicTime::zero()),
+        config.performance.effectsMode == bafx::config::EffectsMode::Core
+            ? bafx::fx::SimulationEffectsMode::Core
+            : bafx::fx::SimulationEffectsMode::Full};
 }
 
 [[nodiscard]] bool borderlessAccessMonitoringRequired(
     const bafx::config::Config& config) noexcept
 {
     return config.background.mode != bafx::config::RenderMode::LightBackground
+        && config.performance.effectsMode != bafx::config::EffectsMode::Core
         && !config.background.allowSystemBorder;
 }
 
 [[nodiscard]] bool backgroundCaptureRequestedByConfig(
     const bafx::config::Config& config) noexcept
 {
-    return config.background.mode != bafx::config::RenderMode::LightBackground;
+    return config.background.mode != bafx::config::RenderMode::LightBackground
+        && config.performance.effectsMode != bafx::config::EffectsMode::Core;
 }
 
 void appendBorderlessAccessHealth(
