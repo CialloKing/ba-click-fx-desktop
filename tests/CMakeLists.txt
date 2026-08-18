@@ -388,6 +388,7 @@ if(WIN32)
         ipc_protocol_tests.cpp
         overlay_window_tests.cpp
         pointer_event_tests.cpp
+        recording_compatibility_tests.cpp
         startup_registration_tests.cpp
         wgc_frame_notification_tests.cpp
         wgc_idle_drain_policy_tests.cpp
