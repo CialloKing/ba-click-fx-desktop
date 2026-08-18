@@ -38,6 +38,12 @@
 - PointerFrameAdapter 的跨帧 held、Raw 边沿原序保留、普通 Up-only 帧不移动和边沿后尾随 Move 抑制；
   PointerFrameDispatch 的 Down/Held/Up 帧态归约、Down→Held→Up 固定顺序、三态同时为 true 时各执行
   一次、统一帧位置、统一 `renderTime`、QPC 输入相位隔离，以及 native Cancel 最终硬边界。
+- 录屏兼容测试模式的版本能力判定与 Host 门禁：build `19045`、`26100` 和 `27999` 拒绝，
+  `28000`、`28001`、`29000` 及更高 build 接受，版本探测失败拒绝；拒绝请求不增加 generation、
+  不写配置文件，旧配置在启动时回退到 `light-background`，回退保存失败仍保持内存安全模式。
+  `recording-compatible` wire value 和 schema 不变，`LightBackground` 的 `0.85` Alpha 合同与测试
+  模式的 `0.90` Alpha 合同分别验证。该测试仅覆盖透明 overlay 的外部录屏观察，不作为 Session-local
+  exclusion 能力证据。
 
 ### L1：GPU 离屏
 

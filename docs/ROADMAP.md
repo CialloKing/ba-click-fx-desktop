@@ -25,6 +25,19 @@ DPI 和 Windows 11 运行时逻辑提前到测试与硬件证据之前，不再�
   也不保留未知字段或枚举别名；
 - 每项逻辑保持独立中文提交，只做有硬超时的编译或静态检查，避免构建和外部命令无界等待。
 
+## 录屏兼容用户反馈测试（2026-08-18）
+
+- `background.mode=recording-compatible` 保持为用户主动选择的测试模式，默认模式与正式 WGC 路径不变；
+- Control Center 始终显示“录屏兼容（测试，仅 Windows 11 26H1 及以后）”，但只有版本探测成功且
+  `OS build >= 28000` 时发送配置请求。未来 build 不设上限；旧 build 或版本未知时恢复原选项；
+- Host 独立执行同一门禁。绕过 UI 的请求返回 `unsupported_os_build` 或
+  `os_version_unavailable`，不增加 generation、不修改持久化配置；旧配置启动时回退到
+  `light-background`，保存失败仍保持内存中的回退模式；
+- 测试模式继续关闭 WGC，使用 FX-only、`RecordingCompatible` Profile 和 `0.90` Alpha 上限；
+  `LightBackground` 继续保持 `0.85`，不复制测试参数；
+- 日志按实际 OS build、GPU/driver、录屏器、SDR/HDR、显示器数量和结果分类。用户日志只能用于评估
+  透明 Overlay 的外部录屏表现，不能把 `ModeApplied` 或录屏可见性升级为 Session-local exclusion 证明。
+
 ## Alpha 25 显示逻辑收敛（2026-08-17）
 
 Alpha 25 的生产代码阶段已完成以下合同，阶段末仍只执行一次完整 Release、CTest 和安装包验证：

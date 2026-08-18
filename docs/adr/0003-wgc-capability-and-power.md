@@ -17,12 +17,16 @@ Agile/Threading(Both) 不保证方法并发安全。`MinUpdateInterval` 只在 b
 - HOT 正常消费；WARM 在 26100+ 设置 MinUpdateInterval，旧系统仅降低消费侧工作；COLD 关闭并在恢复时重建。
 - API presence、contract version、border/cursor capability 都运行时探测。
 
-产品渲染模式只有三项：`background-aware`（背景感知）、`recording-compatible`（录屏兼容拟合）和
+产品渲染模式只有三项：`background-aware`（背景感知）、`recording-compatible`（录屏兼容测试）和
 `light-background`（浅色背景优化）。只有 `background-aware` 启用 WGC；WGC 启动、排除或会话
 失败时，当前可见批次回退到内部 FX-only coverage transport，不改变已保存的模式。
 `recording-compatible` 与 `light-background` 都关闭 WGC；前者按 Web 透明覆盖层的 `visual-max`、
 `bright-core`、`0.90` Alpha 上限、`source-over` 和未知背景合同拟合，后者使用同一策略并将 Alpha
 上限收紧为 `0.85`。
+
+`recording-compatible` 仅作为用户主动选择的外部录屏测试模式开放。Host 与 Control Center 共用
+同一个运行时版本判定：版本探测成功且 `dwBuildNumber >= 28000` 才允许应用，低于该值或探测失败
+均拒绝；不设未来 build 上限。该模式的成功日志不能推导 WGC Session-local exclusion 成功。
 
 ## Portable Alpha boundary
 

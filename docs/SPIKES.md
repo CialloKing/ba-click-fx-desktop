@@ -64,7 +64,8 @@ collector 使用进程内总 watchdog；自动化调用仍必须设置独立的�
 
 - capture 授权成功与拒绝；borderless 请求成功与失败。
 - cursor inclusion/exclusion、ContentSize 改变、session restart、窗口/显示器关闭。
-- `BackgroundAware` 与 `RecordingCompatible` 模式切换。
+- `BackgroundAware` 与 `RecordingCompatible` 模式切换；后者只在 OS build `28000` 及以上由用户主动
+  开启，未来 build 不设上限，低版本和版本探测失败均由 UI 与 Host 双重拒绝。
 - 至少一种桌面捕获与一种窗口捕获录屏路径。
 
 ### Pass
@@ -72,6 +73,8 @@ collector 使用进程内总 watchdog；自动化调用仍必须设置独立的�
 - 回调只通知，Render Owner 串行 drain/copy/close；无 frame 生命周期泄漏。
 - self-exclusion 不产生递归反馈；失败时退回 FX-only 并有诊断。
 - 录屏结果按“观察”记录，不将单一录屏器结论泛化。
+- `RecordingCompatible` 的 `ModeApplied`、外部录屏可见或不可见只属于透明 Overlay 反馈，不能作为
+  WGC Session-local exclusion 的 `Available + Passed` 证据。
 
 ### 已执行生命周期子集证据
 

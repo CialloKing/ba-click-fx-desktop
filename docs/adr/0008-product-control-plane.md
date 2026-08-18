@@ -30,7 +30,7 @@
    旧 schema、未知、重复或缺失字段均被拒绝，不增加兼容别名；未知能力保持 `null` 或 `unknown`，不能从
    配置请求推导。Preset/Profile 等更高层功能在此协议稳定后再增加。
 6. `background.mode` 的产品 wire values 与 Control Center 显示名固定如下：
-   `background-aware`（背景感知）、`recording-compatible`（录屏兼容拟合）和
+   `background-aware`（背景感知）、`recording-compatible`（录屏兼容测试）和
    `light-background`（浅色背景优化）。只有背景感知启用 WGC；WGC 失败时回退内部 FX-only
    coverage transport。RecordingCompatible 按 Web 透明覆盖层的 `visual-max` + `bright-core`、
    `0.90` Alpha 上限、`source-over` 和未知背景合同拟合；LightBackground 使用同一策略，但将 Alpha
@@ -39,8 +39,14 @@
    | Control Center 显示名 | `background.mode` wire value | WGC |
    | --- | --- | --- |
    | 背景感知 | `background-aware` | 启用，失败回退内部 FX-only |
-   | 录屏兼容拟合 | `recording-compatible` | 关闭 |
+   | 录屏兼容（测试，仅 Windows 11 26H1 及以后） | `recording-compatible` | 关闭 |
    | 浅色背景优化 | `light-background` | 关闭 |
+
+   `recording-compatible` 只有在版本探测成功且 OS build 不低于 `28000` 时才可应用。该门槛只有下限，
+   不为未来 Windows build 设置上限；版本探测失败、旧 build 或启动时发现已保存的测试模式时，Host
+   拒绝或回退到 `light-background`，并在诊断日志中记录 requested/effective mode、原因、FX-only
+   路径、WGC disabled 和 Alpha 上限。该测试只评估透明覆盖层的外部录屏表现，不证明 Session-local
+   exclusion 的生产能力。
 
 7. `background.allowSystemBorder` 默认为 `true`。Control Center 通过复选框更新该字段；
    用户取消勾选后，Host 必须在 `StartCapture` 前确认无边框 WGC 能力，否则回退内部 FX-only。

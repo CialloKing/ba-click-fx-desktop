@@ -17,6 +17,13 @@
   `0.90` Alpha 上限、`source-over` 和未知背景拟合，优先让录屏器看到 overlay。
 - `LightBackground`：同样关闭背景传感器并撤销 WDA，使用 `0.85` Alpha 上限的浅色背景拟合。
 
+`RecordingCompatible` 是用户主动选择的录屏兼容测试模式，不是默认路径，也不代表 WGC Session-local
+排除已经可用。Control Center 显示为“录屏兼容（测试，仅 Windows 11 26H1 及以后）”，wire value
+仍为 `recording-compatible`。运行时只接受版本探测成功且 `OS build >= 28000`；不支持或无法探测时，
+UI 不发送 IPC，Host 也拒绝直接请求。旧配置在启动时回退并原子持久化为 `light-background`，保存失败
+仍以内存中的安全模式运行；未来 build 不设置上限，自动纳入测试资格。`LightBackground` 的 `0.85`
+Alpha 合同保持不变，测试模式的 `0.90` 仅用于外部录屏观察。
+
 新版 WGC Session 专属 WindowId 排除是 `BackgroundAware` 的候选演进路径，尚未成为产品决策。候选
 回退顺序固定为：
 
