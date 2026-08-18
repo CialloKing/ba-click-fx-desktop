@@ -7,6 +7,8 @@
   `background-aware`（背景感知）、`recording-compatible`（录屏兼容拟合）和
   `light-background`（浅色背景优化）。背景感知启用 WGC，失败时回退内部 FX-only transport；
   其余两项关闭 WGC。
+- 基础页还提供“核心性能模式（低配测试）”。该模式只保留中心圆盘和一个圆环，跳过碎片、拖尾和
+  Bloom，固定 60 FPS、保守 SDR 和 FX-only；它只用于低性能机器反馈，不证明完整特效或 WGC 能力。
 - `BAFX.ControlCenter.exe` 的原生 Win32 控制面：基础页管理启用状态、点击特效、鼠标拖尾、拖尾常驻、
   左/右/中键触发策略、效果大小、
   拖尾长度、拖尾宽度、输入采样率上限、Bloom 强度和 Bloom 质量；高级页按时间、粒子与材质、圆环、点击碎片和
@@ -19,8 +21,9 @@
   背景模式、指针排除、系统捕获边框和空闲资源优化。“显示与性能”页选择并显示 Host 的逐屏实际状态，
   提供默认关闭的
   全局 HDR 请求，以及跟随显示器、固定 `60/120/144 FPS` 四种帧率策略；具有稳定标识的显示器还可
-  独立控制特效、HDR 请求和帧率策略。“系统”页提供随 Windows 启动、启动时最小化和关闭时隐藏到托盘；
-  启用随 Windows 启动后，登录时由 Control Center 复用正常激活路径启动 Host。
+  独立控制特效、HDR 请求和帧率策略。“系统”页提供随 Windows 启动、启动时最小化和关闭时隐藏到托盘，
+  以及“清理诊断日志”按钮；确认后会显示删除文件数、释放字节数和失败文件数。启用随 Windows 启动后，
+  登录时由 Control Center 复用正常激活路径启动 Host。
   所有改动会通过本地 Named Pipe 在下一帧应用到正在运行的 Host；
   “重置默认”经确认后恢复全部持久化设置，但保留当前暂停或运行状态。
 - 每次输入消费/呈现更新只为按压 FX 使用一份帧边界当前位置，并以同一 `renderTime` 按
@@ -60,7 +63,8 @@
   Identity 安装版写入该目录下的 `data` 子目录。命令行支持报告即使传入绝对路径，也只采用文件名，
   不会写入 `%LOCALAPPDATA%`、当前工作目录或其他用户目录。
 - 支持日志 schema 2 为每条记录写入会话 ID、单调时间、序号、进程/线程、级别和事件名；当前文件达到
-  8 MiB 后轮转，最多保留 `.log.1`、`.log.2`、`.log.3` 三份备份。正常运行每 10 秒写一条
+  8 MiB 后轮转，最多保留 `.log.1`、`.log.2`、`.log.3` 三份备份，总预算约 32 MiB。控制中心的
+  `ClearLogs` 清理会删除当前文件及遗留备份，再写入一条清理结果事件；正常运行每 10 秒写一条
   `Performance.Interval`，退出时刷新最后一个未满窗口；它包含输入队列年龄、消息/Move 收敛、WGC
   callback/accepted、背景样本年龄、CPU 提交阶段、Present 调用、输入到 Present 返回，以及 WGC/copy、
   背景快照、FX 材质和 Bloom/最终复合的异步 D3D11 GPU 时间戳 `p50/p95/p99/max`。GPU 分析器使用
@@ -76,7 +80,8 @@
   样本还可能属于较早的报告窗口，日志中会保留对应 semantic 字段。
   帧等待另外记录 `FramePacing.DeviceRemovedWakes`；非零表示 D3D 设备移除通知直接唤醒过 Host，并会把该
   性能窗提升为 Warning。它只说明通知路径被触发，不等同于恢复已经成功。
-  排障时请同时提供 `BAFX.config.json`、当前 `.log` 和仍存在的三个轮转备份。
+  排障时请同时提供 `BAFX.config.json`、当前 `.log` 和仍存在的三个轮转备份。无需制作一键诊断包；
+  若用户主动清理过日志，请保留清理后的新日志并说明清理时间。
 - 每个 `BackgroundCapture.Transaction.End` 后会追加累计的
   `WGC.ResourceLedger.*` 记录，包含 Frame/FramePool/Session、两类事件注册的
   created/closed/live 计数、recreate 次数和 `Failures`/`AllReleased`；它覆盖会话停止、

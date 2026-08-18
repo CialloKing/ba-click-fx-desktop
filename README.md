@@ -52,6 +52,9 @@ Trail 和 Bloom 继续按游戏合同在线性 FP16 中计算。最终呈现阶�
   WGC 和完整的 Differential Bloom；`recording-compatible` 关闭 WGC，拟合 Web 版透明覆盖层的
   `visual-max`、`bright-core`、`0.90` Alpha 上限和 source-over；`light-background` 使用同一颜色策略，
   但将桌面 Alpha 上限收紧为 `0.85`。
+- `performance.effectsMode` 提供 `full` 和 `core` 两个特效计算档位。`core` 是面向低性能机器的主动
+  测试模式，只保留中心圆盘和一个圆环，跳过碎片、拖尾和 Bloom 计算；它固定使用保守 SDR、60 FPS、
+  FX-only 路径并关闭 WGC，不代表完整特效的视觉等价或 WGC 能力。
 - 最终透明交换链使用 FP16 扩展预乘输出；普通 SDR 下不得承诺白底仍有加法余量。
 - 三角碎片保留清晰的 HDR 直接能量，同时按游戏 `FX_SHADER_Additive_0` 进入全场景 Bloom，
   因此既有锐利核心也有对应的模糊光晕。
@@ -197,8 +200,8 @@ FX-only，不会先启动带黄色边框的会话。无论该开关如何设置�
 优先级，任何自排除冲突都必须回退 FX-only。
 
 `BAFX.ControlCenter.exe` 已作为独立的 Win32 进程接入该 Pipe。Host 保持运行时，Control Center
-可以读取状态、暂停或恢复特效。三个顶层页面分别为“基础”“高级”和“显示与性能”。基础页提供启用状态、
-点击特效、鼠标拖尾、拖尾常驻、效果大小、拖尾长度、拖尾宽度、输入采样率上限、Bloom 强度与 Bloom 质量，
+可以读取状态、暂停或恢复特效。四个顶层页面分别为“基础”“高级”“显示与性能”和“系统”。基础页提供启用状态、
+点击特效、鼠标拖尾、拖尾常驻、完整/核心性能模式、效果大小、拖尾长度、拖尾宽度、输入采样率上限、Bloom 强度与 Bloom 质量，
 并管理背景模式、指针排除和系统捕获边框；高级页再按“时间与透明度”“粒子与材质”
 “圆环参数”“点击碎片”“Bloom 参数”分成五个二级页面。所有控件只使用项目原生的
 `effects.*` 配置路径，例如 `effects.diskRadius`、`effects.diskLifetimeMs`、
@@ -213,7 +216,8 @@ FX-only，不会先启动带黄色边框的会话。无论该开关如何设置�
 `match-display`、`60`、`120`、`144` 四种 `performance.framePacing` 策略。具有稳定 DisplayConfig
 标识的显示器可以启用独立设置，分别控制特效、HDR 请求和帧率策略；关闭独立设置后恢复继承全局值。
 没有稳定标识的会话仍可查看，但逐屏写入控件保持禁用。完整拓扑下，选择器还会列出未连接显示器的
-遗留 override；这些条目没有伪造的运行状态，只能通过现有原子命令删除。诊断文本使用可滚动只读区域，
+遗留 override；这些条目没有伪造的运行状态，只能通过现有原子命令删除。诊断文本使用可滚动只读区域；系统页提供“清理诊断日志”按钮，确认后通过 `ClearLogs` 删除当前日志和轮转备份，
+并显示删除文件数、释放字节数和失败文件数。
 选择器刷新后尽量保留同一显示器；状态缺失或解析失败时显示错误，而不会把请求状态显示为实际能力。
 调整结果在下一帧交给 Host。“拖尾常驻”默认关闭；开启后
 无需按住鼠标，普通移动也会生成纯拖尾，但不会伪造点击圆盘或圆环。这是桌面版的原生产品增强，
@@ -275,6 +279,7 @@ SetFxParams {"generation":1,"patch":{"effects.shardsClickCount":6,"effects.shard
 SetDisplayOverride {"generation":1,"displayKey":"displayconfig-v1-sha256:...","enabled":true,"hdrEnabled":false,"framePacing":"120"}
 RemoveDisplayOverride {"generation":1,"displayKey":"displayconfig-v1-sha256:..."}
 ResetFxConfig
+ClearLogs
 Pause
 Resume
 Shutdown
@@ -290,6 +295,10 @@ JSON 快照。`GetFxConfig`、`SetFxParam`、原子批量的 `SetFxParams` 和 `
 产品设置只通过 `GetConfig`/`SetConfig` 管理。`ResetFxConfig` 只恢复 `effects`，保留背景、HDR、输入和系统设置；Control Center
 中的“重置默认”则使用完整 schema 恢复全部持久化设置。路径补丁只允许配置库声明的产品字段，代次不匹配会返回
 `generation_conflict`；所有命令均在下一帧由 Host 应用。
+
+诊断日志按单文件 `8 MiB` 轮转，最多保留 `.log.1`、`.log.2`、`.log.3` 三个备份，总预算约 `32 MiB`。
+`ClearLogs` 会清理当前文件及遗留备份，清理动作本身会留下新的结构化结果记录；日志清理失败不会停止 Host
+或修改配置。用户反馈时只需提交当前日志和仍存在的轮转文件，不需要运行额外诊断包。
 
 `packed_fx_textures` 测试逐张解压 raw LZ4 Block，并锁定 RGBA8 texel 的尺寸、行距和 SHA-256。
 生成器是仅供维护者使用的开发工具；只有在更新 Unity 真值快照时才需要运行，输入 PNG、Node.js 和

@@ -43,6 +43,16 @@ DPI 和 Windows 11 运行时逻辑提前到测试与硬件证据之前，不再�
   `ModeApplied` 或录屏可见性升级为 Session-local exclusion 通过证据；
 - 日志同时按实际 OS build、GPU/driver、录屏器、SDR/HDR、显示器数量和结果分类。
 
+## 核心性能模式与静默日志维护（2026-08-18）
+
+- `performance.effectsMode=core` 作为用户主动选择的低配测试模式开放；它只保留中心圆盘和一个圆环，
+  跳过碎片、拖尾、Bloom 及背景捕获计算，固定 60 FPS、保守 SDR 和 FX-only。默认 `full` 模式及正式
+  背景路径不变，core 也不能替代 WGC Session-local Spike。
+- 诊断日志采用单文件 `8 MiB`、三个备份、约 `32 MiB` 总预算。Host 通过 `ClearLogs` 提供静默清理接口，
+  Control Center 系统页在确认后调用该接口并显示清理统计；用户反馈只需提交清理后的日志，不要求额外诊断包。
+- 低配模式和日志清理的真实低端硬件、HDR、多显示器、WGC 新版目标机及外部录屏矩阵继续按现有证据门禁
+  维持 `Not Run`，用户日志只能用于性能与透明覆盖层反馈分析。
+
 ## Alpha 25 显示逻辑收敛（2026-08-17）
 
 Alpha 25 的生产代码阶段已完成以下合同，阶段末仍只执行一次完整 Release、CTest 和安装包验证：
