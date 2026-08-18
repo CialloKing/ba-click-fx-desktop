@@ -2,6 +2,7 @@
 
 #include "bafx/config/config.hpp"
 #include "bafx/windows/ipc.hpp"
+#include "bafx/windows/recording_compatibility.hpp"
 #include "bafx/windows/runtime_diagnostics.hpp"
 #include "bafx/windows/startup_registration.hpp"
 
@@ -98,6 +99,13 @@ public:
         bafx::config::Config initialConfig,
         bafx::windows::NamedPipeIpcServer::Options ipcOptions,
         HostSystemIntegration systemIntegration);
+    HostControlPlane(
+        std::filesystem::path configPath,
+        bafx::config::Config initialConfig,
+        bafx::windows::NamedPipeIpcServer::Options ipcOptions,
+        HostSystemIntegration systemIntegration,
+        bafx::windows::RecordingCompatibleAvailability
+            recordingCompatibleAvailability);
     ~HostControlPlane();
 
     HostControlPlane(const HostControlPlane&) = delete;
@@ -134,6 +142,12 @@ private:
     [[nodiscard]] static std::string stateJson(const HostStateSnapshot& state);
     [[nodiscard]] static std::string displayStateJson(
         const DisplayStateSnapshot& state);
+    void normalizeRecordingCompatibleStartup() noexcept;
+    void appendRecordingCompatibleDiagnostic(
+        std::string_view eventName,
+        std::string_view requestedMode,
+        std::string_view effectiveMode,
+        std::string_view reason) const noexcept;
 
     mutable std::mutex mutex_{};
     std::filesystem::path configPath_{};
@@ -144,6 +158,8 @@ private:
     std::uint64_t appliedConfigGeneration_{0U};
     bool paused_{false};
     bool backgroundCaptureActive_{false};
+    bafx::windows::RecordingCompatibleAvailability
+        recordingCompatibleAvailability_{};
     HostSystemIntegration systemIntegration_{};
     bafx::windows::NamedPipeIpcServer ipc_;
 };

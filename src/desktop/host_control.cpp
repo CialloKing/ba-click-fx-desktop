@@ -439,7 +439,8 @@ HostControlPlane::HostControlPlane(
           std::move(configPath),
           std::move(initialConfig),
           bafx::windows::NamedPipeIpcServer::Options{},
-          HostSystemIntegration{})
+          HostSystemIntegration{},
+          bafx::windows::queryRecordingCompatibleAvailability())
 {
 }
 
@@ -451,7 +452,8 @@ HostControlPlane::HostControlPlane(
           std::move(configPath),
           std::move(initialConfig),
           std::move(ipcOptions),
-          HostSystemIntegration{})
+          HostSystemIntegration{},
+          bafx::windows::queryRecordingCompatibleAvailability())
 {
 }
 
@@ -463,7 +465,8 @@ HostControlPlane::HostControlPlane(
           std::move(configPath),
           std::move(initialConfig),
           bafx::windows::NamedPipeIpcServer::Options{},
-          systemIntegration)
+          systemIntegration,
+          bafx::windows::queryRecordingCompatibleAvailability())
 {
 }
 
@@ -472,8 +475,25 @@ HostControlPlane::HostControlPlane(
     bafx::config::Config initialConfig,
     bafx::windows::NamedPipeIpcServer::Options ipcOptions,
     HostSystemIntegration systemIntegration)
+    : HostControlPlane(
+          std::move(configPath),
+          std::move(initialConfig),
+          std::move(ipcOptions),
+          systemIntegration,
+          bafx::windows::queryRecordingCompatibleAvailability())
+{
+}
+
+HostControlPlane::HostControlPlane(
+    std::filesystem::path configPath,
+    bafx::config::Config initialConfig,
+    bafx::windows::NamedPipeIpcServer::Options ipcOptions,
+    HostSystemIntegration systemIntegration,
+    bafx::windows::RecordingCompatibleAvailability
+        recordingCompatibleAvailability)
     : configPath_(std::move(configPath))
     , config_(std::move(initialConfig))
+    , recordingCompatibleAvailability_(recordingCompatibleAvailability)
     , systemIntegration_(systemIntegration)
     , ipc_([this](const bafx::windows::IpcRequest& request)
            {
@@ -492,12 +512,95 @@ HostControlStartResult HostControlPlane::start(
     const bool backgroundCaptureActive) noexcept
 {
     std::lock_guard<std::mutex> lock(mutex_);
+    normalizeRecordingCompatibleStartup();
     backgroundCaptureActive_ = backgroundCaptureActive;
     const std::uint64_t appliedGeneration = generation_;
     // Keep the mutex until the server thread exists. An immediate SetConfig
     // may advance the generation only after this applied baseline is latched.
     const bool serviceStarted = ipc_.start();
     return HostControlStartResult{appliedGeneration, serviceStarted};
+}
+
+void HostControlPlane::normalizeRecordingCompatibleStartup() noexcept
+{
+    if (config_.background.mode
+            != bafx::config::RenderMode::RecordingCompatible
+        || recordingCompatibleAvailability_.supported)
+    {
+        return;
+    }
+
+    const std::string reason =
+        bafx::windows::recordingCompatibleAvailabilityReasonName(
+            recordingCompatibleAvailability_.reason);
+    bafx::config::Config fallback = config_;
+    fallback.background.mode = bafx::config::RenderMode::LightBackground;
+    const bafx::config::ConfigSaveResult saved =
+        bafx::config::saveConfigAtomic(configPath_, fallback);
+    config_ = std::move(fallback);
+    appendRecordingCompatibleDiagnostic(
+        "recording-compatible-test: fallback",
+        "recording-compatible",
+        "light-background",
+        saved.succeeded() ? reason : "fallback-save-failed");
+}
+
+void HostControlPlane::appendRecordingCompatibleDiagnostic(
+    const std::string_view eventName,
+    const std::string_view requestedMode,
+    const std::string_view effectiveMode,
+    const std::string_view reason) const noexcept
+{
+    const std::string version =
+        bafx::windows::recordingCompatibleVersionString(
+            recordingCompatibleAvailability_);
+    const std::string build = std::to_string(
+        recordingCompatibleAvailability_.build);
+    const std::string minimumBuild = std::to_string(
+        bafx::windows::minimumRecordingCompatibleBuild);
+    const bool recordingCompatible =
+        effectiveMode == "recording-compatible";
+    const bool lightBackground = effectiveMode == "light-background";
+    const std::string_view appliedProfile = recordingCompatible
+        ? std::string_view("RecordingCompatible")
+        : (lightBackground
+            ? std::string_view("LightBackground")
+            : std::string_view("BackgroundAware"));
+    const std::string_view effectivePath =
+        recordingCompatible || lightBackground
+        ? std::string_view("fx-only")
+        : std::string_view("background-aware");
+    const std::string_view wgc = recordingCompatible || lightBackground
+        ? std::string_view("disabled")
+        : std::string_view("runtime-managed");
+    const std::string_view alphaLimit = recordingCompatible
+        ? std::string_view("0.90")
+        : (lightBackground
+            ? std::string_view("0.85")
+            : std::string_view("profile-dependent"));
+    const std::string generation = std::to_string(generation_);
+    const std::array fields{
+        bafx::windows::DiagnosticField{"OS.Version", version},
+        bafx::windows::DiagnosticField{"OS.Build", build},
+        bafx::windows::DiagnosticField{"RecordingCompatible.MinimumBuild", minimumBuild},
+        bafx::windows::DiagnosticField{
+            "RecordingCompatible.Eligibility",
+            recordingCompatibleAvailability_.supported ? "available" : "unavailable"},
+        bafx::windows::DiagnosticField{"RequestedMode", requestedMode},
+        bafx::windows::DiagnosticField{"AppliedProfile", appliedProfile},
+        bafx::windows::DiagnosticField{"EffectiveMode", effectiveMode},
+        bafx::windows::DiagnosticField{"EffectivePath", effectivePath},
+        bafx::windows::DiagnosticField{"WGC", wgc},
+        bafx::windows::DiagnosticField{"AlphaLimit", alphaLimit},
+        bafx::windows::DiagnosticField{"Generation", generation},
+        bafx::windows::DiagnosticField{"Reason", reason}};
+    bafx::windows::appendDiagnosticEvent(
+        bafx::windows::defaultDiagnosticLogPath(),
+        eventName,
+        fields,
+        recordingCompatibleAvailability_.supported
+            ? bafx::windows::DiagnosticLevel::Info
+            : bafx::windows::DiagnosticLevel::Warning);
 }
 
 void HostControlPlane::stop() noexcept
@@ -726,6 +829,15 @@ bafx::windows::IpcResponse HostControlPlane::handleSetFxParams(
     }
     config_ = candidate;
     ++generation_;
+    if (candidate.background.mode
+        == bafx::config::RenderMode::RecordingCompatible)
+    {
+        appendRecordingCompatibleDiagnostic(
+            "recording-compatible-test: applied",
+            "recording-compatible",
+            "recording-compatible",
+            "available");
+    }
     return bafx::windows::IpcResponse::success(
         bafx::config::getFxConfig(config_, false));
 }
@@ -804,6 +916,32 @@ bafx::windows::IpcResponse HostControlPlane::handleSetConfig(
         return bafx::windows::IpcResponse::failure(
             "generation_conflict",
             "configuration generation changed; refresh before retrying");
+    }
+
+    if (candidate.background.mode
+            == bafx::config::RenderMode::RecordingCompatible
+        && !recordingCompatibleAvailability_.supported)
+    {
+        const bool queryFailed =
+            recordingCompatibleAvailability_.reason
+            == bafx::windows::RecordingCompatibleAvailabilityReason::VersionQueryFailed;
+        const std::string reason =
+            bafx::windows::recordingCompatibleAvailabilityReasonName(
+                recordingCompatibleAvailability_.reason);
+        appendRecordingCompatibleDiagnostic(
+            queryFailed
+                ? "recording-compatible-test: version-query-failed"
+                : "recording-compatible-test: unsupported-build",
+            "recording-compatible",
+            bafx::config::toString(config_.background.mode),
+            reason);
+        const std::string message = queryFailed
+            ? "OS version could not be queried; recording-compatible requires build 28000 or newer"
+            : "recording-compatible requires OS build 28000 or newer; detected build "
+                + std::to_string(recordingCompatibleAvailability_.build);
+        return bafx::windows::IpcResponse::failure(
+            queryFailed ? "os_version_unavailable" : "unsupported_os_build",
+            message);
     }
 
     const bool systemIntegrationChanged =

@@ -4,6 +4,7 @@
 #include "display_state.hpp"
 
 #include "bafx/windows/ipc_client.hpp"
+#include "bafx/windows/recording_compatibility.hpp"
 
 #include <windows.h>
 
@@ -162,7 +163,9 @@ BAFX_TEST(host_control_start_latches_generation_before_accepting_set_config)
     bafx::desktop::HostControlPlane control(
         temporary.configPath(),
         bafx::config::defaultConfig(),
-        serverOptions);
+        serverOptions,
+        bafx::desktop::HostSystemIntegration{},
+        bafx::windows::recordingCompatibleAvailabilityForBuild(28000U));
 
     const bafx::desktop::HostControlStartResult start = control.start(true);
     BAFX_CHECK(start.serviceStarted);
@@ -193,6 +196,100 @@ BAFX_TEST(host_control_start_latches_generation_before_accepting_set_config)
         == bafx::config::RenderMode::RecordingCompatible);
 }
 
+BAFX_TEST(host_control_rejects_recording_mode_below_minimum_build)
+{
+    TemporaryConfigDirectory temporary;
+    bafx::windows::NamedPipeIpcServer::Options serverOptions{};
+    serverOptions.pipeName = testPipeName() + L".unsupported-build";
+    serverOptions.ioTimeoutMilliseconds = 500U;
+    serverOptions.retryDelayMilliseconds = 10U;
+    bafx::desktop::HostControlPlane control(
+        temporary.configPath(),
+        bafx::config::defaultConfig(),
+        serverOptions,
+        bafx::desktop::HostSystemIntegration{},
+        bafx::windows::recordingCompatibleAvailabilityForBuild(26100U));
+    BAFX_CHECK(control.start(false).serviceStarted);
+
+    bafx::windows::IpcClientOptions clientOptions{};
+    clientOptions.pipeName = serverOptions.pipeName;
+    clientOptions.timeoutMilliseconds = 1'000U;
+    const bafx::windows::NamedPipeIpcClient client(clientOptions);
+    const bafx::windows::IpcClientResponse response = client.transact(
+        "SetConfig {\"generation\":1,\"path\":\"background.mode\","
+        "\"value\":\"recording-compatible\"}");
+    const bafx::desktop::HostStateSnapshot state = control.snapshot();
+    control.stop();
+
+    BAFX_CHECK(response.transportSucceeded());
+    BAFX_CHECK(!response.succeeded());
+    BAFX_CHECK(response.errorCode == "unsupported_os_build");
+    BAFX_CHECK(response.errorMessage.find("26100") != std::string::npos);
+    BAFX_CHECK(state.generation == 1U);
+    BAFX_CHECK(
+        state.config.background.mode
+        == bafx::config::RenderMode::BackgroundAware);
+    BAFX_CHECK(!std::filesystem::exists(temporary.configPath()));
+}
+
+BAFX_TEST(host_control_falls_back_and_persists_light_background)
+{
+    TemporaryConfigDirectory temporary;
+    bafx::config::Config initial = bafx::config::defaultConfig();
+    initial.background.mode = bafx::config::RenderMode::RecordingCompatible;
+    BAFX_CHECK(
+        bafx::config::saveConfigAtomic(temporary.configPath(), initial)
+            .succeeded());
+
+    bafx::windows::NamedPipeIpcServer::Options serverOptions{};
+    serverOptions.pipeName = testPipeName() + L".startup-fallback";
+    serverOptions.ioTimeoutMilliseconds = 500U;
+    serverOptions.retryDelayMilliseconds = 10U;
+    bafx::desktop::HostControlPlane control(
+        temporary.configPath(),
+        initial,
+        serverOptions,
+        bafx::desktop::HostSystemIntegration{},
+        bafx::windows::recordingCompatibleAvailabilityForBuild(26100U));
+    BAFX_CHECK(control.start(false).serviceStarted);
+    const bafx::desktop::HostStateSnapshot state = control.snapshot();
+    const bafx::config::ConfigLoadResult persisted =
+        bafx::config::loadConfig(temporary.configPath());
+    control.stop();
+
+    BAFX_CHECK(
+        state.config.background.mode
+        == bafx::config::RenderMode::LightBackground);
+    BAFX_CHECK(persisted.succeeded());
+    BAFX_CHECK(
+        persisted.config.background.mode
+        == bafx::config::RenderMode::LightBackground);
+}
+
+BAFX_TEST(host_control_keeps_light_background_when_fallback_save_fails)
+{
+    TemporaryConfigDirectory temporary;
+    bafx::config::Config initial = bafx::config::defaultConfig();
+    initial.background.mode = bafx::config::RenderMode::RecordingCompatible;
+    bafx::windows::NamedPipeIpcServer::Options serverOptions{};
+    serverOptions.pipeName = testPipeName() + L".fallback-save-failure";
+    serverOptions.ioTimeoutMilliseconds = 500U;
+    serverOptions.retryDelayMilliseconds = 10U;
+    bafx::desktop::HostControlPlane control(
+        temporary.directoryPath(),
+        initial,
+        serverOptions,
+        bafx::desktop::HostSystemIntegration{},
+        bafx::windows::recordingCompatibleAvailabilityForBuild(26100U));
+    BAFX_CHECK(control.start(false).serviceStarted);
+    const bafx::desktop::HostStateSnapshot state = control.snapshot();
+    control.stop();
+
+    BAFX_CHECK(
+        state.config.background.mode
+        == bafx::config::RenderMode::LightBackground);
+}
+
 BAFX_TEST(host_control_rejects_system_patch_when_external_apply_fails)
 {
     TemporaryConfigDirectory temporary;
@@ -211,7 +308,8 @@ BAFX_TEST(host_control_rejects_system_patch_when_external_apply_fails)
         temporary.configPath(),
         bafx::config::defaultConfig(),
         serverOptions,
-        integration.dependency());
+        integration.dependency(),
+        bafx::windows::recordingCompatibleAvailabilityForBuild(28000U));
     BAFX_CHECK(control.start(false).serviceStarted);
 
     bafx::windows::IpcClientOptions clientOptions{};
@@ -262,7 +360,8 @@ BAFX_TEST(host_control_full_config_applies_system_integration_before_commit)
         temporary.configPath(),
         bafx::config::defaultConfig(),
         serverOptions,
-        integration.dependency());
+        integration.dependency(),
+        bafx::windows::recordingCompatibleAvailabilityForBuild(28000U));
     BAFX_CHECK(control.start(false).serviceStarted);
 
     bafx::config::Config candidate = bafx::config::defaultConfig();
@@ -739,7 +838,9 @@ BAFX_TEST(host_control_fx_config_and_single_param_round_trip_over_ipc)
     bafx::desktop::HostControlPlane control(
         temporary.configPath(),
         initial,
-        serverOptions);
+        serverOptions,
+        bafx::desktop::HostSystemIntegration{},
+        bafx::windows::recordingCompatibleAvailabilityForBuild(28000U));
     BAFX_CHECK(control.start(false).serviceStarted);
 
     bafx::windows::IpcClientOptions clientOptions{};
@@ -823,7 +924,9 @@ BAFX_TEST(host_control_fx_batch_is_atomic_and_reset_preserves_other_sections)
     bafx::desktop::HostControlPlane control(
         temporary.configPath(),
         initial,
-        serverOptions);
+        serverOptions,
+        bafx::desktop::HostSystemIntegration{},
+        bafx::windows::recordingCompatibleAvailabilityForBuild(28000U));
     BAFX_CHECK(control.start(false).serviceStarted);
 
     bafx::windows::IpcClientOptions clientOptions{};
