@@ -34,6 +34,7 @@ target_compile_definitions(
         NOMINMAX
         WINVER=0x0A00
         _WIN32_WINNT=0x0A00
+        BAFX_RECORDING_COMPATIBILITY_APPLICATION_REVISION="${BAFX_VERSION}"
 )
 target_include_directories(
     bafx_control_center

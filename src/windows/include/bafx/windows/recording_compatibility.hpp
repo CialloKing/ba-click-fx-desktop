@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <string>
+#include <string_view>
 
 namespace bafx::windows
 {
@@ -45,5 +46,26 @@ recordingCompatibleAvailabilityForBuild(
 
 [[nodiscard]] const char* recordingCompatibleAvailabilityReasonName(
     RecordingCompatibleAvailabilityReason reason) noexcept;
+
+[[nodiscard]] std::string_view recordingCompatibleApplicationRevision() noexcept;
+
+[[nodiscard]] std::string recordingCompatibleControlCenterDiagnosticRecord(
+    const RecordingCompatibleAvailability& availability,
+    std::string_view eventName,
+    std::string_view requestedMode,
+    std::string_view effectiveMode,
+    std::string_view reason,
+    std::uint64_t generation);
+
+// Control Center does not link the full runtime diagnostics library. Keep its
+// selection/rejection evidence in the same portable support log using the
+// small, privacy-preserving event contract shared with Host diagnostics.
+void appendRecordingCompatibleControlCenterDiagnostic(
+    const RecordingCompatibleAvailability& availability,
+    std::string_view eventName,
+    std::string_view requestedMode,
+    std::string_view effectiveMode,
+    std::string_view reason,
+    std::uint64_t generation) noexcept;
 
 }

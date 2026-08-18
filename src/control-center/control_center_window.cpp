@@ -3330,6 +3330,18 @@ void ControlCenterWindow::onCommand(
                     bafx::windows::queryRecordingCompatibleAvailability();
                 if (!availability.supported)
                 {
+                    const bool queryFailed =
+                        !availability.versionQuerySucceeded;
+                    bafx::windows::appendRecordingCompatibleControlCenterDiagnostic(
+                        availability,
+                        queryFailed
+                            ? "recording-compatible-test: version-query-failed"
+                            : "recording-compatible-test: unsupported-build",
+                        "recording-compatible",
+                        bafx::config::toString(config_.background.mode),
+                        bafx::windows::recordingCompatibleAvailabilityReasonName(
+                            availability.reason),
+                        generation_);
                     const int previousIndex = renderModeIndex(
                         config_.background.mode);
                     static_cast<void>(SendMessageW(
@@ -3362,6 +3374,13 @@ void ControlCenterWindow::onCommand(
                     }
                     break;
                 }
+                bafx::windows::appendRecordingCompatibleControlCenterDiagnostic(
+                    availability,
+                    "recording-compatible-test: selected",
+                    "recording-compatible",
+                    bafx::config::toString(config_.background.mode),
+                    "available",
+                    generation_);
                 applyPatch("background.mode", "\"recording-compatible\"");
             }
                 break;

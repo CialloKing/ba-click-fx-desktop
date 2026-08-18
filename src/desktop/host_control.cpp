@@ -593,6 +593,9 @@ void HostControlPlane::appendRecordingCompatibleDiagnostic(
         bafx::windows::DiagnosticField{"WGC", wgc},
         bafx::windows::DiagnosticField{"AlphaLimit", alphaLimit},
         bafx::windows::DiagnosticField{"Generation", generation},
+        bafx::windows::DiagnosticField{
+            "ApplicationRevision",
+            bafx::windows::recordingCompatibleApplicationRevision()},
         bafx::windows::DiagnosticField{"Reason", reason}};
     bafx::windows::appendDiagnosticEvent(
         bafx::windows::defaultDiagnosticLogPath(),
