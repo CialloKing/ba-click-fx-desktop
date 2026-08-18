@@ -187,7 +187,8 @@ struct DiagnosticSessionContext
 
 void rotateDiagnosticLogUnlocked(
     const std::filesystem::path& path,
-    const DiagnosticLogRetention retention) noexcept
+    const DiagnosticLogRetention retention,
+    const std::uintmax_t incomingBytes = 0U) noexcept
 {
     constexpr std::uint32_t maximumBackupCount = 16U;
     if (path.empty()
@@ -199,8 +200,20 @@ void rotateDiagnosticLogUnlocked(
     }
 
     std::error_code error;
+    for (std::uint32_t index = retention.backupCount + 1U;
+         index <= maximumBackupCount;
+         ++index)
+    {
+        error.clear();
+        static_cast<void>(std::filesystem::remove(
+            diagnosticBackupPath(path, index),
+            error));
+    }
+
     const std::uintmax_t currentSize = std::filesystem::file_size(path, error);
-    if (error || currentSize < retention.maximumBytes)
+    if (error
+        || (currentSize < retention.maximumBytes
+            && incomingBytes <= retention.maximumBytes - currentSize))
     {
         return;
     }
@@ -289,8 +302,6 @@ void appendDiagnosticRecordUnlocked(
     const std::string_view body,
     const DiagnosticLevel level) noexcept
 {
-    rotateDiagnosticLogUnlocked(path, DiagnosticLogRetention{});
-
     DiagnosticSessionContext& session = diagnosticSession();
     const std::uint64_t sequence = session.nextSequence.fetch_add(
         1U,
@@ -320,7 +331,22 @@ void appendDiagnosticRecordUnlocked(
     }
     record << "---\n";
 
-    const std::string text = record.str();
+    std::string text = record.str();
+    const DiagnosticLogRetention retention{};
+    if (text.size() > retention.maximumBytes)
+    {
+        // A diagnostic payload must never defeat the disk budget. Emit a
+        // compact marker instead of recursively logging the oversized body.
+        std::ostringstream bounded;
+        bounded << "Log.SchemaVersion=" << diagnosticLogSchemaVersion << '\n'
+                << "Log.SessionId=" << session.id.data() << '\n'
+                << "Event.Sequence=" << sequence << '\n'
+                << "Event.Name=Log.RecordTruncated\n"
+                << "Log.RecordBytes=" << text.size() << '\n'
+                << "---\n";
+        text = bounded.str();
+    }
+    rotateDiagnosticLogUnlocked(path, retention, text.size());
     if (text.size() > std::numeric_limits<DWORD>::max())
     {
         return;
@@ -1653,6 +1679,57 @@ void rotateDiagnosticLog(
     {
         // Logging remains best-effort when retention maintenance is unavailable.
     }
+}
+
+DiagnosticLogCleanupResult clearDiagnosticLogs(
+    const std::filesystem::path& path) noexcept
+{
+    DiagnosticLogCleanupResult result{};
+    try
+    {
+        const std::lock_guard lock(diagnosticLogMutex());
+        for (std::uint32_t index = 0U; index <= 16U; ++index)
+        {
+            const std::filesystem::path candidate = index == 0U
+                ? path
+                : diagnosticBackupPath(path, index);
+            std::error_code sizeError;
+            const std::uintmax_t bytes = std::filesystem::file_size(
+                candidate,
+                sizeError);
+            std::error_code error;
+            const bool removed = std::filesystem::remove(candidate, error);
+            if (removed)
+            {
+                ++result.removedFiles;
+                if (!sizeError)
+                {
+                    result.removedBytes += bytes;
+                }
+                continue;
+            }
+            if (error)
+            {
+                ++result.failedFiles;
+                if (!result.firstError)
+                {
+                    result.firstError = error;
+                }
+            }
+        }
+    }
+    catch (const std::filesystem::filesystem_error& error)
+    {
+        ++result.failedFiles;
+        result.firstError = error.code();
+    }
+    catch (...)
+    {
+        ++result.failedFiles;
+        result.firstError = std::make_error_code(
+            std::errc::io_error);
+    }
+    return result;
 }
 
 void appendDiagnosticEvent(

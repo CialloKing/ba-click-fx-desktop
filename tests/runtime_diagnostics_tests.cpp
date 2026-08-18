@@ -503,6 +503,44 @@ BAFX_TEST(diagnostic_log_rotation_keeps_a_bounded_backup_chain)
         != std::string::npos);
 }
 
+BAFX_TEST(diagnostic_log_rotates_before_an_append_exceeds_the_budget)
+{
+    constexpr std::size_t maximumBytes = 8U * 1024U * 1024U;
+    const TemporaryDiagnosticDirectory temporary;
+    const std::filesystem::path logPath = temporary.path() / "support.log";
+    writeText(logPath, std::string(maximumBytes - 16U, 'x'));
+    writeText(backupPath(logPath, 4U), "stale");
+
+    bafx::windows::appendDiagnosticEvent(logPath, "ProspectiveRotation");
+
+    BAFX_CHECK(std::filesystem::file_size(logPath) <= maximumBytes);
+    BAFX_CHECK(std::filesystem::exists(backupPath(logPath, 1U)));
+    BAFX_CHECK(!std::filesystem::exists(backupPath(logPath, 4U)));
+    BAFX_CHECK(
+        readText(logPath).find("Event.Name=ProspectiveRotation\n")
+        != std::string::npos);
+}
+
+BAFX_TEST(diagnostic_log_cleanup_removes_current_and_backup_files)
+{
+    const TemporaryDiagnosticDirectory temporary;
+    const std::filesystem::path logPath = temporary.path() / "support.log";
+    writeText(logPath, "current");
+    writeText(backupPath(logPath, 1U), "previous");
+    writeText(backupPath(logPath, 3U), "older");
+
+    const bafx::windows::DiagnosticLogCleanupResult result =
+        bafx::windows::clearDiagnosticLogs(logPath);
+
+    BAFX_CHECK(result.removedFiles == 3U);
+    BAFX_CHECK(result.removedBytes == 20U);
+    BAFX_CHECK(result.failedFiles == 0U);
+    BAFX_CHECK(!result.firstError);
+    BAFX_CHECK(!std::filesystem::exists(logPath));
+    BAFX_CHECK(!std::filesystem::exists(backupPath(logPath, 1U)));
+    BAFX_CHECK(!std::filesystem::exists(backupPath(logPath, 3U)));
+}
+
 BAFX_TEST(support_report_marks_primary_dpi_unknown_until_probed)
 {
     bafx::windows::SupportReport report("test");

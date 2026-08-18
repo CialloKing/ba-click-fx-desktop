@@ -46,6 +46,14 @@ struct DiagnosticLogRetention
     std::uint32_t backupCount{3U};
 };
 
+struct DiagnosticLogCleanupResult
+{
+    std::uint32_t removedFiles{0U};
+    std::uintmax_t removedBytes{0U};
+    std::uint32_t failedFiles{0U};
+    std::error_code firstError{};
+};
+
 struct DisplayPhysicalCadenceRuntimeSummary final
 {
     std::optional<DisplayRefreshRate> virtualRefreshRate{};
@@ -181,6 +189,9 @@ private:
 void rotateDiagnosticLog(
     const std::filesystem::path& path,
     DiagnosticLogRetention retention = {}) noexcept;
+
+[[nodiscard]] DiagnosticLogCleanupResult clearDiagnosticLogs(
+    const std::filesystem::path& path) noexcept;
 
 void appendDiagnosticEvent(
     const std::filesystem::path& path,
