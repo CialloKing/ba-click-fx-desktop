@@ -104,9 +104,12 @@ cmake --build --preset alpha-host-release --parallel 4
 
 `alpha-release-verify` 仍然保留完整 Release 构建和 CTest 流程；它不是快速迭代命令。
 
-`.github/workflows/windows-build-compat.yml` 使用 VS2022 分别以 Windows SDK `10.0.19041.0` 和
-`10.0.26100.0` 构建 Host、Control Center 与 Identity Signer 的完整二进制。Windows 11 API 始终采用
-运行时能力探测；旧 SDK/Windows 10 构建不能通过裁剪产品目标来规避这些功能。
+`.github/workflows/windows-build-compat.yml` 使用 VS2022 以 Windows SDK `10.0.19041.0`、
+`10.0.22621.0` 和 `10.0.26100.0` 构建 Host、Control Center 与 Identity Signer 的完整二进制；每个
+job 还会记录 runner 实际安装的 Include/Lib SDK 清单。19041 是最低旧 SDK 基线，22621 是中间
+Windows 11 SDK，26100 是当前 runner 清单中的最高 SDK。该矩阵只证明编译兼容，不代表 Windows
+build `28000+` 的运行时能力或 WGC Session-local exclusion；Windows 11 API 始终采用运行时能力探测，
+旧 SDK/Windows 10 构建不能通过裁剪产品目标来规避这些功能。
 
 DirectComposition smoke test 需要交互式桌面，因此默认不进入普通 CTest：
 

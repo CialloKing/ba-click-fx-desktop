@@ -104,8 +104,9 @@
   resize，shutdown cancel 不得移动窗口；`Display.Topology.Observed/Applied` 必须区分观察目标与已应用目标，
   同屏 DPI-only 通知必须同时记录已应用 DPI、窗口有效 DPI 和变化标记；
 - `GetDisplayState` schema 2 必须拒绝旧版本以及未知、重复和缺失字段，并能解析 Host 真实生成的完整会话；
-  离线 override 只在全局拓扑完整时具有权威性。Windows SDK 19041/26100 Actions 均构建 Host、
-  Control Center 和 Identity Signer 的完整目标，不以当前运行系统缺少 Windows 11 API 为测试失败条件；
+  离线 override 只在全局拓扑完整时具有权威性。Windows SDK 19041/22621/26100 Actions 均构建 Host、
+  Control Center 和 Identity Signer 的完整目标，并记录 runner 实际安装的 SDK 清单；不以当前运行系统
+  缺少 Windows 11 API 为测试失败条件。该 SDK 编译覆盖不替代 build `28000+` 的真实运行时或 WGC 证据；
 - monitor/adapter rebuild。
 
 ### L3：硬件/视觉

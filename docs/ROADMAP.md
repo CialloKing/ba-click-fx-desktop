@@ -66,8 +66,11 @@ Alpha 25 的生产代码阶段已完成以下合同，阶段末仍只执行一�
 - `GetDisplayState` 已升级为严格 schema 2，Host 与 Control Center 同版本更新，不提供旧协议兼容层。
   它报告全局拓扑、颜色查询、HDR 用户状态、SDR white level、物理 cadence、回退原因和权威离线 override；
   Control Center 使用可滚动诊断区展示 Host 实际状态，并允许原子删除未连接显示器的遗留策略；
-- `windows-build-compat.yml` 以 SDK `10.0.19041.0` 和 `10.0.26100.0` 构建 Host、Control Center、
-  Identity Signer 的完整二进制。Windows 11 能力保持运行时探测，Windows 10 不因缺少能力而裁剪功能。
+- `windows-build-compat.yml` 以 SDK `10.0.19041.0`、`10.0.22621.0` 和 `10.0.26100.0` 构建 Host、
+  Control Center、Identity Signer 的完整二进制，并在每个 job 记录 runner 实际安装的 Include/Lib SDK。
+  19041 是最低旧 SDK 基线，22621 是中间 Windows 11 SDK，26100 是当前 runner 清单中的最高 SDK；
+  该编译矩阵不替代 Windows build `28000+` 的运行时或 WGC 硬件证据。Windows 11 能力保持运行时探测，
+  Windows 10 不因缺少能力而裁剪功能。
 
 这些提交不修改 Unity 粒子、Trail、材质、Bloom 或线性 FP16 工作空间。HDR 继续默认关闭，只在最终
 输出映射阶段与 SDR 区分；真实 HDR、混合 DPI/刷新率、热插拔、跨适配器与 packaged WGC 仍为 `Not Run`。
