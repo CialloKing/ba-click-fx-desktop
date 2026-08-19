@@ -7,6 +7,10 @@ install(
     RUNTIME DESTINATION "."
 )
 install(
+    TARGETS bafx_control_center
+    RUNTIME DESTINATION "."
+)
+install(
     FILES "${CMAKE_SOURCE_DIR}/LICENSE"
     DESTINATION "."
     RENAME "LICENSE.txt"

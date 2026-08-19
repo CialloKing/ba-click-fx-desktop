@@ -50,7 +50,8 @@ try
     $expectedEntries = @(
         "$rootName/LICENSE.txt",
         "$rootName/SUPPORT.md",
-        "$rootName/ba-click-fx-desktop.exe"
+        "$rootName/ba-click-fx-desktop.exe",
+        "$rootName/BAFX.ControlCenter.exe"
     )
     $actualEntries = @(
         $archive.Entries |
@@ -61,7 +62,7 @@ try
     $difference = @(Compare-Object $expectedEntries $actualEntries)
     if ($difference.Count -ne 0)
     {
-        throw "Alpha ZIP file list differs from the locked three-file package contract: $($difference -join ', ')"
+        throw "Alpha ZIP file list differs from the locked four-file package contract: $($difference -join ', ')"
     }
 }
 finally
@@ -77,10 +78,20 @@ try
     [IO.Compression.ZipFile]::ExtractToDirectory($packagePath, $tempRoot)
     $installRoot = Join-Path $tempRoot $rootName
     $executable = Join-Path $installRoot 'ba-click-fx-desktop.exe'
+    $controlCenter = Join-Path $installRoot 'BAFX.ControlCenter.exe'
     $productVersion = (Get-Item -LiteralPath $executable).VersionInfo.ProductVersion
     if ($productVersion -ne $ExpectedVersion)
     {
         throw "Extracted executable version mismatch: expected $ExpectedVersion, got $productVersion"
+    }
+    if (-not (Test-Path -LiteralPath $controlCenter -PathType Leaf))
+    {
+        throw 'Extracted package is missing BAFX.ControlCenter.exe.'
+    }
+    $controlCenterVersion = (Get-Item -LiteralPath $controlCenter).VersionInfo.ProductVersion
+    if ($controlCenterVersion -ne $ExpectedVersion)
+    {
+        throw "Extracted Control Center version mismatch: expected $ExpectedVersion, got $controlCenterVersion"
     }
 
     & $PortableVerifier -Executable $executable -Linker $Linker
