@@ -699,13 +699,13 @@ float4 EncodeConservativeSdrPremultiplied(float4 linearPremultiplied)
     return float4(encodedPremultiplied, alpha);
 }
 
-float4 ResolveDesktopComposite(
+float4 ResolveDesktopCompositeInputs(
     FullscreenOutput input,
+    float4 direct,
+    float4 bloom,
+    float exposureGain,
     float backgroundOutputScale)
 {
-    const float4 direct = Source0.Sample(LinearClampSampler, input.uv);
-    const float2 offset = SourceTexelSize * (SampleScale * 0.5);
-    const float4 bloom = FourTap(Source1, input.uv, offset);
     float4 resolved = float4(0.0, 0.0, 0.0, 0.0);
     if (BackgroundTransportEnabled <= 0.0)
     {
@@ -717,7 +717,7 @@ float4 ResolveDesktopComposite(
                 direct,
                 bloom,
                 cross,
-                ExposureGain));
+                exposureGain));
     }
     else
     {
@@ -735,11 +735,26 @@ float4 ResolveDesktopComposite(
             bloom,
             occlusion,
             background,
-            ExposureGain,
+            exposureGain,
             OutputReferenceWhiteScale,
             backgroundOutputScale);
     }
     return resolved;
+}
+
+float4 ResolveDesktopComposite(
+    FullscreenOutput input,
+    float backgroundOutputScale)
+{
+    const float4 direct = Source0.Sample(LinearClampSampler, input.uv);
+    const float2 offset = SourceTexelSize * (SampleScale * 0.5);
+    const float4 bloom = FourTap(Source1, input.uv, offset);
+    return ResolveDesktopCompositeInputs(
+        input,
+        direct,
+        bloom,
+        ExposureGain,
+        backgroundOutputScale);
 }
 
 float4 DesktopCompositePixel(FullscreenOutput input) : SV_Target0
@@ -753,6 +768,43 @@ float4 DesktopSdrCompositePixel(FullscreenOutput input) : SV_Target0
         ResolveDesktopComposite(
             input,
             1.0 / max(BackgroundReferenceWhiteScale, 0.000001)));
+}
+
+struct DesktopCaptureCompositeOutput
+{
+    float4 finalOverlay : SV_Target0;
+    float4 bloomResult : SV_Target1;
+};
+
+DesktopCaptureCompositeOutput DesktopCaptureCompositePixel(
+    FullscreenOutput input)
+{
+    const float4 direct = Source0.Sample(LinearClampSampler, input.uv);
+    const float2 offset = SourceTexelSize * (SampleScale * 0.5);
+    const float4 bloom = FourTap(Source1, input.uv, offset);
+
+    DesktopCaptureCompositeOutput output;
+    output.finalOverlay = ResolveDesktopCompositeInputs(
+        input,
+        direct,
+        bloom,
+        ExposureGain,
+        1.0);
+    output.bloomResult = float4(
+        bloom.rgb * ExposureGain,
+        saturate(bloom.a * ExposureGain));
+    return output;
+}
+
+DesktopCaptureCompositeOutput DesktopCaptureSdrCompositePixel(
+    FullscreenOutput input)
+{
+    DesktopCaptureCompositeOutput output = DesktopCaptureCompositePixel(input);
+    output.finalOverlay = EncodeConservativeSdrPremultiplied(
+        ResolveDesktopComposite(
+            input,
+            1.0 / max(BackgroundReferenceWhiteScale, 0.000001)));
+    return output;
 }
 
 float4 ResolveLightBackgroundComposite(FullscreenOutput input)
@@ -799,6 +851,37 @@ float4 RecordingCompatibleSdrCompositePixel(FullscreenOutput input) : SV_Target0
 {
     return EncodeConservativeSdrPremultiplied(
         ResolveRecordingCompatibleComposite(input));
+}
+
+float4 RecordingOpaqueSdrCompositePixel(FullscreenOutput input) : SV_Target0
+{
+    const float4 direct = Source0.Sample(LinearClampSampler, input.uv);
+    // Source1 is the full-resolution, already exposed Bloom result emitted by
+    // the desktop MRT pass. Sampling it directly avoids a second Bloom chain.
+    const float4 bloom = Source1.Sample(LinearClampSampler, input.uv);
+    const float occlusion = Source2.Sample(
+        LinearClampSampler,
+        input.uv).r;
+    const float3 capturedBackground = Source3.Sample(
+        LinearClampSampler,
+        input.uv).rgb;
+    const float backgroundOutputScale = 1.0
+        / max(BackgroundReferenceWhiteScale, 0.000001);
+    const float4 overlay = ResolveBackgroundAwareDesktopTransport(
+        direct,
+        bloom,
+        occlusion,
+        capturedBackground,
+        1.0,
+        OutputReferenceWhiteScale,
+        backgroundOutputScale);
+    const float3 background = StabilizeCapturedBackground(
+        capturedBackground)
+        * backgroundOutputScale;
+    const float3 composite = max(
+        background * (1.0 - overlay.a) + overlay.rgb,
+        0.0);
+    return float4(LinearToSrgb(composite), 1.0);
 }
 
 // Core mode deliberately omits Bloom and background transport. The direct

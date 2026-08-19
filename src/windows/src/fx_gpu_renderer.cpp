@@ -694,6 +694,12 @@ struct FxGpuRenderer::Implementation
             "DesktopSdrCompositePixel",
             desktopSdrCompositePixelShader);
         createBloomPixelShader(
+            "DesktopCaptureCompositePixel",
+            desktopCaptureCompositePixelShader);
+        createBloomPixelShader(
+            "DesktopCaptureSdrCompositePixel",
+            desktopCaptureSdrCompositePixelShader);
+        createBloomPixelShader(
             "RecordingCompatibleCompositePixel",
             recordingCompatibleCompositePixelShader);
         createBloomPixelShader(
@@ -705,6 +711,9 @@ struct FxGpuRenderer::Implementation
         createBloomPixelShader(
             "LightBackgroundSdrCompositePixel",
             lightBackgroundSdrCompositePixelShader);
+        createBloomPixelShader(
+            "RecordingOpaqueSdrCompositePixel",
+            recordingOpaqueSdrCompositePixelShader);
         createBloomPixelShader("CoreCompositePixel", coreCompositePixelShader);
 
         D3D11_BUFFER_DESC constantDescription{};
@@ -977,6 +986,13 @@ struct FxGpuRenderer::Implementation
         return outputMapping.mode == CompositionOutputMappingMode::ConservativeSdr
             ? sdrShader.Get()
             : linearShader.Get();
+    }
+
+    [[nodiscard]] ID3D11PixelShader* desktopCaptureCompositeShader() const noexcept
+    {
+        return outputTransferShader(
+            desktopCaptureCompositePixelShader,
+            desktopCaptureSdrCompositePixelShader);
     }
 
     void stabilizeBackgroundFrame(
@@ -1327,6 +1343,30 @@ struct FxGpuRenderer::Implementation
             crossTarget.shaderResource.Get());
     }
 
+    void renderRecordingComposite(
+        ID3D11RenderTargetView* const destination,
+        const BackgroundRenderInput background)
+    {
+        const bafx::core::BloomExtent sourceExtent{
+            static_cast<std::int32_t>(size.width),
+            static_cast<std::int32_t>(size.height)};
+        drawFullscreen(
+            destination,
+            sourceExtent,
+            recordingOpaqueSdrCompositePixelShader.Get(),
+            directTarget.shaderResource.Get(),
+            bloomResultTarget.shaderResource.Get(),
+            makeBloomConstants(
+                sourceExtent,
+                1.0F,
+                1.0F,
+                true,
+                backgroundReferenceWhiteScale(),
+                outputReferenceWhiteScale()),
+            occlusionTarget.shaderResource.Get(),
+            background.shaderResource);
+    }
+
     void drawVertices(
         const std::span<const SpriteVertex> vertices,
         ID3D11ShaderResourceView* texture,
@@ -1419,7 +1459,8 @@ struct FxGpuRenderer::Implementation
         ID3D11PixelShader* finalCompositeShader,
         std::optional<BackgroundRenderInput> background = std::nullopt,
         ID3D11RenderTargetView* bloomResultDestination = nullptr,
-        GpuTimestampProfiler* gpuTimestampProfiler = nullptr)
+        GpuTimestampProfiler* gpuTimestampProfiler = nullptr,
+        ID3D11RenderTargetView* recordingDestination = nullptr)
     {
         FxRenderCpuDiagnostics diagnostics{};
         const auto totalStartedAt = std::chrono::steady_clock::now();
@@ -1428,6 +1469,15 @@ struct FxGpuRenderer::Implementation
             return renderCore(snapshot, destination, gpuTimestampProfiler);
         }
         if (background.has_value() && background->shaderResource == nullptr)
+        {
+            background.reset();
+        }
+
+        const ComPtr<ID3D11Texture2D> backgroundTexture = background.has_value()
+            ? textureFromShaderResource(background->shaderResource)
+            : ComPtr<ID3D11Texture2D>{};
+        if (background.has_value()
+            && !isCompatibleBackgroundTexture(backgroundTexture.Get(), size))
         {
             background.reset();
         }
@@ -1443,19 +1493,25 @@ struct FxGpuRenderer::Implementation
                 (void)gpuTimestampProfiler->checkpoint(
                     GpuTimestampCheckpoint::FxMaterialsComplete);
             }
+            if (recordingDestination != nullptr && background.has_value())
+            {
+                context->ClearRenderTargetView(
+                    directTarget.renderTarget.Get(),
+                    transparent.data());
+                context->ClearRenderTargetView(
+                    bloomResultTarget.renderTarget.Get(),
+                    transparent.data());
+                context->ClearRenderTargetView(
+                    occlusionTarget.renderTarget.Get(),
+                    transparent.data());
+                renderRecordingComposite(recordingDestination, *background);
+                context->OMSetRenderTargets(0, nullptr, nullptr);
+            }
             diagnostics.totalSubmit =
                 std::chrono::steady_clock::now() - totalStartedAt;
             return diagnostics;
         }
         diagnostics.visualContent = true;
-        const ComPtr<ID3D11Texture2D> backgroundTexture = background.has_value()
-            ? textureFromShaderResource(background->shaderResource)
-            : ComPtr<ID3D11Texture2D>{};
-        if (background.has_value()
-            && !isCompatibleBackgroundTexture(backgroundTexture.Get(), size))
-        {
-            background.reset();
-        }
 
         // Keep FX emission independent from capture state. The final pass uses
         // the small occlusion target to reconstruct how Cross2 attenuates WGC;
@@ -1549,6 +1605,10 @@ struct FxGpuRenderer::Implementation
             finalCompositeShader,
             background,
             bloomResultDestination);
+        if (recordingDestination != nullptr && background.has_value())
+        {
+            renderRecordingComposite(recordingDestination, *background);
+        }
         context->OMSetRenderTargets(0, nullptr, nullptr);
         diagnostics.bloomAndCompositeSubmit =
             std::chrono::steady_clock::now() - bloomStartedAt;
@@ -1752,6 +1812,36 @@ struct FxGpuRenderer::Implementation
         return capture;
     }
 
+    FxRenderCpuDiagnostics renderDesktop(
+        const bafx::fx::FrameSnapshot& snapshot,
+        ID3D11RenderTargetView* const destination,
+        const std::optional<BackgroundRenderInput> background,
+        GpuTimestampProfiler* const gpuTimestampProfiler,
+        ID3D11RenderTargetView* const recordingDestination)
+    {
+        if (recordingDestination != nullptr
+            && background.has_value()
+            && overlayProfile != FxOverlayProfile::Core)
+        {
+            ensureBloomResultTarget();
+            return render(
+                snapshot,
+                destination,
+                desktopCaptureCompositeShader(),
+                background,
+                bloomResultTarget.renderTarget.Get(),
+                gpuTimestampProfiler,
+                recordingDestination);
+        }
+        return render(
+            snapshot,
+            destination,
+            desktopCompositeShader(background.has_value()),
+            background,
+            nullptr,
+            gpuTimestampProfiler);
+    }
+
     ComPtr<ID3D11Device> device{};
     ComPtr<ID3D11DeviceContext> context{};
     WindowSize size{};
@@ -1782,10 +1872,13 @@ struct FxGpuRenderer::Implementation
     ComPtr<ID3D11PixelShader> captureCompositePixelShader{};
     ComPtr<ID3D11PixelShader> desktopCompositePixelShader{};
     ComPtr<ID3D11PixelShader> desktopSdrCompositePixelShader{};
+    ComPtr<ID3D11PixelShader> desktopCaptureCompositePixelShader{};
+    ComPtr<ID3D11PixelShader> desktopCaptureSdrCompositePixelShader{};
     ComPtr<ID3D11PixelShader> recordingCompatibleCompositePixelShader{};
     ComPtr<ID3D11PixelShader> recordingCompatibleSdrCompositePixelShader{};
     ComPtr<ID3D11PixelShader> lightBackgroundCompositePixelShader{};
     ComPtr<ID3D11PixelShader> lightBackgroundSdrCompositePixelShader{};
+    ComPtr<ID3D11PixelShader> recordingOpaqueSdrCompositePixelShader{};
     ComPtr<ID3D11PixelShader> coreCompositePixelShader{};
     ComPtr<ID3D11InputLayout> inputLayout{};
     ComPtr<ID3D11Buffer> vertexBuffer{};
@@ -1857,15 +1950,15 @@ FxRenderCpuDiagnostics FxGpuRenderer::render(
     const bafx::fx::FrameSnapshot& snapshot,
     ID3D11RenderTargetView* destination,
     const std::optional<BackgroundRenderInput> background,
-    GpuTimestampProfiler* const gpuTimestampProfiler)
+    GpuTimestampProfiler* const gpuTimestampProfiler,
+    ID3D11RenderTargetView* const recordingDestination)
 {
-    return implementation_->render(
+    return implementation_->renderDesktop(
         snapshot,
         destination,
-        implementation_->desktopCompositeShader(background.has_value()),
         background,
-        nullptr,
-        gpuTimestampProfiler);
+        gpuTimestampProfiler,
+        recordingDestination);
 }
 
 FxGpuFrameCapture FxGpuRenderer::renderAndCapture(

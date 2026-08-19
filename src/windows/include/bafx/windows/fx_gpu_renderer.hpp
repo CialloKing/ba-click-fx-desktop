@@ -84,7 +84,8 @@ public:
         const bafx::fx::FrameSnapshot& snapshot,
         ID3D11RenderTargetView* destination,
         std::optional<BackgroundRenderInput> background = std::nullopt,
-        GpuTimestampProfiler* gpuTimestampProfiler = nullptr);
+        GpuTimestampProfiler* gpuTimestampProfiler = nullptr,
+        ID3D11RenderTargetView* recordingDestination = nullptr);
     [[nodiscard]] FxGpuFrameCapture renderAndCapture(
         const bafx::fx::FrameSnapshot& snapshot,
         ID3D11RenderTargetView* destination);
