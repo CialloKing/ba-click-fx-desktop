@@ -2924,6 +2924,39 @@ int runApplication(
             "Spout2.Startup",
             spout2Fields);
     }
+    bafx::windows::Spout2SenderStatus observedSpout2Status =
+        renderer.spout2Status();
+    const auto recordSpout2Status = [&]()
+    {
+        if (!options.spout2)
+        {
+            return;
+        }
+        const bafx::windows::Spout2SenderStatus currentStatus =
+            renderer.spout2Status();
+        if (currentStatus == observedSpout2Status)
+        {
+            return;
+        }
+        const std::array fields{
+            bafx::windows::DiagnosticField{
+                "Status",
+                bafx::windows::spout2SenderStatusName(currentStatus)},
+            bafx::windows::DiagnosticField{
+                "Error",
+                renderer.spout2Error()}};
+        const bafx::windows::DiagnosticLevel level =
+            currentStatus == bafx::windows::Spout2SenderStatus::Failed
+            || currentStatus == bafx::windows::Spout2SenderStatus::Unavailable
+            ? bafx::windows::DiagnosticLevel::Warning
+            : bafx::windows::DiagnosticLevel::Info;
+        bafx::windows::appendDiagnosticEvent(
+            logPath,
+            "Spout2.StatusChanged",
+            fields,
+            level);
+        observedSpout2Status = currentStatus;
+    };
     bafx::fx::SimulationRuntime& simulation = displaySession.simulation();
     bafx::fx::SimulationTimeline& simulationTimeline =
         displaySession.timeline();
@@ -6663,6 +6696,7 @@ int runApplication(
             }
             const bafx::windows::CompositionFrameDiagnostics&
                 completedFrameDiagnostics = *frameDiagnostics;
+            recordSpout2Status();
             displaySession.recordPresentedFrame(
                 lastPresentedDrawableContent,
                 wallTime);
