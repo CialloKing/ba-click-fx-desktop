@@ -21,6 +21,7 @@ add_library(
         src/portable_paths.cpp
         src/recording_compatibility.cpp
         src/runtime_diagnostics.cpp
+        src/spout2_sender.cpp
         src/startup_registration.cpp
         src/wgc_frame_notification.cpp
         src/wgc_idle_drain_policy.cpp
@@ -57,6 +58,9 @@ target_compile_definitions(
         _WIN32_WINNT=0x0A00
         BAFX_RECORDING_COMPATIBILITY_APPLICATION_REVISION="${BAFX_VERSION}"
 )
+if(BAFX_ENABLE_SPOUT2)
+    target_compile_definitions(bafx_windows PUBLIC BAFX_ENABLE_SPOUT2=1)
+endif()
 
 # The 19041 C++/WinRT projection does not declare Windows::UI::WindowId,
 # even though the newer WGC ABI can still be probed at runtime.  Keep that
@@ -94,6 +98,9 @@ target_link_libraries(
     PRIVATE
         runtimeobject
 )
+if(BAFX_ENABLE_SPOUT2)
+    target_link_libraries(bafx_windows PRIVATE Spout2::SpoutDX_static)
+endif()
 bafx_enable_warnings(bafx_windows)
 
 set_target_properties(

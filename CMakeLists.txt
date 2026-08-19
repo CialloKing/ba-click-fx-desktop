@@ -25,6 +25,15 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 include(CompilerWarnings)
 include(CTest)
 
+option(
+    BAFX_ENABLE_SPOUT2
+    "Enable the optional Spout2 DirectX sender"
+    OFF
+)
+if(BAFX_ENABLE_SPOUT2)
+    find_package(Spout2 CONFIG REQUIRED)
+endif()
+
 if(WIN32)
     if(DEFINED BAFX_POWERSHELL_EXECUTABLE
         AND NOT EXISTS "${BAFX_POWERSHELL_EXECUTABLE}")
