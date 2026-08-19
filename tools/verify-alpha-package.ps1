@@ -185,7 +185,28 @@ finally
     {
         throw "Refusing to clean a path outside the temporary directory: $resolvedRoot"
     }
-    Remove-Item -LiteralPath $resolvedRoot -Recurse -Force
+    $cleanupSucceeded = $false
+    for ($attempt = 0; $attempt -lt 10; $attempt++)
+    {
+        try
+        {
+            Remove-Item -LiteralPath $resolvedRoot -Recurse -Force -ErrorAction Stop
+            $cleanupSucceeded = $true
+            break
+        }
+        catch
+        {
+            if ($attempt -eq 9)
+            {
+                throw
+            }
+            Start-Sleep -Milliseconds 200
+        }
+    }
+    if (-not $cleanupSucceeded)
+    {
+        throw "Failed to clean temporary verification directory: $resolvedRoot"
+    }
 }
 
 Write-Host "Alpha package verified: $([IO.Path]::GetFileName($packagePath))"
