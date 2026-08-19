@@ -41,9 +41,10 @@
   `ba-click-fx-desktop`。安装版和便携版均内置 Spout2 代码；在控制中心的“系统行为”中
   勾选“启用 OBS Spout2 输出”后，在 OBS 添加
   `Spout2 捕获`（`spout_capture`）源即可接收不透明的“桌面背景 + 特效”画面；当前验证合同为
-  单显示器、同 GPU、SDR、BGRA8。Spout2 输出只在 WGC 背景快照有效且不是核心性能模式时发送，
-  背景不可用不会发送黑帧或旧伪造背景。旧的 `--spout2` 参数仍可用于诊断时临时开启，
-  但不改变持久化开关。
+  单显示器、同 GPU、SDR、BGRA8。OBS 的 Composite Mode 必须选择 `Opaque`，因为发送纹理
+  已经填充不透明黑色背景；4K sender 放入 1080p OBS 画布时还需要对源执行 `Transform -> Fit to Screen`。
+  WGC 背景快照是可选增强：不可用时仍发送黑底 FX-only 帧，核心性能模式也仍可发送特效，
+  不会发送透明旧帧。旧的 `--spout2` 参数仍可用于诊断时临时开启，但不改变持久化开关。
 - 支持报告保留主协调屏摘要，并按稳定顺序为每个显示会话记录角色、边界、DPI、显示/捕获刷新率、
   DisplayConfig 身份、请求/实际 GPU、HDR/Advanced Color、最终输出策略、WGC 状态和渲染故障；
   这些只是当前运行快照，不能据此宣称 HDR、多显示器、Advanced Color 或物理 nits 输出已经受支持。
