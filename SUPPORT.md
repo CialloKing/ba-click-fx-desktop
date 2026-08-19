@@ -37,6 +37,11 @@
   `m_MinVertexDistance=0.01`。
 - D3D11 硬件设备；硬件设备创建失败时尝试 WARP 软件设备。
 - 当前验证范围为普通 SDR 桌面合成路径。
+- 可选 Spout2 输出使用主显示器的 GPU 合成结果，发送器名称固定为
+  `ba-click-fx-desktop`。使用带 Spout2 的构建并传入 `--spout2` 后，在 OBS 添加
+  `Spout2 捕获`（`spout_capture`）源即可接收不透明的“桌面背景 + 特效”画面；当前验证合同为
+  单显示器、同 GPU、SDR、BGRA8。Spout2 输出只在 WGC 背景快照有效且不是核心性能模式时发送，
+  背景不可用不会发送黑帧或旧伪造背景。普通 alpha 包不包含 Spout2，发布页另提供 `*-spout2-*` 包。
 - 支持报告保留主协调屏摘要，并按稳定顺序为每个显示会话记录角色、边界、DPI、显示/捕获刷新率、
   DisplayConfig 身份、请求/实际 GPU、HDR/Advanced Color、最终输出策略、WGC 状态和渲染故障；
   这些只是当前运行快照，不能据此宣称 HDR、多显示器、Advanced Color 或物理 nits 输出已经受支持。
@@ -218,6 +223,8 @@ Windows“已安装的应用”执行，默认保留安装目录
 ## 测试入口
 
 - `ba-click-fx-desktop.exe --demo-click`：在主屏中心生成一次可见点击后继续运行。
+- `ba-click-fx-desktop.exe --spout2 --demo-click`：启用 Spout2 主显示器输出并生成一次可见点击；
+  OBS 需先安装兼容的 Spout2 插件并添加 `Spout2 捕获` 源。
 - `ba-click-fx-desktop.exe --smoke-test`：执行有界的 D3D11/DirectComposition 中心像素检查并退出；
   成功退出码为 `0`。
 - `ba-click-fx-desktop.exe --quit-after-ms=1000`：运行正常消息/渲染循环并在约一秒后退出，用于验证
