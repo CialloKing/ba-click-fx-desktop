@@ -306,6 +306,10 @@ public:
     [[nodiscard]] std::string_view spout2SenderName() const noexcept;
     [[nodiscard]] Spout2SenderStatus spout2Status() const noexcept;
     [[nodiscard]] std::string_view spout2Error() const noexcept;
+    // Refreshes the independent Spout2 sender without presenting a new
+    // composition frame. This keeps OBS alive while the display swap chain is
+    // idle or its frame-latency waitable is temporarily unsignaled.
+    [[nodiscard]] bool sendSpout2Heartbeat() noexcept;
     CompositionFrameDiagnostics renderFrame(
         const bafx::fx::FrameSnapshot& snapshot,
         bafx::core::MonotonicTime wallTime = bafx::core::MonotonicTime::zero(),

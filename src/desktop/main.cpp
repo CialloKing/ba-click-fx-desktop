@@ -57,6 +57,7 @@ constexpr auto performanceReportInterval = std::chrono::seconds(10);
 constexpr auto framePacingDeviceProbePeriod = std::chrono::milliseconds(250);
 constexpr auto displayTopologyPollPeriod = std::chrono::seconds(1);
 constexpr DWORD activeControlPollMilliseconds = 50U;
+constexpr auto spout2HeartbeatPeriod = std::chrono::milliseconds(250);
 constexpr DWORD pausedControlPollMilliseconds = 50U;
 
 [[nodiscard]] std::string formatHresult(const HRESULT result)
@@ -4337,6 +4338,8 @@ int runApplication(
     frameWaitables.reserve(16U);
     pausedWaitables.reserve(16U);
     readyDisplaySessions.reserve(8U);
+    bafx::core::MonotonicTime lastSpout2HeartbeatAt =
+        clock.now() - spout2HeartbeatPeriod;
     while (!quit && !hostWindow.closeRequested())
     {
         accumulateMessageDispatch(pendingMessageDispatch, dispatchMessages(quit));
@@ -7044,6 +7047,20 @@ int runApplication(
             {
                 break;
             }
+        }
+
+        // Spout2 is an independent cross-process output. A dormant display
+        // swap chain can stop producing frame-latency wakes even though OBS
+        // still expects the registered sender to remain alive. Re-send the
+        // latest completed recording texture at a low cadence without
+        // incurring another full FX/background render.
+        if (renderer.spout2Enabled()
+            && wallTime - lastSpout2HeartbeatAt >= spout2HeartbeatPeriod
+            && !renderCoordinatorThisIteration)
+        {
+            static_cast<void>(renderer.sendSpout2Heartbeat());
+            lastSpout2HeartbeatAt = wallTime;
+            recordSpout2Status();
         }
 
         const bafx::fx::SimulationTime performanceNow = clock.now();

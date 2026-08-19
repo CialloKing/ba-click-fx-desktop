@@ -1133,6 +1133,19 @@ std::string_view CompositionRenderer::spout2Error() const noexcept
     return spout2Sender_->error();
 }
 
+bool CompositionRenderer::sendSpout2Heartbeat() noexcept
+{
+    if (!spout2Enabled_ || recordingTexture_ == nullptr)
+    {
+        return false;
+    }
+    return spout2Sender_->send(
+        device_.Get(),
+        recordingTexture_.Get(),
+        size_.width,
+        size_.height);
+}
+
 CompositionFrameDiagnostics CompositionRenderer::renderFrame(
     const bafx::fx::FrameSnapshot& snapshot,
     const bafx::core::MonotonicTime wallTime,
@@ -2306,6 +2319,12 @@ void CompositionRenderer::createSpout2RecordingTarget()
             nullptr,
             &recordingRenderTarget_),
         "ID3D11Device::CreateRenderTargetView(Spout2 recording)");
+    // The first heartbeat can occur before the display swap chain presents a
+    // frame. Initialize the shared output to a valid opaque black image so
+    // OBS never receives undefined GPU memory.
+    constexpr float clearColor[4]{0.0F, 0.0F, 0.0F, 1.0F};
+    context_->ClearRenderTargetView(recordingRenderTarget_.Get(), clearColor);
+    context_->Flush();
 }
 
 void CompositionRenderer::registerDeviceRemovedNotification() noexcept
