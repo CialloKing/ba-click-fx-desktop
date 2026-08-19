@@ -47,4 +47,20 @@ BAFX_TEST(idle_render_policy_preserves_continuous_and_pause_contracts)
 
     input.displayPowerUnavailable = true;
     BAFX_CHECK(!shouldRenderForIdlePolicy(input));
+
+    input.independentOutputRequired = true;
+    BAFX_CHECK(shouldRenderForIdlePolicy(input));
+}
+
+BAFX_TEST(idle_render_policy_keeps_independent_output_alive_during_display_power_suspend)
+{
+    IdleRenderPolicyInput input{};
+    input.displayPowerUnavailable = true;
+    input.independentOutputRequired = true;
+    BAFX_CHECK(shouldRenderForIdlePolicy(input));
+
+    input.paused = true;
+    BAFX_CHECK(!shouldRenderForIdlePolicy(input));
+    input.enteringPause = true;
+    BAFX_CHECK(shouldRenderForIdlePolicy(input));
 }

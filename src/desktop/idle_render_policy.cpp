@@ -6,7 +6,7 @@ namespace bafx::desktop
 bool shouldRenderForIdlePolicy(
     const IdleRenderPolicyInput& input) noexcept
 {
-    if (input.displayPowerUnavailable)
+    if (input.displayPowerUnavailable && !input.independentOutputRequired)
     {
         return false;
     }
@@ -16,6 +16,10 @@ bool shouldRenderForIdlePolicy(
     }
     if (!input.idleOptimizationEnabled
         || input.continuousRenderingRequired)
+    {
+        return true;
+    }
+    if (input.independentOutputRequired)
     {
         return true;
     }

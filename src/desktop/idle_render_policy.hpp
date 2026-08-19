@@ -14,6 +14,9 @@ struct IdleRenderPolicyInput final
     bool pointerInputPending{false};
     bool activeEffects{false};
     bool presentedDrawableContent{false};
+    // Independent outputs such as Spout2 must keep producing frames even
+    // when the monitor power notification suspends the visible composition.
+    bool independentOutputRequired{false};
 };
 
 [[nodiscard]] bool shouldRenderForIdlePolicy(

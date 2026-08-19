@@ -5792,7 +5792,13 @@ int runApplication(
                     && inputDisplayAvailable
                     && hostWindow.pointerEventsPending(),
                 activeEffects,
-                presentedDrawableContent});
+                presentedDrawableContent,
+                renderer.spout2Enabled()});
+        // A powered-down display can leave the composition frame-latency
+        // object unsignaled. Spout2 still needs a bounded cadence, so the
+        // coordinator falls back to the existing control poll in this case.
+        const bool spout2PowerFallback = renderer.spout2Enabled()
+            && displayPowerUnavailable;
         std::optional<HRESULT> framePacingDeviceLoss;
         bafx::desktop::DisplaySession* secondaryRecoveredDuringPacing = nullptr;
         bool renderCoordinatorThisIteration = false;
@@ -5846,6 +5852,10 @@ int runApplication(
                 }
                 if (options.framePacingStallProbe
                     && &session != &displaySession)
+                {
+                    continue;
+                }
+                if (spout2PowerFallback && &session == &displaySession)
                 {
                     continue;
                 }
@@ -6011,6 +6021,13 @@ int runApplication(
             case bafx::desktop::FramePacingWake::MessagesPending:
             case bafx::desktop::FramePacingWake::TimedOut:
             {
+                if (spout2PowerFallback)
+                {
+                    // The swap-chain slot belongs to the unavailable display
+                    // path. Grant the independent output one bounded frame.
+                    readyDisplaySessions.push_back(&displaySession);
+                    break;
+                }
                 const bafx::fx::SimulationTime waitObservedAt = clock.now();
                 if (runtimeDeadlineReached(waitObservedAt))
                 {
