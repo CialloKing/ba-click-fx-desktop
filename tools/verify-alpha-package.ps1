@@ -9,7 +9,9 @@ param(
     [string]$Linker,
 
     [Parameter(Mandatory = $true)]
-    [string]$PortableVerifier
+    [string]$PortableVerifier,
+
+    [switch]$HostOnly
 )
 
 $ErrorActionPreference = 'Stop'
@@ -50,9 +52,12 @@ try
     $expectedEntries = @(
         "$rootName/LICENSE.txt",
         "$rootName/SUPPORT.md",
-        "$rootName/ba-click-fx-desktop.exe",
-        "$rootName/BAFX.ControlCenter.exe"
+        "$rootName/ba-click-fx-desktop.exe"
     )
+    if (-not $HostOnly)
+    {
+        $expectedEntries += "$rootName/BAFX.ControlCenter.exe"
+    }
     $actualEntries = @(
         $archive.Entries |
             Where-Object { -not $_.FullName.EndsWith('/') } |
@@ -62,7 +67,8 @@ try
     $difference = @(Compare-Object $expectedEntries $actualEntries)
     if ($difference.Count -ne 0)
     {
-        throw "Alpha ZIP file list differs from the locked four-file package contract: $($difference -join ', ')"
+        $packageKind = $HostOnly ? 'Host-only' : 'full portable'
+        throw "Alpha ZIP file list differs from the locked $packageKind package contract: $($difference -join ', ')"
     }
 }
 finally
@@ -84,14 +90,17 @@ try
     {
         throw "Extracted executable version mismatch: expected $ExpectedVersion, got $productVersion"
     }
-    if (-not (Test-Path -LiteralPath $controlCenter -PathType Leaf))
+    if (-not $HostOnly)
     {
-        throw 'Extracted package is missing BAFX.ControlCenter.exe.'
-    }
-    $controlCenterVersion = (Get-Item -LiteralPath $controlCenter).VersionInfo.ProductVersion
-    if ($controlCenterVersion -ne $ExpectedVersion)
-    {
-        throw "Extracted Control Center version mismatch: expected $ExpectedVersion, got $controlCenterVersion"
+        if (-not (Test-Path -LiteralPath $controlCenter -PathType Leaf))
+        {
+            throw 'Extracted package is missing BAFX.ControlCenter.exe.'
+        }
+        $controlCenterVersion = (Get-Item -LiteralPath $controlCenter).VersionInfo.ProductVersion
+        if ($controlCenterVersion -ne $ExpectedVersion)
+        {
+            throw "Extracted Control Center version mismatch: expected $ExpectedVersion, got $controlCenterVersion"
+        }
     }
 
     & $PortableVerifier -Executable $executable -Linker $Linker

@@ -1210,8 +1210,8 @@ function Test-PortableZipContract
     $portableVerifier = Read-RepositoryText -RelativePath 'tools/verify-alpha-package.ps1'
     Assert-TextContains `
         -Text $portableVerifier `
-        -Pattern 'locked three-file package contract' `
-        -Description 'portable ZIP three-file contract'
+        -Pattern 'BAFX\.ControlCenter\.exe' `
+        -Description 'portable ZIP Control Center executable'
     Assert-TextContains `
         -Text $portableVerifier `
         -Pattern 'LICENSE\.txt' `

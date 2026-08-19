@@ -195,7 +195,8 @@ function Invoke-IsolatedVerification
         -Package $PackagePath `
         -ExpectedVersion $ExpectedVersion `
         -Linker $Linker `
-        -PortableVerifier $PortableVerifier
+        -PortableVerifier $PortableVerifier `
+        -HostOnly
     if ($LASTEXITCODE -ne 0)
     {
         throw "Host review package verification failed with exit code $LASTEXITCODE"
@@ -228,34 +229,24 @@ if (-not $Slim -and -not $SkipWorkflow -and [string]::IsNullOrWhiteSpace($env:VC
 }
 $version = Get-BafxVersion -VersionFile (Join-Path $repositoryRoot 'cmake\Version.cmake')
 $packageName = "ba-click-fx-desktop-$version$variantSuffix-windows-x64"
-$sourcePackage = Join-Path $repositoryRoot "build\$buildRootName\packages\$packageName.zip"
-$sourceChecksum = "$sourcePackage.sha256"
+$hostExecutable = Join-Path $repositoryRoot "build\$buildRootName\src\desktop\Release\ba-click-fx-desktop.exe"
 
 if (-not $SkipWorkflow)
 {
     $cmake = Get-Command cmake.exe -ErrorAction SilentlyContinue |
         Select-Object -First 1
-    $cpack = Get-Command cpack.exe -ErrorAction SilentlyContinue |
-        Select-Object -First 1
-    if ($null -eq $cmake -or $null -eq $cpack)
+    if ($null -eq $cmake)
     {
-        throw 'cmake.exe and cpack.exe must both be available on PATH.'
+        throw 'cmake.exe was not found on PATH.'
     }
     Invoke-Checked -Description 'Host review build and test workflow' -FilePath $cmake.Source `
         -Arguments @('--workflow', '--preset', $workflowPreset) `
         -WorkingDirectory $repositoryRoot
-    Invoke-Checked -Description 'Host review CPack generation' -FilePath $cpack.Source `
-        -Arguments @('--preset', $packagePreset) `
-        -WorkingDirectory $repositoryRoot
 }
 
-if (-not (Test-Path -LiteralPath $sourcePackage -PathType Leaf))
+if (-not (Test-Path -LiteralPath $hostExecutable -PathType Leaf))
 {
-    throw "CPack Host-only package is missing: $sourcePackage"
-}
-if (-not (Test-Path -LiteralPath $sourceChecksum -PathType Leaf))
-{
-    throw "CPack Host-only checksum is missing: $sourceChecksum"
+    throw "Host review executable is missing: $hostExecutable"
 }
 
 $outputRoot = Get-FullPath -Path $OutputDirectory -BaseDirectory $repositoryRoot
@@ -265,10 +256,37 @@ if (Test-Path -LiteralPath $revisionDirectory)
     throw "Refusing to overwrite an existing Host review directory: $revisionDirectory"
 }
 New-Item -ItemType Directory -Path $revisionDirectory -Force | Out-Null
-$packagePath = Join-Path $revisionDirectory ([IO.Path]::GetFileName($sourcePackage))
+$packagePath = Join-Path $revisionDirectory "$packageName.zip"
 $checksumPath = "$packagePath.sha256"
-Copy-Item -LiteralPath $sourcePackage -Destination $packagePath
-Copy-Item -LiteralPath $sourceChecksum -Destination $checksumPath
+Add-Type -AssemblyName System.IO.Compression
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+$temporaryRoot = Join-Path ([IO.Path]::GetTempPath()) (
+    'bafx-host-review-' + [Guid]::NewGuid().ToString('N'))
+$stageRoot = Join-Path $temporaryRoot $packageName
+try
+{
+    New-Item -ItemType Directory -Path $stageRoot | Out-Null
+    Copy-Item -LiteralPath $hostExecutable -Destination (Join-Path $stageRoot 'ba-click-fx-desktop.exe')
+    Copy-Item -LiteralPath (Join-Path $repositoryRoot 'LICENSE') `
+        -Destination (Join-Path $stageRoot 'LICENSE.txt')
+    Copy-Item -LiteralPath (Join-Path $repositoryRoot 'SUPPORT.md') -Destination $stageRoot
+    [IO.Compression.ZipFile]::CreateFromDirectory(
+        $stageRoot,
+        $packagePath,
+        [IO.Compression.CompressionLevel]::Optimal,
+        $true)
+}
+finally
+{
+    if (Test-Path -LiteralPath $temporaryRoot -PathType Container)
+    {
+        Remove-Item -LiteralPath $temporaryRoot -Recurse -Force
+    }
+}
+$hash = (Get-FileHash -LiteralPath $packagePath -Algorithm SHA256).Hash
+Set-Content -LiteralPath $checksumPath `
+    -Value "$hash  *$([IO.Path]::GetFileName($packagePath))" `
+    -Encoding ascii
 Assert-HostOnlyArchive -PackagePath $packagePath
 
 if (-not $SkipVerification)
@@ -283,6 +301,5 @@ if (-not $SkipVerification)
         -PortableVerifier (Join-Path $PSScriptRoot 'verify-portable-pe.ps1')
 }
 
-$hash = (Get-FileHash -LiteralPath $packagePath -Algorithm SHA256).Hash
 Write-Host "Host review package created: $packagePath"
 Write-Host "SHA-256: $hash"

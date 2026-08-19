@@ -157,7 +157,7 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File .\tools\package-test-bundle.ps1
 pwsh -NoProfile -ExecutionPolicy Bypass -File .\tools\package-host-review-bundle.ps1
 ```
 
-脚本复用 CPack 的三文件安装合同，并将经过验证的 ZIP 放到
+脚本从 Release Host 单独组装三文件审核包，并将经过验证的 ZIP 放到
 `artifacts\local\host-visual-review\<commit>\`。该包只包含 Host、许可证和支持说明，
 通常约 0.4 MB；完整测试包现在也只包含两个原生 EXE，压缩后约 0.7 MB，不再携带 Windows App SDK
 旁置运行时。
