@@ -110,7 +110,10 @@ bool Spout2Sender::send(
                     "Spout2 could not open the Host D3D11 device";
                 return false;
             }
-            implementation_->sender.SetKeyed(true);
+            // OBS and ordinary Spout consumers use the default shared-texture
+            // path. Keyed mutex mode is only an SDK test option and can leave
+            // the sender/receiver pair waiting on incompatible ownership.
+            implementation_->sender.SetKeyed(false);
             implementation_->sender.SetSenderFormat(
                 DXGI_FORMAT_B8G8R8A8_UNORM);
             implementation_->sender.SetSenderName(

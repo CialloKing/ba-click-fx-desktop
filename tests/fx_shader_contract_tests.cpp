@@ -184,6 +184,14 @@ BAFX_TEST(all_embedded_fx_shader_entries_compile_with_warnings_as_errors)
         ShaderEntry{
             unityBloomShaderSource(),
             "LightBackgroundCompositePixel",
+            "ps_5_0"},
+        ShaderEntry{
+            unityBloomShaderSource(),
+            "RecordingFxOnlySdrCompositePixel",
+            "ps_5_0"},
+        ShaderEntry{
+            unityBloomShaderSource(),
+            "CoreRecordingOpaqueSdrCompositePixel",
             "ps_5_0"}};
 
     for (const ShaderEntry& entry : entries)
@@ -238,7 +246,9 @@ BAFX_TEST(bloom_shader_reflection_locks_resources_and_constant_layout)
         "DesktopCompositePixel",
         "DesktopSdrCompositePixel",
         "RecordingCompatibleCompositePixel",
-        "LightBackgroundCompositePixel"};
+        "LightBackgroundCompositePixel",
+        "RecordingFxOnlySdrCompositePixel",
+        "CoreRecordingOpaqueSdrCompositePixel"};
     for (const char* entryPoint : entries)
     {
         const auto reflection = compileAndReflect(

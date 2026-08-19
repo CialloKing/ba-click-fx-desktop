@@ -884,6 +884,22 @@ float4 RecordingOpaqueSdrCompositePixel(FullscreenOutput input) : SV_Target0
     return float4(LinearToSrgb(composite), 1.0);
 }
 
+float4 RecordingFxOnlySdrCompositePixel(FullscreenOutput input) : SV_Target0
+{
+    const float4 direct = Source0.Sample(LinearClampSampler, input.uv);
+    const float4 bloom = Source1.Sample(LinearClampSampler, input.uv);
+    const float4 cross = Source2.Sample(LinearClampSampler, input.uv);
+    // Spout2 is an opaque black-background output when WGC has no frame. The
+    // transparent overlay contract remains in the ordinary desktop target;
+    // only this independent recording target is flattened for OBS.
+    const float4 overlay = ResolveFxOnlyDesktopTransport(
+        direct,
+        bloom,
+        cross,
+        1.0);
+    return float4(LinearToSrgb(max(overlay.rgb, 0.0)), 1.0);
+}
+
 // Core mode deliberately omits Bloom and background transport. The direct
 // material surface is already the complete low-cost FX payload.
 float4 CoreCompositePixel(FullscreenOutput input) : SV_Target0
@@ -896,6 +912,16 @@ float4 CoreCompositePixel(FullscreenOutput input) : SV_Target0
     const float alpha = saturate(direct.a * ThemeCoverageScale);
     return EncodeConservativeSdrPremultiplied(
         float4(min(max(direct.rgb, 0.0), alpha), alpha));
+}
+
+float4 CoreRecordingOpaqueSdrCompositePixel(FullscreenOutput input) : SV_Target0
+{
+    const float4 direct = Source0.Sample(LinearClampSampler, input.uv);
+    const float alpha = saturate(direct.a * ThemeCoverageScale);
+    const float3 payload = min(max(direct.rgb, 0.0), alpha);
+    // Core deliberately skips Bloom; this is one cheap flattening pass for
+    // the Spout2 texture and keeps the normal transparent Core output intact.
+    return float4(LinearToSrgb(payload), 1.0);
 }
 )hlsl"};
 

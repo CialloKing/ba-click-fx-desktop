@@ -1338,13 +1338,9 @@ CompositionFrameDiagnostics CompositionRenderer::renderFrame(
         background,
         gpuTimestampFrame.recorder(),
         spout2Enabled_ && recordingRenderTarget_ != nullptr
-            && background.has_value()
             ? recordingRenderTarget_.Get()
             : nullptr);
-    if (spout2Enabled_
-        && overlayProfile_ != FxOverlayProfile::Core
-        && recordingTexture_ != nullptr
-        && background.has_value())
+    if (spout2Enabled_ && recordingTexture_ != nullptr)
     {
         static_cast<void>(spout2Sender_->send(
             device_.Get(),
