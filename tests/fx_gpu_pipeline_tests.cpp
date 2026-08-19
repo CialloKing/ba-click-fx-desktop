@@ -106,6 +106,28 @@ struct WarpDevice
     return target;
 }
 
+[[nodiscard]] RenderTarget createRecordingRenderTarget(ID3D11Device* device)
+{
+    D3D11_TEXTURE2D_DESC description{};
+    description.Width = testSize.width;
+    description.Height = testSize.height;
+    description.MipLevels = 1U;
+    description.ArraySize = 1U;
+    description.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+    description.SampleDesc = DXGI_SAMPLE_DESC{1U, 0U};
+    description.Usage = D3D11_USAGE_DEFAULT;
+    description.BindFlags = D3D11_BIND_RENDER_TARGET;
+
+    RenderTarget target{};
+    throwIfFailed(
+        device->CreateTexture2D(&description, nullptr, &target.texture),
+        "ID3D11Device::CreateTexture2D(Spout2 recording target)");
+    throwIfFailed(
+        device->CreateRenderTargetView(target.texture.Get(), nullptr, &target.view),
+        "ID3D11Device::CreateRenderTargetView(Spout2 recording target)");
+    return target;
+}
+
 [[nodiscard]] WarpDevice createWarpDevice()
 {
     constexpr std::array featureLevels{
@@ -2121,6 +2143,111 @@ BAFX_TEST(warp_capture_never_exports_stale_layers_for_an_empty_frame)
     BAFX_CHECK(capture.bloomUp.empty());
     BAFX_CHECK(capture.bloomResult.pixels.empty());
     BAFX_CHECK(isZeroImage(capture.finalOverlay));
+}
+
+BAFX_TEST(warp_spout2_recording_target_exports_fx_without_wgc_background)
+{
+    ComApartment apartment;
+    const WarpDevice graphics = createWarpDevice();
+    FxGpuRenderer renderer(graphics.device.Get(), graphics.context.Get(), testSize);
+    const RenderTarget desktopTarget = createRenderTarget(graphics.device.Get());
+    const RenderTarget recordingTarget = createRecordingRenderTarget(
+        graphics.device.Get());
+
+    renderer.render(
+        makeDiskAndTrailSnapshot(),
+        desktopTarget.view.Get(),
+        std::nullopt,
+        nullptr,
+        recordingTarget.view.Get());
+
+    const Bgra8UnormPixel center = readbackBgra8UnormPixel(
+        graphics.context.Get(),
+        recordingTarget.texture.Get(),
+        testSize.width / 2U,
+        testSize.height / 2U);
+    const Bgra8UnormPixel background = readbackBgra8UnormPixel(
+        graphics.context.Get(),
+        recordingTarget.texture.Get(),
+        testSize.width - 1U,
+        testSize.height - 1U);
+    // The independent Spout2 image is flattened for OBS, so both pixels must
+    // be opaque while the click center retains visible FX emission.
+    BAFX_CHECK(center.alpha == 255U);
+    BAFX_CHECK(background.alpha == 255U);
+    BAFX_CHECK(
+        center.red > background.red
+        || center.green > background.green
+        || center.blue > background.blue);
+    BAFX_CHECK(background.red == 0U);
+    BAFX_CHECK(background.green == 0U);
+    BAFX_CHECK(background.blue == 0U);
+}
+
+BAFX_TEST(warp_spout2_recording_target_replaces_idle_frame_with_opaque_black)
+{
+    ComApartment apartment;
+    const WarpDevice graphics = createWarpDevice();
+    FxGpuRenderer renderer(graphics.device.Get(), graphics.context.Get(), testSize);
+    const RenderTarget desktopTarget = createRenderTarget(graphics.device.Get());
+    const RenderTarget recordingTarget = createRecordingRenderTarget(
+        graphics.device.Get());
+
+    renderer.render(
+        makeDiskSnapshot(true),
+        desktopTarget.view.Get(),
+        std::nullopt,
+        nullptr,
+        recordingTarget.view.Get());
+    renderer.render(
+        bafx::fx::FrameSnapshot{},
+        desktopTarget.view.Get(),
+        std::nullopt,
+        nullptr,
+        recordingTarget.view.Get());
+
+    const Bgra8UnormPixel center = readbackBgra8UnormPixel(
+        graphics.context.Get(),
+        recordingTarget.texture.Get(),
+        testSize.width / 2U,
+        testSize.height / 2U);
+    BAFX_CHECK(center.red == 0U);
+    BAFX_CHECK(center.green == 0U);
+    BAFX_CHECK(center.blue == 0U);
+    BAFX_CHECK(center.alpha == 255U);
+}
+
+BAFX_TEST(warp_core_profile_exports_spout2_fx_without_bloom)
+{
+    ComApartment apartment;
+    const WarpDevice graphics = createWarpDevice();
+    FxGpuRenderer renderer(graphics.device.Get(), graphics.context.Get(), testSize);
+    renderer.setOverlayProfile(FxOverlayProfile::Core);
+    const RenderTarget desktopTarget = createRenderTarget(graphics.device.Get());
+    const RenderTarget recordingTarget = createRecordingRenderTarget(
+        graphics.device.Get());
+
+    renderer.render(
+        makeDiskAndTrailSnapshot(),
+        desktopTarget.view.Get(),
+        std::nullopt,
+        nullptr,
+        recordingTarget.view.Get());
+
+    const Bgra8UnormPixel center = readbackBgra8UnormPixel(
+        graphics.context.Get(),
+        recordingTarget.texture.Get(),
+        testSize.width / 2U,
+        testSize.height / 2U);
+    const Bgra8UnormPixel trail = readbackBgra8UnormPixel(
+        graphics.context.Get(),
+        recordingTarget.texture.Get(),
+        64U,
+        64U);
+    BAFX_CHECK(center.alpha == 255U);
+    BAFX_CHECK(trail.alpha == 255U);
+    BAFX_CHECK(center.red != 0U || center.green != 0U || center.blue != 0U);
+    BAFX_CHECK(trail.red != 0U || trail.green != 0U || trail.blue != 0U);
 }
 
 BAFX_TEST(warp_core_profile_keeps_trail_without_bloom_layers)
