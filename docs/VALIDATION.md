@@ -48,6 +48,9 @@
   Bloom 与 WGC/背景捕获，固定保守 SDR 和 60 FPS；切换进入或离开 core 时清理旧几何，日志记录请求档位与
   实际 FX-only 路径。该模式只评估低性能机器的流畅度，不作为完整背景合成、HDR 或 Session-local
   exclusion 证据。
+- Raw Input 基线报告器的 fixture contract：验证 paired manifest、Host SHA-256、两种背景模式、
+  接收窗口几何、光标精确恢复、Down/Up 计数、延迟样本，以及 `passed`、`unsupported` 和配对能力
+  不一致三种结果。`unsupported` 是环境能力结果，不得写成输入延迟通过。
 - 诊断日志留存合同：当前文件最大 `8 MiB`，最多三个轮转备份，总预算约 `32 MiB`；轮转、遗留备份清理、
   超大记录压缩标记和 `ClearLogs` 返回的删除统计均保持可审计。清理失败只报告失败文件数，不改变运行配置。
 
@@ -63,7 +66,8 @@
 
 ### L2：窗口与 API 集成
 
-- PMv2 坐标、Raw Input 到单一帧边界当前位置的映射、click-through overlay；
+- PMv2 坐标、Raw Input 到单一帧边界当前位置的映射、click-through overlay；受控 Down/Up
+  采集的真实 Windows/输入设备 smoke test 仍需单独执行，fixture contract 不替代该硬件检查；
 - 输入消费/呈现边界上的 Raw 边沿保留、Down/Held/Up 帧态归约、普通 Up-only 帧不移动、常驻拖尾分流，
   以及 QPC 只影响可选采样相位；
 - `FxTrailTimeScale` 的逐 Update parking 状态机已在参考层验证；`SimulationRuntime` 已按当前游戏

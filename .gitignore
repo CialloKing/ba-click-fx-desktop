@@ -24,3 +24,7 @@ __pycache__/
 
 # Local validation evidence can be large and machine-specific.
 /artifacts/local/
+/artifacts/local-alpha*/
+/artifacts/release-alpha*/
+/artifacts/tmp-session-debug/
+/artifacts/spikes/spk-002/rtx4060-win10-19045-ffmpeg-gdigrab-external-recording-current-head-2026-08-15/

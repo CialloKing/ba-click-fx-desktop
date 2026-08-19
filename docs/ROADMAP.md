@@ -249,6 +249,24 @@ python -B tools/report-performance-baseline.py `
 操作者活动。报告器要求 Raw Input 为零，并校验同一 HEAD/EXE、配置差异、WGC 参与、GPU 样本
 覆盖率、丢样计数、资源账本与帧节流上限。
 
+受控 Down/Up 场景使用同一个 Host 生命周期，但注册 `INPUTSINK + DEV通知` Raw Input，
+在接收窗口中注入固定数量的鼠标边沿，并把接收窗口几何、光标恢复、注入计数和
+`dispatch-to-Present-return`/`message-to-Present-return` 样本写入 manifest 与日志：
+
+```powershell
+pwsh -NoProfile -File tools/collect-performance-baseline.ps1 `
+  -Scenario p0-raw-input-down-v1 `
+  -Executable build/alpha-x64/src/desktop/Release/ba-click-fx-desktop.exe `
+  -OutputDirectory artifacts/local/raw-input-baseline-<timestamp>
+python -B tools/report-raw-input-baseline.py `
+  artifacts/local/raw-input-baseline-<timestamp>
+```
+
+报告器默认把两个模式都未观察到 `WM_INPUT` 标记为 `unsupported`，这表示当前环境不具备
+受控注入能力，不是一个通过的延迟基线；需要把环境能力作为门禁时再追加
+`--require-supported`。采集器和报告器都拒绝脏工作树、篡改的 Host、未恢复的光标、
+不完整的接收清理和不匹配的配对模式。
+
 ### P0 当前状态
 
 配对渲染基线已在提交 `c87c83a` 完成并通过门禁，追踪证据位于
@@ -258,9 +276,10 @@ FX-only 与 background-aware 在 `3840x2160 @ 170 Hz` 下均保持
 所列单阶段中 Bloom/final 增量最大，为 `491 us`。Present p95 没有形成稳定区间瓶颈，
 但最大值仍保留 `+7252 us` 的尾部风险记录。
 
-该场景为了获得可比较的渲染成本而关闭 Raw Input，因此 P0 尚未全部完成：仍需加入受控 Down
-边沿场景，记录 Win32 消息年龄、dispatch-to-Present-return 与 message-to-Present-return。
-这项缺口不阻止使用已经闭环的渲染配对数据启动 P1，但任何报告都不得把当前结果称为完整输入延迟基线。
+该渲染场景为了获得可比较的 GPU 成本而关闭 Raw Input；受控 Down/Up 采集入口和报告器已经
+实现并由 fixture contract 覆盖，但当前仓库还没有一份真实硬件采集结果。因此 P0 的渲染
+配对数据可以继续支撑 P1，不能把尚未通过 `--require-supported` 的本地报告称为完整输入
+延迟基线。真实采集还必须明确记录 `Input-to-Present-return` 不等于 DWM、扫描输出或光子延迟。
 
 ## P1：WGC 成本优化与 guard-band ROI
 
