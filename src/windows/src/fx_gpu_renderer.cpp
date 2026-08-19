@@ -1871,16 +1871,22 @@ struct FxGpuRenderer::Implementation
         GpuTimestampProfiler* const gpuTimestampProfiler,
         ID3D11RenderTargetView* const recordingDestination)
     {
-        if (recordingDestination != nullptr
-            && overlayProfile != FxOverlayProfile::Core)
+        if (recordingDestination != nullptr)
         {
-            ensureBloomResultTarget();
+            if (overlayProfile != FxOverlayProfile::Core)
+            {
+                ensureBloomResultTarget();
+            }
             return render(
                 snapshot,
                 destination,
-                desktopCaptureCompositeShader(),
+                overlayProfile == FxOverlayProfile::Core
+                    ? desktopCompositeShader(background.has_value())
+                    : desktopCaptureCompositeShader(),
                 background,
-                bloomResultTarget.renderTarget.Get(),
+                overlayProfile == FxOverlayProfile::Core
+                    ? nullptr
+                    : bloomResultTarget.renderTarget.Get(),
                 gpuTimestampProfiler,
                 recordingDestination);
         }
