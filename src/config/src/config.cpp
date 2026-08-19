@@ -1093,7 +1093,11 @@ private:
                 error)
         || !validateKnownMembers(
                 *system,
-                {"startWithWindows", "startMinimized", "closeToTray"},
+                {
+                    "startWithWindows",
+                    "startMinimized",
+                    "closeToTray",
+                    "spout2Enabled"},
                 "system",
                 error))
     {
@@ -1446,6 +1450,12 @@ private:
             "closeToTray",
             "system",
             config.system.closeToTray,
+            error)
+        || !readBool(
+            *system,
+            "spout2Enabled",
+            "system",
+            config.system.spout2Enabled,
             error))
     {
         return config;
@@ -1562,6 +1572,7 @@ private:
     system.emplace("closeToTray", JsonValue(config.system.closeToTray));
     system.emplace("startMinimized", JsonValue(config.system.startMinimized));
     system.emplace("startWithWindows", JsonValue(config.system.startWithWindows));
+    system.emplace("spout2Enabled", JsonValue(config.system.spout2Enabled));
 
     JsonValue::Object root;
     root.emplace("background", JsonValue(std::move(background)));
@@ -1804,6 +1815,40 @@ void appendJsonValue(
     return true;
 }
 
+// Schema 17 adds the opt-in Spout2 output switch. Keep it disabled for older
+// profiles because enabling a new inter-process GPU sender is not lossless.
+[[nodiscard]] bool migrateSchema16To17(
+    JsonValue::Object& root,
+    std::string& error)
+{
+    const JsonValue* versionValue = member(root, "schemaVersion");
+    const double* version = versionValue == nullptr
+        ? nullptr
+        : std::get_if<double>(&versionValue->storage);
+    if (version == nullptr || !std::isfinite(*version))
+    {
+        error = "schemaVersion is required";
+        return false;
+    }
+    if (*version != 16.0)
+    {
+        return false;
+    }
+
+    const auto systemIterator = root.find("system");
+    if (systemIterator != root.end())
+    {
+        JsonValue::Object* system = objectOf(systemIterator->second);
+        if (system != nullptr
+            && system->find("spout2Enabled") == system->end())
+        {
+            system->emplace("spout2Enabled", JsonValue(false));
+        }
+    }
+    root["schemaVersion"] = JsonValue(static_cast<double>(currentSchemaVersion));
+    return true;
+}
+
 [[nodiscard]] ConfigLoadResult parseValue(std::string_view json)
 {
     JsonParser parser(json);
@@ -1839,10 +1884,22 @@ void appendJsonValue(
             {
                 migrated = migrateSchema15To16(*originalRoot, error);
             }
+            if (migrated && error.empty())
+            {
+                migrated = migrateSchema16To17(*originalRoot, error);
+            }
         }
         else if (*version == 15.0)
         {
             migrated = migrateSchema15To16(*originalRoot, error);
+            if (migrated && error.empty())
+            {
+                migrated = migrateSchema16To17(*originalRoot, error);
+            }
+        }
+        else if (*version == 16.0)
+        {
+            migrated = migrateSchema16To17(*originalRoot, error);
         }
     }
     if (!error.empty())
@@ -2361,6 +2418,10 @@ namespace
         else if (*path == "system.closeToTray")
         {
             valueAccepted = readPatchBool(result.system.closeToTray);
+        }
+        else if (*path == "system.spout2Enabled")
+        {
+            valueAccepted = readPatchBool(result.system.spout2Enabled);
         }
         else
         {

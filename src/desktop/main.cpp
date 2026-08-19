@@ -2905,33 +2905,34 @@ int runApplication(
         displaySessions.createCoordinator(appliedDisplayTarget);
     bafx::windows::OverlayWindow& window = displaySession.window();
     bafx::windows::CompositionRenderer& renderer = displaySession.renderer();
-    renderer.setSpout2Enabled(options.spout2);
-    if (options.spout2)
-    {
-        const std::array spout2Fields{
-            bafx::windows::DiagnosticField{
-                "Enabled",
-                renderer.spout2Enabled() ? "true" : "false"},
-            bafx::windows::DiagnosticField{
-                "Sender",
-                renderer.spout2SenderName()},
-            bafx::windows::DiagnosticField{
-                "Status",
-                bafx::windows::spout2SenderStatusName(
-                    renderer.spout2Status())}};
-        bafx::windows::appendDiagnosticEvent(
-            logPath,
-            "Spout2.Startup",
-            spout2Fields);
-    }
+    // The persisted switch controls normal Host launches. Keep --spout2 as a
+    // temporary diagnostic override for existing scripts and smoke probes.
+    renderer.setSpout2Enabled(config.system.spout2Enabled || options.spout2);
+    const std::array spout2Fields{
+        bafx::windows::DiagnosticField{
+            "Enabled",
+            renderer.spout2Enabled() ? "true" : "false"},
+        bafx::windows::DiagnosticField{
+            "Configured",
+            config.system.spout2Enabled ? "true" : "false"},
+        bafx::windows::DiagnosticField{
+            "CommandLineOverride",
+            options.spout2 ? "true" : "false"},
+        bafx::windows::DiagnosticField{
+            "Sender",
+            renderer.spout2SenderName()},
+        bafx::windows::DiagnosticField{
+            "Status",
+            bafx::windows::spout2SenderStatusName(
+                renderer.spout2Status())}};
+    bafx::windows::appendDiagnosticEvent(
+        logPath,
+        "Spout2.Startup",
+        spout2Fields);
     bafx::windows::Spout2SenderStatus observedSpout2Status =
         renderer.spout2Status();
     const auto recordSpout2Status = [&]()
     {
-        if (!options.spout2)
-        {
-            return;
-        }
         const bafx::windows::Spout2SenderStatus currentStatus =
             renderer.spout2Status();
         if (currentStatus == observedSpout2Status)
@@ -5415,6 +5416,8 @@ int runApplication(
                 const bool bloomDeviceRecovered = renderer.setBloomSettings(
                     bloomSettings);
                 renderer.setThemeColor(config.effects.themeColor);
+                renderer.setSpout2Enabled(
+                    config.system.spout2Enabled || options.spout2);
                 if (bloomDeviceRecovered)
                 {
                     bafx::desktop::appendBackgroundCaptureStopDiagnostics(

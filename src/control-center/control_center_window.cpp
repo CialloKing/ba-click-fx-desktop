@@ -1643,6 +1643,11 @@ bool ControlCenterWindow::createControls()
         L"关闭控制中心时隐藏到托盘",
         BS_AUTOCHECKBOX | WS_TABSTOP,
         ControlId::CloseToTray);
+    spout2Enabled_ = createChild(
+        L"BUTTON",
+        L"启用 OBS Spout2 输出",
+        BS_AUTOCHECKBOX | WS_TABSTOP,
+        ControlId::Spout2Enabled);
     clearLogsButton_ = createChild(
         L"BUTTON",
         L"清理诊断日志",
@@ -1779,6 +1784,7 @@ bool ControlCenterWindow::createControls()
         startWithWindows_,
         startMinimized_,
         closeToTray_,
+        spout2Enabled_,
         displaySettingsHeading_,
         displaySelectorLabel_,
         displaySelector_,
@@ -2132,6 +2138,7 @@ void ControlCenterWindow::applyFonts() const noexcept
         startWithWindows_,
         startMinimized_,
         closeToTray_,
+        spout2Enabled_,
         displaySelectorLabel_,
         displaySelector_,
         displaySummaryText_,
@@ -2558,9 +2565,15 @@ void ControlCenterWindow::layoutControls(
             contentWidth,
             scale(30));
         moveControl(
+            spout2Enabled_,
+            contentX,
+            contentTop + scale(128),
+            contentWidth,
+            scale(30));
+        moveControl(
             clearLogsButton_,
             contentX,
-            contentTop + scale(132),
+            contentTop + scale(164),
             contentWidth,
             scale(30));
 
@@ -3369,6 +3382,7 @@ void ControlCenterWindow::updatePageVisibility() noexcept
         startWithWindows_,
         startMinimized_,
         closeToTray_,
+        spout2Enabled_,
         clearLogsButton_};
     for (const HWND control : systemControls)
     {
@@ -3689,6 +3703,14 @@ void ControlCenterWindow::onCommand(
             applyPatch(
                 "system.closeToTray",
                 isChecked(closeToTray_) ? "true" : "false");
+        }
+        break;
+    case ControlId::Spout2Enabled:
+        if (notificationCode == BN_CLICKED)
+        {
+            applyPatch(
+                "system.spout2Enabled",
+                isChecked(spout2Enabled_) ? "true" : "false");
         }
         break;
     case ControlId::DisplaySelector:
@@ -4303,6 +4325,7 @@ void ControlCenterWindow::updateControls(
     setChecked(startWithWindows_, config.system.startWithWindows);
     setChecked(startMinimized_, config.system.startMinimized);
     setChecked(closeToTray_, config.system.closeToTray);
+    setChecked(spout2Enabled_, config.system.spout2Enabled);
     updateDisplayControls(config);
     SetWindowTextW(pauseButton_, paused_ ? L"恢复特效" : L"暂停特效");
 
@@ -5444,6 +5467,7 @@ void ControlCenterWindow::setConnected(const bool connected) noexcept
         startWithWindows_,
         startMinimized_,
         closeToTray_,
+        spout2Enabled_,
         hdrEnabled_,
         framePacing_,
         pauseButton_,

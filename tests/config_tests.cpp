@@ -55,6 +55,7 @@ BAFX_TEST(config_defaults_round_trip_through_versioned_json)
     BAFX_CHECK(
         defaults.performance.effectsMode
         == bafx::config::EffectsMode::Full);
+    BAFX_CHECK(!defaults.system.spout2Enabled);
     BAFX_CHECK_NEAR(defaults.effects.globalScale, 1.0F, 0.00001F);
     BAFX_CHECK_NEAR(defaults.effects.opacity, 1.0F, 0.00001F);
     BAFX_CHECK_NEAR(defaults.effects.clickTimeScale, 1.0F, 0.00001F);
@@ -106,6 +107,9 @@ BAFX_TEST(config_defaults_round_trip_through_versioned_json)
     BAFX_CHECK(parsed.status == bafx::config::ConfigStatus::Ok);
     BAFX_CHECK(parsed.config.schemaVersion == defaults.schemaVersion);
     BAFX_CHECK(parsed.config.effects.themeColor == defaults.effects.themeColor);
+    BAFX_CHECK(
+        parsed.config.system.spout2Enabled
+        == defaults.system.spout2Enabled);
     BAFX_CHECK(parsed.config.background.mode == defaults.background.mode);
     BAFX_CHECK(
         parsed.config.background.cursorExcluded
@@ -1302,6 +1306,40 @@ BAFX_TEST(config_parser_rejects_non_current_schemas)
         migratedSchema15.config.schemaVersion
         == bafx::config::currentSchemaVersion);
     BAFX_CHECK(migratedSchema15.config.effects.themeColor == "#4ca7ff");
+
+    std::string schema16Json = bafx::config::toJson(legacy, false);
+    const std::size_t schema16VersionPosition = schema16Json.find(currentVersionField);
+    BAFX_CHECK(schema16VersionPosition != std::string::npos);
+    schema16Json.replace(
+        schema16VersionPosition,
+        currentVersionField.size(),
+        "\"schemaVersion\":16");
+    const std::string spout2EnabledField = R"json(,"spout2Enabled":false)json";
+    const std::size_t spout2EnabledPosition = schema16Json.find(spout2EnabledField);
+    BAFX_CHECK(spout2EnabledPosition != std::string::npos);
+    schema16Json.erase(spout2EnabledPosition, spout2EnabledField.size());
+    const auto migratedSchema16 = bafx::config::parseJson(schema16Json);
+    bafx::test::check(migratedSchema16.succeeded(), migratedSchema16.message);
+    BAFX_CHECK(
+        migratedSchema16.config.schemaVersion
+        == bafx::config::currentSchemaVersion);
+    BAFX_CHECK(!migratedSchema16.config.system.spout2Enabled);
+}
+
+BAFX_TEST(config_patch_updates_spout2_switch_atomically)
+{
+    const bafx::config::Config base = bafx::config::defaultConfig();
+    const auto enabled = bafx::config::applyPatchJson(
+        base,
+        R"json({"generation":3,"path":"system.spout2Enabled","value":true})json");
+    BAFX_CHECK(enabled.succeeded());
+    BAFX_CHECK(enabled.config.system.spout2Enabled);
+
+    const auto rejected = bafx::config::applyPatchJson(
+        enabled.config,
+        R"json({"path":"system.spout2Enabled","value":"true"})json");
+    BAFX_CHECK(!rejected.succeeded());
+    BAFX_CHECK(rejected.config.system.spout2Enabled);
 }
 
 BAFX_TEST(config_patch_controls_effects_mode)
@@ -1390,6 +1428,21 @@ BAFX_TEST(config_current_schema_requires_every_section_and_field)
     BAFX_CHECK(
         missingThemeColor.message.find(
             "config field 'effects.themeColor' is required")
+        != std::string::npos);
+
+    document = bafx::config::toJson(config, false);
+    const std::string spout2EnabledField = R"json(,"spout2Enabled":false)json";
+    const std::size_t spout2EnabledPosition = document.find(spout2EnabledField);
+    BAFX_CHECK(spout2EnabledPosition != std::string::npos);
+    document.erase(spout2EnabledPosition, spout2EnabledField.size());
+
+    const auto missingSpout2Enabled = bafx::config::parseJson(document);
+    BAFX_CHECK(
+        missingSpout2Enabled.status
+        == bafx::config::ConfigStatus::ValidationError);
+    BAFX_CHECK(
+        missingSpout2Enabled.message.find(
+            "config field 'system.spout2Enabled' is required")
         != std::string::npos);
 
     document = bafx::config::toJson(config, false);

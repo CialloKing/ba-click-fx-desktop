@@ -11,7 +11,7 @@
 namespace bafx::config
 {
 
-inline constexpr std::uint32_t currentSchemaVersion = 16U;
+inline constexpr std::uint32_t currentSchemaVersion = 17U;
 inline constexpr std::size_t maximumDisplayOverrides = 64U;
 inline constexpr std::size_t maximumDisplayKeyBytes = 4096U;
 
@@ -156,6 +156,9 @@ struct SystemConfig
     bool startWithWindows{false};
     bool startMinimized{false};
     bool closeToTray{true};
+    // Keep Spout2 opt-in so an upgrade never creates a cross-process sender
+    // until the user explicitly enables OBS output.
+    bool spout2Enabled{false};
 };
 
 struct Config

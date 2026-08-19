@@ -95,6 +95,7 @@ private:
         StartWithWindows,
         StartMinimized,
         CloseToTray,
+        Spout2Enabled,
         DisplaySelector,
         HdrEnabled,
         FramePacing,
@@ -339,6 +340,7 @@ private:
     HWND startWithWindows_{nullptr};
     HWND startMinimized_{nullptr};
     HWND closeToTray_{nullptr};
+    HWND spout2Enabled_{nullptr};
     HWND displaySettingsHeading_{nullptr};
     HWND displaySelectorLabel_{nullptr};
     HWND displaySelector_{nullptr};
