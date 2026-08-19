@@ -43,6 +43,10 @@
   `Spout2 捕获`（`spout_capture`）源即可接收不透明的“桌面背景 + 特效”画面；当前验证合同为
   单显示器、同 GPU、SDR、BGRA8。OBS 的 Composite Mode 必须选择 `Opaque`，因为发送纹理
   已经填充不透明黑色背景；4K sender 放入 1080p OBS 画布时还需要对源执行 `Transform -> Fit to Screen`。
+  如果 OBS 日志已经显示 `Sender ... is of dimensions` 和 `rendering context->texture`，但预览仍为黑屏，
+  先检查场景项的边界是否为零。可以关闭 OBS 后运行
+  `pwsh -File tools/repair-obs-spout2-scene.ps1 -ScenePath <场景.json>`；脚本会先生成 `.bak`，
+  将 Spout2 源恢复为画布大小、Opaque 合成，并保留原配置以便回滚。
   WGC 背景快照是可选增强：不可用时仍发送黑底 FX-only 帧，核心性能模式也仍可发送特效，
   不会发送透明旧帧。旧的 `--spout2` 参数仍可用于诊断时临时开启，但不改变持久化开关。
 - 支持报告保留主协调屏摘要，并按稳定顺序为每个显示会话记录角色、边界、DPI、显示/捕获刷新率、
