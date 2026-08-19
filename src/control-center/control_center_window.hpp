@@ -95,7 +95,9 @@ private:
         StartWithWindows,
         StartMinimized,
         CloseToTray,
+#if defined(BAFX_ENABLE_SPOUT2)
         Spout2Enabled,
+#endif
         DisplaySelector,
         HdrEnabled,
         FramePacing,
@@ -340,7 +342,9 @@ private:
     HWND startWithWindows_{nullptr};
     HWND startMinimized_{nullptr};
     HWND closeToTray_{nullptr};
+#if defined(BAFX_ENABLE_SPOUT2)
     HWND spout2Enabled_{nullptr};
+#endif
     HWND displaySettingsHeading_{nullptr};
     HWND displaySelectorLabel_{nullptr};
     HWND displaySelector_{nullptr};

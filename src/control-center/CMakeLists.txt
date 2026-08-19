@@ -36,6 +36,11 @@ target_compile_definitions(
         _WIN32_WINNT=0x0A00
         BAFX_RECORDING_COMPATIBILITY_APPLICATION_REVISION="${BAFX_VERSION}"
 )
+if(BAFX_ENABLE_SPOUT2)
+    # Slim builds retain the shared config schema but must not expose an
+    # output switch that their Host cannot implement.
+    target_compile_definitions(bafx_control_center PRIVATE BAFX_ENABLE_SPOUT2=1)
+endif()
 target_include_directories(
     bafx_control_center
     PRIVATE

@@ -1643,11 +1643,13 @@ bool ControlCenterWindow::createControls()
         L"关闭控制中心时隐藏到托盘",
         BS_AUTOCHECKBOX | WS_TABSTOP,
         ControlId::CloseToTray);
+#if defined(BAFX_ENABLE_SPOUT2)
     spout2Enabled_ = createChild(
         L"BUTTON",
         L"启用 OBS Spout2 输出",
         BS_AUTOCHECKBOX | WS_TABSTOP,
         ControlId::Spout2Enabled);
+#endif
     clearLogsButton_ = createChild(
         L"BUTTON",
         L"清理诊断日志",
@@ -1784,7 +1786,9 @@ bool ControlCenterWindow::createControls()
         startWithWindows_,
         startMinimized_,
         closeToTray_,
+#if defined(BAFX_ENABLE_SPOUT2)
         spout2Enabled_,
+#endif
         displaySettingsHeading_,
         displaySelectorLabel_,
         displaySelector_,
@@ -2138,7 +2142,9 @@ void ControlCenterWindow::applyFonts() const noexcept
         startWithWindows_,
         startMinimized_,
         closeToTray_,
+#if defined(BAFX_ENABLE_SPOUT2)
         spout2Enabled_,
+#endif
         displaySelectorLabel_,
         displaySelector_,
         displaySummaryText_,
@@ -2564,12 +2570,14 @@ void ControlCenterWindow::layoutControls(
             contentTop + scale(96),
             contentWidth,
             scale(30));
+#if defined(BAFX_ENABLE_SPOUT2)
         moveControl(
             spout2Enabled_,
             contentX,
             contentTop + scale(128),
             contentWidth,
             scale(30));
+#endif
         moveControl(
             clearLogsButton_,
             contentX,
@@ -3382,7 +3390,9 @@ void ControlCenterWindow::updatePageVisibility() noexcept
         startWithWindows_,
         startMinimized_,
         closeToTray_,
+#if defined(BAFX_ENABLE_SPOUT2)
         spout2Enabled_,
+#endif
         clearLogsButton_};
     for (const HWND control : systemControls)
     {
@@ -3705,6 +3715,7 @@ void ControlCenterWindow::onCommand(
                 isChecked(closeToTray_) ? "true" : "false");
         }
         break;
+#if defined(BAFX_ENABLE_SPOUT2)
     case ControlId::Spout2Enabled:
         if (notificationCode == BN_CLICKED)
         {
@@ -3713,6 +3724,7 @@ void ControlCenterWindow::onCommand(
                 isChecked(spout2Enabled_) ? "true" : "false");
         }
         break;
+#endif
     case ControlId::DisplaySelector:
         if (notificationCode == CBN_SELCHANGE)
         {
@@ -4325,7 +4337,9 @@ void ControlCenterWindow::updateControls(
     setChecked(startWithWindows_, config.system.startWithWindows);
     setChecked(startMinimized_, config.system.startMinimized);
     setChecked(closeToTray_, config.system.closeToTray);
+#if defined(BAFX_ENABLE_SPOUT2)
     setChecked(spout2Enabled_, config.system.spout2Enabled);
+#endif
     updateDisplayControls(config);
     SetWindowTextW(pauseButton_, paused_ ? L"恢复特效" : L"暂停特效");
 
@@ -5467,7 +5481,9 @@ void ControlCenterWindow::setConnected(const bool connected) noexcept
         startWithWindows_,
         startMinimized_,
         closeToTray_,
+#if defined(BAFX_ENABLE_SPOUT2)
         spout2Enabled_,
+#endif
         hdrEnabled_,
         framePacing_,
         pauseButton_,
