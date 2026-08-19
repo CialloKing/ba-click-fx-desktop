@@ -2,6 +2,8 @@
 param(
     [string]$OutputDirectory = 'artifacts\local\host-visual-review',
 
+    [switch]$Slim,
+
     [switch]$SkipWorkflow,
 
     [switch]$SkipVerification
@@ -201,9 +203,32 @@ function Invoke-IsolatedVerification
 }
 
 $repositoryRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
+$workflowPreset = 'alpha-release-verify'
+$packagePreset = 'alpha-release'
+$buildRootName = 'alpha-x64'
+$variantSuffix = ''
+if ($Slim)
+{
+    $workflowPreset = 'alpha-slim-release-verify'
+    $packagePreset = 'alpha-slim-release'
+    $buildRootName = 'alpha-x64-slim'
+    $variantSuffix = '-slim'
+}
+if (-not $Slim -and -not $SkipWorkflow -and [string]::IsNullOrWhiteSpace($env:VCPKG_ROOT))
+{
+    $localVcpkgRoot = Join-Path $repositoryRoot '..\SDK\vcpkg'
+    if (Test-Path -LiteralPath $localVcpkgRoot -PathType Container)
+    {
+        $env:VCPKG_ROOT = [IO.Path]::GetFullPath($localVcpkgRoot)
+    }
+    else
+    {
+        throw 'VCPKG_ROOT is required to build the standard Spout2-enabled Host review package.'
+    }
+}
 $version = Get-BafxVersion -VersionFile (Join-Path $repositoryRoot 'cmake\Version.cmake')
-$packageName = "ba-click-fx-desktop-$version-windows-x64"
-$sourcePackage = Join-Path $repositoryRoot "build\alpha-x64\packages\$packageName.zip"
+$packageName = "ba-click-fx-desktop-$version$variantSuffix-windows-x64"
+$sourcePackage = Join-Path $repositoryRoot "build\$buildRootName\packages\$packageName.zip"
 $sourceChecksum = "$sourcePackage.sha256"
 
 if (-not $SkipWorkflow)
@@ -217,10 +242,10 @@ if (-not $SkipWorkflow)
         throw 'cmake.exe and cpack.exe must both be available on PATH.'
     }
     Invoke-Checked -Description 'Host review build and test workflow' -FilePath $cmake.Source `
-        -Arguments @('--workflow', '--preset', 'alpha-release-verify') `
+        -Arguments @('--workflow', '--preset', $workflowPreset) `
         -WorkingDirectory $repositoryRoot
     Invoke-Checked -Description 'Host review CPack generation' -FilePath $cpack.Source `
-        -Arguments @('--preset', 'alpha-release') `
+        -Arguments @('--preset', $packagePreset) `
         -WorkingDirectory $repositoryRoot
 }
 
@@ -249,7 +274,7 @@ Assert-HostOnlyArchive -PackagePath $packagePath
 if (-not $SkipVerification)
 {
     $linker = Get-CMakeLinker -CacheFile (
-        Join-Path $repositoryRoot 'build\alpha-x64\CMakeCache.txt')
+        Join-Path $repositoryRoot "build\$buildRootName\CMakeCache.txt")
     Invoke-IsolatedVerification `
         -Verifier (Join-Path $PSScriptRoot 'verify-alpha-package.ps1') `
         -PackagePath $packagePath `

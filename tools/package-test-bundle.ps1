@@ -6,6 +6,8 @@ param(
     # selects and invokes the native toolchain, so no separate MSBuild path is needed.
     [string]$MSBuild,
 
+    [switch]$Slim,
+
     [switch]$SkipBuild,
 
     [switch]$SkipVerification
@@ -125,6 +127,29 @@ function Assert-ControlCenterExecutable
 }
 
 $repositoryRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
+$configurePreset = 'alpha-x64'
+$buildPreset = 'alpha-release'
+$buildRootName = 'alpha-x64'
+$variantSuffix = ''
+if ($Slim)
+{
+    $configurePreset = 'alpha-x64-slim'
+    $buildPreset = 'alpha-slim-release'
+    $buildRootName = 'alpha-x64-slim'
+    $variantSuffix = '-slim'
+}
+$localVcpkgRoot = Join-Path $repositoryRoot '..\SDK\vcpkg'
+if (-not $Slim -and -not $SkipBuild -and [string]::IsNullOrWhiteSpace($env:VCPKG_ROOT))
+{
+    if (Test-Path -LiteralPath $localVcpkgRoot -PathType Container)
+    {
+        $env:VCPKG_ROOT = [IO.Path]::GetFullPath($localVcpkgRoot)
+    }
+    else
+    {
+        throw 'VCPKG_ROOT is required to build the standard Spout2-enabled portable package.'
+    }
+}
 $cmake = Get-Command cmake.exe -ErrorAction SilentlyContinue | Select-Object -First 1
 if ($null -eq $cmake)
 {
@@ -132,7 +157,7 @@ if ($null -eq $cmake)
 }
 
 $version = Get-BafxVersion -VersionFile (Join-Path $repositoryRoot 'cmake\Version.cmake')
-$bundleName = "ba-click-fx-desktop-$version-test-windows-x64"
+$bundleName = "ba-click-fx-desktop-$version$variantSuffix-test-windows-x64"
 $outputRoot = Get-FullPath -Path $OutputDirectory -BaseDirectory $repositoryRoot
 $archivePath = Join-Path $outputRoot "$bundleName.zip"
 $checksumPath = "$archivePath.sha256"
@@ -151,13 +176,13 @@ New-Item -ItemType Directory -Path $outputRoot -Force | Out-Null
 if (-not $SkipBuild)
 {
     Invoke-Checked -Description 'CMake configure' -FilePath $cmake.Source `
-        -Arguments @('--preset', 'alpha-x64') -WorkingDirectory $repositoryRoot
+        -Arguments @('--preset', $configurePreset) -WorkingDirectory $repositoryRoot
     Invoke-Checked -Description 'Host Release build' -FilePath $cmake.Source `
-        -Arguments @('--build', '--preset', 'alpha-release') -WorkingDirectory $repositoryRoot
+        -Arguments @('--build', '--preset', $buildPreset) -WorkingDirectory $repositoryRoot
 }
 
-$hostExecutable = Join-Path $repositoryRoot 'build\alpha-x64\src\desktop\Release\ba-click-fx-desktop.exe'
-$controlCenterExecutable = Join-Path $repositoryRoot 'build\alpha-x64\src\control-center\Release\BAFX.ControlCenter.exe'
+$hostExecutable = Join-Path $repositoryRoot "build\$buildRootName\src\desktop\Release\ba-click-fx-desktop.exe"
+$controlCenterExecutable = Join-Path $repositoryRoot "build\$buildRootName\src\control-center\Release\BAFX.ControlCenter.exe"
 if (-not (Test-Path -LiteralPath $hostExecutable -PathType Leaf))
 {
     throw "Host Release executable is missing: $hostExecutable"
@@ -249,7 +274,7 @@ Set-Content -LiteralPath $checksumPath -Encoding Ascii -NoNewline `
 
 if (-not $SkipVerification)
 {
-    $linker = Get-CMakeLinker -CacheFile (Join-Path $repositoryRoot 'build\alpha-x64\CMakeCache.txt')
+    $linker = Get-CMakeLinker -CacheFile (Join-Path $repositoryRoot "build\$buildRootName\CMakeCache.txt")
     $verifier = Join-Path $PSScriptRoot 'verify-test-bundle.ps1'
     # Hashtable splatting preserves named PowerShell parameters; array splatting does not.
     $verificationArguments = @{

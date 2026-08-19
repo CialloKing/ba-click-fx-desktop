@@ -2,6 +2,9 @@
 param(
     [string]$OutputDirectory = 'artifacts\local',
     [string]$ISCC,
+
+    [switch]$Slim,
+
     [switch]$SkipBuild,
     [switch]$SkipVerification
 )
@@ -237,6 +240,29 @@ function Assert-ExecutableVersion
 }
 
 $repositoryRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
+$configurePreset = 'alpha-x64'
+$buildPreset = 'alpha-release'
+$buildRootName = 'alpha-x64'
+$variantSuffix = ''
+if ($Slim)
+{
+    $configurePreset = 'alpha-x64-slim'
+    $buildPreset = 'alpha-slim-release'
+    $buildRootName = 'alpha-x64-slim'
+    $variantSuffix = '-slim'
+}
+$localVcpkgRoot = Join-Path $repositoryRoot '..\SDK\vcpkg'
+if (-not $Slim -and -not $SkipBuild -and [string]::IsNullOrWhiteSpace($env:VCPKG_ROOT))
+{
+    if (Test-Path -LiteralPath $localVcpkgRoot -PathType Container)
+    {
+        $env:VCPKG_ROOT = [IO.Path]::GetFullPath($localVcpkgRoot)
+    }
+    else
+    {
+        throw 'VCPKG_ROOT is required to build the standard Spout2-enabled installer.'
+    }
+}
 $cmake = Get-Command cmake.exe -ErrorAction SilentlyContinue | Select-Object -First 1
 if ($null -eq $cmake)
 {
@@ -249,7 +275,7 @@ $numericVersions = Get-NumericVersions -Version $version
 $numericVersion = [string]$numericVersions.numericVersion
 $packageVersion = [string]$numericVersions.packageVersion
 $outputRoot = Get-FullPath -Path $OutputDirectory -BaseDirectory $repositoryRoot
-$outputBaseName = "ba-click-fx-desktop-$version-setup-windows-x64"
+$outputBaseName = "ba-click-fx-desktop-$version$variantSuffix-setup-windows-x64"
 $installerPath = Join-Path $outputRoot "$outputBaseName.exe"
 $checksumPath = "$installerPath.sha256"
 
@@ -268,18 +294,18 @@ if (-not $SkipBuild)
     Invoke-Checked `
         -Description 'CMake configure' `
         -FilePath $cmake.Source `
-        -Arguments @('--preset', 'alpha-x64') `
+        -Arguments @('--preset', $configurePreset) `
         -WorkingDirectory $repositoryRoot
     Invoke-Checked `
         -Description 'Release build' `
         -FilePath $cmake.Source `
-        -Arguments @('--build', '--preset', 'alpha-release') `
+        -Arguments @('--build', '--preset', $buildPreset) `
         -WorkingDirectory $repositoryRoot
 }
 
-$hostExecutable = Join-Path $repositoryRoot 'build\alpha-x64\src\desktop\Release\ba-click-fx-desktop.exe'
-$controlCenterExecutable = Join-Path $repositoryRoot 'build\alpha-x64\src\control-center\Release\BAFX.ControlCenter.exe'
-$identitySignerExecutable = Join-Path $repositoryRoot 'build\alpha-x64\src\identity-signer\Release\BAFX.IdentitySigner.exe'
+$hostExecutable = Join-Path $repositoryRoot "build\$buildRootName\src\desktop\Release\ba-click-fx-desktop.exe"
+$controlCenterExecutable = Join-Path $repositoryRoot "build\$buildRootName\src\control-center\Release\BAFX.ControlCenter.exe"
+$identitySignerExecutable = Join-Path $repositoryRoot "build\$buildRootName\src\identity-signer\Release\BAFX.IdentitySigner.exe"
 foreach ($required in @($hostExecutable, $controlCenterExecutable))
 {
     if (-not (Test-Path -LiteralPath $required -PathType Leaf))
@@ -455,7 +481,7 @@ try
 
     if (-not $SkipVerification)
     {
-        $linker = Get-CMakeLinker -CacheFile (Join-Path $repositoryRoot 'build\alpha-x64\CMakeCache.txt')
+        $linker = Get-CMakeLinker -CacheFile (Join-Path $repositoryRoot "build\$buildRootName\CMakeCache.txt")
         & (Join-Path $repositoryRoot 'tools\verify-portable-pe.ps1') `
             -Executable $installerPath `
             -Linker $linker

@@ -8,7 +8,7 @@
   "configurePresets": [
     {
       "name": "alpha-x64",
-      "displayName": "Alpha x64 (installed Visual Studio)",
+      "displayName": "Alpha x64 (Spout2 enabled)",
       "architecture": {
         "value": "x64",
         "strategy": "set"
@@ -16,7 +16,24 @@
       "binaryDir": "${sourceDir}/build/${presetName}",
       "cacheVariables": {
         "BUILD_TESTING": "ON",
-        "BAFX_ENABLE_DESKTOP_SMOKE_TESTS": "ON"
+        "BAFX_ENABLE_DESKTOP_SMOKE_TESTS": "ON",
+        "BAFX_ENABLE_SPOUT2": "ON",
+        "VCPKG_TARGET_TRIPLET": "x64-windows-static",
+        "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake"
+      }
+    },
+    {
+      "name": "alpha-x64-slim",
+      "displayName": "Alpha x64 Slim (Spout2 disabled)",
+      "architecture": {
+        "value": "x64",
+        "strategy": "set"
+      },
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "cacheVariables": {
+        "BUILD_TESTING": "ON",
+        "BAFX_ENABLE_DESKTOP_SMOKE_TESTS": "ON",
+        "BAFX_ENABLE_SPOUT2": "OFF"
       }
     }
   ],
@@ -57,6 +74,25 @@
       "targets": [
         "verify_alpha_package"
       ]
+    },
+    {
+      "name": "alpha-slim-release",
+      "displayName": "Build Alpha Slim Release",
+      "configurePreset": "alpha-x64-slim",
+      "configuration": "Release",
+      "jobs": 2,
+      "nativeToolOptions": [
+        "/nodeReuse:false"
+      ]
+    },
+    {
+      "name": "alpha-slim-package-verify",
+      "displayName": "Verify packaged Alpha Slim Release",
+      "configurePreset": "alpha-x64-slim",
+      "configuration": "Release",
+      "targets": [
+        "verify_alpha_package"
+      ]
     }
   ],
   "testPresets": [
@@ -83,6 +119,18 @@
       "execution": {
         "noTestsAction": "error"
       }
+    },
+    {
+      "name": "alpha-slim-release",
+      "displayName": "Test Alpha Slim Release",
+      "configurePreset": "alpha-x64-slim",
+      "configuration": "Release",
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "noTestsAction": "error"
+      }
     }
   ],
   "packagePresets": [
@@ -90,6 +138,17 @@
       "name": "alpha-release",
       "displayName": "Package Alpha Release ZIP",
       "configurePreset": "alpha-x64",
+      "generators": [
+        "ZIP"
+      ],
+      "configurations": [
+        "Release"
+      ]
+    },
+    {
+      "name": "alpha-slim-release",
+      "displayName": "Package Alpha Slim Release ZIP",
+      "configurePreset": "alpha-x64-slim",
       "generators": [
         "ZIP"
       ],
@@ -140,6 +199,50 @@
         {
           "type": "build",
           "name": "alpha-package-verify"
+        }
+      ]
+    },
+    {
+      "name": "alpha-slim-release-verify",
+      "displayName": "Configure, build, and test Alpha Slim Release",
+      "steps": [
+        {
+          "type": "configure",
+          "name": "alpha-x64-slim"
+        },
+        {
+          "type": "build",
+          "name": "alpha-slim-release"
+        },
+        {
+          "type": "test",
+          "name": "alpha-slim-release"
+        }
+      ]
+    },
+    {
+      "name": "alpha-slim-package",
+      "displayName": "Configure, build, test, and package Alpha Slim Release",
+      "steps": [
+        {
+          "type": "configure",
+          "name": "alpha-x64-slim"
+        },
+        {
+          "type": "build",
+          "name": "alpha-slim-release"
+        },
+        {
+          "type": "test",
+          "name": "alpha-slim-release"
+        },
+        {
+          "type": "package",
+          "name": "alpha-slim-release"
+        },
+        {
+          "type": "build",
+          "name": "alpha-slim-package-verify"
         }
       ]
     }

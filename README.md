@@ -104,6 +104,11 @@ cmake --build --preset alpha-host-release --parallel 4
 
 `alpha-release-verify` 仍然保留完整 Release 构建和 CTest 流程；它不是快速迭代命令。
 
+普通 `alpha-x64` 预设启用 Spout2，并要求 `VCPKG_ROOT` 指向 Spout2 依赖；
+`alpha-x64-slim` 预设通过 `BAFX_ENABLE_SPOUT2=OFF` 构建不含 Spout2 的精简版。
+精简版仍保留完整特效和控制中心，但不会显示 Spout2 输出开关。对应的打包脚本可传入
+`-Slim`，生成文件名带有 `-slim` 后缀。
+
 `.github/workflows/windows-build-compat.yml` 使用 VS2022 以 Windows SDK `10.0.19041.0`、
 `10.0.22621.0` 和 `10.0.26100.0` 构建 Host、Control Center 与 Identity Signer 的完整二进制；每个
 job 还会记录 runner 实际安装的 Include/Lib SDK 清单。19041 是最低旧 SDK 基线，22621 是中间

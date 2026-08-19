@@ -37,11 +37,13 @@
   `m_MinVertexDistance=0.01`。
 - D3D11 硬件设备；硬件设备创建失败时尝试 WARP 软件设备。
 - 当前验证范围为普通 SDR 桌面合成路径。
-- 可选 Spout2 输出使用主显示器的 GPU 合成结果，发送器名称固定为
-  `ba-click-fx-desktop`。使用带 Spout2 的构建并传入 `--spout2` 后，在 OBS 添加
+- Spout2 输出使用主显示器的 GPU 合成结果，发送器名称固定为
+  `ba-click-fx-desktop`。安装版和便携版均内置 Spout2 代码；在控制中心的“系统行为”中
+  勾选“启用 OBS Spout2 输出”后，在 OBS 添加
   `Spout2 捕获`（`spout_capture`）源即可接收不透明的“桌面背景 + 特效”画面；当前验证合同为
   单显示器、同 GPU、SDR、BGRA8。Spout2 输出只在 WGC 背景快照有效且不是核心性能模式时发送，
-  背景不可用不会发送黑帧或旧伪造背景。普通 alpha 包不包含 Spout2，发布页另提供 `*-spout2-*` 包。
+  背景不可用不会发送黑帧或旧伪造背景。旧的 `--spout2` 参数仍可用于诊断时临时开启，
+  但不改变持久化开关。
 - 支持报告保留主协调屏摘要，并按稳定顺序为每个显示会话记录角色、边界、DPI、显示/捕获刷新率、
   DisplayConfig 身份、请求/实际 GPU、HDR/Advanced Color、最终输出策略、WGC 状态和渲染故障；
   这些只是当前运行快照，不能据此宣称 HDR、多显示器、Advanced Color 或物理 nits 输出已经受支持。
@@ -166,6 +168,10 @@
 ```powershell
 pwsh -NoProfile -ExecutionPolicy Bypass -File .\tools\package-test-bundle.ps1
 ```
+
+普通安装版和便携版默认包含 Spout2；需要不含 Spout2 的精简版时，在上述脚本以及 Host-only
+或安装器脚本后追加 `-Slim`。精简版包名带有 `-slim`，控制中心不会显示 Spout2 输出开关，
+但核心点击、圆环、碎片和拖尾特效保持不变。
 
 解压测试包时必须保留其完整目录结构。Control Center 不携带 Windows App SDK 运行时，只有在需要
 通过按钮启动 Host 时才要求与 Host EXE 位于同一目录。
