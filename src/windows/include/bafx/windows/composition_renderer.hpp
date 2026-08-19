@@ -12,6 +12,7 @@
 #include "bafx/windows/fx_gpu_renderer.hpp"
 #include "bafx/windows/gpu_timestamp_profiler.hpp"
 #include "bafx/windows/overlay_window.hpp"
+#include "bafx/windows/spout2_sender.hpp"
 #include "bafx/windows/unique_handle.hpp"
 #include "bafx/windows/wgc_background_sensor.hpp"
 
@@ -300,6 +301,11 @@ public:
     [[nodiscard]] bool setBloomSettings(FxBloomSettings settings);
     void setThemeColor(std::string_view themeColor);
     void setOverlayProfile(FxOverlayProfile profile);
+    void setSpout2Enabled(bool enabled);
+    [[nodiscard]] bool spout2Enabled() const noexcept;
+    [[nodiscard]] std::string_view spout2SenderName() const noexcept;
+    [[nodiscard]] Spout2SenderStatus spout2Status() const noexcept;
+    [[nodiscard]] std::string_view spout2Error() const noexcept;
     CompositionFrameDiagnostics renderFrame(
         const bafx::fx::FrameSnapshot& snapshot,
         bafx::core::MonotonicTime wallTime = bafx::core::MonotonicTime::zero(),
@@ -379,6 +385,7 @@ private:
     void createSwapChain(WindowSize size);
     void createComposition(HWND window);
     void createRenderTarget();
+    void createSpout2RecordingTarget();
     void registerDeviceRemovedNotification() noexcept;
     void unregisterDeviceRemovedNotification() noexcept;
     void presentSwapChain();
@@ -410,6 +417,8 @@ private:
     Microsoft::WRL::ComPtr<IDXGISwapChain3> swapChain_{};
     Microsoft::WRL::ComPtr<ID3D11Texture2D> backBuffer_{};
     Microsoft::WRL::ComPtr<ID3D11RenderTargetView> renderTarget_{};
+    Microsoft::WRL::ComPtr<ID3D11Texture2D> recordingTexture_{};
+    Microsoft::WRL::ComPtr<ID3D11RenderTargetView> recordingRenderTarget_{};
     // WGC owns and reuses its latest texture. Keep a ping-pong pair of owned
     // copies: one is the previous accepted sample and the other receives the
     // temporal filter output before the pair is swapped.
@@ -433,6 +442,8 @@ private:
     bool deviceRemovedNotificationRegistered_{false};
     std::unique_ptr<GpuTimestampProfiler> gpuTimestampProfiler_{};
     std::unique_ptr<FxGpuRenderer> fxRenderer_{};
+    std::unique_ptr<Spout2Sender> spout2Sender_{};
+    bool spout2Enabled_{false};
     std::unique_ptr<WgcBackgroundSensor> backgroundSensor_{};
     std::optional<PixelF> lastCenterPixel_{};
     bafx::core::MonotonicTime backgroundRefreshPeriod_{};

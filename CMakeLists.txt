@@ -16,20 +16,29 @@ endif()
 set(CMAKE_CXX_EXTENSIONS OFF)
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 
+option(
+    BAFX_ENABLE_SPOUT2
+    "Enable the optional Spout2 DirectX sender"
+    OFF
+)
+
 if(MSVC)
     # Alpha packages must run without a separately installed Visual C++ runtime.
-    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+    # The vcpkg x64-windows Spout2 binary is built with the dynamic CRT. Keep
+    # the whole static-library graph on the same CRT when that optional output
+    # is enabled; mixing /MT and /MD is rejected by the linker and can also
+    # split ownership of standard-library allocations across module boundaries.
+    if(BAFX_ENABLE_SPOUT2)
+        set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+    else()
+        set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+    endif()
 endif()
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 include(CompilerWarnings)
 include(CTest)
 
-option(
-    BAFX_ENABLE_SPOUT2
-    "Enable the optional Spout2 DirectX sender"
-    OFF
-)
 if(BAFX_ENABLE_SPOUT2)
     find_package(Spout2 CONFIG REQUIRED)
 endif()

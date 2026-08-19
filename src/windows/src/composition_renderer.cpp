@@ -646,6 +646,10 @@ CompositionRenderer::CompositionRenderer(
     , requestedAdapterLuid_(requestedAdapterLuid)
     , outputPolicy_(outputPolicy)
 {
+    // Create the optional sender after all members have been initialized in
+    // declaration order, so device-resource setup never observes a partial
+    // sender state and MSVC does not report an initialization-order warning.
+    spout2Sender_ = std::make_unique<Spout2Sender>();
     createDeviceResources();
 }
 
@@ -1005,6 +1009,9 @@ OutputResizeStatus CompositionRenderer::resizeOutput(const WindowSize size)
             size_ = size;
             createRenderTarget();
             fxRenderer_->resize(size);
+            recordingRenderTarget_.Reset();
+            recordingTexture_.Reset();
+            createSpout2RecordingTarget();
             return recovered
                 ? OutputResizeStatus::DeviceRecovered
                 : OutputResizeStatus::Resized;
@@ -1069,6 +1076,12 @@ void CompositionRenderer::releaseDeviceResources() noexcept
     gpuTimestampProfiler_.reset();
     fxRenderer_.reset();
     renderTarget_.Reset();
+    recordingRenderTarget_.Reset();
+    recordingTexture_.Reset();
+    if (spout2Sender_ != nullptr)
+    {
+        spout2Sender_->reset();
+    }
     backBuffer_.Reset();
     rootVisual_.Reset();
     compositionTarget_.Reset();
@@ -1085,6 +1098,39 @@ void CompositionRenderer::setOverlayProfile(const FxOverlayProfile profile)
 {
     fxRenderer_->setOverlayProfile(profile);
     overlayProfile_ = profile;
+}
+
+void CompositionRenderer::setSpout2Enabled(const bool enabled)
+{
+    spout2Enabled_ = enabled;
+    spout2Sender_->setEnabled(enabled);
+    recordingRenderTarget_.Reset();
+    recordingTexture_.Reset();
+    if (!enabled)
+    {
+        return;
+    }
+    createSpout2RecordingTarget();
+}
+
+bool CompositionRenderer::spout2Enabled() const noexcept
+{
+    return spout2Enabled_;
+}
+
+std::string_view CompositionRenderer::spout2SenderName() const noexcept
+{
+    return spout2Sender_->senderName();
+}
+
+Spout2SenderStatus CompositionRenderer::spout2Status() const noexcept
+{
+    return spout2Sender_->status();
+}
+
+std::string_view CompositionRenderer::spout2Error() const noexcept
+{
+    return spout2Sender_->error();
 }
 
 CompositionFrameDiagnostics CompositionRenderer::renderFrame(
@@ -1106,6 +1152,9 @@ CompositionFrameDiagnostics CompositionRenderer::renderFrame(
         diagnostics);
     const auto frameStartedAt = std::chrono::steady_clock::now();
     const bool hasDrawableContent = snapshot.hasDrawableContent();
+    // Spout2 is a complete desktop output, so it must keep the WGC snapshot
+    // alive during idle periods even though the transparent overlay is empty.
+    const bool needsBackgroundFrame = hasDrawableContent || spout2Enabled_;
     const bool referenceWhiteUnavailable = backgroundSensor_ != nullptr
         && backgroundReferenceWhiteUnavailable(deviceInfo_.output.mapping);
     std::optional<BackgroundRenderInput> background;
@@ -1120,7 +1169,7 @@ CompositionFrameDiagnostics CompositionRenderer::renderFrame(
             BackgroundSnapshotInvalidationReason::ReferenceWhiteUnavailable,
             diagnostics.frameId);
     }
-    else if (!hasDrawableContent)
+    else if (!needsBackgroundFrame)
     {
         // A new visible batch gets a fresh desktop reference. Keeping the
         // previous copy across an idle frame would make a later click inherit
@@ -1154,7 +1203,7 @@ CompositionFrameDiagnostics CompositionRenderer::renderFrame(
         resolveMonotonicTime(wallTime);
     const BackgroundSensorMaintenanceDiagnostics maintenance =
         drainBackgroundSensor(
-            hasDrawableContent,
+            needsBackgroundFrame,
             effectiveWallTime,
             diagnostics.frameId);
     diagnostics.wgc = maintenance.wgc;
@@ -1168,7 +1217,7 @@ CompositionFrameDiagnostics CompositionRenderer::renderFrame(
         || maintenance.wgc.status == WgcBackgroundDrainStatus::Updated;
     if (backgroundSensor_ != nullptr
         && !referenceWhiteUnavailable
-        && hasDrawableContent
+        && needsBackgroundFrame
         && maintenance.wgcDrainAttempted
         && drainCanFeedVisibleFrame)
     {
@@ -1222,7 +1271,7 @@ CompositionFrameDiagnostics CompositionRenderer::renderFrame(
         || (backgroundSample.has_value() && retainUsage.enabled);
     const bafx::core::BackgroundRenderPath renderPath =
         backgroundPathLatch_.select(
-            hasDrawableContent,
+            needsBackgroundFrame,
             backgroundSample.has_value() && acquireUsage.enabled,
             retainedBackgroundAvailable);
     if (renderPath == bafx::core::BackgroundRenderPath::BackgroundAware)
@@ -1287,7 +1336,22 @@ CompositionFrameDiagnostics CompositionRenderer::renderFrame(
         snapshot,
         renderTarget_.Get(),
         background,
-        gpuTimestampFrame.recorder());
+        gpuTimestampFrame.recorder(),
+        spout2Enabled_ && recordingRenderTarget_ != nullptr
+            && background.has_value()
+            ? recordingRenderTarget_.Get()
+            : nullptr);
+    if (spout2Enabled_
+        && overlayProfile_ != FxOverlayProfile::Core
+        && recordingTexture_ != nullptr
+        && background.has_value())
+    {
+        static_cast<void>(spout2Sender_->send(
+            device_.Get(),
+            recordingTexture_.Get(),
+            size_.width,
+            size_.height));
+    }
     gpuTimestampFrame.complete(GpuTimestampFrameUsage{
         diagnostics.wgcDrainAttempted,
         diagnostics.backgroundSnapshotRefreshAttempted,
@@ -2130,6 +2194,7 @@ void CompositionRenderer::createDeviceResources()
         deviceInfo_.output.mapping);
     fxRenderer_->setThemeColor(themeColor_);
     fxRenderer_->setOverlayProfile(overlayProfile_);
+    createSpout2RecordingTarget();
     setReadbackDiagnostics(readbackDiagnosticsEnabled_);
     registerDeviceRemovedNotification();
 }
@@ -2216,6 +2281,35 @@ void CompositionRenderer::createRenderTarget()
     throwIfFailed(
         device_->CreateRenderTargetView(backBuffer_.Get(), nullptr, &renderTarget_),
         "ID3D11Device::CreateRenderTargetView");
+}
+
+void CompositionRenderer::createSpout2RecordingTarget()
+{
+    if (!spout2Enabled_)
+    {
+        return;
+    }
+    D3D11_TEXTURE2D_DESC description{};
+    description.Width = size_.width;
+    description.Height = size_.height;
+    description.MipLevels = 1U;
+    description.ArraySize = 1U;
+    description.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+    description.SampleDesc = DXGI_SAMPLE_DESC{1U, 0U};
+    description.Usage = D3D11_USAGE_DEFAULT;
+    description.BindFlags = D3D11_BIND_RENDER_TARGET;
+    throwIfFailed(
+        device_->CreateTexture2D(
+            &description,
+            nullptr,
+            &recordingTexture_),
+        "ID3D11Device::CreateTexture2D(Spout2 recording)");
+    throwIfFailed(
+        device_->CreateRenderTargetView(
+            recordingTexture_.Get(),
+            nullptr,
+            &recordingRenderTarget_),
+        "ID3D11Device::CreateRenderTargetView(Spout2 recording)");
 }
 
 void CompositionRenderer::registerDeviceRemovedNotification() noexcept

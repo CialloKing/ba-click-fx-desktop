@@ -1416,6 +1416,7 @@ struct RunOptions
     bool framePacingStallProbe{false};
     bool demoClick{false};
     bool disableRawInput{false};
+    bool spout2{false};
     std::uint32_t demoDelayMilliseconds{0U};
 };
 
@@ -1430,7 +1431,8 @@ struct RunOptions
         && !options.recoveryProbe
         && !options.framePacingStallProbe
         && !options.demoClick
-        && !options.disableRawInput;
+        && !options.disableRawInput
+        && !options.spout2;
 }
 
 struct MessageDispatchDiagnostics
@@ -1516,6 +1518,12 @@ struct PointerConsumptionDiagnostics
             // Deterministic renderer baselines provide their own harmless
             // message pressure and must not depend on operator mouse activity.
             options.disableRawInput = true;
+        }
+        else if (argument == L"--spout2")
+        {
+            // Spout2 is an explicit capture output and must not silently
+            // alter the user's startup integration while it is being tested.
+            options.spout2 = true;
         }
         else if (argument.starts_with(L"--frames="))
         {
@@ -2897,6 +2905,25 @@ int runApplication(
         displaySessions.createCoordinator(appliedDisplayTarget);
     bafx::windows::OverlayWindow& window = displaySession.window();
     bafx::windows::CompositionRenderer& renderer = displaySession.renderer();
+    renderer.setSpout2Enabled(options.spout2);
+    if (options.spout2)
+    {
+        const std::array spout2Fields{
+            bafx::windows::DiagnosticField{
+                "Enabled",
+                renderer.spout2Enabled() ? "true" : "false"},
+            bafx::windows::DiagnosticField{
+                "Sender",
+                renderer.spout2SenderName()},
+            bafx::windows::DiagnosticField{
+                "Status",
+                bafx::windows::spout2SenderStatusName(
+                    renderer.spout2Status())}};
+        bafx::windows::appendDiagnosticEvent(
+            logPath,
+            "Spout2.Startup",
+            spout2Fields);
+    }
     bafx::fx::SimulationRuntime& simulation = displaySession.simulation();
     bafx::fx::SimulationTimeline& simulationTimeline =
         displaySession.timeline();
