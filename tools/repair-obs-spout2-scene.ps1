@@ -41,6 +41,11 @@ if ($null -eq $sceneSource)
     throw 'The scene does not contain a scene source.'
 }
 
+# ConvertFrom-Json returns a PSCustomObject when a JSON array contains one
+# item. OBS requires the scene item collection to remain an array, otherwise
+# it silently loads the scene without any visible sources.
+$sceneSource.settings.items = @($sceneSource.settings.items)
+
 $item = @($sceneSource.settings.items) |
     Where-Object { $_.source_uuid -eq $spoutSource.uuid } |
     Select-Object -First 1
