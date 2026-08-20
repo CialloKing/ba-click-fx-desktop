@@ -74,6 +74,26 @@ ctest --test-dir build/alpha-x64 -C Release `
 
 ## 扩展预乘逐像素验收
 
+关闭 OBS 后，可用同一受限 runner 分别执行亮度和生命周期门禁：
+
+```powershell
+pwsh -NoProfile -File tools/run-obs-spout2-composite-acceptance.ps1 `
+  -HostPath 'build/alpha-x64/src/desktop/Release/ba-click-fx-desktop.exe' `
+  -ProbePath 'build/alpha-x64/tests/Release/bafx_spout2_receiver_probe.exe' `
+  -ObsPath '<OBS 安装目录>/bin/64bit/obs64.exe' `
+  -Mode FixedComposite -OutputDirectory 'artifacts/obs-fixed-<时间戳>'
+pwsh -NoProfile -File tools/run-obs-spout2-composite-acceptance.ps1 `
+  -HostPath 'build/alpha-x64/src/desktop/Release/ba-click-fx-desktop.exe' `
+  -ProbePath 'build/alpha-x64/tests/Release/bafx_spout2_receiver_probe.exe' `
+  -ObsPath '<OBS 安装目录>/bin/64bit/obs64.exe' `
+  -Mode DynamicLifecycle -OutputDirectory 'artifacts/obs-lifecycle-<时间戳>'
+```
+
+`FixedComposite` 用同一固定龄原始帧验证四种背景和真实 OBS 录像的亮度；
+`DynamicLifecycle` 验证空闲、活动、最终透明三阶段。两者必须联合通过，不能用生命周期
+门禁代替亮度等价证明。runner 只创建临时 Profile、场景集合和场景；OBS 退出后会逐文件
+校验并恢复原配置，恢复不一致时验收失败并保留临时备份。
+
 亮度验收必须使用固定龄特效帧和只包含纯色背景、Spout2 源的隔离场景；不要用显示器捕获
 录制 OBS 自身。接收器探针的 `--capture-output=<path>` 可保存紧密排列的原始 BGRA8 帧。
 为同一帧分别保存黑色 `(0,0,0)`、灰色 `(96,96,96)`、白色 `(255,255,255)` 和彩色
