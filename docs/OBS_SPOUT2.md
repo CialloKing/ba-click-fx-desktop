@@ -65,6 +65,22 @@ ctest --test-dir build/alpha-x64 -C Release `
 共享句柄稳定、空闲全透明、活动 Alpha 非零、`RGB <= Alpha` 和最终恢复透明。
 它不能替代 OBS 插件加载、合成模式和录像像素验收。
 
+## 录像证据复核
+
+本机 OBS 验收目录应包含 `frame-baseline.png`、
+`frame-idle-sender-connected.png`、至少一个 `frame-active-*.png`、
+`frame-final-transparent.png` 和同目录录像。使用下列命令复核：
+
+```powershell
+python -B tools/verify-obs-spout2-evidence.py `
+  artifacts/<证据目录> artifacts/<证据目录>/<录像>.mp4
+```
+
+复核器会验证空闲和结束帧逐像素等于背景、活动阶段存在特效、没有黑色矩形，
+并解码录像检查完整的“空闲、活动、恢复”三阶段。需要自动化 OBS 截图或录像时，
+`tools/obs-websocket-request.mjs` 可从本机 OBS WebSocket 配置读取认证信息并执行单个
+本地请求；它不会把密码写入命令行或输出。
+
 ## 当前验收边界
 
 本轮闭环只覆盖 Windows 10 `19045`、RTX 4060、单显示器 SDR、OBS `32.2.2`
