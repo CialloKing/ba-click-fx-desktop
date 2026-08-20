@@ -4513,7 +4513,8 @@ void ControlCenterWindow::updateSpout2Status(const HostState& state)
     }
     else
     {
-        text += L"\r\n输出：BGRA8 / sRGB / 预乘 Alpha / 仅特效";
+        text += L"\r\n输出：BGRA8 / sRGB / 扩展预乘 Alpha / 仅特效";
+        text += L"\r\nOBS：插件选择“预乘 Alpha”，来源混合选择“常规”";
     }
     SetWindowTextW(spout2SenderStatus_, text.c_str());
 }

@@ -38,11 +38,13 @@
 - D3D11 硬件设备；硬件设备创建失败时尝试 WARP 软件设备。
 - 当前验证范围为普通 SDR 桌面合成路径。
 - Spout2 发送器名称固定为 `ba-click-fx-desktop`，输出合同为
-  `BGRA8 + sRGB + premultiplied alpha + FX-only v1`。空闲帧严格透明，有效像素满足
-  `RGB <= Alpha`，不混入 WGC 桌面背景；WGC 不可用或失败时仍能输出点击和拖尾。
+  `BGRA8 + sRGB + extended premultiplied alpha + FX-only v2`。空闲帧严格透明；有效帧允许
+  `RGB > Alpha` 和 `Alpha = 0, RGB > 0` 来保留加法发光，且不混入或依赖 WGC 桌面背景；
+  WGC 不可用或失败时仍能输出点击和拖尾。
   OBS 单独捕获游戏/桌面并置底，`Spout2 Capture` 源置顶，Composite Mode 必须选择
-  `Premultiplied Alpha`，再执行 `Transform -> Fit to Screen`。旧的 `Default`/`Opaque`
-  来源需要显式迁移。Control Center 只读检查发送状态、`win-spout.dll` 版本/位数和 OBS
+  `Premultiplied Alpha`，来源混合必须保持 `Normal`，再执行 `Transform -> Fit to Screen`。
+  旧的 `Default`/`Opaque` 或来源级 `Add` 设置需要显式迁移。Control Center 只读检查发送状态、
+  `win-spout.dll` 版本/位数和 OBS
   实际加载状态，不会下载插件或修改场景。完整设置、迁移脚本和验收边界见
   [`docs/OBS_SPOUT2.md`](docs/OBS_SPOUT2.md)。旧的 `--spout2` 参数仍可用于诊断时临时开启，
   但不改变持久化开关。

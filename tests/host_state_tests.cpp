@@ -18,7 +18,7 @@ BAFX_TEST(host_state_requires_spout2_runtime_group)
 BAFX_TEST(host_state_parses_complete_spout2_runtime_group)
 {
     const HostStateParseResult result = parseHostState(
-        R"json({"generation":4,"paused":true,"backgroundCapture":"fallback-fx-only","spout2Enabled":true,"spout2Sender":"ba-click-fx-desktop","spout2Status":"failed","spout2Error":"receiver said \"no\" \\ retry","spout2OutputContract":"bgra8-srgb-premultiplied-fx-only-v1"})json");
+        R"json({"generation":4,"paused":true,"backgroundCapture":"fallback-fx-only","spout2Enabled":true,"spout2Sender":"ba-click-fx-desktop","spout2Status":"failed","spout2Error":"receiver said \"no\" \\ retry","spout2OutputContract":"bgra8-srgb-extended-premultiplied-fx-only-v2"})json");
 
     BAFX_CHECK(result.succeeded());
     BAFX_CHECK(result.state->spout2Enabled);
@@ -27,7 +27,7 @@ BAFX_TEST(host_state_parses_complete_spout2_runtime_group)
     BAFX_CHECK(result.state->spout2Error == "receiver said \"no\" \\ retry");
     BAFX_CHECK(
         result.state->spout2OutputContract
-        == "bgra8-srgb-premultiplied-fx-only-v1");
+        == "bgra8-srgb-extended-premultiplied-fx-only-v2");
 }
 
 BAFX_TEST(host_state_rejects_partial_or_duplicate_spout2_groups)

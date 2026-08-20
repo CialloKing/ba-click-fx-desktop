@@ -21,7 +21,12 @@ HEIGHT = 720
 TARGET_SENDER = "ba-click-fx-desktop"
 
 
-def _fixture(*, target_mode: int = 3, target_width: int = 0) -> dict[str, object]:
+def _fixture(
+    *,
+    target_mode: int = 3,
+    target_width: int = 0,
+    target_blend: str = "additive",
+) -> dict[str, object]:
     return {
         "sources": [
             {
@@ -56,6 +61,7 @@ def _fixture(*, target_mode: int = 3, target_width: int = 0) -> dict[str, object
                                 "y": HEIGHT if target_width else 0,
                             },
                             "bounds_rel": {"x": 0, "y": 0},
+                            "blend_type": target_blend,
                         }
                     ]
                 },
@@ -71,6 +77,7 @@ def _fixture(*, target_mode: int = 3, target_width: int = 0) -> dict[str, object
                             "bounds_type": 1,
                             "bounds": {"x": 7, "y": 9},
                             "bounds_rel": {"x": 1, "y": 1},
+                            "blend_type": "screen",
                         }
                     ]
                 },
@@ -149,14 +156,16 @@ class RepairObsSpout2SceneTests(unittest.TestCase):
             self.assertEqual(len(other_items), 1)
             self.assertEqual(target_items[0]["bounds_type"], 2)
             self.assertEqual(target_items[0]["bounds"], {"x": WIDTH, "y": HEIGHT})
+            self.assertEqual(target_items[0]["blend_type"], "normal")
             self.assertEqual(other_items[0]["bounds"], {"x": 7, "y": 9})
+            self.assertEqual(other_items[0]["blend_type"], "screen")
 
     def test_valid_scene_is_not_rewritten(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             scene = Path(directory) / "scene.json"
             original = _write_fixture(
                 scene,
-                _fixture(target_mode=4, target_width=WIDTH),
+                _fixture(target_mode=4, target_width=WIDTH, target_blend="normal"),
             )
 
             result = _run(scene)

@@ -323,7 +323,7 @@ def main() -> int:
     report = {
         "schema": 1,
         "status": "pass",
-        "contract": "bgra8-srgb-premultiplied-fx-only-v1",
+        "contract": "bgra8-srgb-extended-premultiplied-fx-only-v2",
         "screenshots": screenshot_report,
         "recording": video_report,
         "notRun": [

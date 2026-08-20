@@ -94,6 +94,11 @@ foreach ($item in $targetItems)
     {
         $needsRepair = $true
     }
+    $blendProperty = $item.PSObject.Properties['blend_type']
+    if ($null -eq $blendProperty -or [string]$blendProperty.Value -ne 'normal')
+    {
+        $needsRepair = $true
+    }
 }
 
 if (-not $needsRepair)
@@ -110,7 +115,7 @@ if ($CheckOnly)
 
 if (-not $PSCmdlet.ShouldProcess(
         $sceneFile,
-        "repair '$senderName' bounds and premultiplied-alpha composite mode"))
+        "repair '$senderName' bounds, source blend, and premultiplied-alpha composite mode"))
 {
     exit 0
 }
@@ -130,6 +135,15 @@ foreach ($item in $targetItems)
     $item.bounds_rel = [pscustomobject]@{
         x = [double]$Width / 540.0 * 1.0
         y = [double]$Height / 540.0 * 1.0
+    }
+    $blendProperty = $item.PSObject.Properties['blend_type']
+    if ($null -eq $blendProperty)
+    {
+        $item | Add-Member -NotePropertyName blend_type -NotePropertyValue 'normal'
+    }
+    else
+    {
+        $item.blend_type = 'normal'
     }
 }
 foreach ($source in $spoutSources)
