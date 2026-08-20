@@ -861,9 +861,17 @@ function Test-SparsePackageContract
         -Text $controlCenter `
         -Pattern 'CreateProcessW\s*\(' `
         -Description 'portable fallback uses direct process creation'
+    Assert-TextContains `
+        -Text $controlCenter `
+        -Pattern 'constexpr\s+wchar_t\s+obsSpoutPluginPage\[\]\s*=\s*L"https://github\.com/Off-World-Live/obs-spout2-plugin/releases"' `
+        -Description 'fixed official OBS Spout2 plugin page'
+    Assert-TextContains `
+        -Text $controlCenter `
+        -Pattern 'ShellExecuteW\s*\(\s*window_,\s*L"open",\s*obsSpoutPluginPage\s*,' `
+        -Description 'official OBS Spout2 plugin page action'
     Assert-TextExcludes `
         -Text $activationSources `
-        -Pattern 'ShellExecuteW\s*\(' `
+        -Pattern 'ShellExecuteW\s*\(\s*[^,]+,\s*[^,]+,(?!\s*obsSpoutPluginPage\s*,)' `
         -Description 'bare ShellExecute Host launch'
     $inno = Read-RepositoryText -RelativePath 'tools/installer/ba-click-fx-desktop.iss'
     Assert-TextExcludes `
