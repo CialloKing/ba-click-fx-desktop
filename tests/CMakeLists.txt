@@ -478,11 +478,15 @@ if(WIN32)
         control_center_commands_tests.cpp
         control_center_layout_tests.cpp
         display_state_tests.cpp
+        host_state_tests.cpp
+        obs_spout_plugin_probe_tests.cpp
         package_activation_tests.cpp
         startup_config_tests.cpp
         "${PROJECT_SOURCE_DIR}/src/control-center/config_commands.cpp"
         "${PROJECT_SOURCE_DIR}/src/control-center/control_center_layout.cpp"
         "${PROJECT_SOURCE_DIR}/src/control-center/display_state.cpp"
+        "${PROJECT_SOURCE_DIR}/src/control-center/host_state.cpp"
+        "${PROJECT_SOURCE_DIR}/src/control-center/obs_spout_plugin_probe.cpp"
         "${PROJECT_SOURCE_DIR}/src/control-center/package_activation.cpp"
         "${PROJECT_SOURCE_DIR}/src/control-center/startup_config.cpp"
     )
@@ -495,7 +499,17 @@ if(WIN32)
         bafx_control_center_tests
         PRIVATE
             bafx::config
+            advapi32
             ole32
+            version
+    )
+    target_compile_definitions(
+        bafx_control_center_tests
+        PRIVATE
+            UNICODE
+            _UNICODE
+            WIN32_LEAN_AND_MEAN
+            NOMINMAX
     )
     target_compile_features(bafx_control_center_tests PRIVATE cxx_std_20)
     bafx_enable_warnings(bafx_control_center_tests)

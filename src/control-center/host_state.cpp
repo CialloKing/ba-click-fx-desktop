@@ -31,6 +31,11 @@ public:
         bool hasGeneration = false;
         bool hasPaused = false;
         bool hasBackgroundCapture = false;
+        bool hasSpout2Enabled = false;
+        bool hasSpout2Sender = false;
+        bool hasSpout2Status = false;
+        bool hasSpout2Error = false;
+        bool hasSpout2OutputContract = false;
 
         skipWhitespace();
         if (consume('}'))
@@ -79,6 +84,54 @@ public:
                 state.backgroundCapture = std::move(*value);
                 hasBackgroundCapture = true;
             }
+            else if (*key == "spout2Enabled")
+            {
+                if (hasSpout2Enabled || !parseBoolean(state.spout2Enabled))
+                {
+                    return fail("spout2Enabled must be one boolean");
+                }
+                hasSpout2Enabled = true;
+            }
+            else if (*key == "spout2Sender")
+            {
+                std::optional<std::string> value = parseString();
+                if (hasSpout2Sender || !value.has_value())
+                {
+                    return fail("spout2Sender must be one string");
+                }
+                state.spout2Sender = std::move(*value);
+                hasSpout2Sender = true;
+            }
+            else if (*key == "spout2Status")
+            {
+                std::optional<std::string> value = parseString();
+                if (hasSpout2Status || !value.has_value())
+                {
+                    return fail("spout2Status must be one string");
+                }
+                state.spout2Status = std::move(*value);
+                hasSpout2Status = true;
+            }
+            else if (*key == "spout2Error")
+            {
+                std::optional<std::string> value = parseString();
+                if (hasSpout2Error || !value.has_value())
+                {
+                    return fail("spout2Error must be one string");
+                }
+                state.spout2Error = std::move(*value);
+                hasSpout2Error = true;
+            }
+            else if (*key == "spout2OutputContract")
+            {
+                std::optional<std::string> value = parseString();
+                if (hasSpout2OutputContract || !value.has_value())
+                {
+                    return fail("spout2OutputContract must be one string");
+                }
+                state.spout2OutputContract = std::move(*value);
+                hasSpout2OutputContract = true;
+            }
             else if (!skipPrimitive())
             {
                 // GetState currently emits only primitives. Rejecting nested
@@ -105,6 +158,15 @@ public:
         if (!hasGeneration || !hasPaused || !hasBackgroundCapture)
         {
             return fail("state is missing a required property");
+        }
+        const bool hasCompleteSpout2State = hasSpout2Enabled
+            && hasSpout2Sender
+            && hasSpout2Status
+            && hasSpout2Error
+            && hasSpout2OutputContract;
+        if (!hasCompleteSpout2State)
+        {
+            return fail("state is missing the required Spout2 status group");
         }
 
         HostStateParseResult result{};

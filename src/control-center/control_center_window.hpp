@@ -2,6 +2,7 @@
 
 #include "display_state.hpp"
 #include "host_state.hpp"
+#include "obs_spout_plugin_probe.hpp"
 
 #include "bafx/config/config.hpp"
 #include "bafx/windows/ipc_client.hpp"
@@ -97,6 +98,8 @@ private:
         CloseToTray,
 #if defined(BAFX_ENABLE_SPOUT2)
         Spout2Enabled,
+        RefreshObsSpoutPlugin,
+        OpenObsSpoutPluginPage,
 #endif
         DisplaySelector,
         HdrEnabled,
@@ -213,6 +216,11 @@ private:
     void sendCommand(std::string_view command);
     void clearDiagnosticLogs();
     void resetDefaults();
+#if defined(BAFX_ENABLE_SPOUT2)
+    void updateSpout2Status(const HostState& state);
+    void refreshObsPluginStatus();
+    void openObsPluginPage();
+#endif
     void startHostFromBundle();
     void stopHost();
     [[nodiscard]] bool hostMutexPresent() const noexcept;
@@ -344,6 +352,11 @@ private:
     HWND closeToTray_{nullptr};
 #if defined(BAFX_ENABLE_SPOUT2)
     HWND spout2Enabled_{nullptr};
+    HWND spout2SenderStatus_{nullptr};
+    HWND obsSpoutPluginStatus_{nullptr};
+    HWND spout2ObsHint_{nullptr};
+    HWND refreshObsSpoutPluginButton_{nullptr};
+    HWND openObsSpoutPluginPageButton_{nullptr};
 #endif
     HWND displaySettingsHeading_{nullptr};
     HWND displaySelectorLabel_{nullptr};

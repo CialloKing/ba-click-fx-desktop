@@ -4,6 +4,7 @@
 #include "bafx/windows/ipc.hpp"
 #include "bafx/windows/recording_compatibility.hpp"
 #include "bafx/windows/runtime_diagnostics.hpp"
+#include "bafx/windows/spout2_sender.hpp"
 #include "bafx/windows/startup_registration.hpp"
 
 #include <windows.h>
@@ -17,6 +18,15 @@
 namespace bafx::desktop
 {
 
+struct Spout2RuntimeState final
+{
+    bool enabled{false};
+    std::string sender{"ba-click-fx-desktop"};
+    std::string status{"disabled"};
+    std::string error{};
+    std::string outputContract{bafx::windows::spout2OutputContract};
+};
+
 struct HostStateSnapshot final
 {
     bafx::config::Config config{};
@@ -24,6 +34,7 @@ struct HostStateSnapshot final
     bool paused{false};
     bool shutdownRequested{false};
     bool backgroundCaptureActive{false};
+    Spout2RuntimeState spout2{};
 };
 
 struct HostControlStartResult final
@@ -120,6 +131,13 @@ public:
     [[nodiscard]] HostStateSnapshot snapshot() const;
     [[nodiscard]] DisplayStateSnapshot displaySnapshot() const;
     void setBackgroundCaptureActive(bool active) noexcept;
+    // Runtime transport health is observational state. Publishing it must not
+    // invalidate optimistic config generations used by SetConfig clients.
+    void setSpout2RuntimeState(
+        bool enabled,
+        std::string_view sender,
+        bafx::windows::Spout2SenderStatus status,
+        std::string_view error);
     // The render owner publishes one immutable cross-display view. Pipe
     // clients never inspect live renderer or WGC objects from the IPC thread.
     void setDisplayRuntimeSummary(
@@ -159,6 +177,7 @@ private:
     std::uint64_t appliedConfigGeneration_{0U};
     bool paused_{false};
     bool backgroundCaptureActive_{false};
+    Spout2RuntimeState spout2RuntimeState_{};
     bafx::windows::RecordingCompatibleAvailability
         recordingCompatibleAvailability_{};
     HostSystemIntegration systemIntegration_{};

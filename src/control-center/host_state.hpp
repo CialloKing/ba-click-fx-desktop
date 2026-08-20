@@ -13,6 +13,11 @@ struct HostState final
     std::uint64_t generation{0U};
     bool paused{false};
     std::string backgroundCapture{};
+    bool spout2Enabled{false};
+    std::string spout2Sender{};
+    std::string spout2Status{};
+    std::string spout2Error{};
+    std::string spout2OutputContract{};
 };
 
 struct HostStateParseResult final

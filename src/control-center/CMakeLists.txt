@@ -12,6 +12,7 @@ add_executable(
         control_center_layout.cpp
         control_center_window.cpp
         display_state.cpp
+        obs_spout_plugin_probe.cpp
         package_activation.cpp
         startup_config.cpp
         host_state.cpp
@@ -52,9 +53,11 @@ target_link_libraries(
         bafx::config
         comdlg32
         comctl32
+        advapi32
         ole32
         shell32
         user32
+        version
 )
 bafx_enable_warnings(bafx_control_center)
 

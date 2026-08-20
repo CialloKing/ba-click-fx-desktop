@@ -621,7 +621,8 @@ HostStateSnapshot HostControlPlane::snapshot() const
         generation_,
         paused_,
         ipc_.stopRequested(),
-        backgroundCaptureActive_};
+        backgroundCaptureActive_,
+        spout2RuntimeState_};
 }
 
 DisplayStateSnapshot HostControlPlane::displaySnapshot() const
@@ -663,6 +664,20 @@ void HostControlPlane::setBackgroundCaptureActive(const bool active) noexcept
 {
     std::lock_guard<std::mutex> lock(mutex_);
     backgroundCaptureActive_ = active;
+}
+
+void HostControlPlane::setSpout2RuntimeState(
+    const bool enabled,
+    const std::string_view sender,
+    const bafx::windows::Spout2SenderStatus status,
+    const std::string_view error)
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    spout2RuntimeState_.enabled = enabled;
+    spout2RuntimeState_.sender = sender;
+    spout2RuntimeState_.status = bafx::windows::spout2SenderStatusName(status);
+    spout2RuntimeState_.error = error;
+    spout2RuntimeState_.outputContract = bafx::windows::spout2OutputContract;
 }
 
 void HostControlPlane::setDisplayRuntimeSummary(
@@ -736,7 +751,8 @@ bafx::windows::IpcResponse HostControlPlane::handle(
                 generation_,
                 paused_,
                 ipc_.stopRequested(),
-                backgroundCaptureActive_}));
+                backgroundCaptureActive_,
+                spout2RuntimeState_}));
         }
 
         case bafx::windows::IpcCommand::Resume:
@@ -749,7 +765,8 @@ bafx::windows::IpcResponse HostControlPlane::handle(
                 generation_,
                 paused_,
                 ipc_.stopRequested(),
-                backgroundCaptureActive_}));
+                backgroundCaptureActive_,
+                spout2RuntimeState_}));
         }
 
         case bafx::windows::IpcCommand::ClearLogs:
@@ -1111,6 +1128,12 @@ std::string HostControlPlane::stateJson(const HostStateSnapshot& state)
            << jsonEscape(statusName(state.backgroundCaptureActive))
            << ",\"captureMode\":"
            << jsonEscape(bafx::config::toString(state.config.background.mode))
+           << ",\"spout2Enabled\":" << jsonBool(state.spout2.enabled)
+           << ",\"spout2Sender\":" << jsonEscape(state.spout2.sender)
+           << ",\"spout2Status\":" << jsonEscape(state.spout2.status)
+           << ",\"spout2Error\":" << jsonEscape(state.spout2.error)
+           << ",\"spout2OutputContract\":"
+           << jsonEscape(state.spout2.outputContract)
            << "}";
     return stream.str();
 }

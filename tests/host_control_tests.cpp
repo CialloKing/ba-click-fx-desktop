@@ -196,6 +196,59 @@ BAFX_TEST(host_control_start_latches_generation_before_accepting_set_config)
         == bafx::config::RenderMode::RecordingCompatible);
 }
 
+BAFX_TEST(host_control_publishes_spout2_runtime_without_changing_generation)
+{
+    TemporaryConfigDirectory temporary;
+    bafx::windows::NamedPipeIpcServer::Options serverOptions{};
+    serverOptions.pipeName = testPipeName() + L".spout2-runtime";
+    serverOptions.ioTimeoutMilliseconds = 500U;
+    serverOptions.retryDelayMilliseconds = 10U;
+    bafx::desktop::HostControlPlane control(
+        temporary.configPath(),
+        bafx::config::defaultConfig(),
+        serverOptions,
+        bafx::desktop::HostSystemIntegration{},
+        bafx::windows::recordingCompatibleAvailabilityForBuild(28000U));
+    control.setSpout2RuntimeState(
+        true,
+        "ba-click-fx-desktop",
+        bafx::windows::Spout2SenderStatus::Failed,
+        "receiver said \"no\" \\ retry");
+    BAFX_CHECK(control.start(false).serviceStarted);
+
+    bafx::windows::IpcClientOptions clientOptions{};
+    clientOptions.pipeName = serverOptions.pipeName;
+    clientOptions.timeoutMilliseconds = 500U;
+    const bafx::windows::NamedPipeIpcClient client(clientOptions);
+    const bafx::windows::IpcClientResponse state = client.transact("GetState");
+    const bafx::desktop::HostStateSnapshot snapshot = control.snapshot();
+    control.stop();
+
+    BAFX_CHECK(state.succeeded());
+    BAFX_CHECK(snapshot.generation == 1U);
+    BAFX_CHECK(snapshot.spout2.enabled);
+    BAFX_CHECK(snapshot.spout2.status == "failed");
+    BAFX_CHECK(
+        snapshot.spout2.outputContract
+        == bafx::windows::spout2OutputContract);
+    BAFX_CHECK(
+        state.payload.find("\"spout2Enabled\":true")
+        != std::string::npos);
+    BAFX_CHECK(
+        state.payload.find(
+            "\"spout2Sender\":\"ba-click-fx-desktop\"")
+        != std::string::npos);
+    BAFX_CHECK(
+        state.payload.find("\"spout2Status\":\"failed\"")
+        != std::string::npos);
+    BAFX_CHECK(
+        state.payload.find("receiver said \\\"no\\\" \\\\ retry")
+        != std::string::npos);
+    BAFX_CHECK(
+        state.payload.find(std::string(bafx::windows::spout2OutputContract))
+        != std::string::npos);
+}
+
 BAFX_TEST(host_control_rejects_recording_mode_below_minimum_build)
 {
     TemporaryConfigDirectory temporary;

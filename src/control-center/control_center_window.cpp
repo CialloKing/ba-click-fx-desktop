@@ -7,6 +7,7 @@
 
 #include "bafx/windows/recording_compatibility.hpp"
 #include "bafx/windows/portable_paths.hpp"
+#include "bafx/windows/spout2_sender.hpp"
 
 #include <commctrl.h>
 #include <commdlg.h>
@@ -50,6 +51,10 @@ constexpr std::size_t offlineDisplayItemBase = 1U << 16U;
 constexpr int themeColorReturnNotification = 0x7FFF;
 constexpr wchar_t themeColorEditOriginalProcedureProperty[] =
     L"BAFX.ControlCenter.ThemeColorEditOriginalProcedure";
+#if defined(BAFX_ENABLE_SPOUT2)
+constexpr wchar_t obsSpoutPluginPage[] =
+    L"https://github.com/Off-World-Live/obs-spout2-plugin/releases";
+#endif
 // WGC/D3D startup can take several seconds on a cold process. The control
 // center keeps probing long enough for that process to become controllable.
 constexpr std::uint32_t hostRetryLimit = 40U;
@@ -70,6 +75,33 @@ static_assert((controlCenterWindowStyle & WS_CLIPCHILDREN) == 0U);
            << static_cast<unsigned long>(result);
     return stream.str();
 }
+
+#if defined(BAFX_ENABLE_SPOUT2)
+[[nodiscard]] std::wstring spout2StatusText(const std::string_view status)
+{
+    if (status == "disabled")
+    {
+        return L"未启用";
+    }
+    if (status == "waiting-for-frame")
+    {
+        return L"等待首帧";
+    }
+    if (status == "sent")
+    {
+        return L"正常发送";
+    }
+    if (status == "unavailable")
+    {
+        return L"当前构建不可用";
+    }
+    if (status == "failed")
+    {
+        return L"发送失败";
+    }
+    return L"未知状态";
+}
+#endif
 
 [[nodiscard]] bafx::windows::IpcClientOptions controlCenterIpcOptions()
 {
@@ -1646,9 +1678,31 @@ bool ControlCenterWindow::createControls()
 #if defined(BAFX_ENABLE_SPOUT2)
     spout2Enabled_ = createChild(
         L"BUTTON",
-        L"启用 OBS Spout2 输出",
+        L"启用 OBS 透明特效输出",
         BS_AUTOCHECKBOX | WS_TABSTOP,
         ControlId::Spout2Enabled);
+    spout2SenderStatus_ = createChild(
+        L"STATIC",
+        L"发送者状态：Host 未连接",
+        SS_LEFT | SS_NOPREFIX);
+    obsSpoutPluginStatus_ = createChild(
+        L"STATIC",
+        L"OBS 插件状态：尚未检测",
+        SS_LEFT | SS_NOPREFIX);
+    spout2ObsHint_ = createChild(
+        L"STATIC",
+        L"OBS 源须置顶并使用 Premultiplied Alpha；本程序不会自动修改 OBS。",
+        SS_LEFT | SS_NOPREFIX);
+    refreshObsSpoutPluginButton_ = createChild(
+        L"BUTTON",
+        L"重新检测 OBS 插件",
+        BS_PUSHBUTTON | WS_TABSTOP,
+        ControlId::RefreshObsSpoutPlugin);
+    openObsSpoutPluginPageButton_ = createChild(
+        L"BUTTON",
+        L"打开官方插件页面",
+        BS_PUSHBUTTON | WS_TABSTOP,
+        ControlId::OpenObsSpoutPluginPage);
 #endif
     clearLogsButton_ = createChild(
         L"BUTTON",
@@ -1788,6 +1842,11 @@ bool ControlCenterWindow::createControls()
         closeToTray_,
 #if defined(BAFX_ENABLE_SPOUT2)
         spout2Enabled_,
+        spout2SenderStatus_,
+        obsSpoutPluginStatus_,
+        spout2ObsHint_,
+        refreshObsSpoutPluginButton_,
+        openObsSpoutPluginPageButton_,
 #endif
         displaySettingsHeading_,
         displaySelectorLabel_,
@@ -1835,6 +1894,9 @@ bool ControlCenterWindow::createControls()
     applyFonts();
     applyDpiMetrics();
     selectPage(Page::Basic);
+#if defined(BAFX_ENABLE_SPOUT2)
+    refreshObsPluginStatus();
+#endif
     return true;
 }
 
@@ -2144,6 +2206,11 @@ void ControlCenterWindow::applyFonts() const noexcept
         closeToTray_,
 #if defined(BAFX_ENABLE_SPOUT2)
         spout2Enabled_,
+        spout2SenderStatus_,
+        obsSpoutPluginStatus_,
+        spout2ObsHint_,
+        refreshObsSpoutPluginButton_,
+        openObsSpoutPluginPageButton_,
 #endif
         displaySelectorLabel_,
         displaySelector_,
@@ -2535,11 +2602,18 @@ void ControlCenterWindow::layoutControls(
     {
         const int actionHeight = scale(38);
         const int actionGap = scale(10);
+#if defined(BAFX_ENABLE_SPOUT2)
+        constexpr int minimumSystemContentHeight = 356;
+        constexpr int minimumSystemPanelHeight = 324;
+#else
+        constexpr int minimumSystemContentHeight = 192;
+        constexpr int minimumSystemPanelHeight = 160;
+#endif
         const int actionY = (std::max)(
-            contentTop + scale(192),
+            contentTop + scale(minimumSystemContentHeight),
             clientHeight - margin - actionHeight);
         const int panelHeight = (std::max)(
-            scale(160),
+            scale(minimumSystemPanelHeight),
             actionY - contentTop - scale(12));
         const int panelWidth = clientWidth - margin * 2;
         const int inset = scale(16);
@@ -2577,13 +2651,52 @@ void ControlCenterWindow::layoutControls(
             contentTop + scale(128),
             contentWidth,
             scale(30));
-#endif
+        moveControl(
+            spout2SenderStatus_,
+            contentX,
+            contentTop + scale(164),
+            contentWidth,
+            scale(42));
+        moveControl(
+            obsSpoutPluginStatus_,
+            contentX,
+            contentTop + scale(208),
+            contentWidth,
+            scale(42));
+        moveControl(
+            spout2ObsHint_,
+            contentX,
+            contentTop + scale(252),
+            contentWidth,
+            scale(26));
+        const int obsButtonGap = scale(10);
+        const int obsButtonWidth = (contentWidth - obsButtonGap) / 2;
+        moveControl(
+            refreshObsSpoutPluginButton_,
+            contentX,
+            contentTop + scale(282),
+            obsButtonWidth,
+            scale(30));
+        moveControl(
+            openObsSpoutPluginPageButton_,
+            contentX + obsButtonWidth + obsButtonGap,
+            contentTop + scale(282),
+            obsButtonWidth,
+            scale(30));
+        moveControl(
+            clearLogsButton_,
+            contentX,
+            contentTop + scale(316),
+            contentWidth,
+            scale(30));
+#else
         moveControl(
             clearLogsButton_,
             contentX,
             contentTop + scale(164),
             contentWidth,
             scale(30));
+#endif
 
         const int actionWidth = (clientWidth - margin * 2 - actionGap * 3) / 4;
         moveControl(
@@ -3392,6 +3505,11 @@ void ControlCenterWindow::updatePageVisibility() noexcept
         closeToTray_,
 #if defined(BAFX_ENABLE_SPOUT2)
         spout2Enabled_,
+        spout2SenderStatus_,
+        obsSpoutPluginStatus_,
+        spout2ObsHint_,
+        refreshObsSpoutPluginButton_,
+        openObsSpoutPluginPageButton_,
 #endif
         clearLogsButton_};
     for (const HWND control : systemControls)
@@ -3451,6 +3569,9 @@ void ControlCenterWindow::onCommand(
         if (notificationCode == BN_CLICKED)
         {
             selectPage(Page::System);
+#if defined(BAFX_ENABLE_SPOUT2)
+            refreshObsPluginStatus();
+#endif
         }
         break;
     case ControlId::AdvancedTimingSection:
@@ -3724,6 +3845,18 @@ void ControlCenterWindow::onCommand(
                 isChecked(spout2Enabled_) ? "true" : "false");
         }
         break;
+    case ControlId::RefreshObsSpoutPlugin:
+        if (notificationCode == BN_CLICKED)
+        {
+            refreshObsPluginStatus();
+        }
+        break;
+    case ControlId::OpenObsSpoutPluginPage:
+        if (notificationCode == BN_CLICKED)
+        {
+            openObsPluginPage();
+        }
+        break;
 #endif
     case ControlId::DisplaySelector:
         if (notificationCode == CBN_SELCHANGE)
@@ -3793,6 +3926,9 @@ void ControlCenterWindow::onCommand(
         if (notificationCode == BN_CLICKED)
         {
             static_cast<void>(refreshFromHost());
+#if defined(BAFX_ENABLE_SPOUT2)
+            refreshObsPluginStatus();
+#endif
         }
         break;
     case ControlId::HostLifecycle:
@@ -4339,6 +4475,7 @@ void ControlCenterWindow::updateControls(
     setChecked(closeToTray_, config.system.closeToTray);
 #if defined(BAFX_ENABLE_SPOUT2)
     setChecked(spout2Enabled_, config.system.spout2Enabled);
+    updateSpout2Status(state);
 #endif
     updateDisplayControls(config);
     SetWindowTextW(pauseButton_, paused_ ? L"恢复特效" : L"暂停特效");
@@ -4356,6 +4493,84 @@ void ControlCenterWindow::updateControls(
         clearInfo();
     }
 }
+
+#if defined(BAFX_ENABLE_SPOUT2)
+void ControlCenterWindow::updateSpout2Status(const HostState& state)
+{
+    std::wstring text = L"发送者状态："
+        + spout2StatusText(state.spout2Status)
+        + L" | 名称："
+        + utf8ToWide(state.spout2Sender);
+    if (!state.spout2Error.empty())
+    {
+        text += L"\r\n错误：" + utf8ToWide(state.spout2Error);
+    }
+    else if (state.spout2OutputContract
+        != bafx::windows::spout2OutputContract)
+    {
+        text += L"\r\n输出契约不匹配："
+            + utf8ToWide(state.spout2OutputContract);
+    }
+    else
+    {
+        text += L"\r\n输出：BGRA8 / sRGB / 预乘 Alpha / 仅特效";
+    }
+    SetWindowTextW(spout2SenderStatus_, text.c_str());
+}
+
+void ControlCenterWindow::refreshObsPluginStatus()
+{
+    const ObsSpoutPluginProbeResult result = probeObsSpoutPlugin();
+    std::wstring text;
+    switch (result.state)
+    {
+    case ObsSpoutPluginState::Missing:
+        text = L"OBS 插件状态：未找到 win-spout.dll";
+        break;
+    case ObsSpoutPluginState::InstalledObsNotRunning:
+        text = L"OBS 插件状态：已安装；启动 OBS 后可确认加载";
+        break;
+    case ObsSpoutPluginState::Loaded:
+        text = L"OBS 插件状态：已由 OBS 加载";
+        break;
+    case ObsSpoutPluginState::InstalledNotLoaded:
+        text = L"OBS 插件状态：OBS 已运行，但 win-spout.dll 未加载";
+        break;
+    case ObsSpoutPluginState::InspectionUnavailable:
+        text = L"OBS 插件状态：无法确认 OBS 加载状态（权限受限）";
+        break;
+    }
+
+    if (!result.pluginVersion.empty())
+    {
+        text += L" | v" + utf8ToWide(result.pluginVersion);
+    }
+    if (!result.pluginArchitecture.empty())
+    {
+        text += L" | " + utf8ToWide(result.pluginArchitecture);
+    }
+    if (!result.pluginPath.empty())
+    {
+        text += L"\r\n位置：" + result.pluginPath.native();
+    }
+    SetWindowTextW(obsSpoutPluginStatus_, text.c_str());
+}
+
+void ControlCenterWindow::openObsPluginPage()
+{
+    const HINSTANCE result = ShellExecuteW(
+        window_,
+        L"open",
+        obsSpoutPluginPage,
+        nullptr,
+        nullptr,
+        SW_SHOWNORMAL);
+    if (reinterpret_cast<INT_PTR>(result) <= 32)
+    {
+        setError(L"无法打开 OBS Spout2 官方插件页面。请检查默认浏览器设置。");
+    }
+}
+#endif
 
 void ControlCenterWindow::updateDisplayControls(
     const bafx::config::Config& config)
@@ -5498,6 +5713,9 @@ void ControlCenterWindow::setConnected(const bool connected) noexcept
     }
     if (!connected)
     {
+#if defined(BAFX_ENABLE_SPOUT2)
+        SetWindowTextW(spout2SenderStatus_, L"发送者状态：Host 未连接");
+#endif
         displayState_ = {};
         displayStateError_ = L"Host 未连接，逐屏运行状态不可用。";
         static_cast<void>(SendMessageW(
