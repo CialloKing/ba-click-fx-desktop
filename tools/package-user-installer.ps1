@@ -88,26 +88,29 @@ function Get-NumericVersions
 
     $match = [regex]::Match(
         $Version,
-        '^([0-9]+)\.([0-9]+)\.([0-9]+)-alpha\.([0-9]+)$',
+        '^([0-9]+)\.([0-9]+)\.([0-9]+)$',
         [Text.RegularExpressions.RegexOptions]::CultureInvariant)
     if (-not $match.Success)
     {
-        throw 'The user installer currently requires an alpha semantic version.'
+        throw 'The user installer requires a three-component version.'
     }
     $major = [int]$match.Groups[1].Value
     $minor = [int]$match.Groups[2].Value
     $patch = [int]$match.Groups[3].Value
-    $alpha = [int]$match.Groups[4].Value
-    foreach ($component in @($major, $minor, $patch, $alpha))
+    foreach ($component in @($major, $minor, $patch))
     {
         if ($component -lt 0 -or $component -gt 65535)
         {
             throw "Version component is outside the Windows range: $component"
         }
     }
+    # Windows package identity requires four numeric components. The public
+    # product contract remains MAJOR.MINOR.PATCH, so the revision is fixed at
+    # zero instead of encoding a prerelease counter.
+    $packageVersion = "$major.$minor.$patch.0"
     return [ordered]@{
-        numericVersion = "$major.$minor.$patch.$alpha"
-        packageVersion = "$major.$minor.$patch.$alpha"
+        numericVersion = $packageVersion
+        packageVersion = $packageVersion
     }
 }
 

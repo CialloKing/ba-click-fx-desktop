@@ -208,28 +208,31 @@ function Test-VersionMapping
     Assert-True -Condition $currentMatch.Success -Message 'cmake/Version.cmake has no BAFX_VERSION.'
 
     $current = Get-NumericVersions -Version $currentMatch.Groups[1].Value
-    $expectedCurrent = $currentMatch.Groups[1].Value -replace '-alpha\.', '.'
+    $expectedCurrent = $currentMatch.Groups[1].Value + '.0'
     Assert-True `
         -Condition ([string]$current.numericVersion -eq $expectedCurrent) `
-        -Message "Current alpha version mapping is incorrect: $($currentMatch.Groups[1].Value)"
+        -Message "Current version mapping is incorrect: $($currentMatch.Groups[1].Value)"
     Assert-True `
         -Condition ([string]$current.packageVersion -eq $expectedCurrent) `
         -Message "Current package version mapping is incorrect: $($currentMatch.Groups[1].Value)"
 
-    $sample = Get-NumericVersions -Version '12.34.56-alpha.789'
+    $sample = Get-NumericVersions -Version '12.34.56'
     Assert-True `
-        -Condition ([string]$sample.numericVersion -eq '12.34.56.789') `
-        -Message 'alpha.N must map to the fourth Windows package version component.'
+        -Condition ([string]$sample.numericVersion -eq '12.34.56.0') `
+        -Message 'Three-component versions must map to a zero Windows revision.'
     Assert-True `
-        -Condition ([string]$sample.packageVersion -eq '12.34.56.789') `
+        -Condition ([string]$sample.packageVersion -eq '12.34.56.0') `
         -Message 'PackageVersion must match the numeric Windows version.'
 
     Assert-Throws `
-        -Action { Get-NumericVersions -Version '12.34.56-beta.1' } `
-        -Description 'non-alpha prerelease'
+        -Action { Get-NumericVersions -Version '12.34.56-alpha.1' } `
+        -Description 'alpha prerelease'
     Assert-Throws `
-        -Action { Get-NumericVersions -Version '12.34.56-alpha.65536' } `
-        -Description 'out-of-range alpha component'
+        -Action { Get-NumericVersions -Version '12.34.56-beta.1' } `
+        -Description 'beta prerelease'
+    Assert-Throws `
+        -Action { Get-NumericVersions -Version '12.34.56.0' } `
+        -Description 'four-component version'
 }
 
 function Test-PowerShellScriptContracts
