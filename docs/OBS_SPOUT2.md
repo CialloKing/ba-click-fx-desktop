@@ -2,11 +2,12 @@
 
 标准构建可把点击和拖尾作为独立透明层发送给 OBS。发送者名称固定为
 `ba-click-fx-desktop`，输出合同为
-`BGRA8 + sRGB + extended premultiplied alpha + FX-only v2`：
+`BGRA8 + sRGB + extended premultiplied alpha + FX-only v3`：
 
 - 空闲背景为 `(0, 0, 0, 0)`；
-- 有效像素满足 `0 <= RGB <= 1`、`0 <= Alpha <= 1`，允许 `RGB > Alpha`
-  和 `Alpha = 0, RGB > 0` 来携带加法发光；
+- 有效像素满足 `0 <= RGB <= 1`、`0 < Alpha <= 1`，允许 `RGB > Alpha`
+  来携带加法发光；任何可存储的 RGB 都至少携带一个 BGRA8 Alpha 步进，避免接收端清除
+  圆环、碎片和拖尾；
 - 不包含也不依赖桌面或游戏画面，WGC 不可用时仍可发送特效；
 - 固定尺寸运行时保持同一共享句柄，尺寸变化或设备恢复才允许重建。
 
@@ -68,8 +69,8 @@ ctest --test-dir build/alpha-x64 -C Release `
 ```
 
 该探针用独立进程采集“空闲、点击/拖尾、衰减结束”三阶段，并验证发送者持续存在、
-共享句柄稳定、空闲全透明、活动 Cross2 Alpha 非零、存在 `RGB > Alpha` 与
-`Alpha = 0, RGB > 0` 的加法像素，并最终恢复透明。
+共享句柄稳定、空闲全透明、所有活动 RGB 均有 Alpha 支撑、仍存在 `RGB > Alpha` 的
+扩展预乘像素，并最终恢复透明。
 它不能替代 OBS 插件加载、合成模式和录像像素验收。
 
 ## 扩展预乘逐像素验收
@@ -102,7 +103,7 @@ pwsh -NoProfile -File tools/run-obs-spout2-composite-acceptance.ps1 `
 ```json
 {
   "schemaVersion": 1,
-  "contract": "bgra8-srgb-extended-premultiplied-fx-only-v2",
+  "contract": "bgra8-srgb-extended-premultiplied-fx-only-v3",
   "obsBlendMethod": "default",
   "obsBlendMode": "normal",
   "rawFrame": {
@@ -126,8 +127,8 @@ python -B tools/verify-obs-spout2-composite.py artifacts/<证据目录>/manifest
 
 OBS 来源的混合方式保持 `Default`，混合模式保持 `Normal`。官方 Spout2 1.12.0
 来源按非 sRGB-aware 自定义来源绘制，因此验证器按实际字节域逐像素检查
-`C = clamp(S + B * (1 - A), 0, 1)`，并单独确认
-`RGB > Alpha`、`Alpha = 0, RGB > 0` 未被 OBS 压回普通预乘范围。
+`C = clamp(S + B * (1 - A), 0, 1)`，并单独确认仍存在 `RGB > Alpha`，同时不存在
+`Alpha = 0, RGB > 0`，确保加法层不会在跨进程接收时被透明像素规范化清除。
 
 ## 录像证据复核
 

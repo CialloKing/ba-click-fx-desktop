@@ -20,7 +20,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $senderName = 'ba-click-fx-desktop'
-$outputContract = 'bgra8-srgb-extended-premultiplied-fx-only-v2'
+$outputContract = 'bgra8-srgb-extended-premultiplied-fx-only-v3'
 $frameFormat = 87
 $requestTimeoutMilliseconds = 10000
 $utf8NoBom = [Text.UTF8Encoding]::new($false)
@@ -1262,7 +1262,7 @@ try
         }).Count -gt 0) 'Receiver observed no RGB-above-Alpha pixels.'
         Assert-True (@($connectedSamples | Where-Object {
             [UInt64]$_.zeroAlphaEmissionPixels -gt 0
-        }).Count -gt 0) 'Receiver observed no zero-Alpha additive emission.'
+        }).Count -eq 0) 'Receiver observed RGB that was not backed by Alpha.'
         Assert-True ([int]$probe.capturedFrame.width -eq $frameWidth -and
             [int]$probe.capturedFrame.height -eq $frameHeight -and
             [int]$probe.capturedFrame.format -eq $frameFormat) `
@@ -2233,7 +2233,7 @@ try
             [UInt64]$_.nonzeroRgbPixels -gt 0 -and
             [UInt64]$_.nonzeroAlphaPixels -gt 0 -and
             [UInt64]$_.extendedPremultipliedPixels -gt 0 -and
-            [UInt64]$_.zeroAlphaEmissionPixels -gt 0
+            [UInt64]$_.zeroAlphaEmissionPixels -eq 0
         }).Count -gt 0) `
             'Lifecycle receiver did not observe the extended-premultiplied active contract.'
         $tailSamples = @($lifecycleSamples | Select-Object -Last 10)

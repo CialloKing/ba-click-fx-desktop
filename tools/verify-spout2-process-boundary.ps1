@@ -140,13 +140,13 @@ try
         [int]$_.maxAlpha -eq 0
     }).Count -gt 0) 'Receiver did not observe a fully transparent initial frame.'
     Assert-True ([int]$connected[$activeIndex].maxAlpha -gt 0) `
-        'Active Spout2 frame has no Cross2 coverage Alpha.'
+        'Active Spout2 frame has no effect coverage Alpha.'
     Assert-True (@($connected | Where-Object {
         [UInt64]$_.extendedPremultipliedPixels -gt 0
     }).Count -gt 0) 'Active Spout2 frames contain no RGB values above Alpha.'
     Assert-True (@($connected | Where-Object {
         [UInt64]$_.zeroAlphaEmissionPixels -gt 0
-    }).Count -gt 0) 'Active Spout2 frames contain no zero-Alpha additive emission.'
+    }).Count -eq 0) 'Active Spout2 frames contain RGB that is not backed by Alpha.'
     Assert-True (@($connected | Select-Object -Skip ($activeIndex + 1) | Where-Object {
         [UInt64]$_.nonzeroAlphaPixels -eq 0 -and
         [int]$_.maxRgb -eq 0 -and
@@ -157,7 +157,7 @@ try
         schemaVersion = 2
         status = 'passed'
         sender = 'ba-click-fx-desktop'
-        outputContract = 'bgra8-srgb-extended-premultiplied-fx-only-v2'
+        outputContract = 'bgra8-srgb-extended-premultiplied-fx-only-v3'
         samples = $samples.Count
         connectedSamples = $connected.Count
         size = $sizes[0]

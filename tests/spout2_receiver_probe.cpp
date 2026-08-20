@@ -530,8 +530,10 @@ void writeResult(
             sample.pixels = scanner.scan(texture);
             if (!options.captureOutputPath.empty()
                 && !collection.capturedFrame.has_value()
+                && sample.pixels.nonzeroRgbPixels > 0U
+                && sample.pixels.nonzeroAlphaPixels > 0U
                 && sample.pixels.extendedPremultipliedPixels > 0U
-                && sample.pixels.zeroAlphaEmissionPixels > 0U)
+                && sample.pixels.zeroAlphaEmissionPixels == 0U)
             {
                 scanner.writeCurrentFrame(options.captureOutputPath);
                 collection.capturedFrame = CapturedFrame{

@@ -13,7 +13,7 @@ import numpy as np
 from PIL import Image
 
 
-CONTRACT = "bgra8-srgb-extended-premultiplied-fx-only-v2"
+CONTRACT = "bgra8-srgb-extended-premultiplied-fx-only-v3"
 EXPECTED_BACKGROUND = [96, 96, 96]
 MINIMUM_ENERGY_RATIO = 0.90
 MAXIMUM_ENERGY_RATIO = 1.10
@@ -122,7 +122,7 @@ def _verify(
     zero_alpha_emission = (alpha == 0) & np.any(source_rgb != 0, axis=2)
     if np.count_nonzero(active) < 100:
         raise RuntimeError("raw frame does not contain enough active effect pixels")
-    if not np.any(rgb_above_alpha) or not np.any(zero_alpha_emission):
+    if not np.any(rgb_above_alpha) or np.any(zero_alpha_emission):
         raise RuntimeError("raw frame is not extended premultiplied")
 
     rows, columns = np.where(active)

@@ -30,7 +30,7 @@ def _fixture(root: Path) -> tuple[Path, dict[str, np.ndarray]]:
     width = 8
     height = 6
     bgra = np.zeros((height, width, 4), dtype=np.uint8)
-    bgra[1, 1] = [24, 48, 96, 0]
+    bgra[1, 1] = [24, 48, 96, 1]
     bgra[2, 2] = [24, 48, 96, 32]
     bgra[3, 3] = [80, 40, 20, 128]
     raw_path = root / "active-frame.bgra"
@@ -58,7 +58,7 @@ def _fixture(root: Path) -> tuple[Path, dict[str, np.ndarray]]:
         )
     manifest = {
         "schemaVersion": 1,
-        "contract": "bgra8-srgb-extended-premultiplied-fx-only-v2",
+        "contract": "bgra8-srgb-extended-premultiplied-fx-only-v3",
         "obsBlendMethod": "default",
         "obsBlendMode": "normal",
         "rawFrame": {
@@ -98,8 +98,23 @@ class VerifyObsSpout2CompositeTests(unittest.TestCase):
             report = json.loads((root / "composite-verification.json").read_text())
             self.assertEqual(report["status"], "passed")
             self.assertGreater(report["rawFrame"]["rgbAboveAlphaPixels"], 0)
-            self.assertGreater(report["rawFrame"]["zeroAlphaEmissionPixels"], 0)
+            self.assertEqual(report["rawFrame"]["zeroAlphaEmissionPixels"], 0)
             self.assertEqual(len(report["cases"]), 4)
+
+    def test_rejects_emission_without_alpha(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            manifest, _ = _fixture(root)
+            raw = np.fromfile(root / "active-frame.bgra", dtype=np.uint8).reshape(
+                (6, 8, 4)
+            )
+            raw[1, 1, 3] = 0
+            raw.tofile(root / "active-frame.bgra")
+
+            result = _run(manifest)
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("not backed by Alpha", result.stderr)
 
     def test_rejects_rgb_canonicalized_to_alpha(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

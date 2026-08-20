@@ -26,7 +26,7 @@ BACKGROUND = np.asarray([96, 96, 96], dtype=np.uint16)
 def _fixture(root: Path) -> tuple[Path, np.ndarray, np.ndarray]:
     bgra = np.zeros((HEIGHT, WIDTH, 4), dtype=np.uint8)
     bgra[28:68, 42:86, :3] = [120, 105, 80]
-    bgra[28:48, 42:86, 3] = 0
+    bgra[28:48, 42:86, 3] = 1
     bgra[48:68, 42:86, 3] = 48
     raw_path = root / "active-frame.bgra"
     raw_path.write_bytes(bgra.tobytes())
@@ -45,7 +45,7 @@ def _fixture(root: Path) -> tuple[Path, np.ndarray, np.ndarray]:
 
     manifest = {
         "schemaVersion": 1,
-        "contract": "bgra8-srgb-extended-premultiplied-fx-only-v2",
+        "contract": "bgra8-srgb-extended-premultiplied-fx-only-v3",
         "backgroundRgb": [96, 96, 96],
         "rawFrame": {
             "path": raw_path.name,

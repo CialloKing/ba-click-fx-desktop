@@ -13,7 +13,7 @@ import numpy as np
 from PIL import Image
 
 
-CONTRACT = "bgra8-srgb-extended-premultiplied-fx-only-v2"
+CONTRACT = "bgra8-srgb-extended-premultiplied-fx-only-v3"
 EXPECTED_BACKGROUNDS = {
     "black": [0, 0, 0],
     "gray": [96, 96, 96],
@@ -127,7 +127,6 @@ def _verify_cases(
         raise RuntimeError("cases must contain black, gray, white, and color exactly once")
 
     effect_mask = np.any(source_rgb != 0, axis=2) | (alpha != 0)
-    zero_alpha_emission = (alpha == 0) & np.any(source_rgb != 0, axis=2)
     reports: list[dict[str, object]] = []
     for name, expected_background in EXPECTED_BACKGROUNDS.items():
         case = by_name[name]
@@ -151,11 +150,6 @@ def _verify_cases(
                 f"{name} composite differs from ONE/INV_SRC_ALPHA: "
                 f"max={maximum}, effectP99={effect_p99:.3f}, tolerance={tolerance}"
             )
-        if np.any(
-            observed[zero_alpha_emission].astype(np.int16)
-            < background_array.astype(np.int16) - tolerance
-        ):
-            raise RuntimeError(f"{name} darkens zero-Alpha additive emission pixels")
         reports.append(
             {
                 "name": name,
@@ -185,10 +179,10 @@ def main() -> int:
     coverage = alpha != 0
     if not np.any(rgb_above_alpha):
         raise RuntimeError("raw frame contains no RGB above Alpha")
-    if not np.any(zero_alpha_emission):
-        raise RuntimeError("raw frame contains no zero-Alpha additive emission")
+    if np.any(zero_alpha_emission):
+        raise RuntimeError("raw frame contains RGB that is not backed by Alpha")
     if not np.any(coverage):
-        raise RuntimeError("raw frame contains no Cross2 coverage")
+        raise RuntimeError("raw frame contains no effect coverage")
 
     case_reports = _verify_cases(
         root,
