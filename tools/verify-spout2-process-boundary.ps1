@@ -44,6 +44,7 @@ $caseRoot = Join-Path $resolvedOutput (
 [IO.Directory]::CreateDirectory($caseRoot) | Out-Null
 $isolatedHost = Join-Path $caseRoot 'ba-click-fx-desktop.exe'
 $probeJson = Join-Path $caseRoot 'receiver.json'
+$activeFrame = Join-Path $caseRoot 'active-frame.bgra'
 $verificationJson = Join-Path $caseRoot 'verification.json'
 $hostStdout = Join-Path $caseRoot 'host.stdout.log'
 $hostStderr = Join-Path $caseRoot 'host.stderr.log'
@@ -71,6 +72,7 @@ try
         '--sender=ba-click-fx-desktop' `
         '--duration-ms=6500' `
         '--interval-ms=100' `
+        "--capture-output=$activeFrame" `
         "--output=$probeJson"
     Assert-True ($LASTEXITCODE -eq 0) `
         "Receiver probe failed with exit code $LASTEXITCODE."
@@ -110,6 +112,18 @@ try
     Assert-True ($sizes.Count -eq 1) 'Spout2 dimensions changed during the fixed-size run.'
     Assert-True ($formats.Count -eq 1 -and $formats[0] -eq 87) `
         'Spout2 output was not DXGI_FORMAT_B8G8R8A8_UNORM.'
+    Assert-True ($null -ne $probe.capturedFrame) `
+        'Receiver did not preserve an active extended-premultiplied frame.'
+    Assert-True (Test-Path -LiteralPath $activeFrame -PathType Leaf) `
+        'Receiver active frame artifact is missing.'
+    Assert-True ([string]$probe.capturedFrame.path -eq $activeFrame) `
+        'Receiver active frame path does not match the requested artifact.'
+    Assert-True ([int]$probe.capturedFrame.format -eq 87) `
+        'Receiver active frame artifact is not BGRA8.'
+    $expectedFrameBytes = [UInt64]$probe.capturedFrame.width *
+        [UInt64]$probe.capturedFrame.height * 4
+    Assert-True ([UInt64](Get-Item -LiteralPath $activeFrame).Length -eq $expectedFrameBytes) `
+        'Receiver active frame artifact has the wrong byte count.'
     $activeIndex = -1
     for ($index = 0; $index -lt $connected.Count; ++$index)
     {
@@ -156,6 +170,8 @@ try
             ($connected | Measure-Object -Property extendedPremultipliedPixels -Maximum).Maximum)
         maximumZeroAlphaEmissionPixels = [UInt64](
             ($connected | Measure-Object -Property zeroAlphaEmissionPixels -Maximum).Maximum)
+        capturedFrameElapsedMs = [UInt64]$probe.capturedFrame.elapsedMs
+        capturedFrameSha256 = (Get-FileHash -LiteralPath $activeFrame -Algorithm SHA256).Hash
         evidenceRoot = $caseRoot
     }
     $verification |

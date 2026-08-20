@@ -12,6 +12,7 @@
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <optional>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -30,6 +31,7 @@ struct Options final
 {
     std::string senderName{defaultSenderName};
     std::filesystem::path outputPath{};
+    std::filesystem::path captureOutputPath{};
     std::uint32_t durationMilliseconds{6500U};
     std::uint32_t intervalMilliseconds{100U};
 };
@@ -63,6 +65,20 @@ struct Sample final
     DXGI_FORMAT format{DXGI_FORMAT_UNKNOWN};
     std::uintptr_t sharedHandle{0U};
     PixelSummary pixels{};
+};
+
+struct CapturedFrame final
+{
+    std::uint64_t elapsedMilliseconds{0U};
+    std::uint32_t width{0U};
+    std::uint32_t height{0U};
+    DXGI_FORMAT format{DXGI_FORMAT_UNKNOWN};
+};
+
+struct Collection final
+{
+    std::vector<Sample> samples{};
+    std::optional<CapturedFrame> capturedFrame{};
 };
 
 [[nodiscard]] std::uint32_t parsePositiveInteger(
@@ -103,6 +119,10 @@ struct Sample final
             options.durationMilliseconds = parsePositiveInteger(
                 argument.substr(14U),
                 "--duration-ms");
+        }
+        else if (argument.starts_with("--capture-output="))
+        {
+            options.captureOutputPath = std::string(argument.substr(17U));
         }
         else if (argument.starts_with("--interval-ms="))
         {
@@ -288,6 +308,65 @@ public:
         return summary;
     }
 
+    void writeCurrentFrame(const std::filesystem::path& outputPath)
+    {
+        if (staging_ == nullptr || width_ == 0U || height_ == 0U)
+        {
+            throw std::runtime_error("Spout2 receiver has no frame to capture");
+        }
+        const std::filesystem::path parent = outputPath.parent_path();
+        if (!parent.empty())
+        {
+            std::filesystem::create_directories(parent);
+        }
+
+        D3D11_MAPPED_SUBRESOURCE mapped{};
+        const HRESULT mappedResult = context_->Map(
+            staging_.Get(),
+            0U,
+            D3D11_MAP_READ,
+            0U,
+            &mapped);
+        if (FAILED(mappedResult))
+        {
+            throw std::runtime_error(
+                "Spout2 receiver could not map its captured frame");
+        }
+        try
+        {
+            const std::size_t tightRowBytes =
+                static_cast<std::size_t>(width_) * sizeof(Pixel);
+            if (mapped.pData == nullptr || mapped.RowPitch < tightRowBytes)
+            {
+                throw std::runtime_error(
+                    "Spout2 captured frame row is smaller than expected");
+            }
+            std::ofstream output(outputPath, std::ios::binary | std::ios::trunc);
+            if (!output)
+            {
+                throw std::runtime_error(
+                    "Spout2 receiver could not create its captured frame");
+            }
+            for (std::uint32_t y = 0U; y < height_; ++y)
+            {
+                const auto* row = static_cast<const char*>(mapped.pData)
+                    + static_cast<std::size_t>(y) * mapped.RowPitch;
+                output.write(row, static_cast<std::streamsize>(tightRowBytes));
+            }
+            if (!output)
+            {
+                throw std::runtime_error(
+                    "Spout2 receiver could not finish its captured frame");
+            }
+        }
+        catch (...)
+        {
+            context_->Unmap(staging_.Get(), 0U);
+            throw;
+        }
+        context_->Unmap(staging_.Get(), 0U);
+    }
+
 private:
     void ensureStaging(
         ID3D11Texture2D* source,
@@ -345,7 +424,7 @@ private:
 
 void writeResult(
     const Options& options,
-    const std::vector<Sample>& samples)
+    const Collection& collection)
 {
     const std::filesystem::path parent = options.outputPath.parent_path();
     if (!parent.empty())
@@ -364,9 +443,9 @@ void writeResult(
            << "  \"durationMs\": " << options.durationMilliseconds << ",\n"
            << "  \"intervalMs\": " << options.intervalMilliseconds << ",\n"
            << "  \"samples\": [\n";
-    for (std::size_t index = 0U; index < samples.size(); ++index)
+    for (std::size_t index = 0U; index < collection.samples.size(); ++index)
     {
-        const Sample& sample = samples[index];
+        const Sample& sample = collection.samples[index];
         output << "    {\"elapsedMs\":" << sample.elapsedMilliseconds
                << ",\"connected\":" << (sample.connected ? "true" : "false");
         if (sample.connected)
@@ -388,16 +467,33 @@ void writeResult(
                    << ",\"zeroAlphaEmissionPixels\":"
                    << sample.pixels.zeroAlphaEmissionPixels;
         }
-        output << "}" << (index + 1U == samples.size() ? "\n" : ",\n");
+        output << "}"
+               << (index + 1U == collection.samples.size() ? "\n" : ",\n");
     }
-    output << "  ]\n}\n";
+    output << "  ],\n  \"capturedFrame\": ";
+    if (!collection.capturedFrame.has_value())
+    {
+        output << "null\n";
+    }
+    else
+    {
+        const CapturedFrame& frame = *collection.capturedFrame;
+        output << "{\"path\":\""
+               << jsonEscape(options.captureOutputPath.string())
+               << "\",\"elapsedMs\":" << frame.elapsedMilliseconds
+               << ",\"width\":" << frame.width
+               << ",\"height\":" << frame.height
+               << ",\"format\":" << static_cast<unsigned int>(frame.format)
+               << "}\n";
+    }
+    output << "}\n";
     if (!output)
     {
         throw std::runtime_error("could not finish receiver probe output");
     }
 }
 
-[[nodiscard]] std::vector<Sample> collect(const Options& options)
+[[nodiscard]] Collection collect(const Options& options)
 {
     spoutDX receiver;
     receiver.SetAdapterAuto(true);
@@ -413,7 +509,7 @@ void writeResult(
     const auto deadline = startedAt
         + std::chrono::milliseconds(options.durationMilliseconds);
     auto nextSampleAt = startedAt;
-    std::vector<Sample> samples;
+    Collection collection{};
     while (std::chrono::steady_clock::now() < deadline)
     {
         std::this_thread::sleep_until(nextSampleAt);
@@ -432,14 +528,26 @@ void writeResult(
             sample.sharedHandle = reinterpret_cast<std::uintptr_t>(
                 receiver.GetSenderHandle());
             sample.pixels = scanner.scan(texture);
+            if (!options.captureOutputPath.empty()
+                && !collection.capturedFrame.has_value()
+                && sample.pixels.extendedPremultipliedPixels > 0U
+                && sample.pixels.zeroAlphaEmissionPixels > 0U)
+            {
+                scanner.writeCurrentFrame(options.captureOutputPath);
+                collection.capturedFrame = CapturedFrame{
+                    sample.elapsedMilliseconds,
+                    sample.width,
+                    sample.height,
+                    sample.format};
+            }
         }
-        samples.push_back(sample);
+        collection.samples.push_back(sample);
         nextSampleAt += std::chrono::milliseconds(options.intervalMilliseconds);
     }
 
     receiver.ReleaseReceiver();
     receiver.CloseDirectX11();
-    return samples;
+    return collection;
 }
 
 }
@@ -449,9 +557,10 @@ int main(const int argc, char** argv)
     try
     {
         const Options options = parseOptions(argc, argv);
-        const std::vector<Sample> samples = collect(options);
-        writeResult(options, samples);
-        std::cout << "Spout2 receiver samples: " << samples.size() << '\n';
+        const Collection collection = collect(options);
+        writeResult(options, collection);
+        std::cout << "Spout2 receiver samples: "
+                  << collection.samples.size() << '\n';
         return 0;
     }
     catch (const std::exception& error)
