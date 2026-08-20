@@ -198,6 +198,19 @@ if(Python3_Interpreter_FOUND)
             -B
             "${CMAKE_CURRENT_SOURCE_DIR}/verify_external_recording_spike_tests.py"
     )
+    add_test(
+        NAME obs_spout2_composite_contract
+        COMMAND
+            "${Python3_EXECUTABLE}"
+            -B
+            "${CMAKE_CURRENT_SOURCE_DIR}/verify_obs_spout2_composite_tests.py"
+            "${PROJECT_SOURCE_DIR}/tools/verify-obs-spout2-composite.py"
+    )
+    set_tests_properties(
+        obs_spout2_composite_contract
+        PROPERTIES
+            LABELS "contract;obs;spout2"
+    )
     set_tests_properties(
         external_recording_spike_contract
         PROPERTIES

@@ -70,6 +70,39 @@ ctest --test-dir build/alpha-x64 -C Release `
 `Alpha = 0, RGB > 0` 的加法像素，并最终恢复透明。
 它不能替代 OBS 插件加载、合成模式和录像像素验收。
 
+## 扩展预乘逐像素验收
+
+亮度验收必须使用固定龄特效帧和只包含纯色背景、Spout2 源的隔离场景；不要用显示器捕获
+录制 OBS 自身。接收器探针的 `--capture-output=<path>` 可保存紧密排列的原始 BGRA8 帧。
+为同一帧分别保存黑色 `(0,0,0)`、灰色 `(96,96,96)`、白色 `(255,255,255)` 和彩色
+`(32,80,144)` 场景 PNG 后，按以下结构编写清单：
+
+```json
+{
+  "schemaVersion": 1,
+  "contract": "bgra8-srgb-extended-premultiplied-fx-only-v2",
+  "rawFrame": {
+    "path": "active-frame.bgra",
+    "width": 3840,
+    "height": 2160,
+    "format": 87
+  },
+  "cases": [
+    {"name": "black", "backgroundRgb": [0, 0, 0], "image": "black.png"},
+    {"name": "gray", "backgroundRgb": [96, 96, 96], "image": "gray.png"},
+    {"name": "white", "backgroundRgb": [255, 255, 255], "image": "white.png"},
+    {"name": "color", "backgroundRgb": [32, 80, 144], "image": "color.png"}
+  ]
+}
+```
+
+```powershell
+python -B tools/verify-obs-spout2-composite.py artifacts/<证据目录>/manifest.json
+```
+
+验证器逐像素检查 `C = clamp(S + B * (1 - A), 0, 1)`，并单独确认
+`RGB > Alpha`、`Alpha = 0, RGB > 0` 未被 OBS 压回普通预乘范围。
+
 ## 录像证据复核
 
 本机 OBS 验收目录应包含 `frame-baseline.png`、
@@ -81,7 +114,7 @@ python -B tools/verify-obs-spout2-evidence.py `
   artifacts/<证据目录> artifacts/<证据目录>/<录像>.mp4
 ```
 
-复核器会验证空闲和结束帧逐像素等于背景、活动阶段存在特效、没有黑色矩形，
+录像复核器会验证空闲和结束帧逐像素等于背景、活动阶段存在特效、没有黑色矩形，
 并解码录像检查完整的“空闲、活动、恢复”三阶段。需要自动化 OBS 截图或录像时，
 `tools/obs-websocket-request.mjs` 可从本机 OBS WebSocket 配置读取认证信息并执行单个
 本地请求；它不会把密码写入命令行或输出。
