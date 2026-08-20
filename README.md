@@ -24,7 +24,7 @@ Release Host 运行时是单文件：Visual C++ 运行库静态链接，Circle�
 DirectComposition 和 D3DCompiler 系统组件。独立的 Control Center 使用纯 Win32 Common Controls，
 不需要 Windows App SDK 或其他旁置运行时。
 
-当前架构版本是 **v0.3**，状态为 **Proposed**。首个可运行 Alpha 已具备 Host、原生 Win32
+当前架构版本是 **v0.3**，状态为 **Proposed**。0.2.0 测试版已具备 Host、原生 Win32
 Control Center、本地 IPC 与独立测试包；当前人工特效审核和支持合同以单主屏 SDR 下的三种渲染模式
 为准。涉及 DirectComposition、Windows Graphics Capture、HDR/Advanced Color 和多适配器的结论，
 必须取得仓库中定义的 Spike 证据或接受明确的 fallback 后，相关 ADR 才能标记为 Accepted。
@@ -72,7 +72,7 @@ Trail 和 Bloom 继续按游戏合同在线性 FP16 中计算。最终呈现阶�
 - [docs/SPIKES.md](docs/SPIKES.md)：四个必须执行的硬件/API Spike。
 - [docs/VALIDATION.md](docs/VALIDATION.md)：测试层级、Golden Oracle 和发布门槛。
 - [docs/UNITY_REFERENCE.md](docs/UNITY_REFERENCE.md)：游戏解包资源、Unity 重建工程与 Golden 的证据边界。
-- [SUPPORT.md](SUPPORT.md)：首个 Alpha 的可测试范围、退出方式和明确排除项。
+- [SUPPORT.md](SUPPORT.md)：0.2.0 的可测试范围、退出方式和明确排除项。
 - [tools/package-test-bundle.ps1](tools/package-test-bundle.ps1)：构建并生成可解压测试包，同时调用完整性验证。
 
 ## 项目状态
@@ -93,19 +93,19 @@ cmake --build build\vs2026 --target verify_unity_reference
 仓库预设完成全新 Release 配置、构建和测试：
 
 ```powershell
-cmake --workflow --preset alpha-release-verify
+cmake --workflow --preset release-verify
 ```
 
 日常只验证桌面 Host 时使用按目标构建，避免触发包含全部测试和 Spike 的 `ALL_BUILD`：
 
 ```powershell
-cmake --build --preset alpha-host-release --parallel 4
+cmake --build --preset host-release --parallel 4
 ```
 
-`alpha-release-verify` 仍然保留完整 Release 构建和 CTest 流程；它不是快速迭代命令。
+`release-verify` 仍然保留完整 Release 构建和 CTest 流程；它不是快速迭代命令。
 
-普通 `alpha-x64` 预设启用 Spout2，并要求 `VCPKG_ROOT` 指向 Spout2 依赖；
-`alpha-x64-slim` 预设通过 `BAFX_ENABLE_SPOUT2=OFF` 构建不含 Spout2 的精简版。
+普通 `x64` 预设启用 Spout2，并要求 `VCPKG_ROOT` 指向 Spout2 依赖；
+`x64-slim` 预设通过 `BAFX_ENABLE_SPOUT2=OFF` 构建不含 Spout2 的精简版。
 精简版仍保留完整特效和控制中心，但不会显示 Spout2 输出开关。对应的打包脚本可传入
 `-Slim`，生成文件名带有 `-slim` 后缀。
 
@@ -125,14 +125,14 @@ build `28000+` 的运行时能力或 WGC Session-local exclusion；Windows 11 AP
 DirectComposition smoke test 需要交互式桌面，因此默认不进入普通 CTest：
 
 ```powershell
-cmake --build --preset alpha-debug --target smoke_desktop
+cmake --build --preset debug --target smoke_desktop
 ```
 
 启用 `BAFX_ENABLE_DESKTOP_SMOKE_TESTS=ON` 时，smoke 会生成一次确定性中心点击，实际经过
 Unity 材质 shader、MRT、FP16 预乘交换链和 DirectComposition present。单独查看效果可运行：
 
 ```powershell
-build\alpha-x64\src\desktop\Debug\ba-click-fx-desktop.exe --demo-click
+build\x64\src\desktop\Debug\ba-click-fx-desktop.exe --demo-click
 ```
 
 Overlay 不抢焦点且保持鼠标穿透；右键通知区域图标可退出，也可按 `Ctrl+Alt+F12` 或备用的
@@ -196,11 +196,11 @@ Visual Studio、Windows SDK、Inno Setup 或 PowerShell 依赖包；安装器已
 `%LOCALAPPDATA%`、当前工作目录或其他用户目录保存数据。Host 使用
 `Local\BAFX.Host.v1` 互斥体保证单实例。
 
-首次生成的 schema 14 配置将 `background.mode` 设为 `background-aware`、
+首次生成的 schema 17 配置将 `background.mode` 设为 `background-aware`、
 `background.allowSystemBorder` 设为 `true`、`display.hdrEnabled` 设为 `false`，并以
 `performance.framePacing=match-display`、`input.trailOnlyWhilePressed=true`、`input.samplingRateHz=0`
 保持跟随显示器帧率、按住拖尾且不额外限制输入 Move。
-测试版只接受字段完整的显式 `schemaVersion=14`：缺少版本、section 或字段，非当前版本、
+测试版只接受字段完整的显式 `schemaVersion=17`：缺少版本、section 或字段，非当前版本、
 未知字段和枚举别名都会被拒绝。Host 记录错误后仅在内存中使用当前默认值，不补齐、不迁移也不改写
 原文件。只有
 `background-aware` 会启用 WGC；WGC 或捕获排除路径失败时，Host 将当前批次回退到内部
@@ -302,7 +302,7 @@ Shutdown
 `GetDisplayState` 只接受同版本 Host 生成的严格 schema 2：未知、重复、缺失字段和旧 schema 都会被
 Control Center 拒绝。它返回独立运行代次、配置/应用代次、全局拓扑状态、权威离线 override 列表，以及
 每个会话实际应用的特效、HDR、颜色、cadence 和输出状态；它不修改配置，也不代表其中的实验能力已经完成
-硬件验收。`SetConfig` 也接受完整的 schema 14
+硬件验收。`SetConfig` 也接受完整的 schema 17
 JSON 快照。`GetFxConfig`、`SetFxParam`、原子批量的 `SetFxParams` 和 `ResetFxConfig` 是本项目的原生
 特效控制接口。`GetFxConfig` 返回平面的 `EffectsConfig` 字段，写入路径只接受唯一的 `effects.*`
 命名空间，不接受 Web 别名或额外单位换算。FX 快照不包含 HDR、背景、输入、性能或系统字段；这些

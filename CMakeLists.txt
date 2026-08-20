@@ -32,7 +32,7 @@ elseif(DEFINED VCPKG_CRT_LINKAGE
 endif()
 
 if(MSVC)
-    # Alpha packages must run without a separately installed Visual C++ runtime.
+    # Release packages must run without a separately installed Visual C++ runtime.
     # The vcpkg x64-windows Spout2 binary is built with the dynamic CRT. Keep
     # the whole static-library graph on the same CRT when that optional output
     # is enabled; mixing /MT and /MD is rejected by the linker and can also

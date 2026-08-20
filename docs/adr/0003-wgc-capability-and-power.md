@@ -26,12 +26,14 @@ Agile/Threading(Both) 不保证方法并发安全。`MinUpdateInterval` 只在 b
 
 `recording-compatible` 仅作为用户主动选择的外部录屏测试模式开放。Host 与 Control Center 共用
 同一个运行时版本判定：版本探测成功且 `dwBuildNumber >= 28000` 才允许应用，低于该值或探测失败
-均拒绝；不设未来 build 上限。该模式的成功日志不能推导 WGC Session-local exclusion 成功。
+均拒绝；不设未来 build 上限。允许尝试时，实际路径按
+`SessionLocalExclusion -> LegacyGlobalExclusion -> FxOnly` 顺序回退；该模式的成功日志不能推导
+WGC Session-local exclusion 已通过正式支持验收。
 
 ## Portable Alpha boundary
 
 portable Win32 EXE 不具备 MSIX package identity，也不能通过外部清单授予
-`graphicsCaptureWithoutBorder` capability。新生成的 schema 14 配置将
+`graphicsCaptureWithoutBorder` capability。新生成的 schema 17 配置将
 `background.allowSystemBorder` 默认为 `true`。测试版拒绝所有旧 schema，不从旧文件套用该字段，
 也不执行迁移。
 
@@ -54,7 +56,7 @@ portable Win32 EXE 不具备 MSIX package identity，也不能通过外部清单
 ## Acceptance
 
 - Spike B 覆盖授权成功/拒绝、边框开关、cursor 排除、ContentSize、session restart 和 self-exclusion。
-- schema 14 默认允许系统边框；旧 schema 被配置层整体拒绝，不参与 WGC 默认值或迁移逻辑。
+- schema 17 默认允许系统边框；旧 schema 被配置层整体拒绝，不参与 WGC 默认值或迁移逻辑。
 - 关闭系统边框后，无边框能力不可用时于 `StartCapture` 前回退内部 FX-only coverage transport；
   允许系统边框的测试可观察到 `system-border=visible-allowed`。DComp overlay 没有浏览器 `Screen` API
   的逐像素等价物；捕获样本只在背景感知路径有效时参与合成。

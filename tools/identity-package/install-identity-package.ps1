@@ -182,7 +182,7 @@ function Assert-ConfigObjectFields
     {
         $details.Add("unknown=$($unknownFields -join ',')")
     }
-    throw "Generated configuration field '$Path' does not match schemaVersion 14 ($($details -join '; '))."
+        throw "Generated configuration field '$Path' does not match schemaVersion 17 ($($details -join '; '))."
 }
 
 function Set-IdentityInstallConfig
@@ -250,9 +250,9 @@ function Set-IdentityInstallConfig
     $schemaVersionProperty = $config.PSObject.Properties['schemaVersion']
     if ($null -eq $schemaVersionProperty `
         -or -not ($schemaVersionProperty.Value -is [ValueType]) `
-        -or [double]$schemaVersionProperty.Value -ne 14.0)
+        -or [double]$schemaVersionProperty.Value -ne 17.0)
     {
-        throw 'Generated configuration must use schemaVersion 14.'
+        throw 'Generated configuration must use schemaVersion 17.'
     }
 
     # The Host keeps an invalid persisted document while using defaults only in

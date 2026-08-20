@@ -216,7 +216,7 @@ python -B tools\generate-unity-particle-fixture.py @fixtures --check
 ```powershell
 $revision = git rev-parse HEAD
 $fixtureRoot = "artifacts\local\gpu-captures\$revision-unity-particle-fixture"
-build\alpha-x64\src\capture\Release\ba-click-fx-gpu-capture.exe `
+build\x64\src\capture\Release\ba-click-fx-gpu-capture.exe `
   "--output=$fixtureRoot" `
   "--case=unity-particle-fixture" `
   "--all-layers" `
@@ -276,9 +276,9 @@ Down/Up 的能量守恒与单调传播检查继续保留。背景感知和录屏
 `Present` 前的 FP16 资源，不依赖会漏掉 DComp visual 的 PrintScreen：
 
 ```powershell
-cmake --build --preset alpha-release --target ba_fx_gpu_capture
+cmake --build --preset release --target ba_fx_gpu_capture
 $revision = git rev-parse HEAD
-build\alpha-x64\src\capture\Release\ba-click-fx-gpu-capture.exe `
+build\x64\src\capture\Release\ba-click-fx-gpu-capture.exe `
   "--output=artifacts\local\gpu-captures\$revision" `
   "--all-layers" `
   "--revision=$revision"
@@ -299,7 +299,7 @@ half 数值证据；PNG 不执行 unpremultiply、强制不透明黑底，仅用
 
 ```powershell
 $dragRoot = "artifacts\local\gpu-captures\$revision-drag-trail"
-build\alpha-x64\src\capture\Release\ba-click-fx-gpu-capture.exe `
+build\x64\src\capture\Release\ba-click-fx-gpu-capture.exe `
   "--output=$dragRoot" `
   "--case=drag-trail" `
   "--all-layers" `

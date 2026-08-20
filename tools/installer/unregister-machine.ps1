@@ -566,7 +566,7 @@ $stateInvalid = `
     ([string]$state.packageName -ne 'CialloKing.BaClickFxDesktop') -or `
     ([string]$state.applicationId -ne 'BaClickFxDesktop') -or `
     ([string]$state.publisher -ne 'CN=BaClickFx.Local') -or `
-    ([string]$state.productVersion -notmatch '^[0-9]+\.[0-9]+\.[0-9]+-alpha\.[0-9]+$') -or `
+    ([string]$state.productVersion -notmatch '^[0-9]+\.[0-9]+\.[0-9]+$') -or `
     ([string]$state.packageVersion -notmatch '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$') -or `
     ([string]$state.packageFullName -notmatch '^CialloKing\.BaClickFxDesktop_[A-Za-z0-9._-]+$') -or `
     ([string]$state.packageFamilyName -notmatch '^CialloKing\.BaClickFxDesktop_[A-Za-z0-9-]+$') -or `

@@ -65,7 +65,7 @@ Composite Mode 改为 `4`（Premultiplied Alpha）、来源混合方式恢复为
 标准构建可在不启动 OBS 时先运行进程边界探针：
 
 ```powershell
-ctest --test-dir build/alpha-x64 -C Release `
+ctest --test-dir build/x64 -C Release `
   -R '^spout2_process_boundary$' --output-on-failure
 ```
 
@@ -80,13 +80,13 @@ ctest --test-dir build/alpha-x64 -C Release `
 
 ```powershell
 pwsh -NoProfile -File tools/run-obs-spout2-composite-acceptance.ps1 `
-  -HostPath 'build/alpha-x64/src/desktop/Release/ba-click-fx-desktop.exe' `
-  -ProbePath 'build/alpha-x64/tests/Release/bafx_spout2_receiver_probe.exe' `
+  -HostPath 'build/x64/src/desktop/Release/ba-click-fx-desktop.exe' `
+  -ProbePath 'build/x64/tests/Release/bafx_spout2_receiver_probe.exe' `
   -ObsPath '<OBS 安装目录>/bin/64bit/obs64.exe' `
   -Mode FixedComposite -OutputDirectory 'artifacts/obs-fixed-<时间戳>'
 pwsh -NoProfile -File tools/run-obs-spout2-composite-acceptance.ps1 `
-  -HostPath 'build/alpha-x64/src/desktop/Release/ba-click-fx-desktop.exe' `
-  -ProbePath 'build/alpha-x64/tests/Release/bafx_spout2_receiver_probe.exe' `
+  -HostPath 'build/x64/src/desktop/Release/ba-click-fx-desktop.exe' `
+  -ProbePath 'build/x64/tests/Release/bafx_spout2_receiver_probe.exe' `
   -ObsPath '<OBS 安装目录>/bin/64bit/obs64.exe' `
   -Mode DynamicLifecycle -OutputDirectory 'artifacts/obs-lifecycle-<时间戳>'
 ```

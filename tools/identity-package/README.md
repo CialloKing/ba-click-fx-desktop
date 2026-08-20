@@ -11,7 +11,7 @@ CurrentUser 签名/安装脚本当作面向普通用户的正式发布链。
 
 ```powershell
 pwsh -NoProfile -ExecutionPolicy Bypass -File .\tools\identity-package\build-identity-package.ps1 `
-  -HostExecutable .\build\alpha-x64\src\desktop\Release\ba-click-fx-desktop.exe `
+  -HostExecutable .\build\x64\src\desktop\Release\ba-click-fx-desktop.exe `
   -OutputDirectory .\artifacts\local\identity-spike
 ```
 
@@ -29,7 +29,7 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File .\tools\identity-package\build-ide
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\identity-package\install-identity-package.ps1 `
-  -SourceDirectory .\build\alpha-x64\src\desktop\Release `
+  -SourceDirectory .\build\x64\src\desktop\Release `
   -DisableSystemBorder `
   -Launch
 ```

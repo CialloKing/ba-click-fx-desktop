@@ -1,4 +1,4 @@
-# 首个 Alpha 支持范围
+# 0.2.0 测试版支持范围
 
 ## 可以测试的范围
 
@@ -68,9 +68,9 @@
   副屏立即隐藏并锁存 `Display.Session[n].OutputContractFaulted=true`，普通 Bloom 或输入配置成功不会解除；
   只有实际输出重新满足当前策略、完整拓扑重建或资源恢复才能重新显示。协调屏会先隐藏，再终止 Host，
   防止旧 HDR 表面继续驻留。`Display.Output.RenegotiationExhausted` 会记录请求/实际映射和最终处置。
-- 首次生成的完整 schema 14 配置默认为 `background.mode=background-aware`、
+- 首次生成的完整 schema 17 配置默认为 `background.mode=background-aware`、
   `background.allowSystemBorder=true`、`input.trailOnlyWhilePressed=true`、
-  `input.samplingRateHz=0`、`display.hdrEnabled=false` 和 `performance.framePacing=match-display`。测试版只接受字段完整的 schema 14；非当前 schema、
+  `input.samplingRateHz=0`、`display.hdrEnabled=false` 和 `performance.framePacing=match-display`。测试版只接受字段完整的 schema 17；非当前 schema、
   缺失或未知字段以及枚举别名均被拒绝。Host 保留无效原文件并以内存中的当前默认值继续运行，不迁移、
   补齐或改写无效配置。背景感知授权、排除或会话失败时回退内部 FX-only transport；其余模式不启用 WGC。
 - portable 运行时把 `BAFX.config.json`、`ba-click-fx-desktop-support.log` 和支持报告写入 EXE 所在目录；
@@ -157,7 +157,10 @@
 - RecordingCompatible 按 Web 版截图的透明覆盖层、`visual-max`、`bright-core`、`0.90` Alpha 上限、
   `source-over` 和未知透明背景设置拟合；LightBackground 使用同一策略，但将 Alpha 上限收紧为
   `0.85`。原生 DirectComposition 没有 DOM 背景表面的逐像素等价物，因此这两种模式都不读取桌面，
-  也不是任意桌面像素的逐点捕获。
+  也不是任意桌面像素的逐点捕获。`recording-compatible` 只有在用户主动选择且 Windows build
+  `>=28000` 时才尝试，实际路径按 `SessionLocalExclusion -> LegacyGlobalExclusion -> FxOnly`
+  顺序回退；低版本或版本探测失败时拒绝请求并保持安全模式。该入口是测试模式，不构成 Session-local
+  WGC 或外部录屏兼容性的正式支持声明。
 - Release Host 静态链接 Visual C++ 运行库；仍使用 Windows 自带的 D3D11、DirectComposition 和
   D3DCompiler 系统组件。四张纹理以 raw LZ4 字节编译进 EXE，运行时不读取图片，也不使用 WIC；
   仅开发用的 GPU 捕获工具使用 WIC 写出验证 PNG。
@@ -206,7 +209,8 @@ Windows“已安装的应用”执行，默认保留安装目录
 - HDR、Advanced Color 和物理 nits 输出声明。
 - WGC 背景感知的外部录屏兼容性、会话长时间压力与 packaged 权限允许/拒绝矩阵。Control Center 中三种模式和
   “允许黄色捕获边框”仍是实验入口；“显示与性能”页的 HDR 开关、逐屏状态和帧率策略同样只是生产代码入口与
-  诊断视图。本 Alpha 不将 WGC、录屏兼容性、HDR、多显示器或混合 DPI/刷新率作为可依赖的效果路径。
+  诊断视图。本版不将 HDR、多显示器、混合 DPI/刷新率、跨适配器、真实 device lost 或 Session-local WGC
+  作为可依赖的效果路径。
   `background-aware` 启动失败或会话中止后回退内部 FX-only transport，并撤销窗口捕获排除，避免
   回退画面被录屏器隐藏；`recording-compatible` 和 `light-background` 始终关闭 WGC。
 - 当前 Windows 10 19045 portable 实测中，允许可见系统边框时 WGC 会话和背景参与正常；关闭黄色边框后，
@@ -227,11 +231,11 @@ Windows“已安装的应用”执行，默认保留安装目录
   真实硬件单元格仍为 `Not Run`。
 - device removed/reset 后已有事件通知、一次性重建实现和主动探针，但当前只证明通知注册及主动重建后的
   重新注册；真实 GPU reset、热插拔、跨适配器以及 device-lost 下 WGC 同步关闭仍未完成硬件验收，
-  因此不属于本 Alpha 的支持范围。
+  因此不属于本版的支持范围。
 - 自动更新、公有代码签名，以及无边框 WGC 的跨版本稳定性。方案 C 安装器已经作为普通用户发布
   通道提供，但其背景感知能力仍受 Windows 版本、权限和显卡环境影响；portable ZIP 继续作为无安装权限的备选。
 
-这些能力即使存在实验代码或架构文档，也不属于本 Alpha 的支持合同。
+这些能力即使存在实验代码或架构文档，也不属于本版的支持合同。
 
 ## 测试入口
 

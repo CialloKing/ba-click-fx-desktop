@@ -239,7 +239,7 @@ function Assert-PendingState
         [string]$State.applicationId -ne 'BaClickFxDesktop' -or
         [string]$State.publisher -ne 'CN=BaClickFx.Local' -or
         [string]$State.productVersion -notmatch
-            '^[0-9]+\.[0-9]+\.[0-9]+-alpha\.[0-9]+$' -or
+            '^[0-9]+\.[0-9]+\.[0-9]+$' -or
         [string]$State.packageVersion -notmatch '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$')
     {
         throw 'Protected pending state contains invalid identity data.'

@@ -326,11 +326,15 @@ try
         throw "Manifest file list differs from extracted payload: $details"
     }
 
-    $numericVersion = $ExpectedVersion -replace '-alpha\.', '.'
-    if ($numericVersion -notmatch '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$')
+    $versionMatch = [regex]::Match(
+        $ExpectedVersion,
+        '^([0-9]+)\.([0-9]+)\.([0-9]+)$',
+        [Text.RegularExpressions.RegexOptions]::CultureInvariant)
+    if (-not $versionMatch.Success)
     {
-        throw "Expected version cannot be mapped to a Windows version: $ExpectedVersion"
+        throw "Expected version must use MAJOR.MINOR.PATCH: $ExpectedVersion"
     }
+    $numericVersion = "$($versionMatch.Groups[1].Value).$($versionMatch.Groups[2].Value).$($versionMatch.Groups[3].Value).0"
 
     $hostExecutable = Join-Path $installRoot 'ba-click-fx-desktop.exe'
     Assert-ExecutableVersion `

@@ -7,8 +7,8 @@
   },
   "configurePresets": [
     {
-      "name": "alpha-x64",
-      "displayName": "Alpha x64 (Spout2 enabled)",
+      "name": "x64",
+      "displayName": "x64 (Spout2 enabled)",
       "architecture": {
         "value": "x64",
         "strategy": "set"
@@ -23,8 +23,8 @@
       }
     },
     {
-      "name": "alpha-x64-slim",
-      "displayName": "Alpha x64 Slim (Spout2 disabled)",
+      "name": "x64-slim",
+      "displayName": "x64 Slim (Spout2 disabled)",
       "architecture": {
         "value": "x64",
         "strategy": "set"
@@ -39,15 +39,15 @@
   ],
   "buildPresets": [
     {
-      "name": "alpha-debug",
-      "displayName": "Build Alpha Debug",
-      "configurePreset": "alpha-x64",
+      "name": "debug",
+      "displayName": "Build Debug",
+      "configurePreset": "x64",
       "configuration": "Debug"
     },
     {
-      "name": "alpha-release",
-      "displayName": "Build Alpha Release",
-      "configurePreset": "alpha-x64",
+      "name": "release",
+      "displayName": "Build Release",
+      "configurePreset": "x64",
       "configuration": "Release",
       "jobs": 2,
       "nativeToolOptions": [
@@ -55,9 +55,9 @@
       ]
     },
     {
-      "name": "alpha-host-release",
-      "displayName": "Build Alpha Desktop Host Release",
-      "configurePreset": "alpha-x64",
+      "name": "host-release",
+      "displayName": "Build Desktop Host Release",
+      "configurePreset": "x64",
       "configuration": "Release",
       "targets": [
         "ba_click_fx_desktop"
@@ -67,18 +67,18 @@
       ]
     },
     {
-      "name": "alpha-package-verify",
-      "displayName": "Verify packaged Alpha Release",
-      "configurePreset": "alpha-x64",
+      "name": "release-package-verify",
+      "displayName": "Verify packaged Release",
+      "configurePreset": "x64",
       "configuration": "Release",
       "targets": [
-        "verify_alpha_package"
+        "verify_release_package"
       ]
     },
     {
-      "name": "alpha-slim-release",
-      "displayName": "Build Alpha Slim Release",
-      "configurePreset": "alpha-x64-slim",
+      "name": "slim-release",
+      "displayName": "Build Slim Release",
+      "configurePreset": "x64-slim",
       "configuration": "Release",
       "jobs": 2,
       "nativeToolOptions": [
@@ -86,20 +86,20 @@
       ]
     },
     {
-      "name": "alpha-slim-package-verify",
-      "displayName": "Verify packaged Alpha Slim Release",
-      "configurePreset": "alpha-x64-slim",
+      "name": "slim-release-package-verify",
+      "displayName": "Verify packaged Slim Release",
+      "configurePreset": "x64-slim",
       "configuration": "Release",
       "targets": [
-        "verify_alpha_package"
+        "verify_release_package"
       ]
     }
   ],
   "testPresets": [
     {
-      "name": "alpha-debug",
-      "displayName": "Test Alpha Debug",
-      "configurePreset": "alpha-x64",
+      "name": "debug",
+      "displayName": "Test Debug",
+      "configurePreset": "x64",
       "configuration": "Debug",
       "output": {
         "outputOnFailure": true
@@ -109,9 +109,9 @@
       }
     },
     {
-      "name": "alpha-release",
-      "displayName": "Test Alpha Release",
-      "configurePreset": "alpha-x64",
+      "name": "release",
+      "displayName": "Test Release",
+      "configurePreset": "x64",
       "configuration": "Release",
       "output": {
         "outputOnFailure": true
@@ -121,9 +121,9 @@
       }
     },
     {
-      "name": "alpha-slim-release",
-      "displayName": "Test Alpha Slim Release",
-      "configurePreset": "alpha-x64-slim",
+      "name": "slim-release",
+      "displayName": "Test Slim Release",
+      "configurePreset": "x64-slim",
       "configuration": "Release",
       "output": {
         "outputOnFailure": true
@@ -135,9 +135,9 @@
   ],
   "packagePresets": [
     {
-      "name": "alpha-release",
-      "displayName": "Package Alpha Release ZIP",
-      "configurePreset": "alpha-x64",
+      "name": "release",
+      "displayName": "Package Release ZIP",
+      "configurePreset": "x64",
       "generators": [
         "ZIP"
       ],
@@ -146,9 +146,9 @@
       ]
     },
     {
-      "name": "alpha-slim-release",
-      "displayName": "Package Alpha Slim Release ZIP",
-      "configurePreset": "alpha-x64-slim",
+      "name": "slim-release",
+      "displayName": "Package Slim Release ZIP",
+      "configurePreset": "x64-slim",
       "generators": [
         "ZIP"
       ],
@@ -159,90 +159,90 @@
   ],
   "workflowPresets": [
     {
-      "name": "alpha-release-verify",
-      "displayName": "Configure, build, and test Alpha Release",
+      "name": "release-verify",
+      "displayName": "Configure, build, and test Release",
       "steps": [
         {
           "type": "configure",
-          "name": "alpha-x64"
+          "name": "x64"
         },
         {
           "type": "build",
-          "name": "alpha-release"
+          "name": "release"
         },
         {
           "type": "test",
-          "name": "alpha-release"
+          "name": "release"
         }
       ]
     },
     {
-      "name": "alpha-package",
-      "displayName": "Configure, build, test, and package Alpha Release",
+      "name": "release-package",
+      "displayName": "Configure, build, test, and package Release",
       "steps": [
         {
           "type": "configure",
-          "name": "alpha-x64"
+          "name": "x64"
         },
         {
           "type": "build",
-          "name": "alpha-release"
+          "name": "release"
         },
         {
           "type": "test",
-          "name": "alpha-release"
+          "name": "release"
         },
         {
           "type": "package",
-          "name": "alpha-release"
+          "name": "release"
         },
         {
           "type": "build",
-          "name": "alpha-package-verify"
+          "name": "release-package-verify"
         }
       ]
     },
     {
-      "name": "alpha-slim-release-verify",
-      "displayName": "Configure, build, and test Alpha Slim Release",
+      "name": "slim-release-verify",
+      "displayName": "Configure, build, and test Slim Release",
       "steps": [
         {
           "type": "configure",
-          "name": "alpha-x64-slim"
+          "name": "x64-slim"
         },
         {
           "type": "build",
-          "name": "alpha-slim-release"
+          "name": "slim-release"
         },
         {
           "type": "test",
-          "name": "alpha-slim-release"
+          "name": "slim-release"
         }
       ]
     },
     {
-      "name": "alpha-slim-package",
-      "displayName": "Configure, build, test, and package Alpha Slim Release",
+      "name": "slim-release-package",
+      "displayName": "Configure, build, test, and package Slim Release",
       "steps": [
         {
           "type": "configure",
-          "name": "alpha-x64-slim"
+          "name": "x64-slim"
         },
         {
           "type": "build",
-          "name": "alpha-slim-release"
+          "name": "slim-release"
         },
         {
           "type": "test",
-          "name": "alpha-slim-release"
+          "name": "slim-release"
         },
         {
           "type": "package",
-          "name": "alpha-slim-release"
+          "name": "slim-release"
         },
         {
           "type": "build",
-          "name": "alpha-slim-package-verify"
+          "name": "slim-release-package-verify"
         }
       ]
     }

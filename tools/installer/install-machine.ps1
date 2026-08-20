@@ -1153,7 +1153,7 @@ function Assert-InstallStateObject
     {
         throw 'Protected install state has unexpected identity values.'
     }
-    if ([string]$State.productVersion -notmatch '^[0-9]+\.[0-9]+\.[0-9]+-alpha\.[0-9]+$')
+    if ([string]$State.productVersion -notmatch '^[0-9]+\.[0-9]+\.[0-9]+$')
     {
         throw 'Protected install state has an invalid product version.'
     }

@@ -20,11 +20,11 @@ $packagePath = [IO.Path]::GetFullPath($Package)
 $checksumPath = "$packagePath.sha256"
 if (-not (Test-Path -LiteralPath $packagePath -PathType Leaf))
 {
-    throw "Alpha ZIP not found: $packagePath"
+    throw "Release ZIP not found: $packagePath"
 }
 if (-not (Test-Path -LiteralPath $checksumPath -PathType Leaf))
 {
-    throw "Alpha ZIP checksum not found: $checksumPath"
+    throw "Release ZIP checksum not found: $checksumPath"
 }
 
 $checksumLine = (Get-Content -LiteralPath $checksumPath -Raw).Trim()
@@ -41,7 +41,7 @@ $expectedHash = $Matches[1].ToUpperInvariant()
 $actualHash = (Get-FileHash -LiteralPath $packagePath -Algorithm SHA256).Hash
 if ($actualHash -ne $expectedHash)
 {
-    throw "Alpha ZIP SHA-256 mismatch: expected $expectedHash, got $actualHash"
+    throw "Release ZIP SHA-256 mismatch: expected $expectedHash, got $actualHash"
 }
 
 Add-Type -AssemblyName System.IO.Compression.FileSystem
@@ -68,7 +68,7 @@ try
     if ($difference.Count -ne 0)
     {
         $packageKind = $HostOnly ? 'Host-only' : 'full portable'
-        throw "Alpha ZIP file list differs from the locked $packageKind package contract: $($difference -join ', ')"
+        throw "Release ZIP file list differs from the locked $packageKind package contract: $($difference -join ', ')"
     }
 }
 finally
@@ -77,7 +77,7 @@ finally
 }
 
 $tempParent = [IO.Path]::GetFullPath([IO.Path]::GetTempPath())
-$tempRoot = Join-Path $tempParent ("bafx-alpha-package-" + [Guid]::NewGuid().ToString('N'))
+$tempRoot = Join-Path $tempParent ("bafx-release-package-" + [Guid]::NewGuid().ToString('N'))
 $null = New-Item -ItemType Directory -Path $tempRoot
 try
 {
@@ -209,5 +209,5 @@ finally
     }
 }
 
-Write-Host "Alpha package verified: $([IO.Path]::GetFileName($packagePath))"
+Write-Host "Release package verified: $([IO.Path]::GetFileName($packagePath))"
 Write-Host "SHA-256: $actualHash"

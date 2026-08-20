@@ -11,7 +11,7 @@
 
 ## 决策
 
-1. 配置由 `bafx_config` 持有，使用版本化 JSON（当前 schema 为 14）。读取时只接受完整的当前
+1. 配置由 `bafx_config` 持有，使用版本化 JSON（当前 schema 为 17）。读取时只接受完整的当前
    schema，不迁移非当前文件，也不接受未知字段或枚举别名；校验后生成不可变的运行时快照。写入使用
    同目录临时文件、flush、替换的原子流程。
 2. Host 是配置的唯一写入者。外部客户端只能通过版本化的本地 Named Pipe 请求操作，不能
@@ -21,7 +21,7 @@
    NUL/换行注入和超限请求都返回可诊断错误而不终止 Host。
 4. Host 通过用户范围的命名互斥体保证单实例；管道服务在独立线程运行，Render Owner 只
    在帧边界消费已校验的命令。Control Center 退出不会影响 Host。
-5. 基础配置协议保留 `GetState`、`GetDisplayState`、`GetConfig`、`SetConfig <schema-14-json>`、
+5. 基础配置协议保留 `GetState`、`GetDisplayState`、`GetConfig`、`SetConfig <schema-17-json>`、
    `SetConfig {generation,path,value}`、`Pause`、`Resume` 和 `Shutdown`。路径更新只允许
    配置库声明的产品字段，并在 generation 不匹配时返回冲突。响应中的 `generation` 用于
    客户端判断快照是否变化；`GetDisplayState` 固定使用严格 schema 2 和独立运行状态代次，同时报告
@@ -45,8 +45,9 @@
    `recording-compatible` 只有在版本探测成功且 OS build 不低于 `28000` 时才可应用。该门槛只有下限，
    不为未来 Windows build 设置上限；版本探测失败、旧 build 或启动时发现已保存的测试模式时，Host
    拒绝或回退到 `light-background`，并在诊断日志中记录 requested/effective mode、原因、FX-only
-   路径、WGC disabled 和 Alpha 上限。该测试只评估透明覆盖层的外部录屏表现，不证明 Session-local
-   exclusion 的生产能力。
+   路径、WGC disabled 和 Alpha 上限。满足门槛时按
+   `SessionLocalExclusion -> LegacyGlobalExclusion -> FxOnly` 顺序执行；该测试只评估透明覆盖层的
+   外部录屏表现，不证明 Session-local exclusion 的生产能力。
 
 7. `background.allowSystemBorder` 默认为 `true`。Control Center 通过复选框更新该字段；
    用户取消勾选后，Host 必须在 `StartCapture` 前确认无边框 WGC 能力，否则回退内部 FX-only。
@@ -101,7 +102,7 @@
 ## 验收
 
 - 无配置文件首次启动会创建当前 schema 的默认 JSON。
-- 只接受显式 schema 14；缺少版本、非当前版本、未知字段和枚举别名均被拒绝。
+- 只接受显式 schema 17；缺少版本、非当前版本、未知字段和枚举别名均被拒绝。
   Host 使用内存默认值继续运行并保留原文件，不执行迁移或部分字段套用。
 - 默认模式下未按键 Move 不产生内容；开启拖尾常驻后，第二个有效 Move 起生成拖尾且没有点击 burst。
   常驻、真实按住、出界重入和动态关闭形成独立 stroke，不允许跨状态连线；含边沿帧的尾随 Move 不会

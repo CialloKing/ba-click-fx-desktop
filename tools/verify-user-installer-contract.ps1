@@ -565,7 +565,7 @@ function Test-InnoPayloadContract
     Assert-TextContains `
         -Text $inno `
         -Pattern '(?m)^UsePreviousAppDir=no$' `
-        -Description 'installer does not inherit an unsupported alpha install directory'
+        -Description 'installer does not inherit an unsupported release install directory'
     Assert-TextContains `
         -Text $inno `
         -Pattern 'function\s+PrepareToInstall[\s\S]*\{autopf\}\\ba-click-fx-desktop[\s\S]*CompareText[\s\S]*ProtectedInstallDirectoryRequired' `
@@ -1254,7 +1254,7 @@ function Test-UpgradeHostIntegrityContract
 
 function Test-PortableZipContract
 {
-    $portableVerifier = Read-RepositoryText -RelativePath 'tools/verify-alpha-package.ps1'
+    $portableVerifier = Read-RepositoryText -RelativePath 'tools/verify-release-package.ps1'
     Assert-TextContains `
         -Text $portableVerifier `
         -Pattern 'BAFX\.ControlCenter\.exe' `
@@ -1283,7 +1283,7 @@ function Test-PortableZipContract
         -Description 'portable packaging remains ZIP'
     Assert-TextContains `
         -Text $packaging `
-        -Pattern 'verify_alpha_package' `
+        -Pattern 'verify_release_package' `
         -Description 'portable package verification target remains available'
 }
 
@@ -1413,8 +1413,8 @@ function Test-InstallerFailureDiagnostics
             -ErrorRecord $failure `
             -Phase 'Prepare' `
             -Step 'diagnostic-probe' `
-            -ProductVersion '0.1.0-alpha.14' `
-            -PackageVersion '0.1.0.14' `
+            -ProductVersion '0.2.0' `
+            -PackageVersion '0.2.0.0' `
             -DiagnosticPath $diagnosticPath `
             -RelatedFailures @($relatedFailure) `
             -SuppressConsole

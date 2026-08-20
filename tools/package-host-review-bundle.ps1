@@ -204,15 +204,15 @@ function Invoke-IsolatedVerification
 }
 
 $repositoryRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
-$workflowPreset = 'alpha-release-verify'
-$packagePreset = 'alpha-release'
-$buildRootName = 'alpha-x64'
+$workflowPreset = 'release-verify'
+$packagePreset = 'release'
+$buildRootName = 'x64'
 $variantSuffix = ''
 if ($Slim)
 {
-    $workflowPreset = 'alpha-slim-release-verify'
-    $packagePreset = 'alpha-slim-release'
-    $buildRootName = 'alpha-x64-slim'
+    $workflowPreset = 'slim-release-verify'
+    $packagePreset = 'slim-release'
+    $buildRootName = 'x64-slim'
     $variantSuffix = '-slim'
 }
 if (-not $Slim -and -not $SkipWorkflow -and [string]::IsNullOrWhiteSpace($env:VCPKG_ROOT))
@@ -294,7 +294,7 @@ if (-not $SkipVerification)
     $linker = Get-CMakeLinker -CacheFile (
         Join-Path $repositoryRoot "build\$buildRootName\CMakeCache.txt")
     Invoke-IsolatedVerification `
-        -Verifier (Join-Path $PSScriptRoot 'verify-alpha-package.ps1') `
+        -Verifier (Join-Path $PSScriptRoot 'verify-release-package.ps1') `
         -PackagePath $packagePath `
         -ExpectedVersion $version `
         -Linker $linker `

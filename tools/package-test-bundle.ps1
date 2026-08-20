@@ -127,15 +127,15 @@ function Assert-ControlCenterExecutable
 }
 
 $repositoryRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
-$configurePreset = 'alpha-x64'
-$buildPreset = 'alpha-release'
-$buildRootName = 'alpha-x64'
+$configurePreset = 'x64'
+$buildPreset = 'release'
+$buildRootName = 'x64'
 $variantSuffix = ''
 if ($Slim)
 {
-    $configurePreset = 'alpha-x64-slim'
-    $buildPreset = 'alpha-slim-release'
-    $buildRootName = 'alpha-x64-slim'
+    $configurePreset = 'x64-slim'
+    $buildPreset = 'slim-release'
+    $buildRootName = 'x64-slim'
     $variantSuffix = '-slim'
 }
 $localVcpkgRoot = Join-Path $repositoryRoot '..\SDK\vcpkg'

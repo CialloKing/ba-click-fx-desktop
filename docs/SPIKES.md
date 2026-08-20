@@ -43,10 +43,10 @@ DXGI premultiplied alpha 的 FP16 surface 经 DirectComposition/DWM 后，`A=0, 
 复跑真实桌面矩阵时使用：
 
 ```powershell
-cmake --build --preset alpha-release --target ba_fx_composition_spike
+cmake --build --preset release --target ba_fx_composition_spike
 $revision = git rev-parse --short HEAD
 $output = "artifacts\local\spikes\spk-001\$env:COMPUTERNAME-$revision"
-build\alpha-x64\src\capture\Release\ba-click-fx-composition-spike.exe `
+build\x64\src\capture\Release\ba-click-fx-composition-spike.exe `
   "--output=$output" `
   "--revision=$revision" `
   --timeout-ms=25000
@@ -92,10 +92,10 @@ collector 使用进程内总 watchdog；自动化调用仍必须设置独立的�
 复跑该硬件子集时使用：
 
 ```powershell
-cmake --build --preset alpha-release --target ba_fx_wgc_lifecycle_spike
+cmake --build --preset release --target ba_fx_wgc_lifecycle_spike
 $revision = git rev-parse --short HEAD
 $output = "artifacts\local\spikes\spk-002\$env:COMPUTERNAME-$revision"
-build\alpha-x64\src\capture\Release\ba-click-fx-wgc-lifecycle-spike.exe `
+build\x64\src\capture\Release\ba-click-fx-wgc-lifecycle-spike.exe `
   "--output=$output" `
   "--revision=$revision" `
   --timeout-ms=12000
@@ -127,10 +127,10 @@ python -B tools\verify-wgc-lifecycle-spike.py `
 复跑该硬件子集时使用：
 
 ```powershell
-cmake --build --preset alpha-release --target ba_fx_wgc_cursor_spike
+cmake --build --preset release --target ba_fx_wgc_cursor_spike
 $revision = git rev-parse --short HEAD
 $output = "artifacts\local\spikes\spk-002-cursor\$env:COMPUTERNAME-$revision"
-build\alpha-x64\src\capture\Release\ba-click-fx-wgc-cursor-spike.exe `
+build\x64\src\capture\Release\ba-click-fx-wgc-cursor-spike.exe `
   "--output=$output" `
   "--revision=$revision" `
   --timeout-ms=12000
@@ -164,10 +164,10 @@ python -B tools\verify-wgc-cursor-spike.py `
 复跑该硬件子集时使用：
 
 ```powershell
-cmake --build --preset alpha-release --target ba_fx_wgc_self_exclusion_spike -- /m:1
+cmake --build --preset release --target ba_fx_wgc_self_exclusion_spike -- /m:1
 $revision = git rev-parse --short HEAD
 $output = "artifacts\local\spikes\spk-002-self-exclusion\$env:COMPUTERNAME-$revision"
-build\alpha-x64\src\capture\Release\ba-click-fx-wgc-self-exclusion-spike.exe `
+build\x64\src\capture\Release\ba-click-fx-wgc-self-exclusion-spike.exe `
   "--output=$output" `
   "--revision=$revision" `
   --timeout-ms=15000
@@ -237,9 +237,9 @@ packaged 权限矩阵均保持 `Not Run`，不能用本 Spike 替代。只有真
    目标机执行入口示例：
 
    ```powershell
-   cmake --build --preset alpha-release --target ba_fx_wgc_session_exclusion_spike
+   cmake --build --preset release --target ba_fx_wgc_session_exclusion_spike
    powershell -NoProfile -File tools\run-wgc-session-exclusion-spike.ps1 `
-     -Executable build\alpha-x64\src\capture\Release\ba-click-fx-wgc-session-exclusion-spike.exe
+     -Executable build\x64\src\capture\Release\ba-click-fx-wgc-session-exclusion-spike.exe
    ```
 
    脚本默认把结果写入 `artifacts\local\spikes\spk-002-session-exclusion\<machine>-<revision>\`，

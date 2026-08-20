@@ -21,7 +21,7 @@ DPI 和 Windows 11 运行时逻辑提前到测试与硬件证据之前，不再�
   fallback；测试不得仅因运行系统缺少 Windows 11 能力而失败；
 - 当前不为这些 Windows 11 分支扩张测试、collector 或 verifier。未在真实硬件执行的矩阵仍保持
   `Not Run`，不能据代码完成宣称正式支持；
-- 测试版配置只接受字段完整的当前 `schemaVersion=14`，不补齐缺失字段、不迁移非当前 schema，
+  - 测试版配置只接受字段完整的当前 `schemaVersion=17`，不补齐缺失字段、不迁移非当前 schema，
   也不保留未知字段或枚举别名；
 - 每项逻辑保持独立中文提交，只做有硬超时的编译或静态检查，避免构建和外部命令无界等待。
 
@@ -239,7 +239,7 @@ Sensor 构造期间若已取得部分 WinRT 资源，回滚 stop 的聚合结果
 
 ```powershell
 pwsh -NoProfile -File tools/collect-performance-baseline.ps1 `
-  -Executable build/alpha-x64/src/desktop/Release/ba-click-fx-desktop.exe `
+  -Executable build/x64/src/desktop/Release/ba-click-fx-desktop.exe `
   -OutputDirectory artifacts/local/performance-baseline-<timestamp>
 python -B tools/report-performance-baseline.py `
   artifacts/local/performance-baseline-<timestamp>
@@ -256,7 +256,7 @@ python -B tools/report-performance-baseline.py `
 ```powershell
 pwsh -NoProfile -File tools/collect-performance-baseline.ps1 `
   -Scenario p0-raw-input-down-v1 `
-  -Executable build/alpha-x64/src/desktop/Release/ba-click-fx-desktop.exe `
+  -Executable build/x64/src/desktop/Release/ba-click-fx-desktop.exe `
   -OutputDirectory artifacts/local/raw-input-baseline-<timestamp>
 python -B tools/report-raw-input-baseline.py `
   artifacts/local/raw-input-baseline-<timestamp>
