@@ -26,6 +26,7 @@ def _fixture(
     target_mode: int = 3,
     target_width: int = 0,
     target_blend: str = "additive",
+    target_blend_method: str = "srgb_off",
 ) -> dict[str, object]:
     return {
         "sources": [
@@ -62,6 +63,7 @@ def _fixture(
                             },
                             "bounds_rel": {"x": 0, "y": 0},
                             "blend_type": target_blend,
+                            "blend_method": target_blend_method,
                         }
                     ]
                 },
@@ -78,6 +80,7 @@ def _fixture(
                             "bounds": {"x": 7, "y": 9},
                             "bounds_rel": {"x": 1, "y": 1},
                             "blend_type": "screen",
+                            "blend_method": "srgb_off",
                         }
                     ]
                 },
@@ -157,15 +160,22 @@ class RepairObsSpout2SceneTests(unittest.TestCase):
             self.assertEqual(target_items[0]["bounds_type"], 2)
             self.assertEqual(target_items[0]["bounds"], {"x": WIDTH, "y": HEIGHT})
             self.assertEqual(target_items[0]["blend_type"], "normal")
+            self.assertEqual(target_items[0]["blend_method"], "default")
             self.assertEqual(other_items[0]["bounds"], {"x": 7, "y": 9})
             self.assertEqual(other_items[0]["blend_type"], "screen")
+            self.assertEqual(other_items[0]["blend_method"], "srgb_off")
 
     def test_valid_scene_is_not_rewritten(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             scene = Path(directory) / "scene.json"
             original = _write_fixture(
                 scene,
-                _fixture(target_mode=4, target_width=WIDTH, target_blend="normal"),
+                _fixture(
+                    target_mode=4,
+                    target_width=WIDTH,
+                    target_blend="normal",
+                    target_blend_method="default",
+                ),
             )
 
             result = _run(scene)

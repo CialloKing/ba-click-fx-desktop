@@ -110,7 +110,8 @@ cmake --build --preset alpha-host-release --parallel 4
 `-Slim`，生成文件名带有 `-slim` 后缀。
 
 标准构建的 OBS 输出是透明扩展预乘的 FX-only 层。OBS 需要把游戏/桌面捕获置底，并把绑定
-`ba-click-fx-desktop` 的 Spout2 源置顶、设为 `Premultiplied Alpha`，来源混合保持 `Normal`。
+`ba-click-fx-desktop` 的 Spout2 源置顶、设为 `Premultiplied Alpha`，来源混合方式保持
+`Default`、混合模式保持 `Normal`。
 插件探测、旧场景
 迁移和本机验收步骤见 [`docs/OBS_SPOUT2.md`](docs/OBS_SPOUT2.md)。
 

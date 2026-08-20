@@ -33,8 +33,9 @@
 3. 选择发送者 `ba-click-fx-desktop`。
 4. 将 Composite Mode 设为 `Premultiplied Alpha`。旧的 `Default` 或 `Opaque`
    设置会破坏透明输出。
-5. 右键 Spout2 来源，把 `Blending Mode` 保持为 `Normal`。不要使用 `Add`；扩展预乘
-   像素已经携带加法能量，再次切换来源混合会改变 Cross2 遮挡和整体视觉。
+5. 右键 Spout2 来源，把 `Blending Method` 保持为 `Default`，`Blending Mode` 保持为
+   `Normal`。不要使用 `sRGB Off` 或 `Add`；扩展预乘像素已经携带加法能量，再次切换
+   来源混合会改变色彩传输、Cross2 遮挡和整体视觉。
 6. 对 Spout2 源执行 `Transform -> Fit to Screen`，确认其边界与 OBS 画布一致。
 7. 在 Control Center 的“系统”页启用“OBS 透明特效输出”，检查发送者状态和插件状态。
 
@@ -52,7 +53,8 @@ pwsh -NoProfile -File tools/repair-obs-spout2-scene.ps1 `
 
 `-CheckOnly` 返回 `0` 表示无需修改，返回 `2` 表示需要迁移且不会写盘。确认后移除
 `-CheckOnly` 再运行。脚本只处理绑定 `ba-click-fx-desktop` 的 `spout_capture`，把
-Composite Mode 改为 `4`（Premultiplied Alpha）、来源混合恢复为 `normal`，并修复画布边界；
+Composite Mode 改为 `4`（Premultiplied Alpha）、来源混合方式恢复为 `default`、混合模式
+恢复为 `normal`，并修复画布边界；
 其他 Spout2 源不变。
 写入前会在原文件旁生成 `.bak` 备份，单元素 `items` 仍保持 JSON 数组。
 
@@ -81,6 +83,8 @@ ctest --test-dir build/alpha-x64 -C Release `
 {
   "schemaVersion": 1,
   "contract": "bgra8-srgb-extended-premultiplied-fx-only-v2",
+  "obsBlendMethod": "default",
+  "obsBlendMode": "normal",
   "rawFrame": {
     "path": "active-frame.bgra",
     "width": 3840,
@@ -100,7 +104,9 @@ ctest --test-dir build/alpha-x64 -C Release `
 python -B tools/verify-obs-spout2-composite.py artifacts/<证据目录>/manifest.json
 ```
 
-验证器逐像素检查 `C = clamp(S + B * (1 - A), 0, 1)`，并单独确认
+OBS 来源的混合方式保持 `Default`，混合模式保持 `Normal`。官方 Spout2 1.12.0
+来源按非 sRGB-aware 自定义来源绘制，因此验证器按实际字节域逐像素检查
+`C = clamp(S + B * (1 - A), 0, 1)`，并单独确认
 `RGB > Alpha`、`Alpha = 0, RGB > 0` 未被 OBS 压回普通预乘范围。
 
 ## 录像证据复核

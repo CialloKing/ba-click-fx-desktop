@@ -42,7 +42,8 @@
   `RGB > Alpha` 和 `Alpha = 0, RGB > 0` 来保留加法发光，且不混入或依赖 WGC 桌面背景；
   WGC 不可用或失败时仍能输出点击和拖尾。
   OBS 单独捕获游戏/桌面并置底，`Spout2 Capture` 源置顶，Composite Mode 必须选择
-  `Premultiplied Alpha`，来源混合必须保持 `Normal`，再执行 `Transform -> Fit to Screen`。
+  `Premultiplied Alpha`，来源混合方式保持 `Default`、混合模式保持 `Normal`，再执行
+  `Transform -> Fit to Screen`。
   旧的 `Default`/`Opaque` 或来源级 `Add` 设置需要显式迁移。Control Center 只读检查发送状态、
   `win-spout.dll` 版本/位数和 OBS
   实际加载状态，不会下载插件或修改场景。完整设置、迁移脚本和验收边界见

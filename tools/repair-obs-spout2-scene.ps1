@@ -24,9 +24,11 @@ if (-not (Test-Path -LiteralPath $sceneFile -PathType Leaf))
     throw "OBS scene file was not found: $sceneFile"
 }
 
-$document = Get-Content -LiteralPath $sceneFile -Raw | ConvertFrom-Json
+$utf8NoBom = [Text.UTF8Encoding]::new($false)
+$document = [IO.File]::ReadAllText($sceneFile, [Text.Encoding]::UTF8) |
+    ConvertFrom-Json
 $senderName = 'ba-click-fx-desktop'
-$spoutSources = @($document.sources) |
+$spoutSources = @(@($document.sources) |
     Where-Object {
         if ($_.id -ne 'spout_capture')
         {
@@ -39,14 +41,14 @@ $spoutSources = @($document.sources) |
         }
         return $null -ne $senderProperty -and
             [string]$senderProperty.Value -eq $senderName
-    }
+    })
 if ($spoutSources.Count -eq 0)
 {
     throw "The scene does not contain a Spout2 source bound to '$senderName'."
 }
 
-$sceneSources = @($document.sources) |
-    Where-Object { $_.id -eq 'scene' }
+$sceneSources = @(@($document.sources) |
+    Where-Object { $_.id -eq 'scene' })
 if ($sceneSources.Count -eq 0)
 {
     throw 'The scene does not contain a scene source.'
@@ -99,6 +101,12 @@ foreach ($item in $targetItems)
     {
         $needsRepair = $true
     }
+    $blendMethodProperty = $item.PSObject.Properties['blend_method']
+    if ($null -eq $blendMethodProperty -or
+        [string]$blendMethodProperty.Value -ne 'default')
+    {
+        $needsRepair = $true
+    }
 }
 
 if (-not $needsRepair)
@@ -145,6 +153,15 @@ foreach ($item in $targetItems)
     {
         $item.blend_type = 'normal'
     }
+    $blendMethodProperty = $item.PSObject.Properties['blend_method']
+    if ($null -eq $blendMethodProperty)
+    {
+        $item | Add-Member -NotePropertyName blend_method -NotePropertyValue 'default'
+    }
+    else
+    {
+        $item.blend_method = 'default'
+    }
 }
 foreach ($source in $spoutSources)
 {
@@ -159,9 +176,11 @@ foreach ($source in $spoutSources)
     }
 }
 
-$document |
-    ConvertTo-Json -Depth 100 |
-    Set-Content -LiteralPath $sceneFile -Encoding utf8
+$json = $document | ConvertTo-Json -Depth 100
+[IO.File]::WriteAllText(
+    $sceneFile,
+    $json + [Environment]::NewLine,
+    $utf8NoBom)
 
 Write-Output "Repaired OBS Spout2 premultiplied-alpha scene: $sceneFile"
 Write-Output "Backup: $backup"
