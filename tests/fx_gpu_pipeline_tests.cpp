@@ -654,6 +654,71 @@ void checkValidDesktopPremultiplied(
     return 1.055F * std::pow(linear, 1.0F / 2.4F) - 0.055F;
 }
 
+[[nodiscard]] std::uint8_t linearToSrgb8(const float value) noexcept
+{
+    return static_cast<std::uint8_t>(std::lround(
+        linearToSrgbChannel(value) * 255.0F));
+}
+
+void checkExtendedSrgbEncoding(
+    const Bgra8Image& encoded,
+    const Rgba16FloatImage& direct,
+    const Rgba16FloatImage* const bloom = nullptr)
+{
+    BAFX_CHECK(encoded.width == direct.width);
+    BAFX_CHECK(encoded.height == direct.height);
+    BAFX_CHECK(encoded.pixels.size() == direct.pixels.size());
+    if (bloom != nullptr)
+    {
+        BAFX_CHECK(bloom->width == direct.width);
+        BAFX_CHECK(bloom->height == direct.height);
+        BAFX_CHECK(bloom->pixels.size() == direct.pixels.size());
+    }
+
+    constexpr float minimumEmission = 0.01F;
+    constexpr float maximumEmission = 0.90F;
+    constexpr int byteTolerance = 2;
+    std::size_t checkedPixels = 0U;
+    for (std::size_t index = 0U; index < direct.pixels.size(); ++index)
+    {
+        const Rgba16FloatPixel directPixel = direct.pixels[index];
+        const Rgba16FloatPixel bloomPixel = bloom == nullptr
+            ? Rgba16FloatPixel{}
+            : bloom->pixels[index];
+        const std::array<float, 3U> linear{
+            std::max(
+                halfToFloat(directPixel.red) + halfToFloat(bloomPixel.red),
+                0.0F),
+            std::max(
+                halfToFloat(directPixel.green) + halfToFloat(bloomPixel.green),
+                0.0F),
+            std::max(
+                halfToFloat(directPixel.blue) + halfToFloat(bloomPixel.blue),
+                0.0F)};
+        const float peak = std::max({linear[0], linear[1], linear[2]});
+        if (peak < minimumEmission || peak > maximumEmission)
+        {
+            continue;
+        }
+
+        const Bgra8UnormPixel actualPixel = encoded.pixels[index];
+        const std::array<std::uint8_t, 3U> actual{
+            actualPixel.red,
+            actualPixel.green,
+            actualPixel.blue};
+        for (std::size_t channel = 0U; channel < actual.size(); ++channel)
+        {
+            // Derive expected bytes from captured linear surfaces so this gate
+            // catches either a missing or a duplicated transfer conversion.
+            const int expected = linearToSrgb8(linear[channel]);
+            const int delta = static_cast<int>(actual[channel]) - expected;
+            BAFX_CHECK(delta >= -byteTolerance && delta <= byteTolerance);
+        }
+        ++checkedPixels;
+    }
+    BAFX_CHECK(checkedPixels > 100U);
+}
+
 [[nodiscard]] float srgbToLinearChannel(const float value) noexcept
 {
     const float srgb = std::clamp(value, 0.0F, 1.0F);
@@ -2308,7 +2373,37 @@ BAFX_TEST(warp_spout2_recording_target_exports_fx_without_wgc_background)
     BAFX_CHECK(background.blue == 0U);
 }
 
-BAFX_TEST(warp_spout2_additive_layers_never_attenuate_obs_background)
+BAFX_TEST(warp_spout2_full_encodes_linear_emission_as_srgb_bgra8)
+{
+    ComApartment apartment;
+    const WarpDevice graphics = createWarpDevice();
+    FxGpuRenderer renderer(graphics.device.Get(), graphics.context.Get(), testSize);
+    const RenderTarget captureTarget = createRenderTarget(graphics.device.Get());
+    const RenderTarget desktopTarget = createRenderTarget(graphics.device.Get());
+    const RenderTarget recordingTarget = createRecordingRenderTarget(
+        graphics.device.Get());
+    const bafx::fx::FrameSnapshot snapshot = makeTriangleTransportSnapshot(
+        1.0F,
+        0.5F);
+
+    const FxGpuFrameCapture capture = renderer.renderAndCapture(
+        snapshot,
+        captureTarget.view.Get());
+    renderer.render(
+        snapshot,
+        desktopTarget.view.Get(),
+        std::nullopt,
+        nullptr,
+        recordingTarget.view.Get());
+
+    BAFX_CHECK(capture.intermediateLayersValid);
+    checkExtendedSrgbEncoding(
+        readbackBgra8(graphics.context.Get(), recordingTarget.texture.Get()),
+        capture.directSurface,
+        &capture.bloomResult);
+}
+
+BAFX_TEST(warp_spout2_additive_layers_export_zero_alpha_emission)
 {
     ComApartment apartment;
     const WarpDevice graphics = createWarpDevice();
@@ -2336,35 +2431,13 @@ BAFX_TEST(warp_spout2_additive_layers_never_attenuate_obs_background)
             return pixel.alpha == 0U;
         }));
 
-    constexpr std::array<std::array<std::uint8_t, 3U>, 4U> backgrounds{
-        std::array<std::uint8_t, 3U>{0U, 0U, 0U},
-        std::array<std::uint8_t, 3U>{96U, 96U, 96U},
-        std::array<std::uint8_t, 3U>{255U, 255U, 255U},
-        std::array<std::uint8_t, 3U>{32U, 80U, 144U}};
-    std::size_t emissionPixels = 0U;
-    for (const Bgra8UnormPixel pixel : image.pixels)
-    {
-        const std::array<std::uint8_t, 3U> source{
-            pixel.red,
-            pixel.green,
-            pixel.blue};
-        if (source[0] == 0U && source[1] == 0U && source[2] == 0U)
+    const std::size_t emissionPixels = static_cast<std::size_t>(std::count_if(
+        image.pixels.begin(),
+        image.pixels.end(),
+        [](const Bgra8UnormPixel pixel)
         {
-            continue;
-        }
-        ++emissionPixels;
-        for (const auto& background : backgrounds)
-        {
-            for (std::size_t channel = 0U; channel < source.size(); ++channel)
-            {
-                const unsigned int composite = std::min(
-                    255U,
-                    static_cast<unsigned int>(source[channel])
-                        + background[channel]);
-                BAFX_CHECK(composite >= background[channel]);
-            }
-        }
-    }
+            return pixel.red != 0U || pixel.green != 0U || pixel.blue != 0U;
+        }));
     BAFX_CHECK(emissionPixels > 100U);
 }
 
@@ -2495,6 +2568,37 @@ BAFX_TEST(warp_core_profile_exports_spout2_fx_without_bloom)
         trail.red > trail.alpha
         || trail.green > trail.alpha
         || trail.blue > trail.alpha);
+}
+
+BAFX_TEST(warp_core_spout2_encodes_linear_emission_as_srgb_bgra8)
+{
+    ComApartment apartment;
+    const WarpDevice graphics = createWarpDevice();
+    FxGpuRenderer renderer(graphics.device.Get(), graphics.context.Get(), testSize);
+    renderer.setOverlayProfile(FxOverlayProfile::Core);
+    const RenderTarget captureTarget = createRenderTarget(graphics.device.Get());
+    const RenderTarget desktopTarget = createRenderTarget(graphics.device.Get());
+    const RenderTarget recordingTarget = createRecordingRenderTarget(
+        graphics.device.Get());
+    const bafx::fx::FrameSnapshot snapshot = makeTriangleTransportSnapshot(
+        1.0F,
+        0.5F);
+
+    const FxGpuFrameCapture capture = renderer.renderAndCapture(
+        snapshot,
+        captureTarget.view.Get());
+    renderer.render(
+        snapshot,
+        desktopTarget.view.Get(),
+        std::nullopt,
+        nullptr,
+        recordingTarget.view.Get());
+
+    BAFX_CHECK(!capture.directSurface.pixels.empty());
+    BAFX_CHECK(capture.bloomResult.pixels.empty());
+    checkExtendedSrgbEncoding(
+        readbackBgra8(graphics.context.Get(), recordingTarget.texture.Get()),
+        capture.directSurface);
 }
 
 BAFX_TEST(warp_core_spout2_ignores_wgc_and_clears_after_fx_decay)

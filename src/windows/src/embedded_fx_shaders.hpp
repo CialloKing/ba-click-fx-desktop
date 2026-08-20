@@ -692,9 +692,9 @@ float4 EncodeConservativeSdrPremultiplied(float4 linearPremultiplied)
         return float4(0.0, 0.0, 0.0, 0.0);
     }
 
-    // BGRA8 cannot carry additive RGB above Alpha or scRGB values above one.
-    // Preserve straight color through the transfer conversion, then restore a
-    // conventional premultiplied payload for DirectComposition.
+    // This compatibility path intentionally reserves RGB within Alpha and the
+    // SDR range. Spout uses the extended encoder when additive RGB must exceed
+    // geometric coverage.
     const float3 straightLinear = saturate(
         max(linearPremultiplied.rgb, 0.0) / alpha);
     const float3 encodedStraight = LinearToSrgb(straightLinear);
