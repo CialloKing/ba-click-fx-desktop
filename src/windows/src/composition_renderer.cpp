@@ -1102,6 +1102,14 @@ void CompositionRenderer::setOverlayProfile(const FxOverlayProfile profile)
 
 void CompositionRenderer::setSpout2Enabled(const bool enabled)
 {
+    // Configuration snapshots are reapplied for unrelated controls as well.
+    // Keep the shared texture and sender handle stable unless the switch
+    // actually changes or device recovery left the enabled output uncreated.
+    if (spout2Enabled_ == enabled
+        && (!enabled || recordingTexture_ != nullptr))
+    {
+        return;
+    }
     spout2Enabled_ = enabled;
     spout2Sender_->setEnabled(enabled);
     recordingRenderTarget_.Reset();
