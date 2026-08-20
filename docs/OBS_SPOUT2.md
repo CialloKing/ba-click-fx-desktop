@@ -2,12 +2,12 @@
 
 标准构建可把点击和拖尾作为独立透明层发送给 OBS。发送者名称固定为
 `ba-click-fx-desktop`，输出合同为
-`BGRA8 + sRGB + extended premultiplied alpha + FX-only v3`：
+`BGRA8 + sRGB + extended premultiplied alpha + FX-only v4`：
 
 - 空闲背景为 `(0, 0, 0, 0)`；
-- 有效像素满足 `0 <= RGB <= 1`、`0 < Alpha <= 1`，允许 `RGB > Alpha`
-  来携带加法发光；任何可存储的 RGB 都至少携带一个 BGRA8 Alpha 步进，避免接收端清除
-  圆环、碎片和拖尾；
+- 有效像素满足 `0 <= RGB <= 1`、`0 < Alpha <= 1`，允许 `RGB > Alpha`；圆盘使用真实
+  Cross2 coverage Alpha，纯加法圆环、碎片、拖尾和 Bloom 只携带一个 BGRA8 Alpha 步进，
+  在避免接收端清除的同时，把普通预乘合成造成的背景衰减限制为每通道最多一个字节；
 - 不包含也不依赖桌面或游戏画面，WGC 不可用时仍可发送特效；
 - 固定尺寸运行时保持同一共享句柄，尺寸变化或设备恢复才允许重建。
 
@@ -35,8 +35,9 @@
 4. 将 Composite Mode 设为 `Premultiplied Alpha`。旧的 `Default` 或 `Opaque`
    设置会破坏透明输出。
 5. 右键 Spout2 来源，把 `Blending Method` 保持为 `Default`，`Blending Mode` 保持为
-   `Normal`。不要使用 `sRGB Off` 或 `Add`；扩展预乘像素已经携带加法能量，再次切换
-   来源混合会改变色彩传输、Cross2 遮挡和整体视觉。
+   `Normal`。不要使用 `sRGB Off` 或 `Add`；`Add` 会绕过圆盘所需的 Cross2 coverage，
+   使其在亮背景上过曝。旧 v3 使用完整加法 coverage Alpha，切到 `Add` 会暂时显得更接近，
+   但 v4 已用一个 Alpha 步进修正该背景衰减。
 6. 对 Spout2 源执行 `Transform -> Fit to Screen`，确认其边界与 OBS 画布一致。
 7. 在 Control Center 的“系统”页启用“OBS 透明特效输出”，检查发送者状态和插件状态。
 
@@ -103,7 +104,7 @@ pwsh -NoProfile -File tools/run-obs-spout2-composite-acceptance.ps1 `
 ```json
 {
   "schemaVersion": 1,
-  "contract": "bgra8-srgb-extended-premultiplied-fx-only-v3",
+  "contract": "bgra8-srgb-extended-premultiplied-fx-only-v4",
   "obsBlendMethod": "default",
   "obsBlendMode": "normal",
   "rawFrame": {

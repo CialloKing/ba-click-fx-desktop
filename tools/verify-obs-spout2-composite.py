@@ -13,7 +13,7 @@ import numpy as np
 from PIL import Image
 
 
-CONTRACT = "bgra8-srgb-extended-premultiplied-fx-only-v3"
+CONTRACT = "bgra8-srgb-extended-premultiplied-fx-only-v4"
 EXPECTED_BACKGROUNDS = {
     "black": [0, 0, 0],
     "gray": [96, 96, 96],
