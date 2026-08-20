@@ -1173,9 +1173,9 @@ CompositionFrameDiagnostics CompositionRenderer::renderFrame(
         diagnostics);
     const auto frameStartedAt = std::chrono::steady_clock::now();
     const bool hasDrawableContent = snapshot.hasDrawableContent();
-    // Spout2 is a complete desktop output, so it must keep the WGC snapshot
-    // alive during idle periods even though the transparent overlay is empty.
-    const bool needsBackgroundFrame = hasDrawableContent || spout2Enabled_;
+    // OBS captures its own desktop or game source. Spout2 must not keep WGC
+    // active when the independent transparent FX layer is otherwise idle.
+    const bool needsBackgroundFrame = hasDrawableContent;
     const bool referenceWhiteUnavailable = backgroundSensor_ != nullptr
         && backgroundReferenceWhiteUnavailable(deviceInfo_.output.mapping);
     std::optional<BackgroundRenderInput> background;
@@ -2328,9 +2328,9 @@ void CompositionRenderer::createSpout2RecordingTarget()
             &recordingRenderTarget_),
         "ID3D11Device::CreateRenderTargetView(Spout2 recording)");
     // The first heartbeat can occur before the display swap chain presents a
-    // frame. Initialize the shared output to a valid opaque black image so
-    // OBS never receives undefined GPU memory.
-    constexpr float clearColor[4]{0.0F, 0.0F, 0.0F, 1.0F};
+    // frame. Initialize the shared output so OBS receives transparent pixels
+    // instead of undefined GPU memory or a stale opaque rectangle.
+    constexpr float clearColor[4]{0.0F, 0.0F, 0.0F, 0.0F};
     context_->ClearRenderTargetView(recordingRenderTarget_.Get(), clearColor);
     context_->Flush();
 }

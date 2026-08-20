@@ -853,51 +853,19 @@ float4 RecordingCompatibleSdrCompositePixel(FullscreenOutput input) : SV_Target0
         ResolveRecordingCompatibleComposite(input));
 }
 
-float4 RecordingOpaqueSdrCompositePixel(FullscreenOutput input) : SV_Target0
-{
-    const float4 direct = Source0.Sample(LinearClampSampler, input.uv);
-    // Source1 is the full-resolution, already exposed Bloom result emitted by
-    // the desktop MRT pass. Sampling it directly avoids a second Bloom chain.
-    const float4 bloom = Source1.Sample(LinearClampSampler, input.uv);
-    const float occlusion = Source2.Sample(
-        LinearClampSampler,
-        input.uv).r;
-    const float3 capturedBackground = Source3.Sample(
-        LinearClampSampler,
-        input.uv).rgb;
-    const float backgroundOutputScale = 1.0
-        / max(BackgroundReferenceWhiteScale, 0.000001);
-    const float4 overlay = ResolveBackgroundAwareDesktopTransport(
-        direct,
-        bloom,
-        occlusion,
-        capturedBackground,
-        1.0,
-        OutputReferenceWhiteScale,
-        backgroundOutputScale);
-    const float3 background = StabilizeCapturedBackground(
-        capturedBackground)
-        * backgroundOutputScale;
-    const float3 composite = max(
-        background * (1.0 - overlay.a) + overlay.rgb,
-        0.0);
-    return float4(LinearToSrgb(composite), 1.0);
-}
-
 float4 RecordingFxOnlySdrCompositePixel(FullscreenOutput input) : SV_Target0
 {
     const float4 direct = Source0.Sample(LinearClampSampler, input.uv);
     const float4 bloom = Source1.Sample(LinearClampSampler, input.uv);
     const float4 cross = Source2.Sample(LinearClampSampler, input.uv);
-    // Spout2 is an opaque black-background output when WGC has no frame. The
-    // transparent overlay contract remains in the ordinary desktop target;
-    // only this independent recording target is flattened for OBS.
+    // OBS owns the captured desktop or game. Keep this independent transport
+    // transparent so the source can be composited without a black rectangle.
     const float4 overlay = ResolveFxOnlyDesktopTransport(
         direct,
         bloom,
         cross,
         1.0);
-    return float4(LinearToSrgb(max(overlay.rgb, 0.0)), 1.0);
+    return EncodeConservativeSdrPremultiplied(overlay);
 }
 
 // Core mode deliberately omits Bloom and background transport. The direct
@@ -914,14 +882,14 @@ float4 CoreCompositePixel(FullscreenOutput input) : SV_Target0
         float4(min(max(direct.rgb, 0.0), alpha), alpha));
 }
 
-float4 CoreRecordingOpaqueSdrCompositePixel(FullscreenOutput input) : SV_Target0
+float4 CoreRecordingFxOnlySdrCompositePixel(FullscreenOutput input) : SV_Target0
 {
     const float4 direct = Source0.Sample(LinearClampSampler, input.uv);
     const float alpha = saturate(direct.a * ThemeCoverageScale);
     const float3 payload = min(max(direct.rgb, 0.0), alpha);
-    // Core deliberately skips Bloom; this is one cheap flattening pass for
-    // the Spout2 texture and keeps the normal transparent Core output intact.
-    return float4(LinearToSrgb(payload), 1.0);
+    // Core deliberately skips Bloom, but it still uses the same premultiplied
+    // transport contract as Full so OBS never needs a profile-specific mode.
+    return EncodeConservativeSdrPremultiplied(float4(payload, alpha));
 }
 )hlsl"};
 

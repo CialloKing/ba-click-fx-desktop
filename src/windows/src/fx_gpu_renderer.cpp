@@ -712,15 +712,12 @@ struct FxGpuRenderer::Implementation
             "LightBackgroundSdrCompositePixel",
             lightBackgroundSdrCompositePixelShader);
         createBloomPixelShader(
-            "RecordingOpaqueSdrCompositePixel",
-            recordingOpaqueSdrCompositePixelShader);
-        createBloomPixelShader(
             "RecordingFxOnlySdrCompositePixel",
             recordingFxOnlySdrCompositePixelShader);
         createBloomPixelShader("CoreCompositePixel", coreCompositePixelShader);
         createBloomPixelShader(
-            "CoreRecordingOpaqueSdrCompositePixel",
-            coreRecordingOpaqueSdrCompositePixelShader);
+            "CoreRecordingFxOnlySdrCompositePixel",
+            coreRecordingFxOnlySdrCompositePixelShader);
 
         D3D11_BUFFER_DESC constantDescription{};
         constantDescription.ByteWidth = sizeof(BloomConstants);
@@ -1349,33 +1346,11 @@ struct FxGpuRenderer::Implementation
             crossTarget.shaderResource.Get());
     }
 
-    void renderRecordingComposite(
-        ID3D11RenderTargetView* const destination,
-        const std::optional<BackgroundRenderInput> background)
+    void renderRecordingComposite(ID3D11RenderTargetView* const destination)
     {
         const bafx::core::BloomExtent sourceExtent{
             static_cast<std::int32_t>(size.width),
             static_cast<std::int32_t>(size.height)};
-        if (background.has_value())
-        {
-            drawFullscreen(
-                destination,
-                sourceExtent,
-                recordingOpaqueSdrCompositePixelShader.Get(),
-                directTarget.shaderResource.Get(),
-                bloomResultTarget.shaderResource.Get(),
-                makeBloomConstants(
-                    sourceExtent,
-                    1.0F,
-                    1.0F,
-                    true,
-                    backgroundReferenceWhiteScale(),
-                    outputReferenceWhiteScale()),
-                occlusionTarget.shaderResource.Get(),
-                background->shaderResource);
-            return;
-        }
-
         drawFullscreen(
             destination,
             sourceExtent,
@@ -1518,24 +1493,9 @@ struct FxGpuRenderer::Implementation
             }
             if (recordingDestination != nullptr)
             {
-                ensureBloomResultTarget();
-                context->ClearRenderTargetView(
-                    directTarget.renderTarget.Get(),
-                    transparent.data());
-                context->ClearRenderTargetView(
-                    bloomResultTarget.renderTarget.Get(),
-                    transparent.data());
-                context->ClearRenderTargetView(
-                    occlusionTarget.renderTarget.Get(),
-                    transparent.data());
-                context->ClearRenderTargetView(
-                    crossTarget.renderTarget.Get(),
-                    transparent.data());
                 context->ClearRenderTargetView(
                     recordingDestination,
-                    std::array<float, 4>{0.0F, 0.0F, 0.0F, 1.0F}.data());
-                renderRecordingComposite(recordingDestination, background);
-                context->OMSetRenderTargets(0, nullptr, nullptr);
+                    transparent.data());
             }
             diagnostics.totalSubmit =
                 std::chrono::steady_clock::now() - totalStartedAt;
@@ -1637,7 +1597,7 @@ struct FxGpuRenderer::Implementation
             bloomResultDestination);
         if (recordingDestination != nullptr)
         {
-            renderRecordingComposite(recordingDestination, background);
+            renderRecordingComposite(recordingDestination);
         }
         context->OMSetRenderTargets(0, nullptr, nullptr);
         diagnostics.bloomAndCompositeSubmit =
@@ -1661,14 +1621,9 @@ struct FxGpuRenderer::Implementation
             context->ClearRenderTargetView(destination, transparent.data());
             if (recordingDestination != nullptr)
             {
-                constexpr std::array<float, 4> opaqueBlack{
-                    0.0F,
-                    0.0F,
-                    0.0F,
-                    1.0F};
                 context->ClearRenderTargetView(
                     recordingDestination,
-                    opaqueBlack.data());
+                    transparent.data());
             }
             if (gpuTimestampProfiler != nullptr)
             {
@@ -1766,7 +1721,7 @@ struct FxGpuRenderer::Implementation
             drawFullscreen(
                 recordingDestination,
                 sourceExtent,
-                coreRecordingOpaqueSdrCompositePixelShader.Get(),
+                coreRecordingFxOnlySdrCompositePixelShader.Get(),
                 directTarget.shaderResource.Get(),
                 nullptr,
                 makeBloomConstants(sourceExtent, 0.0F, 0.0F));
@@ -1935,10 +1890,9 @@ struct FxGpuRenderer::Implementation
     ComPtr<ID3D11PixelShader> recordingCompatibleSdrCompositePixelShader{};
     ComPtr<ID3D11PixelShader> lightBackgroundCompositePixelShader{};
     ComPtr<ID3D11PixelShader> lightBackgroundSdrCompositePixelShader{};
-    ComPtr<ID3D11PixelShader> recordingOpaqueSdrCompositePixelShader{};
     ComPtr<ID3D11PixelShader> recordingFxOnlySdrCompositePixelShader{};
     ComPtr<ID3D11PixelShader> coreCompositePixelShader{};
-    ComPtr<ID3D11PixelShader> coreRecordingOpaqueSdrCompositePixelShader{};
+    ComPtr<ID3D11PixelShader> coreRecordingFxOnlySdrCompositePixelShader{};
     ComPtr<ID3D11InputLayout> inputLayout{};
     ComPtr<ID3D11Buffer> vertexBuffer{};
     ComPtr<ID3D11Buffer> viewportBuffer{};

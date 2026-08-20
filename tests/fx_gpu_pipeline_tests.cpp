@@ -2171,10 +2171,13 @@ BAFX_TEST(warp_spout2_recording_target_exports_fx_without_wgc_background)
         recordingTarget.texture.Get(),
         testSize.width - 1U,
         testSize.height - 1U);
-    // The independent Spout2 image is flattened for OBS, so both pixels must
-    // be opaque while the click center retains visible FX emission.
-    BAFX_CHECK(center.alpha == 255U);
-    BAFX_CHECK(background.alpha == 255U);
+    // OBS composites this payload over its own source. Every encoded color
+    // channel must remain bounded by Alpha, and untouched pixels stay clear.
+    BAFX_CHECK(center.alpha > 0U);
+    BAFX_CHECK(center.red <= center.alpha);
+    BAFX_CHECK(center.green <= center.alpha);
+    BAFX_CHECK(center.blue <= center.alpha);
+    BAFX_CHECK(background.alpha == 0U);
     BAFX_CHECK(
         center.red > background.red
         || center.green > background.green
@@ -2184,7 +2187,7 @@ BAFX_TEST(warp_spout2_recording_target_exports_fx_without_wgc_background)
     BAFX_CHECK(background.blue == 0U);
 }
 
-BAFX_TEST(warp_spout2_recording_target_replaces_idle_frame_with_opaque_black)
+BAFX_TEST(warp_spout2_recording_target_replaces_idle_frame_with_transparency)
 {
     ComApartment apartment;
     const WarpDevice graphics = createWarpDevice();
@@ -2214,7 +2217,48 @@ BAFX_TEST(warp_spout2_recording_target_replaces_idle_frame_with_opaque_black)
     BAFX_CHECK(center.red == 0U);
     BAFX_CHECK(center.green == 0U);
     BAFX_CHECK(center.blue == 0U);
-    BAFX_CHECK(center.alpha == 255U);
+    BAFX_CHECK(center.alpha == 0U);
+}
+
+BAFX_TEST(warp_spout2_recording_target_never_flattens_wgc_background)
+{
+    ComApartment apartment;
+    const WarpDevice graphics = createWarpDevice();
+    FxGpuRenderer renderer(graphics.device.Get(), graphics.context.Get(), testSize);
+    const RenderTarget desktopTarget = createRenderTarget(graphics.device.Get());
+    const RenderTarget recordingTarget = createRecordingRenderTarget(
+        graphics.device.Get());
+    const RenderTarget backgroundTarget = createRenderTarget(graphics.device.Get());
+    constexpr std::array<float, 4> brightBackground{0.8F, 0.6F, 0.4F, 1.0F};
+    graphics.context->ClearRenderTargetView(
+        backgroundTarget.view.Get(),
+        brightBackground.data());
+
+    renderer.render(
+        makeDiskAndTrailSnapshot(),
+        desktopTarget.view.Get(),
+        BackgroundRenderInput{backgroundTarget.shaderResource.Get()},
+        nullptr,
+        recordingTarget.view.Get());
+
+    const Bgra8UnormPixel center = readbackBgra8UnormPixel(
+        graphics.context.Get(),
+        recordingTarget.texture.Get(),
+        testSize.width / 2U,
+        testSize.height / 2U);
+    const Bgra8UnormPixel background = readbackBgra8UnormPixel(
+        graphics.context.Get(),
+        recordingTarget.texture.Get(),
+        testSize.width - 1U,
+        testSize.height - 1U);
+    BAFX_CHECK(center.alpha > 0U);
+    BAFX_CHECK(center.red <= center.alpha);
+    BAFX_CHECK(center.green <= center.alpha);
+    BAFX_CHECK(center.blue <= center.alpha);
+    BAFX_CHECK(background.red == 0U);
+    BAFX_CHECK(background.green == 0U);
+    BAFX_CHECK(background.blue == 0U);
+    BAFX_CHECK(background.alpha == 0U);
 }
 
 BAFX_TEST(warp_core_profile_exports_spout2_fx_without_bloom)
@@ -2244,8 +2288,14 @@ BAFX_TEST(warp_core_profile_exports_spout2_fx_without_bloom)
         recordingTarget.texture.Get(),
         64U,
         64U);
-    BAFX_CHECK(center.alpha == 255U);
-    BAFX_CHECK(trail.alpha == 255U);
+    BAFX_CHECK(center.alpha > 0U);
+    BAFX_CHECK(trail.alpha > 0U);
+    BAFX_CHECK(center.red <= center.alpha);
+    BAFX_CHECK(center.green <= center.alpha);
+    BAFX_CHECK(center.blue <= center.alpha);
+    BAFX_CHECK(trail.red <= trail.alpha);
+    BAFX_CHECK(trail.green <= trail.alpha);
+    BAFX_CHECK(trail.blue <= trail.alpha);
     BAFX_CHECK(center.red != 0U || center.green != 0U || center.blue != 0U);
     BAFX_CHECK(trail.red != 0U || trail.green != 0U || trail.blue != 0U);
 }

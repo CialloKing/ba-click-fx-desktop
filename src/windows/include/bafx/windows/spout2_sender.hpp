@@ -39,7 +39,7 @@ enum class Spout2SenderStatus : std::uint8_t
 }
 
 // Owns the optional Spout2 sender but never owns the renderer's immediate
-// context. Spout2 is fed only after the opaque recording texture is complete.
+// context. Spout2 is fed only after the transparent recording texture is complete.
 class Spout2Sender final
 {
 public:
