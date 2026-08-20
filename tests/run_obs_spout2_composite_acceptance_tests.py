@@ -80,7 +80,8 @@ class RunObsSpout2CompositeAcceptanceTests(unittest.TestCase):
         scene = self.source.index("-Request 'CreateScene'")
         color = self.source.index("inputKind = 'color_source_v3'")
         spout = self.source.index("inputKind = 'spout_capture'")
-        screenshot = self.source.index("SaveSourceScreenshot")
+        capture_phase = self.source.index("$captureCases = @(")
+        screenshot = self.source.index("SaveSourceScreenshot", capture_phase)
         self.assertLess(collection, scene)
         self.assertLess(scene, color)
         self.assertLess(color, spout)
@@ -111,6 +112,31 @@ class RunObsSpout2CompositeAcceptanceTests(unittest.TestCase):
         self.assertIn("temporary-scene-collection.json", self.source)
         self.assertNotIn("SetSceneItemBlendMethod", self.source)
         self.assertNotIn("OBS_BLEND_SRGB_OFF", self.source)
+
+    def test_records_the_dynamic_idle_active_transparent_lifecycle(self) -> None:
+        for token in (
+            "[ValidateSet('FixedComposite', 'DynamicLifecycle')]",
+            "$Mode -eq 'DynamicLifecycle'",
+            "--demo-delay-ms=$lifecycleDemoDelayMilliseconds",
+            "frame-baseline.png",
+            "frame-idle-sender-connected.png",
+            "frame-active-{0:D5}ms.png",
+            "frame-final-transparent.png",
+            "receiver-lifecycle-verification.json",
+            "verify-obs-spout2-evidence.py",
+            "obs-lifecycle-video-only.mp4",
+            "threeStageLifecycleVerified",
+        ):
+            self.assertIn(token, self.source)
+        self.assertIn("$lifecycleCanvasWidth = 1280", self.source)
+        self.assertIn("$lifecycleCanvasHeight = 720", self.source)
+        self.assertIn("$spoutScale = [double]$canvasWidth / [double]$frameWidth", self.source)
+        dynamic_phase = self.source.index("$sceneReadyElapsed")
+        start_record = self.source.index("-Request 'StartRecord'", dynamic_phase)
+        active_capture = self.source.index("frame-active-{0:D5}ms.png")
+        stop_record = self.source.index("-Request 'StopRecord'", start_record)
+        self.assertLess(start_record, active_capture)
+        self.assertLess(active_capture, stop_record)
 
     def test_records_and_decodes_the_isolated_scene(self) -> None:
         for token in (

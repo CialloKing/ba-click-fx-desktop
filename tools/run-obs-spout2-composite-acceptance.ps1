@@ -10,7 +10,10 @@ param(
     [string]$ObsPath,
 
     [Parameter(Mandatory = $true)]
-    [string]$OutputDirectory
+    [string]$OutputDirectory,
+
+    [ValidateSet('FixedComposite', 'DynamicLifecycle')]
+    [string]$Mode = 'FixedComposite'
 )
 
 Set-StrictMode -Version Latest
@@ -21,6 +24,10 @@ $outputContract = 'bgra8-srgb-extended-premultiplied-fx-only-v2'
 $frameFormat = 87
 $requestTimeoutMilliseconds = 10000
 $utf8NoBom = [Text.UTF8Encoding]::new($false)
+$isDynamicLifecycle = $Mode -eq 'DynamicLifecycle'
+$lifecycleCanvasWidth = 1280
+$lifecycleCanvasHeight = 720
+$lifecycleDemoDelayMilliseconds = 20000
 
 function Assert-True
 {
@@ -843,6 +850,64 @@ function Get-ObsSessionLogContract
     }
 }
 
+function Wait-ForHostElapsed
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [Diagnostics.Process]$Process,
+
+        [Parameter(Mandatory = $true)]
+        [DateTime]$StartedAtUtc,
+
+        [Parameter(Mandatory = $true)]
+        [int64]$TargetMilliseconds
+    )
+
+    while ($true)
+    {
+        $Process.Refresh()
+        Assert-True (-not $Process.HasExited) `
+            'Host exited before the dynamic OBS lifecycle gate completed.'
+        $elapsed = [int64]([DateTime]::UtcNow - $StartedAtUtc).TotalMilliseconds
+        if ($elapsed -ge $TargetMilliseconds)
+        {
+            return $elapsed
+        }
+        $remaining = $TargetMilliseconds - $elapsed
+        Start-Sleep -Milliseconds ([int][Math]::Min(100, $remaining))
+    }
+}
+
+function Save-ObsSceneScreenshot
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$SceneName,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Path,
+
+        [Parameter(Mandatory = $true)]
+        [int]$Width,
+
+        [Parameter(Mandatory = $true)]
+        [int]$Height
+    )
+
+    Assert-True (-not (Test-Path -LiteralPath $Path)) `
+        "OBS screenshot already exists: $Path"
+    Invoke-ObsRequest -Request 'SaveSourceScreenshot' -Data ([ordered]@{
+        sourceName = $SceneName
+        imageFormat = 'png'
+        imageFilePath = $Path
+        imageWidth = $Width
+        imageHeight = $Height
+        imageCompressionQuality = 100
+    }) | Out-Null
+    Assert-True (Test-Path -LiteralPath $Path -PathType Leaf) `
+        "OBS did not write the screenshot: $Path"
+}
+
 function Remove-BackupDirectory
 {
     param(
@@ -944,12 +1009,18 @@ foreach ($requiredPath in @($globalConfig, $userConfig, $webSocketConfig))
 $obsRequestHelper = Join-Path $PSScriptRoot 'obs-websocket-request.mjs'
 $verifier = Join-Path $PSScriptRoot 'verify-obs-spout2-composite.py'
 $recordingVerifier = Join-Path $PSScriptRoot 'verify-obs-spout2-recording.py'
+$lifecycleVerifier = Join-Path $PSScriptRoot 'verify-obs-spout2-evidence.py'
 Assert-True (Test-Path -LiteralPath $obsRequestHelper -PathType Leaf) `
     "OBS WebSocket helper was not found: $obsRequestHelper"
 Assert-True (Test-Path -LiteralPath $verifier -PathType Leaf) `
     "OBS composite verifier was not found: $verifier"
 Assert-True (Test-Path -LiteralPath $recordingVerifier -PathType Leaf) `
     "OBS recording verifier was not found: $recordingVerifier"
+if ($isDynamicLifecycle)
+{
+    Assert-True (Test-Path -LiteralPath $lifecycleVerifier -PathType Leaf) `
+        "OBS lifecycle verifier was not found: $lifecycleVerifier"
+}
 $nodePath = Resolve-ApplicationCommand -Names @('node.exe', 'node') -Label 'Node.js'
 $pythonPath = $null
 $pythonPrefix = @()
@@ -1023,6 +1094,8 @@ $auditAfterState = $null
 $backupReady = $false
 $externalRestoreExact = $false
 $hostProcess = $null
+$lifecycleProbeProcess = $null
+$hostStartedAtUtc = [DateTime]::MinValue
 $obsProcess = $null
 $obsStartedAtUtc = [DateTime]::MinValue
 $obsForcedTermination = $false
@@ -1052,10 +1125,14 @@ $manifestPath = Join-Path $resolvedOutput 'composite-manifest.json'
 $verificationReport = Join-Path $resolvedOutput 'composite-verification.json'
 $recordingManifestPath = Join-Path $resolvedOutput 'recording-manifest.json'
 $recordingVerificationReport = Join-Path $resolvedOutput 'recording-verification.json'
+$lifecycleVerificationReport = Join-Path $resolvedOutput 'verification.json'
+$lifecycleProbeJson = Join-Path $resolvedOutput 'receiver-lifecycle.json'
 $recordingPath = $null
 $recordingRawPath = $null
 $frameWidth = 0
 $frameHeight = 0
+$canvasWidth = 0
+$canvasHeight = 0
 
 try
 {
@@ -1091,40 +1168,57 @@ try
         }
     }
 
-    $hostProcess = Start-Process `
-        -FilePath $resolvedHost `
-        -ArgumentList @(
+    $hostArguments = if ($isDynamicLifecycle)
+    {
+        @(
+            '--spout2',
+            "--demo-delay-ms=$lifecycleDemoDelayMilliseconds",
+            '--disable-raw-input',
+            '--quit-after-ms=60000'
+        )
+    }
+    else
+    {
+        @(
             '--spout2',
             '--demo-delay-ms=2000',
             '--demo-age-ms=130',
             '--disable-raw-input',
             '--quit-after-ms=120000'
-        ) `
+        )
+    }
+    $hostStartedAtUtc = [DateTime]::UtcNow
+    $hostProcess = Start-Process `
+        -FilePath $resolvedHost `
+        -ArgumentList $hostArguments `
         -WorkingDirectory $resolvedOutput `
         -RedirectStandardOutput (Join-Path $resolvedOutput 'host.stdout.log') `
         -RedirectStandardError (Join-Path $resolvedOutput 'host.stderr.log') `
         -WindowStyle Hidden `
         -PassThru
 
-    & $resolvedProbe `
-        "--sender=$senderName" `
-        '--duration-ms=5000' `
-        '--interval-ms=100' `
-        "--capture-output=$activeFrame" `
-        "--output=$probeJson" `
+    $initialProbeArguments = @(
+        "--sender=$senderName",
+        $(if ($isDynamicLifecycle) { '--duration-ms=2500' } else { '--duration-ms=5000' }),
+        '--interval-ms=100',
+        "--output=$probeJson"
+    )
+    if (-not $isDynamicLifecycle)
+    {
+        $initialProbeArguments += "--capture-output=$activeFrame"
+    }
+    & $resolvedProbe @initialProbeArguments `
         1> (Join-Path $resolvedOutput 'receiver.stdout.log') `
         2> (Join-Path $resolvedOutput 'receiver.stderr.log')
     Assert-True ($LASTEXITCODE -eq 0) `
         "Receiver probe failed with exit code $LASTEXITCODE."
     Assert-True (-not $hostProcess.HasExited) `
-        'Host exited before OBS could consume the fixed-age sender.'
+        'Host exited before OBS could consume the sender.'
 
     $probe = Read-JsonFile -Path $probeJson
     Assert-True ([int]$probe.schemaVersion -eq 2) 'Receiver probe schema is unsupported.'
     Assert-True ([string]$probe.sender -eq $senderName) `
         'Receiver probe connected to the wrong sender.'
-    Assert-True ($null -ne $probe.capturedFrame) `
-        'Receiver probe did not preserve an extended-premultiplied frame.'
     $connectedSamples = @($probe.samples | Where-Object { [bool]$_.connected })
     Assert-True ($connectedSamples.Count -gt 0) `
         'Receiver probe never connected to the Host sender.'
@@ -1132,23 +1226,55 @@ try
         Sort-Object -Unique)
     Assert-True ($senderHandles.Count -eq 1 -and $senderHandles[0] -ne '0x0') `
         'Spout2 shared handle was null or changed before OBS capture.'
-    Assert-True (@($connectedSamples | Where-Object {
-        [UInt64]$_.extendedPremultipliedPixels -gt 0
-    }).Count -gt 0) 'Receiver observed no RGB-above-Alpha pixels.'
-    Assert-True (@($connectedSamples | Where-Object {
-        [UInt64]$_.zeroAlphaEmissionPixels -gt 0
-    }).Count -gt 0) 'Receiver observed no zero-Alpha additive emission.'
-    $frameWidth = [int]$probe.capturedFrame.width
-    $frameHeight = [int]$probe.capturedFrame.height
+    $frameWidth = [int]$connectedSamples[0].width
+    $frameHeight = [int]$connectedSamples[0].height
     Assert-True ($frameWidth -gt 0 -and $frameHeight -gt 0) `
         'Receiver probe reported invalid frame dimensions.'
-    Assert-True ([int]$probe.capturedFrame.format -eq $frameFormat) `
-        'Receiver probe did not capture DXGI_FORMAT_B8G8R8A8_UNORM.'
-    Assert-True (Test-Path -LiteralPath $activeFrame -PathType Leaf) `
-        'Receiver raw BGRA evidence is missing.'
-    $expectedBytes = [UInt64]$frameWidth * [UInt64]$frameHeight * 4
-    Assert-True ([UInt64](Get-Item -LiteralPath $activeFrame).Length -eq $expectedBytes) `
-        'Receiver raw BGRA evidence has the wrong byte count.'
+    Assert-True (@($connectedSamples | Where-Object {
+        [int]$_.width -ne $frameWidth -or
+        [int]$_.height -ne $frameHeight -or
+        [int]$_.format -ne $frameFormat
+    }).Count -eq 0) `
+        'Receiver observed a sender dimension or DXGI_FORMAT_B8G8R8A8_UNORM change.'
+    if ($isDynamicLifecycle)
+    {
+        Assert-True ($null -eq $probe.capturedFrame) `
+            'Dynamic lifecycle preflight unexpectedly captured an active frame.'
+        Assert-True (@($connectedSamples | Where-Object {
+            [UInt64]$_.nonzeroRgbPixels -ne 0 -or
+            [UInt64]$_.nonzeroAlphaPixels -ne 0 -or
+            [int]$_.maxRgb -ne 0 -or
+            [int]$_.maxAlpha -ne 0
+        }).Count -eq 0) 'Dynamic lifecycle sender was not fully transparent before the demo.'
+        Assert-True (
+            [int64]$frameWidth * [int64]$lifecycleCanvasHeight -eq
+            [int64]$frameHeight * [int64]$lifecycleCanvasWidth) `
+            'Dynamic lifecycle sender and OBS canvas do not share the same aspect ratio.'
+        $canvasWidth = $lifecycleCanvasWidth
+        $canvasHeight = $lifecycleCanvasHeight
+    }
+    else
+    {
+        Assert-True ($null -ne $probe.capturedFrame) `
+            'Receiver probe did not preserve an extended-premultiplied frame.'
+        Assert-True (@($connectedSamples | Where-Object {
+            [UInt64]$_.extendedPremultipliedPixels -gt 0
+        }).Count -gt 0) 'Receiver observed no RGB-above-Alpha pixels.'
+        Assert-True (@($connectedSamples | Where-Object {
+            [UInt64]$_.zeroAlphaEmissionPixels -gt 0
+        }).Count -gt 0) 'Receiver observed no zero-Alpha additive emission.'
+        Assert-True ([int]$probe.capturedFrame.width -eq $frameWidth -and
+            [int]$probe.capturedFrame.height -eq $frameHeight -and
+            [int]$probe.capturedFrame.format -eq $frameFormat) `
+            'Receiver captured frame does not match the sender contract.'
+        Assert-True (Test-Path -LiteralPath $activeFrame -PathType Leaf) `
+            'Receiver raw BGRA evidence is missing.'
+        $expectedBytes = [UInt64]$frameWidth * [UInt64]$frameHeight * 4
+        Assert-True ([UInt64](Get-Item -LiteralPath $activeFrame).Length -eq $expectedBytes) `
+            'Receiver raw BGRA evidence has the wrong byte count.'
+        $canvasWidth = $frameWidth
+        $canvasHeight = $frameHeight
+    }
 
     $obsArguments = @('--disable-shutdown-check')
     if ($obsConfig.Portable)
@@ -1229,10 +1355,10 @@ try
         -Key 'Name') -eq $testProfile) `
         'OBS temporary profile directory belongs to a different profile.'
     Invoke-ObsRequest -Request 'SetVideoSettings' -Data ([ordered]@{
-        baseWidth = $frameWidth
-        baseHeight = $frameHeight
-        outputWidth = $frameWidth
-        outputHeight = $frameHeight
+        baseWidth = $canvasWidth
+        baseHeight = $canvasHeight
+        outputWidth = $canvasWidth
+        outputHeight = $canvasHeight
         fpsNumerator = 30
         fpsDenominator = 1
     }) | Out-Null
@@ -1318,8 +1444,8 @@ try
         inputKind = 'color_source_v3'
         inputSettings = [ordered]@{
             color = [Int64]4278190080
-            width = $frameWidth
-            height = $frameHeight
+            width = $canvasWidth
+            height = $canvasHeight
         }
         sceneItemEnabled = $true
     })
@@ -1376,17 +1502,20 @@ try
         [int]$spoutTransform.sceneItemTransform.sourceHeight -eq $frameHeight) `
         'OBS Spout2 source did not acquire the fixed-size sender.'
 
-    foreach ($itemId in @($backgroundItemId, $spoutItemId))
+    $spoutScale = [double]$canvasWidth / [double]$frameWidth
+    foreach ($transform in @(
+        [ordered]@{ itemId = $backgroundItemId; scale = 1.0 },
+        [ordered]@{ itemId = $spoutItemId; scale = $spoutScale }))
     {
         Invoke-ObsRequest -Request 'SetSceneItemTransform' -Data ([ordered]@{
             sceneName = $testScene
-            sceneItemId = $itemId
+            sceneItemId = $transform.itemId
             sceneItemTransform = [ordered]@{
                 positionX = 0.0
                 positionY = 0.0
                 rotation = 0.0
-                scaleX = 1.0
-                scaleY = 1.0
+                scaleX = $transform.scale
+                scaleY = $transform.scale
                 alignment = 5
                 boundsType = 'OBS_BOUNDS_NONE'
                 cropTop = 0
@@ -1469,11 +1598,11 @@ try
             finalEvidenceAudioStreams = 0
         })
     $videoSettings = Invoke-ObsRequest -Request 'GetVideoSettings'
-    Assert-True ([int]$videoSettings.baseWidth -eq $frameWidth -and
-        [int]$videoSettings.baseHeight -eq $frameHeight -and
-        [int]$videoSettings.outputWidth -eq $frameWidth -and
-        [int]$videoSettings.outputHeight -eq $frameHeight) `
-        'Temporary OBS profile video dimensions do not match the Spout2 sender.'
+    Assert-True ([int]$videoSettings.baseWidth -eq $canvasWidth -and
+        [int]$videoSettings.baseHeight -eq $canvasHeight -and
+        [int]$videoSettings.outputWidth -eq $canvasWidth -and
+        [int]$videoSettings.outputHeight -eq $canvasHeight) `
+        'Temporary OBS profile video dimensions do not match the acceptance canvas.'
     Assert-True (-not $hostProcess.HasExited) `
         'Host exited during the isolated OBS preflight.'
 
@@ -1502,7 +1631,8 @@ try
             blendMethod = 'default (verified from serialized temporary collection)'
             filters = 0
         }
-        dimensions = @($frameWidth, $frameHeight)
+        senderDimensions = @($frameWidth, $frameHeight)
+        canvasDimensions = @($canvasWidth, $canvasHeight)
         audio = [ordered]@{
             specialInputCount = $audioInputNames.Count
             allSpecialInputsMuted = $true
@@ -1510,6 +1640,8 @@ try
         }
     })
 
+    if (-not $isDynamicLifecycle)
+    {
     $captureCases = @(
         [ordered]@{ name = 'black'; rgb = @(0, 0, 0); packed = [Int64]4278190080 },
         [ordered]@{ name = 'gray'; rgb = @(96, 96, 96); packed = [Int64]4284506208 },
@@ -1839,6 +1971,315 @@ try
     $verification = Read-JsonFile -Path $verificationReport
     Assert-True ([string]$verification.status -eq 'passed') `
         'OBS composite verification report is not passed.'
+    }
+    else
+    {
+        Invoke-ObsRequest -Request 'SetInputSettings' -Data ([ordered]@{
+            inputName = $backgroundInput
+            inputSettings = [ordered]@{
+                color = [Int64]4287647776
+                width = $canvasWidth
+                height = $canvasHeight
+            }
+            overlay = $true
+        }) | Out-Null
+        Start-Sleep -Milliseconds 300
+        # Capture the color source itself so the Spout input remains acquired;
+        # disabling it would create a false second sender acquisition in OBS.
+        Save-ObsSceneScreenshot `
+            -SceneName $backgroundInput `
+            -Path (Join-Path $resolvedOutput 'frame-baseline.png') `
+            -Width $canvasWidth `
+            -Height $canvasHeight
+        Start-Sleep -Milliseconds 500
+        Save-ObsSceneScreenshot `
+            -SceneName $testScene `
+            -Path (Join-Path $resolvedOutput 'frame-idle-sender-connected.png') `
+            -Width $canvasWidth `
+            -Height $canvasHeight
+
+        $sceneReadyElapsed = [int64]([DateTime]::UtcNow - $hostStartedAtUtc).TotalMilliseconds
+        Assert-True ($sceneReadyElapsed -lt 15000) `
+            'OBS lifecycle scene was not ready early enough to record a stable idle phase.'
+        Wait-ForHostElapsed `
+            -Process $hostProcess `
+            -StartedAtUtc $hostStartedAtUtc `
+            -TargetMilliseconds 15000 | Out-Null
+
+        $lifecycleProbeProcess = Start-Process `
+            -FilePath $resolvedProbe `
+            -ArgumentList @(
+                "--sender=$senderName",
+                '--duration-ms=12000',
+                '--interval-ms=100',
+                "--output=`"$lifecycleProbeJson`""
+            ) `
+            -WorkingDirectory $resolvedOutput `
+            -WindowStyle Hidden `
+            -PassThru
+
+        $recordStatusBefore = Invoke-ObsRequest -Request 'GetRecordStatus'
+        Assert-True (-not [bool]$recordStatusBefore.outputActive) `
+            'OBS recording was already active in the lifecycle profile.'
+        Assert-True (-not (Test-Path -LiteralPath $recordingWorkRoot)) `
+            "Temporary recording directory already exists: $recordingWorkRoot"
+        [IO.Directory]::CreateDirectory($recordingWorkRoot) | Out-Null
+        $recordingWorkReady = $true
+        $recordingWorkRemoved = $false
+        Invoke-ObsRequest -Request 'SetRecordDirectory' -Data ([ordered]@{
+            recordDirectory = $recordingWorkRoot
+        }) | Out-Null
+        $recordDirectory = Invoke-ObsRequest -Request 'GetRecordDirectory'
+        Assert-True ([IO.Path]::GetFullPath([string]$recordDirectory.recordDirectory).Equals(
+                $recordingWorkRoot,
+                [StringComparison]::OrdinalIgnoreCase)) `
+            'OBS did not apply the isolated lifecycle recording directory.'
+        $recordingStarted = $true
+        $recordStart = Invoke-ObsRequest -Request 'StartRecord'
+        Write-JsonFile `
+            -Path (Join-Path $resolvedOutput 'obs-record-start.json') `
+            -Value $recordStart
+        $recordingActive = $false
+        for ($attempt = 0; $attempt -lt 40; ++$attempt)
+        {
+            $recordStatus = Invoke-ObsRequest -Request 'GetRecordStatus'
+            if ([bool]$recordStatus.outputActive)
+            {
+                $recordingActive = $true
+                break
+            }
+            Start-Sleep -Milliseconds 100
+        }
+        Assert-True $recordingActive 'OBS lifecycle recording did not become active.'
+
+        Wait-ForHostElapsed `
+            -Process $hostProcess `
+            -StartedAtUtc $hostStartedAtUtc `
+            -TargetMilliseconds 19750 | Out-Null
+        for ($candidate = 0; $candidate -lt 12; ++$candidate)
+        {
+            $candidateElapsed = [int64]([DateTime]::UtcNow - $hostStartedAtUtc).TotalMilliseconds
+            $candidatePath = Join-Path $resolvedOutput (
+                'frame-active-{0:D5}ms.png' -f $candidateElapsed)
+            Save-ObsSceneScreenshot `
+                -SceneName $testScene `
+                -Path $candidatePath `
+                -Width $canvasWidth `
+                -Height $canvasHeight
+            Start-Sleep -Milliseconds 100
+        }
+
+        Wait-ForHostElapsed `
+            -Process $hostProcess `
+            -StartedAtUtc $hostStartedAtUtc `
+            -TargetMilliseconds 24000 | Out-Null
+        Save-ObsSceneScreenshot `
+            -SceneName $testScene `
+            -Path (Join-Path $resolvedOutput 'frame-final-transparent.png') `
+            -Width $canvasWidth `
+            -Height $canvasHeight
+        Wait-ForHostElapsed `
+            -Process $hostProcess `
+            -StartedAtUtc $hostStartedAtUtc `
+            -TargetMilliseconds 24500 | Out-Null
+        $recordStatus = Invoke-ObsRequest -Request 'GetRecordStatus'
+        Assert-True ([bool]$recordStatus.outputActive -and
+            [int64]$recordStatus.outputDuration -ge 5000 -and
+            [int64]$recordStatus.outputBytes -gt 0) `
+            'OBS lifecycle recording did not preserve the bounded three-stage interval.'
+        Write-JsonFile `
+            -Path (Join-Path $resolvedOutput 'obs-record-status.json') `
+            -Value $recordStatus
+
+        $recordStop = Invoke-ObsRequest -Request 'StopRecord'
+        Write-JsonFile `
+            -Path (Join-Path $resolvedOutput 'obs-record-stop.json') `
+            -Value $recordStop
+        $recordStopped = $false
+        for ($attempt = 0; $attempt -lt 40; ++$attempt)
+        {
+            $recordStatusAfterStop = Invoke-ObsRequest -Request 'GetRecordStatus'
+            if (-not [bool]$recordStatusAfterStop.outputActive)
+            {
+                $recordStopped = $true
+                break
+            }
+            Start-Sleep -Milliseconds 250
+        }
+        Assert-True $recordStopped 'OBS lifecycle recording remained active after StopRecord.'
+        $recordingStarted = $false
+        Assert-True (-not [string]::IsNullOrWhiteSpace([string]$recordStop.outputPath)) `
+            'OBS lifecycle StopRecord did not return the output path.'
+        $recordingRawPath = [IO.Path]::GetFullPath([string]$recordStop.outputPath)
+        Assert-True ((Split-Path -Parent $recordingRawPath).Equals(
+                $recordingWorkRoot,
+                [StringComparison]::OrdinalIgnoreCase)) `
+            "OBS lifecycle recording escaped temporary isolation: $recordingRawPath"
+        Wait-ForStableFile -Path $recordingRawPath
+
+        $originalProbePath = Join-Path $resolvedOutput 'recording-original-ffprobe.json'
+        $originalProbe = Get-VideoProbe `
+            -Path $recordingRawPath `
+            -EvidencePath $originalProbePath
+        $originalVideoStreams = @($originalProbe.streams | Where-Object {
+            [string]$_.codec_type -eq 'video'
+        })
+        Assert-True ($originalVideoStreams.Count -eq 1) `
+            'OBS lifecycle recording does not contain exactly one video stream.'
+
+        $recordingPath = Join-Path $resolvedOutput 'obs-lifecycle-video-only.mp4'
+        Assert-True (-not (Test-Path -LiteralPath $recordingPath)) `
+            "Sanitized lifecycle recording already exists: $recordingPath"
+        $sanitizeOutput = @(& $ffmpegPath `
+            '-hide_banner' `
+            '-loglevel' 'error' `
+            '-nostdin' `
+            '-i' $recordingRawPath `
+            '-map' '0:v:0' `
+            '-c:v' 'copy' `
+            '-an' `
+            '-movflags' '+faststart' `
+            '-y' `
+            $recordingPath 2>&1)
+        $sanitizeExitCode = $LASTEXITCODE
+        $sanitizeText = ($sanitizeOutput | ForEach-Object { [string]$_ }) -join [Environment]::NewLine
+        [IO.File]::WriteAllText(
+            (Join-Path $resolvedOutput 'recording-sanitize.log'),
+            $sanitizeText + [Environment]::NewLine,
+            $utf8NoBom)
+        Assert-True ($sanitizeExitCode -eq 0) `
+            "FFmpeg could not remove lifecycle recording audio: $sanitizeText"
+        Wait-ForStableFile -Path $recordingPath
+
+        $ffprobeJsonPath = Join-Path $resolvedOutput 'recording-ffprobe.json'
+        $ffprobe = Get-VideoProbe -Path $recordingPath -EvidencePath $ffprobeJsonPath
+        $videoStreams = @($ffprobe.streams | Where-Object { [string]$_.codec_type -eq 'video' })
+        $audioStreams = @($ffprobe.streams | Where-Object { [string]$_.codec_type -eq 'audio' })
+        Assert-True ($videoStreams.Count -eq 1 -and
+            [int]$videoStreams[0].width -eq $canvasWidth -and
+            [int]$videoStreams[0].height -eq $canvasHeight -and
+            $audioStreams.Count -eq 0) `
+            'Lifecycle evidence must contain one 1280x720 video stream and no audio.'
+        [double]$recordingDurationSeconds = 0.0
+        $durationParsed = [double]::TryParse(
+            [string]$ffprobe.format.duration,
+            [Globalization.NumberStyles]::Float,
+            [Globalization.CultureInfo]::InvariantCulture,
+            [ref]$recordingDurationSeconds)
+        Assert-True ($durationParsed -and
+            $recordingDurationSeconds -ge 5.0 -and
+            $recordingDurationSeconds -le 10.0) `
+            'OBS lifecycle recording duration is outside the bounded gate.'
+        Write-JsonFile `
+            -Path (Join-Path $resolvedOutput 'recording-container.json') `
+            -Value ([ordered]@{
+                schemaVersion = 1
+                original = [ordered]@{
+                    fileName = Split-Path -Leaf $recordingRawPath
+                    bytes = [UInt64](Get-Item -LiteralPath $recordingRawPath).Length
+                    sha256 = (Get-FileHash -LiteralPath $recordingRawPath -Algorithm SHA256).Hash
+                    audioStreamCount = @($originalProbe.streams | Where-Object {
+                        [string]$_.codec_type -eq 'audio'
+                    }).Count
+                    retained = $false
+                }
+                evidence = [ordered]@{
+                    fileName = Split-Path -Leaf $recordingPath
+                    bytes = [UInt64](Get-Item -LiteralPath $recordingPath).Length
+                    sha256 = (Get-FileHash -LiteralPath $recordingPath -Algorithm SHA256).Hash
+                    videoStreamCount = $videoStreams.Count
+                    audioStreamCount = $audioStreams.Count
+                    videoPacketsCopiedWithoutReencoding = $true
+                }
+            })
+
+        Assert-True ($lifecycleProbeProcess.WaitForExit(10000)) `
+            'Lifecycle receiver probe did not finish within its bounded interval.'
+        # Windows PowerShell 5 loses ExitCode when Start-Process redirects a
+        # stream, so the probe writes its durable evidence directly to JSON.
+        $lifecycleProbeProcess.WaitForExit()
+        $lifecycleProbeProcess.Refresh()
+        $lifecycleProbeExitCode = $lifecycleProbeProcess.ExitCode
+        Assert-True ($lifecycleProbeExitCode -eq 0) `
+            "Lifecycle receiver probe failed with exit code $lifecycleProbeExitCode."
+        $lifecycleProbe = Read-JsonFile -Path $lifecycleProbeJson
+        Assert-True ([int]$lifecycleProbe.schemaVersion -eq 2) `
+            'Lifecycle receiver probe schema is unsupported.'
+        $lifecycleSamples = @($lifecycleProbe.samples)
+        Assert-True ($lifecycleSamples.Count -ge 100 -and
+            @($lifecycleSamples | Where-Object { -not [bool]$_.connected }).Count -eq 0) `
+            'Lifecycle receiver did not remain continuously connected.'
+        $lifecycleHandles = @($lifecycleSamples | ForEach-Object { [string]$_.handle } |
+            Sort-Object -Unique)
+        Assert-True ($lifecycleHandles.Count -eq 1 -and
+            $lifecycleHandles[0] -eq $senderHandles[0]) `
+            'Spout2 shared handle changed during the dynamic lifecycle.'
+        Assert-True (@($lifecycleSamples | Where-Object {
+            [int]$_.width -ne $frameWidth -or
+            [int]$_.height -ne $frameHeight -or
+            [int]$_.format -ne $frameFormat
+        }).Count -eq 0) 'Dynamic lifecycle sender dimensions or format changed.'
+        $transparentSamples = @($lifecycleSamples | Where-Object {
+            [UInt64]$_.nonzeroRgbPixels -eq 0 -and
+            [UInt64]$_.nonzeroAlphaPixels -eq 0
+        })
+        $activeSamples = @($lifecycleSamples | Where-Object {
+            [UInt64]$_.nonzeroRgbPixels -gt 0 -or
+            [UInt64]$_.nonzeroAlphaPixels -gt 0
+        })
+        Assert-True ($transparentSamples.Count -gt 0 -and $activeSamples.Count -gt 0) `
+            'Lifecycle receiver did not observe both transparent and active phases.'
+        Assert-True (@($activeSamples | Where-Object {
+            [UInt64]$_.nonzeroRgbPixels -gt 0 -and
+            [UInt64]$_.nonzeroAlphaPixels -gt 0 -and
+            [UInt64]$_.extendedPremultipliedPixels -gt 0 -and
+            [UInt64]$_.zeroAlphaEmissionPixels -gt 0
+        }).Count -gt 0) `
+            'Lifecycle receiver did not observe the extended-premultiplied active contract.'
+        $tailSamples = @($lifecycleSamples | Select-Object -Last 10)
+        Assert-True ($tailSamples.Count -eq 10 -and
+            [int64]$tailSamples[-1].elapsedMs - [int64]$tailSamples[0].elapsedMs -ge 800 -and
+            @($tailSamples | Where-Object {
+                [UInt64]$_.nonzeroRgbPixels -ne 0 -or
+                [UInt64]$_.nonzeroAlphaPixels -ne 0
+            }).Count -eq 0) `
+            'Lifecycle receiver did not end with a sustained transparent frame.'
+        Write-JsonFile `
+            -Path (Join-Path $resolvedOutput 'receiver-lifecycle-verification.json') `
+            -Value ([ordered]@{
+                schemaVersion = 1
+                status = 'passed'
+                sender = $senderName
+                handle = $lifecycleHandles[0]
+                dimensions = @($frameWidth, $frameHeight)
+                format = $frameFormat
+                samples = $lifecycleSamples.Count
+                processExitCode = $lifecycleProbeExitCode
+                completionValidatedBy = 'process exit and complete schema-2 sample sequence'
+                transparentSamples = $transparentSamples.Count
+                activeSamples = $activeSamples.Count
+                sustainedTransparentTailMilliseconds = (
+                    [int64]$tailSamples[-1].elapsedMs - [int64]$tailSamples[0].elapsedMs)
+            })
+
+        & $pythonPath `
+            @pythonPrefix `
+            '-B' `
+            $lifecycleVerifier `
+            $resolvedOutput `
+            $recordingPath `
+            '--ffmpeg' $ffmpegPath `
+            '--ffprobe' $ffprobePath `
+            1> (Join-Path $resolvedOutput 'lifecycle-verifier.stdout.log') `
+            2> (Join-Path $resolvedOutput 'lifecycle-verifier.stderr.log')
+        Assert-True ($LASTEXITCODE -eq 0) `
+            "OBS lifecycle verifier failed with exit code $LASTEXITCODE."
+        Assert-True (Test-Path -LiteralPath $lifecycleVerificationReport -PathType Leaf) `
+            'OBS lifecycle verifier did not write its report.'
+        $recordingContract = Read-JsonFile -Path $lifecycleVerificationReport
+        Assert-True ([string]$recordingContract.status -eq 'pass') `
+            'OBS lifecycle verification report is not passed.'
+    }
     $mainPassed = $true
 }
 catch
@@ -1959,6 +2400,21 @@ finally
         catch
         {
             $postShutdownErrors.Add($_.Exception.Message)
+        }
+    }
+
+    if ($null -ne $lifecycleProbeProcess -and -not $lifecycleProbeProcess.HasExited)
+    {
+        try
+        {
+            # Only terminate the receiver PID created by this bounded run.
+            $lifecycleProbeProcess.Kill()
+            $lifecycleProbeProcess.WaitForExit()
+        }
+        catch
+        {
+            $cleanupErrors.Add(
+                "Could not stop the lifecycle receiver probe: $($_.Exception.Message)")
         }
     }
 
@@ -2088,9 +2544,10 @@ $passed = $mainPassed -and
 $summary = [ordered]@{
     schemaVersion = 1
     status = if ($passed) { 'passed' } else { 'failed' }
+    mode = $Mode
     contract = $outputContract
     sender = $senderName
-    fixedAgeMilliseconds = 130
+    fixedAgeMilliseconds = if ($isDynamicLifecycle) { $null } else { 130 }
     host = [ordered]@{
         path = $resolvedHost
         sha256 = (Get-FileHash -LiteralPath $resolvedHost -Algorithm SHA256).Hash
@@ -2118,7 +2575,11 @@ $summary = [ordered]@{
         sceneItemBlendMethod = if ($null -ne $sceneContract) { 'default' } else { $null }
         sourceSrgbAware = $false
         expectedBlendDomain = 'srgb-byte'
-        backgrounds = @('black', 'gray', 'white', 'color')
+        backgrounds = @($(if ($isDynamicLifecycle) {
+            'deep-blue-lifecycle'
+        } else {
+            'black', 'gray', 'white', 'color'
+        }))
     }
     recording = [ordered]@{
         verified = $null -ne $recordingContract
@@ -2127,19 +2588,27 @@ $summary = [ordered]@{
         } else {
             Split-Path -Leaf $recordingPath
         }
-        comparison = 'decoded-recording-frame-vs-obs-scene-png'
+        comparison = if ($isDynamicLifecycle) {
+            'idle-active-final-transparent-video-and-screenshots'
+        } else {
+            'decoded-recording-frame-vs-obs-scene-png'
+        }
         finalEvidenceAudioStreams = 0
         temporaryRawContainerRemoved = $recordingWorkRemoved
-        effectBrightnessEnergyRatio = if ($null -ne $recordingContract) {
+        effectBrightnessEnergyRatio = if (
+            -not $isDynamicLifecycle -and $null -ne $recordingContract) {
             $recordingContract.metrics.effectBrightnessEnergyRatio
         } else {
             $null
         }
-        darkenedBrightPixelFraction = if ($null -ne $recordingContract) {
+        darkenedBrightPixelFraction = if (
+            -not $isDynamicLifecycle -and $null -ne $recordingContract) {
             $recordingContract.metrics.darkenedBrightPixelFraction
         } else {
             $null
         }
+        threeStageLifecycleVerified = $isDynamicLifecycle -and
+            $null -ne $recordingContract
     }
     obsLogVerified = $null -ne $obsLogContract
     externalConfigurationRestoreExact = $externalRestoreExact
