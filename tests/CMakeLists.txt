@@ -366,6 +366,54 @@ if(WIN32)
             FOLDER "Tests"
     )
 
+    if(BAFX_ENABLE_SPOUT2)
+        add_executable(
+            bafx_spout2_receiver_probe
+            spout2_receiver_probe.cpp
+        )
+        target_link_libraries(
+            bafx_spout2_receiver_probe
+            PRIVATE
+                Spout2::SpoutDX_static
+                d3d11
+                dxgi
+        )
+        target_compile_definitions(
+            bafx_spout2_receiver_probe
+            PRIVATE
+                WIN32_LEAN_AND_MEAN
+                NOMINMAX
+        )
+        target_compile_features(bafx_spout2_receiver_probe PRIVATE cxx_std_20)
+        bafx_enable_warnings(bafx_spout2_receiver_probe)
+        set_target_properties(
+            bafx_spout2_receiver_probe
+            PROPERTIES
+                FOLDER "Tests"
+        )
+
+        if(BAFX_POWERSHELL_EXECUTABLE)
+            add_test(
+                NAME spout2_process_boundary
+                COMMAND
+                    "${BAFX_POWERSHELL_EXECUTABLE}"
+                    -NoProfile
+                    -ExecutionPolicy Bypass
+                    -File "${PROJECT_SOURCE_DIR}/tools/verify-spout2-process-boundary.ps1"
+                    -HostPath $<TARGET_FILE:ba_click_fx_desktop>
+                    -ProbePath $<TARGET_FILE:bafx_spout2_receiver_probe>
+                    -OutputDirectory "${PROJECT_BINARY_DIR}/tests/spout2-process-boundary"
+            )
+            set_tests_properties(
+                spout2_process_boundary
+                PROPERTIES
+                    LABELS "desktop;gpu;hardware;process-boundary;spout2"
+                    RUN_SERIAL TRUE
+                    TIMEOUT 25
+            )
+        endif()
+    endif()
+
     add_executable(
         bafx_host_control_tests
         test_main.cpp
