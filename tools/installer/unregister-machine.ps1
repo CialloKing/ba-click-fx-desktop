@@ -32,8 +32,8 @@ function Assert-ExpectedProcessIsStopped
     $expected = [IO.Path]::GetFullPath($ExecutablePath)
     $running = Get-CimInstance Win32_Process -Filter "Name='$([IO.Path]::GetFileName($expected))'" |
         Where-Object {
-            -not [string]::IsNullOrWhiteSpace($_.ExecutablePath)
-                -and [IO.Path]::GetFullPath($_.ExecutablePath) -eq $expected
+            (-not [string]::IsNullOrWhiteSpace($_.ExecutablePath)) -and
+                ([IO.Path]::GetFullPath($_.ExecutablePath) -eq $expected)
         } |
         Select-Object -First 1
     if ($null -ne $running)

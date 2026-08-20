@@ -250,6 +250,42 @@ function Test-PowerShellScriptContracts
     }
 }
 
+function Test-UninstallerProcessPathFilter
+{
+    $scriptPath = 'tools/installer/unregister-machine.ps1'
+    $ast = Get-ParsedScript -RelativePath $scriptPath
+    $functionText = Get-FunctionText -Ast $ast -Name 'Assert-ExpectedProcessIsStopped'
+
+    # PowerShell accepts a line-leading -and as a command during parsing, so this
+    # function must run to catch the failure mode seen by the shipped uninstaller.
+    $mockExecutablePath = 'D:\Portable\ba-click-fx-desktop.exe'
+    function Get-CimInstance
+    {
+        param(
+            [Parameter(Position = 0)]
+            [string]$ClassName,
+
+            [string]$Filter
+        )
+
+        return [pscustomobject]@{
+            ExecutablePath = $mockExecutablePath
+        }
+    }
+    . ([scriptblock]::Create($functionText))
+
+    $installedExecutablePath =
+        'C:\Program Files\ba-click-fx-desktop\ba-click-fx-desktop.exe'
+    Assert-ExpectedProcessIsStopped -ExecutablePath $installedExecutablePath
+
+    $mockExecutablePath = $installedExecutablePath
+    Assert-Throws `
+        -Action {
+            Assert-ExpectedProcessIsStopped -ExecutablePath $installedExecutablePath
+        } `
+        -Description 'installed Host process still running'
+}
+
 function Test-InstallerScriptWhitelist
 {
     $installerRoot = Resolve-RepositoryPath -RelativePath 'tools/installer'
@@ -1445,6 +1481,7 @@ if (-not (Test-Path -LiteralPath $repositoryRoot -PathType Container))
 }
 
 Test-PowerShellScriptContracts
+Test-UninstallerProcessPathFilter
 Test-VersionMapping
 Test-InstallerScriptWhitelist
 Test-CompressionRuntimeColdStart
