@@ -298,6 +298,23 @@ if(Python3_Interpreter_FOUND)
                 TIMEOUT 10
         )
     endif()
+    if(WIN32 AND BAFX_POWERSHELL_EXECUTABLE)
+        add_test(
+            NAME obs_spout2_scene_repair_contract
+            COMMAND
+                "${Python3_EXECUTABLE}"
+                -B
+                "${CMAKE_CURRENT_SOURCE_DIR}/repair_obs_spout2_scene_tests.py"
+                "${BAFX_POWERSHELL_EXECUTABLE}"
+                "${PROJECT_SOURCE_DIR}/tools/repair-obs-spout2-scene.ps1"
+        )
+        set_tests_properties(
+            obs_spout2_scene_repair_contract
+            PROPERTIES
+                LABELS "obs;spout2;contract"
+                TIMEOUT 30
+        )
+    endif()
 endif()
 
 if(WIN32)

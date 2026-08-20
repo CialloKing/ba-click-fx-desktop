@@ -25,39 +25,76 @@ if (-not (Test-Path -LiteralPath $sceneFile -PathType Leaf))
 }
 
 $document = Get-Content -LiteralPath $sceneFile -Raw | ConvertFrom-Json
-$spoutSource = @($document.sources) |
-    Where-Object { $_.id -eq 'spout_capture' } |
-    Select-Object -First 1
-if ($null -eq $spoutSource)
+$senderName = 'ba-click-fx-desktop'
+$spoutSources = @($document.sources) |
+    Where-Object {
+        if ($_.id -ne 'spout_capture')
+        {
+            return $false
+        }
+        $senderProperty = $_.settings.PSObject.Properties['spoutsenders']
+        if ($null -eq $senderProperty)
+        {
+            $senderProperty = $_.settings.PSObject.Properties['spoutname']
+        }
+        return $null -ne $senderProperty -and
+            [string]$senderProperty.Value -eq $senderName
+    }
+if ($spoutSources.Count -eq 0)
 {
-    throw 'The scene does not contain a Spout2 capture source.'
+    throw "The scene does not contain a Spout2 source bound to '$senderName'."
 }
 
-$sceneSource = @($document.sources) |
-    Where-Object { $_.id -eq 'scene' } |
-    Select-Object -First 1
-if ($null -eq $sceneSource)
+$sceneSources = @($document.sources) |
+    Where-Object { $_.id -eq 'scene' }
+if ($sceneSources.Count -eq 0)
 {
     throw 'The scene does not contain a scene source.'
 }
 
-# ConvertFrom-Json returns a PSCustomObject when a JSON array contains one
-# item. OBS requires the scene item collection to remain an array, otherwise
-# it silently loads the scene without any visible sources.
-$sceneSource.settings.items = @($sceneSource.settings.items)
-
-$item = @($sceneSource.settings.items) |
-    Where-Object { $_.source_uuid -eq $spoutSource.uuid } |
-    Select-Object -First 1
-if ($null -eq $item)
+$targetSourceUuids = @{}
+foreach ($source in $spoutSources)
 {
-    throw 'The Spout2 source is not present in the active scene.'
+    $targetSourceUuids[[string]$source.uuid] = $true
 }
 
-$needsRepair = [int]$item.bounds_type -ne 2 -or
-    [double]$item.bounds.x -le 0 -or
-    [double]$item.bounds.y -le 0 -or
-    [int]$spoutSource.settings.compositemode -ne 1
+$targetItems = [Collections.Generic.List[object]]::new()
+foreach ($sceneSource in $sceneSources)
+{
+    # OBS requires a one-item collection to remain a JSON array after the
+    # PowerShell object has passed through the pipeline.
+    $sceneSource.settings.items = @($sceneSource.settings.items)
+    foreach ($item in @($sceneSource.settings.items))
+    {
+        if ($targetSourceUuids.ContainsKey([string]$item.source_uuid))
+        {
+            $targetItems.Add($item)
+        }
+    }
+}
+if ($targetItems.Count -eq 0)
+{
+    throw "The '$senderName' Spout2 source is not present in any scene."
+}
+
+$needsRepair = $false
+foreach ($source in $spoutSources)
+{
+    $compositeProperty = $source.settings.PSObject.Properties['compositemode']
+    if ($null -eq $compositeProperty -or [int]$compositeProperty.Value -ne 4)
+    {
+        $needsRepair = $true
+    }
+}
+foreach ($item in $targetItems)
+{
+    if ([int]$item.bounds_type -ne 2 -or
+        [double]$item.bounds.x -ne [double]$Width -or
+        [double]$item.bounds.y -ne [double]$Height)
+    {
+        $needsRepair = $true
+    }
+}
 
 if (-not $needsRepair)
 {
@@ -71,7 +108,9 @@ if ($CheckOnly)
     exit 2
 }
 
-if (-not $PSCmdlet.ShouldProcess($sceneFile, 'repair Spout2 source bounds and composite mode'))
+if (-not $PSCmdlet.ShouldProcess(
+        $sceneFile,
+        "repair '$senderName' bounds and premultiplied-alpha composite mode"))
 {
     exit 0
 }
@@ -79,23 +118,36 @@ if (-not $PSCmdlet.ShouldProcess($sceneFile, 'repair Spout2 source bounds and co
 $backup = "$sceneFile.bak"
 Copy-Item -LiteralPath $sceneFile -Destination $backup -Force
 
-# OBS treats a zero-sized bounds rectangle as a valid saved transform, so the
-# source can receive frames while the scene renders nothing. Use a stable
-# canvas-sized rectangle and opaque compositing for the Host's BGRA8 payload.
-$item.bounds_type = 2
-$item.bounds = [pscustomobject]@{
-    x = [double]$Width
-    y = [double]$Height
+# OBS accepts a zero-sized bounds rectangle, but then receives frames without
+# rendering them. Restore only the selected sender to a stable canvas rectangle.
+foreach ($item in $targetItems)
+{
+    $item.bounds_type = 2
+    $item.bounds = [pscustomobject]@{
+        x = [double]$Width
+        y = [double]$Height
+    }
+    $item.bounds_rel = [pscustomobject]@{
+        x = [double]$Width / 540.0 * 1.0
+        y = [double]$Height / 540.0 * 1.0
+    }
 }
-$item.bounds_rel = [pscustomobject]@{
-    x = [double]$Width / 540.0 * 1.0
-    y = [double]$Height / 540.0 * 1.0
+foreach ($source in $spoutSources)
+{
+    $compositeProperty = $source.settings.PSObject.Properties['compositemode']
+    if ($null -eq $compositeProperty)
+    {
+        $source.settings | Add-Member -NotePropertyName compositemode -NotePropertyValue 4
+    }
+    else
+    {
+        $source.settings.compositemode = 4
+    }
 }
-$spoutSource.settings.compositemode = 1
 
 $document |
     ConvertTo-Json -Depth 100 |
     Set-Content -LiteralPath $sceneFile -Encoding utf8
 
-Write-Output "Repaired OBS Spout2 scene: $sceneFile"
+Write-Output "Repaired OBS Spout2 premultiplied-alpha scene: $sceneFile"
 Write-Output "Backup: $backup"

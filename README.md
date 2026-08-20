@@ -109,6 +109,10 @@ cmake --build --preset alpha-host-release --parallel 4
 精简版仍保留完整特效和控制中心，但不会显示 Spout2 输出开关。对应的打包脚本可传入
 `-Slim`，生成文件名带有 `-slim` 后缀。
 
+标准构建的 OBS 输出是透明预乘的 FX-only 层。OBS 需要把游戏/桌面捕获置底，并把绑定
+`ba-click-fx-desktop` 的 Spout2 源置顶、设为 `Premultiplied Alpha`。插件探测、旧场景
+迁移和本机验收步骤见 [`docs/OBS_SPOUT2.md`](docs/OBS_SPOUT2.md)。
+
 `.github/workflows/windows-build-compat.yml` 使用 VS2022 以 Windows SDK `10.0.19041.0`、
 `10.0.22621.0` 和 `10.0.26100.0` 构建 Host、Control Center 与 Identity Signer 的完整二进制；每个
 job 还会记录 runner 实际安装的 Include/Lib SDK 清单。19041 是最低旧 SDK 基线，22621 是中间

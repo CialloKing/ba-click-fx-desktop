@@ -37,18 +37,15 @@
   `m_MinVertexDistance=0.01`。
 - D3D11 硬件设备；硬件设备创建失败时尝试 WARP 软件设备。
 - 当前验证范围为普通 SDR 桌面合成路径。
-- Spout2 输出使用主显示器的 GPU 合成结果，发送器名称固定为
-  `ba-click-fx-desktop`。安装版和便携版均内置 Spout2 代码；在控制中心的“系统行为”中
-  勾选“启用 OBS Spout2 输出”后，在 OBS 添加
-  `Spout2 捕获`（`spout_capture`）源即可接收不透明的“桌面背景 + 特效”画面；当前验证合同为
-  单显示器、同 GPU、SDR、BGRA8。OBS 的 Composite Mode 必须选择 `Opaque`，因为发送纹理
-  已经填充不透明黑色背景；4K sender 放入 1080p OBS 画布时还需要对源执行 `Transform -> Fit to Screen`。
-  如果 OBS 日志已经显示 `Sender ... is of dimensions` 和 `rendering context->texture`，但预览仍为黑屏，
-  先检查场景项的边界是否为零。可以关闭 OBS 后运行
-  `pwsh -File tools/repair-obs-spout2-scene.ps1 -ScenePath <场景.json>`；脚本会先生成 `.bak`，
-  将 Spout2 源恢复为画布大小、Opaque 合成，并保留原配置以便回滚。
-  WGC 背景快照是可选增强：不可用时仍发送黑底 FX-only 帧，核心性能模式也仍可发送特效，
-  不会发送透明旧帧。旧的 `--spout2` 参数仍可用于诊断时临时开启，但不改变持久化开关。
+- Spout2 发送器名称固定为 `ba-click-fx-desktop`，输出合同为
+  `BGRA8 + sRGB + premultiplied alpha + FX-only v1`。空闲帧严格透明，有效像素满足
+  `RGB <= Alpha`，不混入 WGC 桌面背景；WGC 不可用或失败时仍能输出点击和拖尾。
+  OBS 单独捕获游戏/桌面并置底，`Spout2 Capture` 源置顶，Composite Mode 必须选择
+  `Premultiplied Alpha`，再执行 `Transform -> Fit to Screen`。旧的 `Default`/`Opaque`
+  来源需要显式迁移。Control Center 只读检查发送状态、`win-spout.dll` 版本/位数和 OBS
+  实际加载状态，不会下载插件或修改场景。完整设置、迁移脚本和验收边界见
+  [`docs/OBS_SPOUT2.md`](docs/OBS_SPOUT2.md)。旧的 `--spout2` 参数仍可用于诊断时临时开启，
+  但不改变持久化开关。
 - 支持报告保留主协调屏摘要，并按稳定顺序为每个显示会话记录角色、边界、DPI、显示/捕获刷新率、
   DisplayConfig 身份、请求/实际 GPU、HDR/Advanced Color、最终输出策略、WGC 状态和渲染故障；
   这些只是当前运行快照，不能据此宣称 HDR、多显示器、Advanced Color 或物理 nits 输出已经受支持。
@@ -234,8 +231,9 @@ Windows“已安装的应用”执行，默认保留安装目录
 ## 测试入口
 
 - `ba-click-fx-desktop.exe --demo-click`：在主屏中心生成一次可见点击后继续运行。
-- `ba-click-fx-desktop.exe --spout2 --demo-click`：启用 Spout2 主显示器输出并生成一次可见点击；
-  OBS 需先安装兼容的 Spout2 插件并添加 `Spout2 捕获` 源。
+- `ba-click-fx-desktop.exe --spout2 --demo-click`：启用透明预乘 Spout2 FX-only 输出并生成
+  一次可见点击；OBS 需先安装兼容插件，把 `Spout2 捕获` 源置顶并选择
+  `Premultiplied Alpha`。
 - `ba-click-fx-desktop.exe --smoke-test`：执行有界的 D3D11/DirectComposition 中心像素检查并退出；
   成功退出码为 `0`。
 - `ba-click-fx-desktop.exe --quit-after-ms=1000`：运行正常消息/渲染循环并在约一秒后退出，用于验证
