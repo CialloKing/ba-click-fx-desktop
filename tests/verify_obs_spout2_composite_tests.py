@@ -59,6 +59,8 @@ def _fixture(root: Path) -> tuple[Path, dict[str, np.ndarray]]:
     manifest = {
         "schemaVersion": 1,
         "contract": "bgra8-srgb-extended-premultiplied-fx-only-v2",
+        "obsBlendMethod": "default",
+        "obsBlendMode": "normal",
         "rawFrame": {
             "path": raw_path.name,
             "width": width,
@@ -125,6 +127,51 @@ class VerifyObsSpout2CompositeTests(unittest.TestCase):
 
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("black, gray, white, and color", result.stderr)
+
+    def test_rejects_linear_srgb_composite(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            manifest, _ = _fixture(root)
+            document = json.loads(manifest.read_text())
+            raw = np.fromfile(root / "active-frame.bgra", dtype=np.uint8).reshape(
+                (6, 8, 4)
+            )
+            source = raw[:, :, [2, 1, 0]]
+            alpha = raw[:, :, 3]
+            background = np.asarray(BACKGROUNDS["gray"], dtype=np.uint8)
+            source_normalized = source.astype(np.float64) / 255.0
+            background_normalized = background.astype(np.float64) / 255.0
+            source_linear = np.where(
+                source_normalized <= 0.04045,
+                source_normalized / 12.92,
+                np.power((source_normalized + 0.055) / 1.055, 2.4),
+            )
+            background_linear = np.where(
+                background_normalized <= 0.04045,
+                background_normalized / 12.92,
+                np.power((background_normalized + 0.055) / 1.055, 2.4),
+            )
+            composite_linear = np.clip(
+                source_linear
+                + background_linear[None, None, :]
+                * (1.0 - alpha.astype(np.float64)[:, :, None] / 255.0),
+                0.0,
+                1.0,
+            )
+            encoded = np.where(
+                composite_linear <= 0.0031308,
+                composite_linear * 12.92,
+                1.055 * np.power(composite_linear, 1.0 / 2.4) - 0.055,
+            )
+            Image.fromarray(
+                np.rint(encoded * 255.0).astype(np.uint8),
+                mode="RGB",
+            ).save(root / "gray.png")
+
+            result = _run(manifest)
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("differs from ONE/INV_SRC_ALPHA", result.stderr)
 
 
 if __name__ == "__main__":

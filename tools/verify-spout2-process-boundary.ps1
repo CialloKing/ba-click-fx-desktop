@@ -119,7 +119,7 @@ try
     Assert-True ([string]$probe.capturedFrame.path -eq $activeFrame) `
         'Receiver active frame path does not match the requested artifact.'
     Assert-True ([int]$probe.capturedFrame.format -eq 87) `
-        'Receiver active frame artifact is not BGRA8.'
+        'Receiver active frame artifact is not BGRA8 UNORM.'
     $expectedFrameBytes = [UInt64]$probe.capturedFrame.width *
         [UInt64]$probe.capturedFrame.height * 4
     Assert-True ([UInt64](Get-Item -LiteralPath $activeFrame).Length -eq $expectedFrameBytes) `

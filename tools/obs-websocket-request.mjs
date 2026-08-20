@@ -26,6 +26,11 @@ function parseArguments(values)
         {
             options.data = JSON.parse(values[++index] ?? "{}");
         }
+        else if (value === "--data-base64")
+        {
+            const encoded = values[++index] ?? "e30=";
+            options.data = JSON.parse(Buffer.from(encoded, "base64").toString("utf8"));
+        }
         else if (value === "--timeout-ms")
         {
             options.timeoutMilliseconds = Number(values[++index]);

@@ -211,6 +211,20 @@ if(Python3_Interpreter_FOUND)
         PROPERTIES
             LABELS "contract;obs;spout2"
     )
+    add_test(
+        NAME obs_spout2_recording_contract
+        COMMAND
+            "${Python3_EXECUTABLE}"
+            -B
+            "${CMAKE_CURRENT_SOURCE_DIR}/verify_obs_spout2_recording_tests.py"
+            "${PROJECT_SOURCE_DIR}/tools/verify-obs-spout2-recording.py"
+    )
+    set_tests_properties(
+        obs_spout2_recording_contract
+        PROPERTIES
+            LABELS "contract;obs;spout2"
+            TIMEOUT 10
+    )
     set_tests_properties(
         external_recording_spike_contract
         PROPERTIES
@@ -312,6 +326,21 @@ if(Python3_Interpreter_FOUND)
         )
     endif()
     if(WIN32 AND BAFX_POWERSHELL_EXECUTABLE)
+        add_test(
+            NAME obs_spout2_composite_acceptance_source_contract
+            COMMAND
+                "${Python3_EXECUTABLE}"
+                -B
+                "${CMAKE_CURRENT_SOURCE_DIR}/run_obs_spout2_composite_acceptance_tests.py"
+                "${BAFX_POWERSHELL_EXECUTABLE}"
+                "${PROJECT_SOURCE_DIR}/tools/run-obs-spout2-composite-acceptance.ps1"
+        )
+        set_tests_properties(
+            obs_spout2_composite_acceptance_source_contract
+            PROPERTIES
+                LABELS "obs;spout2;contract"
+                TIMEOUT 10
+        )
         add_test(
             NAME obs_spout2_scene_repair_contract
             COMMAND

@@ -46,6 +46,10 @@ def _load_manifest(path: Path) -> dict[str, object]:
         raise RuntimeError("manifest schemaVersion must be 1")
     if document.get("contract") != CONTRACT:
         raise RuntimeError("manifest contract does not match the verifier")
+    if document.get("obsBlendMethod") != "default":
+        raise RuntimeError("obsBlendMethod must be default")
+    if document.get("obsBlendMode") != "normal":
+        raise RuntimeError("obsBlendMode must be normal")
     return document
 
 
@@ -204,6 +208,8 @@ def main() -> int:
         "schemaVersion": 1,
         "status": "passed",
         "contract": CONTRACT,
+        "obsBlendMethod": "default",
+        "obsBlendMode": "normal",
         "dimensions": [int(source_rgb.shape[1]), int(source_rgb.shape[0])],
         "rawFrame": {
             "path": raw_path.name,
