@@ -71,6 +71,13 @@ struct RenderTarget
     ComPtr<ID3D11ShaderResourceView> shaderResource{};
 };
 
+struct Bgra8Image
+{
+    std::uint32_t width{0U};
+    std::uint32_t height{0U};
+    std::vector<Bgra8UnormPixel> pixels{};
+};
+
 struct WarpDevice
 {
     ComPtr<ID3D11Device> device{};
@@ -166,6 +173,120 @@ struct WarpDevice
             halfToFloat(pixel.alpha)});
     }
     return pixels;
+}
+
+[[nodiscard]] Bgra8Image readbackBgra8(
+    ID3D11DeviceContext* context,
+    ID3D11Texture2D* source)
+{
+    D3D11_TEXTURE2D_DESC sourceDescription{};
+    source->GetDesc(&sourceDescription);
+    if (sourceDescription.Format != DXGI_FORMAT_B8G8R8A8_UNORM
+        || sourceDescription.ArraySize != 1U
+        || sourceDescription.MipLevels != 1U
+        || sourceDescription.SampleDesc.Count != 1U)
+    {
+        throw std::invalid_argument("BGRA8 readback requires one single-sample texture");
+    }
+
+    D3D11_TEXTURE2D_DESC stagingDescription = sourceDescription;
+    stagingDescription.Usage = D3D11_USAGE_STAGING;
+    stagingDescription.BindFlags = 0U;
+    stagingDescription.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+    stagingDescription.MiscFlags = 0U;
+
+    ComPtr<ID3D11Device> device;
+    source->GetDevice(&device);
+    ComPtr<ID3D11Texture2D> staging;
+    throwIfFailed(
+        device->CreateTexture2D(&stagingDescription, nullptr, &staging),
+        "ID3D11Device::CreateTexture2D(BGRA8 staging)");
+    context->CopyResource(staging.Get(), source);
+
+    Bgra8Image image{};
+    image.width = sourceDescription.Width;
+    image.height = sourceDescription.Height;
+    image.pixels.resize(
+        static_cast<std::size_t>(image.width) * image.height);
+
+    D3D11_MAPPED_SUBRESOURCE mapped{};
+    throwIfFailed(
+        context->Map(staging.Get(), 0U, D3D11_MAP_READ, 0U, &mapped),
+        "ID3D11DeviceContext::Map(BGRA8 staging)");
+    for (std::uint32_t y = 0U; y < image.height; ++y)
+    {
+        const auto* row = reinterpret_cast<const Bgra8UnormPixel*>(
+            static_cast<const std::uint8_t*>(mapped.pData)
+            + static_cast<std::size_t>(y) * mapped.RowPitch);
+        std::copy_n(
+            row,
+            image.width,
+            image.pixels.begin() + static_cast<std::size_t>(y) * image.width);
+    }
+    context->Unmap(staging.Get(), 0U);
+    return image;
+}
+
+[[nodiscard]] bool hasExtendedEmission(const Bgra8Image& image) noexcept
+{
+    return std::any_of(
+        image.pixels.begin(),
+        image.pixels.end(),
+        [](const Bgra8UnormPixel pixel)
+        {
+            return pixel.red > pixel.alpha
+                || pixel.green > pixel.alpha
+                || pixel.blue > pixel.alpha;
+        });
+}
+
+[[nodiscard]] bool hasZeroAlphaEmission(const Bgra8Image& image) noexcept
+{
+    return std::any_of(
+        image.pixels.begin(),
+        image.pixels.end(),
+        [](const Bgra8UnormPixel pixel)
+        {
+            return pixel.alpha == 0U
+                && (pixel.red != 0U || pixel.green != 0U || pixel.blue != 0U);
+        });
+}
+
+[[nodiscard]] bool isTransparent(const Bgra8Image& image) noexcept
+{
+    return std::all_of(
+        image.pixels.begin(),
+        image.pixels.end(),
+        [](const Bgra8UnormPixel pixel)
+        {
+            return pixel.red == 0U
+                && pixel.green == 0U
+                && pixel.blue == 0U
+                && pixel.alpha == 0U;
+        });
+}
+
+[[nodiscard]] bool sameBgra8(
+    const Bgra8Image& left,
+    const Bgra8Image& right) noexcept
+{
+    if (left.width != right.width
+        || left.height != right.height
+        || left.pixels.size() != right.pixels.size())
+    {
+        return false;
+    }
+    return std::equal(
+        left.pixels.begin(),
+        left.pixels.end(),
+        right.pixels.begin(),
+        [](const Bgra8UnormPixel first, const Bgra8UnormPixel second)
+        {
+            return first.red == second.red
+                && first.green == second.green
+                && first.blue == second.blue
+                && first.alpha == second.alpha;
+        });
 }
 
 [[nodiscard]] std::vector<ReadbackPixel> toFloatPixels(
@@ -2171,12 +2292,12 @@ BAFX_TEST(warp_spout2_recording_target_exports_fx_without_wgc_background)
         recordingTarget.texture.Get(),
         testSize.width - 1U,
         testSize.height - 1U);
-    // OBS composites this payload over its own source. Every encoded color
-    // channel must remain bounded by Alpha, and untouched pixels stay clear.
+    const Bgra8Image image = readbackBgra8(
+        graphics.context.Get(),
+        recordingTarget.texture.Get());
     BAFX_CHECK(center.alpha > 0U);
-    BAFX_CHECK(center.red <= center.alpha);
-    BAFX_CHECK(center.green <= center.alpha);
-    BAFX_CHECK(center.blue <= center.alpha);
+    BAFX_CHECK(hasExtendedEmission(image));
+    BAFX_CHECK(hasZeroAlphaEmission(image));
     BAFX_CHECK(background.alpha == 0U);
     BAFX_CHECK(
         center.red > background.red
@@ -2185,6 +2306,66 @@ BAFX_TEST(warp_spout2_recording_target_exports_fx_without_wgc_background)
     BAFX_CHECK(background.red == 0U);
     BAFX_CHECK(background.green == 0U);
     BAFX_CHECK(background.blue == 0U);
+}
+
+BAFX_TEST(warp_spout2_additive_layers_never_attenuate_obs_background)
+{
+    ComApartment apartment;
+    const WarpDevice graphics = createWarpDevice();
+    FxGpuRenderer renderer(graphics.device.Get(), graphics.context.Get(), testSize);
+    const RenderTarget desktopTarget = createRenderTarget(graphics.device.Get());
+    const RenderTarget recordingTarget = createRecordingRenderTarget(
+        graphics.device.Get());
+
+    renderer.render(
+        makeTriangleSnapshot(),
+        desktopTarget.view.Get(),
+        std::nullopt,
+        nullptr,
+        recordingTarget.view.Get());
+    const Bgra8Image image = readbackBgra8(
+        graphics.context.Get(),
+        recordingTarget.texture.Get());
+
+    BAFX_CHECK(hasZeroAlphaEmission(image));
+    BAFX_CHECK(std::all_of(
+        image.pixels.begin(),
+        image.pixels.end(),
+        [](const Bgra8UnormPixel pixel)
+        {
+            return pixel.alpha == 0U;
+        }));
+
+    constexpr std::array<std::array<std::uint8_t, 3U>, 4U> backgrounds{
+        std::array<std::uint8_t, 3U>{0U, 0U, 0U},
+        std::array<std::uint8_t, 3U>{96U, 96U, 96U},
+        std::array<std::uint8_t, 3U>{255U, 255U, 255U},
+        std::array<std::uint8_t, 3U>{32U, 80U, 144U}};
+    std::size_t emissionPixels = 0U;
+    for (const Bgra8UnormPixel pixel : image.pixels)
+    {
+        const std::array<std::uint8_t, 3U> source{
+            pixel.red,
+            pixel.green,
+            pixel.blue};
+        if (source[0] == 0U && source[1] == 0U && source[2] == 0U)
+        {
+            continue;
+        }
+        ++emissionPixels;
+        for (const auto& background : backgrounds)
+        {
+            for (std::size_t channel = 0U; channel < source.size(); ++channel)
+            {
+                const unsigned int composite = std::min(
+                    255U,
+                    static_cast<unsigned int>(source[channel])
+                        + background[channel]);
+                BAFX_CHECK(composite >= background[channel]);
+            }
+        }
+    }
+    BAFX_CHECK(emissionPixels > 100U);
 }
 
 BAFX_TEST(warp_spout2_recording_target_replaces_idle_frame_with_transparency)
@@ -2214,10 +2395,14 @@ BAFX_TEST(warp_spout2_recording_target_replaces_idle_frame_with_transparency)
         recordingTarget.texture.Get(),
         testSize.width / 2U,
         testSize.height / 2U);
+    const Bgra8Image image = readbackBgra8(
+        graphics.context.Get(),
+        recordingTarget.texture.Get());
     BAFX_CHECK(center.red == 0U);
     BAFX_CHECK(center.green == 0U);
     BAFX_CHECK(center.blue == 0U);
     BAFX_CHECK(center.alpha == 0U);
+    BAFX_CHECK(isTransparent(image));
 }
 
 BAFX_TEST(warp_spout2_recording_target_never_flattens_wgc_background)
@@ -2228,12 +2413,20 @@ BAFX_TEST(warp_spout2_recording_target_never_flattens_wgc_background)
     const RenderTarget desktopTarget = createRenderTarget(graphics.device.Get());
     const RenderTarget recordingTarget = createRecordingRenderTarget(
         graphics.device.Get());
+    const RenderTarget referenceRecordingTarget = createRecordingRenderTarget(
+        graphics.device.Get());
     const RenderTarget backgroundTarget = createRenderTarget(graphics.device.Get());
     constexpr std::array<float, 4> brightBackground{0.8F, 0.6F, 0.4F, 1.0F};
     graphics.context->ClearRenderTargetView(
         backgroundTarget.view.Get(),
         brightBackground.data());
 
+    renderer.render(
+        makeDiskAndTrailSnapshot(),
+        desktopTarget.view.Get(),
+        std::nullopt,
+        nullptr,
+        referenceRecordingTarget.view.Get());
     renderer.render(
         makeDiskAndTrailSnapshot(),
         desktopTarget.view.Get(),
@@ -2251,10 +2444,16 @@ BAFX_TEST(warp_spout2_recording_target_never_flattens_wgc_background)
         recordingTarget.texture.Get(),
         testSize.width - 1U,
         testSize.height - 1U);
+    const Bgra8Image image = readbackBgra8(
+        graphics.context.Get(),
+        recordingTarget.texture.Get());
+    const Bgra8Image referenceImage = readbackBgra8(
+        graphics.context.Get(),
+        referenceRecordingTarget.texture.Get());
+    BAFX_CHECK(sameBgra8(image, referenceImage));
     BAFX_CHECK(center.alpha > 0U);
-    BAFX_CHECK(center.red <= center.alpha);
-    BAFX_CHECK(center.green <= center.alpha);
-    BAFX_CHECK(center.blue <= center.alpha);
+    BAFX_CHECK(hasExtendedEmission(image));
+    BAFX_CHECK(hasZeroAlphaEmission(image));
     BAFX_CHECK(background.red == 0U);
     BAFX_CHECK(background.green == 0U);
     BAFX_CHECK(background.blue == 0U);
@@ -2289,15 +2488,13 @@ BAFX_TEST(warp_core_profile_exports_spout2_fx_without_bloom)
         64U,
         64U);
     BAFX_CHECK(center.alpha > 0U);
-    BAFX_CHECK(trail.alpha > 0U);
-    BAFX_CHECK(center.red <= center.alpha);
-    BAFX_CHECK(center.green <= center.alpha);
-    BAFX_CHECK(center.blue <= center.alpha);
-    BAFX_CHECK(trail.red <= trail.alpha);
-    BAFX_CHECK(trail.green <= trail.alpha);
-    BAFX_CHECK(trail.blue <= trail.alpha);
+    BAFX_CHECK(trail.alpha == 0U);
     BAFX_CHECK(center.red != 0U || center.green != 0U || center.blue != 0U);
     BAFX_CHECK(trail.red != 0U || trail.green != 0U || trail.blue != 0U);
+    BAFX_CHECK(
+        trail.red > trail.alpha
+        || trail.green > trail.alpha
+        || trail.blue > trail.alpha);
 }
 
 BAFX_TEST(warp_core_spout2_ignores_wgc_and_clears_after_fx_decay)
@@ -2332,9 +2529,6 @@ BAFX_TEST(warp_core_spout2_ignores_wgc_and_clears_after_fx_decay)
         testSize.width - 1U,
         testSize.height - 1U);
     BAFX_CHECK(active.alpha > 0U);
-    BAFX_CHECK(active.red <= active.alpha);
-    BAFX_CHECK(active.green <= active.alpha);
-    BAFX_CHECK(active.blue <= active.alpha);
     BAFX_CHECK(activeBackground.red == 0U);
     BAFX_CHECK(activeBackground.green == 0U);
     BAFX_CHECK(activeBackground.blue == 0U);
@@ -2351,10 +2545,14 @@ BAFX_TEST(warp_core_spout2_ignores_wgc_and_clears_after_fx_decay)
         recordingTarget.texture.Get(),
         testSize.width / 2U,
         testSize.height / 2U);
+    const Bgra8Image decayedImage = readbackBgra8(
+        graphics.context.Get(),
+        recordingTarget.texture.Get());
     BAFX_CHECK(decayed.red == 0U);
     BAFX_CHECK(decayed.green == 0U);
     BAFX_CHECK(decayed.blue == 0U);
     BAFX_CHECK(decayed.alpha == 0U);
+    BAFX_CHECK(isTransparent(decayedImage));
 }
 
 BAFX_TEST(warp_core_profile_keeps_trail_without_bloom_layers)

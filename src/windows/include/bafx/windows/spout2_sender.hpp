@@ -11,7 +11,7 @@ namespace bafx::windows
 {
 
 inline constexpr std::string_view spout2OutputContract =
-    "bgra8-srgb-premultiplied-fx-only-v1";
+    "bgra8-srgb-extended-premultiplied-fx-only-v2";
 
 enum class Spout2SenderStatus : std::uint8_t
 {

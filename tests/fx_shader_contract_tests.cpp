@@ -171,6 +171,7 @@ BAFX_TEST(all_embedded_fx_shader_entries_compile_with_warnings_as_errors)
         ShaderEntry{unityBloomShaderSource(), "DifferentialPrefilterPixel", "ps_5_0"},
         ShaderEntry{unityBloomShaderSource(), "DownsamplePixel", "ps_5_0"},
         ShaderEntry{unityBloomShaderSource(), "UpsamplePixel", "ps_5_0"},
+        ShaderEntry{unityBloomShaderSource(), "BloomResultPixel", "ps_5_0"},
         ShaderEntry{unityBloomShaderSource(), "CompositePixel", "ps_5_0"},
         ShaderEntry{unityBloomShaderSource(), "DesktopCompositePixel", "ps_5_0"},
         ShaderEntry{
@@ -242,6 +243,7 @@ BAFX_TEST(bloom_shader_reflection_locks_resources_and_constant_layout)
         "DifferentialPrefilterPixel",
         "DownsamplePixel",
         "UpsamplePixel",
+        "BloomResultPixel",
         "CompositePixel",
         "DesktopCompositePixel",
         "DesktopSdrCompositePixel",
@@ -254,7 +256,10 @@ BAFX_TEST(bloom_shader_reflection_locks_resources_and_constant_layout)
         const auto reflection = compileAndReflect(
             ShaderEntry{unityBloomShaderSource(), entryPoint, "ps_5_0"});
         BAFX_CHECK(hasBinding(reflection.Get(), "BloomConstants", D3D_SIT_CBUFFER, 0U));
-        BAFX_CHECK(hasBinding(reflection.Get(), "Source0", D3D_SIT_TEXTURE, 0U));
+        if (std::string_view(entryPoint) != "BloomResultPixel")
+        {
+            BAFX_CHECK(hasBinding(reflection.Get(), "Source0", D3D_SIT_TEXTURE, 0U));
+        }
         BAFX_CHECK(hasBinding(
             reflection.Get(), "LinearClampSampler", D3D_SIT_SAMPLER, 0U));
         BAFX_CHECK(hasSignatureParameter(
@@ -298,6 +303,7 @@ BAFX_TEST(bloom_shader_reflection_locks_resources_and_constant_layout)
 
         if (std::string_view(entryPoint) == "DifferentialPrefilterPixel"
             || std::string_view(entryPoint) == "UpsamplePixel"
+            || std::string_view(entryPoint) == "BloomResultPixel"
             || std::string_view(entryPoint) == "CompositePixel"
             || std::string_view(entryPoint) == "DesktopCompositePixel"
             || std::string_view(entryPoint) == "DesktopSdrCompositePixel"
@@ -308,7 +314,10 @@ BAFX_TEST(bloom_shader_reflection_locks_resources_and_constant_layout)
         }
         if (std::string_view(entryPoint) == "DifferentialPrefilterPixel"
             || std::string_view(entryPoint) == "DesktopCompositePixel"
-            || std::string_view(entryPoint) == "DesktopSdrCompositePixel")
+            || std::string_view(entryPoint) == "DesktopSdrCompositePixel"
+            || std::string_view(entryPoint) == "RecordingFxOnlySdrCompositePixel"
+            || std::string_view(entryPoint)
+                == "CoreRecordingFxOnlySdrCompositePixel")
         {
             BAFX_CHECK(hasBinding(reflection.Get(), "Source2", D3D_SIT_TEXTURE, 2U));
         }

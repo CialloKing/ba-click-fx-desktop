@@ -433,6 +433,11 @@ float4 CompositePixel(FullscreenOutput input) : SV_Target0
     const float4 direct = Source0.Sample(LinearClampSampler, input.uv);
     return ResolveComposite(direct, ResolveBloomResult(input));
 }
+
+float4 BloomResultPixel(FullscreenOutput input) : SV_Target0
+{
+    return ResolveBloomResult(input);
+}
 )hlsl",
     R"hlsl(
 struct CaptureCompositeOutput
@@ -699,6 +704,33 @@ float4 EncodeConservativeSdrPremultiplied(float4 linearPremultiplied)
     return float4(encodedPremultiplied, alpha);
 }
 
+float4 ResolveSpout2FxOnlyTransport(
+    float4 direct,
+    float4 bloom,
+    float4 cross,
+    float exposureGain)
+{
+    const float overlayAlphaLimit = 250.0 / 255.0;
+    const float alpha = min(
+        saturate(cross.a) * saturate(ThemeCoverageScale),
+        overlayAlphaLimit);
+    const float3 emission = max(direct.rgb, 0.0)
+        + max(bloom.rgb, 0.0) * exposureGain;
+
+    // OBS owns the background. Only Cross2 attenuates it; additive materials
+    // and Bloom remain RGB energy even where geometric coverage is zero.
+    return float4(emission, alpha);
+}
+
+float4 EncodeSdrExtendedPremultiplied(float4 linearExtendedPremultiplied)
+{
+    // BGRA8 clamps SDR channel range, but it can still carry RGB above Alpha.
+    // Encoding channels independently keeps zero-Alpha emission representable.
+    return float4(
+        LinearToSrgb(max(linearExtendedPremultiplied.rgb, 0.0)),
+        saturate(linearExtendedPremultiplied.a));
+}
+
 float4 ResolveDesktopCompositeInputs(
     FullscreenOutput input,
     float4 direct,
@@ -858,14 +890,12 @@ float4 RecordingFxOnlySdrCompositePixel(FullscreenOutput input) : SV_Target0
     const float4 direct = Source0.Sample(LinearClampSampler, input.uv);
     const float4 bloom = Source1.Sample(LinearClampSampler, input.uv);
     const float4 cross = Source2.Sample(LinearClampSampler, input.uv);
-    // OBS owns the captured desktop or game. Keep this independent transport
-    // transparent so the source can be composited without a black rectangle.
-    const float4 overlay = ResolveFxOnlyDesktopTransport(
+    const float4 overlay = ResolveSpout2FxOnlyTransport(
         direct,
         bloom,
         cross,
         1.0);
-    return EncodeConservativeSdrPremultiplied(overlay);
+    return EncodeSdrExtendedPremultiplied(overlay);
 }
 
 // Core mode deliberately omits Bloom and background transport. The direct
@@ -885,11 +915,13 @@ float4 CoreCompositePixel(FullscreenOutput input) : SV_Target0
 float4 CoreRecordingFxOnlySdrCompositePixel(FullscreenOutput input) : SV_Target0
 {
     const float4 direct = Source0.Sample(LinearClampSampler, input.uv);
-    const float alpha = saturate(direct.a * ThemeCoverageScale);
-    const float3 payload = min(max(direct.rgb, 0.0), alpha);
-    // Core deliberately skips Bloom, but it still uses the same premultiplied
-    // transport contract as Full so OBS never needs a profile-specific mode.
-    return EncodeConservativeSdrPremultiplied(float4(payload, alpha));
+    const float4 cross = Source2.Sample(LinearClampSampler, input.uv);
+    return EncodeSdrExtendedPremultiplied(
+        ResolveSpout2FxOnlyTransport(
+            direct,
+            float4(0.0, 0.0, 0.0, 0.0),
+            cross,
+            0.0));
 }
 )hlsl"};
 

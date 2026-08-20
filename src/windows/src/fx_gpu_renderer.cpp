@@ -685,6 +685,7 @@ struct FxGpuRenderer::Implementation
             temporalBackgroundPixelShader);
         createBloomPixelShader("DownsamplePixel", downsamplePixelShader);
         createBloomPixelShader("UpsamplePixel", upsamplePixelShader);
+        createBloomPixelShader("BloomResultPixel", bloomResultPixelShader);
         createBloomPixelShader("CompositePixel", compositePixelShader);
         createBloomPixelShader(
             "CaptureCompositePixel",
@@ -1597,6 +1598,15 @@ struct FxGpuRenderer::Implementation
             bloomResultDestination);
         if (recordingDestination != nullptr)
         {
+            if (background.has_value())
+            {
+                // Differential Bloom belongs only to the desktop path. Rebuild
+                // pure FX Bloom so OBS output cannot vary with WGC pixels.
+                renderBloom(
+                    bloomResultTarget.renderTarget.Get(),
+                    bloomResultPixelShader.Get(),
+                    std::nullopt);
+            }
             renderRecordingComposite(recordingDestination);
         }
         context->OMSetRenderTargets(0, nullptr, nullptr);
@@ -1639,12 +1649,32 @@ struct FxGpuRenderer::Implementation
         context->ClearRenderTargetView(
             directTarget.renderTarget.Get(),
             transparent.data());
-        const std::array<ID3D11RenderTargetView*, 1> target{
-            directTarget.renderTarget.Get()};
-        context->OMSetRenderTargets(
-            static_cast<UINT>(target.size()),
-            target.data(),
-            nullptr);
+        if (recordingDestination == nullptr)
+        {
+            const std::array<ID3D11RenderTargetView*, 1> targets{
+                directTarget.renderTarget.Get()};
+            context->OMSetRenderTargets(
+                static_cast<UINT>(targets.size()),
+                targets.data(),
+                nullptr);
+        }
+        else
+        {
+            context->ClearRenderTargetView(
+                crossTarget.renderTarget.Get(),
+                transparent.data());
+            // Core skips Bloom, but Spout still needs Cross2 isolated from
+            // additive materials so only real coverage attenuates OBS.
+            const std::array<ID3D11RenderTargetView*, 4> targets{
+                directTarget.renderTarget.Get(),
+                nullptr,
+                nullptr,
+                crossTarget.renderTarget.Get()};
+            context->OMSetRenderTargets(
+                static_cast<UINT>(targets.size()),
+                targets.data(),
+                nullptr);
+        }
         configureFramePipeline();
         std::size_t index = 0U;
         while (index < snapshot.sprites.size()
@@ -1724,7 +1754,8 @@ struct FxGpuRenderer::Implementation
                 coreRecordingFxOnlySdrCompositePixelShader.Get(),
                 directTarget.shaderResource.Get(),
                 nullptr,
-                makeBloomConstants(sourceExtent, 0.0F, 0.0F));
+                makeBloomConstants(sourceExtent, 0.0F, 0.0F),
+                crossTarget.shaderResource.Get());
         }
         context->OMSetRenderTargets(0, nullptr, nullptr);
         diagnostics.bloomAndCompositeSubmit = std::chrono::steady_clock::now()
@@ -1880,6 +1911,7 @@ struct FxGpuRenderer::Implementation
     ComPtr<ID3D11PixelShader> temporalBackgroundPixelShader{};
     ComPtr<ID3D11PixelShader> downsamplePixelShader{};
     ComPtr<ID3D11PixelShader> upsamplePixelShader{};
+    ComPtr<ID3D11PixelShader> bloomResultPixelShader{};
     ComPtr<ID3D11PixelShader> compositePixelShader{};
     ComPtr<ID3D11PixelShader> captureCompositePixelShader{};
     ComPtr<ID3D11PixelShader> desktopCompositePixelShader{};
