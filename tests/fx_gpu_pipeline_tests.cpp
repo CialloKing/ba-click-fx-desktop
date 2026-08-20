@@ -2429,6 +2429,16 @@ BAFX_TEST(warp_spout2_additive_layers_export_alpha_backed_emission)
             recordingTarget.texture.Get());
 
         BAFX_CHECK(!hasZeroAlphaEmission(image));
+        const std::uint8_t maximumAlpha = std::max_element(
+            image.pixels.begin(),
+            image.pixels.end(),
+            [](const Bgra8UnormPixel left, const Bgra8UnormPixel right)
+            {
+                return left.alpha < right.alpha;
+            })->alpha;
+        // One UNORM step keeps additive pixels alive while changing an OBS
+        // background by at most one byte under normal premultiplied blending.
+        BAFX_CHECK(maximumAlpha == 1U);
         const std::size_t emissionPixels = static_cast<std::size_t>(
             std::count_if(
                 image.pixels.begin(),
@@ -2564,7 +2574,7 @@ BAFX_TEST(warp_core_profile_exports_spout2_fx_without_bloom)
         64U,
         64U);
     BAFX_CHECK(center.alpha > 0U);
-    BAFX_CHECK(trail.alpha > 0U);
+    BAFX_CHECK(trail.alpha == 1U);
     BAFX_CHECK(center.red != 0U || center.green != 0U || center.blue != 0U);
     BAFX_CHECK(trail.red != 0U || trail.green != 0U || trail.blue != 0U);
     BAFX_CHECK(

@@ -711,25 +711,28 @@ float4 ResolveSpout2FxOnlyTransport(
     float exposureGain)
 {
     const float crossCoverage = saturate(cross.a);
-    const float sceneCoverage = saturate(direct.a);
-    // The direct target stores the source-over union of Cross2 and additive
-    // materials. Recover the additive share so alpha-aware Spout receivers do
-    // not discard rings, shards, or trails as transparent RGB.
-    const float additiveCoverage = saturate(
-        (sceneCoverage - crossCoverage)
-        / max(1.0 - crossCoverage, 0.000001));
-    const float bloomCoverage = max(bloom.a, 0.0) * exposureGain;
-    const float transportCoverage = saturate(
-        crossCoverage + additiveCoverage + bloomCoverage);
-    const float overlayAlphaLimit = 250.0 / 255.0;
-    const float alpha = min(
-        transportCoverage * saturate(ThemeCoverageScale),
-        overlayAlphaLimit);
     const float3 emission = max(direct.rgb, 0.0)
         + max(bloom.rgb, 0.0) * exposureGain;
+    const float emissionMaximum = max(
+        emission.r,
+        max(emission.g, emission.b));
+    const float coverageScale = saturate(ThemeCoverageScale);
+    const float overlayAlphaLimit = 250.0 / 255.0;
+    const float crossAlpha = min(
+        crossCoverage * coverageScale,
+        overlayAlphaLimit);
+    // Cross2 is the only material that attenuates the OBS background. Keep a
+    // sub-UNORM sentinel for additive-only pixels; the encoder promotes it to
+    // one stored Alpha step only when an RGB byte survives quantization.
+    const float additiveAlphaSentinel = emissionMaximum > 0.0
+            && coverageScale > 0.0
+        ? 0.000001
+        : 0.0;
+    const float alpha = max(crossAlpha, additiveAlphaSentinel);
 
-    // RGB remains extended premultiplied energy, while Alpha now carries every
-    // authored layer's visibility envelope across the Spout process boundary.
+    // Extended RGB preserves the authored additive energy. The near-zero
+    // additive Alpha avoids receiver canonicalization without visibly
+    // darkening the independently captured OBS background.
     return float4(emission, alpha);
 }
 
