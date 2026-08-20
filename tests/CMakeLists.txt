@@ -225,6 +225,20 @@ if(Python3_Interpreter_FOUND)
             LABELS "contract;obs;spout2"
             TIMEOUT 10
     )
+    add_test(
+        NAME obs_spout2_evidence_contract
+        COMMAND
+            "${Python3_EXECUTABLE}"
+            -B
+            "${CMAKE_CURRENT_SOURCE_DIR}/verify_obs_spout2_evidence_tests.py"
+            "${PROJECT_SOURCE_DIR}/tools/verify-obs-spout2-evidence.py"
+    )
+    set_tests_properties(
+        obs_spout2_evidence_contract
+        PROPERTIES
+            LABELS "contract;obs;spout2"
+            TIMEOUT 10
+    )
     set_tests_properties(
         external_recording_spike_contract
         PROPERTIES

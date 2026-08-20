@@ -16,6 +16,11 @@ import numpy as np
 from PIL import Image
 
 
+OUTPUT_CONTRACT = "bgra8-srgb-extended-premultiplied-fx-only-v2"
+MIN_RECORDING_DURATION_SECONDS = 5.0
+MAX_RECORDING_DURATION_SECONDS = 10.0
+
+
 def _arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("evidence_directory", type=Path)
@@ -156,6 +161,26 @@ def _probe_video(ffprobe: str, video: Path) -> dict[str, object]:
     return json.loads(completed.stdout)
 
 
+def _require_video_only(probe: dict[str, object]) -> dict[str, object]:
+    streams = probe.get("streams", [])
+    if not isinstance(streams, list):
+        raise RuntimeError("OBS recording streams metadata is invalid")
+    audio_streams = [
+        stream for stream in streams
+        if isinstance(stream, dict) and stream.get("codec_type") == "audio"
+    ]
+    if audio_streams:
+        # Retaining audio is unnecessary for a visual gate and can capture user data.
+        raise RuntimeError("OBS recording must not contain audio streams")
+    video_streams = [
+        stream for stream in streams
+        if isinstance(stream, dict) and stream.get("codec_type") == "video"
+    ]
+    if len(video_streams) != 1:
+        raise RuntimeError("OBS recording must contain exactly one video stream")
+    return video_streams[0]
+
+
 def _read_frame(stream: BinaryIO, size: int) -> bytes:
     chunks = bytearray()
     while len(chunks) < size:
@@ -173,13 +198,7 @@ def _verify_video(
     ffprobe: str,
 ) -> dict[str, object]:
     probe = _probe_video(ffprobe, video)
-    video_streams = [
-        stream for stream in probe.get("streams", [])
-        if stream.get("codec_type") == "video"
-    ]
-    if len(video_streams) != 1:
-        raise RuntimeError("OBS recording must contain exactly one video stream")
-    stream = video_streams[0]
+    stream = _require_video_only(probe)
     width = int(stream["width"])
     height = int(stream["height"])
     duration = float(probe["format"]["duration"])
@@ -191,7 +210,8 @@ def _verify_video(
         raise RuntimeError("OBS recording has an invalid frame rate")
     if (width, height) != (1280, 720):
         raise RuntimeError("OBS recording is not 1280x720")
-    if duration < 5.0 or duration > 10.0:
+    if (duration < MIN_RECORDING_DURATION_SECONDS
+            or duration > MAX_RECORDING_DURATION_SECONDS):
         raise RuntimeError("OBS recording duration is outside the bounded gate")
 
     command = [
@@ -286,6 +306,7 @@ def _verify_video(
         "codec": stream.get("codec_name"),
         "pixelFormat": stream.get("pix_fmt"),
         "frameRate": stream.get("r_frame_rate"),
+        "audioStreamCount": 0,
         "decodedFrames": frame_index,
         "baselineMaximumChangedPixels": initial_spread,
         "activeFrameIndex": active_index,
@@ -323,7 +344,7 @@ def main() -> int:
     report = {
         "schema": 1,
         "status": "pass",
-        "contract": "bgra8-srgb-extended-premultiplied-fx-only-v2",
+        "contract": OUTPUT_CONTRACT,
         "screenshots": screenshot_report,
         "recording": video_report,
         "notRun": [
