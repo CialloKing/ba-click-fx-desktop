@@ -2300,6 +2300,63 @@ BAFX_TEST(warp_core_profile_exports_spout2_fx_without_bloom)
     BAFX_CHECK(trail.red != 0U || trail.green != 0U || trail.blue != 0U);
 }
 
+BAFX_TEST(warp_core_spout2_ignores_wgc_and_clears_after_fx_decay)
+{
+    ComApartment apartment;
+    const WarpDevice graphics = createWarpDevice();
+    FxGpuRenderer renderer(graphics.device.Get(), graphics.context.Get(), testSize);
+    renderer.setOverlayProfile(FxOverlayProfile::Core);
+    const RenderTarget desktopTarget = createRenderTarget(graphics.device.Get());
+    const RenderTarget recordingTarget = createRecordingRenderTarget(
+        graphics.device.Get());
+    const RenderTarget backgroundTarget = createRenderTarget(graphics.device.Get());
+    constexpr std::array<float, 4> brightBackground{0.9F, 0.7F, 0.5F, 1.0F};
+    graphics.context->ClearRenderTargetView(
+        backgroundTarget.view.Get(),
+        brightBackground.data());
+
+    renderer.render(
+        makeDiskAndTrailSnapshot(),
+        desktopTarget.view.Get(),
+        BackgroundRenderInput{backgroundTarget.shaderResource.Get()},
+        nullptr,
+        recordingTarget.view.Get());
+    const Bgra8UnormPixel active = readbackBgra8UnormPixel(
+        graphics.context.Get(),
+        recordingTarget.texture.Get(),
+        testSize.width / 2U,
+        testSize.height / 2U);
+    const Bgra8UnormPixel activeBackground = readbackBgra8UnormPixel(
+        graphics.context.Get(),
+        recordingTarget.texture.Get(),
+        testSize.width - 1U,
+        testSize.height - 1U);
+    BAFX_CHECK(active.alpha > 0U);
+    BAFX_CHECK(active.red <= active.alpha);
+    BAFX_CHECK(active.green <= active.alpha);
+    BAFX_CHECK(active.blue <= active.alpha);
+    BAFX_CHECK(activeBackground.red == 0U);
+    BAFX_CHECK(activeBackground.green == 0U);
+    BAFX_CHECK(activeBackground.blue == 0U);
+    BAFX_CHECK(activeBackground.alpha == 0U);
+
+    renderer.render(
+        bafx::fx::FrameSnapshot{},
+        desktopTarget.view.Get(),
+        BackgroundRenderInput{backgroundTarget.shaderResource.Get()},
+        nullptr,
+        recordingTarget.view.Get());
+    const Bgra8UnormPixel decayed = readbackBgra8UnormPixel(
+        graphics.context.Get(),
+        recordingTarget.texture.Get(),
+        testSize.width / 2U,
+        testSize.height / 2U);
+    BAFX_CHECK(decayed.red == 0U);
+    BAFX_CHECK(decayed.green == 0U);
+    BAFX_CHECK(decayed.blue == 0U);
+    BAFX_CHECK(decayed.alpha == 0U);
+}
+
 BAFX_TEST(warp_core_profile_keeps_trail_without_bloom_layers)
 {
     ComApartment apartment;
