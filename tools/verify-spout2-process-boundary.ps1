@@ -80,7 +80,7 @@ try
         "Host failed with exit code $($hostProcess.ExitCode)."
 
     $probe = Get-Content -LiteralPath $probeJson -Raw | ConvertFrom-Json
-    Assert-True ([int]$probe.schemaVersion -eq 1) 'Receiver probe schema is unsupported.'
+    Assert-True ([int]$probe.schemaVersion -eq 2) 'Receiver probe schema is unsupported.'
     Assert-True ($probe.sender -eq 'ba-click-fx-desktop') 'Receiver connected to the wrong sender.'
     $samples = @($probe.samples)
     Assert-True ($samples.Count -ge 40) 'Receiver did not collect enough bounded samples.'
@@ -110,14 +110,10 @@ try
     Assert-True ($sizes.Count -eq 1) 'Spout2 dimensions changed during the fixed-size run.'
     Assert-True ($formats.Count -eq 1 -and $formats[0] -eq 87) `
         'Spout2 output was not DXGI_FORMAT_B8G8R8A8_UNORM.'
-    Assert-True (@($connected | Where-Object {
-        [UInt64]$_.premultipliedViolations -ne 0
-    }).Count -eq 0) 'Spout2 output contains RGB values greater than Alpha.'
-
     $activeIndex = -1
     for ($index = 0; $index -lt $connected.Count; ++$index)
     {
-        if ([UInt64]$connected[$index].nonzeroAlphaPixels -gt 0)
+        if ([UInt64]$connected[$index].nonzeroRgbPixels -gt 0)
         {
             $activeIndex = $index
             break
@@ -130,7 +126,13 @@ try
         [int]$_.maxAlpha -eq 0
     }).Count -gt 0) 'Receiver did not observe a fully transparent initial frame.'
     Assert-True ([int]$connected[$activeIndex].maxAlpha -gt 0) `
-        'Active Spout2 frame has no visible Alpha.'
+        'Active Spout2 frame has no Cross2 coverage Alpha.'
+    Assert-True (@($connected | Where-Object {
+        [UInt64]$_.extendedPremultipliedPixels -gt 0
+    }).Count -gt 0) 'Active Spout2 frames contain no RGB values above Alpha.'
+    Assert-True (@($connected | Where-Object {
+        [UInt64]$_.zeroAlphaEmissionPixels -gt 0
+    }).Count -gt 0) 'Active Spout2 frames contain no zero-Alpha additive emission.'
     Assert-True (@($connected | Select-Object -Skip ($activeIndex + 1) | Where-Object {
         [UInt64]$_.nonzeroAlphaPixels -eq 0 -and
         [int]$_.maxRgb -eq 0 -and
@@ -138,10 +140,10 @@ try
     }).Count -gt 0) 'Receiver did not return to transparency after the effect decayed.'
 
     $verification = [ordered]@{
-        schemaVersion = 1
+        schemaVersion = 2
         status = 'passed'
         sender = 'ba-click-fx-desktop'
-        outputContract = 'bgra8-srgb-premultiplied-fx-only-v1'
+        outputContract = 'bgra8-srgb-extended-premultiplied-fx-only-v2'
         samples = $samples.Count
         connectedSamples = $connected.Count
         size = $sizes[0]
@@ -150,6 +152,10 @@ try
         firstActiveElapsedMs = [UInt64]$connected[$activeIndex].elapsedMs
         maximumActiveAlpha = [int](
             ($connected | Measure-Object -Property maxAlpha -Maximum).Maximum)
+        maximumExtendedPremultipliedPixels = [UInt64](
+            ($connected | Measure-Object -Property extendedPremultipliedPixels -Maximum).Maximum)
+        maximumZeroAlphaEmissionPixels = [UInt64](
+            ($connected | Measure-Object -Property zeroAlphaEmissionPixels -Maximum).Maximum)
         evidenceRoot = $caseRoot
     }
     $verification |

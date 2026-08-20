@@ -48,8 +48,10 @@ struct PixelSummary final
 {
     std::uint8_t maximumRgb{0U};
     std::uint8_t maximumAlpha{0U};
+    std::uint64_t nonzeroRgbPixels{0U};
     std::uint64_t nonzeroAlphaPixels{0U};
-    std::uint64_t premultipliedViolations{0U};
+    std::uint64_t extendedPremultipliedPixels{0U};
+    std::uint64_t zeroAlphaEmissionPixels{0U};
 };
 
 struct Sample final
@@ -258,11 +260,21 @@ public:
                     {
                         ++summary.nonzeroAlphaPixels;
                     }
+                    if (pixel.red != 0U
+                        || pixel.green != 0U
+                        || pixel.blue != 0U)
+                    {
+                        ++summary.nonzeroRgbPixels;
+                        if (pixel.alpha == 0U)
+                        {
+                            ++summary.zeroAlphaEmissionPixels;
+                        }
+                    }
                     if (pixel.red > pixel.alpha
                         || pixel.green > pixel.alpha
                         || pixel.blue > pixel.alpha)
                     {
-                        ++summary.premultipliedViolations;
+                        ++summary.extendedPremultipliedPixels;
                     }
                 }
             }
@@ -347,7 +359,7 @@ void writeResult(
     }
 
     output << "{\n"
-           << "  \"schemaVersion\": 1,\n"
+           << "  \"schemaVersion\": 2,\n"
            << "  \"sender\": \"" << jsonEscape(options.senderName) << "\",\n"
            << "  \"durationMs\": " << options.durationMilliseconds << ",\n"
            << "  \"intervalMs\": " << options.intervalMilliseconds << ",\n"
@@ -367,10 +379,14 @@ void writeResult(
                         sample.pixels.maximumRgb)
                    << ",\"maxAlpha\":" << static_cast<unsigned int>(
                         sample.pixels.maximumAlpha)
+                   << ",\"nonzeroRgbPixels\":"
+                   << sample.pixels.nonzeroRgbPixels
                    << ",\"nonzeroAlphaPixels\":"
                    << sample.pixels.nonzeroAlphaPixels
-                   << ",\"premultipliedViolations\":"
-                   << sample.pixels.premultipliedViolations;
+                   << ",\"extendedPremultipliedPixels\":"
+                   << sample.pixels.extendedPremultipliedPixels
+                   << ",\"zeroAlphaEmissionPixels\":"
+                   << sample.pixels.zeroAlphaEmissionPixels;
         }
         output << "}" << (index + 1U == samples.size() ? "\n" : ",\n");
     }
