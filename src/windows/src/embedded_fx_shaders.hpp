@@ -744,6 +744,7 @@ float4 EncodeSdrExtendedPremultiplied(float4 linearExtendedPremultiplied)
     const float minimumStoredAlpha = max(
             encoded.r,
             max(encoded.g, encoded.b)) >= storedByteThreshold
+        && linearExtendedPremultiplied.a > 0.0
         ? 1.0 / 255.0
         : 0.0;
     return float4(
