@@ -710,25 +710,45 @@ float4 ResolveSpout2FxOnlyTransport(
     float4 cross,
     float exposureGain)
 {
+    const float crossCoverage = saturate(cross.a);
+    const float sceneCoverage = saturate(direct.a);
+    // The direct target stores the source-over union of Cross2 and additive
+    // materials. Recover the additive share so alpha-aware Spout receivers do
+    // not discard rings, shards, or trails as transparent RGB.
+    const float additiveCoverage = saturate(
+        (sceneCoverage - crossCoverage)
+        / max(1.0 - crossCoverage, 0.000001));
+    const float bloomCoverage = max(bloom.a, 0.0) * exposureGain;
+    const float transportCoverage = saturate(
+        crossCoverage + additiveCoverage + bloomCoverage);
     const float overlayAlphaLimit = 250.0 / 255.0;
     const float alpha = min(
-        saturate(cross.a) * saturate(ThemeCoverageScale),
+        transportCoverage * saturate(ThemeCoverageScale),
         overlayAlphaLimit);
     const float3 emission = max(direct.rgb, 0.0)
         + max(bloom.rgb, 0.0) * exposureGain;
 
-    // OBS owns the background. Only Cross2 attenuates it; additive materials
-    // and Bloom remain RGB energy even where geometric coverage is zero.
+    // RGB remains extended premultiplied energy, while Alpha now carries every
+    // authored layer's visibility envelope across the Spout process boundary.
     return float4(emission, alpha);
 }
 
 float4 EncodeSdrExtendedPremultiplied(float4 linearExtendedPremultiplied)
 {
     // BGRA8 clamps SDR channel range, but it can still carry RGB above Alpha.
-    // Encoding channels independently keeps zero-Alpha emission representable.
+    // Keep one stored Alpha step wherever an encoded RGB byte can survive.
+    // Some Spout receivers canonicalize RGB to black when the Alpha byte is 0.
+    const float3 encoded = LinearToSrgb(
+        max(linearExtendedPremultiplied.rgb, 0.0));
+    const float storedByteThreshold = 0.5 / 255.0;
+    const float minimumStoredAlpha = max(
+            encoded.r,
+            max(encoded.g, encoded.b)) >= storedByteThreshold
+        ? 1.0 / 255.0
+        : 0.0;
     return float4(
-        LinearToSrgb(max(linearExtendedPremultiplied.rgb, 0.0)),
-        saturate(linearExtendedPremultiplied.a));
+        encoded,
+        max(saturate(linearExtendedPremultiplied.a), minimumStoredAlpha));
 }
 
 float4 ResolveDesktopCompositeInputs(

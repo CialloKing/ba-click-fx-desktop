@@ -2362,7 +2362,7 @@ BAFX_TEST(warp_spout2_recording_target_exports_fx_without_wgc_background)
         recordingTarget.texture.Get());
     BAFX_CHECK(center.alpha > 0U);
     BAFX_CHECK(hasExtendedEmission(image));
-    BAFX_CHECK(hasZeroAlphaEmission(image));
+    BAFX_CHECK(!hasZeroAlphaEmission(image));
     BAFX_CHECK(background.alpha == 0U);
     BAFX_CHECK(
         center.red > background.red
@@ -2403,7 +2403,7 @@ BAFX_TEST(warp_spout2_full_encodes_linear_emission_as_srgb_bgra8)
         &capture.bloomResult);
 }
 
-BAFX_TEST(warp_spout2_additive_layers_export_zero_alpha_emission)
+BAFX_TEST(warp_spout2_additive_layers_export_alpha_backed_emission)
 {
     ComApartment apartment;
     const WarpDevice graphics = createWarpDevice();
@@ -2412,33 +2412,36 @@ BAFX_TEST(warp_spout2_additive_layers_export_zero_alpha_emission)
     const RenderTarget recordingTarget = createRecordingRenderTarget(
         graphics.device.Get());
 
-    renderer.render(
+    const std::array snapshots{
+        makeDissolveRingSnapshot(),
         makeTriangleSnapshot(),
-        desktopTarget.view.Get(),
-        std::nullopt,
-        nullptr,
-        recordingTarget.view.Get());
-    const Bgra8Image image = readbackBgra8(
-        graphics.context.Get(),
-        recordingTarget.texture.Get());
+        makeTwoTrailSnapshot()};
+    for (const bafx::fx::FrameSnapshot& snapshot : snapshots)
+    {
+        renderer.render(
+            snapshot,
+            desktopTarget.view.Get(),
+            std::nullopt,
+            nullptr,
+            recordingTarget.view.Get());
+        const Bgra8Image image = readbackBgra8(
+            graphics.context.Get(),
+            recordingTarget.texture.Get());
 
-    BAFX_CHECK(hasZeroAlphaEmission(image));
-    BAFX_CHECK(std::all_of(
-        image.pixels.begin(),
-        image.pixels.end(),
-        [](const Bgra8UnormPixel pixel)
-        {
-            return pixel.alpha == 0U;
-        }));
-
-    const std::size_t emissionPixels = static_cast<std::size_t>(std::count_if(
-        image.pixels.begin(),
-        image.pixels.end(),
-        [](const Bgra8UnormPixel pixel)
-        {
-            return pixel.red != 0U || pixel.green != 0U || pixel.blue != 0U;
-        }));
-    BAFX_CHECK(emissionPixels > 100U);
+        BAFX_CHECK(!hasZeroAlphaEmission(image));
+        const std::size_t emissionPixels = static_cast<std::size_t>(
+            std::count_if(
+                image.pixels.begin(),
+                image.pixels.end(),
+                [](const Bgra8UnormPixel pixel)
+                {
+                    return pixel.alpha > 0U
+                        && (pixel.red != 0U
+                            || pixel.green != 0U
+                            || pixel.blue != 0U);
+                }));
+        BAFX_CHECK(emissionPixels > 100U);
+    }
 }
 
 BAFX_TEST(warp_spout2_recording_target_replaces_idle_frame_with_transparency)
@@ -2526,7 +2529,7 @@ BAFX_TEST(warp_spout2_recording_target_never_flattens_wgc_background)
     BAFX_CHECK(sameBgra8(image, referenceImage));
     BAFX_CHECK(center.alpha > 0U);
     BAFX_CHECK(hasExtendedEmission(image));
-    BAFX_CHECK(hasZeroAlphaEmission(image));
+    BAFX_CHECK(!hasZeroAlphaEmission(image));
     BAFX_CHECK(background.red == 0U);
     BAFX_CHECK(background.green == 0U);
     BAFX_CHECK(background.blue == 0U);
@@ -2561,7 +2564,7 @@ BAFX_TEST(warp_core_profile_exports_spout2_fx_without_bloom)
         64U,
         64U);
     BAFX_CHECK(center.alpha > 0U);
-    BAFX_CHECK(trail.alpha == 0U);
+    BAFX_CHECK(trail.alpha > 0U);
     BAFX_CHECK(center.red != 0U || center.green != 0U || center.blue != 0U);
     BAFX_CHECK(trail.red != 0U || trail.green != 0U || trail.blue != 0U);
     BAFX_CHECK(
