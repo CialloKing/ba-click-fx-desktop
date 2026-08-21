@@ -520,6 +520,45 @@ bool CaptureExclusionHealthPoller::shouldQuery(
     return true;
 }
 
+void BackgroundCaptureTopologyRecoveryGate::
+observeDisplayConfigurationChange(
+    const std::chrono::nanoseconds now) noexcept
+{
+    armedUntil_ = now + backgroundCaptureTopologyRecoveryWindow;
+}
+
+bool BackgroundCaptureTopologyRecoveryGate::takeRetry(
+    const std::chrono::nanoseconds now,
+    const bool captureRequested,
+    const bafx::windows::BackgroundCaptureFailure failure,
+    const bafx::windows::GraphicsDriverType driverType,
+    const bool rendererRestartAllowed,
+    const bool displayPowerUnavailable) noexcept
+{
+    if (!armedUntil_.has_value())
+    {
+        return false;
+    }
+    if (now > *armedUntil_)
+    {
+        armedUntil_.reset();
+        return false;
+    }
+    if (!captureRequested
+        || failure != bafx::windows::BackgroundCaptureFailure::SessionStopped
+        || driverType != bafx::windows::GraphicsDriverType::Hardware
+        || !rendererRestartAllowed
+        || displayPowerUnavailable)
+    {
+        return false;
+    }
+
+    // One display-configuration edge owns one retry. A broken driver must not
+    // turn repeated ItemClosed notifications into an unbounded restart loop.
+    armedUntil_.reset();
+    return true;
+}
+
 BackgroundCaptureCancelResizePolicy backgroundCaptureCancelResizePolicy(
     const bool outputResizeSupersedes,
     const bool displayTargetSupersedes) noexcept

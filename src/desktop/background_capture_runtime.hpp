@@ -23,6 +23,8 @@ namespace bafx::desktop
 
 inline constexpr auto backgroundCaptureExclusionHealthInterval =
     std::chrono::seconds(1);
+inline constexpr auto backgroundCaptureTopologyRecoveryWindow =
+    std::chrono::seconds(5);
 
 class CaptureExclusionHealthPoller final
 {
@@ -33,6 +35,24 @@ public:
 
 private:
     std::optional<std::chrono::nanoseconds> lastObservedAt_{};
+};
+
+class BackgroundCaptureTopologyRecoveryGate final
+{
+public:
+    void observeDisplayConfigurationChange(
+        std::chrono::nanoseconds now) noexcept;
+
+    [[nodiscard]] bool takeRetry(
+        std::chrono::nanoseconds now,
+        bool captureRequested,
+        bafx::windows::BackgroundCaptureFailure failure,
+        bafx::windows::GraphicsDriverType driverType,
+        bool rendererRestartAllowed,
+        bool displayPowerUnavailable) noexcept;
+
+private:
+    std::optional<std::chrono::nanoseconds> armedUntil_{};
 };
 
 enum class BackgroundCaptureExecutionStatus : std::uint8_t

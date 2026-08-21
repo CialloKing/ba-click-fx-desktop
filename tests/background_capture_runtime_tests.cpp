@@ -105,6 +105,94 @@ BAFX_TEST(capture_exclusion_health_poller_is_bounded_and_resets)
     BAFX_CHECK(poller.shouldQuery(true, std::chrono::seconds(3)));
 }
 
+BAFX_TEST(display_topology_capture_recovery_waits_for_session_stop)
+{
+    bafx::desktop::BackgroundCaptureTopologyRecoveryGate recovery;
+    recovery.observeDisplayConfigurationChange(std::chrono::seconds(10));
+
+    BAFX_CHECK(!recovery.takeRetry(
+        std::chrono::seconds(11),
+        true,
+        bafx::windows::BackgroundCaptureFailure::None,
+        bafx::windows::GraphicsDriverType::Hardware,
+        true,
+        false));
+    BAFX_CHECK(recovery.takeRetry(
+        std::chrono::seconds(12),
+        true,
+        bafx::windows::BackgroundCaptureFailure::SessionStopped,
+        bafx::windows::GraphicsDriverType::Hardware,
+        true,
+        false));
+    BAFX_CHECK(!recovery.takeRetry(
+        std::chrono::seconds(12),
+        true,
+        bafx::windows::BackgroundCaptureFailure::SessionStopped,
+        bafx::windows::GraphicsDriverType::Hardware,
+        true,
+        false));
+}
+
+BAFX_TEST(display_topology_capture_recovery_expires_and_honors_safety_gates)
+{
+    using bafx::windows::BackgroundCaptureFailure;
+    using bafx::windows::GraphicsDriverType;
+
+    bafx::desktop::BackgroundCaptureTopologyRecoveryGate recovery;
+    recovery.observeDisplayConfigurationChange(std::chrono::seconds(10));
+    BAFX_CHECK(!recovery.takeRetry(
+        std::chrono::seconds(16),
+        true,
+        BackgroundCaptureFailure::SessionStopped,
+        GraphicsDriverType::Hardware,
+        true,
+        false));
+
+    recovery.observeDisplayConfigurationChange(std::chrono::seconds(20));
+    BAFX_CHECK(!recovery.takeRetry(
+        std::chrono::seconds(21),
+        false,
+        BackgroundCaptureFailure::SessionStopped,
+        GraphicsDriverType::Hardware,
+        true,
+        false));
+    BAFX_CHECK(!recovery.takeRetry(
+        std::chrono::seconds(21),
+        true,
+        BackgroundCaptureFailure::SensorStartFailed,
+        GraphicsDriverType::Hardware,
+        true,
+        false));
+    BAFX_CHECK(!recovery.takeRetry(
+        std::chrono::seconds(21),
+        true,
+        BackgroundCaptureFailure::SessionStopped,
+        GraphicsDriverType::Warp,
+        true,
+        false));
+    BAFX_CHECK(!recovery.takeRetry(
+        std::chrono::seconds(21),
+        true,
+        BackgroundCaptureFailure::SessionStopped,
+        GraphicsDriverType::Hardware,
+        false,
+        false));
+    BAFX_CHECK(!recovery.takeRetry(
+        std::chrono::seconds(21),
+        true,
+        BackgroundCaptureFailure::SessionStopped,
+        GraphicsDriverType::Hardware,
+        true,
+        true));
+    BAFX_CHECK(recovery.takeRetry(
+        std::chrono::seconds(22),
+        true,
+        BackgroundCaptureFailure::SessionStopped,
+        GraphicsDriverType::Hardware,
+        true,
+        false));
+}
+
 BAFX_TEST(device_recovery_retry_requires_an_active_capture)
 {
     BAFX_CHECK(bafx::desktop::canRetryBackgroundCaptureAfterDeviceRecovery(
