@@ -24,7 +24,7 @@ Release Host 运行时是单文件：Visual C++ 运行库静态链接，Circle�
 DirectComposition 和 D3DCompiler 系统组件。独立的 Control Center 使用纯 Win32 Common Controls，
 不需要 Windows App SDK 或其他旁置运行时。
 
-当前架构版本是 **v0.3**，状态为 **Proposed**。0.2.1 测试版已具备 Host、原生 Win32
+当前架构版本是 **v0.3**，状态为 **Proposed**。0.2.2 测试版已具备 Host、原生 Win32
 Control Center、本地 IPC 与独立测试包；当前人工特效审核和支持合同以单主屏 SDR 下的三种渲染模式
 为准。涉及 DirectComposition、Windows Graphics Capture、HDR/Advanced Color 和多适配器的结论，
 必须取得仓库中定义的 Spike 证据或接受明确的 fallback 后，相关 ADR 才能标记为 Accepted。
@@ -72,7 +72,7 @@ Trail 和 Bloom 继续按游戏合同在线性 FP16 中计算。最终呈现阶�
 - [docs/SPIKES.md](docs/SPIKES.md)：四个必须执行的硬件/API Spike。
 - [docs/VALIDATION.md](docs/VALIDATION.md)：测试层级、Golden Oracle 和发布门槛。
 - [docs/UNITY_REFERENCE.md](docs/UNITY_REFERENCE.md)：游戏解包资源、Unity 重建工程与 Golden 的证据边界。
-- [SUPPORT.md](SUPPORT.md)：0.2.1 的可测试范围、退出方式和明确排除项。
+- [SUPPORT.md](SUPPORT.md)：0.2.2 的可测试范围、退出方式和明确排除项。
 - [tools/package-test-bundle.ps1](tools/package-test-bundle.ps1)：构建并生成可解压测试包，同时调用完整性验证。
 
 ## 项目状态
