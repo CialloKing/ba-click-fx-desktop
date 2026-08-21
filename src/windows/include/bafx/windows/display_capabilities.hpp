@@ -62,6 +62,13 @@ struct DisplayColorCapabilities final
 [[nodiscard]] std::optional<DisplayColorCapabilities>
 queryDisplayColorCapabilities(HMONITOR monitor) noexcept;
 
+// Global topology may remain incomplete because an active capture sink has no
+// HMONITOR. Color queries are safe only when the requested monitor retained a
+// complete, attributed DisplayConfig path of its own.
+[[nodiscard]] bool canQueryDisplayConfigColorState(
+    const DisplayTopologySnapshot& topology,
+    const ActiveDisplayMonitor* display) noexcept;
+
 // A DXGI-only snapshot is complete only when DisplayConfig explicitly reports
 // that the runtime does not support topology queries. Transient topology
 // failures must not replace a last-known output contract. Once DisplayConfig

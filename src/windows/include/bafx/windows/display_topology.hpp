@@ -125,6 +125,10 @@ struct ActiveDisplayMonitor final
     bool primary{false};
     bool sourceAdapterResolved{false};
     bool sourceIdentityResolved{false};
+    // An unrelated active DisplayConfig path may have no EnumDisplayMonitors
+    // surface. Keep global topology quality separate from whether this
+    // monitor has every target needed for color-state queries.
+    bool displayConfigColorPathComplete{false};
 };
 
 enum class DisplayTopologyStatus : std::uint8_t

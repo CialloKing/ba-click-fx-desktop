@@ -493,6 +493,11 @@ DisplayTopologySnapshot queryActiveDisplayTopology() noexcept
             return snapshot;
         }
 
+        for (ActiveDisplayMonitor& display : snapshot.displays)
+        {
+            display.displayConfigColorPathComplete = true;
+        }
+        bool unattributedSourceFailure = false;
         for (const DISPLAYCONFIG_PATH_INFO& path : paths)
         {
             DISPLAYCONFIG_SOURCE_DEVICE_NAME sourceName{};
@@ -505,6 +510,10 @@ DisplayTopologySnapshot queryActiveDisplayTopology() noexcept
                 DisplayConfigGetDeviceInfo(&sourceName.header);
             if (sourceResult != ERROR_SUCCESS)
             {
+                // Without a source name this path could be another target of
+                // any enumerated clone. Do not let any monitor publish a
+                // partial Advanced Color aggregate.
+                unattributedSourceFailure = true;
                 recordFirstError(
                     snapshot.status,
                     snapshot.error,
@@ -517,6 +526,10 @@ DisplayTopologySnapshot queryActiveDisplayTopology() noexcept
                 sourceName.viewGdiDeviceName);
             if (display == nullptr)
             {
+                // Capture sinks and clone companions can own an active
+                // DisplayConfig source without an EnumDisplayMonitors surface.
+                // Preserve the global incomplete status, but that unrelated
+                // source does not invalidate an enumerated monitor's targets.
                 recordFirstError(
                     snapshot.status,
                     snapshot.error,
@@ -529,6 +542,7 @@ DisplayTopologySnapshot queryActiveDisplayTopology() noexcept
                         path.sourceInfo.adapterId)
                     || display->sourceId != path.sourceInfo.id))
             {
+                display->displayConfigColorPathComplete = false;
                 recordFirstError(
                     snapshot.status,
                     snapshot.error,
@@ -575,6 +589,10 @@ DisplayTopologySnapshot queryActiveDisplayTopology() noexcept
             }
             else
             {
+                // GET_TARGET_NAME supplies stable identity metadata, but the
+                // Advanced Color and SDR-white queries use adapter/target IDs.
+                // Retain this monitor's color path and let those queries
+                // decide whether the target evidence is usable.
                 recordFirstError(
                     snapshot.status,
                     snapshot.error,
@@ -597,6 +615,11 @@ DisplayTopologySnapshot queryActiveDisplayTopology() noexcept
         resolveSourceAdaptersFromDxgi(snapshot.displays);
         for (ActiveDisplayMonitor& display : snapshot.displays)
         {
+            display.displayConfigColorPathComplete =
+                display.displayConfigColorPathComplete
+                && !unattributedSourceFailure
+                && display.sourceIdentityResolved
+                && !display.physicalTargets.empty();
             if (!display.sourceIdentityResolved
                 || display.physicalTargets.empty())
             {

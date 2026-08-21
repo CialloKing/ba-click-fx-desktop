@@ -605,6 +605,22 @@ void queryDisplayConfigColorState(
 
 }
 
+bool canQueryDisplayConfigColorState(
+    const DisplayTopologySnapshot& topology,
+    const ActiveDisplayMonitor* const display) noexcept
+{
+    if (display == nullptr
+        || !display->displayConfigColorPathComplete
+        || !display->sourceIdentityResolved
+        || display->physicalTargets.empty())
+    {
+        return false;
+    }
+
+    return topology.status == DisplayTopologyStatus::Complete
+        || topology.status == DisplayTopologyStatus::Incomplete;
+}
+
 std::optional<DisplayColorCapabilities> queryDisplayColorCapabilities(
     const HMONITOR monitor) noexcept
 {
@@ -629,12 +645,12 @@ std::optional<DisplayColorCapabilities> queryDisplayColorCapabilities(
         capabilities.displayConfigTopologyStatus = topology.status;
         capabilities.displayConfigTopologyError = topology.error;
 
-        if (display != nullptr
-            && topology.status == DisplayTopologyStatus::Complete)
+        if (canQueryDisplayConfigColorState(topology, display))
         {
             // A cloned source has one DXGI output contract but several
-            // physical Advanced Color states. Aggregate only a complete
-            // topology so a missing hot-plug path cannot falsely enable HDR.
+            // physical Advanced Color states. The monitor-scoped completeness
+            // gate proves every path attributed to this HMONITOR is present;
+            // unrelated capture sinks may still keep global topology partial.
             queryDisplayConfigColorState(*display, capabilities);
         }
         if (!dxgiDescriptionAvailable && !capabilities.displayPathResolved)
