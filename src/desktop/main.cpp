@@ -3454,6 +3454,8 @@ int runApplication(
     bafx::desktop::WgcCallbackDeltaTracker wgcCallbackDeltaTracker;
     bafx::desktop::CaptureExclusionHealthPoller
         captureExclusionHealthPoller;
+    bafx::desktop::BackgroundCaptureTopologyRecoveryGate
+        backgroundTopologyRecovery;
     MessageDispatchDiagnostics pendingMessageDispatch{};
     const auto observeCaptureTopology =
         [&](const bafx::desktop::DisplayTargetSnapshot& topology)
@@ -4191,6 +4193,59 @@ int runApplication(
         updateDisplayRuntimeSummary();
         bafx::windows::appendDiagnosticLog(logPath, report);
     };
+    const auto scheduleCoordinatorTopologyCaptureRecovery =
+        [&](const bafx::fx::SimulationTime now,
+            const bool captureRequested,
+            const std::string_view reason)
+    {
+        if (backgroundExecution.transactionActive
+            || backgroundTransition.transitioning()
+            || backgroundRetryPending
+            || !backgroundTopologyRecovery.takeRetry(
+                now,
+                captureRequested,
+                backgroundTransition.failure(),
+                renderer.deviceInfo().driverType,
+                renderer.backgroundCaptureRestartAllowed(),
+                displayPowerUnavailable))
+        {
+            return false;
+        }
+        if (backgroundRetryToken
+            == (std::numeric_limits<std::uint64_t>::max)())
+        {
+            throw std::runtime_error(
+                "WGC retry token exhausted after display topology change");
+        }
+
+        ++backgroundRetryToken;
+        backgroundRetryPending = true;
+        const std::string retryToken = std::to_string(backgroundRetryToken);
+        const std::string recoveryWindowMilliseconds = std::to_string(
+            std::chrono::duration_cast<std::chrono::milliseconds>(
+                bafx::desktop::backgroundCaptureTopologyRecoveryWindow)
+                .count());
+        const std::string topologyError = std::to_string(
+            latestDisplayTopologyError);
+        const std::array fields{
+            bafx::windows::DiagnosticField{"Reason", reason},
+            bafx::windows::DiagnosticField{"RetryToken", retryToken},
+            bafx::windows::DiagnosticField{
+                "TopologyStatus",
+                displayTopologyStatusName(latestDisplayTopologyStatus)},
+            bafx::windows::DiagnosticField{
+                "TopologyError",
+                topologyError},
+            bafx::windows::DiagnosticField{
+                "RecoveryWindowMs",
+                recoveryWindowMilliseconds}};
+        bafx::windows::appendDiagnosticEvent(
+            logPath,
+            "WGC.DisplayTopologyRecovery.Requested",
+            fields,
+            bafx::windows::DiagnosticLevel::Warning);
+        return true;
+    };
     const auto processPendingBorderlessAccessChange =
         [&](bool& renderInvalidated)
     {
@@ -4439,6 +4494,11 @@ int runApplication(
         const std::optional<bafx::windows::DisplayTopologyChange>
             hostTopologyChange = hostWindow.takeDisplayTopologyChange();
         const bool hostDisplayTopologyChanged = hostTopologyChange.has_value();
+        bool displayConfigurationChanged = hostTopologyChange.has_value()
+            && displayTopologyChangeHasSource(
+                *hostTopologyChange,
+                bafx::windows::DisplayTopologyChangeSource::
+                    DisplayConfiguration);
         const bool hostDisplayPowerChanged = hostTopologyChange.has_value()
             && displayTopologyChangeHasSource(
                 *hostTopologyChange,
@@ -4499,6 +4559,11 @@ int runApplication(
                     &session.target(),
                     *topologyChange,
                     session.window().effectiveDpi());
+                displayConfigurationChanged = displayConfigurationChanged
+                    || displayTopologyChangeHasSource(
+                        *topologyChange,
+                        bafx::windows::DisplayTopologyChangeSource::
+                            DisplayConfiguration);
             }
             surfaceDisplayTopologyChanged = topologyPending
                 || surfaceDisplayTopologyChanged;
@@ -4673,6 +4738,13 @@ int runApplication(
             && (hostDisplayTopologyChanged
                 || surfaceDisplayTopologyChanged
                 || polledDisplayTopology.has_value());
+        if (displayConfigurationChanged)
+        {
+            // WGC can close its monitor item after the Win32 topology burst.
+            // Retain one bounded recovery opportunity for either event order.
+            backgroundTopologyRecovery.observeDisplayConfigurationChange(
+                loopObservedAt);
+        }
         if (surfaceDisplayTopologyChanged && !hostDisplayTopologyChanged)
         {
             // Per-monitor DPI notifications may reach only the affected
@@ -4994,6 +5066,15 @@ int runApplication(
                 appliedGeneration,
                 logPath,
                 displayPowerUnavailable);
+        }
+        if (displayConfigurationChanged)
+        {
+            renderInvalidated =
+                scheduleCoordinatorTopologyCaptureRecovery(
+                    loopObservedAt,
+                    backgroundCaptureRequestedByConfig(controlState.config),
+                    "display-configuration")
+                || renderInvalidated;
         }
         if (displayColorRefreshPending
             && !pendingDisplayTarget.has_value())
@@ -6930,6 +7011,12 @@ int runApplication(
             }
             finishBackgroundCaptureTransaction("background-stop-recovery");
             currentBackgroundCaptureActive = renderer.backgroundCaptureActive();
+            renderInvalidated =
+                scheduleCoordinatorTopologyCaptureRecovery(
+                    wallTime,
+                    backgroundCaptureRequestedByConfig(controlState.config),
+                    "session-stopped")
+                || renderInvalidated;
         }
         else if (const std::optional<bafx::windows::WindowSize> captureSize =
                      renderer.pendingBackgroundFramePoolSize();
