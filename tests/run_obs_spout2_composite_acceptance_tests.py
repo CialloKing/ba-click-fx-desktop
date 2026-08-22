@@ -100,7 +100,7 @@ class RunObsSpout2CompositeAcceptanceTests(unittest.TestCase):
     def test_requires_default_byte_domain_scene_item_method(self) -> None:
         self.assertIn("compositemode = 4", self.source)
         self.assertIn(
-            "bgra8-srgb-extended-premultiplied-fx-only-v4",
+            "bgra8-sdr-rolloff-extended-premultiplied-fx-only-v5",
             self.source,
         )
         self.assertIn("obsBlendMethod = 'default'", self.source)

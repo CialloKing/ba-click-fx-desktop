@@ -58,7 +58,7 @@ def _fixture(root: Path) -> tuple[Path, dict[str, np.ndarray]]:
         )
     manifest = {
         "schemaVersion": 1,
-        "contract": "bgra8-srgb-extended-premultiplied-fx-only-v4",
+        "contract": "bgra8-sdr-rolloff-extended-premultiplied-fx-only-v5",
         "obsBlendMethod": "default",
         "obsBlendMode": "normal",
         "rawFrame": {

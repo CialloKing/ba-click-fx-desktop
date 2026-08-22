@@ -38,9 +38,10 @@
 - D3D11 硬件设备；硬件设备创建失败时尝试 WARP 软件设备。
 - 当前验证范围为普通 SDR 桌面合成路径。
 - Spout2 发送器名称固定为 `ba-click-fx-desktop`，输出合同为
-  `BGRA8 + sRGB + extended premultiplied alpha + FX-only v4`。空闲帧严格透明；圆盘保留
+  `BGRA8 + SDR byte-domain rolloff + extended premultiplied alpha + FX-only v5`。空闲帧严格透明；圆盘保留
   Cross2 coverage Alpha，纯加法圆环、碎片、拖尾和 Bloom 只使用一个 BGRA8 Alpha 步进
-  防止接收端清除，仍允许 `RGB > Alpha`；输出不混入或依赖 WGC 桌面背景；
+  防止接收端清除，仍允许 `RGB > Alpha`。RGB 使用共享峰值 rolloff，避免 OBS 在编码游戏画面上
+  直接叠加时再次抬亮 Bloom 暗部并使中心过早削顶；输出不混入或依赖 WGC 桌面背景；
   WGC 不可用或失败时仍能输出点击和拖尾。
   OBS 单独捕获游戏/桌面并置底，`Spout2 Capture` 源置顶，Composite Mode 必须选择
   `Premultiplied Alpha`，来源混合方式保持 `Default`、混合模式保持 `Normal`，再执行

@@ -20,7 +20,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $senderName = 'ba-click-fx-desktop'
-$outputContract = 'bgra8-srgb-extended-premultiplied-fx-only-v4'
+$outputContract = 'bgra8-sdr-rolloff-extended-premultiplied-fx-only-v5'
 $frameFormat = 87
 $requestTimeoutMilliseconds = 10000
 $utf8NoBom = [Text.UTF8Encoding]::new($false)

@@ -157,7 +157,7 @@ try
         schemaVersion = 2
         status = 'passed'
         sender = 'ba-click-fx-desktop'
-        outputContract = 'bgra8-srgb-extended-premultiplied-fx-only-v4'
+        outputContract = 'bgra8-sdr-rolloff-extended-premultiplied-fx-only-v5'
         samples = $samples.Count
         connectedSamples = $connected.Count
         size = $sizes[0]
