@@ -660,7 +660,16 @@ void checkValidDesktopPremultiplied(
         linearToSrgbChannel(value) * 255.0F));
 }
 
-void checkExtendedSrgbEncoding(
+[[nodiscard]] std::uint8_t obsSdrRolloff8(
+    const float value,
+    const float peak) noexcept
+{
+    const float encoded = std::max(value, 0.0F) / (1.0F + std::max(peak, 0.0F));
+    return static_cast<std::uint8_t>(std::lround(
+        std::clamp(encoded, 0.0F, 1.0F) * 255.0F));
+}
+
+void checkObsSdrRolloffEncoding(
     const Bgra8Image& encoded,
     const Rgba16FloatImage& direct,
     const Rgba16FloatImage* const bloom = nullptr)
@@ -679,6 +688,7 @@ void checkExtendedSrgbEncoding(
     constexpr float maximumEmission = 0.90F;
     constexpr int byteTolerance = 2;
     std::size_t checkedPixels = 0U;
+    std::size_t preventedSrgbUpliftPixels = 0U;
     for (std::size_t index = 0U; index < direct.pixels.size(); ++index)
     {
         const Rgba16FloatPixel directPixel = direct.pixels[index];
@@ -708,15 +718,24 @@ void checkExtendedSrgbEncoding(
             actualPixel.blue};
         for (std::size_t channel = 0U; channel < actual.size(); ++channel)
         {
-            // Derive expected bytes from captured linear surfaces so this gate
-            // catches either a missing or a duplicated transfer conversion.
-            const int expected = linearToSrgb8(linear[channel]);
+            // OBS adds this byte-domain delta to an encoded game frame. Derive
+            // the expected hue-preserving shoulder from captured FP16 layers.
+            const int expected = obsSdrRolloff8(linear[channel], peak);
             const int delta = static_cast<int>(actual[channel]) - expected;
             BAFX_CHECK(delta >= -byteTolerance && delta <= byteTolerance);
+        }
+        const bool preventsSrgbUplift =
+            static_cast<int>(linearToSrgb8(peak))
+                - static_cast<int>(obsSdrRolloff8(peak, peak))
+            >= 16;
+        if (preventsSrgbUplift)
+        {
+            ++preventedSrgbUpliftPixels;
         }
         ++checkedPixels;
     }
     BAFX_CHECK(checkedPixels > 100U);
+    BAFX_CHECK(preventedSrgbUpliftPixels > 100U);
 }
 
 [[nodiscard]] float srgbToLinearChannel(const float value) noexcept
@@ -2373,7 +2392,7 @@ BAFX_TEST(warp_spout2_recording_target_exports_fx_without_wgc_background)
     BAFX_CHECK(background.blue == 0U);
 }
 
-BAFX_TEST(warp_spout2_full_encodes_linear_emission_as_srgb_bgra8)
+BAFX_TEST(warp_spout2_full_applies_sdr_rolloff_without_srgb_uplift)
 {
     ComApartment apartment;
     const WarpDevice graphics = createWarpDevice();
@@ -2397,7 +2416,7 @@ BAFX_TEST(warp_spout2_full_encodes_linear_emission_as_srgb_bgra8)
         recordingTarget.view.Get());
 
     BAFX_CHECK(capture.intermediateLayersValid);
-    checkExtendedSrgbEncoding(
+    checkObsSdrRolloffEncoding(
         readbackBgra8(graphics.context.Get(), recordingTarget.texture.Get()),
         capture.directSurface,
         &capture.bloomResult);
@@ -2583,7 +2602,7 @@ BAFX_TEST(warp_core_profile_exports_spout2_fx_without_bloom)
         || trail.blue > trail.alpha);
 }
 
-BAFX_TEST(warp_core_spout2_encodes_linear_emission_as_srgb_bgra8)
+BAFX_TEST(warp_core_spout2_applies_sdr_rolloff_without_srgb_uplift)
 {
     ComApartment apartment;
     const WarpDevice graphics = createWarpDevice();
@@ -2609,7 +2628,7 @@ BAFX_TEST(warp_core_spout2_encodes_linear_emission_as_srgb_bgra8)
 
     BAFX_CHECK(!capture.directSurface.pixels.empty());
     BAFX_CHECK(capture.bloomResult.pixels.empty());
-    checkExtendedSrgbEncoding(
+    checkObsSdrRolloffEncoding(
         readbackBgra8(graphics.context.Get(), recordingTarget.texture.Get()),
         capture.directSurface);
 }

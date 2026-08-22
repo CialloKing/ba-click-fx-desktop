@@ -174,7 +174,7 @@ MaterialOutput TrailPixel(PixelInput input)
 namespace detail
 {
 
-inline constexpr std::array<std::string_view, 3> unityBloomShaderSourceChunks{
+inline constexpr std::array<std::string_view, 4> unityBloomShaderSourceChunks{
     R"hlsl(
 cbuffer BloomConstants : register(b0)
 {
@@ -735,14 +735,27 @@ float4 ResolveSpout2FxOnlyTransport(
     // darkening the independently captured OBS background.
     return float4(emission, alpha);
 }
+)hlsl",
+R"hlsl(
 
-float4 EncodeSdrExtendedPremultiplied(float4 linearExtendedPremultiplied)
+float3 EncodeObsSdrAdditiveDelta(float3 linearEmission)
+{
+    const float3 emission = max(linearEmission, 0.0);
+    const float peak = max(emission.r, max(emission.g, emission.b));
+    // The Spout2 OBS source adds stored bytes to an already encoded game
+    // frame. Applying the sRGB OETF to the isolated emission would brighten
+    // low-energy Bloom a second time. A shared shoulder keeps hue and retains
+    // highlight detail without requiring access to OBS's background texture.
+    return emission / (1.0 + peak);
+}
+
+float4 EncodeObsSdrExtendedPremultiplied(float4 linearExtendedPremultiplied)
 {
     // BGRA8 clamps SDR channel range, but it can still carry RGB above Alpha.
     // Keep one stored Alpha step wherever an encoded RGB byte can survive.
     // Some Spout receivers canonicalize RGB to black when the Alpha byte is 0.
-    const float3 encoded = LinearToSrgb(
-        max(linearExtendedPremultiplied.rgb, 0.0));
+    const float3 encoded = EncodeObsSdrAdditiveDelta(
+        linearExtendedPremultiplied.rgb);
     const float storedByteThreshold = 0.5 / 255.0;
     const float minimumStoredAlpha = max(
             encoded.r,
@@ -919,7 +932,7 @@ float4 RecordingFxOnlySdrCompositePixel(FullscreenOutput input) : SV_Target0
         bloom,
         cross,
         1.0);
-    return EncodeSdrExtendedPremultiplied(overlay);
+    return EncodeObsSdrExtendedPremultiplied(overlay);
 }
 
 // Core mode deliberately omits Bloom and background transport. The direct
@@ -940,7 +953,7 @@ float4 CoreRecordingFxOnlySdrCompositePixel(FullscreenOutput input) : SV_Target0
 {
     const float4 direct = Source0.Sample(LinearClampSampler, input.uv);
     const float4 cross = Source2.Sample(LinearClampSampler, input.uv);
-    return EncodeSdrExtendedPremultiplied(
+    return EncodeObsSdrExtendedPremultiplied(
         ResolveSpout2FxOnlyTransport(
             direct,
             float4(0.0, 0.0, 0.0, 0.0),
@@ -955,11 +968,13 @@ inline constexpr std::size_t maximumEmbeddedShaderChunkSize = 12U * 1024U;
 static_assert(unityBloomShaderSourceChunks[0].size() < maximumEmbeddedShaderChunkSize);
 static_assert(unityBloomShaderSourceChunks[1].size() < maximumEmbeddedShaderChunkSize);
 static_assert(unityBloomShaderSourceChunks[2].size() < maximumEmbeddedShaderChunkSize);
+static_assert(unityBloomShaderSourceChunks[3].size() < maximumEmbeddedShaderChunkSize);
 
 inline constexpr std::size_t unityBloomShaderSourceSize =
     unityBloomShaderSourceChunks[0].size()
     + unityBloomShaderSourceChunks[1].size()
-    + unityBloomShaderSourceChunks[2].size();
+    + unityBloomShaderSourceChunks[2].size()
+    + unityBloomShaderSourceChunks[3].size();
 
 }
 
