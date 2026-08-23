@@ -57,3 +57,22 @@ BAFX_TEST(display_state_schema_two_requires_authoritative_offline_topology)
     BAFX_CHECK(
         !bafx::control_center::parseDisplayState(contradictory).succeeded());
 }
+
+BAFX_TEST(display_state_schema_two_accepts_unlimited_display_overrides)
+{
+    std::string state(validEmptyDisplayState);
+    state.replace(
+        state.find("\"offlineOverrides\":[]"),
+        21U,
+        "\"offlineOverrides\":[{\"displayKey\":\"displayconfig-v1-sha256:test\","
+        "\"effectsEnabled\":true,\"hdrEnabled\":false,"
+        "\"framePacing\":\"unlimited\"}]");
+
+    const bafx::control_center::DisplayStateParseResult result =
+        bafx::control_center::parseDisplayState(state);
+    BAFX_CHECK(result.succeeded());
+    BAFX_CHECK(result.state->offlineOverrides.size() == 1U);
+    BAFX_CHECK(
+        result.state->offlineOverrides.front().framePacing
+        == bafx::config::FramePacing::Unlimited);
+}

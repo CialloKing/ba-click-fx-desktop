@@ -689,7 +689,7 @@ void appendDeviceRemovedNotificationStatus(
         config.effects.enabled && resolved.enabled,
         resolved.outputPreference,
         resolved.framePacing,
-        resolved.fixedFramePeriod.value_or(
+        resolved.minimumFramePeriod.value_or(
             bafx::core::MonotonicTime::zero()),
         config.performance.effectsMode == bafx::config::EffectsMode::Core
             ? bafx::fx::SimulationEffectsMode::Core

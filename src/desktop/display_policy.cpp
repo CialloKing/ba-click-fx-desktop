@@ -5,37 +5,76 @@
 
 namespace bafx::desktop
 {
-
-std::optional<bafx::core::MonotonicTime> fixedFramePacingPeriod(
-    const bafx::config::FramePacing pacing) noexcept
+namespace
 {
-    std::uint32_t framesPerSecond = 0U;
+
+[[nodiscard]] std::optional<bafx::core::MonotonicTime> framePeriod(
+    const std::uint32_t numerator,
+    const std::uint32_t denominator) noexcept
+{
+    if (numerator == 0U || denominator == 0U)
+    {
+        return std::nullopt;
+    }
+
+    const std::uint64_t scaledDenominator =
+        static_cast<std::uint64_t>(denominator);
+    const std::uint64_t scaledNumerator =
+        static_cast<std::uint64_t>(numerator);
+    if (scaledNumerator < scaledDenominator
+        || scaledNumerator > scaledDenominator * 1'000U)
+    {
+        // Match the topology contract so malformed in-memory refresh evidence
+        // cannot produce an impractically slow or busy render loop.
+        return std::nullopt;
+    }
+
+    const std::uint64_t second = static_cast<std::uint64_t>(
+        std::chrono::duration_cast<bafx::core::MonotonicTime>(
+            std::chrono::seconds(1)).count());
+    const std::uint64_t scaledSecond = second * scaledDenominator;
+    // Round upward so the limiter never schedules a frame before the display
+    // period represented by the exact DisplayConfig rational.
+    const std::uint64_t period =
+        (scaledSecond + scaledNumerator - 1U) / scaledNumerator;
+    return bafx::core::MonotonicTime{
+        static_cast<bafx::core::MonotonicTime::rep>(period)};
+}
+
+}
+
+std::optional<bafx::core::MonotonicTime> minimumFramePacingPeriod(
+    const bafx::config::FramePacing pacing,
+    const std::optional<bafx::windows::DisplayRefreshRate>& refreshRate)
+    noexcept
+{
     switch (pacing)
     {
     case bafx::config::FramePacing::MatchDisplay:
-        return std::nullopt;
+        if (refreshRate.has_value())
+        {
+            if (const auto period = framePeriod(
+                    refreshRate->numerator,
+                    refreshRate->denominator);
+                period.has_value())
+            {
+                return period;
+            }
+        }
+        // Missing display evidence must stay bounded. Unlimited rendering is
+        // available only through its explicit user-facing option.
+        return framePeriod(60U, 1U);
     case bafx::config::FramePacing::Fixed60:
-        framesPerSecond = 60U;
-        break;
+        return framePeriod(60U, 1U);
     case bafx::config::FramePacing::Fixed120:
-        framesPerSecond = 120U;
-        break;
+        return framePeriod(120U, 1U);
     case bafx::config::FramePacing::Fixed144:
-        framesPerSecond = 144U;
-        break;
-    }
-    if (framesPerSecond == 0U)
-    {
-        // Keep malformed in-memory state fail-closed even if a caller bypasses
-        // config validation; division by zero must never reach the Host loop.
+        return framePeriod(144U, 1U);
+    case bafx::config::FramePacing::Unlimited:
         return std::nullopt;
     }
-
-    const std::int64_t second = std::chrono::duration_cast<
-        bafx::core::MonotonicTime>(std::chrono::seconds(1)).count();
-    return bafx::core::MonotonicTime{
-        (second + static_cast<std::int64_t>(framesPerSecond) - 1LL)
-        / static_cast<std::int64_t>(framesPerSecond)};
+    // Invalid in-memory enum values retain the fail-closed 60 FPS ceiling.
+    return framePeriod(60U, 1U);
 }
 
 ResolvedDisplaySessionPolicy resolveDisplaySessionPolicy(
@@ -61,7 +100,9 @@ ResolvedDisplaySessionPolicy resolveDisplaySessionPolicy(
     result.outputPreference = !coreMode && resolved.hdrEnabled
         ? bafx::windows::CompositionOutputPreference::PreferLinearScRgb
         : bafx::windows::CompositionOutputPreference::ConservativeSdr;
-    result.fixedFramePeriod = fixedFramePacingPeriod(result.framePacing);
+    result.minimumFramePeriod = minimumFramePacingPeriod(
+        result.framePacing,
+        target.refreshRate);
     return result;
 }
 

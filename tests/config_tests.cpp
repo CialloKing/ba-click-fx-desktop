@@ -1358,6 +1358,42 @@ BAFX_TEST(config_patch_controls_effects_mode)
         != std::string::npos);
 }
 
+BAFX_TEST(config_patch_round_trips_unlimited_frame_pacing)
+{
+    const bafx::config::Config base = bafx::config::defaultConfig();
+    const auto result = bafx::config::applyPatchJson(
+        base,
+        R"json({"generation":2,"path":"performance.framePacing","value":"unlimited"})json");
+    BAFX_CHECK(result.succeeded());
+    BAFX_CHECK(
+        result.config.performance.framePacing
+        == bafx::config::FramePacing::Unlimited);
+
+    std::string error;
+    bafx::config::Config withOverride = result.config;
+    BAFX_CHECK(bafx::config::setDisplayOverride(
+        withOverride,
+        bafx::config::DisplayOverrideConfig{
+            "displayconfig-v1-sha256:unlimited",
+            true,
+            false,
+            bafx::config::FramePacing::Unlimited},
+        &error));
+    const std::string serialized = bafx::config::toJson(withOverride, false);
+    BAFX_CHECK(
+        serialized.find("\"framePacing\":\"unlimited\"")
+        != std::string::npos);
+
+    const auto roundTrip = bafx::config::parseJson(serialized);
+    BAFX_CHECK(roundTrip.succeeded());
+    BAFX_CHECK(
+        roundTrip.config.performance.framePacing
+        == bafx::config::FramePacing::Unlimited);
+    BAFX_CHECK(
+        roundTrip.config.display.overrides.front().framePacing
+        == bafx::config::FramePacing::Unlimited);
+}
+
 BAFX_TEST(config_current_schema_requires_every_section_and_field)
 {
     const std::string currentSchema = std::to_string(

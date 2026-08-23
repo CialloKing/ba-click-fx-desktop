@@ -36,7 +36,8 @@ enum class FramePacing : std::uint8_t
     MatchDisplay,
     Fixed60,
     Fixed120,
-    Fixed144
+    Fixed144,
+    Unlimited
 };
 
 // Core keeps the authored click, ring, shard, and trail effects while omitting

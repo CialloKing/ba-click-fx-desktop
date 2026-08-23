@@ -1215,6 +1215,11 @@ private:
             output = bafx::config::FramePacing::Fixed144;
             return true;
         }
+        if (token == "unlimited")
+        {
+            output = bafx::config::FramePacing::Unlimited;
+            return true;
+        }
         return false;
     }
 

@@ -319,6 +319,8 @@ LRESULT CALLBACK themeColorEditProcedure(
         return 2;
     case bafx::config::FramePacing::Fixed144:
         return 3;
+    case bafx::config::FramePacing::Unlimited:
+        return 4;
     }
     return -1;
 }
@@ -341,6 +343,8 @@ LRESULT CALLBACK themeColorEditProcedure(
         return bafx::config::FramePacing::Fixed120;
     case 3:
         return bafx::config::FramePacing::Fixed144;
+    case 4:
+        return bafx::config::FramePacing::Unlimited;
     default:
         return std::nullopt;
     }
@@ -359,6 +363,8 @@ LRESULT CALLBACK themeColorEditProcedure(
         return L"固定 120 FPS";
     case bafx::config::FramePacing::Fixed144:
         return L"固定 144 FPS";
+    case bafx::config::FramePacing::Unlimited:
+        return L"无限制 FPS";
     }
     return L"未知";
 }
@@ -374,7 +380,8 @@ void initializeFramePacingCombo(const HWND comboBox) noexcept
         L"跟随显示器",
         L"固定 60 FPS",
         L"固定 120 FPS",
-        L"固定 144 FPS"};
+        L"固定 144 FPS",
+        L"无限制 FPS"};
     for (const wchar_t* label : labels)
     {
         static_cast<void>(SendMessageW(
@@ -3876,24 +3883,17 @@ void ControlCenterWindow::onCommand(
     case ControlId::FramePacing:
         if (notificationCode == CBN_SELCHANGE)
         {
-            switch (SendMessageW(framePacing_, CB_GETCURSEL, 0U, 0))
+            const std::optional<bafx::config::FramePacing> framePacing =
+                selectedFramePacing(framePacing_);
+            if (!framePacing.has_value())
             {
-            case 0:
-                applyPatch("performance.framePacing", "\"match-display\"");
-                break;
-            case 1:
-                applyPatch("performance.framePacing", "\"60\"");
-                break;
-            case 2:
-                applyPatch("performance.framePacing", "\"120\"");
-                break;
-            case 3:
-                applyPatch("performance.framePacing", "\"144\"");
-                break;
-            default:
                 setError(L"未知的帧率策略选择。");
                 break;
             }
+            const std::string value = "\""
+                + std::string(bafx::config::toString(*framePacing))
+                + "\"";
+            applyPatch("performance.framePacing", value);
         }
         break;
     case ControlId::DisplayIndependent:

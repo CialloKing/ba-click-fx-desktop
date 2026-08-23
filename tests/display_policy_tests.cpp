@@ -40,9 +40,9 @@ BAFX_TEST(display_policy_inherits_global_defaults_without_a_stable_key)
     BAFX_CHECK(
         policy.outputPreference
         == bafx::windows::CompositionOutputPreference::PreferLinearScRgb);
-    BAFX_CHECK(policy.fixedFramePeriod.has_value());
+    BAFX_CHECK(policy.minimumFramePeriod.has_value());
     BAFX_CHECK(
-        *policy.fixedFramePeriod
+        *policy.minimumFramePeriod
         == bafx::core::MonotonicTime{16'666'667LL});
 }
 
@@ -76,20 +76,63 @@ BAFX_TEST(display_policy_resolves_one_complete_target_override)
     BAFX_CHECK(
         policy.outputPreference
         == bafx::windows::CompositionOutputPreference::PreferLinearScRgb);
-    BAFX_CHECK(policy.fixedFramePeriod.has_value());
+    BAFX_CHECK(policy.minimumFramePeriod.has_value());
     BAFX_CHECK(
-        *policy.fixedFramePeriod
+        *policy.minimumFramePeriod
         == bafx::core::MonotonicTime{8'333'334LL});
 }
 
-BAFX_TEST(display_policy_fixed_period_uses_a_non_early_deadline)
+BAFX_TEST(display_policy_period_uses_exact_non_early_deadlines)
 {
-    BAFX_CHECK(!bafx::desktop::fixedFramePacingPeriod(
-        bafx::config::FramePacing::MatchDisplay).has_value());
     BAFX_CHECK(
-        bafx::desktop::fixedFramePacingPeriod(
-            bafx::config::FramePacing::Fixed144)
+        bafx::desktop::minimumFramePacingPeriod(
+            bafx::config::FramePacing::MatchDisplay,
+            bafx::windows::DisplayRefreshRate{170U, 1U})
+        == bafx::core::MonotonicTime{5'882'353LL});
+    BAFX_CHECK(
+        bafx::desktop::minimumFramePacingPeriod(
+            bafx::config::FramePacing::MatchDisplay,
+            bafx::windows::DisplayRefreshRate{60'000U, 1'001U})
+        == bafx::core::MonotonicTime{16'683'334LL});
+    BAFX_CHECK(
+        bafx::desktop::minimumFramePacingPeriod(
+            bafx::config::FramePacing::MatchDisplay,
+            std::nullopt)
+        == bafx::core::MonotonicTime{16'666'667LL});
+    BAFX_CHECK(
+        bafx::desktop::minimumFramePacingPeriod(
+            bafx::config::FramePacing::MatchDisplay,
+            bafx::windows::DisplayRefreshRate{0U, 1U})
+        == bafx::core::MonotonicTime{16'666'667LL});
+    BAFX_CHECK(
+        bafx::desktop::minimumFramePacingPeriod(
+            bafx::config::FramePacing::MatchDisplay,
+            bafx::windows::DisplayRefreshRate{1'001U, 1U})
+        == bafx::core::MonotonicTime{16'666'667LL});
+    BAFX_CHECK(
+        bafx::desktop::minimumFramePacingPeriod(
+            bafx::config::FramePacing::Fixed144,
+            std::nullopt)
         == bafx::core::MonotonicTime{6'944'445LL});
+    BAFX_CHECK(!bafx::desktop::minimumFramePacingPeriod(
+        bafx::config::FramePacing::Unlimited,
+        bafx::windows::DisplayRefreshRate{170U, 1U}).has_value());
+}
+
+BAFX_TEST(display_policy_match_display_uses_the_target_refresh_rate)
+{
+    bafx::desktop::DisplayTarget target{};
+    target.refreshRate = bafx::windows::DisplayRefreshRate{170U, 1U};
+
+    const bafx::desktop::ResolvedDisplaySessionPolicy policy =
+        bafx::desktop::resolveDisplaySessionPolicy(
+            bafx::config::defaultConfig(),
+            target);
+    BAFX_CHECK(
+        policy.framePacing == bafx::config::FramePacing::MatchDisplay);
+    BAFX_CHECK(
+        policy.minimumFramePeriod
+        == bafx::core::MonotonicTime{5'882'353LL});
 }
 
 BAFX_TEST(display_policy_core_mode_forces_conservative_fixed_sixty)
@@ -109,6 +152,6 @@ BAFX_TEST(display_policy_core_mode_forces_conservative_fixed_sixty)
         == bafx::windows::CompositionOutputPreference::ConservativeSdr);
     BAFX_CHECK(policy.framePacing == bafx::config::FramePacing::Fixed60);
     BAFX_CHECK(
-        policy.fixedFramePeriod
+        policy.minimumFramePeriod
         == bafx::core::MonotonicTime{16'666'667LL});
 }

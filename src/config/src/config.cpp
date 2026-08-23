@@ -799,6 +799,11 @@ private:
         output = FramePacing::Fixed144;
         return true;
     }
+    if (value == "unlimited")
+    {
+        output = FramePacing::Unlimited;
+        return true;
+    }
     return false;
 }
 
@@ -3162,6 +3167,7 @@ bool setDisplayOverride(
     case FramePacing::Fixed60:
     case FramePacing::Fixed120:
     case FramePacing::Fixed144:
+    case FramePacing::Unlimited:
         break;
     default:
         return fail("display override frame pacing is not recognized");
@@ -3273,6 +3279,7 @@ bool validateConfig(const Config& config, std::string* error) noexcept
     case FramePacing::Fixed60:
     case FramePacing::Fixed120:
     case FramePacing::Fixed144:
+    case FramePacing::Unlimited:
         break;
     default:
         return failValidation("performance.framePacing is not recognized");
@@ -3310,6 +3317,7 @@ bool validateConfig(const Config& config, std::string* error) noexcept
         case FramePacing::Fixed60:
         case FramePacing::Fixed120:
         case FramePacing::Fixed144:
+        case FramePacing::Unlimited:
             break;
         default:
             return failValidation(
@@ -3596,6 +3604,8 @@ std::string_view toString(const FramePacing pacing) noexcept
         return "120";
     case FramePacing::Fixed144:
         return "144";
+    case FramePacing::Unlimited:
+        return "unlimited";
     }
     return "match-display";
 }

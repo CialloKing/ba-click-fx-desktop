@@ -22,11 +22,14 @@ struct ResolvedDisplaySessionPolicy final
     bool overridden{false};
     bafx::windows::CompositionOutputPreference outputPreference{
         bafx::windows::CompositionOutputPreference::ConservativeSdr};
-    std::optional<bafx::core::MonotonicTime> fixedFramePeriod{};
+    std::optional<bafx::core::MonotonicTime> minimumFramePeriod{};
 };
 
 [[nodiscard]] std::optional<bafx::core::MonotonicTime>
-fixedFramePacingPeriod(bafx::config::FramePacing pacing) noexcept;
+minimumFramePacingPeriod(
+    bafx::config::FramePacing pacing,
+    const std::optional<bafx::windows::DisplayRefreshRate>& refreshRate)
+    noexcept;
 
 [[nodiscard]] ResolvedDisplaySessionPolicy resolveDisplaySessionPolicy(
     const bafx::config::Config& config,
