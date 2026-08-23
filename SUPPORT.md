@@ -174,9 +174,9 @@
 `BAFX.ControlCenter.exe`；Control Center 与 Host 是独立进程，关闭或退出控制窗口不会停止 Host。启用托盘隐藏后，
 通知区域图标可重新打开或单独退出 Control Center；Explorer 重启后会自动恢复该入口。
 
-可用下列命令生成完整测试包。脚本会构建 Release Host 与 Control Center，并验证 ZIP 中的文件清单、
+可用下列命令生成完整便携包。脚本会构建 Release Host 与 Control Center，并验证 ZIP 中的文件清单、
 校验和、可执行文件依赖和 Control Center 启动；输出包位于
-`artifacts\local\ba-click-fx-desktop-<version>-test-windows-x64.zip`：
+`artifacts\local\ba-click-fx-desktop-<version>-Portable-windows-x64.zip`：
 
 ```powershell
 pwsh -NoProfile -ExecutionPolicy Bypass -File .\tools\package-test-bundle.ps1
@@ -186,7 +186,7 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File .\tools\package-test-bundle.ps1
 或安装器脚本后追加 `-Slim`。精简版包名带有 `-slim`，控制中心不会显示 Spout2 输出开关，
 但核心点击、圆环、碎片和拖尾特效保持不变。
 
-解压测试包时必须保留其完整目录结构。Control Center 不携带 Windows App SDK 运行时，只有在需要
+解压便携包时必须保留其完整目录结构。Control Center 不携带 Windows App SDK 运行时，只有在需要
 通过按钮启动 Host 时才要求与 Host EXE 位于同一目录。
 
 ## 普通用户安装

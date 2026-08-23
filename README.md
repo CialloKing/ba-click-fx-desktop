@@ -73,7 +73,7 @@ Trail 和 Bloom 继续按游戏合同在线性 FP16 中计算。最终呈现阶�
 - [docs/VALIDATION.md](docs/VALIDATION.md)：测试层级、Golden Oracle 和发布门槛。
 - [docs/UNITY_REFERENCE.md](docs/UNITY_REFERENCE.md)：游戏解包资源、Unity 重建工程与 Golden 的证据边界。
 - [SUPPORT.md](SUPPORT.md)：0.2.3 的可测试范围、退出方式和明确排除项。
-- [tools/package-test-bundle.ps1](tools/package-test-bundle.ps1)：构建并生成可解压测试包，同时调用完整性验证。
+- [tools/package-test-bundle.ps1](tools/package-test-bundle.ps1)：构建并生成便携 ZIP，同时调用完整性验证。
 
 ## 项目状态
 
@@ -139,7 +139,7 @@ Overlay 不抢焦点且保持鼠标穿透；右键通知区域图标可退出，
 `Ctrl+Shift+F12`。即使组合键已被其他软件注册，轮询兜底仍会识别它。当前 smoke 仍不等同于
 HDR、跨适配器或 WGC 的 Spike 已通过。
 
-### 独立测试包
+### 便携版
 
 下面的命令会先构建 Release Host 和原生 Win32 Control Center，再将两个 EXE、支持文档和逐文件
 SHA-256 清单打入 ZIP；脚本完成前会自动运行包验证。它只要求 `cmake.exe` 可用：
@@ -148,7 +148,7 @@ SHA-256 清单打入 ZIP；脚本完成前会自动运行包验证。它只要�
 pwsh -NoProfile -ExecutionPolicy Bypass -File .\tools\package-test-bundle.ps1
 ```
 
-默认输出到 `artifacts\local\ba-click-fx-desktop-<version>-test-windows-x64.zip`，并在同目录生成
+默认输出到 `artifacts\local\ba-click-fx-desktop-<version>-Portable-windows-x64.zip`，并在同目录生成
 `.sha256` 文件。解压后必须保留目录结构：先启动 `ba-click-fx-desktop.exe`，再启动
 `BAFX.ControlCenter.exe`。Control Center 只依赖 Windows 自带的 User32、Comctl32 和配置 IPC，
 可以直接复制该 EXE 运行，但需要与 Host 放在同一目录才能使用“启动 Host”按钮。连接后同一按钮会

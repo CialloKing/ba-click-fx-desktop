@@ -46,15 +46,15 @@ GPU 百分比是该机器同次串行 A/B 的 Windows GPU Engine 计数器总和
 
 - 标准版 `release-verify` 通过全部 `40/40` 项测试，其中包含真实 Spout2 进程边界测试；
   Slim 源码构建的 `slim-release-verify` 通过 `39/39` 项测试。
-- 便携 ZIP SHA-256 为 `C1EF617F3BAB7A139CDF5BA4FFB9431D5F693BD3A1BADA3C8ACBB91A410A3092`。
+- 便携 ZIP SHA-256 为 `F606EEBCC4967C985E4D1EF4C00C7F71B86259F8887C2C0AC8AA80A526462233`。
 - 安装器 SHA-256 为 `CC2E8D7C618646CB5363A0E17EB50B29103061734B960E74B68534E5ADDDEFCA`。
 
 ## 下载哪个包
 
 本次 Release 只发布带 Spout2 的完整标准版：
 
-- `ba-click-fx-desktop-0.2.3-test-windows-x64.zip`
-- `ba-click-fx-desktop-0.2.3-test-windows-x64.zip.sha256`
+- `ba-click-fx-desktop-0.2.3-Portable-windows-x64.zip`
+- `ba-click-fx-desktop-0.2.3-Portable-windows-x64.zip.sha256`
 - `ba-click-fx-desktop-0.2.3-setup-windows-x64.exe`
 - `ba-click-fx-desktop-0.2.3-setup-windows-x64.exe.sha256`
 
