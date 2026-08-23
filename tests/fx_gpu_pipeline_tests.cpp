@@ -2270,6 +2270,36 @@ BAFX_TEST(warp_pipeline_applies_runtime_bloom_intensity_and_quality)
     BAFX_CHECK(lowBloom.bloomUp.empty());
 }
 
+BAFX_TEST(warp_bloom_layer_toggle_bypasses_output_without_stale_bloom)
+{
+    ComApartment apartment;
+    const WarpDevice graphics = createWarpDevice();
+    FxGpuRenderer renderer(graphics.device.Get(), graphics.context.Get(), testSize);
+    const RenderTarget target = createRenderTarget(graphics.device.Get());
+
+    const FxGpuFrameCapture enabled = renderer.renderAndCapture(
+        makeDiskSnapshot(true),
+        target.view.Get());
+    BAFX_CHECK(!isZeroImage(enabled.bloomResult));
+
+    FxBloomSettings disabledSettings{};
+    disabledSettings.enabled = false;
+    renderer.setBloomSettings(disabledSettings);
+    const FxGpuFrameCapture disabled = renderer.renderAndCapture(
+        makeDiskSnapshot(true),
+        target.view.Get());
+    BAFX_CHECK(!isZeroImage(disabled.directSurface));
+    BAFX_CHECK(isZeroImage(disabled.bloomResult));
+    BAFX_CHECK(maximumRgbOutsideSprite(toFloatPixels(disabled.finalOverlay))
+        <= 1.0e-6F);
+
+    renderer.setBloomSettings(FxBloomSettings{});
+    const FxGpuFrameCapture restored = renderer.renderAndCapture(
+        makeDiskSnapshot(true),
+        target.view.Get());
+    BAFX_CHECK(!isZeroImage(restored.bloomResult));
+}
+
 BAFX_TEST(warp_capture_proves_triangle_enters_bloom)
 {
     ComApartment apartment;

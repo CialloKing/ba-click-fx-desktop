@@ -45,10 +45,17 @@ private:
         AdvancedRingsSection,
         AdvancedClickShardsSection,
         AdvancedBloomSection,
+        AdvancedLayersSection,
         EffectsEnabled,
         EffectsMode,
         ClickEnabled,
         TrailEnabled,
+        DiskLayerEnabled,
+        RingsLayerEnabled,
+        ClickShardsLayerEnabled,
+        TrailShardsLayerEnabled,
+        TrailLayerEnabled,
+        BloomLayerEnabled,
         TrailAlwaysOn,
         LeftClickEnabled,
         RightClickEnabled,
@@ -145,7 +152,8 @@ private:
         Particles,
         Rings,
         ClickShards,
-        Bloom
+        Bloom,
+        Layers
     };
 
     static LRESULT CALLBACK windowProcedure(
@@ -284,6 +292,12 @@ private:
     HWND effectsMode_{nullptr};
     HWND clickEnabled_{nullptr};
     HWND trailEnabled_{nullptr};
+    HWND diskLayerEnabled_{nullptr};
+    HWND ringsLayerEnabled_{nullptr};
+    HWND clickShardsLayerEnabled_{nullptr};
+    HWND trailShardsLayerEnabled_{nullptr};
+    HWND trailLayerEnabled_{nullptr};
+    HWND bloomLayerEnabled_{nullptr};
     HWND trailAlwaysOn_{nullptr};
     HWND leftClickEnabled_{nullptr};
     HWND rightClickEnabled_{nullptr};
@@ -333,11 +347,13 @@ private:
     HWND advancedRingsSectionButton_{nullptr};
     HWND advancedClickShardsSectionButton_{nullptr};
     HWND advancedBloomSectionButton_{nullptr};
+    HWND advancedLayersSectionButton_{nullptr};
     HWND advancedTimingHeading_{nullptr};
     HWND advancedParticlesHeading_{nullptr};
     HWND advancedRingsHeading_{nullptr};
     HWND advancedClickShardsHeading_{nullptr};
     HWND advancedBloomHeading_{nullptr};
+    HWND advancedLayersHeading_{nullptr};
     HWND bloomQualityLabel_{nullptr};
     HWND bloomQuality_{nullptr};
     HWND backgroundHeading_{nullptr};

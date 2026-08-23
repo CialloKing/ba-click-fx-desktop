@@ -632,7 +632,8 @@ void appendDeviceRemovedNotificationStatus(
         effects.bloomDiffusion,
         effects.bloomThreshold,
         effects.bloomSoftKnee,
-        effects.bloomClamp};
+        effects.bloomClamp,
+        effects.bloomLayerEnabled};
 }
 
 [[nodiscard]] bafx::fx::ClickParticleSettings makeClickParticleSettings(
@@ -660,6 +661,17 @@ void appendDeviceRemovedNotificationStatus(
         effects.shardsClickSpeedMax,
         effects.shardsSizeMin,
         effects.shardsSizeMax};
+}
+
+[[nodiscard]] bafx::fx::EffectLayerVisibility makeLayerVisibility(
+    const bafx::config::EffectsConfig& effects) noexcept
+{
+    return bafx::fx::EffectLayerVisibility{
+        effects.clickEnabled && effects.diskLayerEnabled,
+        effects.clickEnabled && effects.ringsLayerEnabled,
+        effects.clickEnabled && effects.clickShardsLayerEnabled,
+        effects.trailEnabled && effects.trailShardsLayerEnabled,
+        effects.trailEnabled && effects.trailLayerEnabled};
 }
 
 [[nodiscard]] bafx::windows::CompositionOutputPreference makeOutputPreference(
@@ -1202,17 +1214,6 @@ void applyVisualConfig(
         snapshot = bafx::fx::FrameSnapshot{};
         return;
     }
-    if (!config.effects.clickEnabled)
-    {
-        snapshot.sprites.clear();
-    }
-    if (!config.effects.trailEnabled)
-    {
-        snapshot.trail.clear();
-        snapshot.trailStrokes.clear();
-        snapshot.trailWidthPixels = 0.0F;
-    }
-
     // The renderer applies this after Unity material evaluation. Mutating
     // particle Alpha here would change Dissolve geometry and square emission.
     snapshot.globalOpacity = std::clamp(
@@ -2897,11 +2898,14 @@ int runApplication(
             config.input.samplingRateHz,
             config.effects.enabled
                 && config.effects.trailEnabled
+                && (config.effects.trailLayerEnabled
+                    || config.effects.trailShardsLayerEnabled)
                 && !config.input.trailOnlyWhilePressed,
             config.effects.clickTimeScale,
             config.effects.trailTimeScale,
             makeClickParticleSettings(config.effects),
-            makeShardParticleSettings(config.effects)});
+            makeShardParticleSettings(config.effects),
+            makeLayerVisibility(config.effects)});
     bafx::desktop::DisplaySession& displaySession =
         displaySessions.createCoordinator(appliedDisplayTarget);
     bafx::windows::OverlayWindow& window = displaySession.window();
@@ -5475,6 +5479,8 @@ int runApplication(
                         config.display);
                 const bool alwaysOnTrailEnabled = config.effects.enabled
                     && config.effects.trailEnabled
+                    && (config.effects.trailLayerEnabled
+                        || config.effects.trailShardsLayerEnabled)
                     && !config.input.trailOnlyWhilePressed;
                 const bafx::windows::FxBloomSettings bloomSettings =
                     makeBloomSettings(config.effects);
@@ -5482,6 +5488,8 @@ int runApplication(
                     makeClickParticleSettings(config.effects);
                 const bafx::fx::ShardParticleSettings shardParticleSettings =
                     makeShardParticleSettings(config.effects);
+                const bafx::fx::EffectLayerVisibility layerVisibility =
+                    makeLayerVisibility(config.effects);
                 const bafx::fx::SimulationTime settingsTime =
                     simulationTimeline.fromWallTime(clock.now());
                 const bafx::desktop::DisplaySessionPolicyChange policyChange =
@@ -5496,7 +5504,8 @@ int runApplication(
                     config.effects.clickTimeScale,
                     config.effects.trailTimeScale,
                     clickParticleSettings,
-                    shardParticleSettings);
+                    shardParticleSettings,
+                    layerVisibility);
                 // Host owns the render thread, so applying the immutable control
                 // snapshot here makes input, length and Bloom changes take effect
                 // on the next frame without cross-thread renderer mutation.
@@ -5508,6 +5517,7 @@ int runApplication(
                     clickParticleSettings,
                     settingsTime);
                 simulation.setShardParticleSettings(shardParticleSettings);
+                simulation.setLayerVisibility(layerVisibility);
                 simulation.setTrailTimeScale(
                     config.effects.trailTimeScale,
                     settingsTime);
@@ -5594,6 +5604,7 @@ int runApplication(
                         settingsTime);
                     session.simulation().setShardParticleSettings(
                         shardParticleSettings);
+                    session.simulation().setLayerVisibility(layerVisibility);
                     session.simulation().setTrailTimeScale(
                         config.effects.trailTimeScale,
                         settingsTime);
@@ -5894,8 +5905,13 @@ int runApplication(
                     || options.framePacingStallProbe
                     || options.frameLimit.has_value(),
                 config.effects.enabled
-                    && (config.effects.clickEnabled
-                        || config.effects.trailEnabled)
+                    && ((config.effects.clickEnabled
+                            && (config.effects.diskLayerEnabled
+                                || config.effects.ringsLayerEnabled
+                                || config.effects.clickShardsLayerEnabled))
+                        || (config.effects.trailEnabled
+                            && (config.effects.trailLayerEnabled
+                                || config.effects.trailShardsLayerEnabled)))
                     && inputDisplayAvailable
                     && hostWindow.pointerEventsPending(),
                 activeEffects,

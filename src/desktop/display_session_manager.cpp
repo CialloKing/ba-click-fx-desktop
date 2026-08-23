@@ -41,7 +41,8 @@ DisplaySessionManager::DisplaySessionManager(
       clickTimeScale_(options.clickTimeScale),
       trailTimeScale_(options.trailTimeScale),
       clickParticleSettings_(options.clickParticleSettings),
-      shardParticleSettings_(options.shardParticleSettings)
+      shardParticleSettings_(options.shardParticleSettings),
+      layerVisibility_(options.layerVisibility)
 {
     if (borderlessAccessAuthority_ == nullptr)
     {
@@ -430,7 +431,8 @@ void DisplaySessionManager::updateCreationSettings(
     const float clickTimeScale,
     const float trailTimeScale,
     const bafx::fx::ClickParticleSettings clickParticleSettings,
-    const bafx::fx::ShardParticleSettings shardParticleSettings) noexcept
+    const bafx::fx::ShardParticleSettings shardParticleSettings,
+    const bafx::fx::EffectLayerVisibility layerVisibility) noexcept
 {
     bloomSettings_ = bloomSettings;
     themeColor_ = themeColor;
@@ -442,6 +444,7 @@ void DisplaySessionManager::updateCreationSettings(
     trailTimeScale_ = trailTimeScale;
     clickParticleSettings_ = clickParticleSettings;
     shardParticleSettings_ = shardParticleSettings;
+    layerVisibility_ = layerVisibility;
 }
 
 DisplaySessionPolicyChange DisplaySessionManager::refreshRuntimePolicies()
@@ -683,6 +686,7 @@ std::unique_ptr<DisplaySession> DisplaySessionManager::createSession(
     session->simulation().setTrailTimeScale(trailTimeScale_);
     session->simulation().setClickParticleSettings(clickParticleSettings_);
     session->simulation().setShardParticleSettings(shardParticleSettings_);
+    session->simulation().setLayerVisibility(layerVisibility_);
     session->simulation().setInputSamplingRateHz(inputSamplingRateHz_);
     session->simulation().setAlwaysOnTrailEnabled(
         alwaysOnTrailEnabled_,

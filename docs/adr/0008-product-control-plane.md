@@ -66,7 +66,10 @@
    Cancel 最后作为原生硬边界。
    Unity `2021.3.45f1` Player 已确认 `Down-Up-Down` 的聚合帧三态同时为 true；其他边沿排列及游戏所用
    Unity `2021.3.56f2` 仍未验证。`30 Hz` 只作为手机客户端视觉近似的人工审核建议，不能宣称为游戏固定参数。
-10. Control Center 的高级页包含“时间与透明度”“粒子与材质”“圆环参数”“点击碎片”“Bloom 参数”五个二级页面。
+10. Control Center 的高级页包含“时间与透明度”“粒子与材质”“圆环参数”“点击碎片”“Bloom 参数”
+    和“分层开关”六个二级页面。分层开关分别控制中心圆盘、圆环、点击碎片、拖尾碎片、拖尾线和
+    Bloom；这些开关只过滤呈现，不因热切换重建仍在寿命内的模拟状态。关闭 Bloom 必须旁路 Bloom
+    金字塔并清空持久输出，不能只把强度设为零。
     特效参数只使用原生 `effects.*` 路径，字段名与 `EffectsConfig` 一致，例如
     `effects.diskRadius`、`effects.diskLifetimeMs`、`effects.ringsCount`、
     `effects.ringsLifetimeMs`、`effects.ringsRadiusMin`、`effects.ringsRadiusMax`、

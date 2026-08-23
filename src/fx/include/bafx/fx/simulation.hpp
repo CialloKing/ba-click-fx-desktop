@@ -44,6 +44,15 @@ enum class SimulationEffectsMode : std::uint8_t
     Core
 };
 
+struct EffectLayerVisibility final
+{
+    bool centerDisk{true};
+    bool dissolveRings{true};
+    bool clickShards{true};
+    bool trailShards{true};
+    bool trail{true};
+};
+
 struct Sprite
 {
     SpriteKind kind{SpriteKind::CenterDisk};
@@ -187,6 +196,7 @@ public:
     // Product settings may change during an active stroke. Retain the
     // existing points and apply the new lifetime on the next simulation step.
     void setTrailLengthMultiplier(float multiplier) noexcept;
+    void setLayerVisibility(EffectLayerVisibility visibility) noexcept;
     void setEffectsMode(SimulationEffectsMode mode) noexcept;
     [[nodiscard]] SimulationEffectsMode effectsMode() const noexcept;
 
@@ -314,6 +324,7 @@ private:
     PointF lastEmissionWorld_{};
     float dragDistanceRemainderWorld_{0.0F};
     float trailLengthMultiplier_{1.0F};
+    EffectLayerVisibility layerVisibility_{};
     SimulationEffectsMode effectsMode_{SimulationEffectsMode::Full};
     float clickTimeScale_{1.0F};
     float trailTimeScale_{1.0F};

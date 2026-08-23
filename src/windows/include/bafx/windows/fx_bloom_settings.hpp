@@ -18,6 +18,10 @@ struct FxBloomSettings
     float threshold{1.0F};
     float softKnee{0.0F};
     float clampValue{65472.0F};
+
+    // Disabling the layer bypasses the Bloom pyramid while preserving direct
+    // materials and every desktop/recording composite contract.
+    bool enabled{true};
 };
 
 }

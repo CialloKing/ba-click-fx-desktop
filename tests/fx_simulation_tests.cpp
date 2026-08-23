@@ -166,6 +166,60 @@ BAFX_TEST(core_effects_mode_keeps_non_bloom_effects)
     BAFX_CHECK(moved.trail.size() >= 2U);
 }
 
+BAFX_TEST(effect_layer_visibility_filters_live_state_without_restarting_it)
+{
+    Simulation simulation;
+    simulation.pointerDown(goldenCenter, goldenViewport, 0ns);
+    simulation.advance(50ms);
+    simulation.pointerMove(PointF{1250.0F, 700.0F}, goldenViewport, 100ms);
+    const FrameSnapshot baseline = simulation.snapshot(goldenViewport, 150ms);
+    const std::size_t baselineTriangles = countKind(
+        baseline,
+        SpriteKind::Triangle);
+    BAFX_CHECK(countKind(baseline, SpriteKind::CenterDisk) == 1U);
+    BAFX_CHECK(countKind(baseline, SpriteKind::DissolveRing) == 2U);
+    BAFX_CHECK(baselineTriangles > 4U);
+    BAFX_CHECK(baseline.trail.size() >= 2U);
+
+    EffectLayerVisibility visibility{};
+    visibility.centerDisk = false;
+    simulation.setLayerVisibility(visibility);
+    FrameSnapshot filtered = simulation.snapshot(goldenViewport, 150ms);
+    BAFX_CHECK(countKind(filtered, SpriteKind::CenterDisk) == 0U);
+    BAFX_CHECK(countKind(filtered, SpriteKind::DissolveRing) == 2U);
+    BAFX_CHECK(countKind(filtered, SpriteKind::Triangle) == baselineTriangles);
+
+    visibility = {};
+    visibility.dissolveRings = false;
+    simulation.setLayerVisibility(visibility);
+    filtered = simulation.snapshot(goldenViewport, 150ms);
+    BAFX_CHECK(countKind(filtered, SpriteKind::CenterDisk) == 1U);
+    BAFX_CHECK(countKind(filtered, SpriteKind::DissolveRing) == 0U);
+
+    visibility = {};
+    visibility.clickShards = false;
+    simulation.setLayerVisibility(visibility);
+    filtered = simulation.snapshot(goldenViewport, 150ms);
+    BAFX_CHECK(countKind(filtered, SpriteKind::Triangle) == baselineTriangles - 4U);
+
+    visibility = {};
+    visibility.trailShards = false;
+    simulation.setLayerVisibility(visibility);
+    filtered = simulation.snapshot(goldenViewport, 150ms);
+    BAFX_CHECK(countKind(filtered, SpriteKind::Triangle) == 4U);
+
+    visibility = {};
+    visibility.trail = false;
+    simulation.setLayerVisibility(visibility);
+    filtered = simulation.snapshot(goldenViewport, 150ms);
+    BAFX_CHECK(filtered.trail.empty());
+
+    simulation.setLayerVisibility(EffectLayerVisibility{});
+    const FrameSnapshot restored = simulation.snapshot(goldenViewport, 150ms);
+    BAFX_CHECK(countKind(restored, SpriteKind::Triangle) == baselineTriangles);
+    BAFX_CHECK(restored.trail.size() == baseline.trail.size());
+}
+
 BAFX_TEST(core_effects_mode_switch_discards_existing_geometry)
 {
     Simulation simulation;

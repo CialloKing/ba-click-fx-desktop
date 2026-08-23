@@ -39,6 +39,7 @@ struct DisplaySessionManagerOptions final
     float trailTimeScale{1.0F};
     bafx::fx::ClickParticleSettings clickParticleSettings{};
     bafx::fx::ShardParticleSettings shardParticleSettings{};
+    bafx::fx::EffectLayerVisibility layerVisibility{};
 };
 
 struct DisplaySessionFailure final
@@ -93,7 +94,8 @@ public:
         float clickTimeScale,
         float trailTimeScale,
         bafx::fx::ClickParticleSettings clickParticleSettings,
-        bafx::fx::ShardParticleSettings shardParticleSettings) noexcept;
+        bafx::fx::ShardParticleSettings shardParticleSettings,
+        bafx::fx::EffectLayerVisibility layerVisibility) noexcept;
     [[nodiscard]] DisplaySessionPolicyChange refreshRuntimePolicies();
 
     [[nodiscard]] DisplaySession* findBySource(
@@ -136,6 +138,7 @@ private:
     float trailTimeScale_{1.0F};
     bafx::fx::ClickParticleSettings clickParticleSettings_{};
     bafx::fx::ShardParticleSettings shardParticleSettings_{};
+    bafx::fx::EffectLayerVisibility layerVisibility_{};
     DisplaySession* coordinator_{nullptr};
     std::vector<std::unique_ptr<DisplaySession>> sessions_{};
 };

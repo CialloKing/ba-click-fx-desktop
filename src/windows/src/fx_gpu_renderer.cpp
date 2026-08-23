@@ -112,7 +112,8 @@ struct ColorTarget
         && left.diffusion == right.diffusion
         && left.threshold == right.threshold
         && left.softKnee == right.softKnee
-        && left.clampValue == right.clampValue;
+        && left.clampValue == right.clampValue
+        && left.enabled == right.enabled;
 }
 
 [[nodiscard]] bool isValidOverlayProfile(
@@ -1347,6 +1348,52 @@ struct FxGpuRenderer::Implementation
             crossTarget.shaderResource.Get());
     }
 
+    void renderWithoutBloom(
+        ID3D11RenderTargetView* destination,
+        ID3D11PixelShader* finalCompositeShader,
+        const std::optional<BackgroundRenderInput> background,
+        ID3D11RenderTargetView* bloomResultDestination = nullptr)
+    {
+        const bafx::core::BloomExtent sourceExtent{
+            static_cast<std::int32_t>(size.width),
+            static_cast<std::int32_t>(size.height)};
+        const BloomConstants constants = makeBloomConstants(
+            sourceExtent,
+            1.0F,
+            0.0F,
+            background.has_value(),
+            backgroundReferenceWhiteScale(),
+            outputReferenceWhiteScale());
+        if (bloomResultDestination == nullptr)
+        {
+            drawFullscreen(
+                destination,
+                sourceExtent,
+                finalCompositeShader,
+                directTarget.shaderResource.Get(),
+                nullptr,
+                constants,
+                occlusionTarget.shaderResource.Get(),
+                background.has_value() ? background->shaderResource : nullptr,
+                crossTarget.shaderResource.Get());
+            return;
+        }
+
+        const std::array<ID3D11RenderTargetView*, 2> targets{
+            destination,
+            bloomResultDestination};
+        drawFullscreenTargets(
+            targets,
+            sourceExtent,
+            finalCompositeShader,
+            directTarget.shaderResource.Get(),
+            nullptr,
+            constants,
+            occlusionTarget.shaderResource.Get(),
+            background.has_value() ? background->shaderResource : nullptr,
+            crossTarget.shaderResource.Get());
+    }
+
     void renderRecordingComposite(ID3D11RenderTargetView* const destination)
     {
         const bafx::core::BloomExtent sourceExtent{
@@ -1591,14 +1638,34 @@ struct FxGpuRenderer::Implementation
         // Unbind the material MRTs before sampling them through the Bloom chain.
         context->OMSetRenderTargets(0, nullptr, nullptr);
         const auto bloomStartedAt = std::chrono::steady_clock::now();
-        renderBloom(
-            destination,
-            finalCompositeShader,
-            background,
-            bloomResultDestination);
+        if (bloomSettings.enabled)
+        {
+            renderBloom(
+                destination,
+                finalCompositeShader,
+                background,
+                bloomResultDestination);
+        }
+        else
+        {
+            renderWithoutBloom(
+                destination,
+                finalCompositeShader,
+                background,
+                bloomResultDestination);
+        }
         if (recordingDestination != nullptr)
         {
-            if (background.has_value())
+            if (!bloomSettings.enabled)
+            {
+                // The recording composite samples this persistent target.
+                // Clear it on every disabled frame so a hot toggle cannot
+                // reuse Bloom from the preceding frame.
+                context->ClearRenderTargetView(
+                    bloomResultTarget.renderTarget.Get(),
+                    transparent.data());
+            }
+            else if (background.has_value())
             {
                 // Differential Bloom belongs only to the desktop path. Rebuild
                 // pure FX Bloom so OBS output cannot vary with WGC pixels.

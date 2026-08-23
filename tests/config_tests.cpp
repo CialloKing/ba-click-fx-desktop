@@ -44,6 +44,12 @@ BAFX_TEST(config_defaults_round_trip_through_versioned_json)
     const bafx::config::Config defaults = bafx::config::defaultConfig();
     BAFX_CHECK(defaults.schemaVersion == bafx::config::currentSchemaVersion);
     BAFX_CHECK(defaults.effects.enabled);
+    BAFX_CHECK(defaults.effects.diskLayerEnabled);
+    BAFX_CHECK(defaults.effects.ringsLayerEnabled);
+    BAFX_CHECK(defaults.effects.clickShardsLayerEnabled);
+    BAFX_CHECK(defaults.effects.trailShardsLayerEnabled);
+    BAFX_CHECK(defaults.effects.trailLayerEnabled);
+    BAFX_CHECK(defaults.effects.bloomLayerEnabled);
     BAFX_CHECK(defaults.effects.themeColor == "#4ca7ff");
     BAFX_CHECK(
         defaults.background.mode
@@ -1324,6 +1330,60 @@ BAFX_TEST(config_parser_rejects_non_current_schemas)
         migratedSchema16.config.schemaVersion
         == bafx::config::currentSchemaVersion);
     BAFX_CHECK(!migratedSchema16.config.system.spout2Enabled);
+
+    std::string schema17Json = bafx::config::toJson(legacy, false);
+    const std::size_t schema17VersionPosition = schema17Json.find(
+        currentVersionField);
+    BAFX_CHECK(schema17VersionPosition != std::string::npos);
+    schema17Json.replace(
+        schema17VersionPosition,
+        currentVersionField.size(),
+        "\"schemaVersion\":17");
+    static constexpr std::string_view layerFields[] = {
+        "bloomLayerEnabled",
+        "clickShardsLayerEnabled",
+        "diskLayerEnabled",
+        "ringsLayerEnabled",
+        "trailLayerEnabled",
+        "trailShardsLayerEnabled"};
+    for (const std::string_view field : layerFields)
+    {
+        const std::string serialized = "\"" + std::string(field)
+            + "\":true,";
+        const std::size_t position = schema17Json.find(serialized);
+        BAFX_CHECK(position != std::string::npos);
+        schema17Json.erase(position, serialized.size());
+    }
+    const auto migratedSchema17 = bafx::config::parseJson(schema17Json);
+    bafx::test::check(migratedSchema17.succeeded(), migratedSchema17.message);
+    BAFX_CHECK(migratedSchema17.config.effects.diskLayerEnabled);
+    BAFX_CHECK(migratedSchema17.config.effects.ringsLayerEnabled);
+    BAFX_CHECK(migratedSchema17.config.effects.clickShardsLayerEnabled);
+    BAFX_CHECK(migratedSchema17.config.effects.trailShardsLayerEnabled);
+    BAFX_CHECK(migratedSchema17.config.effects.trailLayerEnabled);
+    BAFX_CHECK(migratedSchema17.config.effects.bloomLayerEnabled);
+}
+
+BAFX_TEST(config_fx_patch_controls_each_effect_layer_atomically)
+{
+    const bafx::config::Config base = bafx::config::defaultConfig();
+    const auto result = bafx::config::setFxParams(
+        base,
+        R"json({"effects.diskLayerEnabled":false,"effects.ringsLayerEnabled":false,"effects.clickShardsLayerEnabled":false,"effects.trailShardsLayerEnabled":false,"effects.trailLayerEnabled":false,"effects.bloomLayerEnabled":false})json");
+    bafx::test::check(result.succeeded(), result.message);
+    BAFX_CHECK(!result.config.effects.diskLayerEnabled);
+    BAFX_CHECK(!result.config.effects.ringsLayerEnabled);
+    BAFX_CHECK(!result.config.effects.clickShardsLayerEnabled);
+    BAFX_CHECK(!result.config.effects.trailShardsLayerEnabled);
+    BAFX_CHECK(!result.config.effects.trailLayerEnabled);
+    BAFX_CHECK(!result.config.effects.bloomLayerEnabled);
+
+    const auto rejected = bafx::config::setFxParams(
+        result.config,
+        R"json({"effects.diskLayerEnabled":true,"effects.ringsLayerEnabled":"false"})json");
+    BAFX_CHECK(!rejected.succeeded());
+    BAFX_CHECK(!rejected.config.effects.diskLayerEnabled);
+    BAFX_CHECK(!rejected.config.effects.ringsLayerEnabled);
 }
 
 BAFX_TEST(config_patch_updates_spout2_switch_atomically)

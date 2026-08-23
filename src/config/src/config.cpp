@@ -1035,6 +1035,12 @@ private:
                 *effects,
                 {
                     "enabled",
+                    "diskLayerEnabled",
+                    "ringsLayerEnabled",
+                    "clickShardsLayerEnabled",
+                    "trailShardsLayerEnabled",
+                    "trailLayerEnabled",
+                    "bloomLayerEnabled",
                     "themeColor",
                     "globalScale",
                     "opacity",
@@ -1110,6 +1116,42 @@ private:
     }
 
     if (!readBool(*effects, "enabled", "effects", config.effects.enabled, error)
+        || !readBool(
+            *effects,
+            "diskLayerEnabled",
+            "effects",
+            config.effects.diskLayerEnabled,
+            error)
+        || !readBool(
+            *effects,
+            "ringsLayerEnabled",
+            "effects",
+            config.effects.ringsLayerEnabled,
+            error)
+        || !readBool(
+            *effects,
+            "clickShardsLayerEnabled",
+            "effects",
+            config.effects.clickShardsLayerEnabled,
+            error)
+        || !readBool(
+            *effects,
+            "trailShardsLayerEnabled",
+            "effects",
+            config.effects.trailShardsLayerEnabled,
+            error)
+        || !readBool(
+            *effects,
+            "trailLayerEnabled",
+            "effects",
+            config.effects.trailLayerEnabled,
+            error)
+        || !readBool(
+            *effects,
+            "bloomLayerEnabled",
+            "effects",
+            config.effects.bloomLayerEnabled,
+            error)
         || !readString(
             *effects,
             "themeColor",
@@ -1476,9 +1518,12 @@ private:
     std::string themeColor = config.themeColor;
     static_cast<void>(normalizeThemeColor(themeColor));
     effects.emplace("bloomIntensity", JsonValue(static_cast<double>(config.bloomIntensity)));
+    effects.emplace("bloomLayerEnabled", JsonValue(config.bloomLayerEnabled));
     effects.emplace("clickEnabled", JsonValue(config.clickEnabled));
+    effects.emplace("clickShardsLayerEnabled", JsonValue(config.clickShardsLayerEnabled));
     effects.emplace("clickTimeScale", JsonValue(static_cast<double>(config.clickTimeScale)));
     effects.emplace("diskLifetimeMs", JsonValue(static_cast<double>(config.diskLifetimeMs)));
+    effects.emplace("diskLayerEnabled", JsonValue(config.diskLayerEnabled));
     effects.emplace("diskRadius", JsonValue(static_cast<double>(config.diskRadius)));
     effects.emplace("enabled", JsonValue(config.enabled));
     effects.emplace("themeColor", JsonValue(std::move(themeColor)));
@@ -1488,6 +1533,7 @@ private:
         "ringsAngularVelocityMultiplier",
         JsonValue(static_cast<double>(config.ringsAngularVelocityMultiplier)));
     effects.emplace("ringsCount", JsonValue(static_cast<double>(config.ringsCount)));
+    effects.emplace("ringsLayerEnabled", JsonValue(config.ringsLayerEnabled));
     effects.emplace("ringsHdrIntensity", JsonValue(static_cast<double>(config.ringsHdrIntensity)));
     effects.emplace("ringsLifetimeMs", JsonValue(static_cast<double>(config.ringsLifetimeMs)));
     effects.emplace("ringsRadiusMax", JsonValue(static_cast<double>(config.ringsRadiusMax)));
@@ -1519,10 +1565,12 @@ private:
         "shardsSizeMin",
         JsonValue(static_cast<double>(config.shardsSizeMin)));
     effects.emplace("trailEnabled", JsonValue(config.trailEnabled));
+    effects.emplace("trailLayerEnabled", JsonValue(config.trailLayerEnabled));
     effects.emplace("trailLength", JsonValue(static_cast<double>(config.trailLength)));
     effects.emplace("trailLifetimeMs", JsonValue(static_cast<double>(config.trailLifetimeMs)));
     effects.emplace("trailOpacity", JsonValue(static_cast<double>(config.trailOpacity)));
     effects.emplace("trailTimeScale", JsonValue(static_cast<double>(config.trailTimeScale)));
+    effects.emplace("trailShardsLayerEnabled", JsonValue(config.trailShardsLayerEnabled));
     effects.emplace("trailWidth", JsonValue(static_cast<double>(config.trailWidth)));
     effects.emplace("bloomClamp", JsonValue(static_cast<double>(config.bloomClamp)));
     effects.emplace("bloomDiffusion", JsonValue(static_cast<double>(config.bloomDiffusion)));
@@ -1816,7 +1864,7 @@ void appendJsonValue(
                 JsonValue(std::string("#4ca7ff")));
         }
     }
-    root["schemaVersion"] = JsonValue(static_cast<double>(currentSchemaVersion));
+    root["schemaVersion"] = JsonValue(16.0);
     return true;
 }
 
@@ -1848,6 +1896,52 @@ void appendJsonValue(
             && system->find("spout2Enabled") == system->end())
         {
             system->emplace("spout2Enabled", JsonValue(false));
+        }
+    }
+    root["schemaVersion"] = JsonValue(17.0);
+    return true;
+}
+
+// Schema 18 adds presentation-only effect layer switches. Existing profiles
+// enabled every authored layer, so true is the only lossless migration value.
+[[nodiscard]] bool migrateSchema17To18(
+    JsonValue::Object& root,
+    std::string& error)
+{
+    const JsonValue* versionValue = member(root, "schemaVersion");
+    const double* version = versionValue == nullptr
+        ? nullptr
+        : std::get_if<double>(&versionValue->storage);
+    if (version == nullptr || !std::isfinite(*version))
+    {
+        error = "schemaVersion is required";
+        return false;
+    }
+    if (*version != 17.0)
+    {
+        return false;
+    }
+
+    const auto effectsIterator = root.find("effects");
+    if (effectsIterator != root.end())
+    {
+        JsonValue::Object* effects = objectOf(effectsIterator->second);
+        if (effects != nullptr)
+        {
+            static constexpr std::string_view layerFields[] = {
+                "diskLayerEnabled",
+                "ringsLayerEnabled",
+                "clickShardsLayerEnabled",
+                "trailShardsLayerEnabled",
+                "trailLayerEnabled",
+                "bloomLayerEnabled"};
+            for (const std::string_view field : layerFields)
+            {
+                if (effects->find(std::string(field)) == effects->end())
+                {
+                    effects->emplace(std::string(field), JsonValue(true));
+                }
+            }
         }
     }
     root["schemaVersion"] = JsonValue(static_cast<double>(currentSchemaVersion));
@@ -1893,6 +1987,10 @@ void appendJsonValue(
             {
                 migrated = migrateSchema16To17(*originalRoot, error);
             }
+            if (migrated && error.empty())
+            {
+                migrated = migrateSchema17To18(*originalRoot, error);
+            }
         }
         else if (*version == 15.0)
         {
@@ -1901,10 +1999,22 @@ void appendJsonValue(
             {
                 migrated = migrateSchema16To17(*originalRoot, error);
             }
+            if (migrated && error.empty())
+            {
+                migrated = migrateSchema17To18(*originalRoot, error);
+            }
         }
         else if (*version == 16.0)
         {
             migrated = migrateSchema16To17(*originalRoot, error);
+            if (migrated && error.empty())
+            {
+                migrated = migrateSchema17To18(*originalRoot, error);
+            }
+        }
+        else if (*version == 17.0)
+        {
+            migrated = migrateSchema17To18(*originalRoot, error);
         }
     }
     if (!error.empty())
@@ -1975,10 +2085,13 @@ namespace
         "effects.bloomClamp",
         "effects.bloomDiffusion",
         "effects.bloomIntensity",
+        "effects.bloomLayerEnabled",
         "effects.bloomSoftKnee",
         "effects.bloomThreshold",
         "effects.clickEnabled",
+        "effects.clickShardsLayerEnabled",
         "effects.clickTimeScale",
+        "effects.diskLayerEnabled",
         "effects.diskLifetimeMs",
         "effects.diskRadius",
         "effects.enabled",
@@ -1988,6 +2101,7 @@ namespace
         "effects.ringsAngularVelocityMultiplier",
         "effects.ringsCount",
         "effects.ringsHdrIntensity",
+        "effects.ringsLayerEnabled",
         "effects.ringsLifetimeMs",
         "effects.ringsRadiusMax",
         "effects.ringsRadiusMin",
@@ -2002,9 +2116,11 @@ namespace
         "effects.shardsSizeMax",
         "effects.shardsSizeMin",
         "effects.trailEnabled",
+        "effects.trailLayerEnabled",
         "effects.trailLength",
         "effects.trailLifetimeMs",
         "effects.trailOpacity",
+        "effects.trailShardsLayerEnabled",
         "effects.trailTimeScale",
         "effects.trailWidth"};
     return std::find(std::begin(paths), std::end(paths), path)
@@ -2175,6 +2291,32 @@ namespace
         if (*path == "effects.enabled")
         {
             valueAccepted = readPatchBool(result.effects.enabled);
+        }
+        else if (*path == "effects.diskLayerEnabled")
+        {
+            valueAccepted = readPatchBool(result.effects.diskLayerEnabled);
+        }
+        else if (*path == "effects.ringsLayerEnabled")
+        {
+            valueAccepted = readPatchBool(result.effects.ringsLayerEnabled);
+        }
+        else if (*path == "effects.clickShardsLayerEnabled")
+        {
+            valueAccepted = readPatchBool(
+                result.effects.clickShardsLayerEnabled);
+        }
+        else if (*path == "effects.trailShardsLayerEnabled")
+        {
+            valueAccepted = readPatchBool(
+                result.effects.trailShardsLayerEnabled);
+        }
+        else if (*path == "effects.trailLayerEnabled")
+        {
+            valueAccepted = readPatchBool(result.effects.trailLayerEnabled);
+        }
+        else if (*path == "effects.bloomLayerEnabled")
+        {
+            valueAccepted = readPatchBool(result.effects.bloomLayerEnabled);
         }
         else if (*path == "effects.themeColor")
         {

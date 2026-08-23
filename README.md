@@ -196,14 +196,14 @@ Visual Studio、Windows SDK、Inno Setup 或 PowerShell 依赖包；安装器已
 `%LOCALAPPDATA%`、当前工作目录或其他用户目录保存数据。Host 使用
 `Local\BAFX.Host.v1` 互斥体保证单实例。
 
-首次生成的 schema 17 配置将 `background.mode` 设为 `background-aware`、
+首次生成的 schema 18 配置将 `background.mode` 设为 `background-aware`、
 `background.allowSystemBorder` 设为 `true`、`display.hdrEnabled` 设为 `false`，并以
 `performance.framePacing=match-display`、`input.trailOnlyWhilePressed=true`、`input.samplingRateHz=0`
 保持跟随显示器刷新率、按住拖尾且不额外限制输入 Move。显示刷新率缺失或无效时，
 `match-display` 保守回退到 60 FPS；只有显式选择 `unlimited` 才不设置额外最小帧周期。
-测试版只接受字段完整的显式 `schemaVersion=17`：缺少版本、section 或字段，非当前版本、
-未知字段和枚举别名都会被拒绝。Host 记录错误后仅在内存中使用当前默认值，不补齐、不迁移也不改写
-原文件。只有
+当前配置要求字段完整的显式 `schemaVersion=18`；14 至 17 会按固定顺序迁移到当前版本，
+其他版本、缺少 section、未知字段和枚举别名都会被拒绝。Host 记录错误后仅在内存中使用当前默认值，
+不会猜测未知格式。只有
 `background-aware` 会启用 WGC；WGC 或捕获排除路径失败时，Host 将当前批次回退到内部
 FX-only coverage transport，支持报告仍记为 `fallback-fx-only`。这个故障回退不是一个可选的产品模式，
 也不会把背景感知配置改写成其他模式。
@@ -218,7 +218,9 @@ FX-only，不会先启动带黄色边框的会话。无论该开关如何设置�
 可以读取状态、暂停或恢复特效。四个顶层页面分别为“基础”“高级”“显示与性能”和“系统”。基础页提供启用状态、
 点击特效、鼠标拖尾、拖尾常驻、完整/核心性能模式、效果大小、拖尾长度、拖尾宽度、输入采样率上限、Bloom 强度与 Bloom 质量，
 并管理背景模式、指针排除和系统捕获边框；高级页再按“时间与透明度”“粒子与材质”
-“圆环参数”“点击碎片”“Bloom 参数”分成五个二级页面。所有控件只使用项目原生的
+“圆环参数”“点击碎片”“Bloom 参数”“分层开关”分成六个二级页面。分层页可分别隐藏中心圆盘、
+圆环、点击碎片、拖尾碎片、拖尾线和 Bloom；关闭 Bloom 会旁路整条 Bloom 金字塔，但保留直接材质。
+所有控件只使用项目原生的
 `effects.*` 配置路径，例如 `effects.diskRadius`、`effects.diskLifetimeMs`、
 `effects.ringsCount`、`effects.ringsLifetimeMs`、`effects.ringsRadiusMin`、
 `effects.ringsRadiusMax`、`effects.ringsAngularVelocityMultiplier`、

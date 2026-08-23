@@ -112,6 +112,16 @@ void checkEffectsEqual(
     const bafx::config::EffectsConfig& expected)
 {
     BAFX_CHECK(actual.enabled == expected.enabled);
+    BAFX_CHECK(actual.diskLayerEnabled == expected.diskLayerEnabled);
+    BAFX_CHECK(actual.ringsLayerEnabled == expected.ringsLayerEnabled);
+    BAFX_CHECK(
+        actual.clickShardsLayerEnabled
+        == expected.clickShardsLayerEnabled);
+    BAFX_CHECK(
+        actual.trailShardsLayerEnabled
+        == expected.trailShardsLayerEnabled);
+    BAFX_CHECK(actual.trailLayerEnabled == expected.trailLayerEnabled);
+    BAFX_CHECK(actual.bloomLayerEnabled == expected.bloomLayerEnabled);
     BAFX_CHECK_NEAR(actual.globalScale, expected.globalScale, 0.00001F);
     BAFX_CHECK_NEAR(actual.opacity, expected.opacity, 0.00001F);
     BAFX_CHECK(actual.clickEnabled == expected.clickEnabled);

@@ -612,6 +612,12 @@ void Simulation::setTrailLengthMultiplier(const float multiplier) noexcept
     }
 }
 
+void Simulation::setLayerVisibility(
+    const EffectLayerVisibility visibility) noexcept
+{
+    layerVisibility_ = visibility;
+}
+
 void Simulation::setEffectsMode(const SimulationEffectsMode mode) noexcept
 {
     if (effectsMode_ == mode)
@@ -948,15 +954,18 @@ bool Simulation::hasVisibleSystemsAfterFrame(
     if (clickEffectEnabled_)
     {
         const bool diskWillRemainVisible =
-            !clickStates.centerDisk.burstEmitted
-            || clickStates.centerDisk.particleAgeSeconds
-                < millisecondsToSeconds(clickParticleSettings_.diskLifetimeMs);
+            layerVisibility_.centerDisk
+            && (!clickStates.centerDisk.burstEmitted
+                || clickStates.centerDisk.particleAgeSeconds
+                    < millisecondsToSeconds(
+                        clickParticleSettings_.diskLifetimeMs));
         if (diskWillRemainVisible)
         {
             return true;
         }
 
-        const bool ringsWillRemainVisible = !rings_.empty()
+        const bool ringsWillRemainVisible = layerVisibility_.dissolveRings
+            && !rings_.empty()
             && (!clickStates.dissolveRings.burstEmitted
                 || clickStates.dissolveRings.particleAgeSeconds
                     < millisecondsToSeconds(
@@ -971,7 +980,8 @@ bool Simulation::hasVisibleSystemsAfterFrame(
     {
         if (particle.dragParticle)
         {
-            if (ageSeconds(currentTrailTime, particle.bornAt)
+            if (layerVisibility_.trailShards
+                && ageSeconds(currentTrailTime, particle.bornAt)
                 < particle.lifetimeSeconds)
             {
                 return true;
@@ -979,7 +989,8 @@ bool Simulation::hasVisibleSystemsAfterFrame(
             continue;
         }
 
-        if (clickEffectEnabled_
+        if (layerVisibility_.clickShards
+            && clickEffectEnabled_
             && (!clickStates.clickTriangles.burstEmitted
                 || clickStates.clickTriangles.particleAgeSeconds
                     < particle.lifetimeSeconds))
@@ -988,7 +999,8 @@ bool Simulation::hasVisibleSystemsAfterFrame(
         }
     }
 
-    if (!trailRendererEnabled_
+    if (!layerVisibility_.trail
+        || !trailRendererEnabled_
         || trailLengthMultiplier_ <= 0.0F
         || trail_.size() < 2U)
     {
@@ -1045,7 +1057,8 @@ FrameSnapshot Simulation::snapshot(const Viewport viewport, const SimulationTime
     const ParticleStepState& centerDiskState = particleStates.centerDisk;
     const float diskLifetimeSeconds = millisecondsToSeconds(
         clickParticleSettings_.diskLifetimeMs);
-    if (clickEffectEnabled_
+    if (layerVisibility_.centerDisk
+        && clickEffectEnabled_
         && centerDiskState.burstEmitted
         && centerDiskState.particleAgeSeconds <= diskLifetimeSeconds)
     {
@@ -1068,7 +1081,8 @@ FrameSnapshot Simulation::snapshot(const Viewport viewport, const SimulationTime
         particleStates.dissolveRings;
     const float ringLifetimeSeconds = millisecondsToSeconds(
         clickParticleSettings_.ringsLifetimeMs);
-    if (dissolveRingState.burstEmitted
+    if (layerVisibility_.dissolveRings
+        && dissolveRingState.burstEmitted
         && dissolveRingState.particleAgeSeconds <= ringLifetimeSeconds)
     {
         const float normalizedAge = dissolveRingState.particleAgeSeconds
@@ -1104,6 +1118,12 @@ FrameSnapshot Simulation::snapshot(const Viewport viewport, const SimulationTime
 
     for (const MovingParticle& particle : triangles_)
     {
+        if ((particle.dragParticle && !layerVisibility_.trailShards)
+            || (!particle.dragParticle && !layerVisibility_.clickShards))
+        {
+            continue;
+        }
+
         double age = 0.0;
         if (particle.dragParticle)
         {
@@ -1154,13 +1174,20 @@ FrameSnapshot Simulation::snapshot(const Viewport viewport, const SimulationTime
 
     const double effectiveTrailLifetime = trailLifetimeSeconds
         * static_cast<double>(trailLengthMultiplier_);
-    for (const StoredTrailPoint& point : trail_)
+    if (layerVisibility_.trail
+        && trailRendererEnabled_
+        && effectiveTrailLifetime > 0.0)
     {
-        const float normalizedAge = clampUnit(
-            static_cast<float>(
-                ageSeconds(snapshotTrailTime, point.createdAt)
-                    / effectiveTrailLifetime));
-        frame.trail.push_back(TrailPoint{worldToScreen(point.world, viewport), normalizedAge});
+        for (const StoredTrailPoint& point : trail_)
+        {
+            const float normalizedAge = clampUnit(
+                static_cast<float>(
+                    ageSeconds(snapshotTrailTime, point.createdAt)
+                        / effectiveTrailLifetime));
+            frame.trail.push_back(TrailPoint{
+                worldToScreen(point.world, viewport),
+                normalizedAge});
+        }
     }
 
     std::stable_sort(
@@ -1181,14 +1208,16 @@ bool Simulation::hasDrawableContent(const SimulationTime time) const noexcept
     }
 
     const ClickParticleStepStates particleStates = particleStepStatesAt(time);
-    if (clickEffectEnabled_
+    if (layerVisibility_.centerDisk
+        && clickEffectEnabled_
         && particleStates.centerDisk.burstEmitted
         && particleStates.centerDisk.particleAgeSeconds
             <= millisecondsToSeconds(clickParticleSettings_.diskLifetimeMs))
     {
         return true;
     }
-    if (!rings_.empty()
+    if (layerVisibility_.dissolveRings
+        && !rings_.empty()
         && particleStates.dissolveRings.burstEmitted
         && particleStates.dissolveRings.particleAgeSeconds
             <= millisecondsToSeconds(clickParticleSettings_.ringsLifetimeMs))
@@ -1201,20 +1230,25 @@ bool Simulation::hasDrawableContent(const SimulationTime time) const noexcept
         if (particle.dragParticle)
         {
             const double age = ageSeconds(currentTrailTime, particle.bornAt);
-            if (age > 0.0 && age <= particle.lifetimeSeconds)
+            if (layerVisibility_.trailShards
+                && age > 0.0
+                && age <= particle.lifetimeSeconds)
             {
                 return true;
             }
             continue;
         }
-        if (particleStates.clickTriangles.burstEmitted
+        if (layerVisibility_.clickShards
+            && particleStates.clickTriangles.burstEmitted
             && particleStates.clickTriangles.particleAgeSeconds
                 <= particle.lifetimeSeconds)
         {
             return true;
         }
     }
-    return !trail_.empty();
+    return layerVisibility_.trail
+        && trailRendererEnabled_
+        && !trail_.empty();
 }
 
 bool Simulation::active() const noexcept

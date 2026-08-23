@@ -11,7 +11,7 @@
 namespace bafx::config
 {
 
-inline constexpr std::uint32_t currentSchemaVersion = 17U;
+inline constexpr std::uint32_t currentSchemaVersion = 18U;
 inline constexpr std::size_t maximumDisplayOverrides = 64U;
 inline constexpr std::size_t maximumDisplayKeyBytes = 4096U;
 
@@ -63,6 +63,14 @@ struct DisplayOverrideConfig final
 struct EffectsConfig
 {
     bool enabled{true};
+    // Layer switches only affect presentation. The simulation keeps authored
+    // state alive so a temporarily hidden layer can resume within its lifetime.
+    bool diskLayerEnabled{true};
+    bool ringsLayerEnabled{true};
+    bool clickShardsLayerEnabled{true};
+    bool trailShardsLayerEnabled{true};
+    bool trailLayerEnabled{true};
+    bool bloomLayerEnabled{true};
     // User-authored sRGB theme color. The renderer maps the Unity palette
     // relative to this value while preserving the default identity path.
     std::string themeColor{"#4ca7ff"};

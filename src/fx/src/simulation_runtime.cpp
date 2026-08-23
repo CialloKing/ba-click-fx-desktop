@@ -163,6 +163,7 @@ void SimulationRuntime::pointerMove(
         // pre-toggle or off-screen coordinate would draw a false long segment.
         alwaysOnTrail_.emplace(nextAmbientSeed());
         alwaysOnTrail_->setTrailLengthMultiplier(trailLengthMultiplier_);
+        alwaysOnTrail_->setLayerVisibility(layerVisibility_);
         alwaysOnTrail_->setClickTimeScale(clickTimeScale_);
         alwaysOnTrail_->setTrailTimeScale(trailTimeScale_);
         alwaysOnTrail_->setShardParticleSettings(shardParticleSettings_);
@@ -377,6 +378,20 @@ void SimulationRuntime::setTrailLengthMultiplier(const float multiplier) noexcep
     }
 }
 
+void SimulationRuntime::setLayerVisibility(
+    const EffectLayerVisibility visibility) noexcept
+{
+    layerVisibility_ = visibility;
+    for (RuntimeInstance& runtimeInstance : instances_)
+    {
+        runtimeInstance.simulation.setLayerVisibility(layerVisibility_);
+    }
+    if (alwaysOnTrail_.has_value())
+    {
+        alwaysOnTrail_->setLayerVisibility(layerVisibility_);
+    }
+}
+
 void SimulationRuntime::setInputSamplingRateHz(const std::uint32_t rateHz) noexcept
 {
     const std::uint32_t normalized = std::min(
@@ -559,6 +574,7 @@ Simulation& SimulationRuntime::acquirePressedInstance(
     instance.setClickParticleSettings(clickParticleSettings_);
     instance.setShardParticleSettings(shardParticleSettings_);
     instance.setTrailLengthMultiplier(trailLengthMultiplier_);
+    instance.setLayerVisibility(layerVisibility_);
     instance.setClickTimeScale(clickTimeScale_);
     instance.setTrailTimeScale(trailTimeScale_);
     instance.setEffectsMode(effectsMode_);

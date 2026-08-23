@@ -56,6 +56,7 @@ public:
         SimulationTime time) noexcept;
     void setShardParticleSettings(ShardParticleSettings settings) noexcept;
     void setTrailLengthMultiplier(float multiplier) noexcept;
+    void setLayerVisibility(EffectLayerVisibility visibility) noexcept;
     void setInputSamplingRateHz(std::uint32_t rateHz) noexcept;
     void setAlwaysOnTrailEnabled(bool enabled, SimulationTime time);
     void setEffectsMode(SimulationEffectsMode mode, SimulationTime time) noexcept;
@@ -94,6 +95,7 @@ private:
     bool alwaysOnTrailEnabled_{false};
     SimulationEffectsMode effectsMode_{SimulationEffectsMode::Full};
     float trailLengthMultiplier_{1.0F};
+    EffectLayerVisibility layerVisibility_{};
     float clickTimeScale_{1.0F};
     float trailTimeScale_{1.0F};
     ClickParticleSettings clickParticleSettings_{};

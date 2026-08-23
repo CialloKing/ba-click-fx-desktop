@@ -1230,6 +1230,11 @@ bool ControlCenterWindow::createControls()
         L"Bloom 参数",
         BS_AUTORADIOBUTTON | WS_TABSTOP,
         ControlId::AdvancedBloomSection);
+    advancedLayersSectionButton_ = createChild(
+        L"BUTTON",
+        L"分层开关",
+        BS_AUTORADIOBUTTON | WS_TABSTOP,
+        ControlId::AdvancedLayersSection);
     effectsHeading_ = createChild(
         L"BUTTON",
         L"特效",
@@ -1607,6 +1612,40 @@ bool ControlCenterWindow::createControls()
         L"BUTTON",
         L"Bloom 参数",
         BS_GROUPBOX);
+    advancedLayersHeading_ = createChild(
+        L"BUTTON",
+        L"特效分层开关",
+        BS_GROUPBOX);
+    diskLayerEnabled_ = createChild(
+        L"BUTTON",
+        L"中心圆盘",
+        BS_AUTOCHECKBOX | WS_TABSTOP,
+        ControlId::DiskLayerEnabled);
+    ringsLayerEnabled_ = createChild(
+        L"BUTTON",
+        L"圆环",
+        BS_AUTOCHECKBOX | WS_TABSTOP,
+        ControlId::RingsLayerEnabled);
+    clickShardsLayerEnabled_ = createChild(
+        L"BUTTON",
+        L"点击碎片",
+        BS_AUTOCHECKBOX | WS_TABSTOP,
+        ControlId::ClickShardsLayerEnabled);
+    trailShardsLayerEnabled_ = createChild(
+        L"BUTTON",
+        L"拖尾碎片",
+        BS_AUTOCHECKBOX | WS_TABSTOP,
+        ControlId::TrailShardsLayerEnabled);
+    trailLayerEnabled_ = createChild(
+        L"BUTTON",
+        L"拖尾线",
+        BS_AUTOCHECKBOX | WS_TABSTOP,
+        ControlId::TrailLayerEnabled);
+    bloomLayerEnabled_ = createChild(
+        L"BUTTON",
+        L"Bloom",
+        BS_AUTOCHECKBOX | WS_TABSTOP,
+        ControlId::BloomLayerEnabled);
 
     bloomQualityLabel_ = createChild(
         L"STATIC",
@@ -1831,6 +1870,12 @@ bool ControlCenterWindow::createControls()
         effectsMode_,
         clickEnabled_,
         trailEnabled_,
+        diskLayerEnabled_,
+        ringsLayerEnabled_,
+        clickShardsLayerEnabled_,
+        trailShardsLayerEnabled_,
+        trailLayerEnabled_,
+        bloomLayerEnabled_,
         trailAlwaysOn_,
         leftClickEnabled_,
         rightClickEnabled_,
@@ -1879,6 +1924,7 @@ bool ControlCenterWindow::createControls()
         advancedRingsHeading_,
         advancedClickShardsHeading_,
         advancedBloomHeading_,
+        advancedLayersHeading_,
         themeColorLabel_,
         themeColorEdit_,
         themeColorPreview_,
@@ -1887,7 +1933,8 @@ bool ControlCenterWindow::createControls()
         advancedParticlesSectionButton_,
         advancedRingsSectionButton_,
         advancedClickShardsSectionButton_,
-        advancedBloomSectionButton_};
+        advancedBloomSectionButton_,
+        advancedLayersSectionButton_};
     if (!slidersCreated
         || !advancedSlidersCreated
         || !particleSlidersCreated
@@ -2097,6 +2144,12 @@ void ControlCenterWindow::applyFonts() const noexcept
         effectsMode_,
         clickEnabled_,
         trailEnabled_,
+        diskLayerEnabled_,
+        ringsLayerEnabled_,
+        clickShardsLayerEnabled_,
+        trailShardsLayerEnabled_,
+        trailLayerEnabled_,
+        bloomLayerEnabled_,
         trailAlwaysOn_,
         leftClickEnabled_,
         rightClickEnabled_,
@@ -2249,6 +2302,7 @@ void ControlCenterWindow::applyFonts() const noexcept
     setControlFont(advancedRingsHeading_, sectionFont_);
     setControlFont(advancedClickShardsHeading_, sectionFont_);
     setControlFont(advancedBloomHeading_, sectionFont_);
+    setControlFont(advancedLayersHeading_, sectionFont_);
     setControlFont(displaySettingsHeading_, sectionFont_);
     setControlFont(displayDetailsHeading_, sectionFont_);
     setControlFont(advancedTimingSectionButton_, normalFont_);
@@ -2256,6 +2310,7 @@ void ControlCenterWindow::applyFonts() const noexcept
     setControlFont(advancedRingsSectionButton_, normalFont_);
     setControlFont(advancedClickShardsSectionButton_, normalFont_);
     setControlFont(advancedBloomSectionButton_, normalFont_);
+    setControlFont(advancedLayersSectionButton_, normalFont_);
 }
 
 void ControlCenterWindow::applyDpiMetrics() const noexcept
@@ -2737,7 +2792,7 @@ void ControlCenterWindow::layoutControls(
     if (activePage_ == Page::Advanced)
     {
         const int sectionButtonGap = scale(8);
-        constexpr int sectionButtonCount = 5;
+        constexpr int sectionButtonCount = 6;
         const int sectionButtonWidth = (std::max)(
             scale(1),
             (clientWidth - margin * 2
@@ -2770,6 +2825,12 @@ void ControlCenterWindow::layoutControls(
         moveControl(
             advancedBloomSectionButton_,
             margin + (sectionButtonWidth + sectionButtonGap) * 4,
+            contentTop,
+            sectionButtonWidth,
+            scale(30));
+        moveControl(
+            advancedLayersSectionButton_,
+            margin + (sectionButtonWidth + sectionButtonGap) * 5,
             contentTop,
             sectionButtonWidth,
             scale(30));
@@ -3009,6 +3070,59 @@ void ControlCenterWindow::layoutControls(
                 columnWidth,
                 scale(40));
             break;
+        case AdvancedSection::Layers:
+        {
+            moveControl(
+                advancedLayersHeading_,
+                margin,
+                panelTop,
+                groupWidth,
+                groupHeight);
+            const int layerColumnGap = scale(16);
+            const int layerColumnWidth = (std::max)(
+                scale(1),
+                (groupWidth - inset * 2 - layerColumnGap * 2) / 3);
+            const int layerMiddle = left + layerColumnWidth + layerColumnGap;
+            const int layerRight = layerMiddle
+                + layerColumnWidth + layerColumnGap;
+            moveControl(
+                diskLayerEnabled_,
+                left,
+                rowTop,
+                layerColumnWidth,
+                scale(40));
+            moveControl(
+                ringsLayerEnabled_,
+                layerMiddle,
+                rowTop,
+                layerColumnWidth,
+                scale(40));
+            moveControl(
+                clickShardsLayerEnabled_,
+                layerRight,
+                rowTop,
+                layerColumnWidth,
+                scale(40));
+            moveControl(
+                trailShardsLayerEnabled_,
+                left,
+                nextRowTop,
+                layerColumnWidth,
+                scale(40));
+            moveControl(
+                trailLayerEnabled_,
+                layerMiddle,
+                nextRowTop,
+                layerColumnWidth,
+                scale(40));
+            moveControl(
+                bloomLayerEnabled_,
+                layerRight,
+                nextRowTop,
+                layerColumnWidth,
+                scale(40));
+            break;
+        }
         }
 
         const int actionWidth = (clientWidth - margin * 2 - actionGap * 3) / 4;
@@ -3304,6 +3418,13 @@ void ControlCenterWindow::updatePageVisibility() noexcept
             ? BST_CHECKED
             : BST_UNCHECKED,
         0));
+    static_cast<void>(SendMessageW(
+        advancedLayersSectionButton_,
+        BM_SETCHECK,
+        activeAdvancedSection_ == AdvancedSection::Layers
+            ? BST_CHECKED
+            : BST_UNCHECKED,
+        0));
 
     const std::array basicControls{
         effectsHeading_,
@@ -3349,7 +3470,8 @@ void ControlCenterWindow::updatePageVisibility() noexcept
         advancedParticlesSectionButton_,
         advancedRingsSectionButton_,
         advancedClickShardsSectionButton_,
-        advancedBloomSectionButton_};
+        advancedBloomSectionButton_,
+        advancedLayersSectionButton_};
     for (const HWND control : advancedSectionButtons)
     {
         setPageControlVisible(control, advanced);
@@ -3485,6 +3607,21 @@ void ControlCenterWindow::updatePageVisibility() noexcept
         setPageControlVisible(control, bloom);
     }
 
+    const bool layers = advanced
+        && activeAdvancedSection_ == AdvancedSection::Layers;
+    const std::array advancedLayerControls{
+        advancedLayersHeading_,
+        diskLayerEnabled_,
+        ringsLayerEnabled_,
+        clickShardsLayerEnabled_,
+        trailShardsLayerEnabled_,
+        trailLayerEnabled_,
+        bloomLayerEnabled_};
+    for (const HWND control : advancedLayerControls)
+    {
+        setPageControlVisible(control, layers);
+    }
+
     const std::array displayControls{
         displaySettingsHeading_,
         displaySelectorLabel_,
@@ -3611,6 +3748,12 @@ void ControlCenterWindow::onCommand(
             selectAdvancedSection(AdvancedSection::Bloom);
         }
         break;
+    case ControlId::AdvancedLayersSection:
+        if (notificationCode == BN_CLICKED)
+        {
+            selectAdvancedSection(AdvancedSection::Layers);
+        }
+        break;
     case ControlId::Pause:
         if (notificationCode == BN_CLICKED)
         {
@@ -3655,6 +3798,54 @@ void ControlCenterWindow::onCommand(
         if (notificationCode == BN_CLICKED)
         {
             applyPatch("effects.trailEnabled", isChecked(trailEnabled_) ? "true" : "false");
+        }
+        break;
+    case ControlId::DiskLayerEnabled:
+        if (notificationCode == BN_CLICKED)
+        {
+            applyPatch(
+                "effects.diskLayerEnabled",
+                isChecked(diskLayerEnabled_) ? "true" : "false");
+        }
+        break;
+    case ControlId::RingsLayerEnabled:
+        if (notificationCode == BN_CLICKED)
+        {
+            applyPatch(
+                "effects.ringsLayerEnabled",
+                isChecked(ringsLayerEnabled_) ? "true" : "false");
+        }
+        break;
+    case ControlId::ClickShardsLayerEnabled:
+        if (notificationCode == BN_CLICKED)
+        {
+            applyPatch(
+                "effects.clickShardsLayerEnabled",
+                isChecked(clickShardsLayerEnabled_) ? "true" : "false");
+        }
+        break;
+    case ControlId::TrailShardsLayerEnabled:
+        if (notificationCode == BN_CLICKED)
+        {
+            applyPatch(
+                "effects.trailShardsLayerEnabled",
+                isChecked(trailShardsLayerEnabled_) ? "true" : "false");
+        }
+        break;
+    case ControlId::TrailLayerEnabled:
+        if (notificationCode == BN_CLICKED)
+        {
+            applyPatch(
+                "effects.trailLayerEnabled",
+                isChecked(trailLayerEnabled_) ? "true" : "false");
+        }
+        break;
+    case ControlId::BloomLayerEnabled:
+        if (notificationCode == BN_CLICKED)
+        {
+            applyPatch(
+                "effects.bloomLayerEnabled",
+                isChecked(bloomLayerEnabled_) ? "true" : "false");
         }
         break;
     case ControlId::TrailAlwaysOn:
@@ -4402,6 +4593,16 @@ void ControlCenterWindow::updateControls(
         0));
     setChecked(clickEnabled_, config.effects.clickEnabled);
     setChecked(trailEnabled_, config.effects.trailEnabled);
+    setChecked(diskLayerEnabled_, config.effects.diskLayerEnabled);
+    setChecked(ringsLayerEnabled_, config.effects.ringsLayerEnabled);
+    setChecked(
+        clickShardsLayerEnabled_,
+        config.effects.clickShardsLayerEnabled);
+    setChecked(
+        trailShardsLayerEnabled_,
+        config.effects.trailShardsLayerEnabled);
+    setChecked(trailLayerEnabled_, config.effects.trailLayerEnabled);
+    setChecked(bloomLayerEnabled_, config.effects.bloomLayerEnabled);
     setChecked(trailAlwaysOn_, !config.input.trailOnlyWhilePressed);
     setChecked(leftClickEnabled_, config.input.leftClick);
     setChecked(rightClickEnabled_, config.input.rightClick);
@@ -5653,6 +5854,12 @@ void ControlCenterWindow::setConnected(const bool connected) noexcept
         effectsMode_,
         clickEnabled_,
         trailEnabled_,
+        diskLayerEnabled_,
+        ringsLayerEnabled_,
+        clickShardsLayerEnabled_,
+        trailShardsLayerEnabled_,
+        trailLayerEnabled_,
+        bloomLayerEnabled_,
         trailAlwaysOn_,
         leftClickEnabled_,
         rightClickEnabled_,
