@@ -39,6 +39,9 @@ DPI 和 Windows 11 运行时逻辑提前到测试与硬件证据之前，不再�
   渲染配置重应用，过期请求统一返回 `generation_conflict`；
 - Profile 只覆盖 `effects`，不包含 `background`、`display`、`input`、`performance` 或 `system`。
   Active-FX ROI 位于 `performance.activeFxRoiEnabled`，因此不会被 Profile 保存、应用或删除操作改变。
+- 渲染循环只读取 `config`、`configGeneration`、暂停和退出状态。Profile 目录、活动项和
+  加载 warning 仅在 Control Center/IPC 请求完整 Host 状态时物化，避免按渲染帧复制名称并
+  反复构造 Effects JSON。
 
 ## 录屏兼容用户反馈测试（2026-08-18）
 
