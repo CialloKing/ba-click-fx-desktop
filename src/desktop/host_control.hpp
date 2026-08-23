@@ -132,8 +132,7 @@ public:
         bafx::windows::NamedPipeIpcServer::Options ipcOptions,
         HostSystemIntegration systemIntegration,
         bafx::windows::RecordingCompatibleAvailability
-            recordingCompatibleAvailability,
-        FxProfileStoreReadProbe fxProfileReadProbe = {});
+            recordingCompatibleAvailability);
     ~HostControlPlane();
 
     HostControlPlane(const HostControlPlane&) = delete;

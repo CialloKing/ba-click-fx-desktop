@@ -575,12 +575,9 @@ HostControlPlane::HostControlPlane(
     bafx::windows::NamedPipeIpcServer::Options ipcOptions,
     HostSystemIntegration systemIntegration,
     bafx::windows::RecordingCompatibleAvailability
-        recordingCompatibleAvailability,
-    const FxProfileStoreReadProbe fxProfileReadProbe)
+        recordingCompatibleAvailability)
     : configPath_(std::move(configPath))
-    , fxProfileStore_(
-          configPath_.parent_path() / L"fx-profiles",
-          fxProfileReadProbe)
+    , fxProfileStore_(configPath_.parent_path() / L"fx-profiles")
     , config_(std::move(initialConfig))
     , recordingCompatibleAvailability_(recordingCompatibleAvailability)
     , systemIntegration_(systemIntegration)

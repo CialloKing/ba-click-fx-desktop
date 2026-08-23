@@ -69,6 +69,7 @@ if(Python3_Interpreter_FOUND)
             -B
             "${CMAKE_CURRENT_SOURCE_DIR}/host_render_loop_snapshot_contract_tests.py"
             "${PROJECT_SOURCE_DIR}/src/desktop/main.cpp"
+            "${PROJECT_SOURCE_DIR}/src/desktop/host_control.cpp"
     )
     set_tests_properties(
         host_render_loop_snapshot_contract
