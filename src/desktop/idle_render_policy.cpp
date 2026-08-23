@@ -19,10 +19,6 @@ bool shouldRenderForIdlePolicy(
     {
         return true;
     }
-    if (input.independentOutputRequired)
-    {
-        return true;
-    }
     return input.renderInvalidated
         || input.pointerInputPending
         || input.activeEffects
