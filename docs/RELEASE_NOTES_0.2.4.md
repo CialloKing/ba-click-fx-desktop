@@ -57,6 +57,17 @@ Host 现在分别维护控制 generation 和渲染配置 generation。保存或�
 Slim 版继续保留源码构建与兼容验证入口，但不发布预编译 Release 资产。便携版没有 Package Identity，
 因此不承诺无边框 WGC。安装器目前没有公开代码签名，SmartScreen 显示 `Unknown Publisher` 属于预期。
 
+## 发布验证
+
+2026-08-23 的正式发布验证结果：
+
+- Full `release-verify`：`40/40` 通过。
+- Slim `slim-release-verify`：`39/39` 通过。
+- 便携包和安装器均通过包结构、PE 依赖与版本合同检查；Host、Control Center 和
+  安装器的文件/产品版本均为 `0.2.4`。
+- 便携 ZIP SHA-256：`64AF766DDE2D56D692D0BA4D1BAA82AE601C947E1AFA16F583C24C24B581872D`。
+- 安装器 SHA-256：`A867EC24A8B17B9669DDD235A64DBE30EC988082C08996C5F0CE9892361190B3`。
+
 ## 支持边界
 
 本版新增的是用户可见控制面和受限预滤波优化，不扩大硬件支持范围。HDR/Advanced Color、
