@@ -1,4 +1,4 @@
-# 0.2.3 测试版支持范围
+# 0.2.4 测试版支持范围
 
 ## 可以测试的范围
 
@@ -11,16 +11,17 @@
   Bloom，固定 60 FPS、保守 SDR 和 FX-only；它只用于低性能机器反馈，不证明完整特效或 WGC 能力。
 - `BAFX.ControlCenter.exe` 的原生 Win32 控制面：基础页管理启用状态、点击特效、鼠标拖尾、拖尾常驻、
   左/右/中键触发策略、效果大小、
-  拖尾长度、拖尾宽度、输入采样率上限、Bloom 强度和 Bloom 质量；高级页按时间、粒子与材质、圆环、点击碎片和
-  Bloom 分为五个二级页面，并通过原生 `effects.*` 路径提供透明度、点击/拖尾时间倍率、拖尾寿命、
+  拖尾长度、拖尾宽度、输入采样率上限、Bloom 强度和 Bloom 质量；高级页按时间、粒子与材质、圆环、点击碎片、
+  Bloom 和分层开关分为六个二级页面，并通过原生 `effects.*` 路径提供透明度、点击/拖尾时间倍率、拖尾寿命、
   `effects.diskRadius`、`effects.diskLifetimeMs`、`effects.ringsCount`、`effects.ringsLifetimeMs`、
   `effects.ringsRadiusMin`、`effects.ringsRadiusMax`、`effects.ringsAngularVelocityMultiplier`、
   `effects.ringsRotationDirection`、`effects.ringsHdrIntensity`、`effects.shardsHdrIntensity`、
   `effects.shardsClickCount`、点击寿命上下限、出生半径、速度上下限、`effects.shardsSizeMin`、
-  `effects.shardsSizeMax`、`effects.trailOpacity`、Bloom 扩散/阈值/软阈值/亮度上限等参数。基础页还提供
-  背景模式、指针排除、系统捕获边框和空闲资源优化。“显示与性能”页选择并显示 Host 的逐屏实际状态，
-  提供默认关闭的
-  全局 HDR 请求，以及跟随显示器、固定 `60/120/144 FPS`、无限制五种帧率策略；具有稳定标识的显示器还可
+  `effects.shardsSizeMax`、`effects.trailOpacity`、Bloom 扩散/阈值/软阈值/亮度上限等参数。分层页可独立
+  隐藏中心圆盘、圆环、点击碎片、拖尾碎片、拖尾线和 Bloom。基础页还提供背景模式、指针排除、系统捕获
+  边框和空闲资源优化，并管理四个内置及用户保存的 effects-only 特效 Profile。“显示与性能”页选择并
+  显示 Host 的逐屏实际状态，提供默认关闭的全局 HDR 请求、默认关闭的实验性 Active-FX ROI，以及跟随
+  显示器、固定 `60/120/144 FPS`、无限制五种帧率策略；具有稳定标识的显示器还可
   独立控制特效、HDR 请求和帧率策略。“系统”页提供随 Windows 启动、启动时最小化和关闭时隐藏到托盘，
   以及“清理诊断日志”按钮；确认后会显示删除文件数、释放字节数和失败文件数。启用随 Windows 启动后，
   登录时由 Control Center 复用正常激活路径启动 Host。
@@ -69,15 +70,19 @@
   副屏立即隐藏并锁存 `Display.Session[n].OutputContractFaulted=true`，普通 Bloom 或输入配置成功不会解除；
   只有实际输出重新满足当前策略、完整拓扑重建或资源恢复才能重新显示。协调屏会先隐藏，再终止 Host，
   防止旧 HDR 表面继续驻留。`Display.Output.RenegotiationExhausted` 会记录请求/实际映射和最终处置。
-- 首次生成的完整 schema 17 配置默认为 `background.mode=background-aware`、
+- 首次生成的完整 schema 19 配置默认为 `background.mode=background-aware`、
   `background.allowSystemBorder=true`、`input.trailOnlyWhilePressed=true`、
-  `input.samplingRateHz=0`、`display.hdrEnabled=false` 和 `performance.framePacing=match-display`。
+  `input.samplingRateHz=0`、`display.hdrEnabled=false`、`performance.framePacing=match-display` 和
+  `performance.activeFxRoiEnabled=false`。
   `match-display` 使用目标显示器的精确刷新率，刷新率缺失或无效时回退到 60 FPS；`unlimited` 才保留
-  不设置额外最小帧周期的行为。测试版只接受字段完整的 schema 17；非当前 schema、
-  缺失或未知字段以及枚举别名均被拒绝。Host 保留无效原文件并以内存中的当前默认值继续运行，不迁移、
-  补齐或改写无效配置。背景感知授权、排除或会话失败时回退内部 FX-only transport；其余模式不启用 WGC。
-- portable 运行时把 `BAFX.config.json`、`ba-click-fx-desktop-support.log` 和支持报告写入 EXE 所在目录；
-  Identity 安装版写入该目录下的 `data` 子目录。命令行支持报告即使传入绝对路径，也只采用文件名，
+  不设置额外最小帧周期的行为。字段完整的 schema 14 至 18 只按固定迁移链升级到 schema 19；其他版本、
+  缺失或未知字段以及枚举别名均被拒绝。Host 保留无效原文件并以内存中的当前默认值继续运行，不猜测或
+  部分套用无效配置。背景感知授权、排除或会话失败时回退内部 FX-only transport；其余模式不启用 WGC。
+- Active-FX ROI 当前仅允许在纯特效 Bloom 首级预滤波使用内部对齐矩形。矩形接触边界、覆盖面积过大、
+  Bloom/Core 状态或计划不满足约束时自动使用全屏预滤波；后续 down/up、最终合成、WGC、Spout2 和
+  多显示器路径仍保持全屏。该开关存在不代表真实 GPU 性能或硬件矩阵已经通过验收。
+- portable 运行时把 `BAFX.config.json`、`fx-profiles`、`ba-click-fx-desktop-support.log` 和支持报告写入
+  EXE 所在目录；Identity 安装版写入该目录下的 `data` 子目录。命令行支持报告即使传入绝对路径，也只采用文件名，
   不会写入 `%LOCALAPPDATA%`、当前工作目录或其他用户目录。
 - 支持日志 schema 2 为每条记录写入会话 ID、单调时间、序号、进程/线程、级别和事件名；当前文件达到
   8 MiB 后轮转，最多保留 `.log.1`、`.log.2`、`.log.3` 三份备份，总预算约 32 MiB。控制中心的
@@ -210,6 +215,8 @@ Windows“已安装的应用”执行，默认保留安装目录
 ## 尚未支持或尚未验证
 
 - HDR、Advanced Color 和物理 nits 输出声明。
+- Active-FX ROI 的真实 GPU 性能收益、边界像素、HDR、多显示器与跨适配器矩阵。当前开关默认关闭，
+  只优化满足约束的纯特效 Bloom 首级预滤波，不代表完整桌面 ROI 或捕获 ROI 已经受支持。
 - WGC 背景感知的外部录屏兼容性、会话长时间压力与 packaged 权限允许/拒绝矩阵。Control Center 中三种模式和
   “允许黄色捕获边框”仍是实验入口；“显示与性能”页的 HDR 开关、逐屏状态和帧率策略同样只是生产代码入口与
   诊断视图。本版不将 HDR、多显示器、混合 DPI/刷新率、跨适配器、真实 device lost 或 Session-local WGC
@@ -255,7 +262,8 @@ Windows“已安装的应用”执行，默认保留安装目录
 - `ba-click-fx-desktop.exe --frame-pacing-stall-probe --quit-after-ms=250`：内部回归入口，以永久不信号句柄
   验证运行截止检查不会被帧等待 timeout 绕过。
 - `BAFX.ControlCenter.exe`：在 Host 已运行时打开 Win32 设置窗口，通过本地 IPC 读取并调整三种
-  渲染模式、FX 参数、HDR 请求和帧率策略，并用 `GetDisplayState` 查看逐屏实际状态；它不是独立渲染器。
+  渲染模式、FX 参数、分层开关、特效 Profile、Active-FX ROI、HDR 请求和帧率策略，并用
+  `GetDisplayState` 查看逐屏实际状态；它不是独立渲染器。
 
 smoke 只证明当前 Windows 会话中的基本渲染链路可用。运行日志中的
 `Support.WGC=active` 表示本次背景感知会话成功创建了 WGC 路径；随后出现背景合成日志才表示样本已
