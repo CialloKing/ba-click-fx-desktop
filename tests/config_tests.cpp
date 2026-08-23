@@ -61,6 +61,7 @@ BAFX_TEST(config_defaults_round_trip_through_versioned_json)
     BAFX_CHECK(
         defaults.performance.effectsMode
         == bafx::config::EffectsMode::Full);
+    BAFX_CHECK(!defaults.performance.activeFxRoiEnabled);
     BAFX_CHECK(!defaults.system.spout2Enabled);
     BAFX_CHECK_NEAR(defaults.effects.globalScale, 1.0F, 0.00001F);
     BAFX_CHECK_NEAR(defaults.effects.opacity, 1.0F, 0.00001F);
@@ -1362,6 +1363,24 @@ BAFX_TEST(config_parser_rejects_non_current_schemas)
     BAFX_CHECK(migratedSchema17.config.effects.trailShardsLayerEnabled);
     BAFX_CHECK(migratedSchema17.config.effects.trailLayerEnabled);
     BAFX_CHECK(migratedSchema17.config.effects.bloomLayerEnabled);
+
+    std::string schema18Json = bafx::config::toJson(legacy, false);
+    const std::size_t schema18VersionPosition = schema18Json.find(
+        currentVersionField);
+    BAFX_CHECK(schema18VersionPosition != std::string::npos);
+    schema18Json.replace(
+        schema18VersionPosition,
+        currentVersionField.size(),
+        "\"schemaVersion\":18");
+    const std::string activeFxRoiField =
+        R"json("activeFxRoiEnabled":false,)json";
+    const std::size_t activeFxRoiPosition = schema18Json.find(
+        activeFxRoiField);
+    BAFX_CHECK(activeFxRoiPosition != std::string::npos);
+    schema18Json.erase(activeFxRoiPosition, activeFxRoiField.size());
+    const auto migratedSchema18 = bafx::config::parseJson(schema18Json);
+    bafx::test::check(migratedSchema18.succeeded(), migratedSchema18.message);
+    BAFX_CHECK(!migratedSchema18.config.performance.activeFxRoiEnabled);
 }
 
 BAFX_TEST(config_fx_patch_controls_each_effect_layer_atomically)
@@ -1400,6 +1419,22 @@ BAFX_TEST(config_patch_updates_spout2_switch_atomically)
         R"json({"path":"system.spout2Enabled","value":"true"})json");
     BAFX_CHECK(!rejected.succeeded());
     BAFX_CHECK(rejected.config.system.spout2Enabled);
+}
+
+BAFX_TEST(config_patch_controls_active_fx_roi_switch)
+{
+    const bafx::config::Config base = bafx::config::defaultConfig();
+    const auto enabled = bafx::config::applyPatchJson(
+        base,
+        R"json({"generation":2,"path":"performance.activeFxRoiEnabled","value":true})json");
+    bafx::test::check(enabled.succeeded(), enabled.message);
+    BAFX_CHECK(enabled.config.performance.activeFxRoiEnabled);
+
+    const auto rejected = bafx::config::applyPatchJson(
+        enabled.config,
+        R"json({"path":"performance.activeFxRoiEnabled","value":"true"})json");
+    BAFX_CHECK(!rejected.succeeded());
+    BAFX_CHECK(rejected.config.performance.activeFxRoiEnabled);
 }
 
 BAFX_TEST(config_patch_controls_effects_mode)

@@ -343,6 +343,11 @@ Windows Player 在完整前台、命中测试和焦点门禁下接收 `Down-Up-D
 
 Lanczos 或带负瓣 bicubic 不得进入等价性路径。
 
+当前 `gpu_pipeline_warp` 额外执行 Active-FX ROI 首级预滤波回归：同一个 256x256 FP16 纯特效场景
+分别走全屏预滤波与内部对齐工作区 scissor，要求 ROI 确实被应用、诊断像素数与首级 mip 映射一致，
+并要求最终 FP16 输出逐元素最大差为 0。这个用例只证明已接入的首级生产切片；发布声明仍不得外推到
+贴边、奇数尺寸、负 scRGB、HDR 极值、背景差分或尚未局部化的 down/up、最终合成与 WGC 拷贝。
+
 ## 5. 发布门槛
 
 一个 release candidate 至少满足：
@@ -366,7 +371,7 @@ Lanczos 或带负瓣 bicubic 不得进入等价性路径。
 | Sensor/lifecycle/power | ADR-003 | SPK-002, SPK-004 | VAL-CAPTURE, VAL-SOAK |
 | Self-exclusion/recording | ADR-004 | SPK-002 | VAL-RECORDING |
 | Golden/numerics | ADR-005 | all | all suites |
-| ROI/mip phase | ADR-006 | full-screen fallback | VAL-ROI |
+| ROI/mip phase | ADR-006 | opt-in prefilter ROI + per-frame full-screen fallback | VAL-ROI |
 | Temporal validity | ADR-007 | SPK-002, SPK-004 | VAL-TEMPORAL |
 
 比较类型固定为：整数/状态机 exact；确定性 CPU simulation exact；FP32 abs/rel epsilon；FP16 GPU

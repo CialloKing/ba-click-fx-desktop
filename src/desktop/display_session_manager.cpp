@@ -467,6 +467,10 @@ DisplaySessionPolicyChange DisplaySessionManager::refreshRuntimePolicies()
             || change.outputPreferenceChanged;
         aggregate.framePacingChanged = aggregate.framePacingChanged
             || change.framePacingChanged;
+        aggregate.effectsModeChanged = aggregate.effectsModeChanged
+            || change.effectsModeChanged;
+        aggregate.activeFxRoiChanged = aggregate.activeFxRoiChanged
+            || change.activeFxRoiChanged;
     }
     return aggregate;
 }

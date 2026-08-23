@@ -38,6 +38,7 @@ struct DisplaySessionRuntimePolicy final
     bafx::core::MonotonicTime minimumFramePeriod{};
     bafx::fx::SimulationEffectsMode effectsMode{
         bafx::fx::SimulationEffectsMode::Full};
+    bool activeFxRoiEnabled{false};
 };
 
 struct DisplaySessionPolicyChange final
@@ -46,13 +47,15 @@ struct DisplaySessionPolicyChange final
     bool outputPreferenceChanged{false};
     bool framePacingChanged{false};
     bool effectsModeChanged{false};
+    bool activeFxRoiChanged{false};
 
     [[nodiscard]] bool changed() const noexcept
     {
         return effectsEnabledChanged
             || outputPreferenceChanged
             || framePacingChanged
-            || effectsModeChanged;
+            || effectsModeChanged
+            || activeFxRoiChanged;
     }
 };
 

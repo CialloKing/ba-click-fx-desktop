@@ -1099,7 +1099,11 @@ private:
                 error)
         || !validateKnownMembers(
                 *performance,
-                {"idleOptimization", "framePacing", "effectsMode"},
+                {
+                    "idleOptimization",
+                    "activeFxRoiEnabled",
+                    "framePacing",
+                    "effectsMode"},
                 "performance",
                 error)
         || !validateKnownMembers(
@@ -1445,6 +1449,12 @@ private:
             "idleOptimization",
             "performance",
             config.performance.idleOptimization,
+            error)
+        || !readBool(
+            *performance,
+            "activeFxRoiEnabled",
+            "performance",
+            config.performance.activeFxRoiEnabled,
             error))
     {
         return config;
@@ -1619,6 +1629,7 @@ private:
     JsonValue::Object performance;
     performance.emplace("framePacing", JsonValue(std::string(toString(config.performance.framePacing))));
     performance.emplace("effectsMode", JsonValue(std::string(toString(config.performance.effectsMode))));
+    performance.emplace("activeFxRoiEnabled", JsonValue(config.performance.activeFxRoiEnabled));
     performance.emplace("idleOptimization", JsonValue(config.performance.idleOptimization));
 
     JsonValue::Object system;
@@ -1944,6 +1955,40 @@ void appendJsonValue(
             }
         }
     }
+    root["schemaVersion"] = JsonValue(18.0);
+    return true;
+}
+
+// Schema 19 exposes the constrained Active-FX ROI production switch. Keep it
+// off during migration because the previous renderer always used full-screen.
+[[nodiscard]] bool migrateSchema18To19(
+    JsonValue::Object& root,
+    std::string& error)
+{
+    const JsonValue* versionValue = member(root, "schemaVersion");
+    const double* version = versionValue == nullptr
+        ? nullptr
+        : std::get_if<double>(&versionValue->storage);
+    if (version == nullptr || !std::isfinite(*version))
+    {
+        error = "schemaVersion is required";
+        return false;
+    }
+    if (*version != 18.0)
+    {
+        return false;
+    }
+
+    const auto performanceIterator = root.find("performance");
+    if (performanceIterator != root.end())
+    {
+        JsonValue::Object* performance = objectOf(performanceIterator->second);
+        if (performance != nullptr
+            && performance->find("activeFxRoiEnabled") == performance->end())
+        {
+            performance->emplace("activeFxRoiEnabled", JsonValue(false));
+        }
+    }
     root["schemaVersion"] = JsonValue(static_cast<double>(currentSchemaVersion));
     return true;
 }
@@ -1991,6 +2036,10 @@ void appendJsonValue(
             {
                 migrated = migrateSchema17To18(*originalRoot, error);
             }
+            if (migrated && error.empty())
+            {
+                migrated = migrateSchema18To19(*originalRoot, error);
+            }
         }
         else if (*version == 15.0)
         {
@@ -2003,6 +2052,10 @@ void appendJsonValue(
             {
                 migrated = migrateSchema17To18(*originalRoot, error);
             }
+            if (migrated && error.empty())
+            {
+                migrated = migrateSchema18To19(*originalRoot, error);
+            }
         }
         else if (*version == 16.0)
         {
@@ -2011,10 +2064,22 @@ void appendJsonValue(
             {
                 migrated = migrateSchema17To18(*originalRoot, error);
             }
+            if (migrated && error.empty())
+            {
+                migrated = migrateSchema18To19(*originalRoot, error);
+            }
         }
         else if (*version == 17.0)
         {
             migrated = migrateSchema17To18(*originalRoot, error);
+            if (migrated && error.empty())
+            {
+                migrated = migrateSchema18To19(*originalRoot, error);
+            }
+        }
+        else if (*version == 18.0)
+        {
+            migrated = migrateSchema18To19(*originalRoot, error);
         }
     }
     if (!error.empty())
@@ -2541,6 +2606,11 @@ namespace
         else if (*path == "performance.idleOptimization")
         {
             valueAccepted = readPatchBool(result.performance.idleOptimization);
+        }
+        else if (*path == "performance.activeFxRoiEnabled")
+        {
+            valueAccepted = readPatchBool(
+                result.performance.activeFxRoiEnabled);
         }
         else if (*path == "performance.framePacing")
         {

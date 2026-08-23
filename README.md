@@ -196,12 +196,12 @@ Visual Studio、Windows SDK、Inno Setup 或 PowerShell 依赖包；安装器已
 `%LOCALAPPDATA%`、当前工作目录或其他用户目录保存数据。Host 使用
 `Local\BAFX.Host.v1` 互斥体保证单实例。
 
-首次生成的 schema 18 配置将 `background.mode` 设为 `background-aware`、
+首次生成的 schema 19 配置将 `background.mode` 设为 `background-aware`、
 `background.allowSystemBorder` 设为 `true`、`display.hdrEnabled` 设为 `false`，并以
 `performance.framePacing=match-display`、`input.trailOnlyWhilePressed=true`、`input.samplingRateHz=0`
 保持跟随显示器刷新率、按住拖尾且不额外限制输入 Move。显示刷新率缺失或无效时，
 `match-display` 保守回退到 60 FPS；只有显式选择 `unlimited` 才不设置额外最小帧周期。
-当前配置要求字段完整的显式 `schemaVersion=18`；14 至 17 会按固定顺序迁移到当前版本，
+当前配置要求字段完整的显式 `schemaVersion=19`；14 至 18 会按固定顺序迁移到当前版本，
 其他版本、缺少 section、未知字段和枚举别名都会被拒绝。Host 记录错误后仅在内存中使用当前默认值，
 不会猜测未知格式。只有
 `background-aware` 会启用 WGC；WGC 或捕获排除路径失败时，Host 将当前批次回退到内部
@@ -229,7 +229,7 @@ FX-only，不会先启动带黄色边框的会话。无论该开关如何设置�
 透明度、点击/拖尾时间倍率、拖尾寿命，以及 Bloom
 扩散、阈值、软阈值和亮度上限。“显示与性能”页通过 `GetDisplayState` 选择并查看每个显示会话的
 实际边界、DPI、物理/捕获刷新率、DRR、颜色查询、SDR white level、色彩/输出回退、WGC 和故障状态，
-并提供默认关闭的全局 HDR 请求以及
+并提供默认关闭的全局 HDR 请求、默认关闭的实验性 Active-FX ROI，以及
 `match-display`、`60`、`120`、`144`、`unlimited` 五种 `performance.framePacing` 策略。具有稳定 DisplayConfig
 标识的显示器可以启用独立设置，分别控制特效、HDR 请求和帧率策略；关闭独立设置后恢复继承全局值。
 没有稳定标识的会话仍可查看，但逐屏写入控件保持禁用。完整拓扑下，选择器还会列出未连接显示器的
@@ -241,6 +241,10 @@ FX-only，不会先启动带黄色边框的会话。无论该开关如何设置�
 不属于游戏原脚本的按压 FX 路径。数值控件会合并连续拖动后的写入，避免为每个滑块像素都写一次配置。
 `effects.bloomIntensity` 是 Unity Bloom 强度标量，默认值为 `1.7`、有效范围为 `0..10`，不是相对 `1.0` 的倍率。
 Bloom 质量只是 diffusion 的派生预设：紧凑、适中、原版、极宽分别对应 `4/6/7/10`，其他值显示为“自定义”。
+Active-FX ROI 当前只裁剪纯特效 Bloom 的首级预滤波像素；Bloom 后续 down/up、最终合成、WGC 拷贝、
+swap-chain 和 Present 仍保持全屏。ROI 触及屏幕边缘、覆盖面积过大、Bloom 被关闭、core 模式、没有有效
+计划或背景差分路径不满足约束时自动回退全屏。性能日志会分别记录请求帧、实际应用帧和预滤波像素，
+不能把这个开关解读成全链路局部渲染。
 
 控制中心的“重置默认”按钮会先请求确认，再用内置默认 schema 整体替换持久化配置。它不会恢复已经
 暂停的特效；需要继续显示时仍应单独点击“恢复特效”。

@@ -100,6 +100,7 @@ private:
         CursorExcluded,
         AllowSystemBorder,
         IdleOptimization,
+        ActiveFxRoiEnabled,
         StartWithWindows,
         StartMinimized,
         CloseToTray,
@@ -379,6 +380,7 @@ private:
     HWND displaySelector_{nullptr};
     HWND displaySummaryText_{nullptr};
     HWND hdrEnabled_{nullptr};
+    HWND activeFxRoiEnabled_{nullptr};
     HWND framePacingLabel_{nullptr};
     HWND framePacing_{nullptr};
     HWND displayIndependent_{nullptr};

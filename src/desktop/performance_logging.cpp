@@ -214,6 +214,16 @@ void appendConfigurationFields(
     fields.add("Effects.Enabled", config.effects.enabled);
     fields.add("Effects.ClickEnabled", config.effects.clickEnabled);
     fields.add("Effects.TrailEnabled", config.effects.trailEnabled);
+    fields.add("Effects.DiskLayerEnabled", config.effects.diskLayerEnabled);
+    fields.add("Effects.RingsLayerEnabled", config.effects.ringsLayerEnabled);
+    fields.add(
+        "Effects.ClickShardsLayerEnabled",
+        config.effects.clickShardsLayerEnabled);
+    fields.add(
+        "Effects.TrailShardsLayerEnabled",
+        config.effects.trailShardsLayerEnabled);
+    fields.add("Effects.TrailLayerEnabled", config.effects.trailLayerEnabled);
+    fields.add("Effects.BloomLayerEnabled", config.effects.bloomLayerEnabled);
     fields.addDecimal("Effects.GlobalScale", config.effects.globalScale);
     fields.addDecimal("Effects.Opacity", config.effects.opacity);
     fields.addDecimal("Effects.TrailLength", config.effects.trailLength);
@@ -282,6 +292,9 @@ void appendConfigurationFields(
     fields.add(
         "Performance.IdleOptimization",
         config.performance.idleOptimization);
+    fields.add(
+        "Performance.ActiveFxRoiEnabled",
+        config.performance.activeFxRoiEnabled);
     fields.add(
         "Performance.FramePacing",
         bafx::config::toString(config.performance.framePacing));
@@ -379,7 +392,21 @@ std::chrono::nanoseconds appendPerformanceInterval(
         fields.add(
             "GPU.StageApplicabilitySemantic",
             "WGC-drain-attempted-snapshot-attempted-and-visual-FX-only");
-        fields.add("ROI.ProductionPath", "full-screen-fallback");
+        fields.add(
+            "ROI.ProductionPath",
+            config.performance.activeFxRoiEnabled
+                ? "active-fx-prefilter-with-full-screen-fallback"
+                : "disabled-full-screen");
+        fields.add("ROI.FinalCompositePath", "full-screen");
+        fields.add("ROI.WgcCopyPath", "full-screen");
+        fields.add("ROI.RequestedFrames", summary.roiRequestedFrames);
+        fields.add(
+            "ROI.AppliedPrefilterFrames",
+            summary.roiAppliedFrames);
+        fields.add(
+            "ROI.Active.LastStatus",
+            bafx::core::activeFxRoiStatusName(
+                summary.roiLastActiveStatus));
         fields.add(
             "ROI.VisualBounds.LastStatus",
             frameBoundsStatusName(summary.roiLastVisualBoundsStatus));
@@ -626,6 +653,11 @@ std::chrono::nanoseconds appendPerformanceInterval(
             fields,
             "ROI.PhasePeriod",
             summary.roiPhasePeriod,
+            "pixels");
+        appendMetric(
+            fields,
+            "ROI.PrefilterPixels",
+            summary.roiPrefilterPixels,
             "pixels");
         appendRect(
             fields,

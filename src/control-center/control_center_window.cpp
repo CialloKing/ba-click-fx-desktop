@@ -1786,6 +1786,11 @@ bool ControlCenterWindow::createControls()
         L"全局请求 HDR 屏幕输出",
         BS_AUTOCHECKBOX | WS_TABSTOP,
         ControlId::HdrEnabled);
+    activeFxRoiEnabled_ = createChild(
+        L"BUTTON",
+        L"启用 Active-FX ROI（实验）",
+        BS_AUTOCHECKBOX | WS_TABSTOP,
+        ControlId::ActiveFxRoiEnabled);
     framePacingLabel_ = createChild(
         L"STATIC",
         L"全局帧率策略",
@@ -1905,6 +1910,7 @@ bool ControlCenterWindow::createControls()
         displaySelector_,
         displaySummaryText_,
         hdrEnabled_,
+        activeFxRoiEnabled_,
         framePacingLabel_,
         framePacing_,
         displayIndependent_,
@@ -2276,6 +2282,7 @@ void ControlCenterWindow::applyFonts() const noexcept
         displaySelector_,
         displaySummaryText_,
         hdrEnabled_,
+        activeFxRoiEnabled_,
         framePacingLabel_,
         framePacing_,
         displayIndependent_,
@@ -2518,10 +2525,10 @@ void ControlCenterWindow::layoutControls(
         const int actionHeight = scale(38);
         const int actionGap = scale(10);
         const int actionY = (std::max)(
-            contentTop + scale(262),
+            contentTop + scale(300),
             clientHeight - margin - actionHeight);
         const int panelHeight = (std::max)(
-            scale(262),
+            scale(300),
             actionY - contentTop - scale(12));
         const int settingsWidth = (std::clamp)(
             clientWidth / 3,
@@ -2568,15 +2575,21 @@ void ControlCenterWindow::layoutControls(
             settingsContentWidth,
             scale(30));
         moveControl(
-            framePacingLabel_,
+            activeFxRoiEnabled_,
             settingsContentX,
             contentTop + scale(184),
+            settingsContentWidth,
+            scale(30));
+        moveControl(
+            framePacingLabel_,
+            settingsContentX,
+            contentTop + scale(220),
             settingsContentWidth,
             scale(22));
         moveControl(
             framePacing_,
             settingsContentX,
-            contentTop + scale(206),
+            contentTop + scale(242),
             settingsContentWidth,
             scale(34));
 
@@ -3628,6 +3641,7 @@ void ControlCenterWindow::updatePageVisibility() noexcept
         displaySelector_,
         displaySummaryText_,
         hdrEnabled_,
+        activeFxRoiEnabled_,
         framePacingLabel_,
         framePacing_,
         displayIndependent_,
@@ -4069,6 +4083,14 @@ void ControlCenterWindow::onCommand(
             applyPatch(
                 "display.hdrEnabled",
                 isChecked(hdrEnabled_) ? "true" : "false");
+        }
+        break;
+    case ControlId::ActiveFxRoiEnabled:
+        if (notificationCode == BN_CLICKED)
+        {
+            applyPatch(
+                "performance.activeFxRoiEnabled",
+                isChecked(activeFxRoiEnabled_) ? "true" : "false");
         }
         break;
     case ControlId::FramePacing:
@@ -4671,6 +4693,9 @@ void ControlCenterWindow::updateControls(
         allowSystemBorder_,
         config.background.allowSystemBorder);
     setChecked(idleOptimization_, config.performance.idleOptimization);
+    setChecked(
+        activeFxRoiEnabled_,
+        config.performance.activeFxRoiEnabled);
     setChecked(startWithWindows_, config.system.startWithWindows);
     setChecked(startMinimized_, config.system.startMinimized);
     setChecked(closeToTray_, config.system.closeToTray);
@@ -5908,6 +5933,7 @@ void ControlCenterWindow::setConnected(const bool connected) noexcept
         spout2Enabled_,
 #endif
         hdrEnabled_,
+        activeFxRoiEnabled_,
         framePacing_,
         pauseButton_,
         clearLogsButton_,

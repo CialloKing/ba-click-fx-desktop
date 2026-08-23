@@ -196,6 +196,8 @@ DisplaySession::DisplaySession(DisplaySessionOptions options)
       minimumFramePeriod_(options.runtimePolicy.minimumFramePeriod)
 {
     renderer_.setThemeColor(options.themeColor);
+    renderer_.setActiveFxRoiEnabled(
+        options.runtimePolicy.activeFxRoiEnabled);
     colorQueryGeneration_ = 1U;
     colorSnapshotStatus_ = colorCapabilities_.has_value()
         ? DisplaySessionColorRefreshStatus::Refreshed
@@ -392,7 +394,8 @@ DisplaySessionPolicyChange DisplaySession::applyRuntimePolicy(
         requestedOutputPreference_ != policy.outputPreference,
         framePacing_ != policy.framePacing
             || minimumFramePeriod_ != policy.minimumFramePeriod,
-        simulation_.effectsMode() != policy.effectsMode};
+        simulation_.effectsMode() != policy.effectsMode,
+        renderer_.activeFxRoiEnabled() != policy.activeFxRoiEnabled};
 
     effectsEnabled_ = policy.effectsEnabled;
     framePacing_ = policy.framePacing;
@@ -403,6 +406,10 @@ DisplaySessionPolicyChange DisplaySession::applyRuntimePolicy(
             policy.effectsMode,
             bafx::fx::SimulationTime{});
         lastPresentedDrawableContent_ = false;
+    }
+    if (change.activeFxRoiChanged)
+    {
+        renderer_.setActiveFxRoiEnabled(policy.activeFxRoiEnabled);
     }
     if (change.framePacingChanged || change.effectsEnabledChanged)
     {

@@ -705,7 +705,8 @@ void appendDeviceRemovedNotificationStatus(
             bafx::core::MonotonicTime::zero()),
         config.performance.effectsMode == bafx::config::EffectsMode::Core
             ? bafx::fx::SimulationEffectsMode::Core
-            : bafx::fx::SimulationEffectsMode::Full};
+            : bafx::fx::SimulationEffectsMode::Full,
+        config.performance.activeFxRoiEnabled};
 }
 
 [[nodiscard]] bool borderlessAccessMonitoringRequired(
@@ -1949,6 +1950,10 @@ void appendDisplayTopologyInvalidated(
     sample.roiDirtyRect = frame.roi.dirtyRect;
     sample.roiBloomOutput = frame.roi.bloomOutput;
     sample.roiAlignedWork = frame.roi.alignedWork;
+    sample.roiRequested = frame.roi.requested;
+    sample.roiApplied = frame.roi.prefilterApplied;
+    sample.roiPrefilterPixels = frame.roi.prefilterPixels;
+    sample.roiActiveStatus = frame.roi.activeStatus;
     sample.backgroundSnapshotRefreshAttempted =
         frame.backgroundSnapshotRefreshAttempted;
     sample.backgroundSnapshotRefreshed = frame.backgroundSnapshotRefreshed;

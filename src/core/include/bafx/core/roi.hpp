@@ -5,6 +5,7 @@
 
 #include <cstdint>
 #include <span>
+#include <string_view>
 
 namespace bafx::core
 {
@@ -32,6 +33,45 @@ enum class RoiStatus : std::uint8_t
     IntegerOverflow
 };
 
+// This status crosses renderer and diagnostics boundaries, so keep it with the
+// ROI contract instead of tying performance reporting to the Windows backend.
+enum class ActiveFxRoiStatus : std::uint8_t
+{
+    Disabled,
+    AppliedPrefilter,
+    NoVisualPlan,
+    BloomDisabled,
+    CoreMode,
+    TouchesBoundary,
+    AreaTooLarge,
+    RendererFallback
+};
+
+[[nodiscard]] constexpr std::string_view activeFxRoiStatusName(
+    const ActiveFxRoiStatus status) noexcept
+{
+    switch (status)
+    {
+    case ActiveFxRoiStatus::Disabled:
+        return "disabled";
+    case ActiveFxRoiStatus::AppliedPrefilter:
+        return "prefilter-roi";
+    case ActiveFxRoiStatus::NoVisualPlan:
+        return "no-visual-plan";
+    case ActiveFxRoiStatus::BloomDisabled:
+        return "bloom-disabled";
+    case ActiveFxRoiStatus::CoreMode:
+        return "core-mode";
+    case ActiveFxRoiStatus::TouchesBoundary:
+        return "boundary-fallback";
+    case ActiveFxRoiStatus::AreaTooLarge:
+        return "area-fallback";
+    case ActiveFxRoiStatus::RendererFallback:
+        return "renderer-fallback";
+    }
+    return "renderer-fallback";
+}
+
 struct BloomRoiPlan
 {
     std::uint32_t guardX{0};
@@ -54,8 +94,8 @@ struct BloomRoiPlanResult
     const PyramidFootprint& footprint) noexcept;
 
 // Build the conservative footprint used by the current Unity Bloom shader
-// graph. The result is only a plan; the renderer must keep the full-screen
-// path until ROI pixel equivalence has been accepted by ADR-006.
+// graph. Consumers may use it only for passes covered by their pixel
+// equivalence contract; every unsupported pass retains its full-screen path.
 [[nodiscard]] BloomRoiPlanResult planUnityBloomRoi(
     RectI sourceSupport,
     RectI monitorBounds,

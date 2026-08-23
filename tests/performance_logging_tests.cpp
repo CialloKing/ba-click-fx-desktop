@@ -80,6 +80,11 @@ BAFX_TEST(performance_log_preserves_metric_and_semantic_fields)
         .roiDirtyRect = bafx::core::RectI{10, 20, 30, 40},
         .roiBloomOutput = bafx::core::RectI{0, 0, 100, 100},
         .roiAlignedWork = bafx::core::RectI{0, 0, 128, 128},
+        .roiRequested = true,
+        .roiApplied = true,
+        .roiPrefilterPixels = 12'500U,
+        .roiActiveStatus =
+            bafx::core::ActiveFxRoiStatus::AppliedPrefilter,
         .gpuFxMaterialsMicroseconds = 900U,
         .gpuBloomAndFinalCompositeMicroseconds = 2'500U,
         .gpuTotalFxMicroseconds = 3'400U,
@@ -98,7 +103,8 @@ BAFX_TEST(performance_log_preserves_metric_and_semantic_fields)
     window.addFramePacingWake(bafx::desktop::FramePacingWake::MessagesPending);
     window.addFramePacingWake(bafx::desktop::FramePacingWake::TimedOut);
     window.addCaptureExclusionHealthCheck(true);
-    const bafx::config::Config config = bafx::config::defaultConfig();
+    bafx::config::Config config = bafx::config::defaultConfig();
+    config.performance.activeFxRoiEnabled = true;
 
     static_cast<void>(bafx::desktop::appendPerformanceInterval(
         log.path(),
@@ -123,7 +129,20 @@ BAFX_TEST(performance_log_preserves_metric_and_semantic_fields)
     BAFX_CHECK(text.find(
         "Timing.PresentMode=interval-0-frame-latency-gated\n")
         != std::string::npos);
-    BAFX_CHECK(text.find("ROI.ProductionPath=full-screen-fallback\n")
+    BAFX_CHECK(text.find(
+        "ROI.ProductionPath=active-fx-prefilter-with-full-screen-fallback\n")
+        != std::string::npos);
+    BAFX_CHECK(text.find("ROI.FinalCompositePath=full-screen\n")
+        != std::string::npos);
+    BAFX_CHECK(text.find("ROI.WgcCopyPath=full-screen\n")
+        != std::string::npos);
+    BAFX_CHECK(text.find("ROI.RequestedFrames=1\n")
+        != std::string::npos);
+    BAFX_CHECK(text.find("ROI.AppliedPrefilterFrames=1\n")
+        != std::string::npos);
+    BAFX_CHECK(text.find("ROI.Active.LastStatus=prefilter-roi\n")
+        != std::string::npos);
+    BAFX_CHECK(text.find("ROI.PrefilterPixels.Max=12500\n")
         != std::string::npos);
     BAFX_CHECK(text.find("ROI.VisualBounds.OkFrames=1\n")
         != std::string::npos);

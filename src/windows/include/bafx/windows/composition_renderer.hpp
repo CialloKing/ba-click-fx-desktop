@@ -201,7 +201,12 @@ struct RoiFrameDiagnostics
     bool currentVisualBoundsAvailable{false};
     bool dirtyRectAvailable{false};
     bool planAvailable{false};
-    // ROI remains an observation-only plan until ADR-006 and VAL-ROI pass.
+    bool requested{false};
+    bool prefilterApplied{false};
+    std::uint64_t prefilterPixels{0U};
+    bafx::core::ActiveFxRoiStatus activeStatus{
+        bafx::core::ActiveFxRoiStatus::Disabled};
+    // The final composite and WGC history intentionally remain full-screen.
     bool productionFullScreenFallback{true};
 };
 
@@ -299,6 +304,8 @@ public:
         deviceRecoveryDiagnostics() const noexcept;
     [[nodiscard]] bool deviceRecoveryBudgetConsumed() const noexcept;
     [[nodiscard]] bool setBloomSettings(FxBloomSettings settings);
+    void setActiveFxRoiEnabled(bool enabled) noexcept;
+    [[nodiscard]] bool activeFxRoiEnabled() const noexcept;
     void setThemeColor(std::string_view themeColor);
     void setOverlayProfile(FxOverlayProfile profile);
     void setSpout2Enabled(bool enabled);
@@ -476,6 +483,7 @@ private:
     std::string themeColor_{"#4ca7ff"};
     FxOverlayProfile overlayProfile_{FxOverlayProfile::FxOnlyFallback};
     std::optional<bafx::core::RectI> previousVisualBounds_{};
+    bool activeFxRoiEnabled_{false};
     WindowSize size_{};
     std::shared_ptr<WgcBackgroundResourceLedger> backgroundResourceLedger_{};
     std::shared_ptr<WgcSessionWindowExclusionState>

@@ -210,6 +210,13 @@ void RuntimePerformanceWindow::addFrame(
         roiGuardY_.add(sample.roiGuardY);
         roiPhasePeriod_.add(sample.roiPhasePeriod);
     }
+    roiRequestedFrames_ += sample.roiRequested ? 1U : 0U;
+    roiAppliedFrames_ += sample.roiApplied ? 1U : 0U;
+    roiLastActiveStatus_ = sample.roiActiveStatus;
+    if (sample.roiApplied && sample.roiPrefilterPixels > 0U)
+    {
+        roiPrefilterPixels_.add(sample.roiPrefilterPixels);
+    }
     wgcActiveFrames_ += sample.wgcActive ? 1U : 0U;
     addWgc(sample);
     backgroundSnapshotAttempts_ +=
@@ -412,6 +419,10 @@ void RuntimePerformanceWindow::reset() noexcept
     roiPlanInvalidRectFrames_ = 0U;
     roiPlanInvalidFootprintFrames_ = 0U;
     roiPlanOverflowFrames_ = 0U;
+    roiRequestedFrames_ = 0U;
+    roiAppliedFrames_ = 0U;
+    roiLastActiveStatus_ =
+        bafx::core::ActiveFxRoiStatus::Disabled;
     roiLastVisualBoundsStatus_ = bafx::fx::FrameBoundsStatus::Empty;
     roiLastPlanStatus_ = bafx::core::RoiStatus::Empty;
     framePacingFrameReadyWakes_ = 0U;
@@ -452,6 +463,7 @@ void RuntimePerformanceWindow::reset() noexcept
     roiGuardX_.reset();
     roiGuardY_.reset();
     roiPhasePeriod_.reset();
+    roiPrefilterPixels_.reset();
     roiLastDirtyRectAvailable_ = false;
     roiLastDirtyRect_ = bafx::core::RectI{};
     roiLastBloomOutputAvailable_ = false;
@@ -508,6 +520,9 @@ RuntimePerformanceSummary RuntimePerformanceWindow::summarize() const
     summary.roiPlanInvalidRectFrames = roiPlanInvalidRectFrames_;
     summary.roiPlanInvalidFootprintFrames = roiPlanInvalidFootprintFrames_;
     summary.roiPlanOverflowFrames = roiPlanOverflowFrames_;
+    summary.roiRequestedFrames = roiRequestedFrames_;
+    summary.roiAppliedFrames = roiAppliedFrames_;
+    summary.roiLastActiveStatus = roiLastActiveStatus_;
     summary.roiLastVisualBoundsStatus = roiLastVisualBoundsStatus_;
     summary.roiLastPlanStatus = roiLastPlanStatus_;
     summary.framePacingFrameReadyWakes = framePacingFrameReadyWakes_;
@@ -559,6 +574,7 @@ RuntimePerformanceSummary RuntimePerformanceWindow::summarize() const
     summary.roiGuardX = roiGuardX_.summarize();
     summary.roiGuardY = roiGuardY_.summarize();
     summary.roiPhasePeriod = roiPhasePeriod_.summarize();
+    summary.roiPrefilterPixels = roiPrefilterPixels_.summarize();
     summary.roiLastDirtyRectAvailable = roiLastDirtyRectAvailable_;
     summary.roiLastDirtyRect = roiLastDirtyRect_;
     summary.roiLastBloomOutputAvailable = roiLastBloomOutputAvailable_;

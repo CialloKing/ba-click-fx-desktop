@@ -2300,6 +2300,50 @@ BAFX_TEST(warp_bloom_layer_toggle_bypasses_output_without_stale_bloom)
     BAFX_CHECK(!isZeroImage(restored.bloomResult));
 }
 
+BAFX_TEST(warp_active_fx_roi_prefilter_matches_full_screen_pixels)
+{
+    ComApartment apartment;
+    const WarpDevice graphics = createWarpDevice();
+    FxGpuRenderer renderer(graphics.device.Get(), graphics.context.Get(), testSize);
+    const bafx::fx::FrameSnapshot snapshot = makeDiskSnapshot(true);
+
+    const RenderTarget fullTarget = createRenderTarget(graphics.device.Get());
+    const FxRenderCpuDiagnostics fullDiagnostics = renderer.render(
+        snapshot,
+        fullTarget.view.Get());
+    BAFX_CHECK(!fullDiagnostics.activeFxRoiApplied);
+
+    const RenderTarget roiTarget = createRenderTarget(graphics.device.Get());
+    const FxRenderCpuDiagnostics roiDiagnostics = renderer.render(
+        snapshot,
+        roiTarget.view.Get(),
+        std::nullopt,
+        nullptr,
+        nullptr,
+        FxActiveRoi{bafx::core::RectI{32, 32, 224, 224}});
+    BAFX_CHECK(roiDiagnostics.activeFxRoiApplied);
+    BAFX_CHECK(roiDiagnostics.activeFxRoiPixels == 96U * 96U);
+
+    const std::vector<ReadbackPixel> full = readback(
+        graphics.context.Get(),
+        fullTarget.texture.Get());
+    const std::vector<ReadbackPixel> roi = readback(
+        graphics.context.Get(),
+        roiTarget.texture.Get());
+    BAFX_CHECK(full.size() == roi.size());
+    float maximumDifference = 0.0F;
+    for (std::size_t index = 0U; index < full.size(); ++index)
+    {
+        maximumDifference = std::max({
+            maximumDifference,
+            std::abs(full[index].red - roi[index].red),
+            std::abs(full[index].green - roi[index].green),
+            std::abs(full[index].blue - roi[index].blue),
+            std::abs(full[index].alpha - roi[index].alpha)});
+    }
+    BAFX_CHECK(maximumDifference == 0.0F);
+}
+
 BAFX_TEST(warp_capture_proves_triangle_enters_bloom)
 {
     ComApartment apartment;

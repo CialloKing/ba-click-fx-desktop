@@ -11,7 +11,7 @@
 namespace bafx::config
 {
 
-inline constexpr std::uint32_t currentSchemaVersion = 18U;
+inline constexpr std::uint32_t currentSchemaVersion = 19U;
 inline constexpr std::size_t maximumDisplayOverrides = 64U;
 inline constexpr std::size_t maximumDisplayKeyBytes = 4096U;
 
@@ -156,6 +156,9 @@ struct InputConfig
 struct PerformanceConfig
 {
     bool idleOptimization{true};
+    // Active-FX ROI is opt-in until its constrained production path has been
+    // accepted across the supported hardware matrix.
+    bool activeFxRoiEnabled{false};
     FramePacing framePacing{FramePacing::MatchDisplay};
     EffectsMode effectsMode{EffectsMode::Full};
 };

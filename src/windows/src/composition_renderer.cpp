@@ -628,6 +628,64 @@ void populateRoiDiagnostics(
     diagnostics.roi.planAvailable = true;
 }
 
+[[nodiscard]] std::optional<FxActiveRoi> selectActiveFxRoi(
+    RoiFrameDiagnostics& diagnostics,
+    const WindowSize size,
+    const FxBloomSettings bloomSettings,
+    const FxOverlayProfile overlayProfile,
+    const bool requested) noexcept
+{
+    diagnostics.requested = requested;
+    if (!requested)
+    {
+        diagnostics.activeStatus = bafx::core::ActiveFxRoiStatus::Disabled;
+        return std::nullopt;
+    }
+    if (!bloomSettings.enabled)
+    {
+        diagnostics.activeStatus =
+            bafx::core::ActiveFxRoiStatus::BloomDisabled;
+        return std::nullopt;
+    }
+    if (overlayProfile == FxOverlayProfile::Core)
+    {
+        diagnostics.activeStatus = bafx::core::ActiveFxRoiStatus::CoreMode;
+        return std::nullopt;
+    }
+    if (!diagnostics.planAvailable || diagnostics.alignedWorkPixels == 0U)
+    {
+        diagnostics.activeStatus =
+            bafx::core::ActiveFxRoiStatus::NoVisualPlan;
+        return std::nullopt;
+    }
+
+    const bafx::core::RectI rect = diagnostics.alignedWork;
+    if (rect.left <= 0
+        || rect.top <= 0
+        || rect.right >= static_cast<std::int32_t>(size.width)
+        || rect.bottom >= static_cast<std::int32_t>(size.height))
+    {
+        // The edge clamp path is retained as the normative full-screen path
+        // until boundary pixel equivalence has separate hardware acceptance.
+        diagnostics.activeStatus =
+            bafx::core::ActiveFxRoiStatus::TouchesBoundary;
+        return std::nullopt;
+    }
+
+    const std::uint64_t maximumRoiPixels =
+        diagnostics.fullScreenPixels
+        - diagnostics.fullScreenPixels / 5U;
+    if (diagnostics.alignedWorkPixels >= maximumRoiPixels)
+    {
+        diagnostics.activeStatus =
+            bafx::core::ActiveFxRoiStatus::AreaTooLarge;
+        return std::nullopt;
+    }
+    diagnostics.activeStatus =
+        bafx::core::ActiveFxRoiStatus::RendererFallback;
+    return FxActiveRoi{rect};
+}
+
 }
 
 CompositionRenderer::CompositionRenderer(
@@ -1055,6 +1113,19 @@ bool CompositionRenderer::setBloomSettings(const FxBloomSettings settings)
     }
 }
 
+void CompositionRenderer::setActiveFxRoiEnabled(const bool enabled) noexcept
+{
+    activeFxRoiEnabled_ = enabled;
+    // A new ROI epoch must not union against bounds produced under a different
+    // execution policy; the first enabled frame starts from current content.
+    previousVisualBounds_.reset();
+}
+
+bool CompositionRenderer::activeFxRoiEnabled() const noexcept
+{
+    return activeFxRoiEnabled_;
+}
+
 void CompositionRenderer::setThemeColor(const std::string_view themeColor)
 {
     fxRenderer_->setThemeColor(themeColor);
@@ -1167,6 +1238,12 @@ CompositionFrameDiagnostics CompositionRenderer::renderFrame(
         size_,
         bloomSettings_,
         previousVisualBounds_);
+    const std::optional<FxActiveRoi> activeRoi = selectActiveFxRoi(
+        diagnostics.roi,
+        size_,
+        bloomSettings_,
+        overlayProfile_,
+        activeFxRoiEnabled_);
     GpuTimestampFrameScope gpuTimestampFrame(
         *gpuTimestampProfiler_,
         diagnostics.frameId,
@@ -1360,7 +1437,18 @@ CompositionFrameDiagnostics CompositionRenderer::renderFrame(
         gpuTimestampFrame.recorder(),
         spout2Enabled_ && recordingRenderTarget_ != nullptr
             ? recordingRenderTarget_.Get()
-            : nullptr);
+            : nullptr,
+        activeRoi);
+    diagnostics.roi.prefilterApplied =
+        diagnostics.fx.activeFxRoiApplied;
+    diagnostics.roi.prefilterPixels =
+        diagnostics.fx.activeFxRoiPixels;
+    if (diagnostics.roi.prefilterApplied)
+    {
+        diagnostics.roi.activeStatus =
+            bafx::core::ActiveFxRoiStatus::AppliedPrefilter;
+        diagnostics.roi.productionFullScreenFallback = false;
+    }
     if (spout2Enabled_ && recordingTexture_ != nullptr)
     {
         static_cast<void>(spout2Sender_->send(

@@ -11,7 +11,7 @@ ADR 记录架构选择、替代方案和证据，不记录实现进度。状态�
 | 003 | WGC 能力、生命周期与功耗 | Proposed | SPK-002, SPK-004 |
 | 004 | 自排除与录屏兼容 | Proposed | SPK-002, VAL-RECORDING |
 | 005 | Golden Oracle 与数值比较 | Proposed | 全部验证层级 |
-| 006 | ROI、guard 与 mip 相位 | Proposed | VAL-ROI；未接受时走 full-screen |
+| 006 | ROI、guard 与 mip 相位 | Proposed | 首级 prefilter WARP 等价；其余 pass/full-screen fallback |
 | 007 | 背景时间有效性 | Proposed | SPK-002, SPK-004, VAL-TEMPORAL |
 | 009 | 方案 C 本机身份安装通道 | Proposed | Identity Spike, SPK-002 |
 

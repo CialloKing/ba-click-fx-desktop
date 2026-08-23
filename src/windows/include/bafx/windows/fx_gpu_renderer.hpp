@@ -1,6 +1,7 @@
 #pragma once
 
 #include "bafx/fx/simulation.hpp"
+#include "bafx/core/types.hpp"
 #include "bafx/windows/composition_output.hpp"
 #include "bafx/windows/fx_bloom_settings.hpp"
 #include "bafx/windows/gpu_texture_readback.hpp"
@@ -44,6 +45,15 @@ struct FxRenderCpuDiagnostics
     std::chrono::nanoseconds materialsSubmit{};
     std::chrono::nanoseconds bloomAndCompositeSubmit{};
     bool visualContent{false};
+    bool activeFxRoiApplied{false};
+    std::uint64_t activeFxRoiPixels{0U};
+};
+
+struct FxActiveRoi final
+{
+    // Full-resolution, phase-aligned work domain. The renderer maps it onto
+    // the first Bloom target while preserving the original full-screen UVs.
+    bafx::core::RectI alignedWork{};
 };
 
 enum class FxOverlayProfile : std::uint8_t
@@ -85,7 +95,8 @@ public:
         ID3D11RenderTargetView* destination,
         std::optional<BackgroundRenderInput> background = std::nullopt,
         GpuTimestampProfiler* gpuTimestampProfiler = nullptr,
-        ID3D11RenderTargetView* recordingDestination = nullptr);
+        ID3D11RenderTargetView* recordingDestination = nullptr,
+        std::optional<FxActiveRoi> activeRoi = std::nullopt);
     [[nodiscard]] FxGpuFrameCapture renderAndCapture(
         const bafx::fx::FrameSnapshot& snapshot,
         ID3D11RenderTargetView* destination);

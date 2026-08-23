@@ -82,6 +82,11 @@ struct FramePerformanceSample
     bafx::core::RectI roiDirtyRect{};
     bafx::core::RectI roiBloomOutput{};
     bafx::core::RectI roiAlignedWork{};
+    bool roiRequested{false};
+    bool roiApplied{false};
+    std::uint64_t roiPrefilterPixels{0U};
+    bafx::core::ActiveFxRoiStatus roiActiveStatus{
+        bafx::core::ActiveFxRoiStatus::Disabled};
     std::uint64_t gpuWgcDrainAndCopyMicroseconds{0U};
     std::uint64_t gpuBackgroundSnapshotMicroseconds{0U};
     std::uint64_t gpuFxMaterialsMicroseconds{0U};
@@ -146,6 +151,10 @@ struct RuntimePerformanceSummary
     std::uint64_t roiPlanInvalidRectFrames{0U};
     std::uint64_t roiPlanInvalidFootprintFrames{0U};
     std::uint64_t roiPlanOverflowFrames{0U};
+    std::uint64_t roiRequestedFrames{0U};
+    std::uint64_t roiAppliedFrames{0U};
+    bafx::core::ActiveFxRoiStatus roiLastActiveStatus{
+        bafx::core::ActiveFxRoiStatus::Disabled};
     bafx::fx::FrameBoundsStatus roiLastVisualBoundsStatus{
         bafx::fx::FrameBoundsStatus::Empty};
     bafx::core::RoiStatus roiLastPlanStatus{bafx::core::RoiStatus::Empty};
@@ -187,6 +196,7 @@ struct RuntimePerformanceSummary
     MetricSummary roiGuardX{};
     MetricSummary roiGuardY{};
     MetricSummary roiPhasePeriod{};
+    MetricSummary roiPrefilterPixels{};
     bool roiLastDirtyRectAvailable{false};
     bafx::core::RectI roiLastDirtyRect{};
     bool roiLastBloomOutputAvailable{false};
@@ -299,6 +309,10 @@ private:
     std::uint64_t roiPlanInvalidRectFrames_{0U};
     std::uint64_t roiPlanInvalidFootprintFrames_{0U};
     std::uint64_t roiPlanOverflowFrames_{0U};
+    std::uint64_t roiRequestedFrames_{0U};
+    std::uint64_t roiAppliedFrames_{0U};
+    bafx::core::ActiveFxRoiStatus roiLastActiveStatus_{
+        bafx::core::ActiveFxRoiStatus::Disabled};
     bafx::fx::FrameBoundsStatus roiLastVisualBoundsStatus_{
         bafx::fx::FrameBoundsStatus::Empty};
     bafx::core::RoiStatus roiLastPlanStatus_{bafx::core::RoiStatus::Empty};
@@ -340,6 +354,7 @@ private:
     BoundedMetric roiGuardX_{};
     BoundedMetric roiGuardY_{};
     BoundedMetric roiPhasePeriod_{};
+    BoundedMetric roiPrefilterPixels_{};
     bool roiLastDirtyRectAvailable_{false};
     bafx::core::RectI roiLastDirtyRect_{};
     bool roiLastBloomOutputAvailable_{false};

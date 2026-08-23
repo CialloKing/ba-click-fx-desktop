@@ -283,25 +283,26 @@ FX-only 与 background-aware 在 `3840x2160 @ 170 Hz` 下均保持
 
 ## P1：WGC 成本优化与 guard-band ROI
 
-当前 P1 原型已完成 Unity Bloom footprint 的纯函数规划，但尚未改变生产画面：
-`planUnityBloomRoi` 会输出保守 guard/phase，生产渲染仍保持 full-screen fallback。
+当前 P1 已完成 Unity Bloom footprint 的纯函数规划，并接入一个默认关闭、受约束的生产切片：
+`planUnityBloomRoi` 输出保守 guard/phase，Active-FX ROI 只裁剪纯特效 Bloom 首级预滤波；
+后续 mip、最终合成、WGC 拷贝和 Present 仍保持全屏。
 当前 Host 已从活跃 `FrameSnapshot` 生成跨帧 dirty rect，并在 `Performance.Interval` 记录
-full-screen/计划工作区像素、guard、phase 和各状态计数；这仍是观测数据，生产渲染继续保持
-full-screen fallback。下一小项是以该计划测量 ROI 与 full-screen 的资源尺寸、GPU 时间和
-FP16 差异。
+full-screen/计划工作区像素、guard、phase、请求/应用帧和首级预滤波像素。内部工作区的 WARP FP16
+等价回归已通过；贴边、面积达到 80%、无有效计划、Bloom 关闭、core 模式或不满足纯特效输入约束时
+仍回退全屏。下一小项是在真实硬件上量化首级像素减少带来的 GPU 收益，并继续扩展随机像素矩阵。
 
 基线确认瓶颈后，按下列顺序降低背景感知路径成本：
 
 1. 没有可见特效时保留会话，并把 sensor drain/copy 限制为最高 `20 Hz`；跳过批次背景快照、Bloom 和
    Present。重新进入活跃状态时使用保鲜样本，不能复用已失效的桌面快照。
 2. 仅在特效存活期间处理背景，并验证暂停、模式切换和 WGC frame event 不会留下静态旧背景。
-3. 以活跃特效包围盒为基础加入 Bloom 半径、滤波核、移动余量和 mip 对齐所需的 guard band，建立
-   局部 ROI 原型；边缘、尺寸或资源状态不满足合同时必须回退全屏路径。
+3. 以活跃特效包围盒为基础加入 Bloom 半径、滤波核、移动余量和 mip 对齐所需的 guard band；当前先
+   接入首级预滤波 scissor，后续 pass 只有在各自边界依赖和旧像素清理都被证明后才能局部化。
 4. 使用相同场景比较全屏与 ROI 的 GPU 时间、copy 带宽、Present 阻塞和 FP16 像素结果；不能只报告
    CPU 提交时间或资源尺寸。
 
-本阶段交付为 active-FX-only WGC 处理和 guard-band ROI 原型，以及相对全屏基线的成本与像素差异报告。
-ROI 数值合同继续服从 ADR-006；原型通过前，全屏仍是生产 fallback。
+本阶段交付为 active-FX-only WGC 处理、guard-band ROI 首级预滤波切片，以及相对全屏基线的成本与
+像素差异报告。ROI 数值合同继续服从 ADR-006；未覆盖的 pass 和不满足约束的帧仍使用全屏路径。
 
 ## P2：Unity/Web/Native 固定时间片视觉回归
 

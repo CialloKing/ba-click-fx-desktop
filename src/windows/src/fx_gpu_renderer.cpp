@@ -739,6 +739,12 @@ struct FxGpuRenderer::Implementation
                 &rasterizerDescription,
                 &fullscreenRasterizerState),
             "ID3D11Device::CreateRasterizerState(Bloom)");
+        rasterizerDescription.ScissorEnable = TRUE;
+        throwIfFailed(
+            device->CreateRasterizerState(
+                &rasterizerDescription,
+                &fullscreenScissorRasterizerState),
+            "ID3D11Device::CreateRasterizerState(Bloom ROI)");
 
         D3D11_BLEND_DESC blendDescription{};
         blendDescription.RenderTarget[0].BlendEnable = FALSE;
@@ -1156,7 +1162,8 @@ struct FxGpuRenderer::Implementation
         const BloomConstants& constants,
         ID3D11ShaderResourceView* source2 = nullptr,
         ID3D11ShaderResourceView* source3 = nullptr,
-        ID3D11ShaderResourceView* source4 = nullptr)
+        ID3D11ShaderResourceView* source4 = nullptr,
+        const D3D11_RECT* scissor = nullptr)
     {
         const std::array<ID3D11RenderTargetView*, 1> targets{target};
         drawFullscreenTargets(
@@ -1168,7 +1175,8 @@ struct FxGpuRenderer::Implementation
             constants,
             source2,
             source3,
-            source4);
+            source4,
+            scissor);
     }
 
     void drawFullscreenTargets(
@@ -1180,7 +1188,8 @@ struct FxGpuRenderer::Implementation
         const BloomConstants& constants,
         ID3D11ShaderResourceView* source2 = nullptr,
         ID3D11ShaderResourceView* source3 = nullptr,
-        ID3D11ShaderResourceView* source4 = nullptr)
+        ID3D11ShaderResourceView* source4 = nullptr,
+        const D3D11_RECT* scissor = nullptr)
     {
         D3D11_MAPPED_SUBRESOURCE mapped{};
         throwIfFailed(
@@ -1202,7 +1211,14 @@ struct FxGpuRenderer::Implementation
             0.0F,
             1.0F};
         context->RSSetViewports(1, &viewport);
-        context->RSSetState(fullscreenRasterizerState.Get());
+        context->RSSetState(
+            scissor == nullptr
+                ? fullscreenRasterizerState.Get()
+                : fullscreenScissorRasterizerState.Get());
+        if (scissor != nullptr)
+        {
+            context->RSSetScissorRects(1U, scissor);
+        }
         context->OMSetDepthStencilState(depthState.Get(), 0);
         context->OMSetRenderTargets(
             static_cast<UINT>(targets.size()),
@@ -1245,11 +1261,90 @@ struct FxGpuRenderer::Implementation
             noResources.data());
     }
 
-    void renderBloom(
+    [[nodiscard]] std::optional<D3D11_RECT> bloomPrefilterScissor(
+        const std::optional<FxActiveRoi> activeRoi) const noexcept
+    {
+        if (!activeRoi.has_value()
+            || size.width == 0U
+            || size.height == 0U
+            || bloomPlan.mipChain.empty())
+        {
+            return std::nullopt;
+        }
+
+        const bafx::core::RectI rect = activeRoi->alignedWork;
+        if (rect.left < 0
+            || rect.top < 0
+            || rect.right <= rect.left
+            || rect.bottom <= rect.top
+            || static_cast<std::uint32_t>(rect.right) > size.width
+            || static_cast<std::uint32_t>(rect.bottom) > size.height)
+        {
+            return std::nullopt;
+        }
+
+        const bafx::core::BloomExtent target = bloomPlan.mipChain.front();
+        if (target.width <= 0 || target.height <= 0)
+        {
+            return std::nullopt;
+        }
+        const auto scaleFloor = [](
+                                    const std::uint32_t coordinate,
+                                    const std::uint32_t sourceExtent,
+                                    const std::uint32_t targetExtent)
+        {
+            return static_cast<std::uint32_t>(
+                static_cast<std::uint64_t>(coordinate) * targetExtent
+                / sourceExtent);
+        };
+        const auto scaleCeil = [](
+                                   const std::uint32_t coordinate,
+                                   const std::uint32_t sourceExtent,
+                                   const std::uint32_t targetExtent)
+        {
+            const std::uint64_t product =
+                static_cast<std::uint64_t>(coordinate) * targetExtent;
+            return static_cast<std::uint32_t>(
+                product / sourceExtent
+                + (product % sourceExtent == 0U ? 0U : 1U));
+        };
+        const std::uint32_t targetWidth = static_cast<std::uint32_t>(
+            target.width);
+        const std::uint32_t targetHeight = static_cast<std::uint32_t>(
+            target.height);
+        const std::uint32_t left = scaleFloor(
+            static_cast<std::uint32_t>(rect.left),
+            size.width,
+            targetWidth);
+        const std::uint32_t top = scaleFloor(
+            static_cast<std::uint32_t>(rect.top),
+            size.height,
+            targetHeight);
+        const std::uint32_t right = scaleCeil(
+            static_cast<std::uint32_t>(rect.right),
+            size.width,
+            targetWidth);
+        const std::uint32_t bottom = scaleCeil(
+            static_cast<std::uint32_t>(rect.bottom),
+            size.height,
+            targetHeight);
+        if (right <= left || bottom <= top)
+        {
+            return std::nullopt;
+        }
+        return D3D11_RECT{
+            static_cast<LONG>(left),
+            static_cast<LONG>(top),
+            static_cast<LONG>(right),
+            static_cast<LONG>(bottom)};
+    }
+
+    [[nodiscard]] std::uint64_t renderBloom(
         ID3D11RenderTargetView* destination,
         ID3D11PixelShader* finalCompositeShader,
         const std::optional<BackgroundRenderInput> background,
-        ID3D11RenderTargetView* bloomResultDestination = nullptr)
+        ID3D11RenderTargetView* bloomResultDestination = nullptr,
+        const std::optional<FxActiveRoi> activeRoi = std::nullopt)
     {
         const bafx::core::BloomExtent sourceExtent{
             static_cast<std::int32_t>(size.width),
@@ -1257,6 +1352,22 @@ struct FxGpuRenderer::Implementation
         const bafx::core::BloomExtent firstExtent = bloomPlan.mipChain[0];
         const float backgroundWhiteScale = backgroundReferenceWhiteScale();
         const float outputWhiteScale = outputReferenceWhiteScale();
+        const std::optional<D3D11_RECT> prefilterScissor =
+            bloomPrefilterScissor(activeRoi);
+        if (prefilterScissor.has_value())
+        {
+            constexpr std::array<float, 4> transparent{
+                0.0F,
+                0.0F,
+                0.0F,
+                0.0F};
+            // Outside the conservative source support the prefilter is
+            // mathematically zero. Clear the persistent full-size target so
+            // scissoring cannot expose pixels from an earlier ROI.
+            context->ClearRenderTargetView(
+                bloomDownTargets[0].renderTarget.Get(),
+                transparent.data());
+        }
         drawFullscreen(
             bloomDownTargets[0].renderTarget.Get(),
             firstExtent,
@@ -1274,7 +1385,10 @@ struct FxGpuRenderer::Implementation
                 outputWhiteScale),
             background.has_value()
                 ? occlusionTarget.shaderResource.Get()
-                : nullptr);
+                : nullptr,
+            nullptr,
+            nullptr,
+            prefilterScissor.has_value() ? &*prefilterScissor : nullptr);
 
         for (std::size_t index = 1U; index < bloomPlan.mipCount; ++index)
         {
@@ -1330,7 +1444,14 @@ struct FxGpuRenderer::Implementation
                 occlusionTarget.shaderResource.Get(),
                 background.has_value() ? background->shaderResource : nullptr,
                 crossTarget.shaderResource.Get());
-            return;
+            if (!prefilterScissor.has_value())
+            {
+                return 0U;
+            }
+            return static_cast<std::uint64_t>(
+                prefilterScissor->right - prefilterScissor->left)
+                * static_cast<std::uint64_t>(
+                    prefilterScissor->bottom - prefilterScissor->top);
         }
 
         const std::array<ID3D11RenderTargetView*, 2> targets{
@@ -1346,6 +1467,14 @@ struct FxGpuRenderer::Implementation
             occlusionTarget.shaderResource.Get(),
             background.has_value() ? background->shaderResource : nullptr,
             crossTarget.shaderResource.Get());
+        if (!prefilterScissor.has_value())
+        {
+            return 0U;
+        }
+        return static_cast<std::uint64_t>(
+            prefilterScissor->right - prefilterScissor->left)
+            * static_cast<std::uint64_t>(
+                prefilterScissor->bottom - prefilterScissor->top);
     }
 
     void renderWithoutBloom(
@@ -1502,7 +1631,8 @@ struct FxGpuRenderer::Implementation
         std::optional<BackgroundRenderInput> background = std::nullopt,
         ID3D11RenderTargetView* bloomResultDestination = nullptr,
         GpuTimestampProfiler* gpuTimestampProfiler = nullptr,
-        ID3D11RenderTargetView* recordingDestination = nullptr)
+        ID3D11RenderTargetView* recordingDestination = nullptr,
+        const std::optional<FxActiveRoi> activeRoi = std::nullopt)
     {
         FxRenderCpuDiagnostics diagnostics{};
         const auto totalStartedAt = std::chrono::steady_clock::now();
@@ -1640,11 +1770,14 @@ struct FxGpuRenderer::Implementation
         const auto bloomStartedAt = std::chrono::steady_clock::now();
         if (bloomSettings.enabled)
         {
-            renderBloom(
+            diagnostics.activeFxRoiPixels = renderBloom(
                 destination,
                 finalCompositeShader,
                 background,
-                bloomResultDestination);
+                bloomResultDestination,
+                background.has_value() ? std::nullopt : activeRoi);
+            diagnostics.activeFxRoiApplied =
+                diagnostics.activeFxRoiPixels > 0U;
         }
         else
         {
@@ -1669,10 +1802,18 @@ struct FxGpuRenderer::Implementation
             {
                 // Differential Bloom belongs only to the desktop path. Rebuild
                 // pure FX Bloom so OBS output cannot vary with WGC pixels.
-                renderBloom(
+                const std::uint64_t recordingRoiPixels = renderBloom(
                     bloomResultTarget.renderTarget.Get(),
                     bloomResultPixelShader.Get(),
-                    std::nullopt);
+                    std::nullopt,
+                    nullptr,
+                    activeRoi);
+                if (!diagnostics.activeFxRoiApplied
+                    && recordingRoiPixels > 0U)
+                {
+                    diagnostics.activeFxRoiApplied = true;
+                    diagnostics.activeFxRoiPixels = recordingRoiPixels;
+                }
             }
             renderRecordingComposite(recordingDestination);
         }
@@ -1922,7 +2063,8 @@ struct FxGpuRenderer::Implementation
         ID3D11RenderTargetView* const destination,
         const std::optional<BackgroundRenderInput> background,
         GpuTimestampProfiler* const gpuTimestampProfiler,
-        ID3D11RenderTargetView* const recordingDestination)
+        ID3D11RenderTargetView* const recordingDestination,
+        const std::optional<FxActiveRoi> activeRoi)
     {
         if (recordingDestination != nullptr)
         {
@@ -1941,7 +2083,8 @@ struct FxGpuRenderer::Implementation
                     ? nullptr
                     : bloomResultTarget.renderTarget.Get(),
                 gpuTimestampProfiler,
-                recordingDestination);
+                recordingDestination,
+                activeRoi);
         }
         return render(
             snapshot,
@@ -1949,7 +2092,9 @@ struct FxGpuRenderer::Implementation
             desktopCompositeShader(background.has_value()),
             background,
             nullptr,
-            gpuTimestampProfiler);
+            gpuTimestampProfiler,
+            nullptr,
+            activeRoi);
     }
 
     ComPtr<ID3D11Device> device{};
@@ -2000,6 +2145,7 @@ struct FxGpuRenderer::Implementation
     ComPtr<ID3D11SamplerState> repeatSampler{};
     ComPtr<ID3D11RasterizerState> rasterizerState{};
     ComPtr<ID3D11RasterizerState> fullscreenRasterizerState{};
+    ComPtr<ID3D11RasterizerState> fullscreenScissorRasterizerState{};
     ComPtr<ID3D11DepthStencilState> depthState{};
     ComPtr<ID3D11BlendState> crossBlendState{};
     ComPtr<ID3D11BlendState> emissionBlendState{};
@@ -2063,14 +2209,16 @@ FxRenderCpuDiagnostics FxGpuRenderer::render(
     ID3D11RenderTargetView* destination,
     const std::optional<BackgroundRenderInput> background,
     GpuTimestampProfiler* const gpuTimestampProfiler,
-    ID3D11RenderTargetView* const recordingDestination)
+    ID3D11RenderTargetView* const recordingDestination,
+    const std::optional<FxActiveRoi> activeRoi)
 {
     return implementation_->renderDesktop(
         snapshot,
         destination,
         background,
         gpuTimestampProfiler,
-        recordingDestination);
+        recordingDestination,
+        activeRoi);
 }
 
 FxGpuFrameCapture FxGpuRenderer::renderAndCapture(

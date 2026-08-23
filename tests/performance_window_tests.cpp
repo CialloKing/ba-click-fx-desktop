@@ -127,7 +127,12 @@ BAFX_TEST(runtime_performance_window_aggregates_input_and_render_contracts)
         .roiPhasePeriod = 64U,
         .roiDirtyRect = bafx::core::RectI{10, 20, 30, 40},
         .roiBloomOutput = bafx::core::RectI{0, 0, 100, 100},
-        .roiAlignedWork = bafx::core::RectI{0, 0, 128, 128}});
+        .roiAlignedWork = bafx::core::RectI{0, 0, 128, 128},
+        .roiRequested = true,
+        .roiApplied = true,
+        .roiPrefilterPixels = 12'500U,
+        .roiActiveStatus =
+            bafx::core::ActiveFxRoiStatus::AppliedPrefilter});
     window.addDispatchToPresentReturn(12'000U);
     window.addMessageToPresentReturn(47U);
     window.addFramePacingWake(bafx::desktop::FramePacingWake::FrameReady);
@@ -163,10 +168,16 @@ BAFX_TEST(runtime_performance_window_aggregates_input_and_render_contracts)
     BAFX_CHECK(summary.roiVisualBoundsOkFrames == 1U);
     BAFX_CHECK(summary.roiDirtyRectFrames == 1U);
     BAFX_CHECK(summary.roiPlanFrames == 1U);
+    BAFX_CHECK(summary.roiRequestedFrames == 1U);
+    BAFX_CHECK(summary.roiAppliedFrames == 1U);
+    BAFX_CHECK(
+        summary.roiLastActiveStatus
+        == bafx::core::ActiveFxRoiStatus::AppliedPrefilter);
     BAFX_CHECK(summary.roiFullScreenPixels.maximum == 1'920U * 1'080U);
     BAFX_CHECK(summary.roiAlignedWorkPixels.maximum == 50'000U);
     BAFX_CHECK(summary.roiGuardX.maximum == 378U);
     BAFX_CHECK(summary.roiPhasePeriod.maximum == 64U);
+    BAFX_CHECK(summary.roiPrefilterPixels.maximum == 12'500U);
     BAFX_CHECK(summary.roiLastDirtyRectAvailable);
     BAFX_CHECK(summary.roiLastDirtyRect.left == 10);
     BAFX_CHECK(summary.roiLastAlignedWork.right == 128);
