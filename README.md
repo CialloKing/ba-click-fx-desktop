@@ -199,7 +199,8 @@ Visual Studio、Windows SDK、Inno Setup 或 PowerShell 依赖包；安装器已
 首次生成的 schema 17 配置将 `background.mode` 设为 `background-aware`、
 `background.allowSystemBorder` 设为 `true`、`display.hdrEnabled` 设为 `false`，并以
 `performance.framePacing=match-display`、`input.trailOnlyWhilePressed=true`、`input.samplingRateHz=0`
-保持跟随显示器帧率、按住拖尾且不额外限制输入 Move。
+保持跟随显示器刷新率、按住拖尾且不额外限制输入 Move。显示刷新率缺失或无效时，
+`match-display` 保守回退到 60 FPS；只有显式选择 `unlimited` 才不设置额外最小帧周期。
 测试版只接受字段完整的显式 `schemaVersion=17`：缺少版本、section 或字段，非当前版本、
 未知字段和枚举别名都会被拒绝。Host 记录错误后仅在内存中使用当前默认值，不补齐、不迁移也不改写
 原文件。只有
@@ -227,7 +228,7 @@ FX-only，不会先启动带黄色边框的会话。无论该开关如何设置�
 扩散、阈值、软阈值和亮度上限。“显示与性能”页通过 `GetDisplayState` 选择并查看每个显示会话的
 实际边界、DPI、物理/捕获刷新率、DRR、颜色查询、SDR white level、色彩/输出回退、WGC 和故障状态，
 并提供默认关闭的全局 HDR 请求以及
-`match-display`、`60`、`120`、`144` 四种 `performance.framePacing` 策略。具有稳定 DisplayConfig
+`match-display`、`60`、`120`、`144`、`unlimited` 五种 `performance.framePacing` 策略。具有稳定 DisplayConfig
 标识的显示器可以启用独立设置，分别控制特效、HDR 请求和帧率策略；关闭独立设置后恢复继承全局值。
 没有稳定标识的会话仍可查看，但逐屏写入控件保持禁用。完整拓扑下，选择器还会列出未连接显示器的
 遗留 override；这些条目没有伪造的运行状态，只能通过现有原子命令删除。诊断文本使用可滚动只读区域；系统页提供“清理诊断日志”按钮，确认后通过 `ClearLogs` 删除当前日志和轮转备份，
@@ -286,6 +287,7 @@ SetConfig {"generation":1,"path":"background.mode","value":"light-background"}
 SetConfig {"generation":1,"path":"background.allowSystemBorder","value":false}
 SetConfig {"generation":1,"path":"display.hdrEnabled","value":true}
 SetConfig {"generation":1,"path":"performance.framePacing","value":"120"}
+SetConfig {"generation":1,"path":"performance.framePacing","value":"unlimited"}
 SetFxParam {"generation":1,"path":"effects.diskRadius","value":40}
 SetFxParam {"generation":1,"path":"effects.diskLifetimeMs","value":250}
 SetFxParams {"generation":1,"patch":{"effects.ringsCount":3,"effects.ringsLifetimeMs":700,"effects.ringsRadiusMin":60,"effects.ringsRadiusMax":90,"effects.ringsAngularVelocityMultiplier":12,"effects.ringsRotationDirection":-1}}

@@ -20,7 +20,7 @@
   `effects.shardsSizeMax`、`effects.trailOpacity`、Bloom 扩散/阈值/软阈值/亮度上限等参数。基础页还提供
   背景模式、指针排除、系统捕获边框和空闲资源优化。“显示与性能”页选择并显示 Host 的逐屏实际状态，
   提供默认关闭的
-  全局 HDR 请求，以及跟随显示器、固定 `60/120/144 FPS` 四种帧率策略；具有稳定标识的显示器还可
+  全局 HDR 请求，以及跟随显示器、固定 `60/120/144 FPS`、无限制五种帧率策略；具有稳定标识的显示器还可
   独立控制特效、HDR 请求和帧率策略。“系统”页提供随 Windows 启动、启动时最小化和关闭时隐藏到托盘，
   以及“清理诊断日志”按钮；确认后会显示删除文件数、释放字节数和失败文件数。启用随 Windows 启动后，
   登录时由 Control Center 复用正常激活路径启动 Host。
@@ -71,7 +71,9 @@
   防止旧 HDR 表面继续驻留。`Display.Output.RenegotiationExhausted` 会记录请求/实际映射和最终处置。
 - 首次生成的完整 schema 17 配置默认为 `background.mode=background-aware`、
   `background.allowSystemBorder=true`、`input.trailOnlyWhilePressed=true`、
-  `input.samplingRateHz=0`、`display.hdrEnabled=false` 和 `performance.framePacing=match-display`。测试版只接受字段完整的 schema 17；非当前 schema、
+  `input.samplingRateHz=0`、`display.hdrEnabled=false` 和 `performance.framePacing=match-display`。
+  `match-display` 使用目标显示器的精确刷新率，刷新率缺失或无效时回退到 60 FPS；`unlimited` 才保留
+  不设置额外最小帧周期的行为。测试版只接受字段完整的 schema 17；非当前 schema、
   缺失或未知字段以及枚举别名均被拒绝。Host 保留无效原文件并以内存中的当前默认值继续运行，不迁移、
   补齐或改写无效配置。背景感知授权、排除或会话失败时回退内部 FX-only transport；其余模式不启用 WGC。
 - portable 运行时把 `BAFX.config.json`、`ba-click-fx-desktop-support.log` 和支持报告写入 EXE 所在目录；

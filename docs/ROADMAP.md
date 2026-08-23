@@ -115,7 +115,7 @@ reference white 进行 SDR/HDR 映射。HDR/WCG 要求背景白点而该值未�
 
 同一逐屏快照现已通过只读 `GetDisplayState` IPC 暴露给 Control Center。“显示与性能”顶层页可以保留
 显示器选择并展示实际边界、DPI、显示/捕获刷新率、GPU、输出、HDR、WGC 与故障状态；全局配置入口提供
-默认关闭的 HDR 请求，以及 `match-display`、`60`、`120`、`144` 四档帧率策略。解析失败或 Host 报告
+默认关闭的 HDR 请求，以及 `match-display`、`60`、`120`、`144`、`unlimited` 五档帧率策略。解析失败或 Host 报告
 未知能力时 UI 显示不可用/未知，不以配置请求推导支持状态。这是代码逻辑与诊断入口，真实 HDR、多显示器、
 混合 DPI/刷新率及跨适配器硬件矩阵仍为 `Not Run`。
 

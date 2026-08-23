@@ -80,8 +80,9 @@
     显示会话，并在可滚动只读区域展示 Host 实际报告的边界、DPI、物理/捕获刷新率、DRR、颜色查询、
     SDR white level、GPU、色彩/输出策略、fallback、WGC 和故障；严格解析失败、
     空会话或未知字段状态必须显式显示为不可用，不得伪装成支持。该页同时通过 `SetConfig` 管理默认关闭的
-    `display.hdrEnabled`，以及 `performance.framePacing` 的 `match-display`、`60`、`120`、`144` 四个
-    wire values。具有稳定 DisplayConfig 标识的会话可通过原子的 `SetDisplayOverride` 和
+    `display.hdrEnabled`，以及 `performance.framePacing` 的 `match-display`、`60`、`120`、`144`、
+    `unlimited` 五个 wire values。`match-display` 按目标刷新率的精确分数设置最小帧周期，证据缺失或
+    无效时回退 60 FPS；只有 `unlimited` 不设置额外最小帧周期。具有稳定 DisplayConfig 标识的会话可通过原子的 `SetDisplayOverride` 和
     `RemoveDisplayOverride` 创建或删除完整逐屏策略；完整策略同时包含特效启用、HDR 请求和帧率模式，
     避免部分写入意外继承另一字段。全局拓扑完整时，schema 2 还列出未连接显示器的遗留 override；
     Control Center 不为它伪造运行状态，只允许通过同一原子删除命令清理。无稳定标识时只允许查看，
