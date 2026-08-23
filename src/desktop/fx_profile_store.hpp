@@ -51,12 +51,26 @@ struct FxProfileStoreResult final
     }
 };
 
+// This optional probe proves the cold Profile-state materialization boundary;
+// HostControlPlane::runtimeSnapshot neither checks nor invokes it. Host
+// callbacks run while its control mutex is held and must not re-enter it.
+struct FxProfileStoreReadProbe final
+{
+    using Notify = void (*)(void* context) noexcept;
+
+    void* context{nullptr};
+    Notify summariesMaterialized{nullptr};
+    Notify activeProfileResolved{nullptr};
+};
+
 // One effects-only JSON document per profile keeps corruption and atomic
 // replacement local to that profile. The Host is the sole writer.
 class FxProfileStore final
 {
 public:
-    explicit FxProfileStore(std::filesystem::path directory);
+    explicit FxProfileStore(
+        std::filesystem::path directory,
+        FxProfileStoreReadProbe readProbe = {});
 
     [[nodiscard]] const std::vector<FxProfile>& profiles() const noexcept;
     [[nodiscard]] std::vector<FxProfileSummary> summaries() const;
@@ -85,6 +99,7 @@ private:
     std::filesystem::path directory_{};
     std::vector<FxProfile> profiles_{};
     std::string loadWarning_{};
+    FxProfileStoreReadProbe readProbe_{};
 };
 
 }

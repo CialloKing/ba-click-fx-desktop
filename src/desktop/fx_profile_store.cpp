@@ -197,8 +197,11 @@ constexpr std::size_t maximumProfileDocumentBytes = 512U * 1024U;
 
 }
 
-FxProfileStore::FxProfileStore(std::filesystem::path directory)
+FxProfileStore::FxProfileStore(
+    std::filesystem::path directory,
+    const FxProfileStoreReadProbe readProbe)
     : directory_(std::move(directory))
+    , readProbe_(readProbe)
 {
     addBuiltInProfiles();
     loadCustomProfiles();
@@ -211,6 +214,10 @@ const std::vector<FxProfile>& FxProfileStore::profiles() const noexcept
 
 std::vector<FxProfileSummary> FxProfileStore::summaries() const
 {
+    if (readProbe_.summariesMaterialized != nullptr)
+    {
+        readProbe_.summariesMaterialized(readProbe_.context);
+    }
     std::vector<FxProfileSummary> result;
     result.reserve(profiles_.size());
     for (const FxProfile& profile : profiles_)
@@ -234,6 +241,10 @@ const FxProfile* FxProfileStore::find(const std::string_view name) const noexcep
 std::string FxProfileStore::activeProfileName(
     const bafx::config::EffectsConfig& effects) const
 {
+    if (readProbe_.activeProfileResolved != nullptr)
+    {
+        readProbe_.activeProfileResolved(readProbe_.context);
+    }
     const std::string current = bafx::config::toJson(effects, false);
     for (const FxProfile& profile : profiles_)
     {

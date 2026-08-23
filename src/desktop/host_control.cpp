@@ -575,9 +575,12 @@ HostControlPlane::HostControlPlane(
     bafx::windows::NamedPipeIpcServer::Options ipcOptions,
     HostSystemIntegration systemIntegration,
     bafx::windows::RecordingCompatibleAvailability
-        recordingCompatibleAvailability)
+        recordingCompatibleAvailability,
+    const FxProfileStoreReadProbe fxProfileReadProbe)
     : configPath_(std::move(configPath))
-    , fxProfileStore_(configPath_.parent_path() / L"fx-profiles")
+    , fxProfileStore_(
+          configPath_.parent_path() / L"fx-profiles",
+          fxProfileReadProbe)
     , config_(std::move(initialConfig))
     , recordingCompatibleAvailability_(recordingCompatibleAvailability)
     , systemIntegration_(systemIntegration)
@@ -697,6 +700,16 @@ void HostControlPlane::appendRecordingCompatibleDiagnostic(
 void HostControlPlane::stop() noexcept
 {
     ipc_.stop();
+}
+
+HostRuntimeSnapshot HostControlPlane::runtimeSnapshot() const
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    return HostRuntimeSnapshot{
+        config_,
+        configGeneration_,
+        paused_,
+        ipc_.stopRequested()};
 }
 
 HostStateSnapshot HostControlPlane::snapshot() const

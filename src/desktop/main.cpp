@@ -4430,7 +4430,8 @@ int runApplication(
     {
         accumulateMessageDispatch(pendingMessageDispatch, dispatchMessages(quit));
         hostWindow.pollExitShortcut();
-        bafx::desktop::HostStateSnapshot controlState = control.snapshot();
+        const bafx::desktop::HostRuntimeSnapshot controlState =
+            control.runtimeSnapshot();
         if (controlState.shutdownRequested
             || quit
             || hostWindow.closeRequested())

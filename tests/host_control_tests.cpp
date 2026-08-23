@@ -102,6 +102,24 @@ struct FakeSystemIntegration final
     }
 };
 
+struct FxProfileReadCounts final
+{
+    std::size_t summariesMaterialized{0U};
+    std::size_t activeProfileResolved{0U};
+};
+
+void countFxProfileSummaries(void* const context) noexcept
+{
+    auto* const counts = static_cast<FxProfileReadCounts*>(context);
+    ++counts->summariesMaterialized;
+}
+
+void countActiveFxProfileResolution(void* const context) noexcept
+{
+    auto* const counts = static_cast<FxProfileReadCounts*>(context);
+    ++counts->activeProfileResolved;
+}
+
 [[nodiscard]] std::wstring testPipeName()
 {
     return L"\\\\.\\pipe\\BAFX.HostControlTest."
@@ -164,6 +182,42 @@ void checkEffectsEqual(
     BAFX_CHECK_NEAR(actual.bloomClamp, expected.bloomClamp, 0.00001F);
 }
 
+}
+
+BAFX_TEST(host_control_runtime_snapshot_skips_fx_profile_materialization)
+{
+    TemporaryConfigDirectory temporary;
+    const bafx::config::Config initial = bafx::config::defaultConfig();
+    FxProfileReadCounts profileReads{};
+    bafx::desktop::HostControlPlane control(
+        temporary.configPath(),
+        initial,
+        bafx::windows::NamedPipeIpcServer::Options{},
+        bafx::desktop::HostSystemIntegration{},
+        bafx::windows::recordingCompatibleAvailabilityForBuild(28000U),
+        bafx::desktop::FxProfileStoreReadProbe{
+            &profileReads,
+            &countFxProfileSummaries,
+            &countActiveFxProfileResolution});
+
+    const bafx::desktop::HostRuntimeSnapshot runtime =
+        control.runtimeSnapshot();
+    BAFX_CHECK(runtime.configGeneration == 1U);
+    BAFX_CHECK(!runtime.paused);
+    BAFX_CHECK(!runtime.shutdownRequested);
+    checkEffectsEqual(runtime.config.effects, initial.effects);
+    BAFX_CHECK(profileReads.summariesMaterialized == 0U);
+    BAFX_CHECK(profileReads.activeProfileResolved == 0U);
+
+    const bafx::desktop::HostStateSnapshot full = control.snapshot();
+    BAFX_CHECK(full.fxProfiles.size() == 4U);
+    BAFX_CHECK(full.activeFxProfile == "Unity 原版");
+    BAFX_CHECK(profileReads.summariesMaterialized == 1U);
+    BAFX_CHECK(profileReads.activeProfileResolved == 1U);
+
+    static_cast<void>(control.runtimeSnapshot());
+    BAFX_CHECK(profileReads.summariesMaterialized == 1U);
+    BAFX_CHECK(profileReads.activeProfileResolved == 1U);
 }
 
 BAFX_TEST(host_control_start_latches_generation_before_accepting_set_config)

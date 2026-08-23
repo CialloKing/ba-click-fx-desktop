@@ -29,6 +29,14 @@ struct Spout2RuntimeState final
     std::string outputContract{bafx::windows::spout2OutputContract};
 };
 
+struct HostRuntimeSnapshot final
+{
+    bafx::config::Config config{};
+    std::uint64_t configGeneration{0U};
+    bool paused{false};
+    bool shutdownRequested{false};
+};
+
 struct HostStateSnapshot final
 {
     bafx::config::Config config{};
@@ -124,7 +132,8 @@ public:
         bafx::windows::NamedPipeIpcServer::Options ipcOptions,
         HostSystemIntegration systemIntegration,
         bafx::windows::RecordingCompatibleAvailability
-            recordingCompatibleAvailability);
+            recordingCompatibleAvailability,
+        FxProfileStoreReadProbe fxProfileReadProbe = {});
     ~HostControlPlane();
 
     HostControlPlane(const HostControlPlane&) = delete;
@@ -136,6 +145,9 @@ public:
         bool backgroundCaptureActive) noexcept;
     void stop() noexcept;
 
+    // The render loop must not materialize IPC-only Profile state or transport
+    // strings while it samples immutable runtime control values.
+    [[nodiscard]] HostRuntimeSnapshot runtimeSnapshot() const;
     [[nodiscard]] HostStateSnapshot snapshot() const;
     [[nodiscard]] DisplayStateSnapshot displaySnapshot() const;
     void setBackgroundCaptureActive(bool active) noexcept;
