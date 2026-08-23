@@ -1423,8 +1423,8 @@ function Test-InstallerFailureDiagnostics
             -ErrorRecord $failure `
             -Phase 'Prepare' `
             -Step 'diagnostic-probe' `
-            -ProductVersion '0.2.3' `
-            -PackageVersion '0.2.3.0' `
+            -ProductVersion '0.2.4' `
+            -PackageVersion '0.2.4.0' `
             -DiagnosticPath $diagnosticPath `
             -RelatedFailures @($relatedFailure) `
             -SuppressConsole
