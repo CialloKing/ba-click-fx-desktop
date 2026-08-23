@@ -2864,7 +2864,7 @@ int runApplication(
         bafx::windows::NamedPipeIpcServer::Options{},
         hostSystemIntegration,
         recordingCompatibleAvailability);
-    std::uint64_t appliedGeneration = control.snapshot().generation;
+    std::uint64_t appliedGeneration = control.snapshot().configGeneration;
     report.setConfigurationSchemaVersion(config.schemaVersion);
     bafx::desktop::DisplayTarget appliedDisplayTarget = primaryDisplayTarget();
     bafx::windows::DisplayTopologyStatus latestDisplayTopologyStatus =
@@ -5281,7 +5281,7 @@ int runApplication(
                 if (&session != &displaySession
                     && !session.renderFaulted()
                     && session.requestSecondaryPowerRecovery(
-                        controlState.generation))
+                        controlState.configGeneration))
                 {
                     ++secondaryRecoveries;
                 }
@@ -5337,7 +5337,8 @@ int runApplication(
             // Do not turn that no-op into a needless capture restart.
             pendingOutputResize.reset();
         }
-        const bool configChanged = controlState.generation != appliedGeneration;
+        const bool configChanged =
+            controlState.configGeneration != appliedGeneration;
         if (backgroundExecution.transactionActive)
         {
             const bool displayTargetSupersedesTransaction =
@@ -5647,7 +5648,7 @@ int runApplication(
                     displaySessions,
                     displaySession,
                     bafx::desktop::backgroundCaptureRequest(config),
-                    controlState.generation,
+                    controlState.configGeneration,
                     logPath,
                     displayPowerUnavailable);
                 if (policyChange.outputPreferenceChanged)
@@ -5742,7 +5743,7 @@ int runApplication(
                         window,
                         renderer,
                         targetIntent,
-                        controlState.generation,
+                        controlState.configGeneration,
                         borderlessAccessAuthority,
                         backgroundExecution,
                         logPath);
@@ -5765,7 +5766,7 @@ int runApplication(
             case bafx::windows::BackgroundCaptureRequestResult::InvalidRequest:
                 throw std::logic_error("Background capture request was invalid");
             }
-            appliedGeneration = controlState.generation;
+            appliedGeneration = controlState.configGeneration;
             updateDisplayRuntimeSummary();
             const std::string_view configurationReason = configChanged
                 ? (displayTargetChanged

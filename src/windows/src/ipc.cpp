@@ -87,6 +87,18 @@ constexpr std::size_t maximumParserLineBytes = 1U * 1024U * 1024U;
     {
         return IpcCommand::ResetFxConfig;
     }
+    if (name == "SaveFxProfile")
+    {
+        return IpcCommand::SaveFxProfile;
+    }
+    if (name == "ApplyFxProfile")
+    {
+        return IpcCommand::ApplyFxProfile;
+    }
+    if (name == "DeleteFxProfile")
+    {
+        return IpcCommand::DeleteFxProfile;
+    }
     if (name == "Pause")
     {
         return IpcCommand::Pause;
@@ -112,7 +124,10 @@ constexpr std::size_t maximumParserLineBytes = 1U * 1024U * 1024U;
         || command == IpcCommand::SetDisplayOverride
         || command == IpcCommand::RemoveDisplayOverride
         || command == IpcCommand::SetFxParam
-        || command == IpcCommand::SetFxParams;
+        || command == IpcCommand::SetFxParams
+        || command == IpcCommand::SaveFxProfile
+        || command == IpcCommand::ApplyFxProfile
+        || command == IpcCommand::DeleteFxProfile;
 }
 
 [[nodiscard]] bool isTransientPipeError(const DWORD error) noexcept

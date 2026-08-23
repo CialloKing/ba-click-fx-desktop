@@ -33,9 +33,9 @@ WGC Session-local exclusion 已通过正式支持验收。
 ## Portable Alpha boundary
 
 portable Win32 EXE 不具备 MSIX package identity，也不能通过外部清单授予
-`graphicsCaptureWithoutBorder` capability。新生成的 schema 17 配置将
-`background.allowSystemBorder` 默认为 `true`。测试版拒绝所有旧 schema，不从旧文件套用该字段，
-也不执行迁移。
+`graphicsCaptureWithoutBorder` capability。新生成的当前 schema 19 配置将
+`background.allowSystemBorder` 默认为 `true`。schema 14 至 18 只通过配置层声明的固定迁移链升级，
+其他版本仍被拒绝；迁移不得猜测或改写该字段。
 
 允许系统边框时可以启动带 Windows 隐私提示的实验 WGC；可见状态记录为
 `system-border=visible-allowed`，不能把它宣称为无边框捕获。用户可在 Control Center 中取消勾选
@@ -56,7 +56,7 @@ portable Win32 EXE 不具备 MSIX package identity，也不能通过外部清单
 ## Acceptance
 
 - Spike B 覆盖授权成功/拒绝、边框开关、cursor 排除、ContentSize、session restart 和 self-exclusion。
-- schema 17 默认允许系统边框；旧 schema 被配置层整体拒绝，不参与 WGC 默认值或迁移逻辑。
+- schema 19 默认允许系统边框；schema 14 至 18 的固定迁移不得改变已有边框选择，其他版本被拒绝。
 - 关闭系统边框后，无边框能力不可用时于 `StartCapture` 前回退内部 FX-only coverage transport；
   允许系统边框的测试可观察到 `system-border=visible-allowed`。DComp overlay 没有浏览器 `Screen` API
   的逐像素等价物；捕获样本只在背景感知路径有效时参与合成。

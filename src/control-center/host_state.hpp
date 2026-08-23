@@ -4,9 +4,16 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace bafx::control_center
 {
+
+struct FxProfileState final
+{
+    std::string name{};
+    bool builtIn{false};
+};
 
 struct HostState final
 {
@@ -18,6 +25,9 @@ struct HostState final
     std::string spout2Status{};
     std::string spout2Error{};
     std::string spout2OutputContract{};
+    std::vector<FxProfileState> fxProfiles{};
+    std::string activeFxProfile{"自定义"};
+    std::string fxProfileWarning{};
 };
 
 struct HostStateParseResult final

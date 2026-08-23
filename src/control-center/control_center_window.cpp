@@ -1668,7 +1668,7 @@ bool ControlCenterWindow::createControls()
 
     backgroundHeading_ = createChild(
         L"BUTTON",
-        L"背景与主程序",
+        L"背景、主程序与特效预设",
         BS_GROUPBOX);
     backgroundModeLabel_ = createChild(
         L"STATIC",
@@ -1860,6 +1860,60 @@ bool ControlCenterWindow::createControls()
         L"重置默认",
         BS_PUSHBUTTON | WS_TABSTOP,
         ControlId::ResetDefaults);
+    // Create Profile controls after the action buttons so native dialog Tab
+    // order follows the Basic page's visual top-to-bottom order.
+    fxProfileLabel_ = createChild(
+        L"STATIC",
+        L"特效预设",
+        SS_LEFT | SS_CENTERIMAGE | SS_NOPREFIX);
+    fxProfileSelector_ = createChild(
+        WC_COMBOBOXW,
+        L"",
+        CBS_DROPDOWNLIST | CBS_HASSTRINGS | WS_VSCROLL | WS_TABSTOP,
+        ControlId::FxProfileSelector);
+    if (fxProfileSelector_ != nullptr)
+    {
+        static_cast<void>(SendMessageW(
+            fxProfileSelector_,
+            CB_SETMINVISIBLE,
+            8U,
+            0));
+    }
+    fxProfileNameEdit_ = createChild(
+        L"EDIT",
+        L"",
+        ES_LEFT | ES_AUTOHSCROLL | WS_BORDER | WS_TABSTOP,
+        ControlId::FxProfileName);
+    if (fxProfileNameEdit_ != nullptr)
+    {
+        // The Host contract accepts at most 40 UTF-16 code units. Limiting the
+        // native edit prevents names that can never be persisted.
+        static_cast<void>(SendMessageW(
+            fxProfileNameEdit_,
+            EM_SETLIMITTEXT,
+            40U,
+            0));
+        static_cast<void>(SendMessageW(
+            fxProfileNameEdit_,
+            EM_SETCUEBANNER,
+            TRUE,
+            reinterpret_cast<LPARAM>(L"预设名称")));
+    }
+    applyFxProfileButton_ = createChild(
+        L"BUTTON",
+        L"应用",
+        BS_PUSHBUTTON | WS_TABSTOP,
+        ControlId::ApplyFxProfile);
+    saveFxProfileButton_ = createChild(
+        L"BUTTON",
+        L"保存当前",
+        BS_PUSHBUTTON | WS_TABSTOP,
+        ControlId::SaveFxProfile);
+    deleteFxProfileButton_ = createChild(
+        L"BUTTON",
+        L"删除",
+        BS_PUSHBUTTON | WS_TABSTOP,
+        ControlId::DeleteFxProfile);
 
     const std::array required{
         titleText_,
@@ -1893,6 +1947,12 @@ bool ControlCenterWindow::createControls()
         cursorExcluded_,
         allowSystemBorder_,
         idleOptimization_,
+        fxProfileLabel_,
+        fxProfileSelector_,
+        fxProfileNameEdit_,
+        applyFxProfileButton_,
+        saveFxProfileButton_,
+        deleteFxProfileButton_,
         systemSettingsHeading_,
         startWithWindows_,
         startMinimized_,
@@ -2267,6 +2327,12 @@ void ControlCenterWindow::applyFonts() const noexcept
         cursorExcluded_,
         allowSystemBorder_,
         idleOptimization_,
+        fxProfileLabel_,
+        fxProfileSelector_,
+        fxProfileNameEdit_,
+        applyFxProfileButton_,
+        saveFxProfileButton_,
+        deleteFxProfileButton_,
         startWithWindows_,
         startMinimized_,
         closeToTray_,
@@ -2326,6 +2392,7 @@ void ControlCenterWindow::applyDpiMetrics() const noexcept
         bloomQuality_,
         effectsMode_,
         backgroundMode_,
+        fxProfileSelector_,
         displaySelector_,
         framePacing_,
         displayFramePacing_};
@@ -2344,6 +2411,16 @@ void ControlCenterWindow::applyDpiMetrics() const noexcept
             static_cast<WPARAM>(-1),
             scale(26)));
         static_cast<void>(SendMessageW(comboBox, CB_SETITEMHEIGHT, 0U, scale(26)));
+    }
+    if (fxProfileSelector_ != nullptr)
+    {
+        // The collapsed selector stays compact; the drop-down is wider so
+        // distinct long Profile names remain identifiable.
+        static_cast<void>(SendMessageW(
+            fxProfileSelector_,
+            CB_SETDROPPEDWIDTH,
+            scale(320),
+            0));
     }
 }
 
@@ -3305,6 +3382,63 @@ void ControlCenterWindow::layoutControls(
         rightContentWidth,
         scale(38));
 
+    const int profileLabelWidth = scale(78);
+    moveControl(
+        fxProfileLabel_,
+        rightContentX,
+        contentTop + scale(341),
+        profileLabelWidth,
+        scale(34));
+    moveControl(
+        fxProfileSelector_,
+        rightContentX + profileLabelWidth,
+        contentTop + scale(341),
+        rightContentWidth - profileLabelWidth,
+        scale(34));
+
+    const int profileButtonGap = scale(6);
+    const int profileApplyWidth = scale(44);
+    const int profileSaveWidth = scale(64);
+    const int profileDeleteWidth = scale(44);
+    const int profileNameWidth = (std::max)(
+        scale(1),
+        rightContentWidth
+            - profileApplyWidth
+            - profileSaveWidth
+            - profileDeleteWidth
+            - profileButtonGap * 3);
+    const int profileRowTop = contentTop + scale(379);
+    moveControl(
+        fxProfileNameEdit_,
+        rightContentX,
+        profileRowTop,
+        profileNameWidth,
+        scale(34));
+    const int profileApplyX = rightContentX
+        + profileNameWidth
+        + profileButtonGap;
+    moveControl(
+        applyFxProfileButton_,
+        profileApplyX,
+        profileRowTop,
+        profileApplyWidth,
+        scale(34));
+    const int profileSaveX = profileApplyX
+        + profileApplyWidth
+        + profileButtonGap;
+    moveControl(
+        saveFxProfileButton_,
+        profileSaveX,
+        profileRowTop,
+        profileSaveWidth,
+        scale(34));
+    moveControl(
+        deleteFxProfileButton_,
+        profileSaveX + profileSaveWidth + profileButtonGap,
+        profileRowTop,
+        profileDeleteWidth,
+        scale(34));
+
     redrawWindowTree();
 }
 
@@ -3472,7 +3606,13 @@ void ControlCenterWindow::updatePageVisibility() noexcept
         backgroundMode_,
         cursorExcluded_,
         allowSystemBorder_,
-        idleOptimization_};
+        idleOptimization_,
+        fxProfileLabel_,
+        fxProfileSelector_,
+        fxProfileNameEdit_,
+        applyFxProfileButton_,
+        saveFxProfileButton_,
+        deleteFxProfileButton_};
     for (const HWND control : basicControls)
     {
         setPageControlVisible(control, basic);
@@ -4024,6 +4164,40 @@ void ControlCenterWindow::onCommand(
                 isChecked(idleOptimization_) ? "true" : "false");
         }
         break;
+    case ControlId::FxProfileSelector:
+        if (notificationCode == CBN_SELCHANGE)
+        {
+            onFxProfileSelectionChanged();
+        }
+        break;
+    case ControlId::FxProfileName:
+        if (notificationCode == EN_CHANGE)
+        {
+            const std::optional<std::string> draft =
+                fxProfileNameFromEdit();
+            fxProfileNameDraft_ = draft.value_or(std::string{});
+            fxProfileNameDirty_ = true;
+            updateFxProfileActionState();
+        }
+        break;
+    case ControlId::ApplyFxProfile:
+        if (notificationCode == BN_CLICKED)
+        {
+            applySelectedFxProfile();
+        }
+        break;
+    case ControlId::SaveFxProfile:
+        if (notificationCode == BN_CLICKED)
+        {
+            saveCurrentFxProfile();
+        }
+        break;
+    case ControlId::DeleteFxProfile:
+        if (notificationCode == BN_CLICKED)
+        {
+            deleteSelectedFxProfile();
+        }
+        break;
     case ControlId::StartWithWindows:
         if (notificationCode == BN_CLICKED)
         {
@@ -4301,6 +4475,10 @@ void ControlCenterWindow::commitThemeColor()
     text.resize(static_cast<std::size_t>(copied));
     const std::string value = wideToUtf8(text);
     const std::string valueJson = std::string("\"") + value + "\"";
+    if (!commitPendingPatch())
+    {
+        return;
+    }
     applyPatchRequest(fxPatchRequest(
         generation_,
         "effects.themeColor",
@@ -4345,12 +4523,20 @@ void ControlCenterWindow::chooseThemeColor()
 
 void ControlCenterWindow::queueNumberPatch(const SliderControl& slider)
 {
+    // Capture the newly edited control before committing another slider. That
+    // commit refreshes the entire UI and would otherwise erase this visible
+    // value before it can be queued.
+    const std::string path = slider.path;
+    const std::string valueJson = numberJson(sliderValue(slider));
     if (pendingPatch_.has_value() && pendingPatch_->path != slider.path)
     {
         // A quick move to another field must not discard the prior setting.
-        commitPendingPatch();
+        if (!commitPendingPatch())
+        {
+            return;
+        }
     }
-    pendingPatch_ = PendingPatch{slider.path, numberJson(sliderValue(slider))};
+    pendingPatch_ = PendingPatch{generation_, path, valueJson};
     KillTimer(window_, patchTimerId);
     if (SetTimer(window_, patchTimerId, patchDelayMilliseconds, nullptr) == 0U)
     {
@@ -4358,17 +4544,74 @@ void ControlCenterWindow::queueNumberPatch(const SliderControl& slider)
     }
 }
 
-void ControlCenterWindow::commitPendingPatch()
+bool ControlCenterWindow::commitPendingPatch()
 {
     KillTimer(window_, patchTimerId);
     if (!pendingPatch_.has_value())
     {
-        return;
+        return true;
     }
 
     PendingPatch patch = std::move(*pendingPatch_);
     pendingPatch_.reset();
-    applyPatch(patch.path, patch.valueJson);
+    return applyPatchRequest(patchRequest(
+        patch.generation,
+        patch.path,
+        patch.valueJson));
+}
+
+bool ControlCenterWindow::readyForFxProfileMutation()
+{
+    const bool hadPendingPatch = pendingPatch_.has_value();
+    if (!commitPendingPatch())
+    {
+        return false;
+    }
+    if (!hadPendingPatch)
+    {
+        return true;
+    }
+
+    // A slider commit refreshes both the catalog and current effects. Requiring
+    // a second click makes the user revalidate the Profile identity instead of
+    // carrying an earlier confirmation across that refresh.
+    setInfo(
+        L"参数已先保存",
+        L"特效参数已更新，请确认当前预设与名称后再次执行操作。");
+    return false;
+}
+
+bool ControlCenterWindow::applyFxProfileMutationRequest(std::string command)
+{
+    if (!connected_)
+    {
+        setInfo(L"Host 未连接", L"请先启动 Host，然后刷新状态。");
+        return false;
+    }
+
+    const bafx::windows::IpcClientResponse response = client_.transact(command);
+    if (response.succeeded())
+    {
+        // The Host has committed the mutation even if the following read is
+        // interrupted. Clear stale drafts before the single refresh so retrying
+        // cannot accidentally repeat an already-completed operation.
+        fxProfileSelectionDirty_ = false;
+        fxProfileNameDirty_ = false;
+        selectedFxProfileDraft_.reset();
+        static_cast<void>(refreshFromHost());
+        return true;
+    }
+    if (response.errorCode == "generation_conflict")
+    {
+        static_cast<void>(refreshFromHost());
+        setInfo(L"配置已变化", L"已刷新 Host 的最新设置，请再次调整。");
+        return false;
+    }
+
+    const std::wstring error = describeResponse(response);
+    static_cast<void>(refreshFromHost());
+    setError(error);
+    return false;
 }
 
 void ControlCenterWindow::onTimer(const UINT_PTR timerId)
@@ -4561,6 +4804,39 @@ bool ControlCenterWindow::refreshFromHost()
         return false;
     }
 
+    const bafx::windows::IpcClientResponse confirmedStateResponse =
+        client_.transact("GetState");
+    const HostStateParseResult confirmedState = confirmedStateResponse.succeeded()
+        ? parseHostState(confirmedStateResponse.payload)
+        : HostStateParseResult{};
+    if (!confirmedStateResponse.succeeded() || !confirmedState.succeeded())
+    {
+        setConnected(false);
+        SetWindowTextW(statusText_, L"Host 状态复核失败");
+        setError(confirmedStateResponse.succeeded()
+            ? utf8ToWide(confirmedState.error)
+            : describeResponse(confirmedStateResponse));
+        return false;
+    }
+    if (confirmedState.state->generation != state.state->generation)
+    {
+        // GetState and GetConfig are separate pipe records. Retry once when a
+        // concurrent mutation lands between them rather than publishing a torn
+        // generation/config pair to the controls.
+        if (refreshRetrying_)
+        {
+            setConnected(false);
+            setInfo(
+                L"Host 状态持续变化",
+                L"未发布不一致的控制快照，请稍后再次刷新。");
+            return false;
+        }
+        refreshRetrying_ = true;
+        const bool refreshed = refreshFromHost();
+        refreshRetrying_ = false;
+        return refreshed;
+    }
+
     displayState_ = {};
     displayStateError_.clear();
     const bafx::windows::IpcClientResponse displayResponse =
@@ -4585,7 +4861,7 @@ bool ControlCenterWindow::refreshFromHost()
         }
     }
 
-    updateControls(*state.state, config.config);
+    updateControls(*confirmedState.state, config.config);
     return true;
 }
 
@@ -4693,6 +4969,7 @@ void ControlCenterWindow::updateControls(
         allowSystemBorder_,
         config.background.allowSystemBorder);
     setChecked(idleOptimization_, config.performance.idleOptimization);
+    updateFxProfileControls(state);
     setChecked(
         activeFxRoiEnabled_,
         config.performance.activeFxRoiEnabled);
@@ -4716,8 +4993,334 @@ void ControlCenterWindow::updateControls(
     SetWindowTextW(statusText_, status.c_str());
     if (!hostShutdownPending_)
     {
-        clearInfo();
+        if (!state.fxProfileWarning.empty())
+        {
+            setInfo(
+                L"部分特效预设未加载",
+                L"fx-profiles 中存在损坏、冲突或无法读取的文件；"
+                L"这些文件已被安全跳过。");
+        }
+        else
+        {
+            clearInfo();
+        }
     }
+}
+
+void ControlCenterWindow::updateFxProfileControls(const HostState& state)
+{
+    fxProfiles_ = state.fxProfiles;
+    static_cast<void>(SendMessageW(
+        fxProfileSelector_,
+        CB_RESETCONTENT,
+        0U,
+        0));
+    static_cast<void>(SendMessageW(
+        fxProfileSelector_,
+        CB_ADDSTRING,
+        0U,
+        reinterpret_cast<LPARAM>(L"自定义")));
+
+    LRESULT activeIndex = 0;
+    for (std::size_t index = 0U; index < fxProfiles_.size(); ++index)
+    {
+        const FxProfileState& profile = fxProfiles_[index];
+        const std::wstring name = utf8ToWide(profile.name);
+        static_cast<void>(SendMessageW(
+            fxProfileSelector_,
+            CB_ADDSTRING,
+            0U,
+            reinterpret_cast<LPARAM>(name.c_str())));
+        if (profile.name == state.activeFxProfile)
+        {
+            activeIndex = static_cast<LRESULT>(index + 1U);
+        }
+    }
+
+    LRESULT selectedIndex = activeIndex;
+    if (fxProfileSelectionDirty_)
+    {
+        if (!selectedFxProfileDraft_.has_value())
+        {
+            selectedIndex = 0;
+        }
+        else
+        {
+            const FxProfileState* const drafted = findFxProfile(
+                *selectedFxProfileDraft_);
+            if (drafted != nullptr)
+            {
+                selectedIndex = static_cast<LRESULT>(
+                    drafted - fxProfiles_.data() + 1);
+            }
+            else
+            {
+                // An external delete invalidates the explicit selection. Fall
+                // back to the Host's active value rather than keeping a dead
+                // combo-box index.
+                fxProfileSelectionDirty_ = false;
+                selectedFxProfileDraft_.reset();
+            }
+        }
+    }
+    static_cast<void>(SendMessageW(
+        fxProfileSelector_,
+        CB_SETCURSEL,
+        static_cast<WPARAM>(selectedIndex),
+        0));
+
+    const FxProfileState* const active = selectedFxProfile();
+    if (!fxProfileNameDirty_)
+    {
+        std::wstring editableName;
+        if (active != nullptr && !active->builtIn)
+        {
+            fxProfileNameDraft_ = active->name;
+            editableName = utf8ToWide(active->name);
+        }
+        else
+        {
+            fxProfileNameDraft_.clear();
+        }
+        SetWindowTextW(fxProfileNameEdit_, editableName.c_str());
+    }
+    updateFxProfileActionState();
+}
+
+void ControlCenterWindow::updateFxProfileActionState() const noexcept
+{
+    const bool profileControlsEnabled = connected_;
+    const FxProfileState* const selected = selectedFxProfile();
+    const bool hasName = fxProfileNameEdit_ != nullptr
+        && GetWindowTextLengthW(fxProfileNameEdit_) > 0;
+
+    EnableWindow(
+        fxProfileSelector_,
+        profileControlsEnabled ? TRUE : FALSE);
+    EnableWindow(
+        fxProfileNameEdit_,
+        profileControlsEnabled ? TRUE : FALSE);
+    EnableWindow(
+        applyFxProfileButton_,
+        profileControlsEnabled && selected != nullptr ? TRUE : FALSE);
+    EnableWindow(
+        saveFxProfileButton_,
+        profileControlsEnabled && hasName ? TRUE : FALSE);
+    EnableWindow(
+        deleteFxProfileButton_,
+        profileControlsEnabled
+                && selected != nullptr
+                && !selected->builtIn
+            ? TRUE
+            : FALSE);
+}
+
+void ControlCenterWindow::onFxProfileSelectionChanged()
+{
+    const FxProfileState* const selected = selectedFxProfile();
+    fxProfileSelectionDirty_ = true;
+    selectedFxProfileDraft_ = selected == nullptr
+        ? std::nullopt
+        : std::optional<std::string>(selected->name);
+    const std::wstring editableName = selected != nullptr && !selected->builtIn
+        ? utf8ToWide(selected->name)
+        : std::wstring{};
+    SetWindowTextW(fxProfileNameEdit_, editableName.c_str());
+    fxProfileNameDraft_ = selected != nullptr && !selected->builtIn
+        ? selected->name
+        : std::string{};
+    fxProfileNameDirty_ = false;
+    updateFxProfileActionState();
+}
+
+void ControlCenterWindow::applySelectedFxProfile()
+{
+    if (!connected_)
+    {
+        setInfo(L"Host 未连接", L"请先启动 Host，然后应用特效预设。");
+        return;
+    }
+    if (!readyForFxProfileMutation())
+    {
+        return;
+    }
+    const FxProfileState* const selected = selectedFxProfile();
+    if (selected == nullptr)
+    {
+        setInfo(L"尚未选择预设", L"请从列表选择一个已保存的特效预设。");
+        return;
+    }
+
+    const std::string name = selected->name;
+    static_cast<void>(applyFxProfileMutationRequest(fxProfileRequest(
+        "ApplyFxProfile",
+        generation_,
+        name)));
+}
+
+void ControlCenterWindow::saveCurrentFxProfile()
+{
+    if (!connected_)
+    {
+        setInfo(L"Host 未连接", L"请先启动 Host，然后保存当前特效预设。");
+        return;
+    }
+    if (!readyForFxProfileMutation())
+    {
+        return;
+    }
+    const std::optional<std::string> name = fxProfileNameFromEdit();
+    if (!name.has_value())
+    {
+        setInfo(L"预设名称为空", L"请输入 1 至 40 个字符的预设名称。");
+        return;
+    }
+
+    const FxProfileState* const existing = findFxProfile(*name);
+    if (*name == "自定义" || (existing != nullptr && existing->builtIn))
+    {
+        setInfo(
+            L"预设名称不可用",
+            L"“自定义”和内置预设名称不可覆盖，请使用其他名称。");
+        return;
+    }
+    if (existing != nullptr)
+    {
+        const std::wstring message = std::wstring(L"确定使用当前特效覆盖预设“")
+            + utf8ToWide(*name)
+            + L"”吗？";
+        if (MessageBoxW(
+                window_,
+                message.c_str(),
+                L"覆盖特效预设",
+                MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2) != IDYES)
+        {
+            return;
+        }
+    }
+
+    static_cast<void>(applyFxProfileMutationRequest(fxProfileRequest(
+        "SaveFxProfile",
+        generation_,
+        *name)));
+}
+
+void ControlCenterWindow::deleteSelectedFxProfile()
+{
+    if (!connected_)
+    {
+        setInfo(L"Host 未连接", L"请先启动 Host，然后删除特效预设。");
+        return;
+    }
+    if (!readyForFxProfileMutation())
+    {
+        return;
+    }
+    const FxProfileState* const selected = selectedFxProfile();
+    if (selected == nullptr)
+    {
+        setInfo(L"尚未选择预设", L"请选择一个自定义特效预设。");
+        return;
+    }
+    if (selected->builtIn)
+    {
+        setInfo(L"内置预设不可删除", L"只能删除用户保存的特效预设。");
+        return;
+    }
+
+    const std::string name = selected->name;
+    const std::wstring message = std::wstring(L"确定删除自定义特效预设“")
+        + utf8ToWide(name)
+        + L"”吗？\r\n\r\n当前特效参数不会因此改变。";
+    if (MessageBoxW(
+            window_,
+            message.c_str(),
+            L"删除特效预设",
+            MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2) != IDYES)
+    {
+        return;
+    }
+
+    static_cast<void>(applyFxProfileMutationRequest(fxProfileRequest(
+        "DeleteFxProfile",
+        generation_,
+        name)));
+}
+
+const FxProfileState* ControlCenterWindow::selectedFxProfile() const noexcept
+{
+    if (fxProfileSelector_ == nullptr)
+    {
+        return nullptr;
+    }
+    const LRESULT selected = SendMessageW(
+        fxProfileSelector_,
+        CB_GETCURSEL,
+        0U,
+        0);
+    if (selected <= 0)
+    {
+        return nullptr;
+    }
+    const std::size_t profileIndex = static_cast<std::size_t>(selected - 1);
+    return profileIndex < fxProfiles_.size()
+        ? &fxProfiles_[profileIndex]
+        : nullptr;
+}
+
+const FxProfileState* ControlCenterWindow::findFxProfile(
+    const std::string_view name) const
+{
+    const std::wstring requested = utf8ToWide(name);
+    if (requested.empty())
+    {
+        return nullptr;
+    }
+    for (const FxProfileState& profile : fxProfiles_)
+    {
+        const std::wstring existing = utf8ToWide(profile.name);
+        if (!existing.empty()
+            && CompareStringOrdinal(
+                requested.data(),
+                static_cast<int>(requested.size()),
+                existing.data(),
+                static_cast<int>(existing.size()),
+                TRUE) == CSTR_EQUAL)
+        {
+            return &profile;
+        }
+    }
+    return nullptr;
+}
+
+std::optional<std::string> ControlCenterWindow::fxProfileNameFromEdit() const
+{
+    if (fxProfileNameEdit_ == nullptr)
+    {
+        return std::nullopt;
+    }
+    const int length = GetWindowTextLengthW(fxProfileNameEdit_);
+    if (length <= 0)
+    {
+        return std::nullopt;
+    }
+
+    std::wstring text(static_cast<std::size_t>(length) + 1U, L'\0');
+    const int copied = GetWindowTextW(
+        fxProfileNameEdit_,
+        text.data(),
+        static_cast<int>(text.size()));
+    if (copied <= 0)
+    {
+        return std::nullopt;
+    }
+    text.resize(static_cast<std::size_t>(copied));
+    std::string converted = wideToUtf8(text);
+    if (converted.empty())
+    {
+        return std::nullopt;
+    }
+    return converted;
 }
 
 #if defined(BAFX_ENABLE_SPOUT2)
@@ -5267,10 +5870,21 @@ void ControlCenterWindow::setSelectedDisplayOverride()
         return;
     }
 
+    // A pending slider commit refreshes every control. Capture this explicit
+    // display edit first so that refresh cannot replace it with the old Host
+    // values before the override request is assembled.
+    const std::string displayKey = *session->displayKey;
+    const bool effectsEnabled = isChecked(displayEffectsEnabled_);
+    const bool hdrEnabled = isChecked(displayHdrEnabled_);
+    if (!commitPendingPatch())
+    {
+        return;
+    }
+
     bafx::config::DisplayOverrideConfig overrideConfig{};
-    overrideConfig.displayKey = *session->displayKey;
-    overrideConfig.enabled = isChecked(displayEffectsEnabled_);
-    overrideConfig.hdrEnabled = isChecked(displayHdrEnabled_);
+    overrideConfig.displayKey = displayKey;
+    overrideConfig.enabled = effectsEnabled;
+    overrideConfig.hdrEnabled = hdrEnabled;
     overrideConfig.framePacing = *framePacing;
     applyDisplayPolicyCommand(setDisplayOverrideRequest(
         generation_,
@@ -5279,6 +5893,10 @@ void ControlCenterWindow::setSelectedDisplayOverride()
 
 void ControlCenterWindow::removeSelectedDisplayOverride()
 {
+    if (!commitPendingPatch())
+    {
+        return;
+    }
     const DisplaySessionState* const session = selectedDisplaySession();
     const bafx::config::DisplayOverrideConfig* const offlineOverride =
         selectedOfflineDisplayOverride();
@@ -5344,42 +5962,50 @@ void ControlCenterWindow::applyDisplayPolicyCommand(std::string command)
     setError(error);
 }
 
-void ControlCenterWindow::applyPatch(
+bool ControlCenterWindow::applyPatch(
     const std::string_view path,
     const std::string_view valueJson)
 {
-    applyPatchRequest(patchRequest(generation_, path, valueJson));
+    if (!commitPendingPatch())
+    {
+        return false;
+    }
+    return applyPatchRequest(patchRequest(generation_, path, valueJson));
 }
 
-void ControlCenterWindow::applyPatchRequest(std::string command)
+bool ControlCenterWindow::applyPatchRequest(std::string command)
 {
     if (!connected_)
     {
         setInfo(L"Host 未连接", L"请先启动 Host，然后刷新状态。");
-        return;
+        return false;
     }
 
     const bafx::windows::IpcClientResponse response = client_.transact(command);
     if (response.succeeded())
     {
-        static_cast<void>(refreshFromHost());
-        return;
+        return refreshFromHost();
     }
     if (response.errorCode == "generation_conflict")
     {
         static_cast<void>(refreshFromHost());
         setInfo(L"配置已变化", L"已刷新 Host 的最新设置，请再次调整。");
-        return;
+        return false;
     }
     const std::wstring error = describeResponse(response);
     // A rejected write left the Host unchanged. Restore every optimistic
     // control value before presenting the failure so the UI remains truthful.
     static_cast<void>(refreshFromHost());
     setError(error);
+    return false;
 }
 
 void ControlCenterWindow::sendCommand(const std::string_view command)
 {
+    if (!commitPendingPatch())
+    {
+        return;
+    }
     const bafx::windows::IpcClientResponse response = client_.transact(command);
     if (!response.succeeded())
     {
@@ -5926,6 +6552,11 @@ void ControlCenterWindow::setConnected(const bool connected) noexcept
         cursorExcluded_,
         allowSystemBorder_,
         idleOptimization_,
+        fxProfileSelector_,
+        fxProfileNameEdit_,
+        applyFxProfileButton_,
+        saveFxProfileButton_,
+        deleteFxProfileButton_,
         startWithWindows_,
         startMinimized_,
         closeToTray_,
@@ -5945,6 +6576,7 @@ void ControlCenterWindow::setConnected(const bool connected) noexcept
             EnableWindow(control, enabled);
         }
     }
+    updateFxProfileActionState();
     if (!connected)
     {
 #if defined(BAFX_ENABLE_SPOUT2)
@@ -6209,6 +6841,20 @@ std::string ControlCenterWindow::fxPatchRequest(
     return "SetFxParam {\"generation\":" + std::to_string(generation)
         + ",\"path\":\"" + std::string(path)
         + "\",\"value\":" + std::string(valueJson) + "}";
+}
+
+std::string ControlCenterWindow::fxProfileRequest(
+    const std::string_view command,
+    const std::uint64_t generation,
+    const std::string_view name)
+{
+    // Profile names consume the remainder of the line, so spaces remain part
+    // of the name and need no secondary quoting convention.
+    return std::string(command)
+        + " "
+        + std::to_string(generation)
+        + " "
+        + std::string(name);
 }
 
 std::wstring ControlCenterWindow::numberText(const double value)

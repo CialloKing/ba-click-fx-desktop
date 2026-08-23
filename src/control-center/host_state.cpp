@@ -1,15 +1,77 @@
 #include "host_state.hpp"
 
+#include <windows.h>
+
 #include <charconv>
 #include <cstddef>
+#include <limits>
 #include <optional>
 #include <string>
 #include <utility>
+#include <vector>
 
 namespace bafx::control_center
 {
 namespace
 {
+
+[[nodiscard]] std::optional<std::wstring> profileNameWide(
+    const std::string_view value)
+{
+    if (value.empty()
+        || value.size() > static_cast<std::size_t>(
+            (std::numeric_limits<int>::max)()))
+    {
+        return std::nullopt;
+    }
+    const int bytes = static_cast<int>(value.size());
+    const int required = MultiByteToWideChar(
+        CP_UTF8,
+        MB_ERR_INVALID_CHARS,
+        value.data(),
+        bytes,
+        nullptr,
+        0);
+    if (required <= 0)
+    {
+        return std::nullopt;
+    }
+    std::wstring converted(static_cast<std::size_t>(required), L'\0');
+    if (MultiByteToWideChar(
+            CP_UTF8,
+            MB_ERR_INVALID_CHARS,
+            value.data(),
+            bytes,
+            converted.data(),
+            required) != required)
+    {
+        return std::nullopt;
+    }
+    return converted;
+}
+
+[[nodiscard]] bool profileNamesEqual(
+    const std::string_view left,
+    const std::string_view right)
+{
+    if (left == right)
+    {
+        return true;
+    }
+    const std::optional<std::wstring> wideLeft = profileNameWide(left);
+    const std::optional<std::wstring> wideRight = profileNameWide(right);
+    if (!wideLeft.has_value() || !wideRight.has_value())
+    {
+        return false;
+    }
+    return CompareStringOrdinal(
+               wideLeft->data(),
+               static_cast<int>(wideLeft->size()),
+               wideRight->data(),
+               static_cast<int>(wideRight->size()),
+               TRUE)
+        == CSTR_EQUAL;
+}
 
 class StateJsonParser final
 {
@@ -36,6 +98,9 @@ public:
         bool hasSpout2Status = false;
         bool hasSpout2Error = false;
         bool hasSpout2OutputContract = false;
+        bool hasFxProfileCatalog = false;
+        bool hasActiveFxProfile = false;
+        bool hasFxProfileWarning = false;
 
         skipWhitespace();
         if (consume('}'))
@@ -132,6 +197,41 @@ public:
                 state.spout2OutputContract = std::move(*value);
                 hasSpout2OutputContract = true;
             }
+            else if (*key == "fxProfileCatalog")
+            {
+                std::optional<std::string> value = parseString();
+                if (hasFxProfileCatalog
+                    || !value.has_value()
+                    || !parseFxProfileCatalog(
+                        *value,
+                        state.fxProfiles))
+                {
+                    return fail("fxProfileCatalog must be one valid catalog");
+                }
+                hasFxProfileCatalog = true;
+            }
+            else if (*key == "activeFxProfile")
+            {
+                std::optional<std::string> value = parseString();
+                if (hasActiveFxProfile
+                    || !value.has_value()
+                    || value->empty())
+                {
+                    return fail("activeFxProfile must be one non-empty string");
+                }
+                state.activeFxProfile = std::move(*value);
+                hasActiveFxProfile = true;
+            }
+            else if (*key == "fxProfileWarning")
+            {
+                std::optional<std::string> value = parseString();
+                if (hasFxProfileWarning || !value.has_value())
+                {
+                    return fail("fxProfileWarning must be one string");
+                }
+                state.fxProfileWarning = std::move(*value);
+                hasFxProfileWarning = true;
+            }
             else if (!skipPrimitive())
             {
                 // GetState currently emits only primitives. Rejecting nested
@@ -168,6 +268,29 @@ public:
         {
             return fail("state is missing the required Spout2 status group");
         }
+        if (!hasFxProfileCatalog
+            || !hasActiveFxProfile
+            || !hasFxProfileWarning)
+        {
+            return fail("state is missing the required FX profile group");
+        }
+        bool activeProfileKnown = state.activeFxProfile == "自定义";
+        for (const FxProfileState& profile : state.fxProfiles)
+        {
+            if (profileNamesEqual(profile.name, state.activeFxProfile))
+            {
+                activeProfileKnown = true;
+                // Normalize to the catalog spelling so the combo box has one
+                // stable identity for each Windows filename.
+                state.activeFxProfile = profile.name;
+                break;
+            }
+        }
+        if (!activeProfileKnown)
+        {
+            return fail(
+                "activeFxProfile must be custom or name a catalog profile");
+        }
 
         HostStateParseResult result{};
         result.state = std::move(state);
@@ -175,6 +298,56 @@ public:
     }
 
 private:
+    [[nodiscard]] static bool parseFxProfileCatalog(
+        const std::string_view catalog,
+        std::vector<FxProfileState>& output)
+    {
+        constexpr std::size_t maximumProfileCount = 68U;
+        output.clear();
+        std::size_t begin = 0U;
+        while (begin < catalog.size())
+        {
+            const std::size_t end = catalog.find('|', begin);
+            const std::string_view item = catalog.substr(
+                begin,
+                end == std::string_view::npos
+                    ? catalog.size() - begin
+                    : end - begin);
+            if (item.size() < 3U
+                || item[1] != ':'
+                || (item[0] != 'B' && item[0] != 'C')
+                || output.size() >= maximumProfileCount)
+            {
+                return false;
+            }
+            const std::string_view name = item.substr(2U);
+            if (name.empty())
+            {
+                return false;
+            }
+            for (const FxProfileState& existing : output)
+            {
+                if (profileNamesEqual(existing.name, name))
+                {
+                    return false;
+                }
+            }
+            output.push_back(FxProfileState{
+                std::string(name),
+                item[0] == 'B'});
+            if (end == std::string_view::npos)
+            {
+                return true;
+            }
+            if (end + 1U == catalog.size())
+            {
+                return false;
+            }
+            begin = end + 1U;
+        }
+        return !output.empty();
+    }
+
     void skipWhitespace() noexcept
     {
         while (position_ < input_.size())

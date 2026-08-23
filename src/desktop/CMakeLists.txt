@@ -59,6 +59,7 @@ add_executable(
         display_session.cpp
         display_session_manager.cpp
         display_target.cpp
+        fx_profile_store.cpp
         host_control.cpp
         main.cpp
         performance_logging.cpp

@@ -191,7 +191,9 @@ Visual Studio、Windows SDK、Inno Setup 或 PowerShell 依赖包；安装器已
 
 首个产品化垂直切片已经接入版本化配置和本地 Named Pipe。portable Host 会在主程序
 `ba-click-fx-desktop.exe` 同目录创建 `BAFX.config.json` 和
-`ba-click-fx-desktop-support.log`；Identity 安装版则将这些文件放入同一目录下可写的 `data` 子目录。
+`ba-click-fx-desktop-support.log`，首次保存自定义特效 Profile 时再创建 `fx-profiles` 子目录；
+Identity 安装版则将这些文件和目录放入同一目录下可写的 `data` 子目录。每个自定义 Profile 对应
+`fx-profiles/<名称>.json` 一个文件，内容是完整、平面的 `EffectsConfig` JSON；Host 是这些文件的唯一写入者。
 支持报告也会被限制在这棵目录树内。运行时不再使用
 `%LOCALAPPDATA%`、当前工作目录或其他用户目录保存数据。Host 使用
 `Local\BAFX.Host.v1` 互斥体保证单实例。
@@ -217,7 +219,8 @@ FX-only，不会先启动带黄色边框的会话。无论该开关如何设置�
 `BAFX.ControlCenter.exe` 已作为独立的 Win32 进程接入该 Pipe。Host 保持运行时，Control Center
 可以读取状态、暂停或恢复特效。四个顶层页面分别为“基础”“高级”“显示与性能”和“系统”。基础页提供启用状态、
 点击特效、鼠标拖尾、拖尾常驻、完整/核心性能模式、效果大小、拖尾长度、拖尾宽度、输入采样率上限、Bloom 强度与 Bloom 质量，
-并管理背景模式、指针排除和系统捕获边框；高级页再按“时间与透明度”“粒子与材质”
+并管理背景模式、指针排除和系统捕获边框；右侧的特效预设区可以选择四个内置 Profile，或按名称应用、
+保存和删除自定义 effects-only Profile。高级页再按“时间与透明度”“粒子与材质”
 “圆环参数”“点击碎片”“Bloom 参数”“分层开关”分成六个二级页面。分层页可分别隐藏中心圆盘、
 圆环、点击碎片、拖尾碎片、拖尾线和 Bloom；关闭 Bloom 会旁路整条 Bloom 金字塔，但保留直接材质。
 所有控件只使用项目原生的
@@ -298,6 +301,9 @@ SetFxParam {"generation":1,"path":"effects.diskRadius","value":40}
 SetFxParam {"generation":1,"path":"effects.diskLifetimeMs","value":250}
 SetFxParams {"generation":1,"patch":{"effects.ringsCount":3,"effects.ringsLifetimeMs":700,"effects.ringsRadiusMin":60,"effects.ringsRadiusMax":90,"effects.ringsAngularVelocityMultiplier":12,"effects.ringsRotationDirection":-1}}
 SetFxParams {"generation":1,"patch":{"effects.shardsClickCount":6,"effects.shardsClickLifetimeMinMs":500,"effects.shardsClickLifetimeMaxMs":650,"effects.shardsClickRadius":55,"effects.shardsClickSpeedMin":45,"effects.shardsClickSpeedMax":75,"effects.shardsSizeMin":14,"effects.shardsSizeMax":30}}
+SaveFxProfile 1 夜间 柔和
+ApplyFxProfile 2 夜间 柔和
+DeleteFxProfile 3 夜间 柔和
 SetDisplayOverride {"generation":1,"displayKey":"displayconfig-v1-sha256:...","enabled":true,"hdrEnabled":false,"framePacing":"120"}
 RemoveDisplayOverride {"generation":1,"displayKey":"displayconfig-v1-sha256:..."}
 ResetFxConfig
@@ -310,13 +316,28 @@ Shutdown
 `GetDisplayState` 只接受同版本 Host 生成的严格 schema 2：未知、重复、缺失字段和旧 schema 都会被
 Control Center 拒绝。它返回独立运行代次、配置/应用代次、全局拓扑状态、权威离线 override 列表，以及
 每个会话实际应用的特效、HDR、颜色、cadence 和输出状态；它不修改配置，也不代表其中的实验能力已经完成
-硬件验收。`SetConfig` 也接受完整的 schema 17
+硬件验收。`SetConfig` 也接受完整的 schema 19
 JSON 快照。`GetFxConfig`、`SetFxParam`、原子批量的 `SetFxParams` 和 `ResetFxConfig` 是本项目的原生
 特效控制接口。`GetFxConfig` 返回平面的 `EffectsConfig` 字段，写入路径只接受唯一的 `effects.*`
 命名空间，不接受 Web 别名或额外单位换算。FX 快照不包含 HDR、背景、输入、性能或系统字段；这些
 产品设置只通过 `GetConfig`/`SetConfig` 管理。`ResetFxConfig` 只恢复 `effects`，保留背景、HDR、输入和系统设置；Control Center
 中的“重置默认”则使用完整 schema 恢复全部持久化设置。路径补丁只允许配置库声明的产品字段，代次不匹配会返回
 `generation_conflict`；所有命令均在下一帧由 Host 应用。
+
+特效 Profile 同样由 Host 持有，内置且不可删除的四项是“Unity 原版”“轻量”“纯点击”和“纯拖尾”。
+`GetState` 通过 `fxProfileCatalog` 返回内置/自定义目录，通过 `activeFxProfile` 返回当前特效与某一
+Profile 完全匹配的名称，并用 `fxProfileWarning` 报告启动时被跳过的损坏、冲突或不可读文件；没有精确
+匹配时显示“自定义”。`SaveFxProfile`、`ApplyFxProfile` 和
+`DeleteFxProfile` 的负载均以当前 `generation` 开头，名称可以包含空格；过期请求返回
+`generation_conflict`。保存使用同目录临时文件、flush 和替换，应用先通过主配置的原子写入提交候选
+`effects`，删除以单个自定义 Profile 文件的移除作为提交点。只有操作成功后 Host 才更新内存状态；三种
+操作都会把用于并发冲突检测的控制 `generation` 增加一次，但只有应用会推进独立的配置 generation。
+纯目录的保存/删除不会触发渲染与捕获状态的无意义重应用，失败也不会发布半更新的目录或配置。
+为保证 `activeFxProfile` 身份稳定，Host 会拒绝与其他内置或自定义 Profile 完全相同的 effects 快照。
+
+Profile 是严格的 effects-only 快照：保存和应用只涉及 `effects`，明确不包含也不改变 `background`、
+`display`、`input`、`performance` 或 `system`。因此实验性 Active-FX ROI 的
+`performance.activeFxRoiEnabled` 也不属于 Profile；切换 Profile 不会顺带打开、关闭或覆盖 ROI。
 
 诊断日志按单文件 `8 MiB` 轮转，最多保留 `.log.1`、`.log.2`、`.log.3` 三个备份，总预算约 `32 MiB`。
 `ClearLogs` 会清理当前文件及遗留备份，清理动作本身会留下新的结构化结果记录；日志清理失败不会停止 Host

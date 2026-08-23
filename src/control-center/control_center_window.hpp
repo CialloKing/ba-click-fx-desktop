@@ -15,6 +15,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace bafx::control_center
 {
@@ -100,6 +101,11 @@ private:
         CursorExcluded,
         AllowSystemBorder,
         IdleOptimization,
+        FxProfileSelector,
+        FxProfileName,
+        ApplyFxProfile,
+        SaveFxProfile,
+        DeleteFxProfile,
         ActiveFxRoiEnabled,
         StartWithWindows,
         StartMinimized,
@@ -135,6 +141,7 @@ private:
 
     struct PendingPatch final
     {
+        std::uint64_t generation{0U};
         std::string path{};
         std::string valueJson{};
     };
@@ -210,15 +217,25 @@ private:
     void commitThemeColor();
     void chooseThemeColor();
     void queueNumberPatch(const SliderControl& slider);
-    void commitPendingPatch();
-    void applyPatchRequest(std::string command);
+    bool commitPendingPatch();
+    bool readyForFxProfileMutation();
+    bool applyFxProfileMutationRequest(std::string command);
+    bool applyPatchRequest(std::string command);
     void onTimer(UINT_PTR timerId);
 
     [[nodiscard]] bool refreshFromHost();
     void updateControls(
         const HostState& state,
         const bafx::config::Config& config);
-    void applyPatch(std::string_view path, std::string_view valueJson);
+    void updateFxProfileControls(const HostState& state);
+    void updateFxProfileActionState() const noexcept;
+    void onFxProfileSelectionChanged();
+    void applySelectedFxProfile();
+    void saveCurrentFxProfile();
+    void deleteSelectedFxProfile();
+    bool applyPatch(
+        std::string_view path,
+        std::string_view valueJson);
     void setSelectedDisplayOverride();
     void removeSelectedDisplayOverride();
     void applyDisplayPolicyCommand(std::string command);
@@ -271,8 +288,17 @@ private:
         std::uint64_t generation,
         std::string_view path,
         std::string_view valueJson);
+    [[nodiscard]] static std::string fxProfileRequest(
+        std::string_view command,
+        std::uint64_t generation,
+        std::string_view name);
     [[nodiscard]] static std::wstring numberText(double value);
     [[nodiscard]] static std::filesystem::path executableDirectory();
+
+    [[nodiscard]] const FxProfileState* selectedFxProfile() const noexcept;
+    [[nodiscard]] const FxProfileState* findFxProfile(
+        std::string_view name) const;
+    [[nodiscard]] std::optional<std::string> fxProfileNameFromEdit() const;
 
     HINSTANCE instance_{nullptr};
     HWND window_{nullptr};
@@ -363,6 +389,12 @@ private:
     HWND cursorExcluded_{nullptr};
     HWND allowSystemBorder_{nullptr};
     HWND idleOptimization_{nullptr};
+    HWND fxProfileLabel_{nullptr};
+    HWND fxProfileSelector_{nullptr};
+    HWND fxProfileNameEdit_{nullptr};
+    HWND applyFxProfileButton_{nullptr};
+    HWND saveFxProfileButton_{nullptr};
+    HWND deleteFxProfileButton_{nullptr};
     HWND systemSettingsHeading_{nullptr};
     HWND startWithWindows_{nullptr};
     HWND startMinimized_{nullptr};
@@ -400,6 +432,9 @@ private:
     bafx::windows::UniqueHandle hostLifetimeMutex_{};
     std::optional<PendingPatch> pendingPatch_{};
     bafx::config::Config config_{};
+    std::vector<FxProfileState> fxProfiles_{};
+    std::optional<std::string> selectedFxProfileDraft_{};
+    std::string fxProfileNameDraft_{};
     DisplayState displayState_{};
     std::wstring displayStateError_{};
     std::string selectedDisplayIdentity_{};
@@ -408,6 +443,9 @@ private:
     ULONGLONG hostShutdownDeadlineTicks_{0U};
     UINT taskbarCreatedMessage_{0U};
     bool connected_{false};
+    bool fxProfileSelectionDirty_{false};
+    bool fxProfileNameDirty_{false};
+    bool refreshRetrying_{false};
     // IPC can be unavailable while the Host is still initializing. Keep this
     // process-level state separate so the lifecycle button can still request
     // an orderly shutdown during that window.

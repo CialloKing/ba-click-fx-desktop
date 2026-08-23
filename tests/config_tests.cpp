@@ -616,6 +616,168 @@ BAFX_TEST(config_current_effect_fields_round_trip_through_file)
     removeTestTree(path);
 }
 
+BAFX_TEST(config_effects_json_codec_round_trips_complete_flat_object)
+{
+    bafx::config::EffectsConfig value =
+        bafx::config::defaultConfig().effects;
+    value.enabled = false;
+    value.diskLayerEnabled = false;
+    value.ringsLayerEnabled = true;
+    value.clickShardsLayerEnabled = false;
+    value.trailShardsLayerEnabled = true;
+    value.trailLayerEnabled = false;
+    value.bloomLayerEnabled = true;
+    value.themeColor = "#FF6969";
+    value.globalScale = 1.75F;
+    value.opacity = 0.35F;
+    value.clickEnabled = false;
+    value.trailEnabled = true;
+    value.trailLength = 1.5F;
+    value.trailWidth = 1.25F;
+    value.clickTimeScale = 0.25F;
+    value.trailTimeScale = 3.5F;
+    value.trailLifetimeMs = 450.0F;
+    value.diskLifetimeMs = 350.0F;
+    value.diskRadius = 48.0F;
+    value.ringsCount = 5U;
+    value.ringsLifetimeMs = 900.0F;
+    value.ringsRadiusMin = 45.0F;
+    value.ringsRadiusMax = 95.0F;
+    value.ringsAngularVelocityMultiplier = 14.5F;
+    value.ringsRotationDirection = 0.5F;
+    value.ringsHdrIntensity = 4.0F;
+    value.shardsHdrIntensity = 8.0F;
+    value.shardsClickCount = 9U;
+    value.shardsClickLifetimeMinMs = 250.0F;
+    value.shardsClickLifetimeMaxMs = 850.0F;
+    value.shardsClickRadius = 72.5F;
+    value.shardsClickSpeedMin = 25.0F;
+    value.shardsClickSpeedMax = 125.0F;
+    value.shardsSizeMin = 12.0F;
+    value.shardsSizeMax = 44.0F;
+    value.trailOpacity = 0.55F;
+    value.bloomIntensity = 3.4F;
+    value.bloomDiffusion = 8.5F;
+    value.bloomThreshold = 0.75F;
+    value.bloomSoftKnee = 0.4F;
+    value.bloomClamp = 4096.0F;
+
+    const std::string serialized = bafx::config::toJson(value, false);
+    BAFX_CHECK(!serialized.empty());
+    BAFX_CHECK(serialized.front() == '{');
+    BAFX_CHECK(serialized.back() == '}');
+    BAFX_CHECK(serialized.find("\"schemaVersion\"") == std::string::npos);
+    BAFX_CHECK(serialized.find("\"effects\"") == std::string::npos);
+    BAFX_CHECK(serialized.find("\"background\"") == std::string::npos);
+    BAFX_CHECK(serialized.find("\"themeColor\":\"#ff6969\"")
+        != std::string::npos);
+
+    bafx::config::Config wrapper = bafx::config::defaultConfig();
+    wrapper.effects = value;
+    BAFX_CHECK(bafx::config::getFxConfig(wrapper, false) == serialized);
+
+    const bafx::config::EffectsConfigParseResult parsed =
+        bafx::config::parseEffectsJson(serialized);
+    BAFX_CHECK(parsed.succeeded());
+    BAFX_CHECK(parsed.status == bafx::config::ConfigStatus::Ok);
+    BAFX_CHECK(parsed.config.has_value());
+    BAFX_CHECK(!parsed.config->enabled);
+    BAFX_CHECK(!parsed.config->diskLayerEnabled);
+    BAFX_CHECK(parsed.config->ringsLayerEnabled);
+    BAFX_CHECK(!parsed.config->clickShardsLayerEnabled);
+    BAFX_CHECK(parsed.config->trailShardsLayerEnabled);
+    BAFX_CHECK(!parsed.config->trailLayerEnabled);
+    BAFX_CHECK(parsed.config->bloomLayerEnabled);
+    BAFX_CHECK(parsed.config->themeColor == "#ff6969");
+    BAFX_CHECK(!parsed.config->clickEnabled);
+    BAFX_CHECK(parsed.config->trailEnabled);
+    // Deterministic reserialization verifies every numeric member without
+    // duplicating the production field table in this test.
+    BAFX_CHECK(bafx::config::toJson(*parsed.config, false) == serialized);
+
+    const std::string pretty = bafx::config::toJson(value, true);
+    BAFX_CHECK(!pretty.empty());
+    BAFX_CHECK(pretty.back() == '\n');
+    BAFX_CHECK(pretty.find("\n  \"bloomClamp\"") != std::string::npos);
+}
+
+BAFX_TEST(config_effects_json_codec_rejects_non_strict_documents_atomically)
+{
+    bafx::config::EffectsConfig value =
+        bafx::config::defaultConfig().effects;
+    value.ringsCount = 5U;
+    value.globalScale = 1.75F;
+    const std::string valid = bafx::config::toJson(value, false);
+
+    std::string missing = valid;
+    const std::string requiredField = "\"ringsCount\":5,";
+    const std::size_t requiredPosition = missing.find(requiredField);
+    BAFX_CHECK(requiredPosition != std::string::npos);
+    missing.erase(requiredPosition, requiredField.size());
+    const auto missingResult = bafx::config::parseEffectsJson(missing);
+    BAFX_CHECK(!missingResult.succeeded());
+    BAFX_CHECK(!missingResult.config.has_value());
+    BAFX_CHECK(
+        missingResult.status == bafx::config::ConfigStatus::ValidationError);
+    BAFX_CHECK(
+        missingResult.message.find("effects.ringsCount")
+        != std::string::npos);
+
+    std::string unknown = valid;
+    unknown.insert(unknown.size() - 1U, ",\"metadata\":true");
+    const auto unknownResult = bafx::config::parseEffectsJson(unknown);
+    BAFX_CHECK(!unknownResult.succeeded());
+    BAFX_CHECK(!unknownResult.config.has_value());
+    BAFX_CHECK(
+        unknownResult.status == bafx::config::ConfigStatus::ValidationError);
+    BAFX_CHECK(
+        unknownResult.message.find("effects.metadata")
+        != std::string::npos);
+
+    std::string wrongType = valid;
+    const std::string enabledField = "\"enabled\":true";
+    const std::size_t enabledPosition = wrongType.find(enabledField);
+    BAFX_CHECK(enabledPosition != std::string::npos);
+    wrongType.replace(
+        enabledPosition,
+        enabledField.size(),
+        "\"enabled\":\"true\"");
+    const auto wrongTypeResult = bafx::config::parseEffectsJson(wrongType);
+    BAFX_CHECK(!wrongTypeResult.succeeded());
+    BAFX_CHECK(!wrongTypeResult.config.has_value());
+    BAFX_CHECK(
+        wrongTypeResult.status
+        == bafx::config::ConfigStatus::ValidationError);
+
+    std::string invalidRange = valid;
+    const std::string scaleField = "\"globalScale\":1.75";
+    const std::size_t scalePosition = invalidRange.find(scaleField);
+    BAFX_CHECK(scalePosition != std::string::npos);
+    invalidRange.replace(
+        scalePosition,
+        scaleField.size(),
+        "\"globalScale\":9");
+    const auto invalidRangeResult =
+        bafx::config::parseEffectsJson(invalidRange);
+    BAFX_CHECK(!invalidRangeResult.succeeded());
+    BAFX_CHECK(!invalidRangeResult.config.has_value());
+    BAFX_CHECK(
+        invalidRangeResult.status
+        == bafx::config::ConfigStatus::ValidationError);
+
+    const auto arrayResult = bafx::config::parseEffectsJson("[]");
+    BAFX_CHECK(!arrayResult.succeeded());
+    BAFX_CHECK(!arrayResult.config.has_value());
+    BAFX_CHECK(arrayResult.status == bafx::config::ConfigStatus::ParseError);
+
+    const auto duplicateResult = bafx::config::parseEffectsJson(
+        R"json({"enabled":true,"enabled":false})json");
+    BAFX_CHECK(!duplicateResult.succeeded());
+    BAFX_CHECK(!duplicateResult.config.has_value());
+    BAFX_CHECK(
+        duplicateResult.status == bafx::config::ConfigStatus::ParseError);
+}
+
 BAFX_TEST(config_fx_parameter_boundaries_use_native_paths)
 {
     const bafx::config::Config base = bafx::config::defaultConfig();

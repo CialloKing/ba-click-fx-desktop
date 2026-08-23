@@ -87,6 +87,25 @@ BAFX_TEST(ipc_parser_accepts_supported_commands)
     const IpcParseResult resetFxConfig = parseIpcRequest("ResetFxConfig");
     BAFX_CHECK(resetFxConfig.succeeded());
     BAFX_CHECK(resetFxConfig.request->command == IpcCommand::ResetFxConfig);
+
+    const IpcParseResult saveFxProfile = parseIpcRequest(
+        "SaveFxProfile 7 我的预设");
+    BAFX_CHECK(saveFxProfile.succeeded());
+    BAFX_CHECK(
+        saveFxProfile.request->command == IpcCommand::SaveFxProfile);
+    BAFX_CHECK(saveFxProfile.request->payload == "7 我的预设");
+
+    const IpcParseResult applyFxProfile = parseIpcRequest(
+        "ApplyFxProfile 8 Unity 原版");
+    BAFX_CHECK(applyFxProfile.succeeded());
+    BAFX_CHECK(
+        applyFxProfile.request->command == IpcCommand::ApplyFxProfile);
+
+    const IpcParseResult deleteFxProfile = parseIpcRequest(
+        "DeleteFxProfile 9 我的预设");
+    BAFX_CHECK(deleteFxProfile.succeeded());
+    BAFX_CHECK(
+        deleteFxProfile.request->command == IpcCommand::DeleteFxProfile);
     BAFX_CHECK(resetFxConfig.request->payload.empty());
 
     const IpcParseResult clearLogs = parseIpcRequest("ClearLogs");
@@ -117,6 +136,10 @@ BAFX_TEST(ipc_parser_rejects_invalid_payload_shapes)
     const IpcParseResult missingFxParams = parseIpcRequest("SetFxParams");
     BAFX_CHECK(!missingFxParams.succeeded());
     BAFX_CHECK(missingFxParams.errorCode == "missing_payload");
+
+    const IpcParseResult missingProfile = parseIpcRequest("SaveFxProfile");
+    BAFX_CHECK(!missingProfile.succeeded());
+    BAFX_CHECK(missingProfile.errorCode == "missing_payload");
 
     const IpcParseResult resetWithPayload = parseIpcRequest(
         "ResetFxConfig now");

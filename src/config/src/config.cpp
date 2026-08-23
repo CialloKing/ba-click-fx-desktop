@@ -1649,11 +1649,6 @@ private:
     return JsonValue(std::move(root));
 }
 
-[[nodiscard]] JsonValue makeFxConfigJson(const Config& config)
-{
-    return JsonValue(makeEffectsConfigJson(config.effects));
-}
-
 void appendEscapedString(std::string& output, const std::string_view value)
 {
     static constexpr char hex[] = "0123456789ABCDEF";
@@ -2137,6 +2132,81 @@ ConfigLoadResult parseJson(const std::string_view json) noexcept
             defaultConfig(),
             ConfigStatus::ParseError,
             "configuration parsing failed"};
+    }
+}
+
+EffectsConfigParseResult parseEffectsJson(const std::string_view json) noexcept
+{
+    try
+    {
+        JsonParser parser(json);
+        std::optional<JsonValue> parsed = parser.parse();
+        if (!parsed.has_value())
+        {
+            return EffectsConfigParseResult{
+                std::nullopt,
+                ConfigStatus::ParseError,
+                parser.error().empty()
+                    ? "invalid effects JSON"
+                    : parser.error()};
+        }
+        if (objectOf(*parsed) == nullptr)
+        {
+            return EffectsConfigParseResult{
+                std::nullopt,
+                ConfigStatus::ParseError,
+                "effects configuration root must be an object"};
+        }
+
+        // Inject the object into a known-valid current document so the strict
+        // member list, field readers, normalization, and relational checks
+        // remain owned by the canonical configuration parser.
+        JsonValue document = makeConfigJson(defaultConfig());
+        JsonValue::Object* root = objectOf(document);
+        if (root == nullptr)
+        {
+            return EffectsConfigParseResult{
+                std::nullopt,
+                ConfigStatus::ParseError,
+                "unable to construct effects configuration document"};
+        }
+        (*root)["effects"] = std::move(*parsed);
+
+        std::string error;
+        Config config = parseCurrentConfig(*root, error);
+        if (!error.empty())
+        {
+            return EffectsConfigParseResult{
+                std::nullopt,
+                ConfigStatus::ValidationError,
+                std::move(error)};
+        }
+        if (!validateConfig(config, &error))
+        {
+            return EffectsConfigParseResult{
+                std::nullopt,
+                ConfigStatus::ValidationError,
+                std::move(error)};
+        }
+
+        EffectsConfigParseResult result{};
+        result.config = std::move(config.effects);
+        result.status = ConfigStatus::Ok;
+        return result;
+    }
+    catch (const std::exception& error)
+    {
+        return EffectsConfigParseResult{
+            std::nullopt,
+            ConfigStatus::ParseError,
+            std::string("effects configuration parsing failed: ") + error.what()};
+    }
+    catch (...)
+    {
+        return EffectsConfigParseResult{
+            std::nullopt,
+            ConfigStatus::ParseError,
+            "effects configuration parsing failed"};
     }
 }
 
@@ -3146,8 +3216,17 @@ ConfigBatchPatchResult setFxParams(
 
 std::string getFxConfig(const Config& config, const bool pretty)
 {
+    return toJson(config.effects, pretty);
+}
+
+std::string toJson(const EffectsConfig& config, const bool pretty)
+{
     std::string output;
-    appendJsonValue(makeFxConfigJson(config), output, pretty, 0U);
+    appendJsonValue(
+        JsonValue(makeEffectsConfigJson(config)),
+        output,
+        pretty,
+        0U);
     if (pretty)
     {
         output.push_back('\n');

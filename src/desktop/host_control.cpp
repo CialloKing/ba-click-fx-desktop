@@ -8,6 +8,7 @@
 #include <chrono>
 #include <cmath>
 #include <limits>
+#include <span>
 #include <sstream>
 #include <utility>
 
@@ -62,6 +63,90 @@ namespace
     }
     result.push_back('"');
     return result;
+}
+
+struct FxProfileCommandPayload final
+{
+    std::optional<std::uint64_t> generation{};
+    std::string name{};
+    std::string error{};
+
+    [[nodiscard]] bool succeeded() const noexcept
+    {
+        return generation.has_value() && error.empty();
+    }
+};
+
+[[nodiscard]] FxProfileCommandPayload parseFxProfileCommandPayload(
+    const std::string_view payload) noexcept
+{
+    FxProfileCommandPayload result{};
+    const std::size_t separator = payload.find(' ');
+    if (separator == std::string_view::npos
+        || separator == 0U
+        || separator + 1U >= payload.size())
+    {
+        result.error = "profile command requires generation and name";
+        return result;
+    }
+    const std::string_view generation = payload.substr(0U, separator);
+    std::uint64_t parsedGeneration = 0U;
+    const auto parsed = std::from_chars(
+        generation.data(),
+        generation.data() + generation.size(),
+        parsedGeneration);
+    if (parsed.ec != std::errc{}
+        || parsed.ptr != generation.data() + generation.size())
+    {
+        result.error = "profile command generation is invalid";
+        return result;
+    }
+    result.generation = parsedGeneration;
+    result.name = std::string(payload.substr(separator + 1U));
+    return result;
+}
+
+[[nodiscard]] std::string fxProfileCatalog(
+    const std::span<const FxProfileSummary> profiles)
+{
+    std::string result;
+    for (std::size_t index = 0U; index < profiles.size(); ++index)
+    {
+        if (index != 0U)
+        {
+            result.push_back('|');
+        }
+        result += profiles[index].builtIn ? "B:" : "C:";
+        result += profiles[index].name;
+    }
+    return result;
+}
+
+[[nodiscard]] bafx::windows::IpcResponse profileStoreFailure(
+    const FxProfileStoreResult& result)
+{
+    std::string code = "invalid_fx_profile";
+    if (result.status == FxProfileStoreStatus::NotFound)
+    {
+        code = "fx_profile_not_found";
+    }
+    else if (result.status == FxProfileStoreStatus::TooManyProfiles)
+    {
+        code = "fx_profile_limit_reached";
+    }
+    else if (result.status == FxProfileStoreStatus::DuplicateEffects)
+    {
+        code = "fx_profile_duplicate";
+    }
+    else if (result.status == FxProfileStoreStatus::IoError)
+    {
+        code = "fx_profile_store_write_failed";
+    }
+    return bafx::windows::IpcResponse::failure(
+        std::move(code),
+        result.message.empty()
+            ? "effects profile operation failed"
+            : result.message);
 }
 
 [[nodiscard]] std::string statusName(const bool active)
@@ -492,6 +577,7 @@ HostControlPlane::HostControlPlane(
     bafx::windows::RecordingCompatibleAvailability
         recordingCompatibleAvailability)
     : configPath_(std::move(configPath))
+    , fxProfileStore_(configPath_.parent_path() / L"fx-profiles")
     , config_(std::move(initialConfig))
     , recordingCompatibleAvailability_(recordingCompatibleAvailability)
     , systemIntegration_(systemIntegration)
@@ -514,7 +600,7 @@ HostControlStartResult HostControlPlane::start(
     std::lock_guard<std::mutex> lock(mutex_);
     normalizeRecordingCompatibleStartup();
     backgroundCaptureActive_ = backgroundCaptureActive;
-    const std::uint64_t appliedGeneration = generation_;
+    const std::uint64_t appliedGeneration = configGeneration_;
     // Keep the mutex until the server thread exists. An immediate SetConfig
     // may advance the generation only after this applied baseline is latched.
     const bool serviceStarted = ipc_.start();
@@ -616,13 +702,22 @@ void HostControlPlane::stop() noexcept
 HostStateSnapshot HostControlPlane::snapshot() const
 {
     std::lock_guard<std::mutex> lock(mutex_);
+    return snapshotLocked();
+}
+
+HostStateSnapshot HostControlPlane::snapshotLocked() const
+{
     return HostStateSnapshot{
         config_,
         generation_,
+        configGeneration_,
         paused_,
         ipc_.stopRequested(),
         backgroundCaptureActive_,
-        spout2RuntimeState_};
+        spout2RuntimeState_,
+        fxProfileStore_.summaries(),
+        fxProfileStore_.activeProfileName(config_.effects),
+        fxProfileStore_.loadWarning()};
 }
 
 DisplayStateSnapshot HostControlPlane::displaySnapshot() const
@@ -631,7 +726,7 @@ DisplayStateSnapshot HostControlPlane::displaySnapshot() const
     DisplayStateSnapshot snapshot{};
     snapshot.runtime = displayRuntimeSummary_;
     snapshot.runtimeGeneration = displayRuntimeGeneration_;
-    snapshot.configGeneration = generation_;
+    snapshot.configGeneration = configGeneration_;
     snapshot.appliedConfigGeneration = appliedConfigGeneration_;
     snapshot.offlineOverridesAuthoritative =
         displayRuntimeSummary_.topologyStatus
@@ -741,18 +836,18 @@ bafx::windows::IpcResponse HostControlPlane::handle(
         case bafx::windows::IpcCommand::ResetFxConfig:
             return handleResetFxConfig();
 
+        case bafx::windows::IpcCommand::SaveFxProfile:
+        case bafx::windows::IpcCommand::ApplyFxProfile:
+        case bafx::windows::IpcCommand::DeleteFxProfile:
+            return handleFxProfileMutation(request.payload, request.command);
+
         case bafx::windows::IpcCommand::Pause:
         {
             std::lock_guard<std::mutex> lock(mutex_);
             paused_ = true;
             ++generation_;
-            return bafx::windows::IpcResponse::success(stateJson(HostStateSnapshot{
-                config_,
-                generation_,
-                paused_,
-                ipc_.stopRequested(),
-                backgroundCaptureActive_,
-                spout2RuntimeState_}));
+            return bafx::windows::IpcResponse::success(
+                stateJson(snapshotLocked()));
         }
 
         case bafx::windows::IpcCommand::Resume:
@@ -760,13 +855,8 @@ bafx::windows::IpcResponse HostControlPlane::handle(
             std::lock_guard<std::mutex> lock(mutex_);
             paused_ = false;
             ++generation_;
-            return bafx::windows::IpcResponse::success(stateJson(HostStateSnapshot{
-                config_,
-                generation_,
-                paused_,
-                ipc_.stopRequested(),
-                backgroundCaptureActive_,
-                spout2RuntimeState_}));
+            return bafx::windows::IpcResponse::success(
+                stateJson(snapshotLocked()));
         }
 
         case bafx::windows::IpcCommand::ClearLogs:
@@ -842,7 +932,7 @@ bafx::windows::IpcResponse HostControlPlane::handleSetFxParams(
     {
         return bafx::windows::IpcResponse::failure(
             "generation_conflict",
-            "configuration generation changed; refresh before retrying");
+            "control state generation changed; refresh before retrying");
     }
     const bafx::config::ConfigSaveResult saved =
         bafx::config::saveConfigAtomic(configPath_, candidate);
@@ -854,6 +944,7 @@ bafx::windows::IpcResponse HostControlPlane::handleSetFxParams(
     }
     config_ = candidate;
     ++generation_;
+    ++configGeneration_;
     if (candidate.background.mode
         == bafx::config::RenderMode::RecordingCompatible)
     {
@@ -886,8 +977,96 @@ bafx::windows::IpcResponse HostControlPlane::handleResetFxConfig() noexcept
     }
     config_ = candidate;
     ++generation_;
+    ++configGeneration_;
     return bafx::windows::IpcResponse::success(
         bafx::config::getFxConfig(config_, false));
+}
+
+bafx::windows::IpcResponse HostControlPlane::handleFxProfileMutation(
+    const std::string_view payload,
+    const bafx::windows::IpcCommand command) noexcept
+{
+    const FxProfileCommandPayload request =
+        parseFxProfileCommandPayload(payload);
+    if (!request.succeeded())
+    {
+        return bafx::windows::IpcResponse::failure(
+            "invalid_fx_profile",
+            request.error.empty()
+                ? "effects profile command is invalid"
+                : request.error);
+    }
+
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (*request.generation != generation_)
+    {
+        return bafx::windows::IpcResponse::failure(
+            "generation_conflict",
+            "control state generation changed; refresh before retrying");
+    }
+
+    if (command == bafx::windows::IpcCommand::SaveFxProfile)
+    {
+        const FxProfileStoreResult saved = fxProfileStore_.save(
+            request.name,
+            config_.effects);
+        if (!saved.succeeded())
+        {
+            return profileStoreFailure(saved);
+        }
+        ++generation_;
+        // Saving the catalog advances optimistic control state but leaves the
+        // render configuration generation stable.
+        return bafx::windows::IpcResponse::success(
+            stateJson(snapshotLocked()));
+    }
+
+    if (command == bafx::windows::IpcCommand::DeleteFxProfile)
+    {
+        const FxProfileStoreResult removed = fxProfileStore_.remove(
+            request.name);
+        if (!removed.succeeded())
+        {
+            return profileStoreFailure(removed);
+        }
+        ++generation_;
+        // Deleting a catalog entry leaves the currently applied effects
+        // untouched, so it must not invalidate render/capture state.
+        return bafx::windows::IpcResponse::success(
+            stateJson(snapshotLocked()));
+    }
+
+    if (command != bafx::windows::IpcCommand::ApplyFxProfile)
+    {
+        return bafx::windows::IpcResponse::failure(
+            "invalid_fx_profile",
+            "effects profile command is not supported");
+    }
+
+    const FxProfile* profile = fxProfileStore_.find(request.name);
+    if (profile == nullptr)
+    {
+        return bafx::windows::IpcResponse::failure(
+            "fx_profile_not_found",
+            "effects profile does not exist");
+    }
+    bafx::config::Config candidate = config_;
+    candidate.effects = profile->effects;
+    const bafx::config::ConfigSaveResult saved =
+        bafx::config::saveConfigAtomic(configPath_, candidate);
+    if (!saved.succeeded())
+    {
+        return bafx::windows::IpcResponse::failure(
+            "config_write_failed",
+            saved.message.empty()
+                ? "effects profile could not be applied"
+                : saved.message);
+    }
+    config_ = std::move(candidate);
+    ++generation_;
+    ++configGeneration_;
+    return bafx::windows::IpcResponse::success(
+        stateJson(snapshotLocked()));
 }
 
 bafx::windows::IpcResponse HostControlPlane::handleClearLogs() noexcept
@@ -968,7 +1147,7 @@ bafx::windows::IpcResponse HostControlPlane::handleSetConfig(
     {
         return bafx::windows::IpcResponse::failure(
             "generation_conflict",
-            "configuration generation changed; refresh before retrying");
+            "control state generation changed; refresh before retrying");
     }
 
     if (candidate.background.mode
@@ -1062,6 +1241,7 @@ bafx::windows::IpcResponse HostControlPlane::handleSetConfig(
     }
     config_ = candidate;
     ++generation_;
+    ++configGeneration_;
     return bafx::windows::IpcResponse::success(
         bafx::config::toJson(config_, false));
 }
@@ -1099,7 +1279,7 @@ bafx::windows::IpcResponse HostControlPlane::handleDisplayOverrideMutation(
     {
         return bafx::windows::IpcResponse::failure(
             "generation_conflict",
-            "configuration generation changed; refresh before retrying");
+            "control state generation changed; refresh before retrying");
     }
     const bafx::config::ConfigSaveResult saved =
         bafx::config::saveConfigAtomic(configPath_, mutation.config);
@@ -1113,6 +1293,7 @@ bafx::windows::IpcResponse HostControlPlane::handleDisplayOverrideMutation(
     }
     config_ = mutation.config;
     ++generation_;
+    ++configGeneration_;
     return bafx::windows::IpcResponse::success(
         bafx::config::toJson(config_, false));
 }
@@ -1134,6 +1315,12 @@ std::string HostControlPlane::stateJson(const HostStateSnapshot& state)
            << ",\"spout2Error\":" << jsonEscape(state.spout2.error)
            << ",\"spout2OutputContract\":"
            << jsonEscape(state.spout2.outputContract)
+           << ",\"fxProfileCatalog\":"
+           << jsonEscape(fxProfileCatalog(state.fxProfiles))
+           << ",\"activeFxProfile\":"
+           << jsonEscape(state.activeFxProfile)
+           << ",\"fxProfileWarning\":"
+           << jsonEscape(state.fxProfileWarning)
            << "}";
     return stream.str();
 }

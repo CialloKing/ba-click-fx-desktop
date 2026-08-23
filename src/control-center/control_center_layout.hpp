@@ -6,7 +6,7 @@ namespace bafx::control_center
 {
 
 inline constexpr int minimumControlCenterClientWidth = 860;
-inline constexpr int minimumControlCenterClientHeight = 520;
+inline constexpr int minimumControlCenterClientHeight = 600;
 inline constexpr int defaultControlCenterClientWidth = 960;
 inline constexpr int defaultControlCenterClientHeight = 600;
 

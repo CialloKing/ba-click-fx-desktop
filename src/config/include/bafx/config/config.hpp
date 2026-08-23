@@ -215,6 +215,20 @@ struct ConfigLoadResult
     }
 };
 
+struct EffectsConfigParseResult
+{
+    // An optional prevents callers from accidentally consuming the default-
+    // initialized prefix of an effects object that failed strict parsing.
+    std::optional<EffectsConfig> config{};
+    ConfigStatus status{ConfigStatus::ParseError};
+    std::string message{};
+
+    [[nodiscard]] bool succeeded() const noexcept
+    {
+        return status == ConfigStatus::Ok && config.has_value();
+    }
+};
+
 struct ConfigPatchResult
 {
     Config config{};
@@ -257,6 +271,14 @@ struct ConfigSaveResult
 [[nodiscard]] Config defaultConfig() noexcept;
 
 [[nodiscard]] ConfigLoadResult parseJson(std::string_view json) noexcept;
+
+// The effects-only codec owns the exact flat object returned by GetFxConfig.
+// It deliberately excludes product settings outside EffectsConfig.
+[[nodiscard]] std::string toJson(
+    const EffectsConfig& config,
+    bool pretty = false);
+[[nodiscard]] EffectsConfigParseResult parseEffectsJson(
+    std::string_view json) noexcept;
 
 // Parses a single {"path": ..., "value": ...} product-level update. A
 // missing path makes recognized=false so callers can fall back to a full

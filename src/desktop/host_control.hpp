@@ -1,5 +1,7 @@
 #pragma once
 
+#include "fx_profile_store.hpp"
+
 #include "bafx/config/config.hpp"
 #include "bafx/windows/ipc.hpp"
 #include "bafx/windows/recording_compatibility.hpp"
@@ -31,10 +33,16 @@ struct HostStateSnapshot final
 {
     bafx::config::Config config{};
     std::uint64_t generation{0U};
+    // Control generation protects all IPC mutations. Config generation only
+    // advances when the immutable render configuration actually changes.
+    std::uint64_t configGeneration{0U};
     bool paused{false};
     bool shutdownRequested{false};
     bool backgroundCaptureActive{false};
     Spout2RuntimeState spout2{};
+    std::vector<FxProfileSummary> fxProfiles{};
+    std::string activeFxProfile{"自定义"};
+    std::string fxProfileWarning{};
 };
 
 struct HostControlStartResult final
@@ -157,7 +165,11 @@ private:
         std::string_view payload,
         bool batch) noexcept;
     [[nodiscard]] bafx::windows::IpcResponse handleResetFxConfig() noexcept;
+    [[nodiscard]] bafx::windows::IpcResponse handleFxProfileMutation(
+        std::string_view payload,
+        bafx::windows::IpcCommand command) noexcept;
     [[nodiscard]] bafx::windows::IpcResponse handleClearLogs() noexcept;
+    [[nodiscard]] HostStateSnapshot snapshotLocked() const;
     [[nodiscard]] static std::string stateJson(const HostStateSnapshot& state);
     [[nodiscard]] static std::string displayStateJson(
         const DisplayStateSnapshot& state);
@@ -170,8 +182,10 @@ private:
 
     mutable std::mutex mutex_{};
     std::filesystem::path configPath_{};
+    FxProfileStore fxProfileStore_;
     bafx::config::Config config_{};
     std::uint64_t generation_{1U};
+    std::uint64_t configGeneration_{1U};
     bafx::windows::DisplayRuntimeSummary displayRuntimeSummary_{};
     std::uint64_t displayRuntimeGeneration_{0U};
     std::uint64_t appliedConfigGeneration_{0U};

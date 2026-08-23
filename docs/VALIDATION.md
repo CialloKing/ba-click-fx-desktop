@@ -31,6 +31,9 @@
   owner cancel 清除旧请求身份，使相同捕获配置可在新控制代次重新进入权限动作。新输出/显示目标或
   shutdown 必须丢弃旧 resize；仅配置代次、恢复或会话故障取消且没有新几何替代时必须保留它；
 - ROI alignment/guard；
+- effects-only Profile codec/store：启动目录必须固定包含“Unity 原版”“轻量”“纯点击”“纯拖尾”四个内置项；
+  每个自定义项使用 `fx-profiles/<名称>.json` 单文件保存完整、严格的平面 `EffectsConfig`，合法文件可跨实例
+  save/reload/delete，损坏或超限文件只能被忽略，不能移除或污染内置项；
 - finite sanitize、component-wise non-negative 与 isotonic test vectors；
 - fixed-step simulation 和 deterministic random；
 - `FXTouch` 释放后的 `1 s` 仿真寿命、桌面暂停冻结、边界帧呈现后回池，以及
@@ -113,6 +116,26 @@
   Control Center 和 Identity Signer 的完整目标，并记录 runner 实际安装的 SDK 清单；不以当前运行系统
   缺少 Windows 11 API 为测试失败条件。该 SDK 编译覆盖不替代 build `28000+` 的真实运行时或 WGC 证据；
 - monitor/adapter rebuild。
+
+### Host-owned effects-only Profile 合同
+
+Profile 自动化必须同时覆盖存储、IPC、Host 事务和 Control Center 状态解析，不能只验证 JSON 往返：
+
+- `GetState` 必须发布可严格解析的 `fxProfileCatalog`、`activeFxProfile` 与 `fxProfileWarning`，并区分四个内置项和自定义项；
+  当前 effects 与任一 Profile 不完全相等时，活动名称必须是“自定义”；
+  损坏、冲突或不可读文件必须被跳过并产生非空 warning，不能静默从控制中心消失；
+  与其他现有项 effects 完全相同的保存必须拒绝；同名项可以幂等重存或覆盖，且启动扫描必须使用确定性顺序，
+  避免活动 Profile 身份随目录枚举顺序漂移；
+- `SaveFxProfile <generation> <name>`、`ApplyFxProfile <generation> <name>` 和
+  `DeleteFxProfile <generation> <name>` 必须接受含空格的 UTF-8 名称，并先比较同一个 Host generation。
+  过期请求返回 `generation_conflict`，不写文件、不改变配置/目录、不增加 generation；
+- 保存通过临时文件、flush 和替换发布单个自定义文件；应用通过主配置原子写发布只替换 `effects` 的候选；
+  删除只允许自定义项，并以单文件移除作为提交点。三种操作失败时均保持旧的可观察状态；成功时恰好增加
+  一次控制 generation，只有应用同时增加一次独立配置 generation。纯目录保存/删除的配置 generation
+  必须保持不变，避免触发渲染配置重应用；覆盖或删除四个内置项必须拒绝；
+- Profile round-trip 必须证明 `background`、`display`、`input`、`performance` 和 `system` 均保持逐字段
+  不变。`performance.activeFxRoiEnabled` 属于明确的负向断言：自定义文件中不得出现，应用 Profile 也不得
+  改变 ROI 开关。
 
 ### L3：硬件/视觉
 
@@ -373,6 +396,7 @@ Lanczos 或带负瓣 bicubic 不得进入等价性路径。
 | Golden/numerics | ADR-005 | all | all suites |
 | ROI/mip phase | ADR-006 | opt-in prefilter ROI + per-frame full-screen fallback | VAL-ROI |
 | Temporal validity | ADR-007 | SPK-002, SPK-004 | VAL-TEMPORAL |
+| Host effects-only Profile | ADR-008 | 不适用 | config/fx-profile-store/host-control/host-state tests |
 
 比较类型固定为：整数/状态机 exact；确定性 CPU simulation exact；FP32 abs/rel epsilon；FP16 GPU
 max/mean/p99.9 error；最终视觉使用感知指标加人工评审。具体阈值必须在首次执行前单独提交，失败后不得

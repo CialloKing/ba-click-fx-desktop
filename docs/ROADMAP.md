@@ -21,9 +21,24 @@ DPI 和 Windows 11 运行时逻辑提前到测试与硬件证据之前，不再�
   fallback；测试不得仅因运行系统缺少 Windows 11 能力而失败；
 - 当前不为这些 Windows 11 分支扩张测试、collector 或 verifier。未在真实硬件执行的矩阵仍保持
   `Not Run`，不能据代码完成宣称正式支持；
-  - 测试版配置只接受字段完整的当前 `schemaVersion=17`，不补齐缺失字段、不迁移非当前 schema，
-  也不保留未知字段或枚举别名；
+- 主配置使用字段完整的当前 `schemaVersion=19`，schema 14 至 18 只按固定迁移链升级；其他版本、未知
+  字段和枚举别名仍被拒绝；
 - 每项逻辑保持独立中文提交，只做有硬超时的编译或静态检查，避免构建和外部命令无界等待。
+
+## Host-owned 特效 Profile（2026-08-23）
+
+特效 Profile 的生产控制面已经收敛为 Host-owned、effects-only 合同：
+
+- Host 固定提供“Unity 原版”“轻量”“纯点击”“纯拖尾”四个内置项，并在 `GetState` 中发布
+  `fxProfileCatalog`、`activeFxProfile` 和加载 warning，供 Control Center 按同一代次消费；
+- 每个自定义项独占主配置旁的 `fx-profiles/<名称>.json`，文件保存完整、平面的 `EffectsConfig`，不把
+  Profile 混入 `BAFX.config.json`，损坏单文件也不会阻断四个内置项；
+- `SaveFxProfile`、`ApplyFxProfile`、`DeleteFxProfile` 均由 Host 串行检查 `generation`。保存通过临时
+  文件、flush 和替换提交，应用通过主配置原子写提交，删除以单个自定义文件移除为提交点；成功操作均
+  推进用于并发冲突检测的控制 generation，只有应用同时推进独立配置 generation。纯目录保存/删除不触发
+  渲染配置重应用，过期请求统一返回 `generation_conflict`；
+- Profile 只覆盖 `effects`，不包含 `background`、`display`、`input`、`performance` 或 `system`。
+  Active-FX ROI 位于 `performance.activeFxRoiEnabled`，因此不会被 Profile 保存、应用或删除操作改变。
 
 ## 录屏兼容用户反馈测试（2026-08-18）
 

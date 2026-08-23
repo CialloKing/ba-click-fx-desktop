@@ -5,18 +5,25 @@
 using bafx::control_center::PixelSize;
 using bafx::control_center::clampPixelSize;
 using bafx::control_center::controlCenterLayoutDpi;
+using bafx::control_center::minimumControlCenterClientHeight;
+
+BAFX_TEST(control_center_minimum_height_reserves_basic_profile_rows)
+{
+    BAFX_CHECK(minimumControlCenterClientHeight == 600);
+}
 
 BAFX_TEST(control_center_layout_preserves_requested_dpi_when_it_fits)
 {
     BAFX_CHECK(controlCenterLayoutDpi(PixelSize{960, 600}, 96U) == 96U);
     BAFX_CHECK(controlCenterLayoutDpi(PixelSize{1440, 900}, 144U) == 144U);
-    BAFX_CHECK(controlCenterLayoutDpi(PixelSize{1920, 1080}, 192U) == 192U);
+    BAFX_CHECK(controlCenterLayoutDpi(PixelSize{1920, 1200}, 192U) == 192U);
 }
 
 BAFX_TEST(control_center_layout_uses_stable_compact_steps_for_small_work_areas)
 {
-    BAFX_CHECK(controlCenterLayoutDpi(PixelSize{1340, 690}, 144U) == 120U);
-    BAFX_CHECK(controlCenterLayoutDpi(PixelSize{1880, 980}, 192U) == 180U);
+    BAFX_CHECK(controlCenterLayoutDpi(PixelSize{1340, 690}, 144U) == 108U);
+    BAFX_CHECK(controlCenterLayoutDpi(PixelSize{1880, 980}, 192U) == 156U);
+    BAFX_CHECK(controlCenterLayoutDpi(PixelSize{1920, 1080}, 192U) == 168U);
     BAFX_CHECK(controlCenterLayoutDpi(PixelSize{700, 400}, 192U) == 96U);
 }
 

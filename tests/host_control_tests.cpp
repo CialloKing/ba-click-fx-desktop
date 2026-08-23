@@ -2,6 +2,7 @@
 
 #include "host_control.hpp"
 #include "display_state.hpp"
+#include "host_state.hpp"
 
 #include "bafx/windows/ipc_client.hpp"
 #include "bafx/windows/recording_compatibility.hpp"
@@ -11,6 +12,8 @@
 #include <chrono>
 #include <cstddef>
 #include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <string>
 #include <vector>
 
@@ -1142,4 +1145,129 @@ BAFX_TEST(host_control_fx_batch_is_atomic_and_reset_preserves_other_sections)
     BAFX_CHECK(!persisted.config.input.trailOnlyWhilePressed);
     BAFX_CHECK(persisted.config.input.samplingRateHz == 144U);
     BAFX_CHECK(!persisted.config.system.closeToTray);
+}
+
+BAFX_TEST(host_control_fx_profiles_are_atomic_effects_only_transactions)
+{
+    TemporaryConfigDirectory temporary;
+    bafx::config::Config initial = bafx::config::defaultConfig();
+    initial.effects.opacity = 0.25F;
+    initial.background.mode = bafx::config::RenderMode::LightBackground;
+    initial.display.hdrEnabled = true;
+    initial.input.samplingRateHz = 144U;
+    initial.performance.activeFxRoiEnabled = true;
+    initial.system.closeToTray = false;
+
+    const std::filesystem::path corruptProfileDirectory =
+        temporary.directoryPath() / L"fx-profiles";
+    std::filesystem::create_directories(corruptProfileDirectory);
+    {
+        std::ofstream corrupt(
+            corruptProfileDirectory / L"损坏.json",
+            std::ios::binary | std::ios::trunc);
+        corrupt << "{\"opacity\":0.5}";
+    }
+
+    bafx::windows::NamedPipeIpcServer::Options serverOptions{};
+    serverOptions.pipeName = testPipeName() + L".fx-profiles";
+    serverOptions.ioTimeoutMilliseconds = 500U;
+    serverOptions.retryDelayMilliseconds = 10U;
+    bafx::desktop::HostControlPlane control(
+        temporary.configPath(),
+        initial,
+        serverOptions,
+        bafx::desktop::HostSystemIntegration{},
+        bafx::windows::recordingCompatibleAvailabilityForBuild(28000U));
+    BAFX_CHECK(control.start(false).serviceStarted);
+
+    bafx::windows::IpcClientOptions clientOptions{};
+    clientOptions.pipeName = serverOptions.pipeName;
+    clientOptions.timeoutMilliseconds = 1'000U;
+    const bafx::windows::NamedPipeIpcClient client(clientOptions);
+
+    const bafx::windows::IpcClientResponse initialState = client.transact(
+        "GetState");
+    BAFX_CHECK(initialState.succeeded());
+    const auto parsedInitial = bafx::control_center::parseHostState(
+        initialState.payload);
+    BAFX_CHECK(parsedInitial.succeeded());
+    BAFX_CHECK(parsedInitial.state->fxProfiles.size() == 4U);
+    BAFX_CHECK(parsedInitial.state->activeFxProfile == "自定义");
+    BAFX_CHECK(!parsedInitial.state->fxProfileWarning.empty());
+    BAFX_CHECK(control.snapshot().configGeneration == 1U);
+
+    const bafx::windows::IpcClientResponse saved = client.transact(
+        "SaveFxProfile 1 夜间 柔和");
+    BAFX_CHECK(saved.succeeded());
+    BAFX_CHECK(control.snapshot().generation == 2U);
+    BAFX_CHECK(control.snapshot().configGeneration == 1U);
+    BAFX_CHECK(std::filesystem::is_regular_file(
+        temporary.directoryPath() / L"fx-profiles" / L"夜间 柔和.json"));
+    {
+        std::ifstream input(
+            temporary.directoryPath()
+                / L"fx-profiles"
+                / L"夜间 柔和.json",
+            std::ios::binary);
+        const std::string profileJson{
+            std::istreambuf_iterator<char>(input),
+            std::istreambuf_iterator<char>()};
+        const bafx::config::EffectsConfigParseResult parsedProfile =
+            bafx::config::parseEffectsJson(profileJson);
+        BAFX_CHECK(parsedProfile.succeeded());
+        BAFX_CHECK_NEAR(
+            parsedProfile.config->opacity,
+            0.25F,
+            0.00001F);
+        BAFX_CHECK(profileJson.find("background") == std::string::npos);
+        BAFX_CHECK(profileJson.find("activeFxRoiEnabled")
+            == std::string::npos);
+    }
+
+    const bafx::windows::IpcClientResponse changed = client.transact(
+        "SetFxParam {\"generation\":2,\"path\":\"effects.opacity\",\"value\":0.8}");
+    BAFX_CHECK(changed.succeeded());
+    BAFX_CHECK(control.snapshot().generation == 3U);
+    BAFX_CHECK(control.snapshot().configGeneration == 2U);
+
+    const bafx::windows::IpcClientResponse stale = client.transact(
+        "ApplyFxProfile 2 夜间 柔和");
+    BAFX_CHECK(!stale.succeeded());
+    BAFX_CHECK(stale.errorCode == "generation_conflict");
+
+    const bafx::windows::IpcClientResponse applied = client.transact(
+        "ApplyFxProfile 3 夜间 柔和");
+    BAFX_CHECK(applied.succeeded());
+    const bafx::desktop::HostStateSnapshot afterApply = control.snapshot();
+    BAFX_CHECK(afterApply.generation == 4U);
+    BAFX_CHECK(afterApply.configGeneration == 3U);
+    BAFX_CHECK_NEAR(afterApply.config.effects.opacity, 0.25F, 0.00001F);
+    BAFX_CHECK(
+        afterApply.config.background.mode
+        == bafx::config::RenderMode::LightBackground);
+    BAFX_CHECK(afterApply.config.display.hdrEnabled);
+    BAFX_CHECK(afterApply.config.input.samplingRateHz == 144U);
+    BAFX_CHECK(afterApply.config.performance.activeFxRoiEnabled);
+    BAFX_CHECK(!afterApply.config.system.closeToTray);
+    BAFX_CHECK(afterApply.activeFxProfile == "夜间 柔和");
+
+    const bafx::windows::IpcClientResponse builtInDelete = client.transact(
+        "DeleteFxProfile 4 Unity 原版");
+    BAFX_CHECK(!builtInDelete.succeeded());
+    BAFX_CHECK(builtInDelete.errorCode == "invalid_fx_profile");
+    BAFX_CHECK(control.snapshot().generation == 4U);
+    BAFX_CHECK(control.snapshot().configGeneration == 3U);
+
+    const bafx::windows::IpcClientResponse removed = client.transact(
+        "DeleteFxProfile 4 夜间 柔和");
+    BAFX_CHECK(removed.succeeded());
+    const bafx::desktop::HostStateSnapshot afterRemove = control.snapshot();
+    control.stop();
+
+    BAFX_CHECK(afterRemove.generation == 5U);
+    BAFX_CHECK(afterRemove.configGeneration == 3U);
+    BAFX_CHECK(afterRemove.fxProfiles.size() == 4U);
+    BAFX_CHECK(afterRemove.activeFxProfile == "自定义");
+    BAFX_CHECK(!std::filesystem::exists(
+        temporary.directoryPath() / L"fx-profiles" / L"夜间 柔和.json"));
 }
