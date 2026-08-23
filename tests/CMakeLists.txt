@@ -63,6 +63,20 @@ set_target_properties(bafx_reference_tests PROPERTIES FOLDER "Tests")
 find_package(Python3 COMPONENTS Interpreter QUIET)
 if(Python3_Interpreter_FOUND)
     add_test(
+        NAME host_render_loop_snapshot_contract
+        COMMAND
+            "${Python3_EXECUTABLE}"
+            -B
+            "${CMAKE_CURRENT_SOURCE_DIR}/host_render_loop_snapshot_contract_tests.py"
+            "${PROJECT_SOURCE_DIR}/src/desktop/main.cpp"
+    )
+    set_tests_properties(
+        host_render_loop_snapshot_contract
+        PROPERTIES
+            LABELS "desktop;host;contract"
+            TIMEOUT 10
+    )
+    add_test(
         NAME golden_metrics_contract
         COMMAND
             "${Python3_EXECUTABLE}"
