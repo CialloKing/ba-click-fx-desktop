@@ -157,18 +157,18 @@ if ($null -eq $cmake)
 }
 
 $version = Get-BafxVersion -VersionFile (Join-Path $repositoryRoot 'cmake\Version.cmake')
-$bundleName = "ba-click-fx-desktop-$version$variantSuffix-test-windows-x64"
+$bundleName = "ba-click-fx-desktop-$version$variantSuffix-Portable-windows-x64"
 $outputRoot = Get-FullPath -Path $OutputDirectory -BaseDirectory $repositoryRoot
 $archivePath = Join-Path $outputRoot "$bundleName.zip"
 $checksumPath = "$archivePath.sha256"
 
 if (Test-Path -LiteralPath $archivePath -PathType Leaf)
 {
-    throw "Refusing to overwrite an existing test bundle: $archivePath"
+    throw "Refusing to overwrite an existing portable bundle: $archivePath"
 }
 if (Test-Path -LiteralPath $checksumPath -PathType Leaf)
 {
-    throw "Refusing to overwrite an existing test bundle checksum: $checksumPath"
+    throw "Refusing to overwrite an existing portable bundle checksum: $checksumPath"
 }
 
 New-Item -ItemType Directory -Path $outputRoot -Force | Out-Null
@@ -289,5 +289,5 @@ if (-not $SkipVerification)
     }
 }
 
-Write-Host "Test bundle created: $archivePath"
+Write-Host "Portable bundle created: $archivePath"
 Write-Host "SHA-256: $archiveHash"

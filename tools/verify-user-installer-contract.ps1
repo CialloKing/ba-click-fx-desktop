@@ -1254,6 +1254,16 @@ function Test-UpgradeHostIntegrityContract
 
 function Test-PortableZipContract
 {
+    $portablePackaging = Read-RepositoryText -RelativePath 'tools/package-test-bundle.ps1'
+    Assert-TextContains `
+        -Text $portablePackaging `
+        -Pattern 'ba-click-fx-desktop-\$version\$variantSuffix-Portable-windows-x64' `
+        -Description 'portable release archive name identifies the Portable package'
+    Assert-TextExcludes `
+        -Text $portablePackaging `
+        -Pattern 'ba-click-fx-desktop-\$version\$variantSuffix-test-windows-x64' `
+        -Description 'legacy test bundle release archive name'
+
     $portableVerifier = Read-RepositoryText -RelativePath 'tools/verify-release-package.ps1'
     Assert-TextContains `
         -Text $portableVerifier `
