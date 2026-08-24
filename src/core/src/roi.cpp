@@ -65,6 +65,197 @@ namespace
     return quotient * numerator + remainder * numerator / denominator;
 }
 
+[[nodiscard]] bool checkedAdd(
+    const std::int64_t lhs,
+    const std::int64_t rhs,
+    std::int64_t& result) noexcept
+{
+    if ((rhs > 0 && lhs > std::numeric_limits<std::int64_t>::max() - rhs)
+        || (rhs < 0 && lhs < std::numeric_limits<std::int64_t>::min() - rhs))
+    {
+        return false;
+    }
+    result = lhs + rhs;
+    return true;
+}
+
+[[nodiscard]] bool checkedMultiplyNonNegative(
+    const std::int64_t lhs,
+    const std::int64_t rhs,
+    std::int64_t& result) noexcept
+{
+    if (lhs < 0 || rhs < 0
+        || (lhs != 0 && rhs > std::numeric_limits<std::int64_t>::max() / lhs))
+    {
+        return false;
+    }
+    result = lhs * rhs;
+    return true;
+}
+
+[[nodiscard]] RoiStatus dependencyInterval(
+    const std::int32_t destinationBegin,
+    const std::int32_t destinationEnd,
+    const std::int32_t destinationExtent,
+    const std::int32_t sourceExtent,
+    const std::uint32_t radius,
+    std::int32_t& sourceBegin,
+    std::int32_t& sourceEnd) noexcept
+{
+    if (destinationExtent <= 0 || sourceExtent <= 0
+        || destinationBegin < 0 || destinationEnd > destinationExtent
+        || destinationBegin >= destinationEnd)
+    {
+        return RoiStatus::InvalidRect;
+    }
+
+    std::int64_t scaledBegin = 0;
+    std::int64_t scaledEnd = 0;
+    if (!checkedMultiplyNonNegative(
+            destinationBegin,
+            sourceExtent,
+            scaledBegin)
+        || !checkedMultiplyNonNegative(
+            destinationEnd,
+            sourceExtent,
+            scaledEnd))
+    {
+        return RoiStatus::IntegerOverflow;
+    }
+
+    // Map the destination pixel edges through normalized UV space before
+    // expanding. Applying the radius to pixel centers can omit the second
+    // bilinear texel when odd extents place that center across a texel edge.
+    std::int64_t roundedEnd = 0;
+    if (!checkedAdd(scaledEnd, destinationExtent - 1, roundedEnd))
+    {
+        return RoiStatus::IntegerOverflow;
+    }
+    std::int64_t unclippedBegin = scaledBegin / destinationExtent;
+    std::int64_t unclippedEnd = roundedEnd / destinationExtent;
+    if (!checkedAdd(
+            unclippedBegin,
+            -static_cast<std::int64_t>(radius),
+            unclippedBegin)
+        || !checkedAdd(
+            unclippedEnd,
+            static_cast<std::int64_t>(radius),
+            unclippedEnd))
+    {
+        return RoiStatus::IntegerOverflow;
+    }
+
+    const std::int64_t clippedBegin = std::clamp<std::int64_t>(
+        unclippedBegin,
+        0,
+        sourceExtent);
+    const std::int64_t clippedEnd = std::clamp<std::int64_t>(
+        unclippedEnd,
+        0,
+        sourceExtent);
+    if (clippedBegin >= clippedEnd)
+    {
+        return RoiStatus::Empty;
+    }
+    sourceBegin = static_cast<std::int32_t>(clippedBegin);
+    sourceEnd = static_cast<std::int32_t>(clippedEnd);
+    return RoiStatus::Ok;
+}
+
+[[nodiscard]] RoiStatus dependencyRect(
+    const RectI destinationRect,
+    const BloomExtent destinationExtent,
+    const BloomExtent sourceExtent,
+    const std::uint32_t radius,
+    RectI& result) noexcept
+{
+    const RoiStatus horizontal = dependencyInterval(
+        destinationRect.left,
+        destinationRect.right,
+        destinationExtent.width,
+        sourceExtent.width,
+        radius,
+        result.left,
+        result.right);
+    if (horizontal != RoiStatus::Ok)
+    {
+        return horizontal;
+    }
+    return dependencyInterval(
+        destinationRect.top,
+        destinationRect.bottom,
+        destinationExtent.height,
+        sourceExtent.height,
+        radius,
+        result.top,
+        result.bottom);
+}
+
+[[nodiscard]] bool checkedAddPixels(
+    const std::uint64_t value,
+    std::uint64_t& total) noexcept
+{
+    if (value > std::numeric_limits<std::uint64_t>::max() - total)
+    {
+        return false;
+    }
+    total += value;
+    return true;
+}
+
+[[nodiscard]] bool rectPixels(
+    const RectI rect,
+    std::uint64_t& pixels) noexcept
+{
+    if (!isValidRect(rect) || isEmpty(rect))
+    {
+        return false;
+    }
+    const std::uint64_t width = static_cast<std::uint64_t>(
+        static_cast<std::int64_t>(rect.right) - rect.left);
+    const std::uint64_t height = static_cast<std::uint64_t>(
+        static_cast<std::int64_t>(rect.bottom) - rect.top);
+    if (width != 0U
+        && height > std::numeric_limits<std::uint64_t>::max() / width)
+    {
+        return false;
+    }
+    pixels = width * height;
+    return true;
+}
+
+[[nodiscard]] bool extentPixels(
+    const BloomExtent extent,
+    std::uint64_t& pixels) noexcept
+{
+    if (extent.width <= 0 || extent.height <= 0)
+    {
+        return false;
+    }
+    return rectPixels(RectI{0, 0, extent.width, extent.height}, pixels);
+}
+
+[[nodiscard]] bool addPassPixels(
+    const BloomExtent fullExtent,
+    const RectI candidateRect,
+    UnityBloomPassPixelTotals& totals) noexcept
+{
+    std::uint64_t fullPixels = 0;
+    std::uint64_t candidatePixels = 0;
+    return extentPixels(fullExtent, fullPixels)
+        && rectPixels(candidateRect, candidatePixels)
+        && checkedAddPixels(fullPixels, totals.fullPixels)
+        && checkedAddPixels(candidatePixels, totals.candidatePixels);
+}
+
+[[nodiscard]] bool addPixelTotals(
+    const UnityBloomPassPixelTotals source,
+    UnityBloomPassPixelTotals& destination) noexcept
+{
+    return checkedAddPixels(source.fullPixels, destination.fullPixels)
+        && checkedAddPixels(source.candidatePixels, destination.candidatePixels);
+}
+
 }
 
 ActiveFxRoiAdaptiveDecision decideActiveFxRoiAdaptivePath(
@@ -266,6 +457,264 @@ BloomRoiPlanResult planUnityBloomRoi(
         PyramidFootprint{
             std::span<const ReceptiveFieldTerm>(terms.data(), termCount),
             bloomPlan.mipCount});
+}
+
+UnityBloomPassRoiPlanResult planUnityBloomPassRoi(
+    const RectI sourceSupport,
+    const RectI monitorBounds,
+    const UnityBloomPlan& bloomPlan) noexcept
+{
+    UnityBloomPassRoiPlanResult result{};
+    const BloomRoiPlanResult base = planUnityBloomRoi(
+        sourceSupport,
+        monitorBounds,
+        bloomPlan);
+    result.plan.basePlan = base.plan;
+    if (base.status != RoiStatus::Ok)
+    {
+        result.status = base.status;
+        return result;
+    }
+
+    const std::int64_t monitorWidth64 =
+        static_cast<std::int64_t>(monitorBounds.right) - monitorBounds.left;
+    const std::int64_t monitorHeight64 =
+        static_cast<std::int64_t>(monitorBounds.bottom) - monitorBounds.top;
+    if (monitorWidth64 <= 0 || monitorHeight64 <= 0
+        || monitorWidth64 > std::numeric_limits<std::int32_t>::max()
+        || monitorHeight64 > std::numeric_limits<std::int32_t>::max())
+    {
+        result.status = RoiStatus::IntegerOverflow;
+        return result;
+    }
+    const BloomExtent monitorExtent{
+        static_cast<std::int32_t>(monitorWidth64),
+        static_cast<std::int32_t>(monitorHeight64)};
+
+    for (std::size_t index = 0U; index < bloomPlan.mipCount; ++index)
+    {
+        const BloomExtent extent = bloomPlan.mipChain[index];
+        if (extent.width <= 0 || extent.height <= 0
+            || extent.width > monitorExtent.width
+            || extent.height > monitorExtent.height)
+        {
+            result.status = RoiStatus::InvalidFootprint;
+            return result;
+        }
+        if (index > 0U)
+        {
+            const BloomExtent previous = bloomPlan.mipChain[index - 1U];
+            if (extent.width != std::max(1, previous.width / 2)
+                || extent.height != std::max(1, previous.height / 2))
+            {
+                result.status = RoiStatus::InvalidFootprint;
+                return result;
+            }
+        }
+    }
+
+    const float radiusValue = std::ceil(
+        bloomPlan.sampleScale * 0.5F + 0.5F);
+    if (!std::isfinite(radiusValue) || radiusValue < 1.0F
+        || radiusValue
+            > static_cast<float>(std::numeric_limits<std::uint32_t>::max()))
+    {
+        result.status = RoiStatus::InvalidFootprint;
+        return result;
+    }
+    const auto upsampleRadius = static_cast<std::uint32_t>(radiusValue);
+    constexpr std::uint32_t downsampleRadius = 2U;
+    constexpr std::uint32_t linearSampleRadius = 1U;
+
+    // bloomOutput is the semantic full-resolution support. alignedWork remains
+    // available in basePlan for phase diagnostics, but its padding must not be
+    // reported as valid Bloom output. Scissoring leaves the original viewport,
+    // UVs and pixel centers untouched.
+    result.plan.resolveRect = RectI{
+        static_cast<std::int32_t>(
+            static_cast<std::int64_t>(base.plan.bloomOutput.left)
+            - monitorBounds.left),
+        static_cast<std::int32_t>(
+            static_cast<std::int64_t>(base.plan.bloomOutput.top)
+            - monitorBounds.top),
+        static_cast<std::int32_t>(
+            static_cast<std::int64_t>(base.plan.bloomOutput.right)
+            - monitorBounds.left),
+        static_cast<std::int32_t>(
+            static_cast<std::int64_t>(base.plan.bloomOutput.bottom)
+            - monitorBounds.top)};
+    if (!isValidRect(result.plan.resolveRect)
+        || isEmpty(result.plan.resolveRect))
+    {
+        result.status = RoiStatus::Empty;
+        return result;
+    }
+    result.plan.mipCount = bloomPlan.mipCount;
+
+    RectI requiredAccumulated{};
+    result.status = dependencyRect(
+        result.plan.resolveRect,
+        monitorExtent,
+        bloomPlan.mipChain[0],
+        upsampleRadius,
+        requiredAccumulated);
+    if (result.status != RoiStatus::Ok)
+    {
+        return result;
+    }
+
+    std::array<bool, unityBloomMaxMipCount> hasDownRect{};
+    const auto includeDownRect = [&result, &hasDownRect](
+                                     const std::size_t index,
+                                     const RectI rect)
+    {
+        if (hasDownRect[index])
+        {
+            result.plan.downRects[index] = unite(
+                result.plan.downRects[index],
+                rect);
+        }
+        else
+        {
+            result.plan.downRects[index] = rect;
+            hasDownRect[index] = true;
+        }
+    };
+
+    if (bloomPlan.mipCount == 1U)
+    {
+        includeDownRect(0U, requiredAccumulated);
+    }
+    else
+    {
+        // Walk resolve toward the coarsest level. Each upsample reads both the
+        // accumulated coarse image and its original downsampled fine image.
+        for (std::size_t fineIndex = 0U;
+             fineIndex + 1U < bloomPlan.mipCount;
+             ++fineIndex)
+        {
+            result.plan.upRects[fineIndex] = requiredAccumulated;
+
+            RectI fineDependency{};
+            result.status = dependencyRect(
+                requiredAccumulated,
+                bloomPlan.mipChain[fineIndex],
+                bloomPlan.mipChain[fineIndex],
+                linearSampleRadius,
+                fineDependency);
+            if (result.status != RoiStatus::Ok)
+            {
+                return result;
+            }
+            includeDownRect(fineIndex, fineDependency);
+
+            RectI coarseDependency{};
+            result.status = dependencyRect(
+                requiredAccumulated,
+                bloomPlan.mipChain[fineIndex],
+                bloomPlan.mipChain[fineIndex + 1U],
+                upsampleRadius,
+                coarseDependency);
+            if (result.status != RoiStatus::Ok)
+            {
+                return result;
+            }
+            if (fineIndex + 2U < bloomPlan.mipCount)
+            {
+                requiredAccumulated = coarseDependency;
+            }
+            else
+            {
+                includeDownRect(fineIndex + 1U, coarseDependency);
+            }
+        }
+    }
+
+    // Every required coarse down target adds a dependency to the preceding
+    // level. Union it with the fine branch already required by upsampling.
+    for (std::size_t index = bloomPlan.mipCount - 1U;
+         index > 0U;
+         --index)
+    {
+        if (!hasDownRect[index])
+        {
+            result.status = RoiStatus::Empty;
+            return result;
+        }
+        RectI previousDependency{};
+        result.status = dependencyRect(
+            result.plan.downRects[index],
+            bloomPlan.mipChain[index],
+            bloomPlan.mipChain[index - 1U],
+            downsampleRadius,
+            previousDependency);
+        if (result.status != RoiStatus::Ok)
+        {
+            return result;
+        }
+        includeDownRect(index - 1U, previousDependency);
+    }
+
+    for (std::size_t index = 0U; index < bloomPlan.mipCount; ++index)
+    {
+        if (!hasDownRect[index]
+            || !isValidRect(result.plan.downRects[index])
+            || isEmpty(result.plan.downRects[index]))
+        {
+            result.status = RoiStatus::Empty;
+            return result;
+        }
+    }
+
+    if (!addPassPixels(
+            bloomPlan.mipChain[0],
+            result.plan.downRects[0],
+            result.plan.prefilterPixels))
+    {
+        result.status = RoiStatus::IntegerOverflow;
+        return result;
+    }
+    for (std::size_t index = 1U; index < bloomPlan.mipCount; ++index)
+    {
+        if (!addPassPixels(
+                bloomPlan.mipChain[index],
+                result.plan.downRects[index],
+                result.plan.pyramidPixels))
+        {
+            result.status = RoiStatus::IntegerOverflow;
+            return result;
+        }
+    }
+    for (std::size_t index = 0U; index + 1U < bloomPlan.mipCount; ++index)
+    {
+        if (!addPassPixels(
+                bloomPlan.mipChain[index],
+                result.plan.upRects[index],
+                result.plan.pyramidPixels))
+        {
+            result.status = RoiStatus::IntegerOverflow;
+            return result;
+        }
+    }
+    if (!addPassPixels(
+            monitorExtent,
+            result.plan.resolveRect,
+            result.plan.resolvePixels)
+        || !addPixelTotals(
+            result.plan.prefilterPixels,
+            result.plan.totalPixels)
+        || !addPixelTotals(
+            result.plan.pyramidPixels,
+            result.plan.totalPixels)
+        || !addPixelTotals(
+            result.plan.resolvePixels,
+            result.plan.totalPixels))
+    {
+        result.status = RoiStatus::IntegerOverflow;
+        return result;
+    }
+    result.status = RoiStatus::Ok;
+    return result;
 }
 
 RectI unite(const RectI lhs, const RectI rhs) noexcept

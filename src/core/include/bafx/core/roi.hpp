@@ -3,6 +3,7 @@
 #include "bafx/core/types.hpp"
 #include "bafx/core/unity_bloom.hpp"
 
+#include <array>
 #include <cstdint>
 #include <span>
 #include <string_view>
@@ -114,6 +115,31 @@ struct BloomRoiPlanResult
     RoiStatus status{RoiStatus::Ok};
 };
 
+struct UnityBloomPassPixelTotals
+{
+    std::uint64_t fullPixels{0};
+    std::uint64_t candidatePixels{0};
+};
+
+struct UnityBloomPassRoiPlan
+{
+    BloomRoiPlan basePlan{};
+    std::array<RectI, unityBloomMaxMipCount> downRects{};
+    std::array<RectI, unityBloomMaxMipCount - 1U> upRects{};
+    RectI resolveRect{};
+    std::uint8_t mipCount{0};
+    UnityBloomPassPixelTotals prefilterPixels{};
+    UnityBloomPassPixelTotals pyramidPixels{};
+    UnityBloomPassPixelTotals resolvePixels{};
+    UnityBloomPassPixelTotals totalPixels{};
+};
+
+struct UnityBloomPassRoiPlanResult
+{
+    UnityBloomPassRoiPlan plan{};
+    RoiStatus status{RoiStatus::Ok};
+};
+
 [[nodiscard]] BloomRoiPlanResult planBloomRoi(
     RectI sourceSupport,
     RectI monitorBounds,
@@ -123,6 +149,14 @@ struct BloomRoiPlanResult
 // graph. Consumers may use it only for passes covered by their pixel
 // equivalence contract; every unsupported pass retains its full-screen path.
 [[nodiscard]] BloomRoiPlanResult planUnityBloomRoi(
+    RectI sourceSupport,
+    RectI monitorBounds,
+    const UnityBloomPlan& bloomPlan) noexcept;
+
+// Produce target-local half-open rectangles for the unchanged Unity Bloom
+// viewport and mip chain. The final composite remains full-screen; resolveRect
+// identifies the region where its Bloom lookup is valid.
+[[nodiscard]] UnityBloomPassRoiPlanResult planUnityBloomPassRoi(
     RectI sourceSupport,
     RectI monitorBounds,
     const UnityBloomPlan& bloomPlan) noexcept;

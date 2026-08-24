@@ -94,6 +94,191 @@ void checkRect(const RectI actual, const RectI expected)
         std::min(monitor.bottom, alignUpFrom(bloom.bottom, monitor.top))};
 }
 
+struct AxisRange
+{
+    std::int32_t begin{0};
+    std::int32_t end{0};
+};
+
+[[nodiscard]] AxisRange oracleSampleDependencyAxis(
+    const std::int32_t destinationBegin,
+    const std::int32_t destinationEnd,
+    const std::int32_t destinationExtent,
+    const std::int32_t sourceExtent,
+    const long double sampleOffset)
+{
+    std::int32_t minimum = sourceExtent;
+    std::int32_t maximum = -1;
+    const std::array destinationPixels{
+        destinationBegin,
+        destinationEnd - 1};
+    const std::array offsets{-sampleOffset, sampleOffset};
+    for (const std::int32_t destinationPixel : destinationPixels)
+    {
+        for (const long double offset : offsets)
+        {
+            // This independently follows D3D's normalized texture coordinate
+            // and bilinear footprint instead of the planner's integer guard.
+            const long double coordinate =
+                (static_cast<long double>(destinationPixel) + 0.5L)
+                    * sourceExtent / destinationExtent
+                - 0.5L + offset;
+            const auto first = static_cast<std::int64_t>(
+                std::floor(coordinate));
+            for (const std::int64_t sample : {first, first + 1})
+            {
+                const auto clamped = static_cast<std::int32_t>(
+                    std::clamp<std::int64_t>(sample, 0, sourceExtent - 1));
+                minimum = std::min(minimum, clamped);
+                maximum = std::max(maximum, clamped);
+            }
+        }
+    }
+    return AxisRange{minimum, maximum + 1};
+}
+
+[[nodiscard]] RectI oracleSampleDependency(
+    const RectI destinationRect,
+    const BloomExtent destinationExtent,
+    const BloomExtent sourceExtent,
+    const long double sampleOffset)
+{
+    const AxisRange horizontal = oracleSampleDependencyAxis(
+        destinationRect.left,
+        destinationRect.right,
+        destinationExtent.width,
+        sourceExtent.width,
+        sampleOffset);
+    const AxisRange vertical = oracleSampleDependencyAxis(
+        destinationRect.top,
+        destinationRect.bottom,
+        destinationExtent.height,
+        sourceExtent.height,
+        sampleOffset);
+    return RectI{
+        horizontal.begin,
+        vertical.begin,
+        horizontal.end,
+        vertical.end};
+}
+
+[[nodiscard]] bool containsRect(const RectI outer, const RectI inner)
+{
+    return outer.left <= inner.left
+        && outer.top <= inner.top
+        && outer.right >= inner.right
+        && outer.bottom >= inner.bottom;
+}
+
+[[nodiscard]] std::uint64_t rectArea(const RectI rect)
+{
+    return static_cast<std::uint64_t>(rect.right - rect.left)
+        * static_cast<std::uint64_t>(rect.bottom - rect.top);
+}
+
+[[nodiscard]] std::uint64_t extentArea(const BloomExtent extent)
+{
+    return static_cast<std::uint64_t>(extent.width)
+        * static_cast<std::uint64_t>(extent.height);
+}
+
+void checkLocalRect(const RectI rect, const BloomExtent extent)
+{
+    BAFX_CHECK(rect.left >= 0);
+    BAFX_CHECK(rect.top >= 0);
+    BAFX_CHECK(rect.right > rect.left);
+    BAFX_CHECK(rect.bottom > rect.top);
+    BAFX_CHECK(rect.right <= extent.width);
+    BAFX_CHECK(rect.bottom <= extent.height);
+}
+
+void checkUnityBloomPassDependencies(
+    const UnityBloomPassRoiPlan& roi,
+    const UnityBloomPlan& bloom,
+    const BloomExtent monitorExtent)
+{
+    BAFX_CHECK(roi.mipCount == bloom.mipCount);
+    checkLocalRect(roi.resolveRect, monitorExtent);
+    const long double upsampleOffset =
+        static_cast<long double>(bloom.sampleScale) * 0.5L;
+    const RectI resolvedInput = oracleSampleDependency(
+        roi.resolveRect,
+        monitorExtent,
+        bloom.mipChain[0],
+        upsampleOffset);
+    const RectI accumulated = bloom.mipCount == 1U
+        ? roi.downRects[0]
+        : roi.upRects[0];
+    BAFX_CHECK(containsRect(accumulated, resolvedInput));
+
+    for (std::size_t fineIndex = 0U;
+         fineIndex + 1U < bloom.mipCount;
+         ++fineIndex)
+    {
+        checkLocalRect(roi.upRects[fineIndex], bloom.mipChain[fineIndex]);
+        const RectI fineInput = oracleSampleDependency(
+            roi.upRects[fineIndex],
+            bloom.mipChain[fineIndex],
+            bloom.mipChain[fineIndex],
+            0.0L);
+        BAFX_CHECK(containsRect(roi.downRects[fineIndex], fineInput));
+
+        const RectI coarseInput = oracleSampleDependency(
+            roi.upRects[fineIndex],
+            bloom.mipChain[fineIndex],
+            bloom.mipChain[fineIndex + 1U],
+            upsampleOffset);
+        const RectI coarse = fineIndex + 2U < bloom.mipCount
+            ? roi.upRects[fineIndex + 1U]
+            : roi.downRects[fineIndex + 1U];
+        BAFX_CHECK(containsRect(coarse, coarseInput));
+    }
+
+    for (std::size_t index = 0U; index < bloom.mipCount; ++index)
+    {
+        checkLocalRect(roi.downRects[index], bloom.mipChain[index]);
+        if (index > 0U)
+        {
+            const RectI downInput = oracleSampleDependency(
+                roi.downRects[index],
+                bloom.mipChain[index],
+                bloom.mipChain[index - 1U],
+                1.0L);
+            BAFX_CHECK(containsRect(roi.downRects[index - 1U], downInput));
+        }
+    }
+
+    std::uint64_t expectedPyramidFull = 0U;
+    std::uint64_t expectedPyramidCandidate = 0U;
+    for (std::size_t index = 1U; index < bloom.mipCount; ++index)
+    {
+        expectedPyramidFull += extentArea(bloom.mipChain[index]);
+        expectedPyramidCandidate += rectArea(roi.downRects[index]);
+    }
+    for (std::size_t index = 0U; index + 1U < bloom.mipCount; ++index)
+    {
+        expectedPyramidFull += extentArea(bloom.mipChain[index]);
+        expectedPyramidCandidate += rectArea(roi.upRects[index]);
+    }
+    BAFX_CHECK(roi.prefilterPixels.fullPixels == extentArea(bloom.mipChain[0]));
+    BAFX_CHECK(roi.prefilterPixels.candidatePixels == rectArea(roi.downRects[0]));
+    BAFX_CHECK(roi.pyramidPixels.fullPixels == expectedPyramidFull);
+    BAFX_CHECK(roi.pyramidPixels.candidatePixels == expectedPyramidCandidate);
+    BAFX_CHECK(roi.resolvePixels.fullPixels == extentArea(monitorExtent));
+    BAFX_CHECK(roi.resolvePixels.candidatePixels == rectArea(roi.resolveRect));
+    BAFX_CHECK(
+        roi.totalPixels.fullPixels
+        == roi.prefilterPixels.fullPixels
+            + roi.pyramidPixels.fullPixels
+            + roi.resolvePixels.fullPixels);
+    BAFX_CHECK(
+        roi.totalPixels.candidatePixels
+        == roi.prefilterPixels.candidatePixels
+            + roi.pyramidPixels.candidatePixels
+            + roi.resolvePixels.candidatePixels);
+    BAFX_CHECK(roi.totalPixels.candidatePixels <= roi.totalPixels.fullPixels);
+}
+
 }
 
 BAFX_TEST(roi_accumulates_full_receptive_path_and_preserves_phase)
@@ -329,6 +514,200 @@ BAFX_TEST(roi_rejects_signed_coordinate_inflation_overflow)
                 1},
             coordinateDomain,
             PyramidFootprint{terms, 0U})
+            .status
+        == RoiStatus::IntegerOverflow);
+}
+
+BAFX_TEST(roi_unity_bloom_pass_plan_uses_target_local_support_and_pixel_totals)
+{
+    constexpr BloomExtent monitorExtent{1950, 1097};
+    const UnityBloomPlanResult bloom = planUnityBloom(
+        monitorExtent,
+        UnityBloomSettings{7.0F, 0.0F, 1.7F});
+    BAFX_CHECK(bloom.status == UnityBloomStatus::Ok);
+    const UnityBloomPassRoiPlanResult result = planUnityBloomPassRoi(
+        RectI{860, 580, 890, 610},
+        RectI{-100, 50, 1850, 1147},
+        bloom.plan);
+
+    BAFX_CHECK(result.status == RoiStatus::Ok);
+    checkRect(result.plan.resolveRect, RectI{582, 152, 1368, 938});
+    checkRect(result.plan.basePlan.alignedWork, RectI{476, 178, 1308, 1010});
+    checkUnityBloomPassDependencies(result.plan, bloom.plan, monitorExtent);
+}
+
+BAFX_TEST(roi_unity_bloom_pass_plan_contains_moving_dirty_rects)
+{
+    constexpr BloomExtent monitorExtent{3840, 2160};
+    constexpr RectI monitor{0, 0, monitorExtent.width, monitorExtent.height};
+    constexpr RectI previous{1000, 800, 1040, 840};
+    constexpr RectI current{1050, 820, 1090, 860};
+    const UnityBloomPlanResult bloom = planUnityBloom(
+        monitorExtent,
+        UnityBloomSettings{7.0F, 0.0F, 1.7F});
+    BAFX_CHECK(bloom.status == UnityBloomStatus::Ok);
+    const UnityBloomPassRoiPlanResult previousPlan =
+        planUnityBloomPassRoi(previous, monitor, bloom.plan);
+    const UnityBloomPassRoiPlanResult currentPlan =
+        planUnityBloomPassRoi(current, monitor, bloom.plan);
+    const UnityBloomPassRoiPlanResult movingPlan = planUnityBloomPassRoi(
+        unite(previous, current),
+        monitor,
+        bloom.plan);
+    BAFX_CHECK(previousPlan.status == RoiStatus::Ok);
+    BAFX_CHECK(currentPlan.status == RoiStatus::Ok);
+    BAFX_CHECK(movingPlan.status == RoiStatus::Ok);
+    BAFX_CHECK(containsRect(
+        movingPlan.plan.resolveRect,
+        previousPlan.plan.resolveRect));
+    BAFX_CHECK(containsRect(
+        movingPlan.plan.resolveRect,
+        currentPlan.plan.resolveRect));
+    for (std::size_t index = 0U; index < bloom.plan.mipCount; ++index)
+    {
+        BAFX_CHECK(containsRect(
+            movingPlan.plan.downRects[index],
+            previousPlan.plan.downRects[index]));
+        BAFX_CHECK(containsRect(
+            movingPlan.plan.downRects[index],
+            currentPlan.plan.downRects[index]));
+        if (index + 1U < bloom.plan.mipCount)
+        {
+            BAFX_CHECK(containsRect(
+                movingPlan.plan.upRects[index],
+                previousPlan.plan.upRects[index]));
+            BAFX_CHECK(containsRect(
+                movingPlan.plan.upRects[index],
+                currentPlan.plan.upRects[index]));
+        }
+    }
+}
+
+BAFX_TEST(roi_unity_bloom_pass_plan_covers_edges_odd_sizes_and_diffusions)
+{
+    constexpr std::array extents{
+        BloomExtent{255, 257},
+        BloomExtent{256, 258},
+        BloomExtent{511, 320},
+        BloomExtent{512, 321}};
+    constexpr std::array diffusions{4.0F, 6.0F, 7.0F, 10.0F};
+    for (const BloomExtent extent : extents)
+    {
+        const RectI monitor{-37, 91, -37 + extent.width, 91 + extent.height};
+        const std::array supports{
+            RectI{monitor.left, monitor.top, monitor.left + 1, monitor.top + 1},
+            RectI{monitor.right - 1, monitor.top, monitor.right, monitor.top + 1},
+            RectI{monitor.left, monitor.bottom - 1, monitor.left + 1, monitor.bottom},
+            RectI{monitor.right - 1, monitor.bottom - 1, monitor.right, monitor.bottom}};
+        for (const float diffusion : diffusions)
+        {
+            const UnityBloomPlanResult bloom = planUnityBloom(
+                extent,
+                UnityBloomSettings{diffusion, 0.0F, 1.7F});
+            BAFX_CHECK(bloom.status == UnityBloomStatus::Ok);
+            for (const RectI support : supports)
+            {
+                const UnityBloomPassRoiPlanResult result =
+                    planUnityBloomPassRoi(support, monitor, bloom.plan);
+                BAFX_CHECK(result.status == RoiStatus::Ok);
+                checkUnityBloomPassDependencies(result.plan, bloom.plan, extent);
+            }
+        }
+    }
+}
+
+BAFX_TEST(roi_unity_bloom_pass_plan_matches_sampling_oracle_for_random_rects)
+{
+    constexpr std::array diffusions{4.0F, 6.0F, 7.0F, 10.0F};
+    std::mt19937_64 random(0xBAF00207ULL);
+    for (std::size_t iteration = 0U; iteration < 2'000U; ++iteration)
+    {
+        const std::int32_t width = 65 + static_cast<std::int32_t>(
+            random() % 448U);
+        const std::int32_t height = 65 + static_cast<std::int32_t>(
+            random() % 448U);
+        const std::int32_t originX = -1024 + static_cast<std::int32_t>(
+            random() % 2049U);
+        const std::int32_t originY = -1024 + static_cast<std::int32_t>(
+            random() % 2049U);
+        const RectI monitor{
+            originX,
+            originY,
+            originX + width,
+            originY + height};
+        const std::int32_t left = originX + static_cast<std::int32_t>(
+            random() % static_cast<std::uint64_t>(width));
+        const std::int32_t top = originY + static_cast<std::int32_t>(
+            random() % static_cast<std::uint64_t>(height));
+        const RectI support{
+            left,
+            top,
+            left + 1 + static_cast<std::int32_t>(
+                random() % static_cast<std::uint64_t>(monitor.right - left)),
+            top + 1 + static_cast<std::int32_t>(
+                random() % static_cast<std::uint64_t>(monitor.bottom - top))};
+        const UnityBloomPlanResult bloom = planUnityBloom(
+            BloomExtent{width, height},
+            UnityBloomSettings{
+                diffusions[iteration % diffusions.size()],
+                0.0F,
+                1.7F});
+        BAFX_CHECK(bloom.status == UnityBloomStatus::Ok);
+        const UnityBloomPassRoiPlanResult result = planUnityBloomPassRoi(
+            support,
+            monitor,
+            bloom.plan);
+        BAFX_CHECK(result.status == RoiStatus::Ok);
+        checkUnityBloomPassDependencies(
+            result.plan,
+            bloom.plan,
+            BloomExtent{width, height});
+    }
+}
+
+BAFX_TEST(roi_unity_bloom_pass_plan_fails_closed_for_empty_invalid_and_overflow)
+{
+    const UnityBloomPlanResult bloom = planUnityBloom(
+        BloomExtent{1920, 1080},
+        UnityBloomSettings{7.0F, 0.0F, 1.7F});
+    BAFX_CHECK(bloom.status == UnityBloomStatus::Ok);
+    BAFX_CHECK(
+        planUnityBloomPassRoi(
+            RectI{10, 10, 10, 20},
+            RectI{0, 0, 1920, 1080},
+            bloom.plan)
+            .status
+        == RoiStatus::Empty);
+
+    UnityBloomPlan invalid = bloom.plan;
+    invalid.mipChain[1].width += 1;
+    BAFX_CHECK(
+        planUnityBloomPassRoi(
+            RectI{10, 10, 20, 20},
+            RectI{0, 0, 1920, 1080},
+            invalid)
+            .status
+        == RoiStatus::InvalidFootprint);
+    invalid = bloom.plan;
+    invalid.mipChain[0].height = 0;
+    BAFX_CHECK(
+        planUnityBloomPassRoi(
+            RectI{10, 10, 20, 20},
+            RectI{0, 0, 1920, 1080},
+            invalid)
+            .status
+        == RoiStatus::InvalidFootprint);
+
+    constexpr RectI oversizedMonitor{
+        std::numeric_limits<std::int32_t>::min(),
+        std::numeric_limits<std::int32_t>::min(),
+        std::numeric_limits<std::int32_t>::max(),
+        std::numeric_limits<std::int32_t>::max()};
+    BAFX_CHECK(
+        planUnityBloomPassRoi(
+            RectI{0, 0, 1, 1},
+            oversizedMonitor,
+            bloom.plan)
             .status
         == RoiStatus::IntegerOverflow);
 }
