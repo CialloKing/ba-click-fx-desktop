@@ -132,7 +132,7 @@ BAFX_TEST(runtime_performance_window_aggregates_input_and_render_contracts)
         .roiApplied = true,
         .roiPrefilterPixels = 12'500U,
         .roiActiveStatus =
-            bafx::core::ActiveFxRoiStatus::AppliedPrefilter});
+            bafx::core::ActiveFxRoiStatus::AppliedPyramid});
     window.addDispatchToPresentReturn(12'000U);
     window.addMessageToPresentReturn(47U);
     window.addFramePacingWake(bafx::desktop::FramePacingWake::FrameReady);
@@ -172,11 +172,11 @@ BAFX_TEST(runtime_performance_window_aggregates_input_and_render_contracts)
     BAFX_CHECK(summary.roiAppliedFrames == 1U);
     BAFX_CHECK(
         summary.roiActiveStatusFrames[static_cast<std::size_t>(
-            bafx::core::ActiveFxRoiStatus::AppliedPrefilter)]
+            bafx::core::ActiveFxRoiStatus::AppliedPyramid)]
         == 1U);
     BAFX_CHECK(
         summary.roiLastActiveStatus
-        == bafx::core::ActiveFxRoiStatus::AppliedPrefilter);
+        == bafx::core::ActiveFxRoiStatus::AppliedPyramid);
     BAFX_CHECK(summary.roiFullScreenPixels.maximum == 1'920U * 1'080U);
     BAFX_CHECK(summary.roiAlignedWorkPixels.maximum == 50'000U);
     BAFX_CHECK(summary.roiGuardX.maximum == 378U);

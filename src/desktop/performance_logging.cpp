@@ -509,6 +509,7 @@ std::chrono::nanoseconds appendPerformanceInterval(
         constexpr std::array activeStatuses{
             bafx::core::ActiveFxRoiStatus::Disabled,
             bafx::core::ActiveFxRoiStatus::AppliedPrefilter,
+            bafx::core::ActiveFxRoiStatus::AppliedPyramid,
             bafx::core::ActiveFxRoiStatus::NoVisualPlan,
             bafx::core::ActiveFxRoiStatus::BloomDisabled,
             bafx::core::ActiveFxRoiStatus::CoreMode,

@@ -40,6 +40,7 @@ enum class ActiveFxRoiStatus : std::uint8_t
 {
     Disabled,
     AppliedPrefilter,
+    AppliedPyramid,
     NoVisualPlan,
     BloomDisabled,
     CoreMode,
@@ -61,6 +62,8 @@ enum class ActiveFxRoiStatus : std::uint8_t
         return "disabled";
     case ActiveFxRoiStatus::AppliedPrefilter:
         return "prefilter-roi";
+    case ActiveFxRoiStatus::AppliedPyramid:
+        return "pyramid-roi";
     case ActiveFxRoiStatus::NoVisualPlan:
         return "no-visual-plan";
     case ActiveFxRoiStatus::BloomDisabled:

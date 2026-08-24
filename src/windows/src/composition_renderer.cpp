@@ -530,7 +530,8 @@ struct BackgroundCadencePolicy final
         static_cast<std::int32_t>(size.height)};
 }
 
-void populateRoiDiagnostics(
+[[nodiscard]] std::optional<bafx::core::UnityBloomPassRoiPlan>
+populateRoiDiagnostics(
     CompositionFrameDiagnostics& diagnostics,
     const bafx::fx::FrameSnapshot& snapshot,
     const WindowSize size,
@@ -581,7 +582,7 @@ void populateRoiDiagnostics(
         && bounds.status != bafx::fx::FrameBoundsStatus::Empty)
     {
         diagnostics.roi.planStatus = bafx::core::RoiStatus::InvalidRect;
-        return;
+        return std::nullopt;
     }
 
     const std::optional<bafx::core::RectI> fullMonitor = monitorRect(size);
@@ -590,7 +591,7 @@ void populateRoiDiagnostics(
         diagnostics.roi.planStatus = dirtyRect.has_value()
             ? bafx::core::RoiStatus::InvalidRect
             : bafx::core::RoiStatus::Empty;
-        return;
+        return std::nullopt;
     }
 
     const bafx::core::UnityBloomPlanResult bloom = bafx::core::planUnityBloom(
@@ -604,28 +605,30 @@ void populateRoiDiagnostics(
     if (bloom.status != bafx::core::UnityBloomStatus::Ok)
     {
         diagnostics.roi.planStatus = bafx::core::RoiStatus::InvalidFootprint;
-        return;
+        return std::nullopt;
     }
 
-    const bafx::core::BloomRoiPlanResult plan =
-        bafx::core::planUnityBloomRoi(
+    const bafx::core::UnityBloomPassRoiPlanResult plan =
+        bafx::core::planUnityBloomPassRoi(
             *dirtyRect,
             *fullMonitor,
             bloom.plan);
     diagnostics.roi.planStatus = plan.status;
     if (plan.status != bafx::core::RoiStatus::Ok)
     {
-        return;
+        return std::nullopt;
     }
 
-    diagnostics.roi.guardX = plan.plan.guardX;
-    diagnostics.roi.guardY = plan.plan.guardY;
-    diagnostics.roi.phasePeriod = plan.plan.phasePeriod;
-    diagnostics.roi.bloomOutput = plan.plan.bloomOutput;
-    diagnostics.roi.alignedWork = plan.plan.alignedWork;
-    diagnostics.roi.bloomOutputPixels = rectArea(plan.plan.bloomOutput);
-    diagnostics.roi.alignedWorkPixels = rectArea(plan.plan.alignedWork);
+    const bafx::core::BloomRoiPlan& basePlan = plan.plan.basePlan;
+    diagnostics.roi.guardX = basePlan.guardX;
+    diagnostics.roi.guardY = basePlan.guardY;
+    diagnostics.roi.phasePeriod = basePlan.phasePeriod;
+    diagnostics.roi.bloomOutput = basePlan.bloomOutput;
+    diagnostics.roi.alignedWork = basePlan.alignedWork;
+    diagnostics.roi.bloomOutputPixels = rectArea(basePlan.bloomOutput);
+    diagnostics.roi.alignedWorkPixels = rectArea(basePlan.alignedWork);
     diagnostics.roi.planAvailable = true;
+    return plan.plan;
 }
 
 [[nodiscard]] std::optional<FxActiveRoi> selectActiveFxRoi(
@@ -633,6 +636,7 @@ void populateRoiDiagnostics(
     const WindowSize size,
     const FxBloomSettings bloomSettings,
     const FxOverlayProfile overlayProfile,
+    const std::optional<bafx::core::UnityBloomPassRoiPlan>& passPlan,
     const bool requested) noexcept
 {
     diagnostics.requested = requested;
@@ -652,14 +656,16 @@ void populateRoiDiagnostics(
         diagnostics.activeStatus = bafx::core::ActiveFxRoiStatus::CoreMode;
         return std::nullopt;
     }
-    if (!diagnostics.planAvailable || diagnostics.alignedWorkPixels == 0U)
+    if (!passPlan.has_value()
+        || !diagnostics.planAvailable
+        || passPlan->totalPixels.candidatePixels == 0U)
     {
         diagnostics.activeStatus =
             bafx::core::ActiveFxRoiStatus::NoVisualPlan;
         return std::nullopt;
     }
 
-    const bafx::core::RectI rect = diagnostics.alignedWork;
+    const bafx::core::RectI rect = passPlan->resolveRect;
     if (rect.left <= 0
         || rect.top <= 0
         || rect.right >= static_cast<std::int32_t>(size.width)
@@ -672,12 +678,11 @@ void populateRoiDiagnostics(
         return std::nullopt;
     }
 
-    // The GPU maps this full-resolution plan onto the real first Bloom target.
-    // Apply the 50/65% adaptive gate there so odd target extents and rounding
-    // cannot make the CPU-side estimate disagree with the executed work.
+    // The GPU revalidates this immutable plan against its current resources and
+    // applies the adaptive gate to the planned work for the complete chain.
     diagnostics.activeStatus =
         bafx::core::ActiveFxRoiStatus::RendererFallback;
-    return FxActiveRoi{rect};
+    return FxActiveRoi{*passPlan};
 }
 
 }
@@ -1230,17 +1235,19 @@ CompositionFrameDiagnostics CompositionRenderer::renderFrame(
 {
     CompositionFrameDiagnostics diagnostics{};
     diagnostics.frameId = ++frameId_;
-    populateRoiDiagnostics(
-        diagnostics,
-        snapshot,
-        size_,
-        bloomSettings_,
-        previousVisualBounds_);
+    const std::optional<bafx::core::UnityBloomPassRoiPlan> roiPassPlan =
+        populateRoiDiagnostics(
+            diagnostics,
+            snapshot,
+            size_,
+            bloomSettings_,
+            previousVisualBounds_);
     const std::optional<FxActiveRoi> activeRoi = selectActiveFxRoi(
         diagnostics.roi,
         size_,
         bloomSettings_,
         overlayProfile_,
+        roiPassPlan,
         activeFxRoiEnabled_);
     GpuTimestampFrameScope gpuTimestampFrame(
         *gpuTimestampProfiler_,
@@ -1449,8 +1456,20 @@ CompositionFrameDiagnostics CompositionRenderer::renderFrame(
         diagnostics.fx.recordingRebuildActiveFxRoi;
     if (diagnostics.roi.prefilterApplied)
     {
+        const auto isPyramidPath = [](const FxActiveRoiPassDiagnostics& pass)
+        {
+            return pass.actualPath == FxActiveRoiActualPath::RoiWarmup
+                || pass.actualPath == FxActiveRoiActualPath::RoiPyramid;
+        };
+        // Keep the aggregate status truthful while legacy prefilter-only
+        // diagnostics remain readable during the schema transition.
+        const bool pyramidApplied =
+            isPyramidPath(diagnostics.roi.primary)
+            || isPyramidPath(diagnostics.roi.recordingRebuild);
         diagnostics.roi.activeStatus =
-            bafx::core::ActiveFxRoiStatus::AppliedPrefilter;
+            pyramidApplied
+                ? bafx::core::ActiveFxRoiStatus::AppliedPyramid
+                : bafx::core::ActiveFxRoiStatus::AppliedPrefilter;
         diagnostics.roi.productionFullScreenFallback = false;
     }
     else

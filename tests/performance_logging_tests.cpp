@@ -166,6 +166,9 @@ BAFX_TEST(performance_log_preserves_metric_and_semantic_fields)
     BAFX_CHECK(text.find(
         "ROI.Active.Reason.prefilter-roi.Frames=1\n")
         != std::string::npos);
+    BAFX_CHECK(text.find(
+        "ROI.Active.Reason.pyramid-roi.Frames=0\n")
+        != std::string::npos);
     BAFX_CHECK(text.find("ROI.PrefilterPixels.Max=12500\n")
         != std::string::npos);
     BAFX_CHECK(text.find("ROI.VisualBounds.OkFrames=1\n")

@@ -245,6 +245,7 @@ void saturatingAdd(
     case bafx::core::ActiveFxRoiStatus::Disabled:
         return bafx::windows::ActiveFxRoiRuntimeReason::Disabled;
     case bafx::core::ActiveFxRoiStatus::AppliedPrefilter:
+    case bafx::core::ActiveFxRoiStatus::AppliedPyramid:
         return bafx::windows::ActiveFxRoiRuntimeReason::Applied;
     case bafx::core::ActiveFxRoiStatus::NoVisualPlan:
         return bafx::windows::ActiveFxRoiRuntimeReason::NoContent;
@@ -326,6 +327,7 @@ void saturatingAdd(
     case bafx::core::ActiveFxRoiStatus::Disabled:
         return bafx::windows::ActiveFxRoiRuntimePath::Disabled;
     case bafx::core::ActiveFxRoiStatus::AppliedPrefilter:
+    case bafx::core::ActiveFxRoiStatus::AppliedPyramid:
     case bafx::core::ActiveFxRoiStatus::SharedTargetFullWrite:
         return runtimePath(pass.actualPath);
     }
