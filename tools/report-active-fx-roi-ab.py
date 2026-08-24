@@ -578,8 +578,25 @@ def _validate_configuration_contract(
 
 
 def _intervals(
-    events: list[dict[str, str]], path: Path, roi_enabled: bool
+    events: list[dict[str, str]],
+    path: Path,
+    roi_enabled: bool,
+    measurement_path: str,
 ) -> list[dict[str, str]]:
+    for index, event in enumerate(
+        (
+            event
+            for event in events
+            if event.get("Event.Name") == "Display.Topology.Invalidated"
+        ),
+        1,
+    ):
+        context = f"{path} Display.Topology.Invalidated event {index}"
+        if _event_bool(event, "PowerUnavailable", context):
+            raise ValidationError(
+                f"{context}: display power was unavailable during capture"
+            )
+
     exited = [event for event in events if event.get("Event.Name") == "Process.Exited"]
     if len(exited) != 1:
         raise ValidationError(f"{path}: expected one Process.Exited event")
@@ -595,6 +612,11 @@ def _intervals(
             f"{path}: expected {expected_count} complete intervals, found {len(complete)}"
         )
     selected = complete[DISCARD_COMPLETE_INTERVALS:]
+    roi_prefix = (
+        "ROI.Primary"
+        if measurement_path == "primary"
+        else "ROI.RecordingRebuild"
+    )
     duration_us = 0
     for index, event in enumerate(selected, 1):
         context = f"{path} selected interval {index}"
@@ -602,6 +624,23 @@ def _intervals(
         if duration < 8_000_000 or duration > 12_000_000:
             raise ValidationError(f"{context}: duration is outside the 10 s window")
         duration_us += duration
+        frame_count = _event_int(event, "Window.FrameCount", context)
+        if frame_count <= 0:
+            raise ValidationError(f"{context}: has no presented frames")
+        present_samples = _event_int(event, "Cpu.PresentCall.Samples", context)
+        if present_samples != frame_count:
+            raise ValidationError(
+                f"{context}: Cpu.PresentCall.Samples does not match "
+                "Window.FrameCount"
+            )
+        observed_frames = _event_int(
+            event, f"{roi_prefix}.ObservedFrames", context
+        )
+        if observed_frames != frame_count:
+            raise ValidationError(
+                f"{context}: {roi_prefix}.ObservedFrames does not match "
+                "Window.FrameCount"
+            )
         if _event_int(event, "Configuration.SchemaVersion", context) != 19:
             raise ValidationError(f"{context}: config schema is not 19")
         if _event_bool(event, "Performance.ActiveFxRoiEnabled", context) != roi_enabled:
@@ -844,7 +883,7 @@ def _validate_run(
         actual_environment_identity,
         f"run {ordinal}",
     )
-    intervals = _intervals(events, log_path, roi_enabled)
+    intervals = _intervals(events, log_path, roi_enabled, measurement_path)
     return {
         "ordinal": ordinal,
         "block": block,

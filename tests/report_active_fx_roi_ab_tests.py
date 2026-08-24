@@ -52,6 +52,10 @@ class CaptureFixture:
         self.measurement_path = measurement_path
         self.executable_bytes = b"same-host-binary-v0.2.7"
         self.overrides: dict[int, dict[str, object]] = {}
+        self.interval_overrides: dict[
+            tuple[int, int], dict[str, object]
+        ] = {}
+        self.power_unavailable_runs: set[int] = set()
         self.environment_overrides: dict[int, dict[str, object]] = {}
         self.environment_identity = {
             "productVersion": "0.2.7",
@@ -146,11 +150,14 @@ class CaptureFixture:
         }
         self.write()
 
-    def interval(self, ordinal: int, roi_enabled: bool) -> dict[str, object]:
+    def interval(
+        self, ordinal: int, roi_enabled: bool, complete_interval: int
+    ) -> dict[str, object]:
+        frame_count = 1200
+        observed = frame_count
         if roi_enabled and self.expectation == "applied":
             requested = 1000
             applied = 960
-            observed = 1000
             prefilter_full_pixels = 100_000
             prefilter_candidate_pixels = 40_000
             prefilter_drawn_pixels = 40_000
@@ -160,14 +167,13 @@ class CaptureFixture:
             resolve_full_pixels = 100_000
             resolve_candidate_pixels = 40_000
             resolve_drawn_pixels = 100_000
-            reason_frames = 1000
+            reason_frames = observed
             prefilter = 250
             pyramid = 210
             bloom_final = 820
         elif roi_enabled:
             requested = 1000
             applied = 0
-            observed = 1000
             prefilter_full_pixels = 100_000
             prefilter_candidate_pixels = 100_000
             prefilter_drawn_pixels = 100_000
@@ -177,14 +183,13 @@ class CaptureFixture:
             resolve_full_pixels = 100_000
             resolve_candidate_pixels = 100_000
             resolve_drawn_pixels = 100_000
-            reason_frames = 1000
+            reason_frames = observed
             prefilter = 400
             pyramid = 300
             bloom_final = 1000
         else:
             requested = 0
             applied = 0
-            observed = 1000
             prefilter_full_pixels = 100_000
             prefilter_candidate_pixels = 100_000
             prefilter_drawn_pixels = 100_000
@@ -228,7 +233,7 @@ class CaptureFixture:
         fields: dict[str, object] = {
             "Window.Final": False,
             "Window.DurationUs": 10_000_000,
-            "Window.FrameCount": 1200,
+            "Window.FrameCount": frame_count,
             "Configuration.SchemaVersion": 19,
             "Performance.ActiveFxRoiEnabled": roi_enabled,
             "ROI.ProductionPath": (
@@ -270,6 +275,7 @@ class CaptureFixture:
             "Cpu.FrameTotal.P99": 1000,
             "Cpu.PresentCall.P95": 180,
             "Cpu.PresentCall.P99": 200,
+            "Cpu.PresentCall.Samples": frame_count,
             "GPU.RenderCommandSpan.P99": 1300,
             "GPU.PendingFrames.Max": 1,
             "GPU.DisjointSamples": 0,
@@ -283,6 +289,7 @@ class CaptureFixture:
         if self.expected_reason in {"boundary-fallback", "touches-boundary"}:
             fields["ROI.RequestedFrames"] = observed
         fields.update(self.overrides.get(ordinal, {}))
+        fields.update(self.interval_overrides.get((ordinal, complete_interval), {}))
         return fields
 
     def write_log(
@@ -328,8 +335,23 @@ class CaptureFixture:
                 for _ in range(configuration_count)
             ),
             *(
-            _event("Performance.Interval", session, self.interval(ordinal, roi_enabled))
-            for _ in range(interval_count)
+                [
+                    _event(
+                        "Display.Topology.Invalidated",
+                        session,
+                        {"PowerUnavailable": True},
+                    )
+                ]
+                if ordinal in self.power_unavailable_runs
+                else []
+            ),
+            *(
+                _event(
+                    "Performance.Interval",
+                    session,
+                    self.interval(ordinal, roi_enabled, complete_interval),
+                )
+                for complete_interval in range(1, interval_count + 1)
             ),
         ]
         blocks.append(_event("Process.Exited", session, {}))
@@ -629,6 +651,70 @@ class ActiveFxRoiAbReporterTests(unittest.TestCase):
             fixture = CaptureFixture(Path(temporary))
             fixture.write_log(1, False, interval_count=3)
             with self.assertRaisesRegex(REPORTER.ValidationError, "4 complete intervals"):
+                REPORTER.build_report(fixture.root)
+
+    def test_rejects_each_selected_interval_without_presented_frames(self) -> None:
+        for selected_interval in range(1, 4):
+            with self.subTest(selected_interval=selected_interval):
+                with tempfile.TemporaryDirectory() as temporary:
+                    fixture = CaptureFixture(Path(temporary))
+                    complete_interval = selected_interval + 1
+                    fixture.interval_overrides[(1, complete_interval)] = {
+                        "Window.FrameCount": 0,
+                        "Cpu.PresentCall.Samples": 0,
+                        "ROI.Primary.ObservedFrames": 0,
+                    }
+                    fixture.rewrite_logs()
+                    with self.assertRaisesRegex(
+                        REPORTER.ValidationError,
+                        rf"selected interval {selected_interval}: has no presented frames",
+                    ):
+                        REPORTER.build_report(fixture.root)
+
+    def test_rejects_selected_interval_present_sample_drift(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = CaptureFixture(Path(temporary))
+            fixture.interval_overrides[(1, 2)] = {
+                "Cpu.PresentCall.Samples": 1199,
+            }
+            fixture.rewrite_logs()
+            with self.assertRaisesRegex(
+                REPORTER.ValidationError,
+                "Cpu.PresentCall.Samples does not match Window.FrameCount",
+            ):
+                REPORTER.build_report(fixture.root)
+
+    def test_rejects_selected_interval_roi_observed_frame_drift(self) -> None:
+        paths = (
+            ("primary", "ROI.Primary"),
+            ("recording-rebuild", "ROI.RecordingRebuild"),
+        )
+        for measurement_path, roi_prefix in paths:
+            with self.subTest(measurement_path=measurement_path):
+                with tempfile.TemporaryDirectory() as temporary:
+                    fixture = CaptureFixture(
+                        Path(temporary), measurement_path=measurement_path
+                    )
+                    fixture.interval_overrides[(1, 2)] = {
+                        f"{roi_prefix}.ObservedFrames": 1199,
+                    }
+                    fixture.rewrite_logs()
+                    with self.assertRaisesRegex(
+                        REPORTER.ValidationError,
+                        rf"{re.escape(roi_prefix)}.ObservedFrames does not match "
+                        "Window.FrameCount",
+                    ):
+                        REPORTER.build_report(fixture.root)
+
+    def test_rejects_capture_with_power_unavailable_event(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = CaptureFixture(Path(temporary))
+            fixture.power_unavailable_runs.add(1)
+            fixture.rewrite_logs()
+            with self.assertRaisesRegex(
+                REPORTER.ValidationError,
+                "display power was unavailable during capture",
+            ):
                 REPORTER.build_report(fixture.root)
 
     def test_failed_error_pending_and_pair_gates_are_reported(self) -> None:
