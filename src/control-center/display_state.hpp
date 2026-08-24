@@ -2,6 +2,8 @@
 
 #include "bafx/config/config.hpp"
 
+#include <array>
+#include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -112,6 +114,102 @@ struct DisplayPhysicalCadenceState final
     bool available{false};
 };
 
+enum class ActiveFxRoiPathState : std::uint8_t
+{
+    Disabled,
+    Idle,
+    FullScreen,
+    RoiWarmup,
+    RoiPrefilter,
+    Unavailable
+};
+
+enum class ActiveFxRoiReasonState : std::uint8_t
+{
+    Disabled,
+    NoContent,
+    BackgroundDifferentialBloom,
+    Context1Unavailable,
+    SharedTargetFullWrite,
+    AreaTooLarge,
+    BenefitTooSmall,
+    Applied,
+    RendererFallback,
+    BloomDisabled,
+    CoreMode,
+    TouchesBoundary,
+    Unavailable,
+    Count
+};
+
+inline constexpr std::size_t activeFxRoiReasonStateCount =
+    static_cast<std::size_t>(ActiveFxRoiReasonState::Count);
+
+struct ActiveFxRoiRectState final
+{
+    std::int32_t left{0};
+    std::int32_t top{0};
+    std::int32_t right{0};
+    std::int32_t bottom{0};
+};
+
+struct ActiveFxRoiGpuPercentileState final
+{
+    std::optional<double> p50Microseconds{};
+    std::optional<double> p95Microseconds{};
+};
+
+struct ActiveFxRoiGpuState final
+{
+    ActiveFxRoiGpuPercentileState prefilter{};
+    ActiveFxRoiGpuPercentileState pyramid{};
+    ActiveFxRoiGpuPercentileState finalComposite{};
+};
+
+struct ActiveFxRoiPathRuntimeState final
+{
+    bool requested{false};
+    bool executed{false};
+    bool eligible{false};
+    bool warmup{false};
+    ActiveFxRoiPathState actualPath{ActiveFxRoiPathState::Unavailable};
+    ActiveFxRoiReasonState decisionReason{
+        ActiveFxRoiReasonState::Unavailable};
+    std::uint64_t observedFrames{0U};
+    std::uint64_t requestedFrames{0U};
+    std::uint64_t eligibleFrames{0U};
+    std::uint64_t appliedFrames{0U};
+    std::uint64_t warmupFrames{0U};
+    std::uint64_t fullPixels{0U};
+    std::uint64_t drawnPixels{0U};
+    std::uint64_t clearedPixels{0U};
+    std::uint32_t guardX{0U};
+    std::uint32_t guardY{0U};
+    std::uint32_t phase{0U};
+    std::optional<ActiveFxRoiRectState> dirtyRect{};
+    std::optional<ActiveFxRoiRectState> alignedRect{};
+    ActiveFxRoiGpuState gpu{};
+    std::array<std::uint64_t, activeFxRoiReasonStateCount> reasonCounts{};
+};
+
+struct ActiveFxRoiRuntimeState final
+{
+    bool enabled{false};
+    std::uint32_t sampleWindowMs{0U};
+    std::uint32_t sampleAgeMs{0U};
+    std::uint64_t lastFrameId{0U};
+    ActiveFxRoiPathRuntimeState primary{};
+    ActiveFxRoiPathRuntimeState recordingRebuild{};
+};
+
+inline constexpr std::uint32_t activeFxRoiStaleThresholdMilliseconds = 3'000U;
+
+[[nodiscard]] constexpr bool activeFxRoiSampleIsStale(
+    const ActiveFxRoiRuntimeState& state) noexcept
+{
+    return state.sampleAgeMs > activeFxRoiStaleThresholdMilliseconds;
+}
+
 struct DisplaySessionState final
 {
     std::string monitor{};
@@ -186,6 +284,7 @@ struct DisplaySessionState final
     std::string backgroundCaptureFailure{};
     bool renderFaulted{false};
     bool outputContractFaulted{false};
+    ActiveFxRoiRuntimeState activeFxRoi{};
 };
 
 struct DisplayState final

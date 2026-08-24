@@ -4,6 +4,7 @@
 #include "bafx/windows/display_capabilities.hpp"
 #include "bafx/windows/display_color_monitor.hpp"
 
+#include <array>
 #include <cstddef>
 #include <filesystem>
 #include <cstdint>
@@ -63,6 +64,143 @@ struct DisplayPhysicalCadenceRuntimeSummary final
     bool available{false};
 };
 
+enum class ActiveFxRoiRuntimePath : std::uint8_t
+{
+    Disabled,
+    Idle,
+    FullScreen,
+    RoiWarmup,
+    RoiPrefilter,
+    Unavailable
+};
+
+[[nodiscard]] constexpr std::string_view activeFxRoiRuntimePathName(
+    const ActiveFxRoiRuntimePath path) noexcept
+{
+    switch (path)
+    {
+    case ActiveFxRoiRuntimePath::Disabled:
+        return "disabled";
+    case ActiveFxRoiRuntimePath::Idle:
+        return "idle";
+    case ActiveFxRoiRuntimePath::FullScreen:
+        return "full-screen";
+    case ActiveFxRoiRuntimePath::RoiWarmup:
+        return "roi-warmup";
+    case ActiveFxRoiRuntimePath::RoiPrefilter:
+        return "roi-prefilter";
+    case ActiveFxRoiRuntimePath::Unavailable:
+        return "unavailable";
+    }
+    return "unavailable";
+}
+
+enum class ActiveFxRoiRuntimeReason : std::uint8_t
+{
+    Disabled,
+    NoContent,
+    BackgroundDifferentialBloom,
+    Context1Unavailable,
+    SharedTargetFullWrite,
+    AreaTooLarge,
+    BenefitTooSmall,
+    Applied,
+    RendererFallback,
+    BloomDisabled,
+    CoreMode,
+    TouchesBoundary,
+    Unavailable,
+    Count
+};
+
+inline constexpr std::size_t activeFxRoiRuntimeReasonCount =
+    static_cast<std::size_t>(ActiveFxRoiRuntimeReason::Count);
+
+[[nodiscard]] constexpr std::string_view activeFxRoiRuntimeReasonName(
+    const ActiveFxRoiRuntimeReason reason) noexcept
+{
+    switch (reason)
+    {
+    case ActiveFxRoiRuntimeReason::Disabled:
+        return "disabled";
+    case ActiveFxRoiRuntimeReason::NoContent:
+        return "no-content";
+    case ActiveFxRoiRuntimeReason::BloomDisabled:
+        return "bloom-disabled";
+    case ActiveFxRoiRuntimeReason::CoreMode:
+        return "core-mode";
+    case ActiveFxRoiRuntimeReason::BackgroundDifferentialBloom:
+        return "background-differential-bloom";
+    case ActiveFxRoiRuntimeReason::TouchesBoundary:
+        return "touches-boundary";
+    case ActiveFxRoiRuntimeReason::AreaTooLarge:
+        return "area-too-large";
+    case ActiveFxRoiRuntimeReason::BenefitTooSmall:
+        return "benefit-too-small";
+    case ActiveFxRoiRuntimeReason::Context1Unavailable:
+        return "context1-unavailable";
+    case ActiveFxRoiRuntimeReason::SharedTargetFullWrite:
+        return "shared-target-full-write";
+    case ActiveFxRoiRuntimeReason::Applied:
+        return "applied";
+    case ActiveFxRoiRuntimeReason::RendererFallback:
+        return "renderer-fallback";
+    case ActiveFxRoiRuntimeReason::Unavailable:
+    case ActiveFxRoiRuntimeReason::Count:
+        return "unavailable";
+    }
+    return "unavailable";
+}
+
+struct ActiveFxRoiGpuPercentiles final
+{
+    std::optional<double> p50Microseconds{};
+    std::optional<double> p95Microseconds{};
+};
+
+struct ActiveFxRoiGpuRuntimeSummary final
+{
+    ActiveFxRoiGpuPercentiles prefilter{};
+    ActiveFxRoiGpuPercentiles pyramid{};
+    ActiveFxRoiGpuPercentiles finalComposite{};
+};
+
+struct ActiveFxRoiPathRuntimeSummary final
+{
+    bool requested{false};
+    bool executed{false};
+    bool eligible{false};
+    bool warmup{false};
+    ActiveFxRoiRuntimePath actualPath{ActiveFxRoiRuntimePath::Unavailable};
+    ActiveFxRoiRuntimeReason decisionReason{
+        ActiveFxRoiRuntimeReason::Unavailable};
+    std::uint64_t observedFrames{0U};
+    std::uint64_t requestedFrames{0U};
+    std::uint64_t eligibleFrames{0U};
+    std::uint64_t appliedFrames{0U};
+    std::uint64_t warmupFrames{0U};
+    std::uint64_t fullPixels{0U};
+    std::uint64_t drawnPixels{0U};
+    std::uint64_t clearedPixels{0U};
+    std::uint32_t guardX{0U};
+    std::uint32_t guardY{0U};
+    std::uint32_t phase{0U};
+    std::optional<RECT> dirtyRect{};
+    std::optional<RECT> alignedRect{};
+    ActiveFxRoiGpuRuntimeSummary gpu{};
+    std::array<std::uint64_t, activeFxRoiRuntimeReasonCount> reasonCounts{};
+};
+
+struct ActiveFxRoiRuntimeSummary final
+{
+    bool enabled{false};
+    std::uint32_t sampleWindowMs{5'000U};
+    std::uint32_t sampleAgeMs{0U};
+    std::uint64_t lastFrameId{0U};
+    ActiveFxRoiPathRuntimeSummary primary{};
+    ActiveFxRoiPathRuntimeSummary recordingRebuild{};
+};
+
 struct DisplaySessionRuntimeSummary final
 {
     std::string monitor{};
@@ -114,6 +252,9 @@ struct DisplaySessionRuntimeSummary final
     bool backgroundCaptureRestartAllowed{false};
     bool renderFaulted{false};
     bool outputContractFaulted{false};
+    // This is an immutable, bounded publication surface. The render thread
+    // fills a detached snapshot; IPC never reaches into live renderer state.
+    ActiveFxRoiRuntimeSummary activeFxRoi{};
 };
 
 struct DisplayRuntimeSummary final

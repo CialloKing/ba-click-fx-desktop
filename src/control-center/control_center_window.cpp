@@ -37,10 +37,12 @@ constexpr UINT_PTR patchTimerId = 1U;
 constexpr UINT_PTR hostRetryTimerId = 2U;
 constexpr UINT_PTR hostShutdownTimerId = 3U;
 constexpr UINT_PTR updateCheckTimerId = 4U;
+constexpr UINT_PTR displayStateTimerId = 5U;
 constexpr UINT patchDelayMilliseconds = 120U;
 constexpr UINT hostRetryDelayMilliseconds = 250U;
 constexpr UINT hostShutdownPollDelayMilliseconds = 100U;
 constexpr UINT updateCheckPollDelayMilliseconds = 100U;
+constexpr UINT displayStatePollDelayMilliseconds = 1'000U;
 constexpr DWORD controlCenterIpcTimeoutMilliseconds = 100U;
 constexpr ULONGLONG hostShutdownTimeoutMilliseconds = 10'000U;
 constexpr UINT redrawAfterInteractiveResizeMessage = WM_APP + 1U;
@@ -731,6 +733,180 @@ void initializeFramePacingCombo(const HWND comboBox) noexcept
     return stream.str();
 }
 
+[[nodiscard]] std::wstring activeFxRoiPathText(
+    const ActiveFxRoiPathState path)
+{
+    switch (path)
+    {
+    case ActiveFxRoiPathState::Disabled:
+        return L"已关闭";
+    case ActiveFxRoiPathState::Idle:
+        return L"空闲";
+    case ActiveFxRoiPathState::FullScreen:
+        return L"全屏首级";
+    case ActiveFxRoiPathState::RoiWarmup:
+        return L"ROI 预热";
+    case ActiveFxRoiPathState::RoiPrefilter:
+        return L"ROI 首级";
+    case ActiveFxRoiPathState::Unavailable:
+        return L"不可用";
+    }
+    return L"不可用";
+}
+
+[[nodiscard]] std::wstring activeFxRoiReasonText(
+    const ActiveFxRoiReasonState reason)
+{
+    switch (reason)
+    {
+    case ActiveFxRoiReasonState::Disabled:
+        return L"开关关闭";
+    case ActiveFxRoiReasonState::NoContent:
+        return L"没有可见特效";
+    case ActiveFxRoiReasonState::BloomDisabled:
+        return L"Bloom 已关闭";
+    case ActiveFxRoiReasonState::CoreMode:
+        return L"Core 模式";
+    case ActiveFxRoiReasonState::BackgroundDifferentialBloom:
+        return L"背景差分 Bloom 保持全屏";
+    case ActiveFxRoiReasonState::TouchesBoundary:
+        return L"特效区域触及边界";
+    case ActiveFxRoiReasonState::AreaTooLarge:
+        return L"ROI 面积过大";
+    case ActiveFxRoiReasonState::BenefitTooSmall:
+        return L"预计收益过小";
+    case ActiveFxRoiReasonState::Context1Unavailable:
+        return L"D3D11 Context1 不可用";
+    case ActiveFxRoiReasonState::SharedTargetFullWrite:
+        return L"共享目标已被全屏写入";
+    case ActiveFxRoiReasonState::Applied:
+        return L"已应用";
+    case ActiveFxRoiReasonState::RendererFallback:
+        return L"渲染器安全回退";
+    case ActiveFxRoiReasonState::Unavailable:
+    case ActiveFxRoiReasonState::Count:
+        return L"诊断尚不可用";
+    }
+    return L"诊断尚不可用";
+}
+
+[[nodiscard]] std::wstring activeFxRoiRectText(
+    const std::optional<ActiveFxRoiRectState>& rect)
+{
+    if (!rect.has_value())
+    {
+        return L"无";
+    }
+    std::wostringstream stream;
+    stream << L"[" << rect->left << L", " << rect->top
+           << L" - " << rect->right << L", " << rect->bottom << L"]";
+    return stream.str();
+}
+
+[[nodiscard]] std::wstring activeFxRoiGpuValueText(
+    const std::optional<double> value)
+{
+    if (!value.has_value())
+    {
+        return L"--";
+    }
+    std::wostringstream stream;
+    stream.imbue(std::locale::classic());
+    stream << std::fixed << std::setprecision(2) << *value;
+    return stream.str();
+}
+
+void appendActiveFxRoiGpuStage(
+    std::wostringstream& stream,
+    const std::wstring_view label,
+    const ActiveFxRoiGpuPercentileState& stage)
+{
+    stream << label << L" "
+           << activeFxRoiGpuValueText(stage.p50Microseconds)
+           << L"/"
+           << activeFxRoiGpuValueText(stage.p95Microseconds);
+}
+
+[[nodiscard]] std::wstring activeFxRoiPixelRatioText(
+    const ActiveFxRoiPathRuntimeState& path)
+{
+    if (path.fullPixels == 0U)
+    {
+        return L"--";
+    }
+    const double ratio = static_cast<double>(path.drawnPixels)
+        * 100.0
+        / static_cast<double>(path.fullPixels);
+    std::wostringstream stream;
+    stream.imbue(std::locale::classic());
+    stream << std::fixed << std::setprecision(1) << ratio << L"%";
+    return stream.str();
+}
+
+void appendActiveFxRoiPathDetails(
+    std::wostringstream& details,
+    const std::wstring_view label,
+    const ActiveFxRoiPathRuntimeState& path)
+{
+    details << L"\r\n[" << label << L"] "
+            << activeFxRoiPathText(path.actualPath)
+            << L" | " << activeFxRoiReasonText(path.decisionReason)
+            << L"\r\n当前 请求/执行/合格/预热："
+            << (path.requested ? L"是" : L"否") << L"/"
+            << (path.executed ? L"是" : L"否") << L"/"
+            << (path.eligible ? L"是" : L"否") << L"/"
+            << (path.warmup ? L"是" : L"否")
+            << L"\r\n窗口帧 观察/请求/合格/应用/预热："
+            << path.observedFrames << L"/"
+            << path.requestedFrames << L"/"
+            << path.eligibleFrames << L"/"
+            << path.appliedFrames << L"/"
+            << path.warmupFrames
+            << L"\r\n首级像素 完整/绘制/清理："
+            << path.fullPixels << L"/"
+            << path.drawnPixels << L"/"
+            << path.clearedPixels
+            << L" | 绘制处理比例 "
+            << activeFxRoiPixelRatioText(path)
+            << L"\r\nDirty " << activeFxRoiRectText(path.dirtyRect)
+            << L" | Aligned " << activeFxRoiRectText(path.alignedRect)
+            << L"\r\nGuard " << path.guardX << L" x " << path.guardY
+            << L" | Phase " << path.phase
+            << L"\r\nGPU us p50/p95：";
+    appendActiveFxRoiGpuStage(details, L"Prefilter", path.gpu.prefilter);
+    details << L" | ";
+    appendActiveFxRoiGpuStage(details, L"Pyramid", path.gpu.pyramid);
+    details << L" | ";
+    appendActiveFxRoiGpuStage(
+        details,
+        L"Final",
+        path.gpu.finalComposite);
+
+    details << L"\r\n原因计数：";
+    bool hasReason = false;
+    for (std::size_t index = 0U;
+         index < path.reasonCounts.size();
+         ++index)
+    {
+        if (path.reasonCounts[index] == 0U)
+        {
+            continue;
+        }
+        if (hasReason)
+        {
+            details << L"；";
+        }
+        details << activeFxRoiReasonText(
+            static_cast<ActiveFxRoiReasonState>(index))
+                << L" " << path.reasonCounts[index];
+        hasReason = true;
+    }
+    if (!hasReason)
+    {
+        details << L"无";
+    }
+}
+
 }
 
 ControlCenterWindow::ControlCenterWindow(const HINSTANCE instance) noexcept
@@ -748,6 +924,7 @@ ControlCenterWindow::~ControlCenterWindow()
         KillTimer(window_, hostRetryTimerId);
         KillTimer(window_, hostShutdownTimerId);
         KillTimer(window_, updateCheckTimerId);
+        KillTimer(window_, displayStateTimerId);
         DestroyWindow(window_);
         window_ = nullptr;
     }
@@ -1246,6 +1423,7 @@ LRESULT ControlCenterWindow::handleMessage(
         KillTimer(window_, hostRetryTimerId);
         KillTimer(window_, hostShutdownTimerId);
         KillTimer(window_, updateCheckTimerId);
+        KillTimer(window_, displayStateTimerId);
         if (updateChecker_ != nullptr)
         {
             // WinHTTP cancellation is part of the window lifetime contract;
@@ -1946,7 +2124,7 @@ bool ControlCenterWindow::createControls()
         ControlId::HdrEnabled);
     activeFxRoiEnabled_ = createChild(
         L"BUTTON",
-        L"启用 Active-FX ROI（实验）",
+        L"启用自适应 Active-FX ROI（实验）",
         BS_AUTOCHECKBOX | WS_TABSTOP,
         ControlId::ActiveFxRoiEnabled);
     framePacingLabel_ = createChild(
@@ -1991,6 +2169,20 @@ bool ControlCenterWindow::createControls()
     displayDetailsText_ = createChild(
         L"EDIT",
         L"Host 连接后显示逐屏运行状态。",
+        ES_LEFT
+            | ES_MULTILINE
+            | ES_READONLY
+            | ES_AUTOVSCROLL
+            | WS_BORDER
+            | WS_VSCROLL
+            | WS_TABSTOP);
+    activeFxRoiDetailsHeading_ = createChild(
+        L"BUTTON",
+        L"Active-FX ROI 工程面板",
+        BS_GROUPBOX);
+    activeFxRoiDetailsText_ = createChild(
+        L"EDIT",
+        L"Host 连接后显示 ROI 运行路径。",
         ES_LEFT
             | ES_MULTILINE
             | ES_READONLY
@@ -2145,6 +2337,8 @@ bool ControlCenterWindow::createControls()
         displayFramePacing_,
         displayDetailsHeading_,
         displayDetailsText_,
+        activeFxRoiDetailsHeading_,
+        activeFxRoiDetailsText_,
         pauseButton_,
         refreshButton_,
         hostLifecycleButton_,
@@ -2528,6 +2722,7 @@ void ControlCenterWindow::applyFonts() const noexcept
         displayFramePacingLabel_,
         displayFramePacing_,
         displayDetailsText_,
+        activeFxRoiDetailsText_,
         pauseButton_,
         refreshButton_,
         hostLifecycleButton_,
@@ -2550,6 +2745,7 @@ void ControlCenterWindow::applyFonts() const noexcept
     setControlFont(advancedLayersHeading_, sectionFont_);
     setControlFont(displaySettingsHeading_, sectionFont_);
     setControlFont(displayDetailsHeading_, sectionFont_);
+    setControlFont(activeFxRoiDetailsHeading_, sectionFont_);
     setControlFont(advancedTimingSectionButton_, normalFont_);
     setControlFont(advancedParticlesSectionButton_, normalFont_);
     setControlFont(advancedRingsSectionButton_, normalFont_);
@@ -2842,12 +3038,23 @@ void ControlCenterWindow::layoutControls(
             settingsContentWidth,
             scale(34));
 
+        const int detailsPanelHeight = (std::clamp)(
+            panelHeight / 2,
+            scale(174),
+            scale(220));
+        const int roiPanelGap = scale(10);
+        const int roiPanelY = contentTop
+            + detailsPanelHeight
+            + roiPanelGap;
+        const int roiPanelHeight = (std::max)(
+            scale(1),
+            panelHeight - detailsPanelHeight - roiPanelGap);
         moveControl(
             displayDetailsHeading_,
             detailsX,
             contentTop,
             detailsWidth,
-            panelHeight);
+            detailsPanelHeight);
         const int detailsContentX = detailsX + inset;
         const int detailsContentWidth = (std::max)(
             scale(1),
@@ -2891,7 +3098,19 @@ void ControlCenterWindow::layoutControls(
             detailsContentX,
             contentTop + scale(124),
             detailsContentWidth,
-            (std::max)(scale(1), panelHeight - scale(140)));
+            (std::max)(scale(1), detailsPanelHeight - scale(140)));
+        moveControl(
+            activeFxRoiDetailsHeading_,
+            detailsX,
+            roiPanelY,
+            detailsWidth,
+            roiPanelHeight);
+        moveControl(
+            activeFxRoiDetailsText_,
+            detailsContentX,
+            roiPanelY + scale(28),
+            detailsContentWidth,
+            (std::max)(scale(1), roiPanelHeight - scale(44)));
 
         const int actionWidth = (clientWidth - margin * 2 - actionGap * 3) / 4;
         moveControl(
@@ -3729,6 +3948,26 @@ void ControlCenterWindow::selectPage(const Page page) noexcept
 {
     activePage_ = page;
     updatePageVisibility();
+    updateDisplayStatePolling();
+}
+
+void ControlCenterWindow::updateDisplayStatePolling() noexcept
+{
+    if (window_ == nullptr)
+    {
+        return;
+    }
+    KillTimer(window_, displayStateTimerId);
+    if (connected_ && activePage_ == Page::DisplayPerformance)
+    {
+        // ROI diagnostics are observational. A failed timer registration only
+        // disables automatic refresh and must never affect Host settings.
+        static_cast<void>(SetTimer(
+            window_,
+            displayStateTimerId,
+            displayStatePollDelayMilliseconds,
+            nullptr));
+    }
 }
 
 void ControlCenterWindow::selectAdvancedSection(
@@ -4024,7 +4263,9 @@ void ControlCenterWindow::updatePageVisibility() noexcept
         displayFramePacingLabel_,
         displayFramePacing_,
         displayDetailsHeading_,
-        displayDetailsText_};
+        displayDetailsText_,
+        activeFxRoiDetailsHeading_,
+        activeFxRoiDetailsText_};
     for (const HWND control : displayControls)
     {
         setPageControlVisible(control, display);
@@ -5014,6 +5255,16 @@ void ControlCenterWindow::openOfficialLatestRelease()
 
 void ControlCenterWindow::onTimer(const UINT_PTR timerId)
 {
+    if (timerId == displayStateTimerId)
+    {
+        if (activePage_ != Page::DisplayPerformance || !connected_)
+        {
+            updateDisplayStatePolling();
+            return;
+        }
+        static_cast<void>(refreshDisplayStateFromHost());
+        return;
+    }
     if (timerId == updateCheckTimerId)
     {
         pollManualUpdateCheck();
@@ -5270,29 +5521,55 @@ bool ControlCenterWindow::refreshFromHost()
 
     displayState_ = {};
     displayStateError_.clear();
-    const bafx::windows::IpcClientResponse displayResponse =
+    displayStateRefreshWarning_.clear();
+    static_cast<void>(refreshDisplayStateFromHost());
+
+    updateControls(*confirmedState.state, config.config);
+    return true;
+}
+
+bool ControlCenterWindow::refreshDisplayStateFromHost()
+{
+    const bafx::windows::IpcClientResponse response =
         client_.transact("GetDisplayState");
-    if (!displayResponse.succeeded())
+    std::wstring failure;
+    DisplayStateParseResult parsed{};
+    if (!response.succeeded())
     {
-        displayStateError_ = L"逐屏运行状态读取失败："
-            + describeResponse(displayResponse);
+        failure = L"逐屏运行状态刷新失败：" + describeResponse(response);
     }
     else
     {
-        DisplayStateParseResult display = parseDisplayState(
-            displayResponse.payload);
-        if (display.succeeded())
+        parsed = parseDisplayState(response.payload);
+        if (!parsed.succeeded())
         {
-            displayState_ = std::move(*display.state);
-        }
-        else
-        {
-            displayStateError_ = L"逐屏运行状态格式无效："
-                + utf8ToWide(display.error);
+            failure = L"逐屏运行状态格式无效："
+                + utf8ToWide(parsed.error);
         }
     }
 
-    updateControls(*confirmedState.state, config.config);
+    if (!failure.empty())
+    {
+        if (displayState_.sessions.empty()
+            && displayState_.offlineOverrides.empty())
+        {
+            displayStateError_ = std::move(failure);
+            displayStateRefreshWarning_.clear();
+        }
+        else
+        {
+            // Keep the last valid immutable snapshot visible. A transient IPC
+            // error must not erase evidence or mutate any configuration.
+            displayStateRefreshWarning_ = std::move(failure);
+        }
+        updateDisplayControls(config_);
+        return false;
+    }
+
+    displayState_ = std::move(*parsed.state);
+    displayStateError_.clear();
+    displayStateRefreshWarning_.clear();
+    updateDisplayControls(config_);
     return true;
 }
 
@@ -6059,7 +6336,7 @@ void ControlCenterWindow::updateDisplayPolicyControls() noexcept
         : bafx::config::resolveDisplayPolicy(config_, {});
     if (offlineOverride != nullptr)
     {
-        // Offline entries come from the Host's authoritative schema-2 list.
+        // Offline entries come from the Host's authoritative schema-3 list.
         // Do not replace that runtime fact with a separately fetched config.
         policy.enabled = offlineOverride->enabled;
         policy.hdrEnabled = offlineOverride->hdrEnabled;
@@ -6092,6 +6369,7 @@ void ControlCenterWindow::updateDisplayPolicyControls() noexcept
 
 void ControlCenterWindow::updateDisplayDetails()
 {
+    updateActiveFxRoiDetails();
     if (!displayStateError_.empty())
     {
         SetWindowTextW(displaySummaryText_, L"逐屏运行状态不可用");
@@ -6328,6 +6606,61 @@ void ControlCenterWindow::updateDisplayDetails()
     SetWindowTextW(displayDetailsText_, details.str().c_str());
     static_cast<void>(SendMessageW(displayDetailsText_, EM_SETSEL, 0U, 0));
     static_cast<void>(SendMessageW(displayDetailsText_, EM_SCROLLCARET, 0U, 0));
+}
+
+void ControlCenterWindow::updateActiveFxRoiDetails()
+{
+    if (activeFxRoiDetailsText_ == nullptr)
+    {
+        return;
+    }
+    if (!displayStateError_.empty())
+    {
+        SetWindowTextW(activeFxRoiDetailsText_, displayStateError_.c_str());
+        return;
+    }
+
+    const DisplaySessionState* const session = selectedDisplaySession();
+    if (session == nullptr)
+    {
+        SetWindowTextW(
+            activeFxRoiDetailsText_,
+            selectedOfflineDisplayOverride() != nullptr
+                ? L"离线设置没有 ROI 运行诊断。"
+                : L"请选择一个活动显示器查看 ROI 运行诊断。");
+        return;
+    }
+
+    const ActiveFxRoiRuntimeState& roi = session->activeFxRoi;
+    const bool stale = activeFxRoiSampleIsStale(roi);
+    std::wostringstream details;
+    details << L"状态：" << (stale ? L"STALE（样本过期）" : L"最新")
+            << L" | 开关 " << (roi.enabled ? L"开启" : L"关闭")
+            << L" | 帧 " << roi.lastFrameId
+            << L"\r\n窗口 " << roi.sampleWindowMs
+            << L" ms | 样本年龄 " << roi.sampleAgeMs << L" ms"
+            << L"\r\n仅优化纯特效 Bloom 首级；像素处理比例不等于 GPU 节省。";
+    if (!displayStateRefreshWarning_.empty())
+    {
+        details << L"\r\n刷新警告：" << displayStateRefreshWarning_;
+    }
+    appendActiveFxRoiPathDetails(details, L"Primary", roi.primary);
+    appendActiveFxRoiPathDetails(
+        details,
+        L"Recording rebuild",
+        roi.recordingRebuild);
+
+    SetWindowTextW(activeFxRoiDetailsText_, details.str().c_str());
+    static_cast<void>(SendMessageW(
+        activeFxRoiDetailsText_,
+        EM_SETSEL,
+        0U,
+        0));
+    static_cast<void>(SendMessageW(
+        activeFxRoiDetailsText_,
+        EM_SCROLLCARET,
+        0U,
+        0));
 }
 
 void ControlCenterWindow::setSelectedDisplayOverride()
@@ -7084,6 +7417,7 @@ void ControlCenterWindow::setConnected(const bool connected) noexcept
 #endif
         displayState_ = {};
         displayStateError_ = L"Host 未连接，逐屏运行状态不可用。";
+        displayStateRefreshWarning_.clear();
         static_cast<void>(SendMessageW(
             displaySelector_,
             CB_RESETCONTENT,
@@ -7100,6 +7434,7 @@ void ControlCenterWindow::setConnected(const bool connected) noexcept
     }
     updateDisplayPolicyControls();
     updateHostLifecycleButton();
+    updateDisplayStatePolling();
 }
 
 void ControlCenterWindow::setInfo(

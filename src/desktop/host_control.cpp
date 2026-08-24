@@ -382,6 +382,130 @@ void appendOptionalFloat(
     stream.write(buffer.data(), converted.ptr - buffer.data());
 }
 
+void appendOptionalDouble(
+    std::ostringstream& stream,
+    const std::optional<double> value)
+{
+    if (!value.has_value() || !std::isfinite(*value) || *value < 0.0)
+    {
+        stream << "null";
+        return;
+    }
+
+    std::array<char, 64U> buffer{};
+    const auto converted = std::to_chars(
+        buffer.data(),
+        buffer.data() + buffer.size(),
+        *value,
+        std::chars_format::general,
+        (std::numeric_limits<double>::max_digits10));
+    if (converted.ec != std::errc{})
+    {
+        stream << "null";
+        return;
+    }
+    stream.write(buffer.data(), converted.ptr - buffer.data());
+}
+
+void appendActiveFxRoiRect(
+    std::ostringstream& stream,
+    const std::optional<RECT> rect)
+{
+    if (!rect.has_value()
+        || rect->right <= rect->left
+        || rect->bottom <= rect->top)
+    {
+        // A malformed renderer diagnostic must not poison the complete
+        // GetDisplayState record. Null explicitly means no valid rectangle.
+        stream << "null";
+        return;
+    }
+    stream << "{\"left\":" << rect->left
+           << ",\"top\":" << rect->top
+           << ",\"right\":" << rect->right
+           << ",\"bottom\":" << rect->bottom
+           << '}';
+}
+
+void appendActiveFxRoiGpuPercentiles(
+    std::ostringstream& stream,
+    const bafx::windows::ActiveFxRoiGpuPercentiles& percentiles)
+{
+    stream << "{\"p50Us\":";
+    appendOptionalDouble(stream, percentiles.p50Microseconds);
+    stream << ",\"p95Us\":";
+    appendOptionalDouble(stream, percentiles.p95Microseconds);
+    stream << '}';
+}
+
+void appendActiveFxRoiPath(
+    std::ostringstream& stream,
+    const bafx::windows::ActiveFxRoiPathRuntimeSummary& path)
+{
+    stream << "{\"requested\":" << jsonBool(path.requested)
+           << ",\"executed\":" << jsonBool(path.executed)
+           << ",\"eligible\":" << jsonBool(path.eligible)
+           << ",\"warmup\":" << jsonBool(path.warmup)
+           << ",\"actualPath\":"
+           << jsonEscape(bafx::windows::activeFxRoiRuntimePathName(
+                path.actualPath))
+           << ",\"decisionReason\":"
+           << jsonEscape(bafx::windows::activeFxRoiRuntimeReasonName(
+                path.decisionReason))
+           << ",\"observedFrames\":" << path.observedFrames
+           << ",\"requestedFrames\":" << path.requestedFrames
+           << ",\"eligibleFrames\":" << path.eligibleFrames
+           << ",\"appliedFrames\":" << path.appliedFrames
+           << ",\"warmupFrames\":" << path.warmupFrames
+           << ",\"fullPixels\":" << path.fullPixels
+           << ",\"drawnPixels\":" << path.drawnPixels
+           << ",\"clearedPixels\":" << path.clearedPixels
+           << ",\"guardX\":" << path.guardX
+           << ",\"guardY\":" << path.guardY
+           << ",\"phase\":" << path.phase
+           << ",\"dirtyRect\":";
+    appendActiveFxRoiRect(stream, path.dirtyRect);
+    stream << ",\"alignedRect\":";
+    appendActiveFxRoiRect(stream, path.alignedRect);
+    stream << ",\"gpu\":{\"prefilter\":";
+    appendActiveFxRoiGpuPercentiles(stream, path.gpu.prefilter);
+    stream << ",\"pyramid\":";
+    appendActiveFxRoiGpuPercentiles(stream, path.gpu.pyramid);
+    stream << ",\"finalComposite\":";
+    appendActiveFxRoiGpuPercentiles(stream, path.gpu.finalComposite);
+    stream << "},\"reasonCounts\":{";
+    for (std::size_t index = 0U;
+         index < bafx::windows::activeFxRoiRuntimeReasonCount;
+         ++index)
+    {
+        if (index != 0U)
+        {
+            stream << ',';
+        }
+        const auto reason = static_cast<
+            bafx::windows::ActiveFxRoiRuntimeReason>(index);
+        stream << jsonEscape(
+            bafx::windows::activeFxRoiRuntimeReasonName(reason))
+               << ':' << path.reasonCounts[index];
+    }
+    stream << "}}";
+}
+
+void appendActiveFxRoi(
+    std::ostringstream& stream,
+    const bafx::windows::ActiveFxRoiRuntimeSummary& roi)
+{
+    stream << "{\"enabled\":" << jsonBool(roi.enabled)
+           << ",\"sampleWindowMs\":" << roi.sampleWindowMs
+           << ",\"sampleAgeMs\":" << roi.sampleAgeMs
+           << ",\"lastFrameId\":" << roi.lastFrameId
+           << ",\"primary\":";
+    appendActiveFxRoiPath(stream, roi.primary);
+    stream << ",\"recordingRebuild\":";
+    appendActiveFxRoiPath(stream, roi.recordingRebuild);
+    stream << '}';
+}
+
 void appendRefreshRate(
     std::ostringstream& stream,
     const std::optional<bafx::windows::DisplayRefreshRate>& refreshRate)
@@ -736,6 +860,27 @@ DisplayStateSnapshot HostControlPlane::displaySnapshot() const
     std::lock_guard<std::mutex> lock(mutex_);
     DisplayStateSnapshot snapshot{};
     snapshot.runtime = displayRuntimeSummary_;
+    if (displayRuntimePublishedAt_ != std::chrono::steady_clock::time_point{})
+    {
+        const auto elapsed = std::chrono::duration_cast<
+            std::chrono::milliseconds>(
+                std::chrono::steady_clock::now()
+                - displayRuntimePublishedAt_).count();
+        const std::uint64_t elapsedMilliseconds = elapsed > 0
+            ? static_cast<std::uint64_t>(elapsed)
+            : 0U;
+        for (bafx::windows::DisplaySessionRuntimeSummary& session :
+             snapshot.runtime.sessions)
+        {
+            const std::uint64_t age = elapsedMilliseconds
+                + session.activeFxRoi.sampleAgeMs;
+            session.activeFxRoi.sampleAgeMs = static_cast<std::uint32_t>(
+                (std::min)(
+                    age,
+                    static_cast<std::uint64_t>(
+                        (std::numeric_limits<std::uint32_t>::max)())));
+        }
+    }
     snapshot.runtimeGeneration = displayRuntimeGeneration_;
     snapshot.configGeneration = configGeneration_;
     snapshot.appliedConfigGeneration = appliedConfigGeneration_;
@@ -792,6 +937,7 @@ void HostControlPlane::setDisplayRuntimeSummary(
 {
     std::lock_guard<std::mutex> lock(mutex_);
     displayRuntimeSummary_ = std::move(summary);
+    displayRuntimePublishedAt_ = std::chrono::steady_clock::now();
     appliedConfigGeneration_ = appliedConfigGeneration;
     ++displayRuntimeGeneration_;
 }
@@ -1341,7 +1487,7 @@ std::string HostControlPlane::displayStateJson(
     const DisplayStateSnapshot& state)
 {
     std::ostringstream stream;
-    stream << "{\"schemaVersion\":2"
+    stream << "{\"schemaVersion\":3"
            << ",\"runtimeGeneration\":" << state.runtimeGeneration
            << ",\"configGeneration\":" << state.configGeneration
            << ",\"appliedConfigGeneration\":"
@@ -1564,7 +1710,9 @@ std::string HostControlPlane::displayStateJson(
                << jsonBool(session.renderFaulted)
                << ",\"outputContractFaulted\":"
                << jsonBool(session.outputContractFaulted)
-               << '}';
+               << ",\"activeFxRoi\":";
+        appendActiveFxRoi(stream, session.activeFxRoi);
+        stream << '}';
     }
     stream << "]}";
     return stream.str();

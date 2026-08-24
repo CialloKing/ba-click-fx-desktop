@@ -759,6 +759,41 @@ BAFX_TEST(host_control_publishes_one_immutable_display_state_snapshot)
     session.effectsEnabled = false;
     session.hdrEnabled = true;
     session.framePacing = "120";
+    session.activeFxRoi.enabled = true;
+    session.activeFxRoi.sampleWindowMs = 5'000U;
+    session.activeFxRoi.sampleAgeMs = 750U;
+    session.activeFxRoi.lastFrameId = 42U;
+    session.activeFxRoi.primary.requested = true;
+    session.activeFxRoi.primary.executed = true;
+    session.activeFxRoi.primary.eligible = true;
+    session.activeFxRoi.primary.actualPath =
+        bafx::windows::ActiveFxRoiRuntimePath::RoiPrefilter;
+    session.activeFxRoi.primary.decisionReason =
+        bafx::windows::ActiveFxRoiRuntimeReason::Applied;
+    session.activeFxRoi.primary.observedFrames = 10U;
+    session.activeFxRoi.primary.requestedFrames = 8U;
+    session.activeFxRoi.primary.eligibleFrames = 7U;
+    session.activeFxRoi.primary.appliedFrames = 6U;
+    session.activeFxRoi.primary.warmupFrames = 1U;
+    session.activeFxRoi.primary.fullPixels = 82'944'000U;
+    session.activeFxRoi.primary.drawnPixels = 31'000'000U;
+    session.activeFxRoi.primary.clearedPixels = 2'000'000U;
+    session.activeFxRoi.primary.guardX = 762U;
+    session.activeFxRoi.primary.guardY = 430U;
+    session.activeFxRoi.primary.phase = 128U;
+    session.activeFxRoi.primary.dirtyRect = RECT{-20, 10, 240, 180};
+    session.activeFxRoi.primary.alignedRect = RECT{-128, 0, 512, 512};
+    session.activeFxRoi.primary.gpu.prefilter.p50Microseconds = 120.5;
+    session.activeFxRoi.primary.gpu.prefilter.p95Microseconds = 175.25;
+    session.activeFxRoi.primary.reasonCounts[
+        static_cast<std::size_t>(
+            bafx::windows::ActiveFxRoiRuntimeReason::NoContent)] = 3U;
+    session.activeFxRoi.primary.reasonCounts[
+        static_cast<std::size_t>(
+            bafx::windows::ActiveFxRoiRuntimeReason::Applied)] = 6U;
+    session.activeFxRoi.primary.reasonCounts[
+        static_cast<std::size_t>(
+            bafx::windows::ActiveFxRoiRuntimeReason::RendererFallback)] = 1U;
 
     bafx::windows::DisplayColorCapabilities color{};
     color.displayPathResolved = true;
@@ -810,7 +845,7 @@ BAFX_TEST(host_control_publishes_one_immutable_display_state_snapshot)
     control.stop();
 
     BAFX_CHECK(response.succeeded());
-    BAFX_CHECK(response.payload.find("\"schemaVersion\":2")
+    BAFX_CHECK(response.payload.find("\"schemaVersion\":3")
         != std::string::npos);
     BAFX_CHECK(response.payload.find("\"runtimeGeneration\":1")
         != std::string::npos);
@@ -858,6 +893,13 @@ BAFX_TEST(host_control_publishes_one_immutable_display_state_snapshot)
         != std::string::npos);
     BAFX_CHECK(response.payload.find("\"outputFallbackResult\":0")
         != std::string::npos);
+    BAFX_CHECK(response.payload.find(
+        "\"actualPath\":\"roi-prefilter\"") != std::string::npos);
+    BAFX_CHECK(response.payload.find(
+        "\"sampleAgeMs\":") != std::string::npos);
+    BAFX_CHECK(response.payload.find(
+        "\"prefilter\":{\"p50Us\":120.5,\"p95Us\":175.25}")
+        != std::string::npos);
     BAFX_CHECK(snapshot.runtimeGeneration == 1U);
     BAFX_CHECK(snapshot.configGeneration == 1U);
     BAFX_CHECK(snapshot.appliedConfigGeneration == 1U);
@@ -871,7 +913,7 @@ BAFX_TEST(host_control_publishes_one_immutable_display_state_snapshot)
     const bafx::control_center::DisplayStateParseResult parsed =
         bafx::control_center::parseDisplayState(response.payload);
     BAFX_CHECK(parsed.succeeded());
-    BAFX_CHECK(parsed.state->schemaVersion == 2U);
+    BAFX_CHECK(parsed.state->schemaVersion == 3U);
     BAFX_CHECK(parsed.state->runtimeGeneration == 1U);
     BAFX_CHECK(parsed.state->configGeneration == 1U);
     BAFX_CHECK(parsed.state->offlineOverrides.size() == 1U);
@@ -880,6 +922,15 @@ BAFX_TEST(host_control_publishes_one_immutable_display_state_snapshot)
     BAFX_CHECK(parsed.state->sessions.size() == 1U);
     BAFX_CHECK(parsed.state->sessions.front().colorQueryGeneration == 4U);
     BAFX_CHECK(parsed.state->sessions.front().physicalCadence.size() == 1U);
+    const auto& parsedRoi = parsed.state->sessions.front().activeFxRoi;
+    BAFX_CHECK(parsedRoi.enabled);
+    BAFX_CHECK(parsedRoi.sampleAgeMs >= 750U);
+    BAFX_CHECK(parsedRoi.lastFrameId == 42U);
+    BAFX_CHECK(parsedRoi.primary.actualPath
+        == bafx::control_center::ActiveFxRoiPathState::RoiPrefilter);
+    BAFX_CHECK(parsedRoi.primary.dirtyRect.has_value());
+    BAFX_CHECK(parsedRoi.primary.dirtyRect->left == -20);
+    BAFX_CHECK(parsedRoi.primary.gpu.prefilter.p95Microseconds == 175.25);
 
     std::string unknownSessionField = response.payload;
     unknownSessionField.insert(
@@ -894,6 +945,55 @@ BAFX_TEST(host_control_publishes_one_immutable_display_state_snapshot)
         "\"monitor\":\"duplicate\",");
     BAFX_CHECK(!bafx::control_center::parseDisplayState(
         duplicateSessionField).succeeded());
+
+    std::string unknownRoiField = response.payload;
+    unknownRoiField.insert(
+        unknownRoiField.find("\"enabled\":true", unknownRoiField.find(
+            "\"activeFxRoi\":")),
+        "\"futureRoiField\":true,");
+    BAFX_CHECK(!bafx::control_center::parseDisplayState(
+        unknownRoiField).succeeded());
+
+    std::string duplicateRoiField = response.payload;
+    duplicateRoiField.insert(
+        duplicateRoiField.find(
+            "\"requested\":true",
+            duplicateRoiField.find("\"activeFxRoi\":")),
+        "\"requested\":false,");
+    BAFX_CHECK(!bafx::control_center::parseDisplayState(
+        duplicateRoiField).succeeded());
+
+    std::string missingRoiField = response.payload;
+    const std::size_t executedPosition = missingRoiField.find(
+        "\"executed\":true,",
+        missingRoiField.find("\"activeFxRoi\":"));
+    BAFX_CHECK(executedPosition != std::string::npos);
+    missingRoiField.erase(executedPosition, 16U);
+    BAFX_CHECK(!bafx::control_center::parseDisplayState(
+        missingRoiField).succeeded());
+
+    std::string invalidRoiPath = response.payload;
+    const std::size_t actualPathPosition = invalidRoiPath.find(
+        "\"actualPath\":\"roi-prefilter\"");
+    BAFX_CHECK(actualPathPosition != std::string::npos);
+    invalidRoiPath.replace(
+        actualPathPosition,
+        28U,
+        "\"actualPath\":\"future-path\"");
+    BAFX_CHECK(!bafx::control_center::parseDisplayState(
+        invalidRoiPath).succeeded());
+
+    std::string inconsistentRoiCounts = response.payload;
+    const std::size_t observedPosition = inconsistentRoiCounts.find(
+        "\"observedFrames\":10",
+        inconsistentRoiCounts.find("\"activeFxRoi\":"));
+    BAFX_CHECK(observedPosition != std::string::npos);
+    inconsistentRoiCounts.replace(
+        observedPosition,
+        19U,
+        "\"observedFrames\":11");
+    BAFX_CHECK(!bafx::control_center::parseDisplayState(
+        inconsistentRoiCounts).succeeded());
 
     BAFX_CHECK(legacyColorResponse.succeeded());
     BAFX_CHECK(legacyColorResponse.payload.find("\"hdrSupported\":null")

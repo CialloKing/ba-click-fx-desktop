@@ -11,6 +11,7 @@
 
 #include <windows.h>
 
+#include <chrono>
 #include <cstdint>
 #include <filesystem>
 #include <mutex>
@@ -198,6 +199,7 @@ private:
     std::uint64_t generation_{1U};
     std::uint64_t configGeneration_{1U};
     bafx::windows::DisplayRuntimeSummary displayRuntimeSummary_{};
+    std::chrono::steady_clock::time_point displayRuntimePublishedAt_{};
     std::uint64_t displayRuntimeGeneration_{0U};
     std::uint64_t appliedConfigGeneration_{0U};
     bool paused_{false};

@@ -97,6 +97,68 @@ enum class SessionField : std::uint32_t
     BackgroundCaptureFailure,
     RenderFaulted,
     OutputContractFaulted,
+    ActiveFxRoi,
+    Count
+};
+
+enum class ActiveFxRoiField : std::uint32_t
+{
+    Enabled,
+    SampleWindowMs,
+    SampleAgeMs,
+    LastFrameId,
+    Primary,
+    RecordingRebuild,
+    Count
+};
+
+enum class ActiveFxRoiPathField : std::uint32_t
+{
+    Requested,
+    Executed,
+    Eligible,
+    Warmup,
+    ActualPath,
+    DecisionReason,
+    ObservedFrames,
+    RequestedFrames,
+    EligibleFrames,
+    AppliedFrames,
+    WarmupFrames,
+    FullPixels,
+    DrawnPixels,
+    ClearedPixels,
+    GuardX,
+    GuardY,
+    Phase,
+    DirtyRect,
+    AlignedRect,
+    Gpu,
+    ReasonCounts,
+    Count
+};
+
+enum class ActiveFxRoiRectField : std::uint32_t
+{
+    Left,
+    Top,
+    Right,
+    Bottom,
+    Count
+};
+
+enum class ActiveFxRoiGpuField : std::uint32_t
+{
+    Prefilter,
+    Pyramid,
+    FinalComposite,
+    Count
+};
+
+enum class ActiveFxRoiGpuPercentileField : std::uint32_t
+{
+    P50Us,
+    P95Us,
     Count
 };
 
@@ -128,7 +190,10 @@ template <typename Field>
     {
         return (std::numeric_limits<std::uint64_t>::max)();
     }
-    return (1ULL << count) - 1ULL;
+    else
+    {
+        return (1ULL << count) - 1ULL;
+    }
 }
 
 constexpr std::uint64_t requiredRootFields =
@@ -139,6 +204,18 @@ constexpr std::uint64_t requiredPhysicalCadenceFields =
     requiredFieldMask<PhysicalCadenceField>();
 constexpr std::uint64_t requiredOfflineOverrideFields =
     requiredFieldMask<OfflineOverrideField>();
+constexpr std::uint64_t requiredActiveFxRoiFields =
+    requiredFieldMask<ActiveFxRoiField>();
+constexpr std::uint64_t requiredActiveFxRoiPathFields =
+    requiredFieldMask<ActiveFxRoiPathField>();
+constexpr std::uint64_t requiredActiveFxRoiRectFields =
+    requiredFieldMask<ActiveFxRoiRectField>();
+constexpr std::uint64_t requiredActiveFxRoiGpuFields =
+    requiredFieldMask<ActiveFxRoiGpuField>();
+constexpr std::uint64_t requiredActiveFxRoiGpuPercentileFields =
+    requiredFieldMask<ActiveFxRoiGpuPercentileField>();
+constexpr std::uint64_t requiredActiveFxRoiReasonFields =
+    requiredFieldMask<ActiveFxRoiReasonState>();
 
 class DisplayStateJsonParser final
 {
@@ -187,10 +264,10 @@ public:
             {
                 if (!markField(seen, RootField::SchemaVersion)
                     || !parseUnsigned(state.schemaVersion)
-                    || state.schemaVersion != 2U)
+                    || state.schemaVersion != 3U)
                 {
                     return failure(
-                        "schemaVersion must be exactly 2");
+                        "schemaVersion must be exactly 3");
                 }
             }
             else if (key == "runtimeGeneration")
@@ -839,6 +916,513 @@ private:
             return markField(seen, SessionField::OutputContractFaulted)
                 && parseBoolean(session.outputContractFaulted);
         }
+        if (key == "activeFxRoi")
+        {
+            return markField(seen, SessionField::ActiveFxRoi)
+                && parseActiveFxRoi(session.activeFxRoi);
+        }
+        return false;
+    }
+
+    [[nodiscard]] bool parseActiveFxRoi(ActiveFxRoiRuntimeState& output)
+    {
+        if (!consume('{'))
+        {
+            return false;
+        }
+        skipWhitespace();
+
+        std::uint64_t seen = 0U;
+        while (position_ < input_.size())
+        {
+            std::string key;
+            if (!parseString(key))
+            {
+                return false;
+            }
+            skipWhitespace();
+            if (!consume(':'))
+            {
+                return false;
+            }
+            skipWhitespace();
+
+            bool parsed = false;
+            if (key == "enabled")
+            {
+                parsed = markField(seen, ActiveFxRoiField::Enabled)
+                    && parseBoolean(output.enabled);
+            }
+            else if (key == "sampleWindowMs")
+            {
+                parsed = markField(seen, ActiveFxRoiField::SampleWindowMs)
+                    && parseUnsigned(output.sampleWindowMs)
+                    && output.sampleWindowMs > 0U
+                    && output.sampleWindowMs <= 60'000U;
+            }
+            else if (key == "sampleAgeMs")
+            {
+                parsed = markField(seen, ActiveFxRoiField::SampleAgeMs)
+                    && parseUnsigned(output.sampleAgeMs);
+            }
+            else if (key == "lastFrameId")
+            {
+                parsed = markField(seen, ActiveFxRoiField::LastFrameId)
+                    && parseUnsigned(output.lastFrameId);
+            }
+            else if (key == "primary")
+            {
+                parsed = markField(seen, ActiveFxRoiField::Primary)
+                    && parseActiveFxRoiPath(output.primary);
+            }
+            else if (key == "recordingRebuild")
+            {
+                parsed = markField(
+                        seen,
+                        ActiveFxRoiField::RecordingRebuild)
+                    && parseActiveFxRoiPath(output.recordingRebuild);
+            }
+            if (!parsed)
+            {
+                return false;
+            }
+
+            skipWhitespace();
+            if (consume('}'))
+            {
+                return seen == requiredActiveFxRoiFields;
+            }
+            if (!consume(','))
+            {
+                return false;
+            }
+            skipWhitespace();
+        }
+        return false;
+    }
+
+    [[nodiscard]] bool parseActiveFxRoiPath(
+        ActiveFxRoiPathRuntimeState& output)
+    {
+        if (!consume('{'))
+        {
+            return false;
+        }
+        skipWhitespace();
+
+        std::uint64_t seen = 0U;
+        while (position_ < input_.size())
+        {
+            std::string key;
+            if (!parseString(key))
+            {
+                return false;
+            }
+            skipWhitespace();
+            if (!consume(':'))
+            {
+                return false;
+            }
+            skipWhitespace();
+
+            bool parsed = false;
+            if (key == "requested")
+            {
+                parsed = markField(seen, ActiveFxRoiPathField::Requested)
+                    && parseBoolean(output.requested);
+            }
+            else if (key == "executed")
+            {
+                parsed = markField(seen, ActiveFxRoiPathField::Executed)
+                    && parseBoolean(output.executed);
+            }
+            else if (key == "eligible")
+            {
+                parsed = markField(seen, ActiveFxRoiPathField::Eligible)
+                    && parseBoolean(output.eligible);
+            }
+            else if (key == "warmup")
+            {
+                parsed = markField(seen, ActiveFxRoiPathField::Warmup)
+                    && parseBoolean(output.warmup);
+            }
+            else if (key == "actualPath")
+            {
+                parsed = markField(seen, ActiveFxRoiPathField::ActualPath)
+                    && parseActiveFxRoiActualPath(output.actualPath);
+            }
+            else if (key == "decisionReason")
+            {
+                parsed = markField(seen, ActiveFxRoiPathField::DecisionReason)
+                    && parseActiveFxRoiReason(output.decisionReason);
+            }
+            else if (key == "observedFrames")
+            {
+                parsed = markField(seen, ActiveFxRoiPathField::ObservedFrames)
+                    && parseUnsigned(output.observedFrames);
+            }
+            else if (key == "requestedFrames")
+            {
+                parsed = markField(seen, ActiveFxRoiPathField::RequestedFrames)
+                    && parseUnsigned(output.requestedFrames);
+            }
+            else if (key == "eligibleFrames")
+            {
+                parsed = markField(seen, ActiveFxRoiPathField::EligibleFrames)
+                    && parseUnsigned(output.eligibleFrames);
+            }
+            else if (key == "appliedFrames")
+            {
+                parsed = markField(seen, ActiveFxRoiPathField::AppliedFrames)
+                    && parseUnsigned(output.appliedFrames);
+            }
+            else if (key == "warmupFrames")
+            {
+                parsed = markField(seen, ActiveFxRoiPathField::WarmupFrames)
+                    && parseUnsigned(output.warmupFrames);
+            }
+            else if (key == "fullPixels")
+            {
+                parsed = markField(seen, ActiveFxRoiPathField::FullPixels)
+                    && parseUnsigned(output.fullPixels);
+            }
+            else if (key == "drawnPixels")
+            {
+                parsed = markField(seen, ActiveFxRoiPathField::DrawnPixels)
+                    && parseUnsigned(output.drawnPixels);
+            }
+            else if (key == "clearedPixels")
+            {
+                parsed = markField(seen, ActiveFxRoiPathField::ClearedPixels)
+                    && parseUnsigned(output.clearedPixels);
+            }
+            else if (key == "guardX")
+            {
+                parsed = markField(seen, ActiveFxRoiPathField::GuardX)
+                    && parseUnsigned(output.guardX);
+            }
+            else if (key == "guardY")
+            {
+                parsed = markField(seen, ActiveFxRoiPathField::GuardY)
+                    && parseUnsigned(output.guardY);
+            }
+            else if (key == "phase")
+            {
+                parsed = markField(seen, ActiveFxRoiPathField::Phase)
+                    && parseUnsigned(output.phase);
+            }
+            else if (key == "dirtyRect")
+            {
+                parsed = markField(seen, ActiveFxRoiPathField::DirtyRect)
+                    && parseActiveFxRoiRect(output.dirtyRect);
+            }
+            else if (key == "alignedRect")
+            {
+                parsed = markField(seen, ActiveFxRoiPathField::AlignedRect)
+                    && parseActiveFxRoiRect(output.alignedRect);
+            }
+            else if (key == "gpu")
+            {
+                parsed = markField(seen, ActiveFxRoiPathField::Gpu)
+                    && parseActiveFxRoiGpu(output.gpu);
+            }
+            else if (key == "reasonCounts")
+            {
+                parsed = markField(seen, ActiveFxRoiPathField::ReasonCounts)
+                    && parseActiveFxRoiReasonCounts(output.reasonCounts);
+            }
+            if (!parsed)
+            {
+                return false;
+            }
+
+            skipWhitespace();
+            if (consume('}'))
+            {
+                if (seen != requiredActiveFxRoiPathFields)
+                {
+                    return false;
+                }
+                return validateActiveFxRoiPath(output);
+            }
+            if (!consume(','))
+            {
+                return false;
+            }
+            skipWhitespace();
+        }
+        return false;
+    }
+
+    [[nodiscard]] static bool validateActiveFxRoiPath(
+        const ActiveFxRoiPathRuntimeState& path) noexcept
+    {
+        if (path.requestedFrames > path.observedFrames
+            || path.eligibleFrames > path.requestedFrames
+            || path.appliedFrames > path.eligibleFrames
+            || path.warmupFrames > path.eligibleFrames)
+        {
+            return false;
+        }
+        std::uint64_t reasonTotal = 0U;
+        for (const std::uint64_t count : path.reasonCounts)
+        {
+            if (count > (std::numeric_limits<std::uint64_t>::max)()
+                    - reasonTotal)
+            {
+                return false;
+            }
+            reasonTotal += count;
+        }
+        return reasonTotal == path.observedFrames;
+    }
+
+    [[nodiscard]] bool parseActiveFxRoiRect(
+        std::optional<ActiveFxRoiRectState>& output)
+    {
+        if (consumeLiteral("null"))
+        {
+            output.reset();
+            return true;
+        }
+        if (!consume('{'))
+        {
+            return false;
+        }
+        skipWhitespace();
+
+        ActiveFxRoiRectState rect{};
+        std::uint64_t seen = 0U;
+        while (position_ < input_.size())
+        {
+            std::string key;
+            if (!parseString(key))
+            {
+                return false;
+            }
+            skipWhitespace();
+            if (!consume(':'))
+            {
+                return false;
+            }
+            skipWhitespace();
+
+            bool parsed = false;
+            if (key == "left")
+            {
+                parsed = markField(seen, ActiveFxRoiRectField::Left)
+                    && parseSigned(rect.left);
+            }
+            else if (key == "top")
+            {
+                parsed = markField(seen, ActiveFxRoiRectField::Top)
+                    && parseSigned(rect.top);
+            }
+            else if (key == "right")
+            {
+                parsed = markField(seen, ActiveFxRoiRectField::Right)
+                    && parseSigned(rect.right);
+            }
+            else if (key == "bottom")
+            {
+                parsed = markField(seen, ActiveFxRoiRectField::Bottom)
+                    && parseSigned(rect.bottom);
+            }
+            if (!parsed)
+            {
+                return false;
+            }
+
+            skipWhitespace();
+            if (consume('}'))
+            {
+                if (seen != requiredActiveFxRoiRectFields
+                    || rect.right <= rect.left
+                    || rect.bottom <= rect.top)
+                {
+                    return false;
+                }
+                output = rect;
+                return true;
+            }
+            if (!consume(','))
+            {
+                return false;
+            }
+            skipWhitespace();
+        }
+        return false;
+    }
+
+    [[nodiscard]] bool parseActiveFxRoiGpu(ActiveFxRoiGpuState& output)
+    {
+        if (!consume('{'))
+        {
+            return false;
+        }
+        skipWhitespace();
+
+        std::uint64_t seen = 0U;
+        while (position_ < input_.size())
+        {
+            std::string key;
+            if (!parseString(key))
+            {
+                return false;
+            }
+            skipWhitespace();
+            if (!consume(':'))
+            {
+                return false;
+            }
+            skipWhitespace();
+
+            bool parsed = false;
+            if (key == "prefilter")
+            {
+                parsed = markField(seen, ActiveFxRoiGpuField::Prefilter)
+                    && parseActiveFxRoiGpuPercentiles(output.prefilter);
+            }
+            else if (key == "pyramid")
+            {
+                parsed = markField(seen, ActiveFxRoiGpuField::Pyramid)
+                    && parseActiveFxRoiGpuPercentiles(output.pyramid);
+            }
+            else if (key == "finalComposite")
+            {
+                parsed = markField(
+                        seen,
+                        ActiveFxRoiGpuField::FinalComposite)
+                    && parseActiveFxRoiGpuPercentiles(
+                        output.finalComposite);
+            }
+            if (!parsed)
+            {
+                return false;
+            }
+
+            skipWhitespace();
+            if (consume('}'))
+            {
+                return seen == requiredActiveFxRoiGpuFields;
+            }
+            if (!consume(','))
+            {
+                return false;
+            }
+            skipWhitespace();
+        }
+        return false;
+    }
+
+    [[nodiscard]] bool parseActiveFxRoiGpuPercentiles(
+        ActiveFxRoiGpuPercentileState& output)
+    {
+        if (!consume('{'))
+        {
+            return false;
+        }
+        skipWhitespace();
+
+        std::uint64_t seen = 0U;
+        while (position_ < input_.size())
+        {
+            std::string key;
+            if (!parseString(key))
+            {
+                return false;
+            }
+            skipWhitespace();
+            if (!consume(':'))
+            {
+                return false;
+            }
+            skipWhitespace();
+
+            bool parsed = false;
+            if (key == "p50Us")
+            {
+                parsed = markField(
+                        seen,
+                        ActiveFxRoiGpuPercentileField::P50Us)
+                    && parseOptionalDouble(output.p50Microseconds);
+            }
+            else if (key == "p95Us")
+            {
+                parsed = markField(
+                        seen,
+                        ActiveFxRoiGpuPercentileField::P95Us)
+                    && parseOptionalDouble(output.p95Microseconds);
+            }
+            if (!parsed)
+            {
+                return false;
+            }
+
+            skipWhitespace();
+            if (consume('}'))
+            {
+                if (seen != requiredActiveFxRoiGpuPercentileFields)
+                {
+                    return false;
+                }
+                return !output.p50Microseconds.has_value()
+                    || !output.p95Microseconds.has_value()
+                    || *output.p50Microseconds <= *output.p95Microseconds;
+            }
+            if (!consume(','))
+            {
+                return false;
+            }
+            skipWhitespace();
+        }
+        return false;
+    }
+
+    [[nodiscard]] bool parseActiveFxRoiReasonCounts(
+        std::array<std::uint64_t, activeFxRoiReasonStateCount>& output)
+    {
+        if (!consume('{'))
+        {
+            return false;
+        }
+        skipWhitespace();
+
+        std::uint64_t seen = 0U;
+        while (position_ < input_.size())
+        {
+            std::string key;
+            if (!parseString(key))
+            {
+                return false;
+            }
+            skipWhitespace();
+            if (!consume(':'))
+            {
+                return false;
+            }
+            skipWhitespace();
+
+            ActiveFxRoiReasonState reason{};
+            if (!activeFxRoiReasonFromToken(key, reason)
+                || !markField(seen, reason)
+                || !parseUnsigned(
+                    output[static_cast<std::size_t>(reason)]))
+            {
+                return false;
+            }
+
+            skipWhitespace();
+            if (consume('}'))
+            {
+                return seen == requiredActiveFxRoiReasonFields;
+            }
+            if (!consume(','))
+            {
+                return false;
+            }
+            skipWhitespace();
+        }
         return false;
     }
 
@@ -1064,6 +1648,127 @@ private:
         if (token == "unknown")
         {
             output = DisplayDriverState::Unknown;
+            return true;
+        }
+        return false;
+    }
+
+    [[nodiscard]] bool parseActiveFxRoiActualPath(
+        ActiveFxRoiPathState& output)
+    {
+        std::string token;
+        if (!parseString(token))
+        {
+            return false;
+        }
+        if (token == "disabled")
+        {
+            output = ActiveFxRoiPathState::Disabled;
+            return true;
+        }
+        if (token == "idle")
+        {
+            output = ActiveFxRoiPathState::Idle;
+            return true;
+        }
+        if (token == "full-screen")
+        {
+            output = ActiveFxRoiPathState::FullScreen;
+            return true;
+        }
+        if (token == "roi-warmup")
+        {
+            output = ActiveFxRoiPathState::RoiWarmup;
+            return true;
+        }
+        if (token == "roi-prefilter")
+        {
+            output = ActiveFxRoiPathState::RoiPrefilter;
+            return true;
+        }
+        if (token == "unavailable")
+        {
+            output = ActiveFxRoiPathState::Unavailable;
+            return true;
+        }
+        return false;
+    }
+
+    [[nodiscard]] bool parseActiveFxRoiReason(
+        ActiveFxRoiReasonState& output)
+    {
+        std::string token;
+        return parseString(token)
+            && activeFxRoiReasonFromToken(token, output);
+    }
+
+    [[nodiscard]] static bool activeFxRoiReasonFromToken(
+        const std::string_view token,
+        ActiveFxRoiReasonState& output) noexcept
+    {
+        if (token == "disabled")
+        {
+            output = ActiveFxRoiReasonState::Disabled;
+            return true;
+        }
+        if (token == "no-content")
+        {
+            output = ActiveFxRoiReasonState::NoContent;
+            return true;
+        }
+        if (token == "bloom-disabled")
+        {
+            output = ActiveFxRoiReasonState::BloomDisabled;
+            return true;
+        }
+        if (token == "core-mode")
+        {
+            output = ActiveFxRoiReasonState::CoreMode;
+            return true;
+        }
+        if (token == "background-differential-bloom")
+        {
+            output = ActiveFxRoiReasonState::BackgroundDifferentialBloom;
+            return true;
+        }
+        if (token == "touches-boundary")
+        {
+            output = ActiveFxRoiReasonState::TouchesBoundary;
+            return true;
+        }
+        if (token == "area-too-large")
+        {
+            output = ActiveFxRoiReasonState::AreaTooLarge;
+            return true;
+        }
+        if (token == "benefit-too-small")
+        {
+            output = ActiveFxRoiReasonState::BenefitTooSmall;
+            return true;
+        }
+        if (token == "context1-unavailable")
+        {
+            output = ActiveFxRoiReasonState::Context1Unavailable;
+            return true;
+        }
+        if (token == "shared-target-full-write")
+        {
+            output = ActiveFxRoiReasonState::SharedTargetFullWrite;
+            return true;
+        }
+        if (token == "applied")
+        {
+            output = ActiveFxRoiReasonState::Applied;
+            return true;
+        }
+        if (token == "renderer-fallback")
+        {
+            output = ActiveFxRoiReasonState::RendererFallback;
+            return true;
+        }
+        if (token == "unavailable")
+        {
+            output = ActiveFxRoiReasonState::Unavailable;
             return true;
         }
         return false;
@@ -1498,6 +2203,36 @@ private:
             || result.ptr != input_.data() + position_
             || !std::isfinite(value)
             || value < 0.0F)
+        {
+            return false;
+        }
+        output = value;
+        return true;
+    }
+
+    [[nodiscard]] bool parseOptionalDouble(
+        std::optional<double>& output) noexcept
+    {
+        if (consumeLiteral("null"))
+        {
+            output.reset();
+            return true;
+        }
+        const std::size_t begin = position_;
+        if (!scanNumber())
+        {
+            return false;
+        }
+        double value = 0.0;
+        const auto result = std::from_chars(
+            input_.data() + begin,
+            input_.data() + position_,
+            value,
+            std::chars_format::general);
+        if (result.ec != std::errc{}
+            || result.ptr != input_.data() + position_
+            || !std::isfinite(value)
+            || value < 0.0)
         {
             return false;
         }

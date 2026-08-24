@@ -216,6 +216,8 @@ private:
     void updateDisplayControls(const bafx::config::Config& config);
     void updateDisplayPolicyControls() noexcept;
     void updateDisplayDetails();
+    void updateActiveFxRoiDetails();
+    void updateDisplayStatePolling() noexcept;
     void redrawWindowTree() const noexcept;
     void layoutSlider(
         const SliderControl& slider,
@@ -241,6 +243,7 @@ private:
     void openOfficialLatestRelease();
 
     [[nodiscard]] bool refreshFromHost();
+    [[nodiscard]] bool refreshDisplayStateFromHost();
     [[nodiscard]] static std::wstring hostVersionDescription(
         const HostState& state);
     void updateHostVersionText(const HostState& state);
@@ -450,6 +453,8 @@ private:
     HWND displayFramePacing_{nullptr};
     HWND displayDetailsHeading_{nullptr};
     HWND displayDetailsText_{nullptr};
+    HWND activeFxRoiDetailsHeading_{nullptr};
+    HWND activeFxRoiDetailsText_{nullptr};
     HWND pauseButton_{nullptr};
     HWND refreshButton_{nullptr};
     HWND hostLifecycleButton_{nullptr};
@@ -466,6 +471,7 @@ private:
     std::string fxProfileNameDraft_{};
     DisplayState displayState_{};
     std::wstring displayStateError_{};
+    std::wstring displayStateRefreshWarning_{};
     std::string selectedDisplayIdentity_{};
     std::uint64_t generation_{0U};
     std::uint64_t lastUpdateSequence_{0U};
