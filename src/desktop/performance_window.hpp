@@ -159,6 +159,7 @@ struct ActiveFxRoiPassDiagnostics
     ActiveFxRoiDecisionReason decisionReason{
         ActiveFxRoiDecisionReason::Disabled};
     std::uint64_t fullPixels{0U};
+    std::uint64_t candidatePixels{0U};
     std::uint64_t drawnPixels{0U};
     std::uint64_t clearedPixels{0U};
     ActiveFxRoiStagesDiagnostics stages{};
@@ -174,7 +175,7 @@ struct ActiveFxRoiPassDiagnostics
         ActiveFxRoiStagesDiagnostics result{};
         result.prefilter = ActiveFxRoiStagePixelDiagnostics{
             fullPixels,
-            0U,
+            candidatePixels,
             drawnPixels,
             clearedPixels};
         return result;

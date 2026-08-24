@@ -1962,10 +1962,34 @@ void appendDisplayTopologyInvalidated(
         return bafx::desktop::ActiveFxRoiActualPath::RoiWarmup;
     case bafx::windows::FxActiveRoiActualPath::RoiPrefilter:
         return bafx::desktop::ActiveFxRoiActualPath::RoiPrefilter;
+    case bafx::windows::FxActiveRoiActualPath::RoiPyramid:
+        return bafx::desktop::ActiveFxRoiActualPath::RoiPyramid;
     case bafx::windows::FxActiveRoiActualPath::Unavailable:
         return bafx::desktop::ActiveFxRoiActualPath::Unavailable;
     }
     return bafx::desktop::ActiveFxRoiActualPath::Unavailable;
+}
+
+[[nodiscard]] bafx::desktop::ActiveFxRoiStagePixelDiagnostics
+activeFxRoiStageDiagnostics(
+    const bafx::windows::FxActiveRoiStageDiagnostics& diagnostics) noexcept
+{
+    return bafx::desktop::ActiveFxRoiStagePixelDiagnostics{
+        diagnostics.fullPixels,
+        diagnostics.candidatePixels,
+        diagnostics.drawnPixels,
+        diagnostics.clearedPixels};
+}
+
+[[nodiscard]] bafx::desktop::ActiveFxRoiStagesDiagnostics
+activeFxRoiStagesDiagnostics(
+    const bafx::windows::FxActiveRoiStagesDiagnostics& diagnostics) noexcept
+{
+    return bafx::desktop::ActiveFxRoiStagesDiagnostics{
+        activeFxRoiStageDiagnostics(diagnostics.prefilter),
+        activeFxRoiStageDiagnostics(diagnostics.downsample),
+        activeFxRoiStageDiagnostics(diagnostics.upsample),
+        activeFxRoiStageDiagnostics(diagnostics.resolve)};
 }
 
 [[nodiscard]] bafx::desktop::ActiveFxRoiDecisionReason
@@ -2002,18 +2026,20 @@ activeFxRoiDecisionReason(
 activeFxRoiPathPerformanceSample(
     const bafx::windows::FxActiveRoiPassDiagnostics& diagnostics) noexcept
 {
-    return bafx::desktop::ActiveFxRoiPathPerformanceSample{
-        true,
-        bafx::desktop::ActiveFxRoiPassDiagnostics{
-            diagnostics.requested,
-            diagnostics.eligible,
-            diagnostics.executed,
-            diagnostics.warmup,
-            activeFxRoiActualPath(diagnostics.actualPath),
-            activeFxRoiDecisionReason(diagnostics.decisionReason),
-            diagnostics.fullPixels,
-            diagnostics.drawnPixels,
-            diagnostics.clearedPixels}};
+    bafx::desktop::ActiveFxRoiPassDiagnostics mapped{};
+    mapped.requested = diagnostics.requested;
+    mapped.eligible = diagnostics.eligible;
+    mapped.executed = diagnostics.executed;
+    mapped.warmup = diagnostics.warmup;
+    mapped.actualPath = activeFxRoiActualPath(diagnostics.actualPath);
+    mapped.decisionReason = activeFxRoiDecisionReason(
+        diagnostics.decisionReason);
+    mapped.fullPixels = diagnostics.fullPixels;
+    mapped.candidatePixels = diagnostics.candidatePixels;
+    mapped.drawnPixels = diagnostics.drawnPixels;
+    mapped.clearedPixels = diagnostics.clearedPixels;
+    mapped.stages = activeFxRoiStagesDiagnostics(diagnostics.stages);
+    return bafx::desktop::ActiveFxRoiPathPerformanceSample{true, mapped};
 }
 
 [[nodiscard]] bafx::desktop::GpuFxPathPerformanceSample

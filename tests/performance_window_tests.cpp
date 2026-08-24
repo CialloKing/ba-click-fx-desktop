@@ -399,6 +399,7 @@ BAFX_TEST(runtime_performance_window_aggregates_roi_paths_without_claiming_savin
                 bafx::desktop::ActiveFxRoiDecisionReason::Applied,
                 100U,
                 40U,
+                40U,
                 20U}},
         .roiRecordingRebuild =
             bafx::desktop::ActiveFxRoiPathPerformanceSample{
@@ -411,6 +412,7 @@ BAFX_TEST(runtime_performance_window_aggregates_roi_paths_without_claiming_savin
                     bafx::desktop::ActiveFxRoiActualPath::Idle,
                     bafx::desktop::ActiveFxRoiDecisionReason::NoContent,
                     100U,
+                    0U,
                     0U,
                     0U}}});
     window.addFrame(bafx::desktop::FramePerformanceSample{
@@ -425,6 +427,7 @@ BAFX_TEST(runtime_performance_window_aggregates_roi_paths_without_claiming_savin
                 bafx::desktop::ActiveFxRoiDecisionReason::Applied,
                 100U,
                 45U,
+                45U,
                 100U}}});
 
     const bafx::desktop::RuntimePerformanceSummary summary = window.summarize();
@@ -436,7 +439,7 @@ BAFX_TEST(runtime_performance_window_aggregates_roi_paths_without_claiming_savin
     BAFX_CHECK(summary.roiPrimary.warmupFrames == 1U);
     BAFX_CHECK(summary.roiPrimary.fallbackFrames == 0U);
     BAFX_CHECK(summary.roiPrimary.fullPixelsTotal == 200U);
-    BAFX_CHECK(summary.roiPrimary.candidatePixelsTotal == 0U);
+    BAFX_CHECK(summary.roiPrimary.candidatePixelsTotal == 85U);
     BAFX_CHECK(summary.roiPrimary.drawnPixelsTotal == 85U);
     BAFX_CHECK(summary.roiPrimary.clearedPixelsTotal == 120U);
     BAFX_CHECK(summary.roiPrimary.stages.prefilter.fullPixels == 200U);
@@ -470,6 +473,7 @@ BAFX_TEST(runtime_performance_window_aggregates_explicit_roi_pyramid_stages)
     pyramid.actualPath = bafx::desktop::ActiveFxRoiActualPath::RoiPyramid;
     pyramid.decisionReason = bafx::desktop::ActiveFxRoiDecisionReason::Applied;
     pyramid.fullPixels = 999U;
+    pyramid.candidatePixels = 999U;
     pyramid.drawnPixels = 999U;
     pyramid.stages.prefilter = {100U, 30U, 30U, 5U};
     pyramid.stages.downsample = {50U, 20U, 20U, 4U};

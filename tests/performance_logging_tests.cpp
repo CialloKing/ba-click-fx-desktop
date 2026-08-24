@@ -96,6 +96,7 @@ BAFX_TEST(performance_log_preserves_metric_and_semantic_fields)
                 bafx::desktop::ActiveFxRoiDecisionReason::Applied,
                 100U,
                 40U,
+                40U,
                 20U}},
         .gpuFxMaterialsMicroseconds = 900U,
         .gpuBloomAndFinalCompositeMicroseconds = 2'500U,
@@ -190,7 +191,7 @@ BAFX_TEST(performance_log_preserves_metric_and_semantic_fields)
         != std::string::npos);
     BAFX_CHECK(text.find("ROI.Primary.FallbackFrames=0\n")
         != std::string::npos);
-    BAFX_CHECK(text.find("ROI.Primary.CandidatePixels.Total=0\n")
+    BAFX_CHECK(text.find("ROI.Primary.CandidatePixels.Total=40\n")
         != std::string::npos);
     BAFX_CHECK(text.find("ROI.Primary.DrawnPixels.Total=40\n")
         != std::string::npos);
@@ -198,7 +199,7 @@ BAFX_TEST(performance_log_preserves_metric_and_semantic_fields)
         "ROI.Primary.Stage.Prefilter.FullPixels.Total=100\n")
         != std::string::npos);
     BAFX_CHECK(text.find(
-        "ROI.Primary.Stage.Prefilter.CandidatePixels.Total=0\n")
+        "ROI.Primary.Stage.Prefilter.CandidatePixels.Total=40\n")
         != std::string::npos);
     BAFX_CHECK(text.find(
         "ROI.Primary.Stage.Prefilter.DrawnPixels.Total=40\n")
