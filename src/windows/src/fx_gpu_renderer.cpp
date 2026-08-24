@@ -514,6 +514,13 @@ struct FxGpuRenderer::Implementation
         RecordingRebuild
     };
 
+    enum class BloomGpuStage : std::uint8_t
+    {
+        Prefilter,
+        Pyramid,
+        FinalComposite
+    };
+
     struct BloomPrefilterTargetState
     {
         ID3D11Texture2D* resource{nullptr};
@@ -523,6 +530,83 @@ struct FxGpuRenderer::Implementation
         bool initialized{false};
         bool fullScreenWritten{false};
     };
+
+    [[nodiscard]] static GpuTimestampCheckpoint bloomCheckpoint(
+        const BloomExecutionPath path,
+        const BloomGpuStage stage) noexcept
+    {
+        if (path == BloomExecutionPath::Primary)
+        {
+            switch (stage)
+            {
+            case BloomGpuStage::Prefilter:
+                return GpuTimestampCheckpoint::PrimaryPrefilterComplete;
+            case BloomGpuStage::Pyramid:
+                return GpuTimestampCheckpoint::PrimaryPyramidComplete;
+            case BloomGpuStage::FinalComposite:
+                return GpuTimestampCheckpoint::PrimaryFinalCompositeComplete;
+            }
+        }
+
+        switch (stage)
+        {
+        case BloomGpuStage::Prefilter:
+            return GpuTimestampCheckpoint::RecordingRebuildPrefilterComplete;
+        case BloomGpuStage::Pyramid:
+            return GpuTimestampCheckpoint::RecordingRebuildPyramidComplete;
+        case BloomGpuStage::FinalComposite:
+            return GpuTimestampCheckpoint::RecordingRebuildFinalCompositeComplete;
+        }
+        return GpuTimestampCheckpoint::RecordingRebuildFinalCompositeComplete;
+    }
+
+    static void recordBloomCheckpoint(
+        GpuTimestampProfiler* const profiler,
+        const BloomExecutionPath path,
+        const BloomGpuStage stage,
+        bool& failure) noexcept
+    {
+        if (profiler == nullptr)
+        {
+            return;
+        }
+        if (profiler->checkpoint(bloomCheckpoint(path, stage))
+            != GpuTimestampCheckpointStatus::Recorded)
+        {
+            failure = true;
+        }
+    }
+
+    static void skipBloomCheckpoint(
+        GpuTimestampProfiler* const profiler,
+        const BloomExecutionPath path,
+        const BloomGpuStage stage,
+        bool& failure) noexcept
+    {
+        if (profiler == nullptr)
+        {
+            return;
+        }
+        if (profiler->skipCheckpoint(bloomCheckpoint(path, stage))
+            != GpuTimestampCheckpointStatus::Skipped)
+        {
+            failure = true;
+        }
+    }
+
+    static void skipBloomPath(
+        GpuTimestampProfiler* const profiler,
+        const BloomExecutionPath path,
+        bool& failure) noexcept
+    {
+        skipBloomCheckpoint(profiler, path, BloomGpuStage::Prefilter, failure);
+        skipBloomCheckpoint(profiler, path, BloomGpuStage::Pyramid, failure);
+        skipBloomCheckpoint(
+            profiler,
+            path,
+            BloomGpuStage::FinalComposite,
+            failure);
+    }
 
     Implementation(
         ID3D11Device* sourceDevice,
@@ -1420,7 +1504,9 @@ struct FxGpuRenderer::Implementation
         const std::optional<BackgroundRenderInput> background,
         ID3D11RenderTargetView* bloomResultDestination = nullptr,
         const std::optional<FxActiveRoi> activeRoi = std::nullopt,
-        const BloomExecutionPath executionPath = BloomExecutionPath::Primary)
+        const BloomExecutionPath executionPath = BloomExecutionPath::Primary,
+        GpuTimestampProfiler* const gpuTimestampProfiler = nullptr,
+        bool* const gpuTimestampCheckpointFailure = nullptr)
     {
         const bafx::core::BloomExtent sourceExtent{
             static_cast<std::int32_t>(size.width),
@@ -1556,6 +1642,16 @@ struct FxGpuRenderer::Implementation
             nullptr,
             prefilterScissor.has_value() ? &*prefilterScissor : nullptr);
 
+        bool ignoredCheckpointFailure = false;
+        bool& checkpointFailure = gpuTimestampCheckpointFailure != nullptr
+            ? *gpuTimestampCheckpointFailure
+            : ignoredCheckpointFailure;
+        recordBloomCheckpoint(
+            gpuTimestampProfiler,
+            executionPath,
+            BloomGpuStage::Prefilter,
+            checkpointFailure);
+
         bloomPrefilterTargetState.initialized = true;
         bloomPrefilterTargetState.lastWriter = executionPath;
         if (prefilterScissor.has_value())
@@ -1606,6 +1702,12 @@ struct FxGpuRenderer::Implementation
             accumulated = bloomUpTargets[fineIndex].shaderResource.Get();
         }
 
+        recordBloomCheckpoint(
+            gpuTimestampProfiler,
+            executionPath,
+            BloomGpuStage::Pyramid,
+            checkpointFailure);
+
         const BloomConstants finalConstants = makeBloomConstants(
             firstExtent,
             bloomPlan.sampleScale,
@@ -1625,6 +1727,14 @@ struct FxGpuRenderer::Implementation
                 occlusionTarget.shaderResource.Get(),
                 background.has_value() ? background->shaderResource : nullptr,
                 crossTarget.shaderResource.Get());
+            if (executionPath == BloomExecutionPath::Primary)
+            {
+                recordBloomCheckpoint(
+                    gpuTimestampProfiler,
+                    executionPath,
+                    BloomGpuStage::FinalComposite,
+                    checkpointFailure);
+            }
             return roiDiagnostics;
         }
 
@@ -1641,6 +1751,14 @@ struct FxGpuRenderer::Implementation
             occlusionTarget.shaderResource.Get(),
             background.has_value() ? background->shaderResource : nullptr,
             crossTarget.shaderResource.Get());
+        if (executionPath == BloomExecutionPath::Primary)
+        {
+            recordBloomCheckpoint(
+                gpuTimestampProfiler,
+                executionPath,
+                BloomGpuStage::FinalComposite,
+                checkpointFailure);
+        }
         return roiDiagnostics;
     }
 
@@ -1855,6 +1973,14 @@ struct FxGpuRenderer::Implementation
                     recordingDestination,
                     transparent.data());
             }
+            skipBloomPath(
+                gpuTimestampProfiler,
+                BloomExecutionPath::Primary,
+                diagnostics.gpuTimestampCheckpointFailure);
+            skipBloomPath(
+                gpuTimestampProfiler,
+                BloomExecutionPath::RecordingRebuild,
+                diagnostics.gpuTimestampCheckpointFailure);
             diagnostics.totalSubmit =
                 std::chrono::steady_clock::now() - totalStartedAt;
             return diagnostics;
@@ -1956,7 +2082,9 @@ struct FxGpuRenderer::Implementation
                 background,
                 bloomResultDestination,
                 background.has_value() ? std::nullopt : activeRoi,
-                BloomExecutionPath::Primary);
+                BloomExecutionPath::Primary,
+                gpuTimestampProfiler,
+                &diagnostics.gpuTimestampCheckpointFailure);
             if (background.has_value() && activeRoi.has_value())
             {
                 diagnostics.primaryActiveFxRoi.requested = true;
@@ -1972,6 +2100,21 @@ struct FxGpuRenderer::Implementation
                 finalCompositeShader,
                 background,
                 bloomResultDestination);
+            skipBloomCheckpoint(
+                gpuTimestampProfiler,
+                BloomExecutionPath::Primary,
+                BloomGpuStage::Prefilter,
+                diagnostics.gpuTimestampCheckpointFailure);
+            skipBloomCheckpoint(
+                gpuTimestampProfiler,
+                BloomExecutionPath::Primary,
+                BloomGpuStage::Pyramid,
+                diagnostics.gpuTimestampCheckpointFailure);
+            recordBloomCheckpoint(
+                gpuTimestampProfiler,
+                BloomExecutionPath::Primary,
+                BloomGpuStage::FinalComposite,
+                diagnostics.gpuTimestampCheckpointFailure);
         }
         if (recordingDestination != nullptr)
         {
@@ -1994,9 +2137,33 @@ struct FxGpuRenderer::Implementation
                     std::nullopt,
                     nullptr,
                     activeRoi,
-                    BloomExecutionPath::RecordingRebuild);
+                    BloomExecutionPath::RecordingRebuild,
+                    gpuTimestampProfiler,
+                    &diagnostics.gpuTimestampCheckpointFailure);
             }
             renderRecordingComposite(recordingDestination);
+            if (bloomSettings.enabled && background.has_value())
+            {
+                recordBloomCheckpoint(
+                    gpuTimestampProfiler,
+                    BloomExecutionPath::RecordingRebuild,
+                    BloomGpuStage::FinalComposite,
+                    diagnostics.gpuTimestampCheckpointFailure);
+            }
+            else
+            {
+                skipBloomPath(
+                    gpuTimestampProfiler,
+                    BloomExecutionPath::RecordingRebuild,
+                    diagnostics.gpuTimestampCheckpointFailure);
+            }
+        }
+        else
+        {
+            skipBloomPath(
+                gpuTimestampProfiler,
+                BloomExecutionPath::RecordingRebuild,
+                diagnostics.gpuTimestampCheckpointFailure);
         }
 
         const auto isApplied = [](const FxActiveRoiPassDiagnostics& pass)
@@ -2047,6 +2214,14 @@ struct FxGpuRenderer::Implementation
                 (void)gpuTimestampProfiler->checkpoint(
                     GpuTimestampCheckpoint::FxMaterialsComplete);
             }
+            skipBloomPath(
+                gpuTimestampProfiler,
+                BloomExecutionPath::Primary,
+                diagnostics.gpuTimestampCheckpointFailure);
+            skipBloomPath(
+                gpuTimestampProfiler,
+                BloomExecutionPath::RecordingRebuild,
+                diagnostics.gpuTimestampCheckpointFailure);
             diagnostics.totalSubmit = std::chrono::steady_clock::now()
                 - startedAt;
             return diagnostics;
@@ -2164,6 +2339,14 @@ struct FxGpuRenderer::Implementation
                 makeBloomConstants(sourceExtent, 0.0F, 0.0F),
                 crossTarget.shaderResource.Get());
         }
+        skipBloomPath(
+            gpuTimestampProfiler,
+            BloomExecutionPath::Primary,
+            diagnostics.gpuTimestampCheckpointFailure);
+        skipBloomPath(
+            gpuTimestampProfiler,
+            BloomExecutionPath::RecordingRebuild,
+            diagnostics.gpuTimestampCheckpointFailure);
         context->OMSetRenderTargets(0, nullptr, nullptr);
         diagnostics.bloomAndCompositeSubmit = std::chrono::steady_clock::now()
             - compositeStartedAt;

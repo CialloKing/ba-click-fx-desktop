@@ -130,6 +130,7 @@ struct FxRenderCpuDiagnostics
     std::chrono::nanoseconds materialsSubmit{};
     std::chrono::nanoseconds bloomAndCompositeSubmit{};
     bool visualContent{false};
+    bool gpuTimestampCheckpointFailure{false};
     FxActiveRoiPassDiagnostics primaryActiveFxRoi{};
     FxActiveRoiPassDiagnostics recordingRebuildActiveFxRoi{};
     // Retain the aggregate fields while existing log/report consumers migrate

@@ -1437,6 +1437,9 @@ CompositionFrameDiagnostics CompositionRenderer::renderFrame(
             ? recordingRenderTarget_.Get()
             : nullptr,
         activeRoi);
+    diagnostics.gpuTimestampCheckpointFailure =
+        diagnostics.gpuTimestampCheckpointFailure
+        || diagnostics.fx.gpuTimestampCheckpointFailure;
     diagnostics.roi.prefilterApplied =
         diagnostics.fx.activeFxRoiApplied;
     diagnostics.roi.prefilterPixels =
