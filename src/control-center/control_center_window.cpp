@@ -5,6 +5,7 @@
 #include "package_activation.hpp"
 #include "startup_config.hpp"
 
+#include "product/version.hpp"
 #include "bafx/windows/recording_compatibility.hpp"
 #include "bafx/windows/portable_paths.hpp"
 #include "bafx/windows/spout2_sender.hpp"
@@ -32,8 +33,6 @@ namespace bafx::control_center
 namespace
 {
 
-constexpr wchar_t windowClassName[] = L"BAFX.NativeControlCenter.Window.v1";
-constexpr wchar_t windowTitle[] = L"BAFX Control Center";
 constexpr UINT_PTR patchTimerId = 1U;
 constexpr UINT_PTR hostRetryTimerId = 2U;
 constexpr UINT_PTR hostShutdownTimerId = 3U;
@@ -63,6 +62,26 @@ constexpr std::uint32_t hostRetryLimit = 40U;
 constexpr DWORD controlCenterWindowStyle =
     WS_OVERLAPPEDWINDOW | WS_CLIPSIBLINGS;
 static_assert((controlCenterWindowStyle & WS_CLIPCHILDREN) == 0U);
+
+[[nodiscard]] std::wstring_view installationStateLabel(
+    const std::filesystem::path& executableDirectory) noexcept
+{
+    const PackageActivationIdentityResult packageIdentity =
+        readPackageActivationState(executableDirectory);
+    if (!packageIdentity.installStatePresent)
+    {
+        return L"便携版";
+    }
+    if (!packageIdentity.succeeded())
+    {
+        return L"安装状态异常";
+    }
+
+    // This function is the presentation boundary for the current package-state
+    // probe. The update controller can replace it with an explicit installation
+    // channel without changing the title or version panel layout.
+    return L"安装版";
+}
 
 [[nodiscard]] std::wstring hresultText(const HRESULT result)
 {
@@ -730,13 +749,16 @@ bool ControlCenterWindow::create(
         0,
         (workAreaHeight - windowHeight) / 2);
 
+    std::wstring windowCaption = L"BAFX Control Center ";
+    windowCaption += utf8ToWide(bafx::product::version);
+
     // CW_USEDEFAULT makes Windows choose the size of an overlapped window and
     // discards our DPI-scaled dimensions. Explicit coordinates preserve the
     // client area that layoutControls() was designed for.
     window_ = CreateWindowExW(
         0U,
-        windowClassName,
-        windowTitle,
+        controlCenterWindowClassName.data(),
+        windowCaption.c_str(),
         controlCenterWindowStyle,
         windowX,
         windowY,
@@ -1155,7 +1177,7 @@ bool ControlCenterWindow::registerWindowClass() noexcept
     windowClass.hIcon = LoadIconW(nullptr, IDI_APPLICATION);
     windowClass.hCursor = LoadCursorW(nullptr, IDC_ARROW);
     windowClass.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1);
-    windowClass.lpszClassName = windowClassName;
+    windowClass.lpszClassName = controlCenterWindowClassName.data();
     windowClass.hIconSm = windowClass.hIcon;
 
     if (RegisterClassExW(&windowClass) != 0U)
@@ -1173,9 +1195,14 @@ bool ControlCenterWindow::registerWindowClass() noexcept
 
 bool ControlCenterWindow::createControls()
 {
+    const std::wstring productVersion = utf8ToWide(bafx::product::version);
+    const std::wstring_view installationState =
+        installationStateLabel(executableDirectory());
+    const std::wstring pageTitle = L"BAFX Desktop " + productVersion
+        + L" · " + std::wstring(installationState);
     titleText_ = createChild(
         L"STATIC",
-        L"BAFX Desktop",
+        pageTitle.c_str(),
         SS_LEFT | SS_NOPREFIX);
     statusText_ = createChild(
         L"STATIC",
@@ -1755,6 +1782,43 @@ bool ControlCenterWindow::createControls()
         L"清理诊断日志",
         BS_PUSHBUTTON | WS_TABSTOP,
         ControlId::ClearLogs);
+    versionUpdateHeading_ = createChild(
+        L"BUTTON",
+        L"版本与更新",
+        BS_GROUPBOX);
+    const std::wstring controlCenterVersion =
+        L"控制中心版本：" + productVersion;
+    controlCenterVersionText_ = createChild(
+        L"STATIC",
+        controlCenterVersion.c_str(),
+        SS_LEFT | SS_NOPREFIX | SS_ENDELLIPSIS);
+    hostVersionText_ = createChild(
+        L"STATIC",
+        L"Host 版本：待连接",
+        SS_LEFT | SS_NOPREFIX | SS_ENDELLIPSIS);
+    const std::wstring installState =
+        L"安装状态：" + std::wstring(installationState);
+    installStateText_ = createChild(
+        L"STATIC",
+        installState.c_str(),
+        SS_LEFT | SS_NOPREFIX | SS_ENDELLIPSIS);
+    latestVersionText_ = createChild(
+        L"STATIC",
+        L"最新公开版本：尚未检查",
+        SS_LEFT | SS_NOPREFIX | SS_ENDELLIPSIS);
+    // Native child creation order is also the dialog Tab order. Keep these
+    // actions adjacent so the update controller can wire them without moving
+    // keyboard focus semantics.
+    checkForUpdatesButton_ = createChild(
+        L"BUTTON",
+        L"检查更新",
+        BS_PUSHBUTTON | WS_TABSTOP,
+        ControlId::CheckForUpdates);
+    openReleaseButton_ = createChild(
+        L"BUTTON",
+        L"打开 Release",
+        BS_PUSHBUTTON | WS_TABSTOP | WS_DISABLED,
+        ControlId::OpenRelease);
 
     displaySettingsHeading_ = createChild(
         L"BUTTON",
@@ -1957,6 +2021,13 @@ bool ControlCenterWindow::createControls()
         startWithWindows_,
         startMinimized_,
         closeToTray_,
+        versionUpdateHeading_,
+        controlCenterVersionText_,
+        hostVersionText_,
+        installStateText_,
+        latestVersionText_,
+        checkForUpdatesButton_,
+        openReleaseButton_,
 #if defined(BAFX_ENABLE_SPOUT2)
         spout2Enabled_,
         spout2SenderStatus_,
@@ -2336,6 +2407,12 @@ void ControlCenterWindow::applyFonts() const noexcept
         startWithWindows_,
         startMinimized_,
         closeToTray_,
+        controlCenterVersionText_,
+        hostVersionText_,
+        installStateText_,
+        latestVersionText_,
+        checkForUpdatesButton_,
+        openReleaseButton_,
 #if defined(BAFX_ENABLE_SPOUT2)
         spout2Enabled_,
         spout2SenderStatus_,
@@ -2370,6 +2447,7 @@ void ControlCenterWindow::applyFonts() const noexcept
     setControlFont(effectsHeading_, sectionFont_);
     setControlFont(backgroundHeading_, sectionFont_);
     setControlFont(systemSettingsHeading_, sectionFont_);
+    setControlFont(versionUpdateHeading_, sectionFont_);
     setControlFont(advancedTimingHeading_, sectionFont_);
     setControlFont(advancedParticlesHeading_, sectionFont_);
     setControlFont(advancedRingsHeading_, sectionFont_);
@@ -2768,15 +2846,26 @@ void ControlCenterWindow::layoutControls(
             scale(minimumSystemPanelHeight),
             actionY - contentTop - scale(12));
         const int panelWidth = clientWidth - margin * 2;
+        const int panelGap = scale(16);
+        const int updatePanelWidth = (std::clamp)(
+            panelWidth * 2 / 5,
+            scale(300),
+            scale(340));
+        const int systemPanelWidth = (std::max)(
+            scale(1),
+            panelWidth - panelGap - updatePanelWidth);
+        const int updatePanelX = margin + systemPanelWidth + panelGap;
         const int inset = scale(16);
         const int contentX = margin + inset;
-        const int contentWidth = (std::max)(scale(1), panelWidth - inset * 2);
+        const int contentWidth = (std::max)(
+            scale(1),
+            systemPanelWidth - inset * 2);
 
         moveControl(
             systemSettingsHeading_,
             margin,
             contentTop,
-            panelWidth,
+            systemPanelWidth,
             panelHeight);
         moveControl(
             startWithWindows_,
@@ -2849,6 +2938,57 @@ void ControlCenterWindow::layoutControls(
             contentWidth,
             scale(30));
 #endif
+
+        moveControl(
+            versionUpdateHeading_,
+            updatePanelX,
+            contentTop,
+            updatePanelWidth,
+            panelHeight);
+        const int updateContentX = updatePanelX + inset;
+        const int updateContentWidth = (std::max)(
+            scale(1),
+            updatePanelWidth - inset * 2);
+        moveControl(
+            controlCenterVersionText_,
+            updateContentX,
+            contentTop + scale(36),
+            updateContentWidth,
+            scale(24));
+        moveControl(
+            hostVersionText_,
+            updateContentX,
+            contentTop + scale(68),
+            updateContentWidth,
+            scale(24));
+        moveControl(
+            installStateText_,
+            updateContentX,
+            contentTop + scale(100),
+            updateContentWidth,
+            scale(24));
+        moveControl(
+            latestVersionText_,
+            updateContentX,
+            contentTop + scale(132),
+            updateContentWidth,
+            scale(40));
+        const int updateButtonGap = scale(10);
+        const int updateButtonWidth = (std::max)(
+            scale(1),
+            (updateContentWidth - updateButtonGap) / 2);
+        moveControl(
+            checkForUpdatesButton_,
+            updateContentX,
+            contentTop + scale(184),
+            updateButtonWidth,
+            scale(32));
+        moveControl(
+            openReleaseButton_,
+            updateContentX + updateButtonWidth + updateButtonGap,
+            contentTop + scale(184),
+            updateButtonWidth,
+            scale(32));
 
         const int actionWidth = (clientWidth - margin * 2 - actionGap * 3) / 4;
         moveControl(
@@ -3801,6 +3941,13 @@ void ControlCenterWindow::updatePageVisibility() noexcept
         startWithWindows_,
         startMinimized_,
         closeToTray_,
+        versionUpdateHeading_,
+        controlCenterVersionText_,
+        hostVersionText_,
+        installStateText_,
+        latestVersionText_,
+        checkForUpdatesButton_,
+        openReleaseButton_,
 #if defined(BAFX_ENABLE_SPOUT2)
         spout2Enabled_,
         spout2SenderStatus_,
@@ -4220,6 +4367,18 @@ void ControlCenterWindow::onCommand(
             applyPatch(
                 "system.closeToTray",
                 isChecked(closeToTray_) ? "true" : "false");
+        }
+        break;
+    case ControlId::CheckForUpdates:
+    case ControlId::OpenRelease:
+        if (notificationCode == BN_CLICKED)
+        {
+            // The release service owns network and navigation policy. These
+            // static controls intentionally expose only a safe integration
+            // point until that controller is connected.
+            setInfo(
+                L"版本与更新",
+                L"更新服务正在接入，当前版本信息仍可离线查看。");
         }
         break;
 #if defined(BAFX_ENABLE_SPOUT2)

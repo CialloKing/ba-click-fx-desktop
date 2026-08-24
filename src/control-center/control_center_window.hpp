@@ -20,6 +20,11 @@
 namespace bafx::control_center
 {
 
+// This name is a process-level rendezvous contract. Unlike the caption, it
+// must remain stable when product versions or localized titles change.
+inline constexpr std::wstring_view controlCenterWindowClassName =
+    L"BAFX.NativeControlCenter.Window.v1";
+
 class ControlCenterWindow final
 {
 public:
@@ -110,6 +115,8 @@ private:
         StartWithWindows,
         StartMinimized,
         CloseToTray,
+        CheckForUpdates,
+        OpenRelease,
 #if defined(BAFX_ENABLE_SPOUT2)
         Spout2Enabled,
         RefreshObsSpoutPlugin,
@@ -127,6 +134,10 @@ private:
         ClearLogs,
         ResetDefaults
     };
+    static_assert(
+        static_cast<int>(ControlId::OpenRelease)
+            == static_cast<int>(ControlId::CheckForUpdates) + 1,
+        "Version update actions must preserve their keyboard order");
 
     struct SliderControl final
     {
@@ -399,6 +410,13 @@ private:
     HWND startWithWindows_{nullptr};
     HWND startMinimized_{nullptr};
     HWND closeToTray_{nullptr};
+    HWND versionUpdateHeading_{nullptr};
+    HWND controlCenterVersionText_{nullptr};
+    HWND hostVersionText_{nullptr};
+    HWND installStateText_{nullptr};
+    HWND latestVersionText_{nullptr};
+    HWND checkForUpdatesButton_{nullptr};
+    HWND openReleaseButton_{nullptr};
 #if defined(BAFX_ENABLE_SPOUT2)
     HWND spout2Enabled_{nullptr};
     HWND spout2SenderStatus_{nullptr};

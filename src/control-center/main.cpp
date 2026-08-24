@@ -15,7 +15,6 @@ namespace
 {
 
 constexpr std::wstring_view controlCenterMutexName = L"Local\\BAFX.ControlCenter.v1";
-constexpr std::wstring_view controlCenterWindowTitle = L"BAFX Control Center";
 
 struct LaunchOptions final
 {
@@ -89,7 +88,11 @@ void recordStartupFailure(const std::wstring_view message) noexcept
 
 [[nodiscard]] bool activateExistingControlCenter() noexcept
 {
-    const HWND existing = FindWindowW(nullptr, controlCenterWindowTitle.data());
+    // The caption contains the product version and is intentionally mutable.
+    // The fixed class name is the stable single-instance activation contract.
+    const HWND existing = FindWindowW(
+        bafx::control_center::controlCenterWindowClassName.data(),
+        nullptr);
     if (existing == nullptr)
     {
         return false;
