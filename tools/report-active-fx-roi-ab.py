@@ -15,8 +15,8 @@ import sys
 from typing import Any
 
 
-MANIFEST_SCHEMA_VERSION = 2
-REPORT_SCHEMA_VERSION = 1
+MANIFEST_SCHEMA_VERSION = 3
+REPORT_SCHEMA_VERSION = 2
 CAPTURE_KIND = "bafx-active-fx-roi-ab-capture"
 REPORT_KIND = "bafx-active-fx-roi-ab-report"
 ENVIRONMENT_CONTRACT = "rtx-4060-4k170-sdr-v1"
@@ -607,7 +607,7 @@ def _intervals(
         if _event_bool(event, "Performance.ActiveFxRoiEnabled", context) != roi_enabled:
             raise ValidationError(f"{context}: ROI configuration does not match run")
         expected_path = (
-            "active-fx-prefilter-with-full-screen-fallback"
+            "active-fx-pyramid-with-full-screen-fallback"
             if roi_enabled
             else "disabled-full-screen"
         )
@@ -660,8 +660,30 @@ def _run_metrics(
         "appliedFrames": total(f"{roi_prefix}.AppliedFrames"),
         "warmupFrames": total(f"{roi_prefix}.WarmupFrames"),
         "fullPixels": total(f"{roi_prefix}.FullPixels.Total"),
+        "candidatePixels": total(f"{roi_prefix}.CandidatePixels.Total"),
         "drawnPixels": total(f"{roi_prefix}.DrawnPixels.Total"),
         "clearedPixels": total(f"{roi_prefix}.ClearedPixels.Total"),
+        "prefilterFullPixels": total(
+            f"{roi_prefix}.Stage.Prefilter.FullPixels.Total"
+        ),
+        "prefilterCandidatePixels": total(
+            f"{roi_prefix}.Stage.Prefilter.CandidatePixels.Total"
+        ),
+        "prefilterDrawnPixels": total(
+            f"{roi_prefix}.Stage.Prefilter.DrawnPixels.Total"
+        ),
+        "pyramidFullPixels": total(
+            f"{roi_prefix}.Stage.Downsample.FullPixels.Total"
+        )
+        + total(f"{roi_prefix}.Stage.Upsample.FullPixels.Total"),
+        "pyramidCandidatePixels": total(
+            f"{roi_prefix}.Stage.Downsample.CandidatePixels.Total"
+        )
+        + total(f"{roi_prefix}.Stage.Upsample.CandidatePixels.Total"),
+        "pyramidDrawnPixels": total(
+            f"{roi_prefix}.Stage.Downsample.DrawnPixels.Total"
+        )
+        + total(f"{roi_prefix}.Stage.Upsample.DrawnPixels.Total"),
         "expectedReasonFrames": total(expected_reason_field),
         "reasonObservedFrames": (
             total("ROI.RequestedFrames")
@@ -825,8 +847,15 @@ def _aggregate(runs: list[dict[str, Any]]) -> dict[str, Any]:
         "appliedFrames": total("appliedFrames"),
         "warmupFrames": total("warmupFrames"),
         "fullPixels": total("fullPixels"),
+        "candidatePixels": total("candidatePixels"),
         "drawnPixels": total("drawnPixels"),
         "clearedPixels": total("clearedPixels"),
+        "prefilterFullPixels": total("prefilterFullPixels"),
+        "prefilterCandidatePixels": total("prefilterCandidatePixels"),
+        "prefilterDrawnPixels": total("prefilterDrawnPixels"),
+        "pyramidFullPixels": total("pyramidFullPixels"),
+        "pyramidCandidatePixels": total("pyramidCandidatePixels"),
+        "pyramidDrawnPixels": total("pyramidDrawnPixels"),
         "expectedReasonFrames": total("expectedReasonFrames"),
         "reasonObservedFrames": total("reasonObservedFrames"),
         "prefilterP95Us": median("prefilterP95Us"),
@@ -845,9 +874,24 @@ def _aggregate(runs: list[dict[str, Any]]) -> dict[str, Any]:
         if result["requestedFrames"] > 0
         else None
     )
-    result["drawnFullRatio"] = (
-        result["drawnPixels"] / result["fullPixels"]
-        if result["fullPixels"] > 0
+    result["prefilterCandidateFullRatio"] = (
+        result["prefilterCandidatePixels"] / result["prefilterFullPixels"]
+        if result["prefilterFullPixels"] > 0
+        else None
+    )
+    result["prefilterDrawnFullRatio"] = (
+        result["prefilterDrawnPixels"] / result["prefilterFullPixels"]
+        if result["prefilterFullPixels"] > 0
+        else None
+    )
+    result["pyramidCandidateFullRatio"] = (
+        result["pyramidCandidatePixels"] / result["pyramidFullPixels"]
+        if result["pyramidFullPixels"] > 0
+        else None
+    )
+    result["pyramidDrawnFullRatio"] = (
+        result["pyramidDrawnPixels"] / result["pyramidFullPixels"]
+        if result["pyramidFullPixels"] > 0
         else None
     )
     result["expectedReasonRatio"] = (
@@ -954,6 +998,7 @@ def _build_gates(
         )
         for name in (
             "prefilterP95Us",
+            "pyramidP95Us",
             "bloomFinalP95Us",
             "cpuFrameP95Us",
             "cpuFrameP99Us",
@@ -972,6 +1017,7 @@ def _build_gates(
         return gates
 
     prefilter_reduction = _reduction(off["prefilterP95Us"], on["prefilterP95Us"])
+    pyramid_reduction = _reduction(off["pyramidP95Us"], on["pyramidP95Us"])
     bloom_reduction = _reduction(off["bloomFinalP95Us"], on["bloomFinalP95Us"])
     gates.extend(
         (
@@ -983,9 +1029,10 @@ def _build_gates(
                 ">= 0.95",
             ),
             _gate(
-                "drawn-full-ratio",
-                on["drawnFullRatio"] is not None and on["drawnFullRatio"] <= 0.45,
-                on["drawnFullRatio"],
+                "prefilter-drawn-full-ratio",
+                on["prefilterDrawnFullRatio"] is not None
+                and on["prefilterDrawnFullRatio"] <= 0.45,
+                on["prefilterDrawnFullRatio"],
                 "<= 0.45",
             ),
             _gate(
@@ -993,6 +1040,20 @@ def _build_gates(
                 prefilter_reduction["percent"] is not None
                 and prefilter_reduction["percent"] >= 25.0,
                 prefilter_reduction,
+                ">= 25%",
+            ),
+            _gate(
+                "pyramid-drawn-full-ratio",
+                on["pyramidDrawnFullRatio"] is not None
+                and on["pyramidDrawnFullRatio"] <= 0.45,
+                on["pyramidDrawnFullRatio"],
+                "<= 0.45",
+            ),
+            _gate(
+                "pyramid-p95-reduction",
+                pyramid_reduction["percent"] is not None
+                and pyramid_reduction["percent"] >= 25.0,
+                pyramid_reduction,
                 ">= 25%",
             ),
             _gate(
@@ -1088,6 +1149,9 @@ def build_report(root: Path) -> dict[str, Any]:
             "prefilterP95": _reduction(
                 roi_off["prefilterP95Us"], roi_on["prefilterP95Us"]
             ),
+            "pyramidP95": _reduction(
+                roi_off["pyramidP95Us"], roi_on["pyramidP95Us"]
+            ),
             "bloomFinalP95": _reduction(
                 roi_off["bloomFinalP95Us"], roi_on["bloomFinalP95Us"]
             ),
@@ -1097,7 +1161,7 @@ def build_report(root: Path) -> dict[str, Any]:
         "gates": gates,
         "passed": all(gate["passed"] for gate in gates),
         "limitations": [
-            "Pixel coverage is command coverage, not a claim of GPU time savings.",
+            "Candidate coverage is planner output; drawn coverage is executed command coverage.",
             "Fallback pixel exactness is established by WARP tests, not inferred from timing logs.",
         ],
     }
@@ -1136,8 +1200,12 @@ def render_markdown(report: dict[str, Any]) -> str:
     on = report["roiOn"]
     for label, key in (
         ("Applied/requested", "appliedRequestedRatio"),
-        ("Drawn/full", "drawnFullRatio"),
+        ("Prefilter candidate/full", "prefilterCandidateFullRatio"),
+        ("Prefilter drawn/full", "prefilterDrawnFullRatio"),
         ("Prefilter p95 (us)", "prefilterP95Us"),
+        ("Pyramid candidate/full", "pyramidCandidateFullRatio"),
+        ("Pyramid drawn/full", "pyramidDrawnFullRatio"),
+        ("Pyramid p95 (us)", "pyramidP95Us"),
         ("Bloom/final p95 (us)", "bloomFinalP95Us"),
         ("FPS", "fps"),
         ("CPU frame p95 (us)", "cpuFrameP95Us"),

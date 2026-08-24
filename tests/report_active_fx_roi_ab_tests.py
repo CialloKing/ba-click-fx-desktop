@@ -50,11 +50,11 @@ class CaptureFixture:
         )
         self.scenario_id = scenario_id
         self.measurement_path = measurement_path
-        self.executable_bytes = b"same-host-binary-v0.2.6"
+        self.executable_bytes = b"same-host-binary-v0.2.7"
         self.overrides: dict[int, dict[str, object]] = {}
         self.environment_overrides: dict[int, dict[str, object]] = {}
         self.environment_identity = {
-            "productVersion": "0.2.6",
+            "productVersion": "0.2.7",
             "driverType": "Hardware",
             "adapter": "NVIDIA GeForce RTX 4060 Laptop GPU",
             "adapterLuid": "00000000:0037D0F8",
@@ -85,7 +85,7 @@ class CaptureFixture:
             json.dumps(self.base_config, indent=2) + "\n", encoding="utf-8"
         )
         self.manifest = {
-            "schemaVersion": 2,
+            "schemaVersion": 3,
             "kind": "bafx-active-fx-roi-ab-capture",
             "captureStatus": "captured",
             "revision": "a" * 40,
@@ -151,29 +151,64 @@ class CaptureFixture:
             requested = 1000
             applied = 960
             observed = 1000
-            full_pixels = 100_000
-            drawn_pixels = 40_000
+            prefilter_full_pixels = 100_000
+            prefilter_candidate_pixels = 40_000
+            prefilter_drawn_pixels = 40_000
+            pyramid_full_pixels = 100_000
+            pyramid_candidate_pixels = 40_000
+            pyramid_drawn_pixels = 40_000
+            resolve_full_pixels = 100_000
+            resolve_candidate_pixels = 40_000
+            resolve_drawn_pixels = 100_000
             reason_frames = 1000
             prefilter = 250
+            pyramid = 210
             bloom_final = 820
         elif roi_enabled:
             requested = 1000
             applied = 0
             observed = 1000
-            full_pixels = 100_000
-            drawn_pixels = 100_000
+            prefilter_full_pixels = 100_000
+            prefilter_candidate_pixels = 100_000
+            prefilter_drawn_pixels = 100_000
+            pyramid_full_pixels = 100_000
+            pyramid_candidate_pixels = 100_000
+            pyramid_drawn_pixels = 100_000
+            resolve_full_pixels = 100_000
+            resolve_candidate_pixels = 100_000
+            resolve_drawn_pixels = 100_000
             reason_frames = 1000
             prefilter = 400
+            pyramid = 300
             bloom_final = 1000
         else:
             requested = 0
             applied = 0
             observed = 1000
-            full_pixels = 100_000
-            drawn_pixels = 100_000
+            prefilter_full_pixels = 100_000
+            prefilter_candidate_pixels = 100_000
+            prefilter_drawn_pixels = 100_000
+            pyramid_full_pixels = 100_000
+            pyramid_candidate_pixels = 100_000
+            pyramid_drawn_pixels = 100_000
+            resolve_full_pixels = 100_000
+            resolve_candidate_pixels = 100_000
+            resolve_drawn_pixels = 100_000
             reason_frames = 0
             prefilter = 400
+            pyramid = 300
             bloom_final = 1000
+        full_pixels = (
+            prefilter_full_pixels + pyramid_full_pixels + resolve_full_pixels
+        )
+        candidate_pixels = (
+            prefilter_candidate_pixels
+            + pyramid_candidate_pixels
+            + resolve_candidate_pixels
+        )
+        drawn_pixels = (
+            prefilter_drawn_pixels + pyramid_drawn_pixels + resolve_drawn_pixels
+        )
         roi_prefix = (
             "ROI.Primary"
             if self.measurement_path == "primary"
@@ -196,7 +231,7 @@ class CaptureFixture:
             "Configuration.SchemaVersion": 19,
             "Performance.ActiveFxRoiEnabled": roi_enabled,
             "ROI.ProductionPath": (
-                "active-fx-prefilter-with-full-screen-fallback"
+                "active-fx-pyramid-with-full-screen-fallback"
                 if roi_enabled
                 else "disabled-full-screen"
             ),
@@ -206,11 +241,28 @@ class CaptureFixture:
             f"{roi_prefix}.AppliedFrames": applied,
             f"{roi_prefix}.WarmupFrames": 0,
             f"{roi_prefix}.FullPixels.Total": full_pixels,
+            f"{roi_prefix}.CandidatePixels.Total": candidate_pixels,
             f"{roi_prefix}.DrawnPixels.Total": drawn_pixels,
             f"{roi_prefix}.ClearedPixels.Total": drawn_pixels,
+            f"{roi_prefix}.Stage.Prefilter.FullPixels.Total": prefilter_full_pixels,
+            f"{roi_prefix}.Stage.Prefilter.CandidatePixels.Total": prefilter_candidate_pixels,
+            f"{roi_prefix}.Stage.Prefilter.DrawnPixels.Total": prefilter_drawn_pixels,
+            f"{roi_prefix}.Stage.Prefilter.ClearedPixels.Total": prefilter_drawn_pixels,
+            f"{roi_prefix}.Stage.Downsample.FullPixels.Total": pyramid_full_pixels // 2,
+            f"{roi_prefix}.Stage.Downsample.CandidatePixels.Total": pyramid_candidate_pixels // 2,
+            f"{roi_prefix}.Stage.Downsample.DrawnPixels.Total": pyramid_drawn_pixels // 2,
+            f"{roi_prefix}.Stage.Downsample.ClearedPixels.Total": pyramid_drawn_pixels // 2,
+            f"{roi_prefix}.Stage.Upsample.FullPixels.Total": pyramid_full_pixels // 2,
+            f"{roi_prefix}.Stage.Upsample.CandidatePixels.Total": pyramid_candidate_pixels // 2,
+            f"{roi_prefix}.Stage.Upsample.DrawnPixels.Total": pyramid_drawn_pixels // 2,
+            f"{roi_prefix}.Stage.Upsample.ClearedPixels.Total": pyramid_drawn_pixels // 2,
+            f"{roi_prefix}.Stage.Resolve.FullPixels.Total": resolve_full_pixels,
+            f"{roi_prefix}.Stage.Resolve.CandidatePixels.Total": resolve_candidate_pixels,
+            f"{roi_prefix}.Stage.Resolve.DrawnPixels.Total": resolve_drawn_pixels,
+            f"{roi_prefix}.Stage.Resolve.ClearedPixels.Total": 0,
             reason_field: reason_frames,
             f"{gpu_prefix}.Prefilter.P95": prefilter,
-            f"{gpu_prefix}.Pyramid.P95": 300,
+            f"{gpu_prefix}.Pyramid.P95": pyramid,
             f"{gpu_prefix}.FinalComposite.P95": 200,
             "GPU.BloomAndFinalComposite.P95": bloom_final,
             "Cpu.FrameTotal.P95": 900,
@@ -360,11 +412,14 @@ class ActiveFxRoiAbReporterTests(unittest.TestCase):
             self.assertTrue(report["passed"])
             self.assertEqual(report["paired"]["roiNotSlowerCount"], 10)
             self.assertAlmostEqual(report["roiOn"]["appliedRequestedRatio"], 0.96)
-            self.assertAlmostEqual(report["roiOn"]["drawnFullRatio"], 0.4)
+            self.assertAlmostEqual(
+                report["roiOn"]["prefilterDrawnFullRatio"], 0.4
+            )
+            self.assertAlmostEqual(report["roiOn"]["pyramidDrawnFullRatio"], 0.4)
             markdown = REPORTER.render_markdown(report)
             self.assertIn("Bloom/final p95", markdown)
             self.assertIn("NVIDIA GeForce RTX 4060 Laptop GPU", markdown)
-            self.assertEqual(report["captureSchemaVersion"], 2)
+            self.assertEqual(report["captureSchemaVersion"], 3)
             self.assertEqual(
                 report["environment"]["identity"], fixture.environment_identity
             )
@@ -383,7 +438,7 @@ class ActiveFxRoiAbReporterTests(unittest.TestCase):
 
     def test_manifest_environment_is_strict_and_schema_1_is_rejected(self) -> None:
         mutations = (
-            ("old schema", lambda fixture: fixture.manifest.__setitem__("schemaVersion", 1), "schemaVersion must be 2"),
+            ("old schema", lambda fixture: fixture.manifest.__setitem__("schemaVersion", 2), "schemaVersion must be 3"),
             (
                 "wrong contract",
                 lambda fixture: fixture.manifest["environment"].__setitem__(

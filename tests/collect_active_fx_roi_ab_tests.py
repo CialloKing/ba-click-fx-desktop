@@ -51,7 +51,7 @@ class ActiveFxRoiAbCollectorTests(unittest.TestCase):
 
     def test_encodes_the_fixed_abba_timing_and_identity_contract(self) -> None:
         for token in (
-            "$manifestSchemaVersion = 2",
+            "$manifestSchemaVersion = 3",
             "$configSchemaVersion = 19",
             "$environmentContract = 'rtx-4060-4k170-sdr-v1'",
             "$requiredAdapterNameFragment = 'RTX 4060'",
