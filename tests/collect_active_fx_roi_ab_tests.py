@@ -51,7 +51,14 @@ class ActiveFxRoiAbCollectorTests(unittest.TestCase):
 
     def test_encodes_the_fixed_abba_timing_and_identity_contract(self) -> None:
         for token in (
+            "$manifestSchemaVersion = 2",
             "$configSchemaVersion = 19",
+            "$environmentContract = 'rtx-4060-4k170-sdr-v1'",
+            "$requiredAdapterNameFragment = 'RTX 4060'",
+            "$requiredOutputWidth = 3840",
+            "$requiredOutputHeight = 2160",
+            "$requiredRefreshRateNumerator = 170",
+            "$requiredRefreshRateDenominator = 1",
             "$blockCount = 5",
             "$runCount = 20",
             "$warmupMilliseconds = 5000",
@@ -64,10 +71,27 @@ class ActiveFxRoiAbCollectorTests(unittest.TestCase):
             "differenceContract = 'performance.activeFxRoiEnabled-only'",
             "Get-FileHash -LiteralPath $runExecutable -Algorithm SHA256",
             "Get-FileHash -LiteralPath $runConfig -Algorithm SHA256",
+            "$finalConfigSha256 -ne $initialConfigSha256",
             '"--demo-scenario=$Scenario"',
             "--demo-age-ms=$script:demoAgeMilliseconds",
             "--demo-delay-ms=$script:warmupMilliseconds",
             "--quit-after-ms=$script:hostDurationMilliseconds",
+        ):
+            self.assertIn(token, self.source)
+
+    def test_extracts_and_compares_every_raw_log_environment(self) -> None:
+        for token in (
+            "function Get-OnlyStructuredEvent",
+            "-Name 'SupportReport'",
+            "-Name 'Configuration.Applied'",
+            "function New-EnvironmentIdentity",
+            "Confirm-RequiredEnvironment -Identity $identity -Context $Path",
+            "function Confirm-SameEnvironmentIdentity",
+            "environment = [ordered]@{",
+            "identity = $null",
+            "$manifest.environment.identity = $result.environmentIdentity",
+            "-Expected $manifest.environment.identity",
+            "-Actual $result.environmentIdentity",
         ):
             self.assertIn(token, self.source)
 

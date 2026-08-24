@@ -15,10 +15,27 @@ import sys
 from typing import Any
 
 
-MANIFEST_SCHEMA_VERSION = 1
+MANIFEST_SCHEMA_VERSION = 2
 REPORT_SCHEMA_VERSION = 1
 CAPTURE_KIND = "bafx-active-fx-roi-ab-capture"
 REPORT_KIND = "bafx-active-fx-roi-ab-report"
+ENVIRONMENT_CONTRACT = "rtx-4060-4k170-sdr-v1"
+ENVIRONMENT_IDENTITY_FIELDS = (
+    "productVersion",
+    "driverType",
+    "adapter",
+    "adapterLuid",
+    "driverVersion",
+    "hardwareFallback",
+    "primaryDisplay",
+    "primaryDpi",
+    "refreshRateNumerator",
+    "refreshRateDenominator",
+    "outputWidth",
+    "outputHeight",
+    "hdrEnabled",
+    "outputMapping",
+)
 CONFIG_SCHEMA_VERSION = 19
 BLOCK_COUNT = 5
 RUN_COUNT = 20
@@ -226,6 +243,133 @@ def _event_bool(event: dict[str, str], key: str, context: str) -> bool:
     raise ValidationError(f"{context}: {key} must be true or false")
 
 
+def _event_string(event: dict[str, str], key: str, context: str) -> str:
+    value = event.get(key)
+    if value is None or not value:
+        raise ValidationError(f"{context}: {key} must be a non-empty string")
+    return value
+
+
+def _one_event(
+    events: list[dict[str, str]], name: str, path: Path
+) -> dict[str, str]:
+    matches = [event for event in events if event.get("Event.Name") == name]
+    if len(matches) != 1:
+        raise ValidationError(f"{path}: expected one {name} event, found {len(matches)}")
+    return matches[0]
+
+
+def _validate_environment_identity(value: Any, context: str) -> dict[str, Any]:
+    identity = _dict(value, context)
+    _require_keys(identity, set(ENVIRONMENT_IDENTITY_FIELDS), context)
+    normalized = {
+        "productVersion": _string(identity["productVersion"], f"{context}.productVersion"),
+        "driverType": _string(identity["driverType"], f"{context}.driverType"),
+        "adapter": _string(identity["adapter"], f"{context}.adapter"),
+        "adapterLuid": _string(identity["adapterLuid"], f"{context}.adapterLuid"),
+        "driverVersion": _string(identity["driverVersion"], f"{context}.driverVersion"),
+        "hardwareFallback": _string(
+            identity["hardwareFallback"], f"{context}.hardwareFallback"
+        ),
+        "primaryDisplay": _string(
+            identity["primaryDisplay"], f"{context}.primaryDisplay"
+        ),
+        "primaryDpi": _integer(identity["primaryDpi"], f"{context}.primaryDpi"),
+        "refreshRateNumerator": _integer(
+            identity["refreshRateNumerator"], f"{context}.refreshRateNumerator"
+        ),
+        "refreshRateDenominator": _integer(
+            identity["refreshRateDenominator"], f"{context}.refreshRateDenominator"
+        ),
+        "outputWidth": _integer(identity["outputWidth"], f"{context}.outputWidth"),
+        "outputHeight": _integer(identity["outputHeight"], f"{context}.outputHeight"),
+        "hdrEnabled": _boolean(identity["hdrEnabled"], f"{context}.hdrEnabled"),
+        "outputMapping": _string(
+            identity["outputMapping"], f"{context}.outputMapping"
+        ),
+    }
+    if normalized["driverType"] != "Hardware":
+        raise ValidationError(f"{context}: performance evidence requires hardware D3D11")
+    if "RTX 4060" not in normalized["adapter"].upper():
+        raise ValidationError(f"{context}: adapter must contain RTX 4060")
+    if normalized["hardwareFallback"] != "none":
+        raise ValidationError(f"{context}: hardware fallback invalidates the capture")
+    if (normalized["outputWidth"], normalized["outputHeight"]) != (3840, 2160):
+        raise ValidationError(f"{context}: output must be 3840x2160")
+    if (
+        normalized["refreshRateNumerator"],
+        normalized["refreshRateDenominator"],
+    ) != (170, 1):
+        raise ValidationError(f"{context}: refresh rate must be 170/1 Hz")
+    if normalized["hdrEnabled"]:
+        raise ValidationError(f"{context}: Display.HdrEnabled must be false")
+    if normalized["outputMapping"] != "conservative-sdr":
+        raise ValidationError(
+            f"{context}: Graphics.OutputMapping must be conservative-sdr"
+        )
+    if normalized["primaryDpi"] <= 0:
+        raise ValidationError(f"{context}: primaryDpi must be positive")
+    return normalized
+
+
+def _environment_identity_from_events(
+    events: list[dict[str, str]], path: Path
+) -> dict[str, Any]:
+    support = _one_event(events, "SupportReport", path)
+    configuration = _one_event(events, "Configuration.Applied", path)
+    context = f"{path} environment"
+    return _validate_environment_identity(
+        {
+            "productVersion": _event_string(
+                support, "Product.Version", context
+            ),
+            "driverType": _event_string(
+                support, "Graphics.DriverType", context
+            ),
+            "adapter": _event_string(support, "Graphics.Adapter", context),
+            "adapterLuid": _event_string(
+                support, "Graphics.AdapterLuid", context
+            ),
+            "driverVersion": _event_string(
+                support, "Graphics.DriverVersion", context
+            ),
+            "hardwareFallback": _event_string(
+                support, "Graphics.HardwareFallback", context
+            ),
+            "primaryDisplay": _event_string(
+                support, "Display.Primary", context
+            ),
+            "primaryDpi": _event_int(support, "Display.PrimaryDpi", context),
+            "refreshRateNumerator": _event_int(
+                support, "Display.RefreshRateNumerator", context
+            ),
+            "refreshRateDenominator": _event_int(
+                support, "Display.RefreshRateDenominator", context
+            ),
+            "outputWidth": _event_int(configuration, "Output.Width", context),
+            "outputHeight": _event_int(configuration, "Output.Height", context),
+            "hdrEnabled": _event_bool(
+                configuration, "Display.HdrEnabled", context
+            ),
+            "outputMapping": _event_string(
+                support, "Graphics.OutputMapping", context
+            ),
+        },
+        context,
+    )
+
+
+def _require_same_environment_identity(
+    expected: dict[str, Any], actual: dict[str, Any], context: str
+) -> None:
+    for name in ENVIRONMENT_IDENTITY_FIELDS:
+        if actual[name] != expected[name]:
+            raise ValidationError(
+                f"{context}: environment identity drift at {name}: "
+                f"{actual[name]!r} != {expected[name]!r}"
+            )
+
+
 def _median(values: list[float]) -> float:
     if not values:
         raise ValidationError("cannot calculate a median without samples")
@@ -290,6 +434,18 @@ def _validate_schedule(value: Any) -> None:
         raise ValidationError("manifest.schedule does not match ABBA contract v1")
 
 
+def _validate_environment(value: Any) -> dict[str, Any]:
+    environment = _dict(value, "manifest.environment")
+    _require_keys(environment, {"contract", "identity"}, "manifest.environment")
+    if environment["contract"] != ENVIRONMENT_CONTRACT:
+        raise ValidationError(
+            f"manifest.environment.contract must be {ENVIRONMENT_CONTRACT}"
+        )
+    return _validate_environment_identity(
+        environment["identity"], "manifest.environment.identity"
+    )
+
+
 def _validate_scenario(value: Any) -> tuple[str, str, str, str]:
     scenario = _dict(value, "manifest.scenario")
     _require_keys(
@@ -331,7 +487,7 @@ def _validate_scenario(value: Any) -> tuple[str, str, str, str]:
 
 def _validate_manifest(
     root: Path,
-) -> tuple[dict[str, Any], str, str, str, str]:
+) -> tuple[dict[str, Any], dict[str, Any], str, str, str, str]:
     manifest = _load_json(root / "capture.json")
     _require_keys(
         manifest,
@@ -343,6 +499,7 @@ def _validate_manifest(
             "workingTreeDirty",
             "capturedAtUtc",
             "executable",
+            "environment",
             "configuration",
             "scenario",
             "capabilities",
@@ -351,8 +508,13 @@ def _validate_manifest(
         },
         "manifest",
     )
-    if _integer(manifest["schemaVersion"], "manifest.schemaVersion") != 1:
-        raise ValidationError("manifest.schemaVersion must be 1")
+    if (
+        _integer(manifest["schemaVersion"], "manifest.schemaVersion")
+        != MANIFEST_SCHEMA_VERSION
+    ):
+        raise ValidationError(
+            f"manifest.schemaVersion must be {MANIFEST_SCHEMA_VERSION}"
+        )
     if manifest["kind"] != CAPTURE_KIND:
         raise ValidationError(f"manifest.kind must be {CAPTURE_KIND}")
     if manifest["captureStatus"] != "captured":
@@ -363,12 +525,20 @@ def _validate_manifest(
     if _boolean(manifest["workingTreeDirty"], "manifest.workingTreeDirty"):
         raise ValidationError("official ROI A/B evidence requires a clean tree")
     _string(manifest["capturedAtUtc"], "manifest.capturedAtUtc")
+    environment_identity = _validate_environment(manifest["environment"])
     _validate_capabilities(manifest["capabilities"])
     _validate_schedule(manifest["schedule"])
     scenario_id, measurement_path, expectation, reason = _validate_scenario(
         manifest["scenario"]
     )
-    return manifest, scenario_id, measurement_path, expectation, reason
+    return (
+        manifest,
+        environment_identity,
+        scenario_id,
+        measurement_path,
+        expectation,
+        reason,
+    )
 
 
 def _validate_executable(root: Path, manifest: dict[str, Any]) -> str:
@@ -403,8 +573,9 @@ def _validate_configuration_contract(
     return _canonical_without_roi(base_config, "base configuration"), base_digest
 
 
-def _intervals(path: Path, roi_enabled: bool) -> list[dict[str, str]]:
-    events = _load_events(path)
+def _intervals(
+    events: list[dict[str, str]], path: Path, roi_enabled: bool
+) -> list[dict[str, str]]:
     exited = [event for event in events if event.get("Event.Name") == "Process.Exited"]
     if len(exited) != 1:
         raise ValidationError(f"{path}: expected one Process.Exited event")
@@ -515,6 +686,7 @@ def _validate_run(
     ordinal: int,
     executable_sha256: str,
     normalized_config: str,
+    environment_identity: dict[str, Any],
     scenario_id: str,
     measurement_path: str,
     expected_reason: str,
@@ -604,7 +776,14 @@ def _validate_run(
     ]
     if configured != roi_enabled:
         raise ValidationError(f"run {ordinal}: configuration ROI value mismatch")
-    intervals = _intervals(log_path, roi_enabled)
+    events = _load_events(log_path)
+    actual_environment_identity = _environment_identity_from_events(events, log_path)
+    _require_same_environment_identity(
+        environment_identity,
+        actual_environment_identity,
+        f"run {ordinal}",
+    )
+    intervals = _intervals(events, log_path, roi_enabled)
     return {
         "ordinal": ordinal,
         "block": block,
@@ -849,6 +1028,7 @@ def build_report(root: Path) -> dict[str, Any]:
     root = root.resolve()
     (
         manifest,
+        environment_identity,
         scenario_id,
         measurement_path,
         expectation,
@@ -868,6 +1048,7 @@ def build_report(root: Path) -> dict[str, Any]:
             ordinal,
             executable_sha256,
             normalized_config,
+            environment_identity,
             scenario_id,
             measurement_path,
             expected_reason,
@@ -885,6 +1066,10 @@ def build_report(root: Path) -> dict[str, Any]:
         "revision": manifest["revision"],
         "executableSha256": executable_sha256,
         "baseConfigSha256": base_config_sha256,
+        "environment": {
+            "contract": ENVIRONMENT_CONTRACT,
+            "identity": environment_identity,
+        },
         "scenario": manifest["scenario"],
         "schedule": manifest["schedule"],
         "aggregationSemantic": {
@@ -924,6 +1109,7 @@ def _format_number(value: Any) -> str:
 
 def render_markdown(report: dict[str, Any]) -> str:
     scenario = report["scenario"]
+    identity = report["environment"]["identity"]
     lines = [
         "# Active-FX ROI A/B report",
         "",
@@ -931,6 +1117,11 @@ def render_markdown(report: dict[str, Any]) -> str:
         f"- Scenario: `{scenario['id']}` / `{scenario['expectation']}`",
         f"- Measurement path: `{scenario['measurementPath']}`",
         f"- Revision: `{report['revision']}`",
+        f"- Adapter: `{identity['adapter']}` / driver `{identity['driverVersion']}`",
+        f"- Output: `{identity['outputWidth']}x{identity['outputHeight']}` at "
+        f"`{identity['refreshRateNumerator']}/{identity['refreshRateDenominator']} Hz`, "
+        f"HDR `{'on' if identity['hdrEnabled'] else 'off'}`, "
+        f"mapping `{identity['outputMapping']}`",
         "",
         "## Aggregate",
         "",

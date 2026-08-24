@@ -7,6 +7,7 @@ import hashlib
 import importlib.util
 import json
 from pathlib import Path
+import re
 import tempfile
 import unittest
 
@@ -51,6 +52,23 @@ class CaptureFixture:
         self.measurement_path = measurement_path
         self.executable_bytes = b"same-host-binary-v0.2.6"
         self.overrides: dict[int, dict[str, object]] = {}
+        self.environment_overrides: dict[int, dict[str, object]] = {}
+        self.environment_identity = {
+            "productVersion": "0.2.6",
+            "driverType": "Hardware",
+            "adapter": "NVIDIA GeForce RTX 4060 Laptop GPU",
+            "adapterLuid": "00000000:0037D0F8",
+            "driverVersion": "32.0.16.1088",
+            "hardwareFallback": "none",
+            "primaryDisplay": "3840x2160@0,0",
+            "primaryDpi": 144,
+            "refreshRateNumerator": 170,
+            "refreshRateDenominator": 1,
+            "outputWidth": 3840,
+            "outputHeight": 2160,
+            "hdrEnabled": False,
+            "outputMapping": "conservative-sdr",
+        }
         self.base_config = {
             "schemaVersion": 19,
             "background": {"mode": "recording-compatible"},
@@ -67,7 +85,7 @@ class CaptureFixture:
             json.dumps(self.base_config, indent=2) + "\n", encoding="utf-8"
         )
         self.manifest = {
-            "schemaVersion": 1,
+            "schemaVersion": 2,
             "kind": "bafx-active-fx-roi-ab-capture",
             "captureStatus": "captured",
             "revision": "a" * 40,
@@ -76,6 +94,10 @@ class CaptureFixture:
             "executable": {
                 "fileName": "ba-click-fx-desktop.exe",
                 "sha256": hashlib.sha256(self.executable_bytes).hexdigest(),
+            },
+            "environment": {
+                "contract": "rtx-4060-4k170-sdr-v1",
+                "identity": dict(self.environment_identity),
             },
             "configuration": {
                 "schemaVersion": 19,
@@ -210,13 +232,52 @@ class CaptureFixture:
         fields.update(self.overrides.get(ordinal, {}))
         return fields
 
-    def write_log(self, ordinal: int, roi_enabled: bool, interval_count: int = 4) -> None:
+    def write_log(
+        self,
+        ordinal: int,
+        roi_enabled: bool,
+        interval_count: int = 4,
+        support_count: int = 1,
+        configuration_count: int = 1,
+    ) -> None:
         run = self.manifest["runs"][ordinal - 1]
         path = self.root / run["log"]
         session = f"session-{ordinal}"
+        identity = {
+            **self.environment_identity,
+            **self.environment_overrides.get(ordinal, {}),
+        }
+        support = {
+            "Product.Version": identity["productVersion"],
+            "Graphics.DriverType": identity["driverType"],
+            "Graphics.Adapter": identity["adapter"],
+            "Graphics.AdapterLuid": identity["adapterLuid"],
+            "Graphics.DriverVersion": identity["driverVersion"],
+            "Graphics.HardwareFallback": identity["hardwareFallback"],
+            "Display.Primary": identity["primaryDisplay"],
+            "Display.PrimaryDpi": identity["primaryDpi"],
+            "Display.RefreshRateNumerator": identity["refreshRateNumerator"],
+            "Display.RefreshRateDenominator": identity["refreshRateDenominator"],
+            "Graphics.OutputMapping": identity["outputMapping"],
+        }
+        configuration = {
+            "Output.Width": identity["outputWidth"],
+            "Output.Height": identity["outputHeight"],
+            "Display.HdrEnabled": identity["hdrEnabled"],
+        }
         blocks = [
+            *(
+                _event("SupportReport", session, support)
+                for _ in range(support_count)
+            ),
+            *(
+                _event("Configuration.Applied", session, configuration)
+                for _ in range(configuration_count)
+            ),
+            *(
             _event("Performance.Interval", session, self.interval(ordinal, roi_enabled))
             for _ in range(interval_count)
+            ),
         ]
         blocks.append(_event("Process.Exited", session, {}))
         path.write_text("\n---\n".join(blocks) + "\n---\n", encoding="utf-8")
@@ -285,7 +346,13 @@ class ActiveFxRoiAbReporterTests(unittest.TestCase):
             self.assertEqual(report["paired"]["roiNotSlowerCount"], 10)
             self.assertAlmostEqual(report["roiOn"]["appliedRequestedRatio"], 0.96)
             self.assertAlmostEqual(report["roiOn"]["drawnFullRatio"], 0.4)
-            self.assertIn("Bloom/final p95", REPORTER.render_markdown(report))
+            markdown = REPORTER.render_markdown(report)
+            self.assertIn("Bloom/final p95", markdown)
+            self.assertIn("NVIDIA GeForce RTX 4060 Laptop GPU", markdown)
+            self.assertEqual(report["captureSchemaVersion"], 2)
+            self.assertEqual(
+                report["environment"]["identity"], fixture.environment_identity
+            )
             self.assertNotIn(
                 "no deterministic interior-trail driver",
                 "\n".join(report["limitations"]),
@@ -298,6 +365,105 @@ class ActiveFxRoiAbReporterTests(unittest.TestCase):
                 report = REPORTER.build_report(fixture.root)
                 self.assertTrue(report["passed"])
                 self.assertEqual(report["scenario"]["id"], scenario_id)
+
+    def test_manifest_environment_is_strict_and_schema_1_is_rejected(self) -> None:
+        mutations = (
+            ("old schema", lambda fixture: fixture.manifest.__setitem__("schemaVersion", 1), "schemaVersion must be 2"),
+            (
+                "wrong contract",
+                lambda fixture: fixture.manifest["environment"].__setitem__(
+                    "contract", "other"
+                ),
+                "environment.contract",
+            ),
+            (
+                "missing field",
+                lambda fixture: fixture.manifest["environment"]["identity"].pop(
+                    "driverVersion"
+                ),
+                "fields differ",
+            ),
+            (
+                "unknown field",
+                lambda fixture: fixture.manifest["environment"]["identity"].__setitem__(
+                    "unknown", "value"
+                ),
+                "fields differ",
+            ),
+            (
+                "wrong type",
+                lambda fixture: fixture.manifest["environment"]["identity"].__setitem__(
+                    "outputWidth", "3840"
+                ),
+                "outputWidth must be an integer",
+            ),
+        )
+        for label, mutate, message in mutations:
+            with self.subTest(case=label), tempfile.TemporaryDirectory() as temporary:
+                fixture = CaptureFixture(Path(temporary))
+                mutate(fixture)
+                fixture.write_manifest()
+                with self.assertRaisesRegex(REPORTER.ValidationError, message):
+                    REPORTER.build_report(fixture.root)
+
+    def test_each_run_must_match_the_fixed_hardware_contract(self) -> None:
+        cases = (
+            ("driverType", "WARP", "hardware D3D11"),
+            ("adapter", "NVIDIA GeForce RTX 4050", "adapter must contain"),
+            ("hardwareFallback", "warp-after-failure", "hardware fallback"),
+            ("outputWidth", 2560, "output must be 3840x2160"),
+            ("outputHeight", 1440, "output must be 3840x2160"),
+            ("refreshRateNumerator", 60, "refresh rate must be 170/1"),
+            ("refreshRateDenominator", 1000, "refresh rate must be 170/1"),
+            ("hdrEnabled", True, "HdrEnabled must be false"),
+            ("outputMapping", "scrgb-linear", "OutputMapping must be conservative-sdr"),
+        )
+        for field, value, message in cases:
+            with self.subTest(field=field), tempfile.TemporaryDirectory() as temporary:
+                fixture = CaptureFixture(Path(temporary))
+                fixture.environment_overrides[7] = {field: value}
+                fixture.write_log(7, fixture.manifest["runs"][6]["roiEnabled"])
+                with self.assertRaisesRegex(REPORTER.ValidationError, message):
+                    REPORTER.build_report(fixture.root)
+
+    def test_rejects_cross_run_environment_identity_drift(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = CaptureFixture(Path(temporary))
+            fixture.environment_overrides[20] = {
+                "adapterLuid": "00000000:00ABCDEF"
+            }
+            fixture.write_log(20, fixture.manifest["runs"][19]["roiEnabled"])
+            with self.assertRaisesRegex(REPORTER.ValidationError, "drift at adapterLuid"):
+                REPORTER.build_report(fixture.root)
+
+    def test_rejects_manifest_identity_not_proven_by_logs(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = CaptureFixture(Path(temporary))
+            fixture.manifest["environment"]["identity"]["driverVersion"] = "99.0"
+            fixture.write_manifest()
+            with self.assertRaisesRegex(REPORTER.ValidationError, "drift at driverVersion"):
+                REPORTER.build_report(fixture.root)
+
+    def test_requires_one_support_and_configuration_event_per_run(self) -> None:
+        cases = (
+            ("SupportReport", 0, 1),
+            ("SupportReport", 2, 1),
+            ("Configuration.Applied", 1, 0),
+            ("Configuration.Applied", 1, 2),
+        )
+        for event_name, support_count, configuration_count in cases:
+            with self.subTest(event=event_name, count=(support_count, configuration_count)), tempfile.TemporaryDirectory() as temporary:
+                fixture = CaptureFixture(Path(temporary))
+                fixture.write_log(
+                    1,
+                    False,
+                    support_count=support_count,
+                    configuration_count=configuration_count,
+                )
+                with self.assertRaisesRegex(
+                    REPORTER.ValidationError, f"expected one {re.escape(event_name)} event"
+                ):
+                    REPORTER.build_report(fixture.root)
 
     def test_rejects_scenario_workload_or_command_drift(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -443,7 +609,7 @@ class ActiveFxRoiAbReporterTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             (root / "capture.json").write_text(
-                '{"schemaVersion":1,"schemaVersion":1}\n', encoding="utf-8"
+                '{"schemaVersion":2,"schemaVersion":2}\n', encoding="utf-8"
             )
             with self.assertRaisesRegex(REPORTER.ValidationError, "duplicate field"):
                 REPORTER.build_report(root)

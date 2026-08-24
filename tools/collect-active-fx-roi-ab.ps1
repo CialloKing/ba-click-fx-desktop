@@ -42,8 +42,14 @@ $hostName = 'ba-click-fx-desktop.exe'
 $configName = 'BAFX.config.json'
 $logName = 'ba-click-fx-desktop-support.log'
 $manifestName = 'capture.json'
-$manifestSchemaVersion = 1
+$manifestSchemaVersion = 2
 $configSchemaVersion = 19
+$environmentContract = 'rtx-4060-4k170-sdr-v1'
+$requiredAdapterNameFragment = 'RTX 4060'
+$requiredOutputWidth = 3840
+$requiredOutputHeight = 2160
+$requiredRefreshRateNumerator = 170
+$requiredRefreshRateDenominator = 1
 $blockCount = 5
 $runCount = 20
 $warmupMilliseconds = 5000
@@ -141,6 +147,246 @@ function Get-StructuredEventBlocks
     )
 }
 
+function ConvertFrom-StructuredEventBlock
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Block,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Context
+    )
+
+    $event = [ordered]@{}
+    $lineNumber = 0
+    foreach ($rawLine in ($Block -split "`r?`n"))
+    {
+        ++$lineNumber
+        $line = $rawLine.TrimEnd("`r")
+        if ([string]::IsNullOrWhiteSpace($line))
+        {
+            continue
+        }
+        $separator = $line.IndexOf('=')
+        if ($separator -le 0)
+        {
+            throw "$Context has a malformed field at line $lineNumber"
+        }
+        $name = $line.Substring(0, $separator)
+        if ($event.Contains($name))
+        {
+            throw "$Context contains duplicate field $name"
+        }
+        $event[$name] = $line.Substring($separator + 1)
+    }
+    return $event
+}
+
+function Get-OnlyStructuredEvent
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [object[]]$Blocks,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Name,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Path
+    )
+
+    $matches = @(
+        $Blocks |
+            Where-Object { $_ -match "(?m)^Event.Name=$([regex]::Escape($Name))\r?$" }
+    )
+    if ($matches.Count -ne 1)
+    {
+        throw "$Path must contain exactly one $Name event; found $($matches.Count)"
+    }
+    return ConvertFrom-StructuredEventBlock `
+        -Block $matches[0] `
+        -Context "$Path $Name"
+}
+
+function Get-RequiredEventString
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [Collections.IDictionary]$Event,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Name,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Context
+    )
+
+    if (-not $Event.Contains($Name) -or
+        [string]::IsNullOrEmpty([string]$Event[$Name]))
+    {
+        throw "$Context requires non-empty field $Name"
+    }
+    return [string]$Event[$Name]
+}
+
+function Get-RequiredEventInteger
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [Collections.IDictionary]$Event,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Name,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Context
+    )
+
+    $text = Get-RequiredEventString `
+        -Event $Event `
+        -Name $Name `
+        -Context $Context
+    $value = 0
+    if (-not [int]::TryParse($text, [ref]$value))
+    {
+        throw "$Context field $Name must be an integer"
+    }
+    return $value
+}
+
+function Get-RequiredEventBoolean
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [Collections.IDictionary]$Event,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Name,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Context
+    )
+
+    $text = Get-RequiredEventString `
+        -Event $Event `
+        -Name $Name `
+        -Context $Context
+    if ($text -ceq 'true')
+    {
+        return $true
+    }
+    if ($text -ceq 'false')
+    {
+        return $false
+    }
+    throw "$Context field $Name must be true or false"
+}
+
+function New-EnvironmentIdentity
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [Collections.IDictionary]$Support,
+
+        [Parameter(Mandatory = $true)]
+        [Collections.IDictionary]$Configuration,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Context
+    )
+
+    return [ordered]@{
+        productVersion = Get-RequiredEventString -Event $Support -Name 'Product.Version' -Context $Context
+        driverType = Get-RequiredEventString -Event $Support -Name 'Graphics.DriverType' -Context $Context
+        adapter = Get-RequiredEventString -Event $Support -Name 'Graphics.Adapter' -Context $Context
+        adapterLuid = Get-RequiredEventString -Event $Support -Name 'Graphics.AdapterLuid' -Context $Context
+        driverVersion = Get-RequiredEventString -Event $Support -Name 'Graphics.DriverVersion' -Context $Context
+        hardwareFallback = Get-RequiredEventString -Event $Support -Name 'Graphics.HardwareFallback' -Context $Context
+        primaryDisplay = Get-RequiredEventString -Event $Support -Name 'Display.Primary' -Context $Context
+        primaryDpi = Get-RequiredEventInteger -Event $Support -Name 'Display.PrimaryDpi' -Context $Context
+        refreshRateNumerator = Get-RequiredEventInteger -Event $Support -Name 'Display.RefreshRateNumerator' -Context $Context
+        refreshRateDenominator = Get-RequiredEventInteger -Event $Support -Name 'Display.RefreshRateDenominator' -Context $Context
+        outputWidth = Get-RequiredEventInteger -Event $Configuration -Name 'Output.Width' -Context $Context
+        outputHeight = Get-RequiredEventInteger -Event $Configuration -Name 'Output.Height' -Context $Context
+        hdrEnabled = Get-RequiredEventBoolean -Event $Configuration -Name 'Display.HdrEnabled' -Context $Context
+        outputMapping = Get-RequiredEventString -Event $Support -Name 'Graphics.OutputMapping' -Context $Context
+    }
+}
+
+function Confirm-RequiredEnvironment
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [Collections.IDictionary]$Identity,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Context
+    )
+
+    if ($Identity.driverType -cne 'Hardware')
+    {
+        throw "$Context requires hardware D3D11"
+    }
+    if ($Identity.adapter.IndexOf(
+            $script:requiredAdapterNameFragment,
+            [StringComparison]::OrdinalIgnoreCase) -lt 0)
+    {
+        throw "$Context requires an adapter containing $script:requiredAdapterNameFragment"
+    }
+    if ($Identity.hardwareFallback -cne 'none')
+    {
+        throw "$Context hardware fallback invalidates the capture"
+    }
+    if ($Identity.outputWidth -ne $script:requiredOutputWidth -or
+        $Identity.outputHeight -ne $script:requiredOutputHeight)
+    {
+        throw "$Context requires a 3840x2160 output"
+    }
+    if ($Identity.refreshRateNumerator -ne $script:requiredRefreshRateNumerator -or
+        $Identity.refreshRateDenominator -ne $script:requiredRefreshRateDenominator)
+    {
+        throw "$Context requires refresh rate 170/1 Hz"
+    }
+    if ($Identity.hdrEnabled)
+    {
+        throw "$Context requires SDR with Display.HdrEnabled=false"
+    }
+    if ($Identity.outputMapping -cne 'conservative-sdr')
+    {
+        throw "$Context requires Graphics.OutputMapping=conservative-sdr"
+    }
+}
+
+function Confirm-SameEnvironmentIdentity
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [Collections.IDictionary]$Expected,
+
+        [Parameter(Mandatory = $true)]
+        [Collections.IDictionary]$Actual,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Context
+    )
+
+    if ($Expected.Count -ne $Actual.Count)
+    {
+        throw "$Context environment identity field count changed"
+    }
+    foreach ($name in $Expected.Keys)
+    {
+        if (-not $Actual.Contains($name))
+        {
+            throw "$Context environment identity is missing $name"
+        }
+        if (-not [object]::Equals($Expected[$name], $Actual[$name]))
+        {
+            throw "$Context environment identity drifted at $name"
+        }
+    }
+}
+
 function Wait-ForHostReady
 {
     param(
@@ -223,6 +469,20 @@ function Confirm-RunLogContract
     {
         throw "$Path must contain exactly $expected complete performance intervals; found $($completeIntervals.Count)"
     }
+    $support = Get-OnlyStructuredEvent `
+        -Blocks $blocks `
+        -Name 'SupportReport' `
+        -Path $Path
+    $configuration = Get-OnlyStructuredEvent `
+        -Blocks $blocks `
+        -Name 'Configuration.Applied' `
+        -Path $Path
+    $identity = New-EnvironmentIdentity `
+        -Support $support `
+        -Configuration $configuration `
+        -Context $Path
+    Confirm-RequiredEnvironment -Identity $identity -Context $Path
+    return $identity
 }
 
 function New-RunConfiguration
@@ -304,6 +564,9 @@ function Invoke-AbbaRun
     Write-Utf8Text `
         -Path $runConfig `
         -Text (($configuration | ConvertTo-Json -Depth 20) + "`n")
+    $initialConfigSha256 = (
+        Get-FileHash -LiteralPath $runConfig -Algorithm SHA256
+    ).Hash.ToLowerInvariant()
 
     $arguments = @(
         "--demo-scenario=$Scenario",
@@ -354,7 +617,15 @@ function Invoke-AbbaRun
         $timer.Stop()
     }
 
-    Confirm-RunLogContract -Path $runLog
+    $finalConfigSha256 = (
+        Get-FileHash -LiteralPath $runConfig -Algorithm SHA256
+    ).Hash.ToLowerInvariant()
+    if ($finalConfigSha256 -ne $initialConfigSha256)
+    {
+        # Platform rewrites would make the two A/B arms incomparable.
+        throw "$directoryName configuration changed while Host was running"
+    }
+    $environmentIdentity = Confirm-RunLogContract -Path $runLog
     $copiedExecutableSha256 = (
         Get-FileHash -LiteralPath $runExecutable -Algorithm SHA256
     ).Hash.ToLowerInvariant()
@@ -363,23 +634,24 @@ function Invoke-AbbaRun
         throw "$directoryName executable differs from the source executable"
     }
     return [ordered]@{
-        ordinal = $Ordinal
-        block = $Block
-        position = $Position
-        arm = $Arm
-        roiEnabled = $RoiEnabled
-        directory = $directoryName
-        executable = "$directoryName/$script:hostName"
-        config = "$directoryName/$script:configName"
-        log = "$directoryName/$script:logName"
-        arguments = @($arguments)
-        startedAtUtc = $startedAt.ToString('yyyy-MM-ddTHH:mm:ss.fffZ')
-        elapsedMs = $timer.ElapsedMilliseconds
-        exitCode = $process.ExitCode
-        executableSha256 = $copiedExecutableSha256
-        configSha256 = (
-            Get-FileHash -LiteralPath $runConfig -Algorithm SHA256
-        ).Hash.ToLowerInvariant()
+        environmentIdentity = $environmentIdentity
+        run = [ordered]@{
+            ordinal = $Ordinal
+            block = $Block
+            position = $Position
+            arm = $Arm
+            roiEnabled = $RoiEnabled
+            directory = $directoryName
+            executable = "$directoryName/$script:hostName"
+            config = "$directoryName/$script:configName"
+            log = "$directoryName/$script:logName"
+            arguments = @($arguments)
+            startedAtUtc = $startedAt.ToString('yyyy-MM-ddTHH:mm:ss.fffZ')
+            elapsedMs = $timer.ElapsedMilliseconds
+            exitCode = $process.ExitCode
+            executableSha256 = $copiedExecutableSha256
+            configSha256 = $initialConfigSha256
+        }
     }
 }
 
@@ -513,6 +785,10 @@ $manifest = [ordered]@{
         fileName = $hostName
         sha256 = $executableSha256
     }
+    environment = [ordered]@{
+        contract = $environmentContract
+        identity = $null
+    }
     configuration = [ordered]@{
         schemaVersion = $configSchemaVersion
         baseConfig = 'base-config.json'
@@ -560,7 +836,7 @@ try
         {
             ++$ordinal
             $entry = $pattern[$position - 1]
-            $run = Invoke-AbbaRun `
+            $result = Invoke-AbbaRun `
                 -Ordinal $ordinal `
                 -Block $block `
                 -Position $position `
@@ -574,7 +850,19 @@ try
                 -MeasurementPath $MeasurementPath `
                 -ReadyTimeoutMilliseconds $ReadyTimeoutMilliseconds `
                 -ProcessTimeoutMilliseconds $ProcessTimeoutMilliseconds
-            $manifest.runs += $run
+            if ($null -eq $manifest.environment.identity)
+            {
+                # The first raw log anchors the canonical identity in the manifest.
+                $manifest.environment.identity = $result.environmentIdentity
+            }
+            else
+            {
+                Confirm-SameEnvironmentIdentity `
+                    -Expected $manifest.environment.identity `
+                    -Actual $result.environmentIdentity `
+                    -Context "run $ordinal"
+            }
+            $manifest.runs += $result.run
             Write-CaptureManifest -Path $manifestPath -Manifest $manifest
         }
     }
