@@ -1,11 +1,11 @@
 # ba-click-fx-desktop 0.2.7
 
-0.2.7 是默认关闭的 Active-FX ROI 完整 Bloom 金字塔候选。本版把 0.2.6 只覆盖首级预滤波的局部路径
+0.2.7 是未发布的、默认关闭的 Active-FX ROI 完整 Bloom 金字塔候选。本版把 0.2.6 只覆盖首级预滤波的局部路径
 扩展到 prefilter、全部 downsample/upsample，并在全屏最终合成中加入 resolve 有效区掩码。主配置仍为
 schema 19，`performance.activeFxRoiEnabled=false`；没有新增第二个开关，也不迁移现有配置。
 
-当前源码已完成实现和确定性 WARP 等价矩阵，但 RTX 4060、4K 170 Hz、SDR 的 0.2.7 正式 ABBA 尚未
-执行。因此本文是候选说明，不是已发布公告，也不包含性能通过或硬件支持声明。
+当前源码已完成实现和确定性 WARP 等价矩阵。RTX 4060、4K 170 Hz、SDR 的正式 ABBA 已执行，但整机
+性能门槛失败。因此本文只记录未发布候选及失败证据，不是发布公告，也不包含性能通过或硬件支持声明。
 
 ## 完整 Bloom 金字塔 ROI
 
@@ -70,29 +70,35 @@ ABBA、20 次正式采集，报告为 `FAIL`：Bloom/final p95 恶化 `15.2%`、
 因此阈值没有放宽，0.2.6 没有发布，也没有继续执行发布 CI、打包或上传资产。历史说明继续保留在
 [`RELEASE_NOTES_0.2.6.md`](RELEASE_NOTES_0.2.6.md)，原始证据保留在既有 `artifacts/performance` 目录。
 
-## 0.2.7 发布门
+## 0.2.7 发布门结果
 
 0.2.7 必须重新在 RTX 4060、4K 170 Hz、SDR 上执行同一 EXE、同一场景、仅切换 ROI 开关的 5 组
 ABBA、20 次采集。除既有门槛外，还要求金字塔聚合 drawn/full 像素比例不超过 45%，Pyramid GPU
 p95 至少降低 25%；Bloom/final p95 至少降低 `max(5%, 100 us)`，至少 `8/10` 配对不慢，FPS 降幅不
 超过 1%，CPU/Present/p99 恶化不超过 5%，GPU pending 最大值不超过 1，所有错误计数为零。
 
-门槛通过前不打 tag、不创建 GitHub Release，也不发布性能收益声明。全部通过后才执行 Full/Slim
-workflow、Windows SDK `19041/22621/26100` CI、打包和远端 SHA-256 复核。官方 Release 仍只发布
-Full 版四个资产：
+2026-08-25 已在 `NVIDIA GeForce RTX 4060 Laptop GPU`、`3840x2160`、`170/1 Hz`、SDR、
+`conservative-sdr` 上完成 center-click primary 的 5 个 ABBA 块、20 次正式采集。证据目录为
+`artifacts/performance/active-fx-roi-v027-rtx4060-4k170-sdr-center-click-20260825-r4`，采集 revision
+为 `a7a96cca352b141644e5016d85a5221b9759ff30`，Host EXE SHA-256 为
+`94b0e65aea9678b47b064eb5f343c209aec411b514b0081a82453c3461fec915`，基础配置 SHA-256 为
+`4238b5055ea35ee8288b09b4b64e64fbec7d5affc428acdc00c3ba6c585cff0c`。结果为 **FAIL**：
 
-- `ba-click-fx-desktop-0.2.7-Portable-windows-x64.zip`；
-- `ba-click-fx-desktop-0.2.7-Portable-windows-x64.zip.sha256`；
-- `ba-click-fx-desktop-0.2.7-setup-windows-x64.exe`；
-- `ba-click-fx-desktop-0.2.7-setup-windows-x64.exe.sha256`。
+- `Applied/Requested=100%`，Prefilter 与金字塔绘制比例分别为 `0.9%` 和 `13.4%`，Prefilter 与
+  Pyramid GPU p95 分别降低 `71.1%` 和 `43.9%`；
+- Bloom/final p95 从 `1927.0 us` 降至 `1744.0 us`，降低 `9.5%`；FPS 仅下降 `0.024%`，
+  `9/10` 配对不慢，GPU pending 最大值为 `1`，错误计数为零；
+- CPU frame p95/p99 分别恶化 `18.3%`/`14.6%`，Present p95/p99 分别恶化
+  `17.3%`/`13.7%`，GPU command p99 恶化 `34.2%`，均超过 `5%` 上限。
 
-Slim 只保留源码构建、测试和本地打包验证，不提供预编译 Release 资产。
+因此不放宽阈值、不发布 0.2.7，也不执行 Full/Slim 发布 workflow、三档 SDK 发布 CI、正式资产打包、
+tag 或 GitHub Release。Slim 仍只保留源码构建验证；本次没有生成或上传任何 0.2.7 Release 资产。
 
 ## 明确排除项
 
 0.2.7 不局部化默认 `background-aware` 的 Differential Bloom、最终场景合成、WGC copy、Spout2 格式
 转换、交换链或 Present，也不实现桌面捕获 ROI 或 dirty Present。Differential Bloom ROI 属于 0.2.8，
-必须在 0.2.7 独立交付后另行接入背景代次、白点、输出目标和资源恢复回退合同。
+必须在 0.2.7 独立通过并交付后另行接入背景代次、白点、输出目标和资源恢复回退合同；当前不得启动。
 
 ROI 继续保持实验性和默认关闭。AMD、Intel、HDR、Windows 11、多显示器与跨适配器矩阵在真实执行前
-保持 `Not Run`；即使单台 RTX 4060 后续通过，也不会自动把 ROI 改为默认开启。
+保持 `Not Run`；本次 RTX 4060 失败不会扩大支持范围或改变默认值。

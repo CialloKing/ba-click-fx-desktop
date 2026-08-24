@@ -97,7 +97,8 @@
   recording-rebuild 分别统计，但共享物理资源只维护一份真实写入状态。
 - 默认 `background-aware` primary Differential Bloom、最终场景合成、WGC、Spout2 格式转换、交换链和
   Present 仍保持全屏。工程面板的像素处理比例不是 GPU 节省百分比；该开关存在也不代表端到端性能或
-  硬件矩阵已经通过验收。0.2.7 的 RTX 4060、4K 170 Hz、SDR 正式 ABBA 尚未执行。
+  硬件矩阵已经通过验收。0.2.7 的 RTX 4060、4K 170 Hz、SDR 正式 ABBA 已执行但整机门槛失败，
+  因此该版本未发布，不能据局部 GPU 收益声明端到端性能通过。
 - Host 为每个显示会话维护 5 秒滚动窗，每 500 ms 发布不可变快照；Control Center 只在“显示与性能”
   页可见时每秒轮询，离页停止，样本年龄超过 3 秒标记 stale。IPC 失败只让诊断保持旧值/显示错误，
   不会修改配置或改变 Host 渲染路径。
@@ -250,7 +251,8 @@ Control Center 不具备该入口，因此首次升级到 0.2.5 仍需用户手�
 - HDR、Advanced Color 和物理 nits 输出声明。
 - Active-FX ROI 的 AMD、Intel、HDR、Windows 11、多显示器与跨适配器真实硬件矩阵。当前开关默认关闭，
   完整金字塔 ROI 仍不代表 Differential Bloom、桌面 ROI、捕获 ROI 或 dirty Present 已经受支持。
-  0.2.6 的 RTX 4060 4K 170 Hz SDR A/B 门槛失败且未发布；0.2.7 的新 ABBA 通过并归档前不发布性能收益声明。
+  0.2.6 与 0.2.7 的 RTX 4060 4K 170 Hz SDR A/B 门槛均失败且未发布；后续候选在相同阈值下通过并
+  归档前不发布性能收益声明，也不开始 Differential Bloom ROI。
 - WGC 背景感知的外部录屏兼容性、会话长时间压力与 packaged 权限允许/拒绝矩阵。Control Center 中三种模式和
   “允许黄色捕获边框”仍是实验入口；“显示与性能”页的 HDR 开关、逐屏状态和帧率策略同样只是生产代码入口与
   诊断视图。本版不将 HDR、多显示器、混合 DPI/刷新率、跨适配器、真实 device lost 或 Session-local WGC

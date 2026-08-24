@@ -5,8 +5,8 @@
 用户可感知的输入延迟、渲染成本和视觉差异；2026-08-15 的优先级覆盖进一步暂缓第三阶段
 WGC/ROI 优化，当前直接收敛 WGC/背景感知可靠性。2026-08-16 的最新覆盖把 HDR、多显示器、
 DPI 和 Windows 11 运行时逻辑提前到测试与硬件证据之前；2026-08-24 的覆盖转入 Active-FX ROI
-首级实效化，并以真实 A/B 门槛决定是否发布。2026-08-25 的最新覆盖承接 0.2.6 门禁失败，先把完整
-Bloom 金字塔 ROI 收敛为 0.2.7 候选，再执行同规格实机门禁，不按 Spike 编号扩张采集工具。
+首级实效化，并以真实 A/B 门槛决定是否发布。2026-08-25 的最新覆盖承接 0.2.6 门禁失败，把完整
+Bloom 金字塔 ROI 收敛为 0.2.7 候选并执行同规格实机门禁；整机门槛仍失败，0.2.8 因此前置交付未完成而阻塞。
 
 完成新的 collector、verifier 或证据归档，只计作验证基础设施进展，不能单独计作用户功能更新。
 它们只有在解除当前体验问题或正式发布门槛时才进入主线排期。
@@ -49,7 +49,7 @@ Bloom 金字塔 ROI 收敛为 0.2.7 候选，再执行同规格实机门禁，�
 `15.2%`、FPS 下降 `7.2%`、仅 `6/10` 配对不慢、首级绘制比例 `46.8%`，且两臂均出现非零
 `FramePacing.Timeouts`。因此阈值未放宽，0.2.6 未发布，Full/Slim workflow、SDK CI 和 Release 均停止。
 
-## v0.2.7 完整 Bloom 金字塔 ROI（2026-08-25，候选）
+## v0.2.7 完整 Bloom 金字塔 ROI（2026-08-25，未发布）
 
 本轮继续使用 schema 19 和同一个默认关闭的 `performance.activeFxRoiEnabled`：
 
@@ -66,13 +66,14 @@ Bloom 金字塔 ROI 收敛为 0.2.7 候选，再执行同规格实机门禁，�
 - WARP 等价矩阵已经覆盖点击、拖尾、负 scRGB、HDR 极值、Spout2、resize、空帧重启和 Context1 缺失，
   并要求同适配器 FP16 精确一致。这是确定性正确性证据，不是实机性能结论。
 
-0.2.7 的 RTX 4060、4K 170 Hz、SDR 5 组 ABBA、20 次采集尚未执行。只有既有门槛和新增的金字塔聚合
-drawn/full 比例不超过 45%、Pyramid GPU p95 至少降低 25% 全部通过，才执行 Full/Slim workflow、三档
-SDK CI、打包与 Release。官方仍只发布 Full 四资产，Slim 仅做源码构建验证。
+0.2.7 的 RTX 4060、4K 170 Hz、SDR 5 组 ABBA、20 次采集最终为 `FAIL`。金字塔 drawn/full 比例为
+`13.4%`，Pyramid GPU p95 降低 `43.9%`，Bloom/final p95 降低 `9.5%`，`9/10` 配对不慢；但
+CPU frame、Present 和 GPU command p99 恶化均超过 `5%`。因此阈值未放宽，0.2.7 未发布，
+最新 HEAD 的 Full/Slim 发布 workflow、三档 SDK CI、打包与 Release 均停止。
 
-下一步固定为 0.2.8 默认 `background-aware` Differential Bloom ROI。WGC、交换链 dirty Present 和桌面
-捕获 ROI 仍是相互独立的高风险项目。AMD、Intel、HDR、Windows 11、多显示器和跨适配器的 ROI 矩阵在
-真实执行前保持 `Not Run`。
+下一步先定位并消除 0.2.7 的 CPU/Present/GPU command 尾延迟，再以相同阈值重新执行门禁。只有 0.2.7
+独立通过并交付后，才开始 0.2.8 默认 `background-aware` Differential Bloom ROI。WGC、交换链 dirty
+Present 和桌面捕获 ROI 仍是相互独立的高风险项目；其他真实硬件 ROI 矩阵继续保持 `Not Run`。
 
 ## Host-owned 特效 Profile（2026-08-23）
 
@@ -359,9 +360,10 @@ Bloom 仍是规范参考，不满足任一约束的帧整条回退。
 P1 的执行顺序不再调整：
 
 1. 保留 v0.2.6 `FAIL` 的原始证据和预注册阈值，不发布该版本；
-2. 对 0.2.7 完整金字塔候选执行 RTX 4060、4K 170 Hz、SDR 专用 ABBA；门槛失败时保留证据、停止
-   发布，不放宽 50%/65% 自适应阈值或性能断言，门槛通过后才执行 Full/Slim workflow；
-3. 0.2.7 独立通过并交付后，再以 0.2.8 局部化默认 `background-aware` 的 Differential Bloom；
+2. 0.2.7 完整金字塔候选已执行 RTX 4060、4K 170 Hz、SDR 专用 ABBA；整机门槛失败，证据已保留，
+   发布已停止，50%/65% 自适应阈值和性能断言均未放宽；
+3. 先消除 0.2.7 的 CPU/Present/GPU command 尾延迟并以相同阈值重新验收；只有独立通过并交付后，
+   才以 0.2.8 局部化默认 `background-aware` 的 Differential Bloom；
 4. WGC、桌面捕获 ROI 和交换链 dirty Present 分别评审、分别验收，不从 Bloom ROI 的结果外推。
 
 任何阶段都必须同时比较 GPU 阶段时间、CPU/Present 尾部、查询健康状态和最终 FP16 结果；不能只报告

@@ -36,7 +36,8 @@ pass 计划、Context1/ClearView、资源身份、相位或状态任一无效时
 不允许局部与全屏 pass 混用。primary 与 recording-rebuild 分别记账，但按真实物理资源共享写入状态。
 WARP 已覆盖随机/边角规划、点击、拖尾、移动 dirty rect、奇数尺寸、负 scRGB、HDR 极值、Spout2
 recording target、空帧重启和 Context1/ClearView 缺失，并要求同适配器 FP16 精确一致。RTX 4060 的
-0.2.7 ABBA 和其他硬件矩阵仍属于 Acceptance，故本 ADR 继续保持 Proposed，开关继续默认关闭。
+0.2.7 ABBA 已执行，但 CPU frame、Present 和 GPU command p99 恶化超过门槛；其他硬件矩阵仍未执行。
+因此本 ADR 继续保持 Proposed，开关继续默认关闭。
 
 ## Acceptance
 

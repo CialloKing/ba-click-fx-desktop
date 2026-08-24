@@ -1,6 +1,6 @@
 # 变更记录
 
-## 0.2.7 - 未发布
+## 0.2.7 - 未发布（2026-08-25 性能门禁失败）
 
 ### 优化
 
@@ -27,14 +27,15 @@
 
 - WARP 已覆盖完整金字塔的点击、拖尾、负 scRGB、HDR 极值、Spout2、resize、空帧重启、边界回退和
   Context1 缺失，并以同适配器 FP16 精确一致为门禁；这些确定性结果不替代真实硬件性能证据。
-- 0.2.6 的 RTX 4060、4K 170 Hz、SDR 正式 ABBA 报告为 `FAIL`，因此 0.2.6 未发布。0.2.7 的同规格
-  5 组 ABBA、20 次采集尚未执行；当前不得宣称性能门槛通过，也不得视为已发布。
-- 只有 0.2.7 实机门槛全部通过后才执行 Full/Slim workflow、三档 SDK CI、打包、tag 和 Release。
-  官方 Release 仍只发布 Full 版四个资产；Slim 仅保留源码构建验证。
+- 0.2.7 已在 RTX 4060、4K 170 Hz、SDR 上完成同规格 5 组 ABBA、20 次正式采集。金字塔绘制比例
+  `13.4%`、Pyramid GPU p95 降低 `43.9%`、Bloom/final p95 降低 `9.5%`、`9/10` 配对不慢，
+  但 CPU frame、Present 和 GPU command p99 的恶化均超过 `5%`，最终报告为 `FAIL`。
+- 阈值保持不变；0.2.7 不发布，也不再执行最新 HEAD 的 Full/Slim 发布 workflow、三档 SDK CI、打包、tag 或 Release。
+  0.2.8 Differential Bloom ROI 在 0.2.7 独立通过并交付前继续阻塞。
 
 ### 支持边界
 
-- 默认 `background-aware` 的 Differential Bloom 仍全屏，计划留到 0.2.8。最终场景合成、WGC、
+- 默认 `background-aware` 的 Differential Bloom 仍全屏，并继续留在受 0.2.7 交付门阻塞的 0.2.8。最终场景合成、WGC、
   Spout2 格式转换、交换链与 Present 也继续全屏；0.2.7 不实现桌面捕获 ROI 或 dirty Present。
 - ROI 继续是默认关闭的实验项。AMD、Intel、HDR、Windows 11、多显示器和跨适配器硬件矩阵在真实
   执行前保持 `Not Run`，不能由 WARP 或 RTX 4060 的后续单机结果外推。

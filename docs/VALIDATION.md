@@ -473,13 +473,36 @@ manifest 必须是 schema 3，报告必须是 schema 2；同一 EXE、输入、�
 - 触边、面积回退及无 Spout2 的 `background-aware` 场景 100% 命中预期原因并保持 FP16 exact，性能
   恶化不超过 `max(3%, 100 us)`。
 
-0.2.7 的 RTX 4060、4K 170 Hz、SDR 正式 ABBA 当前为 `Not Run`。门槛通过前不得写入性能收益、发布
-通过或硬件支持声明，也不得执行 tag/Release；若失败，保留原始证据且不得放宽阈值。只有全部实机门槛
-通过后，才执行 Full/Slim workflow、SDK `19041/22621/26100` CI、打包和远端复核。官方 Release 只上传
-Full 版便携 ZIP、ZIP `.sha256`、单文件安装器和安装器 `.sha256` 四个资产；Slim 只保留源码构建验证。
+2026-08-25 的有效正式采集位于
+`artifacts/performance/active-fx-roi-v027-rtx4060-4k170-sdr-center-click-20260825-r4`。manifest 为
+schema 3 且状态为 `captured`，报告为 schema 2；采集开始时间为 `2026-08-24T18:30:42.891Z`
+（Asia/Shanghai 2026-08-25），revision 为 `a7a96cca352b141644e5016d85a5221b9759ff30`。Host EXE
+SHA-256 为 `94b0e65aea9678b47b064eb5f343c209aec411b514b0081a82453c3461fec915`，基础配置 SHA-256 为
+`4238b5055ea35ee8288b09b4b64e64fbec7d5affc428acdc00c3ba6c585cff0c`。
 
-0.2.8 的 Differential Bloom ROI 必须在 0.2.7 独立交付后开始，另行增加背景有效性和捕获代次回退门；
-不得把它混入本节候选或用 0.2.7 的纯特效结果替代。
+采集重新锁定 `NVIDIA GeForce RTX 4060 Laptop GPU`、LUID `00000000:00011C77`、驱动
+`32.0.16.1088`、`3840x2160`、`170/1 Hz`、SDR 和 `conservative-sdr`。manifest 包含 5 个 ABBA 块和
+20 次运行；两臂各聚合 10 次、约 30 秒的三个完整窗口，累计呈现帧数分别为 `51029` 和 `51016`，
+无 `PowerUnavailable`、查询、节流、状态或帧 pacing 错误。此前无后缀、`-r2` 和 `-r3` 目录因显示
+电源不可用而 fail-closed，不参与正式统计，原始证据仍予保留。
+
+正式报告为 `FAIL`。Prefilter/金字塔绘制比例、Prefilter/Pyramid/Bloom-final p95、FPS、配对、pending
+和错误计数门均通过；CPU frame p95/p99、Present p95/p99 与 GPU command p99 恶化门失败。核心结果为：
+金字塔绘制比例 `13.4%`、Pyramid p95 降低 `43.9%`、Bloom/final p95 降低 `9.5%`、不慢配对
+`9/10`、FPS 下降 `0.024%`，但上述尾延迟分别恶化 `18.3%`、`14.6%`、`17.3%`、`13.7%` 和
+`34.2%`。
+
+证据索引 SHA-256：
+
+- `capture.json`: `69c5b6f3ddea8dc2a023e43b3ee17e25e6cb2467307e8e0f8e257104dc64e845`
+- `report.json`: `7cf3c649ab995cfb32b84ab426bd821080a04fd7e5523c4e7d1991541011a844`
+- `report.md`: `6fb54b8676a756643d02865f5ad4ca331d72a6ebb4fbe617059a63a364633780`
+
+因此阈值不放宽，0.2.7 不发布，也不执行 Full/Slim 发布 workflow、SDK `19041/22621/26100` 发布 CI、
+正式打包、tag 或远端复核。官方 Release 的 Full 四资产策略保持不变，Slim 仍只保留源码构建验证。
+
+0.2.8 的 Differential Bloom ROI 必须在 0.2.7 独立通过并交付后开始，另行增加背景有效性和捕获代次
+回退门；当前保持阻塞，不得用 0.2.7 的局部 GPU 收益替代整机失败结果。
 
 ## 6. 需求追踪
 
