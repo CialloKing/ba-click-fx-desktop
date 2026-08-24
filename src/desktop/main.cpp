@@ -58,6 +58,7 @@ constexpr auto framePacingDeviceProbePeriod = std::chrono::milliseconds(250);
 constexpr auto displayTopologyPollPeriod = std::chrono::seconds(1);
 constexpr DWORD activeControlPollMilliseconds = 50U;
 constexpr auto spout2HeartbeatPeriod = std::chrono::milliseconds(250);
+constexpr auto activeFxRoiPublicationPeriod = std::chrono::milliseconds(500);
 constexpr DWORD pausedControlPollMilliseconds = 50U;
 
 [[nodiscard]] std::string formatHresult(const HRESULT result)
@@ -1909,6 +1910,89 @@ void appendDisplayTopologyInvalidated(
     return sample;
 }
 
+[[nodiscard]] bafx::desktop::ActiveFxRoiActualPath activeFxRoiActualPath(
+    const bafx::windows::FxActiveRoiActualPath path) noexcept
+{
+    switch (path)
+    {
+    case bafx::windows::FxActiveRoiActualPath::Disabled:
+        return bafx::desktop::ActiveFxRoiActualPath::Disabled;
+    case bafx::windows::FxActiveRoiActualPath::Idle:
+        return bafx::desktop::ActiveFxRoiActualPath::Idle;
+    case bafx::windows::FxActiveRoiActualPath::FullScreen:
+        return bafx::desktop::ActiveFxRoiActualPath::FullScreen;
+    case bafx::windows::FxActiveRoiActualPath::RoiWarmup:
+        return bafx::desktop::ActiveFxRoiActualPath::RoiWarmup;
+    case bafx::windows::FxActiveRoiActualPath::RoiPrefilter:
+        return bafx::desktop::ActiveFxRoiActualPath::RoiPrefilter;
+    case bafx::windows::FxActiveRoiActualPath::Unavailable:
+        return bafx::desktop::ActiveFxRoiActualPath::Unavailable;
+    }
+    return bafx::desktop::ActiveFxRoiActualPath::Unavailable;
+}
+
+[[nodiscard]] bafx::desktop::ActiveFxRoiDecisionReason
+activeFxRoiDecisionReason(
+    const bafx::windows::FxActiveRoiDecisionReason reason) noexcept
+{
+    switch (reason)
+    {
+    case bafx::windows::FxActiveRoiDecisionReason::Disabled:
+        return bafx::desktop::ActiveFxRoiDecisionReason::Disabled;
+    case bafx::windows::FxActiveRoiDecisionReason::NoContent:
+        return bafx::desktop::ActiveFxRoiDecisionReason::NoContent;
+    case bafx::windows::FxActiveRoiDecisionReason::
+        BackgroundDifferentialBloom:
+        return bafx::desktop::ActiveFxRoiDecisionReason::
+            BackgroundDifferentialBloom;
+    case bafx::windows::FxActiveRoiDecisionReason::Context1Unavailable:
+        return bafx::desktop::ActiveFxRoiDecisionReason::Context1Unavailable;
+    case bafx::windows::FxActiveRoiDecisionReason::SharedTargetFullWrite:
+        return bafx::desktop::ActiveFxRoiDecisionReason::SharedTargetFullWrite;
+    case bafx::windows::FxActiveRoiDecisionReason::AreaTooLarge:
+        return bafx::desktop::ActiveFxRoiDecisionReason::AreaTooLarge;
+    case bafx::windows::FxActiveRoiDecisionReason::BenefitTooSmall:
+        return bafx::desktop::ActiveFxRoiDecisionReason::BenefitTooSmall;
+    case bafx::windows::FxActiveRoiDecisionReason::Applied:
+        return bafx::desktop::ActiveFxRoiDecisionReason::Applied;
+    case bafx::windows::FxActiveRoiDecisionReason::RendererFallback:
+        return bafx::desktop::ActiveFxRoiDecisionReason::RendererFallback;
+    }
+    return bafx::desktop::ActiveFxRoiDecisionReason::RendererFallback;
+}
+
+[[nodiscard]] bafx::desktop::ActiveFxRoiPathPerformanceSample
+activeFxRoiPathPerformanceSample(
+    const bafx::windows::FxActiveRoiPassDiagnostics& diagnostics) noexcept
+{
+    return bafx::desktop::ActiveFxRoiPathPerformanceSample{
+        true,
+        bafx::desktop::ActiveFxRoiPassDiagnostics{
+            diagnostics.requested,
+            diagnostics.eligible,
+            diagnostics.executed,
+            diagnostics.warmup,
+            activeFxRoiActualPath(diagnostics.actualPath),
+            activeFxRoiDecisionReason(diagnostics.decisionReason),
+            diagnostics.fullPixels,
+            diagnostics.drawnPixels,
+            diagnostics.clearedPixels}};
+}
+
+[[nodiscard]] bafx::desktop::GpuFxPathPerformanceSample
+gpuFxPathPerformanceSample(
+    const bafx::windows::GpuTimestampFxPathSample& timings,
+    const bafx::windows::GpuTimestampFxPathUsage& usage) noexcept
+{
+    return bafx::desktop::GpuFxPathPerformanceSample{
+        durationMicroseconds(timings.prefilter),
+        durationMicroseconds(timings.pyramid),
+        durationMicroseconds(timings.finalComposite),
+        usage.prefilterExecuted,
+        usage.pyramidExecuted,
+        usage.finalCompositeExecuted};
+}
+
 [[nodiscard]] bafx::desktop::FramePerformanceSample framePerformanceSample(
     const bafx::windows::CompositionFrameDiagnostics& frame,
     const std::uint64_t wgcProducerCallbacks,
@@ -1954,6 +2038,9 @@ void appendDisplayTopologyInvalidated(
     sample.roiApplied = frame.roi.prefilterApplied;
     sample.roiPrefilterPixels = frame.roi.prefilterPixels;
     sample.roiActiveStatus = frame.roi.activeStatus;
+    sample.roiPrimary = activeFxRoiPathPerformanceSample(frame.roi.primary);
+    sample.roiRecordingRebuild = activeFxRoiPathPerformanceSample(
+        frame.roi.recordingRebuild);
     sample.backgroundSnapshotRefreshAttempted =
         frame.backgroundSnapshotRefreshAttempted;
     sample.backgroundSnapshotRefreshed = frame.backgroundSnapshotRefreshed;
@@ -1968,29 +2055,62 @@ void appendDisplayTopologyInvalidated(
         frame.gpuTimestampInitializationResult);
     sample.gpuTimestampPendingFrames = static_cast<std::uint32_t>(
         frame.gpuTimestampPendingFrames);
-    sample.gpuFrameStarted = frame.gpuTimestampBegin
-        == bafx::windows::GpuTimestampBeginStatus::Started;
-    sample.gpuFrameSubmitted = frame.gpuTimestampEnd
-        == bafx::windows::GpuTimestampEndStatus::Submitted;
-    sample.gpuPollPending = frame.gpuTimestampPoll.status
-        == bafx::windows::GpuTimestampPollStatus::Pending;
-    sample.gpuRingFullSkipped = frame.gpuTimestampBegin
-        == bafx::windows::GpuTimestampBeginStatus::RingFullSkipped;
-    sample.gpuCancelledSlotReclaimed = frame.gpuTimestampPoll.status
-        == bafx::windows::GpuTimestampPollStatus::Cancelled;
-    sample.gpuDisjointSample = frame.gpuTimestampPoll.status
-        == bafx::windows::GpuTimestampPollStatus::Disjoint;
-    sample.gpuQueryFailure = frame.gpuTimestampPoll.status
-        == bafx::windows::GpuTimestampPollStatus::QueryFailure;
-    sample.gpuStateError = frame.gpuTimestampCheckpointFailure
-        || frame.gpuTimestampBegin
-            == bafx::windows::GpuTimestampBeginStatus::AlreadyActive
-        || frame.gpuTimestampEnd
-            == bafx::windows::GpuTimestampEndStatus::IncompleteCancelled
-        || frame.gpuTimestampPoll.status
-            == bafx::windows::GpuTimestampPollStatus::ActiveFrame
-        || frame.gpuTimestampPoll.status
-            == bafx::windows::GpuTimestampPollStatus::AlreadyPolled;
+    sample.gpuStateError = frame.gpuTimestampCheckpointFailure;
+    switch (frame.gpuTimestampBegin)
+    {
+    case bafx::windows::GpuTimestampBeginStatus::Started:
+        sample.gpuFrameStarted = true;
+        break;
+    case bafx::windows::GpuTimestampBeginStatus::Unavailable:
+        break;
+    case bafx::windows::GpuTimestampBeginStatus::AlreadyActive:
+        sample.gpuStateError = true;
+        break;
+    case bafx::windows::GpuTimestampBeginStatus::RingFullSkipped:
+        sample.gpuRingFullSkipped = true;
+        break;
+    }
+    switch (frame.gpuTimestampEnd)
+    {
+    case bafx::windows::GpuTimestampEndStatus::Submitted:
+        sample.gpuFrameSubmitted = true;
+        break;
+    case bafx::windows::GpuTimestampEndStatus::SubmittedWithAutoSkippedStages:
+        // An auto-skipped tail remains a submitted sample, but it also means
+        // the renderer failed to emit the complete v0.2.6 stage contract.
+        sample.gpuFrameSubmitted = true;
+        sample.gpuAutoSkippedStages = true;
+        sample.gpuStateError = true;
+        break;
+    case bafx::windows::GpuTimestampEndStatus::NoActiveFrame:
+        break;
+    case bafx::windows::GpuTimestampEndStatus::IncompleteCancelled:
+        sample.gpuStateError = true;
+        break;
+    }
+    switch (frame.gpuTimestampPoll.status)
+    {
+    case bafx::windows::GpuTimestampPollStatus::NoPendingFrame:
+    case bafx::windows::GpuTimestampPollStatus::Completed:
+    case bafx::windows::GpuTimestampPollStatus::Unavailable:
+        break;
+    case bafx::windows::GpuTimestampPollStatus::Pending:
+        sample.gpuPollPending = true;
+        break;
+    case bafx::windows::GpuTimestampPollStatus::Cancelled:
+        sample.gpuCancelledSlotReclaimed = true;
+        break;
+    case bafx::windows::GpuTimestampPollStatus::Disjoint:
+        sample.gpuDisjointSample = true;
+        break;
+    case bafx::windows::GpuTimestampPollStatus::QueryFailure:
+        sample.gpuQueryFailure = true;
+        break;
+    case bafx::windows::GpuTimestampPollStatus::ActiveFrame:
+    case bafx::windows::GpuTimestampPollStatus::AlreadyPolled:
+        sample.gpuStateError = true;
+        break;
+    }
 
     if (frame.gpuTimestampPoll.sample.has_value())
     {
@@ -2012,6 +2132,12 @@ void appendDisplayTopologyInvalidated(
         sample.gpuBackgroundSnapshotTimingValid =
             gpu.usage.backgroundSnapshotAttempted;
         sample.gpuFxTimingValid = gpu.usage.visualContent;
+        sample.gpuPrimary = gpuFxPathPerformanceSample(
+            gpu.primary,
+            gpu.usage.primary);
+        sample.gpuRecordingRebuild = gpuFxPathPerformanceSample(
+            gpu.recordingRebuild,
+            gpu.usage.recordingRebuild);
     }
     return sample;
 }
@@ -2642,10 +2768,15 @@ SecondaryRenderSummary renderSecondarySessions(
         applyVisualConfig(snapshot, config);
         try
         {
-            static_cast<void>(sessionRenderer.renderFrame(
+            const bafx::windows::CompositionFrameDiagnostics diagnostics =
+                sessionRenderer.renderFrame(
                 snapshot,
                 wallTime,
-                requireCurrentBackground));
+                requireCurrentBackground);
+            session.recordActiveFxRoiFrame(
+                framePerformanceSample(diagnostics, 0U, false),
+                diagnostics.frameId,
+                wallTime);
             session.recordPresentedFrame(
                 snapshot.hasDrawableContent(),
                 wallTime);
@@ -3023,6 +3154,7 @@ int runApplication(
     }
     const auto updateDisplayRuntimeSummary = [&]()
     {
+        const bafx::core::MonotonicTime runtimeObservedAt = clock.now();
         const auto& capabilities = displaySession.colorCapabilities();
         const bool colorSnapshotComplete = capabilities.has_value()
             && bafx::windows::displayColorStateComplete(*capabilities);
@@ -3140,6 +3272,8 @@ int runApplication(
             summary.renderFaulted = ownedSession->renderFaulted();
             summary.outputContractFaulted =
                 ownedSession->outputContractFaulted();
+            summary.activeFxRoi =
+                ownedSession->activeFxRoiRuntimeSummary(runtimeObservedAt);
             sessionSummaries.push_back(std::move(summary));
         }
         std::sort(
@@ -3364,6 +3498,8 @@ int runApplication(
     const bafx::fx::SimulationTime applicationStartedAt = clock.now();
     bafx::fx::SimulationTime nextDisplayTopologyPollAt =
         applicationStartedAt + displayTopologyPollPeriod;
+    bafx::fx::SimulationTime nextActiveFxRoiPublicationAt =
+        applicationStartedAt + activeFxRoiPublicationPeriod;
     const auto runtimeDeadlineReached =
         [&](const bafx::fx::SimulationTime now)
     {
@@ -4442,6 +4578,14 @@ int runApplication(
         if (runtimeDeadlineReached(loopObservedAt))
         {
             break;
+        }
+        if (loopObservedAt >= nextActiveFxRoiPublicationAt)
+        {
+            updateDisplayRuntimeSummary();
+            // Publish one current immutable snapshot; never replay missed
+            // intervals after a stalled GPU, display or permission prompt.
+            nextActiveFxRoiPublicationAt =
+                loopObservedAt + activeFxRoiPublicationPeriod;
         }
 
         bool captureTopologyRefreshRequested = false;
@@ -6856,10 +7000,16 @@ int runApplication(
                     completedFrameDiagnostics.wgcActive,
                     completedFrameDiagnostics.wgc.epoch,
                     completedFrameDiagnostics.wgc.frameArrivedCallbacksTotal);
-            performanceWindow.addFrame(framePerformanceSample(
+            const bafx::desktop::FramePerformanceSample performanceSample =
+                framePerformanceSample(
                 completedFrameDiagnostics,
                 producerCallbacks,
-                options.smokeTest));
+                options.smokeTest);
+            displaySession.recordActiveFxRoiFrame(
+                performanceSample,
+                completedFrameDiagnostics.frameId,
+                wallTime);
+            performanceWindow.addFrame(performanceSample);
             for (const PointerLatencyOrigin& origin :
                  pointerConsumption.acceptedDowns)
             {

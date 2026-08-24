@@ -1,8 +1,13 @@
 #include "display_session.hpp"
 #include "background_capture_runtime.hpp"
 #include "display_output_retarget.hpp"
+#include "performance_window.hpp"
 
+#include "bafx/windows/runtime_diagnostics.hpp"
+
+#include <algorithm>
 #include <chrono>
+#include <deque>
 #include <limits>
 #include <stdexcept>
 #include <utility>
@@ -47,11 +52,33 @@ struct DisplaySessionBackgroundCaptureState final
     bool powerRecoveryPending{false};
 };
 
+struct DisplaySessionRoiTelemetryEntry final
+{
+    bafx::core::MonotonicTime observedAt{};
+    std::uint64_t frameId{0U};
+    FramePerformanceSample sample{};
+};
+
+struct DisplaySessionRoiTelemetry final
+{
+    void add(
+        const FramePerformanceSample& sample,
+        std::uint64_t frameId,
+        bafx::core::MonotonicTime observedAt) noexcept;
+    [[nodiscard]] bafx::windows::ActiveFxRoiRuntimeSummary summarize(
+        bool enabled,
+        bafx::core::MonotonicTime observedAt) const;
+
+    std::deque<DisplaySessionRoiTelemetryEntry> entries{};
+};
+
 namespace
 {
 
 constexpr std::uint32_t maximumColorRefreshRetries = 3U;
 constexpr auto outputRenegotiationRetryDelay = std::chrono::seconds(1);
+constexpr auto activeFxRoiSampleWindow = std::chrono::seconds(5);
+constexpr std::uint32_t activeFxRoiSampleWindowMilliseconds = 5'000U;
 
 [[nodiscard]] std::optional<bafx::windows::DisplayColorCapabilities>
 completeColorSnapshot(
@@ -149,6 +176,272 @@ void appendSecondaryBackgroundOutcome(
     state.outcomePending = false;
 }
 
+void saturatingAdd(
+    std::uint64_t& destination,
+    const std::uint64_t value) noexcept
+{
+    destination = value > (std::numeric_limits<std::uint64_t>::max)()
+            - destination
+        ? (std::numeric_limits<std::uint64_t>::max)()
+        : destination + value;
+}
+
+[[nodiscard]] bafx::windows::ActiveFxRoiRuntimePath runtimePath(
+    const ActiveFxRoiActualPath path) noexcept
+{
+    switch (path)
+    {
+    case ActiveFxRoiActualPath::Disabled:
+        return bafx::windows::ActiveFxRoiRuntimePath::Disabled;
+    case ActiveFxRoiActualPath::Idle:
+        return bafx::windows::ActiveFxRoiRuntimePath::Idle;
+    case ActiveFxRoiActualPath::FullScreen:
+        return bafx::windows::ActiveFxRoiRuntimePath::FullScreen;
+    case ActiveFxRoiActualPath::RoiWarmup:
+        return bafx::windows::ActiveFxRoiRuntimePath::RoiWarmup;
+    case ActiveFxRoiActualPath::RoiPrefilter:
+        return bafx::windows::ActiveFxRoiRuntimePath::RoiPrefilter;
+    case ActiveFxRoiActualPath::Unavailable:
+        return bafx::windows::ActiveFxRoiRuntimePath::Unavailable;
+    }
+    return bafx::windows::ActiveFxRoiRuntimePath::Unavailable;
+}
+
+[[nodiscard]] bafx::windows::ActiveFxRoiRuntimeReason runtimeReason(
+    const ActiveFxRoiDecisionReason reason) noexcept
+{
+    switch (reason)
+    {
+    case ActiveFxRoiDecisionReason::Disabled:
+        return bafx::windows::ActiveFxRoiRuntimeReason::Disabled;
+    case ActiveFxRoiDecisionReason::NoContent:
+        return bafx::windows::ActiveFxRoiRuntimeReason::NoContent;
+    case ActiveFxRoiDecisionReason::BackgroundDifferentialBloom:
+        return bafx::windows::ActiveFxRoiRuntimeReason::
+            BackgroundDifferentialBloom;
+    case ActiveFxRoiDecisionReason::Context1Unavailable:
+        return bafx::windows::ActiveFxRoiRuntimeReason::Context1Unavailable;
+    case ActiveFxRoiDecisionReason::SharedTargetFullWrite:
+        return bafx::windows::ActiveFxRoiRuntimeReason::SharedTargetFullWrite;
+    case ActiveFxRoiDecisionReason::AreaTooLarge:
+        return bafx::windows::ActiveFxRoiRuntimeReason::AreaTooLarge;
+    case ActiveFxRoiDecisionReason::BenefitTooSmall:
+        return bafx::windows::ActiveFxRoiRuntimeReason::BenefitTooSmall;
+    case ActiveFxRoiDecisionReason::Applied:
+        return bafx::windows::ActiveFxRoiRuntimeReason::Applied;
+    case ActiveFxRoiDecisionReason::RendererFallback:
+        return bafx::windows::ActiveFxRoiRuntimeReason::RendererFallback;
+    }
+    return bafx::windows::ActiveFxRoiRuntimeReason::Unavailable;
+}
+
+[[nodiscard]] bafx::windows::ActiveFxRoiRuntimeReason runtimeReason(
+    const bafx::core::ActiveFxRoiStatus status) noexcept
+{
+    switch (status)
+    {
+    case bafx::core::ActiveFxRoiStatus::Disabled:
+        return bafx::windows::ActiveFxRoiRuntimeReason::Disabled;
+    case bafx::core::ActiveFxRoiStatus::AppliedPrefilter:
+        return bafx::windows::ActiveFxRoiRuntimeReason::Applied;
+    case bafx::core::ActiveFxRoiStatus::NoVisualPlan:
+        return bafx::windows::ActiveFxRoiRuntimeReason::NoContent;
+    case bafx::core::ActiveFxRoiStatus::BloomDisabled:
+        return bafx::windows::ActiveFxRoiRuntimeReason::BloomDisabled;
+    case bafx::core::ActiveFxRoiStatus::CoreMode:
+        return bafx::windows::ActiveFxRoiRuntimeReason::CoreMode;
+    case bafx::core::ActiveFxRoiStatus::BackgroundDifferentialBloom:
+        return bafx::windows::ActiveFxRoiRuntimeReason::
+            BackgroundDifferentialBloom;
+    case bafx::core::ActiveFxRoiStatus::TouchesBoundary:
+        return bafx::windows::ActiveFxRoiRuntimeReason::TouchesBoundary;
+    case bafx::core::ActiveFxRoiStatus::AreaTooLarge:
+        return bafx::windows::ActiveFxRoiRuntimeReason::AreaTooLarge;
+    case bafx::core::ActiveFxRoiStatus::BenefitTooSmall:
+        return bafx::windows::ActiveFxRoiRuntimeReason::BenefitTooSmall;
+    case bafx::core::ActiveFxRoiStatus::Context1Unavailable:
+        return bafx::windows::ActiveFxRoiRuntimeReason::Context1Unavailable;
+    case bafx::core::ActiveFxRoiStatus::SharedTargetFullWrite:
+        return bafx::windows::ActiveFxRoiRuntimeReason::SharedTargetFullWrite;
+    case bafx::core::ActiveFxRoiStatus::RendererFallback:
+        return bafx::windows::ActiveFxRoiRuntimeReason::RendererFallback;
+    }
+    return bafx::windows::ActiveFxRoiRuntimeReason::Unavailable;
+}
+
+[[nodiscard]] bool normalizedRequested(
+    const FramePerformanceSample& sample,
+    const ActiveFxRoiPassDiagnostics& pass,
+    const bool primary) noexcept
+{
+    return pass.requested
+        || (sample.roiRequested && (primary || pass.executed));
+}
+
+[[nodiscard]] bafx::windows::ActiveFxRoiRuntimeReason normalizedReason(
+    const FramePerformanceSample& sample,
+    const ActiveFxRoiPassDiagnostics& pass,
+    const bool primary) noexcept
+{
+    const bool relevant = primary || pass.requested || pass.executed;
+    if (relevant
+        && sample.roiRequested
+        && pass.decisionReason == ActiveFxRoiDecisionReason::Disabled)
+    {
+        // Bloom/Core/boundary gates execute before the GPU path exists. Use
+        // the composition decision so a full-screen fallback is not mislabeled
+        // as a disabled user request.
+        return runtimeReason(sample.roiActiveStatus);
+    }
+    return runtimeReason(pass.decisionReason);
+}
+
+[[nodiscard]] bafx::windows::ActiveFxRoiRuntimePath normalizedPath(
+    const FramePerformanceSample& sample,
+    const ActiveFxRoiPassDiagnostics& pass,
+    const bool primary) noexcept
+{
+    if (!primary
+        || !sample.roiRequested
+        || pass.actualPath != ActiveFxRoiActualPath::Disabled)
+    {
+        return runtimePath(pass.actualPath);
+    }
+    switch (sample.roiActiveStatus)
+    {
+    case bafx::core::ActiveFxRoiStatus::NoVisualPlan:
+        return bafx::windows::ActiveFxRoiRuntimePath::Idle;
+    case bafx::core::ActiveFxRoiStatus::Context1Unavailable:
+        return bafx::windows::ActiveFxRoiRuntimePath::Unavailable;
+    case bafx::core::ActiveFxRoiStatus::BloomDisabled:
+    case bafx::core::ActiveFxRoiStatus::CoreMode:
+    case bafx::core::ActiveFxRoiStatus::BackgroundDifferentialBloom:
+    case bafx::core::ActiveFxRoiStatus::TouchesBoundary:
+    case bafx::core::ActiveFxRoiStatus::AreaTooLarge:
+    case bafx::core::ActiveFxRoiStatus::BenefitTooSmall:
+    case bafx::core::ActiveFxRoiStatus::RendererFallback:
+        return bafx::windows::ActiveFxRoiRuntimePath::FullScreen;
+    case bafx::core::ActiveFxRoiStatus::Disabled:
+        return bafx::windows::ActiveFxRoiRuntimePath::Disabled;
+    case bafx::core::ActiveFxRoiStatus::AppliedPrefilter:
+    case bafx::core::ActiveFxRoiStatus::SharedTargetFullWrite:
+        return runtimePath(pass.actualPath);
+    }
+    return bafx::windows::ActiveFxRoiRuntimePath::Unavailable;
+}
+
+[[nodiscard]] RECT runtimeRect(const bafx::core::RectI rect) noexcept
+{
+    return RECT{rect.left, rect.top, rect.right, rect.bottom};
+}
+
+void populateLatestPath(
+    bafx::windows::ActiveFxRoiPathRuntimeSummary& destination,
+    const FramePerformanceSample& sample,
+    const ActiveFxRoiPassDiagnostics& pass,
+    const bool primary) noexcept
+{
+    destination.requested = normalizedRequested(sample, pass, primary);
+    destination.executed = pass.executed;
+    destination.eligible = pass.eligible;
+    destination.warmup = pass.warmup;
+    destination.actualPath = normalizedPath(sample, pass, primary);
+    destination.decisionReason = normalizedReason(sample, pass, primary);
+    destination.guardX = sample.roiPlanAvailable ? sample.roiGuardX : 0U;
+    destination.guardY = sample.roiPlanAvailable ? sample.roiGuardY : 0U;
+    destination.phase = sample.roiPlanAvailable ? sample.roiPhasePeriod : 0U;
+    if (sample.roiDirtyRectAvailable)
+    {
+        destination.dirtyRect = runtimeRect(sample.roiDirtyRect);
+    }
+    if (sample.roiPlanAvailable)
+    {
+        destination.alignedRect = runtimeRect(sample.roiAlignedWork);
+    }
+}
+
+void accumulatePath(
+    bafx::windows::ActiveFxRoiPathRuntimeSummary& destination,
+    const FramePerformanceSample& sample,
+    const ActiveFxRoiPassDiagnostics& pass,
+    const bool primary) noexcept
+{
+    saturatingAdd(destination.observedFrames, 1U);
+    saturatingAdd(
+        destination.requestedFrames,
+        normalizedRequested(sample, pass, primary) ? 1U : 0U);
+    saturatingAdd(destination.eligibleFrames, pass.eligible ? 1U : 0U);
+    const bool applied = pass.executed
+        && (pass.actualPath == ActiveFxRoiActualPath::RoiWarmup
+            || pass.actualPath == ActiveFxRoiActualPath::RoiPrefilter);
+    saturatingAdd(destination.appliedFrames, applied ? 1U : 0U);
+    saturatingAdd(destination.warmupFrames, pass.warmup ? 1U : 0U);
+    saturatingAdd(destination.fullPixels, pass.fullPixels);
+    saturatingAdd(destination.drawnPixels, pass.drawnPixels);
+    saturatingAdd(destination.clearedPixels, pass.clearedPixels);
+    const bafx::windows::ActiveFxRoiRuntimeReason reason =
+        normalizedReason(sample, pass, primary);
+    const std::size_t reasonIndex = static_cast<std::size_t>(reason);
+    if (reasonIndex < destination.reasonCounts.size())
+    {
+        saturatingAdd(destination.reasonCounts[reasonIndex], 1U);
+    }
+}
+
+struct ActiveFxRoiGpuMetrics final
+{
+    explicit ActiveFxRoiGpuMetrics(const std::size_t capacity)
+        : prefilter(capacity),
+          pyramid(capacity),
+          finalComposite(capacity)
+    {
+    }
+
+    BoundedMetric prefilter;
+    BoundedMetric pyramid;
+    BoundedMetric finalComposite;
+};
+
+void accumulateGpu(
+    ActiveFxRoiGpuMetrics& destination,
+    const GpuFxPathPerformanceSample& sample) noexcept
+{
+    if (sample.prefilterTimingValid)
+    {
+        destination.prefilter.add(sample.prefilterMicroseconds);
+    }
+    if (sample.pyramidTimingValid)
+    {
+        destination.pyramid.add(sample.pyramidMicroseconds);
+    }
+    if (sample.finalCompositeTimingValid)
+    {
+        destination.finalComposite.add(sample.finalCompositeMicroseconds);
+    }
+}
+
+[[nodiscard]] bafx::windows::ActiveFxRoiGpuPercentiles gpuPercentiles(
+    const BoundedMetric& metric)
+{
+    const MetricSummary summary = metric.summarize();
+    if (summary.sampleCount == 0U)
+    {
+        return {};
+    }
+    return bafx::windows::ActiveFxRoiGpuPercentiles{
+        static_cast<double>(summary.p50),
+        static_cast<double>(summary.p95)};
+}
+
+void populateGpuSummary(
+    bafx::windows::ActiveFxRoiGpuRuntimeSummary& destination,
+    const ActiveFxRoiGpuMetrics& metrics)
+{
+    destination.prefilter = gpuPercentiles(metrics.prefilter);
+    destination.pyramid = gpuPercentiles(metrics.pyramid);
+    destination.finalComposite = gpuPercentiles(metrics.finalComposite);
+}
+
 template <typename Operation>
 [[nodiscard]] auto runSecondaryDisplayMutation(
     DisplaySession& session,
@@ -167,6 +460,100 @@ template <typename Operation>
     }
 }
 
+}
+
+void DisplaySessionRoiTelemetry::add(
+    const FramePerformanceSample& sample,
+    const std::uint64_t frameId,
+    const bafx::core::MonotonicTime observedAt) noexcept
+{
+    try
+    {
+        entries.push_back(DisplaySessionRoiTelemetryEntry{
+            observedAt,
+            frameId,
+            sample});
+        const bafx::core::MonotonicTime cutoff =
+            observedAt - activeFxRoiSampleWindow;
+        while (entries.size() > 1U && entries.front().observedAt < cutoff)
+        {
+            entries.pop_front();
+        }
+    }
+    catch (...)
+    {
+        // Telemetry is observational. Allocation pressure must not turn an
+        // otherwise valid presentation into a render or device fault.
+    }
+}
+
+bafx::windows::ActiveFxRoiRuntimeSummary
+DisplaySessionRoiTelemetry::summarize(
+    const bool enabled,
+    const bafx::core::MonotonicTime observedAt) const
+{
+    bafx::windows::ActiveFxRoiRuntimeSummary summary{};
+    summary.enabled = enabled;
+    summary.sampleWindowMs = activeFxRoiSampleWindowMilliseconds;
+    if (entries.empty())
+    {
+        // A never-observed session must be stale immediately; zero would look
+        // like a fresh measurement to the Control Center.
+        summary.sampleAgeMs = (std::numeric_limits<std::uint32_t>::max)();
+        return summary;
+    }
+
+    const DisplaySessionRoiTelemetryEntry& latest = entries.back();
+    summary.lastFrameId = latest.frameId;
+    const auto age = std::chrono::duration_cast<std::chrono::milliseconds>(
+        observedAt - latest.observedAt).count();
+    summary.sampleAgeMs = age <= 0
+        ? 0U
+        : static_cast<std::uint32_t>((std::min)(
+            static_cast<std::uint64_t>(age),
+            static_cast<std::uint64_t>(
+                (std::numeric_limits<std::uint32_t>::max)())));
+
+    populateLatestPath(
+        summary.primary,
+        latest.sample,
+        latest.sample.roiPrimary.diagnostics,
+        true);
+    populateLatestPath(
+        summary.recordingRebuild,
+        latest.sample,
+        latest.sample.roiRecordingRebuild.diagnostics,
+        false);
+
+    const std::size_t metricCapacity = (std::max)(
+        std::size_t{1U},
+        entries.size());
+    ActiveFxRoiGpuMetrics primaryGpu(metricCapacity);
+    ActiveFxRoiGpuMetrics recordingGpu(metricCapacity);
+    const bafx::core::MonotonicTime cutoff =
+        observedAt - activeFxRoiSampleWindow;
+    for (const DisplaySessionRoiTelemetryEntry& entry : entries)
+    {
+        if (entry.observedAt < cutoff)
+        {
+            continue;
+        }
+        accumulatePath(
+            summary.primary,
+            entry.sample,
+            entry.sample.roiPrimary.diagnostics,
+            true);
+        accumulatePath(
+            summary.recordingRebuild,
+            entry.sample,
+            entry.sample.roiRecordingRebuild.diagnostics,
+            false);
+        accumulateGpu(primaryGpu, entry.sample.gpuPrimary);
+        accumulateGpu(recordingGpu, entry.sample.gpuRecordingRebuild);
+    }
+    populateGpuSummary(summary.primary.gpu, primaryGpu);
+    populateGpuSummary(summary.recordingRebuild.gpu, recordingGpu);
+    return summary;
 }
 
 DisplaySession::DisplaySession(DisplaySessionOptions options)
@@ -193,7 +580,8 @@ DisplaySession::DisplaySession(DisplaySessionOptions options)
               requestedOutputPreference_,
               colorCapabilities_)),
       simulation_(options.simulationSeed),
-      minimumFramePeriod_(options.runtimePolicy.minimumFramePeriod)
+      minimumFramePeriod_(options.runtimePolicy.minimumFramePeriod),
+      roiTelemetry_(std::make_unique<DisplaySessionRoiTelemetry>())
 {
     renderer_.setThemeColor(options.themeColor);
     renderer_.setActiveFxRoiEnabled(
@@ -1854,6 +2242,23 @@ void DisplaySession::recordPresentedFrame(
     nextFramePacingDeadline_ = followingDeadline > startedAt
         ? followingDeadline
         : startedAt + minimumFramePeriod_;
+}
+
+void DisplaySession::recordActiveFxRoiFrame(
+    const FramePerformanceSample& sample,
+    const std::uint64_t frameId,
+    const bafx::core::MonotonicTime observedAt) noexcept
+{
+    roiTelemetry_->add(sample, frameId, observedAt);
+}
+
+bafx::windows::ActiveFxRoiRuntimeSummary
+DisplaySession::activeFxRoiRuntimeSummary(
+    const bafx::core::MonotonicTime observedAt) const
+{
+    return roiTelemetry_->summarize(
+        renderer_.activeFxRoiEnabled(),
+        observedAt);
 }
 
 void DisplaySession::resetFramePacing() noexcept

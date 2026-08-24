@@ -26,6 +26,21 @@
 namespace bafx::desktop
 {
 
+struct FramePerformanceSample;
+struct DisplaySessionRoiTelemetry;
+
+}
+
+namespace bafx::windows
+{
+
+struct ActiveFxRoiRuntimeSummary;
+
+}
+
+namespace bafx::desktop
+{
+
 inline constexpr std::uint32_t maximumOutputRenegotiationAttempts = 3U;
 
 struct DisplaySessionRuntimePolicy final
@@ -277,6 +292,15 @@ public:
     void recordPresentedFrame(
         bool drawable,
         bafx::core::MonotonicTime startedAt) noexcept;
+    // Render diagnostics stay owned by this display. IPC receives only the
+    // periodically materialized snapshot and never enters the frame path.
+    void recordActiveFxRoiFrame(
+        const FramePerformanceSample& sample,
+        std::uint64_t frameId,
+        bafx::core::MonotonicTime observedAt) noexcept;
+    [[nodiscard]] bafx::windows::ActiveFxRoiRuntimeSummary
+        activeFxRoiRuntimeSummary(
+            bafx::core::MonotonicTime observedAt) const;
     void resetFramePacing() noexcept;
     void markRenderFaulted() noexcept;
     void markOutputContractFaulted() noexcept;
@@ -320,6 +344,7 @@ private:
     bool colorCapabilityObservationPending_{false};
     std::unique_ptr<DisplaySessionBackgroundCaptureState>
         secondaryBackgroundCapture_{};
+    std::unique_ptr<DisplaySessionRoiTelemetry> roiTelemetry_{};
 };
 
 }
