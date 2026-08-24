@@ -209,6 +209,7 @@ class CaptureFixture:
         drawn_pixels = (
             prefilter_drawn_pixels + pyramid_drawn_pixels + resolve_drawn_pixels
         )
+        cleared_pixels = prefilter_drawn_pixels + pyramid_drawn_pixels
         roi_prefix = (
             "ROI.Primary"
             if self.measurement_path == "primary"
@@ -243,7 +244,7 @@ class CaptureFixture:
             f"{roi_prefix}.FullPixels.Total": full_pixels,
             f"{roi_prefix}.CandidatePixels.Total": candidate_pixels,
             f"{roi_prefix}.DrawnPixels.Total": drawn_pixels,
-            f"{roi_prefix}.ClearedPixels.Total": drawn_pixels,
+            f"{roi_prefix}.ClearedPixels.Total": cleared_pixels,
             f"{roi_prefix}.Stage.Prefilter.FullPixels.Total": prefilter_full_pixels,
             f"{roi_prefix}.Stage.Prefilter.CandidatePixels.Total": prefilter_candidate_pixels,
             f"{roi_prefix}.Stage.Prefilter.DrawnPixels.Total": prefilter_drawn_pixels,
@@ -648,6 +649,18 @@ class ActiveFxRoiAbReporterTests(unittest.TestCase):
             self.assertIn("runtime-errors", failed)
             self.assertIn("paired-roi-not-slower", failed)
             self.assertEqual(report["paired"]["roiNotSlowerCount"], 7)
+
+    def test_rejects_aggregate_and_stage_pixel_total_drift(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = CaptureFixture(Path(temporary))
+            fixture.overrides[2] = {
+                "ROI.Primary.Stage.Resolve.DrawnPixels.Total": 99_999
+            }
+            fixture.rewrite_logs()
+            with self.assertRaisesRegex(
+                REPORTER.ValidationError, "does not equal the staged total"
+            ):
+                REPORTER.build_report(fixture.root)
 
     def test_fallback_scenario_checks_reason_and_regression(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

@@ -672,6 +672,9 @@ def _run_metrics(
         "prefilterDrawnPixels": total(
             f"{roi_prefix}.Stage.Prefilter.DrawnPixels.Total"
         ),
+        "prefilterClearedPixels": total(
+            f"{roi_prefix}.Stage.Prefilter.ClearedPixels.Total"
+        ),
         "pyramidFullPixels": total(
             f"{roi_prefix}.Stage.Downsample.FullPixels.Total"
         )
@@ -684,6 +687,22 @@ def _run_metrics(
             f"{roi_prefix}.Stage.Downsample.DrawnPixels.Total"
         )
         + total(f"{roi_prefix}.Stage.Upsample.DrawnPixels.Total"),
+        "pyramidClearedPixels": total(
+            f"{roi_prefix}.Stage.Downsample.ClearedPixels.Total"
+        )
+        + total(f"{roi_prefix}.Stage.Upsample.ClearedPixels.Total"),
+        "resolveFullPixels": total(
+            f"{roi_prefix}.Stage.Resolve.FullPixels.Total"
+        ),
+        "resolveCandidatePixels": total(
+            f"{roi_prefix}.Stage.Resolve.CandidatePixels.Total"
+        ),
+        "resolveDrawnPixels": total(
+            f"{roi_prefix}.Stage.Resolve.DrawnPixels.Total"
+        ),
+        "resolveClearedPixels": total(
+            f"{roi_prefix}.Stage.Resolve.ClearedPixels.Total"
+        ),
         "expectedReasonFrames": total(expected_reason_field),
         "reasonObservedFrames": (
             total("ROI.RequestedFrames")
@@ -701,6 +720,22 @@ def _run_metrics(
         "gpuCommandP99Us": median("GPU.RenderCommandSpan.P99"),
         "gpuPendingMax": maximum("GPU.PendingFrames.Max"),
     }
+    stages = ("prefilter", "pyramid", "resolve")
+    for semantic in ("Full", "Candidate", "Drawn", "Cleared"):
+        aggregate = metrics[f"{semantic.lower()}Pixels"]
+        staged = sum(metrics[f"{stage}{semantic}Pixels"] for stage in stages)
+        if aggregate != staged:
+            raise ValidationError(
+                f"{context}: aggregate {semantic.lower()} pixel total does not equal "
+                "the staged total"
+            )
+    for stage in stages:
+        full = metrics[f"{stage}FullPixels"]
+        for semantic in ("Candidate", "Drawn", "Cleared"):
+            if metrics[f"{stage}{semantic}Pixels"] > full:
+                raise ValidationError(
+                    f"{context}: {stage} {semantic.lower()} pixels exceed full pixels"
+                )
     for field in ERROR_FIELDS:
         metrics[field] = total(field)
     return metrics
@@ -853,9 +888,15 @@ def _aggregate(runs: list[dict[str, Any]]) -> dict[str, Any]:
         "prefilterFullPixels": total("prefilterFullPixels"),
         "prefilterCandidatePixels": total("prefilterCandidatePixels"),
         "prefilterDrawnPixels": total("prefilterDrawnPixels"),
+        "prefilterClearedPixels": total("prefilterClearedPixels"),
         "pyramidFullPixels": total("pyramidFullPixels"),
         "pyramidCandidatePixels": total("pyramidCandidatePixels"),
         "pyramidDrawnPixels": total("pyramidDrawnPixels"),
+        "pyramidClearedPixels": total("pyramidClearedPixels"),
+        "resolveFullPixels": total("resolveFullPixels"),
+        "resolveCandidatePixels": total("resolveCandidatePixels"),
+        "resolveDrawnPixels": total("resolveDrawnPixels"),
+        "resolveClearedPixels": total("resolveClearedPixels"),
         "expectedReasonFrames": total("expectedReasonFrames"),
         "reasonObservedFrames": total("reasonObservedFrames"),
         "prefilterP95Us": median("prefilterP95Us"),
