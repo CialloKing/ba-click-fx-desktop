@@ -2477,6 +2477,79 @@ BAFX_TEST(warp_active_fx_roi_prefilter_matches_full_screen_pixels)
         == 128U * 128U);
 }
 
+BAFX_TEST(warp_active_fx_roi_context1_unavailable_falls_back_exactly)
+{
+    ComApartment apartment;
+    const WarpDevice graphics = createWarpDevice();
+    const bafx::fx::FrameSnapshot snapshot = makeDiskSnapshot(true);
+    constexpr FxBloomSettings fourTapBloom{1.0F, 4.0F};
+
+    FxGpuRenderer referenceRenderer(
+        graphics.device.Get(),
+        graphics.context.Get(),
+        testSize,
+        fourTapBloom);
+    const RenderTarget referenceTarget = createRenderTarget(
+        graphics.device.Get());
+    referenceRenderer.render(snapshot, referenceTarget.view.Get());
+
+    FxGpuRenderer fallbackRenderer(
+        graphics.device.Get(),
+        graphics.context.Get(),
+        testSize,
+        fourTapBloom,
+        compositionOutputPolicyFor(
+            CompositionOutputPreference::PreferLinearScRgb).mapping,
+        FxGpuRendererFeaturePolicy{false});
+    const RenderTarget fallbackTarget = createRenderTarget(
+        graphics.device.Get());
+    const FxRenderCpuDiagnostics diagnostics = fallbackRenderer.render(
+        snapshot,
+        fallbackTarget.view.Get(),
+        std::nullopt,
+        nullptr,
+        nullptr,
+        FxActiveRoi{bafx::core::RectI{48, 48, 208, 208}});
+
+    BAFX_CHECK(!diagnostics.activeFxRoiApplied);
+    BAFX_CHECK(diagnostics.primaryActiveFxRoi.requested);
+    BAFX_CHECK(diagnostics.primaryActiveFxRoi.eligible);
+    BAFX_CHECK(diagnostics.primaryActiveFxRoi.executed);
+    BAFX_CHECK(!diagnostics.primaryActiveFxRoi.warmup);
+    BAFX_CHECK(
+        diagnostics.primaryActiveFxRoi.actualPath
+        == FxActiveRoiActualPath::Unavailable);
+    BAFX_CHECK(
+        diagnostics.primaryActiveFxRoi.decisionReason
+        == FxActiveRoiDecisionReason::Context1Unavailable);
+    BAFX_CHECK(
+        diagnostics.primaryActiveFxRoi.drawnPixels
+        == diagnostics.primaryActiveFxRoi.fullPixels);
+
+    const Rgba16FloatImage reference = readbackRgba16FloatTexture(
+        graphics.context.Get(),
+        referenceTarget.texture.Get());
+    const Rgba16FloatImage fallback = readbackRgba16FloatTexture(
+        graphics.context.Get(),
+        fallbackTarget.texture.Get());
+    BAFX_CHECK(reference.width == fallback.width);
+    BAFX_CHECK(reference.height == fallback.height);
+    BAFX_CHECK(reference.pixels.size() == fallback.pixels.size());
+    for (std::size_t index = 0U; index < reference.pixels.size(); ++index)
+    {
+        const Rgba16FloatPixel expected = reference.pixels[index];
+        const Rgba16FloatPixel actual = fallback.pixels[index];
+        BAFX_CHECK(expected.red == actual.red);
+        BAFX_CHECK(expected.green == actual.green);
+        BAFX_CHECK(expected.blue == actual.blue);
+        BAFX_CHECK(expected.alpha == actual.alpha);
+        BAFX_CHECK(std::isfinite(halfToFloat(actual.red)));
+        BAFX_CHECK(std::isfinite(halfToFloat(actual.green)));
+        BAFX_CHECK(std::isfinite(halfToFloat(actual.blue)));
+        BAFX_CHECK(std::isfinite(halfToFloat(actual.alpha)));
+    }
+}
+
 BAFX_TEST(warp_recording_roi_reports_shared_target_full_write_warmup)
 {
     ComApartment apartment;

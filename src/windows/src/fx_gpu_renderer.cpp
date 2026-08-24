@@ -613,7 +613,8 @@ struct FxGpuRenderer::Implementation
         ID3D11DeviceContext* sourceContext,
         const WindowSize initialSize,
         const FxBloomSettings initialBloomSettings,
-        const CompositionOutputMapping initialOutputMapping)
+        const CompositionOutputMapping initialOutputMapping,
+        const FxGpuRendererFeaturePolicy featurePolicy)
         : device(sourceDevice)
         , context(sourceContext)
         , size(initialSize)
@@ -636,7 +637,10 @@ struct FxGpuRenderer::Implementation
         // ClearView is optional at the COM boundary even on supported OS
         // versions. A missing interface disables ROI without weakening the
         // full-screen rendering path.
-        static_cast<void>(context.As(&context1));
+        if (featurePolicy.allowActiveFxRoiClearView)
+        {
+            static_cast<void>(context.As(&context1));
+        }
     }
 
     void createPipeline()
@@ -2551,13 +2555,15 @@ FxGpuRenderer::FxGpuRenderer(
     ID3D11DeviceContext* context,
     const WindowSize size,
     const FxBloomSettings bloomSettings,
-    const CompositionOutputMapping outputMapping)
+    const CompositionOutputMapping outputMapping,
+    const FxGpuRendererFeaturePolicy featurePolicy)
     : implementation_(std::make_unique<Implementation>(
         device,
         context,
         size,
         bloomSettings,
-        outputMapping))
+        outputMapping,
+        featurePolicy))
 {
 }
 

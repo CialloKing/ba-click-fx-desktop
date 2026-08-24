@@ -146,6 +146,13 @@ struct FxActiveRoi final
     bafx::core::RectI alignedWork{};
 };
 
+struct FxGpuRendererFeaturePolicy final
+{
+    // Keep the full-screen fallback independently selectable so unsupported
+    // or unstable Context1 environments never become a renderer prerequisite.
+    bool allowActiveFxRoiClearView{true};
+};
+
 enum class FxOverlayProfile : std::uint8_t
 {
     FxOnlyFallback,
@@ -163,7 +170,8 @@ public:
         WindowSize size,
         FxBloomSettings bloomSettings = {},
         CompositionOutputMapping outputMapping = compositionOutputPolicyFor(
-            CompositionOutputPreference::PreferLinearScRgb).mapping);
+            CompositionOutputPreference::PreferLinearScRgb).mapping,
+        FxGpuRendererFeaturePolicy featurePolicy = {});
     ~FxGpuRenderer();
 
     FxGpuRenderer(const FxGpuRenderer&) = delete;
