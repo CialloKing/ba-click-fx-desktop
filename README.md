@@ -24,8 +24,8 @@ Release Host 运行时是单文件：Visual C++ 运行库静态链接，Circle�
 DirectComposition 和 D3DCompiler 系统组件。独立的 Control Center 使用纯 Win32 Common Controls，
 不需要 Windows App SDK 或其他旁置运行时。
 
-当前架构版本是 **v0.3**，状态为 **Proposed**。0.2.5 测试版已具备 Host、原生 Win32
-Control Center、本地 IPC 与独立测试包；当前人工特效审核和支持合同以单主屏 SDR 下的三种渲染模式
+当前架构版本是 **v0.3**，状态为 **Proposed**。0.2.5 正式版已具备 Host、原生 Win32
+Control Center、本地 IPC 与完整便携包；当前人工特效审核和支持合同以单主屏 SDR 下的三种渲染模式
 为准。涉及 DirectComposition、Windows Graphics Capture、HDR/Advanced Color 和多适配器的结论，
 必须取得仓库中定义的 Spike 证据或接受明确的 fallback 后，相关 ADR 才能标记为 Accepted。
 
@@ -169,7 +169,7 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File .\tools\package-host-review-bundle
 
 脚本从 Release Host 单独组装三文件审核包，并将经过验证的 ZIP 放到
 `artifacts\local\host-visual-review\<commit>\`。该包只包含 Host、许可证和支持说明，
-通常约 0.4 MB；完整测试包现在也只包含两个原生 EXE，压缩后约 0.7 MB，不再携带 Windows App SDK
+通常约 0.4 MB；完整便携包现在也只包含两个原生 EXE，压缩后约 0.7 MB，不再携带 Windows App SDK
 旁置运行时。
 
 ### 普通用户安装器
@@ -193,7 +193,7 @@ Visual Studio、Windows SDK、Inno Setup 或 PowerShell 依赖包；安装器已
 该安装器使用目标机生成的本机证书为 Sparse Package 签名，不是公有代码签名。Windows SmartScreen 可能显示
 “Unknown Publisher”，这是预期提示。安装器只把公钥加入 `LocalMachine\TrustedPeople`，签名验证完成后立即删除
 `LocalMachine\My` 中的证书和不可导出私钥；不要从 Release 单独下载或安装证书、MSIX、私钥或 SDK 工具。若没有管理员权限，
-请改用上面的 portable 测试 ZIP，直接解压运行即可，但 portable 没有 Package Identity，无法承诺无边框 WGC。
+请改用上面的便携 ZIP，直接解压运行即可，但便携版没有 Package Identity，无法承诺无边框 WGC。
 
 ## Host 控制面
 

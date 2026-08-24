@@ -71,17 +71,12 @@ Identity，因此不承诺无边框 WGC。安装器仍没有公开代码签名�
 
 ## 发布验证
 
-以下项目必须在最终发布完成后用实际结果替换占位标记：
+2026-08-24 的正式发布验证结果：
 
-- 发布提交与 tag：`[发布后填写：commit / v0.2.5 tag]`
-- Full Release CTest：`[发布后填写：通过数/总数]`
-- Slim 源码构建与 CTest：`[发布后填写：通过数/总数]`
-- Windows SDK 兼容 CI：`[发布后填写：run URL、SDK 矩阵和结论]`
-- 便携 ZIP SHA-256：`[发布后填写：64 位十六进制哈希]`
-- 安装器 SHA-256：`[发布后填写：64 位十六进制哈希]`
-- GitHub Release 与四资产核对：`[发布后填写：Release URL、资产数和远端校验结果]`
-
-占位标记不是验证通过的声明；发布前不得把预计测试数、预计哈希或本地未发布资产写成最终证据。
+- Full `release-verify`：`41/41` 通过。
+- Slim `slim-release-verify`：`40/40` 通过。
+- Windows SDK 兼容 CI：Windows SDK `10.0.19041.0`、`10.0.22621.0`、`10.0.26100.0`
+  三矩阵通过（[run 32703993528](https://github.com/CialloKing/ba-click-fx-desktop/actions/runs/32703993528)）。
 
 ## 支持边界
 

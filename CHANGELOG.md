@@ -107,7 +107,7 @@
 
 ## 0.2.0 - 2026-08-21
 
-0.2.0 是首个不带 prerelease 后缀的正式测试版。公共版本号从本版起严格使用
+0.2.0 是首个不带 prerelease 后缀的正式版本。公共版本号从本版起严格使用
 `MAJOR.MINOR.PATCH`；Windows 文件和 Package Identity 版本使用对应的
 `MAJOR.MINOR.PATCH.0`。
 
@@ -117,7 +117,7 @@
 - `background-aware`、`recording-compatible`、`light-background` 三种渲染模式，以及低配 `core` 模式。
 - Host 与原生 Win32 Control Center 的本地配置、暂停/恢复、主题色、逐屏状态、帧率策略和日志清理。
 - 标准版 Spout2/OBS v4 透明扩展预乘输出；Slim 版移除 Spout2 依赖和控制项，保留核心特效。
-- 便携测试 ZIP 和目标机自签名单文件安装器；安装器支持安装、升级、卸载和保留 `data` 配置目录。
+- 便携 ZIP 和目标机自签名单文件安装器；安装器支持安装、升级、卸载和保留 `data` 配置目录。
 
 ### 支持边界
 
