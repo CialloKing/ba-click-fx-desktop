@@ -204,6 +204,8 @@ struct RoiFrameDiagnostics
     bool requested{false};
     bool prefilterApplied{false};
     std::uint64_t prefilterPixels{0U};
+    FxActiveRoiPassDiagnostics primary{};
+    FxActiveRoiPassDiagnostics recordingRebuild{};
     bafx::core::ActiveFxRoiStatus activeStatus{
         bafx::core::ActiveFxRoiStatus::Disabled};
     // The final composite and WGC history intentionally remain full-screen.

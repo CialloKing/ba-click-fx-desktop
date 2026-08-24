@@ -672,15 +672,9 @@ void populateRoiDiagnostics(
         return std::nullopt;
     }
 
-    const std::uint64_t maximumRoiPixels =
-        diagnostics.fullScreenPixels
-        - diagnostics.fullScreenPixels / 5U;
-    if (diagnostics.alignedWorkPixels >= maximumRoiPixels)
-    {
-        diagnostics.activeStatus =
-            bafx::core::ActiveFxRoiStatus::AreaTooLarge;
-        return std::nullopt;
-    }
+    // The GPU maps this full-resolution plan onto the real first Bloom target.
+    // Apply the 50/65% adaptive gate there so odd target extents and rounding
+    // cannot make the CPU-side estimate disagree with the executed work.
     diagnostics.activeStatus =
         bafx::core::ActiveFxRoiStatus::RendererFallback;
     return FxActiveRoi{rect};
@@ -1119,6 +1113,10 @@ void CompositionRenderer::setActiveFxRoiEnabled(const bool enabled) noexcept
     // A new ROI epoch must not union against bounds produced under a different
     // execution policy; the first enabled frame starts from current content.
     previousVisualBounds_.reset();
+    if (fxRenderer_ != nullptr)
+    {
+        fxRenderer_->resetActiveFxRoiState();
+    }
 }
 
 bool CompositionRenderer::activeFxRoiEnabled() const noexcept
@@ -1443,11 +1441,59 @@ CompositionFrameDiagnostics CompositionRenderer::renderFrame(
         diagnostics.fx.activeFxRoiApplied;
     diagnostics.roi.prefilterPixels =
         diagnostics.fx.activeFxRoiPixels;
+    diagnostics.roi.primary = diagnostics.fx.primaryActiveFxRoi;
+    diagnostics.roi.recordingRebuild =
+        diagnostics.fx.recordingRebuildActiveFxRoi;
     if (diagnostics.roi.prefilterApplied)
     {
         diagnostics.roi.activeStatus =
             bafx::core::ActiveFxRoiStatus::AppliedPrefilter;
         diagnostics.roi.productionFullScreenFallback = false;
+    }
+    else
+    {
+        const FxActiveRoiPassDiagnostics* rendererDecision = nullptr;
+        if (diagnostics.roi.recordingRebuild.requested)
+        {
+            rendererDecision = &diagnostics.roi.recordingRebuild;
+        }
+        else if (diagnostics.roi.primary.requested)
+        {
+            rendererDecision = &diagnostics.roi.primary;
+        }
+        if (rendererDecision != nullptr)
+        {
+            switch (rendererDecision->decisionReason)
+            {
+            case FxActiveRoiDecisionReason::BackgroundDifferentialBloom:
+                diagnostics.roi.activeStatus =
+                    bafx::core::ActiveFxRoiStatus::BackgroundDifferentialBloom;
+                break;
+            case FxActiveRoiDecisionReason::AreaTooLarge:
+                diagnostics.roi.activeStatus =
+                    bafx::core::ActiveFxRoiStatus::AreaTooLarge;
+                break;
+            case FxActiveRoiDecisionReason::BenefitTooSmall:
+                diagnostics.roi.activeStatus =
+                    bafx::core::ActiveFxRoiStatus::BenefitTooSmall;
+                break;
+            case FxActiveRoiDecisionReason::Context1Unavailable:
+                diagnostics.roi.activeStatus =
+                    bafx::core::ActiveFxRoiStatus::Context1Unavailable;
+                break;
+            case FxActiveRoiDecisionReason::SharedTargetFullWrite:
+                diagnostics.roi.activeStatus =
+                    bafx::core::ActiveFxRoiStatus::SharedTargetFullWrite;
+                break;
+            case FxActiveRoiDecisionReason::Disabled:
+            case FxActiveRoiDecisionReason::NoContent:
+            case FxActiveRoiDecisionReason::Applied:
+            case FxActiveRoiDecisionReason::RendererFallback:
+                diagnostics.roi.activeStatus =
+                    bafx::core::ActiveFxRoiStatus::RendererFallback;
+                break;
+            }
+        }
     }
     if (spout2Enabled_ && recordingTexture_ != nullptr)
     {

@@ -42,8 +42,12 @@ enum class ActiveFxRoiStatus : std::uint8_t
     NoVisualPlan,
     BloomDisabled,
     CoreMode,
+    BackgroundDifferentialBloom,
     TouchesBoundary,
     AreaTooLarge,
+    BenefitTooSmall,
+    Context1Unavailable,
+    SharedTargetFullWrite,
     RendererFallback
 };
 
@@ -62,15 +66,37 @@ enum class ActiveFxRoiStatus : std::uint8_t
         return "bloom-disabled";
     case ActiveFxRoiStatus::CoreMode:
         return "core-mode";
+    case ActiveFxRoiStatus::BackgroundDifferentialBloom:
+        return "background-differential-bloom";
     case ActiveFxRoiStatus::TouchesBoundary:
         return "boundary-fallback";
     case ActiveFxRoiStatus::AreaTooLarge:
         return "area-fallback";
+    case ActiveFxRoiStatus::BenefitTooSmall:
+        return "benefit-too-small";
+    case ActiveFxRoiStatus::Context1Unavailable:
+        return "context1-unavailable";
+    case ActiveFxRoiStatus::SharedTargetFullWrite:
+        return "shared-target-full-write";
     case ActiveFxRoiStatus::RendererFallback:
         return "renderer-fallback";
     }
     return "renderer-fallback";
 }
+
+enum class ActiveFxRoiAdaptiveDecision : std::uint8_t
+{
+    Apply,
+    BenefitTooSmall,
+    AreaTooLarge
+};
+
+// Enter conservatively at 50%, then retain ROI until 65% to avoid switching
+// paths on every frame when an animated footprint hovers near the threshold.
+[[nodiscard]] ActiveFxRoiAdaptiveDecision decideActiveFxRoiAdaptivePath(
+    bool previouslyActive,
+    std::uint64_t candidatePixels,
+    std::uint64_t fullTargetPixels) noexcept;
 
 struct BloomRoiPlan
 {

@@ -53,6 +53,45 @@ namespace
         && value <= std::numeric_limits<std::int32_t>::max();
 }
 
+[[nodiscard]] std::uint64_t ratioFloor(
+    const std::uint64_t value,
+    const std::uint64_t numerator,
+    const std::uint64_t denominator) noexcept
+{
+    // Split before multiplying so a deliberately adversarial pixel count
+    // cannot overflow the adaptive gate and accidentally enable ROI.
+    const std::uint64_t quotient = value / denominator;
+    const std::uint64_t remainder = value % denominator;
+    return quotient * numerator + remainder * numerator / denominator;
+}
+
+}
+
+ActiveFxRoiAdaptiveDecision decideActiveFxRoiAdaptivePath(
+    const bool previouslyActive,
+    const std::uint64_t candidatePixels,
+    const std::uint64_t fullTargetPixels) noexcept
+{
+    if (fullTargetPixels == 0U || candidatePixels == 0U
+        || candidatePixels > fullTargetPixels)
+    {
+        return ActiveFxRoiAdaptiveDecision::BenefitTooSmall;
+    }
+
+    // Preserve the explicit large-area diagnostic independently from the
+    // adaptive benefit gate. This makes a near-full target distinguishable
+    // from the 50-65% hysteresis band in engineering telemetry.
+    if (candidatePixels >= ratioFloor(fullTargetPixels, 4U, 5U))
+    {
+        return ActiveFxRoiAdaptiveDecision::AreaTooLarge;
+    }
+
+    const std::uint64_t maximumPixels = previouslyActive
+        ? ratioFloor(fullTargetPixels, 13U, 20U)
+        : ratioFloor(fullTargetPixels, 1U, 2U);
+    return candidatePixels <= maximumPixels
+        ? ActiveFxRoiAdaptiveDecision::Apply
+        : ActiveFxRoiAdaptiveDecision::BenefitTooSmall;
 }
 
 BloomRoiPlanResult planBloomRoi(

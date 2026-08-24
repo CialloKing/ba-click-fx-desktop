@@ -39,12 +39,101 @@ struct BackgroundRenderInput
     ID3D11ShaderResourceView* shaderResource{nullptr};
 };
 
+enum class FxActiveRoiActualPath : std::uint8_t
+{
+    Disabled,
+    Idle,
+    FullScreen,
+    RoiWarmup,
+    RoiPrefilter,
+    Unavailable
+};
+
+[[nodiscard]] constexpr std::string_view fxActiveRoiActualPathName(
+    const FxActiveRoiActualPath path) noexcept
+{
+    switch (path)
+    {
+    case FxActiveRoiActualPath::Disabled:
+        return "disabled";
+    case FxActiveRoiActualPath::Idle:
+        return "idle";
+    case FxActiveRoiActualPath::FullScreen:
+        return "full-screen";
+    case FxActiveRoiActualPath::RoiWarmup:
+        return "roi-warmup";
+    case FxActiveRoiActualPath::RoiPrefilter:
+        return "roi-prefilter";
+    case FxActiveRoiActualPath::Unavailable:
+        return "unavailable";
+    }
+    return "unavailable";
+}
+
+enum class FxActiveRoiDecisionReason : std::uint8_t
+{
+    Disabled,
+    NoContent,
+    BackgroundDifferentialBloom,
+    Context1Unavailable,
+    SharedTargetFullWrite,
+    AreaTooLarge,
+    BenefitTooSmall,
+    Applied,
+    RendererFallback
+};
+
+[[nodiscard]] constexpr std::string_view fxActiveRoiDecisionReasonName(
+    const FxActiveRoiDecisionReason reason) noexcept
+{
+    switch (reason)
+    {
+    case FxActiveRoiDecisionReason::Disabled:
+        return "disabled";
+    case FxActiveRoiDecisionReason::NoContent:
+        return "no-content";
+    case FxActiveRoiDecisionReason::BackgroundDifferentialBloom:
+        return "background-differential-bloom";
+    case FxActiveRoiDecisionReason::Context1Unavailable:
+        return "context1-unavailable";
+    case FxActiveRoiDecisionReason::SharedTargetFullWrite:
+        return "shared-target-full-write";
+    case FxActiveRoiDecisionReason::AreaTooLarge:
+        return "area-too-large";
+    case FxActiveRoiDecisionReason::BenefitTooSmall:
+        return "benefit-too-small";
+    case FxActiveRoiDecisionReason::Applied:
+        return "applied";
+    case FxActiveRoiDecisionReason::RendererFallback:
+        return "renderer-fallback";
+    }
+    return "renderer-fallback";
+}
+
+struct FxActiveRoiPassDiagnostics
+{
+    bool requested{false};
+    bool eligible{false};
+    bool executed{false};
+    bool warmup{false};
+    FxActiveRoiActualPath actualPath{FxActiveRoiActualPath::Disabled};
+    FxActiveRoiDecisionReason decisionReason{
+        FxActiveRoiDecisionReason::Disabled};
+    std::uint64_t fullPixels{0U};
+    std::uint64_t drawnPixels{0U};
+    std::uint64_t clearedPixels{0U};
+};
+
 struct FxRenderCpuDiagnostics
 {
     std::chrono::nanoseconds totalSubmit{};
     std::chrono::nanoseconds materialsSubmit{};
     std::chrono::nanoseconds bloomAndCompositeSubmit{};
     bool visualContent{false};
+    FxActiveRoiPassDiagnostics primaryActiveFxRoi{};
+    FxActiveRoiPassDiagnostics recordingRebuildActiveFxRoi{};
+    // Retain the aggregate fields while existing log/report consumers migrate
+    // to the two real execution paths above.
     bool activeFxRoiApplied{false};
     std::uint64_t activeFxRoiPixels{0U};
 };
@@ -81,6 +170,7 @@ public:
 
     void resize(WindowSize size);
     void setBloomSettings(FxBloomSettings settings);
+    void resetActiveFxRoiState() noexcept;
     void setThemeColor(std::string_view themeColor);
     void setOverlayProfile(FxOverlayProfile profile);
     // WGC and DComp run on independent clocks. Filter accepted captures before

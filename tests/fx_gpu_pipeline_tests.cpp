@@ -2312,36 +2312,271 @@ BAFX_TEST(warp_active_fx_roi_prefilter_matches_full_screen_pixels)
         snapshot,
         fullTarget.view.Get());
     BAFX_CHECK(!fullDiagnostics.activeFxRoiApplied);
+    BAFX_CHECK(
+        fullDiagnostics.primaryActiveFxRoi.actualPath
+        == FxActiveRoiActualPath::FullScreen);
+    BAFX_CHECK(fullDiagnostics.primaryActiveFxRoi.drawnPixels == 128U * 128U);
 
-    const RenderTarget roiTarget = createRenderTarget(graphics.device.Get());
-    const FxRenderCpuDiagnostics roiDiagnostics = renderer.render(
+    const FxActiveRoi roiRequest{bafx::core::RectI{48, 48, 208, 208}};
+    const RenderTarget warmupTarget = createRenderTarget(graphics.device.Get());
+    const FxRenderCpuDiagnostics warmupDiagnostics = renderer.render(
         snapshot,
-        roiTarget.view.Get(),
+        warmupTarget.view.Get(),
         std::nullopt,
         nullptr,
         nullptr,
-        FxActiveRoi{bafx::core::RectI{32, 32, 224, 224}});
-    BAFX_CHECK(roiDiagnostics.activeFxRoiApplied);
-    BAFX_CHECK(roiDiagnostics.activeFxRoiPixels == 96U * 96U);
+        roiRequest);
+    BAFX_CHECK(warmupDiagnostics.activeFxRoiApplied);
+    BAFX_CHECK(warmupDiagnostics.activeFxRoiPixels == 80U * 80U);
+    BAFX_CHECK(warmupDiagnostics.primaryActiveFxRoi.requested);
+    BAFX_CHECK(warmupDiagnostics.primaryActiveFxRoi.eligible);
+    BAFX_CHECK(warmupDiagnostics.primaryActiveFxRoi.executed);
+    BAFX_CHECK(warmupDiagnostics.primaryActiveFxRoi.warmup);
+    BAFX_CHECK(
+        warmupDiagnostics.primaryActiveFxRoi.actualPath
+        == FxActiveRoiActualPath::RoiWarmup);
+    BAFX_CHECK(
+        warmupDiagnostics.primaryActiveFxRoi.decisionReason
+        == FxActiveRoiDecisionReason::Applied);
+    BAFX_CHECK(
+        warmupDiagnostics.primaryActiveFxRoi.clearedPixels
+        == 128U * 128U);
+
+    const RenderTarget steadyTarget = createRenderTarget(graphics.device.Get());
+    const FxRenderCpuDiagnostics steadyDiagnostics = renderer.render(
+        snapshot,
+        steadyTarget.view.Get(),
+        std::nullopt,
+        nullptr,
+        nullptr,
+        roiRequest);
+    BAFX_CHECK(steadyDiagnostics.activeFxRoiApplied);
+    BAFX_CHECK(!steadyDiagnostics.primaryActiveFxRoi.warmup);
+    BAFX_CHECK(
+        steadyDiagnostics.primaryActiveFxRoi.actualPath
+        == FxActiveRoiActualPath::RoiPrefilter);
+    BAFX_CHECK(
+        steadyDiagnostics.primaryActiveFxRoi.drawnPixels == 80U * 80U);
+    BAFX_CHECK(
+        steadyDiagnostics.primaryActiveFxRoi.clearedPixels == 80U * 80U);
 
     const std::vector<ReadbackPixel> full = readback(
         graphics.context.Get(),
         fullTarget.texture.Get());
-    const std::vector<ReadbackPixel> roi = readback(
+    const std::vector<ReadbackPixel> roiPixels = readback(
         graphics.context.Get(),
-        roiTarget.texture.Get());
-    BAFX_CHECK(full.size() == roi.size());
+        steadyTarget.texture.Get());
+    BAFX_CHECK(full.size() == roiPixels.size());
     float maximumDifference = 0.0F;
     for (std::size_t index = 0U; index < full.size(); ++index)
     {
         maximumDifference = std::max({
             maximumDifference,
-            std::abs(full[index].red - roi[index].red),
-            std::abs(full[index].green - roi[index].green),
-            std::abs(full[index].blue - roi[index].blue),
-            std::abs(full[index].alpha - roi[index].alpha)});
+            std::abs(full[index].red - roiPixels[index].red),
+            std::abs(full[index].green - roiPixels[index].green),
+            std::abs(full[index].blue - roiPixels[index].blue),
+            std::abs(full[index].alpha - roiPixels[index].alpha)});
     }
     BAFX_CHECK(maximumDifference == 0.0F);
+
+    renderer.resetActiveFxRoiState();
+    const RenderTarget resetTarget = createRenderTarget(graphics.device.Get());
+    const FxRenderCpuDiagnostics resetDiagnostics = renderer.render(
+        snapshot,
+        resetTarget.view.Get(),
+        std::nullopt,
+        nullptr,
+        nullptr,
+        roiRequest);
+    BAFX_CHECK(resetDiagnostics.primaryActiveFxRoi.warmup);
+    BAFX_CHECK(
+        resetDiagnostics.primaryActiveFxRoi.clearedPixels == 128U * 128U);
+
+    const RenderTarget retainedTarget = createRenderTarget(graphics.device.Get());
+    const FxRenderCpuDiagnostics retainedDiagnostics = renderer.render(
+        snapshot,
+        retainedTarget.view.Get(),
+        std::nullopt,
+        nullptr,
+        nullptr,
+        FxActiveRoi{bafx::core::RectI{26, 26, 230, 230}});
+    BAFX_CHECK(retainedDiagnostics.activeFxRoiApplied);
+    BAFX_CHECK(
+        retainedDiagnostics.primaryActiveFxRoi.actualPath
+        == FxActiveRoiActualPath::RoiPrefilter);
+    BAFX_CHECK(
+        retainedDiagnostics.primaryActiveFxRoi.drawnPixels == 102U * 102U);
+
+    const RenderTarget fallbackTarget = createRenderTarget(graphics.device.Get());
+    const FxRenderCpuDiagnostics fallbackDiagnostics = renderer.render(
+        snapshot,
+        fallbackTarget.view.Get(),
+        std::nullopt,
+        nullptr,
+        nullptr,
+        FxActiveRoi{bafx::core::RectI{20, 20, 236, 236}});
+    BAFX_CHECK(!fallbackDiagnostics.activeFxRoiApplied);
+    BAFX_CHECK(
+        fallbackDiagnostics.primaryActiveFxRoi.actualPath
+        == FxActiveRoiActualPath::FullScreen);
+    BAFX_CHECK(
+        fallbackDiagnostics.primaryActiveFxRoi.decisionReason
+        == FxActiveRoiDecisionReason::BenefitTooSmall);
+    BAFX_CHECK(
+        fallbackDiagnostics.primaryActiveFxRoi.drawnPixels == 128U * 128U);
+
+    const RenderTarget areaTarget = createRenderTarget(graphics.device.Get());
+    const FxRenderCpuDiagnostics areaDiagnostics = renderer.render(
+        snapshot,
+        areaTarget.view.Get(),
+        std::nullopt,
+        nullptr,
+        nullptr,
+        FxActiveRoi{bafx::core::RectI{8, 8, 248, 248}});
+    BAFX_CHECK(!areaDiagnostics.activeFxRoiApplied);
+    BAFX_CHECK(
+        areaDiagnostics.primaryActiveFxRoi.decisionReason
+        == FxActiveRoiDecisionReason::AreaTooLarge);
+
+    const RenderTarget invalidTarget = createRenderTarget(graphics.device.Get());
+    const FxRenderCpuDiagnostics invalidDiagnostics = renderer.render(
+        snapshot,
+        invalidTarget.view.Get(),
+        std::nullopt,
+        nullptr,
+        nullptr,
+        FxActiveRoi{bafx::core::RectI{-1, 20, 236, 236}});
+    BAFX_CHECK(!invalidDiagnostics.activeFxRoiApplied);
+    BAFX_CHECK(invalidDiagnostics.primaryActiveFxRoi.requested);
+    BAFX_CHECK(!invalidDiagnostics.primaryActiveFxRoi.eligible);
+    BAFX_CHECK(
+        invalidDiagnostics.primaryActiveFxRoi.actualPath
+        == FxActiveRoiActualPath::FullScreen);
+    BAFX_CHECK(
+        invalidDiagnostics.primaryActiveFxRoi.decisionReason
+        == FxActiveRoiDecisionReason::RendererFallback);
+
+    const RenderTarget idleTarget = createRenderTarget(graphics.device.Get());
+    const FxRenderCpuDiagnostics idleDiagnostics = renderer.render(
+        bafx::fx::FrameSnapshot{},
+        idleTarget.view.Get());
+    BAFX_CHECK(
+        idleDiagnostics.primaryActiveFxRoi.actualPath
+        == FxActiveRoiActualPath::Idle);
+    const RenderTarget restartedTarget = createRenderTarget(graphics.device.Get());
+    const FxRenderCpuDiagnostics restartedDiagnostics = renderer.render(
+        snapshot,
+        restartedTarget.view.Get(),
+        std::nullopt,
+        nullptr,
+        nullptr,
+        roiRequest);
+    BAFX_CHECK(restartedDiagnostics.primaryActiveFxRoi.warmup);
+    BAFX_CHECK(
+        restartedDiagnostics.primaryActiveFxRoi.clearedPixels
+        == 128U * 128U);
+}
+
+BAFX_TEST(warp_recording_roi_reports_shared_target_full_write_warmup)
+{
+    ComApartment apartment;
+    const WarpDevice graphics = createWarpDevice();
+    FxGpuRenderer renderer(graphics.device.Get(), graphics.context.Get(), testSize);
+    const RenderTarget desktopTarget = createRenderTarget(graphics.device.Get());
+    const RenderTarget recordingTarget = createRecordingRenderTarget(
+        graphics.device.Get());
+    const RenderTarget backgroundTarget = createRenderTarget(graphics.device.Get());
+    constexpr std::array<float, 4> background{0.25F, 0.5F, 0.75F, 1.0F};
+    graphics.context->ClearRenderTargetView(
+        backgroundTarget.view.Get(),
+        background.data());
+
+    const FxRenderCpuDiagnostics diagnostics = renderer.render(
+        makeDiskSnapshot(true),
+        desktopTarget.view.Get(),
+        BackgroundRenderInput{backgroundTarget.shaderResource.Get()},
+        nullptr,
+        recordingTarget.view.Get(),
+        FxActiveRoi{bafx::core::RectI{48, 48, 208, 208}});
+
+    BAFX_CHECK(
+        diagnostics.primaryActiveFxRoi.actualPath
+        == FxActiveRoiActualPath::FullScreen);
+    BAFX_CHECK(
+        diagnostics.primaryActiveFxRoi.decisionReason
+        == FxActiveRoiDecisionReason::BackgroundDifferentialBloom);
+    BAFX_CHECK(diagnostics.recordingRebuildActiveFxRoi.requested);
+    BAFX_CHECK(diagnostics.recordingRebuildActiveFxRoi.eligible);
+    BAFX_CHECK(diagnostics.recordingRebuildActiveFxRoi.warmup);
+    BAFX_CHECK(
+        diagnostics.recordingRebuildActiveFxRoi.actualPath
+        == FxActiveRoiActualPath::RoiWarmup);
+    BAFX_CHECK(
+        diagnostics.recordingRebuildActiveFxRoi.decisionReason
+        == FxActiveRoiDecisionReason::SharedTargetFullWrite);
+    BAFX_CHECK(
+        diagnostics.recordingRebuildActiveFxRoi.drawnPixels == 80U * 80U);
+    BAFX_CHECK(
+        diagnostics.recordingRebuildActiveFxRoi.clearedPixels
+        == 128U * 128U);
+}
+
+BAFX_TEST(warp_active_fx_roi_clears_previous_non_overlapping_motion)
+{
+    ComApartment apartment;
+    const WarpDevice graphics = createWarpDevice();
+    FxGpuRenderer renderer(graphics.device.Get(), graphics.context.Get(), testSize);
+    bafx::fx::FrameSnapshot leftSnapshot = makeDiskSnapshot(true);
+    leftSnapshot.sprites.front().centerPixels.x = 48.0F;
+    bafx::fx::FrameSnapshot rightSnapshot = makeDiskSnapshot(true);
+    rightSnapshot.sprites.front().centerPixels.x = 208.0F;
+
+    const RenderTarget leftTarget = createRenderTarget(graphics.device.Get());
+    const FxRenderCpuDiagnostics leftDiagnostics = renderer.render(
+        leftSnapshot,
+        leftTarget.view.Get(),
+        std::nullopt,
+        nullptr,
+        nullptr,
+        FxActiveRoi{bafx::core::RectI{0, 48, 112, 208}});
+    BAFX_CHECK(leftDiagnostics.primaryActiveFxRoi.warmup);
+
+    const RenderTarget movedTarget = createRenderTarget(graphics.device.Get());
+    const FxRenderCpuDiagnostics movedDiagnostics = renderer.render(
+        rightSnapshot,
+        movedTarget.view.Get(),
+        std::nullopt,
+        nullptr,
+        nullptr,
+        FxActiveRoi{bafx::core::RectI{144, 48, 256, 208}});
+    BAFX_CHECK(
+        movedDiagnostics.primaryActiveFxRoi.actualPath
+        == FxActiveRoiActualPath::RoiPrefilter);
+    BAFX_CHECK(
+        movedDiagnostics.primaryActiveFxRoi.drawnPixels == 56U * 80U);
+    BAFX_CHECK(
+        movedDiagnostics.primaryActiveFxRoi.clearedPixels == 56U * 80U);
+
+    FxGpuRenderer referenceRenderer(
+        graphics.device.Get(),
+        graphics.context.Get(),
+        testSize);
+    const RenderTarget referenceTarget = createRenderTarget(graphics.device.Get());
+    referenceRenderer.render(rightSnapshot, referenceTarget.view.Get());
+    const std::vector<ReadbackPixel> moved = readback(
+        graphics.context.Get(),
+        movedTarget.texture.Get());
+    const std::vector<ReadbackPixel> reference = readback(
+        graphics.context.Get(),
+        referenceTarget.texture.Get());
+    BAFX_CHECK(moved.size() == reference.size());
+    for (std::size_t index = 0U; index < moved.size(); ++index)
+    {
+        BAFX_CHECK(moved[index].red == reference[index].red);
+        BAFX_CHECK(moved[index].green == reference[index].green);
+        BAFX_CHECK(moved[index].blue == reference[index].blue);
+        BAFX_CHECK(moved[index].alpha == reference[index].alpha);
+    }
 }
 
 BAFX_TEST(warp_capture_proves_triangle_enters_bloom)
