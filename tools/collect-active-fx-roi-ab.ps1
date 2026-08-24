@@ -173,11 +173,14 @@ function ConvertFrom-StructuredEventBlock
             throw "$Context has a malformed field at line $lineNumber"
         }
         $name = $line.Substring(0, $separator)
-        if ($event.Contains($name))
+        $value = $line.Substring($separator + 1)
+        if ($event.Contains($name) -and $event[$name] -cne $value)
         {
-            throw "$Context contains duplicate field $name"
+            throw "$Context contains conflicting duplicate field $name"
         }
-        $event[$name] = $line.Substring($separator + 1)
+        # SupportReport intentionally repeats envelope fields with the same
+        # value. Preserve that format while still rejecting ambiguous logs.
+        $event[$name] = $value
     }
     return $event
 }

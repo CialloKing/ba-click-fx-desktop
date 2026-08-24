@@ -119,6 +119,13 @@ class ActiveFxRoiAbCollectorTests(unittest.TestCase):
         self.assertNotIn("Stop-Process -Name", self.source)
         self.assertNotIn("taskkill", self.source.lower())
 
+    def test_accepts_identical_event_fields_but_rejects_conflicts(self) -> None:
+        self.assertIn(
+            "if ($event.Contains($name) -and $event[$name] -cne $value)",
+            self.source,
+        )
+        self.assertIn("contains conflicting duplicate field", self.source)
+
     def test_exposes_applied_and_fallback_measurement_paths(self) -> None:
         for token in (
             "[ValidateSet('primary', 'recording-rebuild')]",
