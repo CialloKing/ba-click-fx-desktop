@@ -3,6 +3,7 @@
 #include "display_state.hpp"
 #include "host_state.hpp"
 #include "obs_spout_plugin_probe.hpp"
+#include "update_check.hpp"
 
 #include "bafx/config/config.hpp"
 #include "bafx/windows/ipc_client.hpp"
@@ -12,6 +13,7 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -234,6 +236,10 @@ private:
     bool applyPatchRequest(std::string command);
     void onTimer(UINT_PTR timerId);
 
+    void beginManualUpdateCheck();
+    void pollManualUpdateCheck();
+    void openOfficialLatestRelease();
+
     [[nodiscard]] bool refreshFromHost();
     [[nodiscard]] static std::wstring hostVersionDescription(
         const HostState& state);
@@ -451,6 +457,7 @@ private:
     HWND resetDefaultsButton_{nullptr};
 
     bafx::windows::NamedPipeIpcClient client_{};
+    std::unique_ptr<bafx::release_update::ReleaseUpdateChecker> updateChecker_{};
     bafx::windows::UniqueHandle hostLifetimeMutex_{};
     std::optional<PendingPatch> pendingPatch_{};
     bafx::config::Config config_{};
@@ -461,6 +468,7 @@ private:
     std::wstring displayStateError_{};
     std::string selectedDisplayIdentity_{};
     std::uint64_t generation_{0U};
+    std::uint64_t lastUpdateSequence_{0U};
     std::uint32_t hostRetryAttempts_{0U};
     ULONGLONG hostShutdownDeadlineTicks_{0U};
     UINT taskbarCreatedMessage_{0U};

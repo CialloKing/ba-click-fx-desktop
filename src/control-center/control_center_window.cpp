@@ -36,9 +36,11 @@ namespace
 constexpr UINT_PTR patchTimerId = 1U;
 constexpr UINT_PTR hostRetryTimerId = 2U;
 constexpr UINT_PTR hostShutdownTimerId = 3U;
+constexpr UINT_PTR updateCheckTimerId = 4U;
 constexpr UINT patchDelayMilliseconds = 120U;
 constexpr UINT hostRetryDelayMilliseconds = 250U;
 constexpr UINT hostShutdownPollDelayMilliseconds = 100U;
+constexpr UINT updateCheckPollDelayMilliseconds = 100U;
 constexpr DWORD controlCenterIpcTimeoutMilliseconds = 100U;
 constexpr ULONGLONG hostShutdownTimeoutMilliseconds = 10'000U;
 constexpr UINT redrawAfterInteractiveResizeMessage = WM_APP + 1U;
@@ -745,6 +747,7 @@ ControlCenterWindow::~ControlCenterWindow()
         KillTimer(window_, patchTimerId);
         KillTimer(window_, hostRetryTimerId);
         KillTimer(window_, hostShutdownTimerId);
+        KillTimer(window_, updateCheckTimerId);
         DestroyWindow(window_);
         window_ = nullptr;
     }
@@ -756,6 +759,26 @@ bool ControlCenterWindow::create(
     const int showCommand,
     const bool startHostOnLaunch)
 {
+    if (updateChecker_ == nullptr)
+    {
+        try
+        {
+            updateChecker_ = std::make_unique<
+                bafx::release_update::ReleaseUpdateChecker>(
+                    bafx::release_update::ReleaseVersion{
+                        .major = bafx::product::versionMajor,
+                        .minor = bafx::product::versionMinor,
+                        .patch = bafx::product::versionPatch},
+                    bafx::release_update::makeWinHttpReleaseTransport());
+        }
+        catch (...)
+        {
+            // Update checking is optional. Allocation failure must not hide
+            // Host lifecycle controls or local version information.
+            updateChecker_.reset();
+        }
+    }
+
     if (!registerWindowClass())
     {
         return false;
@@ -850,6 +873,14 @@ bool ControlCenterWindow::create(
         DestroyWindow(window_);
         window_ = nullptr;
         return false;
+    }
+    if (updateChecker_ == nullptr)
+    {
+        SetWindowTextW(
+            latestVersionText_,
+            L"最新公开版本：更新检查器不可用");
+        EnableWindow(checkForUpdatesButton_, FALSE);
+        EnableWindow(openReleaseButton_, FALSE);
     }
 
     RECT client{};
@@ -1214,6 +1245,13 @@ LRESULT ControlCenterWindow::handleMessage(
         KillTimer(window_, patchTimerId);
         KillTimer(window_, hostRetryTimerId);
         KillTimer(window_, hostShutdownTimerId);
+        KillTimer(window_, updateCheckTimerId);
+        if (updateChecker_ != nullptr)
+        {
+            // WinHTTP cancellation is part of the window lifetime contract;
+            // join before the HWND and its controls become invalid.
+            updateChecker_->cancel();
+        }
         removeTrayIcon();
         hostLifetimeMutex_.reset();
         PostQuitMessage(0);
@@ -4426,15 +4464,15 @@ void ControlCenterWindow::onCommand(
         }
         break;
     case ControlId::CheckForUpdates:
+        if (notificationCode == BN_CLICKED)
+        {
+            beginManualUpdateCheck();
+        }
+        break;
     case ControlId::OpenRelease:
         if (notificationCode == BN_CLICKED)
         {
-            // The release service owns network and navigation policy. These
-            // static controls intentionally expose only a safe integration
-            // point until that controller is connected.
-            setInfo(
-                L"版本与更新",
-                L"更新服务正在接入，当前版本信息仍可离线查看。");
+            openOfficialLatestRelease();
         }
         break;
 #if defined(BAFX_ENABLE_SPOUT2)
@@ -4829,8 +4867,158 @@ bool ControlCenterWindow::applyFxProfileMutationRequest(std::string command)
     return false;
 }
 
+void ControlCenterWindow::beginManualUpdateCheck()
+{
+    if (updateChecker_ == nullptr)
+    {
+        setError(L"更新检查器不可用；Host 与本地设置不受影响。");
+        return;
+    }
+
+    // This is the only UI entry that starts network work. Construction,
+    // normal startup and --startup deliberately remain offline.
+    if (!updateChecker_->start())
+    {
+        pollManualUpdateCheck();
+        return;
+    }
+
+    if (SetTimer(
+            window_,
+            updateCheckTimerId,
+            updateCheckPollDelayMilliseconds,
+            nullptr) == 0U)
+    {
+        updateChecker_->cancel();
+        SetWindowTextW(latestVersionText_, L"最新公开版本：检查失败");
+        EnableWindow(checkForUpdatesButton_, TRUE);
+        EnableWindow(openReleaseButton_, FALSE);
+        setError(L"无法监视更新检查；请求已取消，Host 与本地设置不受影响。");
+        return;
+    }
+
+    pollManualUpdateCheck();
+}
+
+void ControlCenterWindow::pollManualUpdateCheck()
+{
+    if (updateChecker_ == nullptr)
+    {
+        return;
+    }
+
+    const bafx::release_update::UpdateCheckSnapshot snapshot =
+        updateChecker_->snapshot();
+    const bool checking =
+        snapshot.status == bafx::release_update::UpdateCheckStatus::Checking;
+    const bool updateAvailable =
+        snapshot.status
+        == bafx::release_update::UpdateCheckStatus::UpdateAvailable;
+    EnableWindow(checkForUpdatesButton_, checking ? FALSE : TRUE);
+    EnableWindow(openReleaseButton_, updateAvailable ? TRUE : FALSE);
+
+    std::wstring latestText = L"最新公开版本：";
+    switch (snapshot.status)
+    {
+    case bafx::release_update::UpdateCheckStatus::Idle:
+        latestText += L"尚未检查";
+        break;
+    case bafx::release_update::UpdateCheckStatus::Checking:
+        latestText += L"正在检查...";
+        break;
+    case bafx::release_update::UpdateCheckStatus::Current:
+        latestText += utf8ToWide(snapshot.latestTagName);
+        latestText += L" · 已是最新版";
+        break;
+    case bafx::release_update::UpdateCheckStatus::UpdateAvailable:
+        latestText += utf8ToWide(snapshot.latestTagName);
+        latestText += L" · 有可用更新";
+        break;
+    case bafx::release_update::UpdateCheckStatus::Ahead:
+        latestText += utf8ToWide(snapshot.latestTagName);
+        latestText += L" · 本地为开发/未发布版本";
+        break;
+    case bafx::release_update::UpdateCheckStatus::Failed:
+        latestText += L"检查失败";
+        break;
+    }
+    SetWindowTextW(latestVersionText_, latestText.c_str());
+
+    if (checking)
+    {
+        if (snapshot.sequence != lastUpdateSequence_)
+        {
+            setInfo(
+                L"正在检查更新",
+                L"仅查询 GitHub 最新正式 Release，不会下载或执行安装器。");
+        }
+        lastUpdateSequence_ = snapshot.sequence;
+        return;
+    }
+
+    KillTimer(window_, updateCheckTimerId);
+    if (snapshot.sequence == lastUpdateSequence_)
+    {
+        return;
+    }
+    lastUpdateSequence_ = snapshot.sequence;
+    switch (snapshot.status)
+    {
+    case bafx::release_update::UpdateCheckStatus::Current:
+        setInfo(L"已是最新版", latestText);
+        break;
+    case bafx::release_update::UpdateCheckStatus::UpdateAvailable:
+        setInfo(
+            L"发现新版本",
+            L"可打开官方 Release 页面；下载和安装仍由你手动完成。");
+        break;
+    case bafx::release_update::UpdateCheckStatus::Ahead:
+        setInfo(L"本地版本较新", L"当前构建尚未发布为公开正式 Release。");
+        break;
+    case bafx::release_update::UpdateCheckStatus::Failed:
+        setInfo(
+            L"检查更新失败",
+            snapshot.failure.empty()
+                ? L"无法读取 GitHub 最新正式 Release；Host 与本地设置不受影响。"
+                : utf8ToWide(snapshot.failure));
+        break;
+    case bafx::release_update::UpdateCheckStatus::Idle:
+    case bafx::release_update::UpdateCheckStatus::Checking:
+        break;
+    }
+}
+
+void ControlCenterWindow::openOfficialLatestRelease()
+{
+    if (updateChecker_ == nullptr
+        || updateChecker_->snapshot().status
+            != bafx::release_update::UpdateCheckStatus::UpdateAvailable)
+    {
+        return;
+    }
+
+    // Never navigate to a URL returned by GitHub JSON. The only browser target
+    // is the compile-time official latest-release page.
+    const HINSTANCE result = ShellExecuteW(
+        window_,
+        L"open",
+        bafx::release_update::officialLatestReleasePageUrl().data(),
+        nullptr,
+        nullptr,
+        SW_SHOWNORMAL);
+    if (reinterpret_cast<INT_PTR>(result) <= 32)
+    {
+        setError(L"无法打开官方 Release 页面。请检查默认浏览器设置。");
+    }
+}
+
 void ControlCenterWindow::onTimer(const UINT_PTR timerId)
 {
+    if (timerId == updateCheckTimerId)
+    {
+        pollManualUpdateCheck();
+        return;
+    }
     if (timerId == patchTimerId)
     {
         commitPendingPatch();
