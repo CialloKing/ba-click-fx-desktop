@@ -152,6 +152,21 @@ endif()
 
 if(BUILD_TESTING AND BAFX_POWERSHELL_EXECUTABLE)
     add_test(
+        NAME desktop_option_errors
+        COMMAND
+            "${BAFX_POWERSHELL_EXECUTABLE}"
+            -NoProfile
+            -File "${CMAKE_SOURCE_DIR}/tests/verify-desktop-option-errors.ps1"
+            -Executable $<TARGET_FILE:ba_click_fx_desktop>
+    )
+    set_tests_properties(
+        desktop_option_errors
+        PROPERTIES
+            LABELS "desktop;host;contract"
+            TIMEOUT 15
+            RUN_SERIAL TRUE
+    )
+    add_test(
         NAME desktop_portable_pe
         COMMAND
             "${BAFX_POWERSHELL_EXECUTABLE}"

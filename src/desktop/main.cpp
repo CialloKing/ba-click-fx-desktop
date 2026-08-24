@@ -61,6 +61,7 @@ constexpr DWORD activeControlPollMilliseconds = 50U;
 constexpr auto spout2HeartbeatPeriod = std::chrono::milliseconds(250);
 constexpr auto activeFxRoiPublicationPeriod = std::chrono::milliseconds(500);
 constexpr DWORD pausedControlPollMilliseconds = 50U;
+constexpr int invalidCommandLineExitCode = 2;
 
 [[nodiscard]] std::string formatHresult(const HRESULT result)
 {
@@ -1603,7 +1604,11 @@ struct PointerConsumptionDiagnostics
         && *options.demoAgeMilliseconds < scenarioDurationMilliseconds)
     {
         throw std::invalid_argument(
-            "--demo-age-ms is younger than the selected demo scenario");
+            "--demo-age-ms must be at least "
+            + std::to_string(scenarioDurationMilliseconds)
+            + " for "
+            + std::string(
+                bafx::desktop::demoScenarioName(options.demoScenario)));
     }
     return options;
 }
@@ -7616,12 +7621,20 @@ int runApplication(
 
 int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int)
 {
-    RunOptions options = parseOptions();
+    RunOptions options{};
     std::filesystem::path logPath{};
     bafx::windows::SupportReport report(bafx::product::version);
     std::optional<bafx::desktop::SingleInstanceGuard> instanceGuard;
+    bool parsingOptions = false;
     try
     {
+        // Establish the fallback log before parsing so malformed automation
+        // arguments still leave actionable evidence without opening the UI.
+        logPath = bafx::windows::defaultDiagnosticLogPath();
+        report.setLogPath(logPath);
+        parsingOptions = true;
+        options = parseOptions();
+        parsingOptions = false;
         if (options.supportInfoPath.has_value())
         {
             // Keep diagnostics portable even when a caller supplies an
@@ -7632,8 +7645,6 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int)
                 requestedName,
                 L"ba-click-fx-support.txt");
         }
-        logPath = bafx::windows::defaultDiagnosticLogPath();
-        report.setLogPath(logPath);
         const std::string_view processMode = options.supportInfoOnly
             ? "support-info"
             : (options.smokeTest ? "smoke-test" : "interactive");
@@ -7674,6 +7685,21 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int)
         report.setFailure(error.what());
         if (!logPath.empty())
         {
+            if (parsingOptions)
+            {
+                const std::array fields{
+                    bafx::windows::DiagnosticField{
+                        "Startup.Phase",
+                        "command-line"},
+                    bafx::windows::DiagnosticField{
+                        "Error.Message",
+                        error.what()}};
+                bafx::windows::appendDiagnosticEvent(
+                    logPath,
+                    "Process.Startup.Failed",
+                    fields,
+                    bafx::windows::DiagnosticLevel::Error);
+            }
             bafx::windows::appendDiagnosticLog(logPath, report);
         }
         if (options.supportInfoPath.has_value())
@@ -7686,6 +7712,14 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int)
             {
                 // Preserve the original startup failure when the requested path is unavailable.
             }
+        }
+        if (parsingOptions)
+        {
+            // Invalid command lines are caller errors. Keep this path
+            // non-interactive so collectors and CI cannot hang on a dialog.
+            OutputDebugStringA(error.what());
+            OutputDebugStringA("\n");
+            return invalidCommandLineExitCode;
         }
         if (options.smokeTest)
         {
