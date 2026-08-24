@@ -1,8 +1,45 @@
 # 变更记录
 
-## 未发布
+## 0.2.7 - 未发布
 
-## 0.2.6 - 2026-08-24
+### 优化
+
+- Active-FX ROI 从 Bloom 首级扩展到完整金字塔。规划器为 prefilter、每级 downsample/upsample 和
+  resolve 生成独立矩形，同时保留全屏参考路径的 mip 数、UV、奇数尺寸、border mode 和 pixel-center
+  phase；down/up 使用实际 scissor，最终全屏合成通过 resolve 矩形掩码在有效区外采样精确零 Bloom。
+- 每个实际 down/up 目标记录初始化、上一写入矩形、全屏写入状态和最后 writer。首次进入、全屏转 ROI、
+  resize 或资源恢复时执行完整预热清理；稳态通过 `ID3D11DeviceContext1::ClearView` 清理
+  上一写入区域。primary 与 recording-rebuild 分别记账，但共享物理资源的写入状态只有一份。
+- ROI 按帧执行全有或全无：pass 计划、Context1、资源身份、相位或状态任一无效时，整条 Bloom 在同一帧
+  回退全屏，不混用局部与全屏 pass。
+- `GetDisplayState` 升级为严格 schema 4，新增 `roi-pyramid` 路径，并分别报告 prefilter、downsample、
+  upsample、resolve 的 full/candidate/drawn/cleared 像素。Control Center 与支持日志同步消费同一合同。
+
+### 兼容性与升级
+
+- 源码产品版本提升到 0.2.7；主配置 schema 保持 19，`performance.activeFxRoiEnabled` 继续默认
+  `false`，不增加第二个 ROI 开关或配置迁移。现有配置、显示器 override、effects-only Profile 和
+  渲染协议均不重写。
+- `GetDisplayState` schema 4 不提供 schema 3 兼容层；混合版本继续由 `GetState.productVersion`
+  fail-closed 设置门拒绝写入，Host 启动和关闭入口保持可用。
+
+### 验证与发布状态
+
+- WARP 已覆盖完整金字塔的点击、拖尾、负 scRGB、HDR 极值、Spout2、resize、空帧重启、边界回退和
+  Context1 缺失，并以同适配器 FP16 精确一致为门禁；这些确定性结果不替代真实硬件性能证据。
+- 0.2.6 的 RTX 4060、4K 170 Hz、SDR 正式 ABBA 报告为 `FAIL`，因此 0.2.6 未发布。0.2.7 的同规格
+  5 组 ABBA、20 次采集尚未执行；当前不得宣称性能门槛通过，也不得视为已发布。
+- 只有 0.2.7 实机门槛全部通过后才执行 Full/Slim workflow、三档 SDK CI、打包、tag 和 Release。
+  官方 Release 仍只发布 Full 版四个资产；Slim 仅保留源码构建验证。
+
+### 支持边界
+
+- 默认 `background-aware` 的 Differential Bloom 仍全屏，计划留到 0.2.8。最终场景合成、WGC、
+  Spout2 格式转换、交换链与 Present 也继续全屏；0.2.7 不实现桌面捕获 ROI 或 dirty Present。
+- ROI 继续是默认关闭的实验项。AMD、Intel、HDR、Windows 11、多显示器和跨适配器硬件矩阵在真实
+  执行前保持 `Not Run`，不能由 WARP 或 RTX 4060 的后续单机结果外推。
+
+## 0.2.6 - 未发布（2026-08-24 性能门禁失败）
 
 ### 新增
 

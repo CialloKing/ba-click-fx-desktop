@@ -263,23 +263,31 @@ HDR active scene-referred scRGB 中可按约定使用 1.0 = 80 nits 的编码换
 换算到 mip0 后的和；不能用单一“半径 × mip 数”近似。dirty rect 必须 union 前后帧区域再扩张，
 全屏与 ROI 使用相同 mip 数、UV、border mode 和奇数尺寸规则。
 
-0.2.6 只局部化纯特效 Bloom 首级预滤波。实际首级目标维护 `initialized`、上一写入矩形和自适应状态：
+0.2.7 将纯特效 Bloom 的 prefilter 和完整 down/up 金字塔局部化。规划器为每个 pass 产生目标本地的
+half-open 矩形，并保留全屏参考路径的 mip 数、UV、奇数尺寸、border mode 和 pixel-center phase。
+前向非零支持与反向贡献依赖相交，避免把只依赖旧 `basePlan.bloomOutput` 的保守诊断边界误作正确性边界。
+resolve 也有独立逻辑矩形，但它与最终场景合成融合为一次全屏 draw；shader 在矩形外把 Bloom 采样置为
+精确零。因此 resolve 的 `drawnPixels` 是全屏，`candidatePixels` 才是逻辑有效区，两者不得混用。
 
-- 首次 ROI 或全屏转 ROI 使用完整清理并报告预热帧；稳态通过 Context1 `ClearView` 清理上一写入矩形，
-  再以 scissor 绘制当前矩形。`ClearRenderTargetView` 不能作为局部清理，因为它会清理整个资源；
-- ROI 转全屏直接完整覆盖；resize、设备恢复和资源重建重置目标状态。Context1 不可用、矩形非法或
-  渲染状态异常时，同帧执行完整全屏路径，不能让上一帧内容泄漏；
-- 自适应门按首级实际 scissor 面积计算：未进入时不超过 50% 才进入，已进入后超过 65% 才退出。
-  触边、Bloom 关闭、core、背景差分、无有效计划、共享目标全屏写入等正确性门先于面积门；
-- primary 与 recording-rebuild 必须按真实资源写入分别记账。若 `background-aware` primary 已全屏写入
-  共享 Bloom 目标，同帧录制重建只能报告共享写入/预热，不能误报稳态局部清理；
-- 默认 `background-aware` primary Differential Bloom、完整 Bloom down/up/resolve、最终合成、WGC、
-  Spout2 格式转换、交换链和 Present 保持全屏。
+- 每个实际 down/up 目标维护 `initialized`、上一写入矩形、全屏写入状态和最后 writer。首次 ROI、全屏
+  转 ROI、resize、设备恢复或资源重建使用完整清理并报告预热帧；稳态通过 Context1
+  `ClearView` 清理上一写入矩形，再按本 pass scissor 绘制。`ClearRenderTargetView` 不能作为局部清理，
+  因为它会清理整个资源；
+- 一帧内采用全有或全无策略。规划器结果、Context1、资源身份、phase 或目标状态任一无效时，整条 Bloom
+  同帧执行完整全屏路径，禁止把局部 prefilter/down 与全屏 up/resolve 混成不完整结果；
+- 自适应门按完整计划的 candidate/full 像素计算：未进入时不超过 50% 才进入，已进入后超过 65% 才
+  退出。触边、Bloom 关闭、core、背景差分、无有效计划和共享目标全屏写入等正确性门先于面积门；
+- primary 与 recording-rebuild 分别维护诊断和自适应状态；Bloom 物理目标的清理与 writer 所有权只有
+  一份。若 `background-aware` primary 已全屏写入共享目标，同帧录制重建必须按共享写入执行预热，不能
+  误报稳态局部清理；
+- 默认 `background-aware` primary Differential Bloom、最终场景合成、WGC、Spout2 格式转换、交换链和
+  Present 保持全屏。Differential Bloom ROI 属于 0.2.8，不由完整金字塔 ROI 隐式启用。
 
 每个显示会话在渲染所有者侧维护 5 秒滚动窗，每 500 ms 构造脱离活跃渲染状态的不可变快照。IPC 只
-读取发布快照，不得在逐帧路径获取控制面 mutex。schema 3 分别公开 primary/recording-rebuild 的路径、
-原因、帧/像素、矩形、guard/phase 和 Prefilter/Pyramid/FinalComposite GPU p50/p95；像素比例是首级
-工作量诊断，不是 GPU 节省推导式。
+读取发布快照，不得在逐帧路径获取控制面 mutex。schema 4 分别公开 primary/recording-rebuild 的
+`roi-pyramid` 路径、原因、帧/像素、矩形、guard/phase，prefilter/downsample/upsample/resolve 的
+full/candidate/drawn/cleared 像素，以及 Prefilter/Pyramid/FinalComposite GPU p50/p95。像素比例是工作量
+诊断，不是 GPU 节省推导式。
 
 ## 10. 失败与降级
 

@@ -1,4 +1,4 @@
-# 0.2.6 支持与验证范围
+# 0.2.7 支持与验证范围
 
 ## 可以测试的范围
 
@@ -21,7 +21,7 @@
   隐藏中心圆盘、圆环、点击碎片、拖尾碎片、拖尾线和 Bloom。基础页还提供背景模式、指针排除、系统捕获
   边框和空闲资源优化，并管理四个内置及用户保存的 effects-only 特效 Profile。“显示与性能”页选择并
   显示 Host 的逐屏实际状态，提供默认关闭的全局 HDR 请求、默认关闭的自适应 Active-FX ROI 实验开关，
-  并在选中显示器下展示 primary/recording-rebuild 的近 5 秒路径、原因、像素、矩形和阶段 GPU 工程面板，以及跟随
+  并在选中显示器下展示 primary/recording-rebuild 的近 5 秒路径、原因、分阶段像素、矩形和 GPU 工程面板，以及跟随
   显示器、固定 `60/120/144 FPS`、无限制五种帧率策略；具有稳定标识的显示器还可
   独立控制特效、HDR 请求和帧率策略。“系统”页提供随 Windows 启动、启动时最小化和关闭时隐藏到托盘，
   以及“清理诊断日志”按钮；确认后会显示删除文件数、释放字节数和失败文件数。“版本与更新”区域显示
@@ -59,17 +59,18 @@
   DisplayConfig 身份、请求/实际 GPU、HDR/Advanced Color、最终输出策略、WGC 状态和渲染故障；
   这些只是当前运行快照，不能据此宣称 HDR、多显示器、Advanced Color 或物理 nits 输出已经受支持。
   驱动未提供有效亮度时会记录 `luminance-unknown`。
-- `GetDisplayState` schema 3 通过本地 IPC 返回全局拓扑、配置/应用代次、权威离线 override、逐屏来源身份、
+- `GetDisplayState` schema 4 通过本地 IPC 返回全局拓扑、配置/应用代次、权威离线 override、逐屏来源身份、
   物理/捕获刷新率、DRR、GPU、颜色查询 HRESULT、SDR white level、已应用特效/HDR/帧率策略、
   请求/解析/实际输出、cadence/output fallback、WGC、故障状态和 Active-FX ROI 工程快照。每个 session
   固定提供开关状态、样本窗/年龄/末帧，以及 primary 与 recording-rebuild 的实际路径、决策原因、
-  帧/像素累计值、guard/phase、dirty/aligned rect、阶段 GPU p50/p95 和原因计数。Control Center 严格拒绝旧 schema 以及
+  帧/像素累计值、guard/phase、dirty/aligned rect、prefilter/downsample/upsample/resolve 的
+  full/candidate/drawn/cleared 像素、阶段 GPU p50/p95 和原因计数。Control Center 严格拒绝旧 schema 以及
   未知、重复、缺失或超限字段；未知布尔能力使用 `null`，不会把全局 HDR 请求或当前配置冒充为实际支持状态。
-  schema 3 不提供 schema 2 兼容层。完整拓扑下可删除未连接显示器的遗留 override；该条目不会显示
+  schema 4 不提供 schema 3 兼容层。完整拓扑下可删除未连接显示器的遗留 override；该条目不会显示
   伪造的 HDR、刷新率或 ROI 运行状态。
 - `GetState.productVersion` 使用规范 `MAJOR.MINOR.PATCH` 标识 Host 版本。只有 Host 与 Control Center
   完全同版本时设置控件才可写；字段缺失、格式错误或版本不一致时 fail-closed，设置保持禁用，但 Host
-  启动和关闭入口继续可用。该产品版本门不改变配置 schema，0.2.6 仍使用 schema 19。
+  启动和关闭入口继续可用。该产品版本门不改变配置 schema，0.2.7 仍使用 schema 19。
 - WGC FP16 scRGB 背景使用独立的背景 reference white 转入 Unity 相对工作空间；Unity authored color、粒子、
   材质、Trail 和 Bloom 仍在线性 FP16 中计算，最终呈现阶段才使用输出 reference white 选择 SDR/HDR 映射。
   HDR/WCG 下背景白点未知时 WGC 可保持预热，但该背景不得进入合成，当前画面回退 FX-only。
@@ -86,14 +87,17 @@
   不设置额外最小帧周期的行为。字段完整的 schema 14 至 18 只按固定迁移链升级到 schema 19；其他版本、
   缺失或未知字段以及枚举别名均被拒绝。Host 保留无效原文件并以内存中的当前默认值继续运行，不猜测或
   部分套用无效配置。背景感知授权、排除或会话失败时回退内部 FX-only transport；其余模式不启用 WGC。
-- Active-FX ROI 当前仅允许在纯特效 Bloom 首级预滤波，以及实际执行的录制/Spout2 纯特效重建首级
-  使用内部对齐矩形。首次进入或从全屏切回 ROI 会完整清理一次并报告预热；稳态以 Context1 `ClearView`
-  清理上一写入矩形，再 scissor 绘制当前矩形。首级实际 scissor 面积不超过 50% 才进入，进入后超过
-  65% 才退出。矩形接触边界、Bloom/Core 状态、背景差分、共享目标全屏写入、Context1 或计划不满足
-  约束时，同帧自动使用全屏预滤波并报告原因。
-- 默认 `background-aware` primary Differential Bloom、Bloom 后续 down/up/resolve、最终合成、WGC、
-  Spout2 格式转换、交换链和 Present 仍保持全屏。工程面板的像素处理比例不是 GPU 节省百分比；该开关
-  存在也不代表端到端性能或硬件矩阵已经通过验收。
+- Active-FX ROI 当前可在纯特效 primary 及实际执行的录制/Spout2 纯特效重建中裁剪 prefilter 和完整
+  down/up 金字塔。规划器为每个 pass 生成独立矩形，并为最终 resolve 生成逻辑有效区；resolve 与最终
+  场景合成仍是一次全屏 draw，shader 在有效区外采样精确零 Bloom。每个实际 down/up 目标维护初始化、
+  上一写入矩形、全屏写入状态和最后 writer；首次进入、全屏转 ROI、resize 或资源恢复时
+  完整清理，稳态用 Context1 `ClearView` 清理旧区。
+- 一帧内只允许完整 ROI 或完整全屏 Bloom。pass 计划、Context1、资源身份、相位或状态任一不满足约束时，
+  所有 Bloom pass 同帧回退全屏；不会把局部 prefilter 与全屏后续 pass 混用。primary 与
+  recording-rebuild 分别统计，但共享物理资源只维护一份真实写入状态。
+- 默认 `background-aware` primary Differential Bloom、最终场景合成、WGC、Spout2 格式转换、交换链和
+  Present 仍保持全屏。工程面板的像素处理比例不是 GPU 节省百分比；该开关存在也不代表端到端性能或
+  硬件矩阵已经通过验收。0.2.7 的 RTX 4060、4K 170 Hz、SDR 正式 ABBA 尚未执行。
 - Host 为每个显示会话维护 5 秒滚动窗，每 500 ms 发布不可变快照；Control Center 只在“显示与性能”
   页可见时每秒轮询，离页停止，样本年龄超过 3 秒标记 stale。IPC 失败只让诊断保持旧值/显示错误，
   不会修改配置或改变 Host 渲染路径。
@@ -105,7 +109,7 @@
   `ClearLogs` 清理会删除当前文件及遗留备份，再写入一条清理结果事件；正常运行每 10 秒写一条
   `Performance.Interval`，退出时刷新最后一个未满窗口；它包含输入队列年龄、消息/Move 收敛、WGC
   callback/accepted、背景样本年龄、CPU 提交阶段、Present 调用、输入到 Present 返回，以及 WGC/copy、
-  背景快照、FX 材质和 Bloom/最终复合的异步 D3D11 GPU 时间戳 `p50/p95/p99/max`。0.2.6 还分别记录
+  背景快照、FX 材质和 Bloom/最终复合的异步 D3D11 GPU 时间戳 `p50/p95/p99/max`。0.2.7 还分别记录
   primary 与 recording-rebuild 的 Prefilter、Pyramid、FinalComposite p50/p95，并保留原 Bloom 总耗时。
   GPU 分析器使用
   固定 8 槽查询环，每个渲染帧最多无阻塞轮询一次，不调用 `Flush` 或等待查询完成；日志会另外记录
@@ -228,7 +232,7 @@ Windows“已安装的应用”执行，默认保留安装目录
 
 系统页显示“安装版”表示安装状态完整、产品版本和 Package 版本一致且匹配当前 Control Center，或已
 从同样有效的备份成功恢复；主状态和备份都不存在时显示“便携版”；状态损坏、版本冲突、部分升级或
-只剩备份时显示“安装状态异常”。异常不会被当作便携版，应使用当前版本安装器修复。0.2.6 不提升
+只剩备份时显示“安装状态异常”。异常不会被当作便携版，应使用当前版本安装器修复。0.2.7 不提升
 配置 schema，也不迁移或删除现有 `data`、主配置、显示器 override 与 effects-only `fx-profiles`。
 
 更新检查严格由用户点击触发。Control Center 不会在启动、连接 Host 或托盘恢复时自动联网，也不会
@@ -245,8 +249,8 @@ Control Center 不具备该入口，因此首次升级到 0.2.5 仍需用户手�
 
 - HDR、Advanced Color 和物理 nits 输出声明。
 - Active-FX ROI 的 AMD、Intel、HDR、Windows 11、多显示器与跨适配器真实硬件矩阵。当前开关默认关闭，
-  只优化满足约束的纯特效 Bloom 首级预滤波和独立录制重建首级，不代表完整 Bloom、桌面 ROI、捕获 ROI
-  或 dirty Present 已经受支持。RTX 4060 4K 170 Hz SDR A/B 门槛通过并归档前也不发布性能收益声明。
+  完整金字塔 ROI 仍不代表 Differential Bloom、桌面 ROI、捕获 ROI 或 dirty Present 已经受支持。
+  0.2.6 的 RTX 4060 4K 170 Hz SDR A/B 门槛失败且未发布；0.2.7 的新 ABBA 通过并归档前不发布性能收益声明。
 - WGC 背景感知的外部录屏兼容性、会话长时间压力与 packaged 权限允许/拒绝矩阵。Control Center 中三种模式和
   “允许黄色捕获边框”仍是实验入口；“显示与性能”页的 HDR 开关、逐屏状态和帧率策略同样只是生产代码入口与
   诊断视图。本版不将 HDR、多显示器、混合 DPI/刷新率、跨适配器、真实 device lost 或 Session-local WGC

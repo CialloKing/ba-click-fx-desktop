@@ -2140,7 +2140,7 @@ gpuFxPathPerformanceSample(
         break;
     case bafx::windows::GpuTimestampEndStatus::SubmittedWithAutoSkippedStages:
         // An auto-skipped tail remains a submitted sample, but it also means
-        // the renderer failed to emit the complete v0.2.6 stage contract.
+        // the renderer failed to emit the complete v0.2.7 stage contract.
         sample.gpuFrameSubmitted = true;
         sample.gpuAutoSkippedStages = true;
         sample.gpuStateError = true;
