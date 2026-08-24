@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <limits>
 #include <random>
+#include <vector>
 
 using namespace bafx::core;
 
@@ -170,6 +171,387 @@ struct AxisRange
         && outer.bottom >= inner.bottom;
 }
 
+[[nodiscard]] bool containsPixel(
+    const RectI rect,
+    const std::int32_t x,
+    const std::int32_t y)
+{
+    return x >= rect.left && x < rect.right
+        && y >= rect.top && y < rect.bottom;
+}
+
+struct BooleanSupport
+{
+    BloomExtent extent{};
+    std::vector<std::uint8_t> pixels{};
+};
+
+[[nodiscard]] std::size_t supportIndex(
+    const BooleanSupport& support,
+    const std::int32_t x,
+    const std::int32_t y)
+{
+    return static_cast<std::size_t>(y)
+            * static_cast<std::size_t>(support.extent.width)
+        + static_cast<std::size_t>(x);
+}
+
+[[nodiscard]] bool supportAt(
+    const BooleanSupport& support,
+    const std::int32_t x,
+    const std::int32_t y)
+{
+    return support.pixels[supportIndex(support, x, y)] != 0U;
+}
+
+void setSupport(
+    BooleanSupport& support,
+    const std::int32_t x,
+    const std::int32_t y)
+{
+    support.pixels[supportIndex(support, x, y)] = 1U;
+}
+
+[[nodiscard]] BooleanSupport makeBooleanSupport(
+    const BloomExtent extent,
+    const RectI rect)
+{
+    BooleanSupport support{
+        extent,
+        std::vector<std::uint8_t>(
+            static_cast<std::size_t>(extent.width)
+                * static_cast<std::size_t>(extent.height),
+            0U)};
+    for (std::int32_t y = rect.top; y < rect.bottom; ++y)
+    {
+        for (std::int32_t x = rect.left; x < rect.right; ++x)
+        {
+            setSupport(support, x, y);
+        }
+    }
+    return support;
+}
+
+[[nodiscard]] std::array<std::int32_t, 2> oracleBilinearAxis(
+    const std::int32_t outputPixel,
+    const std::int32_t outputExtent,
+    const std::int32_t inputExtent,
+    const long double offset)
+{
+    const long double coordinate =
+        (static_cast<long double>(outputPixel) + 0.5L)
+            * inputExtent / outputExtent
+        - 0.5L + offset;
+    const auto first = static_cast<std::int64_t>(std::floor(coordinate));
+    const std::int64_t second = coordinate == std::floor(coordinate)
+        ? first
+        : first + 1;
+    return {
+        static_cast<std::int32_t>(
+            std::clamp<std::int64_t>(first, 0, inputExtent - 1)),
+        static_cast<std::int32_t>(
+            std::clamp<std::int64_t>(second, 0, inputExtent - 1))};
+}
+
+template <typename Visitor>
+void visitOracleSamples(
+    const std::int32_t outputX,
+    const std::int32_t outputY,
+    const BloomExtent outputExtent,
+    const BloomExtent inputExtent,
+    const long double offset,
+    const bool fourTap,
+    Visitor&& visitor)
+{
+    const std::array offsets{-offset, offset};
+    const std::size_t offsetCount = fourTap ? offsets.size() : 1U;
+    for (std::size_t yOffsetIndex = 0U;
+         yOffsetIndex < offsetCount;
+         ++yOffsetIndex)
+    {
+        const long double yOffset = fourTap ? offsets[yOffsetIndex] : 0.0L;
+        const auto sourceYs = oracleBilinearAxis(
+            outputY,
+            outputExtent.height,
+            inputExtent.height,
+            yOffset);
+        for (std::size_t xOffsetIndex = 0U;
+             xOffsetIndex < offsetCount;
+             ++xOffsetIndex)
+        {
+            const long double xOffset = fourTap
+                ? offsets[xOffsetIndex]
+                : 0.0L;
+            const auto sourceXs = oracleBilinearAxis(
+                outputX,
+                outputExtent.width,
+                inputExtent.width,
+                xOffset);
+            for (const std::int32_t sourceY : sourceYs)
+            {
+                for (const std::int32_t sourceX : sourceXs)
+                {
+                    visitor(sourceX, sourceY);
+                }
+            }
+        }
+    }
+}
+
+[[nodiscard]] BooleanSupport propagateBooleanSupport(
+    const BooleanSupport& input,
+    const BloomExtent outputExtent,
+    const long double offset,
+    const bool fourTap)
+{
+    BooleanSupport output{
+        outputExtent,
+        std::vector<std::uint8_t>(
+            static_cast<std::size_t>(outputExtent.width)
+                * static_cast<std::size_t>(outputExtent.height),
+            0U)};
+    for (std::int32_t y = 0; y < outputExtent.height; ++y)
+    {
+        for (std::int32_t x = 0; x < outputExtent.width; ++x)
+        {
+            bool anyInput = false;
+            visitOracleSamples(
+                x,
+                y,
+                outputExtent,
+                input.extent,
+                offset,
+                fourTap,
+                [&input, &anyInput](
+                    const std::int32_t sourceX,
+                    const std::int32_t sourceY)
+                {
+                    anyInput = anyInput
+                        || supportAt(input, sourceX, sourceY);
+                });
+            if (anyInput)
+            {
+                setSupport(output, x, y);
+            }
+        }
+    }
+    return output;
+}
+
+[[nodiscard]] BooleanSupport uniteBooleanSupport(
+    BooleanSupport lhs,
+    const BooleanSupport& rhs)
+{
+    BAFX_CHECK(lhs.extent.width == rhs.extent.width);
+    BAFX_CHECK(lhs.extent.height == rhs.extent.height);
+    for (std::size_t index = 0U; index < lhs.pixels.size(); ++index)
+    {
+        lhs.pixels[index] = static_cast<std::uint8_t>(
+            lhs.pixels[index] != 0U || rhs.pixels[index] != 0U);
+    }
+    return lhs;
+}
+
+void checkBooleanSupportContained(
+    const BooleanSupport& support,
+    const RectI rect)
+{
+    for (std::int32_t y = 0; y < support.extent.height; ++y)
+    {
+        for (std::int32_t x = 0; x < support.extent.width; ++x)
+        {
+            if (supportAt(support, x, y))
+            {
+                BAFX_CHECK(containsPixel(rect, x, y));
+            }
+        }
+    }
+}
+
+void checkBooleanDependencies(
+    const BooleanSupport& output,
+    const RectI outputRect,
+    const BooleanSupport& input,
+    const RectI inputRect,
+    const long double offset,
+    const bool fourTap)
+{
+    for (std::int32_t y = 0; y < output.extent.height; ++y)
+    {
+        for (std::int32_t x = 0; x < output.extent.width; ++x)
+        {
+            if (!supportAt(output, x, y))
+            {
+                continue;
+            }
+            BAFX_CHECK(containsPixel(outputRect, x, y));
+            const RectI dependencyBounds = oracleSampleDependency(
+                RectI{x, y, x + 1, y + 1},
+                output.extent,
+                input.extent,
+                fourTap ? offset : 0.0L);
+            visitOracleSamples(
+                x,
+                y,
+                output.extent,
+                input.extent,
+                offset,
+                fourTap,
+                [&input, inputRect, dependencyBounds](
+                    const std::int32_t sourceX,
+                    const std::int32_t sourceY)
+                {
+                    BAFX_CHECK(containsPixel(
+                        dependencyBounds,
+                        sourceX,
+                        sourceY));
+                    if (supportAt(input, sourceX, sourceY))
+                    {
+                        BAFX_CHECK(containsPixel(
+                            inputRect,
+                            sourceX,
+                            sourceY));
+                    }
+                });
+        }
+    }
+}
+
+struct BooleanBloomChain
+{
+    BooleanSupport source{};
+    std::vector<BooleanSupport> down{};
+    std::vector<BooleanSupport> up{};
+    BooleanSupport resolve{};
+};
+
+[[nodiscard]] BooleanBloomChain simulateBooleanBloom(
+    const BloomExtent monitorExtent,
+    const RectI localSourceSupport,
+    const UnityBloomPlan& bloom)
+{
+    BooleanBloomChain chain{};
+    chain.source = makeBooleanSupport(monitorExtent, localSourceSupport);
+    chain.down.reserve(bloom.mipCount);
+    chain.down.push_back(propagateBooleanSupport(
+        chain.source,
+        bloom.mipChain[0],
+        1.0L,
+        true));
+    for (std::size_t index = 1U; index < bloom.mipCount; ++index)
+    {
+        chain.down.push_back(propagateBooleanSupport(
+            chain.down[index - 1U],
+            bloom.mipChain[index],
+            1.0L,
+            true));
+    }
+
+    chain.up.resize(static_cast<std::size_t>(bloom.mipCount) - 1U);
+    BooleanSupport accumulated = chain.down.back();
+    const long double upsampleOffset =
+        static_cast<long double>(bloom.sampleScale) * 0.5L;
+    for (std::size_t coarseIndex = bloom.mipCount - 1U;
+         coarseIndex > 0U;
+         --coarseIndex)
+    {
+        const std::size_t fineIndex = coarseIndex - 1U;
+        BooleanSupport coarse = propagateBooleanSupport(
+            accumulated,
+            bloom.mipChain[fineIndex],
+            upsampleOffset,
+            true);
+        const BooleanSupport fine = propagateBooleanSupport(
+            chain.down[fineIndex],
+            bloom.mipChain[fineIndex],
+            0.0L,
+            false);
+        chain.up[fineIndex] = uniteBooleanSupport(coarse, fine);
+        accumulated = chain.up[fineIndex];
+    }
+    chain.resolve = propagateBooleanSupport(
+        accumulated,
+        monitorExtent,
+        upsampleOffset,
+        true);
+    return chain;
+}
+
+void checkBooleanBloomPlan(
+    const BooleanBloomChain& chain,
+    const UnityBloomPassRoiPlan& roi,
+    const UnityBloomPlan& bloom,
+    const RectI localSourceSupport)
+{
+    const long double upsampleOffset =
+        static_cast<long double>(bloom.sampleScale) * 0.5L;
+    checkBooleanSupportContained(chain.down[0], roi.downRects[0]);
+    checkBooleanDependencies(
+        chain.down[0],
+        roi.downRects[0],
+        chain.source,
+        localSourceSupport,
+        1.0L,
+        true);
+    for (std::size_t index = 1U; index < bloom.mipCount; ++index)
+    {
+        checkBooleanSupportContained(
+            chain.down[index],
+            roi.downRects[index]);
+        checkBooleanDependencies(
+            chain.down[index],
+            roi.downRects[index],
+            chain.down[index - 1U],
+            roi.downRects[index - 1U],
+            1.0L,
+            true);
+    }
+
+    for (std::size_t fineIndex = 0U;
+         fineIndex + 1U < bloom.mipCount;
+         ++fineIndex)
+    {
+        checkBooleanSupportContained(
+            chain.up[fineIndex],
+            roi.upRects[fineIndex]);
+        const BooleanSupport& coarse = fineIndex + 2U < bloom.mipCount
+            ? chain.up[fineIndex + 1U]
+            : chain.down[fineIndex + 1U];
+        const RectI coarseRect = fineIndex + 2U < bloom.mipCount
+            ? roi.upRects[fineIndex + 1U]
+            : roi.downRects[fineIndex + 1U];
+        checkBooleanDependencies(
+            chain.up[fineIndex],
+            roi.upRects[fineIndex],
+            coarse,
+            coarseRect,
+            upsampleOffset,
+            true);
+        checkBooleanDependencies(
+            chain.up[fineIndex],
+            roi.upRects[fineIndex],
+            chain.down[fineIndex],
+            roi.downRects[fineIndex],
+            0.0L,
+            false);
+    }
+
+    const BooleanSupport& accumulated = bloom.mipCount == 1U
+        ? chain.down[0]
+        : chain.up[0];
+    const RectI accumulatedRect = bloom.mipCount == 1U
+        ? roi.downRects[0]
+        : roi.upRects[0];
+    checkBooleanSupportContained(chain.resolve, roi.resolveRect);
+    checkBooleanDependencies(
+        chain.resolve,
+        roi.resolveRect,
+        accumulated,
+        accumulatedRect,
+        upsampleOffset,
+        true);
+}
+
 [[nodiscard]] std::uint64_t rectArea(const RectI rect)
 {
     return static_cast<std::uint64_t>(rect.right - rect.left)
@@ -199,53 +581,17 @@ void checkUnityBloomPassDependencies(
 {
     BAFX_CHECK(roi.mipCount == bloom.mipCount);
     checkLocalRect(roi.resolveRect, monitorExtent);
-    const long double upsampleOffset =
-        static_cast<long double>(bloom.sampleScale) * 0.5L;
-    const RectI resolvedInput = oracleSampleDependency(
-        roi.resolveRect,
-        monitorExtent,
-        bloom.mipChain[0],
-        upsampleOffset);
-    const RectI accumulated = bloom.mipCount == 1U
-        ? roi.downRects[0]
-        : roi.upRects[0];
-    BAFX_CHECK(containsRect(accumulated, resolvedInput));
 
     for (std::size_t fineIndex = 0U;
          fineIndex + 1U < bloom.mipCount;
          ++fineIndex)
     {
         checkLocalRect(roi.upRects[fineIndex], bloom.mipChain[fineIndex]);
-        const RectI fineInput = oracleSampleDependency(
-            roi.upRects[fineIndex],
-            bloom.mipChain[fineIndex],
-            bloom.mipChain[fineIndex],
-            0.0L);
-        BAFX_CHECK(containsRect(roi.downRects[fineIndex], fineInput));
-
-        const RectI coarseInput = oracleSampleDependency(
-            roi.upRects[fineIndex],
-            bloom.mipChain[fineIndex],
-            bloom.mipChain[fineIndex + 1U],
-            upsampleOffset);
-        const RectI coarse = fineIndex + 2U < bloom.mipCount
-            ? roi.upRects[fineIndex + 1U]
-            : roi.downRects[fineIndex + 1U];
-        BAFX_CHECK(containsRect(coarse, coarseInput));
     }
 
     for (std::size_t index = 0U; index < bloom.mipCount; ++index)
     {
         checkLocalRect(roi.downRects[index], bloom.mipChain[index]);
-        if (index > 0U)
-        {
-            const RectI downInput = oracleSampleDependency(
-                roi.downRects[index],
-                bloom.mipChain[index],
-                bloom.mipChain[index - 1U],
-                1.0L);
-            BAFX_CHECK(containsRect(roi.downRects[index - 1U], downInput));
-        }
     }
 
     std::uint64_t expectedPyramidFull = 0U;
@@ -531,7 +877,7 @@ BAFX_TEST(roi_unity_bloom_pass_plan_uses_target_local_support_and_pixel_totals)
         bloom.plan);
 
     BAFX_CHECK(result.status == RoiStatus::Ok);
-    checkRect(result.plan.resolveRect, RectI{582, 152, 1368, 938});
+    checkRect(result.plan.resolveRect, RectI{770, 322, 1180, 775});
     checkRect(result.plan.basePlan.alignedWork, RectI{476, 178, 1308, 1010});
     checkUnityBloomPassDependencies(result.plan, bloom.plan, monitorExtent);
 }
@@ -581,6 +927,32 @@ BAFX_TEST(roi_unity_bloom_pass_plan_contains_moving_dirty_rects)
                 currentPlan.plan.upRects[index]));
         }
     }
+}
+
+BAFX_TEST(roi_unity_bloom_pass_plan_avoids_double_guard_for_4k_center_support)
+{
+    constexpr BloomExtent monitorExtent{3840, 2160};
+    const UnityBloomPlanResult bloom = planUnityBloom(
+        monitorExtent,
+        UnityBloomSettings{7.0F, 0.0F, 1.7F});
+    BAFX_CHECK(bloom.status == UnityBloomStatus::Ok);
+    const UnityBloomPassRoiPlanResult result = planUnityBloomPassRoi(
+        RectI{1880, 1040, 1960, 1120},
+        RectI{0, 0, monitorExtent.width, monitorExtent.height},
+        bloom.plan);
+    BAFX_CHECK(result.status == RoiStatus::Ok);
+
+    // A forward support pass keeps the 80x80 source near its true mip-0
+    // footprint instead of applying the complete Bloom guard a second time.
+    BAFX_CHECK(
+        result.plan.prefilterPixels.candidatePixels * 100U
+        < result.plan.prefilterPixels.fullPixels);
+    BAFX_CHECK(
+        result.plan.pyramidPixels.candidatePixels * 100U
+        <= result.plan.pyramidPixels.fullPixels * 45U);
+    BAFX_CHECK(
+        result.plan.totalPixels.candidatePixels * 100U
+        <= result.plan.totalPixels.fullPixels * 45U);
 }
 
 BAFX_TEST(roi_unity_bloom_pass_plan_covers_edges_odd_sizes_and_diffusions)
@@ -663,6 +1035,122 @@ BAFX_TEST(roi_unity_bloom_pass_plan_matches_sampling_oracle_for_random_rects)
             bloom.plan,
             BloomExtent{width, height});
     }
+}
+
+BAFX_TEST(roi_unity_bloom_pass_plan_contains_boolean_forward_support)
+{
+    constexpr std::array diffusions{4.0F, 6.0F, 7.0F, 10.0F};
+    std::mt19937_64 random(0xBAF0F207ULL);
+    for (std::size_t iteration = 0U; iteration < 1'000U; ++iteration)
+    {
+        const std::int32_t width = 9 + static_cast<std::int32_t>(
+            random() % 48U);
+        const std::int32_t height = 9 + static_cast<std::int32_t>(
+            random() % 48U);
+        RectI localSupport{};
+        switch (iteration % 8U)
+        {
+        case 0U:
+            localSupport = RectI{0, 0, 1, 1};
+            break;
+        case 1U:
+            localSupport = RectI{width - 1, 0, width, 1};
+            break;
+        case 2U:
+            localSupport = RectI{0, height - 1, 1, height};
+            break;
+        case 3U:
+            localSupport = RectI{
+                width - 1,
+                height - 1,
+                width,
+                height};
+            break;
+        default:
+        {
+            const std::int32_t left = static_cast<std::int32_t>(
+                random() % static_cast<std::uint64_t>(width));
+            const std::int32_t top = static_cast<std::int32_t>(
+                random() % static_cast<std::uint64_t>(height));
+            localSupport = RectI{
+                left,
+                top,
+                left + 1 + static_cast<std::int32_t>(
+                    random() % static_cast<std::uint64_t>(width - left)),
+                top + 1 + static_cast<std::int32_t>(
+                    random() % static_cast<std::uint64_t>(height - top))};
+            break;
+        }
+        }
+        const std::int32_t originX = -100 + static_cast<std::int32_t>(
+            random() % 201U);
+        const std::int32_t originY = -100 + static_cast<std::int32_t>(
+            random() % 201U);
+        const RectI monitor{
+            originX,
+            originY,
+            originX + width,
+            originY + height};
+        const RectI globalSupport{
+            originX + localSupport.left,
+            originY + localSupport.top,
+            originX + localSupport.right,
+            originY + localSupport.bottom};
+        const BloomExtent monitorExtent{width, height};
+        const UnityBloomPlanResult bloom = planUnityBloom(
+            monitorExtent,
+            UnityBloomSettings{
+                diffusions[iteration % diffusions.size()],
+                0.0F,
+                1.7F});
+        BAFX_CHECK(bloom.status == UnityBloomStatus::Ok);
+        const UnityBloomPassRoiPlanResult result = planUnityBloomPassRoi(
+            globalSupport,
+            monitor,
+            bloom.plan);
+        BAFX_CHECK(result.status == RoiStatus::Ok);
+
+        const BooleanBloomChain oracle = simulateBooleanBloom(
+            monitorExtent,
+            localSupport,
+            bloom.plan);
+        checkBooleanBloomPlan(
+            oracle,
+            result.plan,
+            bloom.plan,
+            localSupport);
+    }
+}
+
+BAFX_TEST(roi_unity_bloom_pass_plan_uses_forward_resolve_for_odd_mip_extents)
+{
+    constexpr BloomExtent monitorExtent{15, 44};
+    constexpr RectI sourceSupport{11, 35, 13, 41};
+    const UnityBloomPlanResult bloom = planUnityBloom(
+        monitorExtent,
+        UnityBloomSettings{4.0F, 0.0F, 1.7F});
+    BAFX_CHECK(bloom.status == UnityBloomStatus::Ok);
+    BAFX_CHECK(bloom.plan.mipCount == 1U);
+    const UnityBloomPassRoiPlanResult result = planUnityBloomPassRoi(
+        sourceSupport,
+        RectI{0, 0, monitorExtent.width, monitorExtent.height},
+        bloom.plan);
+    BAFX_CHECK(result.status == RoiStatus::Ok);
+
+    // Repeated floor division makes mip 0 wider than an exact half-scale.
+    // The legacy power-of-two guard misses x=6, which receives nonzero weight.
+    BAFX_CHECK(result.plan.basePlan.bloomOutput.left == 7);
+    BAFX_CHECK(result.plan.resolveRect.left == 6);
+    const BooleanBloomChain oracle = simulateBooleanBloom(
+        monitorExtent,
+        sourceSupport,
+        bloom.plan);
+    BAFX_CHECK(supportAt(oracle.resolve, 6, 32));
+    checkBooleanBloomPlan(
+        oracle,
+        result.plan,
+        bloom.plan,
+        sourceSupport);
 }
 
 BAFX_TEST(roi_unity_bloom_pass_plan_fails_closed_for_empty_invalid_and_overflow)

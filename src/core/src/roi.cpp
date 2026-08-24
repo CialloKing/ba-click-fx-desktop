@@ -191,6 +191,200 @@ namespace
         result.bottom);
 }
 
+[[nodiscard]] RoiStatus propagateSupportInterval(
+    const std::int32_t inputBegin,
+    const std::int32_t inputEnd,
+    const std::int32_t inputExtent,
+    const std::int32_t outputExtent,
+    const float sampleOffset,
+    std::int32_t& outputBegin,
+    std::int32_t& outputEnd) noexcept
+{
+    if (inputExtent <= 0 || outputExtent <= 0
+        || inputBegin < 0 || inputEnd > inputExtent
+        || inputBegin >= inputEnd
+        || !std::isfinite(sampleOffset) || sampleOffset < 0.0F)
+    {
+        return RoiStatus::InvalidRect;
+    }
+
+    const auto centerAt = [inputExtent, outputExtent](
+                              const std::int32_t outputPixel,
+                              long double& center)
+    {
+        std::int64_t doubled = 0;
+        std::int64_t product = 0;
+        std::int64_t numerator = 0;
+        std::int64_t denominator = 0;
+        if (!checkedMultiplyNonNegative(outputPixel, 2, doubled)
+            || !checkedAdd(doubled, 1, doubled)
+            || !checkedMultiplyNonNegative(doubled, inputExtent, product)
+            || !checkedAdd(product, -outputExtent, numerator)
+            || !checkedMultiplyNonNegative(outputExtent, 2, denominator))
+        {
+            return RoiStatus::IntegerOverflow;
+        }
+        center = static_cast<long double>(numerator)
+            / static_cast<long double>(denominator);
+        return std::isfinite(center)
+            ? RoiStatus::Ok
+            : RoiStatus::IntegerOverflow;
+    };
+    const long double offset = sampleOffset;
+    const auto reachesLowerSupport = [
+                                         inputBegin,
+                                         offset,
+                                         &centerAt](
+                                         const std::int32_t outputPixel,
+                                         bool& reaches)
+    {
+        long double center = 0.0L;
+        const RoiStatus status = centerAt(outputPixel, center);
+        if (status != RoiStatus::Ok)
+        {
+            return status;
+        }
+        // Clamp addressing makes the first texel reachable from every sample
+        // position beyond the left edge. Otherwise bilinear weight is nonzero
+        // only while the rightmost tap is strictly past inputBegin - 1. Round
+        // outward so CPU precision can never trim a GPU boundary sample.
+        long double rightmost = center + offset;
+        rightmost = std::nextafter(
+            std::nextafter(
+                rightmost,
+                std::numeric_limits<long double>::infinity()),
+            std::numeric_limits<long double>::infinity());
+        reaches = inputBegin == 0
+            || rightmost > static_cast<long double>(inputBegin - 1);
+        return RoiStatus::Ok;
+    };
+    const auto remainsBeforeUpperSupport = [
+                                               inputEnd,
+                                               inputExtent,
+                                               offset,
+                                               &centerAt](
+                                               const std::int32_t outputPixel,
+                                               bool& remains)
+    {
+        long double center = 0.0L;
+        const RoiStatus status = centerAt(outputPixel, center);
+        if (status != RoiStatus::Ok)
+        {
+            return status;
+        }
+        // The last texel is likewise extended by clamp addressing. Away from
+        // that border, the leftmost tap must stay strictly below inputEnd.
+        long double leftmost = center - offset;
+        leftmost = std::nextafter(
+            std::nextafter(
+                leftmost,
+                -std::numeric_limits<long double>::infinity()),
+            -std::numeric_limits<long double>::infinity());
+        remains = inputEnd == inputExtent
+            || leftmost < static_cast<long double>(inputEnd);
+        return RoiStatus::Ok;
+    };
+
+    // Sample centers move monotonically with unchanged full-target UVs. Binary
+    // search their nonzero kernel intersection instead of scanning a 4K target.
+    std::int32_t lower = 0;
+    std::int32_t upper = outputExtent;
+    while (lower < upper)
+    {
+        const std::int32_t middle = lower + (upper - lower) / 2;
+        bool reaches = false;
+        const RoiStatus status = reachesLowerSupport(middle, reaches);
+        if (status != RoiStatus::Ok)
+        {
+            return status;
+        }
+        if (!reaches)
+        {
+            lower = middle + 1;
+        }
+        else
+        {
+            upper = middle;
+        }
+    }
+    outputBegin = lower;
+
+    lower = outputBegin;
+    upper = outputExtent;
+    while (lower < upper)
+    {
+        const std::int32_t middle = lower + (upper - lower) / 2;
+        bool remains = false;
+        const RoiStatus status = remainsBeforeUpperSupport(middle, remains);
+        if (status != RoiStatus::Ok)
+        {
+            return status;
+        }
+        if (remains)
+        {
+            lower = middle + 1;
+        }
+        else
+        {
+            upper = middle;
+        }
+    }
+    outputEnd = lower;
+    if (outputBegin >= outputEnd)
+    {
+        return RoiStatus::Empty;
+    }
+
+    bool reaches = false;
+    bool remains = false;
+    const RoiStatus lowerStatus = reachesLowerSupport(outputBegin, reaches);
+    const RoiStatus upperStatus = remainsBeforeUpperSupport(
+        outputBegin,
+        remains);
+    if (lowerStatus != RoiStatus::Ok)
+    {
+        return lowerStatus;
+    }
+    if (upperStatus != RoiStatus::Ok)
+    {
+        return upperStatus;
+    }
+    if (!reaches || !remains)
+    {
+        return RoiStatus::Empty;
+    }
+    return RoiStatus::Ok;
+}
+
+[[nodiscard]] RoiStatus propagateSupportRect(
+    const RectI inputSupport,
+    const BloomExtent inputExtent,
+    const BloomExtent outputExtent,
+    const float sampleOffset,
+    RectI& result) noexcept
+{
+    const RoiStatus horizontal = propagateSupportInterval(
+        inputSupport.left,
+        inputSupport.right,
+        inputExtent.width,
+        outputExtent.width,
+        sampleOffset,
+        result.left,
+        result.right);
+    if (horizontal != RoiStatus::Ok)
+    {
+        return horizontal;
+    }
+    return propagateSupportInterval(
+        inputSupport.top,
+        inputSupport.bottom,
+        inputExtent.height,
+        outputExtent.height,
+        sampleOffset,
+        result.top,
+        result.bottom);
+}
+
 [[nodiscard]] bool checkedAddPixels(
     const std::uint64_t value,
     std::uint64_t& total) noexcept
@@ -525,24 +719,106 @@ UnityBloomPassRoiPlanResult planUnityBloomPassRoi(
     const auto upsampleRadius = static_cast<std::uint32_t>(radiusValue);
     constexpr std::uint32_t downsampleRadius = 2U;
     constexpr std::uint32_t linearSampleRadius = 1U;
+    constexpr float downsampleOffset = 1.0F;
+    constexpr float linearSampleOffset = 0.0F;
+    const float upsampleOffset = bloomPlan.sampleScale * 0.5F;
 
-    // bloomOutput is the semantic full-resolution support. alignedWork remains
-    // available in basePlan for phase diagnostics, but its padding must not be
-    // reported as valid Bloom output. Scissoring leaves the original viewport,
-    // UVs and pixel centers untouched.
-    result.plan.resolveRect = RectI{
+    const RectI clippedSourceSupport = intersect(sourceSupport, monitorBounds);
+    if (!isValidRect(clippedSourceSupport) || isEmpty(clippedSourceSupport))
+    {
+        result.status = RoiStatus::Empty;
+        return result;
+    }
+    const RectI localSourceSupport{
         static_cast<std::int32_t>(
-            static_cast<std::int64_t>(base.plan.bloomOutput.left)
+            static_cast<std::int64_t>(clippedSourceSupport.left)
             - monitorBounds.left),
         static_cast<std::int32_t>(
-            static_cast<std::int64_t>(base.plan.bloomOutput.top)
+            static_cast<std::int64_t>(clippedSourceSupport.top)
             - monitorBounds.top),
         static_cast<std::int32_t>(
-            static_cast<std::int64_t>(base.plan.bloomOutput.right)
+            static_cast<std::int64_t>(clippedSourceSupport.right)
             - monitorBounds.left),
         static_cast<std::int32_t>(
-            static_cast<std::int64_t>(base.plan.bloomOutput.bottom)
+            static_cast<std::int64_t>(clippedSourceSupport.bottom)
             - monitorBounds.top)};
+
+    std::array<RectI, unityBloomMaxMipCount> forwardDownRects{};
+    std::array<RectI, unityBloomMaxMipCount - 1U> forwardUpRects{};
+    result.status = propagateSupportRect(
+        localSourceSupport,
+        monitorExtent,
+        bloomPlan.mipChain[0],
+        downsampleOffset,
+        forwardDownRects[0]);
+    if (result.status != RoiStatus::Ok)
+    {
+        return result;
+    }
+    for (std::size_t index = 1U; index < bloomPlan.mipCount; ++index)
+    {
+        result.status = propagateSupportRect(
+            forwardDownRects[index - 1U],
+            bloomPlan.mipChain[index - 1U],
+            bloomPlan.mipChain[index],
+            downsampleOffset,
+            forwardDownRects[index]);
+        if (result.status != RoiStatus::Ok)
+        {
+            return result;
+        }
+    }
+
+    RectI forwardAccumulated =
+        forwardDownRects[bloomPlan.mipCount - 1U];
+    for (std::size_t coarseIndex = bloomPlan.mipCount - 1U;
+         coarseIndex > 0U;
+         --coarseIndex)
+    {
+        const std::size_t fineIndex = coarseIndex - 1U;
+        RectI coarseSupport{};
+        RectI fineSupport{};
+        result.status = propagateSupportRect(
+            forwardAccumulated,
+            bloomPlan.mipChain[coarseIndex],
+            bloomPlan.mipChain[fineIndex],
+            upsampleOffset,
+            coarseSupport);
+        if (result.status != RoiStatus::Ok)
+        {
+            return result;
+        }
+        result.status = propagateSupportRect(
+            forwardDownRects[fineIndex],
+            bloomPlan.mipChain[fineIndex],
+            bloomPlan.mipChain[fineIndex],
+            linearSampleOffset,
+            fineSupport);
+        if (result.status != RoiStatus::Ok)
+        {
+            return result;
+        }
+        forwardUpRects[fineIndex] = unite(coarseSupport, fineSupport);
+        forwardAccumulated = forwardUpRects[fineIndex];
+    }
+
+    RectI forwardResolveRect{};
+    result.status = propagateSupportRect(
+        forwardAccumulated,
+        bloomPlan.mipChain[0],
+        monitorExtent,
+        upsampleOffset,
+        forwardResolveRect);
+    if (result.status != RoiStatus::Ok)
+    {
+        return result;
+    }
+
+    // The legacy power-of-two guard remains in basePlan for diagnostics, but
+    // odd mip extents can make their normalized scale slightly larger than two.
+    // Use the full-UV forward result as the semantic resolve support so that
+    // those edge pixels are never clipped by the legacy approximation.
+    result.plan.resolveRect = forwardResolveRect;
     if (!isValidRect(result.plan.resolveRect)
         || isEmpty(result.plan.resolveRect))
     {
@@ -655,11 +931,32 @@ UnityBloomPassRoiPlanResult planUnityBloomPassRoi(
         includeDownRect(index - 1U, previousDependency);
     }
 
+    // Backward rectangles answer what the retained resolve pixels can read;
+    // forward rectangles answer what can be nonzero. Their intersection omits
+    // known-zero work while retaining every contributing dependency.
     for (std::size_t index = 0U; index < bloomPlan.mipCount; ++index)
     {
+        if (hasDownRect[index])
+        {
+            result.plan.downRects[index] = intersect(
+                result.plan.downRects[index],
+                forwardDownRects[index]);
+        }
         if (!hasDownRect[index]
             || !isValidRect(result.plan.downRects[index])
             || isEmpty(result.plan.downRects[index]))
+        {
+            result.status = RoiStatus::Empty;
+            return result;
+        }
+    }
+    for (std::size_t index = 0U; index + 1U < bloomPlan.mipCount; ++index)
+    {
+        result.plan.upRects[index] = intersect(
+            result.plan.upRects[index],
+            forwardUpRects[index]);
+        if (!isValidRect(result.plan.upRects[index])
+            || isEmpty(result.plan.upRects[index]))
         {
             result.status = RoiStatus::Empty;
             return result;

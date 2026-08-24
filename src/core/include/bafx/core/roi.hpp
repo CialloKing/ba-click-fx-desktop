@@ -154,8 +154,9 @@ struct UnityBloomPassRoiPlanResult
     const UnityBloomPlan& bloomPlan) noexcept;
 
 // Produce target-local half-open rectangles for the unchanged Unity Bloom
-// viewport and mip chain. The final composite remains full-screen; resolveRect
-// identifies the region where its Bloom lookup is valid.
+// viewport and mip chain. Pass rectangles retain both forward nonzero support
+// and backward contributing dependencies. resolveRect comes from the full-UV
+// forward chain; basePlan's legacy guard remains diagnostic only.
 [[nodiscard]] UnityBloomPassRoiPlanResult planUnityBloomPassRoi(
     RectI sourceSupport,
     RectI monitorBounds,
