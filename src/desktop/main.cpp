@@ -14,6 +14,7 @@
 #include "bafx/windows/startup_registration.hpp"
 #include "bafx/windows/unique_handle.hpp"
 #include "background_capture_runtime.hpp"
+#include "demo_scenario.hpp"
 #include "display_output_retarget.hpp"
 #include "display_policy.hpp"
 #include "display_pointer_router.hpp"
@@ -1422,6 +1423,8 @@ struct RunOptions
     bool disableRawInput{false};
     bool spout2{false};
     std::uint32_t demoDelayMilliseconds{0U};
+    bafx::desktop::DemoScenario demoScenario{
+        bafx::desktop::DemoScenario::CenterClick};
 };
 
 [[nodiscard]] bool productSystemIntegrationEnabled(
@@ -1474,6 +1477,7 @@ struct PointerConsumptionDiagnostics
 [[nodiscard]] RunOptions parseOptions()
 {
     RunOptions options{};
+    bool demoScenarioSpecified = false;
     const int argumentCount = __argc;
     for (int index = 1; index < argumentCount; ++index)
     {
@@ -1516,6 +1520,25 @@ struct PointerConsumptionDiagnostics
         else if (argument == L"--demo-click")
         {
             options.demoClick = true;
+        }
+        else if (argument.starts_with(L"--demo-scenario="))
+        {
+            if (demoScenarioSpecified)
+            {
+                throw std::invalid_argument(
+                    "--demo-scenario may be specified only once");
+            }
+            const std::optional<bafx::desktop::DemoScenario> scenario =
+                bafx::desktop::parseDemoScenario(argument.substr(16U));
+            if (!scenario.has_value())
+            {
+                throw std::invalid_argument(
+                    "--demo-scenario requires center-click, interior-trail, "
+                    "or boundary-top-left");
+            }
+            demoScenarioSpecified = true;
+            options.demoClick = true;
+            options.demoScenario = *scenario;
         }
         else if (argument == L"--disable-raw-input")
         {
@@ -1572,6 +1595,15 @@ struct PointerConsumptionDiagnostics
                 options.quitAfterMilliseconds = static_cast<std::uint32_t>(parsed);
             }
         }
+    }
+    const std::uint32_t scenarioDurationMilliseconds =
+        static_cast<std::uint32_t>(
+            bafx::desktop::demoScenarioDuration(options.demoScenario).count());
+    if (options.demoAgeMilliseconds.has_value()
+        && *options.demoAgeMilliseconds < scenarioDurationMilliseconds)
+    {
+        throw std::invalid_argument(
+            "--demo-age-ms is younger than the selected demo scenario");
     }
     return options;
 }
@@ -3520,21 +3552,51 @@ int runApplication(
         return false;
     };
     std::optional<bafx::fx::SimulationTime> demoStartedAt;
-    const auto startDemoClick =
+    const auto startDemoScenario =
         [&](const bafx::fx::SimulationTime time)
         {
             const bafx::fx::Viewport viewport = toViewport(window.size());
-            demoStartedAt = time;
-            simulation.pointerDown(
-                bafx::fx::PointF{
-                    static_cast<float>(viewport.width) * 0.5F,
-                    static_cast<float>(viewport.height) * 0.5F},
+            const std::chrono::milliseconds scenarioDuration =
+                bafx::desktop::demoScenarioDuration(options.demoScenario);
+            // Dynamic demos must not enqueue future-dated input. Fixed-age
+            // demos retain the authored origin because their first snapshot
+            // is guaranteed to be at or beyond the complete event sequence.
+            const bafx::fx::SimulationTime scenarioStartedAt =
+                options.demoAgeMilliseconds.has_value()
+                ? time
+                : time - scenarioDuration;
+            demoStartedAt = scenarioStartedAt;
+            // Internal baselines own their complete input stream. Bypass the
+            // user's optional raw-input sampler so every run uses all points.
+            simulation.setInputSamplingRateHz(0U);
+            const bafx::desktop::DemoScenarioPlan plan =
+                bafx::desktop::makeDemoScenarioPlan(
+                    options.demoScenario,
+                    viewport,
+                    scenarioStartedAt);
+            bafx::desktop::executeDemoScenarioPlan(
+                simulation,
                 viewport,
-                time);
+                plan);
+            const std::string eventCount = std::to_string(plan.eventCount);
+            const std::string fixedAge =
+                options.demoAgeMilliseconds.has_value()
+                ? std::to_string(*options.demoAgeMilliseconds)
+                : std::string("dynamic");
+            const std::array fields{
+                bafx::windows::DiagnosticField{
+                    "Scenario",
+                    bafx::desktop::demoScenarioName(options.demoScenario)},
+                bafx::windows::DiagnosticField{"Events", eventCount},
+                bafx::windows::DiagnosticField{"AgeMs", fixedAge}};
+            bafx::windows::appendDiagnosticEvent(
+                logPath,
+                "Demo.Scenario.Started",
+                fields);
         };
     if (options.demoClick && options.demoDelayMilliseconds == 0U)
     {
-        startDemoClick(applicationStartedAt);
+        startDemoScenario(applicationStartedAt);
     }
 
     bool quit = false;
@@ -6475,7 +6537,7 @@ int runApplication(
         {
             // A capture baseline can let WGC accumulate a fresh sample before
             // starting the visible batch that is intentionally path-latched.
-            startDemoClick(wallTime);
+            startDemoScenario(wallTime);
         }
         simulationTimeline.setPaused(controlState.paused, wallTime);
         const bafx::fx::SimulationTime renderTime =
@@ -7293,7 +7355,8 @@ int runApplication(
                 config,
                 renderTime,
                 wallTime,
-                !controlState.paused || enteringPause,
+                (!controlState.paused || enteringPause)
+                    && !options.demoAgeMilliseconds.has_value(),
                 // Paused DComp surfaces can persist indefinitely. Secondary
                 // displays need the same fresh-background boundary as the
                 // coordinator before retaining that frame.
@@ -7318,7 +7381,10 @@ int runApplication(
         }
         if (renderCoordinatorThisIteration)
         {
-            if (!controlState.paused || enteringPause)
+            // A fixed-age baseline is a repeated observation of one authored
+            // frame, so presentation must not retire its backing FX instance.
+            if ((!controlState.paused || enteringPause)
+                && !options.demoAgeMilliseconds.has_value())
             {
                 // Pool cleanup belongs after the boundary presentation.
                 // Simulation time freezes during product pause, while the
