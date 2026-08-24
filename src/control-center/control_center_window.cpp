@@ -743,11 +743,13 @@ void initializeFramePacingCombo(const HWND comboBox) noexcept
     case ActiveFxRoiPathState::Idle:
         return L"空闲";
     case ActiveFxRoiPathState::FullScreen:
-        return L"全屏首级";
+        return L"全屏 Bloom";
     case ActiveFxRoiPathState::RoiWarmup:
-        return L"ROI 预热";
+        return L"ROI 金字塔预热";
     case ActiveFxRoiPathState::RoiPrefilter:
         return L"ROI 首级";
+    case ActiveFxRoiPathState::RoiPyramid:
+        return L"ROI 完整金字塔";
     case ActiveFxRoiPathState::Unavailable:
         return L"不可用";
     }
@@ -828,19 +830,36 @@ void appendActiveFxRoiGpuStage(
 }
 
 [[nodiscard]] std::wstring activeFxRoiPixelRatioText(
-    const ActiveFxRoiPathRuntimeState& path)
+    const std::uint64_t drawnPixels,
+    const std::uint64_t fullPixels)
 {
-    if (path.fullPixels == 0U)
+    if (fullPixels == 0U)
     {
         return L"--";
     }
-    const double ratio = static_cast<double>(path.drawnPixels)
+    const double ratio = static_cast<double>(drawnPixels)
         * 100.0
-        / static_cast<double>(path.fullPixels);
+        / static_cast<double>(fullPixels);
     std::wostringstream stream;
     stream.imbue(std::locale::classic());
     stream << std::fixed << std::setprecision(1) << ratio << L"%";
     return stream.str();
+}
+
+void appendActiveFxRoiStageDetails(
+    std::wostringstream& details,
+    const std::wstring_view label,
+    const ActiveFxRoiStageState& stage)
+{
+    details << L"\r\n  " << label << L" 完整/候选/绘制/清理："
+            << stage.fullPixels << L"/"
+            << stage.candidatePixels << L"/"
+            << stage.drawnPixels << L"/"
+            << stage.clearedPixels
+            << L" | 绘制 "
+            << activeFxRoiPixelRatioText(
+                stage.drawnPixels,
+                stage.fullPixels);
 }
 
 void appendActiveFxRoiPathDetails(
@@ -856,19 +875,36 @@ void appendActiveFxRoiPathDetails(
             << (path.executed ? L"是" : L"否") << L"/"
             << (path.eligible ? L"是" : L"否") << L"/"
             << (path.warmup ? L"是" : L"否")
-            << L"\r\n窗口帧 观察/请求/合格/应用/预热："
+            << L"\r\n窗口帧 观察/请求/合格/应用/预热/回退："
             << path.observedFrames << L"/"
             << path.requestedFrames << L"/"
             << path.eligibleFrames << L"/"
             << path.appliedFrames << L"/"
-            << path.warmupFrames
-            << L"\r\n首级像素 完整/绘制/清理："
+            << path.warmupFrames << L"/"
+            << path.fallbackFrames
+            << L"\r\nBloom 像素 完整/候选/绘制/清理："
             << path.fullPixels << L"/"
+            << path.candidatePixels << L"/"
             << path.drawnPixels << L"/"
             << path.clearedPixels
             << L" | 绘制处理比例 "
-            << activeFxRoiPixelRatioText(path)
-            << L"\r\nDirty " << activeFxRoiRectText(path.dirtyRect)
+            << activeFxRoiPixelRatioText(
+                path.drawnPixels,
+                path.fullPixels);
+    appendActiveFxRoiStageDetails(
+        details,
+        L"Prefilter",
+        path.stages.prefilter);
+    appendActiveFxRoiStageDetails(
+        details,
+        L"Downsample",
+        path.stages.downsample);
+    appendActiveFxRoiStageDetails(
+        details,
+        L"Upsample",
+        path.stages.upsample);
+    appendActiveFxRoiStageDetails(details, L"Resolve", path.stages.resolve);
+    details << L"\r\nDirty " << activeFxRoiRectText(path.dirtyRect)
             << L" | Aligned " << activeFxRoiRectText(path.alignedRect)
             << L"\r\nGuard " << path.guardX << L" x " << path.guardY
             << L" | Phase " << path.phase
@@ -6336,7 +6372,7 @@ void ControlCenterWindow::updateDisplayPolicyControls() noexcept
         : bafx::config::resolveDisplayPolicy(config_, {});
     if (offlineOverride != nullptr)
     {
-        // Offline entries come from the Host's authoritative schema-3 list.
+        // Offline entries come from the Host's authoritative schema-4 list.
         // Do not replace that runtime fact with a separately fetched config.
         policy.enabled = offlineOverride->enabled;
         policy.hdrEnabled = offlineOverride->hdrEnabled;
@@ -6639,7 +6675,8 @@ void ControlCenterWindow::updateActiveFxRoiDetails()
             << L" | 帧 " << roi.lastFrameId
             << L"\r\n窗口 " << roi.sampleWindowMs
             << L" ms | 样本年龄 " << roi.sampleAgeMs << L" ms"
-            << L"\r\n仅优化纯特效 Bloom 首级；像素处理比例不等于 GPU 节省。";
+            << L"\r\nBloom 金字塔可局部执行；最终场景合成仍保持全屏。"
+            << L"像素处理比例不等于 GPU 节省。";
     if (!displayStateRefreshWarning_.empty())
     {
         details << L"\r\n刷新警告：" << displayStateRefreshWarning_;

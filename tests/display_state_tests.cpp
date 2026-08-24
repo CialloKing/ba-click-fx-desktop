@@ -9,29 +9,35 @@ namespace
 {
 
 constexpr std::string_view validEmptyDisplayState =
-    R"({"schemaVersion":3,"runtimeGeneration":7,"configGeneration":11,"appliedConfigGeneration":10,"topologyStatus":"complete","topologyError":0,"offlineOverridesAuthoritative":true,"offlineOverrides":[],"sessions":[]})";
+    R"({"schemaVersion":4,"runtimeGeneration":7,"configGeneration":11,"appliedConfigGeneration":10,"topologyStatus":"complete","topologyError":0,"offlineOverridesAuthoritative":true,"offlineOverrides":[],"sessions":[]})";
 
 }
 
-BAFX_TEST(display_state_schema_three_accepts_a_complete_empty_snapshot)
+BAFX_TEST(display_state_schema_four_accepts_a_complete_empty_snapshot)
 {
     const bafx::control_center::DisplayStateParseResult result =
         bafx::control_center::parseDisplayState(validEmptyDisplayState);
 
     BAFX_CHECK(result.succeeded());
-    BAFX_CHECK(result.state->schemaVersion == 3U);
+    BAFX_CHECK(result.state->schemaVersion == 4U);
     BAFX_CHECK(result.state->runtimeGeneration == 7U);
     BAFX_CHECK(result.state->configGeneration == 11U);
     BAFX_CHECK(result.state->appliedConfigGeneration == 10U);
     BAFX_CHECK(result.state->offlineOverridesAuthoritative);
 }
 
-BAFX_TEST(display_state_schema_three_rejects_old_unknown_and_duplicate_fields)
+BAFX_TEST(display_state_schema_four_rejects_old_future_unknown_and_duplicate_fields)
 {
     std::string oldSchema(validEmptyDisplayState);
-    oldSchema.replace(oldSchema.find("\"schemaVersion\":3"), 17U,
-        "\"schemaVersion\":2");
+    oldSchema.replace(oldSchema.find("\"schemaVersion\":4"), 17U,
+        "\"schemaVersion\":3");
     BAFX_CHECK(!bafx::control_center::parseDisplayState(oldSchema).succeeded());
+
+    std::string futureSchema(validEmptyDisplayState);
+    futureSchema.replace(futureSchema.find("\"schemaVersion\":4"), 17U,
+        "\"schemaVersion\":5");
+    BAFX_CHECK(
+        !bafx::control_center::parseDisplayState(futureSchema).succeeded());
 
     std::string unknownField(validEmptyDisplayState);
     unknownField.insert(unknownField.size() - 1U, ",\"futureField\":true");
@@ -46,7 +52,7 @@ BAFX_TEST(display_state_schema_three_rejects_old_unknown_and_duplicate_fields)
         !bafx::control_center::parseDisplayState(duplicateField).succeeded());
 }
 
-BAFX_TEST(display_state_schema_three_requires_authoritative_offline_topology)
+BAFX_TEST(display_state_schema_four_requires_authoritative_offline_topology)
 {
     std::string contradictory(validEmptyDisplayState);
     contradictory.replace(
@@ -58,7 +64,7 @@ BAFX_TEST(display_state_schema_three_requires_authoritative_offline_topology)
         !bafx::control_center::parseDisplayState(contradictory).succeeded());
 }
 
-BAFX_TEST(display_state_schema_three_accepts_unlimited_display_overrides)
+BAFX_TEST(display_state_schema_four_accepts_unlimited_display_overrides)
 {
     std::string state(validEmptyDisplayState);
     state.replace(

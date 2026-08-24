@@ -438,6 +438,32 @@ void appendActiveFxRoiGpuPercentiles(
     stream << '}';
 }
 
+void appendActiveFxRoiStage(
+    std::ostringstream& stream,
+    const bafx::windows::ActiveFxRoiStageRuntimeSummary& stage)
+{
+    stream << "{\"fullPixels\":" << stage.fullPixels
+           << ",\"candidatePixels\":" << stage.candidatePixels
+           << ",\"drawnPixels\":" << stage.drawnPixels
+           << ",\"clearedPixels\":" << stage.clearedPixels
+           << '}';
+}
+
+void appendActiveFxRoiStages(
+    std::ostringstream& stream,
+    const bafx::windows::ActiveFxRoiStagesRuntimeSummary& stages)
+{
+    stream << "{\"prefilter\":";
+    appendActiveFxRoiStage(stream, stages.prefilter);
+    stream << ",\"downsample\":";
+    appendActiveFxRoiStage(stream, stages.downsample);
+    stream << ",\"upsample\":";
+    appendActiveFxRoiStage(stream, stages.upsample);
+    stream << ",\"resolve\":";
+    appendActiveFxRoiStage(stream, stages.resolve);
+    stream << '}';
+}
+
 void appendActiveFxRoiPath(
     std::ostringstream& stream,
     const bafx::windows::ActiveFxRoiPathRuntimeSummary& path)
@@ -457,7 +483,9 @@ void appendActiveFxRoiPath(
            << ",\"eligibleFrames\":" << path.eligibleFrames
            << ",\"appliedFrames\":" << path.appliedFrames
            << ",\"warmupFrames\":" << path.warmupFrames
+           << ",\"fallbackFrames\":" << path.fallbackFrames
            << ",\"fullPixels\":" << path.fullPixels
+           << ",\"candidatePixels\":" << path.candidatePixels
            << ",\"drawnPixels\":" << path.drawnPixels
            << ",\"clearedPixels\":" << path.clearedPixels
            << ",\"guardX\":" << path.guardX
@@ -467,6 +495,8 @@ void appendActiveFxRoiPath(
     appendActiveFxRoiRect(stream, path.dirtyRect);
     stream << ",\"alignedRect\":";
     appendActiveFxRoiRect(stream, path.alignedRect);
+    stream << ",\"stages\":";
+    appendActiveFxRoiStages(stream, path.stages);
     stream << ",\"gpu\":{\"prefilter\":";
     appendActiveFxRoiGpuPercentiles(stream, path.gpu.prefilter);
     stream << ",\"pyramid\":";
@@ -1487,7 +1517,7 @@ std::string HostControlPlane::displayStateJson(
     const DisplayStateSnapshot& state)
 {
     std::ostringstream stream;
-    stream << "{\"schemaVersion\":3"
+    stream << "{\"schemaVersion\":4"
            << ",\"runtimeGeneration\":" << state.runtimeGeneration
            << ",\"configGeneration\":" << state.configGeneration
            << ",\"appliedConfigGeneration\":"

@@ -210,6 +210,17 @@ void appendActiveFxRoiPath(
     const std::string_view prefix,
     const ActiveFxRoiPathPerformanceSummary& summary)
 {
+    const auto appendStage = [&fields](
+        const std::string& stageBase,
+        const ActiveFxRoiStagePixelDiagnostics& stage)
+    {
+        fields.add(stageBase + ".FullPixels.Total", stage.fullPixels);
+        fields.add(
+            stageBase + ".CandidatePixels.Total",
+            stage.candidatePixels);
+        fields.add(stageBase + ".DrawnPixels.Total", stage.drawnPixels);
+        fields.add(stageBase + ".ClearedPixels.Total", stage.clearedPixels);
+    };
     const std::string base(prefix);
     fields.add(base + ".ObservedFrames", summary.observedFrames);
     fields.add(base + ".RequestedFrames", summary.requestedFrames);
@@ -217,9 +228,15 @@ void appendActiveFxRoiPath(
     fields.add(base + ".ExecutedFrames", summary.executedFrames);
     fields.add(base + ".AppliedFrames", summary.appliedFrames);
     fields.add(base + ".WarmupFrames", summary.warmupFrames);
+    fields.add(base + ".FallbackFrames", summary.fallbackFrames);
     fields.add(base + ".FullPixels.Total", summary.fullPixelsTotal);
+    fields.add(base + ".CandidatePixels.Total", summary.candidatePixelsTotal);
     fields.add(base + ".DrawnPixels.Total", summary.drawnPixelsTotal);
     fields.add(base + ".ClearedPixels.Total", summary.clearedPixelsTotal);
+    appendStage(base + ".Stage.Prefilter", summary.stages.prefilter);
+    appendStage(base + ".Stage.Downsample", summary.stages.downsample);
+    appendStage(base + ".Stage.Upsample", summary.stages.upsample);
+    appendStage(base + ".Stage.Resolve", summary.stages.resolve);
     fields.add(
         base + ".PixelCoverageSemantic",
         "drawn-and-cleared-command-coverage-not-gpu-time-savings");
@@ -477,7 +494,7 @@ std::chrono::nanoseconds appendPerformanceInterval(
         fields.add(
             "ROI.ProductionPath",
             config.performance.activeFxRoiEnabled
-                ? "active-fx-prefilter-with-full-screen-fallback"
+                ? "active-fx-pyramid-with-full-screen-fallback"
                 : "disabled-full-screen");
         fields.add("ROI.FinalCompositePath", "full-screen");
         fields.add("ROI.WgcCopyPath", "full-screen");

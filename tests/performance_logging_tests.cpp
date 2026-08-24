@@ -150,7 +150,7 @@ BAFX_TEST(performance_log_preserves_metric_and_semantic_fields)
         "Timing.PresentMode=interval-0-frame-latency-gated\n")
         != std::string::npos);
     BAFX_CHECK(text.find(
-        "ROI.ProductionPath=active-fx-prefilter-with-full-screen-fallback\n")
+        "ROI.ProductionPath=active-fx-pyramid-with-full-screen-fallback\n")
         != std::string::npos);
     BAFX_CHECK(text.find("ROI.FinalCompositePath=full-screen\n")
         != std::string::npos);
@@ -188,7 +188,26 @@ BAFX_TEST(performance_log_preserves_metric_and_semantic_fields)
         != std::string::npos);
     BAFX_CHECK(text.find("ROI.Primary.AppliedFrames=1\n")
         != std::string::npos);
+    BAFX_CHECK(text.find("ROI.Primary.FallbackFrames=0\n")
+        != std::string::npos);
+    BAFX_CHECK(text.find("ROI.Primary.CandidatePixels.Total=0\n")
+        != std::string::npos);
     BAFX_CHECK(text.find("ROI.Primary.DrawnPixels.Total=40\n")
+        != std::string::npos);
+    BAFX_CHECK(text.find(
+        "ROI.Primary.Stage.Prefilter.FullPixels.Total=100\n")
+        != std::string::npos);
+    BAFX_CHECK(text.find(
+        "ROI.Primary.Stage.Prefilter.CandidatePixels.Total=0\n")
+        != std::string::npos);
+    BAFX_CHECK(text.find(
+        "ROI.Primary.Stage.Prefilter.DrawnPixels.Total=40\n")
+        != std::string::npos);
+    BAFX_CHECK(text.find(
+        "ROI.Primary.Stage.Prefilter.ClearedPixels.Total=20\n")
+        != std::string::npos);
+    BAFX_CHECK(text.find(
+        "ROI.Primary.Stage.Resolve.FullPixels.Total=0\n")
         != std::string::npos);
     BAFX_CHECK(text.find("ROI.Primary.DrawnToFullRatio=0.400\n")
         != std::string::npos);

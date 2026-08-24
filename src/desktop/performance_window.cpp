@@ -36,6 +36,21 @@ void saturatingAdd(
         : destination + value;
 }
 
+void accumulateStage(
+    ActiveFxRoiStagePixelDiagnostics& destination,
+    ActiveFxRoiPathPerformanceSummary& path,
+    const ActiveFxRoiStagePixelDiagnostics& source) noexcept
+{
+    saturatingAdd(destination.fullPixels, source.fullPixels);
+    saturatingAdd(destination.candidatePixels, source.candidatePixels);
+    saturatingAdd(destination.drawnPixels, source.drawnPixels);
+    saturatingAdd(destination.clearedPixels, source.clearedPixels);
+    saturatingAdd(path.fullPixelsTotal, source.fullPixels);
+    saturatingAdd(path.candidatePixelsTotal, source.candidatePixels);
+    saturatingAdd(path.drawnPixelsTotal, source.drawnPixels);
+    saturatingAdd(path.clearedPixelsTotal, source.clearedPixels);
+}
+
 }
 
 std::uint64_t WgcCallbackDeltaTracker::observe(
@@ -152,11 +167,18 @@ void ActiveFxRoiPathPerformanceWindow::add(
     saturatingAdd(summary_.warmupFrames, diagnostics.warmup ? 1U : 0U);
     const bool applied = diagnostics.executed
         && (diagnostics.actualPath == ActiveFxRoiActualPath::RoiPrefilter
-            || diagnostics.actualPath == ActiveFxRoiActualPath::RoiWarmup);
+            || diagnostics.actualPath == ActiveFxRoiActualPath::RoiWarmup
+            || diagnostics.actualPath == ActiveFxRoiActualPath::RoiPyramid);
     saturatingAdd(summary_.appliedFrames, applied ? 1U : 0U);
-    saturatingAdd(summary_.fullPixelsTotal, diagnostics.fullPixels);
-    saturatingAdd(summary_.drawnPixelsTotal, diagnostics.drawnPixels);
-    saturatingAdd(summary_.clearedPixelsTotal, diagnostics.clearedPixels);
+    const bool fallback = diagnostics.requested
+        && (diagnostics.actualPath == ActiveFxRoiActualPath::FullScreen
+            || diagnostics.actualPath == ActiveFxRoiActualPath::Unavailable);
+    saturatingAdd(summary_.fallbackFrames, fallback ? 1U : 0U);
+    const ActiveFxRoiStagesDiagnostics stages = diagnostics.effectiveStages();
+    accumulateStage(summary_.stages.prefilter, summary_, stages.prefilter);
+    accumulateStage(summary_.stages.downsample, summary_, stages.downsample);
+    accumulateStage(summary_.stages.upsample, summary_, stages.upsample);
+    accumulateStage(summary_.stages.resolve, summary_, stages.resolve);
     summary_.lastExecuted = diagnostics.executed;
     const std::size_t actualPathIndex =
         static_cast<std::size_t>(diagnostics.actualPath);

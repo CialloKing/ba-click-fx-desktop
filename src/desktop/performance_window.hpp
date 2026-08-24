@@ -50,6 +50,7 @@ enum class ActiveFxRoiActualPath : std::uint8_t
     FullScreen,
     RoiWarmup,
     RoiPrefilter,
+    RoiPyramid,
     Unavailable
 };
 
@@ -68,6 +69,8 @@ enum class ActiveFxRoiActualPath : std::uint8_t
         return "roi-warmup";
     case ActiveFxRoiActualPath::RoiPrefilter:
         return "roi-prefilter";
+    case ActiveFxRoiActualPath::RoiPyramid:
+        return "roi-pyramid";
     case ActiveFxRoiActualPath::Unavailable:
         return "unavailable";
     }
@@ -114,6 +117,38 @@ enum class ActiveFxRoiDecisionReason : std::uint8_t
     return "renderer-fallback";
 }
 
+struct ActiveFxRoiStagePixelDiagnostics
+{
+    std::uint64_t fullPixels{0U};
+    std::uint64_t candidatePixels{0U};
+    std::uint64_t drawnPixels{0U};
+    std::uint64_t clearedPixels{0U};
+
+    [[nodiscard]] constexpr bool empty() const noexcept
+    {
+        return fullPixels == 0U
+            && candidatePixels == 0U
+            && drawnPixels == 0U
+            && clearedPixels == 0U;
+    }
+};
+
+struct ActiveFxRoiStagesDiagnostics
+{
+    ActiveFxRoiStagePixelDiagnostics prefilter{};
+    ActiveFxRoiStagePixelDiagnostics downsample{};
+    ActiveFxRoiStagePixelDiagnostics upsample{};
+    ActiveFxRoiStagePixelDiagnostics resolve{};
+
+    [[nodiscard]] constexpr bool empty() const noexcept
+    {
+        return prefilter.empty()
+            && downsample.empty()
+            && upsample.empty()
+            && resolve.empty();
+    }
+};
+
 struct ActiveFxRoiPassDiagnostics
 {
     bool requested{false};
@@ -126,6 +161,24 @@ struct ActiveFxRoiPassDiagnostics
     std::uint64_t fullPixels{0U};
     std::uint64_t drawnPixels{0U};
     std::uint64_t clearedPixels{0U};
+    ActiveFxRoiStagesDiagnostics stages{};
+
+    [[nodiscard]] constexpr ActiveFxRoiStagesDiagnostics effectiveStages()
+        const noexcept
+    {
+        if (!stages.empty())
+        {
+            return stages;
+        }
+        // Legacy producers report only aggregate prefilter coverage.
+        ActiveFxRoiStagesDiagnostics result{};
+        result.prefilter = ActiveFxRoiStagePixelDiagnostics{
+            fullPixels,
+            0U,
+            drawnPixels,
+            clearedPixels};
+        return result;
+    }
 };
 
 inline constexpr std::size_t activeFxRoiDecisionReasonCount =
@@ -149,9 +202,12 @@ struct ActiveFxRoiPathPerformanceSummary
     std::uint64_t executedFrames{0U};
     std::uint64_t appliedFrames{0U};
     std::uint64_t warmupFrames{0U};
+    std::uint64_t fallbackFrames{0U};
     std::uint64_t fullPixelsTotal{0U};
+    std::uint64_t candidatePixelsTotal{0U};
     std::uint64_t drawnPixelsTotal{0U};
     std::uint64_t clearedPixelsTotal{0U};
+    ActiveFxRoiStagesDiagnostics stages{};
     bool lastExecuted{false};
     ActiveFxRoiActualPath lastActualPath{ActiveFxRoiActualPath::Disabled};
     ActiveFxRoiDecisionReason lastDecisionReason{

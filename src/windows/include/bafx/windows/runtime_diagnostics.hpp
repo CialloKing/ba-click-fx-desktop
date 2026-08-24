@@ -71,6 +71,7 @@ enum class ActiveFxRoiRuntimePath : std::uint8_t
     FullScreen,
     RoiWarmup,
     RoiPrefilter,
+    RoiPyramid,
     Unavailable
 };
 
@@ -89,6 +90,8 @@ enum class ActiveFxRoiRuntimePath : std::uint8_t
         return "roi-warmup";
     case ActiveFxRoiRuntimePath::RoiPrefilter:
         return "roi-prefilter";
+    case ActiveFxRoiRuntimePath::RoiPyramid:
+        return "roi-pyramid";
     case ActiveFxRoiRuntimePath::Unavailable:
         return "unavailable";
     }
@@ -165,6 +168,22 @@ struct ActiveFxRoiGpuRuntimeSummary final
     ActiveFxRoiGpuPercentiles finalComposite{};
 };
 
+struct ActiveFxRoiStageRuntimeSummary final
+{
+    std::uint64_t fullPixels{0U};
+    std::uint64_t candidatePixels{0U};
+    std::uint64_t drawnPixels{0U};
+    std::uint64_t clearedPixels{0U};
+};
+
+struct ActiveFxRoiStagesRuntimeSummary final
+{
+    ActiveFxRoiStageRuntimeSummary prefilter{};
+    ActiveFxRoiStageRuntimeSummary downsample{};
+    ActiveFxRoiStageRuntimeSummary upsample{};
+    ActiveFxRoiStageRuntimeSummary resolve{};
+};
+
 struct ActiveFxRoiPathRuntimeSummary final
 {
     bool requested{false};
@@ -179,7 +198,9 @@ struct ActiveFxRoiPathRuntimeSummary final
     std::uint64_t eligibleFrames{0U};
     std::uint64_t appliedFrames{0U};
     std::uint64_t warmupFrames{0U};
+    std::uint64_t fallbackFrames{0U};
     std::uint64_t fullPixels{0U};
+    std::uint64_t candidatePixels{0U};
     std::uint64_t drawnPixels{0U};
     std::uint64_t clearedPixels{0U};
     std::uint32_t guardX{0U};
@@ -187,6 +208,7 @@ struct ActiveFxRoiPathRuntimeSummary final
     std::uint32_t phase{0U};
     std::optional<RECT> dirtyRect{};
     std::optional<RECT> alignedRect{};
+    ActiveFxRoiStagesRuntimeSummary stages{};
     ActiveFxRoiGpuRuntimeSummary gpu{};
     std::array<std::uint64_t, activeFxRoiRuntimeReasonCount> reasonCounts{};
 };

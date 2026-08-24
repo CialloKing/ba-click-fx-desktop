@@ -201,6 +201,8 @@ void saturatingAdd(
         return bafx::windows::ActiveFxRoiRuntimePath::RoiWarmup;
     case ActiveFxRoiActualPath::RoiPrefilter:
         return bafx::windows::ActiveFxRoiRuntimePath::RoiPrefilter;
+    case ActiveFxRoiActualPath::RoiPyramid:
+        return bafx::windows::ActiveFxRoiRuntimePath::RoiPyramid;
     case ActiveFxRoiActualPath::Unavailable:
         return bafx::windows::ActiveFxRoiRuntimePath::Unavailable;
     }
@@ -335,6 +337,21 @@ void saturatingAdd(
     return RECT{rect.left, rect.top, rect.right, rect.bottom};
 }
 
+void accumulateStage(
+    bafx::windows::ActiveFxRoiStageRuntimeSummary& destination,
+    bafx::windows::ActiveFxRoiPathRuntimeSummary& path,
+    const ActiveFxRoiStagePixelDiagnostics& source) noexcept
+{
+    saturatingAdd(destination.fullPixels, source.fullPixels);
+    saturatingAdd(destination.candidatePixels, source.candidatePixels);
+    saturatingAdd(destination.drawnPixels, source.drawnPixels);
+    saturatingAdd(destination.clearedPixels, source.clearedPixels);
+    saturatingAdd(path.fullPixels, source.fullPixels);
+    saturatingAdd(path.candidatePixels, source.candidatePixels);
+    saturatingAdd(path.drawnPixels, source.drawnPixels);
+    saturatingAdd(path.clearedPixels, source.clearedPixels);
+}
+
 void populateLatestPath(
     bafx::windows::ActiveFxRoiPathRuntimeSummary& destination,
     const FramePerformanceSample& sample,
@@ -371,14 +388,29 @@ void accumulatePath(
         destination.requestedFrames,
         normalizedRequested(sample, pass, primary) ? 1U : 0U);
     saturatingAdd(destination.eligibleFrames, pass.eligible ? 1U : 0U);
+    const bafx::windows::ActiveFxRoiRuntimePath actualPath =
+        normalizedPath(sample, pass, primary);
     const bool applied = pass.executed
-        && (pass.actualPath == ActiveFxRoiActualPath::RoiWarmup
-            || pass.actualPath == ActiveFxRoiActualPath::RoiPrefilter);
+        && (actualPath == bafx::windows::ActiveFxRoiRuntimePath::RoiWarmup
+            || actualPath
+                == bafx::windows::ActiveFxRoiRuntimePath::RoiPrefilter
+            || actualPath
+                == bafx::windows::ActiveFxRoiRuntimePath::RoiPyramid);
     saturatingAdd(destination.appliedFrames, applied ? 1U : 0U);
     saturatingAdd(destination.warmupFrames, pass.warmup ? 1U : 0U);
-    saturatingAdd(destination.fullPixels, pass.fullPixels);
-    saturatingAdd(destination.drawnPixels, pass.drawnPixels);
-    saturatingAdd(destination.clearedPixels, pass.clearedPixels);
+    const bool fallback = normalizedRequested(sample, pass, primary)
+        && (actualPath == bafx::windows::ActiveFxRoiRuntimePath::FullScreen
+            || actualPath
+                == bafx::windows::ActiveFxRoiRuntimePath::Unavailable);
+    saturatingAdd(destination.fallbackFrames, fallback ? 1U : 0U);
+    const ActiveFxRoiStagesDiagnostics stages = pass.effectiveStages();
+    accumulateStage(destination.stages.prefilter, destination, stages.prefilter);
+    accumulateStage(
+        destination.stages.downsample,
+        destination,
+        stages.downsample);
+    accumulateStage(destination.stages.upsample, destination, stages.upsample);
+    accumulateStage(destination.stages.resolve, destination, stages.resolve);
     const bafx::windows::ActiveFxRoiRuntimeReason reason =
         normalizedReason(sample, pass, primary);
     const std::size_t reasonIndex = static_cast<std::size_t>(reason);

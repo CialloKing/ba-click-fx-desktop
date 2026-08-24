@@ -125,7 +125,9 @@ enum class ActiveFxRoiPathField : std::uint32_t
     EligibleFrames,
     AppliedFrames,
     WarmupFrames,
+    FallbackFrames,
     FullPixels,
+    CandidatePixels,
     DrawnPixels,
     ClearedPixels,
     GuardX,
@@ -133,6 +135,7 @@ enum class ActiveFxRoiPathField : std::uint32_t
     Phase,
     DirtyRect,
     AlignedRect,
+    Stages,
     Gpu,
     ReasonCounts,
     Count
@@ -159,6 +162,24 @@ enum class ActiveFxRoiGpuPercentileField : std::uint32_t
 {
     P50Us,
     P95Us,
+    Count
+};
+
+enum class ActiveFxRoiStagesField : std::uint32_t
+{
+    Prefilter,
+    Downsample,
+    Upsample,
+    Resolve,
+    Count
+};
+
+enum class ActiveFxRoiStageField : std::uint32_t
+{
+    FullPixels,
+    CandidatePixels,
+    DrawnPixels,
+    ClearedPixels,
     Count
 };
 
@@ -214,6 +235,10 @@ constexpr std::uint64_t requiredActiveFxRoiGpuFields =
     requiredFieldMask<ActiveFxRoiGpuField>();
 constexpr std::uint64_t requiredActiveFxRoiGpuPercentileFields =
     requiredFieldMask<ActiveFxRoiGpuPercentileField>();
+constexpr std::uint64_t requiredActiveFxRoiStagesFields =
+    requiredFieldMask<ActiveFxRoiStagesField>();
+constexpr std::uint64_t requiredActiveFxRoiStageFields =
+    requiredFieldMask<ActiveFxRoiStageField>();
 constexpr std::uint64_t requiredActiveFxRoiReasonFields =
     requiredFieldMask<ActiveFxRoiReasonState>();
 
@@ -264,10 +289,10 @@ public:
             {
                 if (!markField(seen, RootField::SchemaVersion)
                     || !parseUnsigned(state.schemaVersion)
-                    || state.schemaVersion != 3U)
+                    || state.schemaVersion != 4U)
                 {
                     return failure(
-                        "schemaVersion must be exactly 3");
+                        "schemaVersion must be exactly 4");
                 }
             }
             else if (key == "runtimeGeneration")
@@ -1081,10 +1106,20 @@ private:
                 parsed = markField(seen, ActiveFxRoiPathField::WarmupFrames)
                     && parseUnsigned(output.warmupFrames);
             }
+            else if (key == "fallbackFrames")
+            {
+                parsed = markField(seen, ActiveFxRoiPathField::FallbackFrames)
+                    && parseUnsigned(output.fallbackFrames);
+            }
             else if (key == "fullPixels")
             {
                 parsed = markField(seen, ActiveFxRoiPathField::FullPixels)
                     && parseUnsigned(output.fullPixels);
+            }
+            else if (key == "candidatePixels")
+            {
+                parsed = markField(seen, ActiveFxRoiPathField::CandidatePixels)
+                    && parseUnsigned(output.candidatePixels);
             }
             else if (key == "drawnPixels")
             {
@@ -1120,6 +1155,11 @@ private:
             {
                 parsed = markField(seen, ActiveFxRoiPathField::AlignedRect)
                     && parseActiveFxRoiRect(output.alignedRect);
+            }
+            else if (key == "stages")
+            {
+                parsed = markField(seen, ActiveFxRoiPathField::Stages)
+                    && parseActiveFxRoiStages(output.stages);
             }
             else if (key == "gpu")
             {
@@ -1160,7 +1200,41 @@ private:
         if (path.requestedFrames > path.observedFrames
             || path.eligibleFrames > path.requestedFrames
             || path.appliedFrames > path.eligibleFrames
-            || path.warmupFrames > path.eligibleFrames)
+            || path.warmupFrames > path.eligibleFrames
+            || path.fallbackFrames > path.requestedFrames)
+        {
+            return false;
+        }
+        const std::array<const ActiveFxRoiStageState*, 4U> stages{
+            &path.stages.prefilter,
+            &path.stages.downsample,
+            &path.stages.upsample,
+            &path.stages.resolve};
+        for (const ActiveFxRoiStageState* const stage : stages)
+        {
+            if (stage->candidatePixels > stage->fullPixels
+                || stage->drawnPixels > stage->fullPixels
+                || stage->clearedPixels > stage->fullPixels)
+            {
+                return false;
+            }
+        }
+        if (path.fullPixels
+                != saturatingStageTotal(
+                    stages,
+                    &ActiveFxRoiStageState::fullPixels)
+            || path.candidatePixels
+                != saturatingStageTotal(
+                    stages,
+                    &ActiveFxRoiStageState::candidatePixels)
+            || path.drawnPixels
+                != saturatingStageTotal(
+                    stages,
+                    &ActiveFxRoiStageState::drawnPixels)
+            || path.clearedPixels
+                != saturatingStageTotal(
+                    stages,
+                    &ActiveFxRoiStageState::clearedPixels))
         {
             return false;
         }
@@ -1175,6 +1249,23 @@ private:
             reasonTotal += count;
         }
         return reasonTotal == path.observedFrames;
+    }
+
+    [[nodiscard]] static std::uint64_t saturatingStageTotal(
+        const std::array<const ActiveFxRoiStageState*, 4U>& stages,
+        const std::uint64_t ActiveFxRoiStageState::* member) noexcept
+    {
+        std::uint64_t total = 0U;
+        for (const ActiveFxRoiStageState* const stage : stages)
+        {
+            const std::uint64_t value = stage->*member;
+            if (value > (std::numeric_limits<std::uint64_t>::max)() - total)
+            {
+                return (std::numeric_limits<std::uint64_t>::max)();
+            }
+            total += value;
+        }
+        return total;
     }
 
     [[nodiscard]] bool parseActiveFxRoiRect(
@@ -1244,6 +1335,138 @@ private:
                 }
                 output = rect;
                 return true;
+            }
+            if (!consume(','))
+            {
+                return false;
+            }
+            skipWhitespace();
+        }
+        return false;
+    }
+
+    [[nodiscard]] bool parseActiveFxRoiStages(
+        ActiveFxRoiStagesState& output)
+    {
+        if (!consume('{'))
+        {
+            return false;
+        }
+        skipWhitespace();
+
+        std::uint64_t seen = 0U;
+        while (position_ < input_.size())
+        {
+            std::string key;
+            if (!parseString(key))
+            {
+                return false;
+            }
+            skipWhitespace();
+            if (!consume(':'))
+            {
+                return false;
+            }
+            skipWhitespace();
+
+            bool parsed = false;
+            if (key == "prefilter")
+            {
+                parsed = markField(seen, ActiveFxRoiStagesField::Prefilter)
+                    && parseActiveFxRoiStage(output.prefilter);
+            }
+            else if (key == "downsample")
+            {
+                parsed = markField(seen, ActiveFxRoiStagesField::Downsample)
+                    && parseActiveFxRoiStage(output.downsample);
+            }
+            else if (key == "upsample")
+            {
+                parsed = markField(seen, ActiveFxRoiStagesField::Upsample)
+                    && parseActiveFxRoiStage(output.upsample);
+            }
+            else if (key == "resolve")
+            {
+                parsed = markField(seen, ActiveFxRoiStagesField::Resolve)
+                    && parseActiveFxRoiStage(output.resolve);
+            }
+            if (!parsed)
+            {
+                return false;
+            }
+
+            skipWhitespace();
+            if (consume('}'))
+            {
+                return seen == requiredActiveFxRoiStagesFields;
+            }
+            if (!consume(','))
+            {
+                return false;
+            }
+            skipWhitespace();
+        }
+        return false;
+    }
+
+    [[nodiscard]] bool parseActiveFxRoiStage(ActiveFxRoiStageState& output)
+    {
+        if (!consume('{'))
+        {
+            return false;
+        }
+        skipWhitespace();
+
+        std::uint64_t seen = 0U;
+        while (position_ < input_.size())
+        {
+            std::string key;
+            if (!parseString(key))
+            {
+                return false;
+            }
+            skipWhitespace();
+            if (!consume(':'))
+            {
+                return false;
+            }
+            skipWhitespace();
+
+            bool parsed = false;
+            if (key == "fullPixels")
+            {
+                parsed = markField(seen, ActiveFxRoiStageField::FullPixels)
+                    && parseUnsigned(output.fullPixels);
+            }
+            else if (key == "candidatePixels")
+            {
+                parsed = markField(
+                        seen,
+                        ActiveFxRoiStageField::CandidatePixels)
+                    && parseUnsigned(output.candidatePixels);
+            }
+            else if (key == "drawnPixels")
+            {
+                parsed = markField(seen, ActiveFxRoiStageField::DrawnPixels)
+                    && parseUnsigned(output.drawnPixels);
+            }
+            else if (key == "clearedPixels")
+            {
+                parsed = markField(seen, ActiveFxRoiStageField::ClearedPixels)
+                    && parseUnsigned(output.clearedPixels);
+            }
+            if (!parsed)
+            {
+                return false;
+            }
+
+            skipWhitespace();
+            if (consume('}'))
+            {
+                return seen == requiredActiveFxRoiStageFields
+                    && output.candidatePixels <= output.fullPixels
+                    && output.drawnPixels <= output.fullPixels
+                    && output.clearedPixels <= output.fullPixels;
             }
             if (!consume(','))
             {
@@ -1684,6 +1907,11 @@ private:
         if (token == "roi-prefilter")
         {
             output = ActiveFxRoiPathState::RoiPrefilter;
+            return true;
+        }
+        if (token == "roi-pyramid")
+        {
+            output = ActiveFxRoiPathState::RoiPyramid;
             return true;
         }
         if (token == "unavailable")

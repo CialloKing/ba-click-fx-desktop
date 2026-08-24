@@ -434,9 +434,13 @@ BAFX_TEST(runtime_performance_window_aggregates_roi_paths_without_claiming_savin
     BAFX_CHECK(summary.roiPrimary.executedFrames == 2U);
     BAFX_CHECK(summary.roiPrimary.appliedFrames == 2U);
     BAFX_CHECK(summary.roiPrimary.warmupFrames == 1U);
+    BAFX_CHECK(summary.roiPrimary.fallbackFrames == 0U);
     BAFX_CHECK(summary.roiPrimary.fullPixelsTotal == 200U);
+    BAFX_CHECK(summary.roiPrimary.candidatePixelsTotal == 0U);
     BAFX_CHECK(summary.roiPrimary.drawnPixelsTotal == 85U);
     BAFX_CHECK(summary.roiPrimary.clearedPixelsTotal == 120U);
+    BAFX_CHECK(summary.roiPrimary.stages.prefilter.fullPixels == 200U);
+    BAFX_CHECK(summary.roiPrimary.stages.downsample.fullPixels == 0U);
     BAFX_CHECK(
         summary.roiPrimary.lastActualPath
         == bafx::desktop::ActiveFxRoiActualPath::RoiWarmup);
@@ -455,6 +459,51 @@ BAFX_TEST(runtime_performance_window_aggregates_roi_paths_without_claiming_savin
 
     window.reset();
     BAFX_CHECK(window.summarize().roiPrimary.observedFrames == 0U);
+}
+
+BAFX_TEST(runtime_performance_window_aggregates_explicit_roi_pyramid_stages)
+{
+    bafx::desktop::ActiveFxRoiPassDiagnostics pyramid{};
+    pyramid.requested = true;
+    pyramid.eligible = true;
+    pyramid.executed = true;
+    pyramid.actualPath = bafx::desktop::ActiveFxRoiActualPath::RoiPyramid;
+    pyramid.decisionReason = bafx::desktop::ActiveFxRoiDecisionReason::Applied;
+    pyramid.fullPixels = 999U;
+    pyramid.drawnPixels = 999U;
+    pyramid.stages.prefilter = {100U, 30U, 30U, 5U};
+    pyramid.stages.downsample = {50U, 20U, 20U, 4U};
+    pyramid.stages.upsample = {40U, 15U, 15U, 3U};
+    pyramid.stages.resolve = {200U, 35U, 200U, 0U};
+
+    bafx::desktop::ActiveFxRoiPassDiagnostics fallback{};
+    fallback.requested = true;
+    fallback.executed = true;
+    fallback.actualPath = bafx::desktop::ActiveFxRoiActualPath::FullScreen;
+    fallback.decisionReason =
+        bafx::desktop::ActiveFxRoiDecisionReason::RendererFallback;
+    fallback.stages.prefilter = {100U, 30U, 100U, 0U};
+
+    bafx::desktop::RuntimePerformanceWindow window;
+    window.addFrame(bafx::desktop::FramePerformanceSample{
+        .roiPrimary = {true, pyramid}});
+    window.addFrame(bafx::desktop::FramePerformanceSample{
+        .roiPrimary = {true, fallback}});
+
+    const bafx::desktop::ActiveFxRoiPathPerformanceSummary summary =
+        window.summarize().roiPrimary;
+    BAFX_CHECK(summary.observedFrames == 2U);
+    BAFX_CHECK(summary.appliedFrames == 1U);
+    BAFX_CHECK(summary.fallbackFrames == 1U);
+    BAFX_CHECK(summary.fullPixelsTotal == 490U);
+    BAFX_CHECK(summary.candidatePixelsTotal == 130U);
+    BAFX_CHECK(summary.drawnPixelsTotal == 365U);
+    BAFX_CHECK(summary.clearedPixelsTotal == 12U);
+    BAFX_CHECK(summary.stages.prefilter.fullPixels == 200U);
+    BAFX_CHECK(summary.stages.resolve.drawnPixels == 200U);
+    BAFX_CHECK(
+        summary.lastActualPath
+        == bafx::desktop::ActiveFxRoiActualPath::FullScreen);
 }
 
 BAFX_TEST(runtime_performance_window_filters_each_gpu_fx_path_stage)

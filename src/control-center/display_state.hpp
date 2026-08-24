@@ -121,6 +121,7 @@ enum class ActiveFxRoiPathState : std::uint8_t
     FullScreen,
     RoiWarmup,
     RoiPrefilter,
+    RoiPyramid,
     Unavailable
 };
 
@@ -166,6 +167,22 @@ struct ActiveFxRoiGpuState final
     ActiveFxRoiGpuPercentileState finalComposite{};
 };
 
+struct ActiveFxRoiStageState final
+{
+    std::uint64_t fullPixels{0U};
+    std::uint64_t candidatePixels{0U};
+    std::uint64_t drawnPixels{0U};
+    std::uint64_t clearedPixels{0U};
+};
+
+struct ActiveFxRoiStagesState final
+{
+    ActiveFxRoiStageState prefilter{};
+    ActiveFxRoiStageState downsample{};
+    ActiveFxRoiStageState upsample{};
+    ActiveFxRoiStageState resolve{};
+};
+
 struct ActiveFxRoiPathRuntimeState final
 {
     bool requested{false};
@@ -180,7 +197,9 @@ struct ActiveFxRoiPathRuntimeState final
     std::uint64_t eligibleFrames{0U};
     std::uint64_t appliedFrames{0U};
     std::uint64_t warmupFrames{0U};
+    std::uint64_t fallbackFrames{0U};
     std::uint64_t fullPixels{0U};
+    std::uint64_t candidatePixels{0U};
     std::uint64_t drawnPixels{0U};
     std::uint64_t clearedPixels{0U};
     std::uint32_t guardX{0U};
@@ -188,6 +207,7 @@ struct ActiveFxRoiPathRuntimeState final
     std::uint32_t phase{0U};
     std::optional<ActiveFxRoiRectState> dirtyRect{};
     std::optional<ActiveFxRoiRectState> alignedRect{};
+    ActiveFxRoiStagesState stages{};
     ActiveFxRoiGpuState gpu{};
     std::array<std::uint64_t, activeFxRoiReasonStateCount> reasonCounts{};
 };

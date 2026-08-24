@@ -767,7 +767,7 @@ BAFX_TEST(host_control_publishes_one_immutable_display_state_snapshot)
     session.activeFxRoi.primary.executed = true;
     session.activeFxRoi.primary.eligible = true;
     session.activeFxRoi.primary.actualPath =
-        bafx::windows::ActiveFxRoiRuntimePath::RoiPrefilter;
+        bafx::windows::ActiveFxRoiRuntimePath::RoiPyramid;
     session.activeFxRoi.primary.decisionReason =
         bafx::windows::ActiveFxRoiRuntimeReason::Applied;
     session.activeFxRoi.primary.observedFrames = 10U;
@@ -775,9 +775,17 @@ BAFX_TEST(host_control_publishes_one_immutable_display_state_snapshot)
     session.activeFxRoi.primary.eligibleFrames = 7U;
     session.activeFxRoi.primary.appliedFrames = 6U;
     session.activeFxRoi.primary.warmupFrames = 1U;
+    session.activeFxRoi.primary.fallbackFrames = 1U;
     session.activeFxRoi.primary.fullPixels = 82'944'000U;
+    session.activeFxRoi.primary.candidatePixels = 24'000'000U;
     session.activeFxRoi.primary.drawnPixels = 31'000'000U;
     session.activeFxRoi.primary.clearedPixels = 2'000'000U;
+    session.activeFxRoi.primary.stages.prefilter =
+        bafx::windows::ActiveFxRoiStageRuntimeSummary{
+            82'944'000U,
+            24'000'000U,
+            31'000'000U,
+            2'000'000U};
     session.activeFxRoi.primary.guardX = 762U;
     session.activeFxRoi.primary.guardY = 430U;
     session.activeFxRoi.primary.phase = 128U;
@@ -845,7 +853,7 @@ BAFX_TEST(host_control_publishes_one_immutable_display_state_snapshot)
     control.stop();
 
     BAFX_CHECK(response.succeeded());
-    BAFX_CHECK(response.payload.find("\"schemaVersion\":3")
+    BAFX_CHECK(response.payload.find("\"schemaVersion\":4")
         != std::string::npos);
     BAFX_CHECK(response.payload.find("\"runtimeGeneration\":1")
         != std::string::npos);
@@ -894,7 +902,13 @@ BAFX_TEST(host_control_publishes_one_immutable_display_state_snapshot)
     BAFX_CHECK(response.payload.find("\"outputFallbackResult\":0")
         != std::string::npos);
     BAFX_CHECK(response.payload.find(
-        "\"actualPath\":\"roi-prefilter\"") != std::string::npos);
+        "\"actualPath\":\"roi-pyramid\"") != std::string::npos);
+    BAFX_CHECK(response.payload.find("\"fallbackFrames\":1")
+        != std::string::npos);
+    BAFX_CHECK(response.payload.find(
+        "\"stages\":{\"prefilter\":{\"fullPixels\":82944000,"
+        "\"candidatePixels\":24000000,\"drawnPixels\":31000000,"
+        "\"clearedPixels\":2000000}") != std::string::npos);
     BAFX_CHECK(response.payload.find(
         "\"sampleAgeMs\":") != std::string::npos);
     BAFX_CHECK(response.payload.find(
@@ -913,7 +927,7 @@ BAFX_TEST(host_control_publishes_one_immutable_display_state_snapshot)
     const bafx::control_center::DisplayStateParseResult parsed =
         bafx::control_center::parseDisplayState(response.payload);
     BAFX_CHECK(parsed.succeeded());
-    BAFX_CHECK(parsed.state->schemaVersion == 3U);
+    BAFX_CHECK(parsed.state->schemaVersion == 4U);
     BAFX_CHECK(parsed.state->runtimeGeneration == 1U);
     BAFX_CHECK(parsed.state->configGeneration == 1U);
     BAFX_CHECK(parsed.state->offlineOverrides.size() == 1U);
@@ -927,7 +941,10 @@ BAFX_TEST(host_control_publishes_one_immutable_display_state_snapshot)
     BAFX_CHECK(parsedRoi.sampleAgeMs >= 750U);
     BAFX_CHECK(parsedRoi.lastFrameId == 42U);
     BAFX_CHECK(parsedRoi.primary.actualPath
-        == bafx::control_center::ActiveFxRoiPathState::RoiPrefilter);
+        == bafx::control_center::ActiveFxRoiPathState::RoiPyramid);
+    BAFX_CHECK(parsedRoi.primary.fallbackFrames == 1U);
+    BAFX_CHECK(
+        parsedRoi.primary.stages.prefilter.candidatePixels == 24'000'000U);
     BAFX_CHECK(parsedRoi.primary.dirtyRect.has_value());
     BAFX_CHECK(parsedRoi.primary.dirtyRect->left == -20);
     BAFX_CHECK(parsedRoi.primary.gpu.prefilter.p95Microseconds == 175.25);
@@ -974,14 +991,116 @@ BAFX_TEST(host_control_publishes_one_immutable_display_state_snapshot)
 
     std::string invalidRoiPath = response.payload;
     const std::size_t actualPathPosition = invalidRoiPath.find(
-        "\"actualPath\":\"roi-prefilter\"");
+        "\"actualPath\":\"roi-pyramid\"");
     BAFX_CHECK(actualPathPosition != std::string::npos);
     invalidRoiPath.replace(
         actualPathPosition,
-        28U,
+        26U,
         "\"actualPath\":\"future-path\"");
     BAFX_CHECK(!bafx::control_center::parseDisplayState(
         invalidRoiPath).succeeded());
+
+    std::string oldSchema = response.payload;
+    oldSchema.replace(
+        oldSchema.find("\"schemaVersion\":4"),
+        17U,
+        "\"schemaVersion\":3");
+    BAFX_CHECK(!bafx::control_center::parseDisplayState(oldSchema).succeeded());
+
+    std::string futureSchema = response.payload;
+    futureSchema.replace(
+        futureSchema.find("\"schemaVersion\":4"),
+        17U,
+        "\"schemaVersion\":5");
+    BAFX_CHECK(
+        !bafx::control_center::parseDisplayState(futureSchema).succeeded());
+
+    const std::size_t stagesPosition = response.payload.find("\"stages\":");
+    BAFX_CHECK(stagesPosition != std::string::npos);
+
+    std::string unknownStageField = response.payload;
+    unknownStageField.insert(
+        unknownStageField.find("\"fullPixels\":", stagesPosition),
+        "\"futureStageField\":0,");
+    BAFX_CHECK(!bafx::control_center::parseDisplayState(
+        unknownStageField).succeeded());
+
+    std::string duplicateStageField = response.payload;
+    duplicateStageField.insert(
+        duplicateStageField.find("\"drawnPixels\":", stagesPosition),
+        "\"drawnPixels\":0,");
+    BAFX_CHECK(!bafx::control_center::parseDisplayState(
+        duplicateStageField).succeeded());
+
+    std::string missingStageField = response.payload;
+    const std::size_t stageCandidatePosition = missingStageField.find(
+        "\"candidatePixels\":24000000,",
+        stagesPosition);
+    BAFX_CHECK(stageCandidatePosition != std::string::npos);
+    missingStageField.erase(stageCandidatePosition, 27U);
+    BAFX_CHECK(!bafx::control_center::parseDisplayState(
+        missingStageField).succeeded());
+
+    std::string invalidFallbackCount = response.payload;
+    const std::size_t fallbackPosition = invalidFallbackCount.find(
+        "\"fallbackFrames\":1",
+        invalidFallbackCount.find("\"activeFxRoi\":"));
+    BAFX_CHECK(fallbackPosition != std::string::npos);
+    invalidFallbackCount.replace(
+        fallbackPosition,
+        18U,
+        "\"fallbackFrames\":9");
+    BAFX_CHECK(!bafx::control_center::parseDisplayState(
+        invalidFallbackCount).succeeded());
+
+    std::string invalidStageCoverage = response.payload;
+    const std::size_t stageDrawnPosition = invalidStageCoverage.find(
+        "\"drawnPixels\":31000000",
+        stagesPosition);
+    BAFX_CHECK(stageDrawnPosition != std::string::npos);
+    invalidStageCoverage.replace(
+        stageDrawnPosition,
+        22U,
+        "\"drawnPixels\":90000000");
+    BAFX_CHECK(!bafx::control_center::parseDisplayState(
+        invalidStageCoverage).succeeded());
+
+    std::string inconsistentStageTotals = response.payload;
+    const std::size_t pathCandidatePosition = inconsistentStageTotals.find(
+        "\"candidatePixels\":24000000",
+        inconsistentStageTotals.find("\"activeFxRoi\":"));
+    BAFX_CHECK(pathCandidatePosition != std::string::npos);
+    inconsistentStageTotals.replace(
+        pathCandidatePosition,
+        26U,
+        "\"candidatePixels\":23999999");
+    BAFX_CHECK(!bafx::control_center::parseDisplayState(
+        inconsistentStageTotals).succeeded());
+
+    std::string saturatedStageTotals = response.payload;
+    const std::size_t pathFullPosition = saturatedStageTotals.find(
+        "\"fullPixels\":82944000",
+        saturatedStageTotals.find("\"activeFxRoi\":"));
+    BAFX_CHECK(pathFullPosition != std::string::npos);
+    saturatedStageTotals.replace(
+        pathFullPosition,
+        21U,
+        "\"fullPixels\":18446744073709551615");
+    const std::size_t saturatedStagesPosition = saturatedStageTotals.find(
+        "\"stages\":");
+    const std::size_t downsamplePosition = saturatedStageTotals.find(
+        "\"downsample\":",
+        saturatedStagesPosition);
+    const std::size_t downsampleFullPosition = saturatedStageTotals.find(
+        "\"fullPixels\":0",
+        downsamplePosition);
+    BAFX_CHECK(downsampleFullPosition != std::string::npos);
+    saturatedStageTotals.replace(
+        downsampleFullPosition,
+        14U,
+        "\"fullPixels\":18446744073709551615");
+    BAFX_CHECK(bafx::control_center::parseDisplayState(
+        saturatedStageTotals).succeeded());
 
     std::string inconsistentRoiCounts = response.payload;
     const std::size_t observedPosition = inconsistentRoiCounts.find(
