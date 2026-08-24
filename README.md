@@ -24,7 +24,7 @@ Release Host 运行时是单文件：Visual C++ 运行库静态链接，Circle�
 DirectComposition 和 D3DCompiler 系统组件。独立的 Control Center 使用纯 Win32 Common Controls，
 不需要 Windows App SDK 或其他旁置运行时。
 
-当前架构版本是 **v0.3**，状态为 **Proposed**。0.2.4 测试版已具备 Host、原生 Win32
+当前架构版本是 **v0.3**，状态为 **Proposed**。0.2.5 测试版已具备 Host、原生 Win32
 Control Center、本地 IPC 与独立测试包；当前人工特效审核和支持合同以单主屏 SDR 下的三种渲染模式
 为准。涉及 DirectComposition、Windows Graphics Capture、HDR/Advanced Color 和多适配器的结论，
 必须取得仓库中定义的 Spike 证据或接受明确的 fallback 后，相关 ADR 才能标记为 Accepted。
@@ -72,7 +72,7 @@ Trail 和 Bloom 继续按游戏合同在线性 FP16 中计算。最终呈现阶�
 - [docs/SPIKES.md](docs/SPIKES.md)：四个必须执行的硬件/API Spike。
 - [docs/VALIDATION.md](docs/VALIDATION.md)：测试层级、Golden Oracle 和发布门槛。
 - [docs/UNITY_REFERENCE.md](docs/UNITY_REFERENCE.md)：游戏解包资源、Unity 重建工程与 Golden 的证据边界。
-- [SUPPORT.md](SUPPORT.md)：0.2.4 的可测试范围、退出方式和明确排除项。
+- [SUPPORT.md](SUPPORT.md)：0.2.5 的可测试范围、退出方式和明确排除项。
 - [tools/package-test-bundle.ps1](tools/package-test-bundle.ps1)：构建并生成便携 ZIP，同时调用完整性验证。
 
 ## 项目状态
@@ -108,6 +108,10 @@ cmake --build --preset host-release --parallel 4
 `x64-slim` 预设通过 `BAFX_ENABLE_SPOUT2=OFF` 构建不含 Spout2 的精简版。
 精简版仍保留完整特效和控制中心，但不会显示 Spout2 输出开关。对应的打包脚本可传入
 `-Slim`，生成文件名带有 `-slim` 后缀。
+
+官方 GitHub Release 只发布带 Spout2 的 Full 版四个资产：便携 ZIP、便携 ZIP 的 `.sha256`、
+单文件安装器和安装器的 `.sha256`。Slim 版保留源码构建、测试和本地打包入口，不发布预编译
+Release 资产。
 
 标准构建的 OBS 输出是透明扩展预乘的 FX-only 层。OBS 需要把游戏/桌面捕获置底，并把绑定
 `ba-click-fx-desktop` 的 Spout2 源置顶、设为 `Premultiplied Alpha`，来源混合方式保持
@@ -182,6 +186,10 @@ Visual Studio、Windows SDK、Inno Setup 或 PowerShell 依赖包；安装器已
 4. 卸载时使用开始菜单中的卸载项或 Windows“已安装的应用”。默认保留程序目录下的 `data` 配置，重新安装
    后仍可继续使用；如需彻底清理，请在卸载前手动备份并删除该目录。
 
+0.2.5 只提供手动版本检查，不是自动更新器。从 0.2.4 或更早版本首次升级时，旧 Control Center
+尚没有“检查更新”入口，仍需用户前往[官方 Release 页面](https://github.com/CialloKing/ba-click-fx-desktop/releases/latest)
+手动下载并运行新安装器，或手动替换完整便携目录。不要混用不同版本的 Host 与 Control Center。
+
 该安装器使用目标机生成的本机证书为 Sparse Package 签名，不是公有代码签名。Windows SmartScreen 可能显示
 “Unknown Publisher”，这是预期提示。安装器只把公钥加入 `LocalMachine\TrustedPeople`，签名验证完成后立即删除
 `LocalMachine\My` 中的证书和不可导出私钥；不要从 Release 单独下载或安装证书、MSIX、私钥或 SDK 工具。若没有管理员权限，
@@ -236,9 +244,27 @@ FX-only，不会先启动带黄色边框的会话。无论该开关如何设置�
 `match-display`、`60`、`120`、`144`、`unlimited` 五种 `performance.framePacing` 策略。具有稳定 DisplayConfig
 标识的显示器可以启用独立设置，分别控制特效、HDR 请求和帧率策略；关闭独立设置后恢复继承全局值。
 没有稳定标识的会话仍可查看，但逐屏写入控件保持禁用。完整拓扑下，选择器还会列出未连接显示器的
-遗留 override；这些条目没有伪造的运行状态，只能通过现有原子命令删除。诊断文本使用可滚动只读区域；系统页提供“清理诊断日志”按钮，确认后通过 `ClearLogs` 删除当前日志和轮转备份，
-并显示删除文件数、释放字节数和失败文件数。
+遗留 override；这些条目没有伪造的运行状态，只能通过现有原子命令删除。诊断文本使用可滚动只读区域；
+系统页提供“清理诊断日志”按钮，确认后通过 `ClearLogs` 删除当前日志和轮转备份，并显示删除文件数、
+释放字节数和失败文件数。系统页的“版本与更新”区域分别显示 Control Center、Host、安装状态和
+最新公开版本，并提供手动“检查更新”和“打开 Release”。
 选择器刷新后尽量保留同一显示器；状态缺失或解析失败时显示错误，而不会把请求状态显示为实际能力。
+
+Host 和 Control Center 从 0.2.5 起共享同一产品版本合同。Host 的 `GetState.productVersion` 必须是
+与当前 Control Center 完全相同的规范 `MAJOR.MINOR.PATCH`；字段缺失、格式错误或版本不一致时，
+控制中心会显示双方版本并禁用设置写入，但“启动 Host”/“关闭 Host”仍可用。这样可以完成混合版本
+修复，而不会让旧控制面向新 Host 写入未经确认的配置。
+
+安装状态的显示含义如下：有效安装状态中的产品版本与 Package 版本一致且匹配 Control Center，或已
+从同样有效的备份成功恢复时为“安装版”；主安装状态和备份都不存在时为“便携版”；状态损坏、两种
+版本冲突、安装版本与控制中心不同，或只剩备份等部分升级情况均为“安装状态异常”。异常状态不会
+回退显示为便携版，应重新运行当前版本安装器修复。
+
+“检查更新”只有在用户点击后才查询 GitHub 的最新公开正式 Release；启动、连接 Host、刷新状态和
+托盘恢复都不会触发网络请求。它只比较版本，不会自动下载 Release 资产、运行安装器或改写文件。
+“打开 Release”始终打开固定的
+[官方最新 Release 页面](https://github.com/CialloKing/ba-click-fx-desktop/releases/latest)，
+不采用网络响应中的资产 URL 或跳转目标。
 调整结果在下一帧交给 Host。“拖尾常驻”默认关闭；开启后
 无需按住鼠标，普通移动也会生成纯拖尾，但不会伪造点击圆盘或圆环。这是桌面版的原生产品增强，
 不属于游戏原脚本的按压 FX 路径。数值控件会合并连续拖动后的写入，避免为每个滑块像素都写一次配置。
@@ -323,6 +349,11 @@ JSON 快照。`GetFxConfig`、`SetFxParam`、原子批量的 `SetFxParams` 和 `
 产品设置只通过 `GetConfig`/`SetConfig` 管理。`ResetFxConfig` 只恢复 `effects`，保留背景、HDR、输入和系统设置；Control Center
 中的“重置默认”则使用完整 schema 恢复全部持久化设置。路径补丁只允许配置库声明的产品字段，代次不匹配会返回
 `generation_conflict`；所有命令均在下一帧由 Host 应用。
+
+`GetState` 的 `productVersion` 是 Host/Control Center 设置兼容门，不是配置 schema 版本。只有它与
+Control Center 自身版本完全一致时，控制面才允许修改设置；缺失、非法或不匹配都 fail-closed。
+Host 生命周期入口不受该门限制。0.2.5 的主配置 schema 仍为 19，现有主配置、显示器 override、
+`data` 目录和 `fx-profiles` 内容不需要迁移或重建。
 
 特效 Profile 同样由 Host 持有，内置且不可删除的四项是“Unity 原版”“轻量”“纯点击”和“纯拖尾”。
 `GetState` 通过 `fxProfileCatalog` 返回内置/自定义目录，通过 `activeFxProfile` 返回当前特效与某一

@@ -2,11 +2,37 @@
 
 ## 未发布
 
+## 0.2.5 - 2026-08-24
+
+### 新增
+
+- Host、Control Center、Windows 文件版本和安装状态改用同一份生成的产品版本来源。`GetState`
+  新增 `productVersion`，Control Center 的窗口标题和系统页会同时显示自身版本、Host 版本、安装状态
+  与最近一次手动查询到的最新公开版本。
+- 系统页新增手动“检查更新”和“打开 Release”。程序不会在启动、连接 Host 或托盘恢复时自动联网，
+  也不会自动下载或执行任何资产；Release 按钮只打开固定的
+  `https://github.com/CialloKing/ba-click-fx-desktop/releases/latest` 官方页面。
+
+### 兼容性与升级
+
+- Control Center 只有在 Host `productVersion` 与自身版本完全一致时才开放设置写入。版本缺失、格式错误
+  或不一致时会禁用设置控件，但仍保留 Host 启动和关闭入口，便于完成升级或恢复。
+- 系统页把有效且版本一致的安装状态（包括从有效备份成功恢复）显示为“安装版”，主状态与备份均
+  不存在时显示为“便携版”；状态损坏、产品/Package 版本冲突或只完成部分升级时显示
+  “安装状态异常”，不会伪装成便携版。
+- 配置 schema 保持为 19，特效 Profile 仍是 effects-only 独立 JSON。升级不迁移、不重置主配置、
+  自定义 Profile、显示器 override、日志或其他 `data` 数据。旧 Control Center 没有本版检查入口，
+  首次升级到 0.2.5 仍需用户从官方 Release 页面手动下载安装包或便携包。
+
 ### 优化
 
 - Host 渲染循环改用只含配置、配置代次、暂停和退出状态的轻量快照，不再每帧
   复制特效 Profile 目录或序列化所有候选项来匹配活动 Profile；`GetState` 的完整
   Profile 状态保持不变。
+
+### 修复
+
+- Control Center 的单实例恢复改用固定窗口类名，不再依赖会随产品版本变化的窗口标题。
 
 ## 0.2.4 - 2026-08-23
 

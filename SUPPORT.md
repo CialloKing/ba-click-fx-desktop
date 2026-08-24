@@ -1,4 +1,4 @@
-# 0.2.4 测试版支持范围
+# 0.2.5 测试版支持范围
 
 ## 可以测试的范围
 
@@ -23,8 +23,9 @@
   显示 Host 的逐屏实际状态，提供默认关闭的全局 HDR 请求、默认关闭的实验性 Active-FX ROI，以及跟随
   显示器、固定 `60/120/144 FPS`、无限制五种帧率策略；具有稳定标识的显示器还可
   独立控制特效、HDR 请求和帧率策略。“系统”页提供随 Windows 启动、启动时最小化和关闭时隐藏到托盘，
-  以及“清理诊断日志”按钮；确认后会显示删除文件数、释放字节数和失败文件数。启用随 Windows 启动后，
-  登录时由 Control Center 复用正常激活路径启动 Host。
+  以及“清理诊断日志”按钮；确认后会显示删除文件数、释放字节数和失败文件数。“版本与更新”区域显示
+  Control Center、Host、安装状态和最新公开版本，并提供手动检查与固定官方 Release 页面入口。启用随
+  Windows 启动后，登录时由 Control Center 复用正常激活路径启动 Host。
   所有改动会通过本地 Named Pipe 在下一帧应用到正在运行的 Host；
   “重置默认”经确认后恢复全部持久化设置，但保留当前暂停或运行状态。
 - 每次输入消费/呈现更新只为按压 FX 使用一份帧边界当前位置，并以同一 `renderTime` 按
@@ -62,6 +63,9 @@
   请求/解析/实际输出、cadence/output fallback、WGC 与故障状态。Control Center 严格拒绝旧 schema 以及
   未知、重复、缺失或超限字段；未知布尔能力使用 `null`，不会把全局 HDR 请求或当前配置冒充为实际支持状态。
   完整拓扑下可删除未连接显示器的遗留 override；该条目不会显示伪造的 HDR 或刷新率状态。
+- `GetState.productVersion` 使用规范 `MAJOR.MINOR.PATCH` 标识 Host 版本。只有 Host 与 Control Center
+  完全同版本时设置控件才可写；字段缺失、格式错误或版本不一致时 fail-closed，设置保持禁用，但 Host
+  启动和关闭入口继续可用。该产品版本门不改变配置 schema，0.2.5 仍使用 schema 19。
 - WGC FP16 scRGB 背景使用独立的背景 reference white 转入 Unity 相对工作空间；Unity authored color、粒子、
   材质、Trail 和 Bloom 仍在线性 FP16 中计算，最终呈现阶段才使用输出 reference white 选择 SDR/HDR 映射。
   HDR/WCG 下背景白点未知时 WGC 可保持预热，但该背景不得进入合成，当前画面回退 FX-only。
@@ -189,7 +193,8 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File .\tools\package-test-bundle.ps1
 
 普通安装版和便携版默认包含 Spout2；需要不含 Spout2 的精简版时，在上述脚本以及 Host-only
 或安装器脚本后追加 `-Slim`。精简版包名带有 `-slim`，控制中心不会显示 Spout2 输出开关，
-但核心点击、圆环、碎片和拖尾特效保持不变。
+但核心点击、圆环、碎片和拖尾特效保持不变。官方 Release 只发布 Full 版的便携 ZIP、ZIP 哈希、
+安装器和安装器哈希四个资产；Slim 版仅保留源码构建和本地验证，不提供预编译 Release 下载。
 
 解压便携包时必须保留其完整目录结构。Control Center 不携带 Windows App SDK 运行时，只有在需要
 通过按钮启动 Host 时才要求与 Host EXE 位于同一目录。
@@ -206,6 +211,16 @@ Package 注册和 Control Center 快捷方式创建。安装完成后打开 Cont
 Windows“已安装的应用”执行，默认保留安装目录
 下的 `data` 用户配置；卸载会按安装用户 SID 删除本程序自己的 `BAFX Control Center` 开机启动值，
 不删除 Run 键或其他程序的启动项。需要无管理员权限时可改用 portable ZIP，但它没有 Package Identity。
+
+系统页显示“安装版”表示安装状态完整、产品版本和 Package 版本一致且匹配当前 Control Center，或已
+从同样有效的备份成功恢复；主状态和备份都不存在时显示“便携版”；状态损坏、版本冲突、部分升级或
+只剩备份时显示“安装状态异常”。异常不会被当作便携版，应使用当前版本安装器修复。0.2.5 不提升
+配置 schema，也不迁移或删除现有 `data`、主配置、显示器 override 与 effects-only `fx-profiles`。
+
+更新检查严格由用户点击触发。Control Center 不会在启动、连接 Host 或托盘恢复时自动联网，也不会
+自动下载、替换文件或执行安装器；“打开 Release”只前往固定的
+[官方最新 Release 页面](https://github.com/CialloKing/ba-click-fx-desktop/releases/latest)。0.2.4 及更早的
+Control Center 不具备该入口，因此首次升级到 0.2.5 仍需用户手动下载。
 
 安装或卸载失败时，错误框会显示失败阶段、步骤、HRESULT、脚本行号和 Inno 日志的完整路径。反馈问题时请
 提供该日志文件，不要只提供错误框截图。日志中的 `BAFX_INSTALL_FAILURE:` 是便于人工定位的单行摘要，
@@ -242,8 +257,9 @@ Windows“已安装的应用”执行，默认保留安装目录
 - device removed/reset 后已有事件通知、一次性重建实现和主动探针，但当前只证明通知注册及主动重建后的
   重新注册；真实 GPU reset、热插拔、跨适配器以及 device-lost 下 WGC 同步关闭仍未完成硬件验收，
   因此不属于本版的支持范围。
-- 自动更新、公有代码签名，以及无边框 WGC 的跨版本稳定性。方案 C 安装器已经作为普通用户发布
-  通道提供，但其背景感知能力仍受 Windows 版本、权限和显卡环境影响；portable ZIP 继续作为无安装权限的备选。
+- 自动检查、自动下载、自动安装、公有代码签名，以及无边框 WGC 的跨版本稳定性。0.2.5 仅支持用户
+  主动点击后的版本查询和固定 Release 页面入口；方案 C 安装器仍需用户手动运行，其背景感知能力受
+  Windows 版本、权限和显卡环境影响；portable ZIP 继续作为无安装权限的备选。
 
 这些能力即使存在实验代码或架构文档，也不属于本版的支持合同。
 
@@ -263,7 +279,7 @@ Windows“已安装的应用”执行，默认保留安装目录
   验证运行截止检查不会被帧等待 timeout 绕过。
 - `BAFX.ControlCenter.exe`：在 Host 已运行时打开 Win32 设置窗口，通过本地 IPC 读取并调整三种
   渲染模式、FX 参数、分层开关、特效 Profile、Active-FX ROI、HDR 请求和帧率策略，并用
-  `GetDisplayState` 查看逐屏实际状态；它不是独立渲染器。
+  `GetDisplayState` 查看逐屏实际状态；系统页显示双方版本、安装状态并提供手动更新检查。它不是独立渲染器。
 
 smoke 只证明当前 Windows 会话中的基本渲染链路可用。运行日志中的
 `Support.WGC=active` 表示本次背景感知会话成功创建了 WGC 路径；随后出现背景合成日志才表示样本已
