@@ -575,6 +575,7 @@ if(WIN32)
         obs_spout_plugin_probe_tests.cpp
         package_activation_tests.cpp
         startup_config_tests.cpp
+        update_check_tests.cpp
         "${PROJECT_SOURCE_DIR}/src/control-center/config_commands.cpp"
         "${PROJECT_SOURCE_DIR}/src/control-center/control_center_layout.cpp"
         "${PROJECT_SOURCE_DIR}/src/control-center/display_state.cpp"
@@ -593,6 +594,7 @@ if(WIN32)
         PRIVATE
             bafx::config
             bafx::product
+            bafx::release_update
             advapi32
             ole32
             version

@@ -52,6 +52,7 @@ target_link_libraries(
     PRIVATE
         bafx::config
         bafx::product
+        bafx::release_update
         comdlg32
         comctl32
         advapi32
