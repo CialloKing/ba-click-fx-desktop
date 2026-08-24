@@ -39,12 +39,16 @@ class CaptureFixture:
         root: Path,
         expectation: str = "applied",
         expected_reason: str | None = None,
+        scenario_id: str = "center-click",
+        measurement_path: str = "primary",
     ) -> None:
         self.root = root
         self.expectation = expectation
         self.expected_reason = expected_reason or (
             "applied" if expectation == "applied" else "background-differential-bloom"
         )
+        self.scenario_id = scenario_id
+        self.measurement_path = measurement_path
         self.executable_bytes = b"same-host-binary-v0.2.6"
         self.overrides: dict[int, dict[str, object]] = {}
         self.base_config = {
@@ -80,9 +84,9 @@ class CaptureFixture:
                 "differenceContract": "performance.activeFxRoiEnabled-only",
             },
             "scenario": {
-                "id": "center-click",
-                "workload": "fixed-age-center-click",
-                "measurementPath": "primary",
+                "id": scenario_id,
+                "workload": f"fixed-age-{scenario_id}",
+                "measurementPath": measurement_path,
                 "expectation": expectation,
                 "expectedDecisionReason": self.expected_reason,
             },
@@ -93,9 +97,14 @@ class CaptureFixture:
                     "failureCode": None,
                 },
                 "interior-trail": {
-                    "supported": False,
-                    "driver": None,
-                    "failureCode": "host-has-no-deterministic-trail-driver",
+                    "supported": True,
+                    "driver": "host-demo-interior-trail-fixed-age-v1",
+                    "failureCode": None,
+                },
+                "boundary-top-left": {
+                    "supported": True,
+                    "driver": "host-demo-boundary-top-left-fixed-age-v1",
+                    "failureCode": None,
                 },
             },
             "schedule": {
@@ -143,10 +152,20 @@ class CaptureFixture:
             reason_frames = 0
             prefilter = 400
             bloom_final = 1000
+        roi_prefix = (
+            "ROI.Primary"
+            if self.measurement_path == "primary"
+            else "ROI.RecordingRebuild"
+        )
+        gpu_prefix = (
+            "GPU.Primary"
+            if self.measurement_path == "primary"
+            else "GPU.RecordingRebuild"
+        )
         reason_field = (
             "ROI.Active.Reason.boundary-fallback.Frames"
             if self.expected_reason in {"boundary-fallback", "touches-boundary"}
-            else f"ROI.Primary.Reason.{self.expected_reason}.Frames"
+            else f"{roi_prefix}.Reason.{self.expected_reason}.Frames"
         )
         fields: dict[str, object] = {
             "Window.Final": False,
@@ -159,18 +178,18 @@ class CaptureFixture:
                 if roi_enabled
                 else "disabled-full-screen"
             ),
-            "ROI.Primary.ObservedFrames": observed,
-            "ROI.Primary.RequestedFrames": requested,
-            "ROI.Primary.EligibleFrames": applied,
-            "ROI.Primary.AppliedFrames": applied,
-            "ROI.Primary.WarmupFrames": 0,
-            "ROI.Primary.FullPixels.Total": full_pixels,
-            "ROI.Primary.DrawnPixels.Total": drawn_pixels,
-            "ROI.Primary.ClearedPixels.Total": drawn_pixels,
+            f"{roi_prefix}.ObservedFrames": observed,
+            f"{roi_prefix}.RequestedFrames": requested,
+            f"{roi_prefix}.EligibleFrames": applied,
+            f"{roi_prefix}.AppliedFrames": applied,
+            f"{roi_prefix}.WarmupFrames": 0,
+            f"{roi_prefix}.FullPixels.Total": full_pixels,
+            f"{roi_prefix}.DrawnPixels.Total": drawn_pixels,
+            f"{roi_prefix}.ClearedPixels.Total": drawn_pixels,
             reason_field: reason_frames,
-            "GPU.Primary.Prefilter.P95": prefilter,
-            "GPU.Primary.Pyramid.P95": 300,
-            "GPU.Primary.FinalComposite.P95": 200,
+            f"{gpu_prefix}.Prefilter.P95": prefilter,
+            f"{gpu_prefix}.Pyramid.P95": 300,
+            f"{gpu_prefix}.FinalComposite.P95": 200,
             "GPU.BloomAndFinalComposite.P95": bloom_final,
             "Cpu.FrameTotal.P95": 900,
             "Cpu.FrameTotal.P99": 1000,
@@ -229,11 +248,12 @@ class CaptureFixture:
                 "config": f"{directory}/BAFX.config.json",
                 "log": f"{directory}/ba-click-fx-desktop-support.log",
                 "arguments": [
+                    f"--demo-scenario={self.scenario_id}",
                     "--demo-age-ms=130",
                     "--demo-delay-ms=5000",
                     "--disable-raw-input",
                     "--quit-after-ms=40500",
-                ],
+                ] + (["--spout2"] if self.measurement_path == "recording-rebuild" else []),
                 "startedAtUtc": "2026-08-24T12:00:00.000Z",
                 "elapsedMs": 40_600,
                 "exitCode": 0,
@@ -266,6 +286,50 @@ class ActiveFxRoiAbReporterTests(unittest.TestCase):
             self.assertAlmostEqual(report["roiOn"]["appliedRequestedRatio"], 0.96)
             self.assertAlmostEqual(report["roiOn"]["drawnFullRatio"], 0.4)
             self.assertIn("Bloom/final p95", REPORTER.render_markdown(report))
+            self.assertNotIn(
+                "no deterministic interior-trail driver",
+                "\n".join(report["limitations"]),
+            )
+
+    def test_accepts_each_scenario_with_its_exact_workload(self) -> None:
+        for scenario_id in ("center-click", "interior-trail", "boundary-top-left"):
+            with self.subTest(scenario=scenario_id), tempfile.TemporaryDirectory() as temporary:
+                fixture = CaptureFixture(Path(temporary), scenario_id=scenario_id)
+                report = REPORTER.build_report(fixture.root)
+                self.assertTrue(report["passed"])
+                self.assertEqual(report["scenario"]["id"], scenario_id)
+
+    def test_rejects_scenario_workload_or_command_drift(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = CaptureFixture(Path(temporary), scenario_id="interior-trail")
+            fixture.manifest["scenario"]["workload"] = "fixed-age-center-click"
+            fixture.write_manifest()
+            with self.assertRaisesRegex(REPORTER.ValidationError, "scenario.workload"):
+                REPORTER.build_report(fixture.root)
+
+            fixture.manifest["scenario"]["workload"] = "fixed-age-interior-trail"
+            fixture.manifest["runs"][0]["arguments"][0] = "--demo-scenario=center-click"
+            fixture.write_manifest()
+            with self.assertRaisesRegex(REPORTER.ValidationError, "workload or measurement-path"):
+                REPORTER.build_report(fixture.root)
+
+    def test_recording_rebuild_requires_spout2_and_uses_its_counters(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = CaptureFixture(Path(temporary), measurement_path="recording-rebuild")
+            report = REPORTER.build_report(fixture.root)
+            self.assertTrue(report["passed"])
+
+            fixture.manifest["runs"][0]["arguments"].remove("--spout2")
+            fixture.write_manifest()
+            with self.assertRaisesRegex(REPORTER.ValidationError, "measurement-path"):
+                REPORTER.build_report(fixture.root)
+
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = CaptureFixture(Path(temporary))
+            fixture.manifest["runs"][0]["arguments"].append("--spout2")
+            fixture.write_manifest()
+            with self.assertRaisesRegex(REPORTER.ValidationError, "measurement-path"):
+                REPORTER.build_report(fixture.root)
 
     def test_rejects_non_contract_schedule_and_run_count(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

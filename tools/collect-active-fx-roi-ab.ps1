@@ -9,7 +9,7 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$OutputDirectory,
 
-    [ValidateSet('center-click', 'interior-trail')]
+    [ValidateSet('center-click', 'interior-trail', 'boundary-top-left')]
     [string]$Scenario = 'center-click',
 
     [ValidateSet('primary', 'recording-rebuild')]
@@ -53,6 +53,11 @@ $performanceIntervalMilliseconds = 10000
 $discardCompleteIntervals = 1
 $selectCompleteIntervals = 3
 $demoAgeMilliseconds = 130
+$scenarioWorkloads = [ordered]@{
+    'center-click' = 'fixed-age-center-click'
+    'interior-trail' = 'fixed-age-interior-trail'
+    'boundary-top-left' = 'fixed-age-boundary-top-left'
+}
 $capabilities = [ordered]@{
     'center-click' = [ordered]@{
         supported = $true
@@ -60,9 +65,14 @@ $capabilities = [ordered]@{
         failureCode = $null
     }
     'interior-trail' = [ordered]@{
-        supported = $false
-        driver = $null
-        failureCode = 'host-has-no-deterministic-trail-driver'
+        supported = $true
+        driver = 'host-demo-interior-trail-fixed-age-v1'
+        failureCode = $null
+    }
+    'boundary-top-left' = [ordered]@{
+        supported = $true
+        driver = 'host-demo-boundary-top-left-fixed-age-v1'
+        failureCode = $null
     }
 }
 
@@ -264,6 +274,12 @@ function Invoke-AbbaRun
         [string]$CaptureRoot,
 
         [Parameter(Mandatory = $true)]
+        [string]$Scenario,
+
+        [Parameter(Mandatory = $true)]
+        [string]$MeasurementPath,
+
+        [Parameter(Mandatory = $true)]
         [int]$ReadyTimeoutMilliseconds,
 
         [Parameter(Mandatory = $true)]
@@ -290,11 +306,17 @@ function Invoke-AbbaRun
         -Text (($configuration | ConvertTo-Json -Depth 20) + "`n")
 
     $arguments = @(
+        "--demo-scenario=$Scenario",
         "--demo-age-ms=$script:demoAgeMilliseconds",
         "--demo-delay-ms=$script:warmupMilliseconds",
         '--disable-raw-input',
         "--quit-after-ms=$script:hostDurationMilliseconds"
     )
+    if ($MeasurementPath -eq 'recording-rebuild')
+    {
+        # Recording-rebuild counters exist only while the Spout2 path is active.
+        $arguments += '--spout2'
+    }
     $startedAt = [DateTime]::UtcNow
     $timer = [Diagnostics.Stopwatch]::StartNew()
     $process = $null
@@ -501,7 +523,7 @@ $manifest = [ordered]@{
     }
     scenario = [ordered]@{
         id = $Scenario
-        workload = 'fixed-age-center-click'
+        workload = $scenarioWorkloads[$Scenario]
         measurementPath = $MeasurementPath
         expectation = $expectation
         expectedDecisionReason = $manifestDecisionReason
@@ -548,6 +570,8 @@ try
                 -SourceExecutable $executablePath `
                 -ExecutableSha256 $executableSha256 `
                 -CaptureRoot $outputRoot `
+                -Scenario $Scenario `
+                -MeasurementPath $MeasurementPath `
                 -ReadyTimeoutMilliseconds $ReadyTimeoutMilliseconds `
                 -ProcessTimeoutMilliseconds $ProcessTimeoutMilliseconds
             $manifest.runs += $run

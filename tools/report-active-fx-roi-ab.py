@@ -29,6 +29,20 @@ PERFORMANCE_INTERVAL_MS = 10_000
 DISCARD_COMPLETE_INTERVALS = 1
 SELECT_COMPLETE_INTERVALS = 3
 ABBA_PATTERN = (("A", False), ("B", True), ("B", True), ("A", False))
+SCENARIO_CONTRACTS = {
+    "center-click": {
+        "workload": "fixed-age-center-click",
+        "driver": "host-demo-click-fixed-age-v1",
+    },
+    "interior-trail": {
+        "workload": "fixed-age-interior-trail",
+        "driver": "host-demo-interior-trail-fixed-age-v1",
+    },
+    "boundary-top-left": {
+        "workload": "fixed-age-boundary-top-left",
+        "driver": "host-demo-boundary-top-left-fixed-age-v1",
+    },
+}
 SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 REVISION_PATTERN = re.compile(r"^[0-9a-f]{40}$")
 DECISION_REASONS = frozenset(
@@ -239,26 +253,19 @@ def _canonical_without_roi(config: dict[str, Any], context: str) -> str:
 
 def _validate_capabilities(value: Any) -> None:
     capabilities = _dict(value, "manifest.capabilities")
-    _require_keys(capabilities, {"center-click", "interior-trail"}, "capabilities")
-    expected = {
-        "center-click": {
-            "supported": True,
-            "driver": "host-demo-click-fixed-age-v1",
-            "failureCode": None,
-        },
-        "interior-trail": {
-            "supported": False,
-            "driver": None,
-            "failureCode": "host-has-no-deterministic-trail-driver",
-        },
-    }
-    for name, contract in expected.items():
+    _require_keys(capabilities, set(SCENARIO_CONTRACTS), "capabilities")
+    for name, scenario_contract in SCENARIO_CONTRACTS.items():
         capability = _dict(capabilities[name], f"capabilities.{name}")
         _require_keys(
             capability,
             {"supported", "driver", "failureCode"},
             f"capabilities.{name}",
         )
+        contract = {
+            "supported": True,
+            "driver": scenario_contract["driver"],
+            "failureCode": None,
+        }
         if capability != contract:
             raise ValidationError(f"capabilities.{name} does not match contract v1")
 
@@ -283,7 +290,7 @@ def _validate_schedule(value: Any) -> None:
         raise ValidationError("manifest.schedule does not match ABBA contract v1")
 
 
-def _validate_scenario(value: Any) -> tuple[str, str, str]:
+def _validate_scenario(value: Any) -> tuple[str, str, str, str]:
     scenario = _dict(value, "manifest.scenario")
     _require_keys(
         scenario,
@@ -297,10 +304,13 @@ def _validate_scenario(value: Any) -> tuple[str, str, str]:
         "manifest.scenario",
     )
     scenario_id = _string(scenario["id"], "scenario.id")
-    if scenario_id != "center-click":
-        raise ValidationError("captured contract v1 only supports center-click")
-    if scenario["workload"] != "fixed-age-center-click":
-        raise ValidationError("scenario.workload must be fixed-age-center-click")
+    contract = SCENARIO_CONTRACTS.get(scenario_id)
+    if contract is None:
+        raise ValidationError("scenario.id is unsupported")
+    if scenario["workload"] != contract["workload"]:
+        raise ValidationError(
+            f"scenario.workload must be {contract['workload']} for {scenario_id}"
+        )
     measurement_path = _string(
         scenario["measurementPath"], "scenario.measurementPath"
     )
@@ -311,15 +321,17 @@ def _validate_scenario(value: Any) -> tuple[str, str, str]:
     if expectation == "applied":
         if reason != "applied":
             raise ValidationError("applied scenario must expect reason applied")
-        return measurement_path, expectation, "applied"
+        return scenario_id, measurement_path, expectation, "applied"
     if expectation != "fallback" or type(reason) is not str:
         raise ValidationError("scenario.expectation must be applied or fallback")
     if reason not in DECISION_REASONS - {"applied", "disabled"}:
         raise ValidationError("fallback expectedDecisionReason is unsupported")
-    return measurement_path, expectation, reason
+    return scenario_id, measurement_path, expectation, reason
 
 
-def _validate_manifest(root: Path) -> tuple[dict[str, Any], str, str, str]:
+def _validate_manifest(
+    root: Path,
+) -> tuple[dict[str, Any], str, str, str, str]:
     manifest = _load_json(root / "capture.json")
     _require_keys(
         manifest,
@@ -353,8 +365,10 @@ def _validate_manifest(root: Path) -> tuple[dict[str, Any], str, str, str]:
     _string(manifest["capturedAtUtc"], "manifest.capturedAtUtc")
     _validate_capabilities(manifest["capabilities"])
     _validate_schedule(manifest["schedule"])
-    measurement_path, expectation, reason = _validate_scenario(manifest["scenario"])
-    return manifest, measurement_path, expectation, reason
+    scenario_id, measurement_path, expectation, reason = _validate_scenario(
+        manifest["scenario"]
+    )
+    return manifest, scenario_id, measurement_path, expectation, reason
 
 
 def _validate_executable(root: Path, manifest: dict[str, Any]) -> str:
@@ -501,6 +515,7 @@ def _validate_run(
     ordinal: int,
     executable_sha256: str,
     normalized_config: str,
+    scenario_id: str,
     measurement_path: str,
     expected_reason: str,
 ) -> dict[str, Any]:
@@ -547,13 +562,18 @@ def _validate_run(
     _string(run["startedAtUtc"], f"run {ordinal}.startedAtUtc")
     arguments = _list(run["arguments"], f"run {ordinal}.arguments")
     expected_arguments = [
+        f"--demo-scenario={scenario_id}",
         "--demo-age-ms=130",
         "--demo-delay-ms=5000",
         "--disable-raw-input",
         "--quit-after-ms=40500",
     ]
+    if measurement_path == "recording-rebuild":
+        expected_arguments.append("--spout2")
     if arguments != expected_arguments:
-        raise ValidationError(f"run {ordinal}: workload arguments mismatch")
+        raise ValidationError(
+            f"run {ordinal}: workload or measurement-path arguments mismatch"
+        )
 
     directory = Path(_string(run["directory"], f"run {ordinal}.directory"))
     expected_directory = f"run-{ordinal:02d}-{expected_arm.lower()}-roi-{'on' if roi_enabled else 'off'}"
@@ -827,7 +847,13 @@ def _build_gates(
 
 def build_report(root: Path) -> dict[str, Any]:
     root = root.resolve()
-    manifest, measurement_path, expectation, expected_reason = _validate_manifest(root)
+    (
+        manifest,
+        scenario_id,
+        measurement_path,
+        expectation,
+        expected_reason,
+    ) = _validate_manifest(root)
     executable_sha256 = _validate_executable(root, manifest)
     normalized_config, base_config_sha256 = _validate_configuration_contract(
         root, manifest
@@ -842,6 +868,7 @@ def build_report(root: Path) -> dict[str, Any]:
             ordinal,
             executable_sha256,
             normalized_config,
+            scenario_id,
             measurement_path,
             expected_reason,
         )
@@ -882,7 +909,6 @@ def build_report(root: Path) -> dict[str, Any]:
         "passed": all(gate["passed"] for gate in gates),
         "limitations": [
             "Pixel coverage is command coverage, not a claim of GPU time savings.",
-            "The collector has no deterministic interior-trail driver in contract v1.",
             "Fallback pixel exactness is established by WARP tests, not inferred from timing logs.",
         ],
     }
