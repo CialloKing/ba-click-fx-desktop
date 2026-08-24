@@ -119,6 +119,34 @@ class ActiveFxRoiAbCollectorTests(unittest.TestCase):
         self.assertNotIn("Stop-Process -Name", self.source)
         self.assertNotIn("taskkill", self.source.lower())
 
+    def test_keeps_the_display_awake_for_the_complete_capture(self) -> None:
+        for token in (
+            "SetThreadExecutionState",
+            "$executionStateContinuous",
+            "$executionStateSystemRequired",
+            "$executionStateDisplayRequired",
+            "Enable-CaptureExecutionState",
+            "Disable-CaptureExecutionState",
+            "$captureExecutionStateHeld = $true",
+            "$captureExecutionStateHeld = $false",
+        ):
+            self.assertIn(token, self.source)
+
+    def test_rejects_interrupted_selected_intervals_before_capture_completes(self) -> None:
+        for token in (
+            "observed unavailable display power during capture",
+            "Select-Object `",
+            "-Skip $script:discardCompleteIntervals `",
+            "-First $script:selectCompleteIntervals",
+            "has no presented frames",
+            "Cpu.PresentCall.Samples",
+            "Present samples do not match Window.FrameCount",
+            '"$roiPrefix.ObservedFrames"',
+            "ROI observed frames do not match Window.FrameCount",
+            "-MeasurementPath $MeasurementPath",
+        ):
+            self.assertIn(token, self.source)
+
     def test_accepts_identical_event_fields_but_rejects_conflicts(self) -> None:
         self.assertIn(
             "if ($event.Contains($name) -and $event[$name] -cne $value)",

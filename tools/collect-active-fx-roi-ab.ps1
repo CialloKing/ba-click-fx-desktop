@@ -59,6 +59,9 @@ $performanceIntervalMilliseconds = 10000
 $discardCompleteIntervals = 1
 $selectCompleteIntervals = 3
 $demoAgeMilliseconds = 130
+$executionStateContinuous = [Convert]::ToUInt32('80000000', 16)
+$executionStateSystemRequired = [uint32]0x00000001
+$executionStateDisplayRequired = [uint32]0x00000002
 $scenarioWorkloads = [ordered]@{
     'center-click' = 'fixed-age-center-click'
     'interior-trail' = 'fixed-age-interior-trail'
@@ -79,6 +82,47 @@ $capabilities = [ordered]@{
         supported = $true
         driver = 'host-demo-boundary-top-left-fixed-age-v1'
         failureCode = $null
+    }
+}
+
+if ($null -eq ('Bafx.Tools.CaptureExecutionState' -as [type]))
+{
+    Add-Type -TypeDefinition @'
+using System.Runtime.InteropServices;
+
+namespace Bafx.Tools
+{
+    public static class CaptureExecutionState
+    {
+        [DllImport("kernel32.dll", SetLastError = true)]
+        public static extern uint SetThreadExecutionState(uint executionState);
+    }
+}
+'@
+}
+
+function Enable-CaptureExecutionState
+{
+    $requested = $script:executionStateContinuous -bor
+        $script:executionStateSystemRequired -bor
+        $script:executionStateDisplayRequired
+    $previous = [Bafx.Tools.CaptureExecutionState]::SetThreadExecutionState(
+        $requested)
+    if ($previous -eq 0)
+    {
+        $errorCode = [Runtime.InteropServices.Marshal]::GetLastWin32Error()
+        throw "Could not keep the display awake for capture; error=$errorCode"
+    }
+}
+
+function Disable-CaptureExecutionState
+{
+    $previous = [Bafx.Tools.CaptureExecutionState]::SetThreadExecutionState(
+        $script:executionStateContinuous)
+    if ($previous -eq 0)
+    {
+        $errorCode = [Runtime.InteropServices.Marshal]::GetLastWin32Error()
+        throw "Could not release the capture execution state; error=$errorCode"
     }
 }
 
@@ -447,7 +491,11 @@ function Confirm-RunLogContract
 {
     param(
         [Parameter(Mandatory = $true)]
-        [string]$Path
+        [string]$Path,
+
+        [Parameter(Mandatory = $true)]
+        [ValidateSet('primary', 'recording-rebuild')]
+        [string]$MeasurementPath
     )
 
     $blocks = @(Get-StructuredEventBlocks -Path $Path)
@@ -471,6 +519,62 @@ function Confirm-RunLogContract
     if ($completeIntervals.Count -ne $expected)
     {
         throw "$Path must contain exactly $expected complete performance intervals; found $($completeIntervals.Count)"
+    }
+    $powerUnavailable = @(
+        $blocks |
+            Where-Object {
+                $_ -match '(?m)^Event.Name=Display.Topology.Invalidated\r?$' -and
+                $_ -match '(?m)^PowerUnavailable=true\r?$'
+            }
+    )
+    if ($powerUnavailable.Count -ne 0)
+    {
+        throw "$Path observed unavailable display power during capture"
+    }
+    $selectedIntervals = @(
+        $completeIntervals |
+            Select-Object `
+                -Skip $script:discardCompleteIntervals `
+                -First $script:selectCompleteIntervals
+    )
+    $roiPrefix = if ($MeasurementPath -eq 'primary')
+    {
+        'ROI.Primary'
+    }
+    else
+    {
+        'ROI.RecordingRebuild'
+    }
+    for ($index = 0; $index -lt $selectedIntervals.Count; ++$index)
+    {
+        $context = "$Path selected interval $($index + 1)"
+        $interval = ConvertFrom-StructuredEventBlock `
+            -Block $selectedIntervals[$index] `
+            -Context $context
+        $frameCount = Get-RequiredEventInteger `
+            -Event $interval `
+            -Name 'Window.FrameCount' `
+            -Context $context
+        if ($frameCount -le 0)
+        {
+            throw "$context has no presented frames"
+        }
+        $presentSamples = Get-RequiredEventInteger `
+            -Event $interval `
+            -Name 'Cpu.PresentCall.Samples' `
+            -Context $context
+        if ($presentSamples -ne $frameCount)
+        {
+            throw "$context Present samples do not match Window.FrameCount"
+        }
+        $observedFrames = Get-RequiredEventInteger `
+            -Event $interval `
+            -Name "$roiPrefix.ObservedFrames" `
+            -Context $context
+        if ($observedFrames -ne $frameCount)
+        {
+            throw "$context ROI observed frames do not match Window.FrameCount"
+        }
     }
     $support = Get-OnlyStructuredEvent `
         -Blocks $blocks `
@@ -628,7 +732,9 @@ function Invoke-AbbaRun
         # Platform rewrites would make the two A/B arms incomparable.
         throw "$directoryName configuration changed while Host was running"
     }
-    $environmentIdentity = Confirm-RunLogContract -Path $runLog
+    $environmentIdentity = Confirm-RunLogContract `
+        -Path $runLog `
+        -MeasurementPath $MeasurementPath
     $copiedExecutableSha256 = (
         Get-FileHash -LiteralPath $runExecutable -Algorithm SHA256
     ).Hash.ToLowerInvariant()
@@ -825,8 +931,13 @@ $manifest = [ordered]@{
 }
 Write-CaptureManifest -Path $manifestPath -Manifest $manifest
 
+$captureExecutionStateHeld = $false
 try
 {
+    # Performance evidence is invalid once Windows stops presenting for display
+    # power. Keep both idle timers asserted for the complete ABBA transaction.
+    Enable-CaptureExecutionState
+    $captureExecutionStateHeld = $true
     $pattern = @(
         [ordered]@{ arm = 'A'; enabled = $false },
         [ordered]@{ arm = 'B'; enabled = $true },
@@ -873,15 +984,30 @@ try
     {
         throw "Collector produced $($manifest.runs.Count) runs instead of $runCount"
     }
+    Disable-CaptureExecutionState
+    $captureExecutionStateHeld = $false
     $manifest.captureStatus = 'captured'
     Write-CaptureManifest -Path $manifestPath -Manifest $manifest
 }
 catch
 {
+    $failure = $_.Exception.Message
+    if ($captureExecutionStateHeld)
+    {
+        try
+        {
+            Disable-CaptureExecutionState
+            $captureExecutionStateHeld = $false
+        }
+        catch
+        {
+            $failure += "; execution-state cleanup failed: $($_.Exception.Message)"
+        }
+    }
     $manifest.captureStatus = 'failed'
-    $manifest['failure'] = $_.Exception.Message
+    $manifest['failure'] = $failure
     Write-CaptureManifest -Path $manifestPath -Manifest $manifest
-    throw
+    throw $failure
 }
 
 Write-Host "Active-FX ROI ABBA capture completed: $outputRoot"
