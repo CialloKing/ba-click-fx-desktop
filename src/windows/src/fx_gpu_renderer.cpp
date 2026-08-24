@@ -528,7 +528,7 @@ struct FxGpuRenderer::Implementation
         FinalComposite
     };
 
-    struct BloomPrefilterTargetState
+    struct BloomTargetRoiState
     {
         ID3D11Texture2D* resource{nullptr};
         std::optional<D3D11_RECT> previousWrittenRect{};
@@ -989,17 +989,63 @@ struct FxGpuRenderer::Implementation
                 bloomUpTargets.push_back(createColorTarget(device.Get(), targetSize));
             }
         }
-        resetBloomPrefilterTargetState();
+        initializeBloomTargetRoiStates();
     }
 
-    void resetBloomPrefilterTargetState() noexcept
+    void initializeBloomTargetRoiStates()
     {
-        bloomPrefilterTargetState = BloomPrefilterTargetState{};
-        if (!bloomDownTargets.empty())
+        bloomDownTargetStates.clear();
+        bloomUpTargetStates.clear();
+        bloomDownTargetStates.reserve(bloomDownTargets.size());
+        bloomUpTargetStates.reserve(bloomUpTargets.size());
+        for (const ColorTarget& target : bloomDownTargets)
         {
-            bloomPrefilterTargetState.resource =
-                bloomDownTargets.front().texture.Get();
+            BloomTargetRoiState state{};
+            state.resource = target.texture.Get();
+            bloomDownTargetStates.push_back(state);
         }
+        for (const ColorTarget& target : bloomUpTargets)
+        {
+            BloomTargetRoiState state{};
+            state.resource = target.texture.Get();
+            bloomUpTargetStates.push_back(state);
+        }
+        primaryRoiActive = false;
+        recordingRebuildRoiActive = false;
+    }
+
+    void resetBloomTargetRoiStates() noexcept
+    {
+        for (std::size_t index = 0U;
+             index < bloomDownTargetStates.size();
+             ++index)
+        {
+            bloomDownTargetStates[index] = BloomTargetRoiState{};
+            if (index < bloomDownTargets.size())
+            {
+                bloomDownTargetStates[index].resource =
+                    bloomDownTargets[index].texture.Get();
+            }
+        }
+        for (std::size_t index = 0U;
+             index < bloomUpTargetStates.size();
+             ++index)
+        {
+            bloomUpTargetStates[index] = BloomTargetRoiState{};
+            if (index < bloomUpTargets.size())
+            {
+                bloomUpTargetStates[index].resource =
+                    bloomUpTargets[index].texture.Get();
+            }
+        }
+        primaryRoiActive = false;
+        recordingRebuildRoiActive = false;
+    }
+
+    void clearBloomTargetRoiStates() noexcept
+    {
+        bloomDownTargetStates.clear();
+        bloomUpTargetStates.clear();
         primaryRoiActive = false;
         recordingRebuildRoiActive = false;
     }
@@ -1035,7 +1081,7 @@ struct FxGpuRenderer::Implementation
     void releaseSizeDependentTargets()
     {
         unbindFrameResources();
-        resetBloomPrefilterTargetState();
+        clearBloomTargetRoiStates();
         directTarget = {};
         crossTarget = {};
         bloomSeedTarget = {};
@@ -1043,7 +1089,6 @@ struct FxGpuRenderer::Implementation
         occlusionTarget = {};
         bloomDownTargets.clear();
         bloomUpTargets.clear();
-        resetBloomPrefilterTargetState();
     }
 
     void resize(const WindowSize nextSize)
@@ -1074,16 +1119,16 @@ struct FxGpuRenderer::Implementation
         if (!pyramidChanged)
         {
             updateBloomPlan();
-            resetBloomPrefilterTargetState();
+            resetBloomTargetRoiStates();
             return;
         }
 
         // Diffusion changes mip extents, so release just the pyramid before
         // replacing it. Direct/coverage targets remain valid for this size.
         unbindFrameResources();
+        clearBloomTargetRoiStates();
         bloomDownTargets.clear();
         bloomUpTargets.clear();
-        resetBloomPrefilterTargetState();
         updateBloomPlan();
         createBloomTargets();
     }
@@ -1106,7 +1151,7 @@ struct FxGpuRenderer::Implementation
             throw std::invalid_argument("FX overlay profile is not recognized");
         }
         overlayProfile = nextProfile;
-        resetBloomPrefilterTargetState();
+        resetBloomTargetRoiStates();
     }
 
     [[nodiscard]] ID3D11PixelShader* desktopCompositeShader(
@@ -1427,82 +1472,90 @@ struct FxGpuRenderer::Implementation
             noResources.data());
     }
 
-    [[nodiscard]] std::optional<D3D11_RECT> bloomPrefilterScissor(
-        const std::optional<FxActiveRoi> activeRoi) const noexcept
+    [[nodiscard]] static bool sameRect(
+        const bafx::core::RectI left,
+        const bafx::core::RectI right) noexcept
     {
-        if (!activeRoi.has_value()
-            || size.width == 0U
+        return left.left == right.left
+            && left.top == right.top
+            && left.right == right.right
+            && left.bottom == right.bottom;
+    }
+
+    [[nodiscard]] static bool samePixelTotals(
+        const bafx::core::UnityBloomPassPixelTotals left,
+        const bafx::core::UnityBloomPassPixelTotals right) noexcept
+    {
+        return left.fullPixels == right.fullPixels
+            && left.candidatePixels == right.candidatePixels;
+    }
+
+    [[nodiscard]] static bool samePassPlan(
+        const bafx::core::UnityBloomPassRoiPlan& left,
+        const bafx::core::UnityBloomPassRoiPlan& right) noexcept
+    {
+        if (left.mipCount != right.mipCount
+            || left.basePlan.guardX != right.basePlan.guardX
+            || left.basePlan.guardY != right.basePlan.guardY
+            || left.basePlan.phasePeriod != right.basePlan.phasePeriod
+            || !sameRect(left.basePlan.sourceSupport, right.basePlan.sourceSupport)
+            || !sameRect(left.basePlan.bloomOutput, right.basePlan.bloomOutput)
+            || !sameRect(left.basePlan.alignedWork, right.basePlan.alignedWork)
+            || !sameRect(left.resolveRect, right.resolveRect)
+            || !samePixelTotals(left.prefilterPixels, right.prefilterPixels)
+            || !samePixelTotals(left.pyramidPixels, right.pyramidPixels)
+            || !samePixelTotals(left.resolvePixels, right.resolvePixels)
+            || !samePixelTotals(left.totalPixels, right.totalPixels))
+        {
+            return false;
+        }
+        for (std::size_t index = 0U; index < left.mipCount; ++index)
+        {
+            if (!sameRect(left.downRects[index], right.downRects[index]))
+            {
+                return false;
+            }
+            if (index + 1U < left.mipCount
+                && !sameRect(left.upRects[index], right.upRects[index]))
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    [[nodiscard]] bool validateActiveRoiPlan(
+        const FxActiveRoi& activeRoi) const noexcept
+    {
+        if (size.width == 0U
             || size.height == 0U
-            || bloomPlan.mipChain.empty())
+            || size.width
+                > static_cast<std::uint32_t>(
+                    std::numeric_limits<std::int32_t>::max())
+            || size.height
+                > static_cast<std::uint32_t>(
+                    std::numeric_limits<std::int32_t>::max()))
         {
-            return std::nullopt;
+            return false;
         }
+        const bafx::core::RectI monitor{
+            0,
+            0,
+            static_cast<std::int32_t>(size.width),
+            static_cast<std::int32_t>(size.height)};
+        const bafx::core::UnityBloomPassRoiPlanResult expected =
+            bafx::core::planUnityBloomPassRoi(
+                activeRoi.passPlan.basePlan.sourceSupport,
+                monitor,
+                bloomPlan);
+        return expected.status == bafx::core::RoiStatus::Ok
+            && samePassPlan(activeRoi.passPlan, expected.plan);
+    }
 
-        const bafx::core::RectI rect = activeRoi->alignedWork;
-        if (rect.left < 0
-            || rect.top < 0
-            || rect.right <= rect.left
-            || rect.bottom <= rect.top
-            || static_cast<std::uint32_t>(rect.right) > size.width
-            || static_cast<std::uint32_t>(rect.bottom) > size.height)
-        {
-            return std::nullopt;
-        }
-
-        const bafx::core::BloomExtent target = bloomPlan.mipChain.front();
-        if (target.width <= 0 || target.height <= 0)
-        {
-            return std::nullopt;
-        }
-        const auto scaleFloor = [](
-                                    const std::uint32_t coordinate,
-                                    const std::uint32_t sourceExtent,
-                                    const std::uint32_t targetExtent)
-        {
-            return static_cast<std::uint32_t>(
-                static_cast<std::uint64_t>(coordinate) * targetExtent
-                / sourceExtent);
-        };
-        const auto scaleCeil = [](
-                                   const std::uint32_t coordinate,
-                                   const std::uint32_t sourceExtent,
-                                   const std::uint32_t targetExtent)
-        {
-            const std::uint64_t product =
-                static_cast<std::uint64_t>(coordinate) * targetExtent;
-            return static_cast<std::uint32_t>(
-                product / sourceExtent
-                + (product % sourceExtent == 0U ? 0U : 1U));
-        };
-        const std::uint32_t targetWidth = static_cast<std::uint32_t>(
-            target.width);
-        const std::uint32_t targetHeight = static_cast<std::uint32_t>(
-            target.height);
-        const std::uint32_t left = scaleFloor(
-            static_cast<std::uint32_t>(rect.left),
-            size.width,
-            targetWidth);
-        const std::uint32_t top = scaleFloor(
-            static_cast<std::uint32_t>(rect.top),
-            size.height,
-            targetHeight);
-        const std::uint32_t right = scaleCeil(
-            static_cast<std::uint32_t>(rect.right),
-            size.width,
-            targetWidth);
-        const std::uint32_t bottom = scaleCeil(
-            static_cast<std::uint32_t>(rect.bottom),
-            size.height,
-            targetHeight);
-        if (right <= left || bottom <= top)
-        {
-            return std::nullopt;
-        }
-        return D3D11_RECT{
-            static_cast<LONG>(left),
-            static_cast<LONG>(top),
-            static_cast<LONG>(right),
-            static_cast<LONG>(bottom)};
+    [[nodiscard]] static D3D11_RECT toScissor(
+        const bafx::core::RectI rect) noexcept
+    {
+        return D3D11_RECT{rect.left, rect.top, rect.right, rect.bottom};
     }
 
     [[nodiscard]] static std::uint64_t scissorPixels(
@@ -1516,20 +1569,54 @@ struct FxGpuRenderer::Implementation
             * static_cast<std::uint64_t>(rect.bottom - rect.top);
     }
 
-    void synchronizeBloomPrefilterTargetState() noexcept
+    [[nodiscard]] bool synchronizeBloomTargetRoiStates() noexcept
     {
-        ID3D11Texture2D* const current = bloomDownTargets.empty()
-            ? nullptr
-            : bloomDownTargets.front().texture.Get();
-        if (bloomPrefilterTargetState.resource == current)
+        if (bloomDownTargetStates.size() != bloomDownTargets.size()
+            || bloomUpTargetStates.size() != bloomUpTargets.size())
         {
-            return;
+            return false;
         }
 
-        // Track the actual D3D resource rather than a logical render path.
-        // Primary Differential Bloom and recording rebuild can share down[0]
-        // within one frame, and that write must invalidate a retained ROI.
-        resetBloomPrefilterTargetState();
+        bool changed = false;
+        for (std::size_t index = 0U; index < bloomDownTargets.size(); ++index)
+        {
+            ID3D11Texture2D* const resource =
+                bloomDownTargets[index].texture.Get();
+            if (resource == nullptr
+                || bloomDownTargets[index].renderTarget == nullptr
+                || bloomDownTargets[index].shaderResource == nullptr)
+            {
+                return false;
+            }
+            if (bloomDownTargetStates[index].resource != resource)
+            {
+                bloomDownTargetStates[index] = BloomTargetRoiState{};
+                bloomDownTargetStates[index].resource = resource;
+                changed = true;
+            }
+        }
+        for (std::size_t index = 0U; index < bloomUpTargets.size(); ++index)
+        {
+            ID3D11Texture2D* const resource = bloomUpTargets[index].texture.Get();
+            if (resource == nullptr
+                || bloomUpTargets[index].renderTarget == nullptr
+                || bloomUpTargets[index].shaderResource == nullptr)
+            {
+                return false;
+            }
+            if (bloomUpTargetStates[index].resource != resource)
+            {
+                bloomUpTargetStates[index] = BloomTargetRoiState{};
+                bloomUpTargetStates[index].resource = resource;
+                changed = true;
+            }
+        }
+        if (changed)
+        {
+            primaryRoiActive = false;
+            recordingRebuildRoiActive = false;
+        }
+        return !changed;
     }
 
     [[nodiscard]] bool& adaptiveRoiState(
@@ -1538,6 +1625,254 @@ struct FxGpuRenderer::Implementation
         return path == BloomExecutionPath::Primary
             ? primaryRoiActive
             : recordingRebuildRoiActive;
+    }
+
+    [[nodiscard]] static std::uint64_t rectPixels(
+        const bafx::core::RectI rect) noexcept
+    {
+        if (rect.right <= rect.left || rect.bottom <= rect.top)
+        {
+            return 0U;
+        }
+        return static_cast<std::uint64_t>(rect.right - rect.left)
+            * static_cast<std::uint64_t>(rect.bottom - rect.top);
+    }
+
+    [[nodiscard]] static std::uint64_t extentPixels(
+        const bafx::core::BloomExtent extent) noexcept
+    {
+        if (extent.width <= 0 || extent.height <= 0)
+        {
+            return 0U;
+        }
+        return static_cast<std::uint64_t>(extent.width)
+            * static_cast<std::uint64_t>(extent.height);
+    }
+
+    static void addPixels(
+        std::uint64_t& destination,
+        const std::uint64_t value) noexcept
+    {
+        destination = value
+                > std::numeric_limits<std::uint64_t>::max() - destination
+            ? std::numeric_limits<std::uint64_t>::max()
+            : destination + value;
+    }
+
+    static void updateAggregatePixels(
+        FxActiveRoiPassDiagnostics& diagnostics) noexcept
+    {
+        diagnostics.fullPixels = 0U;
+        diagnostics.candidatePixels = 0U;
+        diagnostics.drawnPixels = 0U;
+        diagnostics.clearedPixels = 0U;
+        const std::array<const FxActiveRoiStageDiagnostics*, 4U> stages{
+            &diagnostics.stages.prefilter,
+            &diagnostics.stages.downsample,
+            &diagnostics.stages.upsample,
+            &diagnostics.stages.resolve};
+        for (const FxActiveRoiStageDiagnostics* const stage : stages)
+        {
+            addPixels(diagnostics.fullPixels, stage->fullPixels);
+            addPixels(diagnostics.candidatePixels, stage->candidatePixels);
+            addPixels(diagnostics.drawnPixels, stage->drawnPixels);
+            addPixels(diagnostics.clearedPixels, stage->clearedPixels);
+        }
+    }
+
+    void initializeBloomStageDiagnostics(
+        FxActiveRoiPassDiagnostics& diagnostics) const noexcept
+    {
+        diagnostics.stages.prefilter.fullPixels = extentPixels(
+            bloomPlan.mipChain[0]);
+        for (std::size_t index = 1U; index < bloomPlan.mipCount; ++index)
+        {
+            addPixels(
+                diagnostics.stages.downsample.fullPixels,
+                extentPixels(bloomPlan.mipChain[index]));
+        }
+        for (std::size_t index = 0U;
+             index + 1U < bloomPlan.mipCount;
+             ++index)
+        {
+            addPixels(
+                diagnostics.stages.upsample.fullPixels,
+                extentPixels(bloomPlan.mipChain[index]));
+        }
+        diagnostics.stages.resolve.fullPixels =
+            static_cast<std::uint64_t>(size.width) * size.height;
+        diagnostics.stages.prefilter.drawnPixels =
+            diagnostics.stages.prefilter.fullPixels;
+        diagnostics.stages.downsample.drawnPixels =
+            diagnostics.stages.downsample.fullPixels;
+        diagnostics.stages.upsample.drawnPixels =
+            diagnostics.stages.upsample.fullPixels;
+        diagnostics.stages.resolve.drawnPixels =
+            diagnostics.stages.resolve.fullPixels;
+        updateAggregatePixels(diagnostics);
+    }
+
+    static void applyCandidatePixels(
+        FxActiveRoiPassDiagnostics& diagnostics,
+        const bafx::core::UnityBloomPassRoiPlan& plan) noexcept
+    {
+        diagnostics.stages.prefilter.candidatePixels =
+            plan.prefilterPixels.candidatePixels;
+        for (std::size_t index = 1U; index < plan.mipCount; ++index)
+        {
+            addPixels(
+                diagnostics.stages.downsample.candidatePixels,
+                rectPixels(plan.downRects[index]));
+        }
+        for (std::size_t index = 0U; index + 1U < plan.mipCount; ++index)
+        {
+            addPixels(
+                diagnostics.stages.upsample.candidatePixels,
+                rectPixels(plan.upRects[index]));
+        }
+        diagnostics.stages.resolve.candidatePixels =
+            plan.resolvePixels.candidatePixels;
+        updateAggregatePixels(diagnostics);
+    }
+
+    [[nodiscard]] bool bloomTargetsRequireFullClear() const noexcept
+    {
+        const auto requiresFullClear = [](const BloomTargetRoiState& state)
+        {
+            return !state.initialized
+                || state.fullScreenWritten
+                || !state.previousWrittenRect.has_value();
+        };
+        return std::any_of(
+                   bloomDownTargetStates.begin(),
+                   bloomDownTargetStates.end(),
+                   requiresFullClear)
+            || std::any_of(
+                bloomUpTargetStates.begin(),
+                bloomUpTargetStates.end(),
+                requiresFullClear);
+    }
+
+    [[nodiscard]] bool hasSharedFullWrite(
+        const BloomExecutionPath path) const noexcept
+    {
+        const auto isShared = [this, path](const BloomTargetRoiState& state)
+        {
+            return state.fullScreenWritten
+                && state.lastWriter != path
+                && state.lastFullScreenFrameSerial == renderFrameSerial;
+        };
+        return std::any_of(
+                   bloomDownTargetStates.begin(),
+                   bloomDownTargetStates.end(),
+                   isShared)
+            || std::any_of(
+                bloomUpTargetStates.begin(),
+                bloomUpTargetStates.end(),
+                isShared);
+    }
+
+    void clearBloomTargetsForRoi(
+        FxActiveRoiPassDiagnostics& diagnostics,
+        const bool fullClear)
+    {
+        constexpr std::array<float, 4> transparent{
+            0.0F,
+            0.0F,
+            0.0F,
+            0.0F};
+        for (std::size_t index = 0U; index < bloomDownTargets.size(); ++index)
+        {
+            FxActiveRoiStageDiagnostics& stage = index == 0U
+                ? diagnostics.stages.prefilter
+                : diagnostics.stages.downsample;
+            if (fullClear)
+            {
+                context->ClearRenderTargetView(
+                    bloomDownTargets[index].renderTarget.Get(),
+                    transparent.data());
+                addPixels(stage.clearedPixels, extentPixels(bloomPlan.mipChain[index]));
+            }
+            else
+            {
+                const D3D11_RECT previous =
+                    *bloomDownTargetStates[index].previousWrittenRect;
+                context1->ClearView(
+                    bloomDownTargets[index].renderTarget.Get(),
+                    transparent.data(),
+                    &previous,
+                    1U);
+                addPixels(stage.clearedPixels, scissorPixels(previous));
+            }
+        }
+        for (std::size_t index = 0U; index < bloomUpTargets.size(); ++index)
+        {
+            if (fullClear)
+            {
+                context->ClearRenderTargetView(
+                    bloomUpTargets[index].renderTarget.Get(),
+                    transparent.data());
+                addPixels(
+                    diagnostics.stages.upsample.clearedPixels,
+                    extentPixels(bloomPlan.mipChain[index]));
+            }
+            else
+            {
+                const D3D11_RECT previous =
+                    *bloomUpTargetStates[index].previousWrittenRect;
+                context1->ClearView(
+                    bloomUpTargets[index].renderTarget.Get(),
+                    transparent.data(),
+                    &previous,
+                    1U);
+                addPixels(
+                    diagnostics.stages.upsample.clearedPixels,
+                    scissorPixels(previous));
+            }
+        }
+        updateAggregatePixels(diagnostics);
+    }
+
+    void markBloomTargetsFullScreen(const BloomExecutionPath path) noexcept
+    {
+        const auto mark = [this, path](BloomTargetRoiState& state)
+        {
+            state.initialized = true;
+            state.fullScreenWritten = true;
+            state.previousWrittenRect.reset();
+            state.lastWriter = path;
+            state.lastFullScreenFrameSerial = renderFrameSerial;
+        };
+        std::for_each(
+            bloomDownTargetStates.begin(),
+            bloomDownTargetStates.end(),
+            mark);
+        std::for_each(
+            bloomUpTargetStates.begin(),
+            bloomUpTargetStates.end(),
+            mark);
+    }
+
+    void markBloomTargetsRoi(
+        const bafx::core::UnityBloomPassRoiPlan& plan,
+        const BloomExecutionPath path) noexcept
+    {
+        for (std::size_t index = 0U; index < plan.mipCount; ++index)
+        {
+            BloomTargetRoiState& state = bloomDownTargetStates[index];
+            state.initialized = true;
+            state.fullScreenWritten = false;
+            state.previousWrittenRect = toScissor(plan.downRects[index]);
+            state.lastWriter = path;
+        }
+        for (std::size_t index = 0U; index + 1U < plan.mipCount; ++index)
+        {
+            BloomTargetRoiState& state = bloomUpTargetStates[index];
+            state.initialized = true;
+            state.fullScreenWritten = false;
+            state.previousWrittenRect = toScissor(plan.upRects[index]);
+            state.lastWriter = path;
+        }
     }
 
     [[nodiscard]] FxActiveRoiPassDiagnostics renderBloom(
@@ -1556,9 +1891,6 @@ struct FxGpuRenderer::Implementation
         const bafx::core::BloomExtent firstExtent = bloomPlan.mipChain[0];
         const float backgroundWhiteScale = backgroundReferenceWhiteScale();
         const float outputWhiteScale = outputReferenceWhiteScale();
-        const std::optional<D3D11_RECT> candidateScissor =
-            bloomPrefilterScissor(activeRoi);
-        synchronizeBloomPrefilterTargetState();
 
         FxActiveRoiPassDiagnostics roiDiagnostics{};
         roiDiagnostics.requested = activeRoi.has_value();
@@ -1567,26 +1899,25 @@ struct FxGpuRenderer::Implementation
         roiDiagnostics.decisionReason = activeRoi.has_value()
             ? FxActiveRoiDecisionReason::RendererFallback
             : FxActiveRoiDecisionReason::Disabled;
-        roiDiagnostics.fullPixels =
-            static_cast<std::uint64_t>(firstExtent.width)
-            * static_cast<std::uint64_t>(firstExtent.height);
-        roiDiagnostics.drawnPixels = roiDiagnostics.fullPixels;
+        initializeBloomStageDiagnostics(roiDiagnostics);
 
         bool& adaptiveActive = adaptiveRoiState(executionPath);
-        std::optional<D3D11_RECT> prefilterScissor;
-        if (!activeRoi.has_value() || !candidateScissor.has_value())
+        const bool resourcesStable = synchronizeBloomTargetRoiStates();
+        const bafx::core::UnityBloomPassRoiPlan* roiPlan = nullptr;
+        bool useRoi = false;
+        if (!activeRoi.has_value())
         {
             adaptiveActive = false;
         }
-        else
+        else if (validateActiveRoiPlan(*activeRoi))
         {
-            const std::uint64_t candidatePixels = scissorPixels(
-                *candidateScissor);
+            roiPlan = &activeRoi->passPlan;
+            applyCandidatePixels(roiDiagnostics, *roiPlan);
             const bafx::core::ActiveFxRoiAdaptiveDecision adaptiveDecision =
                 bafx::core::decideActiveFxRoiAdaptivePath(
                     adaptiveActive,
-                    candidatePixels,
-                    roiDiagnostics.fullPixels);
+                    roiPlan->totalPixels.candidatePixels,
+                    roiPlan->totalPixels.fullPixels);
             if (adaptiveDecision
                 != bafx::core::ActiveFxRoiAdaptiveDecision::Apply)
             {
@@ -1608,60 +1939,59 @@ struct FxGpuRenderer::Implementation
                     roiDiagnostics.decisionReason =
                         FxActiveRoiDecisionReason::Context1Unavailable;
                 }
+                else if (!resourcesStable)
+                {
+                    adaptiveActive = false;
+                }
                 else
                 {
                     adaptiveActive = true;
-                    prefilterScissor = candidateScissor;
-                    roiDiagnostics.drawnPixels = candidatePixels;
-                    const bool requiresFullClear =
-                        !bloomPrefilterTargetState.initialized
-                        || bloomPrefilterTargetState.fullScreenWritten
-                        || !bloomPrefilterTargetState.previousWrittenRect
-                                .has_value();
-                    constexpr std::array<float, 4> transparent{
-                        0.0F,
-                        0.0F,
-                        0.0F,
-                        0.0F};
-                    if (requiresFullClear)
-                    {
-                        context->ClearRenderTargetView(
-                            bloomDownTargets[0].renderTarget.Get(),
-                            transparent.data());
-                        roiDiagnostics.warmup = true;
-                        roiDiagnostics.actualPath =
-                            FxActiveRoiActualPath::RoiWarmup;
-                        roiDiagnostics.clearedPixels =
-                            roiDiagnostics.fullPixels;
-                        const bool sharedFullWrite =
-                            bloomPrefilterTargetState.fullScreenWritten
-                            && bloomPrefilterTargetState.lastWriter
-                                != executionPath
-                            && bloomPrefilterTargetState
-                                    .lastFullScreenFrameSerial
-                                == renderFrameSerial;
-                        roiDiagnostics.decisionReason = sharedFullWrite
-                            ? FxActiveRoiDecisionReason::SharedTargetFullWrite
-                            : FxActiveRoiDecisionReason::Applied;
-                    }
-                    else
-                    {
-                        const D3D11_RECT previous =
-                            *bloomPrefilterTargetState.previousWrittenRect;
-                        context1->ClearView(
-                            bloomDownTargets[0].renderTarget.Get(),
-                            transparent.data(),
-                            &previous,
-                            1U);
-                        roiDiagnostics.actualPath =
-                            FxActiveRoiActualPath::RoiPrefilter;
-                        roiDiagnostics.decisionReason =
-                            FxActiveRoiDecisionReason::Applied;
-                        roiDiagnostics.clearedPixels = scissorPixels(previous);
-                    }
+                    useRoi = true;
                 }
             }
         }
+        else
+        {
+            adaptiveActive = false;
+        }
+
+        std::array<D3D11_RECT, bafx::core::unityBloomMaxMipCount>
+            downScissors{};
+        std::array<D3D11_RECT, bafx::core::unityBloomMaxMipCount - 1U>
+            upScissors{};
+        if (useRoi)
+        {
+            for (std::size_t index = 0U; index < roiPlan->mipCount; ++index)
+            {
+                downScissors[index] = toScissor(roiPlan->downRects[index]);
+                if (index + 1U < roiPlan->mipCount)
+                {
+                    upScissors[index] = toScissor(roiPlan->upRects[index]);
+                }
+            }
+            const bool fullClear = bloomTargetsRequireFullClear();
+            const bool sharedFullWrite = fullClear
+                && hasSharedFullWrite(executionPath);
+            clearBloomTargetsForRoi(roiDiagnostics, fullClear);
+            roiDiagnostics.warmup = fullClear;
+            roiDiagnostics.actualPath = fullClear
+                ? FxActiveRoiActualPath::RoiWarmup
+                : FxActiveRoiActualPath::RoiPyramid;
+            roiDiagnostics.decisionReason = sharedFullWrite
+                ? FxActiveRoiDecisionReason::SharedTargetFullWrite
+                : FxActiveRoiDecisionReason::Applied;
+            roiDiagnostics.stages.prefilter.drawnPixels =
+                roiDiagnostics.stages.prefilter.candidatePixels;
+            roiDiagnostics.stages.downsample.drawnPixels =
+                roiDiagnostics.stages.downsample.candidatePixels;
+            roiDiagnostics.stages.upsample.drawnPixels =
+                roiDiagnostics.stages.upsample.candidatePixels;
+            // Resolve and final composition remain one full-screen draw.
+            roiDiagnostics.stages.resolve.drawnPixels =
+                roiDiagnostics.stages.resolve.fullPixels;
+            updateAggregatePixels(roiDiagnostics);
+        }
+
         drawFullscreen(
             bloomDownTargets[0].renderTarget.Get(),
             firstExtent,
@@ -1682,7 +2012,7 @@ struct FxGpuRenderer::Implementation
                 : nullptr,
             nullptr,
             nullptr,
-            prefilterScissor.has_value() ? &*prefilterScissor : nullptr);
+            useRoi ? &downScissors[0] : nullptr);
 
         bool ignoredCheckpointFailure = false;
         bool& checkpointFailure = gpuTimestampCheckpointFailure != nullptr
@@ -1693,21 +2023,6 @@ struct FxGpuRenderer::Implementation
             executionPath,
             BloomGpuStage::Prefilter,
             checkpointFailure);
-
-        bloomPrefilterTargetState.initialized = true;
-        bloomPrefilterTargetState.lastWriter = executionPath;
-        if (prefilterScissor.has_value())
-        {
-            bloomPrefilterTargetState.fullScreenWritten = false;
-            bloomPrefilterTargetState.previousWrittenRect = prefilterScissor;
-        }
-        else
-        {
-            bloomPrefilterTargetState.fullScreenWritten = true;
-            bloomPrefilterTargetState.previousWrittenRect.reset();
-            bloomPrefilterTargetState.lastFullScreenFrameSerial =
-                renderFrameSerial;
-        }
 
         for (std::size_t index = 1U; index < bloomPlan.mipCount; ++index)
         {
@@ -1720,7 +2035,11 @@ struct FxGpuRenderer::Implementation
                 makeBloomConstants(
                     bloomPlan.mipChain[index - 1U],
                     bloomPlan.sampleScale,
-                    0.0F));
+                    0.0F),
+                nullptr,
+                nullptr,
+                nullptr,
+                useRoi ? &downScissors[index] : nullptr);
         }
 
         ID3D11ShaderResourceView* accumulated =
@@ -1740,8 +2059,21 @@ struct FxGpuRenderer::Implementation
                 makeBloomConstants(
                     bloomPlan.mipChain[coarseIndex],
                     bloomPlan.sampleScale,
-                    0.0F));
+                    0.0F),
+                nullptr,
+                nullptr,
+                nullptr,
+                useRoi ? &upScissors[fineIndex] : nullptr);
             accumulated = bloomUpTargets[fineIndex].shaderResource.Get();
+        }
+
+        if (useRoi)
+        {
+            markBloomTargetsRoi(*roiPlan, executionPath);
+        }
+        else
+        {
+            markBloomTargetsFullScreen(executionPath);
         }
 
         recordBloomCheckpoint(
@@ -1757,11 +2089,13 @@ struct FxGpuRenderer::Implementation
             background.has_value(),
             backgroundWhiteScale,
             outputWhiteScale);
-        bindBloomResolveRect(bafx::core::RectI{
-            0,
-            0,
-            static_cast<std::int32_t>(size.width),
-            static_cast<std::int32_t>(size.height)});
+        bindBloomResolveRect(useRoi
+                ? roiPlan->resolveRect
+                : bafx::core::RectI{
+                    0,
+                    0,
+                    static_cast<std::int32_t>(size.width),
+                    static_cast<std::int32_t>(size.height)});
         if (bloomResultDestination == nullptr)
         {
             drawFullscreen(
@@ -2002,7 +2336,7 @@ struct FxGpuRenderer::Implementation
             // An empty frame ends the current visual batch. The next batch
             // must re-enter through the 50% gate and clear persistent target
             // contents before its first scissored prefilter draw.
-            resetBloomPrefilterTargetState();
+            resetBloomTargetRoiStates();
             diagnostics.primaryActiveFxRoi.actualPath =
                 FxActiveRoiActualPath::Idle;
             diagnostics.primaryActiveFxRoi.decisionReason =
@@ -2221,7 +2555,8 @@ struct FxGpuRenderer::Implementation
         const auto isApplied = [](const FxActiveRoiPassDiagnostics& pass)
         {
             return pass.actualPath == FxActiveRoiActualPath::RoiWarmup
-                || pass.actualPath == FxActiveRoiActualPath::RoiPrefilter;
+                || pass.actualPath == FxActiveRoiActualPath::RoiPrefilter
+                || pass.actualPath == FxActiveRoiActualPath::RoiPyramid;
         };
         if (isApplied(diagnostics.primaryActiveFxRoi))
         {
@@ -2418,7 +2753,8 @@ struct FxGpuRenderer::Implementation
 
     [[nodiscard]] FxGpuFrameCapture renderAndCapture(
         const bafx::fx::FrameSnapshot& snapshot,
-        ID3D11RenderTargetView* destination)
+        ID3D11RenderTargetView* destination,
+        const std::optional<FxActiveRoi> activeRoi)
     {
         if (overlayProfile == FxOverlayProfile::Core)
         {
@@ -2447,11 +2783,22 @@ struct FxGpuRenderer::Implementation
                 destination,
                 captureCompositePixelShader.Get(),
                 std::nullopt,
-                bloomResultTarget.renderTarget.Get());
+                bloomResultTarget.renderTarget.Get(),
+                nullptr,
+                nullptr,
+                activeRoi);
         }
         else
         {
-            render(snapshot, destination, compositePixelShader.Get());
+            render(
+                snapshot,
+                destination,
+                compositePixelShader.Get(),
+                std::nullopt,
+                nullptr,
+                nullptr,
+                nullptr,
+                activeRoi);
         }
 
         FxGpuFrameCapture capture{};
@@ -2547,7 +2894,8 @@ struct FxGpuRenderer::Implementation
     bafx::core::UnityBloomPlan bloomPlan{};
     std::vector<ColorTarget> bloomDownTargets{};
     std::vector<ColorTarget> bloomUpTargets{};
-    BloomPrefilterTargetState bloomPrefilterTargetState{};
+    std::vector<BloomTargetRoiState> bloomDownTargetStates{};
+    std::vector<BloomTargetRoiState> bloomUpTargetStates{};
     std::uint64_t renderFrameSerial{0U};
     bool primaryRoiActive{false};
     bool recordingRebuildRoiActive{false};
@@ -2630,7 +2978,7 @@ void FxGpuRenderer::setBloomSettings(const FxBloomSettings settings)
 
 void FxGpuRenderer::resetActiveFxRoiState() noexcept
 {
-    implementation_->resetBloomPrefilterTargetState();
+    implementation_->resetBloomTargetRoiStates();
 }
 
 void FxGpuRenderer::setThemeColor(const std::string_view themeColor)
@@ -2670,9 +3018,10 @@ FxRenderCpuDiagnostics FxGpuRenderer::render(
 
 FxGpuFrameCapture FxGpuRenderer::renderAndCapture(
     const bafx::fx::FrameSnapshot& snapshot,
-    ID3D11RenderTargetView* destination)
+    ID3D11RenderTargetView* destination,
+    const std::optional<FxActiveRoi> activeRoi)
 {
-    return implementation_->renderAndCapture(snapshot, destination);
+    return implementation_->renderAndCapture(snapshot, destination, activeRoi);
 }
 
 }

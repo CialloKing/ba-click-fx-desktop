@@ -1,6 +1,7 @@
 #pragma once
 
 #include "bafx/fx/simulation.hpp"
+#include "bafx/core/roi.hpp"
 #include "bafx/core/types.hpp"
 #include "bafx/windows/composition_output.hpp"
 #include "bafx/windows/fx_bloom_settings.hpp"
@@ -46,6 +47,7 @@ enum class FxActiveRoiActualPath : std::uint8_t
     FullScreen,
     RoiWarmup,
     RoiPrefilter,
+    RoiPyramid,
     Unavailable
 };
 
@@ -64,6 +66,8 @@ enum class FxActiveRoiActualPath : std::uint8_t
         return "roi-warmup";
     case FxActiveRoiActualPath::RoiPrefilter:
         return "roi-prefilter";
+    case FxActiveRoiActualPath::RoiPyramid:
+        return "roi-pyramid";
     case FxActiveRoiActualPath::Unavailable:
         return "unavailable";
     }
@@ -110,6 +114,22 @@ enum class FxActiveRoiDecisionReason : std::uint8_t
     return "renderer-fallback";
 }
 
+struct FxActiveRoiStageDiagnostics
+{
+    std::uint64_t fullPixels{0U};
+    std::uint64_t candidatePixels{0U};
+    std::uint64_t drawnPixels{0U};
+    std::uint64_t clearedPixels{0U};
+};
+
+struct FxActiveRoiStagesDiagnostics
+{
+    FxActiveRoiStageDiagnostics prefilter{};
+    FxActiveRoiStageDiagnostics downsample{};
+    FxActiveRoiStageDiagnostics upsample{};
+    FxActiveRoiStageDiagnostics resolve{};
+};
+
 struct FxActiveRoiPassDiagnostics
 {
     bool requested{false};
@@ -120,8 +140,10 @@ struct FxActiveRoiPassDiagnostics
     FxActiveRoiDecisionReason decisionReason{
         FxActiveRoiDecisionReason::Disabled};
     std::uint64_t fullPixels{0U};
+    std::uint64_t candidatePixels{0U};
     std::uint64_t drawnPixels{0U};
     std::uint64_t clearedPixels{0U};
+    FxActiveRoiStagesDiagnostics stages{};
 };
 
 struct FxRenderCpuDiagnostics
@@ -141,9 +163,9 @@ struct FxRenderCpuDiagnostics
 
 struct FxActiveRoi final
 {
-    // Full-resolution, phase-aligned work domain. The renderer maps it onto
-    // the first Bloom target while preserving the original full-screen UVs.
-    bafx::core::RectI alignedWork{};
+    // The render thread validates this immutable plan against its current
+    // resources before selecting one complete ROI or full-screen Bloom path.
+    bafx::core::UnityBloomPassRoiPlan passPlan{};
 };
 
 struct FxGpuRendererFeaturePolicy final
@@ -198,7 +220,8 @@ public:
         std::optional<FxActiveRoi> activeRoi = std::nullopt);
     [[nodiscard]] FxGpuFrameCapture renderAndCapture(
         const bafx::fx::FrameSnapshot& snapshot,
-        ID3D11RenderTargetView* destination);
+        ID3D11RenderTargetView* destination,
+        std::optional<FxActiveRoi> activeRoi = std::nullopt);
 
 private:
     struct Implementation;
