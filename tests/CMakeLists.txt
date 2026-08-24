@@ -522,6 +522,7 @@ if(WIN32)
         bafx_host_control_tests
         PRIVATE
             bafx::config
+            bafx::product
             bafx::windows
     )
     target_compile_features(bafx_host_control_tests PRIVATE cxx_std_20)
@@ -591,6 +592,7 @@ if(WIN32)
         bafx_control_center_tests
         PRIVATE
             bafx::config
+            bafx::product
             advapi32
             ole32
             version

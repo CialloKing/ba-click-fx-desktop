@@ -16,6 +16,21 @@ endif()
 set(CMAKE_CXX_EXTENSIONS OFF)
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 
+set(BAFX_PRODUCT_GENERATED_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")
+configure_file(
+    cmake/product_version.hpp.in
+    "${BAFX_PRODUCT_GENERATED_DIR}/product/version.hpp"
+    @ONLY
+)
+add_library(bafx_product INTERFACE)
+add_library(bafx::product ALIAS bafx_product)
+target_include_directories(
+    bafx_product
+    INTERFACE
+        "${BAFX_PRODUCT_GENERATED_DIR}"
+)
+target_compile_features(bafx_product INTERFACE cxx_std_20)
+
 option(
     BAFX_ENABLE_SPOUT2
     "Enable the optional Spout2 DirectX sender"

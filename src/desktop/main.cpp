@@ -1,4 +1,4 @@
-#include "bafx/desktop/version.hpp"
+#include "product/version.hpp"
 #include "bafx/config/config.hpp"
 #include "bafx/fx/simulation_runtime.hpp"
 #include "bafx/fx/simulation_timeline.hpp"
@@ -122,7 +122,7 @@ void appendRecordingCompatibleDiagnostic(
         bafx::windows::DiagnosticField{"Generation", "1"},
         bafx::windows::DiagnosticField{
             "ApplicationRevision",
-            bafx::desktop::version},
+            bafx::product::version},
         bafx::windows::DiagnosticField{"Reason", reason},
         bafx::windows::DiagnosticField{"Persistence", persistence}};
     bafx::windows::appendDiagnosticEvent(
@@ -7402,7 +7402,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int)
 {
     RunOptions options = parseOptions();
     std::filesystem::path logPath{};
-    bafx::windows::SupportReport report(bafx::desktop::version);
+    bafx::windows::SupportReport report(bafx::product::version);
     std::optional<bafx::desktop::SingleInstanceGuard> instanceGuard;
     try
     {
@@ -7424,7 +7424,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int)
         const std::array startupFields{
             bafx::windows::DiagnosticField{
                 "Product.Version",
-                bafx::desktop::version},
+                bafx::product::version},
             bafx::windows::DiagnosticField{
                 "Process.Mode",
                 processMode}};

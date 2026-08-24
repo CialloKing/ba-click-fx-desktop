@@ -1,10 +1,5 @@
 set(BAFX_DESKTOP_GENERATED_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")
 configure_file(
-    version.hpp.in
-    "${BAFX_DESKTOP_GENERATED_DIR}/bafx/desktop/version.hpp"
-    @ONLY
-)
-configure_file(
     ba-click-fx-desktop.manifest.in
     "${BAFX_DESKTOP_GENERATED_DIR}/ba-click-fx-desktop.manifest"
     @ONLY
@@ -80,6 +75,7 @@ target_link_libraries(
         bafx::config
         bafx::desktop_input
         bafx::fx
+        bafx::product
         bafx::windows
         ole32
 )

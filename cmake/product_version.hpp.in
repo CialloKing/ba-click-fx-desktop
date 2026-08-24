@@ -1,0 +1,15 @@
+#pragma once
+
+#include <cstdint>
+#include <string_view>
+
+namespace bafx::product
+{
+
+inline constexpr std::string_view version = "@BAFX_VERSION@";
+inline constexpr std::uint16_t versionMajor = @BAFX_VERSION_MAJOR@U;
+inline constexpr std::uint16_t versionMinor = @BAFX_VERSION_MINOR@U;
+inline constexpr std::uint16_t versionPatch = @BAFX_VERSION_PATCH@U;
+inline constexpr std::uint16_t versionRevision = @BAFX_VERSION_REVISION@U;
+
+}
