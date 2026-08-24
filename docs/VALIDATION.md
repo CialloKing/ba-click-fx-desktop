@@ -30,7 +30,9 @@
   成功/失败序列不得超过 8 个动作。broker 拒绝、错误或超时保留当前事务的 resize 并对稳定请求保持终态；
   owner cancel 清除旧请求身份，使相同捕获配置可在新控制代次重新进入权限动作。新输出/显示目标或
   shutdown 必须丢弃旧 resize；仅配置代次、恢复或会话故障取消且没有新几何替代时必须保留它；
-- ROI alignment/guard；
+- ROI alignment/guard 与自适应状态机：独立 oracle 使用固定 seed 覆盖至少 10,000 组矩形、整数溢出、
+  负屏幕原点、奇偶目标尺寸和 diffusion `4/6/7/10`；首级面积不超过 50% 才进入、已进入后超过 65%
+  才退出，接近全屏、触边和无效计划的正确性原因必须先于收益判断；
 - effects-only Profile codec/store：启动目录必须固定包含“Unity 原版”“轻量”“纯点击”“纯拖尾”四个内置项；
   每个自定义项使用 `fx-profiles/<名称>.json` 单文件保存完整、严格的平面 `EffectsConfig`，合法文件可跨实例
   save/reload/delete，损坏或超限文件只能被忽略，不能移除或污染内置项；
@@ -65,7 +67,10 @@
 - 浅色/深色背景下点击与拖尾跨获取/保留边界及恢复序列的逐像素稳定性；
 - 近白到纯白背景的连续 FP16 采样步进，确认背景变化不会在点击或拖尾上产生透明/不透明跳变；
 - Bloom mip/down/up；
-- FinalOverlay FP16 readback。
+- FinalOverlay FP16 readback；
+- Active-FX ROI WARP 覆盖移动与不相交矩形、内容消失、开关切换、全屏/ROI 往返、四边四角、负 scRGB、
+  HDR 极值、共享 Bloom 目标和 Context1 fallback。有限 FourTap 路径的最终 FP16 必须逐元素 bit-exact，
+  且不得出现 NaN/Inf；FX-only、Spout2 开关及有/无背景时，primary 与 recording-rebuild 不得互相误记。
 
 ### L2：窗口与 API 集成
 
@@ -111,7 +116,10 @@
   渲染所有者转换为 `StopSensor -> ResizeOutput -> StartSensor` 事务。`A -> B -> C` 权限取消不得执行 B 的
   resize，shutdown cancel 不得移动窗口；`Display.Topology.Observed/Applied` 必须区分观察目标与已应用目标，
   同屏 DPI-only 通知必须同时记录已应用 DPI、窗口有效 DPI 和变化标记；
-- `GetDisplayState` schema 2 必须拒绝旧版本以及未知、重复和缺失字段，并能解析 Host 真实生成的完整会话；
+- `GetDisplayState` schema 3 必须拒绝旧版本以及未知、重复、缺失和非法字段，并能解析 Host 真实生成的
+  完整会话。每个 session 的 `activeFxRoi` 必须包含固定字段的 primary/recording-rebuild 路径，Control
+  Center 只在页面可见时按 1 秒轮询、离页停止，样本超过 3 秒标记 stale；Host 退出或 IPC 失败不得
+  修改配置或伪造新快照。工程面板还需覆盖 96/144/192 DPI 和键盘 Tab 顺序；
   离线 override 只在全局拓扑完整时具有权威性。Windows SDK 19041/22621/26100 Actions 均构建 Host、
   Control Center 和 Identity Signer 的完整目标，并记录 runner 实际安装的 SDK 清单；不以当前运行系统
   缺少 Windows 11 API 为测试失败条件。该 SDK 编译覆盖不替代 build `28000+` 的真实运行时或 WGC 证据；
@@ -366,10 +374,14 @@ Windows Player 在完整前台、命中测试和焦点门禁下接收 `Down-Up-D
 
 Lanczos 或带负瓣 bicubic 不得进入等价性路径。
 
-当前 `gpu_pipeline_warp` 额外执行 Active-FX ROI 首级预滤波回归：同一个 256x256 FP16 纯特效场景
-分别走全屏预滤波与内部对齐工作区 scissor，要求 ROI 确实被应用、诊断像素数与首级 mip 映射一致，
-并要求最终 FP16 输出逐元素最大差为 0。这个用例只证明已接入的首级生产切片；发布声明仍不得外推到
-贴边、奇数尺寸、负 scRGB、HDR 极值、背景差分或尚未局部化的 down/up、最终合成与 WGC 拷贝。
+v0.2.6 的 `gpu_pipeline_warp` 执行 Active-FX ROI 首级清理状态机回归：同一个 FP16 场景分别走全屏
+预滤波、全清预热、稳态 `ClearView + scissor`、移动/不相交 ROI 和 Context1 fallback，要求实际路径、
+原因、清理/绘制像素与首级 mip 映射一致，并对有限 FourTap 输出做逐元素 bit-exact 比较。负 scRGB、
+HDR 极值、四边四角和内容消失不得产生 NaN/Inf 或旧像素残留。背景差分 primary 必须保持全屏；共享
+目标同帧已全屏写入时，recording-rebuild 只能报告全清预热/共享写入原因。
+
+这些用例只证明已接入的首级生产切片；发布声明仍不得外推到尚未局部化的 down/up/resolve、最终合成、
+WGC、Spout2 格式转换、交换链或 Present。
 
 ## 5. 发布门槛
 
@@ -384,6 +396,28 @@ Lanczos 或带负瓣 bicubic 不得进入等价性路径。
 - Unity Golden 的关键时点无未解释回归。
 
 未具备的硬件场景保留 `Not Run`，并从该版本的支持声明中排除。
+
+### 5.1 Active-FX ROI v0.2.6 专用发布门
+
+专用 collector/reporter 必须使用当前 schema 19 配置。每个场景使用同一 EXE、同一输入/显示条件，唯一
+配置差异必须是 `performance.activeFxRoiEnabled`；固定执行 5 个 ABBA 块，共 20 次采集，每次先预热
+5 秒，再采样 30 秒。原始采集、Host SHA-256、完整配置和配对顺序必须进入 manifest，测试不得依赖
+GitHub 网络或在失败后改变阈值。
+
+RTX 4060、4K 170 Hz、SDR 的发布结果必须同时满足：
+
+- `Applied/Requested >= 95%`，首级绘制像素比例不超过 45%；
+- Prefilter GPU p95 至少降低 25%；Bloom/final p95 至少降低 `max(5%, 100 us)`；
+- 10 组配对中至少 8 组 ROI 不慢于全屏；
+- FPS 降幅不超过 1%，CPU、Present 与 p99 恶化不超过 5%；
+- GPU pending 最大值不超过 1，查询、节流和状态错误均为 0。
+
+触边、面积回退及无 Spout2 的 `background-aware` 场景必须 100% 命中预期原因并保持输出 exact，性能
+恶化不得超过 `max(3%, 100 us)`。若任一端到端门槛未通过，不得放宽阈值、发布性能声明或发布
+v0.2.6；下一轮直接转入完整 Bloom down/up/resolve ROI。
+
+AMD、Intel、HDR、Windows 11、多显示器和跨适配器 ROI 单元格在真实执行前保持 `Not Run`，不能用
+WARP、SDK 编译矩阵或 RTX 4060 SDR 结果外推。
 
 ## 6. 需求追踪
 

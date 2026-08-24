@@ -2,6 +2,42 @@
 
 ## 未发布
 
+## 0.2.6 - 2026-08-24
+
+### 新增
+
+- Active-FX ROI 的 Bloom 首级目标新增真实局部清理状态机。首次进入 ROI 或从全屏切回 ROI 时先执行
+  一次完整清理并报告预热帧；稳态通过 `ID3D11DeviceContext1::ClearView` 清理上一写入矩形，再以
+  scissor 绘制当前矩形，避免 `ClearRenderTargetView` 的全资源清理抵消首级收益。
+- ROI 使用内部自适应门：首级实际 scissor 面积不超过 50% 时进入，已进入后超过 65% 才退出；触边、
+  Bloom 关闭、core 模式、背景差分、无有效计划和其他正确性门始终优先。Context1 不可用或渲染状态
+  异常时，同帧回退完整全屏路径。
+- `GetDisplayState` 升级为严格 schema 3。每个显示会话新增近 5 秒的 Active-FX ROI 不可变快照，分别
+  报告 primary 与 recording-rebuild 的实际路径、决策原因、帧数、像素、矩形、guard/phase 和分阶段
+  GPU p50/p95；快照每 500 ms 发布，不让 IPC 在逐帧路径获取互斥体。
+- Control Center 的开关改名为“启用自适应 Active-FX ROI（实验）”，并为选中显示器增加工程面板。
+  页面可见时每秒刷新，超过 3 秒标记为 stale；IPC 异常只影响诊断显示，不会改写配置或影响 Host。
+- GPU 时间戳遥测拆分 primary 与 recording-rebuild 两条路径的 Prefilter、Pyramid 和 FinalComposite，
+  同时保留既有 Bloom 总耗时；查询继续异步、非阻塞，不等待也不强制 `Flush`。
+- 增加 Active-FX ROI 专用 A/B 采集与报告合同：同一 EXE、同一场景、schema 19 配置仅切换 ROI 开关，
+  固定执行 5 个 ABBA 块、20 次采集，并按发布门槛判定结果。
+
+### 兼容性与升级
+
+- 产品版本提升到 0.2.6；主配置 schema 保持 19，`performance.activeFxRoiEnabled` 仍默认关闭。
+  现有配置、显示器 override、effects-only Profile 和渲染协议均不迁移、不重写。
+- `GetDisplayState` schema 3 是有意的破坏性协议更新，不提供 schema 2 兼容层；Host 与 Control Center
+  必须使用同一产品版本。`GetState.productVersion` 的混合版本 fail-closed 设置门保持不变。
+
+### 支持边界
+
+- 本轮只局部化纯特效 Bloom 首级预滤波，以及需要执行时的录制/Spout2 纯特效重建首级。
+  默认 `background-aware` 的 primary Differential Bloom、完整 Bloom down/up/resolve、最终合成、
+  WGC、Spout2 格式转换、交换链与 Present 仍为全屏。
+- 工程面板中的像素处理比例只描述首级工作量，不等于 GPU 或端到端性能节省。RTX 4060 4K SDR
+  A/B 门槛通过前不发布性能声明；AMD、Intel、HDR、Windows 11、多显示器和跨适配器 ROI 矩阵保持
+  `Not Run`。
+
 ## 0.2.5 - 2026-08-24
 
 ### 新增

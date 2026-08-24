@@ -24,14 +24,15 @@ Release Host 运行时是单文件：Visual C++ 运行库静态链接，Circle�
 DirectComposition 和 D3DCompiler 系统组件。独立的 Control Center 使用纯 Win32 Common Controls，
 不需要 Windows App SDK 或其他旁置运行时。
 
-当前架构版本是 **v0.3**，状态为 **Proposed**。0.2.5 正式版已具备 Host、原生 Win32
-Control Center、本地 IPC 与完整便携包；当前人工特效审核和支持合同以单主屏 SDR 下的三种渲染模式
+当前架构版本是 **v0.3**，状态为 **Proposed**。当前源码产品版本为 0.2.6，已具备 Host、原生 Win32
+Control Center、本地 IPC 与完整便携包流程；当前人工特效审核和支持合同以单主屏 SDR 下的三种渲染模式
 为准。涉及 DirectComposition、Windows Graphics Capture、HDR/Advanced Color 和多适配器的结论，
 必须取得仓库中定义的 Spike 证据或接受明确的 fallback 后，相关 ADR 才能标记为 Accepted。
 
 Host 现在会把主协调屏摘要和稳定排序的逐显示器运行状态写入支持报告，并通过严格的
-`GetDisplayState` schema 2 提供拓扑完整性、配置/应用代次、来源身份、物理/捕获刷新率、DRR、GPU、
-颜色查询 HRESULT、SDR white level、请求/解析/实际输出、cadence/output fallback、WGC 与故障状态。
+`GetDisplayState` schema 3 提供拓扑完整性、配置/应用代次、来源身份、物理/捕获刷新率、DRR、GPU、
+颜色查询 HRESULT、SDR white level、请求/解析/实际输出、cadence/output fallback、WGC、故障状态，以及
+每个显示会话近 5 秒的 Active-FX ROI primary/recording-rebuild 工程快照。
 Control Center 只展示 Host 报告的实际能力；未知能力保持未知，不会根据用户请求或代码路径伪装成已支持。
 这些字段只用于后续 HDR/显示 Spike 的能力证据；`Support.HDR=not-supported` 在完整输出矩阵通过前保持
 不变，亮度为零时也会显式标记为未知，而不会把零值解释成显示器真实亮度。
@@ -72,7 +73,7 @@ Trail 和 Bloom 继续按游戏合同在线性 FP16 中计算。最终呈现阶�
 - [docs/SPIKES.md](docs/SPIKES.md)：四个必须执行的硬件/API Spike。
 - [docs/VALIDATION.md](docs/VALIDATION.md)：测试层级、Golden Oracle 和发布门槛。
 - [docs/UNITY_REFERENCE.md](docs/UNITY_REFERENCE.md)：游戏解包资源、Unity 重建工程与 Golden 的证据边界。
-- [SUPPORT.md](SUPPORT.md)：0.2.5 的可测试范围、退出方式和明确排除项。
+- [SUPPORT.md](SUPPORT.md)：0.2.6 的可测试范围、退出方式和明确排除项。
 - [tools/package-test-bundle.ps1](tools/package-test-bundle.ps1)：构建并生成便携 ZIP，同时调用完整性验证。
 
 ## 项目状态
@@ -186,7 +187,7 @@ Visual Studio、Windows SDK、Inno Setup 或 PowerShell 依赖包；安装器已
 4. 卸载时使用开始菜单中的卸载项或 Windows“已安装的应用”。默认保留程序目录下的 `data` 配置，重新安装
    后仍可继续使用；如需彻底清理，请在卸载前手动备份并删除该目录。
 
-0.2.5 只提供手动版本检查，不是自动更新器。从 0.2.4 或更早版本首次升级时，旧 Control Center
+从 0.2.5 起只提供手动版本检查，不是自动更新器。从 0.2.4 或更早版本首次升级时，旧 Control Center
 尚没有“检查更新”入口，仍需用户前往[官方 Release 页面](https://github.com/CialloKing/ba-click-fx-desktop/releases/latest)
 手动下载并运行新安装器，或手动替换完整便携目录。不要混用不同版本的 Host 与 Control Center。
 
@@ -240,14 +241,17 @@ FX-only，不会先启动带黄色边框的会话。无论该开关如何设置�
 透明度、点击/拖尾时间倍率、拖尾寿命，以及 Bloom
 扩散、阈值、软阈值和亮度上限。“显示与性能”页通过 `GetDisplayState` 选择并查看每个显示会话的
 实际边界、DPI、物理/捕获刷新率、DRR、颜色查询、SDR white level、色彩/输出回退、WGC 和故障状态，
-并提供默认关闭的全局 HDR 请求、默认关闭的实验性 Active-FX ROI，以及
+并提供默认关闭的全局 HDR 请求、默认关闭的“启用自适应 Active-FX ROI（实验）”，以及
 `match-display`、`60`、`120`、`144`、`unlimited` 五种 `performance.framePacing` 策略。具有稳定 DisplayConfig
 标识的显示器可以启用独立设置，分别控制特效、HDR 请求和帧率策略；关闭独立设置后恢复继承全局值。
 没有稳定标识的会话仍可查看，但逐屏写入控件保持禁用。完整拓扑下，选择器还会列出未连接显示器的
 遗留 override；这些条目没有伪造的运行状态，只能通过现有原子命令删除。诊断文本使用可滚动只读区域；
 系统页提供“清理诊断日志”按钮，确认后通过 `ClearLogs` 删除当前日志和轮转备份，并显示删除文件数、
 释放字节数和失败文件数。系统页的“版本与更新”区域分别显示 Control Center、Host、安装状态和
-最新公开版本，并提供手动“检查更新”和“打开 Release”。
+最新公开版本，并提供手动“检查更新”和“打开 Release”。Active-FX ROI 工程面板在页面可见时每秒
+刷新选中显示器的 primary/recording-rebuild 路径、回退原因、近 5 秒帧数与像素、dirty/aligned rect、
+guard/phase 和 Prefilter/Pyramid/FinalComposite GPU p50/p95；离页停止轮询，样本超过 3 秒显示 stale。
+这些数字只描述实际首级路径和测量样本，不会据像素比例推导 GPU 节省。
 选择器刷新后尽量保留同一显示器；状态缺失或解析失败时显示错误，而不会把请求状态显示为实际能力。
 
 Host 和 Control Center 从 0.2.5 起共享同一产品版本合同。Host 的 `GetState.productVersion` 必须是
@@ -270,10 +274,13 @@ Host 和 Control Center 从 0.2.5 起共享同一产品版本合同。Host 的 `
 不属于游戏原脚本的按压 FX 路径。数值控件会合并连续拖动后的写入，避免为每个滑块像素都写一次配置。
 `effects.bloomIntensity` 是 Unity Bloom 强度标量，默认值为 `1.7`、有效范围为 `0..10`，不是相对 `1.0` 的倍率。
 Bloom 质量只是 diffusion 的派生预设：紧凑、适中、原版、极宽分别对应 `4/6/7/10`，其他值显示为“自定义”。
-Active-FX ROI 当前只裁剪纯特效 Bloom 的首级预滤波像素；Bloom 后续 down/up、最终合成、WGC 拷贝、
-swap-chain 和 Present 仍保持全屏。ROI 触及屏幕边缘、覆盖面积过大、Bloom 被关闭、core 模式、没有有效
-计划或背景差分路径不满足约束时自动回退全屏。性能日志会分别记录请求帧、实际应用帧和预滤波像素，
-不能把这个开关解读成全链路局部渲染。
+Active-FX ROI 当前只裁剪纯特效 Bloom 的首级预滤波；首次或从全屏切回 ROI 时完整清理一次并报告
+预热帧，稳态通过 Context1 `ClearView` 清理上一写入矩形，再 scissor 绘制当前矩形。未进入 ROI 时，
+首级实际 scissor 面积不超过 50% 才进入；已进入后超过 65% 才退出。ROI 触及屏幕边缘、Bloom 被关闭、
+core 模式、没有有效计划、Context1 不可用、共享目标同帧已被全屏写入或背景差分路径不满足约束时，
+同帧回退全屏并报告原因。录制/Spout2 纯特效重建使用独立路径和计数；默认 `background-aware` primary、
+Bloom 后续 down/up/resolve、最终合成、WGC、Spout2 格式转换、swap-chain 和 Present 仍保持全屏。
+不能把这个开关解读成全链路局部渲染，也不能把首级像素处理比例解读成 GPU 节省。
 
 控制中心的“重置默认”按钮会先请求确认，再用内置默认 schema 整体替换持久化配置。它不会恢复已经
 暂停的特效；需要继续显示时仍应单独点击“恢复特效”。
@@ -339,10 +346,11 @@ Resume
 Shutdown
 ```
 
-`GetDisplayState` 只接受同版本 Host 生成的严格 schema 2：未知、重复、缺失字段和旧 schema 都会被
+`GetDisplayState` 只接受同版本 Host 生成的严格 schema 3：未知、重复、缺失字段和旧 schema 都会被
 Control Center 拒绝。它返回独立运行代次、配置/应用代次、全局拓扑状态、权威离线 override 列表，以及
-每个会话实际应用的特效、HDR、颜色、cadence 和输出状态；它不修改配置，也不代表其中的实验能力已经完成
-硬件验收。`SetConfig` 也接受完整的 schema 19
+每个会话实际应用的特效、HDR、颜色、cadence、输出状态和 Active-FX ROI 近 5 秒不可变工程快照；它不
+修改配置，也不代表其中的实验能力已经完成硬件验收。schema 3 不提供 schema 2 兼容层。
+`SetConfig` 仍接受完整的 schema 19
 JSON 快照。`GetFxConfig`、`SetFxParam`、原子批量的 `SetFxParams` 和 `ResetFxConfig` 是本项目的原生
 特效控制接口。`GetFxConfig` 返回平面的 `EffectsConfig` 字段，写入路径只接受唯一的 `effects.*`
 命名空间，不接受 Web 别名或额外单位换算。FX 快照不包含 HDR、背景、输入、性能或系统字段；这些
@@ -352,7 +360,7 @@ JSON 快照。`GetFxConfig`、`SetFxParam`、原子批量的 `SetFxParams` 和 `
 
 `GetState` 的 `productVersion` 是 Host/Control Center 设置兼容门，不是配置 schema 版本。只有它与
 Control Center 自身版本完全一致时，控制面才允许修改设置；缺失、非法或不匹配都 fail-closed。
-Host 生命周期入口不受该门限制。0.2.5 的主配置 schema 仍为 19，现有主配置、显示器 override、
+Host 生命周期入口不受该门限制。0.2.6 的主配置 schema 仍为 19，现有主配置、显示器 override、
 `data` 目录和 `fx-profiles` 内容不需要迁移或重建。
 
 特效 Profile 同样由 Host 持有，内置且不可删除的四项是“Unity 原版”“轻量”“纯点击”和“纯拖尾”。

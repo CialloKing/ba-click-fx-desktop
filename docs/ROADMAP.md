@@ -4,7 +4,8 @@
 [SPIKES.md](SPIKES.md) 规定发布前的硬件/API 验收。自 2026-08-14 起，当前迭代优先解决
 用户可感知的输入延迟、渲染成本和视觉差异；2026-08-15 的优先级覆盖进一步暂缓第三阶段
 WGC/ROI 优化，当前直接收敛 WGC/背景感知可靠性。2026-08-16 的最新覆盖把 HDR、多显示器、
-DPI 和 Windows 11 运行时逻辑提前到测试与硬件证据之前，不再按 Spike 编号顺序扩张采集工具。
+DPI 和 Windows 11 运行时逻辑提前到测试与硬件证据之前；2026-08-24 的最新覆盖转入 Active-FX ROI
+首级实效化，并以真实 A/B 门槛决定是否发布，不再按 Spike 编号顺序扩张采集工具。
 
 完成新的 collector、verifier 或证据归档，只计作验证基础设施进展，不能单独计作用户功能更新。
 它们只有在解除当前体验问题或正式发布门槛时才进入主线排期。
@@ -24,6 +25,28 @@ DPI 和 Windows 11 运行时逻辑提前到测试与硬件证据之前，不再�
 - 主配置使用字段完整的当前 `schemaVersion=19`，schema 14 至 18 只按固定迁移链升级；其他版本、未知
   字段和枚举别名仍被拒绝；
 - 每项逻辑保持独立中文提交，只做有硬超时的编译或静态检查，避免构建和外部命令无界等待。
+
+## v0.2.6 Active-FX ROI 首级实效化（2026-08-24）
+
+本轮保留配置 schema 19 和默认关闭的 `performance.activeFxRoiEnabled`，只收敛纯特效 Bloom 首级：
+
+- 实际首级目标维护初始化、上一写入矩形和自适应状态。首次 ROI 或全屏转 ROI 先全清并报告预热帧；
+  稳态通过 Context1 `ClearView` 清理上一写入矩形，再 scissor 绘制当前矩形。resize、设备恢复或资源
+  重建重置状态，Context1/矩形/渲染状态异常时同帧完整回退；
+- 首级实际 scissor 面积不超过 50% 才进入 ROI，进入后超过 65% 才退出。触边、Bloom 关闭、core、
+  背景差分、无有效计划和共享目标全屏写入等正确性门始终优先；
+- primary 与 recording-rebuild 独立记录实际路径和 Prefilter/Pyramid/FinalComposite GPU 时间。每个
+  显示会话维护 5 秒滚动窗，每 500 ms 发布不可变快照；`GetDisplayState` 升级为严格 schema 3，
+  Control Center 工程面板只在页面可见时每秒轮询，3 秒后标记 stale；
+- 默认 `background-aware` primary Differential Bloom、完整 Bloom down/up/resolve、最终合成、WGC、
+  Spout2 格式转换、交换链和 Present 继续全屏。工程面板中的像素比例不作为 GPU 节省声明；
+- 发布证据必须使用同一 EXE、同一场景、只有 ROI 开关不同的 schema 19 配置，执行 5 个 ABBA 块、
+  20 次采集。若 RTX 4060 4K 170 Hz SDR 门槛未全部通过，不放宽阈值、不发布性能声明，也不发布
+  v0.2.6，下一轮直接进入完整 Bloom 金字塔 ROI。
+
+后续顺序固定为：完整 Bloom down/up/resolve ROI → 默认 `background-aware` 的 Differential Bloom ROI。
+WGC、交换链 dirty Present 和桌面捕获 ROI 仍是相互独立的高风险项目。AMD、Intel、HDR、Windows 11、
+多显示器和跨适配器的 ROI 矩阵在真实执行前保持 `Not Run`。
 
 ## Host-owned 特效 Profile（2026-08-23）
 
@@ -81,7 +104,8 @@ Alpha 25 的生产代码阶段已完成以下合同，阶段末仍只执行一�
   普通 DPI/刷新率通知不重置预算，查询期间继续使用最后完整颜色合同；
 - 所有克隆物理目标刷新率一致时采用实际有效值；冲突或不可确定时 WGC producer 与背景时效回退
   `60 Hz`，Present 继续由交换链 waitable 驱动；
-- `GetDisplayState` 已升级为严格 schema 2，Host 与 Control Center 同版本更新，不提供旧协议兼容层。
+- Alpha 25 当时把 `GetDisplayState` 升级为严格 schema 2；v0.2.6 已进一步升级为严格 schema 3，
+  Host 与 Control Center 同版本更新，均不提供旧协议兼容层。
   它报告全局拓扑、颜色查询、HDR 用户状态、SDR white level、物理 cadence、回退原因和权威离线 override；
   Control Center 使用可滚动诊断区展示 Host 实际状态，并允许原子删除未连接显示器的遗留策略；
 - `windows-build-compat.yml` 以 SDK `10.0.19041.0`、`10.0.22621.0` 和 `10.0.26100.0` 构建 Host、
@@ -299,28 +323,24 @@ FX-only 与 background-aware 在 `3840x2160 @ 170 Hz` 下均保持
 配对数据可以继续支撑 P1，不能把尚未通过 `--require-supported` 的本地报告称为完整输入
 延迟基线。真实采集还必须明确记录 `Input-to-Present-return` 不等于 DWM、扫描输出或光子延迟。
 
-## P1：WGC 成本优化与 guard-band ROI
+## P1：Active-FX ROI 与 Bloom 金字塔
 
-当前 P1 已完成 Unity Bloom footprint 的纯函数规划，并接入一个默认关闭、受约束的生产切片：
-`planUnityBloomRoi` 输出保守 guard/phase，Active-FX ROI 只裁剪纯特效 Bloom 首级预滤波；
-后续 mip、最终合成、WGC 拷贝和 Present 仍保持全屏。
-当前 Host 已从活跃 `FrameSnapshot` 生成跨帧 dirty rect，并在 `Performance.Interval` 记录
-full-screen/计划工作区像素、guard、phase、请求/应用帧和首级预滤波像素。内部工作区的 WARP FP16
-等价回归已通过；贴边、面积达到 80%、无有效计划、Bloom 关闭、core 模式或不满足纯特效输入约束时
-仍回退全屏。下一小项是在真实硬件上量化首级像素减少带来的 GPU 收益，并继续扩展随机像素矩阵。
+当前 P1 已完成 Unity Bloom footprint 的纯函数规划、跨帧 dirty rect、首级目标清理状态机、50%/65%
+自适应门、primary/recording-rebuild 分阶段 GPU 遥测和 Control Center 工程面板。当前生产切片仍只
+局部化满足正确性门的纯特效首级预滤波；全屏 Bloom 是规范参考，未覆盖 pass 和不满足约束的帧使用
+完整全屏路径。
 
-基线确认瓶颈后，按下列顺序降低背景感知路径成本：
+P1 的执行顺序不再调整：
 
-1. 没有可见特效时保留会话，并把 sensor drain/copy 限制为最高 `20 Hz`；跳过批次背景快照、Bloom 和
-   Present。重新进入活跃状态时使用保鲜样本，不能复用已失效的桌面快照。
-2. 仅在特效存活期间处理背景，并验证暂停、模式切换和 WGC frame event 不会留下静态旧背景。
-3. 以活跃特效包围盒为基础加入 Bloom 半径、滤波核、移动余量和 mip 对齐所需的 guard band；当前先
-   接入首级预滤波 scissor，后续 pass 只有在各自边界依赖和旧像素清理都被证明后才能局部化。
-4. 使用相同场景比较全屏与 ROI 的 GPU 时间、copy 带宽、Present 阻塞和 FP16 像素结果；不能只报告
-   CPU 提交时间或资源尺寸。
+1. 用专用 A/B collector/reporter 完成 RTX 4060、4K 170 Hz、SDR 的 v0.2.6 发布门；未通过则停止发布，
+   不放宽 50%/65% 自适应阈值或性能断言；
+2. 局部化完整 Bloom down/up/resolve，并为每个 pass 建立自身的 receptive field、phase、旧像素清理和
+   FP16 等价证据；
+3. 完整金字塔稳定后，再局部化默认 `background-aware` 的 Differential Bloom；
+4. WGC、桌面捕获 ROI 和交换链 dirty Present 分别评审、分别验收，不从 Bloom ROI 的结果外推。
 
-本阶段交付为 active-FX-only WGC 处理、guard-band ROI 首级预滤波切片，以及相对全屏基线的成本与
-像素差异报告。ROI 数值合同继续服从 ADR-006；未覆盖的 pass 和不满足约束的帧仍使用全屏路径。
+任何阶段都必须同时比较 GPU 阶段时间、CPU/Present 尾部、查询健康状态和最终 FP16 结果；不能只报告
+CPU 提交时间、资源尺寸或像素覆盖比例。
 
 ## P2：Unity/Web/Native 固定时间片视觉回归
 

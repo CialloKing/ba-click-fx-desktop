@@ -258,11 +258,28 @@ HDR active scene-referred scRGB 中可按约定使用 1.0 = 80 nits 的编码换
 
 ## 9. ROI 与 Bloom 金字塔
 
-全屏 Bloom 是规范参考，ROI 在 ADR-006 接受和 VAL-ROI 通过前默认关闭。ROI 原点必须对齐最粗层
-`2^L` 网格，或显式携带与全屏相同的 pixel-center phase。guard band 是算子图
-最长 receptive-field 路径上各 pass footprint 换算到 mip0 后的和；不能用单一“半径 × mip 数”近似。
-dirty rect 必须 union 前后帧区域再扩张，以清除上一帧残留。全屏与 ROI 使用相同 mip 数、UV、border mode
-和奇数尺寸规则。
+全屏 Bloom 是规范参考，Active-FX ROI 保持默认关闭。ROI 原点必须对齐最粗层 `2^L` 网格，或显式携带
+与全屏相同的 pixel-center phase。guard band 是算子图最长 receptive-field 路径上各 pass footprint
+换算到 mip0 后的和；不能用单一“半径 × mip 数”近似。dirty rect 必须 union 前后帧区域再扩张，
+全屏与 ROI 使用相同 mip 数、UV、border mode 和奇数尺寸规则。
+
+0.2.6 只局部化纯特效 Bloom 首级预滤波。实际首级目标维护 `initialized`、上一写入矩形和自适应状态：
+
+- 首次 ROI 或全屏转 ROI 使用完整清理并报告预热帧；稳态通过 Context1 `ClearView` 清理上一写入矩形，
+  再以 scissor 绘制当前矩形。`ClearRenderTargetView` 不能作为局部清理，因为它会清理整个资源；
+- ROI 转全屏直接完整覆盖；resize、设备恢复和资源重建重置目标状态。Context1 不可用、矩形非法或
+  渲染状态异常时，同帧执行完整全屏路径，不能让上一帧内容泄漏；
+- 自适应门按首级实际 scissor 面积计算：未进入时不超过 50% 才进入，已进入后超过 65% 才退出。
+  触边、Bloom 关闭、core、背景差分、无有效计划、共享目标全屏写入等正确性门先于面积门；
+- primary 与 recording-rebuild 必须按真实资源写入分别记账。若 `background-aware` primary 已全屏写入
+  共享 Bloom 目标，同帧录制重建只能报告共享写入/预热，不能误报稳态局部清理；
+- 默认 `background-aware` primary Differential Bloom、完整 Bloom down/up/resolve、最终合成、WGC、
+  Spout2 格式转换、交换链和 Present 保持全屏。
+
+每个显示会话在渲染所有者侧维护 5 秒滚动窗，每 500 ms 构造脱离活跃渲染状态的不可变快照。IPC 只
+读取发布快照，不得在逐帧路径获取控制面 mutex。schema 3 分别公开 primary/recording-rebuild 的路径、
+原因、帧/像素、矩形、guard/phase 和 Prefilter/Pyramid/FinalComposite GPU p50/p95；像素比例是首级
+工作量诊断，不是 GPU 节省推导式。
 
 ## 10. 失败与降级
 
