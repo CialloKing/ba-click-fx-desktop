@@ -6,6 +6,7 @@
 
 #include "bafx/windows/ipc_client.hpp"
 #include "bafx/windows/recording_compatibility.hpp"
+#include "product/version.hpp"
 
 #include <windows.h>
 
@@ -210,6 +211,12 @@ BAFX_TEST(host_control_start_latches_generation_before_accepting_set_config)
     const bafx::windows::NamedPipeIpcClient client(clientOptions);
     const bafx::windows::IpcClientResponse initial = client.transact("GetState");
     BAFX_CHECK(initial.succeeded());
+    BAFX_CHECK(
+        initial.payload.find(
+            "\"productVersion\":\""
+            + std::string(bafx::product::version)
+            + "\"")
+        != std::string::npos);
     BAFX_CHECK(initial.payload.find("\"generation\":1") != std::string::npos);
     BAFX_CHECK(
         initial.payload.find("\"backgroundCapture\":\"active\"")

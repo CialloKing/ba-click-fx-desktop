@@ -1,6 +1,8 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <string_view>
 
 namespace bafx::product
@@ -11,5 +13,100 @@ inline constexpr std::uint16_t versionMajor = @BAFX_VERSION_MAJOR@U;
 inline constexpr std::uint16_t versionMinor = @BAFX_VERSION_MINOR@U;
 inline constexpr std::uint16_t versionPatch = @BAFX_VERSION_PATCH@U;
 inline constexpr std::uint16_t versionRevision = @BAFX_VERSION_REVISION@U;
+
+struct VersionComponents final
+{
+    std::uint16_t major{0U};
+    std::uint16_t minor{0U};
+    std::uint16_t patch{0U};
+    std::uint16_t revision{0U};
+
+    [[nodiscard]] constexpr bool operator==(
+        const VersionComponents&) const noexcept = default;
+};
+
+namespace detail
+{
+
+[[nodiscard]] constexpr bool parseVersionComponent(
+    const std::string_view text,
+    std::size_t& position,
+    std::uint16_t& output) noexcept
+{
+    if (position >= text.size()
+        || text[position] < '0'
+        || text[position] > '9')
+    {
+        return false;
+    }
+
+    const std::size_t begin = position;
+    std::uint32_t value = 0U;
+    while (position < text.size()
+        && text[position] >= '0'
+        && text[position] <= '9')
+    {
+        value = value * 10U
+            + static_cast<std::uint32_t>(text[position] - '0');
+        if (value > 65'535U)
+        {
+            return false;
+        }
+        ++position;
+    }
+    // Canonical version text has no alternate spelling for one version.
+    if (position - begin > 1U && text[begin] == '0')
+    {
+        return false;
+    }
+    output = static_cast<std::uint16_t>(value);
+    return true;
+}
+
+[[nodiscard]] constexpr std::optional<VersionComponents> parseVersion(
+    const std::string_view text,
+    const bool requireRevision) noexcept
+{
+    VersionComponents parsed{};
+    std::size_t position = 0U;
+    if (!parseVersionComponent(text, position, parsed.major)
+        || position >= text.size()
+        || text[position++] != '.'
+        || !parseVersionComponent(text, position, parsed.minor)
+        || position >= text.size()
+        || text[position++] != '.'
+        || !parseVersionComponent(text, position, parsed.patch))
+    {
+        return std::nullopt;
+    }
+    if (requireRevision)
+    {
+        if (position >= text.size()
+            || text[position++] != '.'
+            || !parseVersionComponent(text, position, parsed.revision))
+        {
+            return std::nullopt;
+        }
+    }
+    if (position != text.size())
+    {
+        return std::nullopt;
+    }
+    return parsed;
+}
+
+}
+
+[[nodiscard]] constexpr std::optional<VersionComponents> parseProductVersion(
+    const std::string_view text) noexcept
+{
+    return detail::parseVersion(text, false);
+}
+
+[[nodiscard]] constexpr std::optional<VersionComponents> parsePackageVersion(
+    const std::string_view text) noexcept
+{
+    return detail::parseVersion(text, true);
+}
 
 }

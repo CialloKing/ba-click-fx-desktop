@@ -2,6 +2,8 @@
 
 #include "host_state.hpp"
 
+#include "product/version.hpp"
+
 #include <string>
 
 using namespace bafx::control_center;
@@ -17,10 +19,16 @@ BAFX_TEST(host_state_requires_spout2_runtime_group)
 
 BAFX_TEST(host_state_parses_complete_spout2_runtime_group)
 {
-    const HostStateParseResult result = parseHostState(
-        R"json({"generation":4,"paused":true,"backgroundCapture":"fallback-fx-only","spout2Enabled":true,"spout2Sender":"ba-click-fx-desktop","spout2Status":"failed","spout2Error":"receiver said \"no\" \\ retry","spout2OutputContract":"bgra8-sdr-rolloff-extended-premultiplied-fx-only-v5","fxProfileCatalog":"B:Unity 原版|B:轻量|C:我的预设","activeFxProfile":"我的预设","fxProfileWarning":""})json");
+    const std::string json = "{\"productVersion\":\""
+        + std::string(bafx::product::version)
+        + R"json(","generation":4,"paused":true,"backgroundCapture":"fallback-fx-only","spout2Enabled":true,"spout2Sender":"ba-click-fx-desktop","spout2Status":"failed","spout2Error":"receiver said \"no\" \\ retry","spout2OutputContract":"bgra8-sdr-rolloff-extended-premultiplied-fx-only-v5","fxProfileCatalog":"B:Unity 原版|B:轻量|C:我的预设","activeFxProfile":"我的预设","fxProfileWarning":""})json";
+    const HostStateParseResult result = parseHostState(json);
 
     BAFX_CHECK(result.succeeded());
+    BAFX_CHECK(result.state->settingsCompatible());
+    BAFX_CHECK(
+        result.state->productVersionStatus
+        == HostProductVersionStatus::Match);
     BAFX_CHECK(result.state->spout2Enabled);
     BAFX_CHECK(result.state->spout2Sender == "ba-click-fx-desktop");
     BAFX_CHECK(result.state->spout2Status == "failed");
@@ -37,7 +45,46 @@ BAFX_TEST(host_state_parses_complete_spout2_runtime_group)
     const HostStateParseResult normalizedCase = parseHostState(
         R"json({"generation":5,"paused":false,"backgroundCapture":"active","spout2Enabled":false,"spout2Sender":"ba-click-fx-desktop","spout2Status":"disabled","spout2Error":"","spout2OutputContract":"v5","fxProfileCatalog":"B:Unity 原版|C:Foo","activeFxProfile":"fOO","fxProfileWarning":""})json");
     BAFX_CHECK(normalizedCase.succeeded());
+    BAFX_CHECK(
+        normalizedCase.state->productVersionStatus
+        == HostProductVersionStatus::Missing);
+    BAFX_CHECK(!normalizedCase.state->settingsCompatible());
     BAFX_CHECK(normalizedCase.state->activeFxProfile == "Foo");
+}
+
+BAFX_TEST(host_state_classifies_invalid_and_mismatched_product_versions)
+{
+    const HostStateParseResult malformed = parseHostState(
+        R"json({"productVersion":"0.2","generation":1,"paused":false,"backgroundCapture":"active","spout2Enabled":false,"spout2Sender":"ba-click-fx-desktop","spout2Status":"disabled","spout2Error":"","spout2OutputContract":"v5","fxProfileCatalog":"B:Unity 原版","activeFxProfile":"Unity 原版","fxProfileWarning":""})json");
+    BAFX_CHECK(malformed.succeeded());
+    BAFX_CHECK(
+        malformed.state->productVersionStatus
+        == HostProductVersionStatus::Invalid);
+    BAFX_CHECK(!malformed.state->settingsCompatible());
+
+    const HostStateParseResult wrongType = parseHostState(
+        R"json({"productVersion":205,"generation":1,"paused":false,"backgroundCapture":"active","spout2Enabled":false,"spout2Sender":"ba-click-fx-desktop","spout2Status":"disabled","spout2Error":"","spout2OutputContract":"v5","fxProfileCatalog":"B:Unity 原版","activeFxProfile":"Unity 原版","fxProfileWarning":""})json");
+    BAFX_CHECK(wrongType.succeeded());
+    BAFX_CHECK(
+        wrongType.state->productVersionStatus
+        == HostProductVersionStatus::Invalid);
+
+    const HostStateParseResult mismatch = parseHostState(
+        R"json({"productVersion":"65535.65535.65535","generation":1,"paused":false,"backgroundCapture":"active","spout2Enabled":false,"spout2Sender":"ba-click-fx-desktop","spout2Status":"disabled","spout2Error":"","spout2OutputContract":"v5","fxProfileCatalog":"B:Unity 原版","activeFxProfile":"Unity 原版","fxProfileWarning":""})json");
+    BAFX_CHECK(mismatch.succeeded());
+    BAFX_CHECK(
+        mismatch.state->productVersionStatus
+        == HostProductVersionStatus::Mismatch);
+    BAFX_CHECK(!mismatch.state->settingsCompatible());
+}
+
+BAFX_TEST(host_state_rejects_truncated_product_version_without_throwing)
+{
+    const HostStateParseResult result = parseHostState(
+        R"json({"productVersion":)json");
+
+    BAFX_CHECK(!result.succeeded());
+    BAFX_CHECK(!result.error.empty());
 }
 
 BAFX_TEST(host_state_rejects_partial_or_duplicate_spout2_groups)

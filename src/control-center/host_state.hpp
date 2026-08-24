@@ -15,8 +15,19 @@ struct FxProfileState final
     bool builtIn{false};
 };
 
+enum class HostProductVersionStatus
+{
+    Match,
+    Missing,
+    Invalid,
+    Mismatch
+};
+
 struct HostState final
 {
+    std::optional<std::string> productVersion{};
+    HostProductVersionStatus productVersionStatus{
+        HostProductVersionStatus::Missing};
     std::uint64_t generation{0U};
     bool paused{false};
     std::string backgroundCapture{};
@@ -28,6 +39,11 @@ struct HostState final
     std::vector<FxProfileState> fxProfiles{};
     std::string activeFxProfile{"自定义"};
     std::string fxProfileWarning{};
+
+    [[nodiscard]] bool settingsCompatible() const noexcept
+    {
+        return productVersionStatus == HostProductVersionStatus::Match;
+    }
 };
 
 struct HostStateParseResult final

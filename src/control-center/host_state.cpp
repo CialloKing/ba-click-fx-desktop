@@ -1,5 +1,7 @@
 #include "host_state.hpp"
 
+#include "product/version.hpp"
+
 #include <windows.h>
 
 #include <charconv>
@@ -90,6 +92,7 @@ public:
         }
 
         HostState state{};
+        bool hasProductVersion = false;
         bool hasGeneration = false;
         bool hasPaused = false;
         bool hasBackgroundCapture = false;
@@ -123,7 +126,28 @@ public:
             }
             skipWhitespace();
 
-            if (*key == "generation")
+            if (*key == "productVersion")
+            {
+                if (hasProductVersion)
+                {
+                    return fail("productVersion must not be repeated");
+                }
+                hasProductVersion = true;
+                if (position_ < input_.size() && input_[position_] == '"')
+                {
+                    std::optional<std::string> value = parseString();
+                    if (!value.has_value())
+                    {
+                        return fail("productVersion string is malformed");
+                    }
+                    state.productVersion = std::move(*value);
+                }
+                else if (!skipPrimitive())
+                {
+                    return fail("productVersion has an unsupported value");
+                }
+            }
+            else if (*key == "generation")
             {
                 if (hasGeneration || !parseUnsigned(state.generation))
                 {
@@ -258,6 +282,25 @@ public:
         if (!hasGeneration || !hasPaused || !hasBackgroundCapture)
         {
             return fail("state is missing a required property");
+        }
+        if (hasProductVersion)
+        {
+            if (!state.productVersion.has_value()
+                || !bafx::product::parseProductVersion(
+                    *state.productVersion).has_value())
+            {
+                state.productVersionStatus =
+                    HostProductVersionStatus::Invalid;
+            }
+            else if (*state.productVersion == bafx::product::version)
+            {
+                state.productVersionStatus = HostProductVersionStatus::Match;
+            }
+            else
+            {
+                state.productVersionStatus =
+                    HostProductVersionStatus::Mismatch;
+            }
         }
         const bool hasCompleteSpout2State = hasSpout2Enabled
             && hasSpout2Sender

@@ -1,6 +1,7 @@
 #include "host_control.hpp"
 
 #include "bafx/windows/portable_paths.hpp"
+#include "product/version.hpp"
 
 #include <algorithm>
 #include <array>
@@ -1311,7 +1312,8 @@ bafx::windows::IpcResponse HostControlPlane::handleDisplayOverrideMutation(
 std::string HostControlPlane::stateJson(const HostStateSnapshot& state)
 {
     std::ostringstream stream;
-    stream << "{\"generation\":" << state.generation
+    stream << "{\"productVersion\":" << jsonEscape(bafx::product::version)
+           << ",\"generation\":" << state.generation
            << ",\"paused\":" << jsonBool(state.paused)
            << ",\"shutdownRequested\":" << jsonBool(state.shutdownRequested)
            << ",\"effectsEnabled\":" << jsonBool(state.config.effects.enabled)
