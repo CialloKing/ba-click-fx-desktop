@@ -77,12 +77,20 @@ schema 3 不提供 schema 2 兼容层。混用 0.2.5 Control Center 与 0.2.6 Ho
 
 ## 发布验证状态
 
-当前文档不预填任何硬件性能结果、CI 结果、资产哈希或 Release 状态。正式发布前仍需完成：
+2026-08-24 已在 `NVIDIA GeForce RTX 4060 Laptop GPU`、`3840x2160`、`170/1 Hz`、SDR、
+`conservative-sdr` 上完成 center-click primary 的 5 个 ABBA 块、20 次正式采集。证据目录为
+`artifacts/performance/active-fx-roi-v026-rtx4060-4k170-sdr-center-click-20260824-r2`，采集 revision
+为 `08c8365693aedaab9dcd79582ba49967c100a3ca`。结果为 **FAIL**：
 
-- RTX 4060 4K 170 Hz SDR A/B 门槛并归档原始采集与报告；
-- Full `release-verify` 和 Slim `slim-release-verify`；
-- Windows SDK `10.0.19041.0`、`10.0.22621.0`、`10.0.26100.0` CI；
-- Portable ZIP、ZIP SHA-256、安装器及安装器 SHA-256 的生成和远端复核。
+- `Applied/Requested=100%`、Prefilter GPU p95 降低 `53.5%`、GPU pending 最大值 `1`，这些门通过；
+- 绘制像素比例为 `46.8%`，超过 `45%`；Bloom/final GPU p95 从 `33040.5 us` 增至
+  `38050.5 us`，恶化 `15.2%`；
+- FPS 从 `101.914` 降至 `94.574`，下降 `7.2%`；10 组配对仅 `6` 组不慢；
+- CPU frame、Present 与 GPU command p99 均超过 `5%` 恶化门，且两臂都出现非零
+  `FramePacing.Timeouts`。
+
+因此不放宽阈值、不发布 0.2.6、不启动三档 SDK 发布 CI，也不生成或上传 0.2.6 Release 资产。
+下一候选版本直接进入 0.2.7 完整 Bloom 金字塔 ROI。
 
 Slim 只做源码构建验证，不发布预编译资产。AMD、Intel、HDR、Windows 11、多显示器与跨适配器 ROI
 矩阵在取得真实证据前保持 `Not Run`，不属于 0.2.6 的性能支持声明。

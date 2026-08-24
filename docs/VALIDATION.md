@@ -416,6 +416,34 @@ RTX 4060、4K 170 Hz、SDR 的发布结果必须同时满足：
 恶化不得超过 `max(3%, 100 us)`。若任一端到端门槛未通过，不得放宽阈值、发布性能声明或发布
 v0.2.6；下一轮直接转入完整 Bloom down/up/resolve ROI。
 
+2026-08-24 的正式执行使用：
+
+```powershell
+pwsh -NoProfile -ExecutionPolicy Bypass `
+  -File tools\collect-active-fx-roi-ab.ps1 `
+  -Executable build\x64\src\desktop\Release\ba-click-fx-desktop.exe `
+  -Configuration artifacts\performance\active-fx-roi-v0.2.6-base-config.json `
+  -OutputDirectory artifacts\performance\active-fx-roi-v026-rtx4060-4k170-sdr-center-click-20260824-r2 `
+  -Scenario center-click `
+  -MeasurementPath primary `
+  -ExpectedDecisionReason applied
+python -B tools\report-active-fx-roi-ab.py `
+  artifacts\performance\active-fx-roi-v026-rtx4060-4k170-sdr-center-click-20260824-r2 `
+  --json artifacts\performance\active-fx-roi-v026-rtx4060-4k170-sdr-center-click-20260824-r2\report.json `
+  --markdown artifacts\performance\active-fx-roi-v026-rtx4060-4k170-sdr-center-click-20260824-r2\report.md
+```
+
+collector schema 2 从每份原始日志重新锁定 Hardware D3D11、RTX 4060、Adapter LUID/驱动、
+`3840x2160`、`170/1 Hz`、SDR 和 `conservative-sdr`，并验证运行前后配置 SHA-256 未改变。最终
+报告为 `FAIL`，因此按预注册门槛停止 0.2.6 发布流程。核心结果为：像素比例 `46.8%`、Prefilter
+p95 降低 `53.5%`、Bloom/final p95 恶化 `15.2%`、FPS 下降 `7.2%`、不慢配对 `6/10`。
+
+证据索引 SHA-256：
+
+- `capture.json`: `f0367227ee02e0a0f88a4cacd3657de701b5c043f174246102cb0fa269bdb13c`
+- `report.json`: `441cb3986a36d72cac994f67559c1c6bc6d2894645df00b10881e6ae1b40cf81`
+- `report.md`: `791c0c5cd9decb0990ccf25f457f76b7faed0307f99628bd25b99f0c26f5cade`
+
 AMD、Intel、HDR、Windows 11、多显示器和跨适配器 ROI 单元格在真实执行前保持 `Not Run`，不能用
 WARP、SDK 编译矩阵或 RTX 4060 SDR 结果外推。
 
