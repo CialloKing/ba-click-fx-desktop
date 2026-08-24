@@ -131,9 +131,10 @@ class CaptureFixture:
             directory.mkdir()
             (directory / REPORTER.HOST_NAME).write_bytes(b"test-host")
             configuration = {
-                "schemaVersion": 8,
+                "schemaVersion": 19,
                 "background": {"mode": background_mode},
                 "effects": {"bloomQuality": "high"},
+                "performance": {"activeFxRoiEnabled": False},
             }
             (directory / REPORTER.CONFIG_NAME).write_text(
                 json.dumps(configuration), encoding="utf-8"

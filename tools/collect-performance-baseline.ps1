@@ -126,15 +126,49 @@ function New-BaselineConfiguration
         }
         display = [ordered]@{
             hdrEnabled = $false
+            overrides = @()
         }
         effects = [ordered]@{
-            bloomIntensity = 1
-            bloomQuality = 'high'
+            bloomClamp = 65472
+            bloomDiffusion = 7
+            bloomIntensity = 1.7
+            bloomLayerEnabled = $true
+            bloomSoftKnee = 0
+            bloomThreshold = 1
             clickEnabled = $true
+            clickShardsLayerEnabled = $true
+            clickTimeScale = 1
+            diskLayerEnabled = $true
+            diskLifetimeMs = 200
+            diskRadius = 64.8
             enabled = $true
             globalScale = 1
+            opacity = 1
+            ringsAngularVelocityMultiplier = 11.170107
+            ringsCount = 2
+            ringsHdrIntensity = 5.992157
+            ringsLayerEnabled = $true
+            ringsLifetimeMs = 600
+            ringsRadiusMax = 80.41333104
+            ringsRadiusMin = 68.92571232
+            ringsRotationDirection = -1
+            shardsClickCount = 4
+            shardsClickLifetimeMaxMs = 700
+            shardsClickLifetimeMinMs = 600
+            shardsClickRadius = 49.8769488
+            shardsClickSpeedMax = 66.5025984
+            shardsClickSpeedMin = 49.8769488
+            shardsHdrIntensity = 5.992157
+            shardsSizeMax = 33.2512992
+            shardsSizeMin = 16.6256496
+            themeColor = '#4ca7ff'
             trailEnabled = $true
+            trailLayerEnabled = $true
             trailLength = 1
+            trailLifetimeMs = 300
+            trailOpacity = 1
+            trailShardsLayerEnabled = $true
+            trailTimeScale = 1
             trailWidth = 1
         }
         input = [ordered]@{
@@ -145,12 +179,15 @@ function New-BaselineConfiguration
             trailOnlyWhilePressed = $true
         }
         performance = [ordered]@{
+            activeFxRoiEnabled = $false
+            effectsMode = 'full'
             framePacing = 'match-display'
             idleOptimization = $true
         }
-        schemaVersion = 8
+        schemaVersion = 19
         system = [ordered]@{
             closeToTray = $true
+            spout2Enabled = $false
             startMinimized = $false
             startWithWindows = $false
         }
