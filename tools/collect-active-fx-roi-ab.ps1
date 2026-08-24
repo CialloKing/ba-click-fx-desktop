@@ -59,9 +59,6 @@ $performanceIntervalMilliseconds = 10000
 $discardCompleteIntervals = 1
 $selectCompleteIntervals = 3
 $demoAgeMilliseconds = 130
-$executionStateContinuous = [Convert]::ToUInt32('80000000', 16)
-$executionStateSystemRequired = [uint32]0x00000001
-$executionStateDisplayRequired = [uint32]0x00000002
 $scenarioWorkloads = [ordered]@{
     'center-click' = 'fixed-age-center-click'
     'interior-trail' = 'fixed-age-interior-trail'
@@ -85,45 +82,143 @@ $capabilities = [ordered]@{
     }
 }
 
-if ($null -eq ('Bafx.Tools.CaptureExecutionState' -as [type]))
+if ($null -eq ('Bafx.Tools.CapturePowerRequest' -as [type]))
 {
     Add-Type -TypeDefinition @'
+using System;
+using System.ComponentModel;
 using System.Runtime.InteropServices;
 
 namespace Bafx.Tools
 {
-    public static class CaptureExecutionState
+    public static class CapturePowerRequest
     {
+        [StructLayout(LayoutKind.Sequential)]
+        private struct ReasonContext
+        {
+            public uint Version;
+            public uint Flags;
+            public IntPtr SimpleReasonString;
+        }
+
+        private enum PowerRequestType
+        {
+            DisplayRequired = 0,
+            SystemRequired = 1
+        }
+
         [DllImport("kernel32.dll", SetLastError = true)]
-        public static extern uint SetThreadExecutionState(uint executionState);
+        private static extern IntPtr PowerCreateRequest(
+            ref ReasonContext context);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool PowerSetRequest(
+            IntPtr request,
+            PowerRequestType type);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool PowerClearRequest(
+            IntPtr request,
+            PowerRequestType type);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool CloseHandle(IntPtr handle);
+
+        [DllImport("user32.dll")]
+        private static extern void keybd_event(
+            byte virtualKey,
+            byte scanCode,
+            uint flags,
+            UIntPtr extraInfo);
+
+        public static IntPtr AcquireAndWake(string reason)
+        {
+            IntPtr reasonText = Marshal.StringToHGlobalUni(reason);
+            try
+            {
+                ReasonContext context = new ReasonContext
+                {
+                    Version = 0,
+                    Flags = 1,
+                    SimpleReasonString = reasonText
+                };
+                IntPtr request = PowerCreateRequest(ref context);
+                if (request == IntPtr.Zero || request == new IntPtr(-1))
+                {
+                    throw new Win32Exception(Marshal.GetLastWin32Error());
+                }
+                if (!PowerSetRequest(request, PowerRequestType.DisplayRequired))
+                {
+                    int error = Marshal.GetLastWin32Error();
+                    CloseHandle(request);
+                    throw new Win32Exception(error);
+                }
+                if (!PowerSetRequest(request, PowerRequestType.SystemRequired))
+                {
+                    int error = Marshal.GetLastWin32Error();
+                    PowerClearRequest(
+                        request,
+                        PowerRequestType.DisplayRequired);
+                    CloseHandle(request);
+                    throw new Win32Exception(error);
+                }
+
+                // A power request prevents the next idle transition but does
+                // not wake an already dark display. F24 has no product binding.
+                keybd_event(0x87, 0, 0, UIntPtr.Zero);
+                keybd_event(0x87, 0, 2, UIntPtr.Zero);
+                return request;
+            }
+            finally
+            {
+                Marshal.FreeHGlobal(reasonText);
+            }
+        }
+
+        public static void Release(IntPtr request)
+        {
+            bool system = PowerClearRequest(
+                request,
+                PowerRequestType.SystemRequired);
+            int systemError = system ? 0 : Marshal.GetLastWin32Error();
+            bool display = PowerClearRequest(
+                request,
+                PowerRequestType.DisplayRequired);
+            int displayError = display ? 0 : Marshal.GetLastWin32Error();
+            bool closed = CloseHandle(request);
+            int closeError = closed ? 0 : Marshal.GetLastWin32Error();
+            if (!system || !display || !closed)
+            {
+                int error = systemError != 0
+                    ? systemError
+                    : displayError != 0
+                        ? displayError
+                        : closeError;
+                throw new Win32Exception(error);
+            }
+        }
     }
 }
 '@
 }
 
-function Enable-CaptureExecutionState
+function Enable-CapturePowerRequest
 {
-    $requested = $script:executionStateContinuous -bor
-        $script:executionStateSystemRequired -bor
-        $script:executionStateDisplayRequired
-    $previous = [Bafx.Tools.CaptureExecutionState]::SetThreadExecutionState(
-        $requested)
-    if ($previous -eq 0)
-    {
-        $errorCode = [Runtime.InteropServices.Marshal]::GetLastWin32Error()
-        throw "Could not keep the display awake for capture; error=$errorCode"
-    }
+    return [Bafx.Tools.CapturePowerRequest]::AcquireAndWake(
+        'BAFX Active-FX ROI ABBA capture')
 }
 
-function Disable-CaptureExecutionState
+function Disable-CapturePowerRequest
 {
-    $previous = [Bafx.Tools.CaptureExecutionState]::SetThreadExecutionState(
-        $script:executionStateContinuous)
-    if ($previous -eq 0)
-    {
-        $errorCode = [Runtime.InteropServices.Marshal]::GetLastWin32Error()
-        throw "Could not release the capture execution state; error=$errorCode"
-    }
+    param(
+        [Parameter(Mandatory = $true)]
+        [IntPtr]$Request
+    )
+
+    [Bafx.Tools.CapturePowerRequest]::Release($Request)
 }
 
 function Get-FullPath
@@ -931,13 +1026,12 @@ $manifest = [ordered]@{
 }
 Write-CaptureManifest -Path $manifestPath -Manifest $manifest
 
-$captureExecutionStateHeld = $false
+$capturePowerRequest = [IntPtr]::Zero
 try
 {
     # Performance evidence is invalid once Windows stops presenting for display
-    # power. Keep both idle timers asserted for the complete ABBA transaction.
-    Enable-CaptureExecutionState
-    $captureExecutionStateHeld = $true
+    # power. The handle owns both requests across PowerShell thread switches.
+    $capturePowerRequest = Enable-CapturePowerRequest
     $pattern = @(
         [ordered]@{ arm = 'A'; enabled = $false },
         [ordered]@{ arm = 'B'; enabled = $true },
@@ -984,24 +1078,24 @@ try
     {
         throw "Collector produced $($manifest.runs.Count) runs instead of $runCount"
     }
-    Disable-CaptureExecutionState
-    $captureExecutionStateHeld = $false
+    Disable-CapturePowerRequest -Request $capturePowerRequest
+    $capturePowerRequest = [IntPtr]::Zero
     $manifest.captureStatus = 'captured'
     Write-CaptureManifest -Path $manifestPath -Manifest $manifest
 }
 catch
 {
     $failure = $_.Exception.Message
-    if ($captureExecutionStateHeld)
+    if ($capturePowerRequest -ne [IntPtr]::Zero)
     {
         try
         {
-            Disable-CaptureExecutionState
-            $captureExecutionStateHeld = $false
+            Disable-CapturePowerRequest -Request $capturePowerRequest
+            $capturePowerRequest = [IntPtr]::Zero
         }
         catch
         {
-            $failure += "; execution-state cleanup failed: $($_.Exception.Message)"
+            $failure += "; power-request cleanup failed: $($_.Exception.Message)"
         }
     }
     $manifest.captureStatus = 'failed'

@@ -119,16 +119,20 @@ class ActiveFxRoiAbCollectorTests(unittest.TestCase):
         self.assertNotIn("Stop-Process -Name", self.source)
         self.assertNotIn("taskkill", self.source.lower())
 
-    def test_keeps_the_display_awake_for_the_complete_capture(self) -> None:
+    def test_owns_a_display_power_request_for_the_complete_capture(self) -> None:
         for token in (
-            "SetThreadExecutionState",
-            "$executionStateContinuous",
-            "$executionStateSystemRequired",
-            "$executionStateDisplayRequired",
-            "Enable-CaptureExecutionState",
-            "Disable-CaptureExecutionState",
-            "$captureExecutionStateHeld = $true",
-            "$captureExecutionStateHeld = $false",
+            "PowerCreateRequest",
+            "PowerSetRequest",
+            "PowerClearRequest",
+            "PowerRequestType.DisplayRequired",
+            "PowerRequestType.SystemRequired",
+            "AcquireAndWake",
+            "keybd_event(0x87, 0, 0, UIntPtr.Zero)",
+            "keybd_event(0x87, 0, 2, UIntPtr.Zero)",
+            "Enable-CapturePowerRequest",
+            "Disable-CapturePowerRequest",
+            "$capturePowerRequest = Enable-CapturePowerRequest",
+            "$capturePowerRequest = [IntPtr]::Zero",
         ):
             self.assertIn(token, self.source)
 
