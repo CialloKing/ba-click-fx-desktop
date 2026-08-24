@@ -77,6 +77,10 @@ Identity，因此不承诺无边框 WGC。安装器仍没有公开代码签名�
 - Slim `slim-release-verify`：`40/40` 通过。
 - Windows SDK 兼容 CI：Windows SDK `10.0.19041.0`、`10.0.22621.0`、`10.0.26100.0`
   三矩阵通过（[run 32703993528](https://github.com/CialloKing/ba-click-fx-desktop/actions/runs/32703993528)）。
+- 便携包和安装器均通过包结构、PE 依赖与版本合同检查；Host、Control Center 和安装器
+  的文件/产品版本均为 `0.2.5`。
+- 便携 ZIP SHA-256：`AD492F75495B3F435709A2B27FDFB3A80F3EB20549E0027A7011DE7BE20949B9`。
+- 安装器 SHA-256：`9C5D23C9A9FD6B7E608B96D7BE1B8D9E77636C1C1FC8C3EFC5A6E8EF51C15AF9`。
 
 ## 支持边界
 
