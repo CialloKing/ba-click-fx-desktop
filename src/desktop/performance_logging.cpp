@@ -205,6 +205,88 @@ void appendRect(
     fields.add(base + ".Bottom", rect.bottom);
 }
 
+void appendActiveFxRoiPath(
+    DiagnosticFields& fields,
+    const std::string_view prefix,
+    const ActiveFxRoiPathPerformanceSummary& summary)
+{
+    const std::string base(prefix);
+    fields.add(base + ".ObservedFrames", summary.observedFrames);
+    fields.add(base + ".RequestedFrames", summary.requestedFrames);
+    fields.add(base + ".EligibleFrames", summary.eligibleFrames);
+    fields.add(base + ".ExecutedFrames", summary.executedFrames);
+    fields.add(base + ".AppliedFrames", summary.appliedFrames);
+    fields.add(base + ".WarmupFrames", summary.warmupFrames);
+    fields.add(base + ".FullPixels.Total", summary.fullPixelsTotal);
+    fields.add(base + ".DrawnPixels.Total", summary.drawnPixelsTotal);
+    fields.add(base + ".ClearedPixels.Total", summary.clearedPixelsTotal);
+    fields.add(
+        base + ".PixelCoverageSemantic",
+        "drawn-and-cleared-command-coverage-not-gpu-time-savings");
+    fields.addDecimal(
+        base + ".DrawnToFullRatio",
+        summary.fullPixelsTotal > 0U
+            ? static_cast<double>(summary.drawnPixelsTotal)
+                / static_cast<double>(summary.fullPixelsTotal)
+            : 0.0);
+    fields.addDecimal(
+        base + ".ClearedToFullRatio",
+        summary.fullPixelsTotal > 0U
+            ? static_cast<double>(summary.clearedPixelsTotal)
+                / static_cast<double>(summary.fullPixelsTotal)
+            : 0.0);
+    fields.add(base + ".Last.Executed", summary.lastExecuted);
+    fields.add(
+        base + ".Last.ActualPath",
+        activeFxRoiActualPathName(summary.lastActualPath));
+    fields.add(
+        base + ".Last.DecisionReason",
+        activeFxRoiDecisionReasonName(summary.lastDecisionReason));
+
+    constexpr std::array reasons{
+        ActiveFxRoiDecisionReason::Disabled,
+        ActiveFxRoiDecisionReason::NoContent,
+        ActiveFxRoiDecisionReason::BackgroundDifferentialBloom,
+        ActiveFxRoiDecisionReason::Context1Unavailable,
+        ActiveFxRoiDecisionReason::SharedTargetFullWrite,
+        ActiveFxRoiDecisionReason::AreaTooLarge,
+        ActiveFxRoiDecisionReason::BenefitTooSmall,
+        ActiveFxRoiDecisionReason::Applied,
+        ActiveFxRoiDecisionReason::RendererFallback};
+    for (const ActiveFxRoiDecisionReason reason : reasons)
+    {
+        const std::size_t index = static_cast<std::size_t>(reason);
+        fields.add(
+            base + ".Reason."
+                + std::string(
+                    activeFxRoiDecisionReasonName(reason))
+                + ".Frames",
+            summary.decisionReasonFrames[index]);
+    }
+}
+
+void appendGpuFxPath(
+    DiagnosticFields& fields,
+    const std::string_view prefix,
+    const GpuFxPathPerformanceSummary& summary)
+{
+    appendMetric(
+        fields,
+        std::string(prefix) + ".Prefilter",
+        summary.prefilterMicroseconds,
+        "us");
+    appendMetric(
+        fields,
+        std::string(prefix) + ".Pyramid",
+        summary.pyramidMicroseconds,
+        "us");
+    appendMetric(
+        fields,
+        std::string(prefix) + ".FinalComposite",
+        summary.finalCompositeMicroseconds,
+        "us");
+}
+
 void appendConfigurationFields(
     DiagnosticFields& fields,
     const bafx::config::Config& config,
@@ -391,7 +473,7 @@ std::chrono::nanoseconds appendPerformanceInterval(
             "completed-sample-may-belong-to-an-older-reporting-window");
         fields.add(
             "GPU.StageApplicabilitySemantic",
-            "WGC-drain-attempted-snapshot-attempted-and-visual-FX-only");
+            "original-frame-usage-with-primary-and-recording-stage-validity");
         fields.add(
             "ROI.ProductionPath",
             config.performance.activeFxRoiEnabled
@@ -407,6 +489,28 @@ std::chrono::nanoseconds appendPerformanceInterval(
             "ROI.Active.LastStatus",
             bafx::core::activeFxRoiStatusName(
                 summary.roiLastActiveStatus));
+        constexpr std::array activeStatuses{
+            bafx::core::ActiveFxRoiStatus::Disabled,
+            bafx::core::ActiveFxRoiStatus::AppliedPrefilter,
+            bafx::core::ActiveFxRoiStatus::NoVisualPlan,
+            bafx::core::ActiveFxRoiStatus::BloomDisabled,
+            bafx::core::ActiveFxRoiStatus::CoreMode,
+            bafx::core::ActiveFxRoiStatus::BackgroundDifferentialBloom,
+            bafx::core::ActiveFxRoiStatus::TouchesBoundary,
+            bafx::core::ActiveFxRoiStatus::AreaTooLarge,
+            bafx::core::ActiveFxRoiStatus::BenefitTooSmall,
+            bafx::core::ActiveFxRoiStatus::Context1Unavailable,
+            bafx::core::ActiveFxRoiStatus::SharedTargetFullWrite,
+            bafx::core::ActiveFxRoiStatus::RendererFallback};
+        for (const bafx::core::ActiveFxRoiStatus status : activeStatuses)
+        {
+            const std::size_t index = static_cast<std::size_t>(status);
+            fields.add(
+                "ROI.Active.Reason."
+                    + std::string(bafx::core::activeFxRoiStatusName(status))
+                    + ".Frames",
+                summary.roiActiveStatusFrames[index]);
+        }
         fields.add(
             "ROI.VisualBounds.LastStatus",
             frameBoundsStatusName(summary.roiLastVisualBoundsStatus));
@@ -433,6 +537,11 @@ std::chrono::nanoseconds appendPerformanceInterval(
             "ROI.Plan.InvalidFootprintFrames",
             summary.roiPlanInvalidFootprintFrames);
         fields.add("ROI.Plan.OverflowFrames", summary.roiPlanOverflowFrames);
+        appendActiveFxRoiPath(fields, "ROI.Primary", summary.roiPrimary);
+        appendActiveFxRoiPath(
+            fields,
+            "ROI.RecordingRebuild",
+            summary.roiRecordingRebuild);
         fields.add(
             "WGC.ProducerSemantic",
             "FrameArrived-callback-rate-proxy");
@@ -555,6 +664,9 @@ std::chrono::nanoseconds appendPerformanceInterval(
         fields.add("GPU.PendingPolls", summary.gpuPendingPolls);
         fields.add("GPU.RingFullSkipped", summary.gpuRingFullSkipped);
         fields.add("GPU.SamplesCompleted", summary.gpuSamplesCompleted);
+        fields.add(
+            "GPU.AutoSkippedStageFrames",
+            summary.gpuAutoSkippedStageFrames);
         fields.add(
             "GPU.CancelledSlotsReclaimed",
             summary.gpuCancelledSlotsReclaimed);
@@ -699,6 +811,11 @@ std::chrono::nanoseconds appendPerformanceInterval(
             "GPU.BloomAndFinalComposite",
             summary.gpuBloomAndFinalCompositeMicroseconds,
             "us");
+        appendGpuFxPath(fields, "GPU.Primary", summary.gpuPrimary);
+        appendGpuFxPath(
+            fields,
+            "GPU.RecordingRebuild",
+            summary.gpuRecordingRebuild);
         appendMetric(
             fields,
             "GPU.FxTotal",
@@ -716,6 +833,7 @@ std::chrono::nanoseconds appendPerformanceInterval(
             || summary.framePacingTimeouts > 0U
             || summary.framePacingFailures > 0U
             || summary.gpuRingFullSkipped > 0U
+            || summary.gpuAutoSkippedStageFrames > 0U
             || summary.gpuQueryFailures > 0U
             || summary.gpuStateErrors > 0U
             || summary.roiVisualBoundsInvalidFrames > 0U

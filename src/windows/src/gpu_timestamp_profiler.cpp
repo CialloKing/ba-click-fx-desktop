@@ -227,6 +227,44 @@ struct GpuTimestampProfiler::Implementation
         GpuTimestampFrameUsage usage{};
     };
 
+    [[nodiscard]] static bool isOptionalCheckpoint(
+        const GpuTimestampCheckpoint checkpoint) noexcept
+    {
+        return static_cast<std::size_t>(checkpoint)
+            >= detail::gpuTimestampRequiredCheckpointCount;
+    }
+
+    static void markExecuted(
+        GpuTimestampFrameUsage& usage,
+        const GpuTimestampCheckpoint checkpoint) noexcept
+    {
+        switch (checkpoint)
+        {
+        case GpuTimestampCheckpoint::PrimaryPrefilterComplete:
+            usage.primary.prefilterExecuted = true;
+            break;
+        case GpuTimestampCheckpoint::PrimaryPyramidComplete:
+            usage.primary.pyramidExecuted = true;
+            break;
+        case GpuTimestampCheckpoint::PrimaryFinalCompositeComplete:
+            usage.primary.finalCompositeExecuted = true;
+            break;
+        case GpuTimestampCheckpoint::RecordingRebuildPrefilterComplete:
+            usage.recordingRebuild.prefilterExecuted = true;
+            break;
+        case GpuTimestampCheckpoint::RecordingRebuildPyramidComplete:
+            usage.recordingRebuild.pyramidExecuted = true;
+            break;
+        case GpuTimestampCheckpoint::RecordingRebuildFinalCompositeComplete:
+            usage.recordingRebuild.finalCompositeExecuted = true;
+            break;
+        case GpuTimestampCheckpoint::WgcDrainAndCopyComplete:
+        case GpuTimestampCheckpoint::BackgroundSnapshotComplete:
+        case GpuTimestampCheckpoint::FxMaterialsComplete:
+            break;
+        }
+    }
+
     explicit Implementation(
         std::unique_ptr<detail::GpuTimestampQueryBackend> queryBackend)
         : backend(std::move(queryBackend))
@@ -366,21 +404,51 @@ struct GpuTimestampProfiler::Implementation
             timestamps[2U],
             timestamps[3U],
             disjoint.frequency);
-        const auto bloom = timestampDelta(
+        const auto primaryPrefilter = timestampDelta(
             timestamps[3U],
             timestamps[4U],
             disjoint.frequency);
+        const auto primaryPyramid = timestampDelta(
+            timestamps[4U],
+            timestamps[5U],
+            disjoint.frequency);
+        const auto primaryFinalComposite = timestampDelta(
+            timestamps[5U],
+            timestamps[6U],
+            disjoint.frequency);
+        const auto recordingRebuildPrefilter = timestampDelta(
+            timestamps[6U],
+            timestamps[7U],
+            disjoint.frequency);
+        const auto recordingRebuildPyramid = timestampDelta(
+            timestamps[7U],
+            timestamps[8U],
+            disjoint.frequency);
+        const auto recordingRebuildFinalComposite = timestampDelta(
+            timestamps[8U],
+            timestamps[9U],
+            disjoint.frequency);
+        const auto bloom = timestampDelta(
+            timestamps[3U],
+            timestamps[10U],
+            disjoint.frequency);
         const auto totalFx = timestampDelta(
             timestamps[2U],
-            timestamps[4U],
+            timestamps[10U],
             disjoint.frequency);
         const auto totalFrame = timestampDelta(
             timestamps[0U],
-            timestamps[4U],
+            timestamps[10U],
             disjoint.frequency);
         if (!wgc.has_value()
             || !snapshot.has_value()
             || !materials.has_value()
+            || !primaryPrefilter.has_value()
+            || !primaryPyramid.has_value()
+            || !primaryFinalComposite.has_value()
+            || !recordingRebuildPrefilter.has_value()
+            || !recordingRebuildPyramid.has_value()
+            || !recordingRebuildFinalComposite.has_value()
             || !bloom.has_value()
             || !totalFx.has_value()
             || !totalFrame.has_value())
@@ -388,15 +456,23 @@ struct GpuTimestampProfiler::Implementation
             return queryFailure(*pendingSlot);
         }
 
-        const GpuTimestampSample sample{
-            slot.frameId,
-            *wgc,
-            *snapshot,
-            *materials,
-            *bloom,
-            *totalFx,
-            *totalFrame,
-            slot.usage};
+        GpuTimestampSample sample{};
+        sample.frameId = slot.frameId;
+        sample.wgcDrainAndCopy = *wgc;
+        sample.backgroundSnapshot = *snapshot;
+        sample.fxMaterials = *materials;
+        sample.primary = GpuTimestampFxPathSample{
+            *primaryPrefilter,
+            *primaryPyramid,
+            *primaryFinalComposite};
+        sample.recordingRebuild = GpuTimestampFxPathSample{
+            *recordingRebuildPrefilter,
+            *recordingRebuildPyramid,
+            *recordingRebuildFinalComposite};
+        sample.bloomAndFinalComposite = *bloom;
+        sample.totalFx = *totalFx;
+        sample.totalFrame = *totalFrame;
+        sample.usage = slot.usage;
         releaseSlot(*pendingSlot);
         ++counters.framesCompleted;
         return GpuTimestampPollResult{
@@ -493,8 +569,34 @@ GpuTimestampCheckpointStatus GpuTimestampProfiler::checkpoint(
         return GpuTimestampCheckpointStatus::OutOfOrder;
     }
     state.backend->writeTimestamp(*state.activeSlot, expectedBoundary);
+    Implementation::markExecuted(slot.usage, checkpointValue);
     ++slot.nextBoundary;
     return GpuTimestampCheckpointStatus::Recorded;
+}
+
+GpuTimestampCheckpointStatus GpuTimestampProfiler::skipCheckpoint(
+    const GpuTimestampCheckpoint checkpointValue) noexcept
+{
+    Implementation& state = *implementation_;
+    if (!state.activeSlot.has_value())
+    {
+        return GpuTimestampCheckpointStatus::NoActiveFrame;
+    }
+    if (!Implementation::isOptionalCheckpoint(checkpointValue))
+    {
+        return GpuTimestampCheckpointStatus::NotSkippable;
+    }
+
+    const std::size_t expectedBoundary =
+        static_cast<std::size_t>(checkpointValue) + 1U;
+    Implementation::Slot& slot = state.slots[*state.activeSlot];
+    if (slot.nextBoundary != expectedBoundary)
+    {
+        return GpuTimestampCheckpointStatus::OutOfOrder;
+    }
+    state.backend->writeTimestamp(*state.activeSlot, expectedBoundary);
+    ++slot.nextBoundary;
+    return GpuTimestampCheckpointStatus::Skipped;
 }
 
 GpuTimestampEndStatus GpuTimestampProfiler::endFrame(
@@ -507,23 +609,39 @@ GpuTimestampEndStatus GpuTimestampProfiler::endFrame(
     }
 
     Implementation::Slot& slot = state.slots[*state.activeSlot];
-    if (slot.nextBoundary != detail::gpuTimestampBoundaryCount - 1U)
+    if (slot.nextBoundary < detail::gpuTimestampRequiredCheckpointCount + 1U)
     {
         (void)cancelFrame();
         return GpuTimestampEndStatus::IncompleteCancelled;
     }
 
     const std::size_t completedSlot = *state.activeSlot;
+    // Old renderers stop after FxMaterialsComplete. Fill the optional tail at
+    // the same command position so an instrumentation upgrade cannot cancel
+    // otherwise valid frames or manufacture applicable stage measurements.
+    const bool autoSkippedStages =
+        slot.nextBoundary < detail::gpuTimestampBoundaryCount - 1U;
+    while (slot.nextBoundary < detail::gpuTimestampBoundaryCount - 1U)
+    {
+        state.backend->writeTimestamp(completedSlot, slot.nextBoundary);
+        ++slot.nextBoundary;
+    }
     state.backend->writeTimestamp(
         completedSlot,
         detail::gpuTimestampBoundaryCount - 1U);
     state.backend->endDisjoint(completedSlot);
-    slot.usage = usage;
+    slot.usage.wgcDrainAttempted = usage.wgcDrainAttempted;
+    slot.usage.backgroundSnapshotAttempted =
+        usage.backgroundSnapshotAttempted;
+    slot.usage.visualContent = usage.visualContent;
     slot.state = Implementation::SlotState::Pending;
     slot.submissionSequence = ++state.submissionSequence;
     state.activeSlot.reset();
     ++state.counters.framesSubmitted;
-    return GpuTimestampEndStatus::Submitted;
+    state.counters.autoSkippedStageFrames += autoSkippedStages ? 1U : 0U;
+    return autoSkippedStages
+        ? GpuTimestampEndStatus::SubmittedWithAutoSkippedStages
+        : GpuTimestampEndStatus::Submitted;
 }
 
 GpuTimestampCancelStatus GpuTimestampProfiler::cancelFrame() noexcept

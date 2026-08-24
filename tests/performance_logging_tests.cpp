@@ -85,6 +85,18 @@ BAFX_TEST(performance_log_preserves_metric_and_semantic_fields)
         .roiPrefilterPixels = 12'500U,
         .roiActiveStatus =
             bafx::core::ActiveFxRoiStatus::AppliedPrefilter,
+        .roiPrimary = bafx::desktop::ActiveFxRoiPathPerformanceSample{
+            true,
+            bafx::desktop::ActiveFxRoiPassDiagnostics{
+                true,
+                true,
+                true,
+                false,
+                bafx::desktop::ActiveFxRoiActualPath::RoiPrefilter,
+                bafx::desktop::ActiveFxRoiDecisionReason::Applied,
+                100U,
+                40U,
+                20U}},
         .gpuFxMaterialsMicroseconds = 900U,
         .gpuBloomAndFinalCompositeMicroseconds = 2'500U,
         .gpuTotalFxMicroseconds = 3'400U,
@@ -95,8 +107,16 @@ BAFX_TEST(performance_log_preserves_metric_and_semantic_fields)
         .gpuTimestampProfilerAvailable = true,
         .gpuFrameStarted = true,
         .gpuFrameSubmitted = true,
+        .gpuAutoSkippedStages = false,
         .gpuSampleCompleted = true,
-        .gpuFxTimingValid = true});
+        .gpuFxTimingValid = true,
+        .gpuPrimary = bafx::desktop::GpuFxPathPerformanceSample{
+            500U,
+            1'000U,
+            700U,
+            true,
+            true,
+            true}});
     window.addDispatchToPresentReturn(25'000U);
     window.addFramePacingWake(bafx::desktop::FramePacingWake::FrameReady);
     window.addFramePacingWake(bafx::desktop::FramePacingWake::DeviceRemoved);
@@ -142,6 +162,9 @@ BAFX_TEST(performance_log_preserves_metric_and_semantic_fields)
         != std::string::npos);
     BAFX_CHECK(text.find("ROI.Active.LastStatus=prefilter-roi\n")
         != std::string::npos);
+    BAFX_CHECK(text.find(
+        "ROI.Active.Reason.prefilter-roi.Frames=1\n")
+        != std::string::npos);
     BAFX_CHECK(text.find("ROI.PrefilterPixels.Max=12500\n")
         != std::string::npos);
     BAFX_CHECK(text.find("ROI.VisualBounds.OkFrames=1\n")
@@ -160,6 +183,21 @@ BAFX_TEST(performance_log_preserves_metric_and_semantic_fields)
     BAFX_CHECK(text.find("ROI.LastDirtyRect.Left=10\n")
         != std::string::npos);
     BAFX_CHECK(text.find("ROI.LastAlignedWork.Right=128\n")
+        != std::string::npos);
+    BAFX_CHECK(text.find("ROI.Primary.ObservedFrames=1\n")
+        != std::string::npos);
+    BAFX_CHECK(text.find("ROI.Primary.AppliedFrames=1\n")
+        != std::string::npos);
+    BAFX_CHECK(text.find("ROI.Primary.DrawnPixels.Total=40\n")
+        != std::string::npos);
+    BAFX_CHECK(text.find("ROI.Primary.DrawnToFullRatio=0.400\n")
+        != std::string::npos);
+    BAFX_CHECK(text.find(
+        "ROI.Primary.PixelCoverageSemantic=drawn-and-cleared-command-coverage-not-gpu-time-savings\n")
+        != std::string::npos);
+    BAFX_CHECK(text.find("ROI.Primary.Last.ActualPath=roi-prefilter\n")
+        != std::string::npos);
+    BAFX_CHECK(text.find("ROI.Primary.Reason.applied.Frames=1\n")
         != std::string::npos);
     BAFX_CHECK(text.find("Cpu.FrameTotal.P95=20000\n") != std::string::npos);
     BAFX_CHECK(text.find(
@@ -180,9 +218,19 @@ BAFX_TEST(performance_log_preserves_metric_and_semantic_fields)
     BAFX_CHECK(text.find("GPU.TimestampProfiler.InitializationHresult=0x00000000\n")
         != std::string::npos);
     BAFX_CHECK(text.find("GPU.SamplesCompleted=1\n") != std::string::npos);
+    BAFX_CHECK(text.find("GPU.AutoSkippedStageFrames=0\n")
+        != std::string::npos);
     BAFX_CHECK(text.find("GPU.WgcDrainAndCopy.Available=false\n")
         != std::string::npos);
     BAFX_CHECK(text.find("GPU.FxTotal.P95=3400\n") != std::string::npos);
+    BAFX_CHECK(text.find("GPU.Primary.Prefilter.P95=500\n")
+        != std::string::npos);
+    BAFX_CHECK(text.find("GPU.Primary.Pyramid.P95=1000\n")
+        != std::string::npos);
+    BAFX_CHECK(text.find("GPU.Primary.FinalComposite.P95=700\n")
+        != std::string::npos);
+    BAFX_CHECK(text.find("GPU.RecordingRebuild.Prefilter.Available=false\n")
+        != std::string::npos);
     BAFX_CHECK(text.find("GPU.RenderCommandSpan.Max=3500\n")
         != std::string::npos);
     BAFX_CHECK(text.find("Input.DispatchToPresentReturn.Max=25000\n")
@@ -290,6 +338,31 @@ BAFX_TEST(performance_log_warns_when_capture_exclusion_health_fails)
     BAFX_CHECK(text.find("WGC.CaptureExclusion.HealthChecks=1\n")
         != std::string::npos);
     BAFX_CHECK(text.find("WGC.CaptureExclusion.HealthFailures=1\n")
+        != std::string::npos);
+}
+
+BAFX_TEST(performance_log_warns_when_gpu_stage_tail_is_auto_skipped)
+{
+    const TemporaryPerformanceLog log;
+    bafx::desktop::RuntimePerformanceWindow window;
+    window.addFrame(bafx::desktop::FramePerformanceSample{
+        .gpuAutoSkippedStages = true});
+
+    static_cast<void>(bafx::desktop::appendPerformanceInterval(
+        log.path(),
+        window.summarize(),
+        bafx::config::defaultConfig(),
+        bafx::desktop::PerformanceLogContext{
+            bafx::windows::WindowSize{1920U, 1080U},
+            bafx::windows::BackgroundCompositeStatus::Inactive,
+            false},
+        std::chrono::seconds(1),
+        std::chrono::microseconds(0),
+        false));
+
+    const std::string text = log.read();
+    BAFX_CHECK(text.find("Event.Level=Warning\n") != std::string::npos);
+    BAFX_CHECK(text.find("GPU.AutoSkippedStageFrames=1\n")
         != std::string::npos);
 }
 

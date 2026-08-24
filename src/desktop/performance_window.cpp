@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <stdexcept>
 
 namespace bafx::desktop
@@ -23,6 +24,16 @@ namespace
     const std::size_t index = static_cast<std::size_t>(
         std::max(1.0, rank) - 1.0);
     return sorted[std::min(index, sorted.size() - 1U)];
+}
+
+void saturatingAdd(
+    std::uint64_t& destination,
+    const std::uint64_t value) noexcept
+{
+    destination = value > std::numeric_limits<std::uint64_t>::max()
+            - destination
+        ? std::numeric_limits<std::uint64_t>::max()
+        : destination + value;
 }
 
 }
@@ -124,6 +135,92 @@ bool BoundedMetric::empty() const noexcept
     return sampleCount_ == 0U;
 }
 
+void ActiveFxRoiPathPerformanceWindow::add(
+    const ActiveFxRoiPathPerformanceSample& sample) noexcept
+{
+    if (!sample.observed)
+    {
+        return;
+    }
+
+    const ActiveFxRoiPassDiagnostics& diagnostics =
+        sample.diagnostics;
+    saturatingAdd(summary_.observedFrames, 1U);
+    saturatingAdd(summary_.requestedFrames, diagnostics.requested ? 1U : 0U);
+    saturatingAdd(summary_.eligibleFrames, diagnostics.eligible ? 1U : 0U);
+    saturatingAdd(summary_.executedFrames, diagnostics.executed ? 1U : 0U);
+    saturatingAdd(summary_.warmupFrames, diagnostics.warmup ? 1U : 0U);
+    const bool applied = diagnostics.executed
+        && (diagnostics.actualPath == ActiveFxRoiActualPath::RoiPrefilter
+            || diagnostics.actualPath == ActiveFxRoiActualPath::RoiWarmup);
+    saturatingAdd(summary_.appliedFrames, applied ? 1U : 0U);
+    saturatingAdd(summary_.fullPixelsTotal, diagnostics.fullPixels);
+    saturatingAdd(summary_.drawnPixelsTotal, diagnostics.drawnPixels);
+    saturatingAdd(summary_.clearedPixelsTotal, diagnostics.clearedPixels);
+    summary_.lastExecuted = diagnostics.executed;
+    const std::size_t actualPathIndex =
+        static_cast<std::size_t>(diagnostics.actualPath);
+    summary_.lastActualPath = actualPathIndex
+            <= static_cast<std::size_t>(ActiveFxRoiActualPath::Unavailable)
+        ? diagnostics.actualPath
+        : ActiveFxRoiActualPath::Unavailable;
+    std::size_t reasonIndex =
+        static_cast<std::size_t>(diagnostics.decisionReason);
+    if (reasonIndex >= summary_.decisionReasonFrames.size())
+    {
+        reasonIndex = static_cast<std::size_t>(
+            ActiveFxRoiDecisionReason::RendererFallback);
+    }
+    summary_.lastDecisionReason =
+        static_cast<ActiveFxRoiDecisionReason>(reasonIndex);
+    // Every observed frame belongs to exactly one reason bucket, including
+    // malformed producer values which fail closed to renderer-fallback.
+    saturatingAdd(summary_.decisionReasonFrames[reasonIndex], 1U);
+}
+
+void ActiveFxRoiPathPerformanceWindow::reset() noexcept
+{
+    summary_ = ActiveFxRoiPathPerformanceSummary{};
+}
+
+ActiveFxRoiPathPerformanceSummary
+ActiveFxRoiPathPerformanceWindow::summarize() const noexcept
+{
+    return summary_;
+}
+
+void GpuFxPathPerformanceWindow::add(
+    const GpuFxPathPerformanceSample& sample) noexcept
+{
+    if (sample.prefilterTimingValid)
+    {
+        prefilterMicroseconds_.add(sample.prefilterMicroseconds);
+    }
+    if (sample.pyramidTimingValid)
+    {
+        pyramidMicroseconds_.add(sample.pyramidMicroseconds);
+    }
+    if (sample.finalCompositeTimingValid)
+    {
+        finalCompositeMicroseconds_.add(sample.finalCompositeMicroseconds);
+    }
+}
+
+void GpuFxPathPerformanceWindow::reset() noexcept
+{
+    prefilterMicroseconds_.reset();
+    pyramidMicroseconds_.reset();
+    finalCompositeMicroseconds_.reset();
+}
+
+GpuFxPathPerformanceSummary GpuFxPathPerformanceWindow::summarize() const
+{
+    return GpuFxPathPerformanceSummary{
+        prefilterMicroseconds_.summarize(),
+        pyramidMicroseconds_.summarize(),
+        finalCompositeMicroseconds_.summarize()};
+}
+
 void RuntimePerformanceWindow::addInput(
     const InputPerformanceSample& sample) noexcept
 {
@@ -213,10 +310,18 @@ void RuntimePerformanceWindow::addFrame(
     roiRequestedFrames_ += sample.roiRequested ? 1U : 0U;
     roiAppliedFrames_ += sample.roiApplied ? 1U : 0U;
     roiLastActiveStatus_ = sample.roiActiveStatus;
+    const std::size_t activeStatusIndex =
+        static_cast<std::size_t>(sample.roiActiveStatus);
+    if (activeStatusIndex < roiActiveStatusFrames_.size())
+    {
+        saturatingAdd(roiActiveStatusFrames_[activeStatusIndex], 1U);
+    }
     if (sample.roiApplied && sample.roiPrefilterPixels > 0U)
     {
         roiPrefilterPixels_.add(sample.roiPrefilterPixels);
     }
+    roiPrimary_.add(sample.roiPrimary);
+    roiRecordingRebuild_.add(sample.roiRecordingRebuild);
     wgcActiveFrames_ += sample.wgcActive ? 1U : 0U;
     addWgc(sample);
     backgroundSnapshotAttempts_ +=
@@ -256,6 +361,7 @@ void RuntimePerformanceWindow::addFrame(
     }
     gpuFramesStarted_ += sample.gpuFrameStarted ? 1U : 0U;
     gpuFramesSubmitted_ += sample.gpuFrameSubmitted ? 1U : 0U;
+    gpuAutoSkippedStageFrames_ += sample.gpuAutoSkippedStages ? 1U : 0U;
     gpuPendingPolls_ += sample.gpuPollPending ? 1U : 0U;
     gpuRingFullSkipped_ += sample.gpuRingFullSkipped ? 1U : 0U;
     gpuSamplesCompleted_ += sample.gpuSampleCompleted ? 1U : 0U;
@@ -290,6 +396,8 @@ void RuntimePerformanceWindow::addFrame(
             sample.gpuBloomAndFinalCompositeMicroseconds);
         gpuTotalFxMicroseconds_.add(sample.gpuTotalFxMicroseconds);
     }
+    gpuPrimary_.add(sample.gpuPrimary);
+    gpuRecordingRebuild_.add(sample.gpuRecordingRebuild);
 }
 
 void RuntimePerformanceWindow::addBackgroundMaintenance(
@@ -421,6 +529,7 @@ void RuntimePerformanceWindow::reset() noexcept
     roiPlanOverflowFrames_ = 0U;
     roiRequestedFrames_ = 0U;
     roiAppliedFrames_ = 0U;
+    roiActiveStatusFrames_.fill(0U);
     roiLastActiveStatus_ =
         bafx::core::ActiveFxRoiStatus::Disabled;
     roiLastVisualBoundsStatus_ = bafx::fx::FrameBoundsStatus::Empty;
@@ -436,6 +545,7 @@ void RuntimePerformanceWindow::reset() noexcept
     gpuPendingPolls_ = 0U;
     gpuRingFullSkipped_ = 0U;
     gpuSamplesCompleted_ = 0U;
+    gpuAutoSkippedStageFrames_ = 0U;
     gpuCancelledSlotsReclaimed_ = 0U;
     gpuDisjointSamples_ = 0U;
     gpuQueryFailures_ = 0U;
@@ -464,6 +574,8 @@ void RuntimePerformanceWindow::reset() noexcept
     roiGuardY_.reset();
     roiPhasePeriod_.reset();
     roiPrefilterPixels_.reset();
+    roiPrimary_.reset();
+    roiRecordingRebuild_.reset();
     roiLastDirtyRectAvailable_ = false;
     roiLastDirtyRect_ = bafx::core::RectI{};
     roiLastBloomOutputAvailable_ = false;
@@ -475,6 +587,8 @@ void RuntimePerformanceWindow::reset() noexcept
     gpuBackgroundSnapshotMicroseconds_.reset();
     gpuFxMaterialsMicroseconds_.reset();
     gpuBloomAndFinalCompositeMicroseconds_.reset();
+    gpuPrimary_.reset();
+    gpuRecordingRebuild_.reset();
     gpuTotalFxMicroseconds_.reset();
     gpuRenderCommandSpanMicroseconds_.reset();
 }
@@ -522,6 +636,7 @@ RuntimePerformanceSummary RuntimePerformanceWindow::summarize() const
     summary.roiPlanOverflowFrames = roiPlanOverflowFrames_;
     summary.roiRequestedFrames = roiRequestedFrames_;
     summary.roiAppliedFrames = roiAppliedFrames_;
+    summary.roiActiveStatusFrames = roiActiveStatusFrames_;
     summary.roiLastActiveStatus = roiLastActiveStatus_;
     summary.roiLastVisualBoundsStatus = roiLastVisualBoundsStatus_;
     summary.roiLastPlanStatus = roiLastPlanStatus_;
@@ -536,6 +651,7 @@ RuntimePerformanceSummary RuntimePerformanceWindow::summarize() const
     summary.gpuPendingPolls = gpuPendingPolls_;
     summary.gpuRingFullSkipped = gpuRingFullSkipped_;
     summary.gpuSamplesCompleted = gpuSamplesCompleted_;
+    summary.gpuAutoSkippedStageFrames = gpuAutoSkippedStageFrames_;
     summary.gpuCancelledSlotsReclaimed = gpuCancelledSlotsReclaimed_;
     summary.gpuDisjointSamples = gpuDisjointSamples_;
     summary.gpuQueryFailures = gpuQueryFailures_;
@@ -575,6 +691,8 @@ RuntimePerformanceSummary RuntimePerformanceWindow::summarize() const
     summary.roiGuardY = roiGuardY_.summarize();
     summary.roiPhasePeriod = roiPhasePeriod_.summarize();
     summary.roiPrefilterPixels = roiPrefilterPixels_.summarize();
+    summary.roiPrimary = roiPrimary_.summarize();
+    summary.roiRecordingRebuild = roiRecordingRebuild_.summarize();
     summary.roiLastDirtyRectAvailable = roiLastDirtyRectAvailable_;
     summary.roiLastDirtyRect = roiLastDirtyRect_;
     summary.roiLastBloomOutputAvailable = roiLastBloomOutputAvailable_;
@@ -591,6 +709,8 @@ RuntimePerformanceSummary RuntimePerformanceWindow::summarize() const
         gpuFxMaterialsMicroseconds_.summarize();
     summary.gpuBloomAndFinalCompositeMicroseconds =
         gpuBloomAndFinalCompositeMicroseconds_.summarize();
+    summary.gpuPrimary = gpuPrimary_.summarize();
+    summary.gpuRecordingRebuild = gpuRecordingRebuild_.summarize();
     summary.gpuTotalFxMicroseconds = gpuTotalFxMicroseconds_.summarize();
     summary.gpuRenderCommandSpanMicroseconds =
         gpuRenderCommandSpanMicroseconds_.summarize();

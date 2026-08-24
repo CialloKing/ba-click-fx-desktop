@@ -4,8 +4,10 @@
 #include "bafx/fx/frame_bounds.hpp"
 #include "frame_pacing.hpp"
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
+#include <string_view>
 #include <vector>
 
 namespace bafx::desktop
@@ -39,6 +41,141 @@ struct InputPerformanceSample
     std::uint32_t maximumWin32QueueAgeMilliseconds{0U};
     bool inputDispatchBudgetExhausted{false};
     bool otherDispatchBudgetExhausted{false};
+};
+
+enum class ActiveFxRoiActualPath : std::uint8_t
+{
+    Disabled,
+    Idle,
+    FullScreen,
+    RoiWarmup,
+    RoiPrefilter,
+    Unavailable
+};
+
+[[nodiscard]] constexpr std::string_view activeFxRoiActualPathName(
+    const ActiveFxRoiActualPath path) noexcept
+{
+    switch (path)
+    {
+    case ActiveFxRoiActualPath::Disabled:
+        return "disabled";
+    case ActiveFxRoiActualPath::Idle:
+        return "idle";
+    case ActiveFxRoiActualPath::FullScreen:
+        return "full-screen";
+    case ActiveFxRoiActualPath::RoiWarmup:
+        return "roi-warmup";
+    case ActiveFxRoiActualPath::RoiPrefilter:
+        return "roi-prefilter";
+    case ActiveFxRoiActualPath::Unavailable:
+        return "unavailable";
+    }
+    return "unavailable";
+}
+
+enum class ActiveFxRoiDecisionReason : std::uint8_t
+{
+    Disabled,
+    NoContent,
+    BackgroundDifferentialBloom,
+    Context1Unavailable,
+    SharedTargetFullWrite,
+    AreaTooLarge,
+    BenefitTooSmall,
+    Applied,
+    RendererFallback
+};
+
+[[nodiscard]] constexpr std::string_view activeFxRoiDecisionReasonName(
+    const ActiveFxRoiDecisionReason reason) noexcept
+{
+    switch (reason)
+    {
+    case ActiveFxRoiDecisionReason::Disabled:
+        return "disabled";
+    case ActiveFxRoiDecisionReason::NoContent:
+        return "no-content";
+    case ActiveFxRoiDecisionReason::BackgroundDifferentialBloom:
+        return "background-differential-bloom";
+    case ActiveFxRoiDecisionReason::Context1Unavailable:
+        return "context1-unavailable";
+    case ActiveFxRoiDecisionReason::SharedTargetFullWrite:
+        return "shared-target-full-write";
+    case ActiveFxRoiDecisionReason::AreaTooLarge:
+        return "area-too-large";
+    case ActiveFxRoiDecisionReason::BenefitTooSmall:
+        return "benefit-too-small";
+    case ActiveFxRoiDecisionReason::Applied:
+        return "applied";
+    case ActiveFxRoiDecisionReason::RendererFallback:
+        return "renderer-fallback";
+    }
+    return "renderer-fallback";
+}
+
+struct ActiveFxRoiPassDiagnostics
+{
+    bool requested{false};
+    bool eligible{false};
+    bool executed{false};
+    bool warmup{false};
+    ActiveFxRoiActualPath actualPath{ActiveFxRoiActualPath::Disabled};
+    ActiveFxRoiDecisionReason decisionReason{
+        ActiveFxRoiDecisionReason::Disabled};
+    std::uint64_t fullPixels{0U};
+    std::uint64_t drawnPixels{0U};
+    std::uint64_t clearedPixels{0U};
+};
+
+inline constexpr std::size_t activeFxRoiDecisionReasonCount =
+    static_cast<std::size_t>(ActiveFxRoiDecisionReason::RendererFallback)
+    + 1U;
+inline constexpr std::size_t activeFxRoiStatusCount =
+    static_cast<std::size_t>(bafx::core::ActiveFxRoiStatus::RendererFallback)
+    + 1U;
+
+struct ActiveFxRoiPathPerformanceSample
+{
+    bool observed{false};
+    ActiveFxRoiPassDiagnostics diagnostics{};
+};
+
+struct ActiveFxRoiPathPerformanceSummary
+{
+    std::uint64_t observedFrames{0U};
+    std::uint64_t requestedFrames{0U};
+    std::uint64_t eligibleFrames{0U};
+    std::uint64_t executedFrames{0U};
+    std::uint64_t appliedFrames{0U};
+    std::uint64_t warmupFrames{0U};
+    std::uint64_t fullPixelsTotal{0U};
+    std::uint64_t drawnPixelsTotal{0U};
+    std::uint64_t clearedPixelsTotal{0U};
+    bool lastExecuted{false};
+    ActiveFxRoiActualPath lastActualPath{ActiveFxRoiActualPath::Disabled};
+    ActiveFxRoiDecisionReason lastDecisionReason{
+        ActiveFxRoiDecisionReason::Disabled};
+    std::array<
+        std::uint64_t,
+        activeFxRoiDecisionReasonCount> decisionReasonFrames{};
+};
+
+struct GpuFxPathPerformanceSample
+{
+    std::uint64_t prefilterMicroseconds{0U};
+    std::uint64_t pyramidMicroseconds{0U};
+    std::uint64_t finalCompositeMicroseconds{0U};
+    bool prefilterTimingValid{false};
+    bool pyramidTimingValid{false};
+    bool finalCompositeTimingValid{false};
+};
+
+struct GpuFxPathPerformanceSummary
+{
+    MetricSummary prefilterMicroseconds{};
+    MetricSummary pyramidMicroseconds{};
+    MetricSummary finalCompositeMicroseconds{};
 };
 
 struct FramePerformanceSample
@@ -87,6 +224,8 @@ struct FramePerformanceSample
     std::uint64_t roiPrefilterPixels{0U};
     bafx::core::ActiveFxRoiStatus roiActiveStatus{
         bafx::core::ActiveFxRoiStatus::Disabled};
+    ActiveFxRoiPathPerformanceSample roiPrimary{};
+    ActiveFxRoiPathPerformanceSample roiRecordingRebuild{};
     std::uint64_t gpuWgcDrainAndCopyMicroseconds{0U};
     std::uint64_t gpuBackgroundSnapshotMicroseconds{0U};
     std::uint64_t gpuFxMaterialsMicroseconds{0U};
@@ -99,6 +238,7 @@ struct FramePerformanceSample
     bool gpuTimestampProfilerAvailable{false};
     bool gpuFrameStarted{false};
     bool gpuFrameSubmitted{false};
+    bool gpuAutoSkippedStages{false};
     bool gpuPollPending{false};
     bool gpuRingFullSkipped{false};
     bool gpuSampleCompleted{false};
@@ -109,6 +249,8 @@ struct FramePerformanceSample
     bool gpuWgcTimingValid{false};
     bool gpuBackgroundSnapshotTimingValid{false};
     bool gpuFxTimingValid{false};
+    GpuFxPathPerformanceSample gpuPrimary{};
+    GpuFxPathPerformanceSample gpuRecordingRebuild{};
 };
 
 struct RuntimePerformanceSummary
@@ -153,6 +295,7 @@ struct RuntimePerformanceSummary
     std::uint64_t roiPlanOverflowFrames{0U};
     std::uint64_t roiRequestedFrames{0U};
     std::uint64_t roiAppliedFrames{0U};
+    std::array<std::uint64_t, activeFxRoiStatusCount> roiActiveStatusFrames{};
     bafx::core::ActiveFxRoiStatus roiLastActiveStatus{
         bafx::core::ActiveFxRoiStatus::Disabled};
     bafx::fx::FrameBoundsStatus roiLastVisualBoundsStatus{
@@ -169,6 +312,7 @@ struct RuntimePerformanceSummary
     std::uint64_t gpuPendingPolls{0U};
     std::uint64_t gpuRingFullSkipped{0U};
     std::uint64_t gpuSamplesCompleted{0U};
+    std::uint64_t gpuAutoSkippedStageFrames{0U};
     std::uint64_t gpuCancelledSlotsReclaimed{0U};
     std::uint64_t gpuDisjointSamples{0U};
     std::uint64_t gpuQueryFailures{0U};
@@ -197,6 +341,8 @@ struct RuntimePerformanceSummary
     MetricSummary roiGuardY{};
     MetricSummary roiPhasePeriod{};
     MetricSummary roiPrefilterPixels{};
+    ActiveFxRoiPathPerformanceSummary roiPrimary{};
+    ActiveFxRoiPathPerformanceSummary roiRecordingRebuild{};
     bool roiLastDirtyRectAvailable{false};
     bafx::core::RectI roiLastDirtyRect{};
     bool roiLastBloomOutputAvailable{false};
@@ -208,6 +354,8 @@ struct RuntimePerformanceSummary
     MetricSummary gpuBackgroundSnapshotMicroseconds{};
     MetricSummary gpuFxMaterialsMicroseconds{};
     MetricSummary gpuBloomAndFinalCompositeMicroseconds{};
+    GpuFxPathPerformanceSummary gpuPrimary{};
+    GpuFxPathPerformanceSummary gpuRecordingRebuild{};
     MetricSummary gpuTotalFxMicroseconds{};
     MetricSummary gpuRenderCommandSpanMicroseconds{};
 };
@@ -248,6 +396,32 @@ private:
     std::uint64_t minimum_{0U};
     std::uint64_t maximum_{0U};
     long double total_{0.0L};
+};
+
+class ActiveFxRoiPathPerformanceWindow final
+{
+public:
+    void add(const ActiveFxRoiPathPerformanceSample& sample) noexcept;
+    void reset() noexcept;
+
+    [[nodiscard]] ActiveFxRoiPathPerformanceSummary summarize() const noexcept;
+
+private:
+    ActiveFxRoiPathPerformanceSummary summary_{};
+};
+
+class GpuFxPathPerformanceWindow final
+{
+public:
+    void add(const GpuFxPathPerformanceSample& sample) noexcept;
+    void reset() noexcept;
+
+    [[nodiscard]] GpuFxPathPerformanceSummary summarize() const;
+
+private:
+    BoundedMetric prefilterMicroseconds_{};
+    BoundedMetric pyramidMicroseconds_{};
+    BoundedMetric finalCompositeMicroseconds_{};
 };
 
 class RuntimePerformanceWindow final
@@ -311,6 +485,7 @@ private:
     std::uint64_t roiPlanOverflowFrames_{0U};
     std::uint64_t roiRequestedFrames_{0U};
     std::uint64_t roiAppliedFrames_{0U};
+    std::array<std::uint64_t, activeFxRoiStatusCount> roiActiveStatusFrames_{};
     bafx::core::ActiveFxRoiStatus roiLastActiveStatus_{
         bafx::core::ActiveFxRoiStatus::Disabled};
     bafx::fx::FrameBoundsStatus roiLastVisualBoundsStatus_{
@@ -327,6 +502,7 @@ private:
     std::uint64_t gpuPendingPolls_{0U};
     std::uint64_t gpuRingFullSkipped_{0U};
     std::uint64_t gpuSamplesCompleted_{0U};
+    std::uint64_t gpuAutoSkippedStageFrames_{0U};
     std::uint64_t gpuCancelledSlotsReclaimed_{0U};
     std::uint64_t gpuDisjointSamples_{0U};
     std::uint64_t gpuQueryFailures_{0U};
@@ -355,6 +531,8 @@ private:
     BoundedMetric roiGuardY_{};
     BoundedMetric roiPhasePeriod_{};
     BoundedMetric roiPrefilterPixels_{};
+    ActiveFxRoiPathPerformanceWindow roiPrimary_{};
+    ActiveFxRoiPathPerformanceWindow roiRecordingRebuild_{};
     bool roiLastDirtyRectAvailable_{false};
     bafx::core::RectI roiLastDirtyRect_{};
     bool roiLastBloomOutputAvailable_{false};
@@ -366,6 +544,8 @@ private:
     BoundedMetric gpuBackgroundSnapshotMicroseconds_{};
     BoundedMetric gpuFxMaterialsMicroseconds_{};
     BoundedMetric gpuBloomAndFinalCompositeMicroseconds_{};
+    GpuFxPathPerformanceWindow gpuPrimary_{};
+    GpuFxPathPerformanceWindow gpuRecordingRebuild_{};
     BoundedMetric gpuTotalFxMicroseconds_{};
     BoundedMetric gpuRenderCommandSpanMicroseconds_{};
 };

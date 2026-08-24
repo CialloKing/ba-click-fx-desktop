@@ -171,6 +171,10 @@ BAFX_TEST(runtime_performance_window_aggregates_input_and_render_contracts)
     BAFX_CHECK(summary.roiRequestedFrames == 1U);
     BAFX_CHECK(summary.roiAppliedFrames == 1U);
     BAFX_CHECK(
+        summary.roiActiveStatusFrames[static_cast<std::size_t>(
+            bafx::core::ActiveFxRoiStatus::AppliedPrefilter)]
+        == 1U);
+    BAFX_CHECK(
         summary.roiLastActiveStatus
         == bafx::core::ActiveFxRoiStatus::AppliedPrefilter);
     BAFX_CHECK(summary.roiFullScreenPixels.maximum == 1'920U * 1'080U);
@@ -341,6 +345,7 @@ BAFX_TEST(runtime_performance_window_filters_gpu_stages_by_original_frame_usage)
         .gpuTimestampProfilerAvailable = true,
         .gpuFrameStarted = true,
         .gpuFrameSubmitted = true,
+        .gpuAutoSkippedStages = true,
         .gpuPollPending = true,
         .gpuSampleCompleted = true,
         .gpuWgcTimingValid = true,
@@ -367,6 +372,7 @@ BAFX_TEST(runtime_performance_window_filters_gpu_stages_by_original_frame_usage)
     BAFX_CHECK(summary.gpuFramesStarted == 2U);
     BAFX_CHECK(summary.gpuFramesSubmitted == 2U);
     BAFX_CHECK(summary.gpuSamplesCompleted == 2U);
+    BAFX_CHECK(summary.gpuAutoSkippedStageFrames == 1U);
     BAFX_CHECK(summary.gpuPendingPolls == 1U);
     BAFX_CHECK(summary.gpuTimestampPendingFrames.maximum == 2U);
     BAFX_CHECK(summary.gpuRenderCommandSpanMicroseconds.sampleCount == 2U);
@@ -376,4 +382,115 @@ BAFX_TEST(runtime_performance_window_filters_gpu_stages_by_original_frame_usage)
     BAFX_CHECK(summary.gpuFxMaterialsMicroseconds.sampleCount == 1U);
     BAFX_CHECK(summary.gpuBloomAndFinalCompositeMicroseconds.maximum == 400U);
     BAFX_CHECK(summary.gpuTotalFxMicroseconds.maximum == 700U);
+}
+
+BAFX_TEST(runtime_performance_window_aggregates_roi_paths_without_claiming_savings)
+{
+    bafx::desktop::RuntimePerformanceWindow window;
+    window.addFrame(bafx::desktop::FramePerformanceSample{
+        .roiPrimary = bafx::desktop::ActiveFxRoiPathPerformanceSample{
+            true,
+            bafx::desktop::ActiveFxRoiPassDiagnostics{
+                true,
+                true,
+                true,
+                false,
+                bafx::desktop::ActiveFxRoiActualPath::RoiPrefilter,
+                bafx::desktop::ActiveFxRoiDecisionReason::Applied,
+                100U,
+                40U,
+                20U}},
+        .roiRecordingRebuild =
+            bafx::desktop::ActiveFxRoiPathPerformanceSample{
+                true,
+                bafx::desktop::ActiveFxRoiPassDiagnostics{
+                    false,
+                    false,
+                    false,
+                    false,
+                    bafx::desktop::ActiveFxRoiActualPath::Idle,
+                    bafx::desktop::ActiveFxRoiDecisionReason::NoContent,
+                    100U,
+                    0U,
+                    0U}}});
+    window.addFrame(bafx::desktop::FramePerformanceSample{
+        .roiPrimary = bafx::desktop::ActiveFxRoiPathPerformanceSample{
+            true,
+            bafx::desktop::ActiveFxRoiPassDiagnostics{
+                true,
+                true,
+                true,
+                true,
+                bafx::desktop::ActiveFxRoiActualPath::RoiWarmup,
+                bafx::desktop::ActiveFxRoiDecisionReason::Applied,
+                100U,
+                45U,
+                100U}}});
+
+    const bafx::desktop::RuntimePerformanceSummary summary = window.summarize();
+    BAFX_CHECK(summary.roiPrimary.observedFrames == 2U);
+    BAFX_CHECK(summary.roiPrimary.requestedFrames == 2U);
+    BAFX_CHECK(summary.roiPrimary.eligibleFrames == 2U);
+    BAFX_CHECK(summary.roiPrimary.executedFrames == 2U);
+    BAFX_CHECK(summary.roiPrimary.appliedFrames == 2U);
+    BAFX_CHECK(summary.roiPrimary.warmupFrames == 1U);
+    BAFX_CHECK(summary.roiPrimary.fullPixelsTotal == 200U);
+    BAFX_CHECK(summary.roiPrimary.drawnPixelsTotal == 85U);
+    BAFX_CHECK(summary.roiPrimary.clearedPixelsTotal == 120U);
+    BAFX_CHECK(
+        summary.roiPrimary.lastActualPath
+        == bafx::desktop::ActiveFxRoiActualPath::RoiWarmup);
+    const std::size_t appliedReason = static_cast<std::size_t>(
+        bafx::desktop::ActiveFxRoiDecisionReason::Applied);
+    BAFX_CHECK(
+        summary.roiPrimary.decisionReasonFrames[appliedReason] == 2U);
+    std::uint64_t reasonFrames = 0U;
+    for (const std::uint64_t count : summary.roiPrimary.decisionReasonFrames)
+    {
+        reasonFrames += count;
+    }
+    BAFX_CHECK(reasonFrames == summary.roiPrimary.observedFrames);
+    BAFX_CHECK(summary.roiRecordingRebuild.observedFrames == 1U);
+    BAFX_CHECK(summary.roiRecordingRebuild.executedFrames == 0U);
+
+    window.reset();
+    BAFX_CHECK(window.summarize().roiPrimary.observedFrames == 0U);
+}
+
+BAFX_TEST(runtime_performance_window_filters_each_gpu_fx_path_stage)
+{
+    bafx::desktop::RuntimePerformanceWindow window;
+    window.addFrame(bafx::desktop::FramePerformanceSample{
+        .gpuPrimary = bafx::desktop::GpuFxPathPerformanceSample{
+            10U,
+            20U,
+            30U,
+            true,
+            true,
+            false},
+        .gpuRecordingRebuild = bafx::desktop::GpuFxPathPerformanceSample{
+            40U,
+            50U,
+            60U,
+            false,
+            false,
+            true}});
+    window.addFrame(bafx::desktop::FramePerformanceSample{
+        .gpuPrimary = bafx::desktop::GpuFxPathPerformanceSample{
+            1U,
+            2U,
+            3U,
+            false,
+            false,
+            false}});
+
+    const bafx::desktop::RuntimePerformanceSummary summary = window.summarize();
+    BAFX_CHECK(summary.gpuPrimary.prefilterMicroseconds.sampleCount == 1U);
+    BAFX_CHECK(summary.gpuPrimary.prefilterMicroseconds.maximum == 10U);
+    BAFX_CHECK(summary.gpuPrimary.pyramidMicroseconds.maximum == 20U);
+    BAFX_CHECK(summary.gpuPrimary.finalCompositeMicroseconds.sampleCount == 0U);
+    BAFX_CHECK(
+        summary.gpuRecordingRebuild.prefilterMicroseconds.sampleCount == 0U);
+    BAFX_CHECK(
+        summary.gpuRecordingRebuild.finalCompositeMicroseconds.maximum == 60U);
 }

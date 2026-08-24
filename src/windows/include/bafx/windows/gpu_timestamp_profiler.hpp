@@ -14,7 +14,12 @@ namespace bafx::windows
 namespace detail
 {
 
-inline constexpr std::size_t gpuTimestampBoundaryCount = 5U;
+inline constexpr std::size_t gpuTimestampRequiredCheckpointCount = 3U;
+inline constexpr std::size_t gpuTimestampOptionalCheckpointCount = 6U;
+inline constexpr std::size_t gpuTimestampCheckpointCount =
+    gpuTimestampRequiredCheckpointCount + gpuTimestampOptionalCheckpointCount;
+inline constexpr std::size_t gpuTimestampBoundaryCount =
+    gpuTimestampCheckpointCount + 2U;
 
 enum class GpuTimestampQueryReadStatus : std::uint8_t
 {
@@ -56,9 +61,15 @@ public:
 
 enum class GpuTimestampCheckpoint : std::uint8_t
 {
-    WgcDrainAndCopyComplete,
-    BackgroundSnapshotComplete,
-    FxMaterialsComplete
+    WgcDrainAndCopyComplete = 0U,
+    BackgroundSnapshotComplete = 1U,
+    FxMaterialsComplete = 2U,
+    PrimaryPrefilterComplete = 3U,
+    PrimaryPyramidComplete = 4U,
+    PrimaryFinalCompositeComplete = 5U,
+    RecordingRebuildPrefilterComplete = 6U,
+    RecordingRebuildPyramidComplete = 7U,
+    RecordingRebuildFinalCompositeComplete = 8U
 };
 
 enum class GpuTimestampBeginStatus : std::uint8_t
@@ -72,13 +83,16 @@ enum class GpuTimestampBeginStatus : std::uint8_t
 enum class GpuTimestampCheckpointStatus : std::uint8_t
 {
     Recorded,
+    Skipped,
     NoActiveFrame,
-    OutOfOrder
+    OutOfOrder,
+    NotSkippable
 };
 
 enum class GpuTimestampEndStatus : std::uint8_t
 {
     Submitted,
+    SubmittedWithAutoSkippedStages,
     NoActiveFrame,
     IncompleteCancelled
 };
@@ -102,11 +116,27 @@ enum class GpuTimestampPollStatus : std::uint8_t
     AlreadyPolled
 };
 
+struct GpuTimestampFxPathUsage
+{
+    bool prefilterExecuted{false};
+    bool pyramidExecuted{false};
+    bool finalCompositeExecuted{false};
+};
+
 struct GpuTimestampFrameUsage
 {
     bool wgcDrainAttempted{false};
     bool backgroundSnapshotAttempted{false};
     bool visualContent{false};
+    GpuTimestampFxPathUsage primary{};
+    GpuTimestampFxPathUsage recordingRebuild{};
+};
+
+struct GpuTimestampFxPathSample
+{
+    std::chrono::nanoseconds prefilter{};
+    std::chrono::nanoseconds pyramid{};
+    std::chrono::nanoseconds finalComposite{};
 };
 
 struct GpuTimestampSample
@@ -115,6 +145,9 @@ struct GpuTimestampSample
     std::chrono::nanoseconds wgcDrainAndCopy{};
     std::chrono::nanoseconds backgroundSnapshot{};
     std::chrono::nanoseconds fxMaterials{};
+    GpuTimestampFxPathSample primary{};
+    GpuTimestampFxPathSample recordingRebuild{};
+    // This legacy interval deliberately spans both paths and any tail work.
     std::chrono::nanoseconds bloomAndFinalComposite{};
     std::chrono::nanoseconds totalFx{};
     std::chrono::nanoseconds totalFrame{};
@@ -135,6 +168,7 @@ struct GpuTimestampProfilerCounters
     std::uint64_t framesCancelled{0U};
     std::uint64_t pendingPolls{0U};
     std::uint64_t ringFullSkipped{0U};
+    std::uint64_t autoSkippedStageFrames{0U};
     std::uint64_t disjointFrames{0U};
     std::uint64_t queryFailures{0U};
 };
@@ -162,6 +196,10 @@ public:
     [[nodiscard]] GpuTimestampBeginStatus beginFrame(
         std::uint64_t frameId) noexcept;
     [[nodiscard]] GpuTimestampCheckpointStatus checkpoint(
+        GpuTimestampCheckpoint checkpoint) noexcept;
+    // Optional stages still write a timestamp when skipped so every query slot
+    // keeps one fixed layout and polling never needs a variable query plan.
+    [[nodiscard]] GpuTimestampCheckpointStatus skipCheckpoint(
         GpuTimestampCheckpoint checkpoint) noexcept;
     [[nodiscard]] GpuTimestampEndStatus endFrame(
         GpuTimestampFrameUsage usage = {}) noexcept;

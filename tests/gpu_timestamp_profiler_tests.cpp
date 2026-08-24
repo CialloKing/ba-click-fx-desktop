@@ -64,6 +64,12 @@ public:
             3U,
             9U,
             15U,
+            18U,
+            21U,
+            24U,
+            24U,
+            27U,
+            27U,
             30U};
         std::size_t beginCalls{0U};
         std::size_t endCalls{0U};
@@ -163,7 +169,61 @@ void submitFrame(
     BAFX_CHECK(
         profiler.checkpoint(GpuTimestampCheckpoint::FxMaterialsComplete)
         == GpuTimestampCheckpointStatus::Recorded);
+    constexpr std::array optionalCheckpoints{
+        GpuTimestampCheckpoint::PrimaryPrefilterComplete,
+        GpuTimestampCheckpoint::PrimaryPyramidComplete,
+        GpuTimestampCheckpoint::PrimaryFinalCompositeComplete,
+        GpuTimestampCheckpoint::RecordingRebuildPrefilterComplete,
+        GpuTimestampCheckpoint::RecordingRebuildPyramidComplete,
+        GpuTimestampCheckpoint::RecordingRebuildFinalCompositeComplete};
+    for (const GpuTimestampCheckpoint checkpoint : optionalCheckpoints)
+    {
+        BAFX_CHECK(
+            profiler.skipCheckpoint(checkpoint)
+            == GpuTimestampCheckpointStatus::Skipped);
+    }
     BAFX_CHECK(profiler.endFrame(usage) == GpuTimestampEndStatus::Submitted);
+}
+
+void submitFullyInstrumentedFrame(
+    GpuTimestampProfiler& profiler,
+    const std::uint64_t frameId)
+{
+    BAFX_CHECK(
+        profiler.beginFrame(frameId) == GpuTimestampBeginStatus::Started);
+    constexpr std::array requiredCheckpoints{
+        GpuTimestampCheckpoint::WgcDrainAndCopyComplete,
+        GpuTimestampCheckpoint::BackgroundSnapshotComplete,
+        GpuTimestampCheckpoint::FxMaterialsComplete};
+    for (const GpuTimestampCheckpoint checkpoint : requiredCheckpoints)
+    {
+        BAFX_CHECK(
+            profiler.checkpoint(checkpoint)
+            == GpuTimestampCheckpointStatus::Recorded);
+    }
+    constexpr std::array primaryCheckpoints{
+        GpuTimestampCheckpoint::PrimaryPrefilterComplete,
+        GpuTimestampCheckpoint::PrimaryPyramidComplete,
+        GpuTimestampCheckpoint::PrimaryFinalCompositeComplete};
+    for (const GpuTimestampCheckpoint checkpoint : primaryCheckpoints)
+    {
+        BAFX_CHECK(
+            profiler.checkpoint(checkpoint)
+            == GpuTimestampCheckpointStatus::Recorded);
+    }
+    constexpr std::array recordingCheckpoints{
+        GpuTimestampCheckpoint::RecordingRebuildPrefilterComplete,
+        GpuTimestampCheckpoint::RecordingRebuildPyramidComplete,
+        GpuTimestampCheckpoint::RecordingRebuildFinalCompositeComplete};
+    for (const GpuTimestampCheckpoint checkpoint : recordingCheckpoints)
+    {
+        BAFX_CHECK(
+            profiler.skipCheckpoint(checkpoint)
+            == GpuTimestampCheckpointStatus::Skipped);
+    }
+    BAFX_CHECK(
+        profiler.endFrame(GpuTimestampFrameUsage{true, true, true})
+        == GpuTimestampEndStatus::Submitted);
 }
 
 }
@@ -201,14 +261,84 @@ BAFX_TEST(gpu_timestamp_profiler_reports_exact_stage_and_total_durations)
     BAFX_CHECK(result.sample->wgcDrainAndCopy == 1s);
     BAFX_CHECK(result.sample->backgroundSnapshot == 2s);
     BAFX_CHECK(result.sample->fxMaterials == 2s);
+    BAFX_CHECK(result.sample->primary.prefilter == 1s);
+    BAFX_CHECK(result.sample->primary.pyramid == 1s);
+    BAFX_CHECK(result.sample->primary.finalComposite == 1s);
+    BAFX_CHECK(result.sample->recordingRebuild.prefilter == 0s);
+    BAFX_CHECK(result.sample->recordingRebuild.pyramid == 1s);
+    BAFX_CHECK(result.sample->recordingRebuild.finalComposite == 0s);
     BAFX_CHECK(result.sample->bloomAndFinalComposite == 5s);
     BAFX_CHECK(result.sample->totalFx == 7s);
     BAFX_CHECK(result.sample->totalFrame == 10s);
     BAFX_CHECK(result.sample->usage.wgcDrainAttempted);
     BAFX_CHECK(result.sample->usage.backgroundSnapshotAttempted);
     BAFX_CHECK(result.sample->usage.visualContent);
+    BAFX_CHECK(!result.sample->usage.primary.prefilterExecuted);
+    BAFX_CHECK(!result.sample->usage.primary.pyramidExecuted);
+    BAFX_CHECK(!result.sample->usage.primary.finalCompositeExecuted);
+    BAFX_CHECK(!result.sample->usage.recordingRebuild.prefilterExecuted);
     BAFX_CHECK(fixture.profiler->counters().framesCompleted == 1U);
     BAFX_CHECK(fixture.profiler->pendingFrameCount() == 0U);
+}
+
+BAFX_TEST(gpu_timestamp_profiler_records_and_skips_fixed_optional_sequence)
+{
+    ProfilerFixture fixture;
+    static_assert(detail::gpuTimestampBoundaryCount == 11U);
+    submitFullyInstrumentedFrame(*fixture.profiler, 73U);
+
+    const GpuTimestampPollResult result = fixture.profiler->poll(101U);
+    BAFX_CHECK(result.status == GpuTimestampPollStatus::Completed);
+    BAFX_CHECK(result.sample.has_value());
+    BAFX_CHECK(result.sample->usage.primary.prefilterExecuted);
+    BAFX_CHECK(result.sample->usage.primary.pyramidExecuted);
+    BAFX_CHECK(result.sample->usage.primary.finalCompositeExecuted);
+    BAFX_CHECK(!result.sample->usage.recordingRebuild.prefilterExecuted);
+    BAFX_CHECK(!result.sample->usage.recordingRebuild.pyramidExecuted);
+    BAFX_CHECK(!result.sample->usage.recordingRebuild.finalCompositeExecuted);
+    BAFX_CHECK(result.sample->bloomAndFinalComposite == 5s);
+    for (const std::size_t writes : fixture.backend->slots[0U].timestampWriteCalls)
+    {
+        BAFX_CHECK(writes == 1U);
+    }
+}
+
+BAFX_TEST(gpu_timestamp_profiler_auto_skips_only_the_optional_tail)
+{
+    ProfilerFixture fixture;
+    BAFX_CHECK(
+        fixture.profiler->beginFrame(11U)
+        == GpuTimestampBeginStatus::Started);
+    BAFX_CHECK(
+        fixture.profiler->skipCheckpoint(
+            GpuTimestampCheckpoint::WgcDrainAndCopyComplete)
+        == GpuTimestampCheckpointStatus::NotSkippable);
+    BAFX_CHECK(
+        fixture.profiler->checkpoint(
+            GpuTimestampCheckpoint::WgcDrainAndCopyComplete)
+        == GpuTimestampCheckpointStatus::Recorded);
+    BAFX_CHECK(
+        fixture.profiler->checkpoint(
+            GpuTimestampCheckpoint::BackgroundSnapshotComplete)
+        == GpuTimestampCheckpointStatus::Recorded);
+    BAFX_CHECK(
+        fixture.profiler->checkpoint(
+            GpuTimestampCheckpoint::FxMaterialsComplete)
+        == GpuTimestampCheckpointStatus::Recorded);
+    BAFX_CHECK(
+        fixture.profiler->skipCheckpoint(
+            GpuTimestampCheckpoint::PrimaryPyramidComplete)
+        == GpuTimestampCheckpointStatus::OutOfOrder);
+    BAFX_CHECK(
+        fixture.profiler->endFrame()
+        == GpuTimestampEndStatus::SubmittedWithAutoSkippedStages);
+    BAFX_CHECK(
+        fixture.profiler->counters().autoSkippedStageFrames == 1U);
+
+    for (const std::size_t writes : fixture.backend->slots[0U].timestampWriteCalls)
+    {
+        BAFX_CHECK(writes == 1U);
+    }
 }
 
 BAFX_TEST(gpu_timestamp_profiler_polls_once_per_frame_token_without_waiting)
@@ -341,7 +471,18 @@ BAFX_TEST(gpu_timestamp_profiler_treats_invalid_timestamp_order_as_failure)
 {
     ProfilerFixture fixture;
     submitFrame(*fixture.profiler, 1U);
-    fixture.backend->slots[0U].timestamps = {0U, 3U, 2U, 15U, 30U};
+    fixture.backend->slots[0U].timestamps = {
+        0U,
+        3U,
+        2U,
+        15U,
+        18U,
+        21U,
+        24U,
+        24U,
+        27U,
+        27U,
+        30U};
 
     BAFX_CHECK(
         fixture.profiler->poll(50U).status
