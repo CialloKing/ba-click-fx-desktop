@@ -486,6 +486,74 @@ void checkCaptureBitExactAndFinite(
     return makeActiveFxRoi(bounds.bounds, settings, size);
 }
 
+void checkActiveFxRoiUnavailableFallback(
+    const FxGpuRendererFeaturePolicy featurePolicy)
+{
+    ComApartment apartment;
+    const WarpDevice graphics = createWarpDevice();
+    const bafx::fx::FrameSnapshot snapshot = makeDiskSnapshot(true);
+    constexpr FxBloomSettings fourTapBloom{1.0F, 4.0F};
+
+    FxGpuRenderer referenceRenderer(
+        graphics.device.Get(),
+        graphics.context.Get(),
+        testSize,
+        fourTapBloom);
+    const RenderTarget referenceTarget = createRenderTarget(
+        graphics.device.Get());
+    referenceRenderer.render(snapshot, referenceTarget.view.Get());
+
+    FxGpuRenderer fallbackRenderer(
+        graphics.device.Get(),
+        graphics.context.Get(),
+        testSize,
+        fourTapBloom,
+        compositionOutputPolicyFor(
+            CompositionOutputPreference::PreferLinearScRgb).mapping,
+        featurePolicy);
+    const RenderTarget fallbackTarget = createRenderTarget(
+        graphics.device.Get());
+    const FxRenderCpuDiagnostics diagnostics = fallbackRenderer.render(
+        snapshot,
+        fallbackTarget.view.Get(),
+        std::nullopt,
+        nullptr,
+        nullptr,
+        makeActiveFxRoi(snapshot, fourTapBloom));
+
+    BAFX_CHECK(!diagnostics.activeFxRoiApplied);
+    BAFX_CHECK(diagnostics.primaryActiveFxRoi.requested);
+    BAFX_CHECK(diagnostics.primaryActiveFxRoi.eligible);
+    BAFX_CHECK(diagnostics.primaryActiveFxRoi.executed);
+    BAFX_CHECK(!diagnostics.primaryActiveFxRoi.warmup);
+    BAFX_CHECK(
+        diagnostics.primaryActiveFxRoi.actualPath
+        == FxActiveRoiActualPath::Unavailable);
+    BAFX_CHECK(
+        diagnostics.primaryActiveFxRoi.decisionReason
+        == FxActiveRoiDecisionReason::Context1Unavailable);
+    BAFX_CHECK(
+        diagnostics.primaryActiveFxRoi.drawnPixels
+        == diagnostics.primaryActiveFxRoi.fullPixels);
+
+    checkRgba16BitExactAndFinite(
+        readbackRgba16FloatTexture(
+            graphics.context.Get(),
+            referenceTarget.texture.Get()),
+        readbackRgba16FloatTexture(
+            graphics.context.Get(),
+            fallbackTarget.texture.Get()));
+
+    const FxGpuFrameCapture referenceCapture = referenceRenderer.renderAndCapture(
+        snapshot,
+        referenceTarget.view.Get());
+    const FxGpuFrameCapture fallbackCapture = fallbackRenderer.renderAndCapture(
+        snapshot,
+        fallbackTarget.view.Get(),
+        makeActiveFxRoi(snapshot, fourTapBloom));
+    checkCaptureBitExactAndFinite(referenceCapture, fallbackCapture);
+}
+
 [[nodiscard]] bafx::fx::FrameSnapshot makeDiskTransportSnapshot(
     const float particleAlpha,
     const float artisticIntensity)
@@ -2879,69 +2947,15 @@ BAFX_TEST(warp_active_fx_roi_spout_fx_only_is_exact_in_warmup_and_steady_state)
 
 BAFX_TEST(warp_active_fx_roi_context1_unavailable_falls_back_exactly)
 {
-    ComApartment apartment;
-    const WarpDevice graphics = createWarpDevice();
-    const bafx::fx::FrameSnapshot snapshot = makeDiskSnapshot(true);
-    constexpr FxBloomSettings fourTapBloom{1.0F, 4.0F};
+    checkActiveFxRoiUnavailableFallback(FxGpuRendererFeaturePolicy{
+        .allowActiveFxRoiClearView = false});
+}
 
-    FxGpuRenderer referenceRenderer(
-        graphics.device.Get(),
-        graphics.context.Get(),
-        testSize,
-        fourTapBloom);
-    const RenderTarget referenceTarget = createRenderTarget(
-        graphics.device.Get());
-    referenceRenderer.render(snapshot, referenceTarget.view.Get());
-
-    FxGpuRenderer fallbackRenderer(
-        graphics.device.Get(),
-        graphics.context.Get(),
-        testSize,
-        fourTapBloom,
-        compositionOutputPolicyFor(
-            CompositionOutputPreference::PreferLinearScRgb).mapping,
-        FxGpuRendererFeaturePolicy{false});
-    const RenderTarget fallbackTarget = createRenderTarget(
-        graphics.device.Get());
-    const FxRenderCpuDiagnostics diagnostics = fallbackRenderer.render(
-        snapshot,
-        fallbackTarget.view.Get(),
-        std::nullopt,
-        nullptr,
-        nullptr,
-        makeActiveFxRoi(snapshot, fourTapBloom));
-
-    BAFX_CHECK(!diagnostics.activeFxRoiApplied);
-    BAFX_CHECK(diagnostics.primaryActiveFxRoi.requested);
-    BAFX_CHECK(diagnostics.primaryActiveFxRoi.eligible);
-    BAFX_CHECK(diagnostics.primaryActiveFxRoi.executed);
-    BAFX_CHECK(!diagnostics.primaryActiveFxRoi.warmup);
-    BAFX_CHECK(
-        diagnostics.primaryActiveFxRoi.actualPath
-        == FxActiveRoiActualPath::Unavailable);
-    BAFX_CHECK(
-        diagnostics.primaryActiveFxRoi.decisionReason
-        == FxActiveRoiDecisionReason::Context1Unavailable);
-    BAFX_CHECK(
-        diagnostics.primaryActiveFxRoi.drawnPixels
-        == diagnostics.primaryActiveFxRoi.fullPixels);
-
-    checkRgba16BitExactAndFinite(
-        readbackRgba16FloatTexture(
-            graphics.context.Get(),
-            referenceTarget.texture.Get()),
-        readbackRgba16FloatTexture(
-            graphics.context.Get(),
-            fallbackTarget.texture.Get()));
-
-    const FxGpuFrameCapture referenceCapture = referenceRenderer.renderAndCapture(
-        snapshot,
-        referenceTarget.view.Get());
-    const FxGpuFrameCapture fallbackCapture = fallbackRenderer.renderAndCapture(
-        snapshot,
-        fallbackTarget.view.Get(),
-        makeActiveFxRoi(snapshot, fourTapBloom));
-    checkCaptureBitExactAndFinite(referenceCapture, fallbackCapture);
+BAFX_TEST(warp_active_fx_roi_clearview_capability_false_falls_back_exactly)
+{
+    checkActiveFxRoiUnavailableFallback(FxGpuRendererFeaturePolicy{
+        .allowActiveFxRoiClearView = true,
+        .activeFxRoiClearViewCapabilityOverride = false});
 }
 
 BAFX_TEST(warp_recording_roi_reports_shared_target_full_write_warmup)

@@ -173,6 +173,9 @@ struct FxGpuRendererFeaturePolicy final
     // Keep the full-screen fallback independently selectable so unsupported
     // or unstable Context1 environments never become a renderer prerequisite.
     bool allowActiveFxRoiClearView{true};
+    // Tests may override the driver capability without replacing the real
+    // Context1 interface. Production leaves this unset and probes the device.
+    std::optional<bool> activeFxRoiClearViewCapabilityOverride{};
 };
 
 enum class FxOverlayProfile : std::uint8_t

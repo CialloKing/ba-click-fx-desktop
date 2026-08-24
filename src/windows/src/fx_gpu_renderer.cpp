@@ -26,6 +26,7 @@
 #include <span>
 #include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace bafx::windows
@@ -123,6 +124,27 @@ struct ColorTarget
         && left.softKnee == right.softKnee
         && left.clampValue == right.clampValue
         && left.enabled == right.enabled;
+}
+
+[[nodiscard]] bool supportsActiveFxRoiClearView(
+    ID3D11Device* const device,
+    const std::optional<bool> capabilityOverride) noexcept
+{
+    if (capabilityOverride.has_value())
+    {
+        return *capabilityOverride;
+    }
+    if (device == nullptr)
+    {
+        return false;
+    }
+
+    D3D11_FEATURE_DATA_D3D11_OPTIONS options{};
+    return SUCCEEDED(device->CheckFeatureSupport(
+               D3D11_FEATURE_D3D11_OPTIONS,
+               &options,
+               sizeof(options)))
+        && options.ClearView == TRUE;
 }
 
 [[nodiscard]] bool isValidOverlayProfile(
@@ -641,12 +663,19 @@ struct FxGpuRenderer::Implementation
         createPipeline();
         createTextures();
         createTargets();
-        // ClearView is optional at the COM boundary even on supported OS
-        // versions. A missing interface disables ROI without weakening the
-        // full-screen rendering path.
+        // Context1 can exist on a D3D11.1 runtime while the driver still
+        // reports ClearView unsupported. Keep both checks fail-closed because
+        // ClearView has no HRESULT with which to repair stale ROI contents.
         if (featurePolicy.allowActiveFxRoiClearView)
         {
-            static_cast<void>(context.As(&context1));
+            ComPtr<ID3D11DeviceContext1> candidateContext;
+            if (SUCCEEDED(context.As(&candidateContext))
+                && supportsActiveFxRoiClearView(
+                    device.Get(),
+                    featurePolicy.activeFxRoiClearViewCapabilityOverride))
+            {
+                context1 = std::move(candidateContext);
+            }
         }
     }
 
