@@ -1,5 +1,7 @@
 #include "package_activation.hpp"
 
+#include "product/version.hpp"
+
 #include <shobjidl_core.h>
 #include <wrl/client.h>
 
@@ -40,6 +42,8 @@ public:
 
         std::optional<std::string> packageFamilyName;
         std::optional<std::string> applicationId;
+        std::optional<std::string> productVersion;
+        std::optional<std::string> packageVersion;
         bool hasSchema = false;
         unsigned int schema = 0U;
 
@@ -96,6 +100,30 @@ public:
                     return fail(L"Install state applicationId must be a string.");
                 }
             }
+            else if (*key == "productVersion")
+            {
+                if (productVersion.has_value())
+                {
+                    return fail(L"Install state repeats productVersion.");
+                }
+                productVersion = parseString();
+                if (!productVersion.has_value())
+                {
+                    return fail(L"Install state productVersion must be a string.");
+                }
+            }
+            else if (*key == "packageVersion")
+            {
+                if (packageVersion.has_value())
+                {
+                    return fail(L"Install state repeats packageVersion.");
+                }
+                packageVersion = parseString();
+                if (!packageVersion.has_value())
+                {
+                    return fail(L"Install state packageVersion must be a string.");
+                }
+            }
             else if (!skipPrimitive())
             {
                 return fail(L"Install state has an unsupported property value.");
@@ -130,9 +158,12 @@ public:
             message += L".";
             return fail(message);
         }
-        if (!packageFamilyName.has_value() || !applicationId.has_value())
+        if (!packageFamilyName.has_value()
+            || !applicationId.has_value()
+            || !productVersion.has_value()
+            || !packageVersion.has_value())
         {
-            return fail(L"Install state is missing package activation fields.");
+            return fail(L"Install state is missing activation or version fields.");
         }
         if (!validPackageFamilyName(*packageFamilyName)
             || *applicationId != expectedApplicationId)
@@ -152,9 +183,37 @@ public:
             appUserModelId.push_back(static_cast<wchar_t>(value));
         }
 
+        const std::optional<bafx::product::VersionComponents> parsedProduct =
+            bafx::product::parseProductVersion(*productVersion);
+        const std::optional<bafx::product::VersionComponents> parsedPackage =
+            bafx::product::parsePackageVersion(*packageVersion);
+        if (!parsedProduct.has_value() || !parsedPackage.has_value())
+        {
+            return fail(L"Install state version fields are malformed.");
+        }
+
         PackageActivationIdentityResult result{};
         result.installStatePresent = true;
-        result.identity = PackageActivationIdentity{std::move(appUserModelId)};
+        result.identity = PackageActivationIdentity{
+            std::move(appUserModelId),
+            std::move(*productVersion),
+            std::move(*packageVersion)};
+        if (*parsedProduct != *parsedPackage)
+        {
+            result.status = PackageActivationStateStatus::VersionMismatch;
+            result.error =
+                L"Install state productVersion and packageVersion disagree.";
+            return result;
+        }
+        if (result.identity->productVersion != bafx::product::version)
+        {
+            result.status = PackageActivationStateStatus::PartialUpgrade;
+            result.error =
+                L"Install state and Control Center product versions differ; "
+                L"the installation may be only partially upgraded.";
+            return result;
+        }
+        result.status = PackageActivationStateStatus::Valid;
         return result;
     }
 
@@ -343,6 +402,7 @@ private:
     {
         PackageActivationIdentityResult result{};
         result.installStatePresent = true;
+        result.status = PackageActivationStateStatus::Corrupt;
         result.error = std::wstring(message);
         return result;
     }
@@ -392,6 +452,7 @@ PackageActivationIdentityResult parsePackageActivationState(
     {
         PackageActivationIdentityResult result{};
         result.installStatePresent = true;
+        result.status = PackageActivationStateStatus::Corrupt;
         result.error = L"Install state could not be parsed due to an internal error.";
         return result;
     }
@@ -411,6 +472,7 @@ namespace
         {
             PackageActivationIdentityResult result{};
             result.installStatePresent = true;
+            result.status = PackageActivationStateStatus::Corrupt;
             result.error = L"The package install state could not be inspected.";
             return result;
         }
@@ -422,6 +484,7 @@ namespace
         {
             PackageActivationIdentityResult result{};
             result.installStatePresent = true;
+            result.status = PackageActivationStateStatus::Corrupt;
             result.error = L"The package install state is not a regular file.";
             return result;
         }
@@ -430,6 +493,7 @@ namespace
         {
             PackageActivationIdentityResult result{};
             result.installStatePresent = true;
+            result.status = PackageActivationStateStatus::Corrupt;
             result.error = L"The package install state has an invalid size.";
             return result;
         }
@@ -439,6 +503,7 @@ namespace
         {
             PackageActivationIdentityResult result{};
             result.installStatePresent = true;
+            result.status = PackageActivationStateStatus::Corrupt;
             result.error = L"The package install state could not be opened.";
             return result;
         }
@@ -453,6 +518,7 @@ namespace
         {
             PackageActivationIdentityResult result{};
             result.installStatePresent = true;
+            result.status = PackageActivationStateStatus::Corrupt;
             result.error = L"The package install state could not be read completely.";
             return result;
         }
@@ -466,6 +532,7 @@ namespace
     {
         PackageActivationIdentityResult result{};
         result.installStatePresent = true;
+        result.status = PackageActivationStateStatus::Corrupt;
         result.error = L"The package install state could not be loaded.";
         return result;
     }
@@ -480,21 +547,59 @@ PackageActivationIdentityResult readPackageActivationState(
         executableDirectory / L"Installer";
     PackageActivationIdentityResult primary = readPackageActivationStateFile(
         installerDirectory / L"INSTALL-STATE.json");
-    if (primary.succeeded())
+    primary.source = primary.installStatePresent
+        ? PackageActivationStateSource::Primary
+        : PackageActivationStateSource::None;
+    if (primary.status != PackageActivationStateStatus::Corrupt
+        && primary.status != PackageActivationStateStatus::Missing)
     {
+        // A syntactically valid primary is authoritative. Falling back on a
+        // stale backup would hide a real cross-version or partial upgrade.
         return primary;
     }
 
     PackageActivationIdentityResult backup = readPackageActivationStateFile(
         installerDirectory / L"INSTALL-STATE.json.bak");
-    if (backup.succeeded())
+    backup.source = backup.installStatePresent
+        ? PackageActivationStateSource::Backup
+        : PackageActivationStateSource::None;
+    if (primary.status == PackageActivationStateStatus::Missing)
     {
+        if (backup.status == PackageActivationStateStatus::Missing)
+        {
+            return primary;
+        }
+        backup.installStatePresent = true;
+        backup.source = PackageActivationStateSource::Backup;
+        if (backup.status == PackageActivationStateStatus::Valid
+            || backup.status == PackageActivationStateStatus::PartialUpgrade)
+        {
+            backup.status = PackageActivationStateStatus::PartialUpgrade;
+            backup.error =
+                L"The primary install state is missing while its backup remains; "
+                L"the installation may be only partially upgraded.";
+        }
         return backup;
     }
-    if (primary.installStatePresent)
+
+    if (backup.status == PackageActivationStateStatus::Valid)
+    {
+        backup.status = PackageActivationStateStatus::BackupRecovered;
+        backup.source = PackageActivationStateSource::Backup;
+        return backup;
+    }
+    if (backup.status == PackageActivationStateStatus::Missing)
     {
         return primary;
     }
+    if (backup.status == PackageActivationStateStatus::Corrupt)
+    {
+        primary.error += L" Backup state is also invalid: ";
+        primary.error += backup.error;
+        return primary;
+    }
+
+    backup.error = L"The primary install state is corrupt. " + backup.error;
     return backup;
 }
 

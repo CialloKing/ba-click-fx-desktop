@@ -10,20 +10,51 @@
 namespace bafx::control_center
 {
 
+enum class PackageActivationStateStatus
+{
+    Missing,
+    Valid,
+    Corrupt,
+    VersionMismatch,
+    BackupRecovered,
+    PartialUpgrade
+};
+
+enum class PackageActivationStateSource
+{
+    None,
+    Primary,
+    Backup
+};
+
 struct PackageActivationIdentity final
 {
     std::wstring appUserModelId{};
+    std::string productVersion{};
+    std::string packageVersion{};
 };
 
 struct PackageActivationIdentityResult final
 {
     bool installStatePresent{false};
+    PackageActivationStateStatus status{
+        PackageActivationStateStatus::Missing};
+    PackageActivationStateSource source{
+        PackageActivationStateSource::None};
     std::optional<PackageActivationIdentity> identity{};
     std::wstring error{};
 
     [[nodiscard]] bool succeeded() const noexcept
     {
-        return identity.has_value();
+        return identity.has_value()
+            && (status == PackageActivationStateStatus::Valid
+                || status == PackageActivationStateStatus::BackupRecovered);
+    }
+
+    [[nodiscard]] bool recoveredFromBackup() const noexcept
+    {
+        return status == PackageActivationStateStatus::BackupRecovered
+            && source == PackageActivationStateSource::Backup;
     }
 };
 
