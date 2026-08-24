@@ -129,6 +129,38 @@ if(Python3_Interpreter_FOUND)
             TIMEOUT 10
     )
     add_test(
+        NAME active_fx_roi_ab_report_contract
+        COMMAND
+            "${Python3_EXECUTABLE}"
+            -B
+            "${CMAKE_CURRENT_SOURCE_DIR}/report_active_fx_roi_ab_tests.py"
+    )
+    set_tests_properties(
+        active_fx_roi_ab_report_contract
+        PROPERTIES
+            WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
+            LABELS "desktop;gpu;roi;contract"
+            TIMEOUT 15
+    )
+    if(WIN32 AND BAFX_POWERSHELL_EXECUTABLE)
+        add_test(
+            NAME active_fx_roi_ab_collector_contract
+            COMMAND
+                "${Python3_EXECUTABLE}"
+                -B
+                "${CMAKE_CURRENT_SOURCE_DIR}/collect_active_fx_roi_ab_tests.py"
+                "${BAFX_POWERSHELL_EXECUTABLE}"
+                "${PROJECT_SOURCE_DIR}/tools/collect-active-fx-roi-ab.ps1"
+        )
+        set_tests_properties(
+            active_fx_roi_ab_collector_contract
+            PROPERTIES
+                WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
+                LABELS "desktop;gpu;roi;contract"
+                TIMEOUT 15
+        )
+    endif()
+    add_test(
         NAME raw_input_baseline_report_contract
         COMMAND
             "${Python3_EXECUTABLE}"
