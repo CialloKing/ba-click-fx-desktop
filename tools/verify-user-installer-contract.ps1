@@ -869,7 +869,9 @@ function Test-SparsePackageContract
         -Description 'final install-state ledgers are flattened before serialization'
 
     $controlCenter = Read-RepositoryText -RelativePath 'src/control-center/control_center_window.cpp'
+    $controlCenterMain = Read-RepositoryText -RelativePath 'src/control-center/main.cpp'
     $activation = Read-RepositoryText -RelativePath 'src/control-center/package_activation.cpp'
+    $updateCheck = Read-RepositoryText -RelativePath 'src/release_update/update_check.cpp'
     $writtenInstallStateSchema = [regex]::Match(
         $machineInstaller,
         '(?s)\$installState\s*=\s*\[ordered\]@\{.*?schema\s*=\s*([0-9]+)')
@@ -908,10 +910,103 @@ function Test-SparsePackageContract
         -Text $controlCenter `
         -Pattern 'ShellExecuteW\s*\(\s*window_,\s*L"open",\s*obsSpoutPluginPage\s*,' `
         -Description 'official OBS Spout2 plugin page action'
+    Assert-TextContains `
+        -Text $updateCheck `
+        -Pattern 'std::wstring_view\s+officialLatestReleasePageUrl\s*\(\s*\)\s*noexcept\s*\{\s*return\s+L"https://github\.com/CialloKing/ba-click-fx-desktop/releases/latest";\s*\}' `
+        -Description 'fixed official latest Release page'
+    Assert-TextContains `
+        -Text $controlCenter `
+        -Pattern 'ShellExecuteW\s*\(\s*window_,\s*L"open",\s*bafx::release_update::officialLatestReleasePageUrl\s*\(\s*\)\.data\s*\(\s*\)\s*,' `
+        -Description 'fixed official latest Release page action'
+
+    # A positive assertion for each target plus an exact total prevents a
+    # response URL, arbitrary URL or a newly added shell-navigation helper from
+    # becoming a third browser path.
+    $navigationSourceFiles = @(
+        Get-ChildItem `
+            -LiteralPath (Resolve-RepositoryPath -RelativePath 'src/control-center') `
+            -Recurse `
+            -File
+        Get-ChildItem `
+            -LiteralPath (Resolve-RepositoryPath -RelativePath 'src/release_update') `
+            -Recurse `
+            -File
+    ) | Where-Object { $_.Extension -in @('.cpp', '.hpp') }
+    $trustedNavigationSources = @(
+        $navigationSourceFiles |
+            Sort-Object -Property FullName |
+            ForEach-Object { Get-Content -LiteralPath $_.FullName -Raw }
+    ) -join "`n"
+    $shellNavigationCalls = [regex]::Matches(
+        $trustedNavigationSources,
+        '\bShellExecute(?:Ex)?(?:A|W)?\s*\(')
+    Assert-True `
+        -Condition ($shellNavigationCalls.Count -eq 2) `
+        -Message "Installer contract requires exactly two approved shell-navigation calls; found $($shellNavigationCalls.Count)."
+
+    # Only the explicit button command may reach ReleaseUpdateChecker::start.
+    # Keeping this as a unique source-level path proves that ordinary launch and
+    # --startup construct the checker without starting WinHTTP work.
+    Assert-TextContains `
+        -Text $controlCenter `
+        -Pattern 'case\s+ControlId::CheckForUpdates\s*:\s*if\s*\(\s*notificationCode\s*==\s*BN_CLICKED\s*\)\s*\{\s*beginManualUpdateCheck\s*\(\s*\)\s*;\s*\}\s*break\s*;' `
+        -Description 'manual update-check button entry'
+    $manualUpdateEntryReferences = [regex]::Matches(
+        $controlCenter,
+        '\bbeginManualUpdateCheck\s*\(\s*\)')
+    Assert-True `
+        -Condition ($manualUpdateEntryReferences.Count -eq 2) `
+        -Message "Installer contract requires one manual update entry definition and one button call; found $($manualUpdateEntryReferences.Count) references."
+    $manualUpdateEntry = [regex]::Match(
+        $controlCenter,
+        '(?m)^void\s+ControlCenterWindow::beginManualUpdateCheck\s*\(\s*\)[\s\S]*?(?=^void\s+ControlCenterWindow::pollManualUpdateCheck\s*\()')
+    Assert-True `
+        -Condition $manualUpdateEntry.Success `
+        -Message 'Installer contract could not isolate the manual update-check entry.'
+    $updateStartCalls = [regex]::Matches(
+        $controlCenter,
+        '\bupdateChecker_\s*->\s*start\s*\(\s*\)')
+    Assert-True `
+        -Condition ($updateStartCalls.Count -eq 1) `
+        -Message "Installer contract requires exactly one update-check start call; found $($updateStartCalls.Count)."
+    Assert-TextContains `
+        -Text $manualUpdateEntry.Value `
+        -Pattern '\bupdateChecker_\s*->\s*start\s*\(\s*\)' `
+        -Description 'update checker starts only from the manual entry'
+
+    $controlCenterCreate = [regex]::Match(
+        $controlCenter,
+        '(?m)^bool\s+ControlCenterWindow::create\s*\([\s\S]*?(?=^int\s+ControlCenterWindow::runMessageLoop\s*\()')
+    Assert-True `
+        -Condition $controlCenterCreate.Success `
+        -Message 'Installer contract could not isolate Control Center creation.'
     Assert-TextExcludes `
-        -Text $activationSources `
-        -Pattern 'ShellExecuteW\s*\(\s*[^,]+,\s*[^,]+,(?!\s*obsSpoutPluginPage\s*,)' `
-        -Description 'bare ShellExecute Host launch'
+        -Text $controlCenterCreate.Value `
+        -Pattern 'beginManualUpdateCheck\s*\(|updateChecker_\s*->\s*start\s*\(' `
+        -Description 'automatic update check during Control Center creation'
+    Assert-TextContains `
+        -Text $controlCenterMain `
+        -Pattern 'if\s*\(\s*argument\s*==\s*L"--startup"\s*\)\s*\{\s*options\.startup\s*=\s*true;\s*\}' `
+        -Description '--startup option parsing remains local'
+    Assert-TextContains `
+        -Text $controlCenterMain `
+        -Pattern 'window\.create\s*\(\s*effectiveShowCommand\s*,\s*options\.startup\s*\)' `
+        -Description '--startup only flows into Control Center creation'
+    Assert-TextExcludes `
+        -Text $controlCenterMain `
+        -Pattern 'ReleaseUpdateChecker|beginManualUpdateCheck|fetchLatestRelease|officialLatestReleasePageUrl' `
+        -Description 'update-check work from the process startup path'
+
+    $latestReleaseFetchCalls = [regex]::Matches(
+        $updateCheck,
+        '\bfetchLatestRelease\s*\(')
+    Assert-True `
+        -Condition ($latestReleaseFetchCalls.Count -eq 1) `
+        -Message "Installer contract requires exactly one latest-Release fetch call; found $($latestReleaseFetchCalls.Count)."
+    Assert-TextContains `
+        -Text $updateCheck `
+        -Pattern 'void\s+ReleaseUpdateChecker::run\s*\([^)]*\)\s*noexcept\s*\{[\s\S]*?transport_\s*->\s*fetchLatestRelease\s*\(' `
+        -Description 'latest-Release fetch remains inside the checker worker'
     $inno = Read-RepositoryText -RelativePath 'tools/installer/ba-click-fx-desktop.iss'
     Assert-TextExcludes `
         -Text $inno `
