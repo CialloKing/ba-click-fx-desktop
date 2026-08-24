@@ -80,6 +80,13 @@ struct BloomConstants
 
 static_assert(sizeof(BloomConstants) == 48U);
 
+struct BloomResolveRoiConstants
+{
+    std::int32_t rect[4]{};
+};
+
+static_assert(sizeof(BloomResolveRoiConstants) == 16U);
+
 struct ColorTarget
 {
     ComPtr<ID3D11Texture2D> texture{};
@@ -840,6 +847,14 @@ struct FxGpuRenderer::Implementation
             device->CreateBuffer(&constantDescription, nullptr, &bloomConstantsBuffer),
             "ID3D11Device::CreateBuffer(Bloom constants)");
 
+        constantDescription.ByteWidth = sizeof(BloomResolveRoiConstants);
+        throwIfFailed(
+            device->CreateBuffer(
+                &constantDescription,
+                nullptr,
+                &bloomResolveRoiConstantsBuffer),
+            "ID3D11Device::CreateBuffer(Bloom resolve ROI constants)");
+
         D3D11_RASTERIZER_DESC rasterizerDescription{};
         rasterizerDescription.FillMode = D3D11_FILL_SOLID;
         rasterizerDescription.CullMode = D3D11_CULL_NONE;
@@ -1307,6 +1322,29 @@ struct FxGpuRenderer::Implementation
             scissor);
     }
 
+    void bindBloomResolveRect(const bafx::core::RectI rect)
+    {
+        const BloomResolveRoiConstants constants{{
+            rect.left,
+            rect.top,
+            rect.right,
+            rect.bottom}};
+        D3D11_MAPPED_SUBRESOURCE mapped{};
+        throwIfFailed(
+            context->Map(
+                bloomResolveRoiConstantsBuffer.Get(),
+                0,
+                D3D11_MAP_WRITE_DISCARD,
+                0,
+                &mapped),
+            "ID3D11DeviceContext::Map(Bloom resolve ROI constants)");
+        std::memcpy(mapped.pData, &constants, sizeof(constants));
+        context->Unmap(bloomResolveRoiConstantsBuffer.Get(), 0);
+
+        ID3D11Buffer* constantBuffer = bloomResolveRoiConstantsBuffer.Get();
+        context->PSSetConstantBuffers(1, 1, &constantBuffer);
+    }
+
     void drawFullscreenTargets(
         const std::span<ID3D11RenderTargetView* const> targets,
         const bafx::core::BloomExtent targetExtent,
@@ -1719,6 +1757,11 @@ struct FxGpuRenderer::Implementation
             background.has_value(),
             backgroundWhiteScale,
             outputWhiteScale);
+        bindBloomResolveRect(bafx::core::RectI{
+            0,
+            0,
+            static_cast<std::int32_t>(size.width),
+            static_cast<std::int32_t>(size.height)});
         if (bloomResultDestination == nullptr)
         {
             drawFullscreen(
@@ -1782,6 +1825,11 @@ struct FxGpuRenderer::Implementation
             background.has_value(),
             backgroundReferenceWhiteScale(),
             outputReferenceWhiteScale());
+        bindBloomResolveRect(bafx::core::RectI{
+            0,
+            0,
+            static_cast<std::int32_t>(size.width),
+            static_cast<std::int32_t>(size.height)});
         if (bloomResultDestination == nullptr)
         {
             drawFullscreen(
@@ -2532,6 +2580,7 @@ struct FxGpuRenderer::Implementation
     ComPtr<ID3D11Buffer> vertexBuffer{};
     ComPtr<ID3D11Buffer> viewportBuffer{};
     ComPtr<ID3D11Buffer> bloomConstantsBuffer{};
+    ComPtr<ID3D11Buffer> bloomResolveRoiConstantsBuffer{};
     ComPtr<ID3D11SamplerState> clampSampler{};
     ComPtr<ID3D11SamplerState> repeatSampler{};
     ComPtr<ID3D11RasterizerState> rasterizerState{};

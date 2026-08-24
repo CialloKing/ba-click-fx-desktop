@@ -191,6 +191,11 @@ cbuffer BloomConstants : register(b0)
     float Padding;
 };
 
+cbuffer BloomResolveRoiConstants : register(b1)
+{
+    int4 BloomResolveRect;
+};
+
 Texture2D<float4> Source0 : register(t0);
 Texture2D<float4> Source1 : register(t1);
 Texture2D<float4> Source2 : register(t2);
@@ -412,10 +417,25 @@ float4 UpsamplePixel(FullscreenOutput input) : SV_Target0
     return coarse + currentFine;
 }
 
+float4 SampleBloomForResolve(FullscreenOutput input)
+{
+    const int2 pixel = int2(input.position.xy);
+    if (pixel.x < BloomResolveRect.x
+        || pixel.y < BloomResolveRect.y
+        || pixel.x >= BloomResolveRect.z
+        || pixel.y >= BloomResolveRect.w)
+    {
+        // Final composition must still cover the full target. Returning zero
+        // before sampling preserves direct/background pixels outside the ROI.
+        return float4(0.0, 0.0, 0.0, 0.0);
+    }
+    const float2 offset = SourceTexelSize * (SampleScale * 0.5);
+    return FourTap(Source1, input.uv, offset);
+}
+
 float4 ResolveBloomResult(FullscreenOutput input)
 {
-    const float2 offset = SourceTexelSize * (SampleScale * 0.5);
-    const float4 bloom = FourTap(Source1, input.uv, offset);
+    const float4 bloom = SampleBloomForResolve(input);
     return float4(
         bloom.rgb * ExposureGain,
         saturate(bloom.a * ExposureGain));
@@ -816,8 +836,7 @@ float4 ResolveDesktopComposite(
     float backgroundOutputScale)
 {
     const float4 direct = Source0.Sample(LinearClampSampler, input.uv);
-    const float2 offset = SourceTexelSize * (SampleScale * 0.5);
-    const float4 bloom = FourTap(Source1, input.uv, offset);
+    const float4 bloom = SampleBloomForResolve(input);
     return ResolveDesktopCompositeInputs(
         input,
         direct,
@@ -849,8 +868,7 @@ DesktopCaptureCompositeOutput DesktopCaptureCompositePixel(
     FullscreenOutput input)
 {
     const float4 direct = Source0.Sample(LinearClampSampler, input.uv);
-    const float2 offset = SourceTexelSize * (SampleScale * 0.5);
-    const float4 bloom = FourTap(Source1, input.uv, offset);
+    const float4 bloom = SampleBloomForResolve(input);
 
     DesktopCaptureCompositeOutput output;
     output.finalOverlay = ResolveDesktopCompositeInputs(
@@ -879,8 +897,7 @@ DesktopCaptureCompositeOutput DesktopCaptureSdrCompositePixel(
 float4 ResolveLightBackgroundComposite(FullscreenOutput input)
 {
     const float4 direct = Source0.Sample(LinearClampSampler, input.uv);
-    const float2 offset = SourceTexelSize * (SampleScale * 0.5);
-    const float4 bloom = FourTap(Source1, input.uv, offset);
+    const float4 bloom = SampleBloomForResolve(input);
     return ScaleFxForOutput(
         ResolveLightBackgroundDesktopTransport(
             direct,
@@ -902,8 +919,7 @@ float4 LightBackgroundSdrCompositePixel(FullscreenOutput input) : SV_Target0
 float4 ResolveRecordingCompatibleComposite(FullscreenOutput input)
 {
     const float4 direct = Source0.Sample(LinearClampSampler, input.uv);
-    const float2 offset = SourceTexelSize * (SampleScale * 0.5);
-    const float4 bloom = FourTap(Source1, input.uv, offset);
+    const float4 bloom = SampleBloomForResolve(input);
     return ScaleFxForOutput(
         ResolveRecordingCompatibleDesktopTransport(
             direct,

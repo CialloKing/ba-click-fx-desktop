@@ -173,6 +173,7 @@ BAFX_TEST(all_embedded_fx_shader_entries_compile_with_warnings_as_errors)
         ShaderEntry{unityBloomShaderSource(), "UpsamplePixel", "ps_5_0"},
         ShaderEntry{unityBloomShaderSource(), "BloomResultPixel", "ps_5_0"},
         ShaderEntry{unityBloomShaderSource(), "CompositePixel", "ps_5_0"},
+        ShaderEntry{unityBloomShaderSource(), "CaptureCompositePixel", "ps_5_0"},
         ShaderEntry{unityBloomShaderSource(), "DesktopCompositePixel", "ps_5_0"},
         ShaderEntry{
             unityBloomShaderSource(),
@@ -180,11 +181,27 @@ BAFX_TEST(all_embedded_fx_shader_entries_compile_with_warnings_as_errors)
             "ps_5_0"},
         ShaderEntry{
             unityBloomShaderSource(),
+            "DesktopCaptureCompositePixel",
+            "ps_5_0"},
+        ShaderEntry{
+            unityBloomShaderSource(),
+            "DesktopCaptureSdrCompositePixel",
+            "ps_5_0"},
+        ShaderEntry{
+            unityBloomShaderSource(),
             "RecordingCompatibleCompositePixel",
             "ps_5_0"},
         ShaderEntry{
             unityBloomShaderSource(),
+            "RecordingCompatibleSdrCompositePixel",
+            "ps_5_0"},
+        ShaderEntry{
+            unityBloomShaderSource(),
             "LightBackgroundCompositePixel",
+            "ps_5_0"},
+        ShaderEntry{
+            unityBloomShaderSource(),
+            "LightBackgroundSdrCompositePixel",
             "ps_5_0"},
         ShaderEntry{
             unityBloomShaderSource(),
@@ -245,10 +262,15 @@ BAFX_TEST(bloom_shader_reflection_locks_resources_and_constant_layout)
         "UpsamplePixel",
         "BloomResultPixel",
         "CompositePixel",
+        "CaptureCompositePixel",
         "DesktopCompositePixel",
         "DesktopSdrCompositePixel",
+        "DesktopCaptureCompositePixel",
+        "DesktopCaptureSdrCompositePixel",
         "RecordingCompatibleCompositePixel",
+        "RecordingCompatibleSdrCompositePixel",
         "LightBackgroundCompositePixel",
+        "LightBackgroundSdrCompositePixel",
         "RecordingFxOnlySdrCompositePixel",
         "CoreRecordingFxOnlySdrCompositePixel"};
     for (const char* entryPoint : entries)
@@ -294,6 +316,34 @@ BAFX_TEST(bloom_shader_reflection_locks_resources_and_constant_layout)
             "OutputReferenceWhiteScale",
             36U,
             4U));
+        const std::string_view name = entryPoint;
+        const bool resolvesBloom = name == "BloomResultPixel"
+            || name == "CompositePixel"
+            || name == "CaptureCompositePixel"
+            || name == "DesktopCompositePixel"
+            || name == "DesktopSdrCompositePixel"
+            || name == "DesktopCaptureCompositePixel"
+            || name == "DesktopCaptureSdrCompositePixel"
+            || name == "RecordingCompatibleCompositePixel"
+            || name == "RecordingCompatibleSdrCompositePixel"
+            || name == "LightBackgroundCompositePixel"
+            || name == "LightBackgroundSdrCompositePixel";
+        BAFX_CHECK(
+            hasBinding(
+                reflection.Get(),
+                "BloomResolveRoiConstants",
+                D3D_SIT_CBUFFER,
+                1U)
+            == resolvesBloom);
+        if (resolvesBloom)
+        {
+            BAFX_CHECK(hasConstantVariable(
+                reflection.Get(),
+                "BloomResolveRoiConstants",
+                "BloomResolveRect",
+                0U,
+                16U));
+        }
         BAFX_CHECK(!hasConstantVariable(
             reflection.Get(),
             "BloomConstants",
@@ -305,16 +355,24 @@ BAFX_TEST(bloom_shader_reflection_locks_resources_and_constant_layout)
             || std::string_view(entryPoint) == "UpsamplePixel"
             || std::string_view(entryPoint) == "BloomResultPixel"
             || std::string_view(entryPoint) == "CompositePixel"
+            || std::string_view(entryPoint) == "CaptureCompositePixel"
             || std::string_view(entryPoint) == "DesktopCompositePixel"
             || std::string_view(entryPoint) == "DesktopSdrCompositePixel"
+            || std::string_view(entryPoint) == "DesktopCaptureCompositePixel"
+            || std::string_view(entryPoint) == "DesktopCaptureSdrCompositePixel"
             || std::string_view(entryPoint) == "RecordingCompatibleCompositePixel"
-            || std::string_view(entryPoint) == "LightBackgroundCompositePixel")
+            || std::string_view(entryPoint)
+                == "RecordingCompatibleSdrCompositePixel"
+            || std::string_view(entryPoint) == "LightBackgroundCompositePixel"
+            || std::string_view(entryPoint) == "LightBackgroundSdrCompositePixel")
         {
             BAFX_CHECK(hasBinding(reflection.Get(), "Source1", D3D_SIT_TEXTURE, 1U));
         }
         if (std::string_view(entryPoint) == "DifferentialPrefilterPixel"
             || std::string_view(entryPoint) == "DesktopCompositePixel"
             || std::string_view(entryPoint) == "DesktopSdrCompositePixel"
+            || std::string_view(entryPoint) == "DesktopCaptureCompositePixel"
+            || std::string_view(entryPoint) == "DesktopCaptureSdrCompositePixel"
             || std::string_view(entryPoint) == "RecordingFxOnlySdrCompositePixel"
             || std::string_view(entryPoint)
                 == "CoreRecordingFxOnlySdrCompositePixel")
@@ -322,7 +380,9 @@ BAFX_TEST(bloom_shader_reflection_locks_resources_and_constant_layout)
             BAFX_CHECK(hasBinding(reflection.Get(), "Source2", D3D_SIT_TEXTURE, 2U));
         }
         if (std::string_view(entryPoint) == "DesktopCompositePixel"
-            || std::string_view(entryPoint) == "DesktopSdrCompositePixel")
+            || std::string_view(entryPoint) == "DesktopSdrCompositePixel"
+            || std::string_view(entryPoint) == "DesktopCaptureCompositePixel"
+            || std::string_view(entryPoint) == "DesktopCaptureSdrCompositePixel")
         {
             BAFX_CHECK(hasBinding(reflection.Get(), "Source3", D3D_SIT_TEXTURE, 3U));
             BAFX_CHECK(hasBinding(reflection.Get(), "Source4", D3D_SIT_TEXTURE, 4U));
