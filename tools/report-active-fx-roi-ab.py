@@ -195,8 +195,12 @@ def _parse_event(block: str, path: Path) -> dict[str, str]:
                 f"{path}: malformed event line {line_number}: {line!r}"
             )
         key, value = line.split("=", 1)
-        if not key or key in event:
-            raise ValidationError(f"{path}: duplicate or empty event field {key!r}")
+        if not key:
+            raise ValidationError(f"{path}: empty event field")
+        if key in event and event[key] != value:
+            raise ValidationError(f"{path}: conflicting duplicate event field {key!r}")
+        # SupportReport repeats envelope fields with identical values. They
+        # remain unambiguous evidence; conflicting duplicates are rejected.
         event[key] = value
     return event
 

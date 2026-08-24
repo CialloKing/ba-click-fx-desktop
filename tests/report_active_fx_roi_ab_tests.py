@@ -337,6 +337,21 @@ class CaptureFixture:
 
 
 class ActiveFxRoiAbReporterTests(unittest.TestCase):
+    def test_event_parser_accepts_identical_duplicates_only(self) -> None:
+        path = Path("support.log")
+        event = REPORTER._parse_event(
+            "Log.SchemaVersion=2\nEvent.Name=SupportReport\nLog.SchemaVersion=2\n",
+            path,
+        )
+        self.assertEqual(event["Log.SchemaVersion"], "2")
+        with self.assertRaisesRegex(
+            REPORTER.ValidationError, "conflicting duplicate event field"
+        ):
+            REPORTER._parse_event(
+                "Log.SchemaVersion=2\nLog.SchemaVersion=3\n",
+                path,
+            )
+
     def test_applied_capture_passes_all_release_gates(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             fixture = CaptureFixture(Path(temporary))
