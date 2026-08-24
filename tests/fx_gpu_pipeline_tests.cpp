@@ -319,6 +319,28 @@ struct WarpDevice
         });
 }
 
+void checkRgba16BitExactAndFinite(
+    const Rgba16FloatImage& expected,
+    const Rgba16FloatImage& actual)
+{
+    BAFX_CHECK(expected.width == actual.width);
+    BAFX_CHECK(expected.height == actual.height);
+    BAFX_CHECK(expected.pixels.size() == actual.pixels.size());
+    for (std::size_t index = 0U; index < expected.pixels.size(); ++index)
+    {
+        const Rgba16FloatPixel reference = expected.pixels[index];
+        const Rgba16FloatPixel candidate = actual.pixels[index];
+        BAFX_CHECK(reference.red == candidate.red);
+        BAFX_CHECK(reference.green == candidate.green);
+        BAFX_CHECK(reference.blue == candidate.blue);
+        BAFX_CHECK(reference.alpha == candidate.alpha);
+        BAFX_CHECK(std::isfinite(halfToFloat(candidate.red)));
+        BAFX_CHECK(std::isfinite(halfToFloat(candidate.green)));
+        BAFX_CHECK(std::isfinite(halfToFloat(candidate.blue)));
+        BAFX_CHECK(std::isfinite(halfToFloat(candidate.alpha)));
+    }
+}
+
 [[nodiscard]] bafx::fx::FrameSnapshot makeDiskSnapshot(const bool bloomEnabled)
 {
     bafx::fx::FrameSnapshot snapshot{};
@@ -2649,6 +2671,420 @@ BAFX_TEST(warp_active_fx_roi_clears_previous_non_overlapping_motion)
         BAFX_CHECK(moved[index].green == reference[index].green);
         BAFX_CHECK(moved[index].blue == reference[index].blue);
         BAFX_CHECK(moved[index].alpha == reference[index].alpha);
+    }
+}
+
+BAFX_TEST(warp_active_fx_roi_transitions_and_empty_restart_stay_exact)
+{
+    ComApartment apartment;
+    const WarpDevice graphics = createWarpDevice();
+    constexpr FxBloomSettings fourTapBloom{1.0F, 4.0F};
+    const bafx::fx::FrameSnapshot snapshot = makeDiskSnapshot(true);
+    const FxActiveRoi roi{bafx::core::RectI{48, 48, 208, 208}};
+
+    FxGpuRenderer referenceRenderer(
+        graphics.device.Get(),
+        graphics.context.Get(),
+        testSize,
+        fourTapBloom);
+    const RenderTarget referenceTarget = createRenderTarget(
+        graphics.device.Get());
+    referenceRenderer.render(snapshot, referenceTarget.view.Get());
+    const Rgba16FloatImage reference = readbackRgba16FloatTexture(
+        graphics.context.Get(),
+        referenceTarget.texture.Get());
+
+    FxGpuRenderer renderer(
+        graphics.device.Get(),
+        graphics.context.Get(),
+        testSize,
+        fourTapBloom);
+    const RenderTarget target = createRenderTarget(graphics.device.Get());
+
+    const FxRenderCpuDiagnostics firstRoi = renderer.render(
+        snapshot,
+        target.view.Get(),
+        std::nullopt,
+        nullptr,
+        nullptr,
+        roi);
+    BAFX_CHECK(firstRoi.primaryActiveFxRoi.warmup);
+    BAFX_CHECK(
+        firstRoi.primaryActiveFxRoi.actualPath
+        == FxActiveRoiActualPath::RoiWarmup);
+    BAFX_CHECK(
+        firstRoi.primaryActiveFxRoi.clearedPixels
+        == firstRoi.primaryActiveFxRoi.fullPixels);
+    checkRgba16BitExactAndFinite(
+        reference,
+        readbackRgba16FloatTexture(
+            graphics.context.Get(),
+            target.texture.Get()));
+
+    const FxRenderCpuDiagnostics fullScreen = renderer.render(
+        snapshot,
+        target.view.Get());
+    BAFX_CHECK(
+        fullScreen.primaryActiveFxRoi.actualPath
+        == FxActiveRoiActualPath::FullScreen);
+    BAFX_CHECK(
+        fullScreen.primaryActiveFxRoi.drawnPixels
+        == fullScreen.primaryActiveFxRoi.fullPixels);
+    checkRgba16BitExactAndFinite(
+        reference,
+        readbackRgba16FloatTexture(
+            graphics.context.Get(),
+            target.texture.Get()));
+
+    const FxRenderCpuDiagnostics roiAfterFullScreen = renderer.render(
+        snapshot,
+        target.view.Get(),
+        std::nullopt,
+        nullptr,
+        nullptr,
+        roi);
+    BAFX_CHECK(roiAfterFullScreen.primaryActiveFxRoi.warmup);
+    BAFX_CHECK(
+        roiAfterFullScreen.primaryActiveFxRoi.actualPath
+        == FxActiveRoiActualPath::RoiWarmup);
+    BAFX_CHECK(
+        roiAfterFullScreen.primaryActiveFxRoi.clearedPixels
+        == roiAfterFullScreen.primaryActiveFxRoi.fullPixels);
+    checkRgba16BitExactAndFinite(
+        reference,
+        readbackRgba16FloatTexture(
+            graphics.context.Get(),
+            target.texture.Get()));
+
+    const FxRenderCpuDiagnostics idle = renderer.render(
+        bafx::fx::FrameSnapshot{},
+        target.view.Get(),
+        std::nullopt,
+        nullptr,
+        nullptr,
+        roi);
+    BAFX_CHECK(
+        idle.primaryActiveFxRoi.actualPath == FxActiveRoiActualPath::Idle);
+    BAFX_CHECK(
+        idle.primaryActiveFxRoi.decisionReason
+        == FxActiveRoiDecisionReason::NoContent);
+    const Rgba16FloatImage empty = readbackRgba16FloatTexture(
+        graphics.context.Get(),
+        target.texture.Get());
+    BAFX_CHECK(isZeroImage(empty));
+
+    const FxRenderCpuDiagnostics restarted = renderer.render(
+        snapshot,
+        target.view.Get(),
+        std::nullopt,
+        nullptr,
+        nullptr,
+        roi);
+    BAFX_CHECK(restarted.primaryActiveFxRoi.warmup);
+    BAFX_CHECK(
+        restarted.primaryActiveFxRoi.actualPath
+        == FxActiveRoiActualPath::RoiWarmup);
+    BAFX_CHECK(
+        restarted.primaryActiveFxRoi.clearedPixels
+        == restarted.primaryActiveFxRoi.fullPixels);
+    checkRgba16BitExactAndFinite(
+        reference,
+        readbackRgba16FloatTexture(
+            graphics.context.Get(),
+            target.texture.Get()));
+}
+
+BAFX_TEST(warp_active_fx_roi_edges_and_corners_match_four_tap_full_screen)
+{
+    struct BoundaryCase final
+    {
+        bafx::fx::PointF center{};
+        bafx::core::RectI roi{};
+    };
+
+    constexpr std::array<BoundaryCase, 8U> cases{
+        BoundaryCase{
+            bafx::fx::PointF{32.0F, 128.0F},
+            bafx::core::RectI{0, 64, 96, 192}},
+        BoundaryCase{
+            bafx::fx::PointF{224.0F, 128.0F},
+            bafx::core::RectI{160, 64, 256, 192}},
+        BoundaryCase{
+            bafx::fx::PointF{128.0F, 32.0F},
+            bafx::core::RectI{64, 0, 192, 96}},
+        BoundaryCase{
+            bafx::fx::PointF{128.0F, 224.0F},
+            bafx::core::RectI{64, 160, 192, 256}},
+        BoundaryCase{
+            bafx::fx::PointF{32.0F, 32.0F},
+            bafx::core::RectI{0, 0, 96, 96}},
+        BoundaryCase{
+            bafx::fx::PointF{224.0F, 32.0F},
+            bafx::core::RectI{160, 0, 256, 96}},
+        BoundaryCase{
+            bafx::fx::PointF{32.0F, 224.0F},
+            bafx::core::RectI{0, 160, 96, 256}},
+        BoundaryCase{
+            bafx::fx::PointF{224.0F, 224.0F},
+            bafx::core::RectI{160, 160, 256, 256}}};
+
+    ComApartment apartment;
+    const WarpDevice graphics = createWarpDevice();
+    constexpr FxBloomSettings fourTapBloom{1.0F, 4.0F};
+    FxGpuRenderer referenceRenderer(
+        graphics.device.Get(),
+        graphics.context.Get(),
+        testSize,
+        fourTapBloom);
+    FxGpuRenderer roiRenderer(
+        graphics.device.Get(),
+        graphics.context.Get(),
+        testSize,
+        fourTapBloom);
+
+    for (const BoundaryCase& testCase : cases)
+    {
+        bafx::fx::FrameSnapshot snapshot = makeDiskSnapshot(true);
+        snapshot.sprites.front().centerPixels = testCase.center;
+        const RenderTarget referenceTarget = createRenderTarget(
+            graphics.device.Get());
+        const RenderTarget roiTarget = createRenderTarget(graphics.device.Get());
+        referenceRenderer.render(snapshot, referenceTarget.view.Get());
+        const FxRenderCpuDiagnostics diagnostics = roiRenderer.render(
+            snapshot,
+            roiTarget.view.Get(),
+            std::nullopt,
+            nullptr,
+            nullptr,
+            FxActiveRoi{testCase.roi});
+
+        const bool fellBackToFullScreen =
+            diagnostics.primaryActiveFxRoi.actualPath
+            == FxActiveRoiActualPath::FullScreen;
+        const bool appliedRoi =
+            diagnostics.primaryActiveFxRoi.actualPath
+                == FxActiveRoiActualPath::RoiWarmup
+            || diagnostics.primaryActiveFxRoi.actualPath
+                == FxActiveRoiActualPath::RoiPrefilter;
+        BAFX_CHECK(fellBackToFullScreen || appliedRoi);
+        if (fellBackToFullScreen)
+        {
+            BAFX_CHECK(
+                diagnostics.primaryActiveFxRoi.drawnPixels
+                == diagnostics.primaryActiveFxRoi.fullPixels);
+        }
+        checkRgba16BitExactAndFinite(
+            readbackRgba16FloatTexture(
+                graphics.context.Get(),
+                referenceTarget.texture.Get()),
+            readbackRgba16FloatTexture(
+                graphics.context.Get(),
+                roiTarget.texture.Get()));
+    }
+}
+
+BAFX_TEST(warp_active_fx_roi_spout_background_matrix_keeps_paths_separate)
+{
+    ComApartment apartment;
+    const WarpDevice graphics = createWarpDevice();
+    constexpr FxBloomSettings fourTapBloom{1.0F, 4.0F};
+    const bafx::fx::FrameSnapshot snapshot = makeDiskSnapshot(true);
+    const FxActiveRoi roi{bafx::core::RectI{48, 48, 208, 208}};
+    const RenderTarget desktopTarget = createRenderTarget(graphics.device.Get());
+    const RenderTarget recordingTarget = createRecordingRenderTarget(
+        graphics.device.Get());
+    const RenderTarget backgroundTarget = createRenderTarget(
+        graphics.device.Get());
+    constexpr std::array<float, 4> background{0.25F, 0.5F, 0.75F, 1.0F};
+    graphics.context->ClearRenderTargetView(
+        backgroundTarget.view.Get(),
+        background.data());
+
+    FxGpuRenderer renderer(
+        graphics.device.Get(),
+        graphics.context.Get(),
+        testSize,
+        fourTapBloom);
+    const FxRenderCpuDiagnostics fxOnly = renderer.render(
+        snapshot,
+        desktopTarget.view.Get(),
+        std::nullopt,
+        nullptr,
+        nullptr,
+        roi);
+    BAFX_CHECK(
+        fxOnly.primaryActiveFxRoi.actualPath
+        == FxActiveRoiActualPath::RoiWarmup);
+    BAFX_CHECK(!fxOnly.recordingRebuildActiveFxRoi.executed);
+    BAFX_CHECK(
+        fxOnly.recordingRebuildActiveFxRoi.actualPath
+        == FxActiveRoiActualPath::Disabled);
+
+    const FxRenderCpuDiagnostics spoutFxOnly = renderer.render(
+        snapshot,
+        desktopTarget.view.Get(),
+        std::nullopt,
+        nullptr,
+        recordingTarget.view.Get(),
+        roi);
+    BAFX_CHECK(
+        spoutFxOnly.primaryActiveFxRoi.actualPath
+        == FxActiveRoiActualPath::RoiPrefilter);
+    BAFX_CHECK(!spoutFxOnly.recordingRebuildActiveFxRoi.executed);
+    BAFX_CHECK(
+        spoutFxOnly.recordingRebuildActiveFxRoi.actualPath
+        == FxActiveRoiActualPath::Disabled);
+
+    const FxRenderCpuDiagnostics backgroundOnly = renderer.render(
+        snapshot,
+        desktopTarget.view.Get(),
+        BackgroundRenderInput{backgroundTarget.shaderResource.Get()},
+        nullptr,
+        nullptr,
+        roi);
+    BAFX_CHECK(
+        backgroundOnly.primaryActiveFxRoi.actualPath
+        == FxActiveRoiActualPath::FullScreen);
+    BAFX_CHECK(
+        backgroundOnly.primaryActiveFxRoi.decisionReason
+        == FxActiveRoiDecisionReason::BackgroundDifferentialBloom);
+    BAFX_CHECK(!backgroundOnly.recordingRebuildActiveFxRoi.executed);
+
+    const FxRenderCpuDiagnostics backgroundSpout = renderer.render(
+        snapshot,
+        desktopTarget.view.Get(),
+        BackgroundRenderInput{backgroundTarget.shaderResource.Get()},
+        nullptr,
+        recordingTarget.view.Get(),
+        roi);
+    BAFX_CHECK(
+        backgroundSpout.primaryActiveFxRoi.actualPath
+        == FxActiveRoiActualPath::FullScreen);
+    BAFX_CHECK(
+        backgroundSpout.primaryActiveFxRoi.decisionReason
+        == FxActiveRoiDecisionReason::BackgroundDifferentialBloom);
+    BAFX_CHECK(
+        backgroundSpout.recordingRebuildActiveFxRoi.actualPath
+        == FxActiveRoiActualPath::RoiWarmup);
+    BAFX_CHECK(backgroundSpout.recordingRebuildActiveFxRoi.warmup);
+    BAFX_CHECK(
+        backgroundSpout.recordingRebuildActiveFxRoi.decisionReason
+        == FxActiveRoiDecisionReason::SharedTargetFullWrite);
+
+    const FxRenderCpuDiagnostics repeatedBackgroundSpout = renderer.render(
+        snapshot,
+        desktopTarget.view.Get(),
+        BackgroundRenderInput{backgroundTarget.shaderResource.Get()},
+        nullptr,
+        recordingTarget.view.Get(),
+        roi);
+    BAFX_CHECK(
+        repeatedBackgroundSpout.primaryActiveFxRoi.actualPath
+        == FxActiveRoiActualPath::FullScreen);
+    BAFX_CHECK(
+        repeatedBackgroundSpout.recordingRebuildActiveFxRoi.actualPath
+        == FxActiveRoiActualPath::RoiWarmup);
+    BAFX_CHECK(
+        repeatedBackgroundSpout.recordingRebuildActiveFxRoi.decisionReason
+        == FxActiveRoiDecisionReason::SharedTargetFullWrite);
+
+    const FxRenderCpuDiagnostics returnedToFxOnly = renderer.render(
+        snapshot,
+        desktopTarget.view.Get(),
+        std::nullopt,
+        nullptr,
+        recordingTarget.view.Get(),
+        roi);
+    BAFX_CHECK(
+        returnedToFxOnly.primaryActiveFxRoi.actualPath
+        == FxActiveRoiActualPath::RoiPrefilter);
+    BAFX_CHECK(
+        returnedToFxOnly.primaryActiveFxRoi.decisionReason
+        == FxActiveRoiDecisionReason::Applied);
+    BAFX_CHECK(!returnedToFxOnly.recordingRebuildActiveFxRoi.executed);
+    BAFX_CHECK(
+        returnedToFxOnly.recordingRebuildActiveFxRoi.actualPath
+        == FxActiveRoiActualPath::Disabled);
+}
+
+BAFX_TEST(warp_active_fx_roi_negative_scrgb_and_hdr_extremes_are_exact)
+{
+    constexpr std::array<std::array<float, 4U>, 2U> backgrounds{
+        std::array<float, 4U>{-0.5F, -0.03125F, 0.5F, 1.0F},
+        std::array<float, 4U>{64.0F, 4096.0F, 65504.0F, 1.0F}};
+
+    ComApartment apartment;
+    const WarpDevice graphics = createWarpDevice();
+    constexpr FxBloomSettings fourTapBloom{1.0F, 4.0F};
+    const bafx::fx::FrameSnapshot snapshot = makeDiskSnapshot(true);
+    const FxActiveRoi roi{bafx::core::RectI{48, 48, 208, 208}};
+
+    for (const std::array<float, 4U>& background : backgrounds)
+    {
+        const RenderTarget backgroundTarget = createRenderTarget(
+            graphics.device.Get());
+        graphics.context->ClearRenderTargetView(
+            backgroundTarget.view.Get(),
+            background.data());
+
+        FxGpuRenderer referenceRenderer(
+            graphics.device.Get(),
+            graphics.context.Get(),
+            testSize,
+            fourTapBloom);
+        const RenderTarget referenceDesktop = createRenderTarget(
+            graphics.device.Get());
+        const RenderTarget referenceRecording = createRecordingRenderTarget(
+            graphics.device.Get());
+        referenceRenderer.render(
+            snapshot,
+            referenceDesktop.view.Get(),
+            BackgroundRenderInput{backgroundTarget.shaderResource.Get()},
+            nullptr,
+            referenceRecording.view.Get());
+
+        FxGpuRenderer roiRenderer(
+            graphics.device.Get(),
+            graphics.context.Get(),
+            testSize,
+            fourTapBloom);
+        const RenderTarget roiDesktop = createRenderTarget(graphics.device.Get());
+        const RenderTarget roiRecording = createRecordingRenderTarget(
+            graphics.device.Get());
+        const FxRenderCpuDiagnostics diagnostics = roiRenderer.render(
+            snapshot,
+            roiDesktop.view.Get(),
+            BackgroundRenderInput{backgroundTarget.shaderResource.Get()},
+            nullptr,
+            roiRecording.view.Get(),
+            roi);
+
+        BAFX_CHECK(
+            diagnostics.primaryActiveFxRoi.actualPath
+            == FxActiveRoiActualPath::FullScreen);
+        BAFX_CHECK(
+            diagnostics.primaryActiveFxRoi.decisionReason
+            == FxActiveRoiDecisionReason::BackgroundDifferentialBloom);
+        BAFX_CHECK(
+            diagnostics.recordingRebuildActiveFxRoi.actualPath
+            == FxActiveRoiActualPath::RoiWarmup);
+        BAFX_CHECK(
+            diagnostics.recordingRebuildActiveFxRoi.decisionReason
+            == FxActiveRoiDecisionReason::SharedTargetFullWrite);
+        checkRgba16BitExactAndFinite(
+            readbackRgba16FloatTexture(
+                graphics.context.Get(),
+                referenceDesktop.texture.Get()),
+            readbackRgba16FloatTexture(
+                graphics.context.Get(),
+                roiDesktop.texture.Get()));
+        BAFX_CHECK(sameBgra8(
+            readbackBgra8(
+                graphics.context.Get(),
+                referenceRecording.texture.Get()),
+            readbackBgra8(
+                graphics.context.Get(),
+                roiRecording.texture.Get())));
     }
 }
 
