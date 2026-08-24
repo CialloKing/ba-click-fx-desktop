@@ -235,6 +235,10 @@ private:
     void onTimer(UINT_PTR timerId);
 
     [[nodiscard]] bool refreshFromHost();
+    [[nodiscard]] static std::wstring hostVersionDescription(
+        const HostState& state);
+    void updateHostVersionText(const HostState& state);
+    void rejectIncompatibleHostVersion(const HostState& state);
     void updateControls(
         const HostState& state,
         const bafx::config::Config& config);
@@ -464,6 +468,7 @@ private:
     bool fxProfileSelectionDirty_{false};
     bool fxProfileNameDirty_{false};
     bool refreshRetrying_{false};
+    bool hostVersionBlocked_{false};
     // IPC can be unavailable while the Host is still initializing. Keep this
     // process-level state separate so the lifecycle button can still request
     // an orderly shutdown during that window.

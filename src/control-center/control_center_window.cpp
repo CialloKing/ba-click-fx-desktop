@@ -63,24 +63,82 @@ constexpr DWORD controlCenterWindowStyle =
     WS_OVERLAPPEDWINDOW | WS_CLIPSIBLINGS;
 static_assert((controlCenterWindowStyle & WS_CLIPCHILDREN) == 0U);
 
-[[nodiscard]] std::wstring_view installationStateLabel(
-    const std::filesystem::path& executableDirectory) noexcept
+struct InstallationStatePresentation final
+{
+    std::wstring titleLabel{};
+    std::wstring details{};
+};
+
+[[nodiscard]] std::wstring asciiVersionToWide(
+    const std::string_view value)
+{
+    return std::wstring(value.begin(), value.end());
+}
+
+[[nodiscard]] std::wstring_view invalidInstallStateLabel(
+    const PackageActivationStateStatus status) noexcept
+{
+    switch (status)
+    {
+    case PackageActivationStateStatus::Missing:
+        return L"缺失";
+    case PackageActivationStateStatus::Corrupt:
+        return L"损坏";
+    case PackageActivationStateStatus::VersionMismatch:
+        return L"版本不一致";
+    case PackageActivationStateStatus::PartialUpgrade:
+        return L"部分升级";
+    case PackageActivationStateStatus::Valid:
+    case PackageActivationStateStatus::BackupRecovered:
+        return L"未知异常";
+    }
+    return L"未知异常";
+}
+
+[[nodiscard]] InstallationStatePresentation installationStatePresentation(
+    const std::filesystem::path& executableDirectory)
 {
     const PackageActivationIdentityResult packageIdentity =
         readPackageActivationState(executableDirectory);
-    if (!packageIdentity.installStatePresent)
+    if (!packageIdentity.installStatePresent
+        && packageIdentity.status == PackageActivationStateStatus::Missing)
     {
-        return L"便携版";
+        return InstallationStatePresentation{
+            L"便携版",
+            L"安装状态：便携版\r\n未发现安装状态文件"};
     }
-    if (!packageIdentity.succeeded())
+    if (packageIdentity.succeeded())
     {
-        return L"安装状态异常";
+        const PackageActivationIdentity& identity = *packageIdentity.identity;
+        std::wstring details = L"安装状态：安装版";
+        if (packageIdentity.recoveredFromBackup())
+        {
+            details += L"（已从有效备份恢复）";
+        }
+        details += L"\r\n产品版本：";
+        details += asciiVersionToWide(identity.productVersion);
+        details += L" · 包版本：";
+        details += asciiVersionToWide(identity.packageVersion);
+        return InstallationStatePresentation{
+            L"安装版",
+            std::move(details)};
     }
 
-    // This function is the presentation boundary for the current package-state
-    // probe. The update controller can replace it with an explicit installation
-    // channel without changing the title or version panel layout.
-    return L"安装版";
+    std::wstring details = L"安装状态：安装状态异常（";
+    details += invalidInstallStateLabel(packageIdentity.status);
+    details += L"）";
+    if (packageIdentity.identity.has_value())
+    {
+        details += L"\r\n产品版本：";
+        details += asciiVersionToWide(
+            packageIdentity.identity->productVersion);
+        details += L" · 包版本：";
+        details += asciiVersionToWide(
+            packageIdentity.identity->packageVersion);
+    }
+    return InstallationStatePresentation{
+        L"安装状态异常",
+        std::move(details)};
 }
 
 [[nodiscard]] std::wstring hresultText(const HRESULT result)
@@ -809,13 +867,13 @@ bool ControlCenterWindow::create(
 
     if (!refreshFromHost())
     {
-        if (startHostOnLaunch)
+        if (startHostOnLaunch && !hostRunning_)
         {
             // The Run entry launches the Control Center so packaged and
             // portable activation continue to share one Host startup path.
             startHostFromBundle();
         }
-        else
+        else if (!hostVersionBlocked_)
         {
             scheduleHostRefreshRetry();
         }
@@ -1196,10 +1254,10 @@ bool ControlCenterWindow::registerWindowClass() noexcept
 bool ControlCenterWindow::createControls()
 {
     const std::wstring productVersion = utf8ToWide(bafx::product::version);
-    const std::wstring_view installationState =
-        installationStateLabel(executableDirectory());
+    const InstallationStatePresentation installationState =
+        installationStatePresentation(executableDirectory());
     const std::wstring pageTitle = L"BAFX Desktop " + productVersion
-        + L" · " + std::wstring(installationState);
+        + L" · " + installationState.titleLabel;
     titleText_ = createChild(
         L"STATIC",
         pageTitle.c_str(),
@@ -1796,12 +1854,10 @@ bool ControlCenterWindow::createControls()
         L"STATIC",
         L"Host 版本：待连接",
         SS_LEFT | SS_NOPREFIX | SS_ENDELLIPSIS);
-    const std::wstring installState =
-        L"安装状态：" + std::wstring(installationState);
     installStateText_ = createChild(
         L"STATIC",
-        installState.c_str(),
-        SS_LEFT | SS_NOPREFIX | SS_ENDELLIPSIS);
+        installationState.details.c_str(),
+        SS_LEFT | SS_NOPREFIX);
     latestVersionText_ = createChild(
         L"STATIC",
         L"最新公开版本：尚未检查",
@@ -2966,11 +3022,11 @@ void ControlCenterWindow::layoutControls(
             updateContentX,
             contentTop + scale(100),
             updateContentWidth,
-            scale(24));
+            scale(44));
         moveControl(
             latestVersionText_,
             updateContentX,
-            contentTop + scale(132),
+            contentTop + scale(152),
             updateContentWidth,
             scale(40));
         const int updateButtonGap = scale(10);
@@ -2980,13 +3036,13 @@ void ControlCenterWindow::layoutControls(
         moveControl(
             checkForUpdatesButton_,
             updateContentX,
-            contentTop + scale(184),
+            contentTop + scale(204),
             updateButtonWidth,
             scale(32));
         moveControl(
             openReleaseButton_,
             updateContentX + updateButtonWidth + updateButtonGap,
-            contentTop + scale(184),
+            contentTop + scale(204),
             updateButtonWidth,
             scale(32));
 
@@ -4898,11 +4954,17 @@ void ControlCenterWindow::onTimer(const UINT_PTR timerId)
 
 bool ControlCenterWindow::refreshFromHost()
 {
+    hostVersionBlocked_ = false;
     const bool mutexPresent = hostMutexPresent();
     if (!mutexPresent)
     {
         hostRunning_ = hostStartPending_;
         setConnected(false);
+        SetWindowTextW(
+            hostVersionText_,
+            hostStartPending_
+                ? L"Host 版本：正在启动"
+                : L"Host 版本：未运行");
         if (!hostShutdownPending_ && !hostStartPending_)
         {
             SetWindowTextW(statusText_, L"Host 未运行");
@@ -4916,6 +4978,7 @@ bool ControlCenterWindow::refreshFromHost()
     if (!stateResponse.succeeded())
     {
         setConnected(false);
+        SetWindowTextW(hostVersionText_, L"Host 版本：无法读取");
         if (!hostShutdownPending_ && !hostStartPending_)
         {
             if (hostRunning_)
@@ -4935,21 +4998,31 @@ bool ControlCenterWindow::refreshFromHost()
     }
 
     hostRunning_ = true;
-    const bafx::windows::IpcClientResponse configResponse = client_.transact("GetConfig");
+    const HostStateParseResult state = parseHostState(stateResponse.payload);
+    if (!state.succeeded())
+    {
+        setConnected(false);
+        SetWindowTextW(hostVersionText_, L"Host 版本：状态数据无效");
+        SetWindowTextW(statusText_, L"Host 返回了无法识别的状态数据");
+        setError(utf8ToWide(state.error));
+        return false;
+    }
+    updateHostVersionText(*state.state);
+    if (!state.state->settingsCompatible())
+    {
+        rejectIncompatibleHostVersion(*state.state);
+        return false;
+    }
+
+    // GetState is the compatibility gate. Never read configuration from a
+    // Host that does not explicitly identify as this Control Center version.
+    const bafx::windows::IpcClientResponse configResponse =
+        client_.transact("GetConfig");
     if (!configResponse.succeeded())
     {
         setConnected(false);
         SetWindowTextW(statusText_, L"Host 配置读取失败");
         setError(describeResponse(configResponse));
-        return false;
-    }
-
-    const HostStateParseResult state = parseHostState(stateResponse.payload);
-    if (!state.succeeded())
-    {
-        setConnected(false);
-        SetWindowTextW(statusText_, L"Host 返回了无法识别的状态数据");
-        setError(utf8ToWide(state.error));
         return false;
     }
 
@@ -4971,10 +5044,21 @@ bool ControlCenterWindow::refreshFromHost()
     if (!confirmedStateResponse.succeeded() || !confirmedState.succeeded())
     {
         setConnected(false);
+        SetWindowTextW(
+            hostVersionText_,
+            confirmedStateResponse.succeeded()
+                ? L"Host 版本：复核状态无效"
+                : L"Host 版本：无法复核");
         SetWindowTextW(statusText_, L"Host 状态复核失败");
         setError(confirmedStateResponse.succeeded()
             ? utf8ToWide(confirmedState.error)
             : describeResponse(confirmedStateResponse));
+        return false;
+    }
+    updateHostVersionText(*confirmedState.state);
+    if (!confirmedState.state->settingsCompatible())
+    {
+        rejectIncompatibleHostVersion(*confirmedState.state);
         return false;
     }
     if (confirmedState.state->generation != state.state->generation)
@@ -5022,6 +5106,56 @@ bool ControlCenterWindow::refreshFromHost()
 
     updateControls(*confirmedState.state, config.config);
     return true;
+}
+
+std::wstring ControlCenterWindow::hostVersionDescription(
+    const HostState& state)
+{
+    switch (state.productVersionStatus)
+    {
+    case HostProductVersionStatus::Match:
+    case HostProductVersionStatus::Mismatch:
+        return utf8ToWide(*state.productVersion);
+    case HostProductVersionStatus::Missing:
+        return L"缺失（旧版 Host）";
+    case HostProductVersionStatus::Invalid:
+        // Invalid protocol text may contain control characters. Do not echo
+        // it into a Win32 label or let it forge an extra status line.
+        return L"非法（无法识别）";
+    }
+    return L"无法识别";
+}
+
+void ControlCenterWindow::updateHostVersionText(const HostState& state)
+{
+    std::wstring text = L"Host 版本：" + hostVersionDescription(state);
+    if (state.productVersionStatus == HostProductVersionStatus::Mismatch)
+    {
+        text += L"（与控制中心不一致）";
+    }
+    SetWindowTextW(hostVersionText_, text.c_str());
+}
+
+void ControlCenterWindow::rejectIncompatibleHostVersion(
+    const HostState& state)
+{
+    hostVersionBlocked_ = true;
+    hostRunning_ = true;
+    KillTimer(window_, patchTimerId);
+    pendingPatch_.reset();
+    KillTimer(window_, hostRetryTimerId);
+    hostRetryAttempts_ = 0U;
+    hostStartPending_ = false;
+    setConnected(false);
+    updateHostVersionText(state);
+
+    SetWindowTextW(statusText_, L"Host 版本不兼容，设置已禁用");
+    setInfo(
+        L"Host 版本不兼容",
+        L"Control Center：" + utf8ToWide(bafx::product::version)
+            + L"\r\nHost：" + hostVersionDescription(state)
+            + L"\r\n未读取或写入该 Host 的配置。请点击“关闭 Host”，"
+              L"待关闭完成后再点击“启动 Host”。");
 }
 
 void ControlCenterWindow::updateControls(
@@ -6161,6 +6295,11 @@ bool ControlCenterWindow::applyPatchRequest(std::string command)
 
 void ControlCenterWindow::sendCommand(const std::string_view command)
 {
+    if (!connected_)
+    {
+        setInfo(L"Host 未连接", L"请先启动兼容版本的 Host，然后刷新状态。");
+        return;
+    }
     if (!commitPendingPatch())
     {
         return;
@@ -6398,6 +6537,7 @@ void ControlCenterWindow::stopHost()
     {
         hostRunning_ = false;
         setConnected(false);
+        SetWindowTextW(hostVersionText_, L"Host 版本：未运行");
         SetWindowTextW(statusText_, L"Host 未运行");
         setInfo(L"Host 已关闭", L"未发现需要关闭的 Host 进程。");
         return;
@@ -6467,6 +6607,11 @@ void ControlCenterWindow::scheduleHostRefreshRetry(const bool startPending) noex
     if (startPending)
     {
         SetWindowTextW(statusText_, L"正在启动 Host...");
+        SetWindowTextW(hostVersionText_, L"Host 版本：正在启动");
+    }
+    else
+    {
+        SetWindowTextW(hostVersionText_, L"Host 版本：正在连接");
     }
     KillTimer(window_, hostRetryTimerId);
     if (SetTimer(
@@ -6506,7 +6651,9 @@ void ControlCenterWindow::finishHostShutdown() noexcept
     hostShutdownCommandAcknowledged_ = false;
     hostRunning_ = false;
     hostStartPending_ = false;
+    hostVersionBlocked_ = false;
     setConnected(false);
+    SetWindowTextW(hostVersionText_, L"Host 版本：未运行");
     SetWindowTextW(statusText_, L"Host 已关闭");
     setInfo(L"Host 已关闭", L"点击“启动 Host”可重新开启特效。");
 }
@@ -6520,7 +6667,11 @@ void ControlCenterWindow::recoverHostShutdown(const std::wstring_view message)
     hostShutdownCommandAcknowledged_ = false;
     hostStartPending_ = false;
     hostRunning_ = hostMutexPresent();
+    hostVersionBlocked_ = false;
     setConnected(false);
+    SetWindowTextW(
+        hostVersionText_,
+        hostRunning_ ? L"Host 版本：无法读取" : L"Host 版本：未运行");
     SetWindowTextW(
         statusText_,
         hostRunning_ ? L"Host 仍在运行" : L"Host 已关闭");
@@ -6706,6 +6857,8 @@ void ControlCenterWindow::setConnected(const bool connected) noexcept
         shardsSizeMin_.trackbar,
         shardsSizeMax_.trackbar,
         trailOpacity_.trackbar,
+        themeColorEdit_,
+        themeColorChoose_,
         bloomQuality_,
         backgroundMode_,
         cursorExcluded_,
