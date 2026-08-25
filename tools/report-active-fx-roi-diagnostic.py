@@ -1,0 +1,760 @@
+#!/usr/bin/env python3
+"""Validate and summarize a non-release Active-FX ROI diagnostic capture."""
+
+from __future__ import annotations
+
+import argparse
+import csv
+from datetime import datetime
+import importlib.util
+import json
+import math
+from pathlib import Path
+import re
+import sys
+from types import ModuleType
+from typing import Any
+
+
+CAPTURE_SCHEMA_VERSION = 1
+REPORT_SCHEMA_VERSION = 1
+CAPTURE_KIND = "bafx-active-fx-roi-diagnostic-capture"
+REPORT_KIND = "bafx-active-fx-roi-diagnostic-report"
+DIAGNOSTIC_NOTICE = "NON-RELEASE: short matrix for causal investigation only"
+RUN_COUNT = 8
+BLOCK_PATTERNS = (
+    ("ABBA", (("A", False), ("B", True), ("B", True), ("A", False))),
+    ("BAAB", (("B", True), ("A", False), ("A", False), ("B", True))),
+)
+TELEMETRY_INTERVAL_MS = 200
+TELEMETRY_FIELDS = (
+    "timestamp",
+    "index",
+    "uuid",
+    "name",
+    "pstate",
+    "clocks.current.graphics",
+    "clocks.current.memory",
+    "power.draw",
+    "temperature.gpu",
+    "utilization.gpu",
+    "utilization.memory",
+)
+TELEMETRY_RANGES = {
+    "graphicsClockMHz": "clocks.current.graphics",
+    "memoryClockMHz": "clocks.current.memory",
+    "powerWatts": "power.draw",
+    "temperatureCelsius": "temperature.gpu",
+    "gpuUtilizationPercent": "utilization.gpu",
+    "memoryUtilizationPercent": "utilization.memory",
+}
+BASE_RUN_FIELDS = {
+    "ordinal",
+    "block",
+    "position",
+    "blockPattern",
+    "arm",
+    "roiEnabled",
+    "directory",
+    "executable",
+    "config",
+    "log",
+    "arguments",
+    "startedAtUtc",
+    "elapsedMs",
+    "exitCode",
+    "executableSha256",
+    "configSha256",
+}
+
+
+def _load_release_reporter() -> ModuleType:
+    # Reuse the release reporter's strict parser and metric semantics so the
+    # diagnostic view cannot silently reinterpret the same raw evidence.
+    path = Path(__file__).with_name("report-active-fx-roi-ab.py")
+    spec = importlib.util.spec_from_file_location("bafx_roi_release_reporter", path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"cannot load release reporter {path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+RELEASE = _load_release_reporter()
+ValidationError = RELEASE.ValidationError
+
+
+def _validate_schedule(value: Any) -> None:
+    schedule = RELEASE._dict(value, "manifest.schedule")
+    expected = {
+        "pattern": "ABBA+BAAB",
+        "blockPatterns": ["ABBA", "BAAB"],
+        "a": "roi-off",
+        "b": "roi-on",
+        "blocks": 2,
+        "runs": RUN_COUNT,
+        "warmupMs": RELEASE.WARMUP_MS,
+        "sampleMs": RELEASE.SAMPLE_MS,
+        "hostDurationMs": RELEASE.HOST_DURATION_MS,
+        "performanceIntervalMs": RELEASE.PERFORMANCE_INTERVAL_MS,
+        "discardCompleteIntervals": RELEASE.DISCARD_COMPLETE_INTERVALS,
+        "selectCompleteIntervals": RELEASE.SELECT_COMPLETE_INTERVALS,
+    }
+    RELEASE._require_keys(schedule, set(expected), "manifest.schedule")
+    if schedule != expected:
+        raise ValidationError("manifest.schedule does not match diagnostic contract v1")
+
+
+def _validate_gpu_identity(value: Any, context: str) -> dict[str, Any]:
+    gpu = RELEASE._dict(value, context)
+    RELEASE._require_keys(gpu, {"index", "uuid", "name"}, context)
+    index = RELEASE._integer(gpu["index"], f"{context}.index")
+    uuid = RELEASE._string(gpu["uuid"], f"{context}.uuid")
+    name = RELEASE._string(gpu["name"], f"{context}.name")
+    if index < 0:
+        raise ValidationError(f"{context}.index must be non-negative")
+    if re.fullmatch(r"GPU-[0-9A-Fa-f-]+", uuid) is None:
+        raise ValidationError(f"{context}.uuid must be a physical GPU UUID")
+    if "RTX 4060" not in name.upper():
+        raise ValidationError(f"{context}.name must identify the RTX 4060")
+    return {"index": index, "uuid": uuid, "name": name}
+
+
+def _validate_telemetry_contract(value: Any) -> dict[str, Any]:
+    telemetry = RELEASE._dict(value, "manifest.nvidiaTelemetry")
+    enabled = RELEASE._boolean(
+        telemetry.get("enabled"), "manifest.nvidiaTelemetry.enabled"
+    )
+    if not enabled:
+        RELEASE._require_keys(telemetry, {"enabled"}, "manifest.nvidiaTelemetry")
+        return {"enabled": False}
+
+    expected_fields = {
+        "enabled",
+        "provider",
+        "intervalMs",
+        "fields",
+        "executable",
+        "gpu",
+    }
+    RELEASE._require_keys(telemetry, expected_fields, "manifest.nvidiaTelemetry")
+    if telemetry["provider"] != "nvidia-smi":
+        raise ValidationError("manifest.nvidiaTelemetry.provider must be nvidia-smi")
+    if (
+        RELEASE._integer(
+            telemetry["intervalMs"], "manifest.nvidiaTelemetry.intervalMs"
+        )
+        != TELEMETRY_INTERVAL_MS
+    ):
+        raise ValidationError("manifest.nvidiaTelemetry.intervalMs must be 200")
+    fields = RELEASE._list(telemetry["fields"], "manifest.nvidiaTelemetry.fields")
+    if tuple(fields) != TELEMETRY_FIELDS:
+        raise ValidationError("manifest.nvidiaTelemetry.fields differ from contract v1")
+
+    executable = RELEASE._dict(
+        telemetry["executable"], "manifest.nvidiaTelemetry.executable"
+    )
+    RELEASE._require_keys(
+        executable,
+        {"fileName", "sha256", "companyName", "fileDescription", "productVersion"},
+        "manifest.nvidiaTelemetry.executable",
+    )
+    if executable["fileName"].lower() != "nvidia-smi.exe":
+        raise ValidationError("NVIDIA telemetry executable name is invalid")
+    digest = RELEASE._string(
+        executable["sha256"], "manifest.nvidiaTelemetry.executable.sha256"
+    )
+    if RELEASE.SHA256_PATTERN.fullmatch(digest) is None:
+        raise ValidationError("NVIDIA telemetry executable SHA-256 is malformed")
+    if executable["companyName"] != "NVIDIA Corporation":
+        raise ValidationError("NVIDIA telemetry executable company is invalid")
+    description = RELEASE._string(
+        executable["fileDescription"],
+        "manifest.nvidiaTelemetry.executable.fileDescription",
+    )
+    if not description.startswith("NVIDIA-SMI"):
+        raise ValidationError("NVIDIA telemetry executable description is invalid")
+    RELEASE._string(
+        executable["productVersion"],
+        "manifest.nvidiaTelemetry.executable.productVersion",
+    )
+    return {
+        "enabled": True,
+        "provider": "nvidia-smi",
+        "intervalMs": TELEMETRY_INTERVAL_MS,
+        "fields": list(TELEMETRY_FIELDS),
+        "executable": executable,
+        "gpu": _validate_gpu_identity(
+            telemetry["gpu"], "manifest.nvidiaTelemetry.gpu"
+        ),
+    }
+
+
+def _validate_manifest(
+    root: Path,
+) -> tuple[dict[str, Any], dict[str, Any], str, str, str, dict[str, Any]]:
+    manifest = RELEASE._load_json(root / "capture.json")
+    expected_fields = {
+        "schemaVersion",
+        "kind",
+        "captureStatus",
+        "revision",
+        "workingTreeDirty",
+        "capturedAtUtc",
+        "executable",
+        "environment",
+        "configuration",
+        "scenario",
+        "capabilities",
+        "schedule",
+        "runs",
+        "releaseEligible",
+        "diagnosticNotice",
+        "nvidiaTelemetry",
+    }
+    RELEASE._require_keys(manifest, expected_fields, "manifest")
+    if (
+        RELEASE._integer(manifest["schemaVersion"], "manifest.schemaVersion")
+        != CAPTURE_SCHEMA_VERSION
+    ):
+        raise ValidationError("manifest.schemaVersion must be 1")
+    if manifest["kind"] != CAPTURE_KIND:
+        raise ValidationError(f"manifest.kind must be {CAPTURE_KIND}")
+    if manifest["captureStatus"] != "diagnostic-captured":
+        raise ValidationError("manifest.captureStatus must be diagnostic-captured")
+    if RELEASE._boolean(manifest["releaseEligible"], "manifest.releaseEligible"):
+        raise ValidationError("diagnostic evidence must not be release eligible")
+    if manifest["diagnosticNotice"] != DIAGNOSTIC_NOTICE:
+        raise ValidationError("manifest.diagnosticNotice differs from contract v1")
+    revision = RELEASE._string(manifest["revision"], "manifest.revision")
+    if RELEASE.REVISION_PATTERN.fullmatch(revision) is None:
+        raise ValidationError("manifest.revision must be a lowercase commit SHA")
+    if RELEASE._boolean(manifest["workingTreeDirty"], "manifest.workingTreeDirty"):
+        raise ValidationError("diagnostic comparison requires a clean tracked tree")
+    RELEASE._string(manifest["capturedAtUtc"], "manifest.capturedAtUtc")
+    environment_identity = RELEASE._validate_environment(manifest["environment"])
+    RELEASE._validate_capabilities(manifest["capabilities"])
+    _validate_schedule(manifest["schedule"])
+    scenario_id, measurement_path, _, expected_reason = RELEASE._validate_scenario(
+        manifest["scenario"]
+    )
+    telemetry = _validate_telemetry_contract(manifest["nvidiaTelemetry"])
+    return (
+        manifest,
+        environment_identity,
+        scenario_id,
+        measurement_path,
+        expected_reason,
+        telemetry,
+    )
+
+
+def _number(raw: str, context: str) -> float:
+    try:
+        value = float(raw)
+    except ValueError as error:
+        raise ValidationError(f"{context} must be numeric") from error
+    if not math.isfinite(value):
+        raise ValidationError(f"{context} must be finite")
+    return value
+
+
+def _range(values: list[float]) -> dict[str, float]:
+    return {"min": min(values), "max": max(values)}
+
+
+def _validate_run_telemetry(
+    root: Path,
+    value: Any,
+    ordinal: int,
+    directory: Path,
+    contract: dict[str, Any],
+) -> dict[str, Any]:
+    context = f"run {ordinal}.nvidiaTelemetry"
+    telemetry = RELEASE._dict(value, context)
+    expected_fields = {
+        "file",
+        "stderr",
+        "sha256",
+        "samples",
+        "intervalMs",
+        "arguments",
+        "startedAtUtc",
+        "stoppedAtUtc",
+        "collectorStoppedProcess",
+    }
+    RELEASE._require_keys(telemetry, expected_fields, context)
+    csv_path = RELEASE._relative_file(root, telemetry["file"], f"{context}.file")
+    stderr_path = RELEASE._relative_file(
+        root, telemetry["stderr"], f"{context}.stderr"
+    )
+    for path in (csv_path, stderr_path):
+        if directory not in path.relative_to(root.resolve()).parents:
+            raise ValidationError(f"{context}: evidence file is outside the run directory")
+    digest = RELEASE._string(telemetry["sha256"], f"{context}.sha256")
+    if RELEASE.SHA256_PATTERN.fullmatch(digest) is None:
+        raise ValidationError(f"{context}.sha256 is malformed")
+    if RELEASE._sha256(csv_path) != digest:
+        raise ValidationError(f"{context}: CSV SHA-256 mismatch")
+    try:
+        stderr = stderr_path.read_text(encoding="utf-8-sig")
+    except (OSError, UnicodeError) as error:
+        raise ValidationError(f"cannot read {stderr_path}: {error}") from error
+    if stderr.strip():
+        raise ValidationError(f"{context}: nvidia-smi stderr is not empty")
+    sample_count = RELEASE._integer(telemetry["samples"], f"{context}.samples")
+    if sample_count <= 0:
+        raise ValidationError(f"{context}.samples must be positive")
+    if (
+        RELEASE._integer(telemetry["intervalMs"], f"{context}.intervalMs")
+        != TELEMETRY_INTERVAL_MS
+    ):
+        raise ValidationError(f"{context}.intervalMs must be 200")
+    expected_arguments = [
+        f"--id={contract['gpu']['uuid']}",
+        f"--query-gpu={','.join(TELEMETRY_FIELDS)}",
+        "--format=csv,noheader,nounits",
+        f"--loop-ms={TELEMETRY_INTERVAL_MS}",
+    ]
+    if RELEASE._list(telemetry["arguments"], f"{context}.arguments") != expected_arguments:
+        raise ValidationError(f"{context}.arguments differ from contract v1")
+    RELEASE._string(telemetry["startedAtUtc"], f"{context}.startedAtUtc")
+    RELEASE._string(telemetry["stoppedAtUtc"], f"{context}.stoppedAtUtc")
+    if not RELEASE._boolean(
+        telemetry["collectorStoppedProcess"], f"{context}.collectorStoppedProcess"
+    ):
+        raise ValidationError(f"{context}: collector must own sampler shutdown")
+
+    try:
+        with csv_path.open("r", encoding="utf-8-sig", newline="") as stream:
+            rows = list(csv.reader(stream))
+    except (OSError, UnicodeError, csv.Error) as error:
+        raise ValidationError(f"cannot read {csv_path}: {error}") from error
+    if not rows or tuple(rows[0]) != TELEMETRY_FIELDS:
+        raise ValidationError(f"{context}: CSV header differs from contract v1")
+    samples = rows[1:]
+    if len(samples) != sample_count:
+        raise ValidationError(
+            f"{context}: CSV has {len(samples)} samples, manifest records {sample_count}"
+        )
+
+    pstates: set[int] = set()
+    numeric: dict[str, list[float]] = {
+        field: [] for field in TELEMETRY_RANGES.values()
+    }
+    timestamps: list[datetime] = []
+    timestamp_text: list[str] = []
+    for row_index, row in enumerate(samples, 1):
+        row_context = f"{context} sample {row_index}"
+        if len(row) != len(TELEMETRY_FIELDS) or any(not item.strip() for item in row):
+            raise ValidationError(f"{row_context} must contain eleven non-empty fields")
+        sample = dict(zip(TELEMETRY_FIELDS, (item.strip() for item in row)))
+        try:
+            timestamp = datetime.strptime(sample["timestamp"], "%Y/%m/%d %H:%M:%S.%f")
+        except ValueError as error:
+            raise ValidationError(f"{row_context}.timestamp has an invalid format") from error
+        if timestamps and timestamp < timestamps[-1]:
+            raise ValidationError(f"{row_context}.timestamp moves backwards")
+        timestamps.append(timestamp)
+        timestamp_text.append(sample["timestamp"])
+        try:
+            gpu_index = int(sample["index"])
+        except ValueError as error:
+            raise ValidationError(f"{row_context}.index must be an integer") from error
+        gpu = contract["gpu"]
+        if (
+            gpu_index != gpu["index"]
+            or sample["uuid"] != gpu["uuid"]
+            or sample["name"] != gpu["name"]
+        ):
+            raise ValidationError(f"{row_context}: GPU identity changed")
+        match = re.fullmatch(r"P([0-9]+)", sample["pstate"])
+        if match is None:
+            raise ValidationError(f"{row_context}.pstate is invalid")
+        pstates.add(int(match.group(1)))
+        for field in numeric:
+            numeric[field].append(_number(sample[field], f"{row_context}.{field}"))
+
+    ordered_pstates = sorted(pstates)
+    result: dict[str, Any] = {
+        "samples": sample_count,
+        "timestamp": {"first": timestamp_text[0], "last": timestamp_text[-1]},
+        "pstate": {
+            "min": f"P{ordered_pstates[0]}",
+            "max": f"P{ordered_pstates[-1]}",
+            "values": [f"P{value}" for value in ordered_pstates],
+        },
+    }
+    for output_name, field in TELEMETRY_RANGES.items():
+        result[output_name] = _range(numeric[field])
+    return result
+
+
+def _validate_run(
+    root: Path,
+    value: Any,
+    ordinal: int,
+    executable_sha256: str,
+    normalized_config: str,
+    environment_identity: dict[str, Any],
+    scenario_id: str,
+    measurement_path: str,
+    expected_reason: str,
+    telemetry_contract: dict[str, Any],
+) -> dict[str, Any]:
+    context = f"run {ordinal}"
+    run = RELEASE._dict(value, f"runs[{ordinal - 1}]")
+    expected_fields = set(BASE_RUN_FIELDS)
+    if telemetry_contract["enabled"]:
+        expected_fields.add("nvidiaTelemetry")
+    RELEASE._require_keys(run, expected_fields, context)
+
+    block = (ordinal - 1) // 4 + 1
+    position = (ordinal - 1) % 4 + 1
+    pattern_name, pattern = BLOCK_PATTERNS[block - 1]
+    expected_arm, expected_enabled = pattern[position - 1]
+    if RELEASE._integer(run["ordinal"], f"{context}.ordinal") != ordinal:
+        raise ValidationError(f"{context}: ordinal mismatch")
+    if RELEASE._integer(run["block"], f"{context}.block") != block:
+        raise ValidationError(f"{context}: block mismatch")
+    if RELEASE._integer(run["position"], f"{context}.position") != position:
+        raise ValidationError(f"{context}: position mismatch")
+    if run["blockPattern"] != pattern_name:
+        raise ValidationError(f"{context}: block pattern mismatch")
+    if run["arm"] != expected_arm:
+        raise ValidationError(f"{context}: {pattern_name} arm mismatch")
+    roi_enabled = RELEASE._boolean(run["roiEnabled"], f"{context}.roiEnabled")
+    if roi_enabled != expected_enabled:
+        raise ValidationError(f"{context}: {pattern_name} ROI value mismatch")
+    if RELEASE._integer(run["exitCode"], f"{context}.exitCode") != 0:
+        raise ValidationError(f"{context}: Host did not exit successfully")
+    if (
+        RELEASE._integer(run["elapsedMs"], f"{context}.elapsedMs")
+        < RELEASE.HOST_DURATION_MS
+    ):
+        raise ValidationError(f"{context}: elapsed time is shorter than workload")
+    RELEASE._string(run["startedAtUtc"], f"{context}.startedAtUtc")
+    expected_arguments = [
+        f"--demo-scenario={scenario_id}",
+        "--demo-age-ms=130",
+        "--demo-delay-ms=5000",
+        "--disable-raw-input",
+        "--quit-after-ms=40500",
+    ]
+    if measurement_path == "recording-rebuild":
+        expected_arguments.append("--spout2")
+    if RELEASE._list(run["arguments"], f"{context}.arguments") != expected_arguments:
+        raise ValidationError(f"{context}: workload or measurement-path arguments mismatch")
+
+    directory = Path(RELEASE._string(run["directory"], f"{context}.directory"))
+    expected_directory = (
+        f"run-{ordinal:02d}-{expected_arm.lower()}-roi-"
+        f"{'on' if roi_enabled else 'off'}"
+    )
+    if directory.as_posix() != expected_directory:
+        raise ValidationError(f"{context}: directory name mismatch")
+    executable_path = RELEASE._relative_file(
+        root, run["executable"], f"{context}.executable"
+    )
+    config_path = RELEASE._relative_file(root, run["config"], f"{context}.config")
+    log_path = RELEASE._relative_file(root, run["log"], f"{context}.log")
+    for path in (executable_path, config_path, log_path):
+        if directory not in path.relative_to(root.resolve()).parents:
+            raise ValidationError(f"{context}: evidence file is outside its run directory")
+
+    run_executable_digest = RELEASE._string(
+        run["executableSha256"], f"{context}.executableSha256"
+    )
+    if (
+        run_executable_digest != executable_sha256
+        or RELEASE._sha256(executable_path) != executable_sha256
+    ):
+        raise ValidationError(f"{context}: executable identity mismatch")
+    run_config_digest = RELEASE._string(
+        run["configSha256"], f"{context}.configSha256"
+    )
+    if (
+        RELEASE.SHA256_PATTERN.fullmatch(run_config_digest) is None
+        or RELEASE._sha256(config_path) != run_config_digest
+    ):
+        raise ValidationError(f"{context}: configuration SHA-256 mismatch")
+    config = RELEASE._load_json(config_path)
+    if (
+        RELEASE._canonical_without_roi(config, f"{context} configuration")
+        != normalized_config
+    ):
+        raise ValidationError(
+            f"{context}: configurations differ outside performance.activeFxRoiEnabled"
+        )
+    configured = RELEASE._dict(config["performance"], f"{context}.performance")[
+        "activeFxRoiEnabled"
+    ]
+    if configured != roi_enabled:
+        raise ValidationError(f"{context}: configuration ROI value mismatch")
+
+    events = RELEASE._load_events(log_path)
+    actual_environment = RELEASE._environment_identity_from_events(events, log_path)
+    RELEASE._require_same_environment_identity(
+        environment_identity, actual_environment, context
+    )
+    intervals = RELEASE._intervals(events, log_path, roi_enabled, measurement_path)
+    metrics = RELEASE._run_metrics(
+        intervals, measurement_path, expected_reason, context
+    )
+    gpu_prefix = (
+        "GPU.Primary" if measurement_path == "primary" else "GPU.RecordingRebuild"
+    )
+    metrics["finalCompositeP99Us"] = RELEASE._median(
+        [
+            RELEASE._event_number(
+                event, f"{gpu_prefix}.FinalComposite.P99", context
+            )
+            for event in intervals
+        ]
+    )
+    telemetry = None
+    if telemetry_contract["enabled"]:
+        telemetry = _validate_run_telemetry(
+            root,
+            run["nvidiaTelemetry"],
+            ordinal,
+            directory,
+            telemetry_contract,
+        )
+    return {
+        "ordinal": ordinal,
+        "block": block,
+        "position": position,
+        "blockPattern": pattern_name,
+        "arm": expected_arm,
+        "roiEnabled": roi_enabled,
+        "metrics": metrics,
+        "nvidiaTelemetry": telemetry,
+    }
+
+
+def _aggregate(runs: list[dict[str, Any]]) -> dict[str, Any]:
+    aggregate = RELEASE._aggregate(runs)
+    aggregate["finalCompositeP99Us"] = RELEASE._median(
+        [float(run["metrics"]["finalCompositeP99Us"]) for run in runs]
+    )
+    return aggregate
+
+
+def _comparison(off: dict[str, Any], on: dict[str, Any]) -> dict[str, Any]:
+    keys = (
+        "bloomFinalP95Us",
+        "finalCompositeP95Us",
+        "finalCompositeP99Us",
+        "gpuCommandP99Us",
+        "cpuFrameP95Us",
+        "cpuFrameP99Us",
+        "cpuPresentP95Us",
+        "cpuPresentP99Us",
+    )
+    return {key: RELEASE._reduction(float(off[key]), float(on[key])) for key in keys}
+
+
+def build_report(root: Path) -> dict[str, Any]:
+    root = root.resolve()
+    (
+        manifest,
+        environment_identity,
+        scenario_id,
+        measurement_path,
+        expected_reason,
+        telemetry_contract,
+    ) = _validate_manifest(root)
+    executable_sha256 = RELEASE._validate_executable(root, manifest)
+    normalized_config, base_config_sha256 = RELEASE._validate_configuration_contract(
+        root, manifest
+    )
+    values = RELEASE._list(manifest["runs"], "manifest.runs")
+    if len(values) != RUN_COUNT:
+        raise ValidationError(f"manifest.runs must contain exactly {RUN_COUNT} runs")
+    runs = [
+        _validate_run(
+            root,
+            value,
+            ordinal,
+            executable_sha256,
+            normalized_config,
+            environment_identity,
+            scenario_id,
+            measurement_path,
+            expected_reason,
+            telemetry_contract,
+        )
+        for ordinal, value in enumerate(values, 1)
+    ]
+    roi_off = _aggregate([run for run in runs if not run["roiEnabled"]])
+    roi_on = _aggregate([run for run in runs if run["roiEnabled"]])
+    return {
+        "schemaVersion": REPORT_SCHEMA_VERSION,
+        "kind": REPORT_KIND,
+        "captureSchemaVersion": CAPTURE_SCHEMA_VERSION,
+        "releaseEligible": False,
+        "diagnosticNotice": DIAGNOSTIC_NOTICE,
+        "revision": manifest["revision"],
+        "executableSha256": executable_sha256,
+        "baseConfigSha256": base_config_sha256,
+        "environment": manifest["environment"],
+        "scenario": manifest["scenario"],
+        "schedule": manifest["schedule"],
+        "nvidiaTelemetry": telemetry_contract,
+        "aggregationSemantic": {
+            "runPercentiles": "median-of-three-selected-complete-10s-windows",
+            "armPercentiles": "median-of-four-run-percentiles",
+            "order": "ABBA block followed by BAAB block",
+        },
+        "runs": runs,
+        "roiOff": roi_off,
+        "roiOn": roi_on,
+        "comparisons": _comparison(roi_off, roi_on),
+        "limitations": [
+            "This eight-run report is causal diagnostic evidence, not a release gate.",
+            "The five-block, twenty-run release reporter must be run independently.",
+        ],
+    }
+
+
+def _format_number(value: Any) -> str:
+    if value is None:
+        return "unavailable"
+    if isinstance(value, float):
+        return f"{value:.3f}"
+    return str(value)
+
+
+def _format_range(value: dict[str, Any] | None, unit: str = "") -> str:
+    if value is None:
+        return "unavailable"
+    return f"{_format_number(value['min'])}-{_format_number(value['max'])}{unit}"
+
+
+def render_markdown(report: dict[str, Any]) -> str:
+    identity = report["environment"]["identity"]
+    scenario = report["scenario"]
+    path_label = (
+        "Primary"
+        if scenario["measurementPath"] == "primary"
+        else "RecordingRebuild"
+    )
+    lines = [
+        "# Active-FX ROI non-release diagnostic",
+        "",
+        f"> {report['diagnosticNotice']}",
+        "",
+        f"- Sequence: `{report['schedule']['pattern']}` / `{len(report['runs'])}` runs",
+        f"- Scenario: `{scenario['id']}` / `{scenario['measurementPath']}`",
+        f"- Revision: `{report['revision']}`",
+        f"- Adapter: `{identity['adapter']}` / driver `{identity['driverVersion']}`",
+        "",
+        "## ROI arm aggregate",
+        "",
+        "| Metric | ROI off | ROI on |",
+        "|---|---:|---:|",
+    ]
+    off = report["roiOff"]
+    on = report["roiOn"]
+    for label, key in (
+        ("Bloom/final p95 (us)", "bloomFinalP95Us"),
+        (f"{path_label} FinalComposite p95 (us)", "finalCompositeP95Us"),
+        (f"{path_label} FinalComposite p99 (us)", "finalCompositeP99Us"),
+        ("GPU RenderCommandSpan p99 (us)", "gpuCommandP99Us"),
+        ("CPU frame p95 (us)", "cpuFrameP95Us"),
+        ("CPU frame p99 (us)", "cpuFrameP99Us"),
+        ("CPU Present p95 (us)", "cpuPresentP95Us"),
+        ("CPU Present p99 (us)", "cpuPresentP99Us"),
+    ):
+        lines.append(
+            f"| {label} | {_format_number(off[key])} | {_format_number(on[key])} |"
+        )
+
+    lines.extend(
+        (
+            "",
+            "## Ordered runs",
+            "",
+            "| Run | Block | Pattern | Arm | ROI | Bloom/final p95 | "
+            "FinalComposite p95 | FinalComposite p99 | RenderCommandSpan p99 | "
+            "CPU frame p95/p99 | Present p95/p99 |",
+            "|---:|---:|---|---|---|---:|---:|---:|---:|---:|---:|",
+        )
+    )
+    for run in report["runs"]:
+        metrics = run["metrics"]
+        lines.append(
+            f"| {run['ordinal']} | {run['block']} | {run['blockPattern']} | "
+            f"{run['arm']} | {'on' if run['roiEnabled'] else 'off'} | "
+            f"{_format_number(metrics['bloomFinalP95Us'])} | "
+            f"{_format_number(metrics['finalCompositeP95Us'])} | "
+            f"{_format_number(metrics['finalCompositeP99Us'])} | "
+            f"{_format_number(metrics['gpuCommandP99Us'])} | "
+            f"{_format_number(metrics['cpuFrameP95Us'])}/"
+            f"{_format_number(metrics['cpuFrameP99Us'])} | "
+            f"{_format_number(metrics['cpuPresentP95Us'])}/"
+            f"{_format_number(metrics['cpuPresentP99Us'])} |"
+        )
+
+    lines.extend(("", "## NVIDIA telemetry by run", ""))
+    if not report["nvidiaTelemetry"]["enabled"]:
+        lines.extend(("NVIDIA telemetry was not captured.", ""))
+    else:
+        lines.extend(
+            (
+                "| Run | Pattern/arm | Samples | P-state | Graphics clock | "
+                "Memory clock | Power | GPU util | Memory util | Temperature |",
+                "|---:|---|---:|---|---:|---:|---:|---:|---:|---:|",
+            )
+        )
+        for run in report["runs"]:
+            telemetry = run["nvidiaTelemetry"]
+            lines.append(
+                f"| {run['ordinal']} | {run['blockPattern']}/{run['arm']} | "
+                f"{telemetry['samples']} | "
+                f"{telemetry['pstate']['min']}-{telemetry['pstate']['max']} | "
+                f"{_format_range(telemetry['graphicsClockMHz'], ' MHz')} | "
+                f"{_format_range(telemetry['memoryClockMHz'], ' MHz')} | "
+                f"{_format_range(telemetry['powerWatts'], ' W')} | "
+                f"{_format_range(telemetry['gpuUtilizationPercent'], '%')} | "
+                f"{_format_range(telemetry['memoryUtilizationPercent'], '%')} | "
+                f"{_format_range(telemetry['temperatureCelsius'], ' C')} |"
+            )
+        lines.append("")
+    lines.extend(("## Limitations", ""))
+    lines.extend(f"- {item}" for item in report["limitations"])
+    lines.append("")
+    return "\n".join(lines)
+
+
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("root", type=Path, help="diagnostic capture directory")
+    parser.add_argument("--json", type=Path, dest="json_path")
+    parser.add_argument("--markdown", type=Path, dest="markdown_path")
+    return parser.parse_args()
+
+
+def main() -> int:
+    arguments = _parse_args()
+    try:
+        report = build_report(arguments.root)
+        json_path = arguments.json_path or arguments.root / "diagnostic-summary.json"
+        markdown_path = (
+            arguments.markdown_path or arguments.root / "diagnostic-summary.md"
+        )
+        json_path.write_text(
+            json.dumps(report, ensure_ascii=False, indent=2, allow_nan=False) + "\n",
+            encoding="utf-8",
+        )
+        markdown_path.write_text(render_markdown(report), encoding="utf-8")
+    except (OSError, ValidationError) as error:
+        print(f"Active-FX ROI diagnostic validation failed: {error}", file=sys.stderr)
+        return 1
+    print(f"Active-FX ROI diagnostic report: {markdown_path}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
