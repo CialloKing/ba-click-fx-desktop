@@ -73,10 +73,15 @@ Bloom 金字塔 ROI 收敛为 0.2.7 候选并执行同规格实机门禁；整�
 因此阈值未放宽，0.2.7 未发布，最新 HEAD 的 Full/Slim 发布 workflow、三档 SDK CI、打包与 Release
 均停止。
 
-逐轮复核确认 CPU frame 尾部由 Present 主导，同时存在强顺序漂移；现有日志不能把系统漂移与更早到达
-Present 后的等待补偿做因果分离，故不实施推测性修复或重复正式采集。只有找到可复现的产品原因并按相同
-阈值通过 0.2.7 后，才开始 0.2.8 默认 `background-aware` Differential Bloom ROI。WGC、交换链 dirty
-Present 和桌面捕获 ROI 仍是相互独立的高风险项目；其他真实硬件 ROI 矩阵继续保持 `Not Run`。
+提交 `d9ef2fe` 缓存规划器生成且逐字段验证通过的 pass plan。随后 4K 170 Hz SDR 的 8-run 非发布 r2
+中，ROI-on 不再出现三项 CPU submit p95 劣化，与缓存预期一致；但 CPU frame p95/p99 仍恶化
+`22.8%/31.4%`，Present p95/p99 仍恶化 `23.0%/32.5%`。该结果不能替代正式 20-run，也没有解除
+整机门槛。
+
+非发布 r1 曾观测到较低设备功耗/SM 时钟与较慢 FinalComposite 同时出现；r2 在较低 ROI-on 时钟/功耗下
+却得到更快 FinalComposite，因此该关系未形成可复现原因，不能追溯解释正式 r5。缓存后的正式 20-run
+保持 `Not Run`；0.2.7、发布流程和 0.2.8 继续阻塞。WGC、交换链 dirty Present 和桌面捕获 ROI 仍是
+相互独立的高风险项目；其他真实硬件 ROI 矩阵继续保持 `Not Run`。
 
 ## Host-owned 特效 Profile（2026-08-23）
 
@@ -365,14 +370,12 @@ P1 的执行顺序不再调整：
 1. 保留 v0.2.6 `FAIL` 的原始证据和预注册阈值，不发布该版本；
 2. 0.2.7 完整金字塔候选已执行 RTX 4060、4K 170 Hz、SDR 专用 ABBA；整机门槛失败，证据已保留，
    发布已停止，50%/65% 自适应阈值和性能断言均未放宽；
-3. r5 复验中 GPU command p99 已改善并通过门槛；非发布 `ABBA+BAAB` 诊断进一步观测到 ROI-on 的
-   较低设备功耗/SM 时钟与较慢的全屏 FinalComposite 同时出现，与动态降频候选机制一致；正式 r5 未
-   采集显卡遥测，不能追溯宣称为同一原因；
-4. 已缓存规划器生成且验证通过的 ROI pass plan，命中时避免重复执行完整规划器；4K 170 Hz
-   复测因当前附着输出为 144 Hz 而保持 `Not Run`，不以 144 Hz 结果替代原门槛；
-5. 只有 0.2.7 以相同阈值独立通过并交付后，才以 0.2.8 局部化默认 `background-aware` 的
-   Differential Bloom；WGC、桌面捕获 ROI 和交换链 dirty Present 分别评审、分别验收，不从 Bloom
-   ROI 的结果外推。
+3. 非发布 r1 的设备时钟/功耗与 FinalComposite 关系只作候选观测，r2 未复现，正式 r5 也没有 NVIDIA
+   遥测，不能把该关系升级为产品原因；
+4. `d9ef2fe` 后的 4K 170 Hz 8-run r2 未再观察到三项 submit p95 劣化，与缓存预期一致；但 CPU frame
+   与 Present p95/p99 仍超过 `5%` 门，缓存后的正式 20-run 保持 `Not Run`；
+5. 0.2.7 独立 20-run 通过前不发布、不启动 0.2.8；WGC、桌面捕获 ROI 和交换链 dirty Present 分别
+   评审、分别验收，不从 Bloom ROI 的结果外推。
 
 任何阶段都必须同时比较 GPU 阶段时间、CPU/Present 尾部、查询健康状态和最终 FP16 结果；不能只报告
 CPU 提交时间、资源尺寸或像素覆盖比例。

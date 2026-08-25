@@ -505,7 +505,8 @@ Fx/Bloom submit p95 每对都增加，中位分别为 `24.5/27.5 us`；同时 A-
 
 后续非发布因果矩阵位于
 `artifacts/performance/active-fx-roi-v027-causal-timing-diagnostic-20260825-r1`。capture schema 2、诊断
-report schema 3，revision 为 `52a464c14d14a086e318ca9777b718e11581640e`，Host EXE SHA-256 为
+report 已用提交 `015a10e` 的 schema 4 报告器重放，原 schema 3 文件继续保留。capture revision 为
+`52a464c14d14a086e318ca9777b718e11581640e`，Host EXE SHA-256 为
 `448c14c308bdcdf3b2a6cfaba7465ffe8d041266fc62f4e590d5972084819b26`；RTX 4060、4K 170 Hz、SDR 的
 `ABBA+BAAB` 共 8 次运行全部完成。`Cpu.PrePresent` p95/p99 两臂均为 `0/1 us`；
 `FramePacing.Wait` p95/p99 为 `5408/5683.5 us -> 5495/5754 us`，两臂 `>=8000 us` 均为 0，FPS
@@ -516,11 +517,10 @@ report schema 3，revision 为 `52a464c14d14a086e318ca9777b718e11581640e`，Host
 SM 时钟的四 run 中位数为 `750 -> 502.5 MHz`，显存时钟均为 `810 MHz`，瞬时功耗 run-mean 中位数
 为 `11.474 -> 10.567 W`；P-state 窗口中位数为 off `P5 100%`，on `P5 98.582% / P8 1.418%`。
 同时 FinalComposite p95 为 `1431 -> 1918.5 us`，GPU command p99 为 `2783 -> 3723 us`，Present p95
-为 `3091 -> 3311.5 us`。ROI-on 的较低 SM 时钟、较低瞬时设备功耗与较慢的全屏 FinalComposite
-同时出现，与动态降频候选机制一致。NVIDIA 数据按 200 ms 采样并描述设备整体状态，不能归因到单帧、
-单进程或 BAFX 独占能耗；该 r1 也早于缓存提交。由于正式 r5 未采集显卡遥测，不能把候选机制追溯宣称
-为 r5 的已证实原因。诊断矩阵不能替代正式 20-run 门禁，也不改变 schema 19、`GetDisplayState`
-schema 4 或当前失败结论。
+为 `3091 -> 3311.5 us`。这些 arm 级聚合值同时出现，r1 单独不能确定关联方向或因果。NVIDIA 数据按
+200 ms 采样并描述设备整体状态，不能归因到单帧、单进程或 BAFX 独占能耗；该 r1 也早于缓存提交。
+由于正式 r5 未采集显卡遥测，不能把 r1 的状态观测追溯宣称为 r5 的已证实原因。诊断矩阵不能替代
+正式 20-run 门禁，也不改变 schema 19、`GetDisplayState` schema 4 或当前失败结论。
 
 提交 `d9ef2fe` 增加一项低风险产品修正：只缓存规划器生成且已逐字段验证的 ROI pass plan，命中时避免
 重复执行完整规划器，但仍核对 monitor、完整 Bloom plan 和实际消费字段，miss 重新规划；resize、
@@ -528,11 +528,33 @@ diffusion/intensity 更新和显式重建会清空缓存，Context1、资源状�
 检查。Release 构建和 `gpu_pipeline_warp` 通过，包含篡改候选的全屏 fallback 与 FP16 bit-exact；
 这些结果只证明正确性，不证明真实 CPU 或整机收益。
 
-缓存后的 4K 170 Hz 非发布复测当前为 `Not Run`。首次尝试保留在
-`artifacts/performance/active-fx-roi-v027-plan-cache-diagnostic-20260825-r1`，collector 在第一个 run
-重新锁定当前附着的 `DISPLAY20` 为 `3840x2160@144/1 Hz` 后 fail-closed，manifest 为
-`captureStatus=diagnostic-failed` 且 `runs=[]`。恢复先前有效证据使用的 NVIDIA
-`DISPLAY1@170/1 Hz` 前不执行正式复验，也不以当前 144 Hz 环境替代原门槛。
+缓存后的非发布复测位于
+`artifacts/performance/active-fx-roi-v027-plan-cache-diagnostic-20260825-r2`。此前 `-r1` 在第一个 run
+因当前附着的 `DISPLAY20=3840x2160@144/1 Hz` 与合同不符而 fail-closed，manifest 为
+`captureStatus=diagnostic-failed` 且 `runs=[]`。恢复 NVIDIA `DISPLAY1@170/1 Hz` 后，r2 的 capture
+schema 2、revision 为 `c78376d6cbd0e848ba38337785b029bcb07049cb`，Host EXE SHA-256 为
+`670af52d7c56a8d96529672bb462855a2cb2501d803a7d1e2c4ff63ee7c105b2`，RTX 4060、4K 170 Hz、SDR 的
+`ABBA+BAAB` 8 次运行全部完成。提交 `015a10e` 的诊断 report schema 4 新增每次 run 中三个实际
+Performance.Interval 窗口的 CPU submit 严格汇总；正式 collector/report schema 3/2、配置 schema 19
+和 `GetDisplayState` schema 4 均未改变。
+
+r2 的 ROI off/on `Cpu.FxTotalSubmit` p95/p99 为 `74/103.5 -> 67.5/98.5 us`，
+`Cpu.BloomAndCompositeSubmit` 为 `30.5/42.5 -> 29/41 us`，`Cpu.FxMaterialsSubmit` 为
+`40.5/59.5 -> 36.5/52 us`。该短矩阵未再观察到 ROI-on submit 尾部开销，与缓存命中时避免重复执行
+完整规划器的预期一致；但缓存前 r1 与缓存后 r2 是不同时间、不同 GPU 工作状态的独立矩阵，不能把两者
+的绝对值相减并宣称为缓存的因果收益。
+
+Bloom/final p95 为 `1242.5 -> 610 us`，FinalComposite p95 为 `573.5 -> 494.5 us`，GPU command p99
+为 `1849.5 -> 1519 us`；但 CPU frame p95/p99 为 `795.5/1648 -> 976.5/2165 us`，Present p95/p99
+为 `747/1588.5 -> 918.5/2105 us`。CPU frame 分别恶化 `22.8%/31.4%`，Present 分别恶化
+`23.0%/32.5%`，两类均超过 `5%` 门。FPS 为 `169.607 -> 169.394`，pending 最大值为 1，错误计数
+为 0。r2 每臂只有 4 次，不能给出正式的 10 组配对结论，也不能替代 5 ABBA、20-run 发布门。
+
+r2 中 ROI-on 的 SM 时钟与瞬时设备功耗仍较低，分别为 `1822.5 -> 1481.25 MHz` 和
+`27.048 -> 22.199 W`，但全屏 FinalComposite 同时更快，未复现 r1 的 FinalComposite 变慢。因此 r1
+只保留为一次状态相关观测，较低设备时钟/功耗本身不足以解释正式 r5 或稳定预测 FinalComposite。NVIDIA
+数据按 200 ms 采样并描述设备整体状态，不能归因到单帧、单进程或 BAFX 独占能耗；r1 的
+`P5/810 MHz` 与 r2 的 `P0/8001 MHz` 也禁止跨矩阵比较绝对耗时。
 
 证据索引 SHA-256：
 
@@ -544,13 +566,24 @@ diffusion/intensity 更新和显式重建会清空缓存，Context1、资源状�
   `2ac598386498894342b00b21f435daeaf3dc98a81d8e5fbd888b392ada0c07c3`
 - 因果诊断 `diagnostic-summary-schema3.md`:
   `79b6d2c48f6f1e4d99a2ee75a0fe5735d38fe107355562aa125bacba5085156e`
+- 因果诊断 `diagnostic-summary-schema4.json`:
+  `60e88aafc66de991ba0874bcfbc8f54755d04ec9cb1afb7a7a67b386bcdb1c99`
+- 因果诊断 `diagnostic-summary-schema4.md`:
+  `0d15171808508c013797cbf24193718830a7ee94a3803dc8dacb7ed0b38f3c05`
 - 缓存复测失败 manifest `capture.json`:
   `0ce9a25be6e6aa2cc3a97c7bc84863d1bc27e4b6422cf071bd36d2c331ef1767`
 - 缓存复测失败 run-01 Host 日志 `ba-click-fx-desktop-support.log`:
   `28265930044e5af25e9bdc6a9d220c8fa635e11ed595c4054647c4c90cbc7b60`
+- 缓存复测 r2 `capture.json`:
+  `6b9c5d42c6ec26fa4caa8f9e0a0335467554b515f3e413995c9686e98830495c`
+- 缓存复测 r2 `diagnostic-summary-schema4.json`:
+  `0569ffb41cb646bb4d465b0fe312ca1a4f78ebad289522410fbcb9c31d715275`
+- 缓存复测 r2 `diagnostic-summary-schema4.md`:
+  `a765134c17476022c19086143622239ce89158fe49b6ac2449986a7ea524a637`
 
-因此阈值不放宽，0.2.7 不发布，也不执行 Full/Slim 发布 workflow、SDK `19041/22621/26100` 发布 CI、
-正式打包、tag 或远端复核。官方 Release 的 Full 四资产策略保持不变，Slim 仍只保留源码构建验证。
+正式 r5 仍是最新 20-run 证据且为 `FAIL`，缓存后的正式 5 ABBA、20-run 复验保持 `Not Run`。因此阈值
+不放宽，0.2.7 不发布，也不执行 Full/Slim 发布 workflow、SDK `19041/22621/26100` 发布 CI、正式打包、
+tag 或远端复核。官方 Release 的 Full 四资产策略保持不变，Slim 仍只保留源码构建验证。
 
 0.2.8 的 Differential Bloom ROI 必须在 0.2.7 独立通过并交付后开始，另行增加背景有效性和捕获代次
 回退门；当前保持阻塞，不得用 0.2.7 的局部 GPU 收益替代整机失败结果。
