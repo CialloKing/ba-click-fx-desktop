@@ -79,6 +79,103 @@ class ActiveFxRoiAbCollectorTests(unittest.TestCase):
         ):
             self.assertIn(token, self.source)
 
+    def test_keeps_the_default_release_manifest_and_matrix_unchanged(self) -> None:
+        for token in (
+            "$manifestSchemaVersion = 3",
+            "$blockCount = 5",
+            "$runCount = 20",
+            "'bafx-active-fx-roi-ab-capture'",
+            "pattern = 'ABBA'",
+            "blocks = $blockCount",
+            "runs = $runCount",
+            "'collecting'",
+            "'captured'",
+            "'failed'",
+        ):
+            self.assertIn(token, self.source)
+        self.assertIn("[int]$DiagnosticBlocks = 0", self.source)
+        self.assertIn("$activeManifestSchemaVersion", self.source)
+
+    def test_marks_the_two_block_matrix_as_non_release_diagnostic_evidence(self) -> None:
+        for token in (
+            "[ValidateSet(0, 2)]",
+            "$diagnosticManifestSchemaVersion = 1",
+            "$diagnosticBlockCount = 2",
+            "$diagnosticRunCount = 8",
+            "'bafx-active-fx-roi-diagnostic-capture'",
+            "'diagnostic-collecting'",
+            "'diagnostic-captured'",
+            "'diagnostic-failed'",
+            "pattern = 'ABBA+BAAB'",
+            "blockPatterns = @('ABBA', 'BAAB')",
+            "$manifest['releaseEligible'] = $false",
+            "NON-RELEASE: short matrix for causal investigation only",
+            "$run['blockPattern'] = $BlockPattern",
+            "the release reporter must reject this manifest",
+        ):
+            self.assertIn(token, self.source)
+
+    def test_diagnostic_schedule_uses_abba_then_baab(self) -> None:
+        for token in (
+            "$abbaPattern = @(",
+            "$baabPattern = @(",
+            "$blockPattern = if ($diagnosticMode -and $block -eq 2)",
+            "$pattern = if ($blockPattern -eq 'BAAB')",
+            "[ordered]@{ arm = 'A'; enabled = $false }",
+            "[ordered]@{ arm = 'B'; enabled = $true }",
+            "-BlockPattern $blockPattern",
+            "-DiagnosticMode $diagnosticMode",
+        ):
+            self.assertIn(token, self.source)
+
+    def test_nvidia_telemetry_is_diagnostic_only_and_validates_its_contract(self) -> None:
+        for token in (
+            "[switch]$CaptureNvidiaTelemetry",
+            "$nvidiaTelemetryIntervalMilliseconds = 200",
+            "CaptureNvidiaTelemetry is restricted to -DiagnosticBlocks 2",
+            "function Resolve-NvidiaSmiExecutable",
+            "NVIDIA telemetry executable must be named nvidia-smi.exe",
+            "'NVIDIA Corporation'",
+            "'NVIDIA-SMI'",
+            "function ConvertFrom-NvidiaTelemetryLine",
+            "must contain exactly $($Fields.Count) fields",
+            "--format=csv,noheader,nounits",
+            "must expose exactly one $script:requiredAdapterNameFragment GPU",
+            "Get-FileHash -LiteralPath $ExecutablePath -Algorithm SHA256",
+        ):
+            self.assertIn(token, self.source)
+        for field in (
+            "'timestamp'",
+            "'index'",
+            "'uuid'",
+            "'name'",
+            "'pstate'",
+            "'clocks.current.graphics'",
+            "'clocks.current.memory'",
+            "'power.draw'",
+            "'temperature.gpu'",
+            "'utilization.gpu'",
+            "'utilization.memory'",
+        ):
+            self.assertIn(field, self.source)
+
+    def test_nvidia_sampler_is_owned_per_run_and_writes_canonical_csv(self) -> None:
+        for token in (
+            "function Start-NvidiaTelemetry",
+            '"--loop-ms=$script:nvidiaTelemetryIntervalMilliseconds"',
+            "-RedirectStandardOutput $rawPath",
+            "-RedirectStandardError $stderrPath",
+            "function Stop-NvidiaTelemetry",
+            "Stop-OwnedProcess -Process $Session.process",
+            "nvidia-smi telemetry produced no samples",
+            "$csvLines = @($script:nvidiaTelemetryFields -join ',') + @($lines)",
+            "collectorStoppedProcess = $true",
+            "$run['nvidiaTelemetry'] = $telemetryEvidence",
+        ):
+            self.assertIn(token, self.source)
+        self.assertNotIn("Get-Process -Name 'nvidia-smi'", self.source)
+        self.assertNotIn("Stop-Process -Name", self.source)
+
     def test_extracts_and_compares_every_raw_log_environment(self) -> None:
         for token in (
             "function Get-OnlyStructuredEvent",

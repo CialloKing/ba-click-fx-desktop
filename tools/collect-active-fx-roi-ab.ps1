@@ -32,7 +32,14 @@ param(
     [int]$ReadyTimeoutMilliseconds = 5000,
 
     [ValidateRange(45500, 120000)]
-    [int]$ProcessTimeoutMilliseconds = 55000
+    [int]$ProcessTimeoutMilliseconds = 55000,
+
+    [ValidateSet(0, 2)]
+    [int]$DiagnosticBlocks = 0,
+
+    [switch]$CaptureNvidiaTelemetry,
+
+    [string]$NvidiaSmiExecutable = 'nvidia-smi.exe'
 )
 
 Set-StrictMode -Version Latest
@@ -43,6 +50,7 @@ $configName = 'BAFX.config.json'
 $logName = 'ba-click-fx-desktop-support.log'
 $manifestName = 'capture.json'
 $manifestSchemaVersion = 3
+$diagnosticManifestSchemaVersion = 1
 $configSchemaVersion = 19
 $environmentContract = 'rtx-4060-4k170-sdr-v1'
 $requiredAdapterNameFragment = 'RTX 4060'
@@ -52,6 +60,8 @@ $requiredRefreshRateNumerator = 170
 $requiredRefreshRateDenominator = 1
 $blockCount = 5
 $runCount = 20
+$diagnosticBlockCount = 2
+$diagnosticRunCount = 8
 $warmupMilliseconds = 5000
 $sampleMilliseconds = 30000
 $hostDurationMilliseconds = 40500
@@ -59,6 +69,19 @@ $performanceIntervalMilliseconds = 10000
 $discardCompleteIntervals = 1
 $selectCompleteIntervals = 3
 $demoAgeMilliseconds = 130
+$nvidiaTelemetryIntervalMilliseconds = 200
+$nvidiaTelemetryFields = @(
+    'timestamp',
+    'index',
+    'uuid',
+    'name',
+    'pstate',
+    'clocks.current.graphics',
+    'clocks.current.memory',
+    'power.draw',
+    'temperature.gpu',
+    'utilization.gpu',
+    'utilization.memory')
 $scenarioWorkloads = [ordered]@{
     'center-click' = 'fixed-age-center-click'
     'interior-trail' = 'fixed-age-interior-trail'
@@ -582,6 +605,319 @@ function Stop-OwnedProcess
     }
 }
 
+function Resolve-NvidiaSmiExecutable
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path,
+
+        [Parameter(Mandatory = $true)]
+        [string]$BaseDirectory
+    )
+
+    $resolvedPath = $null
+    if ([IO.Path]::IsPathRooted($Path) -or
+        -not [string]::IsNullOrEmpty([IO.Path]::GetDirectoryName($Path)))
+    {
+        $resolvedPath = Get-FullPath -Path $Path -BaseDirectory $BaseDirectory
+    }
+    else
+    {
+        $command = Get-Command `
+            -Name $Path `
+            -CommandType Application `
+            -ErrorAction Stop
+        $resolvedPath = [IO.Path]::GetFullPath($command.Source)
+    }
+    if (-not (Test-Path -LiteralPath $resolvedPath -PathType Leaf))
+    {
+        throw "NVIDIA telemetry executable is missing: $resolvedPath"
+    }
+    if (-not [string]::Equals(
+            [IO.Path]::GetFileName($resolvedPath),
+            'nvidia-smi.exe',
+            [StringComparison]::OrdinalIgnoreCase))
+    {
+        throw 'NVIDIA telemetry executable must be named nvidia-smi.exe'
+    }
+
+    $versionInfo = (Get-Item -LiteralPath $resolvedPath).VersionInfo
+    if (-not [string]::Equals(
+            $versionInfo.CompanyName,
+            'NVIDIA Corporation',
+            [StringComparison]::OrdinalIgnoreCase) -or
+        -not $versionInfo.FileDescription.StartsWith(
+            'NVIDIA-SMI',
+            [StringComparison]::OrdinalIgnoreCase))
+    {
+        # Name-only validation would allow an unrelated executable on PATH to
+        # become part of otherwise trusted diagnostic evidence.
+        throw 'NVIDIA telemetry executable has unexpected version metadata'
+    }
+    return $resolvedPath
+}
+
+function ConvertFrom-NvidiaTelemetryLine
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Line,
+
+        [Parameter(Mandatory = $true)]
+        [string[]]$Fields,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Context
+    )
+
+    $values = @($Line -split ',')
+    if ($values.Count -ne $Fields.Count)
+    {
+        throw "$Context must contain exactly $($Fields.Count) fields"
+    }
+    $row = [ordered]@{}
+    for ($index = 0; $index -lt $Fields.Count; ++$index)
+    {
+        $value = $values[$index].Trim()
+        if ([string]::IsNullOrEmpty($value))
+        {
+            throw "$Context field $($Fields[$index]) must not be empty"
+        }
+        $row[$Fields[$index]] = $value
+    }
+
+    $gpuIndex = 0
+    if (-not [int]::TryParse($row.index, [ref]$gpuIndex) -or $gpuIndex -lt 0)
+    {
+        throw "$Context field index must be a non-negative integer"
+    }
+    if ($row.uuid -notmatch '^GPU-[0-9A-Fa-f-]+$')
+    {
+        throw "$Context field uuid must be a physical GPU UUID"
+    }
+    if ($row.pstate -notmatch '^P[0-9]+$')
+    {
+        throw "$Context field pstate must be an NVIDIA performance state"
+    }
+    if ($row.timestamp -notmatch '^\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2}\.\d{3}$')
+    {
+        throw "$Context field timestamp has an unexpected format"
+    }
+    foreach ($name in @(
+            'clocks.current.graphics',
+            'clocks.current.memory',
+            'power.draw',
+            'temperature.gpu',
+            'utilization.gpu',
+            'utilization.memory'))
+    {
+        $number = 0.0
+        if (-not [double]::TryParse(
+                $row[$name],
+                [Globalization.NumberStyles]::Float,
+                [Globalization.CultureInfo]::InvariantCulture,
+                [ref]$number) -or
+            [double]::IsNaN($number) -or
+            [double]::IsInfinity($number))
+        {
+            throw "$Context field $name must be a finite number"
+        }
+    }
+    return $row
+}
+
+function Get-NvidiaTelemetryContract
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ExecutablePath
+    )
+
+    $query = $script:nvidiaTelemetryFields -join ','
+    $output = @(
+        & $ExecutablePath `
+            "--query-gpu=$query" `
+            '--format=csv,noheader,nounits' 2>&1)
+    $exitCode = $LASTEXITCODE
+    if ($exitCode -ne 0)
+    {
+        throw "nvidia-smi field validation failed with code ${exitCode}: $($output -join '; ')"
+    }
+    $lines = @(
+        $output |
+            ForEach-Object { [string]$_ } |
+            Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+    if ($lines.Count -eq 0)
+    {
+        throw 'nvidia-smi field validation returned no GPUs'
+    }
+
+    $rows = @()
+    for ($index = 0; $index -lt $lines.Count; ++$index)
+    {
+        $rows += ConvertFrom-NvidiaTelemetryLine `
+            -Line $lines[$index] `
+            -Fields $script:nvidiaTelemetryFields `
+            -Context "nvidia-smi validation row $($index + 1)"
+    }
+    $matching = @(
+        $rows |
+            Where-Object {
+                $_.name.IndexOf(
+                    $script:requiredAdapterNameFragment,
+                    [StringComparison]::OrdinalIgnoreCase) -ge 0
+            })
+    if ($matching.Count -ne 1)
+    {
+        throw "nvidia-smi must expose exactly one $script:requiredAdapterNameFragment GPU; found $($matching.Count)"
+    }
+
+    $versionInfo = (Get-Item -LiteralPath $ExecutablePath).VersionInfo
+    return [ordered]@{
+        executablePath = $ExecutablePath
+        gpu = [ordered]@{
+            index = [int]$matching[0].index
+            uuid = $matching[0].uuid
+            name = $matching[0].name
+        }
+        evidence = [ordered]@{
+            enabled = $true
+            provider = 'nvidia-smi'
+            intervalMs = $script:nvidiaTelemetryIntervalMilliseconds
+            fields = @($script:nvidiaTelemetryFields)
+            executable = [ordered]@{
+                fileName = [IO.Path]::GetFileName($ExecutablePath)
+                sha256 = (
+                    Get-FileHash -LiteralPath $ExecutablePath -Algorithm SHA256
+                ).Hash.ToLowerInvariant()
+                companyName = $versionInfo.CompanyName
+                fileDescription = $versionInfo.FileDescription
+                productVersion = $versionInfo.ProductVersion
+            }
+            gpu = [ordered]@{
+                index = [int]$matching[0].index
+                uuid = $matching[0].uuid
+                name = $matching[0].name
+            }
+        }
+    }
+}
+
+function Start-NvidiaTelemetry
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [Collections.IDictionary]$Contract,
+
+        [Parameter(Mandatory = $true)]
+        [string]$RunRoot
+    )
+
+    $rawPath = Join-Path $RunRoot 'nvidia-smi.raw.csv'
+    $stderrPath = Join-Path $RunRoot 'nvidia-smi.stderr.txt'
+    $query = $script:nvidiaTelemetryFields -join ','
+    $arguments = @(
+        "--id=$($Contract.gpu.uuid)",
+        "--query-gpu=$query",
+        '--format=csv,noheader,nounits',
+        "--loop-ms=$script:nvidiaTelemetryIntervalMilliseconds")
+    $startedAt = [DateTime]::UtcNow
+    $process = Start-Process `
+        -FilePath $Contract.executablePath `
+        -ArgumentList $arguments `
+        -WindowStyle Hidden `
+        -RedirectStandardOutput $rawPath `
+        -RedirectStandardError $stderrPath `
+        -PassThru
+    return [ordered]@{
+        process = $process
+        rawPath = $rawPath
+        stderrPath = $stderrPath
+        arguments = @($arguments)
+        startedAtUtc = $startedAt
+        gpu = $Contract.gpu
+    }
+}
+
+function Stop-NvidiaTelemetry
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [Collections.IDictionary]$Session
+    )
+
+    $exitedUnexpectedly = $Session.process.HasExited
+    if (-not $exitedUnexpectedly)
+    {
+        # The process object is the ownership boundary; existing nvidia-smi
+        # processes on the machine are never enumerated or terminated.
+        Stop-OwnedProcess -Process $Session.process
+    }
+    $stoppedAt = [DateTime]::UtcNow
+
+    $stderr = if (Test-Path -LiteralPath $Session.stderrPath -PathType Leaf)
+    {
+        [IO.File]::ReadAllText($Session.stderrPath, [Text.Encoding]::UTF8)
+    }
+    else
+    {
+        ''
+    }
+    if (-not [string]::IsNullOrWhiteSpace($stderr))
+    {
+        throw "nvidia-smi telemetry wrote stderr: $($stderr.Trim())"
+    }
+    if (-not (Test-Path -LiteralPath $Session.rawPath -PathType Leaf))
+    {
+        throw 'nvidia-smi telemetry did not create its CSV stream'
+    }
+    $lines = @(
+        Get-Content -LiteralPath $Session.rawPath |
+            Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+    if ($lines.Count -eq 0)
+    {
+        throw 'nvidia-smi telemetry produced no samples'
+    }
+    for ($index = 0; $index -lt $lines.Count; ++$index)
+    {
+        $row = ConvertFrom-NvidiaTelemetryLine `
+            -Line $lines[$index] `
+            -Fields $script:nvidiaTelemetryFields `
+            -Context "nvidia-smi sample $($index + 1)"
+        if ($row.uuid -cne $Session.gpu.uuid -or
+            [int]$row.index -ne [int]$Session.gpu.index -or
+            $row.name -cne $Session.gpu.name)
+        {
+            throw "nvidia-smi sample $($index + 1) changed GPU identity"
+        }
+    }
+
+    $csvPath = Join-Path (Split-Path -Parent $Session.rawPath) 'nvidia-smi.csv'
+    $csvLines = @($script:nvidiaTelemetryFields -join ',') + @($lines)
+    Write-Utf8Text -Path $csvPath -Text (($csvLines -join "`n") + "`n")
+    # The headerless stream is an implementation detail; the canonical file
+    # carries stable field names that do not vary with driver unit labels.
+    [IO.File]::Delete($Session.rawPath)
+    if ($exitedUnexpectedly)
+    {
+        throw 'nvidia-smi telemetry exited before the collector stopped it'
+    }
+    return [ordered]@{
+        fileName = [IO.Path]::GetFileName($csvPath)
+        stderrFileName = [IO.Path]::GetFileName($Session.stderrPath)
+        sha256 = (
+            Get-FileHash -LiteralPath $csvPath -Algorithm SHA256
+        ).Hash.ToLowerInvariant()
+        samples = $lines.Count
+        intervalMs = $script:nvidiaTelemetryIntervalMilliseconds
+        arguments = @($Session.arguments)
+        startedAtUtc = $Session.startedAtUtc.ToString(
+            'yyyy-MM-ddTHH:mm:ss.fffZ')
+        stoppedAtUtc = $stoppedAt.ToString('yyyy-MM-ddTHH:mm:ss.fffZ')
+        collectorStoppedProcess = $true
+    }
+}
+
 function Confirm-RunLogContract
 {
     param(
@@ -718,6 +1054,9 @@ function Invoke-AbbaRun
         [int]$Position,
 
         [Parameter(Mandatory = $true)]
+        [string]$BlockPattern,
+
+        [Parameter(Mandatory = $true)]
         [string]$Arm,
 
         [Parameter(Mandatory = $true)]
@@ -745,7 +1084,13 @@ function Invoke-AbbaRun
         [int]$ReadyTimeoutMilliseconds,
 
         [Parameter(Mandatory = $true)]
-        [int]$ProcessTimeoutMilliseconds
+        [int]$ProcessTimeoutMilliseconds,
+
+        [Parameter(Mandatory = $true)]
+        [bool]$DiagnosticMode,
+
+        [AllowNull()]
+        [Collections.IDictionary]$NvidiaTelemetryContract
     )
 
     $roiToken = if ($RoiEnabled) { 'on' } else { 'off' }
@@ -785,8 +1130,16 @@ function Invoke-AbbaRun
     $startedAt = [DateTime]::UtcNow
     $timer = [Diagnostics.Stopwatch]::StartNew()
     $process = $null
+    $telemetrySession = $null
+    $telemetryEvidence = $null
     try
     {
+        if ($null -ne $NvidiaTelemetryContract)
+        {
+            $telemetrySession = Start-NvidiaTelemetry `
+                -Contract $NvidiaTelemetryContract `
+                -RunRoot $runRoot
+        }
         $process = Start-Process `
             -FilePath $runExecutable `
             -ArgumentList $arguments `
@@ -816,7 +1169,18 @@ function Invoke-AbbaRun
     }
     finally
     {
-        $timer.Stop()
+        try
+        {
+            if ($null -ne $telemetrySession)
+            {
+                $telemetryEvidence = Stop-NvidiaTelemetry `
+                    -Session $telemetrySession
+            }
+        }
+        finally
+        {
+            $timer.Stop()
+        }
     }
 
     $finalConfigSha256 = (
@@ -837,25 +1201,40 @@ function Invoke-AbbaRun
     {
         throw "$directoryName executable differs from the source executable"
     }
+    $run = [ordered]@{
+        ordinal = $Ordinal
+        block = $Block
+        position = $Position
+        arm = $Arm
+        roiEnabled = $RoiEnabled
+        directory = $directoryName
+        executable = "$directoryName/$script:hostName"
+        config = "$directoryName/$script:configName"
+        log = "$directoryName/$script:logName"
+        arguments = @($arguments)
+        startedAtUtc = $startedAt.ToString('yyyy-MM-ddTHH:mm:ss.fffZ')
+        elapsedMs = $timer.ElapsedMilliseconds
+        exitCode = $process.ExitCode
+        executableSha256 = $copiedExecutableSha256
+        configSha256 = $initialConfigSha256
+    }
+    if ($DiagnosticMode)
+    {
+        $run['blockPattern'] = $BlockPattern
+        if ($null -ne $telemetryEvidence)
+        {
+            $telemetryEvidence['file'] =
+                "$directoryName/$($telemetryEvidence.fileName)"
+            $telemetryEvidence['stderr'] =
+                "$directoryName/$($telemetryEvidence.stderrFileName)"
+            $telemetryEvidence.Remove('fileName')
+            $telemetryEvidence.Remove('stderrFileName')
+            $run['nvidiaTelemetry'] = $telemetryEvidence
+        }
+    }
     return [ordered]@{
         environmentIdentity = $environmentIdentity
-        run = [ordered]@{
-            ordinal = $Ordinal
-            block = $Block
-            position = $Position
-            arm = $Arm
-            roiEnabled = $RoiEnabled
-            directory = $directoryName
-            executable = "$directoryName/$script:hostName"
-            config = "$directoryName/$script:configName"
-            log = "$directoryName/$script:logName"
-            arguments = @($arguments)
-            startedAtUtc = $startedAt.ToString('yyyy-MM-ddTHH:mm:ss.fffZ')
-            elapsedMs = $timer.ElapsedMilliseconds
-            exitCode = $process.ExitCode
-            executableSha256 = $copiedExecutableSha256
-            configSha256 = $initialConfigSha256
-        }
+        run = $run
     }
 }
 
@@ -874,18 +1253,96 @@ if (Test-Path -LiteralPath $outputRoot)
     throw "Refusing to overwrite an existing capture path: $outputRoot"
 }
 
+$diagnosticMode = $DiagnosticBlocks -eq $diagnosticBlockCount
+if ($CaptureNvidiaTelemetry -and -not $diagnosticMode)
+{
+    throw 'CaptureNvidiaTelemetry is restricted to -DiagnosticBlocks 2 non-release captures'
+}
+if ($PSBoundParameters.ContainsKey('NvidiaSmiExecutable') -and
+    -not $CaptureNvidiaTelemetry)
+{
+    throw 'NvidiaSmiExecutable requires CaptureNvidiaTelemetry'
+}
+$activeManifestSchemaVersion = if ($diagnosticMode)
+{
+    $diagnosticManifestSchemaVersion
+}
+else
+{
+    $manifestSchemaVersion
+}
+$activeManifestKind = if ($diagnosticMode)
+{
+    'bafx-active-fx-roi-diagnostic-capture'
+}
+else
+{
+    'bafx-active-fx-roi-ab-capture'
+}
+$collectingStatus = if ($diagnosticMode)
+{
+    'diagnostic-collecting'
+}
+else
+{
+    'collecting'
+}
+$capturedStatus = if ($diagnosticMode)
+{
+    'diagnostic-captured'
+}
+else
+{
+    'captured'
+}
+$failedStatus = if ($diagnosticMode)
+{
+    'diagnostic-failed'
+}
+else
+{
+    'failed'
+}
+$activeBlockCount = if ($diagnosticMode)
+{
+    $diagnosticBlockCount
+}
+else
+{
+    $blockCount
+}
+$activeRunCount = if ($diagnosticMode)
+{
+    $diagnosticRunCount
+}
+else
+{
+    $runCount
+}
+
 if (-not $capabilities[$Scenario].supported)
 {
     $null = New-Item -ItemType Directory -Path $outputRoot
     $unsupported = [ordered]@{
-        schemaVersion = $manifestSchemaVersion
-        kind = 'bafx-active-fx-roi-ab-capture'
-        captureStatus = 'unsupported'
+        schemaVersion = $activeManifestSchemaVersion
+        kind = $activeManifestKind
+        captureStatus = if ($diagnosticMode)
+        {
+            'diagnostic-unsupported'
+        }
+        else
+        {
+            'unsupported'
+        }
         capturedAtUtc = [DateTime]::UtcNow.ToString(
             'yyyy-MM-ddTHH:mm:ss.fffZ')
         scenario = $Scenario
         capabilities = $capabilities
         failure = $capabilities[$Scenario].failureCode
+    }
+    if ($diagnosticMode)
+    {
+        $unsupported['releaseEligible'] = $false
     }
     Write-CaptureManifest `
         -Path (Join-Path $outputRoot $manifestName) `
@@ -952,12 +1409,21 @@ if ($LASTEXITCODE -ne 0)
 }
 if ($trackedChanges.Count -ne 0)
 {
-    throw 'Official ROI A/B collection requires no tracked working-tree changes.'
+    throw 'ROI A/B collection requires no tracked working-tree changes.'
 }
 
 $executableSha256 = (
     Get-FileHash -LiteralPath $executablePath -Algorithm SHA256
 ).Hash.ToLowerInvariant()
+$nvidiaTelemetryContract = $null
+if ($CaptureNvidiaTelemetry)
+{
+    $nvidiaSmiPath = Resolve-NvidiaSmiExecutable `
+        -Path $NvidiaSmiExecutable `
+        -BaseDirectory $repositoryRoot
+    $nvidiaTelemetryContract = Get-NvidiaTelemetryContract `
+        -ExecutablePath $nvidiaSmiPath
+}
 $null = New-Item -ItemType Directory -Path $outputRoot
 $baseConfigPath = Join-Path $outputRoot 'base-config.json'
 Copy-Item -LiteralPath $configurationPath -Destination $baseConfigPath
@@ -978,10 +1444,43 @@ else
 {
     'fallback'
 }
+$schedule = if ($diagnosticMode)
+{
+    [ordered]@{
+        pattern = 'ABBA+BAAB'
+        blockPatterns = @('ABBA', 'BAAB')
+        a = 'roi-off'
+        b = 'roi-on'
+        blocks = $diagnosticBlockCount
+        runs = $diagnosticRunCount
+        warmupMs = $warmupMilliseconds
+        sampleMs = $sampleMilliseconds
+        hostDurationMs = $hostDurationMilliseconds
+        performanceIntervalMs = $performanceIntervalMilliseconds
+        discardCompleteIntervals = $discardCompleteIntervals
+        selectCompleteIntervals = $selectCompleteIntervals
+    }
+}
+else
+{
+    [ordered]@{
+        pattern = 'ABBA'
+        a = 'roi-off'
+        b = 'roi-on'
+        blocks = $blockCount
+        runs = $runCount
+        warmupMs = $warmupMilliseconds
+        sampleMs = $sampleMilliseconds
+        hostDurationMs = $hostDurationMilliseconds
+        performanceIntervalMs = $performanceIntervalMilliseconds
+        discardCompleteIntervals = $discardCompleteIntervals
+        selectCompleteIntervals = $selectCompleteIntervals
+    }
+}
 $manifest = [ordered]@{
-    schemaVersion = $manifestSchemaVersion
-    kind = 'bafx-active-fx-roi-ab-capture'
-    captureStatus = 'collecting'
+    schemaVersion = $activeManifestSchemaVersion
+    kind = $activeManifestKind
+    captureStatus = $collectingStatus
     revision = $revision
     workingTreeDirty = $false
     capturedAtUtc = [DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ss.fffZ')
@@ -1009,20 +1508,24 @@ $manifest = [ordered]@{
         expectedDecisionReason = $manifestDecisionReason
     }
     capabilities = $capabilities
-    schedule = [ordered]@{
-        pattern = 'ABBA'
-        a = 'roi-off'
-        b = 'roi-on'
-        blocks = $blockCount
-        runs = $runCount
-        warmupMs = $warmupMilliseconds
-        sampleMs = $sampleMilliseconds
-        hostDurationMs = $hostDurationMilliseconds
-        performanceIntervalMs = $performanceIntervalMilliseconds
-        discardCompleteIntervals = $discardCompleteIntervals
-        selectCompleteIntervals = $selectCompleteIntervals
-    }
+    schedule = $schedule
     runs = @()
+}
+if ($diagnosticMode)
+{
+    # A distinct envelope makes accidental submission to the release reporter
+    # fail closed before any short-matrix statistics can be interpreted.
+    $manifest['releaseEligible'] = $false
+    $manifest['diagnosticNotice'] =
+        'NON-RELEASE: short matrix for causal investigation only'
+    $manifest['nvidiaTelemetry'] = if ($null -ne $nvidiaTelemetryContract)
+    {
+        $nvidiaTelemetryContract.evidence
+    }
+    else
+    {
+        [ordered]@{ enabled = $false }
+    }
 }
 Write-CaptureManifest -Path $manifestPath -Manifest $manifest
 
@@ -1032,14 +1535,35 @@ try
     # Performance evidence is invalid once Windows stops presenting for display
     # power. The handle owns both requests across PowerShell thread switches.
     $capturePowerRequest = Enable-CapturePowerRequest
-    $pattern = @(
+    $abbaPattern = @(
         [ordered]@{ arm = 'A'; enabled = $false },
         [ordered]@{ arm = 'B'; enabled = $true },
         [ordered]@{ arm = 'B'; enabled = $true },
         [ordered]@{ arm = 'A'; enabled = $false })
+    $baabPattern = @(
+        [ordered]@{ arm = 'B'; enabled = $true },
+        [ordered]@{ arm = 'A'; enabled = $false },
+        [ordered]@{ arm = 'A'; enabled = $false },
+        [ordered]@{ arm = 'B'; enabled = $true })
     $ordinal = 0
-    for ($block = 1; $block -le $blockCount; ++$block)
+    for ($block = 1; $block -le $activeBlockCount; ++$block)
     {
+        $blockPattern = if ($diagnosticMode -and $block -eq 2)
+        {
+            'BAAB'
+        }
+        else
+        {
+            'ABBA'
+        }
+        $pattern = if ($blockPattern -eq 'BAAB')
+        {
+            $baabPattern
+        }
+        else
+        {
+            $abbaPattern
+        }
         for ($position = 1; $position -le $pattern.Count; ++$position)
         {
             ++$ordinal
@@ -1048,6 +1572,7 @@ try
                 -Ordinal $ordinal `
                 -Block $block `
                 -Position $position `
+                -BlockPattern $blockPattern `
                 -Arm $entry.arm `
                 -RoiEnabled $entry.enabled `
                 -BaseConfiguration $baseConfiguration `
@@ -1057,7 +1582,9 @@ try
                 -Scenario $Scenario `
                 -MeasurementPath $MeasurementPath `
                 -ReadyTimeoutMilliseconds $ReadyTimeoutMilliseconds `
-                -ProcessTimeoutMilliseconds $ProcessTimeoutMilliseconds
+                -ProcessTimeoutMilliseconds $ProcessTimeoutMilliseconds `
+                -DiagnosticMode $diagnosticMode `
+                -NvidiaTelemetryContract $nvidiaTelemetryContract
             if ($null -eq $manifest.environment.identity)
             {
                 # The first raw log anchors the canonical identity in the manifest.
@@ -1074,13 +1601,13 @@ try
             Write-CaptureManifest -Path $manifestPath -Manifest $manifest
         }
     }
-    if ($manifest.runs.Count -ne $runCount)
+    if ($manifest.runs.Count -ne $activeRunCount)
     {
-        throw "Collector produced $($manifest.runs.Count) runs instead of $runCount"
+        throw "Collector produced $($manifest.runs.Count) runs instead of $activeRunCount"
     }
     Disable-CapturePowerRequest -Request $capturePowerRequest
     $capturePowerRequest = [IntPtr]::Zero
-    $manifest.captureStatus = 'captured'
+    $manifest.captureStatus = $capturedStatus
     Write-CaptureManifest -Path $manifestPath -Manifest $manifest
 }
 catch
@@ -1098,11 +1625,19 @@ catch
             $failure += "; power-request cleanup failed: $($_.Exception.Message)"
         }
     }
-    $manifest.captureStatus = 'failed'
+    $manifest.captureStatus = $failedStatus
     $manifest['failure'] = $failure
     Write-CaptureManifest -Path $manifestPath -Manifest $manifest
     throw $failure
 }
 
-Write-Host "Active-FX ROI ABBA capture completed: $outputRoot"
-Write-Host "Validate with: python -B tools\report-active-fx-roi-ab.py `"$outputRoot`""
+if ($diagnosticMode)
+{
+    Write-Warning 'NON-RELEASE diagnostic capture completed; the release reporter must reject this manifest.'
+    Write-Host "Active-FX ROI ABBA+BAAB diagnostic completed: $outputRoot"
+}
+else
+{
+    Write-Host "Active-FX ROI ABBA capture completed: $outputRoot"
+    Write-Host "Validate with: python -B tools\report-active-fx-roi-ab.py `"$outputRoot`""
+}
