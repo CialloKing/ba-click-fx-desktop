@@ -16,8 +16,8 @@ from types import ModuleType
 from typing import Any
 
 
-CAPTURE_SCHEMA_VERSION = 1
-REPORT_SCHEMA_VERSION = 1
+CAPTURE_SCHEMA_VERSION = 2
+REPORT_SCHEMA_VERSION = 2
 CAPTURE_KIND = "bafx-active-fx-roi-diagnostic-capture"
 REPORT_KIND = "bafx-active-fx-roi-diagnostic-report"
 DIAGNOSTIC_NOTICE = "NON-RELEASE: short matrix for causal investigation only"
@@ -68,6 +68,29 @@ BASE_RUN_FIELDS = {
     "executableSha256",
     "configSha256",
 }
+PRE_PRESENT_SEMANTIC = (
+    "fx-render-return-to-Present-call-entry-including-roi-diagnostics-spout-"
+    "gpu-query-end-and-readback"
+)
+FRAME_PACING_WAIT_SEMANTIC = (
+    "owner-thread-qpc-around-waitForAnyFrameOpportunity-including-handle-prepoll-"
+    "and-message-wait-excluding-wait-set-build-and-post-wake-work"
+)
+WAIT_WAKE_FIELDS = (
+    "FramePacing.FrameReadyWakes",
+    "FramePacing.DeviceRemovedWakes",
+    "FramePacing.CadenceWakes",
+    "FramePacing.MessageWakes",
+    "FramePacing.Timeouts",
+    "FramePacing.Failures",
+)
+WAIT_BUCKET_FIELDS = (
+    ("lt100Us", "FramePacing.Wait.Lt100Us"),
+    ("from100To999Us", "FramePacing.Wait.100To999Us"),
+    ("from1000To3999Us", "FramePacing.Wait.1000To3999Us"),
+    ("from4000To7999Us", "FramePacing.Wait.4000To7999Us"),
+    ("ge8000Us", "FramePacing.Wait.Ge8000Us"),
+)
 
 
 def _load_release_reporter() -> ModuleType:
@@ -104,7 +127,7 @@ def _validate_schedule(value: Any) -> None:
     }
     RELEASE._require_keys(schedule, set(expected), "manifest.schedule")
     if schedule != expected:
-        raise ValidationError("manifest.schedule does not match diagnostic contract v1")
+        raise ValidationError("manifest.schedule does not match diagnostic contract v2")
 
 
 def _validate_gpu_identity(value: Any, context: str) -> dict[str, Any]:
@@ -151,7 +174,7 @@ def _validate_telemetry_contract(value: Any) -> dict[str, Any]:
         raise ValidationError("manifest.nvidiaTelemetry.intervalMs must be 200")
     fields = RELEASE._list(telemetry["fields"], "manifest.nvidiaTelemetry.fields")
     if tuple(fields) != TELEMETRY_FIELDS:
-        raise ValidationError("manifest.nvidiaTelemetry.fields differ from contract v1")
+        raise ValidationError("manifest.nvidiaTelemetry.fields differ from contract v2")
 
     executable = RELEASE._dict(
         telemetry["executable"], "manifest.nvidiaTelemetry.executable"
@@ -219,7 +242,7 @@ def _validate_manifest(
         RELEASE._integer(manifest["schemaVersion"], "manifest.schemaVersion")
         != CAPTURE_SCHEMA_VERSION
     ):
-        raise ValidationError("manifest.schemaVersion must be 1")
+        raise ValidationError("manifest.schemaVersion must be 2")
     if manifest["kind"] != CAPTURE_KIND:
         raise ValidationError(f"manifest.kind must be {CAPTURE_KIND}")
     if manifest["captureStatus"] != "diagnostic-captured":
@@ -227,7 +250,7 @@ def _validate_manifest(
     if RELEASE._boolean(manifest["releaseEligible"], "manifest.releaseEligible"):
         raise ValidationError("diagnostic evidence must not be release eligible")
     if manifest["diagnosticNotice"] != DIAGNOSTIC_NOTICE:
-        raise ValidationError("manifest.diagnosticNotice differs from contract v1")
+        raise ValidationError("manifest.diagnosticNotice differs from contract v2")
     revision = RELEASE._string(manifest["revision"], "manifest.revision")
     if RELEASE.REVISION_PATTERN.fullmatch(revision) is None:
         raise ValidationError("manifest.revision must be a lowercase commit SHA")
@@ -259,6 +282,147 @@ def _number(raw: str, context: str) -> float:
     if not math.isfinite(value):
         raise ValidationError(f"{context} must be finite")
     return value
+
+
+def _metric(
+    event: dict[str, str], prefix: str, context: str
+) -> dict[str, int | float]:
+    if not RELEASE._event_bool(event, f"{prefix}.Available", context):
+        raise ValidationError(f"{context}: {prefix} must be available")
+    if RELEASE._event_string(event, f"{prefix}.Unit", context) != "us":
+        raise ValidationError(f"{context}: {prefix}.Unit must be us")
+    samples = RELEASE._event_int(event, f"{prefix}.Samples", context)
+    recorded = RELEASE._event_int(event, f"{prefix}.RecordedSamples", context)
+    dropped = RELEASE._event_int(event, f"{prefix}.DroppedSamples", context)
+    if samples <= 0:
+        raise ValidationError(f"{context}: {prefix}.Samples must be positive")
+    if recorded != samples:
+        raise ValidationError(
+            f"{context}: {prefix}.RecordedSamples does not match Samples"
+        )
+    if dropped != 0:
+        raise ValidationError(f"{context}: {prefix}.DroppedSamples must be zero")
+
+    values = {
+        name: RELEASE._event_number(event, f"{prefix}.{field}", context)
+        for name, field in (
+            ("minimum", "Min"),
+            ("average", "Average"),
+            ("p50", "P50"),
+            ("p95", "P95"),
+            ("p99", "P99"),
+            ("maximum", "Max"),
+        )
+    }
+    if any(value < 0.0 for value in values.values()):
+        raise ValidationError(f"{context}: {prefix} values must be non-negative")
+    if not (
+        values["minimum"]
+        <= values["p50"]
+        <= values["p95"]
+        <= values["p99"]
+        <= values["maximum"]
+        and values["minimum"] <= values["average"] <= values["maximum"]
+    ):
+        raise ValidationError(f"{context}: {prefix} distribution is inconsistent")
+    return {
+        "samples": samples,
+        "recordedSamples": recorded,
+        "droppedSamples": dropped,
+        **values,
+    }
+
+
+def _causal_metrics(
+    intervals: list[dict[str, str]], context: str
+) -> dict[str, Any]:
+    pre_present: list[dict[str, int | float]] = []
+    waits: list[dict[str, int | float]] = []
+    bucket_totals = {name: 0 for name, _ in WAIT_BUCKET_FIELDS}
+    for index, event in enumerate(intervals, 1):
+        interval_context = f"{context} selected interval {index}"
+        if (
+            RELEASE._event_string(
+                event, "Timing.PrePresentSemantic", interval_context
+            )
+            != PRE_PRESENT_SEMANTIC
+        ):
+            raise ValidationError(
+                f"{interval_context}: Timing.PrePresentSemantic differs from contract v2"
+            )
+        if (
+            RELEASE._event_string(
+                event, "Timing.FramePacingWaitSemantic", interval_context
+            )
+            != FRAME_PACING_WAIT_SEMANTIC
+        ):
+            raise ValidationError(
+                f"{interval_context}: Timing.FramePacingWaitSemantic differs from contract v2"
+            )
+
+        pre = _metric(event, "Cpu.PrePresent", interval_context)
+        frame_count = RELEASE._event_int(event, "Window.FrameCount", interval_context)
+        if pre["samples"] != frame_count:
+            raise ValidationError(
+                f"{interval_context}: Cpu.PrePresent.Samples does not match "
+                "Window.FrameCount"
+            )
+        wait = _metric(event, "FramePacing.Wait", interval_context)
+
+        wake_count = 0
+        for field in WAIT_WAKE_FIELDS:
+            count = RELEASE._event_int(event, field, interval_context)
+            if count < 0:
+                raise ValidationError(f"{interval_context}: {field} must be non-negative")
+            wake_count += count
+        if wait["samples"] != wake_count:
+            raise ValidationError(
+                f"{interval_context}: FramePacing.Wait.Samples does not match wake count"
+            )
+
+        interval_bucket_count = 0
+        for name, field in WAIT_BUCKET_FIELDS:
+            count = RELEASE._event_int(event, field, interval_context)
+            if count < 0:
+                raise ValidationError(f"{interval_context}: {field} must be non-negative")
+            interval_bucket_count += count
+            bucket_totals[name] += count
+        if wait["samples"] != interval_bucket_count:
+            raise ValidationError(
+                f"{interval_context}: FramePacing.Wait.Samples does not match bucket count"
+            )
+        pre_present.append(pre)
+        waits.append(wait)
+
+    wait_samples = sum(int(metric["samples"]) for metric in waits)
+    return {
+        "cpuPrePresentSamples": sum(
+            int(metric["samples"]) for metric in pre_present
+        ),
+        "cpuPrePresentP50Us": RELEASE._median(
+            [float(metric["p50"]) for metric in pre_present]
+        ),
+        "cpuPrePresentP95Us": RELEASE._median(
+            [float(metric["p95"]) for metric in pre_present]
+        ),
+        "cpuPrePresentP99Us": RELEASE._median(
+            [float(metric["p99"]) for metric in pre_present]
+        ),
+        "framePacingWaitSamples": wait_samples,
+        "framePacingWaitP50Us": RELEASE._median(
+            [float(metric["p50"]) for metric in waits]
+        ),
+        "framePacingWaitP95Us": RELEASE._median(
+            [float(metric["p95"]) for metric in waits]
+        ),
+        "framePacingWaitP99Us": RELEASE._median(
+            [float(metric["p99"]) for metric in waits]
+        ),
+        "framePacingWaitBuckets": bucket_totals,
+        "framePacingWaitBucketRatios": {
+            name: count / wait_samples for name, count in bucket_totals.items()
+        },
+    }
 
 
 def _range(values: list[float]) -> dict[str, float]:
@@ -335,7 +499,7 @@ def _validate_run_telemetry(
         f"--loop-ms={TELEMETRY_INTERVAL_MS}",
     ]
     if RELEASE._list(telemetry["arguments"], f"{context}.arguments") != expected_arguments:
-        raise ValidationError(f"{context}.arguments differ from contract v1")
+        raise ValidationError(f"{context}.arguments differ from contract v2")
     started_at = _parse_utc(telemetry["startedAtUtc"], f"{context}.startedAtUtc")
     stopped_at = _parse_utc(telemetry["stoppedAtUtc"], f"{context}.stoppedAtUtc")
     if stopped_at < started_at:
@@ -365,7 +529,7 @@ def _validate_run_telemetry(
     except (OSError, UnicodeError, csv.Error) as error:
         raise ValidationError(f"cannot read {csv_path}: {error}") from error
     if not rows or tuple(rows[0]) != TELEMETRY_FIELDS:
-        raise ValidationError(f"{context}: CSV header differs from contract v1")
+        raise ValidationError(f"{context}: CSV header differs from contract v2")
     samples = rows[1:]
     if len(samples) != sample_count:
         raise ValidationError(
@@ -568,6 +732,7 @@ def _validate_run(
     metrics = RELEASE._run_metrics(
         intervals, measurement_path, expected_reason, context
     )
+    metrics.update(_causal_metrics(intervals, context))
     gpu_prefix = (
         "GPU.Primary" if measurement_path == "primary" else "GPU.RecordingRebuild"
     )
@@ -607,6 +772,34 @@ def _aggregate(runs: list[dict[str, Any]]) -> dict[str, Any]:
     aggregate["finalCompositeP99Us"] = RELEASE._median(
         [float(run["metrics"]["finalCompositeP99Us"]) for run in runs]
     )
+    for name in (
+        "cpuPrePresentP50Us",
+        "cpuPrePresentP95Us",
+        "cpuPrePresentP99Us",
+        "framePacingWaitP50Us",
+        "framePacingWaitP95Us",
+        "framePacingWaitP99Us",
+    ):
+        aggregate[name] = RELEASE._median(
+            [float(run["metrics"][name]) for run in runs]
+        )
+    aggregate["cpuPrePresentSamples"] = sum(
+        int(run["metrics"]["cpuPrePresentSamples"]) for run in runs
+    )
+    wait_samples = sum(
+        int(run["metrics"]["framePacingWaitSamples"]) for run in runs
+    )
+    aggregate["framePacingWaitSamples"] = wait_samples
+    buckets = {
+        name: sum(
+            int(run["metrics"]["framePacingWaitBuckets"][name]) for run in runs
+        )
+        for name, _ in WAIT_BUCKET_FIELDS
+    }
+    aggregate["framePacingWaitBuckets"] = buckets
+    aggregate["framePacingWaitBucketRatios"] = {
+        name: count / wait_samples for name, count in buckets.items()
+    }
     return aggregate
 
 
@@ -620,6 +813,12 @@ def _comparison(off: dict[str, Any], on: dict[str, Any]) -> dict[str, Any]:
         "cpuFrameP99Us",
         "cpuPresentP95Us",
         "cpuPresentP99Us",
+        "cpuPrePresentP50Us",
+        "cpuPrePresentP95Us",
+        "cpuPrePresentP99Us",
+        "framePacingWaitP50Us",
+        "framePacingWaitP95Us",
+        "framePacingWaitP99Us",
     )
     return {key: RELEASE._reduction(float(off[key]), float(on[key])) for key in keys}
 
@@ -674,6 +873,7 @@ def build_report(root: Path) -> dict[str, Any]:
         "aggregationSemantic": {
             "runPercentiles": "median-of-three-selected-complete-10s-windows",
             "armPercentiles": "median-of-four-run-percentiles",
+            "waitBuckets": "summed-selected-window-counts-divided-by-summed-wait-samples",
             "order": "ABBA block followed by BAAB block",
         },
         "runs": runs,
@@ -683,6 +883,8 @@ def build_report(root: Path) -> dict[str, Any]:
         "limitations": [
             "This eight-run report is causal diagnostic evidence, not a release gate.",
             "The five-block, twenty-run release reporter must be run independently.",
+            "FramePacing.Wait samples are wakeups and do not correspond one-to-one with presented frames.",
+            "Window percentiles are distribution summaries and must not be subtracted to infer per-frame stage duration.",
         ],
     }
 
@@ -699,6 +901,16 @@ def _format_range(value: dict[str, Any] | None, unit: str = "") -> str:
     if value is None:
         return "unavailable"
     return f"{_format_number(value['min'])}-{_format_number(value['max'])}{unit}"
+
+
+def _format_reduction(value: dict[str, Any]) -> str:
+    percent = value["percent"]
+    percent_text = "unavailable" if percent is None else f"{percent:.3f}%"
+    return f"{_format_number(value['absolute'])} us / {percent_text}"
+
+
+def _format_ratio(value: float) -> str:
+    return f"{value * 100.0:.3f}%"
 
 
 def render_markdown(report: dict[str, Any]) -> str:
@@ -738,6 +950,74 @@ def render_markdown(report: dict[str, Any]) -> str:
     ):
         lines.append(
             f"| {label} | {_format_number(off[key])} | {_format_number(on[key])} |"
+        )
+
+    lines.extend(
+        (
+            "",
+            "## Causal timing",
+            "",
+            "| Metric | ROI off | ROI on | Reduction |",
+            "|---|---:|---:|---:|",
+        )
+    )
+    for label, key in (
+        ("CPU PrePresent p50 (us)", "cpuPrePresentP50Us"),
+        ("CPU PrePresent p95 (us)", "cpuPrePresentP95Us"),
+        ("CPU PrePresent p99 (us)", "cpuPrePresentP99Us"),
+        ("Frame pacing wait p50 (us)", "framePacingWaitP50Us"),
+        ("Frame pacing wait p95 (us)", "framePacingWaitP95Us"),
+        ("Frame pacing wait p99 (us)", "framePacingWaitP99Us"),
+    ):
+        lines.append(
+            f"| {label} | {_format_number(off[key])} | {_format_number(on[key])} | "
+            f"{_format_reduction(report['comparisons'][key])} |"
+        )
+
+    lines.extend(
+        (
+            "",
+            "## Frame pacing wait buckets",
+            "",
+            "| Wait | ROI off count | ROI off share | ROI on count | ROI on share |",
+            "|---|---:|---:|---:|---:|",
+        )
+    )
+    for label, key in (
+        ("<100 us", "lt100Us"),
+        ("100-999 us", "from100To999Us"),
+        ("1000-3999 us", "from1000To3999Us"),
+        ("4000-7999 us", "from4000To7999Us"),
+        (">=8000 us", "ge8000Us"),
+    ):
+        lines.append(
+            f"| {label} | {off['framePacingWaitBuckets'][key]} | "
+            f"{_format_ratio(off['framePacingWaitBucketRatios'][key])} | "
+            f"{on['framePacingWaitBuckets'][key]} | "
+            f"{_format_ratio(on['framePacingWaitBucketRatios'][key])} |"
+        )
+
+    lines.extend(
+        (
+            "",
+            "## Causal timing by run",
+            "",
+            "| Run | Pattern/arm | PrePresent p50/p95/p99 | "
+            "Wait p50/p95/p99 | Wait samples |",
+            "|---:|---|---:|---:|---:|",
+        )
+    )
+    for run in report["runs"]:
+        metrics = run["metrics"]
+        lines.append(
+            f"| {run['ordinal']} | {run['blockPattern']}/{run['arm']} | "
+            f"{_format_number(metrics['cpuPrePresentP50Us'])}/"
+            f"{_format_number(metrics['cpuPrePresentP95Us'])}/"
+            f"{_format_number(metrics['cpuPrePresentP99Us'])} | "
+            f"{_format_number(metrics['framePacingWaitP50Us'])}/"
+            f"{_format_number(metrics['framePacingWaitP95Us'])}/"
+            f"{_format_number(metrics['framePacingWaitP99Us'])} | "
+            f"{metrics['framePacingWaitSamples']} |"
         )
 
     lines.extend(

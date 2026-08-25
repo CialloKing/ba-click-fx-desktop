@@ -157,7 +157,7 @@ Invoke-Expression $env:BAFX_TEST_BODY
     def test_marks_the_two_block_matrix_as_non_release_diagnostic_evidence(self) -> None:
         for token in (
             "[ValidateSet(0, 2)]",
-            "$diagnosticManifestSchemaVersion = 1",
+            "$diagnosticManifestSchemaVersion = 2",
             "$diagnosticBlockCount = 2",
             "$diagnosticRunCount = 8",
             "'bafx-active-fx-roi-diagnostic-capture'",
@@ -183,6 +183,7 @@ Invoke-Expression $env:BAFX_TEST_BODY
             "[ordered]@{ arm = 'B'; enabled = $true }",
             "-BlockPattern $blockPattern",
             "-DiagnosticMode $diagnosticMode",
+            "-RequireCausalTiming $DiagnosticMode",
         ):
             self.assertIn(token, self.source)
 
@@ -500,6 +501,121 @@ finally
             "-MeasurementPath $MeasurementPath",
         ):
             self.assertIn(token, self.source)
+
+    def test_diagnostic_intervals_fail_closed_on_causal_timing_drift(self) -> None:
+        for token in (
+            "function Confirm-CausalMetricContract",
+            "function Confirm-CausalTimingIntervalContract",
+            "Timing.PrePresentSemantic",
+            "Timing.FramePacingWaitSemantic",
+            "Cpu.PrePresent samples do not match Window.FrameCount",
+            "FramePacing.Wait samples do not match wake count",
+            "FramePacing.Wait samples do not match bucket count",
+            "dropped samples must be zero",
+        ):
+            self.assertIn(token, self.source)
+
+        self.run_function_test(
+            (
+                "Get-RequiredEventString",
+                "Get-RequiredEventInteger",
+                "Get-RequiredEventBoolean",
+                "Get-RequiredEventNumber",
+                "Confirm-CausalMetricContract",
+                "Confirm-CausalTimingIntervalContract",
+            ),
+            r"""
+function Add-Metric
+{
+    param(
+        [Collections.IDictionary]$Event,
+        [string]$Prefix,
+        [int]$Samples,
+        [int]$Maximum)
+    $Event["$Prefix.Available"] = 'true'
+    $Event["$Prefix.Unit"] = 'us'
+    $Event["$Prefix.Samples"] = [string]$Samples
+    $Event["$Prefix.RecordedSamples"] = [string]$Samples
+    $Event["$Prefix.DroppedSamples"] = '0'
+    $Event["$Prefix.Min"] = '0'
+    $Event["$Prefix.Average"] = [string]($Maximum / 2.0)
+    $Event["$Prefix.P50"] = [string]([int]($Maximum / 2))
+    $Event["$Prefix.P95"] = [string]($Maximum - 2)
+    $Event["$Prefix.P99"] = [string]($Maximum - 1)
+    $Event["$Prefix.Max"] = [string]$Maximum
+}
+function New-Event
+{
+    $event = [ordered]@{
+        'Timing.PrePresentSemantic' = 'fx-render-return-to-Present-call-entry-including-roi-diagnostics-spout-gpu-query-end-and-readback'
+        'Timing.FramePacingWaitSemantic' = 'owner-thread-qpc-around-waitForAnyFrameOpportunity-including-handle-prepoll-and-message-wait-excluding-wait-set-build-and-post-wake-work'
+        'FramePacing.FrameReadyWakes' = '3'
+        'FramePacing.DeviceRemovedWakes' = '0'
+        'FramePacing.CadenceWakes' = '1'
+        'FramePacing.MessageWakes' = '1'
+        'FramePacing.Timeouts' = '0'
+        'FramePacing.Failures' = '0'
+        'FramePacing.Wait.Lt100Us' = '1'
+        'FramePacing.Wait.100To999Us' = '1'
+        'FramePacing.Wait.1000To3999Us' = '1'
+        'FramePacing.Wait.4000To7999Us' = '1'
+        'FramePacing.Wait.Ge8000Us' = '1'
+    }
+    Add-Metric -Event $event -Prefix 'Cpu.PrePresent' -Samples 10 -Maximum 100
+    Add-Metric -Event $event -Prefix 'FramePacing.Wait' -Samples 5 -Maximum 8000
+    return $event
+}
+function Confirm-Rejected
+{
+    param(
+        [Collections.IDictionary]$Event,
+        [string]$ExpectedMessage)
+    try
+    {
+        Confirm-CausalTimingIntervalContract `
+            -Event $Event `
+            -FrameCount 10 `
+            -Context 'fixture'
+    }
+    catch
+    {
+        if ($_.Exception.Message -notlike "*$ExpectedMessage*")
+        {
+            throw "unexpected causal timing error: $($_.Exception.Message)"
+        }
+        return
+    }
+    throw "causal timing drift unexpectedly accepted: $ExpectedMessage"
+}
+
+Confirm-CausalTimingIntervalContract `
+    -Event (New-Event) `
+    -FrameCount 10 `
+    -Context 'fixture'
+$missing = New-Event
+$missing.Remove('Cpu.PrePresent.P99')
+Confirm-Rejected -Event $missing -ExpectedMessage 'Cpu.PrePresent.P99'
+$frameDrift = New-Event
+$frameDrift['Cpu.PrePresent.Samples'] = '9'
+$frameDrift['Cpu.PrePresent.RecordedSamples'] = '9'
+Confirm-Rejected -Event $frameDrift -ExpectedMessage 'Window.FrameCount'
+$dropped = New-Event
+$dropped['Cpu.PrePresent.DroppedSamples'] = '1'
+Confirm-Rejected -Event $dropped -ExpectedMessage 'dropped samples must be zero'
+$wakeDrift = New-Event
+$wakeDrift['FramePacing.FrameReadyWakes'] = '2'
+Confirm-Rejected -Event $wakeDrift -ExpectedMessage 'wake count'
+$bucketDrift = New-Event
+$bucketDrift['FramePacing.Wait.Ge8000Us'] = '0'
+Confirm-Rejected -Event $bucketDrift -ExpectedMessage 'bucket count'
+$semanticDrift = New-Event
+$semanticDrift['Timing.PrePresentSemantic'] = 'unknown'
+Confirm-Rejected -Event $semanticDrift -ExpectedMessage 'semantic differs'
+$nonFinite = New-Event
+$nonFinite['FramePacing.Wait.Average'] = 'NaN'
+Confirm-Rejected -Event $nonFinite -ExpectedMessage 'finite number'
+""",
+        )
 
     def test_accepts_identical_event_fields_but_rejects_conflicts(self) -> None:
         self.assertIn(

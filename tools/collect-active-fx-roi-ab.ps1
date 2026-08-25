@@ -50,7 +50,7 @@ $configName = 'BAFX.config.json'
 $logName = 'ba-click-fx-desktop-support.log'
 $manifestName = 'capture.json'
 $manifestSchemaVersion = 3
-$diagnosticManifestSchemaVersion = 1
+$diagnosticManifestSchemaVersion = 2
 $configSchemaVersion = 19
 $environmentContract = 'rtx-4060-4k170-sdr-v1'
 $requiredAdapterNameFragment = 'RTX 4060'
@@ -448,6 +448,231 @@ function Get-RequiredEventBoolean
         return $false
     }
     throw "$Context field $Name must be true or false"
+}
+
+function Get-RequiredEventNumber
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [Collections.IDictionary]$Event,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Name,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Context
+    )
+
+    $text = Get-RequiredEventString `
+        -Event $Event `
+        -Name $Name `
+        -Context $Context
+    $value = 0.0
+    if (-not [double]::TryParse(
+            $text,
+            [Globalization.NumberStyles]::Float,
+            [Globalization.CultureInfo]::InvariantCulture,
+            [ref]$value) -or
+        [double]::IsNaN($value) -or
+        [double]::IsInfinity($value))
+    {
+        throw "$Context field $Name must be a finite number"
+    }
+    return $value
+}
+
+function Confirm-CausalMetricContract
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [Collections.IDictionary]$Event,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Prefix,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Context
+    )
+
+    if (-not (Get-RequiredEventBoolean `
+            -Event $Event `
+            -Name "$Prefix.Available" `
+            -Context $Context))
+    {
+        throw "$Context metric $Prefix must be available"
+    }
+    $unit = Get-RequiredEventString `
+        -Event $Event `
+        -Name "$Prefix.Unit" `
+        -Context $Context
+    if ($unit -cne 'us')
+    {
+        throw "$Context metric $Prefix must use us"
+    }
+    $samples = Get-RequiredEventInteger `
+        -Event $Event `
+        -Name "$Prefix.Samples" `
+        -Context $Context
+    $recordedSamples = Get-RequiredEventInteger `
+        -Event $Event `
+        -Name "$Prefix.RecordedSamples" `
+        -Context $Context
+    $droppedSamples = Get-RequiredEventInteger `
+        -Event $Event `
+        -Name "$Prefix.DroppedSamples" `
+        -Context $Context
+    if ($samples -le 0)
+    {
+        throw "$Context metric $Prefix must contain samples"
+    }
+    if ($recordedSamples -ne $samples)
+    {
+        throw "$Context metric $Prefix recorded samples do not match samples"
+    }
+    if ($droppedSamples -ne 0)
+    {
+        throw "$Context metric $Prefix dropped samples must be zero"
+    }
+
+    $minimum = Get-RequiredEventNumber `
+        -Event $Event `
+        -Name "$Prefix.Min" `
+        -Context $Context
+    $average = Get-RequiredEventNumber `
+        -Event $Event `
+        -Name "$Prefix.Average" `
+        -Context $Context
+    $p50 = Get-RequiredEventNumber `
+        -Event $Event `
+        -Name "$Prefix.P50" `
+        -Context $Context
+    $p95 = Get-RequiredEventNumber `
+        -Event $Event `
+        -Name "$Prefix.P95" `
+        -Context $Context
+    $p99 = Get-RequiredEventNumber `
+        -Event $Event `
+        -Name "$Prefix.P99" `
+        -Context $Context
+    $maximum = Get-RequiredEventNumber `
+        -Event $Event `
+        -Name "$Prefix.Max" `
+        -Context $Context
+    if ($minimum -lt 0.0 -or
+        $average -lt 0.0 -or
+        $p50 -lt 0.0 -or
+        $p95 -lt 0.0 -or
+        $p99 -lt 0.0 -or
+        $maximum -lt 0.0)
+    {
+        throw "$Context metric $Prefix values must be non-negative"
+    }
+    if ($minimum -gt $p50 -or
+        $p50 -gt $p95 -or
+        $p95 -gt $p99 -or
+        $p99 -gt $maximum -or
+        $average -lt $minimum -or
+        $average -gt $maximum)
+    {
+        throw "$Context metric $Prefix distribution is inconsistent"
+    }
+    return [ordered]@{
+        samples = $samples
+        p50 = $p50
+        p95 = $p95
+        p99 = $p99
+    }
+}
+
+function Confirm-CausalTimingIntervalContract
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [Collections.IDictionary]$Event,
+
+        [Parameter(Mandatory = $true)]
+        [int]$FrameCount,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Context
+    )
+
+    $prePresentSemantic = Get-RequiredEventString `
+        -Event $Event `
+        -Name 'Timing.PrePresentSemantic' `
+        -Context $Context
+    if ($prePresentSemantic -cne 'fx-render-return-to-Present-call-entry-including-roi-diagnostics-spout-gpu-query-end-and-readback')
+    {
+        throw "$Context PrePresent timing semantic differs from the diagnostic contract"
+    }
+    $waitSemantic = Get-RequiredEventString `
+        -Event $Event `
+        -Name 'Timing.FramePacingWaitSemantic' `
+        -Context $Context
+    if ($waitSemantic -cne 'owner-thread-qpc-around-waitForAnyFrameOpportunity-including-handle-prepoll-and-message-wait-excluding-wait-set-build-and-post-wake-work')
+    {
+        throw "$Context frame-pacing wait semantic differs from the diagnostic contract"
+    }
+
+    $prePresent = Confirm-CausalMetricContract `
+        -Event $Event `
+        -Prefix 'Cpu.PrePresent' `
+        -Context $Context
+    if ($prePresent.samples -ne $FrameCount)
+    {
+        throw "$Context Cpu.PrePresent samples do not match Window.FrameCount"
+    }
+    $wait = Confirm-CausalMetricContract `
+        -Event $Event `
+        -Prefix 'FramePacing.Wait' `
+        -Context $Context
+
+    [long]$wakeCount = 0
+    foreach ($name in @(
+            'FramePacing.FrameReadyWakes',
+            'FramePacing.DeviceRemovedWakes',
+            'FramePacing.CadenceWakes',
+            'FramePacing.MessageWakes',
+            'FramePacing.Timeouts',
+            'FramePacing.Failures'))
+    {
+        $count = Get-RequiredEventInteger `
+            -Event $Event `
+            -Name $name `
+            -Context $Context
+        if ($count -lt 0)
+        {
+            throw "$Context field $name must be non-negative"
+        }
+        $wakeCount += $count
+    }
+    if ($wait.samples -ne $wakeCount)
+    {
+        throw "$Context FramePacing.Wait samples do not match wake count"
+    }
+
+    [long]$bucketCount = 0
+    foreach ($name in @(
+            'FramePacing.Wait.Lt100Us',
+            'FramePacing.Wait.100To999Us',
+            'FramePacing.Wait.1000To3999Us',
+            'FramePacing.Wait.4000To7999Us',
+            'FramePacing.Wait.Ge8000Us'))
+    {
+        $count = Get-RequiredEventInteger `
+            -Event $Event `
+            -Name $name `
+            -Context $Context
+        if ($count -lt 0)
+        {
+            throw "$Context field $name must be non-negative"
+        }
+        $bucketCount += $count
+    }
+    if ($wait.samples -ne $bucketCount)
+    {
+        throw "$Context FramePacing.Wait samples do not match bucket count"
+    }
 }
 
 function New-EnvironmentIdentity
@@ -1099,7 +1324,10 @@ function Confirm-RunLogContract
 
         [Parameter(Mandatory = $true)]
         [ValidateSet('primary', 'recording-rebuild')]
-        [string]$MeasurementPath
+        [string]$MeasurementPath,
+
+        [Parameter(Mandatory = $true)]
+        [bool]$RequireCausalTiming
     )
 
     $blocks = @(Get-StructuredEventBlocks -Path $Path)
@@ -1170,6 +1398,13 @@ function Confirm-RunLogContract
         if ($presentSamples -ne $frameCount)
         {
             throw "$context Present samples do not match Window.FrameCount"
+        }
+        if ($RequireCausalTiming)
+        {
+            Confirm-CausalTimingIntervalContract `
+                -Event $interval `
+                -FrameCount $frameCount `
+                -Context $context
         }
         $observedFrames = Get-RequiredEventInteger `
             -Event $interval `
@@ -1385,7 +1620,8 @@ function Invoke-AbbaRun
     }
     $environmentIdentity = Confirm-RunLogContract `
         -Path $runLog `
-        -MeasurementPath $MeasurementPath
+        -MeasurementPath $MeasurementPath `
+        -RequireCausalTiming $DiagnosticMode
     $copiedExecutableSha256 = (
         Get-FileHash -LiteralPath $runExecutable -Algorithm SHA256
     ).Hash.ToLowerInvariant()

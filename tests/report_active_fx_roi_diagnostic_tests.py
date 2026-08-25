@@ -80,9 +80,74 @@ def _telemetry_csv(
     return "\n".join(rows) + "\n", sample_count
 
 
+def _metric_fields(
+    prefix: str,
+    samples: int,
+    p50: int,
+    p95: int,
+    p99: int,
+    maximum: int,
+) -> dict[str, object]:
+    return {
+        f"{prefix}.Available": True,
+        f"{prefix}.Unit": "us",
+        f"{prefix}.Samples": samples,
+        f"{prefix}.RecordedSamples": samples,
+        f"{prefix}.DroppedSamples": 0,
+        f"{prefix}.Min": 0,
+        f"{prefix}.Average": p50,
+        f"{prefix}.P50": p50,
+        f"{prefix}.P95": p95,
+        f"{prefix}.P99": p99,
+        f"{prefix}.Max": maximum,
+    }
+
+
+def _causal_timing_fields(
+    ordinal: int, roi_enabled: bool, complete_interval: int
+) -> dict[str, object]:
+    wait_samples = 8 + complete_interval
+    buckets = (
+        (complete_interval + 2, 2, 2, 1, 1)
+        if roi_enabled
+        else (complete_interval, 1, 2, 2, 3)
+    )
+    return {
+        "Timing.PrePresentSemantic": REPORTER.PRE_PRESENT_SEMANTIC,
+        "Timing.FramePacingWaitSemantic": REPORTER.FRAME_PACING_WAIT_SEMANTIC,
+        **_metric_fields(
+            "Cpu.PrePresent",
+            1200,
+            100 + ordinal + complete_interval,
+            200 + ordinal + complete_interval,
+            300 + ordinal + complete_interval,
+            400 + ordinal + complete_interval,
+        ),
+        **_metric_fields(
+            "FramePacing.Wait",
+            wait_samples,
+            500 + ordinal + complete_interval,
+            5_000 + ordinal + complete_interval,
+            8_000 + ordinal + complete_interval,
+            9_000 + ordinal + complete_interval,
+        ),
+        "FramePacing.FrameReadyWakes": wait_samples - 2,
+        "FramePacing.DeviceRemovedWakes": 0,
+        "FramePacing.CadenceWakes": 1,
+        "FramePacing.MessageWakes": 1,
+        "FramePacing.Timeouts": 0,
+        "FramePacing.Failures": 0,
+        "FramePacing.Wait.Lt100Us": buckets[0],
+        "FramePacing.Wait.100To999Us": buckets[1],
+        "FramePacing.Wait.1000To3999Us": buckets[2],
+        "FramePacing.Wait.4000To7999Us": buckets[3],
+        "FramePacing.Wait.Ge8000Us": buckets[4],
+    }
+
+
 def _diagnostic_fixture(root: Path, telemetry_enabled: bool = True) -> object:
     fixture = FIXTURE_MODULE.CaptureFixture(root)
-    fixture.manifest["schemaVersion"] = 1
+    fixture.manifest["schemaVersion"] = 2
     fixture.manifest["kind"] = "bafx-active-fx-roi-diagnostic-capture"
     fixture.manifest["captureStatus"] = "diagnostic-captured"
     fixture.manifest["releaseEligible"] = False
@@ -174,6 +239,10 @@ def _diagnostic_fixture(root: Path, telemetry_enabled: bool = True) -> object:
             "Cpu.PresentCall.P95": 7000 + ordinal,
             "Cpu.PresentCall.P99": 8000 + ordinal,
         }
+        for complete_interval in range(1, 5):
+            fixture.interval_overrides[(ordinal, complete_interval)] = (
+                _causal_timing_fields(ordinal, roi_enabled, complete_interval)
+            )
         fixture.write_log(ordinal, roi_enabled)
 
         if telemetry_enabled:
@@ -212,6 +281,8 @@ class ActiveFxRoiDiagnosticReporterTests(unittest.TestCase):
             fixture = _diagnostic_fixture(Path(temporary))
             report = REPORTER.build_report(fixture.root)
 
+            self.assertEqual(report["schemaVersion"], 2)
+            self.assertEqual(report["captureSchemaVersion"], 2)
             self.assertFalse(report["releaseEligible"])
             self.assertEqual(report["schedule"]["pattern"], "ABBA+BAAB")
             self.assertEqual(
@@ -237,6 +308,32 @@ class ActiveFxRoiDiagnosticReporterTests(unittest.TestCase):
             self.assertEqual(telemetry["timestamp"]["maximumGapMs"], 200)
             self.assertIn("finalCompositeP99Us", report["roiOff"])
             self.assertIn("bloomFinalP95Us", report["roiOn"])
+            self.assertEqual(
+                report["runs"][0]["metrics"]["cpuPrePresentP99Us"], 304
+            )
+            self.assertEqual(
+                report["runs"][0]["metrics"]["framePacingWaitSamples"], 33
+            )
+            self.assertEqual(report["roiOff"]["cpuPrePresentP95Us"], 208)
+            self.assertEqual(report["roiOn"]["cpuPrePresentP95Us"], 207)
+            for key in (
+                "cpuPrePresentP50Us",
+                "cpuPrePresentP95Us",
+                "cpuPrePresentP99Us",
+                "framePacingWaitP50Us",
+                "framePacingWaitP95Us",
+                "framePacingWaitP99Us",
+            ):
+                self.assertEqual(report["comparisons"][key]["absolute"], 1)
+            self.assertEqual(report["roiOff"]["framePacingWaitSamples"], 132)
+            self.assertAlmostEqual(
+                report["roiOff"]["framePacingWaitBucketRatios"]["ge8000Us"],
+                36 / 132,
+            )
+            self.assertAlmostEqual(
+                report["roiOn"]["framePacingWaitBucketRatios"]["lt100Us"],
+                60 / 132,
+            )
 
             markdown = REPORTER.render_markdown(report)
             self.assertIn("NON-RELEASE", markdown)
@@ -246,6 +343,10 @@ class ActiveFxRoiDiagnosticReporterTests(unittest.TestCase):
             self.assertIn("P0-P2", markdown)
             self.assertIn("SM clock", markdown)
             self.assertIn("Instant power", markdown)
+            self.assertIn("## Causal timing", markdown)
+            self.assertIn("## Frame pacing wait buckets", markdown)
+            self.assertIn("CPU PrePresent p95", markdown)
+            self.assertIn("do not correspond one-to-one", markdown)
 
     def test_accepts_an_explicitly_disabled_telemetry_contract(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -274,6 +375,140 @@ class ActiveFxRoiDiagnosticReporterTests(unittest.TestCase):
             fixture = _diagnostic_fixture(Path(temporary))
             with self.assertRaises(REPORTER.ValidationError):
                 REPORTER.RELEASE.build_report(fixture.root)
+
+    def test_release_schema_three_fixture_remains_readable_without_causal_timing(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = FIXTURE_MODULE.CaptureFixture(Path(temporary))
+            report = FIXTURE_MODULE.REPORTER.build_report(fixture.root)
+
+            self.assertEqual(report["captureSchemaVersion"], 3)
+            log = fixture.root / fixture.manifest["runs"][0]["log"]
+            self.assertNotIn("Cpu.PrePresent", log.read_text(encoding="utf-8"))
+
+    def test_rejects_causal_timing_contract_drift(self) -> None:
+        cases = (
+            (
+                "missing field",
+                ((r"^Cpu\.PrePresent\.P99=.*\n", ""),),
+                "Cpu.PrePresent.P99",
+            ),
+            (
+                "pre-present sample drift",
+                (
+                    (r"^Cpu\.PrePresent\.Samples=.*$", "Cpu.PrePresent.Samples=1199"),
+                    (
+                        r"^Cpu\.PrePresent\.RecordedSamples=.*$",
+                        "Cpu.PrePresent.RecordedSamples=1199",
+                    ),
+                ),
+                "Window.FrameCount",
+            ),
+            (
+                "dropped samples",
+                (
+                    (
+                        r"^Cpu\.PrePresent\.DroppedSamples=.*$",
+                        "Cpu.PrePresent.DroppedSamples=1",
+                    ),
+                ),
+                "DroppedSamples must be zero",
+            ),
+            (
+                "wake conservation",
+                (
+                    (
+                        r"^FramePacing\.FrameReadyWakes=.*$",
+                        "FramePacing.FrameReadyWakes=7",
+                    ),
+                ),
+                "wake count",
+            ),
+            (
+                "bucket conservation",
+                (
+                    (
+                        r"^FramePacing\.Wait\.Ge8000Us=.*$",
+                        "FramePacing.Wait.Ge8000Us=1",
+                    ),
+                ),
+                "bucket count",
+            ),
+            (
+                "semantic drift",
+                (
+                    (
+                        r"^Timing\.PrePresentSemantic=.*$",
+                        "Timing.PrePresentSemantic=unknown",
+                    ),
+                ),
+                "PrePresentSemantic differs",
+            ),
+            (
+                "wait semantic drift",
+                (
+                    (
+                        r"^Timing\.FramePacingWaitSemantic=.*$",
+                        "Timing.FramePacingWaitSemantic=unknown",
+                    ),
+                ),
+                "FramePacingWaitSemantic differs",
+            ),
+            (
+                "metric unavailable",
+                (
+                    (
+                        r"^Cpu\.PrePresent\.Available=.*$",
+                        "Cpu.PrePresent.Available=false",
+                    ),
+                ),
+                "Cpu.PrePresent must be available",
+            ),
+            (
+                "unit drift",
+                (
+                    (
+                        r"^FramePacing\.Wait\.Unit=.*$",
+                        "FramePacing.Wait.Unit=ms",
+                    ),
+                ),
+                "FramePacing.Wait.Unit must be us",
+            ),
+            (
+                "non-finite average",
+                (
+                    (
+                        r"^FramePacing\.Wait\.Average=.*$",
+                        "FramePacing.Wait.Average=nan",
+                    ),
+                ),
+                "FramePacing.Wait.Average must be finite",
+            ),
+            (
+                "percentile order",
+                (
+                    (
+                        r"^FramePacing\.Wait\.P95=.*$",
+                        "FramePacing.Wait.P95=100",
+                    ),
+                ),
+                "distribution is inconsistent",
+            ),
+        )
+        for label, replacements, message in cases:
+            with self.subTest(case=label), tempfile.TemporaryDirectory() as temporary:
+                fixture = _diagnostic_fixture(Path(temporary))
+                _rewrite_run_log(fixture, replacements)
+                with self.assertRaisesRegex(REPORTER.ValidationError, message):
+                    REPORTER.build_report(fixture.root)
+
+    def test_rejects_legacy_diagnostic_schema_one(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = _diagnostic_fixture(Path(temporary))
+            fixture.manifest["schemaVersion"] = 1
+            fixture.write_manifest()
+
+            with self.assertRaisesRegex(REPORTER.ValidationError, "must be 2"):
+                REPORTER.build_report(fixture.root)
 
     def test_requires_the_baab_order_and_tail_metric(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -369,6 +604,19 @@ def _replace_telemetry_value(fixture: object, old: str, new: str) -> None:
     path = fixture.root / run["nvidiaTelemetry"]["file"]
     path.write_text(path.read_text(encoding="utf-8").replace(old, new), encoding="utf-8")
     run["nvidiaTelemetry"]["sha256"] = _sha256(path)
+
+
+def _rewrite_run_log(
+    fixture: object, replacements: tuple[tuple[str, str], ...]
+) -> None:
+    run = fixture.manifest["runs"][0]
+    path = fixture.root / run["log"]
+    text = path.read_text(encoding="utf-8")
+    for pattern, replacement in replacements:
+        text, count = re.subn(pattern, replacement, text, flags=re.MULTILINE)
+        if count == 0:
+            raise AssertionError(f"fixture field pattern did not match: {pattern}")
+    path.write_text(text, encoding="utf-8")
 
 
 def _rewrite_telemetry_rows(fixture: object, rows: list[str]) -> None:
