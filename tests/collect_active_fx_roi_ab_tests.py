@@ -234,6 +234,98 @@ Invoke-Expression $env:BAFX_TEST_BODY
         self.assertNotIn("Get-Process -Name 'nvidia-smi'", self.source)
         self.assertNotIn("Stop-Process -Name", self.source)
 
+    def test_nvidia_sampler_requires_tolerant_full_session_coverage(self) -> None:
+        for token in (
+            "$nvidiaTelemetryCoverageMinimumSlackMilliseconds = 2000",
+            "$nvidiaTelemetryCoverageIntervalMultiplier = 10",
+            "$nvidiaTelemetryMinimumSampleIntervalMultiplier = 2",
+            "function Confirm-NvidiaTelemetryCoverage",
+            "$TimestampValues.Count -lt $minimumSamples",
+            "$gapMilliseconds -gt $slackMilliseconds",
+            "$actualSpanMilliseconds -lt $minimumSpanMilliseconds",
+            "-TimestampValues $timestampValues `",
+            "-StartedAtUtc $Session.startedAtUtc `",
+            "-StoppedAtUtc $stoppedAt `",
+        ):
+            self.assertIn(token, self.source)
+
+        self.run_function_test(
+            ("Confirm-NvidiaTelemetryCoverage",),
+            r"""
+$culture = [Globalization.CultureInfo]::InvariantCulture
+$start = [DateTime]::SpecifyKind(
+    [DateTime]::Parse('2026-08-25T04:00:00', $culture),
+    [DateTimeKind]::Utc)
+$stop = $start.AddSeconds(10)
+function Format-NvidiaTimestamp
+{
+    param([DateTime]$TimestampUtc)
+    return $TimestampUtc.ToLocalTime().ToString(
+        'yyyy/MM/dd HH:mm:ss.fff',
+        $culture)
+}
+function Confirm-Accepted
+{
+    param([DateTime[]]$TimestampsUtc)
+    Confirm-NvidiaTelemetryCoverage `
+        -TimestampValues @(
+            $TimestampsUtc |
+                ForEach-Object { Format-NvidiaTimestamp $_ }) `
+        -StartedAtUtc $start `
+        -StoppedAtUtc $stop `
+        -IntervalMilliseconds 200 `
+        -MinimumSlackMilliseconds 2000 `
+        -SlackIntervalMultiplier 10 `
+        -MinimumSampleIntervalMultiplier 2
+}
+function Confirm-Rejected
+{
+    param(
+        [DateTime[]]$TimestampsUtc,
+        [string]$ExpectedMessage)
+    try
+    {
+        Confirm-Accepted -TimestampsUtc $TimestampsUtc
+    }
+    catch
+    {
+        if ($_.Exception.Message -notlike "*$ExpectedMessage*")
+        {
+            throw "unexpected coverage error: $($_.Exception.Message)"
+        }
+        return
+    }
+    throw "coverage unexpectedly accepted: $ExpectedMessage"
+}
+
+# Half the nominal rate plus both endpoints is accepted, so normal scheduler
+# jitter does not need to reproduce a precise 200 ms cadence.
+$halfRate = @(
+    for ($index = 0; $index -le 25; ++$index)
+    {
+        $start.AddMilliseconds($index * 400)
+    })
+Confirm-Accepted -TimestampsUtc $halfRate
+Confirm-Rejected `
+    -TimestampsUtc @($start) `
+    -ExpectedMessage 'at least 25 are required'
+$stalled = @(
+    for ($index = 0; $index -lt 25; ++$index)
+    {
+        $start
+    })
+Confirm-Rejected `
+    -TimestampsUtc $stalled `
+    -ExpectedMessage 'outside the session stop tolerance'
+$middleGap = @(
+    0..10 | ForEach-Object { $start.AddMilliseconds($_ * 200) }
+    25..50 | ForEach-Object { $start.AddMilliseconds($_ * 200) })
+Confirm-Rejected `
+    -TimestampsUtc $middleGap `
+    -ExpectedMessage 'gap before sample 12 exceeds 2000 ms'
+""",
+        )
+
     def test_preserves_the_primary_run_failure_before_cleanup_failures(self) -> None:
         for token in (
             "$primaryFailure = $_",

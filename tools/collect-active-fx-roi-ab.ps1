@@ -70,6 +70,9 @@ $discardCompleteIntervals = 1
 $selectCompleteIntervals = 3
 $demoAgeMilliseconds = 130
 $nvidiaTelemetryIntervalMilliseconds = 200
+$nvidiaTelemetryCoverageMinimumSlackMilliseconds = 2000
+$nvidiaTelemetryCoverageIntervalMultiplier = 10
+$nvidiaTelemetryMinimumSampleIntervalMultiplier = 2
 $nvidiaTelemetryFields = @(
     'timestamp',
     'index',
@@ -776,6 +779,116 @@ function ConvertFrom-NvidiaTelemetryLine
     return $row
 }
 
+function Confirm-NvidiaTelemetryCoverage
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [string[]]$TimestampValues,
+
+        [Parameter(Mandatory = $true)]
+        [DateTime]$StartedAtUtc,
+
+        [Parameter(Mandatory = $true)]
+        [DateTime]$StoppedAtUtc,
+
+        [Parameter(Mandatory = $true)]
+        [int]$IntervalMilliseconds,
+
+        [Parameter(Mandatory = $true)]
+        [int]$MinimumSlackMilliseconds,
+
+        [Parameter(Mandatory = $true)]
+        [int]$SlackIntervalMultiplier,
+
+        [Parameter(Mandatory = $true)]
+        [int]$MinimumSampleIntervalMultiplier
+    )
+
+    if ($StartedAtUtc.Kind -ne [DateTimeKind]::Utc -or
+        $StoppedAtUtc.Kind -ne [DateTimeKind]::Utc)
+    {
+        throw 'nvidia-smi telemetry session bounds must be UTC'
+    }
+    if ($IntervalMilliseconds -le 0 -or
+        $MinimumSlackMilliseconds -lt 0 -or
+        $SlackIntervalMultiplier -le 0 -or
+        $MinimumSampleIntervalMultiplier -le 0)
+    {
+        throw 'nvidia-smi telemetry coverage settings must be positive'
+    }
+
+    $elapsedMilliseconds = ($StoppedAtUtc - $StartedAtUtc).TotalMilliseconds
+    if ($elapsedMilliseconds -le 0.0)
+    {
+        throw 'nvidia-smi telemetry session must have positive elapsed time'
+    }
+    $minimumSamples = [Math]::Max(
+        2,
+        [int][Math]::Floor(
+            $elapsedMilliseconds /
+                ($IntervalMilliseconds * $MinimumSampleIntervalMultiplier)))
+    if ($TimestampValues.Count -lt $minimumSamples)
+    {
+        throw "nvidia-smi telemetry produced $($TimestampValues.Count) samples; at least $minimumSamples are required"
+    }
+
+    $timestampsUtc = [Collections.Generic.List[DateTime]]::new()
+    foreach ($value in $TimestampValues)
+    {
+        $localTimestamp = [DateTime]::MinValue
+        if (-not [DateTime]::TryParseExact(
+                $value,
+                'yyyy/MM/dd HH:mm:ss.fff',
+                [Globalization.CultureInfo]::InvariantCulture,
+                [Globalization.DateTimeStyles]::AssumeLocal,
+                [ref]$localTimestamp))
+        {
+            throw "nvidia-smi telemetry timestamp is invalid: $value"
+        }
+        $timestampsUtc.Add($localTimestamp.ToUniversalTime())
+    }
+
+    $slackMilliseconds = [Math]::Max(
+        $MinimumSlackMilliseconds,
+        $IntervalMilliseconds * $SlackIntervalMultiplier)
+    $first = $timestampsUtc[0]
+    $last = $timestampsUtc[$timestampsUtc.Count - 1]
+    if ($first -lt $StartedAtUtc.AddMilliseconds(-$slackMilliseconds) -or
+        $first -gt $StartedAtUtc.AddMilliseconds($slackMilliseconds))
+    {
+        throw 'nvidia-smi telemetry first sample is outside the session start tolerance'
+    }
+    if ($last -lt $StoppedAtUtc.AddMilliseconds(-$slackMilliseconds) -or
+        $last -gt $StoppedAtUtc.AddMilliseconds($slackMilliseconds))
+    {
+        throw 'nvidia-smi telemetry last sample is outside the session stop tolerance'
+    }
+
+    for ($index = 1; $index -lt $timestampsUtc.Count; ++$index)
+    {
+        $gapMilliseconds = (
+            $timestampsUtc[$index] - $timestampsUtc[$index - 1]
+        ).TotalMilliseconds
+        if ($gapMilliseconds -lt 0.0)
+        {
+            throw "nvidia-smi telemetry timestamp $($index + 1) moved backwards"
+        }
+        if ($gapMilliseconds -gt $slackMilliseconds)
+        {
+            throw "nvidia-smi telemetry gap before sample $($index + 1) exceeds $slackMilliseconds ms"
+        }
+    }
+
+    $minimumSpanMilliseconds = [Math]::Max(
+        0.0,
+        $elapsedMilliseconds - (2.0 * $slackMilliseconds))
+    $actualSpanMilliseconds = ($last - $first).TotalMilliseconds
+    if ($actualSpanMilliseconds -lt $minimumSpanMilliseconds)
+    {
+        throw "nvidia-smi telemetry span is $actualSpanMilliseconds ms; at least $minimumSpanMilliseconds ms are required"
+    }
+}
+
 function Get-NvidiaTelemetryContract
 {
     param(
@@ -928,6 +1041,7 @@ function Stop-NvidiaTelemetry
     {
         throw 'nvidia-smi telemetry produced no samples'
     }
+    $timestampValues = [Collections.Generic.List[string]]::new()
     for ($index = 0; $index -lt $lines.Count; ++$index)
     {
         $row = ConvertFrom-NvidiaTelemetryLine `
@@ -940,7 +1054,16 @@ function Stop-NvidiaTelemetry
         {
             throw "nvidia-smi sample $($index + 1) changed GPU identity"
         }
+        $timestampValues.Add([string]$row.timestamp)
     }
+    Confirm-NvidiaTelemetryCoverage `
+        -TimestampValues $timestampValues `
+        -StartedAtUtc $Session.startedAtUtc `
+        -StoppedAtUtc $stoppedAt `
+        -IntervalMilliseconds $script:nvidiaTelemetryIntervalMilliseconds `
+        -MinimumSlackMilliseconds $script:nvidiaTelemetryCoverageMinimumSlackMilliseconds `
+        -SlackIntervalMultiplier $script:nvidiaTelemetryCoverageIntervalMultiplier `
+        -MinimumSampleIntervalMultiplier $script:nvidiaTelemetryMinimumSampleIntervalMultiplier
 
     $csvPath = Join-Path (Split-Path -Parent $Session.rawPath) 'nvidia-smi.csv'
     $csvLines = @($script:nvidiaTelemetryFields -join ',') + @($lines)
