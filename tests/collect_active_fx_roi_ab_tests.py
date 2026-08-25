@@ -22,6 +22,64 @@ class ActiveFxRoiAbCollectorTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.source = SCRIPT.read_text(encoding="utf-8-sig")
 
+    def run_function_test(
+        self,
+        function_names: tuple[str, ...],
+        body: str,
+        *,
+        timeout: int = 15,
+    ) -> None:
+        bootstrap = r"""
+$tokens = $null
+$errors = $null
+$ast = [System.Management.Automation.Language.Parser]::ParseFile(
+    $env:BAFX_SCRIPT_UNDER_TEST,
+    [ref]$tokens,
+    [ref]$errors)
+if (@($errors).Count -ne 0)
+{
+    throw ($errors | ForEach-Object { $_.Message } | Out-String)
+}
+$functions = @($ast.FindAll({
+    param($node)
+    $node -is [System.Management.Automation.Language.FunctionDefinitionAst]
+}, $true))
+foreach ($name in $env:BAFX_TEST_FUNCTIONS.Split(','))
+{
+    $matches = @($functions | Where-Object { $_.Name -eq $name })
+    if ($matches.Count -ne 1)
+    {
+        throw "Expected one function named $name"
+    }
+    Invoke-Expression $matches[0].Extent.Text
+}
+Invoke-Expression $env:BAFX_TEST_BODY
+"""
+        result = subprocess.run(
+            [
+                str(POWERSHELL),
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-Command",
+                bootstrap,
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            encoding="utf-8",
+            errors="replace",
+            env={
+                **os.environ,
+                "BAFX_SCRIPT_UNDER_TEST": str(SCRIPT.resolve()),
+                "BAFX_TEST_FUNCTIONS": ",".join(function_names),
+                "BAFX_TEST_BODY": body,
+                "BAFX_TEST_POWERSHELL": str(POWERSHELL.resolve()),
+            },
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_script_has_valid_powershell_syntax(self) -> None:
         parser = (
             "$tokens=$null; $errors=$null; "
@@ -212,9 +270,46 @@ class ActiveFxRoiAbCollectorTests(unittest.TestCase):
         self.assertIn("Start-Process", self.source)
         self.assertIn("-WindowStyle Hidden", self.source)
         self.assertIn("Stop-OwnedProcess -Process $process", self.source)
-        self.assertIn("Stop-Process -Id $Process.Id", self.source)
+        self.assertIn("$Process.Kill()", self.source)
+        self.assertIn("$exited = $Process.WaitForExit(5000)", self.source)
+        self.assertIn("-not $exited -or -not $Process.HasExited", self.source)
+        self.assertNotIn(
+            "Stop-Process -Id $Process.Id -Force -ErrorAction SilentlyContinue",
+            self.source,
+        )
         self.assertNotIn("Stop-Process -Name", self.source)
         self.assertNotIn("taskkill", self.source.lower())
+
+    def test_owned_process_cleanup_waits_for_confirmed_exit(self) -> None:
+        self.run_function_test(
+            ("Stop-OwnedProcess",),
+            r"""
+$child = Start-Process `
+    -FilePath $env:BAFX_TEST_POWERSHELL `
+    -ArgumentList @(
+        '-NoProfile',
+        '-Command',
+        'Start-Sleep -Seconds 30') `
+    -WindowStyle Hidden `
+    -PassThru
+try
+{
+    Stop-OwnedProcess -Process $child
+    if (-not $child.HasExited)
+    {
+        throw 'owned process remained alive after cleanup'
+    }
+}
+finally
+{
+    if (-not $child.HasExited)
+    {
+        $child.Kill()
+        $child.WaitForExit()
+    }
+}
+""",
+        )
 
     def test_owns_a_display_power_request_for_the_complete_capture(self) -> None:
         for token in (

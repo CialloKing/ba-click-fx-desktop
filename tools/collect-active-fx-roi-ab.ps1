@@ -597,11 +597,35 @@ function Stop-OwnedProcess
         [Diagnostics.Process]$Process
     )
 
+    $processId = $Process.Id
     if (-not $Process.HasExited)
     {
-        # Only the Process object started by this run is eligible for cleanup.
-        Stop-Process -Id $Process.Id -Force -ErrorAction SilentlyContinue
-        $null = $Process.WaitForExit(5000)
+        try
+        {
+            # Kill through the retained Process handle so PID reuse cannot
+            # redirect cleanup to an unrelated process.
+            $Process.Kill()
+        }
+        catch
+        {
+            if (-not $Process.HasExited)
+            {
+                throw "Could not stop owned process PID ${processId}: $($_.Exception.Message)"
+            }
+        }
+    }
+
+    try
+    {
+        $exited = $Process.WaitForExit(5000)
+    }
+    catch
+    {
+        throw "Could not wait for owned process PID ${processId}: $($_.Exception.Message)"
+    }
+    if (-not $exited -or -not $Process.HasExited)
+    {
+        throw "Owned process PID $processId did not exit within 5000 ms"
     }
 }
 
