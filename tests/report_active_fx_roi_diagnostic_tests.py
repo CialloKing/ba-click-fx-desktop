@@ -225,8 +225,13 @@ class ActiveFxRoiDiagnosticReporterTests(unittest.TestCase):
             telemetry = report["runs"][0]["nvidiaTelemetry"]
             self.assertEqual(telemetry["pstate"]["values"], ["P0", "P2"])
             self.assertEqual(
-                telemetry["graphicsClockMHz"], {"min": 1001.0, "max": 1201.0}
+                telemetry["smClockMHz"], {"min": 1001.0, "max": 1201.0}
             )
+            self.assertNotIn("graphicsClockMHz", telemetry)
+            self.assertEqual(
+                telemetry["instantPowerWatts"], {"min": 41.0, "max": 46.0}
+            )
+            self.assertNotIn("powerWatts", telemetry)
             self.assertEqual(telemetry["timestamp"]["minimumSamples"], 101)
             self.assertEqual(telemetry["timestamp"]["spanMs"], 40_400)
             self.assertEqual(telemetry["timestamp"]["maximumGapMs"], 200)
@@ -239,6 +244,8 @@ class ActiveFxRoiDiagnosticReporterTests(unittest.TestCase):
             self.assertIn("ABBA/A", markdown)
             self.assertIn("BAAB/B", markdown)
             self.assertIn("P0-P2", markdown)
+            self.assertIn("SM clock", markdown)
+            self.assertIn("Instant power", markdown)
 
     def test_accepts_an_explicitly_disabled_telemetry_contract(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -250,6 +257,17 @@ class ActiveFxRoiDiagnosticReporterTests(unittest.TestCase):
                 all(run["nvidiaTelemetry"] is None for run in report["runs"])
             )
             self.assertIn("NVIDIA telemetry was not captured", REPORTER.render_markdown(report))
+
+    def test_rejects_legacy_clock_and_power_query_fields(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = _diagnostic_fixture(Path(temporary))
+            fields = fixture.manifest["nvidiaTelemetry"]["fields"]
+            fields[5] = "clocks.current.graphics"
+            fields[7] = "power.draw"
+            fixture.write_manifest()
+
+            with self.assertRaisesRegex(REPORTER.ValidationError, "fields differ"):
+                REPORTER.build_report(fixture.root)
 
     def test_release_reporter_rejects_the_diagnostic_envelope(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

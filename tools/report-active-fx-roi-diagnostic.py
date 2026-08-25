@@ -35,17 +35,17 @@ TELEMETRY_FIELDS = (
     "uuid",
     "name",
     "pstate",
-    "clocks.current.graphics",
+    "clocks.current.sm",
     "clocks.current.memory",
-    "power.draw",
+    "power.draw.instant",
     "temperature.gpu",
     "utilization.gpu",
     "utilization.memory",
 )
 TELEMETRY_RANGES = {
-    "graphicsClockMHz": "clocks.current.graphics",
+    "smClockMHz": "clocks.current.sm",
     "memoryClockMHz": "clocks.current.memory",
-    "powerWatts": "power.draw",
+    "instantPowerWatts": "power.draw.instant",
     "temperatureCelsius": "temperature.gpu",
     "gpuUtilizationPercent": "utilization.gpu",
     "memoryUtilizationPercent": "utilization.memory",
@@ -772,8 +772,8 @@ def render_markdown(report: dict[str, Any]) -> str:
     else:
         lines.extend(
             (
-                "| Run | Pattern/arm | Samples | P-state | Graphics clock | "
-                "Memory clock | Power | GPU util | Memory util | Temperature |",
+                "| Run | Pattern/arm | Samples | P-state | SM clock | "
+                "Memory clock | Instant power | GPU util | Memory util | Temperature |",
                 "|---:|---|---:|---|---:|---:|---:|---:|---:|---:|",
             )
         )
@@ -783,9 +783,9 @@ def render_markdown(report: dict[str, Any]) -> str:
                 f"| {run['ordinal']} | {run['blockPattern']}/{run['arm']} | "
                 f"{telemetry['samples']} | "
                 f"{telemetry['pstate']['min']}-{telemetry['pstate']['max']} | "
-                f"{_format_range(telemetry['graphicsClockMHz'], ' MHz')} | "
+                f"{_format_range(telemetry['smClockMHz'], ' MHz')} | "
                 f"{_format_range(telemetry['memoryClockMHz'], ' MHz')} | "
-                f"{_format_range(telemetry['powerWatts'], ' W')} | "
+                f"{_format_range(telemetry['instantPowerWatts'], ' W')} | "
                 f"{_format_range(telemetry['gpuUtilizationPercent'], '%')} | "
                 f"{_format_range(telemetry['memoryUtilizationPercent'], '%')} | "
                 f"{_format_range(telemetry['temperatureCelsius'], ' C')} |"
