@@ -17,7 +17,7 @@ from typing import Any
 
 
 CAPTURE_SCHEMA_VERSION = 2
-REPORT_SCHEMA_VERSION = 2
+REPORT_SCHEMA_VERSION = 3
 CAPTURE_KIND = "bafx-active-fx-roi-diagnostic-capture"
 REPORT_KIND = "bafx-active-fx-roi-diagnostic-report"
 DIAGNOSTIC_NOTICE = "NON-RELEASE: short matrix for causal investigation only"
@@ -425,8 +425,13 @@ def _causal_metrics(
     }
 
 
-def _range(values: list[float]) -> dict[str, float]:
-    return {"min": min(values), "max": max(values)}
+def _distribution(values: list[float]) -> dict[str, float]:
+    return {
+        "min": min(values),
+        "max": max(values),
+        "mean": math.fsum(values) / len(values),
+        "median": RELEASE._median(values),
+    }
 
 
 def _parse_utc(value: Any, context: str) -> datetime:
@@ -443,6 +448,81 @@ def _delta_ms(left: datetime, right: datetime) -> float:
     return (left - right).total_seconds() * 1000.0
 
 
+def _utc_text(value: datetime) -> str:
+    return value.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+
+
+def _selected_telemetry_windows(
+    intervals: list[dict[str, str]], context: str
+) -> list[dict[str, Any]]:
+    if len(intervals) != RELEASE.SELECT_COMPLETE_INTERVALS:
+        raise ValidationError(
+            f"{context}: telemetry requires exactly "
+            f"{RELEASE.SELECT_COMPLETE_INTERVALS} selected intervals"
+        )
+    windows: list[dict[str, Any]] = []
+    previous_end: datetime | None = None
+    for index, event in enumerate(intervals, 1):
+        interval_context = f"{context} selected interval {index}"
+        end = _parse_utc(
+            RELEASE._event_string(event, "Event.Utc", interval_context),
+            f"{interval_context}.Event.Utc",
+        )
+        duration_us = RELEASE._event_int(
+            event, "Window.DurationUs", interval_context
+        )
+        if duration_us <= 0:
+            raise ValidationError(
+                f"{interval_context}: Window.DurationUs must be positive"
+            )
+        start = end - timedelta(microseconds=duration_us)
+        if previous_end is not None:
+            if end <= previous_end:
+                raise ValidationError(
+                    f"{interval_context}: Event.Utc must increase"
+                )
+            if start < previous_end:
+                raise ValidationError(
+                    f"{interval_context}: selected telemetry windows overlap"
+                )
+        windows.append(
+            {
+                "start": start,
+                "end": end,
+                "durationUs": duration_us,
+            }
+        )
+        previous_end = end
+    return windows
+
+
+def _infer_telemetry_timezone(
+    first_local_timestamp: datetime,
+    started_at: datetime,
+    context: str,
+) -> tuple[timezone, int]:
+    # nvidia-smi omits its UTC offset. Derive a fixed minute offset from the
+    # capture's own UTC start so replay does not depend on the report machine.
+    utc_wall_clock = started_at.astimezone(timezone.utc).replace(tzinfo=None)
+    raw_offset_minutes = (
+        first_local_timestamp - utc_wall_clock
+    ).total_seconds() / 60.0
+    offset_minutes = round(raw_offset_minutes)
+    if offset_minutes < -14 * 60 or offset_minutes > 14 * 60:
+        raise ValidationError(f"{context}: inferred CSV UTC offset is invalid")
+    if offset_minutes % 15 != 0:
+        raise ValidationError(
+            f"{context}: inferred CSV UTC offset must use a 15-minute boundary"
+        )
+    inferred_zone = timezone(timedelta(minutes=offset_minutes))
+    inferred_first = first_local_timestamp.replace(
+        tzinfo=inferred_zone
+    ).astimezone(timezone.utc)
+    if abs(_delta_ms(inferred_first, started_at)) > TELEMETRY_ENDPOINT_SLACK_MS:
+        raise ValidationError(f"{context}: cannot infer a stable CSV UTC offset")
+    return inferred_zone, offset_minutes
+
+
 def _validate_run_telemetry(
     root: Path,
     value: Any,
@@ -451,6 +531,7 @@ def _validate_run_telemetry(
     contract: dict[str, Any],
     run_started_at: datetime,
     run_elapsed_ms: int,
+    intervals: list[dict[str, str]],
 ) -> dict[str, Any]:
     context = f"run {ordinal}.nvidiaTelemetry"
     telemetry = RELEASE._dict(value, context)
@@ -523,6 +604,14 @@ def _validate_run_telemetry(
     ):
         raise ValidationError(f"{context}: collector must own sampler shutdown")
 
+    selected_windows = _selected_telemetry_windows(intervals, context)
+    for window_index, window in enumerate(selected_windows, 1):
+        if window["start"] < started_at or window["end"] > stopped_at:
+            raise ValidationError(
+                f"{context} selected interval {window_index}: performance window "
+                "is outside the telemetry session"
+            )
+
     try:
         with csv_path.open("r", encoding="utf-8-sig", newline="") as stream:
             rows = list(csv.reader(stream))
@@ -536,11 +625,8 @@ def _validate_run_telemetry(
             f"{context}: CSV has {len(samples)} samples, manifest records {sample_count}"
         )
 
-    pstates: set[int] = set()
-    numeric: dict[str, list[float]] = {
-        field: [] for field in TELEMETRY_RANGES.values()
-    }
-    timestamps: list[datetime] = []
+    parsed_samples: list[dict[str, Any]] = []
+    local_timestamps: list[datetime] = []
     timestamp_text: list[str] = []
     for row_index, row in enumerate(samples, 1):
         row_context = f"{context} sample {row_index}"
@@ -553,12 +639,9 @@ def _validate_run_telemetry(
             )
         except ValueError as error:
             raise ValidationError(f"{row_context}.timestamp has an invalid format") from error
-        # nvidia-smi emits local wall-clock timestamps without an offset. The
-        # collector and reporter both bind them to the machine's local zone.
-        timestamp = local_timestamp.astimezone(timezone.utc)
-        if timestamps and timestamp < timestamps[-1]:
-            raise ValidationError(f"{row_context}.timestamp moves backwards")
-        timestamps.append(timestamp)
+        # nvidia-smi omits the UTC offset, so defer conversion until the
+        # capture-owned session start can establish a replay-stable offset.
+        local_timestamps.append(local_timestamp)
         timestamp_text.append(sample["timestamp"])
         try:
             gpu_index = int(sample["index"])
@@ -574,9 +657,32 @@ def _validate_run_telemetry(
         match = re.fullmatch(r"P([0-9]+)", sample["pstate"])
         if match is None:
             raise ValidationError(f"{row_context}.pstate is invalid")
-        pstates.add(int(match.group(1)))
-        for field in numeric:
-            numeric[field].append(_number(sample[field], f"{row_context}.{field}"))
+        parsed_samples.append(
+            {
+                "pstate": int(match.group(1)),
+                "numeric": {
+                    field: _number(sample[field], f"{row_context}.{field}")
+                    for field in TELEMETRY_RANGES.values()
+                },
+            }
+        )
+
+    inferred_zone, utc_offset_minutes = _infer_telemetry_timezone(
+        local_timestamps[0], started_at, context
+    )
+    timestamps = [
+        value.replace(tzinfo=inferred_zone).astimezone(timezone.utc)
+        for value in local_timestamps
+    ]
+    for row_index, (previous, current) in enumerate(
+        zip(timestamps, timestamps[1:]), 2
+    ):
+        if current < previous:
+            raise ValidationError(
+                f"{context} sample {row_index}.timestamp moves backwards"
+            )
+    for sample, timestamp in zip(parsed_samples, timestamps):
+        sample["timestamp"] = timestamp
 
     first_timestamp = timestamps[0]
     last_timestamp = timestamps[-1]
@@ -601,7 +707,60 @@ def _validate_run_telemetry(
             f"{TELEMETRY_MAX_GAP_MS} ms"
         )
 
-    ordered_pstates = sorted(pstates)
+    selected_indices: set[int] = set()
+    selected_interval_evidence: list[dict[str, Any]] = []
+    for window_index, window in enumerate(selected_windows, 1):
+        matching = [
+            index
+            for index, timestamp in enumerate(timestamps)
+            if window["start"] <= timestamp <= window["end"]
+        ]
+        if not matching:
+            raise ValidationError(
+                f"{context} selected interval {window_index}: no telemetry samples"
+            )
+        minimum_window_samples = max(
+            1,
+            math.floor(
+                float(window["durationUs"])
+                / (2 * TELEMETRY_INTERVAL_MS * 1_000)
+            ),
+        )
+        if len(matching) < minimum_window_samples:
+            raise ValidationError(
+                f"{context} selected interval {window_index}: {len(matching)} "
+                f"samples are below the minimum {minimum_window_samples}"
+            )
+        first_selected = timestamps[matching[0]]
+        last_selected = timestamps[matching[-1]]
+        if _delta_ms(first_selected, window["start"]) > TELEMETRY_ENDPOINT_SLACK_MS:
+            raise ValidationError(
+                f"{context} selected interval {window_index}: telemetry starts too late"
+            )
+        if _delta_ms(window["end"], last_selected) > TELEMETRY_ENDPOINT_SLACK_MS:
+            raise ValidationError(
+                f"{context} selected interval {window_index}: telemetry stops too early"
+            )
+        selected_indices.update(matching)
+        selected_interval_evidence.append(
+            {
+                "startUtc": _utc_text(window["start"]),
+                "endUtc": _utc_text(window["end"]),
+                "durationUs": window["durationUs"],
+                "samples": len(matching),
+                "minimumSamples": minimum_window_samples,
+            }
+        )
+    selected = [parsed_samples[index] for index in sorted(selected_indices)]
+    if not selected:
+        raise ValidationError(f"{context}: selected telemetry window is empty")
+
+    pstate_counts: dict[int, int] = {}
+    for sample in selected:
+        pstate = int(sample["pstate"])
+        pstate_counts[pstate] = pstate_counts.get(pstate, 0) + 1
+    ordered_pstates = sorted(pstate_counts)
+    selected_sample_count = len(selected)
     result: dict[str, Any] = {
         "samples": sample_count,
         "timestamp": {
@@ -611,15 +770,32 @@ def _validate_run_telemetry(
             "maximumGapMs": maximum_gap_ms,
             "minimumSamples": minimum_samples,
             "endpointSlackMs": TELEMETRY_ENDPOINT_SLACK_MS,
+            "inferredUtcOffsetMinutes": utc_offset_minutes,
+        },
+        "selectedWindow": {
+            "samples": selected_sample_count,
+            "durationUs": sum(
+                int(window["durationUs"]) for window in selected_windows
+            ),
+            "intervals": selected_interval_evidence,
         },
         "pstate": {
             "min": f"P{ordered_pstates[0]}",
             "max": f"P{ordered_pstates[-1]}",
             "values": [f"P{value}" for value in ordered_pstates],
         },
+        "pstateResidency": {
+            f"P{value}": {
+                "samples": pstate_counts[value],
+                "ratio": pstate_counts[value] / selected_sample_count,
+            }
+            for value in ordered_pstates
+        },
     }
     for output_name, field in TELEMETRY_RANGES.items():
-        result[output_name] = _range(numeric[field])
+        result[output_name] = _distribution(
+            [float(sample["numeric"][field]) for sample in selected]
+        )
     return result
 
 
@@ -754,6 +930,7 @@ def _validate_run(
             telemetry_contract,
             run_started_at,
             run_elapsed_ms,
+            intervals,
         )
     return {
         "ordinal": ordinal,
@@ -767,7 +944,47 @@ def _validate_run(
     }
 
 
-def _aggregate(runs: list[dict[str, Any]]) -> dict[str, Any]:
+def _aggregate_telemetry(
+    runs: list[dict[str, Any]], all_pstates: list[str]
+) -> dict[str, Any] | None:
+    telemetry = [run["nvidiaTelemetry"] for run in runs]
+    if all(value is None for value in telemetry):
+        return None
+    if any(value is None for value in telemetry):
+        raise ValidationError("NVIDIA telemetry availability differs between runs")
+    values = [value for value in telemetry if value is not None]
+    return {
+        "runCount": len(values),
+        "selectedSamples": sum(
+            int(value["selectedWindow"]["samples"]) for value in values
+        ),
+        "pstateResidencyMedian": {
+            state: RELEASE._median(
+                [
+                    float(value["pstateResidency"].get(state, {"ratio": 0.0})["ratio"])
+                    for value in values
+                ]
+            )
+            for state in all_pstates
+        },
+        "smClockMedianMHz": RELEASE._median(
+            [float(value["smClockMHz"]["median"]) for value in values]
+        ),
+        "memoryClockMedianMHz": RELEASE._median(
+            [float(value["memoryClockMHz"]["median"]) for value in values]
+        ),
+        "instantPowerMeanWatts": RELEASE._median(
+            [float(value["instantPowerWatts"]["mean"]) for value in values]
+        ),
+        "instantPowerMedianWatts": RELEASE._median(
+            [float(value["instantPowerWatts"]["median"]) for value in values]
+        ),
+    }
+
+
+def _aggregate(
+    runs: list[dict[str, Any]], all_pstates: list[str]
+) -> dict[str, Any]:
     aggregate = RELEASE._aggregate(runs)
     aggregate["finalCompositeP99Us"] = RELEASE._median(
         [float(run["metrics"]["finalCompositeP99Us"]) for run in runs]
@@ -800,6 +1017,7 @@ def _aggregate(runs: list[dict[str, Any]]) -> dict[str, Any]:
     aggregate["framePacingWaitBucketRatios"] = {
         name: count / wait_samples for name, count in buckets.items()
     }
+    aggregate["nvidiaTelemetry"] = _aggregate_telemetry(runs, all_pstates)
     return aggregate
 
 
@@ -855,8 +1073,21 @@ def build_report(root: Path) -> dict[str, Any]:
         )
         for ordinal, value in enumerate(values, 1)
     ]
-    roi_off = _aggregate([run for run in runs if not run["roiEnabled"]])
-    roi_on = _aggregate([run for run in runs if run["roiEnabled"]])
+    all_pstates = sorted(
+        {
+            state
+            for run in runs
+            if run["nvidiaTelemetry"] is not None
+            for state in run["nvidiaTelemetry"]["pstateResidency"]
+        },
+        key=lambda state: int(state[1:]),
+    )
+    roi_off = _aggregate(
+        [run for run in runs if not run["roiEnabled"]], all_pstates
+    )
+    roi_on = _aggregate(
+        [run for run in runs if run["roiEnabled"]], all_pstates
+    )
     return {
         "schemaVersion": REPORT_SCHEMA_VERSION,
         "kind": REPORT_KIND,
@@ -874,6 +1105,11 @@ def build_report(root: Path) -> dict[str, Any]:
             "runPercentiles": "median-of-three-selected-complete-10s-windows",
             "armPercentiles": "median-of-four-run-percentiles",
             "waitBuckets": "summed-selected-window-counts-divided-by-summed-wait-samples",
+            "nvidiaTelemetry": (
+                "samples-inside-the-three-selected-performance-window-utc-ranges; "
+                "arm-values-are-medians-of-four-run-summaries; "
+                "missing-pstate-residency-is-zero-and-arm-medians-are-not-renormalized"
+            ),
             "order": "ABBA block followed by BAAB block",
         },
         "runs": runs,
@@ -885,6 +1121,7 @@ def build_report(root: Path) -> dict[str, Any]:
             "The five-block, twenty-run release reporter must be run independently.",
             "FramePacing.Wait samples are wakeups and do not correspond one-to-one with presented frames.",
             "Window percentiles are distribution summaries and must not be subtracted to infer per-frame stage duration.",
+            "NVIDIA telemetry is sampled every 200 ms and describes device-wide state, not per-frame energy attributable only to BAFX.",
         ],
     }
 
@@ -897,12 +1134,6 @@ def _format_number(value: Any) -> str:
     return str(value)
 
 
-def _format_range(value: dict[str, Any] | None, unit: str = "") -> str:
-    if value is None:
-        return "unavailable"
-    return f"{_format_number(value['min'])}-{_format_number(value['max'])}{unit}"
-
-
 def _format_reduction(value: dict[str, Any]) -> str:
     percent = value["percent"]
     percent_text = "unavailable" if percent is None else f"{percent:.3f}%"
@@ -911,6 +1142,19 @@ def _format_reduction(value: dict[str, Any]) -> str:
 
 def _format_ratio(value: float) -> str:
     return f"{value * 100.0:.3f}%"
+
+
+def _format_run_pstate_residency(value: dict[str, Any]) -> str:
+    return ", ".join(
+        f"{state} {_format_ratio(float(details['ratio']))}"
+        for state, details in value.items()
+    )
+
+
+def _format_arm_pstate_residency(value: dict[str, Any]) -> str:
+    return ", ".join(
+        f"{state} {_format_ratio(float(ratio))}" for state, ratio in value.items()
+    )
 
 
 def render_markdown(report: dict[str, Any]) -> str:
@@ -997,6 +1241,37 @@ def render_markdown(report: dict[str, Any]) -> str:
             f"{_format_ratio(on['framePacingWaitBucketRatios'][key])} |"
         )
 
+    lines.extend(("", "## Selected-window NVIDIA telemetry", ""))
+    off_telemetry = off["nvidiaTelemetry"]
+    on_telemetry = on["nvidiaTelemetry"]
+    if off_telemetry is None or on_telemetry is None:
+        lines.extend(("NVIDIA telemetry was not captured.", ""))
+    else:
+        lines.extend(
+            (
+                "| Metric | ROI off | ROI on |",
+                "|---|---:|---:|",
+                f"| Selected samples | {off_telemetry['selectedSamples']} | "
+                f"{on_telemetry['selectedSamples']} |",
+                f"| SM clock median (MHz) | "
+                f"{_format_number(off_telemetry['smClockMedianMHz'])} | "
+                f"{_format_number(on_telemetry['smClockMedianMHz'])} |",
+                f"| Memory clock median (MHz) | "
+                f"{_format_number(off_telemetry['memoryClockMedianMHz'])} | "
+                f"{_format_number(on_telemetry['memoryClockMedianMHz'])} |",
+                f"| Instant power run-mean median (W) | "
+                f"{_format_number(off_telemetry['instantPowerMeanWatts'])} | "
+                f"{_format_number(on_telemetry['instantPowerMeanWatts'])} |",
+                f"| Instant power run-median median (W) | "
+                f"{_format_number(off_telemetry['instantPowerMedianWatts'])} | "
+                f"{_format_number(on_telemetry['instantPowerMedianWatts'])} |",
+                f"| P-state residency median | "
+                f"{_format_arm_pstate_residency(off_telemetry['pstateResidencyMedian'])} | "
+                f"{_format_arm_pstate_residency(on_telemetry['pstateResidencyMedian'])} |",
+                "",
+            )
+        )
+
     lines.extend(
         (
             "",
@@ -1052,23 +1327,21 @@ def render_markdown(report: dict[str, Any]) -> str:
     else:
         lines.extend(
             (
-                "| Run | Pattern/arm | Samples | P-state | SM clock | "
-                "Memory clock | Instant power | GPU util | Memory util | Temperature |",
-                "|---:|---|---:|---|---:|---:|---:|---:|---:|---:|",
+                "| Run | Pattern/arm | Selected/session samples | P-state residency | "
+                "SM median | Memory median | Instant power mean/median |",
+                "|---:|---|---:|---|---:|---:|---:|",
             )
         )
         for run in report["runs"]:
             telemetry = run["nvidiaTelemetry"]
             lines.append(
                 f"| {run['ordinal']} | {run['blockPattern']}/{run['arm']} | "
-                f"{telemetry['samples']} | "
-                f"{telemetry['pstate']['min']}-{telemetry['pstate']['max']} | "
-                f"{_format_range(telemetry['smClockMHz'], ' MHz')} | "
-                f"{_format_range(telemetry['memoryClockMHz'], ' MHz')} | "
-                f"{_format_range(telemetry['instantPowerWatts'], ' W')} | "
-                f"{_format_range(telemetry['gpuUtilizationPercent'], '%')} | "
-                f"{_format_range(telemetry['memoryUtilizationPercent'], '%')} | "
-                f"{_format_range(telemetry['temperatureCelsius'], ' C')} |"
+                f"{telemetry['selectedWindow']['samples']}/{telemetry['samples']} | "
+                f"{_format_run_pstate_residency(telemetry['pstateResidency'])} | "
+                f"{_format_number(telemetry['smClockMHz']['median'])} MHz | "
+                f"{_format_number(telemetry['memoryClockMHz']['median'])} MHz | "
+                f"{_format_number(telemetry['instantPowerWatts']['mean'])}/"
+                f"{_format_number(telemetry['instantPowerWatts']['median'])} W |"
             )
         lines.append("")
     lines.extend(("## Limitations", ""))

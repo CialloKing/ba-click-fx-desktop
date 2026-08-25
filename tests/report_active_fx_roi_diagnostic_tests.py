@@ -14,6 +14,7 @@ import unittest
 
 
 ROOT = Path(__file__).resolve().parents[1]
+FIXTURE_UTC_OFFSET = timedelta(hours=8)
 REPORTER_PATH = ROOT / "tools" / "report-active-fx-roi-diagnostic.py"
 REPORTER_SPEC = importlib.util.spec_from_file_location(
     "report_active_fx_roi_diagnostic", REPORTER_PATH
@@ -44,12 +45,19 @@ def _utc_text(value: datetime) -> str:
 
 
 def _local_nvidia_text(value: datetime) -> str:
-    local = value.astimezone()
+    local = (
+        value.astimezone(timezone.utc).replace(tzinfo=None) + FIXTURE_UTC_OFFSET
+    )
     return local.strftime("%Y/%m/%d %H:%M:%S.%f")[:-3]
 
 
 def _telemetry_csv(
-    started_at: datetime, stopped_at: datetime, gpu: dict[str, object]
+    started_at: datetime,
+    stopped_at: datetime,
+    run_started_at: datetime,
+    ordinal: int,
+    roi_enabled: bool,
+    gpu: dict[str, object],
 ) -> tuple[str, int]:
     header = ",".join(REPORTER.TELEMETRY_FIELDS)
     base = [
@@ -64,17 +72,39 @@ def _telemetry_csv(
         timestamp = started_at + timedelta(
             milliseconds=sample_index * REPORTER.TELEMETRY_INTERVAL_MS
         )
-        high = sample_index != 0
+        elapsed_from_run_ms = (timestamp - run_started_at).total_seconds() * 1_000
+        selected = 10_000 <= elapsed_from_run_ms < 40_000
+        alternate = sample_index % 2
+        if selected:
+            sm_clock = (500 if roi_enabled else 700) + ordinal * 10 + alternate * 20
+            memory_clock = 810 + alternate * 200
+            power = (10.0 if roi_enabled else 12.0) + ordinal * 0.1 + alternate * 2
+            pstate = (
+                "P10" if roi_enabled and sample_index % 3 == 0 else "P5"
+            )
+            temperature = 50 + alternate
+            gpu_utilization = (30 if roi_enabled else 36) + alternate * 2
+            memory_utilization = 20 + alternate * 2
+        else:
+            # Sentinels prove warmup and shutdown samples do not enter the
+            # selected-window summaries.
+            sm_clock = 2500
+            memory_clock = 8001
+            power = 50.0
+            pstate = "P0"
+            temperature = 70
+            gpu_utilization = 90
+            memory_utilization = 80
         row = [
             _local_nvidia_text(timestamp),
             *base,
-            "P0" if high else "P2",
-            "1201" if high else "1001",
-            "2201" if high else "2001",
-            "46" if high else "41",
-            "53" if high else "51",
-            "31" if high else "11",
-            "41" if high else "21",
+            pstate,
+            str(sm_clock),
+            str(memory_clock),
+            f"{power:.1f}",
+            str(temperature),
+            str(gpu_utilization),
+            str(memory_utilization),
         ]
         rows.append(",".join(row))
     return "\n".join(rows) + "\n", sample_count
@@ -240,9 +270,12 @@ def _diagnostic_fixture(root: Path, telemetry_enabled: bool = True) -> object:
             "Cpu.PresentCall.P99": 8000 + ordinal,
         }
         for complete_interval in range(1, 5):
-            fixture.interval_overrides[(ordinal, complete_interval)] = (
-                _causal_timing_fields(ordinal, roi_enabled, complete_interval)
-            )
+            fixture.interval_overrides[(ordinal, complete_interval)] = {
+                "Event.Utc": _utc_text(
+                    run_started_at + timedelta(seconds=10 * complete_interval)
+                ),
+                **_causal_timing_fields(ordinal, roi_enabled, complete_interval),
+            }
         fixture.write_log(ordinal, roi_enabled)
 
         if telemetry_enabled:
@@ -251,7 +284,12 @@ def _diagnostic_fixture(root: Path, telemetry_enabled: bool = True) -> object:
             telemetry_started_at = run_started_at + timedelta(milliseconds=100)
             telemetry_stopped_at = run_started_at + timedelta(milliseconds=40_500)
             telemetry_csv, sample_count = _telemetry_csv(
-                telemetry_started_at, telemetry_stopped_at, gpu
+                telemetry_started_at,
+                telemetry_stopped_at,
+                run_started_at,
+                ordinal,
+                roi_enabled,
+                gpu,
             )
             csv_path.write_text(telemetry_csv, encoding="utf-8")
             stderr_path.write_text("", encoding="utf-8")
@@ -276,12 +314,12 @@ def _diagnostic_fixture(root: Path, telemetry_enabled: bool = True) -> object:
 
 
 class ActiveFxRoiDiagnosticReporterTests(unittest.TestCase):
-    def test_reports_ordered_runs_arm_aggregates_and_telemetry_ranges(self) -> None:
+    def test_reports_ordered_runs_and_selected_window_telemetry(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             fixture = _diagnostic_fixture(Path(temporary))
             report = REPORTER.build_report(fixture.root)
 
-            self.assertEqual(report["schemaVersion"], 2)
+            self.assertEqual(report["schemaVersion"], 3)
             self.assertEqual(report["captureSchemaVersion"], 2)
             self.assertFalse(report["releaseEligible"])
             self.assertEqual(report["schedule"]["pattern"], "ABBA+BAAB")
@@ -294,18 +332,56 @@ class ActiveFxRoiDiagnosticReporterTests(unittest.TestCase):
                 report["runs"][4]["metrics"]["finalCompositeP99Us"], 3005
             )
             telemetry = report["runs"][0]["nvidiaTelemetry"]
-            self.assertEqual(telemetry["pstate"]["values"], ["P0", "P2"])
+            self.assertEqual(telemetry["samples"], 203)
+            self.assertEqual(telemetry["selectedWindow"]["samples"], 150)
+            self.assertEqual(telemetry["selectedWindow"]["durationUs"], 30_000_000)
             self.assertEqual(
-                telemetry["smClockMHz"], {"min": 1001.0, "max": 1201.0}
+                [
+                    interval["samples"]
+                    for interval in telemetry["selectedWindow"]["intervals"]
+                ],
+                [50, 50, 50],
+            )
+            self.assertEqual(telemetry["timestamp"]["inferredUtcOffsetMinutes"], 480)
+            self.assertEqual(telemetry["pstate"]["values"], ["P5"])
+            self.assertEqual(
+                telemetry["pstateResidency"],
+                {"P5": {"samples": 150, "ratio": 1.0}},
+            )
+            self.assertEqual(
+                report["runs"][1]["nvidiaTelemetry"]["pstate"]["values"],
+                ["P5", "P10"],
+            )
+            self.assertEqual(
+                telemetry["smClockMHz"],
+                {"min": 710.0, "max": 730.0, "mean": 720.0, "median": 720.0},
             )
             self.assertNotIn("graphicsClockMHz", telemetry)
             self.assertEqual(
-                telemetry["instantPowerWatts"], {"min": 41.0, "max": 46.0}
+                telemetry["instantPowerWatts"],
+                {"min": 12.1, "max": 14.1, "mean": 13.1, "median": 13.1},
             )
             self.assertNotIn("powerWatts", telemetry)
             self.assertEqual(telemetry["timestamp"]["minimumSamples"], 101)
             self.assertEqual(telemetry["timestamp"]["spanMs"], 40_400)
             self.assertEqual(telemetry["timestamp"]["maximumGapMs"], 200)
+            off_telemetry = report["roiOff"]["nvidiaTelemetry"]
+            on_telemetry = report["roiOn"]["nvidiaTelemetry"]
+            self.assertEqual(off_telemetry["selectedSamples"], 600)
+            self.assertEqual(on_telemetry["selectedSamples"], 600)
+            self.assertEqual(off_telemetry["smClockMedianMHz"], 760)
+            self.assertEqual(on_telemetry["smClockMedianMHz"], 550)
+            self.assertEqual(off_telemetry["memoryClockMedianMHz"], 910)
+            self.assertEqual(on_telemetry["memoryClockMedianMHz"], 910)
+            self.assertAlmostEqual(off_telemetry["instantPowerMeanWatts"], 13.5)
+            self.assertAlmostEqual(on_telemetry["instantPowerMeanWatts"], 11.4)
+            self.assertEqual(
+                off_telemetry["pstateResidencyMedian"], {"P5": 1.0, "P10": 0.0}
+            )
+            self.assertEqual(
+                on_telemetry["pstateResidencyMedian"],
+                {"P5": 2 / 3, "P10": 1 / 3},
+            )
             self.assertIn("finalCompositeP99Us", report["roiOff"])
             self.assertIn("bloomFinalP95Us", report["roiOn"])
             self.assertEqual(
@@ -340,9 +416,11 @@ class ActiveFxRoiDiagnosticReporterTests(unittest.TestCase):
             self.assertIn("Primary FinalComposite p99", markdown)
             self.assertIn("ABBA/A", markdown)
             self.assertIn("BAAB/B", markdown)
-            self.assertIn("P0-P2", markdown)
-            self.assertIn("SM clock", markdown)
-            self.assertIn("Instant power", markdown)
+            self.assertIn("## Selected-window NVIDIA telemetry", markdown)
+            self.assertIn("P5 100.000%", markdown)
+            self.assertIn("150/203", markdown)
+            self.assertIn("SM clock median", markdown)
+            self.assertIn("Instant power run-mean median", markdown)
             self.assertIn("## Causal timing", markdown)
             self.assertIn("## Frame pacing wait buckets", markdown)
             self.assertIn("CPU PrePresent p95", markdown)
@@ -357,6 +435,8 @@ class ActiveFxRoiDiagnosticReporterTests(unittest.TestCase):
             self.assertTrue(
                 all(run["nvidiaTelemetry"] is None for run in report["runs"])
             )
+            self.assertIsNone(report["roiOff"]["nvidiaTelemetry"])
+            self.assertIsNone(report["roiOn"]["nvidiaTelemetry"])
             self.assertIn("NVIDIA telemetry was not captured", REPORTER.render_markdown(report))
 
     def test_rejects_legacy_clock_and_power_query_fields(self) -> None:
@@ -555,6 +635,13 @@ class ActiveFxRoiDiagnosticReporterTests(unittest.TestCase):
                 ),
                 "GPU identity changed",
             ),
+            (
+                "one-minute timestamp shift",
+                lambda fixture: _shift_telemetry_timestamps(
+                    fixture, timedelta(minutes=1)
+                ),
+                "15-minute boundary",
+            ),
         )
         for label, mutate, message in cases:
             with self.subTest(case=label), tempfile.TemporaryDirectory() as temporary:
@@ -576,6 +663,29 @@ class ActiveFxRoiDiagnosticReporterTests(unittest.TestCase):
                 mutate(fixture)
                 with self.assertRaisesRegex(REPORTER.ValidationError, message):
                     REPORTER.build_report(fixture.root)
+
+    def test_requires_selected_interval_timestamps_inside_telemetry_session(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = _diagnostic_fixture(Path(temporary))
+            _rewrite_run_log(fixture, ((r"^Event\.Utc=.*\n", ""),))
+            with self.assertRaisesRegex(REPORTER.ValidationError, "Event.Utc"):
+                REPORTER.build_report(fixture.root)
+
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = _diagnostic_fixture(Path(temporary))
+            run_started_at = datetime(2026, 8, 25, 12, 1, 0, tzinfo=timezone.utc)
+            for complete_interval in range(2, 5):
+                fixture.interval_overrides[(1, complete_interval)]["Event.Utc"] = (
+                    _utc_text(
+                        run_started_at
+                        + timedelta(seconds=30 + 10 * complete_interval)
+                    )
+                )
+            fixture.write_log(1, False)
+            with self.assertRaisesRegex(
+                REPORTER.ValidationError, "outside the telemetry session"
+            ):
+                REPORTER.build_report(fixture.root)
 
     def test_rejects_sampler_session_order_or_run_boundary_drift(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -650,6 +760,16 @@ def _stall_telemetry_clock(fixture: object) -> None:
     for index in range(51, len(rows)):
         _, remainder = rows[index].split(",", 1)
         rows[index] = f"{stalled_timestamp},{remainder}"
+    _rewrite_telemetry_rows(fixture, rows)
+
+
+def _shift_telemetry_timestamps(fixture: object, delta: timedelta) -> None:
+    rows = _telemetry_rows(fixture)
+    for index in range(1, len(rows)):
+        timestamp_text, remainder = rows[index].split(",", 1)
+        timestamp = datetime.strptime(timestamp_text, "%Y/%m/%d %H:%M:%S.%f")
+        shifted = (timestamp + delta).strftime("%Y/%m/%d %H:%M:%S.%f")[:-3]
+        rows[index] = f"{shifted},{remainder}"
     _rewrite_telemetry_rows(fixture, rows)
 
 
