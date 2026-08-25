@@ -102,6 +102,7 @@ BAFX_TEST(runtime_performance_window_aggregates_input_and_render_contracts)
         .fxTotalSubmitCpuMicroseconds = 5'000U,
         .fxMaterialsSubmitCpuMicroseconds = 2'000U,
         .bloomAndCompositeSubmitCpuMicroseconds = 3'000U,
+        .prePresentCpuMicroseconds = 1'250U,
         .presentCallCpuMicroseconds = 1'500U,
         .backgroundSampleAgeMicroseconds = 20'000U,
         .wgcProducerCallbacks = 6U,
@@ -160,6 +161,10 @@ BAFX_TEST(runtime_performance_window_aggregates_input_and_render_contracts)
     BAFX_CHECK(summary.inputDispatchBudgetExhaustions == 1U);
     BAFX_CHECK(summary.frameTotalCpuMicroseconds.p95 == 10'000U);
     BAFX_CHECK(summary.wgcDrainCpuMicroseconds.p95 == 2'000U);
+    BAFX_CHECK(summary.prePresentCpuMicroseconds.sampleCount
+        == summary.frameCount);
+    BAFX_CHECK(summary.prePresentCpuMicroseconds.droppedSampleCount == 0U);
+    BAFX_CHECK(summary.prePresentCpuMicroseconds.maximum == 1'250U);
     BAFX_CHECK(summary.presentCallCpuMicroseconds.maximum == 1'500U);
     BAFX_CHECK(summary.maximumWin32QueueAgeMilliseconds.maximum == 35U);
     BAFX_CHECK(
@@ -195,6 +200,7 @@ BAFX_TEST(runtime_performance_window_aggregates_input_and_render_contracts)
 
     window.reset();
     const bafx::desktop::RuntimePerformanceSummary reset = window.summarize();
+    BAFX_CHECK(reset.prePresentCpuMicroseconds.sampleCount == 0U);
     BAFX_CHECK(reset.framePacingDeviceRemovedWakes == 0U);
     BAFX_CHECK(reset.captureExclusionHealthChecks == 0U);
     BAFX_CHECK(window.empty());
@@ -225,6 +231,7 @@ BAFX_TEST(runtime_performance_window_keeps_wgc_maintenance_out_of_frame_metrics)
         .frameTotalCpuMicroseconds = 900U,
         .wgcDrainCpuMicroseconds = 25U,
         .wgcOwnedCopySubmitCpuMicroseconds = 7U,
+        .prePresentCpuMicroseconds = 200U,
         .presentCallCpuMicroseconds = 300U,
         .wgcProducerCallbacks = 3U,
         .wgcFramesAcquired = 2U,
@@ -261,6 +268,7 @@ BAFX_TEST(runtime_performance_window_keeps_wgc_maintenance_out_of_frame_metrics)
     BAFX_CHECK(summary.wgcDrainCpuMicroseconds.sampleCount == 1U);
     BAFX_CHECK(summary.wgcOwnedCopySubmitCpuMicroseconds.sampleCount == 1U);
     BAFX_CHECK(summary.frameTotalCpuMicroseconds.sampleCount == 0U);
+    BAFX_CHECK(summary.prePresentCpuMicroseconds.sampleCount == 0U);
     BAFX_CHECK(summary.presentCallCpuMicroseconds.sampleCount == 0U);
     BAFX_CHECK(summary.roiVisualBoundsOkFrames == 0U);
     BAFX_CHECK(summary.roiPlanFrames == 0U);

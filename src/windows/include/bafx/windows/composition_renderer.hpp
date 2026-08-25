@@ -226,6 +226,7 @@ struct CompositionFrameDiagnostics
     std::chrono::nanoseconds wgcDrainInclusiveCpu{};
     std::chrono::nanoseconds backgroundSnapshotSubmitCpu{};
     std::chrono::nanoseconds diagnosticReadbackCpu{};
+    std::chrono::nanoseconds prePresentCpu{};
     std::chrono::nanoseconds presentCallCpu{};
     std::chrono::nanoseconds backgroundSampleAge{};
     std::int64_t presentReturnedQpc{0};

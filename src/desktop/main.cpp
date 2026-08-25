@@ -2080,6 +2080,8 @@ gpuFxPathPerformanceSample(
         durationMicroseconds(frame.fx.bloomAndCompositeSubmit);
     sample.diagnosticReadbackCpuMicroseconds =
         durationMicroseconds(frame.diagnosticReadbackCpu);
+    sample.prePresentCpuMicroseconds =
+        durationMicroseconds(frame.prePresentCpu);
     sample.presentCallCpuMicroseconds =
         durationMicroseconds(frame.presentCallCpu);
     sample.backgroundSampleAgeMicroseconds =

@@ -245,6 +245,7 @@ struct FramePerformanceSample
     std::uint64_t fxMaterialsSubmitCpuMicroseconds{0U};
     std::uint64_t bloomAndCompositeSubmitCpuMicroseconds{0U};
     std::uint64_t diagnosticReadbackCpuMicroseconds{0U};
+    std::uint64_t prePresentCpuMicroseconds{0U};
     std::uint64_t presentCallCpuMicroseconds{0U};
     std::uint64_t backgroundSampleAgeMicroseconds{0U};
     std::uint64_t wgcProducerCallbacks{0U};
@@ -385,6 +386,7 @@ struct RuntimePerformanceSummary
     MetricSummary fxMaterialsSubmitCpuMicroseconds{};
     MetricSummary bloomAndCompositeSubmitCpuMicroseconds{};
     MetricSummary diagnosticReadbackCpuMicroseconds{};
+    MetricSummary prePresentCpuMicroseconds{};
     MetricSummary presentCallCpuMicroseconds{};
     MetricSummary backgroundSampleAgeMicroseconds{};
     MetricSummary maximumPendingEvents{};
@@ -575,6 +577,7 @@ private:
     BoundedMetric fxMaterialsSubmitCpuMicroseconds_{};
     BoundedMetric bloomAndCompositeSubmitCpuMicroseconds_{};
     BoundedMetric diagnosticReadbackCpuMicroseconds_{};
+    BoundedMetric prePresentCpuMicroseconds_{};
     BoundedMetric presentCallCpuMicroseconds_{};
     BoundedMetric backgroundSampleAgeMicroseconds_{};
     BoundedMetric maximumPendingEvents_{};

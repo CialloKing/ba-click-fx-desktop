@@ -64,6 +64,7 @@ BAFX_TEST(performance_log_preserves_metric_and_semantic_fields)
         .fxTotalSubmitCpuMicroseconds = 4'000U,
         .fxMaterialsSubmitCpuMicroseconds = 1'000U,
         .bloomAndCompositeSubmitCpuMicroseconds = 3'000U,
+        .prePresentCpuMicroseconds = 1'500U,
         .presentCallCpuMicroseconds = 2'000U,
         .wgcActive = true,
         .wgcDrainAttempted = true,
@@ -146,6 +147,9 @@ BAFX_TEST(performance_log_preserves_metric_and_semantic_fields)
     BAFX_CHECK(text.find("Effects.BloomQuality=high\n") != std::string::npos);
     BAFX_CHECK(text.find(
         "Timing.PresentSemantic=Present-call-return-not-dwm-composition-or-scanout\n")
+        != std::string::npos);
+    BAFX_CHECK(text.find(
+        "Timing.PrePresentSemantic=fx-render-return-to-Present-call-entry-including-roi-diagnostics-spout-gpu-query-end-and-readback\n")
         != std::string::npos);
     BAFX_CHECK(text.find(
         "Timing.PresentMode=interval-0-frame-latency-gated\n")
@@ -255,6 +259,12 @@ BAFX_TEST(performance_log_preserves_metric_and_semantic_fields)
     BAFX_CHECK(text.find("GPU.RecordingRebuild.Prefilter.Available=false\n")
         != std::string::npos);
     BAFX_CHECK(text.find("GPU.RenderCommandSpan.Max=3500\n")
+        != std::string::npos);
+    BAFX_CHECK(text.find("Cpu.PrePresent.Max=1500\n")
+        != std::string::npos);
+    BAFX_CHECK(text.find("Cpu.PrePresent.Samples=1\n")
+        != std::string::npos);
+    BAFX_CHECK(text.find("Cpu.PrePresent.DroppedSamples=0\n")
         != std::string::npos);
     BAFX_CHECK(text.find("Input.DispatchToPresentReturn.Max=25000\n")
         != std::string::npos);

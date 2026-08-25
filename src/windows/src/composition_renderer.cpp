@@ -1444,6 +1444,7 @@ CompositionFrameDiagnostics CompositionRenderer::renderFrame(
             ? recordingRenderTarget_.Get()
             : nullptr,
         activeRoi);
+    const auto prePresentStartedAt = std::chrono::steady_clock::now();
     diagnostics.gpuTimestampCheckpointFailure =
         diagnostics.gpuTimestampCheckpointFailure
         || diagnostics.fx.gpuTimestampCheckpointFailure;
@@ -1538,6 +1539,7 @@ CompositionFrameDiagnostics CompositionRenderer::renderFrame(
     }
 
     const auto presentStartedAt = std::chrono::steady_clock::now();
+    diagnostics.prePresentCpu = presentStartedAt - prePresentStartedAt;
     presentSwapChain();
     diagnostics.presentCallCpu =
         std::chrono::steady_clock::now() - presentStartedAt;

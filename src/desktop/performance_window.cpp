@@ -357,6 +357,7 @@ void RuntimePerformanceWindow::addFrame(
         sample.fxMaterialsSubmitCpuMicroseconds);
     bloomAndCompositeSubmitCpuMicroseconds_.add(
         sample.bloomAndCompositeSubmitCpuMicroseconds);
+    prePresentCpuMicroseconds_.add(sample.prePresentCpuMicroseconds);
     presentCallCpuMicroseconds_.add(sample.presentCallCpuMicroseconds);
     if (sample.backgroundSnapshotRefreshAttempted)
     {
@@ -583,6 +584,7 @@ void RuntimePerformanceWindow::reset() noexcept
     fxMaterialsSubmitCpuMicroseconds_.reset();
     bloomAndCompositeSubmitCpuMicroseconds_.reset();
     diagnosticReadbackCpuMicroseconds_.reset();
+    prePresentCpuMicroseconds_.reset();
     presentCallCpuMicroseconds_.reset();
     backgroundSampleAgeMicroseconds_.reset();
     maximumPendingEvents_.reset();
@@ -696,6 +698,7 @@ RuntimePerformanceSummary RuntimePerformanceWindow::summarize() const
         bloomAndCompositeSubmitCpuMicroseconds_.summarize();
     summary.diagnosticReadbackCpuMicroseconds =
         diagnosticReadbackCpuMicroseconds_.summarize();
+    summary.prePresentCpuMicroseconds = prePresentCpuMicroseconds_.summarize();
     summary.presentCallCpuMicroseconds = presentCallCpuMicroseconds_.summarize();
     summary.backgroundSampleAgeMicroseconds =
         backgroundSampleAgeMicroseconds_.summarize();

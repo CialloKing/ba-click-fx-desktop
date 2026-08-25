@@ -477,6 +477,9 @@ std::chrono::nanoseconds appendPerformanceInterval(
             "Timing.PresentSemantic",
             "Present-call-return-not-dwm-composition-or-scanout");
         fields.add(
+            "Timing.PrePresentSemantic",
+            "fx-render-return-to-Present-call-entry-including-roi-diagnostics-spout-gpu-query-end-and-readback");
+        fields.add(
             "Timing.PresentMode",
             "interval-0-frame-latency-gated");
         fields.add(
@@ -731,6 +734,11 @@ std::chrono::nanoseconds appendPerformanceInterval(
             fields,
             "Cpu.DiagnosticReadback",
             summary.diagnosticReadbackCpuMicroseconds,
+            "us");
+        appendMetric(
+            fields,
+            "Cpu.PrePresent",
+            summary.prePresentCpuMicroseconds,
             "us");
         appendMetric(
             fields,
