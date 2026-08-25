@@ -501,17 +501,53 @@ p95 在 `7/10` 相邻对变慢，配对差中位为 `+298.5 us`；p99 在 `8/10`
 `+284.5 us`，而 p50 配对差中位仅 `-1.5 us`。Frame 与 Present 的逐轮 p95/p99 相关系数分别为
 `0.9999/1.0000`，两者尾差中位仅 `58 us`，说明 CPU frame 失败主要由 Present 主导。ROI 的
 Fx/Bloom submit p95 每对都增加，中位分别为 `24.5/27.5 us`；同时 A->B 与 B->A 以及运行序号呈现
-明显顺序漂移。现有日志因此既不能把尾部差异归因为一个可修复的 ROI 产品缺陷，也不能证明它只是更早
-到达 Present 后的等待补偿。门槛仍按失败处理，不实施推测性修复，也不以重复采集替代原因定位。
-再次开展性能诊断前，必须先分别观测主循环 `FramePacing.Wait` 和 FX render 返回到 Present 调用入口的
-`Cpu.PrePresent`，再执行顺序平衡的非发布短矩阵；该诊断不能替代正式 20-run 门禁，也不改变 schema
-19、`GetDisplayState` schema 4 或当前失败结论。
+明显顺序漂移。正式 r5 没有 NVIDIA 遥测，因此不能从该组日志单独证明产品原因，门槛仍按失败处理。
+
+后续非发布因果矩阵位于
+`artifacts/performance/active-fx-roi-v027-causal-timing-diagnostic-20260825-r1`。capture schema 2、诊断
+report schema 3，revision 为 `52a464c14d14a086e318ca9777b718e11581640e`，Host EXE SHA-256 为
+`448c14c308bdcdf3b2a6cfaba7465ffe8d041266fc62f4e590d5972084819b26`；RTX 4060、4K 170 Hz、SDR 的
+`ABBA+BAAB` 共 8 次运行全部完成。`Cpu.PrePresent` p95/p99 两臂均为 `0/1 us`；
+`FramePacing.Wait` p95/p99 为 `5408/5683.5 us -> 5495/5754 us`，两臂 `>=8000 us` 均为 0，FPS
+都约为 170。该诊断未观察到支持 Present 前 ROI 诊断、GPU query、Spout/readback 收尾或长等待失稳
+是这组差异主因的证据。
+
+只统计三个实际 Performance.Interval UTC 窗口后，ROI off/on 分别纳入 `566/564` 个 NVIDIA 样本。
+SM 时钟的四 run 中位数为 `750 -> 502.5 MHz`，显存时钟均为 `810 MHz`，瞬时功耗 run-mean 中位数
+为 `11.474 -> 10.567 W`；P-state 窗口中位数为 off `P5 100%`，on `P5 98.582% / P8 1.418%`。
+同时 FinalComposite p95 为 `1431 -> 1918.5 us`，GPU command p99 为 `2783 -> 3723 us`，Present p95
+为 `3091 -> 3311.5 us`。ROI-on 的较低 SM 时钟、较低瞬时设备功耗与较慢的全屏 FinalComposite
+同时出现，与动态降频候选机制一致。NVIDIA 数据按 200 ms 采样并描述设备整体状态，不能归因到单帧、
+单进程或 BAFX 独占能耗；该 r1 也早于缓存提交。由于正式 r5 未采集显卡遥测，不能把候选机制追溯宣称
+为 r5 的已证实原因。诊断矩阵不能替代正式 20-run 门禁，也不改变 schema 19、`GetDisplayState`
+schema 4 或当前失败结论。
+
+提交 `d9ef2fe` 增加一项低风险产品修正：只缓存规划器生成且已逐字段验证的 ROI pass plan，命中时避免
+重复执行完整规划器，但仍核对 monitor、完整 Bloom plan 和实际消费字段，miss 重新规划；resize、
+diffusion/intensity 更新和显式重建会清空缓存，Context1、资源状态、共享写入所有权及自适应门仍逐帧
+检查。Release 构建和 `gpu_pipeline_warp` 通过，包含篡改候选的全屏 fallback 与 FP16 bit-exact；
+这些结果只证明正确性，不证明真实 CPU 或整机收益。
+
+缓存后的 4K 170 Hz 非发布复测当前为 `Not Run`。首次尝试保留在
+`artifacts/performance/active-fx-roi-v027-plan-cache-diagnostic-20260825-r1`，collector 在第一个 run
+重新锁定当前附着的 `DISPLAY20` 为 `3840x2160@144/1 Hz` 后 fail-closed，manifest 为
+`captureStatus=diagnostic-failed` 且 `runs=[]`。恢复先前有效证据使用的 NVIDIA
+`DISPLAY1@170/1 Hz` 前不执行正式复验，也不以当前 144 Hz 环境替代原门槛。
 
 证据索引 SHA-256：
 
 - `capture.json`: `ad756c2f3eb26a38d90a69ee6c448a5c088546ed147de5ef1f6721e97d5937a2`
 - `summary.json`: `616032aa17612233ea7d6a9d2121b83bcdab5d07898f41c2b0664fb629ee8ce3`
 - `summary.md`: `c3cfc34639ae654f497cae12d5d494d4fd7bba4f400839fcd705e1a748f841e7`
+- 因果诊断 `capture.json`: `7dd35433a49cc7d97b8143c3760bd1eb3a9a12a6c72071a907b98426e470ece3`
+- 因果诊断 `diagnostic-summary-schema3.json`:
+  `2ac598386498894342b00b21f435daeaf3dc98a81d8e5fbd888b392ada0c07c3`
+- 因果诊断 `diagnostic-summary-schema3.md`:
+  `79b6d2c48f6f1e4d99a2ee75a0fe5735d38fe107355562aa125bacba5085156e`
+- 缓存复测失败 manifest `capture.json`:
+  `0ce9a25be6e6aa2cc3a97c7bc84863d1bc27e4b6422cf071bd36d2c331ef1767`
+- 缓存复测失败 run-01 Host 日志 `ba-click-fx-desktop-support.log`:
+  `28265930044e5af25e9bdc6a9d220c8fa635e11ed595c4054647c4c90cbc7b60`
 
 因此阈值不放宽，0.2.7 不发布，也不执行 Full/Slim 发布 workflow、SDK `19041/22621/26100` 发布 CI、
 正式打包、tag 或远端复核。官方 Release 的 Full 四资产策略保持不变，Slim 仍只保留源码构建验证。

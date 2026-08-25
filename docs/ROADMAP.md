@@ -365,10 +365,14 @@ P1 的执行顺序不再调整：
 1. 保留 v0.2.6 `FAIL` 的原始证据和预注册阈值，不发布该版本；
 2. 0.2.7 完整金字塔候选已执行 RTX 4060、4K 170 Hz、SDR 专用 ABBA；整机门槛失败，证据已保留，
    发布已停止，50%/65% 自适应阈值和性能断言均未放宽；
-3. r5 复验中 GPU command p99 已改善并通过门槛；CPU/Present 尾部仍失败且尚无可复现产品原因，
-   不做推测性修复或重复采集。只有 0.2.7 以相同阈值独立通过并交付后，才以 0.2.8 局部化默认
-   `background-aware` 的 Differential Bloom；
-4. WGC、桌面捕获 ROI 和交换链 dirty Present 分别评审、分别验收，不从 Bloom ROI 的结果外推。
+3. r5 复验中 GPU command p99 已改善并通过门槛；非发布 `ABBA+BAAB` 诊断进一步观测到 ROI-on 的
+   较低设备功耗/SM 时钟与较慢的全屏 FinalComposite 同时出现，与动态降频候选机制一致；正式 r5 未
+   采集显卡遥测，不能追溯宣称为同一原因；
+4. 已缓存规划器生成且验证通过的 ROI pass plan，命中时避免重复执行完整规划器；4K 170 Hz
+   复测因当前附着输出为 144 Hz 而保持 `Not Run`，不以 144 Hz 结果替代原门槛；
+5. 只有 0.2.7 以相同阈值独立通过并交付后，才以 0.2.8 局部化默认 `background-aware` 的
+   Differential Bloom；WGC、桌面捕获 ROI 和交换链 dirty Present 分别评审、分别验收，不从 Bloom
+   ROI 的结果外推。
 
 任何阶段都必须同时比较 GPU 阶段时间、CPU/Present 尾部、查询健康状态和最终 FP16 结果；不能只报告
 CPU 提交时间、资源尺寸或像素覆盖比例。
