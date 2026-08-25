@@ -2,6 +2,7 @@
 
 #include "bafx/core/background_freshness.hpp"
 #include "bafx/fx/frame_bounds.hpp"
+#include "bafx/windows/detail/active_fx_roi_plan_validation_cache.hpp"
 #include "bafx/windows/error.hpp"
 #include "bafx/windows/fx_gpu_renderer.hpp"
 #include "bafx/windows/gpu_texture_readback.hpp"
@@ -442,8 +443,7 @@ void checkCaptureBitExactAndFinite(
     return snapshot;
 }
 
-[[nodiscard]] FxActiveRoi makeActiveFxRoi(
-    const bafx::core::RectI sourceSupport,
+[[nodiscard]] bafx::core::UnityBloomPlan makeUnityBloomPlanForTest(
     const FxBloomSettings settings = {},
     const WindowSize size = testSize)
 {
@@ -458,6 +458,17 @@ void checkCaptureBitExactAndFinite(
     bafx::test::check(
         bloom.status == bafx::core::UnityBloomStatus::Ok,
         "Unity Bloom plan is valid");
+    return bloom.plan;
+}
+
+[[nodiscard]] FxActiveRoi makeActiveFxRoi(
+    const bafx::core::RectI sourceSupport,
+    const FxBloomSettings settings = {},
+    const WindowSize size = testSize)
+{
+    const bafx::core::UnityBloomPlan bloom = makeUnityBloomPlanForTest(
+        settings,
+        size);
     const bafx::core::UnityBloomPassRoiPlanResult roi =
         bafx::core::planUnityBloomPassRoi(
             sourceSupport,
@@ -466,7 +477,7 @@ void checkCaptureBitExactAndFinite(
                 0,
                 static_cast<std::int32_t>(size.width),
                 static_cast<std::int32_t>(size.height)},
-            bloom.plan);
+            bloom);
     bafx::test::check(
         roi.status == bafx::core::RoiStatus::Ok,
         "Unity Bloom pass ROI plan is valid");
@@ -2528,6 +2539,200 @@ BAFX_TEST(warp_bloom_layer_toggle_bypasses_output_without_stale_bloom)
         makeDiskSnapshot(true),
         target.view.Get());
     BAFX_CHECK(!isZeroImage(restored.bloomResult));
+}
+
+BAFX_TEST(active_fx_roi_plan_validation_cache_hits_and_replans_valid_motion)
+{
+    constexpr bafx::core::RectI monitor{
+        0,
+        0,
+        static_cast<std::int32_t>(testSize.width),
+        static_cast<std::int32_t>(testSize.height)};
+    const bafx::core::UnityBloomPlan bloom = makeUnityBloomPlanForTest();
+    const FxActiveRoi first = makeActiveFxRoi(
+        bafx::core::RectI{96, 96, 144, 144});
+    const FxActiveRoi moved = makeActiveFxRoi(
+        bafx::core::RectI{112, 104, 160, 152});
+    bafx::windows::detail::ActiveFxRoiPlanValidationCache cache;
+
+    const auto firstValidation = cache.validate(first.passPlan, monitor, bloom);
+    BAFX_CHECK(firstValidation.valid);
+    BAFX_CHECK(!firstValidation.cacheHit);
+    const auto repeatedFirst = cache.validate(first.passPlan, monitor, bloom);
+    BAFX_CHECK(repeatedFirst.valid);
+    BAFX_CHECK(repeatedFirst.cacheHit);
+
+    const auto movedValidation = cache.validate(moved.passPlan, monitor, bloom);
+    BAFX_CHECK(movedValidation.valid);
+    BAFX_CHECK(!movedValidation.cacheHit);
+    const auto repeatedMove = cache.validate(moved.passPlan, monitor, bloom);
+    BAFX_CHECK(repeatedMove.valid);
+    BAFX_CHECK(repeatedMove.cacheHit);
+
+    FxActiveRoi tampered = moved;
+    ++tampered.passPlan.totalPixels.candidatePixels;
+    const auto rejected = cache.validate(tampered.passPlan, monitor, bloom);
+    BAFX_CHECK(!rejected.valid);
+    BAFX_CHECK(!rejected.cacheHit);
+    const auto validAfterRejection = cache.validate(moved.passPlan, monitor, bloom);
+    BAFX_CHECK(validAfterRejection.valid);
+    BAFX_CHECK(validAfterRejection.cacheHit);
+}
+
+BAFX_TEST(active_fx_roi_plan_validation_cache_invalidates_render_context)
+{
+    constexpr bafx::core::RectI initialMonitor{
+        0,
+        0,
+        static_cast<std::int32_t>(testSize.width),
+        static_cast<std::int32_t>(testSize.height)};
+    constexpr WindowSize resized{319U, 181U};
+    constexpr bafx::core::RectI resizedMonitor{
+        0,
+        0,
+        static_cast<std::int32_t>(resized.width),
+        static_cast<std::int32_t>(resized.height)};
+    constexpr FxBloomSettings lowDiffusion{1.0F, 4.0F};
+    const bafx::core::UnityBloomPlan initialBloom = makeUnityBloomPlanForTest();
+    const bafx::core::UnityBloomPlan resizedBloom = makeUnityBloomPlanForTest(
+        FxBloomSettings{},
+        resized);
+    const bafx::core::UnityBloomPlan lowDiffusionBloom =
+        makeUnityBloomPlanForTest(lowDiffusion, resized);
+    const FxActiveRoi initial = makeActiveFxRoi(
+        bafx::core::RectI{96, 96, 144, 144});
+    const FxActiveRoi resizedRoi = makeActiveFxRoi(
+        bafx::core::RectI{130, 70, 178, 118},
+        FxBloomSettings{},
+        resized);
+    const FxActiveRoi lowDiffusionRoi = makeActiveFxRoi(
+        bafx::core::RectI{130, 70, 178, 118},
+        lowDiffusion,
+        resized);
+    bafx::windows::detail::ActiveFxRoiPlanValidationCache cache;
+
+    BAFX_CHECK(cache.validate(initial.passPlan, initialMonitor, initialBloom).valid);
+    BAFX_CHECK(
+        cache.validate(initial.passPlan, initialMonitor, initialBloom).cacheHit);
+
+    const auto staleAfterResize = cache.validate(
+        initial.passPlan,
+        resizedMonitor,
+        resizedBloom);
+    BAFX_CHECK(!staleAfterResize.valid);
+    BAFX_CHECK(!staleAfterResize.cacheHit);
+    const auto afterResize = cache.validate(
+        resizedRoi.passPlan,
+        resizedMonitor,
+        resizedBloom);
+    BAFX_CHECK(afterResize.valid);
+    BAFX_CHECK(!afterResize.cacheHit);
+    BAFX_CHECK(
+        cache.validate(resizedRoi.passPlan, resizedMonitor, resizedBloom).cacheHit);
+
+    const auto staleAfterDiffusion = cache.validate(
+        resizedRoi.passPlan,
+        resizedMonitor,
+        lowDiffusionBloom);
+    BAFX_CHECK(!staleAfterDiffusion.valid);
+    BAFX_CHECK(!staleAfterDiffusion.cacheHit);
+    const auto afterDiffusion = cache.validate(
+        lowDiffusionRoi.passPlan,
+        resizedMonitor,
+        lowDiffusionBloom);
+    BAFX_CHECK(afterDiffusion.valid);
+    BAFX_CHECK(!afterDiffusion.cacheHit);
+    BAFX_CHECK(
+        cache.validate(
+            lowDiffusionRoi.passPlan,
+            resizedMonitor,
+            lowDiffusionBloom).cacheHit);
+
+    cache.reset();
+    const auto afterReset = cache.validate(
+        lowDiffusionRoi.passPlan,
+        resizedMonitor,
+        lowDiffusionBloom);
+    BAFX_CHECK(afterReset.valid);
+    BAFX_CHECK(!afterReset.cacheHit);
+}
+
+BAFX_TEST(warp_active_fx_roi_cached_validation_tampering_falls_back_exactly)
+{
+    ComApartment apartment;
+    const WarpDevice graphics = createWarpDevice();
+    const bafx::fx::FrameSnapshot snapshot = makeDiskSnapshot(true);
+    const FxActiveRoi validRoi = makeActiveFxRoi(snapshot);
+
+    FxGpuRenderer referenceRenderer(
+        graphics.device.Get(),
+        graphics.context.Get(),
+        testSize);
+    const RenderTarget referenceTarget = createRenderTarget(graphics.device.Get());
+    referenceRenderer.render(snapshot, referenceTarget.view.Get());
+    const Rgba16FloatImage reference = readbackRgba16FloatTexture(
+        graphics.context.Get(),
+        referenceTarget.texture.Get());
+
+    FxGpuRenderer cachedRenderer(
+        graphics.device.Get(),
+        graphics.context.Get(),
+        testSize);
+    const RenderTarget warmupTarget = createRenderTarget(graphics.device.Get());
+    const RenderTarget steadyTarget = createRenderTarget(graphics.device.Get());
+    BAFX_CHECK(
+        cachedRenderer.render(
+            snapshot,
+            warmupTarget.view.Get(),
+            std::nullopt,
+            nullptr,
+            nullptr,
+            validRoi).primaryActiveFxRoi.warmup);
+    BAFX_CHECK(
+        cachedRenderer.render(
+            snapshot,
+            steadyTarget.view.Get(),
+            std::nullopt,
+            nullptr,
+            nullptr,
+            validRoi).primaryActiveFxRoi.actualPath
+        == FxActiveRoiActualPath::RoiPyramid);
+
+    std::array<FxActiveRoi, 6U> tampered{};
+    tampered.fill(validRoi);
+    ++tampered[0U].passPlan.basePlan.guardX;
+    ++tampered[1U].passPlan.downRects[0U].left;
+    --tampered[2U].passPlan.upRects[0U].right;
+    ++tampered[3U].passPlan.resolveRect.left;
+    ++tampered[4U].passPlan.totalPixels.candidatePixels;
+    ++tampered[5U].passPlan.mipCount;
+
+    for (const FxActiveRoi& invalidRoi : tampered)
+    {
+        const RenderTarget fallbackTarget = createRenderTarget(
+            graphics.device.Get());
+        const FxRenderCpuDiagnostics diagnostics = cachedRenderer.render(
+            snapshot,
+            fallbackTarget.view.Get(),
+            std::nullopt,
+            nullptr,
+            nullptr,
+            invalidRoi);
+        BAFX_CHECK(!diagnostics.activeFxRoiApplied);
+        BAFX_CHECK(diagnostics.primaryActiveFxRoi.requested);
+        BAFX_CHECK(!diagnostics.primaryActiveFxRoi.eligible);
+        BAFX_CHECK(
+            diagnostics.primaryActiveFxRoi.actualPath
+            == FxActiveRoiActualPath::FullScreen);
+        BAFX_CHECK(
+            diagnostics.primaryActiveFxRoi.decisionReason
+            == FxActiveRoiDecisionReason::RendererFallback);
+        checkRgba16BitExactAndFinite(
+            reference,
+            readbackRgba16FloatTexture(
+                graphics.context.Get(),
+                fallbackTarget.texture.Get()));
+    }
 }
 
 BAFX_TEST(warp_active_fx_roi_pyramid_matches_full_screen_pixels)

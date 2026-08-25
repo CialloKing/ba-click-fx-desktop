@@ -1,5 +1,6 @@
 #include "bafx/windows/fx_gpu_renderer.hpp"
 
+#include "bafx/windows/detail/active_fx_roi_plan_validation_cache.hpp"
 #include "bafx/windows/gpu_timestamp_profiler.hpp"
 
 #include "bafx/core/color_space.hpp"
@@ -995,6 +996,7 @@ struct FxGpuRenderer::Implementation
             throw std::runtime_error("Unity Bloom planner rejected the swap-chain extent");
         }
         bloomPlan = planResult.plan;
+        activeRoiPlanValidationCache.reset();
     }
 
     void createBloomTargets()
@@ -1501,60 +1503,8 @@ struct FxGpuRenderer::Implementation
             noResources.data());
     }
 
-    [[nodiscard]] static bool sameRect(
-        const bafx::core::RectI left,
-        const bafx::core::RectI right) noexcept
-    {
-        return left.left == right.left
-            && left.top == right.top
-            && left.right == right.right
-            && left.bottom == right.bottom;
-    }
-
-    [[nodiscard]] static bool samePixelTotals(
-        const bafx::core::UnityBloomPassPixelTotals left,
-        const bafx::core::UnityBloomPassPixelTotals right) noexcept
-    {
-        return left.fullPixels == right.fullPixels
-            && left.candidatePixels == right.candidatePixels;
-    }
-
-    [[nodiscard]] static bool samePassPlan(
-        const bafx::core::UnityBloomPassRoiPlan& left,
-        const bafx::core::UnityBloomPassRoiPlan& right) noexcept
-    {
-        if (left.mipCount != right.mipCount
-            || left.basePlan.guardX != right.basePlan.guardX
-            || left.basePlan.guardY != right.basePlan.guardY
-            || left.basePlan.phasePeriod != right.basePlan.phasePeriod
-            || !sameRect(left.basePlan.sourceSupport, right.basePlan.sourceSupport)
-            || !sameRect(left.basePlan.bloomOutput, right.basePlan.bloomOutput)
-            || !sameRect(left.basePlan.alignedWork, right.basePlan.alignedWork)
-            || !sameRect(left.resolveRect, right.resolveRect)
-            || !samePixelTotals(left.prefilterPixels, right.prefilterPixels)
-            || !samePixelTotals(left.pyramidPixels, right.pyramidPixels)
-            || !samePixelTotals(left.resolvePixels, right.resolvePixels)
-            || !samePixelTotals(left.totalPixels, right.totalPixels))
-        {
-            return false;
-        }
-        for (std::size_t index = 0U; index < left.mipCount; ++index)
-        {
-            if (!sameRect(left.downRects[index], right.downRects[index]))
-            {
-                return false;
-            }
-            if (index + 1U < left.mipCount
-                && !sameRect(left.upRects[index], right.upRects[index]))
-            {
-                return false;
-            }
-        }
-        return true;
-    }
-
     [[nodiscard]] bool validateActiveRoiPlan(
-        const FxActiveRoi& activeRoi) const noexcept
+        const FxActiveRoi& activeRoi) noexcept
     {
         if (size.width == 0U
             || size.height == 0U
@@ -1572,13 +1522,10 @@ struct FxGpuRenderer::Implementation
             0,
             static_cast<std::int32_t>(size.width),
             static_cast<std::int32_t>(size.height)};
-        const bafx::core::UnityBloomPassRoiPlanResult expected =
-            bafx::core::planUnityBloomPassRoi(
-                activeRoi.passPlan.basePlan.sourceSupport,
-                monitor,
-                bloomPlan);
-        return expected.status == bafx::core::RoiStatus::Ok
-            && samePassPlan(activeRoi.passPlan, expected.plan);
+        return activeRoiPlanValidationCache.validate(
+            activeRoi.passPlan,
+            monitor,
+            bloomPlan).valid;
     }
 
     [[nodiscard]] static D3D11_RECT toScissor(
@@ -2965,6 +2912,7 @@ struct FxGpuRenderer::Implementation
     ColorTarget bloomResultTarget{};
     ColorTarget occlusionTarget{};
     bafx::core::UnityBloomPlan bloomPlan{};
+    detail::ActiveFxRoiPlanValidationCache activeRoiPlanValidationCache{};
     std::vector<ColorTarget> bloomDownTargets{};
     std::vector<ColorTarget> bloomUpTargets{};
     std::vector<BloomTargetRoiState> bloomDownTargetStates{};

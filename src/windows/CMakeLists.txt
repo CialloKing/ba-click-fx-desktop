@@ -1,6 +1,7 @@
 add_library(
     bafx_windows
     STATIC
+        src/active_fx_roi_plan_validation_cache.cpp
         src/background_snapshot_diagnostics.cpp
         src/background_capture_transition.cpp
         src/borderless_capture_access.cpp
