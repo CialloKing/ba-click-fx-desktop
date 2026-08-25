@@ -270,9 +270,9 @@ resolve 也有独立逻辑矩形，但它与最终场景合成融合为一次全
 精确零。因此 resolve 的 `drawnPixels` 是全屏，`candidatePixels` 才是逻辑有效区，两者不得混用。
 
 - 每个实际 down/up 目标维护 `initialized`、上一写入矩形、全屏写入状态和最后 writer。首次 ROI、全屏
-  转 ROI、resize、设备恢复或资源重建使用完整清理并报告预热帧；稳态通过 Context1
-  `ClearView` 清理上一写入矩形，再按本 pass scissor 绘制。`ClearRenderTargetView` 不能作为局部清理，
-  因为它会清理整个资源；
+  转 ROI、resize、设备恢复或资源重建使用完整清理并报告预热帧；稳态矩形移动或 writer 改变时通过
+  Context1 `ClearView` 清理上一写入矩形，同一 writer 连续覆盖相同矩形时直接跳过冗余清理，再按本
+  pass scissor 绘制。`ClearRenderTargetView` 不能作为局部清理，因为它会清理整个资源；
 - 一帧内采用全有或全无策略。规划器结果、Context1、资源身份、phase 或目标状态任一无效时，整条 Bloom
   同帧执行完整全屏路径，禁止把局部 prefilter/down 与全屏 up/resolve 混成不完整结果；
 - 自适应门按完整计划的 candidate/full 像素计算：未进入时不超过 50% 才进入，已进入后超过 65% 才

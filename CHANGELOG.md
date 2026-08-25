@@ -8,8 +8,9 @@
   resolve 生成独立矩形，同时保留全屏参考路径的 mip 数、UV、奇数尺寸、border mode 和 pixel-center
   phase；down/up 使用实际 scissor，最终全屏合成通过 resolve 矩形掩码在有效区外采样精确零 Bloom。
 - 每个实际 down/up 目标记录初始化、上一写入矩形、全屏写入状态和最后 writer。首次进入、全屏转 ROI、
-  resize 或资源恢复时执行完整预热清理；稳态通过 `ID3D11DeviceContext1::ClearView` 清理
-  上一写入区域。primary 与 recording-rebuild 分别记账，但共享物理资源的写入状态只有一份。
+  resize 或资源恢复时执行完整预热清理；稳态矩形移动或 writer 改变时通过
+  `ID3D11DeviceContext1::ClearView` 清理上一写入区域，同一 writer 连续覆盖相同矩形时跳过冗余清理。
+  primary 与 recording-rebuild 分别记账，但共享物理资源的写入状态只有一份。
 - ROI 按帧执行全有或全无：pass 计划、Context1、资源身份、相位或状态任一无效时，整条 Bloom 在同一帧
   回退全屏，不混用局部与全屏 pass。
 - `GetDisplayState` 升级为严格 schema 4，新增 `roi-pyramid` 路径，并分别报告 prefilter、downsample、
@@ -27,9 +28,10 @@
 
 - WARP 已覆盖完整金字塔的点击、拖尾、负 scRGB、HDR 极值、Spout2、resize、空帧重启、边界回退和
   Context1 缺失，并以同适配器 FP16 精确一致为门禁；这些确定性结果不替代真实硬件性能证据。
-- 0.2.7 已在 RTX 4060、4K 170 Hz、SDR 上完成同规格 5 组 ABBA、20 次正式采集。金字塔绘制比例
-  `13.4%`、Pyramid GPU p95 降低 `43.9%`、Bloom/final p95 降低 `9.5%`、`9/10` 配对不慢，
-  但 CPU frame、Present 和 GPU command p99 的恶化均超过 `5%`，最终报告为 `FAIL`。
+- 0.2.7 已在 RTX 4060、4K 170 Hz、SDR 上完成同规格 5 组 ABBA、20 次正式复验。金字塔绘制比例
+  `13.8%`、Pyramid GPU p95 降低 `55.4%`、Bloom/final p95 降低 `60.7%`、`9/10` 配对不慢，
+  GPU command p99 改善 `16.0%`；但 CPU frame 与 Present p95/p99 的恶化仍超过 `5%`，最终报告为
+  `FAIL`。
 - 阈值保持不变；0.2.7 不发布，也不再执行最新 HEAD 的 Full/Slim 发布 workflow、三档 SDK CI、打包、tag 或 Release。
   0.2.8 Differential Bloom ROI 在 0.2.7 独立通过并交付前继续阻塞。
 

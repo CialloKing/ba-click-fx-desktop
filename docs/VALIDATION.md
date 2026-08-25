@@ -381,11 +381,12 @@ diffusion `4/6/7/10`、空区域、非法矩形和有符号坐标膨胀溢出。
 布尔前向非零支持，也要满足反向采样依赖；奇数尺寸的逐像素 oracle 锁定不能只依赖旧
 `basePlan.bloomOutput`。
 
-`gpu_pipeline_warp` 对同一 FP16 场景比较全屏参考、全清预热和稳态 `ClearView + scissor` 的完整金字塔，
-要求 prefilter、所有 Down/Up、BloomResult 和 FinalOverlay 在同一 WARP 适配器上逐元素 FP16 精确一致。
-矩阵覆盖点击、拖尾、移动/不相交 ROI、负 scRGB、HDR 极值、四边四角、Spout2 FX-only、resize 后奇数
-尺寸、空帧重启、Context1 缺失及 `D3D11_OPTIONS.ClearView=false`。背景差分 primary 必须保持全屏；共享目标同帧
-已全屏写入时，recording-rebuild 只能报告全清预热/共享写入原因。
+`gpu_pipeline_warp` 对同一 FP16 场景比较全屏参考、全清预热和稳态局部金字塔，要求 prefilter、所有
+Down/Up、BloomResult 和 FinalOverlay 在同一 WARP 适配器上逐元素 FP16 精确一致。稳态同时覆盖同一
+writer、同一矩形直接覆盖且 `clearedPixels=0`，以及矩形移动时 `ClearView + scissor` 清理旧区。
+矩阵还覆盖点击、拖尾、移动/不相交 ROI、负 scRGB、HDR 极值、四边四角、Spout2 FX-only、resize 后
+奇数尺寸、空帧重启、Context1 缺失及 `D3D11_OPTIONS.ClearView=false`。背景差分 primary 必须保持全屏；
+共享目标同帧已全屏写入时，recording-rebuild 只能报告全清预热/共享写入原因。
 
 这些用例证明 0.2.7 已接入的纯特效 prefilter/down/up 和 resolve 掩码正确性，不证明真实 GPU 性能。
 最终场景合成、WGC、Spout2 格式转换、交换链、Present 和默认 `background-aware` Differential Bloom
@@ -473,30 +474,44 @@ manifest 必须是 schema 3，报告必须是 schema 2；同一 EXE、输入、�
 - 触边、面积回退及无 Spout2 的 `background-aware` 场景 100% 命中预期原因并保持 FP16 exact，性能
   恶化不超过 `max(3%, 100 us)`。
 
-2026-08-25 的有效正式采集位于
-`artifacts/performance/active-fx-roi-v027-rtx4060-4k170-sdr-center-click-20260825-r4`。manifest 为
-schema 3 且状态为 `captured`，报告为 schema 2；采集开始时间为 `2026-08-24T18:30:42.891Z`
-（Asia/Shanghai 2026-08-25），revision 为 `a7a96cca352b141644e5016d85a5221b9759ff30`。Host EXE
-SHA-256 为 `94b0e65aea9678b47b064eb5f343c209aec411b514b0081a82453c3461fec915`，基础配置 SHA-256 为
+2026-08-25 的最新有效正式复验位于
+`artifacts/performance/active-fx-roi-v027-rtx4060-4k170-sdr-center-click-20260825-r5`。manifest 为
+schema 3 且 `captureStatus=captured`，报告为 schema 2；采集开始时间为 `2026-08-25T04:48:45.546Z`
+（Asia/Shanghai 2026-08-25），revision 为 `ac4d214fa636ce5907f5f9bf73cf481adce84b16`。Host EXE
+SHA-256 为 `e974b25759cb6a4727d85d77a7b5de1da751cf39514dcd409cdb0dde25106c0e`，基础配置 SHA-256 为
 `4238b5055ea35ee8288b09b4b64e64fbec7d5affc428acdc00c3ba6c585cff0c`。
 
 采集重新锁定 `NVIDIA GeForce RTX 4060 Laptop GPU`、LUID `00000000:00011C77`、驱动
 `32.0.16.1088`、`3840x2160`、`170/1 Hz`、SDR 和 `conservative-sdr`。manifest 包含 5 个 ABBA 块和
-20 次运行；两臂各聚合 10 次、约 30 秒的三个完整窗口，累计呈现帧数分别为 `51029` 和 `51016`，
-无 `PowerUnavailable`、查询、节流、状态或帧 pacing 错误。此前无后缀、`-r2` 和 `-r3` 目录因显示
-电源不可用而 fail-closed，不参与正式统计，原始证据仍予保留。
+20 次运行；两臂各聚合 10 次、约 30 秒的三个完整窗口，ROI off/on 累计呈现帧数分别为 `50661` 和
+`50864`，无 `PowerUnavailable`、查询、节流、状态或帧 pacing 错误。此前无后缀、`-r2` 和 `-r3`
+目录因显示电源不可用而 fail-closed；`-r4` 是清理省略修复前的有效历史失败基线。它们均不参与本次
+正式统计，原始证据继续保留。
 
-正式报告为 `FAIL`。Prefilter/金字塔绘制比例、Prefilter/Pyramid/Bloom-final p95、FPS、配对、pending
-和错误计数门均通过；CPU frame p95/p99、Present p95/p99 与 GPU command p99 恶化门失败。核心结果为：
-金字塔绘制比例 `13.4%`、Pyramid p95 降低 `43.9%`、Bloom/final p95 降低 `9.5%`、不慢配对
-`9/10`、FPS 下降 `0.024%`，但上述尾延迟分别恶化 `18.3%`、`14.6%`、`17.3%`、`13.7%` 和
-`34.2%`。
+正式报告仍为 `FAIL`。Prefilter/金字塔绘制比例、Prefilter/Pyramid/Bloom-final p95、FPS、配对、
+pending、GPU command p99 和错误计数门均通过；只剩 CPU frame p95/p99 与 Present p95/p99 恶化门
+失败。Prefilter 绘制比例为 `0.99%`、p95 降低 `87.9%`；金字塔绘制比例为 `13.8%`、Pyramid p95
+降低 `55.4%`；Bloom/final p95 从 `1760.0 us` 降至 `692.5 us`，降低 `60.7%`；`9/10` 配对不慢，
+FPS 提升 `0.404%`，GPU command p99 从 `2825.0 us` 降至 `2372.0 us`，改善 `16.0%`。CPU frame
+p95/p99 从 `1012.0/2240.0 us` 增至 `1171.5/2422.0 us`，恶化 `15.8%/8.1%`；Present p95/p99
+从 `964.0/2189.5 us` 增至 `1099.0/2358.5 us`，恶化 `14.0%/7.7%`。
+
+逐轮复核复用正式报告器的 `_load_events`、`_intervals` 和 `_run_metrics` 解析每轮三个采样窗。Present
+p95 在 `7/10` 相邻对变慢，配对差中位为 `+298.5 us`；p99 在 `8/10` 对变慢，中位为
+`+284.5 us`，而 p50 配对差中位仅 `-1.5 us`。Frame 与 Present 的逐轮 p95/p99 相关系数分别为
+`0.9999/1.0000`，两者尾差中位仅 `58 us`，说明 CPU frame 失败主要由 Present 主导。ROI 的
+Fx/Bloom submit p95 每对都增加，中位分别为 `24.5/27.5 us`；同时 A->B 与 B->A 以及运行序号呈现
+明显顺序漂移。现有日志因此既不能把尾部差异归因为一个可修复的 ROI 产品缺陷，也不能证明它只是更早
+到达 Present 后的等待补偿。门槛仍按失败处理，不实施推测性修复，也不以重复采集替代原因定位。
+再次开展性能诊断前，必须先分别观测主循环 `FramePacing.Wait` 和 FX render 返回到 Present 调用入口的
+`Cpu.PrePresent`，再执行顺序平衡的非发布短矩阵；该诊断不能替代正式 20-run 门禁，也不改变 schema
+19、`GetDisplayState` schema 4 或当前失败结论。
 
 证据索引 SHA-256：
 
-- `capture.json`: `69c5b6f3ddea8dc2a023e43b3ee17e25e6cb2467307e8e0f8e257104dc64e845`
-- `report.json`: `7cf3c649ab995cfb32b84ab426bd821080a04fd7e5523c4e7d1991541011a844`
-- `report.md`: `6fb54b8676a756643d02865f5ad4ca331d72a6ebb4fbe617059a63a364633780`
+- `capture.json`: `ad756c2f3eb26a38d90a69ee6c448a5c088546ed147de5ef1f6721e97d5937a2`
+- `summary.json`: `616032aa17612233ea7d6a9d2121b83bcdab5d07898f41c2b0664fb629ee8ce3`
+- `summary.md`: `c3cfc34639ae654f497cae12d5d494d4fd7bba4f400839fcd705e1a748f841e7`
 
 因此阈值不放宽，0.2.7 不发布，也不执行 Full/Slim 发布 workflow、SDK `19041/22621/26100` 发布 CI、
 正式打包、tag 或远端复核。官方 Release 的 Full 四资产策略保持不变，Slim 仍只保留源码构建验证。

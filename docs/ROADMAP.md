@@ -56,7 +56,8 @@ Bloom 金字塔 ROI 收敛为 0.2.7 候选并执行同规格实机门禁；整�
 - ROI 规划器为 prefilter、每级 downsample/upsample 和 resolve 生成独立矩形，保留原 mip 数、UV、
   奇数尺寸、border mode 与 pixel-center phase；前向非零支持与反向依赖相交，避免奇数尺寸漏采样；
 - 每个实际 down/up 目标维护初始化、上一写入矩形、全屏写入状态和最后 writer。首次进入、全屏转 ROI、
-  resize、设备恢复和资源重建执行完整预热清理，稳态通过 `ClearView` 清理旧区域；
+  resize、设备恢复和资源重建执行完整预热清理；稳态矩形移动或 writer 改变时通过 `ClearView` 清理旧
+  区域，同一 writer 连续覆盖相同矩形时跳过清理；
 - 一帧内只能完整执行 ROI 或完整回退全屏。pass 计划、Context1、资源身份、相位或状态任一无效，整条
   Bloom 同帧回退，禁止混合局部与全屏 pass；
 - resolve 与最终场景合成融合为全屏 draw，shader 只在 resolve 逻辑矩形内采样 Bloom；WGC、Spout2
@@ -66,13 +67,15 @@ Bloom 金字塔 ROI 收敛为 0.2.7 候选并执行同规格实机门禁；整�
 - WARP 等价矩阵已经覆盖点击、拖尾、负 scRGB、HDR 极值、Spout2、resize、空帧重启和 Context1 缺失，
   并要求同适配器 FP16 精确一致。这是确定性正确性证据，不是实机性能结论。
 
-0.2.7 的 RTX 4060、4K 170 Hz、SDR 5 组 ABBA、20 次采集最终为 `FAIL`。金字塔 drawn/full 比例为
-`13.4%`，Pyramid GPU p95 降低 `43.9%`，Bloom/final p95 降低 `9.5%`，`9/10` 配对不慢；但
-CPU frame、Present 和 GPU command p99 恶化均超过 `5%`。因此阈值未放宽，0.2.7 未发布，
-最新 HEAD 的 Full/Slim 发布 workflow、三档 SDK CI、打包与 Release 均停止。
+0.2.7 在清理省略修复后的 RTX 4060、4K 170 Hz、SDR 5 组 ABBA、20 次正式复验仍为 `FAIL`。
+金字塔 drawn/full 比例为 `13.8%`，Pyramid GPU p95 降低 `55.4%`，Bloom/final p95 降低 `60.7%`，
+`9/10` 配对不慢，GPU command p99 改善 `16.0%`；但 CPU frame 与 Present p95/p99 恶化仍超过 `5%`。
+因此阈值未放宽，0.2.7 未发布，最新 HEAD 的 Full/Slim 发布 workflow、三档 SDK CI、打包与 Release
+均停止。
 
-下一步先定位并消除 0.2.7 的 CPU/Present/GPU command 尾延迟，再以相同阈值重新执行门禁。只有 0.2.7
-独立通过并交付后，才开始 0.2.8 默认 `background-aware` Differential Bloom ROI。WGC、交换链 dirty
+逐轮复核确认 CPU frame 尾部由 Present 主导，同时存在强顺序漂移；现有日志不能把系统漂移与更早到达
+Present 后的等待补偿做因果分离，故不实施推测性修复或重复正式采集。只有找到可复现的产品原因并按相同
+阈值通过 0.2.7 后，才开始 0.2.8 默认 `background-aware` Differential Bloom ROI。WGC、交换链 dirty
 Present 和桌面捕获 ROI 仍是相互独立的高风险项目；其他真实硬件 ROI 矩阵继续保持 `Not Run`。
 
 ## Host-owned 特效 Profile（2026-08-23）
@@ -362,8 +365,9 @@ P1 的执行顺序不再调整：
 1. 保留 v0.2.6 `FAIL` 的原始证据和预注册阈值，不发布该版本；
 2. 0.2.7 完整金字塔候选已执行 RTX 4060、4K 170 Hz、SDR 专用 ABBA；整机门槛失败，证据已保留，
    发布已停止，50%/65% 自适应阈值和性能断言均未放宽；
-3. 先消除 0.2.7 的 CPU/Present/GPU command 尾延迟并以相同阈值重新验收；只有独立通过并交付后，
-   才以 0.2.8 局部化默认 `background-aware` 的 Differential Bloom；
+3. r5 复验中 GPU command p99 已改善并通过门槛；CPU/Present 尾部仍失败且尚无可复现产品原因，
+   不做推测性修复或重复采集。只有 0.2.7 以相同阈值独立通过并交付后，才以 0.2.8 局部化默认
+   `background-aware` 的 Differential Bloom；
 4. WGC、桌面捕获 ROI 和交换链 dirty Present 分别评审、分别验收，不从 Bloom ROI 的结果外推。
 
 任何阶段都必须同时比较 GPU 阶段时间、CPU/Present 尾部、查询健康状态和最终 FP16 结果；不能只报告

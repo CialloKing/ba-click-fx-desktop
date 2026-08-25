@@ -26,7 +26,8 @@ prefilter 和 down/up 在原尺寸目标上使用 scissor，不创建另一套�
 每个实际 down/up 目标维护初始化状态、上一写入矩形、是否曾被全屏写入、最后 writer 和全屏写入帧号：
 
 - 第一次使用 ROI，或上一次为全屏写入时，先完整清理所有目标并报告 `roi-warmup`；
-- 稳态通过 `ID3D11DeviceContext1::ClearView` 清理每个目标的上一写入矩形，再绘制当前矩形；
+- 稳态矩形移动或 writer 改变时通过 `ID3D11DeviceContext1::ClearView` 清理每个目标的上一写入矩形；
+  同一 writer 连续覆盖相同矩形时直接跳过冗余清理，再绘制当前矩形；
 - resize、设备恢复和 Bloom 资源重建会使物理目标状态重新初始化；
 - primary 与 recording-rebuild 分别维护自适应和诊断统计，但共享同一组物理资源状态。若另一条路径在
   同帧完成全屏写入，后续路径必须按共享写入事实预热，不能误报稳定局部收益。
@@ -78,18 +79,19 @@ p95 至少降低 25%；Bloom/final p95 至少降低 `max(5%, 100 us)`，至少 `
 超过 1%，CPU/Present/p99 恶化不超过 5%，GPU pending 最大值不超过 1，所有错误计数为零。
 
 2026-08-25 已在 `NVIDIA GeForce RTX 4060 Laptop GPU`、`3840x2160`、`170/1 Hz`、SDR、
-`conservative-sdr` 上完成 center-click primary 的 5 个 ABBA 块、20 次正式采集。证据目录为
-`artifacts/performance/active-fx-roi-v027-rtx4060-4k170-sdr-center-click-20260825-r4`，采集 revision
-为 `a7a96cca352b141644e5016d85a5221b9759ff30`，Host EXE SHA-256 为
-`94b0e65aea9678b47b064eb5f343c209aec411b514b0081a82453c3461fec915`，基础配置 SHA-256 为
+`conservative-sdr` 上完成清理省略修复后的 center-click primary 5 个 ABBA 块、20 次正式复验。证据
+目录为 `artifacts/performance/active-fx-roi-v027-rtx4060-4k170-sdr-center-click-20260825-r5`，采集
+revision 为 `ac4d214fa636ce5907f5f9bf73cf481adce84b16`，Host EXE SHA-256 为
+`e974b25759cb6a4727d85d77a7b5de1da751cf39514dcd409cdb0dde25106c0e`，基础配置 SHA-256 为
 `4238b5055ea35ee8288b09b4b64e64fbec7d5affc428acdc00c3ba6c585cff0c`。结果为 **FAIL**：
 
-- `Applied/Requested=100%`，Prefilter 与金字塔绘制比例分别为 `0.9%` 和 `13.4%`，Prefilter 与
-  Pyramid GPU p95 分别降低 `71.1%` 和 `43.9%`；
-- Bloom/final p95 从 `1927.0 us` 降至 `1744.0 us`，降低 `9.5%`；FPS 仅下降 `0.024%`，
-  `9/10` 配对不慢，GPU pending 最大值为 `1`，错误计数为零；
-- CPU frame p95/p99 分别恶化 `18.3%`/`14.6%`，Present p95/p99 分别恶化
-  `17.3%`/`13.7%`，GPU command p99 恶化 `34.2%`，均超过 `5%` 上限。
+- `Applied/Requested=100%`，Prefilter 与金字塔绘制比例分别为 `0.99%` 和 `13.8%`，Prefilter 与
+  Pyramid GPU p95 分别降低 `87.9%` 和 `55.4%`；
+- Bloom/final p95 从 `1760.0 us` 降至 `692.5 us`，降低 `60.7%`；FPS 提升 `0.404%`，`9/10`
+  配对不慢，GPU command p99 改善 `16.0%`，GPU pending 最大值为 `1`，错误计数为零；
+- CPU frame p95/p99 分别恶化 `15.8%/8.1%`，Present p95/p99 分别恶化 `14.0%/7.7%`，仍超过
+  `5%` 上限。逐轮复核确认 Frame 尾部由 Present 主导且存在顺序漂移，现有日志没有给出可直接修复的
+  产品原因。
 
 因此不放宽阈值、不发布 0.2.7，也不执行 Full/Slim 发布 workflow、三档 SDK 发布 CI、正式资产打包、
 tag 或 GitHub Release。Slim 仍只保留源码构建验证；本次没有生成或上传任何 0.2.7 Release 资产。

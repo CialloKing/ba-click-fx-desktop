@@ -29,15 +29,16 @@ prefilter/downsample/upsample/resolve 链生成逐 pass 矩形。规划器在原
 schema 19 保留默认关闭的 `performance.activeFxRoiEnabled`。启用后，纯特效路径会在真实 Bloom 目标上
 scissor 绘制 prefilter 和每级 down/up。每个目标共享一份初始化、上一写入矩形、全屏写入和最后 writer
 状态；首次进入或全屏写入后完整清理，稳态只有在 Context1 和驱动 `ClearView` capability 都有效时才用
-`ClearView` 清理旧区。resolve 与最终场景合成仍融合为全屏 draw，shader 在 `resolveRect` 外返回精确零
-Bloom；WGC、Spout2 格式转换、交换链和 Present 继续全屏。
+`ClearView` 清理发生变化的旧区；同一 writer 连续覆盖相同矩形时直接跳过冗余清理。resolve 与最终场景
+合成仍融合为全屏 draw，shader 在 `resolveRect` 外返回精确零 Bloom；WGC、Spout2 格式转换、交换链和
+Present 继续全屏。
 
 pass 计划、Context1/ClearView、资源身份、相位或状态任一无效时，当前帧整条 Bloom 回退规范全屏路径，
 不允许局部与全屏 pass 混用。primary 与 recording-rebuild 分别记账，但按真实物理资源共享写入状态。
 WARP 已覆盖随机/边角规划、点击、拖尾、移动 dirty rect、奇数尺寸、负 scRGB、HDR 极值、Spout2
 recording target、空帧重启和 Context1/ClearView 缺失，并要求同适配器 FP16 精确一致。RTX 4060 的
-0.2.7 ABBA 已执行，但 CPU frame、Present 和 GPU command p99 恶化超过门槛；其他硬件矩阵仍未执行。
-因此本 ADR 继续保持 Proposed，开关继续默认关闭。
+0.2.7 清理省略修复后 ABBA 已复验，GPU command p99 已改善并通过，但 CPU frame 与 Present p95/p99
+仍超过门槛；其他硬件矩阵仍未执行。因此本 ADR 继续保持 Proposed，开关继续默认关闭。
 
 ## Acceptance
 

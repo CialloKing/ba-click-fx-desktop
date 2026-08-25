@@ -91,7 +91,8 @@
   down/up 金字塔。规划器为每个 pass 生成独立矩形，并为最终 resolve 生成逻辑有效区；resolve 与最终
   场景合成仍是一次全屏 draw，shader 在有效区外采样精确零 Bloom。每个实际 down/up 目标维护初始化、
   上一写入矩形、全屏写入状态和最后 writer；首次进入、全屏转 ROI、resize 或资源恢复时
-  完整清理，稳态用 Context1 `ClearView` 清理旧区。
+  完整清理，稳态矩形移动或 writer 改变时用 Context1 `ClearView` 清理旧区；同一 writer 连续覆盖
+  相同矩形时跳过冗余清理。
 - 一帧内只允许完整 ROI 或完整全屏 Bloom。pass 计划、Context1、资源身份、相位或状态任一不满足约束时，
   所有 Bloom pass 同帧回退全屏；不会把局部 prefilter 与全屏后续 pass 混用。primary 与
   recording-rebuild 分别统计，但共享物理资源只维护一份真实写入状态。

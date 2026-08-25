@@ -277,13 +277,15 @@ Host 和 Control Center 从 0.2.5 起共享同一产品版本合同。Host 的 `
 Bloom 质量只是 diffusion 的派生预设：紧凑、适中、原版、极宽分别对应 `4/6/7/10`，其他值显示为“自定义”。
 Active-FX ROI 当前裁剪纯特效 Bloom 的 prefilter 和完整 down/up 金字塔；规划器还为 resolve 生成逻辑
 有效矩形，最终全屏合成在矩形外采样精确零 Bloom。每个实际 down/up 目标维护初始化、上一写入矩形、
-全屏写入和最后 writer；首次进入、全屏转 ROI、resize 或资源恢复时完整预热清理，稳态
-通过 Context1 `ClearView` 清理上一写入区域。ROI 采用整条 Bloom 全有或全无策略，计划、Context1、
+全屏写入和最后 writer；首次进入、全屏转 ROI、resize 或资源恢复时完整预热清理，稳态矩形移动或
+writer 改变时通过 Context1 `ClearView` 清理上一写入区域，同一 writer 连续覆盖相同矩形时跳过清理。
+ROI 采用整条 Bloom 全有或全无策略，计划、Context1、
 资源、相位或状态任一无效就同帧完整回退全屏。primary 与录制/Spout2 的 recording-rebuild 分别计数，
 但共享物理 Bloom 目标的写入所有权不会复制。默认 `background-aware` primary Differential Bloom、最终
 场景合成、WGC、Spout2 格式转换、swap-chain 和 Present 仍保持全屏。不能把这个实验开关解读成
 全链路局部渲染，也不能把像素处理比例解读成 GPU 节省。0.2.7 的 RTX 4060 实机 ABBA 已执行，但因
-CPU frame、Present 和 GPU command p99 恶化超过门槛而失败；该版本未发布，开关继续默认关闭。
+CPU frame 与 Present p95/p99 恶化超过门槛而失败；GPU command p99 已改善并通过。该版本未发布，
+开关继续默认关闭。
 
 控制中心的“重置默认”按钮会先请求确认，再用内置默认 schema 整体替换持久化配置。它不会恢复已经
 暂停的特效；需要继续显示时仍应单独点击“恢复特效”。
