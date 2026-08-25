@@ -79,9 +79,9 @@ $nvidiaTelemetryFields = @(
     'uuid',
     'name',
     'pstate',
-    'clocks.current.graphics',
+    'clocks.current.sm',
     'clocks.current.memory',
-    'power.draw',
+    'power.draw.instant',
     'temperature.gpu',
     'utilization.gpu',
     'utilization.memory')
@@ -757,9 +757,9 @@ function ConvertFrom-NvidiaTelemetryLine
         throw "$Context field timestamp has an unexpected format"
     }
     foreach ($name in @(
-            'clocks.current.graphics',
+            'clocks.current.sm',
             'clocks.current.memory',
-            'power.draw',
+            'power.draw.instant',
             'temperature.gpu',
             'utilization.gpu',
             'utilization.memory'))

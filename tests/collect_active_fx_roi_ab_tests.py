@@ -208,14 +208,16 @@ Invoke-Expression $env:BAFX_TEST_BODY
             "'uuid'",
             "'name'",
             "'pstate'",
-            "'clocks.current.graphics'",
+            "'clocks.current.sm'",
             "'clocks.current.memory'",
-            "'power.draw'",
+            "'power.draw.instant'",
             "'temperature.gpu'",
             "'utilization.gpu'",
             "'utilization.memory'",
         ):
             self.assertIn(field, self.source)
+        self.assertNotIn("'clocks.current.graphics'", self.source)
+        self.assertNotIn("'power.draw',", self.source)
 
     def test_nvidia_sampler_is_owned_per_run_and_writes_canonical_csv(self) -> None:
         for token in (
