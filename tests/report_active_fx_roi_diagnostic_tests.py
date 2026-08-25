@@ -6,6 +6,7 @@ from __future__ import annotations
 import hashlib
 import importlib.util
 import json
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import re
 import tempfile
@@ -38,36 +39,45 @@ def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def _telemetry_csv(ordinal: int, gpu: dict[str, object]) -> str:
+def _utc_text(value: datetime) -> str:
+    return value.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+
+
+def _local_nvidia_text(value: datetime) -> str:
+    local = value.astimezone()
+    return local.strftime("%Y/%m/%d %H:%M:%S.%f")[:-3]
+
+
+def _telemetry_csv(
+    started_at: datetime, stopped_at: datetime, gpu: dict[str, object]
+) -> tuple[str, int]:
     header = ",".join(REPORTER.TELEMETRY_FIELDS)
     base = [
         str(gpu["index"]),
         str(gpu["uuid"]),
         str(gpu["name"]),
     ]
-    first = [
-        f"2026/08/25 12:{ordinal:02d}:00.000",
-        *base,
-        "P2",
-        str(1000 + ordinal),
-        str(2000 + ordinal),
-        str(40 + ordinal),
-        str(50 + ordinal),
-        str(10 + ordinal),
-        str(20 + ordinal),
-    ]
-    second = [
-        f"2026/08/25 12:{ordinal:02d}:00.200",
-        *base,
-        "P0",
-        str(1200 + ordinal),
-        str(2200 + ordinal),
-        str(45 + ordinal),
-        str(52 + ordinal),
-        str(30 + ordinal),
-        str(40 + ordinal),
-    ]
-    return "\n".join((header, ",".join(first), ",".join(second))) + "\n"
+    elapsed_ms = round((stopped_at - started_at).total_seconds() * 1000)
+    sample_count = elapsed_ms // REPORTER.TELEMETRY_INTERVAL_MS + 1
+    rows = [header]
+    for sample_index in range(sample_count):
+        timestamp = started_at + timedelta(
+            milliseconds=sample_index * REPORTER.TELEMETRY_INTERVAL_MS
+        )
+        high = sample_index != 0
+        row = [
+            _local_nvidia_text(timestamp),
+            *base,
+            "P0" if high else "P2",
+            "1201" if high else "1001",
+            "2201" if high else "2001",
+            "46" if high else "41",
+            "53" if high else "51",
+            "31" if high else "11",
+            "41" if high else "21",
+        ]
+        rows.append(",".join(row))
+    return "\n".join(rows) + "\n", sample_count
 
 
 def _diagnostic_fixture(root: Path, telemetry_enabled: bool = True) -> object:
@@ -143,6 +153,12 @@ def _diagnostic_fixture(root: Path, telemetry_enabled: bool = True) -> object:
         run["executable"] = f"{directory_name}/ba-click-fx-desktop.exe"
         run["config"] = f"{directory_name}/BAFX.config.json"
         run["log"] = f"{directory_name}/ba-click-fx-desktop-support.log"
+        run_started_at = datetime(
+            2026, 8, 25, 12, ordinal, 0, tzinfo=timezone.utc
+        )
+        run_elapsed_ms = 40_600
+        run["startedAtUtc"] = _utc_text(run_started_at)
+        run["elapsedMs"] = run_elapsed_ms
 
         config_path = root / run["config"]
         config = json.loads(config_path.read_text(encoding="utf-8"))
@@ -163,13 +179,18 @@ def _diagnostic_fixture(root: Path, telemetry_enabled: bool = True) -> object:
         if telemetry_enabled:
             csv_path = new_directory / "nvidia-smi.csv"
             stderr_path = new_directory / "nvidia-smi.stderr.txt"
-            csv_path.write_text(_telemetry_csv(ordinal, gpu), encoding="utf-8")
+            telemetry_started_at = run_started_at + timedelta(milliseconds=100)
+            telemetry_stopped_at = run_started_at + timedelta(milliseconds=40_500)
+            telemetry_csv, sample_count = _telemetry_csv(
+                telemetry_started_at, telemetry_stopped_at, gpu
+            )
+            csv_path.write_text(telemetry_csv, encoding="utf-8")
             stderr_path.write_text("", encoding="utf-8")
             run["nvidiaTelemetry"] = {
                 "file": f"{directory_name}/nvidia-smi.csv",
                 "stderr": f"{directory_name}/nvidia-smi.stderr.txt",
                 "sha256": _sha256(csv_path),
-                "samples": 2,
+                "samples": sample_count,
                 "intervalMs": 200,
                 "arguments": [
                     f"--id={gpu['uuid']}",
@@ -177,8 +198,8 @@ def _diagnostic_fixture(root: Path, telemetry_enabled: bool = True) -> object:
                     "--format=csv,noheader,nounits",
                     "--loop-ms=200",
                 ],
-                "startedAtUtc": "2026-08-25T12:00:00.000Z",
-                "stoppedAtUtc": "2026-08-25T12:00:41.000Z",
+                "startedAtUtc": _utc_text(telemetry_started_at),
+                "stoppedAtUtc": _utc_text(telemetry_stopped_at),
                 "collectorStoppedProcess": True,
             }
     fixture.write_manifest()
@@ -206,6 +227,9 @@ class ActiveFxRoiDiagnosticReporterTests(unittest.TestCase):
             self.assertEqual(
                 telemetry["graphicsClockMHz"], {"min": 1001.0, "max": 1201.0}
             )
+            self.assertEqual(telemetry["timestamp"]["minimumSamples"], 101)
+            self.assertEqual(telemetry["timestamp"]["spanMs"], 40_400)
+            self.assertEqual(telemetry["timestamp"]["maximumGapMs"], 200)
             self.assertIn("finalCompositeP99Us", report["roiOff"])
             self.assertIn("bloomFinalP95Us", report["roiOn"])
 
@@ -266,9 +290,10 @@ class ActiveFxRoiDiagnosticReporterTests(unittest.TestCase):
             (
                 "sample mismatch",
                 lambda fixture: fixture.manifest["runs"][0]["nvidiaTelemetry"].__setitem__(
-                    "samples", 3
+                    "samples",
+                    fixture.manifest["runs"][0]["nvidiaTelemetry"]["samples"] + 1,
                 ),
-                "manifest records 3",
+                "manifest records",
             ),
             (
                 "identity drift",
@@ -286,12 +311,80 @@ class ActiveFxRoiDiagnosticReporterTests(unittest.TestCase):
                 with self.assertRaisesRegex(REPORTER.ValidationError, message):
                     REPORTER.build_report(fixture.root)
 
+    def test_rejects_short_missing_or_stalled_telemetry_timelines(self) -> None:
+        cases = (
+            ("two samples", _keep_telemetry_endpoints, "below the minimum"),
+            ("missing middle", _remove_telemetry_middle, "CSV gap"),
+            ("stalled clock", _stall_telemetry_clock, "last CSV sample"),
+        )
+        for label, mutate, message in cases:
+            with self.subTest(case=label), tempfile.TemporaryDirectory() as temporary:
+                fixture = _diagnostic_fixture(Path(temporary))
+                mutate(fixture)
+                with self.assertRaisesRegex(REPORTER.ValidationError, message):
+                    REPORTER.build_report(fixture.root)
+
+    def test_rejects_sampler_session_order_or_run_boundary_drift(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = _diagnostic_fixture(Path(temporary))
+            telemetry = fixture.manifest["runs"][0]["nvidiaTelemetry"]
+            telemetry["startedAtUtc"], telemetry["stoppedAtUtc"] = (
+                telemetry["stoppedAtUtc"],
+                telemetry["startedAtUtc"],
+            )
+            fixture.write_manifest()
+            with self.assertRaisesRegex(REPORTER.ValidationError, "precedes"):
+                REPORTER.build_report(fixture.root)
+
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = _diagnostic_fixture(Path(temporary))
+            fixture.manifest["runs"][0]["nvidiaTelemetry"][
+                "startedAtUtc"
+            ] = "2026-08-25T12:01:05.000Z"
+            fixture.write_manifest()
+            with self.assertRaisesRegex(REPORTER.ValidationError, "run start"):
+                REPORTER.build_report(fixture.root)
+
 
 def _replace_telemetry_value(fixture: object, old: str, new: str) -> None:
     run = fixture.manifest["runs"][0]
     path = fixture.root / run["nvidiaTelemetry"]["file"]
     path.write_text(path.read_text(encoding="utf-8").replace(old, new), encoding="utf-8")
     run["nvidiaTelemetry"]["sha256"] = _sha256(path)
+
+
+def _rewrite_telemetry_rows(fixture: object, rows: list[str]) -> None:
+    run = fixture.manifest["runs"][0]
+    path = fixture.root / run["nvidiaTelemetry"]["file"]
+    path.write_text("\n".join(rows) + "\n", encoding="utf-8")
+    run["nvidiaTelemetry"]["samples"] = len(rows) - 1
+    run["nvidiaTelemetry"]["sha256"] = _sha256(path)
+    fixture.write_manifest()
+
+
+def _telemetry_rows(fixture: object) -> list[str]:
+    run = fixture.manifest["runs"][0]
+    path = fixture.root / run["nvidiaTelemetry"]["file"]
+    return path.read_text(encoding="utf-8").splitlines()
+
+
+def _keep_telemetry_endpoints(fixture: object) -> None:
+    rows = _telemetry_rows(fixture)
+    _rewrite_telemetry_rows(fixture, [rows[0], rows[1], rows[-1]])
+
+
+def _remove_telemetry_middle(fixture: object) -> None:
+    rows = _telemetry_rows(fixture)
+    _rewrite_telemetry_rows(fixture, rows[:80] + rows[96:])
+
+
+def _stall_telemetry_clock(fixture: object) -> None:
+    rows = _telemetry_rows(fixture)
+    stalled_timestamp = rows[50].split(",", 1)[0]
+    for index in range(51, len(rows)):
+        _, remainder = rows[index].split(",", 1)
+        rows[index] = f"{stalled_timestamp},{remainder}"
+    _rewrite_telemetry_rows(fixture, rows)
 
 
 if __name__ == "__main__":

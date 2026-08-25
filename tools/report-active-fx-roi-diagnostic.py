@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import argparse
 import csv
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 import importlib.util
 import json
 import math
@@ -27,6 +27,8 @@ BLOCK_PATTERNS = (
     ("BAAB", (("B", True), ("A", False), ("A", False), ("B", True))),
 )
 TELEMETRY_INTERVAL_MS = 200
+TELEMETRY_ENDPOINT_SLACK_MS = max(2_000, 10 * TELEMETRY_INTERVAL_MS)
+TELEMETRY_MAX_GAP_MS = TELEMETRY_ENDPOINT_SLACK_MS
 TELEMETRY_FIELDS = (
     "timestamp",
     "index",
@@ -263,12 +265,28 @@ def _range(values: list[float]) -> dict[str, float]:
     return {"min": min(values), "max": max(values)}
 
 
+def _parse_utc(value: Any, context: str) -> datetime:
+    text = RELEASE._string(value, context)
+    try:
+        return datetime.strptime(text, "%Y-%m-%dT%H:%M:%S.%fZ").replace(
+            tzinfo=timezone.utc
+        )
+    except ValueError as error:
+        raise ValidationError(f"{context} must be a millisecond UTC timestamp") from error
+
+
+def _delta_ms(left: datetime, right: datetime) -> float:
+    return (left - right).total_seconds() * 1000.0
+
+
 def _validate_run_telemetry(
     root: Path,
     value: Any,
     ordinal: int,
     directory: Path,
     contract: dict[str, Any],
+    run_started_at: datetime,
+    run_elapsed_ms: int,
 ) -> dict[str, Any]:
     context = f"run {ordinal}.nvidiaTelemetry"
     telemetry = RELEASE._dict(value, context)
@@ -318,8 +336,24 @@ def _validate_run_telemetry(
     ]
     if RELEASE._list(telemetry["arguments"], f"{context}.arguments") != expected_arguments:
         raise ValidationError(f"{context}.arguments differ from contract v1")
-    RELEASE._string(telemetry["startedAtUtc"], f"{context}.startedAtUtc")
-    RELEASE._string(telemetry["stoppedAtUtc"], f"{context}.stoppedAtUtc")
+    started_at = _parse_utc(telemetry["startedAtUtc"], f"{context}.startedAtUtc")
+    stopped_at = _parse_utc(telemetry["stoppedAtUtc"], f"{context}.stoppedAtUtc")
+    if stopped_at < started_at:
+        raise ValidationError(f"{context}: stoppedAtUtc precedes startedAtUtc")
+    run_stopped_at = run_started_at + timedelta(milliseconds=run_elapsed_ms)
+    if abs(_delta_ms(started_at, run_started_at)) > TELEMETRY_ENDPOINT_SLACK_MS:
+        raise ValidationError(f"{context}: startedAtUtc does not match run start")
+    if abs(_delta_ms(stopped_at, run_stopped_at)) > TELEMETRY_ENDPOINT_SLACK_MS:
+        raise ValidationError(f"{context}: stoppedAtUtc does not match run end")
+    session_elapsed_ms = _delta_ms(stopped_at, started_at)
+    minimum_samples = max(
+        2, math.floor(session_elapsed_ms / (2 * TELEMETRY_INTERVAL_MS))
+    )
+    if sample_count < minimum_samples:
+        raise ValidationError(
+            f"{context}: {sample_count} samples are below the minimum "
+            f"{minimum_samples} for {session_elapsed_ms:.0f} ms"
+        )
     if not RELEASE._boolean(
         telemetry["collectorStoppedProcess"], f"{context}.collectorStoppedProcess"
     ):
@@ -350,9 +384,14 @@ def _validate_run_telemetry(
             raise ValidationError(f"{row_context} must contain eleven non-empty fields")
         sample = dict(zip(TELEMETRY_FIELDS, (item.strip() for item in row)))
         try:
-            timestamp = datetime.strptime(sample["timestamp"], "%Y/%m/%d %H:%M:%S.%f")
+            local_timestamp = datetime.strptime(
+                sample["timestamp"], "%Y/%m/%d %H:%M:%S.%f"
+            )
         except ValueError as error:
             raise ValidationError(f"{row_context}.timestamp has an invalid format") from error
+        # nvidia-smi emits local wall-clock timestamps without an offset. The
+        # collector and reporter both bind them to the machine's local zone.
+        timestamp = local_timestamp.astimezone(timezone.utc)
         if timestamps and timestamp < timestamps[-1]:
             raise ValidationError(f"{row_context}.timestamp moves backwards")
         timestamps.append(timestamp)
@@ -375,10 +414,40 @@ def _validate_run_telemetry(
         for field in numeric:
             numeric[field].append(_number(sample[field], f"{row_context}.{field}"))
 
+    first_timestamp = timestamps[0]
+    last_timestamp = timestamps[-1]
+    if abs(_delta_ms(first_timestamp, started_at)) > TELEMETRY_ENDPOINT_SLACK_MS:
+        raise ValidationError(f"{context}: first CSV sample is outside start slack")
+    if abs(_delta_ms(last_timestamp, stopped_at)) > TELEMETRY_ENDPOINT_SLACK_MS:
+        raise ValidationError(f"{context}: last CSV sample is outside stop slack")
+    coverage_span_ms = _delta_ms(last_timestamp, first_timestamp)
+    minimum_span_ms = max(0.0, session_elapsed_ms - 2 * TELEMETRY_ENDPOINT_SLACK_MS)
+    if coverage_span_ms < minimum_span_ms:
+        raise ValidationError(
+            f"{context}: CSV span {coverage_span_ms:.0f} ms is below the minimum "
+            f"{minimum_span_ms:.0f} ms"
+        )
+    maximum_gap_ms = max(
+        _delta_ms(current, previous)
+        for previous, current in zip(timestamps, timestamps[1:])
+    )
+    if maximum_gap_ms > TELEMETRY_MAX_GAP_MS:
+        raise ValidationError(
+            f"{context}: CSV gap {maximum_gap_ms:.0f} ms exceeds "
+            f"{TELEMETRY_MAX_GAP_MS} ms"
+        )
+
     ordered_pstates = sorted(pstates)
     result: dict[str, Any] = {
         "samples": sample_count,
-        "timestamp": {"first": timestamp_text[0], "last": timestamp_text[-1]},
+        "timestamp": {
+            "first": timestamp_text[0],
+            "last": timestamp_text[-1],
+            "spanMs": coverage_span_ms,
+            "maximumGapMs": maximum_gap_ms,
+            "minimumSamples": minimum_samples,
+            "endpointSlackMs": TELEMETRY_ENDPOINT_SLACK_MS,
+        },
         "pstate": {
             "min": f"P{ordered_pstates[0]}",
             "max": f"P{ordered_pstates[-1]}",
@@ -428,12 +497,10 @@ def _validate_run(
         raise ValidationError(f"{context}: {pattern_name} ROI value mismatch")
     if RELEASE._integer(run["exitCode"], f"{context}.exitCode") != 0:
         raise ValidationError(f"{context}: Host did not exit successfully")
-    if (
-        RELEASE._integer(run["elapsedMs"], f"{context}.elapsedMs")
-        < RELEASE.HOST_DURATION_MS
-    ):
+    run_elapsed_ms = RELEASE._integer(run["elapsedMs"], f"{context}.elapsedMs")
+    if run_elapsed_ms < RELEASE.HOST_DURATION_MS:
         raise ValidationError(f"{context}: elapsed time is shorter than workload")
-    RELEASE._string(run["startedAtUtc"], f"{context}.startedAtUtc")
+    run_started_at = _parse_utc(run["startedAtUtc"], f"{context}.startedAtUtc")
     expected_arguments = [
         f"--demo-scenario={scenario_id}",
         "--demo-age-ms=130",
@@ -520,6 +587,8 @@ def _validate_run(
             ordinal,
             directory,
             telemetry_contract,
+            run_started_at,
+            run_elapsed_ms,
         )
     return {
         "ordinal": ordinal,
