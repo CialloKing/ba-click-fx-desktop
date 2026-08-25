@@ -26,6 +26,15 @@ struct MetricSummary
     double average{0.0};
 };
 
+struct FramePacingWaitBuckets
+{
+    std::uint64_t lt100Microseconds{0U};
+    std::uint64_t from100To999Microseconds{0U};
+    std::uint64_t from1000To3999Microseconds{0U};
+    std::uint64_t from4000To7999Microseconds{0U};
+    std::uint64_t ge8000Microseconds{0U};
+};
+
 struct InputPerformanceSample
 {
     std::uint64_t rawInputMessages{0U};
@@ -365,6 +374,8 @@ struct RuntimePerformanceSummary
     std::uint64_t framePacingMessageWakes{0U};
     std::uint64_t framePacingTimeouts{0U};
     std::uint64_t framePacingFailures{0U};
+    MetricSummary framePacingWaitMicroseconds{};
+    FramePacingWaitBuckets framePacingWaitBuckets{};
     std::uint64_t gpuFramesStarted{0U};
     std::uint64_t gpuFramesSubmitted{0U};
     std::uint64_t gpuPendingPolls{0U};
@@ -492,7 +503,9 @@ public:
     // Only transport diagnostics are consumed by this narrow entry point.
     void addBackgroundMaintenance(
         const FramePerformanceSample& sample) noexcept;
-    void addFramePacingWake(FramePacingWake wake) noexcept;
+    void addFramePacingWake(
+        FramePacingWake wake,
+        std::uint64_t waitMicroseconds) noexcept;
     void addCaptureExclusionHealthCheck(bool confirmed) noexcept;
     void addDispatchToPresentReturn(std::uint64_t microseconds) noexcept;
     void addMessageToPresentReturn(std::uint64_t milliseconds) noexcept;
@@ -556,6 +569,8 @@ private:
     std::uint64_t framePacingMessageWakes_{0U};
     std::uint64_t framePacingTimeouts_{0U};
     std::uint64_t framePacingFailures_{0U};
+    BoundedMetric framePacingWaitMicroseconds_{};
+    FramePacingWaitBuckets framePacingWaitBuckets_{};
     std::uint64_t gpuFramesStarted_{0U};
     std::uint64_t gpuFramesSubmitted_{0U};
     std::uint64_t gpuPendingPolls_{0U};

@@ -120,10 +120,21 @@ BAFX_TEST(performance_log_preserves_metric_and_semantic_fields)
             true,
             true}});
     window.addDispatchToPresentReturn(25'000U);
-    window.addFramePacingWake(bafx::desktop::FramePacingWake::FrameReady);
-    window.addFramePacingWake(bafx::desktop::FramePacingWake::DeviceRemoved);
-    window.addFramePacingWake(bafx::desktop::FramePacingWake::MessagesPending);
-    window.addFramePacingWake(bafx::desktop::FramePacingWake::TimedOut);
+    window.addFramePacingWake(
+        bafx::desktop::FramePacingWake::FrameReady,
+        99U);
+    window.addFramePacingWake(
+        bafx::desktop::FramePacingWake::DeviceRemoved,
+        100U);
+    window.addFramePacingWake(
+        bafx::desktop::FramePacingWake::MessagesPending,
+        1'000U);
+    window.addFramePacingWake(
+        bafx::desktop::FramePacingWake::TimedOut,
+        4'000U);
+    window.addFramePacingWake(
+        bafx::desktop::FramePacingWake::CadenceReady,
+        8'000U);
     window.addCaptureExclusionHealthCheck(true);
     bafx::config::Config config = bafx::config::defaultConfig();
     config.performance.activeFxRoiEnabled = true;
@@ -150,6 +161,9 @@ BAFX_TEST(performance_log_preserves_metric_and_semantic_fields)
         != std::string::npos);
     BAFX_CHECK(text.find(
         "Timing.PrePresentSemantic=fx-render-return-to-Present-call-entry-including-roi-diagnostics-spout-gpu-query-end-and-readback\n")
+        != std::string::npos);
+    BAFX_CHECK(text.find(
+        "Timing.FramePacingWaitSemantic=owner-thread-qpc-around-waitForAnyFrameOpportunity-including-handle-prepoll-and-message-wait-excluding-wait-set-build-and-post-wake-work\n")
         != std::string::npos);
     BAFX_CHECK(text.find(
         "Timing.PresentMode=interval-0-frame-latency-gated\n")
@@ -272,11 +286,29 @@ BAFX_TEST(performance_log_preserves_metric_and_semantic_fields)
         != std::string::npos);
     BAFX_CHECK(text.find("FramePacing.DeviceRemovedWakes=1\n")
         != std::string::npos);
+    BAFX_CHECK(text.find("FramePacing.CadenceWakes=1\n")
+        != std::string::npos);
     BAFX_CHECK(text.find("FramePacing.MessageWakes=1\n")
         != std::string::npos);
     BAFX_CHECK(text.find("FramePacing.Timeouts=1\n")
         != std::string::npos);
     BAFX_CHECK(text.find("FramePacing.Failures=0\n")
+        != std::string::npos);
+    BAFX_CHECK(text.find("FramePacing.Wait.Samples=5\n")
+        != std::string::npos);
+    BAFX_CHECK(text.find("FramePacing.Wait.RecordedSamples=5\n")
+        != std::string::npos);
+    BAFX_CHECK(text.find("FramePacing.Wait.DroppedSamples=0\n")
+        != std::string::npos);
+    BAFX_CHECK(text.find("FramePacing.Wait.Lt100Us=1\n")
+        != std::string::npos);
+    BAFX_CHECK(text.find("FramePacing.Wait.100To999Us=1\n")
+        != std::string::npos);
+    BAFX_CHECK(text.find("FramePacing.Wait.1000To3999Us=1\n")
+        != std::string::npos);
+    BAFX_CHECK(text.find("FramePacing.Wait.4000To7999Us=1\n")
+        != std::string::npos);
+    BAFX_CHECK(text.find("FramePacing.Wait.Ge8000Us=1\n")
         != std::string::npos);
     BAFX_CHECK(text.find("Diagnostics.PreviousLogWriteCpuUs=123\n")
         != std::string::npos);
@@ -324,7 +356,9 @@ BAFX_TEST(performance_log_warns_when_device_removed_wake_is_observed)
 {
     const TemporaryPerformanceLog log;
     bafx::desktop::RuntimePerformanceWindow window;
-    window.addFramePacingWake(bafx::desktop::FramePacingWake::DeviceRemoved);
+    window.addFramePacingWake(
+        bafx::desktop::FramePacingWake::DeviceRemoved,
+        250U);
 
     static_cast<void>(bafx::desktop::appendPerformanceInterval(
         log.path(),

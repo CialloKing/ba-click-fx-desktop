@@ -461,8 +461,32 @@ void RuntimePerformanceWindow::addWgc(
 }
 
 void RuntimePerformanceWindow::addFramePacingWake(
-    const FramePacingWake wake) noexcept
+    const FramePacingWake wake,
+    const std::uint64_t waitMicroseconds) noexcept
 {
+    framePacingWaitMicroseconds_.add(waitMicroseconds);
+    // Keep stable bands across runs: the middle bands separate scheduler-scale
+    // wakes from waits around the 5.88 ms frame period of the 170 Hz target.
+    if (waitMicroseconds < 100U)
+    {
+        ++framePacingWaitBuckets_.lt100Microseconds;
+    }
+    else if (waitMicroseconds < 1'000U)
+    {
+        ++framePacingWaitBuckets_.from100To999Microseconds;
+    }
+    else if (waitMicroseconds < 4'000U)
+    {
+        ++framePacingWaitBuckets_.from1000To3999Microseconds;
+    }
+    else if (waitMicroseconds < 8'000U)
+    {
+        ++framePacingWaitBuckets_.from4000To7999Microseconds;
+    }
+    else
+    {
+        ++framePacingWaitBuckets_.ge8000Microseconds;
+    }
     switch (wake)
     {
     case FramePacingWake::FrameReady:
@@ -563,6 +587,8 @@ void RuntimePerformanceWindow::reset() noexcept
     framePacingMessageWakes_ = 0U;
     framePacingTimeouts_ = 0U;
     framePacingFailures_ = 0U;
+    framePacingWaitMicroseconds_.reset();
+    framePacingWaitBuckets_ = FramePacingWaitBuckets{};
     gpuFramesStarted_ = 0U;
     gpuFramesSubmitted_ = 0U;
     gpuPendingPolls_ = 0U;
@@ -670,6 +696,9 @@ RuntimePerformanceSummary RuntimePerformanceWindow::summarize() const
     summary.framePacingMessageWakes = framePacingMessageWakes_;
     summary.framePacingTimeouts = framePacingTimeouts_;
     summary.framePacingFailures = framePacingFailures_;
+    summary.framePacingWaitMicroseconds =
+        framePacingWaitMicroseconds_.summarize();
+    summary.framePacingWaitBuckets = framePacingWaitBuckets_;
     summary.gpuFramesStarted = gpuFramesStarted_;
     summary.gpuFramesSubmitted = gpuFramesSubmitted_;
     summary.gpuPendingPolls = gpuPendingPolls_;
@@ -758,7 +787,8 @@ bool RuntimePerformanceWindow::empty() const noexcept
         && framePacingCadenceWakes_ == 0U
         && framePacingMessageWakes_ == 0U
         && framePacingTimeouts_ == 0U
-        && framePacingFailures_ == 0U;
+        && framePacingFailures_ == 0U
+        && framePacingWaitMicroseconds_.empty();
 }
 
 }

@@ -136,11 +136,33 @@ BAFX_TEST(runtime_performance_window_aggregates_input_and_render_contracts)
             bafx::core::ActiveFxRoiStatus::AppliedPyramid});
     window.addDispatchToPresentReturn(12'000U);
     window.addMessageToPresentReturn(47U);
-    window.addFramePacingWake(bafx::desktop::FramePacingWake::FrameReady);
-    window.addFramePacingWake(bafx::desktop::FramePacingWake::DeviceRemoved);
-    window.addFramePacingWake(bafx::desktop::FramePacingWake::MessagesPending);
-    window.addFramePacingWake(bafx::desktop::FramePacingWake::TimedOut);
-    window.addFramePacingWake(bafx::desktop::FramePacingWake::Failed);
+    window.addFramePacingWake(
+        bafx::desktop::FramePacingWake::FrameReady,
+        0U);
+    window.addFramePacingWake(
+        bafx::desktop::FramePacingWake::FrameReady,
+        99U);
+    window.addFramePacingWake(
+        bafx::desktop::FramePacingWake::DeviceRemoved,
+        100U);
+    window.addFramePacingWake(
+        bafx::desktop::FramePacingWake::ControlChanged,
+        999U);
+    window.addFramePacingWake(
+        bafx::desktop::FramePacingWake::CadenceReady,
+        1'000U);
+    window.addFramePacingWake(
+        bafx::desktop::FramePacingWake::MessagesPending,
+        3'999U);
+    window.addFramePacingWake(
+        bafx::desktop::FramePacingWake::TimedOut,
+        4'000U);
+    window.addFramePacingWake(
+        bafx::desktop::FramePacingWake::Failed,
+        7'999U);
+    window.addFramePacingWake(
+        bafx::desktop::FramePacingWake::FrameReady,
+        8'000U);
     window.addCaptureExclusionHealthCheck(true);
     window.addCaptureExclusionHealthCheck(false);
 
@@ -190,11 +212,37 @@ BAFX_TEST(runtime_performance_window_aggregates_input_and_render_contracts)
     BAFX_CHECK(summary.roiLastDirtyRectAvailable);
     BAFX_CHECK(summary.roiLastDirtyRect.left == 10);
     BAFX_CHECK(summary.roiLastAlignedWork.right == 128);
-    BAFX_CHECK(summary.framePacingFrameReadyWakes == 1U);
+    BAFX_CHECK(summary.framePacingFrameReadyWakes == 3U);
     BAFX_CHECK(summary.framePacingDeviceRemovedWakes == 1U);
-    BAFX_CHECK(summary.framePacingMessageWakes == 1U);
+    BAFX_CHECK(summary.framePacingCadenceWakes == 1U);
+    BAFX_CHECK(summary.framePacingMessageWakes == 2U);
     BAFX_CHECK(summary.framePacingTimeouts == 1U);
     BAFX_CHECK(summary.framePacingFailures == 1U);
+    BAFX_CHECK(summary.framePacingWaitMicroseconds.sampleCount == 9U);
+    BAFX_CHECK(summary.framePacingWaitMicroseconds.droppedSampleCount == 0U);
+    BAFX_CHECK(summary.framePacingWaitBuckets.lt100Microseconds == 2U);
+    BAFX_CHECK(
+        summary.framePacingWaitBuckets.from100To999Microseconds == 2U);
+    BAFX_CHECK(
+        summary.framePacingWaitBuckets.from1000To3999Microseconds == 2U);
+    BAFX_CHECK(
+        summary.framePacingWaitBuckets.from4000To7999Microseconds == 2U);
+    BAFX_CHECK(summary.framePacingWaitBuckets.ge8000Microseconds == 1U);
+    const std::uint64_t wakeCount =
+        summary.framePacingFrameReadyWakes
+        + summary.framePacingDeviceRemovedWakes
+        + summary.framePacingCadenceWakes
+        + summary.framePacingMessageWakes
+        + summary.framePacingTimeouts
+        + summary.framePacingFailures;
+    const std::uint64_t bucketCount =
+        summary.framePacingWaitBuckets.lt100Microseconds
+        + summary.framePacingWaitBuckets.from100To999Microseconds
+        + summary.framePacingWaitBuckets.from1000To3999Microseconds
+        + summary.framePacingWaitBuckets.from4000To7999Microseconds
+        + summary.framePacingWaitBuckets.ge8000Microseconds;
+    BAFX_CHECK(summary.framePacingWaitMicroseconds.sampleCount == wakeCount);
+    BAFX_CHECK(summary.framePacingWaitMicroseconds.sampleCount == bucketCount);
     BAFX_CHECK(summary.captureExclusionHealthChecks == 2U);
     BAFX_CHECK(summary.captureExclusionHealthFailures == 1U);
 
@@ -202,6 +250,15 @@ BAFX_TEST(runtime_performance_window_aggregates_input_and_render_contracts)
     const bafx::desktop::RuntimePerformanceSummary reset = window.summarize();
     BAFX_CHECK(reset.prePresentCpuMicroseconds.sampleCount == 0U);
     BAFX_CHECK(reset.framePacingDeviceRemovedWakes == 0U);
+    BAFX_CHECK(reset.framePacingWaitMicroseconds.sampleCount == 0U);
+    BAFX_CHECK(reset.framePacingWaitBuckets.lt100Microseconds == 0U);
+    BAFX_CHECK(
+        reset.framePacingWaitBuckets.from100To999Microseconds == 0U);
+    BAFX_CHECK(
+        reset.framePacingWaitBuckets.from1000To3999Microseconds == 0U);
+    BAFX_CHECK(
+        reset.framePacingWaitBuckets.from4000To7999Microseconds == 0U);
+    BAFX_CHECK(reset.framePacingWaitBuckets.ge8000Microseconds == 0U);
     BAFX_CHECK(reset.captureExclusionHealthChecks == 0U);
     BAFX_CHECK(window.empty());
 }

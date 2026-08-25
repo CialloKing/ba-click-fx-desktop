@@ -6318,11 +6318,18 @@ int runApplication(
                     }
                 }
             }
+            const bafx::core::MonotonicTime framePacingWaitStartedAt =
+                clock.now();
             const bafx::desktop::FramePacingWaitResult pacingWait =
                 bafx::desktop::waitForAnyFrameOpportunity(
                     frameWaitables,
                     frameWaitTimeout);
-            performanceWindow.addFramePacingWake(pacingWait.wake);
+            const bafx::core::MonotonicTime framePacingWaitFinishedAt =
+                clock.now();
+            performanceWindow.addFramePacingWake(
+                pacingWait.wake,
+                durationMicroseconds(
+                    framePacingWaitFinishedAt - framePacingWaitStartedAt));
             bafx::desktop::DisplaySession* awakenedSession =
                 pacingWait.token < ownedSessions.size()
                 ? ownedSessions[pacingWait.token].get()

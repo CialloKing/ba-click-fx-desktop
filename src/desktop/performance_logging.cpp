@@ -480,6 +480,9 @@ std::chrono::nanoseconds appendPerformanceInterval(
             "Timing.PrePresentSemantic",
             "fx-render-return-to-Present-call-entry-including-roi-diagnostics-spout-gpu-query-end-and-readback");
         fields.add(
+            "Timing.FramePacingWaitSemantic",
+            "owner-thread-qpc-around-waitForAnyFrameOpportunity-including-handle-prepoll-and-message-wait-excluding-wait-set-build-and-post-wake-work");
+        fields.add(
             "Timing.PresentMode",
             "interval-0-frame-latency-gated");
         fields.add(
@@ -667,6 +670,26 @@ std::chrono::nanoseconds appendPerformanceInterval(
         fields.add(
             "FramePacing.Failures",
             summary.framePacingFailures);
+        appendMetric(
+            fields,
+            "FramePacing.Wait",
+            summary.framePacingWaitMicroseconds,
+            "us");
+        fields.add(
+            "FramePacing.Wait.Lt100Us",
+            summary.framePacingWaitBuckets.lt100Microseconds);
+        fields.add(
+            "FramePacing.Wait.100To999Us",
+            summary.framePacingWaitBuckets.from100To999Microseconds);
+        fields.add(
+            "FramePacing.Wait.1000To3999Us",
+            summary.framePacingWaitBuckets.from1000To3999Microseconds);
+        fields.add(
+            "FramePacing.Wait.4000To7999Us",
+            summary.framePacingWaitBuckets.from4000To7999Microseconds);
+        fields.add(
+            "FramePacing.Wait.Ge8000Us",
+            summary.framePacingWaitBuckets.ge8000Microseconds);
 
         fields.add(
             "GPU.TimestampProfiler.Observed",
