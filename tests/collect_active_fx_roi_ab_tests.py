@@ -611,6 +611,9 @@ Confirm-Rejected -Event $bucketDrift -ExpectedMessage 'bucket count'
 $semanticDrift = New-Event
 $semanticDrift['Timing.PrePresentSemantic'] = 'unknown'
 Confirm-Rejected -Event $semanticDrift -ExpectedMessage 'semantic differs'
+$waitSemanticDrift = New-Event
+$waitSemanticDrift['Timing.FramePacingWaitSemantic'] = 'unknown'
+Confirm-Rejected -Event $waitSemanticDrift -ExpectedMessage 'semantic differs'
 $nonFinite = New-Event
 $nonFinite['FramePacing.Wait.Average'] = 'NaN'
 Confirm-Rejected -Event $nonFinite -ExpectedMessage 'finite number'
