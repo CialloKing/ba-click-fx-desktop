@@ -17,7 +17,7 @@ from typing import Any
 
 
 CAPTURE_SCHEMA_VERSION = 2
-REPORT_SCHEMA_VERSION = 3
+REPORT_SCHEMA_VERSION = 4
 CAPTURE_KIND = "bafx-active-fx-roi-diagnostic-capture"
 REPORT_KIND = "bafx-active-fx-roi-diagnostic-report"
 DIAGNOSTIC_NOTICE = "NON-RELEASE: short matrix for causal investigation only"
@@ -90,6 +90,15 @@ WAIT_BUCKET_FIELDS = (
     ("from1000To3999Us", "FramePacing.Wait.1000To3999Us"),
     ("from4000To7999Us", "FramePacing.Wait.4000To7999Us"),
     ("ge8000Us", "FramePacing.Wait.Ge8000Us"),
+)
+CPU_SUBMIT_METRICS = (
+    ("cpuFxTotalSubmit", "Cpu.FxTotalSubmit", "CPU FxTotal submit"),
+    (
+        "cpuBloomAndCompositeSubmit",
+        "Cpu.BloomAndCompositeSubmit",
+        "CPU Bloom/composite submit",
+    ),
+    ("cpuFxMaterialsSubmit", "Cpu.FxMaterialsSubmit", "CPU FX materials submit"),
 )
 
 
@@ -333,11 +342,30 @@ def _metric(
     }
 
 
+def _selected_window_metric_summary(
+    output_prefix: str, metrics: list[dict[str, int | float]]
+) -> dict[str, int | float]:
+    # Preserve the established median-of-window-percentiles contract. These
+    # values are not percentiles recomputed from an unavailable raw sample pool.
+    return {
+        f"{output_prefix}Samples": sum(int(metric["samples"]) for metric in metrics),
+        **{
+            f"{output_prefix}{percentile.upper()}Us": RELEASE._median(
+                [float(metric[percentile]) for metric in metrics]
+            )
+            for percentile in ("p50", "p95", "p99")
+        },
+    }
+
+
 def _causal_metrics(
     intervals: list[dict[str, str]], context: str
 ) -> dict[str, Any]:
     pre_present: list[dict[str, int | float]] = []
     waits: list[dict[str, int | float]] = []
+    submit_metrics: dict[str, list[dict[str, int | float]]] = {
+        output_prefix: [] for output_prefix, _, _ in CPU_SUBMIT_METRICS
+    }
     bucket_totals = {name: 0 for name, _ in WAIT_BUCKET_FIELDS}
     for index, event in enumerate(intervals, 1):
         interval_context = f"{context} selected interval {index}"
@@ -360,13 +388,21 @@ def _causal_metrics(
                 f"{interval_context}: Timing.FramePacingWaitSemantic differs from contract v2"
             )
 
-        pre = _metric(event, "Cpu.PrePresent", interval_context)
         frame_count = RELEASE._event_int(event, "Window.FrameCount", interval_context)
+        pre = _metric(event, "Cpu.PrePresent", interval_context)
         if pre["samples"] != frame_count:
             raise ValidationError(
                 f"{interval_context}: Cpu.PrePresent.Samples does not match "
                 "Window.FrameCount"
             )
+        for output_prefix, event_prefix, _ in CPU_SUBMIT_METRICS:
+            metric = _metric(event, event_prefix, interval_context)
+            if metric["samples"] != frame_count:
+                raise ValidationError(
+                    f"{interval_context}: {event_prefix}.Samples does not match "
+                    "Window.FrameCount"
+                )
+            submit_metrics[output_prefix].append(metric)
         wait = _metric(event, "FramePacing.Wait", interval_context)
 
         wake_count = 0
@@ -395,6 +431,13 @@ def _causal_metrics(
         waits.append(wait)
 
     wait_samples = sum(int(metric["samples"]) for metric in waits)
+    submit_summary: dict[str, int | float] = {}
+    for output_prefix, _, _ in CPU_SUBMIT_METRICS:
+        submit_summary.update(
+            _selected_window_metric_summary(
+                output_prefix, submit_metrics[output_prefix]
+            )
+        )
     return {
         "cpuPrePresentSamples": sum(
             int(metric["samples"]) for metric in pre_present
@@ -422,6 +465,7 @@ def _causal_metrics(
         "framePacingWaitBucketRatios": {
             name: count / wait_samples for name, count in bucket_totals.items()
         },
+        **submit_summary,
     }
 
 
@@ -989,14 +1033,20 @@ def _aggregate(
     aggregate["finalCompositeP99Us"] = RELEASE._median(
         [float(run["metrics"]["finalCompositeP99Us"]) for run in runs]
     )
-    for name in (
+    percentile_names = [
         "cpuPrePresentP50Us",
         "cpuPrePresentP95Us",
         "cpuPrePresentP99Us",
         "framePacingWaitP50Us",
         "framePacingWaitP95Us",
         "framePacingWaitP99Us",
-    ):
+    ]
+    percentile_names.extend(
+        f"{output_prefix}{percentile}Us"
+        for output_prefix, _, _ in CPU_SUBMIT_METRICS
+        for percentile in ("P50", "P95", "P99")
+    )
+    for name in percentile_names:
         aggregate[name] = RELEASE._median(
             [float(run["metrics"][name]) for run in runs]
         )
@@ -1007,6 +1057,11 @@ def _aggregate(
         int(run["metrics"]["framePacingWaitSamples"]) for run in runs
     )
     aggregate["framePacingWaitSamples"] = wait_samples
+    for output_prefix, _, _ in CPU_SUBMIT_METRICS:
+        sample_key = f"{output_prefix}Samples"
+        aggregate[sample_key] = sum(
+            int(run["metrics"][sample_key]) for run in runs
+        )
     buckets = {
         name: sum(
             int(run["metrics"]["framePacingWaitBuckets"][name]) for run in runs
@@ -1022,7 +1077,7 @@ def _aggregate(
 
 
 def _comparison(off: dict[str, Any], on: dict[str, Any]) -> dict[str, Any]:
-    keys = (
+    keys = [
         "bloomFinalP95Us",
         "finalCompositeP95Us",
         "finalCompositeP99Us",
@@ -1037,6 +1092,11 @@ def _comparison(off: dict[str, Any], on: dict[str, Any]) -> dict[str, Any]:
         "framePacingWaitP50Us",
         "framePacingWaitP95Us",
         "framePacingWaitP99Us",
+    ]
+    keys.extend(
+        f"{output_prefix}{percentile}Us"
+        for output_prefix, _, _ in CPU_SUBMIT_METRICS
+        for percentile in ("P50", "P95", "P99")
     )
     return {key: RELEASE._reduction(float(off[key]), float(on[key])) for key in keys}
 
@@ -1104,6 +1164,7 @@ def build_report(root: Path) -> dict[str, Any]:
         "aggregationSemantic": {
             "runPercentiles": "median-of-three-selected-complete-10s-windows",
             "armPercentiles": "median-of-four-run-percentiles",
+            "cpuSubmitSamples": "summed-selected-window-samples-per-run-and-arm",
             "waitBuckets": "summed-selected-window-counts-divided-by-summed-wait-samples",
             "nvidiaTelemetry": (
                 "samples-inside-the-three-selected-performance-window-utc-ranges; "
@@ -1205,14 +1266,20 @@ def render_markdown(report: dict[str, Any]) -> str:
             "|---|---:|---:|---:|",
         )
     )
-    for label, key in (
+    causal_metrics = [
         ("CPU PrePresent p50 (us)", "cpuPrePresentP50Us"),
         ("CPU PrePresent p95 (us)", "cpuPrePresentP95Us"),
         ("CPU PrePresent p99 (us)", "cpuPrePresentP99Us"),
         ("Frame pacing wait p50 (us)", "framePacingWaitP50Us"),
         ("Frame pacing wait p95 (us)", "framePacingWaitP95Us"),
         ("Frame pacing wait p99 (us)", "framePacingWaitP99Us"),
-    ):
+    ]
+    causal_metrics.extend(
+        (f"{label} {percentile.lower()} (us)", f"{output_prefix}{percentile}Us")
+        for output_prefix, _, label in CPU_SUBMIT_METRICS
+        for percentile in ("P50", "P95", "P99")
+    )
+    for label, key in causal_metrics:
         lines.append(
             f"| {label} | {_format_number(off[key])} | {_format_number(on[key])} | "
             f"{_format_reduction(report['comparisons'][key])} |"
@@ -1270,6 +1337,32 @@ def render_markdown(report: dict[str, Any]) -> str:
                 f"{_format_arm_pstate_residency(on_telemetry['pstateResidencyMedian'])} |",
                 "",
             )
+        )
+
+    lines.extend(
+        (
+            "",
+            "## CPU submit timing by run",
+            "",
+            "| Run | Pattern/arm | FxTotal p50/p95/p99 [samples] | "
+            "Bloom/composite p50/p95/p99 [samples] | "
+            "FX materials p50/p95/p99 [samples] |",
+            "|---:|---|---:|---:|---:|",
+        )
+    )
+    for run in report["runs"]:
+        metrics = run["metrics"]
+        values = []
+        for output_prefix, _, _ in CPU_SUBMIT_METRICS:
+            values.append(
+                f"{_format_number(metrics[f'{output_prefix}P50Us'])}/"
+                f"{_format_number(metrics[f'{output_prefix}P95Us'])}/"
+                f"{_format_number(metrics[f'{output_prefix}P99Us'])} "
+                f"[{metrics[f'{output_prefix}Samples']}]"
+            )
+        lines.append(
+            f"| {run['ordinal']} | {run['blockPattern']}/{run['arm']} | "
+            f"{' | '.join(values)} |"
         )
 
     lines.extend(

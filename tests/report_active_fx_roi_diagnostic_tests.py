@@ -133,6 +133,29 @@ def _metric_fields(
     }
 
 
+def _submit_timing_fields(
+    ordinal: int, roi_enabled: bool, complete_interval: int
+) -> dict[str, object]:
+    fields: dict[str, object] = {}
+    for prefix, percentiles, roi_penalty in (
+        ("Cpu.FxTotalSubmit", (20, 50, 70, 90), 10),
+        ("Cpu.BloomAndCompositeSubmit", (5, 20, 30, 40), 6),
+        ("Cpu.FxMaterialsSubmit", (10, 30, 40, 50), 4),
+    ):
+        offset = ordinal + complete_interval + (roi_penalty if roi_enabled else 0)
+        fields.update(
+            _metric_fields(
+                prefix,
+                1200,
+                percentiles[0] + offset,
+                percentiles[1] + offset,
+                percentiles[2] + offset,
+                percentiles[3] + offset,
+            )
+        )
+    return fields
+
+
 def _causal_timing_fields(
     ordinal: int, roi_enabled: bool, complete_interval: int
 ) -> dict[str, object]:
@@ -145,6 +168,7 @@ def _causal_timing_fields(
     return {
         "Timing.PrePresentSemantic": REPORTER.PRE_PRESENT_SEMANTIC,
         "Timing.FramePacingWaitSemantic": REPORTER.FRAME_PACING_WAIT_SEMANTIC,
+        **_submit_timing_fields(ordinal, roi_enabled, complete_interval),
         **_metric_fields(
             "Cpu.PrePresent",
             1200,
@@ -319,7 +343,7 @@ class ActiveFxRoiDiagnosticReporterTests(unittest.TestCase):
             fixture = _diagnostic_fixture(Path(temporary))
             report = REPORTER.build_report(fixture.root)
 
-            self.assertEqual(report["schemaVersion"], 3)
+            self.assertEqual(report["schemaVersion"], 4)
             self.assertEqual(report["captureSchemaVersion"], 2)
             self.assertFalse(report["releaseEligible"])
             self.assertEqual(report["schedule"]["pattern"], "ABBA+BAAB")
@@ -388,10 +412,70 @@ class ActiveFxRoiDiagnosticReporterTests(unittest.TestCase):
                 report["runs"][0]["metrics"]["cpuPrePresentP99Us"], 304
             )
             self.assertEqual(
+                report["runs"][0]["metrics"]["cpuFxTotalSubmitSamples"], 3600
+            )
+            self.assertEqual(
+                report["runs"][0]["metrics"]["cpuFxTotalSubmitP50Us"], 24
+            )
+            self.assertEqual(
+                report["runs"][0]["metrics"]["cpuFxTotalSubmitP95Us"], 54
+            )
+            self.assertEqual(
+                report["runs"][0]["metrics"]["cpuFxTotalSubmitP99Us"], 74
+            )
+            self.assertEqual(
+                report["runs"][0]["metrics"][
+                    "cpuBloomAndCompositeSubmitP50Us"
+                ],
+                9,
+            )
+            self.assertEqual(
+                report["runs"][0]["metrics"][
+                    "cpuBloomAndCompositeSubmitP95Us"
+                ],
+                24,
+            )
+            self.assertEqual(
+                report["runs"][0]["metrics"][
+                    "cpuBloomAndCompositeSubmitP99Us"
+                ],
+                34,
+            )
+            self.assertEqual(
+                report["runs"][0]["metrics"]["cpuFxMaterialsSubmitP50Us"], 14
+            )
+            self.assertEqual(
+                report["runs"][0]["metrics"]["cpuFxMaterialsSubmitP95Us"], 34
+            )
+            self.assertEqual(
+                report["runs"][0]["metrics"]["cpuFxMaterialsSubmitP99Us"], 44
+            )
+            self.assertEqual(
                 report["runs"][0]["metrics"]["framePacingWaitSamples"], 33
             )
             self.assertEqual(report["roiOff"]["cpuPrePresentP95Us"], 208)
             self.assertEqual(report["roiOn"]["cpuPrePresentP95Us"], 207)
+            for key, off, on, reduction in (
+                ("cpuFxTotalSubmitP50Us", 28, 37, -9),
+                ("cpuFxTotalSubmitP95Us", 58, 67, -9),
+                ("cpuFxTotalSubmitP99Us", 78, 87, -9),
+                ("cpuBloomAndCompositeSubmitP50Us", 13, 18, -5),
+                ("cpuBloomAndCompositeSubmitP95Us", 28, 33, -5),
+                ("cpuBloomAndCompositeSubmitP99Us", 38, 43, -5),
+                ("cpuFxMaterialsSubmitP50Us", 18, 21, -3),
+                ("cpuFxMaterialsSubmitP95Us", 38, 41, -3),
+                ("cpuFxMaterialsSubmitP99Us", 48, 51, -3),
+            ):
+                self.assertEqual(report["roiOff"][key], off)
+                self.assertEqual(report["roiOn"][key], on)
+                self.assertEqual(report["comparisons"][key]["absolute"], reduction)
+            for key in (
+                "cpuFxTotalSubmitSamples",
+                "cpuBloomAndCompositeSubmitSamples",
+                "cpuFxMaterialsSubmitSamples",
+            ):
+                self.assertEqual(report["roiOff"][key], 14_400)
+                self.assertEqual(report["roiOn"][key], 14_400)
             for key in (
                 "cpuPrePresentP50Us",
                 "cpuPrePresentP95Us",
@@ -422,6 +506,13 @@ class ActiveFxRoiDiagnosticReporterTests(unittest.TestCase):
             self.assertIn("SM clock median", markdown)
             self.assertIn("Instant power run-mean median", markdown)
             self.assertIn("## Causal timing", markdown)
+            self.assertIn("CPU FxTotal submit p95", markdown)
+            self.assertIn("CPU Bloom/composite submit p95", markdown)
+            self.assertIn("CPU FX materials submit p95", markdown)
+            self.assertIn("## CPU submit timing by run", markdown)
+            self.assertIn("24.000/54.000/74.000", markdown)
+            self.assertIn("9.000/24.000/34.000", markdown)
+            self.assertIn("14.000/34.000/44.000", markdown)
             self.assertIn("## Frame pacing wait buckets", markdown)
             self.assertIn("CPU PrePresent p95", markdown)
             self.assertIn("do not correspond one-to-one", markdown)
@@ -466,7 +557,7 @@ class ActiveFxRoiDiagnosticReporterTests(unittest.TestCase):
             self.assertNotIn("Cpu.PrePresent", log.read_text(encoding="utf-8"))
 
     def test_rejects_causal_timing_contract_drift(self) -> None:
-        cases = (
+        cases = [
             (
                 "missing field",
                 ((r"^Cpu\.PrePresent\.P99=.*\n", ""),),
@@ -573,7 +664,61 @@ class ActiveFxRoiDiagnosticReporterTests(unittest.TestCase):
                 ),
                 "distribution is inconsistent",
             ),
-        )
+        ]
+        for prefix in (
+            "Cpu.FxTotalSubmit",
+            "Cpu.BloomAndCompositeSubmit",
+            "Cpu.FxMaterialsSubmit",
+        ):
+            escaped = re.escape(prefix)
+            cases.extend(
+                (
+                    (
+                        f"{prefix} sample drift",
+                        (
+                            (
+                                rf"^{escaped}\.Samples=.*$",
+                                f"{prefix}.Samples=1199",
+                            ),
+                            (
+                                rf"^{escaped}\.RecordedSamples=.*$",
+                                f"{prefix}.RecordedSamples=1199",
+                            ),
+                        ),
+                        "Window.FrameCount",
+                    ),
+                    (
+                        f"{prefix} recorded sample drift",
+                        (
+                            (
+                                rf"^{escaped}\.RecordedSamples=.*$",
+                                f"{prefix}.RecordedSamples=1199",
+                            ),
+                        ),
+                        "RecordedSamples does not match Samples",
+                    ),
+                    (
+                        f"{prefix} dropped sample",
+                        (
+                            (
+                                rf"^{escaped}\.DroppedSamples=.*$",
+                                f"{prefix}.DroppedSamples=1",
+                            ),
+                        ),
+                        "DroppedSamples must be zero",
+                    ),
+                    (
+                        f"{prefix} unavailable",
+                        (
+                            (
+                                rf"^{escaped}\.Available=.*$",
+                                f"{prefix}.Available=false",
+                            ),
+                        ),
+                        f"{escaped} must be available",
+                    ),
+                )
+            )
         for label, replacements, message in cases:
             with self.subTest(case=label), tempfile.TemporaryDirectory() as temporary:
                 fixture = _diagnostic_fixture(Path(temporary))
