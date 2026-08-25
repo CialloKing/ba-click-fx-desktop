@@ -638,8 +638,8 @@ function Join-RunFailureMessages
         [AllowNull()]
         [Management.Automation.ErrorRecord]$PrimaryFailure,
 
-        [Parameter(Mandatory = $true)]
-        [string[]]$CleanupFailures
+        [AllowEmptyCollection()]
+        [string[]]$CleanupFailures = @()
     )
 
     $messages = [Collections.Generic.List[string]]::new()

@@ -336,6 +336,8 @@ Confirm-Rejected `
             "Join-RunFailureMessages `",
             "-PrimaryFailure $primaryFailure `",
             "-CleanupFailures $cleanupFailures",
+            "[AllowEmptyCollection()]",
+            "[string[]]$CleanupFailures = @()",
         ):
             self.assertIn(token, self.source)
         self.run_function_test(
@@ -348,6 +350,26 @@ try
 catch
 {
     $primary = $_
+}
+$emptyCleanup = [Collections.Generic.List[string]]::new()
+$success = Join-RunFailureMessages `
+    -PrimaryFailure $null `
+    -CleanupFailures $emptyCleanup
+if ($null -ne $success)
+{
+    throw "unexpected success-path failure: $success"
+}
+$primaryOnly = Join-RunFailureMessages `
+    -PrimaryFailure $primary `
+    -CleanupFailures $emptyCleanup
+if ($primaryOnly -cne 'Host primary failure')
+{
+    throw "unexpected primary-only failure: $primaryOnly"
+}
+$defaultSuccess = Join-RunFailureMessages -PrimaryFailure $null
+if ($null -ne $defaultSuccess)
+{
+    throw "unexpected default success-path failure: $defaultSuccess"
 }
 $cleanup = [Collections.Generic.List[string]]::new()
 $cleanup.Add('Host cleanup failed: host stop failure')
