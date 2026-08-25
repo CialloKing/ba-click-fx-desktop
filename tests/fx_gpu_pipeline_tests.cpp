@@ -2615,7 +2615,14 @@ BAFX_TEST(warp_active_fx_roi_pyramid_matches_full_screen_pixels)
         == steadyDiagnostics.primaryActiveFxRoi.stages.resolve.fullPixels);
     BAFX_CHECK(
         steadyDiagnostics.primaryActiveFxRoi.stages.prefilter.clearedPixels
-        == warmupDiagnostics.primaryActiveFxRoi.stages.prefilter.candidatePixels);
+        == 0U);
+    BAFX_CHECK(
+        steadyDiagnostics.primaryActiveFxRoi.stages.downsample.clearedPixels
+        == 0U);
+    BAFX_CHECK(
+        steadyDiagnostics.primaryActiveFxRoi.stages.upsample.clearedPixels
+        == 0U);
+    BAFX_CHECK(steadyDiagnostics.primaryActiveFxRoi.clearedPixels == 0U);
 
     checkRgba16BitExactAndFinite(
         readbackRgba16FloatTexture(
@@ -3040,6 +3047,7 @@ BAFX_TEST(warp_active_fx_roi_clears_previous_non_overlapping_motion)
     BAFX_CHECK(
         movedDiagnostics.primaryActiveFxRoi.stages.prefilter.clearedPixels
         == leftDiagnostics.primaryActiveFxRoi.stages.prefilter.candidatePixels);
+    BAFX_CHECK(movedDiagnostics.primaryActiveFxRoi.clearedPixels > 0U);
 
     FxGpuRenderer referenceRenderer(
         graphics.device.Get(),
@@ -3384,6 +3392,15 @@ BAFX_TEST(warp_active_fx_roi_spout_background_matrix_keeps_paths_separate)
     BAFX_CHECK(
         returnedToFxOnly.primaryActiveFxRoi.decisionReason
         == FxActiveRoiDecisionReason::Applied);
+    BAFX_CHECK(
+        returnedToFxOnly.primaryActiveFxRoi.stages.prefilter.clearedPixels
+        == returnedToFxOnly.primaryActiveFxRoi.stages.prefilter.candidatePixels);
+    BAFX_CHECK(
+        returnedToFxOnly.primaryActiveFxRoi.stages.downsample.clearedPixels
+        == returnedToFxOnly.primaryActiveFxRoi.stages.downsample.candidatePixels);
+    BAFX_CHECK(
+        returnedToFxOnly.primaryActiveFxRoi.stages.upsample.clearedPixels
+        == returnedToFxOnly.primaryActiveFxRoi.stages.upsample.candidatePixels);
     BAFX_CHECK(!returnedToFxOnly.recordingRebuildActiveFxRoi.executed);
     BAFX_CHECK(
         returnedToFxOnly.recordingRebuildActiveFxRoi.actualPath

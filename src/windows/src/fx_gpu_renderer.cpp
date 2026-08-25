@@ -1598,6 +1598,28 @@ struct FxGpuRenderer::Implementation
             * static_cast<std::uint64_t>(rect.bottom - rect.top);
     }
 
+    [[nodiscard]] static bool sameScissor(
+        const D3D11_RECT& left,
+        const D3D11_RECT& right) noexcept
+    {
+        return left.left == right.left
+            && left.top == right.top
+            && left.right == right.right
+            && left.bottom == right.bottom;
+    }
+
+    [[nodiscard]] static bool canSkipBloomTargetClear(
+        const BloomTargetRoiState& state,
+        const D3D11_RECT& currentRect,
+        const BloomExecutionPath path) noexcept
+    {
+        return state.initialized
+            && !state.fullScreenWritten
+            && state.previousWrittenRect.has_value()
+            && state.lastWriter == path
+            && sameScissor(*state.previousWrittenRect, currentRect);
+    }
+
     [[nodiscard]] bool synchronizeBloomTargetRoiStates() noexcept
     {
         if (bloomDownTargetStates.size() != bloomDownTargets.size()
@@ -1803,7 +1825,9 @@ struct FxGpuRenderer::Implementation
 
     void clearBloomTargetsForRoi(
         FxActiveRoiPassDiagnostics& diagnostics,
-        const bool fullClear)
+        const bool fullClear,
+        const bafx::core::UnityBloomPassRoiPlan& plan,
+        const BloomExecutionPath path)
     {
         constexpr std::array<float, 4> transparent{
             0.0F,
@@ -1824,8 +1848,18 @@ struct FxGpuRenderer::Implementation
             }
             else
             {
+                const BloomTargetRoiState& state =
+                    bloomDownTargetStates[index];
+                const D3D11_RECT current = toScissor(plan.downRects[index]);
+                // Every Bloom pass overwrites its entire scissor. The same
+                // writer can therefore reuse an unchanged initialized rect
+                // without exposing stale pixels outside that rect.
+                if (canSkipBloomTargetClear(state, current, path))
+                {
+                    continue;
+                }
                 const D3D11_RECT previous =
-                    *bloomDownTargetStates[index].previousWrittenRect;
+                    *state.previousWrittenRect;
                 context1->ClearView(
                     bloomDownTargets[index].renderTarget.Get(),
                     transparent.data(),
@@ -1847,8 +1881,14 @@ struct FxGpuRenderer::Implementation
             }
             else
             {
+                const BloomTargetRoiState& state = bloomUpTargetStates[index];
+                const D3D11_RECT current = toScissor(plan.upRects[index]);
+                if (canSkipBloomTargetClear(state, current, path))
+                {
+                    continue;
+                }
                 const D3D11_RECT previous =
-                    *bloomUpTargetStates[index].previousWrittenRect;
+                    *state.previousWrittenRect;
                 context1->ClearView(
                     bloomUpTargets[index].renderTarget.Get(),
                     transparent.data(),
@@ -2001,7 +2041,11 @@ struct FxGpuRenderer::Implementation
             const bool fullClear = bloomTargetsRequireFullClear();
             const bool sharedFullWrite = fullClear
                 && hasSharedFullWrite(executionPath);
-            clearBloomTargetsForRoi(roiDiagnostics, fullClear);
+            clearBloomTargetsForRoi(
+                roiDiagnostics,
+                fullClear,
+                *roiPlan,
+                executionPath);
             roiDiagnostics.warmup = fullClear;
             roiDiagnostics.actualPath = fullClear
                 ? FxActiveRoiActualPath::RoiWarmup
