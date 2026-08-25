@@ -629,6 +629,32 @@ function Stop-OwnedProcess
     }
 }
 
+function Join-RunFailureMessages
+{
+    param(
+        [AllowNull()]
+        [Management.Automation.ErrorRecord]$PrimaryFailure,
+
+        [Parameter(Mandatory = $true)]
+        [string[]]$CleanupFailures
+    )
+
+    $messages = [Collections.Generic.List[string]]::new()
+    if ($null -ne $PrimaryFailure)
+    {
+        $messages.Add($PrimaryFailure.Exception.Message)
+    }
+    foreach ($failure in $CleanupFailures)
+    {
+        $messages.Add($failure)
+    }
+    if ($messages.Count -eq 0)
+    {
+        return $null
+    }
+    return $messages -join '; '
+}
+
 function Resolve-NvidiaSmiExecutable
 {
     param(
@@ -1156,6 +1182,8 @@ function Invoke-AbbaRun
     $process = $null
     $telemetrySession = $null
     $telemetryEvidence = $null
+    $primaryFailure = $null
+    $cleanupFailures = [Collections.Generic.List[string]]::new()
     try
     {
         if ($null -ne $NvidiaTelemetryContract)
@@ -1185,26 +1213,43 @@ function Invoke-AbbaRun
     }
     catch
     {
-        if ($null -ne $process)
-        {
-            Stop-OwnedProcess -Process $process
-        }
-        throw
+        $primaryFailure = $_
     }
-    finally
+    if ($null -ne $primaryFailure -and $null -ne $process)
     {
         try
         {
-            if ($null -ne $telemetrySession)
-            {
-                $telemetryEvidence = Stop-NvidiaTelemetry `
-                    -Session $telemetrySession
-            }
+            Stop-OwnedProcess -Process $process
         }
-        finally
+        catch
         {
-            $timer.Stop()
+            $cleanupFailures.Add(
+                "Host cleanup failed: $($_.Exception.Message)")
         }
+    }
+    if ($null -ne $telemetrySession)
+    {
+        try
+        {
+            $telemetryEvidence = Stop-NvidiaTelemetry `
+                -Session $telemetrySession
+        }
+        catch
+        {
+            $cleanupFailures.Add(
+                "NVIDIA telemetry stop failed: $($_.Exception.Message)")
+        }
+    }
+    $timer.Stop()
+
+    $failure = Join-RunFailureMessages `
+        -PrimaryFailure $primaryFailure `
+        -CleanupFailures $cleanupFailures
+    if ($null -ne $failure)
+    {
+        # A Host error is intentionally first; cleanup evidence must not hide
+        # the failure that caused this run to abort.
+        throw $failure
     }
 
     $finalConfigSha256 = (

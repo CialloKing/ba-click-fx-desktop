@@ -234,6 +234,48 @@ Invoke-Expression $env:BAFX_TEST_BODY
         self.assertNotIn("Get-Process -Name 'nvidia-smi'", self.source)
         self.assertNotIn("Stop-Process -Name", self.source)
 
+    def test_preserves_the_primary_run_failure_before_cleanup_failures(self) -> None:
+        for token in (
+            "$primaryFailure = $_",
+            '"Host cleanup failed: $($_.Exception.Message)"',
+            '"NVIDIA telemetry stop failed: $($_.Exception.Message)"',
+            "Join-RunFailureMessages `",
+            "-PrimaryFailure $primaryFailure `",
+            "-CleanupFailures $cleanupFailures",
+        ):
+            self.assertIn(token, self.source)
+        self.run_function_test(
+            ("Join-RunFailureMessages",),
+            r"""
+try
+{
+    throw 'Host primary failure'
+}
+catch
+{
+    $primary = $_
+}
+$cleanup = [Collections.Generic.List[string]]::new()
+$cleanup.Add('Host cleanup failed: host stop failure')
+$cleanup.Add('NVIDIA telemetry stop failed: sampler failure')
+$message = Join-RunFailureMessages `
+    -PrimaryFailure $primary `
+    -CleanupFailures $cleanup
+$expected = 'Host primary failure; Host cleanup failed: host stop failure; NVIDIA telemetry stop failed: sampler failure'
+if ($message -cne $expected)
+{
+    throw "unexpected combined failure: $message"
+}
+$cleanupOnly = Join-RunFailureMessages `
+    -PrimaryFailure $null `
+    -CleanupFailures @('NVIDIA telemetry stop failed: sampler failure')
+if ($cleanupOnly -cne 'NVIDIA telemetry stop failed: sampler failure')
+{
+    throw "unexpected cleanup-only failure: $cleanupOnly"
+}
+""",
+        )
+
     def test_extracts_and_compares_every_raw_log_environment(self) -> None:
         for token in (
             "function Get-OnlyStructuredEvent",
