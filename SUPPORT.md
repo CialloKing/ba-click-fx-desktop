@@ -7,8 +7,9 @@
   `background-aware`（背景感知）、`recording-compatible`（录屏兼容拟合）和
   `light-background`（浅色背景优化）。背景感知启用 WGC，失败时回退内部 FX-only transport；
   其余两项关闭 WGC。
-- 基础页还提供“核心性能模式（低配测试）”。该模式只保留中心圆盘和一个圆环，跳过碎片、拖尾和
-  Bloom，固定 60 FPS、保守 SDR 和 FX-only；它只用于低性能机器反馈，不证明完整特效或 WGC 能力。
+- 基础页还提供“核心性能模式（低配测试）”。该模式保留中心圆盘、圆环、点击/拖拽碎片和拖尾，
+  仅跳过 Bloom 与 WGC/背景捕获，固定 60 FPS、保守 SDR 和 FX-only；它只用于低性能机器反馈，
+  不证明完整背景合成、HDR 或 WGC 能力。
 - `BAFX.ControlCenter.exe` 的原生 Win32 控制面：基础页管理启用状态、点击特效、鼠标拖尾、拖尾常驻、
   左/右/中键触发策略、效果大小、
   拖尾长度、拖尾宽度、输入采样率上限、Bloom 强度和 Bloom 质量；高级页按时间、粒子与材质、圆环、点击碎片、
