@@ -60,8 +60,8 @@ Bloom 金字塔 ROI 收敛为 0.2.7 候选并执行同规格实机门禁；整�
   区域，同一 writer 连续覆盖相同矩形时跳过清理；
 - 一帧内只能完整执行 ROI 或完整回退全屏。pass 计划、Context1、资源身份、相位或状态任一无效，整条
   Bloom 同帧回退，禁止混合局部与全屏 pass；
-- resolve 与最终场景合成融合为全屏 draw，shader 只在 resolve 逻辑矩形内采样 Bloom；WGC、Spout2
-  格式转换、交换链与 Present 继续全屏；
+- 纯特效 ROI 应用路径先把最终输出全屏清为透明，再只在逐字段验证的 `resolveRect` 内执行最终
+  传输/合成 shader；背景感知最终合成、WGC、Spout2 格式转换、交换链与 Present 继续全屏；
 - `GetDisplayState` 升级为严格 schema 4，新增 `roi-pyramid` 路径和 prefilter/downsample/upsample/resolve
   四阶段的 full/candidate/drawn/cleared 像素；混合版本继续 fail-closed；
 - WARP 等价矩阵已经覆盖点击、拖尾、负 scRGB、HDR 极值、Spout2、resize、空帧重启和 Context1 缺失，
@@ -82,9 +82,21 @@ Frame/Present 尾差；CPU frame 与 Present 的 p95 配对差中位均约 `+190
 同日的 8-run 非发布遥测诊断中，ROI off/on 的 SM 时钟中位为 `1417.5 -> 1200 MHz`，设备瞬时功耗
 run-mean 中位为 `23.851 -> 20.824 W`；但 4 组相邻配对的 GPU command p99 各有两组变快、两组变慢，
 而每个区块首轮的 CPU/Present 尖峰分别落在 off 与 on。设备降频、整机顺序状态与尾延迟同时出现，
-仍不能从该短矩阵确定关联方向或产品因果。0.2.7、发布流程和 0.2.8 继续阻塞，不实施缺少可复现原因的
-推测性渲染改动。WGC、交换链 dirty Present 和桌面捕获 ROI 仍是相互独立的高风险项目；其他真实硬件
-ROI 矩阵继续保持 `Not Run`。
+仍不能从该短矩阵确定关联方向或产品因果。
+
+后续逐阶段重放把旧正式矩阵的 GPU 尾差定位到全屏 FinalComposite。提交 `866dea5` 因此只在纯特效
+ROI 已应用且 `resolveRect` 已验证时执行“全目标透明清理 + 最终 shader scissor”，背景感知和所有
+fallback 仍为全屏；WARP 55 项矩阵继续 FP16 逐元素精确一致。提交 `f00226f` 只把完整 WARP 矩阵的
+CTest 超时预算调整为 90 秒，提交 `a86ce5e` 只把 collector Host 寿命从 40.5 秒增加到 45 秒，仍丢弃
+一个完整 10 秒窗并选择三个完整 10 秒窗，预注册性能阈值与 30 秒采样合同均未改变。
+
+最终合成裁剪候选的首个正式目录因旧 Host 寿命只得到 3 个完整窗口而 fail-closed；调整后 20-run
+采集虽完整，严格报告仍为 `FAIL`。一个从 16:28 起创建 `General.rar` 的高负载 WinRAR 进程在两轮
+采集前已启动，采集后仍在运行，已经违反空闲主机前提；低 FPS 与 `FramePacing.Timeouts` 同时出现，
+但不单独证明逐帧影响或产品因果。因此两轮作为受污染的失败证据保留，但不用于宣称修复有效或无效；
+干净环境的独立正式 ABBA 尚待执行。0.2.7、发布流程和 0.2.8
+继续阻塞。WGC、交换链 dirty Present 和桌面捕获 ROI 仍是相互独立的高风险项目；其他真实硬件 ROI
+矩阵继续保持 `Not Run`。
 
 ## Host-owned 特效 Profile（2026-08-23）
 
@@ -365,8 +377,9 @@ FX-only 与 background-aware 在 `3840x2160 @ 170 Hz` 下均保持
 
 当前 P1 已完成完整 Unity Bloom pass 规划、跨帧 dirty rect、每个实际 down/up 目标的清理状态机、
 50%/65% 自适应门、primary/recording-rebuild 分阶段 GPU 遥测和 Control Center schema 4 工程面板。
-满足正确性门的纯特效路径会局部绘制 prefilter/down/up，并在全屏最终合成中使用 resolve 掩码；全屏
-Bloom 仍是规范参考，不满足任一约束的帧整条回退。
+满足正确性门的纯特效路径会局部绘制 prefilter/down/up，先把最终输出全屏清为透明，再只在验证后的
+`resolveRect` 内执行最终 shader；全屏 Bloom 仍是规范参考，不满足任一约束的帧整条回退。背景感知
+最终合成与 WGC、Spout2 格式转换、交换链、Present 仍为全屏。
 
 P1 的执行顺序不再调整：
 
@@ -376,8 +389,11 @@ P1 的执行顺序不再调整：
 3. `d9ef2fe` 后的 4K 170 Hz 正式 20-run 已执行；Bloom/final 与配对门通过，但 CPU frame、Present
    和 GPU command p99 门失败，不能用局部 GPU 收益替代整机结论；
 4. 同 revision 的 8-run NVIDIA 遥测诊断只确认设备状态与顺序抖动并存，未给出可复现产品原因；
-   不调整预注册阈值，也不以重复采集追逐偶然通过；
-5. 0.2.7 独立 20-run 通过前不发布、不启动 0.2.8；WGC、桌面捕获 ROI 和交换链 dirty Present 分别
+   不调整预注册阈值；
+5. `866dea5` 已把纯特效最终 shader 裁剪到验证后的 `resolveRect`，WARP 55 项 FP16 exact 通过；
+6. 新候选采集前已启动、采集后仍运行的高负载 WinRAR 压缩违反空闲主机前提；短诊断和正式 20-run
+   作为受污染的 `FAIL` 保留，不以它们替代干净环境独立复验，也不在已知外部负载下追逐偶然通过；
+7. 0.2.7 独立 20-run 通过前不发布、不启动 0.2.8；WGC、桌面捕获 ROI 和交换链 dirty Present 分别
    评审、分别验收，不从 Bloom ROI 的结果外推。
 
 任何阶段都必须同时比较 GPU 阶段时间、CPU/Present 尾部、查询健康状态和最终 FP16 结果；不能只报告

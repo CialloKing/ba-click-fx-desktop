@@ -89,19 +89,21 @@
   缺失或未知字段以及枚举别名均被拒绝。Host 保留无效原文件并以内存中的当前默认值继续运行，不猜测或
   部分套用无效配置。背景感知授权、排除或会话失败时回退内部 FX-only transport；其余模式不启用 WGC。
 - Active-FX ROI 当前可在纯特效 primary 及实际执行的录制/Spout2 纯特效重建中裁剪 prefilter 和完整
-  down/up 金字塔。规划器为每个 pass 生成独立矩形，并为最终 resolve 生成逻辑有效区；resolve 与最终
-  场景合成仍是一次全屏 draw，shader 在有效区外采样精确零 Bloom。每个实际 down/up 目标维护初始化、
+  down/up 金字塔。规划器为每个 pass 生成独立矩形，并为最终 resolve 生成逻辑有效区；ROI 实际应用时，
+  纯特效最终输出先全屏清为透明，再只在逐字段验证的 `resolveRect` 内执行最终传输/合成 shader。每个实际 down/up 目标维护初始化、
   上一写入矩形、全屏写入状态和最后 writer；首次进入、全屏转 ROI、resize 或资源恢复时
   完整清理，稳态矩形移动或 writer 改变时用 Context1 `ClearView` 清理旧区；同一 writer 连续覆盖
   相同矩形时跳过冗余清理。
 - 一帧内只允许完整 ROI 或完整全屏 Bloom。pass 计划、Context1、资源身份、相位或状态任一不满足约束时，
   所有 Bloom pass 同帧回退全屏；不会把局部 prefilter 与全屏后续 pass 混用。primary 与
   recording-rebuild 分别统计，但共享物理资源只维护一份真实写入状态。
-- 默认 `background-aware` primary Differential Bloom、最终场景合成、WGC、Spout2 格式转换、交换链和
-  Present 仍保持全屏。工程面板的像素处理比例不是 GPU 节省百分比；该开关存在也不代表端到端性能或
-  硬件矩阵已经通过验收。缓存后的 0.2.7 RTX 4060、4K 170 Hz、SDR 正式 ABBA 已于 2026-08-28
-  执行，CPU frame、Present 与 GPU command p99 门槛失败，因此该版本未发布，不能据局部 GPU 收益
-  声明端到端性能通过。
+- 默认 `background-aware` primary Differential Bloom 及其最终场景合成保持全屏；WGC、Spout2 格式
+  转换、交换链和 Present 也仍保持全屏。工程面板的像素处理比例不是 GPU 节省百分比；该开关存在也不
+  代表端到端性能或硬件矩阵已经通过验收。提交 `866dea5` 的 WARP 55 项矩阵已通过并锁定 FP16 精确
+  一致；最终合成裁剪候选采集期间，存在一个采集前已启动、采集后仍在运行的高负载 WinRAR 压缩，
+  因而短诊断和 20-run 只能作为受污染的失败记录。最近一份无已知该类污染的缓存后正式 ABBA 也因
+  CPU frame、Present 与 GPU command p99 门槛失败。因此该版本未发布，不能据局部 GPU 收益声明
+  端到端性能通过。
 - Host 为每个显示会话维护 5 秒滚动窗，每 500 ms 发布不可变快照；Control Center 只在“显示与性能”
   页可见时每秒轮询，离页停止，样本年龄超过 3 秒标记 stale。IPC 失败只让诊断保持旧值/显示错误，
   不会修改配置或改变 Host 渲染路径。

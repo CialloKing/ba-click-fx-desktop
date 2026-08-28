@@ -388,9 +388,9 @@ writer、同一矩形直接覆盖且 `clearedPixels=0`，以及矩形移动时 `
 奇数尺寸、空帧重启、Context1 缺失及 `D3D11_OPTIONS.ClearView=false`。背景差分 primary 必须保持全屏；
 共享目标同帧已全屏写入时，recording-rebuild 只能报告全清预热/共享写入原因。
 
-这些用例证明 0.2.7 已接入的纯特效 prefilter/down/up 和 resolve 掩码正确性，不证明真实 GPU 性能。
-最终场景合成、WGC、Spout2 格式转换、交换链、Present 和默认 `background-aware` Differential Bloom
-仍为全屏，不能从 WARP 结果外推。
+这些用例证明 0.2.7 已接入的纯特效 prefilter/down/up，以及“最终输出全屏透明清理 + 已验证
+`resolveRect` 内最终 shader”正确性，不证明真实 GPU 性能。默认 `background-aware` Differential Bloom
+及其最终场景合成、WGC、Spout2 格式转换、交换链和 Present 仍为全屏，不能从 WARP 结果外推。
 
 ## 5. 发布门槛
 
@@ -459,8 +459,10 @@ WARP、SDK 编译矩阵或 RTX 4060 SDR 结果外推。
 
 ### 5.2 Active-FX ROI v0.2.7 专用发布门
 
-0.2.7 继续使用 5 个 ABBA 块、20 次采集、每次预热 5 秒并采样 30 秒的同机配对合同。collector
-manifest 必须是 schema 3，报告必须是 schema 2；同一 EXE、输入、显示和 schema 19 配置只能切换
+0.2.7 继续使用 5 个 ABBA 块、20 次采集、每次预热 5 秒并采样 30 秒的同机配对合同。collector Host
+寿命为 45 秒；报告仍只丢弃第一个完整 10 秒窗并选择随后三个完整 10 秒窗，额外寿命只为进程初始化
+保留余量，不扩大测量窗口。collector manifest 必须是 schema 3，报告必须是 schema 2；同一 EXE、
+输入、显示和 schema 19 配置只能切换
 `performance.activeFxRoiEnabled`。原始日志必须重新锁定 Hardware D3D11、RTX 4060、Adapter LUID/驱动、
 `3840x2160`、`170/1 Hz`、SDR、`conservative-sdr`、Host SHA-256、配置 SHA-256 和配对顺序。
 
@@ -589,6 +591,40 @@ run-mean 中位为 `23.851 -> 20.824 W`；GPU command p99 为 `1299.5 -> 2093 us
 每个区块首轮的 CPU/Present 尖峰又分别落在 off 与 on。该短矩阵只能确认
 低负载设备状态、运行顺序与尾延迟同时变化，不能确定关联方向或单帧因果，也不能替代正式失败结论。
 
+提交 `866dea5` 针对上述全屏 FinalComposite 尾差，只在纯特效 ROI 实际应用且 pass plan 的
+`resolveRect` 已逐字段验证时，先把一个或两个最终 RTV 全屏清为透明，再把最终传输/合成 shader
+scissor 到该矩形；背景感知和任一 fallback 继续全屏。Release 构建和完整 `gpu_pipeline_warp` 55 项
+通过，包含最终输出 FP16 逐元素 bit-exact、双 RTV、移动/不相交 ROI、resize、Context1 缺失和
+`ClearView=false`。提交 `f00226f` 仅把这组 WARP CTest 超时从 30 秒调整为 90 秒；直接执行耗时约
+35--48 秒且 55 项全部通过，没有放宽任何像素判定。
+
+首个正式采集目录
+`artifacts/performance/active-fx-roi-v027-final-scissor-rtx4060-4k170-sdr-center-click-20260828-r1`
+使用 40.5 秒 Host 寿命，run 1 只形成 3 个完整 Performance.Interval，因合同要求 4 个完整窗口而
+fail-closed，未产生任何有效 run。提交 `a86ce5e` 把 Host 寿命增加到 45 秒后，30 秒选窗、ABBA 顺序、
+输入场景、配置差异和所有门槛保持不变。
+
+以下两轮均存在采集前已启动、采集后仍运行的外部 WinRAR 工作负载；这里只记录报告输出，不用它们
+判断最终合成裁剪候选的实机收益或回归。
+
+最终合成裁剪候选的 8-run 非发布诊断位于
+`artifacts/performance/active-fx-roi-v027-final-scissor-diagnostic-20260828-r1`。其聚合 Bloom/final p95
+为 `4073.5 -> 1693.5 us`，FinalComposite p95 为 `3466.5 -> 1306 us`；CPU frame p95 为
+`2486.5 -> 2680.5 us`，Present p95 为 `2352.5 -> 2542 us`。相邻配对中位差均显示主要 GPU、CPU 和
+Present 指标变快，但短矩阵每臂只有 4 次，本来就不能替代发布门。
+
+调整寿命后的 20-run 正式目录为
+`artifacts/performance/active-fx-roi-v027-final-scissor-rtx4060-4k170-sdr-center-click-20260828-r2`，严格
+报告仍为 `FAIL`：Prefilter/Pyramid p95 分别降低 `93.04%/69.24%`，但 Bloom/final p95 从
+`3045 -> 3091.5 us`，只有 `5/10` 配对不慢；CPU frame p95、Present p95 和 GPU command p99 也超过
+`5%` 门。两臂 FPS 只有 `152.890/158.160`，并分别记录 `3/4` 个 `FramePacing.Timeouts`。
+
+同一 WinRAR 进程从本地时间 2026-08-28 16:28 起创建 `General.rar`，早于两轮采集启动并在采集结束后
+仍在运行。结束后的观测为约 23--24 GiB working set、约 26--28 GiB private memory，并在 3 秒采样中
+使用约 25 CPU 秒。这确认存在未受控并发负载，但不证明该进程的逐帧影响，也不证明候选的产品因果。
+本次未终止该用户进程；干净复验等待其自然结束或另行获得明确授权，之后必须使用新目录重新执行短诊断
+和独立 5 ABBA、20-run 正式门禁。当前不执行发布 workflow、SDK CI、打包、tag 或 Release。
+
 证据索引 SHA-256：
 
 - `capture.json`: `ad756c2f3eb26a38d90a69ee6c448a5c088546ed147de5ef1f6721e97d5937a2`
@@ -625,10 +661,26 @@ run-mean 中位为 `23.851 -> 20.824 W`；GPU command p99 为 `1299.5 -> 2093 us
   `17f9abbc030a487e67cf06acf38191bec22eb635486118552fa31b82cfeda8d4`
 - 缓存后状态诊断 `diagnostic-summary.md`:
   `20b9a82c8bbcef2b2ee5af1504f4a6fd979194060a06ddb68fa42e3c594a74a1`
+- 最终合成裁剪短诊断 `capture.json`:
+  `bb75612a6f1250dea1ca7119187a7b344dbe1c6b9fef097b475ed39770949164`
+- 最终合成裁剪短诊断 `diagnostic-summary.json`:
+  `1bd2e55c0510b8b455acecfd4d9e957fc89ec7fb2a47e55520ed006a122bd3f7`
+- 最终合成裁剪短诊断 `diagnostic-summary.md`:
+  `678b87d7b166b0b97a4d4f5a3e7e77a025ff74c16f03dde92503538e5df71dc6`
+- 最终合成裁剪首次 fail-closed `capture.json`:
+  `a80b17a4e1f75a5978396cb12999bd94104490fd5abe57f4501c402426652ca5`
+- 最终合成裁剪正式 r2 `capture.json`:
+  `accc0d8a258e5ae377680a4ff83d17c0af29633a7ad8da88ed8877416608ff84`
+- 最终合成裁剪正式 r2 `summary.json`:
+  `5ec4bc38749bf04dbbf1d79d7c7a7c5f50741b8590bb4c0016896bab41f1cdc4`
+- 最终合成裁剪正式 r2 `summary.md`:
+  `6afcb1cb80604a3cdb51d05e1a48c606bfcad30bd9bcf67919791b42861bcaa6`
 
-缓存后的正式 5 ABBA、20-run 是最新有效证据且为 `FAIL`。因此阈值不放宽，0.2.7 不发布，也不执行
-Full/Slim 发布 workflow、SDK `19041/22621/26100` 发布 CI、正式打包、tag 或远端复核。官方 Release
-的 Full 四资产策略保持不变，Slim 仍只保留源码构建验证。
+缓存后的正式 5 ABBA、20-run 是最近一份无已知外部负载污染的正式证据，结果为 `FAIL`。最终合成裁剪
+r2 是时间上更新的完整采集，但其外部负载与 pacing 异常使它不能替代干净正式证据，而且严格结果同样
+为 `FAIL`。因此阈值不放宽，0.2.7 不发布，也不执行 Full/Slim 发布 workflow、SDK
+`19041/22621/26100` 发布 CI、正式打包、tag 或远端复核。官方 Release 的 Full 四资产策略保持不变，
+Slim 仍只保留源码构建验证。
 
 0.2.8 的 Differential Bloom ROI 必须在 0.2.7 独立通过并交付后开始，另行增加背景有效性和捕获代次
 回退门；当前保持阻塞，不得用 0.2.7 的局部 GPU 收益替代整机失败结果。
