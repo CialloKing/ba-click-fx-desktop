@@ -121,7 +121,7 @@ Invoke-Expression $env:BAFX_TEST_BODY
             "$runCount = 20",
             "$warmupMilliseconds = 5000",
             "$sampleMilliseconds = 30000",
-            "$hostDurationMilliseconds = 40500",
+            "$hostDurationMilliseconds = 45000",
             "$performanceIntervalMilliseconds = 10000",
             "$discardCompleteIntervals = 1",
             "$selectCompleteIntervals = 3",

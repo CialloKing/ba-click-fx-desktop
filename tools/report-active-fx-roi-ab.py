@@ -41,7 +41,7 @@ BLOCK_COUNT = 5
 RUN_COUNT = 20
 WARMUP_MS = 5_000
 SAMPLE_MS = 30_000
-HOST_DURATION_MS = 40_500
+HOST_DURATION_MS = 45_000
 PERFORMANCE_INTERVAL_MS = 10_000
 DISCARD_COMPLETE_INTERVALS = 1
 SELECT_COMPLETE_INTERVALS = 3
@@ -838,7 +838,7 @@ def _validate_run(
         "--demo-age-ms=130",
         "--demo-delay-ms=5000",
         "--disable-raw-input",
-        "--quit-after-ms=40500",
+        "--quit-after-ms=45000",
     ]
     if measurement_path == "recording-rebuild":
         expected_arguments.append("--spout2")

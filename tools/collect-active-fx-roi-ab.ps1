@@ -64,7 +64,10 @@ $diagnosticBlockCount = 2
 $diagnosticRunCount = 8
 $warmupMilliseconds = 5000
 $sampleMilliseconds = 30000
-$hostDurationMilliseconds = 40500
+# Process lifetime starts before renderer initialization, while performance
+# intervals start afterwards. Leave enough bounded tail for four complete
+# windows even when adapter discovery or shader setup takes more than 500 ms.
+$hostDurationMilliseconds = 45000
 $performanceIntervalMilliseconds = 10000
 $discardCompleteIntervals = 1
 $selectCompleteIntervals = 3

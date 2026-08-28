@@ -215,7 +215,7 @@ def _diagnostic_fixture(root: Path, telemetry_enabled: bool = True) -> object:
         "runs": 8,
         "warmupMs": 5000,
         "sampleMs": 30000,
-        "hostDurationMs": 40500,
+        "hostDurationMs": 45000,
         "performanceIntervalMs": 10000,
         "discardCompleteIntervals": 1,
         "selectCompleteIntervals": 3,
@@ -275,7 +275,7 @@ def _diagnostic_fixture(root: Path, telemetry_enabled: bool = True) -> object:
         run_started_at = datetime(
             2026, 8, 25, 12, ordinal, 0, tzinfo=timezone.utc
         )
-        run_elapsed_ms = 40_600
+        run_elapsed_ms = 45_100
         run["startedAtUtc"] = _utc_text(run_started_at)
         run["elapsedMs"] = run_elapsed_ms
 
@@ -306,7 +306,7 @@ def _diagnostic_fixture(root: Path, telemetry_enabled: bool = True) -> object:
             csv_path = new_directory / "nvidia-smi.csv"
             stderr_path = new_directory / "nvidia-smi.stderr.txt"
             telemetry_started_at = run_started_at + timedelta(milliseconds=100)
-            telemetry_stopped_at = run_started_at + timedelta(milliseconds=40_500)
+            telemetry_stopped_at = run_started_at + timedelta(milliseconds=45_000)
             telemetry_csv, sample_count = _telemetry_csv(
                 telemetry_started_at,
                 telemetry_stopped_at,
@@ -356,7 +356,7 @@ class ActiveFxRoiDiagnosticReporterTests(unittest.TestCase):
                 report["runs"][4]["metrics"]["finalCompositeP99Us"], 3005
             )
             telemetry = report["runs"][0]["nvidiaTelemetry"]
-            self.assertEqual(telemetry["samples"], 203)
+            self.assertEqual(telemetry["samples"], 225)
             self.assertEqual(telemetry["selectedWindow"]["samples"], 150)
             self.assertEqual(telemetry["selectedWindow"]["durationUs"], 30_000_000)
             self.assertEqual(
@@ -386,8 +386,8 @@ class ActiveFxRoiDiagnosticReporterTests(unittest.TestCase):
                 {"min": 12.1, "max": 14.1, "mean": 13.1, "median": 13.1},
             )
             self.assertNotIn("powerWatts", telemetry)
-            self.assertEqual(telemetry["timestamp"]["minimumSamples"], 101)
-            self.assertEqual(telemetry["timestamp"]["spanMs"], 40_400)
+            self.assertEqual(telemetry["timestamp"]["minimumSamples"], 112)
+            self.assertEqual(telemetry["timestamp"]["spanMs"], 44_800)
             self.assertEqual(telemetry["timestamp"]["maximumGapMs"], 200)
             off_telemetry = report["roiOff"]["nvidiaTelemetry"]
             on_telemetry = report["roiOn"]["nvidiaTelemetry"]
@@ -538,7 +538,7 @@ class ActiveFxRoiDiagnosticReporterTests(unittest.TestCase):
             self.assertIn("BAAB/B", markdown)
             self.assertIn("## Selected-window NVIDIA telemetry", markdown)
             self.assertIn("P5 100.000%", markdown)
-            self.assertIn("150/203", markdown)
+            self.assertIn("150/225", markdown)
             self.assertIn("SM clock median", markdown)
             self.assertIn("Instant power run-mean median", markdown)
             self.assertIn("## Causal timing", markdown)

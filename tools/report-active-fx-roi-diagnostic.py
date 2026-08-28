@@ -911,7 +911,7 @@ def _validate_run(
         "--demo-age-ms=130",
         "--demo-delay-ms=5000",
         "--disable-raw-input",
-        "--quit-after-ms=40500",
+        "--quit-after-ms=45000",
     ]
     if measurement_path == "recording-rebuild":
         expected_arguments.append("--spout2")
