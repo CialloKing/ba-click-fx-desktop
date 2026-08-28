@@ -329,6 +329,152 @@ Confirm-Rejected `
 """,
         )
 
+    def test_host_idle_preflight_uses_generic_system_cpu_time_before_capture_and_blocks(
+        self,
+    ) -> None:
+        for token in (
+            "$hostIdleSampleCount = 5",
+            "$hostIdleSampleMilliseconds = 1000",
+            "$hostIdleMaximumBusyPercent = 10.0",
+            "private static extern bool GetSystemTimes(",
+            "function ConvertFrom-SystemCpuTimeDelta",
+            "function Measure-SystemCpuBusySamples",
+            "function Confirm-HostIdleSamples",
+            "Confirm-HostIdle -Context 'capture start'",
+            'Confirm-HostIdle -Context "block $block"',
+            "sustained system CPU busy exceeded",
+        ):
+            self.assertIn(token, self.source)
+        self.assertNotIn("winrar", self.source.lower())
+        self.assertNotIn("general.rar", self.source.lower())
+
+        initial_check = self.source.index("Confirm-HostIdle -Context 'capture start'")
+        output_creation = self.source.index(
+            "$null = New-Item -ItemType Directory -Path $outputRoot",
+            initial_check,
+        )
+        block_check = self.source.index('Confirm-HostIdle -Context "block $block"')
+        block_pattern = self.source.index("$blockPattern = if", block_check)
+        self.assertLess(initial_check, output_creation)
+        self.assertLess(block_check, block_pattern)
+
+    def test_system_cpu_delta_and_sustained_idle_policy_are_fixture_driven(self) -> None:
+        self.run_function_test(
+            (
+                "ConvertFrom-SystemCpuTimeDelta",
+                "Confirm-HostIdleSamples",
+            ),
+            r"""
+function New-Snapshot
+{
+    param(
+        [decimal]$Idle,
+        [decimal]$Kernel,
+        [decimal]$User)
+    return [ordered]@{
+        idle = $Idle
+        kernel = $Kernel
+        user = $User
+    }
+}
+function Confirm-Rejected
+{
+    param(
+        [scriptblock]$Action,
+        [string]$ExpectedMessage)
+    try
+    {
+        & $Action
+    }
+    catch
+    {
+        if ($_.Exception.Message -notlike "*$ExpectedMessage*")
+        {
+            throw "unexpected idle preflight error: $($_.Exception.Message)"
+        }
+        return
+    }
+    throw "idle preflight unexpectedly accepted: $ExpectedMessage"
+}
+
+$before = New-Snapshot -Idle 100 -Kernel 200 -User 100
+$after = New-Snapshot -Idle 175 -Kernel 300 -User 100
+$busy = ConvertFrom-SystemCpuTimeDelta -Before $before -After $after
+if ([Math]::Abs($busy - 25.0) -gt 0.0001)
+{
+    throw "unexpected busy percentage: $busy"
+}
+$boundary = ConvertFrom-SystemCpuTimeDelta `
+    -Before $before `
+    -After (New-Snapshot -Idle 180 -Kernel 300 -User 100)
+if ([Math]::Abs($boundary - 20.0) -gt 0.0001)
+{
+    throw "unexpected boundary percentage: $boundary"
+}
+Confirm-Rejected `
+    -Action {
+        ConvertFrom-SystemCpuTimeDelta `
+            -Before $before `
+            -After (New-Snapshot -Idle 99 -Kernel 300 -User 100)
+    } `
+    -ExpectedMessage 'counter regressed at idle'
+Confirm-Rejected `
+    -Action {
+        ConvertFrom-SystemCpuTimeDelta -Before $before -After $before
+    } `
+    -ExpectedMessage 'did not advance'
+Confirm-Rejected `
+    -Action {
+        ConvertFrom-SystemCpuTimeDelta `
+            -Before $before `
+            -After (New-Snapshot -Idle 250 -Kernel 300 -User 100)
+    } `
+    -ExpectedMessage 'idle time exceeds total time'
+Confirm-Rejected `
+    -Action {
+        ConvertFrom-SystemCpuTimeDelta `
+            -Before ([ordered]@{ idle = 1; kernel = 2 }) `
+            -After $after
+    } `
+    -ExpectedMessage 'missing user'
+
+# Two transient spikes do not establish sustained load; the median remains at
+# the fixed acceptance boundary.
+Confirm-HostIdleSamples `
+    -BusyPercentSamples @(0.0, 5.0, 10.0, 50.0, 100.0) `
+    -ExpectedSampleCount 5 `
+    -MaximumBusyPercent 10.0 `
+    -Context 'fixture'
+Confirm-Rejected `
+    -Action {
+        Confirm-HostIdleSamples `
+            -BusyPercentSamples @(1.0, 9.0, 10.1, 20.0, 80.0) `
+            -ExpectedSampleCount 5 `
+            -MaximumBusyPercent 10.0 `
+            -Context 'fixture block'
+    } `
+    -ExpectedMessage 'fixture block requires an idle Host'
+Confirm-Rejected `
+    -Action {
+        Confirm-HostIdleSamples `
+            -BusyPercentSamples @(1.0, 2.0) `
+            -ExpectedSampleCount 5 `
+            -MaximumBusyPercent 10.0 `
+            -Context 'fixture'
+    } `
+    -ExpectedMessage '2 samples instead of 5'
+Confirm-Rejected `
+    -Action {
+        Confirm-HostIdleSamples `
+            -BusyPercentSamples @(0.0, 1.0, [double]::NaN, 2.0, 3.0) `
+            -ExpectedSampleCount 5 `
+            -MaximumBusyPercent 10.0 `
+            -Context 'fixture'
+    } `
+    -ExpectedMessage 'invalid CPU busy sample'
+""",
+        )
+
     def test_preserves_the_primary_run_failure_before_cleanup_failures(self) -> None:
         for token in (
             "$primaryFailure = $_",

@@ -76,6 +76,12 @@ $nvidiaTelemetryIntervalMilliseconds = 200
 $nvidiaTelemetryCoverageMinimumSlackMilliseconds = 2000
 $nvidiaTelemetryCoverageIntervalMultiplier = 10
 $nvidiaTelemetryMinimumSampleIntervalMultiplier = 2
+# Five one-second samples reject sustained gross load while allowing one-off
+# scheduler spikes. This is a collection-integrity guard, not proof that GPU,
+# storage, DPC, or individual cores are idle.
+$hostIdleSampleCount = 5
+$hostIdleSampleMilliseconds = 1000
+$hostIdleMaximumBusyPercent = 10.0
 $nvidiaTelemetryFields = @(
     'timestamp',
     'index',
@@ -230,6 +236,57 @@ namespace Bafx.Tools
             }
         }
     }
+
+    public sealed class SystemCpuTimeSnapshot
+    {
+        public ulong Idle { get; private set; }
+        public ulong Kernel { get; private set; }
+        public ulong User { get; private set; }
+
+        public SystemCpuTimeSnapshot(ulong idle, ulong kernel, ulong user)
+        {
+            Idle = idle;
+            Kernel = kernel;
+            User = user;
+        }
+    }
+
+    public static class SystemCpuTimes
+    {
+        [StructLayout(LayoutKind.Sequential)]
+        private struct FileTime
+        {
+            public uint Low;
+            public uint High;
+        }
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool GetSystemTimes(
+            out FileTime idle,
+            out FileTime kernel,
+            out FileTime user);
+
+        private static ulong ToUInt64(FileTime value)
+        {
+            return ((ulong)value.High << 32) | value.Low;
+        }
+
+        public static SystemCpuTimeSnapshot Capture()
+        {
+            FileTime idle;
+            FileTime kernel;
+            FileTime user;
+            if (!GetSystemTimes(out idle, out kernel, out user))
+            {
+                throw new Win32Exception(Marshal.GetLastWin32Error());
+            }
+            return new SystemCpuTimeSnapshot(
+                ToUInt64(idle),
+                ToUInt64(kernel),
+                ToUInt64(user));
+        }
+    }
 }
 '@
 }
@@ -248,6 +305,148 @@ function Disable-CapturePowerRequest
     )
 
     [Bafx.Tools.CapturePowerRequest]::Release($Request)
+}
+
+function Get-SystemCpuTimeSnapshot
+{
+    $snapshot = [Bafx.Tools.SystemCpuTimes]::Capture()
+    return [ordered]@{
+        idle = [decimal]$snapshot.Idle
+        kernel = [decimal]$snapshot.Kernel
+        user = [decimal]$snapshot.User
+    }
+}
+
+function ConvertFrom-SystemCpuTimeDelta
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [Collections.IDictionary]$Before,
+
+        [Parameter(Mandatory = $true)]
+        [Collections.IDictionary]$After
+    )
+
+    foreach ($name in @('idle', 'kernel', 'user'))
+    {
+        if (-not $Before.Contains($name) -or -not $After.Contains($name))
+        {
+            throw "System CPU time snapshot is missing $name"
+        }
+        if ([decimal]$After[$name] -lt [decimal]$Before[$name])
+        {
+            throw "System CPU time counter regressed at $name"
+        }
+    }
+
+    $idleDelta = [decimal]$After.idle - [decimal]$Before.idle
+    $kernelDelta = [decimal]$After.kernel - [decimal]$Before.kernel
+    $userDelta = [decimal]$After.user - [decimal]$Before.user
+    # GetSystemTimes includes idle time in the kernel counter. Subtract it once
+    # so the result represents aggregate busy time across all logical CPUs.
+    $totalDelta = $kernelDelta + $userDelta
+    if ($totalDelta -le 0)
+    {
+        throw 'System CPU time did not advance during the idle preflight sample'
+    }
+    if ($idleDelta -gt $totalDelta)
+    {
+        throw 'System CPU idle time exceeds total time during the idle preflight sample'
+    }
+    return [double](
+        (($totalDelta - $idleDelta) * [decimal]100.0) / $totalDelta)
+}
+
+function Measure-SystemCpuBusySamples
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [ValidateRange(1, 9)]
+        [int]$SampleCount,
+
+        [Parameter(Mandatory = $true)]
+        [ValidateRange(100, 5000)]
+        [int]$SampleMilliseconds
+    )
+
+    $samples = [Collections.Generic.List[double]]::new()
+    $before = Get-SystemCpuTimeSnapshot
+    for ($index = 0; $index -lt $SampleCount; ++$index)
+    {
+        Start-Sleep -Milliseconds $SampleMilliseconds
+        $after = Get-SystemCpuTimeSnapshot
+        $samples.Add((ConvertFrom-SystemCpuTimeDelta -Before $before -After $after))
+        $before = $after
+    }
+    return @($samples)
+}
+
+function Confirm-HostIdleSamples
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [AllowEmptyCollection()]
+        [double[]]$BusyPercentSamples,
+
+        [Parameter(Mandatory = $true)]
+        [ValidateRange(1, 9)]
+        [int]$ExpectedSampleCount,
+
+        [Parameter(Mandatory = $true)]
+        [ValidateRange(0.0, 100.0)]
+        [double]$MaximumBusyPercent,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Context
+    )
+
+    if ($BusyPercentSamples.Count -ne $ExpectedSampleCount)
+    {
+        throw "$Context host idle preflight produced $($BusyPercentSamples.Count) samples instead of $ExpectedSampleCount"
+    }
+    foreach ($sample in $BusyPercentSamples)
+    {
+        if ([double]::IsNaN($sample) -or
+            [double]::IsInfinity($sample) -or
+            $sample -lt 0.0 -or
+            $sample -gt 100.0)
+        {
+            throw "$Context host idle preflight produced an invalid CPU busy sample"
+        }
+    }
+
+    $orderedSamples = @($BusyPercentSamples | Sort-Object)
+    $median = $orderedSamples[[int][Math]::Floor($orderedSamples.Count / 2)]
+    if ($median -gt $MaximumBusyPercent)
+    {
+        $culture = [Globalization.CultureInfo]::InvariantCulture
+        $formattedSamples = @(
+            $BusyPercentSamples |
+                ForEach-Object {
+                    $_.ToString('F1', $culture) + '%'
+                }) -join ', '
+        throw "$Context requires an idle Host; sustained system CPU busy exceeded $($MaximumBusyPercent.ToString('F1', $culture))% (samples: $formattedSamples)"
+    }
+}
+
+function Confirm-HostIdle
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Context
+    )
+
+    $samples = @(Measure-SystemCpuBusySamples `
+        -SampleCount $script:hostIdleSampleCount `
+        -SampleMilliseconds $script:hostIdleSampleMilliseconds)
+    Confirm-HostIdleSamples `
+        -BusyPercentSamples $samples `
+        -ExpectedSampleCount $script:hostIdleSampleCount `
+        -MaximumBusyPercent $script:hostIdleMaximumBusyPercent `
+        -Context $Context
+    Write-Verbose (
+        "$Context host idle preflight accepted system CPU busy samples: " +
+        (($samples | ForEach-Object { '{0:F1}%' -f $_ }) -join ', '))
 }
 
 function Get-FullPath
@@ -1855,6 +2054,7 @@ if ($CaptureNvidiaTelemetry)
     $nvidiaTelemetryContract = Get-NvidiaTelemetryContract `
         -ExecutablePath $nvidiaSmiPath
 }
+Confirm-HostIdle -Context 'capture start'
 $null = New-Item -ItemType Directory -Path $outputRoot
 $baseConfigPath = Join-Path $outputRoot 'base-config.json'
 Copy-Item -LiteralPath $configurationPath -Destination $baseConfigPath
@@ -1979,6 +2179,9 @@ try
     $ordinal = 0
     for ($block = 1; $block -le $activeBlockCount; ++$block)
     {
+        # A block-level check catches workloads that begin during the long
+        # matrix without inserting asymmetric delays inside an ABBA block.
+        Confirm-HostIdle -Context "block $block"
         $blockPattern = if ($diagnosticMode -and $block -eq 2)
         {
             'BAAB'
