@@ -466,6 +466,12 @@ WARP、SDK 编译矩阵或 RTX 4060 SDR 结果外推。
 `performance.activeFxRoiEnabled`。原始日志必须重新锁定 Hardware D3D11、RTX 4060、Adapter LUID/驱动、
 `3840x2160`、`170/1 Hz`、SDR、`conservative-sdr`、Host SHA-256、配置 SHA-256 和配对顺序。
 
+提交 `d898a56` 规定采集完整性前置门：创建输出目录前及每个 ABBA/BAAB 块开始前，collector 使用
+`GetSystemTimes` 取得 5 个一秒系统 CPU busy 样本；中位值超过 10% 时 fail-closed。边界值 10% 接受，
+少数瞬时尖峰不能单独拒绝，持续多数超限必须拒绝。该门不枚举或终止具体进程，不修改 manifest/report
+schema、ABBA 顺序、选窗或以下性能阈值。它只能拦截持续的粗粒度系统 CPU 负载，不证明 GPU、存储、
+DPC 或单核已经空闲，因此通过前置门也不能替代块外环境检查。
+
 除 0.2.6 已预注册的全部门槛外，0.2.7 还必须同时满足：
 
 - `Applied/Requested >= 95%`，Prefilter 绘制比例不超过 45%，Prefilter GPU p95 至少降低 25%；

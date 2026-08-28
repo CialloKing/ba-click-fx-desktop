@@ -98,6 +98,11 @@ CTest 超时预算调整为 90 秒，提交 `a86ce5e` 只把 collector Host 寿�
 继续阻塞。WGC、交换链 dirty Present 和桌面捕获 ROI 仍是相互独立的高风险项目；其他真实硬件 ROI
 矩阵继续保持 `Not Run`。
 
+提交 `d898a56` 为 collector 增加粗粒度主机空闲前置门：采集开始及每个 ABBA/BAAB 块前，通过
+`GetSystemTimes` 获取 5 个一秒系统 CPU 样本；中位 busy 超过 10% 时立即 fail-closed。该门不识别或
+终止具体进程，不改变 manifest/report schema、ABBA 顺序、30 秒选窗或性能阈值。它只拦截持续的系统级
+CPU 负载，不能证明 GPU、存储、DPC 或单核已经空闲；正式采集仍须在块外独立确认这些条件。
+
 ## Host-owned 特效 Profile（2026-08-23）
 
 特效 Profile 的生产控制面已经收敛为 Host-owned、effects-only 合同：
