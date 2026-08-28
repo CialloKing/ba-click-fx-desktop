@@ -749,7 +749,10 @@ if(WIN32)
         gpu_pipeline_warp
         PROPERTIES
             LABELS "gpu;warp"
-            TIMEOUT 30
+            # The complete CPU-backed FP16 matrix now contains 55 cases. Keep
+            # enough headroom for slow WARP scheduling without weakening any
+            # pixel assertion or allowing an unbounded test process.
+            TIMEOUT 90
     )
     set_target_properties(bafx_gpu_pipeline_tests PROPERTIES FOLDER "Tests")
 endif()
