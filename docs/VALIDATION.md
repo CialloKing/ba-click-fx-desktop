@@ -556,6 +556,35 @@ r2 中 ROI-on 的 SM 时钟与瞬时设备功耗仍较低，分别为 `1822.5 ->
 数据按 200 ms 采样并描述设备整体状态，不能归因到单帧、单进程或 BAFX 独占能耗；r1 的
 `P5/810 MHz` 与 r2 的 `P0/8001 MHz` 也禁止跨矩阵比较绝对耗时。
 
+缓存后的正式复验位于
+`artifacts/performance/active-fx-roi-v027-rtx4060-4k170-sdr-center-click-20260828-r1`。capture schema 3、
+report schema 2，采集开始时间为 `2026-08-27T16:45:00.567Z`（Asia/Shanghai 2026-08-28），revision
+为 `ef8bf97e3c7861bec19ad2a48c7e8f3369de2e24`。Host EXE SHA-256 仍为
+`670af52d7c56a8d96529672bb462855a2cb2501d803a7d1e2c4ff63ee7c105b2`，基础配置 SHA-256 仍为
+`4238b5055ea35ee8288b09b4b64e64fbec7d5affc428acdc00c3ba6c585cff0c`；环境重新锁定同一 RTX 4060、
+驱动 `32.0.16.1088`、4K `170/1 Hz`、SDR 和 `conservative-sdr`，20 次运行及错误计数合同全部有效。
+
+正式报告仍为 `FAIL`。Prefilter/金字塔 drawn/full 比例为 `0.96%/13.68%`，GPU p95 分别降低
+`82.95%/42.82%`；Bloom/final p95 从 `1942.5 us` 降至 `1690.5 us`，降低 `12.97%`，`10/10`
+相邻配对不慢，FPS 只下降 `0.0016%`。CPU frame p95/p99 从 `2549/3541 us` 增至
+`2889/3838.5 us`，恶化 `13.34%/8.40%`；Present p95/p99 从 `2509.5/3504 us` 增至
+`2853/3798.5 us`，恶化 `13.69%/8.40%`；GPU command p99 从 `2745.5 us` 增至 `3681 us`，
+恶化 `34.07%`。后五项均超过预注册 `5%` 门，故不执行发布 workflow、SDK CI、打包、tag 或 Release。
+
+逐轮重放显示 ROI-on 的 `Cpu.FxTotalSubmit` 与 `Cpu.BloomAndCompositeSubmit` p95 配对差中位仅为
+`+3/+2 us`；CPU frame 与 Present p95 在 `8/10` 对变慢，配对差中位为 `+190/+190.5 us`。
+GPU Bloom/final p95 和 RenderCommandSpan p95 在 `10/10` 对变快，但 RenderCommandSpan p99 也在
+`10/10` 对变慢，配对差中位为 `+938.5 us`，尾差集中于全屏 FinalComposite 阶段。
+
+同 revision 的非发布状态诊断位于
+`artifacts/performance/active-fx-roi-v027-post-cache-pstate-diagnostic-20260828-r1`。capture schema 2、
+诊断 report schema 4，`ABBA+BAAB` 8 次运行及三个实际采样窗的 NVIDIA 遥测均通过严格校验。
+ROI off/on 的 SM 时钟中位为 `1417.5 -> 1200 MHz`，显存时钟均为 `8001 MHz`，设备瞬时功耗
+run-mean 中位为 `23.851 -> 20.824 W`；GPU command p99 为 `1299.5 -> 2093 us`，CPU frame p95
+为 `450.5 -> 600 us`，Present p95 为 `379.5 -> 530.5 us`。但 4 组相邻配对中 GPU command p99
+各有两组变快、两组变慢，每个区块首轮的 CPU/Present 尖峰又分别落在 off 与 on。该短矩阵只能确认
+低负载设备状态、运行顺序与尾延迟同时变化，不能确定关联方向或单帧因果，也不能替代正式失败结论。
+
 证据索引 SHA-256：
 
 - `capture.json`: `ad756c2f3eb26a38d90a69ee6c448a5c088546ed147de5ef1f6721e97d5937a2`
@@ -580,10 +609,22 @@ r2 中 ROI-on 的 SM 时钟与瞬时设备功耗仍较低，分别为 `1822.5 ->
   `0569ffb41cb646bb4d465b0fe312ca1a4f78ebad289522410fbcb9c31d715275`
 - 缓存复测 r2 `diagnostic-summary-schema4.md`:
   `a765134c17476022c19086143622239ce89158fe49b6ac2449986a7ea524a637`
+- 缓存后正式复验 `capture.json`:
+  `c8954e36c2f8d3c4f7918803b8c43f71e51adddf2d476eafc1558da558894c64`
+- 缓存后正式复验 `summary.json`:
+  `7398b779be87a46f6325099d37002ca517664d8e4c74f279652620928a1c998e`
+- 缓存后正式复验 `summary.md`:
+  `1de0bb94ea13609e73b7c15835f1dd6d46e84e19ede53cb3d7f0a9422e9ddf28`
+- 缓存后状态诊断 `capture.json`:
+  `3c4721025eda737aecef8b20966eca2bd31e0a825836ab9b251791a442d4ac72`
+- 缓存后状态诊断 `diagnostic-summary.json`:
+  `307f8492cdef31c27d9d77dc193fb971a48f007e9852b51a24bc0a85000daee2`
+- 缓存后状态诊断 `diagnostic-summary.md`:
+  `ccdc5df8cf34fb35248c7fd003a6c8b91aaa1243d253bdb8a7bee186c9170024`
 
-正式 r5 仍是最新 20-run 证据且为 `FAIL`，缓存后的正式 5 ABBA、20-run 复验保持 `Not Run`。因此阈值
-不放宽，0.2.7 不发布，也不执行 Full/Slim 发布 workflow、SDK `19041/22621/26100` 发布 CI、正式打包、
-tag 或远端复核。官方 Release 的 Full 四资产策略保持不变，Slim 仍只保留源码构建验证。
+缓存后的正式 5 ABBA、20-run 是最新有效证据且为 `FAIL`。因此阈值不放宽，0.2.7 不发布，也不执行
+Full/Slim 发布 workflow、SDK `19041/22621/26100` 发布 CI、正式打包、tag 或远端复核。官方 Release
+的 Full 四资产策略保持不变，Slim 仍只保留源码构建验证。
 
 0.2.8 的 Differential Bloom ROI 必须在 0.2.7 独立通过并交付后开始，另行增加背景有效性和捕获代次
 回退门；当前保持阻塞，不得用 0.2.7 的局部 GPU 收益替代整机失败结果。

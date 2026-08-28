@@ -283,9 +283,9 @@ ROI 采用整条 Bloom 全有或全无策略，计划、Context1、
 资源、相位或状态任一无效就同帧完整回退全屏。primary 与录制/Spout2 的 recording-rebuild 分别计数，
 但共享物理 Bloom 目标的写入所有权不会复制。默认 `background-aware` primary Differential Bloom、最终
 场景合成、WGC、Spout2 格式转换、swap-chain 和 Present 仍保持全屏。不能把这个实验开关解读成
-全链路局部渲染，也不能把像素处理比例解读成 GPU 节省。0.2.7 的 RTX 4060 实机 ABBA 已执行，但因
-CPU frame 与 Present p95/p99 恶化超过门槛而失败；GPU command p99 已改善并通过。该版本未发布，
-开关继续默认关闭。
+全链路局部渲染，也不能把像素处理比例解读成 GPU 节省。缓存后的 0.2.7 RTX 4060 实机 ABBA 已于
+2026-08-28 执行；Bloom/final p95 与全部 10 组相邻配对通过，但 CPU frame、Present p95/p99 和
+GPU command p99 均超过预注册恶化门槛，正式报告仍为 `FAIL`。该版本未发布，开关继续默认关闭。
 
 控制中心的“重置默认”按钮会先请求确认，再用内置默认 schema 整体替换持久化配置。它不会恢复已经
 暂停的特效；需要继续显示时仍应单独点击“恢复特效”。

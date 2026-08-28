@@ -67,21 +67,24 @@ Bloom 金字塔 ROI 收敛为 0.2.7 候选并执行同规格实机门禁；整�
 - WARP 等价矩阵已经覆盖点击、拖尾、负 scRGB、HDR 极值、Spout2、resize、空帧重启和 Context1 缺失，
   并要求同适配器 FP16 精确一致。这是确定性正确性证据，不是实机性能结论。
 
-0.2.7 在清理省略修复后的 RTX 4060、4K 170 Hz、SDR 5 组 ABBA、20 次正式复验仍为 `FAIL`。
-金字塔 drawn/full 比例为 `13.8%`，Pyramid GPU p95 降低 `55.4%`，Bloom/final p95 降低 `60.7%`，
-`9/10` 配对不慢，GPU command p99 改善 `16.0%`；但 CPU frame 与 Present p95/p99 恶化仍超过 `5%`。
-因此阈值未放宽，0.2.7 未发布，最新 HEAD 的 Full/Slim 发布 workflow、三档 SDK CI、打包与 Release
-均停止。
+0.2.7 在缓存修复后的 RTX 4060、4K 170 Hz、SDR 5 组 ABBA、20 次正式复验仍为 `FAIL`。
+Prefilter/金字塔 drawn/full 比例为 `0.96%/13.68%`，对应 GPU p95 降低 `82.95%/42.82%`；
+Bloom/final p95 降低 `12.97%`，`10/10` 配对不慢，FPS 基本不变。但 CPU frame p95/p99 恶化
+`13.34%/8.40%`，Present p95/p99 恶化 `13.69%/8.40%`，GPU command p99 恶化 `34.07%`，均超过
+`5%` 门。因此阈值未放宽，0.2.7 未发布，最新 HEAD 的 Full/Slim 发布 workflow、三档 SDK CI、
+打包与 Release 均停止。
 
-提交 `d9ef2fe` 缓存规划器生成且逐字段验证通过的 pass plan。随后 4K 170 Hz SDR 的 8-run 非发布 r2
-中，ROI-on 不再出现三项 CPU submit p95 劣化，与缓存预期一致；但 CPU frame p95/p99 仍恶化
-`22.8%/31.4%`，Present p95/p99 仍恶化 `23.0%/32.5%`。该结果不能替代正式 20-run，也没有解除
-整机门槛。
+提交 `d9ef2fe` 缓存规划器生成且逐字段验证通过的 pass plan。缓存后的正式复验中 ROI-on
+`Cpu.FxTotalSubmit` 与 `Cpu.BloomAndCompositeSubmit` p95 只增加约 `3/2 us`，不足以解释数百微秒的
+Frame/Present 尾差；CPU frame 与 Present 的 p95 配对差中位均约 `+190 us`，GPU command p99 则在
+全部 10 对中增加，配对差中位约 `+938.5 us`。
 
-非发布 r1 曾观测到较低设备功耗/SM 时钟与较慢 FinalComposite 同时出现；r2 在较低 ROI-on 时钟/功耗下
-却得到更快 FinalComposite，因此该关系未形成可复现原因，不能追溯解释正式 r5。缓存后的正式 20-run
-保持 `Not Run`；0.2.7、发布流程和 0.2.8 继续阻塞。WGC、交换链 dirty Present 和桌面捕获 ROI 仍是
-相互独立的高风险项目；其他真实硬件 ROI 矩阵继续保持 `Not Run`。
+同日的 8-run 非发布遥测诊断中，ROI off/on 的 SM 时钟中位为 `1417.5 -> 1200 MHz`，设备瞬时功耗
+run-mean 中位为 `23.851 -> 20.824 W`；但 4 组相邻配对的 GPU command p99 各有两组变快、两组变慢，
+而每个区块首轮的 CPU/Present 尖峰分别落在 off 与 on。设备降频、整机顺序状态与尾延迟同时出现，
+仍不能从该短矩阵确定关联方向或产品因果。0.2.7、发布流程和 0.2.8 继续阻塞，不实施缺少可复现原因的
+推测性渲染改动。WGC、交换链 dirty Present 和桌面捕获 ROI 仍是相互独立的高风险项目；其他真实硬件
+ROI 矩阵继续保持 `Not Run`。
 
 ## Host-owned 特效 Profile（2026-08-23）
 
@@ -370,10 +373,10 @@ P1 的执行顺序不再调整：
 1. 保留 v0.2.6 `FAIL` 的原始证据和预注册阈值，不发布该版本；
 2. 0.2.7 完整金字塔候选已执行 RTX 4060、4K 170 Hz、SDR 专用 ABBA；整机门槛失败，证据已保留，
    发布已停止，50%/65% 自适应阈值和性能断言均未放宽；
-3. 非发布 r1 的设备时钟/功耗与 FinalComposite 关系只作候选观测，r2 未复现，正式 r5 也没有 NVIDIA
-   遥测，不能把该关系升级为产品原因；
-4. `d9ef2fe` 后的 4K 170 Hz 8-run r2 未再观察到三项 submit p95 劣化，与缓存预期一致；但 CPU frame
-   与 Present p95/p99 仍超过 `5%` 门，缓存后的正式 20-run 保持 `Not Run`；
+3. `d9ef2fe` 后的 4K 170 Hz 正式 20-run 已执行；Bloom/final 与配对门通过，但 CPU frame、Present
+   和 GPU command p99 门失败，不能用局部 GPU 收益替代整机结论；
+4. 同 revision 的 8-run NVIDIA 遥测诊断只确认设备状态与顺序抖动并存，未给出可复现产品原因；
+   不调整预注册阈值，也不以重复采集追逐偶然通过；
 5. 0.2.7 独立 20-run 通过前不发布、不启动 0.2.8；WGC、桌面捕获 ROI 和交换链 dirty Present 分别
    评审、分别验收，不从 Bloom ROI 的结果外推。
 
