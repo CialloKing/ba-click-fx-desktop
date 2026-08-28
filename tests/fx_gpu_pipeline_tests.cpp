@@ -2791,7 +2791,7 @@ BAFX_TEST(warp_active_fx_roi_pyramid_matches_full_screen_pixels)
         == warmupDiagnostics.primaryActiveFxRoi.stages.upsample.fullPixels);
     BAFX_CHECK(
         warmupDiagnostics.primaryActiveFxRoi.stages.resolve.clearedPixels
-        == 0U);
+        == warmupDiagnostics.primaryActiveFxRoi.stages.resolve.fullPixels);
 
     const RenderTarget steadyTarget = createRenderTarget(graphics.device.Get());
     const FxRenderCpuDiagnostics steadyDiagnostics = renderer.render(
@@ -2817,7 +2817,7 @@ BAFX_TEST(warp_active_fx_roi_pyramid_matches_full_screen_pixels)
         == steadyDiagnostics.primaryActiveFxRoi.stages.upsample.candidatePixels);
     BAFX_CHECK(
         steadyDiagnostics.primaryActiveFxRoi.stages.resolve.drawnPixels
-        == steadyDiagnostics.primaryActiveFxRoi.stages.resolve.fullPixels);
+        == steadyDiagnostics.primaryActiveFxRoi.stages.resolve.candidatePixels);
     BAFX_CHECK(
         steadyDiagnostics.primaryActiveFxRoi.stages.prefilter.clearedPixels
         == 0U);
@@ -2827,7 +2827,12 @@ BAFX_TEST(warp_active_fx_roi_pyramid_matches_full_screen_pixels)
     BAFX_CHECK(
         steadyDiagnostics.primaryActiveFxRoi.stages.upsample.clearedPixels
         == 0U);
-    BAFX_CHECK(steadyDiagnostics.primaryActiveFxRoi.clearedPixels == 0U);
+    BAFX_CHECK(
+        steadyDiagnostics.primaryActiveFxRoi.stages.resolve.clearedPixels
+        == steadyDiagnostics.primaryActiveFxRoi.stages.resolve.fullPixels);
+    BAFX_CHECK(
+        steadyDiagnostics.primaryActiveFxRoi.clearedPixels
+        == steadyDiagnostics.primaryActiveFxRoi.stages.resolve.fullPixels);
 
     checkRgba16BitExactAndFinite(
         readbackRgba16FloatTexture(

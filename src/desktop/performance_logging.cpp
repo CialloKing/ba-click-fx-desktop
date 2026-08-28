@@ -502,7 +502,11 @@ std::chrono::nanoseconds appendPerformanceInterval(
             config.performance.activeFxRoiEnabled
                 ? "active-fx-pyramid-with-full-screen-fallback"
                 : "disabled-full-screen");
-        fields.add("ROI.FinalCompositePath", "full-screen");
+        fields.add(
+            "ROI.FinalCompositePath",
+            config.performance.activeFxRoiEnabled
+                ? "full-clear-verified-resolve-scissor-with-full-screen-fallback"
+                : "full-screen");
         fields.add("ROI.WgcCopyPath", "full-screen");
         fields.add("ROI.RequestedFrames", summary.roiRequestedFrames);
         fields.add(

@@ -1975,6 +1975,8 @@ struct FxGpuRenderer::Implementation
             downScissors{};
         std::array<D3D11_RECT, bafx::core::unityBloomMaxMipCount - 1U>
             upScissors{};
+        const bool useScissoredFinalComposite = useRoi
+            && !background.has_value();
         if (useRoi)
         {
             for (std::size_t index = 0U; index < roiPlan->mipCount; ++index)
@@ -2006,9 +2008,18 @@ struct FxGpuRenderer::Implementation
                 roiDiagnostics.stages.downsample.candidatePixels;
             roiDiagnostics.stages.upsample.drawnPixels =
                 roiDiagnostics.stages.upsample.candidatePixels;
-            // Resolve and final composition remain one full-screen draw.
             roiDiagnostics.stages.resolve.drawnPixels =
-                roiDiagnostics.stages.resolve.fullPixels;
+                useScissoredFinalComposite
+                ? roiDiagnostics.stages.resolve.candidatePixels
+                : roiDiagnostics.stages.resolve.fullPixels;
+            if (useScissoredFinalComposite)
+            {
+                // The output clear is the full-target half of the optimized
+                // resolve: it prevents stale flip-model pixels outside the
+                // scissored shader work without paying for their texture reads.
+                roiDiagnostics.stages.resolve.clearedPixels =
+                    roiDiagnostics.stages.resolve.fullPixels;
+            }
             updateAggregatePixels(roiDiagnostics);
         }
 
@@ -2116,6 +2127,29 @@ struct FxGpuRenderer::Implementation
                     0,
                     static_cast<std::int32_t>(size.width),
                     static_cast<std::int32_t>(size.height)});
+        const D3D11_RECT finalCompositeScissor = useScissoredFinalComposite
+            ? toScissor(roiPlan->resolveRect)
+            : D3D11_RECT{};
+        const D3D11_RECT* const finalCompositeScissorPointer =
+            useScissoredFinalComposite ? &finalCompositeScissor : nullptr;
+        if (useScissoredFinalComposite)
+        {
+            constexpr std::array<float, 4> transparent{
+                0.0F,
+                0.0F,
+                0.0F,
+                0.0F};
+            // Pure-FX pixels outside the verified resolve support are exactly
+            // transparent. Clear the whole output once, then run the expensive
+            // transfer/composite shader only where a non-zero result can exist.
+            context->ClearRenderTargetView(destination, transparent.data());
+            if (bloomResultDestination != nullptr)
+            {
+                context->ClearRenderTargetView(
+                    bloomResultDestination,
+                    transparent.data());
+            }
+        }
         if (bloomResultDestination == nullptr)
         {
             drawFullscreen(
@@ -2127,7 +2161,8 @@ struct FxGpuRenderer::Implementation
                 finalConstants,
                 occlusionTarget.shaderResource.Get(),
                 background.has_value() ? background->shaderResource : nullptr,
-                crossTarget.shaderResource.Get());
+                crossTarget.shaderResource.Get(),
+                finalCompositeScissorPointer);
             if (executionPath == BloomExecutionPath::Primary)
             {
                 recordBloomCheckpoint(
@@ -2151,7 +2186,8 @@ struct FxGpuRenderer::Implementation
             finalConstants,
             occlusionTarget.shaderResource.Get(),
             background.has_value() ? background->shaderResource : nullptr,
-            crossTarget.shaderResource.Get());
+            crossTarget.shaderResource.Get(),
+            finalCompositeScissorPointer);
         if (executionPath == BloomExecutionPath::Primary)
         {
             recordBloomCheckpoint(

@@ -171,7 +171,8 @@ BAFX_TEST(performance_log_preserves_metric_and_semantic_fields)
     BAFX_CHECK(text.find(
         "ROI.ProductionPath=active-fx-pyramid-with-full-screen-fallback\n")
         != std::string::npos);
-    BAFX_CHECK(text.find("ROI.FinalCompositePath=full-screen\n")
+    BAFX_CHECK(text.find(
+        "ROI.FinalCompositePath=full-clear-verified-resolve-scissor-with-full-screen-fallback\n")
         != std::string::npos);
     BAFX_CHECK(text.find("ROI.WgcCopyPath=full-screen\n")
         != std::string::npos);
