@@ -24,7 +24,7 @@
 5. 基础配置协议保留 `GetState`、`GetDisplayState`、`GetConfig`、`SetConfig <schema-19-json>`、
    `SetConfig {generation,path,value}`、`Pause`、`Resume` 和 `Shutdown`。路径更新只允许
    配置库声明的产品字段，并在 generation 不匹配时返回冲突。响应中的 `generation` 用于
-   客户端判断快照是否变化；`GetDisplayState` 固定使用严格 schema 2 和独立运行状态代次，同时报告
+   客户端判断快照是否变化；`GetDisplayState` 固定使用严格 schema 4 和独立运行状态代次，同时报告
    配置/应用代次、全局拓扑状态、权威离线 override，以及逐屏来源身份、物理 cadence、颜色查询、
    SDR white level、GPU、已应用特效/HDR/帧率策略、请求/解析/实际输出、fallback、WGC 和故障状态。
    旧 schema、未知、重复或缺失字段均被拒绝，不增加兼容别名；未知能力保持 `null` 或 `unknown`，不能从
@@ -41,6 +41,12 @@
    | 背景感知 | `background-aware` | 启用，失败回退内部 FX-only |
    | 录屏兼容（测试，仅 Windows 11 26H1 及以后） | `recording-compatible` | 关闭 |
    | 浅色背景优化 | `light-background` | 关闭 |
+
+   `performance.effectsMode` 是与背景模式正交的产品性能轴，wire value 只允许 `full` 和
+   `core`。`full` 保留用户请求的背景、Bloom、输出和帧节奏策略；`core` 保留中心圆盘、
+   圆环、点击/拖拽碎片和拖尾，但实际运行时跳过 Bloom 和 WGC/背景捕获，并强制 FX-only、
+   保守 SDR 与 60 FPS。Core 只覆盖运行时解析，不重写已保存的 `background.mode` 或
+   `performance.framePacing`；控制中心必须把“关闭 Bloom 与背景”作为可见合同。
 
    `recording-compatible` 只有在版本探测成功且 OS build 不低于 `28000` 时才可应用。该门槛只有下限，
    不为未来 Windows build 设置上限；版本探测失败、旧 build 或启动时发现已保存的测试模式时，Host
@@ -87,7 +93,7 @@
     `unlimited` 五个 wire values。`match-display` 按目标刷新率的精确分数设置最小帧周期，证据缺失或
     无效时回退 60 FPS；只有 `unlimited` 不设置额外最小帧周期。具有稳定 DisplayConfig 标识的会话可通过原子的 `SetDisplayOverride` 和
     `RemoveDisplayOverride` 创建或删除完整逐屏策略；完整策略同时包含特效启用、HDR 请求和帧率模式，
-    避免部分写入意外继承另一字段。全局拓扑完整时，schema 2 还列出未连接显示器的遗留 override；
+    避免部分写入意外继承另一字段。全局拓扑完整时，schema 4 还列出未连接显示器的遗留 override；
     Control Center 不为它伪造运行状态，只允许通过同一原子删除命令清理。无稳定标识时只允许查看，
     禁止持久化覆盖。配置请求不构成 HDR、
     多显示器或混合 DPI/刷新率支持声明。
@@ -135,7 +141,7 @@
   单文件只被忽略，不能破坏内置目录。保存、应用或删除失败以及 generation 冲突都不增加任何代次；
   三种成功操作恰好增加一次控制 generation，只有应用增加配置 generation，并且 Profile round-trip 不得
   写入或改变背景、显示、输入、性能、系统及 ROI 字段。
-- `GetDisplayState` schema 2 返回独立运行/配置/应用代次、全局拓扑、权威离线 override 和稳定顺序的
+- `GetDisplayState` schema 4 返回独立运行/配置/应用代次、全局拓扑、权威离线 override 和稳定顺序的
   逐屏快照；Control Center 能保留选择，区分配置与实际应用的逐屏策略，并区分请求、解析、实际输出、
   fallback 及未知能力。真实 HDR、多显示器、混合 DPI/刷新率和跨适配器矩阵在硬件执行前保持 `Not Run`，
   本 ADR 继续为 `Proposed`。

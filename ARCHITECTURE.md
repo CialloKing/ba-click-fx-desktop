@@ -156,15 +156,29 @@ Unity emission 值默认属于 `ArtisticRelative`；只有显式标记的值才�
 ### 5.4 产品模式
 
 ```cpp
-enum class CaptureInteractionMode
+enum class BackgroundMode
 {
     BackgroundAware,
-    RecordingCompatible
+    RecordingCompatible,
+    LightBackground
+};
+
+enum class EffectsMode
+{
+    Full,
+    Core
 };
 ```
 
+产品模式分为正交的背景输入与特效成本两个轴：
+
 - `BackgroundAware`：启用 WGC 并请求 `WDA_EXCLUDEFROMCAPTURE`，优先避免自反馈；外部录屏可能不包含 FX。
 - `RecordingCompatible`：关闭背景感知并关闭 WDA，使用 FX-only 渲染；只提高兼容性，不保证所有录屏器可见。
+- `LightBackground`：关闭 WGC，使用针对浅色背景的保守 FX-only 拟合，不把拟合结果宣称为桌面像素还原。
+- `Full`：保留用户选择的背景轴、Bloom、输出与帧节奏策略。
+- `Core`：保留中心圆盘、圆环、点击/拖拽碎片和拖尾，仅跳过 Bloom 与 WGC/背景捕获，并将实际运行策略锁定为
+  FX-only、保守 SDR 和 60 FPS。它不修改用户保存的 `background.mode` 或 `performance.framePacing`，退出
+  Core 后继续解析原请求。
 
 ## 6. 线程与帧时序
 

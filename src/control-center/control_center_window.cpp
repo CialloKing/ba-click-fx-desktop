@@ -1597,7 +1597,7 @@ bool ControlCenterWindow::createControls()
             effectsMode_,
             CB_ADDSTRING,
             0U,
-            reinterpret_cast<LPARAM>(L"核心性能模式（关闭 Bloom）")));
+            reinterpret_cast<LPARAM>(L"核心性能模式（关闭 Bloom 与背景）")));
         static_cast<void>(SendMessageW(effectsMode_, CB_SETMINVISIBLE, 2U, 0));
     }
 
