@@ -578,11 +578,15 @@ GPU Bloom/final p95 和 RenderCommandSpan p95 在 `10/10` 对变快，但 Render
 
 同 revision 的非发布状态诊断位于
 `artifacts/performance/active-fx-roi-v027-post-cache-pstate-diagnostic-20260828-r1`。capture schema 2、
-诊断 report schema 4，`ABBA+BAAB` 8 次运行及三个实际采样窗的 NVIDIA 遥测均通过严格校验。
+诊断 report 已用提交 `625f0e1` 的 schema 5 报告器重放；`ABBA+BAAB` 8 次运行及三个实际采样窗的
+NVIDIA 遥测均通过严格校验。schema 5 将每个区块两组相邻跨臂运行统一归一为 `ROI on - ROI off`，
+同时保留原始采集顺序；这些是独立 run 汇总差，不是同帧因果测量。
 ROI off/on 的 SM 时钟中位为 `1417.5 -> 1200 MHz`，显存时钟均为 `8001 MHz`，设备瞬时功耗
 run-mean 中位为 `23.851 -> 20.824 W`；GPU command p99 为 `1299.5 -> 2093 us`，CPU frame p95
-为 `450.5 -> 600 us`，Present p95 为 `379.5 -> 530.5 us`。但 4 组相邻配对中 GPU command p99
-各有两组变快、两组变慢，每个区块首轮的 CPU/Present 尖峰又分别落在 off 与 on。该短矩阵只能确认
+为 `450.5 -> 600 us`，Present p95 为 `379.5 -> 530.5 us`。GPU command p99 配对中位差为 `+431.5 us`、
+`2/4` 组 ROI-on 不慢；CPU frame/Present p95 配对中位差为 `+149.5/+151 us`，两者均只有
+`1/4` 组 ROI-on 不慢。SM 时钟与瞬时功耗 run-mean 的配对中位差为 `-82.5 MHz/-2.138 W`，
+每个区块首轮的 CPU/Present 尖峰又分别落在 off 与 on。该短矩阵只能确认
 低负载设备状态、运行顺序与尾延迟同时变化，不能确定关联方向或单帧因果，也不能替代正式失败结论。
 
 证据索引 SHA-256：
@@ -618,9 +622,9 @@ run-mean 中位为 `23.851 -> 20.824 W`；GPU command p99 为 `1299.5 -> 2093 us
 - 缓存后状态诊断 `capture.json`:
   `3c4721025eda737aecef8b20966eca2bd31e0a825836ab9b251791a442d4ac72`
 - 缓存后状态诊断 `diagnostic-summary.json`:
-  `307f8492cdef31c27d9d77dc193fb971a48f007e9852b51a24bc0a85000daee2`
+  `17f9abbc030a487e67cf06acf38191bec22eb635486118552fa31b82cfeda8d4`
 - 缓存后状态诊断 `diagnostic-summary.md`:
-  `ccdc5df8cf34fb35248c7fd003a6c8b91aaa1243d253bdb8a7bee186c9170024`
+  `20b9a82c8bbcef2b2ee5af1504f4a6fd979194060a06ddb68fa42e3c594a74a1`
 
 缓存后的正式 5 ABBA、20-run 是最新有效证据且为 `FAIL`。因此阈值不放宽，0.2.7 不发布，也不执行
 Full/Slim 发布 workflow、SDK `19041/22621/26100` 发布 CI、正式打包、tag 或远端复核。官方 Release
