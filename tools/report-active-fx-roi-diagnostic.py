@@ -17,7 +17,7 @@ from typing import Any
 
 
 CAPTURE_SCHEMA_VERSION = 2
-REPORT_SCHEMA_VERSION = 4
+REPORT_SCHEMA_VERSION = 5
 CAPTURE_KIND = "bafx-active-fx-roi-diagnostic-capture"
 REPORT_KIND = "bafx-active-fx-roi-diagnostic-report"
 DIAGNOSTIC_NOTICE = "NON-RELEASE: short matrix for causal investigation only"
@@ -99,6 +99,27 @@ CPU_SUBMIT_METRICS = (
         "CPU Bloom/composite submit",
     ),
     ("cpuFxMaterialsSubmit", "Cpu.FxMaterialsSubmit", "CPU FX materials submit"),
+)
+PAIRED_METRICS = (
+    ("bloomFinalP95Us", "Bloom/final p95"),
+    ("finalCompositeP95Us", "FinalComposite p95"),
+    ("finalCompositeP99Us", "FinalComposite p99"),
+    ("gpuCommandP99Us", "GPU command p99"),
+    ("cpuFrameP95Us", "CPU frame p95"),
+    ("cpuFrameP99Us", "CPU frame p99"),
+    ("cpuPresentP95Us", "CPU Present p95"),
+    ("cpuPresentP99Us", "CPU Present p99"),
+    ("cpuFxTotalSubmitP95Us", "CPU FxTotal submit p95"),
+    (
+        "cpuBloomAndCompositeSubmitP95Us",
+        "CPU Bloom/composite submit p95",
+    ),
+    ("framePacingWaitP95Us", "Frame pacing wait p95"),
+)
+PAIRED_TELEMETRY_METRICS = (
+    ("smClockMedianMHz", "smClockMHz", "median"),
+    ("memoryClockMedianMHz", "memoryClockMHz", "median"),
+    ("instantPowerMeanWatts", "instantPowerWatts", "mean"),
 )
 
 
@@ -1101,6 +1122,90 @@ def _comparison(off: dict[str, Any], on: dict[str, Any]) -> dict[str, Any]:
     return {key: RELEASE._reduction(float(off[key]), float(on[key])) for key in keys}
 
 
+def _paired_results(runs: list[dict[str, Any]]) -> dict[str, Any]:
+    pairs: list[dict[str, Any]] = []
+    deltas = {key: [] for key, _ in PAIRED_METRICS}
+    telemetry_deltas = {key: [] for key, _, _ in PAIRED_TELEMETRY_METRICS}
+    for block_index, (pattern_name, _) in enumerate(BLOCK_PATTERNS):
+        base = block_index * 4
+        for pair_index, (left_index, right_index) in enumerate(
+            ((base, base + 1), (base + 2, base + 3)),
+            1,
+        ):
+            left = runs[left_index]
+            right = runs[right_index]
+            if left["roiEnabled"] == right["roiEnabled"]:
+                raise ValidationError(
+                    f"block {block_index + 1} pair {pair_index} is not cross-arm"
+                )
+            off = left if not left["roiEnabled"] else right
+            on = right if right["roiEnabled"] else left
+            pair_deltas = {
+                key: float(on["metrics"][key]) - float(off["metrics"][key])
+                for key, _ in PAIRED_METRICS
+            }
+            for key, value in pair_deltas.items():
+                deltas[key].append(value)
+
+            off_telemetry = off["nvidiaTelemetry"]
+            on_telemetry = on["nvidiaTelemetry"]
+            pair_telemetry: dict[str, float] | None = None
+            if off_telemetry is not None and on_telemetry is not None:
+                pair_telemetry = {
+                    output: float(on_telemetry[source][statistic])
+                    - float(off_telemetry[source][statistic])
+                    for output, source, statistic in PAIRED_TELEMETRY_METRICS
+                }
+                for key, value in pair_telemetry.items():
+                    telemetry_deltas[key].append(value)
+            elif off_telemetry is not None or on_telemetry is not None:
+                raise ValidationError(
+                    f"block {block_index + 1} pair {pair_index} telemetry differs"
+                )
+
+            pairs.append(
+                {
+                    "block": block_index + 1,
+                    "pair": pair_index,
+                    "blockPattern": pattern_name,
+                    "captureOrder": (
+                        "off-on"
+                        if off["ordinal"] < on["ordinal"]
+                        else "on-off"
+                    ),
+                    "offOrdinal": off["ordinal"],
+                    "onOrdinal": on["ordinal"],
+                    "onMinusOff": pair_deltas,
+                    "nvidiaTelemetryOnMinusOff": pair_telemetry,
+                }
+            )
+
+    telemetry_medians: dict[str, float] | None = None
+    if all(telemetry_deltas.values()):
+        telemetry_medians = {
+            key: RELEASE._median(values)
+            for key, values in telemetry_deltas.items()
+        }
+    elif any(telemetry_deltas.values()):
+        raise ValidationError("paired NVIDIA telemetry coverage is incomplete")
+    return {
+        "semantic": (
+            "two adjacent cross-arm pairs per ABBA/BAAB block; "
+            "all deltas are ROI on minus ROI off"
+        ),
+        "count": len(pairs),
+        "onNotSlowerCount": {
+            key: sum(1 for value in values if value <= 0.0)
+            for key, values in deltas.items()
+        },
+        "medianOnMinusOff": {
+            key: RELEASE._median(values) for key, values in deltas.items()
+        },
+        "nvidiaTelemetryMedianOnMinusOff": telemetry_medians,
+        "pairs": pairs,
+    }
+
+
 def build_report(root: Path) -> dict[str, Any]:
     root = root.resolve()
     (
@@ -1148,6 +1253,7 @@ def build_report(root: Path) -> dict[str, Any]:
     roi_on = _aggregate(
         [run for run in runs if run["roiEnabled"]], all_pstates
     )
+    paired = _paired_results(runs)
     return {
         "schemaVersion": REPORT_SCHEMA_VERSION,
         "kind": REPORT_KIND,
@@ -1172,16 +1278,21 @@ def build_report(root: Path) -> dict[str, Any]:
                 "missing-pstate-residency-is-zero-and-arm-medians-are-not-renormalized"
             ),
             "order": "ABBA block followed by BAAB block",
+            "adjacentPairs": (
+                "two cross-arm neighbors per block, normalized as ROI on minus ROI off"
+            ),
         },
         "runs": runs,
         "roiOff": roi_off,
         "roiOn": roi_on,
         "comparisons": _comparison(roi_off, roi_on),
+        "paired": paired,
         "limitations": [
             "This eight-run report is causal diagnostic evidence, not a release gate.",
             "The five-block, twenty-run release reporter must be run independently.",
             "FramePacing.Wait samples are wakeups and do not correspond one-to-one with presented frames.",
             "Window percentiles are distribution summaries and must not be subtracted to infer per-frame stage duration.",
+            "Adjacent paired deltas compare separate run summaries and are not same-frame causal measurements.",
             "NVIDIA telemetry is sampled every 200 ms and describes device-wide state, not per-frame energy attributable only to BAFX.",
         ],
     }
@@ -1255,6 +1366,51 @@ def render_markdown(report: dict[str, Any]) -> str:
     ):
         lines.append(
             f"| {label} | {_format_number(off[key])} | {_format_number(on[key])} |"
+        )
+
+    paired = report["paired"]
+    lines.extend(
+        (
+            "",
+            "## Adjacent paired deltas",
+            "",
+            "All values are `ROI on - ROI off`; negative timing deltas are faster.",
+            "",
+            "| Metric | Median delta | ROI on not slower |",
+            "|---|---:|---:|",
+        )
+    )
+    for key, label in PAIRED_METRICS:
+        lines.append(
+            f"| {label} | {_format_number(paired['medianOnMinusOff'][key])} | "
+            f"{paired['onNotSlowerCount'][key]}/{paired['count']} |"
+        )
+
+    lines.extend(
+        (
+            "",
+            "| Block/pair | Capture order | Off/on runs | Bloom p95 | "
+            "Final p95/p99 | GPU command p99 | CPU frame p95/p99 | "
+            "Present p95/p99 | SM clock | Power mean |",
+            "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|",
+        )
+    )
+    for pair in paired["pairs"]:
+        delta = pair["onMinusOff"]
+        telemetry = pair["nvidiaTelemetryOnMinusOff"]
+        lines.append(
+            f"| {pair['blockPattern']} {pair['block']}/{pair['pair']} | "
+            f"{pair['captureOrder']} | {pair['offOrdinal']}/{pair['onOrdinal']} | "
+            f"{_format_number(delta['bloomFinalP95Us'])} us | "
+            f"{_format_number(delta['finalCompositeP95Us'])}/"
+            f"{_format_number(delta['finalCompositeP99Us'])} us | "
+            f"{_format_number(delta['gpuCommandP99Us'])} us | "
+            f"{_format_number(delta['cpuFrameP95Us'])}/"
+            f"{_format_number(delta['cpuFrameP99Us'])} us | "
+            f"{_format_number(delta['cpuPresentP95Us'])}/"
+            f"{_format_number(delta['cpuPresentP99Us'])} us | "
+            f"{_format_number(None if telemetry is None else telemetry['smClockMedianMHz'])} MHz | "
+            f"{_format_number(None if telemetry is None else telemetry['instantPowerMeanWatts'])} W |"
         )
 
     lines.extend(

@@ -343,7 +343,7 @@ class ActiveFxRoiDiagnosticReporterTests(unittest.TestCase):
             fixture = _diagnostic_fixture(Path(temporary))
             report = REPORTER.build_report(fixture.root)
 
-            self.assertEqual(report["schemaVersion"], 4)
+            self.assertEqual(report["schemaVersion"], 5)
             self.assertEqual(report["captureSchemaVersion"], 2)
             self.assertFalse(report["releaseEligible"])
             self.assertEqual(report["schedule"]["pattern"], "ABBA+BAAB")
@@ -494,6 +494,42 @@ class ActiveFxRoiDiagnosticReporterTests(unittest.TestCase):
                 report["roiOn"]["framePacingWaitBucketRatios"]["lt100Us"],
                 60 / 132,
             )
+            paired = report["paired"]
+            self.assertEqual(paired["count"], 4)
+            self.assertEqual(
+                [
+                    (pair["offOrdinal"], pair["onOrdinal"])
+                    for pair in paired["pairs"]
+                ],
+                [(1, 2), (4, 3), (6, 5), (7, 8)],
+            )
+            self.assertEqual(
+                [pair["captureOrder"] for pair in paired["pairs"]],
+                ["off-on", "on-off", "on-off", "off-on"],
+            )
+            self.assertEqual(
+                [
+                    pair["onMinusOff"]["gpuCommandP99Us"]
+                    for pair in paired["pairs"]
+                ],
+                [1, -1, -1, 1],
+            )
+            self.assertEqual(
+                paired["medianOnMinusOff"]["gpuCommandP99Us"], 0
+            )
+            self.assertEqual(
+                paired["onNotSlowerCount"]["gpuCommandP99Us"], 2
+            )
+            self.assertEqual(
+                paired["nvidiaTelemetryMedianOnMinusOff"]["smClockMedianMHz"],
+                -200,
+            )
+            self.assertAlmostEqual(
+                paired["nvidiaTelemetryMedianOnMinusOff"][
+                    "instantPowerMeanWatts"
+                ],
+                -2.0,
+            )
 
             markdown = REPORTER.render_markdown(report)
             self.assertIn("NON-RELEASE", markdown)
@@ -515,7 +551,12 @@ class ActiveFxRoiDiagnosticReporterTests(unittest.TestCase):
             self.assertIn("14.000/34.000/44.000", markdown)
             self.assertIn("## Frame pacing wait buckets", markdown)
             self.assertIn("CPU PrePresent p95", markdown)
+            self.assertIn("## Adjacent paired deltas", markdown)
+            self.assertIn("GPU command p99 | 0.000 | 2/4", markdown)
+            self.assertIn("ABBA 1/1 | off-on | 1/2", markdown)
+            self.assertIn("BAAB 2/1 | on-off | 6/5", markdown)
             self.assertIn("do not correspond one-to-one", markdown)
+            self.assertIn("not same-frame causal measurements", markdown)
 
     def test_accepts_an_explicitly_disabled_telemetry_contract(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -528,6 +569,13 @@ class ActiveFxRoiDiagnosticReporterTests(unittest.TestCase):
             )
             self.assertIsNone(report["roiOff"]["nvidiaTelemetry"])
             self.assertIsNone(report["roiOn"]["nvidiaTelemetry"])
+            self.assertIsNone(report["paired"]["nvidiaTelemetryMedianOnMinusOff"])
+            self.assertTrue(
+                all(
+                    pair["nvidiaTelemetryOnMinusOff"] is None
+                    for pair in report["paired"]["pairs"]
+                )
+            )
             self.assertIn("NVIDIA telemetry was not captured", REPORTER.render_markdown(report))
 
     def test_rejects_legacy_clock_and_power_query_fields(self) -> None:
