@@ -291,7 +291,8 @@ public:
             DisplaySessionColorRefreshRequest::Observation) noexcept;
     void recordPresentedFrame(
         bool drawable,
-        bafx::core::MonotonicTime startedAt) noexcept;
+        bafx::core::MonotonicTime presentedAt,
+        bafx::core::MonotonicTime preparationDuration) noexcept;
     // Render diagnostics stay owned by this display. IPC receives only the
     // periodically materialized snapshot and never enters the frame path.
     void recordActiveFxRoiFrame(

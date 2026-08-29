@@ -1410,6 +1410,34 @@ private:
     std::int64_t frequency_{0};
 };
 
+struct PresentationPacingFeedback final
+{
+    bafx::core::MonotonicTime presentedAt{};
+    bafx::core::MonotonicTime preparationDuration{};
+};
+
+[[nodiscard]] PresentationPacingFeedback presentationPacingFeedback(
+    const bafx::windows::CompositionFrameDiagnostics& diagnostics,
+    const bafx::core::MonotonicTime frameStartedAt,
+    const QpcClock& clock)
+{
+    const bafx::core::MonotonicTime presentedAt =
+        diagnostics.presentReturnedQpc > 0
+        ? clock.fromCounter(diagnostics.presentReturnedQpc)
+        : clock.now();
+    const bafx::core::MonotonicTime elapsed = presentedAt > frameStartedAt
+        ? presentedAt - frameStartedAt
+        : bafx::core::MonotonicTime::zero();
+    const bafx::core::MonotonicTime presentDuration =
+        std::chrono::duration_cast<bafx::core::MonotonicTime>(
+            diagnostics.presentCallCpu);
+    return PresentationPacingFeedback{
+        presentedAt,
+        elapsed > presentDuration
+            ? elapsed - presentDuration
+            : bafx::core::MonotonicTime::zero()};
+}
+
 struct RunOptions
 {
     std::optional<std::uint32_t> frameLimit{};
@@ -2780,6 +2808,7 @@ SecondaryRenderSummary renderSecondarySessions(
     const bafx::core::MonotonicTime wallTime,
     const bool commitSimulationFrame,
     const bool requireCurrentBackground,
+    const QpcClock& clock,
     const std::filesystem::path& logPath)
 {
     SecondaryRenderSummary summary{};
@@ -2827,6 +2856,7 @@ SecondaryRenderSummary renderSecondarySessions(
             continue;
         }
 
+        const bafx::core::MonotonicTime frameStartedAt = clock.now();
         bafx::fx::FrameSnapshot snapshot = session.simulation().snapshot(
             toViewport(session.window().size()),
             renderTime);
@@ -2835,16 +2865,22 @@ SecondaryRenderSummary renderSecondarySessions(
         {
             const bafx::windows::CompositionFrameDiagnostics diagnostics =
                 sessionRenderer.renderFrame(
-                snapshot,
-                wallTime,
-                requireCurrentBackground);
+                    snapshot,
+                    wallTime,
+                    requireCurrentBackground);
+            const PresentationPacingFeedback pacing =
+                presentationPacingFeedback(
+                    diagnostics,
+                    frameStartedAt,
+                    clock);
             session.recordActiveFxRoiFrame(
                 framePerformanceSample(diagnostics, 0U, false),
                 diagnostics.frameId,
                 wallTime);
             session.recordPresentedFrame(
                 snapshot.hasDrawableContent(),
-                wallTime);
+                pacing.presentedAt,
+                pacing.preparationDuration);
             if (commitSimulationFrame)
             {
                 session.simulation().onFrameRendered(renderTime);
@@ -7092,10 +7128,16 @@ int runApplication(
             }
             const bafx::windows::CompositionFrameDiagnostics&
                 completedFrameDiagnostics = *frameDiagnostics;
+            const PresentationPacingFeedback pacing =
+                presentationPacingFeedback(
+                    completedFrameDiagnostics,
+                    wallTime,
+                    clock);
             recordSpout2Status();
             displaySession.recordPresentedFrame(
                 lastPresentedDrawableContent,
-                wallTime);
+                pacing.presentedAt,
+                pacing.preparationDuration);
             appendPendingBackgroundSnapshotInvalidation();
             const std::uint64_t producerCallbacks =
                 wgcCallbackDeltaTracker.observe(
@@ -7401,6 +7443,7 @@ int runApplication(
                 // displays need the same fresh-background boundary as the
                 // coordinator before retaining that frame.
                 controlState.paused,
+                clock,
                 logPath));
         }
         if (renderCoordinatorThisIteration && options.smokeTest)

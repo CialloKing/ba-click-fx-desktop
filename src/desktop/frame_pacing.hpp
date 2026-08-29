@@ -97,6 +97,14 @@ struct PausedWaitable final
     HANDLE timer,
     std::chrono::nanoseconds delay) noexcept;
 
+// Anchor the software cadence to the last completed Present. Subtracting the
+// measured preparation work keeps the next Present near its target slot while
+// leaving the bounded wait outside the latency-sensitive render interval.
+[[nodiscard]] std::chrono::nanoseconds nextFrameStartDeadlineAfterPresent(
+    std::chrono::nanoseconds presentedAt,
+    std::chrono::nanoseconds minimumPeriod,
+    std::chrono::nanoseconds preparationDuration) noexcept;
+
 // A paused Host does not submit frames, but device removal must still wake it
 // so the existing one-shot recovery boundary can rebuild the resource domain.
 [[nodiscard]] PausedWaitResult waitForPausedInvalidation(

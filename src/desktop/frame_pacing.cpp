@@ -211,6 +211,36 @@ DWORD armFrameCadenceWaitableTimer(
     return error == ERROR_SUCCESS ? ERROR_GEN_FAILURE : error;
 }
 
+std::chrono::nanoseconds nextFrameStartDeadlineAfterPresent(
+    const std::chrono::nanoseconds presentedAt,
+    const std::chrono::nanoseconds minimumPeriod,
+    const std::chrono::nanoseconds preparationDuration) noexcept
+{
+    constexpr std::chrono::nanoseconds presentCallBudget =
+        std::chrono::microseconds(250);
+    constexpr std::chrono::nanoseconds zero{};
+    if (minimumPeriod <= zero)
+    {
+        return presentedAt;
+    }
+
+    const std::chrono::nanoseconds boundedPreparation = (std::clamp)(
+        preparationDuration,
+        zero,
+        minimumPeriod);
+    const std::chrono::nanoseconds remaining =
+        minimumPeriod - boundedPreparation;
+    const std::chrono::nanoseconds delay = remaining > presentCallBudget
+        ? remaining - presentCallBudget
+        : zero;
+    const auto maximum = (std::chrono::nanoseconds::max)();
+    if (presentedAt > maximum - delay)
+    {
+        return maximum;
+    }
+    return presentedAt + delay;
+}
+
 PausedWaitResult waitForPausedInvalidation(
     const HANDLE deviceRemovedWaitable,
     const HANDLE backgroundFrameWaitable,
