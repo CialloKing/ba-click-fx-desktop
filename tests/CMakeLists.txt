@@ -580,6 +580,7 @@ if(WIN32)
     add_executable(
         bafx_windows_tests
         test_main.cpp
+        active_fx_present_tests.cpp
         background_snapshot_diagnostics_tests.cpp
         background_capture_transition_tests.cpp
         borderless_capture_access_tests.cpp

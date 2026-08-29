@@ -687,6 +687,49 @@ populateRoiDiagnostics(
 
 }
 
+std::optional<bafx::core::RectI> selectActiveFxPresentDirtyRect(
+    const std::optional<bafx::core::UnityBloomPassRoiPlan>& passPlan,
+    const FxActiveRoiPassDiagnostics& diagnostics,
+    const WindowSize outputSize) noexcept
+{
+    if (!passPlan.has_value()
+        || !diagnostics.requested
+        || !diagnostics.eligible
+        || !diagnostics.executed
+        || diagnostics.warmup
+        || !diagnostics.partialFinalOutput
+        || diagnostics.actualPath != FxActiveRoiActualPath::RoiPyramid
+        || diagnostics.decisionReason != FxActiveRoiDecisionReason::Applied)
+    {
+        return std::nullopt;
+    }
+
+    const bafx::core::RectI rect = passPlan->resolveRect;
+    if (rect.left < 0
+        || rect.top < 0
+        || rect.right <= rect.left
+        || rect.bottom <= rect.top
+        || rect.right > static_cast<std::int32_t>(outputSize.width)
+        || rect.bottom > static_cast<std::int32_t>(outputSize.height))
+    {
+        return std::nullopt;
+    }
+
+    const std::uint64_t fullPixels =
+        static_cast<std::uint64_t>(outputSize.width) * outputSize.height;
+    const std::uint64_t dirtyPixels = rectArea(rect);
+    const FxActiveRoiStageDiagnostics& resolve = diagnostics.stages.resolve;
+    if (dirtyPixels == 0U
+        || resolve.fullPixels != fullPixels
+        || resolve.candidatePixels != dirtyPixels
+        || resolve.drawnPixels != dirtyPixels
+        || resolve.clearedPixels != dirtyPixels)
+    {
+        return std::nullopt;
+    }
+    return rect;
+}
+
 CompositionRenderer::CompositionRenderer(
     const HWND window,
     const WindowSize size,

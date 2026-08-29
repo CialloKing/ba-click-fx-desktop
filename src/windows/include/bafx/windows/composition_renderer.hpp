@@ -250,6 +250,14 @@ struct CompositionFrameDiagnostics
     bool gpuTimestampCheckpointFailure{false};
 };
 
+// Returns a dirty-present region only for a fully verified steady ROI output.
+// Warmup and fallback frames must publish the complete swap-chain surface.
+[[nodiscard]] std::optional<bafx::core::RectI>
+selectActiveFxPresentDirtyRect(
+    const std::optional<bafx::core::UnityBloomPassRoiPlan>& passPlan,
+    const FxActiveRoiPassDiagnostics& diagnostics,
+    WindowSize outputSize) noexcept;
+
 struct BackgroundSensorMaintenanceDiagnostics
 {
     WgcBackgroundDrainDiagnostics wgc{};

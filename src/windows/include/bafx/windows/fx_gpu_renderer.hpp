@@ -144,6 +144,9 @@ struct FxActiveRoiPassDiagnostics
     std::uint64_t drawnPixels{0U};
     std::uint64_t clearedPixels{0U};
     FxActiveRoiStagesDiagnostics stages{};
+    // Present1 may advertise a dirty rectangle only when the primary output
+    // was not modified outside the verified resolve support.
+    bool partialFinalOutput{false};
 };
 
 struct FxRenderCpuDiagnostics
