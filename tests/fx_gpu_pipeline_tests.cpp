@@ -327,6 +327,50 @@ struct WarpDevice
         });
 }
 
+[[nodiscard]] bool sameRgba16Pixel(
+    const Rgba16FloatPixel left,
+    const Rgba16FloatPixel right) noexcept
+{
+    return left.red == right.red
+        && left.green == right.green
+        && left.blue == right.blue
+        && left.alpha == right.alpha;
+}
+
+void checkPartialRgba16Write(
+    const Rgba16FloatImage& expectedInside,
+    const Rgba16FloatImage& expectedOutside,
+    const Rgba16FloatImage& actual,
+    const bafx::core::RectI rect)
+{
+    BAFX_CHECK(expectedInside.width == actual.width);
+    BAFX_CHECK(expectedInside.height == actual.height);
+    BAFX_CHECK(expectedOutside.width == actual.width);
+    BAFX_CHECK(expectedOutside.height == actual.height);
+    BAFX_CHECK(expectedInside.pixels.size() == actual.pixels.size());
+    BAFX_CHECK(expectedOutside.pixels.size() == actual.pixels.size());
+    for (std::uint32_t y = 0U; y < actual.height; ++y)
+    {
+        for (std::uint32_t x = 0U; x < actual.width; ++x)
+        {
+            const std::size_t index = static_cast<std::size_t>(y) * actual.width
+                + x;
+            const bool inside = static_cast<std::int32_t>(x) >= rect.left
+                && static_cast<std::int32_t>(x) < rect.right
+                && static_cast<std::int32_t>(y) >= rect.top
+                && static_cast<std::int32_t>(y) < rect.bottom;
+            const Rgba16FloatPixel expected = inside
+                ? expectedInside.pixels[index]
+                : expectedOutside.pixels[index];
+            if (!sameRgba16Pixel(expected, actual.pixels[index]))
+            {
+                throw std::runtime_error(
+                    "partial output differs at pixel " + std::to_string(index));
+            }
+        }
+    }
+}
+
 void checkRgba16BitExactAndFinite(
     const Rgba16FloatImage& expected,
     const Rgba16FloatImage& actual,
@@ -3073,6 +3117,82 @@ BAFX_TEST(warp_active_fx_roi_resize_rewarms_odd_target_and_stays_fp16_exact)
     BAFX_CHECK(reference.finalOverlay.width == resized.width);
     BAFX_CHECK(reference.finalOverlay.height == resized.height);
     checkCaptureBitExactAndFinite(reference, candidate);
+}
+
+BAFX_TEST(warp_active_fx_roi_partial_final_output_writes_only_resolve_rect)
+{
+    ComApartment apartment;
+    const WarpDevice graphics = createWarpDevice();
+    const bafx::fx::FrameSnapshot snapshot = makeDiskSnapshot(true);
+    const FxActiveRoi roi = makeActiveFxRoi(snapshot);
+
+    FxGpuRenderer referenceRenderer(
+        graphics.device.Get(),
+        graphics.context.Get(),
+        testSize);
+    const RenderTarget referenceTarget = createRenderTarget(graphics.device.Get());
+    referenceRenderer.render(snapshot, referenceTarget.view.Get());
+    const Rgba16FloatImage reference = readbackRgba16FloatTexture(
+        graphics.context.Get(),
+        referenceTarget.texture.Get());
+
+    FxGpuRenderer roiRenderer(
+        graphics.device.Get(),
+        graphics.context.Get(),
+        testSize);
+    const RenderTarget warmupTarget = createRenderTarget(graphics.device.Get());
+    const FxRenderCpuDiagnostics warmup = roiRenderer.render(
+        snapshot,
+        warmupTarget.view.Get(),
+        std::nullopt,
+        nullptr,
+        nullptr,
+        roi,
+        true);
+    BAFX_CHECK(warmup.primaryActiveFxRoi.warmup);
+    BAFX_CHECK(!warmup.primaryActiveFxRoi.partialFinalOutput);
+    BAFX_CHECK(
+        warmup.primaryActiveFxRoi.stages.resolve.clearedPixels
+        == warmup.primaryActiveFxRoi.stages.resolve.fullPixels);
+
+    const RenderTarget steadyTarget = createRenderTarget(graphics.device.Get());
+    constexpr std::array<float, 4> untouchedColor{
+        0.125F,
+        0.25F,
+        0.375F,
+        0.5F};
+    graphics.context->ClearRenderTargetView(
+        steadyTarget.view.Get(),
+        untouchedColor.data());
+    const Rgba16FloatImage untouched = readbackRgba16FloatTexture(
+        graphics.context.Get(),
+        steadyTarget.texture.Get());
+
+    const FxRenderCpuDiagnostics steady = roiRenderer.render(
+        snapshot,
+        steadyTarget.view.Get(),
+        std::nullopt,
+        nullptr,
+        nullptr,
+        roi,
+        true);
+    BAFX_CHECK(
+        steady.primaryActiveFxRoi.actualPath
+        == FxActiveRoiActualPath::RoiPyramid);
+    BAFX_CHECK(steady.primaryActiveFxRoi.partialFinalOutput);
+    BAFX_CHECK(
+        steady.primaryActiveFxRoi.stages.resolve.clearedPixels
+        == steady.primaryActiveFxRoi.stages.resolve.candidatePixels);
+
+    // The dirty-present contract is stronger than visual equality: no write,
+    // including the transparent clear, may escape the advertised rectangle.
+    checkPartialRgba16Write(
+        reference,
+        untouched,
+        readbackRgba16FloatTexture(
+            graphics.context.Get(),
+            steadyTarget.texture.Get()),
+        roi.passPlan.resolveRect);
 }
 
 BAFX_TEST(warp_active_fx_roi_spout_fx_only_is_exact_in_warmup_and_steady_state)

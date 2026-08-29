@@ -1899,7 +1899,8 @@ struct FxGpuRenderer::Implementation
         const std::optional<FxActiveRoi> activeRoi = std::nullopt,
         const BloomExecutionPath executionPath = BloomExecutionPath::Primary,
         GpuTimestampProfiler* const gpuTimestampProfiler = nullptr,
-        bool* const gpuTimestampCheckpointFailure = nullptr)
+        bool* const gpuTimestampCheckpointFailure = nullptr,
+        const bool allowPartialFinalOutput = false)
     {
         const bafx::core::BloomExtent sourceExtent{
             static_cast<std::int32_t>(size.width),
@@ -1977,6 +1978,7 @@ struct FxGpuRenderer::Implementation
             upScissors{};
         const bool useScissoredFinalComposite = useRoi
             && !background.has_value();
+        bool usePartialFinalOutput = false;
         if (useRoi)
         {
             for (std::size_t index = 0U; index < roiPlan->mipCount; ++index)
@@ -1990,6 +1992,9 @@ struct FxGpuRenderer::Implementation
             const bool fullClear = bloomTargetsRequireFullClear();
             const bool sharedFullWrite = fullClear
                 && hasSharedFullWrite(executionPath);
+            usePartialFinalOutput = useScissoredFinalComposite
+                && allowPartialFinalOutput
+                && !fullClear;
             clearBloomTargetsForRoi(
                 roiDiagnostics,
                 fullClear,
@@ -2002,6 +2007,7 @@ struct FxGpuRenderer::Implementation
             roiDiagnostics.decisionReason = sharedFullWrite
                 ? FxActiveRoiDecisionReason::SharedTargetFullWrite
                 : FxActiveRoiDecisionReason::Applied;
+            roiDiagnostics.partialFinalOutput = usePartialFinalOutput;
             roiDiagnostics.stages.prefilter.drawnPixels =
                 roiDiagnostics.stages.prefilter.candidatePixels;
             roiDiagnostics.stages.downsample.drawnPixels =
@@ -2014,11 +2020,12 @@ struct FxGpuRenderer::Implementation
                 : roiDiagnostics.stages.resolve.fullPixels;
             if (useScissoredFinalComposite)
             {
-                // The output clear is the full-target half of the optimized
-                // resolve: it prevents stale flip-model pixels outside the
-                // scissored shader work without paying for their texture reads.
+                // Dirty-present frames modify exactly the resolve support.
+                // Other callers retain the complete-output contract.
                 roiDiagnostics.stages.resolve.clearedPixels =
-                    roiDiagnostics.stages.resolve.fullPixels;
+                    usePartialFinalOutput
+                    ? roiDiagnostics.stages.resolve.candidatePixels
+                    : roiDiagnostics.stages.resolve.fullPixels;
             }
             updateAggregatePixels(roiDiagnostics);
         }
@@ -2139,12 +2146,26 @@ struct FxGpuRenderer::Implementation
                 0.0F,
                 0.0F,
                 0.0F};
-            // Pure-FX pixels outside the verified resolve support are exactly
-            // transparent. Clear the whole output once, then run the expensive
-            // transfer/composite shader only where a non-zero result can exist.
-            context->ClearRenderTargetView(destination, transparent.data());
+            if (usePartialFinalOutput)
+            {
+                // Present1 promises that pixels outside its dirty rectangle did
+                // not change, so both the clear and shader draw use one rect.
+                context1->ClearView(
+                    destination,
+                    transparent.data(),
+                    &finalCompositeScissor,
+                    1U);
+            }
+            else
+            {
+                // Warmup and generic render targets need a complete transparent
+                // output before the scissored composite draws the non-zero area.
+                context->ClearRenderTargetView(destination, transparent.data());
+            }
             if (bloomResultDestination != nullptr)
             {
+                // Recording composition samples this persistent texture as a
+                // complete surface; it is never covered by the Present1 promise.
                 context->ClearRenderTargetView(
                     bloomResultDestination,
                     transparent.data());
@@ -2359,7 +2380,8 @@ struct FxGpuRenderer::Implementation
         ID3D11RenderTargetView* bloomResultDestination = nullptr,
         GpuTimestampProfiler* gpuTimestampProfiler = nullptr,
         ID3D11RenderTargetView* recordingDestination = nullptr,
-        const std::optional<FxActiveRoi> activeRoi = std::nullopt)
+        const std::optional<FxActiveRoi> activeRoi = std::nullopt,
+        const bool allowPartialFinalOutput = false)
     {
         FxRenderCpuDiagnostics diagnostics{};
         ++renderFrameSerial;
@@ -2526,7 +2548,8 @@ struct FxGpuRenderer::Implementation
                 background.has_value() ? std::nullopt : activeRoi,
                 BloomExecutionPath::Primary,
                 gpuTimestampProfiler,
-                &diagnostics.gpuTimestampCheckpointFailure);
+                &diagnostics.gpuTimestampCheckpointFailure,
+                allowPartialFinalOutput);
             if (background.has_value() && activeRoi.has_value())
             {
                 diagnostics.primaryActiveFxRoi.requested = true;
@@ -2901,7 +2924,8 @@ struct FxGpuRenderer::Implementation
         const std::optional<BackgroundRenderInput> background,
         GpuTimestampProfiler* const gpuTimestampProfiler,
         ID3D11RenderTargetView* const recordingDestination,
-        const std::optional<FxActiveRoi> activeRoi)
+        const std::optional<FxActiveRoi> activeRoi,
+        const bool allowPartialFinalOutput)
     {
         if (recordingDestination != nullptr)
         {
@@ -2921,7 +2945,8 @@ struct FxGpuRenderer::Implementation
                     : bloomResultTarget.renderTarget.Get(),
                 gpuTimestampProfiler,
                 recordingDestination,
-                activeRoi);
+                activeRoi,
+                allowPartialFinalOutput);
         }
         return render(
             snapshot,
@@ -2931,7 +2956,8 @@ struct FxGpuRenderer::Implementation
             nullptr,
             gpuTimestampProfiler,
             nullptr,
-            activeRoi);
+            activeRoi,
+            allowPartialFinalOutput);
     }
 
     ComPtr<ID3D11Device> device{};
@@ -3062,7 +3088,8 @@ FxRenderCpuDiagnostics FxGpuRenderer::render(
     const std::optional<BackgroundRenderInput> background,
     GpuTimestampProfiler* const gpuTimestampProfiler,
     ID3D11RenderTargetView* const recordingDestination,
-    const std::optional<FxActiveRoi> activeRoi)
+    const std::optional<FxActiveRoi> activeRoi,
+    const bool allowPartialFinalOutput)
 {
     return implementation_->renderDesktop(
         snapshot,
@@ -3070,7 +3097,8 @@ FxRenderCpuDiagnostics FxGpuRenderer::render(
         background,
         gpuTimestampProfiler,
         recordingDestination,
-        activeRoi);
+        activeRoi,
+        allowPartialFinalOutput);
 }
 
 FxGpuFrameCapture FxGpuRenderer::renderAndCapture(

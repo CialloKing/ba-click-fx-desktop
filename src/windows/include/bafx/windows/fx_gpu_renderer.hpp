@@ -223,7 +223,8 @@ public:
         std::optional<BackgroundRenderInput> background = std::nullopt,
         GpuTimestampProfiler* gpuTimestampProfiler = nullptr,
         ID3D11RenderTargetView* recordingDestination = nullptr,
-        std::optional<FxActiveRoi> activeRoi = std::nullopt);
+        std::optional<FxActiveRoi> activeRoi = std::nullopt,
+        bool allowPartialFinalOutput = false);
     [[nodiscard]] FxGpuFrameCapture renderAndCapture(
         const bafx::fx::FrameSnapshot& snapshot,
         ID3D11RenderTargetView* destination,
