@@ -297,6 +297,51 @@ struct WarpDevice
         });
 }
 
+[[nodiscard]] bool sameBgra8Pixel(
+    const Bgra8UnormPixel left,
+    const Bgra8UnormPixel right) noexcept
+{
+    return left.red == right.red
+        && left.green == right.green
+        && left.blue == right.blue
+        && left.alpha == right.alpha;
+}
+
+void checkPartialBgra8Write(
+    const Bgra8Image& expectedInside,
+    const Bgra8Image& expectedOutside,
+    const Bgra8Image& actual,
+    const bafx::core::RectI rect)
+{
+    BAFX_CHECK(expectedInside.width == actual.width);
+    BAFX_CHECK(expectedInside.height == actual.height);
+    BAFX_CHECK(expectedOutside.width == actual.width);
+    BAFX_CHECK(expectedOutside.height == actual.height);
+    BAFX_CHECK(expectedInside.pixels.size() == actual.pixels.size());
+    BAFX_CHECK(expectedOutside.pixels.size() == actual.pixels.size());
+    for (std::uint32_t y = 0U; y < actual.height; ++y)
+    {
+        for (std::uint32_t x = 0U; x < actual.width; ++x)
+        {
+            const std::size_t index = static_cast<std::size_t>(y) * actual.width
+                + x;
+            const bool inside = static_cast<std::int32_t>(x) >= rect.left
+                && static_cast<std::int32_t>(x) < rect.right
+                && static_cast<std::int32_t>(y) >= rect.top
+                && static_cast<std::int32_t>(y) < rect.bottom;
+            const Bgra8UnormPixel expected = inside
+                ? expectedInside.pixels[index]
+                : expectedOutside.pixels[index];
+            if (!sameBgra8Pixel(expected, actual.pixels[index]))
+            {
+                throw std::runtime_error(
+                    "partial BGRA8 output differs at pixel "
+                    + std::to_string(index));
+            }
+        }
+    }
+}
+
 [[nodiscard]] std::vector<ReadbackPixel> toFloatPixels(
     const Rgba16FloatImage& raw)
 {
@@ -3193,6 +3238,222 @@ BAFX_TEST(warp_active_fx_roi_partial_final_output_writes_only_resolve_rect)
             graphics.context.Get(),
             steadyTarget.texture.Get()),
         roi.passPlan.resolveRect);
+}
+
+BAFX_TEST(warp_active_fx_roi_partial_final_output_supports_sdr_bgra8)
+{
+    ComApartment apartment;
+    const WarpDevice graphics = createWarpDevice();
+    const bafx::fx::FrameSnapshot snapshot = makeDiskSnapshot(true);
+    const FxActiveRoi roi = makeActiveFxRoi(snapshot);
+    const CompositionOutputMapping sdrMapping = compositionOutputPolicyFor(
+        CompositionOutputPreference::ConservativeSdr).mapping;
+
+    FxGpuRenderer referenceRenderer(
+        graphics.device.Get(),
+        graphics.context.Get(),
+        testSize,
+        FxBloomSettings{},
+        sdrMapping);
+    const RenderTarget referenceTarget = createRecordingRenderTarget(
+        graphics.device.Get());
+    referenceRenderer.render(snapshot, referenceTarget.view.Get());
+    const Bgra8Image reference = readbackBgra8(
+        graphics.context.Get(),
+        referenceTarget.texture.Get());
+
+    FxGpuRenderer roiRenderer(
+        graphics.device.Get(),
+        graphics.context.Get(),
+        testSize,
+        FxBloomSettings{},
+        sdrMapping);
+    const RenderTarget warmupTarget = createRecordingRenderTarget(
+        graphics.device.Get());
+    const FxRenderCpuDiagnostics warmup = roiRenderer.render(
+        snapshot,
+        warmupTarget.view.Get(),
+        std::nullopt,
+        nullptr,
+        nullptr,
+        roi,
+        true);
+    BAFX_CHECK(warmup.primaryActiveFxRoi.warmup);
+    BAFX_CHECK(!warmup.primaryActiveFxRoi.partialFinalOutput);
+    BAFX_CHECK(sameBgra8(
+        reference,
+        readbackBgra8(
+            graphics.context.Get(),
+            warmupTarget.texture.Get())));
+
+    const RenderTarget steadyTarget = createRecordingRenderTarget(
+        graphics.device.Get());
+    constexpr std::array<float, 4> untouchedColor{
+        0.125F,
+        0.25F,
+        0.375F,
+        0.5F};
+    graphics.context->ClearRenderTargetView(
+        steadyTarget.view.Get(),
+        untouchedColor.data());
+    const Bgra8Image untouched = readbackBgra8(
+        graphics.context.Get(),
+        steadyTarget.texture.Get());
+    const FxRenderCpuDiagnostics steady = roiRenderer.render(
+        snapshot,
+        steadyTarget.view.Get(),
+        std::nullopt,
+        nullptr,
+        nullptr,
+        roi,
+        true);
+    BAFX_CHECK(steady.primaryActiveFxRoi.partialFinalOutput);
+    checkPartialBgra8Write(
+        reference,
+        untouched,
+        readbackBgra8(
+            graphics.context.Get(),
+            steadyTarget.texture.Get()),
+        roi.passPlan.resolveRect);
+}
+
+BAFX_TEST(warp_active_fx_roi_partial_output_preserves_complete_recording)
+{
+    ComApartment apartment;
+    const WarpDevice graphics = createWarpDevice();
+    const bafx::fx::FrameSnapshot snapshot = makeDiskSnapshot(true);
+    const FxActiveRoi roi = makeActiveFxRoi(snapshot);
+
+    FxGpuRenderer referenceRenderer(
+        graphics.device.Get(),
+        graphics.context.Get(),
+        testSize);
+    const RenderTarget referenceDesktop = createRenderTarget(
+        graphics.device.Get());
+    const RenderTarget referenceRecording = createRecordingRenderTarget(
+        graphics.device.Get());
+    referenceRenderer.render(
+        snapshot,
+        referenceDesktop.view.Get(),
+        std::nullopt,
+        nullptr,
+        referenceRecording.view.Get());
+    const Rgba16FloatImage expectedDesktop = readbackRgba16FloatTexture(
+        graphics.context.Get(),
+        referenceDesktop.texture.Get());
+    const Bgra8Image expectedRecording = readbackBgra8(
+        graphics.context.Get(),
+        referenceRecording.texture.Get());
+
+    FxGpuRenderer roiRenderer(
+        graphics.device.Get(),
+        graphics.context.Get(),
+        testSize);
+    const RenderTarget warmupDesktop = createRenderTarget(graphics.device.Get());
+    const RenderTarget warmupRecording = createRecordingRenderTarget(
+        graphics.device.Get());
+    const FxRenderCpuDiagnostics warmup = roiRenderer.render(
+        snapshot,
+        warmupDesktop.view.Get(),
+        std::nullopt,
+        nullptr,
+        warmupRecording.view.Get(),
+        roi,
+        true);
+    BAFX_CHECK(warmup.primaryActiveFxRoi.warmup);
+    BAFX_CHECK(!warmup.primaryActiveFxRoi.partialFinalOutput);
+
+    const RenderTarget steadyDesktop = createRenderTarget(graphics.device.Get());
+    constexpr std::array<float, 4> untouchedColor{
+        0.125F,
+        0.25F,
+        0.375F,
+        0.5F};
+    graphics.context->ClearRenderTargetView(
+        steadyDesktop.view.Get(),
+        untouchedColor.data());
+    const Rgba16FloatImage untouched = readbackRgba16FloatTexture(
+        graphics.context.Get(),
+        steadyDesktop.texture.Get());
+    const RenderTarget steadyRecording = createRecordingRenderTarget(
+        graphics.device.Get());
+    const FxRenderCpuDiagnostics steady = roiRenderer.render(
+        snapshot,
+        steadyDesktop.view.Get(),
+        std::nullopt,
+        nullptr,
+        steadyRecording.view.Get(),
+        roi,
+        true);
+    BAFX_CHECK(steady.primaryActiveFxRoi.partialFinalOutput);
+    checkPartialRgba16Write(
+        expectedDesktop,
+        untouched,
+        readbackRgba16FloatTexture(
+            graphics.context.Get(),
+            steadyDesktop.texture.Get()),
+        roi.passPlan.resolveRect);
+    BAFX_CHECK(sameBgra8(
+        expectedRecording,
+        readbackBgra8(
+            graphics.context.Get(),
+            steadyRecording.texture.Get())));
+}
+
+BAFX_TEST(warp_active_fx_roi_partial_output_clears_previous_visual_bounds)
+{
+    ComApartment apartment;
+    const WarpDevice graphics = createWarpDevice();
+    bafx::fx::FrameSnapshot left = makeDiskSnapshot(true);
+    left.sprites.front().centerPixels.x = 112.0F;
+    bafx::fx::FrameSnapshot right = makeDiskSnapshot(true);
+    right.sprites.front().centerPixels.x = 144.0F;
+    const bafx::fx::FrameVisualBoundsResult leftBounds =
+        bafx::fx::visualBounds(left);
+    const bafx::fx::FrameVisualBoundsResult rightBounds =
+        bafx::fx::visualBounds(right);
+    BAFX_CHECK(leftBounds.status == bafx::fx::FrameBoundsStatus::Ok);
+    BAFX_CHECK(rightBounds.status == bafx::fx::FrameBoundsStatus::Ok);
+    const std::optional<bafx::core::RectI> dirtyBounds =
+        bafx::fx::uniteVisualBounds(leftBounds.bounds, rightBounds.bounds);
+    BAFX_CHECK(dirtyBounds.has_value());
+
+    FxGpuRenderer renderer(graphics.device.Get(), graphics.context.Get(), testSize);
+    const RenderTarget target = createRenderTarget(graphics.device.Get());
+    const FxRenderCpuDiagnostics warmup = renderer.render(
+        left,
+        target.view.Get(),
+        std::nullopt,
+        nullptr,
+        nullptr,
+        makeActiveFxRoi(left),
+        true);
+    BAFX_CHECK(warmup.primaryActiveFxRoi.warmup);
+
+    const FxActiveRoi dirtyRoi = makeActiveFxRoi(*dirtyBounds);
+    const FxRenderCpuDiagnostics moved = renderer.render(
+        right,
+        target.view.Get(),
+        std::nullopt,
+        nullptr,
+        nullptr,
+        dirtyRoi,
+        true);
+    BAFX_CHECK(moved.primaryActiveFxRoi.partialFinalOutput);
+
+    FxGpuRenderer referenceRenderer(
+        graphics.device.Get(),
+        graphics.context.Get(),
+        testSize);
+    const RenderTarget referenceTarget = createRenderTarget(graphics.device.Get());
+    referenceRenderer.render(right, referenceTarget.view.Get());
+    checkRgba16BitExactAndFinite(
+        readbackRgba16FloatTexture(
+            graphics.context.Get(),
+            referenceTarget.texture.Get()),
+        readbackRgba16FloatTexture(
+            graphics.context.Get(),
+            target.texture.Get()));
 }
 
 BAFX_TEST(warp_active_fx_roi_spout_fx_only_is_exact_in_warmup_and_steady_state)
