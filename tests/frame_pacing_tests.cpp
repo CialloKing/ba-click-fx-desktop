@@ -11,7 +11,6 @@ namespace
 
 using bafx::desktop::FramePacingWake;
 using bafx::desktop::PausedWaitWake;
-using bafx::desktop::nextFrameStartDeadlineAfterPresent;
 using bafx::desktop::waitForFrameOpportunity;
 using bafx::desktop::waitForPausedInvalidation;
 
@@ -55,48 +54,6 @@ private:
 
 constexpr UINT pacingTestMessage = WM_APP + 71U;
 
-}
-
-BAFX_TEST(frame_pacing_anchors_the_next_start_to_present_completion)
-{
-    const auto deadline = nextFrameStartDeadlineAfterPresent(
-        std::chrono::milliseconds(10),
-        std::chrono::nanoseconds(5'882'353),
-        std::chrono::microseconds(50));
-    BAFX_CHECK(deadline == std::chrono::nanoseconds(15'582'353));
-}
-
-BAFX_TEST(frame_pacing_never_delays_a_frame_whose_preparation_fills_the_period)
-{
-    const auto presentedAt = std::chrono::milliseconds(10);
-    BAFX_CHECK(
-        nextFrameStartDeadlineAfterPresent(
-            presentedAt,
-            std::chrono::milliseconds(5),
-            std::chrono::milliseconds(5))
-        == presentedAt);
-    BAFX_CHECK(
-        nextFrameStartDeadlineAfterPresent(
-            presentedAt,
-            std::chrono::milliseconds(5),
-            std::chrono::milliseconds(7))
-        == presentedAt);
-}
-
-BAFX_TEST(frame_pacing_clamps_invalid_durations_and_deadline_overflow)
-{
-    BAFX_CHECK(
-        nextFrameStartDeadlineAfterPresent(
-            std::chrono::nanoseconds(1),
-            std::chrono::milliseconds(1),
-            std::chrono::microseconds(-1))
-        == std::chrono::microseconds(750) + std::chrono::nanoseconds(1));
-    BAFX_CHECK(
-        nextFrameStartDeadlineAfterPresent(
-            (std::chrono::nanoseconds::max)() - std::chrono::nanoseconds(1),
-            std::chrono::milliseconds(1),
-            std::chrono::nanoseconds::zero())
-        == (std::chrono::nanoseconds::max)());
 }
 
 BAFX_TEST(frame_pacing_grants_render_only_for_the_latency_object)

@@ -1,7 +1,6 @@
 #include "display_session.hpp"
 #include "background_capture_runtime.hpp"
 #include "display_output_retarget.hpp"
-#include "frame_pacing.hpp"
 #include "performance_window.hpp"
 
 #include "bafx/windows/runtime_diagnostics.hpp"
@@ -2260,8 +2259,7 @@ DisplaySessionColorRefreshStatus DisplaySession::refreshColorCapabilities(
 
 void DisplaySession::recordPresentedFrame(
     const bool drawable,
-    const bafx::core::MonotonicTime presentedAt,
-    const bafx::core::MonotonicTime preparationDuration) noexcept
+    const bafx::core::MonotonicTime startedAt) noexcept
 {
     lastPresentedDrawableContent_ = drawable;
     if (minimumFramePeriod_ <= bafx::core::MonotonicTime::zero())
@@ -2270,10 +2268,14 @@ void DisplaySession::recordPresentedFrame(
         return;
     }
 
-    nextFramePacingDeadline_ = nextFrameStartDeadlineAfterPresent(
-        presentedAt,
-        minimumFramePeriod_,
-        preparationDuration);
+    const bafx::core::MonotonicTime followingDeadline =
+        nextFramePacingDeadline_.has_value()
+        ? *nextFramePacingDeadline_ + minimumFramePeriod_
+        : startedAt + minimumFramePeriod_;
+    // A delayed display must not submit a burst to catch up with missed ticks.
+    nextFramePacingDeadline_ = followingDeadline > startedAt
+        ? followingDeadline
+        : startedAt + minimumFramePeriod_;
 }
 
 void DisplaySession::recordActiveFxRoiFrame(
