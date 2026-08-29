@@ -192,15 +192,18 @@ struct RoiFrameDiagnostics
     bafx::core::RectI dirtyRect{};
     bafx::core::RectI bloomOutput{};
     bafx::core::RectI alignedWork{};
+    bafx::core::RectI presentDirtyRect{};
     std::uint32_t guardX{0U};
     std::uint32_t guardY{0U};
     std::uint32_t phasePeriod{0U};
     std::uint64_t fullScreenPixels{0U};
     std::uint64_t bloomOutputPixels{0U};
     std::uint64_t alignedWorkPixels{0U};
+    std::uint64_t presentDirtyPixels{0U};
     bool currentVisualBoundsAvailable{false};
     bool dirtyRectAvailable{false};
     bool planAvailable{false};
+    bool presentDirtyRectApplied{false};
     bool requested{false};
     bool prefilterApplied{false};
     std::uint64_t prefilterPixels{0U};
@@ -208,7 +211,8 @@ struct RoiFrameDiagnostics
     FxActiveRoiPassDiagnostics recordingRebuild{};
     bafx::core::ActiveFxRoiStatus activeStatus{
         bafx::core::ActiveFxRoiStatus::Disabled};
-    // The final composite and WGC history intentionally remain full-screen.
+    // Legacy aggregate retained while individual pass diagnostics carry the
+    // exact renderer and dirty-present decisions.
     bool productionFullScreenFallback{true};
 };
 
@@ -410,7 +414,8 @@ private:
     void createSpout2RecordingTarget();
     void registerDeviceRemovedNotification() noexcept;
     void unregisterDeviceRemovedNotification() noexcept;
-    void presentSwapChain();
+    void presentSwapChain(
+        std::optional<bafx::core::RectI> dirtyRect = std::nullopt);
     void releaseDeviceResources() noexcept;
     void resetBackgroundSnapshot(
         BackgroundSnapshotInvalidationReason reason,

@@ -342,6 +342,40 @@ private:
     bool active_{false};
 };
 
+class PartialOutputRecoveryGuard final
+{
+public:
+    PartialOutputRecoveryGuard(
+        FxGpuRenderer& renderer,
+        const bool armed) noexcept
+        : renderer_(renderer), armed_(armed)
+    {
+    }
+
+    ~PartialOutputRecoveryGuard()
+    {
+        if (armed_)
+        {
+            // The next attempt must rebuild every output pixel if this frame
+            // never reached a successful dirty Present.
+            renderer_.resetActiveFxRoiState();
+        }
+    }
+
+    PartialOutputRecoveryGuard(const PartialOutputRecoveryGuard&) = delete;
+    PartialOutputRecoveryGuard& operator=(
+        const PartialOutputRecoveryGuard&) = delete;
+
+    void commit() noexcept
+    {
+        armed_ = false;
+    }
+
+private:
+    FxGpuRenderer& renderer_;
+    bool armed_{false};
+};
+
 [[nodiscard]] std::optional<bafx::core::MonotonicTime>
 refreshPeriod(const DisplayRefreshRate& refreshRate) noexcept
 {
@@ -1278,13 +1312,15 @@ CompositionFrameDiagnostics CompositionRenderer::renderFrame(
 {
     CompositionFrameDiagnostics diagnostics{};
     diagnostics.frameId = ++frameId_;
+    std::optional<bafx::core::RectI> pendingVisualBounds =
+        previousVisualBounds_;
     const std::optional<bafx::core::UnityBloomPassRoiPlan> roiPassPlan =
         populateRoiDiagnostics(
             diagnostics,
             snapshot,
             size_,
             bloomSettings_,
-            previousVisualBounds_);
+            pendingVisualBounds);
     const std::optional<FxActiveRoi> activeRoi = selectActiveFxRoi(
         diagnostics.roi,
         size_,
@@ -1486,7 +1522,11 @@ CompositionFrameDiagnostics CompositionRenderer::renderFrame(
         spout2Enabled_ && recordingRenderTarget_ != nullptr
             ? recordingRenderTarget_.Get()
             : nullptr,
-        activeRoi);
+        activeRoi,
+        true);
+    PartialOutputRecoveryGuard partialOutputRecovery(
+        *fxRenderer_,
+        diagnostics.fx.primaryActiveFxRoi.partialFinalOutput);
     const auto prePresentStartedAt = std::chrono::steady_clock::now();
     diagnostics.gpuTimestampCheckpointFailure =
         diagnostics.gpuTimestampCheckpointFailure
@@ -1498,6 +1538,25 @@ CompositionFrameDiagnostics CompositionRenderer::renderFrame(
     diagnostics.roi.primary = diagnostics.fx.primaryActiveFxRoi;
     diagnostics.roi.recordingRebuild =
         diagnostics.fx.recordingRebuildActiveFxRoi;
+    const std::optional<bafx::core::RectI> presentDirtyRect =
+        selectActiveFxPresentDirtyRect(
+            roiPassPlan,
+            diagnostics.roi.primary,
+            size_);
+    if (diagnostics.roi.primary.partialFinalOutput
+        && !presentDirtyRect.has_value())
+    {
+        // A full Present cannot repair a back buffer whose untouched pixels
+        // were intentionally left undefined for this frame.
+        throw std::logic_error(
+            "Partial final output did not produce a verified dirty rectangle");
+    }
+    if (presentDirtyRect.has_value())
+    {
+        diagnostics.roi.presentDirtyRect = *presentDirtyRect;
+        diagnostics.roi.presentDirtyPixels = rectArea(*presentDirtyRect);
+        diagnostics.roi.presentDirtyRectApplied = true;
+    }
     if (diagnostics.roi.prefilterApplied)
     {
         const auto isPyramidPath = [](const FxActiveRoiPassDiagnostics& pass)
@@ -1583,7 +1642,12 @@ CompositionFrameDiagnostics CompositionRenderer::renderFrame(
 
     const auto presentStartedAt = std::chrono::steady_clock::now();
     diagnostics.prePresentCpu = presentStartedAt - prePresentStartedAt;
-    presentSwapChain();
+    presentSwapChain(presentDirtyRect);
+    partialOutputRecovery.commit();
+    // Bounds describe the last successfully published frame, not merely the
+    // last render attempt. This keeps moving-effect damage conservative after
+    // any exception before Present completes.
+    previousVisualBounds_ = pendingVisualBounds;
     diagnostics.presentCallCpu =
         std::chrono::steady_clock::now() - presentStartedAt;
     LARGE_INTEGER presentReturned{};
@@ -1752,6 +1816,10 @@ PixelF CompositionRenderer::presentCompositionProbeColor(const PixelF color)
     context_->ClearRenderTargetView(renderTarget_.Get(), clearColor.data());
     captureCenterPixel();
     presentSwapChain();
+    // A probe publishes a full non-transparent surface outside the renderer's
+    // normal batch lifecycle. Force the next ROI frame to rebuild a full
+    // transparent output before dirty-present can resume.
+    fxRenderer_->resetActiveFxRoiState();
     if (!lastCenterPixel_.has_value())
     {
         throw std::runtime_error(
@@ -1760,18 +1828,40 @@ PixelF CompositionRenderer::presentCompositionProbeColor(const PixelF color)
     return *lastCenterPixel_;
 }
 
-void CompositionRenderer::presentSwapChain()
+void CompositionRenderer::presentSwapChain(
+    const std::optional<bafx::core::RectI> dirtyRect)
 {
     // Frame cadence is gated before rendering by the frame-latency waitable
     // object. A synchronous interval here can block the render owner behind
     // DWM/GPU back-pressure and prevent the same thread from dispatching
     // WM_INPUT, so composition receives the frame without an extra v-sync wait.
-    const HRESULT result = swapChain_->Present(0, 0);
+    HRESULT result = S_OK;
+    const char* operation = "IDXGISwapChain::Present";
+    if (dirtyRect.has_value())
+    {
+        RECT nativeRect{
+            dirtyRect->left,
+            dirtyRect->top,
+            dirtyRect->right,
+            dirtyRect->bottom};
+        DXGI_PRESENT_PARAMETERS parameters{};
+        parameters.DirtyRectsCount = 1U;
+        parameters.pDirtyRects = &nativeRect;
+        // The renderer has already proved that neither its clear nor its draw
+        // touched pixels outside this rectangle. Keep failure explicit because
+        // a full Present fallback would publish undefined back-buffer contents.
+        result = swapChain_->Present1(0U, 0U, &parameters);
+        operation = "IDXGISwapChain1::Present1(dirty rect)";
+    }
+    else
+    {
+        result = swapChain_->Present(0U, 0U);
+    }
     if (result == DXGI_ERROR_DEVICE_REMOVED || result == DXGI_ERROR_DEVICE_RESET)
     {
         throwIfFailed(device_->GetDeviceRemovedReason(), "D3D11 device removed");
     }
-    throwIfFailed(result, "IDXGISwapChain::Present");
+    throwIfFailed(result, operation);
 }
 
 bool CompositionRenderer::tryEnableBackgroundCapture(
