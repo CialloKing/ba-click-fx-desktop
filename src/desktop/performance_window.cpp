@@ -331,6 +331,15 @@ void RuntimePerformanceWindow::addFrame(
     }
     roiRequestedFrames_ += sample.roiRequested ? 1U : 0U;
     roiAppliedFrames_ += sample.roiApplied ? 1U : 0U;
+    if (sample.roiPresentDirtyRectApplied)
+    {
+        saturatingAdd(roiPresentDirtyFrames_, 1U);
+        // Only an applied Present1 rectangle participates in the dirty-region
+        // contract; ignore any stale pixel value on a full-surface Present.
+        saturatingAdd(
+            roiPresentDirtyPixels_,
+            sample.roiPresentDirtyPixels);
+    }
     roiLastActiveStatus_ = sample.roiActiveStatus;
     const std::size_t activeStatusIndex =
         static_cast<std::size_t>(sample.roiActiveStatus);
@@ -576,6 +585,8 @@ void RuntimePerformanceWindow::reset() noexcept
     roiPlanOverflowFrames_ = 0U;
     roiRequestedFrames_ = 0U;
     roiAppliedFrames_ = 0U;
+    roiPresentDirtyFrames_ = 0U;
+    roiPresentDirtyPixels_ = 0U;
     roiActiveStatusFrames_.fill(0U);
     roiLastActiveStatus_ =
         bafx::core::ActiveFxRoiStatus::Disabled;
@@ -686,6 +697,8 @@ RuntimePerformanceSummary RuntimePerformanceWindow::summarize() const
     summary.roiPlanOverflowFrames = roiPlanOverflowFrames_;
     summary.roiRequestedFrames = roiRequestedFrames_;
     summary.roiAppliedFrames = roiAppliedFrames_;
+    summary.roiPresentDirtyFrames = roiPresentDirtyFrames_;
+    summary.roiPresentDirtyPixels = roiPresentDirtyPixels_;
     summary.roiActiveStatusFrames = roiActiveStatusFrames_;
     summary.roiLastActiveStatus = roiLastActiveStatus_;
     summary.roiLastVisualBoundsStatus = roiLastVisualBoundsStatus_;

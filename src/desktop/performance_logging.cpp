@@ -505,13 +505,19 @@ std::chrono::nanoseconds appendPerformanceInterval(
         fields.add(
             "ROI.FinalCompositePath",
             config.performance.activeFxRoiEnabled
-                ? "full-clear-verified-resolve-scissor-with-full-screen-fallback"
+                ? "dirty-present-verified-resolve-scissor-with-full-screen-fallback"
                 : "full-screen");
         fields.add("ROI.WgcCopyPath", "full-screen");
         fields.add("ROI.RequestedFrames", summary.roiRequestedFrames);
         fields.add(
             "ROI.AppliedPrefilterFrames",
             summary.roiAppliedFrames);
+        fields.add(
+            "ROI.Present.DirtyFrames",
+            summary.roiPresentDirtyFrames);
+        fields.add(
+            "ROI.Present.DirtyPixels.Total",
+            summary.roiPresentDirtyPixels);
         fields.add(
             "ROI.Active.LastStatus",
             bafx::core::activeFxRoiStatusName(

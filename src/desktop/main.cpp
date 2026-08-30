@@ -2090,9 +2090,11 @@ gpuFxPathPerformanceSample(
     sample.roiPlanStatus = frame.roi.planStatus;
     sample.roiDirtyRectAvailable = frame.roi.dirtyRectAvailable;
     sample.roiPlanAvailable = frame.roi.planAvailable;
+    sample.roiPresentDirtyRectApplied = frame.roi.presentDirtyRectApplied;
     sample.roiFullScreenPixels = frame.roi.fullScreenPixels;
     sample.roiBloomOutputPixels = frame.roi.bloomOutputPixels;
     sample.roiAlignedWorkPixels = frame.roi.alignedWorkPixels;
+    sample.roiPresentDirtyPixels = frame.roi.presentDirtyPixels;
     sample.roiGuardX = frame.roi.guardX;
     sample.roiGuardY = frame.roi.guardY;
     sample.roiPhasePeriod = frame.roi.phasePeriod;

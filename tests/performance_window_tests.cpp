@@ -120,9 +120,11 @@ BAFX_TEST(runtime_performance_window_aggregates_input_and_render_contracts)
         .roiPlanStatus = bafx::core::RoiStatus::Ok,
         .roiDirtyRectAvailable = true,
         .roiPlanAvailable = true,
+        .roiPresentDirtyRectApplied = true,
         .roiFullScreenPixels = 1'920U * 1'080U,
         .roiBloomOutputPixels = 40'000U,
         .roiAlignedWorkPixels = 50'000U,
+        .roiPresentDirtyPixels = 40'000U,
         .roiGuardX = 378U,
         .roiGuardY = 378U,
         .roiPhasePeriod = 64U,
@@ -197,6 +199,8 @@ BAFX_TEST(runtime_performance_window_aggregates_input_and_render_contracts)
     BAFX_CHECK(summary.roiPlanFrames == 1U);
     BAFX_CHECK(summary.roiRequestedFrames == 1U);
     BAFX_CHECK(summary.roiAppliedFrames == 1U);
+    BAFX_CHECK(summary.roiPresentDirtyFrames == 1U);
+    BAFX_CHECK(summary.roiPresentDirtyPixels == 40'000U);
     BAFX_CHECK(
         summary.roiActiveStatusFrames[static_cast<std::size_t>(
             bafx::core::ActiveFxRoiStatus::AppliedPyramid)]
@@ -248,6 +252,8 @@ BAFX_TEST(runtime_performance_window_aggregates_input_and_render_contracts)
 
     window.reset();
     const bafx::desktop::RuntimePerformanceSummary reset = window.summarize();
+    BAFX_CHECK(reset.roiPresentDirtyFrames == 0U);
+    BAFX_CHECK(reset.roiPresentDirtyPixels == 0U);
     BAFX_CHECK(reset.prePresentCpuMicroseconds.sampleCount == 0U);
     BAFX_CHECK(reset.framePacingDeviceRemovedWakes == 0U);
     BAFX_CHECK(reset.framePacingWaitMicroseconds.sampleCount == 0U);

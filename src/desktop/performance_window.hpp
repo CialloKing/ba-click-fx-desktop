@@ -277,9 +277,11 @@ struct FramePerformanceSample
     bafx::core::RoiStatus roiPlanStatus{bafx::core::RoiStatus::Empty};
     bool roiDirtyRectAvailable{false};
     bool roiPlanAvailable{false};
+    bool roiPresentDirtyRectApplied{false};
     std::uint64_t roiFullScreenPixels{0U};
     std::uint64_t roiBloomOutputPixels{0U};
     std::uint64_t roiAlignedWorkPixels{0U};
+    std::uint64_t roiPresentDirtyPixels{0U};
     std::uint32_t roiGuardX{0U};
     std::uint32_t roiGuardY{0U};
     std::uint32_t roiPhasePeriod{0U};
@@ -362,6 +364,8 @@ struct RuntimePerformanceSummary
     std::uint64_t roiPlanOverflowFrames{0U};
     std::uint64_t roiRequestedFrames{0U};
     std::uint64_t roiAppliedFrames{0U};
+    std::uint64_t roiPresentDirtyFrames{0U};
+    std::uint64_t roiPresentDirtyPixels{0U};
     std::array<std::uint64_t, activeFxRoiStatusCount> roiActiveStatusFrames{};
     bafx::core::ActiveFxRoiStatus roiLastActiveStatus{
         bafx::core::ActiveFxRoiStatus::Disabled};
@@ -557,6 +561,8 @@ private:
     std::uint64_t roiPlanOverflowFrames_{0U};
     std::uint64_t roiRequestedFrames_{0U};
     std::uint64_t roiAppliedFrames_{0U};
+    std::uint64_t roiPresentDirtyFrames_{0U};
+    std::uint64_t roiPresentDirtyPixels_{0U};
     std::array<std::uint64_t, activeFxRoiStatusCount> roiActiveStatusFrames_{};
     bafx::core::ActiveFxRoiStatus roiLastActiveStatus_{
         bafx::core::ActiveFxRoiStatus::Disabled};

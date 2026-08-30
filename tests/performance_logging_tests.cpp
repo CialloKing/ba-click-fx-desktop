@@ -72,9 +72,11 @@ BAFX_TEST(performance_log_preserves_metric_and_semantic_fields)
         .roiPlanStatus = bafx::core::RoiStatus::Ok,
         .roiDirtyRectAvailable = true,
         .roiPlanAvailable = true,
+        .roiPresentDirtyRectApplied = true,
         .roiFullScreenPixels = 1920U * 1080U,
         .roiBloomOutputPixels = 40'000U,
         .roiAlignedWorkPixels = 50'000U,
+        .roiPresentDirtyPixels = 40'000U,
         .roiGuardX = 378U,
         .roiGuardY = 378U,
         .roiPhasePeriod = 64U,
@@ -172,13 +174,17 @@ BAFX_TEST(performance_log_preserves_metric_and_semantic_fields)
         "ROI.ProductionPath=active-fx-pyramid-with-full-screen-fallback\n")
         != std::string::npos);
     BAFX_CHECK(text.find(
-        "ROI.FinalCompositePath=full-clear-verified-resolve-scissor-with-full-screen-fallback\n")
+        "ROI.FinalCompositePath=dirty-present-verified-resolve-scissor-with-full-screen-fallback\n")
         != std::string::npos);
     BAFX_CHECK(text.find("ROI.WgcCopyPath=full-screen\n")
         != std::string::npos);
     BAFX_CHECK(text.find("ROI.RequestedFrames=1\n")
         != std::string::npos);
     BAFX_CHECK(text.find("ROI.AppliedPrefilterFrames=1\n")
+        != std::string::npos);
+    BAFX_CHECK(text.find("ROI.Present.DirtyFrames=1\n")
+        != std::string::npos);
+    BAFX_CHECK(text.find("ROI.Present.DirtyPixels.Total=40000\n")
         != std::string::npos);
     BAFX_CHECK(text.find("ROI.Active.LastStatus=prefilter-roi\n")
         != std::string::npos);
