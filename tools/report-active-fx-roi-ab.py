@@ -16,7 +16,7 @@ from typing import Any
 
 
 MANIFEST_SCHEMA_VERSION = 3
-REPORT_SCHEMA_VERSION = 2
+REPORT_SCHEMA_VERSION = 3
 CAPTURE_KIND = "bafx-active-fx-roi-ab-capture"
 REPORT_KIND = "bafx-active-fx-roi-ab-report"
 ENVIRONMENT_CONTRACT = "rtx-4060-4k170-sdr-v1"
@@ -582,6 +582,7 @@ def _intervals(
     path: Path,
     roi_enabled: bool,
     measurement_path: str,
+    expected_reason: str,
 ) -> list[dict[str, str]]:
     for index, event in enumerate(
         (
@@ -652,6 +653,52 @@ def _intervals(
         )
         if event.get("ROI.ProductionPath") != expected_path:
             raise ValidationError(f"{context}: ROI production path mismatch")
+        expected_final_path = (
+            "dirty-present-verified-resolve-scissor-with-full-screen-fallback"
+            if roi_enabled
+            else "full-screen"
+        )
+        if event.get("ROI.FinalCompositePath") != expected_final_path:
+            raise ValidationError(f"{context}: ROI final composite path mismatch")
+        dirty_present_frames = _event_int(
+            event, "ROI.Present.DirtyFrames", context
+        )
+        dirty_present_pixels = _event_int(
+            event, "ROI.Present.DirtyPixels.Total", context
+        )
+        if dirty_present_frames < 0 or dirty_present_pixels < 0:
+            raise ValidationError(
+                f"{context}: ROI dirty Present counters must be non-negative"
+            )
+        expects_dirty_present = (
+            roi_enabled
+            and measurement_path == "primary"
+            and expected_reason == "applied"
+        )
+        if expects_dirty_present:
+            applied_frames = _event_int(
+                event, "ROI.Primary.AppliedFrames", context
+            )
+            warmup_frames = _event_int(
+                event, "ROI.Primary.WarmupFrames", context
+            )
+            expected_dirty_frames = applied_frames - warmup_frames
+            if (
+                expected_dirty_frames <= 0
+                or dirty_present_frames != expected_dirty_frames
+            ):
+                raise ValidationError(
+                    f"{context}: ROI dirty Present frames do not match "
+                    "steady primary applied frames"
+                )
+            if dirty_present_pixels <= 0:
+                raise ValidationError(
+                    f"{context}: ROI dirty Present pixels must be positive"
+                )
+        elif dirty_present_frames != 0 or dirty_present_pixels != 0:
+            raise ValidationError(
+                f"{context}: unexpectedly used ROI dirty Present"
+            )
     if duration_us < 29_000_000 or duration_us > 32_000_000:
         raise ValidationError(f"{path}: selected windows do not provide a 30 s sample")
     return selected
@@ -698,6 +745,8 @@ def _run_metrics(
         "eligibleFrames": total(f"{roi_prefix}.EligibleFrames"),
         "appliedFrames": total(f"{roi_prefix}.AppliedFrames"),
         "warmupFrames": total(f"{roi_prefix}.WarmupFrames"),
+        "dirtyPresentFrames": total("ROI.Present.DirtyFrames"),
+        "dirtyPresentPixels": total("ROI.Present.DirtyPixels.Total"),
         "fullPixels": total(f"{roi_prefix}.FullPixels.Total"),
         "candidatePixels": total(f"{roi_prefix}.CandidatePixels.Total"),
         "drawnPixels": total(f"{roi_prefix}.DrawnPixels.Total"),
@@ -883,7 +932,13 @@ def _validate_run(
         actual_environment_identity,
         f"run {ordinal}",
     )
-    intervals = _intervals(events, log_path, roi_enabled, measurement_path)
+    intervals = _intervals(
+        events,
+        log_path,
+        roi_enabled,
+        measurement_path,
+        expected_reason,
+    )
     return {
         "ordinal": ordinal,
         "block": block,
@@ -920,6 +975,8 @@ def _aggregate(runs: list[dict[str, Any]]) -> dict[str, Any]:
         "eligibleFrames": total("eligibleFrames"),
         "appliedFrames": total("appliedFrames"),
         "warmupFrames": total("warmupFrames"),
+        "dirtyPresentFrames": total("dirtyPresentFrames"),
+        "dirtyPresentPixels": total("dirtyPresentPixels"),
         "fullPixels": total("fullPixels"),
         "candidatePixels": total("candidatePixels"),
         "drawnPixels": total("drawnPixels"),
@@ -1037,6 +1094,7 @@ def _build_gates(
     on: dict[str, Any],
     paired: dict[str, Any],
     expectation: str,
+    measurement_path: str,
 ) -> list[dict[str, Any]]:
     gates = [
         _gate(
@@ -1058,6 +1116,52 @@ def _build_gates(
             "ROI FPS decrease <= 1%",
         ),
     ]
+    gates.append(
+        _gate(
+            "dirty-present-roi-off",
+            off["dirtyPresentFrames"] == 0 and off["dirtyPresentPixels"] == 0,
+            {
+                "frames": off["dirtyPresentFrames"],
+                "pixels": off["dirtyPresentPixels"],
+            },
+            "ROI-off dirty Present frames and pixels equal 0",
+        )
+    )
+    if measurement_path == "primary" and expectation == "applied":
+        steady_applied_frames = on["appliedFrames"] - on["warmupFrames"]
+        gates.extend(
+            (
+                _gate(
+                    "dirty-present-primary-coverage",
+                    steady_applied_frames > 0
+                    and on["dirtyPresentFrames"] == steady_applied_frames,
+                    {
+                        "dirtyFrames": on["dirtyPresentFrames"],
+                        "steadyAppliedFrames": steady_applied_frames,
+                    },
+                    "dirty Present frames equal applied minus warmup frames and are positive",
+                ),
+                _gate(
+                    "dirty-present-primary-pixels",
+                    on["dirtyPresentPixels"] > 0,
+                    on["dirtyPresentPixels"],
+                    "> 0",
+                ),
+            )
+        )
+    else:
+        gates.append(
+            _gate(
+                "dirty-present-not-applicable",
+                on["dirtyPresentFrames"] == 0
+                and on["dirtyPresentPixels"] == 0,
+                {
+                    "frames": on["dirtyPresentFrames"],
+                    "pixels": on["dirtyPresentPixels"],
+                },
+                "ROI-on dirty Present frames and pixels equal 0 for this path",
+            )
+        )
     if expectation == "fallback":
         gates.extend(
             (
@@ -1203,7 +1307,13 @@ def build_report(root: Path) -> dict[str, Any]:
     roi_off = _aggregate([run for run in runs if not run["roiEnabled"]])
     roi_on = _aggregate([run for run in runs if run["roiEnabled"]])
     paired = _paired_results(runs)
-    gates = _build_gates(roi_off, roi_on, paired, expectation)
+    gates = _build_gates(
+        roi_off,
+        roi_on,
+        paired,
+        expectation,
+        measurement_path,
+    )
     return {
         "schemaVersion": REPORT_SCHEMA_VERSION,
         "kind": REPORT_KIND,
@@ -1243,6 +1353,7 @@ def build_report(root: Path) -> dict[str, Any]:
         "limitations": [
             "Candidate coverage is planner output; drawn coverage is executed command coverage.",
             "Fallback pixel exactness is established by WARP tests, not inferred from timing logs.",
+            "Dirty Present counters prove path selection, not DWM-visible correctness or power savings.",
         ],
     }
 
@@ -1280,6 +1391,8 @@ def render_markdown(report: dict[str, Any]) -> str:
     on = report["roiOn"]
     for label, key in (
         ("Applied/requested", "appliedRequestedRatio"),
+        ("Dirty Present frames", "dirtyPresentFrames"),
+        ("Dirty Present pixels", "dirtyPresentPixels"),
         ("Prefilter candidate/full", "prefilterCandidateFullRatio"),
         ("Prefilter drawn/full", "prefilterDrawnFullRatio"),
         ("Prefilter p95 (us)", "prefilterP95Us"),

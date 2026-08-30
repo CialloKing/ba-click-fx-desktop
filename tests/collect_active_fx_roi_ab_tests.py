@@ -648,6 +648,93 @@ finally
         ):
             self.assertIn(token, self.source)
 
+    def test_dirty_present_interval_contract_fails_closed(self) -> None:
+        self.run_function_test(
+            (
+                "Get-RequiredEventString",
+                "Get-RequiredEventInteger",
+                "Confirm-DirtyPresentIntervalContract",
+            ),
+            r"""
+function Confirm-Rejected
+{
+    param(
+        [Collections.IDictionary]$Event,
+        [string]$MeasurementPath,
+        [bool]$RoiEnabled,
+        [string]$ExpectedDecisionReason,
+        [string]$ExpectedMessage)
+    try
+    {
+        Confirm-DirtyPresentIntervalContract `
+            -Event $Event `
+            -MeasurementPath $MeasurementPath `
+            -RoiEnabled $RoiEnabled `
+            -ExpectedDecisionReason $ExpectedDecisionReason `
+            -Context 'fixture'
+    }
+    catch
+    {
+        if ($_.Exception.Message -notlike "*$ExpectedMessage*")
+        {
+            throw "unexpected dirty Present error: $($_.Exception.Message)"
+        }
+        return
+    }
+    throw "dirty Present drift unexpectedly accepted: $ExpectedMessage"
+}
+
+$off = [ordered]@{
+    'ROI.FinalCompositePath' = 'full-screen'
+    'ROI.Present.DirtyFrames' = '0'
+    'ROI.Present.DirtyPixels.Total' = '0'
+}
+Confirm-DirtyPresentIntervalContract `
+    -Event $off `
+    -MeasurementPath 'primary' `
+    -RoiEnabled $false `
+    -ExpectedDecisionReason 'applied' `
+    -Context 'off'
+
+$on = [ordered]@{
+    'ROI.FinalCompositePath' = 'dirty-present-verified-resolve-scissor-with-full-screen-fallback'
+    'ROI.Present.DirtyFrames' = '9'
+    'ROI.Present.DirtyPixels.Total' = '900'
+    'ROI.Primary.AppliedFrames' = '10'
+    'ROI.Primary.WarmupFrames' = '1'
+}
+Confirm-DirtyPresentIntervalContract `
+    -Event $on `
+    -MeasurementPath 'primary' `
+    -RoiEnabled $true `
+    -ExpectedDecisionReason 'applied' `
+    -Context 'on'
+
+$on['ROI.Present.DirtyFrames'] = '8'
+Confirm-Rejected $on 'primary' $true 'applied' 'do not match'
+$on['ROI.Present.DirtyFrames'] = '9'
+$on['ROI.Present.DirtyPixels.Total'] = '0'
+Confirm-Rejected $on 'primary' $true 'applied' 'must be positive'
+$on['ROI.Present.DirtyPixels.Total'] = '900'
+$on['ROI.FinalCompositePath'] = 'full-clear-verified-resolve-scissor-with-full-screen-fallback'
+Confirm-Rejected $on 'primary' $true 'applied' 'path mismatch'
+
+$recording = [ordered]@{
+    'ROI.FinalCompositePath' = 'dirty-present-verified-resolve-scissor-with-full-screen-fallback'
+    'ROI.Present.DirtyFrames' = '0'
+    'ROI.Present.DirtyPixels.Total' = '0'
+}
+Confirm-DirtyPresentIntervalContract `
+    -Event $recording `
+    -MeasurementPath 'recording-rebuild' `
+    -RoiEnabled $true `
+    -ExpectedDecisionReason 'applied' `
+    -Context 'recording'
+$recording['ROI.Present.DirtyFrames'] = '1'
+Confirm-Rejected $recording 'recording-rebuild' $true 'applied' 'unexpectedly used'
+""",
+        )
+
     def test_diagnostic_intervals_fail_closed_on_causal_timing_drift(self) -> None:
         for token in (
             "function Confirm-CausalMetricContract",

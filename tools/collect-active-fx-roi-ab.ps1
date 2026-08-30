@@ -1518,6 +1518,88 @@ function Stop-NvidiaTelemetry
     }
 }
 
+function Confirm-DirtyPresentIntervalContract
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [Collections.IDictionary]$Event,
+
+        [Parameter(Mandatory = $true)]
+        [ValidateSet('primary', 'recording-rebuild')]
+        [string]$MeasurementPath,
+
+        [Parameter(Mandatory = $true)]
+        [bool]$RoiEnabled,
+
+        [Parameter(Mandatory = $true)]
+        [string]$ExpectedDecisionReason,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Context
+    )
+
+    $finalCompositePath = Get-RequiredEventString `
+        -Event $Event `
+        -Name 'ROI.FinalCompositePath' `
+        -Context $Context
+    $expectedFinalCompositePath = if ($RoiEnabled)
+    {
+        'dirty-present-verified-resolve-scissor-with-full-screen-fallback'
+    }
+    else
+    {
+        'full-screen'
+    }
+    if ($finalCompositePath -cne $expectedFinalCompositePath)
+    {
+        throw "$Context ROI final composite path mismatch"
+    }
+
+    $dirtyPresentFrames = Get-RequiredEventInteger `
+        -Event $Event `
+        -Name 'ROI.Present.DirtyFrames' `
+        -Context $Context
+    $dirtyPresentPixels = Get-RequiredEventInteger `
+        -Event $Event `
+        -Name 'ROI.Present.DirtyPixels.Total' `
+        -Context $Context
+    if ($dirtyPresentFrames -lt 0 -or $dirtyPresentPixels -lt 0)
+    {
+        throw "$Context ROI dirty Present counters must be non-negative"
+    }
+
+    $expectsDirtyPresent = $RoiEnabled -and
+        $MeasurementPath -eq 'primary' -and
+        $ExpectedDecisionReason -eq 'applied'
+    if ($expectsDirtyPresent)
+    {
+        $appliedFrames = Get-RequiredEventInteger `
+            -Event $Event `
+            -Name 'ROI.Primary.AppliedFrames' `
+            -Context $Context
+        $warmupFrames = Get-RequiredEventInteger `
+            -Event $Event `
+            -Name 'ROI.Primary.WarmupFrames' `
+            -Context $Context
+        $expectedDirtyFrames = $appliedFrames - $warmupFrames
+        if ($expectedDirtyFrames -le 0 -or
+            $dirtyPresentFrames -ne $expectedDirtyFrames)
+        {
+            throw "$Context ROI dirty Present frames do not match steady primary applied frames"
+        }
+        if ($dirtyPresentPixels -le 0)
+        {
+            throw "$Context ROI dirty Present pixels must be positive"
+        }
+        return
+    }
+
+    if ($dirtyPresentFrames -ne 0 -or $dirtyPresentPixels -ne 0)
+    {
+        throw "$Context unexpectedly used ROI dirty Present"
+    }
+}
+
 function Confirm-RunLogContract
 {
     param(
@@ -1527,6 +1609,12 @@ function Confirm-RunLogContract
         [Parameter(Mandatory = $true)]
         [ValidateSet('primary', 'recording-rebuild')]
         [string]$MeasurementPath,
+
+        [Parameter(Mandatory = $true)]
+        [bool]$RoiEnabled,
+
+        [Parameter(Mandatory = $true)]
+        [string]$ExpectedDecisionReason,
 
         [Parameter(Mandatory = $true)]
         [bool]$RequireCausalTiming
@@ -1616,6 +1704,12 @@ function Confirm-RunLogContract
         {
             throw "$context ROI observed frames do not match Window.FrameCount"
         }
+        Confirm-DirtyPresentIntervalContract `
+            -Event $interval `
+            -MeasurementPath $MeasurementPath `
+            -RoiEnabled $RoiEnabled `
+            -ExpectedDecisionReason $ExpectedDecisionReason `
+            -Context $context
     }
     $support = Get-OnlyStructuredEvent `
         -Blocks $blocks `
@@ -1689,6 +1783,9 @@ function Invoke-AbbaRun
 
         [Parameter(Mandatory = $true)]
         [string]$MeasurementPath,
+
+        [Parameter(Mandatory = $true)]
+        [string]$ExpectedDecisionReason,
 
         [Parameter(Mandatory = $true)]
         [int]$ReadyTimeoutMilliseconds,
@@ -1823,6 +1920,8 @@ function Invoke-AbbaRun
     $environmentIdentity = Confirm-RunLogContract `
         -Path $runLog `
         -MeasurementPath $MeasurementPath `
+        -RoiEnabled $RoiEnabled `
+        -ExpectedDecisionReason $ExpectedDecisionReason `
         -RequireCausalTiming $DiagnosticMode
     $copiedExecutableSha256 = (
         Get-FileHash -LiteralPath $runExecutable -Algorithm SHA256
@@ -2215,6 +2314,7 @@ try
                 -CaptureRoot $outputRoot `
                 -Scenario $Scenario `
                 -MeasurementPath $MeasurementPath `
+                -ExpectedDecisionReason $ExpectedDecisionReason `
                 -ReadyTimeoutMilliseconds $ReadyTimeoutMilliseconds `
                 -ProcessTimeoutMilliseconds $ProcessTimeoutMilliseconds `
                 -DiagnosticMode $diagnosticMode `

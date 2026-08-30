@@ -969,7 +969,13 @@ def _validate_run(
     RELEASE._require_same_environment_identity(
         environment_identity, actual_environment, context
     )
-    intervals = RELEASE._intervals(events, log_path, roi_enabled, measurement_path)
+    intervals = RELEASE._intervals(
+        events,
+        log_path,
+        roi_enabled,
+        measurement_path,
+        expected_reason,
+    )
     metrics = RELEASE._run_metrics(
         intervals, measurement_path, expected_reason, context
     )

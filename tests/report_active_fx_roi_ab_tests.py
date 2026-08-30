@@ -166,7 +166,8 @@ class CaptureFixture:
             pyramid_drawn_pixels = 40_000
             resolve_full_pixels = 100_000
             resolve_candidate_pixels = 40_000
-            resolve_drawn_pixels = 100_000
+            resolve_drawn_pixels = 40_000
+            resolve_cleared_pixels = 40_000
             reason_frames = observed
             prefilter = 250
             pyramid = 210
@@ -183,6 +184,7 @@ class CaptureFixture:
             resolve_full_pixels = 100_000
             resolve_candidate_pixels = 100_000
             resolve_drawn_pixels = 100_000
+            resolve_cleared_pixels = 0
             reason_frames = observed
             prefilter = 400
             pyramid = 300
@@ -199,6 +201,7 @@ class CaptureFixture:
             resolve_full_pixels = 100_000
             resolve_candidate_pixels = 100_000
             resolve_drawn_pixels = 100_000
+            resolve_cleared_pixels = 0
             reason_frames = 0
             prefilter = 400
             pyramid = 300
@@ -214,7 +217,11 @@ class CaptureFixture:
         drawn_pixels = (
             prefilter_drawn_pixels + pyramid_drawn_pixels + resolve_drawn_pixels
         )
-        cleared_pixels = prefilter_drawn_pixels + pyramid_drawn_pixels
+        cleared_pixels = (
+            prefilter_drawn_pixels
+            + pyramid_drawn_pixels
+            + resolve_cleared_pixels
+        )
         roi_prefix = (
             "ROI.Primary"
             if self.measurement_path == "primary"
@@ -241,6 +248,25 @@ class CaptureFixture:
                 if roi_enabled
                 else "disabled-full-screen"
             ),
+            "ROI.FinalCompositePath": (
+                "dirty-present-verified-resolve-scissor-with-full-screen-fallback"
+                if roi_enabled
+                else "full-screen"
+            ),
+            "ROI.Present.DirtyFrames": (
+                applied
+                if roi_enabled
+                and self.expectation == "applied"
+                and self.measurement_path == "primary"
+                else 0
+            ),
+            "ROI.Present.DirtyPixels.Total": (
+                40_000
+                if roi_enabled
+                and self.expectation == "applied"
+                and self.measurement_path == "primary"
+                else 0
+            ),
             f"{roi_prefix}.ObservedFrames": observed,
             f"{roi_prefix}.RequestedFrames": requested,
             f"{roi_prefix}.EligibleFrames": applied,
@@ -265,7 +291,7 @@ class CaptureFixture:
             f"{roi_prefix}.Stage.Resolve.FullPixels.Total": resolve_full_pixels,
             f"{roi_prefix}.Stage.Resolve.CandidatePixels.Total": resolve_candidate_pixels,
             f"{roi_prefix}.Stage.Resolve.DrawnPixels.Total": resolve_drawn_pixels,
-            f"{roi_prefix}.Stage.Resolve.ClearedPixels.Total": 0,
+            f"{roi_prefix}.Stage.Resolve.ClearedPixels.Total": resolve_cleared_pixels,
             reason_field: reason_frames,
             f"{gpu_prefix}.Prefilter.P95": prefilter,
             f"{gpu_prefix}.Pyramid.P95": pyramid,
@@ -439,8 +465,21 @@ class ActiveFxRoiAbReporterTests(unittest.TestCase):
                 report["roiOn"]["prefilterDrawnFullRatio"], 0.4
             )
             self.assertAlmostEqual(report["roiOn"]["pyramidDrawnFullRatio"], 0.4)
+            self.assertEqual(report["schemaVersion"], 3)
+            self.assertEqual(report["roiOff"]["dirtyPresentFrames"], 0)
+            self.assertEqual(report["roiOff"]["dirtyPresentPixels"], 0)
+            self.assertEqual(report["roiOn"]["dirtyPresentFrames"], 28_800)
+            self.assertEqual(report["roiOn"]["dirtyPresentPixels"], 1_200_000)
+            self.assertTrue(
+                all(
+                    gate["passed"]
+                    for gate in report["gates"]
+                    if gate["id"].startswith("dirty-present-")
+                )
+            )
             markdown = REPORTER.render_markdown(report)
             self.assertIn("Bloom/final p95", markdown)
+            self.assertIn("Dirty Present frames", markdown)
             self.assertIn("NVIDIA GeForce RTX 4060 Laptop GPU", markdown)
             self.assertEqual(report["captureSchemaVersion"], 3)
             self.assertEqual(
@@ -577,6 +616,15 @@ class ActiveFxRoiAbReporterTests(unittest.TestCase):
             fixture = CaptureFixture(Path(temporary), measurement_path="recording-rebuild")
             report = REPORTER.build_report(fixture.root)
             self.assertTrue(report["passed"])
+            self.assertEqual(report["roiOff"]["dirtyPresentFrames"], 0)
+            self.assertEqual(report["roiOn"]["dirtyPresentFrames"], 0)
+            self.assertTrue(
+                next(
+                    gate
+                    for gate in report["gates"]
+                    if gate["id"] == "dirty-present-not-applicable"
+                )["passed"]
+            )
 
             fixture.manifest["runs"][0]["arguments"].remove("--spout2")
             fixture.write_manifest()
@@ -705,6 +753,32 @@ class ActiveFxRoiAbReporterTests(unittest.TestCase):
                         "Window.FrameCount",
                     ):
                         REPORTER.build_report(fixture.root)
+
+    def test_rejects_selected_interval_dirty_present_drift(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = CaptureFixture(Path(temporary))
+            fixture.interval_overrides[(2, 2)] = {
+                "ROI.Present.DirtyFrames": 959,
+            }
+            fixture.rewrite_logs()
+            with self.assertRaisesRegex(
+                REPORTER.ValidationError,
+                "dirty Present frames do not match steady primary applied frames",
+            ):
+                REPORTER.build_report(fixture.root)
+
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = CaptureFixture(Path(temporary), measurement_path="recording-rebuild")
+            fixture.interval_overrides[(2, 2)] = {
+                "ROI.Present.DirtyFrames": 1,
+                "ROI.Present.DirtyPixels.Total": 40_000,
+            }
+            fixture.rewrite_logs()
+            with self.assertRaisesRegex(
+                REPORTER.ValidationError,
+                "unexpectedly used ROI dirty Present",
+            ):
+                REPORTER.build_report(fixture.root)
 
     def test_rejects_capture_with_power_unavailable_event(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
