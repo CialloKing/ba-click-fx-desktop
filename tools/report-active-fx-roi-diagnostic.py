@@ -16,8 +16,8 @@ from types import ModuleType
 from typing import Any
 
 
-CAPTURE_SCHEMA_VERSION = 2
-REPORT_SCHEMA_VERSION = 5
+CAPTURE_SCHEMA_VERSION = 3
+REPORT_SCHEMA_VERSION = 6
 CAPTURE_KIND = "bafx-active-fx-roi-diagnostic-capture"
 REPORT_KIND = "bafx-active-fx-roi-diagnostic-report"
 DIAGNOSTIC_NOTICE = "NON-RELEASE: short matrix for causal investigation only"
@@ -272,7 +272,7 @@ def _validate_manifest(
         RELEASE._integer(manifest["schemaVersion"], "manifest.schemaVersion")
         != CAPTURE_SCHEMA_VERSION
     ):
-        raise ValidationError("manifest.schemaVersion must be 2")
+        raise ValidationError("manifest.schemaVersion must be 3")
     if manifest["kind"] != CAPTURE_KIND:
         raise ValidationError(f"manifest.kind must be {CAPTURE_KIND}")
     if manifest["captureStatus"] != "diagnostic-captured":

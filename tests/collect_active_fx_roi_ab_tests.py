@@ -109,7 +109,7 @@ Invoke-Expression $env:BAFX_TEST_BODY
 
     def test_encodes_the_fixed_abba_timing_and_identity_contract(self) -> None:
         for token in (
-            "$manifestSchemaVersion = 3",
+            "$manifestSchemaVersion = 4",
             "$configSchemaVersion = 19",
             "$environmentContract = 'rtx-4060-4k170-sdr-v1'",
             "$requiredAdapterNameFragment = 'RTX 4060'",
@@ -139,7 +139,7 @@ Invoke-Expression $env:BAFX_TEST_BODY
 
     def test_keeps_the_default_release_manifest_and_matrix_unchanged(self) -> None:
         for token in (
-            "$manifestSchemaVersion = 3",
+            "$manifestSchemaVersion = 4",
             "$blockCount = 5",
             "$runCount = 20",
             "'bafx-active-fx-roi-ab-capture'",
@@ -157,7 +157,7 @@ Invoke-Expression $env:BAFX_TEST_BODY
     def test_marks_the_two_block_matrix_as_non_release_diagnostic_evidence(self) -> None:
         for token in (
             "[ValidateSet(0, 2)]",
-            "$diagnosticManifestSchemaVersion = 2",
+            "$diagnosticManifestSchemaVersion = 3",
             "$diagnosticBlockCount = 2",
             "$diagnosticRunCount = 8",
             "'bafx-active-fx-roi-diagnostic-capture'",
@@ -653,6 +653,7 @@ finally
             (
                 "Get-RequiredEventString",
                 "Get-RequiredEventInteger",
+                "Get-RequiredEventInt64",
                 "Confirm-DirtyPresentIntervalContract",
             ),
             r"""
@@ -699,7 +700,7 @@ Confirm-DirtyPresentIntervalContract `
 $on = [ordered]@{
     'ROI.FinalCompositePath' = 'dirty-present-verified-resolve-scissor-with-full-screen-fallback'
     'ROI.Present.DirtyFrames' = '9'
-    'ROI.Present.DirtyPixels.Total' = '900'
+    'ROI.Present.DirtyPixels.Total' = '4294967296'
     'ROI.Primary.AppliedFrames' = '10'
     'ROI.Primary.WarmupFrames' = '1'
 }
@@ -715,7 +716,7 @@ Confirm-Rejected $on 'primary' $true 'applied' 'do not match'
 $on['ROI.Present.DirtyFrames'] = '9'
 $on['ROI.Present.DirtyPixels.Total'] = '0'
 Confirm-Rejected $on 'primary' $true 'applied' 'must be positive'
-$on['ROI.Present.DirtyPixels.Total'] = '900'
+$on['ROI.Present.DirtyPixels.Total'] = '4294967296'
 $on['ROI.FinalCompositePath'] = 'full-clear-verified-resolve-scissor-with-full-screen-fallback'
 Confirm-Rejected $on 'primary' $true 'applied' 'path mismatch'
 

@@ -89,7 +89,7 @@ class CaptureFixture:
             json.dumps(self.base_config, indent=2) + "\n", encoding="utf-8"
         )
         self.manifest = {
-            "schemaVersion": 3,
+            "schemaVersion": 4,
             "kind": "bafx-active-fx-roi-ab-capture",
             "captureStatus": "captured",
             "revision": "a" * 40,
@@ -481,7 +481,7 @@ class ActiveFxRoiAbReporterTests(unittest.TestCase):
             self.assertIn("Bloom/final p95", markdown)
             self.assertIn("Dirty Present frames", markdown)
             self.assertIn("NVIDIA GeForce RTX 4060 Laptop GPU", markdown)
-            self.assertEqual(report["captureSchemaVersion"], 3)
+            self.assertEqual(report["captureSchemaVersion"], 4)
             self.assertEqual(
                 report["environment"]["identity"], fixture.environment_identity
             )
@@ -498,9 +498,9 @@ class ActiveFxRoiAbReporterTests(unittest.TestCase):
                 self.assertTrue(report["passed"])
                 self.assertEqual(report["scenario"]["id"], scenario_id)
 
-    def test_manifest_environment_is_strict_and_schema_1_is_rejected(self) -> None:
+    def test_manifest_environment_is_strict_and_legacy_schema_is_rejected(self) -> None:
         mutations = (
-            ("old schema", lambda fixture: fixture.manifest.__setitem__("schemaVersion", 2), "schemaVersion must be 3"),
+            ("old schema", lambda fixture: fixture.manifest.__setitem__("schemaVersion", 3), "schemaVersion must be 4"),
             (
                 "wrong contract",
                 lambda fixture: fixture.manifest["environment"].__setitem__(

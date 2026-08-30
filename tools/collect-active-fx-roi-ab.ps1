@@ -49,8 +49,8 @@ $hostName = 'ba-click-fx-desktop.exe'
 $configName = 'BAFX.config.json'
 $logName = 'ba-click-fx-desktop-support.log'
 $manifestName = 'capture.json'
-$manifestSchemaVersion = 3
-$diagnosticManifestSchemaVersion = 2
+$manifestSchemaVersion = 4
+$diagnosticManifestSchemaVersion = 3
 $configSchemaVersion = 19
 $environmentContract = 'rtx-4060-4k170-sdr-v1'
 $requiredAdapterNameFragment = 'RTX 4060'
@@ -620,6 +620,31 @@ function Get-RequiredEventInteger
     if (-not [int]::TryParse($text, [ref]$value))
     {
         throw "$Context field $Name must be an integer"
+    }
+    return $value
+}
+
+function Get-RequiredEventInt64
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [Collections.IDictionary]$Event,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Name,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Context
+    )
+
+    $text = Get-RequiredEventString `
+        -Event $Event `
+        -Name $Name `
+        -Context $Context
+    $value = 0L
+    if (-not [long]::TryParse($text, [ref]$value))
+    {
+        throw "$Context field $Name must be a 64-bit integer"
     }
     return $value
 }
@@ -1559,7 +1584,7 @@ function Confirm-DirtyPresentIntervalContract
         -Event $Event `
         -Name 'ROI.Present.DirtyFrames' `
         -Context $Context
-    $dirtyPresentPixels = Get-RequiredEventInteger `
+    $dirtyPresentPixels = Get-RequiredEventInt64 `
         -Event $Event `
         -Name 'ROI.Present.DirtyPixels.Total' `
         -Context $Context

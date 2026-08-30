@@ -201,7 +201,7 @@ def _causal_timing_fields(
 
 def _diagnostic_fixture(root: Path, telemetry_enabled: bool = True) -> object:
     fixture = FIXTURE_MODULE.CaptureFixture(root)
-    fixture.manifest["schemaVersion"] = 2
+    fixture.manifest["schemaVersion"] = 3
     fixture.manifest["kind"] = "bafx-active-fx-roi-diagnostic-capture"
     fixture.manifest["captureStatus"] = "diagnostic-captured"
     fixture.manifest["releaseEligible"] = False
@@ -343,8 +343,8 @@ class ActiveFxRoiDiagnosticReporterTests(unittest.TestCase):
             fixture = _diagnostic_fixture(Path(temporary))
             report = REPORTER.build_report(fixture.root)
 
-            self.assertEqual(report["schemaVersion"], 5)
-            self.assertEqual(report["captureSchemaVersion"], 2)
+            self.assertEqual(report["schemaVersion"], 6)
+            self.assertEqual(report["captureSchemaVersion"], 3)
             self.assertFalse(report["releaseEligible"])
             self.assertEqual(report["schedule"]["pattern"], "ABBA+BAAB")
             self.assertEqual(
@@ -595,12 +595,12 @@ class ActiveFxRoiDiagnosticReporterTests(unittest.TestCase):
             with self.assertRaises(REPORTER.ValidationError):
                 REPORTER.RELEASE.build_report(fixture.root)
 
-    def test_release_schema_three_fixture_remains_readable_without_causal_timing(self) -> None:
+    def test_release_schema_four_fixture_remains_readable_without_causal_timing(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             fixture = FIXTURE_MODULE.CaptureFixture(Path(temporary))
             report = FIXTURE_MODULE.REPORTER.build_report(fixture.root)
 
-            self.assertEqual(report["captureSchemaVersion"], 3)
+            self.assertEqual(report["captureSchemaVersion"], 4)
             log = fixture.root / fixture.manifest["runs"][0]["log"]
             self.assertNotIn("Cpu.PrePresent", log.read_text(encoding="utf-8"))
 
@@ -774,13 +774,13 @@ class ActiveFxRoiDiagnosticReporterTests(unittest.TestCase):
                 with self.assertRaisesRegex(REPORTER.ValidationError, message):
                     REPORTER.build_report(fixture.root)
 
-    def test_rejects_legacy_diagnostic_schema_one(self) -> None:
+    def test_rejects_legacy_diagnostic_schema_two(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             fixture = _diagnostic_fixture(Path(temporary))
-            fixture.manifest["schemaVersion"] = 1
+            fixture.manifest["schemaVersion"] = 2
             fixture.write_manifest()
 
-            with self.assertRaisesRegex(REPORTER.ValidationError, "must be 2"):
+            with self.assertRaisesRegex(REPORTER.ValidationError, "must be 3"):
                 REPORTER.build_report(fixture.root)
 
     def test_requires_the_baab_order_and_tail_metric(self) -> None:

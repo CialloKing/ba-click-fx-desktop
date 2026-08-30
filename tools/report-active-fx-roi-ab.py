@@ -15,7 +15,7 @@ import sys
 from typing import Any
 
 
-MANIFEST_SCHEMA_VERSION = 3
+MANIFEST_SCHEMA_VERSION = 4
 REPORT_SCHEMA_VERSION = 3
 CAPTURE_KIND = "bafx-active-fx-roi-ab-capture"
 REPORT_KIND = "bafx-active-fx-roi-ab-report"
