@@ -29,20 +29,32 @@ prefilter/downsample/upsample/resolve 链生成逐 pass 矩形。规划器在原
 schema 19 保留默认关闭的 `performance.activeFxRoiEnabled`。启用后，纯特效路径会在真实 Bloom 目标上
 scissor 绘制 prefilter 和每级 down/up。每个目标共享一份初始化、上一写入矩形、全屏写入和最后 writer
 状态；首次进入或全屏写入后完整清理，稳态只有在 Context1 和驱动 `ClearView` capability 都有效时才用
-`ClearView` 清理发生变化的旧区；同一 writer 连续覆盖相同矩形时直接跳过冗余清理。resolve 与最终场景
-合成仍融合为全屏 draw，shader 在 `resolveRect` 外返回精确零 Bloom；WGC、Spout2 格式转换、交换链和
-Present 继续全屏。
+`ClearView` 清理发生变化的旧区；同一 writer 连续覆盖相同矩形时直接跳过冗余清理。
+
+交换链表面的局部写入与 dirty Present 受更严格的合同限制：只有 pure-FX primary 的实际路径为
+`RoiPyramid`、决策为 `Applied`、帧非 warmup，且 renderer 已将最终目标的清理和 draw 都限定在同一 `resolveRect`
+并标记为已验证局部输出时，才允许 `Present1` 声明该 dirty rect。Present 选择器会再检查计划、
+矩形边界与 resolve candidate/drawn/cleared 像素一致性。warmup、background-aware/Differential Bloom、
+WGC 相关路径、任何 fallback 与普通调用者仍完整清理、完整输出并使用全屏 Present。
+recording-rebuild 和 Spout2 输出目标始终建立完整表面，不借用交换链的 dirty-present 保证；
+同帧 pure-FX primary 只在独立满足上述合同时可以局部提交交换链目标。
 
 pass 计划、Context1/ClearView、资源身份、相位或状态任一无效时，当前帧整条 Bloom 回退规范全屏路径，
 不允许局部与全屏 pass 混用。primary 与 recording-rebuild 分别记账，但按真实物理资源共享写入状态。
+一旦最终目标已局部写入，dirty rect 选择失败或 `Present1` 失败都不得再回退全屏 Present；
+必须重置 ROI 写入状态，不提交未成功显示帧的可见边界，并让下次尝试通过完整清理、完整输出和
+全屏 Present 重建。
 WARP 已覆盖随机/边角规划、点击、拖尾、移动 dirty rect、奇数尺寸、负 scRGB、HDR 极值、Spout2
-recording target、空帧重启和 Context1/ClearView 缺失，并要求同适配器 FP16 精确一致。RTX 4060 的
-0.2.7 清理省略修复后 ABBA 已复验，GPU command p99 已改善并通过，但 CPU frame 与 Present p95/p99
-仍超过门槛；其他硬件矩阵仍未执行。因此本 ADR 继续保持 Proposed，开关继续默认关闭。
+recording target、空帧重启和 Context1/ClearView 缺失，并要求同适配器 FP16 精确一致；它只证明
+D3D 输出表面合同。dirty-Present 帧/像素遥测也只证明生产路径选择，两者都不等于 DWM 可见正确性、
+真实功耗收益或跨硬件支持。旧 schema 的 RTX 4060、4K 170 Hz ABBA 继续按生成时合同保留为 `FAIL`；
+当前 schema 4 将重叠观察同一次同步阻塞的 CPU frame 与 Present percentile 保留为非阻塞 advisory，
+但新的同规格正式硬件晋级矩阵仍为 `Not Run`。因此本 ADR 继续保持 Proposed，开关继续默认关闭。
 
 ## Acceptance
 
 - RTX 4060、4K 170 Hz、SDR 的预注册 ABBA 性能与稳定性门槛。
+- 实机 DWM 的静态与移动 dirty rect 像素验收，包括失败后的完整重建。
 - AMD、Intel、HDR、Windows 11、多显示器和跨适配器的真实硬件矩阵。
 - 0.2.8 Differential Bloom ROI 的背景代次、白点、输出目标和资源恢复回退合同。
 - 测试 oracle 独立计算逐像素前向支持和反向依赖，避免与生产函数同错。

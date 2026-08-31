@@ -280,8 +280,10 @@ HDR active scene-referred scRGB 中可按约定使用 1.0 = 80 nits 的编码换
 0.2.7 将纯特效 Bloom 的 prefilter 和完整 down/up 金字塔局部化。规划器为每个 pass 产生目标本地的
 half-open 矩形，并保留全屏参考路径的 mip 数、UV、奇数尺寸、border mode 和 pixel-center phase。
 前向非零支持与反向贡献依赖相交，避免把只依赖旧 `basePlan.bloomOutput` 的保守诊断边界误作正确性边界。
-resolve 也有独立逻辑矩形，但它与最终场景合成融合为一次全屏 draw；shader 在矩形外把 Bloom 采样置为
-精确零。因此 resolve 的 `drawnPixels` 是全屏，`candidatePixels` 才是逻辑有效区，两者不得混用。
+resolve 也有独立逻辑矩形；它同时是稳态 pure-FX primary 最终输出唯一可声明的损伤范围。
+只有实际路径为 `RoiPyramid`、决策为 `Applied`、非 warmup，且 renderer 已验证局部最终输出时，
+交换链表面的清理与最终 draw 才共用该 `resolveRect` scissor，并由 `Present1` 提交同一 dirty rect。
+选择器还会重验证矩形边界以及 resolve 的 candidate/drawn/cleared 像素一致性；未通过时不得声明局部 Present。
 
 - 每个实际 down/up 目标维护 `initialized`、上一写入矩形、全屏写入状态和最后 writer。首次 ROI、全屏
   转 ROI、resize、设备恢复或资源重建使用完整清理并报告预热帧；稳态矩形移动或 writer 改变时通过
@@ -294,14 +296,20 @@ resolve 也有独立逻辑矩形，但它与最终场景合成融合为一次全
 - primary 与 recording-rebuild 分别维护诊断和自适应状态；Bloom 物理目标的清理与 writer 所有权只有
   一份。若 `background-aware` primary 已全屏写入共享目标，同帧录制重建必须按共享写入执行预热，不能
   误报稳态局部清理；
-- 默认 `background-aware` primary Differential Bloom、最终场景合成、WGC、Spout2 格式转换、交换链和
-  Present 保持全屏。Differential Bloom ROI 属于 0.2.8，不由完整金字塔 ROI 隐式启用。
+- background-aware/Differential Bloom、WGC 相关路径、warmup、任何 fallback 与普通调用者都保持完整输出
+  及全屏 `Present`。recording-rebuild 和 Spout2 输出目标始终先建立完整表面，不借用交换链的
+  dirty-present 保证；同帧 pure-FX primary 若独立满足上述合同，仅交换链目标可以局部提交。
+  Differential Bloom ROI 属于 0.2.8，不由完整金字塔 ROI 隐式启用；
+- 一旦最终目标已局部写入，dirty rect 选择失败或 `Present1` 失败都不得改用全屏 `Present`。
+  本次局部输出状态必须失效，且上一可见边界只在 Present 成功后提交；下次尝试从预热的
+  完整清理、完整输出和全屏 Present 重建。
 
 每个显示会话在渲染所有者侧维护 5 秒滚动窗，每 500 ms 构造脱离活跃渲染状态的不可变快照。IPC 只
 读取发布快照，不得在逐帧路径获取控制面 mutex。schema 4 分别公开 primary/recording-rebuild 的
 `roi-pyramid` 路径、原因、帧/像素、矩形、guard/phase，prefilter/downsample/upsample/resolve 的
 full/candidate/drawn/cleared 像素，以及 Prefilter/Pyramid/FinalComposite GPU p50/p95。像素比例是工作量
-诊断，不是 GPU 节省推导式。
+诊断，不是 GPU 节省推导式。dirty-Present 帧/像素遥测只证明生产路径选择，WARP 只证明
+D3D 输出表面合同；两者都不能单独证明 DWM 可见正确性、真实功耗收益或跨硬件支持。
 
 ## 10. 失败与降级
 
@@ -314,6 +322,7 @@ full/candidate/drawn/cleared 像素，以及 Prefilter/Pyramid/FinalComposite GP
 | Monitor 跨 Adapter | 在目标资源域重建，不隐式共享 |
 | Device removed/reset | 停止提交，销毁域内资源，重建后恢复 |
 | ROI 不满足相位/guard | 回退全屏路径 |
+| 局部最终输出后 dirty Present 失败 | 不执行全屏 Present；重置 ROI 状态，下帧完整重建 |
 | NaN/Inf | 在产生边界 sanitize，并增加诊断计数 |
 
 ## 11. 决策与验收
