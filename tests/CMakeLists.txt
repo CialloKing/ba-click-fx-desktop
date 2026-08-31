@@ -62,6 +62,12 @@ set_target_properties(bafx_reference_tests PROPERTIES FOLDER "Tests")
 
 find_package(Python3 COMPONENTS Interpreter QUIET)
 if(Python3_Interpreter_FOUND)
+    option(
+        BAFX_ENABLE_ROI_DIAGNOSTIC_TESTS
+        "Register non-release Active-FX ROI diagnostic contract tests"
+        OFF
+    )
+
     add_test(
         NAME host_render_loop_snapshot_contract
         COMMAND
@@ -142,20 +148,24 @@ if(Python3_Interpreter_FOUND)
             LABELS "desktop;gpu;roi;contract"
             TIMEOUT 15
     )
-    add_test(
-        NAME active_fx_roi_diagnostic_report_contract
-        COMMAND
-            "${Python3_EXECUTABLE}"
-            -B
-            "${CMAKE_CURRENT_SOURCE_DIR}/report_active_fx_roi_diagnostic_tests.py"
-    )
-    set_tests_properties(
-        active_fx_roi_diagnostic_report_contract
-        PROPERTIES
-            WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
-            LABELS "desktop;gpu;roi;contract"
-            TIMEOUT 15
-    )
+    if(BAFX_ENABLE_ROI_DIAGNOSTIC_TESTS)
+        # This suite protects an investigation-only telemetry envelope, not the
+        # release report. Keep it available without extending every release gate.
+        add_test(
+            NAME active_fx_roi_diagnostic_report_contract
+            COMMAND
+                "${Python3_EXECUTABLE}"
+                -B
+                "${CMAKE_CURRENT_SOURCE_DIR}/report_active_fx_roi_diagnostic_tests.py"
+        )
+        set_tests_properties(
+            active_fx_roi_diagnostic_report_contract
+            PROPERTIES
+                WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
+                LABELS "desktop;gpu;roi;diagnostic"
+                TIMEOUT 15
+        )
+    endif()
     if(WIN32 AND BAFX_POWERSHELL_EXECUTABLE)
         add_test(
             NAME active_fx_roi_ab_collector_contract
