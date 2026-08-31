@@ -465,7 +465,7 @@ class ActiveFxRoiAbReporterTests(unittest.TestCase):
                 report["roiOn"]["prefilterDrawnFullRatio"], 0.4
             )
             self.assertAlmostEqual(report["roiOn"]["pyramidDrawnFullRatio"], 0.4)
-            self.assertEqual(report["schemaVersion"], 3)
+            self.assertEqual(report["schemaVersion"], 4)
             self.assertEqual(report["roiOff"]["dirtyPresentFrames"], 0)
             self.assertEqual(report["roiOff"]["dirtyPresentPixels"], 0)
             self.assertEqual(report["roiOn"]["dirtyPresentFrames"], 28_800)
@@ -475,6 +475,18 @@ class ActiveFxRoiAbReporterTests(unittest.TestCase):
                     gate["passed"]
                     for gate in report["gates"]
                     if gate["id"].startswith("dirty-present-")
+                )
+            )
+            self.assertTrue(
+                all(item["status"] == "ok" for item in report["advisories"])
+            )
+            self.assertFalse(
+                any("cpu" in gate["id"].lower() for gate in report["gates"])
+            )
+            self.assertTrue(
+                any(
+                    gate["id"] == "gpuCommandP99Us-regression"
+                    for gate in report["gates"]
                 )
             )
             markdown = REPORTER.render_markdown(report)
@@ -810,6 +822,44 @@ class ActiveFxRoiAbReporterTests(unittest.TestCase):
             self.assertIn("paired-roi-not-slower", failed)
             self.assertEqual(report["paired"]["roiNotSlowerCount"], 7)
 
+    def test_cpu_timing_is_advisory_but_gpu_command_remains_blocking(self) -> None:
+        roi_on_ordinals = (2, 3, 6, 7, 10, 11, 14, 15, 18, 19)
+        cpu_regression = {
+            "Cpu.FrameTotal.P95": 1800,
+            "Cpu.FrameTotal.P99": 2000,
+            "Cpu.PresentCall.P95": 360,
+            "Cpu.PresentCall.P99": 400,
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = CaptureFixture(Path(temporary))
+            for ordinal in roi_on_ordinals:
+                fixture.overrides[ordinal] = dict(cpu_regression)
+            fixture.rewrite_logs()
+            report = REPORTER.build_report(fixture.root)
+
+            self.assertTrue(report["passed"])
+            self.assertTrue(
+                all(item["status"] == "warning" for item in report["advisories"])
+            )
+            markdown = REPORTER.render_markdown(report)
+            self.assertIn("Advisories (non-blocking)", markdown)
+            self.assertIn("`WARN` cpuPresentP99Us-regression", markdown)
+
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = CaptureFixture(Path(temporary))
+            for ordinal in roi_on_ordinals:
+                fixture.overrides[ordinal] = {
+                    "GPU.RenderCommandSpan.P99": 2600,
+                }
+            fixture.rewrite_logs()
+            report = REPORTER.build_report(fixture.root)
+
+            self.assertFalse(report["passed"])
+            self.assertIn(
+                "gpuCommandP99Us-regression",
+                {gate["id"] for gate in report["gates"] if not gate["passed"]},
+            )
+
     def test_rejects_aggregate_and_stage_pixel_total_drift(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             fixture = CaptureFixture(Path(temporary))
@@ -827,6 +877,12 @@ class ActiveFxRoiAbReporterTests(unittest.TestCase):
             fixture = CaptureFixture(Path(temporary), expectation="fallback")
             report = REPORTER.build_report(fixture.root)
             self.assertTrue(report["passed"])
+            self.assertTrue(
+                all(item["status"] == "ok" for item in report["advisories"])
+            )
+            self.assertFalse(
+                any("cpu" in gate["id"].lower() for gate in report["gates"])
+            )
 
             fixture.overrides[2] = {
                 "ROI.Primary.Reason.background-differential-bloom.Frames": 999

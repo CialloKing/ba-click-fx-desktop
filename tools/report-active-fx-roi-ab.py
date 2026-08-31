@@ -16,7 +16,7 @@ from typing import Any
 
 
 MANIFEST_SCHEMA_VERSION = 4
-REPORT_SCHEMA_VERSION = 3
+REPORT_SCHEMA_VERSION = 4
 CAPTURE_KIND = "bafx-active-fx-roi-ab-capture"
 REPORT_KIND = "bafx-active-fx-roi-ab-report"
 ENVIRONMENT_CONTRACT = "rtx-4060-4k170-sdr-v1"
@@ -1061,6 +1061,21 @@ def _gate(identifier: str, passed: bool, actual: Any, required: str) -> dict[str
     }
 
 
+def _advisory(
+    identifier: str,
+    within_threshold: bool,
+    actual: Any,
+    threshold: str,
+) -> dict[str, Any]:
+    return {
+        "id": identifier,
+        "status": "ok" if within_threshold else "warning",
+        "blocking": False,
+        "actual": actual,
+        "threshold": threshold,
+    }
+
+
 def _paired_results(runs: list[dict[str, Any]]) -> dict[str, Any]:
     by_ordinal = {run["ordinal"]: run for run in runs}
     pairs: list[dict[str, Any]] = []
@@ -1184,10 +1199,6 @@ def _build_gates(
             "prefilterP95Us",
             "pyramidP95Us",
             "bloomFinalP95Us",
-            "cpuFrameP95Us",
-            "cpuFrameP99Us",
-            "cpuPresentP95Us",
-            "cpuPresentP99Us",
             "gpuCommandP99Us",
         ):
             gates.append(
@@ -1255,22 +1266,47 @@ def _build_gates(
             ),
         )
     )
+    gates.append(
+        _gate(
+            "gpuCommandP99Us-regression",
+            on["gpuCommandP99Us"] <= off["gpuCommandP99Us"] * 1.05 + 1e-9,
+            {
+                "roiOff": off["gpuCommandP99Us"],
+                "roiOn": on["gpuCommandP99Us"],
+            },
+            "ROI regression <= 5%",
+        )
+    )
+    return gates
+
+
+def _build_advisories(
+    off: dict[str, Any],
+    on: dict[str, Any],
+    expectation: str,
+) -> list[dict[str, Any]]:
+    advisories: list[dict[str, Any]] = []
     for name in (
         "cpuFrameP95Us",
         "cpuFrameP99Us",
         "cpuPresentP95Us",
         "cpuPresentP99Us",
-        "gpuCommandP99Us",
     ):
-        gates.append(
-            _gate(
+        if expectation == "fallback":
+            within_threshold = _regression_within(on[name], off[name], 0.03, 100.0)
+            threshold = "diagnostic regression <= max(3%, 100 us)"
+        else:
+            within_threshold = on[name] <= off[name] * 1.05 + 1e-9
+            threshold = "diagnostic ROI regression <= 5%"
+        advisories.append(
+            _advisory(
                 f"{name}-regression",
-                on[name] <= off[name] * 1.05 + 1e-9,
+                within_threshold,
                 {"roiOff": off[name], "roiOn": on[name]},
-                "ROI regression <= 5%",
+                threshold,
             )
         )
-    return gates
+    return advisories
 
 
 def build_report(root: Path) -> dict[str, Any]:
@@ -1314,6 +1350,7 @@ def build_report(root: Path) -> dict[str, Any]:
         expectation,
         measurement_path,
     )
+    advisories = _build_advisories(roi_off, roi_on, expectation)
     return {
         "schemaVersion": REPORT_SCHEMA_VERSION,
         "kind": REPORT_KIND,
@@ -1349,11 +1386,14 @@ def build_report(root: Path) -> dict[str, Any]:
         },
         "paired": paired,
         "gates": gates,
+        "advisories": advisories,
         "passed": all(gate["passed"] for gate in gates),
         "limitations": [
             "Candidate coverage is planner output; drawn coverage is executed command coverage.",
             "Fallback pixel exactness is established by WARP tests, not inferred from timing logs.",
             "Dirty Present counters prove path selection, not DWM-visible correctness or power savings.",
+            "CPU FrameTotal and PresentCall percentiles are non-blocking API-inclusive wall-clock diagnostics.",
+            "The fixed-age workload disables raw input and cannot prove input-latency non-regression.",
         ],
     }
 
@@ -1373,6 +1413,8 @@ def render_markdown(report: dict[str, Any]) -> str:
         "# Active-FX ROI A/B report",
         "",
         f"- Result: `{'PASS' if report['passed'] else 'FAIL'}`",
+        f"- Non-blocking advisory warnings: `"
+        f"{sum(item['status'] == 'warning' for item in report['advisories'])}`",
         f"- Scenario: `{scenario['id']}` / `{scenario['expectation']}`",
         f"- Measurement path: `{scenario['measurementPath']}`",
         f"- Revision: `{report['revision']}`",
@@ -1417,6 +1459,13 @@ def render_markdown(report: dict[str, Any]) -> str:
         lines.append(
             f"- `{'PASS' if gate['passed'] else 'FAIL'}` {gate['id']}: "
             f"actual `{_format_number(gate['actual'])}`, required {gate['required']}"
+        )
+    lines.extend(("", "## Advisories (non-blocking)", ""))
+    for advisory in report["advisories"]:
+        lines.append(
+            f"- `{'OK' if advisory['status'] == 'ok' else 'WARN'}` "
+            f"{advisory['id']}: actual `{_format_number(advisory['actual'])}`, "
+            f"threshold {advisory['threshold']}"
         )
     lines.extend(
         (
