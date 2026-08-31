@@ -388,7 +388,7 @@ writer、同一矩形直接覆盖且 `clearedPixels=0`，以及矩形移动时 `
 奇数尺寸、空帧重启、Context1 缺失及 `D3D11_OPTIONS.ClearView=false`。背景差分 primary 必须保持全屏；
 共享目标同帧已全屏写入时，recording-rebuild 只能报告全清预热/共享写入原因。
 
-这些用例证明 0.2.7 已接入的纯特效 prefilter/down/up 正确性，不证明真实 GPU 性能。当前 HEAD 的
+这些用例证明 0.2.7 已接入的纯特效 prefilter/down/up 正确性，不证明真实 GPU 性能。本版的
 稳态纯特效 ROI 会在逐字段验证后的 dirty rect 内清理并写入最终输出，再由 `Present1` 提交同一矩形；
 预热、背景感知、录制重建及任一合同不满足的帧仍完整输出。WARP 还覆盖前后帧区域并集、FP16、BGRA8
 和双 RTV/录制路径，完整 CTest 为 `45/45`；这些确定性结果不能外推 DWM 可见正确性、整机收益或功耗。
@@ -711,10 +711,11 @@ RTX 4060、4K `170/1 Hz`、SDR。Bloom/final p95 为 `1671 -> 822 us`，GPU comm
 
 以上缓存后正式 20-run 与受污染 r2 分别保持其原始 `FAIL`，旧 schema 2/3 report 不追溯改判。
 
-#### 当前候选状态（2026-08-31）
+#### 当前发布状态（2026-08-31）
 
-当前候选已接入局部最终输出与 DXGI dirty `Present1`，正式采集/报告合同为 schema 4/4；
-Release 构建、WARP 局部输出合同和完整 CTest `45/45` 已通过。新的兼容正式 20-run 硬件证据仍为
+0.2.7 已接入局部最终输出与 DXGI dirty `Present1`，正式采集/报告合同为 schema 4/4；
+Full `release-verify`、WARP 局部输出合同与 CTest `45/45` 已通过，Slim `slim-release-verify` 为
+`44/44`。新的兼容正式 20-run 硬件证据仍为
 `Not Run`：首次短诊断
 `artifacts/performance/active-fx-roi-v027-dirty-present-diagnostic-20260831-r1` 在 run 1 读取到实际
 `2560x1440 @ 165.003 Hz`，不满足预注册 `3840x2160 @ 170/1 Hz`，因此 fail-closed 且未形成有效 run。

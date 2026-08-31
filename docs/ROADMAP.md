@@ -50,7 +50,7 @@ DPI 和 Windows 11 运行时逻辑提前到测试与硬件证据之前；2026-08
 `15.2%`、FPS 下降 `7.2%`、仅 `6/10` 配对不慢、首级绘制比例 `46.8%`，且两臂均出现非零
 `FramePacing.Timeouts`。因此阈值未放宽，0.2.6 未发布，Full/Slim workflow、SDK CI 和 Release 均停止。
 
-## v0.2.7 完整 Bloom 金字塔 ROI（2026-08-31，发布准备）
+## v0.2.7 完整 Bloom 金字塔 ROI（2026-08-31，已发布）
 
 本轮继续使用 schema 19 和同一个默认关闭的 `performance.activeFxRoiEnabled`：
 

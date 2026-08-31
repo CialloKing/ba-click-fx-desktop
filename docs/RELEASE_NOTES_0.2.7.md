@@ -1,11 +1,11 @@
 # ba-click-fx-desktop 0.2.7
 
-0.2.7 是默认关闭的 Active-FX ROI 完整 Bloom 金字塔候选。本版把 0.2.6 只覆盖首级预滤波的局部路径
+0.2.7 引入默认关闭的 Active-FX ROI 完整 Bloom 金字塔。本版把 0.2.6 只覆盖首级预滤波的局部路径
 扩展到 prefilter、全部 downsample/upsample，并为满足严格合同的 steady pure-FX primary 帧加入局部
 最终输出和 `Present1` dirty rect。主配置仍为 schema 19，`performance.activeFxRoiEnabled=false`；
 没有新增第二个开关，也不迁移现有配置。
 
-当前源码已完成实现和确定性 WARP 等价矩阵。旧 revision 的 RTX 4060、4K 170 Hz、SDR 正式 ABBA
+本版已完成实现和确定性 WARP 等价矩阵。旧 revision 的 RTX 4060、4K 170 Hz、SDR 正式 ABBA
 失败证据继续保留；当前实现尚无满足同一显示合同的正式采集。因此本文不包含整机性能、功耗、输入延迟
 或普遍硬件支持声明。
 
@@ -101,9 +101,11 @@ revision 为 `11fba7243faf4dee1eb18a7d740c3c3b6f7a1479`，环境为 `NVIDIA GeFo
 
 当前实现计划执行 8-run 的 dirty-Present 短诊断，但在 2026-08-31 首个 ROI-off run 后即
 fail-closed：实际主输出为 `2560x1440 @ 165.003 Hz`，不满足预注册 `3840x2160 @ 170 Hz` 环境合同，
-因此没有生成可用于晋级的
-新性能结论。Full 发布 workflow、SDK CI、资产、tag 与 GitHub Release 仍须按发布流程完成；Slim 只
-保留源码构建验证。
+因此没有生成可用于晋级的新性能结论。
+
+本地 Full `release-verify` 已通过 `45/45`，Slim `slim-release-verify` 已通过 `44/44`。官方 GitHub
+Release 只提供 Full 便携 ZIP、ZIP 哈希、安装器和安装器哈希四个资产；Slim 只保留源码构建与验证，
+不上传预编译资产。
 
 ## 明确排除项
 

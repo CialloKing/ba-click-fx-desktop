@@ -1,6 +1,6 @@
 # 变更记录
 
-## 0.2.7 - 未发布
+## 0.2.7 - 2026-08-31
 
 ### 优化
 
@@ -30,14 +30,15 @@
 ### 验证与发布状态
 
 - WARP 已覆盖完整金字塔、FP16/BGRA8 最终输出、MRT/录制完整输出、移动视觉范围和局部输出外哨兵，
-  完整 Release CTest 为 `45/45`。这些确定性结果不替代真实 DWM、功耗、输入延迟或跨硬件证据。
+  Full `release-verify` 为 `45/45`，Slim `slim-release-verify` 为 `44/44`。这些确定性结果不替代真实
+  DWM、功耗、输入延迟或跨硬件证据。
 - 旧 capture schema 3 / report schema 2 的 RTX 4060、4K 170 Hz、SDR 20-run 继续保留为当时 revision 的
   `FAIL`，不会用新规则追溯改判。复核表明 CPU FrameTotal 与 PresentCall 四项是同一 API 阻塞的重复
   观察，且固定场景禁用 Raw Input；正式 report schema 4 因此把它们保留为非阻塞 advisory，FPS、GPU
   command、pending、错误、ROI 收益和 dirty Present 覆盖继续是硬门。
 - 当前实现的 schema 4 正式硬件采集尚未完成。2026-08-31 的短矩阵在首个 run 后因实际输出为
   `2560x1440 @ 165.003 Hz`、不满足预注册的 `3840x2160 @ 170 Hz` 合同而 fail-closed。ROI 保持默认关闭
-  且不作整机性能声明；该晋级证据不再阻塞 0.2.7 的普通发布准备，但继续阻塞默认启用和性能宣传。
+  且不作整机性能声明；该晋级证据不阻塞 0.2.7 的普通发布，但继续阻塞默认启用和性能宣传。
 
 ### 支持边界
 
