@@ -729,48 +729,38 @@ BAFX_TEST(roi_unity_bloom_plan_rejects_unusable_shader_plan)
         == RoiStatus::InvalidFootprint);
 }
 
-BAFX_TEST(roi_adaptive_path_uses_50_percent_entry_and_65_percent_exit)
+BAFX_TEST(roi_adaptive_path_handles_thresholds_and_invalid_counts)
 {
-    BAFX_CHECK(
-        decideActiveFxRoiAdaptivePath(false, 500U, 1000U)
-        == ActiveFxRoiAdaptiveDecision::Apply);
-    BAFX_CHECK(
-        decideActiveFxRoiAdaptivePath(false, 501U, 1000U)
-        == ActiveFxRoiAdaptiveDecision::BenefitTooSmall);
-    BAFX_CHECK(
-        decideActiveFxRoiAdaptivePath(true, 650U, 1000U)
-        == ActiveFxRoiAdaptiveDecision::Apply);
-    BAFX_CHECK(
-        decideActiveFxRoiAdaptivePath(true, 651U, 1000U)
-        == ActiveFxRoiAdaptiveDecision::BenefitTooSmall);
-    BAFX_CHECK(
-        decideActiveFxRoiAdaptivePath(true, 799U, 1000U)
-        == ActiveFxRoiAdaptiveDecision::BenefitTooSmall);
-    BAFX_CHECK(
-        decideActiveFxRoiAdaptivePath(true, 800U, 1000U)
-        == ActiveFxRoiAdaptiveDecision::AreaTooLarge);
-}
-
-BAFX_TEST(roi_adaptive_path_rejects_invalid_counts_without_overflow)
-{
-    BAFX_CHECK(
-        decideActiveFxRoiAdaptivePath(false, 0U, 1000U)
-        == ActiveFxRoiAdaptiveDecision::BenefitTooSmall);
-    BAFX_CHECK(
-        decideActiveFxRoiAdaptivePath(false, 1U, 0U)
-        == ActiveFxRoiAdaptiveDecision::BenefitTooSmall);
-    BAFX_CHECK(
-        decideActiveFxRoiAdaptivePath(false, 1001U, 1000U)
-        == ActiveFxRoiAdaptiveDecision::BenefitTooSmall);
-
     constexpr std::uint64_t maximum =
         std::numeric_limits<std::uint64_t>::max();
-    BAFX_CHECK(
-        decideActiveFxRoiAdaptivePath(false, maximum / 2U, maximum)
-        == ActiveFxRoiAdaptiveDecision::Apply);
-    BAFX_CHECK(
-        decideActiveFxRoiAdaptivePath(true, maximum / 2U, maximum)
-        == ActiveFxRoiAdaptiveDecision::Apply);
+    struct Case final
+    {
+        bool wasActive{};
+        std::uint64_t candidatePixels{};
+        std::uint64_t fullPixels{};
+        ActiveFxRoiAdaptiveDecision expected{};
+    };
+    constexpr std::array cases{
+        Case{false, 500U, 1000U, ActiveFxRoiAdaptiveDecision::Apply},
+        Case{false, 501U, 1000U, ActiveFxRoiAdaptiveDecision::BenefitTooSmall},
+        Case{true, 650U, 1000U, ActiveFxRoiAdaptiveDecision::Apply},
+        Case{true, 651U, 1000U, ActiveFxRoiAdaptiveDecision::BenefitTooSmall},
+        Case{true, 799U, 1000U, ActiveFxRoiAdaptiveDecision::BenefitTooSmall},
+        Case{true, 800U, 1000U, ActiveFxRoiAdaptiveDecision::AreaTooLarge},
+        Case{false, 0U, 1000U, ActiveFxRoiAdaptiveDecision::BenefitTooSmall},
+        Case{false, 1U, 0U, ActiveFxRoiAdaptiveDecision::BenefitTooSmall},
+        Case{false, 1001U, 1000U, ActiveFxRoiAdaptiveDecision::BenefitTooSmall},
+        Case{false, maximum / 2U, maximum, ActiveFxRoiAdaptiveDecision::Apply},
+        Case{true, maximum / 2U, maximum, ActiveFxRoiAdaptiveDecision::Apply}};
+    for (const Case& testCase : cases)
+    {
+        BAFX_CHECK(
+            decideActiveFxRoiAdaptivePath(
+                testCase.wasActive,
+                testCase.candidatePixels,
+                testCase.fullPixels)
+            == testCase.expected);
+    }
 }
 
 BAFX_TEST(roi_unity_bloom_matches_fixed_seed_reference_for_10000_rectangles)
@@ -988,55 +978,6 @@ BAFX_TEST(roi_unity_bloom_pass_plan_covers_edges_odd_sizes_and_diffusions)
     }
 }
 
-BAFX_TEST(roi_unity_bloom_pass_plan_matches_sampling_oracle_for_random_rects)
-{
-    constexpr std::array diffusions{4.0F, 6.0F, 7.0F, 10.0F};
-    std::mt19937_64 random(0xBAF00207ULL);
-    for (std::size_t iteration = 0U; iteration < 2'000U; ++iteration)
-    {
-        const std::int32_t width = 65 + static_cast<std::int32_t>(
-            random() % 448U);
-        const std::int32_t height = 65 + static_cast<std::int32_t>(
-            random() % 448U);
-        const std::int32_t originX = -1024 + static_cast<std::int32_t>(
-            random() % 2049U);
-        const std::int32_t originY = -1024 + static_cast<std::int32_t>(
-            random() % 2049U);
-        const RectI monitor{
-            originX,
-            originY,
-            originX + width,
-            originY + height};
-        const std::int32_t left = originX + static_cast<std::int32_t>(
-            random() % static_cast<std::uint64_t>(width));
-        const std::int32_t top = originY + static_cast<std::int32_t>(
-            random() % static_cast<std::uint64_t>(height));
-        const RectI support{
-            left,
-            top,
-            left + 1 + static_cast<std::int32_t>(
-                random() % static_cast<std::uint64_t>(monitor.right - left)),
-            top + 1 + static_cast<std::int32_t>(
-                random() % static_cast<std::uint64_t>(monitor.bottom - top))};
-        const UnityBloomPlanResult bloom = planUnityBloom(
-            BloomExtent{width, height},
-            UnityBloomSettings{
-                diffusions[iteration % diffusions.size()],
-                0.0F,
-                1.7F});
-        BAFX_CHECK(bloom.status == UnityBloomStatus::Ok);
-        const UnityBloomPassRoiPlanResult result = planUnityBloomPassRoi(
-            support,
-            monitor,
-            bloom.plan);
-        BAFX_CHECK(result.status == RoiStatus::Ok);
-        checkUnityBloomPassDependencies(
-            result.plan,
-            bloom.plan,
-            BloomExtent{width, height});
-    }
-}
-
 BAFX_TEST(roi_unity_bloom_pass_plan_contains_boolean_forward_support)
 {
     constexpr std::array diffusions{4.0F, 6.0F, 7.0F, 10.0F};
@@ -1109,6 +1050,10 @@ BAFX_TEST(roi_unity_bloom_pass_plan_contains_boolean_forward_support)
             monitor,
             bloom.plan);
         BAFX_CHECK(result.status == RoiStatus::Ok);
+        checkUnityBloomPassDependencies(
+            result.plan,
+            bloom.plan,
+            monitorExtent);
 
         const BooleanBloomChain oracle = simulateBooleanBloom(
             monitorExtent,

@@ -3543,62 +3543,17 @@ BAFX_TEST(warp_active_fx_roi_spout_fx_only_is_exact_in_warmup_and_steady_state)
             steadyRecording.texture.Get())));
 }
 
-BAFX_TEST(warp_active_fx_roi_context1_unavailable_falls_back_exactly)
+BAFX_TEST(warp_active_fx_roi_unavailable_capabilities_fall_back_exactly)
 {
-    checkActiveFxRoiUnavailableFallback(FxGpuRendererFeaturePolicy{
-        .allowActiveFxRoiClearView = false});
-}
-
-BAFX_TEST(warp_active_fx_roi_clearview_capability_false_falls_back_exactly)
-{
-    checkActiveFxRoiUnavailableFallback(FxGpuRendererFeaturePolicy{
-        .allowActiveFxRoiClearView = true,
-        .activeFxRoiClearViewCapabilityOverride = false});
-}
-
-BAFX_TEST(warp_recording_roi_reports_shared_target_full_write_warmup)
-{
-    ComApartment apartment;
-    const WarpDevice graphics = createWarpDevice();
-    FxGpuRenderer renderer(graphics.device.Get(), graphics.context.Get(), testSize);
-    const RenderTarget desktopTarget = createRenderTarget(graphics.device.Get());
-    const RenderTarget recordingTarget = createRecordingRenderTarget(
-        graphics.device.Get());
-    const RenderTarget backgroundTarget = createRenderTarget(graphics.device.Get());
-    constexpr std::array<float, 4> background{0.25F, 0.5F, 0.75F, 1.0F};
-    graphics.context->ClearRenderTargetView(
-        backgroundTarget.view.Get(),
-        background.data());
-
-    const FxRenderCpuDiagnostics diagnostics = renderer.render(
-        makeDiskSnapshot(true),
-        desktopTarget.view.Get(),
-        BackgroundRenderInput{backgroundTarget.shaderResource.Get()},
-        nullptr,
-        recordingTarget.view.Get(),
-        makeActiveFxRoi(makeDiskSnapshot(true)));
-
-    BAFX_CHECK(
-        diagnostics.primaryActiveFxRoi.actualPath
-        == FxActiveRoiActualPath::FullScreen);
-    BAFX_CHECK(
-        diagnostics.primaryActiveFxRoi.decisionReason
-        == FxActiveRoiDecisionReason::BackgroundDifferentialBloom);
-    BAFX_CHECK(diagnostics.recordingRebuildActiveFxRoi.requested);
-    BAFX_CHECK(diagnostics.recordingRebuildActiveFxRoi.eligible);
-    BAFX_CHECK(diagnostics.recordingRebuildActiveFxRoi.warmup);
-    BAFX_CHECK(
-        diagnostics.recordingRebuildActiveFxRoi.actualPath
-        == FxActiveRoiActualPath::RoiWarmup);
-    BAFX_CHECK(
-        diagnostics.recordingRebuildActiveFxRoi.decisionReason
-        == FxActiveRoiDecisionReason::SharedTargetFullWrite);
-    BAFX_CHECK(
-        diagnostics.recordingRebuildActiveFxRoi.stages.prefilter.drawnPixels
-        == diagnostics.recordingRebuildActiveFxRoi.stages.prefilter.candidatePixels);
-    BAFX_CHECK(
-        diagnostics.recordingRebuildActiveFxRoi.stages.prefilter.clearedPixels
-        == diagnostics.recordingRebuildActiveFxRoi.stages.prefilter.fullPixels);
+    const std::array policies{
+        FxGpuRendererFeaturePolicy{.allowActiveFxRoiClearView = false},
+        FxGpuRendererFeaturePolicy{
+            .allowActiveFxRoiClearView = true,
+            .activeFxRoiClearViewCapabilityOverride = false}};
+    for (const FxGpuRendererFeaturePolicy& policy : policies)
+    {
+        checkActiveFxRoiUnavailableFallback(policy);
+    }
 }
 
 BAFX_TEST(warp_active_fx_roi_clears_previous_non_overlapping_motion)
@@ -3945,6 +3900,8 @@ BAFX_TEST(warp_active_fx_roi_spout_background_matrix_keeps_paths_separate)
     BAFX_CHECK(
         backgroundSpout.primaryActiveFxRoi.decisionReason
         == FxActiveRoiDecisionReason::BackgroundDifferentialBloom);
+    BAFX_CHECK(backgroundSpout.recordingRebuildActiveFxRoi.requested);
+    BAFX_CHECK(backgroundSpout.recordingRebuildActiveFxRoi.eligible);
     BAFX_CHECK(
         backgroundSpout.recordingRebuildActiveFxRoi.actualPath
         == FxActiveRoiActualPath::RoiWarmup);
@@ -3952,6 +3909,12 @@ BAFX_TEST(warp_active_fx_roi_spout_background_matrix_keeps_paths_separate)
     BAFX_CHECK(
         backgroundSpout.recordingRebuildActiveFxRoi.decisionReason
         == FxActiveRoiDecisionReason::SharedTargetFullWrite);
+    BAFX_CHECK(
+        backgroundSpout.recordingRebuildActiveFxRoi.stages.prefilter.drawnPixels
+        == backgroundSpout.recordingRebuildActiveFxRoi.stages.prefilter.candidatePixels);
+    BAFX_CHECK(
+        backgroundSpout.recordingRebuildActiveFxRoi.stages.prefilter.clearedPixels
+        == backgroundSpout.recordingRebuildActiveFxRoi.stages.prefilter.fullPixels);
 
     const FxRenderCpuDiagnostics repeatedBackgroundSpout = renderer.render(
         snapshot,
