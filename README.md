@@ -275,23 +275,16 @@ Host 和 Control Center 从 0.2.5 起共享同一产品版本合同。Host 的 `
 不属于游戏原脚本的按压 FX 路径。数值控件会合并连续拖动后的写入，避免为每个滑块像素都写一次配置。
 `effects.bloomIntensity` 是 Unity Bloom 强度标量，默认值为 `1.7`、有效范围为 `0..10`，不是相对 `1.0` 的倍率。
 Bloom 质量只是 diffusion 的派生预设：紧凑、适中、原版、极宽分别对应 `4/6/7/10`，其他值显示为“自定义”。
-Active-FX ROI 当前裁剪纯特效 Bloom 的 prefilter 和完整 down/up 金字塔；规划器还为 resolve 生成逻辑
-有效矩形。ROI 实际应用时，纯特效最终输出先全屏清为透明，再只在逐字段验证的 `resolveRect` 内执行
-最终传输/合成 shader；矩形外保持精确透明，同时避免 `resolveRect` 外最终 shader 的纹理读取与着色。
-每个实际 down/up 目标维护初始化、上一写入矩形、
-全屏写入和最后 writer；首次进入、全屏转 ROI、resize 或资源恢复时完整预热清理，稳态矩形移动或
-writer 改变时通过 Context1 `ClearView` 清理上一写入区域，同一 writer 连续覆盖相同矩形时跳过清理。
-ROI 采用整条 Bloom 全有或全无策略，计划、Context1、
-资源、相位或状态任一无效就同帧完整回退全屏。primary 与录制/Spout2 的 recording-rebuild 分别计数，
-但共享物理 Bloom 目标的写入所有权不会复制。默认 `background-aware` primary Differential Bloom 及其
-最终场景合成继续全屏；WGC、Spout2 格式转换、swap-chain 和 Present 也仍保持全屏。不能把这个实验开关
-解读成全链路局部渲染，也不能把像素处理比例解读成 GPU 节省。提交 `866dea5` 的 WARP 矩阵 55 项全部
-通过，包括最终输出 FP16 逐元素精确一致；这只证明正确性。随后新的短诊断和 20-run 正式采集期间，
-存在一个从 16:28 起创建 `General.rar`、采集结束后仍在运行的高负载 WinRAR 进程；两轮均作为受污染的
-失败证据保留，不能替代无已知外部负载污染的正式复验。最近一份无已知该类污染的正式报告仍为缓存后的
-`FAIL`。采集器现在会在开始及每个 ABBA 块前取 5 个一秒系统 CPU 样本，中位 busy 超过 10% 时
-fail-closed；该粗筛不能证明 GPU、存储、DPC 或单核已经空闲，实机复验仍须单独确认。该版本未发布，
-开关继续默认关闭。
+Active-FX ROI 当前裁剪纯特效 Bloom 的 prefilter 和完整 down/up 金字塔，并为 resolve 生成逻辑有效矩形。
+在 steady pure-FX primary 中，经过完整合同验证的 partial final output 只对 `resolveRect` 执行
+Context1 `ClearView`、绘制和 `Present1` dirty rect 提交；矩形移动时会合并并清理上一帧可见区。
+warmup、background-aware、recording-rebuild、WGC、Spout2 格式转换以及任何回退路径仍执行完整输出和普通
+Present。ROI 继续默认关闭并标记为实验性；WARP 和 dirty Present 计数只验证渲染器与路径合同，不证明
+DWM 可见结果、功耗收益或跨硬件表现。
+
+Active-FX ROI 旧 capture schema 2/3 与对应报告的 `FAIL` 是历史结果，不追溯改判。新 report schema 4
+将重复反映同一同步等待的四项 Frame/Present 条件改为 non-blocking advisory；真实硬件性能与输入延迟
+仍为 `Not Run`，因此当前不声明整机提速。采集器仍会在开始及每个 ABBA 块前检查系统空闲度并 fail-closed。
 
 控制中心的“重置默认”按钮会先请求确认，再用内置默认 schema 整体替换持久化配置。它不会恢复已经
 暂停的特效；需要继续显示时仍应单独点击“恢复特效”。
