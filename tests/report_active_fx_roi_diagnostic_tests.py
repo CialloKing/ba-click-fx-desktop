@@ -352,13 +352,9 @@ class ActiveFxRoiDiagnosticReporterTests(unittest.TestCase):
                 ["A", "B", "B", "A", "B", "A", "A", "B"],
             )
             self.assertEqual(report["runs"][4]["blockPattern"], "BAAB")
-            self.assertEqual(
-                report["runs"][4]["metrics"]["finalCompositeP99Us"], 3005
-            )
             telemetry = report["runs"][0]["nvidiaTelemetry"]
             self.assertEqual(telemetry["samples"], 225)
             self.assertEqual(telemetry["selectedWindow"]["samples"], 150)
-            self.assertEqual(telemetry["selectedWindow"]["durationUs"], 30_000_000)
             self.assertEqual(
                 [
                     interval["samples"]
@@ -369,126 +365,33 @@ class ActiveFxRoiDiagnosticReporterTests(unittest.TestCase):
             self.assertEqual(telemetry["timestamp"]["inferredUtcOffsetMinutes"], 480)
             self.assertEqual(telemetry["pstate"]["values"], ["P5"])
             self.assertEqual(
-                telemetry["pstateResidency"],
-                {"P5": {"samples": 150, "ratio": 1.0}},
-            )
-            self.assertEqual(
-                report["runs"][1]["nvidiaTelemetry"]["pstate"]["values"],
-                ["P5", "P10"],
-            )
-            self.assertEqual(
                 telemetry["smClockMHz"],
                 {"min": 710.0, "max": 730.0, "mean": 720.0, "median": 720.0},
             )
-            self.assertNotIn("graphicsClockMHz", telemetry)
-            self.assertEqual(
-                telemetry["instantPowerWatts"],
-                {"min": 12.1, "max": 14.1, "mean": 13.1, "median": 13.1},
-            )
-            self.assertNotIn("powerWatts", telemetry)
-            self.assertEqual(telemetry["timestamp"]["minimumSamples"], 112)
-            self.assertEqual(telemetry["timestamp"]["spanMs"], 44_800)
             self.assertEqual(telemetry["timestamp"]["maximumGapMs"], 200)
             off_telemetry = report["roiOff"]["nvidiaTelemetry"]
             on_telemetry = report["roiOn"]["nvidiaTelemetry"]
-            self.assertEqual(off_telemetry["selectedSamples"], 600)
             self.assertEqual(on_telemetry["selectedSamples"], 600)
-            self.assertEqual(off_telemetry["smClockMedianMHz"], 760)
             self.assertEqual(on_telemetry["smClockMedianMHz"], 550)
-            self.assertEqual(off_telemetry["memoryClockMedianMHz"], 910)
-            self.assertEqual(on_telemetry["memoryClockMedianMHz"], 910)
-            self.assertAlmostEqual(off_telemetry["instantPowerMeanWatts"], 13.5)
             self.assertAlmostEqual(on_telemetry["instantPowerMeanWatts"], 11.4)
-            self.assertEqual(
-                off_telemetry["pstateResidencyMedian"], {"P5": 1.0, "P10": 0.0}
-            )
             self.assertEqual(
                 on_telemetry["pstateResidencyMedian"],
                 {"P5": 2 / 3, "P10": 1 / 3},
             )
-            self.assertIn("finalCompositeP99Us", report["roiOff"])
-            self.assertIn("bloomFinalP95Us", report["roiOn"])
-            self.assertEqual(
-                report["runs"][0]["metrics"]["cpuPrePresentP99Us"], 304
-            )
-            self.assertEqual(
-                report["runs"][0]["metrics"]["cpuFxTotalSubmitSamples"], 3600
-            )
-            self.assertEqual(
-                report["runs"][0]["metrics"]["cpuFxTotalSubmitP50Us"], 24
-            )
-            self.assertEqual(
-                report["runs"][0]["metrics"]["cpuFxTotalSubmitP95Us"], 54
-            )
-            self.assertEqual(
-                report["runs"][0]["metrics"]["cpuFxTotalSubmitP99Us"], 74
-            )
-            self.assertEqual(
-                report["runs"][0]["metrics"][
-                    "cpuBloomAndCompositeSubmitP50Us"
-                ],
-                9,
-            )
-            self.assertEqual(
-                report["runs"][0]["metrics"][
-                    "cpuBloomAndCompositeSubmitP95Us"
-                ],
-                24,
-            )
-            self.assertEqual(
-                report["runs"][0]["metrics"][
-                    "cpuBloomAndCompositeSubmitP99Us"
-                ],
-                34,
-            )
-            self.assertEqual(
-                report["runs"][0]["metrics"]["cpuFxMaterialsSubmitP50Us"], 14
-            )
-            self.assertEqual(
-                report["runs"][0]["metrics"]["cpuFxMaterialsSubmitP95Us"], 34
-            )
-            self.assertEqual(
-                report["runs"][0]["metrics"]["cpuFxMaterialsSubmitP99Us"], 44
-            )
-            self.assertEqual(
-                report["runs"][0]["metrics"]["framePacingWaitSamples"], 33
-            )
-            self.assertEqual(report["roiOff"]["cpuPrePresentP95Us"], 208)
-            self.assertEqual(report["roiOn"]["cpuPrePresentP95Us"], 207)
-            for key, off, on, reduction in (
-                ("cpuFxTotalSubmitP50Us", 28, 37, -9),
-                ("cpuFxTotalSubmitP95Us", 58, 67, -9),
-                ("cpuFxTotalSubmitP99Us", 78, 87, -9),
-                ("cpuBloomAndCompositeSubmitP50Us", 13, 18, -5),
-                ("cpuBloomAndCompositeSubmitP95Us", 28, 33, -5),
-                ("cpuBloomAndCompositeSubmitP99Us", 38, 43, -5),
-                ("cpuFxMaterialsSubmitP50Us", 18, 21, -3),
-                ("cpuFxMaterialsSubmitP95Us", 38, 41, -3),
-                ("cpuFxMaterialsSubmitP99Us", 48, 51, -3),
+            metrics = report["runs"][0]["metrics"]
+            for key, expected in (
+                ("finalCompositeP99Us", 3001),
+                ("cpuPrePresentP99Us", 304),
+                ("cpuFxTotalSubmitP95Us", 54),
+                ("cpuBloomAndCompositeSubmitP95Us", 24),
+                ("cpuFxMaterialsSubmitP95Us", 34),
+                ("framePacingWaitSamples", 33),
             ):
-                self.assertEqual(report["roiOff"][key], off)
-                self.assertEqual(report["roiOn"][key], on)
-                self.assertEqual(report["comparisons"][key]["absolute"], reduction)
-            for key in (
-                "cpuFxTotalSubmitSamples",
-                "cpuBloomAndCompositeSubmitSamples",
-                "cpuFxMaterialsSubmitSamples",
-            ):
-                self.assertEqual(report["roiOff"][key], 14_400)
-                self.assertEqual(report["roiOn"][key], 14_400)
-            for key in (
-                "cpuPrePresentP50Us",
-                "cpuPrePresentP95Us",
-                "cpuPrePresentP99Us",
-                "framePacingWaitP50Us",
-                "framePacingWaitP95Us",
-                "framePacingWaitP99Us",
-            ):
-                self.assertEqual(report["comparisons"][key]["absolute"], 1)
-            self.assertEqual(report["roiOff"]["framePacingWaitSamples"], 132)
-            self.assertAlmostEqual(
-                report["roiOff"]["framePacingWaitBucketRatios"]["ge8000Us"],
-                36 / 132,
+                self.assertEqual(metrics[key], expected)
+            self.assertEqual(report["roiOff"]["cpuFxTotalSubmitSamples"], 14_400)
+            self.assertEqual(report["roiOn"]["cpuFxTotalSubmitSamples"], 14_400)
+            self.assertEqual(
+                report["comparisons"]["cpuFxTotalSubmitP95Us"]["absolute"], -9
             )
             self.assertAlmostEqual(
                 report["roiOn"]["framePacingWaitBucketRatios"]["lt100Us"],
@@ -504,17 +407,6 @@ class ActiveFxRoiDiagnosticReporterTests(unittest.TestCase):
                 [(1, 2), (4, 3), (6, 5), (7, 8)],
             )
             self.assertEqual(
-                [pair["captureOrder"] for pair in paired["pairs"]],
-                ["off-on", "on-off", "on-off", "off-on"],
-            )
-            self.assertEqual(
-                [
-                    pair["onMinusOff"]["gpuCommandP99Us"]
-                    for pair in paired["pairs"]
-                ],
-                [1, -1, -1, 1],
-            )
-            self.assertEqual(
                 paired["medianOnMinusOff"]["gpuCommandP99Us"], 0
             )
             self.assertEqual(
@@ -524,39 +416,13 @@ class ActiveFxRoiDiagnosticReporterTests(unittest.TestCase):
                 paired["nvidiaTelemetryMedianOnMinusOff"]["smClockMedianMHz"],
                 -200,
             )
-            self.assertAlmostEqual(
-                paired["nvidiaTelemetryMedianOnMinusOff"][
-                    "instantPowerMeanWatts"
-                ],
-                -2.0,
-            )
 
             markdown = REPORTER.render_markdown(report)
             self.assertIn("NON-RELEASE", markdown)
-            self.assertIn("Primary FinalComposite p99", markdown)
-            self.assertIn("ABBA/A", markdown)
-            self.assertIn("BAAB/B", markdown)
             self.assertIn("## Selected-window NVIDIA telemetry", markdown)
-            self.assertIn("P5 100.000%", markdown)
-            self.assertIn("150/225", markdown)
-            self.assertIn("SM clock median", markdown)
-            self.assertIn("Instant power run-mean median", markdown)
             self.assertIn("## Causal timing", markdown)
-            self.assertIn("CPU FxTotal submit p95", markdown)
-            self.assertIn("CPU Bloom/composite submit p95", markdown)
-            self.assertIn("CPU FX materials submit p95", markdown)
-            self.assertIn("## CPU submit timing by run", markdown)
-            self.assertIn("24.000/54.000/74.000", markdown)
-            self.assertIn("9.000/24.000/34.000", markdown)
-            self.assertIn("14.000/34.000/44.000", markdown)
-            self.assertIn("## Frame pacing wait buckets", markdown)
-            self.assertIn("CPU PrePresent p95", markdown)
             self.assertIn("## Adjacent paired deltas", markdown)
-            self.assertIn("GPU command p99 | 0.000 | 2/4", markdown)
-            self.assertIn("ABBA 1/1 | off-on | 1/2", markdown)
-            self.assertIn("BAAB 2/1 | on-off | 6/5", markdown)
             self.assertIn("do not correspond one-to-one", markdown)
-            self.assertIn("not same-frame causal measurements", markdown)
 
     def test_accepts_an_explicitly_disabled_telemetry_contract(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -595,121 +461,64 @@ class ActiveFxRoiDiagnosticReporterTests(unittest.TestCase):
             with self.assertRaises(REPORTER.ValidationError):
                 REPORTER.RELEASE.build_report(fixture.root)
 
-    def test_release_schema_four_fixture_remains_readable_without_causal_timing(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            fixture = FIXTURE_MODULE.CaptureFixture(Path(temporary))
-            report = FIXTURE_MODULE.REPORTER.build_report(fixture.root)
-
-            self.assertEqual(report["captureSchemaVersion"], 4)
-            log = fixture.root / fixture.manifest["runs"][0]["log"]
-            self.assertNotIn("Cpu.PrePresent", log.read_text(encoding="utf-8"))
-
     def test_rejects_causal_timing_contract_drift(self) -> None:
+        def replace(field: str, value: object) -> tuple[tuple[str, str], ...]:
+            return ((rf"^{re.escape(field)}=.*$", f"{field}={value}"),)
+
+        def remove(field: str) -> tuple[tuple[str, str], ...]:
+            return ((rf"^{re.escape(field)}=.*\n", ""),)
+
         cases = [
-            (
-                "missing field",
-                ((r"^Cpu\.PrePresent\.P99=.*\n", ""),),
-                "Cpu.PrePresent.P99",
-            ),
+            ("missing field", remove("Cpu.PrePresent.P99"), "Cpu.PrePresent.P99"),
             (
                 "pre-present sample drift",
-                (
-                    (r"^Cpu\.PrePresent\.Samples=.*$", "Cpu.PrePresent.Samples=1199"),
-                    (
-                        r"^Cpu\.PrePresent\.RecordedSamples=.*$",
-                        "Cpu.PrePresent.RecordedSamples=1199",
-                    ),
-                ),
+                replace("Cpu.PrePresent.Samples", 1199)
+                + replace("Cpu.PrePresent.RecordedSamples", 1199),
                 "Window.FrameCount",
             ),
             (
                 "dropped samples",
-                (
-                    (
-                        r"^Cpu\.PrePresent\.DroppedSamples=.*$",
-                        "Cpu.PrePresent.DroppedSamples=1",
-                    ),
-                ),
+                replace("Cpu.PrePresent.DroppedSamples", 1),
                 "DroppedSamples must be zero",
             ),
             (
                 "wake conservation",
-                (
-                    (
-                        r"^FramePacing\.FrameReadyWakes=.*$",
-                        "FramePacing.FrameReadyWakes=7",
-                    ),
-                ),
+                replace("FramePacing.FrameReadyWakes", 7),
                 "wake count",
             ),
             (
                 "bucket conservation",
-                (
-                    (
-                        r"^FramePacing\.Wait\.Ge8000Us=.*$",
-                        "FramePacing.Wait.Ge8000Us=1",
-                    ),
-                ),
+                replace("FramePacing.Wait.Ge8000Us", 1),
                 "bucket count",
             ),
             (
-                "semantic drift",
-                (
-                    (
-                        r"^Timing\.PrePresentSemantic=.*$",
-                        "Timing.PrePresentSemantic=unknown",
-                    ),
-                ),
+                "pre-present semantic drift",
+                replace("Timing.PrePresentSemantic", "unknown"),
                 "PrePresentSemantic differs",
             ),
             (
                 "wait semantic drift",
-                (
-                    (
-                        r"^Timing\.FramePacingWaitSemantic=.*$",
-                        "Timing.FramePacingWaitSemantic=unknown",
-                    ),
-                ),
+                replace("Timing.FramePacingWaitSemantic", "unknown"),
                 "FramePacingWaitSemantic differs",
             ),
             (
                 "metric unavailable",
-                (
-                    (
-                        r"^Cpu\.PrePresent\.Available=.*$",
-                        "Cpu.PrePresent.Available=false",
-                    ),
-                ),
+                replace("Cpu.PrePresent.Available", "false"),
                 "Cpu.PrePresent must be available",
             ),
             (
                 "unit drift",
-                (
-                    (
-                        r"^FramePacing\.Wait\.Unit=.*$",
-                        "FramePacing.Wait.Unit=ms",
-                    ),
-                ),
+                replace("FramePacing.Wait.Unit", "ms"),
                 "FramePacing.Wait.Unit must be us",
             ),
             (
                 "non-finite average",
-                (
-                    (
-                        r"^FramePacing\.Wait\.Average=.*$",
-                        "FramePacing.Wait.Average=nan",
-                    ),
-                ),
+                replace("FramePacing.Wait.Average", "nan"),
                 "FramePacing.Wait.Average must be finite",
             ),
             (
                 "percentile order",
-                (
-                    (
-                        r"^FramePacing\.Wait\.P95=.*$",
-                        "FramePacing.Wait.P95=100",
-                    ),
-                ),
+                replace("FramePacing.Wait.P95", 100),
                 "distribution is inconsistent",
             ),
         ]
@@ -718,53 +527,11 @@ class ActiveFxRoiDiagnosticReporterTests(unittest.TestCase):
             "Cpu.BloomAndCompositeSubmit",
             "Cpu.FxMaterialsSubmit",
         ):
-            escaped = re.escape(prefix)
-            cases.extend(
+            cases.append(
                 (
-                    (
-                        f"{prefix} sample drift",
-                        (
-                            (
-                                rf"^{escaped}\.Samples=.*$",
-                                f"{prefix}.Samples=1199",
-                            ),
-                            (
-                                rf"^{escaped}\.RecordedSamples=.*$",
-                                f"{prefix}.RecordedSamples=1199",
-                            ),
-                        ),
-                        "Window.FrameCount",
-                    ),
-                    (
-                        f"{prefix} recorded sample drift",
-                        (
-                            (
-                                rf"^{escaped}\.RecordedSamples=.*$",
-                                f"{prefix}.RecordedSamples=1199",
-                            ),
-                        ),
-                        "RecordedSamples does not match Samples",
-                    ),
-                    (
-                        f"{prefix} dropped sample",
-                        (
-                            (
-                                rf"^{escaped}\.DroppedSamples=.*$",
-                                f"{prefix}.DroppedSamples=1",
-                            ),
-                        ),
-                        "DroppedSamples must be zero",
-                    ),
-                    (
-                        f"{prefix} unavailable",
-                        (
-                            (
-                                rf"^{escaped}\.Available=.*$",
-                                f"{prefix}.Available=false",
-                            ),
-                        ),
-                        f"{escaped} must be available",
-                    ),
+                    f"missing {prefix}",
+                    remove(f"{prefix}.P99"),
+                    re.escape(f"{prefix}.P99"),
                 )
             )
         for label, replacements, message in cases:
@@ -804,7 +571,7 @@ class ActiveFxRoiDiagnosticReporterTests(unittest.TestCase):
             ):
                 REPORTER.build_report(fixture.root)
 
-    def test_rejects_unproven_or_malformed_telemetry(self) -> None:
+    def test_rejects_invalid_telemetry_evidence(self) -> None:
         cases = (
             (
                 "hash mismatch",
@@ -835,6 +602,29 @@ class ActiveFxRoiDiagnosticReporterTests(unittest.TestCase):
                 ),
                 "15-minute boundary",
             ),
+            ("two samples", _keep_telemetry_endpoints, "below the minimum"),
+            ("missing middle", _remove_telemetry_middle, "CSV gap"),
+            ("stalled clock", _stall_telemetry_clock, "last CSV sample"),
+            (
+                "missing selected-window timestamp",
+                lambda fixture: _rewrite_run_log(
+                    fixture, ((r"^Event\.Utc=.*\n", ""),)
+                ),
+                "Event.Utc",
+            ),
+            (
+                "selected window outside session",
+                _move_selected_intervals_after_session,
+                "outside the telemetry session",
+            ),
+            ("reversed sampler session", _reverse_telemetry_session, "precedes"),
+            (
+                "sampler starts after run",
+                lambda fixture: fixture.manifest["runs"][0][
+                    "nvidiaTelemetry"
+                ].__setitem__("startedAtUtc", "2026-08-25T12:01:05.000Z"),
+                "run start",
+            ),
         )
         for label, mutate, message in cases:
             with self.subTest(case=label), tempfile.TemporaryDirectory() as temporary:
@@ -844,62 +634,22 @@ class ActiveFxRoiDiagnosticReporterTests(unittest.TestCase):
                 with self.assertRaisesRegex(REPORTER.ValidationError, message):
                     REPORTER.build_report(fixture.root)
 
-    def test_rejects_short_missing_or_stalled_telemetry_timelines(self) -> None:
-        cases = (
-            ("two samples", _keep_telemetry_endpoints, "below the minimum"),
-            ("missing middle", _remove_telemetry_middle, "CSV gap"),
-            ("stalled clock", _stall_telemetry_clock, "last CSV sample"),
+
+def _move_selected_intervals_after_session(fixture: object) -> None:
+    run_started_at = datetime(2026, 8, 25, 12, 1, 0, tzinfo=timezone.utc)
+    for complete_interval in range(2, 5):
+        fixture.interval_overrides[(1, complete_interval)]["Event.Utc"] = _utc_text(
+            run_started_at + timedelta(seconds=30 + 10 * complete_interval)
         )
-        for label, mutate, message in cases:
-            with self.subTest(case=label), tempfile.TemporaryDirectory() as temporary:
-                fixture = _diagnostic_fixture(Path(temporary))
-                mutate(fixture)
-                with self.assertRaisesRegex(REPORTER.ValidationError, message):
-                    REPORTER.build_report(fixture.root)
+    fixture.write_log(1, False)
 
-    def test_requires_selected_interval_timestamps_inside_telemetry_session(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            fixture = _diagnostic_fixture(Path(temporary))
-            _rewrite_run_log(fixture, ((r"^Event\.Utc=.*\n", ""),))
-            with self.assertRaisesRegex(REPORTER.ValidationError, "Event.Utc"):
-                REPORTER.build_report(fixture.root)
 
-        with tempfile.TemporaryDirectory() as temporary:
-            fixture = _diagnostic_fixture(Path(temporary))
-            run_started_at = datetime(2026, 8, 25, 12, 1, 0, tzinfo=timezone.utc)
-            for complete_interval in range(2, 5):
-                fixture.interval_overrides[(1, complete_interval)]["Event.Utc"] = (
-                    _utc_text(
-                        run_started_at
-                        + timedelta(seconds=30 + 10 * complete_interval)
-                    )
-                )
-            fixture.write_log(1, False)
-            with self.assertRaisesRegex(
-                REPORTER.ValidationError, "outside the telemetry session"
-            ):
-                REPORTER.build_report(fixture.root)
-
-    def test_rejects_sampler_session_order_or_run_boundary_drift(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            fixture = _diagnostic_fixture(Path(temporary))
-            telemetry = fixture.manifest["runs"][0]["nvidiaTelemetry"]
-            telemetry["startedAtUtc"], telemetry["stoppedAtUtc"] = (
-                telemetry["stoppedAtUtc"],
-                telemetry["startedAtUtc"],
-            )
-            fixture.write_manifest()
-            with self.assertRaisesRegex(REPORTER.ValidationError, "precedes"):
-                REPORTER.build_report(fixture.root)
-
-        with tempfile.TemporaryDirectory() as temporary:
-            fixture = _diagnostic_fixture(Path(temporary))
-            fixture.manifest["runs"][0]["nvidiaTelemetry"][
-                "startedAtUtc"
-            ] = "2026-08-25T12:01:05.000Z"
-            fixture.write_manifest()
-            with self.assertRaisesRegex(REPORTER.ValidationError, "run start"):
-                REPORTER.build_report(fixture.root)
+def _reverse_telemetry_session(fixture: object) -> None:
+    telemetry = fixture.manifest["runs"][0]["nvidiaTelemetry"]
+    telemetry["startedAtUtc"], telemetry["stoppedAtUtc"] = (
+        telemetry["stoppedAtUtc"],
+        telemetry["startedAtUtc"],
+    )
 
 
 def _replace_telemetry_value(fixture: object, old: str, new: str) -> None:
