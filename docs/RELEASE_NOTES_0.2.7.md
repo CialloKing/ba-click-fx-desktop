@@ -1,11 +1,13 @@
 # ba-click-fx-desktop 0.2.7
 
-0.2.7 是未发布的、默认关闭的 Active-FX ROI 完整 Bloom 金字塔候选。本版把 0.2.6 只覆盖首级预滤波的局部路径
-扩展到 prefilter、全部 downsample/upsample，并在全屏最终合成中加入 resolve 有效区掩码。主配置仍为
-schema 19，`performance.activeFxRoiEnabled=false`；没有新增第二个开关，也不迁移现有配置。
+0.2.7 是默认关闭的 Active-FX ROI 完整 Bloom 金字塔候选。本版把 0.2.6 只覆盖首级预滤波的局部路径
+扩展到 prefilter、全部 downsample/upsample，并为满足严格合同的 steady pure-FX primary 帧加入局部
+最终输出和 `Present1` dirty rect。主配置仍为 schema 19，`performance.activeFxRoiEnabled=false`；
+没有新增第二个开关，也不迁移现有配置。
 
-当前源码已完成实现和确定性 WARP 等价矩阵。RTX 4060、4K 170 Hz、SDR 的正式 ABBA 已执行，但整机
-性能门槛失败。因此本文只记录未发布候选及失败证据，不是发布公告，也不包含性能通过或硬件支持声明。
+当前源码已完成实现和确定性 WARP 等价矩阵。旧 revision 的 RTX 4060、4K 170 Hz、SDR 正式 ABBA
+失败证据继续保留；当前实现尚无满足同一显示合同的正式采集。因此本文不包含整机性能、功耗、输入延迟
+或普遍硬件支持声明。
 
 ## 完整 Bloom 金字塔 ROI
 
@@ -17,9 +19,10 @@ ROI 规划器为每帧生成一份不可变的完整 pass 计划：
   仍有非零 Bloom 权重的像素；
 - `basePlan.bloomOutput` 和 `alignedWork` 只保留旧诊断语义，不再充当完整 pass 的正确性边界。
 
-prefilter 和 down/up 在原尺寸目标上使用 scissor，不创建另一套裁剪纹理或改变 UV。resolve 与最终场景
-合成仍融合为一个全屏 draw；shader 在 `resolveRect` 外返回精确零 Bloom。诊断中的 resolve
-`drawnPixels` 因此是全屏，而 `candidatePixels` 是逻辑有效区，两者表达不同工作量，不能相互替代。
+prefilter 和 down/up 在原尺寸目标上使用 scissor，不创建另一套裁剪纹理或改变 UV。steady pure-FX
+primary 只有在实际路径为 `RoiPyramid + Applied`、不处于预热、无背景参与，且最终输出矩形与 resolve
+像素逐字段一致时，才只清理并绘制当前与上一帧视觉范围的并集，再以一个 dirty rect 调用 `Present1`。
+warmup、background-aware、recording-rebuild 和任一 fallback 仍写出完整结果并使用普通 Present。
 
 ## 清理状态与同帧回退
 
@@ -34,6 +37,8 @@ prefilter 和 down/up 在原尺寸目标上使用 scissor，不创建另一套�
 
 ROI 采用整条 Bloom 全有或全无策略。pass 计划、Context1、资源身份、目标状态或 phase 任一无效时，
 本帧 prefilter、down、up 和 resolve 全部使用规范全屏路径，不允许把局部 pass 与全屏 pass 混合。
+局部最终输出开始后不存在安全的 full Present 回退；Present 失败会使 ROI 写入状态失效，下一帧必须完整
+重建，避免把矩形外未更新像素发布为新内容。
 
 ## 诊断协议
 
@@ -55,10 +60,10 @@ fail-closed 禁止设置写入，启动和关闭入口仍可用于完成升级�
 `4/6/7/10`、空区域、非法输入和溢出，并以逐像素 oracle 验证前向支持。
 
 WARP 矩阵比较 ROI 与全屏的 prefilter、全部 Down/Up、BloomResult 和 FinalOverlay，覆盖点击、拖尾、
-负 scRGB、HDR 极值、Spout2、resize 后奇数尺寸、移动/不相交区域、空帧重启、Context1 缺失及
-`D3D11_OPTIONS.ClearView=false`。
-同一 WARP 适配器上的确定性 FP16 结果必须精确一致。默认 `background-aware` primary 仍命中
-`background-differential-bloom` 并完整走全屏。
+负 scRGB、HDR 极值、Spout2、resize 后奇数尺寸、移动/不相交区域、空帧重启、Context1 缺失、
+`D3D11_OPTIONS.ClearView=false`、FP16/BGRA8 最终输出、MRT/录制完整输出及局部输出外哨兵。
+同一 WARP 适配器上的确定性结果必须精确一致。默认 `background-aware` primary 仍命中
+`background-differential-bloom` 并完整走全屏；完整 Release CTest 为 `45/45`。
 
 这些测试证明当前确定性渲染合同，不证明 RTX 4060 或其他硬件上的性能、功耗和帧稳定性。
 
@@ -73,34 +78,39 @@ ABBA、20 次正式采集，报告为 `FAIL`：Bloom/final p95 恶化 `15.2%`、
 
 ## 0.2.7 发布门结果
 
-0.2.7 必须重新在 RTX 4060、4K 170 Hz、SDR 上执行同一 EXE、同一场景、仅切换 ROI 开关的 5 组
-ABBA、20 次采集。除既有门槛外，还要求金字塔聚合 drawn/full 像素比例不超过 45%，Pyramid GPU
-p95 至少降低 25%；Bloom/final p95 至少降低 `max(5%, 100 us)`，至少 `8/10` 配对不慢，FPS 降幅不
-超过 1%，CPU/Present/p99 恶化不超过 5%，GPU pending 最大值不超过 1，所有错误计数为零。
+新的正式合同使用 capture schema 4 和 report schema 4。金字塔 drawn/full、Prefilter/Pyramid/Bloom
+收益、相邻 ABBA 配对、FPS、GPU command p99、GPU pending、错误计数以及 dirty Present 实际覆盖继续
+作为硬门。CPU FrameTotal 与 PresentCall p95/p99 仍按原阈值报告，但作为非阻塞 advisory；两者包含
+同一次同步 Present 墙钟阻塞，固定年龄场景又明确禁用 Raw Input，不能把四个相关 percentile 当成四份
+独立的交互延迟证据。
 
-2026-08-25 已在 `NVIDIA GeForce RTX 4060 Laptop GPU`、`3840x2160`、`170/1 Hz`、SDR、
-`conservative-sdr` 上完成清理省略修复后的 center-click primary 5 个 ABBA 块、20 次正式复验。证据
-目录为 `artifacts/performance/active-fx-roi-v027-rtx4060-4k170-sdr-center-click-20260825-r5`，采集
-revision 为 `ac4d214fa636ce5907f5f9bf73cf481adce84b16`，Host EXE SHA-256 为
-`e974b25759cb6a4727d85d77a7b5de1da751cf39514dcd409cdb0dde25106c0e`，基础配置 SHA-256 为
-`4238b5055ea35ee8288b09b4b64e64fbec7d5affc428acdc00c3ba6c585cff0c`。结果为 **FAIL**：
+最近一份无已知外部负载污染的旧合同正式证据位于
+`artifacts/performance/active-fx-roi-v027-final-scissor-clean-rtx4060-4k170-sdr-center-click-20260829-r1`，
+revision 为 `11fba7243faf4dee1eb18a7d740c3c3b6f7a1479`，环境为 `NVIDIA GeForce RTX 4060 Laptop GPU`、
+`3840x2160`、`170/1 Hz`、SDR、`conservative-sdr`。结果为 **FAIL**：
 
-- `Applied/Requested=100%`，Prefilter 与金字塔绘制比例分别为 `0.99%` 和 `13.8%`，Prefilter 与
-  Pyramid GPU p95 分别降低 `87.9%` 和 `55.4%`；
-- Bloom/final p95 从 `1760.0 us` 降至 `692.5 us`，降低 `60.7%`；FPS 提升 `0.404%`，`9/10`
-  配对不慢，GPU command p99 改善 `16.0%`，GPU pending 最大值为 `1`，错误计数为零；
-- CPU frame p95/p99 分别恶化 `15.8%/8.1%`，Present p95/p99 分别恶化 `14.0%/7.7%`，仍超过
-  `5%` 上限。逐轮复核确认 Frame 尾部由 Present 主导且存在顺序漂移，现有日志没有给出可直接修复的
-  产品原因。
+- Bloom/final p95 从 `1671 us` 降至 `822 us`，GPU command p99 从 `2085 us` 降至 `1075 us`，
+  FPS 为 `170.043 -> 170.036`，`8/10` 相邻 Bloom 配对不慢，GPU pending 最大值为 `1`，错误计数为零；
+- CPU FrameTotal p95/p99 为 `432/585.5 -> 1210/1657 us`，PresentCall p95/p99 为
+  `382/540 -> 1162/1612.5 us`。原始窗口显示这些值具有明显调度相位分布；按每帧
+  `FrameTotal + FramePacing.Wait` 解释性重算为 `5801.52 -> 5802.70 us`，与 FPS 一致，但该固定场景
+  不能证明真实输入延迟。
 
-因此不放宽阈值、不发布 0.2.7，也不执行 Full/Slim 发布 workflow、三档 SDK 发布 CI、正式资产打包、
-tag 或 GitHub Release。Slim 仍只保留源码构建验证；本次没有生成或上传任何 0.2.7 Release 资产。
+该旧报告保持 **FAIL**，不会用 report schema 4 追溯改判。它证明旧 revision 的局部 GPU 收益，也记录
+当时的 Present 阻塞分布；它不再单独阻塞 ROI 默认关闭、无性能声明的 0.2.7 普通发布。
+
+当前实现计划执行 8-run 的 dirty-Present 短诊断，但在 2026-08-31 首个 ROI-off run 后即
+fail-closed：实际主输出为 `2560x1440 @ 165.003 Hz`，不满足预注册 `3840x2160 @ 170 Hz` 环境合同，
+因此没有生成可用于晋级的
+新性能结论。Full 发布 workflow、SDK CI、资产、tag 与 GitHub Release 仍须按发布流程完成；Slim 只
+保留源码构建验证。
 
 ## 明确排除项
 
-0.2.7 不局部化默认 `background-aware` 的 Differential Bloom、最终场景合成、WGC copy、Spout2 格式
-转换、交换链或 Present，也不实现桌面捕获 ROI 或 dirty Present。Differential Bloom ROI 属于 0.2.8，
-必须在 0.2.7 独立通过并交付后另行接入背景代次、白点、输出目标和资源恢复回退合同；当前不得启动。
+0.2.7 不局部化默认 `background-aware` 的 Differential Bloom、WGC copy、Spout2 格式转换、桌面捕获
+或 recording-rebuild 最终输出。受限 dirty Present 只用于验证后的 steady pure-FX primary；交换链
+资源尺寸没有缩小，也不能外推为所有 DWM、录屏器或驱动上的局部呈现支持。Differential Bloom ROI 属于
+0.2.8，必须在新的性能晋级和背景代次、白点、输出目标、资源恢复合同下独立开发。
 
 ROI 继续保持实验性和默认关闭。AMD、Intel、HDR、Windows 11、多显示器与跨适配器矩阵在真实执行前
-保持 `Not Run`；本次 RTX 4060 失败不会扩大支持范围或改变默认值。
+保持 `Not Run`；旧 RTX 4060 失败、WARP 或 dirty Present 计数都不会扩大支持范围或改变默认值。

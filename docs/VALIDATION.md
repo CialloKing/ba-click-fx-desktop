@@ -713,7 +713,7 @@ RTX 4060、4K `170/1 Hz`、SDR。Bloom/final p95 为 `1671 -> 822 us`，GPU comm
 
 #### 当前候选状态（2026-08-31）
 
-自 `5efdb8d` 起，局部最终输出与 DXGI dirty `Present1` 已接入，正式采集/报告合同为 schema 4/4；
+当前候选已接入局部最终输出与 DXGI dirty `Present1`，正式采集/报告合同为 schema 4/4；
 Release 构建、WARP 局部输出合同和完整 CTest `45/45` 已通过。新的兼容正式 20-run 硬件证据仍为
 `Not Run`：首次短诊断
 `artifacts/performance/active-fx-roi-v027-dirty-present-diagnostic-20260831-r1` 在 run 1 读取到实际

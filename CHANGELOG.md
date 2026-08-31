@@ -1,18 +1,21 @@
 # 变更记录
 
-## 0.2.7 - 未发布（2026-08-25 性能门禁失败）
+## 0.2.7 - 未发布
 
 ### 优化
 
 - Active-FX ROI 从 Bloom 首级扩展到完整金字塔。规划器为 prefilter、每级 downsample/upsample 和
   resolve 生成独立矩形，同时保留全屏参考路径的 mip 数、UV、奇数尺寸、border mode 和 pixel-center
-  phase；down/up 使用实际 scissor，最终全屏合成通过 resolve 矩形掩码在有效区外采样精确零 Bloom。
+  phase；down/up 使用实际 scissor。
 - 每个实际 down/up 目标记录初始化、上一写入矩形、全屏写入状态和最后 writer。首次进入、全屏转 ROI、
   resize 或资源恢复时执行完整预热清理；稳态矩形移动或 writer 改变时通过
   `ID3D11DeviceContext1::ClearView` 清理上一写入区域，同一 writer 连续覆盖相同矩形时跳过冗余清理。
   primary 与 recording-rebuild 分别记账，但共享物理资源的写入状态只有一份。
 - ROI 按帧执行全有或全无：pass 计划、Context1、资源身份、相位或状态任一无效时，整条 Bloom 在同一帧
   回退全屏，不混用局部与全屏 pass。
+- 满足 `RoiPyramid + Applied`、非预热、无背景且最终输出矩形逐字段一致的 steady primary 帧，会只清理
+  和绘制当前与上一帧视觉范围的并集，再以 `Present1` dirty rect 发布。选择器拒绝任何不完整合同；局部
+  输出后若 Present 失败，不会错误退回 full Present，而是重置 ROI 状态并在下一帧完整重建。
 - `GetDisplayState` 升级为严格 schema 4，新增 `roi-pyramid` 路径，并分别报告 prefilter、downsample、
   upsample、resolve 的 full/candidate/drawn/cleared 像素。Control Center 与支持日志同步消费同一合同。
 
@@ -26,21 +29,24 @@
 
 ### 验证与发布状态
 
-- WARP 已覆盖完整金字塔的点击、拖尾、负 scRGB、HDR 极值、Spout2、resize、空帧重启、边界回退和
-  Context1 缺失，并以同适配器 FP16 精确一致为门禁；这些确定性结果不替代真实硬件性能证据。
-- 0.2.7 已在 RTX 4060、4K 170 Hz、SDR 上完成同规格 5 组 ABBA、20 次正式复验。金字塔绘制比例
-  `13.8%`、Pyramid GPU p95 降低 `55.4%`、Bloom/final p95 降低 `60.7%`、`9/10` 配对不慢，
-  GPU command p99 改善 `16.0%`；但 CPU frame 与 Present p95/p99 的恶化仍超过 `5%`，最终报告为
-  `FAIL`。
-- 阈值保持不变；0.2.7 不发布，也不再执行最新 HEAD 的 Full/Slim 发布 workflow、三档 SDK CI、打包、tag 或 Release。
-  0.2.8 Differential Bloom ROI 在 0.2.7 独立通过并交付前继续阻塞。
+- WARP 已覆盖完整金字塔、FP16/BGRA8 最终输出、MRT/录制完整输出、移动视觉范围和局部输出外哨兵，
+  完整 Release CTest 为 `45/45`。这些确定性结果不替代真实 DWM、功耗、输入延迟或跨硬件证据。
+- 旧 capture schema 3 / report schema 2 的 RTX 4060、4K 170 Hz、SDR 20-run 继续保留为当时 revision 的
+  `FAIL`，不会用新规则追溯改判。复核表明 CPU FrameTotal 与 PresentCall 四项是同一 API 阻塞的重复
+  观察，且固定场景禁用 Raw Input；正式 report schema 4 因此把它们保留为非阻塞 advisory，FPS、GPU
+  command、pending、错误、ROI 收益和 dirty Present 覆盖继续是硬门。
+- 当前实现的 schema 4 正式硬件采集尚未完成。2026-08-31 的短矩阵在首个 run 后因实际输出为
+  `2560x1440 @ 165.003 Hz`、不满足预注册的 `3840x2160 @ 170 Hz` 合同而 fail-closed。ROI 保持默认关闭
+  且不作整机性能声明；该晋级证据不再阻塞 0.2.7 的普通发布准备，但继续阻塞默认启用和性能宣传。
 
 ### 支持边界
 
-- 默认 `background-aware` 的 Differential Bloom 仍全屏，并继续留在受 0.2.7 交付门阻塞的 0.2.8。最终场景合成、WGC、
-  Spout2 格式转换、交换链与 Present 也继续全屏；0.2.7 不实现桌面捕获 ROI 或 dirty Present。
+- 默认 `background-aware` 的 Differential Bloom、WGC、Spout2 格式转换、recording-rebuild 最终输出和
+  所有 fallback 仍完整输出并使用普通 Present。受限 dirty Present 只属于验证后的 steady pure-FX
+  primary，不等于桌面捕获 ROI、全交换链局部化或普遍录屏支持。
 - ROI 继续是默认关闭的实验项。AMD、Intel、HDR、Windows 11、多显示器和跨适配器硬件矩阵在真实
-  执行前保持 `Not Run`，不能由 WARP 或 RTX 4060 的后续单机结果外推。
+  执行前保持 `Not Run`，不能由 WARP、计数器或 RTX 4060 的单机结果外推。0.2.8 Differential Bloom
+  ROI 仍须在新的性能晋级合同通过后另行开发。
 
 ## 0.2.6 - 未发布（2026-08-24 性能门禁失败）
 

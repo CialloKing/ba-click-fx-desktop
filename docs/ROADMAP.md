@@ -78,8 +78,9 @@ Prefilter/Pyramid/Bloom 收益、相邻配对、FPS、GPU command p99、pending�
 预注册 `3840x2160 @ 170/1 Hz`，因此 fail-closed 且没有形成可用于晋级的新矩阵。
 
 新的同规格 schema 4 硬件晋级证据保持 `Not Run`，阻塞 ROI 默认启用、性能/功耗/输入延迟声明和
-0.2.8 Differential Bloom ROI。ROI 默认关闭且 0.2.7 不附带这些声明，因此普通发布只需通过通用
-Full/Slim Release 工作流、SDK CI、打包和远端资产复核，不再被当前显示器模式阻塞。
+0.2.8 Differential Bloom ROI。ROI 默认关闭且 0.2.7 不附带这些声明，因此普通发布只需通过
+`release-verify`、`slim-release-verify`、三档 SDK 编译兼容 CI、Full 四资产打包和远端复核，不再被
+当前显示器模式阻塞；Slim 只验证源码构建，不生成或上传发布资产。
 
 ## Host-owned 特效 Profile（2026-08-23）
 
