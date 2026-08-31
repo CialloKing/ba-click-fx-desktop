@@ -155,73 +155,20 @@ class CaptureFixture:
     ) -> dict[str, object]:
         frame_count = 1200
         observed = frame_count
-        if roi_enabled and self.expectation == "applied":
-            requested = 1000
-            applied = 960
-            prefilter_full_pixels = 100_000
-            prefilter_candidate_pixels = 40_000
-            prefilter_drawn_pixels = 40_000
-            pyramid_full_pixels = 100_000
-            pyramid_candidate_pixels = 40_000
-            pyramid_drawn_pixels = 40_000
-            resolve_full_pixels = 100_000
-            resolve_candidate_pixels = 40_000
-            resolve_drawn_pixels = 40_000
-            resolve_cleared_pixels = 40_000
-            reason_frames = observed
-            prefilter = 250
-            pyramid = 210
-            bloom_final = 820
-        elif roi_enabled:
-            requested = 1000
-            applied = 0
-            prefilter_full_pixels = 100_000
-            prefilter_candidate_pixels = 100_000
-            prefilter_drawn_pixels = 100_000
-            pyramid_full_pixels = 100_000
-            pyramid_candidate_pixels = 100_000
-            pyramid_drawn_pixels = 100_000
-            resolve_full_pixels = 100_000
-            resolve_candidate_pixels = 100_000
-            resolve_drawn_pixels = 100_000
-            resolve_cleared_pixels = 0
-            reason_frames = observed
-            prefilter = 400
-            pyramid = 300
-            bloom_final = 1000
-        else:
-            requested = 0
-            applied = 0
-            prefilter_full_pixels = 100_000
-            prefilter_candidate_pixels = 100_000
-            prefilter_drawn_pixels = 100_000
-            pyramid_full_pixels = 100_000
-            pyramid_candidate_pixels = 100_000
-            pyramid_drawn_pixels = 100_000
-            resolve_full_pixels = 100_000
-            resolve_candidate_pixels = 100_000
-            resolve_drawn_pixels = 100_000
-            resolve_cleared_pixels = 0
-            reason_frames = 0
-            prefilter = 400
-            pyramid = 300
-            bloom_final = 1000
-        full_pixels = (
-            prefilter_full_pixels + pyramid_full_pixels + resolve_full_pixels
-        )
-        candidate_pixels = (
-            prefilter_candidate_pixels
-            + pyramid_candidate_pixels
-            + resolve_candidate_pixels
-        )
-        drawn_pixels = (
-            prefilter_drawn_pixels + pyramid_drawn_pixels + resolve_drawn_pixels
-        )
-        cleared_pixels = (
-            prefilter_drawn_pixels
-            + pyramid_drawn_pixels
-            + resolve_cleared_pixels
-        )
+        applied_path = roi_enabled and self.expectation == "applied"
+        requested = 1000 if roi_enabled else 0
+        applied = 960 if applied_path else 0
+        full_stage_pixels = 100_000
+        drawn_stage_pixels = 40_000 if applied_path else full_stage_pixels
+        resolve_cleared_pixels = drawn_stage_pixels if applied_path else 0
+        reason_frames = observed if roi_enabled else 0
+        prefilter = 250 if applied_path else 400
+        pyramid = 210 if applied_path else 300
+        bloom_final = 820 if applied_path else 1000
+        full_pixels = full_stage_pixels * 3
+        candidate_pixels = drawn_stage_pixels * 3
+        drawn_pixels = drawn_stage_pixels * 3
+        cleared_pixels = drawn_stage_pixels * 2 + resolve_cleared_pixels
         roi_prefix = (
             "ROI.Primary"
             if self.measurement_path == "primary"
@@ -276,22 +223,6 @@ class CaptureFixture:
             f"{roi_prefix}.CandidatePixels.Total": candidate_pixels,
             f"{roi_prefix}.DrawnPixels.Total": drawn_pixels,
             f"{roi_prefix}.ClearedPixels.Total": cleared_pixels,
-            f"{roi_prefix}.Stage.Prefilter.FullPixels.Total": prefilter_full_pixels,
-            f"{roi_prefix}.Stage.Prefilter.CandidatePixels.Total": prefilter_candidate_pixels,
-            f"{roi_prefix}.Stage.Prefilter.DrawnPixels.Total": prefilter_drawn_pixels,
-            f"{roi_prefix}.Stage.Prefilter.ClearedPixels.Total": prefilter_drawn_pixels,
-            f"{roi_prefix}.Stage.Downsample.FullPixels.Total": pyramid_full_pixels // 2,
-            f"{roi_prefix}.Stage.Downsample.CandidatePixels.Total": pyramid_candidate_pixels // 2,
-            f"{roi_prefix}.Stage.Downsample.DrawnPixels.Total": pyramid_drawn_pixels // 2,
-            f"{roi_prefix}.Stage.Downsample.ClearedPixels.Total": pyramid_drawn_pixels // 2,
-            f"{roi_prefix}.Stage.Upsample.FullPixels.Total": pyramid_full_pixels // 2,
-            f"{roi_prefix}.Stage.Upsample.CandidatePixels.Total": pyramid_candidate_pixels // 2,
-            f"{roi_prefix}.Stage.Upsample.DrawnPixels.Total": pyramid_drawn_pixels // 2,
-            f"{roi_prefix}.Stage.Upsample.ClearedPixels.Total": pyramid_drawn_pixels // 2,
-            f"{roi_prefix}.Stage.Resolve.FullPixels.Total": resolve_full_pixels,
-            f"{roi_prefix}.Stage.Resolve.CandidatePixels.Total": resolve_candidate_pixels,
-            f"{roi_prefix}.Stage.Resolve.DrawnPixels.Total": resolve_drawn_pixels,
-            f"{roi_prefix}.Stage.Resolve.ClearedPixels.Total": resolve_cleared_pixels,
             reason_field: reason_frames,
             f"{gpu_prefix}.Prefilter.P95": prefilter,
             f"{gpu_prefix}.Pyramid.P95": pyramid,
@@ -312,6 +243,24 @@ class CaptureFixture:
             "FramePacing.Timeouts": 0,
             "FramePacing.Failures": 0,
         }
+        stage_pixels = {
+            "Prefilter": (full_stage_pixels, drawn_stage_pixels),
+            "Downsample": (full_stage_pixels // 2, drawn_stage_pixels // 2),
+            "Upsample": (full_stage_pixels // 2, drawn_stage_pixels // 2),
+            "Resolve": (full_stage_pixels, drawn_stage_pixels),
+        }
+        for stage, (stage_full, stage_drawn) in stage_pixels.items():
+            stage_cleared = (
+                resolve_cleared_pixels if stage == "Resolve" else stage_drawn
+            )
+            fields.update(
+                {
+                    f"{roi_prefix}.Stage.{stage}.FullPixels.Total": stage_full,
+                    f"{roi_prefix}.Stage.{stage}.CandidatePixels.Total": stage_drawn,
+                    f"{roi_prefix}.Stage.{stage}.DrawnPixels.Total": stage_drawn,
+                    f"{roi_prefix}.Stage.{stage}.ClearedPixels.Total": stage_cleared,
+                }
+            )
         if self.expected_reason in {"boundary-fallback", "touches-boundary"}:
             fields["ROI.RequestedFrames"] = observed
         fields.update(self.overrides.get(ordinal, {}))
