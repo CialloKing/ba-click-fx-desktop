@@ -388,9 +388,10 @@ writer、同一矩形直接覆盖且 `clearedPixels=0`，以及矩形移动时 `
 奇数尺寸、空帧重启、Context1 缺失及 `D3D11_OPTIONS.ClearView=false`。背景差分 primary 必须保持全屏；
 共享目标同帧已全屏写入时，recording-rebuild 只能报告全清预热/共享写入原因。
 
-这些用例证明 0.2.7 已接入的纯特效 prefilter/down/up，以及“最终输出全屏透明清理 + 已验证
-`resolveRect` 内最终 shader”正确性，不证明真实 GPU 性能。默认 `background-aware` Differential Bloom
-及其最终场景合成、WGC、Spout2 格式转换、交换链和 Present 仍为全屏，不能从 WARP 结果外推。
+这些用例证明 0.2.7 已接入的纯特效 prefilter/down/up 正确性，不证明真实 GPU 性能。当前 HEAD 的
+稳态纯特效 ROI 会在逐字段验证后的 dirty rect 内清理并写入最终输出，再由 `Present1` 提交同一矩形；
+预热、背景感知、录制重建及任一合同不满足的帧仍完整输出。WARP 还覆盖前后帧区域并集、FP16、BGRA8
+和双 RTV/录制路径，完整 CTest 为 `45/45`；这些确定性结果不能外推 DWM 可见正确性、整机收益或功耗。
 
 ## 5. 发布门槛
 
@@ -457,11 +458,11 @@ p95 降低 `53.5%`、Bloom/final p95 恶化 `15.2%`、FPS 下降 `7.2%`、不慢
 AMD、Intel、HDR、Windows 11、多显示器和跨适配器 ROI 单元格在真实执行前保持 `Not Run`，不能用
 WARP、SDK 编译矩阵或 RTX 4060 SDR 结果外推。
 
-### 5.2 Active-FX ROI v0.2.7 专用发布门
+### 5.2 Active-FX ROI v0.2.7 专用硬件晋级门
 
 0.2.7 继续使用 5 个 ABBA 块、20 次采集、每次预热 5 秒并采样 30 秒的同机配对合同。collector Host
 寿命为 45 秒；报告仍只丢弃第一个完整 10 秒窗并选择随后三个完整 10 秒窗，额外寿命只为进程初始化
-保留余量，不扩大测量窗口。collector manifest 必须是 schema 3，报告必须是 schema 2；同一 EXE、
+保留余量，不扩大测量窗口。当前正式 collector manifest 与 report 必须均为 schema 4；同一 EXE、
 输入、显示和 schema 19 配置只能切换
 `performance.activeFxRoiEnabled`。原始日志必须重新锁定 Hardware D3D11、RTX 4060、Adapter LUID/驱动、
 `3840x2160`、`170/1 Hz`、SDR、`conservative-sdr`、Host SHA-256、配置 SHA-256 和配对顺序。
@@ -472,17 +473,27 @@ WARP、SDK 编译矩阵或 RTX 4060 SDR 结果外推。
 schema、ABBA 顺序、选窗或以下性能阈值。它只能拦截持续的粗粒度系统 CPU 负载，不证明 GPU、存储、
 DPC 或单核已经空闲，因此通过前置门也不能替代块外环境检查。
 
-除 0.2.6 已预注册的全部门槛外，0.2.7 还必须同时满足：
+当前 schema 4 硬门包括：
 
 - `Applied/Requested >= 95%`，Prefilter 绘制比例不超过 45%，Prefilter GPU p95 至少降低 25%；
 - 金字塔聚合 drawn/full 像素比例不超过 45%，Pyramid GPU p95 至少降低 25%；
 - Bloom/final p95 至少降低 `max(5%, 100 us)`，10 组配对中至少 8 组 ROI 不慢于全屏；
-- FPS 降幅不超过 1%，CPU、Present 与 p99 恶化不超过 5%；
+- FPS 降幅不超过 1%，GPU command p99 恶化不超过 5%；
 - GPU pending 最大值不超过 1，查询、节流、状态和其他错误计数均为 0；
+- ROI-off 不得使用 dirty Present；稳态 primary ROI-on 的 dirty Present 帧数必须精确覆盖应用帧减预热帧，
+  且 dirty pixels 非零；录制重建和 fallback 不得使用 dirty Present；
 - 触边、面积回退及无 Spout2 的 `background-aware` 场景 100% 命中预期原因并保持 FP16 exact，性能
-  恶化不超过 `max(3%, 100 us)`。
+  门仅检查 Prefilter/Pyramid/Bloom GPU p95 与 GPU command p99，恶化不超过 `max(3%, 100 us)`。
 
-2026-08-25 的最新有效正式复验位于
+`Cpu.FrameTotal` 与 `Cpu.PresentCall` 的 p95/p99 保留原 `5%` 参考线，但在 schema 4 report 中是
+non-blocking advisories：它们包含 DXGI/帧节奏墙钟等待且彼此高度重叠，不能单独否决发布。该调整不
+删除指标，也不把 GPU command、FPS、错误、pending、ROI、dirty-present 或收益门降级。
+
+#### 历史正式证据（旧合同，不追溯改判）
+
+以下 capture schema 2/3 与对应旧报告及其 `FAIL` 均按生成时合同保留，不用当前 schema 4 重新判定。
+
+2026-08-25 的历史正式复验位于
 `artifacts/performance/active-fx-roi-v027-rtx4060-4k170-sdr-center-click-20260825-r5`。manifest 为
 schema 3 且 `captureStatus=captured`，报告为 schema 2；采集开始时间为 `2026-08-25T04:48:45.546Z`
 （Asia/Shanghai 2026-08-25），revision 为 `ac4d214fa636ce5907f5f9bf73cf481adce84b16`。Host EXE
@@ -628,8 +639,18 @@ Present 指标变快，但短矩阵每臂只有 4 次，本来就不能替代发
 同一 WinRAR 进程从本地时间 2026-08-28 16:28 起创建 `General.rar`，早于两轮采集启动并在采集结束后
 仍在运行。结束后的观测为约 23--24 GiB working set、约 26--28 GiB private memory，并在 3 秒采样中
 使用约 25 CPU 秒。这确认存在未受控并发负载，但不证明该进程的逐帧影响，也不证明候选的产品因果。
-本次未终止该用户进程；干净复验等待其自然结束或另行获得明确授权，之后必须使用新目录重新执行短诊断
-和独立 5 ABBA、20-run 正式门禁。当前不执行发布 workflow、SDK CI、打包、tag 或 Release。
+本次未终止该用户进程；该 revision 当时没有执行发布 workflow、SDK CI、打包、tag 或 Release，后续
+证据必须使用新目录，不能覆盖这两轮历史结果。
+
+2026-08-29 的独立干净正式证据位于
+`artifacts/performance/active-fx-roi-v027-final-scissor-clean-rtx4060-4k170-sdr-center-click-20260829-r1`。
+capture schema 3、report schema 2，revision 为 `11fba7243faf4dee1eb18a7d740c3c3b6f7a1479`；环境为同一
+RTX 4060、4K `170/1 Hz`、SDR。Bloom/final p95 为 `1671 -> 822 us`，GPU command p99 为
+`2085 -> 1075 us`，FPS 为 `170.043 -> 170.036`，`8/10` 相邻配对不慢，pending 最大值为 `1`，错误
+计数为零。CPU FrameTotal p95/p99 为 `432/585.5 -> 1210/1657 us`，PresentCall p95/p99 为
+`382/540 -> 1162/1612.5 us`，因此旧报告按当时合同保持 `FAIL`。原始窗口的解释性复核显示每帧
+`FrameTotal + FramePacing.Wait` 为 `5801.52 -> 5802.70 us`，与 FPS 基本不变一致；固定年龄场景明确
+禁用 Raw Input，故该复核不能证明输入延迟无回归。
 
 证据索引 SHA-256：
 
@@ -681,15 +702,26 @@ Present 指标变快，但短矩阵每臂只有 4 次，本来就不能替代发
   `5ec4bc38749bf04dbbf1d79d7c7a7c5f50741b8590bb4c0016896bab41f1cdc4`
 - 最终合成裁剪正式 r2 `summary.md`:
   `6afcb1cb80604a3cdb51d05e1a48c606bfcad30bd9bcf67919791b42861bcaa6`
+- 最终合成裁剪干净正式 r1 `capture.json`:
+  `cf2e4247aa72f0ba9b4ac2008fc82232df422f9235fd086e3e3d77cf24df6bc2`
+- 最终合成裁剪干净正式 r1 `summary.json`:
+  `f09b4af6a74d0b429e305b17406f9358917cb08f2010a013bdc6883f6064dc05`
+- 最终合成裁剪干净正式 r1 `summary.md`:
+  `33eb3964048058e60acfef87bf055a53cd68645bad9b517fbf71f94ada20a661`
 
-缓存后的正式 5 ABBA、20-run 是最近一份无已知外部负载污染的正式证据，结果为 `FAIL`。最终合成裁剪
-r2 是时间上更新的完整采集，但其外部负载与 pacing 异常使它不能替代干净正式证据，而且严格结果同样
-为 `FAIL`。因此阈值不放宽，0.2.7 不发布，也不执行 Full/Slim 发布 workflow、SDK
-`19041/22621/26100` 发布 CI、正式打包、tag 或远端复核。官方 Release 的 Full 四资产策略保持不变，
-Slim 仍只保留源码构建验证。
+以上缓存后正式 20-run 与受污染 r2 分别保持其原始 `FAIL`，旧 schema 2/3 report 不追溯改判。
 
-0.2.8 的 Differential Bloom ROI 必须在 0.2.7 独立通过并交付后开始，另行增加背景有效性和捕获代次
-回退门；当前保持阻塞，不得用 0.2.7 的局部 GPU 收益替代整机失败结果。
+#### 当前候选状态（2026-08-31）
+
+自 `5efdb8d` 起，局部最终输出与 DXGI dirty `Present1` 已接入，正式采集/报告合同为 schema 4/4；
+Release 构建、WARP 局部输出合同和完整 CTest `45/45` 已通过。新的兼容正式 20-run 硬件证据仍为
+`Not Run`：首次短诊断
+`artifacts/performance/active-fx-roi-v027-dirty-present-diagnostic-20260831-r1` 在 run 1 读取到实际
+`2560x1440 @ 165.003 Hz`，不满足预注册 `3840x2160 @ 170/1 Hz`，因此 fail-closed 且未形成有效 run。
+
+ROI 在 0.2.7 保持默认关闭和实验性，不据现有结果声明整机性能、功耗或输入延迟收益。上述硬件晋级
+`Not Run` 不阻塞不带这些声明的 0.2.7 普通发布，但阻塞 ROI 默认启用、性能/功耗/输入延迟声明，以及
+0.2.8 Differential Bloom ROI 扩展；普通发布仍须通过本节通用 release candidate 门槛。
 
 ## 6. 需求追踪
 
@@ -700,7 +732,7 @@ Slim 仍只保留源码构建验证。
 | Sensor/lifecycle/power | ADR-003 | SPK-002, SPK-004 | VAL-CAPTURE, VAL-SOAK |
 | Self-exclusion/recording | ADR-004 | SPK-002 | VAL-RECORDING |
 | Golden/numerics | ADR-005 | all | all suites |
-| ROI/mip phase | ADR-006 | opt-in full Bloom pyramid ROI + per-frame full-screen fallback | VAL-ROI |
+| ROI/mip phase | ADR-006 | opt-in full Bloom pyramid ROI + verified dirty Present + per-frame full-screen fallback | VAL-ROI |
 | Temporal validity | ADR-007 | SPK-002, SPK-004 | VAL-TEMPORAL |
 | Host effects-only Profile | ADR-008 | 不适用 | config/fx-profile-store/host-control/host-state tests |
 

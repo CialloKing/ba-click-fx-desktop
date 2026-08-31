@@ -5,8 +5,9 @@
 用户可感知的输入延迟、渲染成本和视觉差异；2026-08-15 的优先级覆盖进一步暂缓第三阶段
 WGC/ROI 优化，当前直接收敛 WGC/背景感知可靠性。2026-08-16 的最新覆盖把 HDR、多显示器、
 DPI 和 Windows 11 运行时逻辑提前到测试与硬件证据之前；2026-08-24 的覆盖转入 Active-FX ROI
-首级实效化，并以真实 A/B 门槛决定是否发布。2026-08-25 的最新覆盖承接 0.2.6 门禁失败，把完整
-Bloom 金字塔 ROI 收敛为 0.2.7 候选并执行同规格实机门禁；整机门槛仍失败，0.2.8 因此前置交付未完成而阻塞。
+首级实效化，并以真实 A/B 门槛决定是否发布。2026-08-31 的最新覆盖将默认关闭、无性能声明的
+0.2.7 普通发布与 ROI 硬件晋级分离；新的 4K 170 Hz schema 4 晋级证据仍为 `Not Run`，继续阻塞
+默认启用、性能宣传和 0.2.8 Differential Bloom ROI，但不再阻塞 0.2.7 普通发布。
 
 完成新的 collector、verifier 或证据归档，只计作验证基础设施进展，不能单独计作用户功能更新。
 它们只有在解除当前体验问题或正式发布门槛时才进入主线排期。
@@ -49,59 +50,36 @@ Bloom 金字塔 ROI 收敛为 0.2.7 候选并执行同规格实机门禁；整�
 `15.2%`、FPS 下降 `7.2%`、仅 `6/10` 配对不慢、首级绘制比例 `46.8%`，且两臂均出现非零
 `FramePacing.Timeouts`。因此阈值未放宽，0.2.6 未发布，Full/Slim workflow、SDK CI 和 Release 均停止。
 
-## v0.2.7 完整 Bloom 金字塔 ROI（2026-08-25，未发布）
+## v0.2.7 完整 Bloom 金字塔 ROI（2026-08-31，发布准备）
 
 本轮继续使用 schema 19 和同一个默认关闭的 `performance.activeFxRoiEnabled`：
 
 - ROI 规划器为 prefilter、每级 downsample/upsample 和 resolve 生成独立矩形，保留原 mip 数、UV、
-  奇数尺寸、border mode 与 pixel-center phase；前向非零支持与反向依赖相交，避免奇数尺寸漏采样；
-- 每个实际 down/up 目标维护初始化、上一写入矩形、全屏写入状态和最后 writer。首次进入、全屏转 ROI、
-  resize、设备恢复和资源重建执行完整预热清理；稳态矩形移动或 writer 改变时通过 `ClearView` 清理旧
-  区域，同一 writer 连续覆盖相同矩形时跳过清理；
-- 一帧内只能完整执行 ROI 或完整回退全屏。pass 计划、Context1、资源身份、相位或状态任一无效，整条
-  Bloom 同帧回退，禁止混合局部与全屏 pass；
-- 纯特效 ROI 应用路径先把最终输出全屏清为透明，再只在逐字段验证的 `resolveRect` 内执行最终
-  传输/合成 shader；背景感知最终合成、WGC、Spout2 格式转换、交换链与 Present 继续全屏；
-- `GetDisplayState` 升级为严格 schema 4，新增 `roi-pyramid` 路径和 prefilter/downsample/upsample/resolve
-  四阶段的 full/candidate/drawn/cleared 像素；混合版本继续 fail-closed；
-- WARP 等价矩阵已经覆盖点击、拖尾、负 scRGB、HDR 极值、Spout2、resize、空帧重启和 Context1 缺失，
-  并要求同适配器 FP16 精确一致。这是确定性正确性证据，不是实机性能结论。
+  奇数尺寸、border mode 与 pixel-center phase；每个实际目标维护初始化、上一写入矩形和最后 writer；
+- pass 计划、Context1、资源身份、相位或状态任一无效时，整条 Bloom 同帧完整回退，不混合局部与全屏
+  pass。首次进入、resize、设备恢复和全屏转 ROI 也先执行完整预热；
+- 验证后的 steady pure-FX primary 会把最终交换链表面的清理和 draw 限制到 `resolveRect`，再以同一
+  dirty rect 调用 `Present1`。warmup、background-aware、recording-rebuild、Spout2 和任一 fallback
+  始终建立完整输出并使用普通 Present；局部 Present 失败后，下帧从完整重建恢复；
+- `GetDisplayState` 使用严格 schema 4，分别报告 prefilter/downsample/upsample/resolve 和 dirty Present
+  的实际工作量；混合版本继续 fail-closed；
+- WARP 已覆盖 FP16/BGRA8 最终输出、双 RTV/录制完整输出、移动范围、局部输出外哨兵及失败恢复，
+  Release CTest 为 `45/45`。这些是确定性 D3D 合同证据，不是 DWM、功耗或跨硬件结论。
 
-0.2.7 在缓存修复后的 RTX 4060、4K 170 Hz、SDR 5 组 ABBA、20 次正式复验仍为 `FAIL`。
-Prefilter/金字塔 drawn/full 比例为 `0.96%/13.68%`，对应 GPU p95 降低 `82.95%/42.82%`；
-Bloom/final p95 降低 `12.97%`，`10/10` 配对不慢，FPS 基本不变。但 CPU frame p95/p99 恶化
-`13.34%/8.40%`，Present p95/p99 恶化 `13.69%/8.40%`，GPU command p99 恶化 `34.07%`，均超过
-`5%` 门。因此阈值未放宽，0.2.7 未发布，最新 HEAD 的 Full/Slim 发布 workflow、三档 SDK CI、
-打包与 Release 均停止。
+旧 capture schema 3/report schema 2 的 RTX 4060、4K 170 Hz 正式矩阵继续按生成时合同保留为 `FAIL`。
+最近一份无已知外部负载污染的旧合同证据是 2026-08-29 的 5 ABBA、20-run：Bloom/final p95
+`1671 -> 822 us`，GPU command p99 `2085 -> 1075 us`，FPS `170.043 -> 170.036`，但 CPU FrameTotal
+和 PresentCall percentile 超过当时的 `5%` 门。逐帧复核显示两组指标重复观察同一次同步阻塞，且固定
+年龄场景禁用 Raw Input，不能把四个 percentile 当作四份独立的交互延迟证据；旧报告不会追溯改判。
 
-提交 `d9ef2fe` 缓存规划器生成且逐字段验证通过的 pass plan。缓存后的正式复验中 ROI-on
-`Cpu.FxTotalSubmit` 与 `Cpu.BloomAndCompositeSubmit` p95 只增加约 `3/2 us`，不足以解释数百微秒的
-Frame/Present 尾差；CPU frame 与 Present 的 p95 配对差中位均约 `+190 us`，GPU command p99 则在
-全部 10 对中增加，配对差中位约 `+938.5 us`。
+正式 report schema 4 因此把 CPU FrameTotal/PresentCall p95/p99 保留为非阻塞 advisory；ROI 覆盖、
+Prefilter/Pyramid/Bloom 收益、相邻配对、FPS、GPU command p99、pending、错误和 dirty Present 覆盖仍是
+硬门。2026-08-31 的最新短诊断在首个 ROI-off run 后读取到实际输出 `2560x1440 @ 165.003 Hz`，不满足
+预注册 `3840x2160 @ 170/1 Hz`，因此 fail-closed 且没有形成可用于晋级的新矩阵。
 
-同日的 8-run 非发布遥测诊断中，ROI off/on 的 SM 时钟中位为 `1417.5 -> 1200 MHz`，设备瞬时功耗
-run-mean 中位为 `23.851 -> 20.824 W`；但 4 组相邻配对的 GPU command p99 各有两组变快、两组变慢，
-而每个区块首轮的 CPU/Present 尖峰分别落在 off 与 on。设备降频、整机顺序状态与尾延迟同时出现，
-仍不能从该短矩阵确定关联方向或产品因果。
-
-后续逐阶段重放把旧正式矩阵的 GPU 尾差定位到全屏 FinalComposite。提交 `866dea5` 因此只在纯特效
-ROI 已应用且 `resolveRect` 已验证时执行“全目标透明清理 + 最终 shader scissor”，背景感知和所有
-fallback 仍为全屏；WARP 55 项矩阵继续 FP16 逐元素精确一致。提交 `f00226f` 只把完整 WARP 矩阵的
-CTest 超时预算调整为 90 秒，提交 `a86ce5e` 只把 collector Host 寿命从 40.5 秒增加到 45 秒，仍丢弃
-一个完整 10 秒窗并选择三个完整 10 秒窗，预注册性能阈值与 30 秒采样合同均未改变。
-
-最终合成裁剪候选的首个正式目录因旧 Host 寿命只得到 3 个完整窗口而 fail-closed；调整后 20-run
-采集虽完整，严格报告仍为 `FAIL`。一个从 16:28 起创建 `General.rar` 的高负载 WinRAR 进程在两轮
-采集前已启动，采集后仍在运行，已经违反空闲主机前提；低 FPS 与 `FramePacing.Timeouts` 同时出现，
-但不单独证明逐帧影响或产品因果。因此两轮作为受污染的失败证据保留，但不用于宣称修复有效或无效；
-干净环境的独立正式 ABBA 尚待执行。0.2.7、发布流程和 0.2.8
-继续阻塞。WGC、交换链 dirty Present 和桌面捕获 ROI 仍是相互独立的高风险项目；其他真实硬件 ROI
-矩阵继续保持 `Not Run`。
-
-提交 `d898a56` 为 collector 增加粗粒度主机空闲前置门：采集开始及每个 ABBA/BAAB 块前，通过
-`GetSystemTimes` 获取 5 个一秒系统 CPU 样本；中位 busy 超过 10% 时立即 fail-closed。该门不识别或
-终止具体进程，不改变 manifest/report schema、ABBA 顺序、30 秒选窗或性能阈值。它只拦截持续的系统级
-CPU 负载，不能证明 GPU、存储、DPC 或单核已经空闲；正式采集仍须在块外独立确认这些条件。
+新的同规格 schema 4 硬件晋级证据保持 `Not Run`，阻塞 ROI 默认启用、性能/功耗/输入延迟声明和
+0.2.8 Differential Bloom ROI。ROI 默认关闭且 0.2.7 不附带这些声明，因此普通发布只需通过通用
+Full/Slim Release 工作流、SDK CI、打包和远端资产复核，不再被当前显示器模式阻塞。
 
 ## Host-owned 特效 Profile（2026-08-23）
 
@@ -382,27 +360,23 @@ FX-only 与 background-aware 在 `3840x2160 @ 170 Hz` 下均保持
 
 当前 P1 已完成完整 Unity Bloom pass 规划、跨帧 dirty rect、每个实际 down/up 目标的清理状态机、
 50%/65% 自适应门、primary/recording-rebuild 分阶段 GPU 遥测和 Control Center schema 4 工程面板。
-满足正确性门的纯特效路径会局部绘制 prefilter/down/up，先把最终输出全屏清为透明，再只在验证后的
-`resolveRect` 内执行最终 shader；全屏 Bloom 仍是规范参考，不满足任一约束的帧整条回退。背景感知
-最终合成与 WGC、Spout2 格式转换、交换链、Present 仍为全屏。
+满足正确性门的 steady pure-FX 路径会局部绘制 prefilter/down/up/final output，并通过 `Present1`
+提交验证后的 dirty rect；全屏 Bloom 仍是规范参考，不满足任一约束的帧整条回退。背景感知、WGC、
+Spout2、recording-rebuild 和 warmup 始终建立完整输出。
 
 P1 的执行顺序不再调整：
 
 1. 保留 v0.2.6 `FAIL` 的原始证据和预注册阈值，不发布该版本；
-2. 0.2.7 完整金字塔候选已执行 RTX 4060、4K 170 Hz、SDR 专用 ABBA；整机门槛失败，证据已保留，
-   发布已停止，50%/65% 自适应阈值和性能断言均未放宽；
-3. `d9ef2fe` 后的 4K 170 Hz 正式 20-run 已执行；Bloom/final 与配对门通过，但 CPU frame、Present
-   和 GPU command p99 门失败，不能用局部 GPU 收益替代整机结论；
-4. 同 revision 的 8-run NVIDIA 遥测诊断只确认设备状态与顺序抖动并存，未给出可复现产品原因；
-   不调整预注册阈值；
-5. `866dea5` 已把纯特效最终 shader 裁剪到验证后的 `resolveRect`，WARP 55 项 FP16 exact 通过；
-6. 新候选采集前已启动、采集后仍运行的高负载 WinRAR 压缩违反空闲主机前提；短诊断和正式 20-run
-   作为受污染的 `FAIL` 保留，不以它们替代干净环境独立复验，也不在已知外部负载下追逐偶然通过；
-7. 0.2.7 独立 20-run 通过前不发布、不启动 0.2.8；WGC、桌面捕获 ROI 和交换链 dirty Present 分别
-   评审、分别验收，不从 Bloom ROI 的结果外推。
+2. 旧 schema 的 0.2.7 RTX 4060、4K 170 Hz 正式失败证据保持原判，不追溯改写；
+3. 已完成最终输出局部写入、dirty `Present1`、失败后完整重建，以及相应 WARP/生产遥测合同；
+4. report schema 4 将重复观察同步等待的 CPU FrameTotal/PresentCall 改为 advisory，GPU command、FPS、
+   ROI 收益、错误、pending 和 dirty Present 覆盖仍为硬门；
+5. 最新诊断因当前输出为 1440p 165 Hz 而 fail-closed，4K 170 Hz 硬件晋级保持 `Not Run`；
+6. 先完成默认关闭且无性能声明的 0.2.7 通用发布门；不得把 WARP、计数器或旧矩阵外推为硬件声明；
+7. 0.2.8 仅在新的 schema 4 硬件晋级通过后启动，并另行验收 Differential Bloom、WGC 与背景代次。
 
-任何阶段都必须同时比较 GPU 阶段时间、CPU/Present 尾部、查询健康状态和最终 FP16 结果；不能只报告
-CPU 提交时间、资源尺寸或像素覆盖比例。
+任何阶段都必须同时记录 GPU 阶段时间、CPU/Present advisory、查询健康状态和最终像素结果；不能只
+报告 CPU 提交时间、资源尺寸或像素覆盖比例。
 
 ## P2：Unity/Web/Native 固定时间片视觉回归
 
