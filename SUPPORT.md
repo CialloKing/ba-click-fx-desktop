@@ -1,4 +1,4 @@
-# 0.2.7 支持与验证范围
+# 0.2.8 支持与验证范围
 
 ## 可以测试的范围
 
@@ -72,7 +72,7 @@
   伪造的 HDR、刷新率或 ROI 运行状态。
 - `GetState.productVersion` 使用规范 `MAJOR.MINOR.PATCH` 标识 Host 版本。只有 Host 与 Control Center
   完全同版本时设置控件才可写；字段缺失、格式错误或版本不一致时 fail-closed，设置保持禁用，但 Host
-  启动和关闭入口继续可用。该产品版本门不改变配置 schema，0.2.7 仍使用 schema 19。
+  启动和关闭入口继续可用。该产品版本门不改变配置 schema，0.2.8 仍使用 schema 19。
 - WGC FP16 scRGB 背景使用独立的背景 reference white 转入 Unity 相对工作空间；Unity authored color、粒子、
   材质、Trail 和 Bloom 仍在线性 FP16 中计算，最终呈现阶段才使用输出 reference white 选择 SDR/HDR 映射。
   HDR/WCG 下背景白点未知时 WGC 可保持预热，但该背景不得进入合成，当前画面回退 FX-only。
@@ -111,7 +111,7 @@
   `ClearLogs` 清理会删除当前文件及遗留备份，再写入一条清理结果事件；正常运行每 10 秒写一条
   `Performance.Interval`，退出时刷新最后一个未满窗口；它包含输入队列年龄、消息/Move 收敛、WGC
   callback/accepted、背景样本年龄、CPU 提交阶段、Present 调用、输入到 Present 返回，以及 WGC/copy、
-  背景快照、FX 材质和 Bloom/最终复合的异步 D3D11 GPU 时间戳 `p50/p95/p99/max`。0.2.7 还分别记录
+  背景快照、FX 材质和 Bloom/最终复合的异步 D3D11 GPU 时间戳 `p50/p95/p99/max`。当前版本还分别记录
   primary 与 recording-rebuild 的 Prefilter、Pyramid、FinalComposite p50/p95，并保留原 Bloom 总耗时。
   GPU 分析器使用
   固定 8 槽查询环，每个渲染帧最多无阻塞轮询一次，不调用 `Flush` 或等待查询完成；日志会另外记录
@@ -234,7 +234,7 @@ Windows“已安装的应用”执行，默认保留安装目录
 
 系统页显示“安装版”表示安装状态完整、产品版本和 Package 版本一致且匹配当前 Control Center，或已
 从同样有效的备份成功恢复；主状态和备份都不存在时显示“便携版”；状态损坏、版本冲突、部分升级或
-只剩备份时显示“安装状态异常”。异常不会被当作便携版，应使用当前版本安装器修复。0.2.7 不提升
+只剩备份时显示“安装状态异常”。异常不会被当作便携版，应使用当前版本安装器修复。0.2.8 不提升
 配置 schema，也不迁移或删除现有 `data`、主配置、显示器 override 与 effects-only `fx-profiles`。
 
 更新检查严格由用户点击触发。Control Center 不会在启动、连接 Host 或托盘恢复时自动联网，也不会
