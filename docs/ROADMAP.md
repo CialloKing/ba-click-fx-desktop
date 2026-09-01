@@ -83,14 +83,14 @@ Prefilter/Pyramid/Bloom 收益、相邻配对、FPS、GPU command p99、pending�
 `release-verify`、`slim-release-verify`、三档 SDK 编译兼容 CI、Full 四资产打包和远端复核，不再被
 当前显示器模式阻塞；Slim 只验证源码构建，不生成或上传发布资产。
 
-## v0.2.8 用户体验更新（2026-09-01，进行中）
+## v0.2.8 用户体验更新（2026-09-01，已发布）
 
 - ROI 继续默认关闭，不附带整机性能、功耗或输入延迟声明；暂时缺少 4K 170 Hz 环境不阻塞本轮普通
   用户体验功能的开发和发布；
 - Control Center 通知区域菜单已增加动态“暂停特效”/“恢复特效”入口。Host 断开时该项置灰，操作复用
   现有 `Pause`/`Resume` IPC，不增加配置字段，也不持久化暂停状态。
-- 0.2.8 本地 Full `release-verify` 已通过 `44/44`，Slim `slim-release-verify` 已通过 `43/43`；Full
-  四个候选资产已生成并通过本地校验，完成托盘人工验收和三档 SDK CI 后再进入正式发布。
+- 0.2.8 本地 Full `release-verify` 已通过 `44/44`，Slim `slim-release-verify` 已通过 `43/43`；通知区域
+  菜单人工验收和三档 Windows SDK CI 均已通过。正式版本只发布通过校验的 Full 四资产，Slim 不上传。
 
 ## Host-owned 特效 Profile（2026-08-23）
 

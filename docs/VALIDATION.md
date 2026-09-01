@@ -724,7 +724,7 @@ ROI 从 0.2.7 起保持默认关闭和实验性，后续版本也不改变该默
 输入延迟收益。上述硬件晋级 `Not Run` 只阻塞这些声明以及独立的 Differential Bloom ROI 实验扩展，
 不阻塞不改变 ROI 默认值的普通版本；普通发布仍须通过本节通用 release candidate 门槛。
 
-### 5.3 v0.2.8 普通体验版候选门
+### 5.3 v0.2.8 普通体验版发布结果
 
 0.2.8 不修改配置 schema、ROI 渲染路径、默认值或支持声明。2026-09-01 在重新配置并构建 0.2.8
 二进制后，本地 Full `release-verify` 通过 `44/44`，总测试时间 `118.73 s`；Slim
@@ -733,10 +733,12 @@ Identity Signer，Slim 不生成发布资产。
 
 非发布 Active-FX ROI 诊断报告测试继续保留，但默认不注册；需要时显式配置
 `BAFX_ENABLE_ROI_DIAGNOSTIC_TESTS=ON`。4K 170 Hz schema 4 晋级保持 `Not Run`，不参与本节普通体验版
-候选门。Full 四资产已在 `artifacts/release-0.2.8-candidate-20260901-r1` 生成并通过本地校验：便携 ZIP
+发布门。Full 四资产已在 `artifacts/release-0.2.8-candidate-20260901-r1` 生成并通过本地校验：便携 ZIP
 SHA-256 为 `98489A0E1456779904DAA52C1AEEE10D982637F5112D0D06C057B31B81824E37`，安装器 SHA-256 为
 `60D403A087D9C3F295EEDCB38B38935F52764EA8292BC2B83017EE3E3B495C59`，两个 `.sha256` 文件均与复算
-结果一致。正式发布前仍须完成托盘完整人工验收、三档 Windows SDK CI、标签和远端资产复核。
+结果一致。通知区域菜单的完整人工操作验收和 Windows SDK `10.0.19041.0`、`10.0.22621.0`、
+`10.0.26100.0` CI 均已通过。正式版本使用 annotated tag，只上传上述 Full 四资产，并在发布后按相同
+文件名回下载复核哈希；Slim 不生成或上传发布资产。
 
 ## 6. 需求追踪
 
