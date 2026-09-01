@@ -724,6 +724,18 @@ ROI 从 0.2.7 起保持默认关闭和实验性，后续版本也不改变该默
 输入延迟收益。上述硬件晋级 `Not Run` 只阻塞这些声明以及独立的 Differential Bloom ROI 实验扩展，
 不阻塞不改变 ROI 默认值的普通版本；普通发布仍须通过本节通用 release candidate 门槛。
 
+### 5.3 v0.2.8 普通体验版候选门
+
+0.2.8 不修改配置 schema、ROI 渲染路径、默认值或支持声明。2026-09-01 在重新配置并构建 0.2.8
+二进制后，本地 Full `release-verify` 通过 `44/44`，总测试时间 `118.73 s`；Slim
+`slim-release-verify` 通过 `43/43`，总测试时间 `71.85 s`。Full/Slim 均编译 Host、Control Center 和
+Identity Signer，Slim 不生成发布资产。
+
+非发布 Active-FX ROI 诊断报告测试继续保留，但默认不注册；需要时显式配置
+`BAFX_ENABLE_ROI_DIAGNOSTIC_TESTS=ON`。4K 170 Hz schema 4 晋级保持 `Not Run`，不参与本节普通体验版
+候选门。正式发布前仍须完成托盘完整人工验收、Full 四资产本地验证、三档 Windows SDK CI、标签和远端
+资产复核。
+
 ## 6. 需求追踪
 
 | 合同 | ADR | Spike | Validation suite |

@@ -1,5 +1,28 @@
 # 变更记录
 
+## 0.2.8 - 未发布
+
+### 新增
+
+- Control Center 通知区域菜单新增动态“暂停特效”/“恢复特效”入口。打开菜单前会刷新 Host 状态；
+  Host 断开时该项置灰，原有“打开控制中心”和“退出控制中心”保持不变。
+- 托盘入口复用现有 `Pause`/`Resume` IPC，不增加配置字段，也不持久化暂停状态。
+
+### 兼容性与产品边界
+
+- 产品版本提升到 0.2.8，主配置 schema 保持 19；现有主配置、显示器 override、`data` 目录和
+  effects-only Profile 不需要迁移。
+- Active-FX ROI 在本版及后续版本继续默认关闭。4K 170 Hz schema 4 晋级证据保持 `Not Run`，只阻塞
+  整机性能、功耗、输入延迟声明和独立的 Differential Bloom ROI 实验里程碑，不阻塞本次普通体验更新。
+
+### 工程维护与候选验证
+
+- ROI 测试复用公共夹具并合并重复覆盖；非发布诊断报告测试改为显式
+  `BAFX_ENABLE_ROI_DIAGNOSTIC_TESTS=ON` 才注册。六个测试文件合计 `205` 行新增、`804` 行删除，
+  默认发布门只保留产品合同。
+- 本地 Full `release-verify` 已通过 `44/44`，Slim `slim-release-verify` 已通过 `43/43`。候选包、托盘完整
+  人工验收、三档 Windows SDK CI、标签和远端 Release 仍待完成。
+
 ## 0.2.7 - 2026-08-31
 
 ### 优化
