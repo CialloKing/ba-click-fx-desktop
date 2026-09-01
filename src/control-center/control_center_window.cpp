@@ -49,7 +49,8 @@ constexpr UINT redrawAfterInteractiveResizeMessage = WM_APP + 1U;
 constexpr UINT trayNotificationMessage = WM_APP + 2U;
 constexpr UINT trayIconIdentifier = 1U;
 constexpr UINT trayRestoreCommand = 1U;
-constexpr UINT trayExitCommand = 2U;
+constexpr UINT trayPauseCommand = 2U;
+constexpr UINT trayExitCommand = 3U;
 constexpr std::size_t offlineDisplayItemBase = 1U << 16U;
 constexpr int themeColorReturnNotification = 0x7FFF;
 constexpr wchar_t themeColorEditOriginalProcedureProperty[] =
@@ -7315,6 +7316,10 @@ void ControlCenterWindow::showTrayMenu()
     {
         return;
     }
+
+    // The window can stay hidden for a long time. Refresh before deriving the
+    // action label so another local IPC client cannot leave the tray state stale.
+    static_cast<void>(refreshFromHost());
     const HMENU menu = CreatePopupMenu();
     if (menu == nullptr)
     {
@@ -7326,6 +7331,12 @@ void ControlCenterWindow::showTrayMenu()
         MF_STRING | MF_DEFAULT,
         trayRestoreCommand,
         L"打开控制中心"));
+    static_cast<void>(AppendMenuW(
+        menu,
+        MF_STRING | (connected_ ? MF_ENABLED : MF_GRAYED),
+        trayPauseCommand,
+        connected_ && paused_ ? L"恢复特效" : L"暂停特效"));
+    static_cast<void>(AppendMenuW(menu, MF_SEPARATOR, 0U, nullptr));
     static_cast<void>(AppendMenuW(
         menu,
         MF_STRING,
@@ -7352,6 +7363,10 @@ void ControlCenterWindow::showTrayMenu()
     if (command == trayRestoreCommand)
     {
         restoreFromTray();
+    }
+    else if (command == trayPauseCommand)
+    {
+        sendCommand(paused_ ? "Resume" : "Pause");
     }
     else if (command == trayExitCommand)
     {
