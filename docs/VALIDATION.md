@@ -733,8 +733,10 @@ Identity Signer，Slim 不生成发布资产。
 
 非发布 Active-FX ROI 诊断报告测试继续保留，但默认不注册；需要时显式配置
 `BAFX_ENABLE_ROI_DIAGNOSTIC_TESTS=ON`。4K 170 Hz schema 4 晋级保持 `Not Run`，不参与本节普通体验版
-候选门。正式发布前仍须完成托盘完整人工验收、Full 四资产本地验证、三档 Windows SDK CI、标签和远端
-资产复核。
+候选门。Full 四资产已在 `artifacts/release-0.2.8-candidate-20260901-r1` 生成并通过本地校验：便携 ZIP
+SHA-256 为 `98489A0E1456779904DAA52C1AEEE10D982637F5112D0D06C057B31B81824E37`，安装器 SHA-256 为
+`60D403A087D9C3F295EEDCB38B38935F52764EA8292BC2B83017EE3E3B495C59`，两个 `.sha256` 文件均与复算
+结果一致。正式发布前仍须完成托盘完整人工验收、三档 Windows SDK CI、标签和远端资产复核。
 
 ## 6. 需求追踪
 

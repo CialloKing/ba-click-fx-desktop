@@ -34,5 +34,8 @@
 - Slim `cmake --workflow --preset slim-release-verify`：`43/43` 通过，总测试时间 `71.85 s`。
 - Full 与 Slim 均重新配置并编译了 0.2.8 Host、Control Center 和 Identity Signer；Slim 只做源码验证，
   不生成或上传发布资产。
-- 正式发布前仍需完成通知区域菜单的完整人工操作验收、Full 四资产本地验证、SDK
+- Full 便携 ZIP、ZIP 哈希、安装器和安装器哈希已在本地生成并通过脚本与独立 SHA-256 复算。ZIP 为
+  `98489A0E1456779904DAA52C1AEEE10D982637F5112D0D06C057B31B81824E37`，安装器为
+  `60D403A087D9C3F295EEDCB38B38935F52764EA8292BC2B83017EE3E3B495C59`。
+- 正式发布前仍需完成通知区域菜单的完整人工操作验收、SDK
   `10.0.19041.0`/`10.0.22621.0`/`10.0.26100.0` CI、annotated tag 和远端资产复核。

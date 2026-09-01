@@ -20,8 +20,9 @@
 - ROI 测试复用公共夹具并合并重复覆盖；非发布诊断报告测试改为显式
   `BAFX_ENABLE_ROI_DIAGNOSTIC_TESTS=ON` 才注册。六个测试文件合计 `205` 行新增、`804` 行删除，
   默认发布门只保留产品合同。
-- 本地 Full `release-verify` 已通过 `44/44`，Slim `slim-release-verify` 已通过 `43/43`。候选包、托盘完整
-  人工验收、三档 Windows SDK CI、标签和远端 Release 仍待完成。
+- 本地 Full `release-verify` 已通过 `44/44`，Slim `slim-release-verify` 已通过 `43/43`；Full 便携 ZIP、
+  ZIP 哈希、安装器和安装器哈希四个候选资产也已生成并通过本地校验。托盘完整人工验收、三档
+  Windows SDK CI、标签和远端 Release 仍待完成。
 
 ## 0.2.7 - 2026-08-31
 

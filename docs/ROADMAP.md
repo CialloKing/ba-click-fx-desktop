@@ -89,8 +89,8 @@ Prefilter/Pyramid/Bloom 收益、相邻配对、FPS、GPU command p99、pending�
   用户体验功能的开发和发布；
 - Control Center 通知区域菜单已增加动态“暂停特效”/“恢复特效”入口。Host 断开时该项置灰，操作复用
   现有 `Pause`/`Resume` IPC，不增加配置字段，也不持久化暂停状态。
-- 0.2.8 本地 Full `release-verify` 已通过 `44/44`，Slim `slim-release-verify` 已通过 `43/43`；完成候选
-  打包、托盘人工验收和三档 SDK CI 后再进入正式发布。
+- 0.2.8 本地 Full `release-verify` 已通过 `44/44`，Slim `slim-release-verify` 已通过 `43/43`；Full
+  四个候选资产已生成并通过本地校验，完成托盘人工验收和三档 SDK CI 后再进入正式发布。
 
 ## Host-owned 特效 Profile（2026-08-23）
 
