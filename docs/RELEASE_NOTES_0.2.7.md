@@ -111,8 +111,9 @@ Release 只提供 Full 便携 ZIP、ZIP 哈希、安装器和安装器哈希四�
 
 0.2.7 不局部化默认 `background-aware` 的 Differential Bloom、WGC copy、Spout2 格式转换、桌面捕获
 或 recording-rebuild 最终输出。受限 dirty Present 只用于验证后的 steady pure-FX primary；交换链
-资源尺寸没有缩小，也不能外推为所有 DWM、录屏器或驱动上的局部呈现支持。Differential Bloom ROI 属于
-0.2.8，必须在新的性能晋级和背景代次、白点、输出目标、资源恢复合同下独立开发。
+资源尺寸没有缩小，也不能外推为所有 DWM、录屏器或驱动上的局部呈现支持。0.2.7 发布时原计划由
+0.2.8 承接 Differential Bloom ROI；2026-09-01 已将其顺延为版本未定的独立实验里程碑，必须在新的
+性能晋级和背景代次、白点、输出目标、资源恢复合同下另行开发。
 
 ROI 继续保持实验性和默认关闭。AMD、Intel、HDR、Windows 11、多显示器与跨适配器矩阵在真实执行前
 保持 `Not Run`；旧 RTX 4060 失败、WARP 或 dirty Present 计数都不会扩大支持范围或改变默认值。

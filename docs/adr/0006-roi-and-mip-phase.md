@@ -10,7 +10,8 @@ ROI Bloom 若改变 mip decimation phase、奇数尺寸规则、UV 或 border mo
 
 ## Proposed decision
 
-- full-screen Bloom 是规范路径，ROI 在本 ADR 接受和 VAL-ROI 通过前默认关闭。
+- full-screen Bloom 是规范路径，ROI 产品开关在后续版本均保持默认关闭。本 ADR 接受和 VAL-ROI 通过
+  只决定手动启用的实验路径是否具备声明条件，不自动改变产品默认值。
 - 每个 pass 在原全屏 viewport 上单独规划目标本地 half-open 矩形，不裁剪纹理或重置 UV 原点。
 - 矩形同时受前向非零支持和反向贡献依赖约束；旧 guard/aligned work 只保留诊断用途。
 - 前后帧 dirty rect 先 union 再扩张。
@@ -56,6 +57,6 @@ D3D 输出表面合同。dirty-Present 帧/像素遥测也只证明生产路径�
 - RTX 4060、4K 170 Hz、SDR 的预注册 ABBA 性能与稳定性门槛。
 - 实机 DWM 的静态与移动 dirty rect 像素验收，包括失败后的完整重建。
 - AMD、Intel、HDR、Windows 11、多显示器和跨适配器的真实硬件矩阵。
-- 0.2.8 Differential Bloom ROI 的背景代次、白点、输出目标和资源恢复回退合同。
+- 独立 Differential Bloom ROI 实验里程碑的背景代次、白点、输出目标和资源恢复回退合同。
 - 测试 oracle 独立计算逐像素前向支持和反向依赖，避免与生产函数同错。
 - 文档记录每个 Bloom preset 的 mip、footprint、phase 和容许误差。

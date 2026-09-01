@@ -711,7 +711,7 @@ RTX 4060、4K `170/1 Hz`、SDR。Bloom/final p95 为 `1671 -> 822 us`，GPU comm
 
 以上缓存后正式 20-run 与受污染 r2 分别保持其原始 `FAIL`，旧 schema 2/3 report 不追溯改判。
 
-#### 当前发布状态（2026-08-31）
+#### 当前发布与产品状态（2026-09-01）
 
 0.2.7 已接入局部最终输出与 DXGI dirty `Present1`，正式采集/报告合同为 schema 4/4；
 Full `release-verify`、WARP 局部输出合同与 CTest `45/45` 已通过，Slim `slim-release-verify` 为
@@ -720,9 +720,9 @@ Full `release-verify`、WARP 局部输出合同与 CTest `45/45` 已通过，Sli
 `artifacts/performance/active-fx-roi-v027-dirty-present-diagnostic-20260831-r1` 在 run 1 读取到实际
 `2560x1440 @ 165.003 Hz`，不满足预注册 `3840x2160 @ 170/1 Hz`，因此 fail-closed 且未形成有效 run。
 
-ROI 在 0.2.7 保持默认关闭和实验性，不据现有结果声明整机性能、功耗或输入延迟收益。上述硬件晋级
-`Not Run` 不阻塞不带这些声明的 0.2.7 普通发布，但阻塞 ROI 默认启用、性能/功耗/输入延迟声明，以及
-0.2.8 Differential Bloom ROI 扩展；普通发布仍须通过本节通用 release candidate 门槛。
+ROI 从 0.2.7 起保持默认关闭和实验性，后续版本也不改变该默认值，不据现有结果声明整机性能、功耗或
+输入延迟收益。上述硬件晋级 `Not Run` 只阻塞这些声明以及独立的 Differential Bloom ROI 实验扩展，
+不阻塞不改变 ROI 默认值的普通版本；普通发布仍须通过本节通用 release candidate 门槛。
 
 ## 6. 需求追踪
 

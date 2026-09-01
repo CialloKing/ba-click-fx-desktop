@@ -299,7 +299,8 @@ resolve 也有独立逻辑矩形；它同时是稳态 pure-FX primary 最终输�
 - background-aware/Differential Bloom、WGC 相关路径、warmup、任何 fallback 与普通调用者都保持完整输出
   及全屏 `Present`。recording-rebuild 和 Spout2 输出目标始终先建立完整表面，不借用交换链的
   dirty-present 保证；同帧 pure-FX primary 若独立满足上述合同，仅交换链目标可以局部提交。
-  Differential Bloom ROI 属于 0.2.8，不由完整金字塔 ROI 隐式启用；
+  Differential Bloom ROI 属于独立的后续实验里程碑，不由完整金字塔 ROI 隐式启用；后续版本的 ROI
+  产品开关均保持默认关闭；
 - 一旦最终目标已局部写入，dirty rect 选择失败或 `Present1` 失败都不得改用全屏 `Present`。
   本次局部输出状态必须失效，且上一可见边界只在 Present 成功后提交；下次尝试从预热的
   完整清理、完整输出和全屏 Present 重建。
