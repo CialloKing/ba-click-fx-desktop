@@ -248,7 +248,9 @@ FX-only，不会先启动带黄色边框的会话。无论该开关如何设置�
 遗留 override；这些条目没有伪造的运行状态，只能通过现有原子命令删除。诊断文本使用可滚动只读区域；
 系统页提供“清理诊断日志”按钮，确认后通过 `ClearLogs` 删除当前日志和轮转备份，并显示删除文件数、
 释放字节数和失败文件数。系统页的“版本与更新”区域分别显示 Control Center、Host、安装状态和
-最新公开版本，并提供手动“检查更新”和“打开 Release”。Active-FX ROI 工程面板在页面可见时每秒
+最新公开版本，并提供手动“检查更新”和“打开 Release”。Control Center 的通知区域菜单在 Host 已连接时
+可直接暂停或恢复特效；Host 断开时该项置灰。该操作复用现有运行时命令，不写入配置，也不改变下一次
+Host 启动时的默认运行状态。Active-FX ROI 工程面板在页面可见时每秒
 刷新选中显示器的 primary/recording-rebuild 路径、回退原因、近 5 秒帧数与像素、dirty/aligned rect、
 guard/phase、prefilter/downsample/upsample/resolve 分阶段像素和 Prefilter/Pyramid/FinalComposite GPU
 p50/p95；离页停止轮询，样本超过 3 秒显示 stale。这些数字描述实际执行路径和测量样本，不会据像素

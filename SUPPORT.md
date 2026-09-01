@@ -27,7 +27,8 @@
   独立控制特效、HDR 请求和帧率策略。“系统”页提供随 Windows 启动、启动时最小化和关闭时隐藏到托盘，
   以及“清理诊断日志”按钮；确认后会显示删除文件数、释放字节数和失败文件数。“版本与更新”区域显示
   Control Center、Host、安装状态和最新公开版本，并提供手动检查与固定官方 Release 页面入口。启用随
-  Windows 启动后，登录时由 Control Center 复用正常激活路径启动 Host。
+  Windows 启动后，登录时由 Control Center 复用正常激活路径启动 Host。通知区域菜单可在 Host 已连接时
+  直接暂停或恢复特效；断开时该项置灰，操作不会写入持久化配置。
   所有改动会通过本地 Named Pipe 在下一帧应用到正在运行的 Host；
   “重置默认”经确认后恢复全部持久化设置，但保留当前暂停或运行状态。
 - 每次输入消费/呈现更新只为按压 FX 使用一份帧边界当前位置，并以同一 `renderTime` 按
@@ -200,7 +201,7 @@
 `Exit` 可退出；也可按 `Ctrl+Alt+F12` 或备用的 `Ctrl+Shift+F12`。即使系统热键注册被占用，
 程序仍会轮询同一组合键作为兜底。需要调整效果时，先启动 Host，再从同一目录启动
 `BAFX.ControlCenter.exe`；Control Center 与 Host 是独立进程，关闭或退出控制窗口不会停止 Host。启用托盘隐藏后，
-通知区域图标可重新打开或单独退出 Control Center；Explorer 重启后会自动恢复该入口。
+通知区域图标可重新打开、暂停或恢复特效，也可单独退出 Control Center；Explorer 重启后会自动恢复该入口。
 
 可用下列命令生成完整便携包。脚本会构建 Release Host 与 Control Center，并验证 ZIP 中的文件清单、
 校验和、可执行文件依赖和 Control Center 启动；输出包位于
