@@ -1,4 +1,4 @@
-# ba-click-fx-desktop 0.2.9（未发布）
+# ba-click-fx-desktop 0.2.9
 
 0.2.9 是 OBS/Spout2 特效输出回归修复补丁。它恢复 0.2.2 的特效亮度与可见度，不改变帧率策略、
 空闲资源优化、WGC 或 Spout2 SDK 发送生命周期。
@@ -36,5 +36,6 @@
   独立 SHA-256 复算。便携 ZIP 为
   `FF5C82EEF2B6CD25BEC1543FBAFB2F92E3EC7C4AD78D5DE79EC2425EF79D2196`，安装器为
   `81F7FF7CB37D521183C0DCC43CC5FE40840562C77F4008BD6795A732D43E40B2`。
-- 正式发布前仍需完成 Windows SDK `10.0.19041.0`/`10.0.22621.0`/`10.0.26100.0` CI、
-  annotated tag 和远端四资产回下载复核。Slim 不生成或上传发布资产。
+- Windows SDK `10.0.19041.0`/`10.0.22621.0`/`10.0.26100.0` CI 均已通过。发布标签
+  固定在三档 SDK CI 全绿的精确提交；远端 Release 只包含上述 Full 四资产，并按相同文件名
+  回下载复核 SHA-256。Slim 不生成或上传发布资产。

@@ -740,7 +740,7 @@ SHA-256 为 `98489A0E1456779904DAA52C1AEEE10D982637F5112D0D06C057B31B81824E37`�
 `10.0.26100.0` CI 均已通过。正式版本使用 annotated tag，只上传上述 Full 四资产，并在发布后按相同
 文件名回下载复核哈希；Slim 不生成或上传发布资产。
 
-### 5.4 v0.2.9 OBS/Spout2 回归修复候选门
+### 5.4 v0.2.9 OBS/Spout2 回归修复发布结果
 
 0.2.9 只修复 FX-only 线性能量到 BGRA8 的输出映射，不改变配置 schema、ROI 默认值、
 帧率策略、空闲资源优化、WGC 或 Spout2 SDK 生命周期。2026-09-04 在重新配置并构建 0.2.9
@@ -752,8 +752,9 @@ OBS `32.2.2` 与 win-spout `1.12.0` 下的隔离 `FixedComposite`/`DynamicLifecy
 已在 `artifacts/release-0.2.9-candidate-20260904-r1` 生成并通过本地校验：便携 ZIP SHA-256 为
 `FF5C82EEF2B6CD25BEC1543FBAFB2F92E3EC7C4AD78D5DE79EC2425EF79D2196`，安装器 SHA-256 为
 `81F7FF7CB37D521183C0DCC43CC5FE40840562C77F4008BD6795A732D43E40B2`，两个 sidecar 均与复算结果一致。
-正式发布前仍须通过三档 Windows SDK CI，只上传 Full 四资产，并在发布后回下载复核哈希。
-Slim 只用于源码验证。
+Windows SDK `10.0.19041.0`、`10.0.22621.0`、`10.0.26100.0` 三档 CI 均已通过。正式版本
+使用 annotated tag，只上传 Full 四资产，并在发布后按相同文件名回下载复核哈希；Slim 只用于
+源码验证。
 
 ## 6. 需求追踪
 

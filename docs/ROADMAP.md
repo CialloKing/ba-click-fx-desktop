@@ -92,14 +92,14 @@ Prefilter/Pyramid/Bloom 收益、相邻配对、FPS、GPU command p99、pending�
 - 0.2.8 本地 Full `release-verify` 已通过 `44/44`，Slim `slim-release-verify` 已通过 `43/43`；通知区域
   菜单人工验收和三档 Windows SDK CI 均已通过。正式版本只发布通过校验的 Full 四资产，Slim 不上传。
 
-## v0.2.9 OBS/Spout2 输出回归修复（2026-09-04，候选验证）
+## v0.2.9 OBS/Spout2 输出回归修复（2026-09-04，已发布）
 
 - 恢复 0.2.2 使用的逐通道 sRGB 编码，修复 0.2.3 起共享峰值 SDR rolloff 导致 OBS 中圆盘、
   Bloom、圆环、碎片和拖尾变暗或量化丢失；完整与核心性能路径使用同一映射；
 - 输出合同升级为 `bgra8-srgb-extended-premultiplied-fx-only-v6`，Cross2 coverage、纯加法层
   Alpha 步进和 OBS `Premultiplied Alpha` + `Default` + `Normal` 语义不变；
 - Full `release-verify` `44/44`、Slim `slim-release-verify` `43/43` 与两个隔离 OBS 验收均已通过；
-  Full 四个候选资产已通过本地校验。完成三档 Windows SDK CI、标签和远端复核后正式发布。
+  三档 Windows SDK CI 均已通过。正式版本只发布通过校验的 Full 四资产，Slim 不上传。
 
 ## Host-owned 特效 Profile（2026-08-23）
 
