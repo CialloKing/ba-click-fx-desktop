@@ -13,7 +13,7 @@ import numpy as np
 from PIL import Image
 
 
-CONTRACT = "bgra8-sdr-rolloff-extended-premultiplied-fx-only-v5"
+CONTRACT = "bgra8-srgb-extended-premultiplied-fx-only-v6"
 EXPECTED_BACKGROUND = [96, 96, 96]
 MINIMUM_ENERGY_RATIO = 0.90
 MAXIMUM_ENERGY_RATIO = 1.10

@@ -16,7 +16,7 @@ import numpy as np
 from PIL import Image
 
 
-OUTPUT_CONTRACT = "bgra8-sdr-rolloff-extended-premultiplied-fx-only-v5"
+OUTPUT_CONTRACT = "bgra8-srgb-extended-premultiplied-fx-only-v6"
 MIN_RECORDING_DURATION_SECONDS = 5.0
 MAX_RECORDING_DURATION_SECONDS = 10.0
 

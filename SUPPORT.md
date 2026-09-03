@@ -1,4 +1,4 @@
-# 0.2.8 支持与验证范围
+# 0.2.9 支持与验证范围
 
 ## 可以测试的范围
 
@@ -43,10 +43,10 @@
 - D3D11 硬件设备；硬件设备创建失败时尝试 WARP 软件设备。
 - 当前验证范围为普通 SDR 桌面合成路径。
 - Spout2 发送器名称固定为 `ba-click-fx-desktop`，输出合同为
-  `BGRA8 + SDR byte-domain rolloff + extended premultiplied alpha + FX-only v5`。空闲帧严格透明；圆盘保留
+  `BGRA8 + sRGB encoding + extended premultiplied alpha + FX-only v6`。空闲帧严格透明；圆盘保留
   Cross2 coverage Alpha，纯加法圆环、碎片、拖尾和 Bloom 只使用一个 BGRA8 Alpha 步进
-  防止接收端清除，仍允许 `RGB > Alpha`。RGB 使用共享峰值 rolloff，避免 OBS 在编码游戏画面上
-  直接叠加时再次抬亮 Bloom 暗部并使中心过早削顶；输出不混入或依赖 WGC 桌面背景；
+  防止接收端清除，仍允许 `RGB > Alpha`。RGB 在发送端使用 sRGB 编码，恢复 0.2.2 的圆盘、
+  Bloom、圆环、碎片和拖尾可见度；输出不混入或依赖 WGC 桌面背景；
   WGC 不可用或失败时仍能输出点击和拖尾。
   OBS 单独捕获游戏/桌面并置底，`Spout2 Capture` 源置顶，Composite Mode 必须选择
   `Premultiplied Alpha`，来源混合方式保持 `Default`、混合模式保持 `Normal`，再执行
@@ -72,7 +72,7 @@
   伪造的 HDR、刷新率或 ROI 运行状态。
 - `GetState.productVersion` 使用规范 `MAJOR.MINOR.PATCH` 标识 Host 版本。只有 Host 与 Control Center
   完全同版本时设置控件才可写；字段缺失、格式错误或版本不一致时 fail-closed，设置保持禁用，但 Host
-  启动和关闭入口继续可用。该产品版本门不改变配置 schema，0.2.8 仍使用 schema 19。
+  启动和关闭入口继续可用。该产品版本门不改变配置 schema，0.2.9 仍使用 schema 19。
 - WGC FP16 scRGB 背景使用独立的背景 reference white 转入 Unity 相对工作空间；Unity authored color、粒子、
   材质、Trail 和 Bloom 仍在线性 FP16 中计算，最终呈现阶段才使用输出 reference white 选择 SDR/HDR 映射。
   HDR/WCG 下背景白点未知时 WGC 可保持预热，但该背景不得进入合成，当前画面回退 FX-only。
@@ -234,7 +234,7 @@ Windows“已安装的应用”执行，默认保留安装目录
 
 系统页显示“安装版”表示安装状态完整、产品版本和 Package 版本一致且匹配当前 Control Center，或已
 从同样有效的备份成功恢复；主状态和备份都不存在时显示“便携版”；状态损坏、版本冲突、部分升级或
-只剩备份时显示“安装状态异常”。异常不会被当作便携版，应使用当前版本安装器修复。0.2.8 不提升
+只剩备份时显示“安装状态异常”。异常不会被当作便携版，应使用当前版本安装器修复。0.2.9 不提升
 配置 schema，也不迁移或删除现有 `data`、主配置、显示器 override 与 effects-only `fx-profiles`。
 
 更新检查严格由用户点击触发。Control Center 不会在启动、连接 Host 或托盘恢复时自动联网，也不会

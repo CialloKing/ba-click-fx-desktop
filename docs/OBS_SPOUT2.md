@@ -2,14 +2,14 @@
 
 标准构建可把点击和拖尾作为独立透明层发送给 OBS。发送者名称固定为
 `ba-click-fx-desktop`，输出合同为
-`BGRA8 + SDR byte-domain rolloff + extended premultiplied alpha + FX-only v5`：
+`BGRA8 + sRGB encoding + extended premultiplied alpha + FX-only v6`：
 
 - 空闲背景为 `(0, 0, 0, 0)`；
 - 有效像素满足 `0 <= RGB <= 1`、`0 < Alpha <= 1`，允许 `RGB > Alpha`；圆盘使用真实
   Cross2 coverage Alpha，纯加法圆环、碎片、拖尾和 Bloom 只携带一个 BGRA8 Alpha 步进，
   在避免接收端清除的同时，把普通预乘合成造成的背景衰减限制为每通道最多一个字节；
-- 线性特效能量 `E` 按共享峰值映射为 `E / (1 + max(E.r, E.g, E.b))`。该映射保持色相，
-  同时避免对独立光晕再次应用 sRGB OETF 后由 OBS 直接加到已编码游戏画面所造成的暗部抬升和高光削顶；
+- 线性特效能量 `E` 在发送端按 `LinearToSrgb(max(E, 0))` 编码，超出 1 的通道由 BGRA8
+  目标饱和。该映射恢复 0.2.2 的圆盘、Bloom、圆环、碎片和拖尾可见度；
 - 不包含也不依赖桌面或游戏画面，WGC 不可用时仍可发送特效；
 - 固定尺寸运行时保持同一共享句柄，尺寸变化或设备恢复才允许重建；启用空闲资源优化时，
   最终透明帧之后停止完整 FX/Bloom 渲染，仅低频重发该纹理维持发送者生命周期。
@@ -40,11 +40,13 @@
 5. 右键 Spout2 来源，把 `Blending Method` 保持为 `Default`，`Blending Mode` 保持为
    `Normal`。不要使用 `sRGB Off` 或 `Add`；`Add` 会绕过圆盘所需的 Cross2 coverage，
    使其在亮背景上过曝。旧 v3 使用完整加法 coverage Alpha，切到 `Add` 会暂时显得更接近；
-   v4 用一个 Alpha 步进修正背景衰减，v5 在此基础上增加 OBS SDR 高光 rolloff。
+   v4 用一个 Alpha 步进修正背景衰减；v5 曾改用 SDR 高光 rolloff；v6 恢复 v4 的发送端
+   sRGB 映射，同时保留后续版本的 Cross2 coverage 和 Alpha 合同。
 6. 对 Spout2 源执行 `Transform -> Fit to Screen`，确认其边界与 OBS 画布一致。
 7. 在 Control Center 的“系统”页启用“OBS 透明特效输出”，检查发送者状态和插件状态。
 
 空闲时预览应只显示底层捕获；点击或拖动时只出现特效，衰减结束后底层画面应完全恢复。
+已经使用 `Premultiplied Alpha`、`Default`、`Normal` 的 v4/v5 场景无需迁移、删除或重建来源。
 
 ## 显式迁移旧场景
 
@@ -107,7 +109,7 @@ pwsh -NoProfile -File tools/run-obs-spout2-composite-acceptance.ps1 `
 ```json
 {
   "schemaVersion": 1,
-  "contract": "bgra8-sdr-rolloff-extended-premultiplied-fx-only-v5",
+  "contract": "bgra8-srgb-extended-premultiplied-fx-only-v6",
   "obsBlendMethod": "default",
   "obsBlendMode": "normal",
   "rawFrame": {
@@ -133,8 +135,8 @@ OBS 来源的混合方式保持 `Default`，混合模式保持 `Normal`。官方
 来源按非 sRGB-aware 自定义来源绘制，因此验证器按实际字节域逐像素检查
 `C = clamp(S + B * (1 - A), 0, 1)`，并单独确认仍存在 `RGB > Alpha`，同时不存在
 `Alpha = 0, RGB > 0`，确保加法层不会在跨进程接收时被透明像素规范化清除。
-由于该来源不会在线性域合成，v5 的 RGB 已在发送端完成保色相 SDR rolloff，OBS 不应再添加
-`sRGB Off` 滤镜或来源级颜色变换。
+由于该来源不会在线性域合成，v6 的 RGB 已在发送端完成 sRGB 编码，OBS 不应再添加
+`sRGB Off` 滤镜或来源级颜色变换。恢复的低能量可见度来自发送端编码，不需要改变 OBS 场景。
 
 ## 录像证据复核
 

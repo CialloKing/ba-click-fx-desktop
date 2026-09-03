@@ -1,5 +1,21 @@
 # 变更记录
 
+## 0.2.9 - 未发布
+
+### 修复
+
+- 修复 0.2.3 起 Spout2 FX-only 输出使用共享峰值 SDR rolloff，导致 OBS 中圆盘、Bloom、圆环、
+  碎片和拖尾明显变暗或量化丢失的问题。发送端恢复 0.2.2 的逐通道 sRGB 编码；完整与核心性能
+  路径使用相同映射。
+
+### 兼容性与升级
+
+- Spout2 输出合同升级为 `bgra8-srgb-extended-premultiplied-fx-only-v6`。Cross2 coverage、纯加法层
+  Alpha 步进和 BGRA8 扩展预乘语义不变；OBS 继续使用 `Premultiplied Alpha`、`Default`、`Normal`，
+  已正确配置的场景和来源无需迁移。
+- 产品版本提升到 0.2.9，主配置 schema 保持 19；现有主配置、显示器 override、`data` 目录和
+  effects-only Profile 不需要迁移。
+
 ## 0.2.8 - 2026-09-01
 
 ### 新增

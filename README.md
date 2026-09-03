@@ -24,7 +24,7 @@ Release Host 运行时是单文件：Visual C++ 运行库静态链接，Circle�
 DirectComposition 和 D3DCompiler 系统组件。独立的 Control Center 使用纯 Win32 Common Controls，
 不需要 Windows App SDK 或其他旁置运行时。
 
-当前架构版本是 **v0.3**，状态为 **Proposed**。当前源码产品版本为 0.2.8，已具备 Host、原生 Win32
+当前架构版本是 **v0.3**，状态为 **Proposed**。当前源码产品版本为 0.2.9，已具备 Host、原生 Win32
 Control Center、本地 IPC 与完整便携包流程；当前人工特效审核和支持合同以单主屏 SDR 下的三种渲染模式
 为准。涉及 DirectComposition、Windows Graphics Capture、HDR/Advanced Color 和多适配器的结论，
 必须取得仓库中定义的 Spike 证据或接受明确的 fallback 后，相关 ADR 才能标记为 Accepted。
@@ -73,7 +73,7 @@ Trail 和 Bloom 继续按游戏合同在线性 FP16 中计算。最终呈现阶�
 - [docs/SPIKES.md](docs/SPIKES.md)：四个必须执行的硬件/API Spike。
 - [docs/VALIDATION.md](docs/VALIDATION.md)：测试层级、Golden Oracle 和发布门槛。
 - [docs/UNITY_REFERENCE.md](docs/UNITY_REFERENCE.md)：游戏解包资源、Unity 重建工程与 Golden 的证据边界。
-- [SUPPORT.md](SUPPORT.md)：0.2.8 的可测试范围、退出方式和明确排除项。
+- [SUPPORT.md](SUPPORT.md)：0.2.9 的可测试范围、退出方式和明确排除项。
 - [tools/package-test-bundle.ps1](tools/package-test-bundle.ps1)：构建并生成便携 ZIP，同时调用完整性验证。
 
 ## 项目状态
@@ -366,7 +366,7 @@ JSON 快照。`GetFxConfig`、`SetFxParam`、原子批量的 `SetFxParams` 和 `
 
 `GetState` 的 `productVersion` 是 Host/Control Center 设置兼容门，不是配置 schema 版本。只有它与
 Control Center 自身版本完全一致时，控制面才允许修改设置；缺失、非法或不匹配都 fail-closed。
-Host 生命周期入口不受该门限制。0.2.8 的主配置 schema 仍为 19，现有主配置、显示器 override、
+Host 生命周期入口不受该门限制。0.2.9 的主配置 schema 仍为 19，现有主配置、显示器 override、
 `data` 目录和 `fx-profiles` 内容不需要迁移或重建。
 
 特效 Profile 同样由 Host 持有，内置且不可删除的四项是“Unity 原版”“轻量”“纯点击”和“纯拖尾”。

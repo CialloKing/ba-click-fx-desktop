@@ -13,7 +13,7 @@ import numpy as np
 from PIL import Image
 
 
-CONTRACT = "bgra8-sdr-rolloff-extended-premultiplied-fx-only-v5"
+CONTRACT = "bgra8-srgb-extended-premultiplied-fx-only-v6"
 EXPECTED_BACKGROUNDS = {
     "black": [0, 0, 0],
     "gray": [96, 96, 96],

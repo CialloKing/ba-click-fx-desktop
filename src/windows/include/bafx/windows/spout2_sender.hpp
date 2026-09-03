@@ -11,7 +11,7 @@ namespace bafx::windows
 {
 
 inline constexpr std::string_view spout2OutputContract =
-    "bgra8-sdr-rolloff-extended-premultiplied-fx-only-v5";
+    "bgra8-srgb-extended-premultiplied-fx-only-v6";
 
 enum class Spout2SenderStatus : std::uint8_t
 {

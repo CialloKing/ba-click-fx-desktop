@@ -49,10 +49,10 @@ class VerifyObsSpout2EvidenceTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "must not contain audio"):
             MODULE._require_video_only(probe)
 
-    def test_keeps_v5_contract_and_bounded_duration(self) -> None:
+    def test_keeps_v6_contract_and_bounded_duration(self) -> None:
         self.assertEqual(
             MODULE.OUTPUT_CONTRACT,
-            "bgra8-sdr-rolloff-extended-premultiplied-fx-only-v5",
+            "bgra8-srgb-extended-premultiplied-fx-only-v6",
         )
         self.assertEqual(MODULE.MIN_RECORDING_DURATION_SECONDS, 5.0)
         self.assertEqual(MODULE.MAX_RECORDING_DURATION_SECONDS, 10.0)
