@@ -758,24 +758,13 @@ float4 ResolveSpout2FxOnlyTransport(
 )hlsl",
 R"hlsl(
 
-float3 EncodeObsSdrAdditiveDelta(float3 linearEmission)
-{
-    const float3 emission = max(linearEmission, 0.0);
-    const float peak = max(emission.r, max(emission.g, emission.b));
-    // The Spout2 OBS source adds stored bytes to an already encoded game
-    // frame. Applying the sRGB OETF to the isolated emission would brighten
-    // low-energy Bloom a second time. A shared shoulder keeps hue and retains
-    // highlight detail without requiring access to OBS's background texture.
-    return emission / (1.0 + peak);
-}
-
-float4 EncodeObsSdrExtendedPremultiplied(float4 linearExtendedPremultiplied)
+float4 EncodeSdrExtendedPremultiplied(float4 linearExtendedPremultiplied)
 {
     // BGRA8 clamps SDR channel range, but it can still carry RGB above Alpha.
     // Keep one stored Alpha step wherever an encoded RGB byte can survive.
     // Some Spout receivers canonicalize RGB to black when the Alpha byte is 0.
-    const float3 encoded = EncodeObsSdrAdditiveDelta(
-        linearExtendedPremultiplied.rgb);
+    const float3 encoded = LinearToSrgb(
+        max(linearExtendedPremultiplied.rgb, 0.0));
     const float storedByteThreshold = 0.5 / 255.0;
     const float minimumStoredAlpha = max(
             encoded.r,
@@ -948,7 +937,7 @@ float4 RecordingFxOnlySdrCompositePixel(FullscreenOutput input) : SV_Target0
         bloom,
         cross,
         1.0);
-    return EncodeObsSdrExtendedPremultiplied(overlay);
+    return EncodeSdrExtendedPremultiplied(overlay);
 }
 
 // Core mode deliberately omits Bloom and background transport. The direct
@@ -969,7 +958,7 @@ float4 CoreRecordingFxOnlySdrCompositePixel(FullscreenOutput input) : SV_Target0
 {
     const float4 direct = Source0.Sample(LinearClampSampler, input.uv);
     const float4 cross = Source2.Sample(LinearClampSampler, input.uv);
-    return EncodeObsSdrExtendedPremultiplied(
+    return EncodeSdrExtendedPremultiplied(
         ResolveSpout2FxOnlyTransport(
             direct,
             float4(0.0, 0.0, 0.0, 0.0),

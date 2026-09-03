@@ -990,16 +990,7 @@ void checkValidDesktopPremultiplied(
         linearToSrgbChannel(value) * 255.0F));
 }
 
-[[nodiscard]] std::uint8_t obsSdrRolloff8(
-    const float value,
-    const float peak) noexcept
-{
-    const float encoded = std::max(value, 0.0F) / (1.0F + std::max(peak, 0.0F));
-    return static_cast<std::uint8_t>(std::lround(
-        std::clamp(encoded, 0.0F, 1.0F) * 255.0F));
-}
-
-void checkObsSdrRolloffEncoding(
+void checkExtendedSrgbEncoding(
     const Bgra8Image& encoded,
     const Rgba16FloatImage& direct,
     const Rgba16FloatImage* const bloom = nullptr)
@@ -1018,7 +1009,6 @@ void checkObsSdrRolloffEncoding(
     constexpr float maximumEmission = 0.90F;
     constexpr int byteTolerance = 2;
     std::size_t checkedPixels = 0U;
-    std::size_t preventedSrgbUpliftPixels = 0U;
     for (std::size_t index = 0U; index < direct.pixels.size(); ++index)
     {
         const Rgba16FloatPixel directPixel = direct.pixels[index];
@@ -1048,24 +1038,15 @@ void checkObsSdrRolloffEncoding(
             actualPixel.blue};
         for (std::size_t channel = 0U; channel < actual.size(); ++channel)
         {
-            // OBS adds this byte-domain delta to an encoded game frame. Derive
-            // the expected hue-preserving shoulder from captured FP16 layers.
-            const int expected = obsSdrRolloff8(linear[channel], peak);
+            // Derive expected bytes from captured linear surfaces so this gate
+            // catches either a missing or a duplicated transfer conversion.
+            const int expected = linearToSrgb8(linear[channel]);
             const int delta = static_cast<int>(actual[channel]) - expected;
             BAFX_CHECK(delta >= -byteTolerance && delta <= byteTolerance);
-        }
-        const bool preventsSrgbUplift =
-            static_cast<int>(linearToSrgb8(peak))
-                - static_cast<int>(obsSdrRolloff8(peak, peak))
-            >= 16;
-        if (preventsSrgbUplift)
-        {
-            ++preventedSrgbUpliftPixels;
         }
         ++checkedPixels;
     }
     BAFX_CHECK(checkedPixels > 100U);
-    BAFX_CHECK(preventedSrgbUpliftPixels > 100U);
 }
 
 [[nodiscard]] float srgbToLinearChannel(const float value) noexcept
@@ -1207,6 +1188,13 @@ void checkObsSdrRolloffEncoding(
     return maximum;
 }
 
+}
+
+BAFX_TEST(spout2_srgb_encoding_keeps_v4_byte_anchors)
+{
+    BAFX_CHECK(linearToSrgb8(0.1F) == 89U);
+    BAFX_CHECK(linearToSrgb8(0.5F) == 188U);
+    BAFX_CHECK(linearToSrgb8(1.0F) == 255U);
 }
 
 BAFX_TEST(warp_pipeline_separates_direct_emission_and_multilevel_bloom_seed)
@@ -4196,7 +4184,7 @@ BAFX_TEST(warp_spout2_recording_target_exports_fx_without_wgc_background)
     BAFX_CHECK(background.blue == 0U);
 }
 
-BAFX_TEST(warp_spout2_full_applies_sdr_rolloff_without_srgb_uplift)
+BAFX_TEST(warp_spout2_full_encodes_linear_emission_as_srgb_bgra8)
 {
     ComApartment apartment;
     const WarpDevice graphics = createWarpDevice();
@@ -4220,13 +4208,13 @@ BAFX_TEST(warp_spout2_full_applies_sdr_rolloff_without_srgb_uplift)
         recordingTarget.view.Get());
 
     BAFX_CHECK(capture.intermediateLayersValid);
-    checkObsSdrRolloffEncoding(
+    checkExtendedSrgbEncoding(
         readbackBgra8(graphics.context.Get(), recordingTarget.texture.Get()),
         capture.directSurface,
         &capture.bloomResult);
 }
 
-BAFX_TEST(warp_spout2_additive_layers_export_alpha_backed_emission)
+BAFX_TEST(warp_spout2_preserves_every_layer_and_bloom_after_srgb_encoding)
 {
     ComApartment apartment;
     const WarpDevice graphics = createWarpDevice();
@@ -4235,14 +4223,20 @@ BAFX_TEST(warp_spout2_additive_layers_export_alpha_backed_emission)
     const RenderTarget recordingTarget = createRecordingRenderTarget(
         graphics.device.Get());
 
-    const std::array snapshots{
-        makeDissolveRingSnapshot(),
-        makeTriangleSnapshot(),
-        makeTwoTrailSnapshot()};
-    for (const bafx::fx::FrameSnapshot& snapshot : snapshots)
+    struct LayerCase final
+    {
+        bafx::fx::FrameSnapshot snapshot{};
+        bool additiveOnly{false};
+    };
+    const std::array layers{
+        LayerCase{makeDiskSnapshot(false), false},
+        LayerCase{makeDissolveRingSnapshot(), true},
+        LayerCase{makeTriangleSnapshot(), true},
+        LayerCase{makeTwoTrailSnapshot(), true}};
+    for (const LayerCase& layer : layers)
     {
         renderer.render(
-            snapshot,
+            layer.snapshot,
             desktopTarget.view.Get(),
             std::nullopt,
             nullptr,
@@ -4251,6 +4245,7 @@ BAFX_TEST(warp_spout2_additive_layers_export_alpha_backed_emission)
             graphics.context.Get(),
             recordingTarget.texture.Get());
 
+        BAFX_CHECK(hasExtendedEmission(image));
         BAFX_CHECK(!hasZeroAlphaEmission(image));
         const std::uint8_t maximumAlpha = std::max_element(
             image.pixels.begin(),
@@ -4259,9 +4254,16 @@ BAFX_TEST(warp_spout2_additive_layers_export_alpha_backed_emission)
             {
                 return left.alpha < right.alpha;
             })->alpha;
-        // One UNORM step keeps additive pixels alive while changing an OBS
-        // background by at most one byte under normal premultiplied blending.
-        BAFX_CHECK(maximumAlpha == 1U);
+        if (layer.additiveOnly)
+        {
+            // One UNORM step keeps additive pixels alive while changing an OBS
+            // background by at most one byte under normal premultiplied blending.
+            BAFX_CHECK(maximumAlpha == 1U);
+        }
+        else
+        {
+            BAFX_CHECK(maximumAlpha > 1U);
+        }
         const std::size_t emissionPixels = static_cast<std::size_t>(
             std::count_if(
                 image.pixels.begin(),
@@ -4275,6 +4277,36 @@ BAFX_TEST(warp_spout2_additive_layers_export_alpha_backed_emission)
                 }));
         BAFX_CHECK(emissionPixels > 100U);
     }
+
+    renderer.render(
+        makeDiskSnapshot(true),
+        desktopTarget.view.Get(),
+        std::nullopt,
+        nullptr,
+        recordingTarget.view.Get());
+    const Bgra8Image bloomImage = readbackBgra8(
+        graphics.context.Get(),
+        recordingTarget.texture.Get());
+    std::size_t visibleBloomPixels = 0U;
+    for (std::uint32_t y = 0U; y < bloomImage.height; ++y)
+    {
+        for (std::uint32_t x = 0U; x < bloomImage.width; ++x)
+        {
+            if (x >= 96U && x < 160U && y >= 96U && y < 160U)
+            {
+                continue;
+            }
+            const Bgra8UnormPixel pixel = bloomImage.pixels[
+                static_cast<std::size_t>(y) * bloomImage.width + x];
+            if (pixel.alpha > 0U
+                && (pixel.red > 0U || pixel.green > 0U || pixel.blue > 0U))
+            {
+                ++visibleBloomPixels;
+            }
+        }
+    }
+    BAFX_CHECK(visibleBloomPixels > 100U);
+    BAFX_CHECK(!hasZeroAlphaEmission(bloomImage));
 }
 
 BAFX_TEST(warp_spout2_recording_target_replaces_idle_frame_with_transparency)
@@ -4406,7 +4438,7 @@ BAFX_TEST(warp_core_profile_exports_spout2_fx_without_bloom)
         || trail.blue > trail.alpha);
 }
 
-BAFX_TEST(warp_core_spout2_applies_sdr_rolloff_without_srgb_uplift)
+BAFX_TEST(warp_core_spout2_encodes_linear_emission_as_srgb_bgra8)
 {
     ComApartment apartment;
     const WarpDevice graphics = createWarpDevice();
@@ -4432,7 +4464,7 @@ BAFX_TEST(warp_core_spout2_applies_sdr_rolloff_without_srgb_uplift)
 
     BAFX_CHECK(!capture.directSurface.pixels.empty());
     BAFX_CHECK(capture.bloomResult.pixels.empty());
-    checkObsSdrRolloffEncoding(
+    checkExtendedSrgbEncoding(
         readbackBgra8(graphics.context.Get(), recordingTarget.texture.Get()),
         capture.directSurface);
 }
