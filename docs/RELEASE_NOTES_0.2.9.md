@@ -22,9 +22,9 @@
 
 ## 验证结果
 
-- Full `cmake --workflow --preset release-verify`：`44/44` 通过；Slim
-  `cmake --workflow --preset slim-release-verify`：`43/43` 通过。帧率和 idle policy 共用的
-  `desktop_input_dispatch` 单独重跑 `91/91` 通过。
+- Full `cmake --workflow --preset release-verify`：`44/44` 通过，总测试时间 `102.19 s`；Slim
+  `cmake --workflow --preset slim-release-verify`：`43/43` 通过，总测试时间 `80.44 s`。帧率和
+  idle policy 共用的 `desktop_input_dispatch` 单独重跑 `91/91` 通过。
 - WARP 覆盖完整与核心路径的固定输入 sRGB 字节值、各特效层可见性、扩展预乘 Alpha、空闲透明和
   Bloom 圆盘外输出；WARP 结果不替代真实 OBS 证据。
 - OBS `32.2.2`、win-spout `1.12.0` 下，隔离 Profile 的 `FixedComposite` 与 `DynamicLifecycle`
@@ -32,4 +32,9 @@
   `artifacts/obs-v6-lifecycle-20260904-012025`；包含 raw BGRA、截图及无音轨录像，且 OBS 配置恢复
   前后完全一致。
 - 其他 OBS/插件版本、HDR、多显示器、跨 GPU 和 Windows 11 仍为 `Not Run`，不得从本机结果外推。
-- 本说明对应未发布源码候选，不创建标签、GitHub Release 或发布资产。
+- Full 四个候选资产已在 `artifacts/release-0.2.9-candidate-20260904-r1` 生成并通过脚本与
+  独立 SHA-256 复算。便携 ZIP 为
+  `FF5C82EEF2B6CD25BEC1543FBAFB2F92E3EC7C4AD78D5DE79EC2425EF79D2196`，安装器为
+  `81F7FF7CB37D521183C0DCC43CC5FE40840562C77F4008BD6795A732D43E40B2`。
+- 正式发布前仍需完成 Windows SDK `10.0.19041.0`/`10.0.22621.0`/`10.0.26100.0` CI、
+  annotated tag 和远端四资产回下载复核。Slim 不生成或上传发布资产。

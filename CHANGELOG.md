@@ -16,6 +16,14 @@
 - 产品版本提升到 0.2.9，主配置 schema 保持 19；现有主配置、显示器 override、`data` 目录和
   effects-only Profile 不需要迁移。
 
+### 候选发布验证
+
+- 本地 Full `release-verify` 已通过 `44/44`，Slim `slim-release-verify` 已通过 `43/43`；OBS
+  `FixedComposite` 与 `DynamicLifecycle` 实机证据均通过。
+- Full 便携 ZIP、ZIP 哈希、安装器和安装器哈希四个候选资产已生成并通过本地校验；
+  Slim 只用于源码验证，不生成或上传发布资产。三档 Windows SDK CI、标签和远端 Release
+  仍待完成。
+
 ## 0.2.8 - 2026-09-01
 
 ### 新增
