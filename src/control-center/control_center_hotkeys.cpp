@@ -124,7 +124,8 @@ bool ControlCenterWindow::createHotkeyControls()
     {
         hotkeyLabels_[index] = child(L"STATIC", actionLabels[index], SS_LEFT | SS_NOPREFIX, 0);
         hotkeyValues_[index] = child(L"STATIC", L"未绑定", SS_LEFT | SS_NOPREFIX | SS_ENDELLIPSIS, 0);
-        hotkeyStatuses_[index] = child(L"STATIC", L"尚未连接 Host", SS_LEFT | SS_NOPREFIX, 0);
+        hotkeyStatuses_[index] = child(L"STATIC", L"尚未连接 Host",
+            SS_LEFT | SS_NOPREFIX | SS_ENDELLIPSIS, 0);
         hotkeyRecord_[index] = child(L"BUTTON", L"录制", BS_PUSHBUTTON | WS_TABSTOP,
             recordFirst + static_cast<int>(index) * 2);
         hotkeyClear_[index] = child(L"BUTTON", L"清除", BS_PUSHBUTTON | WS_TABSTOP,
@@ -145,27 +146,39 @@ void ControlCenterWindow::layoutHotkeyControls(const int width, const int height
 {
     const int left = scale(24);
     const int available = width - left * 2;
+    const int labelWidth = scale(150);
+    const int columnGap = scale(12);
+    const int bindingWidth = (std::clamp)(available / 4, scale(180), scale(230));
+    const int itemButtonWidth = scale(84);
+    const int itemButtonGap = scale(8);
+    const int itemActionsWidth = itemButtonWidth * 2 + itemButtonGap;
+    const int itemActionsX = width - left - itemActionsWidth;
+    const int bindingX = left + labelWidth + columnGap;
+    const int statusX = bindingX + bindingWidth + columnGap;
+    const int statusWidth = (std::max)(scale(120), itemActionsX - columnGap - statusX);
     const auto move = [](const HWND control, const int x, const int y, const int w, const int h)
     {
         SetWindowPos(control, nullptr, x, y, w, h,
             SWP_NOACTIVATE | SWP_NOZORDER | SWP_NOREDRAW);
     };
-    move(hotkeyHint_, left, scale(165), available, scale(72));
+    move(hotkeyHint_, left, scale(160), available, scale(72));
     for (std::size_t index = 0U; index < actionLabels.size(); ++index)
     {
-        const int top = scale(244 + static_cast<int>(index) * 54);
-        move(hotkeyLabels_[index], left, top, scale(150), scale(25));
-        move(hotkeyValues_[index], left + scale(160), top,
-            (std::max)(scale(100), available - scale(330)), scale(25));
-        move(hotkeyRecord_[index], width - left - scale(155), top, scale(72), scale(30));
-        move(hotkeyClear_[index], width - left - scale(75), top, scale(72), scale(30));
-        move(hotkeyStatuses_[index], left + scale(160), top + scale(27),
-            (std::max)(scale(200), available - scale(165)), scale(25));
+        const int top = scale(244 + static_cast<int>(index) * 50);
+        move(hotkeyLabels_[index], left, top, labelWidth, scale(36));
+        move(hotkeyValues_[index], bindingX, top, bindingWidth, scale(36));
+        move(hotkeyStatuses_[index], statusX, top, statusWidth, scale(36));
+        move(hotkeyRecord_[index], itemActionsX, top, itemButtonWidth, scale(36));
+        move(hotkeyClear_[index], itemActionsX + itemButtonWidth + itemButtonGap,
+            top, itemButtonWidth, scale(36));
     }
     const std::array buttons{hotkeySave_, hotkeyRevert_, hotkeyRetry_, hotkeyCancel_};
+    const int buttonGap = scale(10);
+    const int buttonWidth = (available - buttonGap * 3) / 4;
     for (std::size_t index = 0U; index < buttons.size(); ++index)
     {
-        move(buttons[index], left + scale(static_cast<int>(index) * 120), scale(480), scale(110), scale(34));
+        move(buttons[index], left + static_cast<int>(index) * (buttonWidth + buttonGap),
+            scale(454), buttonWidth, scale(38));
     }
     const std::array footer{pauseButton_, refreshButton_, hostLifecycleButton_, resetDefaultsButton_};
     const int footerWidth = (available - scale(30)) / 4;
@@ -203,7 +216,7 @@ void ControlCenterWindow::updateHotkeyControls()
         }
         else if (!hotkeyDraft_.bindings[index].has_value())
         {
-            status = L"未绑定";
+            status.clear();
         }
         else if ((hotkeyState_.hotkeyRegisteredMask & (1ULL << index)) != 0U)
         {
