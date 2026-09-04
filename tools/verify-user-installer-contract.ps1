@@ -615,6 +615,7 @@ function Test-InnoPayloadContract
         '{#StageRoot}\BAFX.ControlCenter.exe',
         '{#StageRoot}\LICENSE.txt',
         '{#StageRoot}\SUPPORT.md',
+        '{#StageRoot}\THIRD-PARTY-NOTICES.txt',
         '{#StageRoot}\Identity\*',
         '{#StageRoot}\Installer\*'
     )
@@ -622,6 +623,14 @@ function Test-InnoPayloadContract
         -Expected $expectedSources `
         -Actual $sources `
         -Description 'Inno [Files] payload source whitelist'
+    Assert-TextContains `
+        -Text $inno `
+        -Pattern '#ifdef\s+IncludeSpout2Notice[\s\S]*THIRD-PARTY-NOTICES\.txt[\s\S]*#endif' `
+        -Description 'Spout2 notice is conditional on the Full installer define'
+    Assert-TextContains `
+        -Text $packager `
+        -Pattern "if\s*\(\s*-not\s+\`$Slim\s*\)[\s\S]*THIRD-PARTY-NOTICES\.txt[\s\S]*/DIncludeSpout2Notice=1" `
+        -Description 'Full installer stages and enables the Spout2 notice'
 
     Assert-TextExcludes `
         -Text $inno `

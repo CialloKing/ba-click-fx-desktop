@@ -345,6 +345,12 @@ try
         -Destination (Join-Path $installerDirectory 'BAFX.IdentitySigner.exe')
     Copy-Item -LiteralPath (Join-Path $repositoryRoot 'LICENSE') -Destination (Join-Path $stageRoot 'LICENSE.txt')
     Copy-Item -LiteralPath (Join-Path $repositoryRoot 'SUPPORT.md') -Destination $stageRoot
+    if (-not $Slim)
+    {
+        Copy-Item `
+            -LiteralPath (Join-Path $repositoryRoot 'THIRD-PARTY-NOTICES.txt') `
+            -Destination $stageRoot
+    }
 
     foreach ($scriptName in @(
         'capture-user-context.ps1',
@@ -463,18 +469,23 @@ try
         -Content ($payloadManifest | ConvertTo-Json -Depth 5)
 
     $innoScript = Join-Path $PSScriptRoot 'installer\ba-click-fx-desktop.iss'
+    $innoArguments = @(
+        "/DStageRoot=$stageRoot",
+        "/DOutputRoot=$outputRoot",
+        "/DProductVersion=$version",
+        "/DNumericVersion=$numericVersion",
+        "/DPackageVersion=$packageVersion",
+        "/DOutputBaseName=$outputBaseName"
+    )
+    if (-not $Slim)
+    {
+        $innoArguments += '/DIncludeSpout2Notice=1'
+    }
+    $innoArguments += $innoScript
     Invoke-Checked `
         -Description 'Inno Setup compile' `
         -FilePath $isccPath `
-        -Arguments @(
-            "/DStageRoot=$stageRoot",
-            "/DOutputRoot=$outputRoot",
-            "/DProductVersion=$version",
-            "/DNumericVersion=$numericVersion",
-            "/DPackageVersion=$packageVersion",
-            "/DOutputBaseName=$outputBaseName",
-            $innoScript
-        ) `
+        -Arguments $innoArguments `
         -WorkingDirectory $repositoryRoot
 
     if (-not (Test-Path -LiteralPath $installerPath -PathType Leaf))

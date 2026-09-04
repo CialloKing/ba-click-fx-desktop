@@ -19,6 +19,12 @@ install(
     FILES "${CMAKE_SOURCE_DIR}/SUPPORT.md"
     DESTINATION "."
 )
+if(BAFX_ENABLE_SPOUT2)
+    install(
+        FILES "${CMAKE_SOURCE_DIR}/THIRD-PARTY-NOTICES.txt"
+        DESTINATION "."
+    )
+endif()
 
 set(CPACK_GENERATOR "ZIP")
 set(CPACK_PACKAGE_NAME "ba-click-fx-desktop")
@@ -41,6 +47,10 @@ set(BAFX_RELEASE_PACKAGE_FILE_NAME "${CPACK_PACKAGE_FILE_NAME}")
 include(CPack)
 
 if(BAFX_POWERSHELL_EXECUTABLE)
+    set(BAFX_RELEASE_PACKAGE_VERIFY_ARGUMENTS)
+    if(BAFX_ENABLE_SPOUT2)
+        list(APPEND BAFX_RELEASE_PACKAGE_VERIFY_ARGUMENTS -Spout2Notice)
+    endif()
     add_custom_target(
         verify_release_package
         COMMAND
@@ -51,6 +61,7 @@ if(BAFX_POWERSHELL_EXECUTABLE)
             -ExpectedVersion "${BAFX_VERSION}"
             -Linker "${CMAKE_LINKER}"
             -PortableVerifier "${CMAKE_SOURCE_DIR}/tools/verify-portable-pe.ps1"
+            ${BAFX_RELEASE_PACKAGE_VERIFY_ARGUMENTS}
         COMMENT "Verify, extract, and smoke-test the Release ZIP"
         VERBATIM
     )

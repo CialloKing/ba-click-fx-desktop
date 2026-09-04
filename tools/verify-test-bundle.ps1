@@ -12,7 +12,9 @@ param(
     [ValidateRange(100, 10000)]
     [int]$ControlCenterStartupTimeoutMs = 1500,
 
-    [switch]$SkipControlCenterLaunch
+    [switch]$SkipControlCenterLaunch,
+
+    [switch]$Spout2Notice
 )
 
 Set-StrictMode -Version Latest
@@ -228,19 +230,28 @@ try
         }
     }
 
-    $requiredFiles = @(
+    $expectedPayloadFiles = @(
         'LICENSE.txt',
         'SUPPORT.md',
-        'TEST-BUNDLE-MANIFEST.json',
         'ba-click-fx-desktop.exe',
         'BAFX.ControlCenter.exe'
     )
+    if ($Spout2Notice)
+    {
+        $expectedPayloadFiles += 'THIRD-PARTY-NOTICES.txt'
+    }
+    $requiredFiles = @($expectedPayloadFiles) + 'TEST-BUNDLE-MANIFEST.json'
     foreach ($relativePath in $requiredFiles)
     {
         if (-not $entryNames.Contains("$rootPrefix$relativePath"))
         {
             throw "Test bundle is missing required file: $relativePath"
         }
+    }
+    if ((-not $Spout2Notice) -and
+        $entryNames.Contains("${rootPrefix}THIRD-PARTY-NOTICES.txt"))
+    {
+        throw 'Slim test bundle must not contain the Spout2 third-party notice.'
     }
 }
 finally
@@ -324,6 +335,15 @@ try
             "$($_.SideIndicator) $($_.InputObject)"
         }) -join ', '
         throw "Manifest file list differs from extracted payload: $details"
+    }
+    $lockedPayloadPaths = @($expectedPayloadFiles | Sort-Object)
+    $contractDifference = @(Compare-Object $lockedPayloadPaths $actualPayloadPaths)
+    if ($contractDifference.Count -ne 0)
+    {
+        $details = @($contractDifference | ForEach-Object {
+            "$($_.SideIndicator) $($_.InputObject)"
+        }) -join ', '
+        throw "Test bundle differs from the locked payload contract: $details"
     }
 
     $versionMatch = [regex]::Match(

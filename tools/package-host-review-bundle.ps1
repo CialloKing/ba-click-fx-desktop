@@ -130,7 +130,9 @@ function Assert-HostOnlyArchive
 {
     param(
         [Parameter(Mandatory = $true)]
-        [string]$PackagePath
+        [string]$PackagePath,
+
+        [switch]$Spout2Notice
     )
 
     Add-Type -AssemblyName System.IO.Compression.FileSystem
@@ -144,6 +146,10 @@ function Assert-HostOnlyArchive
             "${rootPrefix}LICENSE.txt",
             "${rootPrefix}SUPPORT.md"
         )
+        if ($Spout2Notice)
+        {
+            $expectedEntries += "${rootPrefix}THIRD-PARTY-NOTICES.txt"
+        }
         $actualEntries = @(
             $archive.Entries |
                 Where-Object { -not $_.FullName.EndsWith('/') } |
@@ -153,7 +159,7 @@ function Assert-HostOnlyArchive
         $difference = @(Compare-Object $expectedEntries $actualEntries)
         if ($difference.Count -ne 0)
         {
-            throw "Host review archive is not the three-file contract: $($difference -join ', ')"
+            throw "Host review archive differs from the locked file contract: $($difference -join ', ')"
         }
 
         foreach ($entry in $actualEntries)
@@ -186,7 +192,9 @@ function Invoke-IsolatedVerification
         [string]$Linker,
 
         [Parameter(Mandatory = $true)]
-        [string]$PortableVerifier
+        [string]$PortableVerifier,
+
+        [switch]$Spout2Notice
     )
 
     # The portable Host owns its data beside the extracted EXE, so there is no
@@ -196,7 +204,8 @@ function Invoke-IsolatedVerification
         -ExpectedVersion $ExpectedVersion `
         -Linker $Linker `
         -PortableVerifier $PortableVerifier `
-        -HostOnly
+        -HostOnly `
+        -Spout2Notice:$Spout2Notice
     if ($LASTEXITCODE -ne 0)
     {
         throw "Host review package verification failed with exit code $LASTEXITCODE"
@@ -270,6 +279,12 @@ try
     Copy-Item -LiteralPath (Join-Path $repositoryRoot 'LICENSE') `
         -Destination (Join-Path $stageRoot 'LICENSE.txt')
     Copy-Item -LiteralPath (Join-Path $repositoryRoot 'SUPPORT.md') -Destination $stageRoot
+    if (-not $Slim)
+    {
+        Copy-Item `
+            -LiteralPath (Join-Path $repositoryRoot 'THIRD-PARTY-NOTICES.txt') `
+            -Destination $stageRoot
+    }
     [IO.Compression.ZipFile]::CreateFromDirectory(
         $stageRoot,
         $packagePath,
@@ -287,7 +302,9 @@ $hash = (Get-FileHash -LiteralPath $packagePath -Algorithm SHA256).Hash
 Set-Content -LiteralPath $checksumPath `
     -Value "$hash  *$([IO.Path]::GetFileName($packagePath))" `
     -Encoding ascii
-Assert-HostOnlyArchive -PackagePath $packagePath
+Assert-HostOnlyArchive `
+    -PackagePath $packagePath `
+    -Spout2Notice:(-not $Slim)
 
 if (-not $SkipVerification)
 {
@@ -298,7 +315,8 @@ if (-not $SkipVerification)
         -PackagePath $packagePath `
         -ExpectedVersion $version `
         -Linker $linker `
-        -PortableVerifier (Join-Path $PSScriptRoot 'verify-portable-pe.ps1')
+        -PortableVerifier (Join-Path $PSScriptRoot 'verify-portable-pe.ps1') `
+        -Spout2Notice:(-not $Slim)
 }
 
 Write-Host "Host review package created: $packagePath"

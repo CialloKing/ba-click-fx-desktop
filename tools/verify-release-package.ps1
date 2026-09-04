@@ -11,7 +11,9 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$PortableVerifier,
 
-    [switch]$HostOnly
+    [switch]$HostOnly,
+
+    [switch]$Spout2Notice
 )
 
 $ErrorActionPreference = 'Stop'
@@ -57,6 +59,10 @@ try
     if (-not $HostOnly)
     {
         $expectedEntries += "$rootName/BAFX.ControlCenter.exe"
+    }
+    if ($Spout2Notice)
+    {
+        $expectedEntries += "$rootName/THIRD-PARTY-NOTICES.txt"
     }
     $actualEntries = @(
         $archive.Entries |

@@ -206,6 +206,12 @@ try
     Copy-Item -LiteralPath (Join-Path $repositoryRoot 'LICENSE') `
         -Destination (Join-Path $stageRoot 'LICENSE.txt')
     Copy-Item -LiteralPath (Join-Path $repositoryRoot 'SUPPORT.md') -Destination $stageRoot
+    if (-not $Slim)
+    {
+        Copy-Item `
+            -LiteralPath (Join-Path $repositoryRoot 'THIRD-PARTY-NOTICES.txt') `
+            -Destination $stageRoot
+    }
     Assert-ControlCenterExecutable -Executable (Join-Path $stageRoot 'BAFX.ControlCenter.exe')
 
     $manifestFiles = @(
@@ -281,6 +287,10 @@ if (-not $SkipVerification)
         Package = $archivePath
         ExpectedVersion = $version
         Linker = $linker
+    }
+    if (-not $Slim)
+    {
+        $verificationArguments.Spout2Notice = $true
     }
     & $verifier @verificationArguments
     if ($LASTEXITCODE -ne 0)

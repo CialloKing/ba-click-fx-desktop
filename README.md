@@ -116,7 +116,8 @@ cmake --build --preset host-release --parallel 4
 
 官方 GitHub Release 只发布带 Spout2 的 Full 版四个资产：便携 ZIP、便携 ZIP 的 `.sha256`、
 单文件安装器和安装器的 `.sha256`。Slim 版保留源码构建、测试和本地打包入口，不发布预编译
-Release 资产。
+Release 资产。Full 便携包和安装器随附 `THIRD-PARTY-NOTICES.txt`，保留 Spout2 的 BSD-2-Clause
+许可声明。
 
 标准构建的 OBS 输出是透明扩展预乘的 FX-only 层。OBS 需要把游戏/桌面捕获置底，并把绑定
 `ba-click-fx-desktop` 的 Spout2 源置顶、设为 `Premultiplied Alpha`，来源混合方式保持
