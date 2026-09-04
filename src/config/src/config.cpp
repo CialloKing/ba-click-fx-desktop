@@ -992,6 +992,93 @@ private:
     return true;
 }
 
+[[nodiscard]] bool readHotkeys(
+    const JsonValue::Object& object, HotkeysConfig& output, std::string& error)
+{
+    if (!validateKnownMembers(object,
+        {"togglePause", "toggleAlwaysOnTrail", "nextFxProfile", "shutdown"},
+        "hotkeys", error))
+    {
+        return false;
+    }
+    for (std::size_t index = 0U; index < hotkeyActionCount; ++index)
+    {
+        const JsonValue* value = member(object, hotkeyActionNames[index]);
+        if (value == nullptr)
+        {
+            error = "hotkeys." + std::string(hotkeyActionNames[index]) + " is required";
+            return false;
+        }
+        if (std::holds_alternative<std::nullptr_t>(value->storage))
+        {
+            output.bindings[index].reset();
+            continue;
+        }
+        const auto* binding = objectOf(*value);
+        if (binding == nullptr
+            || !validateKnownMembers(*binding, {"modifiers", "key"}, "hotkey", error))
+        {
+            error = "hotkey must be null or an object containing modifiers and key";
+            return false;
+        }
+        const JsonValue* key = member(*binding, "key");
+        const auto* number = key == nullptr ? nullptr : std::get_if<double>(&key->storage);
+        const JsonValue* modifiers = member(*binding, "modifiers");
+        const auto* array = modifiers == nullptr ? nullptr
+            : std::get_if<JsonValue::Array>(&modifiers->storage);
+        if (number == nullptr || !std::isfinite(*number) || *number < 0.0
+            || *number > 254.0 || std::floor(*number) != *number || array == nullptr)
+        {
+            error = "hotkey requires an integer virtual key and a modifier array";
+            return false;
+        }
+        HotkeyBinding parsed{0U, static_cast<std::uint32_t>(*number)};
+        for (const auto& modifier : *array)
+        {
+            const auto* name = std::get_if<std::string>(&modifier.storage);
+            if (name == nullptr || (*name != "alt" && *name != "ctrl"
+                && *name != "shift" && *name != "win"))
+            {
+                error = "hotkey modifier must be ctrl, alt, shift or win";
+                return false;
+            }
+            parsed.modifiers |= *name == "alt" ? 1U : (*name == "ctrl" ? 2U
+                : (*name == "shift" ? 4U : 8U));
+        }
+        output.bindings[index] = parsed;
+    }
+    return validateHotkeys(output, &error);
+}
+
+[[nodiscard]] JsonValue hotkeysValue(const HotkeysConfig& hotkeys)
+{
+    JsonValue::Object result;
+    for (std::size_t index = 0U; index < hotkeyActionCount; ++index)
+    {
+        JsonValue value(nullptr);
+        if (hotkeys.bindings[index].has_value())
+        {
+            const HotkeyBinding& binding = *hotkeys.bindings[index];
+            JsonValue::Array modifiers;
+            for (const auto& [name, bit] : std::array{
+                std::pair{"ctrl", 2U}, std::pair{"alt", 1U},
+                std::pair{"shift", 4U}, std::pair{"win", 8U}})
+            {
+                if ((binding.modifiers & bit) != 0U)
+                {
+                    modifiers.emplace_back(std::string(name));
+                }
+            }
+            JsonValue::Object object;
+            object.emplace("modifiers", JsonValue(std::move(modifiers)));
+            object.emplace("key", JsonValue(static_cast<double>(binding.key)));
+            value = JsonValue(std::move(object));
+        }
+        result.emplace(std::string(hotkeyActionNames[index]), std::move(value));
+    }
+    return JsonValue(std::move(result));
+}
+
 [[nodiscard]] Config parseCurrentConfig(
     const JsonValue::Object& root,
     std::string& error)
@@ -1008,7 +1095,7 @@ private:
                 "display",
                 "input",
                 "performance",
-                "system"},
+                "system", "hotkeys"},
             {},
             error))
     {
@@ -1021,12 +1108,15 @@ private:
     const JsonValue::Object* input = nullptr;
     const JsonValue::Object* performance = nullptr;
     const JsonValue::Object* system = nullptr;
+    const JsonValue::Object* hotkeys = nullptr;
     if (!readRequiredObject(root, "effects", effects, error)
         || !readRequiredObject(root, "background", background, error)
         || !readRequiredObject(root, "display", display, error)
         || !readRequiredObject(root, "input", input, error)
         || !readRequiredObject(root, "performance", performance, error)
-        || !readRequiredObject(root, "system", system, error))
+        || !readRequiredObject(root, "system", system, error)
+        || !readRequiredObject(root, "hotkeys", hotkeys, error)
+        || !readHotkeys(*hotkeys, config.hotkeys, error))
     {
         return config;
     }
@@ -1646,6 +1736,7 @@ private:
     root.emplace("performance", JsonValue(std::move(performance)));
     root.emplace("schemaVersion", JsonValue(static_cast<double>(currentSchemaVersion)));
     root.emplace("system", JsonValue(std::move(system)));
+    root.emplace("hotkeys", hotkeysValue(config.hotkeys));
     return JsonValue(std::move(root));
 }
 
@@ -1984,7 +2075,14 @@ void appendJsonValue(
             performance->emplace("activeFxRoiEnabled", JsonValue(false));
         }
     }
-    root["schemaVersion"] = JsonValue(static_cast<double>(currentSchemaVersion));
+    root["schemaVersion"] = JsonValue(19.0);
+    return true;
+}
+
+[[nodiscard]] bool migrateSchema19To20(JsonValue::Object& root)
+{
+    root.try_emplace("hotkeys", hotkeysValue(HotkeysConfig{}));
+    root["schemaVersion"] = JsonValue(20.0);
     return true;
 }
 
@@ -2076,6 +2174,14 @@ void appendJsonValue(
         {
             migrated = migrateSchema18To19(*originalRoot, error);
         }
+        else if (*version == 19.0)
+        {
+            migrated = true;
+        }
+        if (migrated && error.empty())
+        {
+            migrated = migrateSchema19To20(*originalRoot);
+        }
     }
     if (!error.empty())
     {
@@ -2111,6 +2217,88 @@ void appendJsonValue(
 Config defaultConfig() noexcept
 {
     return Config{};
+}
+
+bool validHotkeyKey(const std::uint32_t key) noexcept
+{
+    // Exclude mouse buttons, modifiers, F12 (debugger-reserved), packet
+    // injection and unmapped/reserved keys; no Win32 dependency in the codec.
+    return key >= 8U && key < 255U && key != 16U && key != 17U && key != 18U
+        && key != 91U && key != 92U && key != 123U && key != 231U
+        && !(key >= 160U && key <= 165U);
+}
+
+bool validateHotkeys(const HotkeysConfig& hotkeys, std::string* error) noexcept
+{
+    for (std::size_t index = 0U; index < hotkeyActionCount; ++index)
+    {
+        const auto& binding = hotkeys.bindings[index];
+        if (!binding.has_value())
+        {
+            continue;
+        }
+        std::string reason;
+        if (!validHotkeyKey(binding->key) || (binding->modifiers & ~15U) != 0U)
+        {
+            reason = "invalid main key or modifiers (F12 and modifier-only bindings are unavailable)";
+        }
+        for (std::size_t previous = 0U; previous < index; ++previous)
+        {
+            if (binding == hotkeys.bindings[previous])
+            {
+                reason = "duplicates " + std::string(hotkeyActionNames[previous]);
+            }
+        }
+        if (!reason.empty())
+        {
+            if (error != nullptr)
+            {
+                *error = "hotkeys." + std::string(hotkeyActionNames[index]) + ": " + reason;
+            }
+            return false;
+        }
+    }
+    if (error != nullptr)
+    {
+        error->clear();
+    }
+    return true;
+}
+
+std::string toJson(const HotkeysConfig& hotkeys)
+{
+    std::string result;
+    appendJsonValue(hotkeysValue(hotkeys), result, false, 0U);
+    return result;
+}
+
+std::optional<HotkeysConfig> parseHotkeysJson(
+    const std::string_view json, std::string* error) noexcept
+{
+    try
+    {
+        JsonParser parser(json);
+        const auto parsed = parser.parse();
+        HotkeysConfig result;
+        std::string message;
+        if (parsed.has_value() && objectOf(*parsed) != nullptr
+            && readHotkeys(*objectOf(*parsed), result, message))
+        {
+            return result;
+        }
+        if (error != nullptr)
+        {
+            *error = message.empty() ? "invalid hotkeys object" : message;
+        }
+    }
+    catch (...)
+    {
+        if (error != nullptr)
+        {
+            *error = "unable to parse hotkeys";
+        }
+    }
+    return std::nullopt;
 }
 
 ConfigLoadResult parseJson(const std::string_view json) noexcept
@@ -2709,6 +2897,18 @@ namespace
         else if (*path == "system.spout2Enabled")
         {
             valueAccepted = readPatchBool(result.system.spout2Enabled);
+        }
+        else if (*path == "hotkeys")
+        {
+            std::string hotkeyError;
+            const auto* object = objectOf(*value);
+            if (object == nullptr || !readHotkeys(*object, result.hotkeys, hotkeyError))
+            {
+                return ConfigPatchResult{base, ConfigStatus::ValidationError,
+                    hotkeyError.empty() ? "hotkeys must be an object" : hotkeyError,
+                    true, expectedGeneration};
+            }
+            valueAccepted = true;
         }
         else
         {
@@ -3549,6 +3749,10 @@ bool validateConfig(const Config& config, std::string* error) noexcept
     if (config.schemaVersion != currentSchemaVersion)
     {
         return failValidation("config schemaVersion does not match the current schema");
+    }
+    if (!validateHotkeys(config.hotkeys, error))
+    {
+        return false;
     }
     std::string normalizedThemeColor = config.effects.themeColor;
     if (!normalizeThemeColor(normalizedThemeColor))

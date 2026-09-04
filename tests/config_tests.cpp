@@ -39,6 +39,40 @@ void removeTestTree(const fs::path& path) noexcept
 
 }
 
+BAFX_TEST(hotkeys_codec_validation_and_schema19_migration)
+{
+    using namespace bafx::config;
+    Config config;
+    BAFX_CHECK(config.hotkeys == HotkeysConfig{});
+    const auto parsed = parseHotkeysJson(R"({"togglePause":{"modifiers":["alt","ctrl","ctrl"],"key":75},"toggleAlwaysOnTrail":null,"nextFxProfile":{"modifiers":[],"key":65},"shutdown":{"modifiers":["ctrl"],"key":65}})");
+    BAFX_CHECK(parsed.has_value());
+    BAFX_CHECK(parsed->bindings[0]->modifiers == 3U);
+    config.hotkeys = *parsed;
+    BAFX_CHECK(parseJson(toJson(config)).config.hotkeys == *parsed);
+    BAFX_CHECK(parseHotkeysJson(toJson(*parsed)) == parsed);
+    config.hotkeys.bindings[1] = config.hotkeys.bindings[0];
+    BAFX_CHECK(!validateConfig(config));
+    for (const std::uint32_t key : {0U, 1U, 16U, 17U, 18U, 91U, 123U, 160U, 231U, 255U})
+    {
+        BAFX_CHECK(!validHotkeyKey(key));
+    }
+    std::string old = toJson(Config{}, false);
+    const auto start = old.find("\"hotkeys\":");
+    const auto end = old.find("},", start);
+    BAFX_CHECK(start != std::string::npos && end != std::string::npos);
+    old.erase(start, end + 2U - start);
+    const auto version = old.find("\"schemaVersion\":20");
+    old.replace(version, std::string("\"schemaVersion\":20").size(), "\"schemaVersion\":19");
+    const auto migrated = parseJson(old);
+    BAFX_CHECK(migrated.succeeded());
+    BAFX_CHECK(migrated.config.schemaVersion == currentSchemaVersion);
+    BAFX_CHECK(migrated.config.hotkeys == HotkeysConfig{});
+    const auto patched = applyPatchJson(Config{},
+        "{\"generation\":1,\"path\":\"hotkeys\",\"value\":" + toJson(*parsed) + "}");
+    BAFX_CHECK(patched.succeeded());
+    BAFX_CHECK(patched.config.hotkeys == *parsed);
+}
+
 BAFX_TEST(config_defaults_round_trip_through_versioned_json)
 {
     const bafx::config::Config defaults = bafx::config::defaultConfig();

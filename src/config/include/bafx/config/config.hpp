@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
@@ -11,7 +12,7 @@
 namespace bafx::config
 {
 
-inline constexpr std::uint32_t currentSchemaVersion = 19U;
+inline constexpr std::uint32_t currentSchemaVersion = 20U;
 inline constexpr std::size_t maximumDisplayOverrides = 64U;
 inline constexpr std::size_t maximumDisplayKeyBytes = 4096U;
 
@@ -173,6 +174,33 @@ struct SystemConfig
     bool spout2Enabled{false};
 };
 
+enum class HotkeyAction : std::uint8_t
+{
+    TogglePause,
+    ToggleAlwaysOnTrail,
+    NextFxProfile,
+    Shutdown
+};
+
+inline constexpr std::size_t hotkeyActionCount = 4U;
+inline constexpr std::array<std::string_view, hotkeyActionCount> hotkeyActionNames{
+    "togglePause", "toggleAlwaysOnTrail", "nextFxProfile", "shutdown"};
+
+struct HotkeyBinding final
+{
+    // Stable modifier bits: alt=1, ctrl=2, shift=4, win=8. NOREPEAT is
+    // runtime policy, not a configurable modifier or part of key identity.
+    std::uint32_t modifiers{0U};
+    std::uint32_t key{0U};
+    bool operator==(const HotkeyBinding&) const = default;
+};
+
+struct HotkeysConfig final
+{
+    std::array<std::optional<HotkeyBinding>, hotkeyActionCount> bindings{};
+    bool operator==(const HotkeysConfig&) const = default;
+};
+
 struct Config
 {
     std::uint32_t schemaVersion{currentSchemaVersion};
@@ -182,6 +210,7 @@ struct Config
     InputConfig input{};
     PerformanceConfig performance{};
     SystemConfig system{};
+    HotkeysConfig hotkeys{};
 };
 
 struct ResolvedDisplayPolicy final
@@ -271,6 +300,13 @@ struct ConfigSaveResult
 [[nodiscard]] Config defaultConfig() noexcept;
 
 [[nodiscard]] ConfigLoadResult parseJson(std::string_view json) noexcept;
+
+[[nodiscard]] bool validHotkeyKey(std::uint32_t key) noexcept;
+[[nodiscard]] bool validateHotkeys(
+    const HotkeysConfig& hotkeys, std::string* error = nullptr) noexcept;
+[[nodiscard]] std::string toJson(const HotkeysConfig& hotkeys);
+[[nodiscard]] std::optional<HotkeysConfig> parseHotkeysJson(
+    std::string_view json, std::string* error = nullptr) noexcept;
 
 // The effects-only codec owns the exact flat object returned by GetFxConfig.
 // It deliberately excludes product settings outside EffectsConfig.

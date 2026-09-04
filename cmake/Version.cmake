@@ -1,4 +1,4 @@
-set(BAFX_VERSION "0.2.9")
+set(BAFX_VERSION "0.2.10")
 
 if(NOT BAFX_VERSION MATCHES "^([0-9]+)\\.([0-9]+)\\.([0-9]+)$")
     message(FATAL_ERROR "BAFX_VERSION must use MAJOR.MINOR.PATCH")
