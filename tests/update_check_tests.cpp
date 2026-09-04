@@ -416,11 +416,14 @@ BAFX_TEST(update_checker_can_start_again_after_completion)
     BAFX_CHECK(transport->cancelCount() == 0U);
 }
 
-BAFX_TEST(update_release_page_url_is_a_fixed_official_target)
+BAFX_TEST(update_browser_page_urls_are_fixed_official_targets)
 {
     BAFX_CHECK(
         bafx::release_update::officialLatestReleasePageUrl()
         == L"https://github.com/CialloKing/ba-click-fx-desktop/releases/latest");
+    BAFX_CHECK(
+        bafx::release_update::officialProjectRepositoryUrl()
+        == L"https://github.com/CialloKing/ba-click-fx-desktop");
 
     const auto response = bafx::release_update::parseReleaseResponse(
         R"({"tag_name":"v0.2.6","html_url":"https://evil.example/release"})");
@@ -428,4 +431,7 @@ BAFX_TEST(update_release_page_url_is_a_fixed_official_target)
     BAFX_CHECK(
         bafx::release_update::officialLatestReleasePageUrl()
         == L"https://github.com/CialloKing/ba-click-fx-desktop/releases/latest");
+    BAFX_CHECK(
+        bafx::release_update::officialProjectRepositoryUrl()
+        == L"https://github.com/CialloKing/ba-click-fx-desktop");
 }

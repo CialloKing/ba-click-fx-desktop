@@ -130,8 +130,9 @@ private:
     std::jthread worker_{};
 };
 
-// The browser target is not derived from the network response.
+// Browser targets are not derived from the network response.
 [[nodiscard]] std::wstring_view officialLatestReleasePageUrl() noexcept;
+[[nodiscard]] std::wstring_view officialProjectRepositoryUrl() noexcept;
 
 // This factory has no endpoint arguments so callers cannot redirect the check
 // to an untrusted host or relax the transport policy.

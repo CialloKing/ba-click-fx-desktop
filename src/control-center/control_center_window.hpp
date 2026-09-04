@@ -120,6 +120,7 @@ private:
         CloseToTray,
         CheckForUpdates,
         OpenRelease,
+        OpenRepository,
 #if defined(BAFX_ENABLE_SPOUT2)
         Spout2Enabled,
         RefreshObsSpoutPlugin,
@@ -141,6 +142,10 @@ private:
         static_cast<int>(ControlId::OpenRelease)
             == static_cast<int>(ControlId::CheckForUpdates) + 1,
         "Version update actions must preserve their keyboard order");
+    static_assert(
+        static_cast<int>(ControlId::OpenRepository)
+            == static_cast<int>(ControlId::OpenRelease) + 1,
+        "Repository action must follow the version update actions");
 
     struct SliderControl final
     {
@@ -258,6 +263,7 @@ private:
     void beginManualUpdateCheck();
     void pollManualUpdateCheck();
     void openOfficialLatestRelease();
+    void openOfficialProjectRepository();
 
     [[nodiscard]] bool refreshFromHost();
     [[nodiscard]] bool refreshDisplayStateFromHost();
@@ -474,6 +480,8 @@ private:
     HWND latestVersionText_{nullptr};
     HWND checkForUpdatesButton_{nullptr};
     HWND openReleaseButton_{nullptr};
+    HWND repositoryStarHint_{nullptr};
+    HWND openRepositoryButton_{nullptr};
 #if defined(BAFX_ENABLE_SPOUT2)
     HWND spout2Enabled_{nullptr};
     HWND spout2SenderStatus_{nullptr};

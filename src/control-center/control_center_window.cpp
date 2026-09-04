@@ -68,6 +68,20 @@ constexpr DWORD controlCenterWindowStyle =
     WS_OVERLAPPEDWINDOW | WS_CLIPSIBLINGS;
 static_assert((controlCenterWindowStyle & WS_CLIPCHILDREN) == 0U);
 
+[[nodiscard]] bool openFixedOfficialPage(
+    const HWND owner,
+    const wchar_t* const url)
+{
+    const HINSTANCE result = ShellExecuteW(
+        owner,
+        L"open",
+        url,
+        nullptr,
+        nullptr,
+        SW_SHOWNORMAL);
+    return reinterpret_cast<INT_PTR>(result) > 32;
+}
+
 struct InstallationStatePresentation final
 {
     std::wstring titleLabel{};
@@ -2149,6 +2163,15 @@ bool ControlCenterWindow::createControls()
         L"打开 Release",
         BS_PUSHBUTTON | WS_TABSTOP | WS_DISABLED,
         ControlId::OpenRelease);
+    repositoryStarHint_ = createChild(
+        L"STATIC",
+        L"如果项目对你有帮助，欢迎前往仓库点 Star。",
+        SS_LEFT | SS_NOPREFIX | SS_ENDELLIPSIS);
+    openRepositoryButton_ = createChild(
+        L"BUTTON",
+        L"打开项目仓库",
+        BS_PUSHBUTTON | WS_TABSTOP,
+        ControlId::OpenRepository);
 
     displaySettingsHeading_ = createChild(
         L"BUTTON",
@@ -2378,6 +2401,8 @@ bool ControlCenterWindow::createControls()
         latestVersionText_,
         checkForUpdatesButton_,
         openReleaseButton_,
+        repositoryStarHint_,
+        openRepositoryButton_,
 #if defined(BAFX_ENABLE_SPOUT2)
         spout2Enabled_,
         spout2SenderStatus_,
@@ -2770,6 +2795,8 @@ void ControlCenterWindow::applyFonts() const noexcept
         latestVersionText_,
         checkForUpdatesButton_,
         openReleaseButton_,
+        repositoryStarHint_,
+        openRepositoryButton_,
 #if defined(BAFX_ENABLE_SPOUT2)
         spout2Enabled_,
         spout2SenderStatus_,
@@ -3227,8 +3254,8 @@ void ControlCenterWindow::layoutControls(
         constexpr int minimumSystemContentHeight = 356;
         constexpr int minimumSystemPanelHeight = 324;
 #else
-        constexpr int minimumSystemContentHeight = 192;
-        constexpr int minimumSystemPanelHeight = 160;
+        constexpr int minimumSystemContentHeight = 336;
+        constexpr int minimumSystemPanelHeight = 324;
 #endif
         const int actionY = (std::max)(
             contentTop + scale(minimumSystemContentHeight),
@@ -3379,6 +3406,18 @@ void ControlCenterWindow::layoutControls(
             updateContentX + updateButtonWidth + updateButtonGap,
             contentTop + scale(204),
             updateButtonWidth,
+            scale(32));
+        moveControl(
+            repositoryStarHint_,
+            updateContentX,
+            contentTop + scale(248),
+            updateContentWidth,
+            scale(24));
+        moveControl(
+            openRepositoryButton_,
+            updateContentX,
+            contentTop + scale(280),
+            updateContentWidth,
             scale(32));
 
         const int actionWidth = (clientWidth - margin * 2 - actionGap * 3) / 4;
@@ -4380,6 +4419,8 @@ void ControlCenterWindow::updatePageVisibility() noexcept
         latestVersionText_,
         checkForUpdatesButton_,
         openReleaseButton_,
+        repositoryStarHint_,
+        openRepositoryButton_,
 #if defined(BAFX_ENABLE_SPOUT2)
         spout2Enabled_,
         spout2SenderStatus_,
@@ -4821,6 +4862,12 @@ void ControlCenterWindow::onCommand(
         if (notificationCode == BN_CLICKED)
         {
             openOfficialLatestRelease();
+        }
+        break;
+    case ControlId::OpenRepository:
+        if (notificationCode == BN_CLICKED)
+        {
+            openOfficialProjectRepository();
         }
         break;
 #if defined(BAFX_ENABLE_SPOUT2)
@@ -5345,18 +5392,22 @@ void ControlCenterWindow::openOfficialLatestRelease()
         return;
     }
 
-    // Never navigate to a URL returned by GitHub JSON. The only browser target
-    // is the compile-time official latest-release page.
-    const HINSTANCE result = ShellExecuteW(
-        window_,
-        L"open",
-        bafx::release_update::officialLatestReleasePageUrl().data(),
-        nullptr,
-        nullptr,
-        SW_SHOWNORMAL);
-    if (reinterpret_cast<INT_PTR>(result) <= 32)
+    // Network response URLs never reach shell navigation.
+    if (!openFixedOfficialPage(
+            window_,
+            bafx::release_update::officialLatestReleasePageUrl().data()))
     {
         setError(L"无法打开官方 Release 页面。请检查默认浏览器设置。");
+    }
+}
+
+void ControlCenterWindow::openOfficialProjectRepository()
+{
+    if (!openFixedOfficialPage(
+            window_,
+            bafx::release_update::officialProjectRepositoryUrl().data()))
+    {
+        setError(L"无法打开项目仓库。请检查默认浏览器设置。");
     }
 }
 
@@ -6282,14 +6333,7 @@ void ControlCenterWindow::refreshObsPluginStatus()
 
 void ControlCenterWindow::openObsPluginPage()
 {
-    const HINSTANCE result = ShellExecuteW(
-        window_,
-        L"open",
-        obsSpoutPluginPage,
-        nullptr,
-        nullptr,
-        SW_SHOWNORMAL);
-    if (reinterpret_cast<INT_PTR>(result) <= 32)
+    if (!openFixedOfficialPage(window_, obsSpoutPluginPage))
     {
         setError(L"无法打开 OBS Spout2 官方插件页面。请检查默认浏览器设置。");
     }

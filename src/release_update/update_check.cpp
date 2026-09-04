@@ -934,4 +934,9 @@ std::wstring_view officialLatestReleasePageUrl() noexcept
     return L"https://github.com/CialloKing/ba-click-fx-desktop/releases/latest";
 }
 
+std::wstring_view officialProjectRepositoryUrl() noexcept
+{
+    return L"https://github.com/CialloKing/ba-click-fx-desktop";
+}
+
 }

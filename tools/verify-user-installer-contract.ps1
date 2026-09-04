@@ -908,7 +908,7 @@ function Test-SparsePackageContract
         -Description 'fixed official OBS Spout2 plugin page'
     Assert-TextContains `
         -Text $controlCenter `
-        -Pattern 'ShellExecuteW\s*\(\s*window_,\s*L"open",\s*obsSpoutPluginPage\s*,' `
+        -Pattern 'openFixedOfficialPage\s*\(\s*window_,\s*obsSpoutPluginPage\s*\)' `
         -Description 'official OBS Spout2 plugin page action'
     Assert-TextContains `
         -Text $updateCheck `
@@ -916,12 +916,27 @@ function Test-SparsePackageContract
         -Description 'fixed official latest Release page'
     Assert-TextContains `
         -Text $controlCenter `
-        -Pattern 'ShellExecuteW\s*\(\s*window_,\s*L"open",\s*bafx::release_update::officialLatestReleasePageUrl\s*\(\s*\)\.data\s*\(\s*\)\s*,' `
+        -Pattern 'openFixedOfficialPage\s*\(\s*window_,\s*bafx::release_update::officialLatestReleasePageUrl\s*\(\s*\)\.data\s*\(\s*\)\s*\)' `
         -Description 'fixed official latest Release page action'
+    Assert-TextContains `
+        -Text $updateCheck `
+        -Pattern 'std::wstring_view\s+officialProjectRepositoryUrl\s*\(\s*\)\s*noexcept\s*\{\s*return\s+L"https://github\.com/CialloKing/ba-click-fx-desktop";\s*\}' `
+        -Description 'fixed official project repository page'
+    Assert-TextContains `
+        -Text $controlCenter `
+        -Pattern 'openFixedOfficialPage\s*\(\s*window_,\s*bafx::release_update::officialProjectRepositoryUrl\s*\(\s*\)\.data\s*\(\s*\)\s*\)' `
+        -Description 'fixed official project repository page action'
+    Assert-TextContains `
+        -Text $controlCenter `
+        -Pattern 'createChild\s*\(\s*L"BUTTON",\s*L"打开项目仓库",\s*BS_PUSHBUTTON\s*\|\s*WS_TABSTOP,\s*ControlId::OpenRepository\s*\)' `
+        -Description 'always-enabled project repository button'
+    Assert-TextContains `
+        -Text $controlCenter `
+        -Pattern 'case\s+ControlId::OpenRepository\s*:\s*if\s*\(\s*notificationCode\s*==\s*BN_CLICKED\s*\)\s*\{\s*openOfficialProjectRepository\s*\(\s*\)\s*;\s*\}\s*break\s*;' `
+        -Description 'project repository button entry'
 
-    # A positive assertion for each target plus an exact total prevents a
-    # response URL, arbitrary URL or a newly added shell-navigation helper from
-    # becoming a third browser path.
+    # Each approved call site must use a fixed official target. The exact helper
+    # reference total prevents another caller from silently adding navigation.
     $navigationSourceFiles = @(
         Get-ChildItem `
             -LiteralPath (Resolve-RepositoryPath -RelativePath 'src/control-center') `
@@ -941,8 +956,14 @@ function Test-SparsePackageContract
         $trustedNavigationSources,
         '\bShellExecute(?:Ex)?(?:A|W)?\s*\(')
     Assert-True `
-        -Condition ($shellNavigationCalls.Count -eq 2) `
-        -Message "Installer contract requires exactly two approved shell-navigation calls; found $($shellNavigationCalls.Count)."
+        -Condition ($shellNavigationCalls.Count -eq 1) `
+        -Message "Installer contract requires one centralized shell-navigation call; found $($shellNavigationCalls.Count)."
+    $officialPageHelperReferences = [regex]::Matches(
+        $controlCenter,
+        '\bopenFixedOfficialPage\s*\(')
+    Assert-True `
+        -Condition ($officialPageHelperReferences.Count -eq 4) `
+        -Message "Installer contract requires one official-page helper and three approved callers; found $($officialPageHelperReferences.Count) references."
 
     # Only the explicit button command may reach ReleaseUpdateChecker::start.
     # Keeping this as a unique source-level path proves that ordinary launch and
