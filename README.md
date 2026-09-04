@@ -106,6 +106,13 @@ cmake --build build\x64 --config Release --target verify_unity_reference
 - Windows PowerShell 5.1 或 PowerShell 7。Python 3 不是编译器依赖，但安装后可以启用完整的
   Python 合同测试；Node.js 只在维护 Unity 纹理快照时需要，普通构建不需要。
 
+从仓库根目录开始：
+
+```powershell
+git clone https://github.com/CialloKing/ba-click-fx-desktop.git
+cd ba-click-fx-desktop
+```
+
 建议从 **Developer PowerShell for VS** 执行命令，或确认 `cmake.exe`、MSVC 和 Windows SDK
 已经在当前终端可用。可以先检查：
 
@@ -126,7 +133,8 @@ $env:VCPKG_ROOT = 'C:\dev\vcpkg'
 ```
 
 如果已经有 vcpkg，只需将 `VCPKG_ROOT` 设置为该 checkout 的绝对路径。Full 配置使用 manifest
-模式，根据固定 builtin baseline 安装 `vcpkg.json` 中的 `spout2[dx]`，目标 triplet 为
+模式，根据固定 builtin baseline `a0400024711b283056538ac19ced80b91a83c24c` 安装
+`vcpkg.json` 中锁定的 `spout2[dx]` `2.007.010#0`，目标 triplet 为
 `x64-windows-static`，依赖会放在 `build\x64\vcpkg_installed`。第一次配置需要联网下载和构建
 依赖；之后可以复用本地 vcpkg 缓存。不要依赖仓库外的临时 Spout2 压缩包，也不要手动改动
 `build\x64\vcpkg_installed`。
@@ -162,6 +170,12 @@ cmake --build build\x64-slim --config Release --target ba_click_fx_desktop --par
 ```
 
 两个 `*-release-verify` workflow 都保留完整 Release 构建和 CTest 流程，不是快速迭代命令。
+配置完成后也可以显式执行：
+
+```powershell
+ctest --preset release
+ctest --preset slim-release
+```
 
 `vcpkg.json` 通过固定 builtin baseline 将 `spout2[dx]` 锁定为 `2.007.010#0`。Full 首次配置
 若报告找不到 `vcpkg.cmake`、Spout2 头文件或 `SpoutDX_static.lib`，先确认 `VCPKG_ROOT` 指向
@@ -174,12 +188,27 @@ Installer 中补装 C++ 工作负载、MSVC x64 工具和 SDK，然后重新打�
 ### 交互式 smoke test
 
 Full 和 Slim 预设都设置 `BAFX_ENABLE_DESKTOP_SMOKE_TESTS=ON`，所以对应的 CTest 流程会注册
-需要交互式 Windows 桌面的 DirectComposition smoke、定时退出和设备恢复测试。请在已登录且未锁屏
+需要交互式 Windows 桌面的四个桌面集成测试：smoke、定时退出、设备恢复和帧 pacing stall。请在已登录且未锁屏
 的桌面会话中运行 workflow；无桌面或无头 CI 不应把这些测试当作可运行的验收。可以单独重跑
 smoke target：
 
 ```powershell
 cmake --build --preset debug --target smoke_desktop
+```
+
+Slim 没有单独的 Debug build preset；如需运行 Slim smoke，请显式配置并构建：
+
+```powershell
+cmake --preset x64-slim
+cmake --build build\x64-slim --config Debug --target smoke_desktop
+```
+
+该 target 运行有界的 `--smoke-test` 中心像素检查，成功退出码为 `0`。视觉演示是持续运行的另一个入口，
+不是 smoke test：
+
+```powershell
+build\x64\src\desktop\Debug\ba-click-fx-desktop.exe --demo-click
+build\x64-slim\src\desktop\Debug\ba-click-fx-desktop.exe --demo-click
 ```
 
 兼容性 CI 使用 `BUILD_TESTING=OFF` 的普通 CMake 配置，只验证指定 Windows SDK 下的编译，不验证
@@ -203,19 +232,6 @@ Windows 11 SDK，26100 是当前 runner 清单中的最高 SDK。该矩阵只证
 build `28000+` 的运行时能力或 WGC Session-local exclusion；Windows 11 API 始终采用运行时能力探测，
 旧 SDK/Windows 10 构建不能通过裁剪产品目标来规避这些功能。
 
-DirectComposition smoke test 需要交互式桌面，因此默认不进入普通 CTest：
-
-```powershell
-cmake --build --preset debug --target smoke_desktop
-```
-
-启用 `BAFX_ENABLE_DESKTOP_SMOKE_TESTS=ON` 时，smoke 会生成一次确定性中心点击，实际经过
-Unity 材质 shader、MRT、FP16 预乘交换链和 DirectComposition present。单独查看效果可运行：
-
-```powershell
-build\x64\src\desktop\Debug\ba-click-fx-desktop.exe --demo-click
-```
-
 Overlay 不抢焦点且保持鼠标穿透；右键通知区域图标可退出，也可在控制中心的“快捷键”页绑定退出键。
 快捷键默认全部未绑定，旧的两个固定 F12 退出组合和轮询兜底已移除。当前 smoke 仍不等同于
 HDR、跨适配器或 WGC 的 Spike 已通过。
@@ -223,8 +239,8 @@ HDR、跨适配器或 WGC 的 Spike 已通过。
 ### 便携版
 
 下面的命令会先构建 Release Host 和原生 Win32 Control Center，再将两个 EXE、支持文档和逐文件
-SHA-256 清单打入 ZIP；脚本完成前会自动运行包验证。Full（默认）需要 `cmake.exe` 和已经设置的
-`VCPKG_ROOT`；如果没有 vcpkg，请使用 Slim 参数：
+SHA-256 清单打入 ZIP；脚本完成前会自动运行包验证。脚本自行配置/构建时，Full（默认）需要 `cmake.exe`
+和已经设置的 `VCPKG_ROOT`；如果没有 vcpkg，请使用 Slim 参数：
 
 ```powershell
 pwsh -NoProfile -ExecutionPolicy Bypass -File .\tools\package-test-bundle.ps1
@@ -245,12 +261,26 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File .\tools\package-test-bundle.ps1 -S
 
 ```powershell
 pwsh -NoProfile -ExecutionPolicy Bypass -File .\tools\package-host-review-bundle.ps1
+pwsh -NoProfile -ExecutionPolicy Bypass -File .\tools\package-host-review-bundle.ps1 -Slim
 ```
 
 脚本从 Release Host 单独组装三文件审核包，并将经过验证的 ZIP 放到
 `artifacts\local\host-visual-review\<commit>\`。该包只包含 Host、许可证和支持说明，
 通常约 0.4 MB；完整便携包现在也只包含两个原生 EXE，压缩后约 0.7 MB，不再携带 Windows App SDK
 旁置运行时。
+
+### 本地安装器
+
+需要生成安装器时，先完成对应的 Full 或 Slim 构建，再安装 Inno Setup 6.3 或更高版本，确保
+`ISCC.exe` 在 `PATH` 或标准安装目录中：
+
+```powershell
+pwsh -NoProfile -ExecutionPolicy Bypass -File .\tools\package-user-installer.ps1
+pwsh -NoProfile -ExecutionPolicy Bypass -File .\tools\package-user-installer.ps1 -Slim
+```
+
+也可以通过 `-ISCC <path>` 指定其他 `ISCC.exe`。`-SkipBuild` 只适用于已有对应构建输出；
+`-SkipVerification` 是明确的可选绕过，不应作为发布证据。
 
 ### 普通用户安装器
 
