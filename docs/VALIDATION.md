@@ -805,6 +805,19 @@ annotated tag，只上传 Full 便携 ZIP、ZIP 哈希、安装器和安装器�
 回下载复核哈希；Slim 仅做源码构建与本地验证，不生成或上传预编译资产。
 本节不改变 0.2.6/0.2.7 的 schema 19 ROI 历史证据或结论。
 
+### 5.6 v0.2.11 项目入口与 Unity 参考同步发布门
+
+0.2.11 的产品改动限于 Control Center 的固定项目仓库入口和 Star 提示；配置 schema、渲染参数与运行时
+绘制逻辑均不改变。Unity 重建工程更新后的 3 个材质、3 个 Touch Shader、审计文档和 9 张基线图已同步
+到 `reference/unity-reference.json`。`verify-unity-reference.ps1` 必须对 62 个文件和 2 棵资源树通过，
+并保留游戏 Unity `2021.3.56f2` 与重建工程 Unity `2021.3.45f1` 的版本边界。
+
+发布候选必须在干净提交上通过 Full `release-verify` 与 Slim `slim-release-verify`。Full 构建随后使用
+`-SkipBuild` 生成便携 ZIP、ZIP 哈希、安装器和安装器哈希；Slim 只验证源码构建，不生成或上传正式资产。
+推送 `main` 后，Windows SDK `10.0.19041.0`、`10.0.22621.0`、`10.0.26100.0` 三档 CI 必须在同一提交
+全绿，才能创建 annotated tag `v0.2.11` 和正式 GitHub Release。发布后按发布文件名回下载四个资产，
+逐项复核 SHA-256、tag 指向、Release 状态和资产数量。
+
 ## 6. 需求追踪
 
 | 合同 | ADR | Spike | Validation suite |

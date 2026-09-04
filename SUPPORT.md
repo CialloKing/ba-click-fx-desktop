@@ -1,4 +1,4 @@
-# 0.2.10 支持与验证范围
+# 0.2.11 支持与验证范围
 
 ## 可以测试的范围
 
@@ -26,7 +26,8 @@
   显示器、固定 `60/120/144 FPS`、无限制五种帧率策略；具有稳定标识的显示器还可
   独立控制特效、HDR 请求和帧率策略。“系统”页提供随 Windows 启动、启动时最小化和关闭时隐藏到托盘，
   以及“清理诊断日志”按钮；确认后会显示删除文件数、释放字节数和失败文件数。“版本与更新”区域显示
-  Control Center、Host、安装状态和最新公开版本，并提供手动检查与固定官方 Release 页面入口。启用随
+  Control Center、Host、安装状态和最新公开版本，并提供手动检查、固定官方 Release 页面入口、固定项目
+  仓库入口和 Star 提示。启用随
   Windows 启动后，登录时由 Control Center 复用正常激活路径启动 Host。通知区域菜单可在 Host 已连接时
   直接暂停或恢复特效；断开时该项置灰，操作不会写入持久化配置。
   “快捷键”页可录制、清除、整组保存和重试暂停／恢复、切换常驻拖尾、下一个特效预设、退出 Host
@@ -77,7 +78,7 @@
   伪造的 HDR、刷新率或 ROI 运行状态。
 - `GetState.productVersion` 使用规范 `MAJOR.MINOR.PATCH` 标识 Host 版本。只有 Host 与 Control Center
   完全同版本时设置控件才可写；字段缺失、格式错误或版本不一致时 fail-closed，设置保持禁用，但 Host
-  启动和关闭入口继续可用。0.2.10 使用 schema 20，新增全局快捷键配置。
+  启动和关闭入口继续可用。0.2.11 继续使用 schema 20；该 schema 由 0.2.10 引入全局快捷键配置。
 - WGC FP16 scRGB 背景使用独立的背景 reference white 转入 Unity 相对工作空间；Unity authored color、粒子、
   材质、Trail 和 Bloom 仍在线性 FP16 中计算，最终呈现阶段才使用输出 reference white 选择 SDR/HDR 映射。
   HDR/WCG 下背景白点未知时 WGC 可保持预热，但该背景不得进入合成，当前画面回退 FX-only。
@@ -256,6 +257,8 @@ Windows“已安装的应用”执行，默认保留安装目录
 自动下载、替换文件或执行安装器；“打开 Release”只前往固定的
 [官方最新 Release 页面](https://github.com/CialloKing/ba-click-fx-desktop/releases/latest)。0.2.4 及更早的
 Control Center 不具备该入口，因此首次升级到 0.2.5 仍需用户手动下载。
+“打开项目仓库”不依赖更新检查或网络响应中的地址，始终前往
+[官方项目仓库](https://github.com/CialloKing/ba-click-fx-desktop)，用户可在仓库页面点 Star。
 
 安装或卸载失败时，错误框会显示失败阶段、步骤、HRESULT、脚本行号和 Inno 日志的完整路径。反馈问题时请
 提供该日志文件，不要只提供错误框截图。日志中的 `BAFX_INSTALL_FAILURE:` 是便于人工定位的单行摘要，
