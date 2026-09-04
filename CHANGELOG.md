@@ -16,6 +16,14 @@
 - 产品版本提升到 0.2.11，主配置继续使用 schema 20，现有配置、快捷键、显示器 override 和
   effects-only `fx-profiles` 无需迁移。
 
+### 候选发布验证
+
+- 本地 Full `release-verify` 已通过 `45/45`，总测试时间 `114.64 s`；Slim
+  `slim-release-verify` 已通过 `44/44`，总测试时间 `92.17 s`。
+- 最终 Portable 候选的 144 DPI 整窗捕获确认仓库按钮与 Star 提示完整、启用且没有重叠。Full 便携
+  ZIP、ZIP 哈希、安装器和安装器哈希四个候选资产已生成并通过本地校验；三档 Windows SDK CI、标签和
+  远端 Release 仍待完成。
+
 ## 0.2.10 - 2026-09-04
 
 ### 新增

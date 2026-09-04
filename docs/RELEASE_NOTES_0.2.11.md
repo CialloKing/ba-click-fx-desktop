@@ -25,6 +25,17 @@ Trail、Tri3 使用队列 4499，Tri2 使用队列 4550；三个 Touch Shader �
 - `ba-click-fx-desktop-0.2.11-setup-windows-x64.exe`
 - `ba-click-fx-desktop-0.2.11-setup-windows-x64.exe.sha256`
 
-Slim 继续保留源码构建和测试入口，不提供预编译 Release 下载。`reference/unity-reference.json` 已通过
-62 个文件、2 棵资源树的外部参考校验；本地 Full/Slim workflow、候选资产 SHA-256、三档 Windows SDK
-CI 和发布后远端资产复核结果将在候选完成后记录。
+`reference/unity-reference.json` 已通过 62 个文件、2 棵资源树的外部参考校验。本地 Full
+`release-verify` 已通过 `45/45`，总测试时间 `114.64 s`；Slim `slim-release-verify` 已通过 `44/44`，
+总测试时间 `92.17 s`。最终 Portable 候选的 144 DPI 整窗捕获确认仓库按钮与 Star 提示完整、启用且没有
+重叠。Full 候选资产位于 `artifacts/release-0.2.11-candidate-20260904-r1`，发布清单固定如下：
+
+| 文件 | 字节数 | SHA-256 |
+| --- | ---: | --- |
+| `ba-click-fx-desktop-0.2.11-Portable-windows-x64.zip` | 1,426,911 | `DA08A38B1C73B8B18A30B99E1619A6FB59AD57D127336A0F5C86F35F2673A0D3` |
+| `ba-click-fx-desktop-0.2.11-Portable-windows-x64.zip.sha256` | 117 | `44A56B49E2EA210982B9B30499F2941CA782753CF38AFCF149BFB8A39D0E960F` |
+| `ba-click-fx-desktop-0.2.11-setup-windows-x64.exe` | 4,075,657 | `9241FF8C01718FFBB1CA7301C08C8050FF1D93E8BA76870775FFC05F5BF76E01` |
+| `ba-click-fx-desktop-0.2.11-setup-windows-x64.exe.sha256` | 114 | `A379836AC8764BF6922C70B3BC25F455BFAB38E3D7B6FD2217E009687BBF091B` |
+
+Slim 继续保留源码构建和测试入口，不提供预编译 Release 下载。正式发布前仍须完成 Windows SDK
+`10.0.19041.0`、`10.0.22621.0`、`10.0.26100.0` 三档 CI；发布后还须按相同文件名回下载四个资产复核。

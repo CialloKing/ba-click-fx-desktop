@@ -818,6 +818,17 @@ annotated tag，只上传 Full 便携 ZIP、ZIP 哈希、安装器和安装器�
 全绿，才能创建 annotated tag `v0.2.11` 和正式 GitHub Release。发布后按发布文件名回下载四个资产，
 逐项复核 SHA-256、tag 指向、Release 状态和资产数量。
 
+2026-09-04 在干净提交 `a80293e` 上完成候选构建。Full `release-verify` 通过 `45/45`，总测试时间
+`114.64 s`；Slim `slim-release-verify` 通过 `44/44`，总测试时间 `92.17 s`。同一 Full 候选中的 Host、
+Control Center 和安装器均报告产品版本 `0.2.11`。Portable 系统页在 144 DPI 下完成整窗捕获，固定仓库
+按钮保持启用，Star 提示与按钮边界不相交；固定 URL 与唯一集中式 Shell 导航路径由更新检查和安装器合同
+测试覆盖。
+
+Full 四资产已在 `artifacts/release-0.2.11-candidate-20260904-r1` 生成。便携 ZIP SHA-256 为
+`DA08A38B1C73B8B18A30B99E1619A6FB59AD57D127336A0F5C86F35F2673A0D3`，安装器 SHA-256 为
+`9241FF8C01718FFBB1CA7301C08C8050FF1D93E8BA76870775FFC05F5BF76E01`；两个 sidecar 均与独立复算一致。
+正式发布前仍须完成三档 Windows SDK CI，发布后仍须回下载四个远端资产复核。
+
 ## 6. 需求追踪
 
 | 合同 | ADR | Spike | Validation suite |
