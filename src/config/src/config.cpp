@@ -2221,8 +2221,9 @@ Config defaultConfig() noexcept
 
 bool validHotkeyKey(const std::uint32_t key) noexcept
 {
-    // Exclude mouse buttons, modifiers, F12 (debugger-reserved), packet
-    // injection and unmapped/reserved keys; no Win32 dependency in the codec.
+    // Exclude mouse buttons, modifiers, debugger-reserved F12 and packet
+    // injection. Other VK values stay forward-compatible; RegisterHotKey is
+    // the runtime authority for whether Windows accepts a binding.
     return key >= 8U && key < 255U && key != 16U && key != 17U && key != 18U
         && key != 91U && key != 92U && key != 123U && key != 231U
         && !(key >= 160U && key <= 165U);

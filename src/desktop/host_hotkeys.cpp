@@ -150,7 +150,8 @@ void HostHotkeys::updateState()
 
 void HostHotkeys::discard(const bool stagedOnly)
 {
-    std::erase_if(registrations_, [this, stagedOnly](const Registration& entry)
+    DWORD operationError = ERROR_SUCCESS;
+    std::erase_if(registrations_, [this, stagedOnly, &operationError](const Registration& entry)
     {
         const bool remove = stagedOnly ? entry.staged : !contains(active_, entry.binding);
         if (!remove)
@@ -159,11 +160,27 @@ void HostHotkeys::discard(const bool stagedOnly)
         }
         if (!UnregisterHotKey(window_, entry.id))
         {
-            state_.cleanupError = GetLastError();
+            operationError = GetLastError();
             return false;
         }
         return true;
     });
+    if (operationError != ERROR_SUCCESS)
+    {
+        state_.cleanupError = operationError;
+        return;
+    }
+    // Keep a prior cleanup failure visible until no staged or inactive
+    // registration remains; an unrelated successful unregister must not hide it.
+    const bool cleanupPending = std::any_of(registrations_.begin(), registrations_.end(),
+        [this](const Registration& entry)
+        {
+            return entry.staged || !contains(active_, entry.binding);
+        });
+    if (!cleanupPending)
+    {
+        state_.cleanupError = ERROR_SUCCESS;
+    }
 }
 
 void HostHotkeys::endCapture()

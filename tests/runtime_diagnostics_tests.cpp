@@ -296,8 +296,9 @@ BAFX_TEST(support_report_contains_alpha_scope_and_graphics_facts)
     BAFX_CHECK(text.find("Hotkeys.TogglePause.Registered=1") != std::string::npos);
     BAFX_CHECK(text.find("Hotkeys.ToggleAlwaysOnTrail.Error=1409")
         != std::string::npos);
+    BAFX_CHECK(text.find("Hotkeys.StateScope=startup") != std::string::npos);
     BAFX_CHECK(text.find("Exit.NotificationIcon=available") != std::string::npos);
-    BAFX_CHECK(text.find("Exit.PollingFallback=enabled") != std::string::npos);
+    BAFX_CHECK(text.find("Exit.PollingFallback=disabled") != std::string::npos);
     BAFX_CHECK(text.find("Log.SchemaVersion=2") != std::string::npos);
     BAFX_CHECK(text.find("Log.SessionId=") != std::string::npos);
 }

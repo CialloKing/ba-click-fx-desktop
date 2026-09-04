@@ -1619,6 +1619,7 @@ std::string SupportReport::serialize() const
         stream << "Graphics.DriverType=not-created\n";
     }
 
+    stream << "Hotkeys.StateScope=startup\n";
     if (hasExitUiStatus_)
     {
         stream << "Hotkeys.RegisteredMask=" << exitUiStatus_.hotkeyRegisteredMask
@@ -1640,7 +1641,7 @@ std::string SupportReport::serialize() const
         stream << "Hotkeys.RegisteredMask=not-created\n"
                << "Exit.NotificationIcon=not-created\n";
     }
-    stream << "Exit.PollingFallback=enabled\n";
+    stream << "Exit.PollingFallback=disabled\n";
 
     if (!failure_.empty())
     {

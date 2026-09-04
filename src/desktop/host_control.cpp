@@ -1142,6 +1142,8 @@ void HostControlPlane::enqueueHotkey(const bafx::config::HotkeyAction action,
     if (hotkeyQueue_.size() >= 64U)
     {
         // Never coalesce toggles: that would silently change their meaning.
+        std::lock_guard stateLock(mutex_);
+        hotkeyActionError_ = "hotkey action queue is full";
         hotkeyErrorPending_ = true;
         return;
     }
@@ -1156,7 +1158,7 @@ std::string HostControlPlane::takeHotkeyError()
         return {};
     }
     std::lock_guard lock(mutex_);
-    return hotkeyActionError_.empty() ? "hotkey action queue is full" : hotkeyActionError_;
+    return hotkeyActionError_;
 }
 
 bafx::windows::IpcResponse HostControlPlane::setPaused(const bool paused)
@@ -1238,6 +1240,12 @@ void HostControlPlane::runHotkeyActions() noexcept
                     bafx::windows::DiagnosticField{"Error", result.errorMessage}};
                 bafx::windows::appendDiagnosticEvent(bafx::windows::defaultDiagnosticLogPath(),
                     "Hotkey.ActionFailed", fields, bafx::windows::DiagnosticLevel::Warning);
+            }
+            else
+            {
+                std::lock_guard lock(mutex_);
+                hotkeyActionError_.clear();
+                hotkeyErrorPending_ = false;
             }
             PostMessageW(hostWindow_, WM_NULL, 0U, 0);
         }
