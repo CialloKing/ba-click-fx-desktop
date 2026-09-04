@@ -8,8 +8,9 @@ DPI 和 Windows 11 运行时逻辑提前到测试与硬件证据之前；2026-08
 首级实效化，并以真实 A/B 门槛决定是否发布。2026-08-31 的覆盖将默认关闭、无性能声明的
 0.2.7 普通发布与 ROI 硬件晋级分离。2026-09-01 的最新覆盖进一步固定后续版本均保持 ROI 默认关闭；
 新的 4K 170 Hz schema 4 晋级证据仍为 `Not Run`，只阻塞性能/功耗/输入延迟声明和独立的
-Differential Bloom ROI 实验里程碑，不再阻塞任何普通版本。2026-09-04 的当前迭代转向用户可配置的
-全局快捷键，同时保持 Host 单一配置写入者和现有发布资产边界。
+Differential Bloom ROI 实验里程碑，不再阻塞任何普通版本。2026-09-04 已完成用户可配置全局快捷键及
+项目仓库入口两轮普通发布，当前转入发布后维护，同时保持 Host 单一配置写入者、ROI 默认关闭和现有发布
+资产边界。
 
 完成新的 collector、verifier 或证据归档，只计作验证基础设施进展，不能单独计作用户功能更新。
 它们只有在解除当前体验问题或正式发布门槛时才进入主线排期。
@@ -102,7 +103,7 @@ Prefilter/Pyramid/Bloom 收益、相邻配对、FPS、GPU command p99、pending�
 - Full `release-verify` `44/44`、Slim `slim-release-verify` `43/43` 与两个隔离 OBS 验收均已通过；
   三档 Windows SDK CI 均已通过。正式版本只发布通过校验的 Full 四资产，Slim 不上传。
 
-## v0.2.10 可配置全局快捷键（2026-09-04）
+## v0.2.10 可配置全局快捷键（2026-09-04，已发布）
 
 - 主配置升级为 schema 20，新增暂停／恢复、切换常驻拖尾、下一个特效预设和退出 Host 四项绑定；
   新配置以及 schema 19 的固定迁移结果均默认未绑定。旧的两个固定 F12 退出组合和轮询兜底删除；
@@ -119,6 +120,16 @@ Prefilter/Pyramid/Bloom 收益、相邻配对、FPS、GPU command p99、pending�
   最终 Portable 候选的 144 DPI 整窗捕获检查；Full 四资产已生成并复核本地哈希，三档 Windows SDK CI
   均已通过。GitHub Release 只上传 Full 便携 ZIP、ZIP 哈希、安装器和安装器哈希四个资产，Slim 仅保留
   源码构建和本地验证入口。
+
+## v0.2.11 项目仓库入口与 Unity 参考同步（2026-09-04，已发布）
+
+- Control Center 的“版本与更新”新增固定官方项目仓库入口和 Star 提示；该入口不依赖更新检查结果，也不
+  采用网络响应中的跳转地址；
+- 同步 Unity 重建工程更新后的 3 个材质、3 个 Touch Shader、审计文档和 9 张基线图；外部参考校验通过
+  62 个文件和 2 棵资源树，原生渲染语义一致，无需改变运行时绘制逻辑；
+- Full `release-verify` `45/45`、Slim `slim-release-verify` `44/44`、Portable 144 DPI 整窗检查和三档
+  Windows SDK CI 均已通过。正式 GitHub Release 只包含 Full 便携 ZIP、ZIP 哈希、安装器和安装器哈希
+  四个资产，Slim 不上传。
 
 ## Host-owned 特效 Profile（2026-08-23）
 

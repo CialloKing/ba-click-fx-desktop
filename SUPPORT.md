@@ -319,7 +319,8 @@ Control Center 不具备该入口，因此首次升级到 0.2.5 仍需用户手�
   验证运行截止检查不会被帧等待 timeout 绕过。
 - `BAFX.ControlCenter.exe`：在 Host 已运行时打开 Win32 设置窗口，通过本地 IPC 读取并调整三种
   渲染模式、FX 参数、分层开关、特效 Profile、全局快捷键、Active-FX ROI、HDR 请求和帧率策略，并用
-  `GetDisplayState` 查看逐屏实际状态；系统页显示双方版本、安装状态并提供手动更新检查。它不是独立渲染器。
+  `GetDisplayState` 查看逐屏实际状态；系统页显示双方版本和安装状态，并提供手动更新检查、固定官方
+  Release 页面入口、固定项目仓库入口和 Star 提示。它不是独立渲染器。
 
 smoke 只证明当前 Windows 会话中的基本渲染链路可用。运行日志中的
 `Support.WGC=active` 表示本次背景感知会话成功创建了 WGC 路径；随后出现背景合成日志才表示样本已
