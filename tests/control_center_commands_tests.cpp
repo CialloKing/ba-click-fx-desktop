@@ -7,10 +7,13 @@
 #include <string>
 #include <string_view>
 
-BAFX_TEST(default_config_request_replaces_the_complete_persisted_config)
+BAFX_TEST(default_config_request_resets_settings_and_preserves_hotkeys)
 {
     constexpr std::string_view prefix = "SetConfig ";
-    const std::string request = bafx::control_center::defaultConfigRequest();
+    bafx::config::HotkeysConfig hotkeys{};
+    hotkeys.bindings[0] = bafx::config::HotkeyBinding{2U, 65U};
+    hotkeys.bindings[3] = bafx::config::HotkeyBinding{3U, 81U};
+    const std::string request = bafx::control_center::defaultConfigRequest(hotkeys);
 
     BAFX_CHECK(request.starts_with(prefix));
     BAFX_CHECK(request.find('\r') == std::string::npos);
@@ -20,7 +23,8 @@ BAFX_TEST(default_config_request_replaces_the_complete_persisted_config)
     const std::string_view payload(
         request.data() + prefix.size(),
         request.size() - prefix.size());
-    const bafx::config::Config defaults = bafx::config::defaultConfig();
+    bafx::config::Config defaults = bafx::config::defaultConfig();
+    defaults.hotkeys = hotkeys;
     const bafx::config::ConfigPatchResult patch =
         bafx::config::applyPatchJson(defaults, payload);
     BAFX_CHECK(!patch.recognized);

@@ -63,11 +63,12 @@ namespace
 
 }
 
-std::string defaultConfigRequest()
+std::string defaultConfigRequest(
+    const bafx::config::HotkeysConfig& preservedHotkeys)
 {
-    return "SetConfig " + bafx::config::toJson(
-        bafx::config::defaultConfig(),
-        false);
+    bafx::config::Config defaults = bafx::config::defaultConfig();
+    defaults.hotkeys = preservedHotkeys;
+    return "SetConfig " + bafx::config::toJson(defaults, false);
 }
 
 std::string setDisplayOverrideRequest(

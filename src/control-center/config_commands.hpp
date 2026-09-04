@@ -9,7 +9,8 @@
 namespace bafx::control_center
 {
 
-[[nodiscard]] std::string defaultConfigRequest();
+[[nodiscard]] std::string defaultConfigRequest(
+    const bafx::config::HotkeysConfig& preservedHotkeys = {});
 [[nodiscard]] std::string setDisplayOverrideRequest(
     std::uint64_t generation,
     const bafx::config::DisplayOverrideConfig& overrideConfig);

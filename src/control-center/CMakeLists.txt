@@ -11,6 +11,7 @@ add_executable(
         config_commands.cpp
         control_center_layout.cpp
         control_center_window.cpp
+        control_center_hotkeys.cpp
         display_state.cpp
         obs_spout_plugin_probe.cpp
         package_activation.cpp

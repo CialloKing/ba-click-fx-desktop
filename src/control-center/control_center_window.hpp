@@ -37,7 +37,7 @@ public:
     ControlCenterWindow& operator=(const ControlCenterWindow&) = delete;
 
     [[nodiscard]] bool create(int showCommand, bool startHostOnLaunch);
-    [[nodiscard]] int runMessageLoop() const noexcept;
+    [[nodiscard]] int runMessageLoop() noexcept;
     [[nodiscard]] DWORD lastError() const noexcept;
 
 private:
@@ -47,6 +47,7 @@ private:
         BasicPage,
         AdvancedPage,
         DisplayPage,
+        HotkeysPage,
         SystemPage,
         AdvancedTimingSection,
         AdvancedParticlesSection,
@@ -164,6 +165,7 @@ private:
         Basic,
         Advanced,
         DisplayPerformance,
+        Hotkeys,
         System
     };
 
@@ -189,6 +191,21 @@ private:
         LPARAM lParam);
     [[nodiscard]] bool registerWindowClass() noexcept;
     [[nodiscard]] bool createControls();
+    [[nodiscard]] bool createHotkeyControls();
+    void layoutHotkeyControls(int width, int height) const noexcept;
+    void updateHotkeyControls();
+    [[nodiscard]] bool refreshHotkeys(
+        std::string_view command = "GetHotkeyState");
+    void beginHotkeyCapture(std::size_t index);
+    void endHotkeyCapture();
+    void clearHotkeyCaptureLocally() noexcept;
+    [[nodiscard]] bool captureHotkeyMessage(const MSG& message);
+    [[nodiscard]] bool saveHotkeys();
+    [[nodiscard]] bool confirmHotkeyDraft();
+    [[nodiscard]] bool prepareToClose();
+    void closeControlCenter();
+    void acceptHotkeyCandidate(bafx::config::HotkeyBinding binding);
+    [[nodiscard]] bool onHotkeyCommand(int id);
     [[nodiscard]] HWND createChild(
         const wchar_t* className,
         const wchar_t* text,
@@ -393,6 +410,33 @@ private:
     HWND advancedPageButton_{nullptr};
     HWND displayPageButton_{nullptr};
     HWND systemPageButton_{nullptr};
+    HWND hotkeysPageButton_{nullptr};
+    HWND hotkeyHint_{nullptr};
+    HWND hotkeySave_{nullptr};
+    HWND hotkeyRevert_{nullptr};
+    HWND hotkeyRetry_{nullptr};
+    HWND hotkeyCancel_{nullptr};
+    std::array<HWND, 4U> hotkeyLabels_{};
+    std::array<HWND, 4U> hotkeyValues_{};
+    std::array<HWND, 4U> hotkeyRecord_{};
+    std::array<HWND, 4U> hotkeyClear_{};
+    std::array<HWND, 4U> hotkeyStatuses_{};
+    std::vector<HWND> hotkeyControls_{};
+    bafx::config::HotkeysConfig hotkeyDraft_{};
+    bafx::config::HotkeysConfig hotkeyBaseline_{};
+    HostState hotkeyState_{};
+    std::uint64_t hotkeyDraftGeneration_{0U};
+    std::uint64_t hotkeyCaptureToken_{0U};
+    std::optional<std::size_t> hotkeyRecording_{};
+    std::optional<bafx::config::HotkeyBinding> hotkeyCandidate_{};
+    bool hotkeyDraftDirty_{false};
+    bool hotkeyDraftConflicted_{false};
+    bool hotkeyStateKnown_{false};
+    bool hotkeyCaptureInvalid_{false};
+    bool hotkeyAwaitRelease_{false};
+    std::uint64_t displayedHotkeyCleanupError_{0U};
+    std::string displayedHotkeyActionError_{};
+    static constexpr UINT_PTR hotkeyTimerId = 6U;
     HWND advancedTimingSectionButton_{nullptr};
     HWND advancedParticlesSectionButton_{nullptr};
     HWND advancedRingsSectionButton_{nullptr};

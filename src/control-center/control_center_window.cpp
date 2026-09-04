@@ -1130,7 +1130,7 @@ bool ControlCenterWindow::create(
     return true;
 }
 
-int ControlCenterWindow::runMessageLoop() const noexcept
+int ControlCenterWindow::runMessageLoop() noexcept
 {
     MSG message{};
     while (true)
@@ -1143,6 +1143,16 @@ int ControlCenterWindow::runMessageLoop() const noexcept
         if (result < 0)
         {
             return 1;
+        }
+        if (captureHotkeyMessage(message))
+        {
+            continue;
+        }
+        // Modeless native pages need dialog navigation explicitly. Recording
+        // consumes its keys first so Enter/Tab/Escape remain recordable.
+        if (IsDialogMessageW(window_, &message))
+        {
+            continue;
         }
         TranslateMessage(&message);
         DispatchMessageW(&message);
@@ -1435,7 +1445,10 @@ LRESULT ControlCenterWindow::handleMessage(
         if ((wParam & 0xFFF0U) == SC_CLOSE
             && config_.system.closeToTray)
         {
-            commitPendingPatch();
+            if (!prepareToClose())
+            {
+                return 0;
+            }
             if (ensureTrayIcon())
             {
                 ShowWindow(window_, SW_HIDE);
@@ -1445,11 +1458,17 @@ LRESULT ControlCenterWindow::handleMessage(
             // entry when Explorer rejects notification-area registration.
         }
         return DefWindowProcW(window_, message, wParam, lParam);
+    case WM_ACTIVATEAPP:
+        if (wParam == FALSE)
+        {
+            endHotkeyCapture();
+        }
+        return 0;
     case WM_CLOSE:
-        commitPendingPatch();
-        DestroyWindow(window_);
+        closeControlCenter();
         return 0;
     case WM_DESTROY:
+        KillTimer(window_, hotkeyTimerId);
         if (themeColorEdit_ != nullptr)
         {
             RemovePropW(
@@ -1538,6 +1557,8 @@ bool ControlCenterWindow::createControls()
         L"显示与性能",
         BS_AUTORADIOBUTTON | WS_TABSTOP,
         ControlId::DisplayPage);
+    hotkeysPageButton_ = createChild(L"BUTTON", L"快捷键",
+        BS_AUTORADIOBUTTON | WS_TABSTOP, ControlId::HotkeysPage);
     systemPageButton_ = createChild(
         L"BUTTON",
         L"系统",
@@ -2302,6 +2323,11 @@ bool ControlCenterWindow::createControls()
         BS_PUSHBUTTON | WS_TABSTOP,
         ControlId::DeleteFxProfile);
 
+    if (!createHotkeyControls())
+    {
+        return false;
+    }
+
     const std::array required{
         titleText_,
         statusText_,
@@ -2309,6 +2335,7 @@ bool ControlCenterWindow::createControls()
         basicPageButton_,
         advancedPageButton_,
         displayPageButton_,
+        hotkeysPageButton_,
         systemPageButton_,
         effectsHeading_,
         effectsEnabled_,
@@ -2594,6 +2621,11 @@ void ControlCenterWindow::destroyFonts() noexcept
 
 void ControlCenterWindow::applyFonts() const noexcept
 {
+    for (const HWND control : hotkeyControls_)
+    {
+        setControlFont(control, normalFont_);
+    }
+    setControlFont(hotkeysPageButton_, normalFont_);
     const std::array normalControls{
         statusText_,
         messageText_,
@@ -2975,7 +3007,7 @@ void ControlCenterWindow::layoutControls(
     moveControl(messageText_, margin, scale(82), clientWidth - margin * 2, messageHeight);
 
     const int contentTop = scale(150);
-    const int tabWidth = scale(132);
+    const int tabWidth = (std::min)(scale(132), (clientWidth - margin * 2 - scale(32)) / 5);
     const int tabGap = scale(8);
     moveControl(
         basicPageButton_,
@@ -2996,11 +3028,20 @@ void ControlCenterWindow::layoutControls(
         tabWidth,
         scale(30));
     moveControl(
-        systemPageButton_,
+        hotkeysPageButton_,
         margin + (tabWidth + tabGap) * 3,
         scale(120),
         tabWidth,
         scale(30));
+    moveControl(systemPageButton_, margin + (tabWidth + tabGap) * 4,
+        scale(120), tabWidth, scale(30));
+
+    if (activePage_ == Page::Hotkeys)
+    {
+        layoutHotkeyControls(clientWidth, clientHeight);
+        redrawWindowTree();
+        return;
+    }
 
     if (activePage_ == Page::DisplayPerformance)
     {
@@ -3983,7 +4024,20 @@ void ControlCenterWindow::setPageControlVisible(
 
 void ControlCenterWindow::selectPage(const Page page) noexcept
 {
+    if (activePage_ == Page::Hotkeys && page != Page::Hotkeys)
+    {
+        endHotkeyCapture();
+    }
     activePage_ = page;
+    KillTimer(window_, hotkeyTimerId);
+    if (page == Page::Hotkeys)
+    {
+        if (connected_)
+        {
+            static_cast<void>(refreshHotkeys());
+        }
+        SetTimer(window_, hotkeyTimerId, 1'000U, nullptr);
+    }
     updatePageVisibility();
     updateDisplayStatePolling();
 }
@@ -4016,6 +4070,12 @@ void ControlCenterWindow::selectAdvancedSection(
 
 void ControlCenterWindow::updatePageVisibility() noexcept
 {
+    const bool hotkeys = activePage_ == Page::Hotkeys;
+    setChecked(hotkeysPageButton_, hotkeys);
+    for (const HWND control : hotkeyControls_)
+    {
+        setPageControlVisible(control, hotkeys);
+    }
     const bool basic = activePage_ == Page::Basic;
     const bool advanced = activePage_ == Page::Advanced;
     const bool display = activePage_ == Page::DisplayPerformance;
@@ -4357,6 +4417,10 @@ void ControlCenterWindow::onCommand(
     const int id,
     const int notificationCode)
 {
+    if (notificationCode == BN_CLICKED && onHotkeyCommand(id))
+    {
+        return;
+    }
     if (updatingControls_)
     {
         return;
@@ -4389,6 +4453,12 @@ void ControlCenterWindow::onCommand(
 #if defined(BAFX_ENABLE_SPOUT2)
             refreshObsPluginStatus();
 #endif
+        }
+        break;
+    case ControlId::HotkeysPage:
+        if (notificationCode == BN_CLICKED)
+        {
+            selectPage(Page::Hotkeys);
         }
         break;
     case ControlId::AdvancedTimingSection:
@@ -5292,6 +5362,17 @@ void ControlCenterWindow::openOfficialLatestRelease()
 
 void ControlCenterWindow::onTimer(const UINT_PTR timerId)
 {
+    if (timerId == hotkeyTimerId)
+    {
+        if (activePage_ == Page::Hotkeys && connected_ && IsWindowVisible(window_) && !IsIconic(window_))
+        {
+            const std::string command = hotkeyCaptureToken_ == 0U
+                ? "GetHotkeyState"
+                : "GetHotkeyState " + std::to_string(hotkeyCaptureToken_);
+            static_cast<void>(refreshHotkeys(command));
+        }
+        return;
+    }
     if (timerId == displayStateTimerId)
     {
         if (activePage_ != Page::DisplayPerformance || !connected_)
@@ -5667,6 +5748,24 @@ void ControlCenterWindow::updateControls(
     generation_ = state.generation;
     paused_ = state.paused;
     config_ = config;
+    if (!hotkeyDraftDirty_)
+    {
+        hotkeyDraft_ = hotkeyBaseline_ = config.hotkeys;
+        hotkeyDraftGeneration_ = state.generation;
+        hotkeyDraftConflicted_ = false;
+    }
+    else if (hotkeyBaseline_ == config.hotkeys)
+    {
+        // Non-hotkey writes share the global generation. Keep a valid shortcut
+        // draft based on the same saved bindings eligible for its next save.
+        hotkeyDraftGeneration_ = state.generation;
+        hotkeyDraftConflicted_ = false;
+    }
+    else
+    {
+        hotkeyDraftConflicted_ = true;
+    }
+    updateHotkeyControls();
     updatingControls_ = true;
 
     if (config.system.closeToTray)
@@ -6971,10 +7070,15 @@ void ControlCenterWindow::resetDefaults()
         return;
     }
 
+    if (!confirmHotkeyDraft())
+    {
+        return;
+    }
+
     const int choice = MessageBoxW(
         window_,
         L"确定将特效、输入和背景设置全部恢复为默认值吗？\r\n\r\n"
-        L"当前暂停或运行状态不会改变。",
+        L"当前暂停或运行状态不会改变，已保存的快捷键会保留。",
         L"重置默认设置",
         MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2);
     if (choice != IDYES)
@@ -6985,7 +7089,7 @@ void ControlCenterWindow::resetDefaults()
     // A delayed slider patch must not overwrite the defaults after reset.
     KillTimer(window_, patchTimerId);
     pendingPatch_.reset();
-    sendCommand(defaultConfigRequest());
+    sendCommand(defaultConfigRequest(config_.hotkeys));
 }
 
 void ControlCenterWindow::startHostFromBundle()
@@ -7370,7 +7474,23 @@ void ControlCenterWindow::showTrayMenu()
     }
     else if (command == trayExitCommand)
     {
-        commitPendingPatch();
+        closeControlCenter();
+    }
+}
+
+bool ControlCenterWindow::prepareToClose()
+{
+    if (!confirmHotkeyDraft())
+    {
+        return false;
+    }
+    return commitPendingPatch();
+}
+
+void ControlCenterWindow::closeControlCenter()
+{
+    if (prepareToClose())
+    {
         DestroyWindow(window_);
     }
 }
@@ -7464,6 +7584,10 @@ void ControlCenterWindow::setConnected(const bool connected) noexcept
     updateFxProfileActionState();
     if (!connected)
     {
+        clearHotkeyCaptureLocally();
+        hotkeyStateKnown_ = false;
+        displayedHotkeyCleanupError_ = 0U;
+        displayedHotkeyActionError_.clear();
 #if defined(BAFX_ENABLE_SPOUT2)
         SetWindowTextW(spout2SenderStatus_, L"发送者状态：Host 未连接");
 #endif
@@ -7477,6 +7601,10 @@ void ControlCenterWindow::setConnected(const bool connected) noexcept
             0));
         updateDisplayDetails();
     }
+    else if (activePage_ == Page::Hotkeys)
+    {
+        SetTimer(window_, hotkeyTimerId, 1'000U, nullptr);
+    }
     if (displaySelector_ != nullptr)
     {
         const bool selectorEnabled = connected
@@ -7485,6 +7613,7 @@ void ControlCenterWindow::setConnected(const bool connected) noexcept
         EnableWindow(displaySelector_, selectorEnabled ? TRUE : FALSE);
     }
     updateDisplayPolicyControls();
+    updateHotkeyControls();
     updateHostLifecycleButton();
     updateDisplayStatePolling();
 }
