@@ -827,7 +827,8 @@ Control Center 和安装器均报告产品版本 `0.2.11`。Portable 系统页�
 Full 四资产已在 `artifacts/release-0.2.11-candidate-20260904-r1` 生成。便携 ZIP SHA-256 为
 `DA08A38B1C73B8B18A30B99E1619A6FB59AD57D127336A0F5C86F35F2673A0D3`，安装器 SHA-256 为
 `9241FF8C01718FFBB1CA7301C08C8050FF1D93E8BA76870775FFC05F5BF76E01`；两个 sidecar 均与独立复算一致。
-正式发布前仍须完成三档 Windows SDK CI，发布后仍须回下载四个远端资产复核。
+Windows SDK `10.0.19041.0`、`10.0.22621.0`、`10.0.26100.0` 三档 CI 均已通过。正式版本使用
+annotated tag，只上传上述 Full 四资产，并在发布后按相同文件名回下载复核哈希。
 
 ## 6. 需求追踪
 

@@ -37,5 +37,6 @@ Trail、Tri3 使用队列 4499，Tri2 使用队列 4550；三个 Touch Shader �
 | `ba-click-fx-desktop-0.2.11-setup-windows-x64.exe` | 4,075,657 | `9241FF8C01718FFBB1CA7301C08C8050FF1D93E8BA76870775FFC05F5BF76E01` |
 | `ba-click-fx-desktop-0.2.11-setup-windows-x64.exe.sha256` | 114 | `A379836AC8764BF6922C70B3BC25F455BFAB38E3D7B6FD2217E009687BBF091B` |
 
-Slim 继续保留源码构建和测试入口，不提供预编译 Release 下载。正式发布前仍须完成 Windows SDK
-`10.0.19041.0`、`10.0.22621.0`、`10.0.26100.0` 三档 CI；发布后还须按相同文件名回下载四个资产复核。
+Slim 继续保留源码构建和测试入口，不提供预编译 Release 下载。Windows SDK `10.0.19041.0`、
+`10.0.22621.0`、`10.0.26100.0` 三档 CI 均已通过。发布标签固定在三档 SDK CI 全绿的精确提交；
+远端 Release 只包含上述 Full 四资产，并在发布后按相同文件名回下载复核 SHA-256。
