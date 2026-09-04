@@ -12,6 +12,8 @@ Control Center 新增“快捷键”页，可以录制、清除、整组保存�
 - 切换到下一个特效预设，不把快捷键写入 effects-only Profile；
 - 退出 Host。
 
+动作、绑定、注册状态和录制操作使用独立列与等宽操作区，避免状态文本覆盖按钮或未绑定状态重复显示。
+
 四项默认全部未绑定。0.2.10 删除旧的 `Ctrl+Alt+F12`、`Ctrl+Shift+F12` 固定退出组合及
 `GetAsyncKeyState` 轮询兜底；未配置退出快捷键时，仍可使用通知区域菜单或 Control Center 关闭 Host。
 
@@ -65,6 +67,12 @@ Control Center 新增“快捷键”页，可以录制、清除、整组保存�
 - `ba-click-fx-desktop-0.2.10-setup-windows-x64.exe`
 - `ba-click-fx-desktop-0.2.10-setup-windows-x64.exe.sha256`
 
-Slim 继续保留源码构建、测试和本地打包入口，不提供预编译 Release 下载。发布前仍须记录 Full/Slim
-workflow、三档 Windows SDK CI、Control Center 快捷键人工验收和 Full 四资产校验结果；未完成的门禁
-不得写成已通过。本次功能不改变历史 Active-FX ROI schema 19 证据或其结论。
+本地 Full `release-verify` 已通过 `45/45`，总测试时间 `104.08 s`；Slim `slim-release-verify` 已通过
+`44/44`，总测试时间 `110.87 s`。用户已确认快捷键设置和使用正常，调整后的页面已通过最终 Portable
+候选的 144 DPI 整窗捕获检查。Full 候选资产位于 `artifacts/release-0.2.10-candidate-20260904-r1`：便携 ZIP SHA-256 为
+`F20812B47FCF91E6BCA56D8D1D24A9F625B69C96F6863B040B2892C0CB2F694B`，安装器 SHA-256 为
+`B3AA6E2AEF61EC315F2603778FC6E9C54040AC6CF8216147A7014613D5F354E0`。
+
+Slim 继续保留源码构建、测试和本地打包入口，不提供预编译 Release 下载。正式发布前仍须完成三档
+Windows SDK CI；发布后还须按相同文件名回下载四资产复核。未完成的门禁不得写成
+已通过。本次功能不改变历史 Active-FX ROI schema 19 证据或其结论。

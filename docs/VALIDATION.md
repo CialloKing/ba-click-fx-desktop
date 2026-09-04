@@ -789,10 +789,21 @@ Host 事务、Win32 进程边界、支持报告和 Control Center 命令测试�
 `MOD_NOREPEAT` 长按、重复/占用组合、录制取消/失焦/30 秒超时、断线、重试、关闭草稿选择，以及重置默认
 保留已保存快捷键。任何配置已写入后的激活或清理异常都必须显示重启指引。
 
-正式发布前还必须记录 Full `release-verify`、Slim `slim-release-verify` 和 Windows SDK
-`10.0.19041.0`/`10.0.22621.0`/`10.0.26100.0` CI 的精确结果；未记录前不得写成已通过。GitHub Release
-只上传 Full 便携 ZIP、ZIP 哈希、安装器和安装器哈希四个资产，并在发布后回下载复核；Slim 仅做源码
-构建与本地验证，不生成或上传预编译资产。本节不改变 0.2.6/0.2.7 的 schema 19 ROI 历史证据或结论。
+2026-09-04 在干净提交 `a90ffc0` 上重新配置并构建候选后，Full `release-verify` 通过 `45/45`，
+总测试时间 `104.08 s`；Slim `slim-release-verify` 通过 `44/44`，总测试时间 `110.87 s`。首次 Full
+运行准确发现 ROI collector 源码合同测试仍要求固定 schema 19；`a90ffc0` 将其改为验证 19/20 支持集合和
+base config 的实际 schema，聚焦测试通过后完整 Full workflow 从头重跑通过。
+
+用户已确认快捷键设置和使用正常；反馈的快捷键页控件拥挤来自状态文本与操作按钮几何重叠，修复后在
+144 DPI 的连接与断开状态下均完成整窗捕获检查，最终 Portable 候选复核也没有控件或文本重叠。Full 四资产已在
+`artifacts/release-0.2.10-candidate-20260904-r1` 生成并通过脚本与独立 SHA-256 复算：便携 ZIP 为
+`F20812B47FCF91E6BCA56D8D1D24A9F625B69C96F6863B040B2892C0CB2F694B`，安装器为
+`B3AA6E2AEF61EC315F2603778FC6E9C54040AC6CF8216147A7014613D5F354E0`，两个 sidecar 均与复算结果一致。
+
+正式发布前仍须完成 Windows SDK `10.0.19041.0`、`10.0.22621.0`、`10.0.26100.0` 三档 CI。
+GitHub Release 只上传 Full 便携 ZIP、ZIP 哈希、安装器和
+安装器哈希四个资产，并在发布后回下载复核；Slim 仅做源码构建与本地验证，不生成或上传预编译资产。
+本节不改变 0.2.6/0.2.7 的 schema 19 ROI 历史证据或结论。
 
 ## 6. 需求追踪
 
