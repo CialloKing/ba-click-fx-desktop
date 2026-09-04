@@ -250,7 +250,8 @@ FX-only，不会先启动带黄色边框的会话。无论该开关如何设置�
 遗留 override；这些条目没有伪造的运行状态，只能通过现有原子命令删除。诊断文本使用可滚动只读区域；
 系统页提供“清理诊断日志”按钮，确认后通过 `ClearLogs` 删除当前日志和轮转备份，并显示删除文件数、
 释放字节数和失败文件数。系统页的“版本与更新”区域分别显示 Control Center、Host、安装状态和
-最新公开版本，并提供手动“检查更新”和“打开 Release”。Control Center 的通知区域菜单在 Host 已连接时
+最新公开版本，并提供手动“检查更新”、“打开 Release”和常驻可用的“打开项目仓库”。仓库入口旁会提示
+用户可前往项目仓库点 Star。Control Center 的通知区域菜单在 Host 已连接时
 可直接暂停或恢复特效；Host 断开时该项置灰。该操作复用现有运行时命令，不写入配置，也不改变下一次
 Host 启动时的默认运行状态。Active-FX ROI 工程面板在页面可见时每秒
 刷新选中显示器的 primary/recording-rebuild 路径、回退原因、近 5 秒帧数与像素、dirty/aligned rect、
@@ -274,6 +275,8 @@ Host 和 Control Center 从 0.2.5 起共享同一产品版本合同。Host 的 `
 “打开 Release”始终打开固定的
 [官方最新 Release 页面](https://github.com/CialloKing/ba-click-fx-desktop/releases/latest)，
 不采用网络响应中的资产 URL 或跳转目标。
+“打开项目仓库”不依赖更新检查结果，始终打开固定的
+[官方项目仓库](https://github.com/CialloKing/ba-click-fx-desktop)。
 渲染配置调整在下一帧交给 Host；快捷键保存则在 IPC 响应前完成注册准备、原子写盘和切换。“拖尾常驻”默认关闭；开启后
 无需按住鼠标，普通移动也会生成纯拖尾，但不会伪造点击圆盘或圆环。这是桌面版的原生产品增强，
 不属于游戏原脚本的按压 FX 路径。数值控件会合并连续拖动后的写入，避免为每个滑块像素都写一次配置。
