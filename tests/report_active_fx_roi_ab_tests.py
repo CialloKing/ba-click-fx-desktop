@@ -42,6 +42,7 @@ class CaptureFixture:
         expected_reason: str | None = None,
         scenario_id: str = "center-click",
         measurement_path: str = "primary",
+        config_schema_version: int = 19,
     ) -> None:
         self.root = root
         self.expectation = expectation
@@ -50,6 +51,7 @@ class CaptureFixture:
         )
         self.scenario_id = scenario_id
         self.measurement_path = measurement_path
+        self.config_schema_version = config_schema_version
         self.executable_bytes = b"same-host-binary-v0.2.7"
         self.overrides: dict[int, dict[str, object]] = {}
         self.interval_overrides: dict[
@@ -74,7 +76,7 @@ class CaptureFixture:
             "outputMapping": "conservative-sdr",
         }
         self.base_config = {
-            "schemaVersion": 19,
+            "schemaVersion": config_schema_version,
             "background": {"mode": "recording-compatible"},
             "effects": {"enabled": True, "bloomLayerEnabled": True},
             "performance": {
@@ -84,6 +86,13 @@ class CaptureFixture:
                 "idleOptimization": True,
             },
         }
+        if config_schema_version == 20:
+            self.base_config["hotkeys"] = {
+                "togglePause": None,
+                "toggleAlwaysOnTrail": None,
+                "nextFxProfile": None,
+                "shutdown": None,
+            }
         self.base_path = root / "base-config.json"
         self.base_path.write_text(
             json.dumps(self.base_config, indent=2) + "\n", encoding="utf-8"
@@ -104,7 +113,7 @@ class CaptureFixture:
                 "identity": dict(self.environment_identity),
             },
             "configuration": {
-                "schemaVersion": 19,
+                "schemaVersion": config_schema_version,
                 "baseConfig": "base-config.json",
                 "baseSha256": _sha256(self.base_path),
                 "differenceContract": "performance.activeFxRoiEnabled-only",
@@ -188,7 +197,7 @@ class CaptureFixture:
             "Window.Final": False,
             "Window.DurationUs": 10_000_000,
             "Window.FrameCount": frame_count,
-            "Configuration.SchemaVersion": 19,
+            "Configuration.SchemaVersion": self.config_schema_version,
             "Performance.ActiveFxRoiEnabled": roi_enabled,
             "ROI.ProductionPath": (
                 "active-fx-pyramid-with-full-screen-fallback"
@@ -642,7 +651,28 @@ class ActiveFxRoiAbReporterTests(unittest.TestCase):
             with self.assertRaisesRegex(REPORTER.ValidationError, "differ outside"):
                 REPORTER.build_report(fixture.root)
 
-    def test_rejects_non_schema_19_run_configuration(self) -> None:
+    def test_accepts_schema_19_and_20_configuration_contracts(self) -> None:
+        for schema_version in (19, 20):
+            with self.subTest(schema_version=schema_version), tempfile.TemporaryDirectory() as temporary:
+                fixture = CaptureFixture(
+                    Path(temporary), config_schema_version=schema_version
+                )
+                self.assertTrue(REPORTER.build_report(fixture.root)["passed"])
+
+    def test_schema20_difference_contract_keeps_hotkeys(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = CaptureFixture(Path(temporary), config_schema_version=20)
+            run = fixture.manifest["runs"][2]
+            config_path = fixture.root / run["config"]
+            config = json.loads(config_path.read_text(encoding="utf-8"))
+            config["hotkeys"]["togglePause"] = {"modifiers": 2, "key": 65}
+            config_path.write_text(json.dumps(config) + "\n", encoding="utf-8")
+            run["configSha256"] = _sha256(config_path)
+            fixture.write_manifest()
+            with self.assertRaisesRegex(REPORTER.ValidationError, "differ outside"):
+                REPORTER.build_report(fixture.root)
+
+    def test_rejects_configuration_schema_outside_19_and_20(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             fixture = CaptureFixture(Path(temporary))
             run = fixture.manifest["runs"][0]
@@ -652,7 +682,32 @@ class ActiveFxRoiAbReporterTests(unittest.TestCase):
             config_path.write_text(json.dumps(config) + "\n", encoding="utf-8")
             run["configSha256"] = _sha256(config_path)
             fixture.write_manifest()
-            with self.assertRaisesRegex(REPORTER.ValidationError, "schemaVersion must be 19"):
+            with self.assertRaisesRegex(
+                REPORTER.ValidationError, "schemaVersion must be 19 or 20"
+            ):
+                REPORTER.build_report(fixture.root)
+
+    def test_rejects_manifest_schema_that_differs_from_base_configuration(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = CaptureFixture(Path(temporary))
+            fixture.manifest["configuration"]["schemaVersion"] = 20
+            fixture.write_manifest()
+            with self.assertRaisesRegex(
+                REPORTER.ValidationError, "differs from base configuration"
+            ):
+                REPORTER.build_report(fixture.root)
+
+    def test_rejects_log_schema_that_differs_from_base_configuration(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = CaptureFixture(Path(temporary), config_schema_version=20)
+            fixture.interval_overrides[(1, 2)] = {
+                "Configuration.SchemaVersion": 19
+            }
+            fixture.rewrite_logs()
+            with self.assertRaisesRegex(
+                REPORTER.ValidationError,
+                "config schema does not match base configuration",
+            ):
                 REPORTER.build_report(fixture.root)
 
     def test_rejects_capture_without_five_second_warmup_and_thirty_second_sample(self) -> None:

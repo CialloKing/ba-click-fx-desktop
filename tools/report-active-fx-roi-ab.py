@@ -381,8 +381,8 @@ def _median(values: list[float]) -> float:
 
 
 def _canonical_without_roi(config: dict[str, Any], context: str) -> str:
-    if _integer(config.get("schemaVersion"), f"{context}.schemaVersion") != 19:
-        raise ValidationError(f"{context}.schemaVersion must be 19")
+    if _integer(config.get("schemaVersion"), f"{context}.schemaVersion") not in (19, 20):
+        raise ValidationError(f"{context}.schemaVersion must be 19 or 20")
     performance = _dict(config.get("performance"), f"{context}.performance")
     _boolean(
         performance.get("activeFxRoiEnabled"),
@@ -558,15 +558,18 @@ def _validate_executable(root: Path, manifest: dict[str, Any]) -> str:
 
 def _validate_configuration_contract(
     root: Path, manifest: dict[str, Any]
-) -> tuple[str, str]:
+) -> tuple[str, str, int]:
     contract = _dict(manifest["configuration"], "manifest.configuration")
     _require_keys(
         contract,
         {"schemaVersion", "baseConfig", "baseSha256", "differenceContract"},
         "manifest.configuration",
     )
-    if _integer(contract["schemaVersion"], "configuration.schemaVersion") != 19:
-        raise ValidationError("configuration.schemaVersion must be 19")
+    config_schema_version = _integer(
+        contract["schemaVersion"], "configuration.schemaVersion"
+    )
+    if config_schema_version not in (19, 20):
+        raise ValidationError("configuration.schemaVersion must be 19 or 20")
     if contract["differenceContract"] != "performance.activeFxRoiEnabled-only":
         raise ValidationError("configuration difference contract is invalid")
     base_path = _relative_file(root, contract["baseConfig"], "configuration.baseConfig")
@@ -574,13 +577,23 @@ def _validate_configuration_contract(
     if SHA256_PATTERN.fullmatch(base_digest) is None or _sha256(base_path) != base_digest:
         raise ValidationError("base configuration SHA-256 mismatch")
     base_config = _load_json(base_path)
-    return _canonical_without_roi(base_config, "base configuration"), base_digest
+    base_schema_version = _integer(
+        base_config.get("schemaVersion"), "base configuration.schemaVersion"
+    )
+    if base_schema_version != config_schema_version:
+        raise ValidationError("configuration schemaVersion differs from base configuration")
+    return (
+        _canonical_without_roi(base_config, "base configuration"),
+        base_digest,
+        base_schema_version,
+    )
 
 
 def _intervals(
     events: list[dict[str, str]],
     path: Path,
     roi_enabled: bool,
+    config_schema_version: int,
     measurement_path: str,
     expected_reason: str,
 ) -> list[dict[str, str]]:
@@ -642,8 +655,13 @@ def _intervals(
                 f"{context}: {roi_prefix}.ObservedFrames does not match "
                 "Window.FrameCount"
             )
-        if _event_int(event, "Configuration.SchemaVersion", context) != 19:
-            raise ValidationError(f"{context}: config schema is not 19")
+        if (
+            _event_int(event, "Configuration.SchemaVersion", context)
+            != config_schema_version
+        ):
+            raise ValidationError(
+                f"{context}: config schema does not match base configuration"
+            )
         if _event_bool(event, "Performance.ActiveFxRoiEnabled", context) != roi_enabled:
             raise ValidationError(f"{context}: ROI configuration does not match run")
         expected_path = (
@@ -835,6 +853,7 @@ def _validate_run(
     ordinal: int,
     executable_sha256: str,
     normalized_config: str,
+    config_schema_version: int,
     environment_identity: dict[str, Any],
     scenario_id: str,
     measurement_path: str,
@@ -936,6 +955,7 @@ def _validate_run(
         events,
         log_path,
         roi_enabled,
+        config_schema_version,
         measurement_path,
         expected_reason,
     )
@@ -1320,9 +1340,11 @@ def build_report(root: Path) -> dict[str, Any]:
         expected_reason,
     ) = _validate_manifest(root)
     executable_sha256 = _validate_executable(root, manifest)
-    normalized_config, base_config_sha256 = _validate_configuration_contract(
-        root, manifest
-    )
+    (
+        normalized_config,
+        base_config_sha256,
+        config_schema_version,
+    ) = _validate_configuration_contract(root, manifest)
     run_values = _list(manifest["runs"], "manifest.runs")
     if len(run_values) != RUN_COUNT:
         raise ValidationError(f"manifest.runs must contain exactly {RUN_COUNT} runs")
@@ -1333,6 +1355,7 @@ def build_report(root: Path) -> dict[str, Any]:
             ordinal,
             executable_sha256,
             normalized_config,
+            config_schema_version,
             environment_identity,
             scenario_id,
             measurement_path,

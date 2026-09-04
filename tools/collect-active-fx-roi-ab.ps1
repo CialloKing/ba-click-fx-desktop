@@ -51,7 +51,7 @@ $logName = 'ba-click-fx-desktop-support.log'
 $manifestName = 'capture.json'
 $manifestSchemaVersion = 4
 $diagnosticManifestSchemaVersion = 3
-$configSchemaVersion = 19
+$supportedConfigSchemaVersions = @(19, 20)
 $environmentContract = 'rtx-4060-4k170-sdr-v1'
 $requiredAdapterNameFragment = 'RTX 4060'
 $requiredOutputWidth = 3840
@@ -1639,6 +1639,9 @@ function Confirm-RunLogContract
         [bool]$RoiEnabled,
 
         [Parameter(Mandatory = $true)]
+        [int]$ConfigSchemaVersion,
+
+        [Parameter(Mandatory = $true)]
         [string]$ExpectedDecisionReason,
 
         [Parameter(Mandatory = $true)]
@@ -1698,6 +1701,14 @@ function Confirm-RunLogContract
         $interval = ConvertFrom-StructuredEventBlock `
             -Block $selectedIntervals[$index] `
             -Context $context
+        $loggedSchemaVersion = Get-RequiredEventInteger `
+            -Event $interval `
+            -Name 'Configuration.SchemaVersion' `
+            -Context $context
+        if ($loggedSchemaVersion -ne $ConfigSchemaVersion)
+        {
+            throw "$context config schema does not match base configuration"
+        }
         $frameCount = Get-RequiredEventInteger `
             -Event $interval `
             -Name 'Window.FrameCount' `
@@ -1946,6 +1957,7 @@ function Invoke-AbbaRun
         -Path $runLog `
         -MeasurementPath $MeasurementPath `
         -RoiEnabled $RoiEnabled `
+        -ConfigSchemaVersion ([int]$BaseConfiguration.schemaVersion) `
         -ExpectedDecisionReason $ExpectedDecisionReason `
         -RequireCausalTiming $DiagnosticMode
     $copiedExecutableSha256 = (
@@ -2133,10 +2145,11 @@ catch
     throw "Base configuration is not valid JSON: $($_.Exception.Message)"
 }
 if ($null -eq $baseConfiguration -or
-    $baseConfiguration.schemaVersion -ne $configSchemaVersion)
+    $baseConfiguration.schemaVersion -notin $supportedConfigSchemaVersions)
 {
-    throw "Base configuration schemaVersion must be $configSchemaVersion"
+    throw 'Base configuration schemaVersion must be 19 or 20'
 }
+$configSchemaVersion = [int]$baseConfiguration.schemaVersion
 if ($null -eq $baseConfiguration.performance -or
     $baseConfiguration.performance.activeFxRoiEnabled -isnot [bool])
 {
