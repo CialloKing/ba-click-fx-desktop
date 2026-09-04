@@ -38,7 +38,7 @@ jobs:
 
     steps:
       - name: Check out source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Report installed Windows SDKs
         shell: pwsh
@@ -186,7 +186,7 @@ jobs:
           }
 
       - name: Upload product binaries
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.name }}
           path: build/compat-${{ matrix.name }}/artifacts
