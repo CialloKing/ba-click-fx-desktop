@@ -102,7 +102,7 @@ Prefilter/Pyramid/Bloom 收益、相邻配对、FPS、GPU command p99、pending�
 - Full `release-verify` `44/44`、Slim `slim-release-verify` `43/43` 与两个隔离 OBS 验收均已通过；
   三档 Windows SDK CI 均已通过。正式版本只发布通过校验的 Full 四资产，Slim 不上传。
 
-## v0.2.10 可配置全局快捷键（2026-09-04，待发布）
+## v0.2.10 可配置全局快捷键（2026-09-04）
 
 - 主配置升级为 schema 20，新增暂停／恢复、切换常驻拖尾、下一个特效预设和退出 Host 四项绑定；
   新配置以及 schema 19 的固定迁移结果均默认未绑定。旧的两个固定 F12 退出组合和轮询兜底删除；
@@ -116,9 +116,9 @@ Prefilter/Pyramid/Bloom 收益、相邻配对、FPS、GPU command p99、pending�
 - 支持报告增加 `Hotkeys.StateScope=startup`、启动注册掩码、四项注册/错误和清理错误，并用
   `Exit.PollingFallback=disabled` 固定移除旧退出轮询的证据边界；
 - 2026-09-04 的本地候选已通过 Full `45/45` 与 Slim `44/44` workflow，快捷键页按钮布局也已修复并完成
-  最终 Portable 候选的 144 DPI 整窗捕获检查；Full 四资产已生成并复核本地哈希。正式发布仍须完成
-  三档 Windows SDK CI；GitHub Release 只上传 Full 便携 ZIP、ZIP 哈希、安装器和安装器哈希四个资产，
-  Slim 仅保留源码构建和本地验证入口。
+  最终 Portable 候选的 144 DPI 整窗捕获检查；Full 四资产已生成并复核本地哈希，三档 Windows SDK CI
+  均已通过。GitHub Release 只上传 Full 便携 ZIP、ZIP 哈希、安装器和安装器哈希四个资产，Slim 仅保留
+  源码构建和本地验证入口。
 
 ## Host-owned 特效 Profile（2026-08-23）
 

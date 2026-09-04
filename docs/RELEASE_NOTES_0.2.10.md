@@ -69,10 +69,17 @@ Control Center 新增“快捷键”页，可以录制、清除、整组保存�
 
 本地 Full `release-verify` 已通过 `45/45`，总测试时间 `104.08 s`；Slim `slim-release-verify` 已通过
 `44/44`，总测试时间 `110.87 s`。用户已确认快捷键设置和使用正常，调整后的页面已通过最终 Portable
-候选的 144 DPI 整窗捕获检查。Full 候选资产位于 `artifacts/release-0.2.10-candidate-20260904-r1`：便携 ZIP SHA-256 为
-`F20812B47FCF91E6BCA56D8D1D24A9F625B69C96F6863B040B2892C0CB2F694B`，安装器 SHA-256 为
-`B3AA6E2AEF61EC315F2603778FC6E9C54040AC6CF8216147A7014613D5F354E0`。
+候选的 144 DPI 整窗捕获检查。Full 候选资产位于 `artifacts/release-0.2.10-candidate-20260904-r1`，
+发布清单固定如下：
 
-Slim 继续保留源码构建、测试和本地打包入口，不提供预编译 Release 下载。正式发布前仍须完成三档
-Windows SDK CI；发布后还须按相同文件名回下载四资产复核。未完成的门禁不得写成
-已通过。本次功能不改变历史 Active-FX ROI schema 19 证据或其结论。
+| 文件 | 字节数 | SHA-256 |
+| --- | ---: | --- |
+| `ba-click-fx-desktop-0.2.10-Portable-windows-x64.zip` | 1,426,358 | `F20812B47FCF91E6BCA56D8D1D24A9F625B69C96F6863B040B2892C0CB2F694B` |
+| `ba-click-fx-desktop-0.2.10-Portable-windows-x64.zip.sha256` | 117 | `19A3A5379577CA56B8D4F41C6FB3D75578DC00FC256ADFCC26FE5202E27809D2` |
+| `ba-click-fx-desktop-0.2.10-setup-windows-x64.exe` | 4,075,242 | `B3AA6E2AEF61EC315F2603778FC6E9C54040AC6CF8216147A7014613D5F354E0` |
+| `ba-click-fx-desktop-0.2.10-setup-windows-x64.exe.sha256` | 114 | `2048D635B713125AA19E971745FF8902451D5B91D562EEF0D6C5419E86E09F55` |
+
+Slim 继续保留源码构建、测试和本地打包入口，不提供预编译 Release 下载。Windows SDK
+`10.0.19041.0`、`10.0.22621.0`、`10.0.26100.0` 三档 CI 均已通过。发布标签固定在三档 SDK CI
+全绿的精确提交；远端 Release 只包含上述 Full 四资产，并在发布后按相同文件名回下载复核 SHA-256。
+本次功能不改变历史 Active-FX ROI schema 19 证据或其结论。
