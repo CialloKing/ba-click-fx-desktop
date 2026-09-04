@@ -5,8 +5,22 @@
 #include "product/version.hpp"
 
 #include <string>
+#include <string_view>
 
 using namespace bafx::control_center;
+
+namespace
+{
+
+[[nodiscard]] HostStateParseResult parseWithHotkeyFields(
+    const std::string_view fields)
+{
+    return parseHostState(
+        R"json({"generation":1,"paused":false,"backgroundCapture":"active","spout2Enabled":false,"spout2Sender":"ba-click-fx-desktop","spout2Status":"disabled","spout2Error":"","spout2OutputContract":"v6","fxProfileCatalog":"B:Unity 原版","activeFxProfile":"Unity 原版","fxProfileWarning":"",)json"
+        + std::string(fields) + "}");
+}
+
+}
 
 BAFX_TEST(host_state_requires_spout2_runtime_group)
 {
@@ -132,4 +146,49 @@ BAFX_TEST(host_state_rejects_invalid_or_missing_fx_profile_group)
     BAFX_CHECK(!unknownActive.succeeded());
     BAFX_CHECK(unknownActive.error.find("activeFxProfile")
         != std::string::npos);
+}
+
+BAFX_TEST(host_state_parses_complete_hotkey_state_group)
+{
+    const HostStateParseResult result = parseWithHotkeyFields(
+        R"json("hotkeysJson":"{\"togglePause\":null,\"toggleAlwaysOnTrail\":null,\"nextFxProfile\":null,\"shutdown\":null}","hotkeyRegisteredMask":5,"hotkeyCleanupError":0,"hotkeyCaptureToken":42,"hotkeyCaptureKey":75,"hotkeyCaptureModifiers":3,"hotkeyError0":0,"hotkeyError1":1409,"hotkeyError2":0,"hotkeyError3":0,"hotkeyActionError":"")json");
+
+    BAFX_CHECK(result.succeeded());
+    BAFX_CHECK(result.state->hotkeysJson.has_value());
+    BAFX_CHECK(result.state->hotkeyRegisteredMask == 5U);
+    BAFX_CHECK(result.state->hotkeyCaptureToken == 42U);
+    BAFX_CHECK(result.state->hotkeyCaptureKey == 75U);
+    BAFX_CHECK(result.state->hotkeyCaptureModifiers == 3U);
+    BAFX_CHECK(result.state->hotkeyErrors[1] == 1409U);
+    BAFX_CHECK(result.state->hotkeyActionError.empty());
+}
+
+BAFX_TEST(host_state_rejects_incomplete_duplicate_or_out_of_range_hotkey_state)
+{
+    constexpr std::string_view prefix =
+        R"json("hotkeysJson":"{}","hotkeyRegisteredMask":0,"hotkeyCleanupError":0,"hotkeyCaptureToken":0,"hotkeyCaptureKey":0,"hotkeyCaptureModifiers":0,)json";
+    constexpr std::string_view suffix =
+        R"json("hotkeyError0":0,"hotkeyError1":0,"hotkeyError2":0,"hotkeyError3":0,"hotkeyActionError":"")json";
+
+    const HostStateParseResult incomplete = parseWithHotkeyFields(
+        std::string(prefix) +
+        R"json("hotkeyError0":0,"hotkeyError1":0,"hotkeyError2":0,"hotkeyError3":0)json");
+    BAFX_CHECK(!incomplete.succeeded());
+    BAFX_CHECK(incomplete.error.find("hotkey state group") != std::string::npos);
+
+    const HostStateParseResult duplicate = parseWithHotkeyFields(
+        std::string(prefix) + R"json("hotkeyError0":0,)json" + std::string(suffix));
+    BAFX_CHECK(!duplicate.succeeded());
+    BAFX_CHECK(duplicate.error.find("duplicate hotkey") != std::string::npos);
+
+    for (const std::string_view outOfRange : {
+             R"json("hotkeysJson":"{}","hotkeyRegisteredMask":16,"hotkeyCleanupError":0,"hotkeyCaptureToken":0,"hotkeyCaptureKey":0,"hotkeyCaptureModifiers":0,)json",
+             R"json("hotkeysJson":"{}","hotkeyRegisteredMask":0,"hotkeyCleanupError":0,"hotkeyCaptureToken":0,"hotkeyCaptureKey":255,"hotkeyCaptureModifiers":0,)json",
+             R"json("hotkeysJson":"{}","hotkeyRegisteredMask":0,"hotkeyCleanupError":0,"hotkeyCaptureToken":0,"hotkeyCaptureKey":0,"hotkeyCaptureModifiers":16,)json"})
+    {
+        const HostStateParseResult result = parseWithHotkeyFields(
+            std::string(outOfRange) + std::string(suffix));
+        BAFX_CHECK(!result.succeeded());
+        BAFX_CHECK(result.error.find("hotkey state group") != std::string::npos);
+    }
 }

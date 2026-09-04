@@ -171,6 +171,7 @@ void run()
     }
     Config initial;
     initial.hotkeys.bindings[0] = HotkeyBinding{modifiers, VK_F22};
+    initial.hotkeys.bindings[3] = HotkeyBinding{modifiers, VK_F24};
     const auto path = fixture.directory / "config.json";
     check(saveConfigAtomic(path, initial).succeeded(), "initial save failed");
     bafx::windows::NamedPipeIpcServer::Options options;
@@ -187,7 +188,9 @@ void run()
         HostControlPlane& control;
         ~StopControl() { control.stop(); }
     } stopControl{control};
-    check(manager.initialState().registeredMask == 1U, "initial F22 registration failed");
+    check(manager.initialState().registeredMask == 1U, "startup conflict did not preserve F22");
+    check(manager.initialState().errors[3] != ERROR_SUCCESS,
+        "startup conflict did not report the occupied F24");
     check(control.start(false).serviceStarted, "IPC startup failed");
     bafx::windows::IpcClientOptions clientOptions;
     clientOptions.pipeName = options.pipeName;
@@ -204,10 +207,21 @@ void run()
     };
 
     auto target = initial.hotkeys;
+    target.bindings[3].reset();
     target.bindings[1] = HotkeyBinding{modifiers, VK_F24};
     check(!save(target).succeeded(), "occupied key unexpectedly saved");
     check(loadConfig(path).config.hotkeys == initial.hotkeys, "conflict overwrote saved bindings");
     check(manager.invoke(HostHotkeys::Operation::Query).state.registeredMask == 1U, "conflict lost old registration");
+    check(SetEvent(child.stop.get()) != FALSE, "unable to release occupied F24");
+    check(WaitForSingleObject(child.process.get(), 5'000U) == WAIT_OBJECT_0,
+        "key owner did not release F24");
+    child.stop.reset();
+    child.process.reset();
+    const auto retried = request("RetryHotkeys");
+    const auto retriedState = bafx::control_center::parseHostState(retried.payload);
+    check(retried.succeeded() && retriedState.succeeded()
+            && retriedState.state->hotkeyRegisteredMask == 9U,
+        "RetryHotkeys did not recover the startup conflict");
     press(VK_F22, true);
     until([&control]() { return control.runtimeSnapshot().paused; });
     check(control.snapshot().generation == 2U, "NOREPEAT executed more than once");
@@ -245,8 +259,40 @@ void run()
     check(manager.invoke(HostHotkeys::Operation::Query).state.registeredMask == 6U, "write failure lost old keys");
     locked.reset();
 
-    check(request("BeginHotkeyCapture").succeeded(), "second capture failed");
-    until([&manager]() { return manager.invoke(HostHotkeys::Operation::Query).state.captureToken == 0U; }, 6'000U);
+    auto cleared = target;
+    cleared.bindings[1].reset();
+    check(save(cleared).succeeded(), "clearing a binding failed");
+    check(manager.invoke(HostHotkeys::Operation::Query).state.registeredMask == 4U,
+        "cleared binding remained active");
+    check(RegisterHotKey(fixture.window, 0xBFFD, modifiers | MOD_NOREPEAT, VK_F23) != FALSE,
+        "cleared binding did not release F23");
+    check(UnregisterHotKey(fixture.window, 0xBFFD) != FALSE,
+        "test registration for released F23 could not be removed");
+    target = cleared;
+
+    const auto renewedCapture = request("BeginHotkeyCapture");
+    const auto renewedState = bafx::control_center::parseHostState(renewedCapture.payload);
+    check(renewedCapture.succeeded() && renewedState.succeeded(), "renewed capture failed");
+    const auto renewedToken = renewedState.state->hotkeyCaptureToken;
+    Sleep(3'000U);
+    const auto renewed = request("GetHotkeyState " + std::to_string(renewedToken));
+    check(renewed.succeeded(), "correct capture token was rejected");
+    Sleep(3'000U);
+    check(manager.invoke(HostHotkeys::Operation::Query).state.captureToken == renewedToken,
+        "correct capture token did not renew the recording lease");
+    check(request("EndHotkeyCapture " + std::to_string(renewedToken)).succeeded(),
+        "renewed capture did not end");
+
+    const auto expiringCapture = request("BeginHotkeyCapture");
+    const auto expiringState = bafx::control_center::parseHostState(expiringCapture.payload);
+    check(expiringCapture.succeeded() && expiringState.succeeded(), "expiring capture failed");
+    const auto expiringToken = expiringState.state->hotkeyCaptureToken;
+    Sleep(3'000U);
+    const auto wrongToken = request("GetHotkeyState " + std::to_string(expiringToken + 1U));
+    check(wrongToken.succeeded(), "wrong capture token query failed");
+    Sleep(3'000U);
+    check(manager.invoke(HostHotkeys::Operation::Query).state.captureToken == 0U,
+        "wrong capture token unexpectedly renewed the recording lease");
     press(VK_F22);
     until([&control]() { return control.snapshot().activeFxProfile == "纯点击"; });
     target.bindings[3] = HotkeyBinding{modifiers, spareKey};
@@ -257,8 +303,8 @@ void run()
     }
     press(spareKey);
     until([&control]() { return control.runtimeSnapshot().shutdownRequested; });
-    std::cout << "PASS: external collision, native WM_HOTKEY/NOREPEAT, capture suppression/expiry, "
-        "atomic rollback, action reassignment, persistence, render generation and shutdown\n";
+    std::cout << "PASS: startup retry, native WM_HOTKEY/NOREPEAT, capture suppression/renewal/expiry, "
+        "atomic rollback, release on clear, action reassignment, persistence, render generation and shutdown\n";
 }
 }
 

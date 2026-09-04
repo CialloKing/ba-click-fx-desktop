@@ -54,6 +54,35 @@ BAFX_TEST(ipc_parser_accepts_supported_commands)
         setConfig.request->payload
         == "{\"generation\":428,\"path\":\"trail.width\"}");
 
+    const IpcParseResult setHotkeys = parseIpcRequest(
+        "SetHotkeys 7 {\"togglePause\":null}");
+    BAFX_CHECK(setHotkeys.succeeded());
+    BAFX_CHECK(setHotkeys.request->command == IpcCommand::SetHotkeys);
+    BAFX_CHECK(setHotkeys.request->payload == "7 {\"togglePause\":null}");
+
+    const IpcParseResult getHotkeyState = parseIpcRequest("GetHotkeyState");
+    BAFX_CHECK(getHotkeyState.succeeded());
+    BAFX_CHECK(getHotkeyState.request->command == IpcCommand::GetHotkeyState);
+    BAFX_CHECK(getHotkeyState.request->payload.empty());
+
+    const IpcParseResult renewHotkeyCapture = parseIpcRequest("GetHotkeyState 42");
+    BAFX_CHECK(renewHotkeyCapture.succeeded());
+    BAFX_CHECK(renewHotkeyCapture.request->command == IpcCommand::GetHotkeyState);
+    BAFX_CHECK(renewHotkeyCapture.request->payload == "42");
+
+    const IpcParseResult retryHotkeys = parseIpcRequest("RetryHotkeys");
+    BAFX_CHECK(retryHotkeys.succeeded());
+    BAFX_CHECK(retryHotkeys.request->command == IpcCommand::RetryHotkeys);
+
+    const IpcParseResult beginHotkeyCapture = parseIpcRequest("BeginHotkeyCapture");
+    BAFX_CHECK(beginHotkeyCapture.succeeded());
+    BAFX_CHECK(beginHotkeyCapture.request->command == IpcCommand::BeginHotkeyCapture);
+
+    const IpcParseResult endHotkeyCapture = parseIpcRequest("EndHotkeyCapture 42");
+    BAFX_CHECK(endHotkeyCapture.succeeded());
+    BAFX_CHECK(endHotkeyCapture.request->command == IpcCommand::EndHotkeyCapture);
+    BAFX_CHECK(endHotkeyCapture.request->payload == "42");
+
     const IpcParseResult setDisplay = parseIpcRequest(
         "SetDisplayOverride {\"generation\":8,\"displayKey\":\"key\"}");
     BAFX_CHECK(setDisplay.succeeded());
@@ -137,6 +166,14 @@ BAFX_TEST(ipc_parser_rejects_invalid_payload_shapes)
     BAFX_CHECK(!missingFxParams.succeeded());
     BAFX_CHECK(missingFxParams.errorCode == "missing_payload");
 
+    const IpcParseResult missingHotkeys = parseIpcRequest("SetHotkeys");
+    BAFX_CHECK(!missingHotkeys.succeeded());
+    BAFX_CHECK(missingHotkeys.errorCode == "missing_payload");
+
+    const IpcParseResult missingCaptureToken = parseIpcRequest("EndHotkeyCapture");
+    BAFX_CHECK(!missingCaptureToken.succeeded());
+    BAFX_CHECK(missingCaptureToken.errorCode == "missing_payload");
+
     const IpcParseResult missingProfile = parseIpcRequest("SaveFxProfile");
     BAFX_CHECK(!missingProfile.succeeded());
     BAFX_CHECK(missingProfile.errorCode == "missing_payload");
@@ -150,6 +187,15 @@ BAFX_TEST(ipc_parser_rejects_invalid_payload_shapes)
         "ClearLogs now");
     BAFX_CHECK(!clearLogsWithPayload.succeeded());
     BAFX_CHECK(clearLogsWithPayload.errorCode == "unexpected_payload");
+
+    const IpcParseResult retryWithPayload = parseIpcRequest("RetryHotkeys now");
+    BAFX_CHECK(!retryWithPayload.succeeded());
+    BAFX_CHECK(retryWithPayload.errorCode == "unexpected_payload");
+
+    const IpcParseResult beginCaptureWithPayload = parseIpcRequest(
+        "BeginHotkeyCapture now");
+    BAFX_CHECK(!beginCaptureWithPayload.succeeded());
+    BAFX_CHECK(beginCaptureWithPayload.errorCode == "unexpected_payload");
 
     const IpcParseResult unexpected = parseIpcRequest("Pause now");
     BAFX_CHECK(!unexpected.succeeded());
