@@ -3,7 +3,9 @@
 #include <windows.h>
 #include <shellapi.h>
 
+#include <array>
 #include <cstdint>
+#include <functional>
 #include <optional>
 #include <span>
 #include <string_view>
@@ -52,9 +54,10 @@ struct DisplayTopologyChange
 
 struct ExitUiStatus
 {
-    bool primaryHotKeyRegistered{false};
-    bool fallbackHotKeyRegistered{false};
     bool notificationIconAdded{false};
+    std::uint32_t hotkeyRegisteredMask{0U};
+    std::array<DWORD, 4U> hotkeyErrors{};
+    DWORD hotkeyCleanupError{ERROR_SUCCESS};
 };
 
 struct CaptureExclusionStatus
@@ -303,7 +306,8 @@ public:
     void setBounds(RECT bounds);
     void show();
     void hide() noexcept;
-    void pollExitShortcut() noexcept;
+    void setHostMessageHandler(std::function<bool(UINT, WPARAM, LPARAM)> handler);
+    void showWarning(std::wstring_view message) noexcept;
 
 private:
     static LRESULT CALLBACK windowProcedure(
@@ -356,10 +360,8 @@ private:
     bool rawMouseRegistered_{false};
     HPOWERNOTIFY displayPowerNotification_{nullptr};
     std::optional<DWORD> consoleDisplayState_{};
-    bool primaryExitHotKeyRegistered_{false};
-    bool fallbackExitHotKeyRegistered_{false};
+    std::function<bool(UINT, WPARAM, LPARAM)> hostMessageHandler_{};
     bool notificationIconAdded_{false};
-    bool exitShortcutDown_{false};
     RawPointerButtonMerger pointerButtons_{};
     UINT taskbarCreatedMessage_{0U};
     NOTIFYICONDATAW notificationIcon_{};

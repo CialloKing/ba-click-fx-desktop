@@ -5,6 +5,7 @@
 #include <windows.h>
 
 #include <charconv>
+#include <algorithm>
 #include <cstddef>
 #include <limits>
 #include <optional>
@@ -104,6 +105,7 @@ public:
         bool hasFxProfileCatalog = false;
         bool hasActiveFxProfile = false;
         bool hasFxProfileWarning = false;
+        std::vector<std::string> hotkeyFields;
 
         skipWhitespace();
         if (consume('}'))
@@ -256,6 +258,63 @@ public:
                 state.fxProfileWarning = std::move(*value);
                 hasFxProfileWarning = true;
             }
+            else if (key->starts_with("hotkey"))
+            {
+                if (std::find(hotkeyFields.begin(), hotkeyFields.end(), *key) != hotkeyFields.end())
+                {
+                    return fail("duplicate hotkey state property");
+                }
+                hotkeyFields.push_back(*key);
+                if (*key == "hotkeysJson" || *key == "hotkeyActionError")
+                {
+                    auto value = parseString();
+                    if (!value.has_value())
+                    {
+                        return fail("hotkey state requires a string");
+                    }
+                    if (*key == "hotkeysJson")
+                    {
+                        state.hotkeysJson = std::move(*value);
+                    }
+                    else
+                    {
+                        state.hotkeyActionError = std::move(*value);
+                    }
+                }
+                else
+                {
+                    std::uint64_t* output = nullptr;
+                    if (*key == "hotkeyRegisteredMask")
+                    {
+                        output = &state.hotkeyRegisteredMask;
+                    }
+                    else if (*key == "hotkeyCleanupError")
+                    {
+                        output = &state.hotkeyCleanupError;
+                    }
+                    else if (*key == "hotkeyCaptureToken")
+                    {
+                        output = &state.hotkeyCaptureToken;
+                    }
+                    else if (*key == "hotkeyCaptureKey")
+                    {
+                        output = &state.hotkeyCaptureKey;
+                    }
+                    else if (*key == "hotkeyCaptureModifiers")
+                    {
+                        output = &state.hotkeyCaptureModifiers;
+                    }
+                    else if (key->size() == 12U && key->starts_with("hotkeyError")
+                        && key->back() >= '0' && key->back() <= '3')
+                    {
+                        output = &state.hotkeyErrors[static_cast<std::size_t>(key->back() - '0')];
+                    }
+                    if (output == nullptr || !parseUnsigned(*output))
+                    {
+                        return fail("invalid hotkey state integer");
+                    }
+                }
+            }
             else if (!skipPrimitive())
             {
                 // GetState currently emits only primitives. Rejecting nested
@@ -282,6 +341,12 @@ public:
         if (!hasGeneration || !hasPaused || !hasBackgroundCapture)
         {
             return fail("state is missing a required property");
+        }
+        if (!hotkeyFields.empty() && (hotkeyFields.size() != 11U
+            || !state.hotkeysJson.has_value() || state.hotkeyRegisteredMask > 15U
+            || state.hotkeyCaptureModifiers > 15U || state.hotkeyCaptureKey > 254U))
+        {
+            return fail("incomplete or invalid hotkey state group");
         }
         if (hasProductVersion)
         {

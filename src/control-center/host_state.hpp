@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -39,6 +40,14 @@ struct HostState final
     std::vector<FxProfileState> fxProfiles{};
     std::string activeFxProfile{"自定义"};
     std::string fxProfileWarning{};
+    std::optional<std::string> hotkeysJson{};
+    std::uint64_t hotkeyRegisteredMask{0U};
+    std::uint64_t hotkeyCleanupError{0U};
+    std::uint64_t hotkeyCaptureToken{0U};
+    std::uint64_t hotkeyCaptureKey{0U};
+    std::uint64_t hotkeyCaptureModifiers{0U};
+    std::array<std::uint64_t, 4U> hotkeyErrors{};
+    std::string hotkeyActionError{};
 
     [[nodiscard]] bool settingsCompatible() const noexcept
     {

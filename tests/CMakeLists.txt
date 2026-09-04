@@ -563,6 +563,7 @@ if(WIN32)
         test_main.cpp
         fx_profile_store_tests.cpp
         host_control_tests.cpp
+        "${PROJECT_SOURCE_DIR}/src/desktop/host_hotkeys.cpp"
         "${PROJECT_SOURCE_DIR}/src/desktop/fx_profile_store.cpp"
         "${PROJECT_SOURCE_DIR}/src/desktop/host_control.cpp"
         "${PROJECT_SOURCE_DIR}/src/control-center/display_state.cpp"
@@ -586,6 +587,21 @@ if(WIN32)
     add_test(NAME host_control_startup COMMAND bafx_host_control_tests)
     set_tests_properties(host_control_startup PROPERTIES TIMEOUT 10)
     set_target_properties(bafx_host_control_tests PROPERTIES FOLDER "Tests")
+
+    add_executable(bafx_hotkey_process_tests
+        hotkey_process_tests.cpp
+        "${PROJECT_SOURCE_DIR}/src/desktop/host_hotkeys.cpp"
+        "${PROJECT_SOURCE_DIR}/src/desktop/host_control.cpp"
+        "${PROJECT_SOURCE_DIR}/src/desktop/fx_profile_store.cpp"
+        "${PROJECT_SOURCE_DIR}/src/control-center/host_state.cpp")
+    target_include_directories(bafx_hotkey_process_tests PRIVATE
+        "${PROJECT_SOURCE_DIR}/src/desktop" "${PROJECT_SOURCE_DIR}/src/control-center")
+    target_link_libraries(bafx_hotkey_process_tests PRIVATE bafx::config bafx::product bafx::windows)
+    target_compile_features(bafx_hotkey_process_tests PRIVATE cxx_std_20)
+    bafx_enable_warnings(bafx_hotkey_process_tests)
+    add_test(NAME hotkey_process_boundary COMMAND bafx_hotkey_process_tests)
+    set_tests_properties(hotkey_process_boundary PROPERTIES TIMEOUT 30 RUN_SERIAL TRUE LABELS "desktop;process-boundary")
+    set_target_properties(bafx_hotkey_process_tests PROPERTIES FOLDER "Tests")
 
     add_executable(
         bafx_windows_tests

@@ -221,7 +221,7 @@ BAFX_TEST(support_report_contains_alpha_scope_and_graphics_facts)
     device.featureLevel = D3D_FEATURE_LEVEL_11_0;
     device.hardwareCreateResult = DXGI_ERROR_UNSUPPORTED;
     report.setDeviceInfo(device);
-    report.setExitUiStatus(bafx::windows::ExitUiStatus{true, false, true});
+    report.setExitUiStatus(bafx::windows::ExitUiStatus{true, 1U, {0U, 1409U, 0U, 0U}, 0U});
     report.setConfigurationSchemaVersion(3U);
     report.setControlServiceAvailable(true);
     bafx::windows::DisplayRuntimeSummary runtime{};
@@ -293,8 +293,8 @@ BAFX_TEST(support_report_contains_alpha_scope_and_graphics_facts)
     BAFX_CHECK(text.find("Display.BitsPerColor=10") != std::string::npos);
     BAFX_CHECK(text.find("Display.MaxLuminanceNits=1000.000")
         != std::string::npos);
-    BAFX_CHECK(text.find("Exit.PrimaryHotKey=registered") != std::string::npos);
-    BAFX_CHECK(text.find("Exit.FallbackHotKey=polling-fallback")
+    BAFX_CHECK(text.find("Hotkeys.TogglePause.Registered=1") != std::string::npos);
+    BAFX_CHECK(text.find("Hotkeys.ToggleAlwaysOnTrail.Error=1409")
         != std::string::npos);
     BAFX_CHECK(text.find("Exit.NotificationIcon=available") != std::string::npos);
     BAFX_CHECK(text.find("Exit.PollingFallback=enabled") != std::string::npos);

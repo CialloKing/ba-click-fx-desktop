@@ -3079,6 +3079,26 @@ int runApplication(
                 ? bafx::windows::RawMouseRegistration::Disabled
                 : bafx::windows::RawMouseRegistration::Enabled,
             makePointerButtonPolicy(config.input)));
+    bafx::desktop::HostHotkeys hotkeys(hostWindow.handle(), config.hotkeys,
+        [&control](const bafx::config::HotkeyAction action, const std::uint64_t epoch)
+        {
+            control.enqueueHotkey(action, epoch);
+        });
+    hostWindow.setHostMessageHandler([&hotkeys](const UINT message, const WPARAM wParam, const LPARAM lParam)
+    {
+        return hotkeys.handleMessage(message, wParam, lParam);
+    });
+    control.attachHotkeys(hotkeys, hostWindow.handle());
+    struct HotkeyLifetimeGuard
+    {
+        bafx::desktop::HostControlPlane& control;
+        bafx::windows::OverlayWindow& window;
+        ~HotkeyLifetimeGuard()
+        {
+            control.stop();
+            window.setHostMessageHandler({});
+        }
+    } hotkeyLifetimeGuard{control, hostWindow};
     bafx::windows::BorderlessCaptureAccessAuthority borderlessAccessAuthority(
         packageIdentity);
     bafx::desktop::BackgroundCaptureStopMonitor backgroundStopMonitor(logPath);
@@ -3411,7 +3431,12 @@ int runApplication(
     }
     bafx::windows::WindowSize appliedOutputSize = window.size();
     report.setDeviceInfo(renderer.deviceInfo());
-    report.setExitUiStatus(hostWindow.exitUiStatus());
+    const auto initialHotkeys = hotkeys.initialState();
+    auto exitUiStatus = hostWindow.exitUiStatus();
+    exitUiStatus.hotkeyRegisteredMask = initialHotkeys.registeredMask;
+    exitUiStatus.hotkeyErrors = initialHotkeys.errors;
+    exitUiStatus.hotkeyCleanupError = initialHotkeys.cleanupError;
+    report.setExitUiStatus(exitUiStatus);
     if (options.supportInfoOnly)
     {
         static_cast<void>(publishControlService(
@@ -4662,7 +4687,16 @@ int runApplication(
     while (!quit && !hostWindow.closeRequested())
     {
         accumulateMessageDispatch(pendingMessageDispatch, dispatchMessages(quit));
-        hostWindow.pollExitShortcut();
+        const std::string hotkeyError = control.takeHotkeyError();
+        if (!hotkeyError.empty())
+        {
+            const int length = MultiByteToWideChar(CP_UTF8, 0, hotkeyError.data(),
+                static_cast<int>(hotkeyError.size()), nullptr, 0);
+            std::wstring message(static_cast<std::size_t>(length), L'\0');
+            MultiByteToWideChar(CP_UTF8, 0, hotkeyError.data(), static_cast<int>(hotkeyError.size()),
+                message.data(), length);
+            hostWindow.showWarning(message);
+        }
         const bafx::desktop::HostRuntimeSnapshot controlState =
             control.runtimeSnapshot();
         if (controlState.shutdownRequested

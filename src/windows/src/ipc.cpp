@@ -67,6 +67,26 @@ constexpr std::size_t maximumParserLineBytes = 1U * 1024U * 1024U;
     {
         return IpcCommand::SetConfig;
     }
+    if (name == "SetHotkeys")
+    {
+        return IpcCommand::SetHotkeys;
+    }
+    if (name == "GetHotkeyState")
+    {
+        return IpcCommand::GetHotkeyState;
+    }
+    if (name == "RetryHotkeys")
+    {
+        return IpcCommand::RetryHotkeys;
+    }
+    if (name == "BeginHotkeyCapture")
+    {
+        return IpcCommand::BeginHotkeyCapture;
+    }
+    if (name == "EndHotkeyCapture")
+    {
+        return IpcCommand::EndHotkeyCapture;
+    }
     if (name == "SetDisplayOverride")
     {
         return IpcCommand::SetDisplayOverride;
@@ -121,6 +141,9 @@ constexpr std::size_t maximumParserLineBytes = 1U * 1024U * 1024U;
 [[nodiscard]] bool commandAcceptsPayload(const IpcCommand command) noexcept
 {
     return command == IpcCommand::SetConfig
+        || command == IpcCommand::SetHotkeys
+        || command == IpcCommand::GetHotkeyState
+        || command == IpcCommand::EndHotkeyCapture
         || command == IpcCommand::SetDisplayOverride
         || command == IpcCommand::RemoveDisplayOverride
         || command == IpcCommand::SetFxParam
@@ -190,7 +213,8 @@ IpcParseResult parseIpcRequest(const std::string_view line)
     const std::string_view payload = separator == std::string_view::npos
         ? std::string_view{}
         : line.substr(separator + 1U);
-    if (commandAcceptsPayload(*command) && payload.empty())
+    if (commandAcceptsPayload(*command) && payload.empty()
+        && *command != IpcCommand::GetHotkeyState)
     {
         result.errorCode = "missing_payload";
         result.errorMessage = "configuration command requires a payload";

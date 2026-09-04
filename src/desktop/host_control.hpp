@@ -1,6 +1,7 @@
 #pragma once
 
 #include "fx_profile_store.hpp"
+#include "host_hotkeys.hpp"
 
 #include "bafx/config/config.hpp"
 #include "bafx/windows/ipc.hpp"
@@ -12,6 +13,8 @@
 #include <windows.h>
 
 #include <chrono>
+#include <condition_variable>
+#include <deque>
 #include <cstdint>
 #include <filesystem>
 #include <mutex>
@@ -164,12 +167,19 @@ public:
         bafx::windows::DisplayRuntimeSummary summary,
         std::uint64_t appliedConfigGeneration);
     [[nodiscard]] DWORD ipcLastError() const noexcept;
+    void attachHotkeys(HostHotkeys& hotkeys, HWND window) noexcept;
+    void enqueueHotkey(bafx::config::HotkeyAction action, std::uint64_t epoch) noexcept;
+    [[nodiscard]] std::string takeHotkeyError();
 
 private:
+    void runHotkeyActions() noexcept;
+    [[nodiscard]] bafx::windows::IpcResponse setPaused(bool paused);
+    [[nodiscard]] bafx::windows::IpcResponse hotkeyStateResponse(
+        const HotkeyOperationResult& result);
     [[nodiscard]] bafx::windows::IpcResponse handle(
         const bafx::windows::IpcRequest& request) noexcept;
     [[nodiscard]] bafx::windows::IpcResponse handleSetConfig(
-        std::string_view payload) noexcept;
+        std::string_view payload, bool registerHotkeys = false) noexcept;
     [[nodiscard]] bafx::windows::IpcResponse handleDisplayOverrideMutation(
         std::string_view payload,
         bool remove) noexcept;
@@ -193,6 +203,18 @@ private:
         std::string_view reason) const noexcept;
 
     mutable std::mutex mutex_{};
+    // No window-thread rendezvous may hold mutex_: the render owner reads it.
+    std::mutex mutationMutex_{};
+    HostHotkeys* hotkeys_{nullptr};
+    HWND hostWindow_{nullptr};
+    std::mutex hotkeyQueueMutex_{};
+    std::condition_variable hotkeyQueueReady_{};
+    std::deque<std::pair<bafx::config::HotkeyAction, std::uint64_t>> hotkeyQueue_{};
+    std::thread hotkeyWorker_{};
+    bool hotkeyWorkerStopping_{false};
+    std::atomic<bool> hotkeyShutdownRequested_{false};
+    std::atomic<bool> hotkeyErrorPending_{false};
+    std::string hotkeyActionError_{};
     std::filesystem::path configPath_{};
     FxProfileStore fxProfileStore_;
     bafx::config::Config config_{};

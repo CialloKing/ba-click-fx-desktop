@@ -56,6 +56,7 @@ add_executable(
         display_target.cpp
         fx_profile_store.cpp
         host_control.cpp
+        host_hotkeys.cpp
         main.cpp
         performance_logging.cpp
         "${BAFX_DESKTOP_GENERATED_DIR}/ba-click-fx-desktop.manifest"

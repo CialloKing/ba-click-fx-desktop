@@ -21,8 +21,6 @@ namespace
 {
 
 constexpr wchar_t windowClassName[] = L"BaClickFxDesktopOverlay";
-constexpr int primaryExitHotKeyIdentifier = 0xBAF0;
-constexpr int fallbackExitHotKeyIdentifier = 0xBAF1;
 constexpr UINT notificationIconIdentifier = 0xBAF2U;
 constexpr UINT notificationExitCommandIdentifier = 0xBAF3U;
 constexpr UINT notificationIconMessage = WM_APP + 1U;
@@ -376,16 +374,6 @@ OverlayWindow::OverlayWindow(
             {
                 registerRawMouse();
             }
-            primaryExitHotKeyRegistered_ = RegisterHotKey(
-                window_,
-                primaryExitHotKeyIdentifier,
-                MOD_CONTROL | MOD_ALT | MOD_NOREPEAT,
-                VK_F12) != FALSE;
-            fallbackExitHotKeyRegistered_ = RegisterHotKey(
-                window_,
-                fallbackExitHotKeyIdentifier,
-                MOD_CONTROL | MOD_SHIFT | MOD_NOREPEAT,
-                VK_F12) != FALSE;
             taskbarCreatedMessage_ = RegisterWindowMessageW(L"TaskbarCreated");
             addNotificationIcon();
         }
@@ -476,10 +464,7 @@ bool OverlayWindow::closeRequested() const noexcept
 
 ExitUiStatus OverlayWindow::exitUiStatus() const noexcept
 {
-    return ExitUiStatus{
-        primaryExitHotKeyRegistered_,
-        fallbackExitHotKeyRegistered_,
-        notificationIconAdded_};
+    return ExitUiStatus{notificationIconAdded_};
 }
 
 CaptureExclusionStatus OverlayWindow::setCaptureExcluded(
@@ -713,24 +698,23 @@ void OverlayWindow::hide() noexcept
     ShowWindow(window_, SW_HIDE);
 }
 
-void OverlayWindow::pollExitShortcut() noexcept
+void OverlayWindow::setHostMessageHandler(std::function<bool(UINT, WPARAM, LPARAM)> handler)
 {
-    if (role_ != OverlayWindowRole::HostShell)
-    {
-        return;
-    }
+    hostMessageHandler_ = std::move(handler);
+}
 
-    const bool f12Down = (GetAsyncKeyState(VK_F12) & 0x8000) != 0;
-    const bool controlDown = (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
-    const bool altDown = (GetAsyncKeyState(VK_MENU) & 0x8000) != 0;
-    const bool shiftDown = (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0;
-    const bool shortcutDown = f12Down && controlDown && (altDown || shiftDown);
-    if (shortcutDown && !exitShortcutDown_)
+void OverlayWindow::showWarning(const std::wstring_view message) noexcept
+{
+    if (notificationIconAdded_)
     {
-        // Polling remains available when another process owns either registered hot key.
-        requestClose();
+        NOTIFYICONDATAW notification = notificationIcon_;
+        notification.uFlags = NIF_INFO;
+        notification.dwInfoFlags = NIIF_WARNING;
+        wcsncpy_s(notification.szInfoTitle, L"BAFX 快捷键", _TRUNCATE);
+        const std::wstring text(message);
+        wcsncpy_s(notification.szInfo, text.c_str(), _TRUNCATE);
+        Shell_NotifyIconW(NIM_MODIFY, &notification);
     }
-    exitShortcutDown_ = shortcutDown;
 }
 
 LRESULT CALLBACK OverlayWindow::windowProcedure(
@@ -774,6 +758,11 @@ LRESULT OverlayWindow::handleMessage(
     const WPARAM wParam,
     const LPARAM lParam)
 {
+    if (role_ == OverlayWindowRole::HostShell && hostMessageHandler_
+        && hostMessageHandler_(message, wParam, lParam))
+    {
+        return 0;
+    }
     if (role_ == OverlayWindowRole::HostShell
         && taskbarCreatedMessage_ != 0U
         && message == taskbarCreatedMessage_)
@@ -824,17 +813,6 @@ LRESULT OverlayWindow::handleMessage(
             cancelPointer();
         }
         return 0;
-
-    case WM_HOTKEY:
-        if (role_ == OverlayWindowRole::HostShell
-            && (static_cast<int>(wParam) == primaryExitHotKeyIdentifier
-                || static_cast<int>(wParam)
-                    == fallbackExitHotKeyIdentifier))
-        {
-            requestClose();
-            return 0;
-        }
-        return DefWindowProcW(window_, message, wParam, lParam);
 
     case WM_COMMAND:
         if (role_ == OverlayWindowRole::HostShell
@@ -1129,25 +1107,11 @@ void OverlayWindow::unregisterDisplayPowerNotification() noexcept
     displayPowerNotification_ = nullptr;
 }
 
-void OverlayWindow::releaseHostShellRegistrations(const HWND window) noexcept
+void OverlayWindow::releaseHostShellRegistrations(const HWND) noexcept
 {
     removeNotificationIcon();
     unregisterRawMouse();
     unregisterDisplayPowerNotification();
-    if (window == nullptr)
-    {
-        return;
-    }
-    if (primaryExitHotKeyRegistered_)
-    {
-        UnregisterHotKey(window, primaryExitHotKeyIdentifier);
-        primaryExitHotKeyRegistered_ = false;
-    }
-    if (fallbackExitHotKeyRegistered_)
-    {
-        UnregisterHotKey(window, fallbackExitHotKeyIdentifier);
-        fallbackExitHotKeyRegistered_ = false;
-    }
 }
 
 void OverlayWindow::handleRawInput(const LPARAM lParam) noexcept

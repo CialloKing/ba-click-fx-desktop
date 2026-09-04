@@ -1621,24 +1621,23 @@ std::string SupportReport::serialize() const
 
     if (hasExitUiStatus_)
     {
-        stream << "Exit.PrimaryHotKey="
-               << (exitUiStatus_.primaryHotKeyRegistered
-                       ? "registered"
-                       : "polling-fallback")
-               << '\n'
-               << "Exit.FallbackHotKey="
-               << (exitUiStatus_.fallbackHotKeyRegistered
-                       ? "registered"
-                       : "polling-fallback")
-               << '\n'
-               << "Exit.NotificationIcon="
+        stream << "Hotkeys.RegisteredMask=" << exitUiStatus_.hotkeyRegisteredMask
+               << "\nHotkeys.CleanupError=" << exitUiStatus_.hotkeyCleanupError
+               << "\nExit.NotificationIcon="
                << (exitUiStatus_.notificationIconAdded ? "available" : "unavailable")
                << '\n';
+        constexpr std::array names{"TogglePause", "ToggleAlwaysOnTrail", "NextFxProfile", "Shutdown"};
+        for (std::size_t index = 0U; index < names.size(); ++index)
+        {
+            stream << "Hotkeys." << names[index] << ".Registered="
+                   << ((exitUiStatus_.hotkeyRegisteredMask & (1U << index)) != 0U)
+                   << "\nHotkeys." << names[index] << ".Error="
+                   << exitUiStatus_.hotkeyErrors[index] << '\n';
+        }
     }
     else
     {
-        stream << "Exit.PrimaryHotKey=not-created\n"
-               << "Exit.FallbackHotKey=not-created\n"
+        stream << "Hotkeys.RegisteredMask=not-created\n"
                << "Exit.NotificationIcon=not-created\n";
     }
     stream << "Exit.PollingFallback=enabled\n";

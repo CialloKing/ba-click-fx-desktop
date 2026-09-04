@@ -759,6 +759,19 @@ HostControlStartResult HostControlPlane::start(
     // Keep the mutex until the server thread exists. An immediate SetConfig
     // may advance the generation only after this applied baseline is latched.
     const bool serviceStarted = ipc_.start();
+    if (hotkeys_ != nullptr && !hotkeyWorker_.joinable())
+    {
+        try
+        {
+            hotkeyWorkerStopping_ = false;
+            hotkeyWorker_ = std::thread([this]() { runHotkeyActions(); });
+        }
+        catch (...)
+        {
+            hotkeyActionError_ = "unable to start hotkey action worker";
+            hotkeyErrorPending_ = true;
+        }
+    }
     return HostControlStartResult{appliedGeneration, serviceStarted};
 }
 
@@ -851,7 +864,17 @@ void HostControlPlane::appendRecordingCompatibleDiagnostic(
 
 void HostControlPlane::stop() noexcept
 {
+    {
+        std::lock_guard lock(hotkeyQueueMutex_);
+        hotkeyWorkerStopping_ = true;
+        hotkeyQueue_.clear();
+    }
+    hotkeyQueueReady_.notify_all();
     ipc_.stop();
+    if (hotkeyWorker_.joinable())
+    {
+        hotkeyWorker_.join();
+    }
 }
 
 HostRuntimeSnapshot HostControlPlane::runtimeSnapshot() const
@@ -861,7 +884,7 @@ HostRuntimeSnapshot HostControlPlane::runtimeSnapshot() const
         config_,
         configGeneration_,
         paused_,
-        ipc_.stopRequested()};
+        ipc_.stopRequested() || hotkeyShutdownRequested_.load()};
 }
 
 HostStateSnapshot HostControlPlane::snapshot() const
@@ -877,7 +900,7 @@ HostStateSnapshot HostControlPlane::snapshotLocked() const
         generation_,
         configGeneration_,
         paused_,
-        ipc_.stopRequested(),
+        ipc_.stopRequested() || hotkeyShutdownRequested_.load(),
         backgroundCaptureActive_,
         spout2RuntimeState_,
         fxProfileStore_.summaries(),
@@ -982,6 +1005,7 @@ bafx::windows::IpcResponse HostControlPlane::handle(
 {
     try
     {
+        std::lock_guard transaction(mutationMutex_);
         switch (request.command)
         {
         case bafx::windows::IpcCommand::GetState:
@@ -1008,6 +1032,54 @@ bafx::windows::IpcResponse HostControlPlane::handle(
         case bafx::windows::IpcCommand::SetConfig:
             return handleSetConfig(request.payload);
 
+        case bafx::windows::IpcCommand::SetHotkeys:
+        {
+            const auto parsed = parseFxProfileCommandPayload(request.payload);
+            if (!parsed.succeeded())
+            {
+                return bafx::windows::IpcResponse::failure("invalid_hotkeys",
+                    "SetHotkeys requires generation and a complete hotkeys object");
+            }
+            return handleSetConfig("{\"generation\":" + std::to_string(*parsed.generation)
+                + ",\"path\":\"hotkeys\",\"value\":" + parsed.name + "}", true);
+        }
+
+        case bafx::windows::IpcCommand::GetHotkeyState:
+        case bafx::windows::IpcCommand::RetryHotkeys:
+        case bafx::windows::IpcCommand::BeginHotkeyCapture:
+        case bafx::windows::IpcCommand::EndHotkeyCapture:
+        {
+            if (hotkeys_ == nullptr)
+            {
+                return bafx::windows::IpcResponse::failure("hotkeys_unavailable", "Host hotkeys are unavailable");
+            }
+            std::uint64_t token = 0U;
+            if (!request.payload.empty())
+            {
+                const auto parsed = std::from_chars(request.payload.data(),
+                    request.payload.data() + request.payload.size(), token);
+                if (parsed.ec != std::errc{}
+                    || parsed.ptr != request.payload.data() + request.payload.size())
+                {
+                    return bafx::windows::IpcResponse::failure("invalid_capture_token", "invalid recording session");
+                }
+            }
+            auto operation = HostHotkeys::Operation::Query;
+            if (request.command == bafx::windows::IpcCommand::RetryHotkeys)
+            {
+                operation = HostHotkeys::Operation::Retry;
+            }
+            else if (request.command == bafx::windows::IpcCommand::BeginHotkeyCapture)
+            {
+                operation = HostHotkeys::Operation::BeginCapture;
+            }
+            else if (request.command == bafx::windows::IpcCommand::EndHotkeyCapture)
+            {
+                operation = HostHotkeys::Operation::EndCapture;
+            }
+            return hotkeyStateResponse(hotkeys_->invoke(operation, {}, token));
+        }
+
         case bafx::windows::IpcCommand::SetDisplayOverride:
             return handleDisplayOverrideMutation(request.payload, false);
 
@@ -1029,22 +1101,10 @@ bafx::windows::IpcResponse HostControlPlane::handle(
             return handleFxProfileMutation(request.payload, request.command);
 
         case bafx::windows::IpcCommand::Pause:
-        {
-            std::lock_guard<std::mutex> lock(mutex_);
-            paused_ = true;
-            ++generation_;
-            return bafx::windows::IpcResponse::success(
-                stateJson(snapshotLocked()));
-        }
+            return setPaused(true);
 
         case bafx::windows::IpcCommand::Resume:
-        {
-            std::lock_guard<std::mutex> lock(mutex_);
-            paused_ = false;
-            ++generation_;
-            return bafx::windows::IpcResponse::success(
-                stateJson(snapshotLocked()));
-        }
+            return setPaused(false);
 
         case bafx::windows::IpcCommand::ClearLogs:
             return handleClearLogs();
@@ -1063,6 +1123,159 @@ bafx::windows::IpcResponse HostControlPlane::handle(
     return bafx::windows::IpcResponse::failure(
         "unknown_command",
         "command is not supported");
+}
+
+void HostControlPlane::attachHotkeys(HostHotkeys& hotkeys, const HWND window) noexcept
+{
+    hotkeys_ = &hotkeys;
+    hostWindow_ = window;
+}
+
+void HostControlPlane::enqueueHotkey(const bafx::config::HotkeyAction action,
+    const std::uint64_t epoch) noexcept
+{
+    std::lock_guard lock(hotkeyQueueMutex_);
+    if (hotkeyWorkerStopping_)
+    {
+        return;
+    }
+    if (hotkeyQueue_.size() >= 64U)
+    {
+        // Never coalesce toggles: that would silently change their meaning.
+        hotkeyErrorPending_ = true;
+        return;
+    }
+    hotkeyQueue_.emplace_back(action, epoch);
+    hotkeyQueueReady_.notify_one();
+}
+
+std::string HostControlPlane::takeHotkeyError()
+{
+    if (!hotkeyErrorPending_.exchange(false))
+    {
+        return {};
+    }
+    std::lock_guard lock(mutex_);
+    return hotkeyActionError_.empty() ? "hotkey action queue is full" : hotkeyActionError_;
+}
+
+bafx::windows::IpcResponse HostControlPlane::setPaused(const bool paused)
+{
+    std::lock_guard lock(mutex_);
+    paused_ = paused;
+    ++generation_;
+    return bafx::windows::IpcResponse::success(stateJson(snapshotLocked()));
+}
+
+void HostControlPlane::runHotkeyActions() noexcept
+{
+    for (;;)
+    {
+        std::pair<bafx::config::HotkeyAction, std::uint64_t> event;
+        {
+            std::unique_lock lock(hotkeyQueueMutex_);
+            hotkeyQueueReady_.wait(lock, [this]()
+            {
+                return hotkeyWorkerStopping_ || !hotkeyQueue_.empty();
+            });
+            if (hotkeyWorkerStopping_)
+            {
+                return;
+            }
+            event = hotkeyQueue_.front();
+            hotkeyQueue_.pop_front();
+        }
+        try
+        {
+            std::lock_guard transaction(mutationMutex_);
+            if (hotkeys_ == nullptr || event.second != hotkeys_->epoch())
+            {
+                continue;
+            }
+            const HostStateSnapshot state = snapshot();
+            bafx::windows::IpcResponse result;
+            switch (event.first)
+            {
+            case bafx::config::HotkeyAction::TogglePause:
+                result = setPaused(!state.paused);
+                break;
+            case bafx::config::HotkeyAction::ToggleAlwaysOnTrail:
+                result = handleSetConfig("{\"generation\":" + std::to_string(state.generation)
+                    + ",\"path\":\"input.trailOnlyWhilePressed\",\"value\":"
+                    + jsonBool(!state.config.input.trailOnlyWhilePressed) + "}");
+                break;
+            case bafx::config::HotkeyAction::NextFxProfile:
+            {
+                auto next = std::find_if(state.fxProfiles.begin(), state.fxProfiles.end(),
+                    [&state](const FxProfileSummary& profile)
+                    {
+                        return profile.name == state.activeFxProfile;
+                    });
+                if (next == state.fxProfiles.end() || ++next == state.fxProfiles.end())
+                {
+                    next = state.fxProfiles.begin();
+                }
+                if (next != state.fxProfiles.end())
+                {
+                    result = handleFxProfileMutation(std::to_string(state.generation)
+                        + " " + next->name, bafx::windows::IpcCommand::ApplyFxProfile);
+                }
+                break;
+            }
+            case bafx::config::HotkeyAction::Shutdown:
+                hotkeyShutdownRequested_ = true;
+                break;
+            }
+            if (!result.succeeded)
+            {
+                {
+                    std::lock_guard lock(mutex_);
+                    hotkeyActionError_ = result.errorCode + ": " + result.errorMessage;
+                    hotkeyErrorPending_ = true;
+                }
+                const std::array fields{
+                    bafx::windows::DiagnosticField{"Action", bafx::config::hotkeyActionNames[static_cast<std::size_t>(event.first)]},
+                    bafx::windows::DiagnosticField{"Error", result.errorMessage}};
+                bafx::windows::appendDiagnosticEvent(bafx::windows::defaultDiagnosticLogPath(),
+                    "Hotkey.ActionFailed", fields, bafx::windows::DiagnosticLevel::Warning);
+            }
+            PostMessageW(hostWindow_, WM_NULL, 0U, 0);
+        }
+        catch (...)
+        {
+            std::lock_guard lock(mutex_);
+            hotkeyActionError_ = "hotkey action failed";
+            hotkeyErrorPending_ = true;
+            PostMessageW(hostWindow_, WM_NULL, 0U, 0);
+        }
+    }
+}
+
+bafx::windows::IpcResponse HostControlPlane::hotkeyStateResponse(
+    const HotkeyOperationResult& result)
+{
+    if (!result.succeeded)
+    {
+        return bafx::windows::IpcResponse::failure("hotkey_operation_failed", result.error);
+    }
+    const auto state = snapshot();
+    std::string json = stateJson(state);
+    json.pop_back();
+    json += ",\"hotkeysJson\":" + jsonEscape(bafx::config::toJson(state.config.hotkeys));
+    json += ",\"hotkeyRegisteredMask\":" + std::to_string(result.state.registeredMask);
+    json += ",\"hotkeyCleanupError\":" + std::to_string(result.state.cleanupError);
+    json += ",\"hotkeyCaptureToken\":" + std::to_string(result.state.captureToken);
+    json += ",\"hotkeyCaptureKey\":" + std::to_string(result.state.captured.value_or(bafx::config::HotkeyBinding{}).key);
+    json += ",\"hotkeyCaptureModifiers\":" + std::to_string(result.state.captured.value_or(bafx::config::HotkeyBinding{}).modifiers);
+    for (std::size_t index = 0U; index < result.state.errors.size(); ++index)
+    {
+        json += ",\"hotkeyError" + std::to_string(index) + "\":" + std::to_string(result.state.errors[index]);
+    }
+    {
+        std::lock_guard lock(mutex_);
+        json += ",\"hotkeyActionError\":" + jsonEscape(hotkeyActionError_);
+    }
+    return bafx::windows::IpcResponse::success(json + "}");
 }
 
 bafx::windows::IpcResponse HostControlPlane::handleSetFxParams(
@@ -1285,7 +1498,7 @@ bafx::windows::IpcResponse HostControlPlane::handleClearLogs() noexcept
 }
 
 bafx::windows::IpcResponse HostControlPlane::handleSetConfig(
-    const std::string_view payload) noexcept
+    const std::string_view payload, const bool registerHotkeys) noexcept
 {
     bafx::config::Config baseConfig;
     {
@@ -1329,7 +1542,25 @@ bafx::windows::IpcResponse HostControlPlane::handleSetConfig(
         candidate = parsed.config;
     }
 
-    std::lock_guard<std::mutex> lock(mutex_);
+    struct PreparedHotkeys
+    {
+        HostHotkeys* manager{nullptr};
+        ~PreparedHotkeys()
+        {
+            if (manager != nullptr)
+            {
+                try
+                {
+                    static_cast<void>(manager->invoke(HostHotkeys::Operation::Rollback));
+                }
+                catch (...)
+                {
+                }
+            }
+        }
+    } prepared;
+    // This lock is destroyed before the rollback guard invokes the HWND owner.
+    std::unique_lock<std::mutex> lock(mutex_);
     if (expectedGeneration.has_value() && *expectedGeneration != generation_)
     {
         return bafx::windows::IpcResponse::failure(
@@ -1361,6 +1592,29 @@ bafx::windows::IpcResponse HostControlPlane::handleSetConfig(
         return bafx::windows::IpcResponse::failure(
             queryFailed ? "os_version_unavailable" : "unsupported_os_build",
             message);
+    }
+
+    const bool hotkeysChanged = candidate.hotkeys != config_.hotkeys;
+    bool renderConfigChanged = true;
+    if (hotkeysChanged || registerHotkeys)
+    {
+        auto renderCandidate = candidate;
+        renderCandidate.hotkeys = config_.hotkeys;
+        // Only evaluated on configuration writes, never in the render loop.
+        renderConfigChanged = bafx::config::toJson(renderCandidate, false)
+            != bafx::config::toJson(config_, false);
+        if (hotkeys_ == nullptr)
+        {
+            return bafx::windows::IpcResponse::failure("hotkeys_unavailable", "Host hotkeys are unavailable");
+        }
+        lock.unlock();
+        const auto staged = hotkeys_->invoke(HostHotkeys::Operation::Prepare, candidate.hotkeys);
+        if (!staged.succeeded)
+        {
+            return bafx::windows::IpcResponse::failure("hotkey_registration_failed", staged.error);
+        }
+        prepared.manager = hotkeys_;
+        lock.lock();
     }
 
     const bool systemIntegrationChanged =
@@ -1428,9 +1682,30 @@ bafx::windows::IpcResponse HostControlPlane::handleSetConfig(
     }
     config_ = candidate;
     ++generation_;
-    ++configGeneration_;
+    if (renderConfigChanged)
+    {
+        ++configGeneration_;
+    }
+    const std::string response = bafx::config::toJson(config_, false);
+    lock.unlock();
+    if (prepared.manager != nullptr)
+    {
+        const auto committed = hotkeys_->invoke(HostHotkeys::Operation::Commit);
+        prepared.manager = nullptr;
+        if (!committed.succeeded)
+        {
+            return bafx::windows::IpcResponse::failure("hotkey_activation_unconfirmed",
+                "configuration saved; activation unconfirmed; restart Host: " + committed.error);
+        }
+        if (committed.state.cleanupError != ERROR_SUCCESS)
+        {
+            return bafx::windows::IpcResponse::failure("hotkey_cleanup_failed",
+                "configuration saved; old registration cleanup failed; restart Host; Win32="
+                    + std::to_string(committed.state.cleanupError));
+        }
+    }
     return bafx::windows::IpcResponse::success(
-        bafx::config::toJson(config_, false));
+        response);
 }
 
 bafx::windows::IpcResponse HostControlPlane::handleDisplayOverrideMutation(
