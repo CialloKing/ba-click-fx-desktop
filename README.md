@@ -1,5 +1,7 @@
 # ba-click-fx-desktop
 
+中文是本项目的默认文档。 [English version](README.en.md)
+
 `ba-click-fx-desktop` 是从零实现的 Windows 原生桌面点击特效。项目不复用
 [ba-click-fx](https://github.com/CialloKing/ba-click-fx) 的 JavaScript、WebGL 或 WebGPU 渲染代码；Unity/游戏资源是视觉真值，
 Web 版本只作为历史行为对照，不定义本项目的配置、IPC 或单位合同。
@@ -87,17 +89,65 @@ Trail 和 Bloom 继续按游戏合同在线性 FP16 中计算。最终呈现阶�
 本地可用下列命令核对 Unity 外部证据。脚本只读取并校验哈希，不会复制或修改游戏资产：
 
 ```powershell
-cmake --build build\vs2026 --target verify_unity_reference
+cmake --build build\x64 --config Release --target verify_unity_reference
 ```
 
 ## 构建与测试
 
-首版固定使用 C++20；本机验证工具链为 Visual Studio 2026 与 Windows SDK 10.0.26100。推荐使用
-仓库预设完成全新 Release 配置、构建和测试：
+### 源码构建前置条件
+
+源码构建面向 Windows x64。请先准备以下工具：
+
+- Git。
+- CMake 3.25 或更高版本。
+- Visual Studio 2022 (17.x) 或更高版本，安装 **Desktop development with C++** 工作负载，
+  并勾选 MSVC x64/x86 生成工具和 Windows 10/11 SDK。项目本机验证使用 Visual Studio 2026 与
+  Windows SDK 10.0.26100；Windows SDK 10.0.19041 或更高版本可用于兼容构建。
+- Windows PowerShell 5.1 或 PowerShell 7。Python 3 不是编译器依赖，但安装后可以启用完整的
+  Python 合同测试；Node.js 只在维护 Unity 纹理快照时需要，普通构建不需要。
+
+建议从 **Developer PowerShell for VS** 执行命令，或确认 `cmake.exe`、MSVC 和 Windows SDK
+已经在当前终端可用。可以先检查：
+
+```powershell
+cmake --version
+git --version
+```
+
+### Full 版（包含 Spout2）
+
+普通 `x64` 预设启用 Spout2。第一次构建前需要准备独立的 vcpkg checkout；仓库只提供
+`vcpkg.json` manifest，不会把 vcpkg 本身提交进来：
+
+```powershell
+git clone https://github.com/microsoft/vcpkg.git C:\dev\vcpkg
+& C:\dev\vcpkg\bootstrap-vcpkg.bat
+$env:VCPKG_ROOT = 'C:\dev\vcpkg'
+```
+
+如果已经有 vcpkg，只需将 `VCPKG_ROOT` 设置为该 checkout 的绝对路径。Full 配置使用 manifest
+模式，根据固定 builtin baseline 安装 `vcpkg.json` 中的 `spout2[dx]`，目标 triplet 为
+`x64-windows-static`，依赖会放在 `build\x64\vcpkg_installed`。第一次配置需要联网下载和构建
+依赖；之后可以复用本地 vcpkg 缓存。不要依赖仓库外的临时 Spout2 压缩包，也不要手动改动
+`build\x64\vcpkg_installed`。
+
+准备好 vcpkg 后，执行完整 Release 配置、构建和测试：
 
 ```powershell
 cmake --workflow --preset release-verify
 ```
+
+### Slim 版（不包含 Spout2）
+
+如果只需要本地编译、测试或不需要 OBS/Spout2 输出，可以使用 Slim 预设。它不加载 vcpkg
+toolchain，也不需要 `VCPKG_ROOT`：
+
+```powershell
+cmake --workflow --preset slim-release-verify
+```
+
+Slim 仍然编译完整特效、Host 和 Control Center，只隐藏 Spout2 输出开关。Full 和 Slim 使用
+不同的构建目录（分别为 `build\x64` 与 `build\x64-slim`），不要在同一目录之间切换预设。
 
 日常只验证桌面 Host 时使用按目标构建，避免触发包含全部测试和 Spike 的 `ALL_BUILD`：
 
@@ -105,14 +155,35 @@ cmake --workflow --preset release-verify
 cmake --build --preset host-release --parallel 4
 ```
 
-`release-verify` 仍然保留完整 Release 构建和 CTest 流程；它不是快速迭代命令。
+该命令使用已经配置好的 Full `x64` 构建树；Slim 构建应改为：
 
-普通 `x64` 预设启用 Spout2，并要求 `VCPKG_ROOT` 指向 vcpkg checkout。根目录的
-`vcpkg.json` 通过固定 builtin baseline 将 `spout2[dx]` 锁定为 `2.007.010#0`，预设使用
-`x64-windows-static` 并把依赖安装到 Full 构建树；`x64-slim` 不加载 vcpkg toolchain，并通过
-`BAFX_ENABLE_SPOUT2=OFF` 构建不含 Spout2 的精简版。
-精简版仍保留完整特效和控制中心，但不会显示 Spout2 输出开关。对应的打包脚本可传入
-`-Slim`，生成文件名带有 `-slim` 后缀。
+```powershell
+cmake --build build\x64-slim --config Release --target ba_click_fx_desktop --parallel 4
+```
+
+两个 `*-release-verify` workflow 都保留完整 Release 构建和 CTest 流程，不是快速迭代命令。
+
+`vcpkg.json` 通过固定 builtin baseline 将 `spout2[dx]` 锁定为 `2.007.010#0`。Full 首次配置
+若报告找不到 `vcpkg.cmake`、Spout2 头文件或 `SpoutDX_static.lib`，先确认 `VCPKG_ROOT` 指向
+包含 `scripts\buildsystems\vcpkg.cmake` 的 vcpkg checkout，再删除对应的 `build\x64` 配置树
+并重新运行 workflow；CMake 会缓存 toolchain 路径，单纯修改环境变量不会修复旧缓存。
+
+如果出现 `No CMAKE_CXX_COMPILER could be found` 或找不到 Windows SDK，请在 Visual Studio
+Installer 中补装 C++ 工作负载、MSVC x64 工具和 SDK，然后重新打开 Developer PowerShell。
+
+### 交互式 smoke test
+
+Full 和 Slim 预设都设置 `BAFX_ENABLE_DESKTOP_SMOKE_TESTS=ON`，所以对应的 CTest 流程会注册
+需要交互式 Windows 桌面的 DirectComposition smoke、定时退出和设备恢复测试。请在已登录且未锁屏
+的桌面会话中运行 workflow；无桌面或无头 CI 不应把这些测试当作可运行的验收。可以单独重跑
+smoke target：
+
+```powershell
+cmake --build --preset debug --target smoke_desktop
+```
+
+兼容性 CI 使用 `BUILD_TESTING=OFF` 的普通 CMake 配置，只验证指定 Windows SDK 下的编译，不验证
+Full/Spout2，也不代表交互式 smoke、WGC、HDR 或跨适配器能力已经通过。
 
 官方 GitHub Release 只发布带 Spout2 的 Full 版四个资产：便携 ZIP、便携 ZIP 的 `.sha256`、
 单文件安装器和安装器的 `.sha256`。Slim 版保留源码构建、测试和本地打包入口，不发布预编译
@@ -152,10 +223,13 @@ HDR、跨适配器或 WGC 的 Spike 已通过。
 ### 便携版
 
 下面的命令会先构建 Release Host 和原生 Win32 Control Center，再将两个 EXE、支持文档和逐文件
-SHA-256 清单打入 ZIP；脚本完成前会自动运行包验证。它只要求 `cmake.exe` 可用：
+SHA-256 清单打入 ZIP；脚本完成前会自动运行包验证。Full（默认）需要 `cmake.exe` 和已经设置的
+`VCPKG_ROOT`；如果没有 vcpkg，请使用 Slim 参数：
 
 ```powershell
 pwsh -NoProfile -ExecutionPolicy Bypass -File .\tools\package-test-bundle.ps1
+# 不包含 Spout2，不需要 VCPKG_ROOT
+pwsh -NoProfile -ExecutionPolicy Bypass -File .\tools\package-test-bundle.ps1 -Slim
 ```
 
 默认输出到 `artifacts\local\ba-click-fx-desktop-<version>-Portable-windows-x64.zip`，并在同目录生成
