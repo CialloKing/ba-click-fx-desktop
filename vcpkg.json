@@ -1,0 +1,13 @@
+{
+  "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg-tool/main/docs/vcpkg.schema.json",
+  "builtin-baseline": "a0400024711b283056538ac19ced80b91a83c24c",
+  "dependencies": [
+    {
+      "name": "spout2",
+      "default-features": false,
+      "features": [
+        "dx"
+      ]
+    }
+  ]
+}

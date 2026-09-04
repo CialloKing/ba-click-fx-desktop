@@ -107,8 +107,10 @@ cmake --build --preset host-release --parallel 4
 
 `release-verify` 仍然保留完整 Release 构建和 CTest 流程；它不是快速迭代命令。
 
-普通 `x64` 预设启用 Spout2，并要求 `VCPKG_ROOT` 指向 Spout2 依赖；
-`x64-slim` 预设通过 `BAFX_ENABLE_SPOUT2=OFF` 构建不含 Spout2 的精简版。
+普通 `x64` 预设启用 Spout2，并要求 `VCPKG_ROOT` 指向 vcpkg checkout。根目录的
+`vcpkg.json` 通过固定 builtin baseline 将 `spout2[dx]` 锁定为 `2.007.010#0`，预设使用
+`x64-windows-static` 并把依赖安装到 Full 构建树；`x64-slim` 不加载 vcpkg toolchain，并通过
+`BAFX_ENABLE_SPOUT2=OFF` 构建不含 Spout2 的精简版。
 精简版仍保留完整特效和控制中心，但不会显示 Spout2 输出开关。对应的打包脚本可传入
 `-Slim`，生成文件名带有 `-slim` 后缀。
 

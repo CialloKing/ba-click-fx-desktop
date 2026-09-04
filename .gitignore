@@ -2,6 +2,7 @@
 /build/
 /out/
 /cmake-build-*/
+/vcpkg_installed/
 
 # Visual Studio user state
 /.vs/

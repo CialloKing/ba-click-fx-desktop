@@ -18,6 +18,7 @@
         "BUILD_TESTING": "ON",
         "BAFX_ENABLE_DESKTOP_SMOKE_TESTS": "ON",
         "BAFX_ENABLE_SPOUT2": "ON",
+        "VCPKG_MANIFEST_MODE": "ON",
         "VCPKG_TARGET_TRIPLET": "x64-windows-static",
         "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake"
       }
