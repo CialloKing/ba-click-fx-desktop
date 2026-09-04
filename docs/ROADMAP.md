@@ -8,7 +8,8 @@ DPI 和 Windows 11 运行时逻辑提前到测试与硬件证据之前；2026-08
 首级实效化，并以真实 A/B 门槛决定是否发布。2026-08-31 的覆盖将默认关闭、无性能声明的
 0.2.7 普通发布与 ROI 硬件晋级分离。2026-09-01 的最新覆盖进一步固定后续版本均保持 ROI 默认关闭；
 新的 4K 170 Hz schema 4 晋级证据仍为 `Not Run`，只阻塞性能/功耗/输入延迟声明和独立的
-Differential Bloom ROI 实验里程碑，不再阻塞任何普通版本。
+Differential Bloom ROI 实验里程碑，不再阻塞任何普通版本。2026-09-04 的当前迭代转向用户可配置的
+全局快捷键，同时保持 Host 单一配置写入者和现有发布资产边界。
 
 完成新的 collector、verifier 或证据归档，只计作验证基础设施进展，不能单独计作用户功能更新。
 它们只有在解除当前体验问题或正式发布门槛时才进入主线排期。
@@ -25,7 +26,7 @@ Differential Bloom ROI 实验里程碑，不再阻塞任何普通版本。
   fallback；测试不得仅因运行系统缺少 Windows 11 能力而失败；
 - 当前不为这些 Windows 11 分支扩张测试、collector 或 verifier。未在真实硬件执行的矩阵仍保持
   `Not Run`，不能据代码完成宣称正式支持；
-- 主配置使用字段完整的当前 `schemaVersion=19`，schema 14 至 18 只按固定迁移链升级；其他版本、未知
+- 主配置使用字段完整的当前 `schemaVersion=20`，schema 14 至 19 只按固定迁移链升级；其他版本、未知
   字段和枚举别名仍被拒绝；
 - 每项逻辑保持独立中文提交，只做有硬超时的编译或静态检查，避免构建和外部命令无界等待。
 
@@ -100,6 +101,22 @@ Prefilter/Pyramid/Bloom 收益、相邻配对、FPS、GPU command p99、pending�
   Alpha 步进和 OBS `Premultiplied Alpha` + `Default` + `Normal` 语义不变；
 - Full `release-verify` `44/44`、Slim `slim-release-verify` `43/43` 与两个隔离 OBS 验收均已通过；
   三档 Windows SDK CI 均已通过。正式版本只发布通过校验的 Full 四资产，Slim 不上传。
+
+## v0.2.10 可配置全局快捷键（2026-09-04，待发布）
+
+- 主配置升级为 schema 20，新增暂停／恢复、切换常驻拖尾、下一个特效预设和退出 Host 四项绑定；
+  新配置以及 schema 19 的固定迁移结果均默认未绑定。旧的两个固定 F12 退出组合和轮询兜底删除；
+- Host 使用 `RegisterHotKey`/`WM_HOTKEY`，所有注册附加 `MOD_NOREPEAT`。只接受单个非修饰主键或
+  Ctrl/Alt/Shift/Win 加一个主键；重复组合、仅修饰键、多普通键和 F12 不进入保存合同；
+- Control Center 新增“快捷键”页。录制期间旧注册继续占有组合但不执行动作，候选只写草稿；失焦、取消、
+  30 秒总时限或连续 5 秒失联会结束录制。页面显示逐项注册结果，并可重试已保存绑定；
+- 保存按 Host generation 执行 prepare/persist/commit：先保留旧注册并申请新组合，再原子写盘，最后切换
+  动作映射并释放旧组合。注册、generation 或写盘失败保持旧配置和旧注册；配置已经写入后的激活无法确认
+  或旧注册清理失败需要重启 Host。重置默认设置保留已保存快捷键；
+- 支持报告增加 `Hotkeys.StateScope=startup`、启动注册掩码、四项注册/错误和清理错误，并用
+  `Exit.PollingFallback=disabled` 固定移除旧退出轮询的证据边界；
+- 发布前仍须执行 Full/Slim 源码 workflow、三档 Windows SDK CI 和快捷键人工验收。正式 GitHub Release
+  只上传 Full 便携 ZIP、ZIP 哈希、安装器和安装器哈希四个资产；Slim 仅保留源码构建和本地验证入口。
 
 ## Host-owned 特效 Profile（2026-08-23）
 

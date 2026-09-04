@@ -36,6 +36,9 @@
 - effects-only Profile codec/store：启动目录必须固定包含“Unity 原版”“轻量”“纯点击”“纯拖尾”四个内置项；
   每个自定义项使用 `fx-profiles/<名称>.json` 单文件保存完整、严格的平面 `EffectsConfig`，合法文件可跨实例
   save/reload/delete，损坏或超限文件只能被忽略，不能移除或污染内置项；
+- 全局快捷键 codec：schema 20 必须包含 `togglePause`、`toggleAlwaysOnTrail`、`nextFxProfile`、`shutdown`
+  四项，默认均为 `null`；字段完整的 schema 14 至 19 只按固定链迁移，schema 19 只补充四项空绑定。
+  解析拒绝未知/重复/缺失字段、非法修饰位、F12、仅修饰键和重复组合，序列化往返保持动作顺序和键值；
 - finite sanitize、component-wise non-negative 与 isotonic test vectors；
 - fixed-step simulation 和 deterministic random；
 - `FXTouch` 释放后的 `1 s` 仿真寿命、桌面暂停冻结、边界帧呈现后回池，以及
@@ -126,6 +129,29 @@
   Control Center 和 Identity Signer 的完整目标，并记录 runner 实际安装的 SDK 清单；不以当前运行系统
   缺少 Windows 11 API 为测试失败条件。该 SDK 编译覆盖不替代 build `28000+` 的真实运行时或 WGC 证据；
 - monitor/adapter rebuild。
+
+### 全局快捷键控制合同
+
+快捷键验证必须同时覆盖 Win32 注册、Host 配置事务、IPC 严格解析、Control Center 草稿和进程边界：
+
+- Host 使用 `RegisterHotKey`/`WM_HOTKEY`，注册标志必须包含 `MOD_NOREPEAT`。进程边界测试应占用一个组合，
+  证明启动注册失败不会阻断 Host 或其他绑定；释放占用后 `RetryHotkeys` 只恢复已保存组合，不写配置；
+- `SetHotkeys <generation> <hotkeys-json>` 必须先保留旧注册并准备全部新组合，再原子写入主配置，最后发布
+  新动作映射并清理旧注册。准备失败、generation 冲突和写盘失败保持旧配置、旧注册及代次；成功恰好推进
+  一次控制 generation，但不推进只面向渲染配置的 generation。提交后激活无法确认或清理失败必须返回
+  可诊断错误，并以已保存配置为权威要求重启；
+- 四项动作分别覆盖暂停／恢复、切换常驻拖尾、下一个特效预设和退出 Host。重新绑定后排队中的旧
+  `WM_HOTKEY` 不得被解释为新动作；清除绑定必须释放系统注册。`MOD_NOREPEAT` 的长按行为仍需真实 Win32
+  人工检查，单元测试不能替代系统消息行为；
+- 录制期间旧注册保持占有但动作被抑制，候选只进入草稿。只有匹配的非零 capture token 查询续期；
+  失焦、取消、30 秒总时限或 5 秒未续期结束录制并恢复动作。空闲状态查询不得发送 token `0` 作为续期；
+- Control Center 必须在快捷键保存前提交待处理的普通配置 patch，拒绝重复绑定，保留离页草稿，离开页面、
+  断线和关闭时结束录制。外部客户端修改绑定后禁用保存，直到撤销或基于权威状态重新录制；Host 已保存
+  状态与草稿相同时必须收敛 generation 和 dirty 状态。关闭时的保存/丢弃/取消、离线丢弃提示，以及
+  “重置默认”保留已保存快捷键均需人工检查；
+- `GetHotkeyState` 的完整状态组必须严格解析；支持报告固定验证 `Hotkeys.StateScope=startup`、注册掩码、
+  四项 `Registered/Error`、`CleanupError` 和 `Exit.PollingFallback=disabled`。该组是启动快照，不得用来
+  宣称导出报告时的实时注册状态；生产代码和文档不得再提供固定 F12 或轮询退出合同。
 
 ### Host-owned effects-only Profile 合同
 
@@ -756,6 +782,18 @@ Windows SDK `10.0.19041.0`、`10.0.22621.0`、`10.0.26100.0` 三档 CI 均已通
 使用 annotated tag，只上传 Full 四资产，并在发布后按相同文件名回下载复核哈希；Slim 只用于
 源码验证。
 
+### 5.5 v0.2.10 全局快捷键发布合同
+
+0.2.10 将主配置升级到 schema 20，并增加原生全局快捷键控制。发布候选必须通过配置/IPC/HostState、
+Host 事务、Win32 进程边界、支持报告和 Control Center 命令测试；人工验收至少覆盖四项动作、
+`MOD_NOREPEAT` 长按、重复/占用组合、录制取消/失焦/30 秒超时、断线、重试、关闭草稿选择，以及重置默认
+保留已保存快捷键。任何配置已写入后的激活或清理异常都必须显示重启指引。
+
+正式发布前还必须记录 Full `release-verify`、Slim `slim-release-verify` 和 Windows SDK
+`10.0.19041.0`/`10.0.22621.0`/`10.0.26100.0` CI 的精确结果；未记录前不得写成已通过。GitHub Release
+只上传 Full 便携 ZIP、ZIP 哈希、安装器和安装器哈希四个资产，并在发布后回下载复核；Slim 仅做源码
+构建与本地验证，不生成或上传预编译资产。本节不改变 0.2.6/0.2.7 的 schema 19 ROI 历史证据或结论。
+
 ## 6. 需求追踪
 
 | 合同 | ADR | Spike | Validation suite |
@@ -767,7 +805,7 @@ Windows SDK `10.0.19041.0`、`10.0.22621.0`、`10.0.26100.0` 三档 CI 均已通
 | Golden/numerics | ADR-005 | all | all suites |
 | ROI/mip phase | ADR-006 | opt-in full Bloom pyramid ROI + verified dirty Present + per-frame full-screen fallback | VAL-ROI |
 | Temporal validity | ADR-007 | SPK-002, SPK-004 | VAL-TEMPORAL |
-| Host effects-only Profile | ADR-008 | 不适用 | config/fx-profile-store/host-control/host-state tests |
+| Host 产品控制面（effects-only Profile / 全局快捷键） | ADR-008 | 不适用 | config/fx-profile-store/hotkey-process/host-control/host-state/runtime-diagnostics tests |
 
 比较类型固定为：整数/状态机 exact；确定性 CPU simulation exact；FP32 abs/rel epsilon；FP16 GPU
 max/mean/p99.9 error；最终视觉使用感知指标加人工评审。具体阈值必须在首次执行前单独提交，失败后不得

@@ -1,4 +1,4 @@
-# 0.2.9 支持与验证范围
+# 0.2.10 支持与验证范围
 
 ## 可以测试的范围
 
@@ -29,8 +29,10 @@
   Control Center、Host、安装状态和最新公开版本，并提供手动检查与固定官方 Release 页面入口。启用随
   Windows 启动后，登录时由 Control Center 复用正常激活路径启动 Host。通知区域菜单可在 Host 已连接时
   直接暂停或恢复特效；断开时该项置灰，操作不会写入持久化配置。
-  所有改动会通过本地 Named Pipe 在下一帧应用到正在运行的 Host；
-  “重置默认”经确认后恢复全部持久化设置，但保留当前暂停或运行状态。
+  “快捷键”页可录制、清除、整组保存和重试暂停／恢复、切换常驻拖尾、下一个特效预设、退出 Host
+  四项全局快捷键；四项默认均未绑定。
+  渲染配置改动会通过本地 Named Pipe 在下一帧应用到正在运行的 Host；快捷键保存事务在响应前完成；
+  “重置默认”经确认后恢复其他持久化设置，但保留 Host 已保存的快捷键和当前暂停或运行状态。
 - 每次输入消费/呈现更新只为按压 FX 使用一份帧边界当前位置，并以同一 `renderTime` 按
   Down→Held→Up 处理普通路径；普通 Up-only 释放帧的 Held 为 false，不应用该帧的按住移动。输入采样率 `0` 不额外
   限频；`1..1000 Hz` 只按消息分派 QPC 推进可选位置采样相位，不影响边沿或模拟时间。
@@ -61,6 +63,9 @@
   DisplayConfig 身份、请求/实际 GPU、HDR/Advanced Color、最终输出策略、WGC 状态和渲染故障；
   这些只是当前运行快照，不能据此宣称 HDR、多显示器、Advanced Color 或物理 nits 输出已经受支持。
   驱动未提供有效亮度时会记录 `luminance-unknown`。
+- 支持报告的 `Hotkeys.StateScope=startup` 固定表示 Host 启动快照：记录注册掩码、四项动作各自的注册结果
+  和 Win32 错误、清理错误。它不是生成报告时的实时快捷键状态；`Exit.PollingFallback=disabled` 表示旧的
+  固定 F12 轮询退出路径未启用。
 - `GetDisplayState` schema 4 通过本地 IPC 返回全局拓扑、配置/应用代次、权威离线 override、逐屏来源身份、
   物理/捕获刷新率、DRR、GPU、颜色查询 HRESULT、SDR white level、已应用特效/HDR/帧率策略、
   请求/解析/实际输出、cadence/output fallback、WGC、故障状态和 Active-FX ROI 工程快照。每个 session
@@ -72,7 +77,7 @@
   伪造的 HDR、刷新率或 ROI 运行状态。
 - `GetState.productVersion` 使用规范 `MAJOR.MINOR.PATCH` 标识 Host 版本。只有 Host 与 Control Center
   完全同版本时设置控件才可写；字段缺失、格式错误或版本不一致时 fail-closed，设置保持禁用，但 Host
-  启动和关闭入口继续可用。该产品版本门不改变配置 schema，0.2.9 仍使用 schema 19。
+  启动和关闭入口继续可用。0.2.10 使用 schema 20，新增全局快捷键配置。
 - WGC FP16 scRGB 背景使用独立的背景 reference white 转入 Unity 相对工作空间；Unity authored color、粒子、
   材质、Trail 和 Bloom 仍在线性 FP16 中计算，最终呈现阶段才使用输出 reference white 选择 SDR/HDR 映射。
   HDR/WCG 下背景白点未知时 WGC 可保持预热，但该背景不得进入合成，当前画面回退 FX-only。
@@ -81,12 +86,13 @@
   副屏立即隐藏并锁存 `Display.Session[n].OutputContractFaulted=true`，普通 Bloom 或输入配置成功不会解除；
   只有实际输出重新满足当前策略、完整拓扑重建或资源恢复才能重新显示。协调屏会先隐藏，再终止 Host，
   防止旧 HDR 表面继续驻留。`Display.Output.RenegotiationExhausted` 会记录请求/实际映射和最终处置。
-- 首次生成的完整 schema 19 配置默认为 `background.mode=background-aware`、
+- 首次生成的完整 schema 20 配置默认为 `background.mode=background-aware`、
   `background.allowSystemBorder=true`、`input.trailOnlyWhilePressed=true`、
   `input.samplingRateHz=0`、`display.hdrEnabled=false`、`performance.framePacing=match-display` 和
-  `performance.activeFxRoiEnabled=false`。
+  `performance.activeFxRoiEnabled=false`；`hotkeys.togglePause`、`toggleAlwaysOnTrail`、`nextFxProfile`、
+  `shutdown` 四项均为 `null`。
   `match-display` 使用目标显示器的精确刷新率，刷新率缺失或无效时回退到 60 FPS；`unlimited` 才保留
-  不设置额外最小帧周期的行为。字段完整的 schema 14 至 18 只按固定迁移链升级到 schema 19；其他版本、
+  不设置额外最小帧周期的行为。字段完整的 schema 14 至 19 只按固定迁移链升级到 schema 20；其他版本、
   缺失或未知字段以及枚举别名均被拒绝。Host 保留无效原文件并以内存中的当前默认值继续运行，不猜测或
   部分套用无效配置。背景感知授权、排除或会话失败时回退内部 FX-only transport；其余模式不启用 WGC。
 - Active-FX ROI 当前裁剪纯特效 Bloom 的 prefilter 和完整 down/up 金字塔，并为最终 resolve 生成逻辑
@@ -198,8 +204,17 @@
   仅开发用的 GPU 捕获工具使用 WIC 写出验证 PNG。
 
 直接运行 `ba-click-fx-desktop.exe` 后，窗口保持鼠标穿透。右键通知区域中的程序图标并选择
-`Exit` 可退出；也可按 `Ctrl+Alt+F12` 或备用的 `Ctrl+Shift+F12`。即使系统热键注册被占用，
-程序仍会轮询同一组合键作为兜底。需要调整效果时，先启动 Host，再从同一目录启动
+`Exit` 可退出；也可在控制中心“快捷键”页绑定退出键。四项默认均未绑定，旧的两个 F12 固定退出键
+及轮询兜底已删除。仅支持 `RegisterHotKey` 原生的单主键／修饰键加单主键，注册统一使用
+`MOD_NOREPEAT`，不承诺透传，F12 禁止绑定。录制保留旧注册但暂时不执行动作，失焦、取消、30 秒总时限
+或连续 5 秒未续期都会结束；系统保留或已占用组合可能无法录制／注册。
+
+“保存全部”按 Host `generation` 提交完整快捷键对象：先保留旧注册并申请新增组合，再原子写盘，最后切换
+动作映射并释放旧组合。注册、代次冲突或写盘失败不改变旧绑定；配置已写入但激活无法确认，或旧注册清理
+失败时，需要按页面提示重启 Host。启动时注册失败不阻止特效运行，页面逐项显示 Win32 错误；“重试注册”
+只处理已保存绑定并显示保存、注册和失败数量。重复绑定不能保存。重置默认设置保留已保存快捷键。
+
+需要调整效果时，先启动 Host，再从同一目录启动
 `BAFX.ControlCenter.exe`；Control Center 与 Host 是独立进程，关闭或退出控制窗口不会停止 Host。启用托盘隐藏后，
 通知区域图标可重新打开、暂停或恢复特效，也可单独退出 Control Center；Explorer 重启后会自动恢复该入口。
 
@@ -234,8 +249,8 @@ Windows“已安装的应用”执行，默认保留安装目录
 
 系统页显示“安装版”表示安装状态完整、产品版本和 Package 版本一致且匹配当前 Control Center，或已
 从同样有效的备份成功恢复；主状态和备份都不存在时显示“便携版”；状态损坏、版本冲突、部分升级或
-只剩备份时显示“安装状态异常”。异常不会被当作便携版，应使用当前版本安装器修复。0.2.9 不提升
-配置 schema，也不迁移或删除现有 `data`、主配置、显示器 override 与 effects-only `fx-profiles`。
+只剩备份时显示“安装状态异常”。异常不会被当作便携版，应使用当前版本安装器修复。0.2.10 仅通过固定链
+迁移主配置并补充空快捷键，不删除现有 `data`、显示器 override 与 effects-only `fx-profiles`。
 
 更新检查严格由用户点击触发。Control Center 不会在启动、连接 Host 或托盘恢复时自动联网，也不会
 自动下载、替换文件或执行安装器；“打开 Release”只前往固定的
@@ -300,7 +315,7 @@ Control Center 不具备该入口，因此首次升级到 0.2.5 仍需用户手�
 - `ba-click-fx-desktop.exe --frame-pacing-stall-probe --quit-after-ms=250`：内部回归入口，以永久不信号句柄
   验证运行截止检查不会被帧等待 timeout 绕过。
 - `BAFX.ControlCenter.exe`：在 Host 已运行时打开 Win32 设置窗口，通过本地 IPC 读取并调整三种
-  渲染模式、FX 参数、分层开关、特效 Profile、Active-FX ROI、HDR 请求和帧率策略，并用
+  渲染模式、FX 参数、分层开关、特效 Profile、全局快捷键、Active-FX ROI、HDR 请求和帧率策略，并用
   `GetDisplayState` 查看逐屏实际状态；系统页显示双方版本、安装状态并提供手动更新检查。它不是独立渲染器。
 
 smoke 只证明当前 Windows 会话中的基本渲染链路可用。运行日志中的

@@ -1,5 +1,35 @@
 # 变更记录
 
+## 0.2.10 - 未发布
+
+### 新增
+
+- Control Center 新增“快捷键”页，可录制、清除、整组保存和重试暂停／恢复、切换常驻拖尾、
+  下一个特效预设、退出 Host 四项全局快捷键；四项默认均未绑定。
+- Host 使用 `RegisterHotKey`/`WM_HOTKEY` 并附加 `MOD_NOREPEAT`。支持单个非修饰主键及
+  Ctrl/Alt/Shift/Win 加一个主键，不区分左右修饰键；重复组合、多普通键、仅修饰键和 F12 被拒绝。
+- 录制期间保留旧注册但不执行动作，候选只进入草稿；失焦、取消、30 秒总时限或连续 5 秒未续期会
+  自动结束。启动时被系统或其他软件占用的已保存组合可在页面查看 Win32 错误并重试注册。
+
+### 保存、兼容性与升级
+
+- `SetHotkeys` 按 Host generation 执行注册准备、原子配置写入、动作映射发布和旧注册清理。注册、代次
+  冲突或写盘失败保持旧配置和旧注册；配置已写入但激活无法确认，或旧注册清理失败时，Control Center
+  以 Host 保存状态为权威并提示重启。重试只处理已保存绑定，不改写配置。
+- 产品版本提升到 0.2.10，主配置升级为 schema 20。字段完整的 schema 14 至 19 按固定链迁移；
+  schema 19 迁移只补充四项空绑定，不删除现有主配置字段、显示器 override、`data` 目录或 effects-only
+  `fx-profiles`。Control Center 的“重置默认”保留 Host 已保存的快捷键和当前暂停状态。
+- 删除旧的 `Ctrl+Alt+F12`、`Ctrl+Shift+F12` 固定退出组合及 `GetAsyncKeyState` 轮询兜底。
+
+### 诊断与发布合同
+
+- 支持报告增加 `Hotkeys.StateScope=startup`、启动注册掩码、四项动作的注册结果/Win32 错误和清理错误；
+  `Exit.PollingFallback=disabled` 明确旧退出轮询未启用。该组字段是 Host 启动快照，不是报告导出时的
+  实时快捷键状态。
+- 0.2.10 发布前仍需通过 Full/Slim 源码 workflow、三档 Windows SDK CI 和快捷键人工验收。正式 GitHub
+  Release 只提供 Full 便携 ZIP、ZIP 哈希、安装器和安装器哈希四个资产；Slim 仅保留源码构建和本地验证，
+  不生成或上传预编译 Release 资产。
+
 ## 0.2.9 - 2026-09-04
 
 ### 修复

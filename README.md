@@ -24,7 +24,7 @@ Release Host 运行时是单文件：Visual C++ 运行库静态链接，Circle�
 DirectComposition 和 D3DCompiler 系统组件。独立的 Control Center 使用纯 Win32 Common Controls，
 不需要 Windows App SDK 或其他旁置运行时。
 
-当前架构版本是 **v0.3**，状态为 **Proposed**。当前源码产品版本为 0.2.9，已具备 Host、原生 Win32
+当前架构版本是 **v0.3**，状态为 **Proposed**。当前源码产品版本为 0.2.10，已具备 Host、原生 Win32
 Control Center、本地 IPC 与完整便携包流程；当前人工特效审核和支持合同以单主屏 SDR 下的三种渲染模式
 为准。涉及 DirectComposition、Windows Graphics Capture、HDR/Advanced Color 和多适配器的结论，
 必须取得仓库中定义的 Spike 证据或接受明确的 fallback 后，相关 ADR 才能标记为 Accepted。
@@ -33,6 +33,8 @@ Host 现在会把主协调屏摘要和稳定排序的逐显示器运行状态写
 `GetDisplayState` schema 4 提供拓扑完整性、配置/应用代次、来源身份、物理/捕获刷新率、DRR、GPU、
 颜色查询 HRESULT、SDR white level、请求/解析/实际输出、cadence/output fallback、WGC、故障状态，以及
 每个显示会话近 5 秒的 Active-FX ROI primary/recording-rebuild 工程快照。
+报告还固定记录 Host 启动时的快捷键注册掩码、四项注册结果/Win32 错误与清理错误，并以
+`Hotkeys.StateScope=startup` 明确其不是导出时的实时状态。
 Control Center 只展示 Host 报告的实际能力；未知能力保持未知，不会根据用户请求或代码路径伪装成已支持。
 这些字段只用于后续 HDR/显示 Spike 的能力证据；`Support.HDR=not-supported` 在完整输出矩阵通过前保持
 不变，亮度为零时也会显式标记为未知，而不会把零值解释成显示器真实亮度。
@@ -73,7 +75,7 @@ Trail 和 Bloom 继续按游戏合同在线性 FP16 中计算。最终呈现阶�
 - [docs/SPIKES.md](docs/SPIKES.md)：四个必须执行的硬件/API Spike。
 - [docs/VALIDATION.md](docs/VALIDATION.md)：测试层级、Golden Oracle 和发布门槛。
 - [docs/UNITY_REFERENCE.md](docs/UNITY_REFERENCE.md)：游戏解包资源、Unity 重建工程与 Golden 的证据边界。
-- [SUPPORT.md](SUPPORT.md)：0.2.9 的可测试范围、退出方式和明确排除项。
+- [SUPPORT.md](SUPPORT.md)：0.2.10 的可测试范围、退出方式和明确排除项。
 - [tools/package-test-bundle.ps1](tools/package-test-bundle.ps1)：构建并生成便携 ZIP，同时调用完整性验证。
 
 ## 项目状态
@@ -140,8 +142,8 @@ Unity 材质 shader、MRT、FP16 预乘交换链和 DirectComposition present。
 build\x64\src\desktop\Debug\ba-click-fx-desktop.exe --demo-click
 ```
 
-Overlay 不抢焦点且保持鼠标穿透；右键通知区域图标可退出，也可按 `Ctrl+Alt+F12` 或备用的
-`Ctrl+Shift+F12`。即使组合键已被其他软件注册，轮询兜底仍会识别它。当前 smoke 仍不等同于
+Overlay 不抢焦点且保持鼠标穿透；右键通知区域图标可退出，也可在控制中心的“快捷键”页绑定退出键。
+快捷键默认全部未绑定，旧的两个固定 F12 退出组合和轮询兜底已移除。当前 smoke 仍不等同于
 HDR、跨适配器或 WGC 的 Spike 已通过。
 
 ### 便携版
@@ -158,7 +160,7 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File .\tools\package-test-bundle.ps1
 `BAFX.ControlCenter.exe`。Control Center 只依赖 Windows 自带的 User32、Comctl32 和配置 IPC，
 可以直接复制该 EXE 运行，但需要与 Host 放在同一目录才能使用“启动 Host”按钮。连接后同一按钮会
 切换为“关闭 Host”，通过 IPC 请求正常退出，并等待 Host 的单实例生命周期真正结束后才允许再次启动。
-“重置默认”会在确认后一次性恢复全部持久化设置，不改变当前的暂停或运行状态。
+“重置默认”会在确认后一次性恢复其他持久化设置，保留 Host 已保存的快捷键，不改变当前暂停或运行状态。
 
 ### 轻量视觉审核包
 
@@ -207,12 +209,12 @@ Identity 安装版则将这些文件和目录放入同一目录下可写的 `dat
 `%LOCALAPPDATA%`、当前工作目录或其他用户目录保存数据。Host 使用
 `Local\BAFX.Host.v1` 互斥体保证单实例。
 
-首次生成的 schema 19 配置将 `background.mode` 设为 `background-aware`、
+首次生成的 schema 20 配置将 `background.mode` 设为 `background-aware`、
 `background.allowSystemBorder` 设为 `true`、`display.hdrEnabled` 设为 `false`，并以
 `performance.framePacing=match-display`、`input.trailOnlyWhilePressed=true`、`input.samplingRateHz=0`
 保持跟随显示器刷新率、按住拖尾且不额外限制输入 Move。显示刷新率缺失或无效时，
 `match-display` 保守回退到 60 FPS；只有显式选择 `unlimited` 才不设置额外最小帧周期。
-当前配置要求字段完整的显式 `schemaVersion=19`；14 至 18 会按固定顺序迁移到当前版本，
+当前配置要求字段完整的显式 `schemaVersion=20`；14 至 19 会按固定顺序迁移到当前版本，
 其他版本、缺少 section、未知字段和枚举别名都会被拒绝。Host 记录错误后仅在内存中使用当前默认值，
 不会猜测未知格式。只有
 `background-aware` 会启用 WGC；WGC 或捕获排除路径失败时，Host 将当前批次回退到内部
@@ -226,7 +228,7 @@ FX-only，不会先启动带黄色边框的会话。无论该开关如何设置�
 优先级，任何自排除冲突都必须回退 FX-only。
 
 `BAFX.ControlCenter.exe` 已作为独立的 Win32 进程接入该 Pipe。Host 保持运行时，Control Center
-可以读取状态、暂停或恢复特效。四个顶层页面分别为“基础”“高级”“显示与性能”和“系统”。基础页提供启用状态、
+可以读取状态、暂停或恢复特效。五个顶层页面分别为“基础”“高级”“显示与性能”“快捷键”和“系统”。基础页提供启用状态、
 点击特效、鼠标拖尾、拖尾常驻、完整/核心性能模式、效果大小、拖尾长度、拖尾宽度、输入采样率上限、Bloom 强度与 Bloom 质量，
 并管理背景模式、指针排除和系统捕获边框；右侧的特效预设区可以选择四个内置 Profile，或按名称应用、
 保存和删除自定义 effects-only Profile。高级页再按“时间与透明度”“粒子与材质”
@@ -272,7 +274,7 @@ Host 和 Control Center 从 0.2.5 起共享同一产品版本合同。Host 的 `
 “打开 Release”始终打开固定的
 [官方最新 Release 页面](https://github.com/CialloKing/ba-click-fx-desktop/releases/latest)，
 不采用网络响应中的资产 URL 或跳转目标。
-调整结果在下一帧交给 Host。“拖尾常驻”默认关闭；开启后
+渲染配置调整在下一帧交给 Host；快捷键保存则在 IPC 响应前完成注册准备、原子写盘和切换。“拖尾常驻”默认关闭；开启后
 无需按住鼠标，普通移动也会生成纯拖尾，但不会伪造点击圆盘或圆环。这是桌面版的原生产品增强，
 不属于游戏原脚本的按压 FX 路径。数值控件会合并连续拖动后的写入，避免为每个滑块像素都写一次配置。
 `effects.bloomIntensity` 是 Unity Bloom 强度标量，默认值为 `1.7`、有效范围为 `0..10`，不是相对 `1.0` 的倍率。
@@ -288,8 +290,8 @@ Active-FX ROI 旧 capture schema 2/3 与对应报告的 `FAIL` 是历史结果�
 将重复反映同一同步等待的四项 Frame/Present 条件改为 non-blocking advisory；真实硬件性能与输入延迟
 仍为 `Not Run`，因此当前不声明整机提速。采集器仍会在开始及每个 ABBA 块前检查系统空闲度并 fail-closed。
 
-控制中心的“重置默认”按钮会先请求确认，再用内置默认 schema 整体替换持久化配置。它不会恢复已经
-暂停的特效；需要继续显示时仍应单独点击“恢复特效”。
+控制中心的“重置默认”按钮会先请求确认，再用内置默认 schema 替换快捷键以外的持久化配置。它保留
+Host 已保存的快捷键，也不会恢复已经暂停的特效；需要继续显示时仍应单独点击“恢复特效”。
 
 Host 在每次输入消费/交换链呈现更新中，为按压 FX 锁存一份帧边界当前鼠标位置，并用同一份
 `renderTime` 执行本轮模拟动作。普通调用顺序为 Down→Held→Up；普通 Up-only 释放帧的 Held 为 false，
@@ -326,6 +328,10 @@ GetState
 GetDisplayState
 GetConfig
 GetFxConfig
+GetHotkeyState
+BeginHotkeyCapture
+EndHotkeyCapture 42
+RetryHotkeys
 SetConfig {"generation":1,"path":"effects.globalScale","value":1.25}
 SetConfig {"generation":1,"path":"input.trailOnlyWhilePressed","value":false}
 SetConfig {"generation":1,"path":"input.samplingRateHz","value":30}
@@ -340,6 +346,7 @@ SetFxParam {"generation":1,"path":"effects.diskRadius","value":40}
 SetFxParam {"generation":1,"path":"effects.diskLifetimeMs","value":250}
 SetFxParams {"generation":1,"patch":{"effects.ringsCount":3,"effects.ringsLifetimeMs":700,"effects.ringsRadiusMin":60,"effects.ringsRadiusMax":90,"effects.ringsAngularVelocityMultiplier":12,"effects.ringsRotationDirection":-1}}
 SetFxParams {"generation":1,"patch":{"effects.shardsClickCount":6,"effects.shardsClickLifetimeMinMs":500,"effects.shardsClickLifetimeMaxMs":650,"effects.shardsClickRadius":55,"effects.shardsClickSpeedMin":45,"effects.shardsClickSpeedMax":75,"effects.shardsSizeMin":14,"effects.shardsSizeMax":30}}
+SetHotkeys 1 {"togglePause":{"modifiers":["ctrl"],"key":80},"toggleAlwaysOnTrail":null,"nextFxProfile":null,"shutdown":null}
 SaveFxProfile 1 夜间 柔和
 ApplyFxProfile 2 夜间 柔和
 DeleteFxProfile 3 夜间 柔和
@@ -356,18 +363,45 @@ Shutdown
 Control Center 拒绝。它返回独立运行代次、配置/应用代次、全局拓扑状态、权威离线 override 列表，以及
 每个会话实际应用的特效、HDR、颜色、cadence、输出状态和 Active-FX ROI 近 5 秒不可变工程快照；它不
 修改配置，也不代表其中的实验能力已经完成硬件验收。schema 4 不提供 schema 3 兼容层。
-`SetConfig` 仍接受完整的 schema 19
+`SetConfig` 仍接受完整的 schema 20
 JSON 快照。`GetFxConfig`、`SetFxParam`、原子批量的 `SetFxParams` 和 `ResetFxConfig` 是本项目的原生
 特效控制接口。`GetFxConfig` 返回平面的 `EffectsConfig` 字段，写入路径只接受唯一的 `effects.*`
 命名空间，不接受 Web 别名或额外单位换算。FX 快照不包含 HDR、背景、输入、性能或系统字段；这些
-产品设置只通过 `GetConfig`/`SetConfig` 管理。`ResetFxConfig` 只恢复 `effects`，保留背景、HDR、输入和系统设置；Control Center
-中的“重置默认”则使用完整 schema 恢复全部持久化设置。路径补丁只允许配置库声明的产品字段，代次不匹配会返回
-`generation_conflict`；所有命令均在下一帧由 Host 应用。
+产品设置只通过 `GetConfig`/`SetConfig` 管理。`ResetFxConfig` 只恢复 `effects`，保留背景、HDR、输入和系统设置；
+Control Center 的“重置默认”使用完整 schema 恢复其他持久化设置，同时保留 Host 已保存的整组快捷键。
+路径补丁只允许配置库声明的产品字段，代次不匹配会返回 `generation_conflict`；渲染配置在下一帧应用，
+当前暂停或运行状态不因重置而变化。
 
 `GetState` 的 `productVersion` 是 Host/Control Center 设置兼容门，不是配置 schema 版本。只有它与
 Control Center 自身版本完全一致时，控制面才允许修改设置；缺失、非法或不匹配都 fail-closed。
-Host 生命周期入口不受该门限制。0.2.9 的主配置 schema 仍为 19，现有主配置、显示器 override、
-`data` 目录和 `fx-profiles` 内容不需要迁移或重建。
+Host 生命周期入口不受该门限制。0.2.10 将主配置升级为 schema 20，增加默认全未绑定的 `hotkeys`。
+显示器 override、`data` 目录和 effects-only `fx-profiles` 无需重建。
+
+### 全局快捷键
+
+“快捷键”页支持直接录制、清除、整组保存和重试注册。四项动作是暂停／恢复、切换常驻拖尾、
+下一个特效预设和退出 Host。暂停仅影响运行时；拖尾和预设动作按现有配置流程保存，预设不包含快捷键。
+
+执行仅使用 `RegisterHotKey` / `WM_HOTKEY`，注册统一附加 `MOD_NOREPEAT`。支持单个非修饰主键及
+Ctrl/Alt/Shift/Win 加一个主键，不区分左右修饰键，长按不重复。不支持多普通键、宏或仅修饰键；
+F12 禁止绑定，Win 组合不保证可用。
+注册可能影响其他应用的原按键行为，不提供输入透传。重复组合被拒绝，`A` 与 `Ctrl+A` 则可分别绑定。
+
+录制期间保留旧注册但不执行动作；候选只进入草稿。失焦、取消、30 秒超时或 5 秒失联后结束录制。
+其他软件或系统占用的组合可能无法录到，请换一组。保存按当前 Host `generation` 执行：保留旧注册并先
+申请全部新增组合，随后原子写入完整配置，最后启用新绑定并释放不再使用的旧注册。注册、代次冲突或
+写盘失败均不改变旧绑定；配置已经写入但激活结果无法确认，或旧注册清理失败时，页面会确认权威配置并
+明确提示重启 Host。启动注册失败不会阻止特效运行，“重试注册”只重试已保存绑定，并汇总已保存、已注册
+和失败数量。
+
+支持报告记录 `Hotkeys.StateScope=startup`，以及 Host 启动时的注册掩码、四项动作的注册结果和 Win32
+错误、清理错误；它不是导出瞬间的实时状态。`Exit.PollingFallback=disabled` 明确表明旧固定 F12 轮询
+退出路径已删除。
+
+新增 IPC：`SetHotkeys <generation> <hotkeys-json>`、`GetHotkeyState [capture-token]`、`RetryHotkeys`、
+`BeginHotkeyCapture`、`EndHotkeyCapture <capture-token>`。`GetHotkeyState` 返回标准 Host 状态加完整的
+快捷键状态组；绑定通过 `hotkeysJson` 字符串携带，`hotkeyRegisteredMask` 的低四位依次对应上述四个动作，
+`hotkeyError0` 至 `hotkeyError3` 为 Win32 注册错误码。仅匹配的非零 token 查询才会续期录制。
 
 特效 Profile 同样由 Host 持有，内置且不可删除的四项是“Unity 原版”“轻量”“纯点击”和“纯拖尾”。
 `GetState` 通过 `fxProfileCatalog` 返回内置/自定义目录，通过 `activeFxProfile` 返回当前特效与某一
