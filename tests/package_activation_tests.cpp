@@ -214,6 +214,7 @@ BAFX_TEST(package_activation_state_reads_complete_file)
 {
     TemporaryInstallDirectory directory;
     directory.writeState(makeInstallState());
+    directory.writeState(makeInstallState(), true);
 
     const auto result = bafx::control_center::readPackageActivationState(
         directory.path());
@@ -251,6 +252,7 @@ BAFX_TEST(package_activation_state_reads_utf8_bom_file)
 {
     TemporaryInstallDirectory directory;
     directory.writeState("\xEF\xBB\xBF" + makeInstallState());
+    directory.writeState("\xEF\xBB\xBF" + makeInstallState(), true);
 
     const auto result = bafx::control_center::readPackageActivationState(
         directory.path());
@@ -259,7 +261,7 @@ BAFX_TEST(package_activation_state_reads_utf8_bom_file)
     BAFX_CHECK(result.succeeded());
 }
 
-BAFX_TEST(package_activation_state_uses_backup_when_primary_is_corrupt)
+BAFX_TEST(package_activation_state_rejects_corrupt_primary_with_backup)
 {
     TemporaryInstallDirectory directory;
     directory.writeState("{broken");
@@ -269,13 +271,10 @@ BAFX_TEST(package_activation_state_uses_backup_when_primary_is_corrupt)
         directory.path());
 
     BAFX_CHECK(result.installStatePresent);
-    BAFX_CHECK(result.succeeded());
     BAFX_CHECK(
         result.status
-        == bafx::control_center::PackageActivationStateStatus::BackupRecovered);
-    BAFX_CHECK(result.recoveredFromBackup());
-    BAFX_CHECK(result.identity->appUserModelId
-        == L"CialloKing.BaClickFxDesktop_abc123!BaClickFxDesktop");
+        == bafx::control_center::PackageActivationStateStatus::RepairRequired);
+    BAFX_CHECK(!result.succeeded());
 }
 
 BAFX_TEST(package_activation_state_does_not_mask_primary_partial_upgrade)
@@ -310,10 +309,34 @@ BAFX_TEST(package_activation_state_classifies_missing_primary_with_backup)
     BAFX_CHECK(!result.succeeded());
     BAFX_CHECK(
         result.status
-        == bafx::control_center::PackageActivationStateStatus::PartialUpgrade);
+        == bafx::control_center::PackageActivationStateStatus::RepairRequired);
     BAFX_CHECK(
         result.source
         == bafx::control_center::PackageActivationStateSource::Backup);
+}
+
+BAFX_TEST(package_activation_state_rejects_mismatched_transaction_digest)
+{
+    TemporaryInstallDirectory directory;
+    directory.writeState(makeInstallState());
+    std::string backup = makeInstallState();
+    const std::size_t transactionPosition = backup.find(
+        "0123456789abcdef0123456789abcdef");
+    BAFX_CHECK(transactionPosition != std::string::npos);
+    backup.replace(
+        transactionPosition,
+        std::string("0123456789abcdef0123456789abcdef").size(),
+        "fedcba9876543210fedcba9876543210");
+    directory.writeState(backup, true);
+
+    const auto result = bafx::control_center::readPackageActivationState(
+        directory.path());
+
+    BAFX_CHECK(result.installStatePresent);
+    BAFX_CHECK(!result.succeeded());
+    BAFX_CHECK(
+        result.status
+        == bafx::control_center::PackageActivationStateStatus::RepairRequired);
 }
 
 BAFX_TEST(package_activation_state_reports_both_corrupt_files)

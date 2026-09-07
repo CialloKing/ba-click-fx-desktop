@@ -3,6 +3,7 @@
 #include "startup_config.hpp"
 
 #include "bafx/config/config.hpp"
+#include "product/version.hpp"
 
 #include <objbase.h>
 
@@ -54,10 +55,33 @@ public:
         std::ofstream state(
             path_ / L"Installer" / L"INSTALL-STATE.json",
             std::ios::binary);
-        state << "{}";
+        state << R"json({
+  "schema": 2,
+  "transactionId": "0123456789abcdef0123456789abcdef",
+  "packageFamilyName": "CialloKing.BaClickFxDesktop_abc123",
+  "applicationId": "BaClickFxDesktop",
+  "productVersion": ")json"
+              << bafx::product::version
+              << R"json(",
+  "packageVersion": ")json"
+              << bafx::product::version
+              << R"json(.0"
+})json";
         if (!state)
         {
             throw std::runtime_error("Could not write the install marker.");
+        }
+        state.close();
+        std::ifstream primary(
+            path_ / L"Installer" / L"INSTALL-STATE.json",
+            std::ios::binary);
+        std::ofstream backup(
+            path_ / L"Installer" / L"INSTALL-STATE.json.bak",
+            std::ios::binary);
+        backup << primary.rdbuf();
+        if (!backup)
+        {
+            throw std::runtime_error("Could not write the install-state backup.");
         }
     }
 

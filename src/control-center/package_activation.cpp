@@ -44,6 +44,8 @@ public:
         std::optional<std::string> applicationId;
         std::optional<std::string> productVersion;
         std::optional<std::string> packageVersion;
+        std::optional<std::string> transactionId;
+        std::optional<std::string> stateDigest;
         bool hasSchema = false;
         unsigned int schema = 0U;
 
@@ -124,6 +126,30 @@ public:
                     return fail(L"Install state packageVersion must be a string.");
                 }
             }
+            else if (*key == "transactionId")
+            {
+                if (transactionId.has_value())
+                {
+                    return fail(L"Install state repeats transactionId.");
+                }
+                transactionId = parseString();
+                if (!transactionId.has_value())
+                {
+                    return fail(L"Install state transactionId must be a string.");
+                }
+            }
+            else if (*key == "stateDigest")
+            {
+                if (stateDigest.has_value())
+                {
+                    return fail(L"Install state repeats stateDigest.");
+                }
+                stateDigest = parseString();
+                if (!stateDigest.has_value())
+                {
+                    return fail(L"Install state stateDigest must be a string.");
+                }
+            }
             else if (!skipPrimitive())
             {
                 return fail(L"Install state has an unsupported property value.");
@@ -197,7 +223,9 @@ public:
         result.identity = PackageActivationIdentity{
             std::move(appUserModelId),
             std::move(*productVersion),
-            std::move(*packageVersion)};
+            std::move(*packageVersion),
+            transactionId.value_or(std::string{}),
+            stateDigest.value_or(std::string{})};
         if (*parsedProduct != *parsedPackage)
         {
             result.status = PackageActivationStateStatus::VersionMismatch;
@@ -550,57 +578,84 @@ PackageActivationIdentityResult readPackageActivationState(
     primary.source = primary.installStatePresent
         ? PackageActivationStateSource::Primary
         : PackageActivationStateSource::None;
-    if (primary.status != PackageActivationStateStatus::Corrupt
-        && primary.status != PackageActivationStateStatus::Missing)
-    {
-        // A syntactically valid primary is authoritative. Falling back on a
-        // stale backup would hide a real cross-version or partial upgrade.
-        return primary;
-    }
-
     PackageActivationIdentityResult backup = readPackageActivationStateFile(
         installerDirectory / L"INSTALL-STATE.json.bak");
     backup.source = backup.installStatePresent
         ? PackageActivationStateSource::Backup
         : PackageActivationStateSource::None;
-    if (primary.status == PackageActivationStateStatus::Missing)
+    const bool primaryValid = primary.status == PackageActivationStateStatus::Valid
+        || primary.status == PackageActivationStateStatus::PartialUpgrade;
+    const bool backupValid = backup.status == PackageActivationStateStatus::Valid
+        || backup.status == PackageActivationStateStatus::PartialUpgrade;
+    if (primaryValid && backupValid)
     {
-        if (backup.status == PackageActivationStateStatus::Missing)
+        const bool sameTransaction = primary.identity.has_value()
+            && backup.identity.has_value()
+            && primary.identity->transactionId
+                == backup.identity->transactionId
+            && !primary.identity->transactionId.empty();
+        const bool sameDigest = primary.identity.has_value()
+            && backup.identity.has_value()
+            && primary.identity->stateDigest
+                == backup.identity->stateDigest
+            && (primary.identity->stateDigest.empty()
+                || (!primary.identity->transactionId.empty()
+                    && !backup.identity->transactionId.empty()));
+        const bool sameLegacyIdentity = primary.identity.has_value()
+            && backup.identity.has_value()
+            && primary.identity->transactionId.empty()
+            && backup.identity->transactionId.empty()
+            && primary.identity->stateDigest.empty()
+            && backup.identity->stateDigest.empty()
+            && primary.identity->appUserModelId
+                == backup.identity->appUserModelId
+            && primary.identity->productVersion
+                == backup.identity->productVersion
+            && primary.identity->packageVersion
+                == backup.identity->packageVersion;
+        const bool sameIdentity =
+            (sameTransaction && sameDigest) || sameLegacyIdentity;
+        if (sameIdentity)
         {
             return primary;
         }
-        backup.installStatePresent = true;
-        backup.source = PackageActivationStateSource::Backup;
-        if (backup.status == PackageActivationStateStatus::Valid
-            || backup.status == PackageActivationStateStatus::PartialUpgrade)
-        {
-            backup.status = PackageActivationStateStatus::PartialUpgrade;
-            backup.error =
-                L"The primary install state is missing while its backup remains; "
-                L"the installation may be only partially upgraded.";
-        }
-        return backup;
+        primary.installStatePresent = true;
+        primary.status = PackageActivationStateStatus::RepairRequired;
+        primary.error =
+            L"The install state and its backup belong to different transactions; "
+            L"run the installer repair before starting Host.";
+        return primary;
     }
-
-    if (backup.status == PackageActivationStateStatus::Valid)
-    {
-        backup.status = PackageActivationStateStatus::BackupRecovered;
-        backup.source = PackageActivationStateSource::Backup;
-        return backup;
-    }
-    if (backup.status == PackageActivationStateStatus::Missing)
+    if (primary.status == PackageActivationStateStatus::Missing
+        && backup.status == PackageActivationStateStatus::Missing)
     {
         return primary;
     }
-    if (backup.status == PackageActivationStateStatus::Corrupt)
+    if (primaryValid || backupValid)
+    {
+        PackageActivationIdentityResult result = primaryValid ? primary : backup;
+        result.installStatePresent = true;
+        result.source = primaryValid
+            ? PackageActivationStateSource::Primary
+            : PackageActivationStateSource::Backup;
+        result.status = PackageActivationStateStatus::RepairRequired;
+        result.error =
+            L"The protected install state is not a complete matching pair; "
+            L"run the installer repair before starting Host.";
+        return result;
+    }
+    if (primary.status == PackageActivationStateStatus::Corrupt
+        && backup.status == PackageActivationStateStatus::Corrupt)
     {
         primary.error += L" Backup state is also invalid: ";
         primary.error += backup.error;
         return primary;
     }
-
-    backup.error = L"The primary install state is corrupt. " + backup.error;
-    return backup;
+    primary.installStatePresent = true;
+    primary.status = PackageActivationStateStatus::RepairRequired;
+    primary.error =
+        L"The protected install state pair is incomplete; run the installer repair.";
+    return primary;
 }
 
 PackageActivationResult activatePackagedHost(
