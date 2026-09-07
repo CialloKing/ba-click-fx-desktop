@@ -3681,39 +3681,68 @@ if ($Phase -eq 'Rollback')
     $pendingState = Assert-PendingStateObject -State $pendingState -InstallRoot $installRoot
 
     # Finalize writes the install-state pair before it marks the journal as
-    # committed. A crash between those writes must finish cleanup, not roll
-    # back an installation that is already committed.
+    # committed. A crash in either direction must be classified explicitly:
+    # a valid matching pair is already committed, while a present but damaged
+    # pair is ambiguous and must remain available for repair.
+    $commitState = if ($null -ne $pendingState.PSObject.Properties['commitState'])
+    {
+        [string]$pendingState.commitState
+    }
+    else
+    {
+        'prepared'
+    }
+    $primaryStatePath = Join-Path $installRoot 'Installer\INSTALL-STATE.json'
+    $backupStatePath = "$primaryStatePath.bak"
+    $statePairPresent =
+        (Test-Path -LiteralPath $primaryStatePath -PathType Leaf) -or
+        (Test-Path -LiteralPath $backupStatePath -PathType Leaf)
     $committedState = $null
-    try
-    {
-        $committedState = Read-OldInstallState `
-            -InstallRoot $installRoot `
-            -UserSid ([string]$pendingState.userSid)
-    }
-    catch
-    {
-        $committedState = $null
-    }
-    if ($null -ne $committedState -and
-        [string]$committedState.transactionId -eq
-            [string]$pendingState.transactionId)
+    if ($statePairPresent -or $commitState -eq 'committed')
     {
         try
         {
-            $script:InstallerStep = 'retry-committed-cleanup'
-            Complete-CommittedPendingTransaction `
-                -State $pendingState `
+            $committedState = Read-OldInstallState `
                 -InstallRoot $installRoot `
-                -PendingPath $machineStateFullPath
+                -UserSid ([string]$pendingState.userSid)
         }
         catch
         {
             Stop-InstallerWithFailure `
                 -ErrorRecord $_ `
-                -Step 'retry-committed-cleanup' `
+                -Step 'classify-committed-state-pair' `
                 -ExitCode 1001
         }
-        exit 0
+        if ($null -ne $committedState -and
+            [string]$committedState.transactionId -eq
+                [string]$pendingState.transactionId)
+        {
+            try
+            {
+                $script:InstallerStep = 'retry-committed-cleanup'
+                Complete-CommittedPendingTransaction `
+                    -State $pendingState `
+                    -InstallRoot $installRoot `
+                    -PendingPath $machineStateFullPath
+            }
+            catch
+            {
+                Stop-InstallerWithFailure `
+                    -ErrorRecord $_ `
+                    -Step 'retry-committed-cleanup' `
+                    -ExitCode 1001
+            }
+            exit 0
+        }
+        if ($commitState -eq 'committed')
+        {
+            $ambiguousCommit = [System.InvalidOperationException]::new(
+                'The pending transaction is marked committed, but the matching install-state pair is unavailable.')
+            Stop-InstallerWithFailure `
+                -ErrorRecord ([Management.Automation.ErrorRecord]::new($ambiguousCommit)) `
+                -Step 'classify-committed-state-pair' `
+                -ExitCode 1001
+        }
     }
 
     $script:InstallerStep = 'rollback-pending-transaction'
