@@ -1083,8 +1083,26 @@ function Test-SparsePackageContract
         -Description 'undefined uninstall state ACL repair helper'
     Assert-TextContains `
         -Text $uninstaller `
-        -Pattern 'foreach\s*\(\$installStatePath\s+in\s+@\(\$statePath,\s*"\$statePath\.bak"\)\)[\s\S]*Test-Path[\s\S]*Remove-Item' `
+        -Pattern 'function\s+Remove-ProtectedInstallStatePair[\s\S]*primaryAcl[\s\S]*backupAcl[\s\S]*Assert-InstallStatePair' `
         -Description 'guarded primary and backup install-state cleanup'
+    Assert-TextContains `
+        -Text $uninstaller `
+        -Pattern 'Remove-ProtectedInstallStatePair\s+-Path\s+\$statePath' `
+        -Description 'uninstall uses the transactional state-pair cleanup helper'
+
+    $machineInstaller = Read-RepositoryText -RelativePath 'tools/installer/install-machine.ps1'
+    Assert-TextContains `
+        -Text $machineInstaller `
+        -Pattern 'Read-OldInstallState[\s\S]*SkipPayloadIntegrity[\s\S]*filesCommitted' `
+        -Description 'pending recovery classifies a torn state pair from its journal'
+    Assert-TextContains `
+        -Text $machineInstaller `
+        -Pattern '\$schema\s+-eq\s+2[\s\S]*templateSha256' `
+        -Description 'schema 1 pending recovery does not require the schema 2 template hash'
+    Assert-TextContains `
+        -Text $registration `
+        -Pattern '\$schema\s+-eq\s+2[\s\S]*templateSha256' `
+        -Description 'user-context registration accepts legacy schema 1 pending state'
     $uninstallerAst = Get-ParsedScript `
         -RelativePath 'tools/installer/unregister-machine.ps1'
     $profileHiveResolver = Get-FunctionText `

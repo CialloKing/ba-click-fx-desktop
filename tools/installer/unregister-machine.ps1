@@ -682,6 +682,102 @@ function Read-InstallStateWithBackup
     return $primary
 }
 
+function Remove-ProtectedInstallStatePair
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path
+    )
+
+    $backupPath = "$Path.bak"
+    foreach ($statePath in @($Path, $backupPath))
+    {
+        if (-not (Test-Path -LiteralPath $statePath -PathType Leaf))
+        {
+            throw "Protected install-state file is missing before deletion: $statePath"
+        }
+    }
+
+    # Keep exact bytes and ACLs outside the install directory. If the second
+    # delete fails, restoring the pair preserves the uninstall recovery proof.
+    $temporaryRoot = Join-Path ([IO.Path]::GetTempPath()) `
+        ('bafx-uninstall-state-' + [Guid]::NewGuid().ToString('N'))
+    New-Item -ItemType Directory -Path $temporaryRoot -Force | Out-Null
+    $primaryTemporaryPath = Join-Path $temporaryRoot 'INSTALL-STATE.json'
+    $backupTemporaryPath = Join-Path $temporaryRoot 'INSTALL-STATE.json.bak'
+    $primaryAcl = (Get-Acl -LiteralPath $Path).Sddl
+    $backupAcl = (Get-Acl -LiteralPath $backupPath).Sddl
+    Copy-Item -LiteralPath $Path -Destination $primaryTemporaryPath -Force
+    Copy-Item -LiteralPath $backupPath -Destination $backupTemporaryPath -Force
+    $primaryBytes = [Int64](Get-Item -LiteralPath $Path -Force).Length
+    $backupBytes = [Int64](Get-Item -LiteralPath $backupPath -Force).Length
+    $primaryHash = (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash
+    $backupHash = (Get-FileHash -LiteralPath $backupPath -Algorithm SHA256).Hash
+
+    try
+    {
+        Remove-Item -LiteralPath $Path -Force
+        if (Test-Path -LiteralPath $Path -PathType Leaf)
+        {
+            throw 'The primary protected install-state file remains after deletion.'
+        }
+        Remove-Item -LiteralPath $backupPath -Force
+        if (Test-Path -LiteralPath $backupPath -PathType Leaf)
+        {
+            throw 'The backup protected install-state file remains after deletion.'
+        }
+    }
+    catch
+    {
+        $deleteError = $_
+        $restoreError = $null
+        try
+        {
+            Copy-Item -LiteralPath $primaryTemporaryPath -Destination $Path -Force
+            $primaryRestoredAcl = Get-Acl -LiteralPath $Path
+            $primaryRestoredAcl.SetSecurityDescriptorSddlForm($primaryAcl)
+            Set-Acl -LiteralPath $Path -AclObject $primaryRestoredAcl
+
+            Copy-Item -LiteralPath $backupTemporaryPath -Destination $backupPath -Force
+            $backupRestoredAcl = Get-Acl -LiteralPath $backupPath
+            $backupRestoredAcl.SetSecurityDescriptorSddlForm($backupAcl)
+            Set-Acl -LiteralPath $backupPath -AclObject $backupRestoredAcl
+
+            Assert-ProtectedStateAcl -Path $Path
+            Assert-ProtectedStateAcl -Path $backupPath
+            if ([Int64](Get-Item -LiteralPath $Path -Force).Length -ne $primaryBytes -or
+                (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash -ne $primaryHash)
+            {
+                throw 'The restored primary install-state file does not match its saved bytes.'
+            }
+            if ([Int64](Get-Item -LiteralPath $backupPath -Force).Length -ne $backupBytes -or
+                (Get-FileHash -LiteralPath $backupPath -Algorithm SHA256).Hash -ne $backupHash)
+            {
+                throw 'The restored backup install-state file does not match its saved bytes.'
+            }
+            $restoredPrimary = Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json
+            $restoredBackup = Get-Content -LiteralPath $backupPath -Raw | ConvertFrom-Json
+            Assert-InstallStatePair -Primary $restoredPrimary -Backup $restoredBackup
+        }
+        catch
+        {
+            $restoreError = $_
+        }
+        if ($null -ne $restoreError)
+        {
+            throw "Protected install-state deletion failed and recovery failed: $($restoreError.Exception.Message)"
+        }
+        throw $deleteError
+    }
+    finally
+    {
+        if (Test-Path -LiteralPath $temporaryRoot -PathType Container)
+        {
+            Remove-Item -LiteralPath $temporaryRoot -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+}
+
 function Remove-InstalledPayloadFiles
 {
     param(
@@ -996,17 +1092,7 @@ if (-not (Test-Path -LiteralPath $uninstallCompleteMarkerPath -PathType Leaf))
 }
 
 $script:InstallerStep = 'delete-protected-install-state'
-foreach ($installStatePath in @($statePath, "$statePath.bak"))
-{
-    if (Test-Path -LiteralPath $installStatePath -PathType Leaf)
-    {
-        Remove-Item -LiteralPath $installStatePath -Force
-    }
-    if (Test-Path -LiteralPath $installStatePath -PathType Leaf)
-    {
-        throw "Protected install-state file remains after uninstall: $installStatePath"
-    }
-}
+Remove-ProtectedInstallStatePair -Path $statePath
 
 # Inno deletes Installer after this process exits and verifies the marker. The
 # running PowerShell script therefore never has to remove its own directory.
