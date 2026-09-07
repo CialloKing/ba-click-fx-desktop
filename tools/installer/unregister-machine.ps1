@@ -448,6 +448,180 @@ function Split-Ledger
     )
 }
 
+function Get-StatePropertiesWithoutDigest
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [object]$Value
+    )
+
+    $ordered = [ordered]@{}
+    foreach ($property in $Value.PSObject.Properties)
+    {
+        if ($property.Name -ne 'stateDigest')
+        {
+            $ordered[$property.Name] = $property.Value
+        }
+    }
+    return $ordered
+}
+
+function Get-StateDigest
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [object]$Value
+    )
+
+    $json = Get-StatePropertiesWithoutDigest -Value $Value |
+        ConvertTo-Json -Depth 12
+    $hasher = [Security.Cryptography.SHA256]::Create()
+    try
+    {
+        return ([BitConverter]::ToString($hasher.ComputeHash(
+            [Text.Encoding]::UTF8.GetBytes($json)))).Replace('-', '')
+    }
+    finally
+    {
+        $hasher.Dispose()
+    }
+}
+
+function Assert-InstallStatePair
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [object]$Primary,
+
+        [Parameter(Mandatory = $true)]
+        [object]$Backup
+    )
+
+    $primaryTransaction = [string]$Primary.transactionId
+    $backupTransaction = [string]$Backup.transactionId
+    if ($primaryTransaction -notmatch '^[0-9a-fA-F]{32}$' -or
+        $primaryTransaction -ne $backupTransaction)
+    {
+        throw 'Protected install state primary and backup transactions differ.'
+    }
+    $primaryDigest = [string]$Primary.stateDigest
+    $backupDigest = [string]$Backup.stateDigest
+    if ([string]::IsNullOrWhiteSpace($primaryDigest) -and
+        [string]::IsNullOrWhiteSpace($backupDigest))
+    {
+        if ((Get-StatePropertiesWithoutDigest -Value $Primary |
+                ConvertTo-Json -Depth 12) -ne
+            (Get-StatePropertiesWithoutDigest -Value $Backup |
+                ConvertTo-Json -Depth 12))
+        {
+            throw 'Protected install state primary and backup contents differ.'
+        }
+        return
+    }
+    if ($primaryDigest -notmatch '^[0-9A-Fa-f]{64}$' -or
+        $primaryDigest -ne $backupDigest -or
+        (Get-StateDigest -Value $Primary) -ne $primaryDigest -or
+        (Get-StateDigest -Value $Backup) -ne $backupDigest)
+    {
+        throw 'Protected install state primary and backup digests differ.'
+    }
+}
+
+function Get-CertificateSha256
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [Security.Cryptography.X509Certificates.X509Certificate2]$Certificate
+    )
+
+    $hasher = [Security.Cryptography.SHA256]::Create()
+    try
+    {
+        return ([BitConverter]::ToString($hasher.ComputeHash(
+            $Certificate.RawData))).Replace('-', '')
+    }
+    finally
+    {
+        $hasher.Dispose()
+    }
+}
+
+function Assert-InstallStateIntegrity
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [object]$State,
+
+        [Parameter(Mandatory = $true)]
+        [string]$InstallRoot
+    )
+
+    foreach ($propertyName in @(
+        'schema', 'packageName', 'applicationId', 'publisher',
+        'productVersion', 'packageVersion', 'packageFullName',
+        'packageFamilyName', 'certificateThumbprint',
+        'certificateInstalledBySetup', 'externalLocation',
+        'installedUserSid', 'hostFile', 'hostSha256', 'packageFile',
+        'packageSha256', 'certificateSha256', 'transactionId'))
+    {
+        if ($null -eq $State.PSObject.Properties[$propertyName])
+        {
+            throw "Protected install state is missing: $propertyName"
+        }
+    }
+    if ([int]$State.schema -notin @(1, 2) -or
+        [string]$State.packageName -ne 'CialloKing.BaClickFxDesktop' -or
+        [string]$State.applicationId -ne 'BaClickFxDesktop' -or
+        [string]$State.publisher -ne 'CN=BaClickFx.Local' -or
+        [string]$State.transactionId -notmatch '^[0-9a-fA-F]{32}$')
+    {
+        throw 'Protected install state has unsupported identity data.'
+    }
+    if ([IO.Path]::GetFullPath([string]$State.externalLocation) -ne
+        [IO.Path]::GetFullPath($InstallRoot) -or
+        [string]$State.installedUserSid -notmatch '^S-1-[0-9-]+$')
+    {
+        throw 'Protected install state points outside the installed identity.'
+    }
+    if ([string]$State.hostFile -ne 'ba-click-fx-desktop.exe' -or
+        [string]$State.hostSha256 -notmatch '^[0-9A-Fa-f]{64}$' -or
+        [string]$State.packageSha256 -notmatch '^[0-9A-Fa-f]{64}$' -or
+        [string]$State.certificateSha256 -notmatch '^[0-9A-Fa-f]{64}$' -or
+        [string]$State.certificateThumbprint -notmatch '^[0-9A-Fa-f]{40}$' -or
+        $State.certificateInstalledBySetup -isnot [bool])
+    {
+        throw 'Protected install state contains invalid integrity data.'
+    }
+    $packageFile = [string]$State.packageFile
+    if ([IO.Path]::IsPathRooted($packageFile) -or
+        $packageFile.Contains('..') -or
+        [IO.Path]::GetFileName($packageFile) -ne $packageFile -or
+        $packageFile -notmatch '\.msix$')
+    {
+        throw 'Protected install state has an unsafe package file name.'
+    }
+    $hostPath = Join-Path $InstallRoot ([string]$State.hostFile)
+    $packagePath = Join-Path (Join-Path $InstallRoot 'Identity') $packageFile
+    if (-not (Test-Path -LiteralPath $hostPath -PathType Leaf) -or
+        (Get-FileHash -LiteralPath $hostPath -Algorithm SHA256).Hash -ne
+            [string]$State.hostSha256 -or
+        -not (Test-Path -LiteralPath $packagePath -PathType Leaf) -or
+        (Get-FileHash -LiteralPath $packagePath -Algorithm SHA256).Hash -ne
+            [string]$State.packageSha256)
+    {
+        throw 'Installed payload does not match protected install state.'
+    }
+    $certificate = Get-ChildItem -Path 'Cert:\LocalMachine\TrustedPeople' |
+        Where-Object { $_.Thumbprint -eq [string]$State.certificateThumbprint } |
+        Select-Object -First 1
+    if ($null -eq $certificate -or
+        (Get-CertificateSha256 -Certificate $certificate) -ne
+            [string]$State.certificateSha256)
+    {
+        throw 'Installed certificate does not match protected install state.'
+    }
+}
+
 function Read-InstallStateWithBackup
 {
     param(
@@ -459,49 +633,137 @@ function Read-InstallStateWithBackup
     )
 
     $backupPath = "$Path.bak"
-    $candidates = @(
-        @($Path, $backupPath) |
-            Where-Object { Test-Path -LiteralPath $_ -PathType Leaf }
-    )
-    if ($candidates.Count -eq 0)
+    $primaryExists = Test-Path -LiteralPath $Path -PathType Leaf
+    $backupExists = Test-Path -LiteralPath $backupPath -PathType Leaf
+    if (-not $primaryExists -and -not $backupExists)
     {
         throw 'Protected install state is missing; refusing an imprecise uninstall.'
     }
-    $errors = New-Object Collections.Generic.List[string]
-    foreach ($candidate in $candidates)
+    if (-not $primaryExists -or -not $backupExists)
     {
-        try
+        throw 'Protected install state primary and backup must be present together.'
+    }
+    Assert-ProtectedStateAcl -Path $Path
+    Assert-ProtectedStateAcl -Path $backupPath
+    $primary = Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json
+    $backup = Get-Content -LiteralPath $backupPath -Raw | ConvertFrom-Json
+    Assert-InstallStatePair -Primary $primary -Backup $backup
+    Assert-InstallStateIntegrity -State $primary -InstallRoot $InstallRoot
+    if ($null -eq $primary.PSObject.Properties['ownedCertificateThumbprints'])
+    {
+        $primary | Add-Member -NotePropertyName ownedCertificateThumbprints `
+            -NotePropertyValue ([string]$primary.certificateThumbprint)
+    }
+    if ($null -eq $primary.PSObject.Properties['ownedPackageFiles'])
+    {
+        $primary | Add-Member -NotePropertyName ownedPackageFiles `
+            -NotePropertyValue ([string]$primary.packageFile)
+    }
+    if ($null -eq $primary.PSObject.Properties['certificateOwnership'])
+    {
+        # Legacy states cannot prove ownership; never delete their certificate.
+        $primary | Add-Member -NotePropertyName certificateOwnership `
+            -NotePropertyValue 'unknown'
+    }
+    return $primary
+}
+
+function Remove-InstalledPayloadFiles
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$InstallRoot,
+
+        [Parameter(Mandatory = $true)]
+        [object]$State
+    )
+
+    $knownFiles = @(
+        'ba-click-fx-desktop.exe',
+        'BAFX.ControlCenter.exe',
+        'LICENSE.txt',
+        'SUPPORT.md',
+        'THIRD-PARTY-NOTICES.txt'
+    )
+    foreach ($relativePath in $knownFiles)
+    {
+        $path = Join-Path $InstallRoot $relativePath
+        if (Test-Path -LiteralPath $path -PathType Leaf)
         {
-            Assert-ProtectedStateAcl -Path $candidate
-            $candidateState = Get-Content -LiteralPath $candidate -Raw | ConvertFrom-Json
-            if ([int]$candidateState.schema -notin @(1, 2) -or
-                [string]$candidateState.packageName -ne 'CialloKing.BaClickFxDesktop' -or
-                [string]$candidateState.applicationId -ne 'BaClickFxDesktop' -or
-                [string]$candidateState.publisher -ne 'CN=BaClickFx.Local')
-            {
-                throw 'Protected install state has unsupported identity data.'
-            }
-            if ($null -eq $candidateState.PSObject.Properties['ownedCertificateThumbprints'])
-            {
-                $candidateState | Add-Member -NotePropertyName ownedCertificateThumbprints `
-                    -NotePropertyValue ([string]$candidateState.certificateThumbprint)
-            }
-            if ($null -eq $candidateState.PSObject.Properties['ownedPackageFiles'])
-            {
-                $candidateState | Add-Member -NotePropertyName ownedPackageFiles `
-                    -NotePropertyValue ([string]$candidateState.packageFile)
-            }
-            # Keep the backup immutable until the full state validation and
-            # uninstall transaction succeed. Rewriting a corrupt primary here
-            # would destroy the evidence needed for a later recovery attempt.
-            return $candidateState
+            Remove-Item -LiteralPath $path -Force
         }
-        catch
+        if (Test-Path -LiteralPath $path -PathType Leaf)
         {
-            $errors.Add("$candidate`: $($_.Exception.Message)")
+            throw "Installed payload file remains after uninstall: $relativePath"
         }
     }
-    throw "Protected install state and its backup are invalid: $($errors -join ' | ')"
+    foreach ($directoryName in @('Identity', '.rollback', '.staging'))
+    {
+        $path = Join-Path $InstallRoot $directoryName
+        if (Test-Path -LiteralPath $path -PathType Container)
+        {
+            Remove-Item -LiteralPath $path -Recurse -Force
+        }
+        if (Test-Path -LiteralPath $path)
+        {
+            throw "Installed payload directory remains after uninstall: $directoryName"
+        }
+    }
+}
+
+function Remove-CertificateFromStores
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Thumbprint,
+
+        [Parameter(Mandatory = $true)]
+        [string]$ExpectedSubject
+    )
+
+    $normalizedThumbprint = $Thumbprint.ToUpperInvariant()
+    if ($normalizedThumbprint -notmatch '^[0-9A-F]{40}$')
+    {
+        throw 'The certificate cleanup thumbprint is invalid.'
+    }
+
+    # Keep the trust entry until the private key is definitely gone. This
+    # leaves a recoverable public certificate when key deletion is blocked.
+    $privateCertificate = Get-ChildItem -Path 'Cert:\LocalMachine\My' |
+        Where-Object { $_.Thumbprint -eq $normalizedThumbprint } |
+        Select-Object -First 1
+    if ($null -ne $privateCertificate)
+    {
+        if ($privateCertificate.Subject -ne $ExpectedSubject)
+        {
+            throw 'Refusing to remove a private certificate with an unexpected subject.'
+        }
+        Remove-Item -LiteralPath $privateCertificate.PSPath -DeleteKey -Force
+        if ($null -ne (Get-ChildItem -Path 'Cert:\LocalMachine\My' |
+                Where-Object { $_.Thumbprint -eq $normalizedThumbprint } |
+                Select-Object -First 1))
+        {
+            throw "The private certificate remains after cleanup: $normalizedThumbprint"
+        }
+    }
+
+    $trustedCertificate = Get-ChildItem -Path 'Cert:\LocalMachine\TrustedPeople' |
+        Where-Object { $_.Thumbprint -eq $normalizedThumbprint } |
+        Select-Object -First 1
+    if ($null -ne $trustedCertificate)
+    {
+        if ($trustedCertificate.Subject -ne $ExpectedSubject)
+        {
+            throw 'Refusing to remove a trusted certificate with an unexpected subject.'
+        }
+        Remove-Item -LiteralPath $trustedCertificate.PSPath -Force
+        if ($null -ne (Get-ChildItem -Path 'Cert:\LocalMachine\TrustedPeople' |
+                Where-Object { $_.Thumbprint -eq $normalizedThumbprint } |
+                Select-Object -First 1))
+        {
+            throw "The trusted certificate remains after cleanup: $normalizedThumbprint"
+        }
+    }
 }
 
 $script:InstallerStep = 'validate-administrator'
@@ -552,7 +814,8 @@ foreach ($propertyName in @(
     'installedUserSid',
     'packageFile',
     'ownedCertificateThumbprints',
-    'ownedPackageFiles'))
+    'ownedPackageFiles',
+    'certificateOwnership'))
 {
     if ($null -eq $state.PSObject.Properties[$propertyName])
     {
@@ -572,6 +835,8 @@ $stateInvalid = `
     ([string]$state.packageFamilyName -notmatch '^CialloKing\.BaClickFxDesktop_[A-Za-z0-9-]+$') -or `
     ([string]$state.certificateThumbprint -notmatch '^[0-9A-Fa-f]{40}$') -or `
     ($state.certificateInstalledBySetup -isnot [bool]) -or `
+    ([string]$state.certificateOwnership -notin @(
+        'installer-owned', 'preexisting', 'shared', 'unknown')) -or `
     ([string]$state.installedUserSid -notmatch '^S-1-[0-9-]+$') -or `
     ([IO.Path]::GetFullPath([string]$state.externalLocation) -ne $installRoot)
 if ($stateInvalid)
@@ -669,41 +934,29 @@ foreach ($ownedFile in $ownedFiles)
 }
 
 $script:InstallerStep = 'remove-owned-certificates'
-foreach ($thumbprint in (Split-Ledger `
-        -Value $state.ownedCertificateThumbprints `
-        -Separator Comma))
+if ([string]$state.certificateOwnership -eq 'unknown')
 {
-    if ($thumbprint -notmatch '^[0-9A-Fa-f]{40}$')
+    Write-Warning 'Certificate ownership is unknown in the legacy install state; preserving all certificate entries.'
+}
+else
+{
+    $currentThumbprint = ([string]$state.certificateThumbprint).ToUpperInvariant()
+    foreach ($thumbprint in (Split-Ledger `
+            -Value $state.ownedCertificateThumbprints `
+            -Separator Comma))
     {
-        throw 'Protected install state has an unsafe certificate ledger entry.'
-    }
-    $certificate = Get-ChildItem -Path 'Cert:\LocalMachine\TrustedPeople' |
-        Where-Object { $_.Thumbprint -eq $thumbprint } |
-        Select-Object -First 1
-    if ($null -ne $certificate)
-    {
-        if ($certificate.Subject -ne [string]$state.publisher)
+        if ($thumbprint -notmatch '^[0-9A-Fa-f]{40}$')
         {
-            throw 'Refusing to remove a certificate with an unexpected subject.'
+            throw 'Protected install state has an unsafe certificate ledger entry.'
         }
-        Remove-Item -LiteralPath $certificate.PSPath -Force
-    }
-    $privateCertificate = Get-ChildItem -Path 'Cert:\LocalMachine\My' |
-        Where-Object { $_.Thumbprint -eq $thumbprint } |
-        Select-Object -First 1
-    if ($null -ne $privateCertificate)
-    {
-        if ($privateCertificate.Subject -ne [string]$state.publisher)
+        if ($thumbprint.ToUpperInvariant() -eq $currentThumbprint -and
+            [string]$state.certificateOwnership -in @('preexisting', 'shared'))
         {
-            throw 'Refusing to remove a private certificate with an unexpected subject.'
+            continue
         }
-        Remove-Item -LiteralPath $privateCertificate.PSPath -DeleteKey -Force
-    }
-    if ($null -ne (Get-ChildItem -Path 'Cert:\LocalMachine\TrustedPeople' |
-            Where-Object { $_.Thumbprint -eq $thumbprint } |
-            Select-Object -First 1))
-    {
-        throw "The installer-owned certificate remains after uninstall: $thumbprint"
+        Remove-CertificateFromStores `
+            -Thumbprint $thumbprint `
+            -ExpectedSubject ([string]$state.publisher)
     }
 }
 
@@ -713,5 +966,26 @@ foreach ($installStatePath in @($statePath, "$statePath.bak"))
     if (Test-Path -LiteralPath $installStatePath -PathType Leaf)
     {
         Remove-Item -LiteralPath $installStatePath -Force
+    }
+    if (Test-Path -LiteralPath $installStatePath -PathType Leaf)
+    {
+        throw "Protected install-state file remains after uninstall: $installStatePath"
+    }
+}
+
+# The state pair is the recovery boundary. Remove payload directories only
+# after both state files are gone; a failed validation above must leave every
+# recovery artifact intact. Installer may still contain the running script, so
+# remove that directory only when it is already empty.
+$script:InstallerStep = 'remove-installed-payload-files'
+Remove-InstalledPayloadFiles -InstallRoot $installRoot -State $state
+$installerDirectory = Join-Path $installRoot 'Installer'
+if ((Test-Path -LiteralPath $installerDirectory -PathType Container) -and
+    (@(Get-ChildItem -LiteralPath $installerDirectory -Force).Count -eq 0))
+{
+    Remove-Item -LiteralPath $installerDirectory -Force
+    if (Test-Path -LiteralPath $installerDirectory)
+    {
+        throw 'The empty Installer directory remains after uninstall.'
     }
 }

@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)]
-    [ValidateSet('Prepare', 'CommitFiles', 'Finalize', 'Rollback')]
+    [ValidateSet('Prepare', 'CommitFiles', 'Finalize', 'Rollback', 'RollbackCleanup')]
     [string]$Phase,
 
     [Parameter(Mandatory = $true)]
@@ -2050,28 +2050,63 @@ function Remove-OldCertificate
         Write-Warning "Keeping certificate $($State.certificateThumbprint) while the previous package registration remains."
         return
     }
-    $certificate = Get-ChildItem -Path 'Cert:\LocalMachine\TrustedPeople' |
-        Where-Object { $_.Thumbprint -eq [string]$State.certificateThumbprint } |
-        Select-Object -First 1
-    if ($null -eq $certificate)
+    Remove-CertificateFromStores `
+        -Thumbprint $oldThumbprint `
+        -ExpectedSubject ([string]$State.publisher)
+}
+
+function Remove-CertificateFromStores
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Thumbprint,
+
+        [Parameter(Mandatory = $true)]
+        [string]$ExpectedSubject
+    )
+
+    $normalizedThumbprint = $Thumbprint.ToUpperInvariant()
+    if ($normalizedThumbprint -notmatch '^[0-9A-F]{40}$')
     {
-        return
+        throw 'The certificate cleanup thumbprint is invalid.'
     }
-    if ($certificate.Subject -ne [string]$State.publisher)
-    {
-        throw 'Refusing to remove an old certificate with an unexpected subject.'
-    }
-    Remove-Item -LiteralPath $certificate.PSPath -Force
+
+    # Delete the private key first. If key deletion fails, the public trust
+    # entry remains available for recovery instead of being orphaned.
     $privateCertificate = Get-ChildItem -Path 'Cert:\LocalMachine\My' |
-        Where-Object { $_.Thumbprint -eq $oldThumbprint } |
+        Where-Object { $_.Thumbprint -eq $normalizedThumbprint } |
         Select-Object -First 1
     if ($null -ne $privateCertificate)
     {
-        if ($privateCertificate.Subject -ne [string]$State.publisher)
+        if ($privateCertificate.Subject -ne $ExpectedSubject)
         {
-            throw 'Refusing to remove an old private certificate with an unexpected subject.'
+            throw 'Refusing to remove a private certificate with an unexpected subject.'
         }
         Remove-Item -LiteralPath $privateCertificate.PSPath -DeleteKey -Force
+        if ($null -ne (Get-ChildItem -Path 'Cert:\LocalMachine\My' |
+                Where-Object { $_.Thumbprint -eq $normalizedThumbprint } |
+                Select-Object -First 1))
+        {
+            throw "The private certificate remains after cleanup: $normalizedThumbprint"
+        }
+    }
+
+    $trustedCertificate = Get-ChildItem -Path 'Cert:\LocalMachine\TrustedPeople' |
+        Where-Object { $_.Thumbprint -eq $normalizedThumbprint } |
+        Select-Object -First 1
+    if ($null -ne $trustedCertificate)
+    {
+        if ($trustedCertificate.Subject -ne $ExpectedSubject)
+        {
+            throw 'Refusing to remove a trusted certificate with an unexpected subject.'
+        }
+        Remove-Item -LiteralPath $trustedCertificate.PSPath -Force
+        if ($null -ne (Get-ChildItem -Path 'Cert:\LocalMachine\TrustedPeople' |
+                Where-Object { $_.Thumbprint -eq $normalizedThumbprint } |
+                Select-Object -First 1))
+        {
+            throw "The trusted certificate remains after cleanup: $normalizedThumbprint"
+        }
     }
 }
 
@@ -2128,33 +2163,18 @@ function Remove-ObsoleteIdentityArtifacts
             $remainingCertificates.Add($normalizedThumbprint)
             continue
         }
-        $certificate = Get-ChildItem -Path 'Cert:\LocalMachine\TrustedPeople' |
-            Where-Object { $_.Thumbprint -eq $normalizedThumbprint } |
-            Select-Object -First 1
-        if ($null -ne $certificate)
+        try
         {
-            if ($certificate.Subject -ne [string]$State.publisher)
-            {
-                throw 'Refusing to remove an owned certificate with an unexpected subject.'
-            }
-            Remove-Item -LiteralPath $certificate.PSPath -Force
+            Remove-CertificateFromStores `
+                -Thumbprint $normalizedThumbprint `
+                -ExpectedSubject ([string]$State.publisher)
         }
-        $privateCertificate = Get-ChildItem -Path 'Cert:\LocalMachine\My' |
-            Where-Object { $_.Thumbprint -eq $normalizedThumbprint } |
-            Select-Object -First 1
-        if ($null -ne $privateCertificate)
+        catch
         {
-            if ($privateCertificate.Subject -ne [string]$State.publisher)
-            {
-                throw 'Refusing to remove an owned private certificate with an unexpected subject.'
-            }
-            Remove-Item -LiteralPath $privateCertificate.PSPath -DeleteKey -Force
-        }
-        if ($null -ne (Get-ChildItem -Path 'Cert:\LocalMachine\TrustedPeople' |
-                Where-Object { $_.Thumbprint -eq $normalizedThumbprint } |
-                Select-Object -First 1))
-        {
+            # Preserve the ledger when either store could not be cleaned so a
+            # later repair can retry without losing ownership evidence.
             $remainingCertificates.Add($normalizedThumbprint)
+            throw
         }
     }
 
@@ -2173,6 +2193,23 @@ function Test-OtherUserPackageRegistration
         [Parameter(Mandatory = $true)]
         [object]$State
     )
+
+    $stateUserSid = if ($null -ne $State.PSObject.Properties['userSid'])
+    {
+        [string]$State.userSid
+    }
+    elseif ($null -ne $State.PSObject.Properties['installedUserSid'])
+    {
+        [string]$State.installedUserSid
+    }
+    else
+    {
+        throw 'Protected install state has no user SID for package ownership checks.'
+    }
+    if ($stateUserSid -notmatch '^S-1-[0-9-]+$')
+    {
+        throw 'Protected install state has an invalid user SID for package ownership checks.'
+    }
 
     $packages = @(
         Get-AppxPackage -AllUsers -Name ([string]$State.packageName) -ErrorAction Stop
@@ -2229,7 +2266,7 @@ function Test-OtherUserPackageRegistration
             {
                 ''
             }
-            if ([string]$userSid -ne [string]$State.userSid)
+            if ([string]$userSid -ne $stateUserSid)
             {
                 return $true
             }
@@ -2522,32 +2559,9 @@ function Remove-PreparedCertificateIfUnused
     {
         throw 'Refusing to remove the prepared certificate while its package version remains registered.'
     }
-    $certificate = Get-ChildItem -Path 'Cert:\LocalMachine\TrustedPeople' |
-        Where-Object { $_.Thumbprint -eq [string]$State.certificateThumbprint } |
-        Select-Object -First 1
-    if ($null -eq $certificate)
-    {
-        $certificate = $null
-    }
-    if ($null -ne $certificate -and $certificate.Subject -ne [string]$State.publisher)
-    {
-        throw 'Refusing to remove the prepared certificate with an unexpected subject.'
-    }
-    if ($null -ne $certificate)
-    {
-        Remove-Item -LiteralPath $certificate.PSPath -Force
-    }
-    $privateCertificate = Get-ChildItem -Path 'Cert:\LocalMachine\My' |
-        Where-Object { $_.Thumbprint -eq [string]$State.certificateThumbprint } |
-        Select-Object -First 1
-    if ($null -ne $privateCertificate)
-    {
-        if ($privateCertificate.Subject -ne [string]$State.publisher)
-        {
-            throw 'Refusing to remove the prepared private certificate with an unexpected subject.'
-        }
-        Remove-Item -LiteralPath $privateCertificate.PSPath -DeleteKey -Force
-    }
+    Remove-CertificateFromStores `
+        -Thumbprint ([string]$State.certificateThumbprint) `
+        -ExpectedSubject ([string]$State.publisher)
 }
 
 function Test-CertificateSanUri
@@ -2614,10 +2628,22 @@ function Recover-CreatingCertificate
             if ($storeName -eq 'My')
             {
                 Remove-Item -LiteralPath $candidatePath -DeleteKey -Force
+                if ($null -ne (Get-ChildItem -Path 'Cert:\LocalMachine\My' |
+                        Where-Object { $_.Thumbprint -eq $candidate.Thumbprint } |
+                        Select-Object -First 1))
+                {
+                    throw "The recovery private certificate remains: $($candidate.Thumbprint)"
+                }
             }
             else
             {
                 Remove-Item -LiteralPath $candidatePath -Force
+                if ($null -ne (Get-ChildItem -Path 'Cert:\LocalMachine\TrustedPeople' |
+                        Where-Object { $_.Thumbprint -eq $candidate.Thumbprint } |
+                        Select-Object -First 1))
+                {
+                    throw "The recovery trusted certificate remains: $($candidate.Thumbprint)"
+                }
             }
         }
     }
@@ -3397,8 +3423,9 @@ function Invoke-PendingRollback
     )
 
     # AppX registrations belong to the original user token. This elevated
-    # phase only restores machine-owned files and certificate material; the
-    # Inno coordinator invokes register-user-package.ps1 around this call.
+    # phase only restores machine-owned files and the protected state pair;
+    # package/certificate cleanup is deliberately deferred until the original
+    # user's previous registration has been restored.
     if ($null -ne $State.PSObject.Properties['filesCommitted'] -and
         [bool]$State.filesCommitted)
     {
@@ -3415,33 +3442,112 @@ function Invoke-PendingRollback
             -State $State `
             -InstallRoot ([IO.Path]::GetFullPath($InstallDirectory))
     }
-    $preparedPackagePath = if ($null -ne $State.PSObject.Properties['packagePath'])
+}
+
+function Remove-PendingPackageFiles
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [object]$State,
+
+        [Parameter(Mandatory = $true)]
+        [string]$InstallRoot,
+
+        [Parameter(Mandatory = $true)]
+        [string]$PayloadRoot
+    )
+
+    $packageFile = [string]$State.packageFile
+    if ([IO.Path]::IsPathRooted($packageFile) -or
+        $packageFile.Contains('..') -or
+        [IO.Path]::GetFileName($packageFile) -ne $packageFile -or
+        $packageFile -notmatch '\.msix$')
     {
-        [string]$State.packagePath
+        throw 'Protected pending state has an unsafe package file name.'
+    }
+
+    $livePath = [IO.Path]::GetFullPath(
+        (Join-Path (Join-Path $InstallRoot 'Identity') $packageFile))
+    $stagedPath = [IO.Path]::GetFullPath(
+        (Join-Path (Join-Path $PayloadRoot 'Identity') $packageFile))
+    $declaredPath = [IO.Path]::GetFullPath([string]$State.packagePath)
+    if ($declaredPath -ne $livePath -and $declaredPath -ne $stagedPath)
+    {
+        throw 'Protected pending state points to an unsafe package cleanup path.'
+    }
+
+    # A same-version repair can use the same filename as the old package. The
+    # machine rollback restores that file before this function runs, so never
+    # delete the live path when it is also the protected previous package.
+    $oldPackageIsSameFile = $false
+    if ($null -ne $State.oldInstallState)
+    {
+        $oldPackageIsSameFile =
+            [string]$State.oldInstallState.packageFile -eq $packageFile
+    }
+    foreach ($candidatePath in @($declaredPath, $livePath, $stagedPath))
+    {
+        $candidate = [IO.Path]::GetFullPath($candidatePath)
+        if ($candidate -eq $livePath -and $oldPackageIsSameFile)
+        {
+            continue
+        }
+        if (-not (Test-Path -LiteralPath $candidate -PathType Leaf))
+        {
+            continue
+        }
+        Remove-Item -LiteralPath $candidate -Force
+        if (Test-Path -LiteralPath $candidate -PathType Leaf)
+        {
+            throw "The transaction-owned identity package remains: $candidate"
+        }
+    }
+}
+
+function Invoke-PendingRollbackCleanup
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [object]$State,
+
+        [Parameter(Mandatory = $true)]
+        [string]$InstallRoot,
+
+        [Parameter(Mandatory = $true)]
+        [string]$PayloadRoot,
+
+        [Parameter(Mandatory = $true)]
+        [string]$PendingPath
+    )
+
+    # This is intentionally a separate phase. If it fails, the restored state
+    # and journal remain available for a later repair and the caller returns
+    # 1001 instead of pretending that rollback was complete.
+    $certificatePhase = if ($null -ne $State.PSObject.Properties['certificatePhase'])
+    {
+        [string]$State.certificatePhase
     }
     else
     {
-        ''
+        'ready'
     }
-    if (-not [string]::IsNullOrWhiteSpace($preparedPackagePath) -and
-        (Test-Path -LiteralPath $preparedPackagePath -PathType Leaf))
+    if ($certificatePhase -eq 'creating')
     {
-        # Assert-PendingStateObject already bound this path to packageFile under
-        # the Identity directory; remove the transaction-owned artifact only.
-        Remove-Item -LiteralPath $preparedPackagePath -Force
-    }
-    Remove-PreparedCertificateIfUnused -State $State
-    if ($null -ne $State.PSObject.Properties['installerDirectoryCreated'] -and
-        [bool]$State.installerDirectoryCreated -and
-        $null -eq $State.oldInstallState -and
-        -not (Test-Path -LiteralPath (Join-Path $InstallDirectory 'Installer\INSTALL-STATE.json') -PathType Leaf))
-    {
-        $installerDirectory = Join-Path $InstallDirectory 'Installer'
-        if ((Test-Path -LiteralPath $installerDirectory -PathType Container) -and
-            @(Get-ChildItem -LiteralPath $installerDirectory -Force).Count -eq 0)
+        Recover-CreatingCertificate -State $State
+        if (Test-Path -LiteralPath $PendingPath -PathType Leaf)
         {
-            Remove-Item -LiteralPath $installerDirectory -Force
+            Remove-Item -LiteralPath $PendingPath -Force
         }
+        return
+    }
+    Remove-PendingPackageFiles `
+        -State $State `
+        -InstallRoot $InstallRoot `
+        -PayloadRoot $PayloadRoot
+    Remove-PreparedCertificateIfUnused -State $State
+    if (Test-Path -LiteralPath $PendingPath -PathType Leaf)
+    {
+        Remove-Item -LiteralPath $PendingPath -Force
     }
 }
 
@@ -3547,7 +3653,7 @@ if (-not [string]::IsNullOrWhiteSpace($PayloadDirectory))
         -InstallRoot $installRoot `
         -PayloadPath $PayloadDirectory
 }
-elseif ($Phase -ne 'Rollback')
+elseif ($Phase -notin @('Rollback', 'RollbackCleanup'))
 {
     throw 'Installer payload directory is required for this phase.'
 }
@@ -3614,8 +3720,51 @@ if ($Phase -eq 'Rollback')
     Invoke-PendingRollback -State $pendingState
     # The original-user package must be restored only after these machine files
     # are back in place. The Inno coordinator performs that user-context step,
-    # then deletes this journal once the complete rollback has succeeded.
+    # then invokes RollbackCleanup to remove the new package and certificate.
     exit 0
+}
+
+if ($Phase -eq 'RollbackCleanup')
+{
+    if (-not (Test-Path -LiteralPath $machineStateFullPath -PathType Leaf))
+    {
+        exit 0
+    }
+    try
+    {
+        $script:InstallerStep = 'validate-pending-cleanup'
+        Assert-ProtectedStateAcl -Path $machineStateFullPath
+        $pendingState = Get-Content `
+            -LiteralPath $machineStateFullPath `
+            -Raw | ConvertFrom-Json
+        Recover-CreatingCertificate -State $pendingState
+        if ($null -ne $pendingState.PSObject.Properties['certificatePhase'] -and
+            [string]$pendingState.certificatePhase -eq 'creating')
+        {
+            # No signed package exists yet; the SAN marker recovery above is
+            # the only cleanup needed for this early-crash state.
+            Remove-Item -LiteralPath $machineStateFullPath -Force
+            exit 0
+        }
+        $pendingState = Assert-PendingStateObject `
+            -State $pendingState `
+            -InstallRoot $installRoot `
+            -PayloadDirectory $script:PayloadRoot
+        $script:InstallerStep = 'cleanup-rolled-back-package-and-certificate'
+        Invoke-PendingRollbackCleanup `
+            -State $pendingState `
+            -InstallRoot $installRoot `
+            -PayloadRoot $script:PayloadRoot `
+            -PendingPath $machineStateFullPath
+        exit 0
+    }
+    catch
+    {
+        Stop-InstallerWithFailure `
+            -ErrorRecord $_ `
+            -Step $script:InstallerStep `
+            -ExitCode 1001
+    }
 }
 
 if ($Phase -eq 'CommitFiles')
@@ -3795,10 +3944,11 @@ if ($Phase -eq 'Prepare')
                         -InstallRoot $installRoot
                 }
                 Invoke-PendingRollback -State $pendingState
-                if (Test-Path -LiteralPath $machineStateFullPath -PathType Leaf)
-                {
-                    Remove-Item -LiteralPath $machineStateFullPath -Force
-                }
+                Invoke-PendingRollbackCleanup `
+                    -State $pendingState `
+                    -InstallRoot $installRoot `
+                    -PayloadRoot $script:PayloadRoot `
+                    -PendingPath $machineStateFullPath
                 if ($installerDirectoryCreated -and
                     -not (Test-Path -LiteralPath $installStatePath -PathType Leaf))
                 {
@@ -3965,22 +4115,13 @@ catch
             -Step $finalizeFailureStep `
             -ExitCode 1001
     }
-    $rollbackSucceeded = $true
-    try
-    {
-        $script:InstallerStep = 'rollback-failed-finalize'
-        Invoke-PendingRollback -State $pendingState
-    }
-    catch
-    {
-        $rollbackSucceeded = $false
-        Add-InstallerRelatedFailure `
-            -ErrorRecord $_ `
-            -Step 'rollback-failed-finalize'
-    }
+    # Leave the pending transaction untouched. The elevated phase cannot
+    # remove the original user's package, so the Inno coordinator must perform
+    # RemoveNew -> machine restore -> RestorePrevious -> final cleanup in that
+    # order. A restart follows the same coordinator path.
     $script:InstallerStep = $finalizeFailureStep
     Stop-InstallerWithFailure `
         -ErrorRecord $finalizeErrorRecord `
         -Step $finalizeFailureStep `
-        -ExitCode $(if ($rollbackSucceeded) { 1 } else { 1002 })
+        -ExitCode 1
 }

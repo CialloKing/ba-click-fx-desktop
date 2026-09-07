@@ -482,6 +482,15 @@ function Assert-PendingState
     {
         throw 'Protected pending state has an invalid transaction identifier.'
     }
+    if ($null -ne $State.PSObject.Properties['stateDigest'])
+    {
+        $stateDigest = [string]$State.stateDigest
+        if ($stateDigest -notmatch '^[0-9A-Fa-f]{64}$' -or
+            (Get-StateDigest -Value $State) -ne $stateDigest)
+        {
+            throw 'Protected pending state digest does not match its content.'
+        }
+    }
     if ([string]$State.templateSha256 -notmatch '^[0-9A-Fa-f]{64}$')
     {
         throw 'Protected pending state has an invalid template hash.'
@@ -629,6 +638,9 @@ function Restore-PreviousPackage
         return
     }
     $oldState = $State.oldInstallState
+    $oldPackagePath = Assert-PreviousPackageMaterial `
+        -State $oldState `
+        -InstallRoot $InstallRoot
     $existing = @(
         Get-AppxPackage -Name ([string]$State.packageName) -ErrorAction Stop |
             Where-Object { [string]$_.PackageFullName -eq [string]$oldState.packageFullName }
@@ -636,19 +648,6 @@ function Restore-PreviousPackage
     if ($existing.Count -gt 0)
     {
         return
-    }
-    $oldPackageFile = [string]$oldState.packageFile
-    if ([IO.Path]::IsPathRooted($oldPackageFile) -or
-        $oldPackageFile.Contains('..') -or
-        [IO.Path]::GetFileName($oldPackageFile) -ne $oldPackageFile -or
-        $oldPackageFile -notmatch '\.msix$')
-    {
-        throw 'Previous protected install state has an unsafe package file name.'
-    }
-    $oldPackagePath = Join-Path (Join-Path $InstallRoot 'Identity') $oldPackageFile
-    if (-not (Test-Path -LiteralPath $oldPackagePath -PathType Leaf))
-    {
-        throw 'The previous package file is unavailable for rollback.'
     }
     Add-AppxPackage `
         -Path $oldPackagePath `
@@ -663,6 +662,76 @@ function Restore-PreviousPackage
     {
         throw 'The previous package registration was not restored.'
     }
+}
+
+function Assert-PreviousPackageMaterial
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [object]$State,
+
+        [Parameter(Mandatory = $true)]
+        [string]$InstallRoot
+    )
+
+    foreach ($propertyName in @(
+            'packageFullName', 'packageFile', 'packageSha256',
+            'hostFile', 'hostSha256'))
+    {
+        if ($null -eq $State.PSObject.Properties[$propertyName])
+        {
+            throw "Previous protected install state is missing: $propertyName"
+        }
+    }
+    if ([string]$State.packageFullName -notmatch
+            '^CialloKing\.BaClickFxDesktop_[A-Za-z0-9._-]+$' -or
+        [string]$State.hostFile -ne 'ba-click-fx-desktop.exe' -or
+        [string]$State.packageSha256 -notmatch '^[0-9A-Fa-f]{64}$' -or
+        [string]$State.hostSha256 -notmatch '^[0-9A-Fa-f]{64}$')
+    {
+        throw 'Previous protected install state has invalid payload identity data.'
+    }
+    if ($null -ne $State.PSObject.Properties['externalLocation'] -and
+        [IO.Path]::GetFullPath([string]$State.externalLocation) -ne
+            [IO.Path]::GetFullPath($InstallRoot))
+    {
+        throw 'Previous protected install state points outside the install directory.'
+    }
+
+    $hostPath = Join-Path $InstallRoot 'ba-click-fx-desktop.exe'
+    if (-not (Test-Path -LiteralPath $hostPath -PathType Leaf))
+    {
+        throw 'The restored previous Host is unavailable for rollback.'
+    }
+    $hostItem = Get-Item -LiteralPath $hostPath -Force
+    if (($hostItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or
+        (Get-FileHash -LiteralPath $hostPath -Algorithm SHA256).Hash -ine
+            [string]$State.hostSha256)
+    {
+        throw 'The restored previous Host does not match its protected install state.'
+    }
+
+    $packageFile = [string]$State.packageFile
+    if ([IO.Path]::IsPathRooted($packageFile) -or
+        $packageFile.Contains('..') -or
+        [IO.Path]::GetFileName($packageFile) -ne $packageFile -or
+        $packageFile -notmatch '\.msix$')
+    {
+        throw 'Previous protected install state has an unsafe package file name.'
+    }
+    $packagePath = Join-Path (Join-Path $InstallRoot 'Identity') $packageFile
+    if (-not (Test-Path -LiteralPath $packagePath -PathType Leaf))
+    {
+        throw 'The previous package file is unavailable for rollback.'
+    }
+    $packageItem = Get-Item -LiteralPath $packagePath -Force
+    if (($packageItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or
+        (Get-FileHash -LiteralPath $packagePath -Algorithm SHA256).Hash -ine
+            [string]$State.packageSha256)
+    {
+        throw 'The restored previous package does not match its protected install state.'
+    }
+    return $packagePath
 }
 
 function Remove-PreviousPackageForReplacement
