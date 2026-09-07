@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)]
-    [ValidateSet('Prepare', 'Finalize', 'Rollback')]
+    [ValidateSet('Prepare', 'CommitFiles', 'Finalize', 'Rollback')]
     [string]$Phase,
 
     [Parameter(Mandatory = $true)]
@@ -97,6 +97,134 @@ function Write-Utf8NoBom
     [IO.File]::WriteAllText($Path, $Content, $encoding)
 }
 
+function Get-StatePropertiesWithoutDigest
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [object]$Value
+    )
+
+    $ordered = [ordered]@{}
+    if ($Value -is [Collections.IDictionary])
+    {
+        foreach ($entry in $Value.GetEnumerator())
+        {
+            if ([string]$entry.Key -ne 'stateDigest')
+            {
+                $ordered[[string]$entry.Key] = $entry.Value
+            }
+        }
+    }
+    else
+    {
+        foreach ($property in $Value.PSObject.Properties)
+        {
+            if ($property.Name -ne 'stateDigest')
+            {
+                $ordered[$property.Name] = $property.Value
+            }
+        }
+    }
+    return $ordered
+}
+
+function Convert-StateToCanonicalJson
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [object]$Value
+    )
+
+    return (Get-StatePropertiesWithoutDigest -Value $Value |
+        ConvertTo-Json -Depth 12)
+}
+
+function Get-StateDigest
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [object]$Value
+    )
+
+    $bytes = [Text.Encoding]::UTF8.GetBytes(
+        (Convert-StateToCanonicalJson -Value $Value))
+    $hasher = [Security.Cryptography.SHA256]::Create()
+    try
+    {
+        return ([BitConverter]::ToString($hasher.ComputeHash($bytes))).Replace('-', '')
+    }
+    finally
+    {
+        $hasher.Dispose()
+    }
+}
+
+function New-StateWithDigest
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [object]$Value
+    )
+
+    $ordered = Get-StatePropertiesWithoutDigest -Value $Value
+    $ordered.stateDigest = Get-StateDigest -Value $ordered
+    return $ordered
+}
+
+function Write-FlushedUtf8NoBom
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Content
+    )
+
+    $bytes = [Text.Encoding]::UTF8.GetBytes($Content)
+    $stream = [IO.FileStream]::new(
+        $Path,
+        [IO.FileMode]::Create,
+        [IO.FileAccess]::Write,
+        [IO.FileShare]::None)
+    try
+    {
+        $stream.Write($bytes, 0, $bytes.Length)
+        # Flush(true) closes the crash window between a successful write and
+        # the directory entry becoming durable on disk.
+        $stream.Flush($true)
+    }
+    finally
+    {
+        $stream.Dispose()
+    }
+}
+
+function Replace-ProtectedFile
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$TemporaryPath,
+
+        [Parameter(Mandatory = $true)]
+        [string]$DestinationPath,
+
+        [AllowNull()]
+        [string]$ReadSid
+    )
+
+    Set-ProtectedStateAcl -Path $TemporaryPath -ReadSid $ReadSid
+    if (Test-Path -LiteralPath $DestinationPath -PathType Leaf)
+    {
+        [IO.File]::Replace($TemporaryPath, $DestinationPath, $null, $true)
+    }
+    else
+    {
+        [IO.File]::Move($TemporaryPath, $DestinationPath)
+    }
+    Set-ProtectedStateAcl -Path $DestinationPath -ReadSid $ReadSid
+}
+
 function Set-ProtectedStateAcl
 {
     param(
@@ -181,15 +309,18 @@ function Write-ProtectedJson
         [string]$ReadSid
     )
 
-    $temporaryPath = "$Path.$PID.tmp"
+    $temporaryPath = "$Path.$PID.$([Guid]::NewGuid().ToString('N')).tmp"
     try
     {
-        Write-Utf8NoBom `
+        $stateValue = New-StateWithDigest -Value $Value
+        $serialized = ConvertTo-Json -InputObject $stateValue -Depth 12
+        Write-FlushedUtf8NoBom `
             -Path $temporaryPath `
-            -Content ($Value | ConvertTo-Json -Depth 8)
-        Set-ProtectedStateAcl -Path $temporaryPath -ReadSid $ReadSid
-        Move-Item -LiteralPath $temporaryPath -Destination $Path -Force
-        Set-ProtectedStateAcl -Path $Path -ReadSid $ReadSid
+            -Content $serialized
+        Replace-ProtectedFile `
+            -TemporaryPath $temporaryPath `
+            -DestinationPath $Path `
+            -ReadSid $ReadSid
     }
     finally
     {
@@ -213,10 +344,117 @@ function Write-ProtectedInstallState
         [string]$ReadSid
     )
 
-    Write-ProtectedJson -Path $Path -Value $Value -ReadSid $ReadSid
+    $stateValue = New-StateWithDigest -Value $Value
     $backupPath = "$Path.bak"
-    Copy-Item -LiteralPath $Path -Destination $backupPath -Force
-    Set-ProtectedStateAcl -Path $backupPath -ReadSid $ReadSid
+    $backupTemporaryPath = "$backupPath.$PID.$([Guid]::NewGuid().ToString('N')).tmp"
+    $primaryTemporaryPath = "$Path.$PID.$([Guid]::NewGuid().ToString('N')).tmp"
+    $serialized = ConvertTo-Json -InputObject $stateValue -Depth 12
+    try
+    {
+        # Commit the backup first. A failure here leaves the previous primary
+        # untouched and the pending journal can still direct recovery.
+        Write-FlushedUtf8NoBom `
+            -Path $backupTemporaryPath `
+            -Content $serialized
+        Replace-ProtectedFile `
+            -TemporaryPath $backupTemporaryPath `
+            -DestinationPath $backupPath `
+            -ReadSid $ReadSid
+
+        Write-FlushedUtf8NoBom `
+            -Path $primaryTemporaryPath `
+            -Content $serialized
+        Replace-ProtectedFile `
+            -TemporaryPath $primaryTemporaryPath `
+            -DestinationPath $Path `
+            -ReadSid $ReadSid
+
+        $primary = Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json
+        $backup = Get-Content -LiteralPath $backupPath -Raw | ConvertFrom-Json
+        Assert-InstallStatePair -Primary $primary -Backup $backup
+    }
+    finally
+    {
+        foreach ($temporaryPath in @($backupTemporaryPath, $primaryTemporaryPath))
+        {
+            if (Test-Path -LiteralPath $temporaryPath -PathType Leaf)
+            {
+                Remove-Item -LiteralPath $temporaryPath -Force
+            }
+        }
+    }
+}
+
+function Assert-InstallStatePair
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [object]$Primary,
+
+        [Parameter(Mandatory = $true)]
+        [object]$Backup
+    )
+
+    $primaryTransaction = if ($null -eq $Primary.PSObject.Properties['transactionId'])
+    {
+        ''
+    }
+    else
+    {
+        [string]$Primary.transactionId
+    }
+    $backupTransaction = if ($null -eq $Backup.PSObject.Properties['transactionId'])
+    {
+        ''
+    }
+    else
+    {
+        [string]$Backup.transactionId
+    }
+    if ([string]::IsNullOrWhiteSpace($primaryTransaction) -or
+        $primaryTransaction -ne $backupTransaction)
+    {
+        throw 'Protected install state primary and backup transactions differ.'
+    }
+    $primaryDigest = if ($null -eq $Primary.PSObject.Properties['stateDigest'])
+    {
+        ''
+    }
+    else
+    {
+        [string]$Primary.stateDigest
+    }
+    $backupDigest = if ($null -eq $Backup.PSObject.Properties['stateDigest'])
+    {
+        ''
+    }
+    else
+    {
+        [string]$Backup.stateDigest
+    }
+    if ($primaryDigest -notmatch '^[0-9A-Fa-f]{64}$' -or
+        $backupDigest -notmatch '^[0-9A-Fa-f]{64}$' -or
+        $primaryDigest -ne $backupDigest)
+    {
+        # Legacy schema 2 did not carry a digest. It is accepted only when the
+        # canonical payload is byte-for-byte equivalent after parsing; a mixed
+        # transaction is never recovered from an arbitrary backup.
+        if (-not [string]::IsNullOrWhiteSpace($primaryDigest) -or
+            -not [string]::IsNullOrWhiteSpace($backupDigest) -or
+            (Convert-StateToCanonicalJson -Value $Primary) -ne
+                (Convert-StateToCanonicalJson -Value $Backup))
+        {
+            throw 'Protected install state primary and backup digests differ.'
+        }
+    }
+    else
+    {
+        if ((Get-StateDigest -Value $Primary) -ne $primaryDigest -or
+            (Get-StateDigest -Value $Backup) -ne $backupDigest)
+        {
+            throw 'Protected install state digest does not match its content.'
+        }
+    }
 }
 
 function Split-Ledger
@@ -1177,6 +1415,46 @@ function Assert-InstallStateObject
     {
         throw 'Protected install state has an invalid certificate ownership flag.'
     }
+    if ($null -eq $State.PSObject.Properties['transactionId'] -or
+        [string]$State.transactionId -notmatch '^[0-9a-fA-F]{32}$')
+    {
+        throw 'Protected install state has an invalid transaction identifier.'
+    }
+    if ($null -ne $State.PSObject.Properties['stateDigest'] -and
+        [string]$State.stateDigest -notmatch '^[0-9A-Fa-f]{64}$')
+    {
+        throw 'Protected install state has an invalid state digest.'
+    }
+    if ($null -eq $State.PSObject.Properties['certificateNotAfterUtc'])
+    {
+        $State | Add-Member -NotePropertyName certificateNotAfterUtc `
+            -NotePropertyValue ''
+    }
+    elseif (-not [string]::IsNullOrWhiteSpace([string]$State.certificateNotAfterUtc))
+    {
+        $notAfter = [DateTime]::MinValue
+        if (-not [DateTime]::TryParse(
+                [string]$State.certificateNotAfterUtc,
+                [Globalization.CultureInfo]::InvariantCulture,
+                [Globalization.DateTimeStyles]::AssumeUniversal,
+                [ref]$notAfter))
+        {
+            throw 'Protected install state has an invalid certificate expiry.'
+        }
+    }
+    if ($null -eq $State.PSObject.Properties['certificateOwnership'])
+    {
+        # Older states cannot prove whether an existing certificate was created
+        # by this installer. Mark them unknown so uninstall never deletes a
+        # certificate merely because the legacy boolean was optimistic.
+        $State | Add-Member -NotePropertyName certificateOwnership `
+            -NotePropertyValue 'unknown'
+    }
+    if ([string]$State.certificateOwnership -notin @(
+            'installer-owned', 'preexisting', 'shared', 'unknown'))
+    {
+        throw 'Protected install state has an invalid certificate ownership value.'
+    }
     if ($null -eq $State.PSObject.Properties['ownedCertificateThumbprints'])
     {
         $State | Add-Member -NotePropertyName ownedCertificateThumbprints `
@@ -1264,39 +1542,26 @@ function Read-OldInstallState
 
     $path = Join-Path $InstallRoot 'Installer\INSTALL-STATE.json'
     $backupPath = "$path.bak"
-    $candidates = @(
-        @($path, $backupPath) |
-            Where-Object { Test-Path -LiteralPath $_ -PathType Leaf }
-    )
-    if ($candidates.Count -eq 0)
+    $primaryExists = Test-Path -LiteralPath $path -PathType Leaf
+    $backupExists = Test-Path -LiteralPath $backupPath -PathType Leaf
+    if (-not $primaryExists -and -not $backupExists)
     {
         return $null
     }
-    $errors = New-Object Collections.Generic.List[string]
-    foreach ($candidate in $candidates)
+    if (-not $primaryExists -or -not $backupExists)
     {
-        try
-        {
-            Assert-ProtectedStateAcl -Path $candidate
-            $state = Get-Content -LiteralPath $candidate -Raw | ConvertFrom-Json
-            $validated = Assert-InstallStateObject `
-                -State $state `
-                -InstallRoot $InstallRoot `
-                -ExpectedUserSid $UserSid `
-                -ExpectedReplacementHostSha256 $ExpectedReplacementHostSha256
-            if ($candidate -ne $path)
-            {
-                Copy-Item -LiteralPath $candidate -Destination $path -Force
-                Set-ProtectedStateAcl -Path $path -ReadSid $UserSid
-            }
-            return $validated
-        }
-        catch
-        {
-            $errors.Add("$candidate`: $($_.Exception.Message)")
-        }
+        throw 'Protected install state primary and backup must be present together.'
     }
-    throw "Protected install state and its backup are invalid: $($errors -join ' | ')"
+    Assert-ProtectedStateAcl -Path $path
+    Assert-ProtectedStateAcl -Path $backupPath
+    $primary = Get-Content -LiteralPath $path -Raw | ConvertFrom-Json
+    $backup = Get-Content -LiteralPath $backupPath -Raw | ConvertFrom-Json
+    Assert-InstallStatePair -Primary $primary -Backup $backup
+    return Assert-InstallStateObject `
+        -State $primary `
+        -InstallRoot $InstallRoot `
+        -ExpectedUserSid $UserSid `
+        -ExpectedReplacementHostSha256 $ExpectedReplacementHostSha256
 }
 
 function Remove-OldCertificate
@@ -1465,7 +1730,8 @@ function Assert-PendingStateObject
             throw "Protected pending state is missing: $propertyName"
         }
     }
-    if ([int]$State.schema -ne 1 -or [string]$State.stateKind -ne 'prepare')
+    if ([int]$State.schema -notin @(1, 2) -or
+        [string]$State.stateKind -ne 'prepare')
     {
         throw 'Protected pending state has an unsupported schema.'
     }
@@ -1476,10 +1742,10 @@ function Assert-PendingStateObject
     if ([string]$State.packageName -ne 'CialloKing.BaClickFxDesktop' -or
         [string]$State.applicationId -ne 'BaClickFxDesktop' -or
         [string]$State.publisher -ne 'CN=BaClickFx.Local' -or
-        [string]$State.productVersion -ne $ProductVersion -or
-        [string]$State.packageVersion -ne $PackageVersion)
+        [string]$State.productVersion -notmatch '^[0-9]+\.[0-9]+\.[0-9]+$' -or
+        [string]$State.packageVersion -notmatch '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$')
     {
-        throw 'Protected pending state does not match this installer.'
+        throw 'Protected pending state contains invalid identity data.'
     }
     if ([string]$State.transactionId -notmatch '^[0-9a-fA-F]{32}$')
     {
@@ -1493,6 +1759,26 @@ function Assert-PendingStateObject
         $State.certificateWasPresent -isnot [bool])
     {
         throw 'Protected pending state has invalid certificate data.'
+    }
+    if ($null -ne $State.PSObject.Properties['stateDigest'] -and
+        [string]$State.stateDigest -notmatch '^[0-9A-Fa-f]{64}$')
+    {
+        throw 'Protected pending state has an invalid state digest.'
+    }
+    if ($null -ne $State.PSObject.Properties['commitState'] -and
+        [string]$State.commitState -notin @('prepared', 'committed'))
+    {
+        throw 'Protected pending state has an invalid commit state.'
+    }
+    if ($null -ne $State.PSObject.Properties['certificatePhase'] -and
+        [string]$State.certificatePhase -notin @('creating', 'ready', 'cleaned'))
+    {
+        throw 'Protected pending state has an invalid certificate phase.'
+    }
+    if ($null -ne $State.PSObject.Properties['stateDigest'] -and
+        (Get-StateDigest -Value $State) -ne [string]$State.stateDigest)
+    {
+        throw 'Protected pending state digest does not match its content.'
     }
     foreach ($thumbprint in (Split-Ledger `
             -Value $State.ownedCertificateThumbprints `
@@ -1892,8 +2178,9 @@ if ($Phase -eq 'Prepare')
         }
 
         $pendingSeed = [ordered]@{
-            schema = 1
+            schema = 2
             stateKind = 'prepare'
+            commitState = 'prepared'
             userSid = [string]$context.userSid
             packageName = [string]$metadata.packageName
             applicationId = [string]$metadata.applicationId
