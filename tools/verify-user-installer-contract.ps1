@@ -1137,7 +1137,7 @@ function Test-SparsePackageContract
         -Description 'startup cleanup uses protected state before uninstalling files'
 }
 
-function Test-UninstallerBackupFallback
+function Test-UninstallerStatePairContract
 {
     $ast = Get-ParsedScript `
         -RelativePath 'tools/installer/unregister-machine.ps1'
@@ -1147,6 +1147,28 @@ Set-StrictMode -Version Latest
 function Assert-ProtectedStateAcl
 {
     param([string]$Path)
+}
+
+function Assert-InstallStatePair
+{
+    param(
+        [object]$Primary,
+        [object]$Backup
+    )
+
+    if ([string]$Primary.transactionId -ne [string]$Backup.transactionId -or
+        [string]$Primary.stateDigest -ne [string]$Backup.stateDigest)
+    {
+        throw 'state pair mismatch'
+    }
+}
+
+function Assert-InstallStateIntegrity
+{
+    param(
+        [object]$State,
+        [string]$InstallRoot
+    )
 }
 
 '@ + "`n" + $reader
@@ -1161,36 +1183,61 @@ function Assert-ProtectedStateAcl
         New-Item -ItemType Directory -Path $temporaryRoot -Force | Out-Null
         $statePath = Join-Path $temporaryRoot 'INSTALL-STATE.json'
         $backupPath = "$statePath.bak"
-        [IO.File]::WriteAllText($statePath, '{broken')
-        $backupState = [ordered]@{
-            schema = 1
-            packageName = 'CialloKing.BaClickFxDesktop'
-            applicationId = 'BaClickFxDesktop'
-            publisher = 'CN=BaClickFx.Local'
-            certificateThumbprint = '1111111111111111111111111111111111111111'
+        $state = [ordered]@{
+            schema = 2
+            transactionId = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+            stateDigest = ('b' * 64)
+            certificateThumbprint = ('1' * 40)
             packageFile = 'identity.msix'
         } | ConvertTo-Json -Compress
-        [IO.File]::WriteAllText($backupPath, $backupState)
+        [IO.File]::WriteAllText($statePath, $state)
+        [IO.File]::WriteAllText($backupPath, $state)
 
-        $state = & $readerModule {
+        $readState = {
             param($Path, $InstallRoot)
             Read-InstallStateWithBackup -Path $Path -InstallRoot $InstallRoot
-        } $statePath $temporaryRoot
+        }
+        $pairState = & $readerModule $readState $statePath $temporaryRoot
         Assert-True `
-            -Condition ([string]$state.packageName -eq 'CialloKing.BaClickFxDesktop') `
-            -Message 'Uninstaller did not recover the valid backup state.'
+            -Condition ([string]$pairState.transactionId -eq
+                'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa') `
+            -Message 'Uninstaller did not accept a matching state pair.'
+
+        [IO.File]::WriteAllText($statePath, '{broken')
+        Assert-Throws `
+            -Action {
+                & $readerModule $readState $statePath $temporaryRoot
+            } `
+            -Description 'corrupt primary with a valid backup'
         Assert-True `
             -Condition ((Get-Content -LiteralPath $statePath -Raw) -eq '{broken') `
-            -Message 'Uninstaller rewrote the corrupt primary before full validation.'
+            -Message 'Uninstaller rewrote the corrupt primary while rejecting it.'
+
+        [IO.File]::WriteAllText($statePath, $state)
+        [IO.File]::WriteAllText($backupPath, ($state | ConvertFrom-Json |
+            ForEach-Object {
+                $_.stateDigest = ('c' * 64)
+                $_ | ConvertTo-Json -Compress
+            }))
+        Assert-Throws `
+            -Action {
+                & $readerModule $readState $statePath $temporaryRoot
+            } `
+            -Description 'mismatched state digests'
+
+        Remove-Item -LiteralPath $backupPath -Force
+        Assert-Throws `
+            -Action {
+                & $readerModule $readState $statePath $temporaryRoot
+            } `
+            -Description 'missing backup state'
 
         Remove-Item -LiteralPath $statePath -Force
-        $backupOnlyState = & $readerModule {
-            param($Path, $InstallRoot)
-            Read-InstallStateWithBackup -Path $Path -InstallRoot $InstallRoot
-        } $statePath $temporaryRoot
-        Assert-True `
-            -Condition ([string]$backupOnlyState.packageFile -eq 'identity.msix') `
-            -Message 'Uninstaller did not accept a valid backup without a primary state.'
+        Assert-Throws `
+            -Action {
+                & $readerModule $readState $statePath $temporaryRoot
+            } `
+            -Description 'missing primary and backup states'
     }
     finally
     {
@@ -1625,7 +1672,7 @@ Test-InstallerScriptWhitelist
 Test-CompressionRuntimeColdStart
 Test-InnoPayloadContract
 Test-SparsePackageContract
-Test-UninstallerBackupFallback
+Test-UninstallerStatePairContract
 Test-UninstallerOfflineHiveFailureContract
 Test-UpgradeHostIntegrityContract
 Test-PortableZipContract
