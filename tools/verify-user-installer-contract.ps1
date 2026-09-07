@@ -359,7 +359,7 @@ function Test-InstallerScriptWhitelist
         -Description 'rollback ignores the preexisting same-version package'
     Assert-TextContains `
         -Text $installMachine `
-        -Pattern 'Invoke-PendingRollback[\s\S]*preparedPackagePath[\s\S]*Remove-Item\s+-LiteralPath\s+\$preparedPackagePath' `
+        -Pattern 'function\s+Remove-PendingPackageFiles[\s\S]*Remove-Item\s+-LiteralPath\s+\$candidate[\s\S]*function\s+Invoke-PendingRollbackCleanup' `
         -Description 'rollback removes the prepared signed package file'
     Assert-TextContains `
         -Text $installMachine `
@@ -371,8 +371,12 @@ function Test-InstallerScriptWhitelist
         -Description 'machine phases emit structured failure diagnostics'
     Assert-TextContains `
         -Text $installMachine `
-        -Pattern 'Add-InstallerRelatedFailure[\s\S]*rollback-failed-prepare[\s\S]*rollback-failed-finalize' `
-        -Description 'machine rollback failures remain secondary to the root cause'
+        -Pattern 'Add-InstallerRelatedFailure[\s\S]*rollback-failed-prepare' `
+        -Description 'prepare rollback failures remain secondary to the root cause'
+    Assert-TextContains `
+        -Text $installMachine `
+        -Pattern 'stateCommitted[\s\S]*ExitCode\s+1001' `
+        -Description 'committed finalize cleanup failures retain recovery state'
     Assert-TextExcludes `
         -Text $installMachine `
         -Pattern 'throw\s+\$(prepare|finalize)Error\b' `
@@ -387,8 +391,8 @@ function Test-InstallerScriptWhitelist
         -Description 'Prepare binds old-state validation to the replacement Host hash'
     Assert-TextContains `
         -Text $installMachine `
-        -Pattern 'State\.productVersion\s+-ne\s+\$ProductVersion\s+-and[\s\S]*State\.packageVersion\s+-ne\s+\$PackageVersion' `
-        -Description 'replacement Host allowance is limited to a full version transition'
+        -Pattern 'State\.productVersion\s+-ne\s+\$ProductVersion\s+-or[\s\S]*State\.packageVersion\s+-ne\s+\$PackageVersion' `
+        -Description 'replacement Host allowance covers any version transition'
     Assert-TextContains `
         -Text $installMachine `
         -Pattern 'Assert-ReplacementHostIntegrity[\s\S]*\-CurrentHostSha256\s+\$currentHostSha256[\s\S]*\-ArchivedHostSha256\s+\$archivedHostHash' `
@@ -727,10 +731,18 @@ function Test-InnoPayloadContract
     Assert-True `
         -Condition $uninstallCode.Success `
         -Message 'Inno uninstall code is missing.'
+    Assert-TextContains `
+        -Text $uninstallCode.Value `
+        -Pattern 'RollbackAction RemoveNew[\s\S]*-Phase Rollback[\s\S]*RollbackAction RestorePrevious[\s\S]*-Phase RollbackCleanup' `
+        -Description 'pending uninstall uses the fixed original-user and machine rollback order'
+    Assert-TextContains `
+        -Text $uninstallCode.Value `
+        -Pattern 'ResolveRollbackScript[\s\S]*-Phase Rollback[\s\S]*ResolveRollbackScript[\s\S]*RollbackAction RestorePrevious' `
+        -Description 'uninstall re-resolves the restored recovery script after machine rollback'
     Assert-TextExcludes `
         -Text $uninstallCode.Value `
-        -Pattern 'ExecAsOriginalUser|register-user-package\.ps1' `
-        -Description 'original-user execution during uninstall'
+        -Pattern 'DeleteFile\(\s*MachineStatePath\s*\)' `
+        -Description 'uninstall does not delete the pending journal outside rollback cleanup'
     Assert-TextContains `
         -Text $uninstallCode.Value `
         -Pattern 'install-machine\.ps1[\s\S]*\-Phase Rollback[\s\S]*no committed state remains' `

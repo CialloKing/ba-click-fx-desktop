@@ -134,6 +134,7 @@ var
   PayloadRoot: String;
   InstallerRoot: String;
   RecoveryRequired: Boolean;
+  RollbackRetainedRecovery: Boolean;
   SetupFailureExitCode: Integer;
   MachineInstallationSucceeded: Boolean;
   LastPowerShellFailureSummary: String;
@@ -174,8 +175,10 @@ var
   ExistingScript: String;
   ExistingRegisterScript: String;
   RecoveryArguments: String;
+  CleanupArguments: String;
   ExitCode: Integer;
 begin
+  SetupFailureExitCode := 1;
   InstallRoot := AddBackslash(ExpandConstant('{app}'));
   ProtectedRoot := AddBackslash(
     ExpandConstant('{autopf}\ba-click-fx-desktop'));
@@ -228,11 +231,35 @@ begin
     RecoveryArguments :=
       '-Phase Rollback' +
       ' -InstallDirectory ' + QuoteArgument(InstallRoot) +
+      ' -PayloadDirectory ' + QuoteArgument(PayloadRoot) +
       ' -UserContextPath ' + QuoteArgument(UserContextPath) +
       ' -MachineStatePath ' + QuoteArgument(MachineStatePath) +
       ' -RegistrationResultPath ' + QuoteArgument(RegistrationResultPath) +
       ' -ProductVersion ' + QuoteArgument('{#ProductVersion}') +
       ' -PackageVersion ' + QuoteArgument('{#PackageVersion}');
+    if not RunPowerShell(
+      ExistingRegisterScript,
+      '-InstallDirectory ' + QuoteArgument(InstallRoot) +
+        ' -MachineStatePath ' + QuoteArgument(ExistingPendingPath) +
+        ' -ResultPath ' + QuoteArgument(RegistrationResultPath) +
+        ' -PayloadDirectory ' + QuoteArgument(PayloadRoot) +
+        ' -RollbackAction RemoveNew',
+      True,
+      RegistrationResultPath + '.diagnostic.txt',
+      ExitCode) then
+    begin
+      SetupFailureExitCode := 1002;
+      Result := FormatPowerShellFailure(
+        CustomMessage('RollbackPendingInstallation'), False, ExitCode);
+      Exit;
+    end;
+    if ExitCode <> 0 then
+    begin
+      SetupFailureExitCode := 1002;
+      Result := FormatPowerShellFailure(
+        CustomMessage('RollbackPendingInstallation'), True, ExitCode);
+      Exit;
+    end;
     if not RunPowerShell(
       ExistingScript,
       RecoveryArguments,
@@ -240,52 +267,111 @@ begin
       '',
       ExitCode) then
     begin
+      SetupFailureExitCode := 1002;
       Result := FormatPowerShellFailure(
         CustomMessage('RollbackPendingInstallation'), False, ExitCode);
       Exit;
     end;
     if ExitCode <> 0 then
     begin
+      if ExitCode = 1001 then
+      begin
+        SetupFailureExitCode := 1001;
+      end
+      else
+      begin
+        SetupFailureExitCode := 1002;
+      end;
       Result := FormatPowerShellFailure(
         CustomMessage('RollbackPendingInstallation'), True, ExitCode);
       Exit;
     end;
     if FileExists(ExistingPendingPath) then
     begin
+      ExistingRegisterScript := ResolveRollbackScript(
+        InstallRoot,
+        InstallerRoot,
+        'register-user-package.ps1');
+      if ExistingRegisterScript = '' then
+      begin
+        SetupFailureExitCode := 1002;
+        Result := 'The restored user-package recovery script is missing.';
+        Exit;
+      end;
       if not RunPowerShell(
         ExistingRegisterScript,
         '-InstallDirectory ' + QuoteArgument(InstallRoot) +
           ' -MachineStatePath ' + QuoteArgument(ExistingPendingPath) +
           ' -ResultPath ' + QuoteArgument(RegistrationResultPath) +
+          ' -PayloadDirectory ' + QuoteArgument(PayloadRoot) +
           ' -RollbackAction RestorePrevious',
         True,
         RegistrationResultPath + '.diagnostic.txt',
         ExitCode) then
       begin
+        SetupFailureExitCode := 1002;
         Result := FormatPowerShellFailure(
           CustomMessage('RollbackPendingInstallation'), False, ExitCode);
         Exit;
       end;
       if ExitCode <> 0 then
       begin
+        SetupFailureExitCode := 1002;
         Result := FormatPowerShellFailure(
           CustomMessage('RollbackPendingInstallation'), True, ExitCode);
         Exit;
       end;
     end;
-    if FileExists(ExistingPendingPath) and
-      not DeleteFile(ExistingPendingPath) then
+    if FileExists(ExistingPendingPath) then
     begin
-      Result := 'The recovered pending installation journal could not be removed.';
+      ExistingScript := ResolveRollbackScript(
+        InstallRoot,
+        InstallerRoot,
+        'install-machine.ps1');
+      if ExistingScript = '' then
+      begin
+        SetupFailureExitCode := 1001;
+        Result := 'The pending cleanup script is missing; recovery state was retained.';
+        Exit;
+      end;
+      CleanupArguments := RecoveryArguments;
+      StringChangeEx(CleanupArguments, '-Phase Rollback',
+        '-Phase RollbackCleanup', True);
+      if not RunPowerShell(
+        ExistingScript,
+        CleanupArguments,
+        False,
+        '',
+        ExitCode) then
+      begin
+        SetupFailureExitCode := 1001;
+        Result := FormatPowerShellFailure(
+          CustomMessage('RollbackPendingInstallation'), False, ExitCode);
+        Exit;
+      end;
+      if ExitCode <> 0 then
+      begin
+        SetupFailureExitCode := 1001;
+        Result := FormatPowerShellFailure(
+          CustomMessage('RollbackPendingInstallation'), True, ExitCode);
+        Exit;
+      end;
+    end;
+    if FileExists(ExistingPendingPath) then
+    begin
+      SetupFailureExitCode := 1001;
+      Result := 'The recovered pending installation journal was retained for repair.';
       Exit;
     end;
   end;
   if DirExists(PayloadRoot) and
     not DelTree(PayloadRoot, True, True, True) then
   begin
+    SetupFailureExitCode := 1001;
     Result := 'The previous installer staging directory could not be removed.';
     Exit;
   end;
+  SetupFailureExitCode := 0;
   Result := '';
 end;
 
@@ -326,6 +412,60 @@ begin
     DeleteFile(RollbackResultPath);
     DeleteFile(RollbackResultPath + '.diagnostic.txt');
   end;
+end;
+
+procedure CleanupUncommittedInstallArtifacts;
+var
+  InstallRoot: String;
+  PendingPath: String;
+  StagingRoot: String;
+begin
+  // A failed first install can stop before a journal is created. In that case
+  // the staged payload is only installer input and must not be left behind.
+  // Once a journal remains, it is recovery evidence and is deliberately kept.
+  if RecoveryRequired then
+  begin
+    Exit;
+  end;
+  InstallRoot := AddBackslash(ExpandConstant('{app}'));
+  PendingPath := InstallRoot + 'Installer\PREPARE-STATE.json';
+  if FileExists(PendingPath) then
+  begin
+    Exit;
+  end;
+  StagingRoot := InstallRoot + '.staging\current';
+  if DirExists(StagingRoot) and
+    not DelTree(StagingRoot, True, True, True) then
+  begin
+    Log('The uncommitted installer staging directory could not be removed: ' +
+      StagingRoot);
+  end;
+end;
+
+procedure CleanupFirstInstallPayload(const InstallRoot: String);
+var
+  Index: Integer;
+  Path: String;
+begin
+  // There is no committed state to tell the uninstaller which files belong to
+  // this product. This path is used only after a pending first-install
+  // transaction has been rolled back successfully; never touch the user's
+  // data directory here.
+  for Index := 0 to 4 do
+  begin
+    case Index of
+      0: Path := AddBackslash(InstallRoot) + 'ba-click-fx-desktop.exe';
+      1: Path := AddBackslash(InstallRoot) + 'BAFX.ControlCenter.exe';
+      2: Path := AddBackslash(InstallRoot) + 'LICENSE.txt';
+      3: Path := AddBackslash(InstallRoot) + 'SUPPORT.md';
+      4: Path := AddBackslash(InstallRoot) + 'THIRD-PARTY-NOTICES.txt';
+    end;
+    DeleteFile(Path);
+  end;
+  DelTree(AddBackslash(InstallRoot) + 'Identity', True, True, True);
+  DelTree(AddBackslash(InstallRoot) + 'Installer', True, True, True);
+  DelTree(AddBackslash(InstallRoot) + '.rollback', True, True, True);
+  DelTree(AddBackslash(InstallRoot) + '.staging', True, True, True);
 end;
 
 procedure ResetPowerShellDiagnostics;
@@ -578,6 +718,23 @@ begin
     IDOK);
 end;
 
+procedure ShowRollbackOutcome(
+  const FailureText: String);
+begin
+  if RollbackRetainedRecovery then
+  begin
+    ShowRetainedRecovery(
+      FailureText,
+      CustomMessage('FinalizeRepair'));
+  end
+  else
+  begin
+    ShowRecoveryFailure(
+      FailureText,
+      CustomMessage('RollbackRecovery'));
+  end;
+end;
+
 procedure LogRegistrationResult;
 var
   I: Integer;
@@ -638,6 +795,7 @@ var
   ScriptPath: String;
 begin
   Succeeded := True;
+  RollbackRetainedRecovery := False;
   if not FileExists(MachineStatePath) then
   begin
     Exit;
@@ -730,10 +888,46 @@ begin
     end;
   end;
 
-  if Succeeded and FileExists(MachineStatePath) and
-    not DeleteFile(MachineStatePath) then
+  if not Succeeded then
+  begin
+    Exit;
+  end;
+
+  if FileExists(MachineStatePath) then
+  begin
+    ScriptPath := ResolveRollbackScript(
+      InstallRoot,
+      InstallerRoot,
+      'install-machine.ps1');
+    if ScriptPath = '' then
+    begin
+      Succeeded := False;
+      RollbackRetainedRecovery := True;
+      Exit;
+    end;
+    if not RunPowerShell(
+      ScriptPath,
+      '-Phase RollbackCleanup ' + CommonArguments,
+      False,
+      '',
+      ExitCode) then
+    begin
+      Succeeded := False;
+      RollbackRetainedRecovery := True;
+      Exit;
+    end;
+    if ExitCode <> 0 then
+    begin
+      Succeeded := False;
+      RollbackRetainedRecovery := ExitCode = 1001;
+      Exit;
+    end;
+  end;
+
+  if FileExists(MachineStatePath) then
   begin
     Succeeded := False;
+    RollbackRetainedRecovery := True;
   end;
 end;
 
@@ -824,9 +1018,7 @@ begin
       RollbackSucceeded);
     if not RollbackSucceeded then
     begin
-      ShowRecoveryFailure(
-        PrimaryFailure,
-        CustomMessage('RollbackRecovery'));
+      ShowRollbackOutcome(PrimaryFailure);
       Exit;
     end;
     RaiseException(IncludeInstallerLog(PrimaryFailure));
@@ -848,9 +1040,7 @@ begin
       RollbackSucceeded);
     if not RollbackSucceeded then
     begin
-      ShowRecoveryFailure(
-        PrimaryFailure,
-        CustomMessage('RollbackRecovery'));
+      ShowRollbackOutcome(PrimaryFailure);
       Exit;
     end;
     RaiseException(IncludeInstallerLog(PrimaryFailure));
@@ -866,9 +1056,7 @@ begin
       RollbackSucceeded);
     if not RollbackSucceeded then
     begin
-      ShowRecoveryFailure(
-        PrimaryFailure,
-        CustomMessage('RollbackRecovery'));
+      ShowRollbackOutcome(PrimaryFailure);
       Exit;
     end;
     RaiseException(IncludeInstallerLog(PrimaryFailure));
@@ -893,9 +1081,7 @@ begin
       RollbackSucceeded);
     if not RollbackSucceeded then
     begin
-      ShowRecoveryFailure(
-        PrimaryFailure,
-        CustomMessage('RollbackRecovery'));
+      ShowRollbackOutcome(PrimaryFailure);
       Exit;
     end;
     RaiseException(IncludeInstallerLog(PrimaryFailure));
@@ -912,9 +1098,7 @@ begin
       RollbackSucceeded);
     if not RollbackSucceeded then
     begin
-      ShowRecoveryFailure(
-        PrimaryFailure,
-        CustomMessage('RollbackRecovery'));
+      ShowRollbackOutcome(PrimaryFailure);
       Exit;
     end;
     RaiseException(IncludeInstallerLog(PrimaryFailure));
@@ -936,9 +1120,7 @@ begin
       RollbackSucceeded);
     if not RollbackSucceeded then
     begin
-      ShowRecoveryFailure(
-        PrimaryFailure,
-        CustomMessage('RollbackRecovery'));
+      ShowRollbackOutcome(PrimaryFailure);
       Exit;
     end;
     RaiseException(IncludeInstallerLog(PrimaryFailure));
@@ -947,9 +1129,7 @@ begin
   begin
     PrimaryFailure := FormatPowerShellFailure(
       CustomMessage('FinalizeMachineInstallation'), True, ExitCode);
-    if (ExitCode = 1001) or
-      (FileExists(AddBackslash(InstallRoot) + 'Installer\INSTALL-STATE.json') and
-        FileExists(MachineStatePath)) then
+    if ExitCode = 1001 then
     begin
       ShowRetainedRecovery(
         PrimaryFailure,
@@ -963,9 +1143,7 @@ begin
       RollbackSucceeded);
     if not RollbackSucceeded then
     begin
-      ShowRecoveryFailure(
-        PrimaryFailure,
-        CustomMessage('RollbackRecovery'));
+      ShowRollbackOutcome(PrimaryFailure);
       Exit;
     end;
     RaiseException(IncludeInstallerLog(PrimaryFailure));
@@ -989,6 +1167,7 @@ end;
 
 procedure DeinitializeSetup;
 begin
+  CleanupUncommittedInstallArtifacts;
   DeleteTransientState;
 end;
 
@@ -1002,8 +1181,10 @@ var
   ExitCode: Integer;
   InstallRoot: String;
   InstallerRoot: String;
+  StagedInstallerRoot: String;
   InstallStatePath: String;
   CommonArguments: String;
+  ScriptPath: String;
 begin
   if CurUninstallStep <> usUninstall then
   begin
@@ -1013,6 +1194,7 @@ begin
   SetupFailureExitCode := 1;
   PayloadRoot := AddBackslash(InstallRoot) + '.staging\current';
   InstallerRoot := AddBackslash(InstallRoot) + 'Installer';
+  StagedInstallerRoot := AddBackslash(PayloadRoot) + 'Installer';
   MachineStatePath := AddBackslash(InstallerRoot) + 'PREPARE-STATE.json';
   InstallStatePath := AddBackslash(InstallerRoot) + 'INSTALL-STATE.json';
   UserContextPath := CreateOriginalUserStatePath();
@@ -1021,37 +1203,181 @@ begin
   begin
     CommonArguments :=
       '-InstallDirectory ' + QuoteArgument(InstallRoot) +
+      ' -PayloadDirectory ' + QuoteArgument(PayloadRoot) +
       ' -UserContextPath ' + QuoteArgument(UserContextPath) +
       ' -MachineStatePath ' + QuoteArgument(MachineStatePath) +
       ' -RegistrationResultPath ' + QuoteArgument(RegistrationResultPath) +
       ' -ProductVersion ' + QuoteArgument('{#ProductVersion}') +
       ' -PackageVersion ' + QuoteArgument('{#PackageVersion}');
+    ScriptPath := ResolveRollbackScript(
+      InstallRoot,
+      StagedInstallerRoot,
+      'register-user-package.ps1');
+    if ScriptPath = '' then
+    begin
+      ShowRecoveryFailure(
+        'A pending installation exists but its user-package recovery script is missing.',
+        CustomMessage('RollbackRecovery'));
+      Exit;
+    end;
     if not RunPowerShell(
-      AddBackslash(InstallerRoot) + 'install-machine.ps1',
+      ScriptPath,
+      '-InstallDirectory ' + QuoteArgument(InstallRoot) +
+        ' -MachineStatePath ' + QuoteArgument(MachineStatePath) +
+        ' -ResultPath ' + QuoteArgument(RegistrationResultPath) +
+        ' -PayloadDirectory ' + QuoteArgument(PayloadRoot) +
+        ' -RollbackAction RemoveNew',
+      True,
+      RegistrationResultPath + '.diagnostic.txt',
+      ExitCode) then
+    begin
+      ShowRecoveryFailure(
+        FormatPowerShellFailure(
+          CustomMessage('RollbackPendingInstallation'), False, ExitCode),
+        CustomMessage('RollbackRecovery'));
+      Exit;
+    end;
+    if ExitCode <> 0 then
+    begin
+      ShowRecoveryFailure(
+        FormatPowerShellFailure(
+          CustomMessage('RollbackPendingInstallation'), True, ExitCode),
+        CustomMessage('RollbackRecovery'));
+      Exit;
+    end;
+    ScriptPath := ResolveRollbackScript(
+      InstallRoot,
+      StagedInstallerRoot,
+      'install-machine.ps1');
+    if ScriptPath = '' then
+    begin
+      ShowRecoveryFailure(
+        'A pending installation exists but its machine recovery script is missing.',
+        CustomMessage('RollbackRecovery'));
+      Exit;
+    end;
+    if not RunPowerShell(
+      ScriptPath,
       '-Phase Rollback ' + CommonArguments,
       False,
       '',
       ExitCode) then
     begin
-      RaiseException(IncludeInstallerLog(FormatPowerShellFailure(
-        CustomMessage('RollbackPendingInstallation'), False, ExitCode)));
+      ShowRecoveryFailure(
+        FormatPowerShellFailure(
+          CustomMessage('RollbackPendingInstallation'), False, ExitCode),
+        CustomMessage('RollbackRecovery'));
+      Exit;
     end;
     if ExitCode <> 0 then
     begin
-      RaiseException(IncludeInstallerLog(FormatPowerShellFailure(
-        CustomMessage('RollbackPendingInstallation'), True, ExitCode)));
+      if ExitCode = 1001 then
+      begin
+        ShowRetainedRecovery(
+          FormatPowerShellFailure(
+            CustomMessage('RollbackPendingInstallation'), True, ExitCode),
+          CustomMessage('FinalizeRepair'));
+      end
+      else
+      begin
+        ShowRecoveryFailure(
+          FormatPowerShellFailure(
+            CustomMessage('RollbackPendingInstallation'), True, ExitCode),
+          CustomMessage('RollbackRecovery'));
+      end;
+      Exit;
     end;
-    if FileExists(MachineStatePath) and not DeleteFile(MachineStatePath) then
+    if FileExists(MachineStatePath) then
     begin
-      RaiseException(IncludeInstallerLog(
-        'The pending rollback journal could not be removed.'));
+      ScriptPath := ResolveRollbackScript(
+        InstallRoot,
+        StagedInstallerRoot,
+        'register-user-package.ps1');
+      if ScriptPath = '' then
+      begin
+        ShowRecoveryFailure(
+          'The restored user-package recovery script is missing.',
+          CustomMessage('RollbackRecovery'));
+        Exit;
+      end;
+      if not RunPowerShell(
+        ScriptPath,
+        '-InstallDirectory ' + QuoteArgument(InstallRoot) +
+          ' -MachineStatePath ' + QuoteArgument(MachineStatePath) +
+          ' -ResultPath ' + QuoteArgument(RegistrationResultPath) +
+          ' -PayloadDirectory ' + QuoteArgument(PayloadRoot) +
+          ' -RollbackAction RestorePrevious',
+        True,
+        RegistrationResultPath + '.diagnostic.txt',
+        ExitCode) then
+      begin
+        ShowRecoveryFailure(
+          FormatPowerShellFailure(
+            CustomMessage('RollbackPendingInstallation'), False, ExitCode),
+          CustomMessage('RollbackRecovery'));
+        Exit;
+      end;
+      if ExitCode <> 0 then
+      begin
+        ShowRecoveryFailure(
+          FormatPowerShellFailure(
+            CustomMessage('RollbackPendingInstallation'), True, ExitCode),
+          CustomMessage('RollbackRecovery'));
+        Exit;
+      end;
+    end;
+    if FileExists(MachineStatePath) then
+    begin
+      // RollbackCleanup owns package, certificate, staging, and journal
+      // deletion. Keeping that operation in the machine script makes a
+      // cleanup failure recoverable instead of silently discarding evidence.
+      ScriptPath := ResolveRollbackScript(
+        InstallRoot,
+        StagedInstallerRoot,
+        'install-machine.ps1');
+      if ScriptPath = '' then
+      begin
+        ShowRetainedRecovery(
+          'The pending cleanup script is missing; recovery state was retained.',
+          CustomMessage('FinalizeRepair'));
+        Exit;
+      end;
+      if not RunPowerShell(
+        ScriptPath,
+        '-Phase RollbackCleanup ' + CommonArguments,
+        False,
+        '',
+        ExitCode) then
+      begin
+        ShowRetainedRecovery(
+          FormatPowerShellFailure(
+            CustomMessage('RollbackPendingInstallation'), False, ExitCode),
+          CustomMessage('FinalizeRepair'));
+        Exit;
+      end;
+      if ExitCode <> 0 then
+      begin
+        ShowRetainedRecovery(
+          FormatPowerShellFailure(
+            CustomMessage('RollbackPendingInstallation'), True, ExitCode),
+          CustomMessage('FinalizeRepair'));
+        Exit;
+      end;
+    end;
+    if FileExists(MachineStatePath) then
+    begin
+      ShowRetainedRecovery(
+        'The pending rollback journal was retained for repair.',
+        CustomMessage('FinalizeRepair'));
+      Exit;
     end;
     if not FileExists(InstallStatePath) then
     begin
       // A first installation can fail before a committed state exists. The
-      // machine rollback removed its package, certificate, and journal, so
-      // Inno can now delete the copied application files directly.
+      // machine rollback and cleanup removed its package and certificate, so
+      // Inno can now delete only the copied application payload.
       Log('Pending first installation rolled back; no committed state remains.');
+      CleanupFirstInstallPayload(InstallRoot);
       SetupFailureExitCode := 0;
       Exit;
     end;
