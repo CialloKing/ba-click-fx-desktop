@@ -9,14 +9,24 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$ResultPath,
 
-    [switch]$Rollback
+    [string]$PayloadDirectory = '',
+
+    [switch]$Rollback,
+
+    [ValidateSet('RemoveNew', 'RestorePrevious', 'Both')]
+    [string]$RollbackAction = ''
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'installer-diagnostics.ps1')
 $script:InstallerStep = 'initialize'
-$script:InstallerPhase = if ($Rollback)
+$effectiveRollbackAction = $RollbackAction
+if ($Rollback -and [string]::IsNullOrWhiteSpace($effectiveRollbackAction))
+{
+    $effectiveRollbackAction = 'Both'
+}
+$script:InstallerPhase = if (-not [string]::IsNullOrWhiteSpace($effectiveRollbackAction))
 {
     'RollbackUserPackage'
 }
@@ -28,6 +38,7 @@ $script:InstallerDiagnosticPath = "$ResultPath.diagnostic.txt"
 $script:InstallerState = $null
 $script:InstallerProductVersion = ''
 $script:InstallerPackageVersion = ''
+$script:InstallerExitCode = 1
 $script:InstallerRelatedFailures = New-Object Collections.Generic.List[object]
 
 function Add-InstallerRelatedFailure
@@ -57,6 +68,229 @@ function Write-Utf8NoBom
 
     $encoding = New-Object -TypeName System.Text.UTF8Encoding -ArgumentList $false
     [IO.File]::WriteAllText($Path, $Content, $encoding)
+}
+
+function Get-StatePropertiesWithoutDigest
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [object]$Value
+    )
+
+    $ordered = [ordered]@{}
+    if ($Value -is [Collections.IDictionary])
+    {
+        foreach ($entry in $Value.GetEnumerator())
+        {
+            if ([string]$entry.Key -ne 'stateDigest')
+            {
+                $ordered[[string]$entry.Key] = $entry.Value
+            }
+        }
+    }
+    else
+    {
+        foreach ($property in $Value.PSObject.Properties)
+        {
+            if ($property.Name -ne 'stateDigest')
+            {
+                $ordered[$property.Name] = $property.Value
+            }
+        }
+    }
+    return $ordered
+}
+
+function Get-StateDigest
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [object]$Value
+    )
+
+    $json = Get-StatePropertiesWithoutDigest -Value $Value |
+        ConvertTo-Json -Depth 12
+    $hasher = [Security.Cryptography.SHA256]::Create()
+    try
+    {
+        return ([BitConverter]::ToString($hasher.ComputeHash(
+            [Text.Encoding]::UTF8.GetBytes($json)))).Replace('-', '')
+    }
+    finally
+    {
+        $hasher.Dispose()
+    }
+}
+
+function Get-InstallStatePairStatus
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$InstallRoot,
+
+        [Parameter(Mandatory = $true)]
+        [object]$PendingState
+    )
+
+    $statePath = Join-Path $InstallRoot 'Installer\INSTALL-STATE.json'
+    $backupPath = "$statePath.bak"
+    $primaryExists = Test-Path -LiteralPath $statePath -PathType Leaf
+    $backupExists = Test-Path -LiteralPath $backupPath -PathType Leaf
+    if (-not $primaryExists -and -not $backupExists)
+    {
+        return [pscustomobject]@{
+            present = $false
+            valid = $false
+            transactionId = ''
+            reason = 'absent'
+        }
+    }
+    if (-not $primaryExists -or -not $backupExists)
+    {
+        return [pscustomobject]@{
+            present = $true
+            valid = $false
+            transactionId = ''
+            reason = 'primary-and-backup-are-not-a-pair'
+        }
+    }
+
+    try
+    {
+        Assert-ProtectedStateAcl -Path $statePath
+        Assert-ProtectedStateAcl -Path $backupPath
+        $primary = Get-Content -LiteralPath $statePath -Raw | ConvertFrom-Json
+        $backup = Get-Content -LiteralPath $backupPath -Raw | ConvertFrom-Json
+        $primaryTransaction = if ($null -eq $primary.PSObject.Properties['transactionId'])
+        {
+            ''
+        }
+        else
+        {
+            [string]$primary.transactionId
+        }
+        $backupTransaction = if ($null -eq $backup.PSObject.Properties['transactionId'])
+        {
+            ''
+        }
+        else
+        {
+            [string]$backup.transactionId
+        }
+        if ($primaryTransaction -notmatch '^[0-9a-fA-F]{32}$' -or
+            $primaryTransaction -ne $backupTransaction)
+        {
+            throw 'Install-state transactions differ.'
+        }
+
+        $primaryDigest = if ($null -eq $primary.PSObject.Properties['stateDigest'])
+        {
+            ''
+        }
+        else
+        {
+            [string]$primary.stateDigest
+        }
+        $backupDigest = if ($null -eq $backup.PSObject.Properties['stateDigest'])
+        {
+            ''
+        }
+        else
+        {
+            [string]$backup.stateDigest
+        }
+        if ($primaryDigest -match '^[0-9A-Fa-f]{64}$' -and
+            $primaryDigest -eq $backupDigest)
+        {
+            if ((Get-StateDigest -Value $primary) -ne $primaryDigest -or
+                (Get-StateDigest -Value $backup) -ne $backupDigest)
+            {
+                throw 'Install-state digest does not match its content.'
+            }
+        }
+        elseif ([string]::IsNullOrWhiteSpace($primaryDigest) -and
+            [string]::IsNullOrWhiteSpace($backupDigest))
+        {
+            $primaryCanonical = Get-StatePropertiesWithoutDigest -Value $primary |
+                ConvertTo-Json -Depth 12
+            $backupCanonical = Get-StatePropertiesWithoutDigest -Value $backup |
+                ConvertTo-Json -Depth 12
+            if ($primaryCanonical -ne $backupCanonical)
+            {
+                throw 'Legacy install-state contents differ.'
+            }
+        }
+        else
+        {
+            throw 'Install-state digests differ.'
+        }
+
+        return [pscustomobject]@{
+            present = $true
+            valid = $true
+            transactionId = $primaryTransaction
+            reason = 'valid'
+        }
+    }
+    catch
+    {
+        return [pscustomobject]@{
+            present = $true
+            valid = $false
+            transactionId = ''
+            reason = $_.Exception.Message
+        }
+    }
+}
+
+function Assert-PendingRollbackMayRemoveNewPackage
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [object]$State,
+
+        [Parameter(Mandatory = $true)]
+        [string]$InstallRoot
+    )
+
+    $commitState = if ($null -ne $State.PSObject.Properties['commitState'])
+    {
+        [string]$State.commitState
+    }
+    else
+    {
+        'prepared'
+    }
+    $pair = Get-InstallStatePairStatus `
+        -InstallRoot $InstallRoot `
+        -PendingState $State
+    $sameTransaction = $pair.valid -and
+        [string]$pair.transactionId -eq [string]$State.transactionId
+    if ($commitState -eq 'committed')
+    {
+        if (-not $sameTransaction)
+        {
+            $script:InstallerExitCode = 1001
+            throw 'The pending transaction is marked committed, but its install-state pair cannot prove that commit.'
+        }
+        return $false
+    }
+    if ($sameTransaction)
+    {
+        # Finalize writes INSTALL-STATE before its committed journal marker. A
+        # crash in that interval is already committed and must only finish
+        # cleanup; removing its new registration would destroy the install.
+        return $false
+    }
+    if ($pair.present -and -not $pair.valid)
+    {
+        # A present but damaged pair could be the result of a torn state
+        # commit. Preserve the package and recovery evidence until repair can
+        # establish which transaction is authoritative.
+        $script:InstallerExitCode = 1001
+        throw "The protected install-state pair cannot establish rollback safety: $($pair.reason)"
+    }
+    return $true
 }
 
 function Write-Result
@@ -98,7 +332,9 @@ function Stop-RegistrationWithFailure
         [Parameter(Mandatory = $true)]
         [string]$Step,
 
-        [string]$ResultErrorMessage = ''
+        [string]$ResultErrorMessage = '',
+
+        [int]$ExitCode = 1
     )
 
     $failureMessage = if ([string]::IsNullOrWhiteSpace($ResultErrorMessage))
@@ -153,7 +389,7 @@ function Stop-RegistrationWithFailure
         -PackageVersion $script:InstallerPackageVersion `
         -DiagnosticPath $script:InstallerDiagnosticPath `
         -RelatedFailures $script:InstallerRelatedFailures.ToArray()
-    exit 1
+    exit $ExitCode
 }
 
 function Assert-ProtectedStateAcl
@@ -204,7 +440,9 @@ function Assert-PendingState
         [object]$State,
 
         [Parameter(Mandatory = $true)]
-        [string]$InstallRoot
+        [string]$InstallRoot,
+
+        [string]$PayloadDirectory = ''
     )
 
     foreach ($propertyName in @(
@@ -218,10 +456,6 @@ function Assert-PendingState
         'productVersion',
         'packageVersion',
         'templateSha256',
-        'packagePath',
-        'packageFile',
-        'ownedCertificateThumbprints',
-        'ownedPackageFiles',
         'preexistingPackageFullNames',
         'oldInstallState'))
     {
@@ -230,7 +464,7 @@ function Assert-PendingState
             throw "Protected pending state is missing: $propertyName"
         }
     }
-    if ([int]$State.schema -ne 1 -or [string]$State.stateKind -ne 'prepare')
+    if ([int]$State.schema -notin @(1, 2) -or [string]$State.stateKind -ne 'prepare')
     {
         throw 'Protected pending state has an unsupported schema.'
     }
@@ -251,6 +485,40 @@ function Assert-PendingState
     if ([string]$State.templateSha256 -notmatch '^[0-9A-Fa-f]{64}$')
     {
         throw 'Protected pending state has an invalid template hash.'
+    }
+    $certificatePhase = if ($null -ne $State.PSObject.Properties['certificatePhase'])
+    {
+        [string]$State.certificatePhase
+    }
+    else
+    {
+        'ready'
+    }
+    if ($certificatePhase -eq 'creating')
+    {
+        if ([string]$State.transactionId -notmatch '^[0-9a-fA-F]{32}$' -or
+            $null -eq $State.PSObject.Properties['certificateSanUri'] -or
+            [string]$State.certificateSanUri -notmatch
+                '^urn:bafx:installer:[0-9a-fA-F]{32}$')
+        {
+            throw 'Protected pending state has an invalid certificate creation marker.'
+        }
+        if ([string]::IsNullOrWhiteSpace($effectiveRollbackAction))
+        {
+            throw 'A certificate-creating transaction cannot register a package.'
+        }
+        return
+    }
+    foreach ($propertyName in @(
+        'packagePath',
+        'packageFile',
+        'ownedCertificateThumbprints',
+        'ownedPackageFiles'))
+    {
+        if ($null -eq $State.PSObject.Properties[$propertyName])
+        {
+            throw "Protected pending state is missing: $propertyName"
+        }
     }
     foreach ($thumbprint in (([string]$State.ownedCertificateThumbprints) -split ',' |
             Where-Object { -not [string]::IsNullOrWhiteSpace($_) }))
@@ -281,7 +549,24 @@ function Assert-PendingState
     }
     $expectedPackagePath = [IO.Path]::GetFullPath(
         (Join-Path (Join-Path $InstallRoot 'Identity') $packageFile))
-    if ([IO.Path]::GetFullPath([string]$State.packagePath) -ne $expectedPackagePath)
+    $actualPackagePath = [IO.Path]::GetFullPath([string]$State.packagePath)
+    $packagePathMatches = $actualPackagePath -eq $expectedPackagePath
+    $stagedRoot = if ([string]::IsNullOrWhiteSpace($PayloadDirectory))
+    {
+        [IO.Path]::GetFullPath((Join-Path $InstallRoot '.staging\current'))
+    }
+    else
+    {
+        $PayloadDirectory
+    }
+    if (-not [string]::IsNullOrWhiteSpace($stagedRoot))
+    {
+        $stagedPackagePath = [IO.Path]::GetFullPath(
+            (Join-Path (Join-Path $stagedRoot 'Identity') $packageFile))
+        $packagePathMatches = $packagePathMatches -or
+            $actualPackagePath -eq $stagedPackagePath
+    }
+    if (-not $packagePathMatches)
     {
         throw 'Protected pending state points to a different package file.'
     }
@@ -414,7 +699,8 @@ trap
 {
     Stop-RegistrationWithFailure `
         -ErrorRecord $_ `
-        -Step $script:InstallerStep
+        -Step $script:InstallerStep `
+        -ExitCode $script:InstallerExitCode
 }
 
 $script:InstallerStep = 'validate-powershell'
@@ -427,6 +713,17 @@ $script:InstallerStep = 'resolve-installer-paths'
 $installRoot = [IO.Path]::GetFullPath($InstallDirectory)
 $machineStateFullPath = [IO.Path]::GetFullPath($MachineStatePath)
 $resultFullPath = [IO.Path]::GetFullPath($ResultPath)
+$payloadDirectoryFullPath = ''
+if (-not [string]::IsNullOrWhiteSpace($PayloadDirectory))
+{
+    $payloadDirectoryFullPath = [IO.Path]::GetFullPath($PayloadDirectory)
+    $expectedPayloadDirectory = [IO.Path]::GetFullPath(
+        (Join-Path $installRoot '.staging\current'))
+    if ($payloadDirectoryFullPath -ne $expectedPayloadDirectory)
+    {
+        throw 'Installer payload directory is outside protected staging.'
+    }
+}
 $script:InstallerDiagnosticPath = "$resultFullPath.diagnostic.txt"
 $expectedStatePath = [IO.Path]::GetFullPath(
     (Join-Path $installRoot 'Installer\PREPARE-STATE.json'))
@@ -437,7 +734,10 @@ if ($machineStateFullPath -ne $expectedStatePath)
 $script:InstallerStep = 'validate-protected-pending-state'
 Assert-ProtectedStateAcl -Path $machineStateFullPath
 $machineState = Get-Content -LiteralPath $machineStateFullPath -Raw | ConvertFrom-Json
-Assert-PendingState -State $machineState -InstallRoot $installRoot
+Assert-PendingState `
+    -State $machineState `
+    -InstallRoot $installRoot `
+    -PayloadDirectory $payloadDirectoryFullPath
 $script:InstallerState = $machineState
 $script:InstallerProductVersion = [string]$machineState.productVersion
 $script:InstallerPackageVersion = [string]$machineState.packageVersion
@@ -450,12 +750,28 @@ if ($null -eq $currentIdentity.User -or
     throw 'Package registration is not running as the original user.'
 }
 
-if ($Rollback)
+if (-not [string]::IsNullOrWhiteSpace($effectiveRollbackAction))
 {
-    $script:InstallerStep = 'remove-new-package-registrations'
-    Remove-NewPackages -State $machineState
-    $script:InstallerStep = 'restore-previous-package-registration'
-    Restore-PreviousPackage -State $machineState -InstallRoot $installRoot
+    $script:InstallerStep = 'validate-rollback-commit-state'
+    $mayRollbackPackage = Assert-PendingRollbackMayRemoveNewPackage `
+        -State $machineState `
+        -InstallRoot $installRoot
+    if ($effectiveRollbackAction -in @('RemoveNew', 'Both'))
+    {
+        if ($mayRollbackPackage)
+        {
+            $script:InstallerStep = 'remove-new-package-registrations'
+            Remove-NewPackages -State $machineState
+        }
+    }
+    if ($effectiveRollbackAction -in @('RestorePrevious', 'Both'))
+    {
+        if ($mayRollbackPackage)
+        {
+            $script:InstallerStep = 'restore-previous-package-registration'
+            Restore-PreviousPackage -State $machineState -InstallRoot $installRoot
+        }
+    }
     exit 0
 }
 
@@ -513,8 +829,6 @@ catch
     {
         $script:InstallerStep = 'rollback-new-package-registrations'
         Remove-NewPackages -State $machineState
-        $script:InstallerStep = 'rollback-previous-package-registration'
-        Restore-PreviousPackage -State $machineState -InstallRoot $installRoot
     }
     catch
     {

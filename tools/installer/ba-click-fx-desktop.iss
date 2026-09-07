@@ -255,7 +255,10 @@ begin
     end;
     if ExitCode <> 0 then
     begin
-      SetupFailureExitCode := 1002;
+      if ExitCode = 1001 then
+        SetupFailureExitCode := 1001
+      else
+        SetupFailureExitCode := 1002;
       Result := FormatPowerShellFailure(
         CustomMessage('RollbackPendingInstallation'), True, ExitCode);
       Exit;
@@ -316,7 +319,10 @@ begin
       end;
       if ExitCode <> 0 then
       begin
-        SetupFailureExitCode := 1002;
+        if ExitCode = 1001 then
+          SetupFailureExitCode := 1001
+        else
+          SetupFailureExitCode := 1002;
         Result := FormatPowerShellFailure(
           CustomMessage('RollbackPendingInstallation'), True, ExitCode);
         Exit;
@@ -825,6 +831,7 @@ begin
   else if ExitCode <> 0 then
   begin
     Succeeded := False;
+    RollbackRetainedRecovery := ExitCode = 1001;
   end;
 
   if not Succeeded then
@@ -852,6 +859,7 @@ begin
   else if ExitCode <> 0 then
   begin
     Succeeded := False;
+    RollbackRetainedRecovery := ExitCode = 1001;
   end;
 
   if not Succeeded then
@@ -885,6 +893,7 @@ begin
     else if ExitCode <> 0 then
     begin
       Succeeded := False;
+      RollbackRetainedRecovery := ExitCode = 1001;
     end;
   end;
 
@@ -1239,10 +1248,20 @@ begin
     end;
     if ExitCode <> 0 then
     begin
-      ShowRecoveryFailure(
-        FormatPowerShellFailure(
-          CustomMessage('RollbackPendingInstallation'), True, ExitCode),
-        CustomMessage('RollbackRecovery'));
+      if ExitCode = 1001 then
+      begin
+        ShowRetainedRecovery(
+          FormatPowerShellFailure(
+            CustomMessage('RollbackPendingInstallation'), True, ExitCode),
+          CustomMessage('FinalizeRepair'));
+      end
+      else
+      begin
+        ShowRecoveryFailure(
+          FormatPowerShellFailure(
+            CustomMessage('RollbackPendingInstallation'), True, ExitCode),
+          CustomMessage('RollbackRecovery'));
+      end;
       Exit;
     end;
     ScriptPath := ResolveRollbackScript(
