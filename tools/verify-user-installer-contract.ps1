@@ -401,6 +401,26 @@ function Test-InstallerScriptWhitelist
         -Text $installMachine `
         -Pattern "InstallerStep\s*=\s*'load-compression-runtime'[\s\S]*Add-Type\s+-AssemblyName\s+System\.IO\.Compression[\s\S]*Add-Type\s+-AssemblyName\s+System\.IO\.Compression\.FileSystem[\s\S]*InstallerStep\s*=\s*'resolve-installer-paths'" `
         -Description 'ZIP runtime loads before any existing install state is read'
+    Assert-TextContains `
+        -Text $installMachine `
+        -Pattern 'function\s+Get-CertificateStoreSnapshot[\s\S]*Cert:\\LocalMachine\\\$storeName[\s\S]*My[\s\S]*TrustedPeople' `
+        -Description 'certificate ownership snapshots both machine stores'
+    Assert-TextContains `
+        -Text $installMachine `
+        -Pattern 'certificatePreexisting\s*=\s*\$certificateStoreSnapshot[\s\S]*Test-CertificateStoreSnapshotContains[\s\S]*certificateWasPresent' `
+        -Description 'certificate presence is decided from thumbprint and DER evidence before import'
+    Assert-TextContains `
+        -Text $installMachine `
+        -Pattern 'certificateOwnership\s*=\s*''unknown''[\s\S]*ownedCertificateThumbprints\s*=\s*''''[\s\S]*certificateOwnership\s*=\s*if' `
+        -Description 'certificate ownership ledger is not optimistic during the creation window'
+    Assert-TextContains `
+        -Text $installMachine `
+        -Pattern 'minimumReusableNotAfterUtc\s*=\s*\$nowUtc\.AddDays\(30\)[\s\S]*NotAfter\.ToUniversalTime\(\)\s+-le\s+\$nowUtc[\s\S]*-lt\s+\$minimumReusableNotAfterUtc' `
+        -Description 'certificate reuse rejects expired and under-thirty-day certificates'
+    Assert-TextContains `
+        -Text $installMachine `
+        -Pattern 'Recover-CreatingCertificate[\s\S]*certificatePreexisting[\s\S]*Test-CertificateStoreSnapshotContains' `
+        -Description 'certificate creation crash recovery preserves pre-existing SAN certificates'
     $null = Get-CompressionRuntimeLoadStatements -InstallMachine $installMachine
 
     $captureUserContext = Read-RepositoryText `

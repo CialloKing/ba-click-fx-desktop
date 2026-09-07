@@ -860,6 +860,61 @@ function Get-CertificateSha256
     }
 }
 
+function Get-CertificateStoreSnapshot
+{
+    $entries = New-Object Collections.Generic.List[string]
+    foreach ($storeName in @('My', 'TrustedPeople'))
+    {
+        foreach ($certificate in @(Get-ChildItem -Path "Cert:\LocalMachine\$storeName"))
+        {
+            $thumbprint = ([string]$certificate.Thumbprint).ToUpperInvariant()
+            if ($thumbprint -notmatch '^[0-9A-F]{40}$')
+            {
+                continue
+            }
+            $certificateSha256 = Get-CertificateSha256 -Certificate $certificate
+            $entries.Add("${thumbprint}:$certificateSha256")
+        }
+    }
+    return Join-Ledger -Values @($entries) -Separator Pipe
+}
+
+function Test-CertificateStoreSnapshotContains
+{
+    param(
+        [AllowNull()]
+        [string]$Snapshot,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Thumbprint,
+
+        [Parameter(Mandatory = $true)]
+        [string]$CertificateSha256
+    )
+
+    $normalizedThumbprint = $Thumbprint.ToUpperInvariant()
+    $normalizedSha256 = $CertificateSha256.ToUpperInvariant()
+    return (Split-Ledger -Value $Snapshot -Separator Pipe) -contains `
+        "${normalizedThumbprint}:$normalizedSha256"
+}
+
+function Get-CertificateByThumbprint
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [ValidateSet('My', 'TrustedPeople')]
+        [string]$StoreName,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Thumbprint
+    )
+
+    $normalizedThumbprint = $Thumbprint.ToUpperInvariant()
+    return Get-ChildItem -Path "Cert:\LocalMachine\$StoreName" |
+        Where-Object { ([string]$_.Thumbprint).ToUpperInvariant() -eq $normalizedThumbprint } |
+        Select-Object -First 1
+}
+
 function Assert-ReplacementHostIntegrity
 {
     param(
@@ -1058,9 +1113,12 @@ function Test-ExistingIdentityPackageReusable
         return $null
     }
     $certificate = Get-TrustedCertificateByThumbprint -Thumbprint $thumbprint
+    $nowUtc = [DateTime]::UtcNow
+    $minimumReusableNotAfterUtc = $nowUtc.AddDays(30)
     if ($null -eq $certificate -or
-        $certificate.NotAfter.ToUniversalTime() -lt [DateTime]::UtcNow.AddDays(30) -or
-        $certificate.NotBefore.ToUniversalTime() -gt [DateTime]::UtcNow)
+        $certificate.NotAfter.ToUniversalTime() -le $nowUtc -or
+        $certificate.NotAfter.ToUniversalTime() -lt $minimumReusableNotAfterUtc -or
+        $certificate.NotBefore.ToUniversalTime() -gt $nowUtc)
     {
         return $null
     }
@@ -1288,6 +1346,7 @@ function Assert-IdentityPayload
     $identityFailureStep = ''
     $publicCertificatePath = Join-Path (
         [IO.Path]::GetTempPath()) ('bafx-identity-' + [Guid]::NewGuid().ToString('N') + '.cer')
+    $certificateStoreSnapshot = Get-CertificateStoreSnapshot
 
     try
     {
@@ -1309,6 +1368,7 @@ function Assert-IdentityPayload
         }
         $creatingJournal.certificatePhase = 'creating'
         $creatingJournal.certificateSanUri = $certificateSanUri
+        $creatingJournal.certificatePreexisting = $certificateStoreSnapshot
         $creatingJournal.certificateThumbprint = ''
         Write-ProtectedJson `
             -Path $PendingStatePath `
@@ -1342,8 +1402,8 @@ function Assert-IdentityPayload
         $creatingJournal.certificateSha256 = $certificateSha256
         $creatingJournal.certificateNotAfterUtc = $certificateNotAfterUtc
         $creatingJournal.certificateWasPresent = $false
-        $creatingJournal.certificateOwnership = 'installer-owned'
-        $creatingJournal.ownedCertificateThumbprints = $certificateThumbprint
+        $creatingJournal.certificateOwnership = 'unknown'
+        $creatingJournal.ownedCertificateThumbprints = ''
         $creatingJournal.ownedPackageFiles = ''
         Write-ProtectedJson `
             -Path $PendingStatePath `
@@ -1351,11 +1411,16 @@ function Assert-IdentityPayload
             -ReadSid ([string]$PendingStateSeed.userSid)
 
         $journal = $creatingJournal
-        $existingCertificate = Get-ChildItem -Path 'Cert:\LocalMachine\TrustedPeople' |
-            Where-Object { $_.Thumbprint -eq $certificateThumbprint } |
-            Select-Object -First 1
-        $certificateWasPresent = $false
-        if ($null -ne $existingCertificate)
+        $existingPrivateCertificate = Get-CertificateByThumbprint `
+            -StoreName 'My' `
+            -Thumbprint $certificateThumbprint
+        $existingTrustedCertificate = Get-CertificateByThumbprint `
+            -StoreName 'TrustedPeople' `
+            -Thumbprint $certificateThumbprint
+        foreach ($existingCertificate in @(
+                $existingPrivateCertificate,
+                $existingTrustedCertificate) |
+            Where-Object { $null -ne $_ })
         {
             $existingCertificateSha256 = Get-CertificateSha256 `
                 -Certificate $existingCertificate
@@ -1363,8 +1428,11 @@ function Assert-IdentityPayload
             {
                 throw 'A different certificate already uses the generated thumbprint.'
             }
-            $certificateWasPresent = $true
         }
+        $certificateWasPresent = Test-CertificateStoreSnapshotContains `
+            -Snapshot $certificateStoreSnapshot `
+            -Thumbprint $certificateThumbprint `
+            -CertificateSha256 $certificateSha256
         $certificateOwnership = if ($certificateWasPresent)
         {
             'preexisting'
@@ -1444,7 +1512,7 @@ function Assert-IdentityPayload
             -FilePath $publicCertificatePath `
             -Type CERT | Out-Null
 
-        if (-not $certificateWasPresent)
+        if ($null -eq $existingTrustedCertificate)
         {
             $script:InstallerStep = 'trust-signing-certificate'
             $imported = Import-Certificate `
@@ -1558,14 +1626,17 @@ function Assert-IdentityPayload
         # the one package signature has been produced.
         $script:InstallerStep = 'delete-signing-private-key'
         $privateCertificatePath = "Cert:\LocalMachine\My\$certificateThumbprint"
-        Remove-Item `
-            -LiteralPath $privateCertificatePath `
-            -DeleteKey `
-            -Force
-        $certificatePrivateKeyRemoved = $true
-        if (Test-Path -LiteralPath $privateCertificatePath)
+        if (-not $certificateWasPresent)
         {
-            throw 'Target-machine private signing certificate remains after cleanup.'
+            Remove-Item `
+                -LiteralPath $privateCertificatePath `
+                -DeleteKey `
+                -Force
+            $certificatePrivateKeyRemoved = $true
+            if (Test-Path -LiteralPath $privateCertificatePath)
+            {
+                throw 'Target-machine private signing certificate remains after cleanup.'
+            }
         }
 
         return [ordered]@{
@@ -1601,6 +1672,7 @@ function Assert-IdentityPayload
                 $certificateThumbprint = ([string]$certificate.Thumbprint).ToUpperInvariant()
                 $privateCertificatePath = "Cert:\LocalMachine\My\$certificateThumbprint"
                 if (-not $certificatePrivateKeyRemoved -and
+                    -not $certificateWasPresent -and
                     (Test-Path -LiteralPath $privateCertificatePath))
                 {
                     Remove-Item `
@@ -2623,6 +2695,25 @@ function Recover-CreatingCertificate
     {
         return
     }
+    $preexistingSnapshot = if ($null -ne $State.PSObject.Properties['certificatePreexisting'])
+    {
+        [string]$State.certificatePreexisting
+    }
+    else
+    {
+        # A legacy creating journal cannot prove that a matching certificate
+        # was created by this transaction. Preserve it rather than deleting a
+        # user's pre-existing key during recovery.
+        return
+    }
+    $recordedThumbprint = if ($null -ne $State.PSObject.Properties['certificateThumbprint'])
+    {
+        [string]$State.certificateThumbprint
+    }
+    else
+    {
+        ''
+    }
     foreach ($storeName in @('My', 'TrustedPeople'))
     {
         $certificates = @(Get-ChildItem -Path "Cert:\LocalMachine\$storeName")
@@ -2633,6 +2724,20 @@ function Recover-CreatingCertificate
                 continue
             }
             if ($candidate.Subject -ne [string]$State.publisher)
+            {
+                continue
+            }
+            $candidateSha256 = Get-CertificateSha256 -Certificate $candidate
+            if (Test-CertificateStoreSnapshotContains `
+                    -Snapshot $preexistingSnapshot `
+                    -Thumbprint ([string]$candidate.Thumbprint) `
+                    -CertificateSha256 $candidateSha256)
+            {
+                continue
+            }
+            if (-not [string]::IsNullOrWhiteSpace($recordedThumbprint) -and
+                ([string]$candidate.Thumbprint).ToUpperInvariant() -ne
+                    $recordedThumbprint.ToUpperInvariant())
             {
                 continue
             }
@@ -4141,7 +4246,14 @@ try
         publisher = [string]$pendingState.publisher
         productVersion = $ProductVersion
         packageVersion = $PackageVersion
-        templateSha256 = [string]$pendingState.templateSha256
+        templateSha256 = if ($null -eq $pendingState.PSObject.Properties['templateSha256'])
+        {
+            ''
+        }
+        else
+        {
+            [string]$pendingState.templateSha256
+        }
         packageFullName = [string]$registrationResult.packageFullName
         packageFamilyName = [string]$registrationResult.packageFamilyName
         certificateThumbprint = [string]$pendingState.certificateThumbprint
