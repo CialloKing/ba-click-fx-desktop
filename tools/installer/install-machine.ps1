@@ -505,6 +505,45 @@ function Join-Ledger
         ) -join $delimiter)
 }
 
+function Get-ExplicitlyOwnedCertificateThumbprints
+{
+    param(
+        [AllowNull()]
+        [object]$State
+    )
+
+    if ($null -eq $State)
+    {
+        return @()
+    }
+    $ownership = if ($null -ne $State.PSObject.Properties['certificateOwnership'])
+    {
+        [string]$State.certificateOwnership
+    }
+    else
+    {
+        'unknown'
+    }
+    if ($ownership -ne 'installer-owned')
+    {
+        # A legacy boolean or a pre-existing/shared marker cannot prove that
+        # this installer created the certificate. Keep the ledger empty so a
+        # later upgrade or uninstall cannot delete a user's certificate.
+        return @()
+    }
+    if ($null -ne $State.PSObject.Properties['ownedCertificateThumbprints'])
+    {
+        return @(Split-Ledger `
+                -Value $State.ownedCertificateThumbprints `
+                -Separator Comma)
+    }
+    if ([string]$State.certificateThumbprint -match '^[0-9A-Fa-f]{40}$')
+    {
+        return @([string]$State.certificateThumbprint)
+    }
+    return @()
+}
+
 function Assert-TemporaryStatePath
 {
     param(
@@ -1020,7 +1059,7 @@ function Test-ExistingIdentityPackageReusable
     }
     $certificate = Get-TrustedCertificateByThumbprint -Thumbprint $thumbprint
     if ($null -eq $certificate -or
-        $certificate.NotAfter.ToUniversalTime() -le [DateTime]::UtcNow.AddDays(30) -or
+        $certificate.NotAfter.ToUniversalTime() -lt [DateTime]::UtcNow.AddDays(30) -or
         $certificate.NotBefore.ToUniversalTime() -gt [DateTime]::UtcNow)
     {
         return $null
@@ -1200,20 +1239,10 @@ function Assert-IdentityPayload
         {
             'unknown'
         }
-        $oldOwnedCertificates = if (
-            $oldCertificateOwnership -eq 'unknown')
-        {
-            ''
-        }
-        elseif (
-            $null -ne $PendingStateSeed.oldInstallState.PSObject.Properties['ownedCertificateThumbprints'])
-        {
-            [string]$PendingStateSeed.oldInstallState.ownedCertificateThumbprints
-        }
-        else
-        {
-            [string]$PendingStateSeed.oldInstallState.certificateThumbprint
-        }
+        $oldOwnedCertificates = Join-Ledger `
+            -Values @(Get-ExplicitlyOwnedCertificateThumbprints `
+                -State $PendingStateSeed.oldInstallState) `
+            -Separator Comma
         $oldOwnedPackages = if (
             $oldCertificateOwnership -eq 'unknown')
         {
@@ -1253,6 +1282,7 @@ function Assert-IdentityPayload
     $certificate = $null
     $certificateWasPresent = $false
     $certificatePrivateKeyRemoved = $false
+    $trustedCertificateEntryCreated = $false
     $signedPackagePath = $null
     $identityFailureRecord = $null
     $identityFailureStep = ''
@@ -1301,36 +1331,39 @@ function Assert-IdentityPayload
             throw 'Target-machine signing certificate creation returned an unexpected certificate.'
         }
         $certificateThumbprint = ([string]$certificate.Thumbprint).ToUpperInvariant()
-        $journal = [ordered]@{}
-        $seedEntries = if ($PendingStateSeed -is [Collections.IDictionary])
-        {
-            $PendingStateSeed.GetEnumerator()
-        }
-        else
-        {
-            $PendingStateSeed.PSObject.Properties |
-                ForEach-Object { [ordered]@{ Key = $_.Name; Value = $_.Value } }
-        }
-        foreach ($entry in $seedEntries)
-        {
-            if ($PendingStateSeed -is [Collections.IDictionary])
-            {
-                $journal[$entry.Key] = $entry.Value
-            }
-            else
-            {
-                $journal[$entry.Key] = $entry.Value
-            }
-        }
+        $certificateSha256 = Get-CertificateSha256 -Certificate $certificate
+        $certificateNotAfterUtc =
+            $certificate.NotAfter.ToUniversalTime().ToString('o')
+
+        # Record the certificate identity while its private key still exists.
+        # This marker is what recovery uses if the process dies before the
+        # public certificate import or package signing completes.
+        $creatingJournal.certificateThumbprint = $certificateThumbprint
+        $creatingJournal.certificateSha256 = $certificateSha256
+        $creatingJournal.certificateNotAfterUtc = $certificateNotAfterUtc
+        $creatingJournal.certificateWasPresent = $false
+        $creatingJournal.certificateOwnership = 'installer-owned'
+        $creatingJournal.ownedCertificateThumbprints = $certificateThumbprint
+        $creatingJournal.ownedPackageFiles = ''
+        Write-ProtectedJson `
+            -Path $PendingStatePath `
+            -Value $creatingJournal `
+            -ReadSid ([string]$PendingStateSeed.userSid)
+
+        $journal = $creatingJournal
         $existingCertificate = Get-ChildItem -Path 'Cert:\LocalMachine\TrustedPeople' |
             Where-Object { $_.Thumbprint -eq $certificateThumbprint } |
             Select-Object -First 1
         $certificateWasPresent = $false
         if ($null -ne $existingCertificate)
         {
-            $certificateWasPresent =
-                (Get-CertificateSha256 -Certificate $existingCertificate) -eq
-                (Get-CertificateSha256 -Certificate $certificate)
+            $existingCertificateSha256 = Get-CertificateSha256 `
+                -Certificate $existingCertificate
+            if ($existingCertificateSha256 -ne $certificateSha256)
+            {
+                throw 'A different certificate already uses the generated thumbprint.'
+            }
+            $certificateWasPresent = $true
         }
         $certificateOwnership = if ($certificateWasPresent)
         {
@@ -1345,7 +1378,7 @@ function Assert-IdentityPayload
         $journal.certificateThumbprint = $certificateThumbprint
         $journal.certificateWasPresent = $certificateWasPresent
         $journal.certificateOwnership = $certificateOwnership
-        $journal.certificateNotAfterUtc = $certificate.NotAfter.ToUniversalTime().ToString('o')
+        $journal.certificateNotAfterUtc = $certificateNotAfterUtc
         $journal.packagePath = Join-Path $identityDirectory (
             "$metadataBaseName-$certificateThumbprint.msix")
         $journal.packageFile = [IO.Path]::GetFileName([string]$journal.packagePath)
@@ -1370,20 +1403,10 @@ function Assert-IdentityPayload
             {
                 'unknown'
             }
-            $oldCertificateLedger = if (
-                $oldCertificateOwnership -eq 'unknown')
-            {
-                ''
-            }
-            elseif (
-                $null -ne $oldState.PSObject.Properties['ownedCertificateThumbprints'])
-            {
-                [string]$oldState.ownedCertificateThumbprints
-            }
-            else
-            {
-                [string]$oldState.certificateThumbprint
-            }
+            $oldCertificateLedger = Join-Ledger `
+                -Values @(Get-ExplicitlyOwnedCertificateThumbprints `
+                    -State $oldState) `
+                -Separator Comma
             $oldPackageLedger = if (
                 $oldCertificateOwnership -eq 'unknown')
             {
@@ -1431,6 +1454,11 @@ function Assert-IdentityPayload
             {
                 throw 'Imported target-machine certificate thumbprint mismatch.'
             }
+            if ((Get-CertificateSha256 -Certificate $imported) -ne $certificateSha256)
+            {
+                throw 'Imported target-machine certificate hash mismatch.'
+            }
+            $trustedCertificateEntryCreated = $true
         }
 
         $signedPackagePath = [string]$journal.packagePath
@@ -1590,7 +1618,7 @@ function Assert-IdentityPayload
         }
         try
         {
-            if ($null -ne $certificate -and -not $certificateWasPresent)
+            if ($trustedCertificateEntryCreated -and $null -ne $certificate)
             {
                 $trusted = Get-ChildItem -Path 'Cert:\LocalMachine\TrustedPeople' |
                     Where-Object {
@@ -1872,8 +1900,20 @@ function Assert-InstallStateObject
     }
     if ($null -eq $State.PSObject.Properties['ownedCertificateThumbprints'])
     {
+        $ownedCertificateSeed = if (
+            [string]$State.certificateOwnership -eq 'installer-owned')
+        {
+            [string]$State.certificateThumbprint
+        }
+        else
+        {
+            # Legacy and pre-existing/shared states cannot prove that the
+            # certificate was created by this installer. Keep the ledger empty
+            # until a later transaction has explicit ownership evidence.
+            ''
+        }
         $State | Add-Member -NotePropertyName ownedCertificateThumbprints `
-            -NotePropertyValue ([string]$State.certificateThumbprint)
+            -NotePropertyValue $ownedCertificateSeed
     }
     if ($null -eq $State.PSObject.Properties['ownedPackageFiles'])
     {
@@ -2166,7 +2206,10 @@ function Test-OtherUserPackageRegistration
             {
                 ''
             }
-            if ($installState -notmatch 'Installed|1')
+            # PowerShell can expose InstallState as either the enum name or its
+            # numeric value. Match the complete value so "NotInstalled" is not
+            # accidentally treated as an installed registration.
+            if ([string]$installState -notmatch '^(Installed|1)$')
             {
                 continue
             }
@@ -3353,19 +3396,9 @@ function Invoke-PendingRollback
         [object]$State
     )
 
-    $packageError = $null
-    try
-    {
-        Remove-NewPackageRegistrations -State $State
-    }
-    catch
-    {
-        $packageError = $_.Exception.Message
-    }
-    if ($null -ne $packageError)
-    {
-        throw "Package rollback failed: $packageError"
-    }
+    # AppX registrations belong to the original user token. This elevated
+    # phase only restores machine-owned files and certificate material; the
+    # Inno coordinator invokes register-user-package.ps1 around this call.
     if ($null -ne $State.PSObject.Properties['filesCommitted'] -and
         [bool]$State.filesCommitted)
     {
@@ -3614,6 +3647,7 @@ if ($Phase -eq 'Prepare')
     $pendingState = $null
     $prepareFailureStep = ''
     $installerDirectoryCreated = $false
+    $stalePendingRequiresCoordinator = $false
     try
     {
         $script:InstallerStep = 'validate-staging-acl'
@@ -3629,41 +3663,11 @@ if ($Phase -eq 'Prepare')
             $stalePending = Assert-PendingStateObject `
                 -State $stalePending `
                 -InstallRoot $installRoot
-            $committedState = $null
-            try
-            {
-                $committedState = Read-OldInstallState `
-                    -InstallRoot $installRoot `
-                    -UserSid ([string]$stalePending.userSid)
-            }
-            catch
-            {
-                $committedState = $null
-            }
-            if ($null -ne $committedState -and
-                [string]$committedState.transactionId -eq [string]$stalePending.transactionId)
-            {
-                try
-                {
-                    $script:InstallerStep = 'retry-committed-cleanup'
-                    Complete-CommittedPendingTransaction `
-                        -State $stalePending `
-                        -InstallRoot $installRoot `
-                        -PendingPath $machineStateFullPath
-                }
-                catch
-                {
-                    Stop-InstallerWithFailure `
-                        -ErrorRecord $_ `
-                        -Step 'retry-committed-cleanup' `
-                        -ExitCode 1001
-                }
-            }
-            else
-            {
-                Invoke-PendingRollback -State $stalePending
-                Remove-Item -LiteralPath $machineStateFullPath -Force
-            }
+            # Recovery has to remove/restore the user's AppX registration in a
+            # separate original-user process. Leave this journal untouched and
+            # let the Inno coordinator execute the fixed four-step sequence.
+            $stalePendingRequiresCoordinator = $true
+            throw 'A previous pending transaction requires coordinator recovery.'
         }
         $script:InstallerStep = 'read-original-user-context'
         $context = Get-Content -LiteralPath $userContextFullPath -Raw | ConvertFrom-Json
@@ -3772,8 +3776,10 @@ if ($Phase -eq 'Prepare')
         $prepareErrorRecord = $_
         $prepareFailureStep = $script:InstallerStep
         $prepareRollbackSucceeded = $true
-        if ($null -ne $pendingState -or
+        if (-not $stalePendingRequiresCoordinator -and
+            ($null -ne $pendingState -or
             (Test-Path -LiteralPath $machineStateFullPath -PathType Leaf))
+        )
         {
             try
             {
@@ -3816,7 +3822,7 @@ if ($Phase -eq 'Prepare')
         Stop-InstallerWithFailure `
             -ErrorRecord $prepareErrorRecord `
             -Step $prepareFailureStep `
-            -ExitCode $(if ($prepareRollbackSucceeded) { 1 } else { 1001 })
+            -ExitCode $(if ($prepareRollbackSucceeded) { 1 } else { 1002 })
     }
 }
 
@@ -3858,8 +3864,14 @@ try
         Split-Ledger `
             -Value $pendingState.ownedCertificateThumbprints `
             -Separator Comma
-        [string]$pendingState.certificateThumbprint
     )
+    if ($certificateOwnership -eq 'installer-owned')
+    {
+        # Only an explicit installer-owned marker proves that this transaction
+        # created the certificate. Pre-existing, shared, and legacy-unknown
+        # certificates must never enter the deletion ledger.
+        $ownedCertificateThumbprints += [string]$pendingState.certificateThumbprint
+    }
     $ownedPackageFiles = @(
         Split-Ledger `
             -Value $pendingState.ownedPackageFiles `
@@ -3902,24 +3914,41 @@ try
         -Value $installState `
         -ReadSid ([string]$pendingState.userSid)
     $stateCommitted = $true
-    $script:InstallerStep = 'clean-obsolete-identity-artifacts'
-    $committedState = Read-OldInstallState `
-        -InstallRoot $installRoot `
-        -UserSid ([string]$pendingState.userSid)
-    $cleanedState = Remove-ObsoleteIdentityArtifacts -State $committedState
-    Write-ProtectedInstallState `
-        -Path $installStatePath `
-        -Value $cleanedState `
-        -ReadSid ([string]$pendingState.userSid)
-    # Keep a durable journal marker until the pending file itself can be
-    # removed. A restart can then distinguish a committed state from a partial
-    # file transaction and finish cleanup without rolling the install back.
+
+    # Publish the committed marker before deleting any old package or
+    # certificate. If cleanup or its follow-up state write is interrupted,
+    # recovery must finish cleanup instead of restoring a transaction whose
+    # state pair is already valid.
     $script:InstallerStep = 'mark-pending-committed'
     $pendingState.commitState = 'committed'
     Write-ProtectedJson `
         -Path $machineStateFullPath `
         -Value $pendingState `
         -ReadSid ([string]$pendingState.userSid)
+
+    $script:InstallerStep = 'clean-obsolete-identity-artifacts'
+    $committedState = Read-OldInstallState `
+        -InstallRoot $installRoot `
+        -UserSid ([string]$pendingState.userSid)
+    $oldOwnedPackageFiles = [string]$committedState.ownedPackageFiles
+    $oldOwnedCertificateThumbprints = [string]$committedState.ownedCertificateThumbprints
+    $cleanedState = Remove-ObsoleteIdentityArtifacts -State $committedState
+    if ([string]$cleanedState.ownedPackageFiles -ne $oldOwnedPackageFiles -or
+        [string]$cleanedState.ownedCertificateThumbprints -ne
+            $oldOwnedCertificateThumbprints)
+    {
+        # This is an optional ledger compaction. The pair is already committed,
+        # so a failed rewrite is recoverable and must retain the journal.
+        $script:InstallerStep = 'record-cleaned-identity-ledger'
+        Write-ProtectedInstallState `
+            -Path $installStatePath `
+            -Value $cleanedState `
+            -ReadSid ([string]$pendingState.userSid)
+    }
+
+    # Keep the journal until every cleanup operation and the optional ledger
+    # update has completed. A restart can then distinguish a committed state
+    # from a transaction that still needs machine-file rollback.
     $script:InstallerStep = 'delete-pending-state'
     Remove-Item -LiteralPath $machineStateFullPath -Force
 }
@@ -3953,5 +3982,5 @@ catch
     Stop-InstallerWithFailure `
         -ErrorRecord $finalizeErrorRecord `
         -Step $finalizeFailureStep `
-        -ExitCode $(if ($rollbackSucceeded) { 1 } else { 1001 })
+        -ExitCode $(if ($rollbackSucceeded) { 1 } else { 1002 })
 }
