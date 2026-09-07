@@ -586,6 +586,37 @@ function Assert-ProtectedPayloadAcl
     }
 }
 
+function Ensure-ProtectedInstallerDirectory
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$InstallRoot,
+
+        [Parameter(Mandatory = $true)]
+        [string]$ReadSid
+    )
+
+    $installerDirectory = Join-Path $InstallRoot 'Installer'
+    $created = $false
+    if (-not (Test-Path -LiteralPath $installerDirectory))
+    {
+        New-Item -ItemType Directory -Path $installerDirectory -Force | Out-Null
+        Set-ProtectedStateAcl -Path $installerDirectory -ReadSid $ReadSid
+        $created = $true
+    }
+    elseif (-not (Test-Path -LiteralPath $installerDirectory -PathType Container))
+    {
+        throw 'The protected Installer path is not a directory.'
+    }
+    $directoryItem = Get-Item -LiteralPath $installerDirectory -Force
+    if (($directoryItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0)
+    {
+        throw 'The protected Installer directory cannot be a reparse point.'
+    }
+    Assert-ProtectedStateAcl -Path $installerDirectory
+    return $created
+}
+
 function Read-PayloadManifest
 {
     param(
@@ -2606,6 +2637,77 @@ function Copy-VerifiedInstallerFile
         -ExpectedSha256 $ExpectedSha256
 }
 
+function Save-DataDirectoryRollback
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$InstallRoot,
+
+        [Parameter(Mandatory = $true)]
+        [string]$RollbackRoot
+    )
+
+    $dataDirectory = Join-Path $InstallRoot 'data'
+    $dataDirectoryExisted = Test-Path -LiteralPath $dataDirectory -PathType Container
+    $dataDirectoryAcl = ''
+    if (Test-Path -LiteralPath $dataDirectory)
+    {
+        if (-not $dataDirectoryExisted)
+        {
+            throw 'The installed data path is not a directory.'
+        }
+        $dataItem = Get-Item -LiteralPath $dataDirectory -Force
+        if (($dataItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0)
+        {
+            throw 'The installed data directory cannot be a reparse point.'
+        }
+        $dataDirectoryAcl = [string](Get-Acl -LiteralPath $dataDirectory).Sddl
+    }
+
+    $dataBackupRoot = Join-Path $RollbackRoot 'data'
+    $fileEntries = New-Object Collections.Generic.List[object]
+    foreach ($fileName in @('BAFX.config.json', 'ba-click-fx-desktop-support.log'))
+    {
+        $sourcePath = Join-Path $dataDirectory $fileName
+        $existed = Test-Path -LiteralPath $sourcePath -PathType Leaf
+        $bytes = [Int64]0
+        $sha256 = ''
+        $backupRelativePath = ''
+        if ($existed)
+        {
+            $sourceItem = Get-Item -LiteralPath $sourcePath -Force
+            if (($sourceItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0)
+            {
+                throw "The installed data file cannot be a reparse point: $fileName"
+            }
+            $bytes = [Int64]$sourceItem.Length
+            $sha256 = (Get-FileHash -LiteralPath $sourcePath -Algorithm SHA256).Hash
+            $backupPath = Join-Path $dataBackupRoot $fileName
+            New-Item -ItemType Directory -Path $dataBackupRoot -Force | Out-Null
+            Copy-VerifiedInstallerFile `
+                -SourcePath $sourcePath `
+                -DestinationPath $backupPath `
+                -ExpectedBytes $bytes `
+                -ExpectedSha256 $sha256
+            $backupRelativePath = Join-Path 'data' $fileName
+            $backupRelativePath = $backupRelativePath.Replace('\', '/')
+        }
+        $fileEntries.Add([ordered]@{
+                name = $fileName
+                existed = $existed
+                bytes = $bytes
+                sha256 = $sha256
+                backupPath = $backupRelativePath
+            })
+    }
+
+    return [ordered]@{
+        dataDirectoryExisted = $dataDirectoryExisted
+        dataDirectoryAcl = $dataDirectoryAcl
+        dataFiles = @($fileEntries)
+    }
+}
+
 function Save-PreviousInstallStatePair
 {
     param(
@@ -2685,6 +2787,9 @@ function New-PayloadRollbackManifest
     New-Item -ItemType Directory -Path $rollbackRoot -Force | Out-Null
     $previousState = Save-PreviousInstallStatePair `
         -State $State `
+        -InstallRoot $InstallRoot `
+        -RollbackRoot $rollbackRoot
+    $dataRollback = Save-DataDirectoryRollback `
         -InstallRoot $InstallRoot `
         -RollbackRoot $rollbackRoot
     $entries = New-Object Collections.Generic.List[object]
@@ -2770,6 +2875,9 @@ function New-PayloadRollbackManifest
         oldPackageBackupPath = $oldPackageBackupPath.Replace('\', '/')
         oldPackageBytes = $oldPackageBytes
         oldPackageSha256 = $oldPackageSha256
+        dataDirectoryExisted = [bool]$dataRollback.dataDirectoryExisted
+        dataDirectoryAcl = [string]$dataRollback.dataDirectoryAcl
+        dataFiles = @($dataRollback.dataFiles)
         previousStatePresent = [bool]$previousState.previousStatePresent
         previousStatePrimaryBackupPath = [string]$previousState.previousStatePrimaryBackupPath
         previousStateBackupBackupPath = [string]$previousState.previousStateBackupBackupPath
@@ -2848,6 +2956,15 @@ function Commit-PayloadFiles
     {
         $State.stagedPackagePath = $stagedPackagePath
     }
+    $dataDirectory = Join-Path $InstallRoot 'data'
+    $script:InstallerStep = 'grant-data-directory-access'
+    Grant-DataDirectoryAccess `
+        -Path $dataDirectory `
+        -UserSid ([string]$State.userSid)
+    $script:InstallerStep = 'bootstrap-host-configuration'
+    Initialize-IdentityConfig `
+        -InstallRoot $InstallRoot `
+        -DataDirectory $dataDirectory
     $State.commitState = 'files-committed'
     Write-ProtectedJson `
         -Path $PendingPath `
@@ -2959,6 +3076,104 @@ function Restore-CommittedPayloadFiles
             -DestinationPath $oldPackagePath `
             -ExpectedBytes $oldPackageBytes `
             -ExpectedSha256 $oldPackageSha256
+    }
+}
+
+function Restore-DataDirectory
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [object]$State,
+
+        [Parameter(Mandatory = $true)]
+        [string]$InstallRoot
+    )
+
+    $rollbackRoot = Join-Path $InstallRoot ('.rollback\' + [string]$State.transactionId)
+    $rollbackManifestPath = Join-Path $rollbackRoot 'ROLLBACK-MANIFEST.json'
+    if (-not (Test-Path -LiteralPath $rollbackManifestPath -PathType Leaf))
+    {
+        throw 'The payload rollback manifest is missing.'
+    }
+    $rollbackManifest = Get-Content -LiteralPath $rollbackManifestPath -Raw | ConvertFrom-Json
+    if ($null -eq $rollbackManifest.PSObject.Properties['dataDirectoryExisted'] -or
+        $null -eq $rollbackManifest.PSObject.Properties['dataFiles'])
+    {
+        # Transactions created before data rollback was introduced did not
+        # modify the data directory in CommitFiles, so there is nothing safe to
+        # restore from their manifest.
+        return
+    }
+
+    $dataDirectory = Join-Path $InstallRoot 'data'
+    $dataDirectoryExisted = [bool]$rollbackManifest.dataDirectoryExisted
+    if (-not (Test-Path -LiteralPath $dataDirectory))
+    {
+        if ($dataDirectoryExisted)
+        {
+            New-Item -ItemType Directory -Path $dataDirectory -Force | Out-Null
+        }
+        else
+        {
+            return
+        }
+    }
+    if (-not (Test-Path -LiteralPath $dataDirectory -PathType Container))
+    {
+        throw 'The installed data path is not a directory during rollback.'
+    }
+    $dataItem = Get-Item -LiteralPath $dataDirectory -Force
+    if (($dataItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0)
+    {
+        throw 'The installed data directory cannot be a reparse point during rollback.'
+    }
+
+    foreach ($entry in @($rollbackManifest.dataFiles))
+    {
+        $fileName = [string]$entry.name
+        if ($fileName -notin @('BAFX.config.json', 'ba-click-fx-desktop-support.log'))
+        {
+            throw 'The data rollback manifest contains an unexpected file.'
+        }
+        $destinationPath = Join-Path $dataDirectory $fileName
+        if ([bool]$entry.existed)
+        {
+            $backupPath = Resolve-InstallerRelativePath `
+                -Root $rollbackRoot `
+                -RelativePath ([string]$entry.backupPath)
+            Copy-VerifiedInstallerFile `
+                -SourcePath $backupPath `
+                -DestinationPath $destinationPath `
+                -ExpectedBytes ([Int64]$entry.bytes) `
+                -ExpectedSha256 ([string]$entry.sha256)
+        }
+        else
+        {
+            if (Test-Path -LiteralPath $destinationPath -PathType Leaf)
+            {
+                Remove-Item -LiteralPath $destinationPath -Force
+            }
+            if (Test-Path -LiteralPath $destinationPath)
+            {
+                throw "A newly generated data file remains after rollback: $fileName"
+            }
+        }
+    }
+
+    $savedSddl = [string]$rollbackManifest.dataDirectoryAcl
+    if ($dataDirectoryExisted -and -not [string]::IsNullOrWhiteSpace($savedSddl))
+    {
+        $acl = Get-Acl -LiteralPath $dataDirectory
+        $acl.SetSecurityDescriptorSddlForm($savedSddl)
+        Set-Acl -LiteralPath $dataDirectory -AclObject $acl
+    }
+    elseif (-not $dataDirectoryExisted)
+    {
+        $remaining = @(Get-ChildItem -LiteralPath $dataDirectory -Force)
+        if ($remaining.Count -eq 0)
+        {
+            Remove-Item -LiteralPath $dataDirectory -Force
+        }
     }
 }
 
@@ -3162,6 +3377,10 @@ function Invoke-PendingRollback
         Restore-PreviousInstallStatePair `
             -State $State `
             -InstallRoot ([IO.Path]::GetFullPath($InstallDirectory))
+        $script:InstallerStep = 'restore-data-directory'
+        Restore-DataDirectory `
+            -State $State `
+            -InstallRoot ([IO.Path]::GetFullPath($InstallDirectory))
     }
     $preparedPackagePath = if ($null -ne $State.PSObject.Properties['packagePath'])
     {
@@ -3179,6 +3398,18 @@ function Invoke-PendingRollback
         Remove-Item -LiteralPath $preparedPackagePath -Force
     }
     Remove-PreparedCertificateIfUnused -State $State
+    if ($null -ne $State.PSObject.Properties['installerDirectoryCreated'] -and
+        [bool]$State.installerDirectoryCreated -and
+        $null -eq $State.oldInstallState -and
+        -not (Test-Path -LiteralPath (Join-Path $InstallDirectory 'Installer\INSTALL-STATE.json') -PathType Leaf))
+    {
+        $installerDirectory = Join-Path $InstallDirectory 'Installer'
+        if ((Test-Path -LiteralPath $installerDirectory -PathType Container) -and
+            @(Get-ChildItem -LiteralPath $installerDirectory -Force).Count -eq 0)
+        {
+            Remove-Item -LiteralPath $installerDirectory -Force
+        }
+    }
 }
 
 function Read-RegistrationResult
@@ -3382,6 +3613,7 @@ if ($Phase -eq 'Prepare')
     $identity = $null
     $pendingState = $null
     $prepareFailureStep = ''
+    $installerDirectoryCreated = $false
     try
     {
         $script:InstallerStep = 'validate-staging-acl'
@@ -3440,7 +3672,10 @@ if ($Phase -eq 'Prepare')
             throw 'The original user context is invalid.'
         }
 
-        $dataDirectory = Join-Path $installRoot 'data'
+        $script:InstallerStep = 'prepare-protected-installer-directory'
+        $installerDirectoryCreated = Ensure-ProtectedInstallerDirectory `
+            -InstallRoot $installRoot `
+            -ReadSid ([string]$context.userSid)
         $script:InstallerStep = 'read-existing-install-state'
         # Bind the old state to the exact replacement hash validated from
         # staging while retaining the old live Host check until commit.
@@ -3449,8 +3684,6 @@ if ($Phase -eq 'Prepare')
             -UserSid ([string]$context.userSid) `
             -ExpectedReplacementHostSha256 $replacementHostSha256 `
             -ReplacementHostPath (Join-Path $script:PayloadRoot 'ba-click-fx-desktop.exe')
-        $script:InstallerStep = 'grant-data-directory-access'
-        Grant-DataDirectoryAccess -Path $dataDirectory -UserSid ([string]$context.userSid)
         $metadataPath = Join-Path (Join-Path $script:PayloadRoot 'Identity') `
             "CialloKing.BaClickFxDesktop-$PackageVersion.identity-template.json"
         $metadata = Get-Content -LiteralPath $metadataPath -Raw | ConvertFrom-Json
@@ -3516,6 +3749,7 @@ if ($Phase -eq 'Prepare')
             templateSha256 = [string]$metadata.templateSha256
             preexistingPackageFullNames = $preexistingFullNames
             oldInstallState = $oldInstallState
+            installerDirectoryCreated = $installerDirectoryCreated
             preparedUtc = [DateTime]::UtcNow.ToString('o')
         }
         $script:InstallerStep = 'prepare-identity-package'
@@ -3531,10 +3765,6 @@ if ($Phase -eq 'Prepare')
             -InstallRoot $installRoot `
             -RequireIntegrity `
             -PayloadDirectory $script:PayloadRoot
-        $script:InstallerStep = 'bootstrap-host-configuration'
-        Initialize-IdentityConfig `
-            -InstallRoot $script:PayloadRoot `
-            -DataDirectory $dataDirectory
         exit 0
     }
     catch
@@ -3562,6 +3792,16 @@ if ($Phase -eq 'Prepare')
                 if (Test-Path -LiteralPath $machineStateFullPath -PathType Leaf)
                 {
                     Remove-Item -LiteralPath $machineStateFullPath -Force
+                }
+                if ($installerDirectoryCreated -and
+                    -not (Test-Path -LiteralPath $installStatePath -PathType Leaf))
+                {
+                    $installerDirectory = Join-Path $installRoot 'Installer'
+                    if ((Test-Path -LiteralPath $installerDirectory -PathType Container) -and
+                        @(Get-ChildItem -LiteralPath $installerDirectory -Force).Count -eq 0)
+                    {
+                        Remove-Item -LiteralPath $installerDirectory -Force
+                    }
                 }
             }
             catch
