@@ -455,7 +455,6 @@ function Assert-PendingState
         'publisher',
         'productVersion',
         'packageVersion',
-        'templateSha256',
         'preexistingPackageFullNames',
         'oldInstallState'))
     {
@@ -464,7 +463,8 @@ function Assert-PendingState
             throw "Protected pending state is missing: $propertyName"
         }
     }
-    if ([int]$State.schema -notin @(1, 2) -or [string]$State.stateKind -ne 'prepare')
+    $schema = [int]$State.schema
+    if ($schema -notin @(1, 2) -or [string]$State.stateKind -ne 'prepare')
     {
         throw 'Protected pending state has an unsupported schema.'
     }
@@ -491,7 +491,14 @@ function Assert-PendingState
             throw 'Protected pending state digest does not match its content.'
         }
     }
-    if ([string]$State.templateSha256 -notmatch '^[0-9A-Fa-f]{64}$')
+    if ($schema -eq 2 -and
+        ($null -eq $State.PSObject.Properties['templateSha256'] -or
+            [string]$State.templateSha256 -notmatch '^[0-9A-Fa-f]{64}$'))
+    {
+        throw 'Schema 2 pending state has an invalid template hash.'
+    }
+    if ($null -ne $State.PSObject.Properties['templateSha256'] -and
+        [string]$State.templateSha256 -notmatch '^[0-9A-Fa-f]{64}$')
     {
         throw 'Protected pending state has an invalid template hash.'
     }

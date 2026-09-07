@@ -1797,7 +1797,9 @@ function Assert-InstallStateObject
 
         [string]$ExpectedReplacementHostSha256 = '',
 
-        [string]$ReplacementHostPath = ''
+        [string]$ReplacementHostPath = '',
+
+        [switch]$SkipPayloadIntegrity
     )
 
     foreach ($propertyName in @(
@@ -1963,7 +1965,7 @@ function Assert-InstallStateObject
     {
         throw 'Protected install state has an unsafe package file name.'
     }
-    if ($schema -eq 2)
+    if ($schema -eq 2 -and -not $SkipPayloadIntegrity)
     {
         $replacementHostSha256 = ''
         if (-not [string]::IsNullOrWhiteSpace($ExpectedReplacementHostSha256) -and
@@ -1995,7 +1997,9 @@ function Read-OldInstallState
 
         [string]$ExpectedReplacementHostSha256 = '',
 
-        [string]$ReplacementHostPath = ''
+        [string]$ReplacementHostPath = '',
+
+        [switch]$SkipPayloadIntegrity
     )
 
     $path = Join-Path $InstallRoot 'Installer\INSTALL-STATE.json'
@@ -2020,7 +2024,8 @@ function Read-OldInstallState
         -InstallRoot $InstallRoot `
         -ExpectedUserSid $UserSid `
         -ExpectedReplacementHostSha256 $ExpectedReplacementHostSha256 `
-        -ReplacementHostPath $ReplacementHostPath
+        -ReplacementHostPath $ReplacementHostPath `
+        -SkipPayloadIntegrity:$SkipPayloadIntegrity
 }
 
 function Remove-OldCertificate
@@ -2328,7 +2333,6 @@ function Assert-PendingStateObject
         'productVersion',
         'packageVersion',
         'transactionId',
-        'templateSha256',
         'preexistingPackageFullNames',
         'oldInstallState'))
     {
@@ -2337,7 +2341,8 @@ function Assert-PendingStateObject
             throw "Protected pending state is missing: $propertyName"
         }
     }
-    if ([int]$State.schema -notin @(1, 2) -or
+    $schema = [int]$State.schema
+    if ($schema -notin @(1, 2) -or
         [string]$State.stateKind -ne 'prepare')
     {
         throw 'Protected pending state has an unsupported schema.'
@@ -2358,7 +2363,14 @@ function Assert-PendingStateObject
     {
         throw 'Protected pending state has an invalid transaction identifier.'
     }
-    if ([string]$State.templateSha256 -notmatch '^[0-9A-Fa-f]{64}$')
+    if ($schema -eq 2 -and
+        ($null -eq $State.PSObject.Properties['templateSha256'] -or
+            [string]$State.templateSha256 -notmatch '^[0-9A-Fa-f]{64}$'))
+    {
+        throw 'Schema 2 pending state has an invalid template hash.'
+    }
+    if ($null -ne $State.PSObject.Properties['templateSha256'] -and
+        [string]$State.templateSha256 -notmatch '^[0-9A-Fa-f]{64}$')
     {
         throw 'Protected pending state has an invalid template hash.'
     }
@@ -3698,20 +3710,25 @@ if ($Phase -eq 'Rollback')
         (Test-Path -LiteralPath $primaryStatePath -PathType Leaf) -or
         (Test-Path -LiteralPath $backupStatePath -PathType Leaf)
     $committedState = $null
+    $statePairError = $null
+    $filesCommitted = $null -ne $pendingState.PSObject.Properties['filesCommitted'] -and
+        [bool]$pendingState.filesCommitted
     if ($statePairPresent -or $commitState -eq 'committed')
     {
         try
         {
             $committedState = Read-OldInstallState `
                 -InstallRoot $installRoot `
-                -UserSid ([string]$pendingState.userSid)
+                -UserSid ([string]$pendingState.userSid) `
+                -SkipPayloadIntegrity
         }
         catch
         {
-            Stop-InstallerWithFailure `
-                -ErrorRecord $_ `
-                -Step 'classify-committed-state-pair' `
-                -ExitCode 1001
+            # A torn pair is recoverable only when the pending journal still
+            # proves which transaction owns the live files. Keep the error so
+            # the rollback path can restore the protected pair from its
+            # transaction manifest.
+            $statePairError = $_
         }
         if ($null -ne $committedState -and
             [string]$committedState.transactionId -eq
@@ -3734,6 +3751,43 @@ if ($Phase -eq 'Rollback')
             }
             exit 0
         }
+        if ($null -ne $committedState)
+        {
+            $previousState = $pendingState.oldInstallState
+            $previousMatches = $false
+            if ($null -ne $previousState)
+            {
+                if ($null -ne $previousState.PSObject.Properties['transactionId'] -and
+                    -not [string]::IsNullOrWhiteSpace([string]$previousState.transactionId))
+                {
+                    $previousMatches =
+                        [string]$committedState.transactionId -eq
+                            [string]$previousState.transactionId
+                }
+                else
+                {
+                    # Schema 1 did not always carry a transaction marker. Its
+                    # fixed package identity is still sufficient to distinguish
+                    # the previous install from an unrelated state file.
+                    $previousMatches =
+                        [string]$committedState.packageFullName -eq
+                            [string]$previousState.packageFullName -and
+                        [string]$committedState.packageFile -eq
+                            [string]$previousState.packageFile -and
+                        [string]$committedState.packageSha256 -eq
+                            [string]$previousState.packageSha256
+                }
+            }
+            if (-not $previousMatches)
+            {
+                $unrelatedState = [System.InvalidOperationException]::new(
+                    'The protected install state belongs to an unrelated transaction.')
+                Stop-InstallerWithFailure `
+                    -ErrorRecord ([Management.Automation.ErrorRecord]::new($unrelatedState)) `
+                    -Step 'classify-committed-state-pair' `
+                    -ExitCode 1001
+            }
+        }
         if ($commitState -eq 'committed')
         {
             $ambiguousCommit = [System.InvalidOperationException]::new(
@@ -3742,6 +3796,28 @@ if ($Phase -eq 'Rollback')
                 -ErrorRecord ([Management.Automation.ErrorRecord]::new($ambiguousCommit)) `
                 -Step 'classify-committed-state-pair' `
                 -ExitCode 1001
+        }
+        if ($null -ne $statePairError -and
+            -not $filesCommitted)
+        {
+            Stop-InstallerWithFailure `
+                -ErrorRecord $statePairError `
+                -Step 'classify-committed-state-pair' `
+                -ExitCode 1001
+        }
+        if ($null -ne $statePairError -and
+            $filesCommitted)
+        {
+            $rollbackManifestPath = Join-Path $installRoot `
+                ('.rollback\' + [string]$pendingState.transactionId +
+                    '\ROLLBACK-MANIFEST.json')
+            if (-not (Test-Path -LiteralPath $rollbackManifestPath -PathType Leaf))
+            {
+                Stop-InstallerWithFailure `
+                    -ErrorRecord $statePairError `
+                    -Step 'classify-committed-state-pair' `
+                    -ExitCode 1001
+            }
         }
     }
 
