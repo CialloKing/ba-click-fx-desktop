@@ -42,6 +42,20 @@ function Assert-ExpectedProcessIsStopped
     }
 }
 
+function Write-Utf8NoBom
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Content
+    )
+
+    $encoding = New-Object -TypeName System.Text.UTF8Encoding -ArgumentList $false
+    [IO.File]::WriteAllText($Path, $Content, $encoding)
+}
+
 function Assert-ProtectedStateAcl
 {
     param(
@@ -790,6 +804,7 @@ $installRoot = Resolve-ProtectedProgramFilesPath `
     -Path $InstallDirectory `
     -Description 'uninstall directory'
 $statePath = Join-Path $installRoot 'Installer\INSTALL-STATE.json'
+$uninstallCompleteMarkerPath = Join-Path $installRoot 'Installer\UNINSTALL-COMPLETE.json'
 $pendingPath = Join-Path $installRoot 'Installer\PREPARE-STATE.json'
 $script:InstallerStep = 'check-pending-installation-transaction'
 if (Test-Path -LiteralPath $pendingPath -PathType Leaf)
@@ -960,6 +975,26 @@ else
     }
 }
 
+# Keep the state pair until every destructive payload operation has succeeded.
+# If cleanup is interrupted, the pair remains the recovery boundary and the
+# next uninstall attempt can still validate ownership and hashes.
+$script:InstallerStep = 'remove-installed-payload-files'
+Remove-InstalledPayloadFiles -InstallRoot $installRoot -State $state
+
+$script:InstallerStep = 'write-uninstall-complete-marker'
+$marker = [ordered]@{
+    schema = 1
+    transactionId = [string]$state.transactionId
+    completedUtc = [DateTime]::UtcNow.ToString('o')
+}
+Write-Utf8NoBom `
+    -Path $uninstallCompleteMarkerPath `
+    -Content ($marker | ConvertTo-Json -Depth 4)
+if (-not (Test-Path -LiteralPath $uninstallCompleteMarkerPath -PathType Leaf))
+{
+    throw 'The uninstall completion marker was not written.'
+}
+
 $script:InstallerStep = 'delete-protected-install-state'
 foreach ($installStatePath in @($statePath, "$statePath.bak"))
 {
@@ -973,19 +1008,5 @@ foreach ($installStatePath in @($statePath, "$statePath.bak"))
     }
 }
 
-# The state pair is the recovery boundary. Remove payload directories only
-# after both state files are gone; a failed validation above must leave every
-# recovery artifact intact. Installer may still contain the running script, so
-# remove that directory only when it is already empty.
-$script:InstallerStep = 'remove-installed-payload-files'
-Remove-InstalledPayloadFiles -InstallRoot $installRoot -State $state
-$installerDirectory = Join-Path $installRoot 'Installer'
-if ((Test-Path -LiteralPath $installerDirectory -PathType Container) -and
-    (@(Get-ChildItem -LiteralPath $installerDirectory -Force).Count -eq 0))
-{
-    Remove-Item -LiteralPath $installerDirectory -Force
-    if (Test-Path -LiteralPath $installerDirectory)
-    {
-        throw 'The empty Installer directory remains after uninstall.'
-    }
-}
+# Inno deletes Installer after this process exits and verifies the marker. The
+# running PowerShell script therefore never has to remove its own directory.

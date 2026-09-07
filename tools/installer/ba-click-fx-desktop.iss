@@ -165,6 +165,9 @@ function ResolveRollbackScript(
   const InstallRoot: String;
   const StagedInstallerRoot: String;
   const ScriptName: String): String; forward;
+procedure RaiseInstallerFailure(
+  const FailureText: String;
+  const ExitCode: Integer); forward;
 
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
@@ -178,7 +181,9 @@ var
   CleanupArguments: String;
   ExitCode: Integer;
 begin
-  SetupFailureExitCode := 1;
+  // A failure before a pending journal exists can be safely retried after the
+  // staged input is removed, so report the completed-rollback code.
+  SetupFailureExitCode := 1002;
   InstallRoot := AddBackslash(ExpandConstant('{app}'));
   ProtectedRoot := AddBackslash(
     ExpandConstant('{autopf}\ba-click-fx-desktop'));
@@ -248,7 +253,7 @@ begin
       RegistrationResultPath + '.diagnostic.txt',
       ExitCode) then
     begin
-      SetupFailureExitCode := 1002;
+      SetupFailureExitCode := 1001;
       Result := FormatPowerShellFailure(
         CustomMessage('RollbackPendingInstallation'), False, ExitCode);
       Exit;
@@ -258,7 +263,7 @@ begin
       if ExitCode = 1001 then
         SetupFailureExitCode := 1001
       else
-        SetupFailureExitCode := 1002;
+        SetupFailureExitCode := 1001;
       Result := FormatPowerShellFailure(
         CustomMessage('RollbackPendingInstallation'), True, ExitCode);
       Exit;
@@ -270,7 +275,7 @@ begin
       '',
       ExitCode) then
     begin
-      SetupFailureExitCode := 1002;
+      SetupFailureExitCode := 1001;
       Result := FormatPowerShellFailure(
         CustomMessage('RollbackPendingInstallation'), False, ExitCode);
       Exit;
@@ -283,7 +288,7 @@ begin
       end
       else
       begin
-        SetupFailureExitCode := 1002;
+        SetupFailureExitCode := 1001;
       end;
       Result := FormatPowerShellFailure(
         CustomMessage('RollbackPendingInstallation'), True, ExitCode);
@@ -297,7 +302,7 @@ begin
         'register-user-package.ps1');
       if ExistingRegisterScript = '' then
       begin
-        SetupFailureExitCode := 1002;
+        SetupFailureExitCode := 1001;
         Result := 'The restored user-package recovery script is missing.';
         Exit;
       end;
@@ -312,7 +317,7 @@ begin
         RegistrationResultPath + '.diagnostic.txt',
         ExitCode) then
       begin
-        SetupFailureExitCode := 1002;
+        SetupFailureExitCode := 1001;
         Result := FormatPowerShellFailure(
           CustomMessage('RollbackPendingInstallation'), False, ExitCode);
         Exit;
@@ -322,7 +327,7 @@ begin
         if ExitCode = 1001 then
           SetupFailureExitCode := 1001
         else
-          SetupFailureExitCode := 1002;
+          SetupFailureExitCode := 1001;
         Result := FormatPowerShellFailure(
           CustomMessage('RollbackPendingInstallation'), True, ExitCode);
         Exit;
@@ -396,7 +401,7 @@ begin
   TempRoot := GetEnv('TEMP');
   if TempRoot = '' then
   begin
-    RaiseException(CustomMessage('OriginalUserTempUnavailable'));
+    RaiseInstallerFailure(CustomMessage('OriginalUserTempUnavailable'), 1002);
   end;
   Result := GenerateUniqueName(TempRoot, '.json');
 end;
@@ -702,8 +707,10 @@ procedure ShowRecoveryFailure(
   const FailureText: String;
   const RecoveryText: String);
 begin
+  // The rollback evidence is still present. A caller must repair this
+  // transaction before another install can safely run.
   RecoveryRequired := True;
-  SetupFailureExitCode := 1002;
+  SetupFailureExitCode := 1001;
   SuppressibleMsgBox(
     IncludeInstallerLog(FailureText + #13#10#13#10 + RecoveryText),
     mbError,
@@ -722,6 +729,20 @@ begin
     mbError,
     MB_OK,
     IDOK);
+end;
+
+procedure RaiseInstallerFailure(
+  const FailureText: String;
+  const ExitCode: Integer);
+begin
+  SetupFailureExitCode := ExitCode;
+  if ExitCode = 1001 then
+  begin
+    RecoveryRequired := True;
+  end;
+  // Keep the fatal notification, but make the custom exit code explicit so a
+  // RaiseException path can never be reported as a successful install.
+  RaiseException(IncludeInstallerLog(FailureText));
 end;
 
 procedure ShowRollbackOutcome(
@@ -779,15 +800,15 @@ begin
     DiagnosticPath,
     ExitCode) then
   begin
-    SetupFailureExitCode := 1;
-    RaiseException(IncludeInstallerLog(
-      FormatPowerShellFailure(Description, False, ExitCode)));
+    RaiseInstallerFailure(
+      FormatPowerShellFailure(Description, False, ExitCode),
+      1002);
   end;
   if ExitCode <> 0 then
   begin
-    SetupFailureExitCode := 1;
-    RaiseException(IncludeInstallerLog(
-      FormatPowerShellFailure(Description, True, ExitCode)));
+    RaiseInstallerFailure(
+      FormatPowerShellFailure(Description, True, ExitCode),
+      1002);
   end;
 end;
 
@@ -979,7 +1000,7 @@ begin
     Exit;
   end;
 
-  SetupFailureExitCode := 1;
+  SetupFailureExitCode := 1002;
 
   InstallRoot := ExpandConstant('{app}');
   PayloadRoot := AddBackslash(InstallRoot) + '.staging\current';
@@ -1014,7 +1035,7 @@ begin
   begin
     PrimaryFailure := FormatPowerShellFailure(
       CustomMessage('PrepareMachineInstallation'), False, ExitCode);
-    RaiseException(IncludeInstallerLog(PrimaryFailure));
+    RaiseInstallerFailure(PrimaryFailure, 1002);
   end;
   if ExitCode <> 0 then
   begin
@@ -1030,7 +1051,7 @@ begin
       ShowRollbackOutcome(PrimaryFailure);
       Exit;
     end;
-    RaiseException(IncludeInstallerLog(PrimaryFailure));
+    RaiseInstallerFailure(PrimaryFailure, 1002);
   end;
 
   if not RunPowerShell(
@@ -1052,7 +1073,7 @@ begin
       ShowRollbackOutcome(PrimaryFailure);
       Exit;
     end;
-    RaiseException(IncludeInstallerLog(PrimaryFailure));
+    RaiseInstallerFailure(PrimaryFailure, 1002);
   end;
   if ExitCode <> 0 then
   begin
@@ -1068,7 +1089,7 @@ begin
       ShowRollbackOutcome(PrimaryFailure);
       Exit;
     end;
-    RaiseException(IncludeInstallerLog(PrimaryFailure));
+    RaiseInstallerFailure(PrimaryFailure, 1002);
   end;
 
   if not RunPowerShell(
@@ -1093,7 +1114,7 @@ begin
       ShowRollbackOutcome(PrimaryFailure);
       Exit;
     end;
-    RaiseException(IncludeInstallerLog(PrimaryFailure));
+    RaiseInstallerFailure(PrimaryFailure, 1002);
   end;
   LogRegistrationResult;
   if ExitCode <> 0 then
@@ -1110,7 +1131,7 @@ begin
       ShowRollbackOutcome(PrimaryFailure);
       Exit;
     end;
-    RaiseException(IncludeInstallerLog(PrimaryFailure));
+    RaiseInstallerFailure(PrimaryFailure, 1002);
   end;
 
   if not RunPowerShell(
@@ -1132,7 +1153,7 @@ begin
       ShowRollbackOutcome(PrimaryFailure);
       Exit;
     end;
-    RaiseException(IncludeInstallerLog(PrimaryFailure));
+    RaiseInstallerFailure(PrimaryFailure, 1002);
   end;
   if ExitCode <> 0 then
   begin
@@ -1155,7 +1176,7 @@ begin
       ShowRollbackOutcome(PrimaryFailure);
       Exit;
     end;
-    RaiseException(IncludeInstallerLog(PrimaryFailure));
+    RaiseInstallerFailure(PrimaryFailure, 1002);
   end;
   SetupFailureExitCode := 0;
   MachineInstallationSucceeded := True;
@@ -1164,13 +1185,13 @@ end;
 function GetCustomSetupExitCode: Integer;
 begin
   Result := 0;
-  if SetupFailureExitCode <> 0 then
-  begin
-    Result := SetupFailureExitCode;
-  end
-  else if RecoveryRequired then
+  if RecoveryRequired then
   begin
     Result := 1001;
+  end
+  else if SetupFailureExitCode <> 0 then
+  begin
+    Result := SetupFailureExitCode;
   end;
 end;
 
@@ -1192,6 +1213,7 @@ var
   InstallerRoot: String;
   StagedInstallerRoot: String;
   InstallStatePath: String;
+  UninstallCompleteMarkerPath: String;
   CommonArguments: String;
   ScriptPath: String;
 begin
@@ -1200,12 +1222,14 @@ begin
     Exit;
   end;
   InstallRoot := ExpandConstant('{app}');
-  SetupFailureExitCode := 1;
+  SetupFailureExitCode := 1001;
   PayloadRoot := AddBackslash(InstallRoot) + '.staging\current';
   InstallerRoot := AddBackslash(InstallRoot) + 'Installer';
   StagedInstallerRoot := AddBackslash(PayloadRoot) + 'Installer';
   MachineStatePath := AddBackslash(InstallerRoot) + 'PREPARE-STATE.json';
   InstallStatePath := AddBackslash(InstallerRoot) + 'INSTALL-STATE.json';
+  UninstallCompleteMarkerPath :=
+    AddBackslash(InstallerRoot) + 'UNINSTALL-COMPLETE.json';
   UserContextPath := CreateOriginalUserStatePath();
   RegistrationResultPath := CreateOriginalUserStatePath();
   if FileExists(MachineStatePath) then
@@ -1408,13 +1432,29 @@ begin
     '',
     ExitCode) then
   begin
-    RaiseException(IncludeInstallerLog(FormatPowerShellFailure(
-      CustomMessage('RemoveMachineIdentity'), False, ExitCode)));
+    RaiseInstallerFailure(
+      FormatPowerShellFailure(
+        CustomMessage('RemoveMachineIdentity'), False, ExitCode),
+      1001);
   end;
   if ExitCode <> 0 then
   begin
-    RaiseException(IncludeInstallerLog(FormatPowerShellFailure(
-      CustomMessage('RemoveMachineIdentity'), True, ExitCode)));
+    RaiseInstallerFailure(
+      FormatPowerShellFailure(
+        CustomMessage('RemoveMachineIdentity'), True, ExitCode),
+      1001);
+  end;
+  if not FileExists(UninstallCompleteMarkerPath) then
+  begin
+    RaiseInstallerFailure(
+      'The uninstall script completed without its protected completion marker.',
+      1001);
+  end;
+  if not DelTree(InstallerRoot, True, True, True) then
+  begin
+    RaiseInstallerFailure(
+      'The installer recovery directory could not be removed after uninstall.',
+      1001);
   end;
   SetupFailureExitCode := 0;
 end;
