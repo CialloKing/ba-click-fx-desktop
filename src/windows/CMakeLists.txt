@@ -84,6 +84,7 @@ target_link_libraries(
     PUBLIC
         bafx::core
         bafx::fx
+        bafx::product
         advapi32
         bcrypt
         crypt32
