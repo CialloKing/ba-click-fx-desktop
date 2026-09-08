@@ -939,6 +939,10 @@ function Test-InnoPayloadContract
         -Description 'registration is executed for the installing user'
     Assert-TextContains `
         -Text $inno `
+        -Pattern "register-user-package\.ps1'[\s\S]*-PayloadDirectory '\s*\+\s*QuoteArgument\(PayloadRoot\)" `
+        -Description 'normal user-package registration is bound to the protected staging payload'
+    Assert-TextContains `
+        -Text $inno `
         -Pattern 'ExecAndLogOutput[\s\S]*@HandlePowerShellOutput' `
         -Description 'elevated PowerShell output is copied into the installer log'
     Assert-TextContains `

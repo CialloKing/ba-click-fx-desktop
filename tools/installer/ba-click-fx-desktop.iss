@@ -1253,6 +1253,7 @@ begin
   if not RunPowerShell(
     AddBackslash(InstallerRoot) + 'register-user-package.ps1',
     '-InstallDirectory ' + QuoteArgument(InstallRoot) +
+      ' -PayloadDirectory ' + QuoteArgument(PayloadRoot) +
       ' -MachineStatePath ' + QuoteArgument(MachineStatePath) +
       ' -ResultPath ' + QuoteArgument(RegistrationResultPath),
     True,
