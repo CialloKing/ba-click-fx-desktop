@@ -559,10 +559,16 @@ function Test-InstallerScriptWhitelist
         -Text $installMachine `
         -Pattern 'function\s+Ensure-RollbackEvidenceAcl[\s\S]*Assert-RollbackEvidenceAclCanBeHardened[\s\S]*Set-ProtectedStateAcl' `
         -Description 'legacy rollback evidence ACLs are hardened only after write-access checks'
+    $protectedPaths = Read-RepositoryText `
+        -RelativePath 'tools/installer/protected-paths.ps1'
     Assert-TextContains `
-        -Text $installMachine `
+        -Text $protectedPaths `
         -Pattern 'function\s+Assert-NoReparsePath[\s\S]*Get-Item\s+-LiteralPath\s+\$current[\s\S]*FileAttributes\]::ReparsePoint' `
         -Description 'installer paths reject reparse points component by component'
+    Assert-TextContains `
+        -Text $installMachine `
+        -Pattern 'function\s+Write-ProtectedJson[\s\S]*Assert-NoReparsePath\s+-Path\s+\$resolvedPath[\s\S]*function\s+Write-ProtectedInstallState[\s\S]*Assert-NoReparsePath\s+-Path\s+\$resolvedPath' `
+        -Description 'machine state writers revalidate their destination paths'
     Assert-TextContains `
         -Text $installMachine `
         -Pattern 'function\s+Assert-ProtectedPayloadAcl[\s\S]*Stack\[string\][\s\S]*cannot contain a reparse point' `
@@ -625,6 +631,10 @@ function Test-InstallerScriptWhitelist
         -Text $unregisterMachine `
         -Pattern 'Write-BafxInstallerFailure[\s\S]*UninstallMachine[\s\S]*InstallerStep' `
         -Description 'machine uninstall emits structured failure diagnostics'
+    Assert-TextContains `
+        -Text $unregisterMachine `
+        -Pattern 'function\s+Write-FlushedUtf8NoBom[\s\S]*Assert-NoReparsePath[\s\S]*function\s+Write-UninstallJournal[\s\S]*Assert-NoReparsePath[\s\S]*function\s+Write-UninstallCompletionMarker[\s\S]*Assert-NoReparsePath' `
+        -Description 'uninstall journal writers revalidate protected paths'
     Assert-TextContains `
         -Text $unregisterMachine `
         -Pattern 'ensure-host-process-stopped[\s\S]*remove-installed-user-startup-registration[\s\S]*remove-installed-user-package[\s\S]*remove-owned-certificates' `
@@ -1517,6 +1527,13 @@ function Test-UninstallerStatePairContract
     $reader = Get-FunctionText -Ast $ast -Name 'Read-InstallStateWithBackup'
     $moduleText = @'
 Set-StrictMode -Version Latest
+function Assert-NoReparsePath
+{
+    param(
+        [string]$Path,
+        [switch]$AllowMissing
+    )
+}
 function Assert-ProtectedStateAcl
 {
     param([string]$Path)
@@ -2089,6 +2106,8 @@ function Test-PayloadRollbackManifestContract
 {
     $ast = Get-ParsedScript `
         -RelativePath 'tools/installer/install-machine.ps1'
+    $protectedPathsAst = Get-ParsedScript `
+        -RelativePath 'tools/installer/protected-paths.ps1'
     $functionNames = @(
         'Get-StatePropertiesWithoutDigest',
         'Convert-StateToCanonicalJson',
@@ -2100,7 +2119,6 @@ function Test-PayloadRollbackManifestContract
         'Assert-PayloadFileSetAgreement',
         'Assert-InstallStateRawPair',
         'Assert-InstallStatePair',
-        'Assert-NoReparsePath',
         'Resolve-InstallerRelativePath',
         'Resolve-RollbackManifestRelativePath',
         'Assert-RollbackManifestBackup',
@@ -2111,6 +2129,7 @@ function Test-PayloadRollbackManifestContract
         "`$ErrorActionPreference = 'Stop'"
         'function Assert-ProtectedStateAcl { param([string]$Path) }'
         'function Ensure-RollbackEvidenceAcl { param([string]$RollbackRoot) }'
+        (Get-FunctionText -Ast $protectedPathsAst -Name 'Assert-NoReparsePath')
         foreach ($name in $functionNames)
         {
             Get-FunctionText -Ast $ast -Name $name

@@ -95,3 +95,54 @@ function Resolve-ProtectedProgramFilesPath
     $recognizedRoots = if ($roots.Count -gt 0) { $roots -join '; ' } else { '<none>' }
     throw "The $Description is outside Program Files: $resolved. Recognized protected roots: $recognizedRoots"
 }
+
+function Assert-NoReparsePath
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path,
+
+        [switch]$AllowMissing
+    )
+
+    $resolved = [IO.Path]::GetFullPath($Path)
+    $pathRoot = [IO.Path]::GetPathRoot($resolved)
+    if ([string]::IsNullOrWhiteSpace($pathRoot))
+    {
+        throw "Installer path has no filesystem root: $Path"
+    }
+
+    $current = $pathRoot
+    $rootItem = Get-Item -LiteralPath $current -Force -ErrorAction Stop
+    if (($rootItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0)
+    {
+        throw "Installer path contains a reparse point: $current"
+    }
+    $relative = $resolved.Substring($pathRoot.Length).Trim('\')
+    if ([string]::IsNullOrWhiteSpace($relative))
+    {
+        return
+    }
+
+    foreach ($component in @($relative -split '\\'))
+    {
+        if ([string]::IsNullOrWhiteSpace($component))
+        {
+            continue
+        }
+        $current = Join-Path $current $component
+        $item = Get-Item -LiteralPath $current -Force -ErrorAction SilentlyContinue
+        if ($null -eq $item)
+        {
+            if ($AllowMissing)
+            {
+                return
+            }
+            throw "Installer path component is missing: $current"
+        }
+        if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0)
+        {
+            throw "Installer path contains a reparse point: $current"
+        }
+    }
+}

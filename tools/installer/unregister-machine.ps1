@@ -52,8 +52,11 @@ function Write-Utf8NoBom
         [string]$Content
     )
 
+    $resolvedPath = [IO.Path]::GetFullPath($Path)
+    Assert-NoReparsePath -Path $resolvedPath -AllowMissing
     $encoding = New-Object -TypeName System.Text.UTF8Encoding -ArgumentList $false
-    [IO.File]::WriteAllText($Path, $Content, $encoding)
+    [IO.File]::WriteAllText($resolvedPath, $Content, $encoding)
+    Assert-NoReparsePath -Path $resolvedPath
 }
 
 function Write-FlushedUtf8NoBom
@@ -66,9 +69,16 @@ function Write-FlushedUtf8NoBom
         [string]$Content
     )
 
+    $resolvedPath = [IO.Path]::GetFullPath($Path)
+    $parentPath = [IO.Path]::GetDirectoryName($resolvedPath)
+    if (-not [string]::IsNullOrWhiteSpace($parentPath))
+    {
+        Assert-NoReparsePath -Path $parentPath -AllowMissing
+    }
+    Assert-NoReparsePath -Path $resolvedPath -AllowMissing
     $bytes = [Text.Encoding]::UTF8.GetBytes($Content)
     $stream = [IO.FileStream]::new(
-        $Path,
+        $resolvedPath,
         [IO.FileMode]::Create,
         [IO.FileAccess]::Write,
         [IO.FileShare]::None)
@@ -76,6 +86,7 @@ function Write-FlushedUtf8NoBom
     {
         $stream.Write($bytes, 0, $bytes.Length)
         $stream.Flush($true)
+        Assert-NoReparsePath -Path $resolvedPath
     }
     finally
     {
@@ -90,6 +101,7 @@ function Assert-ProtectedStateAcl
         [string]$Path
     )
 
+    Assert-NoReparsePath -Path $Path
     $acl = Get-Acl -LiteralPath $Path
     if (-not $acl.AreAccessRulesProtected)
     {
@@ -642,6 +654,7 @@ function Read-UninstallJournal
     {
         return $null
     }
+    Assert-NoReparsePath -Path $Path
     Assert-ProtectedStateAcl -Path $Path
     $journal = Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json
     foreach ($propertyName in @(
@@ -685,10 +698,13 @@ function Set-FileAclFromTemplate
         [string]$TemplatePath
     )
 
+    Assert-NoReparsePath -Path $TemplatePath
+    Assert-NoReparsePath -Path $Path
     $templateAcl = Get-Acl -LiteralPath $TemplatePath
     $targetAcl = Get-Acl -LiteralPath $Path
     $targetAcl.SetSecurityDescriptorSddlForm($templateAcl.Sddl)
     Set-Acl -LiteralPath $Path -AclObject $targetAcl
+    Assert-NoReparsePath -Path $Path
 }
 
 function Write-UninstallJournal
@@ -714,6 +730,10 @@ function Write-UninstallJournal
         [string]$Phase
     )
 
+    $resolvedPath = [IO.Path]::GetFullPath($Path)
+    $resolvedStatePath = [IO.Path]::GetFullPath($StatePath)
+    Assert-NoReparsePath -Path $resolvedPath -AllowMissing
+    Assert-NoReparsePath -Path $resolvedStatePath
     $journal = [ordered]@{
         schema = 1
         transactionId = [string]$State.transactionId
@@ -721,7 +741,7 @@ function Write-UninstallJournal
         phase = $Phase
         updatedUtc = [DateTime]::UtcNow.ToString('o')
     }
-    $existingJournal = Read-UninstallJournal -Path $Path
+    $existingJournal = Read-UninstallJournal -Path $resolvedPath
     if ($null -ne $existingJournal -and
         (Get-UninstallPhaseRank -Phase ([string]$existingJournal.phase)) -gt
             (Get-UninstallPhaseRank -Phase $Phase))
@@ -732,32 +752,37 @@ function Write-UninstallJournal
     }
     if ($Phase -eq 'state-removing')
     {
-        $backupStatePath = "$StatePath.bak"
+        $backupStatePath = "$resolvedStatePath.bak"
+        Assert-NoReparsePath -Path $backupStatePath
         $journal.primaryStateBase64 = [Convert]::ToBase64String(
-            [IO.File]::ReadAllBytes($StatePath))
+            [IO.File]::ReadAllBytes($resolvedStatePath))
         $journal.backupStateBase64 = [Convert]::ToBase64String(
             [IO.File]::ReadAllBytes($backupStatePath))
-        $journal.primaryStateAcl = (Get-Acl -LiteralPath $StatePath).Sddl
+        $journal.primaryStateAcl = (Get-Acl -LiteralPath $resolvedStatePath).Sddl
         $journal.backupStateAcl = (Get-Acl -LiteralPath $backupStatePath).Sddl
     }
-    $temporaryPath = "$Path.$PID.$([Guid]::NewGuid().ToString('N')).tmp"
+    $temporaryPath = "$resolvedPath.$PID.$([Guid]::NewGuid().ToString('N')).tmp"
     try
     {
         Write-FlushedUtf8NoBom `
             -Path $temporaryPath `
             -Content ($journal | ConvertTo-Json -Depth 4)
-        Set-FileAclFromTemplate -Path $temporaryPath -TemplatePath $StatePath
+        Set-FileAclFromTemplate `
+            -Path $temporaryPath `
+            -TemplatePath $resolvedStatePath
         Assert-ProtectedStateAcl -Path $temporaryPath
-        if (Test-Path -LiteralPath $Path -PathType Leaf)
+        Assert-NoReparsePath -Path $temporaryPath
+        if (Test-Path -LiteralPath $resolvedPath -PathType Leaf)
         {
-            [IO.File]::Replace($temporaryPath, $Path, $null, $true)
+            [IO.File]::Replace($temporaryPath, $resolvedPath, $null, $true)
         }
         else
         {
-            [IO.File]::Move($temporaryPath, $Path)
+            [IO.File]::Move($temporaryPath, $resolvedPath)
         }
-        Assert-ProtectedStateAcl -Path $Path
-        $written = Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json
+        Assert-NoReparsePath -Path $resolvedPath
+        Assert-ProtectedStateAcl -Path $resolvedPath
+        $written = Get-Content -LiteralPath $resolvedPath -Raw | ConvertFrom-Json
         if ([string]$written.transactionId -ne [string]$State.transactionId -or
             [string]$written.stateDigest -ne [string]$State.stateDigest -or
             [string]$written.phase -ne $Phase)
@@ -924,6 +949,10 @@ function Write-UninstallCompletionMarker
         [object]$State
     )
 
+    $resolvedPath = [IO.Path]::GetFullPath($Path)
+    $resolvedJournalPath = [IO.Path]::GetFullPath($JournalPath)
+    Assert-NoReparsePath -Path $resolvedPath -AllowMissing
+    Assert-NoReparsePath -Path $resolvedJournalPath
     $marker = [ordered]@{
         schema = 1
         transactionId = [string]$State.transactionId
@@ -931,7 +960,7 @@ function Write-UninstallCompletionMarker
         stateRemoved = $true
         completedUtc = [DateTime]::UtcNow.ToString('o')
     }
-    $temporaryPath = "$Path.$PID.$([Guid]::NewGuid().ToString('N')).tmp"
+    $temporaryPath = "$resolvedPath.$PID.$([Guid]::NewGuid().ToString('N')).tmp"
     try
     {
         Write-FlushedUtf8NoBom `
@@ -939,20 +968,22 @@ function Write-UninstallCompletionMarker
             -Content ($marker | ConvertTo-Json -Depth 4)
         Set-FileAclFromTemplate `
             -Path $temporaryPath `
-            -TemplatePath $JournalPath
+            -TemplatePath $resolvedJournalPath
         Assert-ProtectedStateAcl -Path $temporaryPath
-        if (Test-Path -LiteralPath $Path -PathType Leaf)
+        Assert-NoReparsePath -Path $temporaryPath
+        if (Test-Path -LiteralPath $resolvedPath -PathType Leaf)
         {
-            [IO.File]::Replace($temporaryPath, $Path, $null, $true)
+            [IO.File]::Replace($temporaryPath, $resolvedPath, $null, $true)
         }
         else
         {
-            [IO.File]::Move($temporaryPath, $Path)
+            [IO.File]::Move($temporaryPath, $resolvedPath)
         }
-        Assert-ProtectedStateAcl -Path $Path
+        Assert-NoReparsePath -Path $resolvedPath
+        Assert-ProtectedStateAcl -Path $resolvedPath
         $written = Read-UninstallCompletionMarker `
-            -Path $Path `
-            -JournalPath $JournalPath
+            -Path $resolvedPath `
+            -JournalPath $resolvedJournalPath
         if ([string]$written.transactionId -ne [string]$State.transactionId -or
             [string]$written.stateDigest -ne [string]$State.stateDigest)
         {
@@ -986,20 +1017,28 @@ function Restore-InstallStateFromUninstallJournal
     {
         throw 'The uninstall journal has no protected install-state recovery snapshot.'
     }
-    $backupPath = "$Path.bak"
+    $resolvedPath = [IO.Path]::GetFullPath($Path)
+    $backupPath = "$resolvedPath.bak"
+    Assert-NoReparsePath -Path $resolvedPath -AllowMissing
+    Assert-NoReparsePath -Path $backupPath -AllowMissing
     $temporaryRoot = Join-Path ([IO.Path]::GetTempPath()) `
         ('bafx-uninstall-restore-' + [Guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Path $temporaryRoot -Force | Out-Null
+    Assert-NoReparsePath -Path $temporaryRoot
     $primaryTemporaryPath = Join-Path $temporaryRoot 'INSTALL-STATE.json'
     $backupTemporaryPath = Join-Path $temporaryRoot 'INSTALL-STATE.json.bak'
     try
     {
+        Assert-NoReparsePath -Path $primaryTemporaryPath -AllowMissing
+        Assert-NoReparsePath -Path $backupTemporaryPath -AllowMissing
         [IO.File]::WriteAllBytes(
             $primaryTemporaryPath,
             [Convert]::FromBase64String([string]$Journal.primaryStateBase64))
         [IO.File]::WriteAllBytes(
             $backupTemporaryPath,
             [Convert]::FromBase64String([string]$Journal.backupStateBase64))
+        Assert-NoReparsePath -Path $primaryTemporaryPath
+        Assert-NoReparsePath -Path $backupTemporaryPath
         $snapshotPrimary = Get-Content -LiteralPath $primaryTemporaryPath -Raw |
             ConvertFrom-Json
         $snapshotBackup = Get-Content -LiteralPath $backupTemporaryPath -Raw |
@@ -1020,30 +1059,35 @@ function Restore-InstallStateFromUninstallJournal
                 @{ Path = $primaryTemporaryPath; Sddl = [string]$Journal.primaryStateAcl },
                 @{ Path = $backupTemporaryPath; Sddl = [string]$Journal.backupStateAcl }))
         {
+            Assert-NoReparsePath -Path $entry.Path
             $acl = Get-Acl -LiteralPath $entry.Path
             $acl.SetSecurityDescriptorSddlForm($entry.Sddl)
             Set-Acl -LiteralPath $entry.Path -AclObject $acl
+            Assert-NoReparsePath -Path $entry.Path
         }
         foreach ($entry in @(
                 @{ Target = $Path; Snapshot = $primaryTemporaryPath; Sddl = [string]$Journal.primaryStateAcl },
                 @{ Target = $backupPath; Snapshot = $backupTemporaryPath; Sddl = [string]$Journal.backupStateAcl }))
         {
+            $resolvedTarget = [IO.Path]::GetFullPath([string]$entry.Target)
+            Assert-NoReparsePath -Path $resolvedTarget -AllowMissing
             if (-not (Test-FileBytesEqual `
-                    -LeftPath $entry.Target `
+                    -LeftPath $resolvedTarget `
                     -RightPath $entry.Snapshot))
             {
-                if (Test-Path -LiteralPath $entry.Target -PathType Leaf)
+                if (Test-Path -LiteralPath $resolvedTarget -PathType Leaf)
                 {
-                    [IO.File]::Replace($entry.Snapshot, $entry.Target, $null, $true)
+                    [IO.File]::Replace($entry.Snapshot, $resolvedTarget, $null, $true)
                 }
                 else
                 {
-                    [IO.File]::Move($entry.Snapshot, $entry.Target)
+                    [IO.File]::Move($entry.Snapshot, $resolvedTarget)
                 }
+                Assert-NoReparsePath -Path $resolvedTarget
             }
-            $acl = Get-Acl -LiteralPath $entry.Target
+            $acl = Get-Acl -LiteralPath $resolvedTarget
             $acl.SetSecurityDescriptorSddlForm($entry.Sddl)
-            Set-Acl -LiteralPath $entry.Target -AclObject $acl
+            Set-Acl -LiteralPath $resolvedTarget -AclObject $acl
         }
         Assert-ProtectedStateAcl -Path $Path
         Assert-ProtectedStateAcl -Path $backupPath
@@ -1148,6 +1192,14 @@ function Assert-InstallStateIntegrity
     $packagePath = Join-Path (Join-Path $InstallRoot 'Identity') $packageFile
     $hostPresent = Test-Path -LiteralPath $hostPath -PathType Leaf
     $packagePresent = Test-Path -LiteralPath $packagePath -PathType Leaf
+    if ($hostPresent)
+    {
+        Assert-NoReparsePath -Path $hostPath
+    }
+    if ($packagePresent)
+    {
+        Assert-NoReparsePath -Path $packagePath
+    }
     $allowMissingHost = $uninstallPhaseRank -ge
         (Get-UninstallPhaseRank -Phase 'payload-removing')
     $allowMissingPackage = $uninstallPhaseRank -ge
@@ -1187,8 +1239,11 @@ function Read-InstallStateWithBackup
         [string]$InstallRoot
     )
 
-    $backupPath = "$Path.bak"
-    $journalPath = Join-Path ([IO.Path]::GetDirectoryName($Path)) 'UNINSTALL-STATE.json'
+    $resolvedPath = [IO.Path]::GetFullPath($Path)
+    $backupPath = "$resolvedPath.bak"
+    Assert-NoReparsePath -Path $resolvedPath -AllowMissing
+    Assert-NoReparsePath -Path $backupPath -AllowMissing
+    $journalPath = Join-Path ([IO.Path]::GetDirectoryName($resolvedPath)) 'UNINSTALL-STATE.json'
     $journal = Read-UninstallJournal -Path $journalPath
     $primaryExists = Test-Path -LiteralPath $Path -PathType Leaf
     $backupExists = Test-Path -LiteralPath $backupPath -PathType Leaf
@@ -1199,16 +1254,16 @@ function Read-InstallStateWithBackup
         {
             try
             {
-                Assert-ProtectedStateAcl -Path $Path
+                Assert-ProtectedStateAcl -Path $resolvedPath
                 Assert-ProtectedStateAcl -Path $backupPath
-                $currentPrimaryRaw = Get-Content -LiteralPath $Path -Raw
+                $currentPrimaryRaw = Get-Content -LiteralPath $resolvedPath -Raw
                 $currentBackupRaw = Get-Content -LiteralPath $backupPath -Raw
                 $currentPrimary = $currentPrimaryRaw | ConvertFrom-Json
                 $currentBackup = $currentBackupRaw | ConvertFrom-Json
                 Assert-InstallStatePair `
                     -Primary $currentPrimary `
                     -Backup $currentBackup `
-                    -PrimaryPath $Path `
+                    -PrimaryPath $resolvedPath `
                     -BackupPath $backupPath
                 $pairMatchesJournal =
                     [string]$currentPrimary.transactionId -eq
@@ -1224,7 +1279,7 @@ function Read-InstallStateWithBackup
         if (-not $pairMatchesJournal)
         {
             Restore-InstallStateFromUninstallJournal `
-                -Path $Path `
+                -Path $resolvedPath `
                 -Journal $journal
         }
         $primaryExists = Test-Path -LiteralPath $Path -PathType Leaf
@@ -1238,14 +1293,14 @@ function Read-InstallStateWithBackup
     {
         throw 'Protected install state primary and backup must be present together.'
     }
-    Assert-ProtectedStateAcl -Path $Path
+    Assert-ProtectedStateAcl -Path $resolvedPath
     Assert-ProtectedStateAcl -Path $backupPath
-    $primary = Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json
+    $primary = Get-Content -LiteralPath $resolvedPath -Raw | ConvertFrom-Json
     $backup = Get-Content -LiteralPath $backupPath -Raw | ConvertFrom-Json
     Assert-InstallStatePair `
         -Primary $primary `
         -Backup $backup `
-        -PrimaryPath $Path `
+            -PrimaryPath $resolvedPath `
         -BackupPath $backupPath
     if ($null -ne $journal)
     {
@@ -1285,8 +1340,11 @@ function Remove-ProtectedInstallStatePair
         [string]$Path
     )
 
-    $backupPath = "$Path.bak"
-    foreach ($statePath in @($Path, $backupPath))
+    $resolvedPath = [IO.Path]::GetFullPath($Path)
+    $backupPath = "$resolvedPath.bak"
+    Assert-NoReparsePath -Path $resolvedPath
+    Assert-NoReparsePath -Path $backupPath
+    foreach ($statePath in @($resolvedPath, $backupPath))
     {
         if (-not (Test-Path -LiteralPath $statePath -PathType Leaf))
         {
@@ -1299,21 +1357,26 @@ function Remove-ProtectedInstallStatePair
     $temporaryRoot = Join-Path ([IO.Path]::GetTempPath()) `
         ('bafx-uninstall-state-' + [Guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Path $temporaryRoot -Force | Out-Null
+    Assert-NoReparsePath -Path $temporaryRoot
     $primaryTemporaryPath = Join-Path $temporaryRoot 'INSTALL-STATE.json'
     $backupTemporaryPath = Join-Path $temporaryRoot 'INSTALL-STATE.json.bak'
-    $primaryAcl = (Get-Acl -LiteralPath $Path).Sddl
+    $primaryAcl = (Get-Acl -LiteralPath $resolvedPath).Sddl
     $backupAcl = (Get-Acl -LiteralPath $backupPath).Sddl
-    Copy-Item -LiteralPath $Path -Destination $primaryTemporaryPath -Force
+    Assert-NoReparsePath -Path $primaryTemporaryPath -AllowMissing
+    Assert-NoReparsePath -Path $backupTemporaryPath -AllowMissing
+    Copy-Item -LiteralPath $resolvedPath -Destination $primaryTemporaryPath -Force
     Copy-Item -LiteralPath $backupPath -Destination $backupTemporaryPath -Force
-    $primaryBytes = [Int64](Get-Item -LiteralPath $Path -Force).Length
+    Assert-NoReparsePath -Path $primaryTemporaryPath
+    Assert-NoReparsePath -Path $backupTemporaryPath
+    $primaryBytes = [Int64](Get-Item -LiteralPath $resolvedPath -Force).Length
     $backupBytes = [Int64](Get-Item -LiteralPath $backupPath -Force).Length
-    $primaryHash = (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash
+    $primaryHash = (Get-FileHash -LiteralPath $resolvedPath -Algorithm SHA256).Hash
     $backupHash = (Get-FileHash -LiteralPath $backupPath -Algorithm SHA256).Hash
 
     try
     {
-        Remove-Item -LiteralPath $Path -Force
-        if (Test-Path -LiteralPath $Path -PathType Leaf)
+        Remove-Item -LiteralPath $resolvedPath -Force
+        if (Test-Path -LiteralPath $resolvedPath -PathType Leaf)
         {
             throw 'The primary protected install-state file remains after deletion.'
         }
@@ -1329,20 +1392,22 @@ function Remove-ProtectedInstallStatePair
         $restoreError = $null
         try
         {
-            Copy-Item -LiteralPath $primaryTemporaryPath -Destination $Path -Force
-            $primaryRestoredAcl = Get-Acl -LiteralPath $Path
+            Assert-NoReparsePath -Path $resolvedPath -AllowMissing
+            Copy-Item -LiteralPath $primaryTemporaryPath -Destination $resolvedPath -Force
+            Assert-NoReparsePath -Path $resolvedPath
+            $primaryRestoredAcl = Get-Acl -LiteralPath $resolvedPath
             $primaryRestoredAcl.SetSecurityDescriptorSddlForm($primaryAcl)
-            Set-Acl -LiteralPath $Path -AclObject $primaryRestoredAcl
+            Set-Acl -LiteralPath $resolvedPath -AclObject $primaryRestoredAcl
 
             Copy-Item -LiteralPath $backupTemporaryPath -Destination $backupPath -Force
             $backupRestoredAcl = Get-Acl -LiteralPath $backupPath
             $backupRestoredAcl.SetSecurityDescriptorSddlForm($backupAcl)
             Set-Acl -LiteralPath $backupPath -AclObject $backupRestoredAcl
 
-            Assert-ProtectedStateAcl -Path $Path
+            Assert-ProtectedStateAcl -Path $resolvedPath
             Assert-ProtectedStateAcl -Path $backupPath
-            if ([Int64](Get-Item -LiteralPath $Path -Force).Length -ne $primaryBytes -or
-                (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash -ne $primaryHash)
+            if ([Int64](Get-Item -LiteralPath $resolvedPath -Force).Length -ne $primaryBytes -or
+                (Get-FileHash -LiteralPath $resolvedPath -Algorithm SHA256).Hash -ne $primaryHash)
             {
                 throw 'The restored primary install-state file does not match its saved bytes.'
             }
@@ -1351,12 +1416,12 @@ function Remove-ProtectedInstallStatePair
             {
                 throw 'The restored backup install-state file does not match its saved bytes.'
             }
-            $restoredPrimary = Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json
+            $restoredPrimary = Get-Content -LiteralPath $resolvedPath -Raw | ConvertFrom-Json
             $restoredBackup = Get-Content -LiteralPath $backupPath -Raw | ConvertFrom-Json
             Assert-InstallStatePair `
                 -Primary $restoredPrimary `
                 -Backup $restoredBackup `
-                -PrimaryPath $Path `
+                -PrimaryPath $resolvedPath `
                 -BackupPath $backupPath
         }
         catch
@@ -1373,6 +1438,7 @@ function Remove-ProtectedInstallStatePair
     {
         if (Test-Path -LiteralPath $temporaryRoot -PathType Container)
         {
+            Assert-NoReparsePath -Path $temporaryRoot
             Remove-Item -LiteralPath $temporaryRoot -Recurse -Force -ErrorAction SilentlyContinue
         }
     }
@@ -1499,6 +1565,7 @@ $script:InstallerStep = 'resolve-install-root'
 $installRoot = Resolve-ProtectedProgramFilesPath `
     -Path $InstallDirectory `
     -Description 'uninstall directory'
+Assert-NoReparsePath -Path $installRoot
 $statePath = Join-Path $installRoot 'Installer\INSTALL-STATE.json'
 $uninstallCompleteMarkerPath = Join-Path $installRoot 'Installer\UNINSTALL-COMPLETE.json'
 $uninstallJournalPath = Join-Path $installRoot 'Installer\UNINSTALL-STATE.json'

@@ -187,9 +187,16 @@ function Write-FlushedUtf8NoBom
         [string]$Content
     )
 
+    $resolvedPath = [IO.Path]::GetFullPath($Path)
+    $parentPath = [IO.Path]::GetDirectoryName($resolvedPath)
+    if (-not [string]::IsNullOrWhiteSpace($parentPath))
+    {
+        Assert-NoReparsePath -Path $parentPath -AllowMissing
+    }
+    Assert-NoReparsePath -Path $resolvedPath -AllowMissing
     $bytes = [Text.Encoding]::UTF8.GetBytes($Content)
     $stream = [IO.FileStream]::new(
-        $Path,
+        $resolvedPath,
         [IO.FileMode]::Create,
         [IO.FileAccess]::Write,
         [IO.FileShare]::None)
@@ -199,6 +206,7 @@ function Write-FlushedUtf8NoBom
         # Flush(true) closes the crash window between a successful write and
         # the directory entry becoming durable on disk.
         $stream.Flush($true)
+        Assert-NoReparsePath -Path $resolvedPath
     }
     finally
     {
@@ -219,16 +227,26 @@ function Replace-ProtectedFile
         [string]$ReadSid
     )
 
-    Set-ProtectedStateAcl -Path $TemporaryPath -ReadSid $ReadSid
-    if (Test-Path -LiteralPath $DestinationPath -PathType Leaf)
+    $temporaryFullPath = [IO.Path]::GetFullPath($TemporaryPath)
+    $destinationFullPath = [IO.Path]::GetFullPath($DestinationPath)
+    Assert-NoReparsePath -Path $temporaryFullPath
+    $destinationParent = [IO.Path]::GetDirectoryName($destinationFullPath)
+    if (-not [string]::IsNullOrWhiteSpace($destinationParent))
     {
-        [IO.File]::Replace($TemporaryPath, $DestinationPath, $null, $true)
+        Assert-NoReparsePath -Path $destinationParent -AllowMissing
+    }
+    Assert-NoReparsePath -Path $destinationFullPath -AllowMissing
+    Set-ProtectedStateAcl -Path $temporaryFullPath -ReadSid $ReadSid
+    if (Test-Path -LiteralPath $destinationFullPath -PathType Leaf)
+    {
+        [IO.File]::Replace($temporaryFullPath, $destinationFullPath, $null, $true)
     }
     else
     {
-        [IO.File]::Move($TemporaryPath, $DestinationPath)
+        [IO.File]::Move($temporaryFullPath, $destinationFullPath)
     }
-    Set-ProtectedStateAcl -Path $DestinationPath -ReadSid $ReadSid
+    Assert-NoReparsePath -Path $destinationFullPath
+    Set-ProtectedStateAcl -Path $destinationFullPath -ReadSid $ReadSid
 }
 
 function Set-ProtectedStateAcl
@@ -241,6 +259,7 @@ function Set-ProtectedStateAcl
         [string]$ReadSid
     )
 
+    Assert-NoReparsePath -Path $Path
     $acl = New-Object Security.AccessControl.FileSecurity
     $acl.SetAccessRuleProtection($true, $false)
     foreach ($sidValue in @('S-1-5-18', 'S-1-5-32-544'))
@@ -262,6 +281,7 @@ function Set-ProtectedStateAcl
         $acl.AddAccessRule($rule) | Out-Null
     }
     Set-Acl -LiteralPath $Path -AclObject $acl
+    Assert-NoReparsePath -Path $Path
 }
 
 function Assert-ProtectedStateAcl
@@ -271,6 +291,7 @@ function Assert-ProtectedStateAcl
         [string]$Path
     )
 
+    Assert-NoReparsePath -Path $Path
     $acl = Get-Acl -LiteralPath $Path
     if (-not $acl.AreAccessRulesProtected)
     {
@@ -315,7 +336,9 @@ function Write-ProtectedJson
         [string]$ReadSid
     )
 
-    $temporaryPath = "$Path.$PID.$([Guid]::NewGuid().ToString('N')).tmp"
+    $resolvedPath = [IO.Path]::GetFullPath($Path)
+    Assert-NoReparsePath -Path $resolvedPath -AllowMissing
+    $temporaryPath = "$resolvedPath.$PID.$([Guid]::NewGuid().ToString('N')).tmp"
     try
     {
         $stateValue = New-StateWithDigest -Value $Value
@@ -350,10 +373,12 @@ function Write-ProtectedInstallState
         [string]$ReadSid
     )
 
+    $resolvedPath = [IO.Path]::GetFullPath($Path)
+    Assert-NoReparsePath -Path $resolvedPath -AllowMissing
     $stateValue = New-StateWithDigest -Value $Value
-    $backupPath = "$Path.bak"
+    $backupPath = "$resolvedPath.bak"
     $backupTemporaryPath = "$backupPath.$PID.$([Guid]::NewGuid().ToString('N')).tmp"
-    $primaryTemporaryPath = "$Path.$PID.$([Guid]::NewGuid().ToString('N')).tmp"
+    $primaryTemporaryPath = "$resolvedPath.$PID.$([Guid]::NewGuid().ToString('N')).tmp"
     $serialized = ConvertTo-Json -InputObject $stateValue -Depth 12
     try
     {
@@ -644,58 +669,6 @@ function Resolve-PayloadDirectory
         throw 'Installer staging directory cannot be a reparse point.'
     }
     return $resolvedPayload
-}
-
-function Assert-NoReparsePath
-{
-    param(
-        [Parameter(Mandatory = $true)]
-        [string]$Path,
-
-        [switch]$AllowMissing
-    )
-
-    $resolved = [IO.Path]::GetFullPath($Path)
-    $pathRoot = [IO.Path]::GetPathRoot($resolved)
-    if ([string]::IsNullOrWhiteSpace($pathRoot))
-    {
-        throw "Installer path has no filesystem root: $Path"
-    }
-
-    $current = $pathRoot
-    $rootItem = Get-Item -LiteralPath $current -Force -ErrorAction Stop
-    if (($rootItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0)
-    {
-        throw "Installer path contains a reparse point: $current"
-    }
-    $relative = $resolved.Substring($pathRoot.Length).Trim('\')
-    if ([string]::IsNullOrWhiteSpace($relative))
-    {
-        return
-    }
-
-    foreach ($component in @($relative -split '\\'))
-    {
-        if ([string]::IsNullOrWhiteSpace($component))
-        {
-            continue
-        }
-        $current = Join-Path $current $component
-        $item = Get-Item -LiteralPath $current -Force -ErrorAction SilentlyContinue
-        if ($null -eq $item)
-        {
-            if ($AllowMissing)
-            {
-                return
-            }
-            throw "Installer path component is missing: $current"
-        }
-        if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0)
-        {
-            throw "Installer path contains a reparse point: $current"
-        }
-    }
-    return
 }
 
 function Assert-ProtectedPayloadAcl
@@ -2769,6 +2742,7 @@ function Complete-CommittedPendingTransaction
         -Path (Join-Path $InstallRoot 'Installer\INSTALL-STATE.json') `
         -Value $cleanedState `
         -ReadSid ([string]$State.userSid)
+    Assert-NoReparsePath -Path $PendingPath
     Remove-Item -LiteralPath $PendingPath -Force
 }
 
@@ -5048,6 +5022,7 @@ function Invoke-PendingRollbackCleanup
         Recover-CreatingCertificate -State $State
         if (Test-Path -LiteralPath $PendingPath -PathType Leaf)
         {
+            Assert-NoReparsePath -Path $PendingPath
             Remove-Item -LiteralPath $PendingPath -Force
         }
         return
@@ -5059,6 +5034,7 @@ function Invoke-PendingRollbackCleanup
     Remove-PreparedCertificateIfUnused -State $State
     if (Test-Path -LiteralPath $PendingPath -PathType Leaf)
     {
+        Assert-NoReparsePath -Path $PendingPath
         Remove-Item -LiteralPath $PendingPath -Force
     }
 }
@@ -5363,6 +5339,7 @@ if ($Phase -eq 'RollbackCleanup')
         {
             # No signed package exists yet; the SAN marker recovery above is
             # the only cleanup needed for this early-crash state.
+            Assert-NoReparsePath -Path $machineStateFullPath
             Remove-Item -LiteralPath $machineStateFullPath -Force
             exit 0
         }
@@ -5733,6 +5710,7 @@ try
     # update has completed. A restart can then distinguish a committed state
     # from a transaction that still needs machine-file rollback.
     $script:InstallerStep = 'delete-pending-state'
+    Assert-NoReparsePath -Path $machineStateFullPath
     Remove-Item -LiteralPath $machineStateFullPath -Force
 }
 catch
