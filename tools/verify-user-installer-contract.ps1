@@ -566,6 +566,10 @@ function Test-InstallerScriptWhitelist
         -Pattern 'function\s+Assert-NoReparsePath[\s\S]*Get-Item\s+-LiteralPath\s+\$current[\s\S]*FileAttributes\]::ReparsePoint' `
         -Description 'installer paths reject reparse points component by component'
     Assert-TextContains `
+        -Text $protectedPaths `
+        -Pattern 'function\s+Assert-NoReparseTree[\s\S]*Get-ChildItem\s+-LiteralPath\s+\$current[\s\S]*FileAttributes\]::ReparsePoint' `
+        -Description 'recursive deletion trees reject reparse points before traversal'
+    Assert-TextContains `
         -Text $installMachine `
         -Pattern 'function\s+Write-ProtectedJson[\s\S]*Assert-NoReparsePath\s+-Path\s+\$resolvedPath[\s\S]*function\s+Write-ProtectedInstallState[\s\S]*Assert-NoReparsePath\s+-Path\s+\$resolvedPath' `
         -Description 'machine state writers revalidate their destination paths'
@@ -1595,6 +1599,10 @@ function Test-SparsePackageContract
         -Text $uninstaller `
         -Pattern 'InstallerStep\s*=\s*''remove-installed-user-startup-registration''[\s\S]*Remove-InstalledUserStartupRegistration\s+`?\s*-InstalledUserSid\s+\(\[string\]\$state\.installedUserSid\)[\s\S]*InstallerStep\s*=\s*''query-installed-user-package''' `
         -Description 'startup cleanup uses protected state before uninstalling files'
+    Assert-TextContains `
+        -Text $uninstaller `
+        -Pattern 'foreach\s*\(\$directoryName\s+in\s+@\(''Identity'',\s*''\.rollback'',\s*''\.staging''\)[\s\S]*Assert-NoReparseTree\s+-Path\s+\$path[\s\S]*Remove-Item\s+-LiteralPath\s+\$path\s+-Recurse' `
+        -Description 'uninstall validates every protected tree before recursive deletion'
 }
 
 function Test-UninstallerStatePairContract

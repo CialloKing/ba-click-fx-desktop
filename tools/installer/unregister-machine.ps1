@@ -1478,6 +1478,7 @@ function Remove-InstalledPayloadFiles
         $path = Join-Path $InstallRoot $directoryName
         if (Test-Path -LiteralPath $path -PathType Container)
         {
+            Assert-NoReparseTree -Path $path
             Remove-Item -LiteralPath $path -Recurse -Force
         }
         if (Test-Path -LiteralPath $path)

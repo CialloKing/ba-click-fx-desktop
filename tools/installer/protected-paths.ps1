@@ -146,3 +146,53 @@ function Assert-NoReparsePath
         }
     }
 }
+
+function Assert-NoReparseTree
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path,
+
+        [switch]$AllowMissing
+    )
+
+    $resolved = [IO.Path]::GetFullPath($Path)
+    Assert-NoReparsePath -Path $resolved -AllowMissing:$AllowMissing
+    if (-not (Test-Path -LiteralPath $resolved -PathType Container))
+    {
+        if ($AllowMissing -and -not (Test-Path -LiteralPath $resolved))
+        {
+            return
+        }
+        throw "Installer tree is not an existing directory: $resolved"
+    }
+
+    $pending = New-Object Collections.Generic.Stack[string]
+    $pending.Push($resolved)
+    while ($pending.Count -gt 0)
+    {
+        $current = $pending.Pop()
+        $item = Get-Item -LiteralPath $current -Force -ErrorAction Stop
+        if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0)
+        {
+            throw "Installer tree contains a reparse point: $current"
+        }
+
+        if (-not $item.PSIsContainer)
+        {
+            continue
+        }
+        foreach ($child in @(Get-ChildItem -LiteralPath $current -Force -ErrorAction Stop))
+        {
+            $childPath = [IO.Path]::GetFullPath($child.FullName)
+            if (($child.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0)
+            {
+                throw "Installer tree contains a reparse point: $childPath"
+            }
+            if ($child.PSIsContainer)
+            {
+                $pending.Push($childPath)
+            }
+        }
+    }
+}
