@@ -165,6 +165,11 @@ function ResolveRollbackScript(
   const InstallRoot: String;
   const StagedInstallerRoot: String;
   const ScriptName: String): String; forward;
+function ResolveRestoredRollbackScript(
+  const InstallRoot: String;
+  const ScriptName: String): String; forward;
+function SafeDeleteFile(const Path: String): Boolean; forward;
+function SafeDeleteTree(const Path: String): Boolean; forward;
 procedure RaiseInstallerFailure(
   const FailureText: String;
   const ExitCode: Integer); forward;
@@ -253,10 +258,7 @@ begin
     end;
     if ExitCode <> 0 then
     begin
-      if ExitCode = 1001 then
-        SetupFailureExitCode := 1001
-      else
-        SetupFailureExitCode := 1001;
+      SetupFailureExitCode := 1001;
       Result := FormatPowerShellFailure(
         CustomMessage('RollbackPendingInstallation'), True, ExitCode);
       Exit;
@@ -275,23 +277,15 @@ begin
     end;
     if ExitCode <> 0 then
     begin
-      if ExitCode = 1001 then
-      begin
-        SetupFailureExitCode := 1001;
-      end
-      else
-      begin
-        SetupFailureExitCode := 1001;
-      end;
+      SetupFailureExitCode := 1001;
       Result := FormatPowerShellFailure(
         CustomMessage('RollbackPendingInstallation'), True, ExitCode);
       Exit;
     end;
     if FileExists(ExistingPendingPath) then
     begin
-      ExistingRegisterScript := ResolveRollbackScript(
+      ExistingRegisterScript := ResolveRestoredRollbackScript(
         InstallRoot,
-        InstallerRoot,
         'register-user-package.ps1');
       if ExistingRegisterScript = '' then
       begin
@@ -317,10 +311,7 @@ begin
       end;
       if ExitCode <> 0 then
       begin
-        if ExitCode = 1001 then
-          SetupFailureExitCode := 1001
-        else
-          SetupFailureExitCode := 1001;
+        SetupFailureExitCode := 1001;
         Result := FormatPowerShellFailure(
           CustomMessage('RollbackPendingInstallation'), True, ExitCode);
         Exit;
@@ -328,9 +319,8 @@ begin
     end;
     if FileExists(ExistingPendingPath) then
     begin
-      ExistingScript := ResolveRollbackScript(
+      ExistingScript := ResolveRestoredRollbackScript(
         InstallRoot,
-        InstallerRoot,
         'install-machine.ps1');
       if ExistingScript = '' then
       begin
@@ -368,8 +358,7 @@ begin
       Exit;
     end;
   end;
-  if DirExists(PayloadRoot) and
-    not DelTree(PayloadRoot, True, True, True) then
+  if not SafeDeleteTree(PayloadRoot) then
   begin
     SetupFailureExitCode := 1001;
     Result := 'The previous installer staging directory could not be removed.';
@@ -418,6 +407,142 @@ begin
   end;
 end;
 
+function IsReparsePointPath(const Path: String): Boolean;
+var
+  FindRec: TFindRec;
+begin
+  Result := False;
+  if not FileOrDirExists(Path) then
+  begin
+    Exit;
+  end;
+  if not FindFirst(RemoveBackslashUnlessRoot(Path), FindRec) then
+  begin
+    // An inaccessible path is not safe to delete blindly. Fail closed so a
+    // junction cannot redirect DelTree outside the protected install root.
+    Log('Could not inspect installer deletion path: ' + Path);
+    Result := True;
+    Exit;
+  end;
+  try
+    Result := (FindRec.Attributes and FILE_ATTRIBUTE_REPARSE_POINT) <> 0;
+  finally
+    FindClose(FindRec);
+  end;
+end;
+
+function AssertNoReparsePointPath(const Path: String): Boolean;
+var
+  CurrentPath: String;
+  ParentPath: String;
+begin
+  Result := False;
+  CurrentPath := RemoveBackslashUnlessRoot(Path);
+  if CurrentPath = '' then
+  begin
+    Exit;
+  end;
+  while CurrentPath <> '' do
+  begin
+    if FileOrDirExists(CurrentPath) and IsReparsePointPath(CurrentPath) then
+    begin
+      Exit;
+    end;
+    ParentPath := RemoveBackslashUnlessRoot(ExtractFileDir(CurrentPath));
+    if (ParentPath = '') or SameText(ParentPath, CurrentPath) then
+    begin
+      Break;
+    end;
+    CurrentPath := ParentPath;
+  end;
+  Result := True;
+end;
+
+function AssertNoReparsePointTree(const Path: String): Boolean;
+var
+  FindRec: TFindRec;
+  ChildPath: String;
+begin
+  Result := False;
+  if not AssertNoReparsePointPath(Path) then
+  begin
+    Exit;
+  end;
+  if not FileOrDirExists(Path) then
+  begin
+    Result := True;
+    Exit;
+  end;
+  if not FindFirst(AddBackslash(Path) + '*', FindRec) then
+  begin
+    // FindFirst normally exposes "." and ".." even for an empty directory;
+    // a false result therefore means that the tree could not be inspected.
+    Log('Could not enumerate installer deletion tree: ' + Path);
+    Exit;
+  end;
+  try
+    repeat
+      if (FindRec.Name <> '.') and (FindRec.Name <> '..') then
+      begin
+        ChildPath := AddBackslash(Path) + FindRec.Name;
+        if (FindRec.Attributes and FILE_ATTRIBUTE_REPARSE_POINT) <> 0 then
+        begin
+          Log('Installer deletion tree contains a reparse point: ' + ChildPath);
+          Exit;
+        end;
+        if (FindRec.Attributes and FILE_ATTRIBUTE_DIRECTORY) <> 0 then
+        begin
+          if not AssertNoReparsePointTree(ChildPath) then
+          begin
+            Exit;
+          end;
+        end;
+      end;
+    until not FindNext(FindRec);
+  finally
+    FindClose(FindRec);
+  end;
+  Result := True;
+end;
+
+function SafeDeleteTree(const Path: String): Boolean;
+begin
+  if not FileOrDirExists(Path) then
+  begin
+    Result := True;
+    Exit;
+  end;
+  if not AssertNoReparsePointTree(Path) then
+  begin
+    Log('Refusing to delete an installer tree containing a reparse point: ' +
+      Path);
+    Result := False;
+    Exit;
+  end;
+  Result := DelTree(Path, True, True, True);
+end;
+
+function SafeDeleteFile(const Path: String): Boolean;
+begin
+  if not FileOrDirExists(Path) then
+  begin
+    Result := True;
+    Exit;
+  end;
+  if not AssertNoReparsePointPath(Path) then
+  begin
+    Log('Refusing to delete an installer file behind a reparse point: ' + Path);
+    Result := False;
+    Exit;
+  end;
+  if not DeleteFile(Path) then
+  begin
+    Result := False;
+    Exit;
+  end;
+  Result := not FileOrDirExists(Path);
+end;
+
 procedure CleanupUncommittedInstallArtifacts;
 var
   InstallRoot: String;
@@ -438,15 +563,18 @@ begin
     Exit;
   end;
   StagingRoot := InstallRoot + '.staging\current';
-  if DirExists(StagingRoot) and
-    not DelTree(StagingRoot, True, True, True) then
+  if not SafeDeleteTree(StagingRoot) then
   begin
     Log('The uncommitted installer staging directory could not be removed: ' +
       StagingRoot);
+    // Retain a nonzero result when cleanup itself is blocked. Otherwise Inno
+    // would report a successful install while protected staged files remain.
+    RecoveryRequired := True;
+    SetupFailureExitCode := 1001;
   end;
 end;
 
-procedure CleanupFirstInstallPayload(const InstallRoot: String);
+function CleanupFirstInstallPayload(const InstallRoot: String): Boolean;
 var
   Index: Integer;
   Path: String;
@@ -455,6 +583,7 @@ begin
   // this product. This path is used only after a pending first-install
   // transaction has been rolled back successfully; never touch the user's
   // data directory here.
+  Result := True;
   for Index := 0 to 4 do
   begin
     case Index of
@@ -464,12 +593,27 @@ begin
       3: Path := AddBackslash(InstallRoot) + 'SUPPORT.md';
       4: Path := AddBackslash(InstallRoot) + 'THIRD-PARTY-NOTICES.txt';
     end;
-    DeleteFile(Path);
+    if not SafeDeleteFile(Path) then
+    begin
+      Result := False;
+    end;
   end;
-  DelTree(AddBackslash(InstallRoot) + 'Identity', True, True, True);
-  DelTree(AddBackslash(InstallRoot) + 'Installer', True, True, True);
-  DelTree(AddBackslash(InstallRoot) + '.rollback', True, True, True);
-  DelTree(AddBackslash(InstallRoot) + '.staging', True, True, True);
+  if not SafeDeleteTree(AddBackslash(InstallRoot) + 'Identity') then
+  begin
+    Result := False;
+  end;
+  if not SafeDeleteTree(AddBackslash(InstallRoot) + 'Installer') then
+  begin
+    Result := False;
+  end;
+  if not SafeDeleteTree(AddBackslash(InstallRoot) + '.rollback') then
+  begin
+    Result := False;
+  end;
+  if not SafeDeleteTree(AddBackslash(InstallRoot) + '.staging') then
+  begin
+    Result := False;
+  end;
 end;
 
 procedure ResetPowerShellDiagnostics;
@@ -883,9 +1027,8 @@ begin
 
   if FileExists(MachineStatePath) then
   begin
-    ScriptPath := ResolveRollbackScript(
+    ScriptPath := ResolveRestoredRollbackScript(
       InstallRoot,
-      InstallerRoot,
       'register-user-package.ps1');
     if ScriptPath = '' then
     begin
@@ -918,9 +1061,8 @@ begin
 
   if FileExists(MachineStatePath) then
   begin
-    ScriptPath := ResolveRollbackScript(
+    ScriptPath := ResolveRestoredRollbackScript(
       InstallRoot,
-      InstallerRoot,
       'install-machine.ps1');
     if ScriptPath = '' then
     begin
@@ -971,6 +1113,26 @@ begin
     Result := StagedPath;
     Exit;
   end;
+  LivePath := AddBackslash(AddBackslash(InstallRoot) + 'Installer') + ScriptName;
+  if FileExists(LivePath) then
+  begin
+    Result := LivePath;
+  end
+  else
+  begin
+    Result := '';
+  end;
+end;
+
+function ResolveRestoredRollbackScript(
+  const InstallRoot: String;
+  const ScriptName: String): String;
+var
+  LivePath: String;
+begin
+  // Rollback restores the previous Installer directory before the old user
+  // package is registered again. Never fall back to the still-staged newer
+  // scripts after that point because their recovery schema may differ.
   LivePath := AddBackslash(AddBackslash(InstallRoot) + 'Installer') + ScriptName;
   if FileExists(LivePath) then
   begin
@@ -1328,9 +1490,8 @@ begin
     end;
     if FileExists(MachineStatePath) then
     begin
-      ScriptPath := ResolveRollbackScript(
+      ScriptPath := ResolveRestoredRollbackScript(
         InstallRoot,
-        StagedInstallerRoot,
         'register-user-package.ps1');
       if ScriptPath = '' then
       begin
@@ -1370,9 +1531,8 @@ begin
       // RollbackCleanup owns package, certificate, staging, and journal
       // deletion. Keeping that operation in the machine script makes a
       // cleanup failure recoverable instead of silently discarding evidence.
-      ScriptPath := ResolveRollbackScript(
+      ScriptPath := ResolveRestoredRollbackScript(
         InstallRoot,
-        StagedInstallerRoot,
         'install-machine.ps1');
       if ScriptPath = '' then
       begin
@@ -1416,7 +1576,12 @@ begin
       // machine rollback and cleanup removed its package and certificate, so
       // Inno can now delete only the copied application payload.
       Log('Pending first installation rolled back; no committed state remains.');
-      CleanupFirstInstallPayload(InstallRoot);
+      if not CleanupFirstInstallPayload(InstallRoot) then
+      begin
+        RaiseInstallerFailure(
+          'The rolled-back first-install payload could not be removed safely.',
+          1001);
+      end;
       SetupFailureExitCode := 0;
       Exit;
     end;
@@ -1446,7 +1611,7 @@ begin
       'The uninstall script completed without its protected completion marker.',
       1001);
   end;
-  if not DelTree(InstallerRoot, True, True, True) then
+  if not SafeDeleteTree(InstallerRoot) then
   begin
     RaiseInstallerFailure(
       'The installer recovery directory could not be removed after uninstall.',
