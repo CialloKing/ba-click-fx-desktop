@@ -444,6 +444,18 @@ function Test-InstallerScriptWhitelist
         -Text $installMachine `
         -Pattern '\$sameVersionPackages' `
         -Description 'certificate cleanup does not filter shared packages by one version'
+    Assert-TextContains `
+        -Text $installMachine `
+        -Pattern 'function\s+Assert-PayloadRollbackManifest[\s\S]*stateDigest[\s\S]*duplicate file path[\s\S]*Assert-RollbackManifestBackup' `
+        -Description 'rollback manifest validates its digest, paths, and backup evidence'
+    Assert-TextContains `
+        -Text $installMachine `
+        -Pattern 'function\s+Read-PayloadRollbackManifest[\s\S]*Assert-PayloadRollbackManifest' `
+        -Description 'all rollback restore paths revalidate the manifest'
+    Assert-TextContains `
+        -Text $installMachine `
+        -Pattern 'previousStatePrimaryBytes[\s\S]*previousStatePrimarySha256[\s\S]*previousStateBackupBytes[\s\S]*previousStateBackupSha256' `
+        -Description 'rollback manifest records previous state backup evidence'
     $null = Get-CompressionRuntimeLoadStatements -InstallMachine $installMachine
 
     $captureUserContext = Read-RepositoryText `
@@ -1833,6 +1845,179 @@ function Test-RegistrationFailureDiagnostics
     }
 }
 
+function Test-PayloadRollbackManifestContract
+{
+    $ast = Get-ParsedScript `
+        -RelativePath 'tools/installer/install-machine.ps1'
+    $functionNames = @(
+        'Get-StatePropertiesWithoutDigest',
+        'Convert-StateToCanonicalJson',
+        'Get-StateDigest',
+        'Assert-FileHash',
+        'Assert-InstallStateRawPair',
+        'Assert-InstallStatePair',
+        'Resolve-InstallerRelativePath',
+        'Resolve-RollbackManifestRelativePath',
+        'Assert-RollbackManifestBackup',
+        'Assert-PayloadRollbackManifest'
+    )
+    $functionText = @(
+        "Set-StrictMode -Version Latest"
+        "`$ErrorActionPreference = 'Stop'"
+        'function Assert-ProtectedStateAcl { param([string]$Path) }'
+        foreach ($name in $functionNames)
+        {
+            Get-FunctionText -Ast $ast -Name $name
+        }
+    ) -join "`n"
+    $probeModule = New-Module -ScriptBlock ([scriptblock]::Create($functionText))
+    $temporaryParent = [IO.Path]::GetFullPath([IO.Path]::GetTempPath())
+    $temporaryRoot = Join-Path `
+        $temporaryParent `
+        ('bafx-rollback-manifest-' + [Guid]::NewGuid().ToString('N'))
+    try
+    {
+        $installRoot = Join-Path $temporaryRoot 'install'
+        $transactionId = 'a' * 32
+        $rollbackRoot = Join-Path $installRoot ('.rollback\' + $transactionId)
+        $backupRoot = Join-Path $rollbackRoot 'files'
+        New-Item -ItemType Directory -Path $backupRoot -Force | Out-Null
+        $backupPath = Join-Path $backupRoot 'ba-click-fx-desktop.exe'
+        [IO.File]::WriteAllText($backupPath, 'old host')
+        $backupBytes = [Int64](Get-Item -LiteralPath $backupPath).Length
+        $backupSha256 = (Get-FileHash -LiteralPath $backupPath -Algorithm SHA256).Hash
+        $entry = [ordered]@{
+            path = 'ba-click-fx-desktop.exe'
+            existed = $true
+            bytes = $backupBytes
+            sha256 = $backupSha256
+            backupPath = 'files/ba-click-fx-desktop.exe'
+        }
+        $baseManifest = [ordered]@{
+            schema = 1
+            transactionId = $transactionId
+            files = @($entry)
+            oldPackageFile = ''
+            oldPackageBackupPath = ''
+            oldPackageBytes = 0
+            oldPackageSha256 = ''
+            dataDirectoryExisted = $false
+            dataDirectoryAcl = ''
+            dataFiles = @(
+                [ordered]@{
+                    name = 'BAFX.config.json'
+                    existed = $false
+                    bytes = 0
+                    sha256 = ''
+                    backupPath = ''
+                },
+                [ordered]@{
+                    name = 'ba-click-fx-desktop-support.log'
+                    existed = $false
+                    bytes = 0
+                    sha256 = ''
+                    backupPath = ''
+                }
+            )
+            previousStatePresent = $false
+            previousStatePrimaryBackupPath = ''
+            previousStateBackupBackupPath = ''
+            previousStatePrimaryBytes = 0
+            previousStatePrimarySha256 = ''
+            previousStateBackupBytes = 0
+            previousStateBackupSha256 = ''
+        }
+        $manifest = & $probeModule {
+            param($Base)
+            $value = [ordered]@{}
+            foreach ($property in $Base.GetEnumerator())
+            {
+                $value[$property.Key] = $property.Value
+            }
+            $value.stateDigest = Get-StateDigest -Value $value
+            return ($value | ConvertTo-Json -Depth 12 | ConvertFrom-Json)
+        } $baseManifest
+        $state = [pscustomobject]@{
+            transactionId = $transactionId
+            oldInstallState = $null
+        }
+        $manifestPath = Join-Path $rollbackRoot 'ROLLBACK-MANIFEST.json'
+        [IO.File]::WriteAllText(
+            $manifestPath,
+            ($manifest | ConvertTo-Json -Depth 12))
+        & $probeModule {
+            param($State, $Root, $Manifest, $Path)
+            Assert-PayloadRollbackManifest `
+                -State $State `
+                -InstallRoot $Root `
+                -Manifest $Manifest `
+                -ManifestPath $Path
+        } $state $installRoot $manifest $manifestPath
+
+        [IO.File]::WriteAllText($backupPath, 'tampered')
+        Assert-Throws `
+            -Action {
+                & $probeModule {
+                    param($State, $Root, $Manifest, $Path)
+                    Assert-PayloadRollbackManifest `
+                        -State $State `
+                        -InstallRoot $Root `
+                        -Manifest $Manifest `
+                        -ManifestPath $Path
+                } $state $installRoot $manifest $manifestPath
+            } `
+            -Description 'rollback backup hash tampering'
+
+        $duplicateManifest = $baseManifest | ConvertTo-Json -Depth 12 | ConvertFrom-Json
+        $duplicateManifest.files = @($entry, $entry)
+        Assert-Throws `
+            -Action {
+                & $probeModule {
+                    param($State, $Root, $Manifest, $Path)
+                    Assert-PayloadRollbackManifest `
+                        -State $State `
+                        -InstallRoot $Root `
+                        -Manifest $Manifest `
+                        -ManifestPath $Path
+                } $state $installRoot $duplicateManifest $manifestPath
+            } `
+            -Description 'duplicate rollback manifest path'
+
+        $unsafeManifest = $baseManifest | ConvertTo-Json -Depth 12 | ConvertFrom-Json
+        $unsafeManifest.files[0].path = '..\ba-click-fx-desktop.exe'
+        Assert-Throws `
+            -Action {
+                & $probeModule {
+                    param($State, $Root, $Manifest, $Path)
+                    Assert-PayloadRollbackManifest `
+                        -State $State `
+                        -InstallRoot $Root `
+                        -Manifest $Manifest `
+                        -ManifestPath $Path
+                } $state $installRoot $unsafeManifest $manifestPath
+            } `
+            -Description 'unsafe rollback manifest path'
+    }
+    finally
+    {
+        if ($null -ne $probeModule)
+        {
+            Remove-Module -ModuleInfo $probeModule -Force -ErrorAction SilentlyContinue
+        }
+        $resolvedTemporaryRoot = [IO.Path]::GetFullPath($temporaryRoot)
+        if ($resolvedTemporaryRoot.StartsWith(
+                $temporaryParent,
+                [StringComparison]::OrdinalIgnoreCase) -and
+            [IO.Path]::GetFileName($resolvedTemporaryRoot).StartsWith(
+                'bafx-rollback-manifest-',
+                [StringComparison]::Ordinal))
+        {
+            Remove-Item -LiteralPath $resolvedTemporaryRoot -Recurse -Force `
+                -ErrorAction SilentlyContinue
+        }
+    }
+}
+
 function Test-InstallerFailureDiagnostics
 {
     $temporaryParent = [IO.Path]::GetFullPath([IO.Path]::GetTempPath())
@@ -1955,6 +2140,7 @@ Test-UninstallerOfflineHiveFailureContract
 Test-UpgradeHostIntegrityContract
 Test-PortableZipContract
 Test-RegistrationFailureDiagnostics
+Test-PayloadRollbackManifestContract
 Test-InstallerFailureDiagnostics
 
 Write-Host "User installer contracts verified (PowerShell $($PSVersionTable.PSVersion))."

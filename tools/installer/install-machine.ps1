@@ -3151,6 +3151,539 @@ function Copy-VerifiedInstallerFile
         -ExpectedSha256 $ExpectedSha256
 }
 
+function Resolve-RollbackManifestRelativePath
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Root,
+
+        [Parameter(Mandatory = $true)]
+        [string]$RelativePath,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Description
+    )
+
+    $normalized = $RelativePath.Replace('/', '\')
+    if ([string]::IsNullOrWhiteSpace($normalized) -or
+        [IO.Path]::IsPathRooted($normalized) -or
+        $normalized.StartsWith('\') -or
+        $normalized.EndsWith('\') -or
+        $normalized -match '(^|\\)(\.|\.\.)(\\|$)' -or
+        $normalized -match '[<>:"|?*\x00-\x1f]')
+    {
+        throw "The rollback manifest has an unsafe $Description path: $RelativePath"
+    }
+    return Resolve-InstallerRelativePath `
+        -Root $Root `
+        -RelativePath $normalized
+}
+
+function Assert-RollbackManifestBackup
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$RollbackRoot,
+
+        [Parameter(Mandatory = $true)]
+        [string]$RelativePath,
+
+        [Parameter(Mandatory = $true)]
+        [Int64]$ExpectedBytes,
+
+        [Parameter(Mandatory = $true)]
+        [string]$ExpectedSha256,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Description
+    )
+
+    $path = Resolve-RollbackManifestRelativePath `
+        -Root $RollbackRoot `
+        -RelativePath $RelativePath `
+        -Description $Description
+    if (-not (Test-Path -LiteralPath $path -PathType Leaf))
+    {
+        throw "The rollback manifest backup is missing: $path"
+    }
+    $item = Get-Item -LiteralPath $path -Force
+    if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0)
+    {
+        throw "The rollback manifest backup cannot be a reparse point: $path"
+    }
+    Assert-FileHash `
+        -Path $path `
+        -ExpectedBytes $ExpectedBytes `
+        -ExpectedSha256 $ExpectedSha256
+    return $path
+}
+
+function Assert-PayloadRollbackManifest
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [object]$State,
+
+        [Parameter(Mandatory = $true)]
+        [string]$InstallRoot,
+
+        [Parameter(Mandatory = $true)]
+        [object]$Manifest,
+
+        [Parameter(Mandatory = $true)]
+        [string]$ManifestPath
+    )
+
+    $rollbackRoot = [IO.Path]::GetDirectoryName($ManifestPath)
+    if (-not (Test-Path -LiteralPath $rollbackRoot -PathType Container))
+    {
+        throw 'The rollback manifest root is missing.'
+    }
+    $rollbackRootItem = Get-Item -LiteralPath $rollbackRoot -Force
+    if (($rollbackRootItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0)
+    {
+        throw 'The rollback manifest root cannot be a reparse point.'
+    }
+    if (-not (Test-Path -LiteralPath $ManifestPath -PathType Leaf))
+    {
+        throw 'The payload rollback manifest is missing.'
+    }
+    $manifestItem = Get-Item -LiteralPath $ManifestPath -Force
+    if (($manifestItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0)
+    {
+        throw 'The payload rollback manifest cannot be a reparse point.'
+    }
+    Assert-ProtectedStateAcl -Path $rollbackRoot
+    Assert-ProtectedStateAcl -Path $ManifestPath
+
+    if ($null -eq $Manifest.PSObject.Properties['schema'] -or
+        [int]$Manifest.schema -ne 1 -or
+        $null -eq $Manifest.PSObject.Properties['transactionId'] -or
+        [string]$Manifest.transactionId -ne [string]$State.transactionId)
+    {
+        throw 'The payload rollback manifest has an unsupported schema or transaction.'
+    }
+    if ([string]$Manifest.transactionId -notmatch '^[0-9a-fA-F]{32}$')
+    {
+        throw 'The payload rollback manifest has an invalid transaction identifier.'
+    }
+    if ($null -ne $Manifest.PSObject.Properties['stateDigest'])
+    {
+        if ([string]$Manifest.stateDigest -notmatch '^[0-9A-Fa-f]{64}$' -or
+            (Get-StateDigest -Value $Manifest) -ne [string]$Manifest.stateDigest)
+        {
+            throw 'The payload rollback manifest digest does not match its content.'
+        }
+    }
+    if ($null -eq $Manifest.PSObject.Properties['files'] -or
+        $null -eq $Manifest.files -or @($Manifest.files).Count -eq 0)
+    {
+        throw 'The payload rollback manifest has no file entries.'
+    }
+
+    $seenPaths = @{}
+    foreach ($entry in @($Manifest.files))
+    {
+        if ($null -eq $entry -or $entry -is [string])
+        {
+            throw 'The payload rollback manifest contains an invalid file entry.'
+        }
+        foreach ($propertyName in @('path', 'existed', 'bytes', 'sha256', 'backupPath'))
+        {
+            if ($null -eq $entry.PSObject.Properties[$propertyName])
+            {
+                throw "The rollback manifest file entry is missing: $propertyName"
+            }
+        }
+        $relativePath = [string]$entry.path
+        $targetPath = Resolve-RollbackManifestRelativePath `
+            -Root $InstallRoot `
+            -RelativePath $relativePath `
+            -Description 'payload file'
+        $normalizedPath = $relativePath.Replace('/', '\')
+        if ($normalizedPath -match '(?i)^(\.rollback|\.staging|data)(\\|$)' -or
+            $normalizedPath -ieq 'Installer\INSTALL-STATE.json' -or
+            $normalizedPath -ieq 'Installer\INSTALL-STATE.json.bak' -or
+            $normalizedPath -ieq 'Installer\PREPARE-STATE.json')
+        {
+            throw "The rollback manifest targets protected transaction data: $relativePath"
+        }
+        $pathKey = $targetPath.ToUpperInvariant()
+        if ($seenPaths.ContainsKey($pathKey))
+        {
+            throw "The rollback manifest contains a duplicate file path: $relativePath"
+        }
+        $seenPaths[$pathKey] = $true
+        if ($entry.existed -isnot [bool])
+        {
+            throw "The rollback manifest has an invalid existence flag: $relativePath"
+        }
+        $entryBytes = 0L
+        if (-not [Int64]::TryParse(
+                [string]$entry.bytes,
+                [Globalization.NumberStyles]::Integer,
+                [Globalization.CultureInfo]::InvariantCulture,
+                [ref]$entryBytes) -or $entryBytes -lt 0)
+        {
+            throw "The rollback manifest has an invalid byte count: $relativePath"
+        }
+        $entrySha256 = [string]$entry.sha256
+        $backupRelativePath = [string]$entry.backupPath
+        if ([bool]$entry.existed)
+        {
+            if ($entrySha256 -notmatch '^[0-9A-Fa-f]{64}$' -or
+                $entryBytes -lt 0)
+            {
+                throw "The rollback manifest has an invalid file hash: $relativePath"
+            }
+            $expectedBackupPath = ('files/' + $normalizedPath.Replace('\', '/'))
+            if ($backupRelativePath -ine $expectedBackupPath)
+            {
+                throw "The rollback manifest backup path does not match: $relativePath"
+            }
+            Assert-RollbackManifestBackup `
+                -RollbackRoot $rollbackRoot `
+                -RelativePath $backupRelativePath `
+                -ExpectedBytes $entryBytes `
+                -ExpectedSha256 $entrySha256 `
+                -Description 'payload file'
+        }
+        elseif ($entryBytes -ne 0 -or
+            -not [string]::IsNullOrWhiteSpace($entrySha256) -or
+            -not [string]::IsNullOrWhiteSpace($backupRelativePath))
+        {
+            throw "The rollback manifest records evidence for a missing file: $relativePath"
+        }
+    }
+
+    if ($null -eq $Manifest.PSObject.Properties['oldPackageFile'] -or
+        $null -eq $Manifest.PSObject.Properties['oldPackageBackupPath'] -or
+        $null -eq $Manifest.PSObject.Properties['oldPackageBytes'] -or
+        $null -eq $Manifest.PSObject.Properties['oldPackageSha256'])
+    {
+        throw 'The rollback manifest has invalid previous package evidence.'
+    }
+    $oldPackageFile = [string]$Manifest.oldPackageFile
+    $oldPackageBackupPath = [string]$Manifest.oldPackageBackupPath
+    $oldPackageBytes = 0L
+    $oldPackageSha256 = [string]$Manifest.oldPackageSha256
+    if (-not [Int64]::TryParse(
+            [string]$Manifest.oldPackageBytes,
+            [Globalization.NumberStyles]::Integer,
+            [Globalization.CultureInfo]::InvariantCulture,
+            [ref]$oldPackageBytes) -or $oldPackageBytes -lt 0)
+    {
+        throw 'The rollback manifest has an invalid previous package byte count.'
+    }
+    if (-not [string]::IsNullOrWhiteSpace($oldPackageFile))
+    {
+        if ([IO.Path]::IsPathRooted($oldPackageFile) -or
+            $oldPackageFile.Contains('..') -or
+            [IO.Path]::GetFileName($oldPackageFile) -ne $oldPackageFile -or
+            $oldPackageFile -notmatch '\.msix$' -or
+            $oldPackageBytes -le 0 -or
+            $oldPackageSha256 -notmatch '^[0-9A-Fa-f]{64}$' -or
+            $oldPackageBackupPath -ine ('old/' + $oldPackageFile))
+        {
+            throw 'The rollback manifest has an unsafe previous package record.'
+        }
+        Assert-RollbackManifestBackup `
+            -RollbackRoot $rollbackRoot `
+            -RelativePath $oldPackageBackupPath `
+            -ExpectedBytes $oldPackageBytes `
+            -ExpectedSha256 $oldPackageSha256 `
+            -Description 'previous package'
+        if ($null -eq $State.oldInstallState)
+        {
+            throw 'The rollback manifest records a previous package without previous state.'
+        }
+        if ([string]$State.oldInstallState.packageFile -ne $oldPackageFile)
+        {
+            throw 'The rollback manifest previous package does not match the pending state.'
+        }
+        if ($null -ne $State.oldInstallState.PSObject.Properties['packageSha256'] -and
+            [string]$State.oldInstallState.packageSha256 -match '^[0-9A-Fa-f]{64}$' -and
+            $oldPackageSha256 -ine [string]$State.oldInstallState.packageSha256)
+        {
+            throw 'The rollback manifest previous package hash does not match the pending state.'
+        }
+    }
+    elseif ($oldPackageBytes -ne 0 -or
+        -not [string]::IsNullOrWhiteSpace($oldPackageSha256) -or
+        -not [string]::IsNullOrWhiteSpace($oldPackageBackupPath))
+    {
+        throw 'The rollback manifest contains incomplete previous package evidence.'
+    }
+
+    $hasDataDirectoryExisted =
+        $null -ne $Manifest.PSObject.Properties['dataDirectoryExisted']
+    $hasDataFiles = $null -ne $Manifest.PSObject.Properties['dataFiles']
+    if ($hasDataDirectoryExisted -xor $hasDataFiles)
+    {
+        throw 'The rollback manifest has incomplete data-directory evidence.'
+    }
+    if ($hasDataDirectoryExisted)
+    {
+        if ($Manifest.dataDirectoryExisted -isnot [bool] -or
+            $null -eq $Manifest.dataFiles -or @($Manifest.dataFiles).Count -ne 2)
+        {
+            throw 'The rollback manifest has invalid data-directory evidence.'
+        }
+        $dataNames = @{}
+        foreach ($entry in @($Manifest.dataFiles))
+        {
+            foreach ($propertyName in @('name', 'existed', 'bytes', 'sha256', 'backupPath'))
+            {
+                if ($null -eq $entry.PSObject.Properties[$propertyName])
+                {
+                    throw "The data rollback entry is missing: $propertyName"
+                }
+            }
+            $fileName = [string]$entry.name
+            if ($fileName -notin @('BAFX.config.json', 'ba-click-fx-desktop-support.log') -or
+                $dataNames.ContainsKey($fileName))
+            {
+                throw "The rollback manifest contains an invalid data file: $fileName"
+            }
+            $dataNames[$fileName] = $true
+            if ($entry.existed -isnot [bool])
+            {
+                throw "The data rollback entry has an invalid existence flag: $fileName"
+            }
+            $entryBytes = 0L
+            if (-not [Int64]::TryParse(
+                    [string]$entry.bytes,
+                    [Globalization.NumberStyles]::Integer,
+                    [Globalization.CultureInfo]::InvariantCulture,
+                    [ref]$entryBytes) -or $entryBytes -lt 0)
+            {
+                throw "The data rollback entry has an invalid byte count: $fileName"
+            }
+            $entrySha256 = [string]$entry.sha256
+            $backupRelativePath = [string]$entry.backupPath
+            if ([bool]$entry.existed)
+            {
+                $expectedBackupPath = ('data/' + $fileName)
+                if ($entrySha256 -notmatch '^[0-9A-Fa-f]{64}$' -or
+                    $backupRelativePath -ine $expectedBackupPath)
+                {
+                    throw "The data rollback entry has an invalid backup: $fileName"
+                }
+                Assert-RollbackManifestBackup `
+                    -RollbackRoot $rollbackRoot `
+                    -RelativePath $backupRelativePath `
+                    -ExpectedBytes $entryBytes `
+                    -ExpectedSha256 $entrySha256 `
+                    -Description 'data file'
+            }
+            elseif ($entryBytes -ne 0 -or
+                -not [string]::IsNullOrWhiteSpace($entrySha256) -or
+                -not [string]::IsNullOrWhiteSpace($backupRelativePath))
+            {
+                throw "The data rollback entry records evidence for a missing file: $fileName"
+            }
+        }
+        if ($dataNames.Count -ne 2)
+        {
+            throw 'The rollback manifest does not describe the complete data file set.'
+        }
+        $dataAcl = if ($null -ne $Manifest.PSObject.Properties['dataDirectoryAcl'])
+        {
+            [string]$Manifest.dataDirectoryAcl
+        }
+        else
+        {
+            ''
+        }
+        if ([bool]$Manifest.dataDirectoryExisted -and
+            [string]::IsNullOrWhiteSpace($dataAcl))
+        {
+            throw 'The rollback manifest is missing the previous data-directory ACL.'
+        }
+        if (-not [bool]$Manifest.dataDirectoryExisted -and
+            -not [string]::IsNullOrWhiteSpace($dataAcl))
+        {
+            throw 'The rollback manifest has an ACL for a missing data directory.'
+        }
+    }
+
+    $previousStatePresent = if (
+        $null -ne $Manifest.PSObject.Properties['previousStatePresent'])
+    {
+        if ($Manifest.previousStatePresent -isnot [bool])
+        {
+            throw 'The rollback manifest has an invalid previous-state flag.'
+        }
+        [bool]$Manifest.previousStatePresent
+    }
+    else
+    {
+        $null -ne $State.oldInstallState
+    }
+    $hasPrimaryBackupPath =
+        $null -ne $Manifest.PSObject.Properties['previousStatePrimaryBackupPath']
+    $hasBackupBackupPath =
+        $null -ne $Manifest.PSObject.Properties['previousStateBackupBackupPath']
+    if ($previousStatePresent)
+    {
+        if ($null -eq $State.oldInstallState -or
+            -not $hasPrimaryBackupPath -or -not $hasBackupBackupPath -or
+            [string]$Manifest.previousStatePrimaryBackupPath -ine
+                'state-before/INSTALL-STATE.json' -or
+            [string]$Manifest.previousStateBackupBackupPath -ine
+                'state-before/INSTALL-STATE.json.bak')
+        {
+            throw 'The rollback manifest previous install-state backups are invalid.'
+        }
+        $primaryStateBackupPath = Join-Path `
+            $rollbackRoot `
+            'state-before\INSTALL-STATE.json'
+        $backupStateBackupPath = Join-Path `
+            $rollbackRoot `
+            'state-before\INSTALL-STATE.json.bak'
+        $primaryStateBytes = 0L
+        $backupStateBytes = 0L
+        $primaryStateSha256 = ''
+        $backupStateSha256 = ''
+        $hasRecordedStateEvidence =
+            $null -ne $Manifest.PSObject.Properties['previousStatePrimaryBytes'] -and
+            $null -ne $Manifest.PSObject.Properties['previousStatePrimarySha256'] -and
+            $null -ne $Manifest.PSObject.Properties['previousStateBackupBytes'] -and
+            $null -ne $Manifest.PSObject.Properties['previousStateBackupSha256']
+        if ($hasRecordedStateEvidence)
+        {
+            if (-not [Int64]::TryParse(
+                    [string]$Manifest.previousStatePrimaryBytes,
+                    [Globalization.NumberStyles]::Integer,
+                    [Globalization.CultureInfo]::InvariantCulture,
+                    [ref]$primaryStateBytes) -or
+                -not [Int64]::TryParse(
+                    [string]$Manifest.previousStateBackupBytes,
+                    [Globalization.NumberStyles]::Integer,
+                    [Globalization.CultureInfo]::InvariantCulture,
+                    [ref]$backupStateBytes) -or
+                $primaryStateBytes -le 0 -or
+                $backupStateBytes -le 0)
+            {
+                throw 'The rollback manifest has invalid previous state byte counts.'
+            }
+            $primaryStateSha256 = [string]$Manifest.previousStatePrimarySha256
+            $backupStateSha256 = [string]$Manifest.previousStateBackupSha256
+            if ($primaryStateSha256 -notmatch '^[0-9A-Fa-f]{64}$' -or
+                $backupStateSha256 -notmatch '^[0-9A-Fa-f]{64}$')
+            {
+                throw 'The rollback manifest has invalid previous state hashes.'
+            }
+        }
+        else
+        {
+            # Manifests created before state evidence was recorded are accepted
+            # only after their two copies prove the same protected state below.
+            $primaryStateBytes = [Int64](Get-Item `
+                -LiteralPath $primaryStateBackupPath `
+                -Force).Length
+            $backupStateBytes = [Int64](Get-Item `
+                -LiteralPath $backupStateBackupPath `
+                -Force).Length
+            $primaryStateSha256 = (Get-FileHash `
+                -LiteralPath $primaryStateBackupPath `
+                -Algorithm SHA256).Hash
+            $backupStateSha256 = (Get-FileHash `
+                -LiteralPath $backupStateBackupPath `
+                -Algorithm SHA256).Hash
+        }
+        $primaryBackupPath = Assert-RollbackManifestBackup `
+            -RollbackRoot $rollbackRoot `
+            -RelativePath ([string]$Manifest.previousStatePrimaryBackupPath) `
+            -ExpectedBytes $primaryStateBytes `
+            -ExpectedSha256 $primaryStateSha256 `
+            -Description 'previous primary state'
+        $backupBackupPath = Assert-RollbackManifestBackup `
+            -RollbackRoot $rollbackRoot `
+            -RelativePath ([string]$Manifest.previousStateBackupBackupPath) `
+            -ExpectedBytes $backupStateBytes `
+            -ExpectedSha256 $backupStateSha256 `
+            -Description 'previous backup state'
+        Assert-ProtectedStateAcl -Path $primaryBackupPath
+        Assert-ProtectedStateAcl -Path $backupBackupPath
+        $previousPrimary = Get-Content -LiteralPath $primaryBackupPath -Raw |
+            ConvertFrom-Json
+        $previousBackup = Get-Content -LiteralPath $backupBackupPath -Raw |
+            ConvertFrom-Json
+        Assert-InstallStatePair `
+            -Primary $previousPrimary `
+            -Backup $previousBackup `
+            -PrimaryPath $primaryBackupPath `
+            -BackupPath $backupBackupPath
+        $oldTransaction = if (
+            $null -ne $State.oldInstallState.PSObject.Properties['transactionId'])
+        {
+            [string]$State.oldInstallState.transactionId
+        }
+        else
+        {
+            ''
+        }
+        if (-not [string]::IsNullOrWhiteSpace($oldTransaction))
+        {
+            if ([string]$previousPrimary.transactionId -ne $oldTransaction)
+            {
+                throw 'The previous state backup belongs to a different transaction.'
+            }
+        }
+        elseif ([string]$previousPrimary.packageFullName -ne
+                [string]$State.oldInstallState.packageFullName -or
+            [string]$previousPrimary.packageFile -ne
+                [string]$State.oldInstallState.packageFile -or
+            [string]$previousPrimary.packageSha256 -ne
+                [string]$State.oldInstallState.packageSha256)
+        {
+            throw 'The legacy previous state backup does not match the pending state.'
+        }
+    }
+    else
+    {
+        if (($hasPrimaryBackupPath -and
+                -not [string]::IsNullOrWhiteSpace(
+                    [string]$Manifest.previousStatePrimaryBackupPath)) -or
+            ($hasBackupBackupPath -and
+                -not [string]::IsNullOrWhiteSpace(
+                    [string]$Manifest.previousStateBackupBackupPath)))
+        {
+            throw 'The rollback manifest has state backups without previous state.'
+        }
+        if ($null -ne $State.oldInstallState)
+        {
+            throw 'The rollback manifest lost the previous install state.'
+        }
+    }
+    return $Manifest
+}
+
+function Read-PayloadRollbackManifest
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [object]$State,
+
+        [Parameter(Mandatory = $true)]
+        [string]$InstallRoot
+    )
+
+    $rollbackRoot = Join-Path $InstallRoot ('.rollback\' + [string]$State.transactionId)
+    $manifestPath = Join-Path $rollbackRoot 'ROLLBACK-MANIFEST.json'
+    if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf))
+    {
+        throw 'The payload rollback manifest is missing.'
+    }
+    $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+    return Assert-PayloadRollbackManifest `
+        -State $State `
+        -InstallRoot $InstallRoot `
+        -Manifest $manifest `
+        -ManifestPath $manifestPath
+}
+
 function Save-DataDirectoryRollback
 {
     param(
@@ -3249,6 +3782,10 @@ function Save-PreviousInstallStatePair
             previousStatePresent = $false
             previousStatePrimaryBackupPath = ''
             previousStateBackupBackupPath = ''
+            previousStatePrimaryBytes = [Int64]0
+            previousStatePrimarySha256 = ''
+            previousStateBackupBytes = [Int64]0
+            previousStateBackupSha256 = ''
         }
     }
 
@@ -3280,6 +3817,12 @@ function Save-PreviousInstallStatePair
         previousStatePresent = $true
         previousStatePrimaryBackupPath = 'state-before/INSTALL-STATE.json'
         previousStateBackupBackupPath = 'state-before/INSTALL-STATE.json.bak'
+        previousStatePrimaryBytes = [Int64](Get-Item -LiteralPath $primaryBackupPath).Length
+        previousStatePrimarySha256 =
+            (Get-FileHash -LiteralPath $primaryBackupPath -Algorithm SHA256).Hash
+        previousStateBackupBytes = [Int64](Get-Item -LiteralPath $backupBackupPath).Length
+        previousStateBackupSha256 =
+            (Get-FileHash -LiteralPath $backupBackupPath -Algorithm SHA256).Hash
     }
 }
 
@@ -3300,7 +3843,9 @@ function New-PayloadRollbackManifest
     $rollbackManifestPath = Join-Path $rollbackRoot 'ROLLBACK-MANIFEST.json'
     if (Test-Path -LiteralPath $rollbackManifestPath -PathType Leaf)
     {
-        return Get-Content -LiteralPath $rollbackManifestPath -Raw | ConvertFrom-Json
+        return Read-PayloadRollbackManifest `
+            -State $State `
+            -InstallRoot $InstallRoot
     }
     New-Item -ItemType Directory -Path $rollbackRoot -Force | Out-Null
     $previousState = Save-PreviousInstallStatePair `
@@ -3399,12 +3944,18 @@ function New-PayloadRollbackManifest
         previousStatePresent = [bool]$previousState.previousStatePresent
         previousStatePrimaryBackupPath = [string]$previousState.previousStatePrimaryBackupPath
         previousStateBackupBackupPath = [string]$previousState.previousStateBackupBackupPath
+        previousStatePrimaryBytes = [Int64]$previousState.previousStatePrimaryBytes
+        previousStatePrimarySha256 = [string]$previousState.previousStatePrimarySha256
+        previousStateBackupBytes = [Int64]$previousState.previousStateBackupBytes
+        previousStateBackupSha256 = [string]$previousState.previousStateBackupSha256
     }
     Write-ProtectedJson `
         -Path $rollbackManifestPath `
         -Value $manifest `
         -ReadSid ''
-    return Get-Content -LiteralPath $rollbackManifestPath -Raw | ConvertFrom-Json
+    return Read-PayloadRollbackManifest `
+        -State $State `
+        -InstallRoot $InstallRoot
 }
 
 function Commit-PayloadFiles
@@ -3507,16 +4058,9 @@ function Restore-CommittedPayloadFiles
     )
 
     $rollbackRoot = Join-Path $InstallRoot ('.rollback\' + [string]$State.transactionId)
-    $rollbackManifestPath = Join-Path $rollbackRoot 'ROLLBACK-MANIFEST.json'
-    if (-not (Test-Path -LiteralPath $rollbackManifestPath -PathType Leaf))
-    {
-        throw 'The payload rollback manifest is missing.'
-    }
-    $rollbackManifest = Get-Content -LiteralPath $rollbackManifestPath -Raw | ConvertFrom-Json
-    if ([string]$rollbackManifest.transactionId -ne [string]$State.transactionId)
-    {
-        throw 'The payload rollback manifest belongs to a different transaction.'
-    }
+    $rollbackManifest = Read-PayloadRollbackManifest `
+        -State $State `
+        -InstallRoot $InstallRoot
     foreach ($entry in @($rollbackManifest.files | Sort-Object { [string]$_.path } -Descending))
     {
         $livePath = Resolve-InstallerRelativePath `
@@ -3608,12 +4152,9 @@ function Restore-DataDirectory
     )
 
     $rollbackRoot = Join-Path $InstallRoot ('.rollback\' + [string]$State.transactionId)
-    $rollbackManifestPath = Join-Path $rollbackRoot 'ROLLBACK-MANIFEST.json'
-    if (-not (Test-Path -LiteralPath $rollbackManifestPath -PathType Leaf))
-    {
-        throw 'The payload rollback manifest is missing.'
-    }
-    $rollbackManifest = Get-Content -LiteralPath $rollbackManifestPath -Raw | ConvertFrom-Json
+    $rollbackManifest = Read-PayloadRollbackManifest `
+        -State $State `
+        -InstallRoot $InstallRoot
     if ($null -eq $rollbackManifest.PSObject.Properties['dataDirectoryExisted'] -or
         $null -eq $rollbackManifest.PSObject.Properties['dataFiles'])
     {
@@ -3706,16 +4247,9 @@ function Restore-PreviousInstallStatePair
     )
 
     $rollbackRoot = Join-Path $InstallRoot ('.rollback\' + [string]$State.transactionId)
-    $rollbackManifestPath = Join-Path $rollbackRoot 'ROLLBACK-MANIFEST.json'
-    if (-not (Test-Path -LiteralPath $rollbackManifestPath -PathType Leaf))
-    {
-        throw 'The payload rollback manifest is missing.'
-    }
-    $rollbackManifest = Get-Content -LiteralPath $rollbackManifestPath -Raw | ConvertFrom-Json
-    if ([string]$rollbackManifest.transactionId -ne [string]$State.transactionId)
-    {
-        throw 'The payload rollback manifest belongs to a different transaction.'
-    }
+    $rollbackManifest = Read-PayloadRollbackManifest `
+        -State $State `
+        -InstallRoot $InstallRoot
 
     $previousStatePresent = if (
         $null -ne $rollbackManifest.PSObject.Properties['previousStatePresent'])
