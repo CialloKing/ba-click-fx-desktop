@@ -991,6 +991,16 @@ function Test-SparsePackageContract
         -Message 'Installer and Control Center install-state schemas differ.'
     $activationSources = $controlCenter + "`n" + $activation
     Assert-TextContains `
+        -Text $activation `
+        -Pattern 'rawContents[\s\S]*sameModernBytes[\s\S]*rawContents' `
+        -Description 'Control Center compares install-state raw bytes before BOM normalization'
+    $externalTrust = Read-RepositoryText `
+        -RelativePath 'src/windows/src/external_host_trust.cpp'
+    Assert-TextContains `
+        -Text $externalTrust `
+        -Pattern 'std::string primaryJson\s*=\s*primaryContents[\s\S]*stripUtf8Bom\(primaryJson\)[\s\S]*sameInstallStatePair' `
+        -Description 'Host trust parses BOM-free copies while retaining raw pair bytes'
+    Assert-TextContains `
         -Text $activationSources `
         -Pattern '(?i)(ApplicationActivationManager|IApplicationActivationManager|ActivateApplication)' `
         -Description 'Control Center Package Activation API'
@@ -1945,7 +1955,7 @@ function Test-PayloadRollbackManifestContract
         [IO.File]::WriteAllText(
             $manifestPath,
             ($manifest | ConvertTo-Json -Depth 12))
-        & $probeModule {
+        $null = & $probeModule {
             param($State, $Root, $Manifest, $Path)
             Assert-PayloadRollbackManifest `
                 -State $State `

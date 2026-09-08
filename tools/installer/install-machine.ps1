@@ -3346,7 +3346,7 @@ function Assert-PayloadRollbackManifest
                 -RelativePath $backupRelativePath `
                 -ExpectedBytes $entryBytes `
                 -ExpectedSha256 $entrySha256 `
-                -Description 'payload file'
+                -Description 'payload file' | Out-Null
         }
         elseif ($entryBytes -ne 0 -or
             -not [string]::IsNullOrWhiteSpace($entrySha256) -or
@@ -3392,7 +3392,7 @@ function Assert-PayloadRollbackManifest
             -RelativePath $oldPackageBackupPath `
             -ExpectedBytes $oldPackageBytes `
             -ExpectedSha256 $oldPackageSha256 `
-            -Description 'previous package'
+            -Description 'previous package' | Out-Null
         if ($null -eq $State.oldInstallState)
         {
             throw 'The rollback manifest records a previous package without previous state.'
@@ -3474,7 +3474,7 @@ function Assert-PayloadRollbackManifest
                     -RelativePath $backupRelativePath `
                     -ExpectedBytes $entryBytes `
                     -ExpectedSha256 $entrySha256 `
-                    -Description 'data file'
+                    -Description 'data file' | Out-Null
             }
             elseif ($entryBytes -ne 0 -or
                 -not [string]::IsNullOrWhiteSpace($entrySha256) -or
@@ -3848,6 +3848,7 @@ function New-PayloadRollbackManifest
             -InstallRoot $InstallRoot
     }
     New-Item -ItemType Directory -Path $rollbackRoot -Force | Out-Null
+    Set-ProtectedStateAcl -Path $rollbackRoot -ReadSid ''
     $previousState = Save-PreviousInstallStatePair `
         -State $State `
         -InstallRoot $InstallRoot `

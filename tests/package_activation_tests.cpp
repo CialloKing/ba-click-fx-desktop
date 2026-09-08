@@ -349,6 +349,22 @@ BAFX_TEST(package_activation_state_reads_utf8_bom_file)
     BAFX_CHECK(result.succeeded());
 }
 
+BAFX_TEST(package_activation_state_rejects_mixed_bom_pair)
+{
+    TemporaryInstallDirectory directory;
+    directory.writeState("\xEF\xBB\xBF" + makeInstallState());
+    directory.writeState(makeInstallState(), true);
+
+    const auto result = bafx::control_center::readPackageActivationState(
+        directory.path());
+
+    BAFX_CHECK(result.installStatePresent);
+    BAFX_CHECK(!result.succeeded());
+    BAFX_CHECK(
+        result.status
+        == bafx::control_center::PackageActivationStateStatus::RepairRequired);
+}
+
 BAFX_TEST(package_activation_state_rejects_corrupt_primary_with_backup)
 {
     TemporaryInstallDirectory directory;

@@ -1316,10 +1316,14 @@ ExternalHostTrustResult queryExternalHostTrust(
         {
             std::string primaryContents = readStateFile(statePath);
             std::string backupContents = readStateFile(backupPath);
-            stripUtf8Bom(primaryContents);
-            stripUtf8Bom(backupContents);
-            const InstallState backup = parseInstallState(backupContents);
-            state = parseInstallState(primaryContents);
+            std::string primaryJson = primaryContents;
+            std::string backupJson = backupContents;
+            // Parse a BOM-free copy, but retain raw bytes for pair integrity so
+            // a mixed BOM/no-BOM pair cannot bypass the PowerShell contract.
+            stripUtf8Bom(primaryJson);
+            stripUtf8Bom(backupJson);
+            const InstallState backup = parseInstallState(backupJson);
+            state = parseInstallState(primaryJson);
             if (!sameInstallStatePair(
                     state,
                     backup,

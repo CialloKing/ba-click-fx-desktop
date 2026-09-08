@@ -25,7 +25,7 @@ namespace
 struct InstallStateFileRead final
 {
     PackageActivationIdentityResult result{};
-    std::string normalizedContents{};
+    std::string rawContents{};
     bool contentsRead{false};
 };
 
@@ -1019,11 +1019,13 @@ namespace
             file.result.error = L"The package install state could not be read completely.";
             return file;
         }
+        file.rawContents = contents;
+        // Keep the exact bytes for pair integrity. Only the parser receives a
+        // BOM-free copy because WinRT JSON parsing does not accept UTF-8 BOM.
         if (contents.starts_with("\xEF\xBB\xBF"))
         {
             contents.erase(0U, 3U);
         }
-        file.normalizedContents = contents;
         file.contentsRead = true;
         file.result = parsePackageActivationState(contents);
         return file;
@@ -1083,11 +1085,11 @@ PackageActivationIdentityResult readPackageActivationState(
                 == backup.identity->stateDigest;
         const std::optional<std::string> primaryComputedDigest =
             sameDigest && primaryFile.contentsRead
-            ? computeStateDigest(primaryFile.normalizedContents)
+            ? computeStateDigest(primaryFile.rawContents)
             : std::nullopt;
         const std::optional<std::string> backupComputedDigest =
             sameDigest && backupFile.contentsRead
-            ? computeStateDigest(backupFile.normalizedContents)
+            ? computeStateDigest(backupFile.rawContents)
             : std::nullopt;
         const bool primaryDigestValid = primaryComputedDigest.has_value()
             && primaryComputedDigest == primary.identity->stateDigest;
@@ -1099,7 +1101,7 @@ PackageActivationIdentityResult readPackageActivationState(
             && backup.identity->stateDigest.empty();
         const bool sameModernBytes = primaryFile.contentsRead
             && backupFile.contentsRead
-            && primaryFile.normalizedContents == backupFile.normalizedContents;
+            && primaryFile.rawContents == backupFile.rawContents;
         const bool sameIdentity = sameTransaction
             && sameModernBytes
             && ((sameDigest && primaryDigestValid && backupDigestValid)
