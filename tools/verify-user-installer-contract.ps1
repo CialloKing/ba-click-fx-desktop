@@ -1121,6 +1121,18 @@ function Test-SparsePackageContract
         -Text $uninstaller `
         -Pattern 'Remove-ProtectedInstallStatePair\s+-Path\s+\$statePath' `
         -Description 'uninstall uses the transactional state-pair cleanup helper'
+    Assert-TextContains `
+        -Text $uninstaller `
+        -Pattern 'function\s+Write-UninstallJournal[\s\S]*primaryStateBase64[\s\S]*state-removing' `
+        -Description 'uninstall journal snapshots state before destructive deletion'
+    Assert-TextContains `
+        -Text $uninstaller `
+        -Pattern 'function\s+Read-InstallStateWithBackup[\s\S]*Read-UninstallJournal[\s\S]*Restore-InstallStateFromUninstallJournal' `
+        -Description 'uninstall retries recover a torn state pair from its journal'
+    Assert-TextContains `
+        -Text $uninstaller `
+        -Pattern 'Get-UninstallPhaseRank[\s\S]*monotonic[\s\S]*return' `
+        -Description 'uninstall journal phases never regress on retry'
 
     $machineInstaller = Read-RepositoryText -RelativePath 'tools/installer/install-machine.ps1'
     Assert-TextContains `
@@ -1229,7 +1241,25 @@ function Assert-InstallStateIntegrity
 {
     param(
         [object]$State,
-        [string]$InstallRoot
+        [string]$InstallRoot,
+        [object]$UninstallJournal
+    )
+}
+
+function Read-UninstallJournal
+{
+    param(
+        [string]$Path,
+        [object]$State
+    )
+    return $null
+}
+
+function Restore-InstallStateFromUninstallJournal
+{
+    param(
+        [string]$Path,
+        [object]$Journal
     )
 }
 

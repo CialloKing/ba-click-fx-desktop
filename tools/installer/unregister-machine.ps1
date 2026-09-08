@@ -56,6 +56,33 @@ function Write-Utf8NoBom
     [IO.File]::WriteAllText($Path, $Content, $encoding)
 }
 
+function Write-FlushedUtf8NoBom
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Content
+    )
+
+    $bytes = [Text.Encoding]::UTF8.GetBytes($Content)
+    $stream = [IO.FileStream]::new(
+        $Path,
+        [IO.FileMode]::Create,
+        [IO.FileAccess]::Write,
+        [IO.FileShare]::None)
+    try
+    {
+        $stream.Write($bytes, 0, $bytes.Length)
+        $stream.Flush($true)
+    }
+    finally
+    {
+        $stream.Dispose()
+    }
+}
+
 function Assert-ProtectedStateAcl
 {
     param(
@@ -541,6 +568,231 @@ function Assert-InstallStatePair
     }
 }
 
+function Get-UninstallPhaseRank
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Phase
+    )
+
+    switch ($Phase)
+    {
+        'started' { return 0 }
+        'user-package-removing' { return 1 }
+        'identity-removing' { return 2 }
+        'certificate-removing' { return 3 }
+        'payload-removing' { return 4 }
+        'state-removing' { return 5 }
+        default { throw "Unsupported uninstall journal phase: $Phase" }
+    }
+}
+
+function Read-UninstallJournal
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path,
+
+        [AllowNull()]
+        [object]$State = $null
+    )
+
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf))
+    {
+        return $null
+    }
+    Assert-ProtectedStateAcl -Path $Path
+    $journal = Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json
+    foreach ($propertyName in @(
+            'schema', 'transactionId', 'stateDigest', 'phase'))
+    {
+        if ($null -eq $journal.PSObject.Properties[$propertyName])
+        {
+            throw "Uninstall journal is missing: $propertyName"
+        }
+    }
+    if ([int]$journal.schema -ne 1)
+    {
+        throw 'Uninstall journal has an unsupported schema.'
+    }
+    if ([string]$journal.transactionId -notmatch '^[0-9a-fA-F]{32}$')
+    {
+        throw 'Uninstall journal has an invalid transaction identifier.'
+    }
+    if (-not [string]::IsNullOrWhiteSpace([string]$journal.stateDigest) -and
+        [string]$journal.stateDigest -notmatch '^[0-9A-Fa-f]{64}$')
+    {
+        throw 'Uninstall journal has an invalid state digest.'
+    }
+    if ($null -ne $State -and
+        ([string]$journal.transactionId -ne [string]$State.transactionId -or
+            [string]$journal.stateDigest -ne [string]$State.stateDigest))
+    {
+        throw 'Uninstall journal does not match the protected install state.'
+    }
+    [void](Get-UninstallPhaseRank -Phase ([string]$journal.phase))
+    return $journal
+}
+
+function Set-FileAclFromTemplate
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path,
+
+        [Parameter(Mandatory = $true)]
+        [string]$TemplatePath
+    )
+
+    $templateAcl = Get-Acl -LiteralPath $TemplatePath
+    $targetAcl = Get-Acl -LiteralPath $Path
+    $targetAcl.SetSecurityDescriptorSddlForm($templateAcl.Sddl)
+    Set-Acl -LiteralPath $Path -AclObject $targetAcl
+}
+
+function Write-UninstallJournal
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path,
+
+        [Parameter(Mandatory = $true)]
+        [string]$StatePath,
+
+        [Parameter(Mandatory = $true)]
+        [object]$State,
+
+        [Parameter(Mandatory = $true)]
+        [ValidateSet(
+            'started',
+            'user-package-removing',
+            'identity-removing',
+            'certificate-removing',
+            'payload-removing',
+            'state-removing')]
+        [string]$Phase
+    )
+
+    $journal = [ordered]@{
+        schema = 1
+        transactionId = [string]$State.transactionId
+        stateDigest = [string]$State.stateDigest
+        phase = $Phase
+        updatedUtc = [DateTime]::UtcNow.ToString('o')
+    }
+    $existingJournal = Read-UninstallJournal -Path $Path
+    if ($null -ne $existingJournal -and
+        (Get-UninstallPhaseRank -Phase ([string]$existingJournal.phase)) -gt
+            (Get-UninstallPhaseRank -Phase $Phase))
+    {
+        # Recovery progress is monotonic. A retry must never downgrade the
+        # journal before re-entering an earlier idempotent cleanup step.
+        return
+    }
+    if ($Phase -eq 'state-removing')
+    {
+        $backupStatePath = "$StatePath.bak"
+        $journal.primaryStateBase64 = [Convert]::ToBase64String(
+            [IO.File]::ReadAllBytes($StatePath))
+        $journal.backupStateBase64 = [Convert]::ToBase64String(
+            [IO.File]::ReadAllBytes($backupStatePath))
+        $journal.primaryStateAcl = (Get-Acl -LiteralPath $StatePath).Sddl
+        $journal.backupStateAcl = (Get-Acl -LiteralPath $backupStatePath).Sddl
+    }
+    $temporaryPath = "$Path.$PID.$([Guid]::NewGuid().ToString('N')).tmp"
+    try
+    {
+        Write-FlushedUtf8NoBom `
+            -Path $temporaryPath `
+            -Content ($journal | ConvertTo-Json -Depth 4)
+        Set-FileAclFromTemplate -Path $temporaryPath -TemplatePath $StatePath
+        Assert-ProtectedStateAcl -Path $temporaryPath
+        if (Test-Path -LiteralPath $Path -PathType Leaf)
+        {
+            [IO.File]::Replace($temporaryPath, $Path, $null, $true)
+        }
+        else
+        {
+            [IO.File]::Move($temporaryPath, $Path)
+        }
+        Assert-ProtectedStateAcl -Path $Path
+        $written = Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json
+        if ([string]$written.transactionId -ne [string]$State.transactionId -or
+            [string]$written.stateDigest -ne [string]$State.stateDigest -or
+            [string]$written.phase -ne $Phase)
+        {
+            throw 'The uninstall journal did not verify after replacement.'
+        }
+    }
+    finally
+    {
+        if (Test-Path -LiteralPath $temporaryPath -PathType Leaf)
+        {
+            Remove-Item -LiteralPath $temporaryPath -Force
+        }
+    }
+}
+
+function Restore-InstallStateFromUninstallJournal
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path,
+
+        [Parameter(Mandatory = $true)]
+        [object]$Journal
+    )
+
+    if ([string]$Journal.phase -ne 'state-removing' -or
+        $null -eq $Journal.PSObject.Properties['primaryStateBase64'] -or
+        $null -eq $Journal.PSObject.Properties['backupStateBase64'] -or
+        $null -eq $Journal.PSObject.Properties['primaryStateAcl'] -or
+        $null -eq $Journal.PSObject.Properties['backupStateAcl'])
+    {
+        throw 'The uninstall journal has no protected install-state recovery snapshot.'
+    }
+    $backupPath = "$Path.bak"
+    $temporaryRoot = Join-Path ([IO.Path]::GetTempPath()) `
+        ('bafx-uninstall-restore-' + [Guid]::NewGuid().ToString('N'))
+    New-Item -ItemType Directory -Path $temporaryRoot -Force | Out-Null
+    $primaryTemporaryPath = Join-Path $temporaryRoot 'INSTALL-STATE.json'
+    $backupTemporaryPath = Join-Path $temporaryRoot 'INSTALL-STATE.json.bak'
+    try
+    {
+        [IO.File]::WriteAllBytes(
+            $primaryTemporaryPath,
+            [Convert]::FromBase64String([string]$Journal.primaryStateBase64))
+        [IO.File]::WriteAllBytes(
+            $backupTemporaryPath,
+            [Convert]::FromBase64String([string]$Journal.backupStateBase64))
+        foreach ($entry in @(
+                @{ Path = $primaryTemporaryPath; Sddl = [string]$Journal.primaryStateAcl },
+                @{ Path = $backupTemporaryPath; Sddl = [string]$Journal.backupStateAcl }))
+        {
+            $acl = Get-Acl -LiteralPath $entry.Path
+            $acl.SetSecurityDescriptorSddlForm($entry.Sddl)
+            Set-Acl -LiteralPath $entry.Path -AclObject $acl
+        }
+        if (-not (Test-Path -LiteralPath $Path -PathType Leaf))
+        {
+            [IO.File]::Move($primaryTemporaryPath, $Path)
+        }
+        if (-not (Test-Path -LiteralPath $backupPath -PathType Leaf))
+        {
+            [IO.File]::Move($backupTemporaryPath, $backupPath)
+        }
+        Assert-ProtectedStateAcl -Path $Path
+        Assert-ProtectedStateAcl -Path $backupPath
+    }
+    finally
+    {
+        if (Test-Path -LiteralPath $temporaryRoot -PathType Container)
+        {
+            Remove-Item -LiteralPath $temporaryRoot -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+}
+
 function Get-CertificateSha256
 {
     param(
@@ -567,8 +819,18 @@ function Assert-InstallStateIntegrity
         [object]$State,
 
         [Parameter(Mandatory = $true)]
-        [string]$InstallRoot
+        [string]$InstallRoot,
+
+        [AllowNull()]
+        [object]$UninstallJournal = $null
     )
+
+    $uninstallPhaseRank = -1
+    if ($null -ne $UninstallJournal)
+    {
+        $uninstallPhaseRank = Get-UninstallPhaseRank `
+            -Phase ([string]$UninstallJournal.phase)
+    }
 
     foreach ($propertyName in @(
         'schema', 'packageName', 'applicationId', 'publisher',
@@ -616,21 +878,32 @@ function Assert-InstallStateIntegrity
     }
     $hostPath = Join-Path $InstallRoot ([string]$State.hostFile)
     $packagePath = Join-Path (Join-Path $InstallRoot 'Identity') $packageFile
-    if (-not (Test-Path -LiteralPath $hostPath -PathType Leaf) -or
-        (Get-FileHash -LiteralPath $hostPath -Algorithm SHA256).Hash -ne
-            [string]$State.hostSha256 -or
-        -not (Test-Path -LiteralPath $packagePath -PathType Leaf) -or
-        (Get-FileHash -LiteralPath $packagePath -Algorithm SHA256).Hash -ne
-            [string]$State.packageSha256)
+    $hostPresent = Test-Path -LiteralPath $hostPath -PathType Leaf
+    $packagePresent = Test-Path -LiteralPath $packagePath -PathType Leaf
+    $allowMissingHost = $uninstallPhaseRank -ge
+        (Get-UninstallPhaseRank -Phase 'payload-removing')
+    $allowMissingPackage = $uninstallPhaseRank -ge
+        (Get-UninstallPhaseRank -Phase 'identity-removing')
+    if ((-not $hostPresent -and -not $allowMissingHost) -or
+        ($hostPresent -and
+            (Get-FileHash -LiteralPath $hostPath -Algorithm SHA256).Hash -ne
+                [string]$State.hostSha256) -or
+        (-not $packagePresent -and -not $allowMissingPackage) -or
+        ($packagePresent -and
+            (Get-FileHash -LiteralPath $packagePath -Algorithm SHA256).Hash -ne
+                [string]$State.packageSha256))
     {
         throw 'Installed payload does not match protected install state.'
     }
     $certificate = Get-ChildItem -Path 'Cert:\LocalMachine\TrustedPeople' |
         Where-Object { $_.Thumbprint -eq [string]$State.certificateThumbprint } |
         Select-Object -First 1
-    if ($null -eq $certificate -or
-        (Get-CertificateSha256 -Certificate $certificate) -ne
-            [string]$State.certificateSha256)
+    $allowMissingCertificate = $uninstallPhaseRank -ge
+        (Get-UninstallPhaseRank -Phase 'certificate-removing')
+    if (($null -eq $certificate -and -not $allowMissingCertificate) -or
+        ($null -ne $certificate -and
+            (Get-CertificateSha256 -Certificate $certificate) -ne
+                [string]$State.certificateSha256))
     {
         throw 'Installed certificate does not match protected install state.'
     }
@@ -647,8 +920,19 @@ function Read-InstallStateWithBackup
     )
 
     $backupPath = "$Path.bak"
+    $journalPath = Join-Path ([IO.Path]::GetDirectoryName($Path)) 'UNINSTALL-STATE.json'
+    $journal = Read-UninstallJournal -Path $journalPath
     $primaryExists = Test-Path -LiteralPath $Path -PathType Leaf
     $backupExists = Test-Path -LiteralPath $backupPath -PathType Leaf
+    if ((-not $primaryExists -or -not $backupExists) -and $null -ne $journal -and
+        [string]$journal.phase -eq 'state-removing')
+    {
+        Restore-InstallStateFromUninstallJournal `
+            -Path $Path `
+            -Journal $journal
+        $primaryExists = Test-Path -LiteralPath $Path -PathType Leaf
+        $backupExists = Test-Path -LiteralPath $backupPath -PathType Leaf
+    }
     if (-not $primaryExists -and -not $backupExists)
     {
         throw 'Protected install state is missing; refusing an imprecise uninstall.'
@@ -662,7 +946,18 @@ function Read-InstallStateWithBackup
     $primary = Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json
     $backup = Get-Content -LiteralPath $backupPath -Raw | ConvertFrom-Json
     Assert-InstallStatePair -Primary $primary -Backup $backup
-    Assert-InstallStateIntegrity -State $primary -InstallRoot $InstallRoot
+    if ($null -ne $journal)
+    {
+        Read-UninstallJournal -Path $journalPath -State $primary | Out-Null
+        Assert-InstallStateIntegrity `
+            -State $primary `
+            -InstallRoot $InstallRoot `
+            -UninstallJournal $journal
+    }
+    else
+    {
+        Assert-InstallStateIntegrity -State $primary -InstallRoot $InstallRoot
+    }
     if ($null -eq $primary.PSObject.Properties['ownedCertificateThumbprints'])
     {
         $primary | Add-Member -NotePropertyName ownedCertificateThumbprints `
@@ -901,6 +1196,7 @@ $installRoot = Resolve-ProtectedProgramFilesPath `
     -Description 'uninstall directory'
 $statePath = Join-Path $installRoot 'Installer\INSTALL-STATE.json'
 $uninstallCompleteMarkerPath = Join-Path $installRoot 'Installer\UNINSTALL-COMPLETE.json'
+$uninstallJournalPath = Join-Path $installRoot 'Installer\UNINSTALL-STATE.json'
 $pendingPath = Join-Path $installRoot 'Installer\PREPARE-STATE.json'
 $script:InstallerStep = 'check-pending-installation-transaction'
 if (Test-Path -LiteralPath $pendingPath -PathType Leaf)
@@ -962,12 +1258,30 @@ if ([IO.Path]::IsPathRooted($packageFile) -or
 {
     throw 'Protected install state has an unsafe package file name.'
 }
+$uninstallJournal = Read-UninstallJournal `
+    -Path $uninstallJournalPath `
+    -State $state
+$script:InstallerStep = 'write-uninstall-journal'
+if ($null -eq $uninstallJournal)
+{
+    Write-UninstallJournal `
+        -Path $uninstallJournalPath `
+        -StatePath $statePath `
+        -State $state `
+        -Phase 'started'
+}
 
 $script:InstallerStep = 'ensure-host-process-stopped'
 Assert-ExpectedProcessIsStopped -ExecutablePath (Join-Path $installRoot 'ba-click-fx-desktop.exe')
 $script:InstallerStep = 'ensure-control-center-process-stopped'
 Assert-ExpectedProcessIsStopped -ExecutablePath (Join-Path $installRoot 'BAFX.ControlCenter.exe')
 
+$script:InstallerStep = 'mark-user-package-removal'
+Write-UninstallJournal `
+    -Path $uninstallJournalPath `
+    -StatePath $statePath `
+    -State $state `
+    -Phase 'user-package-removing'
 $script:InstallerStep = 'remove-installed-user-startup-registration'
 Remove-InstalledUserStartupRegistration `
     -InstalledUserSid ([string]$state.installedUserSid)
@@ -1022,6 +1336,12 @@ if ($otherUserPackages.Count -gt 0)
     throw 'Another user package registration remains; keeping shared files and certificate.'
 }
 
+$script:InstallerStep = 'mark-identity-package-removal'
+Write-UninstallJournal `
+    -Path $uninstallJournalPath `
+    -StatePath $statePath `
+    -State $state `
+    -Phase 'identity-removing'
 $script:InstallerStep = 'remove-owned-identity-packages'
 $ownedFiles = Split-Ledger -Value $state.ownedPackageFiles -Separator Pipe
 foreach ($ownedFile in $ownedFiles)
@@ -1044,6 +1364,12 @@ foreach ($ownedFile in $ownedFiles)
     }
 }
 
+$script:InstallerStep = 'mark-certificate-removal'
+Write-UninstallJournal `
+    -Path $uninstallJournalPath `
+    -StatePath $statePath `
+    -State $state `
+    -Phase 'certificate-removing'
 $script:InstallerStep = 'remove-owned-certificates'
 if ([string]$state.certificateOwnership -eq 'unknown')
 {
@@ -1072,8 +1398,14 @@ else
 }
 
 # Keep the state pair until every destructive payload operation has succeeded.
-# If cleanup is interrupted, the pair remains the recovery boundary and the
-# next uninstall attempt can still validate ownership and hashes.
+# If cleanup is interrupted, the journal tells the next attempt which already
+# removed resources may be absent while the state pair remains authoritative.
+$script:InstallerStep = 'mark-payload-removal'
+Write-UninstallJournal `
+    -Path $uninstallJournalPath `
+    -StatePath $statePath `
+    -State $state `
+    -Phase 'payload-removing'
 $script:InstallerStep = 'remove-installed-payload-files'
 Remove-InstalledPayloadFiles -InstallRoot $installRoot -State $state
 
@@ -1091,6 +1423,12 @@ if (-not (Test-Path -LiteralPath $uninstallCompleteMarkerPath -PathType Leaf))
     throw 'The uninstall completion marker was not written.'
 }
 
+$script:InstallerStep = 'mark-state-removal'
+Write-UninstallJournal `
+    -Path $uninstallJournalPath `
+    -StatePath $statePath `
+    -State $state `
+    -Phase 'state-removing'
 $script:InstallerStep = 'delete-protected-install-state'
 Remove-ProtectedInstallStatePair -Path $statePath
 
