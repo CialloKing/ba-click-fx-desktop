@@ -463,6 +463,26 @@ function Test-InstallerScriptWhitelist
         -Text $unregisterMachine `
         -Pattern 'ensure-host-process-stopped[\s\S]*remove-installed-user-startup-registration[\s\S]*remove-installed-user-package[\s\S]*remove-owned-certificates' `
         -Description 'machine uninstall reports stable resource cleanup steps'
+    Assert-TextContains `
+        -Text $unregisterMachine `
+        -Pattern 'function\s+Read-UninstallCompletionMarker[\s\S]*stateRemoved[\s\S]*Read-UninstallJournal' `
+        -Description 'uninstall completion markers are bound to the journal'
+    Assert-TextContains `
+        -Text $unregisterMachine `
+        -Pattern 'Remove-ProtectedInstallStatePair\s+-Path\s+\$statePath[\s\S]*Write-UninstallCompletionMarker' `
+        -Description 'uninstall publishes completion only after state deletion'
+    Assert-TextContains `
+        -Text $unregisterMachine `
+        -Pattern 'verify-completed-uninstall[\s\S]*Read-UninstallCompletionMarker[\s\S]*exit\s+0' `
+        -Description 'uninstall retries finish an already deleted state pair'
+    Assert-TextContains `
+        -Text $unregisterMachine `
+        -Pattern 'function\s+Read-UninstallJournalSnapshotState[\s\S]*Assert-InstallStatePair[\s\S]*primaryStateBase64' `
+        -Description 'uninstall validates journal snapshots before rebuilding a marker'
+    Assert-TextContains `
+        -Text $unregisterMachine `
+        -Pattern 'recover-completion-marker[\s\S]*Read-UninstallJournalSnapshotState[\s\S]*Write-UninstallCompletionMarker' `
+        -Description 'uninstall recovers a marker after state deletion'
 
     $protectedPaths = Read-RepositoryText `
         -RelativePath 'tools/installer/protected-paths.ps1'
@@ -1405,6 +1425,109 @@ function Restore-InstallStateFromUninstallJournal
     }
 }
 
+function Test-UninstallerCompletionMarkerContract
+{
+    $ast = Get-ParsedScript `
+        -RelativePath 'tools/installer/unregister-machine.ps1'
+    $reader = Get-FunctionText `
+        -Ast $ast `
+        -Name 'Read-UninstallCompletionMarker'
+    $moduleText = @'
+Set-StrictMode -Version Latest
+$script:Journal = [pscustomobject]@{
+    schema = 1
+    transactionId = ('a' * 32)
+    stateDigest = ('b' * 64)
+    phase = 'state-removing'
+}
+function Assert-ProtectedStateAcl
+{
+    param([string]$Path)
+}
+function Read-UninstallJournal
+{
+    param([string]$Path)
+    return $script:Journal
+}
+'@ + "`n" + $reader
+    $readerModule = New-Module -ScriptBlock ([scriptblock]::Create($moduleText))
+    $temporaryParent = [IO.Path]::GetFullPath([IO.Path]::GetTempPath())
+    $temporaryRoot = Join-Path `
+        $temporaryParent `
+        ('bafx-uninstall-marker-' + [Guid]::NewGuid().ToString('N'))
+    try
+    {
+        New-Item -ItemType Directory -Path $temporaryRoot -Force | Out-Null
+        $markerPath = Join-Path $temporaryRoot 'UNINSTALL-COMPLETE.json'
+        $journalPath = Join-Path $temporaryRoot 'UNINSTALL-STATE.json'
+        $marker = [ordered]@{
+            schema = 1
+            transactionId = ('a' * 32)
+            stateDigest = ('b' * 64)
+            stateRemoved = $true
+            completedUtc = [DateTime]::UtcNow.ToString('o')
+        }
+        $marker | ConvertTo-Json -Depth 4 |
+            Set-Content -LiteralPath $markerPath -Encoding UTF8
+        $read = & $readerModule {
+            param($MarkerPath, $JournalPath)
+            Read-UninstallCompletionMarker `
+                -Path $MarkerPath `
+                -JournalPath $JournalPath
+        } $markerPath $journalPath
+        Assert-True `
+            -Condition ([bool]$read.stateRemoved) `
+            -Message 'Valid uninstall completion marker was rejected.'
+
+        $marker.stateRemoved = $false
+        $marker | ConvertTo-Json -Depth 4 |
+            Set-Content -LiteralPath $markerPath -Encoding UTF8
+        Assert-Throws `
+            -Action {
+                & $readerModule {
+                    param($MarkerPath, $JournalPath)
+                    Read-UninstallCompletionMarker `
+                        -Path $MarkerPath `
+                        -JournalPath $JournalPath
+                } $markerPath $journalPath
+            } `
+            -Description 'unfinished uninstall completion marker'
+
+        $marker.stateRemoved = $true
+        $marker.transactionId = ('c' * 32)
+        $marker | ConvertTo-Json -Depth 4 |
+            Set-Content -LiteralPath $markerPath -Encoding UTF8
+        Assert-Throws `
+            -Action {
+                & $readerModule {
+                    param($MarkerPath, $JournalPath)
+                    Read-UninstallCompletionMarker `
+                        -Path $MarkerPath `
+                        -JournalPath $JournalPath
+                } $markerPath $journalPath
+            } `
+            -Description 'completion marker from another transaction'
+    }
+    finally
+    {
+        if ($null -ne $readerModule)
+        {
+            Remove-Module -ModuleInfo $readerModule -Force -ErrorAction SilentlyContinue
+        }
+        $resolvedTemporaryRoot = [IO.Path]::GetFullPath($temporaryRoot)
+        if ($resolvedTemporaryRoot.StartsWith(
+                $temporaryParent,
+                [StringComparison]::OrdinalIgnoreCase) -and
+            [IO.Path]::GetFileName($resolvedTemporaryRoot).StartsWith(
+                'bafx-uninstall-marker-',
+                [StringComparison]::Ordinal))
+        {
+            Remove-Item -LiteralPath $resolvedTemporaryRoot -Recurse -Force `
+                -ErrorAction SilentlyContinue
+        }
+    }
+}
+
 function Test-UninstallerOfflineHiveFailureContract
 {
     $ast = Get-ParsedScript `
@@ -1816,6 +1939,7 @@ Test-CompressionRuntimeColdStart
 Test-InnoPayloadContract
 Test-SparsePackageContract
 Test-UninstallerStatePairContract
+Test-UninstallerCompletionMarkerContract
 Test-UninstallerOfflineHiveFailureContract
 Test-UpgradeHostIntegrityContract
 Test-PortableZipContract

@@ -774,6 +774,200 @@ function Write-UninstallJournal
     }
 }
 
+function Test-FileBytesEqual
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$LeftPath,
+
+        [Parameter(Mandatory = $true)]
+        [string]$RightPath
+    )
+
+    if (-not (Test-Path -LiteralPath $LeftPath -PathType Leaf) -or
+        -not (Test-Path -LiteralPath $RightPath -PathType Leaf))
+    {
+        return $false
+    }
+    $leftBytes = [IO.File]::ReadAllBytes($LeftPath)
+    $rightBytes = [IO.File]::ReadAllBytes($RightPath)
+    if ($leftBytes.Length -ne $rightBytes.Length)
+    {
+        return $false
+    }
+    for ($index = 0; $index -lt $leftBytes.Length; ++$index)
+    {
+        if ($leftBytes[$index] -ne $rightBytes[$index])
+        {
+            return $false
+        }
+    }
+    return $true
+}
+
+function Read-UninstallCompletionMarker
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path,
+
+        [Parameter(Mandatory = $true)]
+        [string]$JournalPath
+    )
+
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf))
+    {
+        return $null
+    }
+    Assert-ProtectedStateAcl -Path $Path
+    $marker = Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json
+    foreach ($propertyName in @(
+            'schema', 'transactionId', 'stateDigest', 'stateRemoved',
+            'completedUtc'))
+    {
+        if ($null -eq $marker.PSObject.Properties[$propertyName])
+        {
+            throw "Uninstall completion marker is missing: $propertyName"
+        }
+    }
+    $markerDigest = [string]$marker.stateDigest
+    if ([int]$marker.schema -ne 1 -or
+        [string]$marker.transactionId -notmatch '^[0-9a-fA-F]{32}$' -or
+        ($markerDigest -notmatch '^[0-9A-Fa-f]{64}$' -and
+            -not [string]::IsNullOrWhiteSpace($markerDigest)) -or
+        $marker.stateRemoved -isnot [bool] -or
+        -not [bool]$marker.stateRemoved)
+    {
+        throw 'Uninstall completion marker has invalid state.'
+    }
+    try
+    {
+        [void][DateTime]::Parse(
+            [string]$marker.completedUtc,
+            [Globalization.CultureInfo]::InvariantCulture,
+            [Globalization.DateTimeStyles]::RoundtripKind)
+    }
+    catch
+    {
+        throw 'Uninstall completion marker has an invalid timestamp.'
+    }
+    $journal = Read-UninstallJournal -Path $JournalPath
+    if ($null -eq $journal -or [string]$journal.phase -ne 'state-removing' -or
+        [string]$journal.transactionId -ne [string]$marker.transactionId -or
+        [string]$journal.stateDigest -ne $markerDigest)
+    {
+        throw 'Uninstall completion marker does not match its journal.'
+    }
+    return $marker
+}
+
+function Read-UninstallJournalSnapshotState
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [object]$Journal
+    )
+
+    if ([string]$Journal.phase -ne 'state-removing' -or
+        $null -eq $Journal.PSObject.Properties['primaryStateBase64'] -or
+        $null -eq $Journal.PSObject.Properties['backupStateBase64'])
+    {
+        throw 'The uninstall journal has no protected install-state snapshot.'
+    }
+    $temporaryRoot = Join-Path ([IO.Path]::GetTempPath()) `
+        ('bafx-uninstall-snapshot-' + [Guid]::NewGuid().ToString('N'))
+    New-Item -ItemType Directory -Path $temporaryRoot -Force | Out-Null
+    $primaryPath = Join-Path $temporaryRoot 'INSTALL-STATE.json'
+    $backupPath = Join-Path $temporaryRoot 'INSTALL-STATE.json.bak'
+    try
+    {
+        [IO.File]::WriteAllBytes(
+            $primaryPath,
+            [Convert]::FromBase64String([string]$Journal.primaryStateBase64))
+        [IO.File]::WriteAllBytes(
+            $backupPath,
+            [Convert]::FromBase64String([string]$Journal.backupStateBase64))
+        $primary = Get-Content -LiteralPath $primaryPath -Raw | ConvertFrom-Json
+        $backup = Get-Content -LiteralPath $backupPath -Raw | ConvertFrom-Json
+        Assert-InstallStatePair `
+            -Primary $primary `
+            -Backup $backup `
+            -PrimaryPath $primaryPath `
+            -BackupPath $backupPath
+        if ([string]$primary.transactionId -ne [string]$Journal.transactionId -or
+            [string]$primary.stateDigest -ne [string]$Journal.stateDigest)
+        {
+            throw 'The uninstall journal snapshot does not match its transaction.'
+        }
+        return $primary
+    }
+    finally
+    {
+        if (Test-Path -LiteralPath $temporaryRoot -PathType Container)
+        {
+            Remove-Item -LiteralPath $temporaryRoot -Recurse -Force `
+                -ErrorAction SilentlyContinue
+        }
+    }
+}
+
+function Write-UninstallCompletionMarker
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path,
+
+        [Parameter(Mandatory = $true)]
+        [string]$JournalPath,
+
+        [Parameter(Mandatory = $true)]
+        [object]$State
+    )
+
+    $marker = [ordered]@{
+        schema = 1
+        transactionId = [string]$State.transactionId
+        stateDigest = [string]$State.stateDigest
+        stateRemoved = $true
+        completedUtc = [DateTime]::UtcNow.ToString('o')
+    }
+    $temporaryPath = "$Path.$PID.$([Guid]::NewGuid().ToString('N')).tmp"
+    try
+    {
+        Write-FlushedUtf8NoBom `
+            -Path $temporaryPath `
+            -Content ($marker | ConvertTo-Json -Depth 4)
+        Set-FileAclFromTemplate `
+            -Path $temporaryPath `
+            -TemplatePath $JournalPath
+        Assert-ProtectedStateAcl -Path $temporaryPath
+        if (Test-Path -LiteralPath $Path -PathType Leaf)
+        {
+            [IO.File]::Replace($temporaryPath, $Path, $null, $true)
+        }
+        else
+        {
+            [IO.File]::Move($temporaryPath, $Path)
+        }
+        Assert-ProtectedStateAcl -Path $Path
+        $written = Read-UninstallCompletionMarker `
+            -Path $Path `
+            -JournalPath $JournalPath
+        if ([string]$written.transactionId -ne [string]$State.transactionId -or
+            [string]$written.stateDigest -ne [string]$State.stateDigest)
+        {
+            throw 'The uninstall completion marker did not verify after replacement.'
+        }
+    }
+    finally
+    {
+        if (Test-Path -LiteralPath $temporaryPath -PathType Leaf)
+        {
+            Remove-Item -LiteralPath $temporaryPath -Force
+        }
+    }
+}
+
 function Restore-InstallStateFromUninstallJournal
 {
     param(
@@ -806,6 +1000,22 @@ function Restore-InstallStateFromUninstallJournal
         [IO.File]::WriteAllBytes(
             $backupTemporaryPath,
             [Convert]::FromBase64String([string]$Journal.backupStateBase64))
+        $snapshotPrimary = Get-Content -LiteralPath $primaryTemporaryPath -Raw |
+            ConvertFrom-Json
+        $snapshotBackup = Get-Content -LiteralPath $backupTemporaryPath -Raw |
+            ConvertFrom-Json
+        Assert-InstallStatePair `
+            -Primary $snapshotPrimary `
+            -Backup $snapshotBackup `
+            -PrimaryPath $primaryTemporaryPath `
+            -BackupPath $backupTemporaryPath
+        if ([string]$snapshotPrimary.transactionId -ne
+                [string]$Journal.transactionId -or
+            [string]$snapshotPrimary.stateDigest -ne
+                [string]$Journal.stateDigest)
+        {
+            throw 'The uninstall journal snapshot does not match its transaction.'
+        }
         foreach ($entry in @(
                 @{ Path = $primaryTemporaryPath; Sddl = [string]$Journal.primaryStateAcl },
                 @{ Path = $backupTemporaryPath; Sddl = [string]$Journal.backupStateAcl }))
@@ -814,16 +1024,33 @@ function Restore-InstallStateFromUninstallJournal
             $acl.SetSecurityDescriptorSddlForm($entry.Sddl)
             Set-Acl -LiteralPath $entry.Path -AclObject $acl
         }
-        if (-not (Test-Path -LiteralPath $Path -PathType Leaf))
+        foreach ($entry in @(
+                @{ Target = $Path; Snapshot = $primaryTemporaryPath; Sddl = [string]$Journal.primaryStateAcl },
+                @{ Target = $backupPath; Snapshot = $backupTemporaryPath; Sddl = [string]$Journal.backupStateAcl }))
         {
-            [IO.File]::Move($primaryTemporaryPath, $Path)
-        }
-        if (-not (Test-Path -LiteralPath $backupPath -PathType Leaf))
-        {
-            [IO.File]::Move($backupTemporaryPath, $backupPath)
+            if (-not (Test-FileBytesEqual `
+                    -LeftPath $entry.Target `
+                    -RightPath $entry.Snapshot))
+            {
+                if (Test-Path -LiteralPath $entry.Target -PathType Leaf)
+                {
+                    [IO.File]::Replace($entry.Snapshot, $entry.Target, $null, $true)
+                }
+                else
+                {
+                    [IO.File]::Move($entry.Snapshot, $entry.Target)
+                }
+            }
+            $acl = Get-Acl -LiteralPath $entry.Target
+            $acl.SetSecurityDescriptorSddlForm($entry.Sddl)
+            Set-Acl -LiteralPath $entry.Target -AclObject $acl
         }
         Assert-ProtectedStateAcl -Path $Path
         Assert-ProtectedStateAcl -Path $backupPath
+        if (-not (Test-FileBytesEqual -LeftPath $Path -RightPath $backupPath))
+        {
+            throw 'The restored protected install-state pair is not byte-identical.'
+        }
     }
     finally
     {
@@ -965,12 +1192,41 @@ function Read-InstallStateWithBackup
     $journal = Read-UninstallJournal -Path $journalPath
     $primaryExists = Test-Path -LiteralPath $Path -PathType Leaf
     $backupExists = Test-Path -LiteralPath $backupPath -PathType Leaf
-    if ((-not $primaryExists -or -not $backupExists) -and $null -ne $journal -and
-        [string]$journal.phase -eq 'state-removing')
+    if ($null -ne $journal -and [string]$journal.phase -eq 'state-removing')
     {
-        Restore-InstallStateFromUninstallJournal `
-            -Path $Path `
-            -Journal $journal
+        $pairMatchesJournal = $false
+        if ($primaryExists -and $backupExists)
+        {
+            try
+            {
+                Assert-ProtectedStateAcl -Path $Path
+                Assert-ProtectedStateAcl -Path $backupPath
+                $currentPrimaryRaw = Get-Content -LiteralPath $Path -Raw
+                $currentBackupRaw = Get-Content -LiteralPath $backupPath -Raw
+                $currentPrimary = $currentPrimaryRaw | ConvertFrom-Json
+                $currentBackup = $currentBackupRaw | ConvertFrom-Json
+                Assert-InstallStatePair `
+                    -Primary $currentPrimary `
+                    -Backup $currentBackup `
+                    -PrimaryPath $Path `
+                    -BackupPath $backupPath
+                $pairMatchesJournal =
+                    [string]$currentPrimary.transactionId -eq
+                        [string]$journal.transactionId -and
+                    [string]$currentPrimary.stateDigest -eq
+                        [string]$journal.stateDigest
+            }
+            catch
+            {
+                $pairMatchesJournal = $false
+            }
+        }
+        if (-not $pairMatchesJournal)
+        {
+            Restore-InstallStateFromUninstallJournal `
+                -Path $Path `
+                -Journal $journal
+        }
         $primaryExists = Test-Path -LiteralPath $Path -PathType Leaf
         $backupExists = Test-Path -LiteralPath $backupPath -PathType Leaf
     }
@@ -1247,10 +1503,53 @@ $statePath = Join-Path $installRoot 'Installer\INSTALL-STATE.json'
 $uninstallCompleteMarkerPath = Join-Path $installRoot 'Installer\UNINSTALL-COMPLETE.json'
 $uninstallJournalPath = Join-Path $installRoot 'Installer\UNINSTALL-STATE.json'
 $pendingPath = Join-Path $installRoot 'Installer\PREPARE-STATE.json'
+$completionMarkerError = $null
 $script:InstallerStep = 'check-pending-installation-transaction'
 if (Test-Path -LiteralPath $pendingPath -PathType Leaf)
 {
     throw 'A pending installation transaction remains; complete rollback before uninstalling.'
+}
+$primaryStateExists = Test-Path -LiteralPath $statePath -PathType Leaf
+$backupStateExists = Test-Path -LiteralPath "$statePath.bak" -PathType Leaf
+if (-not $primaryStateExists -and -not $backupStateExists -and
+    (Test-Path -LiteralPath $uninstallCompleteMarkerPath -PathType Leaf))
+{
+    # The state pair is deleted before this marker is published. A valid marker
+    # therefore means only the final Inno cleanup remains after a restart.
+    $script:InstallerStep = 'verify-completed-uninstall'
+    try
+    {
+        Read-UninstallCompletionMarker `
+            -Path $uninstallCompleteMarkerPath `
+            -JournalPath $uninstallJournalPath | Out-Null
+        exit 0
+    }
+    catch
+    {
+        # A crash can leave a torn marker after the state pair was already
+        # deleted. A validated state-removing journal can safely rebuild it.
+        $completionMarkerError = $_
+    }
+}
+if (-not $primaryStateExists -and -not $backupStateExists)
+{
+    $journalForMissingState = Read-UninstallJournal -Path $uninstallJournalPath
+    if ($null -ne $journalForMissingState -and
+        [string]$journalForMissingState.phase -eq 'state-removing')
+    {
+        $script:InstallerStep = 'recover-completion-marker'
+        $snapshotState = Read-UninstallJournalSnapshotState `
+            -Journal $journalForMissingState
+        Write-UninstallCompletionMarker `
+            -Path $uninstallCompleteMarkerPath `
+            -JournalPath $uninstallJournalPath `
+            -State $snapshotState
+        exit 0
+    }
+    if ($null -ne $completionMarkerError)
+    {
+        throw $completionMarkerError
+    }
 }
 $script:InstallerStep = 'read-protected-install-state'
 $state = Read-InstallStateWithBackup -Path $statePath -InstallRoot $installRoot
@@ -1458,20 +1757,6 @@ Write-UninstallJournal `
 $script:InstallerStep = 'remove-installed-payload-files'
 Remove-InstalledPayloadFiles -InstallRoot $installRoot -State $state
 
-$script:InstallerStep = 'write-uninstall-complete-marker'
-$marker = [ordered]@{
-    schema = 1
-    transactionId = [string]$state.transactionId
-    completedUtc = [DateTime]::UtcNow.ToString('o')
-}
-Write-Utf8NoBom `
-    -Path $uninstallCompleteMarkerPath `
-    -Content ($marker | ConvertTo-Json -Depth 4)
-if (-not (Test-Path -LiteralPath $uninstallCompleteMarkerPath -PathType Leaf))
-{
-    throw 'The uninstall completion marker was not written.'
-}
-
 $script:InstallerStep = 'mark-state-removal'
 Write-UninstallJournal `
     -Path $uninstallJournalPath `
@@ -1480,6 +1765,16 @@ Write-UninstallJournal `
     -Phase 'state-removing'
 $script:InstallerStep = 'delete-protected-install-state'
 Remove-ProtectedInstallStatePair -Path $statePath
+
+$script:InstallerStep = 'write-uninstall-complete-marker'
+Write-UninstallCompletionMarker `
+    -Path $uninstallCompleteMarkerPath `
+    -JournalPath $uninstallJournalPath `
+    -State $state
+if (-not (Test-Path -LiteralPath $uninstallCompleteMarkerPath -PathType Leaf))
+{
+    throw 'The uninstall completion marker was not written.'
+}
 
 # Inno deletes Installer after this process exits and verifies the marker. The
 # running PowerShell script therefore never has to remove its own directory.
