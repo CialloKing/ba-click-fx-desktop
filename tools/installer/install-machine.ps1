@@ -646,6 +646,58 @@ function Resolve-PayloadDirectory
     return $resolvedPayload
 }
 
+function Assert-NoReparsePath
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path,
+
+        [switch]$AllowMissing
+    )
+
+    $resolved = [IO.Path]::GetFullPath($Path)
+    $pathRoot = [IO.Path]::GetPathRoot($resolved)
+    if ([string]::IsNullOrWhiteSpace($pathRoot))
+    {
+        throw "Installer path has no filesystem root: $Path"
+    }
+
+    $current = $pathRoot
+    $rootItem = Get-Item -LiteralPath $current -Force -ErrorAction Stop
+    if (($rootItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0)
+    {
+        throw "Installer path contains a reparse point: $current"
+    }
+    $relative = $resolved.Substring($pathRoot.Length).Trim('\')
+    if ([string]::IsNullOrWhiteSpace($relative))
+    {
+        return
+    }
+
+    foreach ($component in @($relative -split '\\'))
+    {
+        if ([string]::IsNullOrWhiteSpace($component))
+        {
+            continue
+        }
+        $current = Join-Path $current $component
+        $item = Get-Item -LiteralPath $current -Force -ErrorAction SilentlyContinue
+        if ($null -eq $item)
+        {
+            if ($AllowMissing)
+            {
+                return
+            }
+            throw "Installer path component is missing: $current"
+        }
+        if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0)
+        {
+            throw "Installer path contains a reparse point: $current"
+        }
+    }
+    return
+}
+
 function Assert-ProtectedPayloadAcl
 {
     param(
@@ -653,9 +705,38 @@ function Assert-ProtectedPayloadAcl
         [string]$Path
     )
 
-    $items = @(
-        Get-ChildItem -LiteralPath $Path -Recurse -Force -ErrorAction Stop
-    ) + @(Get-Item -LiteralPath $Path -Force -ErrorAction Stop)
+    $rootItem = Get-Item -LiteralPath $Path -Force -ErrorAction Stop
+    if (-not $rootItem.PSIsContainer)
+    {
+        throw 'Installer staging path is not a directory.'
+    }
+    if (($rootItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0)
+    {
+        throw 'Installer staging directory cannot be a reparse point.'
+    }
+    $items = New-Object Collections.Generic.List[object]
+    $directories = New-Object Collections.Generic.Stack[string]
+    [void]$items.Add($rootItem)
+    [void]$directories.Push($rootItem.FullName)
+    while ($directories.Count -gt 0)
+    {
+        $directory = $directories.Pop()
+        foreach ($item in @(Get-ChildItem `
+                -LiteralPath $directory `
+                -Force `
+                -ErrorAction Stop))
+        {
+            if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0)
+            {
+                throw "Installer staging path cannot contain a reparse point: $($item.FullName)"
+            }
+            [void]$items.Add($item)
+            if ($item.PSIsContainer)
+            {
+                [void]$directories.Push($item.FullName)
+            }
+        }
+    }
     foreach ($item in $items)
     {
         $acl = Get-Acl -LiteralPath $item.FullName
@@ -699,7 +780,9 @@ function Ensure-ProtectedInstallerDirectory
     $created = $false
     if (-not (Test-Path -LiteralPath $installerDirectory))
     {
+        Assert-NoReparsePath -Path $installerDirectory -AllowMissing
         New-Item -ItemType Directory -Path $installerDirectory -Force | Out-Null
+        Assert-NoReparsePath -Path $installerDirectory
         Set-ProtectedStateAcl -Path $installerDirectory -ReadSid $ReadSid
         $created = $true
     }
@@ -2023,7 +2106,9 @@ function Grant-DataDirectoryAccess
         [string]$UserSid
     )
 
+    Assert-NoReparsePath -Path $Path -AllowMissing
     New-Item -ItemType Directory -Path $Path -Force | Out-Null
+    Assert-NoReparsePath -Path $Path
     $sid = New-Object Security.Principal.SecurityIdentifier($UserSid)
     $acl = Get-Acl -LiteralPath $Path
     $rule = New-Object Security.AccessControl.FileSystemAccessRule(
@@ -2049,6 +2134,10 @@ function Initialize-IdentityConfig
     $configPath = Join-Path $DataDirectory 'BAFX.config.json'
     $hostPath = Join-Path $InstallRoot 'ba-click-fx-desktop.exe'
     $reportName = 'identity-installer-support.txt'
+    Assert-NoReparsePath -Path $InstallRoot
+    Assert-NoReparsePath -Path $DataDirectory
+    Assert-NoReparsePath -Path $hostPath
+    Assert-NoReparsePath -Path $configPath -AllowMissing
     Push-Location -LiteralPath $InstallRoot
     try
     {
@@ -2076,6 +2165,8 @@ function Initialize-IdentityConfig
     {
         $rootPath = Join-Path $InstallRoot $fileName
         $destinationPath = Join-Path $DataDirectory $fileName
+        Assert-NoReparsePath -Path $rootPath -AllowMissing
+        Assert-NoReparsePath -Path $destinationPath -AllowMissing
         if (Test-Path -LiteralPath $rootPath -PathType Leaf)
         {
             if (-not (Test-Path -LiteralPath $destinationPath -PathType Leaf))
@@ -2084,6 +2175,7 @@ function Initialize-IdentityConfig
             }
             Remove-Item -LiteralPath $rootPath -Force
         }
+        Assert-NoReparsePath -Path $destinationPath -AllowMissing
     }
     if (-not (Test-Path -LiteralPath $configPath -PathType Leaf))
     {
@@ -3312,7 +3404,7 @@ function Recover-CreatingCertificate
             {
                 $matchingCertificateKeys[$candidateKey] = $true
             }
-            $certificatesToRemove.Add([pscustomobject]@{
+            [void]$certificatesToRemove.Add([pscustomobject]@{
                     storeName = $storeName
                     certificate = $candidate
                 })
@@ -3376,6 +3468,7 @@ function Resolve-InstallerRelativePath
     {
         throw "Installer payload path escaped its root: $RelativePath"
     }
+    Assert-NoReparsePath -Path $resolved -AllowMissing
     return $resolved
 }
 
@@ -3395,6 +3488,7 @@ function Copy-VerifiedInstallerFile
         [string]$ExpectedSha256
     )
 
+    Assert-NoReparsePath -Path $SourcePath
     if (-not (Test-Path -LiteralPath $SourcePath -PathType Leaf))
     {
         throw "Installer payload file is missing: $SourcePath"
@@ -3402,9 +3496,13 @@ function Copy-VerifiedInstallerFile
     $destinationDirectory = [IO.Path]::GetDirectoryName($DestinationPath)
     if (-not [string]::IsNullOrWhiteSpace($destinationDirectory))
     {
+        Assert-NoReparsePath -Path $destinationDirectory -AllowMissing
         New-Item -ItemType Directory -Path $destinationDirectory -Force | Out-Null
+        Assert-NoReparsePath -Path $destinationDirectory
     }
+    Assert-NoReparsePath -Path $DestinationPath -AllowMissing
     Copy-Item -LiteralPath $SourcePath -Destination $DestinationPath -Force
+    Assert-NoReparsePath -Path $DestinationPath
     Assert-FileHash `
         -Path $DestinationPath `
         -ExpectedBytes $ExpectedBytes `
@@ -4091,6 +4189,8 @@ function Save-DataDirectoryRollback
     }
 
     $dataBackupRoot = Join-Path $RollbackRoot 'data'
+    Assert-NoReparsePath -Path $RollbackRoot
+    Assert-NoReparsePath -Path $dataBackupRoot -AllowMissing
     $fileEntries = New-Object Collections.Generic.List[object]
     foreach ($fileName in @('BAFX.config.json', 'ba-click-fx-desktop-support.log'))
     {
@@ -4110,6 +4210,7 @@ function Save-DataDirectoryRollback
             $sha256 = (Get-FileHash -LiteralPath $sourcePath -Algorithm SHA256).Hash
             $backupPath = Join-Path $dataBackupRoot $fileName
             New-Item -ItemType Directory -Path $dataBackupRoot -Force | Out-Null
+            Assert-NoReparsePath -Path $dataBackupRoot
             Copy-VerifiedInstallerFile `
                 -SourcePath $sourcePath `
                 -DestinationPath $backupPath `
@@ -4177,31 +4278,36 @@ function Save-PreviousInstallStatePair
         -BackupPath $backupPath
 
     $stateBackupRoot = Join-Path $RollbackRoot 'state-before'
+    Assert-NoReparsePath -Path $RollbackRoot
+    Assert-NoReparsePath -Path $stateBackupRoot -AllowMissing
     New-Item -ItemType Directory -Path $stateBackupRoot -Force | Out-Null
+    Assert-NoReparsePath -Path $stateBackupRoot
     $primaryBackupPath = Join-Path $stateBackupRoot 'INSTALL-STATE.json'
     $backupBackupPath = Join-Path $stateBackupRoot 'INSTALL-STATE.json.bak'
-    Copy-Item -LiteralPath $primaryPath -Destination $primaryBackupPath -Force
-    Copy-Item -LiteralPath $backupPath -Destination $backupBackupPath -Force
-    Assert-FileHash `
-        -Path $primaryBackupPath `
-        -ExpectedBytes ([Int64](Get-Item -LiteralPath $primaryPath).Length) `
-        -ExpectedSha256 ((Get-FileHash -LiteralPath $primaryPath -Algorithm SHA256).Hash)
-    Assert-FileHash `
-        -Path $backupBackupPath `
-        -ExpectedBytes ([Int64](Get-Item -LiteralPath $backupPath).Length) `
-        -ExpectedSha256 ((Get-FileHash -LiteralPath $backupPath -Algorithm SHA256).Hash)
+    $primaryBytes = [Int64](Get-Item -LiteralPath $primaryPath -Force).Length
+    $primarySha256 = (Get-FileHash -LiteralPath $primaryPath -Algorithm SHA256).Hash
+    $backupBytes = [Int64](Get-Item -LiteralPath $backupPath -Force).Length
+    $backupSha256 = (Get-FileHash -LiteralPath $backupPath -Algorithm SHA256).Hash
+    Copy-VerifiedInstallerFile `
+        -SourcePath $primaryPath `
+        -DestinationPath $primaryBackupPath `
+        -ExpectedBytes $primaryBytes `
+        -ExpectedSha256 $primarySha256
+    Copy-VerifiedInstallerFile `
+        -SourcePath $backupPath `
+        -DestinationPath $backupBackupPath `
+        -ExpectedBytes $backupBytes `
+        -ExpectedSha256 $backupSha256
     Set-ProtectedStateAcl -Path $primaryBackupPath -ReadSid ''
     Set-ProtectedStateAcl -Path $backupBackupPath -ReadSid ''
     return [ordered]@{
         previousStatePresent = $true
         previousStatePrimaryBackupPath = 'state-before/INSTALL-STATE.json'
         previousStateBackupBackupPath = 'state-before/INSTALL-STATE.json.bak'
-        previousStatePrimaryBytes = [Int64](Get-Item -LiteralPath $primaryBackupPath).Length
-        previousStatePrimarySha256 =
-            (Get-FileHash -LiteralPath $primaryBackupPath -Algorithm SHA256).Hash
-        previousStateBackupBytes = [Int64](Get-Item -LiteralPath $backupBackupPath).Length
-        previousStateBackupSha256 =
-            (Get-FileHash -LiteralPath $backupBackupPath -Algorithm SHA256).Hash
+        previousStatePrimaryBytes = $primaryBytes
+        previousStatePrimarySha256 = $primarySha256
+        previousStateBackupBytes = $backupBytes
+        previousStateBackupSha256 = $backupSha256
     }
 }
 
@@ -4220,13 +4326,23 @@ function New-PayloadRollbackManifest
 
     $rollbackRoot = Join-Path $InstallRoot ('.rollback\' + [string]$State.transactionId)
     $rollbackManifestPath = Join-Path $rollbackRoot 'ROLLBACK-MANIFEST.json'
+    $rollbackParent = Join-Path $InstallRoot '.rollback'
+    Assert-NoReparsePath -Path $rollbackParent -AllowMissing
+    Assert-NoReparsePath -Path $rollbackRoot -AllowMissing
+    Assert-NoReparsePath -Path $rollbackManifestPath -AllowMissing
     if (Test-Path -LiteralPath $rollbackManifestPath -PathType Leaf)
     {
         return Read-PayloadRollbackManifest `
             -State $State `
             -InstallRoot $InstallRoot
     }
+    if (-not (Test-Path -LiteralPath $rollbackParent -PathType Container))
+    {
+        New-Item -ItemType Directory -Path $rollbackParent -Force | Out-Null
+    }
+    Assert-NoReparsePath -Path $rollbackParent
     New-Item -ItemType Directory -Path $rollbackRoot -Force | Out-Null
+    Assert-NoReparsePath -Path $rollbackRoot
     Set-ProtectedStateAcl -Path $rollbackRoot -ReadSid ''
     $previousState = Save-PreviousInstallStatePair `
         -State $State `
@@ -4250,22 +4366,33 @@ function New-PayloadRollbackManifest
             -Root $rollbackRoot `
             -RelativePath $backupRelativePath
         $existed = Test-Path -LiteralPath $livePath -PathType Leaf
+        $liveBytes = [Int64]0
+        $liveSha256 = ''
         if ($existed)
         {
-            New-Item -ItemType Directory `
-                -Path ([IO.Path]::GetDirectoryName($backupPath)) `
-                -Force | Out-Null
-            Copy-Item -LiteralPath $livePath -Destination $backupPath -Force
-            Assert-FileHash `
-                -Path $backupPath `
-                -ExpectedBytes ([Int64](Get-Item -LiteralPath $livePath).Length) `
-                -ExpectedSha256 ((Get-FileHash -LiteralPath $livePath -Algorithm SHA256).Hash)
+            $liveItem = Get-Item -LiteralPath $livePath -Force
+            if (($liveItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0)
+            {
+                throw "The installed payload file cannot be a reparse point: $relativePath"
+            }
+            $liveBytes = [Int64]$liveItem.Length
+            $liveSha256 = (Get-FileHash -LiteralPath $livePath -Algorithm SHA256).Hash
+            $backupDirectory = [IO.Path]::GetDirectoryName($backupPath)
+            Assert-NoReparsePath -Path $backupDirectory -AllowMissing
+            New-Item -ItemType Directory -Path $backupDirectory -Force | Out-Null
+            Assert-NoReparsePath `
+                -Path $backupDirectory
+            Copy-VerifiedInstallerFile `
+                -SourcePath $livePath `
+                -DestinationPath $backupPath `
+                -ExpectedBytes $liveBytes `
+                -ExpectedSha256 $liveSha256
         }
         $entries.Add([ordered]@{
                 path = $relativePath
                 existed = $existed
-                bytes = if ($existed) { [Int64](Get-Item -LiteralPath $livePath).Length } else { 0 }
-                sha256 = if ($existed) { (Get-FileHash -LiteralPath $livePath -Algorithm SHA256).Hash } else { '' }
+                bytes = if ($existed) { $liveBytes } else { 0 }
+                sha256 = if ($existed) { $liveSha256 } else { '' }
                 backupPath = if ($existed) { $backupRelativePath.Replace('\', '/') } else { '' }
             })
     }
@@ -4299,9 +4426,12 @@ function New-PayloadRollbackManifest
                 throw 'The previous package does not match its protected install state.'
             }
             $oldPackageBackupPath = Join-Path $rollbackRoot ('old\' + $oldPackageFile)
+            $oldPackageBackupDirectory = [IO.Path]::GetDirectoryName($oldPackageBackupPath)
+            Assert-NoReparsePath -Path $oldPackageBackupDirectory -AllowMissing
             New-Item -ItemType Directory `
-                -Path ([IO.Path]::GetDirectoryName($oldPackageBackupPath)) `
+                -Path $oldPackageBackupDirectory `
                 -Force | Out-Null
+            Assert-NoReparsePath -Path $oldPackageBackupDirectory
             Copy-VerifiedInstallerFile `
                 -SourcePath $oldPackagePath `
                 -DestinationPath $oldPackageBackupPath `
@@ -4463,6 +4593,7 @@ function Restore-CommittedPayloadFiles
         }
         else
         {
+            Assert-NoReparsePath -Path $livePath
             if (Test-Path -LiteralPath $livePath -PathType Leaf)
             {
                 Remove-Item -LiteralPath $livePath -Force
@@ -4549,12 +4680,14 @@ function Restore-DataDirectory
     }
 
     $dataDirectory = Join-Path $InstallRoot 'data'
+    Assert-NoReparsePath -Path $dataDirectory -AllowMissing
     $dataDirectoryExisted = [bool]$rollbackManifest.dataDirectoryExisted
     if (-not (Test-Path -LiteralPath $dataDirectory))
     {
         if ($dataDirectoryExisted)
         {
             New-Item -ItemType Directory -Path $dataDirectory -Force | Out-Null
+            Assert-NoReparsePath -Path $dataDirectory
         }
         else
         {
@@ -4579,6 +4712,7 @@ function Restore-DataDirectory
             throw 'The data rollback manifest contains an unexpected file.'
         }
         $destinationPath = Join-Path $dataDirectory $fileName
+        Assert-NoReparsePath -Path $destinationPath -AllowMissing
         if ([bool]$entry.existed)
         {
             $backupPath = Resolve-InstallerRelativePath `
@@ -4592,6 +4726,7 @@ function Restore-DataDirectory
         }
         else
         {
+            Assert-NoReparsePath -Path $destinationPath
             if (Test-Path -LiteralPath $destinationPath -PathType Leaf)
             {
                 Remove-Item -LiteralPath $destinationPath -Force
@@ -4612,6 +4747,7 @@ function Restore-DataDirectory
     }
     elseif (-not $dataDirectoryExisted)
     {
+        Assert-NoReparsePath -Path $dataDirectory
         $remaining = @(Get-ChildItem -LiteralPath $dataDirectory -Force)
         if ($remaining.Count -eq 0)
         {
@@ -4871,6 +5007,7 @@ function Remove-PendingPackageFiles
         {
             continue
         }
+        Assert-NoReparsePath -Path $candidate
         Remove-Item -LiteralPath $candidate -Force
         if (Test-Path -LiteralPath $candidate -PathType Leaf)
         {

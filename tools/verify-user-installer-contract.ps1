@@ -561,6 +561,22 @@ function Test-InstallerScriptWhitelist
         -Description 'legacy rollback evidence ACLs are hardened only after write-access checks'
     Assert-TextContains `
         -Text $installMachine `
+        -Pattern 'function\s+Assert-NoReparsePath[\s\S]*Get-Item\s+-LiteralPath\s+\$current[\s\S]*FileAttributes\]::ReparsePoint' `
+        -Description 'installer paths reject reparse points component by component'
+    Assert-TextContains `
+        -Text $installMachine `
+        -Pattern 'function\s+Assert-ProtectedPayloadAcl[\s\S]*Stack\[string\][\s\S]*cannot contain a reparse point' `
+        -Description 'staging traversal stops before entering a reparse directory'
+    Assert-TextContains `
+        -Text $installMachine `
+        -Pattern 'function\s+Copy-VerifiedInstallerFile[\s\S]*Assert-NoReparsePath\s+-Path\s+\$SourcePath[\s\S]*DestinationPath\s+-AllowMissing[\s\S]*Copy-Item[\s\S]*Assert-NoReparsePath\s+-Path\s+\$DestinationPath' `
+        -Description 'verified copies reject source and destination reparse points'
+    Assert-TextContains `
+        -Text $installMachine `
+        -Pattern 'function\s+New-PayloadRollbackManifest[\s\S]*rollbackParent[\s\S]*Assert-NoReparsePath[\s\S]*rollbackRoot[\s\S]*Assert-NoReparsePath' `
+        -Description 'rollback roots are validated before manifest evidence is written'
+    Assert-TextContains `
+        -Text $installMachine `
         -Pattern 'function\s+Assert-PayloadFileSetMatchesState' `
         -Description 'payload file-set ledger validation is implemented'
     Assert-TextContains `
@@ -2077,6 +2093,7 @@ function Test-PayloadRollbackManifestContract
         'Assert-PayloadFileSetAgreement',
         'Assert-InstallStateRawPair',
         'Assert-InstallStatePair',
+        'Assert-NoReparsePath',
         'Resolve-InstallerRelativePath',
         'Resolve-RollbackManifestRelativePath',
         'Assert-RollbackManifestBackup',
