@@ -2681,21 +2681,161 @@ function Remove-PreparedCertificateIfUnused
     {
         return
     }
-    $preexistingFullNames = @($State.preexistingPackageFullNames)
-    $sameVersionPackages = @(
-        Get-AppxPackage -AllUsers -Name ([string]$State.packageName) -ErrorAction Stop |
-            Where-Object {
-                [string]$_.Version -eq [string]$State.packageVersion -and
-                $preexistingFullNames -notcontains [string]$_.PackageFullName
-            }
-    )
-    if ($sameVersionPackages.Count -gt 0)
+    if (Test-RegisteredPackageUsesCertificate -State $State)
     {
-        throw 'Refusing to remove the prepared certificate while its package version remains registered.'
+        throw 'Refusing to remove the prepared certificate while a registered package may still use it.'
     }
     Remove-CertificateFromStores `
         -Thumbprint ([string]$State.certificateThumbprint) `
         -ExpectedSubject ([string]$State.publisher)
+}
+
+function Test-RegisteredPackageUsesCertificate
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [object]$State
+    )
+
+    $thumbprint = ([string]$State.certificateThumbprint).ToUpperInvariant()
+    $registeredPackages = @(
+        Get-AppxPackage -AllUsers `
+            -Name ([string]$State.packageName) `
+            -ErrorAction Stop
+    )
+    if ($registeredPackages.Count -eq 0)
+    {
+        return $false
+    }
+
+    $stateUserSid = if ($null -ne $State.PSObject.Properties['userSid'])
+    {
+        [string]$State.userSid
+    }
+    elseif ($null -ne $State.PSObject.Properties['installedUserSid'])
+    {
+        [string]$State.installedUserSid
+    }
+    else
+    {
+        # Without an owner SID we cannot distinguish a shared registration.
+        return $true
+    }
+
+    foreach ($package in $registeredPackages)
+    {
+        $usersProperty = $package.PSObject.Properties['PackageUserInformation']
+        if ($null -eq $usersProperty)
+        {
+            return $true
+        }
+        $users = @($usersProperty.Value)
+        if ($users.Count -eq 0)
+        {
+            return $true
+        }
+        foreach ($user in $users)
+        {
+            $installState = if ($null -ne $user.PSObject.Properties['InstallState'])
+            {
+                [string]$user.InstallState
+            }
+            else
+            {
+                ''
+            }
+            if ($installState -notmatch '^(Installed|1)$')
+            {
+                continue
+            }
+            $userSid = if ($null -ne $user.PSObject.Properties['UserSecurityId'])
+            {
+                $value = $user.UserSecurityId
+                if ($null -ne $value.PSObject.Properties['Value'])
+                {
+                    [string]$value.Value
+                }
+                else
+                {
+                    [string]$value
+                }
+            }
+            else
+            {
+                ''
+            }
+            if ($userSid -ne $stateUserSid)
+            {
+                # A different profile can continue using the signer after this
+                # transaction is rolled back, regardless of package version.
+                return $true
+            }
+        }
+    }
+
+    $identityDirectory = Join-Path `
+        ([IO.Path]::GetFullPath([string]$State.externalLocation)) `
+        'Identity'
+    if (-not (Test-Path -LiteralPath $identityDirectory -PathType Container))
+    {
+        return $true
+    }
+    $packageFiles = @(
+        Get-ChildItem -LiteralPath $identityDirectory `
+            -Filter '*.msix' `
+            -File `
+            -ErrorAction Stop |
+            Where-Object { $_.Name -notlike '*.unsigned.msix' }
+    )
+    if ($packageFiles.Count -eq 0)
+    {
+        return $true
+    }
+
+    $verifiedSigners = @{}
+    foreach ($packageFile in $packageFiles)
+    {
+        $signature = Get-AuthenticodeSignature `
+            -LiteralPath $packageFile.FullName `
+            -ErrorAction Stop
+        if ($signature.Status -ne [Management.Automation.SignatureStatus]::Valid -or
+            $null -eq $signature.SignerCertificate)
+        {
+            continue
+        }
+        $verifiedSigners[$packageFile.Name] =
+            ([string]$signature.SignerCertificate.Thumbprint).ToUpperInvariant()
+        if ($verifiedSigners[$packageFile.Name] -eq $thumbprint)
+        {
+            return $true
+        }
+    }
+
+    # Every registration must map to a versioned, verifiably signed file before
+    # a certificate can be considered unused. Unknown or legacy names remain a
+    # deliberate conservative hold rather than a destructive guess.
+    foreach ($package in $registeredPackages)
+    {
+        $version = [string]$package.Version
+        $matchingFiles = @(
+            $packageFiles | Where-Object {
+                $_.Name -like "*-$version-*" -or
+                $_.Name -like "*-$version.msix"
+            }
+        )
+        if ($matchingFiles.Count -eq 0)
+        {
+            return $true
+        }
+        foreach ($matchingFile in $matchingFiles)
+        {
+            if (-not $verifiedSigners.ContainsKey($matchingFile.Name))
+            {
+                return $true
+            }
+        }
+    }
+    return $false
 }
 
 function Test-CertificateSanUri

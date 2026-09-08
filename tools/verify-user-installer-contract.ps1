@@ -355,8 +355,8 @@ function Test-InstallerScriptWhitelist
         -Description 'same-version repair compares package semantics'
     Assert-TextContains `
         -Text $installMachine `
-        -Pattern 'preexistingFullNames\s*=\s*@\(\$State\.preexistingPackageFullNames\)[\s\S]*sameVersionPackages' `
-        -Description 'rollback ignores the preexisting same-version package'
+        -Pattern 'function\s+Remove-PreparedCertificateIfUnused[\s\S]*Test-RegisteredPackageUsesCertificate' `
+        -Description 'rollback certificate cleanup checks all shared package users'
     Assert-TextContains `
         -Text $installMachine `
         -Pattern 'function\s+Remove-PendingPackageFiles[\s\S]*Remove-Item\s+-LiteralPath\s+\$candidate[\s\S]*function\s+Invoke-PendingRollbackCleanup' `
@@ -421,6 +421,14 @@ function Test-InstallerScriptWhitelist
         -Text $installMachine `
         -Pattern 'Recover-CreatingCertificate[\s\S]*certificatePreexisting[\s\S]*Test-CertificateStoreSnapshotContains' `
         -Description 'certificate creation crash recovery preserves pre-existing SAN certificates'
+    Assert-TextContains `
+        -Text $installMachine `
+        -Pattern 'function\s+Test-RegisteredPackageUsesCertificate[\s\S]*Get-AppxPackage\s+-AllUsers[\s\S]*PackageUserInformation[\s\S]*Get-AuthenticodeSignature' `
+        -Description 'certificate cleanup scans every registered user and package version'
+    Assert-TextExcludes `
+        -Text $installMachine `
+        -Pattern '\$sameVersionPackages' `
+        -Description 'certificate cleanup does not filter shared packages by one version'
     $null = Get-CompressionRuntimeLoadStatements -InstallMachine $installMachine
 
     $captureUserContext = Read-RepositoryText `
