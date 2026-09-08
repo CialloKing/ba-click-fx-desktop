@@ -468,6 +468,46 @@ function Assert-ProtectedStateAcl
     }
 }
 
+function Assert-PayloadFileSetLedger
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [object]$State
+    )
+
+    if ($null -eq $State.PSObject.Properties['payloadFileSet'])
+    {
+        return
+    }
+    $ledgerValue = $State.payloadFileSet
+    if ($ledgerValue -isnot [string] -or
+        [string]::IsNullOrWhiteSpace([string]$ledgerValue))
+    {
+        throw 'Protected pending state has an invalid payload file-set ledger.'
+    }
+
+    $seen = @{}
+    foreach ($rawPath in @(([string]$ledgerValue) -split '\|'))
+    {
+        $path = $rawPath.Trim().Replace('/', '\')
+        if ([string]::IsNullOrWhiteSpace($path) -or
+            [IO.Path]::IsPathRooted($path) -or
+            $path.StartsWith('\') -or
+            $path.EndsWith('\') -or
+            $path -match '(^|\\)(\.|\.\.)(\\|$)' -or
+            $path -match '[<>:"|?*\x00-\x1f]')
+        {
+            throw "Protected pending state has an unsafe payload file path: $rawPath"
+        }
+        $key = $path.ToUpperInvariant()
+        if ($seen.ContainsKey($key))
+        {
+            throw "Protected pending state has a duplicate payload file path: $rawPath"
+        }
+        $seen[$key] = $true
+    }
+}
+
 function Assert-PendingState
 {
     param(
@@ -526,6 +566,7 @@ function Assert-PendingState
             throw 'Protected pending state digest does not match its content.'
         }
     }
+    Assert-PayloadFileSetLedger -State $State
     if ($schema -eq 2 -and
         ($null -eq $State.PSObject.Properties['templateSha256'] -or
             [string]$State.templateSha256 -notmatch '^[0-9A-Fa-f]{64}$'))

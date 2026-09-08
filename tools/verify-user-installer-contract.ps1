@@ -491,6 +491,10 @@ function Test-InstallerScriptWhitelist
         -Text $registerUserPackage `
         -Pattern 'Write-BafxInstallerFailure[\s\S]*InstallerDiagnosticPath[\s\S]*RelatedFailures' `
         -Description 'user package failures retain structured and related diagnostics'
+    Assert-TextContains `
+        -Text $registerUserPackage `
+        -Pattern 'function\s+Assert-PayloadFileSetLedger[\s\S]*-isnot\s+\[string\][\s\S]*duplicate payload file path[\s\S]*Assert-PayloadFileSetLedger\s+-State\s+\$State' `
+        -Description 'user package validation checks the optional payload file-set ledger'
     Assert-TextExcludes `
         -Text $registerUserPackage `
         -Pattern 'throw\s+\$registrationError\b' `
