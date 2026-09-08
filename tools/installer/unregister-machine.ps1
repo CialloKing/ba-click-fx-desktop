@@ -930,6 +930,7 @@ function Read-UninstallJournalSnapshotState
     {
         if (Test-Path -LiteralPath $temporaryRoot -PathType Container)
         {
+            Assert-NoReparseTree -Path $temporaryRoot
             Remove-Item -LiteralPath $temporaryRoot -Recurse -Force `
                 -ErrorAction SilentlyContinue
         }
@@ -1100,6 +1101,7 @@ function Restore-InstallStateFromUninstallJournal
     {
         if (Test-Path -LiteralPath $temporaryRoot -PathType Container)
         {
+            Assert-NoReparseTree -Path $temporaryRoot
             Remove-Item -LiteralPath $temporaryRoot -Recurse -Force -ErrorAction SilentlyContinue
         }
     }
@@ -1438,7 +1440,7 @@ function Remove-ProtectedInstallStatePair
     {
         if (Test-Path -LiteralPath $temporaryRoot -PathType Container)
         {
-            Assert-NoReparsePath -Path $temporaryRoot
+            Assert-NoReparseTree -Path $temporaryRoot
             Remove-Item -LiteralPath $temporaryRoot -Recurse -Force -ErrorAction SilentlyContinue
         }
     }
@@ -1466,6 +1468,9 @@ function Remove-InstalledPayloadFiles
         $path = Join-Path $InstallRoot $relativePath
         if (Test-Path -LiteralPath $path -PathType Leaf)
         {
+            # A reparse file may redirect an elevated deletion outside the
+            # protected install root, so validate the full component path.
+            Assert-NoReparsePath -Path $path
             Remove-Item -LiteralPath $path -Force
         }
         if (Test-Path -LiteralPath $path -PathType Leaf)

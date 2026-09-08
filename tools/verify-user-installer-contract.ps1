@@ -2114,6 +2114,22 @@ function Test-SparsePackageContract
         -Text $uninstaller `
         -Pattern 'foreach\s*\(\$directoryName\s+in\s+@\(''Identity'',\s*''\.rollback'',\s*''\.staging''\)[\s\S]*Assert-NoReparseTree\s+-Path\s+\$path[\s\S]*Remove-Item\s+-LiteralPath\s+\$path\s+-Recurse' `
         -Description 'uninstall validates every protected tree before recursive deletion'
+    Assert-TextContains `
+        -Text $uninstaller `
+        -Pattern 'foreach\s*\(\$relativePath\s+in\s+\$knownFiles\)[\s\S]*Assert-NoReparsePath\s+-Path\s+\$path[\s\S]*Remove-Item\s+-LiteralPath\s+\$path\s+-Force' `
+        -Description 'uninstall validates protected files before elevated deletion'
+    $recursiveDeleteCalls = @(
+        [regex]::Matches(
+            $uninstaller,
+            'Remove-Item\s+-LiteralPath\s+\$temporaryRoot\s+-Recurse\s+-Force')
+    )
+    Assert-True `
+        -Condition ($recursiveDeleteCalls.Count -eq 3) `
+        -Message 'Uninstaller temporary recovery trees changed unexpectedly.'
+    Assert-TextContains `
+        -Text $uninstaller `
+        -Pattern 'Assert-NoReparseTree\s+-Path\s+\$temporaryRoot[\s\S]*Remove-Item\s+-LiteralPath\s+\$temporaryRoot\s+-Recurse' `
+        -Description 'uninstall validates temporary recovery trees before recursive deletion'
 }
 
 function Test-UninstallerStatePairContract
