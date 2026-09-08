@@ -759,6 +759,10 @@ function Test-InnoPayloadContract
         -Text $uninstallCode.Value `
         -Pattern 'ResolveRollbackScript[\s\S]*-Phase Rollback[\s\S]*ResolveRollbackScript[\s\S]*RollbackAction RestorePrevious' `
         -Description 'uninstall re-resolves the restored recovery script after machine rollback'
+    Assert-TextContains `
+        -Text $inno `
+        -Pattern 'function\s+ResolveRollbackScript[\s\S]*StagedPath\s*:=.*ScriptName[\s\S]*if\s+FileExists\(StagedPath\)[\s\S]*LivePath\s*:=.*Installer' `
+        -Description 'pending recovery prefers the transaction staged scripts across releases'
     Assert-TextExcludes `
         -Text $uninstallCode.Value `
         -Pattern 'DeleteFile\(\s*MachineStatePath\s*\)' `

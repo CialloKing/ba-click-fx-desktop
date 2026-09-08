@@ -969,16 +969,19 @@ var
   LivePath: String;
   StagedPath: String;
 begin
-  LivePath := AddBackslash(AddBackslash(InstallRoot) + 'Installer') + ScriptName;
-  if FileExists(LivePath) then
-  begin
-    Result := LivePath;
-    Exit;
-  end;
+  // The staged directory is captured by the pending transaction and therefore
+  // carries the recovery code that understands its schema. Prefer it across
+  // release boundaries; the live copy is only a fallback for old installs.
   StagedPath := AddBackslash(StagedInstallerRoot) + ScriptName;
   if FileExists(StagedPath) then
   begin
     Result := StagedPath;
+    Exit;
+  end;
+  LivePath := AddBackslash(AddBackslash(InstallRoot) + 'Installer') + ScriptName;
+  if FileExists(LivePath) then
+  begin
+    Result := LivePath;
   end
   else
   begin
