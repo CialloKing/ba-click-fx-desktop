@@ -590,8 +590,8 @@ function Assert-PendingState
     {
         if ([string]$State.transactionId -notmatch '^[0-9a-fA-F]{32}$' -or
             $null -eq $State.PSObject.Properties['certificateSanUri'] -or
-            [string]$State.certificateSanUri -notmatch
-                '^urn:bafx:installer:[0-9a-fA-F]{32}$')
+            [string]$State.certificateSanUri -cne
+                "urn:bafx:installer:$([string]$State.transactionId)")
         {
             throw 'Protected pending state has an invalid certificate creation marker.'
         }

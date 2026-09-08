@@ -1130,6 +1130,13 @@ function Test-SparsePackageContract
 
     $registration = Read-RepositoryText -RelativePath 'tools/installer/register-user-package.ps1'
     Assert-TextContains `
+        -Text (Get-FunctionText `
+            -Ast (Get-ParsedScript `
+                -RelativePath 'tools/installer/register-user-package.ps1') `
+            -Name 'Assert-PendingState') `
+        -Pattern 'certificateSanUri\s+-cne[\s\S]*State\.transactionId' `
+        -Description 'user-package recovery binds the certificate SAN marker to its transaction id'
+    Assert-TextContains `
         -Text $registration `
         -Pattern 'FileInfo\(\$Path\)[\s\S]*GetAccessControl\(\)' `
         -Description 'original-user ACL validation avoids the PowerShell Security module'
