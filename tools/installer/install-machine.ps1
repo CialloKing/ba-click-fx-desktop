@@ -2887,6 +2887,46 @@ function Test-RegisteredPackageUsesCertificate
     return $false
 }
 
+function Read-DerLength
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [byte[]]$Bytes,
+
+        [Parameter(Mandatory = $true)]
+        [int]$Offset
+    )
+
+    if ($Offset -ge $Bytes.Length)
+    {
+        return $null
+    }
+    $first = [int]$Bytes[$Offset]
+    $Offset++
+    if (($first -band 0x80) -eq 0)
+    {
+        return [pscustomobject]@{
+            length = $first
+            nextOffset = $Offset
+        }
+    }
+    $count = $first -band 0x7f
+    if ($count -eq 0 -or $count -gt 4 -or
+        $Offset + $count -gt $Bytes.Length)
+    {
+        return $null
+    }
+    $length = 0
+    for ($index = 0; $index -lt $count; ++$index)
+    {
+        $length = ($length -shl 8) -bor [int]$Bytes[$Offset + $index]
+    }
+    return [pscustomobject]@{
+        length = $length
+        nextOffset = $Offset + $count
+    }
+}
+
 function Test-CertificateSanUri
 {
     param(
@@ -2897,13 +2937,62 @@ function Test-CertificateSanUri
         [string]$SanUri
     )
 
+    $expectedBytes = [Text.Encoding]::ASCII.GetBytes($SanUri)
     foreach ($extension in $Certificate.Extensions |
         Where-Object { $_.Oid.Value -eq '2.5.29.17' })
     {
-        if ($extension.Format($true).Contains($SanUri) -or
-            $extension.Format($false).Contains($SanUri))
+        # GeneralName uniformResourceIdentifier is the context-specific [6]
+        # IA5String tag. Parsing the DER avoids localized Format() text and
+        # prevents a longer URI from satisfying a substring check.
+        $bytes = [byte[]]$extension.RawData
+        $offset = 0
+        if ($bytes.Length -lt 2 -or [int]$bytes[$offset++] -ne 0x30)
         {
-            return $true
+            continue
+        }
+        $sequenceLength = Read-DerLength -Bytes $bytes -Offset $offset
+        if ($null -eq $sequenceLength)
+        {
+            continue
+        }
+        $offset = [int]$sequenceLength.nextOffset
+        $sequenceEnd = $offset + [int]$sequenceLength.length
+        if ($sequenceEnd -gt $bytes.Length)
+        {
+            continue
+        }
+        while ($offset -lt $sequenceEnd)
+        {
+            $tag = [int]$bytes[$offset++]
+            $nameLength = Read-DerLength -Bytes $bytes -Offset $offset
+            if ($null -eq $nameLength)
+            {
+                break
+            }
+            $offset = [int]$nameLength.nextOffset
+            $valueEnd = $offset + [int]$nameLength.length
+            if ($valueEnd -gt $sequenceEnd)
+            {
+                break
+            }
+            if ($tag -eq 0x86 -and
+                [int]$nameLength.length -eq $expectedBytes.Length)
+            {
+                $uriMatches = $true
+                for ($index = 0; $index -lt $expectedBytes.Length; ++$index)
+                {
+                    if ($bytes[$offset + $index] -ne $expectedBytes[$index])
+                    {
+                        $uriMatches = $false
+                        break
+                    }
+                }
+                if ($uriMatches)
+                {
+                    return $true
+                }
+            }
+            $offset = $valueEnd
         }
     }
     return $false

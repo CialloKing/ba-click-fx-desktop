@@ -427,6 +427,17 @@ function Test-InstallerScriptWhitelist
         -Description 'certificate creation crash recovery preserves pre-existing SAN certificates'
     Assert-TextContains `
         -Text $installMachine `
+        -Pattern 'function\s+Test-CertificateSanUri[\s\S]*RawData[\s\S]*tag\s+-eq\s+0x86[\s\S]*expectedBytes\.Length' `
+        -Description 'certificate recovery matches an exact SAN URI DER value'
+    Assert-TextExcludes `
+        -Text (Get-FunctionText `
+            -Ast (Get-ParsedScript `
+                -RelativePath 'tools/installer/install-machine.ps1') `
+            -Name 'Test-CertificateSanUri') `
+        -Pattern '\.Contains\s*\(' `
+        -Description 'substring SAN URI matching'
+    Assert-TextContains `
+        -Text $installMachine `
         -Pattern 'function\s+Test-RegisteredPackageUsesCertificate[\s\S]*Get-AppxPackage\s+-AllUsers[\s\S]*PackageUserInformation[\s\S]*Get-AuthenticodeSignature' `
         -Description 'certificate cleanup scans every registered user and package version'
     Assert-TextExcludes `
