@@ -1195,6 +1195,225 @@ function Test-CrossVersionPendingRecoveryContract
     }
 }
 
+function Test-PendingRecoveryFailureContract
+{
+    $installMachinePath = 'tools/installer/install-machine.ps1'
+    $installMachine = Read-RepositoryText -RelativePath $installMachinePath
+    Assert-TextContains `
+        -Text $installMachine `
+        -Pattern 'commitState\s*-eq\s*''committed''[\s\S]*Complete-CommittedPendingTransaction' `
+        -Description 'committed pending snapshots repair the install-state pair'
+    Assert-TextContains `
+        -Text $installMachine `
+        -Pattern 'statePairError[\s\S]*filesCommitted[\s\S]*ROLLBACK-MANIFEST\.json' `
+        -Description 'torn state pairs require rollback evidence before recovery'
+    Assert-TextContains `
+        -Text $installMachine `
+        -Pattern 'RollbackCleanup[\s\S]*Recover-CreatingCertificate[\s\S]*certificatePhase' `
+        -Description 'restart recovery handles a certificate-creation journal'
+
+    $ast = Get-ParsedScript -RelativePath $installMachinePath
+    $pendingText = Get-FunctionText -Ast $ast -Name 'Assert-PendingStateObject'
+    $splitText = Get-FunctionText -Ast $ast -Name 'Split-Ledger'
+    $normalizeText = Get-FunctionText -Ast $ast -Name 'Normalize-PayloadFileSetLedger'
+    $readOldStateText = Get-FunctionText -Ast $ast -Name 'Read-OldInstallState'
+    $readModuleText = @(
+        'Set-StrictMode -Version Latest'
+        "`$ErrorActionPreference = 'Stop'"
+        (Get-FunctionText -Ast $ast -Name 'Get-StatePropertiesWithoutDigest')
+        (Get-FunctionText -Ast $ast -Name 'Convert-StateToCanonicalJson')
+        (Get-FunctionText -Ast $ast -Name 'Get-StateDigest')
+        $splitText
+        (Get-FunctionText -Ast $ast -Name 'Normalize-PayloadRelativePath')
+        $normalizeText
+        $pendingText
+        @'
+function Assert-IdentityIntegrityMaterial
+{
+    param(
+        [object]$State,
+        [string]$InstallRoot,
+        [string]$PackagePath
+    )
+}
+'@
+    ) -join "`n"
+    $readModuleText += @'
+function Assert-ProtectedStateAcl
+{
+    param([string]$Path)
+}
+
+function Assert-InstallStatePair
+{
+    param(
+        [object]$Primary,
+        [object]$Backup,
+        [string]$PrimaryPath,
+        [string]$BackupPath
+    )
+}
+
+function Assert-InstallStateObject
+{
+    param(
+        [object]$State,
+        [string]$InstallRoot,
+        [string]$ExpectedUserSid,
+        [string]$ExpectedReplacementHostSha256,
+        [string]$ReplacementHostPath,
+        [switch]$SkipPayloadIntegrity
+    )
+    return $State
+}
+'@
+    $readModuleText += $readOldStateText
+    $probeModule = New-Module -ScriptBlock ([scriptblock]::Create($readModuleText))
+
+    $temporaryParent = [IO.Path]::GetFullPath([IO.Path]::GetTempPath())
+    $temporaryRoot = Join-Path `
+        $temporaryParent `
+        ('bafx-pending-recovery-' + [Guid]::NewGuid().ToString('N'))
+    try
+    {
+        $installRoot = Join-Path $temporaryRoot 'install'
+        $installerRoot = Join-Path $installRoot 'Installer'
+        New-Item -ItemType Directory -Path $installerRoot -Force | Out-Null
+
+        $basePending = [ordered]@{
+            schema = 1
+            stateKind = 'prepare'
+            userSid = 'S-1-5-21-1-2-3-1001'
+            packageName = 'CialloKing.BaClickFxDesktop'
+            applicationId = 'BaClickFxDesktop'
+            publisher = 'CN=BaClickFx.Local'
+            productVersion = '99.98.97'
+            packageVersion = '99.98.97.0'
+            transactionId = 'a' * 32
+            preexistingPackageFullNames = @()
+            oldInstallState = $null
+            certificatePhase = 'creating'
+            certificateSanUri = 'urn:bafx:installer:' + ('a' * 32)
+        }
+        $schemaOne = & $probeModule {
+            param($State, $Root)
+            Assert-PendingStateObject -State $State -InstallRoot $Root
+        } ([pscustomobject]$basePending) $installRoot
+        Assert-True `
+            -Condition ([string]$schemaOne.productVersion -eq '99.98.97') `
+            -Message 'Schema 1 pending recovery rejected a cross-version product.'
+
+        $schemaTwo = [ordered]@{}
+        foreach ($entry in $basePending.GetEnumerator())
+        {
+            $schemaTwo[$entry.Key] = $entry.Value
+        }
+        $schemaTwo.schema = 2
+        $schemaTwo.templateSha256 = 'B' * 64
+        $schemaTwoResult = & $probeModule {
+            param($State, $Root)
+            Assert-PendingStateObject -State $State -InstallRoot $Root
+        } ([pscustomobject]$schemaTwo) $installRoot
+        Assert-True `
+            -Condition ([int]$schemaTwoResult.schema -eq 2) `
+            -Message 'Schema 2 pending recovery did not validate.'
+
+        $unknownSchema = [ordered]@{}
+        foreach ($entry in $schemaTwo.GetEnumerator())
+        {
+            $unknownSchema[$entry.Key] = $entry.Value
+        }
+        $unknownSchema.schema = 99
+        Assert-Throws `
+            -Action {
+                & $probeModule {
+                    param($State, $Root)
+                    Assert-PendingStateObject -State $State -InstallRoot $Root
+                } ([pscustomobject]$unknownSchema) $installRoot
+            } `
+            -Description 'unknown pending-state schema'
+
+        $statePath = Join-Path $installerRoot 'INSTALL-STATE.json'
+        $backupPath = "$statePath.bak"
+        $stateJson = ([ordered]@{
+                schema = 2
+                transactionId = 'c' * 32
+                marker = 'old'
+            } | ConvertTo-Json)
+        [IO.File]::WriteAllText($statePath, $stateJson)
+        Assert-Throws `
+            -Action {
+                & $probeModule {
+                    param($Root, $UserSid)
+                    Read-OldInstallState -InstallRoot $Root -UserSid $UserSid
+                } $installRoot $basePending.userSid
+            } `
+            -Description 'pending recovery with a missing state backup'
+        [IO.File]::WriteAllText($backupPath, '{invalid-json')
+        Assert-Throws `
+            -Action {
+                & $probeModule {
+                    param($Root, $UserSid)
+                    Read-OldInstallState -InstallRoot $Root -UserSid $UserSid
+                } $installRoot $basePending.userSid
+            } `
+            -Description 'pending recovery with a damaged state backup'
+
+        Remove-Item -LiteralPath $statePath -Force
+        Remove-Item -LiteralPath $backupPath -Force
+        $payloadRoot = Join-Path $installRoot '.staging\current'
+        $resolveText = Get-FunctionText -Ast $ast -Name 'Resolve-PayloadDirectory'
+        $resolveModule = New-Module -ScriptBlock ([scriptblock]::Create(
+            "Set-StrictMode -Version Latest`n$resolveText"))
+        try
+        {
+            $missingPayload = & $resolveModule {
+                param($Root, $Payload)
+                Resolve-PayloadDirectory `
+                    -InstallRoot $Root `
+                    -PayloadPath $Payload `
+                    -AllowMissing
+            } $installRoot $payloadRoot
+            Assert-True `
+                -Condition ([IO.Path]::GetFullPath($missingPayload) -eq
+                    [IO.Path]::GetFullPath($payloadRoot)) `
+                -Message 'Restart recovery did not accept a missing staging directory.'
+            Assert-Throws `
+                -Action {
+                    & $resolveModule {
+                        param($Root, $Payload)
+                        Resolve-PayloadDirectory `
+                            -InstallRoot $Root `
+                            -PayloadPath $Payload
+                    } $installRoot $payloadRoot
+                } `
+                -Description 'prepare cannot continue with missing staging payload'
+        }
+        finally
+        {
+            Remove-Module -ModuleInfo $resolveModule -Force -ErrorAction SilentlyContinue
+        }
+    }
+    finally
+    {
+        if ($null -ne $probeModule)
+        {
+            Remove-Module -ModuleInfo $probeModule -Force -ErrorAction SilentlyContinue
+        }
+        $resolvedTemporaryRoot = [IO.Path]::GetFullPath($temporaryRoot)
+        if ($resolvedTemporaryRoot.StartsWith(
+                $temporaryParent,
+                [StringComparison]::OrdinalIgnoreCase) -and
+            [IO.Path]::GetFileName($resolvedTemporaryRoot).StartsWith(
+                'bafx-pending-recovery-',
+                [StringComparison]::Ordinal))
+        {
+            Remove-Item -LiteralPath $resolvedTemporaryRoot -Recurse -Force `
+                -ErrorAction SilentlyContinue
+        }
+    }
+}
+
 function Test-SparsePackageContract
 {
     $manifest = Read-RepositoryText -RelativePath 'tools/identity-package/Package.appxmanifest.in'
@@ -2802,6 +3021,7 @@ Test-InstallerScriptWhitelist
 Test-CompressionRuntimeColdStart
 Test-InnoPayloadContract
 Test-CrossVersionPendingRecoveryContract
+Test-PendingRecoveryFailureContract
 Test-SparsePackageContract
 Test-UninstallerStatePairContract
 Test-InstallStateWriteFaultInjectionContract
