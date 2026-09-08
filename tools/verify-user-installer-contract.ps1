@@ -855,6 +855,59 @@ function Test-InnoPayloadContract
         -Expected $expectedSources `
         -Actual $sources `
         -Description 'Inno [Files] payload source whitelist'
+    $destinations = @(
+        [regex]::Matches(
+            $filesSectionMatch.Groups['body'].Value,
+            '(?m)^\s*[^\r\n]*?DestDir:\s*"([^"]+)"') |
+            ForEach-Object { $_.Groups[1].Value }
+    )
+    Assert-True `
+        -Condition ($destinations.Count -eq $expectedSources.Count) `
+        -Message 'Every Inno payload entry must have one protected staging destination.'
+    foreach ($destination in $destinations)
+    {
+        Assert-True `
+            -Condition $destination.StartsWith(
+                '{app}\.staging\current',
+                [StringComparison]::OrdinalIgnoreCase) `
+            -Message "Inno payload destination escaped protected staging: $destination"
+    }
+    Assert-TextContains `
+        -Text $inno `
+        -Pattern '(?m)^AppMutex=Global\\BAFX\.UserInstaller\.v1$' `
+        -Description 'installer-wide mutex prevents concurrent transactions'
+    Assert-TextContains `
+        -Text $inno `
+        -Pattern 'function\s+IsReparsePointPath[\s\S]*function\s+AssertNoReparsePointTree[\s\S]*function\s+SafeDeleteTree[\s\S]*AssertNoReparsePointTree[\s\S]*DelTree' `
+        -Description 'protected tree deletion rejects reparse points before DelTree'
+    Assert-TextContains `
+        -Text $inno `
+        -Pattern 'function\s+SafeDeleteFile[\s\S]*AssertNoReparsePointPath[\s\S]*DeleteFile\(' `
+        -Description 'protected file deletion rejects reparse points before DeleteFile'
+    Assert-TextContains `
+        -Text $inno `
+        -Pattern 'PrepareToInstall[\s\S]*SafeDeleteTree\(PayloadRoot\)' `
+        -Description 'stale staging cleanup uses the protected deletion wrapper'
+    Assert-TextContains `
+        -Text $inno `
+        -Pattern 'CleanupUncommittedInstallArtifacts[\s\S]*SafeDeleteTree\(StagingRoot\)' `
+        -Description 'early setup failure cleanup uses the protected deletion wrapper'
+    Assert-TextContains `
+        -Text $inno `
+        -Pattern 'CurUninstallStepChanged[\s\S]*SafeDeleteTree\(InstallerRoot\)' `
+        -Description 'uninstall recovery evidence cleanup uses the protected deletion wrapper'
+    Assert-TextExcludes `
+        -Text $inno `
+        -Pattern '(?ms)^\[UninstallDelete\]' `
+        -Description 'uninstall does not erase recovery evidence declaratively'
+    $rawDelTreeCalls = @([regex]::Matches($inno, '(?m)^\s*[^\r\n]*\bDelTree\('))
+    Assert-True `
+        -Condition ($rawDelTreeCalls.Count -eq 1) `
+        -Message 'All Inno tree deletion must be centralized in SafeDeleteTree.'
+    $rawDeleteFileCalls = @([regex]::Matches($inno, '(?m)^\s*[^\r\n]*\bDeleteFile\('))
+    Assert-True `
+        -Condition ($rawDeleteFileCalls.Count -eq 7) `
+        -Message 'Unexpected raw Inno file deletion path; use SafeDeleteFile for protected files.'
     Assert-TextContains `
         -Text $inno `
         -Pattern '#ifdef\s+IncludeSpout2Notice[\s\S]*THIRD-PARTY-NOTICES\.txt[\s\S]*#endif' `
@@ -932,6 +985,14 @@ function Test-InnoPayloadContract
         -Text $inno `
         -Pattern 'RecoveryRequired\s*:=\s*True[\s\S]*function\s+GetCustomSetupExitCode[\s\S]*Result\s*:=\s*1001' `
         -Description 'retained recovery state returns a nonzero setup exit code'
+    Assert-TextContains `
+        -Text $inno `
+        -Pattern 'procedure\s+RaiseInstallerFailure[\s\S]*SetupFailureExitCode\s*:=\s*ExitCode[\s\S]*RaiseException' `
+        -Description 'RaiseException failures retain an explicit nonzero setup exit code'
+    Assert-TextContains `
+        -Text $inno `
+        -Pattern 'if\s+ExitCode\s*=\s*1001[\s\S]*ShowRetainedRecovery[\s\S]*RunBestEffortRollback[\s\S]*RaiseInstallerFailure\([^\)]*1002' `
+        -Description 'installer distinguishes retained recovery from completed rollback'
     Assert-TextExcludes `
         -Text $inno `
         -Pattern '(?m)^\s*MsgBox\s*\(' `
@@ -965,7 +1026,7 @@ function Test-InnoPayloadContract
         -Description 'pending uninstall uses the fixed original-user and machine rollback order'
     Assert-TextContains `
         -Text $uninstallCode.Value `
-        -Pattern 'ResolveRollbackScript[\s\S]*-Phase Rollback[\s\S]*ResolveRollbackScript[\s\S]*RollbackAction RestorePrevious' `
+        -Pattern 'ResolveRollbackScript[\s\S]*-Phase Rollback[\s\S]*ResolveRestoredRollbackScript[\s\S]*RollbackAction RestorePrevious' `
         -Description 'uninstall re-resolves the restored recovery script after machine rollback'
     Assert-TextContains `
         -Text $inno `
