@@ -1100,6 +1100,7 @@ function Test-SparsePackageContract
         -Text $registration `
         -Pattern 'transactionId[\s\S]*Remove-PreviousPackageForReplacement' `
         -Description 'registration transaction binding and same-version replacement'
+    $machineInstaller = Read-RepositoryText -RelativePath 'tools/installer/install-machine.ps1'
     $uninstaller = Read-RepositoryText -RelativePath 'tools/installer/unregister-machine.ps1'
     Assert-TextContains `
         -Text $uninstaller `
@@ -1134,11 +1135,22 @@ function Test-SparsePackageContract
         -Pattern 'function\s+Read-InstallStateWithBackup[\s\S]*Read-UninstallJournal[\s\S]*Restore-InstallStateFromUninstallJournal' `
         -Description 'uninstall retries recover a torn state pair from its journal'
     Assert-TextContains `
+        -Text $machineInstaller `
+        -Pattern 'function\s+Assert-InstallStateRawPair[\s\S]*Assert-InstallStatePair[\s\S]*PrimaryPath' `
+        -Description 'machine recovery requires byte-identical install-state files'
+    Assert-TextContains `
+        -Text $registration `
+        -Pattern 'function\s+Assert-InstallStateRawPair[\s\S]*Get-InstallStatePairStatus[\s\S]*Assert-InstallStateRawPair' `
+        -Description 'user registration rejects byte-divergent install-state files'
+    Assert-TextContains `
+        -Text $uninstaller `
+        -Pattern 'function\s+Assert-InstallStateRawPair[\s\S]*Read-InstallStateWithBackup[\s\S]*PrimaryPath' `
+        -Description 'uninstall rejects byte-divergent install-state files'
+    Assert-TextContains `
         -Text $uninstaller `
         -Pattern 'Get-UninstallPhaseRank[\s\S]*monotonic[\s\S]*return' `
         -Description 'uninstall journal phases never regress on retry'
 
-    $machineInstaller = Read-RepositoryText -RelativePath 'tools/installer/install-machine.ps1'
     Assert-TextContains `
         -Text $machineInstaller `
         -Pattern 'Read-OldInstallState[\s\S]*SkipPayloadIntegrity[\s\S]*filesCommitted' `
@@ -1227,13 +1239,40 @@ function Assert-ProtectedStateAcl
     param([string]$Path)
 }
 
+function Assert-InstallStateRawPair
+{
+    param(
+        [string]$PrimaryPath,
+        [string]$BackupPath
+    )
+    $primaryBytes = [IO.File]::ReadAllBytes($PrimaryPath)
+    $backupBytes = [IO.File]::ReadAllBytes($BackupPath)
+    if ($primaryBytes.Length -ne $backupBytes.Length)
+    {
+        throw 'raw state pair mismatch'
+    }
+    for ($index = 0; $index -lt $primaryBytes.Length; ++$index)
+    {
+        if ($primaryBytes[$index] -ne $backupBytes[$index])
+        {
+            throw 'raw state pair mismatch'
+        }
+    }
+}
+
 function Assert-InstallStatePair
 {
     param(
         [object]$Primary,
-        [object]$Backup
+        [object]$Backup,
+        [string]$PrimaryPath = '',
+        [string]$BackupPath = ''
     )
 
+    if (-not [string]::IsNullOrWhiteSpace($PrimaryPath))
+    {
+        Assert-InstallStateRawPair -PrimaryPath $PrimaryPath -BackupPath $BackupPath
+    }
     if ([string]$Primary.transactionId -ne [string]$Backup.transactionId -or
         [string]$Primary.stateDigest -ne [string]$Backup.stateDigest)
     {
@@ -1298,6 +1337,14 @@ function Restore-InstallStateFromUninstallJournal
             -Condition ([string]$pairState.transactionId -eq
                 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa') `
             -Message 'Uninstaller did not accept a matching state pair.'
+
+        [IO.File]::WriteAllText($backupPath, $state + "`n")
+        Assert-Throws `
+            -Action {
+                & $readerModule $readState $statePath $temporaryRoot
+            } `
+            -Description 'semantically equal but byte-different state pair'
+        [IO.File]::WriteAllText($backupPath, $state)
 
         [IO.File]::WriteAllText($statePath, '{broken')
         Assert-Throws `

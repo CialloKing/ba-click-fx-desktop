@@ -528,6 +528,31 @@ function Get-StateDigest
     }
 }
 
+function Assert-InstallStateRawPair
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$PrimaryPath,
+
+        [Parameter(Mandatory = $true)]
+        [string]$BackupPath
+    )
+
+    $primaryBytes = [IO.File]::ReadAllBytes($PrimaryPath)
+    $backupBytes = [IO.File]::ReadAllBytes($BackupPath)
+    if ($primaryBytes.Length -ne $backupBytes.Length)
+    {
+        throw 'Protected install state primary and backup bytes differ.'
+    }
+    for ($index = 0; $index -lt $primaryBytes.Length; ++$index)
+    {
+        if ($primaryBytes[$index] -ne $backupBytes[$index])
+        {
+            throw 'Protected install state primary and backup bytes differ.'
+        }
+    }
+}
+
 function Assert-InstallStatePair
 {
     param(
@@ -535,8 +560,24 @@ function Assert-InstallStatePair
         [object]$Primary,
 
         [Parameter(Mandatory = $true)]
-        [object]$Backup
+        [object]$Backup,
+
+        [string]$PrimaryPath = '',
+
+        [string]$BackupPath = ''
     )
+
+    if ([string]::IsNullOrWhiteSpace($PrimaryPath) -xor
+        [string]::IsNullOrWhiteSpace($BackupPath))
+    {
+        throw 'Protected install state raw pair paths must be supplied together.'
+    }
+    if (-not [string]::IsNullOrWhiteSpace($PrimaryPath))
+    {
+        Assert-InstallStateRawPair `
+            -PrimaryPath $PrimaryPath `
+            -BackupPath $BackupPath
+    }
 
     $primaryTransaction = [string]$Primary.transactionId
     $backupTransaction = [string]$Backup.transactionId
@@ -945,7 +986,11 @@ function Read-InstallStateWithBackup
     Assert-ProtectedStateAcl -Path $backupPath
     $primary = Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json
     $backup = Get-Content -LiteralPath $backupPath -Raw | ConvertFrom-Json
-    Assert-InstallStatePair -Primary $primary -Backup $backup
+    Assert-InstallStatePair `
+        -Primary $primary `
+        -Backup $backup `
+        -PrimaryPath $Path `
+        -BackupPath $backupPath
     if ($null -ne $journal)
     {
         Read-UninstallJournal -Path $journalPath -State $primary | Out-Null
@@ -1052,7 +1097,11 @@ function Remove-ProtectedInstallStatePair
             }
             $restoredPrimary = Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json
             $restoredBackup = Get-Content -LiteralPath $backupPath -Raw | ConvertFrom-Json
-            Assert-InstallStatePair -Primary $restoredPrimary -Backup $restoredBackup
+            Assert-InstallStatePair `
+                -Primary $restoredPrimary `
+                -Backup $restoredBackup `
+                -PrimaryPath $Path `
+                -BackupPath $backupPath
         }
         catch
         {

@@ -376,7 +376,11 @@ function Write-ProtectedInstallState
 
         $primary = Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json
         $backup = Get-Content -LiteralPath $backupPath -Raw | ConvertFrom-Json
-        Assert-InstallStatePair -Primary $primary -Backup $backup
+        Assert-InstallStatePair `
+            -Primary $primary `
+            -Backup $backup `
+            -PrimaryPath $Path `
+            -BackupPath $backupPath
     }
     finally
     {
@@ -390,6 +394,31 @@ function Write-ProtectedInstallState
     }
 }
 
+function Assert-InstallStateRawPair
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$PrimaryPath,
+
+        [Parameter(Mandatory = $true)]
+        [string]$BackupPath
+    )
+
+    $primaryBytes = [IO.File]::ReadAllBytes($PrimaryPath)
+    $backupBytes = [IO.File]::ReadAllBytes($BackupPath)
+    if ($primaryBytes.Length -ne $backupBytes.Length)
+    {
+        throw 'Protected install state primary and backup bytes differ.'
+    }
+    for ($index = 0; $index -lt $primaryBytes.Length; ++$index)
+    {
+        if ($primaryBytes[$index] -ne $backupBytes[$index])
+        {
+            throw 'Protected install state primary and backup bytes differ.'
+        }
+    }
+}
+
 function Assert-InstallStatePair
 {
     param(
@@ -397,8 +426,24 @@ function Assert-InstallStatePair
         [object]$Primary,
 
         [Parameter(Mandatory = $true)]
-        [object]$Backup
+        [object]$Backup,
+
+        [string]$PrimaryPath = '',
+
+        [string]$BackupPath = ''
     )
+
+    if ([string]::IsNullOrWhiteSpace($PrimaryPath) -xor
+        [string]::IsNullOrWhiteSpace($BackupPath))
+    {
+        throw 'Protected install state raw pair paths must be supplied together.'
+    }
+    if (-not [string]::IsNullOrWhiteSpace($PrimaryPath))
+    {
+        Assert-InstallStateRawPair `
+            -PrimaryPath $PrimaryPath `
+            -BackupPath $BackupPath
+    }
 
     $primaryTransaction = if ($null -eq $Primary.PSObject.Properties['transactionId'])
     {
@@ -2090,7 +2135,11 @@ function Read-OldInstallState
     Assert-ProtectedStateAcl -Path $backupPath
     $primary = Get-Content -LiteralPath $path -Raw | ConvertFrom-Json
     $backup = Get-Content -LiteralPath $backupPath -Raw | ConvertFrom-Json
-    Assert-InstallStatePair -Primary $primary -Backup $backup
+    Assert-InstallStatePair `
+        -Primary $primary `
+        -Backup $backup `
+        -PrimaryPath $path `
+        -BackupPath $backupPath
     return Assert-InstallStateObject `
         -State $primary `
         -InstallRoot $InstallRoot `
@@ -3116,7 +3165,11 @@ function Save-PreviousInstallStatePair
 
     $primary = Get-Content -LiteralPath $primaryPath -Raw | ConvertFrom-Json
     $backup = Get-Content -LiteralPath $backupPath -Raw | ConvertFrom-Json
-    Assert-InstallStatePair -Primary $primary -Backup $backup
+    Assert-InstallStatePair `
+        -Primary $primary `
+        -Backup $backup `
+        -PrimaryPath $primaryPath `
+        -BackupPath $backupPath
 
     $stateBackupRoot = Join-Path $RollbackRoot 'state-before'
     New-Item -ItemType Directory -Path $stateBackupRoot -Force | Out-Null
@@ -3641,7 +3694,11 @@ function Restore-PreviousInstallStatePair
         }
         $restoredPrimary = Get-Content -LiteralPath $primaryPath -Raw | ConvertFrom-Json
         $restoredBackup = Get-Content -LiteralPath $backupPath -Raw | ConvertFrom-Json
-        Assert-InstallStatePair -Primary $restoredPrimary -Backup $restoredBackup
+        Assert-InstallStatePair `
+            -Primary $restoredPrimary `
+            -Backup $restoredBackup `
+            -PrimaryPath $primaryPath `
+            -BackupPath $backupPath
         return
     }
     if (-not $previousStatePresent)
@@ -3719,7 +3776,11 @@ function Restore-PreviousInstallStatePair
     }
     $restoredPrimary = Get-Content -LiteralPath $primaryPath -Raw | ConvertFrom-Json
     $restoredBackup = Get-Content -LiteralPath $backupPath -Raw | ConvertFrom-Json
-    Assert-InstallStatePair -Primary $restoredPrimary -Backup $restoredBackup
+    Assert-InstallStatePair `
+        -Primary $restoredPrimary `
+        -Backup $restoredBackup `
+        -PrimaryPath $primaryPath `
+        -BackupPath $backupPath
 }
 
 function Invoke-PendingRollback

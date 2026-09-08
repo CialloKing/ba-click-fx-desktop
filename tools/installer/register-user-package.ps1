@@ -122,6 +122,31 @@ function Get-StateDigest
     }
 }
 
+function Assert-InstallStateRawPair
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$PrimaryPath,
+
+        [Parameter(Mandatory = $true)]
+        [string]$BackupPath
+    )
+
+    $primaryBytes = [IO.File]::ReadAllBytes($PrimaryPath)
+    $backupBytes = [IO.File]::ReadAllBytes($BackupPath)
+    if ($primaryBytes.Length -ne $backupBytes.Length)
+    {
+        throw 'Protected install state primary and backup bytes differ.'
+    }
+    for ($index = 0; $index -lt $primaryBytes.Length; ++$index)
+    {
+        if ($primaryBytes[$index] -ne $backupBytes[$index])
+        {
+            throw 'Protected install state primary and backup bytes differ.'
+        }
+    }
+}
+
 function Get-InstallStatePairStatus
 {
     param(
@@ -159,6 +184,9 @@ function Get-InstallStatePairStatus
     {
         Assert-ProtectedStateAcl -Path $statePath
         Assert-ProtectedStateAcl -Path $backupPath
+        Assert-InstallStateRawPair `
+            -PrimaryPath $statePath `
+            -BackupPath $backupPath
         $primary = Get-Content -LiteralPath $statePath -Raw | ConvertFrom-Json
         $backup = Get-Content -LiteralPath $backupPath -Raw | ConvertFrom-Json
         $primaryTransaction = if ($null -eq $primary.PSObject.Properties['transactionId'])
