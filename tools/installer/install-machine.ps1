@@ -32,6 +32,7 @@ $script:InstallerRelatedFailures = New-Object Collections.Generic.List[object]
 $script:PayloadRoot = ''
 $script:RollbackRoot = ''
 $script:PayloadManifest = $null
+$script:PayloadFileSet = ''
 
 function Add-InstallerRelatedFailure
 {
@@ -715,6 +716,163 @@ function Ensure-ProtectedInstallerDirectory
     return $created
 }
 
+function Normalize-PayloadRelativePath
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Description
+    )
+
+    $normalized = $Path.Replace('/', '\')
+    if ([string]::IsNullOrWhiteSpace($normalized) -or
+        [IO.Path]::IsPathRooted($normalized) -or
+        $normalized.StartsWith('\') -or
+        $normalized.EndsWith('\') -or
+        $normalized -match '(^|\\)(\.|\.\.)(\\|$)' -or
+        $normalized -match '[<>:"|?*\x00-\x1f]')
+    {
+        throw "The payload manifest has an unsafe $Description path: $Path"
+    }
+    return $normalized.Replace('\', '/')
+}
+
+function Get-PayloadFileSetLedger
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [object]$Manifest
+    )
+
+    $paths = New-Object Collections.Generic.List[string]
+    $seen = @{}
+    foreach ($entry in @($Manifest.files))
+    {
+        if ($null -eq $entry -or $entry -is [string] -or
+            $null -eq $entry.PSObject.Properties['path'])
+        {
+            throw 'The payload manifest contains an invalid file entry.'
+        }
+        $normalized = Normalize-PayloadRelativePath `
+            -Path ([string]$entry.path) `
+            -Description 'file'
+        $key = $normalized.ToUpperInvariant()
+        if ($seen.ContainsKey($key))
+        {
+            throw "The payload manifest contains a duplicate file path: $($entry.path)"
+        }
+        $seen[$key] = $true
+        $paths.Add($normalized)
+    }
+    return (@($paths | Sort-Object { $_.ToUpperInvariant() }) -join '|')
+}
+
+function Normalize-PayloadFileSetLedger
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Ledger
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Ledger))
+    {
+        return ''
+    }
+    $paths = New-Object Collections.Generic.List[string]
+    $seen = @{}
+    foreach ($path in @($Ledger -split '\|'))
+    {
+        $normalized = Normalize-PayloadRelativePath `
+            -Path $path.Trim() `
+            -Description 'file-set'
+        $key = $normalized.ToUpperInvariant()
+        if ($seen.ContainsKey($key))
+        {
+            throw "The payload file-set ledger contains a duplicate path: $path"
+        }
+        $seen[$key] = $true
+        $paths.Add($normalized)
+    }
+    return (@($paths | Sort-Object { $_.ToUpperInvariant() }) -join '|')
+}
+
+function Assert-PayloadFileSetMatchesState
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [object]$State,
+
+        [Parameter(Mandatory = $true)]
+        [object]$Manifest
+    )
+
+    if ($null -eq $State.PSObject.Properties['payloadFileSet'])
+    {
+        return
+    }
+    $expected = Normalize-PayloadFileSetLedger `
+        -Ledger ([string]$State.payloadFileSet)
+    $actual = Get-PayloadFileSetLedger -Manifest $Manifest
+    if ([string]::IsNullOrWhiteSpace($expected) -or
+        $expected -ine $actual)
+    {
+        throw 'The payload file set does not match the protected pending state.'
+    }
+}
+
+function Assert-PayloadFileSetAgreement
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [object]$State,
+
+        [Parameter(Mandatory = $true)]
+        [object]$Manifest
+    )
+
+    $entryFileSet = Get-PayloadFileSetLedger -Manifest $Manifest
+    $hasStateFileSet = $null -ne $State.PSObject.Properties['payloadFileSet']
+    $hasManifestFileSet = $null -ne $Manifest.PSObject.Properties['payloadFileSet']
+    $stateFileSet = ''
+    $manifestFileSet = ''
+
+    if ($hasStateFileSet)
+    {
+        $stateFileSet = Normalize-PayloadFileSetLedger `
+            -Ledger ([string]$State.payloadFileSet)
+        if ([string]::IsNullOrWhiteSpace($stateFileSet))
+        {
+            throw 'The protected pending state has an empty payload file set.'
+        }
+        if ($stateFileSet -ine $entryFileSet)
+        {
+            throw 'The rollback manifest entries do not match the protected pending file set.'
+        }
+    }
+
+    if ($hasManifestFileSet)
+    {
+        $manifestFileSet = Normalize-PayloadFileSetLedger `
+            -Ledger ([string]$Manifest.payloadFileSet)
+        if ([string]::IsNullOrWhiteSpace($manifestFileSet))
+        {
+            throw 'The rollback manifest has an empty payload file set.'
+        }
+        if ($manifestFileSet -ine $entryFileSet)
+        {
+            throw 'The rollback manifest file set does not match its entries.'
+        }
+    }
+
+    if ($hasStateFileSet -and $hasManifestFileSet -and
+        $stateFileSet -ine $manifestFileSet)
+    {
+        throw 'The pending state and rollback manifest file sets disagree.'
+    }
+}
+
 function Read-PayloadManifest
 {
     param(
@@ -751,6 +909,10 @@ function Assert-FileHash
     )
 
     $file = Get-Item -LiteralPath $Path -ErrorAction Stop
+    if (($file.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0)
+    {
+        throw "Installer evidence cannot be a reparse point: $Path"
+    }
     if ($file.Length -ne $ExpectedBytes)
     {
         throw "Payload size mismatch: $Path"
@@ -841,6 +1003,7 @@ function Assert-PayloadManifest
     )
 
     $manifest = Read-PayloadManifest -PayloadRoot $InstallRoot
+    $payloadFileSet = Get-PayloadFileSetLedger -Manifest $manifest
     $hostEntries = @(
         @($manifest.files) |
             Where-Object { [string]$_.path -eq 'ba-click-fx-desktop.exe' }
@@ -853,11 +1016,9 @@ function Assert-PayloadManifest
     $rootPrefix = $InstallRoot.TrimEnd('\') + '\'
     foreach ($entry in @($manifest.files))
     {
-        $relativePath = [string]$entry.path
-        if ([IO.Path]::IsPathRooted($relativePath) -or $relativePath.Contains('..'))
-        {
-            throw "Unsafe payload path: $relativePath"
-        }
+        $relativePath = Normalize-PayloadRelativePath `
+            -Path ([string]$entry.path) `
+            -Description 'file'
         $fullPath = [IO.Path]::GetFullPath((Join-Path $InstallRoot $relativePath))
         if (-not $fullPath.StartsWith($rootPrefix, [StringComparison]::OrdinalIgnoreCase))
         {
@@ -869,6 +1030,7 @@ function Assert-PayloadManifest
             -ExpectedSha256 ([string]$entry.sha256)
     }
     $script:PayloadManifest = $manifest
+    $script:PayloadFileSet = $payloadFileSet
     return ([string]$hostEntries[0].sha256).ToUpperInvariant()
 }
 
@@ -2579,6 +2741,11 @@ function Assert-PendingStateObject
     {
         throw 'Protected pending state digest does not match its content.'
     }
+    if ($null -ne $State.PSObject.Properties['payloadFileSet'])
+    {
+        $null = Normalize-PayloadFileSetLedger `
+            -Ledger ([string]$State.payloadFileSet)
+    }
     $certificatePhase = if ($null -ne $State.PSObject.Properties['certificatePhase'])
     {
         [string]$State.certificatePhase
@@ -3232,6 +3399,117 @@ function Assert-RollbackManifestBackup
     return $path
 }
 
+function Get-RollbackEvidenceWriteRights
+{
+    return [int](
+        [Security.AccessControl.FileSystemRights]::WriteData -bor
+        [Security.AccessControl.FileSystemRights]::AppendData -bor
+        [Security.AccessControl.FileSystemRights]::CreateFiles -bor
+        [Security.AccessControl.FileSystemRights]::CreateDirectories -bor
+        [Security.AccessControl.FileSystemRights]::WriteExtendedAttributes -bor
+        [Security.AccessControl.FileSystemRights]::WriteAttributes -bor
+        [Security.AccessControl.FileSystemRights]::Delete -bor
+        [Security.AccessControl.FileSystemRights]::DeleteSubdirectoriesAndFiles -bor
+        [Security.AccessControl.FileSystemRights]::ChangePermissions -bor
+        [Security.AccessControl.FileSystemRights]::TakeOwnership)
+}
+
+function Assert-RollbackEvidenceAclCanBeHardened
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path
+    )
+
+    $acl = Get-Acl -LiteralPath $Path -ErrorAction Stop
+    $writeRights = Get-RollbackEvidenceWriteRights
+    foreach ($rule in $acl.Access)
+    {
+        if ($rule.AccessControlType -ne
+            [Security.AccessControl.AccessControlType]::Allow)
+        {
+            continue
+        }
+        try
+        {
+            $sid = $rule.IdentityReference.Translate(
+                [Security.Principal.SecurityIdentifier]).Value
+        }
+        catch
+        {
+            throw "The rollback evidence ACL contains an unresolvable identity: $Path"
+        }
+        if ($sid -in @('S-1-5-18', 'S-1-5-32-544'))
+        {
+            continue
+        }
+        if (([int]$rule.FileSystemRights -band $writeRights) -ne 0)
+        {
+            throw "The rollback evidence has non-administrator write access: $Path"
+        }
+    }
+}
+
+function Ensure-RollbackEvidenceAcl
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$RollbackRoot
+    )
+
+    $rootItem = Get-Item -LiteralPath $RollbackRoot -Force -ErrorAction Stop
+    if (($rootItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0)
+    {
+        throw 'The rollback manifest root cannot be a reparse point.'
+    }
+
+    # The parent controls whether a non-administrator can replace or delete the
+    # transaction directory. Do not rewrite that shared directory, but reject it
+    # if its current ACL grants an unsafe write right.
+    $parentPath = [IO.Path]::GetDirectoryName($RollbackRoot)
+    if ([string]::IsNullOrWhiteSpace($parentPath) -or
+        -not (Test-Path -LiteralPath $parentPath -PathType Container))
+    {
+        throw 'The rollback evidence parent directory is missing.'
+    }
+    $parentItem = Get-Item -LiteralPath $parentPath -Force
+    if (($parentItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0)
+    {
+        throw 'The rollback evidence parent directory cannot be a reparse point.'
+    }
+    Assert-RollbackEvidenceAclCanBeHardened -Path $parentPath
+
+    $items = @($rootItem) + @(
+        Get-ChildItem -LiteralPath $RollbackRoot -Recurse -Force -ErrorAction Stop)
+    $needsHardening = $false
+    foreach ($item in $items)
+    {
+        if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0)
+        {
+            throw "The rollback evidence cannot contain a reparse point: $($item.FullName)"
+        }
+        Assert-RollbackEvidenceAclCanBeHardened -Path $item.FullName
+        $itemAcl = Get-Acl -LiteralPath $item.FullName -ErrorAction Stop
+        if (-not $itemAcl.AreAccessRulesProtected)
+        {
+            $needsHardening = $true
+        }
+    }
+
+    if ($needsHardening)
+    {
+        # Harden every existing node, including backups, before any manifest
+        # field is trusted. Legacy installers used inherited ACLs here.
+        foreach ($item in @(
+                $items | Sort-Object {
+                    ([string]$_.FullName).Length
+                }))
+        {
+            Set-ProtectedStateAcl -Path $item.FullName -ReadSid ''
+        }
+    }
+}
+
 function Assert-PayloadRollbackManifest
 {
     param(
@@ -3267,6 +3545,7 @@ function Assert-PayloadRollbackManifest
     {
         throw 'The payload rollback manifest cannot be a reparse point.'
     }
+    Ensure-RollbackEvidenceAcl -RollbackRoot $rollbackRoot
     Assert-ProtectedStateAcl -Path $rollbackRoot
     Assert-ProtectedStateAcl -Path $ManifestPath
 
@@ -3369,6 +3648,13 @@ function Assert-PayloadRollbackManifest
             throw "The rollback manifest records evidence for a missing file: $relativePath"
         }
     }
+
+    # The rollback entry list is itself untrusted. Keep it bound to the payload
+    # ledger recorded before commit, while accepting legacy transactions that
+    # predate the optional payloadFileSet field.
+    Assert-PayloadFileSetAgreement `
+        -State $State `
+        -Manifest $Manifest
 
     if ($null -eq $Manifest.PSObject.Properties['oldPackageFile'] -or
         $null -eq $Manifest.PSObject.Properties['oldPackageBackupPath'] -or
@@ -3948,6 +4234,7 @@ function New-PayloadRollbackManifest
     $manifest = [ordered]@{
         schema = 1
         transactionId = [string]$State.transactionId
+        payloadFileSet = [string]$script:PayloadFileSet
         files = @($entries)
         oldPackageFile = if ($null -eq $State.oldInstallState) { '' } else { [string]$State.oldInstallState.packageFile }
         oldPackageBackupPath = $oldPackageBackupPath.Replace('\', '/')
@@ -3991,6 +4278,9 @@ function Commit-PayloadFiles
 
     $script:InstallerStep = 'validate-commit-payload'
     Assert-PayloadManifest -InstallRoot $PayloadRoot | Out-Null
+    Assert-PayloadFileSetMatchesState `
+        -State $State `
+        -Manifest $script:PayloadManifest
     $rollbackManifest = New-PayloadRollbackManifest `
         -State $State `
         -InstallRoot $InstallRoot `
@@ -5009,6 +5299,7 @@ if ($Phase -eq 'Prepare')
             productVersion = $ProductVersion
             packageVersion = $PackageVersion
             transactionId = [Guid]::NewGuid().ToString('N')
+            payloadFileSet = [string]$script:PayloadFileSet
             templateSha256 = [string]$metadata.templateSha256
             preexistingPackageFullNames = $preexistingFullNames
             oldInstallState = $oldInstallState

@@ -454,6 +454,26 @@ function Test-InstallerScriptWhitelist
         -Description 'all rollback restore paths revalidate the manifest'
     Assert-TextContains `
         -Text $installMachine `
+        -Pattern 'function\s+Ensure-RollbackEvidenceAcl[\s\S]*Assert-RollbackEvidenceAclCanBeHardened[\s\S]*Set-ProtectedStateAcl' `
+        -Description 'legacy rollback evidence ACLs are hardened only after write-access checks'
+    Assert-TextContains `
+        -Text $installMachine `
+        -Pattern 'function\s+Assert-PayloadFileSetMatchesState' `
+        -Description 'payload file-set ledger validation is implemented'
+    Assert-TextContains `
+        -Text $installMachine `
+        -Pattern 'Assert-PayloadManifest\s+-InstallRoot\s+\$PayloadRoot[\s\S]*Assert-PayloadFileSetMatchesState' `
+        -Description 'commit validates the payload file-set ledger before writing live files'
+    Assert-TextContains `
+        -Text $installMachine `
+        -Pattern 'payloadFileSet\s*=\s*\[string\]\$script:PayloadFileSet' `
+        -Description 'rollback manifests carry a scalar payload file-set ledger'
+    Assert-TextContains `
+        -Text $installMachine `
+        -Pattern 'function\s+Assert-PayloadFileSetAgreement[\s\S]*stateFileSet[\s\S]*manifestFileSet[\s\S]*entryFileSet' `
+        -Description 'rollback manifests carry a scalar payload file-set ledger'
+    Assert-TextContains `
+        -Text $installMachine `
         -Pattern 'previousStatePrimaryBytes[\s\S]*previousStatePrimarySha256[\s\S]*previousStateBackupBytes[\s\S]*previousStateBackupSha256' `
         -Description 'rollback manifest records previous state backup evidence'
     $null = Get-CompressionRuntimeLoadStatements -InstallMachine $installMachine
@@ -1944,6 +1964,10 @@ function Test-PayloadRollbackManifestContract
         'Convert-StateToCanonicalJson',
         'Get-StateDigest',
         'Assert-FileHash',
+        'Normalize-PayloadRelativePath',
+        'Get-PayloadFileSetLedger',
+        'Normalize-PayloadFileSetLedger',
+        'Assert-PayloadFileSetAgreement',
         'Assert-InstallStateRawPair',
         'Assert-InstallStatePair',
         'Resolve-InstallerRelativePath',
@@ -1955,6 +1979,7 @@ function Test-PayloadRollbackManifestContract
         "Set-StrictMode -Version Latest"
         "`$ErrorActionPreference = 'Stop'"
         'function Assert-ProtectedStateAcl { param([string]$Path) }'
+        'function Ensure-RollbackEvidenceAcl { param([string]$RollbackRoot) }'
         foreach ($name in $functionNames)
         {
             Get-FunctionText -Ast $ast -Name $name
@@ -1986,6 +2011,7 @@ function Test-PayloadRollbackManifestContract
         $baseManifest = [ordered]@{
             schema = 1
             transactionId = $transactionId
+            payloadFileSet = 'ba-click-fx-desktop.exe'
             files = @($entry)
             oldPackageFile = ''
             oldPackageBackupPath = ''
@@ -2029,6 +2055,7 @@ function Test-PayloadRollbackManifestContract
         } $baseManifest
         $state = [pscustomobject]@{
             transactionId = $transactionId
+            payloadFileSet = 'ba-click-fx-desktop.exe'
             oldInstallState = $null
         }
         $manifestPath = Join-Path $rollbackRoot 'ROLLBACK-MANIFEST.json'
@@ -2043,6 +2070,30 @@ function Test-PayloadRollbackManifestContract
                 -Manifest $Manifest `
                 -ManifestPath $Path
         } $state $installRoot $manifest $manifestPath
+
+        # Every path below is syntactically valid and the existing backup is
+        # intact; only the protected file-set ledger exposes the missing entry.
+        $missingEntryManifest = $baseManifest | ConvertTo-Json -Depth 12 |
+            ConvertFrom-Json
+        $missingEntryManifest.payloadFileSet =
+            'ba-click-fx-desktop.exe|BAFX.ControlCenter.exe'
+        $missingEntryState = [pscustomobject]@{
+            transactionId = $transactionId
+            payloadFileSet = 'ba-click-fx-desktop.exe|BAFX.ControlCenter.exe'
+            oldInstallState = $null
+        }
+        Assert-Throws `
+            -Action {
+                & $probeModule {
+                    param($State, $Root, $Manifest, $Path)
+                    Assert-PayloadRollbackManifest `
+                        -State $State `
+                        -InstallRoot $Root `
+                        -Manifest $Manifest `
+                        -ManifestPath $Path
+                } $missingEntryState $installRoot $missingEntryManifest $manifestPath
+            } `
+            -Description 'rollback manifest omits a valid payload file entry'
 
         [IO.File]::WriteAllText($backupPath, 'tampered')
         Assert-Throws `
