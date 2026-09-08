@@ -1119,6 +1119,30 @@ function Test-CertificateStoreSnapshotContains
         "${normalizedThumbprint}:$normalizedSha256"
 }
 
+function Assert-CertificateStoreSnapshot
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [AllowEmptyString()]
+        [string]$Snapshot
+    )
+
+    $seen = @{}
+    foreach ($entry in (Split-Ledger -Value $Snapshot -Separator Pipe))
+    {
+        if ($entry -notmatch '^(?<thumbprint>[0-9A-Fa-f]{40}):(?<sha256>[0-9A-Fa-f]{64})$')
+        {
+            throw 'The certificate creation snapshot contains invalid evidence.'
+        }
+        $normalized = ($matches.thumbprint + ':' + $matches.sha256).ToUpperInvariant()
+        if ($seen.ContainsKey($normalized))
+        {
+            throw 'The certificate creation snapshot contains duplicate evidence.'
+        }
+        $seen[$normalized] = $true
+    }
+}
+
 function Get-CertificateByThumbprint
 {
     param(
@@ -2757,8 +2781,8 @@ function Assert-PendingStateObject
     if ($certificatePhase -eq 'creating')
     {
         if ($null -eq $State.PSObject.Properties['certificateSanUri'] -or
-            [string]$State.certificateSanUri -notmatch
-                '^urn:bafx:installer:[0-9a-fA-F]{32}$')
+            [string]$State.certificateSanUri -cne
+                "urn:bafx:installer:$([string]$State.transactionId)")
         {
             throw 'Protected pending state has an invalid certificate creation marker.'
         }
@@ -3187,89 +3211,144 @@ function Recover-CreatingCertificate
     )
 
     if ($null -eq $State.PSObject.Properties['certificatePhase'] -or
-        [string]$State.certificatePhase -ne 'creating' -or
-        [string]$State.transactionId -notmatch '^[0-9a-fA-F]{32}$')
+        [string]$State.certificatePhase -ne 'creating')
     {
         return
     }
-    $sanUri = if ($null -ne $State.PSObject.Properties['certificateSanUri'])
+    if ([string]$State.transactionId -notmatch '^[0-9a-fA-F]{32}$' -or
+        [string]$State.publisher -ne 'CN=BaClickFx.Local')
     {
-        [string]$State.certificateSanUri
+        throw 'The certificate creation journal has invalid transaction identity.'
     }
-    else
+    $expectedSanUri = "urn:bafx:installer:$([string]$State.transactionId)"
+    if ($null -eq $State.PSObject.Properties['certificateSanUri'] -or
+        [string]$State.certificateSanUri -cne $expectedSanUri)
     {
-        "urn:bafx:installer:$([string]$State.transactionId)"
+        throw 'The certificate creation journal has an invalid SAN marker.'
     }
-    if ([string]::IsNullOrWhiteSpace($sanUri))
+    if ($null -eq $State.PSObject.Properties['certificatePreexisting'])
     {
-        return
+        # Without the pre-creation snapshot, a matching certificate could be
+        # user-owned. Keep the journal so repair never turns uncertainty into
+        # a destructive ownership decision.
+        throw 'The certificate creation journal has no ownership snapshot.'
     }
-    $preexistingSnapshot = if ($null -ne $State.PSObject.Properties['certificatePreexisting'])
+    $preexistingSnapshot = [string]$State.certificatePreexisting
+    Assert-CertificateStoreSnapshot -Snapshot $preexistingSnapshot
+
+    $recordedThumbprint = ''
+    if ($null -ne $State.PSObject.Properties['certificateThumbprint'])
     {
-        [string]$State.certificatePreexisting
+        $recordedThumbprint = [string]$State.certificateThumbprint
     }
-    else
+    if (-not [string]::IsNullOrWhiteSpace($recordedThumbprint) -and
+        $recordedThumbprint -notmatch '^[0-9A-Fa-f]{40}$')
     {
-        # A legacy creating journal cannot prove that a matching certificate
-        # was created by this transaction. Preserve it rather than deleting a
-        # user's pre-existing key during recovery.
-        return
+        throw 'The certificate creation journal has an invalid recorded thumbprint.'
     }
-    $recordedThumbprint = if ($null -ne $State.PSObject.Properties['certificateThumbprint'])
+    $recordedCertificateSha256 = ''
+    if ($null -ne $State.PSObject.Properties['certificateSha256'])
     {
-        [string]$State.certificateThumbprint
+        $recordedCertificateSha256 = [string]$State.certificateSha256
     }
-    else
+    if ([string]::IsNullOrWhiteSpace($recordedThumbprint))
     {
-        ''
+        if (-not [string]::IsNullOrWhiteSpace($recordedCertificateSha256))
+        {
+            throw 'The certificate creation journal recorded a hash without a thumbprint.'
+        }
     }
+    elseif ($recordedCertificateSha256 -notmatch '^[0-9A-Fa-f]{64}$')
+    {
+        throw 'The certificate creation journal has no valid certificate hash.'
+    }
+
+    $certificatesToRemove = New-Object Collections.Generic.List[object]
+    $matchingCertificateKeys = @{}
     foreach ($storeName in @('My', 'TrustedPeople'))
     {
         $certificates = @(Get-ChildItem -Path "Cert:\LocalMachine\$storeName")
         foreach ($candidate in $certificates)
         {
-            if (-not (Test-CertificateSanUri -Certificate $candidate -SanUri $sanUri))
+            $candidateThumbprint = ([string]$candidate.Thumbprint).ToUpperInvariant()
+            $matchesRecordedThumbprint =
+                -not [string]::IsNullOrWhiteSpace($recordedThumbprint) -and
+                $candidateThumbprint -eq $recordedThumbprint.ToUpperInvariant()
+            $matchesSan = Test-CertificateSanUri `
+                -Certificate $candidate `
+                -SanUri $expectedSanUri
+            if (-not $matchesSan)
             {
+                if ($matchesRecordedThumbprint)
+                {
+                    throw 'The recorded certificate does not carry the transaction SAN marker.'
+                }
                 continue
             }
             if ($candidate.Subject -ne [string]$State.publisher)
             {
-                continue
+                throw 'The transaction SAN marker belongs to an unexpected certificate subject.'
             }
             $candidateSha256 = Get-CertificateSha256 -Certificate $candidate
             if (Test-CertificateStoreSnapshotContains `
                     -Snapshot $preexistingSnapshot `
-                    -Thumbprint ([string]$candidate.Thumbprint) `
+                    -Thumbprint $candidateThumbprint `
                     -CertificateSha256 $candidateSha256)
             {
                 continue
             }
             if (-not [string]::IsNullOrWhiteSpace($recordedThumbprint) -and
-                ([string]$candidate.Thumbprint).ToUpperInvariant() -ne
-                    $recordedThumbprint.ToUpperInvariant())
+                -not $matchesRecordedThumbprint)
             {
-                continue
+                throw 'The transaction SAN marker does not match the recorded certificate.'
             }
-            $candidatePath = $candidate.PSPath
-            if ($storeName -eq 'My')
+            if (-not [string]::IsNullOrWhiteSpace($recordedCertificateSha256) -and
+                $candidateSha256 -ne $recordedCertificateSha256)
             {
-                Remove-Item -LiteralPath $candidatePath -DeleteKey -Force
-                if ($null -ne (Get-ChildItem -Path 'Cert:\LocalMachine\My' |
-                        Where-Object { $_.Thumbprint -eq $candidate.Thumbprint } |
-                        Select-Object -First 1))
-                {
-                    throw "The recovery private certificate remains: $($candidate.Thumbprint)"
-                }
+                throw 'The recorded certificate hash does not match the certificate store.'
             }
-            else
+            $candidateKey = "${candidateThumbprint}:$($candidateSha256.ToUpperInvariant())"
+            if (-not $matchingCertificateKeys.ContainsKey($candidateKey))
             {
-                Remove-Item -LiteralPath $candidatePath -Force
-                if ($null -ne (Get-ChildItem -Path 'Cert:\LocalMachine\TrustedPeople' |
-                        Where-Object { $_.Thumbprint -eq $candidate.Thumbprint } |
-                        Select-Object -First 1))
-                {
-                    throw "The recovery trusted certificate remains: $($candidate.Thumbprint)"
-                }
+                $matchingCertificateKeys[$candidateKey] = $true
+            }
+            $certificatesToRemove.Add([pscustomobject]@{
+                    storeName = $storeName
+                    certificate = $candidate
+                })
+        }
+    }
+
+    if ([string]::IsNullOrWhiteSpace($recordedThumbprint) -and
+        $matchingCertificateKeys.Count -gt 1)
+    {
+        throw 'The transaction SAN marker matches multiple certificates.'
+    }
+
+    # Validate every matching entry before deleting either store copy. A
+    # conflicting marker therefore leaves all evidence intact for repair.
+    foreach ($entry in $certificatesToRemove)
+    {
+        $candidate = $entry.certificate
+        $candidatePath = $candidate.PSPath
+        if ([string]$entry.storeName -eq 'My')
+        {
+            Remove-Item -LiteralPath $candidatePath -DeleteKey -Force
+            if ($null -ne (Get-ChildItem -Path 'Cert:\LocalMachine\My' |
+                    Where-Object { $_.Thumbprint -eq $candidate.Thumbprint } |
+                    Select-Object -First 1))
+            {
+                throw "The recovery private certificate remains: $($candidate.Thumbprint)"
+            }
+        }
+        else
+        {
+            Remove-Item -LiteralPath $candidatePath -Force
+            if ($null -ne (Get-ChildItem -Path 'Cert:\LocalMachine\TrustedPeople' |
+                    Where-Object { $_.Thumbprint -eq $candidate.Thumbprint } |
+                    Select-Object -First 1))
+            {
+                throw "The recovery trusted certificate remains: $($candidate.Thumbprint)"
             }
         }
     }
@@ -5137,6 +5216,10 @@ if ($Phase -eq 'RollbackCleanup')
         $pendingState = Get-Content `
             -LiteralPath $machineStateFullPath `
             -Raw | ConvertFrom-Json
+        $pendingState = Assert-PendingStateObject `
+            -State $pendingState `
+            -InstallRoot $installRoot `
+            -PayloadDirectory $script:PayloadRoot
         Recover-CreatingCertificate -State $pendingState
         if ($null -ne $pendingState.PSObject.Properties['certificatePhase'] -and
             [string]$pendingState.certificatePhase -eq 'creating')
@@ -5146,10 +5229,6 @@ if ($Phase -eq 'RollbackCleanup')
             Remove-Item -LiteralPath $machineStateFullPath -Force
             exit 0
         }
-        $pendingState = Assert-PendingStateObject `
-            -State $pendingState `
-            -InstallRoot $installRoot `
-            -PayloadDirectory $script:PayloadRoot
         $script:InstallerStep = 'cleanup-rolled-back-package-and-certificate'
         Invoke-PendingRollbackCleanup `
             -State $pendingState `
@@ -5208,10 +5287,10 @@ if ($Phase -eq 'Prepare')
             $script:InstallerStep = 'recover-stale-transaction'
             Assert-ProtectedStateAcl -Path $machineStateFullPath
             $stalePending = Get-Content -LiteralPath $machineStateFullPath -Raw | ConvertFrom-Json
-            Recover-CreatingCertificate -State $stalePending
             $stalePending = Assert-PendingStateObject `
                 -State $stalePending `
                 -InstallRoot $installRoot
+            Recover-CreatingCertificate -State $stalePending
             # Recovery has to remove/restore the user's AppX registration in a
             # separate original-user process. Leave this journal untouched and
             # let the Inno coordinator execute the fixed four-step sequence.

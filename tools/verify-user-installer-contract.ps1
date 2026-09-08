@@ -253,6 +253,109 @@ function Test-PowerShellScriptContracts
     }
 }
 
+function Test-CertificateCreationRecoveryContract
+{
+    $machineAst = Get-ParsedScript `
+        -RelativePath 'tools/installer/install-machine.ps1'
+    $snapshotText = Get-FunctionText `
+        -Ast $machineAst `
+        -Name 'Assert-CertificateStoreSnapshot'
+    $pendingText = Get-FunctionText `
+        -Ast $machineAst `
+        -Name 'Assert-PendingStateObject'
+    $recoveryText = Get-FunctionText `
+        -Ast $machineAst `
+        -Name 'Recover-CreatingCertificate'
+    $cleanupText = Get-FunctionText `
+        -Ast $machineAst `
+        -Name 'Invoke-PendingRollbackCleanup'
+
+    Assert-TextContains `
+        -Text $recoveryText `
+        -Pattern 'no ownership snapshot[sS]*throw[sS]*Assert-CertificateStoreSnapshot[sS]*matchingCertificateKeys[sS]*-gts+1' `
+        -Description 'certificate recovery retains ambiguous ownership evidence'
+    Assert-TextContains `
+        -Text $recoveryText `
+        -Pattern 'recorded certificate does not carry the transaction SAN marker[sS]*recorded certificate hash does not match' `
+        -Description 'certificate recovery validates the recorded SAN and DER hash'
+    Assert-TextContains `
+        -Text $cleanupText `
+        -Pattern 'Recover-CreatingCertificates+-States+$State[sS]*Test-Paths+-LiteralPaths+$PendingPath' `
+        -Description 'pending cleanup deletes its journal only after certificate recovery'
+    Assert-TextContains `
+        -Text (Get-FunctionText -Ast $machineAst -Name 'Assert-PendingStateObject') `
+        -Pattern 'certificateSanUris+-cne[sS]*urn:bafx:installer' `
+        -Description 'creating journals bind the SAN marker to the transaction id'
+
+    function Split-Ledger
+    {
+        param(
+            [AllowNull()]
+            [object]$Value,
+
+            [Parameter(Mandatory = $true)]
+            [ValidateSet('Comma', 'Pipe')]
+            [string]$Separator
+        )
+
+        if ($null -eq $Value -or [string]::IsNullOrWhiteSpace([string]$Value))
+        {
+            return @()
+        }
+        $pattern = if ($Separator -eq 'Comma') { ',' } else { '\|' }
+        return @(
+            ([string]$Value -split $pattern) |
+                Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
+                ForEach-Object { $_.Trim() }
+        )
+    }
+
+    . ([scriptblock]::Create($snapshotText))
+    . ([scriptblock]::Create($pendingText))
+    $validSnapshot = ('1' * 40) + ':' + ('2' * 64)
+    Assert-CertificateStoreSnapshot -Snapshot $validSnapshot
+    Assert-Throws `
+        -Action {
+            Assert-CertificateStoreSnapshot `
+                -Snapshot (('1' * 40) + ':bad')
+        } `
+        -Description 'malformed certificate snapshot'
+    Assert-Throws `
+        -Action {
+            Assert-CertificateStoreSnapshot `
+                -Snapshot ($validSnapshot + '|' + $validSnapshot)
+        } `
+        -Description 'duplicate certificate snapshot evidence'
+
+    $transactionId = 'a' * 32
+    $creatingState = [pscustomobject]@{
+        schema = 1
+        stateKind = 'prepare'
+        transactionId = $transactionId
+        userSid = 'S-1-5-21-1-2-3-1001'
+        packageName = 'CialloKing.BaClickFxDesktop'
+        applicationId = 'BaClickFxDesktop'
+        publisher = 'CN=BaClickFx.Local'
+        productVersion = '1.2.3'
+        packageVersion = '1.2.3.0'
+        preexistingPackageFullNames = @()
+        oldInstallState = $null
+        certificatePhase = 'creating'
+        certificateSanUri = "urn:bafx:installer:$transactionId"
+    }
+    Assert-PendingStateObject `
+        -State $creatingState `
+        -InstallRoot 'C:\Program Files\ba-click-fx-desktop' | Out-Null
+    $creatingState.certificateSanUri = 'urn:bafx:installer:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
+    Assert-Throws `
+        -Action {
+            Assert-PendingStateObject `
+                -State $creatingState `
+                -InstallRoot 'C:\Program Files\ba-click-fx-desktop' | Out-Null
+        } `
+        -Description 'certificate SAN marker bound to another transaction'
+}
+
 function Test-UninstallerProcessPathFilter
 {
     $scriptPath = 'tools/installer/unregister-machine.ps1'
