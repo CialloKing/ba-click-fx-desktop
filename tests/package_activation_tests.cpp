@@ -5,11 +5,15 @@
 #include "product/version.hpp"
 
 #include <objbase.h>
+#include <bcrypt.h>
 
+#include <array>
 #include <filesystem>
 #include <fstream>
+#include <iomanip>
 #include <stdexcept>
 #include <string>
+#include <sstream>
 
 namespace
 {
@@ -126,15 +130,66 @@ constexpr std::string_view validInstallStateTemplate =
     const std::string_view futureValue = "same")
 {
     std::string state = makeInstallState();
-    const std::size_t closingBrace = state.rfind('}');
-    if (closingBrace == std::string::npos)
+    std::string windowsState;
+    windowsState.reserve(state.size() + 32U);
+    for (const char character : state)
     {
-        throw std::runtime_error("Install state test object is malformed.");
+        if (character == '\n')
+        {
+            windowsState += "\r\n";
+        }
+        else
+        {
+            windowsState.push_back(character);
+        }
     }
-    state.insert(
-        closingBrace,
-        ",\n  \"stateDigest\": \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\n"
-        "  \"futureField\": \"" + std::string(futureValue) + "\"\n");
+    state = std::move(windowsState);
+
+    const auto replaceFinalLineBreak = [&state](const std::string& member)
+    {
+        const std::size_t closingBrace = state.rfind('}');
+        if (closingBrace < 2U
+            || state.compare(closingBrace - 2U, 2U, "\r\n") != 0)
+        {
+            throw std::runtime_error("Install state test object is malformed.");
+        }
+        state.replace(closingBrace - 2U, 2U, member + "\r\n");
+    };
+
+    replaceFinalLineBreak(
+        ",\r\n    \"futureField\":  \"" + std::string(futureValue) + "\"");
+    const std::string digestInput = state;
+    BCRYPT_ALG_HANDLE algorithm = nullptr;
+    if (BCryptOpenAlgorithmProvider(
+            &algorithm,
+            BCRYPT_SHA256_ALGORITHM,
+            nullptr,
+            0U) < 0)
+    {
+        throw std::runtime_error("Could not open SHA-256 provider.");
+    }
+    std::array<UCHAR, 32U> digest{};
+    const NTSTATUS status = BCryptHash(
+        algorithm,
+        nullptr,
+        0U,
+        reinterpret_cast<PUCHAR>(const_cast<char*>(digestInput.data())),
+        static_cast<ULONG>(digestInput.size()),
+        digest.data(),
+        static_cast<ULONG>(digest.size()));
+    BCryptCloseAlgorithmProvider(algorithm, 0U);
+    if (status < 0)
+    {
+        throw std::runtime_error("Could not hash modern install state.");
+    }
+    std::ostringstream digestText;
+    digestText << std::hex << std::uppercase << std::setfill('0');
+    for (const UCHAR byte : digest)
+    {
+        digestText << std::setw(2) << static_cast<unsigned int>(byte);
+    }
+    replaceFinalLineBreak(
+        ",\r\n    \"stateDigest\":  \"" + digestText.str() + "\"");
     return state;
 }
 
@@ -469,6 +524,26 @@ BAFX_TEST(package_activation_state_accepts_modern_bom_pair)
         directory.path());
 
     BAFX_CHECK(result.succeeded());
+}
+
+BAFX_TEST(package_activation_state_rejects_modern_digest_tamper)
+{
+    TemporaryInstallDirectory directory;
+    std::string state = makeModernInstallState();
+    const std::size_t valuePosition = state.find("\"futureField\":  \"same\"");
+    BAFX_CHECK(valuePosition != std::string::npos);
+    state.replace(valuePosition, std::string("\"futureField\":  \"same\"").size(),
+        "\"futureField\":  \"tampered\"");
+    directory.writeState(state);
+    directory.writeState(state, true);
+
+    const auto result = bafx::control_center::readPackageActivationState(
+        directory.path());
+
+    BAFX_CHECK(!result.succeeded());
+    BAFX_CHECK(
+        result.status
+        == bafx::control_center::PackageActivationStateStatus::RepairRequired);
 }
 
 BAFX_TEST(package_activation_state_reports_both_corrupt_files)
