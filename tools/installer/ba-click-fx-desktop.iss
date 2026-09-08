@@ -200,23 +200,16 @@ begin
   InstallerRoot := AddBackslash(PayloadRoot) + 'Installer';
   ExistingInstallerRoot := AddBackslash(InstallRoot) + 'Installer';
   ExistingPendingPath := ExistingInstallerRoot + 'PREPARE-STATE.json';
-  ExistingScript := ExistingInstallerRoot + 'install-machine.ps1';
-  ExistingRegisterScript := ExistingInstallerRoot + 'register-user-package.ps1';
+  ExistingScript := ResolveRollbackScript(
+    InstallRoot,
+    InstallerRoot,
+    'install-machine.ps1');
+  ExistingRegisterScript := ResolveRollbackScript(
+    InstallRoot,
+    InstallerRoot,
+    'register-user-package.ps1');
   if FileExists(ExistingPendingPath) then
   begin
-    // A first-install crash can leave the journal before CommitFiles copied
-    // the scripts into the live directory. Prefer the transaction's staged
-    // scripts in that case; upgrades continue to use the previous live copy.
-    if not FileExists(ExistingScript) and
-      FileExists(PayloadRoot + '\Installer\install-machine.ps1') then
-    begin
-      ExistingScript := PayloadRoot + '\Installer\install-machine.ps1';
-    end;
-    if not FileExists(ExistingRegisterScript) and
-      FileExists(PayloadRoot + '\Installer\register-user-package.ps1') then
-    begin
-      ExistingRegisterScript := PayloadRoot + '\Installer\register-user-package.ps1';
-    end;
     if not FileExists(ExistingScript) then
     begin
       Result := 'A pending installation exists but its recovery script is missing.';
