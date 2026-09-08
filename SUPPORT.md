@@ -241,17 +241,21 @@ Release 页面中的 `*-setup-windows-x64.exe` 是面向普通用户的单文件
 Studio、Inno Setup 或旁置 Windows App SDK；安装器会在一次 UAC 确认后完成程序文件部署、当前用户的 Sparse
 Package 注册和 Control Center 快捷方式创建。安装完成后打开 Control Center，点击“启动 Host”即可开始使用。
 
-安装器使用目标机生成的本机证书签名 Package，因此 SmartScreen 可能显示“Unknown Publisher”。Release 不提供
+安装器使用目标机生成的两年期本机证书签名 Package，因此 SmartScreen 可能显示“Unknown Publisher”。Release 不提供
 可单独安装的证书、MSIX、私钥或 SDK 工具；Setup 内部携带的是未签名模板和约束到 `LocalMachine\My` 的原生
-签名器。公钥只导入 `LocalMachine\TrustedPeople`，签名后使用 `-DeleteKey` 删除私钥。卸载可从开始菜单或
-Windows“已安装的应用”执行，默认保留安装目录
+签名器。公钥只导入 `LocalMachine\TrustedPeople`，签名后使用 `-DeleteKey` 删除安装器新建证书的私钥。相同版本的
+修复安装仅在 Host、身份包和证书均有效且证书至少还有 30 天有效期时复用已有已签名包；版本升级、证书缺失、无效或剩余
+有效期不足 30 天时会重新签名并轮换安装器自有证书。卸载可从开始菜单或 Windows“已安装的应用”执行，默认保留安装目录
 下的 `data` 用户配置；卸载会按安装用户 SID 删除本程序自己的 `BAFX Control Center` 开机启动值，
 不删除 Run 键或其他程序的启动项。需要无管理员权限时可改用 portable ZIP，但它没有 Package Identity。
 
-系统页显示“安装版”表示安装状态完整、产品版本和 Package 版本一致且匹配当前 Control Center，或已
-从同样有效的备份成功恢复；主状态和备份都不存在时显示“便携版”；状态损坏、版本冲突、部分升级或
-只剩备份时显示“安装状态异常”。异常不会被当作便携版，应使用当前版本安装器修复。0.2.10 仅通过固定链
-迁移主配置并补充空快捷键，不删除现有 `data`、显示器 override 与 effects-only `fx-profiles`。
+系统页显示“安装版”表示 `INSTALL-STATE.json` 与 `.bak` 状态文件完整成对、属于同一事务且内容相符（新格式要求
+摘要一致，兼容的旧格式要求内容完全一致），产品版本和 Package 版本也匹配当前 Control Center；主状态和备份都不存在时显示“便携版”。状态文件损坏、不一致、只剩一份、
+版本冲突、部分升级或挂起安装事务都会显示“安装状态异常”，并且 Host 保持 fail-closed，不会把单独备份视为有效状态。
+请由需要运行 Host 的同一 Windows 用户重新运行当前安装器：它会先恢复或清理可安全处理的挂起事务，再继续安装或修复。
+若安装器仍报告恢复未完成，请保留安装目录中的状态、暂存和回滚文件，并提供安装日志；不要手动删除它们或证书。证书在
+30 天内到期时，Control Center 在启动 Host 时提示轮换；证书已过期时会阻止安装版 Host 启动，直至重新运行安装器修复。
+0.2.10 仅通过固定链迁移主配置并补充空快捷键，不删除现有 `data`、显示器 override 与 effects-only `fx-profiles`。
 
 更新检查严格由用户点击触发。Control Center 不会在启动、连接 Host 或托盘恢复时自动联网，也不会
 自动下载、替换文件或执行安装器；“打开 Release”只前往固定的

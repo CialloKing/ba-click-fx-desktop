@@ -300,10 +300,17 @@ Visual Studio、Windows SDK、Inno Setup 或 PowerShell 依赖包；安装器已
 尚没有“检查更新”入口，仍需用户前往[官方 Release 页面](https://github.com/CialloKing/ba-click-fx-desktop/releases/latest)
 手动下载并运行新安装器，或手动替换完整便携目录。不要混用不同版本的 Host 与 Control Center。
 
-该安装器使用目标机生成的本机证书为 Sparse Package 签名，不是公有代码签名。Windows SmartScreen 可能显示
-“Unknown Publisher”，这是预期提示。安装器只把公钥加入 `LocalMachine\TrustedPeople`，签名验证完成后立即删除
-`LocalMachine\My` 中的证书和不可导出私钥；不要从 Release 单独下载或安装证书、MSIX、私钥或 SDK 工具。若没有管理员权限，
-请改用上面的便携 ZIP，直接解压运行即可，但便携版没有 Package Identity，无法承诺无边框 WGC。
+该安装器使用目标机生成的两年期本机证书为 Sparse Package 签名，不是公有代码签名。Windows SmartScreen 可能显示
+“Unknown Publisher”，这是预期提示。安装器只把公钥加入 `LocalMachine\TrustedPeople`，签名后删除安装器新建证书的
+私钥；不要从 Release 单独下载或安装证书、MSIX、私钥或 SDK 工具。相同版本的修复安装只有在 Host、身份包和证书都通过
+校验且证书至少还有 30 天有效期时才复用已签名包；版本升级、证书缺失、无效或剩余有效期不足 30 天时会重新签名并轮换
+安装器自有证书。若没有管理员权限，请改用上面的便携 ZIP，直接解压运行即可，但便携版没有 Package Identity，无法承诺无边框 WGC。
+
+安装状态由 `Installer\INSTALL-STATE.json` 与其 `.bak` 备份成对保存。Control Center 只在两份文件属于同一事务且
+内容相符时启动安装版 Host（新格式要求摘要一致，兼容的旧格式要求内容完全一致），不会把单独留下的备份当作有效安装。安装器启动时会先处理上一次失败留下的挂起事务；如果状态
+文件缺失、损坏、不成对或恢复尚未完成，请使用需要运行 Host 的同一 Windows 用户重新运行当前安装器进行修复。不要手动删除
+状态文件、暂存目录或证书，否则可能丢失回滚证据。证书在 30 天内到期时，Control Center 会提示重新运行安装器轮换；证书
+已经过期时会阻止安装版 Host 启动，直到修复完成。
 
 ## Host 控制面
 
