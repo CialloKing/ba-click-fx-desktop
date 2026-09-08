@@ -5167,7 +5167,10 @@ if ($Phase -eq 'Rollback')
     $script:InstallerStep = 'validate-pending-rollback'
     Assert-ProtectedStateAcl -Path $machineStateFullPath
     $pendingState = Get-Content -LiteralPath $machineStateFullPath -Raw | ConvertFrom-Json
-    $pendingState = Assert-PendingStateObject -State $pendingState -InstallRoot $installRoot
+    $pendingState = Assert-PendingStateObject `
+        -State $pendingState `
+        -InstallRoot $installRoot `
+        -PayloadDirectory $script:PayloadRoot
 
     # Finalize writes the install-state pair before it marks the journal as
     # committed. A crash in either direction must be classified explicitly:
@@ -5403,7 +5406,8 @@ if ($Phase -eq 'Prepare')
             $stalePending = Get-Content -LiteralPath $machineStateFullPath -Raw | ConvertFrom-Json
             $stalePending = Assert-PendingStateObject `
                 -State $stalePending `
-                -InstallRoot $installRoot
+                -InstallRoot $installRoot `
+                -PayloadDirectory $script:PayloadRoot
             Recover-CreatingCertificate -State $stalePending
             # Recovery has to remove/restore the user's AppX registration in a
             # separate original-user process. Leave this journal untouched and
@@ -5535,7 +5539,8 @@ if ($Phase -eq 'Prepare')
                         -Raw | ConvertFrom-Json
                     $pendingState = Assert-PendingStateObject `
                         -State $pendingState `
-                        -InstallRoot $installRoot
+                        -InstallRoot $installRoot `
+                        -PayloadDirectory $script:PayloadRoot
                 }
                 Invoke-PendingRollback -State $pendingState
                 Invoke-PendingRollbackCleanup `

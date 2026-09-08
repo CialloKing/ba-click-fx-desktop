@@ -1118,6 +1118,18 @@ function Test-CrossVersionPendingRecoveryContract
         -Text $rollbackMatch.Groups['body'].Value `
         -Pattern 'Read-PayloadManifest|Assert-PayloadManifest' `
         -Description 'legacy rollback does not require the current payload manifest'
+    Assert-TextContains `
+        -Text $rollbackMatch.Groups['body'].Value `
+        -Pattern 'Assert-PendingStateObject[\s\S]*-PayloadDirectory\s+\$script:PayloadRoot' `
+        -Description 'rollback accepts a pending package path in protected staging'
+    Assert-TextContains `
+        -Text $installMachine `
+        -Pattern 'stalePending\s*=\s*Assert-PendingStateObject[\s\S]*-PayloadDirectory\s+\$script:PayloadRoot' `
+        -Description 'stale pending validation accepts its staged package path'
+    Assert-TextContains `
+        -Text $installMachine `
+        -Pattern 'rollback-failed-prepare[\s\S]*pendingState\s*=\s*Assert-PendingStateObject[\s\S]*-PayloadDirectory\s+\$script:PayloadRoot' `
+        -Description 'prepare failure cleanup accepts its staged package path'
 
     $ast = Get-ParsedScript -RelativePath $installMachinePath
     $functionText = Get-FunctionText -Ast $ast -Name 'Resolve-PayloadDirectory'
