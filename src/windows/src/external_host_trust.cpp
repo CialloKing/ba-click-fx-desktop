@@ -46,6 +46,12 @@ constexpr std::size_t sha1ByteCount = 20U;
 constexpr std::size_t sha256ByteCount = 32U;
 constexpr std::uintmax_t maximumStateBytes = 128U * 1024U;
 
+[[nodiscard]] std::array<std::byte, sha256ByteCount> sha256Bytes(
+    const std::span<const std::byte> bytes);
+
+[[nodiscard]] std::string hexBytes(
+    const std::span<const std::byte> bytes);
+
 struct InstallState
 {
     std::string packageName{};
@@ -66,6 +72,217 @@ struct InstallState
     std::string transactionId{};
     std::string stateDigest{};
 };
+
+void skipJsonWhitespace(
+    const std::string_view input,
+    std::size_t& position) noexcept
+{
+    while (position < input.size())
+    {
+        const char value = input[position];
+        if (value != ' ' && value != '\t' && value != '\r' && value != '\n')
+        {
+            break;
+        }
+        ++position;
+    }
+}
+
+[[nodiscard]] bool skipJsonString(
+    const std::string_view input,
+    std::size_t& position) noexcept
+{
+    if (position >= input.size() || input[position] != '"')
+    {
+        return false;
+    }
+    ++position;
+    while (position < input.size())
+    {
+        const unsigned char value =
+            static_cast<unsigned char>(input[position++]);
+        if (value == '"')
+        {
+            return true;
+        }
+        if (value < 0x20U)
+        {
+            return false;
+        }
+        if (value == '\\')
+        {
+            if (position >= input.size())
+            {
+                return false;
+            }
+            ++position;
+        }
+    }
+    return false;
+}
+
+[[nodiscard]] bool skipJsonValue(
+    const std::string_view input,
+    std::size_t& position) noexcept
+{
+    if (position >= input.size())
+    {
+        return false;
+    }
+    if (input[position] == '"')
+    {
+        return skipJsonString(input, position);
+    }
+    if (input[position] == '{' || input[position] == '[')
+    {
+        const char opening = input[position++];
+        const char closing = opening == '{' ? '}' : ']';
+        unsigned int depth = 1U;
+        while (position < input.size() && depth != 0U)
+        {
+            if (input[position] == '"')
+            {
+                if (!skipJsonString(input, position))
+                {
+                    return false;
+                }
+                continue;
+            }
+            if (input[position] == opening)
+            {
+                ++depth;
+            }
+            else if (input[position] == closing)
+            {
+                --depth;
+            }
+            ++position;
+        }
+        return depth == 0U;
+    }
+    const std::size_t begin = position;
+    while (position < input.size()
+        && input[position] != ','
+        && input[position] != '}'
+        && input[position] != ']')
+    {
+        ++position;
+    }
+    return position > begin;
+}
+
+[[nodiscard]] std::optional<std::string> removeStateDigestMember(
+    const std::string_view input) noexcept
+{
+    std::size_t position = 0U;
+    skipJsonWhitespace(input, position);
+    if (position >= input.size() || input[position] != '{')
+    {
+        return std::nullopt;
+    }
+    ++position;
+
+    std::size_t digestMemberStart = std::string_view::npos;
+    std::size_t digestValueEnd = std::string_view::npos;
+    std::size_t digestPrecedingComma = std::string_view::npos;
+    std::size_t pendingComma = std::string_view::npos;
+    bool foundDigest = false;
+    for (;;)
+    {
+        skipJsonWhitespace(input, position);
+        if (position >= input.size())
+        {
+            return std::nullopt;
+        }
+        if (input[position] == '}')
+        {
+            ++position;
+            skipJsonWhitespace(input, position);
+            return foundDigest && position == input.size()
+                ? std::optional<std::string>([&]
+                    {
+                        const std::size_t removeStart =
+                            digestPrecedingComma != std::string_view::npos
+                            ? digestPrecedingComma
+                            : digestMemberStart;
+                        std::string result(input);
+                        result.erase(
+                            removeStart,
+                            digestValueEnd - removeStart);
+                        return result;
+                    }())
+                : std::nullopt;
+        }
+
+        const std::size_t memberStart = position;
+        if (!skipJsonString(input, position))
+        {
+            return std::nullopt;
+        }
+        const std::size_t keyEnd = position;
+        skipJsonWhitespace(input, position);
+        if (position >= input.size() || input[position++] != ':')
+        {
+            return std::nullopt;
+        }
+        skipJsonWhitespace(input, position);
+        if (!skipJsonValue(input, position))
+        {
+            return std::nullopt;
+        }
+        const std::size_t valueEnd = position;
+        if (keyEnd - memberStart == std::string_view("\"stateDigest\"").size()
+            && input.substr(memberStart, keyEnd - memberStart)
+                == "\"stateDigest\"")
+        {
+            if (foundDigest)
+            {
+                return std::nullopt;
+            }
+            foundDigest = true;
+            digestMemberStart = memberStart;
+            digestValueEnd = valueEnd;
+            digestPrecedingComma = pendingComma;
+        }
+        skipJsonWhitespace(input, position);
+        if (position < input.size() && input[position] == ',')
+        {
+            pendingComma = position++;
+            continue;
+        }
+        if (position < input.size() && input[position] == '}')
+        {
+            continue;
+        }
+        return std::nullopt;
+    }
+}
+
+[[nodiscard]] std::optional<std::string> computeStateDigest(
+    std::string_view input) noexcept
+{
+    try
+    {
+        if (input.starts_with("\xEF\xBB\xBF"))
+        {
+            input.remove_prefix(3U);
+        }
+        const std::optional<std::string> digestInput =
+            removeStateDigestMember(input);
+        if (!digestInput.has_value())
+        {
+            return std::nullopt;
+        }
+        const auto digest = sha256Bytes(std::span(
+            reinterpret_cast<const std::byte*>(digestInput->data()),
+            digestInput->size()));
+        return hexBytes(digest);
+    }
+    catch (...)
+    {
+        return std::nullopt;
+    }
+}
 
 [[nodiscard]] bool sameInstallStatePair(
     const InstallState& primary,
@@ -92,11 +309,19 @@ struct InstallState
         || !backup.stateDigest.empty();
     if (hasModernDigest)
     {
+        const std::optional<std::string> primaryComputedDigest =
+            computeStateDigest(primaryContents);
+        const std::optional<std::string> backupComputedDigest =
+            computeStateDigest(backupContents);
         return !primary.transactionId.empty()
             && primary.transactionId == backup.transactionId
             && !primary.stateDigest.empty()
             && primary.stateDigest == backup.stateDigest
-            && primaryContents == backupContents;
+            && primaryContents == backupContents
+            && primaryComputedDigest.has_value()
+            && backupComputedDigest.has_value()
+            && primaryComputedDigest == primary.stateDigest
+            && backupComputedDigest == backup.stateDigest;
     }
 
     const bool hasTransaction = !primary.transactionId.empty()
