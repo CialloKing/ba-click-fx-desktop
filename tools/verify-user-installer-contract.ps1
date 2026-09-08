@@ -1869,6 +1869,298 @@ function Read-UninstallJournal
     }
 }
 
+function Test-InstallStateWriteFaultInjectionContract
+{
+    $ast = Get-ParsedScript `
+        -RelativePath 'tools/installer/install-machine.ps1'
+    $pairText = Get-FunctionText `
+        -Ast $ast `
+        -Name 'Assert-InstallStatePair'
+    $pairCoreText = $pairText -replace `
+        'function\s+Assert-InstallStatePair\b',
+        'function Assert-InstallStatePairCore'
+    $functionText = @(
+        'Set-StrictMode -Version Latest'
+        "`$ErrorActionPreference = 'Stop'"
+        "`$global:BafxStateFaultPoint = ''"
+        "`$global:BafxStatePrimaryPath = ''"
+        @'
+function Assert-NoReparsePath
+{
+    param(
+        [string]$Path,
+        [switch]$AllowMissing
+    )
+}
+
+function Set-ProtectedStateAcl
+{
+    param(
+        [string]$Path,
+        [string]$ReadSid
+    )
+    if ($global:BafxStateFaultPoint -eq 'acl')
+    {
+        throw 'injected ACL failure'
+    }
+}
+
+function Write-FlushedUtf8NoBom
+{
+    param(
+        [string]$Path,
+        [string]$Content
+    )
+    if ($global:BafxStateFaultPoint -eq 'temporary-write')
+    {
+        throw 'injected temporary write failure'
+    }
+    $encoding = New-Object -TypeName System.Text.UTF8Encoding -ArgumentList $false
+    $bytes = $encoding.GetBytes($Content)
+    $stream = [IO.FileStream]::new(
+        $Path,
+        [IO.FileMode]::Create,
+        [IO.FileAccess]::Write,
+        [IO.FileShare]::None)
+    try
+    {
+        $stream.Write($bytes, 0, $bytes.Length)
+        $stream.Flush($true)
+    }
+    finally
+    {
+        $stream.Dispose()
+    }
+}
+
+function Replace-ProtectedFile
+{
+    param(
+        [string]$TemporaryPath,
+        [string]$DestinationPath,
+        [string]$ReadSid
+    )
+    $destination = [IO.Path]::GetFullPath($DestinationPath)
+    if ($global:BafxStateFaultPoint -eq 'backup-replace' -and
+        $destination.EndsWith('.bak', [StringComparison]::OrdinalIgnoreCase))
+    {
+        throw 'injected backup replacement failure'
+    }
+    if ($global:BafxStateFaultPoint -eq 'primary-replace' -and
+        $destination -eq $global:BafxStatePrimaryPath)
+    {
+        throw 'injected primary replacement failure'
+    }
+    Set-ProtectedStateAcl -Path $TemporaryPath -ReadSid $ReadSid
+    if (Test-Path -LiteralPath $destination -PathType Leaf)
+    {
+        Remove-Item -LiteralPath $destination -Force
+        [IO.File]::Move(
+            [IO.Path]::GetFullPath($TemporaryPath),
+            $destination)
+    }
+    else
+    {
+        [IO.File]::Move([IO.Path]::GetFullPath($TemporaryPath), $destination)
+    }
+    Set-ProtectedStateAcl -Path $destination -ReadSid $ReadSid
+}
+
+function Get-SerializedState
+{
+    param([object]$Value)
+    $state = New-StateWithDigest -Value $Value
+    return ($state | ConvertTo-Json -Depth 12)
+}
+'@
+        (Get-FunctionText -Ast $ast -Name 'Get-StatePropertiesWithoutDigest')
+        (Get-FunctionText -Ast $ast -Name 'Convert-StateToCanonicalJson')
+        (Get-FunctionText -Ast $ast -Name 'Get-StateDigest')
+        (Get-FunctionText -Ast $ast -Name 'New-StateWithDigest')
+        (Get-FunctionText -Ast $ast -Name 'Assert-InstallStateRawPair')
+        $pairCoreText
+        @'
+function Assert-InstallStatePair
+{
+    param(
+        [object]$Primary,
+        [object]$Backup,
+        [string]$PrimaryPath = '',
+        [string]$BackupPath = ''
+    )
+    if ($global:BafxStateFaultPoint -eq 'readback')
+    {
+        throw 'injected readback validation failure'
+    }
+    Assert-InstallStatePairCore @PSBoundParameters
+}
+'@
+        (Get-FunctionText -Ast $ast -Name 'Write-ProtectedInstallState')
+    ) -join "`n"
+    $probeModule = New-Module -ScriptBlock ([scriptblock]::Create($functionText))
+
+    $temporaryParent = [IO.Path]::GetFullPath([IO.Path]::GetTempPath())
+    $temporaryRoot = Join-Path `
+        $temporaryParent `
+        ('bafx-install-state-faults-' + [Guid]::NewGuid().ToString('N'))
+    try
+    {
+        New-Item -ItemType Directory -Path $temporaryRoot -Force | Out-Null
+        $statePath = Join-Path $temporaryRoot 'INSTALL-STATE.json'
+        $backupPath = "$statePath.bak"
+        $oldValue = [ordered]@{
+            schema = 2
+            transactionId = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+            marker = 'old'
+        }
+        $newValue = [ordered]@{
+            schema = 2
+            transactionId = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
+            marker = 'new'
+        }
+        $oldSerialized = & $probeModule {
+            param($Value)
+            Get-SerializedState -Value $Value
+        } $oldValue
+        $newSerialized = & $probeModule {
+            param($Value)
+            Get-SerializedState -Value $Value
+        } $newValue
+        $encoding = New-Object -TypeName System.Text.UTF8Encoding -ArgumentList $false
+        $oldBytes = $encoding.GetBytes([string]$oldSerialized)
+        $newBytes = $encoding.GetBytes([string]$newSerialized)
+
+        $cases = @(
+            @{ name = 'temporary-write'; expected = 'old' }
+            @{ name = 'acl'; expected = 'old' }
+            @{ name = 'backup-replace'; expected = 'old' }
+            @{ name = 'primary-replace'; expected = 'mixed' }
+            @{ name = 'readback'; expected = 'new' }
+        )
+        foreach ($case in $cases)
+        {
+            [IO.File]::WriteAllBytes($statePath, $oldBytes)
+            [IO.File]::WriteAllBytes($backupPath, $oldBytes)
+            $threw = $false
+            try
+            {
+                & $probeModule {
+                    param($Point, $PrimaryPathValue, $Path, $Value)
+                    $global:BafxStateFaultPoint = $Point
+                    $global:BafxStatePrimaryPath = [IO.Path]::GetFullPath($PrimaryPathValue)
+                    Write-ProtectedInstallState `
+                        -Path $Path `
+                        -Value $Value `
+                        -ReadSid 'S-1-5-21-1'
+                } $case.name $statePath $statePath $newValue
+            }
+            catch
+            {
+                $threw = $true
+            }
+            Assert-True `
+                -Condition $threw `
+                -Message "Injected state writer failure did not surface: $($case.name)"
+            $primaryBytes = [IO.File]::ReadAllBytes($statePath)
+            $backupBytes = [IO.File]::ReadAllBytes($backupPath)
+            $temporaryFiles = @(Get-ChildItem -LiteralPath $temporaryRoot -Filter '*.tmp' -File)
+            Assert-True `
+                -Condition ($temporaryFiles.Count -eq 0) `
+                -Message "State writer leaked a temporary file: $($case.name)"
+
+            if ($case.expected -eq 'old')
+            {
+                Assert-True `
+                    -Condition ([Convert]::ToBase64String($primaryBytes) -eq
+                        [Convert]::ToBase64String($oldBytes)) `
+                    -Message "State writer changed the primary on an early failure: $($case.name)"
+                Assert-True `
+                    -Condition ([Convert]::ToBase64String($backupBytes) -eq
+                        [Convert]::ToBase64String($oldBytes)) `
+                    -Message "State writer changed the backup on an early failure: $($case.name)"
+            }
+            elseif ($case.expected -eq 'mixed')
+            {
+                Assert-True `
+                    -Condition ([Convert]::ToBase64String($primaryBytes) -ne
+                        [Convert]::ToBase64String($backupBytes)) `
+                    -Message 'Primary replacement injection did not create the expected torn pair.'
+                $pairRejected = $false
+                try
+                {
+                    & $probeModule {
+                        param($Path, $BackupPathValue)
+                        $primary = Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json
+                        $backup = Get-Content -LiteralPath $BackupPathValue -Raw | ConvertFrom-Json
+                        Assert-InstallStatePairCore `
+                            -Primary $primary `
+                            -Backup $backup `
+                            -PrimaryPath $Path `
+                            -BackupPath $BackupPathValue
+                    } $statePath $backupPath
+                }
+                catch
+                {
+                    $pairRejected = $true
+                }
+                Assert-True `
+                    -Condition $pairRejected `
+                    -Message 'A mixed install-state transaction was accepted after primary replacement failure.'
+            }
+            else
+            {
+                Assert-True `
+                    -Condition ([Convert]::ToBase64String($primaryBytes) -eq
+                        [Convert]::ToBase64String($newBytes)) `
+                    -Message 'Readback failure did not leave the candidate primary state intact.'
+                Assert-True `
+                    -Condition ([Convert]::ToBase64String($backupBytes) -eq
+                        [Convert]::ToBase64String($newBytes)) `
+                    -Message 'Readback failure left a mixed state pair.'
+            }
+        }
+
+        & $probeModule {
+            param($Path, $PrimaryPathValue, $Value)
+            $global:BafxStateFaultPoint = ''
+            $global:BafxStatePrimaryPath = [IO.Path]::GetFullPath($PrimaryPathValue)
+            Write-ProtectedInstallState `
+                -Path $Path `
+                -Value $Value `
+                -ReadSid 'S-1-5-21-1'
+        } $statePath $statePath $newValue
+        $successfulPrimary = [IO.File]::ReadAllBytes($statePath)
+        $successfulBackup = [IO.File]::ReadAllBytes($backupPath)
+        Assert-True `
+            -Condition ([Convert]::ToBase64String($successfulPrimary) -eq
+                [Convert]::ToBase64String($successfulBackup)) `
+            -Message 'Successful state commit did not produce identical primary and backup bytes.'
+    }
+    finally
+    {
+        Remove-Variable -Name BafxStateFaultPoint, BafxStatePrimaryPath `
+            -Scope Global -ErrorAction SilentlyContinue
+        if ($null -ne $probeModule)
+        {
+            Remove-Module -ModuleInfo $probeModule -Force -ErrorAction SilentlyContinue
+        }
+        $resolvedTemporaryRoot = [IO.Path]::GetFullPath($temporaryRoot)
+        if ($resolvedTemporaryRoot.StartsWith(
+                $temporaryParent,
+                [StringComparison]::OrdinalIgnoreCase) -and
+            [IO.Path]::GetFileName($resolvedTemporaryRoot).StartsWith(
+                'bafx-install-state-faults-',
+                [StringComparison]::Ordinal))
+        {
+            Remove-Item `
+                -LiteralPath $resolvedTemporaryRoot `
+                -Recurse `
+                -Force `
+                -ErrorAction SilentlyContinue
+        }
+    }
+}
+
 function Test-UninstallerOfflineHiveFailureContract
 {
     $ast = Get-ParsedScript `
@@ -2488,6 +2780,7 @@ Test-InnoPayloadContract
 Test-CrossVersionPendingRecoveryContract
 Test-SparsePackageContract
 Test-UninstallerStatePairContract
+Test-InstallStateWriteFaultInjectionContract
 Test-UninstallerCompletionMarkerContract
 Test-UninstallerOfflineHiveFailureContract
 Test-UpgradeHostIntegrityContract
