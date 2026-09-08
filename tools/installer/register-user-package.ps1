@@ -268,12 +268,19 @@ function Assert-PendingRollbackMayRemoveNewPackage
         [string]$pair.transactionId -eq [string]$State.transactionId
     if ($commitState -eq 'committed')
     {
-        if (-not $sameTransaction)
+        if ($sameTransaction)
         {
-            $script:InstallerExitCode = 1001
-            throw 'The pending transaction is marked committed, but its install-state pair cannot prove that commit.'
+            return $false
         }
-        return $false
+        if ($null -ne $State.PSObject.Properties['committedInstallState'])
+        {
+            # Finalize records a complete recovery snapshot before publishing
+            # the committed marker. Let the elevated phase repair a torn pair;
+            # removing the new package here would destroy a valid commit.
+            return $false
+        }
+        $script:InstallerExitCode = 1001
+        throw 'The pending transaction is marked committed, but its install-state pair cannot prove that commit.'
     }
     if ($sameTransaction)
     {

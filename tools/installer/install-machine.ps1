@@ -2365,11 +2365,61 @@ function Complete-CommittedPendingTransaction
         [string]$PendingPath
     )
 
-    $committedState = Read-OldInstallState `
-        -InstallRoot $InstallRoot `
-        -UserSid ([string]$State.userSid)
-    if ($null -eq $committedState -or
-        [string]$committedState.transactionId -ne [string]$State.transactionId)
+    $committedState = $null
+    try
+    {
+        $committedState = Read-OldInstallState `
+            -InstallRoot $InstallRoot `
+            -UserSid ([string]$State.userSid)
+    }
+    catch
+    {
+        # A crash can leave one half of the pair from the committed rewrite.
+        # The journal carries the complete candidate so recovery can rebuild
+        # the pair without rolling back files that were already committed.
+        $statePairError = $_
+    }
+    if ($null -eq $committedState)
+    {
+        if ($null -eq $State.PSObject.Properties['committedInstallState'])
+        {
+            throw 'The committed install state is unavailable and no recovery snapshot was recorded.'
+        }
+        $committedState = $State.committedInstallState
+        if ($committedState -is [string])
+        {
+            $committedState = [string]$committedState | ConvertFrom-Json
+        }
+        $committedState = Assert-InstallStateObject `
+            -State $committedState `
+            -InstallRoot $InstallRoot `
+            -ExpectedUserSid ([string]$State.userSid)
+        if ([string]$committedState.transactionId -ne [string]$State.transactionId)
+        {
+            throw 'The committed recovery snapshot belongs to a different transaction.'
+        }
+        $registered = @(
+            Get-AppxPackage -AllUsers `
+                -Name ([string]$committedState.packageName) `
+                -ErrorAction Stop |
+                Where-Object {
+                    [string]$_.PackageFullName -eq
+                        [string]$committedState.packageFullName
+                }
+        )
+        if ($registered.Count -ne 1)
+        {
+            throw 'The committed recovery snapshot has no matching package registration.'
+        }
+        Write-ProtectedInstallState `
+            -Path (Join-Path $InstallRoot 'Installer\INSTALL-STATE.json') `
+            -Value $committedState `
+            -ReadSid ([string]$State.userSid)
+        $committedState = Read-OldInstallState `
+            -InstallRoot $InstallRoot `
+            -UserSid ([string]$State.userSid)
+    }
+    if ([string]$committedState.transactionId -ne [string]$State.transactionId)
     {
         throw 'The committed install state does not match the pending transaction.'
     }
@@ -3895,12 +3945,22 @@ if ($Phase -eq 'Rollback')
         }
         if ($commitState -eq 'committed')
         {
-            $ambiguousCommit = [System.InvalidOperationException]::new(
-                'The pending transaction is marked committed, but the matching install-state pair is unavailable.')
-            Stop-InstallerWithFailure `
-                -ErrorRecord ([Management.Automation.ErrorRecord]::new($ambiguousCommit)) `
-                -Step 'classify-committed-state-pair' `
-                -ExitCode 1001
+            try
+            {
+                $script:InstallerStep = 'repair-committed-install-state'
+                Complete-CommittedPendingTransaction `
+                    -State $pendingState `
+                    -InstallRoot $installRoot `
+                    -PendingPath $machineStateFullPath
+            }
+            catch
+            {
+                Stop-InstallerWithFailure `
+                    -ErrorRecord $_ `
+                    -Step 'repair-committed-install-state' `
+                    -ExitCode 1001
+            }
+            exit 0
         }
         if ($null -ne $statePairError -and
             -not $filesCommitted)
@@ -4275,6 +4335,15 @@ try
             -Separator Pipe
         installedUtc = [DateTime]::UtcNow.ToString('o')
     }
+    # Keep a complete candidate beside the commit marker. If the process dies
+    # between replacing INSTALL-STATE.json and its backup, recovery can rebuild
+    # the committed pair without guessing which half is authoritative.
+    $pendingState.committedInstallState = $installState
+    $script:InstallerStep = 'record-committed-state-recovery-snapshot'
+    Write-ProtectedJson `
+        -Path $machineStateFullPath `
+        -Value $pendingState `
+        -ReadSid ([string]$pendingState.userSid)
     $script:InstallerStep = 'commit-install-state'
     Write-ProtectedInstallState `
         -Path $installStatePath `
