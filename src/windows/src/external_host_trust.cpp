@@ -4,12 +4,15 @@
 #include "bafx/windows/portable_paths.hpp"
 #include "bafx/windows/unique_handle.hpp"
 
+#include "product/version.hpp"
+
 #include <aclapi.h>
 #include <bcrypt.h>
 #include <sddl.h>
 #include <softpub.h>
 #include <wincrypt.h>
 #include <winrt/Windows.Data.Json.h>
+#include <winrt/Windows.Foundation.Collections.h>
 #include <winrt/base.h>
 #include <wintrust.h>
 
@@ -48,6 +51,7 @@ struct InstallState
     std::string packageName{};
     std::string applicationId{};
     std::string publisher{};
+    std::string productVersion{};
     std::string packageVersion{};
     std::string packageFullName{};
     std::string packageFamilyName{};
@@ -59,7 +63,57 @@ struct InstallState
     std::string hostSha256{};
     std::string packageFile{};
     std::string packageSha256{};
+    std::string transactionId{};
+    std::string stateDigest{};
 };
+
+[[nodiscard]] bool sameInstallStatePair(
+    const InstallState& primary,
+    const InstallState& backup,
+    const std::string_view primaryContents,
+    const std::string_view backupContents) noexcept
+{
+    const bool sameContent = primary.packageName == backup.packageName
+        && primary.applicationId == backup.applicationId
+        && primary.publisher == backup.publisher
+        && primary.productVersion == backup.productVersion
+        && primary.packageVersion == backup.packageVersion
+        && primary.packageFullName == backup.packageFullName
+        && primary.packageFamilyName == backup.packageFamilyName
+        && primary.certificateThumbprint == backup.certificateThumbprint
+        && primary.certificateSha256 == backup.certificateSha256
+        && primary.externalLocation == backup.externalLocation
+        && primary.installedUserSid == backup.installedUserSid
+        && primary.hostFile == backup.hostFile
+        && primary.hostSha256 == backup.hostSha256
+        && primary.packageFile == backup.packageFile
+        && primary.packageSha256 == backup.packageSha256;
+    const bool hasModernDigest = !primary.stateDigest.empty()
+        || !backup.stateDigest.empty();
+    if (hasModernDigest)
+    {
+        return !primary.transactionId.empty()
+            && primary.transactionId == backup.transactionId
+            && !primary.stateDigest.empty()
+            && primary.stateDigest == backup.stateDigest
+            && primaryContents == backupContents;
+    }
+
+    const bool hasTransaction = !primary.transactionId.empty()
+        || !backup.transactionId.empty();
+    if (hasTransaction)
+    {
+        return !primary.transactionId.empty()
+            && primary.transactionId == backup.transactionId
+            && sameContent
+            && primaryContents == backupContents;
+    }
+
+    // Schema 2 states written before the digest fields are accepted only when
+    // both files describe the same complete activation identity. An arbitrary
+    // backup must never replace a missing or damaged primary file.
+    return false;
+}
 
 class AlgorithmHandle final
 {
@@ -489,6 +543,7 @@ private:
     state.packageName = stringValue(L"packageName");
     state.applicationId = stringValue(L"applicationId");
     state.publisher = stringValue(L"publisher");
+    state.productVersion = stringValue(L"productVersion");
     state.packageVersion = stringValue(L"packageVersion");
     state.packageFullName = stringValue(L"packageFullName");
     state.packageFamilyName = stringValue(L"packageFamilyName");
@@ -500,6 +555,23 @@ private:
     state.hostSha256 = stringValue(L"hostSha256");
     state.packageFile = stringValue(L"packageFile");
     state.packageSha256 = stringValue(L"packageSha256");
+    if (root.HasKey(L"transactionId"))
+    {
+        state.transactionId = stringValue(L"transactionId");
+    }
+    if (root.HasKey(L"stateDigest"))
+    {
+        state.stateDigest = stringValue(L"stateDigest");
+    }
+    if ((!state.transactionId.empty()
+            && (!parseHex(state.transactionId).has_value()
+                || state.transactionId.size() != 32U))
+        || (!state.stateDigest.empty()
+            && (!parseHex(state.stateDigest).has_value()
+                || state.stateDigest.size() != sha256ByteCount * 2U)))
+    {
+        throw HResultError(E_INVALIDARG, "INSTALL-STATE.json transaction marker");
+    }
 
     const fs::path packageFile = fs::path(
         winrt::to_hstring(state.packageFile).c_str());
@@ -513,6 +585,20 @@ private:
         || packageFile.extension() != L".msix")
     {
         throw HResultError(E_INVALIDARG, "INSTALL-STATE.json identity");
+    }
+    const std::optional<bafx::product::VersionComponents> productVersion =
+        bafx::product::parseProductVersion(state.productVersion);
+    const std::optional<bafx::product::VersionComponents> packageVersion =
+        bafx::product::parsePackageVersion(state.packageVersion);
+    if (!productVersion.has_value()
+        || !packageVersion.has_value()
+        || *productVersion != bafx::product::VersionComponents{
+            packageVersion->major,
+            packageVersion->minor,
+            packageVersion->patch,
+            0U})
+    {
+        throw HResultError(E_INVALIDARG, "INSTALL-STATE.json versions");
     }
     if (!parseHex(state.hostSha256).has_value()
         || state.hostSha256.size() != sha256ByteCount * 2U
@@ -530,6 +616,17 @@ private:
     state.certificateSha256 = canonicalHex(state.certificateSha256);
     state.certificateThumbprint = canonicalHex(state.certificateThumbprint);
     return state;
+}
+
+void stripUtf8Bom(std::string& contents) noexcept
+{
+    if (contents.size() >= 3U
+        && static_cast<unsigned char>(contents[0]) == 0xEFU
+        && static_cast<unsigned char>(contents[1]) == 0xBBU
+        && static_cast<unsigned char>(contents[2]) == 0xBFU)
+    {
+        contents.erase(0U, 3U);
+    }
 }
 
 [[nodiscard]] fs::path currentImagePath()
@@ -871,6 +968,18 @@ private:
         error = CERT_E_EXPIRED;
         return ExternalHostTrustStatus::CertificateInvalid;
     }
+    FILETIME nowFileTime{};
+    GetSystemTimeAsFileTime(&nowFileTime);
+    ULARGE_INTEGER now{};
+    now.LowPart = nowFileTime.dwLowDateTime;
+    now.HighPart = nowFileTime.dwHighDateTime;
+    ULARGE_INTEGER notAfter{};
+    notAfter.LowPart = signer->pCertInfo->NotAfter.dwLowDateTime;
+    notAfter.HighPart = signer->pCertInfo->NotAfter.dwHighDateTime;
+    constexpr ULONGLONG thirtyDays =
+        30ULL * 24ULL * 60ULL * 60ULL * 10'000'000ULL;
+    result.certificateExpiringSoon = notAfter.QuadPart > now.QuadPart
+        && notAfter.QuadPart - now.QuadPart <= thirtyDays;
 
     CertificateStore trustedPeople(L"TrustedPeople");
     CertificateContext trusted = findCertificate(
@@ -898,7 +1007,9 @@ private:
         return ExternalHostTrustStatus::CertificateStoreMismatch;
     }
     error = S_OK;
-    return ExternalHostTrustStatus::Trusted;
+    return result.certificateExpiringSoon
+        ? ExternalHostTrustStatus::CertificateExpiringSoon
+        : ExternalHostTrustStatus::Trusted;
 }
 
 [[nodiscard]] HRESULT incompleteIdentityError(
@@ -946,11 +1057,16 @@ ExternalHostTrustResult queryExternalHostTrust(
         }
 
         const fs::path executableRoot = executableDirectory();
+        const fs::path installerDirectory = executableRoot / L"Installer";
         const fs::path statePath =
-            executableRoot / L"Installer" / L"INSTALL-STATE.json";
+            installerDirectory / L"INSTALL-STATE.json";
         result.statePath = winrt::to_string(winrt::hstring(statePath.native()));
         std::error_code existsError;
-        if (!fs::is_regular_file(statePath, existsError))
+        const fs::path backupPath = installerDirectory / L"INSTALL-STATE.json.bak";
+        const bool primaryPresent = fs::is_regular_file(statePath, existsError);
+        std::error_code backupExistsError;
+        const bool backupPresent = fs::is_regular_file(backupPath, backupExistsError);
+        if (!primaryPresent && !backupPresent)
         {
             result.status = ExternalHostTrustStatus::StateMissing;
             result.error = existsError
@@ -958,11 +1074,37 @@ ExternalHostTrustResult queryExternalHostTrust(
                 : HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND);
             return result;
         }
+        if (!primaryPresent || !backupPresent)
+        {
+            result.status = ExternalHostTrustStatus::StatePairMismatch;
+            const std::error_code& error = primaryPresent
+                ? backupExistsError
+                : existsError;
+            result.error = error
+                ? HRESULT_FROM_WIN32(error.value())
+                : HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND);
+            return result;
+        }
 
         InstallState state{};
         try
         {
-            state = parseInstallState(readStateFile(statePath));
+            std::string primaryContents = readStateFile(statePath);
+            std::string backupContents = readStateFile(backupPath);
+            stripUtf8Bom(primaryContents);
+            stripUtf8Bom(backupContents);
+            const InstallState backup = parseInstallState(backupContents);
+            state = parseInstallState(primaryContents);
+            if (!sameInstallStatePair(
+                    state,
+                    backup,
+                    primaryContents,
+                    backupContents))
+            {
+                result.status = ExternalHostTrustStatus::StatePairMismatch;
+                result.error = E_ACCESSDENIED;
+                return result;
+            }
         }
         catch (const HResultError& error)
         {
@@ -1031,7 +1173,8 @@ ExternalHostTrustResult queryExternalHostTrust(
             externalLocation / L"Identity",
             packagePath,
             externalLocation / L"Installer",
-            statePath};
+            statePath,
+            backupPath};
         for (const fs::path& protectedPath : protectedPaths)
         {
             if (!pathProtected(protectedPath))
@@ -1099,7 +1242,8 @@ ExternalHostTrustResult queryExternalHostTrust(
 
 bool externalHostTrusted(const ExternalHostTrustResult& result) noexcept
 {
-    return result.status == ExternalHostTrustStatus::Trusted;
+    return result.status == ExternalHostTrustStatus::Trusted
+        || result.status == ExternalHostTrustStatus::CertificateExpiringSoon;
 }
 
 std::string_view externalHostTrustStatusName(
@@ -1117,6 +1261,8 @@ std::string_view externalHostTrustStatusName(
         return "state-missing";
     case ExternalHostTrustStatus::StateInvalid:
         return "state-invalid";
+    case ExternalHostTrustStatus::StatePairMismatch:
+        return "state-pair-mismatch";
     case ExternalHostTrustStatus::IdentityMismatch:
         return "identity-mismatch";
     case ExternalHostTrustStatus::UserMismatch:
@@ -1141,6 +1287,8 @@ std::string_view externalHostTrustStatusName(
         return "certificate-store-mismatch";
     case ExternalHostTrustStatus::CertificateInvalid:
         return "certificate-invalid";
+    case ExternalHostTrustStatus::CertificateExpiringSoon:
+        return "certificate-expiring-soon";
     case ExternalHostTrustStatus::Failed:
         return "failed";
     }
@@ -1169,6 +1317,10 @@ std::string externalHostTrustDiagnostic(const ExternalHostTrustResult& result)
     {
         stream << ";CertificateSha256="
                << result.observedCertificateSha256;
+    }
+    if (result.certificateExpiringSoon)
+    {
+        stream << ";CertificateExpiringSoon=true";
     }
     return stream.str();
 }

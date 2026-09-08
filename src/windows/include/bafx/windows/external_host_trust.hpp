@@ -18,6 +18,7 @@ enum class ExternalHostTrustStatus : std::uint8_t
     IdentityIncomplete,
     StateMissing,
     StateInvalid,
+    StatePairMismatch,
     IdentityMismatch,
     UserMismatch,
     ExternalLocationMismatch,
@@ -30,6 +31,7 @@ enum class ExternalHostTrustStatus : std::uint8_t
     SignerCertificateMismatch,
     CertificateStoreMismatch,
     CertificateInvalid,
+    CertificateExpiringSoon,
     Failed
 };
 
@@ -44,6 +46,7 @@ struct ExternalHostTrustResult
     std::string observedPackageSha256{};
     std::string expectedCertificateSha256{};
     std::string observedCertificateSha256{};
+    bool certificateExpiringSoon{false};
 };
 
 [[nodiscard]] ExternalHostTrustResult queryExternalHostTrust(

@@ -17,7 +17,8 @@ enum class PackageActivationStateStatus
     Corrupt,
     VersionMismatch,
     BackupRecovered,
-    PartialUpgrade
+    PartialUpgrade,
+    RepairRequired
 };
 
 enum class PackageActivationStateSource
@@ -27,11 +28,22 @@ enum class PackageActivationStateSource
     Backup
 };
 
+enum class PackageCertificateStatus
+{
+    Unknown,
+    Valid,
+    ExpiringSoon,
+    Expired
+};
+
 struct PackageActivationIdentity final
 {
     std::wstring appUserModelId{};
     std::string productVersion{};
     std::string packageVersion{};
+    std::string transactionId{};
+    std::string stateDigest{};
+    std::string certificateNotAfterUtc{};
 };
 
 struct PackageActivationIdentityResult final
@@ -41,6 +53,8 @@ struct PackageActivationIdentityResult final
         PackageActivationStateStatus::Missing};
     PackageActivationStateSource source{
         PackageActivationStateSource::None};
+    PackageCertificateStatus certificateStatus{
+        PackageCertificateStatus::Unknown};
     std::optional<PackageActivationIdentity> identity{};
     std::wstring error{};
 

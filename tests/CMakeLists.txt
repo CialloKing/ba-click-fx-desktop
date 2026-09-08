@@ -611,6 +611,7 @@ if(WIN32)
         background_capture_transition_tests.cpp
         borderless_capture_access_tests.cpp
         display_capabilities_tests.cpp
+        external_host_trust_tests.cpp
         gpu_timestamp_profiler_tests.cpp
         ipc_client_tests.cpp
         ipc_protocol_tests.cpp

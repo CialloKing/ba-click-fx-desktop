@@ -122,6 +122,39 @@ constexpr std::string_view validInstallStateTemplate =
     return state;
 }
 
+[[nodiscard]] std::string makeModernInstallState(
+    const std::string_view futureValue = "same")
+{
+    std::string state = makeInstallState();
+    const std::size_t closingBrace = state.rfind('}');
+    if (closingBrace == std::string::npos)
+    {
+        throw std::runtime_error("Install state test object is malformed.");
+    }
+    state.insert(
+        closingBrace,
+        ",\n  \"stateDigest\": \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\n"
+        "  \"futureField\": \"" + std::string(futureValue) + "\"\n");
+    return state;
+}
+
+[[nodiscard]] std::string makeInstallStateWithCertificateExpiry(
+    const std::string_view notAfterUtc)
+{
+    std::string state = makeInstallState();
+    const std::size_t closingBrace = state.rfind('}');
+    if (closingBrace == std::string::npos)
+    {
+        throw std::runtime_error("Install state test object is malformed.");
+    }
+    state.insert(
+        closingBrace,
+        ",\n  \"certificateNotAfterUtc\": \""
+            + std::string(notAfterUtc)
+            + "\"\n");
+    return state;
+}
+
 }
 
 BAFX_TEST(package_activation_state_builds_aumid)
@@ -277,7 +310,7 @@ BAFX_TEST(package_activation_state_rejects_corrupt_primary_with_backup)
     BAFX_CHECK(!result.succeeded());
 }
 
-BAFX_TEST(package_activation_state_does_not_mask_primary_partial_upgrade)
+BAFX_TEST(package_activation_state_rejects_mismatched_primary_partial_upgrade)
 {
     TemporaryInstallDirectory directory;
     directory.writeState(makeInstallState(
@@ -291,10 +324,28 @@ BAFX_TEST(package_activation_state_does_not_mask_primary_partial_upgrade)
     BAFX_CHECK(!result.succeeded());
     BAFX_CHECK(
         result.status
-        == bafx::control_center::PackageActivationStateStatus::PartialUpgrade);
+        == bafx::control_center::PackageActivationStateStatus::RepairRequired);
     BAFX_CHECK(
         result.source
         == bafx::control_center::PackageActivationStateSource::Primary);
+}
+
+BAFX_TEST(package_activation_state_preserves_matching_partial_upgrade)
+{
+    TemporaryInstallDirectory directory;
+    const std::string partial = makeInstallState(
+        "65535.65535.65535",
+        "65535.65535.65535.0");
+    directory.writeState(partial);
+    directory.writeState(partial, true);
+
+    const auto result = bafx::control_center::readPackageActivationState(
+        directory.path());
+
+    BAFX_CHECK(!result.succeeded());
+    BAFX_CHECK(
+        result.status
+        == bafx::control_center::PackageActivationStateStatus::PartialUpgrade);
 }
 
 BAFX_TEST(package_activation_state_classifies_missing_primary_with_backup)
@@ -337,6 +388,87 @@ BAFX_TEST(package_activation_state_rejects_mismatched_transaction_digest)
     BAFX_CHECK(
         result.status
         == bafx::control_center::PackageActivationStateStatus::RepairRequired);
+}
+
+BAFX_TEST(package_activation_state_rejects_legacy_raw_pair_mismatch)
+{
+    TemporaryInstallDirectory directory;
+    directory.writeState(makeInstallState());
+    std::string backup = makeInstallState();
+    const std::size_t timestampPosition = backup.find(
+        "2026-08-16T00:00:00.0000000Z");
+    BAFX_CHECK(timestampPosition != std::string::npos);
+    backup.replace(
+        timestampPosition,
+        std::string("2026-08-16T00:00:00.0000000Z").size(),
+        "2026-08-17T00:00:00.0000000Z");
+    directory.writeState(backup, true);
+
+    const auto result = bafx::control_center::readPackageActivationState(
+        directory.path());
+
+    BAFX_CHECK(!result.succeeded());
+    BAFX_CHECK(
+        result.status
+        == bafx::control_center::PackageActivationStateStatus::RepairRequired);
+}
+
+BAFX_TEST(package_activation_state_classifies_certificate_expiry)
+{
+    const auto valid = bafx::control_center::parsePackageActivationState(
+        makeInstallStateWithCertificateExpiry(
+            "2099-01-01T00:00:00.0000000Z"));
+    BAFX_CHECK(valid.succeeded());
+    BAFX_CHECK(
+        valid.certificateStatus
+        == bafx::control_center::PackageCertificateStatus::Valid);
+
+    const auto expired = bafx::control_center::parsePackageActivationState(
+        makeInstallStateWithCertificateExpiry(
+            "2020-01-01T00:00:00.0000000Z"));
+    BAFX_CHECK(expired.succeeded());
+    BAFX_CHECK(
+        expired.certificateStatus
+        == bafx::control_center::PackageCertificateStatus::Expired);
+}
+
+BAFX_TEST(package_activation_state_rejects_malformed_certificate_expiry)
+{
+    const auto result = bafx::control_center::parsePackageActivationState(
+        makeInstallStateWithCertificateExpiry("not-a-timestamp"));
+
+    BAFX_CHECK(!result.succeeded());
+    BAFX_CHECK(
+        result.status
+        == bafx::control_center::PackageActivationStateStatus::Corrupt);
+}
+
+BAFX_TEST(package_activation_state_rejects_modern_raw_pair_mismatch)
+{
+    TemporaryInstallDirectory directory;
+    directory.writeState(makeModernInstallState("primary"));
+    directory.writeState(makeModernInstallState("backup"), true);
+
+    const auto result = bafx::control_center::readPackageActivationState(
+        directory.path());
+
+    BAFX_CHECK(!result.succeeded());
+    BAFX_CHECK(
+        result.status
+        == bafx::control_center::PackageActivationStateStatus::RepairRequired);
+}
+
+BAFX_TEST(package_activation_state_accepts_modern_bom_pair)
+{
+    TemporaryInstallDirectory directory;
+    const std::string state = makeModernInstallState();
+    directory.writeState("\xEF\xBB\xBF" + state);
+    directory.writeState("\xEF\xBB\xBF" + state, true);
+
+    const auto result = bafx::control_center::readPackageActivationState(
+        directory.path());
+
+    BAFX_CHECK(result.succeeded());
 }
 
 BAFX_TEST(package_activation_state_reports_both_corrupt_files)

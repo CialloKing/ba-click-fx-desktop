@@ -7,22 +7,203 @@
 
 #include <cctype>
 #include <cstddef>
+#include <cstdint>
 #include <fstream>
 #include <limits>
 #include <optional>
 #include <string>
 #include <system_error>
+#include <utility>
 
 namespace bafx::control_center
 {
 namespace
 {
 
+struct InstallStateFileRead final
+{
+    PackageActivationIdentityResult result{};
+    std::string normalizedContents{};
+    bool contentsRead{false};
+};
+
 constexpr std::size_t maximumInstallStateBytes = 64U * 1024U;
 constexpr unsigned int expectedInstallStateSchema = 2U;
 constexpr std::string_view expectedPackageFamilyPrefix =
     "CialloKing.BaClickFxDesktop_";
 constexpr std::string_view expectedApplicationId = "BaClickFxDesktop";
+
+[[nodiscard]] bool validHexMarker(
+    const std::string_view value,
+    const std::size_t expectedLength) noexcept
+{
+    if (value.size() != expectedLength)
+    {
+        return false;
+    }
+    for (const unsigned char character : value)
+    {
+        if (!std::isxdigit(character))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+[[nodiscard]] bool parseFixedDigits(
+    const std::string_view value,
+    const std::size_t offset,
+    const std::size_t count,
+    unsigned int& output) noexcept
+{
+    if (offset > value.size() || count > value.size() - offset)
+    {
+        return false;
+    }
+
+    unsigned int parsed = 0U;
+    for (std::size_t index = 0U; index < count; ++index)
+    {
+        const unsigned char character =
+            static_cast<unsigned char>(value[offset + index]);
+        if (character < static_cast<unsigned char>('0')
+            || character > static_cast<unsigned char>('9'))
+        {
+            return false;
+        }
+        parsed = parsed * 10U
+            + static_cast<unsigned int>(character - static_cast<unsigned char>('0'));
+    }
+    output = parsed;
+    return true;
+}
+
+[[nodiscard]] bool parseUtcFileTime(
+    const std::string_view value,
+    FILETIME& output) noexcept
+{
+    // The installer writes DateTime round-trip values in UTC. Keep this
+    // parser deliberately strict so a malformed expiry cannot be treated as
+    // an unexpired certificate by the UI.
+    if (value.size() < 20U
+        || value[4] != '-'
+        || value[7] != '-'
+        || value[10] != 'T'
+        || value[13] != ':'
+        || value[16] != ':')
+    {
+        return false;
+    }
+
+    const std::size_t lastIndex = value.size() - 1U;
+    if (value[lastIndex] != 'Z')
+    {
+        return false;
+    }
+
+    unsigned int year = 0U;
+    unsigned int month = 0U;
+    unsigned int day = 0U;
+    unsigned int hour = 0U;
+    unsigned int minute = 0U;
+    unsigned int second = 0U;
+    if (!parseFixedDigits(value, 0U, 4U, year)
+        || !parseFixedDigits(value, 5U, 2U, month)
+        || !parseFixedDigits(value, 8U, 2U, day)
+        || !parseFixedDigits(value, 11U, 2U, hour)
+        || !parseFixedDigits(value, 14U, 2U, minute)
+        || !parseFixedDigits(value, 17U, 2U, second))
+    {
+        return false;
+    }
+
+    std::uint64_t fractionalTicks = 0U;
+    if (value[19] == '.')
+    {
+        unsigned int fractionValue = 0U;
+        if (lastIndex <= 20U || lastIndex - 20U > 7U
+            || !parseFixedDigits(
+                value,
+                20U,
+                lastIndex - 20U,
+                fractionValue))
+        {
+            return false;
+        }
+        fractionalTicks = fractionValue;
+        for (std::size_t index = lastIndex - 20U; index < 7U; ++index)
+        {
+            fractionalTicks *= 10U;
+        }
+    }
+    else if (value[19] != 'Z' || value.size() != 20U)
+    {
+        return false;
+    }
+
+    SYSTEMTIME systemTime{};
+    systemTime.wYear = static_cast<WORD>(year);
+    systemTime.wMonth = static_cast<WORD>(month);
+    systemTime.wDay = static_cast<WORD>(day);
+    systemTime.wHour = static_cast<WORD>(hour);
+    systemTime.wMinute = static_cast<WORD>(minute);
+    systemTime.wSecond = static_cast<WORD>(second);
+    systemTime.wMilliseconds = static_cast<WORD>(fractionalTicks / 10'000U);
+    FILETIME base{};
+    if (SystemTimeToFileTime(&systemTime, &base) == FALSE)
+    {
+        return false;
+    }
+
+    ULARGE_INTEGER ticks{};
+    ticks.LowPart = base.dwLowDateTime;
+    ticks.HighPart = base.dwHighDateTime;
+    const std::uint64_t remainder = fractionalTicks % 10'000U;
+    if (ticks.QuadPart > (std::numeric_limits<std::uint64_t>::max)()
+        - remainder)
+    {
+        return false;
+    }
+    ticks.QuadPart += remainder;
+    output.dwLowDateTime = ticks.LowPart;
+    output.dwHighDateTime = ticks.HighPart;
+    return true;
+}
+
+[[nodiscard]] std::optional<PackageCertificateStatus>
+certificateStatusFromTimestamp(const std::string_view value) noexcept
+{
+    if (value.empty())
+    {
+        return PackageCertificateStatus::Unknown;
+    }
+
+    FILETIME notAfter{};
+    if (!parseUtcFileTime(value, notAfter))
+    {
+        return std::nullopt;
+    }
+
+    FILETIME nowFileTime{};
+    GetSystemTimeAsFileTime(&nowFileTime);
+    ULARGE_INTEGER now{};
+    now.LowPart = nowFileTime.dwLowDateTime;
+    now.HighPart = nowFileTime.dwHighDateTime;
+    ULARGE_INTEGER expiry{};
+    expiry.LowPart = notAfter.dwLowDateTime;
+    expiry.HighPart = notAfter.dwHighDateTime;
+    if (expiry.QuadPart <= now.QuadPart)
+    {
+        return PackageCertificateStatus::Expired;
+    }
+
+    constexpr std::uint64_t thirtyDays =
+        30ULL * 24ULL * 60ULL * 60ULL * 10'000'000ULL;
+    return expiry.QuadPart - now.QuadPart <= thirtyDays
+        ? PackageCertificateStatus::ExpiringSoon
+        : PackageCertificateStatus::Valid;
+}
 
 class InstallStateParser final
 {
@@ -46,6 +227,7 @@ public:
         std::optional<std::string> packageVersion;
         std::optional<std::string> transactionId;
         std::optional<std::string> stateDigest;
+        std::optional<std::string> certificateNotAfterUtc;
         bool hasSchema = false;
         unsigned int schema = 0U;
 
@@ -150,6 +332,20 @@ public:
                     return fail(L"Install state stateDigest must be a string.");
                 }
             }
+            else if (*key == "certificateNotAfterUtc")
+            {
+                if (certificateNotAfterUtc.has_value())
+                {
+                    return fail(
+                        L"Install state repeats certificateNotAfterUtc.");
+                }
+                certificateNotAfterUtc = parseString();
+                if (!certificateNotAfterUtc.has_value())
+                {
+                    return fail(
+                        L"Install state certificateNotAfterUtc must be a string.");
+                }
+            }
             else if (!skipPrimitive())
             {
                 return fail(L"Install state has an unsupported property value.");
@@ -196,6 +392,13 @@ public:
         {
             return fail(L"Install state package activation fields are invalid.");
         }
+        if ((transactionId.has_value()
+                && !validHexMarker(*transactionId, 32U))
+            || (stateDigest.has_value()
+                && !validHexMarker(*stateDigest, 64U)))
+        {
+            return fail(L"Install state transaction markers are invalid.");
+        }
 
         std::wstring appUserModelId;
         appUserModelId.reserve(packageFamilyName->size() + applicationId->size() + 1U);
@@ -218,14 +421,24 @@ public:
             return fail(L"Install state version fields are malformed.");
         }
 
+        const std::optional<PackageCertificateStatus> certificateStatus =
+            certificateStatusFromTimestamp(
+                certificateNotAfterUtc.value_or(std::string{}));
+        if (!certificateStatus.has_value())
+        {
+            return fail(L"Install state certificate expiry is malformed.");
+        }
+
         PackageActivationIdentityResult result{};
         result.installStatePresent = true;
+        result.certificateStatus = *certificateStatus;
         result.identity = PackageActivationIdentity{
             std::move(appUserModelId),
             std::move(*productVersion),
             std::move(*packageVersion),
             transactionId.value_or(std::string{}),
-            stateDigest.value_or(std::string{})};
+            stateDigest.value_or(std::string{}),
+            certificateNotAfterUtc.value_or(std::string{})};
         if (*parsedProduct != *parsedPackage)
         {
             result.status = PackageActivationStateStatus::VersionMismatch;
@@ -489,51 +702,48 @@ PackageActivationIdentityResult parsePackageActivationState(
 namespace
 {
 
-[[nodiscard]] PackageActivationIdentityResult readPackageActivationStateFile(
+[[nodiscard]] InstallStateFileRead readPackageActivationStateFile(
     const std::filesystem::path& statePath) noexcept
 {
     try
     {
+        InstallStateFileRead file{};
         std::error_code error;
         const bool exists = std::filesystem::exists(statePath, error);
         if (error)
         {
-            PackageActivationIdentityResult result{};
-            result.installStatePresent = true;
-            result.status = PackageActivationStateStatus::Corrupt;
-            result.error = L"The package install state could not be inspected.";
-            return result;
+            file.result.installStatePresent = true;
+            file.result.status = PackageActivationStateStatus::Corrupt;
+            file.result.error = L"The package install state could not be inspected.";
+            return file;
         }
         if (!exists)
         {
-            return {};
+            return file;
         }
         if (!std::filesystem::is_regular_file(statePath, error) || error)
         {
-            PackageActivationIdentityResult result{};
-            result.installStatePresent = true;
-            result.status = PackageActivationStateStatus::Corrupt;
-            result.error = L"The package install state is not a regular file.";
-            return result;
+            file.result.installStatePresent = true;
+            file.result.status = PackageActivationStateStatus::Corrupt;
+            file.result.error = L"The package install state is not a regular file.";
+            return file;
         }
         const std::uintmax_t size = std::filesystem::file_size(statePath, error);
         if (error || size == 0U || size > maximumInstallStateBytes)
         {
-            PackageActivationIdentityResult result{};
-            result.installStatePresent = true;
-            result.status = PackageActivationStateStatus::Corrupt;
-            result.error = L"The package install state has an invalid size.";
-            return result;
+            file.result.installStatePresent = true;
+            file.result.status = PackageActivationStateStatus::Corrupt;
+            file.result.error = L"The package install state has an invalid size.";
+            return file;
         }
 
         std::ifstream stream(statePath, std::ios::binary);
         if (!stream)
         {
-            PackageActivationIdentityResult result{};
-            result.installStatePresent = true;
-            result.status = PackageActivationStateStatus::Corrupt;
-            result.error = L"The package install state could not be opened.";
-            return result;
+            file.result.installStatePresent = true;
+            file.result.status = PackageActivationStateStatus::Corrupt;
+            file.result.error = L"The package install state could not be opened.";
+            return file;
         }
         std::string contents(static_cast<std::size_t>(size), '\0');
         stream.read(contents.data(), static_cast<std::streamsize>(contents.size()));
@@ -544,25 +754,27 @@ namespace
             || stream.bad()
             || hasTrailingByte)
         {
-            PackageActivationIdentityResult result{};
-            result.installStatePresent = true;
-            result.status = PackageActivationStateStatus::Corrupt;
-            result.error = L"The package install state could not be read completely.";
-            return result;
+            file.result.installStatePresent = true;
+            file.result.status = PackageActivationStateStatus::Corrupt;
+            file.result.error = L"The package install state could not be read completely.";
+            return file;
         }
         if (contents.starts_with("\xEF\xBB\xBF"))
         {
             contents.erase(0U, 3U);
         }
-        return parsePackageActivationState(contents);
+        file.normalizedContents = contents;
+        file.contentsRead = true;
+        file.result = parsePackageActivationState(contents);
+        return file;
     }
     catch (...)
     {
-        PackageActivationIdentityResult result{};
-        result.installStatePresent = true;
-        result.status = PackageActivationStateStatus::Corrupt;
-        result.error = L"The package install state could not be loaded.";
-        return result;
+        InstallStateFileRead file{};
+        file.result.installStatePresent = true;
+        file.result.status = PackageActivationStateStatus::Corrupt;
+        file.result.error = L"The package install state could not be loaded.";
+        return file;
     }
 }
 
@@ -573,13 +785,15 @@ PackageActivationIdentityResult readPackageActivationState(
 {
     const std::filesystem::path installerDirectory =
         executableDirectory / L"Installer";
-    PackageActivationIdentityResult primary = readPackageActivationStateFile(
+    InstallStateFileRead primaryFile = readPackageActivationStateFile(
         installerDirectory / L"INSTALL-STATE.json");
+    PackageActivationIdentityResult primary = std::move(primaryFile.result);
     primary.source = primary.installStatePresent
         ? PackageActivationStateSource::Primary
         : PackageActivationStateSource::None;
-    PackageActivationIdentityResult backup = readPackageActivationStateFile(
+    InstallStateFileRead backupFile = readPackageActivationStateFile(
         installerDirectory / L"INSTALL-STATE.json.bak");
+    PackageActivationIdentityResult backup = std::move(backupFile.result);
     backup.source = backup.installStatePresent
         ? PackageActivationStateSource::Backup
         : PackageActivationStateSource::None;
@@ -594,27 +808,29 @@ PackageActivationIdentityResult readPackageActivationState(
             && primary.identity->transactionId
                 == backup.identity->transactionId
             && !primary.identity->transactionId.empty();
-        const bool sameDigest = primary.identity.has_value()
+        const bool sameParsedIdentity = primary.identity.has_value()
             && backup.identity.has_value()
-            && primary.identity->stateDigest
-                == backup.identity->stateDigest
-            && (primary.identity->stateDigest.empty()
-                || (!primary.identity->transactionId.empty()
-                    && !backup.identity->transactionId.empty()));
-        const bool sameLegacyIdentity = primary.identity.has_value()
-            && backup.identity.has_value()
-            && primary.identity->transactionId.empty()
-            && backup.identity->transactionId.empty()
-            && primary.identity->stateDigest.empty()
-            && backup.identity->stateDigest.empty()
             && primary.identity->appUserModelId
                 == backup.identity->appUserModelId
             && primary.identity->productVersion
                 == backup.identity->productVersion
             && primary.identity->packageVersion
                 == backup.identity->packageVersion;
-        const bool sameIdentity =
-            (sameTransaction && sameDigest) || sameLegacyIdentity;
+        const bool sameDigest = primary.identity.has_value()
+            && backup.identity.has_value()
+            && !primary.identity->stateDigest.empty()
+            && primary.identity->stateDigest
+                == backup.identity->stateDigest;
+        const bool bothLegacyWithoutDigest = primary.identity.has_value()
+            && backup.identity.has_value()
+            && primary.identity->stateDigest.empty()
+            && backup.identity->stateDigest.empty();
+        const bool sameModernBytes = primaryFile.contentsRead
+            && backupFile.contentsRead
+            && primaryFile.normalizedContents == backupFile.normalizedContents;
+        const bool sameIdentity = sameTransaction
+            && sameModernBytes
+            && ((sameDigest) || (bothLegacyWithoutDigest && sameParsedIdentity));
         if (sameIdentity)
         {
             return primary;

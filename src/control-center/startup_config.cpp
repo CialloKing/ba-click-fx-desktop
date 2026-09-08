@@ -1,6 +1,6 @@
 #include "startup_config.hpp"
 
-#include <system_error>
+#include "package_activation.hpp"
 
 namespace bafx::control_center
 {
@@ -8,11 +8,9 @@ namespace bafx::control_center
 std::filesystem::path startupConfigPath(
     const std::filesystem::path& executableDirectory)
 {
-    std::error_code error;
-    const bool installed = std::filesystem::is_regular_file(
-        executableDirectory / L"Installer" / L"INSTALL-STATE.json",
-        error);
-    if (installed && !error)
+    const PackageActivationIdentityResult installState =
+        readPackageActivationState(executableDirectory);
+    if (installState.succeeded())
     {
         return executableDirectory / L"data" / L"BAFX.config.json";
     }

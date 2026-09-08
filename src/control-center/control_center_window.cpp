@@ -107,6 +107,8 @@ struct InstallationStatePresentation final
         return L"版本不一致";
     case PackageActivationStateStatus::PartialUpgrade:
         return L"部分升级";
+    case PackageActivationStateStatus::RepairRequired:
+        return L"需要安装器修复";
     case PackageActivationStateStatus::Valid:
     case PackageActivationStateStatus::BackupRecovered:
         return L"未知异常";
@@ -138,6 +140,18 @@ struct InstallationStatePresentation final
         details += asciiVersionToWide(identity.productVersion);
         details += L" · 包版本：";
         details += asciiVersionToWide(identity.packageVersion);
+        if (packageIdentity.certificateStatus
+            == PackageCertificateStatus::ExpiringSoon)
+        {
+            details +=
+                L"\r\n证书将在 30 天内过期，请重新运行安装器轮换证书。";
+        }
+        else if (packageIdentity.certificateStatus
+            == PackageCertificateStatus::Expired)
+        {
+            details +=
+                L"\r\n证书已过期，请重新运行安装器修复后再启动 Host。";
+        }
         return InstallationStatePresentation{
             L"安装版",
             std::move(details)};
@@ -7187,6 +7201,15 @@ void ControlCenterWindow::startHostFromBundle()
             return;
         }
 
+        if (packageIdentity.certificateStatus
+            == PackageCertificateStatus::Expired)
+        {
+            setInfo(
+                L"证书已过期",
+                L"请重新运行安装器修复并轮换证书后再启动 Host。");
+            return;
+        }
+
         const PackageActivationResult activation = activatePackagedHost(
             packageIdentity.identity->appUserModelId);
         if (!activation.succeeded())
@@ -7229,7 +7252,18 @@ void ControlCenterWindow::startHostFromBundle()
 
     hostRunning_ = true;
     scheduleHostRefreshRetry(true);
-    setInfo(L"正在启动 Host", L"Host 初始化完成后会自动刷新。");
+    if (packageIdentity.installStatePresent
+        && packageIdentity.certificateStatus
+            == PackageCertificateStatus::ExpiringSoon)
+    {
+        setInfo(
+            L"正在启动 Host",
+            L"证书将在 30 天内过期；请重新运行安装器轮换证书。Host 初始化完成后会自动刷新。");
+    }
+    else
+    {
+        setInfo(L"正在启动 Host", L"Host 初始化完成后会自动刷新。");
+    }
 }
 
 void ControlCenterWindow::stopHost()
