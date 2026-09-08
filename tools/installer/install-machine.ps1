@@ -612,7 +612,9 @@ function Resolve-PayloadDirectory
         [string]$InstallRoot,
 
         [Parameter(Mandatory = $true)]
-        [string]$PayloadPath
+        [string]$PayloadPath,
+
+        [switch]$AllowMissing
     )
 
     $resolvedInstallRoot = [IO.Path]::GetFullPath($InstallRoot).TrimEnd('\')
@@ -626,7 +628,19 @@ function Resolve-PayloadDirectory
     }
     if (-not (Test-Path -LiteralPath $resolvedPayload -PathType Container))
     {
+        if ($AllowMissing -and -not (Test-Path -LiteralPath $resolvedPayload))
+        {
+            # A pre-staging installer may have left only its protected journal
+            # and rollback evidence. Rollback can proceed without the transient
+            # payload, while Prepare and CommitFiles must still require it.
+            return $resolvedPayload
+        }
         throw "Installer staging directory is missing: $resolvedPayload"
+    }
+    $payloadItem = Get-Item -LiteralPath $resolvedPayload -Force
+    if (($payloadItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0)
+    {
+        throw 'Installer staging directory cannot be a reparse point.'
     }
     return $resolvedPayload
 }
@@ -4643,7 +4657,8 @@ if (-not [string]::IsNullOrWhiteSpace($PayloadDirectory))
 {
     $script:PayloadRoot = Resolve-PayloadDirectory `
         -InstallRoot $installRoot `
-        -PayloadPath $PayloadDirectory
+        -PayloadPath $PayloadDirectory `
+        -AllowMissing:($Phase -in @('Rollback', 'RollbackCleanup'))
 }
 elseif ($Phase -notin @('Rollback', 'RollbackCleanup'))
 {

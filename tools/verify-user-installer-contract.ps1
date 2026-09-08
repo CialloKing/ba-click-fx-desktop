@@ -881,6 +881,86 @@ function Test-InnoPayloadContract
         -Description 'ordinary-user installer Release payload dependencies'
 }
 
+function Test-CrossVersionPendingRecoveryContract
+{
+    $installMachinePath = 'tools/installer/install-machine.ps1'
+    $installMachine = Read-RepositoryText -RelativePath $installMachinePath
+    Assert-TextContains `
+        -Text $installMachine `
+        -Pattern 'function\s+Resolve-PayloadDirectory[\s\S]*\[switch\]\$AllowMissing' `
+        -Description 'rollback can resolve a missing legacy staging directory'
+    Assert-TextContains `
+        -Text $installMachine `
+        -Pattern '\-AllowMissing:\(\$Phase\s+\-in\s+@\(\x27Rollback\x27,\s*\x27RollbackCleanup\x27\)\)' `
+        -Description 'only rollback phases may use a missing staging directory'
+
+    $rollbackMatch = [regex]::Match(
+        $installMachine,
+        '(?ms)if\s*\(\$Phase\s*-eq\s*\x27Rollback\x27\)(?<body>[\s\S]*?)(?=^if\s*\(\$Phase\s*-eq\s*\x27RollbackCleanup\x27\))')
+    Assert-True `
+        -Condition $rollbackMatch.Success `
+        -Message 'Install-machine rollback phase is missing.'
+    Assert-TextExcludes `
+        -Text $rollbackMatch.Groups['body'].Value `
+        -Pattern 'Read-PayloadManifest|Assert-PayloadManifest' `
+        -Description 'legacy rollback does not require the current payload manifest'
+
+    $ast = Get-ParsedScript -RelativePath $installMachinePath
+    $functionText = Get-FunctionText -Ast $ast -Name 'Resolve-PayloadDirectory'
+    $probeModule = New-Module -ScriptBlock ([scriptblock]::Create(
+        "Set-StrictMode -Version Latest`n$functionText"))
+    $temporaryParent = [IO.Path]::GetFullPath([IO.Path]::GetTempPath())
+    $temporaryRoot = Join-Path `
+        $temporaryParent `
+        ('bafx-cross-version-recovery-' + [Guid]::NewGuid().ToString('N'))
+    try
+    {
+        $installRoot = Join-Path $temporaryRoot 'install'
+        $payloadRoot = Join-Path $installRoot '.staging\current'
+        New-Item -ItemType Directory -Path $installRoot -Force | Out-Null
+        $resolved = & $probeModule {
+            param($Root, $Payload)
+            Resolve-PayloadDirectory `
+                -InstallRoot $Root `
+                -PayloadPath $Payload `
+                -AllowMissing
+        } $installRoot $payloadRoot
+        Assert-True `
+            -Condition ([IO.Path]::GetFullPath($resolved) -eq [IO.Path]::GetFullPath($payloadRoot)) `
+            -Message 'Rollback did not accept a missing legacy staging directory.'
+
+        New-Item -ItemType Directory -Path $payloadRoot -Force | Out-Null
+        $resolvedExisting = & $probeModule {
+            param($Root, $Payload)
+            Resolve-PayloadDirectory `
+                -InstallRoot $Root `
+                -PayloadPath $Payload `
+                -AllowMissing
+        } $installRoot $payloadRoot
+        Assert-True `
+            -Condition ([IO.Path]::GetFullPath($resolvedExisting) -eq [IO.Path]::GetFullPath($payloadRoot)) `
+            -Message 'Rollback could not resolve an existing staging directory.'
+    }
+    finally
+    {
+        if ($null -ne $probeModule)
+        {
+            Remove-Module -ModuleInfo $probeModule -Force -ErrorAction SilentlyContinue
+        }
+        $resolvedTemporaryRoot = [IO.Path]::GetFullPath($temporaryRoot)
+        if ($resolvedTemporaryRoot.StartsWith(
+                $temporaryParent,
+                [StringComparison]::OrdinalIgnoreCase) -and
+            [IO.Path]::GetFileName($resolvedTemporaryRoot).StartsWith(
+                'bafx-cross-version-recovery-',
+                [StringComparison]::Ordinal))
+        {
+            Remove-Item -LiteralPath $resolvedTemporaryRoot -Recurse -Force `
+                -ErrorAction SilentlyContinue
+        }
+    }
+}
+
 function Test-SparsePackageContract
 {
     $manifest = Read-RepositoryText -RelativePath 'tools/identity-package/Package.appxmanifest.in'
@@ -2143,6 +2223,7 @@ Test-VersionMapping
 Test-InstallerScriptWhitelist
 Test-CompressionRuntimeColdStart
 Test-InnoPayloadContract
+Test-CrossVersionPendingRecoveryContract
 Test-SparsePackageContract
 Test-UninstallerStatePairContract
 Test-UninstallerCompletionMarkerContract
