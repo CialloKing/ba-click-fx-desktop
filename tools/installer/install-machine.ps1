@@ -4382,7 +4382,7 @@ if ($Phase -eq 'Prepare')
         Stop-InstallerWithFailure `
             -ErrorRecord $prepareErrorRecord `
             -Step $prepareFailureStep `
-            -ExitCode $(if ($prepareRollbackSucceeded) { 1 } else { 1002 })
+            -ExitCode $(if ($prepareRollbackSucceeded) { 1002 } else { 1001 })
     }
 }
 

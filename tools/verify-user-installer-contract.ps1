@@ -375,6 +375,10 @@ function Test-InstallerScriptWhitelist
         -Description 'prepare rollback failures remain secondary to the root cause'
     Assert-TextContains `
         -Text $installMachine `
+        -Pattern '\$prepareRollbackSucceeded\)\s*\{\s*1002\s*\}\s*else\s*\{\s*1001' `
+        -Description 'prepare failures return rollback-success and recovery-retained exit codes'
+    Assert-TextContains `
+        -Text $installMachine `
         -Pattern 'stateCommitted[\s\S]*ExitCode\s+1001' `
         -Description 'committed finalize cleanup failures retain recovery state'
     Assert-TextExcludes `
