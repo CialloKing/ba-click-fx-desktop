@@ -1398,7 +1398,9 @@ function Test-ExistingIdentityPackageReusable
         [string]$ProductVersion,
 
         [Parameter(Mandatory = $true)]
-        [string]$PackageVersion
+        [string]$PackageVersion,
+
+        [DateTime]$NowUtc = [DateTime]::UtcNow
     )
 
     if ($null -eq $OldState -or
@@ -1414,12 +1416,11 @@ function Test-ExistingIdentityPackageReusable
         return $null
     }
     $certificate = Get-TrustedCertificateByThumbprint -Thumbprint $thumbprint
-    $nowUtc = [DateTime]::UtcNow
-    $minimumReusableNotAfterUtc = $nowUtc.AddDays(30)
+    $minimumReusableNotAfterUtc = $NowUtc.AddDays(30)
     if ($null -eq $certificate -or
-        $certificate.NotAfter.ToUniversalTime() -le $nowUtc -or
+        $certificate.NotAfter.ToUniversalTime() -le $NowUtc -or
         $certificate.NotAfter.ToUniversalTime() -lt $minimumReusableNotAfterUtc -or
-        $certificate.NotBefore.ToUniversalTime() -gt $nowUtc)
+        $certificate.NotBefore.ToUniversalTime() -gt $NowUtc)
     {
         return $null
     }

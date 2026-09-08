@@ -356,6 +356,298 @@ function Test-CertificateCreationRecoveryContract
         -Description 'certificate SAN marker bound to another transaction'
 }
 
+function Test-CertificateLifecycleBoundaryContract
+{
+    $ast = Get-ParsedScript `
+        -RelativePath 'tools/installer/install-machine.ps1'
+    $moduleText = @(
+        'Set-StrictMode -Version Latest'
+        "`$ErrorActionPreference = 'Stop'"
+        @'
+$script:TrustedCertificate = $null
+$script:PrivateCertificates = @()
+$script:TrustedCertificates = @()
+$script:RemovedCertificatePaths = New-Object Collections.Generic.List[string]
+$script:FailPrivateCertificateDeletion = $false
+
+function Get-TrustedCertificateByThumbprint
+{
+    param([string]$Thumbprint)
+    return $script:TrustedCertificate
+}
+
+function Get-CertificateSha256
+{
+    param([object]$Certificate)
+    return [string]$Certificate.sha256
+}
+
+function Test-Path
+{
+    param([string]$LiteralPath, [string]$PathType)
+    return $true
+}
+
+function Get-FileHash
+{
+    param([string]$LiteralPath, [string]$Algorithm)
+    return [pscustomobject]@{ Hash = 'C' * 64 }
+}
+
+function Get-AuthenticodeSignature
+{
+    param([string]$LiteralPath)
+    return [pscustomobject]@{
+        Status = [Management.Automation.SignatureStatus]::Valid
+        SignerCertificate = [pscustomobject]@{ Thumbprint = 'A' * 40 }
+    }
+}
+
+function Get-ChildItem
+{
+    param([string]$Path)
+    if ($Path -eq 'Cert:\LocalMachine\My')
+    {
+        return @($script:PrivateCertificates)
+    }
+    if ($Path -eq 'Cert:\LocalMachine\TrustedPeople')
+    {
+        return @($script:TrustedCertificates)
+    }
+    return @()
+}
+
+function Remove-Item
+{
+    param(
+        [string]$LiteralPath,
+        [switch]$DeleteKey,
+        [switch]$Force
+    )
+    [void]$script:RemovedCertificatePaths.Add($LiteralPath)
+    if ($DeleteKey -and $script:FailPrivateCertificateDeletion)
+    {
+        throw 'injected private-key deletion failure'
+    }
+    $script:PrivateCertificates = @(
+        $script:PrivateCertificates | Where-Object { $_.PSPath -ne $LiteralPath })
+    $script:TrustedCertificates = @(
+        $script:TrustedCertificates | Where-Object { $_.PSPath -ne $LiteralPath })
+}
+
+function Test-CertificateSanUri
+{
+    param([object]$Certificate, [string]$SanUri)
+    return [string]$Certificate.sanUri -ceq $SanUri
+}
+
+function Invoke-CertificateLifecycleProbe
+{
+}
+'@
+        (Get-FunctionText -Ast $ast -Name 'Split-Ledger')
+        (Get-FunctionText -Ast $ast -Name 'Assert-CertificateStoreSnapshot')
+        (Get-FunctionText -Ast $ast -Name 'Test-CertificateStoreSnapshotContains')
+        (Get-FunctionText -Ast $ast -Name 'Test-ExistingIdentityPackageReusable')
+        (Get-FunctionText -Ast $ast -Name 'Remove-CertificateFromStores')
+        (Get-FunctionText -Ast $ast -Name 'Recover-CreatingCertificate')
+        'Export-ModuleMember -Function Invoke-CertificateLifecycleProbe'
+    ) -join "`n"
+    $probeModule = New-Module -ScriptBlock ([scriptblock]::Create($moduleText))
+    try
+    {
+        $nowUtc = [DateTime]::SpecifyKind(
+            [DateTime]::new(2030, 1, 1, 0, 0, 0),
+            [DateTimeKind]::Utc)
+        $oldState = [pscustomobject]@{
+            productVersion = '1.2.3'
+            packageVersion = '1.2.3.0'
+            hostSha256 = 'B' * 64
+            certificateThumbprint = 'A' * 40
+            certificateSha256 = 'D' * 64
+            packageFile = 'identity.msix'
+            packageSha256 = 'C' * 64
+            certificateOwnership = 'preexisting'
+        }
+        $metadata = [pscustomobject]@{ hostSha256 = 'B' * 64 }
+
+        function Invoke-ReuseProbe
+        {
+            param([AllowNull()][object]$Certificate)
+
+            return & $probeModule {
+                param($State, $Metadata, $CertificateValue, $Now)
+                $script:TrustedCertificate = $CertificateValue
+                Test-ExistingIdentityPackageReusable `
+                    -OldState $State `
+                    -Metadata $Metadata `
+                    -InstallRoot 'C:\Program Files\ba-click-fx-desktop' `
+                    -ProductVersion '1.2.3' `
+                    -PackageVersion '1.2.3.0' `
+                    -NowUtc $Now
+            } $oldState $metadata $Certificate $nowUtc
+        }
+
+        $certificate = [pscustomobject]@{
+            Thumbprint = 'A' * 40
+            sha256 = 'D' * 64
+            NotBefore = $nowUtc.AddDays(-1)
+            NotAfter = $nowUtc.AddDays(31)
+        }
+        $reusable = Invoke-ReuseProbe -Certificate $certificate
+        Assert-True `
+            -Condition ($null -ne $reusable -and
+                [string]$reusable.certificateOwnership -eq 'preexisting') `
+            -Message 'A valid pre-existing 31-day certificate was not reused.'
+
+        $certificate.NotAfter = $nowUtc.AddDays(30)
+        Assert-True `
+            -Condition ($null -ne (Invoke-ReuseProbe -Certificate $certificate)) `
+            -Message 'A certificate with exactly 30 days remaining was rotated.'
+
+        foreach ($notAfter in @($nowUtc.AddDays(30).AddTicks(-1), $nowUtc.AddDays(-1)))
+        {
+            $certificate.NotAfter = $notAfter
+            Assert-True `
+                -Condition ($null -eq (Invoke-ReuseProbe -Certificate $certificate)) `
+                -Message 'A near-expiry or expired certificate was incorrectly reused.'
+        }
+        Assert-True `
+            -Condition ($null -eq (Invoke-ReuseProbe -Certificate $null)) `
+            -Message 'A missing trusted certificate was incorrectly reused.'
+
+        $transactionId = 'e' * 32
+        $sanUri = "urn:bafx:installer:$transactionId"
+        $newCertificate = [pscustomobject]@{
+            Thumbprint = 'F' * 40
+            sha256 = '1' * 64
+            Subject = 'CN=BaClickFx.Local'
+            sanUri = $sanUri
+            PSPath = 'Cert:\LocalMachine\My\new'
+        }
+        $pendingCreation = [pscustomobject]@{
+            transactionId = $transactionId
+            publisher = 'CN=BaClickFx.Local'
+            certificatePhase = 'creating'
+            certificateSanUri = $sanUri
+            certificatePreexisting = ''
+            certificateThumbprint = ''
+            certificateSha256 = ''
+        }
+        & $probeModule {
+            param($Certificate, $State)
+            $script:PrivateCertificates = @($Certificate)
+            $script:TrustedCertificates = @()
+            $script:RemovedCertificatePaths.Clear()
+            $script:FailPrivateCertificateDeletion = $false
+            Recover-CreatingCertificate -State $State
+        } $newCertificate $pendingCreation
+        $afterCrashRecovery = & $probeModule {
+            return [pscustomobject]@{
+                privateCount = $script:PrivateCertificates.Count
+                removedCount = $script:RemovedCertificatePaths.Count
+            }
+        }
+        Assert-True `
+            -Condition ($afterCrashRecovery.privateCount -eq 0 -and
+                $afterCrashRecovery.removedCount -eq 1) `
+            -Message 'A post-creation certificate was not removed during crash recovery.'
+
+        $preexistingTrusted = [pscustomobject]@{
+            Thumbprint = '9' * 40
+            sha256 = '2' * 64
+            Subject = 'CN=BaClickFx.Local'
+            sanUri = $sanUri
+            PSPath = 'Cert:\LocalMachine\TrustedPeople\preexisting'
+        }
+        $preexistingState = [pscustomobject]@{
+            transactionId = $transactionId
+            publisher = 'CN=BaClickFx.Local'
+            certificatePhase = 'creating'
+            certificateSanUri = $sanUri
+            certificatePreexisting = (('9' * 40) + ':' + ('2' * 64))
+            certificateThumbprint = ''
+            certificateSha256 = ''
+        }
+        & $probeModule {
+            param($Certificate, $State)
+            $script:PrivateCertificates = @()
+            $script:TrustedCertificates = @($Certificate)
+            $script:RemovedCertificatePaths.Clear()
+            Recover-CreatingCertificate -State $State
+        } $preexistingTrusted $preexistingState
+        $preexistingPreserved = & $probeModule {
+            return $script:TrustedCertificates.Count -eq 1 -and
+                $script:RemovedCertificatePaths.Count -eq 0
+        }
+        Assert-True `
+            -Condition $preexistingPreserved `
+            -Message 'Crash recovery removed a pre-existing TrustedPeople certificate.'
+
+        $ambiguousCertificate = [pscustomobject]@{
+            Thumbprint = '8' * 40
+            sha256 = '3' * 64
+            Subject = 'CN=BaClickFx.Local'
+            sanUri = $sanUri
+            PSPath = 'Cert:\LocalMachine\TrustedPeople\ambiguous'
+        }
+        Assert-Throws `
+            -Action {
+                & $probeModule {
+                    param($First, $Second, $State)
+                    $script:PrivateCertificates = @($First)
+                    $script:TrustedCertificates = @($Second)
+                    $script:RemovedCertificatePaths.Clear()
+                    Recover-CreatingCertificate -State $State
+                } $newCertificate $ambiguousCertificate $pendingCreation
+            } `
+            -Description 'multiple certificate SAN transaction markers'
+        $ambiguousPreserved = & $probeModule {
+            return $script:RemovedCertificatePaths.Count -eq 0
+        }
+        Assert-True `
+            -Condition $ambiguousPreserved `
+            -Message 'Ambiguous SAN recovery deleted certificate evidence.'
+
+        $trustedCopy = [pscustomobject]@{
+            Thumbprint = 'F' * 40
+            sha256 = '1' * 64
+            Subject = 'CN=BaClickFx.Local'
+            sanUri = $sanUri
+            PSPath = 'Cert:\LocalMachine\TrustedPeople\new'
+        }
+        Assert-Throws `
+            -Action {
+                & $probeModule {
+                    param($Private, $Trusted)
+                    $script:PrivateCertificates = @($Private)
+                    $script:TrustedCertificates = @($Trusted)
+                    $script:RemovedCertificatePaths.Clear()
+                    $script:FailPrivateCertificateDeletion = $true
+                    Remove-CertificateFromStores `
+                        -Thumbprint ('F' * 40) `
+                        -ExpectedSubject 'CN=BaClickFx.Local'
+                } $newCertificate $trustedCopy
+            } `
+            -Description 'private-key deletion failure'
+        $privateFailureSafe = & $probeModule {
+            return $script:RemovedCertificatePaths.Count -eq 1 -and
+                $script:RemovedCertificatePaths[0] -eq 'Cert:\LocalMachine\My\new' -and
+                $script:TrustedCertificates.Count -eq 1
+        }
+        Assert-True `
+            -Condition $privateFailureSafe `
+            -Message 'Private-key deletion failure removed the trusted certificate.'
+    }
+    finally
+    {
+        if ($null -ne $probeModule)
+        {
+            Remove-Module -ModuleInfo $probeModule -Force -ErrorAction SilentlyContinue
+        }
+    }
+}
+
 function Test-UninstallerProcessPathFilter
 {
     $scriptPath = 'tools/installer/unregister-machine.ps1'
@@ -3016,6 +3308,7 @@ if (-not (Test-Path -LiteralPath $repositoryRoot -PathType Container))
 
 Test-PowerShellScriptContracts
 Test-UninstallerProcessPathFilter
+Test-CertificateLifecycleBoundaryContract
 Test-VersionMapping
 Test-InstallerScriptWhitelist
 Test-CompressionRuntimeColdStart
