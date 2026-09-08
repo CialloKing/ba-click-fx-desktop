@@ -670,6 +670,7 @@ if(WIN32)
             bafx::product
             bafx::release_update
             advapi32
+            bcrypt
             ole32
             version
     )

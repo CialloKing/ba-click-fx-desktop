@@ -57,6 +57,7 @@ target_link_libraries(
         comdlg32
         comctl32
         advapi32
+        bcrypt
         ole32
         shell32
         user32

@@ -4,7 +4,9 @@
 
 #include <shobjidl_core.h>
 #include <wrl/client.h>
+#include <bcrypt.h>
 
+#include <array>
 #include <cctype>
 #include <cstddef>
 #include <cstdint>
@@ -32,6 +34,264 @@ constexpr unsigned int expectedInstallStateSchema = 2U;
 constexpr std::string_view expectedPackageFamilyPrefix =
     "CialloKing.BaClickFxDesktop_";
 constexpr std::string_view expectedApplicationId = "BaClickFxDesktop";
+
+void skipJsonWhitespace(
+    const std::string_view input,
+    std::size_t& position) noexcept
+{
+    while (position < input.size())
+    {
+        const char value = input[position];
+        if (value != ' ' && value != '\t' && value != '\r' && value != '\n')
+        {
+            break;
+        }
+        ++position;
+    }
+}
+
+[[nodiscard]] bool skipJsonString(
+    const std::string_view input,
+    std::size_t& position) noexcept
+{
+    if (position >= input.size() || input[position] != '"')
+    {
+        return false;
+    }
+    ++position;
+    while (position < input.size())
+    {
+        const unsigned char value =
+            static_cast<unsigned char>(input[position++]);
+        if (value == '"')
+        {
+            return true;
+        }
+        if (value < 0x20U)
+        {
+            return false;
+        }
+        if (value == '\\')
+        {
+            if (position >= input.size())
+            {
+                return false;
+            }
+            ++position;
+        }
+    }
+    return false;
+}
+
+[[nodiscard]] bool skipJsonValue(
+    const std::string_view input,
+    std::size_t& position) noexcept
+{
+    if (position >= input.size())
+    {
+        return false;
+    }
+    if (input[position] == '"')
+    {
+        return skipJsonString(input, position);
+    }
+    if (input[position] == '{' || input[position] == '[')
+    {
+        const char opening = input[position++];
+        const char closing = opening == '{' ? '}' : ']';
+        unsigned int depth = 1U;
+        while (position < input.size() && depth != 0U)
+        {
+            if (input[position] == '"')
+            {
+                if (!skipJsonString(input, position))
+                {
+                    return false;
+                }
+                continue;
+            }
+            if (input[position] == opening)
+            {
+                ++depth;
+            }
+            else if (input[position] == closing)
+            {
+                --depth;
+            }
+            ++position;
+        }
+        return depth == 0U;
+    }
+    const std::size_t begin = position;
+    while (position < input.size()
+        && input[position] != ','
+        && input[position] != '}'
+        && input[position] != ']')
+    {
+        ++position;
+    }
+    return position > begin;
+}
+
+[[nodiscard]] std::optional<std::string> removeStateDigestMember(
+    const std::string_view input) noexcept
+{
+    std::size_t position = 0U;
+    skipJsonWhitespace(input, position);
+    if (position >= input.size() || input[position] != '{')
+    {
+        return std::nullopt;
+    }
+    ++position;
+
+    std::size_t digestMemberStart = std::string_view::npos;
+    std::size_t digestValueEnd = std::string_view::npos;
+    bool foundDigest = false;
+    while (position < input.size())
+    {
+        skipJsonWhitespace(input, position);
+        if (position < input.size() && input[position] == '}')
+        {
+            break;
+        }
+        const std::size_t memberStart = position;
+        if (!skipJsonString(input, position))
+        {
+            return std::nullopt;
+        }
+        const std::size_t keyEnd = position;
+        skipJsonWhitespace(input, position);
+        if (position >= input.size() || input[position++] != ':')
+        {
+            return std::nullopt;
+        }
+        skipJsonWhitespace(input, position);
+        if (position >= input.size())
+        {
+            return std::nullopt;
+        }
+        if (!skipJsonValue(input, position))
+        {
+            return std::nullopt;
+        }
+        const std::size_t valueEnd = position;
+        if (keyEnd - memberStart == std::string_view("\"stateDigest\"").size()
+            && input.substr(memberStart, keyEnd - memberStart)
+                == "\"stateDigest\"")
+        {
+            if (foundDigest)
+            {
+                return std::nullopt;
+            }
+            foundDigest = true;
+            digestMemberStart = memberStart;
+            digestValueEnd = valueEnd;
+        }
+        skipJsonWhitespace(input, position);
+        if (position < input.size() && input[position] == ',')
+        {
+            ++position;
+            continue;
+        }
+        if (position < input.size() && input[position] == '}')
+        {
+            break;
+        }
+        return std::nullopt;
+    }
+    if (!foundDigest)
+    {
+        return std::nullopt;
+    }
+
+    // The installer serializes stateDigest last. Removing the preceding comma
+    // produces exactly the same JSON bytes that PowerShell hashed.
+    std::size_t removeStart = digestMemberStart;
+    if (digestValueEnd < input.size())
+    {
+        std::size_t afterValue = digestValueEnd;
+        skipJsonWhitespace(input, afterValue);
+        if (afterValue < input.size() && input[afterValue] == '}')
+        {
+            std::size_t comma = digestMemberStart;
+            while (comma > 0U)
+            {
+                --comma;
+                if (input[comma] == ',')
+                {
+                    removeStart = comma;
+                    break;
+                }
+                if (input[comma] == '{' || input[comma] == '}')
+                {
+                    break;
+                }
+            }
+        }
+        else if (afterValue < input.size() && input[afterValue] == ',')
+        {
+            digestValueEnd = afterValue + 1U;
+        }
+    }
+    std::string result(input);
+    result.erase(removeStart, digestValueEnd - removeStart);
+    return result;
+}
+
+[[nodiscard]] std::optional<std::string> computeStateDigest(
+    std::string_view input) noexcept
+{
+    try
+    {
+        if (input.starts_with("\xEF\xBB\xBF"))
+        {
+            input.remove_prefix(3U);
+        }
+        const std::optional<std::string> digestInput =
+            removeStateDigestMember(input);
+        if (!digestInput.has_value())
+        {
+            return std::nullopt;
+        }
+        BCRYPT_ALG_HANDLE algorithm = nullptr;
+        if (!BCRYPT_SUCCESS(BCryptOpenAlgorithmProvider(
+                &algorithm,
+                BCRYPT_SHA256_ALGORITHM,
+                nullptr,
+                0U)))
+        {
+            return std::nullopt;
+        }
+        std::array<UCHAR, 32U> digest{};
+        const NTSTATUS status = BCryptHash(
+            algorithm,
+            nullptr,
+            0U,
+            const_cast<PUCHAR>(
+                reinterpret_cast<const UCHAR*>(digestInput->data())),
+            static_cast<ULONG>(digestInput->size()),
+            digest.data(),
+            static_cast<ULONG>(digest.size()));
+        BCryptCloseAlgorithmProvider(algorithm, 0U);
+        if (!BCRYPT_SUCCESS(status))
+        {
+            return std::nullopt;
+        }
+        static constexpr char digits[] = "0123456789ABCDEF";
+        std::string output;
+        output.reserve(digest.size() * 2U);
+        for (const UCHAR byte : digest)
+        {
+            output.push_back(digits[(byte >> 4U) & 0x0FU]);
+            output.push_back(digits[byte & 0x0FU]);
+        }
+        return output;
+    }
+    catch (...)
+    {
+        return std::nullopt;
+    }
+}
 
 [[nodiscard]] bool validHexMarker(
     const std::string_view value,
@@ -821,6 +1081,18 @@ PackageActivationIdentityResult readPackageActivationState(
             && !primary.identity->stateDigest.empty()
             && primary.identity->stateDigest
                 == backup.identity->stateDigest;
+        const std::optional<std::string> primaryComputedDigest =
+            sameDigest && primaryFile.contentsRead
+            ? computeStateDigest(primaryFile.normalizedContents)
+            : std::nullopt;
+        const std::optional<std::string> backupComputedDigest =
+            sameDigest && backupFile.contentsRead
+            ? computeStateDigest(backupFile.normalizedContents)
+            : std::nullopt;
+        const bool primaryDigestValid = primaryComputedDigest.has_value()
+            && primaryComputedDigest == primary.identity->stateDigest;
+        const bool backupDigestValid = backupComputedDigest.has_value()
+            && backupComputedDigest == backup.identity->stateDigest;
         const bool bothLegacyWithoutDigest = primary.identity.has_value()
             && backup.identity.has_value()
             && primary.identity->stateDigest.empty()
@@ -830,7 +1102,8 @@ PackageActivationIdentityResult readPackageActivationState(
             && primaryFile.normalizedContents == backupFile.normalizedContents;
         const bool sameIdentity = sameTransaction
             && sameModernBytes
-            && ((sameDigest) || (bothLegacyWithoutDigest && sameParsedIdentity));
+            && ((sameDigest && primaryDigestValid && backupDigestValid)
+                || (bothLegacyWithoutDigest && sameParsedIdentity));
         if (sameIdentity)
         {
             return primary;
