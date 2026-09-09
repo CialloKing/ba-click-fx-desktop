@@ -763,6 +763,33 @@ function Test-InstallerScriptWhitelist
         -Description 'Inno compiler supports output capture and uninstall logging'
 
     $installMachine = Read-RepositoryText -RelativePath 'tools/installer/install-machine.ps1'
+    $installMachineAst = Get-ParsedScript `
+        -RelativePath 'tools/installer/install-machine.ps1'
+    $splitLedgerText = Get-FunctionText `
+        -Ast $installMachineAst `
+        -Name 'Split-Ledger'
+    $splitLedgerModule = New-Module -ScriptBlock ([scriptblock]::Create(
+        "Set-StrictMode -Version Latest`n$splitLedgerText"))
+    try
+    {
+        $legacyPackageLedger = 'old.msix current.msix|current.msix'
+        $legacyPackageFiles = @(& $splitLedgerModule {
+                param($Value)
+                Split-Ledger -Value $Value -Separator Pipe
+            } $legacyPackageLedger)
+        Assert-ArrayEquals `
+            -Expected @('old.msix', 'current.msix', 'current.msix') `
+            -Actual $legacyPackageFiles `
+            -Description 'legacy PowerShell 5.1 package ledger migration'
+    }
+    finally
+    {
+        if ($null -ne $splitLedgerModule)
+        {
+            Remove-Module -ModuleInfo $splitLedgerModule -Force `
+                -ErrorAction SilentlyContinue
+        }
+    }
     Assert-TextContains `
         -Text $installMachine `
         -Pattern 'function\s+Get-IdentityTemplateContentHash' `

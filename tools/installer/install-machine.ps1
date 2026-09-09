@@ -549,7 +549,10 @@ function Split-Ledger
     {
         return @()
     }
-    $pattern = if ($Separator -eq 'Comma') { ',' } else { '\|' }
+    # One released PowerShell 5.1 path joined package names with a space.
+    # Package artifacts never contain whitespace, so accept that legacy form
+    # while preserving the normal pipe-delimited representation on rewrite.
+    $pattern = if ($Separator -eq 'Comma') { ',' } else { '[|\s]+' }
     return @(
         ([string]$Value -split $pattern) |
             Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |

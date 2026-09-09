@@ -627,7 +627,9 @@ function Assert-PendingState
             throw 'Protected pending state has an invalid certificate ledger entry.'
         }
     }
-    foreach ($ownedFile in (([string]$State.ownedPackageFiles) -split '\|' |
+    # Accept the short-lived PowerShell 5.1 space-delimited ledger so an
+    # interrupted upgrade can still complete rollback under the original user.
+    foreach ($ownedFile in (([string]$State.ownedPackageFiles) -split '[|\s]+' |
             Where-Object { -not [string]::IsNullOrWhiteSpace($_) }))
     {
         if ([IO.Path]::IsPathRooted($ownedFile) -or
