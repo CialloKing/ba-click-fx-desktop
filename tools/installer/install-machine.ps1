@@ -5750,8 +5750,10 @@ try
         Split-Ledger `
             -Value $pendingState.ownedPackageFiles `
             -Separator Pipe
-        [string]$pendingState.packageFile
     )
+    # Keep the append outside the command expression. Windows PowerShell 5.1
+    # otherwise coerces the split array to one space-delimited string.
+    $ownedPackageFiles += [string]$pendingState.packageFile
     $installState = [ordered]@{
         schema = 2
         transactionId = [string]$pendingState.transactionId
