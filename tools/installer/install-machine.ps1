@@ -2679,6 +2679,68 @@ function Test-OtherUserPackageRegistration
     return $false
 }
 
+function Remove-CompletedRollbackEvidence
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$InstallRoot,
+
+        [Parameter(Mandatory = $true)]
+        [string]$TransactionId
+    )
+
+    if ($TransactionId -notmatch '^[0-9a-fA-F]{32}$')
+    {
+        throw 'The completed rollback transaction identifier is invalid.'
+    }
+    $rollbackParent = Join-Path $InstallRoot '.rollback'
+    $rollbackRoot = Join-Path $rollbackParent $TransactionId
+    Assert-NoReparsePath -Path $rollbackParent -AllowMissing
+    if (Test-Path -LiteralPath $rollbackRoot)
+    {
+        # The evidence is no longer needed after commit/rollback has reached
+        # this point, but validate the complete tree before recursive deletion.
+        Assert-NoReparseTree -Path $rollbackRoot
+        Remove-Item -LiteralPath $rollbackRoot -Recurse -Force
+        if (Test-Path -LiteralPath $rollbackRoot)
+        {
+            throw "Completed rollback evidence remains: $rollbackRoot"
+        }
+    }
+}
+
+function Remove-EmptyRollbackDirectories
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$InstallRoot
+    )
+
+    $rollbackParent = Join-Path $InstallRoot '.rollback'
+    if (-not (Test-Path -LiteralPath $rollbackParent -PathType Container))
+    {
+        return
+    }
+    Assert-NoReparsePath -Path $rollbackParent
+    foreach ($child in @(Get-ChildItem -LiteralPath $rollbackParent -Force))
+    {
+        if (-not $child.PSIsContainer -or
+            [string]$child.Name -notmatch '^[0-9a-fA-F]{32}$')
+        {
+            continue
+        }
+        Assert-NoReparseTree -Path $child.FullName
+        if (@(Get-ChildItem -LiteralPath $child.FullName -Force).Count -eq 0)
+        {
+            Remove-Item -LiteralPath $child.FullName -Force
+        }
+    }
+    if (@(Get-ChildItem -LiteralPath $rollbackParent -Force).Count -eq 0)
+    {
+        Remove-Item -LiteralPath $rollbackParent -Force
+    }
+}
+
 function Complete-CommittedPendingTransaction
 {
     param(
@@ -2755,6 +2817,9 @@ function Complete-CommittedPendingTransaction
         -Path (Join-Path $InstallRoot 'Installer\INSTALL-STATE.json') `
         -Value $cleanedState `
         -ReadSid ([string]$State.userSid)
+    Remove-CompletedRollbackEvidence `
+        -InstallRoot $InstallRoot `
+        -TransactionId ([string]$State.transactionId)
     Assert-NoReparsePath -Path $PendingPath
     Remove-Item -LiteralPath $PendingPath -Force
 }
@@ -5038,11 +5103,15 @@ function Invoke-PendingRollbackCleanup
     if ($certificatePhase -eq 'creating')
     {
         Recover-CreatingCertificate -State $State
+        Remove-CompletedRollbackEvidence `
+            -InstallRoot $InstallRoot `
+            -TransactionId ([string]$State.transactionId)
         if (Test-Path -LiteralPath $PendingPath -PathType Leaf)
         {
             Assert-NoReparsePath -Path $PendingPath
             Remove-Item -LiteralPath $PendingPath -Force
         }
+        Remove-EmptyRollbackDirectories -InstallRoot $InstallRoot
         return
     }
     Remove-PendingPackageFiles `
@@ -5050,11 +5119,15 @@ function Invoke-PendingRollbackCleanup
         -InstallRoot $InstallRoot `
         -PayloadRoot $PayloadRoot
     Remove-PreparedCertificateIfUnused -State $State
+    Remove-CompletedRollbackEvidence `
+        -InstallRoot $InstallRoot `
+        -TransactionId ([string]$State.transactionId)
     if (Test-Path -LiteralPath $PendingPath -PathType Leaf)
     {
         Assert-NoReparsePath -Path $PendingPath
         Remove-Item -LiteralPath $PendingPath -Force
     }
+    Remove-EmptyRollbackDirectories -InstallRoot $InstallRoot
 }
 
 function Read-RegistrationResult
@@ -5433,6 +5506,9 @@ if ($Phase -eq 'Prepare')
             $stalePendingRequiresCoordinator = $true
             throw 'A previous pending transaction requires coordinator recovery.'
         }
+        # Empty transaction directories contain no recovery evidence and can be
+        # left behind by older installers; remove only those validated empties.
+        Remove-EmptyRollbackDirectories -InstallRoot $installRoot
         $script:InstallerStep = 'read-original-user-context'
         $context = Get-Content -LiteralPath $userContextFullPath -Raw | ConvertFrom-Json
         if ([int]$context.schema -ne 1 -or [string]$context.userSid -notmatch '^S-1-[0-9-]+$')
@@ -5737,6 +5813,11 @@ try
     # Keep the journal until every cleanup operation and the optional ledger
     # update has completed. A restart can then distinguish a committed state
     # from a transaction that still needs machine-file rollback.
+    $script:InstallerStep = 'delete-rollback-evidence'
+    Remove-CompletedRollbackEvidence `
+        -InstallRoot $installRoot `
+        -TransactionId ([string]$pendingState.transactionId)
+    Remove-EmptyRollbackDirectories -InstallRoot $installRoot
     $script:InstallerStep = 'delete-pending-state'
     Assert-NoReparsePath -Path $machineStateFullPath
     Remove-Item -LiteralPath $machineStateFullPath -Force
