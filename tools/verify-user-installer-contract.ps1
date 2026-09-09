@@ -305,6 +305,10 @@ function Test-CertificateCreationRecoveryContract
         -Text (Get-FunctionText -Ast $machineAst -Name 'Assert-PendingStateObject') `
         -Pattern 'certificateSanUris+-cne[sS]*urn:bafx:installer' `
         -Description 'creating journals bind the SAN marker to the transaction id'
+    Assert-TextContains `
+        -Text (Read-RepositoryText -RelativePath 'tools/installer/install-machine.ps1') `
+        -Pattern 'TextExtension\s+@\(\x222\.5\.29\.17=\{text\}URL=\$certificateSanUri\x22\)' `
+        -Description 'certificate SAN uses the CertEnroll URI GeneralName token'
 
     function Split-Ledger
     {
