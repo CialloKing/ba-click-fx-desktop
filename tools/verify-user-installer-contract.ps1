@@ -1399,7 +1399,11 @@ function Test-InnoPayloadContract
         '{#StageRoot}\SUPPORT.md',
         '{#StageRoot}\THIRD-PARTY-NOTICES.txt',
         '{#StageRoot}\Identity\*',
-        '{#StageRoot}\Installer\*'
+        '{#StageRoot}\Installer\*',
+        '{#StageRoot}\Installer\installer-diagnostics.ps1',
+        '{#StageRoot}\Installer\protected-paths.ps1',
+        '{#StageRoot}\Installer\install-machine.ps1',
+        '{#StageRoot}\Installer\register-user-package.ps1'
     )
     Assert-ArrayEquals `
         -Expected $expectedSources `
@@ -1416,12 +1420,36 @@ function Test-InnoPayloadContract
         -Message 'Every Inno payload entry must have one protected staging destination.'
     foreach ($destination in $destinations)
     {
+        if ($destination.Equals('{tmp}', [StringComparison]::OrdinalIgnoreCase))
+        {
+            continue
+        }
         Assert-True `
             -Condition $destination.StartsWith(
                 '{app}\.staging\current',
                 [StringComparison]::OrdinalIgnoreCase) `
             -Message "Inno payload destination escaped protected staging: $destination"
     }
+    $temporaryRecoveryEntries = @(
+        [regex]::Matches(
+            $filesSectionMatch.Groups['body'].Value,
+            '(?mi)^\s*Source:\s*"\{#StageRoot\}\\Installer\\(?:installer-diagnostics|protected-paths|install-machine|register-user-package)\.ps1";\s*DestDir:\s*"\{tmp\}";\s*Flags:\s*dontcopy\s*$')
+    )
+    Assert-True `
+        -Condition ($temporaryRecoveryEntries.Count -eq 4) `
+        -Message 'Every embedded recovery script must be a dontcopy temporary entry.'
+    Assert-TextContains `
+        -Text $inno `
+        -Pattern 'installer-diagnostics\.ps1";\s*DestDir:\s*"\{tmp\}";\s*Flags:\s*dontcopy' `
+        -Description 'current recovery dependencies are embedded as temporary files'
+    Assert-TextContains `
+        -Text $inno `
+        -Pattern 'ExtractCurrentRecoveryScripts[\s\S]*ExtractTemporaryFile\(\x27install-machine\.ps1\x27\)[\s\S]*ExtractTemporaryFile\(\x27register-user-package\.ps1\x27\)' `
+        -Description 'current recovery scripts are extracted before pending recovery'
+    Assert-TextContains `
+        -Text $inno `
+        -Pattern 'CurrentPath\s*:=\s*ResolveCurrentRecoveryScript\(ScriptName\)[\s\S]*StagedPath\s*:=.*ScriptName' `
+        -Description 'embedded recovery scripts take priority across release boundaries'
     Assert-TextContains `
         -Text $inno `
         -Pattern '(?m)^AppMutex=Global\\BAFX\.UserInstaller\.v1$' `

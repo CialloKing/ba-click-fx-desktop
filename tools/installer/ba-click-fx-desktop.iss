@@ -114,8 +114,15 @@ Source: "{#StageRoot}\SUPPORT.md"; DestDir: "{app}\.staging\current"; Flags: ign
 #ifdef IncludeSpout2Notice
 Source: "{#StageRoot}\THIRD-PARTY-NOTICES.txt"; DestDir: "{app}\.staging\current"; Flags: ignoreversion
 #endif
-Source: "{#StageRoot}\Identity\*"; DestDir: "{app}\.staging\current\Identity"; Flags: ignoreversion recursesubdirs createallsubdirs
-Source: "{#StageRoot}\Installer\*"; DestDir: "{app}\.staging\current\Installer"; Flags: ignoreversion recursesubdirs createallsubdirs
+  Source: "{#StageRoot}\Identity\*"; DestDir: "{app}\.staging\current\Identity"; Flags: ignoreversion recursesubdirs createallsubdirs
+  Source: "{#StageRoot}\Installer\*"; DestDir: "{app}\.staging\current\Installer"; Flags: ignoreversion recursesubdirs createallsubdirs
+  ; Keep the current recovery implementation available before [Files] is
+  ; copied. This is required when the live/staged payload belongs to an older
+  ; installer that does not understand the current journal schema.
+  Source: "{#StageRoot}\Installer\installer-diagnostics.ps1"; DestDir: "{tmp}"; Flags: dontcopy
+  Source: "{#StageRoot}\Installer\protected-paths.ps1"; DestDir: "{tmp}"; Flags: dontcopy
+  Source: "{#StageRoot}\Installer\install-machine.ps1"; DestDir: "{tmp}"; Flags: dontcopy
+  Source: "{#StageRoot}\Installer\register-user-package.ps1"; DestDir: "{tmp}"; Flags: dontcopy
 
 [Icons]
 Name: "{autoprograms}\ba-click-fx-desktop\BAFX Control Center"; Filename: "{app}\BAFX.ControlCenter.exe"; WorkingDir: "{app}"
@@ -139,6 +146,7 @@ var
   RollbackResultPath: String;
   PayloadRoot: String;
   InstallerRoot: String;
+  CurrentRecoveryRoot: String;
   RecoveryRequired: Boolean;
   RollbackRetainedRecovery: Boolean;
   SetupFailureExitCode: Integer;
@@ -174,6 +182,8 @@ function ResolveRollbackScript(
 function ResolveRestoredRollbackScript(
   const InstallRoot: String;
   const ScriptName: String): String; forward;
+function ExtractCurrentRecoveryScripts(): Boolean; forward;
+function ResolveCurrentRecoveryScript(const ScriptName: String): String; forward;
 function SafeDeleteFile(const Path: String): Boolean; forward;
 function SafeDeleteTree(const Path: String): Boolean; forward;
 procedure RaiseInstallerFailure(
@@ -211,6 +221,12 @@ begin
 
   PayloadRoot := AddBackslash(InstallRoot) + '.staging\current';
   InstallerRoot := AddBackslash(PayloadRoot) + 'Installer';
+  if not ExtractCurrentRecoveryScripts() then
+  begin
+    SetupFailureExitCode := 1001;
+    Result := 'The current recovery scripts could not be prepared.';
+    Exit;
+  end;
   ExistingInstallerRoot := AddBackslash(InstallRoot) + 'Installer\';
   ExistingPendingPath := ExistingInstallerRoot + 'PREPARE-STATE.json';
   // A first installation has no previous state or live recovery scripts. Keep
@@ -228,14 +244,23 @@ begin
   begin
     Log('PrepareToInstall found no pending transaction.');
   end;
-  ExistingScript := ResolveRollbackScript(
-    InstallRoot,
-    InstallerRoot,
-    'install-machine.ps1');
-  ExistingRegisterScript := ResolveRollbackScript(
-    InstallRoot,
-    InstallerRoot,
+  ExistingScript := ResolveCurrentRecoveryScript('install-machine.ps1');
+  if ExistingScript = '' then
+  begin
+    ExistingScript := ResolveRollbackScript(
+      InstallRoot,
+      InstallerRoot,
+      'install-machine.ps1');
+  end;
+  ExistingRegisterScript := ResolveCurrentRecoveryScript(
     'register-user-package.ps1');
+  if ExistingRegisterScript = '' then
+  begin
+    ExistingRegisterScript := ResolveRollbackScript(
+      InstallRoot,
+      InstallerRoot,
+      'register-user-package.ps1');
+  end;
   if FileExists(ExistingPendingPath) then
   begin
     if not FileExists(ExistingScript) then
@@ -1152,7 +1177,16 @@ function ResolveRollbackScript(
 var
   LivePath: String;
   StagedPath: String;
+  CurrentPath: String;
 begin
+  // The embedded current script is available before [Files] is copied. It is
+  // the only implementation guaranteed to understand this installer's journal.
+  CurrentPath := ResolveCurrentRecoveryScript(ScriptName);
+  if CurrentPath <> '' then
+  begin
+    Result := CurrentPath;
+    Exit;
+  end;
   // The staged directory is captured by the pending transaction and therefore
   // carries the recovery code that understands its schema. Prefer it across
   // release boundaries; the live copy is only a fallback for old installs.
@@ -1179,6 +1213,15 @@ function ResolveRestoredRollbackScript(
 var
   LivePath: String;
 begin
+  if CurrentRecoveryRoot <> '' then
+  begin
+    LivePath := AddBackslash(CurrentRecoveryRoot) + ScriptName;
+    if FileExists(LivePath) then
+    begin
+      Result := LivePath;
+      Exit;
+    end;
+  end;
   // Rollback restores the previous Installer directory before the old user
   // package is registered again. Never fall back to the still-staged newer
   // scripts after that point because their recovery schema may differ.
@@ -1191,6 +1234,51 @@ begin
   begin
     Result := '';
   end;
+end;
+
+function ResolveCurrentRecoveryScript(const ScriptName: String): String;
+var
+  Candidate: String;
+begin
+  Result := '';
+  if CurrentRecoveryRoot = '' then
+  begin
+    Exit;
+  end;
+  Candidate := AddBackslash(CurrentRecoveryRoot) + ScriptName;
+  if FileExists(Candidate) then
+  begin
+    Result := Candidate;
+  end;
+end;
+
+function ExtractCurrentRecoveryScripts(): Boolean;
+var
+  TempRoot: String;
+begin
+  Result := False;
+  TempRoot := AddBackslash(ExpandConstant('{tmp}'));
+  try
+    ExtractTemporaryFile('installer-diagnostics.ps1');
+    ExtractTemporaryFile('protected-paths.ps1');
+    ExtractTemporaryFile('install-machine.ps1');
+    ExtractTemporaryFile('register-user-package.ps1');
+  except
+    Log('Could not extract the current recovery scripts: ' +
+      GetExceptionMessage());
+    Exit;
+  end;
+  CurrentRecoveryRoot := TempRoot;
+  if (ResolveCurrentRecoveryScript('installer-diagnostics.ps1') = '') or
+    (ResolveCurrentRecoveryScript('protected-paths.ps1') = '') or
+    (ResolveCurrentRecoveryScript('install-machine.ps1') = '') or
+    (ResolveCurrentRecoveryScript('register-user-package.ps1') = '') then
+  begin
+    Log('The extracted recovery script set is incomplete.');
+    CurrentRecoveryRoot := '';
+    Exit;
+  end;
+  Result := True;
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
