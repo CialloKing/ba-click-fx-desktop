@@ -190,6 +190,7 @@ var
   ExistingRegisterScript: String;
   RecoveryArguments: String;
   CleanupArguments: String;
+  CommittedStatePresent: Boolean;
   ExitCode: Integer;
 begin
   // A failure before a pending journal exists can be safely retried after the
@@ -211,6 +212,12 @@ begin
   InstallerRoot := AddBackslash(PayloadRoot) + 'Installer';
   ExistingInstallerRoot := AddBackslash(InstallRoot) + 'Installer';
   ExistingPendingPath := ExistingInstallerRoot + 'PREPARE-STATE.json';
+  // A first installation has no previous state or live recovery scripts. Keep
+  // that distinction through rollback so the coordinator does not attempt to
+  // restore a package that never existed.
+  CommittedStatePresent :=
+    FileExists(ExistingInstallerRoot + 'INSTALL-STATE.json') or
+    FileExists(ExistingInstallerRoot + 'INSTALL-STATE.json.bak');
   ExistingScript := ResolveRollbackScript(
     InstallRoot,
     InstallerRoot,
@@ -288,7 +295,7 @@ begin
         CustomMessage('RollbackPendingInstallation'), True, ExitCode);
       Exit;
     end;
-    if FileExists(ExistingPendingPath) then
+    if FileExists(ExistingPendingPath) and CommittedStatePresent then
     begin
       ExistingRegisterScript := ResolveRestoredRollbackScript(
         InstallRoot,
@@ -328,6 +335,15 @@ begin
       ExistingScript := ResolveRestoredRollbackScript(
         InstallRoot,
         'install-machine.ps1');
+      if (ExistingScript = '') and (not CommittedStatePresent) then
+      begin
+        // Before the first commit, the staged transaction script is the only
+        // recovery code that can remove the new certificate and package.
+        ExistingScript := ResolveRollbackScript(
+          InstallRoot,
+          InstallerRoot,
+          'install-machine.ps1');
+      end;
       if ExistingScript = '' then
       begin
         SetupFailureExitCode := 1001;

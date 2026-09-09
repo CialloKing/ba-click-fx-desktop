@@ -1538,6 +1538,10 @@ function Test-InnoPayloadContract
         -Description 'first-install rollback cleanup falls back to the staged recovery script'
     Assert-TextContains `
         -Text $inno `
+        -Pattern 'CommittedStatePresent[\s\S]*if\s+FileExists\(ExistingPendingPath\)\s+and\s+CommittedStatePresent[\s\S]*RollbackAction RestorePrevious' `
+        -Description 'first-install pending recovery skips restoring a nonexistent previous package'
+    Assert-TextContains `
+        -Text $inno `
         -Pattern '\-Phase Prepare' `
         -Description 'machine preparation phase'
     Assert-TextContains `
