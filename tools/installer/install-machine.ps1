@@ -4821,7 +4821,10 @@ function Restore-CommittedPayloadFiles
         }
         else
         {
-            Assert-NoReparsePath -Path $livePath
+            # A newer payload may add a file that did not exist in the old
+            # install. Allow that missing leaf while still validating every
+            # existing parent before removing the newly committed file.
+            Assert-NoReparsePath -Path $livePath -AllowMissing
             if (Test-Path -LiteralPath $livePath -PathType Leaf)
             {
                 Remove-Item -LiteralPath $livePath -Force
