@@ -3784,6 +3784,143 @@ function Test-InstallerFailureDiagnostics
     }
 }
 
+function Test-MissingLegacyPayloadRollbackContract
+{
+    $ast = Get-ParsedScript `
+        -RelativePath 'tools/installer/install-machine.ps1'
+    $restoreText = Get-FunctionText `
+        -Ast $ast `
+        -Name 'Restore-CommittedPayloadFiles'
+    $functionText = @(
+        "Set-StrictMode -Version Latest"
+        "`$ErrorActionPreference = 'Stop'"
+        @'
+function Resolve-InstallerRelativePath
+{
+    param(
+        [string]$Root,
+        [string]$RelativePath
+    )
+    return [IO.Path]::GetFullPath((Join-Path $Root ($RelativePath -replace '/', '\')))
+}
+
+function Assert-NoReparsePath
+{
+    param(
+        [string]$Path,
+        [switch]$AllowMissing
+    )
+    if (-not (Test-Path -LiteralPath $Path))
+    {
+        if (-not $AllowMissing)
+        {
+            throw "Missing path was not explicitly allowed: $Path"
+        }
+        $script:MissingLeafWasAllowed = $true
+    }
+}
+
+function Copy-VerifiedInstallerFile
+{
+    param(
+        [string]$SourcePath,
+        [string]$DestinationPath,
+        [Int64]$ExpectedBytes,
+        [string]$ExpectedSha256
+    )
+    New-Item -ItemType Directory -Path ([IO.Path]::GetDirectoryName($DestinationPath)) -Force | Out-Null
+    Copy-Item -LiteralPath $SourcePath -Destination $DestinationPath -Force
+}
+
+function Read-PayloadRollbackManifest
+{
+    param(
+        [object]$State,
+        [string]$InstallRoot
+    )
+    return $script:RollbackManifest
+}
+'@
+        $restoreText
+    ) -join "`n"
+    $probeModule = New-Module -ScriptBlock ([scriptblock]::Create($functionText))
+    $temporaryParent = [IO.Path]::GetFullPath([IO.Path]::GetTempPath())
+    $temporaryRoot = Join-Path `
+        $temporaryParent `
+        ('bafx-missing-legacy-payload-' + [Guid]::NewGuid().ToString('N'))
+    try
+    {
+        $installRoot = Join-Path $temporaryRoot 'install'
+        $transactionId = 'b' * 32
+        $rollbackRoot = Join-Path $installRoot ('.rollback\' + $transactionId)
+        $newFilePath = Join-Path $installRoot 'Installer\new-from-current.txt'
+        New-Item -ItemType Directory -Path $rollbackRoot -Force | Out-Null
+        New-Item -ItemType Directory -Path ([IO.Path]::GetDirectoryName($newFilePath)) -Force | Out-Null
+        [IO.File]::WriteAllText($newFilePath, 'new payload')
+        $manifest = [pscustomobject]@{
+            files = @(
+                [pscustomobject]@{
+                    path = 'THIRD-PARTY-NOTICES.txt'
+                    existed = $false
+                    backupPath = ''
+                    bytes = 0
+                    sha256 = ''
+                },
+                [pscustomobject]@{
+                    path = 'Installer/new-from-current.txt'
+                    existed = $false
+                    backupPath = ''
+                    bytes = 0
+                    sha256 = ''
+                }
+            )
+            payloadManifestExisted = $false
+            payloadManifestPath = 'Installer/INSTALLER-PAYLOAD.json'
+            payloadManifestBytes = 0
+            payloadManifestSha256 = ''
+            payloadManifestBackupPath = ''
+            oldPackageFile = ''
+            oldPackageBackupPath = ''
+        }
+        $state = [pscustomobject]@{
+            transactionId = $transactionId
+        }
+        $result = & $probeModule {
+            param($Manifest, $State, $Root)
+            $script:RollbackManifest = $Manifest
+            $script:MissingLeafWasAllowed = $false
+            Restore-CommittedPayloadFiles -State $State -InstallRoot $Root
+            return [pscustomobject]@{
+                missingLeafWasAllowed = $script:MissingLeafWasAllowed
+            }
+        } $manifest $state $installRoot
+        Assert-True `
+            -Condition ([bool]$result.missingLeafWasAllowed) `
+            -Message 'Rollback did not explicitly allow a missing legacy payload leaf.'
+        Assert-True `
+            -Condition (-not (Test-Path -LiteralPath $newFilePath -PathType Leaf)) `
+            -Message 'Rollback left a newly committed file in place.'
+    }
+    finally
+    {
+        if ($null -ne $probeModule)
+        {
+            Remove-Module -ModuleInfo $probeModule -Force -ErrorAction SilentlyContinue
+        }
+        $resolvedTemporaryRoot = [IO.Path]::GetFullPath($temporaryRoot)
+        if ($resolvedTemporaryRoot.StartsWith(
+                $temporaryParent,
+                [StringComparison]::OrdinalIgnoreCase) -and
+            [IO.Path]::GetFileName($resolvedTemporaryRoot).StartsWith(
+                'bafx-missing-legacy-payload-',
+                [StringComparison]::Ordinal))
+        {
+            Remove-Item -LiteralPath $resolvedTemporaryRoot -Recurse -Force `
+                -ErrorAction SilentlyContinue
+        }
+    }
+}
+
 $repositoryRootValue = $RepositoryRoot
 if ([string]::IsNullOrWhiteSpace($repositoryRootValue))
 {
@@ -3815,6 +3952,7 @@ Test-UpgradeHostIntegrityContract
 Test-PortableZipContract
 Test-RegistrationFailureDiagnostics
 Test-PayloadRollbackManifestContract
+Test-MissingLegacyPayloadRollbackContract
 Test-InstallerFailureDiagnostics
 
 Write-Host "User installer contracts verified (PowerShell $($PSVersionTable.PSVersion))."
