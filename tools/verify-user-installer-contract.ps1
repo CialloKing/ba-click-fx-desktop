@@ -990,9 +990,17 @@ function Test-InstallerScriptWhitelist
         -Pattern 'function\s+Resolve-InstallerAclIdentity[\s\S]*Translate[\s\S]*SecurityIdentifier[\s\S]*unresolvable identity with write access' `
         -Description 'ACL identity resolution fails closed only for unknown writers'
     Assert-TextContains `
+        -Text $protectedPaths `
+        -Pattern 'function\s+Replace-InstallerFileAtomically[\s\S]*File\]::Replace[\s\S]*replacementBackup' `
+        -Description 'atomic installer replacement supplies a valid framework backup path'
+    Assert-TextContains `
         -Text ($installMachine + $registerUserPackage + $unregisterMachine) `
         -Pattern 'Resolve-InstallerAclIdentity\s+`' `
         -Description 'all installer ACL checks use shared identity resolution'
+    Assert-TextExcludes `
+        -Text ($installMachine + $unregisterMachine) `
+        -Pattern 'File\]::Replace[\s\S]*\$null' `
+        -Description 'installer replacement never passes a null framework backup path'
     Assert-TextContains `
         -Text ($installMachine + $unregisterMachine) `
         -Pattern 'installer-diagnostics\.ps1[\s\S]*protected-paths\.ps1[\s\S]*Resolve-ProtectedProgramFilesPath' `
@@ -1098,6 +1106,70 @@ function Test-ProtectedAclIdentityResolutionContract
         if ($null -ne $probeModule)
         {
             Remove-Module -ModuleInfo $probeModule -Force -ErrorAction SilentlyContinue
+        }
+    }
+}
+
+function Test-AtomicFileReplacementContract
+{
+    $protectedPathsAst = Get-ParsedScript `
+        -RelativePath 'tools/installer/protected-paths.ps1'
+    $pathHelperText = Get-FunctionText `
+        -Ast $protectedPathsAst `
+        -Name 'Assert-NoReparsePath'
+    $replaceHelperText = Get-FunctionText `
+        -Ast $protectedPathsAst `
+        -Name 'Replace-InstallerFileAtomically'
+    $probeModule = $null
+    $temporaryParent = [IO.Path]::GetFullPath([IO.Path]::GetTempPath())
+    $temporaryRoot = Join-Path `
+        $temporaryParent `
+        ('bafx-atomic-replace-' + [Guid]::NewGuid().ToString('N'))
+    try
+    {
+        $helperScript = @(
+            'Set-StrictMode -Version Latest'
+            $pathHelperText
+            $replaceHelperText
+        ) -join "`n"
+        $probeModule = New-Module -ScriptBlock ([scriptblock]::Create($helperScript))
+        New-Item -ItemType Directory -Path $temporaryRoot -Force | Out-Null
+        $sourcePath = Join-Path $temporaryRoot 'candidate.tmp'
+        $destinationPath = Join-Path $temporaryRoot 'state.json'
+        [IO.File]::WriteAllText($sourcePath, 'candidate')
+        [IO.File]::WriteAllText($destinationPath, 'previous')
+        & $probeModule {
+            param($Source, $Destination)
+            Replace-InstallerFileAtomically `
+                -SourcePath $Source `
+                -DestinationPath $Destination
+        } $sourcePath $destinationPath
+        Assert-True `
+            -Condition ([IO.File]::ReadAllText($destinationPath) -eq 'candidate') `
+            -Message 'Atomic replacement did not publish the candidate file.'
+        Assert-True `
+            -Condition (-not (Test-Path -LiteralPath $sourcePath -PathType Leaf)) `
+            -Message 'Atomic replacement left the source file behind.'
+        Assert-True `
+            -Condition (@(Get-ChildItem -LiteralPath $temporaryRoot -Filter '*.replace.bak').Count -eq 0) `
+            -Message 'Atomic replacement leaked its transient backup.'
+    }
+    finally
+    {
+        if ($null -ne $probeModule)
+        {
+            Remove-Module -ModuleInfo $probeModule -Force -ErrorAction SilentlyContinue
+        }
+        $resolvedTemporaryRoot = [IO.Path]::GetFullPath($temporaryRoot)
+        if ($resolvedTemporaryRoot.StartsWith(
+                $temporaryParent,
+                [StringComparison]::OrdinalIgnoreCase) -and
+            [IO.Path]::GetFileName($resolvedTemporaryRoot).StartsWith(
+                'bafx-atomic-replace-',
+                [StringComparison]::Ordinal))
+        {
+            Remove-Item -LiteralPath $resolvedTemporaryRoot -Recurse -Force `
+                -ErrorAction SilentlyContinue
         }
     }
 }
@@ -3440,6 +3512,7 @@ if (-not (Test-Path -LiteralPath $repositoryRoot -PathType Container))
 
 Test-PowerShellScriptContracts
 Test-ProtectedAclIdentityResolutionContract
+Test-AtomicFileReplacementContract
 Test-UninstallerProcessPathFilter
 Test-CertificateLifecycleBoundaryContract
 Test-VersionMapping

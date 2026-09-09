@@ -223,6 +223,56 @@ function Assert-NoReparsePath
     }
 }
 
+function Replace-InstallerFileAtomically
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$SourcePath,
+
+        [Parameter(Mandatory = $true)]
+        [string]$DestinationPath
+    )
+
+    $source = [IO.Path]::GetFullPath($SourcePath)
+    $destination = [IO.Path]::GetFullPath($DestinationPath)
+    Assert-NoReparsePath -Path $source
+    Assert-NoReparsePath -Path $destination -AllowMissing
+    $destinationParent = [IO.Path]::GetDirectoryName($destination)
+    if (-not [string]::IsNullOrWhiteSpace($destinationParent))
+    {
+        Assert-NoReparsePath -Path $destinationParent -AllowMissing
+    }
+
+    # .NET Framework rejects a null backup argument for File.Replace. Supply a
+    # unique same-directory backup so the replacement remains atomic, then
+    # remove that transient copy before returning to the caller.
+    $replacementBackup = "$destination.$PID.$([Guid]::NewGuid().ToString('N')).replace.bak"
+    try
+    {
+        if (Test-Path -LiteralPath $destination -PathType Leaf)
+        {
+            Assert-NoReparsePath -Path $replacementBackup -AllowMissing
+            [IO.File]::Replace($source, $destination, $replacementBackup, $true)
+        }
+        else
+        {
+            [IO.File]::Move($source, $destination)
+        }
+        Assert-NoReparsePath -Path $destination
+    }
+    finally
+    {
+        if (Test-Path -LiteralPath $replacementBackup -PathType Leaf)
+        {
+            Remove-Item -LiteralPath $replacementBackup -Force
+            if (Test-Path -LiteralPath $replacementBackup -PathType Leaf)
+            {
+                throw "Atomic replacement backup remains: $replacementBackup"
+            }
+        }
+    }
+}
+
 function Assert-NoReparseTree
 {
     param(

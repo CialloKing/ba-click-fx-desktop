@@ -237,14 +237,9 @@ function Replace-ProtectedFile
     }
     Assert-NoReparsePath -Path $destinationFullPath -AllowMissing
     Set-ProtectedStateAcl -Path $temporaryFullPath -ReadSid $ReadSid
-    if (Test-Path -LiteralPath $destinationFullPath -PathType Leaf)
-    {
-        [IO.File]::Replace($temporaryFullPath, $destinationFullPath, $null, $true)
-    }
-    else
-    {
-        [IO.File]::Move($temporaryFullPath, $destinationFullPath)
-    }
+    Replace-InstallerFileAtomically `
+        -SourcePath $temporaryFullPath `
+        -DestinationPath $destinationFullPath
     Assert-NoReparsePath -Path $destinationFullPath
     Set-ProtectedStateAcl -Path $destinationFullPath -ReadSid $ReadSid
 }

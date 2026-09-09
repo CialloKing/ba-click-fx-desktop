@@ -778,14 +778,9 @@ function Write-UninstallJournal
             -TemplatePath $resolvedStatePath
         Assert-ProtectedStateAcl -Path $temporaryPath
         Assert-NoReparsePath -Path $temporaryPath
-        if (Test-Path -LiteralPath $resolvedPath -PathType Leaf)
-        {
-            [IO.File]::Replace($temporaryPath, $resolvedPath, $null, $true)
-        }
-        else
-        {
-            [IO.File]::Move($temporaryPath, $resolvedPath)
-        }
+        Replace-InstallerFileAtomically `
+            -SourcePath $temporaryPath `
+            -DestinationPath $resolvedPath
         Assert-NoReparsePath -Path $resolvedPath
         Assert-ProtectedStateAcl -Path $resolvedPath
         $written = Get-Content -LiteralPath $resolvedPath -Raw | ConvertFrom-Json
@@ -978,14 +973,9 @@ function Write-UninstallCompletionMarker
             -TemplatePath $resolvedJournalPath
         Assert-ProtectedStateAcl -Path $temporaryPath
         Assert-NoReparsePath -Path $temporaryPath
-        if (Test-Path -LiteralPath $resolvedPath -PathType Leaf)
-        {
-            [IO.File]::Replace($temporaryPath, $resolvedPath, $null, $true)
-        }
-        else
-        {
-            [IO.File]::Move($temporaryPath, $resolvedPath)
-        }
+        Replace-InstallerFileAtomically `
+            -SourcePath $temporaryPath `
+            -DestinationPath $resolvedPath
         Assert-NoReparsePath -Path $resolvedPath
         Assert-ProtectedStateAcl -Path $resolvedPath
         $written = Read-UninstallCompletionMarker `
@@ -1082,14 +1072,9 @@ function Restore-InstallStateFromUninstallJournal
                     -LeftPath $resolvedTarget `
                     -RightPath $entry.Snapshot))
             {
-                if (Test-Path -LiteralPath $resolvedTarget -PathType Leaf)
-                {
-                    [IO.File]::Replace($entry.Snapshot, $resolvedTarget, $null, $true)
-                }
-                else
-                {
-                    [IO.File]::Move($entry.Snapshot, $resolvedTarget)
-                }
+                Replace-InstallerFileAtomically `
+                    -SourcePath $entry.Snapshot `
+                    -DestinationPath $resolvedTarget
                 Assert-NoReparsePath -Path $resolvedTarget
             }
             $acl = Get-Acl -LiteralPath $resolvedTarget
