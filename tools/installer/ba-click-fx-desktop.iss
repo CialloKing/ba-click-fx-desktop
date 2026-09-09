@@ -182,8 +182,9 @@ function ResolveRollbackScript(
 function ResolveRestoredRollbackScript(
   const InstallRoot: String;
   const ScriptName: String): String; forward;
-function ExtractCurrentRecoveryScripts(): Boolean; forward;
+function ExtractCurrentRecoveryScripts(const InstallRoot: String): Boolean; forward;
 function ResolveCurrentRecoveryScript(const ScriptName: String): String; forward;
+procedure CleanupCurrentRecoveryScripts; forward;
 function SafeDeleteFile(const Path: String): Boolean; forward;
 function SafeDeleteTree(const Path: String): Boolean; forward;
 procedure RaiseInstallerFailure(
@@ -207,7 +208,11 @@ begin
   // staged input is removed, so report the completed-rollback code.
   SetupFailureExitCode := 1002;
   Log('PrepareToInstall entered.');
-  InstallRoot := AddBackslash(ExpandConstant('{app}'));
+  // QuoteArgument cannot safely terminate a quoted Windows path with '\\':
+  // the runtime parser treats the final slash as escaping the closing quote.
+  // Keep the root canonical without a trailing slash, and add separators only
+  // when constructing child paths.
+  InstallRoot := RemoveBackslashUnlessRoot(ExpandConstant('{app}'));
   ProtectedRoot := AddBackslash(
     ExpandConstant('{autopf}\ba-click-fx-desktop'));
   if CompareText(InstallRoot, ProtectedRoot) <> 0 then
@@ -221,12 +226,6 @@ begin
 
   PayloadRoot := AddBackslash(InstallRoot) + '.staging\current';
   InstallerRoot := AddBackslash(PayloadRoot) + 'Installer';
-  if not ExtractCurrentRecoveryScripts() then
-  begin
-    SetupFailureExitCode := 1001;
-    Result := 'The current recovery scripts could not be prepared.';
-    Exit;
-  end;
   ExistingInstallerRoot := AddBackslash(InstallRoot) + 'Installer\';
   ExistingPendingPath := ExistingInstallerRoot + 'PREPARE-STATE.json';
   // A first installation has no previous state or live recovery scripts. Keep
@@ -243,6 +242,13 @@ begin
   else
   begin
     Log('PrepareToInstall found no pending transaction.');
+  end;
+  if FileExists(ExistingPendingPath) and
+    (not ExtractCurrentRecoveryScripts(InstallRoot)) then
+  begin
+    SetupFailureExitCode := 1001;
+    Result := 'The current recovery scripts could not be prepared.';
+    Exit;
   end;
   ExistingScript := ResolveCurrentRecoveryScript('install-machine.ps1');
   if ExistingScript = '' then
@@ -1252,9 +1258,12 @@ begin
   end;
 end;
 
-function ExtractCurrentRecoveryScripts(): Boolean;
+function ExtractCurrentRecoveryScripts(const InstallRoot: String): Boolean;
 var
   TempRoot: String;
+  RecoveryRoot: String;
+  SourcePath: String;
+  DestinationPath: String;
 begin
   Result := False;
   TempRoot := AddBackslash(ExpandConstant('{tmp}'));
@@ -1268,7 +1277,54 @@ begin
       GetExceptionMessage());
     Exit;
   end;
-  CurrentRecoveryRoot := TempRoot;
+  RecoveryRoot := AddBackslash(InstallRoot) + '.recovery-current';
+  if not SafeDeleteTree(RecoveryRoot) then
+  begin
+    Log('Could not clear the previous current recovery directory: ' +
+      RecoveryRoot);
+    Exit;
+  end;
+  if not ForceDirectories(RecoveryRoot) then
+  begin
+    Log('Could not create the current recovery directory: ' + RecoveryRoot);
+    Exit;
+  end;
+  if not AssertNoReparsePointPath(RecoveryRoot) then
+  begin
+    Log('The current recovery directory contains a reparse point: ' +
+      RecoveryRoot);
+    Exit;
+  end;
+  CurrentRecoveryRoot := AddBackslash(RecoveryRoot);
+  SourcePath := TempRoot + 'installer-diagnostics.ps1';
+  DestinationPath := CurrentRecoveryRoot + 'installer-diagnostics.ps1';
+  if not CopyFile(SourcePath, DestinationPath, False) then
+  begin
+    Exit;
+  end;
+  SourcePath := TempRoot + 'protected-paths.ps1';
+  DestinationPath := CurrentRecoveryRoot + 'protected-paths.ps1';
+  if not CopyFile(SourcePath, DestinationPath, False) then
+  begin
+    Exit;
+  end;
+  SourcePath := TempRoot + 'install-machine.ps1';
+  DestinationPath := CurrentRecoveryRoot + 'install-machine.ps1';
+  if not CopyFile(SourcePath, DestinationPath, False) then
+  begin
+    Exit;
+  end;
+  SourcePath := TempRoot + 'register-user-package.ps1';
+  DestinationPath := CurrentRecoveryRoot + 'register-user-package.ps1';
+  if not CopyFile(SourcePath, DestinationPath, False) then
+  begin
+    Exit;
+  end;
+  if not AssertNoReparsePointPath(CurrentRecoveryRoot) then
+  begin
+    Log('The copied current recovery scripts are not in a protected tree.');
+    Exit;
+  end;
   if (ResolveCurrentRecoveryScript('installer-diagnostics.ps1') = '') or
     (ResolveCurrentRecoveryScript('protected-paths.ps1') = '') or
     (ResolveCurrentRecoveryScript('install-machine.ps1') = '') or
@@ -1279,6 +1335,22 @@ begin
     Exit;
   end;
   Result := True;
+end;
+
+procedure CleanupCurrentRecoveryScripts;
+begin
+  if CurrentRecoveryRoot = '' then
+  begin
+    Exit;
+  end;
+  if not SafeDeleteTree(CurrentRecoveryRoot) then
+  begin
+    Log('The current recovery directory could not be removed: ' +
+      CurrentRecoveryRoot);
+    RecoveryRequired := True;
+    SetupFailureExitCode := 1001;
+  end;
+  CurrentRecoveryRoot := '';
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
@@ -1494,6 +1566,7 @@ end;
 procedure DeinitializeSetup;
 begin
   CleanupUncommittedInstallArtifacts;
+  CleanupCurrentRecoveryScripts;
   DeleteTransientState;
 end;
 
