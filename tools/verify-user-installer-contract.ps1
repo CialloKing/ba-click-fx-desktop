@@ -408,6 +408,32 @@ function Test-CertificateLifecycleBoundaryContract
         -Text $identityText `
         -Pattern '(?i)(Test-ExistingIdentityPackageReusable|reusableIdentity|reusedCertificate)' `
         -Description 'identity preparation does not reuse the previous package or certificate'
+    $certificateCreationCalls = [regex]::Matches(
+        $identityText,
+        '(?m)^\s*\$certificate\s*=\s*New-SelfSignedCertificate\b')
+    Assert-True `
+        -Condition ($certificateCreationCalls.Count -eq 1) `
+        -Message 'Identity preparation must have exactly one fresh certificate creation path.'
+    Assert-TextContains `
+        -Text $identityText `
+        -Pattern '\$journal\.packagePath\s*=\s*Join-Path[\s\S]*\$certificateThumbprint\.msix' `
+        -Description 'same-version repair derives the package file from the fresh certificate thumbprint'
+    Assert-TextContains `
+        -Text $identityText `
+        -Pattern 'Copy-Item\s+-LiteralPath\s+\$templatePath\s+-Destination\s+\$signedPackagePath' `
+        -Description 'same-version repair signs a copy of the unsigned template'
+    $certificateCreationOffset = $identityText.IndexOf(
+        '$certificate = New-SelfSignedCertificate')
+    Assert-True `
+        -Condition ($certificateCreationOffset -ge 0) `
+        -Message 'Identity preparation certificate creation statement is missing.'
+    $beforeCertificateCreation = $identityText.Substring(
+        0,
+        $certificateCreationOffset)
+    Assert-TextExcludes `
+        -Text $beforeCertificateCreation `
+        -Pattern '(?i)(oldInstallState|\$journal\.packagePath\s*=)' `
+        -Description 'old state cannot select a package or certificate before fresh creation'
     $moduleText = @(
         'Set-StrictMode -Version Latest'
         "`$ErrorActionPreference = 'Stop'"
