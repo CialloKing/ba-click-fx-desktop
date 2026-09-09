@@ -4216,10 +4216,12 @@ function Save-DataDirectoryRollback
             })
     }
 
+    # PowerShell 5.1 cannot convert a List[object] through @() while building
+    # an ordered dictionary. Materialize the list before serializing it.
     return [ordered]@{
         dataDirectoryExisted = $dataDirectoryExisted
         dataDirectoryAcl = $dataDirectoryAcl
-        dataFiles = @($fileEntries)
+        dataFiles = $fileEntries.ToArray()
     }
 }
 
@@ -4428,11 +4430,13 @@ function New-PayloadRollbackManifest
             $oldPackageBackupPath = Join-Path 'old' $oldPackageFile
         }
     }
+    # Materialize the object list explicitly; the PowerShell 5.1 binder rejects
+    # @($entries) in an ordered dictionary with "Argument types do not match".
     $manifest = [ordered]@{
         schema = 1
         transactionId = [string]$State.transactionId
         payloadFileSet = [string]$script:PayloadFileSet
-        files = @($entries)
+        files = $entries.ToArray()
         oldPackageFile = if ($null -eq $State.oldInstallState) { '' } else { [string]$State.oldInstallState.packageFile }
         oldPackageBackupPath = $oldPackageBackupPath.Replace('\', '/')
         oldPackageBytes = $oldPackageBytes

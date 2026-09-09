@@ -964,9 +964,16 @@ procedure RunBestEffortRollback(
 var
   ExitCode: Integer;
   ScriptPath: String;
+  CommittedStatePresent: Boolean;
 begin
   Succeeded := True;
   RollbackRetainedRecovery := False;
+  // A first install has no live recovery scripts. Remember whether a committed
+  // state pair existed before rollback so that this case can use the staged
+  // transaction script without weakening upgrade recovery checks.
+  CommittedStatePresent :=
+    FileExists(AddBackslash(InstallRoot) + 'Installer\INSTALL-STATE.json') or
+    FileExists(AddBackslash(InstallRoot) + 'Installer\INSTALL-STATE.json.bak');
   if not FileExists(MachineStatePath) then
   begin
     Exit;
@@ -1032,7 +1039,7 @@ begin
     Exit;
   end;
 
-  if FileExists(MachineStatePath) then
+  if FileExists(MachineStatePath) and CommittedStatePresent then
   begin
     ScriptPath := ResolveRestoredRollbackScript(
       InstallRoot,
@@ -1071,6 +1078,15 @@ begin
     ScriptPath := ResolveRestoredRollbackScript(
       InstallRoot,
       'install-machine.ps1');
+    if (ScriptPath = '') and (not CommittedStatePresent) then
+    begin
+      // Before the first commit, the staged script is the only recovery code;
+      // use it to remove the pending package and certificate after rollback.
+      ScriptPath := ResolveRollbackScript(
+        InstallRoot,
+        InstallerRoot,
+        'install-machine.ps1');
+    end;
     if ScriptPath = '' then
     begin
       Succeeded := False;

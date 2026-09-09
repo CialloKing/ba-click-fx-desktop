@@ -1534,6 +1534,10 @@ function Test-InnoPayloadContract
         -Description 'uninstall cleans an early first-install failure without recovery scripts'
     Assert-TextContains `
         -Text $inno `
+        -Pattern 'CommittedStatePresent[\s\S]*ResolveRestoredRollbackScript[\s\S]*ResolveRollbackScript[\s\S]*RollbackCleanup' `
+        -Description 'first-install rollback cleanup falls back to the staged recovery script'
+    Assert-TextContains `
+        -Text $inno `
         -Pattern '\-Phase Prepare' `
         -Description 'machine preparation phase'
     Assert-TextContains `
@@ -3261,6 +3265,16 @@ function Test-PayloadRollbackManifestContract
 {
     $ast = Get-ParsedScript `
         -RelativePath 'tools/installer/install-machine.ps1'
+    $installMachine = Read-RepositoryText `
+        -RelativePath 'tools/installer/install-machine.ps1'
+    Assert-TextContains `
+        -Text $installMachine `
+        -Pattern 'Save-DataDirectoryRollback[\s\S]*dataFiles\s*=\s*\$fileEntries\.ToArray\(\)' `
+        -Description 'data rollback entries are materialized for PowerShell 5.1'
+    Assert-TextContains `
+        -Text $installMachine `
+        -Pattern 'New-PayloadRollbackManifest[\s\S]*files\s*=\s*\$entries\.ToArray\(\)' `
+        -Description 'payload rollback entries are materialized for PowerShell 5.1'
     $protectedPathsAst = Get-ParsedScript `
         -RelativePath 'tools/installer/protected-paths.ps1'
     $functionNames = @(
