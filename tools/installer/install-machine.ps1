@@ -4443,7 +4443,7 @@ function New-PayloadRollbackManifest
         oldPackageSha256 = $oldPackageSha256
         dataDirectoryExisted = [bool]$dataRollback.dataDirectoryExisted
         dataDirectoryAcl = [string]$dataRollback.dataDirectoryAcl
-        dataFiles = @($dataRollback.dataFiles)
+        dataFiles = $dataRollback.dataFiles
         previousStatePresent = [bool]$previousState.previousStatePresent
         previousStatePrimaryBackupPath = [string]$previousState.previousStatePrimaryBackupPath
         previousStateBackupBackupPath = [string]$previousState.previousStateBackupBackupPath
@@ -5507,6 +5507,11 @@ if ($Phase -eq 'Prepare')
             schema = 2
             stateKind = 'prepare'
             commitState = 'prepared'
+            filesCommitted = $false
+            rollbackDirectory = ''
+            rollbackManifest = ''
+            stagedPackagePath = ''
+            committedInstallState = $null
             userSid = [string]$context.userSid
             packageName = [string]$metadata.packageName
             applicationId = [string]$metadata.applicationId

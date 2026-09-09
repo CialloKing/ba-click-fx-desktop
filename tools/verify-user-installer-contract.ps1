@@ -1257,6 +1257,7 @@ function Test-InnoPayloadContract
     $chineseMessages = Read-RepositoryText `
         -RelativePath 'tools/installer/ChineseSimplified.isl'
     $packager = Read-RepositoryText -RelativePath 'tools/package-user-installer.ps1'
+    $machineInstaller = Read-RepositoryText -RelativePath 'tools/installer/install-machine.ps1'
     $identityBuilder = Read-RepositoryText -RelativePath 'tools/identity-package/build-identity-package.ps1'
     Assert-TextContains `
         -Text $inno `
@@ -1548,6 +1549,10 @@ function Test-InnoPayloadContract
         -Text $inno `
         -Pattern '\-Phase Finalize' `
         -Description 'machine finalization phase'
+    Assert-TextContains `
+        -Text $machineInstaller `
+        -Pattern 'filesCommitted\s*=\s*\$false[\s\S]*rollbackDirectory\s*=\s*''''[\s\S]*rollbackManifest\s*=\s*''''[\s\S]*stagedPackagePath\s*=\s*''''[\s\S]*committedInstallState\s*=\s*\$null' `
+        -Description 'pending journal predeclares mutable commit fields for PowerShell 5.1'
 
     # The release machine creates only the unsigned package template. The
     # target machine owns the short-lived signing key.
