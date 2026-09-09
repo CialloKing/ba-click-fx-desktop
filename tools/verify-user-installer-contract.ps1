@@ -3356,6 +3356,15 @@ function Test-PayloadRollbackManifestContract
         [IO.File]::WriteAllText($backupPath, 'old host')
         $backupBytes = [Int64](Get-Item -LiteralPath $backupPath).Length
         $backupSha256 = (Get-FileHash -LiteralPath $backupPath -Algorithm SHA256).Hash
+        $payloadManifestBackupRoot = Join-Path $rollbackRoot 'payload-manifest'
+        New-Item -ItemType Directory -Path $payloadManifestBackupRoot -Force | Out-Null
+        $payloadManifestBackupPath = Join-Path `
+            $payloadManifestBackupRoot `
+            'INSTALLER-PAYLOAD.json'
+        [IO.File]::WriteAllText($payloadManifestBackupPath, 'old payload manifest')
+        $payloadManifestBytes = [Int64](Get-Item -LiteralPath $payloadManifestBackupPath).Length
+        $payloadManifestSha256 =
+            (Get-FileHash -LiteralPath $payloadManifestBackupPath -Algorithm SHA256).Hash
         $entry = [ordered]@{
             path = 'ba-click-fx-desktop.exe'
             existed = $true
@@ -3390,6 +3399,11 @@ function Test-PayloadRollbackManifestContract
                     backupPath = ''
                 }
             )
+            payloadManifestPath = 'Installer/INSTALLER-PAYLOAD.json'
+            payloadManifestExisted = $true
+            payloadManifestBytes = $payloadManifestBytes
+            payloadManifestSha256 = $payloadManifestSha256
+            payloadManifestBackupPath = 'payload-manifest/INSTALLER-PAYLOAD.json'
             previousStatePresent = $false
             previousStatePrimaryBackupPath = ''
             previousStateBackupBackupPath = ''
@@ -3425,6 +3439,94 @@ function Test-PayloadRollbackManifestContract
                 -Manifest $Manifest `
                 -ManifestPath $Path
         } $state $installRoot $manifest $manifestPath
+
+        # Schema 1 transactions written before payload-manifest evidence was
+        # introduced remain valid and must still be recoverable.
+        $legacyManifest = $baseManifest | ConvertTo-Json -Depth 12 | ConvertFrom-Json
+        foreach ($propertyName in @(
+                'payloadManifestPath',
+                'payloadManifestExisted',
+                'payloadManifestBytes',
+                'payloadManifestSha256',
+                'payloadManifestBackupPath'))
+        {
+            $legacyManifest.PSObject.Properties.Remove($propertyName)
+        }
+        $null = & $probeModule {
+            param($State, $Root, $Manifest, $Path)
+            Assert-PayloadRollbackManifest `
+                -State $State `
+                -InstallRoot $Root `
+                -Manifest $Manifest `
+                -ManifestPath $Path
+        } $state $installRoot $legacyManifest $manifestPath
+
+        $missingEvidenceManifest = $baseManifest | ConvertTo-Json -Depth 12 |
+            ConvertFrom-Json
+        $missingEvidenceManifest.PSObject.Properties.Remove('payloadManifestSha256')
+        Assert-Throws `
+            -Action {
+                & $probeModule {
+                    param($State, $Root, $Manifest, $Path)
+                    Assert-PayloadRollbackManifest `
+                        -State $State `
+                        -InstallRoot $Root `
+                        -Manifest $Manifest `
+                        -ManifestPath $Path
+                } $state $installRoot $missingEvidenceManifest $manifestPath
+            } `
+            -Description 'rollback manifest with incomplete payload manifest evidence'
+
+        $invalidPayloadManifestPath = $baseManifest | ConvertTo-Json -Depth 12 |
+            ConvertFrom-Json
+        $invalidPayloadManifestPath.payloadManifestPath = 'Installer/OTHER.json'
+        Assert-Throws `
+            -Action {
+                & $probeModule {
+                    param($State, $Root, $Manifest, $Path)
+                    Assert-PayloadRollbackManifest `
+                        -State $State `
+                        -InstallRoot $Root `
+                        -Manifest $Manifest `
+                        -ManifestPath $Path
+                } $state $installRoot $invalidPayloadManifestPath $manifestPath
+            } `
+            -Description 'payload manifest rollback path substitution'
+
+        $invalidPayloadManifestEvidence = $baseManifest | ConvertTo-Json -Depth 12 |
+            ConvertFrom-Json
+        $invalidPayloadManifestEvidence.payloadManifestBytes++
+        Assert-Throws `
+            -Action {
+                & $probeModule {
+                    param($State, $Root, $Manifest, $Path)
+                    Assert-PayloadRollbackManifest `
+                        -State $State `
+                        -InstallRoot $Root `
+                        -Manifest $Manifest `
+                        -ManifestPath $Path
+                } $state $installRoot $invalidPayloadManifestEvidence $manifestPath
+            } `
+            -Description 'payload manifest rollback byte evidence tampering'
+
+        $missingPayloadManifestEvidence = $baseManifest | ConvertTo-Json -Depth 12 |
+            ConvertFrom-Json
+        $missingPayloadManifestEvidence.payloadManifestExisted = $false
+        $missingPayloadManifestEvidence.payloadManifestBytes = 1
+        $missingPayloadManifestEvidence.payloadManifestSha256 = ''
+        $missingPayloadManifestEvidence.payloadManifestBackupPath = ''
+        Assert-Throws `
+            -Action {
+                & $probeModule {
+                    param($State, $Root, $Manifest, $Path)
+                    Assert-PayloadRollbackManifest `
+                        -State $State `
+                        -InstallRoot $Root `
+                        -Manifest $Manifest `
+                        -ManifestPath $Path
+                } $state $installRoot $missingPayloadManifestEvidence $manifestPath
+            } `
+            -Description 'payload manifest evidence for a missing file'
 
         # Every path below is syntactically valid and the existing backup is
         # intact; only the protected file-set ledger exposes the missing entry.

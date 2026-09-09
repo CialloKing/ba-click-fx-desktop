@@ -3908,6 +3908,70 @@ function Assert-PayloadRollbackManifest
         }
     }
 
+    # INSTALLER-PAYLOAD.json deliberately excludes its own hash from the
+    # payload manifest. Track it as separate rollback evidence so the live
+    # manifest still follows the installed scripts across upgrades.
+    $payloadManifestEvidenceNames = @(
+        'payloadManifestPath',
+        'payloadManifestExisted',
+        'payloadManifestBytes',
+        'payloadManifestSha256',
+        'payloadManifestBackupPath')
+    $payloadManifestEvidencePresent = @(
+        $payloadManifestEvidenceNames | Where-Object {
+            $null -ne $Manifest.PSObject.Properties[$_]
+        }).Count -gt 0
+    if ($payloadManifestEvidencePresent)
+    {
+        foreach ($propertyName in $payloadManifestEvidenceNames)
+        {
+            if ($null -eq $Manifest.PSObject.Properties[$propertyName])
+            {
+                throw "The rollback manifest is missing payload manifest evidence: $propertyName"
+            }
+        }
+        if ([string]$Manifest.payloadManifestPath -ine
+                'Installer/INSTALLER-PAYLOAD.json' -or
+            $Manifest.payloadManifestExisted -isnot [bool])
+        {
+            throw 'The rollback manifest has invalid payload manifest identity.'
+        }
+        $payloadManifestBytes = 0L
+        if (-not [Int64]::TryParse(
+                [string]$Manifest.payloadManifestBytes,
+                [Globalization.NumberStyles]::Integer,
+                [Globalization.CultureInfo]::InvariantCulture,
+                [ref]$payloadManifestBytes) -or
+            $payloadManifestBytes -lt 0)
+        {
+            throw 'The rollback manifest has an invalid payload manifest byte count.'
+        }
+        $payloadManifestSha256 = [string]$Manifest.payloadManifestSha256
+        $payloadManifestBackupPath = [string]$Manifest.payloadManifestBackupPath
+        if ([bool]$Manifest.payloadManifestExisted)
+        {
+            if ($payloadManifestBytes -le 0 -or
+                $payloadManifestSha256 -notmatch '^[0-9A-Fa-f]{64}$' -or
+                $payloadManifestBackupPath -ine
+                    'payload-manifest/INSTALLER-PAYLOAD.json')
+            {
+                throw 'The rollback manifest has invalid payload manifest backup evidence.'
+            }
+            Assert-RollbackManifestBackup `
+                -RollbackRoot $rollbackRoot `
+                -RelativePath $payloadManifestBackupPath `
+                -ExpectedBytes $payloadManifestBytes `
+                -ExpectedSha256 $payloadManifestSha256 `
+                -Description 'payload manifest' | Out-Null
+        }
+        elseif ($payloadManifestBytes -ne 0 -or
+            -not [string]::IsNullOrWhiteSpace($payloadManifestSha256) -or
+            -not [string]::IsNullOrWhiteSpace($payloadManifestBackupPath))
+        {
+            throw 'The rollback manifest records payload manifest evidence for a missing file.'
+        }
+    }
+
     # The rollback entry list is itself untrusted. Keep it bound to the payload
     # ledger recorded before commit, while accepting legacy transactions that
     # predate the optional payloadFileSet field.
@@ -4435,6 +4499,44 @@ function New-PayloadRollbackManifest
     $dataRollback = Save-DataDirectoryRollback `
         -InstallRoot $InstallRoot `
         -RollbackRoot $rollbackRoot
+    $payloadManifestRelativePath = 'Installer/INSTALLER-PAYLOAD.json'
+    $payloadManifestPath = Resolve-InstallerRelativePath `
+        -Root $InstallRoot `
+        -RelativePath $payloadManifestRelativePath
+    $payloadManifestExisted = Test-Path `
+        -LiteralPath $payloadManifestPath `
+        -PathType Leaf
+    $payloadManifestBytes = [Int64]0
+    $payloadManifestSha256 = ''
+    $payloadManifestBackupPath = ''
+    if ($payloadManifestExisted)
+    {
+        $payloadManifestItem = Get-Item -LiteralPath $payloadManifestPath -Force
+        if (($payloadManifestItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0)
+        {
+            throw 'The installed payload manifest cannot be a reparse point.'
+        }
+        $payloadManifestBytes = [Int64]$payloadManifestItem.Length
+        $payloadManifestSha256 =
+            (Get-FileHash -LiteralPath $payloadManifestPath -Algorithm SHA256).Hash
+        $payloadManifestBackupPath =
+            'payload-manifest/INSTALLER-PAYLOAD.json'
+        $payloadManifestBackupFullPath = Resolve-InstallerRelativePath `
+            -Root $rollbackRoot `
+            -RelativePath $payloadManifestBackupPath
+        $payloadManifestBackupDirectory =
+            [IO.Path]::GetDirectoryName($payloadManifestBackupFullPath)
+        Assert-NoReparsePath -Path $payloadManifestBackupDirectory -AllowMissing
+        New-Item -ItemType Directory `
+            -Path $payloadManifestBackupDirectory `
+            -Force | Out-Null
+        Assert-NoReparsePath -Path $payloadManifestBackupDirectory
+        Copy-VerifiedInstallerFile `
+            -SourcePath $payloadManifestPath `
+            -DestinationPath $payloadManifestBackupFullPath `
+            -ExpectedBytes $payloadManifestBytes `
+            -ExpectedSha256 $payloadManifestSha256
+    }
     $entries = New-Object Collections.Generic.List[object]
     foreach ($entry in @($script:PayloadManifest.files))
     {
@@ -4538,6 +4640,11 @@ function New-PayloadRollbackManifest
         dataDirectoryExisted = [bool]$dataRollback.dataDirectoryExisted
         dataDirectoryAcl = [string]$dataRollback.dataDirectoryAcl
         dataFiles = $dataRollback.dataFiles
+        payloadManifestPath = $payloadManifestRelativePath
+        payloadManifestExisted = $payloadManifestExisted
+        payloadManifestBytes = $payloadManifestBytes
+        payloadManifestSha256 = $payloadManifestSha256
+        payloadManifestBackupPath = $payloadManifestBackupPath
         previousStatePresent = [bool]$previousState.previousStatePresent
         previousStatePrimaryBackupPath = [string]$previousState.previousStatePrimaryBackupPath
         previousStateBackupBackupPath = [string]$previousState.previousStateBackupBackupPath
@@ -4598,6 +4705,29 @@ function Commit-PayloadFiles
             -ExpectedBytes ([Int64]$entry.bytes) `
             -ExpectedSha256 ([string]$entry.sha256)
     }
+
+    $stagedPayloadManifestPath = Resolve-InstallerRelativePath `
+        -Root $PayloadRoot `
+        -RelativePath 'Installer/INSTALLER-PAYLOAD.json'
+    $stagedPayloadManifestItem = Get-Item `
+        -LiteralPath $stagedPayloadManifestPath `
+        -Force `
+        -ErrorAction Stop
+    if (($stagedPayloadManifestItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0)
+    {
+        throw 'The staged payload manifest cannot be a reparse point.'
+    }
+    $livePayloadManifestPath = Resolve-InstallerRelativePath `
+        -Root $InstallRoot `
+        -RelativePath 'Installer/INSTALLER-PAYLOAD.json'
+    $script:InstallerStep = 'commit-payload-manifest'
+    Copy-VerifiedInstallerFile `
+        -SourcePath $stagedPayloadManifestPath `
+        -DestinationPath $livePayloadManifestPath `
+        -ExpectedBytes ([Int64]$stagedPayloadManifestItem.Length) `
+        -ExpectedSha256 ((Get-FileHash `
+                -LiteralPath $stagedPayloadManifestPath `
+                -Algorithm SHA256).Hash)
 
     $packageFile = [string]$State.packageFile
     $stagedPackagePath = [IO.Path]::GetFullPath([string]$State.packagePath)
@@ -4687,6 +4817,36 @@ function Restore-CommittedPayloadFiles
             if (Test-Path -LiteralPath $livePath -PathType Leaf)
             {
                 throw "A newly committed file remains after rollback: $($entry.path)"
+            }
+        }
+    }
+
+    if ($null -ne $rollbackManifest.PSObject.Properties['payloadManifestExisted'])
+    {
+        $payloadManifestPath = Resolve-InstallerRelativePath `
+            -Root $InstallRoot `
+            -RelativePath ([string]$rollbackManifest.payloadManifestPath)
+        if ([bool]$rollbackManifest.payloadManifestExisted)
+        {
+            $payloadManifestBackupPath = Resolve-InstallerRelativePath `
+                -Root $rollbackRoot `
+                -RelativePath ([string]$rollbackManifest.payloadManifestBackupPath)
+            Copy-VerifiedInstallerFile `
+                -SourcePath $payloadManifestBackupPath `
+                -DestinationPath $payloadManifestPath `
+                -ExpectedBytes ([Int64]$rollbackManifest.payloadManifestBytes) `
+                -ExpectedSha256 ([string]$rollbackManifest.payloadManifestSha256)
+        }
+        else
+        {
+            Assert-NoReparsePath -Path $payloadManifestPath -AllowMissing
+            if (Test-Path -LiteralPath $payloadManifestPath -PathType Leaf)
+            {
+                Remove-Item -LiteralPath $payloadManifestPath -Force
+            }
+            if (Test-Path -LiteralPath $payloadManifestPath -PathType Leaf)
+            {
+                throw 'A newly committed payload manifest remains after rollback.'
             }
         }
     }
