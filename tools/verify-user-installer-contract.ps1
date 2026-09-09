@@ -1529,6 +1529,10 @@ function Test-InnoPayloadContract
         -Pattern 'install-machine\.ps1[\s\S]*\-Phase Rollback[\s\S]*no committed state remains' `
         -Description 'pending uninstall uses elevated rollback and handles first-install state'
     Assert-TextContains `
+        -Text $uninstallCode.Value `
+        -Pattern 'not FileExists\(InstallStatePath\)[\s\S]*not FileExists\(MachineStatePath\)[\s\S]*not DirExists\(InstallerRoot\)[\s\S]*CleanupFirstInstallPayload' `
+        -Description 'uninstall cleans an early first-install failure without recovery scripts'
+    Assert-TextContains `
         -Text $inno `
         -Pattern '\-Phase Prepare' `
         -Description 'machine preparation phase'

@@ -1594,6 +1594,23 @@ begin
       Exit;
     end;
   end;
+  if (not FileExists(InstallStatePath)) and
+    (not FileExists(MachineStatePath)) and
+    (not DirExists(InstallerRoot)) then
+  begin
+    // Prepare can fail before the persistent recovery scripts are copied. In
+    // that case there is no committed identity to unregister; remove only the
+    // known installer payload and leave the user's data directory untouched.
+    Log('No committed install state or recovery directory remains; cleaning first-install payload.');
+    if not CleanupFirstInstallPayload(InstallRoot) then
+    begin
+      RaiseInstallerFailure(
+        'The incomplete first-install payload could not be removed safely.',
+        1001);
+    end;
+    SetupFailureExitCode := 0;
+    Exit;
+  end;
   if not RunPowerShell(
     ExpandConstant('{app}\Installer\unregister-machine.ps1'),
     '-InstallDirectory ' + QuoteArgument(InstallRoot),
