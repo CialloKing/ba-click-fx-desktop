@@ -141,16 +141,10 @@ struct InstallationStatePresentation final
         details += L" · 包版本：";
         details += asciiVersionToWide(identity.packageVersion);
         if (packageIdentity.certificateStatus
-            == PackageCertificateStatus::ExpiringSoon)
-        {
-            details +=
-                L"\r\n证书将在 30 天内过期，请重新运行安装器轮换证书。";
-        }
-        else if (packageIdentity.certificateStatus
             == PackageCertificateStatus::Expired)
         {
             details +=
-                L"\r\n证书已过期，请重新运行安装器修复后再启动 Host。";
+                L"\r\n证书已过期，请重新运行当前安装器重新签名修复后再启动 Host。";
         }
         return InstallationStatePresentation{
             L"安装版",
@@ -169,6 +163,7 @@ struct InstallationStatePresentation final
         details += asciiVersionToWide(
             packageIdentity.identity->packageVersion);
     }
+    details += L"\r\n请重新运行当前安装器重新签名修复。";
     return InstallationStatePresentation{
         L"安装状态异常",
         std::move(details)};
@@ -7197,7 +7192,7 @@ void ControlCenterWindow::startHostFromBundle()
             setInfo(
                 L"安装状态无效",
                 packageIdentity.error
-                    + L" 请重新运行安装器进行修复。");
+                    + L" 请重新运行当前安装器重新签名修复。");
             return;
         }
 
@@ -7206,7 +7201,7 @@ void ControlCenterWindow::startHostFromBundle()
         {
             setInfo(
                 L"证书已过期",
-                L"请重新运行安装器修复并轮换证书后再启动 Host。");
+                L"请重新运行当前安装器重新签名修复后再启动 Host。");
             return;
         }
 
@@ -7252,18 +7247,7 @@ void ControlCenterWindow::startHostFromBundle()
 
     hostRunning_ = true;
     scheduleHostRefreshRetry(true);
-    if (packageIdentity.installStatePresent
-        && packageIdentity.certificateStatus
-            == PackageCertificateStatus::ExpiringSoon)
-    {
-        setInfo(
-            L"正在启动 Host",
-            L"证书将在 30 天内过期；请重新运行安装器轮换证书。Host 初始化完成后会自动刷新。");
-    }
-    else
-    {
-        setInfo(L"正在启动 Host", L"Host 初始化完成后会自动刷新。");
-    }
+    setInfo(L"正在启动 Host", L"Host 初始化完成后会自动刷新。");
 }
 
 void ControlCenterWindow::stopHost()
