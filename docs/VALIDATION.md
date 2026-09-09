@@ -842,8 +842,8 @@ annotated tag，只上传上述 Full 四资产，并在发布后按相同文件�
 - 离线 C++ 边界测试覆盖 31/30/1 天和过期；PowerShell 契约覆盖无复用函数、无 30 天阈值、
   新证书/新签名路径、schema 1/2 pending 恢复和暂存根完整性。
 
-2026-09-09 在实现提交 `76343dc` 上重新执行本地验证。Full `release-verify` 通过 `45/45`，总测试时间
-`103.35 s`；Slim `slim-release-verify` 通过 `44/44`，总测试时间 `93.53 s`。两个 workflow 均包含
+2026-09-10 在最新实现提交 `fae0298` 上重新执行本地验证。Full `release-verify` 通过 `45/45`，总测试时间
+`97.96 s`；Slim `slim-release-verify` 通过 `44/44`，总测试时间 `90.06 s`。两个 workflow 均包含
 PowerShell 7.6.5 安装器契约；同一契约另以 Windows PowerShell 5.1.19041.6456 独立执行通过。边界测试确认
 剩余 31、30、1 天均为 `Valid`，已过期为 `Expired`，Host 临期状态和诊断字段不再存在。
 
@@ -855,7 +855,7 @@ Control Center 和 Identity Signer 均使用该 SDK 成功编译，且 `BAFX_CPP
 unsigned identity template 和 native signer，不携带证书或私钥。
 
 本机缺少 SDK `10.0.19041.0`、`10.0.22621.0`，且未启用 Windows Sandbox/Hyper-V 运行组件。因此当前
-实现提交的三档 Windows SDK CI，以及隔离环境中的两次同版本安装、签名失败、注册失败、Finalize 清理失败、
+`fae0298` 实现提交的三档 Windows SDK CI，以及隔离环境中的两次同版本安装、签名失败、注册失败、Finalize 清理失败、
 进程中断和旧 pending journal 真实恢复均为 `Not Run`；当前 live 安装未被修改。最新远端 CI 成功记录仍指向
 旧提交 `238e8bc`，历史 `cert-29/30/31` 与 `real-installer-acceptance-20260909-*` 证据也均来自旧策略或
 最新修复前，不能作为本策略验收结果。本记录不修改 0.2.11 发布证据，也不授权推送或发布 Release。
