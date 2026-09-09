@@ -213,7 +213,7 @@ begin
   // Keep the root canonical without a trailing slash, and add separators only
   // when constructing child paths.
   InstallRoot := RemoveBackslashUnlessRoot(ExpandConstant('{app}'));
-  ProtectedRoot := AddBackslash(
+  ProtectedRoot := RemoveBackslashUnlessRoot(
     ExpandConstant('{autopf}\ba-click-fx-desktop'));
   if CompareText(InstallRoot, ProtectedRoot) <> 0 then
   begin
