@@ -2633,23 +2633,28 @@ function Test-OtherUserPackageRegistration
     )
     foreach ($package in $packages)
     {
-        if ([string]$package.PackageFullName -ne [string]$State.packageFullName)
-        {
-            return $true
-        }
         $usersProperty = $package.PSObject.Properties['PackageUserInformation']
         if ($null -eq $usersProperty)
         {
-            # The package object cannot prove that the current user is the only
-            # owner, so retain shared artifacts rather than deleting a signer
-            # still needed by another profile.
+            # The package object cannot prove ownership. Retain shared
+            # artifacts rather than deleting a signer still needed by another
+            # profile.
             return $true
         }
         $userInformation = @($usersProperty.Value)
         if ($userInformation.Count -eq 0)
         {
-            return $true
+            if ([string]$package.PackageFullName -eq [string]$State.packageFullName)
+            {
+                # A current package without user information cannot prove that
+                # this profile is its sole owner.
+                return $true
+            }
+            # A different package with no installed-user record is a stale
+            # repository entry, not evidence of another profile using files.
+            continue
         }
+        $installedUserCount = 0
         foreach ($user in $userInformation)
         {
             $installState = if ($null -ne $user.PSObject.Properties['InstallState'])
@@ -2667,6 +2672,7 @@ function Test-OtherUserPackageRegistration
             {
                 continue
             }
+            ++$installedUserCount
             $userSid = if ($null -ne $user.PSObject.Properties['UserSecurityId'])
             {
                 $value = $user.UserSecurityId
@@ -2687,6 +2693,13 @@ function Test-OtherUserPackageRegistration
             {
                 return $true
             }
+        }
+        if ([string]$package.PackageFullName -eq [string]$State.packageFullName -and
+            $installedUserCount -eq 0)
+        {
+            # The current package exists in the repository but has no
+            # confirmed registration, so avoid destructive shared cleanup.
+            return $true
         }
     }
     return $false
