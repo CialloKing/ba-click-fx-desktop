@@ -456,8 +456,14 @@ function Assert-ProtectedStateAcl
         {
             continue
         }
-        $sid = $rule.IdentityReference.Translate(
-            [Security.Principal.SecurityIdentifier]).Value
+        $sid = Resolve-InstallerAclIdentity `
+            -Rule $rule `
+            -WriteRights $writeRights `
+            -Path $Path
+        if ([string]::IsNullOrWhiteSpace($sid))
+        {
+            continue
+        }
         if (Test-InstallerTrustedPrincipal -Sid $sid)
         {
             continue

@@ -17,6 +17,65 @@ function Test-InstallerTrustedPrincipal
     )
 }
 
+function Resolve-InstallerAclIdentity
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [object]$Rule,
+
+        [Parameter(Mandatory = $true)]
+        [int]$WriteRights,
+
+        [string]$Path = ''
+    )
+
+    $identityReference = $Rule.IdentityReference
+    $identityText = ([string]$identityReference).Trim()
+    try
+    {
+        # Prefer the security subsystem's translation so localized account
+        # names and well-known aliases are handled by Windows itself.
+        return [string]$identityReference.Translate(
+            [Security.Principal.SecurityIdentifier]).Value
+    }
+    catch
+    {
+        # ACLs can retain a SID after its account/provider is unavailable. A
+        # SID is still authoritative evidence, so validate and use it directly.
+        if ($identityText -match '^(?i:S-\d-\d+(?:-\d+)+)$')
+        {
+            try
+            {
+                return [string]([Security.Principal.SecurityIdentifier]::new(
+                        $identityText)).Value
+            }
+            catch
+            {
+                # Fall through to the same fail-closed handling as an unknown
+                # account name if the textual SID is malformed.
+            }
+        }
+
+        $hasWriteAccess = (([int]$Rule.FileSystemRights -band $WriteRights) -ne 0)
+        if ($hasWriteAccess)
+        {
+            $location = if ([string]::IsNullOrWhiteSpace($Path))
+            {
+                '<unknown path>'
+            }
+            else
+            {
+                $Path
+            }
+            throw "Protected ACL contains an unresolvable identity with write access: $location ($identityText)"
+        }
+
+        # An unresolvable read-only application-package identity is harmless;
+        # rejecting it would make localized Windows installations unusable.
+        return $null
+    }
+}
+
 function Get-ProtectedProgramFilesRoots
 {
     $environmentCandidates = @(

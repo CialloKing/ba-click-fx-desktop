@@ -310,8 +310,14 @@ function Assert-ProtectedStateAcl
         {
             continue
         }
-        $sid = $rule.IdentityReference.Translate(
-            [Security.Principal.SecurityIdentifier]).Value
+        $sid = Resolve-InstallerAclIdentity `
+            -Rule $rule `
+            -WriteRights $writeRights `
+            -Path $Path
+        if ([string]::IsNullOrWhiteSpace($sid))
+        {
+            continue
+        }
         if (Test-InstallerTrustedPrincipal -Sid $sid)
         {
             continue
@@ -710,6 +716,14 @@ function Assert-ProtectedPayloadAcl
             }
         }
     }
+    $writeRights = [int]([Security.AccessControl.FileSystemRights]::WriteData -bor
+        [Security.AccessControl.FileSystemRights]::AppendData -bor
+        [Security.AccessControl.FileSystemRights]::WriteExtendedAttributes -bor
+        [Security.AccessControl.FileSystemRights]::WriteAttributes -bor
+        [Security.AccessControl.FileSystemRights]::Delete -bor
+        [Security.AccessControl.FileSystemRights]::DeleteSubdirectoriesAndFiles -bor
+        [Security.AccessControl.FileSystemRights]::ChangePermissions -bor
+        [Security.AccessControl.FileSystemRights]::TakeOwnership)
     foreach ($item in $items)
     {
         $acl = Get-Acl -LiteralPath $item.FullName
@@ -720,17 +734,18 @@ function Assert-ProtectedPayloadAcl
             {
                 continue
             }
-            $sid = $rule.IdentityReference.Translate(
-                [Security.Principal.SecurityIdentifier]).Value
+            $sid = Resolve-InstallerAclIdentity `
+                -Rule $rule `
+                -WriteRights $writeRights `
+                -Path $item.FullName
+            if ([string]::IsNullOrWhiteSpace($sid))
+            {
+                continue
+            }
             if (Test-InstallerTrustedPrincipal -Sid $sid)
             {
                 continue
             }
-            $writeRights = [int]([Security.AccessControl.FileSystemRights]::WriteData -bor
-                [Security.AccessControl.FileSystemRights]::AppendData -bor
-                [Security.AccessControl.FileSystemRights]::Delete -bor
-                [Security.AccessControl.FileSystemRights]::ChangePermissions -bor
-                [Security.AccessControl.FileSystemRights]::TakeOwnership)
             if (([int]$rule.FileSystemRights -band $writeRights) -ne 0)
             {
                 throw "Installer staging path is writable by a non-administrator: $($item.FullName)"
@@ -3582,14 +3597,13 @@ function Assert-RollbackEvidenceAclCanBeHardened
         {
             continue
         }
-        try
+        $sid = Resolve-InstallerAclIdentity `
+            -Rule $rule `
+            -WriteRights $writeRights `
+            -Path $Path
+        if ([string]::IsNullOrWhiteSpace($sid))
         {
-            $sid = $rule.IdentityReference.Translate(
-                [Security.Principal.SecurityIdentifier]).Value
-        }
-        catch
-        {
-            throw "The rollback evidence ACL contains an unresolvable identity: $Path"
+            continue
         }
         if (Test-InstallerTrustedPrincipal -Sid $sid)
         {

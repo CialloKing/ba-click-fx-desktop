@@ -982,6 +982,14 @@ function Test-InstallerScriptWhitelist
         -Pattern 'function\s+Get-ProtectedProgramFilesRoots[\s\S]*ProgramW6432[\s\S]*ProgramFilesDir' `
         -Description 'shared installer validation recognizes relocated Program Files roots'
     Assert-TextContains `
+        -Text $protectedPaths `
+        -Pattern 'function\s+Resolve-InstallerAclIdentity[\s\S]*Translate[\s\S]*SecurityIdentifier[\s\S]*unresolvable identity with write access' `
+        -Description 'ACL identity resolution fails closed only for unknown writers'
+    Assert-TextContains `
+        -Text ($installMachine + $registerUserPackage + $unregisterMachine) `
+        -Pattern 'Resolve-InstallerAclIdentity\s+`' `
+        -Description 'all installer ACL checks use shared identity resolution'
+    Assert-TextContains `
         -Text ($installMachine + $unregisterMachine) `
         -Pattern 'installer-diagnostics\.ps1[\s\S]*protected-paths\.ps1[\s\S]*Resolve-ProtectedProgramFilesPath' `
         -Description 'machine install and uninstall share protected path validation'
@@ -1007,6 +1015,87 @@ function Test-InstallerScriptWhitelist
         -Text $controlCenterResource `
         -Pattern 'VALUE\s+"ProductVersion",\s+"@BAFX_VERSION@\\0"' `
         -Description 'Control Center product version resource'
+}
+
+function Test-ProtectedAclIdentityResolutionContract
+{
+    $probeModule = $null
+    $protectedPathsAst = Get-ParsedScript `
+        -RelativePath 'tools/installer/protected-paths.ps1'
+    $helperText = Get-FunctionText `
+        -Ast $protectedPathsAst `
+        -Name 'Resolve-InstallerAclIdentity'
+    $helperScript = @(
+        'Set-StrictMode -Version Latest'
+        $helperText
+    ) -join "`n"
+    $probeModule = New-Module -ScriptBlock ([scriptblock]::Create($helperScript))
+    try
+    {
+        $writeData = [int][Security.AccessControl.FileSystemRights]::WriteData
+        $readData = [int][Security.AccessControl.FileSystemRights]::ReadData
+
+        $knownRule = [pscustomobject]@{
+            IdentityReference = [Security.Principal.SecurityIdentifier]::new('S-1-5-18')
+            FileSystemRights = $writeData
+        }
+        $knownResult = & $probeModule {
+            param($Rule, $Mask)
+            Resolve-InstallerAclIdentity -Rule $Rule -WriteRights $Mask
+        } $knownRule $writeData
+        Assert-True `
+            -Condition ([string]$knownResult -eq 'S-1-5-18') `
+            -Message 'Resolvable ACL identities must translate to their SID.'
+
+        $sidRule = [pscustomobject]@{
+            IdentityReference = 'S-1-5-21-461670580-1850758422-1265360451-1001'
+            FileSystemRights = $writeData
+        }
+        $sidResult = & $probeModule {
+            param($Rule, $Mask)
+            Resolve-InstallerAclIdentity -Rule $Rule -WriteRights $Mask
+        } $sidRule $writeData
+        Assert-True `
+            -Condition ([string]$sidResult -eq [string]$sidRule.IdentityReference) `
+            -Message 'A textual SID must remain usable when account translation is unavailable.'
+
+        $unknownReadRule = [pscustomobject]@{
+            IdentityReference = [Security.Principal.NTAccount]::new(
+                'BAFX-Unknown-Application-Package\ReadOnly')
+            FileSystemRights = $readData
+        }
+        $unknownReadResult = & $probeModule {
+            param($Rule, $Mask)
+            Resolve-InstallerAclIdentity -Rule $Rule -WriteRights $Mask
+        } $unknownReadRule $writeData
+        Assert-True `
+            -Condition ($null -eq $unknownReadResult) `
+            -Message 'An unresolvable read-only ACL identity must be ignored.'
+
+        $unknownWriteRule = [pscustomobject]@{
+            IdentityReference = [Security.Principal.NTAccount]::new(
+                'BAFX-Unknown-Application-Package\Writer')
+            FileSystemRights = $writeData
+        }
+        Assert-Throws `
+            -Action {
+                & $probeModule {
+                    param($Rule, $Mask)
+                    Resolve-InstallerAclIdentity `
+                        -Rule $Rule `
+                        -WriteRights $Mask `
+                        -Path 'C:\Program Files\ba-click-fx-desktop\.staging\current'
+                } $unknownWriteRule $writeData
+            } `
+            -Description 'an unresolvable ACL identity with write access'
+    }
+    finally
+    {
+        if ($null -ne $probeModule)
+        {
+            Remove-Module -ModuleInfo $probeModule -Force -ErrorAction SilentlyContinue
+        }
+    }
 }
 
 function Test-CompressionRuntimeColdStart
@@ -3346,6 +3435,7 @@ if (-not (Test-Path -LiteralPath $repositoryRoot -PathType Container))
 }
 
 Test-PowerShellScriptContracts
+Test-ProtectedAclIdentityResolutionContract
 Test-UninstallerProcessPathFilter
 Test-CertificateLifecycleBoundaryContract
 Test-VersionMapping
