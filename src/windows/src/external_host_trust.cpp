@@ -1193,18 +1193,6 @@ void stripUtf8Bom(std::string& contents) noexcept
         error = CERT_E_EXPIRED;
         return ExternalHostTrustStatus::CertificateInvalid;
     }
-    FILETIME nowFileTime{};
-    GetSystemTimeAsFileTime(&nowFileTime);
-    ULARGE_INTEGER now{};
-    now.LowPart = nowFileTime.dwLowDateTime;
-    now.HighPart = nowFileTime.dwHighDateTime;
-    ULARGE_INTEGER notAfter{};
-    notAfter.LowPart = signer->pCertInfo->NotAfter.dwLowDateTime;
-    notAfter.HighPart = signer->pCertInfo->NotAfter.dwHighDateTime;
-    constexpr ULONGLONG thirtyDays =
-        30ULL * 24ULL * 60ULL * 60ULL * 10'000'000ULL;
-    result.certificateExpiringSoon = notAfter.QuadPart > now.QuadPart
-        && notAfter.QuadPart - now.QuadPart <= thirtyDays;
 
     CertificateStore trustedPeople(L"TrustedPeople");
     CertificateContext trusted = findCertificate(
@@ -1232,9 +1220,7 @@ void stripUtf8Bom(std::string& contents) noexcept
         return ExternalHostTrustStatus::CertificateStoreMismatch;
     }
     error = S_OK;
-    return result.certificateExpiringSoon
-        ? ExternalHostTrustStatus::CertificateExpiringSoon
-        : ExternalHostTrustStatus::Trusted;
+    return ExternalHostTrustStatus::Trusted;
 }
 
 [[nodiscard]] HRESULT incompleteIdentityError(
@@ -1471,8 +1457,7 @@ ExternalHostTrustResult queryExternalHostTrust(
 
 bool externalHostTrusted(const ExternalHostTrustResult& result) noexcept
 {
-    return result.status == ExternalHostTrustStatus::Trusted
-        || result.status == ExternalHostTrustStatus::CertificateExpiringSoon;
+    return result.status == ExternalHostTrustStatus::Trusted;
 }
 
 std::string_view externalHostTrustStatusName(
@@ -1516,8 +1501,6 @@ std::string_view externalHostTrustStatusName(
         return "certificate-store-mismatch";
     case ExternalHostTrustStatus::CertificateInvalid:
         return "certificate-invalid";
-    case ExternalHostTrustStatus::CertificateExpiringSoon:
-        return "certificate-expiring-soon";
     case ExternalHostTrustStatus::Failed:
         return "failed";
     }
@@ -1546,10 +1529,6 @@ std::string externalHostTrustDiagnostic(const ExternalHostTrustResult& result)
     {
         stream << ";CertificateSha256="
                << result.observedCertificateSha256;
-    }
-    if (result.certificateExpiringSoon)
-    {
-        stream << ";CertificateExpiringSoon=true";
     }
     return stream.str();
 }

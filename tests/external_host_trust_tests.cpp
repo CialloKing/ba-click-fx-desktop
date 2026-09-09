@@ -4,21 +4,21 @@
 
 #include <string>
 
-BAFX_TEST(external_host_trust_expiring_certificate_is_actionable)
+BAFX_TEST(external_host_trust_valid_certificate_is_trusted)
 {
     bafx::windows::ExternalHostTrustResult result{};
-    result.status = bafx::windows::ExternalHostTrustStatus::CertificateExpiringSoon;
+    result.status = bafx::windows::ExternalHostTrustStatus::Trusted;
     result.error = S_OK;
-    result.certificateExpiringSoon = true;
 
     BAFX_CHECK(bafx::windows::externalHostTrusted(result));
     BAFX_CHECK(
         bafx::windows::externalHostTrustStatusName(result.status)
-        == "certificate-expiring-soon");
+        == "trusted");
     const std::string diagnostic =
         bafx::windows::externalHostTrustDiagnostic(result);
-    BAFX_CHECK(diagnostic.find("CertificateExpiringSoon=true")
+    BAFX_CHECK(diagnostic.find("Package.ExternalHostTrust=trusted")
         != std::string::npos);
+    BAFX_CHECK(diagnostic.find("Certificate") == std::string::npos);
 }
 
 BAFX_TEST(external_host_trust_expired_certificate_fails_closed)
