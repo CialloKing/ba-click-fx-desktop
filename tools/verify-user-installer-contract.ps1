@@ -383,21 +383,39 @@ function Test-CertificateLifecycleBoundaryContract
 {
     $ast = Get-ParsedScript `
         -RelativePath 'tools/installer/install-machine.ps1'
+    $machineText = Read-RepositoryText `
+        -RelativePath 'tools/installer/install-machine.ps1'
+    $identityText = Get-FunctionText `
+        -Ast $ast `
+        -Name 'Assert-IdentityPayload'
+    Assert-TextExcludes `
+        -Text $machineText `
+        -Pattern '(?m)^\s*function\s+Test-ExistingIdentityPackageReusable\b' `
+        -Description 'same-version repair has no reusable-package function'
+    Assert-TextExcludes `
+        -Text $machineText `
+        -Pattern '(?i)(minimumReusableNotAfterUtc|reusableIdentity|reusedCertificate|AddDays\s*\(\s*30\s*\))' `
+        -Description 'installer has no thirty-day certificate threshold'
+    Assert-TextContains `
+        -Text $identityText `
+        -Pattern 'New-SelfSignedCertificate[\s\S]*-NotAfter\s+\(Get-Date\)\.AddYears\(2\)' `
+        -Description 'same-version repair creates a fresh two-year certificate'
+    Assert-TextContains `
+        -Text $identityText `
+        -Pattern 'Export-Certificate[\s\S]*&\s*\$signerPath[\s\S]*store-location' `
+        -Description 'same-version repair exports and signs a new package'
+    Assert-TextExcludes `
+        -Text $identityText `
+        -Pattern '(?i)(Test-ExistingIdentityPackageReusable|reusableIdentity|reusedCertificate)' `
+        -Description 'identity preparation does not reuse the previous package or certificate'
     $moduleText = @(
         'Set-StrictMode -Version Latest'
         "`$ErrorActionPreference = 'Stop'"
         @'
-$script:TrustedCertificate = $null
 $script:PrivateCertificates = @()
 $script:TrustedCertificates = @()
 $script:RemovedCertificatePaths = New-Object Collections.Generic.List[string]
 $script:FailPrivateCertificateDeletion = $false
-
-function Get-TrustedCertificateByThumbprint
-{
-    param([string]$Thumbprint)
-    return $script:TrustedCertificate
-}
 
 function Get-CertificateSha256
 {
@@ -471,7 +489,6 @@ function Invoke-CertificateLifecycleProbe
         (Get-FunctionText -Ast $ast -Name 'Split-Ledger')
         (Get-FunctionText -Ast $ast -Name 'Assert-CertificateStoreSnapshot')
         (Get-FunctionText -Ast $ast -Name 'Test-CertificateStoreSnapshotContains')
-        (Get-FunctionText -Ast $ast -Name 'Test-ExistingIdentityPackageReusable')
         (Get-FunctionText -Ast $ast -Name 'Remove-CertificateFromStores')
         (Get-FunctionText -Ast $ast -Name 'Recover-CreatingCertificate')
         'Export-ModuleMember -Function Invoke-CertificateLifecycleProbe'
@@ -482,63 +499,6 @@ function Invoke-CertificateLifecycleProbe
         $nowUtc = [DateTime]::SpecifyKind(
             [DateTime]::new(2030, 1, 1, 0, 0, 0),
             [DateTimeKind]::Utc)
-        $oldState = [pscustomobject]@{
-            productVersion = '1.2.3'
-            packageVersion = '1.2.3.0'
-            hostSha256 = 'B' * 64
-            certificateThumbprint = 'A' * 40
-            certificateSha256 = 'D' * 64
-            packageFile = 'identity.msix'
-            packageSha256 = 'C' * 64
-            certificateOwnership = 'preexisting'
-        }
-        $metadata = [pscustomobject]@{ hostSha256 = 'B' * 64 }
-
-        function Invoke-ReuseProbe
-        {
-            param([AllowNull()][object]$Certificate)
-
-            return & $probeModule {
-                param($State, $Metadata, $CertificateValue, $Now)
-                $script:TrustedCertificate = $CertificateValue
-                Test-ExistingIdentityPackageReusable `
-                    -OldState $State `
-                    -Metadata $Metadata `
-                    -InstallRoot 'C:\Program Files\ba-click-fx-desktop' `
-                    -ProductVersion '1.2.3' `
-                    -PackageVersion '1.2.3.0' `
-                    -NowUtc $Now
-            } $oldState $metadata $Certificate $nowUtc
-        }
-
-        $certificate = [pscustomobject]@{
-            Thumbprint = 'A' * 40
-            sha256 = 'D' * 64
-            NotBefore = $nowUtc.AddDays(-1)
-            NotAfter = $nowUtc.AddDays(31)
-        }
-        $reusable = Invoke-ReuseProbe -Certificate $certificate
-        Assert-True `
-            -Condition ($null -ne $reusable -and
-                [string]$reusable.certificateOwnership -eq 'preexisting') `
-            -Message 'A valid pre-existing 31-day certificate was not reused.'
-
-        $certificate.NotAfter = $nowUtc.AddDays(30)
-        Assert-True `
-            -Condition ($null -ne (Invoke-ReuseProbe -Certificate $certificate)) `
-            -Message 'A certificate with exactly 30 days remaining was rotated.'
-
-        foreach ($notAfter in @($nowUtc.AddDays(30).AddTicks(-1), $nowUtc.AddDays(-1)))
-        {
-            $certificate.NotAfter = $notAfter
-            Assert-True `
-                -Condition ($null -eq (Invoke-ReuseProbe -Certificate $certificate)) `
-                -Message 'A near-expiry or expired certificate was incorrectly reused.'
-        }
-        Assert-True `
-            -Condition ($null -eq (Invoke-ReuseProbe -Certificate $null)) `
-            -Message 'A missing trusted certificate was incorrectly reused.'
-
         $transactionId = 'e' * 32
         $sanUri = "urn:bafx:installer:$transactionId"
         $newCertificate = [pscustomobject]@{
@@ -904,10 +864,10 @@ function Test-InstallerScriptWhitelist
         -Text $installMachine `
         -Pattern 'certificateOwnership\s*=\s*''unknown''[\s\S]*ownedCertificateThumbprints\s*=\s*''''[\s\S]*certificateOwnership\s*=\s*if' `
         -Description 'certificate ownership ledger is not optimistic during the creation window'
-    Assert-TextContains `
+    Assert-TextExcludes `
         -Text $installMachine `
-        -Pattern 'minimumReusableNotAfterUtc\s*=\s*\$nowUtc\.AddDays\(30\)[\s\S]*NotAfter\.ToUniversalTime\(\)\s+-le\s+\$nowUtc[\s\S]*-lt\s+\$minimumReusableNotAfterUtc' `
-        -Description 'certificate reuse rejects expired and under-thirty-day certificates'
+        -Pattern '(?i)(minimumReusableNotAfterUtc|Test-ExistingIdentityPackageReusable|reusableIdentity|reusedCertificate|AddDays\s*\(\s*30\s*\))' `
+        -Description 'certificate handling has no thirty-day reuse boundary'
     Assert-TextContains `
         -Text $installMachine `
         -Pattern 'Recover-CreatingCertificate[\s\S]*certificatePreexisting[\s\S]*Test-CertificateStoreSnapshotContains' `
@@ -1946,7 +1906,7 @@ function Assert-InstallStateObject
                 -State $State `
                 -InstallRoot $Root `
                 -PayloadDirectory $Payload `
-                -RequireIntegrity
+                -RequireIntegrity | Out-Null
             return $script:ObservedIntegrityRoot
         } ([pscustomobject]$stagedPending) $installRoot $stagingRoot
         Assert-True `
@@ -1962,7 +1922,7 @@ function Assert-InstallStateObject
                 -State $State `
                 -InstallRoot $Root `
                 -PayloadDirectory $Payload `
-                -RequireIntegrity
+                -RequireIntegrity | Out-Null
             return $script:ObservedIntegrityRoot
         } ([pscustomobject]$stagedPending) $installRoot $stagingRoot
         Assert-True `
