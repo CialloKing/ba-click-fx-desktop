@@ -71,6 +71,28 @@ function Write-Utf8NoBom
     [IO.File]::WriteAllText($Path, $Content, $encoding)
 }
 
+function Get-InstallerFileHash
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path
+    )
+
+    # ExecAsOriginalUser may run with module auto-loading disabled. Keep the
+    # integrity check independent of Microsoft.PowerShell.Utility.
+    $stream = [IO.File]::OpenRead($Path)
+    $hasher = [Security.Cryptography.SHA256]::Create()
+    try
+    {
+        return ([BitConverter]::ToString($hasher.ComputeHash($stream))).Replace('-', '')
+    }
+    finally
+    {
+        $hasher.Dispose()
+        $stream.Dispose()
+    }
+}
+
 function Get-StatePropertiesWithoutDigest
 {
     param(
@@ -797,7 +819,7 @@ function Assert-PreviousPackageMaterial
     }
     $hostItem = Get-Item -LiteralPath $hostPath -Force
     if (($hostItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or
-        (Get-FileHash -LiteralPath $hostPath -Algorithm SHA256).Hash -ine
+        (Get-InstallerFileHash -Path $hostPath) -ine
             [string]$State.hostSha256)
     {
         throw 'The restored previous Host does not match its protected install state.'
@@ -818,7 +840,7 @@ function Assert-PreviousPackageMaterial
     }
     $packageItem = Get-Item -LiteralPath $packagePath -Force
     if (($packageItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or
-        (Get-FileHash -LiteralPath $packagePath -Algorithm SHA256).Hash -ine
+        (Get-InstallerFileHash -Path $packagePath) -ine
             [string]$State.packageSha256)
     {
         throw 'The restored previous package does not match its protected install state.'
