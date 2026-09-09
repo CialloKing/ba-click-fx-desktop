@@ -1,5 +1,22 @@
 Set-StrictMode -Version Latest
 
+function Test-InstallerTrustedPrincipal
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Sid
+    )
+
+    # TrustedInstaller is the Windows servicing identity that owns the
+    # inherited Program Files write rule. It is not an interactive user and
+    # must remain an allowed writer for protected staging and rollback trees.
+    return $Sid -in @(
+        'S-1-5-18',
+        'S-1-5-32-544',
+        'S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464'
+    )
+}
+
 function Get-ProtectedProgramFilesRoots
 {
     $environmentCandidates = @(

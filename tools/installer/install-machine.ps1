@@ -312,7 +312,7 @@ function Assert-ProtectedStateAcl
         }
         $sid = $rule.IdentityReference.Translate(
             [Security.Principal.SecurityIdentifier]).Value
-        if ($sid -in @('S-1-5-18', 'S-1-5-32-544'))
+        if (Test-InstallerTrustedPrincipal -Sid $sid)
         {
             continue
         }
@@ -722,7 +722,7 @@ function Assert-ProtectedPayloadAcl
             }
             $sid = $rule.IdentityReference.Translate(
                 [Security.Principal.SecurityIdentifier]).Value
-            if ($sid -in @('S-1-5-18', 'S-1-5-32-544'))
+            if (Test-InstallerTrustedPrincipal -Sid $sid)
             {
                 continue
             }
@@ -3591,7 +3591,7 @@ function Assert-RollbackEvidenceAclCanBeHardened
         {
             throw "The rollback evidence ACL contains an unresolvable identity: $Path"
         }
-        if ($sid -in @('S-1-5-18', 'S-1-5-32-544'))
+        if (Test-InstallerTrustedPrincipal -Sid $sid)
         {
             continue
         }

@@ -251,6 +251,25 @@ function Test-PowerShellScriptContracts
     {
         Get-ParsedScript -RelativePath $scriptPath | Out-Null
     }
+
+    $protectedPaths = Read-RepositoryText `
+        -RelativePath 'tools/installer/protected-paths.ps1'
+    Assert-TextContains `
+        -Text $protectedPaths `
+        -Pattern 'function\s+Test-InstallerTrustedPrincipal[\s\S]*S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464' `
+        -Description 'protected tree ACLs allow only the Windows TrustedInstaller service identity'
+    $protectedPathsAst = Get-ParsedScript `
+        -RelativePath 'tools/installer/protected-paths.ps1'
+    . ([scriptblock]::Create((Get-FunctionText `
+            -Ast $protectedPathsAst `
+            -Name 'Test-InstallerTrustedPrincipal')))
+    Assert-True `
+        -Condition (Test-InstallerTrustedPrincipal `
+            -Sid 'S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464') `
+        -Message 'TrustedInstaller must be accepted as a protected-tree writer.'
+    Assert-True `
+        -Condition (-not (Test-InstallerTrustedPrincipal -Sid 'S-1-5-32-545')) `
+        -Message 'Interactive Users must not be accepted as a protected-tree writer.'
 }
 
 function Test-CertificateCreationRecoveryContract
