@@ -126,6 +126,12 @@ Name: "{autoprograms}\ba-click-fx-desktop\{cm:UninstallProgram,{#ProductName}}";
 Filename: "{app}\BAFX.ControlCenter.exe"; Description: "{cm:LaunchProgram,BAFX Control Center}"; WorkingDir: "{app}"; Flags: postinstall nowait skipifsilent runasoriginaluser; Check: MachineInstallationCompleted
 
 [Code]
+const
+  INVALID_FILE_ATTRIBUTES = $FFFFFFFF;
+
+function GetFileAttributesW(lpFileName: String): Cardinal;
+external 'GetFileAttributesW@kernel32.dll stdcall';
+
 var
   UserContextPath: String;
   MachineStatePath: String;
@@ -409,8 +415,7 @@ end;
 
 function IsReparsePointPath(const Path: String): Boolean;
 var
-  FindRec: TFindRec;
-  SearchPath: String;
+  Attributes: Cardinal;
 begin
   Result := False;
   if not FileOrDirExists(Path) then
@@ -418,17 +423,11 @@ begin
     Exit;
   end;
   // FindFirst treats a bare filesystem root (for example C:\) as a search
-  // pattern and fails before returning its attributes. Use the directory's
-  // dot entry for directories so ancestor validation can safely reach C:\.
-  if DirExists(Path) then
-  begin
-    SearchPath := AddBackslash(Path) + '.';
-  end
-  else
-  begin
-    SearchPath := RemoveBackslashUnlessRoot(Path);
-  end;
-  if not FindFirst(SearchPath, FindRec) then
+  // pattern. GetFileAttributesW reads the node itself, including roots, so a
+  // failed lookup can remain fail-closed without confusing the root with a
+  // reparse point.
+  Attributes := GetFileAttributesW(Path);
+  if Attributes = INVALID_FILE_ATTRIBUTES then
   begin
     // An inaccessible path is not safe to delete blindly. Fail closed so a
     // junction cannot redirect DelTree outside the protected install root.
@@ -436,11 +435,7 @@ begin
     Result := True;
     Exit;
   end;
-  try
-    Result := (FindRec.Attributes and FILE_ATTRIBUTE_REPARSE_POINT) <> 0;
-  finally
-    FindClose(FindRec);
-  end;
+  Result := (Attributes and FILE_ATTRIBUTE_REPARSE_POINT) <> 0;
 end;
 
 function AssertNoReparsePointPath(const Path: String): Boolean;
