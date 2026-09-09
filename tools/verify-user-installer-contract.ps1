@@ -1197,6 +1197,10 @@ function Test-InnoPayloadContract
         -Description 'protected tree deletion rejects reparse points before DelTree'
     Assert-TextContains `
         -Text $inno `
+        -Pattern 'function\s+IsReparsePointPath[\s\S]*DirExists\(Path\)[\s\S]*AddBackslash\(Path\)\s*\+\s*''\.''' `
+        -Description 'reparse validation handles filesystem-root directories'
+    Assert-TextContains `
+        -Text $inno `
         -Pattern 'function\s+SafeDeleteFile[\s\S]*AssertNoReparsePointPath[\s\S]*DeleteFile\(' `
         -Description 'protected file deletion rejects reparse points before DeleteFile'
     Assert-TextContains `

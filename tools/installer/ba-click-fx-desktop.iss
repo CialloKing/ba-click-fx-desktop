@@ -410,13 +410,25 @@ end;
 function IsReparsePointPath(const Path: String): Boolean;
 var
   FindRec: TFindRec;
+  SearchPath: String;
 begin
   Result := False;
   if not FileOrDirExists(Path) then
   begin
     Exit;
   end;
-  if not FindFirst(RemoveBackslashUnlessRoot(Path), FindRec) then
+  // FindFirst treats a bare filesystem root (for example C:\) as a search
+  // pattern and fails before returning its attributes. Use the directory's
+  // dot entry for directories so ancestor validation can safely reach C:\.
+  if DirExists(Path) then
+  begin
+    SearchPath := AddBackslash(Path) + '.';
+  end
+  else
+  begin
+    SearchPath := RemoveBackslashUnlessRoot(Path);
+  end;
+  if not FindFirst(SearchPath, FindRec) then
   begin
     // An inaccessible path is not safe to delete blindly. Fail closed so a
     // junction cannot redirect DelTree outside the protected install root.
