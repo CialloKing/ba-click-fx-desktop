@@ -8,6 +8,7 @@
 #include <bcrypt.h>
 
 #include <array>
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
@@ -208,6 +209,48 @@ constexpr std::string_view validInstallStateTemplate =
             + std::string(notAfterUtc)
             + "\"\n");
     return state;
+}
+
+[[nodiscard]] std::string makeRelativeCertificateExpiry(
+    const std::int64_t daysFromNow)
+{
+    FILETIME nowFileTime{};
+    GetSystemTimeAsFileTime(&nowFileTime);
+    ULARGE_INTEGER ticks{};
+    ticks.LowPart = nowFileTime.dwLowDateTime;
+    ticks.HighPart = nowFileTime.dwHighDateTime;
+    constexpr std::uint64_t ticksPerDay =
+        24ULL * 60ULL * 60ULL * 10'000'000ULL;
+    const std::uint64_t magnitude = static_cast<std::uint64_t>(
+        daysFromNow >= 0 ? daysFromNow : -daysFromNow);
+    const std::uint64_t delta = magnitude * ticksPerDay;
+    if (daysFromNow >= 0)
+    {
+        ticks.QuadPart += delta;
+    }
+    else
+    {
+        ticks.QuadPart -= delta;
+    }
+
+    FILETIME targetFileTime{};
+    targetFileTime.dwLowDateTime = ticks.LowPart;
+    targetFileTime.dwHighDateTime = ticks.HighPart;
+    SYSTEMTIME target{};
+    if (FileTimeToSystemTime(&targetFileTime, &target) == FALSE)
+    {
+        throw std::runtime_error("Could not format certificate expiry test time.");
+    }
+    std::ostringstream output;
+    output << std::setfill('0')
+           << std::setw(4) << target.wYear << '-'
+           << std::setw(2) << target.wMonth << '-'
+           << std::setw(2) << target.wDay << 'T'
+           << std::setw(2) << target.wHour << ':'
+           << std::setw(2) << target.wMinute << ':'
+           << std::setw(2) << target.wSecond << '.'
+           << std::setw(3) << target.wMilliseconds << "0000Z";
+    return output.str();
 }
 
 }
@@ -497,6 +540,28 @@ BAFX_TEST(package_activation_state_classifies_certificate_expiry)
     const auto expired = bafx::control_center::parsePackageActivationState(
         makeInstallStateWithCertificateExpiry(
             "2020-01-01T00:00:00.0000000Z"));
+    BAFX_CHECK(expired.succeeded());
+    BAFX_CHECK(
+        expired.certificateStatus
+        == bafx::control_center::PackageCertificateStatus::Expired);
+}
+
+BAFX_TEST(package_activation_state_accepts_unexpired_certificate_boundaries)
+{
+    for (const std::int64_t daysRemaining : {31, 30, 1})
+    {
+        const auto result = bafx::control_center::parsePackageActivationState(
+            makeInstallStateWithCertificateExpiry(
+                makeRelativeCertificateExpiry(daysRemaining)));
+        BAFX_CHECK(result.succeeded());
+        BAFX_CHECK(
+            result.certificateStatus
+            == bafx::control_center::PackageCertificateStatus::Valid);
+    }
+
+    const auto expired = bafx::control_center::parsePackageActivationState(
+        makeInstallStateWithCertificateExpiry(
+            makeRelativeCertificateExpiry(-1)));
     BAFX_CHECK(expired.succeeded());
     BAFX_CHECK(
         expired.certificateStatus

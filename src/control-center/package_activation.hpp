@@ -32,7 +32,6 @@ enum class PackageCertificateStatus
 {
     Unknown,
     Valid,
-    ExpiringSoon,
     Expired
 };
 

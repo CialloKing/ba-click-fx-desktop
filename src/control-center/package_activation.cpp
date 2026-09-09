@@ -457,12 +457,7 @@ certificateStatusFromTimestamp(const std::string_view value) noexcept
     {
         return PackageCertificateStatus::Expired;
     }
-
-    constexpr std::uint64_t thirtyDays =
-        30ULL * 24ULL * 60ULL * 60ULL * 10'000'000ULL;
-    return expiry.QuadPart - now.QuadPart <= thirtyDays
-        ? PackageCertificateStatus::ExpiringSoon
-        : PackageCertificateStatus::Valid;
+    return PackageCertificateStatus::Valid;
 }
 
 class InstallStateParser final
