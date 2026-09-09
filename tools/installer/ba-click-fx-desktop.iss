@@ -211,7 +211,7 @@ begin
 
   PayloadRoot := AddBackslash(InstallRoot) + '.staging\current';
   InstallerRoot := AddBackslash(PayloadRoot) + 'Installer';
-  ExistingInstallerRoot := AddBackslash(InstallRoot) + 'Installer';
+  ExistingInstallerRoot := AddBackslash(InstallRoot) + 'Installer\';
   ExistingPendingPath := ExistingInstallerRoot + 'PREPARE-STATE.json';
   // A first installation has no previous state or live recovery scripts. Keep
   // that distinction through rollback so the coordinator does not attempt to
