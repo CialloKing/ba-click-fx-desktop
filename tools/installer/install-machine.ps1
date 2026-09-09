@@ -778,7 +778,42 @@ function Ensure-ProtectedInstallerDirectory
     {
         throw 'The protected Installer directory cannot be a reparse point.'
     }
+
+    $installerItems = @($directoryItem) + @(
+        Get-ChildItem -LiteralPath $installerDirectory -Recurse -Force -ErrorAction Stop)
+    $legacyAclDetected = $false
+    foreach ($item in $installerItems)
+    {
+        if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0)
+        {
+            throw "The protected Installer tree cannot contain a reparse point: $($item.FullName)"
+        }
+        $itemAcl = Get-Acl -LiteralPath $item.FullName -ErrorAction Stop
+        if (-not $itemAcl.AreAccessRulesProtected)
+        {
+            $legacyAclDetected = $true
+        }
+    }
+    if ($legacyAclDetected)
+    {
+        # Installers before the protected-state contract left this tree
+        # inheriting Program Files ACLs. Harden every node together so an old
+        # recovery script cannot remain writable while the root is protected.
+        foreach ($item in @(
+                $installerItems | Sort-Object {
+                    ([string]$_.FullName).Length
+                }))
+        {
+            Set-ProtectedStateAcl -Path $item.FullName -ReadSid $ReadSid
+        }
+    }
     Assert-ProtectedStateAcl -Path $installerDirectory
+    foreach ($item in @($installerItems | Where-Object {
+            ([string]$_.FullName) -ine $installerDirectory
+        }))
+    {
+        Assert-ProtectedStateAcl -Path $item.FullName
+    }
     return $created
 }
 
