@@ -2922,12 +2922,17 @@ function Assert-PendingStateObject
     $expectedPackagePath = [IO.Path]::GetFullPath(
         (Join-Path (Join-Path $InstallRoot 'Identity') $packageFile))
     $packagePathMatches = $packagePath -eq $expectedPackagePath
+    $payloadPackagePath = $null
+    $packagePathIsStaged = $false
     if (-not [string]::IsNullOrWhiteSpace($PayloadDirectory))
     {
         $payloadPackagePath = [IO.Path]::GetFullPath(
             (Join-Path (Join-Path $PayloadDirectory 'Identity') $packageFile))
-        $packagePathMatches = $packagePathMatches -or
-            $packagePath -eq $payloadPackagePath
+        # Staging lives below InstallRoot, so a simple root-prefix check cannot
+        # distinguish the staged package from the live package. Use the exact
+        # normalized path that was authorized for this transaction instead.
+        $packagePathIsStaged = $packagePath -eq $payloadPackagePath
+        $packagePathMatches = $packagePathMatches -or $packagePathIsStaged
     }
     if (-not $packagePathMatches)
     {
@@ -2936,10 +2941,7 @@ function Assert-PendingStateObject
     if ($RequireIntegrity)
     {
         $integrityRoot = $InstallRoot
-        if (-not $packagePath.StartsWith(
-                ([IO.Path]::GetFullPath($InstallRoot).TrimEnd('\') + '\'),
-                [StringComparison]::OrdinalIgnoreCase) -and
-            -not [string]::IsNullOrWhiteSpace($PayloadDirectory))
+        if ($packagePathIsStaged)
         {
             $integrityRoot = $PayloadDirectory
         }

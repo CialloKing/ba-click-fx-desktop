@@ -1691,6 +1691,10 @@ function Test-PendingRecoveryFailureContract
         -Text $installMachine `
         -Pattern 'RollbackCleanup[\s\S]*Recover-CreatingCertificate[\s\S]*certificatePhase' `
         -Description 'restart recovery handles a certificate-creation journal'
+    Assert-TextContains `
+        -Text $installMachine `
+        -Pattern '\$packagePathIsStaged\s*=\s*\$packagePath\s*-eq\s*\$payloadPackagePath' `
+        -Description 'staged integrity validation uses an exact package path match'
 
     $ast = Get-ParsedScript -RelativePath $installMachinePath
     $pendingText = Get-FunctionText -Ast $ast -Name 'Assert-PendingStateObject'
@@ -1715,6 +1719,8 @@ function Assert-IdentityIntegrityMaterial
         [string]$InstallRoot,
         [string]$PackagePath
     )
+    $script:ObservedIntegrityRoot = [IO.Path]::GetFullPath($InstallRoot)
+    $script:ObservedIntegrityPackagePath = [IO.Path]::GetFullPath($PackagePath)
 }
 '@
     ) -join "`n"
@@ -1798,6 +1804,58 @@ function Assert-InstallStateObject
             -Condition ([int]$schemaTwoResult.schema -eq 2) `
             -Message 'Schema 2 pending recovery did not validate.'
 
+        $stagingRoot = Join-Path $installRoot '.staging\current'
+        $stagedPackageFile = 'CialloKing.BaClickFxDesktop-test.msix'
+        $stagedPackagePath = Join-Path (
+            Join-Path $stagingRoot 'Identity') $stagedPackageFile
+        New-Item -ItemType Directory -Path (Split-Path $stagedPackagePath -Parent) -Force |
+            Out-Null
+        $stagedPending = [ordered]@{}
+        foreach ($entry in $schemaTwo.GetEnumerator())
+        {
+            $stagedPending[$entry.Key] = $entry.Value
+        }
+        $stagedPending.certificatePhase = 'ready'
+        $stagedPending.packagePath = $stagedPackagePath
+        $stagedPending.packageFile = $stagedPackageFile
+        $stagedPending.certificateThumbprint = 'A' * 40
+        $stagedPending.certificateWasPresent = $false
+        $stagedPending.ownedCertificateThumbprints = ''
+        $stagedPending.ownedPackageFiles = $stagedPackageFile
+        $stagedPending.hostFile = 'ba-click-fx-desktop.exe'
+        $stagedPending.hostSha256 = 'B' * 64
+        $stagedPending.packageSha256 = 'C' * 64
+        $stagedPending.certificateSha256 = 'D' * 64
+        $stagedObservedRoot = & $probeModule {
+            param($State, $Root, $Payload)
+            Assert-PendingStateObject `
+                -State $State `
+                -InstallRoot $Root `
+                -PayloadDirectory $Payload `
+                -RequireIntegrity
+            return $script:ObservedIntegrityRoot
+        } ([pscustomobject]$stagedPending) $installRoot $stagingRoot
+        Assert-True `
+            -Condition ([IO.Path]::GetFullPath($stagedObservedRoot) -eq
+                [IO.Path]::GetFullPath($stagingRoot)) `
+            -Message 'Staged pending integrity validation used the live install root.'
+
+        $stagedPending.packagePath = Join-Path (
+            Join-Path $installRoot 'Identity') $stagedPackageFile
+        $liveObservedRoot = & $probeModule {
+            param($State, $Root, $Payload)
+            Assert-PendingStateObject `
+                -State $State `
+                -InstallRoot $Root `
+                -PayloadDirectory $Payload `
+                -RequireIntegrity
+            return $script:ObservedIntegrityRoot
+        } ([pscustomobject]$stagedPending) $installRoot $stagingRoot
+        Assert-True `
+            -Condition ([IO.Path]::GetFullPath($liveObservedRoot) -eq
+                [IO.Path]::GetFullPath($installRoot)) `
+            -Message 'Live pending integrity validation used the staging root.'
+
         $unknownSchema = [ordered]@{}
         foreach ($entry in $schemaTwo.GetEnumerator())
         {
@@ -1847,6 +1905,7 @@ function Assert-InstallStateObject
             "Set-StrictMode -Version Latest`n$resolveText"))
         try
         {
+            Remove-Item -LiteralPath $stagingRoot -Recurse -Force
             $missingPayload = & $resolveModule {
                 param($Root, $Payload)
                 Resolve-PayloadDirectory `
