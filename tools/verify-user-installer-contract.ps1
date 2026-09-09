@@ -790,6 +790,48 @@ function Test-InstallerScriptWhitelist
                 -ErrorAction SilentlyContinue
         }
     }
+    $appxUserSidText = Get-FunctionText `
+        -Ast $installMachineAst `
+        -Name 'Get-AppxUserSid'
+    Assert-TextContains `
+        -Text $appxUserSidText `
+        -Pattern 'Properties\[\x27Sid\x27\][\s\S]*Properties\[\x27Value\x27\]' `
+        -Description 'AppX user SID extraction accepts Windows 10 Sid and legacy Value shapes'
+    $appxUserSidModule = New-Module -ScriptBlock ([scriptblock]::Create(
+        "Set-StrictMode -Version Latest`n$appxUserSidText"))
+    try
+    {
+        $sidUser = [pscustomobject]@{
+            UserSecurityId = [pscustomobject]@{
+                Sid = 'S-1-5-21-1-2-3-1001'
+            }
+        }
+        $valueUser = [pscustomobject]@{
+            UserSecurityId = [pscustomobject]@{
+                Value = 'S-1-5-21-1-2-3-1002'
+            }
+        }
+        Assert-True `
+            -Condition ((& $appxUserSidModule {
+                    param($User)
+                    Get-AppxUserSid -User $User
+                } $sidUser) -eq 'S-1-5-21-1-2-3-1001') `
+            -Message 'AppX Sid-shaped user information was not decoded.'
+        Assert-True `
+            -Condition ((& $appxUserSidModule {
+                    param($User)
+                    Get-AppxUserSid -User $User
+                } $valueUser) -eq 'S-1-5-21-1-2-3-1002') `
+            -Message 'AppX Value-shaped user information was not decoded.'
+    }
+    finally
+    {
+        if ($null -ne $appxUserSidModule)
+        {
+            Remove-Module -ModuleInfo $appxUserSidModule -Force `
+                -ErrorAction SilentlyContinue
+        }
+    }
     Assert-TextContains `
         -Text $installMachine `
         -Pattern 'function\s+Get-IdentityTemplateContentHash' `

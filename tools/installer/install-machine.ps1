@@ -2607,6 +2607,37 @@ function Remove-ObsoleteIdentityArtifacts
     return $State
 }
 
+function Get-AppxUserSid
+{
+    param(
+        [Parameter(Mandatory = $true)]
+        [object]$User
+    )
+
+    if ($null -eq $User.PSObject.Properties['UserSecurityId'])
+    {
+        return ''
+    }
+    $securityId = $User.UserSecurityId
+    if ($null -eq $securityId)
+    {
+        return ''
+    }
+
+    # Windows PowerShell 5.1 exposes AppxUserSecurityId.Sid, while some
+    # Appx providers expose a Value property. Accept both without falling
+    # back to the object's type name, which would look like another user.
+    if ($null -ne $securityId.PSObject.Properties['Sid'])
+    {
+        return [string]$securityId.Sid
+    }
+    if ($null -ne $securityId.PSObject.Properties['Value'])
+    {
+        return [string]$securityId.Value
+    }
+    return [string]$securityId
+}
+
 function Test-OtherUserPackageRegistration
 {
     param(
@@ -2676,22 +2707,7 @@ function Test-OtherUserPackageRegistration
                 continue
             }
             ++$installedUserCount
-            $userSid = if ($null -ne $user.PSObject.Properties['UserSecurityId'])
-            {
-                $value = $user.UserSecurityId
-                if ($null -ne $value.PSObject.Properties['Value'])
-                {
-                    [string]$value.Value
-                }
-                else
-                {
-                    [string]$value
-                }
-            }
-            else
-            {
-                ''
-            }
+            $userSid = Get-AppxUserSid -User $user
             if ([string]$userSid -ne $stateUserSid)
             {
                 return $true
@@ -3177,22 +3193,7 @@ function Test-RegisteredPackageUsesCertificate
             {
                 continue
             }
-            $userSid = if ($null -ne $user.PSObject.Properties['UserSecurityId'])
-            {
-                $value = $user.UserSecurityId
-                if ($null -ne $value.PSObject.Properties['Value'])
-                {
-                    [string]$value.Value
-                }
-                else
-                {
-                    [string]$value
-                }
-            }
-            else
-            {
-                ''
-            }
+            $userSid = Get-AppxUserSid -User $user
             if ($userSid -ne $stateUserSid)
             {
                 # A different profile can continue using the signer after this
