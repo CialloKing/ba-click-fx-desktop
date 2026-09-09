@@ -1792,13 +1792,13 @@ function Assert-IdentityPayload
         $journal.packagePath = Join-Path $identityDirectory (
             "$metadataBaseName-$certificateThumbprint.msix")
         $journal.packageFile = [IO.Path]::GetFileName([string]$journal.packagePath)
-        $ownedCertificateThumbprints = if ($certificateWasPresent)
+        # Windows PowerShell 5.1 unwraps a one-item array returned by an
+        # if-expression. Initialize the ledger independently so += always
+        # remains array addition instead of concatenating thumbprint strings.
+        $ownedCertificateThumbprints = @()
+        if (-not $certificateWasPresent)
         {
-            @()
-        }
-        else
-        {
-            @($certificateThumbprint)
+            $ownedCertificateThumbprints += [string]$certificateThumbprint
         }
         $ownedPackageFiles = @([string]$journal.packageFile)
         if ($null -ne $PendingStateSeed.oldInstallState)
