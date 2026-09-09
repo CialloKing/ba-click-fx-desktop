@@ -1692,6 +1692,8 @@ function Assert-IdentityPayload
             -Value $creatingJournal `
             -ReadSid ([string]$PendingStateSeed.userSid)
         $script:InstallerStep = 'create-signing-certificate'
+        # CertEnroll names the GeneralName uniformResourceIdentifier
+        # token URL; it emits the required DER context-specific [6] tag.
         $certificate = New-SelfSignedCertificate `
             -Type CodeSigningCert `
             -Subject ([string]$metadata.publisher) `
@@ -1700,8 +1702,6 @@ function Assert-IdentityPayload
             -KeyLength 2048 `
             -HashAlgorithm SHA256 `
             -KeyExportPolicy NonExportable `
-            # CertEnroll names the GeneralName uniformResourceIdentifier
-            # token URL; it emits the required DER context-specific [6] tag.
             -TextExtension @("2.5.29.17={text}URL=$certificateSanUri") `
             -NotAfter (Get-Date).AddYears(2)
         if ($null -eq $certificate -or
