@@ -1635,25 +1635,15 @@ function Assert-IdentityPayload
         $reusedJournal.hostFile = 'ba-click-fx-desktop.exe'
         $reusedJournal.hostSha256 = [string]$metadata.hostSha256
         $reusedJournal.packageSha256 = [string]$reusableIdentity.packageSha256
-        $oldCertificateOwnership = if (
-            $null -ne $PendingStateSeed.oldInstallState.PSObject.Properties['certificateOwnership'])
-        {
-            [string]$PendingStateSeed.oldInstallState.certificateOwnership
-        }
-        else
-        {
-            'unknown'
-        }
         $oldOwnedCertificates = Join-Ledger `
             -Values @(Get-ExplicitlyOwnedCertificateThumbprints `
                 -State $PendingStateSeed.oldInstallState) `
             -Separator Comma
+        # Package files are owned artifacts independently of certificate
+        # ownership. A legacy state may not prove who created its certificate,
+        # but its protected package ledger still identifies files this setup
+        # can remove after the replacement commits.
         $oldOwnedPackages = if (
-            $oldCertificateOwnership -eq 'unknown')
-        {
-            ''
-        }
-        elseif (
             $null -ne $PendingStateSeed.oldInstallState.PSObject.Properties['ownedPackageFiles'])
         {
             [string]$PendingStateSeed.oldInstallState.ownedPackageFiles
@@ -1811,25 +1801,13 @@ function Assert-IdentityPayload
         if ($null -ne $PendingStateSeed.oldInstallState)
         {
             $oldState = $PendingStateSeed.oldInstallState
-            $oldCertificateOwnership = if (
-                $null -ne $oldState.PSObject.Properties['certificateOwnership'])
-            {
-                [string]$oldState.certificateOwnership
-            }
-            else
-            {
-                'unknown'
-            }
             $oldCertificateLedger = Join-Ledger `
                 -Values @(Get-ExplicitlyOwnedCertificateThumbprints `
                     -State $oldState) `
                 -Separator Comma
+            # Keep the package ledger even when certificate ownership is
+            # unknown; only the certificate deletion ledger is conservative.
             $oldPackageLedger = if (
-                $oldCertificateOwnership -eq 'unknown')
-            {
-                ''
-            }
-            elseif (
                 $null -ne $oldState.PSObject.Properties['ownedPackageFiles'])
             {
                 [string]$oldState.ownedPackageFiles
