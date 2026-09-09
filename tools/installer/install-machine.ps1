@@ -3114,7 +3114,10 @@ function Remove-PreparedCertificateIfUnused
 {
     param(
         [Parameter(Mandatory = $true)]
-        [object]$State
+        [object]$State,
+
+        [Parameter(Mandatory = $true)]
+        [string]$InstallRoot
     )
 
     if ($null -eq $State.PSObject.Properties['certificateWasPresent'] -or
@@ -3126,7 +3129,9 @@ function Remove-PreparedCertificateIfUnused
     {
         return
     }
-    if (Test-RegisteredPackageUsesCertificate -State $State)
+    if (Test-RegisteredPackageUsesCertificate `
+            -State $State `
+            -InstallRoot $InstallRoot)
     {
         throw 'Refusing to remove the prepared certificate while a registered package may still use it.'
     }
@@ -3139,7 +3144,10 @@ function Test-RegisteredPackageUsesCertificate
 {
     param(
         [Parameter(Mandatory = $true)]
-        [object]$State
+        [object]$State,
+
+        [Parameter(Mandatory = $true)]
+        [string]$InstallRoot
     )
 
     $thumbprint = ([string]$State.certificateThumbprint).ToUpperInvariant()
@@ -3203,8 +3211,11 @@ function Test-RegisteredPackageUsesCertificate
         }
     }
 
+    # Pending journals intentionally omit externalLocation. The coordinator
+    # already validated this protected root, so use that explicit trust boundary
+    # instead of dereferencing an optional legacy field under StrictMode.
     $identityDirectory = Join-Path `
-        ([IO.Path]::GetFullPath([string]$State.externalLocation)) `
+        ([IO.Path]::GetFullPath($InstallRoot)) `
         'Identity'
     if (-not (Test-Path -LiteralPath $identityDirectory -PathType Container))
     {
@@ -5308,7 +5319,9 @@ function Invoke-PendingRollbackCleanup
         -State $State `
         -InstallRoot $InstallRoot `
         -PayloadRoot $PayloadRoot
-    Remove-PreparedCertificateIfUnused -State $State
+    Remove-PreparedCertificateIfUnused `
+        -State $State `
+        -InstallRoot $InstallRoot
     Remove-CompletedRollbackEvidence `
         -InstallRoot $InstallRoot `
         -TransactionId ([string]$State.transactionId)
