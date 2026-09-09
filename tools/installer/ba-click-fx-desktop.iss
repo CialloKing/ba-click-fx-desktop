@@ -196,6 +196,7 @@ begin
   // A failure before a pending journal exists can be safely retried after the
   // staged input is removed, so report the completed-rollback code.
   SetupFailureExitCode := 1002;
+  Log('PrepareToInstall entered.');
   InstallRoot := AddBackslash(ExpandConstant('{app}'));
   ProtectedRoot := AddBackslash(
     ExpandConstant('{autopf}\ba-click-fx-desktop'));
@@ -218,6 +219,15 @@ begin
   CommittedStatePresent :=
     FileExists(ExistingInstallerRoot + 'INSTALL-STATE.json') or
     FileExists(ExistingInstallerRoot + 'INSTALL-STATE.json.bak');
+  Log('PrepareToInstall pending path: ' + ExistingPendingPath);
+  if FileExists(ExistingPendingPath) then
+  begin
+    Log('PrepareToInstall found a pending transaction.');
+  end
+  else
+  begin
+    Log('PrepareToInstall found no pending transaction.');
+  end;
   ExistingScript := ResolveRollbackScript(
     InstallRoot,
     InstallerRoot,
