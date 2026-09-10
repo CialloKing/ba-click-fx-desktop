@@ -1,4 +1,4 @@
-# 0.2.11 支持与验证范围
+# 0.2.12 支持与验证范围
 
 ## 可以测试的范围
 
@@ -78,7 +78,7 @@
   伪造的 HDR、刷新率或 ROI 运行状态。
 - `GetState.productVersion` 使用规范 `MAJOR.MINOR.PATCH` 标识 Host 版本。只有 Host 与 Control Center
   完全同版本时设置控件才可写；字段缺失、格式错误或版本不一致时 fail-closed，设置保持禁用，但 Host
-  启动和关闭入口继续可用。0.2.11 继续使用 schema 20；该 schema 由 0.2.10 引入全局快捷键配置。
+  启动和关闭入口继续可用。0.2.12 继续使用 schema 20；该 schema 由 0.2.10 引入全局快捷键配置。
 - WGC FP16 scRGB 背景使用独立的背景 reference white 转入 Unity 相对工作空间；Unity authored color、粒子、
   材质、Trail 和 Bloom 仍在线性 FP16 中计算，最终呈现阶段才使用输出 reference white 选择 SDR/HDR 映射。
   HDR/WCG 下背景白点未知时 WGC 可保持预热，但该背景不得进入合成，当前画面回退 FX-only。

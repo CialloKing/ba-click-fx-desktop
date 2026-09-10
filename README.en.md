@@ -13,7 +13,7 @@ The desktop build uses C++20, Win32, Direct3D 11, HLSL, and DirectComposition fo
 renderer, input path, and transparent overlay. It provides a Host process, a native Win32
 Control Center, local IPC, and Full/Slim build variants.
 
-The current source product version is `0.2.11`. The architecture contract is `v0.3` and is
+The current source product version is `0.2.12`. The architecture contract is `v0.3` and is
 still marked `Proposed`; only capabilities backed by repository evidence are presented as
 verified.
 
@@ -57,7 +57,7 @@ capability into a support claim.
 - [docs/VALIDATION.md](docs/VALIDATION.md): test layers, Golden references, and release gates.
 - [docs/UNITY_REFERENCE.md](docs/UNITY_REFERENCE.md): extracted resources and Unity evidence.
 - [docs/OBS_SPOUT2.md](docs/OBS_SPOUT2.md): OBS/Spout2 setup and acceptance boundaries.
-- [SUPPORT.md](SUPPORT.md): tested scope, exit behavior, and exclusions for 0.2.11.
+- [SUPPORT.md](SUPPORT.md): tested scope, exit behavior, and exclusions for 0.2.12.
 
 ## Building from source
 
