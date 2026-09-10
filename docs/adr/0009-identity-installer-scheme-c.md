@@ -26,10 +26,10 @@ portable Win32 Host 没有 Package Identity，不能可靠地使用
 4. 注册使用 `Add-AppxPackage -ExternalLocation` 或等价的 Windows Packaging API，并记录本次
    安装创建的包全名、证书指纹和外部位置。Host 必须从 Package Activation / 注册的应用入口启动，
    不能把裸 EXE 直启当作已获得 identity。
-5. Host 启动时先用 `GetCurrentPackageFullName` 探测 identity。只有存在 identity 且
-   `GraphicsCaptureAccess::RequestAccessAsync(Borderless)` 返回 `Allowed` 后，才允许调用
-   `IGraphicsCaptureSession3::IsBorderRequired(false)`；任一条件失败都在 `StartCapture` 前回退
-     内部 FX-only transport，并记录明确原因。
+5. Host 启动不以证书或 Package 信任状态作为硬门禁。只有在请求无边框 WGC 时，才检查
+   Package Identity、签名和证书，并在 `GraphicsCaptureAccess::RequestAccessAsync(Borderless)` 返回
+   `Allowed` 后调用 `IGraphicsCaptureSession3::IsBorderRequired(false)`；任一条件失败都在
+   `StartCapture` 前回退内部 FX-only transport，并记录明确原因。
 6. identity 安装版的程序文件目录不可由普通用户写入。运行数据仍限制在程序目录树内，但必须放在
    单独授予用户写权限的 `data` 子目录；不能让用户可写的目录同时承载拥有 Borderless capability
    的外部 Host EXE。
@@ -37,8 +37,8 @@ portable Win32 Host 没有 Package Identity，不能可靠地使用
    和证书指纹删除，不能按 Subject 批量删除其他安装实例的证书。
 8. 证书生命周期只按实际有效期判断：`NotAfter > now` 一律可用，不设置临期阈值或自动轮换倒计时。
    每次 `Prepare`（包括同版本修复）都生成新的目标机证书并重新签署新的 `.msix`，不复用旧包或旧证书；
-   证书实际过期、缺失、损坏、签名不匹配或证书存储不一致时，Host 必须 fail-closed，用户重新运行当前
-   安装器一次即可重新签名修复。
+   证书实际过期、缺失、损坏、签名不匹配或证书存储不一致时，无边框 WGC 请求必须 fail-closed 并回退
+   FX-only；Host 仍可启动，用户重新运行当前安装器一次即可重新签名修复。
 
 ## 明确不承诺
 
@@ -58,8 +58,8 @@ portable Win32 Host 没有 Package Identity，不能可靠地使用
   而是回退内部 FX-only transport。
 - 安装、重启、升级、卸载后不残留包注册、私钥或非本安装实例的证书；程序目录和数据目录权限
   符合上述分离合同。
-- 有效但剩余不足 30 天的证书仍可启动；过期证书只能通过重新运行当前安装器重新签名修复，不能由
-  Host 或 Control Center 自动轮换。
+- 有效但剩余不足 30 天的证书仍可启动；过期证书不阻止 Host 启动，但无边框 WGC 必须回退 FX-only。
+  证书只能通过重新运行当前安装器重新签名修复，不能由 Host 或 Control Center 自动轮换。
 
 ## 本机 Spike 证据（2026-08-11）
 

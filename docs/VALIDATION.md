@@ -836,9 +836,9 @@ annotated tag，只上传上述 Full 四资产，并在发布后按相同文件�
 `certificateNotAfterUtc`、数据目录、事务日志、回滚或证书/包所有权账本。当前合同为：
 
 - `NotAfter > now` 的证书一律可用，剩余 31、30 或 1 天都不触发轮换或提示；实际过期、缺失、损坏、
-  签名不匹配或证书存储不一致时，Host fail-closed。
+  签名不匹配或证书存储不一致时，仅无边框 WGC 请求 fail-closed 并回退 FX-only，Host 仍可启动。
 - 每次 `Prepare`（包括同版本重装）都生成新的目标机证书并重新签署新的 `.msix`，不复制旧包或复用旧证书。
-  过期后由用户重新运行当前安装器一次完成重新签名修复，Host 和 Control Center 不自动轮换。
+  过期后由用户重新运行当前安装器一次完成重新签名修复，Host 和 Control Center 不自动轮换；证书状态不阻止 Host 启动。
 - 离线 C++ 边界测试覆盖 31/30/1 天和过期；PowerShell 契约覆盖无复用函数、无 30 天阈值、
   新证书/新签名路径、schema 1/2 pending 恢复和暂存根完整性。
 

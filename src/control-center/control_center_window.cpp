@@ -144,7 +144,7 @@ struct InstallationStatePresentation final
             == PackageCertificateStatus::Expired)
         {
             details +=
-                L"\r\n证书已过期，请重新运行当前安装器重新签名修复后再启动 Host。";
+                L"\r\n证书已过期，无边框 WGC 将回退到 FX-only；重新运行当前安装器可修复。";
         }
         return InstallationStatePresentation{
             L"安装版",
@@ -7193,15 +7193,6 @@ void ControlCenterWindow::startHostFromBundle()
                 L"安装状态无效",
                 packageIdentity.error
                     + L" 请重新运行当前安装器重新签名修复。");
-            return;
-        }
-
-        if (packageIdentity.certificateStatus
-            == PackageCertificateStatus::Expired)
-        {
-            setInfo(
-                L"证书已过期",
-                L"请重新运行当前安装器重新签名修复后再启动 Host。");
             return;
         }
 
