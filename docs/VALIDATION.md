@@ -860,6 +860,23 @@ unsigned identity template 和 native signer，不携带证书或私钥。
 旧提交 `238e8bc`，历史 `cert-29/30/31` 与 `real-installer-acceptance-20260909-*` 证据也均来自旧策略或
 最新修复前，不能作为本策略验收结果。本记录不修改 0.2.11 发布证据，也不授权推送或发布 Release。
 
+### 5.8 证书校验作用域与非硬件闭环（2026-09-10）
+
+本轮将证书和 Package 信任校验限定在无边框 WGC 请求路径。Host 启动、FX-only 和其他捕获路径不再
+因为证书过期而被 Control Center 拦截；无边框 WGC 校验失败时回退 FX-only。当前提交 `2bc6e33`
+完成以下可执行验证：
+
+- Full `cmake --workflow --preset release-verify` 通过 `45/45`，总测试时间 `100.61 s`。
+- Slim `cmake --workflow --preset slim-release-verify` 通过 `44/44`，总测试时间 `89.24 s`。
+- Full 用户安装器使用 `-SkipBuild` 完成未签名 Sparse 模板、原生签名器和 Inno Setup 打包，静态 PE
+  依赖检查通过；候选位于 `artifacts/local/closure-20260910/`，安装器 SHA-256 为
+  `0598F84A49EF18F4D26F2BA261B260FA5BBA1875B16776DA050B6BD7199A642F`。
+- 安装器只携带 unsigned identity template 和 native signer，没有证书或私钥；当前 live 安装未被修改。
+
+Windows 11 目标硬件上的 `RequestAccessAsync(Borderless)`、无边框最终像素、DWM 行为和真实用户授权仍按
+当前条件保持 `Not Run`，不纳入本轮闭环结论。隔离环境中的安装中断、注册失败和真实恢复矩阵同样保持
+`Not Run`，后续具备环境后再单独验收。
+
 ## 6. 需求追踪
 
 | 合同 | ADR | Spike | Validation suite |
