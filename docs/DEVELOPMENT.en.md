@@ -323,6 +323,32 @@ new combinations are reserved before the complete configuration is written, and 
 is retained if registration, generation checks, or disk writes fail. A restart is requested
 when activation or old-registration cleanup cannot be confirmed.
 
+## README and Star history maintenance
+
+Use Node.js 24 with no npm installation:
+
+```powershell
+node tools/verify-readme.mjs
+node tests/star-history.mjs
+```
+
+`.github/workflows/star-history.yml` checks documentation and the updater with read-only repository permissions on relevant PRs/main pushes.
+Only the daily 03:17 Asia/Shanghai schedule or a manual dispatch writes to `star-history`.
+Data commits contain only `README.md`, `stars.csv`, and `star-history.svg`; they do not modify product source or version.
+
+To reproduce an update locally, check out the data branch into a separate directory, then run from this repository root:
+
+```powershell
+$env:GITHUB_REPOSITORY = 'CialloKing/ba-click-fx-desktop'
+node tools/update-star-history.mjs --data-dir ..\ba-click-fx-desktop-star-history
+```
+
+The script reads `GITHUB_TOKEN` or `GH_TOKEN`; without a token it uses public API limits. Never save tokens in files or commits.
+Use `--bootstrap` only for an empty data directory: it reconstructs past dates from current stargazers, then records today's actual total.
+Reconstruction cannot recover removed Stars. CSV fields `source` and `observed_at` distinguish reconstruction from observations.
+Missed dates stay absent; repeating the same day's count leaves files unchanged. API/data validation failures do not write results.
+This maintenance task is independent of product builds and Windows graphics acceptance.
+
 ## Unity resource maintenance
 
 The packed texture generator is a maintainer tool only. Unity PNGs, Node.js, and the Unity

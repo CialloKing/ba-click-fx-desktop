@@ -49,6 +49,9 @@ for (const file of documents)
 const version = read('cmake/Version.cmake').match(/set\(BAFX_VERSION "([^"]+)"\)/)[1];
 const presets = new Set(JSON.parse(read('CMakePresets.json')).workflowPresets.map((preset) => preset.name));
 const readmes = documents.slice(0, 2).map(read);
+const repository = 'CialloKing/ba-click-fx-desktop';
+const chartUrl = `https://raw.githubusercontent.com/${repository}/refs/heads/star-history/star-history.svg`;
+const csvUrl = `https://github.com/${repository}/blob/star-history/stars.csv`;
 for (const [index, body] of readmes.entries())
 {
   assert.equal(body.split(version).length - 1, 1, `${documents[index]}: keep one current product version`);
@@ -63,6 +66,9 @@ for (const [index, body] of readmes.entries())
   {
     assert.ok(presets.has(match[1]), `Unknown workflow preset ${match[1]}`);
   }
+  assert.ok(body.includes(`https://img.shields.io/github/stars/${repository}.svg`), 'Wrong Star badge repository');
+  assert.ok(body.includes(`src="${chartUrl}"`) && body.includes(`href="${csvUrl}"`), 'Wrong Star chart/data URL');
+  assert.ok(body.includes(`](${csvUrl})`), 'Missing raw CSV link');
 }
 assert.equal(readmes[0].match(/^## /gm).length, readmes[1].match(/^## /gm).length,
   'Keep the Chinese and English section structure aligned');

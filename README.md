@@ -2,6 +2,8 @@
 
 [English](README.en.md) · [下载最新版本](https://github.com/CialloKing/ba-click-fx-desktop/releases/latest)
 
+[![GitHub Stars](https://img.shields.io/github/stars/CialloKing/ba-click-fx-desktop.svg)](https://github.com/CialloKing/ba-click-fx-desktop/stargazers)
+
 Windows 原生桌面点击特效与鼠标拖尾，以《蔚蓝档案》的 Unity/游戏资源为视觉参考，提供透明覆盖层、
 原生控制中心和 OBS 透明特效输出。当前产品版本：**0.2.12**。
 
@@ -16,6 +18,7 @@ Windows App SDK 或开发工具。Host 负责特效，Control Center 负责设�
 - [OBS 与 Spout2](#obs-与-spout2)
 - [源码构建](#源码构建)
 - [文档入口](#文档入口)
+- [Star 历史](#star-历史)
 - [开发说明](#开发说明)
 - [许可证](#许可证)
 
@@ -153,6 +156,20 @@ cmake --workflow --preset slim-release-verify
 - [路线图](docs/ROADMAP.md)、[Spike](docs/SPIKES.md) 与[验证说明](docs/VALIDATION.md)：开发顺序和证据门槛。
 - [Unity 参考](docs/UNITY_REFERENCE.md)：视觉参考与外部资源证据边界。
 - [更新记录](CHANGELOG.md)：各版本变更。
+
+## Star 历史
+
+独立的 `star-history` 分支保存 Star 数量历史，GitHub Actions 每日北京时间 03:17 调度更新，实际执行可能延迟。
+
+<p align="center">
+  <a href="https://github.com/CialloKing/ba-click-fx-desktop/blob/star-history/stars.csv">
+    <img src="https://raw.githubusercontent.com/CialloKing/ba-click-fx-desktop/refs/heads/star-history/star-history.svg" alt="ba-click-fx-desktop Star 数量历史图" width="960">
+  </a>
+</p>
+
+[查看 CSV 原始数据](https://github.com/CialloKing/ba-click-fx-desktop/blob/star-history/stars.csv)。
+初始化之前的数据按现存 Stargazer 的时间重建（`reconstructed`），无法恢复已取消的 Star；
+启用后的每日记录为实测总数（`observed`），允许下降。漏跑日期保持缺失，不插值或补造快照。
 
 ## 开发说明
 

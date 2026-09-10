@@ -2,6 +2,8 @@
 
 [中文（默认文档）](README.md) · [Download the latest release](https://github.com/CialloKing/ba-click-fx-desktop/releases/latest)
 
+[![GitHub Stars](https://img.shields.io/github/stars/CialloKing/ba-click-fx-desktop.svg)](https://github.com/CialloKing/ba-click-fx-desktop/stargazers)
+
 Native Windows desktop click effects and cursor trails, using Blue Archive's Unity/game resources as the visual reference.
 Includes a transparent overlay, a native Control Center, and transparent effects output for OBS. Current product version: **0.2.12**.
 
@@ -16,6 +18,7 @@ the Visual C++ runtime, Windows App SDK, or development tools. The Host renders 
 - [OBS and Spout2](#obs-and-spout2)
 - [Building from source](#building-from-source)
 - [Documentation](#documentation)
+- [Star History](#star-history)
 - [Development notes](#development-notes)
 - [License](#license)
 
@@ -156,6 +159,20 @@ See the [development guide](docs/DEVELOPMENT.en.md) for launch layout, complete 
 - [Roadmap](docs/ROADMAP.md), [Spikes](docs/SPIKES.md), and [validation](docs/VALIDATION.md): priorities and evidence gates.
 - [Unity reference](docs/UNITY_REFERENCE.md): visual references and external-resource evidence boundaries.
 - [Changelog](CHANGELOG.md): version history. Detailed reference documents currently use Chinese.
+
+## Star History
+
+The dedicated `star-history` branch stores Star-count history. GitHub Actions schedules updates daily at 03:17 Asia/Shanghai; actual execution may be delayed.
+
+<p align="center">
+  <a href="https://github.com/CialloKing/ba-click-fx-desktop/blob/star-history/stars.csv">
+    <img src="https://raw.githubusercontent.com/CialloKing/ba-click-fx-desktop/refs/heads/star-history/star-history.svg" alt="ba-click-fx-desktop Star history" width="960">
+  </a>
+</p>
+
+[View the raw CSV data](https://github.com/CialloKing/ba-click-fx-desktop/blob/star-history/stars.csv).
+Pre-bootstrap rows are reconstructed from current stargazers (`reconstructed`) and cannot recover removed Stars.
+Daily API totals recorded afterward are marked `observed` and may decrease. Missed dates remain absent; no interpolated or fabricated snapshots are added.
 
 ## Development notes
 

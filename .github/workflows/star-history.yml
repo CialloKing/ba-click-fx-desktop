@@ -1,0 +1,114 @@
+name: Star History
+
+on:
+  pull_request:
+    paths:
+      - 'README*.md'
+      - 'docs/**'
+      - 'ARCHITECTURE.md'
+      - 'SUPPORT.md'
+      - 'CHANGELOG.md'
+      - 'LICENSE'
+      - 'THIRD-PARTY-NOTICES.txt'
+      - 'cmake/Version.cmake'
+      - 'CMakePresets.json'
+      - 'tools/verify-readme.mjs'
+      - 'tools/update-star-history.mjs'
+      - 'tests/star-history.mjs'
+      - '.github/workflows/star-history.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'README*.md'
+      - 'docs/**'
+      - 'ARCHITECTURE.md'
+      - 'SUPPORT.md'
+      - 'CHANGELOG.md'
+      - 'LICENSE'
+      - 'THIRD-PARTY-NOTICES.txt'
+      - 'cmake/Version.cmake'
+      - 'CMakePresets.json'
+      - 'tools/verify-readme.mjs'
+      - 'tools/update-star-history.mjs'
+      - 'tests/star-history.mjs'
+      - '.github/workflows/star-history.yml'
+  schedule:
+    # 19:17 UTC is 03:17 the following day in Asia/Shanghai.
+    - cron: '17 19 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Check documentation and updater
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+      - run: node tools/verify-readme.mjs
+      - run: node tests/star-history.mjs
+
+  update:
+    name: Update Star history
+    needs: check
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    concurrency:
+      group: star-history
+      cancel-in-progress: false
+    steps:
+      # Never execute scripts from the data branch or a manually selected feature branch.
+      - name: Checkout reviewed source
+        uses: actions/checkout@v6
+        with:
+          ref: main
+          path: source
+          persist-credentials: false
+      - name: Checkout history
+        uses: actions/checkout@v6
+        with:
+          ref: star-history
+          path: history
+          fetch-depth: 0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+      - name: Test the selected writer
+        working-directory: source
+        run: node tests/star-history.mjs
+      - name: Sync history branch
+        working-directory: history
+        run: git pull --rebase origin star-history
+      - name: Record current Star count
+        working-directory: source
+        env:
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node tools/update-star-history.mjs --data-dir ../history
+      - name: Commit and push
+        working-directory: history
+        shell: bash
+        run: |
+          git add -- README.md stars.csv star-history.svg
+          if git diff --cached --quiet
+          then
+            echo "Star history is unchanged."
+            exit 0
+          fi
+          record_date="$(tail -n 1 stars.csv | cut -d, -f1)"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "记录 ${record_date} Star 数量"
+          # Never overwrite concurrent maintainer changes; conflicts fail this run.
+          git pull --rebase origin star-history
+          git push origin HEAD:refs/heads/star-history

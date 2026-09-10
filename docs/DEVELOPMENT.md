@@ -415,6 +415,32 @@ Profile 是严格的 effects-only 快照：保存和应用只涉及 `effects`，
 `performance.activeFxRoiEnabled` 也不属于 Profile；切换 Profile 不会顺带打开、关闭或覆盖 ROI。
 
 
+## README 与 Star 历史维护
+
+使用 Node.js 24，无需 npm 安装：
+
+```powershell
+node tools/verify-readme.mjs
+node tests/star-history.mjs
+```
+
+工作流 `.github/workflows/star-history.yml` 在相关 PR／main 推送时只读检查文档和更新器；
+每日北京时间 03:17 或手动触发时才写入独立 `star-history` 分支。数据提交只包含
+`README.md`、`stars.csv` 和 `star-history.svg`，不修改产品源码或版本。
+
+本地重现更新时，先将数据分支检出到独立目录，再从本仓库根目录执行：
+
+```powershell
+$env:GITHUB_REPOSITORY = 'CialloKing/ba-click-fx-desktop'
+node tools/update-star-history.mjs --data-dir ..\ba-click-fx-desktop-star-history
+```
+
+脚本读取 `GITHUB_TOKEN` 或 `GH_TOKEN` 环境变量；无令牌时使用公开 API 限额，不要把令牌写入文件或提交。
+首次初始化仅对空数据目录使用 `--bootstrap`：先按当前 Stargazer 的时间重建过去数据，再记录当天实测总数。
+重建无法恢复已经取消的 Star；历史 CSV 的 `source` 和 `observed_at` 区分重建与实测。
+漏跑日期不补造，同日同总数重跑不修改文件；API 或数据校验失败时不写入结果。
+此任务不属于产品构建或 Windows 图形能力验收。
+
 ## Unity 资源维护
 
 `packed_fx_textures` 测试逐张解压 raw LZ4 Block，并锁定 RGBA8 texel 的尺寸、行距和 SHA-256。
