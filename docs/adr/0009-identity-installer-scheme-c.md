@@ -50,6 +50,17 @@ portable Win32 Host 没有 Package Identity，不能可靠地使用
 - Windows SDK 的 `makeappx.exe` 只用于发布机构建未签模板，不进入 Setup；目标机签名使用 Windows
   自带的 `MSSign32.dll`，不能假设用户已安装 SDK。
 
+## 安装状态与事务恢复
+
+安装状态由 `Installer\INSTALL-STATE.json` 与其 `.bak` 备份成对保存。Control Center 只在两份文件属于同一事务且
+内容相符时启动安装版 Host（新格式要求摘要一致，兼容的旧格式要求内容完全一致），不会把单独留下的备份当作有效安装。安装器启动时会先处理上一次失败留下的挂起事务；如果状态
+文件缺失、损坏、不成对或恢复尚未完成，请使用需要运行 Host 的同一 Windows 用户重新运行当前安装器进行修复。不要手动删除
+状态文件、暂存目录或证书，否则可能丢失回滚证据。有效但剩余不足 30 天的证书不会触发提示；证书已经过期时，安装版 Host
+仍可启动，但无边框 WGC 会回退到 FX-only，请重新运行当前安装器重新签名修复。
+
+安装状态完整性检查独立于无边框证书校验。Control Center 必须拒绝从不完整安装状态激活 Host；
+这不意味着证书过期可以阻止完整安装中的 Host 启动。
+
 ## 验收
 
 - portable Host 的支持报告明确显示 `Package.Identity=absent`，不会请求 Borderless。

@@ -105,6 +105,16 @@ Product Control Plane
 模块保持单向依赖：Platform 不理解材质；Simulation 不持有 GPU 资源；BackgroundSensor 不参与
 效果模拟；FinalComposition 不决定捕获策略。
 
+### 4.1 运行时资源
+
+Release Host 运行时是单文件：Visual C++ 运行库静态链接，Circle、Grad Ring、Triangle Atlas、Trail
+四张参考纹理的 RGBA8 texel 以 raw LZ4 Block 无损压缩为 C 字节串，直接编译进 EXE。启动时逐张分配
+无需预清零的输出缓冲区，执行一次有界解压并直接创建 D3D11 immutable sRGB 纹理；上传返回后立即
+释放 CPU texel。该路径没有 Base64、PNG 容器、WIC 解码或临时图片文件。材质 HLSL 也嵌入程序；
+运行不读取 Unity 工程、游戏目录或旁置 shader/图片文件，只使用 Windows 自带的 D3D11、
+DirectComposition 和 D3DCompiler 系统组件。独立的 Control Center 使用纯 Win32 Common Controls，
+不需要 Windows App SDK 或其他旁置运行时。
+
 ## 5. 主要数据契约
 
 ### 5.1 材质输出
@@ -248,6 +258,11 @@ authored Coverage/Bloom 传输容量，不由捕获 RGB 的近白分母反解；
 
 中间渲染使用线性 BT.709/scRGB 数值。背景可能含负 scRGB；只有 Background-aware Bloom 的输入按定义
 截到非负域，不能对捕获纹理做全局破坏性 clamp。
+
+WGC 的 FP16 scRGB 背景像素使用独立的背景 reference white 转入 Unity 相对工作空间；粒子、材质、
+Trail 和 Bloom 继续按游戏合同在线性 FP16 中计算。最终呈现阶段才使用目标屏的输出 reference white
+区分 SDR/HDR 映射。两类白点互不替代；HDR/WCG 下背景白点未知时保留捕获会话预热，但背景不得参与
+合成，当前帧安全回退 FX-only。
 
 ### 8.2 FP16 扩展预乘
 
