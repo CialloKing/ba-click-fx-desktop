@@ -7,8 +7,8 @@
 Windows 原生桌面点击特效与鼠标拖尾，以《蔚蓝档案》的 Unity/游戏资源为视觉参考，提供透明覆盖层、
 原生控制中心和 OBS 透明特效输出。当前产品版本：**0.2.12**。
 
-运行面向 Windows 10/11 x64；当前人工特效审核以单主屏 SDR 为准。发布包无需另装 Visual C++ 运行库、
-Windows App SDK 或开发工具。Host 负责特效，Control Center 负责设置和启停。
+运行面向 Windows 10/11 x64；安装器最低要求 OS build `19041`。当前人工特效审核以单主屏 SDR 为准。
+发布包无需另装 Visual C++ 运行库、Windows App SDK 或开发工具。Host 负责特效，Control Center 负责设置和启停。
 
 ## 目录
 
@@ -45,7 +45,7 @@ Installer／Portable 是安装方式；Full／Slim 是构建变体。官方只�
 2. **Installer**：双击安装器并确认 UAC，安装后会打开 Control Center；也可从开始菜单或桌面快捷方式打开。
    **Portable**：完整解压到可写目录，保留目录结构和随附文件，打开 `BAFX.ControlCenter.exe`。
    它必须与 `ba-click-fx-desktop.exe` 位于同一目录才能启动 Host。
-3. 点击“启动 Host”，在“基础”页调整点击特效、拖尾和背景模式。默认拖尾只在按住鼠标时出现，
+3. 点击“启动 Host”，在“基础设置”页调整点击特效、拖尾和背景模式。默认拖尾只在按住鼠标时出现，
    开启“拖尾常驻”后普通移动也会产生拖尾。
 4. 暂停或恢复可使用 Control Center 或通知区域菜单。停止特效进程可点击“关闭 Host”或从 Host 的通知区域菜单退出；
    关闭 Control Center 窗口不会自动停止 Host。
@@ -58,20 +58,21 @@ Portable 将 `BAFX.config.json`、`fx-profiles` 和日志保存在 EXE 目录；
 
 ## 常用设置与渲染模式
 
-Control Center 提供“基础”“高级”“显示与性能”“快捷键”“系统”五个页面。常用设置包括效果大小、
+Control Center 提供“基础设置”“高级参数”“显示与性能”“快捷键”“系统”五个页面。常用设置包括效果大小、
 拖尾长度与宽度、Bloom 强度与质量、随 Windows 启动，以及内置和自定义特效预设。
 预设只保存特效参数，不覆盖背景、显示、输入、性能或系统设置。
 
 | 背景模式 | 适用场景与行为 |
 |---|---|
 | 背景感知（`background-aware`，默认） | 使用 WGC 捕获背景参与合成；捕获或自排除失败时回退 FX-only |
-| 录屏兼容拟合（`recording-compatible`） | 关闭 WGC，使用透明覆盖层拟合；不保证适配所有录屏软件 |
+| 录屏兼容（测试，`recording-compatible`） | 仅 OS build `28000` 或更高可选择；尝试 WGC 会话级自排除，不可用时回退其他捕获路径或 FX-only；录屏兼容性尚未完成验收 |
 | 浅色背景优化（`light-background`） | 关闭 WGC，采用更严格的透明度上限，可用于浅色桌面效果比较 |
 
 FX-only 表示只呈现特效、不合入捕获背景，是内部回退路径，不是第四种可选背景模式。
+“录屏兼容”在界面中标为“测试，仅 Windows 11 26H1 及以后”；系统版本过低或无法确认时不会应用该选择。
 三种模式都不承诺在任意桌面背景上逐像素还原游戏画面。
 
-“核心性能模式（低配测试）”保留圆盘、圆环、碎片和拖尾，跳过 Bloom 与 WGC，固定保守 SDR、60 FPS 和 FX-only。
+“核心性能模式（关闭 Bloom 与背景）”保留圆盘、圆环、碎片和拖尾，跳过 Bloom 与 WGC，固定保守 SDR、60 FPS 和 FX-only。
 它与 Full／Slim 构建变体无关。HDR 请求和自适应 Active-FX ROI 实验开关默认关闭。
 
 全局快捷键默认全部未绑定，可在“快捷键”页配置暂停／恢复、常驻拖尾、下一个预设和退出 Host。
@@ -110,7 +111,7 @@ FX-only 表示只呈现特效、不合入捕获背景，是内部回退路径，
 ## OBS 与 Spout2
 
 1. 安装与 OBS 匹配的 [Spout2 接收插件](https://github.com/Off-World-Live/obs-spout2-plugin/releases/)，
-   在 Control Center“系统”页启用“OBS 透明特效输出”，检查发送及插件状态。
+   在 Control Center“系统”页勾选“启用 OBS 透明特效输出”，检查发送及插件状态。
 2. 在 OBS 将游戏／桌面捕获置底，`Spout2 Capture` 来源置顶，发送者选择 `ba-click-fx-desktop`。
 3. Composite Mode 选择 **`Premultiplied Alpha`**；来源混合方式保持 **`Default`**，混合模式保持 **`Normal`**。
 4. 对 Spout2 来源执行 `Transform -> Fit to Screen`。空闲时只显示底层画面，点击或拖动时叠加特效。

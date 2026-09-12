@@ -7,8 +7,9 @@
 Native Windows desktop click effects and cursor trails, using Blue Archive's Unity/game resources as the visual reference.
 Includes a transparent overlay, a native Control Center, and transparent effects output for OBS. Current product version: **0.2.12**.
 
-Targets Windows 10/11 x64; current visual review covers a single primary SDR display. Release users do not need to install
-the Visual C++ runtime, Windows App SDK, or development tools. The Host renders effects; the Control Center manages settings and lifecycle.
+Targets Windows 10/11 x64; the installer requires OS build `19041` or later. Current visual review covers a single primary SDR display.
+Release users do not need the Visual C++ runtime, Windows App SDK, or development tools. The Host renders effects; the Control Center manages settings and lifecycle.
+The Control Center currently uses a Chinese interface; key controls below include their on-screen Chinese labels.
 
 ## Contents
 
@@ -45,12 +46,12 @@ the installer, Portable ZIP, and a `.sha256` checksum for each. Slim is availabl
 2. **Installer**: run it and approve UAC. It opens the Control Center after installation and adds Start Menu/desktop shortcuts.
    **Portable**: extract the complete archive into a writable directory and open `BAFX.ControlCenter.exe`.
    Keep its directory structure and accompanying files; `ba-click-fx-desktop.exe` must be beside the Control Center to start the Host.
-3. Click Start Host and adjust effects, trails, and background mode on the Basic page. Trails appear while the mouse is pressed by default;
-   enabling always-on trail also emits trails during ordinary movement.
-4. Pause/resume from the Control Center or notification-area menu. Stop the process with Close Host or the Host's notification-area Exit command.
+3. Click Start Host（启动 Host）and adjust effects, trails, and background mode on the Basic settings（基础设置）page. Trails appear while the mouse is pressed by default;
+   enabling Always-on trail（拖尾常驻）also emits trails during ordinary movement.
+4. Use Pause effects（暂停特效）/Resume effects（恢复特效）in the Control Center or notification-area menu. Stop the process with Close Host（关闭 Host）or the Host's notification-area Exit command.
    Closing the Control Center window does not automatically stop the Host.
 
-**Updates and configuration**: click Check for updates on the System page, then download and run the new installer or replace the program files
+**Updates and configuration**: click Check for updates（检查更新）on the System（系统）page, then download and run the new installer or replace the program files
 from a complete Portable package. Exit the Host and back up configuration first. Do not mix Host and Control Center versions.
 The version check never downloads or installs updates automatically.
 
@@ -60,25 +61,26 @@ exit the applications, uninstall, then delete that folder.
 
 ## Settings and rendering modes
 
-The five Control Center pages are Basic, Advanced, Display and Performance, Hotkeys, and System. Common settings include effect size,
+The five Control Center pages are Basic settings（基础设置）, Advanced parameters（高级参数）, Display and Performance（显示与性能）, Hotkeys（快捷键）, and System（系统）. Common settings include effect size,
 trail length/width, Bloom intensity/quality, Windows startup, and built-in/custom effects profiles.
 Profiles store effects only; they do not overwrite background, display, input, performance, or system settings.
 
 | Background mode | Use and behavior |
 |---|---|
-| Background-aware (`background-aware`, default) | Composites with a WGC background sample; capture or self-exclusion failure falls back to FX-only |
-| Recording-compatible fit (`recording-compatible`) | Disables WGC and uses a transparent-overlay fit; compatibility with every recorder is not guaranteed |
-| Light-background optimization (`light-background`) | Disables WGC and applies a stricter alpha limit; useful for comparing effects on light desktops |
+| Background-aware（背景感知, `background-aware`, default） | Composites with a WGC background sample; capture or self-exclusion failure falls back to FX-only |
+| Recording-compatible（录屏兼容, test mode, `recording-compatible`） | Selectable only on OS build `28000` or later; tries WGC session-local self-exclusion, then falls back to other capture paths or FX-only if unavailable; recording compatibility still awaits acceptance |
+| Light-background optimization（浅色背景优化, `light-background`） | Disables WGC and applies a stricter alpha limit; useful for comparing effects on light desktops |
 
 FX-only renders effects without a captured background. It is an internal fallback, not a fourth selectable background mode.
+The recording-compatible option is labeled “录屏兼容（测试，仅 Windows 11 26H1 及以后）”; the selection is rejected if the OS build is too old or cannot be determined.
 None of the modes guarantees pixel-for-pixel reproduction of game visuals on arbitrary desktops.
 
-Core performance mode retains disks, rings, shards, and trails while skipping Bloom and WGC. It uses conservative SDR, 60 FPS, and FX-only.
+Core performance mode（核心性能模式（关闭 Bloom 与背景））retains disks, rings, shards, and trails while skipping Bloom and WGC. It uses conservative SDR, 60 FPS, and FX-only.
 It is independent of the Full/Slim build variants. HDR requests and the experimental adaptive Active-FX ROI option default to off.
 
 Global hotkeys are all unbound by default. The Hotkeys page configures pause/resume, always-on trail, next profile, and Host shutdown.
 Bindings accept a single main key or Ctrl/Alt/Shift/Win plus a main key; F12 is prohibited. System or application conflicts may prevent registration.
-Reset defaults preserves saved hotkeys and the current paused/running state.
+Reset defaults（重置默认）preserves saved hotkeys and the current paused/running state.
 
 ## Support boundaries and certificates
 
@@ -106,13 +108,13 @@ Valid certificates have no near-expiry threshold. Running the current installer 
 to activate an installed Host. For an abnormal installation state, run the installer again as the same Windows user who runs the Host;
 do not manually delete state or transaction files. See [ADR-0009](docs/adr/0009-identity-installer-scheme-c.md) for signing, certificate storage, and recovery details.
 
-The Windows yellow capture border is allowed by default. If you disable Allow yellow capture border, capture starts only after borderless permission
+The Windows yellow capture border is allowed by default. If you disable Allow yellow capture border（允许黄色捕获边框）, capture starts only after borderless permission
 and capability checks succeed; otherwise it falls back to FX-only. Successful installation alone does not prove borderless authorization or target-hardware acceptance.
 
 ## OBS and Spout2
 
 1. Install a compatible [Spout2 receiver plugin](https://github.com/Off-World-Live/obs-spout2-plugin/releases/) for OBS.
-   Enable OBS transparent effects output on the Control Center's System page and check sender/plugin status.
+   Check Enable OBS transparent effects output（启用 OBS 透明特效输出）on the Control Center's System page and check sender/plugin status.
 2. Put game/desktop capture below the `Spout2 Capture` source in OBS. Select sender `ba-click-fx-desktop` for the top source.
 3. Set Composite Mode to **`Premultiplied Alpha`**; keep the source blending method at **`Default`** and blending mode at **`Normal`**.
 4. Apply `Transform -> Fit to Screen` to the Spout2 source. Idle frames show only the underlying capture; clicks and drags overlay effects.
