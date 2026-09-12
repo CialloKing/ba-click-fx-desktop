@@ -16,6 +16,7 @@ Windows 原生桌面点击特效与鼠标拖尾，以《蔚蓝档案》的 Unity
 - [常用设置与渲染模式](#常用设置与渲染模式)
 - [支持范围与证书](#支持范围与证书)
 - [OBS 与 Spout2](#obs-与-spout2)
+- [常见问题与反馈](#常见问题与反馈)
 - [源码构建](#源码构建)
 - [文档入口](#文档入口)
 - [Star 历史](#star-历史)
@@ -25,30 +26,33 @@ Windows 原生桌面点击特效与鼠标拖尾，以《蔚蓝档案》的 Unity
 ## 下载与快速开始
 
 从[官方 Release](https://github.com/CialloKing/ba-click-fx-desktop/releases/latest) 下载。
-Installer／Portable 是安装方式；Full／Slim 是构建变体。官方只提供 Full 的四个资产：安装器、便携 ZIP，
-以及各自的 `.sha256` 校验文件。Slim 保留源码构建与本地打包入口，没有预编译下载。
+官方提供四个 Full 版资产：安装器、便携 ZIP，以及各自的 `.sha256` 校验文件。
+两种程序包都包含完整特效、Control Center 和 Spout2 发送功能；使用 OBS 时需另装接收插件。
 
 | 需求 | 选择 | 说明 |
 |---|---|---|
-| 日常使用、开始菜单入口或尝试无边框 WGC | Full Installer：`*-setup-windows-x64.exe` | 安装需要管理员 UAC，为当前用户注册 Package Identity |
-| 无管理员权限、解压即用 | Full Portable：`*-Portable-windows-x64.zip` | 无 Package Identity，不承诺无边框 WGC |
-| OBS 透明特效输出 | 上述任一 Full 发布包 | 包含 Spout2 发送功能；OBS 接收插件需自行安装 |
-| 自行构建且不需要 Spout2 | Slim | 仍包含 Host、Control Center 和完整特效 |
+| 日常使用、开始菜单与桌面快捷方式 | 安装版 Installer：`*-setup-windows-x64.exe` | 需要管理员 UAC，注册当前用户的应用身份；无边框 WGC 仍需系统授权 |
+| 无管理员权限、解压即用 | 便携版 Portable：`*-Portable-windows-x64.zip` | 解压到可写目录；不提供应用身份，不承诺无边框 WGC |
 
-1. 下载安装器或便携 ZIP，以及同名 `.sha256`。在 PowerShell 中核对文件的 SHA-256 与校验文件首列一致：
-
-   ```powershell
-   Get-FileHash -Algorithm SHA256 -LiteralPath '.\下载的完整文件名'
-   Get-Content -LiteralPath '.\下载的完整文件名.sha256'
-   ```
-
+1. 按上表下载安装器或便携 ZIP，以及同名 `.sha256`；校验方法见下方折叠说明。
 2. **Installer**：双击安装器并确认 UAC，安装后会打开 Control Center；也可从开始菜单或桌面快捷方式打开。
    **Portable**：完整解压到可写目录，保留目录结构和随附文件，打开 `BAFX.ControlCenter.exe`。
    它必须与 `ba-click-fx-desktop.exe` 位于同一目录才能启动 Host。
-3. 点击“启动 Host”，在“基础设置”页调整点击特效、拖尾和背景模式。默认拖尾只在按住鼠标时出现，
-   开启“拖尾常驻”后普通移动也会产生拖尾。
-4. 暂停或恢复可使用 Control Center 或通知区域菜单。停止特效进程可点击“关闭 Host”或从 Host 的通知区域菜单退出；
-   关闭 Control Center 窗口不会自动停止 Host。
+3. 点击“启动 Host”，试着点击或按住鼠标拖动即可看到特效；在“基础设置”页调整点击特效、拖尾和背景模式。
+
+<details>
+<summary>验证下载文件（SHA-256）</summary>
+
+在 PowerShell 中执行，将占位文件名替换为实际下载的完整文件名：
+
+```powershell
+Get-FileHash -Algorithm SHA256 -LiteralPath '.\下载的完整文件名'
+Get-Content -LiteralPath '.\下载的完整文件名.sha256'
+```
+
+将计算出的 SHA-256 与校验文件首列比较；若不一致，请重新下载后再安装或解压。
+
+</details>
 
 **更新和配置**：在“系统”页手动点击“检查更新”，再下载并运行新安装器，或替换完整便携包的程序文件。
 更新前退出 Host，备份配置；不要混用不同版本的 Host 与 Control Center。版本检查不会自动下载或安装。
@@ -94,19 +98,22 @@ FX-only 表示只呈现特效、不合入捕获背景，是内部回退路径，
 构建通过、离屏测试或 WARP 软件渲染不代表真实硬件能力已验收。
 详细证据、排除项及诊断字段见 [SUPPORT.md](SUPPORT.md) 和 [验证说明](docs/VALIDATION.md)。
 
-**用户自签名方案**：安装器在目标机生成本机证书，为 Package Identity 的 Sparse Package 签名。
+**Host 启动不以证书校验为前提**。证书异常只影响无边框 WGC，请求失败时回退 FX-only，Host 和其他捕获路径仍可运行。
+重新运行当前安装器（含同版本修复）可重新签名修复；安装成功本身不代表已获得无边框授权或完成硬件验收。
+
 发布安装器没有公有代码签名，SmartScreen 可能显示“Unknown Publisher”。用户无需另行下载证书、MSIX 或 SDK。
 
-**Host 启动不以证书校验为前提**。证书仅影响无边框 WGC；实际过期、缺失、损坏或签名不匹配时，
-无边框请求回退 FX-only，Host 和其他捕获路径仍可运行。有效证书不设临期阈值。
-重新运行当前安装器（含同版本修复）会生成新证书并重新签名。
+<details>
+<summary>证书与“安装状态异常”的区别</summary>
 
-**安装状态校验是另一项检查**：Control Center 需要完整匹配的 `INSTALL-STATE.json` 与 `.bak` 才能激活安装版 Host。
-若显示“安装状态异常”，请使用运行 Host 的同一 Windows 用户重新运行安装器修复；不要手动删除状态或事务文件。
+安装器在目标机生成本机证书，为提供 Package Identity 的 Sparse Package 签名。每次运行当前安装器都会生成新证书并重新签名。
+有效证书不设临期阈值；实际过期、缺失、损坏或签名不匹配时，无边框请求回退 FX-only。
+
+安装状态校验是另一项检查：Control Center 需要完整匹配的 `INSTALL-STATE.json` 与 `.bak` 才能激活安装版 Host。
+若显示“安装状态异常”，启动仍会被阻止。请使用运行 Host 的同一 Windows 用户重新运行安装器修复，不要手动删除状态或事务文件。
 签名、证书存储及恢复细节见 [ADR-0009](docs/adr/0009-identity-installer-scheme-c.md)。
 
-默认允许 Windows 显示黄色捕获边框。取消“允许黄色捕获边框”后，只有无边框授权及相关能力检查通过才启动捕获；
-否则回退 FX-only。安装成功本身不等于无边框 WGC 已获授权或完成目标硬件验收。
+</details>
 
 ## OBS 与 Spout2
 
@@ -119,7 +126,34 @@ FX-only 表示只呈现特效、不合入捕获背景，是内部回退路径，
 Spout2 只发送透明特效层，不包含桌面背景，WGC 不可用时也可发送。
 插件探测、旧场景迁移和验收方法见 [OBS 使用说明](docs/OBS_SPOUT2.md)。
 
+## 常见问题与反馈
+
+**移动鼠标没有拖尾？** 默认只在按住鼠标时产生拖尾。请先启动 Host，在“基础设置”页确认“鼠标拖尾”已启用；
+希望普通移动也有拖尾时，开启“拖尾常驻”。
+
+**屏幕出现黄色边框？** 这是 Windows 的捕获提示，默认允许显示。在“基础设置”页取消“允许黄色捕获边框”后，
+只有无边框授权与能力检查通过才会开始捕获，否则回退 FX-only。安装版也需要系统授权。
+
+**关闭控制中心后，特效还在？** Control Center 与 Host 是独立进程。临时暂停可使用“暂停特效”／“恢复特效”按钮或通知区域菜单；
+彻底停止请点击“关闭 Host”，或从 Host 的通知区域菜单退出。关闭 Control Center 窗口不会自动停止 Host。
+
+**OBS 中没有特效？** 先确认 Host 已启动且未暂停，在“系统”页勾选“启用 OBS 透明特效输出”，检查发送及插件状态。
+再确认 OBS 选择了正确发送者、Spout2 来源置顶且可见，并按[上述步骤](#obs-与-spout2)检查透明合成与画布大小；空闲时全透明是正常现象，请点击或拖动验证。
+
+仍有问题，请到 [GitHub Issues](https://github.com/CialloKing/ba-click-fx-desktop/issues) 反馈，并附上：
+
+- Host 与 Control Center 版本、安装版或便携版。
+- Windows 版本与 OS build（可运行 `winver` 查看），以及显示器数量、HDR 状态；OBS 问题另附 OBS 与插件版本。
+- 复现步骤、发生时间、预期和实际结果，以及使用的背景模式。
+- `ba-click-fx-desktop-support.log`；若相关时段已轮转，再附对应的 `.log.1` 至 `.log.3`。便携版日志在 EXE 目录，安装版在安装目录的 `data` 子目录。
+
+安装或卸载失败时，请附错误框给出的完整路径下的安装日志。公开上传前检查日志中的用户名与本机路径。
+更多诊断说明见 [SUPPORT.md](SUPPORT.md)。
+
 ## 源码构建
+
+Full／Slim 是构建变体，与安装版／便携版的安装方式无关。Full 包含 Spout2；Slim 去掉 Spout2，仍保留 Host、Control Center 和完整特效。
+Slim 仅提供源码构建与本地打包入口，没有官方预编译下载。
 
 准备 Git、CMake 3.25+、Visual Studio 2022+ 的 **Desktop development with C++** 工作负载、
 MSVC x64 工具与 Windows SDK 10.0.19041+。脚本支持 Windows PowerShell 5.1／PowerShell 7；
@@ -169,8 +203,14 @@ cmake --workflow --preset slim-release-verify
 </p>
 
 [查看 CSV 原始数据](https://github.com/CialloKing/ba-click-fx-desktop/blob/star-history/stars.csv)。
+
+<details>
+<summary>Star 历史数据如何记录</summary>
+
 初始化之前的数据按现存 Stargazer 的时间重建（`reconstructed`），无法恢复已取消的 Star；
 启用后的每日记录为实测总数（`observed`），允许下降。漏跑日期保持缺失，不插值或补造快照。
+
+</details>
 
 ## 开发说明
 
