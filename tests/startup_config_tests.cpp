@@ -1,6 +1,7 @@
 #include "test_support.hpp"
 
 #include "startup_config.hpp"
+#include "language_preferences.hpp"
 
 #include "bafx/config/config.hpp"
 #include "product/version.hpp"
@@ -124,6 +125,9 @@ BAFX_TEST(control_center_startup_config_uses_installed_data_directory)
 {
     TemporaryControlCenterRoot root;
     root.markInstalled();
+    BAFX_CHECK(
+        bafx::control_center::languagePreferencePath(root.path())
+        == root.path() / L"data" / L"BAFX.ControlCenter.language");
     bafx::config::Config rootConfig = bafx::config::defaultConfig();
     rootConfig.system.closeToTray = true;
     root.writeConfig(L"BAFX.config.json", rootConfig);

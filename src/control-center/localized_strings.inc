@@ -1,0 +1,12 @@
+// Stable IDs are shared by both languages. Keep parameters in whole sentences.
+BAFX_TEXT(Raw, L"{0}", L"{0}")
+BAFX_TEXT(Language, L"界面语言", L"Language")
+BAFX_TEXT(LanguageSaveFailed, L"无法保存语言偏好。请检查目录写入权限。\r\nWin32：{0}", L"Could not save the language preference. Check directory write permissions.\r\nWin32: {0}")
+BAFX_TEXT(Ok, L"确定", L"OK")
+BAFX_TEXT(Cancel, L"取消", L"Cancel")
+BAFX_TEXT(Yes, L"是", L"Yes")
+BAFX_TEXT(No, L"否", L"No")
+BAFX_TEXT(UnityOriginal, L"Unity 原版", L"Unity Original")
+BAFX_TEXT(Lightweight, L"轻量", L"Lightweight")
+BAFX_TEXT(ClickOnly, L"纯点击", L"Click Only")
+BAFX_TEXT(TrailOnly, L"纯拖尾", L"Trail Only")

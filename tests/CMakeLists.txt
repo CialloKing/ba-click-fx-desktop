@@ -643,6 +643,7 @@ if(WIN32)
         bafx_control_center_tests
         test_main.cpp
         control_center_commands_tests.cpp
+        localization_tests.cpp
         control_center_layout_tests.cpp
         display_state_tests.cpp
         host_state_tests.cpp
@@ -651,6 +652,8 @@ if(WIN32)
         startup_config_tests.cpp
         update_check_tests.cpp
         "${PROJECT_SOURCE_DIR}/src/control-center/config_commands.cpp"
+        "${PROJECT_SOURCE_DIR}/src/control-center/localization.cpp"
+        "${PROJECT_SOURCE_DIR}/src/control-center/language_preferences.cpp"
         "${PROJECT_SOURCE_DIR}/src/control-center/control_center_layout.cpp"
         "${PROJECT_SOURCE_DIR}/src/control-center/display_state.cpp"
         "${PROJECT_SOURCE_DIR}/src/control-center/host_state.cpp"
@@ -670,6 +673,8 @@ if(WIN32)
             bafx::product
             bafx::release_update
             advapi32
+            comctl32
+            user32
             bcrypt
             ole32
             version

@@ -9,6 +9,8 @@ add_executable(
     bafx_control_center
     WIN32
         config_commands.cpp
+        localization.cpp
+        language_preferences.cpp
         control_center_layout.cpp
         control_center_window.cpp
         control_center_hotkeys.cpp
