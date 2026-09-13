@@ -5,7 +5,7 @@
 [![GitHub Stars](https://img.shields.io/github/stars/CialloKing/ba-click-fx-desktop.svg)](https://github.com/CialloKing/ba-click-fx-desktop/stargazers)
 
 Windows 原生桌面点击特效与鼠标拖尾，以《蔚蓝档案》的 Unity/游戏资源为视觉参考，提供透明覆盖层、
-原生控制中心和 OBS 透明特效输出。当前产品版本：**0.2.12**。
+原生控制中心和 OBS 透明特效输出。当前产品版本：**0.2.13**。
 
 运行面向 Windows 10/11 x64；安装器最低要求 OS build `19041`。当前人工特效审核以单主屏 SDR 为准。
 发布包无需另装 Visual C++ 运行库、Windows App SDK 或开发工具。Host 负责特效，Control Center 负责设置和启停。

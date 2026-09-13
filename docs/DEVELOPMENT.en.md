@@ -224,6 +224,10 @@ the built-in Unity Original, Lightweight, Click-only, and Trail-only profiles, a
 effects-only custom profiles. Profile files never overwrite background, display, input,
 performance, or system settings.
 
+The Control Center uses `UiLanguage`, stable `TextId` values and compiled Chinese/English tables.
+**System → System behavior → Language** saves `BAFX.ControlCenter.language` separately in the configuration directory.
+Retranslation preserves drafts and reuses cached status; it does not write Host settings or start an update check.
+
 The Display and Performance page reports the actual per-display bounds, DPI, physical/capture
 refresh rates, DRR, color query results, SDR white level, output fallback, WGC state, and
 failure state returned by `GetDisplayState`. It also exposes the opt-in experimental Active-FX
