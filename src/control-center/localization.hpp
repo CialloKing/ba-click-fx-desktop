@@ -43,6 +43,7 @@ struct UiMessage final
     using Argument = std::variant<std::wstring, TextId>;
     TextId id{TextId::Raw};
     std::vector<Argument> arguments{std::wstring{}};
+    std::vector<UiMessage> suffixes{};
 
     UiMessage() = default;
     UiMessage(TextId text, std::initializer_list<Argument> values = {});
@@ -50,11 +51,15 @@ struct UiMessage final
     UiMessage(std::wstring_view value);
     UiMessage(const wchar_t* value);
     [[nodiscard]] std::wstring render(UiLanguage language = currentUiLanguage()) const;
+    [[nodiscard]] bool empty() const;
+    void clear();
+    UiMessage& operator+=(const UiMessage& right);
 };
+[[nodiscard]] UiMessage operator+(UiMessage left, const UiMessage& right);
 
 [[nodiscard]] std::wstring formatText(TextId id, std::initializer_list<UiMessage::Argument> values);
 [[nodiscard]] std::wstring profileDisplayName(std::string_view name, bool builtIn);
-[[nodiscard]] int localizedMessageBox(HWND owner, const UiMessage& message,
+int localizedMessageBox(HWND owner, const UiMessage& message,
     const UiMessage& title, UINT flags);
 
 }

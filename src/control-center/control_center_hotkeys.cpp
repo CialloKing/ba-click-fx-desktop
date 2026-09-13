@@ -11,7 +11,7 @@ constexpr int saveId = 1010;
 constexpr int revertId = 1011;
 constexpr int retryId = 1012;
 constexpr int cancelId = 1013;
-constexpr std::array actionLabels{L"暂停／恢复特效", L"切换常驻拖尾", L"下一个特效预设", L"退出 Host"};
+constexpr std::array actionLabels{TextId::HotkeyPause, TextId::HotkeyTrail, TextId::HotkeyNextProfile, TextId::HotkeyExit};
 
 bool modifierKey(const WPARAM key)
 {
@@ -35,7 +35,7 @@ std::wstring bindingText(const std::optional<bafx::config::HotkeyBinding>& bindi
 {
     if (!binding.has_value())
     {
-        return L"未绑定";
+        return tr(TextId::Unbound);
     }
     std::wstring text;
     for (const auto& [name, bit] : std::array{std::pair{L"Ctrl+", 2U}, std::pair{L"Alt+", 1U},
@@ -83,7 +83,7 @@ bool hasDuplicateBindings(const bafx::config::HotkeysConfig& hotkeys) noexcept
     return false;
 }
 
-std::wstring registrationSummary(
+UiMessage registrationSummary(
     const bafx::config::HotkeysConfig& saved,
     const HostState& state)
 {
@@ -101,40 +101,37 @@ std::wstring registrationSummary(
             ++registered;
         }
     }
-    return L"已保存 " + std::to_wstring(configured) + L" 项；已注册 "
-        + std::to_wstring(registered) + L" 项；注册失败 "
-        + std::to_wstring(configured - registered) + L" 项。逐项状态见列表。";
+    return UiMessage(TextId::HotkeySummary, {std::to_wstring(configured),
+        std::to_wstring(registered), std::to_wstring(configured - registered)});
 }
 }
 
 bool ControlCenterWindow::createHotkeyControls()
 {
-    const auto child = [this](const wchar_t* type, const wchar_t* text, const DWORD style, const int id)
+    const auto child = [this](const wchar_t* type, const TextId text, const DWORD style, const int id)
     {
         const HWND window = createChild(type, text, style, static_cast<ControlId>(id));
         hotkeyControls_.push_back(window);
         return window;
     };
     hotkeyHint_ = child(L"STATIC",
-        L"支持单键或 Ctrl / Alt / Shift / Win + 一个主键，F12 不可用。\r\n"
-        L"全局热键可能影响前台软件原有操作；Win 组合为系统保留，不保证可用。\r\n"
-        L"单普通键容易误触，退出键尤其需要谨慎。录制完成后请保存全部。",
+        TextId::HotkeyHint,
         SS_LEFT | SS_NOPREFIX, 0);
     for (std::size_t index = 0U; index < actionLabels.size(); ++index)
     {
         hotkeyLabels_[index] = child(L"STATIC", actionLabels[index], SS_LEFT | SS_NOPREFIX, 0);
-        hotkeyValues_[index] = child(L"STATIC", L"未绑定", SS_LEFT | SS_NOPREFIX | SS_ENDELLIPSIS, 0);
-        hotkeyStatuses_[index] = child(L"STATIC", L"尚未连接 Host",
+        hotkeyValues_[index] = child(L"STATIC", TextId::Unbound, SS_LEFT | SS_NOPREFIX | SS_ENDELLIPSIS, 0);
+        hotkeyStatuses_[index] = child(L"STATIC", TextId::HostNotYetConnected,
             SS_LEFT | SS_NOPREFIX | SS_ENDELLIPSIS, 0);
-        hotkeyRecord_[index] = child(L"BUTTON", L"录制", BS_PUSHBUTTON | WS_TABSTOP,
+        hotkeyRecord_[index] = child(L"BUTTON", TextId::Record, BS_PUSHBUTTON | WS_TABSTOP,
             recordFirst + static_cast<int>(index) * 2);
-        hotkeyClear_[index] = child(L"BUTTON", L"清除", BS_PUSHBUTTON | WS_TABSTOP,
+        hotkeyClear_[index] = child(L"BUTTON", TextId::Clear, BS_PUSHBUTTON | WS_TABSTOP,
             recordFirst + static_cast<int>(index) * 2 + 1);
     }
-    hotkeySave_ = child(L"BUTTON", L"保存全部", BS_PUSHBUTTON | WS_TABSTOP, saveId);
-    hotkeyRevert_ = child(L"BUTTON", L"撤销修改", BS_PUSHBUTTON | WS_TABSTOP, revertId);
-    hotkeyRetry_ = child(L"BUTTON", L"重试注册", BS_PUSHBUTTON | WS_TABSTOP, retryId);
-    hotkeyCancel_ = child(L"BUTTON", L"取消录制", BS_PUSHBUTTON | WS_TABSTOP, cancelId);
+    hotkeySave_ = child(L"BUTTON", TextId::SaveAll, BS_PUSHBUTTON | WS_TABSTOP, saveId);
+    hotkeyRevert_ = child(L"BUTTON", TextId::RevertChanges, BS_PUSHBUTTON | WS_TABSTOP, revertId);
+    hotkeyRetry_ = child(L"BUTTON", TextId::RetryRegistration, BS_PUSHBUTTON | WS_TABSTOP, retryId);
+    hotkeyCancel_ = child(L"BUTTON", TextId::CancelRecording, BS_PUSHBUTTON | WS_TABSTOP, cancelId);
     return hotkeysPageButton_ != nullptr && std::all_of(hotkeyControls_.begin(), hotkeyControls_.end(),
         [](const HWND control)
         {
@@ -199,20 +196,20 @@ void ControlCenterWindow::updateHotkeyControls()
         std::wstring status;
         if (recording && *hotkeyRecording_ == index)
         {
-            text = hotkeyAwaitRelease_ ? L"请先松开所有按键…" : L"请按下快捷键…";
+            text = hotkeyAwaitRelease_ ? tr(TextId::ReleaseAllKeys) : tr(TextId::PressHotkey);
             if (hotkeyCandidate_.has_value())
             {
-                text = bindingText(hotkeyCandidate_) + L"（松开主键完成）";
+                text = bindingText(hotkeyCandidate_) + tr(TextId::ReleaseMainKeySuffix);
             }
-            status = L"录制期间不执行本程序快捷键，最多 30 秒";
+            status = tr(TextId::RecordingStatus);
         }
         else if (!connected_ || !hotkeyStateKnown_)
         {
-            status = L"注册状态不可用";
+            status = tr(TextId::RegistrationUnavailable);
         }
         else if (hotkeyDraft_.bindings[index] != config_.hotkeys.bindings[index])
         {
-            status = L"未保存";
+            status = tr(TextId::Unsaved);
         }
         else if (!hotkeyDraft_.bindings[index].has_value())
         {
@@ -220,22 +217,22 @@ void ControlCenterWindow::updateHotkeyControls()
         }
         else if ((hotkeyState_.hotkeyRegisteredMask & (1ULL << index)) != 0U)
         {
-            status = L"已注册";
+            status = tr(TextId::Registered);
         }
         else
         {
-            status = L"被占用／注册失败，Win32=" + std::to_wstring(hotkeyState_.hotkeyErrors[index]);
+            status = tr(TextId::RegistrationFailedPrefix) + std::to_wstring(hotkeyState_.hotkeyErrors[index]);
         }
         for (std::size_t other = 0U; other < actionLabels.size(); ++other)
         {
             if (index != other && hotkeyDraft_.bindings[index].has_value()
                 && hotkeyDraft_.bindings[index] == hotkeyDraft_.bindings[other])
             {
-                status = std::wstring(L"与“") + actionLabels[other] + L"”重复，请修改";
+                status = formatText(TextId::HotkeyDuplicate, {actionLabels[other]});
             }
         }
-        SetWindowTextW(hotkeyValues_[index], text.c_str());
-        SetWindowTextW(hotkeyStatuses_[index], status.c_str());
+        setText(hotkeyValues_[index], text.c_str());
+        setText(hotkeyStatuses_[index], status.c_str());
         EnableWindow(hotkeyRecord_[index], connected_ && !recording
             && !hotkeyDraftConflicted_);
         EnableWindow(hotkeyClear_[index], connected_ && !recording
@@ -257,7 +254,7 @@ bool ControlCenterWindow::refreshHotkeys(
     {
         clearHotkeyCaptureLocally();
         hotkeyStateKnown_ = false;
-        setError(response.succeeded() ? L"快捷键状态无效，请重新连接 Host。" : describeResponse(response));
+        setError(response.succeeded() ? UiMessage(TextId::InvalidHotkeyState) : describeResponse(response));
         updateHotkeyControls();
         return false;
     }
@@ -266,7 +263,7 @@ bool ControlCenterWindow::refreshHotkeys(
     {
         clearHotkeyCaptureLocally();
         hotkeyStateKnown_ = false;
-        setError(L"Host 返回了无效的快捷键配置。");
+        setError(TextId::InvalidHostHotkeys);
         updateHotkeyControls();
         return false;
     }
@@ -300,7 +297,7 @@ bool ControlCenterWindow::refreshHotkeys(
     else
     {
         hotkeyDraftConflicted_ = true;
-        setError(L"Host 快捷键已被其他客户端修改。草稿已保留，请撤销修改后重新录制，避免覆盖较新的绑定。");
+        setError(TextId::HotkeyDraftConflict);
     }
     config_.hotkeys = *saved;
     const bool cleanupErrorChanged = displayedHotkeyCleanupError_
@@ -310,7 +307,7 @@ bool ControlCenterWindow::refreshHotkeys(
         displayedHotkeyCleanupError_ = hotkeyState_.hotkeyCleanupError;
         if (displayedHotkeyCleanupError_ != 0U)
         {
-            setError(L"旧快捷键注册清理失败，请重启 Host。");
+            setError(TextId::HotkeyCleanupFailed);
         }
     }
     if ((!cleanupErrorChanged || displayedHotkeyCleanupError_ == 0U)
@@ -327,7 +324,7 @@ bool ControlCenterWindow::refreshHotkeys(
         if (hotkeyState_.hotkeyCaptureToken != hotkeyCaptureToken_)
         {
             clearHotkeyCaptureLocally();
-            setInfo(L"录制已结束", L"录制超时或 Host 会话已变化，请重新录制。");
+            setInfo(TextId::RecordingEnded, TextId::RecordingExpired);
         }
         else if (!hotkeyAwaitRelease_ && !hotkeyCaptureInvalid_
             && hotkeyState_.hotkeyCaptureKey != 0U)
@@ -370,7 +367,7 @@ void ControlCenterWindow::beginHotkeyCapture(const std::size_t index)
     hotkeyCaptureInvalid_ = false;
     hotkeyAwaitRelease_ = anyKeyHeld();
     SetTimer(window_, hotkeyTimerId, 200U, nullptr);
-    setInfo(L"录制快捷键", L"先按住修饰键，再按一个主键；无法录到系统或其他软件占用的组合时，请换一组。");
+    setInfo(TextId::RecordHotkey, TextId::RecordHotkeyHint);
     updateHotkeyControls();
 }
 
@@ -383,7 +380,7 @@ void ControlCenterWindow::endHotkeyCapture()
         const auto response = client_.transact("EndHotkeyCapture " + std::to_string(token));
         if (!response.succeeded())
         {
-            setError(L"录制结束请求未确认；Host 最迟在会话停止续期 5 秒后自动恢复快捷键。");
+            setError(TextId::RecordingEndUnconfirmed);
         }
     }
     if (activePage_ == Page::Hotkeys && connected_)
@@ -412,7 +409,7 @@ void ControlCenterWindow::acceptHotkeyCandidate(const bafx::config::HotkeyBindin
     hotkeyDraft_.bindings[*hotkeyRecording_] = binding;
     hotkeyDraftDirty_ = hotkeyDraft_ != config_.hotkeys;
     endHotkeyCapture();
-    setInfo(L"录制完成，尚未保存", L"请点击“保存全部”；只有注册成功的组合才会生效。");
+    setInfo(TextId::RecordingDone, TextId::RecordingDoneHint);
 }
 
 bool ControlCenterWindow::captureHotkeyMessage(const MSG& message)
@@ -436,7 +433,7 @@ bool ControlCenterWindow::captureHotkeyMessage(const MSG& message)
             || (hotkeyCandidate_.has_value() && hotkeyCandidate_->key != message.wParam))
         {
             hotkeyCaptureInvalid_ = true;
-            setError(L"只支持一个非修饰主键，且 F12 不可用；请松开按键后重试。");
+            setError(TextId::InvalidHotkeyCandidate);
         }
         else
         {
@@ -472,13 +469,13 @@ bool ControlCenterWindow::saveHotkeys()
     {
         if (!connected_)
         {
-            setError(L"Host 未连接，无法保存快捷键。请重新连接，或在关闭时选择丢弃草稿。");
+            setError(TextId::CannotSaveHotkeysOffline);
         }
         return false;
     }
     if (hotkeyDraftConflicted_)
     {
-        setError(L"Host 快捷键已变化。请先撤销草稿，再基于最新绑定重新录制。");
+        setError(TextId::HotkeyBindingsChanged);
         return false;
     }
     if (!commitPendingPatch())
@@ -489,8 +486,8 @@ bool ControlCenterWindow::saveHotkeys()
     if (!bafx::config::validateHotkeys(hotkeyDraft_, &error))
     {
         setError(hasDuplicateBindings(hotkeyDraft_)
-            ? L"存在重复的快捷键组合，请修改后再保存。"
-            : L"快捷键配置无效，请清除对应项目后重新录制。");
+            ? TextId::DuplicateHotkeys
+            : TextId::InvalidHotkeyConfig);
         updateHotkeyControls();
         return false;
     }
@@ -498,14 +495,14 @@ bool ControlCenterWindow::saveHotkeys()
         + " " + bafx::config::toJson(hotkeyDraft_));
     if (!response.succeeded())
     {
-        const std::wstring responseError = describeResponse(response);
+        const UiMessage responseError = describeResponse(response);
         if (response.errorCode == "hotkey_activation_unconfirmed"
             || response.errorCode == "hotkey_cleanup_failed")
         {
             if (refreshHotkeys() && !hotkeyDraftDirty_)
             {
-                setInfo(L"快捷键已保存，需重启 Host",
-                    L"配置已写入，但当前注册状态未能完全确认。重启 Host 后将按已保存绑定重新注册。");
+                setInfo(TextId::HotkeysSavedRestart,
+                    TextId::HotkeysSavedRestartHint);
                 return true;
             }
         }
@@ -513,7 +510,7 @@ bool ControlCenterWindow::saveHotkeys()
         {
             if (refreshHotkeys() && !hotkeyDraftDirty_)
             {
-                setInfo(L"快捷键已保存", L"已从 Host 确认全部绑定，无需再次保存。");
+                setInfo(TextId::HotkeysSaved, TextId::HotkeysAlreadyConfirmed);
                 return true;
             }
         }
@@ -524,7 +521,7 @@ bool ControlCenterWindow::saveHotkeys()
     {
         return false;
     }
-    setInfo(L"快捷键已保存", L"全部绑定已更新。清除的组合已释放，未绑定动作不会响应键盘。");
+    setInfo(TextId::HotkeysSaved, TextId::HotkeysUpdatedHint);
     return true;
 }
 
@@ -537,10 +534,9 @@ bool ControlCenterWindow::confirmHotkeyDraft()
     }
     if (!connected_)
     {
-        const int offlineChoice = MessageBoxW(window_,
-            L"Host 已断开，当前快捷键草稿无法保存。\n\n"
-            L"选择“确定”丢弃草稿并继续，或选择“取消”返回。",
-            L"无法保存快捷键", MB_OKCANCEL | MB_ICONWARNING | MB_DEFBUTTON2);
+        const int offlineChoice = localizedMessageBox(window_,
+            TextId::DiscardOfflineDraftQuestion,
+            TextId::CannotSaveHotkeys, MB_OKCANCEL | MB_ICONWARNING | MB_DEFBUTTON2);
         if (offlineChoice != IDOK)
         {
             return false;
@@ -553,8 +549,8 @@ bool ControlCenterWindow::confirmHotkeyDraft()
         updateHotkeyControls();
         return true;
     }
-    const int choice = MessageBoxW(window_, L"快捷键有未保存的修改。是否保存？\n选择“否”丢弃，或“取消”返回。",
-        L"未保存的快捷键", MB_YESNOCANCEL | MB_ICONQUESTION);
+    const int choice = localizedMessageBox(window_, TextId::SaveHotkeyDraftQuestion,
+        TextId::UnsavedHotkeys, MB_YESNOCANCEL | MB_ICONQUESTION);
     if (choice == IDYES)
     {
         return saveHotkeys();
@@ -603,19 +599,19 @@ bool ControlCenterWindow::onHotkeyCommand(const int id)
         if (!hotkeyDraftDirty_)
         {
             const auto response = client_.transact("RetryHotkeys");
-            const std::wstring retryError = response.succeeded()
+            const UiMessage retryError = response.succeeded()
                 ? std::wstring{}
                 : describeResponse(response);
             if (refreshHotkeys())
             {
-                const std::wstring summary = registrationSummary(config_.hotkeys, hotkeyState_);
+                const UiMessage summary = registrationSummary(config_.hotkeys, hotkeyState_);
                 if (!response.succeeded())
                 {
                     setError(retryError + L"\r\n" + summary);
                 }
                 else if (hotkeyState_.hotkeyCleanupError != 0U)
                 {
-                    setError(L"旧快捷键注册清理失败，请重启 Host。\r\n" + summary);
+                    setError(UiMessage(TextId::HotkeyCleanupFailedLine) + summary);
                 }
                 else if (!hotkeyState_.hotkeyActionError.empty())
                 {
@@ -623,7 +619,7 @@ bool ControlCenterWindow::onHotkeyCommand(const int id)
                 }
                 else
                 {
-                    setInfo(L"已重试保存的快捷键", summary);
+                    setInfo(TextId::HotkeysRetried, summary);
                 }
             }
             else if (!response.succeeded())

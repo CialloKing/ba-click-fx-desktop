@@ -17,8 +17,14 @@ BAFX_TEST(ui_language_resolution_and_catalog)
     for (std::size_t index = 0U; index < static_cast<std::size_t>(TextId::Count); ++index)
     {
         const auto id = static_cast<TextId>(index);
-        BAFX_CHECK(!std::wstring_view(translatedText(id, UiLanguage::English)).empty());
-        BAFX_CHECK(!std::wstring_view(translatedText(id, UiLanguage::SimplifiedChinese)).empty());
+        const std::wstring_view english = translatedText(id, UiLanguage::English);
+        const std::wstring_view chinese = translatedText(id, UiLanguage::SimplifiedChinese);
+        BAFX_CHECK(!english.empty() && !chinese.empty());
+        for (int argument = 0; argument < 10; ++argument)
+        {
+            const auto placeholder = L"{" + std::to_wstring(argument) + L"}";
+            BAFX_CHECK((english.find(placeholder) != english.npos) == (chinese.find(placeholder) != chinese.npos));
+        }
     }
     const UiMessage message(TextId::LanguageSaveFailed, {std::wstring(L"5")});
     BAFX_CHECK(message.render(UiLanguage::English).find(L"Win32: 5") != std::wstring::npos);

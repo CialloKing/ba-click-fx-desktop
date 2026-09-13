@@ -2217,7 +2217,7 @@ function Test-SparsePackageContract
         -Description 'fixed official project repository page action'
     Assert-TextContains `
         -Text $controlCenter `
-        -Pattern 'createChild\s*\(\s*L"BUTTON",\s*L"打开项目仓库",\s*BS_PUSHBUTTON\s*\|\s*WS_TABSTOP,\s*ControlId::OpenRepository\s*\)' `
+        -Pattern 'createChild\s*\(\s*L"BUTTON",\s*TextId::OpenRepository,\s*BS_PUSHBUTTON\s*\|\s*WS_TABSTOP,\s*ControlId::OpenRepository\s*\)' `
         -Description 'always-enabled project repository button'
     Assert-TextContains `
         -Text $controlCenter `

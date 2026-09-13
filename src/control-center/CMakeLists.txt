@@ -12,6 +12,7 @@ add_executable(
         localization.cpp
         language_preferences.cpp
         control_center_layout.cpp
+        control_center_localization.cpp
         control_center_window.cpp
         control_center_hotkeys.cpp
         display_state.cpp

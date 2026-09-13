@@ -4,6 +4,7 @@
 #include "host_state.hpp"
 #include "obs_spout_plugin_probe.hpp"
 #include "update_check.hpp"
+#include "language_preferences.hpp"
 
 #include "bafx/config/config.hpp"
 #include "bafx/windows/ipc_client.hpp"
@@ -18,6 +19,7 @@
 #include <string>
 #include <string_view>
 #include <vector>
+#include <unordered_map>
 
 namespace bafx::control_center
 {
@@ -41,6 +43,7 @@ public:
     [[nodiscard]] DWORD lastError() const noexcept;
 
 private:
+    friend struct ControlCenterUiTest;
     enum class ControlId : int
     {
         Pause = 100,
@@ -136,7 +139,8 @@ private:
         Refresh,
         HostLifecycle,
         ClearLogs,
-        ResetDefaults
+        ResetDefaults,
+        Language
     };
     static_assert(
         static_cast<int>(ControlId::OpenRelease)
@@ -216,9 +220,15 @@ private:
         const wchar_t* text,
         DWORD style,
         ControlId id = static_cast<ControlId>(0)) const noexcept;
+    [[nodiscard]] HWND createChild(const wchar_t* className, TextId text,
+        DWORD style, ControlId id = static_cast<ControlId>(0)) const;
+    void setText(HWND control, const UiMessage& message) const;
+    void retranslateUi();
+    void changeLanguage();
+    void updateVersionPresentation();
     [[nodiscard]] bool createSlider(
         SliderControl& slider,
-        const wchar_t* label,
+        TextId label,
         double minimum,
         double maximum,
         double step,
@@ -300,16 +310,17 @@ private:
     void scheduleHostRefreshRetry(bool startPending = false) noexcept;
     void scheduleHostShutdownPoll() noexcept;
     void finishHostShutdown() noexcept;
-    void recoverHostShutdown(std::wstring_view message);
+    void recoverHostShutdown(const UiMessage& message);
     void updateHostLifecycleButton() const noexcept;
     [[nodiscard]] bool ensureTrayIcon() noexcept;
     void removeTrayIcon() noexcept;
     void restoreFromTray() noexcept;
     void showTrayMenu();
+    [[nodiscard]] HMENU createTrayMenu() const;
 
     void setConnected(bool connected) noexcept;
-    void setInfo(std::wstring_view title, std::wstring_view message);
-    void setError(std::wstring_view message);
+    void setInfo(const UiMessage& title, const UiMessage& message);
+    void setError(const UiMessage& message);
     void clearInfo() noexcept;
 
     [[nodiscard]] bool isChecked(HWND control) const noexcept;
@@ -324,7 +335,7 @@ private:
 
     [[nodiscard]] static std::wstring utf8ToWide(std::string_view value);
     [[nodiscard]] static std::string wideToUtf8(std::wstring_view value);
-    [[nodiscard]] static std::wstring describeResponse(
+    [[nodiscard]] static UiMessage describeResponse(
         const bafx::windows::IpcClientResponse& response);
     [[nodiscard]] static std::string numberJson(double value);
     [[nodiscard]] static std::string patchRequest(
@@ -358,6 +369,18 @@ private:
     DWORD lastError_{ERROR_SUCCESS};
 
     HWND titleText_{nullptr};
+    HWND languageLabel_{nullptr};
+    HWND languageSelector_{nullptr};
+    UiLanguage languagePreference_{UiLanguage::System};
+    std::filesystem::path languagePath_{};
+    mutable std::unordered_map<HWND, UiMessage> localizedTexts_{};
+    UiMessage infoTitle_{};
+    UiMessage infoMessage_{};
+    HostState presentationState_{};
+#if defined(BAFX_ENABLE_SPOUT2)
+    std::optional<ObsSpoutPluginProbeResult> obsPluginState_{};
+    void updateObsPluginPresentation();
+#endif
     HWND statusText_{nullptr};
     HWND messageText_{nullptr};
     HWND effectsHeading_{nullptr};
@@ -522,8 +545,8 @@ private:
     std::optional<std::string> selectedFxProfileDraft_{};
     std::string fxProfileNameDraft_{};
     DisplayState displayState_{};
-    std::wstring displayStateError_{};
-    std::wstring displayStateRefreshWarning_{};
+    UiMessage displayStateError_{};
+    UiMessage displayStateRefreshWarning_{};
     std::string selectedDisplayIdentity_{};
     std::uint64_t generation_{0U};
     std::uint64_t lastUpdateSequence_{0U};

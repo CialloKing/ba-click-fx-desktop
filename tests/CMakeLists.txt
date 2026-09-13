@@ -644,6 +644,7 @@ if(WIN32)
         test_main.cpp
         control_center_commands_tests.cpp
         localization_tests.cpp
+        control_center_ui_tests.cpp
         control_center_layout_tests.cpp
         display_state_tests.cpp
         host_state_tests.cpp
@@ -654,6 +655,13 @@ if(WIN32)
         "${PROJECT_SOURCE_DIR}/src/control-center/config_commands.cpp"
         "${PROJECT_SOURCE_DIR}/src/control-center/localization.cpp"
         "${PROJECT_SOURCE_DIR}/src/control-center/language_preferences.cpp"
+        "${PROJECT_SOURCE_DIR}/src/control-center/control_center_window.cpp"
+        "${PROJECT_SOURCE_DIR}/src/control-center/control_center_hotkeys.cpp"
+        "${PROJECT_SOURCE_DIR}/src/control-center/control_center_localization.cpp"
+        "${PROJECT_SOURCE_DIR}/src/windows/src/ipc_client.cpp"
+        "${PROJECT_SOURCE_DIR}/src/windows/src/portable_paths.cpp"
+        "${PROJECT_SOURCE_DIR}/src/windows/src/package_identity.cpp"
+        "${PROJECT_SOURCE_DIR}/src/windows/src/recording_compatibility.cpp"
         "${PROJECT_SOURCE_DIR}/src/control-center/control_center_layout.cpp"
         "${PROJECT_SOURCE_DIR}/src/control-center/display_state.cpp"
         "${PROJECT_SOURCE_DIR}/src/control-center/host_state.cpp"
@@ -665,6 +673,7 @@ if(WIN32)
         bafx_control_center_tests
         PRIVATE
             "${PROJECT_SOURCE_DIR}/src/control-center"
+            "${PROJECT_SOURCE_DIR}/src/windows/include"
     )
     target_link_libraries(
         bafx_control_center_tests
@@ -675,6 +684,8 @@ if(WIN32)
             advapi32
             comctl32
             user32
+            comdlg32
+            shell32
             bcrypt
             ole32
             version
@@ -686,6 +697,7 @@ if(WIN32)
             _UNICODE
             WIN32_LEAN_AND_MEAN
             NOMINMAX
+            $<$<BOOL:${BAFX_ENABLE_SPOUT2}>:BAFX_ENABLE_SPOUT2=1>
     )
     target_compile_features(bafx_control_center_tests PRIVATE cxx_std_20)
     bafx_enable_warnings(bafx_control_center_tests)

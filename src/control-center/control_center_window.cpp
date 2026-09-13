@@ -100,20 +100,20 @@ struct InstallationStatePresentation final
     switch (status)
     {
     case PackageActivationStateStatus::Missing:
-        return L"缺失";
+        return tr(TextId::Missing);
     case PackageActivationStateStatus::Corrupt:
-        return L"损坏";
+        return tr(TextId::Corrupt);
     case PackageActivationStateStatus::VersionMismatch:
-        return L"版本不一致";
+        return tr(TextId::VersionMismatch);
     case PackageActivationStateStatus::PartialUpgrade:
-        return L"部分升级";
+        return tr(TextId::PartialUpgrade);
     case PackageActivationStateStatus::RepairRequired:
-        return L"需要安装器修复";
+        return tr(TextId::InstallerRepairRequired);
     case PackageActivationStateStatus::Valid:
     case PackageActivationStateStatus::BackupRecovered:
-        return L"未知异常";
+        return tr(TextId::UnknownFailure);
     }
-    return L"未知异常";
+    return tr(TextId::UnknownFailure);
 }
 
 [[nodiscard]] InstallationStatePresentation installationStatePresentation(
@@ -125,47 +125,46 @@ struct InstallationStatePresentation final
         && packageIdentity.status == PackageActivationStateStatus::Missing)
     {
         return InstallationStatePresentation{
-            L"便携版",
-            L"安装状态：便携版\r\n未发现安装状态文件"};
+            tr(TextId::Portable),
+            tr(TextId::PortableDetails)};
     }
     if (packageIdentity.succeeded())
     {
         const PackageActivationIdentity& identity = *packageIdentity.identity;
-        std::wstring details = L"安装状态：安装版";
+        std::wstring details = tr(TextId::InstalledDetails);
         if (packageIdentity.recoveredFromBackup())
         {
-            details += L"（已从有效备份恢复）";
+            details += tr(TextId::BackupRecovered);
         }
-        details += L"\r\n产品版本：";
+        details += tr(TextId::ProductVersionLabel);
         details += asciiVersionToWide(identity.productVersion);
-        details += L" · 包版本：";
+        details += tr(TextId::PackageVersionLabel);
         details += asciiVersionToWide(identity.packageVersion);
         if (packageIdentity.certificateStatus
             == PackageCertificateStatus::Expired)
         {
             details +=
-                L"\r\n证书已过期，无边框 WGC 将回退到 FX-only；重新运行当前安装器可修复。";
+                tr(TextId::CertificateExpired);
         }
         return InstallationStatePresentation{
-            L"安装版",
+            tr(TextId::Installed),
             std::move(details)};
     }
 
-    std::wstring details = L"安装状态：安装状态异常（";
-    details += invalidInstallStateLabel(packageIdentity.status);
-    details += L"）";
+    std::wstring details = formatText(TextId::InvalidInstallationDetails,
+        {std::wstring(invalidInstallStateLabel(packageIdentity.status))});
     if (packageIdentity.identity.has_value())
     {
-        details += L"\r\n产品版本：";
+        details += tr(TextId::ProductVersionLabel);
         details += asciiVersionToWide(
             packageIdentity.identity->productVersion);
-        details += L" · 包版本：";
+        details += tr(TextId::PackageVersionLabel);
         details += asciiVersionToWide(
             packageIdentity.identity->packageVersion);
     }
-    details += L"\r\n请重新运行当前安装器重新签名修复。";
+    details += tr(TextId::RepairInstallation);
     return InstallationStatePresentation{
-        L"安装状态异常",
+        tr(TextId::InvalidInstallation),
         std::move(details)};
 }
 
@@ -186,25 +185,25 @@ struct InstallationStatePresentation final
 {
     if (status == "disabled")
     {
-        return L"未启用";
+        return tr(TextId::Disabled);
     }
     if (status == "waiting-for-frame")
     {
-        return L"等待首帧";
+        return tr(TextId::WaitingForFrame);
     }
     if (status == "sent")
     {
-        return L"正常发送";
+        return tr(TextId::Sending);
     }
     if (status == "unavailable")
     {
-        return L"当前构建不可用";
+        return tr(TextId::UnavailableBuild);
     }
     if (status == "failed")
     {
-        return L"发送失败";
+        return tr(TextId::SendFailed);
     }
-    return L"未知状态";
+    return tr(TextId::UnknownStatus);
 }
 #endif
 
@@ -461,17 +460,17 @@ LRESULT CALLBACK themeColorEditProcedure(
     switch (pacing)
     {
     case bafx::config::FramePacing::MatchDisplay:
-        return L"跟随显示器";
+        return tr(TextId::MatchDisplay);
     case bafx::config::FramePacing::Fixed60:
-        return L"固定 60 FPS";
+        return tr(TextId::Fixed60);
     case bafx::config::FramePacing::Fixed120:
-        return L"固定 120 FPS";
+        return tr(TextId::Fixed120);
     case bafx::config::FramePacing::Fixed144:
-        return L"固定 144 FPS";
+        return tr(TextId::Fixed144);
     case bafx::config::FramePacing::Unlimited:
-        return L"无限制 FPS";
+        return tr(TextId::UnlimitedFps);
     }
-    return L"未知";
+    return tr(TextId::Unknown);
 }
 
 void initializeFramePacingCombo(const HWND comboBox) noexcept
@@ -481,12 +480,12 @@ void initializeFramePacingCombo(const HWND comboBox) noexcept
         return;
     }
 
-    static constexpr std::array labels{
-        L"跟随显示器",
-        L"固定 60 FPS",
-        L"固定 120 FPS",
-        L"固定 144 FPS",
-        L"无限制 FPS"};
+    const std::array labels{
+        tr(TextId::MatchDisplay),
+        tr(TextId::Fixed60),
+        tr(TextId::Fixed120),
+        tr(TextId::Fixed144),
+        tr(TextId::UnlimitedFps)};
     for (const wchar_t* label : labels)
     {
         static_cast<void>(SendMessageW(
@@ -527,13 +526,13 @@ void initializeFramePacingCombo(const HWND comboBox) noexcept
     switch (driver)
     {
     case DisplayDriverState::Hardware:
-        return L"硬件";
+        return tr(TextId::Hardware);
     case DisplayDriverState::Warp:
-        return L"WARP 软件渲染";
+        return tr(TextId::Warp);
     case DisplayDriverState::Unknown:
-        return L"未知";
+        return tr(TextId::Unknown);
     }
-    return L"未知";
+    return tr(TextId::Unknown);
 }
 
 [[nodiscard]] std::wstring outputStateText(
@@ -542,13 +541,13 @@ void initializeFramePacingCombo(const HWND comboBox) noexcept
     switch (output)
     {
     case DisplayOutputState::ConservativeSdr:
-        return L"保守 SDR";
+        return tr(TextId::ConservativeSdr);
     case DisplayOutputState::LinearScRgb:
-        return L"线性 scRGB";
+        return tr(TextId::LinearScrgb);
     case DisplayOutputState::Unknown:
-        return L"未知";
+        return tr(TextId::Unknown);
     }
-    return L"未知";
+    return tr(TextId::Unknown);
 }
 
 [[nodiscard]] std::wstring colorStateText(const DisplayColorState color)
@@ -558,13 +557,13 @@ void initializeFramePacingCombo(const HWND comboBox) noexcept
     case DisplayColorState::Sdr:
         return L"SDR";
     case DisplayColorState::WideColorGamut:
-        return L"广色域";
+        return tr(TextId::WideGamut);
     case DisplayColorState::Hdr:
         return L"HDR";
     case DisplayColorState::Unknown:
-        return L"未知";
+        return tr(TextId::Unknown);
     }
-    return L"未知";
+    return tr(TextId::Unknown);
 }
 
 [[nodiscard]] std::wstring optionalBooleanText(
@@ -574,7 +573,7 @@ void initializeFramePacingCombo(const HWND comboBox) noexcept
 {
     if (!value.has_value())
     {
-        return L"未知";
+        return tr(TextId::Unknown);
     }
     return std::wstring(*value ? trueText : falseText);
 }
@@ -586,7 +585,7 @@ void initializeFramePacingCombo(const HWND comboBox) noexcept
         || refresh->numerator == 0U
         || refresh->denominator == 0U)
     {
-        return L"未知";
+        return tr(TextId::Unknown);
     }
 
     const double hertz = static_cast<double>(refresh->numerator)
@@ -603,15 +602,15 @@ void initializeFramePacingCombo(const HWND comboBox) noexcept
     switch (state)
     {
     case DisplayTopologyState::Complete:
-        return L"完整";
+        return tr(TextId::Complete);
     case DisplayTopologyState::Incomplete:
-        return L"不完整";
+        return tr(TextId::Incomplete);
     case DisplayTopologyState::NoActiveDisplays:
-        return L"没有活动显示器";
+        return tr(TextId::NoActiveDisplays);
     case DisplayTopologyState::QueryFailed:
-        return L"查询失败";
+        return tr(TextId::QueryFailed);
     }
-    return L"未知";
+    return tr(TextId::Unknown);
 }
 
 [[nodiscard]] std::wstring colorMonitorStateText(
@@ -620,15 +619,15 @@ void initializeFramePacingCombo(const HWND comboBox) noexcept
     switch (state)
     {
     case DisplayColorMonitorState::Active:
-        return L"活动";
+        return tr(TextId::Active);
     case DisplayColorMonitorState::InvalidTarget:
-        return L"目标无效";
+        return tr(TextId::InvalidTarget);
     case DisplayColorMonitorState::Unsupported:
-        return L"系统不支持";
+        return tr(TextId::UnsupportedSystem);
     case DisplayColorMonitorState::Failed:
-        return L"失败";
+        return tr(TextId::Failed);
     }
-    return L"未知";
+    return tr(TextId::Unknown);
 }
 
 [[nodiscard]] std::wstring colorSnapshotStateText(
@@ -637,15 +636,15 @@ void initializeFramePacingCombo(const HWND comboBox) noexcept
     switch (state)
     {
     case DisplayColorSnapshotState::Fresh:
-        return L"最新完整合同";
+        return tr(TextId::LatestCompleteContract);
     case DisplayColorSnapshotState::RetainedTransaction:
-        return L"事务内保留";
+        return tr(TextId::RetainedInTransaction);
     case DisplayColorSnapshotState::RetainedLastKnown:
-        return L"保留最后完整合同";
+        return tr(TextId::LastCompleteContract);
     case DisplayColorSnapshotState::Unavailable:
-        return L"不可用";
+        return tr(TextId::Unavailable);
     }
-    return L"未知";
+    return tr(TextId::Unknown);
 }
 
 [[nodiscard]] std::wstring cadenceFallbackText(
@@ -654,19 +653,19 @@ void initializeFramePacingCombo(const HWND comboBox) noexcept
     switch (state)
     {
     case DisplayCadenceFallbackState::None:
-        return L"无";
+        return tr(TextId::None);
     case DisplayCadenceFallbackState::NoPhysicalTargets:
-        return L"没有物理目标";
+        return tr(TextId::NoPhysicalTargets);
     case DisplayCadenceFallbackState::PhysicalTargetUnavailable:
-        return L"物理目标不可用";
+        return tr(TextId::PhysicalTargetUnavailable);
     case DisplayCadenceFallbackState::DrrPhysicalRefreshRateUnavailable:
-        return L"DRR 物理刷新率不可用";
+        return tr(TextId::DrrRateUnavailable);
     case DisplayCadenceFallbackState::InvalidEffectiveRefreshRate:
-        return L"有效刷新率无效";
+        return tr(TextId::InvalidEffectiveRate);
     case DisplayCadenceFallbackState::MixedCloneRefreshRates:
-        return L"克隆目标刷新率冲突，采用 60 Hz";
+        return tr(TextId::CloneRateConflict);
     }
-    return L"未知";
+    return tr(TextId::Unknown);
 }
 
 [[nodiscard]] std::wstring captureCadenceText(
@@ -675,15 +674,15 @@ void initializeFramePacingCombo(const HWND comboBox) noexcept
     switch (state)
     {
     case DisplayCaptureCadenceState::Inactive:
-        return L"未活动";
+        return tr(TextId::Inactive);
     case DisplayCaptureCadenceState::WrongMonitor:
-        return L"捕获目标不匹配";
+        return tr(TextId::CaptureTargetMismatch);
     case DisplayCaptureCadenceState::TargetRate:
-        return L"采用目标刷新率";
+        return tr(TextId::TargetRefreshRate);
     case DisplayCaptureCadenceState::ConservativeFallback:
-        return L"保守回退";
+        return tr(TextId::ConservativeFallback);
     }
-    return L"未知";
+    return tr(TextId::Unknown);
 }
 
 [[nodiscard]] std::wstring producerCadenceText(
@@ -692,15 +691,15 @@ void initializeFramePacingCombo(const HWND comboBox) noexcept
     switch (state)
     {
     case DisplayProducerCadenceState::NotRequested:
-        return L"未请求";
+        return tr(TextId::NotRequested);
     case DisplayProducerCadenceState::Applied:
-        return L"已应用";
+        return tr(TextId::Applied);
     case DisplayProducerCadenceState::InterfaceUnavailable:
-        return L"接口不可用";
+        return tr(TextId::InterfaceUnavailable);
     case DisplayProducerCadenceState::Rejected:
-        return L"系统拒绝";
+        return tr(TextId::SystemDenied);
     }
-    return L"未知";
+    return tr(TextId::Unknown);
 }
 
 [[nodiscard]] std::wstring outputMappingText(
@@ -709,15 +708,15 @@ void initializeFramePacingCombo(const HWND comboBox) noexcept
     switch (state)
     {
     case DisplayOutputMappingState::ConservativeSdr:
-        return L"保守 SDR";
+        return tr(TextId::ConservativeSdr);
     case DisplayOutputMappingState::AdvancedColorScRgb:
         return L"Advanced Color scRGB";
     case DisplayOutputMappingState::HdrSceneReferredScRgb:
         return L"HDR scene-referred scRGB";
     case DisplayOutputMappingState::Unknown:
-        return L"未知";
+        return tr(TextId::Unknown);
     }
-    return L"未知";
+    return tr(TextId::Unknown);
 }
 
 [[nodiscard]] std::wstring outputFallbackText(
@@ -726,11 +725,11 @@ void initializeFramePacingCombo(const HWND comboBox) noexcept
     switch (state)
     {
     case DisplayOutputFallbackState::None:
-        return L"无";
+        return tr(TextId::None);
     case DisplayOutputFallbackState::ConservativeSdr:
-        return L"回退到保守 SDR";
+        return tr(TextId::SdrFallback);
     }
-    return L"未知";
+    return tr(TextId::Unknown);
 }
 
 [[nodiscard]] std::wstring optionalHresultText(
@@ -738,7 +737,7 @@ void initializeFramePacingCombo(const HWND comboBox) noexcept
 {
     if (!result.has_value())
     {
-        return L"未查询";
+        return tr(TextId::NotQueried);
     }
     return hresultText(static_cast<HRESULT>(*result));
 }
@@ -748,7 +747,7 @@ void initializeFramePacingCombo(const HWND comboBox) noexcept
 {
     if (!nits.has_value())
     {
-        return L"未知";
+        return tr(TextId::Unknown);
     }
 
     std::wostringstream stream;
@@ -763,21 +762,21 @@ void initializeFramePacingCombo(const HWND comboBox) noexcept
     switch (path)
     {
     case ActiveFxRoiPathState::Disabled:
-        return L"已关闭";
+        return tr(TextId::TurnedOff);
     case ActiveFxRoiPathState::Idle:
-        return L"空闲";
+        return tr(TextId::Idle);
     case ActiveFxRoiPathState::FullScreen:
-        return L"全屏 Bloom";
+        return tr(TextId::FullScreenBloom);
     case ActiveFxRoiPathState::RoiWarmup:
-        return L"ROI 金字塔预热";
+        return tr(TextId::RoiWarmup);
     case ActiveFxRoiPathState::RoiPrefilter:
-        return L"ROI 首级";
+        return tr(TextId::RoiFirstLevel);
     case ActiveFxRoiPathState::RoiPyramid:
-        return L"ROI 完整金字塔";
+        return tr(TextId::RoiFullPyramid);
     case ActiveFxRoiPathState::Unavailable:
-        return L"不可用";
+        return tr(TextId::Unavailable);
     }
-    return L"不可用";
+    return tr(TextId::Unavailable);
 }
 
 [[nodiscard]] std::wstring activeFxRoiReasonText(
@@ -786,34 +785,34 @@ void initializeFramePacingCombo(const HWND comboBox) noexcept
     switch (reason)
     {
     case ActiveFxRoiReasonState::Disabled:
-        return L"开关关闭";
+        return tr(TextId::SwitchOff);
     case ActiveFxRoiReasonState::NoContent:
-        return L"没有可见特效";
+        return tr(TextId::NoVisibleEffects);
     case ActiveFxRoiReasonState::BloomDisabled:
-        return L"Bloom 已关闭";
+        return tr(TextId::BloomOff);
     case ActiveFxRoiReasonState::CoreMode:
-        return L"Core 模式";
+        return tr(TextId::CoreMode);
     case ActiveFxRoiReasonState::BackgroundDifferentialBloom:
-        return L"背景差分 Bloom 保持全屏";
+        return tr(TextId::DifferentialBloomFullScreen);
     case ActiveFxRoiReasonState::TouchesBoundary:
-        return L"特效区域触及边界";
+        return tr(TextId::EffectTouchesEdge);
     case ActiveFxRoiReasonState::AreaTooLarge:
-        return L"ROI 面积过大";
+        return tr(TextId::RoiTooLarge);
     case ActiveFxRoiReasonState::BenefitTooSmall:
-        return L"预计收益过小";
+        return tr(TextId::SmallExpectedBenefit);
     case ActiveFxRoiReasonState::Context1Unavailable:
-        return L"D3D11 Context1 不可用";
+        return tr(TextId::Context1Unavailable);
     case ActiveFxRoiReasonState::SharedTargetFullWrite:
-        return L"共享目标已被全屏写入";
+        return tr(TextId::SharedTargetFullWrite);
     case ActiveFxRoiReasonState::Applied:
-        return L"已应用";
+        return tr(TextId::Applied);
     case ActiveFxRoiReasonState::RendererFallback:
-        return L"渲染器安全回退";
+        return tr(TextId::RendererFallback);
     case ActiveFxRoiReasonState::Unavailable:
     case ActiveFxRoiReasonState::Count:
-        return L"诊断尚不可用";
+        return tr(TextId::DiagnosticsUnavailable);
     }
-    return L"诊断尚不可用";
+    return tr(TextId::DiagnosticsUnavailable);
 }
 
 [[nodiscard]] std::wstring activeFxRoiRectText(
@@ -821,7 +820,7 @@ void initializeFramePacingCombo(const HWND comboBox) noexcept
 {
     if (!rect.has_value())
     {
-        return L"无";
+        return tr(TextId::None);
     }
     std::wostringstream stream;
     stream << L"[" << rect->left << L", " << rect->top
@@ -875,12 +874,12 @@ void appendActiveFxRoiStageDetails(
     const std::wstring_view label,
     const ActiveFxRoiStageState& stage)
 {
-    details << L"\r\n  " << label << L" 完整/候选/绘制/清理："
+    details << L"\r\n  " << label << tr(TextId::RoiPixelColumns)
             << stage.fullPixels << L"/"
             << stage.candidatePixels << L"/"
             << stage.drawnPixels << L"/"
             << stage.clearedPixels
-            << L" | 绘制 "
+            << tr(TextId::DrawnColumn)
             << activeFxRoiPixelRatioText(
                 stage.drawnPixels,
                 stage.fullPixels);
@@ -894,24 +893,24 @@ void appendActiveFxRoiPathDetails(
     details << L"\r\n[" << label << L"] "
             << activeFxRoiPathText(path.actualPath)
             << L" | " << activeFxRoiReasonText(path.decisionReason)
-            << L"\r\n当前 请求/执行/合格/预热："
-            << (path.requested ? L"是" : L"否") << L"/"
-            << (path.executed ? L"是" : L"否") << L"/"
-            << (path.eligible ? L"是" : L"否") << L"/"
-            << (path.warmup ? L"是" : L"否")
-            << L"\r\n窗口帧 观察/请求/合格/应用/预热/回退："
+            << tr(TextId::RoiCurrentColumns)
+            << (path.requested ? tr(TextId::BooleanYes) : tr(TextId::BooleanNo)) << L"/"
+            << (path.executed ? tr(TextId::BooleanYes) : tr(TextId::BooleanNo)) << L"/"
+            << (path.eligible ? tr(TextId::BooleanYes) : tr(TextId::BooleanNo)) << L"/"
+            << (path.warmup ? tr(TextId::BooleanYes) : tr(TextId::BooleanNo))
+            << tr(TextId::RoiFrameColumns)
             << path.observedFrames << L"/"
             << path.requestedFrames << L"/"
             << path.eligibleFrames << L"/"
             << path.appliedFrames << L"/"
             << path.warmupFrames << L"/"
             << path.fallbackFrames
-            << L"\r\nBloom 像素 完整/候选/绘制/清理："
+            << tr(TextId::BloomPixelColumns)
             << path.fullPixels << L"/"
             << path.candidatePixels << L"/"
             << path.drawnPixels << L"/"
             << path.clearedPixels
-            << L" | 绘制处理比例 "
+            << tr(TextId::DrawRatioColumn)
             << activeFxRoiPixelRatioText(
                 path.drawnPixels,
                 path.fullPixels);
@@ -942,7 +941,7 @@ void appendActiveFxRoiPathDetails(
         L"Final",
         path.gpu.finalComposite);
 
-    details << L"\r\n原因计数：";
+    details << tr(TextId::ReasonCountsLabel);
     bool hasReason = false;
     for (std::size_t index = 0U;
          index < path.reasonCounts.size();
@@ -963,7 +962,7 @@ void appendActiveFxRoiPathDetails(
     }
     if (!hasReason)
     {
-        details << L"无";
+        details << tr(TextId::None);
     }
 }
 
@@ -996,6 +995,9 @@ bool ControlCenterWindow::create(
     const int showCommand,
     const bool startHostOnLaunch)
 {
+    languagePath_ = languagePreferencePath(executableDirectory());
+    languagePreference_ = loadLanguagePreference(languagePath_);
+    setUiLanguage(languagePreference_);
     if (updateChecker_ == nullptr)
     {
         try
@@ -1113,9 +1115,9 @@ bool ControlCenterWindow::create(
     }
     if (updateChecker_ == nullptr)
     {
-        SetWindowTextW(
+        setText(
             latestVersionText_,
-            L"最新公开版本：更新检查器不可用");
+            TextId::LatestCheckerUnavailable);
         EnableWindow(checkForUpdatesButton_, FALSE);
         EnableWindow(openReleaseButton_, FALSE);
     }
@@ -1128,7 +1130,7 @@ bool ControlCenterWindow::create(
     updateControls(HostState{}, loadStartupConfig(executableDirectory()));
     hostRunning_ = hostMutexPresent();
     setConnected(false);
-    SetWindowTextW(statusText_, L"正在连接 Host...");
+    setText(statusText_, TextId::ConnectingHost);
     updateHostLifecycleButton();
     ShowWindow(window_, showCommand == 0 ? SW_SHOWNORMAL : showCommand);
     UpdateWindow(window_);
@@ -1225,7 +1227,7 @@ LRESULT CALLBACK ControlCenterWindow::windowProcedure(
     }
     catch (...)
     {
-        self->setError(L"控制中心处理窗口消息时发生内部错误。");
+        self->setError(TextId::WindowMessageError);
         return DefWindowProcW(window, message, wParam, lParam);
     }
 }
@@ -1357,6 +1359,15 @@ LRESULT ControlCenterWindow::handleMessage(
             true);
         return DefWindowProcW(window_, message, wParam, lParam);
     case WM_SETTINGCHANGE:
+        if (languagePreference_ == UiLanguage::System)
+        {
+            const auto previous = currentUiLanguage();
+            setUiLanguage(languagePreference_);
+            if (previous != currentUiLanguage())
+            {
+                retranslateUi();
+            }
+        }
         if (wParam == SPI_SETWORKAREA)
         {
             adaptLayoutToMonitor(
@@ -1559,72 +1570,72 @@ bool ControlCenterWindow::createControls()
         SS_LEFT | SS_NOPREFIX);
     statusText_ = createChild(
         L"STATIC",
-        L"正在连接 Host...",
+        TextId::ConnectingHost,
         SS_LEFT | SS_NOPREFIX | SS_ENDELLIPSIS);
     messageText_ = createChild(
-        L"STATIC",
+        L"EDIT",
         L"",
-        SS_LEFT | SS_NOPREFIX);
+        ES_LEFT | ES_MULTILINE | ES_READONLY | ES_AUTOVSCROLL | WS_VSCROLL);
     basicPageButton_ = createChild(
         L"BUTTON",
-        L"基础设置",
+        TextId::BasicPage,
         BS_AUTORADIOBUTTON | WS_GROUP | WS_TABSTOP,
         ControlId::BasicPage);
     advancedPageButton_ = createChild(
         L"BUTTON",
-        L"高级参数",
+        TextId::AdvancedPage,
         BS_AUTORADIOBUTTON | WS_TABSTOP,
         ControlId::AdvancedPage);
     displayPageButton_ = createChild(
         L"BUTTON",
-        L"显示与性能",
+        TextId::DisplayPage,
         BS_AUTORADIOBUTTON | WS_TABSTOP,
         ControlId::DisplayPage);
-    hotkeysPageButton_ = createChild(L"BUTTON", L"快捷键",
+    hotkeysPageButton_ = createChild(L"BUTTON", TextId::HotkeysPage,
         BS_AUTORADIOBUTTON | WS_TABSTOP, ControlId::HotkeysPage);
     systemPageButton_ = createChild(
         L"BUTTON",
-        L"系统",
+        TextId::SystemPage,
         BS_AUTORADIOBUTTON | WS_TABSTOP,
         ControlId::SystemPage);
     advancedTimingSectionButton_ = createChild(
         L"BUTTON",
-        L"时间与透明度",
+        TextId::TimingSection,
         BS_AUTORADIOBUTTON | WS_GROUP | WS_TABSTOP,
         ControlId::AdvancedTimingSection);
     advancedParticlesSectionButton_ = createChild(
         L"BUTTON",
-        L"粒子与材质",
+        TextId::ParticlesSection,
         BS_AUTORADIOBUTTON | WS_TABSTOP,
         ControlId::AdvancedParticlesSection);
     advancedRingsSectionButton_ = createChild(
         L"BUTTON",
-        L"圆环参数",
+        TextId::RingsSection,
         BS_AUTORADIOBUTTON | WS_TABSTOP,
         ControlId::AdvancedRingsSection);
     advancedClickShardsSectionButton_ = createChild(
         L"BUTTON",
-        L"点击碎片",
+        TextId::ClickShardsSection,
         BS_AUTORADIOBUTTON | WS_TABSTOP,
         ControlId::AdvancedClickShardsSection);
     advancedBloomSectionButton_ = createChild(
         L"BUTTON",
-        L"Bloom 参数",
+        TextId::BloomSection,
         BS_AUTORADIOBUTTON | WS_TABSTOP,
         ControlId::AdvancedBloomSection);
     advancedLayersSectionButton_ = createChild(
         L"BUTTON",
-        L"分层开关",
+        TextId::LayersSection,
         BS_AUTORADIOBUTTON | WS_TABSTOP,
         ControlId::AdvancedLayersSection);
     effectsHeading_ = createChild(
         L"BUTTON",
-        L"特效",
+        TextId::EffectsHeading,
         BS_GROUPBOX);
 
     effectsModeLabel_ = createChild(
         L"STATIC",
-        L"性能模式",
+        TextId::EffectsModeLabel,
         SS_LEFT | SS_NOPREFIX);
     effectsMode_ = createChild(
         WC_COMBOBOXW,
@@ -1637,54 +1648,54 @@ bool ControlCenterWindow::createControls()
             effectsMode_,
             CB_ADDSTRING,
             0U,
-            reinterpret_cast<LPARAM>(L"完整特效")));
+            reinterpret_cast<LPARAM>(tr(TextId::FullEffects))));
         static_cast<void>(SendMessageW(
             effectsMode_,
             CB_ADDSTRING,
             0U,
-            reinterpret_cast<LPARAM>(L"核心性能模式（关闭 Bloom 与背景）")));
+            reinterpret_cast<LPARAM>(tr(TextId::CoreEffects))));
         static_cast<void>(SendMessageW(effectsMode_, CB_SETMINVISIBLE, 2U, 0));
     }
 
     effectsEnabled_ = createChild(
         L"BUTTON",
-        L"启用特效",
+        TextId::EnableEffects,
         BS_AUTOCHECKBOX | WS_TABSTOP,
         ControlId::EffectsEnabled);
     clickEnabled_ = createChild(
         L"BUTTON",
-        L"点击特效",
+        TextId::ClickEffects,
         BS_AUTOCHECKBOX | WS_TABSTOP,
         ControlId::ClickEnabled);
     trailEnabled_ = createChild(
         L"BUTTON",
-        L"鼠标拖尾",
+        TextId::MouseTrail,
         BS_AUTOCHECKBOX | WS_TABSTOP,
         ControlId::TrailEnabled);
     trailAlwaysOn_ = createChild(
         L"BUTTON",
-        L"拖尾常驻",
+        TextId::AlwaysOnTrail,
         BS_AUTOCHECKBOX | WS_TABSTOP,
         ControlId::TrailAlwaysOn);
     leftClickEnabled_ = createChild(
         L"BUTTON",
-        L"左键触发",
+        TextId::LeftClick,
         BS_AUTOCHECKBOX | WS_TABSTOP,
         ControlId::LeftClickEnabled);
     rightClickEnabled_ = createChild(
         L"BUTTON",
-        L"右键触发",
+        TextId::RightClick,
         BS_AUTOCHECKBOX | WS_TABSTOP,
         ControlId::RightClickEnabled);
     middleClickEnabled_ = createChild(
         L"BUTTON",
-        L"中键触发",
+        TextId::MiddleClick,
         BS_AUTOCHECKBOX | WS_TABSTOP,
         ControlId::MiddleClickEnabled);
 
     const bool slidersCreated = createSlider(
         globalScale_,
-        L"效果大小",
+        TextId::EffectScale,
         0.1,
         4.0,
         0.05,
@@ -1692,7 +1703,7 @@ bool ControlCenterWindow::createControls()
         ControlId::GlobalScale)
         && createSlider(
             trailLength_,
-            L"拖尾长度",
+            TextId::TrailLength,
             0.0,
             10000.0 / 300.0,
             0.05,
@@ -1700,7 +1711,7 @@ bool ControlCenterWindow::createControls()
             ControlId::TrailLength)
         && createSlider(
             trailWidth_,
-            L"拖尾宽度",
+            TextId::TrailWidth,
             0.1,
             4.0,
             0.05,
@@ -1708,7 +1719,7 @@ bool ControlCenterWindow::createControls()
             ControlId::TrailWidth)
         && createSlider(
             inputSamplingRate_,
-            L"输入采样率上限 (Hz)",
+            TextId::SamplingRate,
             0.0,
             1000.0,
             1.0,
@@ -1716,7 +1727,7 @@ bool ControlCenterWindow::createControls()
             ControlId::InputSamplingRate)
         && createSlider(
             bloomIntensity_,
-            L"Bloom 强度",
+            TextId::BloomIntensity,
             0.0,
             10.0,
             0.05,
@@ -1725,7 +1736,7 @@ bool ControlCenterWindow::createControls()
 
     const bool advancedSlidersCreated = createSlider(
         opacity_,
-        L"透明度",
+        TextId::Opacity,
         0.0,
         1.0,
         0.01,
@@ -1733,7 +1744,7 @@ bool ControlCenterWindow::createControls()
         ControlId::Opacity)
         && createSlider(
             clickTimeScale_,
-            L"点击动画速度",
+            TextId::ClickSpeed,
             0.01,
             4.0,
             0.01,
@@ -1741,7 +1752,7 @@ bool ControlCenterWindow::createControls()
             ControlId::ClickTimeScale)
         && createSlider(
             trailTimeScale_,
-            L"拖尾动画速度",
+            TextId::TrailSpeed,
             0.01,
             4.0,
             0.01,
@@ -1749,7 +1760,7 @@ bool ControlCenterWindow::createControls()
             ControlId::TrailTimeScale)
         && createSlider(
             trailLifetimeMs_,
-            L"拖尾寿命 (ms)",
+            TextId::TrailLifetime,
             0.0,
             10000.0,
             1.0,
@@ -1757,7 +1768,7 @@ bool ControlCenterWindow::createControls()
             ControlId::TrailLifetimeMs)
         && createSlider(
             bloomDiffusion_,
-            L"Bloom 扩散",
+            TextId::BloomDiffusion,
             0.0,
             10.0,
             0.01,
@@ -1765,7 +1776,7 @@ bool ControlCenterWindow::createControls()
             ControlId::BloomDiffusion)
         && createSlider(
             bloomThreshold_,
-            L"Bloom 阈值",
+            TextId::BloomThreshold,
             0.0,
             64.0,
             0.01,
@@ -1773,7 +1784,7 @@ bool ControlCenterWindow::createControls()
             ControlId::BloomThreshold)
         && createSlider(
             bloomSoftKnee_,
-            L"Bloom 软阈值",
+            TextId::BloomSoftKnee,
             0.0,
             1.0,
             0.01,
@@ -1781,7 +1792,7 @@ bool ControlCenterWindow::createControls()
             ControlId::BloomSoftKnee)
         && createSlider(
             bloomClamp_,
-            L"Bloom 亮度上限",
+            TextId::BloomClamp,
             0.0,
             65504.0,
             1.0,
@@ -1790,7 +1801,7 @@ bool ControlCenterWindow::createControls()
 
     const bool particleSlidersCreated = createSlider(
         diskRadius_,
-        L"光盘半径",
+        TextId::DiskRadius,
         20.0,
         120.0,
         0.01,
@@ -1798,7 +1809,7 @@ bool ControlCenterWindow::createControls()
         ControlId::DiskRadius)
         && createSlider(
             diskLifetimeMs_,
-            L"光盘寿命 (ms)",
+            TextId::DiskLifetime,
             50.0,
             500.0,
             1.0,
@@ -1806,7 +1817,7 @@ bool ControlCenterWindow::createControls()
             ControlId::DiskLifetimeMs)
         && createSlider(
             ringsHdrIntensity_,
-            L"圆环 HDR 强度",
+            TextId::RingsHdrIntensity,
             0.0,
             8.0,
             0.01,
@@ -1814,7 +1825,7 @@ bool ControlCenterWindow::createControls()
             ControlId::RingsHdrIntensity)
         && createSlider(
             shardsHdrIntensity_,
-            L"碎片 HDR 强度",
+            TextId::ShardsHdrIntensity,
             0.0,
             8.0,
             0.01,
@@ -1822,7 +1833,7 @@ bool ControlCenterWindow::createControls()
             ControlId::ShardsHdrIntensity)
         && createSlider(
             trailOpacity_,
-            L"拖尾透明度",
+            TextId::TrailOpacity,
             0.0,
             1.0,
             0.01,
@@ -1831,7 +1842,7 @@ bool ControlCenterWindow::createControls()
 
     const bool ringSlidersCreated = createSlider(
         ringsCount_,
-        L"圆环数量",
+        TextId::RingCount,
         0.0,
         6.0,
         1.0,
@@ -1839,7 +1850,7 @@ bool ControlCenterWindow::createControls()
         ControlId::RingsCount)
         && createSlider(
             ringsLifetimeMs_,
-            L"圆环寿命 (ms)",
+            TextId::RingLifetime,
             50.0,
             2000.0,
             1.0,
@@ -1847,7 +1858,7 @@ bool ControlCenterWindow::createControls()
             ControlId::RingsLifetimeMs)
         && createSlider(
             ringsRadiusMin_,
-            L"圆环最小半径",
+            TextId::RingRadiusMin,
             20.0,
             120.0,
             0.01,
@@ -1855,7 +1866,7 @@ bool ControlCenterWindow::createControls()
             ControlId::RingsRadiusMin)
         && createSlider(
             ringsRadiusMax_,
-            L"圆环最大半径",
+            TextId::RingRadiusMax,
             20.0,
             120.0,
             0.01,
@@ -1863,7 +1874,7 @@ bool ControlCenterWindow::createControls()
             ControlId::RingsRadiusMax)
         && createSlider(
             ringsAngularVelocityMultiplier_,
-            L"圆环角速度倍率",
+            TextId::RingAngularVelocity,
             1.0,
             30.0,
             0.01,
@@ -1871,7 +1882,7 @@ bool ControlCenterWindow::createControls()
             ControlId::RingsAngularVelocityMultiplier)
         && createSlider(
             ringsRotationDirection_,
-            L"圆环旋转方向",
+            TextId::RingDirection,
             -1.0,
             1.0,
             2.0,
@@ -1880,7 +1891,7 @@ bool ControlCenterWindow::createControls()
 
     const bool clickShardSlidersCreated = createSlider(
         shardsClickCount_,
-        L"点击碎片数量",
+        TextId::ClickShardCount,
         0.0,
         12.0,
         1.0,
@@ -1888,7 +1899,7 @@ bool ControlCenterWindow::createControls()
         ControlId::ShardsClickCount)
         && createSlider(
             shardsClickLifetimeMinMs_,
-            L"寿命下限 (ms)",
+            TextId::LifetimeMin,
             100.0,
             1000.0,
             1.0,
@@ -1896,7 +1907,7 @@ bool ControlCenterWindow::createControls()
             ControlId::ShardsClickLifetimeMinMs)
         && createSlider(
             shardsClickLifetimeMaxMs_,
-            L"寿命上限 (ms)",
+            TextId::LifetimeMax,
             100.0,
             1000.0,
             1.0,
@@ -1904,7 +1915,7 @@ bool ControlCenterWindow::createControls()
             ControlId::ShardsClickLifetimeMaxMs)
         && createSlider(
             shardsClickRadius_,
-            L"出生半径",
+            TextId::SpawnRadius,
             0.0,
             200.0,
             0.01,
@@ -1912,7 +1923,7 @@ bool ControlCenterWindow::createControls()
             ControlId::ShardsClickRadius)
         && createSlider(
             shardsClickSpeedMin_,
-            L"速度下限",
+            TextId::SpeedMin,
             0.0,
             200.0,
             0.01,
@@ -1920,7 +1931,7 @@ bool ControlCenterWindow::createControls()
             ControlId::ShardsClickSpeedMin)
         && createSlider(
             shardsClickSpeedMax_,
-            L"速度上限",
+            TextId::SpeedMax,
             0.0,
             200.0,
             0.01,
@@ -1928,7 +1939,7 @@ bool ControlCenterWindow::createControls()
             ControlId::ShardsClickSpeedMax)
         && createSlider(
             shardsSizeMin_,
-            L"共享碎片尺寸下限",
+            TextId::ShardSizeMin,
             0.0,
             100.0,
             0.01,
@@ -1936,7 +1947,7 @@ bool ControlCenterWindow::createControls()
             ControlId::ShardsSizeMin)
         && createSlider(
             shardsSizeMax_,
-            L"共享碎片尺寸上限",
+            TextId::ShardSizeMax,
             0.0,
             100.0,
             0.01,
@@ -1945,7 +1956,7 @@ bool ControlCenterWindow::createControls()
 
     themeColorLabel_ = createChild(
         L"STATIC",
-        L"主题色",
+        TextId::ThemeColor,
         SS_LEFT | SS_CENTERIMAGE | SS_NOPREFIX);
     themeColorEdit_ = createChild(
         L"EDIT",
@@ -1959,7 +1970,7 @@ bool ControlCenterWindow::createControls()
         ControlId::ThemeColorPreview);
     themeColorChoose_ = createChild(
         L"BUTTON",
-        L"取色...",
+        TextId::ChooseThemeColor,
         BS_PUSHBUTTON | WS_TABSTOP,
         ControlId::ThemeColorChoose);
     if (themeColorEdit_ != nullptr)
@@ -1976,51 +1987,51 @@ bool ControlCenterWindow::createControls()
 
     advancedTimingHeading_ = createChild(
         L"BUTTON",
-        L"时间与透明度",
+        TextId::TimingSection,
         BS_GROUPBOX);
     advancedParticlesHeading_ = createChild(
         L"BUTTON",
-        L"粒子与材质",
+        TextId::ParticlesSection,
         BS_GROUPBOX);
     advancedRingsHeading_ = createChild(
         L"BUTTON",
-        L"圆环参数",
+        TextId::RingsSection,
         BS_GROUPBOX);
     advancedClickShardsHeading_ = createChild(
         L"BUTTON",
-        L"点击碎片",
+        TextId::ClickShardsSection,
         BS_GROUPBOX);
     advancedBloomHeading_ = createChild(
         L"BUTTON",
-        L"Bloom 参数",
+        TextId::BloomSection,
         BS_GROUPBOX);
     advancedLayersHeading_ = createChild(
         L"BUTTON",
-        L"特效分层开关",
+        TextId::EffectLayers,
         BS_GROUPBOX);
     diskLayerEnabled_ = createChild(
         L"BUTTON",
-        L"中心圆盘",
+        TextId::CenterDisk,
         BS_AUTOCHECKBOX | WS_TABSTOP,
         ControlId::DiskLayerEnabled);
     ringsLayerEnabled_ = createChild(
         L"BUTTON",
-        L"圆环",
+        TextId::Rings,
         BS_AUTOCHECKBOX | WS_TABSTOP,
         ControlId::RingsLayerEnabled);
     clickShardsLayerEnabled_ = createChild(
         L"BUTTON",
-        L"点击碎片",
+        TextId::ClickShardsSection,
         BS_AUTOCHECKBOX | WS_TABSTOP,
         ControlId::ClickShardsLayerEnabled);
     trailShardsLayerEnabled_ = createChild(
         L"BUTTON",
-        L"拖尾碎片",
+        TextId::TrailShards,
         BS_AUTOCHECKBOX | WS_TABSTOP,
         ControlId::TrailShardsLayerEnabled);
     trailLayerEnabled_ = createChild(
         L"BUTTON",
-        L"拖尾线",
+        TextId::TrailLine,
         BS_AUTOCHECKBOX | WS_TABSTOP,
         ControlId::TrailLayerEnabled);
     bloomLayerEnabled_ = createChild(
@@ -2031,7 +2042,7 @@ bool ControlCenterWindow::createControls()
 
     bloomQualityLabel_ = createChild(
         L"STATIC",
-        L"光晕扩散",
+        TextId::BloomSpread,
         SS_LEFT | SS_NOPREFIX);
     bloomQuality_ = createChild(
         WC_COMBOBOXW,
@@ -2040,21 +2051,21 @@ bool ControlCenterWindow::createControls()
         ControlId::BloomQuality);
     if (bloomQuality_ != nullptr)
     {
-        static_cast<void>(SendMessageW(bloomQuality_, CB_ADDSTRING, 0U, reinterpret_cast<LPARAM>(L"紧凑")));
-        static_cast<void>(SendMessageW(bloomQuality_, CB_ADDSTRING, 0U, reinterpret_cast<LPARAM>(L"适中")));
-        static_cast<void>(SendMessageW(bloomQuality_, CB_ADDSTRING, 0U, reinterpret_cast<LPARAM>(L"原版")));
-        static_cast<void>(SendMessageW(bloomQuality_, CB_ADDSTRING, 0U, reinterpret_cast<LPARAM>(L"极宽")));
-        static_cast<void>(SendMessageW(bloomQuality_, CB_ADDSTRING, 0U, reinterpret_cast<LPARAM>(L"自定义")));
+        static_cast<void>(SendMessageW(bloomQuality_, CB_ADDSTRING, 0U, reinterpret_cast<LPARAM>(tr(TextId::Compact))));
+        static_cast<void>(SendMessageW(bloomQuality_, CB_ADDSTRING, 0U, reinterpret_cast<LPARAM>(tr(TextId::Moderate))));
+        static_cast<void>(SendMessageW(bloomQuality_, CB_ADDSTRING, 0U, reinterpret_cast<LPARAM>(tr(TextId::Original))));
+        static_cast<void>(SendMessageW(bloomQuality_, CB_ADDSTRING, 0U, reinterpret_cast<LPARAM>(tr(TextId::ExtraWide))));
+        static_cast<void>(SendMessageW(bloomQuality_, CB_ADDSTRING, 0U, reinterpret_cast<LPARAM>(tr(TextId::Custom))));
         static_cast<void>(SendMessageW(bloomQuality_, CB_SETMINVISIBLE, 5U, 0));
     }
 
     backgroundHeading_ = createChild(
         L"BUTTON",
-        L"背景、主程序与特效预设",
+        TextId::BackgroundAndProfiles,
         BS_GROUPBOX);
     backgroundModeLabel_ = createChild(
         L"STATIC",
-        L"渲染模式",
+        TextId::RenderMode,
         SS_LEFT | SS_NOPREFIX);
     backgroundMode_ = createChild(
         WC_COMBOBOXW,
@@ -2063,132 +2074,141 @@ bool ControlCenterWindow::createControls()
         ControlId::BackgroundMode);
     if (backgroundMode_ != nullptr)
     {
-        static_cast<void>(SendMessageW(backgroundMode_, CB_ADDSTRING, 0U, reinterpret_cast<LPARAM>(L"背景感知")));
-        static_cast<void>(SendMessageW(backgroundMode_, CB_ADDSTRING, 0U, reinterpret_cast<LPARAM>(L"录屏兼容（测试，仅 Windows 11 26H1 及以后）")));
-        static_cast<void>(SendMessageW(backgroundMode_, CB_ADDSTRING, 0U, reinterpret_cast<LPARAM>(L"浅色背景优化")));
+        static_cast<void>(SendMessageW(backgroundMode_, CB_ADDSTRING, 0U, reinterpret_cast<LPARAM>(tr(TextId::BackgroundAware))));
+        static_cast<void>(SendMessageW(backgroundMode_, CB_ADDSTRING, 0U, reinterpret_cast<LPARAM>(tr(TextId::RecordingCompatible))));
+        static_cast<void>(SendMessageW(backgroundMode_, CB_ADDSTRING, 0U, reinterpret_cast<LPARAM>(tr(TextId::LightBackground))));
         static_cast<void>(SendMessageW(backgroundMode_, CB_SETMINVISIBLE, 3U, 0));
     }
 
     cursorExcluded_ = createChild(
         L"BUTTON",
-        L"排除鼠标指针",
+        TextId::ExcludeCursor,
         BS_AUTOCHECKBOX | WS_TABSTOP,
         ControlId::CursorExcluded);
     allowSystemBorder_ = createChild(
         L"BUTTON",
-        L"允许黄色捕获边框",
+        TextId::AllowCaptureBorder,
         BS_AUTOCHECKBOX | WS_TABSTOP,
         ControlId::AllowSystemBorder);
     idleOptimization_ = createChild(
         L"BUTTON",
-        L"空闲时降低资源占用",
+        TextId::IdleOptimization,
         BS_AUTOCHECKBOX | WS_TABSTOP,
         ControlId::IdleOptimization);
     systemSettingsHeading_ = createChild(
         L"BUTTON",
-        L"系统行为",
+        TextId::SystemBehavior,
         BS_GROUPBOX);
+    languageLabel_ = createChild(L"STATIC", TextId::Language, SS_LEFT | SS_NOPREFIX);
+    languageSelector_ = createChild(WC_COMBOBOXW, L"",
+        CBS_DROPDOWNLIST | CBS_HASSTRINGS | WS_TABSTOP, ControlId::Language);
+    // Autonyms remain recognizable even when the current interface is unfamiliar.
+    for (const auto* name : {L"跟随系统 / System", L"简体中文", L"English"})
+    {
+        SendMessageW(languageSelector_, CB_ADDSTRING, 0U, reinterpret_cast<LPARAM>(name));
+    }
+    SendMessageW(languageSelector_, CB_SETCURSEL, static_cast<WPARAM>(languagePreference_), 0);
     startWithWindows_ = createChild(
         L"BUTTON",
-        L"随 Windows 启动",
+        TextId::StartWithWindows,
         BS_AUTOCHECKBOX | WS_TABSTOP,
         ControlId::StartWithWindows);
     startMinimized_ = createChild(
         L"BUTTON",
-        L"启动时最小化控制中心",
+        TextId::StartMinimized,
         BS_AUTOCHECKBOX | WS_TABSTOP,
         ControlId::StartMinimized);
     closeToTray_ = createChild(
         L"BUTTON",
-        L"关闭控制中心时隐藏到托盘",
+        TextId::CloseToTray,
         BS_AUTOCHECKBOX | WS_TABSTOP,
         ControlId::CloseToTray);
 #if defined(BAFX_ENABLE_SPOUT2)
     spout2Enabled_ = createChild(
         L"BUTTON",
-        L"启用 OBS 透明特效输出",
+        TextId::EnableSpout,
         BS_AUTOCHECKBOX | WS_TABSTOP,
         ControlId::Spout2Enabled);
     spout2SenderStatus_ = createChild(
-        L"STATIC",
-        L"发送者状态：Host 未连接",
-        SS_LEFT | SS_NOPREFIX);
+        L"EDIT",
+        TextId::SenderDisconnected,
+        ES_MULTILINE | ES_READONLY | WS_VSCROLL);
     obsSpoutPluginStatus_ = createChild(
-        L"STATIC",
-        L"OBS 插件状态：尚未检测",
-        SS_LEFT | SS_NOPREFIX);
+        L"EDIT",
+        TextId::ObsNotChecked,
+        ES_MULTILINE | ES_READONLY | WS_VSCROLL);
     spout2ObsHint_ = createChild(
         L"STATIC",
-        L"OBS 源须置顶并使用 Premultiplied Alpha；本程序不会自动修改 OBS。",
+        TextId::ObsHint,
         SS_LEFT | SS_NOPREFIX);
     refreshObsSpoutPluginButton_ = createChild(
         L"BUTTON",
-        L"重新检测 OBS 插件",
+        TextId::CheckObsPlugin,
         BS_PUSHBUTTON | WS_TABSTOP,
         ControlId::RefreshObsSpoutPlugin);
     openObsSpoutPluginPageButton_ = createChild(
         L"BUTTON",
-        L"打开官方插件页面",
+        TextId::OpenPluginPage,
         BS_PUSHBUTTON | WS_TABSTOP,
         ControlId::OpenObsSpoutPluginPage);
 #endif
     clearLogsButton_ = createChild(
         L"BUTTON",
-        L"清理诊断日志",
+        TextId::ClearLogs,
         BS_PUSHBUTTON | WS_TABSTOP,
         ControlId::ClearLogs);
     versionUpdateHeading_ = createChild(
         L"BUTTON",
-        L"版本与更新",
+        TextId::VersionMaintenance,
         BS_GROUPBOX);
     const std::wstring controlCenterVersion =
-        L"控制中心版本：" + productVersion;
+        tr(TextId::ControlCenterVersionLabel) + productVersion;
     controlCenterVersionText_ = createChild(
         L"STATIC",
         controlCenterVersion.c_str(),
         SS_LEFT | SS_NOPREFIX | SS_ENDELLIPSIS);
     hostVersionText_ = createChild(
         L"STATIC",
-        L"Host 版本：待连接",
+        TextId::HostVersionPending,
         SS_LEFT | SS_NOPREFIX | SS_ENDELLIPSIS);
     installStateText_ = createChild(
-        L"STATIC",
+        L"EDIT",
         installationState.details.c_str(),
-        SS_LEFT | SS_NOPREFIX);
+        ES_LEFT | ES_MULTILINE | ES_READONLY | ES_AUTOVSCROLL | WS_VSCROLL);
     latestVersionText_ = createChild(
         L"STATIC",
-        L"最新公开版本：尚未检查",
+        TextId::LatestNotChecked,
         SS_LEFT | SS_NOPREFIX | SS_ENDELLIPSIS);
     // Native child creation order is also the dialog Tab order. Keep these
     // actions adjacent so the update controller can wire them without moving
     // keyboard focus semantics.
     checkForUpdatesButton_ = createChild(
         L"BUTTON",
-        L"检查更新",
+        TextId::CheckUpdates,
         BS_PUSHBUTTON | WS_TABSTOP,
         ControlId::CheckForUpdates);
     openReleaseButton_ = createChild(
         L"BUTTON",
-        L"打开 Release",
+        TextId::OpenRelease,
         BS_PUSHBUTTON | WS_TABSTOP | WS_DISABLED,
         ControlId::OpenRelease);
     repositoryStarHint_ = createChild(
         L"STATIC",
-        L"如果项目对你有帮助，欢迎前往仓库点 Star。",
+        TextId::StarHint,
         SS_LEFT | SS_NOPREFIX | SS_ENDELLIPSIS);
     openRepositoryButton_ = createChild(
         L"BUTTON",
-        L"打开项目仓库",
+        TextId::OpenRepository,
         BS_PUSHBUTTON | WS_TABSTOP,
         ControlId::OpenRepository);
 
     displaySettingsHeading_ = createChild(
         L"BUTTON",
-        L"显示与性能",
+        TextId::DisplayPage,
         BS_GROUPBOX);
     displaySelectorLabel_ = createChild(
         L"STATIC",
-        L"显示器与离线独立设置",
+        TextId::DisplaySelectorLabel,
         SS_LEFT | SS_NOPREFIX);
     displaySelector_ = createChild(
         WC_COMBOBOXW,
@@ -2205,21 +2225,21 @@ bool ControlCenterWindow::createControls()
     }
     displaySummaryText_ = createChild(
         L"STATIC",
-        L"逐屏状态尚未加载",
+        TextId::DisplaysNotLoaded,
         SS_LEFT | SS_NOPREFIX);
     hdrEnabled_ = createChild(
         L"BUTTON",
-        L"全局请求 HDR 屏幕输出",
+        TextId::RequestHdr,
         BS_AUTOCHECKBOX | WS_TABSTOP,
         ControlId::HdrEnabled);
     activeFxRoiEnabled_ = createChild(
         L"BUTTON",
-        L"启用自适应 Active-FX ROI（实验）",
+        TextId::EnableRoi,
         BS_AUTOCHECKBOX | WS_TABSTOP,
         ControlId::ActiveFxRoiEnabled);
     framePacingLabel_ = createChild(
         L"STATIC",
-        L"全局帧率策略",
+        TextId::GlobalFramePacing,
         SS_LEFT | SS_NOPREFIX);
     framePacing_ = createChild(
         WC_COMBOBOXW,
@@ -2229,22 +2249,22 @@ bool ControlCenterWindow::createControls()
     initializeFramePacingCombo(framePacing_);
     displayIndependent_ = createChild(
         L"BUTTON",
-        L"使用独立设置",
+        TextId::IndependentSettings,
         BS_AUTOCHECKBOX | WS_TABSTOP,
         ControlId::DisplayIndependent);
     displayEffectsEnabled_ = createChild(
         L"BUTTON",
-        L"在此显示器启用特效",
+        TextId::DisplayEffects,
         BS_AUTOCHECKBOX | WS_TABSTOP,
         ControlId::DisplayEffectsEnabled);
     displayHdrEnabled_ = createChild(
         L"BUTTON",
-        L"在此显示器请求 HDR 输出",
+        TextId::DisplayHdr,
         BS_AUTOCHECKBOX | WS_TABSTOP,
         ControlId::DisplayHdrEnabled);
     displayFramePacingLabel_ = createChild(
         L"STATIC",
-        L"独立帧率策略",
+        TextId::DisplayFramePacing,
         SS_LEFT | SS_NOPREFIX);
     displayFramePacing_ = createChild(
         WC_COMBOBOXW,
@@ -2254,11 +2274,11 @@ bool ControlCenterWindow::createControls()
     initializeFramePacingCombo(displayFramePacing_);
     displayDetailsHeading_ = createChild(
         L"BUTTON",
-        L"所选显示器设置与状态",
+        TextId::DisplayDetails,
         BS_GROUPBOX);
     displayDetailsText_ = createChild(
         L"EDIT",
-        L"Host 连接后显示逐屏运行状态。",
+        TextId::DisplayConnectHint,
         ES_LEFT
             | ES_MULTILINE
             | ES_READONLY
@@ -2268,11 +2288,11 @@ bool ControlCenterWindow::createControls()
             | WS_TABSTOP);
     activeFxRoiDetailsHeading_ = createChild(
         L"BUTTON",
-        L"Active-FX ROI 工程面板",
+        TextId::RoiPanel,
         BS_GROUPBOX);
     activeFxRoiDetailsText_ = createChild(
         L"EDIT",
-        L"Host 连接后显示 ROI 运行路径。",
+        TextId::RoiConnectHint,
         ES_LEFT
             | ES_MULTILINE
             | ES_READONLY
@@ -2282,29 +2302,29 @@ bool ControlCenterWindow::createControls()
             | WS_TABSTOP);
     pauseButton_ = createChild(
         L"BUTTON",
-        L"暂停特效",
+        TextId::PauseEffects,
         BS_PUSHBUTTON | WS_TABSTOP,
         ControlId::Pause);
     refreshButton_ = createChild(
         L"BUTTON",
-        L"刷新状态",
+        TextId::RefreshState,
         BS_PUSHBUTTON | WS_TABSTOP,
         ControlId::Refresh);
     hostLifecycleButton_ = createChild(
         L"BUTTON",
-        L"启动 Host",
+        TextId::StartHost,
         BS_PUSHBUTTON | WS_TABSTOP,
         ControlId::HostLifecycle);
     resetDefaultsButton_ = createChild(
         L"BUTTON",
-        L"重置默认",
+        TextId::ResetDefaults,
         BS_PUSHBUTTON | WS_TABSTOP,
         ControlId::ResetDefaults);
     // Create Profile controls after the action buttons so native dialog Tab
     // order follows the Basic page's visual top-to-bottom order.
     fxProfileLabel_ = createChild(
         L"STATIC",
-        L"特效预设",
+        TextId::FxProfiles,
         SS_LEFT | SS_CENTERIMAGE | SS_NOPREFIX);
     fxProfileSelector_ = createChild(
         WC_COMBOBOXW,
@@ -2337,21 +2357,21 @@ bool ControlCenterWindow::createControls()
             fxProfileNameEdit_,
             EM_SETCUEBANNER,
             TRUE,
-            reinterpret_cast<LPARAM>(L"预设名称")));
+            reinterpret_cast<LPARAM>(tr(TextId::ProfileName))));
     }
     applyFxProfileButton_ = createChild(
         L"BUTTON",
-        L"应用",
+        TextId::Apply,
         BS_PUSHBUTTON | WS_TABSTOP,
         ControlId::ApplyFxProfile);
     saveFxProfileButton_ = createChild(
         L"BUTTON",
-        L"保存当前",
+        TextId::SaveCurrent,
         BS_PUSHBUTTON | WS_TABSTOP,
         ControlId::SaveFxProfile);
     deleteFxProfileButton_ = createChild(
         L"BUTTON",
-        L"删除",
+        TextId::Delete,
         BS_PUSHBUTTON | WS_TABSTOP,
         ControlId::DeleteFxProfile);
 
@@ -2400,6 +2420,8 @@ bool ControlCenterWindow::createControls()
         saveFxProfileButton_,
         deleteFxProfileButton_,
         systemSettingsHeading_,
+        languageLabel_,
+        languageSelector_,
         startWithWindows_,
         startMinimized_,
         closeToTray_,
@@ -2500,7 +2522,7 @@ HWND ControlCenterWindow::createChild(
 
 bool ControlCenterWindow::createSlider(
     SliderControl& slider,
-    const wchar_t* const label,
+    const TextId label,
     const double minimum,
     const double maximum,
     const double step,
@@ -2841,6 +2863,8 @@ void ControlCenterWindow::applyFonts() const noexcept
     setControlFont(effectsHeading_, sectionFont_);
     setControlFont(backgroundHeading_, sectionFont_);
     setControlFont(systemSettingsHeading_, sectionFont_);
+    setControlFont(languageLabel_, normalFont_);
+    setControlFont(languageSelector_, normalFont_);
     setControlFont(versionUpdateHeading_, sectionFont_);
     setControlFont(advancedTimingHeading_, sectionFont_);
     setControlFont(advancedParticlesHeading_, sectionFont_);
@@ -2861,7 +2885,10 @@ void ControlCenterWindow::applyFonts() const noexcept
 
 void ControlCenterWindow::applyDpiMetrics() const noexcept
 {
+    SendMessageW(backgroundMode_, CB_SETDROPPEDWIDTH, static_cast<WPARAM>(scale(470)), 0);
+    SendMessageW(effectsMode_, CB_SETDROPPEDWIDTH, static_cast<WPARAM>(scale(320)), 0);
     const std::array comboBoxes{
+        languageSelector_,
         bloomQuality_,
         effectsMode_,
         backgroundMode_,
@@ -3043,7 +3070,7 @@ void ControlCenterWindow::layoutControls(
     moveControl(messageText_, margin, scale(82), clientWidth - margin * 2, messageHeight);
 
     const int contentTop = scale(150);
-    const int tabWidth = (std::min)(scale(132), (clientWidth - margin * 2 - scale(32)) / 5);
+    const int tabWidth = (clientWidth - margin * 2 - scale(32)) / 5;
     const int tabGap = scale(8);
     moveControl(
         basicPageButton_,
@@ -3294,75 +3321,65 @@ void ControlCenterWindow::layoutControls(
             contentTop,
             systemPanelWidth,
             panelHeight);
+        moveControl(languageLabel_, contentX, contentTop + scale(32), scale(108), scale(26));
+        moveControl(languageSelector_, contentX + scale(116), contentTop + scale(28),
+            contentWidth - scale(116), scale(160));
         moveControl(
             startWithWindows_,
             contentX,
-            contentTop + scale(32),
+            contentTop + scale(64),
             contentWidth,
-            scale(30));
+            scale(28));
         moveControl(
             startMinimized_,
             contentX,
-            contentTop + scale(64),
+            contentTop + scale(92),
             contentWidth,
-            scale(30));
+            scale(28));
         moveControl(
             closeToTray_,
             contentX,
-            contentTop + scale(96),
+            contentTop + scale(120),
             contentWidth,
-            scale(30));
+            scale(28));
 #if defined(BAFX_ENABLE_SPOUT2)
         moveControl(
             spout2Enabled_,
             contentX,
-            contentTop + scale(128),
+            contentTop + scale(148),
             contentWidth,
-            scale(30));
+            scale(28));
         moveControl(
             spout2SenderStatus_,
             contentX,
-            contentTop + scale(164),
+            contentTop + scale(180),
             contentWidth,
-            scale(42));
+            scale(56));
         moveControl(
             obsSpoutPluginStatus_,
             contentX,
-            contentTop + scale(208),
+            contentTop + scale(240),
             contentWidth,
             scale(42));
         moveControl(
             spout2ObsHint_,
             contentX,
-            contentTop + scale(252),
+            contentTop + scale(284),
             contentWidth,
-            scale(26));
+            scale(36));
         const int obsButtonGap = scale(10);
         const int obsButtonWidth = (contentWidth - obsButtonGap) / 2;
         moveControl(
             refreshObsSpoutPluginButton_,
             contentX,
-            contentTop + scale(282),
+            contentTop + scale(328),
             obsButtonWidth,
             scale(30));
         moveControl(
             openObsSpoutPluginPageButton_,
             contentX + obsButtonWidth + obsButtonGap,
-            contentTop + scale(282),
+            contentTop + scale(328),
             obsButtonWidth,
-            scale(30));
-        moveControl(
-            clearLogsButton_,
-            contentX,
-            contentTop + scale(316),
-            contentWidth,
-            scale(30));
-#else
-        moveControl(
-            clearLogsButton_,
-            contentX,
-            contentTop + scale(164),
-            contentWidth,
             scale(30));
 #endif
 
@@ -3428,6 +3445,9 @@ void ControlCenterWindow::layoutControls(
             contentTop + scale(280),
             updateContentWidth,
             scale(32));
+
+        moveControl(clearLogsButton_, updateContentX, contentTop + scale(316),
+            updateContentWidth, scale(30));
 
         const int actionWidth = (clientWidth - margin * 2 - actionGap * 3) / 4;
         moveControl(
@@ -3961,7 +3981,7 @@ void ControlCenterWindow::layoutControls(
         rightContentWidth,
         scale(38));
 
-    const int profileLabelWidth = scale(78);
+    const int profileLabelWidth = scale(92);
     moveControl(
         fxProfileLabel_,
         rightContentX,
@@ -3976,9 +3996,9 @@ void ControlCenterWindow::layoutControls(
         scale(34));
 
     const int profileButtonGap = scale(6);
-    const int profileApplyWidth = scale(44);
-    const int profileSaveWidth = scale(64);
-    const int profileDeleteWidth = scale(44);
+    const int profileApplyWidth = scale(52);
+    const int profileSaveWidth = scale(60);
+    const int profileDeleteWidth = scale(58);
     const int profileNameWidth = (std::max)(
         scale(1),
         rightContentWidth
@@ -4418,6 +4438,8 @@ void ControlCenterWindow::updatePageVisibility() noexcept
 
     const std::array systemControls{
         systemSettingsHeading_,
+        languageLabel_,
+        languageSelector_,
         startWithWindows_,
         startMinimized_,
         closeToTray_,
@@ -4478,6 +4500,12 @@ void ControlCenterWindow::onCommand(
 
     switch (static_cast<ControlId>(id))
     {
+    case ControlId::Language:
+        if (notificationCode == CBN_SELCHANGE)
+        {
+            changeLanguage();
+        }
+        break;
     case ControlId::BasicPage:
         if (notificationCode == BN_CLICKED)
         {
@@ -4577,7 +4605,7 @@ void ControlCenterWindow::onCommand(
             }
             else
             {
-                setError(L"未知的性能模式选择。");
+                setError(TextId::UnknownEffectsMode);
             }
         }
         break;
@@ -4697,7 +4725,7 @@ void ControlCenterWindow::onCommand(
                 // Selecting it cannot invent a missing diffusion value.
                 break;
             default:
-                setError(L"未知的 Bloom 质量选择。");
+                setError(TextId::UnknownBloomQuality);
                 break;
             }
         }
@@ -4737,10 +4765,10 @@ void ControlCenterWindow::onCommand(
                         0));
                     if (!availability.versionQuerySucceeded)
                     {
-                        MessageBoxW(
+                        localizedMessageBox(
                             window_,
-                            L"录屏兼容测试模式仅支持 Windows 11 26H1 及以后（OS build 28000 或更高）。\r\n当前系统版本无法确认，设置未更改。",
-                            L"录屏兼容测试模式",
+                            TextId::RecordingVersionUnknown,
+                            TextId::RecordingTest,
                             MB_OK | MB_ICONWARNING);
                     }
                     else
@@ -4748,14 +4776,11 @@ void ControlCenterWindow::onCommand(
                         const std::wstring detectedVersion = utf8ToWide(
                             bafx::windows::recordingCompatibleVersionString(
                                 availability));
-                        const std::wstring message =
-                            L"录屏兼容测试模式仅支持 Windows 11 26H1 及以后（OS build 28000 或更高）。\r\n当前系统为 "
-                            + detectedVersion
-                            + L"，设置未更改。";
-                        MessageBoxW(
+                        const UiMessage message(TextId::RecordingUnsupported, {detectedVersion});
+                        localizedMessageBox(
                             window_,
-                            message.c_str(),
-                            L"录屏兼容测试模式",
+                            message,
+                            TextId::RecordingTest,
                             MB_OK | MB_ICONWARNING);
                     }
                     break;
@@ -4774,7 +4799,7 @@ void ControlCenterWindow::onCommand(
                 applyPatch("background.mode", "\"light-background\"");
                 break;
             default:
-                setError(L"未知的背景模式选择。");
+                setError(TextId::UnknownBackgroundMode);
                 break;
             }
         }
@@ -4931,7 +4956,7 @@ void ControlCenterWindow::onCommand(
                 selectedFramePacing(framePacing_);
             if (!framePacing.has_value())
             {
-                setError(L"未知的帧率策略选择。");
+                setError(TextId::UnknownFramePacing);
                 break;
             }
             const std::string value = "\""
@@ -5108,10 +5133,10 @@ void ControlCenterWindow::commitThemeColor()
     }
     if (!connected_)
     {
-        SetWindowTextW(
+        setText(
             themeColorEdit_,
             utf8ToWide(config_.effects.themeColor).c_str());
-        setInfo(L"Host 未连接", L"请先启动 Host，然后设置主题色。");
+        setInfo(TextId::HostDisconnected, TextId::StartHostForColor);
         return;
     }
 
@@ -5146,7 +5171,7 @@ void ControlCenterWindow::chooseThemeColor()
 {
     if (!connected_)
     {
-        setInfo(L"Host 未连接", L"请先启动 Host，然后设置主题色。");
+        setInfo(TextId::HostDisconnected, TextId::StartHostForColor);
         return;
     }
 
@@ -5174,7 +5199,7 @@ void ControlCenterWindow::chooseThemeColor()
     {
         return;
     }
-    SetWindowTextW(themeColorEdit_, utf8ToWide(value).c_str());
+    setText(themeColorEdit_, utf8ToWide(value).c_str());
     commitThemeColor();
 }
 
@@ -5233,8 +5258,8 @@ bool ControlCenterWindow::readyForFxProfileMutation()
     // a second click makes the user revalidate the Profile identity instead of
     // carrying an earlier confirmation across that refresh.
     setInfo(
-        L"参数已先保存",
-        L"特效参数已更新，请确认当前预设与名称后再次执行操作。");
+        TextId::ParametersSavedFirst,
+        TextId::ParametersSavedHint);
     return false;
 }
 
@@ -5242,7 +5267,7 @@ bool ControlCenterWindow::applyFxProfileMutationRequest(std::string command)
 {
     if (!connected_)
     {
-        setInfo(L"Host 未连接", L"请先启动 Host，然后刷新状态。");
+        setInfo(TextId::HostDisconnected, TextId::StartHostAndRefresh);
         return false;
     }
 
@@ -5261,11 +5286,11 @@ bool ControlCenterWindow::applyFxProfileMutationRequest(std::string command)
     if (response.errorCode == "generation_conflict")
     {
         static_cast<void>(refreshFromHost());
-        setInfo(L"配置已变化", L"已刷新 Host 的最新设置，请再次调整。");
+        setInfo(TextId::ConfigChanged, TextId::ConfigRefreshed);
         return false;
     }
 
-    const std::wstring error = describeResponse(response);
+    const UiMessage error = describeResponse(response);
     static_cast<void>(refreshFromHost());
     setError(error);
     return false;
@@ -5275,7 +5300,7 @@ void ControlCenterWindow::beginManualUpdateCheck()
 {
     if (updateChecker_ == nullptr)
     {
-        setError(L"更新检查器不可用；Host 与本地设置不受影响。");
+        setError(TextId::CheckerUnavailable);
         return;
     }
 
@@ -5294,10 +5319,10 @@ void ControlCenterWindow::beginManualUpdateCheck()
             nullptr) == 0U)
     {
         updateChecker_->cancel();
-        SetWindowTextW(latestVersionText_, L"最新公开版本：检查失败");
+        setText(latestVersionText_, TextId::LatestCheckFailed);
         EnableWindow(checkForUpdatesButton_, TRUE);
         EnableWindow(openReleaseButton_, FALSE);
-        setError(L"无法监视更新检查；请求已取消，Host 与本地设置不受影响。");
+        setError(TextId::CheckerMonitorFailed);
         return;
     }
 
@@ -5321,40 +5346,40 @@ void ControlCenterWindow::pollManualUpdateCheck()
     EnableWindow(checkForUpdatesButton_, checking ? FALSE : TRUE);
     EnableWindow(openReleaseButton_, updateAvailable ? TRUE : FALSE);
 
-    std::wstring latestText = L"最新公开版本：";
+    UiMessage latestText(TextId::LatestVersionLabel);
     switch (snapshot.status)
     {
     case bafx::release_update::UpdateCheckStatus::Idle:
-        latestText += L"尚未检查";
+        latestText += TextId::NotChecked;
         break;
     case bafx::release_update::UpdateCheckStatus::Checking:
-        latestText += L"正在检查...";
+        latestText += TextId::Checking;
         break;
     case bafx::release_update::UpdateCheckStatus::Current:
         latestText += utf8ToWide(snapshot.latestTagName);
-        latestText += L" · 已是最新版";
+        latestText += TextId::CurrentVersionSuffix;
         break;
     case bafx::release_update::UpdateCheckStatus::UpdateAvailable:
         latestText += utf8ToWide(snapshot.latestTagName);
-        latestText += L" · 有可用更新";
+        latestText += TextId::UpdateAvailableSuffix;
         break;
     case bafx::release_update::UpdateCheckStatus::Ahead:
         latestText += utf8ToWide(snapshot.latestTagName);
-        latestText += L" · 本地为开发/未发布版本";
+        latestText += TextId::AheadVersionSuffix;
         break;
     case bafx::release_update::UpdateCheckStatus::Failed:
-        latestText += L"检查失败";
+        latestText += TextId::CheckFailed;
         break;
     }
-    SetWindowTextW(latestVersionText_, latestText.c_str());
+    setText(latestVersionText_, latestText);
 
     if (checking)
     {
         if (snapshot.sequence != lastUpdateSequence_)
         {
             setInfo(
-                L"正在检查更新",
-                L"仅查询 GitHub 最新正式 Release，不会下载或执行安装器。");
+                TextId::CheckingUpdates,
+                TextId::CheckUpdatesHint);
         }
         lastUpdateSequence_ = snapshot.sequence;
         return;
@@ -5369,27 +5394,37 @@ void ControlCenterWindow::pollManualUpdateCheck()
     switch (snapshot.status)
     {
     case bafx::release_update::UpdateCheckStatus::Current:
-        setInfo(L"已是最新版", latestText);
+        setInfo(TextId::UpToDate, latestText);
         break;
     case bafx::release_update::UpdateCheckStatus::UpdateAvailable:
         setInfo(
-            L"发现新版本",
-            L"可打开官方 Release 页面；下载和安装仍由你手动完成。");
+            TextId::UpdateAvailable,
+            TextId::UpdateAvailableHint);
         break;
     case bafx::release_update::UpdateCheckStatus::Ahead:
-        setInfo(L"本地版本较新", L"当前构建尚未发布为公开正式 Release。");
+        setInfo(TextId::LocalVersionAhead, TextId::LocalVersionAheadHint);
         break;
     case bafx::release_update::UpdateCheckStatus::Failed:
         setInfo(
-            L"检查更新失败",
+            TextId::UpdateCheckFailed,
             snapshot.failure.empty()
-                ? L"无法读取 GitHub 最新正式 Release；Host 与本地设置不受影响。"
-                : utf8ToWide(snapshot.failure));
+                ? UiMessage(TextId::UpdateCheckFailedHint)
+                : UiMessage(TextId::UpdateCheckFailedHint) + L"\r\n" + utf8ToWide(snapshot.failure));
         break;
     case bafx::release_update::UpdateCheckStatus::Idle:
     case bafx::release_update::UpdateCheckStatus::Checking:
         break;
     }
+}
+
+void ControlCenterWindow::updateVersionPresentation()
+{
+    const auto installation = installationStatePresentation(executableDirectory());
+    setText(titleText_, L"BAFX Desktop " + utf8ToWide(bafx::product::version)
+        + L" · " + installation.titleLabel);
+    setText(controlCenterVersionText_, UiMessage(TextId::ControlCenterVersionLabel)
+        + utf8ToWide(bafx::product::version));
+    setText(installStateText_, installation.details);
 }
 
 void ControlCenterWindow::openOfficialLatestRelease()
@@ -5406,7 +5441,7 @@ void ControlCenterWindow::openOfficialLatestRelease()
             window_,
             bafx::release_update::officialLatestReleasePageUrl().data()))
     {
-        setError(L"无法打开官方 Release 页面。请检查默认浏览器设置。");
+        setError(TextId::ReleaseOpenFailed);
     }
 }
 
@@ -5416,7 +5451,7 @@ void ControlCenterWindow::openOfficialProjectRepository()
             window_,
             bafx::release_update::officialProjectRepositoryUrl().data()))
     {
-        setError(L"无法打开项目仓库。请检查默认浏览器设置。");
+        setError(TextId::RepositoryOpenFailed);
     }
 }
 
@@ -5491,7 +5526,7 @@ void ControlCenterWindow::onTimer(const UINT_PTR timerId)
             if (waitResult == WAIT_FAILED)
             {
                 recoverHostShutdown(
-                    L"无法继续监视 Host 退出，请重试关闭操作。");
+                    TextId::HostExitMonitorLost);
                 return;
             }
         }
@@ -5523,7 +5558,7 @@ void ControlCenterWindow::onTimer(const UINT_PTR timerId)
             // The mutex still prevents duplicate launch. Restore the close
             // button so a failed control service never strands this window.
             recoverHostShutdown(
-                L"Host 未在预期时间内退出，可以再次尝试有序关闭。");
+                TextId::HostShutdownTimeout);
         }
         return;
     }
@@ -5559,11 +5594,11 @@ void ControlCenterWindow::onTimer(const UINT_PTR timerId)
             updateHostLifecycleButton();
             if (hostRunning_)
             {
-                setError(L"Host 控制服务启动超时，但进程仍在运行；可点击“关闭 Host”。");
+                setError(TextId::HostServiceTimeout);
             }
             else
             {
-                setError(L"Host 启动超时，请查看支持日志后重试。");
+                setError(TextId::HostStartTimeout);
             }
         }
     }
@@ -5577,15 +5612,15 @@ bool ControlCenterWindow::refreshFromHost()
     {
         hostRunning_ = hostStartPending_;
         setConnected(false);
-        SetWindowTextW(
+        setText(
             hostVersionText_,
             hostStartPending_
-                ? L"Host 版本：正在启动"
-                : L"Host 版本：未运行");
+                ? TextId::HostVersionStarting
+                : TextId::HostVersionStopped);
         if (!hostShutdownPending_ && !hostStartPending_)
         {
-            SetWindowTextW(statusText_, L"Host 未运行");
-            setInfo(L"Host 未运行", L"点击“启动 Host”开启特效。");
+            setText(statusText_, TextId::HostNotRunning);
+            setInfo(TextId::HostNotRunning, TextId::StartHostHint);
         }
         return false;
     }
@@ -5595,20 +5630,20 @@ bool ControlCenterWindow::refreshFromHost()
     if (!stateResponse.succeeded())
     {
         setConnected(false);
-        SetWindowTextW(hostVersionText_, L"Host 版本：无法读取");
+        setText(hostVersionText_, TextId::HostVersionUnreadable);
         if (!hostShutdownPending_ && !hostStartPending_)
         {
             if (hostRunning_)
             {
-                SetWindowTextW(statusText_, L"Host 正在运行，控制服务暂不可用");
+                setText(statusText_, TextId::HostServiceUnavailable);
                 setInfo(
-                    L"Host 尚未就绪",
-                    L"可以刷新状态、等待初始化，或点击“关闭 Host”重试正常退出。");
+                    TextId::HostNotReady,
+                    TextId::HostNotReadyHint);
             }
             else
             {
-                SetWindowTextW(statusText_, L"Host 未运行");
-                setInfo(L"无法连接 Host", describeResponse(stateResponse));
+                setText(statusText_, TextId::HostNotRunning);
+                setInfo(TextId::CannotConnectHost, describeResponse(stateResponse));
             }
         }
         return false;
@@ -5619,8 +5654,8 @@ bool ControlCenterWindow::refreshFromHost()
     if (!state.succeeded())
     {
         setConnected(false);
-        SetWindowTextW(hostVersionText_, L"Host 版本：状态数据无效");
-        SetWindowTextW(statusText_, L"Host 返回了无法识别的状态数据");
+        setText(hostVersionText_, TextId::HostVersionInvalidState);
+        setText(statusText_, TextId::HostInvalidState);
         setError(utf8ToWide(state.error));
         return false;
     }
@@ -5638,7 +5673,7 @@ bool ControlCenterWindow::refreshFromHost()
     if (!configResponse.succeeded())
     {
         setConnected(false);
-        SetWindowTextW(statusText_, L"Host 配置读取失败");
+        setText(statusText_, TextId::HostConfigReadFailed);
         setError(describeResponse(configResponse));
         return false;
     }
@@ -5648,7 +5683,7 @@ bool ControlCenterWindow::refreshFromHost()
     if (!config.succeeded())
     {
         setConnected(false);
-        SetWindowTextW(statusText_, L"Host 返回了无法识别的配置数据");
+        setText(statusText_, TextId::HostInvalidConfig);
         setError(utf8ToWide(config.message));
         return false;
     }
@@ -5661,12 +5696,12 @@ bool ControlCenterWindow::refreshFromHost()
     if (!confirmedStateResponse.succeeded() || !confirmedState.succeeded())
     {
         setConnected(false);
-        SetWindowTextW(
+        setText(
             hostVersionText_,
             confirmedStateResponse.succeeded()
-                ? L"Host 版本：复核状态无效"
-                : L"Host 版本：无法复核");
-        SetWindowTextW(statusText_, L"Host 状态复核失败");
+                ? TextId::HostVersionInvalidRecheck
+                : TextId::HostVersionRecheckFailed);
+        setText(statusText_, TextId::HostStateRecheckFailed);
         setError(confirmedStateResponse.succeeded()
             ? utf8ToWide(confirmedState.error)
             : describeResponse(confirmedStateResponse));
@@ -5687,8 +5722,8 @@ bool ControlCenterWindow::refreshFromHost()
         {
             setConnected(false);
             setInfo(
-                L"Host 状态持续变化",
-                L"未发布不一致的控制快照，请稍后再次刷新。");
+                TextId::HostStateChanging,
+                TextId::HostStateChangingHint);
             return false;
         }
         refreshRetrying_ = true;
@@ -5710,18 +5745,18 @@ bool ControlCenterWindow::refreshDisplayStateFromHost()
 {
     const bafx::windows::IpcClientResponse response =
         client_.transact("GetDisplayState");
-    std::wstring failure;
+    UiMessage failure;
     DisplayStateParseResult parsed{};
     if (!response.succeeded())
     {
-        failure = L"逐屏运行状态刷新失败：" + describeResponse(response);
+        failure = UiMessage(TextId::DisplayRefreshFailedPrefix) + describeResponse(response);
     }
     else
     {
         parsed = parseDisplayState(response.payload);
         if (!parsed.succeeded())
         {
-            failure = L"逐屏运行状态格式无效："
+            failure = UiMessage(TextId::DisplayInvalidStatePrefix)
                 + utf8ToWide(parsed.error);
         }
     }
@@ -5760,23 +5795,29 @@ std::wstring ControlCenterWindow::hostVersionDescription(
     case HostProductVersionStatus::Mismatch:
         return utf8ToWide(*state.productVersion);
     case HostProductVersionStatus::Missing:
-        return L"缺失（旧版 Host）";
+        return tr(TextId::LegacyHostVersion);
     case HostProductVersionStatus::Invalid:
         // Invalid protocol text may contain control characters. Do not echo
         // it into a Win32 label or let it forge an extra status line.
-        return L"非法（无法识别）";
+        return tr(TextId::InvalidVersion);
     }
-    return L"无法识别";
+    return tr(TextId::Unrecognized);
 }
 
 void ControlCenterWindow::updateHostVersionText(const HostState& state)
 {
-    std::wstring text = L"Host 版本：" + hostVersionDescription(state);
-    if (state.productVersionStatus == HostProductVersionStatus::Mismatch)
+    UiMessage::Argument version = hostVersionDescription(state);
+    if (state.productVersionStatus == HostProductVersionStatus::Missing)
     {
-        text += L"（与控制中心不一致）";
+        version = TextId::LegacyHostVersion;
     }
-    SetWindowTextW(hostVersionText_, text.c_str());
+    else if (state.productVersionStatus == HostProductVersionStatus::Invalid)
+    {
+        version = TextId::InvalidVersion;
+    }
+    const UiMessage::Argument suffix = state.productVersionStatus == HostProductVersionStatus::Mismatch
+        ? UiMessage::Argument(TextId::HostVersionMismatchSuffix) : UiMessage::Argument(std::wstring{});
+    setText(hostVersionText_, UiMessage(TextId::HostVersionFormat, {version, suffix}));
 }
 
 void ControlCenterWindow::rejectIncompatibleHostVersion(
@@ -5792,19 +5833,19 @@ void ControlCenterWindow::rejectIncompatibleHostVersion(
     setConnected(false);
     updateHostVersionText(state);
 
-    SetWindowTextW(statusText_, L"Host 版本不兼容，设置已禁用");
+    setText(statusText_, TextId::IncompatibleHostStatus);
     setInfo(
-        L"Host 版本不兼容",
-        L"Control Center：" + utf8ToWide(bafx::product::version)
-            + L"\r\nHost：" + hostVersionDescription(state)
-            + L"\r\n未读取或写入该 Host 的配置。请点击“关闭 Host”，"
-              L"待关闭完成后再点击“启动 Host”。");
+        TextId::IncompatibleHost,
+        UiMessage(TextId::IncompatibleHostMessage, {state.productVersion.has_value()
+            ? UiMessage::Argument(utf8ToWide(*state.productVersion))
+            : UiMessage::Argument(TextId::LegacyHostVersion)}));
 }
 
 void ControlCenterWindow::updateControls(
     const HostState& state,
     const bafx::config::Config& config)
 {
+    presentationState_ = state;
     generation_ = state.generation;
     paused_ = state.paused;
     config_ = config;
@@ -5903,7 +5944,7 @@ void ControlCenterWindow::updateControls(
     setSliderValue(shardsSizeMin_, config.effects.shardsSizeMin);
     setSliderValue(shardsSizeMax_, config.effects.shardsSizeMax);
     setSliderValue(trailOpacity_, config.effects.trailOpacity);
-    SetWindowTextW(
+    setText(
         themeColorEdit_,
         utf8ToWide(config.effects.themeColor).c_str());
     InvalidateRect(themeColorPreview_, nullptr, TRUE);
@@ -5935,24 +5976,23 @@ void ControlCenterWindow::updateControls(
     updateSpout2Status(state);
 #endif
     updateDisplayControls(config);
-    SetWindowTextW(pauseButton_, paused_ ? L"恢复特效" : L"暂停特效");
+    setText(pauseButton_, paused_ ? TextId::ResumeEffects : TextId::PauseEffects);
 
     updatingControls_ = false;
     hostRunning_ = true;
     setConnected(true);
-    const std::wstring captureStatus = utf8ToWide(state.backgroundCapture);
-    const std::wstring status = std::wstring(L"Host 已连接 | ")
-        + (paused_ ? L"已暂停" : L"运行中")
-        + L" | 背景采样：" + captureStatus;
-    SetWindowTextW(statusText_, status.c_str());
+    setText(statusText_, UiMessage(TextId::ConnectedStatus,
+        {paused_ ? TextId::Paused : TextId::Running,
+            state.backgroundCapture == "active" ? UiMessage::Argument(TextId::BackgroundActive)
+                : (state.backgroundCapture == "fallback-fx-only" ? UiMessage::Argument(TextId::BackgroundFallback)
+                    : UiMessage::Argument(utf8ToWide(state.backgroundCapture)))}));
     if (!hostShutdownPending_)
     {
         if (!state.fxProfileWarning.empty())
         {
             setInfo(
-                L"部分特效预设未加载",
-                L"fx-profiles 中存在损坏、冲突或无法读取的文件；"
-                L"这些文件已被安全跳过。");
+                TextId::ProfilesSkipped,
+                TextId::ProfilesSkippedHint);
         }
         else
         {
@@ -5973,13 +6013,13 @@ void ControlCenterWindow::updateFxProfileControls(const HostState& state)
         fxProfileSelector_,
         CB_ADDSTRING,
         0U,
-        reinterpret_cast<LPARAM>(L"自定义")));
+        reinterpret_cast<LPARAM>(tr(TextId::Custom))));
 
     LRESULT activeIndex = 0;
     for (std::size_t index = 0U; index < fxProfiles_.size(); ++index)
     {
         const FxProfileState& profile = fxProfiles_[index];
-        const std::wstring name = utf8ToWide(profile.name);
+        const std::wstring name = profileDisplayName(profile.name, profile.builtIn);
         static_cast<void>(SendMessageW(
             fxProfileSelector_,
             CB_ADDSTRING,
@@ -6036,7 +6076,7 @@ void ControlCenterWindow::updateFxProfileControls(const HostState& state)
         {
             fxProfileNameDraft_.clear();
         }
-        SetWindowTextW(fxProfileNameEdit_, editableName.c_str());
+        setText(fxProfileNameEdit_, editableName.c_str());
     }
     updateFxProfileActionState();
 }
@@ -6079,7 +6119,7 @@ void ControlCenterWindow::onFxProfileSelectionChanged()
     const std::wstring editableName = selected != nullptr && !selected->builtIn
         ? utf8ToWide(selected->name)
         : std::wstring{};
-    SetWindowTextW(fxProfileNameEdit_, editableName.c_str());
+    setText(fxProfileNameEdit_, editableName.c_str());
     fxProfileNameDraft_ = selected != nullptr && !selected->builtIn
         ? selected->name
         : std::string{};
@@ -6091,7 +6131,7 @@ void ControlCenterWindow::applySelectedFxProfile()
 {
     if (!connected_)
     {
-        setInfo(L"Host 未连接", L"请先启动 Host，然后应用特效预设。");
+        setInfo(TextId::HostDisconnected, TextId::StartHostForProfile);
         return;
     }
     if (!readyForFxProfileMutation())
@@ -6101,7 +6141,7 @@ void ControlCenterWindow::applySelectedFxProfile()
     const FxProfileState* const selected = selectedFxProfile();
     if (selected == nullptr)
     {
-        setInfo(L"尚未选择预设", L"请从列表选择一个已保存的特效预设。");
+        setInfo(TextId::NoProfileSelected, TextId::SelectSavedProfile);
         return;
     }
 
@@ -6116,7 +6156,7 @@ void ControlCenterWindow::saveCurrentFxProfile()
 {
     if (!connected_)
     {
-        setInfo(L"Host 未连接", L"请先启动 Host，然后保存当前特效预设。");
+        setInfo(TextId::HostDisconnected, TextId::StartHostToSaveProfile);
         return;
     }
     if (!readyForFxProfileMutation())
@@ -6126,7 +6166,7 @@ void ControlCenterWindow::saveCurrentFxProfile()
     const std::optional<std::string> name = fxProfileNameFromEdit();
     if (!name.has_value())
     {
-        setInfo(L"预设名称为空", L"请输入 1 至 40 个字符的预设名称。");
+        setInfo(TextId::EmptyProfileName, TextId::ProfileNameLengthHint);
         return;
     }
 
@@ -6134,19 +6174,17 @@ void ControlCenterWindow::saveCurrentFxProfile()
     if (*name == "自定义" || (existing != nullptr && existing->builtIn))
     {
         setInfo(
-            L"预设名称不可用",
-            L"“自定义”和内置预设名称不可覆盖，请使用其他名称。");
+            TextId::ProfileNameUnavailable,
+            TextId::ReservedProfileNameHint);
         return;
     }
     if (existing != nullptr)
     {
-        const std::wstring message = std::wstring(L"确定使用当前特效覆盖预设“")
-            + utf8ToWide(*name)
-            + L"”吗？";
-        if (MessageBoxW(
+        const UiMessage message(TextId::OverwriteProfileQuestion, {utf8ToWide(*name)});
+        if (localizedMessageBox(
                 window_,
-                message.c_str(),
-                L"覆盖特效预设",
+                message,
+                TextId::OverwriteProfile,
                 MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2) != IDYES)
         {
             return;
@@ -6163,7 +6201,7 @@ void ControlCenterWindow::deleteSelectedFxProfile()
 {
     if (!connected_)
     {
-        setInfo(L"Host 未连接", L"请先启动 Host，然后删除特效预设。");
+        setInfo(TextId::HostDisconnected, TextId::StartHostToDeleteProfile);
         return;
     }
     if (!readyForFxProfileMutation())
@@ -6173,23 +6211,21 @@ void ControlCenterWindow::deleteSelectedFxProfile()
     const FxProfileState* const selected = selectedFxProfile();
     if (selected == nullptr)
     {
-        setInfo(L"尚未选择预设", L"请选择一个自定义特效预设。");
+        setInfo(TextId::NoProfileSelected, TextId::SelectCustomProfile);
         return;
     }
     if (selected->builtIn)
     {
-        setInfo(L"内置预设不可删除", L"只能删除用户保存的特效预设。");
+        setInfo(TextId::BuiltinProfileProtected, TextId::DeleteCustomOnly);
         return;
     }
 
     const std::string name = selected->name;
-    const std::wstring message = std::wstring(L"确定删除自定义特效预设“")
-        + utf8ToWide(name)
-        + L"”吗？\r\n\r\n当前特效参数不会因此改变。";
-    if (MessageBoxW(
+    const UiMessage message(TextId::DeleteProfileQuestion, {utf8ToWide(name)});
+    if (localizedMessageBox(
             window_,
-            message.c_str(),
-            L"删除特效预设",
+            message,
+            TextId::DeleteProfile,
             MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2) != IDYES)
     {
         return;
@@ -6280,48 +6316,58 @@ std::optional<std::string> ControlCenterWindow::fxProfileNameFromEdit() const
 #if defined(BAFX_ENABLE_SPOUT2)
 void ControlCenterWindow::updateSpout2Status(const HostState& state)
 {
-    std::wstring text = L"发送者状态："
+    std::wstring text = tr(TextId::SenderStatusLabel)
         + spout2StatusText(state.spout2Status)
-        + L" | 名称："
+        + tr(TextId::NameColumn)
         + utf8ToWide(state.spout2Sender);
     if (!state.spout2Error.empty())
     {
-        text += L"\r\n错误：" + utf8ToWide(state.spout2Error);
+        text += tr(TextId::ErrorLine) + utf8ToWide(state.spout2Error);
     }
     else if (state.spout2OutputContract
         != bafx::windows::spout2OutputContract)
     {
-        text += L"\r\n输出契约不匹配："
+        text += tr(TextId::OutputContractMismatch)
             + utf8ToWide(state.spout2OutputContract);
     }
     else
     {
-        text += L"\r\n输出：BGRA8 / sRGB / 扩展预乘 Alpha / 仅特效";
-        text += L"\r\nOBS：插件选择“预乘 Alpha”，来源混合选择“常规”";
+        text += tr(TextId::SpoutOutputDescription);
+        text += tr(TextId::SpoutObsAlphaHint);
     }
-    SetWindowTextW(spout2SenderStatus_, text.c_str());
+    setText(spout2SenderStatus_, text.c_str());
 }
 
 void ControlCenterWindow::refreshObsPluginStatus()
 {
-    const ObsSpoutPluginProbeResult result = probeObsSpoutPlugin();
+    obsPluginState_ = probeObsSpoutPlugin();
+    updateObsPluginPresentation();
+}
+
+void ControlCenterWindow::updateObsPluginPresentation()
+{
+    if (!obsPluginState_.has_value())
+    {
+        return;
+    }
+    const ObsSpoutPluginProbeResult& result = *obsPluginState_;
     std::wstring text;
     switch (result.state)
     {
     case ObsSpoutPluginState::Missing:
-        text = L"OBS 插件状态：未找到 win-spout.dll";
+        text = tr(TextId::ObsPluginMissing);
         break;
     case ObsSpoutPluginState::InstalledObsNotRunning:
-        text = L"OBS 插件状态：已安装；启动 OBS 后可确认加载";
+        text = tr(TextId::ObsInstalledNotRunning);
         break;
     case ObsSpoutPluginState::Loaded:
-        text = L"OBS 插件状态：已由 OBS 加载";
+        text = tr(TextId::ObsPluginLoaded);
         break;
     case ObsSpoutPluginState::InstalledNotLoaded:
-        text = L"OBS 插件状态：OBS 已运行，但 win-spout.dll 未加载";
+        text = tr(TextId::ObsPluginNotLoaded);
         break;
     case ObsSpoutPluginState::InspectionUnavailable:
-        text = L"OBS 插件状态：无法确认 OBS 加载状态（权限受限）";
+        text = tr(TextId::ObsInspectionUnavailable);
         break;
     }
 
@@ -6335,16 +6381,16 @@ void ControlCenterWindow::refreshObsPluginStatus()
     }
     if (!result.pluginPath.empty())
     {
-        text += L"\r\n位置：" + result.pluginPath.native();
+        text += tr(TextId::LocationLine) + result.pluginPath.native();
     }
-    SetWindowTextW(obsSpoutPluginStatus_, text.c_str());
+    setText(obsSpoutPluginStatus_, text.c_str());
 }
 
 void ControlCenterWindow::openObsPluginPage()
 {
     if (!openFixedOfficialPage(window_, obsSpoutPluginPage))
     {
-        setError(L"无法打开 OBS Spout2 官方插件页面。请检查默认浏览器设置。");
+        setError(TextId::ObsPluginOpenFailed);
     }
 }
 #endif
@@ -6384,15 +6430,15 @@ void ControlCenterWindow::updateDisplayControls(
         }
         if (session.primary && session.coordinator)
         {
-            label += L"（主显示器，帧协调器）";
+            label += tr(TextId::PrimaryCoordinatorSuffix);
         }
         else if (session.primary)
         {
-            label += L"（主显示器）";
+            label += tr(TextId::PrimaryDisplaySuffix);
         }
         else if (session.coordinator)
         {
-            label += L"（帧协调器）";
+            label += tr(TextId::CoordinatorSuffix);
         }
 
         const LRESULT comboIndex = SendMessageW(
@@ -6402,7 +6448,7 @@ void ControlCenterWindow::updateDisplayControls(
             reinterpret_cast<LPARAM>(label.c_str()));
         if (comboIndex == CB_ERR || comboIndex == CB_ERRSPACE)
         {
-            displayStateError_ = L"显示器列表无法分配足够的界面资源。";
+            displayStateError_ = TextId::DisplayAllocationFailed;
             static_cast<void>(SendMessageW(
                 displaySelector_,
                 CB_RESETCONTENT,
@@ -6437,7 +6483,7 @@ void ControlCenterWindow::updateDisplayControls(
     {
         const bafx::config::DisplayOverrideConfig& overrideConfig =
             displayState_.offlineOverrides[index];
-        const std::wstring label = L"离线独立设置 | "
+        const std::wstring label = tr(TextId::OfflineOverridePrefix)
             + utf8ToWide(overrideConfig.displayKey);
         const LRESULT comboIndex = SendMessageW(
             displaySelector_,
@@ -6446,7 +6492,7 @@ void ControlCenterWindow::updateDisplayControls(
             reinterpret_cast<LPARAM>(label.c_str()));
         if (comboIndex == CB_ERR || comboIndex == CB_ERRSPACE)
         {
-            displayStateError_ = L"显示器列表无法分配足够的界面资源。";
+            displayStateError_ = TextId::DisplayAllocationFailed;
             static_cast<void>(SendMessageW(
                 displaySelector_,
                 CB_RESETCONTENT,
@@ -6561,31 +6607,31 @@ void ControlCenterWindow::updateDisplayDetails()
     updateActiveFxRoiDetails();
     if (!displayStateError_.empty())
     {
-        SetWindowTextW(displaySummaryText_, L"逐屏运行状态不可用");
-        SetWindowTextW(displayDetailsText_, displayStateError_.c_str());
+        setText(displaySummaryText_, TextId::DisplayStatusUnavailable);
+        setText(displayDetailsText_, displayStateError_.render().c_str());
         return;
     }
 
     std::wostringstream summary;
-    summary << L"拓扑 " << topologyStateText(displayState_.topologyStatus)
-            << L" | 会话 " << displayState_.sessions.size()
-            << L" | 离线 " << displayState_.offlineOverrides.size()
-            << L"\r\n代次 R/C/A " << displayState_.runtimeGeneration
+    summary << tr(TextId::TopologyLabel) << topologyStateText(displayState_.topologyStatus)
+            << tr(TextId::SessionsColumn) << displayState_.sessions.size()
+            << tr(TextId::OfflineColumn) << displayState_.offlineOverrides.size()
+            << tr(TextId::GenerationLine) << displayState_.runtimeGeneration
             << L" / " << displayState_.configGeneration
             << L" / " << displayState_.appliedConfigGeneration;
-    SetWindowTextW(displaySummaryText_, summary.str().c_str());
+    setText(displaySummaryText_, summary.str().c_str());
 
     const DisplaySessionState* const selectedSession = selectedDisplaySession();
     const bafx::config::DisplayOverrideConfig* const offlineOverride =
         selectedOfflineDisplayOverride();
     if (selectedSession == nullptr && offlineOverride == nullptr)
     {
-        SetWindowTextW(
+        setText(
             displayDetailsText_,
             displayState_.sessions.empty()
                     && displayState_.offlineOverrides.empty()
-                ? L"Host 当前没有可显示的活动会话或离线独立设置。"
-                : L"请选择一个显示器或离线独立设置查看状态。");
+                ? TextId::NoDisplaySessions
+                : TextId::SelectDisplayHint);
         return;
     }
 
@@ -6593,23 +6639,22 @@ void ControlCenterWindow::updateDisplayDetails()
     {
         selectedDisplayIdentity_ = offlineDisplayIdentity(*offlineOverride);
         std::wostringstream details;
-        details << L"全局拓扑："
+        details << tr(TextId::GlobalTopologyLabel)
                 << topologyStateText(displayState_.topologyStatus)
-                << L" | 错误 "
+                << tr(TextId::ErrorColumn)
                 << hresultText(static_cast<HRESULT>(
                     displayState_.topologyError))
-                << L" | 离线列表：权威"
-                << L"\r\n离线独立设置\r\n显示标识："
+                << tr(TextId::OfflineAuthoritativeColumn)
+                << tr(TextId::OfflineDisplayKeyLine)
                 << utf8ToWide(offlineOverride->displayKey)
-                << L"\r\n特效："
-                << (offlineOverride->enabled ? L"开启" : L"关闭")
-                << L" | HDR 请求："
-                << (offlineOverride->hdrEnabled ? L"开启" : L"关闭")
+                << tr(TextId::EffectsLine)
+                << (offlineOverride->enabled ? tr(TextId::On) : tr(TextId::Off))
+                << tr(TextId::HdrRequestColumn)
+                << (offlineOverride->hdrEnabled ? tr(TextId::On) : tr(TextId::Off))
                 << L" | "
                 << framePacingText(offlineOverride->framePacing)
-                << L"\r\n此显示器当前未连接，因此没有可报告的 HDR、颜色、"
-                   L"刷新率或输出运行状态。取消“使用独立设置”可删除此策略。";
-        SetWindowTextW(displayDetailsText_, details.str().c_str());
+                << tr(TextId::OfflineDisplayHint);
+        setText(displayDetailsText_, details.str().c_str());
         return;
     }
 
@@ -6621,35 +6666,35 @@ void ControlCenterWindow::updateDisplayDetails()
     const std::int64_t height = static_cast<std::int64_t>(session.bottom)
         - static_cast<std::int64_t>(session.top);
     const std::wstring role = session.primary
-        ? (session.coordinator ? L"主显示器、帧协调器" : L"主显示器")
-        : (session.coordinator ? L"帧协调器" : L"扩展显示器");
+        ? (session.coordinator ? tr(TextId::PrimaryCoordinatorRole) : tr(TextId::PrimaryDisplayRole))
+        : (session.coordinator ? tr(TextId::CoordinatorRole) : tr(TextId::ExtendedDisplayRole));
     const std::wstring captureState = session.backgroundCaptureActive
-        ? L"活动"
-        : L"未活动";
+        ? tr(TextId::Active)
+        : tr(TextId::Inactive);
     const std::wstring restartState = session.backgroundCaptureRestartAllowed
-        ? L"允许"
-        : L"不允许";
+        ? tr(TextId::Allowed)
+        : tr(TextId::Disallowed);
     const bafx::config::ResolvedDisplayPolicy policy =
         session.displayKey.has_value()
         ? bafx::config::resolveDisplayPolicy(config_, *session.displayKey)
         : bafx::config::resolveDisplayPolicy(config_, {});
     const std::wstring policySource = policy.overridden
-        ? L"独立设置"
-        : (session.displayKey.has_value() ? L"全局继承" : L"全局继承（无稳定标识）");
+        ? tr(TextId::IndependentPolicy)
+        : (session.displayKey.has_value() ? tr(TextId::InheritedPolicy) : tr(TextId::InheritedUnstablePolicy));
     const std::wstring sourceId = session.sourceId.has_value()
         ? std::to_wstring(*session.sourceId)
-        : L"未知";
+        : tr(TextId::Unknown);
 
     std::wstring faultState;
     if (!session.renderFaulted && !session.outputContractFaulted)
     {
-        faultState = L"无";
+        faultState = tr(TextId::None);
     }
     else
     {
         if (session.renderFaulted)
         {
-            faultState = L"渲染故障";
+            faultState = tr(TextId::RenderingFault);
         }
         if (session.outputContractFaulted)
         {
@@ -6657,121 +6702,121 @@ void ControlCenterWindow::updateDisplayDetails()
             {
                 faultState += L"、";
             }
-            faultState += L"输出合同故障";
+            faultState += tr(TextId::OutputContractFault);
         }
     }
 
     std::wostringstream details;
-    details << L"全局拓扑："
+    details << tr(TextId::GlobalTopologyLabel)
             << topologyStateText(displayState_.topologyStatus)
-            << L" | 错误 "
+            << tr(TextId::ErrorColumn)
             << hresultText(static_cast<HRESULT>(
                 displayState_.topologyError))
-            << L" | 离线列表 "
+            << tr(TextId::OfflineListColumn)
             << (displayState_.offlineOverridesAuthoritative
-                ? L"权威"
-                : L"待拓扑恢复")
-            << L"\r\n设备：" << utf8ToWide(session.device)
+                ? tr(TextId::Authoritative)
+                : tr(TextId::TopologyRecoveryPending))
+            << tr(TextId::DeviceLine) << utf8ToWide(session.device)
             << L" | " << utf8ToWide(session.monitor)
-            << L"\r\n角色：" << role
-            << L" | 显示标识："
+            << tr(TextId::RoleLine) << role
+            << tr(TextId::DisplayKeyColumn)
             << (session.displayKey.has_value()
                 ? utf8ToWide(*session.displayKey)
-                : L"未知")
-            << L"\r\n桌面：" << width << L" x " << height
+                : tr(TextId::Unknown))
+            << tr(TextId::DesktopLine) << width << L" x " << height
             << L" @ (" << session.left << L", " << session.top << L")"
             << L" | DPI：" << session.windowDpi
             << L" / " << session.targetDpiX << L" x " << session.targetDpiY
-            << L"\r\n来源身份：Adapter "
-            << (session.sourceAdapterResolved ? L"已解析" : L"未解析")
+            << tr(TextId::SourceIdentityLine)
+            << (session.sourceAdapterResolved ? tr(TextId::Resolved) : tr(TextId::Unresolved))
             << L" | Source "
-            << (session.sourceIdentityResolved ? L"已解析" : L"未解析")
+            << (session.sourceIdentityResolved ? tr(TextId::Resolved) : tr(TextId::Unresolved))
             << L" | ID " << sourceId
-            << L" | 物理目标 " << session.physicalTargetCount
+            << tr(TextId::PhysicalTargetsColumn) << session.physicalTargetCount
             << L"\r\nGPU：" << utf8ToWide(session.adapter)
-            << L" | 驱动：" << driverStateText(session.driver)
-            << L"\r\n配置请求：" << policySource
-            << L" | 特效 " << (policy.enabled ? L"开启" : L"关闭")
-            << L" | HDR " << (policy.hdrEnabled ? L"开启" : L"关闭")
+            << tr(TextId::DriverColumn) << driverStateText(session.driver)
+            << tr(TextId::ConfiguredRequestLine) << policySource
+            << tr(TextId::EffectsColumn) << (policy.enabled ? tr(TextId::On) : tr(TextId::Off))
+            << L" | HDR " << (policy.hdrEnabled ? tr(TextId::On) : tr(TextId::Off))
             << L" | " << framePacingText(policy.framePacing)
-            << L"\r\nHost 已应用：特效 "
-            << (session.effectsEnabled ? L"开启" : L"关闭")
-            << L" | HDR " << (session.hdrEnabled ? L"开启" : L"关闭")
+            << tr(TextId::HostAppliedLine)
+            << (session.effectsEnabled ? tr(TextId::On) : tr(TextId::Off))
+            << L" | HDR " << (session.hdrEnabled ? tr(TextId::On) : tr(TextId::Off))
             << L" | " << framePacingText(session.framePacing)
-            << L"\r\n刷新率：显示 " << refreshRateText(session.displayRefresh)
-            << L" | 捕获 " << refreshRateText(session.captureRefresh)
-            << L" | 捕获策略 "
+            << tr(TextId::RefreshRatesLine) << refreshRateText(session.displayRefresh)
+            << tr(TextId::CaptureColumn) << refreshRateText(session.captureRefresh)
+            << tr(TextId::CapturePolicyColumn)
             << captureCadenceText(session.captureCadenceStatus)
-            << L"\r\n刷新率策略：producer "
+            << tr(TextId::RefreshPolicyLine)
             << refreshRateText(session.producerPolicyRefresh)
             << L" | freshness "
             << refreshRateText(session.freshnessPolicyRefresh)
             << L" / " << session.freshnessPeriodUs << L" us"
             << L"\r\nWGC producer："
             << producerCadenceText(session.producerCadenceStatus)
-            << L" | 请求 " << session.producerRequestedPeriodUs << L" us"
-            << L" | 实际 " << session.producerAppliedPeriodUs << L" us"
-            << L" | 结果 "
+            << tr(TextId::RequestedColumn) << session.producerRequestedPeriodUs << L" us"
+            << tr(TextId::ActualColumn) << session.producerAppliedPeriodUs << L" us"
+            << tr(TextId::ResultColumn)
             << hresultText(static_cast<HRESULT>(session.producerResult))
-            << L"\r\nCadence 回退："
+            << tr(TextId::CadenceFallbackLine)
             << cadenceFallbackText(session.cadenceFallbackReason)
-            << L"\r\n输出：请求 " << outputStateText(session.requestedOutput)
-            << L" | 解析 " << outputStateText(session.resolvedOutput)
-            << L" | 实际 " << outputStateText(session.actualOutput)
-            << L"\r\n输出映射：解析 "
+            << tr(TextId::OutputRequestedLine) << outputStateText(session.requestedOutput)
+            << tr(TextId::ResolvedColumn) << outputStateText(session.resolvedOutput)
+            << tr(TextId::ActualColumn) << outputStateText(session.actualOutput)
+            << tr(TextId::OutputMappingLine)
             << outputMappingText(session.resolvedOutputMapping)
-            << L" | 实际 "
+            << tr(TextId::ActualColumn)
             << outputMappingText(session.actualOutputMapping)
-            << L"\r\n输出回退：" << outputFallbackText(session.outputFallback)
-            << L" | 结果 "
+            << tr(TextId::OutputFallbackLine) << outputFallbackText(session.outputFallback)
+            << tr(TextId::ResultColumn)
             << hresultText(static_cast<HRESULT>(session.outputFallbackResult))
-            << L" | 策略满足 "
-            << (session.outputPolicySatisfied ? L"是" : L"否")
-            << L"\r\n系统实际色彩：" << colorStateText(session.colorMode)
+            << tr(TextId::PolicySatisfiedColumn)
+            << (session.outputPolicySatisfied ? tr(TextId::BooleanYes) : tr(TextId::BooleanNo))
+            << tr(TextId::SystemColorLine) << colorStateText(session.colorMode)
             << L" | HDR "
-            << optionalBooleanText(session.hdrSupported, L"支持", L"不支持")
+            << optionalBooleanText(session.hdrSupported, tr(TextId::Supported), tr(TextId::Unsupported))
             << L" / "
-            << optionalBooleanText(session.hdrActive, L"已激活", L"未激活")
-            << L" | 用户开关 "
+            << optionalBooleanText(session.hdrActive, tr(TextId::Activated), tr(TextId::NotActivated))
+            << tr(TextId::UserSwitchColumn)
             << optionalBooleanText(
                 session.hdrUserEnabled,
-                L"开启",
-                L"关闭")
-            << L" | 策略限制 "
+                tr(TextId::On),
+                tr(TextId::Off))
+            << tr(TextId::PolicyLimitColumn)
             << optionalBooleanText(
                 session.advancedColorLimitedByPolicy,
-                L"是",
-                L"否")
-            << L"\r\n颜色监视："
+                tr(TextId::BooleanYes),
+                tr(TextId::BooleanNo))
+            << tr(TextId::ColorMonitorLine)
             << colorMonitorStateText(session.colorMonitorStatus)
             << L" | HRESULT "
             << hresultText(static_cast<HRESULT>(session.colorMonitorHresult))
-            << L" | 监视代次 " << session.colorMonitorGeneration
-            << L" | 查询代次 " << session.colorQueryGeneration
-            << L"\r\n颜色合同："
+            << tr(TextId::MonitorGenerationColumn) << session.colorMonitorGeneration
+            << tr(TextId::QueryGenerationColumn) << session.colorQueryGeneration
+            << tr(TextId::ColorContractLine)
             << colorSnapshotStateText(session.colorSnapshotDisposition)
-            << L" | 完整 "
-            << (session.colorSnapshotComplete ? L"是" : L"否")
-            << L" | 剩余重试 " << session.colorRefreshRetriesRemaining
-            << L"\r\nAdvanced Color 查询："
+            << tr(TextId::CompleteColumn)
+            << (session.colorSnapshotComplete ? tr(TextId::BooleanYes) : tr(TextId::BooleanNo))
+            << tr(TextId::RetriesColumn) << session.colorRefreshRetriesRemaining
+            << tr(TextId::AdvancedColorQueryLine)
             << optionalHresultText(session.advancedColorQueryResult)
             << L"\r\nSDR white level："
             << optionalNitsText(session.sdrWhiteLevelNits)
-            << L" | 查询 "
+            << tr(TextId::QueryColumn)
             << optionalHresultText(session.sdrWhiteLevelQueryResult)
-            << L" | 保留 "
+            << tr(TextId::RetainedColumn)
             << optionalBooleanText(
                 session.sdrWhiteLevelRetained,
-                L"是",
-                L"否")
-            << L" | 物理目标一致 "
+                tr(TextId::BooleanYes),
+                tr(TextId::BooleanNo))
+            << tr(TextId::PhysicalTargetsMatchColumn)
             << optionalBooleanText(
                 session.sdrWhiteLevelConsistent,
-                L"是",
-                L"否")
-            << L"\r\n背景采样：" << captureState
-            << L" | 重启：" << restartState
-            << L"\r\n运行故障：" << faultState;
+                tr(TextId::BooleanYes),
+                tr(TextId::BooleanNo))
+            << tr(TextId::BackgroundCaptureLine) << captureState
+            << tr(TextId::RestartColumn) << restartState
+            << tr(TextId::RuntimeFaultLine) << faultState;
 
     for (std::size_t index = 0U;
          index < session.physicalCadence.size();
@@ -6779,20 +6824,20 @@ void ControlCenterWindow::updateDisplayDetails()
     {
         const DisplayPhysicalCadenceState& physical =
             session.physicalCadence[index];
-        details << L"\r\n物理目标 " << index + 1U
-                << L"：虚拟 " << refreshRateText(physical.virtualRefresh)
-                << L" | 物理 " << refreshRateText(physical.physicalRefresh)
-                << L" | 捕获 " << refreshRateText(physical.captureRefresh)
+        details << tr(TextId::PhysicalTargetLine) << index + 1U
+                << tr(TextId::VirtualRateColumn) << refreshRateText(physical.virtualRefresh)
+                << tr(TextId::PhysicalRateColumn) << refreshRateText(physical.physicalRefresh)
+                << tr(TextId::CaptureColumn) << refreshRateText(physical.captureRefresh)
                 << L" | DRR boost "
-                << (physical.drrBoosted ? L"是" : L"否")
-                << L" | 可用 " << (physical.available ? L"是" : L"否");
+                << (physical.drrBoosted ? tr(TextId::BooleanYes) : tr(TextId::BooleanNo))
+                << tr(TextId::AvailableColumn) << (physical.available ? tr(TextId::BooleanYes) : tr(TextId::BooleanNo));
     }
     if (!session.backgroundCaptureFailure.empty())
     {
-        details << L"\r\n捕获错误："
+        details << tr(TextId::CaptureErrorLine)
                 << utf8ToWide(session.backgroundCaptureFailure);
     }
-    SetWindowTextW(displayDetailsText_, details.str().c_str());
+    setText(displayDetailsText_, details.str().c_str());
     static_cast<void>(SendMessageW(displayDetailsText_, EM_SETSEL, 0U, 0));
     static_cast<void>(SendMessageW(displayDetailsText_, EM_SCROLLCARET, 0U, 0));
 }
@@ -6805,34 +6850,34 @@ void ControlCenterWindow::updateActiveFxRoiDetails()
     }
     if (!displayStateError_.empty())
     {
-        SetWindowTextW(activeFxRoiDetailsText_, displayStateError_.c_str());
+        setText(activeFxRoiDetailsText_, displayStateError_.render().c_str());
         return;
     }
 
     const DisplaySessionState* const session = selectedDisplaySession();
     if (session == nullptr)
     {
-        SetWindowTextW(
+        setText(
             activeFxRoiDetailsText_,
             selectedOfflineDisplayOverride() != nullptr
-                ? L"离线设置没有 ROI 运行诊断。"
-                : L"请选择一个活动显示器查看 ROI 运行诊断。");
+                ? TextId::OfflineRoiHint
+                : TextId::SelectActiveDisplayForRoi);
         return;
     }
 
     const ActiveFxRoiRuntimeState& roi = session->activeFxRoi;
     const bool stale = activeFxRoiSampleIsStale(roi);
     std::wostringstream details;
-    details << L"状态：" << (stale ? L"STALE（样本过期）" : L"最新")
-            << L" | 开关 " << (roi.enabled ? L"开启" : L"关闭")
-            << L" | 帧 " << roi.lastFrameId
-            << L"\r\n窗口 " << roi.sampleWindowMs
-            << L" ms | 样本年龄 " << roi.sampleAgeMs << L" ms"
-            << L"\r\nBloom 金字塔可局部执行；最终场景合成仍保持全屏。"
-            << L"像素处理比例不等于 GPU 节省。";
+    details << tr(TextId::StatusLabel) << (stale ? tr(TextId::StaleSample) : tr(TextId::FreshSample))
+            << tr(TextId::SwitchColumn) << (roi.enabled ? tr(TextId::On) : tr(TextId::Off))
+            << tr(TextId::FrameColumn) << roi.lastFrameId
+            << tr(TextId::WindowDurationLine) << roi.sampleWindowMs
+            << tr(TextId::SampleAgeColumn) << roi.sampleAgeMs << L" ms"
+            << tr(TextId::RoiCompositionHint)
+            << tr(TextId::RoiSavingsHint);
     if (!displayStateRefreshWarning_.empty())
     {
-        details << L"\r\n刷新警告：" << displayStateRefreshWarning_;
+        details << tr(TextId::RefreshWarningLine) << displayStateRefreshWarning_.render();
     }
     appendActiveFxRoiPathDetails(details, L"Primary", roi.primary);
     appendActiveFxRoiPathDetails(
@@ -6840,7 +6885,7 @@ void ControlCenterWindow::updateActiveFxRoiDetails()
         L"Recording rebuild",
         roi.recordingRebuild);
 
-    SetWindowTextW(activeFxRoiDetailsText_, details.str().c_str());
+    setText(activeFxRoiDetailsText_, details.str().c_str());
     static_cast<void>(SendMessageW(
         activeFxRoiDetailsText_,
         EM_SETSEL,
@@ -6860,8 +6905,8 @@ void ControlCenterWindow::setSelectedDisplayOverride()
     {
         updateDisplayPolicyControls();
         setInfo(
-            L"无法保存独立设置",
-            L"Host 未提供此显示器的稳定标识；请刷新状态后重试。");
+            TextId::OverrideSaveFailed,
+            TextId::StableDisplayKeyMissing);
         return;
     }
 
@@ -6870,7 +6915,7 @@ void ControlCenterWindow::setSelectedDisplayOverride()
     if (!framePacing.has_value())
     {
         updateDisplayPolicyControls();
-        setError(L"未知的逐显示器帧率策略选择。");
+        setError(TextId::UnknownDisplayFramePacing);
         return;
     }
 
@@ -6923,8 +6968,8 @@ void ControlCenterWindow::removeSelectedDisplayOverride()
     {
         updateDisplayPolicyControls();
         setInfo(
-            L"无法恢复全局设置",
-            L"Host 未提供此显示器的稳定标识；请刷新状态后重试。");
+            TextId::RestoreGlobalFailed,
+            TextId::StableDisplayKeyMissing);
         return;
     }
     if (!overrideExists)
@@ -6944,7 +6989,7 @@ void ControlCenterWindow::applyDisplayPolicyCommand(std::string command)
     if (!connected_)
     {
         updateDisplayPolicyControls();
-        setInfo(L"Host 未连接", L"请先启动 Host，然后刷新状态。");
+        setInfo(TextId::HostDisconnected, TextId::StartHostAndRefresh);
         return;
     }
 
@@ -6957,11 +7002,11 @@ void ControlCenterWindow::applyDisplayPolicyCommand(std::string command)
     if (response.errorCode == "generation_conflict")
     {
         static_cast<void>(refreshFromHost());
-        setInfo(L"配置已变化", L"已刷新 Host 的最新设置，请再次调整。");
+        setInfo(TextId::ConfigChanged, TextId::ConfigRefreshed);
         return;
     }
 
-    const std::wstring error = describeResponse(response);
+    const UiMessage error = describeResponse(response);
     static_cast<void>(refreshFromHost());
     setError(error);
 }
@@ -6981,7 +7026,7 @@ bool ControlCenterWindow::applyPatchRequest(std::string command)
 {
     if (!connected_)
     {
-        setInfo(L"Host 未连接", L"请先启动 Host，然后刷新状态。");
+        setInfo(TextId::HostDisconnected, TextId::StartHostAndRefresh);
         return false;
     }
 
@@ -6993,10 +7038,10 @@ bool ControlCenterWindow::applyPatchRequest(std::string command)
     if (response.errorCode == "generation_conflict")
     {
         static_cast<void>(refreshFromHost());
-        setInfo(L"配置已变化", L"已刷新 Host 的最新设置，请再次调整。");
+        setInfo(TextId::ConfigChanged, TextId::ConfigRefreshed);
         return false;
     }
-    const std::wstring error = describeResponse(response);
+    const UiMessage error = describeResponse(response);
     // A rejected write left the Host unchanged. Restore every optimistic
     // control value before presenting the failure so the UI remains truthful.
     static_cast<void>(refreshFromHost());
@@ -7008,7 +7053,7 @@ void ControlCenterWindow::sendCommand(const std::string_view command)
 {
     if (!connected_)
     {
-        setInfo(L"Host 未连接", L"请先启动兼容版本的 Host，然后刷新状态。");
+        setInfo(TextId::HostDisconnected, TextId::StartCompatibleHost);
         return;
     }
     if (!commitPendingPatch())
@@ -7028,16 +7073,14 @@ void ControlCenterWindow::clearDiagnosticLogs()
 {
     if (!connected_)
     {
-        setInfo(L"Host 未连接", L"请先启动 Host，然后清理诊断日志。\r\n"
-            L"日志文件位于 Host 的 data 目录。回退配置不会受影响。");
+        setInfo(TextId::HostDisconnected, TextId::StartHostToClearLogs);
         return;
     }
 
-    const int choice = MessageBoxW(
+    const int choice = localizedMessageBox(
         window_,
-        L"确定删除当前诊断日志和轮转备份吗？\r\n\r\n"
-        L"这不会停止 Host 或修改配置；删除后会重新写入一条清理结果日志。",
-        L"清理诊断日志",
+        TextId::ClearLogsQuestion,
+        TextId::ClearLogs,
         MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2);
     if (choice != IDYES)
     {
@@ -7101,17 +7144,15 @@ void ControlCenterWindow::clearDiagnosticLogs()
         || !failedFiles.has_value())
     {
         setInfo(
-            L"日志已清理，但统计响应无法解析",
-            L"Host 已完成清理。请提交新的诊断日志以便检查清理结果。");
+            TextId::ClearLogsUnparsed,
+            TextId::ClearLogsUnparsedHint);
         return;
     }
 
-    const std::wstring summary =
-        L"删除文件：" + std::to_wstring(*removedFiles)
-        + L"；释放空间：" + std::to_wstring(*removedBytes)
-        + L" 字节；失败文件：" + std::to_wstring(*failedFiles);
+    const UiMessage summary(TextId::ClearLogsResult,
+        {std::to_wstring(*removedFiles), std::to_wstring(*removedBytes), std::to_wstring(*failedFiles)});
     setInfo(
-        *failedFiles == 0U ? L"诊断日志已清理" : L"诊断日志部分清理",
+        *failedFiles == 0U ? TextId::LogsCleared : TextId::LogsPartlyCleared,
         summary);
 }
 
@@ -7119,7 +7160,7 @@ void ControlCenterWindow::resetDefaults()
 {
     if (!connected_)
     {
-        setInfo(L"Host 未连接", L"请先启动 Host，然后刷新状态。");
+        setInfo(TextId::HostDisconnected, TextId::StartHostAndRefresh);
         return;
     }
 
@@ -7128,11 +7169,10 @@ void ControlCenterWindow::resetDefaults()
         return;
     }
 
-    const int choice = MessageBoxW(
+    const int choice = localizedMessageBox(
         window_,
-        L"确定将特效、输入和背景设置全部恢复为默认值吗？\r\n\r\n"
-        L"当前暂停或运行状态不会改变，已保存的快捷键会保留。",
-        L"重置默认设置",
+        TextId::ResetQuestion,
+        TextId::ResetSettings,
         MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2);
     if (choice != IDYES)
     {
@@ -7161,8 +7201,8 @@ void ControlCenterWindow::startHostFromBundle()
         updateHostLifecycleButton();
         scheduleHostRefreshRetry();
         setInfo(
-            L"Host 已在运行",
-            L"控制服务尚未连接，正在继续刷新；也可以点击“关闭 Host”重试退出。");
+            TextId::HostAlreadyRunning,
+            TextId::HostAlreadyRunningHint);
         return;
     }
     std::filesystem::path hostPath;
@@ -7178,8 +7218,8 @@ void ControlCenterWindow::startHostFromBundle()
     if (!std::filesystem::is_regular_file(hostPath))
     {
         setInfo(
-            L"未找到 Host",
-            L"请将 Control Center 与 ba-click-fx-desktop.exe 放在同一目录。");
+            TextId::HostNotFound,
+            TextId::HostPathHint);
         return;
     }
 
@@ -7190,9 +7230,9 @@ void ControlCenterWindow::startHostFromBundle()
         if (!packageIdentity.succeeded())
         {
             setInfo(
-                L"安装状态无效",
-                packageIdentity.error
-                    + L" 请重新运行当前安装器重新签名修复。");
+                TextId::InstallationInvalid,
+                UiMessage(packageIdentity.error)
+                    + TextId::RepairInstallSuffix);
             return;
         }
 
@@ -7201,7 +7241,7 @@ void ControlCenterWindow::startHostFromBundle()
         if (!activation.succeeded())
         {
             setError(
-                L"通过 Package Activation 启动 Host 失败，HRESULT："
+                UiMessage(TextId::PackageActivationFailedPrefix)
                 + hresultText(activation.result));
             return;
         }
@@ -7228,7 +7268,7 @@ void ControlCenterWindow::startHostFromBundle()
                 &processInfo) == FALSE)
         {
             const DWORD error = GetLastError();
-            setError(L"启动 portable Host 失败，Win32 错误码："
+            setError(UiMessage(TextId::PortableHostStartFailedPrefix)
                 + std::to_wstring(error));
             return;
         }
@@ -7238,7 +7278,7 @@ void ControlCenterWindow::startHostFromBundle()
 
     hostRunning_ = true;
     scheduleHostRefreshRetry(true);
-    setInfo(L"正在启动 Host", L"Host 初始化完成后会自动刷新。");
+    setInfo(TextId::StartingHost, TextId::StartingHostHint);
 }
 
 void ControlCenterWindow::stopHost()
@@ -7253,9 +7293,9 @@ void ControlCenterWindow::stopHost()
     {
         hostRunning_ = false;
         setConnected(false);
-        SetWindowTextW(hostVersionText_, L"Host 版本：未运行");
-        SetWindowTextW(statusText_, L"Host 未运行");
-        setInfo(L"Host 已关闭", L"未发现需要关闭的 Host 进程。");
+        setText(hostVersionText_, TextId::HostVersionStopped);
+        setText(statusText_, TextId::HostNotRunning);
+        setInfo(TextId::HostStopped, TextId::NoHostToStop);
         return;
     }
 
@@ -7290,8 +7330,8 @@ void ControlCenterWindow::stopHost()
     hostRunning_ = true;
     setConnected(false);
     updateHostLifecycleButton();
-    SetWindowTextW(statusText_, L"正在关闭 Host...");
-    setInfo(L"正在关闭 Host", L"等待主程序释放渲染与捕获资源。");
+    setText(statusText_, TextId::StoppingHostStatus);
+    setInfo(TextId::StoppingHost, TextId::StoppingHostHint);
     scheduleHostShutdownPoll();
 }
 
@@ -7322,12 +7362,12 @@ void ControlCenterWindow::scheduleHostRefreshRetry(const bool startPending) noex
     updateHostLifecycleButton();
     if (startPending)
     {
-        SetWindowTextW(statusText_, L"正在启动 Host...");
-        SetWindowTextW(hostVersionText_, L"Host 版本：正在启动");
+        setText(statusText_, TextId::StartingHostStatus);
+        setText(hostVersionText_, TextId::HostVersionStarting);
     }
     else
     {
-        SetWindowTextW(hostVersionText_, L"Host 版本：正在连接");
+        setText(hostVersionText_, TextId::HostVersionConnecting);
     }
     KillTimer(window_, hostRetryTimerId);
     if (SetTimer(
@@ -7354,7 +7394,7 @@ void ControlCenterWindow::scheduleHostShutdownPoll() noexcept
             nullptr) == 0U)
     {
         recoverHostShutdown(
-            L"无法启动 Host 退出监视，请重试关闭操作。");
+            TextId::HostExitMonitorFailed);
     }
 }
 
@@ -7369,12 +7409,12 @@ void ControlCenterWindow::finishHostShutdown() noexcept
     hostStartPending_ = false;
     hostVersionBlocked_ = false;
     setConnected(false);
-    SetWindowTextW(hostVersionText_, L"Host 版本：未运行");
-    SetWindowTextW(statusText_, L"Host 已关闭");
-    setInfo(L"Host 已关闭", L"点击“启动 Host”可重新开启特效。");
+    setText(hostVersionText_, TextId::HostVersionStopped);
+    setText(statusText_, TextId::HostStopped);
+    setInfo(TextId::HostStopped, TextId::RestartHostHint);
 }
 
-void ControlCenterWindow::recoverHostShutdown(const std::wstring_view message)
+void ControlCenterWindow::recoverHostShutdown(const UiMessage& message)
 {
     KillTimer(window_, hostShutdownTimerId);
     hostLifetimeMutex_.reset();
@@ -7385,12 +7425,12 @@ void ControlCenterWindow::recoverHostShutdown(const std::wstring_view message)
     hostRunning_ = hostMutexPresent();
     hostVersionBlocked_ = false;
     setConnected(false);
-    SetWindowTextW(
+    setText(
         hostVersionText_,
-        hostRunning_ ? L"Host 版本：无法读取" : L"Host 版本：未运行");
-    SetWindowTextW(
+        hostRunning_ ? TextId::HostVersionUnreadable : TextId::HostVersionStopped);
+    setText(
         statusText_,
-        hostRunning_ ? L"Host 仍在运行" : L"Host 已关闭");
+        hostRunning_ ? TextId::HostStillRunning : TextId::HostStopped);
     setError(message);
 }
 
@@ -7400,12 +7440,12 @@ void ControlCenterWindow::updateHostLifecycleButton() const noexcept
     {
         return;
     }
-    const wchar_t* const text = hostShutdownPending_
-        ? L"正在关闭..."
+    const TextId text = hostShutdownPending_
+        ? TextId::Stopping
         : (hostRunning_
-            ? L"关闭 Host"
-            : (hostStartPending_ ? L"正在启动..." : L"启动 Host"));
-    SetWindowTextW(hostLifecycleButton_, text);
+            ? TextId::StopHost
+            : (hostStartPending_ ? TextId::Starting : TextId::StartHost));
+    setText(hostLifecycleButton_, text);
     const BOOL lifecycleEnabled = hostShutdownPending_ ? FALSE : TRUE;
     EnableWindow(hostLifecycleButton_, lifecycleEnabled);
     if (refreshButton_ != nullptr)
@@ -7432,7 +7472,7 @@ bool ControlCenterWindow::ensureTrayIcon() noexcept
     icon.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP;
     icon.uCallbackMessage = trayNotificationMessage;
     icon.hIcon = LoadIconW(nullptr, IDI_APPLICATION);
-    constexpr std::wstring_view tooltip = L"BAFX Control Center";
+    const std::wstring tooltip = formatText(TextId::TrayTooltip, {utf8ToWide(bafx::product::version)});
     const std::size_t tooltipLength = (std::min)(
         tooltip.size(),
         std::size(icon.szTip) - 1U);
@@ -7467,38 +7507,47 @@ void ControlCenterWindow::restoreFromTray() noexcept
     static_cast<void>(SetForegroundWindow(window_));
 }
 
-void ControlCenterWindow::showTrayMenu()
+HMENU ControlCenterWindow::createTrayMenu() const
 {
-    if (window_ == nullptr)
-    {
-        return;
-    }
-
-    // The window can stay hidden for a long time. Refresh before deriving the
-    // action label so another local IPC client cannot leave the tray state stale.
-    static_cast<void>(refreshFromHost());
     const HMENU menu = CreatePopupMenu();
     if (menu == nullptr)
     {
-        return;
+        return nullptr;
     }
 
     static_cast<void>(AppendMenuW(
         menu,
         MF_STRING | MF_DEFAULT,
         trayRestoreCommand,
-        L"打开控制中心"));
+        tr(TextId::OpenControlCenter)));
     static_cast<void>(AppendMenuW(
         menu,
         MF_STRING | (connected_ ? MF_ENABLED : MF_GRAYED),
         trayPauseCommand,
-        connected_ && paused_ ? L"恢复特效" : L"暂停特效"));
+        connected_ && paused_ ? tr(TextId::ResumeEffects) : tr(TextId::PauseEffects)));
     static_cast<void>(AppendMenuW(menu, MF_SEPARATOR, 0U, nullptr));
     static_cast<void>(AppendMenuW(
         menu,
         MF_STRING,
         trayExitCommand,
-        L"退出控制中心"));
+        tr(TextId::ExitControlCenter)));
+    return menu;
+}
+
+void ControlCenterWindow::showTrayMenu()
+{
+    if (window_ == nullptr)
+    {
+        return;
+    }
+    // The window can stay hidden for a long time. Refresh before deriving the
+    // action label so another local IPC client cannot leave the tray state stale.
+    static_cast<void>(refreshFromHost());
+    const HMENU menu = createTrayMenu();
+    if (menu == nullptr)
+    {
+        return;
+    }
     POINT cursor{};
     if (GetCursorPos(&cursor) == FALSE)
     {
@@ -7642,10 +7691,10 @@ void ControlCenterWindow::setConnected(const bool connected) noexcept
         displayedHotkeyCleanupError_ = 0U;
         displayedHotkeyActionError_.clear();
 #if defined(BAFX_ENABLE_SPOUT2)
-        SetWindowTextW(spout2SenderStatus_, L"发送者状态：Host 未连接");
+        setText(spout2SenderStatus_, TextId::SenderDisconnected);
 #endif
         displayState_ = {};
-        displayStateError_ = L"Host 未连接，逐屏运行状态不可用。";
+        displayStateError_ = TextId::DisconnectedDisplayHint;
         displayStateRefreshWarning_.clear();
         static_cast<void>(SendMessageW(
             displaySelector_,
@@ -7672,20 +7721,24 @@ void ControlCenterWindow::setConnected(const bool connected) noexcept
 }
 
 void ControlCenterWindow::setInfo(
-    const std::wstring_view title,
-    const std::wstring_view message)
+    const UiMessage& title,
+    const UiMessage& message)
 {
-    const std::wstring text = std::wstring(title) + L"\r\n" + std::wstring(message);
+    infoTitle_ = title;
+    infoMessage_ = message;
+    const std::wstring text = title.render() + L"\r\n" + message.render();
     SetWindowTextW(messageText_, text.c_str());
 }
 
-void ControlCenterWindow::setError(const std::wstring_view message)
+void ControlCenterWindow::setError(const UiMessage& message)
 {
-    setInfo(L"操作未完成", message);
+    setInfo(TextId::OperationFailed, message);
 }
 
 void ControlCenterWindow::clearInfo() noexcept
 {
+    infoTitle_ = UiMessage{};
+    infoMessage_ = UiMessage{};
     SetWindowTextW(messageText_, L"");
 }
 
@@ -7794,7 +7847,7 @@ void ControlCenterWindow::updateSliderValueText(
     const SliderControl& slider) const noexcept
 {
     const std::wstring text = numberText(sliderValue(slider));
-    SetWindowTextW(slider.valueText, text.c_str());
+    setText(slider.valueText, text.c_str());
 }
 
 std::wstring ControlCenterWindow::utf8ToWide(const std::string_view value)
@@ -7805,7 +7858,7 @@ std::wstring ControlCenterWindow::utf8ToWide(const std::string_view value)
     }
     if (value.size() > static_cast<std::size_t>((std::numeric_limits<int>::max)()))
     {
-        return L"文本长度超过 Win32 转换限制";
+        return tr(TextId::TextTooLong);
     }
 
     const int count = MultiByteToWideChar(
@@ -7817,7 +7870,7 @@ std::wstring ControlCenterWindow::utf8ToWide(const std::string_view value)
         0);
     if (count <= 0)
     {
-        return L"无法解码来自 Host 的 UTF-8 文本";
+        return tr(TextId::InvalidHostUtf8);
     }
 
     std::wstring result(static_cast<std::size_t>(count), L'\0');
@@ -7870,18 +7923,67 @@ std::string ControlCenterWindow::wideToUtf8(const std::wstring_view value)
     return result;
 }
 
-std::wstring ControlCenterWindow::describeResponse(
+UiMessage ControlCenterWindow::describeResponse(
     const bafx::windows::IpcClientResponse& response)
 {
-    if (!response.errorMessage.empty())
+    if (response.errorCode.empty() && response.errorMessage.empty())
     {
-        return utf8ToWide(response.errorMessage);
+        return TextId::EmptyResponse;
     }
-    if (!response.errorCode.empty())
+    constexpr std::array errors{
+        std::pair{"timeout", TextId::HostRequestTimeout},
+        std::pair{"connect_failed", TextId::HostConnectFailed},
+        std::pair{"read_failed", TextId::HostIoFailed},
+        std::pair{"write_failed", TextId::HostIoFailed},
+        std::pair{"invalid_response", TextId::HostInvalidReply},
+        std::pair{"response_too_large", TextId::HostInvalidReply},
+        std::pair{"invalid_options", TextId::InvalidHostRequest},
+        std::pair{"invalid_request", TextId::InvalidHostRequest},
+        std::pair{"empty_request", TextId::InvalidHostRequest},
+        std::pair{"request_too_large", TextId::InvalidHostRequest},
+        std::pair{"invalid_command", TextId::InvalidHostRequest},
+        std::pair{"unknown_command", TextId::InvalidHostRequest},
+        std::pair{"missing_payload", TextId::InvalidHostRequest},
+        std::pair{"unexpected_payload", TextId::InvalidHostRequest},
+        std::pair{"command_limit", TextId::HostServiceFailed},
+        std::pair{"internal_error", TextId::HostServiceFailed},
+        std::pair{"handler_unavailable", TextId::HostServiceFailed},
+        std::pair{"handler_error", TextId::HostServiceFailed},
+        std::pair{"invalid_fx_profile", TextId::InvalidProfileAction},
+        std::pair{"fx_profile_not_found", TextId::ProfileMissing},
+        std::pair{"fx_profile_limit_reached", TextId::ProfileLimitReached},
+        std::pair{"fx_profile_duplicate", TextId::ProfileDuplicate},
+        std::pair{"fx_profile_store_write_failed", TextId::ConfigWriteFailed},
+        std::pair{"invalid_fx_params", TextId::InvalidConfig},
+        std::pair{"invalid_display_override", TextId::InvalidConfig},
+        std::pair{"invalid_hotkeys", TextId::InvalidHostHotkeys},
+        std::pair{"invalid_capture_token", TextId::RecordingExpired},
+        std::pair{"hotkey_operation_failed", TextId::HotkeysUnavailable},
+        std::pair{"generation_conflict", TextId::ConfigRefreshed},
+        std::pair{"config_write_failed", TextId::ConfigWriteFailed},
+        std::pair{"invalid_config", TextId::InvalidConfig},
+        std::pair{"unsupported_os_build", TextId::UnsupportedOs},
+        std::pair{"os_version_unavailable", TextId::RecordingVersionUnknown},
+        std::pair{"hotkeys_unavailable", TextId::HotkeysUnavailable},
+        std::pair{"hotkey_registration_failed", TextId::RegistrationUnavailable},
+        std::pair{"hotkey_activation_unconfirmed", TextId::HotkeysSavedRestartHint},
+        std::pair{"hotkey_cleanup_failed", TextId::HotkeyCleanupFailed},
+        std::pair{"system_integration_failed", TextId::SystemIntegrationFailed}};
+    TextId explanation = TextId::HostRequestFailed;
+    for (const auto& [code, text] : errors)
     {
-        return utf8ToWide(response.errorCode);
+        if (response.errorCode == code)
+        {
+            explanation = text;
+            break;
+        }
     }
-    return L"控制服务未返回可用响应";
+    std::wstring diagnostic = utf8ToWide(response.errorCode + ": " + response.errorMessage);
+    if (response.win32Error != ERROR_SUCCESS)
+    {
+        diagnostic += L" (Win32: " + std::to_wstring(response.win32Error) + L")";
+    }
+    return UiMessage(TextId::ServiceError, {explanation, diagnostic});
 }
 
 std::string ControlCenterWindow::numberJson(const double value)

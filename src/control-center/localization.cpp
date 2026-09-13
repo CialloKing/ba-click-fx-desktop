@@ -137,7 +137,33 @@ std::wstring UiMessage::render(const UiLanguage language) const
             result += pattern[index];
         }
     }
+    for (const auto& suffix : suffixes)
+    {
+        result += suffix.render(language);
+    }
     return result;
+}
+
+bool UiMessage::empty() const
+{
+    return render().empty();
+}
+
+void UiMessage::clear()
+{
+    *this = UiMessage{};
+}
+
+UiMessage operator+(UiMessage left, const UiMessage& right)
+{
+    left.suffixes.push_back(right);
+    return left;
+}
+
+UiMessage& UiMessage::operator+=(const UiMessage& right)
+{
+    suffixes.push_back(right);
+    return *this;
 }
 
 std::wstring formatText(const TextId id, const std::initializer_list<UiMessage::Argument> values)

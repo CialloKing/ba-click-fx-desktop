@@ -11,6 +11,8 @@
 #include <string>
 #include <string_view>
 
+using namespace bafx::control_center;
+
 namespace
 {
 
@@ -61,7 +63,7 @@ void recordStartupFailure(const std::wstring_view message) noexcept
     }
 }
 
-[[nodiscard]] std::wstring describeWin32Failure(const DWORD error)
+[[nodiscard]] UiMessage describeWin32Failure(const DWORD error)
 {
     std::array<wchar_t, 1'024U> buffer{};
     const DWORD count = FormatMessageW(
@@ -74,7 +76,7 @@ void recordStartupFailure(const std::wstring_view message) noexcept
         nullptr);
     if (count == 0U)
     {
-        return L"Win32 错误 " + std::to_wstring(error);
+        return UiMessage(TextId::Win32Failure, {std::to_wstring(error), std::wstring{}});
     }
 
     std::wstring message(buffer.data(), count);
@@ -83,7 +85,7 @@ void recordStartupFailure(const std::wstring_view message) noexcept
     {
         message.pop_back();
     }
-    return L"Win32 错误 " + std::to_wstring(error) + L"：" + message;
+    return UiMessage(TextId::Win32Failure, {std::to_wstring(error), message});
 }
 
 [[nodiscard]] bool activateExistingControlCenter() noexcept
@@ -150,6 +152,15 @@ int WINAPI wWinMain(
         return 0;
     }
 
+    try
+    {
+        setUiLanguage(loadLanguagePreference(languagePreferencePath(bafx::windows::executableDirectory())));
+    }
+    catch (...)
+    {
+        setUiLanguage(UiLanguage::System);
+    }
+
     // Native common controls are part of Windows and need no app-local runtime.
     const INITCOMMONCONTROLSEX commonControls{
         sizeof(INITCOMMONCONTROLSEX),
@@ -157,9 +168,9 @@ int WINAPI wWinMain(
     if (InitCommonControlsEx(&commonControls) == FALSE)
     {
         const DWORD error = GetLastError();
-        const std::wstring message = describeWin32Failure(error);
-        recordStartupFailure(message);
-        MessageBoxW(nullptr, message.c_str(), L"BAFX 启动失败", MB_OK | MB_ICONERROR);
+        const UiMessage message = describeWin32Failure(error);
+        recordStartupFailure(message.render(UiLanguage::SimplifiedChinese));
+        localizedMessageBox(nullptr, message, TextId::StartupFailed, MB_OK | MB_ICONERROR);
         return 1;
     }
 
@@ -172,18 +183,17 @@ int WINAPI wWinMain(
             : showCommand;
         if (!window.create(effectiveShowCommand, options.startup))
         {
-            const std::wstring message = describeWin32Failure(window.lastError());
-            recordStartupFailure(message);
-            MessageBoxW(nullptr, message.c_str(), L"BAFX 启动失败", MB_OK | MB_ICONERROR);
+            const UiMessage message = describeWin32Failure(window.lastError());
+            recordStartupFailure(message.render(UiLanguage::SimplifiedChinese));
+            localizedMessageBox(nullptr, message, TextId::StartupFailed, MB_OK | MB_ICONERROR);
             return 1;
         }
         return window.runMessageLoop();
     }
     catch (...)
     {
-        constexpr std::wstring_view message = L"控制中心初始化时发生内部错误。";
-        recordStartupFailure(message);
-        MessageBoxW(nullptr, message.data(), L"BAFX 启动失败", MB_OK | MB_ICONERROR);
+        recordStartupFailure(translatedText(TextId::InitializationFailed, UiLanguage::SimplifiedChinese));
+        localizedMessageBox(nullptr, TextId::InitializationFailed, TextId::StartupFailed, MB_OK | MB_ICONERROR);
         return 1;
     }
 }
