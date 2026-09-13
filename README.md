@@ -58,9 +58,13 @@ Get-Content -LiteralPath '.\下载的完整文件名.sha256'
 更新前退出 Host，备份配置；不要混用不同版本的 Host 与 Control Center。版本检查不会自动下载或安装。
 
 Portable 将 `BAFX.config.json`、`fx-profiles` 和日志保存在 EXE 目录；安装版保存在安装目录的 `data` 子目录。
+语言偏好独立保存在同一位置的 `BAFX.ControlCenter.language`，内容为 `auto`、`zh-CN` 或 `en-US`；发行包不携带此文件。
 卸载使用开始菜单卸载项或 Windows“已安装的应用”，默认保留 `data`；需彻底清理时先备份，退出程序并卸载后再删除该目录。
 
 ## 常用设置与渲染模式
+
+**界面语言**：在“系统 → 系统行为 → 界面语言”选择“跟随系统 / 简体中文 / English”，立即生效，无需重启，Host 未启动时也可切换。
+默认跟随 Windows 当前用户的显示语言：中文使用简体中文，其余语言使用英文。重启后保留选择，“重置默认”保留语言偏好。
 
 Control Center 提供“基础设置”“高级参数”“显示与性能”“快捷键”“系统”五个页面。常用设置包括效果大小、
 拖尾长度与宽度、Bloom 强度与质量、随 Windows 启动，以及内置和自定义特效预设。

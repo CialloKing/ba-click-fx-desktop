@@ -9,7 +9,7 @@ Includes a transparent overlay, a native Control Center, and transparent effects
 
 Targets Windows 10/11 x64; the installer requires OS build `19041` or later. Current visual review covers a single primary SDR display.
 Release users do not need the Visual C++ runtime, Windows App SDK, or development tools. The Host renders effects; the Control Center manages settings and lifecycle.
-The Control Center currently uses a Chinese interface; key controls below include their on-screen Chinese labels.
+The Control Center supports English and Simplified Chinese, with an immediate language switch on the System page.
 
 ## Contents
 
@@ -60,12 +60,17 @@ from a complete Portable package. Exit the Host and back up configuration first.
 The version check never downloads or installs updates automatically.
 
 Portable stores `BAFX.config.json`, `fx-profiles`, and logs beside the executables; installed builds use the installation directory's `data` folder.
+The separate `BAFX.ControlCenter.language` file is stored in the same location and contains `auto`, `zh-CN`, or `en-US`. Release packages do not include this preference file.
 Uninstall through the Start Menu or Windows Installed apps. Uninstall preserves `data` by default; for a complete reset, back it up,
 exit the applications, uninstall, then delete that folder.
 
 ## Settings and rendering modes
 
-The five Control Center pages are Basic settings (基础设置), Advanced parameters (高级参数), Display and Performance (显示与性能), Hotkeys (快捷键), and System (系统). Common settings include effect size,
+**Interface language**: open **System → System behavior → Language** and select **跟随系统 / System**, **简体中文**, or **English**.
+Changes take effect immediately, even when Host is stopped, and persist after restarting. The default follows the current Windows user's display language:
+Chinese uses Simplified Chinese; other languages use English. Reset defaults preserves this preference.
+
+The five Control Center pages are Basic (基础设置), Advanced (高级参数), Display performance (显示与性能), Hotkeys (快捷键), and System (系统). Common settings include effect size,
 trail length/width, Bloom intensity/quality, Windows startup, and built-in/custom effects profiles.
 Profiles store effects only; they do not overwrite background, display, input, performance, or system settings.
 
@@ -76,7 +81,7 @@ Profiles store effects only; they do not overwrite background, display, input, p
 | Light-background optimization (浅色背景优化, `light-background`) | Disables WGC and applies a stricter alpha limit; useful for comparing effects on light desktops |
 
 FX-only renders effects without a captured background. It is an internal fallback, not a fourth selectable background mode.
-The recording-compatible option is labeled “录屏兼容（测试，仅 Windows 11 26H1 及以后）”; the selection is rejected if the OS build is too old or cannot be determined.
+The recording-compatible option is labeled “Recording compatible (test, Windows 11 26H1+ only)”; the selection is rejected if the OS build is too old or cannot be determined.
 None of the modes guarantees pixel-for-pixel reproduction of game visuals on arbitrary desktops.
 
 Core performance mode (核心性能模式（关闭 Bloom 与背景）) retains disks, rings, shards, and trails while skipping Bloom and WGC. It uses conservative SDR, 60 FPS, and FX-only.
@@ -84,7 +89,7 @@ It is independent of the Full/Slim build variants. HDR requests and the experime
 
 Global hotkeys are all unbound by default. The Hotkeys page configures pause/resume, always-on trail, next profile, and Host shutdown.
 Bindings accept a single main key or Ctrl/Alt/Shift/Win plus a main key; F12 is prohibited. System or application conflicts may prevent registration.
-Reset defaults (重置默认) preserves saved hotkeys and the current paused/running state.
+Reset defaults (重置默认) preserves saved hotkeys, the current paused/running state, and the interface language preference.
 
 ## Support boundaries and certificates
 

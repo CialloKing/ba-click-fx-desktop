@@ -23,6 +23,10 @@ obj/
 __pycache__/
 *.py[cod]
 
+# The UI language is a local preference, never release content.
+BAFX.ControlCenter.language
+BAFX.ControlCenter.language.*.tmp
+
 # Local validation evidence can be large and machine-specific.
 /artifacts/local/
 /artifacts/local-alpha*/

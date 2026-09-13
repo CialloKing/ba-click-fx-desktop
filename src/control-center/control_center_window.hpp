@@ -277,7 +277,7 @@ private:
 
     [[nodiscard]] bool refreshFromHost();
     [[nodiscard]] bool refreshDisplayStateFromHost();
-    [[nodiscard]] static std::wstring hostVersionDescription(
+    [[nodiscard]] static UiMessage::Argument hostVersionDescription(
         const HostState& state);
     void updateHostVersionText(const HostState& state);
     void rejectIncompatibleHostVersion(const HostState& state);

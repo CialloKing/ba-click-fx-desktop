@@ -93,6 +93,8 @@ void ControlCenterWindow::retranslateUi()
     translateCombo(effectsMode_, {TextId::FullEffects, TextId::CoreEffects});
     translateCombo(backgroundMode_, {TextId::BackgroundAware, TextId::RecordingCompatible, TextId::LightBackground});
     translateCombo(bloomQuality_, {TextId::Compact, TextId::Moderate, TextId::Original, TextId::ExtraWide, TextId::Custom});
+    SendMessageW(fxProfileNameEdit_, EM_SETCUEBANNER, TRUE,
+        reinterpret_cast<LPARAM>(tr(TextId::ProfileName)));
     for (const HWND control : {framePacing_, displayFramePacing_})
     {
         translateCombo(control, {TextId::MatchDisplay, TextId::Fixed60, TextId::Fixed120, TextId::Fixed144, TextId::UnlimitedFps});

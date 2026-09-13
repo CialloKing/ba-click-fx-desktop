@@ -203,6 +203,16 @@ struct ControlCenterUiTest
         BAFX_CHECK(ui.languagePreference_ == UiLanguage::English);
         BAFX_CHECK(SendMessageW(ui.languageSelector_, CB_GETCURSEL, 0U, 0) == 2);
         BAFX_CHECK(caption(ui.messageText_).find(L"Could not save") != std::wstring::npos);
+        // A Windows settings notification re-resolves only the auto preference.
+        ui.languagePreference_ = UiLanguage::SimplifiedChinese;
+        setUiLanguage(ui.languagePreference_);
+        SendMessageW(ui.window_, WM_SETTINGCHANGE, 0U, 0);
+        BAFX_CHECK(currentUiLanguage() == UiLanguage::SimplifiedChinese);
+        ui.languagePreference_ = UiLanguage::System;
+        SendMessageW(ui.window_, WM_SETTINGCHANGE, 0U, 0);
+        BAFX_CHECK(currentUiLanguage() == resolveUiLanguage(UiLanguage::System, GetUserDefaultUILanguage()));
+        ui.languagePreference_ = UiLanguage::English;
+        setUiLanguage(ui.languagePreference_);
 
         // Seed a cached Host snapshot without making a transaction. This also
         // exercises translated built-ins while retaining their wire identities.
@@ -265,6 +275,8 @@ struct ControlCenterUiTest
             for (const auto language : {UiLanguage::SimplifiedChinese, UiLanguage::English})
             {
                 setUiLanguage(language);
+                ui.languagePreference_ = language;
+                SendMessageW(ui.languageSelector_, CB_SETCURSEL, static_cast<WPARAM>(language), 0);
                 ui.retranslateUi();
                 const HMENU tray = ui.createTrayMenu();
                 BAFX_CHECK(tray != nullptr);

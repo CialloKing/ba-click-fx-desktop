@@ -4062,7 +4062,8 @@ void ControlCenterWindow::layoutSlider(
     const int width,
     const int height) const noexcept
 {
-    const int labelWidth = scale(132);
+    // English ring/shard labels need a little more room at the minimum width.
+    const int labelWidth = scale(152);
     const int valueWidth = scale(64);
     const int gap = scale(8);
     moveControl(slider.label, x, y, labelWidth, height);
@@ -5786,7 +5787,7 @@ bool ControlCenterWindow::refreshDisplayStateFromHost()
     return true;
 }
 
-std::wstring ControlCenterWindow::hostVersionDescription(
+UiMessage::Argument ControlCenterWindow::hostVersionDescription(
     const HostState& state)
 {
     switch (state.productVersionStatus)
@@ -5795,26 +5796,18 @@ std::wstring ControlCenterWindow::hostVersionDescription(
     case HostProductVersionStatus::Mismatch:
         return utf8ToWide(*state.productVersion);
     case HostProductVersionStatus::Missing:
-        return tr(TextId::LegacyHostVersion);
+        return TextId::LegacyHostVersion;
     case HostProductVersionStatus::Invalid:
         // Invalid protocol text may contain control characters. Do not echo
         // it into a Win32 label or let it forge an extra status line.
-        return tr(TextId::InvalidVersion);
+        return TextId::InvalidVersion;
     }
-    return tr(TextId::Unrecognized);
+    return TextId::Unrecognized;
 }
 
 void ControlCenterWindow::updateHostVersionText(const HostState& state)
 {
-    UiMessage::Argument version = hostVersionDescription(state);
-    if (state.productVersionStatus == HostProductVersionStatus::Missing)
-    {
-        version = TextId::LegacyHostVersion;
-    }
-    else if (state.productVersionStatus == HostProductVersionStatus::Invalid)
-    {
-        version = TextId::InvalidVersion;
-    }
+    const UiMessage::Argument version = hostVersionDescription(state);
     const UiMessage::Argument suffix = state.productVersionStatus == HostProductVersionStatus::Mismatch
         ? UiMessage::Argument(TextId::HostVersionMismatchSuffix) : UiMessage::Argument(std::wstring{});
     setText(hostVersionText_, UiMessage(TextId::HostVersionFormat, {version, suffix}));
@@ -5836,9 +5829,7 @@ void ControlCenterWindow::rejectIncompatibleHostVersion(
     setText(statusText_, TextId::IncompatibleHostStatus);
     setInfo(
         TextId::IncompatibleHost,
-        UiMessage(TextId::IncompatibleHostMessage, {state.productVersion.has_value()
-            ? UiMessage::Argument(utf8ToWide(*state.productVersion))
-            : UiMessage::Argument(TextId::LegacyHostVersion)}));
+        UiMessage(TextId::IncompatibleHostMessage, {hostVersionDescription(state)}));
 }
 
 void ControlCenterWindow::updateControls(
