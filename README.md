@@ -9,6 +9,7 @@ Windows 原生桌面点击特效与鼠标拖尾，以《蔚蓝档案》的 Unity
 
 运行面向 Windows 10/11 x64；安装器最低要求 OS build `19041`。当前人工特效审核以单主屏 SDR 为准。
 发布包无需另装 Visual C++ 运行库、Windows App SDK 或开发工具。Host 负责特效，Control Center 负责设置和启停。
+控制中心支持简体中文和英文，可在“系统”页即时切换。
 
 ## 目录
 
@@ -28,6 +29,7 @@ Windows 原生桌面点击特效与鼠标拖尾，以《蔚蓝档案》的 Unity
 从[官方 Release](https://github.com/CialloKing/ba-click-fx-desktop/releases/latest) 下载。
 官方提供四个 Full 版资产：安装器、便携 ZIP，以及各自的 `.sha256` 校验文件。
 两种程序包都包含完整特效、Control Center 和 Spout2 发送功能；使用 OBS 时需另装接收插件。
+背景感知使用 Windows 屏幕捕获（Windows Graphics Capture，简称 WGC）读取桌面背景。
 
 | 需求 | 选择 | 说明 |
 |---|---|---|
@@ -59,7 +61,7 @@ Get-Content -LiteralPath '.\下载的完整文件名.sha256'
 不要混用不同版本的 Host 与 Control Center。版本检查不会自动下载或安装。
 
 Portable 将 `BAFX.config.json`、`fx-profiles` 和日志保存在 EXE 目录；安装版保存在安装目录的 `data` 子目录。
-语言偏好独立保存在同一位置的 `BAFX.ControlCenter.language`，内容为 `auto`、`zh-CN` 或 `en-US`；发行包不携带此文件。
+备份时一并保留同目录的语言偏好文件 `BAFX.ControlCenter.language`。
 卸载使用开始菜单卸载项或 Windows“已安装的应用”，默认保留 `data`；需彻底清理时先备份，退出程序并卸载后再删除该目录。
 
 ## 常用设置与渲染模式
@@ -73,17 +75,17 @@ Control Center 提供“基础设置”“高级参数”“显示与性能”�
 
 | 背景模式 | 适用场景与行为 |
 |---|---|
-| 背景感知（`background-aware`，默认） | 使用 WGC 捕获背景参与合成；捕获或自排除失败时回退 FX-only |
-| 录屏兼容（测试，`recording-compatible`） | 仅 OS build `26300` 或更高可选择；尝试 WGC 会话级自排除，不可用时回退其他捕获路径或 FX-only；录屏兼容性尚未完成验收 |
-| 浅色背景优化（`light-background`） | 关闭 WGC，采用更严格的透明度上限，可用于浅色桌面效果比较 |
+| 背景感知（默认） | 日常使用：捕获背景参与合成；捕获不可用或无法排除特效自身时，仅显示特效（FX-only） |
+| 录屏兼容（测试） | 尝试让录屏软件也能捕获特效；仅 OS build `26300` 或更高可选，实际录制结果仍待验证 |
+| 浅色背景优化 | 无需捕获背景，降低透明度上限，可在浅色桌面上比较效果 |
 
 FX-only 表示只呈现特效、不合入捕获背景，是内部回退路径，不是第四种可选背景模式。
 “录屏兼容”在界面中标为“测试，仅 Windows 11 26H2 及以后”；系统版本过低或无法确认时不会应用该选择。
 该模式回退到全局窗口排除时，外部录屏可能看不到特效。使用 OBS 时，按 [Spout2 配置](#obs-与-spout2)单独叠加透明特效层，无需启用录屏兼容模式。
 三种模式都不承诺在任意桌面背景上逐像素还原游戏画面。
 
-“核心性能模式（关闭 Bloom 与背景）”保留圆盘、圆环、碎片和拖尾，跳过 Bloom 与 WGC，固定保守 SDR、60 FPS 和 FX-only。
-它与 Full／Slim 构建变体无关。HDR 请求和自适应 Active-FX ROI 实验开关默认关闭。
+需要降低开销时，选择“核心性能模式（关闭 Bloom 与背景）”：保留圆盘、圆环、碎片和拖尾，关闭光晕与背景捕获，以 SDR、60 FPS 运行。
+它与 Full／Slim 构建变体无关。HDR 和其他实验性能选项默认关闭，细节见[开发指南](docs/DEVELOPMENT.md#host-控制面)。
 
 全局快捷键默认全部未绑定，可在“快捷键”页配置暂停／恢复、常驻拖尾、下一个预设和退出 Host。
 支持单主键或 Ctrl／Alt／Shift／Win 加单主键，F12 不可绑定；被系统或其他程序占用的组合可能注册失败。
@@ -94,24 +96,21 @@ FX-only 表示只呈现特效、不合入捕获背景，是内部回退路径，
 
 | 能力 | 当前范围 |
 |---|---|
-| 点击、拖尾、Control Center、FX-only | Windows 10/11 x64、单主屏 SDR 下可测试；具体证据见支持文档 |
-| Full／Slim 构建、Portable／安装器 | 已有构建及打包验证；Slim 仅供源码构建 |
-| WGC 背景感知 | 依赖系统、运行时接口和自排除能力；失败回退 FX-only |
-| Windows 11 目标硬件无边框 WGC | **Not Run**：真实用户授权、无边框效果和 DWM 最终像素尚未验收 |
-| HDR／Advanced Color | 实验路径存在，尚未完成支持声明 |
-| 多显示器、混合 DPI／刷新率、跨适配器 | 尚未完成完整硬件验收 |
-| OBS／Spout2 | Full 可按下节配置；插件和录制结果以具体环境验收为准 |
+| 点击、拖尾、控制中心 | 面向 Windows 10/11 x64；当前人工特效审核以单主屏 SDR 为准 |
+| 背景感知 | 依赖系统捕获能力；不可用时仅显示特效 |
+| Windows 11 无边框捕获 | 授权流程和实际显示效果尚未完成目标硬件验收 |
+| HDR、多显示器、混合 DPI／刷新率、跨显卡 | 尚未完成完整硬件验收 |
+| OBS 透明输出 | 使用 Full 版与 Spout2 插件，按[下节](#obs-与-spout2)配置并检查录制结果 |
 
-构建通过、离屏测试或 WARP 软件渲染不代表真实硬件能力已验收。
-详细证据、排除项及诊断字段见 [SUPPORT.md](SUPPORT.md) 和 [验证说明](docs/VALIDATION.md)。
+详细支持边界与证据见 [SUPPORT.md](SUPPORT.md) 和[验证说明](docs/VALIDATION.md)。
 
-**Host 启动不以证书校验为前提**。证书异常只影响无边框 WGC，请求失败时回退 FX-only，Host 和其他捕获路径仍可运行。
-重新运行当前安装器（含同版本修复）可重新签名修复；安装成功本身不代表已获得无边框授权或完成硬件验收。
+**证书异常时如何处理？** Host 仍可启动，但无边框捕获请求可能失败并回退到仅显示特效。
+使用运行 Host 的同一 Windows 用户重新运行当前安装器即可修复，也支持同版本修复。安装成功后，无边框捕获仍需系统授权。
 
 发布安装器没有公有代码签名，SmartScreen 可能显示“Unknown Publisher”。用户无需另行下载证书、MSIX 或 SDK。
 
 <details>
-<summary>证书与“安装状态异常”的区别</summary>
+<summary>技术细节：证书、安装状态与验证范围</summary>
 
 安装器在目标机生成本机证书，为提供 Package Identity 的 Sparse Package 签名。每次运行当前安装器都会生成新证书并重新签名。
 有效证书不设临期阈值；实际过期、缺失、损坏或签名不匹配时，无边框请求回退 FX-only。
@@ -119,6 +118,9 @@ FX-only 表示只呈现特效、不合入捕获背景，是内部回退路径，
 安装状态校验是另一项检查：Control Center 需要完整匹配的 `INSTALL-STATE.json` 与 `.bak` 才能激活安装版 Host。
 若显示“安装状态异常”，启动仍会被阻止。请使用运行 Host 的同一 Windows 用户重新运行安装器修复，不要手动删除状态或事务文件。
 签名、证书存储及恢复细节见 [ADR-0009](docs/adr/0009-identity-installer-scheme-c.md)。
+
+Windows 11 目标硬件无边框 WGC 的验收状态仍为 **Not Run**：真实用户授权、无边框效果和桌面合成后的最终像素尚未验收。
+构建通过、离屏测试或 WARP 软件渲染不能代替真实硬件验证。Full／Slim 和安装器／便携包已有构建、打包验证；Slim 仅供源码构建。
 
 </details>
 

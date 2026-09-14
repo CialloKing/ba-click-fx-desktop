@@ -257,6 +257,7 @@ p50/p95；离页停止轮询，样本超过 3 秒显示 stale。这些数字描�
 
 控制中心通过 `UiLanguage`、`TextId` 和编译内置的中英文表翻译界面，动态提示保留文案标识与参数。
 “系统 → 系统行为 → 界面语言”独立保存为 `BAFX.ControlCenter.language`，路径复用主配置目录判断。
+便携版保存在 EXE 目录，安装版保存在安装目录的 `data` 子目录；内容为 `auto`、`zh-CN` 或 `en-US`，发行包不携带此文件。
 重译仅更新控件与缓存状态的显示，保留草稿，不调用 Host 写入或更新检查。
 
 Host 和 Control Center 从 0.2.5 起共享同一产品版本合同。Host 的 `GetState.productVersion` 必须是
@@ -310,18 +311,17 @@ Unity `2021.3.56f2` 仍未验证。没有待消费的位置时不会仅为输入
 帧率，也不会修改 Unity TrailRenderer 的 `m_MinVertexDistance=0.01`、`time=0.3` 或
 `widthMultiplier=0.005`。
 
-控制中心也会显示三个渲染模式（显示名依次为“背景感知”“录屏兼容拟合”“浅色背景优化”），以及
+控制中心也会显示三个渲染模式（“背景感知”“录屏兼容（测试，仅 Windows 11 26H2 及以后）”“浅色背景优化”），以及
 “允许黄色捕获边框”复选框。它们对应的 wire values 分别为 `background-aware`、
-`recording-compatible`、`light-background`；切换到后两项会关闭 WGC。新配置默认请求
+`recording-compatible`、`light-background`。浅色背景优化关闭 WGC；录屏兼容会尝试 WGC 会话级窗口排除，
+不可用时依次回退到全局窗口排除和 FX-only，全局排除可能使外部录屏看不到特效。新配置默认请求
 `background-aware` 并允许 Windows 显示捕获边框；用户可取消勾选以要求无边框捕获。这不构成 WGC、
 录屏兼容性或 HDR 的支持声明；关闭边框后若无边框 WGC 无法安全建立，Host 必须保持或回退到内部
 FX-only transport。
 
-“录屏兼容拟合”固定使用截图中 Web 版设置的原生对应：`browser-overlay` 透明覆盖层、
-`visual-max` Alpha 策略、`bright-core` 颜色补偿、`0.90` Alpha 上限、`source-over` 宿主合成，
-并按未知透明背景处理，不让 WGC 样本进入最终 pass。原生桌面没有 Web 的 DOM 背景表面；这里由
-DirectComposition 的 FP16 预乘透明 surface 承担最接近的传输角色，因此这是录屏可见性优先的视觉拟合，
-不是对 `hostCompositingSurface=dom-backdrop` 的逐像素实现，也不保证所有录屏器都能捕获。
+“录屏兼容”仅在 Windows 11 26H2 及以后（最低 OS build `26300`）开放测试。
+版本检查通过不代表运行时接口可用或录制兼容，仍需验证目标硬件上的最终录制结果。
+OBS 可通过 Spout2 接收独立的透明特效层，无需启用此测试模式。
 
 底层协议仍可由 PowerShell 或其他 Named Pipe 客户端验证：
 

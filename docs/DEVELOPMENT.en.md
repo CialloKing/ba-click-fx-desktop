@@ -227,6 +227,7 @@ performance, or system settings.
 
 The Control Center uses `UiLanguage`, stable `TextId` values and compiled Chinese/English tables.
 **System → System behavior → Language** saves `BAFX.ControlCenter.language` separately in the configuration directory.
+Portable stores it beside the executables; installed builds use the installation directory's `data` folder. It contains `auto`, `zh-CN`, or `en-US` and is excluded from release packages.
 Retranslation preserves drafts and reuses cached status; it does not write Host settings or start an update check.
 
 The Display and Performance page reports the actual per-display bounds, DPI, physical/capture
@@ -250,14 +251,15 @@ recording-compatible
 light-background
 ```
 
-Only `background-aware` enables WGC. If WGC, borderless capture, or self-exclusion cannot be
-established safely, the current batch falls back to FX-only transport. Portable builds do not
-claim borderless capture capability because they have no Package Identity.
+Both `background-aware` and `recording-compatible` request WGC; `light-background` disables it.
+If capture or self-exclusion cannot be established safely, the current batch falls back to FX-only.
+Portable builds do not claim borderless capture capability because they have no Package Identity.
 
-`recording-compatible` is a transparent-overlay fit using the `browser-overlay`, `visual-max`,
-`bright-core`, `0.90` alpha-limit, and `source-over` strategy. The desktop build has no DOM
-background surface, so this is not a pixel-for-pixel implementation of a web backdrop and does
-not guarantee capture compatibility with every recorder.
+`recording-compatible` is a test mode for Windows 11 26H2 and later (minimum OS build `26300`).
+It attempts session-local window exclusion, then falls back to global window exclusion and finally
+FX-only if needed. Global exclusion may hide effects from external recordings. Passing the version
+check does not establish runtime API support or recording compatibility; target-hardware validation remains incomplete.
+OBS can receive a separate transparent effects layer through Spout2 without enabling this test mode.
 
 The `effects.bloomIntensity` value is the Unity Bloom scalar (default `1.7`, range `0..10`),
 not a multiplier relative to `1.0`. Bloom quality presets map to diffusion values `4/6/7/10`.

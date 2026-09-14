@@ -29,6 +29,7 @@ The Control Center supports English and Simplified Chinese, with an immediate la
 Use the [official Release page](https://github.com/CialloKing/ba-click-fx-desktop/releases/latest).
 Official releases contain four Full assets: the installer, Portable ZIP, and a `.sha256` checksum for each.
 Both packages include complete effects, the Control Center, and the Spout2 sender; OBS requires a separate receiver plugin.
+Background-aware mode reads the desktop through Windows Graphics Capture (WGC).
 
 | Need | Choose | Details |
 |---|---|---|
@@ -61,7 +62,7 @@ For Portable updates, keep your configuration and profiles when replacing the co
 The version check never downloads or installs updates automatically.
 
 Portable stores `BAFX.config.json`, `fx-profiles`, and logs beside the executables; installed builds use the installation directory's `data` folder.
-The separate `BAFX.ControlCenter.language` file is stored in the same location and contains `auto`, `zh-CN`, or `en-US`. Release packages do not include this preference file.
+Include the language preference file `BAFX.ControlCenter.language` from the same directory in your backup.
 Uninstall through the Start Menu or Windows Installed apps. Uninstall preserves `data` by default; for a complete reset, back it up,
 exit the applications, uninstall, then delete that folder.
 
@@ -77,17 +78,17 @@ Profiles store effects only; they do not overwrite background, display, input, p
 
 | Background mode | Use and behavior |
 |---|---|
-| Background-aware (背景感知, `background-aware`, default) | Composites with a WGC background sample; capture or self-exclusion failure falls back to FX-only |
-| Recording-compatible (录屏兼容, test mode, `recording-compatible`) | Selectable only on OS build `26300` or later; tries WGC session-local self-exclusion, then falls back to other capture paths or FX-only if unavailable; recording compatibility still awaits acceptance |
-| Light-background optimization (浅色背景优化, `light-background`) | Disables WGC and applies a stricter alpha limit; useful for comparing effects on light desktops |
+| Background-aware (default) | For everyday use: composites with a captured background; renders effects alone (FX-only) if capture is unavailable or cannot exclude the effects themselves |
+| Recording compatible (test) | Tries to keep effects visible to recording software; requires OS build `26300` or later, and actual recording results still need validation |
+| Light background | Skips background capture and lowers the opacity limit; useful for comparing effects on light desktops |
 
 FX-only renders effects without a captured background. It is an internal fallback, not a fourth selectable background mode.
 The recording-compatible option is labeled “Recording compatible (test, Windows 11 26H2+ only)”; the selection is rejected if the OS build is too old or cannot be determined.
 If this mode falls back to global window exclusion, external recordings may lose the effects. For OBS, use the [Spout2 setup](#obs-and-spout2) to add a separate transparent effects layer; recording-compatible mode is not required.
 None of the modes guarantees pixel-for-pixel reproduction of game visuals on arbitrary desktops.
 
-Core performance mode (核心性能模式（关闭 Bloom 与背景）) retains disks, rings, shards, and trails while skipping Bloom and WGC. It uses conservative SDR, 60 FPS, and FX-only.
-It is independent of the Full/Slim build variants. HDR requests and the experimental adaptive Active-FX ROI option default to off.
+To reduce overhead, select Core (Bloom and background off). It retains disks, rings, shards, and trails, disables glow and background capture, and runs at SDR, 60 FPS.
+It is independent of the Full/Slim build variants. HDR and experimental performance options default to off; see the [development guide](docs/DEVELOPMENT.en.md#control-center-and-runtime-behavior) for details.
 
 Global hotkeys are all unbound by default. The Hotkeys page configures pause/resume, always-on trail, next profile, and Host shutdown.
 Bindings accept a single main key or Ctrl/Alt/Shift/Win plus a main key; F12 is prohibited. System or application conflicts may prevent registration.
@@ -98,24 +99,21 @@ Reset defaults (重置默认) preserves saved hotkeys, the current paused/runnin
 
 | Capability | Current scope |
 |---|---|
-| Click effects, trails, Control Center, FX-only | Testable on Windows 10/11 x64 with a single primary SDR display; see the support document for evidence |
-| Full/Slim builds, Portable/installer | Build and packaging validation exists; Slim is source-only |
-| WGC background capture | Depends on the OS, runtime APIs, and self-exclusion; failure falls back to FX-only |
-| Borderless WGC on Windows 11 target hardware | **Not Run**: real user authorization, borderless visuals, and final DWM pixels still await acceptance |
-| HDR/Advanced Color | Experimental paths exist; no completed support claim |
-| Multiple displays, mixed DPI/refresh rates, cross-adapter operation | Full hardware acceptance remains incomplete |
-| OBS/Spout2 | Configure Full as described below; plugin and recording acceptance depends on the specific environment |
+| Click effects, trails, Control Center | Targets Windows 10/11 x64; current visual review covers a single primary SDR display |
+| Background-aware mode | Depends on system capture support; renders effects alone when unavailable |
+| Borderless capture on Windows 11 | Permission flow and actual visuals still await validation on target hardware |
+| HDR, multiple displays, mixed DPI/refresh rates, cross-GPU operation | Full hardware acceptance remains incomplete |
+| OBS transparent output | Use Full with the Spout2 plugin, follow the [setup below](#obs-and-spout2), and check your recording |
 
-Successful builds, offscreen tests, and WARP software rendering do not prove physical hardware support.
-See [SUPPORT.md](SUPPORT.md) and [validation documentation](docs/VALIDATION.md) for evidence, exclusions, and diagnostic fields.
+See [SUPPORT.md](SUPPORT.md) and the [validation documentation](docs/VALIDATION.md) for detailed support boundaries and evidence.
 
-**Host startup is not gated by certificate validation**. Certificate problems affect only borderless WGC: failed requests fall back to FX-only, while the Host and other capture paths can still run.
-Run the current installer again, including for same-version repair, to sign again. Successful installation alone does not prove borderless authorization or hardware acceptance.
+**What if a certificate fails?** The Host can still start, but borderless capture requests may fail and fall back to effects only.
+Run the current installer again as the same Windows user who runs the Host; same-version repair is supported. Borderless capture still needs system permission after installation.
 
 The distributed installer has no public code signature, so SmartScreen may show "Unknown Publisher". Users do not need separate certificates, MSIX files, or SDK tools.
 
 <details>
-<summary>Certificates versus an abnormal installation state</summary>
+<summary>Technical details: certificates, installation state, and validation</summary>
 
 The installer creates a target-machine certificate to sign the Sparse Package that supplies Package Identity. Each run of the current installer creates a new certificate and signs again.
 Valid certificates have no near-expiry threshold; expiry, missing/damaged certificates, or signature mismatch makes borderless requests fall back to FX-only.
@@ -123,6 +121,9 @@ Valid certificates have no near-expiry threshold; expiry, missing/damaged certif
 Installation-state validation is separate: the Control Center requires a complete matching pair of `INSTALL-STATE.json` and `.bak` to activate an installed Host.
 An abnormal installation state (安装状态异常) still blocks startup. Run the installer again as the same Windows user who runs the Host; do not manually delete state or transaction files.
 See [ADR-0009](docs/adr/0009-identity-installer-scheme-c.md) for signing, certificate storage, and recovery details.
+
+Borderless WGC on Windows 11 target hardware remains **Not Run**: real user authorization, borderless visuals, and final desktop-composited pixels still await acceptance.
+Successful builds, offscreen tests, and WARP software rendering do not replace physical hardware validation. Full/Slim builds and Installer/Portable packaging have been checked; Slim remains source-only.
 
 </details>
 
