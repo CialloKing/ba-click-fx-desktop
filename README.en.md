@@ -7,6 +7,10 @@
 Native Windows desktop click effects and cursor trails, using Blue Archive's Unity/game resources as the visual reference.
 Includes a transparent overlay, a native Control Center, and transparent effects output for OBS. Current product version: **0.2.15**.
 
+![Native click ring, shards, and cursor trail preview](docs/images/native-click-trail.png)
+
+*Offscreen preview from the desktop application's native renderer on black. Actual desktop visuals vary with the background and mode.*
+
 Targets Windows 10/11 x64; the installer requires OS build `19041` or later. Current visual review covers a single primary SDR display.
 Release users do not need the Visual C++ runtime, Windows App SDK, or development tools. The Host renders effects; the Control Center manages settings and lifecycle.
 The Control Center supports English and Simplified Chinese, with an immediate language switch on the System page.

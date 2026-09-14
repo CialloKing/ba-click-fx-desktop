@@ -423,6 +423,8 @@ Profile 是严格的 effects-only 快照：保存和应用只涉及 `effects`，
 
 ## README 与 Star 历史维护
 
+首页特效图片的来源与重现命令见[预览素材说明](images/README.md)。更新渲染后应重新取样，并同步检查中英文图片说明。
+
 使用 Node.js 24，无需 npm 安装：
 
 ```powershell

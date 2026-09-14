@@ -332,6 +332,8 @@ when activation or old-registration cleanup cannot be confirmed.
 
 ## README and Star history maintenance
 
+See the [preview asset notes](images/README.md) for the README image's origin and reproduction commands. After rendering changes, regenerate it and check both language captions.
+
 Use Node.js 24 with no npm installation:
 
 ```powershell
