@@ -6,7 +6,10 @@
 
 BAFX_TEST(recording_compatibility_accepts_minimum_and_future_builds)
 {
-    constexpr std::uint32_t supportedBuilds[] = {28000U, 28001U, 29000U, 99999U};
+    constexpr std::uint32_t supportedBuilds[] =
+    {
+        26300U, 26301U, 27999U, 28000U, 28001U, 29000U, 99999U
+    };
     for (const std::uint32_t build : supportedBuilds)
     {
         const auto availability =
@@ -21,7 +24,10 @@ BAFX_TEST(recording_compatibility_accepts_minimum_and_future_builds)
 
 BAFX_TEST(recording_compatibility_rejects_older_builds_without_an_upper_bound)
 {
-    constexpr std::uint32_t unsupportedBuilds[] = {19045U, 26100U, 27999U};
+    constexpr std::uint32_t unsupportedBuilds[] =
+    {
+        19045U, 26100U, 26200U, 26299U
+    };
     for (const std::uint32_t build : unsupportedBuilds)
     {
         const auto availability =
@@ -53,7 +59,7 @@ BAFX_TEST(recording_compatibility_treats_version_query_failure_as_unavailable)
 BAFX_TEST(recording_compatibility_diagnostic_record_keeps_requested_and_effective_modes_distinct)
 {
     const auto availability =
-        bafx::windows::recordingCompatibleAvailabilityForBuild(28000U);
+        bafx::windows::recordingCompatibleAvailabilityForBuild(26300U);
     const std::string record =
         bafx::windows::recordingCompatibleControlCenterDiagnosticRecord(
             availability,
@@ -66,6 +72,8 @@ BAFX_TEST(recording_compatibility_diagnostic_record_keeps_requested_and_effectiv
     BAFX_CHECK(
         bafx::windows::recordingCompatibleApplicationRevision() != "unknown");
     BAFX_CHECK(record.find("ApplicationRevision=") != std::string::npos);
+    BAFX_CHECK(record.find("RecordingCompatible.MinimumBuild=26300\n")
+        != std::string::npos);
     BAFX_CHECK(record.find("RequestedMode=recording-compatible")
         != std::string::npos);
     BAFX_CHECK(record.find("AppliedProfile=LightBackground")

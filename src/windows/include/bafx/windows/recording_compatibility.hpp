@@ -7,7 +7,9 @@
 namespace bafx::windows
 {
 
-inline constexpr std::uint32_t minimumRecordingCompatibleBuild = 28000U;
+// Windows 11 26H2 starts at build 26300. This only opens the test mode;
+// WGC session exclusion still requires probing the actual capture session.
+inline constexpr std::uint32_t minimumRecordingCompatibleBuild = 26300U;
 
 enum class RecordingCompatibleAvailabilityReason : std::uint8_t
 {

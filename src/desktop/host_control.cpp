@@ -1593,9 +1593,13 @@ bafx::windows::IpcResponse HostControlPlane::handleSetConfig(
             "recording-compatible",
             bafx::config::toString(config_.background.mode),
             reason);
+        const std::string minimumBuild = std::to_string(
+            bafx::windows::minimumRecordingCompatibleBuild);
         const std::string message = queryFailed
-            ? "OS version could not be queried; recording-compatible requires build 28000 or newer"
-            : "recording-compatible requires OS build 28000 or newer; detected build "
+            ? "OS version could not be queried; recording-compatible requires build "
+                + minimumBuild + " or newer"
+            : "recording-compatible requires OS build " + minimumBuild
+                + " or newer; detected build "
                 + std::to_string(recordingCompatibleAvailability_.build);
         return bafx::windows::IpcResponse::failure(
             queryFailed ? "os_version_unavailable" : "unsupported_os_build",
