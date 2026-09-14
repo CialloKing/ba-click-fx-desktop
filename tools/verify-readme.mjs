@@ -46,7 +46,6 @@ for (const file of documents)
   }
 }
 
-const version = read('cmake/Version.cmake').match(/set\(BAFX_VERSION "([^"]+)"\)/)[1];
 const presets = new Set(JSON.parse(read('CMakePresets.json')).workflowPresets.map((preset) => preset.name));
 const readmes = documents.slice(0, 2).map(read);
 const repository = 'CialloKing/ba-click-fx-desktop';
@@ -54,8 +53,6 @@ const chartUrl = `https://raw.githubusercontent.com/${repository}/refs/heads/sta
 const csvUrl = `https://github.com/${repository}/blob/star-history/stars.csv`;
 for (const [index, body] of readmes.entries())
 {
-  assert.equal(body.split(version).length - 1, 1, `${documents[index]}: keep one current product version`);
-  assert.match(body, new RegExp(`(?:当前产品版本|Current product version)[^\\n]*${version.replaceAll('.', '\\.')}`));
   for (const token of ['releases/latest', '*-Portable-windows-x64.zip', '*-setup-windows-x64.exe',
     '.sha256', 'Full', 'Slim', 'Not Run', 'FX-only', 'INSTALL-STATE.json', 'Premultiplied Alpha',
     '`Default`', '`Normal`'])
@@ -72,4 +69,4 @@ for (const [index, body] of readmes.entries())
 }
 assert.equal(readmes[0].match(/^## /gm).length, readmes[1].match(/^## /gm).length,
   'Keep the Chinese and English section structure aligned');
-console.log('README checks passed: local links, anchors, version, release guidance, and build presets.');
+console.log('README checks passed: local links, anchors, release guidance, and build presets.');

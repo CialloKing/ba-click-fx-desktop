@@ -5,7 +5,7 @@
 [![GitHub Stars](https://img.shields.io/github/stars/CialloKing/ba-click-fx-desktop.svg)](https://github.com/CialloKing/ba-click-fx-desktop/stargazers)
 
 Native Windows desktop click effects and cursor trails, using Blue Archive's Unity/game resources as the visual reference.
-Includes a transparent overlay, a native Control Center, and transparent effects output for OBS. Current product version: **0.2.15**.
+Includes a transparent overlay, a native Control Center, and transparent effects output for OBS.
 
 ![Native click ring, shards, and cursor trail preview](docs/images/native-click-trail.png)
 
