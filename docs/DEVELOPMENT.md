@@ -12,10 +12,12 @@
 源码构建面向 Windows x64。请先准备以下工具：
 
 - Git。
-- CMake 3.25 或更高版本。
-- Visual Studio 2022 (17.x) 或更高版本，安装 **Desktop development with C++** 工作负载，
-  并勾选 MSVC x64/x86 生成工具和 Windows 10/11 SDK。项目本机验证使用 Visual Studio 2026 与
-  Windows SDK 10.0.26100；Windows SDK 10.0.19041 或更高版本可用于兼容构建。
+- Visual Studio 2022（17.x）配合 CMake 3.25+，或 Visual Studio 2026（18.x）配合 CMake 4.2+；
+  [VS 2026 生成器从 CMake 4.2 开始提供](https://cmake.org/cmake/help/latest/generator/Visual%20Studio%2018%202026.html)。
+  安装 **Desktop development with C++** 工作负载，并勾选 MSVC x64/x86 生成工具和 Windows 10/11 SDK。
+  当前发行构建使用 Visual Studio 2026 与 Windows SDK `10.0.28000.0`（补丁版 `28000.2526`）。
+  Windows SDK 10.0.19041 或更高版本可用于兼容构建；CI 分别检查 19041、22621 和 26100。
+  发行构建环境与旧 SDK 兼容检查各自独立，均不代表录屏模式已通过目标硬件验收。
 - Windows PowerShell 5.1 或 PowerShell 7。Python 3 不是编译器依赖，但安装后可以启用完整的
   Python 合同测试；Node.js 用于维护 Unity 纹理快照和 Star 历史，普通构建不需要。
 

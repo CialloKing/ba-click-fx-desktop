@@ -55,7 +55,8 @@ Get-Content -LiteralPath '.\下载的完整文件名.sha256'
 </details>
 
 **更新和配置**：在“系统”页手动点击“检查更新”，再下载并运行新安装器，或替换完整便携包的程序文件。
-更新前退出 Host，备份配置；不要混用不同版本的 Host 与 Control Center。版本检查不会自动下载或安装。
+更新前退出 Host 和 Control Center，备份配置；便携版保留自己的配置和预设，再替换完整程序文件。
+不要混用不同版本的 Host 与 Control Center。版本检查不会自动下载或安装。
 
 Portable 将 `BAFX.config.json`、`fx-profiles` 和日志保存在 EXE 目录；安装版保存在安装目录的 `data` 子目录。
 语言偏好独立保存在同一位置的 `BAFX.ControlCenter.language`，内容为 `auto`、`zh-CN` 或 `en-US`；发行包不携带此文件。
@@ -78,6 +79,7 @@ Control Center 提供“基础设置”“高级参数”“显示与性能”�
 
 FX-only 表示只呈现特效、不合入捕获背景，是内部回退路径，不是第四种可选背景模式。
 “录屏兼容”在界面中标为“测试，仅 Windows 11 26H2 及以后”；系统版本过低或无法确认时不会应用该选择。
+该模式回退到全局窗口排除时，外部录屏可能看不到特效。使用 OBS 时，按 [Spout2 配置](#obs-与-spout2)单独叠加透明特效层，无需启用录屏兼容模式。
 三种模式都不承诺在任意桌面背景上逐像素还原游戏画面。
 
 “核心性能模式（关闭 Bloom 与背景）”保留圆盘、圆环、碎片和拖尾，跳过 Bloom 与 WGC，固定保守 SDR、60 FPS 和 FX-only。
@@ -85,6 +87,7 @@ FX-only 表示只呈现特效、不合入捕获背景，是内部回退路径，
 
 全局快捷键默认全部未绑定，可在“快捷键”页配置暂停／恢复、常驻拖尾、下一个预设和退出 Host。
 支持单主键或 Ctrl／Alt／Shift／Win 加单主键，F12 不可绑定；被系统或其他程序占用的组合可能注册失败。
+录制完成后点击“保存全部”，确认注册成功后生效；录制本身不会保存绑定。
 “重置默认”保留已保存的快捷键和当前暂停／运行状态。
 
 ## 支持范围与证书
@@ -159,8 +162,15 @@ Spout2 只发送透明特效层，不包含桌面背景，WGC 不可用时也可
 Full／Slim 是构建变体，与安装版／便携版的安装方式无关。Full 包含 Spout2；Slim 去掉 Spout2，仍保留 Host、Control Center 和完整特效。
 Slim 仅提供源码构建与本地打包入口，没有官方预编译下载。
 
-准备 Git、CMake 3.25+、Visual Studio 2022+ 的 **Desktop development with C++** 工作负载、
-MSVC x64 工具与 Windows SDK 10.0.19041+。脚本支持 Windows PowerShell 5.1／PowerShell 7；
+准备 Git、Visual Studio 的 **Desktop development with C++** 工作负载、MSVC x64 工具与 Windows SDK 10.0.19041+。
+按 Visual Studio 版本选择 CMake：
+
+| Visual Studio | CMake 最低版本 |
+|---|---|
+| Visual Studio 2022（17.x） | 3.25 |
+| Visual Studio 2026（18.x） | 4.2（[生成器说明](https://cmake.org/cmake/help/latest/generator/Visual%20Studio%2018%202026.html)） |
+
+脚本支持 Windows PowerShell 5.1／PowerShell 7；
 Python 3 用于完整 Python 合同测试。Node.js 仅供 Unity 资源和 Star 历史等维护工具使用，普通产品构建无需安装。
 
 在 Developer PowerShell 中执行；测试需要已登录且未锁屏的交互式 Windows 桌面：

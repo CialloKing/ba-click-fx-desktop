@@ -12,11 +12,12 @@ Run commands from the repository root. See [SUPPORT.md](../SUPPORT.md) for diagn
 Source builds target Windows x64. Install:
 
 - Git.
-- CMake 3.25 or newer.
-- Visual Studio 2022 (17.x) or newer with the **Desktop development with C++** workload,
-  MSVC x64/x86 build tools, and a Windows 10/11 SDK. The local validation environment uses
-  Visual Studio 2026 and Windows SDK 10.0.26100; Windows SDK 10.0.19041 or newer is the
-  compatibility baseline.
+- Visual Studio 2022 (17.x) with CMake 3.25+, or Visual Studio 2026 (18.x) with CMake 4.2+;
+  [the VS 2026 generator was added in CMake 4.2](https://cmake.org/cmake/help/latest/generator/Visual%20Studio%2018%202026.html).
+  Install the **Desktop development with C++** workload, MSVC x64/x86 build tools, and a Windows 10/11 SDK.
+  Current release builds use Visual Studio 2026 and Windows SDK `10.0.28000.0` (servicing version `28000.2526`).
+  Windows SDK 10.0.19041 or newer remains the compatibility baseline; CI checks 19041, 22621, and 26100 separately.
+  Release builds and older-SDK compatibility checks do not establish recording-mode acceptance on target hardware.
 - Windows PowerShell 5.1 or PowerShell 7 for the packaging and contract scripts. Python 3
   is recommended for the full set of Python contract tests; without it, those optional tests
   are not registered. Node.js is used to maintain Unity texture snapshots and Star history, not to build the product.

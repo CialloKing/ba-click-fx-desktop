@@ -39,7 +39,7 @@ Both packages include complete effects, the Control Center, and the Spout2 sende
 2. **Installer**: run it and approve UAC. It opens the Control Center after installation and adds Start Menu/desktop shortcuts.
    **Portable**: extract the complete archive into a writable directory and open `BAFX.ControlCenter.exe`.
    Keep its directory structure and accompanying files; `ba-click-fx-desktop.exe` must be beside the Control Center to start the Host.
-3. Click Start Host (启动 Host), then click or drag the mouse to see effects. Adjust effects, trails, and background mode on the Basic settings (基础设置) page.
+3. Click Start Host, then click or drag the mouse to see effects. Adjust effects, trails, and background mode on the Basic page.
 
 <details>
 <summary>Verify the download (SHA-256)</summary>
@@ -56,7 +56,8 @@ Compare the computed SHA-256 with the checksum file's first column. If they diff
 </details>
 
 **Updates and configuration**: click Check for updates (检查更新) on the System (系统) page, then download and run the new installer or replace the program files
-from a complete Portable package. Exit the Host and back up configuration first. Do not mix Host and Control Center versions.
+from a complete Portable package. Exit both the Host and Control Center and back up configuration first.
+For Portable updates, keep your configuration and profiles when replacing the complete program files. Do not mix Host and Control Center versions.
 The version check never downloads or installs updates automatically.
 
 Portable stores `BAFX.config.json`, `fx-profiles`, and logs beside the executables; installed builds use the installation directory's `data` folder.
@@ -82,6 +83,7 @@ Profiles store effects only; they do not overwrite background, display, input, p
 
 FX-only renders effects without a captured background. It is an internal fallback, not a fourth selectable background mode.
 The recording-compatible option is labeled “Recording compatible (test, Windows 11 26H2+ only)”; the selection is rejected if the OS build is too old or cannot be determined.
+If this mode falls back to global window exclusion, external recordings may lose the effects. For OBS, use the [Spout2 setup](#obs-and-spout2) to add a separate transparent effects layer; recording-compatible mode is not required.
 None of the modes guarantees pixel-for-pixel reproduction of game visuals on arbitrary desktops.
 
 Core performance mode (核心性能模式（关闭 Bloom 与背景）) retains disks, rings, shards, and trails while skipping Bloom and WGC. It uses conservative SDR, 60 FPS, and FX-only.
@@ -89,6 +91,7 @@ It is independent of the Full/Slim build variants. HDR requests and the experime
 
 Global hotkeys are all unbound by default. The Hotkeys page configures pause/resume, always-on trail, next profile, and Host shutdown.
 Bindings accept a single main key or Ctrl/Alt/Shift/Win plus a main key; F12 is prohibited. System or application conflicts may prevent registration.
+After recording a binding, click Save all and confirm successful registration. Recording alone does not save it.
 Reset defaults (重置默认) preserves saved hotkeys, the current paused/running state, and the interface language preference.
 
 ## Support boundaries and certificates
@@ -136,14 +139,14 @@ See the [OBS guide](docs/OBS_SPOUT2.md) for plugin detection, older-scene migrat
 
 ## FAQ and feedback
 
-**No trail when moving the mouse?** Trails appear only while a mouse button is held by default. Start the Host and make sure Mouse trail (鼠标拖尾) is enabled on the Basic settings page.
+**No trail when moving the mouse?** Trails appear only while a mouse button is held by default. Start the Host and make sure Mouse trail is enabled on the Basic page.
 Enable Always-on trail (拖尾常驻) to show trails during ordinary movement.
 
-**A yellow border appears on screen?** This is the Windows capture indicator, allowed by default. Disable Allow yellow capture border (允许黄色捕获边框) on the Basic settings page
+**A yellow border appears on screen?** This is the Windows capture indicator, allowed by default. Disable Allow yellow capture border on the Basic page
 to start capture only when borderless permission and capability checks succeed; otherwise the Host falls back to FX-only. Installed builds also need system permission.
 
 **Effects continue after closing the Control Center?** The Control Center and Host are separate processes. Use Pause effects (暂停特效)/Resume effects (恢复特效) or the notification-area menu for a temporary pause.
-To stop effects completely, click Close Host (关闭 Host) or use the Host's notification-area Exit command. Closing the Control Center window does not automatically stop the Host.
+To stop effects completely, click Stop Host or use the Host's notification-area Exit command. Closing the Control Center window does not automatically stop the Host.
 
 **No effects in OBS?** Make sure the Host is running and not paused. On the System page, check Enable OBS transparent effects output and inspect sender/plugin status.
 In OBS, select the correct sender, keep the Spout2 source visible and on top, and check alpha compositing and canvas size using the [steps above](#obs-and-spout2). Idle frames are fully transparent; click or drag to test.
@@ -163,7 +166,14 @@ See [SUPPORT.md](SUPPORT.md) for further diagnostics.
 Full/Slim are build variants, separate from the Installer/Portable installation choices. Full includes Spout2; Slim removes Spout2 while retaining the Host, Control Center, and complete effects.
 Slim is available through source builds and local packaging only; there are no official prebuilt downloads.
 
-Install Git, CMake 3.25+, Visual Studio 2022+ with **Desktop development with C++**, MSVC x64 tools, and Windows SDK 10.0.19041+.
+Install Git, Visual Studio with **Desktop development with C++**, MSVC x64 tools, and Windows SDK 10.0.19041+.
+Choose CMake to match your Visual Studio version:
+
+| Visual Studio | Minimum CMake version |
+|---|---|
+| Visual Studio 2022 (17.x) | 3.25 |
+| Visual Studio 2026 (18.x) | 4.2 ([generator documentation](https://cmake.org/cmake/help/latest/generator/Visual%20Studio%2018%202026.html)) |
+
 Scripts support Windows PowerShell 5.1/PowerShell 7. Python 3 enables the full Python contract tests.
 Node.js is for maintenance tools such as Unity resource generation and Star history; ordinary product builds do not require it.
 
