@@ -5,7 +5,7 @@
 [![GitHub Stars](https://img.shields.io/github/stars/CialloKing/ba-click-fx-desktop.svg)](https://github.com/CialloKing/ba-click-fx-desktop/stargazers)
 
 Native Windows desktop click effects and cursor trails, using Blue Archive's Unity/game resources as the visual reference.
-Includes a transparent overlay, a native Control Center, and transparent effects output for OBS. Current product version: **0.2.13**.
+Includes a transparent overlay, a native Control Center, and transparent effects output for OBS. Current product version: **0.2.14**.
 
 Targets Windows 10/11 x64; the installer requires OS build `19041` or later. Current visual review covers a single primary SDR display.
 Release users do not need the Visual C++ runtime, Windows App SDK, or development tools. The Host renders effects; the Control Center manages settings and lifecycle.
