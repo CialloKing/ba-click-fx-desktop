@@ -64,7 +64,7 @@ collector 使用进程内总 watchdog；自动化调用仍必须设置独立的�
 
 - capture 授权成功与拒绝；borderless 请求成功与失败。
 - cursor inclusion/exclusion、ContentSize 改变、session restart、窗口/显示器关闭。
-- `BackgroundAware` 与 `RecordingCompatible` 模式切换；后者只在 OS build `28000` 及以上由用户主动
+- `BackgroundAware` 与 `RecordingCompatible` 模式切换；后者只在 OS build `26300` 及以上由用户主动
   开启，未来 build 不设上限，低版本和版本探测失败均由 UI 与 Host 双重拒绝。
 - 至少一种桌面捕获与一种窗口捕获录屏路径。
 
@@ -214,7 +214,7 @@ RTX 4060 Laptop GPU；证据目录为
 `artifacts\local\spikes\spk-002-session-exclusion\DESKTOP-AE81VOU-1c7bd07\`）。这证明旧系统能
 启动并如实记录 QI 不支持，不能证明 Session-local 能力。外部录屏/OBS、HDR、多显示器、device lost 和
 packaged 权限矩阵均保持 `Not Run`，不能用本 Spike 替代。只有真实目标系统达到 `Available + Passed` 并补齐所需硬件矩阵后，
-才允许评审是否把测试路径提升为默认产品路径。当前 build `>= 28000` 的用户可主动选择
+才允许评审是否把测试路径提升为默认产品路径。当前 build `>= 26300` 的用户可主动选择
 `recording-compatible` 测试模式：Overlay 使用 `WDA_NONE`，创建 Session 后设置 Session-local WindowId
 排除列表，在收到对应 configuration iteration 的 frame 前不发布新的 `BackgroundSnapshot`；失败时按固定
 顺序回退到旧 WDA，再失败才进入 FX-only。生产诊断必须区分三条实际路径。旧系统仍由版本门禁拒绝，不能

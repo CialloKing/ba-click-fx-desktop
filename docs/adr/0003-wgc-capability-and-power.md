@@ -25,7 +25,7 @@ Agile/Threading(Both) 不保证方法并发安全。`MinUpdateInterval` 只在 b
 上限收紧为 `0.85`。
 
 `recording-compatible` 仅作为用户主动选择的外部录屏测试模式开放。Host 与 Control Center 共用
-同一个运行时版本判定：版本探测成功且 `dwBuildNumber >= 28000` 才允许应用，低于该值或探测失败
+同一个运行时版本判定：版本探测成功且 `dwBuildNumber >= 26300` 才允许应用，低于该值或探测失败
 均拒绝；不设未来 build 上限。允许尝试时，实际路径按
 `SessionLocalExclusion -> LegacyGlobalExclusion -> FxOnly` 顺序回退；该模式的成功日志不能推导
 WGC Session-local exclusion 已通过正式支持验收。

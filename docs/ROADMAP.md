@@ -149,15 +149,15 @@ Prefilter/Pyramid/Bloom 收益、相邻配对、FPS、GPU command p99、pending�
   加载 warning 仅在 Control Center/IPC 请求完整 Host 状态时物化，避免按渲染帧复制名称并
   反复构造 Effects JSON。
 
-## 录屏兼容用户反馈测试（2026-08-18）
+## 录屏兼容用户反馈测试（2026-08-18，2026-09-14 更新 26H2 门槛）
 
 - `background.mode=recording-compatible` 保持为用户主动选择的测试模式，默认模式与正式 WGC 路径不变；
-- Control Center 始终显示“录屏兼容（测试，仅 Windows 11 26H1 及以后）”，但只有版本探测成功且
-  `OS build >= 28000` 时发送配置请求。未来 build 不设上限；旧 build 或版本未知时恢复原选项；
+- Control Center 始终显示“录屏兼容（测试，仅 Windows 11 26H2 及以后）”，但只有版本探测成功且
+  `OS build >= 26300` 时发送配置请求。未来 build 不设上限；旧 build 或版本未知时恢复原选项；
 - Host 独立执行同一门禁。绕过 UI 的请求返回 `unsupported_os_build` 或
   `os_version_unavailable`，不增加 generation、不修改持久化配置；旧配置启动时回退到
   `light-background`，保存失败仍保持内存中的回退模式；
-- build `>= 28000` 的测试模式请求 Session-local WGC：保持 `WDA_NONE`，使用
+- build `>= 26300` 的测试模式请求 Session-local WGC：保持 `WDA_NONE`，使用
   `RecordingCompatible` Profile，并在当前 Session 排除 Overlay WindowId；对应 configuration iteration
   的 frame 到达前不发布新的背景快照。Session-local 启动/运行失败时顺序回退到旧 WDA，再失败进入 FX-only；
 - 默认 `BackgroundAware` 继续使用旧的 LegacyGlobal WDA 路径，`LightBackground` 继续保持 `0.85`，测试模式
@@ -194,7 +194,7 @@ Alpha 25 的生产代码阶段已完成以下合同，阶段末仍只执行一�
 - `windows-build-compat.yml` 以 SDK `10.0.19041.0`、`10.0.22621.0` 和 `10.0.26100.0` 构建 Host、
   Control Center、Identity Signer 的完整二进制，并在每个 job 记录 runner 实际安装的 Include/Lib SDK。
   19041 是最低旧 SDK 基线，22621 是中间 Windows 11 SDK，26100 是当前 runner 清单中的最高 SDK；
-  该编译矩阵不替代 Windows build `28000+` 的运行时或 WGC 硬件证据。Windows 11 能力保持运行时探测，
+  该编译矩阵不替代 Windows build `26300+` 的运行时或 WGC 硬件证据。Windows 11 能力保持运行时探测，
   Windows 10 不因缺少能力而裁剪功能。
 
 这些提交不修改 Unity 粒子、Trail、材质、Bloom 或线性 FP16 工作空间。HDR 继续默认关闭，只在最终

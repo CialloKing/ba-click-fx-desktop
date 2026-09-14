@@ -77,11 +77,11 @@ Profiles store effects only; they do not overwrite background, display, input, p
 | Background mode | Use and behavior |
 |---|---|
 | Background-aware (背景感知, `background-aware`, default) | Composites with a WGC background sample; capture or self-exclusion failure falls back to FX-only |
-| Recording-compatible (录屏兼容, test mode, `recording-compatible`) | Selectable only on OS build `28000` or later; tries WGC session-local self-exclusion, then falls back to other capture paths or FX-only if unavailable; recording compatibility still awaits acceptance |
+| Recording-compatible (录屏兼容, test mode, `recording-compatible`) | Selectable only on OS build `26300` or later; tries WGC session-local self-exclusion, then falls back to other capture paths or FX-only if unavailable; recording compatibility still awaits acceptance |
 | Light-background optimization (浅色背景优化, `light-background`) | Disables WGC and applies a stricter alpha limit; useful for comparing effects on light desktops |
 
 FX-only renders effects without a captured background. It is an internal fallback, not a fourth selectable background mode.
-The recording-compatible option is labeled “Recording compatible (test, Windows 11 26H1+ only)”; the selection is rejected if the OS build is too old or cannot be determined.
+The recording-compatible option is labeled “Recording compatible (test, Windows 11 26H2+ only)”; the selection is rejected if the OS build is too old or cannot be determined.
 None of the modes guarantees pixel-for-pixel reproduction of game visuals on arbitrary desktops.
 
 Core performance mode (核心性能模式（关闭 Bloom 与背景）) retains disks, rings, shards, and trails while skipping Bloom and WGC. It uses conservative SDR, 60 FPS, and FX-only.

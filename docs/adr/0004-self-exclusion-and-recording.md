@@ -21,11 +21,16 @@
 - `LightBackground`：同样关闭背景传感器并撤销 WDA，使用 `0.85` Alpha 上限的浅色背景拟合。
 
 `RecordingCompatible` 是用户主动选择的录屏兼容测试模式，不是默认路径，也不代表 WGC Session-local
-排除已经可用。Control Center 显示为“录屏兼容（测试，仅 Windows 11 26H1 及以后）”，wire value
-仍为 `recording-compatible`。运行时只接受版本探测成功且 `OS build >= 28000`；不支持或无法探测时，
+排除已经可用。Control Center 显示为“录屏兼容（测试，仅 Windows 11 26H2 及以后）”，wire value
+仍为 `recording-compatible`。运行时只接受版本探测成功且 `OS build >= 26300`；不支持或无法探测时，
 UI 不发送 IPC，Host 也拒绝直接请求。旧配置在启动时回退并原子持久化为 `light-background`，保存失败
 仍以内存中的安全模式运行；未来 build 不设置上限，自动纳入测试资格。`LightBackground` 的 `0.85`
 Alpha 合同保持不变，测试模式的 `0.90` 仅用于外部录屏观察。
+
+2026-09-14 将测试入口下限调整为 Windows 11 26H2 的 build `26300`，版本对应关系见
+[微软 Release Preview 说明](https://learn.microsoft.com/en-us/windows-insider/release-notes/release-preview-24h2-25h2/build-26100-9539-26200-9539)。
+该门槛只决定是否允许选择测试模式；实际 Session 仍须通过接口查询、排除列表设置和 configuration
+iteration 检查，不能用版本号代替能力探测。原已允许的 build `28000` 及更高 build 继续可选。
 
 新版 WGC Session 专属 WindowId 排除已经接入 `RecordingCompatible` 测试模式，但不是默认路径，也不
 代表当前机器或所有目标系统已经具备该能力。实际路径固定为：

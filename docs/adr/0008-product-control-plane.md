@@ -40,7 +40,7 @@
    | Control Center 显示名 | `background.mode` wire value | WGC |
    | --- | --- | --- |
    | 背景感知 | `background-aware` | 启用，失败回退内部 FX-only |
-   | 录屏兼容（测试，仅 Windows 11 26H1 及以后） | `recording-compatible` | 关闭 |
+   | 录屏兼容（测试，仅 Windows 11 26H2 及以后） | `recording-compatible` | 尝试会话级排除，失败回退旧 WDA 或 FX-only |
    | 浅色背景优化 | `light-background` | 关闭 |
 
    `performance.effectsMode` 是与背景模式正交的产品性能轴，wire value 只允许 `full` 和
@@ -49,7 +49,7 @@
    保守 SDR 与 60 FPS。Core 只覆盖运行时解析，不重写已保存的 `background.mode` 或
    `performance.framePacing`；控制中心必须把“关闭 Bloom 与背景”作为可见合同。
 
-   `recording-compatible` 只有在版本探测成功且 OS build 不低于 `28000` 时才可应用。该门槛只有下限，
+   `recording-compatible` 只有在版本探测成功且 OS build 不低于 `26300` 时才可应用。该门槛只有下限，
    不为未来 Windows build 设置上限；版本探测失败、旧 build 或启动时发现已保存的测试模式时，Host
    拒绝或回退到 `light-background`，并在诊断日志中记录 requested/effective mode、原因、FX-only
    路径、WGC disabled 和 Alpha 上限。满足门槛时按

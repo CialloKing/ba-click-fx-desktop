@@ -143,7 +143,7 @@ Full/Spout2，也不代表交互式 smoke、WGC、HDR 或跨适配器能力已�
 `10.0.22621.0` 和 `10.0.26100.0` 构建 Host、Control Center 与 Identity Signer 的完整二进制；每个
 job 还会记录 runner 实际安装的 Include/Lib SDK 清单。19041 是最低旧 SDK 基线，22621 是中间
 Windows 11 SDK，26100 是当前 runner 清单中的最高 SDK。该矩阵只证明编译兼容，不代表 Windows
-build `28000+` 的运行时能力或 WGC Session-local exclusion；Windows 11 API 始终采用运行时能力探测，
+build `26300+` 的运行时能力或 WGC Session-local exclusion；Windows 11 API 始终采用运行时能力探测，
 旧 SDK/Windows 10 构建不能通过裁剪产品目标来规避这些功能。
 
 ### 便携版

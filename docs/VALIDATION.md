@@ -46,9 +46,10 @@
 - PointerFrameAdapter 的跨帧 held、Raw 边沿原序保留、普通 Up-only 帧不移动和边沿后尾随 Move 抑制；
   PointerFrameDispatch 的 Down/Held/Up 帧态归约、Down→Held→Up 固定顺序、三态同时为 true 时各执行
   一次、统一帧位置、统一 `renderTime`、QPC 输入相位隔离，以及 native Cancel 最终硬边界。
-- 录屏兼容测试模式的版本能力判定与 Host 门禁：build `19045`、`26100` 和 `27999` 拒绝，
-  `28000`、`28001`、`29000` 及更高 build 接受，版本探测失败拒绝；拒绝请求不增加 generation、
-  不写配置文件，旧配置在启动时回退到 `light-background`，回退保存失败仍保持内存安全模式。
+- 录屏兼容测试模式的版本能力判定与 Host 门禁：build `19045`、`26100`、`26200` 和 `26299` 拒绝，
+  `26300`、`26301`、`27999`、`28000`、`28001`、`29000` 及更高 build 接受，版本探测失败拒绝；
+  拒绝请求不增加 generation、不写配置文件，旧配置在启动时回退到 `light-background`，回退保存失败
+  仍保持内存安全模式。
   `recording-compatible` wire value 和 schema 不变，`LightBackground` 的 `0.85` Alpha 合同与测试
   模式的 `0.90` Alpha 合同分别验证。该测试仅覆盖透明 overlay 的外部录屏观察，不作为 Session-local
   exclusion 能力证据。
@@ -127,7 +128,7 @@
   修改配置或伪造新快照。工程面板还需覆盖 96/144/192 DPI 和键盘 Tab 顺序；
   离线 override 只在全局拓扑完整时具有权威性。Windows SDK 19041/22621/26100 Actions 均构建 Host、
   Control Center 和 Identity Signer 的完整目标，并记录 runner 实际安装的 SDK 清单；不以当前运行系统
-  缺少 Windows 11 API 为测试失败条件。该 SDK 编译覆盖不替代 build `28000+` 的真实运行时或 WGC 证据；
+  缺少 Windows 11 API 为测试失败条件。该 SDK 编译覆盖不替代 build `26300+` 的真实运行时或 WGC 证据；
 - monitor/adapter rebuild。
 
 ### 全局快捷键控制合同
@@ -186,7 +187,7 @@ Profile 自动化必须同时覆盖存储、IPC、Host 事务和 Control Center 
   `WDA_NONE`，创建 Session 后设置 WindowId 排除列表，并在对应 configuration iteration 的 frame 到达前
   禁止发布新的 `BackgroundSnapshot`；Session-local 失败才回退旧 WDA，再失败才进入 FX-only，诊断必须
   区分三条实际路径；
-- 当前代码已将上述顺序接入用户主动选择的 `recording-compatible` 测试模式：build `>= 28000` 时
+- 当前代码已将上述顺序接入用户主动选择的 `recording-compatible` 测试模式：build `>= 26300` 时
   请求 Session-local WGC，失败时回退旧 WDA/FX-only；默认 `BackgroundAware` 仍保持旧 WDA 路径。
   该接入只证明状态机、日志和回退契约已闭合，不把本机旧系统的 `Unavailable` 结果升级为能力通过。
 - portable `not-packaged`、packaged 权限拒绝和无边框成功必须作为三个独立单元格记录，不能互相替代；
