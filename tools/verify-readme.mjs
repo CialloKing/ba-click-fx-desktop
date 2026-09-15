@@ -49,6 +49,7 @@ for (const file of documents)
 const presets = new Set(JSON.parse(read('CMakePresets.json')).workflowPresets.map((preset) => preset.name));
 const readmes = documents.slice(0, 2).map(read);
 const repository = 'CialloKing/ba-click-fx-desktop';
+const downloadsBadgeUrl = `https://img.shields.io/github/downloads/${repository}/total.svg?label=total%20downloads`;
 const chartUrl = `https://raw.githubusercontent.com/${repository}/refs/heads/star-history/star-history.svg`;
 const csvUrl = `https://github.com/${repository}/blob/star-history/stars.csv`;
 for (const [index, body] of readmes.entries())
@@ -63,7 +64,9 @@ for (const [index, body] of readmes.entries())
   {
     assert.ok(presets.has(match[1]), `Unknown workflow preset ${match[1]}`);
   }
-  assert.ok(body.includes(`https://img.shields.io/github/stars/${repository}.svg`), 'Wrong Star badge repository');
+  // The total endpoint includes assets from every release, not just the latest tag.
+  assert.ok(body.includes(`](${downloadsBadgeUrl})](https://github.com/${repository}/releases)`),
+    `${documents[index]}: missing all-releases download badge`);
   assert.ok(body.includes(`src="${chartUrl}"`) && body.includes(`href="${csvUrl}"`), 'Wrong Star chart/data URL');
   assert.ok(body.includes(`](${csvUrl})`), 'Missing raw CSV link');
 }

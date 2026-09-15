@@ -2,7 +2,9 @@
 
 [English](README.en.md) · [下载最新版本](https://github.com/CialloKing/ba-click-fx-desktop/releases/latest)
 
-[![GitHub Stars](https://img.shields.io/github/stars/CialloKing/ba-click-fx-desktop.svg)](https://github.com/CialloKing/ba-click-fx-desktop/stargazers)
+[![Releases 累计下载量](https://img.shields.io/github/downloads/CialloKing/ba-click-fx-desktop/total.svg?label=total%20downloads)](https://github.com/CialloKing/ba-click-fx-desktop/releases)
+
+统计所有历史 Releases 的附件累计下载次数。
 
 Windows 原生桌面点击特效与鼠标拖尾，以《蔚蓝档案》的 Unity/游戏资源为视觉参考，提供透明覆盖层、
 原生控制中心和 OBS 透明特效输出。

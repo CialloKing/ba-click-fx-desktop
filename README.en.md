@@ -2,7 +2,9 @@
 
 [中文（默认文档）](README.md) · [Download the latest release](https://github.com/CialloKing/ba-click-fx-desktop/releases/latest)
 
-[![GitHub Stars](https://img.shields.io/github/stars/CialloKing/ba-click-fx-desktop.svg)](https://github.com/CialloKing/ba-click-fx-desktop/stargazers)
+[![Total release downloads](https://img.shields.io/github/downloads/CialloKing/ba-click-fx-desktop/total.svg?label=total%20downloads)](https://github.com/CialloKing/ba-click-fx-desktop/releases)
+
+Total asset downloads across all historical releases.
 
 Native Windows desktop click effects and cursor trails, using Blue Archive's Unity/game resources as the visual reference.
 Includes a transparent overlay, a native Control Center, and transparent effects output for OBS.
