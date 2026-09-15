@@ -27,14 +27,17 @@ jobs:
             os: windows-2022
             sdk: "10.0.19041.0"
             legacy_cppwinrt: "true"
+            window_id_projection: "FALSE"
           - name: windows-sdk-22621
             os: windows-2022
             sdk: "10.0.22621.0"
             legacy_cppwinrt: "false"
+            window_id_projection: "TRUE"
           - name: windows-sdk-26100
             os: windows-2022
             sdk: "10.0.26100.0"
             legacy_cppwinrt: "false"
+            window_id_projection: "TRUE"
 
     steps:
       - name: Check out source
@@ -152,6 +155,24 @@ jobs:
               throw "C++/WinRT coroutine path was $($legacyMatch.Groups[1].Value), expected $expectedLegacyState."
           }
           "C++/WinRT legacy coroutine path -> $($legacyMatch.Groups[1].Value)"
+
+          $projectionMatch = [regex]::Match(
+              $cacheText,
+              '^BAFX_WGC_WINDOW_ID_PROJECTION_AVAILABLE:INTERNAL=(TRUE|FALSE)\r?$',
+              [Text.RegularExpressions.RegexOptions]::Multiline)
+          if (-not $projectionMatch.Success -or
+              $projectionMatch.Groups[1].Value -ne '${{ matrix.window_id_projection }}')
+          {
+              throw 'WGC WindowId projection does not match the selected SDK capability.'
+          }
+          $windowsProject = Get-Content -LiteralPath (
+              Join-Path $buildDirectory 'src/windows/bafx_windows.vcxproj') -Raw
+          $projectionDisabled = $windowsProject.Contains('BAFX_WGC_WINDOW_ID_PROJECTION_UNAVAILABLE=1')
+          if ($projectionDisabled -ne ('${{ matrix.window_id_projection }}' -eq 'FALSE'))
+          {
+              throw 'Product compile definitions disagree with the WGC projection probe.'
+          }
+          "WGC WindowId projection -> $($projectionMatch.Groups[1].Value)"
 
       - name: Build complete product binaries
         shell: pwsh

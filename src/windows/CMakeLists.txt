@@ -63,22 +63,7 @@ if(BAFX_ENABLE_SPOUT2)
     target_compile_definitions(bafx_windows PUBLIC BAFX_ENABLE_SPOUT2=1)
 endif()
 
-# The 19041 C++/WinRT projection does not declare Windows::UI::WindowId,
-# even though the newer WGC ABI can still be probed at runtime.  Keep that
-# SDK build usable by making the optional Session-local path report
-# InterfaceUnavailable instead of referencing a missing projected value type.
-set(bafx_wgc_window_id_projection_unavailable OFF)
-if(CMAKE_SYSTEM_VERSION
-    AND CMAKE_SYSTEM_VERSION VERSION_LESS "10.0.26100.0")
-    set(bafx_wgc_window_id_projection_unavailable ON)
-endif()
-if(bafx_wgc_window_id_projection_unavailable)
-    target_compile_definitions(
-        bafx_windows
-        PRIVATE
-            BAFX_WGC_WINDOW_ID_PROJECTION_UNAVAILABLE=1
-    )
-endif()
+bafx_configure_wgc_window_id_projection(bafx_windows)
 target_link_libraries(
     bafx_windows
     PUBLIC

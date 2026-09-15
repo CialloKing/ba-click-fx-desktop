@@ -1,15 +1,4 @@
-function(bafx_configure_cppwinrt_coroutines target_name)
-    if(NOT WIN32 OR NOT MSVC)
-        return()
-    endif()
-    if(NOT TARGET ${target_name})
-        message(FATAL_ERROR "Unknown C++/WinRT target: ${target_name}")
-    endif()
-    if(NOT ARGN)
-        message(FATAL_ERROR "C++/WinRT compatibility requires source files")
-    endif()
-
-    set(CMAKE_TRY_COMPILE_TARGET_TYPE STATIC_LIBRARY)
+function(bafx_cppwinrt_probe_environment sdk_output flags_output)
     set(cppwinrt_probe_cmake_flags)
     set(cppwinrt_selected_windows_sdk "${CMAKE_VS_WINDOWS_TARGET_PLATFORM_VERSION}")
     if(NOT cppwinrt_selected_windows_sdk
@@ -29,7 +18,41 @@ function(bafx_configure_cppwinrt_coroutines target_name)
             cppwinrt_probe_cmake_flags
             "-DCMAKE_SYSTEM_VERSION:STRING=${cppwinrt_selected_windows_sdk}"
         )
+        # Pin the projection include path as well: a nested VS project can
+        # select a newer installed SDK despite CMAKE_SYSTEM_VERSION.
+        find_path(
+            cppwinrt_projection_directory
+            NAMES winrt/base.h
+            PATHS
+                "$ENV{CMAKE_WINDOWS_KITS_10_DIR}"
+                "$ENV{WindowsSdkDir}"
+                "[HKEY_LOCAL_MACHINE/SOFTWARE/Microsoft/Windows Kits/Installed Roots;KitsRoot10]"
+            PATH_SUFFIXES "Include/${cppwinrt_selected_windows_sdk}/cppwinrt"
+            NO_DEFAULT_PATH
+            NO_CACHE
+            REQUIRED
+        )
+        list(APPEND cppwinrt_probe_cmake_flags
+            "-DINCLUDE_DIRECTORIES:STRING=${cppwinrt_projection_directory}")
     endif()
+    set(${sdk_output} "${cppwinrt_selected_windows_sdk}" PARENT_SCOPE)
+    set(${flags_output} "${cppwinrt_probe_cmake_flags}" PARENT_SCOPE)
+endfunction()
+
+function(bafx_configure_cppwinrt_coroutines target_name)
+    if(NOT WIN32 OR NOT MSVC)
+        return()
+    endif()
+    if(NOT TARGET ${target_name})
+        message(FATAL_ERROR "Unknown C++/WinRT target: ${target_name}")
+    endif()
+    if(NOT ARGN)
+        message(FATAL_ERROR "C++/WinRT compatibility requires source files")
+    endif()
+
+    set(CMAKE_TRY_COMPILE_TARGET_TYPE STATIC_LIBRARY)
+    bafx_cppwinrt_probe_environment(
+        cppwinrt_selected_windows_sdk cppwinrt_probe_cmake_flags)
     if(cppwinrt_selected_windows_sdk)
         message(
             STATUS
@@ -153,4 +176,53 @@ int cppwinrtCoroutineProbe()
         STATUS
         "Using the legacy MSVC coroutine TS for the selected C++/WinRT projection"
     )
+endfunction()
+
+function(bafx_configure_wgc_window_id_projection target_name)
+    set(CMAKE_TRY_COMPILE_TARGET_TYPE STATIC_LIBRARY)
+    bafx_cppwinrt_probe_environment(wgc_selected_sdk wgc_probe_cmake_flags)
+    if(BAFX_CPPWINRT_LEGACY_COROUTINES)
+        list(APPEND wgc_probe_cmake_flags
+            "-DCOMPILE_DEFINITIONS=/await /Zc:twoPhase- /D_SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS")
+    endif()
+    # This tests only the declarations/collections needed by our local WGC
+    # ABI. The build machine's OS cannot tell us what the target OS supports.
+    try_compile(
+        wgc_window_id_projection_available
+        SOURCE_FROM_CONTENT wgc_window_id_projection_probe.cpp [=[
+#define ENABLE_WINRT_EXPERIMENTAL_TYPES
+#include <winrt/Windows.Foundation.h>
+#include <winrt/Windows.Foundation.Collections.h>
+#include <winrt/Windows.UI.h>
+
+void wgcWindowIdProjectionProbe()
+{
+    using winrt::Windows::UI::WindowId;
+    using namespace winrt::Windows::Foundation::Collections;
+    auto values = winrt::single_threaded_vector<WindowId>();
+    values.Append(WindowId{1U});
+    auto iterable = values.as<IIterable<WindowId>>();
+    IVectorView<WindowId> view = values.GetView();
+    (void)winrt::get_abi(iterable);
+    (void)view.GetAt(0U).Value;
+}
+]=]
+        CMAKE_FLAGS ${wgc_probe_cmake_flags}
+        CXX_STANDARD 20
+        CXX_STANDARD_REQUIRED ON
+        CXX_EXTENSIONS OFF
+        NO_CACHE
+        OUTPUT_VARIABLE wgc_window_id_probe_output
+    )
+    set(BAFX_WGC_WINDOW_ID_PROJECTION_AVAILABLE
+        "${wgc_window_id_projection_available}" CACHE INTERNAL
+        "Whether the selected C++/WinRT projection supports WGC WindowId collections"
+        FORCE)
+    message(STATUS
+        "WGC WindowId projection: SDK=${wgc_selected_sdk}; available=${wgc_window_id_projection_available}")
+    if(NOT wgc_window_id_projection_available)
+        message(STATUS "WGC WindowId projection probe failed:\n${wgc_window_id_probe_output}")
+        target_compile_definitions(${target_name} PRIVATE
+            BAFX_WGC_WINDOW_ID_PROJECTION_UNAVAILABLE=1)
+    endif()
 endfunction()
