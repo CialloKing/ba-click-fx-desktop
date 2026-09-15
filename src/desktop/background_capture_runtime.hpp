@@ -75,6 +75,8 @@ backgroundCaptureCancelResizePolicy(
 struct BackgroundCaptureExecutionResult
 {
     std::string sensorFailure{};
+    std::optional<bafx::windows::WgcSessionWindowExclusionState>
+        sessionLocalExclusionFailure{};
     std::optional<bafx::windows::WindowSize> resizedOutputSize{};
     std::optional<bafx::windows::WindowSize> recreatedFramePoolSize{};
     bool deviceRecovered{false};

@@ -111,39 +111,8 @@ namespace
     message += win32Hex(static_cast<DWORD>(producer.result));
     const bafx::windows::WgcSessionWindowExclusionState exclusion =
         renderer.backgroundSessionWindowExclusion();
-    message += "; session-local-exclusion=";
-    message += bafx::windows::wgcSessionWindowExclusionStatusName(
-        exclusion.status);
-    message += "; display-session-qi=";
-    message += win32Hex(
-        static_cast<DWORD>(exclusion.displaySessionQueryResult));
-    message += "; session7-qi=";
-    message += win32Hex(
-        static_cast<DWORD>(exclusion.sessionIterationQueryResult));
-    message += "; frame3-qi=";
-    message += win32Hex(static_cast<DWORD>(exclusion.frameQueryResult));
-    message += "; window-id-result=";
-    message += win32Hex(static_cast<DWORD>(exclusion.windowIdResult));
-    message += "; set-result=";
-    message += win32Hex(static_cast<DWORD>(exclusion.setResult));
-    message += "; get-result=";
-    message += win32Hex(static_cast<DWORD>(exclusion.getResult));
-    message += "; requested-window-id=";
-    message += std::to_string(exclusion.requestedWindowId);
-    message += "; observed-window-id=";
-    message += std::to_string(exclusion.observedWindowId);
-    message += "; set-iteration=";
-    message += std::to_string(exclusion.setIteration);
-    message += "; session-iteration=";
-    message += std::to_string(exclusion.sessionIteration);
-    message += "; frame-iteration=";
-    message += std::to_string(exclusion.lastFrameIteration);
-    message += "; rejected-iteration-frames=";
-    message += std::to_string(exclusion.rejectedFrameCount);
-    message += "; consecutive-rejected-iteration-frames=";
-    message += std::to_string(exclusion.consecutiveRejectedFrameCount);
-    message += "; iteration-confirmed=";
-    message += exclusion.frameIterationConfirmed ? "true" : "false";
+    message += "; ";
+    message += bafx::windows::wgcSessionWindowExclusionDiagnostic(exclusion);
     return message;
 }
 
@@ -276,6 +245,7 @@ void beginBackgroundCaptureExecution(
     const std::chrono::steady_clock::time_point now)
 {
     execution.sensorFailure.clear();
+    execution.sessionLocalExclusionFailure.reset();
     execution.resizedOutputSize.reset();
     execution.recreatedFramePoolSize.reset();
     execution.deviceRecovered = false;
@@ -1220,40 +1190,10 @@ BackgroundCaptureExecutionStatus executeBackgroundCaptureTransition(
                         == bafx::windows::BackgroundCaptureRequest::
                             ExclusionMode::SessionLocal)
                 {
-                    const bafx::windows::WgcSessionWindowExclusionState state =
+                    // The fallback creates a new sensor and may fail too.
+                    // Keep this attempt separately from that sensor's state.
+                    execution.sessionLocalExclusionFailure =
                         renderer.backgroundSessionWindowExclusion();
-                    std::string diagnostic = "SessionLocalExclusion=";
-                    diagnostic += bafx::windows::
-                        wgcSessionWindowExclusionStatusName(state.status);
-                    diagnostic += ";QI.DisplaySession=";
-                    diagnostic += win32Hex(
-                        static_cast<DWORD>(state.displaySessionQueryResult));
-                    diagnostic += ";QI.SessionIteration=";
-                    diagnostic += win32Hex(
-                        static_cast<DWORD>(state.sessionIterationQueryResult));
-                    diagnostic += ";QI.Frame3=";
-                    diagnostic += win32Hex(
-                        static_cast<DWORD>(state.frameQueryResult));
-                    diagnostic += ";WindowId.Get=";
-                    diagnostic += win32Hex(
-                        static_cast<DWORD>(state.windowIdResult));
-                    diagnostic += ";Set=";
-                    diagnostic += win32Hex(static_cast<DWORD>(state.setResult));
-                    diagnostic += ";Get=";
-                    diagnostic += win32Hex(static_cast<DWORD>(state.getResult));
-                    diagnostic += ";SetIteration=";
-                    diagnostic += std::to_string(state.setIteration);
-                    diagnostic += ";SessionIteration=";
-                    diagnostic += std::to_string(state.sessionIteration);
-                    diagnostic += ";WindowIdRoundTrip=";
-                    diagnostic += state.windowIdRoundTripConfirmed
-                        ? "true"
-                        : "false";
-                    if (!execution.sensorFailure.empty())
-                    {
-                        execution.sensorFailure += ";";
-                    }
-                    execution.sensorFailure += diagnostic;
                 }
                 break;
             }
@@ -1515,6 +1455,10 @@ void appendBackgroundCaptureOutcome(
 {
     const bafx::windows::EffectiveBackgroundCapturePath effectivePath =
         transition.effectivePath();
+    const std::string sessionLocalFailure = execution.sessionLocalExclusionFailure.has_value()
+        ? ";" + bafx::windows::wgcSessionWindowExclusionDiagnostic(
+            *execution.sessionLocalExclusionFailure)
+        : std::string{};
     if (effectivePath
             == bafx::windows::EffectiveBackgroundCapturePath::BackgroundAware
         || effectivePath
@@ -1534,6 +1478,7 @@ void appendBackgroundCaptureOutcome(
             pathMessage += ";FallbackReason=";
             pathMessage += execution.sensorFailure;
         }
+        pathMessage += sessionLocalFailure;
         bafx::windows::appendDiagnosticLog(logPath, pathMessage);
         if (execution.recreatedFramePoolSize.has_value())
         {
@@ -1575,6 +1520,7 @@ void appendBackgroundCaptureOutcome(
     message += effectiveBackgroundCapturePathName(effectivePath);
     message += "; requested-exclusion-mode=";
     message += backgroundCaptureExclusionModeName(request.exclusionMode);
+    message += sessionLocalFailure;
     bafx::windows::appendDiagnosticLog(logPath, message);
 }
 

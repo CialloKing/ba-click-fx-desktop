@@ -23,6 +23,7 @@
 #include <winrt/base.h>
 
 #include <chrono>
+#include <iomanip>
 #include <limits>
 #include <memory>
 #include <sstream>
@@ -88,13 +89,13 @@ public:
     WindowIdInteropResolver(const WindowIdInteropResolver&) = delete;
     WindowIdInteropResolver& operator=(const WindowIdInteropResolver&) = delete;
 
-    [[nodiscard]] HRESULT getWindowId(
+    [[nodiscard]] std::optional<HRESULT> getWindowId(
         const HWND window,
         WindowIdAbi* const id) const noexcept
     {
         if (function_ == nullptr)
         {
-            return E_NOINTERFACE;
+            return std::nullopt;
         }
         return function_(window, id);
     }
@@ -281,8 +282,72 @@ std::string_view wgcSessionWindowExclusionStatusName(
         return "interface-unavailable";
     case WgcSessionWindowExclusionStatus::Rejected:
         return "rejected";
+    case WgcSessionWindowExclusionStatus::CompileTimeUnavailable:
+        return "compile-time-unavailable";
     }
     return "rejected";
+}
+
+bool wgcSessionWindowExclusionCompileSupport() noexcept
+{
+#if defined(BAFX_WGC_WINDOW_ID_PROJECTION_UNAVAILABLE)
+    return false;
+#else
+    return true;
+#endif
+}
+
+std::string wgcSessionWindowExclusionDiagnostic(
+    const WgcSessionWindowExclusionState& state)
+{
+    const auto resultText = [](const std::optional<HRESULT> result)
+    {
+        if (!result.has_value())
+        {
+            return std::string("not-run");
+        }
+        std::ostringstream text;
+        text << "0x" << std::hex << std::uppercase << std::setw(8)
+             << std::setfill('0') << static_cast<DWORD>(*result);
+        return text.str();
+    };
+    const char* probe = "not-run";
+    if (state.runtimeProbe == WgcSessionWindowExclusionProbeStatus::Succeeded)
+    {
+        probe = "succeeded";
+    }
+    else if (state.runtimeProbe == WgcSessionWindowExclusionProbeStatus::Failed)
+    {
+        probe = "failed";
+    }
+    std::ostringstream text;
+    text << "SessionLocalExclusion=" << wgcSessionWindowExclusionStatusName(state.status)
+         << ";SessionLocalExclusion.CompileSupport=" << (state.compileSupport ? "true" : "false")
+         << ";SessionLocalExclusion.RuntimeProbe=" << probe;
+    if (state.runtimeResult.has_value())
+    {
+        text << ";SessionLocalExclusion.RuntimeHRESULT=" << resultText(state.runtimeResult);
+    }
+    text << ";SessionLocalExclusion.FailureStage="
+         << (state.failureStage.empty() ? "none" : state.failureStage)
+         << ";QI.DisplaySession=" << resultText(state.displaySessionQueryResult)
+         << ";QI.SessionIteration=" << resultText(state.sessionIterationQueryResult)
+         << ";QI.Frame3=" << resultText(state.frameQueryResult)
+         << ";WindowId.Get=" << resultText(state.windowIdResult)
+         << ";Set=" << resultText(state.setResult)
+         << ";Get=" << resultText(state.getResult)
+         << ";SessionIteration.Get=" << resultText(state.sessionIterationResult)
+         << ";FrameIteration.Get=" << resultText(state.frameIterationResult)
+         << ";RequestedWindowId=" << state.requestedWindowId
+         << ";ObservedWindowId=" << state.observedWindowId
+         << ";SetIteration=" << state.setIteration
+         << ";SessionIteration=" << state.sessionIteration
+         << ";FrameIteration=" << state.lastFrameIteration
+         << ";WindowIdRoundTrip=" << (state.windowIdRoundTripConfirmed ? "true" : "false")
+         << ";FrameIterationConfirmed=" << (state.frameIterationConfirmed ? "true" : "false")
+         << ";RejectedIterationFrames=" << state.rejectedFrameCount
+         << ";ConsecutiveRejectedIterationFrames=" << state.consecutiveRejectedFrameCount;
+    return text.str();
 }
 
 namespace detail
@@ -308,7 +373,9 @@ bool observeSessionWindowExclusionFrame(
     const std::uint64_t frameIteration) noexcept
 {
     state.frameQueryResult = frameQueryResult;
-    state.frameIterationResult = frameIterationResult;
+    state.frameIterationResult = SUCCEEDED(frameQueryResult)
+        ? std::optional<HRESULT>{frameIterationResult}
+        : std::nullopt;
     state.lastFrameIteration = frameIteration;
     const bool matched = sessionWindowExclusionFrameMatches(
         true,
@@ -660,6 +727,7 @@ struct WgcBackgroundSensor::Implementation
                   : std::make_shared<WgcSessionWindowExclusionState>())
         , notification(std::make_shared<detail::WgcFrameNotification>())
     {
+        *sessionWindowExclusionState = WgcSessionWindowExclusionState{};
         if (sourceDevice == nullptr)
         {
             throw std::invalid_argument("WGC background sensor requires a D3D11 device");
@@ -831,7 +899,19 @@ struct WgcBackgroundSensor::Implementation
             // Exclusion must be the final session configuration so the
             // returned iteration also covers border, cursor, and cadence
             // writes performed above.
-            configureSessionWindowExclusion(sessionUnknown);
+            try
+            {
+                configureSessionWindowExclusion(sessionUnknown);
+            }
+            catch (const winrt::hresult_error& error)
+            {
+                // Collection projection calls can throw between the explicit
+                // ABI calls; retain their real error and operation as well.
+                rejectSessionWindowExclusion(
+                    error.code(),
+                    sessionWindowExclusionState->failureStage,
+                    error.code());
+            }
             try
             {
                 session.StartCapture();
@@ -856,8 +936,15 @@ struct WgcBackgroundSensor::Implementation
 
     void rejectSessionWindowExclusion(
         const HRESULT result,
-        const std::string_view operation)
+        const std::string_view operation,
+        const std::optional<HRESULT> runtimeResult = std::nullopt)
     {
+        sessionWindowExclusionState->failureStage = operation;
+        sessionWindowExclusionState->runtimeResult = runtimeResult;
+        sessionWindowExclusionState->runtimeProbe =
+            sessionWindowExclusionState->displaySessionQueryResult.has_value()
+            ? WgcSessionWindowExclusionProbeStatus::Failed
+            : WgcSessionWindowExclusionProbeStatus::NotRun;
         sessionWindowExclusionState->status =
             result == E_NOINTERFACE
             ? WgcSessionWindowExclusionStatus::InterfaceUnavailable
@@ -883,10 +970,12 @@ struct WgcBackgroundSensor::Implementation
         }
 
 #if defined(BAFX_WGC_WINDOW_ID_PROJECTION_UNAVAILABLE)
-        // SDK 19041 has no projected WindowId value type.  The optional
-        // capability remains runtime-gated, but this binary cannot construct
-        // the WinRT iterable required by SetWindowExclusionList.
-        rejectSessionWindowExclusion(
+        // This is a build capability failure; no target API was queried.
+        sessionWindowExclusionState->status =
+            WgcSessionWindowExclusionStatus::CompileTimeUnavailable;
+        sessionWindowExclusionState->failureStage = "window-id-projection";
+        publishSessionWindowExclusionState();
+        throw HResultError(
             E_NOINTERFACE,
             "session window exclusion WindowId projection is unavailable");
 #else
@@ -896,24 +985,26 @@ struct WgcBackgroundSensor::Implementation
         sessionWindowExclusionState->displaySessionQueryResult =
             sessionUnknown->QueryInterface(IID_PPV_ARGS(&displaySession));
         if (FAILED(
-                sessionWindowExclusionState->displaySessionQueryResult))
+                *sessionWindowExclusionState->displaySessionQueryResult))
         {
             rejectSessionWindowExclusion(
-                sessionWindowExclusionState->displaySessionQueryResult,
+                *sessionWindowExclusionState->displaySessionQueryResult,
                 "GraphicsCaptureSession::QueryInterface("
-                "IDisplayGraphicsCaptureSession)");
+                "IDisplayGraphicsCaptureSession)",
+                sessionWindowExclusionState->displaySessionQueryResult);
         }
 
         ComPtr<GraphicsCaptureSession7Abi> sessionIteration;
         sessionWindowExclusionState->sessionIterationQueryResult =
             sessionUnknown->QueryInterface(IID_PPV_ARGS(&sessionIteration));
         if (FAILED(
-                sessionWindowExclusionState->sessionIterationQueryResult))
+                *sessionWindowExclusionState->sessionIterationQueryResult))
         {
             rejectSessionWindowExclusion(
-                sessionWindowExclusionState->sessionIterationQueryResult,
+                *sessionWindowExclusionState->sessionIterationQueryResult,
                 "GraphicsCaptureSession::QueryInterface("
-                "IGraphicsCaptureSession7)");
+                "IGraphicsCaptureSession7)",
+                sessionWindowExclusionState->sessionIterationQueryResult);
         }
 
         WindowIdAbi abiWindowId{};
@@ -922,14 +1013,22 @@ struct WgcBackgroundSensor::Implementation
             windowIdInterop.getWindowId(
                 options.excludedWindow,
                 &abiWindowId);
-        if (FAILED(sessionWindowExclusionState->windowIdResult))
+        if (!sessionWindowExclusionState->windowIdResult.has_value())
         {
             rejectSessionWindowExclusion(
-                sessionWindowExclusionState->windowIdResult,
-                "GetWindowIdFromWindow(session window exclusion)");
+                E_NOINTERFACE,
+                "GetWindowIdFromWindow entry point is unavailable");
+        }
+        if (FAILED(*sessionWindowExclusionState->windowIdResult))
+        {
+            rejectSessionWindowExclusion(
+                *sessionWindowExclusionState->windowIdResult,
+                "GetWindowIdFromWindow(session window exclusion)",
+                sessionWindowExclusionState->windowIdResult);
         }
         sessionWindowExclusionState->requestedWindowId = abiWindowId.Value;
 
+        sessionWindowExclusionState->failureStage = "WindowId collection construction";
         auto values = winrt::single_threaded_vector<WindowId>();
         values.Append(WindowId{abiWindowId.Value});
         const auto iterable = values.as<
@@ -938,26 +1037,29 @@ struct WgcBackgroundSensor::Implementation
             displaySession->SetWindowExclusionList(
                 winrt::get_abi(iterable),
                 &sessionWindowExclusionState->setIteration);
-        if (FAILED(sessionWindowExclusionState->setResult))
+        if (FAILED(*sessionWindowExclusionState->setResult))
         {
             rejectSessionWindowExclusion(
-                sessionWindowExclusionState->setResult,
-                "IDisplayGraphicsCaptureSession::SetWindowExclusionList");
+                *sessionWindowExclusionState->setResult,
+                "IDisplayGraphicsCaptureSession::SetWindowExclusionList",
+                sessionWindowExclusionState->setResult);
         }
 
         void* rawView = nullptr;
         sessionWindowExclusionState->getResult =
             displaySession->GetWindowExclusionList(&rawView);
-        if (FAILED(sessionWindowExclusionState->getResult)
+        if (FAILED(*sessionWindowExclusionState->getResult)
             || rawView == nullptr)
         {
             rejectSessionWindowExclusion(
-                FAILED(sessionWindowExclusionState->getResult)
-                    ? sessionWindowExclusionState->getResult
+                FAILED(*sessionWindowExclusionState->getResult)
+                    ? *sessionWindowExclusionState->getResult
                     : E_UNEXPECTED,
-                "IDisplayGraphicsCaptureSession::GetWindowExclusionList");
+                "IDisplayGraphicsCaptureSession::GetWindowExclusionList",
+                sessionWindowExclusionState->getResult);
         }
 
+        sessionWindowExclusionState->failureStage = "WindowId collection readback";
         winrt::Windows::Foundation::Collections::IVectorView<WindowId> view(
             rawView,
             winrt::take_ownership_from_abi);
@@ -980,19 +1082,25 @@ struct WgcBackgroundSensor::Implementation
         sessionWindowExclusionState->sessionIterationResult =
             sessionIteration->get_ConfigurationIteration(
                 &sessionWindowExclusionState->sessionIteration);
-        if (FAILED(sessionWindowExclusionState->sessionIterationResult)
+        if (FAILED(*sessionWindowExclusionState->sessionIterationResult)
             || sessionWindowExclusionState->sessionIteration
                 != sessionWindowExclusionState->setIteration)
         {
             rejectSessionWindowExclusion(
-                FAILED(sessionWindowExclusionState->sessionIterationResult)
-                    ? sessionWindowExclusionState->sessionIterationResult
+                FAILED(*sessionWindowExclusionState->sessionIterationResult)
+                    ? *sessionWindowExclusionState->sessionIterationResult
                     : E_FAIL,
-                "session window exclusion configuration iteration mismatch");
+                "session window exclusion configuration iteration mismatch",
+                sessionWindowExclusionState->sessionIterationResult);
         }
 
         sessionWindowExclusionState->status =
             WgcSessionWindowExclusionStatus::Applied;
+        sessionWindowExclusionState->runtimeProbe =
+            WgcSessionWindowExclusionProbeStatus::Succeeded;
+        sessionWindowExclusionState->runtimeResult =
+            sessionWindowExclusionState->sessionIterationResult;
+        sessionWindowExclusionState->failureStage = {};
         publishSessionWindowExclusionState();
 #endif
     }

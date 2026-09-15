@@ -83,6 +83,61 @@ BAFX_TEST(session_window_exclusion_fallback_requires_consecutive_rejections)
         0U));
     BAFX_CHECK(state.rejectedFrameCount == 8U);
     BAFX_CHECK(state.consecutiveRejectedFrameCount == 1U);
+    BAFX_CHECK(state.frameQueryResult == E_NOINTERFACE);
+    BAFX_CHECK(!state.frameIterationResult.has_value());
+}
+
+BAFX_TEST(session_exclusion_compile_failure_does_not_claim_a_runtime_hresult)
+{
+    using namespace bafx::windows;
+    WgcSessionWindowExclusionState state{};
+    state.compileSupport = false;
+    state.status = WgcSessionWindowExclusionStatus::CompileTimeUnavailable;
+    state.failureStage = "window-id-projection";
+    const std::string text = wgcSessionWindowExclusionDiagnostic(state);
+    BAFX_CHECK(text.find("SessionLocalExclusion=compile-time-unavailable") != std::string::npos);
+    BAFX_CHECK(text.find("CompileSupport=false") != std::string::npos);
+    BAFX_CHECK(text.find("RuntimeProbe=not-run") != std::string::npos);
+    BAFX_CHECK(text.find("RuntimeHRESULT=") == std::string::npos);
+    BAFX_CHECK(text.find("QI.DisplaySession=not-run") != std::string::npos);
+    BAFX_CHECK(text.find("WindowId.Get=not-run") != std::string::npos);
+    BAFX_CHECK(text.find("Set=not-run;Get=not-run") != std::string::npos);
+}
+
+BAFX_TEST(session_exclusion_runtime_qi_failure_preserves_the_actual_result)
+{
+    using namespace bafx::windows;
+    WgcSessionWindowExclusionState state{};
+    state.compileSupport = true;
+    state.status = WgcSessionWindowExclusionStatus::InterfaceUnavailable;
+    state.runtimeProbe = WgcSessionWindowExclusionProbeStatus::Failed;
+    state.runtimeResult = E_NOINTERFACE;
+    state.displaySessionQueryResult = E_NOINTERFACE;
+    state.failureStage = "IDisplayGraphicsCaptureSession";
+    const std::string text = wgcSessionWindowExclusionDiagnostic(state);
+    BAFX_CHECK(text.find("CompileSupport=true") != std::string::npos);
+    BAFX_CHECK(text.find("RuntimeProbe=failed") != std::string::npos);
+    BAFX_CHECK(text.find("RuntimeHRESULT=0x80004002") != std::string::npos);
+    BAFX_CHECK(text.find("FailureStage=IDisplayGraphicsCaptureSession") != std::string::npos);
+    BAFX_CHECK(text.find("QI.DisplaySession=0x80004002") != std::string::npos);
+    BAFX_CHECK(text.find("QI.SessionIteration=not-run") != std::string::npos);
+}
+
+BAFX_TEST(session_exclusion_configuration_success_does_not_confirm_a_frame)
+{
+    using namespace bafx::windows;
+    WgcSessionWindowExclusionState state{};
+    state.status = WgcSessionWindowExclusionStatus::Applied;
+    state.runtimeProbe = WgcSessionWindowExclusionProbeStatus::Succeeded;
+    state.runtimeResult = S_OK;
+    state.windowIdRoundTripConfirmed = true;
+    const std::string text = wgcSessionWindowExclusionDiagnostic(state);
+    BAFX_CHECK(text.find("RuntimeProbe=succeeded") != std::string::npos);
+    BAFX_CHECK(text.find("RuntimeHRESULT=0x00000000") != std::string::npos);
+    BAFX_CHECK(text.find("QI.Frame3=not-run") != std::string::npos);
+    BAFX_CHECK(text.find("FrameIteration.Get=not-run") != std::string::npos);
+    BAFX_CHECK(text.find("WindowIdRoundTrip=true") != std::string::npos);
+    BAFX_CHECK(text.find("FrameIterationConfirmed=false") != std::string::npos);
 }
 
 BAFX_TEST(session_window_exclusion_status_names_are_stable)

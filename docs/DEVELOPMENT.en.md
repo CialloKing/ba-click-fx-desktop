@@ -225,6 +225,18 @@ the built-in Unity Original, Lightweight, Click-only, and Trail-only profiles, a
 effects-only custom profiles. Profile files never overwrite background, display, input,
 performance, or system settings.
 
+Recording-compatible diagnostics separate build support from target-machine API calls:
+
+- `SessionLocalExclusion.CompileSupport` comes from compiling the selected SDK's `WindowId` collections, independently of the build machine's OS.
+- `SessionLocalExclusion.RuntimeProbe` is `not-run`, `succeeded` or `failed`; success covers session configuration and readback only.
+- `SessionLocalExclusion.RuntimeHRESULT` is emitted only for an actual call result; `FailureStage` names the failed operation. Missing build support is `compile-time-unavailable`.
+- Uncalled `QI.*`, `WindowId.Get`, `Set`, `Get` and iteration queries display `not-run`, not an initial `S_FALSE` value.
+- `FrameIterationConfirmed` separately confirms a frame with the matching configuration. Sustained external recording still requires visual validation.
+
+The final fallback path retains the failed Session-local attempt. The following active-session
+diagnostic describes the current sensor, which may use Legacy global exclusion; its `not-requested`
+status does not erase the earlier attempt.
+
 The Control Center uses `UiLanguage`, stable `TextId` values and compiled Chinese/English tables.
 **System → System behavior → Language** saves `BAFX.ControlCenter.language` separately in the configuration directory.
 Portable stores it beside the executables; installed builds use the installation directory's `data` folder. It contains `auto`, `zh-CN`, or `en-US` and is excluded from release packages.

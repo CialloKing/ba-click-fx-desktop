@@ -255,6 +255,18 @@ p50/p95；离页停止轮询，样本超过 3 秒显示 stale。这些数字描�
 比例推导 GPU 节省。
 选择器刷新后尽量保留同一显示器；状态缺失或解析失败时显示错误，而不会把请求状态显示为实际能力。
 
+录屏兼容诊断区分编译支持与目标系统的实际调用：
+
+- `SessionLocalExclusion.CompileSupport` 来自选中 SDK 的 `WindowId` 集合编译探针，与构建机 OS 版本无关。
+- `SessionLocalExclusion.RuntimeProbe` 为 `not-run`、`succeeded` 或 `failed`；成功仅表示会话配置和读回通过。
+- `SessionLocalExclusion.RuntimeHRESULT` 仅在有实际调用结果时输出；`FailureStage` 标明失败操作。编译缺失记为
+  `compile-time-unavailable`，不报告虚构的运行时 `E_NOINTERFACE`。
+- 未执行的 `QI.*`、`WindowId.Get`、`Set`、`Get` 和 iteration 查询输出 `not-run`。实际调用才输出十六进制结果。
+- `FrameIterationConfirmed` 单独说明是否收到了配置版本匹配的帧；外部录制是否持续包含特效仍需画面验收。
+
+回退的最终路径日志保留失败的 Session-local 尝试；其后的 active-session 日志描述当前实际会话，可能是
+`LegacyGlobalExclusion`。不能把当前 Legacy 会话的 `not-requested` 当成此前没有尝试过 Session-local。
+
 控制中心通过 `UiLanguage`、`TextId` 和编译内置的中英文表翻译界面，动态提示保留文案标识与参数。
 “系统 → 系统行为 → 界面语言”独立保存为 `BAFX.ControlCenter.language`，路径复用主配置目录判断。
 便携版保存在 EXE 目录，安装版保存在安装目录的 `data` 子目录；内容为 `auto`、`zh-CN` 或 `en-US`，发行包不携带此文件。

@@ -45,21 +45,37 @@ enum class WgcSessionWindowExclusionStatus : std::uint8_t
     NotRequested,
     Applied,
     InterfaceUnavailable,
-    Rejected
+    Rejected,
+    CompileTimeUnavailable
 };
+
+enum class WgcSessionWindowExclusionProbeStatus : std::uint8_t
+{
+    NotRun,
+    Succeeded,
+    Failed
+};
+
+[[nodiscard]] bool wgcSessionWindowExclusionCompileSupport() noexcept;
 
 struct WgcSessionWindowExclusionState final
 {
     WgcSessionWindowExclusionStatus status{
         WgcSessionWindowExclusionStatus::NotRequested};
-    HRESULT displaySessionQueryResult{S_FALSE};
-    HRESULT sessionIterationQueryResult{S_FALSE};
-    HRESULT windowIdResult{S_FALSE};
-    HRESULT setResult{S_FALSE};
-    HRESULT getResult{S_FALSE};
-    HRESULT sessionIterationResult{S_FALSE};
-    HRESULT frameQueryResult{S_FALSE};
-    HRESULT frameIterationResult{S_FALSE};
+    bool compileSupport{wgcSessionWindowExclusionCompileSupport()};
+    WgcSessionWindowExclusionProbeStatus runtimeProbe{
+        WgcSessionWindowExclusionProbeStatus::NotRun};
+    std::optional<HRESULT> runtimeResult{};
+    std::string_view failureStage{};
+    // No value means the API was not called, including steps after a failure.
+    std::optional<HRESULT> displaySessionQueryResult{};
+    std::optional<HRESULT> sessionIterationQueryResult{};
+    std::optional<HRESULT> windowIdResult{};
+    std::optional<HRESULT> setResult{};
+    std::optional<HRESULT> getResult{};
+    std::optional<HRESULT> sessionIterationResult{};
+    std::optional<HRESULT> frameQueryResult{};
+    std::optional<HRESULT> frameIterationResult{};
     std::uint64_t requestedWindowId{0U};
     std::uint64_t observedWindowId{0U};
     std::uint64_t setIteration{0U};
@@ -73,6 +89,9 @@ struct WgcSessionWindowExclusionState final
 
 [[nodiscard]] std::string_view wgcSessionWindowExclusionStatusName(
     WgcSessionWindowExclusionStatus status) noexcept;
+
+[[nodiscard]] std::string wgcSessionWindowExclusionDiagnostic(
+    const WgcSessionWindowExclusionState& state);
 
 namespace detail
 {
