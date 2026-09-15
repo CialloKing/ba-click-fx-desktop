@@ -267,6 +267,11 @@ p50/p95；离页停止轮询，样本超过 3 秒显示 stale。这些数字描�
 回退的最终路径日志保留失败的 Session-local 尝试；其后的 active-session 日志描述当前实际会话，可能是
 `LegacyGlobalExclusion`。不能把当前 Legacy 会话的 `not-requested` 当成此前没有尝试过 Session-local。
 
+无边框身份日志的 `EffectiveExternalPath.Query` 区分 `not-run`、`api-unavailable`、`query-failed` 和
+`succeeded`；`EffectiveExternalPath.ApiModule` 记录 `kernel32.dll`、`kernelbase.dll` 或 `none`。
+包信息使用 `PACKAGE_INFORMATION_FULL` 读取发布者。读取成功后仍需通过安装状态、路径、签名和哈希校验，
+再由系统决定是否授权无边框捕获；普通包安装路径不能代替系统返回的有效外部路径。
+
 控制中心通过 `UiLanguage`、`TextId` 和编译内置的中英文表翻译界面，动态提示保留文案标识与参数。
 “系统 → 系统行为 → 界面语言”独立保存为 `BAFX.ControlCenter.language`，路径复用主配置目录判断。
 便携版保存在 EXE 目录，安装版保存在安装目录的 `data` 子目录；内容为 `auto`、`zh-CN` 或 `en-US`，发行包不携带此文件。

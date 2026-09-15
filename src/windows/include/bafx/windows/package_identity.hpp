@@ -2,10 +2,20 @@
 
 #include <windows.h>
 
+#include <cstdint>
 #include <string>
+#include <string_view>
 
 namespace bafx::windows
 {
+
+enum class PackagePathQueryStatus : std::uint8_t
+{
+    NotRun,
+    ApiUnavailable,
+    QueryFailed,
+    Succeeded
+};
 
 struct PackageIdentityInfo
 {
@@ -27,6 +37,8 @@ struct PackageIdentityInfo
     DWORD applicationUserModelIdError{ERROR_SUCCESS};
     DWORD stagedPathError{ERROR_SUCCESS};
     DWORD effectiveExternalPathError{ERROR_SUCCESS};
+    PackagePathQueryStatus effectiveExternalPathQueryStatus{PackagePathQueryStatus::NotRun};
+    std::string_view effectiveExternalPathApiModule{};
 };
 
 [[nodiscard]] PackageIdentityInfo queryCurrentPackageIdentity() noexcept;

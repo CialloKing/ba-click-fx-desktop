@@ -631,6 +631,7 @@ if(WIN32)
     add_executable(
         bafx_runtime_diagnostics_tests
         test_main.cpp
+        package_identity_tests.cpp
         runtime_diagnostics_tests.cpp
     )
     target_link_libraries(bafx_runtime_diagnostics_tests PRIVATE bafx::windows)

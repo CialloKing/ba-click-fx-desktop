@@ -1,10 +1,12 @@
 #include "bafx/windows/package_identity.hpp"
+#include "bafx/windows/detail/package_identity_query.hpp"
 
 #include <appmodel.h>
 
 #include <cstddef>
 #include <iomanip>
 #include <sstream>
+#include <utility>
 #include <vector>
 
 namespace bafx::windows
@@ -18,14 +20,13 @@ struct PackageStringResult
     std::wstring value{};
 };
 
-struct ParsedPackageId
+[[nodiscard]] FARPROC resolvePackageApi(
+    const wchar_t* const moduleName,
+    const char* const name)
 {
-    DWORD error{ERROR_SUCCESS};
-    std::wstring name{};
-    std::wstring publisher{};
-    std::wstring publisherId{};
-    PACKAGE_VERSION version{};
-};
+    const HMODULE module = GetModuleHandleW(moduleName);
+    return module != nullptr ? GetProcAddress(module, name) : nullptr;
+}
 
 template <typename Query>
 [[nodiscard]] PackageStringResult queryPackageString(Query query) noexcept
@@ -109,15 +110,23 @@ template <typename Query>
     return stream.str();
 }
 
-[[nodiscard]] ParsedPackageId parsePackageId(
-    const std::wstring& fullName) noexcept
+}
+
+namespace detail
+{
+
+ParsedPackageId queryFullPackageId(
+    const std::wstring& fullName,
+    const decltype(&PackageIdFromFullName) query) noexcept
 {
     try
     {
         UINT32 bufferLength = 0U;
-        const LONG initialResult = PackageIdFromFullName(
+        // BASIC omits publisher. Trust validation needs the installed
+        // package's complete identity, not just fields encoded in its name.
+        const LONG initialResult = query(
             fullName.c_str(),
-            PACKAGE_INFORMATION_BASIC,
+            PACKAGE_INFORMATION_FULL,
             &bufferLength,
             nullptr);
         if (initialResult != ERROR_INSUFFICIENT_BUFFER)
@@ -131,9 +140,9 @@ template <typename Query>
 
         std::vector<std::byte> buffer(bufferLength);
         auto* packageId = reinterpret_cast<PACKAGE_ID*>(buffer.data());
-        const LONG result = PackageIdFromFullName(
+        const LONG result = query(
             fullName.c_str(),
-            PACKAGE_INFORMATION_BASIC,
+            PACKAGE_INFORMATION_FULL,
             &bufferLength,
             reinterpret_cast<BYTE*>(buffer.data()));
         if (result != ERROR_SUCCESS)
@@ -159,32 +168,69 @@ template <typename Query>
     }
 }
 
-[[nodiscard]] PackageStringResult queryEffectiveExternalPath() noexcept
+PackagePathQueryResult queryEffectiveExternalPath(
+    const PackageApiResolver resolve) noexcept
 {
     using GetCurrentPackagePath2Function = LONG(WINAPI*)(
         UINT32,
         UINT32*,
         PWSTR);
 
-    const HMODULE kernel32 = GetModuleHandleW(L"kernel32.dll");
-    if (kernel32 == nullptr)
+    // Some Windows builds export this only from KernelBase. Both modules are
+    // already loaded; retaining dynamic lookup keeps older systems loadable.
+    const std::pair<const wchar_t*, const char*> modules[]{
+        {L"kernel32.dll", "kernel32.dll"},
+        {L"kernelbase.dll", "kernelbase.dll"}};
+    for (const auto& [moduleName, diagnosticName] : modules)
     {
-        return PackageStringResult{GetLastError(), {}};
-    }
-    const auto query = reinterpret_cast<GetCurrentPackagePath2Function>(
-        GetProcAddress(kernel32, "GetCurrentPackagePath2"));
-    if (query == nullptr)
-    {
-        return PackageStringResult{ERROR_CALL_NOT_IMPLEMENTED, {}};
-    }
-
-    // PackagePathType_EffectiveExternal is ABI value 5. Resolve the function
-    // dynamically so older Windows builds can still load the complete binary.
-    return queryPackageString(
-        [query](UINT32* length, PWSTR buffer)
+        const auto query = reinterpret_cast<GetCurrentPackagePath2Function>(
+            resolve(moduleName, "GetCurrentPackagePath2"));
+        if (query == nullptr)
         {
-            return query(5U, length, buffer);
-        });
+            continue;
+        }
+        // EffectiveExternal is ABI value 5. Never replace a failed external
+        // location query with the ordinary package path used for staging.
+        PackageStringResult path = queryPackageString(
+            [query](UINT32* length, PWSTR buffer)
+            {
+                return query(5U, length, buffer);
+            });
+        return PackagePathQueryResult{
+            path.error,
+            std::move(path.value),
+            path.error == ERROR_SUCCESS
+                ? PackagePathQueryStatus::Succeeded
+                : PackagePathQueryStatus::QueryFailed,
+            diagnosticName};
+    }
+    return PackagePathQueryResult{
+        ERROR_CALL_NOT_IMPLEMENTED,
+        {},
+        PackagePathQueryStatus::ApiUnavailable,
+        {}};
+}
+
+}
+
+namespace
+{
+
+[[nodiscard]] std::string_view packagePathQueryStatusName(
+    const PackagePathQueryStatus status) noexcept
+{
+    switch (status)
+    {
+    case PackagePathQueryStatus::NotRun:
+        return "not-run";
+    case PackagePathQueryStatus::ApiUnavailable:
+        return "api-unavailable";
+    case PackagePathQueryStatus::QueryFailed:
+        return "query-failed";
+    case PackagePathQueryStatus::Succeeded:
+        return "succeeded";
+    }
+    return "not-run";
 }
 
 [[nodiscard]] std::string packageVersionText(
@@ -231,11 +277,11 @@ PackageIdentityInfo queryCurrentPackageIdentity() noexcept
                     buffer);
             })
         : PackageStringResult{fullName.error, {}};
-    const PackageStringResult effectiveExternalPath =
-        queryEffectiveExternalPath();
-    const ParsedPackageId packageId = fullName.error == ERROR_SUCCESS
-        ? parsePackageId(fullName.value)
-        : ParsedPackageId{fullName.error};
+    const detail::PackagePathQueryResult effectiveExternalPath =
+        detail::queryEffectiveExternalPath(resolvePackageApi);
+    const detail::ParsedPackageId packageId = fullName.error == ERROR_SUCCESS
+        ? detail::queryFullPackageId(fullName.value, PackageIdFromFullName)
+        : detail::ParsedPackageId{fullName.error};
 
     identity.present = fullName.error == ERROR_SUCCESS;
     identity.fullName = wideToUtf8(fullName.value);
@@ -257,6 +303,8 @@ PackageIdentityInfo queryCurrentPackageIdentity() noexcept
     identity.stagedPathError = stagedPath.error;
     identity.effectiveExternalPath = wideToUtf8(effectiveExternalPath.value);
     identity.effectiveExternalPathError = effectiveExternalPath.error;
+    identity.effectiveExternalPathQueryStatus = effectiveExternalPath.status;
+    identity.effectiveExternalPathApiModule = effectiveExternalPath.apiModule;
     return identity;
 }
 
@@ -309,6 +357,11 @@ std::string packageIdentityDiagnostic(const PackageIdentityInfo& identity)
            << ";StagedPathError=" << hexError(identity.stagedPathError)
            << ";EffectiveExternalPathError="
            << hexError(identity.effectiveExternalPathError)
+           << ";EffectiveExternalPath.Query="
+           << packagePathQueryStatusName(identity.effectiveExternalPathQueryStatus)
+           << ";EffectiveExternalPath.ApiModule="
+           << (identity.effectiveExternalPathApiModule.empty()
+                   ? "none" : identity.effectiveExternalPathApiModule)
            << ";Complete="
            << (packageIdentityComplete(identity) ? "true" : "false");
     return stream.str();

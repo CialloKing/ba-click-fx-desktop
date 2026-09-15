@@ -237,6 +237,12 @@ The final fallback path retains the failed Session-local attempt. The following 
 diagnostic describes the current sensor, which may use Legacy global exclusion; its `not-requested`
 status does not erase the earlier attempt.
 
+For borderless identity diagnostics, `EffectiveExternalPath.Query` is `not-run`, `api-unavailable`,
+`query-failed` or `succeeded`; `EffectiveExternalPath.ApiModule` identifies `kernel32.dll`,
+`kernelbase.dll` or `none`. Publisher information is read with `PACKAGE_INFORMATION_FULL`.
+Installation state, paths, signatures and hashes must still pass validation before requesting
+system permission. An ordinary package install path cannot replace the effective external path.
+
 The Control Center uses `UiLanguage`, stable `TextId` values and compiled Chinese/English tables.
 **System → System behavior → Language** saves `BAFX.ControlCenter.language` separately in the configuration directory.
 Portable stores it beside the executables; installed builds use the installation directory's `data` folder. It contains `auto`, `zh-CN`, or `en-US` and is excluded from release packages.
