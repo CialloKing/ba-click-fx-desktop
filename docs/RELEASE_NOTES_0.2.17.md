@@ -12,6 +12,12 @@
 
 主配置保持 schema 20，支持日志保持 schema 2，现有配置与特效预设无需迁移。诊断中的 API 经过时间不等同于 GPU 执行或物理上屏延迟；本次更新不新增渲染性能或外部录屏兼容性声明。
 
+## 验证范围
+
+- Windows SDK `10.0.28000.0`：Full 与 Slim Release 干净构建通过，未出现编译警告或错误。
+- Full CTest 46/46、Slim CTest 45/45 通过，包含日志跨进程协调和外壳导航契约检查。
+- 文档检查及便携包文件清单、版本、PE 依赖、Host 与控制中心启动验证通过。
+
 ## English
 
 Improves log access and diagnostics for connection failures, configuration changes, slow frames, and shutdowns.
@@ -23,6 +29,8 @@ Improves log access and diagnostics for connection failures, configuration chang
 - Retain a coherent slowest-frame snapshot per reporting window and sample process memory, handles, and diagnostic-stage durations every ten seconds, including idle windows.
 
 Configuration schema 20 and log schema 2 remain unchanged. API elapsed times do not measure GPU execution or physical display latency. This release makes no new rendering-performance or external-recording compatibility claims.
+
+Full and Slim clean Release builds passed with Windows SDK `10.0.28000.0`, without compiler warnings or errors. CTest passed 46/46 for Full and 45/45 for Slim, including cross-process logging and shell-navigation contracts. Documentation and Portable ZIP checks passed for contents, versions, PE dependencies, and Host/Control Center startup.
 
 ## 发布资产 / Downloads
 
