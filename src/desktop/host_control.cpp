@@ -18,6 +18,55 @@ namespace bafx::desktop
 namespace
 {
 
+[[nodiscard]] std::string_view commandName(const bafx::windows::IpcCommand command) noexcept
+{
+    using enum bafx::windows::IpcCommand;
+    switch (command)
+    {
+    case GetState: return "GetState";
+    case GetDisplayState: return "GetDisplayState";
+    case GetConfig: return "GetConfig";
+    case GetFxConfig: return "GetFxConfig";
+    case SetConfig: return "SetConfig";
+    case SetHotkeys: return "SetHotkeys";
+    case GetHotkeyState: return "GetHotkeyState";
+    case RetryHotkeys: return "RetryHotkeys";
+    case BeginHotkeyCapture: return "BeginHotkeyCapture";
+    case EndHotkeyCapture: return "EndHotkeyCapture";
+    case SetDisplayOverride: return "SetDisplayOverride";
+    case RemoveDisplayOverride: return "RemoveDisplayOverride";
+    case SetFxParam: return "SetFxParam";
+    case SetFxParams: return "SetFxParams";
+    case ResetFxConfig: return "ResetFxConfig";
+    case SaveFxProfile: return "SaveFxProfile";
+    case ApplyFxProfile: return "ApplyFxProfile";
+    case DeleteFxProfile: return "DeleteFxProfile";
+    case Pause: return "Pause";
+    case Resume: return "Resume";
+    case ClearLogs: return "ClearLogs";
+    case Shutdown: return "Shutdown";
+    }
+    return "unknown";
+}
+
+[[nodiscard]] bool isQuery(const bafx::windows::IpcCommand command) noexcept
+{
+    using enum bafx::windows::IpcCommand;
+    return command == GetState || command == GetDisplayState || command == GetConfig
+        || command == GetFxConfig || command == GetHotkeyState;
+}
+
+[[nodiscard]] std::string_view diagnosticPreview(const std::string_view text, const std::size_t limit) noexcept
+{
+    std::size_t size = (std::min)(text.size(), limit);
+    // A byte budget must not split a UTF-8 code point in names or error text.
+    while (size < text.size() && size > 0U && (static_cast<unsigned char>(text[size]) & 0xC0U) == 0x80U)
+    {
+        --size;
+    }
+    return text.substr(0U, size);
+}
+
 [[nodiscard]] std::string jsonBool(const bool value)
 {
     return value ? "true" : "false";
@@ -1000,12 +1049,134 @@ DWORD HostControlPlane::ipcLastError() const noexcept
     return ipc_.lastError();
 }
 
+HostStateSnapshot HostControlPlane::auditSnapshot() const
+{
+    std::lock_guard lock(mutex_);
+    // Auditing needs no Profile catalog or presentation strings.
+    return HostStateSnapshot{.config = config_, .generation = generation_,
+        .configGeneration = configGeneration_, .paused = paused_};
+}
+
+void HostControlPlane::logControlMutation(
+    const std::string_view source, const std::string_view command,
+    const std::string_view request, const HostStateSnapshot& before,
+    const bafx::windows::IpcResponse& response, const ULONGLONG startedAt) const noexcept
+{
+    try
+    {
+        const auto after = auditSnapshot();
+        const auto changes = bafx::config::describeConfigChanges(before.config, after.config);
+        const auto oldGeneration = std::to_string(before.generation);
+        const auto newGeneration = std::to_string(after.generation);
+        const auto configGeneration = std::to_string(after.configGeneration);
+        const auto elapsed = std::to_string(GetTickCount64() - startedAt);
+        const auto count = std::to_string(changes.size());
+        std::string changeJson = "[";
+        std::size_t recordedChanges = 0U;
+        bool changesTruncated = false;
+        for (const auto& change : changes)
+        {
+            constexpr std::size_t maximumValueBytes = 2'048U;
+            const bool beforeOmitted = change.beforeJson.size() > maximumValueBytes;
+            const bool afterOmitted = change.afterJson.size() > maximumValueBytes;
+            std::string entry = "{\"path\":" + jsonEscape(change.path) + ",\"before\":"
+                + (beforeOmitted ? "null" : change.beforeJson) + ",\"after\":"
+                + (afterOmitted ? "null" : change.afterJson);
+            if (beforeOmitted || afterOmitted)
+            {
+                entry += ",\"beforeOmitted\":" + jsonBool(beforeOmitted)
+                    + ",\"afterOmitted\":" + jsonBool(afterOmitted)
+                    + ",\"beforeBytes\":" + std::to_string(change.beforeJson.size())
+                    + ",\"afterBytes\":" + std::to_string(change.afterJson.size());
+                changesTruncated = true;
+            }
+            entry += '}';
+            // Preserve outcome/error metadata even when a large display array
+            // would otherwise replace the entire event with RecordTruncated.
+            if (changeJson.size() + entry.size() > 16U * 1024U)
+            {
+                changesTruncated = true;
+                break;
+            }
+            if (changeJson.size() > 1U)
+            {
+                changeJson += ',';
+            }
+            changeJson += entry;
+            ++recordedChanges;
+        }
+        changeJson += ']';
+        const auto recorded = std::to_string(recordedChanges);
+        // Keep payload evidence bounded. It contains only the submitted product
+        // command, never keyboard input, screenshots, or whole IPC responses.
+        constexpr std::size_t maximumRequestBytes = 4'096U;
+        const std::array fields{
+            bafx::windows::DiagnosticField{"Control.Source", source},
+            bafx::windows::DiagnosticField{"Control.Command", command},
+            bafx::windows::DiagnosticField{"Control.Succeeded", response.succeeded ? "true" : "false"},
+            bafx::windows::DiagnosticField{"Control.StateChanged", before.generation != after.generation ? "true" : "false"},
+            bafx::windows::DiagnosticField{"Control.ElapsedMs", elapsed},
+            bafx::windows::DiagnosticField{"Control.Generation.Before", oldGeneration},
+            bafx::windows::DiagnosticField{"Control.Generation.After", newGeneration},
+            bafx::windows::DiagnosticField{"Configuration.Generation", configGeneration},
+            bafx::windows::DiagnosticField{"Configuration.ChangedCount", count},
+            bafx::windows::DiagnosticField{"Configuration.RecordedChangeCount", recorded},
+            bafx::windows::DiagnosticField{"Configuration.ChangesTruncated", changesTruncated ? "true" : "false"},
+            bafx::windows::DiagnosticField{"Configuration.Changes", changeJson},
+            bafx::windows::DiagnosticField{"Runtime.Paused.Before", before.paused ? "true" : "false"},
+            bafx::windows::DiagnosticField{"Runtime.Paused.After", after.paused ? "true" : "false"},
+            bafx::windows::DiagnosticField{"Control.Request", diagnosticPreview(request, maximumRequestBytes)},
+            bafx::windows::DiagnosticField{"Control.RequestTruncated", request.size() > maximumRequestBytes ? "true" : "false"},
+            bafx::windows::DiagnosticField{"Error.Code", response.errorCode},
+            bafx::windows::DiagnosticField{"Error.Message", diagnosticPreview(response.errorMessage, maximumRequestBytes)},
+            bafx::windows::DiagnosticField{"Error.MessageTruncated", response.errorMessage.size() > maximumRequestBytes ? "true" : "false"}};
+        bafx::windows::appendDiagnosticEvent(configPath_.parent_path() / L"ba-click-fx-desktop-support.log",
+            "Control.Mutation.Completed", fields, response.succeeded
+                ? bafx::windows::DiagnosticLevel::Info : bafx::windows::DiagnosticLevel::Warning);
+    }
+    catch (...)
+    {
+        // Observing the committed state must never replace the command result.
+    }
+}
+
 bafx::windows::IpcResponse HostControlPlane::handle(
     const bafx::windows::IpcRequest& request) noexcept
 {
     try
     {
         std::lock_guard transaction(mutationMutex_);
+        if (isQuery(request.command))
+        {
+            return dispatch(request);
+        }
+        std::optional<HostStateSnapshot> before;
+        try
+        {
+            before = auditSnapshot();
+        }
+        catch (...)
+        {
+        }
+        const auto startedAt = GetTickCount64();
+        auto response = dispatch(request);
+        if (before.has_value())
+        {
+            logControlMutation("ipc", commandName(request.command), request.payload, *before, response, startedAt);
+        }
+        return response;
+    }
+    catch (...)
+    {
+        return bafx::windows::IpcResponse::failure("handler_error", "host control handler failed");
+    }
+}
+
+bafx::windows::IpcResponse HostControlPlane::dispatch(
+    const bafx::windows::IpcRequest& request) noexcept
+{
+    try
+    {
         switch (request.command)
         {
         case bafx::windows::IpcCommand::GetState:
@@ -1195,6 +1366,7 @@ void HostControlPlane::runHotkeyActions() noexcept
                 continue;
             }
             const HostStateSnapshot state = snapshot();
+            const auto startedAt = GetTickCount64();
             bafx::windows::IpcResponse result;
             switch (event.first)
             {
@@ -1228,6 +1400,8 @@ void HostControlPlane::runHotkeyActions() noexcept
                 hotkeyShutdownRequested_ = true;
                 break;
             }
+            logControlMutation("hotkey", bafx::config::hotkeyActionNames[static_cast<std::size_t>(event.first)],
+                {}, state, result, startedAt);
             if (!result.succeeded)
             {
                 {

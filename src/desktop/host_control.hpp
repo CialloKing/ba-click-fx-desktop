@@ -178,6 +178,12 @@ private:
         const HotkeyOperationResult& result);
     [[nodiscard]] bafx::windows::IpcResponse handle(
         const bafx::windows::IpcRequest& request) noexcept;
+    [[nodiscard]] bafx::windows::IpcResponse dispatch(
+        const bafx::windows::IpcRequest& request) noexcept;
+    [[nodiscard]] HostStateSnapshot auditSnapshot() const;
+    void logControlMutation(std::string_view source, std::string_view command,
+        std::string_view request, const HostStateSnapshot& before,
+        const bafx::windows::IpcResponse& response, ULONGLONG startedAt) const noexcept;
     [[nodiscard]] bafx::windows::IpcResponse handleSetConfig(
         std::string_view payload, bool registerHotkeys = false) noexcept;
     [[nodiscard]] bafx::windows::IpcResponse handleDisplayOverrideMutation(

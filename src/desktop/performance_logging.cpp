@@ -425,12 +425,14 @@ void appendAppliedConfiguration(
     const std::filesystem::path& logPath,
     const bafx::config::Config& config,
     const bafx::windows::WindowSize outputSize,
-    const std::string_view reason) noexcept
+    const std::string_view reason,
+    const std::uint64_t generation) noexcept
 {
     try
     {
         DiagnosticFields fields;
         fields.add("Configuration.Reason", reason);
+        fields.add("Configuration.Generation", generation);
         appendConfigurationFields(fields, config, outputSize);
         fields.append(
             logPath,

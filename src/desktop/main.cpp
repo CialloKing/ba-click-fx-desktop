@@ -3552,7 +3552,8 @@ int runApplication(
         logPath,
         config,
         appliedOutputSize,
-        "startup");
+        "startup",
+        appliedGeneration);
     displaySession.show();
     const bafx::desktop::DisplayTargetSnapshot initialDisplayTopology =
         bafx::desktop::queryDisplayTargets();
@@ -6059,7 +6060,8 @@ int runApplication(
                 logPath,
                 config,
                 appliedOutputSize,
-                configurationReason);
+                configurationReason,
+                appliedGeneration);
         }
         // A lifecycle transaction can invalidate a snapshot before frame
         // pacing waits. Consume it now so a timeout cannot shift attribution

@@ -35,7 +35,8 @@ void appendAppliedConfiguration(
     const std::filesystem::path& logPath,
     const bafx::config::Config& config,
     bafx::windows::WindowSize outputSize,
-    std::string_view reason) noexcept;
+    std::string_view reason,
+    std::uint64_t generation = 0U) noexcept;
 
 [[nodiscard]] std::chrono::nanoseconds appendPerformanceInterval(
     const std::filesystem::path& logPath,

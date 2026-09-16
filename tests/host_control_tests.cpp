@@ -226,14 +226,68 @@ BAFX_TEST(host_control_start_latches_generation_before_accepting_set_config)
         "SetConfig {\"generation\":1,\"path\":\"background.mode\","
         "\"value\":\"recording-compatible\"}");
     BAFX_CHECK(changed.succeeded());
+    const auto stale = client.transact(
+        "SetConfig {\"generation\":1,\"path\":\"effects.opacity\",\"value\":0.5}");
+    BAFX_CHECK(!stale.succeeded());
+    BAFX_CHECK(stale.errorCode == "generation_conflict");
     const bafx::desktop::HostStateSnapshot current = control.snapshot();
     control.stop();
+
+    std::ifstream log(temporary.directoryPath() / L"ba-click-fx-desktop-support.log", std::ios::binary);
+    const std::string diagnostics{std::istreambuf_iterator<char>(log), std::istreambuf_iterator<char>()};
+    BAFX_CHECK(diagnostics.find("Event.Name=Control.Mutation.Completed") != std::string::npos);
+    BAFX_CHECK(diagnostics.find("Control.Generation.Before=1\n") != std::string::npos);
+    BAFX_CHECK(diagnostics.find("Control.Generation.After=2\n") != std::string::npos);
+    BAFX_CHECK(diagnostics.find("\"path\":\"background.mode\",\"before\":\"background-aware\",\"after\":\"recording-compatible\"")
+        != std::string::npos);
+    BAFX_CHECK(diagnostics.find("Error.Code=generation_conflict") != std::string::npos);
+    BAFX_CHECK(diagnostics.find("Control.Command=GetState") == std::string::npos);
 
     BAFX_CHECK(current.generation == 2U);
     BAFX_CHECK(current.generation != start.appliedGeneration);
     BAFX_CHECK(
         current.config.background.mode
         == bafx::config::RenderMode::RecordingCompatible);
+}
+
+BAFX_TEST(host_control_large_config_change_preserves_diagnostic_outcome)
+{
+    TemporaryConfigDirectory temporary;
+    auto initial = bafx::config::defaultConfig();
+    // Both array snapshots together exceed the writer's 64 KiB record budget.
+    for (std::size_t index = 0U; index < 12U; ++index)
+    {
+        initial.display.overrides.push_back(bafx::config::DisplayOverrideConfig{
+            std::string(3'000U, static_cast<char>('a' + index))});
+    }
+    BAFX_CHECK(bafx::config::validateConfig(initial));
+    bafx::windows::NamedPipeIpcServer::Options serverOptions{};
+    serverOptions.pipeName = testPipeName() + L".large-diagnostic";
+    bafx::desktop::HostControlPlane control(temporary.configPath(), initial, serverOptions);
+    BAFX_CHECK(control.start(false).serviceStarted);
+
+    bafx::windows::IpcClientOptions clientOptions{};
+    clientOptions.pipeName = serverOptions.pipeName;
+    clientOptions.timeoutMilliseconds = 1'000U;
+    const bafx::windows::NamedPipeIpcClient client(clientOptions);
+    const auto removed = client.transact(
+        "RemoveDisplayOverride {\"generation\":1,\"displayKey\":\""
+        + initial.display.overrides.front().displayKey + "\"}");
+    control.stop();
+    BAFX_CHECK(removed.succeeded());
+
+    std::ifstream log(temporary.directoryPath() / L"ba-click-fx-desktop-support.log", std::ios::binary);
+    const std::string diagnostics{std::istreambuf_iterator<char>(log), std::istreambuf_iterator<char>()};
+    BAFX_CHECK(diagnostics.find("Event.Name=Control.Mutation.Completed\n") != std::string::npos);
+    BAFX_CHECK(diagnostics.find("Control.Succeeded=true\n") != std::string::npos);
+    BAFX_CHECK(diagnostics.find("Control.Generation.After=2\n") != std::string::npos);
+    BAFX_CHECK(diagnostics.find("Configuration.ChangedCount=1\n") != std::string::npos);
+    BAFX_CHECK(diagnostics.find("Configuration.ChangesTruncated=true\n") != std::string::npos);
+    BAFX_CHECK(diagnostics.find("\"path\":\"display.overrides\",\"before\":null,\"after\":null,")
+        != std::string::npos);
+    BAFX_CHECK(diagnostics.find("\"beforeOmitted\":true,\"afterOmitted\":true") != std::string::npos);
+    BAFX_CHECK(diagnostics.find("Event.Name=Log.RecordTruncated") == std::string::npos);
+    BAFX_CHECK(diagnostics.size() < bafx::windows::diagnosticLogMaximumRecordBytes);
 }
 
 BAFX_TEST(host_control_publishes_spout2_runtime_without_changing_generation)

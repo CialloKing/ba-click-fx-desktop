@@ -117,7 +117,7 @@
   EXE 所在目录；Identity 安装版写入该目录下的 `data` 子目录。命令行支持报告即使传入绝对路径，也只采用文件名，
   不会写入 `%LOCALAPPDATA%`、当前工作目录或其他用户目录。
 - 支持日志 schema 2 为每条记录写入会话 ID、单调时间、序号、进程/线程、级别和事件名；当前文件达到
-  8 MiB 后轮转，最多保留 `.log.1`、`.log.2`、`.log.3` 三份备份，总预算约 32 MiB。控制中心的
+  8 MiB 后轮转，最多保留 `.log.1`、`.log.2`、`.log.3` 三份备份，每个进程的日志总预算约 32 MiB。
   控制中心清理日志时分别清理自身和 Host 的当前文件及遗留备份，并汇总结果；Host 未连接时只清理
   `BAFX.ControlCenter.log` 及备份。各自重新写入清理结果事件；正常运行每 10 秒写一条
   `Performance.Interval`，退出时刷新最后一个未满窗口；它包含输入队列年龄、消息/Move 收敛、WGC
@@ -147,6 +147,11 @@
   锁等待与路径准备、记录格式化、文件操作和报告总耗时；总耗时包含样本复制及排序。旧字段
   `Diagnostics.PreviousLogWriteCpuUs` 保持原含义以兼容分析脚本。这些都是包含等待的单调时钟经过时间，
   不是线程 CPU 使用时间；首次报告的上一窗口耗时为零。
+- 控制中心把启动/退出、连接变化、操作结果及 IPC 耗时写入 `BAFX.ControlCenter.log`；成功查询不逐条写盘，
+  重复轮询错误会合并，恢复时记录累计次数。Host 的 `Control.Mutation.Completed` 记录 IPC/快捷键来源、
+  命令、成功与否、控制代次、配置代次、暂停状态及配置字段的前后值；失败时保留错误码与原因。
+  请求和错误文本各限 4 KiB，配置差异限 16 KiB，超过 2 KiB 的单个前后值省略并标记原始长度，
+  `Configuration.ChangesTruncated` 表示差异不完整。`Configuration.Applied` 的代次可用于对照渲染端实际应用情况。
 - 每个 `BackgroundCapture.Transaction.End` 后会追加累计的
   `WGC.ResourceLedger.*` 记录，包含 Frame/FramePool/Session、两类事件注册的
   created/closed/live 计数、recreate 次数和 `Failures`/`AllReleased`；它覆盖会话停止、

@@ -466,13 +466,15 @@ BAFX_TEST(configuration_log_records_the_reason_and_reproduction_context)
         log.path(),
         config,
         bafx::windows::WindowSize{3840U, 2160U},
-        "test-change");
+        "test-change",
+        7U);
 
     const std::string text = log.read();
     BAFX_CHECK(text.find("Event.Name=Configuration.Applied\n")
         != std::string::npos);
     BAFX_CHECK(text.find("Configuration.Reason=test-change\n")
         != std::string::npos);
+    BAFX_CHECK(text.find("Configuration.Generation=7\n") != std::string::npos);
     BAFX_CHECK(text.find("Effects.DiskLifetimeMs=350.000\n")
         != std::string::npos);
     BAFX_CHECK(text.find("Effects.RingsCount=4\n") != std::string::npos);

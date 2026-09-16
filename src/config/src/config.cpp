@@ -3451,6 +3451,46 @@ std::string toJson(const Config& config, const bool pretty)
     return output;
 }
 
+std::vector<ConfigChange> describeConfigChanges(const Config& before, const Config& after)
+{
+    std::vector<ConfigChange> changes;
+    const auto visit = [&changes](auto&& self, const JsonValue& left, const JsonValue& right,
+        const std::string& path) -> void
+    {
+        const JsonValue missing;
+        const auto* leftObject = objectOf(left);
+        const auto* rightObject = objectOf(right);
+        if (leftObject != nullptr && rightObject != nullptr)
+        {
+            for (const auto& [key, value] : *leftObject)
+            {
+                const auto* next = member(*rightObject, key);
+                self(self, value, next != nullptr ? *next : missing, path.empty() ? key : path + "." + key);
+            }
+            for (const auto& [key, value] : *rightObject)
+            {
+                if (member(*leftObject, key) == nullptr)
+                {
+                    self(self, JsonValue{}, value, path.empty() ? key : path + "." + key);
+                }
+            }
+            return;
+        }
+        std::string oldValue;
+        std::string newValue;
+        appendJsonValue(left, oldValue, false, 0U);
+        appendJsonValue(right, newValue, false, 0U);
+        if (oldValue != newValue)
+        {
+            changes.push_back(ConfigChange{path, std::move(oldValue), std::move(newValue)});
+        }
+    };
+    // Arrays remain one value: a display override's vector index is not its
+    // stable display identity, and hotkey binding arrays are small and bounded.
+    visit(visit, makeConfigJson(before), makeConfigJson(after), {});
+    return changes;
+}
+
 ConfigLoadResult loadConfig(const std::filesystem::path& path) noexcept
 {
     try

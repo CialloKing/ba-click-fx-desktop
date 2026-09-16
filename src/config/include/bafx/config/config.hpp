@@ -362,6 +362,16 @@ struct ConfigSaveResult
     const Config& config,
     bool pretty = true);
 
+struct ConfigChange
+{
+    std::string path;
+    std::string beforeJson;
+    std::string afterJson;
+};
+
+// Compare canonical values without maintaining a second list of config fields.
+[[nodiscard]] std::vector<ConfigChange> describeConfigChanges(const Config& before, const Config& after);
+
 [[nodiscard]] ConfigLoadResult loadConfig(
     const std::filesystem::path& path) noexcept;
 
