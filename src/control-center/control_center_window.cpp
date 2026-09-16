@@ -2152,6 +2152,11 @@ bool ControlCenterWindow::createControls()
         BS_PUSHBUTTON | WS_TABSTOP,
         ControlId::OpenObsSpoutPluginPage);
 #endif
+    openLogDirectoryButton_ = createChild(
+        L"BUTTON",
+        TextId::OpenLogDirectory,
+        BS_PUSHBUTTON | WS_TABSTOP,
+        ControlId::OpenLogDirectory);
     clearLogsButton_ = createChild(
         L"BUTTON",
         TextId::ClearLogs,
@@ -2462,6 +2467,7 @@ bool ControlCenterWindow::createControls()
         pauseButton_,
         refreshButton_,
         hostLifecycleButton_,
+        openLogDirectoryButton_,
         clearLogsButton_,
         resetDefaultsButton_,
         advancedTimingHeading_,
@@ -2853,6 +2859,7 @@ void ControlCenterWindow::applyFonts() const noexcept
         pauseButton_,
         refreshButton_,
         hostLifecycleButton_,
+        openLogDirectoryButton_,
         clearLogsButton_,
         resetDefaultsButton_};
     for (const HWND control : normalControls)
@@ -3446,8 +3453,10 @@ void ControlCenterWindow::layoutControls(
             updateContentWidth,
             scale(32));
 
-        moveControl(clearLogsButton_, updateContentX, contentTop + scale(316),
-            updateContentWidth, scale(30));
+        moveControl(openLogDirectoryButton_, updateContentX, contentTop + scale(316),
+            updateButtonWidth, scale(30));
+        moveControl(clearLogsButton_, updateContentX + updateButtonWidth + updateButtonGap,
+            contentTop + scale(316), updateButtonWidth, scale(30));
 
         const int actionWidth = (clientWidth - margin * 2 - actionGap * 3) / 4;
         moveControl(
@@ -4461,6 +4470,7 @@ void ControlCenterWindow::updatePageVisibility() noexcept
         refreshObsSpoutPluginButton_,
         openObsSpoutPluginPageButton_,
 #endif
+        openLogDirectoryButton_,
         clearLogsButton_};
     for (const HWND control : systemControls)
     {
@@ -5012,6 +5022,12 @@ void ControlCenterWindow::onCommand(
             {
                 startHostFromBundle();
             }
+        }
+        break;
+    case ControlId::OpenLogDirectory:
+        if (notificationCode == BN_CLICKED)
+        {
+            openLogDirectory();
         }
         break;
     case ControlId::ClearLogs:
@@ -7058,6 +7074,32 @@ void ControlCenterWindow::sendCommand(const std::string_view command)
         return;
     }
     static_cast<void>(refreshFromHost());
+}
+
+void ControlCenterWindow::openLogDirectory()
+{
+    try
+    {
+        // Control Center runs without Host's package identity. Reuse its
+        // install-state path resolution so installed logs open under data.
+        const std::filesystem::path directory = startupConfigPath(executableDirectory()).parent_path();
+        std::filesystem::create_directories(directory);
+        const HINSTANCE result = ShellExecuteW(
+            window_,
+            L"explore",
+            directory.c_str(),
+            nullptr,
+            nullptr,
+            SW_SHOWNORMAL);
+        if (reinterpret_cast<INT_PTR>(result) <= 32)
+        {
+            setError(TextId::LogDirectoryOpenFailed);
+        }
+    }
+    catch (const std::exception& error)
+    {
+        setError(UiMessage(TextId::LogDirectoryOpenFailed) + L"\r\n" + utf8ToWide(error.what()));
+    }
 }
 
 void ControlCenterWindow::clearDiagnosticLogs()

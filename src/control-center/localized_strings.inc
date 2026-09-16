@@ -218,6 +218,8 @@ BAFX_TEXT(ObsHint, L"OBS 源须置顶，使用 Premultiplied Alpha。\r\n请手�
 BAFX_TEXT(CheckObsPlugin, L"重新检测 OBS 插件", L"Check OBS plugin")
 BAFX_TEXT(OpenPluginPage, L"打开官方插件页面", L"Official plugin page")
 BAFX_TEXT(ClearLogs, L"清理诊断日志", L"Clear diagnostic logs")
+BAFX_TEXT(OpenLogDirectory, L"打开日志目录", L"Open log folder")
+BAFX_TEXT(LogDirectoryOpenFailed, L"无法打开日志目录。", L"Could not open the log folder.")
 BAFX_TEXT(VersionMaintenance, L"版本与维护", L"Version and maintenance")
 BAFX_TEXT(ControlCenterVersionLabel, L"控制中心版本：", L"Control Center: ")
 BAFX_TEXT(HostVersionPending, L"Host 版本：待连接", L"Host version: Awaiting connection")

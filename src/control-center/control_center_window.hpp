@@ -140,7 +140,8 @@ private:
         HostLifecycle,
         ClearLogs,
         ResetDefaults,
-        Language
+        Language,
+        OpenLogDirectory
     };
     static_assert(
         static_cast<int>(ControlId::OpenRelease)
@@ -297,6 +298,7 @@ private:
     void removeSelectedDisplayOverride();
     void applyDisplayPolicyCommand(std::string command);
     void sendCommand(std::string_view command);
+    void openLogDirectory();
     void clearDiagnosticLogs();
     void resetDefaults();
 #if defined(BAFX_ENABLE_SPOUT2)
@@ -533,6 +535,7 @@ private:
     HWND pauseButton_{nullptr};
     HWND refreshButton_{nullptr};
     HWND hostLifecycleButton_{nullptr};
+    HWND openLogDirectoryButton_{nullptr};
     HWND clearLogsButton_{nullptr};
     HWND resetDefaultsButton_{nullptr};
 
