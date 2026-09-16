@@ -7111,15 +7111,9 @@ void ControlCenterWindow::openLogDirectory()
 
 void ControlCenterWindow::clearDiagnosticLogs()
 {
-    if (!connected_)
-    {
-        setInfo(TextId::HostDisconnected, TextId::StartHostToClearLogs);
-        return;
-    }
-
     const int choice = localizedMessageBox(
         window_,
-        TextId::ClearLogsQuestion,
+        connected_ ? TextId::ClearLogsQuestion : TextId::ClearLocalLogsQuestion,
         TextId::ClearLogs,
         MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2);
     if (choice != IDYES)
@@ -7127,11 +7121,35 @@ void ControlCenterWindow::clearDiagnosticLogs()
         return;
     }
 
+    // Each process clears its own writer; disconnected UI maintenance must
+    // never remove a Host file that another process could still be writing.
+    const auto local = bafx::windows::clearDiagnosticLogs(controlCenterLogPath());
+    const auto localFiles = std::to_string(local.removedFiles);
+    const auto localBytes = std::to_string(local.removedBytes);
+    const auto localFailures = std::to_string(local.failedFiles);
+    const auto localError = std::to_string(local.firstError.value());
+    logControlCenterEvent("Log.Cleanup", {
+        {"Log.Cleanup.RemovedFiles", localFiles}, {"Log.Cleanup.RemovedBytes", localBytes},
+        {"Log.Cleanup.FailedFiles", localFailures}, {"Error.Code", localError}},
+        local.failedFiles == 0U ? bafx::windows::DiagnosticLevel::Info
+                               : bafx::windows::DiagnosticLevel::Warning);
+    const UiMessage localSummary(TextId::ClearLogsResult,
+        {std::to_wstring(local.removedFiles), std::to_wstring(local.removedBytes),
+            std::to_wstring(local.failedFiles)});
+    if (!connected_)
+    {
+        setInfo(local.failedFiles == 0U ? TextId::LocalLogsCleared : TextId::LogsPartlyCleared,
+            localSummary + L"\r\n" + UiMessage(TextId::HostLogsNotCleared));
+        return;
+    }
+
     const bafx::windows::IpcClientResponse response = client_.transact(
         "ClearLogs");
     if (!response.succeeded())
     {
-        setError(describeResponse(response));
+        setInfo(TextId::LogsPartlyCleared,
+            localSummary + L"\r\n" + UiMessage(TextId::HostLogsNotCleared)
+                + L"\r\n" + describeResponse(response));
         return;
     }
 
@@ -7185,14 +7203,26 @@ void ControlCenterWindow::clearDiagnosticLogs()
     {
         setInfo(
             TextId::ClearLogsUnparsed,
-            TextId::ClearLogsUnparsedHint);
+            localSummary + L"\r\n" + UiMessage(TextId::ClearLogsUnparsedHint));
         return;
     }
 
+    // The response can be malformed even after IPC succeeds. Avoid wrapping
+    // externally supplied counters into a misleading success summary.
+    if (*removedFiles > (std::numeric_limits<std::uint64_t>::max)() - local.removedFiles
+        || *removedBytes > (std::numeric_limits<std::uint64_t>::max)() - local.removedBytes
+        || *failedFiles > (std::numeric_limits<std::uint64_t>::max)() - local.failedFiles)
+    {
+        setInfo(TextId::ClearLogsUnparsed,
+            localSummary + L"\r\n" + UiMessage(TextId::ClearLogsUnparsedHint));
+        return;
+    }
+    const auto totalFailures = *failedFiles + local.failedFiles;
     const UiMessage summary(TextId::ClearLogsResult,
-        {std::to_wstring(*removedFiles), std::to_wstring(*removedBytes), std::to_wstring(*failedFiles)});
+        {std::to_wstring(*removedFiles + local.removedFiles),
+            std::to_wstring(*removedBytes + local.removedBytes), std::to_wstring(totalFailures)});
     setInfo(
-        *failedFiles == 0U ? TextId::LogsCleared : TextId::LogsPartlyCleared,
+        totalFailures == 0U ? TextId::LogsCleared : TextId::LogsPartlyCleared,
         summary);
 }
 
@@ -7720,7 +7750,6 @@ void ControlCenterWindow::setConnected(const bool connected) noexcept
         activeFxRoiEnabled_,
         framePacing_,
         pauseButton_,
-        clearLogsButton_,
         resetDefaultsButton_};
     for (const HWND control : controls)
     {
@@ -7729,6 +7758,7 @@ void ControlCenterWindow::setConnected(const bool connected) noexcept
             EnableWindow(control, enabled);
         }
     }
+    EnableWindow(clearLogsButton_, TRUE);
     updateFxProfileActionState();
     if (!connected)
     {

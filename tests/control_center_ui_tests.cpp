@@ -170,6 +170,7 @@ struct ControlCenterUiTest
         ui.setConnected(false);
         ui.selectPage(ControlCenterWindow::Page::System);
         BAFX_CHECK(IsWindowEnabled(ui.languageSelector_));
+        BAFX_CHECK(IsWindowEnabled(ui.clearLogsButton_));
         ui.setInfo(TextId::HostDisconnected, TextId::StartHostAndRefresh);
         SetWindowTextW(ui.themeColorEdit_, L"#12ab");
         SetWindowTextW(ui.fxProfileNameEdit_, L"我的 {0} draft");
@@ -193,6 +194,7 @@ struct ControlCenterUiTest
         ui.hostVersionBlocked_ = true;
         ui.setConnected(false);
         BAFX_CHECK(IsWindowEnabled(ui.languageSelector_));
+        BAFX_CHECK(IsWindowEnabled(ui.clearLogsButton_));
 
         const HANDLE locked = CreateFileW(ui.languagePath_.c_str(), GENERIC_READ, FILE_SHARE_READ,
             nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
