@@ -661,55 +661,8 @@ if(WIN32)
         package_activation_tests.cpp
         startup_config_tests.cpp
         update_check_tests.cpp
-        "${PROJECT_SOURCE_DIR}/src/control-center/config_commands.cpp"
-        "${PROJECT_SOURCE_DIR}/src/control-center/control_center_diagnostics.cpp"
-        "${PROJECT_SOURCE_DIR}/src/control-center/localization.cpp"
-        "${PROJECT_SOURCE_DIR}/src/control-center/language_preferences.cpp"
-        "${PROJECT_SOURCE_DIR}/src/control-center/control_center_window.cpp"
-        "${PROJECT_SOURCE_DIR}/src/control-center/control_center_hotkeys.cpp"
-        "${PROJECT_SOURCE_DIR}/src/control-center/control_center_localization.cpp"
-        "${PROJECT_SOURCE_DIR}/src/windows/src/ipc_client.cpp"
-        "${PROJECT_SOURCE_DIR}/src/windows/src/portable_paths.cpp"
-        "${PROJECT_SOURCE_DIR}/src/windows/src/diagnostic_log.cpp"
-        "${PROJECT_SOURCE_DIR}/src/windows/src/package_identity.cpp"
-        "${PROJECT_SOURCE_DIR}/src/windows/src/recording_compatibility.cpp"
-        "${PROJECT_SOURCE_DIR}/src/control-center/control_center_layout.cpp"
-        "${PROJECT_SOURCE_DIR}/src/control-center/display_state.cpp"
-        "${PROJECT_SOURCE_DIR}/src/control-center/host_state.cpp"
-        "${PROJECT_SOURCE_DIR}/src/control-center/obs_spout_plugin_probe.cpp"
-        "${PROJECT_SOURCE_DIR}/src/control-center/package_activation.cpp"
-        "${PROJECT_SOURCE_DIR}/src/control-center/startup_config.cpp"
     )
-    target_include_directories(
-        bafx_control_center_tests
-        PRIVATE
-            "${PROJECT_SOURCE_DIR}/src/control-center"
-            "${PROJECT_SOURCE_DIR}/src/windows/include"
-    )
-    target_link_libraries(
-        bafx_control_center_tests
-        PRIVATE
-            bafx::config
-            bafx::product
-            bafx::release_update
-            advapi32
-            comctl32
-            user32
-            comdlg32
-            shell32
-            bcrypt
-            ole32
-            version
-    )
-    target_compile_definitions(
-        bafx_control_center_tests
-        PRIVATE
-            UNICODE
-            _UNICODE
-            WIN32_LEAN_AND_MEAN
-            NOMINMAX
-            $<$<BOOL:${BAFX_ENABLE_SPOUT2}>:BAFX_ENABLE_SPOUT2=1>
-    )
+    target_link_libraries(bafx_control_center_tests PRIVATE bafx::control_center_ui)
     target_compile_features(bafx_control_center_tests PRIVATE cxx_std_20)
     bafx_enable_warnings(bafx_control_center_tests)
     add_test(NAME control_center_activation COMMAND bafx_control_center_tests)
