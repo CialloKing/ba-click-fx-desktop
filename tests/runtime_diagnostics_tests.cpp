@@ -5,6 +5,7 @@
 #include "bafx/windows/package_identity.hpp"
 #include "bafx/windows/portable_paths.hpp"
 #include "bafx/windows/runtime_diagnostics.hpp"
+#include "bafx/windows/unique_handle.hpp"
 
 #include <appmodel.h>
 #include <d3d11.h>
@@ -590,6 +591,42 @@ BAFX_TEST(diagnostic_log_cleanup_removes_current_and_backup_files)
     BAFX_CHECK(!std::filesystem::exists(logPath));
     BAFX_CHECK(!std::filesystem::exists(backupPath(logPath, 1U)));
     BAFX_CHECK(!std::filesystem::exists(backupPath(logPath, 3U)));
+}
+
+BAFX_TEST(diagnostic_log_legacy_cleanup_failure_does_not_drop_records)
+{
+    TemporaryDiagnosticDirectory directory;
+    const auto path = directory.path() / L"legacy.log";
+    const auto backup = backupPath(path, 4U);
+    writeText(backup, "locked legacy backup");
+    const bafx::windows::UniqueHandle locked(CreateFileW(backup.c_str(), GENERIC_READ,
+        FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr));
+    BAFX_CHECK(locked.get() != INVALID_HANDLE_VALUE);
+    const auto before = bafx::windows::diagnosticLogHealth();
+    bafx::windows::appendDiagnosticEvent(path, "Test.MaintenanceFailed");
+    bafx::windows::appendDiagnosticEvent(path, "Test.MaintenanceThrottled");
+    const auto after = bafx::windows::diagnosticLogHealth();
+    BAFX_CHECK(after.cleanupFailures == before.cleanupFailures + 1U);
+    BAFX_CHECK(after.droppedRecords == before.droppedRecords);
+    BAFX_CHECK(readText(path).find("Event.Name=Test.MaintenanceThrottled\n") != std::string::npos);
+}
+
+BAFX_TEST(diagnostic_log_bounds_payload_and_recreates_a_missing_directory)
+{
+    TemporaryDiagnosticDirectory directory;
+    const auto path = directory.path() / "nested" / "bounded.log";
+    const std::string oversized(bafx::windows::diagnosticLogMaximumRecordBytes, 'x');
+    const std::array fields{bafx::windows::DiagnosticField{"Payload", oversized}};
+    bafx::windows::appendDiagnosticEvent(path, "Test.Oversized", fields,
+        bafx::windows::DiagnosticLevel::Error);
+    const auto text = readText(path);
+    BAFX_CHECK(text.size() < bafx::windows::diagnosticLogMaximumRecordBytes);
+    BAFX_CHECK(text.find("Event.Name=Log.RecordTruncated\n") != std::string::npos);
+    BAFX_CHECK(text.find("Log.OriginalEvent=Test.Oversized\n") != std::string::npos);
+    BAFX_CHECK(text.find("Log.OriginalLevel=Error\n") != std::string::npos);
+    std::filesystem::remove_all(path.parent_path());
+    bafx::windows::appendDiagnosticEvent(path, "Test.DirectoryRecreated");
+    BAFX_CHECK(readText(path).find("Event.Name=Test.DirectoryRecreated\n") != std::string::npos);
 }
 
 BAFX_TEST(support_report_marks_primary_dpi_unknown_until_probed)

@@ -640,6 +640,14 @@ if(WIN32)
     add_test(NAME runtime_diagnostics COMMAND bafx_runtime_diagnostics_tests)
     set_target_properties(bafx_runtime_diagnostics_tests PROPERTIES FOLDER "Tests")
 
+    add_executable(bafx_diagnostic_log_process_probe diagnostic_log_process_probe.cpp)
+    target_link_libraries(bafx_diagnostic_log_process_probe PRIVATE bafx::windows)
+    target_compile_features(bafx_diagnostic_log_process_probe PRIVATE cxx_std_20)
+    bafx_enable_warnings(bafx_diagnostic_log_process_probe)
+    add_test(NAME diagnostic_log_process_boundary COMMAND bafx_diagnostic_log_process_probe)
+    set_tests_properties(diagnostic_log_process_boundary PROPERTIES TIMEOUT 30)
+    set_target_properties(bafx_diagnostic_log_process_probe PROPERTIES FOLDER "Tests")
+
     add_executable(
         bafx_control_center_tests
         test_main.cpp

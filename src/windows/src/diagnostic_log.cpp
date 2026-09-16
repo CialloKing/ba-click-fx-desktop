@@ -6,6 +6,7 @@
 #include <array>
 #include <atomic>
 #include <cctype>
+#include <chrono>
 #include <cstdio>
 #include <iomanip>
 #include <limits>
@@ -87,9 +88,9 @@ struct DiagnosticSessionContext
     return session;
 }
 
-[[nodiscard]] std::mutex& diagnosticLogMutex() noexcept
+[[nodiscard]] std::timed_mutex& diagnosticLogMutex() noexcept
 {
-    static std::mutex mutex;
+    static std::timed_mutex mutex;
     return mutex;
 }
 
@@ -130,6 +131,8 @@ enum class FailureOperation : std::uint8_t
     Open,
     Write,
     Rotate,
+    Lock,
+    Cleanup,
     Format
 };
 
@@ -140,6 +143,8 @@ struct LogHealthState
     std::atomic<std::uint64_t> writeFailures{0U};
     std::atomic<std::uint64_t> rotationFailures{0U};
     std::atomic<std::uint64_t> truncatedRecords{0U};
+    std::atomic<std::uint64_t> lockFailures{0U};
+    std::atomic<std::uint64_t> cleanupFailures{0U};
     std::atomic<std::uint64_t> lastSuccessfulWriteUtcMilliseconds{0U};
     std::atomic<DWORD> lastError{ERROR_SUCCESS};
     std::atomic<FailureOperation> lastOperation{FailureOperation::None};
@@ -157,6 +162,8 @@ std::string_view operationName(const FailureOperation operation) noexcept
     case FailureOperation::Open: return "open";
     case FailureOperation::Write: return "write";
     case FailureOperation::Rotate: return "rotate";
+    case FailureOperation::Lock: return "lock";
+    case FailureOperation::Cleanup: return "cleanup";
     case FailureOperation::Format: return "format";
     }
     return "unknown";
@@ -170,11 +177,137 @@ void recordFailure(const FailureOperation operation, const DWORD error) noexcept
     {
         health.rotationFailures.fetch_add(1U, std::memory_order_relaxed);
     }
+    else if (operation == FailureOperation::Lock)
+    {
+        health.lockFailures.fetch_add(1U, std::memory_order_relaxed);
+    }
+    else if (operation == FailureOperation::Cleanup)
+    {
+        health.cleanupFailures.fetch_add(1U, std::memory_order_relaxed);
+        // Maintenance failure does not mean an append failed or recovered.
+        return;
+    }
     else
     {
         health.writeFailures.fetch_add(1U, std::memory_order_relaxed);
     }
     health.pendingFailures.fetch_add(1U, std::memory_order_relaxed);
+}
+
+struct DiagnosticFileState
+{
+    std::filesystem::path path;
+    UniqueHandle mutex;
+    ULONGLONG nextCleanupAt{0U};
+};
+
+// Only the most recently used path is cached. Production uses one log per
+// process; tests and temporary reports must not grow a permanent path registry.
+[[nodiscard]] DiagnosticFileState& diagnosticFileState()
+{
+    static DiagnosticFileState state;
+    return state;
+}
+
+class DiagnosticFileLock final
+{
+public:
+    explicit DiagnosticFileLock(const std::filesystem::path& path)
+        : local_(diagnosticLogMutex(), std::defer_lock)
+    {
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(25);
+        if (!local_.try_lock_until(deadline))
+        {
+            error_ = ERROR_TIMEOUT;
+            return;
+        }
+        auto& state = diagnosticFileState();
+        const auto absolute = std::filesystem::absolute(path).lexically_normal();
+        if (state.path != absolute || state.mutex.get() == nullptr)
+        {
+            const auto canonical = std::filesystem::weakly_canonical(absolute).native();
+            std::wstring normalized(canonical.size(), L'\0');
+            if (LCMapStringEx(LOCALE_NAME_INVARIANT, LCMAP_UPPERCASE,
+                    canonical.data(), static_cast<int>(canonical.size()),
+                    normalized.data(), static_cast<int>(normalized.size()), nullptr, nullptr, 0) == 0)
+            {
+                error_ = GetLastError();
+                return;
+            }
+            // A stable path hash coordinates processes and spelling variants.
+            // std::hash is not required to be stable across process launches.
+            std::uint64_t hash = 14695981039346656037ULL;
+            for (const wchar_t character : normalized)
+            {
+                hash = (hash ^ static_cast<std::uint16_t>(character)) * 1099511628211ULL;
+            }
+            const auto name = L"Global\\BAFX.DiagnosticLog.v1." + std::to_wstring(hash);
+            UniqueHandle mutex(CreateMutexW(nullptr, FALSE, name.c_str()));
+            if (mutex.get() == nullptr)
+            {
+                error_ = GetLastError();
+                return;
+            }
+            state.path = absolute;
+            state.mutex = std::move(mutex);
+            state.nextCleanupAt = 0U;
+        }
+        const auto remaining = std::max(std::chrono::milliseconds::zero(),
+            std::chrono::ceil<std::chrono::milliseconds>(deadline - std::chrono::steady_clock::now()));
+        const DWORD result = WaitForSingleObject(state.mutex.get(), static_cast<DWORD>(remaining.count()));
+        if (result == WAIT_OBJECT_0 || result == WAIT_ABANDONED)
+        {
+            // No size or file handle is cached, including after owner death.
+            acquired_ = true;
+        }
+        else
+        {
+            error_ = result == WAIT_TIMEOUT ? ERROR_TIMEOUT : GetLastError();
+        }
+    }
+
+    ~DiagnosticFileLock()
+    {
+        if (acquired_)
+        {
+            ReleaseMutex(diagnosticFileState().mutex.get());
+        }
+    }
+
+    DiagnosticFileLock(const DiagnosticFileLock&) = delete;
+    DiagnosticFileLock& operator=(const DiagnosticFileLock&) = delete;
+
+    [[nodiscard]] DWORD error() const noexcept { return error_; }
+
+private:
+    std::unique_lock<std::timed_mutex> local_;
+    DWORD error_{ERROR_SUCCESS};
+    bool acquired_{false};
+};
+
+void cleanupLegacyBackupsUnlocked(const std::filesystem::path& path,
+    const DiagnosticLogRetention retention, const bool force = false)
+{
+    if (retention.backupCount == 0U || retention.backupCount > 16U)
+    {
+        return;
+    }
+    auto& state = diagnosticFileState();
+    const auto now = GetTickCount64();
+    if (!force && now < state.nextCleanupAt)
+    {
+        return;
+    }
+    state.nextCleanupAt = now + 60'000U;
+    for (std::uint32_t index = retention.backupCount + 1U; index <= 16U; ++index)
+    {
+        std::error_code error;
+        std::filesystem::remove(diagnosticBackupPath(path, index), error);
+        if (error)
+        {
+            recordFailure(FailureOperation::Cleanup, static_cast<DWORD>(error.value()));
+        }
+    }
 }
 
 [[nodiscard]] bool rotateDiagnosticLogUnlocked(
@@ -194,14 +327,6 @@ void recordFailure(const FailureOperation operation, const DWORD error) noexcept
         return false;
     };
     std::error_code error;
-    for (std::uint32_t index = retention.backupCount + 1U; index <= maximumBackupCount; ++index)
-    {
-        std::filesystem::remove(diagnosticBackupPath(path, index), error);
-        if (error)
-        {
-            return failed(error);
-        }
-    }
     const std::uintmax_t currentSize = std::filesystem::file_size(path, error);
     if (error == std::errc::no_such_file_or_directory)
     {
@@ -215,6 +340,9 @@ void recordFailure(const FailureOperation operation, const DWORD error) noexcept
     {
         return true;
     }
+    // Rotation is also a maintenance boundary if backups appeared since the
+    // previous periodic cleanup (for example after restoring a support bundle).
+    cleanupLegacyBackupsUnlocked(path, retention, true);
     for (std::uint32_t index = retention.backupCount; index > 0U; --index)
     {
         const auto source = index == 1U ? path : diagnosticBackupPath(path, index - 1U);
@@ -327,6 +455,35 @@ void recordFailure(const FailureOperation operation, const DWORD error) noexcept
     return record.str();
 }
 
+[[nodiscard]] bool recordExceedsBudget(const std::string_view eventName,
+    const std::span<const DiagnosticField> fields, const std::string_view body) noexcept
+{
+    // Reserve the envelope before allocating or copying caller-owned payloads.
+    std::size_t remaining = diagnosticLogMaximumRecordBytes - 1'024U;
+    const auto consume = [&remaining](const std::size_t bytes)
+    {
+        if (bytes > remaining)
+        {
+            return false;
+        }
+        remaining -= bytes;
+        return true;
+    };
+    if (!consume(eventName.size()) || !consume(body.size()))
+    {
+        return true;
+    }
+    for (const auto& field : fields)
+    {
+        if (!consume(std::max(field.key.size(), std::size_t{5U}))
+            || !consume(field.value.size()) || !consume(2U))
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
 // Allocation may throw here; only the public boundary is noexcept so its catch
 // can keep diagnostic failures from terminating the application.
 [[nodiscard]] bool appendDiagnosticRecordUnlocked(
@@ -337,25 +494,44 @@ void recordFailure(const FailureOperation operation, const DWORD error) noexcept
     const DiagnosticLevel level)
 {
     const auto sequence = diagnosticSession().nextSequence.fetch_add(1U, std::memory_order_relaxed);
-    std::string text = formatRecord(eventName, fields, body, level, sequence);
+    std::string text;
     const DiagnosticLogRetention retention{};
-    if (text.size() > retention.maximumBytes)
+    if (recordExceedsBudget(eventName, fields, body))
     {
-        const std::string bytes = std::to_string(text.size());
+        const auto budget = std::to_string(diagnosticLogMaximumRecordBytes);
         const std::array truncatedFields{
-            DiagnosticField{"Log.RecordBytes", bytes},
+            DiagnosticField{"Log.RecordBudgetBytes", budget},
+            DiagnosticField{"Log.OriginalLevel", diagnosticLevelName(level)},
             DiagnosticField{"Log.OriginalEvent", eventName.substr(0U, 128U)}};
         text = formatRecord("Log.RecordTruncated", truncatedFields, {}, DiagnosticLevel::Warning, sequence);
         health.truncatedRecords.fetch_add(1U, std::memory_order_relaxed);
+    }
+    else
+    {
+        text = formatRecord(eventName, fields, body, level, sequence);
     }
     // Failed rotation must not allow an unbounded active file to keep growing.
     if (!rotateDiagnosticLogUnlocked(path, retention, text.size()))
     {
         return false;
     }
-    const UniqueHandle output(CreateFileW(path.c_str(), FILE_APPEND_DATA,
+    UniqueHandle output(CreateFileW(path.c_str(), FILE_APPEND_DATA,
         FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
         nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr));
+    if (output.get() == INVALID_HANDLE_VALUE && GetLastError() == ERROR_PATH_NOT_FOUND)
+    {
+        // Prepare a missing directory only on demand, including after removal.
+        std::error_code error;
+        std::filesystem::create_directories(path.parent_path(), error);
+        if (error)
+        {
+            recordFailure(FailureOperation::Directory, static_cast<DWORD>(error.value()));
+            return false;
+        }
+        output.reset(CreateFileW(path.c_str(), FILE_APPEND_DATA,
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+            nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr));
+    }
     if (output.get() == nullptr || output.get() == INVALID_HANDLE_VALUE)
     {
         recordFailure(FailureOperation::Open, GetLastError());
@@ -398,11 +574,13 @@ void rotateDiagnosticLog(
 {
     try
     {
-        const std::lock_guard lock(diagnosticLogMutex());
-        if (!path.parent_path().empty())
+        const DiagnosticFileLock lock(path);
+        if (lock.error() != ERROR_SUCCESS)
         {
-            std::filesystem::create_directories(path.parent_path());
+            recordFailure(FailureOperation::Lock, lock.error());
+            return;
         }
+        cleanupLegacyBackupsUnlocked(path, retention, true);
         static_cast<void>(rotateDiagnosticLogUnlocked(path, retention));
     }
     catch (...)
@@ -417,7 +595,14 @@ DiagnosticLogCleanupResult clearDiagnosticLogs(
     DiagnosticLogCleanupResult result{};
     try
     {
-        const std::lock_guard lock(diagnosticLogMutex());
+        const DiagnosticFileLock lock(path);
+        if (lock.error() != ERROR_SUCCESS)
+        {
+            recordFailure(FailureOperation::Lock, lock.error());
+            result.failedFiles = 1U;
+            result.firstError = std::error_code(static_cast<int>(lock.error()), std::system_category());
+            return result;
+        }
         for (std::uint32_t index = 0U; index <= 16U; ++index)
         {
             const std::filesystem::path candidate = index == 0U
@@ -472,7 +657,9 @@ DiagnosticLogHealth diagnosticLogHealth() noexcept
         health.truncatedRecords.load(std::memory_order_relaxed),
         health.lastSuccessfulWriteUtcMilliseconds.load(std::memory_order_relaxed),
         health.lastError.load(std::memory_order_relaxed),
-        operationName(health.lastOperation.load(std::memory_order_relaxed))};
+        operationName(health.lastOperation.load(std::memory_order_relaxed)),
+        health.lockFailures.load(std::memory_order_relaxed),
+        health.cleanupFailures.load(std::memory_order_relaxed)};
 }
 
 std::string diagnosticLogHealthReport()
@@ -485,6 +672,8 @@ std::string diagnosticLogHealthReport()
            << "Log.Health.WriteFailures=" << state.writeFailures << '\n'
            << "Log.Health.RotationFailures=" << state.rotationFailures << '\n'
            << "Log.Health.TruncatedRecords=" << state.truncatedRecords << '\n'
+           << "Log.Health.LockFailures=" << state.lockFailures << '\n'
+           << "Log.Health.CleanupFailures=" << state.cleanupFailures << '\n'
            << "Log.Health.LastSuccessfulWriteUnixMs=" << state.lastSuccessfulWriteUtcMilliseconds << '\n'
            << "Log.Health.LastError=" << state.lastError << '\n'
            << "Log.Health.LastFailureOperation=" << state.lastFailureOperation << '\n';
@@ -500,18 +689,14 @@ void appendDiagnosticRecord(
 {
     try
     {
-        const std::lock_guard lock(diagnosticLogMutex());
-        if (!path.parent_path().empty())
+        const DiagnosticFileLock lock(path);
+        if (lock.error() != ERROR_SUCCESS)
         {
-            std::error_code error;
-            std::filesystem::create_directories(path.parent_path(), error);
-            if (error)
-            {
-                recordFailure(FailureOperation::Directory, static_cast<DWORD>(error.value()));
-                health.droppedRecords.fetch_add(1U, std::memory_order_relaxed);
-                return;
-            }
+            recordFailure(FailureOperation::Lock, lock.error());
+            health.droppedRecords.fetch_add(1U, std::memory_order_relaxed);
+            return;
         }
+        cleanupLegacyBackupsUnlocked(path, DiagnosticLogRetention{});
         if (!appendDiagnosticRecordUnlocked(path, eventName, fields, body, level))
         {
             health.droppedRecords.fetch_add(1U, std::memory_order_relaxed);

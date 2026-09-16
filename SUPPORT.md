@@ -138,6 +138,10 @@
   性能窗提升为 Warning。它只说明通知路径被触发，不等同于恢复已经成功。
   排障时请同时提供 `BAFX.config.json`、当前 `.log` 和仍存在的三个轮转备份。无需制作一键诊断包；
   若用户主动清理过日志，请保留清理后的新日志并说明清理时间。
+- 日志追加、轮转和清理按文件路径协调跨进程访问，锁等待预算为 `25 ms`；超时丢弃该次记录并累加
+  `Log.Health.LockFailures`。遗留备份在首次使用、每分钟或实际轮转时清理，清理失败单独记录为
+  `Log.Health.CleanupFailures`，不阻止正常追加。单条记录采用 `64 KiB` 预算（包含预留的事件头空间），
+  超大内容在格式化前替换为 `Log.RecordTruncated`，保留原事件名和级别。文件系统调用本身仍是同步调用。
 - 每个 `BackgroundCapture.Transaction.End` 后会追加累计的
   `WGC.ResourceLedger.*` 记录，包含 Frame/FramePool/Session、两类事件注册的
   created/closed/live 计数、recreate 次数和 `Failures`/`AllReleased`；它覆盖会话停止、

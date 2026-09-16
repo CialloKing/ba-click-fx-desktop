@@ -2,6 +2,7 @@
 
 #include <windows.h>
 
+#include <cstddef>
 #include <cstdint>
 #include <filesystem>
 #include <span>
@@ -13,6 +14,7 @@ namespace bafx::windows
 {
 
 inline constexpr std::uint32_t diagnosticLogSchemaVersion = 2U;
+inline constexpr std::size_t diagnosticLogMaximumRecordBytes = 64U * 1024U;
 
 struct DiagnosticField
 {
@@ -54,6 +56,8 @@ struct DiagnosticLogHealth
     std::uint64_t lastSuccessfulWriteUtcMilliseconds{0U};
     DWORD lastError{ERROR_SUCCESS};
     std::string_view lastFailureOperation{"none"};
+    std::uint64_t lockFailures{0U};
+    std::uint64_t cleanupFailures{0U};
 };
 
 [[nodiscard]] DiagnosticLogHealth diagnosticLogHealth() noexcept;
