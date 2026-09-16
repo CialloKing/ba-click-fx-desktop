@@ -44,21 +44,48 @@ set_target_properties(
         FOLDER "Libraries"
 )
 
-add_executable(
-    ba_click_fx_desktop
-    WIN32
-        background_capture_runtime.cpp
-        display_output_retarget.cpp
-        display_policy.cpp
-        display_pointer_router.cpp
-        display_session.cpp
-        display_session_manager.cpp
-        display_target.cpp
+# The Host and its contract tests must compile the same implementation with
+# the same transitive feature definitions, especially for Full/Slim builds.
+add_library(
+    bafx_host_control
+    STATIC
         fx_profile_store.cpp
         host_control.cpp
         host_hotkeys.cpp
-        main.cpp
+)
+add_library(bafx::host_control ALIAS bafx_host_control)
+target_include_directories(bafx_host_control PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
+target_link_libraries(bafx_host_control PUBLIC bafx::config bafx::windows)
+target_compile_features(bafx_host_control PUBLIC cxx_std_20)
+bafx_enable_warnings(bafx_host_control)
+set_target_properties(bafx_host_control PROPERTIES FOLDER "Libraries")
+
+add_library(
+    bafx_desktop_runtime
+    STATIC
+        background_capture_runtime.cpp
+        display_output_retarget.cpp
+        display_policy.cpp
+        display_target.cpp
         performance_logging.cpp
+)
+add_library(bafx::desktop_runtime ALIAS bafx_desktop_runtime)
+target_include_directories(bafx_desktop_runtime PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
+target_link_libraries(
+    bafx_desktop_runtime
+    PUBLIC bafx::config bafx::desktop_input bafx::windows
+)
+target_compile_features(bafx_desktop_runtime PUBLIC cxx_std_20)
+bafx_enable_warnings(bafx_desktop_runtime)
+set_target_properties(bafx_desktop_runtime PROPERTIES FOLDER "Libraries")
+
+add_executable(
+    ba_click_fx_desktop
+    WIN32
+        display_pointer_router.cpp
+        display_session.cpp
+        display_session_manager.cpp
+        main.cpp
         performance_samples.cpp
         run_options.cpp
         "${BAFX_DESKTOP_GENERATED_DIR}/ba-click-fx-desktop.manifest"
@@ -77,7 +104,9 @@ target_link_libraries(
         bafx::core
         bafx::config
         bafx::desktop_input
+        bafx::desktop_runtime
         bafx::fx
+        bafx::host_control
         bafx::product
         bafx::windows
         ole32

@@ -457,18 +457,11 @@ if(WIN32)
         performance_logging_tests.cpp
         performance_window_tests.cpp
         pointer_frame_dispatch_tests.cpp
-        "${PROJECT_SOURCE_DIR}/src/desktop/background_capture_runtime.cpp"
-        "${PROJECT_SOURCE_DIR}/src/desktop/display_output_retarget.cpp"
-        "${PROJECT_SOURCE_DIR}/src/desktop/display_policy.cpp"
-        "${PROJECT_SOURCE_DIR}/src/desktop/display_target.cpp"
-        "${PROJECT_SOURCE_DIR}/src/desktop/performance_logging.cpp"
     )
     target_link_libraries(
         bafx_desktop_input_tests
         PRIVATE
-            bafx::config
-            bafx::desktop_input
-            bafx::windows
+            bafx::desktop_runtime
     )
     target_compile_features(bafx_desktop_input_tests PRIVATE cxx_std_20)
     bafx_enable_warnings(bafx_desktop_input_tests)
@@ -563,24 +556,18 @@ if(WIN32)
         test_main.cpp
         fx_profile_store_tests.cpp
         host_control_tests.cpp
-        "${PROJECT_SOURCE_DIR}/src/desktop/host_hotkeys.cpp"
-        "${PROJECT_SOURCE_DIR}/src/desktop/fx_profile_store.cpp"
-        "${PROJECT_SOURCE_DIR}/src/desktop/host_control.cpp"
         "${PROJECT_SOURCE_DIR}/src/control-center/display_state.cpp"
         "${PROJECT_SOURCE_DIR}/src/control-center/host_state.cpp"
     )
     target_include_directories(
         bafx_host_control_tests
         PRIVATE
-            "${PROJECT_SOURCE_DIR}/src/desktop"
             "${PROJECT_SOURCE_DIR}/src/control-center"
     )
     target_link_libraries(
         bafx_host_control_tests
         PRIVATE
-            bafx::config
-            bafx::product
-            bafx::windows
+            bafx::host_control
     )
     target_compile_features(bafx_host_control_tests PRIVATE cxx_std_20)
     bafx_enable_warnings(bafx_host_control_tests)
@@ -590,13 +577,10 @@ if(WIN32)
 
     add_executable(bafx_hotkey_process_tests
         hotkey_process_tests.cpp
-        "${PROJECT_SOURCE_DIR}/src/desktop/host_hotkeys.cpp"
-        "${PROJECT_SOURCE_DIR}/src/desktop/host_control.cpp"
-        "${PROJECT_SOURCE_DIR}/src/desktop/fx_profile_store.cpp"
         "${PROJECT_SOURCE_DIR}/src/control-center/host_state.cpp")
     target_include_directories(bafx_hotkey_process_tests PRIVATE
-        "${PROJECT_SOURCE_DIR}/src/desktop" "${PROJECT_SOURCE_DIR}/src/control-center")
-    target_link_libraries(bafx_hotkey_process_tests PRIVATE bafx::config bafx::product bafx::windows)
+        "${PROJECT_SOURCE_DIR}/src/control-center")
+    target_link_libraries(bafx_hotkey_process_tests PRIVATE bafx::host_control)
     target_compile_features(bafx_hotkey_process_tests PRIVATE cxx_std_20)
     bafx_enable_warnings(bafx_hotkey_process_tests)
     add_test(NAME hotkey_process_boundary COMMAND bafx_hotkey_process_tests)
