@@ -2224,8 +2224,8 @@ function Test-SparsePackageContract
         -Pattern 'case\s+ControlId::OpenRepository\s*:\s*if\s*\(\s*notificationCode\s*==\s*BN_CLICKED\s*\)\s*\{\s*openOfficialProjectRepository\s*\(\s*\)\s*;\s*\}\s*break\s*;' `
         -Description 'project repository button entry'
 
-    # Each approved call site must use a fixed official target. The exact helper
-    # reference total prevents another caller from silently adding navigation.
+    # Navigation accepts fixed official pages or the resolved local log folder.
+    # Exact helper totals prevent another caller from silently adding navigation.
     $navigationSourceFiles = @(
         Get-ChildItem `
             -LiteralPath (Resolve-RepositoryPath -RelativePath 'src/control-center') `
@@ -2247,6 +2247,18 @@ function Test-SparsePackageContract
     Assert-True `
         -Condition ($shellNavigationCalls.Count -eq 1) `
         -Message "Installer contract requires one centralized shell-navigation call; found $($shellNavigationCalls.Count)."
+    $shellHelperReferences = [regex]::Matches($trustedNavigationSources, '\bnavigateShell\s*\(')
+    Assert-True `
+        -Condition ($shellHelperReferences.Count -eq 3) `
+        -Message 'Shell navigation requires one helper and only the official-page and local-log callers.'
+    Assert-TextContains `
+        -Text $controlCenter `
+        -Pattern 'bool\s+openFixedOfficialPage\([^)]*\)\s*\{\s*return\s+navigateShell\(owner,\s*L"open",\s*url\)\s*>\s*32;\s*\}' `
+        -Description 'official pages use the shared shell invocation'
+    Assert-TextContains `
+        -Text $controlCenter `
+        -Pattern 'void\s+ControlCenterWindow::openLogDirectory\(\)[\s\S]*const\s+std::filesystem::path\s+directory\s*=\s*startupConfigPath\(executableDirectory\(\)\)\.parent_path\(\);\s*std::filesystem::create_directories\(directory\);\s*const\s+INT_PTR\s+result\s*=\s*navigateShell\(window_,\s*L"explore",\s*directory\.c_str\(\)\);' `
+        -Description 'log navigation uses only the locally resolved data directory'
     $officialPageHelperReferences = [regex]::Matches(
         $controlCenter,
         '\bopenFixedOfficialPage\s*\(')

@@ -68,18 +68,28 @@ constexpr DWORD controlCenterWindowStyle =
     WS_OVERLAPPEDWINDOW | WS_CLIPSIBLINGS;
 static_assert((controlCenterWindowStyle & WS_CLIPCHILDREN) == 0U);
 
+// Keep shell invocation shared while callers constrain URLs and local paths.
+// Preserve the native result so failed directory opens retain their error code.
+[[nodiscard]] INT_PTR navigateShell(
+    const HWND owner,
+    const wchar_t* const operation,
+    const wchar_t* const target)
+{
+    const HINSTANCE result = ShellExecuteW(
+        owner,
+        operation,
+        target,
+        nullptr,
+        nullptr,
+        SW_SHOWNORMAL);
+    return reinterpret_cast<INT_PTR>(result);
+}
+
 [[nodiscard]] bool openFixedOfficialPage(
     const HWND owner,
     const wchar_t* const url)
 {
-    const HINSTANCE result = ShellExecuteW(
-        owner,
-        L"open",
-        url,
-        nullptr,
-        nullptr,
-        SW_SHOWNORMAL);
-    return reinterpret_cast<INT_PTR>(result) > 32;
+    return navigateShell(owner, L"open", url) > 32;
 }
 
 struct InstallationStatePresentation final
@@ -7084,16 +7094,10 @@ void ControlCenterWindow::openLogDirectory()
         // install-state path resolution so installed logs open under data.
         const std::filesystem::path directory = startupConfigPath(executableDirectory()).parent_path();
         std::filesystem::create_directories(directory);
-        const HINSTANCE result = ShellExecuteW(
-            window_,
-            L"explore",
-            directory.c_str(),
-            nullptr,
-            nullptr,
-            SW_SHOWNORMAL);
-        if (reinterpret_cast<INT_PTR>(result) <= 32)
+        const INT_PTR result = navigateShell(window_, L"explore", directory.c_str());
+        if (result <= 32)
         {
-            const auto code = std::to_string(reinterpret_cast<INT_PTR>(result));
+            const auto code = std::to_string(result);
             logControlCenterEvent("Log.DirectoryOpenFailed", {{"Error.ShellCode", code}},
                 bafx::windows::DiagnosticLevel::Warning);
             setError(TextId::LogDirectoryOpenFailed);
