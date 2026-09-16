@@ -59,6 +59,8 @@ add_executable(
         host_hotkeys.cpp
         main.cpp
         performance_logging.cpp
+        performance_samples.cpp
+        run_options.cpp
         "${BAFX_DESKTOP_GENERATED_DIR}/ba-click-fx-desktop.manifest"
         "${BAFX_DESKTOP_GENERATED_DIR}/ba-click-fx-desktop.rc"
 )

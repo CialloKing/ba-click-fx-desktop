@@ -24,6 +24,8 @@
 #include "host_control.hpp"
 #include "idle_render_policy.hpp"
 #include "performance_logging.hpp"
+#include "performance_samples.hpp"
+#include "run_options.hpp"
 #include "performance_window.hpp"
 
 #include <windows.h>
@@ -33,7 +35,6 @@
 #include <chrono>
 #include <cmath>
 #include <cstdint>
-#include <cstdlib>
 #include <exception>
 #include <filesystem>
 #include <iomanip>
@@ -1447,39 +1448,6 @@ private:
     std::int64_t frequency_{0};
 };
 
-struct RunOptions
-{
-    std::optional<std::uint32_t> frameLimit{};
-    std::optional<std::uint32_t> demoAgeMilliseconds{};
-    std::optional<std::uint32_t> quitAfterMilliseconds{};
-    std::optional<std::filesystem::path> supportInfoPath{};
-    bool supportInfoOnly{false};
-    bool smokeTest{false};
-    bool recoveryProbe{false};
-    bool framePacingStallProbe{false};
-    bool demoClick{false};
-    bool disableRawInput{false};
-    bool spout2{false};
-    std::uint32_t demoDelayMilliseconds{0U};
-    bafx::desktop::DemoScenario demoScenario{
-        bafx::desktop::DemoScenario::CenterClick};
-};
-
-[[nodiscard]] bool productSystemIntegrationEnabled(
-    const RunOptions& options) noexcept
-{
-    return !options.frameLimit.has_value()
-        && !options.demoAgeMilliseconds.has_value()
-        && !options.quitAfterMilliseconds.has_value()
-        && !options.supportInfoOnly
-        && !options.smokeTest
-        && !options.recoveryProbe
-        && !options.framePacingStallProbe
-        && !options.demoClick
-        && !options.disableRawInput
-        && !options.spout2;
-}
-
 struct MessageDispatchDiagnostics
 {
     std::uint32_t inputMessages{0U};
@@ -1511,144 +1479,6 @@ struct PointerConsumptionDiagnostics
 {
     std::vector<PointerLatencyOrigin> acceptedDowns{};
 };
-
-[[nodiscard]] RunOptions parseOptions()
-{
-    RunOptions options{};
-    bool demoScenarioSpecified = false;
-    const int argumentCount = __argc;
-    for (int index = 1; index < argumentCount; ++index)
-    {
-        const std::wstring_view argument(__wargv[index]);
-        if (argument == L"--smoke-test")
-        {
-            options.smokeTest = true;
-            options.demoClick = true;
-            options.demoAgeMilliseconds = 130U;
-            options.frameLimit = 3U;
-        }
-        else if (argument == L"--device-recovery-probe")
-        {
-            options.recoveryProbe = true;
-            options.smokeTest = true;
-            options.demoClick = true;
-            options.demoAgeMilliseconds = 130U;
-            options.frameLimit = 2U;
-        }
-        else if (argument == L"--frame-pacing-stall-probe")
-        {
-            // This internal probe replaces the DXGI latency handle with a
-            // permanently unsignaled event to verify bounded Host shutdown.
-            options.framePacingStallProbe = true;
-            options.disableRawInput = true;
-        }
-        else if (argument == L"--support-info")
-        {
-            options.supportInfoPath = std::filesystem::path(L"ba-click-fx-support.txt");
-            options.supportInfoOnly = true;
-        }
-        else if (argument.starts_with(L"--support-info="))
-        {
-            const std::wstring_view value = argument.substr(15);
-            options.supportInfoPath = value.empty()
-                ? std::filesystem::path(L"ba-click-fx-support.txt")
-                : std::filesystem::path(std::wstring(value));
-            options.supportInfoOnly = true;
-        }
-        else if (argument == L"--demo-click")
-        {
-            options.demoClick = true;
-        }
-        else if (argument.starts_with(L"--demo-scenario="))
-        {
-            if (demoScenarioSpecified)
-            {
-                throw std::invalid_argument(
-                    "--demo-scenario may be specified only once");
-            }
-            const std::optional<bafx::desktop::DemoScenario> scenario =
-                bafx::desktop::parseDemoScenario(argument.substr(16U));
-            if (!scenario.has_value())
-            {
-                throw std::invalid_argument(
-                    "--demo-scenario requires center-click, interior-trail, "
-                    "or boundary-top-left");
-            }
-            demoScenarioSpecified = true;
-            options.demoClick = true;
-            options.demoScenario = *scenario;
-        }
-        else if (argument == L"--disable-raw-input")
-        {
-            // Deterministic renderer baselines provide their own harmless
-            // message pressure and must not depend on operator mouse activity.
-            options.disableRawInput = true;
-        }
-        else if (argument == L"--spout2")
-        {
-            // Spout2 is an explicit capture output and must not silently
-            // alter the user's startup integration while it is being tested.
-            options.spout2 = true;
-        }
-        else if (argument.starts_with(L"--frames="))
-        {
-            const std::wstring_view value = argument.substr(9);
-            wchar_t* end = nullptr;
-            const unsigned long parsed = std::wcstoul(value.data(), &end, 10);
-            if (end != value.data() && *end == L'\0' && parsed > 0UL)
-            {
-                options.frameLimit = static_cast<std::uint32_t>(parsed);
-            }
-        }
-        else if (argument.starts_with(L"--demo-age-ms="))
-        {
-            const std::wstring_view value = argument.substr(14);
-            wchar_t* end = nullptr;
-            const unsigned long parsed = std::wcstoul(value.data(), &end, 10);
-            if (end != value.data() && *end == L'\0')
-            {
-                options.demoClick = true;
-                options.demoAgeMilliseconds = static_cast<std::uint32_t>(parsed);
-            }
-        }
-        else if (argument.starts_with(L"--demo-delay-ms="))
-        {
-            const std::wstring_view value = argument.substr(16);
-            wchar_t* end = nullptr;
-            const unsigned long parsed = std::wcstoul(value.data(), &end, 10);
-            if (end != value.data() && *end == L'\0')
-            {
-                options.demoClick = true;
-                options.demoDelayMilliseconds =
-                    static_cast<std::uint32_t>(parsed);
-            }
-        }
-        else if (argument.starts_with(L"--quit-after-ms="))
-        {
-            const std::wstring_view value = argument.substr(16);
-            wchar_t* end = nullptr;
-            const unsigned long parsed = std::wcstoul(value.data(), &end, 10);
-            if (end != value.data() && *end == L'\0' && parsed > 0UL)
-            {
-                options.quitAfterMilliseconds = static_cast<std::uint32_t>(parsed);
-            }
-        }
-    }
-    const std::uint32_t scenarioDurationMilliseconds =
-        static_cast<std::uint32_t>(
-            bafx::desktop::demoScenarioDuration(options.demoScenario).count());
-    if (options.demoAgeMilliseconds.has_value()
-        && *options.demoAgeMilliseconds < scenarioDurationMilliseconds)
-    {
-        throw std::invalid_argument(
-            "--demo-age-ms must be at least "
-            + std::to_string(scenarioDurationMilliseconds)
-            + " for "
-            + std::string(
-                bafx::desktop::demoScenarioName(options.demoScenario)));
-    }
-    return options;
-}
 
 [[nodiscard]] bafx::desktop::DisplayTarget primaryDisplayTarget()
 {
@@ -1945,305 +1775,6 @@ void appendDisplayTopologyInvalidated(
 [[nodiscard]] bafx::fx::Viewport toViewport(const bafx::windows::WindowSize size) noexcept
 {
     return bafx::fx::Viewport{size.width, size.height};
-}
-
-[[nodiscard]] std::uint64_t durationMicroseconds(
-    const std::chrono::nanoseconds duration) noexcept
-{
-    if (duration <= std::chrono::nanoseconds::zero())
-    {
-        return 0U;
-    }
-    return static_cast<std::uint64_t>(
-        std::chrono::duration_cast<std::chrono::microseconds>(duration).count());
-}
-
-[[nodiscard]] bafx::desktop::FramePerformanceSample wgcPerformanceSample(
-    const bafx::windows::WgcBackgroundDrainDiagnostics& wgc,
-    const std::chrono::nanoseconds drainInclusiveCpu,
-    const std::uint64_t producerCallbacks,
-    const bool active,
-    const bool drainAttempted,
-    const bool idleDrainAttempted,
-    const bool idleDrainSkipped) noexcept
-{
-    bafx::desktop::FramePerformanceSample sample{};
-    sample.wgcDrainCpuMicroseconds = durationMicroseconds(drainInclusiveCpu);
-    sample.wgcOwnedCopySubmitCpuMicroseconds =
-        durationMicroseconds(wgc.ownedCopySubmitCpu);
-    sample.wgcProducerCallbacks = producerCallbacks;
-    sample.wgcFramesAcquired = wgc.framesAcquired;
-    sample.wgcFramesSuperseded = wgc.framesSuperseded;
-    sample.wgcTimestampRejectedFrames = wgc.timestampRejectedFrames;
-    sample.wgcActive = active;
-    sample.wgcDrainAttempted = drainAttempted;
-    sample.wgcIdleDrainAttempted = idleDrainAttempted;
-    sample.wgcIdleDrainSkipped = idleDrainSkipped;
-    sample.wgcOwnedCopySubmitted = wgc.ownedCopySubmitted;
-    sample.wgcAccepted = wgc.accepted;
-    return sample;
-}
-
-[[nodiscard]] bafx::desktop::ActiveFxRoiActualPath activeFxRoiActualPath(
-    const bafx::windows::FxActiveRoiActualPath path) noexcept
-{
-    switch (path)
-    {
-    case bafx::windows::FxActiveRoiActualPath::Disabled:
-        return bafx::desktop::ActiveFxRoiActualPath::Disabled;
-    case bafx::windows::FxActiveRoiActualPath::Idle:
-        return bafx::desktop::ActiveFxRoiActualPath::Idle;
-    case bafx::windows::FxActiveRoiActualPath::FullScreen:
-        return bafx::desktop::ActiveFxRoiActualPath::FullScreen;
-    case bafx::windows::FxActiveRoiActualPath::RoiWarmup:
-        return bafx::desktop::ActiveFxRoiActualPath::RoiWarmup;
-    case bafx::windows::FxActiveRoiActualPath::RoiPrefilter:
-        return bafx::desktop::ActiveFxRoiActualPath::RoiPrefilter;
-    case bafx::windows::FxActiveRoiActualPath::RoiPyramid:
-        return bafx::desktop::ActiveFxRoiActualPath::RoiPyramid;
-    case bafx::windows::FxActiveRoiActualPath::Unavailable:
-        return bafx::desktop::ActiveFxRoiActualPath::Unavailable;
-    }
-    return bafx::desktop::ActiveFxRoiActualPath::Unavailable;
-}
-
-[[nodiscard]] bafx::desktop::ActiveFxRoiStagePixelDiagnostics
-activeFxRoiStageDiagnostics(
-    const bafx::windows::FxActiveRoiStageDiagnostics& diagnostics) noexcept
-{
-    return bafx::desktop::ActiveFxRoiStagePixelDiagnostics{
-        diagnostics.fullPixels,
-        diagnostics.candidatePixels,
-        diagnostics.drawnPixels,
-        diagnostics.clearedPixels};
-}
-
-[[nodiscard]] bafx::desktop::ActiveFxRoiStagesDiagnostics
-activeFxRoiStagesDiagnostics(
-    const bafx::windows::FxActiveRoiStagesDiagnostics& diagnostics) noexcept
-{
-    return bafx::desktop::ActiveFxRoiStagesDiagnostics{
-        activeFxRoiStageDiagnostics(diagnostics.prefilter),
-        activeFxRoiStageDiagnostics(diagnostics.downsample),
-        activeFxRoiStageDiagnostics(diagnostics.upsample),
-        activeFxRoiStageDiagnostics(diagnostics.resolve)};
-}
-
-[[nodiscard]] bafx::desktop::ActiveFxRoiDecisionReason
-activeFxRoiDecisionReason(
-    const bafx::windows::FxActiveRoiDecisionReason reason) noexcept
-{
-    switch (reason)
-    {
-    case bafx::windows::FxActiveRoiDecisionReason::Disabled:
-        return bafx::desktop::ActiveFxRoiDecisionReason::Disabled;
-    case bafx::windows::FxActiveRoiDecisionReason::NoContent:
-        return bafx::desktop::ActiveFxRoiDecisionReason::NoContent;
-    case bafx::windows::FxActiveRoiDecisionReason::
-        BackgroundDifferentialBloom:
-        return bafx::desktop::ActiveFxRoiDecisionReason::
-            BackgroundDifferentialBloom;
-    case bafx::windows::FxActiveRoiDecisionReason::Context1Unavailable:
-        return bafx::desktop::ActiveFxRoiDecisionReason::Context1Unavailable;
-    case bafx::windows::FxActiveRoiDecisionReason::SharedTargetFullWrite:
-        return bafx::desktop::ActiveFxRoiDecisionReason::SharedTargetFullWrite;
-    case bafx::windows::FxActiveRoiDecisionReason::AreaTooLarge:
-        return bafx::desktop::ActiveFxRoiDecisionReason::AreaTooLarge;
-    case bafx::windows::FxActiveRoiDecisionReason::BenefitTooSmall:
-        return bafx::desktop::ActiveFxRoiDecisionReason::BenefitTooSmall;
-    case bafx::windows::FxActiveRoiDecisionReason::Applied:
-        return bafx::desktop::ActiveFxRoiDecisionReason::Applied;
-    case bafx::windows::FxActiveRoiDecisionReason::RendererFallback:
-        return bafx::desktop::ActiveFxRoiDecisionReason::RendererFallback;
-    }
-    return bafx::desktop::ActiveFxRoiDecisionReason::RendererFallback;
-}
-
-[[nodiscard]] bafx::desktop::ActiveFxRoiPathPerformanceSample
-activeFxRoiPathPerformanceSample(
-    const bafx::windows::FxActiveRoiPassDiagnostics& diagnostics) noexcept
-{
-    bafx::desktop::ActiveFxRoiPassDiagnostics mapped{};
-    mapped.requested = diagnostics.requested;
-    mapped.eligible = diagnostics.eligible;
-    mapped.executed = diagnostics.executed;
-    mapped.warmup = diagnostics.warmup;
-    mapped.actualPath = activeFxRoiActualPath(diagnostics.actualPath);
-    mapped.decisionReason = activeFxRoiDecisionReason(
-        diagnostics.decisionReason);
-    mapped.fullPixels = diagnostics.fullPixels;
-    mapped.candidatePixels = diagnostics.candidatePixels;
-    mapped.drawnPixels = diagnostics.drawnPixels;
-    mapped.clearedPixels = diagnostics.clearedPixels;
-    mapped.stages = activeFxRoiStagesDiagnostics(diagnostics.stages);
-    return bafx::desktop::ActiveFxRoiPathPerformanceSample{true, mapped};
-}
-
-[[nodiscard]] bafx::desktop::GpuFxPathPerformanceSample
-gpuFxPathPerformanceSample(
-    const bafx::windows::GpuTimestampFxPathSample& timings,
-    const bafx::windows::GpuTimestampFxPathUsage& usage) noexcept
-{
-    return bafx::desktop::GpuFxPathPerformanceSample{
-        durationMicroseconds(timings.prefilter),
-        durationMicroseconds(timings.pyramid),
-        durationMicroseconds(timings.finalComposite),
-        usage.prefilterExecuted,
-        usage.pyramidExecuted,
-        usage.finalCompositeExecuted};
-}
-
-[[nodiscard]] bafx::desktop::FramePerformanceSample framePerformanceSample(
-    const bafx::windows::CompositionFrameDiagnostics& frame,
-    const std::uint64_t wgcProducerCallbacks,
-    const bool diagnosticReadbackUsed) noexcept
-{
-    bafx::desktop::FramePerformanceSample sample = wgcPerformanceSample(
-        frame.wgc,
-        frame.wgcDrainInclusiveCpu,
-        wgcProducerCallbacks,
-        frame.wgcActive,
-        frame.wgcDrainAttempted,
-        frame.wgcIdleDrainAttempted,
-        frame.wgcIdleDrainSkipped);
-    sample.frameTotalCpuMicroseconds = durationMicroseconds(frame.frameTotalCpu);
-    sample.backgroundSnapshotSubmitCpuMicroseconds =
-        durationMicroseconds(frame.backgroundSnapshotSubmitCpu);
-    sample.fxTotalSubmitCpuMicroseconds =
-        durationMicroseconds(frame.fx.totalSubmit);
-    sample.fxMaterialsSubmitCpuMicroseconds =
-        durationMicroseconds(frame.fx.materialsSubmit);
-    sample.bloomAndCompositeSubmitCpuMicroseconds =
-        durationMicroseconds(frame.fx.bloomAndCompositeSubmit);
-    sample.diagnosticReadbackCpuMicroseconds =
-        durationMicroseconds(frame.diagnosticReadbackCpu);
-    sample.prePresentCpuMicroseconds =
-        durationMicroseconds(frame.prePresentCpu);
-    sample.presentCallCpuMicroseconds =
-        durationMicroseconds(frame.presentCallCpu);
-    sample.backgroundSampleAgeMicroseconds =
-        durationMicroseconds(frame.backgroundSampleAge);
-    sample.roiVisualBoundsStatus = frame.roi.visualBoundsStatus;
-    sample.roiPlanStatus = frame.roi.planStatus;
-    sample.roiDirtyRectAvailable = frame.roi.dirtyRectAvailable;
-    sample.roiPlanAvailable = frame.roi.planAvailable;
-    sample.roiPresentDirtyRectApplied = frame.roi.presentDirtyRectApplied;
-    sample.roiFullScreenPixels = frame.roi.fullScreenPixels;
-    sample.roiBloomOutputPixels = frame.roi.bloomOutputPixels;
-    sample.roiAlignedWorkPixels = frame.roi.alignedWorkPixels;
-    sample.roiPresentDirtyPixels = frame.roi.presentDirtyPixels;
-    sample.roiGuardX = frame.roi.guardX;
-    sample.roiGuardY = frame.roi.guardY;
-    sample.roiPhasePeriod = frame.roi.phasePeriod;
-    sample.roiDirtyRect = frame.roi.dirtyRect;
-    sample.roiBloomOutput = frame.roi.bloomOutput;
-    sample.roiAlignedWork = frame.roi.alignedWork;
-    sample.roiRequested = frame.roi.requested;
-    sample.roiApplied = frame.roi.prefilterApplied;
-    sample.roiPrefilterPixels = frame.roi.prefilterPixels;
-    sample.roiActiveStatus = frame.roi.activeStatus;
-    sample.roiPrimary = activeFxRoiPathPerformanceSample(frame.roi.primary);
-    sample.roiRecordingRebuild = activeFxRoiPathPerformanceSample(
-        frame.roi.recordingRebuild);
-    sample.backgroundSnapshotRefreshAttempted =
-        frame.backgroundSnapshotRefreshAttempted;
-    sample.backgroundSnapshotRefreshed = frame.backgroundSnapshotRefreshed;
-    sample.backgroundParticipated = frame.backgroundParticipated;
-    sample.backgroundSampleAgeValid = frame.backgroundSampleAgeValid;
-    sample.diagnosticReadbackUsed = diagnosticReadbackUsed;
-
-    sample.gpuTimestampProfilerObserved = true;
-    sample.gpuTimestampProfilerAvailable =
-        frame.gpuTimestampProfilerAvailable;
-    sample.gpuTimestampInitializationResult = static_cast<std::uint32_t>(
-        frame.gpuTimestampInitializationResult);
-    sample.gpuTimestampPendingFrames = static_cast<std::uint32_t>(
-        frame.gpuTimestampPendingFrames);
-    sample.gpuStateError = frame.gpuTimestampCheckpointFailure;
-    switch (frame.gpuTimestampBegin)
-    {
-    case bafx::windows::GpuTimestampBeginStatus::Started:
-        sample.gpuFrameStarted = true;
-        break;
-    case bafx::windows::GpuTimestampBeginStatus::Unavailable:
-        break;
-    case bafx::windows::GpuTimestampBeginStatus::AlreadyActive:
-        sample.gpuStateError = true;
-        break;
-    case bafx::windows::GpuTimestampBeginStatus::RingFullSkipped:
-        sample.gpuRingFullSkipped = true;
-        break;
-    }
-    switch (frame.gpuTimestampEnd)
-    {
-    case bafx::windows::GpuTimestampEndStatus::Submitted:
-        sample.gpuFrameSubmitted = true;
-        break;
-    case bafx::windows::GpuTimestampEndStatus::SubmittedWithAutoSkippedStages:
-        // An auto-skipped tail remains a submitted sample, but it also means
-        // the renderer failed to emit the complete v0.2.7 stage contract.
-        sample.gpuFrameSubmitted = true;
-        sample.gpuAutoSkippedStages = true;
-        sample.gpuStateError = true;
-        break;
-    case bafx::windows::GpuTimestampEndStatus::NoActiveFrame:
-        break;
-    case bafx::windows::GpuTimestampEndStatus::IncompleteCancelled:
-        sample.gpuStateError = true;
-        break;
-    }
-    switch (frame.gpuTimestampPoll.status)
-    {
-    case bafx::windows::GpuTimestampPollStatus::NoPendingFrame:
-    case bafx::windows::GpuTimestampPollStatus::Completed:
-    case bafx::windows::GpuTimestampPollStatus::Unavailable:
-        break;
-    case bafx::windows::GpuTimestampPollStatus::Pending:
-        sample.gpuPollPending = true;
-        break;
-    case bafx::windows::GpuTimestampPollStatus::Cancelled:
-        sample.gpuCancelledSlotReclaimed = true;
-        break;
-    case bafx::windows::GpuTimestampPollStatus::Disjoint:
-        sample.gpuDisjointSample = true;
-        break;
-    case bafx::windows::GpuTimestampPollStatus::QueryFailure:
-        sample.gpuQueryFailure = true;
-        break;
-    case bafx::windows::GpuTimestampPollStatus::ActiveFrame:
-    case bafx::windows::GpuTimestampPollStatus::AlreadyPolled:
-        sample.gpuStateError = true;
-        break;
-    }
-
-    if (frame.gpuTimestampPoll.sample.has_value())
-    {
-        const bafx::windows::GpuTimestampSample& gpu =
-            *frame.gpuTimestampPoll.sample;
-        sample.gpuSampleCompleted = true;
-        sample.gpuWgcDrainAndCopyMicroseconds =
-            durationMicroseconds(gpu.wgcDrainAndCopy);
-        sample.gpuBackgroundSnapshotMicroseconds =
-            durationMicroseconds(gpu.backgroundSnapshot);
-        sample.gpuFxMaterialsMicroseconds =
-            durationMicroseconds(gpu.fxMaterials);
-        sample.gpuBloomAndFinalCompositeMicroseconds =
-            durationMicroseconds(gpu.bloomAndFinalComposite);
-        sample.gpuTotalFxMicroseconds = durationMicroseconds(gpu.totalFx);
-        sample.gpuRenderCommandSpanMicroseconds =
-            durationMicroseconds(gpu.totalFrame);
-        sample.gpuWgcTimingValid = gpu.usage.wgcDrainAttempted;
-        sample.gpuBackgroundSnapshotTimingValid =
-            gpu.usage.backgroundSnapshotAttempted;
-        sample.gpuFxTimingValid = gpu.usage.visualContent;
-        sample.gpuPrimary = gpuFxPathPerformanceSample(
-            gpu.primary,
-            gpu.usage.primary);
-        sample.gpuRecordingRebuild = gpuFxPathPerformanceSample(
-            gpu.recordingRebuild,
-            gpu.usage.recordingRebuild);
-    }
-    return sample;
 }
 
 struct SecondaryRenderSummary final
@@ -2878,7 +2409,7 @@ SecondaryRenderSummary renderSecondarySessions(
                 wallTime,
                 requireCurrentBackground);
             session.recordActiveFxRoiFrame(
-                framePerformanceSample(diagnostics, 0U, false),
+                bafx::desktop::framePerformanceSample(diagnostics, 0U, false),
                 diagnostics.frameId,
                 wallTime);
             session.recordPresentedFrame(
@@ -2931,7 +2462,7 @@ SecondaryRenderSummary renderSecondarySessions(
 
 int runApplication(
     const HINSTANCE instance,
-    const RunOptions options,
+    const bafx::desktop::RunOptions options,
     bafx::windows::SupportReport& report,
     const std::filesystem::path& logPath,
     HostLifecycleContext& lifecycle)
@@ -3042,7 +2573,7 @@ int runApplication(
             saved.succeeded() ? "saved" : "save-failed");
     }
     const bool systemIntegrationEnabled =
-        productSystemIntegrationEnabled(options);
+        bafx::desktop::productSystemIntegrationEnabled(options);
     if (systemIntegrationEnabled && systemConfigurationAuthoritative)
     {
         static_cast<void>(reconcileControlCenterStartupRegistration(
@@ -6410,7 +5941,7 @@ int runApplication(
                 clock.now();
             performanceWindow.addFramePacingWake(
                 pacingWait.wake,
-                durationMicroseconds(
+                bafx::desktop::durationMicroseconds(
                     framePacingWaitFinishedAt - framePacingWaitStartedAt));
             bafx::desktop::DisplaySession* awakenedSession =
                 pacingWait.token < ownedSessions.size()
@@ -7185,7 +6716,7 @@ int runApplication(
                     completedFrameDiagnostics.wgc.epoch,
                     completedFrameDiagnostics.wgc.frameArrivedCallbacksTotal);
             const bafx::desktop::FramePerformanceSample performanceSample =
-                framePerformanceSample(
+                bafx::desktop::framePerformanceSample(
                 completedFrameDiagnostics,
                 producerCallbacks,
                 options.smokeTest);
@@ -7196,7 +6727,7 @@ int runApplication(
             performanceWindow.addFrame(performanceSample, bafx::desktop::FrameDiagnosticContext{
                 renderedFrames + 1U,
                 appliedGeneration,
-                durationMicroseconds(wallTime - applicationStartedAt),
+                bafx::desktop::durationMicroseconds(wallTime - applicationStartedAt),
                 appliedOutputSize.width,
                 appliedOutputSize.height,
                 pointerQueue.maximumPendingEvents,
@@ -7210,7 +6741,7 @@ int runApplication(
                         >= origin.dispatchQpc)
                 {
                     performanceWindow.addDispatchToPresentReturn(
-                        durationMicroseconds(
+                        bafx::desktop::durationMicroseconds(
                             clock.fromCounter(
                                 completedFrameDiagnostics.presentReturnedQpc)
                             - clock.fromCounter(origin.dispatchQpc)));
@@ -7268,7 +6799,7 @@ int runApplication(
                     maintenance.wgcActive,
                     maintenance.wgc.epoch,
                     maintenance.wgc.frameArrivedCallbacksTotal);
-            performanceWindow.addBackgroundMaintenance(wgcPerformanceSample(
+            performanceWindow.addBackgroundMaintenance(bafx::desktop::wgcPerformanceSample(
                 maintenance.wgc,
                 maintenance.wgcDrainInclusiveCpu,
                 producerCallbacks,
@@ -7755,7 +7286,7 @@ int runApplication(
 int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int)
 {
     HostLifecycleContext lifecycle;
-    RunOptions options{};
+    bafx::desktop::RunOptions options{};
     std::filesystem::path logPath{};
     bafx::windows::SupportReport report(bafx::product::version);
     std::optional<bafx::desktop::SingleInstanceGuard> instanceGuard;
@@ -7767,7 +7298,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int)
         logPath = bafx::windows::defaultDiagnosticLogPath();
         report.setLogPath(logPath);
         parsingOptions = true;
-        options = parseOptions();
+        options = bafx::desktop::parseRunOptions();
         parsingOptions = false;
         if (options.supportInfoPath.has_value())
         {
