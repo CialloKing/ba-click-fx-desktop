@@ -7,6 +7,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <regex>
 #include <string>
 
 namespace
@@ -53,6 +54,26 @@ private:
     std::filesystem::path path_{};
 };
 
+}
+
+BAFX_TEST(performance_log_samples_resources_even_without_rendered_frames)
+{
+    const TemporaryPerformanceLog log;
+    const bafx::desktop::RuntimePerformanceWindow window;
+    static_cast<void>(bafx::desktop::appendPerformanceWindow(log.path(), window,
+        bafx::config::defaultConfig(), {}, std::chrono::seconds(10), false));
+    const auto text = log.read();
+    BAFX_CHECK(text.find("Window.FrameCount=0\n") != std::string::npos);
+    BAFX_CHECK(text.find("WorstFrame.Available=false\n") != std::string::npos);
+    BAFX_CHECK(text.find("Process.Memory.Available=true\n") != std::string::npos);
+    BAFX_CHECK(text.find("Process.Handles.Available=true\n") != std::string::npos);
+    for (const auto* key : {"WorkingSetBytes", "PrivateCommitBytes", "PeakWorkingSetBytes"})
+    {
+        BAFX_CHECK(std::regex_search(text,
+            std::regex(std::string("Process\\.Memory\\.") + key + "=[1-9][0-9]*\\n")));
+    }
+    BAFX_CHECK(std::regex_search(text, std::regex("Process\\.Handles\\.Count=[1-9][0-9]*\\n")));
+    BAFX_CHECK(text.size() < 64U * 1024U);
 }
 
 BAFX_TEST(performance_log_preserves_metric_and_semantic_fields)

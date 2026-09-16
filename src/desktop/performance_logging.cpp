@@ -2,6 +2,8 @@
 
 #include "bafx/windows/runtime_diagnostics.hpp"
 
+#include <psapi.h>
+
 #include <array>
 #include <charconv>
 #include <cstdint>
@@ -99,6 +101,36 @@ private:
 
     std::vector<std::pair<std::string, std::string>> fields_{};
 };
+
+void appendProcessResources(DiagnosticFields& fields)
+{
+    // Sample only at the existing report boundary, including idle windows.
+    // These are current-process snapshots, not per-frame or GPU measurements.
+    fields.add("Process.Resources.Scope", "current-process-at-report-time");
+    PROCESS_MEMORY_COUNTERS_EX memory{};
+    memory.cb = sizeof(memory);
+    const bool memoryAvailable = GetProcessMemoryInfo(GetCurrentProcess(),
+        reinterpret_cast<PROCESS_MEMORY_COUNTERS*>(&memory), sizeof(memory)) != FALSE;
+    const DWORD memoryError = memoryAvailable ? ERROR_SUCCESS : GetLastError();
+    fields.add("Process.Memory.Available", memoryAvailable);
+    fields.add("Process.Memory.Win32Error", static_cast<std::uint32_t>(memoryError));
+    if (memoryAvailable)
+    {
+        fields.add("Process.Memory.WorkingSetBytes", static_cast<std::uint64_t>(memory.WorkingSetSize));
+        fields.add("Process.Memory.PrivateCommitBytes", static_cast<std::uint64_t>(memory.PrivateUsage));
+        fields.add("Process.Memory.PeakWorkingSetBytes", static_cast<std::uint64_t>(memory.PeakWorkingSetSize));
+        fields.add("Process.Memory.PageFaultCount", static_cast<std::uint32_t>(memory.PageFaultCount));
+    }
+    DWORD handles = 0U;
+    const bool handlesAvailable = GetProcessHandleCount(GetCurrentProcess(), &handles) != FALSE;
+    const DWORD handlesError = handlesAvailable ? ERROR_SUCCESS : GetLastError();
+    fields.add("Process.Handles.Available", handlesAvailable);
+    fields.add("Process.Handles.Win32Error", static_cast<std::uint32_t>(handlesError));
+    if (handlesAvailable)
+    {
+        fields.add("Process.Handles.Count", static_cast<std::uint32_t>(handles));
+    }
+}
 
 void appendWorstFrame(DiagnosticFields& fields, const WorstFrameSnapshot& worst)
 {
@@ -515,6 +547,7 @@ std::chrono::nanoseconds appendPerformanceInterval(
         fields.add("Window.Final", finalInterval);
         fields.add("Window.DurationUs", durationUs);
         fields.add("Window.FrameCount", summary.frameCount);
+        appendProcessResources(fields);
         appendWorstFrame(fields, summary.worstFrame);
         fields.addDecimal(
             "Window.PresentedFps",

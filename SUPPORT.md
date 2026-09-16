@@ -152,6 +152,10 @@
   命令、成功与否、控制代次、配置代次、暂停状态及配置字段的前后值；失败时保留错误码与原因。
   请求和错误文本各限 4 KiB，配置差异限 16 KiB，超过 2 KiB 的单个前后值省略并标记原始长度，
   `Configuration.ChangesTruncated` 表示差异不完整。`Configuration.Applied` 的代次可用于对照渲染端实际应用情况。
+- `Performance.Interval` 每十秒附带 Host 当前工作集、私有提交内存、进程生命周期峰值工作集、累计缺页次数
+  和内核句柄数，退出时随最后一个报告窗口再采样。暂停/空闲窗口仍采样；没有逐帧查询或额外后台线程。
+  `Process.Memory.Available` 和 `Process.Handles.Available` 分别表示查询成功，失败时保留 Win32 错误且省略
+  对应数值。这些是报告时刻的进程快照，可连续对照趋势，不代表 GPU 显存或窗口内的峰值。
 - `Performance.Interval` 的 `WorstFrame.*` 保留窗口内协调屏渲染调用耗时最大的一帧，相同耗时保留首帧。
   帧号、配置代次、输出尺寸、输入队列、Present、WGC 和 ROI 均来自该次观察；逐项 `Max` 可能属于其他帧。
   没有渲染帧时 `Available=false`。选择依据包含 API 等待时间，不包含帧率等待，也不代表 GPU 或物理上屏耗时；
