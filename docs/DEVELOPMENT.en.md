@@ -206,6 +206,37 @@ standard installation directories; use `-ISCC <path>` to select another copy. Th
 uses a target-machine certificate for the Sparse Package template and is not a public code
 signature. `-SkipBuild` only applies when the matching Full or Slim outputs already exist.
 
+## Maintenance entry points and automated tests
+
+| Responsibility | Source |
+|---|---|
+| Control Center window, commands and connection coordination | [`control_center_window.cpp`](../src/control-center/control_center_window.cpp) |
+| Fonts, control layout and page visibility | [`control_center_window_layout.cpp`](../src/control-center/control_center_window_layout.cpp) |
+| Display status presentation and per-display policy actions | [`control_center_display.cpp`](../src/control-center/control_center_display.cpp) |
+| Host arguments and diagnostic startup isolation | [`run_options.cpp`](../src/desktop/run_options.cpp) |
+| Renderer diagnostics to performance samples | [`performance_samples.cpp`](../src/desktop/performance_samples.cpp) |
+| Performance aggregation and log output | [`performance_window.cpp`](../src/desktop/performance_window.cpp), [`performance_logging.cpp`](../src/desktop/performance_logging.cpp) |
+
+The application and existing UI tests share the `bafx::control_center_ui` static library. Add implementation files
+once in [`src/control-center/CMakeLists.txt`](../src/control-center/CMakeLists.txt); tests inherit the sources,
+dependencies and Full/Slim definitions through the library. Window resources and `main.cpp` remain application-only.
+
+After configuring, layout and display-page changes can be checked with:
+
+```powershell
+cmake --build --preset release --target bafx_control_center bafx_control_center_tests
+ctest --preset release -R '^control_center_activation$' --timeout 120
+```
+
+[`windows-build-compat.yml`](../.github/workflows/windows-build-compat.yml) retains the three SDK product builds
+and adds a separate SDK 26100 build with Spout2 and interactive smoke tests disabled. It runs the existing CTest
+suite and README checks, requires Python to prevent silently omitted contracts, and excludes the `hardware` and
+`integration` labels while retaining WARP. Job/test timeouts and archived test reports bound failures.
+This does not replace complete local Full/Slim checks or recording, HDR and multi-display hardware acceptance.
+
+See the [current roadmap](ROADMAP.md) for outstanding work and the [historical snapshot](history/ROADMAP_2026-09-16.md)
+for previous implementation and acceptance records.
+
 ## Control Center and runtime behavior
 
 The Host and Control Center communicate through a versioned local Named Pipe. Portable builds

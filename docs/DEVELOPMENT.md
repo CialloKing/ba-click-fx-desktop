@@ -193,6 +193,35 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File .\tools\package-user-installer.ps1
 `-SkipVerification` 是明确的可选绕过，不应作为发布证据。
 
 
+## 维护入口与自动测试
+
+| 职责 | 代码入口 |
+|---|---|
+| 控制中心窗口、命令与连接协调 | [`control_center_window.cpp`](../src/control-center/control_center_window.cpp) |
+| 字体、控件布局与页面可见性 | [`control_center_window_layout.cpp`](../src/control-center/control_center_window_layout.cpp) |
+| 显示状态呈现与逐屏策略操作 | [`control_center_display.cpp`](../src/control-center/control_center_display.cpp) |
+| Host 命令行与诊断启动隔离 | [`run_options.cpp`](../src/desktop/run_options.cpp) |
+| 渲染诊断到性能样本的转换 | [`performance_samples.cpp`](../src/desktop/performance_samples.cpp) |
+| 性能窗口聚合与日志输出 | [`performance_window.cpp`](../src/desktop/performance_window.cpp)、[`performance_logging.cpp`](../src/desktop/performance_logging.cpp) |
+
+控制中心应用和现有界面测试共用 `bafx::control_center_ui` 静态库。新增实现文件时只修改
+[`src/control-center/CMakeLists.txt`](../src/control-center/CMakeLists.txt) 中的源码清单，测试目标通过链接自动复用，
+不再复制应用的源码、依赖和 Full/Slim 编译定义。窗口资源与 `main.cpp` 仍只属于应用入口。
+
+完成配置后，布局或显示页改动可以先运行：
+
+```powershell
+cmake --build --preset release --target bafx_control_center bafx_control_center_tests
+ctest --preset release -R '^control_center_activation$' --timeout 120
+```
+
+[`windows-build-compat.yml`](../.github/workflows/windows-build-compat.yml) 保留三档 SDK 产品编译，
+另外使用 SDK 26100、关闭 Spout2 和交互式 smoke 的独立构建运行现有 CTest 与 README 检查。
+CI 要求 Python 可用，避免静默省略 Python 契约；CTest 排除 `hardware`/`integration` 标签，保留 WARP，
+并设置任务和测试超时、归档测试报告。它不替代本地 Full/Slim 完整验证或录屏、HDR、多屏实机验收。
+
+当前待办见[路线图](ROADMAP.md)，历史实现过程与原始验收结论见[历史快照](history/ROADMAP_2026-09-16.md)。
+
 ## Host 控制面
 
 首个产品化垂直切片已经接入版本化配置和本地 Named Pipe。portable Host 会在主程序
