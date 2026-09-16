@@ -284,10 +284,10 @@ not a multiplier relative to `1.0`. Bloom quality presets map to diffusion value
 Active-FX ROI remains disabled by default and is experimental; WARP and dirty-present counters
 are renderer/path contracts, not proof of visible DWM results or whole-system speedups.
 
-Diagnostic logs rotate at 8 MiB per file and keep up to three backups (about 32 MiB total).
-`ClearLogs` removes the current log and retained backups after confirmation. When reporting a
-problem, provide the current log and any remaining rotated logs; no extra diagnostic package is
-required.
+Each process's diagnostic log rotates at 8 MiB and keeps up to three backups (about 32 MiB per process).
+The System page can open the log folder and clear both Control Center and Host logs after confirmation.
+While disconnected, cleanup handles only Control Center logs. When reporting a problem, provide both
+current logs and any remaining backups. See [SUPPORT.md](../SUPPORT.md) for event and sampling details.
 
 ## IPC examples
 
