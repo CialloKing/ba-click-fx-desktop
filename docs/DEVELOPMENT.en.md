@@ -214,6 +214,8 @@ signature. `-SkipBuild` only applies when the matching Full or Slim outputs alre
 | Fonts, control layout and page visibility | [`control_center_window_layout.cpp`](../src/control-center/control_center_window_layout.cpp) |
 | Display status presentation and per-display policy actions | [`control_center_display.cpp`](../src/control-center/control_center_display.cpp) |
 | Host arguments and diagnostic startup isolation | [`run_options.cpp`](../src/desktop/run_options.cpp) |
+| Display runtime snapshot collection | [`display_runtime_summary.cpp`](../src/desktop/display_runtime_summary.cpp) |
+| Display output negotiation and retry diagnostics | [`display_output_diagnostics.cpp`](../src/desktop/display_output_diagnostics.cpp) |
 | Renderer diagnostics to performance samples | [`performance_samples.cpp`](../src/desktop/performance_samples.cpp) |
 | Performance aggregation and log output | [`performance_window.cpp`](../src/desktop/performance_window.cpp), [`performance_logging.cpp`](../src/desktop/performance_logging.cpp) |
 
@@ -225,6 +227,10 @@ Host control, hotkeys and FX profiles share `bafx::host_control`; background cap
 and performance logging share `bafx::desktop_runtime`. List these implementations once in
 [`src/desktop/CMakeLists.txt`](../src/desktop/CMakeLists.txt), then link the Host and corresponding tests to the targets.
 Input and scheduling policies remain in `bafx::desktop_input`, avoiding dependencies between control and render coordination.
+
+The Render Owner collects display runtime state at one timestamp; the Host publishes the same value to support logs
+and IPC. Output diagnostics only format observed state. Retry budgets, capture teardown and renderer mutations remain
+with the existing coordination flow.
 
 After configuring, layout and display-page changes can be checked with:
 

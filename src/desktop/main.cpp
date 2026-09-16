@@ -15,8 +15,10 @@
 #include "bafx/windows/unique_handle.hpp"
 #include "background_capture_runtime.hpp"
 #include "demo_scenario.hpp"
+#include "display_output_diagnostics.hpp"
 #include "display_output_retarget.hpp"
 #include "display_policy.hpp"
+#include "display_runtime_summary.hpp"
 #include "display_pointer_router.hpp"
 #include "display_session.hpp"
 #include "display_session_manager.hpp"
@@ -811,401 +813,6 @@ struct PendingOutputRenegotiation final
     bool retryPending{false};
 };
 
-[[nodiscard]] std::string_view outputPreferenceName(
-    const bafx::windows::CompositionOutputPreference preference) noexcept
-{
-    switch (preference)
-    {
-    case bafx::windows::CompositionOutputPreference::ConservativeSdr:
-        return "conservative-sdr";
-    case bafx::windows::CompositionOutputPreference::PreferLinearScRgb:
-        return "prefer-linear-scrgb";
-    }
-    return "unknown";
-}
-
-[[nodiscard]] std::string_view outputTransferName(
-    const bafx::windows::CompositionOutputTransfer transfer) noexcept
-{
-    switch (transfer)
-    {
-    case bafx::windows::CompositionOutputTransfer::Unknown:
-        return "unknown";
-    case bafx::windows::CompositionOutputTransfer::LinearScRgb:
-        return "linear-scrgb";
-    case bafx::windows::CompositionOutputTransfer::SdrGamma22:
-        return "sdr-gamma22";
-    }
-    return "unknown";
-}
-
-[[nodiscard]] std::string_view outputMappingName(
-    const bafx::windows::CompositionOutputMappingMode mapping) noexcept
-{
-    switch (mapping)
-    {
-    case bafx::windows::CompositionOutputMappingMode::ConservativeSdr:
-        return "conservative-sdr";
-    case bafx::windows::CompositionOutputMappingMode::AdvancedColorScRgb:
-        return "advanced-color-scrgb";
-    case bafx::windows::CompositionOutputMappingMode::HdrSceneReferredScRgb:
-        return "hdr-scene-referred-scrgb";
-    }
-    return "unknown";
-}
-
-[[nodiscard]] std::string_view intensitySemanticsName(
-    const bafx::core::IntensitySemantics semantics) noexcept
-{
-    switch (semantics)
-    {
-    case bafx::core::IntensitySemantics::ArtisticRelative:
-        return "artistic-relative";
-    case bafx::core::IntensitySemantics::ReferenceWhiteRelative:
-        return "reference-white-relative";
-    case bafx::core::IntensitySemantics::AbsoluteNits:
-        return "absolute-nits";
-    }
-    return "unknown";
-}
-
-[[nodiscard]] std::string outputReferenceWhiteNits(
-    const bafx::windows::CompositionOutputMapping& mapping)
-{
-    return mapping.referenceWhiteValid
-        ? std::to_string(mapping.referenceWhiteNits)
-        : "unknown";
-}
-
-[[nodiscard]] std::string_view outputFallbackName(
-    const bafx::windows::CompositionOutputFallback fallback) noexcept
-{
-    switch (fallback)
-    {
-    case bafx::windows::CompositionOutputFallback::None:
-        return "none";
-    case bafx::windows::CompositionOutputFallback::ConservativeSdr:
-        return "conservative-sdr";
-    }
-    return "unknown";
-}
-
-[[nodiscard]] std::string_view outputRenegotiationStatusName(
-    const bafx::windows::OutputRenegotiationStatus status) noexcept
-{
-    switch (status)
-    {
-    case bafx::windows::OutputRenegotiationStatus::RecreatedSameContract:
-        return "recreated-same-contract";
-    case bafx::windows::OutputRenegotiationStatus::ChangedWithinTransfer:
-        return "changed-within-transfer";
-    case bafx::windows::OutputRenegotiationStatus::ChangedToLinearScRgb:
-        return "changed-to-linear-scrgb";
-    case bafx::windows::OutputRenegotiationStatus::ChangedToSdr:
-        return "changed-to-sdr";
-    }
-    return "unknown";
-}
-
-void appendOutputRenegotiation(
-    const std::filesystem::path& logPath,
-    const bafx::desktop::DisplaySession& session,
-    const std::string_view reason,
-    const bafx::windows::OutputRenegotiationResult& result) noexcept
-{
-    try
-    {
-        const std::string monitor =
-            bafx::desktop::formatDisplayTargetMonitor(session.target());
-        const std::string previousFormat = std::to_string(
-            static_cast<std::uint32_t>(result.previous.format));
-        const std::string currentFormat = std::to_string(
-            static_cast<std::uint32_t>(result.current.format));
-        const std::string deviceRecovered = result.deviceRecovered
-            ? "true"
-            : "false";
-        const bafx::windows::CompositionOutputPolicy& requestedPolicy =
-            session.renderer().outputPolicy();
-        const std::string previousReferenceWhite =
-            outputReferenceWhiteNits(result.previous.mapping);
-        const std::string currentReferenceWhite =
-            outputReferenceWhiteNits(result.current.mapping);
-        const std::string requestedReferenceWhite =
-            outputReferenceWhiteNits(requestedPolicy.mapping);
-        const std::string_view preferenceSatisfied =
-            bafx::windows::compositionOutputSatisfiesPreference(
-                result.current,
-                result.currentPreference)
-            ? "true"
-            : "false";
-        const std::string_view policySatisfied =
-            bafx::windows::compositionOutputSatisfiesPolicy(
-                result.current,
-                requestedPolicy)
-            ? "true"
-            : "false";
-        const std::array fields{
-            bafx::windows::DiagnosticField{"Reason", reason},
-            bafx::windows::DiagnosticField{"Monitor", monitor},
-            bafx::windows::DiagnosticField{
-                "Status",
-                outputRenegotiationStatusName(result.status)},
-            bafx::windows::DiagnosticField{
-                "PreviousPreference",
-                outputPreferenceName(result.previousPreference)},
-            bafx::windows::DiagnosticField{
-                "CurrentPreference",
-                outputPreferenceName(result.currentPreference)},
-            bafx::windows::DiagnosticField{"PreviousFormat", previousFormat},
-            bafx::windows::DiagnosticField{"CurrentFormat", currentFormat},
-            bafx::windows::DiagnosticField{
-                "PreviousTransfer",
-                outputTransferName(result.previous.transfer)},
-            bafx::windows::DiagnosticField{
-                "CurrentTransfer",
-                outputTransferName(result.current.transfer)},
-            bafx::windows::DiagnosticField{
-                "PreviousMapping",
-                outputMappingName(result.previous.mapping.mode)},
-            bafx::windows::DiagnosticField{
-                "CurrentMapping",
-                outputMappingName(result.current.mapping.mode)},
-            bafx::windows::DiagnosticField{
-                "RequestedMapping",
-                outputMappingName(requestedPolicy.mapping.mode)},
-            bafx::windows::DiagnosticField{
-                "IntensitySemantics",
-                intensitySemanticsName(
-                    result.current.mapping.intensitySemantics)},
-            bafx::windows::DiagnosticField{
-                "PreviousReferenceWhiteNits",
-                previousReferenceWhite},
-            bafx::windows::DiagnosticField{
-                "CurrentReferenceWhiteNits",
-                currentReferenceWhite},
-            bafx::windows::DiagnosticField{
-                "RequestedReferenceWhiteNits",
-                requestedReferenceWhite},
-            bafx::windows::DiagnosticField{
-                "Fallback",
-                outputFallbackName(result.current.fallback)},
-            bafx::windows::DiagnosticField{
-                "PreferenceSatisfied",
-                preferenceSatisfied},
-            bafx::windows::DiagnosticField{
-                "PolicySatisfied",
-                policySatisfied},
-            bafx::windows::DiagnosticField{
-                "DeviceRecovered",
-                deviceRecovered}};
-        bafx::windows::appendDiagnosticEvent(
-            logPath,
-            "Display.Output.Renegotiated",
-            fields,
-            result.current.fallback ==
-                    bafx::windows::CompositionOutputFallback::None
-                ? bafx::windows::DiagnosticLevel::Info
-                : bafx::windows::DiagnosticLevel::Warning);
-    }
-    catch (...)
-    {
-        bafx::windows::appendDiagnosticLog(
-            logPath,
-            "Display output renegotiation diagnostics could not be formatted");
-    }
-}
-
-void appendOutputRenegotiationFailure(
-    const std::filesystem::path& logPath,
-    const bafx::desktop::DisplaySession& session,
-    const bafx::windows::CompositionOutputPolicy policy,
-    const std::string_view reason,
-    const std::string_view message,
-    const bool deviceRecovered = false) noexcept
-{
-    try
-    {
-        const std::string monitor =
-            bafx::desktop::formatDisplayTargetMonitor(session.target());
-        const std::string referenceWhite =
-            outputReferenceWhiteNits(policy.mapping);
-        const std::array fields{
-            bafx::windows::DiagnosticField{"Reason", reason},
-            bafx::windows::DiagnosticField{"Monitor", monitor},
-            bafx::windows::DiagnosticField{
-                "RequestedPreference",
-                outputPreferenceName(policy.preference)},
-            bafx::windows::DiagnosticField{
-                "RequestedMapping",
-                outputMappingName(policy.mapping.mode)},
-            bafx::windows::DiagnosticField{
-                "IntensitySemantics",
-                intensitySemanticsName(policy.mapping.intensitySemantics)},
-            bafx::windows::DiagnosticField{
-                "ReferenceWhiteNits",
-                referenceWhite},
-            bafx::windows::DiagnosticField{"Message", message},
-            bafx::windows::DiagnosticField{
-                "DeviceRecovered",
-                deviceRecovered ? "true" : "false"}};
-        bafx::windows::appendDiagnosticEvent(
-            logPath,
-            "Display.Output.RenegotiationFailed",
-            fields,
-            bafx::windows::DiagnosticLevel::Error);
-    }
-    catch (...)
-    {
-        bafx::windows::appendDiagnosticLog(
-            logPath,
-            "Display output renegotiation failure could not be formatted");
-    }
-}
-
-void appendOutputRenegotiationRetryScheduled(
-    const std::filesystem::path& logPath,
-    const bafx::desktop::DisplaySession& session,
-    const bafx::windows::CompositionOutputPolicy policy,
-    const std::string_view reason,
-    const std::uint32_t retriesRemaining,
-    const std::string_view cadence) noexcept
-{
-    try
-    {
-        const std::string monitor =
-            bafx::desktop::formatDisplayTargetMonitor(session.target());
-        const std::string remaining = std::to_string(retriesRemaining);
-        const std::string referenceWhite =
-            outputReferenceWhiteNits(policy.mapping);
-        const std::array fields{
-            bafx::windows::DiagnosticField{"Reason", reason},
-            bafx::windows::DiagnosticField{"Monitor", monitor},
-            bafx::windows::DiagnosticField{
-                "RequestedPreference",
-                outputPreferenceName(policy.preference)},
-            bafx::windows::DiagnosticField{
-                "RequestedMapping",
-                outputMappingName(policy.mapping.mode)},
-            bafx::windows::DiagnosticField{
-                "ReferenceWhiteNits",
-                referenceWhite},
-            bafx::windows::DiagnosticField{"RetriesRemaining", remaining},
-            bafx::windows::DiagnosticField{"Cadence", cadence}};
-        bafx::windows::appendDiagnosticEvent(
-            logPath,
-            "Display.Output.RenegotiationRetryScheduled",
-            fields,
-            bafx::windows::DiagnosticLevel::Warning);
-    }
-    catch (...)
-    {
-        bafx::windows::appendDiagnosticLog(
-            logPath,
-            "Display output renegotiation retry diagnostics could not be formatted");
-    }
-}
-
-void appendOutputRenegotiationExhausted(
-    const std::filesystem::path& logPath,
-    const bafx::desktop::DisplaySession& session,
-    const bafx::windows::CompositionOutputPolicy policy,
-    const std::string_view reason,
-    const bafx::desktop::DisplayOutputExhaustionDisposition disposition)
-    noexcept
-{
-    try
-    {
-        const bafx::windows::CompositionOutputState& output =
-            session.renderer().outputState();
-        const std::string monitor =
-            bafx::desktop::formatDisplayTargetMonitor(session.target());
-        const bool failClosed = disposition
-            == bafx::desktop::DisplayOutputExhaustionDisposition::FailClosed;
-        const std::array fields{
-            bafx::windows::DiagnosticField{"Reason", reason},
-            bafx::windows::DiagnosticField{"Monitor", monitor},
-            bafx::windows::DiagnosticField{
-                "RequestedPreference",
-                outputPreferenceName(policy.preference)},
-            bafx::windows::DiagnosticField{
-                "RequestedMapping",
-                outputMappingName(policy.mapping.mode)},
-            bafx::windows::DiagnosticField{
-                "ActualTransfer",
-                outputTransferName(output.transfer)},
-            bafx::windows::DiagnosticField{
-                "ActualMapping",
-                outputMappingName(output.mapping.mode)},
-            bafx::windows::DiagnosticField{
-                "Fallback",
-                outputFallbackName(output.fallback)},
-            bafx::windows::DiagnosticField{
-                "Disposition",
-                failClosed ? "fail-closed" : "accept-conservative-fallback"}};
-        bafx::windows::appendDiagnosticEvent(
-            logPath,
-            "Display.Output.RenegotiationExhausted",
-            fields,
-            failClosed
-                ? bafx::windows::DiagnosticLevel::Error
-                : bafx::windows::DiagnosticLevel::Warning);
-    }
-    catch (...)
-    {
-        bafx::windows::appendDiagnosticLog(
-            logPath,
-            "Exhausted output renegotiation diagnostics could not be formatted");
-    }
-}
-
-void appendOutputRenegotiationDiscarded(
-    const std::filesystem::path& logPath,
-    const bafx::desktop::DisplaySession& session,
-    const bafx::desktop::DisplayTarget& queuedTarget,
-    const bafx::windows::CompositionOutputPolicy policy,
-    const std::string_view reason) noexcept
-{
-    try
-    {
-        const std::string queuedMonitor =
-            bafx::desktop::formatDisplayTargetMonitor(queuedTarget);
-        const std::string currentMonitor =
-            bafx::desktop::formatDisplayTargetMonitor(session.target());
-        const std::string queuedDevice =
-            bafx::desktop::displayTargetDeviceUtf8(queuedTarget);
-        const std::string currentDevice =
-            bafx::desktop::displayTargetDeviceUtf8(session.target());
-        const std::string referenceWhite =
-            outputReferenceWhiteNits(policy.mapping);
-        const std::array fields{
-            bafx::windows::DiagnosticField{"Reason", reason},
-            bafx::windows::DiagnosticField{
-                "RequestedPreference",
-                outputPreferenceName(policy.preference)},
-            bafx::windows::DiagnosticField{
-                "RequestedMapping",
-                outputMappingName(policy.mapping.mode)},
-            bafx::windows::DiagnosticField{
-                "ReferenceWhiteNits",
-                referenceWhite},
-            bafx::windows::DiagnosticField{"Cause", "display-target-changed"},
-            bafx::windows::DiagnosticField{"QueuedMonitor", queuedMonitor},
-            bafx::windows::DiagnosticField{"CurrentMonitor", currentMonitor},
-            bafx::windows::DiagnosticField{"QueuedDevice", queuedDevice},
-            bafx::windows::DiagnosticField{"CurrentDevice", currentDevice}};
-        bafx::windows::appendDiagnosticEvent(
-            logPath,
-            "Display.Output.RenegotiationDiscarded",
-            fields);
-    }
-    catch (...)
-    {
-        bafx::windows::appendDiagnosticLog(
-            logPath,
-            "Discarded output renegotiation diagnostics could not be formatted");
-    }
-}
-
 [[nodiscard]] std::optional<bafx::windows::OutputRenegotiationResult>
 tryRenegotiateOutput(
     const std::filesystem::path& logPath,
@@ -1217,12 +824,12 @@ tryRenegotiateOutput(
     {
         const bafx::windows::OutputRenegotiationResult result =
             session.renderer().renegotiateOutput(policy);
-        appendOutputRenegotiation(logPath, session, reason, result);
+        bafx::desktop::appendOutputRenegotiation(logPath, session, reason, result);
         return result;
     }
     catch (const std::exception& error)
     {
-        appendOutputRenegotiationFailure(
+        bafx::desktop::appendOutputRenegotiationFailure(
             logPath,
             session,
             policy,
@@ -1232,7 +839,7 @@ tryRenegotiateOutput(
     }
     catch (...)
     {
-        appendOutputRenegotiationFailure(
+        bafx::desktop::appendOutputRenegotiationFailure(
             logPath,
             session,
             policy,
@@ -2027,7 +1634,7 @@ void appendSecondaryBackgroundCaptureServiceResult(
     if (result.outputRenegotiationDiscarded
         && result.outputRenegotiationTarget.has_value())
     {
-        appendOutputRenegotiationDiscarded(
+        bafx::desktop::appendOutputRenegotiationDiscarded(
             logPath,
             session,
             *result.outputRenegotiationTarget,
@@ -2036,7 +1643,7 @@ void appendSecondaryBackgroundCaptureServiceResult(
     }
     if (result.outputRenegotiation.has_value())
     {
-        appendOutputRenegotiation(
+        bafx::desktop::appendOutputRenegotiation(
             logPath,
             session,
             result.outputRenegotiationReason,
@@ -2044,7 +1651,7 @@ void appendSecondaryBackgroundCaptureServiceResult(
     }
     if (!result.outputRenegotiationFailure.empty())
     {
-        appendOutputRenegotiationFailure(
+        bafx::desktop::appendOutputRenegotiationFailure(
             logPath,
             session,
             result.outputRenegotiationPolicy,
@@ -2054,7 +1661,7 @@ void appendSecondaryBackgroundCaptureServiceResult(
     }
     if (result.outputRenegotiationRetryPending)
     {
-        appendOutputRenegotiationRetryScheduled(
+        bafx::desktop::appendOutputRenegotiationRetryScheduled(
             logPath,
             session,
             result.outputRenegotiationPolicy,
@@ -2064,7 +1671,7 @@ void appendSecondaryBackgroundCaptureServiceResult(
     }
     if (result.outputRenegotiationExhausted)
     {
-        appendOutputRenegotiationExhausted(
+        bafx::desktop::appendOutputRenegotiationExhausted(
             logPath,
             session,
             result.outputRenegotiationPolicy,
@@ -2810,174 +2417,12 @@ int runApplication(
     }
     const auto updateDisplayRuntimeSummary = [&]()
     {
-        const bafx::core::MonotonicTime runtimeObservedAt = clock.now();
-        const auto& capabilities = displaySession.colorCapabilities();
-        const bool colorSnapshotComplete = capabilities.has_value()
-            && bafx::windows::displayColorStateComplete(*capabilities);
-        const bool hdrCapabilityObserved = capabilities.has_value()
-            && (capabilities->advancedColorInfoV2
-                || capabilities->advancedColorQueryResult == ERROR_SUCCESS
-                || capabilities->advancedColorSupported
-                || capabilities->highDynamicRangeSupported
-                || capabilities->activeColorMode
-                    == bafx::windows::DisplayColorMode::Hdr);
-        const bool hdrActive = colorSnapshotComplete
-            && capabilities->activeColorMode
-                == bafx::windows::DisplayColorMode::Hdr
-            && (!capabilities->displayPathResolved
-                || capabilities->advancedColorActive);
-        const bafx::windows::CompositionOutputState& output =
-            renderer.outputState();
-        const bafx::windows::CompositionOutputPolicy resolvedPolicy =
-            bafx::desktop::resolveDisplayOutputPolicy(
-                displaySession.requestedOutputPreference(),
-                capabilities);
-
-        std::vector<bafx::windows::DisplaySessionRuntimeSummary>
-            sessionSummaries;
-        sessionSummaries.reserve(displaySessions.sessions().size());
-        for (const auto& ownedSession : displaySessions.sessions())
-        {
-            const bafx::desktop::DisplayTarget& target =
-                ownedSession->target();
-            const auto& sessionCapabilities =
-                ownedSession->colorCapabilities();
-            const bafx::windows::CompositionOutputPolicy sessionPolicy =
-                bafx::desktop::resolveDisplayOutputPolicy(
-                    ownedSession->requestedOutputPreference(),
-                    sessionCapabilities);
-            const bafx::windows::CompositionOutputState& sessionOutput =
-                ownedSession->renderer().outputState();
-            const bafx::windows::BackgroundCadenceRefreshResult cadence =
-                ownedSession->renderer().backgroundCaptureCadence();
-
-            bafx::windows::DisplaySessionRuntimeSummary summary{};
-            summary.monitor =
-                bafx::desktop::formatDisplayTargetMonitor(target);
-            summary.device = bafx::desktop::displayTargetDeviceUtf8(target);
-            summary.displayKey =
-                bafx::desktop::displayTargetPersistentKey(target);
-            summary.bounds = target.bounds;
-            summary.targetDpiX = target.dpiX;
-            summary.targetDpiY = target.dpiY;
-            summary.windowDpi = ownedSession->window().effectiveDpi();
-            summary.displayRefreshRate = target.refreshRate;
-            summary.captureRefreshRate = target.captureRefreshRate;
-            summary.captureCadenceFallbackReason =
-                target.captureCadenceFallbackReason;
-            summary.captureCadenceStatus = cadence.status;
-            summary.producerPolicyRefreshRate =
-                cadence.producerPolicyRefreshRate;
-            summary.freshnessPolicyRefreshRate =
-                cadence.freshnessPolicyRefreshRate;
-            summary.freshnessPolicyPeriod = cadence.appliedPeriod;
-            summary.producerCadence = cadence.producerCadence;
-            summary.physicalCadence.reserve(
-                target.physicalTargetIdentities.size());
-            for (const bafx::desktop::DisplayPhysicalTargetIdentity&
-                    physicalTarget : target.physicalTargetIdentities)
-            {
-                summary.physicalCadence.push_back(
-                    bafx::windows::DisplayPhysicalCadenceRuntimeSummary{
-                        physicalTarget.virtualRefreshRate,
-                        physicalTarget.physicalRefreshRate,
-                        physicalTarget.captureRefreshRate,
-                        physicalTarget.dynamicRefreshRateBoosted,
-                        physicalTarget.available});
-            }
-            summary.sourceAdapterLuid = target.sourceAdapterLuid;
-            summary.sourceId = target.sourceId;
-            summary.physicalTargetCount = target.physicalTargetCount;
-            summary.deviceInfo = ownedSession->renderer().deviceInfo();
-            summary.requestedOutputPreference =
-                ownedSession->requestedOutputPreference();
-            summary.resolvedOutputPolicy = sessionPolicy;
-            summary.colorCapabilities = sessionCapabilities;
-            summary.colorObservation = ownedSession->colorObservation();
-            summary.colorMonitorResult =
-                ownedSession->colorMonitorResult();
-            summary.colorSnapshotDisposition = std::string(
-                bafx::desktop::displaySessionColorRefreshStatusName(
-                    ownedSession->colorSnapshotStatus()));
-            summary.colorQueryGeneration =
-                ownedSession->colorQueryGeneration();
-            summary.backgroundCaptureFailure = std::string(
-                ownedSession->renderer().backgroundCaptureFailure());
-            summary.framePacing = std::string(
-                bafx::config::toString(ownedSession->framePacing()));
-            summary.effectsEnabled = ownedSession->effectsEnabled();
-            summary.hdrEnabled = ownedSession->requestedOutputPreference()
-                == bafx::windows::CompositionOutputPreference::PreferLinearScRgb;
-            summary.coordinator = ownedSession.get() == &displaySession;
-            summary.primary = target.primary;
-            summary.sourceAdapterResolved = target.sourceAdapterResolved;
-            summary.sourceIdentityResolved = target.sourceIdentityResolved;
-            summary.sourceTopologyStatus = target.topologyStatus;
-            summary.sourceTopologyError = target.topologyError;
-            summary.colorRefreshRetriesRemaining =
-                ownedSession->colorRefreshRetriesRemaining();
-            summary.outputPolicySatisfied =
-                ownedSession->renderer().outputPolicy() == sessionPolicy
-                && bafx::windows::compositionOutputSatisfiesPolicy(
-                    sessionOutput,
-                    sessionPolicy);
-            summary.backgroundCaptureActive =
-                ownedSession->renderer().backgroundCaptureActive();
-            summary.backgroundCaptureRestartAllowed =
-                ownedSession->renderer().backgroundCaptureRestartAllowed();
-            summary.renderFaulted = ownedSession->renderFaulted();
-            summary.outputContractFaulted =
-                ownedSession->outputContractFaulted();
-            summary.activeFxRoi =
-                ownedSession->activeFxRoiRuntimeSummary(runtimeObservedAt);
-            sessionSummaries.push_back(std::move(summary));
-        }
-        std::sort(
-            sessionSummaries.begin(),
-            sessionSummaries.end(),
-            [](const auto& left, const auto& right)
-            {
-                if (left.coordinator != right.coordinator)
-                {
-                    return left.coordinator;
-                }
-                if (left.bounds.top != right.bounds.top)
-                {
-                    return left.bounds.top < right.bounds.top;
-                }
-                if (left.bounds.left != right.bounds.left)
-                {
-                    return left.bounds.left < right.bounds.left;
-                }
-                if (left.bounds.bottom != right.bounds.bottom)
-                {
-                    return left.bounds.bottom < right.bounds.bottom;
-                }
-                if (left.bounds.right != right.bounds.right)
-                {
-                    return left.bounds.right < right.bounds.right;
-                }
-                return left.device < right.device;
-            });
-        const std::size_t sessionCount = sessionSummaries.size();
-        bafx::windows::DisplayRuntimeSummary runtimeSummary{};
-        runtimeSummary.sessionCount = sessionCount;
-        runtimeSummary.requestedOutputPreference =
-            displaySession.requestedOutputPreference();
-        runtimeSummary.resolvedOutputPreference = resolvedPolicy.preference;
-        runtimeSummary.actualOutputPreference =
-            bafx::windows::effectiveCompositionOutputPreference(output);
-        runtimeSummary.outputPolicySatisfied =
-            renderer.outputPolicy() == resolvedPolicy
-            && bafx::windows::compositionOutputSatisfiesPolicy(
-                output,
-                resolvedPolicy);
-        runtimeSummary.colorSnapshotComplete = colorSnapshotComplete;
-        runtimeSummary.hdrCapabilityObserved = hdrCapabilityObserved;
-        runtimeSummary.hdrActive = hdrActive;
-        runtimeSummary.topologyStatus = latestDisplayTopologyStatus;
-        runtimeSummary.topologyError = latestDisplayTopologyError;
-        runtimeSummary.sessions = std::move(sessionSummaries);
+        auto runtimeSummary = bafx::desktop::collectDisplayRuntimeSummary(
+            displaySessions,
+            displaySession,
+            latestDisplayTopologyStatus,
+            latestDisplayTopologyError,
+            clock.now());
         // The support report and Control Center consume the same immutable
         // product snapshot, so neither can drift from the live per-screen view.
         report.setDisplayRuntimeSummary(runtimeSummary);
@@ -3382,7 +2827,7 @@ int runApplication(
                 bafx::windows::DiagnosticField{"Monitor", monitor},
                 bafx::windows::DiagnosticField{
                     "RequestedPreference",
-                    outputPreferenceName(policy.preference)},
+                    bafx::desktop::outputPreferenceName(policy.preference)},
                 bafx::windows::DiagnosticField{
                     "WgcWasActive",
                     backgroundCaptureWasActive ? "true" : "false"},
@@ -3519,7 +2964,7 @@ int runApplication(
                         bafx::desktop::
                             resolveDisplayOutputExhaustionDisposition(
                                 renderer.outputState());
-                appendOutputRenegotiationExhausted(
+                bafx::desktop::appendOutputRenegotiationExhausted(
                     logPath,
                     displaySession,
                     pending.policy,
@@ -3546,7 +2991,7 @@ int runApplication(
             --pending.attemptsRemaining;
             pending.retryPending = true;
             pendingCoordinatorOutputRenegotiation = std::move(pending);
-            appendOutputRenegotiationRetryScheduled(
+            bafx::desktop::appendOutputRenegotiationRetryScheduled(
                 logPath,
                 displaySession,
                 pendingCoordinatorOutputRenegotiation->policy,
@@ -3587,13 +3032,13 @@ int runApplication(
                 bafx::windows::DiagnosticField{"Reason", reason},
                 bafx::windows::DiagnosticField{
                     "RequestedPreference",
-                    outputPreferenceName(policy.preference)},
+                    bafx::desktop::outputPreferenceName(policy.preference)},
                 bafx::windows::DiagnosticField{
                     "ActualTransfer",
-                    outputTransferName(renderer.outputState().transfer)},
+                    bafx::desktop::outputTransferName(renderer.outputState().transfer)},
                 bafx::windows::DiagnosticField{
                     "Fallback",
-                    outputFallbackName(renderer.outputState().fallback)},
+                    bafx::desktop::outputFallbackName(renderer.outputState().fallback)},
                 bafx::windows::DiagnosticField{"Attempts", attempts}};
             bafx::windows::appendDiagnosticEvent(
                 logPath,
@@ -3792,10 +3237,10 @@ int runApplication(
                     retriesRemaining},
                 bafx::windows::DiagnosticField{
                     "RequestedPreference",
-                    outputPreferenceName(requestedPreference)},
+                    bafx::desktop::outputPreferenceName(requestedPreference)},
                 bafx::windows::DiagnosticField{
                     "ResolvedPreference",
-                    outputPreferenceName(currentPolicy.preference)},
+                    bafx::desktop::outputPreferenceName(currentPolicy.preference)},
                 bafx::windows::DiagnosticField{
                     "OutputContract",
                     outputContractChanged ? "changed" : "unchanged"},
@@ -4575,10 +4020,10 @@ int runApplication(
                         retriesRemaining},
                     bafx::windows::DiagnosticField{
                         "RequestedPreference",
-                        outputPreferenceName(requestedPreference)},
+                        bafx::desktop::outputPreferenceName(requestedPreference)},
                     bafx::windows::DiagnosticField{
                         "ResolvedPreference",
-                        outputPreferenceName(policy.preference)},
+                        bafx::desktop::outputPreferenceName(policy.preference)},
                     bafx::windows::DiagnosticField{
                         "OutputContract",
                         outputContractChanged ? "changed" : "unchanged"},
@@ -5302,7 +4747,7 @@ int runApplication(
             const std::array fields{
                 bafx::windows::DiagnosticField{
                     "RequestedPreference",
-                    outputPreferenceName(requested)},
+                    bafx::desktop::outputPreferenceName(requested)},
                 bafx::windows::DiagnosticField{
                     "CoordinatorResourceDomain",
                     "ready"}};
@@ -5511,7 +4956,7 @@ int runApplication(
                     const std::array fields{
                         bafx::windows::DiagnosticField{
                             "RequestedPreference",
-                            outputPreferenceName(
+                            bafx::desktop::outputPreferenceName(
                                 displaySession.requestedOutputPreference())},
                         bafx::windows::DiagnosticField{
                             "DisplayPower",

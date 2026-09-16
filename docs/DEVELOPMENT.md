@@ -201,6 +201,8 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File .\tools\package-user-installer.ps1
 | 字体、控件布局与页面可见性 | [`control_center_window_layout.cpp`](../src/control-center/control_center_window_layout.cpp) |
 | 显示状态呈现与逐屏策略操作 | [`control_center_display.cpp`](../src/control-center/control_center_display.cpp) |
 | Host 命令行与诊断启动隔离 | [`run_options.cpp`](../src/desktop/run_options.cpp) |
+| 显示运行时快照组装 | [`display_runtime_summary.cpp`](../src/desktop/display_runtime_summary.cpp) |
+| 显示输出协商与重试诊断 | [`display_output_diagnostics.cpp`](../src/desktop/display_output_diagnostics.cpp) |
 | 渲染诊断到性能样本的转换 | [`performance_samples.cpp`](../src/desktop/performance_samples.cpp) |
 | 性能窗口聚合与日志输出 | [`performance_window.cpp`](../src/desktop/performance_window.cpp)、[`performance_logging.cpp`](../src/desktop/performance_logging.cpp) |
 
@@ -212,6 +214,9 @@ Host 控制面、快捷键和特效预设共用 `bafx::host_control`；背景捕
 `bafx::desktop_runtime`。这两组实现只在 [`src/desktop/CMakeLists.txt`](../src/desktop/CMakeLists.txt)
 列出一次，Host 和对应测试直接链接目标。纯输入与调度策略继续由 `bafx::desktop_input` 提供，
 避免控制面与渲染协调互相依赖。
+
+显示运行时快照由 Render Owner 在同一时间点收集，再由 Host 发布同一份值给支持日志和 IPC。
+输出诊断模块只格式化已发生的状态；输出重试预算、捕获停止和渲染器修改仍由原有协调流程负责。
 
 完成配置后，布局或显示页改动可以先运行：
 
