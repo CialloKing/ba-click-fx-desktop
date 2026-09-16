@@ -522,6 +522,56 @@ BAFX_TEST(diagnostic_log_rotates_before_an_append_exceeds_the_budget)
         != std::string::npos);
 }
 
+BAFX_TEST(diagnostic_log_write_failure_is_observable_and_recovery_is_reported_once)
+{
+    TemporaryDiagnosticDirectory directory;
+    const auto path = directory.path() / L"health.log";
+    writeText(path, "existing\n");
+    const auto before = bafx::windows::diagnosticLogHealth();
+    const HANDLE locked = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ,
+        nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    BAFX_CHECK(locked != INVALID_HANDLE_VALUE);
+    bafx::windows::appendDiagnosticEvent(path, "Test.Blocked");
+    CloseHandle(locked);
+    const auto failed = bafx::windows::diagnosticLogHealth();
+    BAFX_CHECK(failed.writeFailures == before.writeFailures + 1U);
+    BAFX_CHECK(failed.droppedRecords == before.droppedRecords + 1U);
+    BAFX_CHECK(failed.lastError == ERROR_SHARING_VIOLATION);
+    BAFX_CHECK(failed.lastFailureOperation == "open");
+    bafx::windows::appendDiagnosticEvent(path, "Test.Recovered");
+    bafx::windows::appendDiagnosticEvent(path, "Test.Next");
+    const auto text = readText(path);
+    const auto recovered = text.find("Event.Name=Log.WriteRecovered");
+    BAFX_CHECK(recovered != std::string::npos);
+    BAFX_CHECK(text.find("Event.Name=Log.WriteRecovered", recovered + 1U) == std::string::npos);
+    BAFX_CHECK(text.find("Event.Name=Test.Blocked") == std::string::npos);
+    BAFX_CHECK(bafx::windows::diagnosticLogHealth().lastSuccessfulWriteUtcMilliseconds > 0U);
+    BAFX_CHECK(bafx::windows::SupportReport("test").serialize().find("Log.Health.WriteFailures=")
+        != std::string::npos);
+}
+
+BAFX_TEST(diagnostic_log_rotation_failure_preserves_the_disk_budget)
+{
+    TemporaryDiagnosticDirectory directory;
+    const auto path = directory.path() / L"budget.log";
+    const auto backup = backupPath(path, 1U);
+    constexpr auto maximumBytes = bafx::windows::DiagnosticLogRetention{}.maximumBytes;
+    writeText(path, std::string(maximumBytes, 'x'));
+    writeText(backup, "locked backup");
+    const HANDLE locked = CreateFileW(backup.c_str(), GENERIC_READ, FILE_SHARE_READ,
+        nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    BAFX_CHECK(locked != INVALID_HANDLE_VALUE);
+    const auto before = bafx::windows::diagnosticLogHealth();
+    bafx::windows::appendDiagnosticEvent(path, "Test.RotationBlocked");
+    CloseHandle(locked);
+    const auto after = bafx::windows::diagnosticLogHealth();
+    BAFX_CHECK(after.rotationFailures == before.rotationFailures + 1U);
+    BAFX_CHECK(after.droppedRecords == before.droppedRecords + 1U);
+    BAFX_CHECK(std::filesystem::file_size(path) == maximumBytes);
+    bafx::windows::appendDiagnosticEvent(path, "Test.RotationRecovered");
+    BAFX_CHECK(readText(path).find("Event.Name=Log.WriteRecovered") != std::string::npos);
+}
+
 BAFX_TEST(diagnostic_log_cleanup_removes_current_and_backup_files)
 {
     const TemporaryDiagnosticDirectory temporary;

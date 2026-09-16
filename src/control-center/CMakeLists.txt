@@ -23,6 +23,7 @@ add_executable(
         main.cpp
         "${PROJECT_SOURCE_DIR}/src/windows/src/package_identity.cpp"
         "${PROJECT_SOURCE_DIR}/src/windows/src/portable_paths.cpp"
+        "${PROJECT_SOURCE_DIR}/src/windows/src/diagnostic_log.cpp"
         "${PROJECT_SOURCE_DIR}/src/windows/src/recording_compatibility.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/BAFX.ControlCenter.manifest"
         "${BAFX_CONTROL_CENTER_GENERATED_DIR}/BAFX.ControlCenter.rc"

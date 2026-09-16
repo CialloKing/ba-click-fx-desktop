@@ -21,6 +21,7 @@ add_library(
         src/package_identity.cpp
         src/portable_paths.cpp
         src/recording_compatibility.cpp
+        src/diagnostic_log.cpp
         src/runtime_diagnostics.cpp
         src/spout2_sender.cpp
         src/startup_registration.cpp

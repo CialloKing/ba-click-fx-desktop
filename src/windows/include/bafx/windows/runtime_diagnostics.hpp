@@ -1,6 +1,7 @@
 #pragma once
 
 #include "bafx/windows/composition_renderer.hpp"
+#include "bafx/windows/diagnostic_log.hpp"
 #include "bafx/windows/display_capabilities.hpp"
 #include "bafx/windows/display_color_monitor.hpp"
 
@@ -23,36 +24,6 @@ enum class BackgroundCaptureStatus : std::uint8_t
     Active,
     FallbackFxOnly,
     FallbackFxOnlyCaptureVisibilityUnknown
-};
-
-inline constexpr std::uint32_t diagnosticLogSchemaVersion = 2U;
-
-struct DiagnosticField
-{
-    std::string_view key{};
-    std::string_view value{};
-};
-
-enum class DiagnosticLevel : std::uint8_t
-{
-    Debug,
-    Info,
-    Warning,
-    Error
-};
-
-struct DiagnosticLogRetention
-{
-    std::uintmax_t maximumBytes{8U * 1024U * 1024U};
-    std::uint32_t backupCount{3U};
-};
-
-struct DiagnosticLogCleanupResult
-{
-    std::uint32_t removedFiles{0U};
-    std::uintmax_t removedBytes{0U};
-    std::uint32_t failedFiles{0U};
-    std::error_code firstError{};
 };
 
 struct DisplayPhysicalCadenceRuntimeSummary final
@@ -343,32 +314,9 @@ private:
     bool hasExitUiStatus_{false};
 };
 
-[[nodiscard]] std::filesystem::path defaultDiagnosticLogPath();
-
-[[nodiscard]] std::string_view diagnosticSessionId() noexcept;
-
-// Performs one best-effort rotation using the supplied retention. Normal
-// appends independently enforce the default retention for long-running hosts.
-void rotateDiagnosticLog(
-    const std::filesystem::path& path,
-    DiagnosticLogRetention retention = {}) noexcept;
-
-[[nodiscard]] DiagnosticLogCleanupResult clearDiagnosticLogs(
-    const std::filesystem::path& path) noexcept;
-
-void appendDiagnosticEvent(
-    const std::filesystem::path& path,
-    std::string_view eventName,
-    std::span<const DiagnosticField> fields = {},
-    DiagnosticLevel level = DiagnosticLevel::Info) noexcept;
-
 void writeSupportReport(
     const std::filesystem::path& path,
     const SupportReport& report);
-
-void appendDiagnosticLog(
-    const std::filesystem::path& path,
-    std::string_view event) noexcept;
 
 void appendDiagnosticLog(
     const std::filesystem::path& path,

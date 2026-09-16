@@ -2,21 +2,15 @@
 
 #include "bafx/windows/portable_paths.hpp"
 #include "bafx/windows/recording_compatibility.hpp"
-#include "bafx/windows/unique_handle.hpp"
 
 #include <windows.h>
 
 #include <algorithm>
 #include <array>
-#include <atomic>
-#include <cctype>
-#include <cstdio>
 #include <cstdint>
 #include <fstream>
 #include <iomanip>
 #include <locale>
-#include <limits>
-#include <mutex>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -93,283 +87,6 @@ namespace
            << std::setw(2) << time.wSecond << '.'
            << std::setw(3) << time.wMilliseconds << 'Z';
     return stream.str();
-}
-
-[[nodiscard]] std::array<char, 96U> makeDiagnosticSessionId() noexcept
-{
-    LARGE_INTEGER counter{};
-    QueryPerformanceCounter(&counter);
-
-    SYSTEMTIME time{};
-    GetSystemTime(&time);
-    std::array<char, 96U> result{};
-    const int written = std::snprintf(
-        result.data(),
-        result.size(),
-        "%04u%02u%02uT%02u%02u%02u.%03uZ-%lu-%llX",
-        static_cast<unsigned int>(time.wYear),
-        static_cast<unsigned int>(time.wMonth),
-        static_cast<unsigned int>(time.wDay),
-        static_cast<unsigned int>(time.wHour),
-        static_cast<unsigned int>(time.wMinute),
-        static_cast<unsigned int>(time.wSecond),
-        static_cast<unsigned int>(time.wMilliseconds),
-        static_cast<unsigned long>(GetCurrentProcessId()),
-        static_cast<unsigned long long>(counter.QuadPart));
-    if (written <= 0 || static_cast<std::size_t>(written) >= result.size())
-    {
-        constexpr std::string_view fallback = "unknown";
-        std::copy(fallback.begin(), fallback.end(), result.begin());
-    }
-    return result;
-}
-
-struct DiagnosticSessionContext
-{
-    std::array<char, 96U> id{makeDiagnosticSessionId()};
-    std::atomic<std::uint64_t> nextSequence{1U};
-    std::int64_t startedAtQpc{[]() noexcept
-        {
-            LARGE_INTEGER counter{};
-            return QueryPerformanceCounter(&counter) ? counter.QuadPart : 0LL;
-        }()};
-    std::int64_t qpcFrequency{[]() noexcept
-        {
-            LARGE_INTEGER frequency{};
-            return QueryPerformanceFrequency(&frequency)
-                    && frequency.QuadPart > 0
-                ? frequency.QuadPart
-                : 0LL;
-        }()};
-};
-
-[[nodiscard]] DiagnosticSessionContext& diagnosticSession() noexcept
-{
-    static DiagnosticSessionContext session;
-    return session;
-}
-
-[[nodiscard]] std::mutex& diagnosticLogMutex() noexcept
-{
-    static std::mutex mutex;
-    return mutex;
-}
-
-[[nodiscard]] std::uint64_t diagnosticMonotonicMicroseconds() noexcept
-{
-    const DiagnosticSessionContext& session = diagnosticSession();
-    LARGE_INTEGER counter{};
-    if (session.startedAtQpc <= 0
-        || session.qpcFrequency <= 0
-        || !QueryPerformanceCounter(&counter)
-        || counter.QuadPart < session.startedAtQpc)
-    {
-        return 0U;
-    }
-
-    constexpr std::uint64_t microsecondsPerSecond = 1'000'000U;
-    const std::uint64_t elapsed = static_cast<std::uint64_t>(
-        counter.QuadPart - session.startedAtQpc);
-    const std::uint64_t frequency = static_cast<std::uint64_t>(
-        session.qpcFrequency);
-    return (elapsed / frequency) * microsecondsPerSecond
-        + (elapsed % frequency) * microsecondsPerSecond / frequency;
-}
-
-[[nodiscard]] std::filesystem::path diagnosticBackupPath(
-    const std::filesystem::path& path,
-    const std::uint32_t index)
-{
-    std::filesystem::path backup(path);
-    backup += L"." + std::to_wstring(index);
-    return backup;
-}
-
-void rotateDiagnosticLogUnlocked(
-    const std::filesystem::path& path,
-    const DiagnosticLogRetention retention,
-    const std::uintmax_t incomingBytes = 0U) noexcept
-{
-    constexpr std::uint32_t maximumBackupCount = 16U;
-    if (path.empty()
-        || retention.maximumBytes == 0U
-        || retention.backupCount == 0U
-        || retention.backupCount > maximumBackupCount)
-    {
-        return;
-    }
-
-    std::error_code error;
-    for (std::uint32_t index = retention.backupCount + 1U;
-         index <= maximumBackupCount;
-         ++index)
-    {
-        error.clear();
-        static_cast<void>(std::filesystem::remove(
-            diagnosticBackupPath(path, index),
-            error));
-    }
-
-    const std::uintmax_t currentSize = std::filesystem::file_size(path, error);
-    if (error
-        || (currentSize < retention.maximumBytes
-            && incomingBytes <= retention.maximumBytes - currentSize))
-    {
-        return;
-    }
-
-    for (std::uint32_t index = retention.backupCount; index > 0U; --index)
-    {
-        const std::filesystem::path source = index == 1U
-            ? path
-            : diagnosticBackupPath(path, index - 1U);
-        const std::filesystem::path destination = diagnosticBackupPath(path, index);
-        error.clear();
-        if (!std::filesystem::exists(source, error) || error)
-        {
-            continue;
-        }
-        error.clear();
-        std::filesystem::remove(destination, error);
-        if (error)
-        {
-            return;
-        }
-        std::filesystem::rename(source, destination, error);
-        if (error)
-        {
-            return;
-        }
-    }
-}
-
-[[nodiscard]] std::string sanitizeLogValue(const std::string_view value)
-{
-    std::string result(value);
-    for (char& character : result)
-    {
-        if (character == '\r' || character == '\n' || character == '\0')
-        {
-            character = ' ';
-        }
-    }
-    return result;
-}
-
-[[nodiscard]] std::string sanitizeLogKey(const std::string_view value)
-{
-    if (value.empty())
-    {
-        return "Field";
-    }
-
-    std::string result(value);
-    for (char& character : result)
-    {
-        const unsigned char code = static_cast<unsigned char>(character);
-        if (std::isalnum(code) == 0
-            && character != '.'
-            && character != '_'
-            && character != '-')
-        {
-            character = '_';
-        }
-    }
-    return result;
-}
-
-[[nodiscard]] std::string_view diagnosticLevelName(
-    const DiagnosticLevel level) noexcept
-{
-    switch (level)
-    {
-    case DiagnosticLevel::Debug:
-        return "Debug";
-    case DiagnosticLevel::Info:
-        return "Info";
-    case DiagnosticLevel::Warning:
-        return "Warning";
-    case DiagnosticLevel::Error:
-        return "Error";
-    }
-    return "Unknown";
-}
-
-void appendDiagnosticRecordUnlocked(
-    const std::filesystem::path& path,
-    const std::string_view eventName,
-    const std::span<const DiagnosticField> fields,
-    const std::string_view body,
-    const DiagnosticLevel level) noexcept
-{
-    DiagnosticSessionContext& session = diagnosticSession();
-    const std::uint64_t sequence = session.nextSequence.fetch_add(
-        1U,
-        std::memory_order_relaxed);
-    std::ostringstream record;
-    record << "Log.SchemaVersion=" << diagnosticLogSchemaVersion << '\n'
-           << "Log.SessionId=" << session.id.data() << '\n'
-           << "Event.Sequence=" << sequence << '\n'
-           << "Event.Utc=" << utcTimestamp() << '\n'
-           << "Event.MonotonicUs=" << diagnosticMonotonicMicroseconds() << '\n'
-           << "Event.ProcessId=" << GetCurrentProcessId() << '\n'
-           << "Event.ThreadId=" << GetCurrentThreadId() << '\n'
-           << "Event.Level=" << diagnosticLevelName(level) << '\n'
-           << "Event.Name=" << sanitizeLogValue(eventName) << '\n';
-    for (const DiagnosticField& field : fields)
-    {
-        record << sanitizeLogKey(field.key) << '='
-               << sanitizeLogValue(field.value) << '\n';
-    }
-    if (!body.empty())
-    {
-        record << body;
-        if (body.back() != '\n')
-        {
-            record << '\n';
-        }
-    }
-    record << "---\n";
-
-    std::string text = record.str();
-    const DiagnosticLogRetention retention{};
-    if (text.size() > retention.maximumBytes)
-    {
-        // A diagnostic payload must never defeat the disk budget. Emit a
-        // compact marker instead of recursively logging the oversized body.
-        std::ostringstream bounded;
-        bounded << "Log.SchemaVersion=" << diagnosticLogSchemaVersion << '\n'
-                << "Log.SessionId=" << session.id.data() << '\n'
-                << "Event.Sequence=" << sequence << '\n'
-                << "Event.Name=Log.RecordTruncated\n"
-                << "Log.RecordBytes=" << text.size() << '\n'
-                << "---\n";
-        text = bounded.str();
-    }
-    rotateDiagnosticLogUnlocked(path, retention, text.size());
-    if (text.size() > std::numeric_limits<DWORD>::max())
-    {
-        return;
-    }
-    const UniqueHandle output(CreateFileW(
-        path.c_str(),
-        FILE_APPEND_DATA,
-        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-        nullptr,
-        OPEN_ALWAYS,
-        FILE_ATTRIBUTE_NORMAL,
-        nullptr));
-    if (output.get() == nullptr || output.get() == INVALID_HANDLE_VALUE)
-    {
-        return;
-    }
-    DWORD written = 0U;
-    static_cast<void>(WriteFile(
-        output.get(),
-        text.data(),
-        static_cast<DWORD>(text.size()),
-        &written,
-        nullptr));
 }
 
 [[nodiscard]] std::string osVersion()
@@ -1472,6 +1189,7 @@ std::string SupportReport::serialize() const
                << "Display.MaxLuminanceNits=unknown\n"
                << "Display.MaxFullFrameLuminanceNits=unknown\n";
     }
+    stream << diagnosticLogHealthReport();
     stream << "Log.Path=" << (logPath_.empty() ? "unknown" : logPath_) << '\n'
            << "Log.SchemaVersion=" << diagnosticLogSchemaVersion << '\n'
            << "Log.SessionId=" << diagnosticSessionId() << '\n';
@@ -1650,109 +1368,6 @@ std::string SupportReport::serialize() const
     return stream.str();
 }
 
-std::filesystem::path defaultDiagnosticLogPath()
-{
-    return executableFilePath(
-        L"ba-click-fx-desktop-support.log",
-        L"ba-click-fx-desktop-support.log");
-}
-
-std::string_view diagnosticSessionId() noexcept
-{
-    return diagnosticSession().id.data();
-}
-
-void rotateDiagnosticLog(
-    const std::filesystem::path& path,
-    const DiagnosticLogRetention retention) noexcept
-{
-    try
-    {
-        const std::lock_guard lock(diagnosticLogMutex());
-        if (!path.parent_path().empty())
-        {
-            std::filesystem::create_directories(path.parent_path());
-        }
-        rotateDiagnosticLogUnlocked(path, retention);
-    }
-    catch (...)
-    {
-        // Logging remains best-effort when retention maintenance is unavailable.
-    }
-}
-
-DiagnosticLogCleanupResult clearDiagnosticLogs(
-    const std::filesystem::path& path) noexcept
-{
-    DiagnosticLogCleanupResult result{};
-    try
-    {
-        const std::lock_guard lock(diagnosticLogMutex());
-        for (std::uint32_t index = 0U; index <= 16U; ++index)
-        {
-            const std::filesystem::path candidate = index == 0U
-                ? path
-                : diagnosticBackupPath(path, index);
-            std::error_code sizeError;
-            const std::uintmax_t bytes = std::filesystem::file_size(
-                candidate,
-                sizeError);
-            std::error_code error;
-            const bool removed = std::filesystem::remove(candidate, error);
-            if (removed)
-            {
-                ++result.removedFiles;
-                if (!sizeError)
-                {
-                    result.removedBytes += bytes;
-                }
-                continue;
-            }
-            if (error)
-            {
-                ++result.failedFiles;
-                if (!result.firstError)
-                {
-                    result.firstError = error;
-                }
-            }
-        }
-    }
-    catch (const std::filesystem::filesystem_error& error)
-    {
-        ++result.failedFiles;
-        result.firstError = error.code();
-    }
-    catch (...)
-    {
-        ++result.failedFiles;
-        result.firstError = std::make_error_code(
-            std::errc::io_error);
-    }
-    return result;
-}
-
-void appendDiagnosticEvent(
-    const std::filesystem::path& path,
-    const std::string_view eventName,
-    const std::span<const DiagnosticField> fields,
-    const DiagnosticLevel level) noexcept
-{
-    try
-    {
-        const std::lock_guard lock(diagnosticLogMutex());
-        if (!path.parent_path().empty())
-        {
-            std::filesystem::create_directories(path.parent_path());
-        }
-        appendDiagnosticRecordUnlocked(path, eventName, fields, {}, level);
-    }
-    catch (...)
-    {
-        // Diagnostics must never turn a recoverable rendering path into a failure.
-    }
-}
-
 void writeSupportReport(
     const std::filesystem::path& path,
     const SupportReport& report)
@@ -1777,25 +1392,11 @@ void writeSupportReport(
 
 void appendDiagnosticLog(
     const std::filesystem::path& path,
-    const std::string_view event) noexcept
-{
-    const std::array fields{
-        DiagnosticField{"Event.Message", event}};
-    appendDiagnosticEvent(path, "Message", fields);
-}
-
-void appendDiagnosticLog(
-    const std::filesystem::path& path,
     const SupportReport& report) noexcept
 {
     try
     {
-        const std::lock_guard lock(diagnosticLogMutex());
-        if (!path.parent_path().empty())
-        {
-            std::filesystem::create_directories(path.parent_path());
-        }
-        appendDiagnosticRecordUnlocked(
+        appendDiagnosticRecord(
             path,
             "SupportReport",
             {},
