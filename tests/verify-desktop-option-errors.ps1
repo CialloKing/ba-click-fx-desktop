@@ -65,6 +65,7 @@ function Invoke-InvalidOptionCase
     $log = [System.IO.File]::ReadAllText($logPath)
     foreach ($requiredText in @(
         'Event.Name=Process.Startup.Failed',
+        'Event.Name=Process.Failed',
         'Event.Name=Process.Exited',
         'Process.Reason=invalid-command-line',
         'Process.Phase=command-line',
@@ -77,6 +78,10 @@ function Invoke-InvalidOptionCase
         {
             throw "Case '$Name' diagnostic log is missing '$requiredText'"
         }
+    }
+    if ($log.IndexOf('Event.Name=Process.Exited') -le $log.IndexOf('Event.Name=Process.Startup.Failed'))
+    {
+        throw "Case '$Name' records exit before failure reporting has finished"
     }
 }
 

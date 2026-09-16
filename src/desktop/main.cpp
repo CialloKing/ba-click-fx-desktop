@@ -7829,7 +7829,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int)
         // Write before presenting an error dialog, which can remain open.
         if (!logPath.empty())
         {
-            appendHostExit(logPath, "Process.Exited", lifecycle,
+            appendHostExit(logPath, "Process.Failed", lifecycle,
                 parsingOptions ? invalidCommandLineExitCode : 1, error.what());
         }
         report.setFailure(error.what());
@@ -7869,6 +7869,10 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int)
             // non-interactive so collectors and CI cannot hang on a dialog.
             OutputDebugStringA(error.what());
             OutputDebugStringA("\n");
+            if (!logPath.empty())
+            {
+                appendHostExit(logPath, "Process.Exited", lifecycle, invalidCommandLineExitCode, error.what());
+            }
             return invalidCommandLineExitCode;
         }
         if (options.smokeTest)
@@ -7883,6 +7887,10 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int)
                 error.what(),
                 "ba-click-fx-desktop failed",
                 MB_OK | MB_ICONERROR | MB_SETFOREGROUND);
+        }
+        if (!logPath.empty())
+        {
+            appendHostExit(logPath, "Process.Exited", lifecycle, 1, error.what());
         }
         return 1;
     }

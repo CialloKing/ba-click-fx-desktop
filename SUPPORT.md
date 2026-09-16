@@ -164,6 +164,7 @@
   启动/运行失败、控制请求、窗口关闭、消息退出、帧数/时长限制及支持报告完成。控制请求的 IPC/快捷键来源
   可对照前面的 `Control.Mutation.Completed`。正常渲染循环退出时，先写 `Process.ExitRequested`，再清理 WGC
   与其他资源；缺少最终退出记录时可结合最后的 WGC stop 阶段排查。强制终止、系统断电不保证有退出日志。
+  捕获到异常后先记 `Process.Failed`，错误提示关闭、支持报告处理结束后再记 `Process.Exited`。
 - 每个 `BackgroundCapture.Transaction.End` 后会追加累计的
   `WGC.ResourceLedger.*` 记录，包含 Frame/FramePool/Session、两类事件注册的
   created/closed/live 计数、recreate 次数和 `Failures`/`AllReleased`；它覆盖会话停止、
