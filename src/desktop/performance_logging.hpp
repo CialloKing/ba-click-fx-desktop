@@ -11,12 +11,24 @@
 namespace bafx::desktop
 {
 
+struct PerformanceLogTiming
+{
+    std::chrono::nanoseconds summary{};
+    std::chrono::nanoseconds fields{};
+    std::chrono::nanoseconds lockAndPrepare{};
+    std::chrono::nanoseconds format{};
+    std::chrono::nanoseconds fileOperations{};
+    std::chrono::nanoseconds logWrite{};
+    std::chrono::nanoseconds total{};
+};
+
 struct PerformanceLogContext
 {
     bafx::windows::WindowSize outputSize{};
     bafx::windows::BackgroundCompositeStatus backgroundStatus{
         bafx::windows::BackgroundCompositeStatus::Inactive};
     bool paused{false};
+    PerformanceLogTiming previousTiming{};
 };
 
 void appendAppliedConfiguration(
@@ -32,6 +44,17 @@ void appendAppliedConfiguration(
     const PerformanceLogContext& context,
     std::chrono::nanoseconds intervalDuration,
     std::chrono::nanoseconds previousLogWriteCpu,
+    bool finalInterval,
+    PerformanceLogTiming* timing = nullptr) noexcept;
+
+// Include aggregation in the measured/reporting boundary so copying and
+// sorting samples cannot disappear from diagnostics or escape into rendering.
+[[nodiscard]] PerformanceLogTiming appendPerformanceWindow(
+    const std::filesystem::path& logPath,
+    const RuntimePerformanceWindow& window,
+    const bafx::config::Config& config,
+    const PerformanceLogContext& context,
+    std::chrono::nanoseconds intervalDuration,
     bool finalInterval) noexcept;
 
 }

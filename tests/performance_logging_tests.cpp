@@ -141,17 +141,22 @@ BAFX_TEST(performance_log_preserves_metric_and_semantic_fields)
     bafx::config::Config config = bafx::config::defaultConfig();
     config.performance.activeFxRoiEnabled = true;
 
-    static_cast<void>(bafx::desktop::appendPerformanceInterval(
+    const auto timing = bafx::desktop::appendPerformanceWindow(
         log.path(),
-        window.summarize(),
+        window,
         config,
         bafx::desktop::PerformanceLogContext{
             bafx::windows::WindowSize{1920U, 1080U},
             bafx::windows::BackgroundCompositeStatus::Inactive,
-            false},
+            false,
+            bafx::desktop::PerformanceLogTiming{
+                .summary = std::chrono::microseconds(30),
+                .logWrite = std::chrono::microseconds(123),
+                .total = std::chrono::microseconds(160)}},
         std::chrono::seconds(1),
-        std::chrono::microseconds(123),
-        true));
+        true);
+    BAFX_CHECK(timing.total >= timing.summary + timing.logWrite);
+    BAFX_CHECK(timing.logWrite >= timing.fields + timing.lockAndPrepare + timing.format + timing.fileOperations);
 
     const std::string text = log.read();
     BAFX_CHECK(text.find("Event.Name=Performance.Interval\n") != std::string::npos);
@@ -319,6 +324,8 @@ BAFX_TEST(performance_log_preserves_metric_and_semantic_fields)
         != std::string::npos);
     BAFX_CHECK(text.find("Diagnostics.PreviousLogWriteCpuUs=123\n")
         != std::string::npos);
+    BAFX_CHECK(text.find("Diagnostics.PreviousSummaryElapsedUs=30\n") != std::string::npos);
+    BAFX_CHECK(text.find("Diagnostics.PreviousReportElapsedUs=160\n") != std::string::npos);
 }
 
 BAFX_TEST(performance_log_distinguishes_idle_wgc_attempts_from_throttling)

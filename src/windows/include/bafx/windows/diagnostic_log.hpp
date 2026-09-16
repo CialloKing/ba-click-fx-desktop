@@ -3,6 +3,7 @@
 #include <windows.h>
 
 #include <cstddef>
+#include <chrono>
 #include <cstdint>
 #include <filesystem>
 #include <span>
@@ -44,6 +45,13 @@ struct DiagnosticLogCleanupResult
     std::error_code firstError{};
 };
 
+struct DiagnosticLogTiming
+{
+    std::chrono::nanoseconds lockAndPrepare{};
+    std::chrono::nanoseconds format{};
+    std::chrono::nanoseconds fileOperations{};
+};
+
 // Process-wide counters remain available even when the filesystem is unusable.
 // A concurrent snapshot is observational, not a transaction boundary.
 struct DiagnosticLogHealth
@@ -80,7 +88,8 @@ void appendDiagnosticEvent(
     const std::filesystem::path& path,
     std::string_view eventName,
     std::span<const DiagnosticField> fields = {},
-    DiagnosticLevel level = DiagnosticLevel::Info) noexcept;
+    DiagnosticLevel level = DiagnosticLevel::Info,
+    DiagnosticLogTiming* timing = nullptr) noexcept;
 
 // The body is reserved for existing key/value support reports.
 void appendDiagnosticRecord(
@@ -88,7 +97,8 @@ void appendDiagnosticRecord(
     std::string_view eventName,
     std::span<const DiagnosticField> fields,
     std::string_view body,
-    DiagnosticLevel level = DiagnosticLevel::Info) noexcept;
+    DiagnosticLevel level = DiagnosticLevel::Info,
+    DiagnosticLogTiming* timing = nullptr) noexcept;
 
 void appendDiagnosticLog(
     const std::filesystem::path& path,

@@ -3717,7 +3717,7 @@ int runApplication(
     bafx::fx::SimulationTime lastFramePacingDeviceProbeAt = applicationStartedAt;
     bafx::fx::SimulationTime performanceWindowStartedAt = applicationStartedAt;
     bafx::desktop::RuntimePerformanceWindow performanceWindow;
-    std::chrono::nanoseconds previousPerformanceLogWriteCpu{};
+    bafx::desktop::PerformanceLogTiming previousPerformanceLogTiming{};
     bafx::desktop::WgcCallbackDeltaTracker wgcCallbackDeltaTracker;
     bafx::desktop::CaptureExclusionHealthPoller
         captureExclusionHealthPoller;
@@ -7492,17 +7492,17 @@ int runApplication(
         if (performanceNow - performanceWindowStartedAt
             >= performanceReportInterval)
         {
-            previousPerformanceLogWriteCpu =
-                bafx::desktop::appendPerformanceInterval(
+            previousPerformanceLogTiming =
+                bafx::desktop::appendPerformanceWindow(
                     logPath,
-                    performanceWindow.summarize(),
+                    performanceWindow,
                     config,
                     bafx::desktop::PerformanceLogContext{
                         appliedOutputSize,
                         renderer.backgroundCompositeStatus(),
-                        controlState.paused},
+                        controlState.paused,
+                        previousPerformanceLogTiming},
                     performanceNow - performanceWindowStartedAt,
-                    previousPerformanceLogWriteCpu,
                     false);
             performanceWindow.reset();
             performanceWindowStartedAt = clock.now();
@@ -7659,16 +7659,16 @@ int runApplication(
     const bafx::fx::SimulationTime finalPerformanceTime = clock.now();
     if (!performanceWindow.empty())
     {
-        static_cast<void>(bafx::desktop::appendPerformanceInterval(
+        static_cast<void>(bafx::desktop::appendPerformanceWindow(
             logPath,
-            performanceWindow.summarize(),
+            performanceWindow,
             config,
             bafx::desktop::PerformanceLogContext{
                 appliedOutputSize,
                 renderer.backgroundCompositeStatus(),
-                control.snapshot().paused},
+                control.snapshot().paused,
+                previousPerformanceLogTiming},
             finalPerformanceTime - performanceWindowStartedAt,
-            previousPerformanceLogWriteCpu,
             true));
     }
     if (backgroundCompositeFrames > 0U)

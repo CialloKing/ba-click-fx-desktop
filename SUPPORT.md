@@ -143,6 +143,10 @@
   `Log.Health.LockFailures`。遗留备份在首次使用、每分钟或实际轮转时清理，清理失败单独记录为
   `Log.Health.CleanupFailures`，不阻止正常追加。单条记录采用 `64 KiB` 预算（包含预留的事件头空间），
   超大内容在格式化前替换为 `Log.RecordTruncated`，保留原事件名和级别。文件系统调用本身仍是同步调用。
+- `Performance.Interval` 的 `Diagnostics.Previous*ElapsedUs` 分别记录上一报告窗口的统计汇总、字段构造、
+  锁等待与路径准备、记录格式化、文件操作和报告总耗时；总耗时包含样本复制及排序。旧字段
+  `Diagnostics.PreviousLogWriteCpuUs` 保持原含义以兼容分析脚本。这些都是包含等待的单调时钟经过时间，
+  不是线程 CPU 使用时间；首次报告的上一窗口耗时为零。
 - 每个 `BackgroundCapture.Transaction.End` 后会追加累计的
   `WGC.ResourceLedger.*` 记录，包含 Frame/FramePool/Session、两类事件注册的
   created/closed/live 计数、recreate 次数和 `Failures`/`AllReleased`；它覆盖会话停止、

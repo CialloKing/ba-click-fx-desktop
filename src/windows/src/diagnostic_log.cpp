@@ -153,6 +153,28 @@ struct LogHealthState
 
 LogHealthState health;
 
+class LogElapsedScope final
+{
+public:
+    explicit LogElapsedScope(std::chrono::nanoseconds* elapsed) noexcept
+        : elapsed_(elapsed), started_(elapsed != nullptr
+            ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{})
+    {
+    }
+
+    ~LogElapsedScope()
+    {
+        if (elapsed_ != nullptr)
+        {
+            *elapsed_ += std::chrono::steady_clock::now() - started_;
+        }
+    }
+
+private:
+    std::chrono::nanoseconds* elapsed_;
+    std::chrono::steady_clock::time_point started_;
+};
+
 std::string_view operationName(const FailureOperation operation) noexcept
 {
     switch (operation)
@@ -277,7 +299,10 @@ public:
     DiagnosticFileLock(const DiagnosticFileLock&) = delete;
     DiagnosticFileLock& operator=(const DiagnosticFileLock&) = delete;
 
-    [[nodiscard]] DWORD error() const noexcept { return error_; }
+    [[nodiscard]] DWORD error() const noexcept
+    {
+        return error_;
+    }
 
 private:
     std::unique_lock<std::timed_mutex> local_;
@@ -491,25 +516,31 @@ void cleanupLegacyBackupsUnlocked(const std::filesystem::path& path,
     const std::string_view eventName,
     const std::span<const DiagnosticField> fields,
     const std::string_view body,
-    const DiagnosticLevel level)
+    const DiagnosticLevel level,
+    DiagnosticLogTiming* const timing)
 {
     const auto sequence = diagnosticSession().nextSequence.fetch_add(1U, std::memory_order_relaxed);
     std::string text;
     const DiagnosticLogRetention retention{};
-    if (recordExceedsBudget(eventName, fields, body))
     {
-        const auto budget = std::to_string(diagnosticLogMaximumRecordBytes);
-        const std::array truncatedFields{
-            DiagnosticField{"Log.RecordBudgetBytes", budget},
-            DiagnosticField{"Log.OriginalLevel", diagnosticLevelName(level)},
-            DiagnosticField{"Log.OriginalEvent", eventName.substr(0U, 128U)}};
-        text = formatRecord("Log.RecordTruncated", truncatedFields, {}, DiagnosticLevel::Warning, sequence);
-        health.truncatedRecords.fetch_add(1U, std::memory_order_relaxed);
+        const LogElapsedScope formatScope(timing != nullptr ? &timing->format : nullptr);
+        if (recordExceedsBudget(eventName, fields, body))
+        {
+            const auto budget = std::to_string(diagnosticLogMaximumRecordBytes);
+            const std::array truncatedFields{
+                DiagnosticField{"Log.RecordBudgetBytes", budget},
+                DiagnosticField{"Log.OriginalLevel", diagnosticLevelName(level)},
+                DiagnosticField{"Log.OriginalEvent", eventName.substr(0U, 128U)}};
+            text = formatRecord("Log.RecordTruncated", truncatedFields, {}, DiagnosticLevel::Warning, sequence);
+            health.truncatedRecords.fetch_add(1U, std::memory_order_relaxed);
+        }
+        else
+        {
+            text = formatRecord(eventName, fields, body, level, sequence);
+        }
     }
-    else
-    {
-        text = formatRecord(eventName, fields, body, level, sequence);
-    }
+    const LogElapsedScope fileScope(timing != nullptr ? &timing->fileOperations : nullptr);
+    cleanupLegacyBackupsUnlocked(path, retention);
     // Failed rotation must not allow an unbounded active file to keep growing.
     if (!rotateDiagnosticLogUnlocked(path, retention, text.size()))
     {
@@ -685,19 +716,29 @@ void appendDiagnosticRecord(
     const std::string_view eventName,
     const std::span<const DiagnosticField> fields,
     const std::string_view body,
-    const DiagnosticLevel level) noexcept
+    const DiagnosticLevel level,
+    DiagnosticLogTiming* const timing) noexcept
 {
+    if (timing != nullptr)
+    {
+        *timing = {};
+    }
     try
     {
+        const auto lockStarted = timing != nullptr
+            ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
         const DiagnosticFileLock lock(path);
+        if (timing != nullptr)
+        {
+            timing->lockAndPrepare = std::chrono::steady_clock::now() - lockStarted;
+        }
         if (lock.error() != ERROR_SUCCESS)
         {
             recordFailure(FailureOperation::Lock, lock.error());
             health.droppedRecords.fetch_add(1U, std::memory_order_relaxed);
             return;
         }
-        cleanupLegacyBackupsUnlocked(path, DiagnosticLogRetention{});
-        if (!appendDiagnosticRecordUnlocked(path, eventName, fields, body, level))
+        if (!appendDiagnosticRecordUnlocked(path, eventName, fields, body, level, timing))
         {
             health.droppedRecords.fetch_add(1U, std::memory_order_relaxed);
             return;
@@ -707,7 +748,7 @@ void appendDiagnosticRecord(
         {
             // Use the low-level writer once, never recursively report failures.
             if (appendDiagnosticRecordUnlocked(path, "Log.WriteRecovered", {},
-                    diagnosticLogHealthReport(), DiagnosticLevel::Warning))
+                    diagnosticLogHealthReport(), DiagnosticLevel::Warning, timing))
             {
                 health.pendingFailures.fetch_sub(pending, std::memory_order_relaxed);
             }
@@ -724,9 +765,10 @@ void appendDiagnosticEvent(
     const std::filesystem::path& path,
     const std::string_view eventName,
     const std::span<const DiagnosticField> fields,
-    const DiagnosticLevel level) noexcept
+    const DiagnosticLevel level,
+    DiagnosticLogTiming* const timing) noexcept
 {
-    appendDiagnosticRecord(path, eventName, fields, {}, level);
+    appendDiagnosticRecord(path, eventName, fields, {}, level, timing);
 }
 
 void appendDiagnosticLog(

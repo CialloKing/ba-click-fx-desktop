@@ -3,10 +3,12 @@
 #include "bafx/windows/runtime_diagnostics.hpp"
 
 #include <array>
+#include <charconv>
 #include <cstdint>
 #include <iomanip>
 #include <locale>
 #include <sstream>
+#include <stdexcept>
 #include <string>
 #include <utility>
 #include <vector>
@@ -51,10 +53,14 @@ public:
 
     void addDecimal(const std::string_view key, const double value)
     {
-        std::ostringstream stream;
-        stream.imbue(std::locale::classic());
-        stream << std::fixed << std::setprecision(3) << value;
-        add(key, stream.str());
+        std::array<char, 64U> buffer{};
+        const auto converted = std::to_chars(buffer.data(), buffer.data() + buffer.size(),
+            value, std::chars_format::fixed, 3);
+        if (converted.ec != std::errc{})
+        {
+            throw std::length_error("Diagnostic decimal exceeds its bounded buffer");
+        }
+        add(key, std::string_view(buffer.data(), static_cast<std::size_t>(converted.ptr - buffer.data())));
     }
 
     void addHex32(const std::string_view key, const std::uint32_t value)
@@ -73,7 +79,8 @@ public:
     void append(
         const std::filesystem::path& path,
         const std::string_view eventName,
-        const bafx::windows::DiagnosticLevel level) const
+        const bafx::windows::DiagnosticLevel level,
+        bafx::windows::DiagnosticLogTiming* const timing = nullptr) const
     {
         std::vector<bafx::windows::DiagnosticField> views;
         views.reserve(fields_.size());
@@ -81,7 +88,7 @@ public:
         {
             views.push_back(bafx::windows::DiagnosticField{key, value});
         }
-        bafx::windows::appendDiagnosticEvent(path, eventName, views, level);
+        bafx::windows::appendDiagnosticEvent(path, eventName, views, level, timing);
     }
 
 private:
@@ -443,7 +450,8 @@ std::chrono::nanoseconds appendPerformanceInterval(
     const PerformanceLogContext& context,
     const std::chrono::nanoseconds intervalDuration,
     const std::chrono::nanoseconds previousLogWriteCpu,
-    const bool finalInterval) noexcept
+    const bool finalInterval,
+    PerformanceLogTiming* const timing) noexcept
 {
     const auto startedAt = std::chrono::steady_clock::now();
     try
@@ -582,6 +590,13 @@ std::chrono::nanoseconds appendPerformanceInterval(
         fields.add(
             "Diagnostics.PreviousLogWriteCpuUs",
             microseconds(previousLogWriteCpu));
+        fields.add("Diagnostics.PreviousSummaryElapsedUs", microseconds(context.previousTiming.summary));
+        fields.add("Diagnostics.PreviousFieldsElapsedUs", microseconds(context.previousTiming.fields));
+        fields.add("Diagnostics.PreviousLockAndPrepareElapsedUs", microseconds(context.previousTiming.lockAndPrepare));
+        fields.add("Diagnostics.PreviousFormatElapsedUs", microseconds(context.previousTiming.format));
+        fields.add("Diagnostics.PreviousFileOperationsElapsedUs", microseconds(context.previousTiming.fileOperations));
+        fields.add("Diagnostics.PreviousReportElapsedUs", microseconds(context.previousTiming.total));
+        fields.add("Diagnostics.TimingSemantic", "steady-clock-elapsed-including-waits-not-thread-cpu-time");
 
         fields.add("WGC.ActiveFrames", summary.wgcActiveFrames);
         fields.add("WGC.MaintenanceCycles", summary.wgcMaintenanceCycles);
@@ -904,18 +919,57 @@ std::chrono::nanoseconds appendPerformanceInterval(
             || summary.captureExclusionHealthFailures > 0U
             || summary.frameTotalCpuMicroseconds.maximum >= 100'000U
             || summary.presentCallCpuMicroseconds.maximum >= 50'000U;
+        if (timing != nullptr)
+        {
+            timing->fields = std::chrono::steady_clock::now() - startedAt;
+        }
+        bafx::windows::DiagnosticLogTiming writeTiming;
         fields.append(
             logPath,
             "Performance.Interval",
             warning
                 ? bafx::windows::DiagnosticLevel::Warning
-                : bafx::windows::DiagnosticLevel::Info);
+                : bafx::windows::DiagnosticLevel::Info,
+            &writeTiming);
+        if (timing != nullptr)
+        {
+            timing->lockAndPrepare = writeTiming.lockAndPrepare;
+            timing->format = writeTiming.format;
+            timing->fileOperations = writeTiming.fileOperations;
+        }
     }
     catch (...)
     {
         // Aggregation failures must never enter the interactive render path.
     }
     return std::chrono::steady_clock::now() - startedAt;
+}
+
+PerformanceLogTiming appendPerformanceWindow(
+    const std::filesystem::path& logPath,
+    const RuntimePerformanceWindow& window,
+    const bafx::config::Config& config,
+    const PerformanceLogContext& context,
+    const std::chrono::nanoseconds intervalDuration,
+    const bool finalInterval) noexcept
+{
+    PerformanceLogTiming timing;
+    const auto started = std::chrono::steady_clock::now();
+    try
+    {
+        const auto summary = window.summarize();
+        timing.summary = std::chrono::steady_clock::now() - started;
+        timing.logWrite = appendPerformanceInterval(logPath, summary, config, context,
+            intervalDuration, context.previousTiming.logWrite, finalInterval, &timing);
+    }
+    catch (...)
+    {
+        timing.summary = std::chrono::steady_clock::now() - started;
+        bafx::windows::appendDiagnosticEvent(logPath, "Performance.SummaryFailed", {},
+            bafx::windows::DiagnosticLevel::Warning);
+    }
+    timing.total = std::chrono::steady_clock::now() - started;
+    return timing;
 }
 
 }
