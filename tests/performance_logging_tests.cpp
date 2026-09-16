@@ -161,6 +161,11 @@ BAFX_TEST(performance_log_preserves_metric_and_semantic_fields)
     const std::string text = log.read();
     BAFX_CHECK(text.find("Event.Name=Performance.Interval\n") != std::string::npos);
     BAFX_CHECK(text.find("Window.Final=true\n") != std::string::npos);
+    BAFX_CHECK(text.find("WorstFrame.Available=true\n") != std::string::npos);
+    BAFX_CHECK(text.find("WorstFrame.RenderCallUs=20000\n") != std::string::npos);
+    BAFX_CHECK(text.find("WorstFrame.PresentCallUs=2000\n") != std::string::npos);
+    BAFX_CHECK(text.find("WorstFrame.WgcActive=true\n") != std::string::npos);
+    BAFX_CHECK(text.find("WorstFrame.BackgroundAgeUs=") == std::string::npos);
     BAFX_CHECK(text.find("Window.PresentedFps=1.000\n") != std::string::npos);
     BAFX_CHECK(text.find("Effects.BloomQuality=high\n") != std::string::npos);
     BAFX_CHECK(text.find(

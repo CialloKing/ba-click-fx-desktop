@@ -152,6 +152,10 @@
   命令、成功与否、控制代次、配置代次、暂停状态及配置字段的前后值；失败时保留错误码与原因。
   请求和错误文本各限 4 KiB，配置差异限 16 KiB，超过 2 KiB 的单个前后值省略并标记原始长度，
   `Configuration.ChangesTruncated` 表示差异不完整。`Configuration.Applied` 的代次可用于对照渲染端实际应用情况。
+- `Performance.Interval` 的 `WorstFrame.*` 保留窗口内协调屏渲染调用耗时最大的一帧，相同耗时保留首帧。
+  帧号、配置代次、输出尺寸、输入队列、Present、WGC 和 ROI 均来自该次观察；逐项 `Max` 可能属于其他帧。
+  没有渲染帧时 `Available=false`。选择依据包含 API 等待时间，不包含帧率等待，也不代表 GPU 或物理上屏耗时；
+  异步完成的旧帧 GPU 时间不会归到这帧上。窗口只保留一份固定大小快照，不逐帧写盘。
 - Host 的 `Process.Exited` 记录退出码、运行时长、协调屏呈现帧数和退出阶段；原因区分参数错误、重复实例、
   启动/运行失败、控制请求、窗口关闭、消息退出、帧数/时长限制及支持报告完成。控制请求的 IPC/快捷键来源
   可对照前面的 `Control.Mutation.Completed`。正常渲染循环退出时，先写 `Process.ExitRequested`，再清理 WGC

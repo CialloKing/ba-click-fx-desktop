@@ -322,8 +322,28 @@ struct FramePerformanceSample
     GpuFxPathPerformanceSample gpuRecordingRebuild{};
 };
 
+struct FrameDiagnosticContext
+{
+    std::uint64_t frameNumber{0U};
+    std::uint64_t configurationGeneration{0U};
+    std::uint64_t runtimeElapsedMicroseconds{0U};
+    std::uint32_t outputWidth{0U};
+    std::uint32_t outputHeight{0U};
+    std::uint32_t inputQueueHighWater{0U};
+    std::uint32_t inputQueueAgeMilliseconds{0U};
+    bool paused{false};
+};
+
+struct WorstFrameSnapshot
+{
+    bool available{false};
+    FrameDiagnosticContext context{};
+    FramePerformanceSample sample{};
+};
+
 struct RuntimePerformanceSummary
 {
+    WorstFrameSnapshot worstFrame{};
     std::uint64_t frameCount{0U};
     std::uint64_t wgcActiveFrames{0U};
     std::uint64_t wgcMaintenanceCycles{0U};
@@ -502,7 +522,8 @@ class RuntimePerformanceWindow final
 {
 public:
     void addInput(const InputPerformanceSample& sample) noexcept;
-    void addFrame(const FramePerformanceSample& sample) noexcept;
+    void addFrame(const FramePerformanceSample& sample,
+        const FrameDiagnosticContext& context = {}) noexcept;
     // A paused Host still services WGC, but that work is not a rendered frame.
     // Only transport diagnostics are consumed by this narrow entry point.
     void addBackgroundMaintenance(
@@ -521,6 +542,7 @@ public:
 private:
     void addWgc(const FramePerformanceSample& sample) noexcept;
 
+    WorstFrameSnapshot worstFrame_{};
     std::uint64_t frameCount_{0U};
     std::uint64_t wgcActiveFrames_{0U};
     std::uint64_t wgcMaintenanceCycles_{0U};

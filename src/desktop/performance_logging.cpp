@@ -100,6 +100,51 @@ private:
     std::vector<std::pair<std::string, std::string>> fields_{};
 };
 
+void appendWorstFrame(DiagnosticFields& fields, const WorstFrameSnapshot& worst)
+{
+    fields.add("WorstFrame.Available", worst.available);
+    fields.add("WorstFrame.Selection", "maximum-coordinator-render-call-elapsed-first-on-tie");
+    if (!worst.available)
+    {
+        return;
+    }
+    const auto& frame = worst.sample;
+    fields.add("WorstFrame.ContextAvailable", worst.context.frameNumber != 0U);
+    fields.add("WorstFrame.Number", worst.context.frameNumber);
+    fields.add("WorstFrame.ConfigurationGeneration", worst.context.configurationGeneration);
+    fields.add("WorstFrame.RuntimeElapsedUs", worst.context.runtimeElapsedMicroseconds);
+    fields.add("WorstFrame.OutputWidth", worst.context.outputWidth);
+    fields.add("WorstFrame.OutputHeight", worst.context.outputHeight);
+    fields.add("WorstFrame.Paused", worst.context.paused);
+    fields.add("WorstFrame.InputQueueHighWater", worst.context.inputQueueHighWater);
+    fields.add("WorstFrame.InputQueueAgeMs", worst.context.inputQueueAgeMilliseconds);
+    fields.add("WorstFrame.RenderCallUs", frame.frameTotalCpuMicroseconds);
+    fields.add("WorstFrame.PresentCallUs", frame.presentCallCpuMicroseconds);
+    fields.add("WorstFrame.PrePresentUs", frame.prePresentCpuMicroseconds);
+    fields.add("WorstFrame.WgcDrainUs", frame.wgcDrainCpuMicroseconds);
+    fields.add("WorstFrame.FxSubmitUs", frame.fxTotalSubmitCpuMicroseconds);
+    fields.add("WorstFrame.BloomCompositeSubmitUs", frame.bloomAndCompositeSubmitCpuMicroseconds);
+    fields.add("WorstFrame.WgcActive", frame.wgcActive);
+    fields.add("WorstFrame.WgcAccepted", frame.wgcAccepted);
+    fields.add("WorstFrame.BackgroundParticipated", frame.backgroundParticipated);
+    fields.add("WorstFrame.BackgroundAgeAvailable", frame.backgroundSampleAgeValid);
+    if (frame.backgroundSampleAgeValid)
+    {
+        fields.add("WorstFrame.BackgroundAgeUs", frame.backgroundSampleAgeMicroseconds);
+    }
+    fields.add("WorstFrame.RoiApplied", frame.roiApplied);
+    fields.add("WorstFrame.RoiPrimaryObserved", frame.roiPrimary.observed);
+    if (frame.roiPrimary.observed)
+    {
+        fields.add("WorstFrame.RoiPrimaryPath", activeFxRoiActualPathName(frame.roiPrimary.diagnostics.actualPath));
+        fields.add("WorstFrame.RoiPrimaryReason", activeFxRoiDecisionReasonName(frame.roiPrimary.diagnostics.decisionReason));
+    }
+    fields.add("WorstFrame.PresentDirtyRectApplied", frame.roiPresentDirtyRectApplied);
+    fields.add("WorstFrame.GpuPendingFrames", frame.gpuTimestampPendingFrames);
+    // Completed GPU timestamps may belong to an older frame. Never label them
+    // as the selected CPU frame's GPU execution time.
+}
+
 [[nodiscard]] std::string_view backgroundStatusName(
     const bafx::windows::BackgroundCompositeStatus status) noexcept
 {
@@ -470,6 +515,7 @@ std::chrono::nanoseconds appendPerformanceInterval(
         fields.add("Window.Final", finalInterval);
         fields.add("Window.DurationUs", durationUs);
         fields.add("Window.FrameCount", summary.frameCount);
+        appendWorstFrame(fields, summary.worstFrame);
         fields.addDecimal(
             "Window.PresentedFps",
             durationUs > 0U

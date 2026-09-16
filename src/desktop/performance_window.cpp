@@ -269,8 +269,15 @@ void RuntimePerformanceWindow::addInput(
 }
 
 void RuntimePerformanceWindow::addFrame(
-    const FramePerformanceSample& sample) noexcept
+    const FramePerformanceSample& sample, const FrameDiagnosticContext& context) noexcept
 {
+    // Keep one real frame, including extrema after percentile buffers fill.
+    // Equal durations retain the first observation; no allocation per frame.
+    if (!worstFrame_.available
+        || sample.frameTotalCpuMicroseconds > worstFrame_.sample.frameTotalCpuMicroseconds)
+    {
+        worstFrame_ = WorstFrameSnapshot{true, context, sample};
+    }
     ++frameCount_;
     roiLastVisualBoundsStatus_ = sample.roiVisualBoundsStatus;
     roiLastPlanStatus_ = sample.roiPlanStatus;
@@ -545,6 +552,7 @@ void RuntimePerformanceWindow::addMessageToPresentReturn(
 
 void RuntimePerformanceWindow::reset() noexcept
 {
+    worstFrame_ = {};
     frameCount_ = 0U;
     wgcActiveFrames_ = 0U;
     wgcMaintenanceCycles_ = 0U;
@@ -657,6 +665,7 @@ void RuntimePerformanceWindow::reset() noexcept
 RuntimePerformanceSummary RuntimePerformanceWindow::summarize() const
 {
     RuntimePerformanceSummary summary{};
+    summary.worstFrame = worstFrame_;
     summary.frameCount = frameCount_;
     summary.wgcActiveFrames = wgcActiveFrames_;
     summary.wgcMaintenanceCycles = wgcMaintenanceCycles_;

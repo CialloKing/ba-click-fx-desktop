@@ -24,6 +24,31 @@ BAFX_TEST(performance_metric_reports_exact_nearest_rank_percentiles)
     BAFX_CHECK(summary.average == 50.5);
 }
 
+BAFX_TEST(performance_worst_frame_keeps_one_coherent_frame_and_resets)
+{
+    bafx::desktop::RuntimePerformanceWindow window;
+    window.addFrame({.frameTotalCpuMicroseconds = 100U, .presentCallCpuMicroseconds = 20U},
+        {.frameNumber = 1U, .configurationGeneration = 5U});
+    window.addFrame({.frameTotalCpuMicroseconds = 500U, .presentCallCpuMicroseconds = 30U, .wgcActive = true},
+        {.frameNumber = 2U, .configurationGeneration = 6U});
+    window.addFrame({.frameTotalCpuMicroseconds = 200U, .presentCallCpuMicroseconds = 150U},
+        {.frameNumber = 3U, .configurationGeneration = 7U});
+    window.addFrame({.frameTotalCpuMicroseconds = 500U}, {.frameNumber = 4U});
+    window.addBackgroundMaintenance({.frameTotalCpuMicroseconds = 900U});
+    const auto summary = window.summarize();
+    BAFX_CHECK(summary.worstFrame.available);
+    BAFX_CHECK(summary.worstFrame.context.frameNumber == 2U);
+    BAFX_CHECK(summary.worstFrame.context.configurationGeneration == 6U);
+    BAFX_CHECK(summary.worstFrame.sample.frameTotalCpuMicroseconds == 500U);
+    BAFX_CHECK(summary.worstFrame.sample.presentCallCpuMicroseconds == 30U);
+    BAFX_CHECK(summary.worstFrame.sample.wgcActive);
+    BAFX_CHECK(summary.presentCallCpuMicroseconds.maximum == 150U);
+    window.reset();
+    BAFX_CHECK(!window.summarize().worstFrame.available);
+    window.addFrame({.frameTotalCpuMicroseconds = 0U}, {.frameNumber = 5U});
+    BAFX_CHECK(window.summarize().worstFrame.context.frameNumber == 5U);
+}
+
 BAFX_TEST(performance_metric_exposes_capacity_loss_without_losing_extrema)
 {
     bafx::desktop::BoundedMetric metric(3U);

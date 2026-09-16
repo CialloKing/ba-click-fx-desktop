@@ -7193,7 +7193,15 @@ int runApplication(
                 performanceSample,
                 completedFrameDiagnostics.frameId,
                 wallTime);
-            performanceWindow.addFrame(performanceSample);
+            performanceWindow.addFrame(performanceSample, bafx::desktop::FrameDiagnosticContext{
+                renderedFrames + 1U,
+                appliedGeneration,
+                durationMicroseconds(wallTime - applicationStartedAt),
+                appliedOutputSize.width,
+                appliedOutputSize.height,
+                pointerQueue.maximumPendingEvents,
+                pointerQueue.maximumWin32QueueAgeMilliseconds,
+                controlState.paused});
             for (const PointerLatencyOrigin& origin :
                  pointerConsumption.acceptedDowns)
             {
