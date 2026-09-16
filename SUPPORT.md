@@ -152,6 +152,10 @@
   命令、成功与否、控制代次、配置代次、暂停状态及配置字段的前后值；失败时保留错误码与原因。
   请求和错误文本各限 4 KiB，配置差异限 16 KiB，超过 2 KiB 的单个前后值省略并标记原始长度，
   `Configuration.ChangesTruncated` 表示差异不完整。`Configuration.Applied` 的代次可用于对照渲染端实际应用情况。
+- Host 的 `Process.Exited` 记录退出码、运行时长、协调屏呈现帧数和退出阶段；原因区分参数错误、重复实例、
+  启动/运行失败、控制请求、窗口关闭、消息退出、帧数/时长限制及支持报告完成。控制请求的 IPC/快捷键来源
+  可对照前面的 `Control.Mutation.Completed`。正常渲染循环退出时，先写 `Process.ExitRequested`，再清理 WGC
+  与其他资源；缺少最终退出记录时可结合最后的 WGC stop 阶段排查。强制终止、系统断电不保证有退出日志。
 - 每个 `BackgroundCapture.Transaction.End` 后会追加累计的
   `WGC.ResourceLedger.*` 记录，包含 Frame/FramePool/Session、两类事件注册的
   created/closed/live 计数、recreate 次数和 `Failures`/`AllReleased`；它覆盖会话停止、

@@ -65,6 +65,10 @@ function Invoke-InvalidOptionCase
     $log = [System.IO.File]::ReadAllText($logPath)
     foreach ($requiredText in @(
         'Event.Name=Process.Startup.Failed',
+        'Event.Name=Process.Exited',
+        'Process.Reason=invalid-command-line',
+        'Process.Phase=command-line',
+        'Process.ExitCode=2',
         'Event.Level=Error',
         'Startup.Phase=command-line',
         "Error.Message=$ExpectedDiagnostic"))

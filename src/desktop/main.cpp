@@ -63,6 +63,43 @@ constexpr auto activeFxRoiPublicationPeriod = std::chrono::milliseconds(500);
 constexpr DWORD pausedControlPollMilliseconds = 50U;
 constexpr int invalidCommandLineExitCode = 2;
 
+struct HostLifecycleContext
+{
+    ULONGLONG startedAt{GetTickCount64()};
+    std::string_view mode{"unknown"};
+    std::string_view phase{"command-line"};
+    std::string_view exitReason{};
+    std::uint64_t renderedFrames{0U};
+};
+
+void appendHostExit(const std::filesystem::path& logPath,
+    const std::string_view event, const HostLifecycleContext& context,
+    const int exitCode, const std::string_view error = {}) noexcept
+{
+    try
+    {
+        const auto uptime = std::to_string(GetTickCount64() - context.startedAt);
+        const auto code = std::to_string(exitCode);
+        const auto frames = std::to_string(context.renderedFrames);
+        const std::array fields{
+            bafx::windows::DiagnosticField{"Process.Component", "host"},
+            bafx::windows::DiagnosticField{"Process.Mode", context.mode},
+            bafx::windows::DiagnosticField{"Process.Phase", context.phase},
+            bafx::windows::DiagnosticField{"Process.Reason", context.exitReason},
+            bafx::windows::DiagnosticField{"Process.ExitCode", code},
+            bafx::windows::DiagnosticField{"Process.UptimeMs", uptime},
+            bafx::windows::DiagnosticField{"Process.RenderedFrames", frames},
+            bafx::windows::DiagnosticField{"Error.Message", error.substr(0U, 4'096U)}};
+        bafx::windows::appendDiagnosticRecord(logPath, event, fields,
+            bafx::windows::diagnosticLogHealthReport(), exitCode == 0
+                ? bafx::windows::DiagnosticLevel::Info : bafx::windows::DiagnosticLevel::Error);
+    }
+    catch (...)
+    {
+        // Reporting an exit must not replace its original result or exception.
+    }
+}
+
 [[nodiscard]] std::string formatHresult(const HRESULT result)
 {
     std::ostringstream stream;
@@ -2896,7 +2933,8 @@ int runApplication(
     const HINSTANCE instance,
     const RunOptions options,
     bafx::windows::SupportReport& report,
-    const std::filesystem::path& logPath)
+    const std::filesystem::path& logPath,
+    HostLifecycleContext& lifecycle)
 {
     requirePhysicalPixelDpiContract(logPath);
 
@@ -3449,6 +3487,7 @@ int runApplication(
         updateDisplayRuntimeSummary();
         bafx::windows::appendDiagnosticLog(logPath, report);
         bafx::windows::writeSupportReport(*options.supportInfoPath, report);
+        lifecycle.exitReason = "support-info-complete";
         return 0;
     }
     if (options.smokeTest && renderer.deviceInfo().adapterDescription.empty())
@@ -3589,6 +3628,7 @@ int runApplication(
     bafx::windows::appendDiagnosticLog(logPath, report);
 
     const bafx::fx::SimulationTime applicationStartedAt = clock.now();
+    lifecycle.phase = "running";
     bafx::fx::SimulationTime nextDisplayTopologyPollAt =
         applicationStartedAt + displayTopologyPollPeriod;
     bafx::fx::SimulationTime nextActiveFxRoiPublicationAt =
@@ -3600,6 +3640,7 @@ int runApplication(
             && now - applicationStartedAt
                 >= std::chrono::milliseconds(*options.quitAfterMilliseconds))
         {
+            lifecycle.exitReason = "duration-limit";
             return true;
         }
         if (options.smokeTest
@@ -3607,6 +3648,7 @@ int runApplication(
         {
             // The deadline must remain reachable even when DXGI never grants
             // another frame slot or the message queue stays continuously busy.
+            lifecycle.exitReason = "smoke-timeout";
             throw std::runtime_error(
                 "Desktop smoke test exceeded its five-second deadline");
         }
@@ -3661,7 +3703,7 @@ int runApplication(
     }
 
     bool quit = false;
-    std::uint32_t renderedFrames = 0;
+    std::uint64_t& renderedFrames = lifecycle.renderedFrames;
     std::uint64_t backgroundCompositeFrames = 0U;
     std::uint64_t backgroundRetryToken = appliedBackgroundRequest.retryToken;
     bool backgroundRetryPending = false;
@@ -4704,6 +4746,8 @@ int runApplication(
             || quit
             || hostWindow.closeRequested())
         {
+            lifecycle.exitReason = controlState.shutdownRequested ? "control-shutdown"
+                : (quit ? "quit-message" : "window-close");
             break;
         }
         const bafx::fx::SimulationTime loopObservedAt = clock.now();
@@ -7472,6 +7516,7 @@ int runApplication(
             ++renderedFrames;
             if (options.frameLimit.has_value() && renderedFrames >= *options.frameLimit)
             {
+                lifecycle.exitReason = "frame-limit";
                 break;
             }
         }
@@ -7638,6 +7683,13 @@ int runApplication(
             }
         }
     }
+    lifecycle.phase = "shutdown";
+    if (lifecycle.exitReason.empty())
+    {
+        lifecycle.exitReason = quit ? "quit-message" : "window-close";
+    }
+    // Persist intent before synchronous WGC/resource teardown can stall.
+    appendHostExit(logPath, "Process.ExitRequested", lifecycle, 0);
     if (backgroundExecution.transactionActive)
     {
         const bafx::desktop::BackgroundCaptureExecutionStatus canceled =
@@ -7694,6 +7746,7 @@ int runApplication(
 
 int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int)
 {
+    HostLifecycleContext lifecycle;
     RunOptions options{};
     std::filesystem::path logPath{};
     bafx::windows::SupportReport report(bafx::product::version);
@@ -7721,6 +7774,8 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int)
         const std::string_view processMode = options.supportInfoOnly
             ? "support-info"
             : (options.smokeTest ? "smoke-test" : "interactive");
+        lifecycle.mode = processMode;
+        lifecycle.phase = "single-instance";
         const std::array startupFields{
             bafx::windows::DiagnosticField{
                 "Product.Version",
@@ -7742,6 +7797,8 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int)
                     bafx::windows::appendDiagnosticLog(
                         logPath,
                         "Another BAFX Host instance is already running");
+                    lifecycle.exitReason = "already-running";
+                    appendHostExit(logPath, "Process.Exited", lifecycle, 0);
                     return 0;
                 }
                 throw std::runtime_error(
@@ -7749,12 +7806,24 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int)
                     + std::to_string(instanceGuard->lastError()) + ")");
             }
         }
-        const int result = runApplication(instance, options, report, logPath);
-        bafx::windows::appendDiagnosticEvent(logPath, "Process.Exited");
+        lifecycle.phase = "startup";
+        const int result = runApplication(instance, options, report, logPath, lifecycle);
+        appendHostExit(logPath, "Process.Exited", lifecycle, result);
         return result;
     }
     catch (const std::exception& error)
     {
+        if (lifecycle.exitReason.empty())
+        {
+            lifecycle.exitReason = parsingOptions ? "invalid-command-line"
+                : (lifecycle.phase == "running" ? "runtime-failed" : "startup-failed");
+        }
+        // Write before presenting an error dialog, which can remain open.
+        if (!logPath.empty())
+        {
+            appendHostExit(logPath, "Process.Exited", lifecycle,
+                parsingOptions ? invalidCommandLineExitCode : 1, error.what());
+        }
         report.setFailure(error.what());
         if (!logPath.empty())
         {
