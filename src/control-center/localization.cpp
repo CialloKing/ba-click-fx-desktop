@@ -6,6 +6,19 @@
 
 namespace bafx::control_center
 {
+
+std::string_view textIdName(const TextId id) noexcept
+{
+    switch (id)
+    {
+#define BAFX_TEXT(name, chinese, english) case TextId::name: return #name;
+#include "localized_strings.inc"
+#undef BAFX_TEXT
+    case TextId::Count: return "Count";
+    }
+    return "Unknown";
+}
+
 namespace
 {
 struct Translation

@@ -66,6 +66,7 @@ void ControlCenterWindow::changeLanguage()
         return;
     }
     languagePreference_ = preference;
+    logControlCenterEvent("UI.LanguageChanged", {{"UI.Language", uiLanguageToken(preference)}});
     setUiLanguage(preference);
     retranslateUi();
 }

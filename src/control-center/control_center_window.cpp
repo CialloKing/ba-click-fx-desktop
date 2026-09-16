@@ -7093,7 +7093,14 @@ void ControlCenterWindow::openLogDirectory()
             SW_SHOWNORMAL);
         if (reinterpret_cast<INT_PTR>(result) <= 32)
         {
+            const auto code = std::to_string(reinterpret_cast<INT_PTR>(result));
+            logControlCenterEvent("Log.DirectoryOpenFailed", {{"Error.ShellCode", code}},
+                bafx::windows::DiagnosticLevel::Warning);
             setError(TextId::LogDirectoryOpenFailed);
+        }
+        else
+        {
+            logControlCenterEvent("Log.DirectoryOpened");
         }
     }
     catch (const std::exception& error)
@@ -7632,6 +7639,12 @@ void ControlCenterWindow::closeControlCenter()
 
 void ControlCenterWindow::setConnected(const bool connected) noexcept
 {
+    if (connected_ != connected)
+    {
+        logControlCenterEvent("Host.ConnectionChanged", {
+            {"Host.Connected", connected ? "true" : "false"},
+            {"Host.VersionBlocked", hostVersionBlocked_ ? "true" : "false"}});
+    }
     connected_ = connected;
     if (connected)
     {
@@ -7757,6 +7770,25 @@ void ControlCenterWindow::setInfo(
     const UiMessage& title,
     const UiMessage& message)
 {
+    try
+    {
+        // Stable English diagnostics remain searchable after a UI language
+        // switch. Repeated polling must not duplicate an unchanged message.
+        const auto detail = message.render(UiLanguage::English);
+        if (title.id != infoTitle_.id || detail != infoMessage_.render(UiLanguage::English))
+        {
+            const auto text = wideToUtf8(detail);
+            logControlCenterEvent("UI.StatusChanged", {
+                {"UI.Title", textIdName(title.id)}, {"UI.Message", textIdName(message.id)},
+                {"Message", text}}, title.id == TextId::OperationFailed
+                    ? bafx::windows::DiagnosticLevel::Error
+                    : (title.id == TextId::UpdateCheckFailed
+                        ? bafx::windows::DiagnosticLevel::Warning : bafx::windows::DiagnosticLevel::Info));
+        }
+    }
+    catch (...)
+    {
+    }
     infoTitle_ = title;
     infoMessage_ = message;
     const std::wstring text = title.render() + L"\r\n" + message.render();

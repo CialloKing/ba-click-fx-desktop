@@ -347,3 +347,26 @@ BAFX_TEST(control_center_language_switch_preserves_view_state)
 {
     bafx::control_center::ControlCenterUiTest::run();
 }
+
+BAFX_TEST(control_center_ipc_diagnostics_suppress_repeated_poll_failures)
+{
+    const auto readLog = []()
+    {
+        std::ifstream input(bafx::control_center::controlCenterLogPath(), std::ios::binary);
+        return std::string(std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>());
+    };
+    bafx::windows::IpcClientOptions options;
+    options.pipeName = L"\\\\.\\pipe\\BAFX.AbsentDiagnosticTest." + std::to_wstring(GetCurrentProcessId());
+    options.timeoutMilliseconds = 5U;
+    bafx::control_center::DiagnosticIpcClient client(options);
+    BAFX_CHECK(!client.transact("GetState").succeeded());
+    const auto firstFailure = readLog();
+    BAFX_CHECK(firstFailure.find("IPC.Command=GetState\n") != std::string::npos);
+    BAFX_CHECK(!client.transact("GetState").succeeded());
+    BAFX_CHECK(readLog() == firstFailure);
+    BAFX_CHECK(!client.transact("Pause").succeeded());
+    const auto appended = readLog();
+    BAFX_CHECK(appended.find("Event.Name=IPC.Requested") != std::string::npos);
+    BAFX_CHECK(appended.find("IPC.Command=Pause\n") != std::string::npos);
+    BAFX_CHECK(appended.find("IPC.TimeoutMs=5\n") != std::string::npos);
+}

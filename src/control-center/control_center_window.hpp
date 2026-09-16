@@ -1,5 +1,7 @@
 #pragma once
 
+#include "control_center_diagnostics.hpp"
+
 #include "display_state.hpp"
 #include "host_state.hpp"
 #include "obs_spout_plugin_probe.hpp"
@@ -539,7 +541,7 @@ private:
     HWND clearLogsButton_{nullptr};
     HWND resetDefaultsButton_{nullptr};
 
-    bafx::windows::NamedPipeIpcClient client_{};
+    DiagnosticIpcClient client_{};
     std::unique_ptr<bafx::release_update::ReleaseUpdateChecker> updateChecker_{};
     bafx::windows::UniqueHandle hostLifetimeMutex_{};
     std::optional<PendingPatch> pendingPatch_{};

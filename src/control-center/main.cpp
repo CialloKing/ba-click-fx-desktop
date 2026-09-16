@@ -44,6 +44,8 @@ struct LaunchOptions final
 
 void recordStartupFailure(const std::wstring_view message) noexcept
 {
+    logControlCenterMessage("Process.Startup.Failed", message, bafx::windows::DiagnosticLevel::Error);
+    logControlCenterLifecycle("Process.Exited", "startup-failed", 1);
     const std::wstring line(message);
     OutputDebugStringW(line.c_str());
     OutputDebugStringW(L"\n");
@@ -151,6 +153,7 @@ int WINAPI wWinMain(
         static_cast<void>(activateExistingControlCenter());
         return 0;
     }
+    logControlCenterLifecycle("Process.Startup", launchOptions().startup ? "windows-startup" : "interactive");
 
     try
     {
@@ -188,7 +191,9 @@ int WINAPI wWinMain(
             localizedMessageBox(nullptr, message, TextId::StartupFailed, MB_OK | MB_ICONERROR);
             return 1;
         }
-        return window.runMessageLoop();
+        const int result = window.runMessageLoop();
+        logControlCenterLifecycle("Process.Exited", "message-loop-ended", result);
+        return result;
     }
     catch (...)
     {

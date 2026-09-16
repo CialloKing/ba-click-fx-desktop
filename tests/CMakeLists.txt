@@ -654,6 +654,7 @@ if(WIN32)
         startup_config_tests.cpp
         update_check_tests.cpp
         "${PROJECT_SOURCE_DIR}/src/control-center/config_commands.cpp"
+        "${PROJECT_SOURCE_DIR}/src/control-center/control_center_diagnostics.cpp"
         "${PROJECT_SOURCE_DIR}/src/control-center/localization.cpp"
         "${PROJECT_SOURCE_DIR}/src/control-center/language_preferences.cpp"
         "${PROJECT_SOURCE_DIR}/src/control-center/control_center_window.cpp"

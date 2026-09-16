@@ -35,6 +35,7 @@ void setUiLanguage(UiLanguage preference) noexcept;
 [[nodiscard]] UiLanguage currentUiLanguage() noexcept;
 [[nodiscard]] const wchar_t* translatedText(TextId id, UiLanguage language) noexcept;
 [[nodiscard]] const wchar_t* tr(TextId id) noexcept;
+[[nodiscard]] std::string_view textIdName(TextId id) noexcept;
 
 // Keep IDs and raw parameters, so a visible message can be rendered again
 // without repeating the operation that originally produced it.
