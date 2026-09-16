@@ -221,6 +221,11 @@ The application and existing UI tests share the `bafx::control_center_ui` static
 once in [`src/control-center/CMakeLists.txt`](../src/control-center/CMakeLists.txt); tests inherit the sources,
 dependencies and Full/Slim definitions through the library. Window resources and `main.cpp` remain application-only.
 
+Host control, hotkeys and FX profiles share `bafx::host_control`; background capture transactions, display policies
+and performance logging share `bafx::desktop_runtime`. List these implementations once in
+[`src/desktop/CMakeLists.txt`](../src/desktop/CMakeLists.txt), then link the Host and corresponding tests to the targets.
+Input and scheduling policies remain in `bafx::desktop_input`, avoiding dependencies between control and render coordination.
+
 After configuring, layout and display-page changes can be checked with:
 
 ```powershell
@@ -389,6 +394,10 @@ Use Node.js 24 with no npm installation:
 node tools/verify-readme.mjs
 node tests/star-history.mjs
 ```
+
+`verify-readme.mjs` checks local links and heading anchors in the maintained entry documents, the current roadmap,
+and every Markdown snapshot in `docs/history/`. New snapshots are discovered automatically. The check runs on a
+clean checkout without a product build or locally generated capture files.
 
 `.github/workflows/star-history.yml` checks documentation and the updater with read-only repository permissions on relevant PRs/main pushes.
 Only the daily 03:17 Asia/Shanghai schedule or a manual dispatch writes to `star-history`.

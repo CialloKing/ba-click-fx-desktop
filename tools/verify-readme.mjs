@@ -2,14 +2,21 @@
 
 // Keep navigation and release-facing facts in sync without requiring a product build.
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const read = (path) => readFileSync(resolve(root, path), 'utf8');
-const documents = ['README.md', 'README.en.md', 'docs/DEVELOPMENT.md', 'docs/DEVELOPMENT.en.md',
-  'ARCHITECTURE.md', 'docs/adr/0009-identity-installer-scheme-c.md'];
+const readmeFiles = ['README.md', 'README.en.md'];
+// Roadmap archives keep their own relative links. Discover new snapshots here
+// so archiving a roadmap cannot silently remove its links from validation.
+const historyFiles = readdirSync(resolve(root, 'docs/history'), { withFileTypes: true })
+  .filter((entry) => entry.isFile() && entry.name.endsWith('.md'))
+  .map((entry) => `docs/history/${entry.name}`)
+  .sort();
+const documents = [...readmeFiles, 'docs/DEVELOPMENT.md', 'docs/DEVELOPMENT.en.md',
+  'ARCHITECTURE.md', 'docs/adr/0009-identity-installer-scheme-c.md', 'docs/ROADMAP.md', ...historyFiles];
 const prose = (text) => text.replace(/^\s*```[^\n]*\n[\s\S]*?^\s*```\s*$/gm, '');
 
 function anchors(text)
@@ -47,7 +54,7 @@ for (const file of documents)
 }
 
 const presets = new Set(JSON.parse(read('CMakePresets.json')).workflowPresets.map((preset) => preset.name));
-const readmes = documents.slice(0, 2).map(read);
+const readmes = readmeFiles.map(read);
 const repository = 'CialloKing/ba-click-fx-desktop';
 const downloadsBadgeUrl = `https://img.shields.io/github/downloads/${repository}/total.svg?label=total%20downloads`;
 const chartUrl = `https://raw.githubusercontent.com/${repository}/refs/heads/star-history/star-history.svg`;
@@ -58,7 +65,7 @@ for (const [index, body] of readmes.entries())
     '.sha256', 'Full', 'Slim', 'Not Run', 'FX-only', 'INSTALL-STATE.json', 'Premultiplied Alpha',
     '`Default`', '`Normal`'])
   {
-    assert.ok(body.includes(token), `${documents[index]}: missing release guidance ${token}`);
+    assert.ok(body.includes(token), `${readmeFiles[index]}: missing release guidance ${token}`);
   }
   for (const match of body.matchAll(/cmake --workflow --preset ([\w-]+)/g))
   {
@@ -66,10 +73,10 @@ for (const [index, body] of readmes.entries())
   }
   // The total endpoint includes assets from every release, not just the latest tag.
   assert.ok(body.includes(`](${downloadsBadgeUrl})](https://github.com/${repository}/releases)`),
-    `${documents[index]}: missing all-releases download badge`);
+    `${readmeFiles[index]}: missing all-releases download badge`);
   assert.ok(body.includes(`src="${chartUrl}"`) && body.includes(`href="${csvUrl}"`), 'Wrong Star chart/data URL');
   assert.ok(body.includes(`](${csvUrl})`), 'Missing raw CSV link');
 }
 assert.equal(readmes[0].match(/^## /gm).length, readmes[1].match(/^## /gm).length,
   'Keep the Chinese and English section structure aligned');
-console.log('README checks passed: local links, anchors, release guidance, and build presets.');
+console.log(`Documentation checks passed: ${documents.length} documents, local links, anchors, release guidance, and build presets.`);

@@ -208,6 +208,11 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File .\tools\package-user-installer.ps1
 [`src/control-center/CMakeLists.txt`](../src/control-center/CMakeLists.txt) 中的源码清单，测试目标通过链接自动复用，
 不再复制应用的源码、依赖和 Full/Slim 编译定义。窗口资源与 `main.cpp` 仍只属于应用入口。
 
+Host 控制面、快捷键和特效预设共用 `bafx::host_control`；背景捕获事务、显示策略与性能日志共用
+`bafx::desktop_runtime`。这两组实现只在 [`src/desktop/CMakeLists.txt`](../src/desktop/CMakeLists.txt)
+列出一次，Host 和对应测试直接链接目标。纯输入与调度策略继续由 `bafx::desktop_input` 提供，
+避免控制面与渲染协调互相依赖。
+
 完成配置后，布局或显示页改动可以先运行：
 
 ```powershell
@@ -478,6 +483,9 @@ Profile 是严格的 effects-only 快照：保存和应用只涉及 `effects`，
 node tools/verify-readme.mjs
 node tests/star-history.mjs
 ```
+
+`verify-readme.mjs` 检查维护入口文档、当前路线图和 `docs/history/` 下所有 Markdown 快照的本地链接
+与标题锚点；新增历史快照会自动纳入检查。检查可在干净检出上运行，无需构建或生成本地采样文件。
 
 工作流 `.github/workflows/star-history.yml` 在相关 PR／main 推送时只读检查文档和更新器；
 每日北京时间 03:17 或手动触发时才写入独立 `star-history` 分支。数据提交只包含
