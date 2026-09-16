@@ -212,3 +212,54 @@ jobs:
           name: ${{ matrix.name }}
           path: build/compat-${{ matrix.name }}/artifacts
           if-no-files-found: error
+
+  test-contracts:
+    name: Windows automated tests
+    runs-on: windows-2022
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      # Reuse the ordinary CTest suite without vcpkg or interactive capture.
+      # WARP checks remain enabled; they do not require a physical GPU.
+      - name: Configure automated tests
+        run: |
+          & cmake -S . -B build/ci-tests -G 'Visual Studio 17 2022' -A x64 `
+              -DCMAKE_SYSTEM_VERSION=10.0.26100.0 `
+              -DBUILD_TESTING=ON `
+              -DBAFX_ENABLE_SPOUT2=OFF `
+              -DBAFX_ENABLE_DESKTOP_SMOKE_TESTS=OFF `
+              -DCMAKE_REQUIRE_FIND_PACKAGE_Python3=ON
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Build automated tests and products
+        run: |
+          & cmake --build build/ci-tests --config Release -- /m:2 /nodeReuse:false
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Run existing automated tests
+        run: |
+          & ctest --test-dir build/ci-tests -C Release --output-on-failure `
+              --no-tests=error --timeout 120 -LE 'hardware|integration' `
+              --output-junit build/ci-tests/ctest-results.xml
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Verify documentation
+        run: |
+          & node tools/verify-readme.mjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Upload test diagnostics
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: windows-automated-test-results
+          path: |
+            build/ci-tests/ctest-results.xml
+            build/ci-tests/Testing/Temporary/LastTest.log
+            build/ci-tests/Testing/Temporary/LastTestsFailed.log
+          if-no-files-found: warn
