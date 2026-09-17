@@ -1,0 +1,3 @@
+# Versions used by the OBS image-verifier contract tests and Windows CI.
+numpy==2.4.6
+Pillow==12.2.0

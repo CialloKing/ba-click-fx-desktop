@@ -21,6 +21,10 @@
 - Windows PowerShell 5.1 或 PowerShell 7。Python 3 不是编译器依赖，但安装后可以启用完整的
   Python 合同测试；Node.js 用于维护 Unity 纹理快照和 Star 历史，普通构建不需要。
 
+完整 Python 合同测试还需要 NumPy 与 Pillow，使用
+`python -m pip install -r tests/requirements.txt` 安装已验证版本。CI 固定使用 Python 3.14，
+并显式把同一解释器传给 CMake，避免测试使用另一套未安装依赖的 Python。
+
 从仓库根目录开始：
 
 ```powershell

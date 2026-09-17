@@ -22,6 +22,10 @@ Source builds target Windows x64. Install:
   is recommended for the full set of Python contract tests; without it, those optional tests
   are not registered. Node.js is used to maintain Unity texture snapshots and Star history, not to build the product.
 
+The full Python contract suite also requires NumPy and Pillow. Install the verified versions with
+`python -m pip install -r tests/requirements.txt`. CI uses Python 3.14 and explicitly passes that same interpreter
+to CMake so tests cannot select a different Python installation without those dependencies.
+
 Start from a fresh checkout:
 
 ```powershell
