@@ -122,6 +122,14 @@ function Get-FunctionText
                 $node.Name -eq $Name
         },
         $true) | Select-Object -First 1
+    if ($null -eq $function -and
+        $Ast.Extent.Text.Contains(". (Join-Path `$PSScriptRoot 'installer-state.ps1')"))
+    {
+        # Contract probes extract functions without executing entry scripts.
+        # Follow their explicit state-helper import so probes use production code.
+        $stateAst = Get-ParsedScript -RelativePath 'tools/installer/installer-state.ps1'
+        return Get-FunctionText -Ast $stateAst -Name $Name
+    }
     if ($null -eq $function)
     {
         throw "Required PowerShell function is missing: $Name"
@@ -235,12 +243,67 @@ function Test-VersionMapping
         -Description 'four-component version'
 }
 
+function Test-SharedInstallerStateContract
+{
+    $statePath = 'tools/installer/installer-state.ps1'
+    $stateAst = Get-ParsedScript -RelativePath $statePath
+    $names = @($stateAst.FindAll({
+        param($node)
+        $node -is [Management.Automation.Language.FunctionDefinitionAst]
+    }, $true) | ForEach-Object { $_.Name })
+    foreach ($entry in @('install-machine.ps1', 'register-user-package.ps1', 'unregister-machine.ps1'))
+    {
+        $entryText = Read-RepositoryText -RelativePath ("tools/installer/" + $entry)
+        Assert-True `
+            -Condition ($entryText.Contains(". (Join-Path `$PSScriptRoot 'installer-state.ps1')")) `
+            -Message "$entry must load the shared state primitives."
+        foreach ($name in $names)
+        {
+            Assert-TextExcludes -Text $entryText `
+                -Pattern ('function\s+' + [regex]::Escape($name) + '\b') `
+                -Description "$entry duplicates shared state function $name"
+        }
+    }
+    $inno = Read-RepositoryText -RelativePath 'tools/installer/ba-click-fx-desktop.iss'
+    foreach ($step in @(
+        "ExtractTemporaryFile('installer-state.ps1')",
+        "SourcePath := TempRoot + 'installer-state.ps1'",
+        "DestinationPath := CurrentRecoveryRoot + 'installer-state.ps1'",
+        "ResolveCurrentRecoveryScript('installer-state.ps1')"))
+    {
+        Assert-True -Condition $inno.Contains($step) `
+            -Message "Current recovery is missing the shared state dependency: $step"
+    }
+    $probe = New-Module -ScriptBlock ([scriptblock]::Create($stateAst.Extent.Text))
+    $digest = & $probe {
+        # Record compatibility with all three pre-extraction implementations.
+        # PowerShell 5.1 and 7 format JSON differently; preserve each baseline.
+        Get-StateDigest -Value ([pscustomobject][ordered]@{
+            schema = 2
+            transactionId = ('a' * 32)
+            stateDigest = 'ignored'
+            nested = [pscustomobject]@{name = 'sample'; values = @('one', 'two')}
+        })
+    }
+    $expectedDigest = if ($PSVersionTable.PSVersion.Major -le 5)
+    {
+        '6A1B30F3A45DB2160AD2D03516E9040CA01FA02A61D3289D7B68BF17827F66F2'
+    }
+    else
+    {
+        'D6CBB4F62FFEC2132792F01C7837E0E70F8DF09E30AD01882EA655AEB48D91A7'
+    }
+    Assert-True -Condition ($digest -eq $expectedDigest) `
+        -Message 'Shared state serialization changed a released digest.'
+}
+
 function Test-PowerShellScriptContracts
 {
     $scriptPaths = @(
         'tools/package-user-installer.ps1',
         'tools/installer/capture-user-context.ps1',
         'tools/installer/installer-diagnostics.ps1',
+        'tools/installer/installer-state.ps1',
         'tools/installer/install-machine.ps1',
         'tools/installer/protected-paths.ps1',
         'tools/installer/register-user-package.ps1',
@@ -701,6 +764,7 @@ function Test-InstallerScriptWhitelist
         'capture-user-context.ps1',
         'ChineseSimplified.isl',
         'installer-diagnostics.ps1',
+        'installer-state.ps1',
         'install-machine.ps1',
         'protected-paths.ps1',
         'register-user-package.ps1',
@@ -718,6 +782,7 @@ function Test-InstallerScriptWhitelist
         -Pattern (('\$scriptName\s+in\s+@\(\s*' +
             '\x27capture-user-context\.ps1\x27\s*,\s*' +
             '\x27installer-diagnostics\.ps1\x27\s*,\s*' +
+            '\x27installer-state\.ps1\x27\s*,\s*' +
             '\x27install-machine\.ps1\x27\s*,\s*' +
             '\x27protected-paths\.ps1\x27\s*,\s*' +
             '\x27register-user-package\.ps1\x27\s*,\s*' +
@@ -1387,6 +1452,7 @@ function Test-InnoPayloadContract
         '{#StageRoot}\Identity\*',
         '{#StageRoot}\Installer\*',
         '{#StageRoot}\Installer\installer-diagnostics.ps1',
+        '{#StageRoot}\Installer\installer-state.ps1',
         '{#StageRoot}\Installer\protected-paths.ps1',
         '{#StageRoot}\Installer\install-machine.ps1',
         '{#StageRoot}\Installer\register-user-package.ps1'
@@ -2380,15 +2446,15 @@ function Test-SparsePackageContract
         -Description 'uninstall retries recover a torn state pair from its journal'
     Assert-TextContains `
         -Text $machineInstaller `
-        -Pattern 'function\s+Assert-InstallStateRawPair[\s\S]*Assert-InstallStatePair[\s\S]*PrimaryPath' `
+        -Pattern 'function\s+Assert-InstallStatePair[\s\S]*Assert-InstallStateRawPair[\s\S]*PrimaryPath' `
         -Description 'machine recovery requires byte-identical install-state files'
     Assert-TextContains `
         -Text $registration `
-        -Pattern 'function\s+Assert-InstallStateRawPair[\s\S]*Get-InstallStatePairStatus[\s\S]*Assert-InstallStateRawPair' `
+        -Pattern 'function\s+Get-InstallStatePairStatus[\s\S]*Assert-InstallStateRawPair' `
         -Description 'user registration rejects byte-divergent install-state files'
     Assert-TextContains `
         -Text $uninstaller `
-        -Pattern 'function\s+Assert-InstallStateRawPair[\s\S]*Read-InstallStateWithBackup[\s\S]*PrimaryPath' `
+        -Pattern 'function\s+Assert-InstallStatePair[\s\S]*Assert-InstallStateRawPair[\s\S]*Read-InstallStateWithBackup[\s\S]*PrimaryPath' `
         -Description 'uninstall rejects byte-divergent install-state files'
     Assert-TextContains `
         -Text $uninstaller `
@@ -3931,6 +3997,7 @@ if (-not (Test-Path -LiteralPath $repositoryRoot -PathType Container))
 }
 
 Test-PowerShellScriptContracts
+Test-SharedInstallerStateContract
 Test-ProtectedAclIdentityResolutionContract
 Test-AtomicFileReplacementContract
 Test-UninstallerProcessPathFilter

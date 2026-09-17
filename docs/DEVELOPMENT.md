@@ -215,6 +215,7 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File .\tools\package-user-installer.ps1
 | 主副显示器共用的视觉配置映射 | [`frame_visual_config.cpp`](../src/desktop/frame_visual_config.cpp) |
 | 显示输出协商与重试诊断 | [`display_output_diagnostics.cpp`](../src/desktop/display_output_diagnostics.cpp) |
 | 渲染诊断到性能样本的转换 | [`performance_samples.cpp`](../src/desktop/performance_samples.cpp) |
+| 安装、注册与卸载共用的状态序列化和字节配对 | [`installer-state.ps1`](../tools/installer/installer-state.ps1) |
 | 性能窗口聚合与日志输出 | [`performance_window.cpp`](../src/desktop/performance_window.cpp)、[`performance_logging.cpp`](../src/desktop/performance_logging.cpp) |
 
 控制中心应用和现有界面测试共用 `bafx::control_center_ui` 静态库。新增实现文件时只修改
@@ -230,6 +231,11 @@ Host 控制面、快捷键和特效预设共用 `bafx::host_control`；背景捕
 主显示器输出模块持有待协商策略与有限重试预算，负责色彩刷新、WGC 停止及输出重建。
 主循环只在捕获事务、窗口尺寸与目标变更都稳定后调用它；该模块沿用 Render Owner，
 通过同一发布回调刷新诊断与 IPC。输出诊断模块只格式化已发生的状态。
+
+安装、注册与卸载共用状态属性提取、JSON 序列化、SHA-256 摘要、原始文件配对和账本拆分。
+共享模块保留历史属性顺序和 PowerShell 5.1 的摘要结果；各入口继续负责各自的 schema、事务与权限校验。
+新增安装运行依赖时，应同步打包白名单、Inno 临时解压与 `.recovery-current` 恢复目录，
+并运行 `tools/verify-user-installer-contract.ps1`，避免仅在正常安装路径可用。
 
 滑块的范围、步长、配置路径、读取函数与页面归属统一登记；页面控件描述复用字体和显隐逻辑，
 具体布局仍在布局模块维护。特效字段注册表同时驱动允许字段、普通字段的必填读取、补丁分派与 JSON 输出，

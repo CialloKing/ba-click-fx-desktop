@@ -21,6 +21,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'installer-diagnostics.ps1')
 . (Join-Path $PSScriptRoot 'protected-paths.ps1')
+. (Join-Path $PSScriptRoot 'installer-state.ps1')
 $script:InstallerStep = 'initialize'
 $effectiveRollbackAction = $RollbackAction
 if ($Rollback -and [string]::IsNullOrWhiteSpace($effectiveRollbackAction))
@@ -90,83 +91,6 @@ function Get-InstallerFileHash
     {
         $hasher.Dispose()
         $stream.Dispose()
-    }
-}
-
-function Get-StatePropertiesWithoutDigest
-{
-    param(
-        [Parameter(Mandatory = $true)]
-        [object]$Value
-    )
-
-    $ordered = [ordered]@{}
-    if ($Value -is [Collections.IDictionary])
-    {
-        foreach ($entry in $Value.GetEnumerator())
-        {
-            if ([string]$entry.Key -ne 'stateDigest')
-            {
-                $ordered[[string]$entry.Key] = $entry.Value
-            }
-        }
-    }
-    else
-    {
-        foreach ($property in $Value.PSObject.Properties)
-        {
-            if ($property.Name -ne 'stateDigest')
-            {
-                $ordered[$property.Name] = $property.Value
-            }
-        }
-    }
-    return $ordered
-}
-
-function Get-StateDigest
-{
-    param(
-        [Parameter(Mandatory = $true)]
-        [object]$Value
-    )
-
-    $json = Get-StatePropertiesWithoutDigest -Value $Value |
-        ConvertTo-Json -Depth 12
-    $hasher = [Security.Cryptography.SHA256]::Create()
-    try
-    {
-        return ([BitConverter]::ToString($hasher.ComputeHash(
-            [Text.Encoding]::UTF8.GetBytes($json)))).Replace('-', '')
-    }
-    finally
-    {
-        $hasher.Dispose()
-    }
-}
-
-function Assert-InstallStateRawPair
-{
-    param(
-        [Parameter(Mandatory = $true)]
-        [string]$PrimaryPath,
-
-        [Parameter(Mandatory = $true)]
-        [string]$BackupPath
-    )
-
-    $primaryBytes = [IO.File]::ReadAllBytes($PrimaryPath)
-    $backupBytes = [IO.File]::ReadAllBytes($BackupPath)
-    if ($primaryBytes.Length -ne $backupBytes.Length)
-    {
-        throw 'Protected install state primary and backup bytes differ.'
-    }
-    for ($index = 0; $index -lt $primaryBytes.Length; ++$index)
-    {
-        if ($primaryBytes[$index] -ne $backupBytes[$index])
-        {
-            throw 'Protected install state primary and backup bytes differ.'
-        }
     }
 }
 

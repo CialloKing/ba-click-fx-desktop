@@ -228,6 +228,7 @@ signature. `-SkipBuild` only applies when the matching Full or Slim outputs alre
 | Shared visual configuration mapping for all displays | [`frame_visual_config.cpp`](../src/desktop/frame_visual_config.cpp) |
 | Display output negotiation and retry diagnostics | [`display_output_diagnostics.cpp`](../src/desktop/display_output_diagnostics.cpp) |
 | Renderer diagnostics to performance samples | [`performance_samples.cpp`](../src/desktop/performance_samples.cpp) |
+| Shared installer state serialization and byte-pair validation | [`installer-state.ps1`](../tools/installer/installer-state.ps1) |
 | Performance aggregation and log output | [`performance_window.cpp`](../src/desktop/performance_window.cpp), [`performance_logging.cpp`](../src/desktop/performance_logging.cpp) |
 
 The application and existing UI tests share the `bafx::control_center_ui` static library. Add implementation files
@@ -243,6 +244,12 @@ The Render Owner collects display runtime state at one timestamp; the Host publi
 and IPC. The coordinator output runtime owns pending policies and bounded retries, color refresh, WGC teardown
 and output recreation. The main loop invokes it only after capture transactions, resizes and target changes settle.
 It runs on the same Render Owner and publishes through the shared snapshot callback. Output diagnostics only format observed state.
+
+Installation, user registration and uninstall share state property extraction, JSON serialization, SHA-256 digests,
+raw-file pairing and ledger parsing. The shared module preserves historical property order and PowerShell 5.1
+digests; each entry script retains its own schema, transaction and permission checks. When adding an installer
+runtime dependency, update the packaging whitelist, Inno temporary extraction and `.recovery-current` staging,
+then run `tools/verify-user-installer-contract.ps1` so recovery can also load the dependency.
 
 Slider descriptors register ranges, steps, configuration paths, readers and page membership in one place.
 Page control descriptors also drive fonts and visibility; geometry stays in the layout module. The effects field
