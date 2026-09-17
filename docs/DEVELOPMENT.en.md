@@ -215,6 +215,7 @@ signature. `-SkipBuild` only applies when the matching Full or Slim outputs alre
 | Slider bindings and page control descriptors | [`control_center_controls.cpp`](../src/control-center/control_center_controls.cpp) |
 | Display status presentation and per-display policy actions | [`control_center_display.cpp`](../src/control-center/control_center_display.cpp) |
 | Host arguments and diagnostic startup isolation | [`run_options.cpp`](../src/desktop/run_options.cpp) |
+| Effects configuration field registration and types | [`effects_fields.hpp`](../src/config/src/effects_fields.hpp) |
 | Display runtime snapshot collection | [`display_runtime_summary.cpp`](../src/desktop/display_runtime_summary.cpp) |
 | Secondary display capture, recovery and frame dispatch | [`secondary_display_runtime.cpp`](../src/desktop/secondary_display_runtime.cpp) |
 | Shared visual configuration mapping for all displays | [`frame_visual_config.cpp`](../src/desktop/frame_visual_config.cpp) |

@@ -202,6 +202,7 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File .\tools\package-user-installer.ps1
 | 滑块绑定与页面控件描述 | [`control_center_controls.cpp`](../src/control-center/control_center_controls.cpp) |
 | 显示状态呈现与逐屏策略操作 | [`control_center_display.cpp`](../src/control-center/control_center_display.cpp) |
 | Host 命令行与诊断启动隔离 | [`run_options.cpp`](../src/desktop/run_options.cpp) |
+| 特效配置字段注册与类型绑定 | [`effects_fields.hpp`](../src/config/src/effects_fields.hpp) |
 | 显示运行时快照组装 | [`display_runtime_summary.cpp`](../src/desktop/display_runtime_summary.cpp) |
 | 副显示器捕获、恢复与帧调度 | [`secondary_display_runtime.cpp`](../src/desktop/secondary_display_runtime.cpp) |
 | 主副显示器共用的视觉配置映射 | [`frame_visual_config.cpp`](../src/desktop/frame_visual_config.cpp) |

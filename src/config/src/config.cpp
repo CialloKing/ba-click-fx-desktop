@@ -1,4 +1,5 @@
 #include "bafx/config/config.hpp"
+#include "effects_fields.hpp"
 
 #include <algorithm>
 #include <atomic>
@@ -14,6 +15,8 @@
 #include <map>
 #include <optional>
 #include <sstream>
+#include <span>
+#include <type_traits>
 #include <system_error>
 #include <utility>
 #include <variant>
@@ -590,7 +593,7 @@ private:
 
 [[nodiscard]] bool validateKnownMembers(
     const JsonValue::Object& object,
-    const std::initializer_list<std::string_view> knownMembers,
+    const std::span<const std::string_view> knownMembers,
     const std::string_view section,
     std::string& error)
 {
@@ -618,6 +621,16 @@ private:
         return false;
     }
     return true;
+}
+
+[[nodiscard]] bool validateKnownMembers(
+    const JsonValue::Object& object,
+    const std::initializer_list<std::string_view> knownMembers,
+    const std::string_view section,
+    std::string& error)
+{
+    return validateKnownMembers(object,
+        std::span<const std::string_view>(knownMembers.begin(), knownMembers.size()), section, error);
 }
 
 [[nodiscard]] bool readBool(
@@ -1123,48 +1136,7 @@ private:
 
     if (!validateKnownMembers(
                 *effects,
-                {
-                    "enabled",
-                    "diskLayerEnabled",
-                    "ringsLayerEnabled",
-                    "clickShardsLayerEnabled",
-                    "trailShardsLayerEnabled",
-                    "trailLayerEnabled",
-                    "bloomLayerEnabled",
-                    "themeColor",
-                    "globalScale",
-                    "opacity",
-                    "clickEnabled",
-                    "trailEnabled",
-                    "trailLength",
-                    "trailWidth",
-                    "clickTimeScale",
-                    "trailTimeScale",
-                    "trailLifetimeMs",
-                    "diskLifetimeMs",
-                    "diskRadius",
-                    "ringsCount",
-                    "ringsLifetimeMs",
-                    "ringsRadiusMin",
-                    "ringsRadiusMax",
-                    "ringsAngularVelocityMultiplier",
-                    "ringsRotationDirection",
-                    "ringsHdrIntensity",
-                    "shardsHdrIntensity",
-                    "shardsClickCount",
-                    "shardsClickLifetimeMinMs",
-                    "shardsClickLifetimeMaxMs",
-                    "shardsClickRadius",
-                    "shardsClickSpeedMin",
-                    "shardsClickSpeedMax",
-                    "shardsSizeMin",
-                    "shardsSizeMax",
-                    "trailOpacity",
-                    "bloomIntensity",
-                    "bloomDiffusion",
-                    "bloomThreshold",
-                    "bloomSoftKnee",
-                    "bloomClamp"},
+                detail::effectsFieldNames,
                 "effects",
                 error)
         || !validateKnownMembers(
@@ -1615,70 +1587,32 @@ private:
     const EffectsConfig& config)
 {
     JsonValue::Object effects;
-    std::string themeColor = config.themeColor;
-    static_cast<void>(normalizeThemeColor(themeColor));
-    effects.emplace("bloomIntensity", JsonValue(static_cast<double>(config.bloomIntensity)));
-    effects.emplace("bloomLayerEnabled", JsonValue(config.bloomLayerEnabled));
-    effects.emplace("clickEnabled", JsonValue(config.clickEnabled));
-    effects.emplace("clickShardsLayerEnabled", JsonValue(config.clickShardsLayerEnabled));
-    effects.emplace("clickTimeScale", JsonValue(static_cast<double>(config.clickTimeScale)));
-    effects.emplace("diskLifetimeMs", JsonValue(static_cast<double>(config.diskLifetimeMs)));
-    effects.emplace("diskLayerEnabled", JsonValue(config.diskLayerEnabled));
-    effects.emplace("diskRadius", JsonValue(static_cast<double>(config.diskRadius)));
-    effects.emplace("enabled", JsonValue(config.enabled));
-    effects.emplace("themeColor", JsonValue(std::move(themeColor)));
-    effects.emplace("globalScale", JsonValue(static_cast<double>(config.globalScale)));
-    effects.emplace("opacity", JsonValue(static_cast<double>(config.opacity)));
-    effects.emplace(
-        "ringsAngularVelocityMultiplier",
-        JsonValue(static_cast<double>(config.ringsAngularVelocityMultiplier)));
-    effects.emplace("ringsCount", JsonValue(static_cast<double>(config.ringsCount)));
-    effects.emplace("ringsLayerEnabled", JsonValue(config.ringsLayerEnabled));
-    effects.emplace("ringsHdrIntensity", JsonValue(static_cast<double>(config.ringsHdrIntensity)));
-    effects.emplace("ringsLifetimeMs", JsonValue(static_cast<double>(config.ringsLifetimeMs)));
-    effects.emplace("ringsRadiusMax", JsonValue(static_cast<double>(config.ringsRadiusMax)));
-    effects.emplace("ringsRadiusMin", JsonValue(static_cast<double>(config.ringsRadiusMin)));
-    effects.emplace(
-        "ringsRotationDirection",
-        JsonValue(static_cast<double>(config.ringsRotationDirection)));
-    effects.emplace("shardsHdrIntensity", JsonValue(static_cast<double>(config.shardsHdrIntensity)));
-    effects.emplace("shardsClickCount", JsonValue(static_cast<double>(config.shardsClickCount)));
-    effects.emplace(
-        "shardsClickLifetimeMaxMs",
-        JsonValue(static_cast<double>(config.shardsClickLifetimeMaxMs)));
-    effects.emplace(
-        "shardsClickLifetimeMinMs",
-        JsonValue(static_cast<double>(config.shardsClickLifetimeMinMs)));
-    effects.emplace(
-        "shardsClickRadius",
-        JsonValue(static_cast<double>(config.shardsClickRadius)));
-    effects.emplace(
-        "shardsClickSpeedMax",
-        JsonValue(static_cast<double>(config.shardsClickSpeedMax)));
-    effects.emplace(
-        "shardsClickSpeedMin",
-        JsonValue(static_cast<double>(config.shardsClickSpeedMin)));
-    effects.emplace(
-        "shardsSizeMax",
-        JsonValue(static_cast<double>(config.shardsSizeMax)));
-    effects.emplace(
-        "shardsSizeMin",
-        JsonValue(static_cast<double>(config.shardsSizeMin)));
-    effects.emplace("trailEnabled", JsonValue(config.trailEnabled));
-    effects.emplace("trailLayerEnabled", JsonValue(config.trailLayerEnabled));
-    effects.emplace("trailLength", JsonValue(static_cast<double>(config.trailLength)));
-    effects.emplace("trailLifetimeMs", JsonValue(static_cast<double>(config.trailLifetimeMs)));
-    effects.emplace("trailOpacity", JsonValue(static_cast<double>(config.trailOpacity)));
-    effects.emplace("trailTimeScale", JsonValue(static_cast<double>(config.trailTimeScale)));
-    effects.emplace("trailShardsLayerEnabled", JsonValue(config.trailShardsLayerEnabled));
-    effects.emplace("trailWidth", JsonValue(static_cast<double>(config.trailWidth)));
-    effects.emplace("bloomClamp", JsonValue(static_cast<double>(config.bloomClamp)));
-    effects.emplace("bloomDiffusion", JsonValue(static_cast<double>(config.bloomDiffusion)));
-    effects.emplace("bloomSoftKnee", JsonValue(static_cast<double>(config.bloomSoftKnee)));
-    effects.emplace("bloomThreshold", JsonValue(static_cast<double>(config.bloomThreshold)));
+    for (const auto& field : detail::effectsFields)
+    {
+        effects.emplace(std::string(field.name), std::visit([&](const auto member) -> JsonValue
+        {
+            using Value = std::remove_cvref_t<decltype(config.*member)>;
+            if constexpr (std::is_same_v<Value, std::string>)
+            {
+                std::string value = config.*member;
+                if (field.name == "themeColor")
+                {
+                    static_cast<void>(normalizeThemeColor(value));
+                }
+                return JsonValue(std::move(value));
+            }
+            else if constexpr (std::is_same_v<Value, bool>)
+            {
+                return JsonValue(config.*member);
+            }
+            else
+            {
+                return JsonValue(static_cast<double>(config.*member));
+            }
+        }, field.member));
+    }
     return effects;
 }
-
 [[nodiscard]] JsonValue makeConfigJson(const Config& config)
 {
     JsonValue::Object effects = makeEffectsConfigJson(config.effects);
@@ -2402,55 +2336,6 @@ EffectsConfigParseResult parseEffectsJson(const std::string_view json) noexcept
 namespace
 {
 
-[[nodiscard]] bool isSupportedFxParameterPath(
-    const std::string_view path) noexcept
-{
-    static constexpr std::string_view paths[] = {
-        "effects.bloomClamp",
-        "effects.bloomDiffusion",
-        "effects.bloomIntensity",
-        "effects.bloomLayerEnabled",
-        "effects.bloomSoftKnee",
-        "effects.bloomThreshold",
-        "effects.clickEnabled",
-        "effects.clickShardsLayerEnabled",
-        "effects.clickTimeScale",
-        "effects.diskLayerEnabled",
-        "effects.diskLifetimeMs",
-        "effects.diskRadius",
-        "effects.enabled",
-        "effects.themeColor",
-        "effects.globalScale",
-        "effects.opacity",
-        "effects.ringsAngularVelocityMultiplier",
-        "effects.ringsCount",
-        "effects.ringsHdrIntensity",
-        "effects.ringsLayerEnabled",
-        "effects.ringsLifetimeMs",
-        "effects.ringsRadiusMax",
-        "effects.ringsRadiusMin",
-        "effects.ringsRotationDirection",
-        "effects.shardsClickCount",
-        "effects.shardsClickLifetimeMaxMs",
-        "effects.shardsClickLifetimeMinMs",
-        "effects.shardsClickRadius",
-        "effects.shardsClickSpeedMax",
-        "effects.shardsClickSpeedMin",
-        "effects.shardsHdrIntensity",
-        "effects.shardsSizeMax",
-        "effects.shardsSizeMin",
-        "effects.trailEnabled",
-        "effects.trailLayerEnabled",
-        "effects.trailLength",
-        "effects.trailLifetimeMs",
-        "effects.trailOpacity",
-        "effects.trailShardsLayerEnabled",
-        "effects.trailTimeScale",
-        "effects.trailWidth"};
-    return std::find(std::begin(paths), std::end(paths), path)
-        != std::end(paths);
-}
-
 [[nodiscard]] ConfigPatchResult applyPatchJsonImpl(
     const Config& base,
     const std::string_view json,
@@ -2519,7 +2404,8 @@ namespace
                 true,
                 std::nullopt};
         }
-        if (fxOnly && !isSupportedFxParameterPath(*path))
+        const auto* effectField = detail::findEffectsField(*path);
+        if (fxOnly && effectField == nullptr)
         {
             // The FX API owns only the canonical EffectsConfig path surface.
             // Gate before parsing so unrelated product settings cannot leak
@@ -2612,188 +2498,46 @@ namespace
         };
 
         bool valueAccepted = false;
-        if (*path == "effects.enabled")
+        if (effectField != nullptr)
         {
-            valueAccepted = readPatchBool(result.effects.enabled);
-        }
-        else if (*path == "effects.diskLayerEnabled")
-        {
-            valueAccepted = readPatchBool(result.effects.diskLayerEnabled);
-        }
-        else if (*path == "effects.ringsLayerEnabled")
-        {
-            valueAccepted = readPatchBool(result.effects.ringsLayerEnabled);
-        }
-        else if (*path == "effects.clickShardsLayerEnabled")
-        {
-            valueAccepted = readPatchBool(
-                result.effects.clickShardsLayerEnabled);
-        }
-        else if (*path == "effects.trailShardsLayerEnabled")
-        {
-            valueAccepted = readPatchBool(
-                result.effects.trailShardsLayerEnabled);
-        }
-        else if (*path == "effects.trailLayerEnabled")
-        {
-            valueAccepted = readPatchBool(result.effects.trailLayerEnabled);
-        }
-        else if (*path == "effects.bloomLayerEnabled")
-        {
-            valueAccepted = readPatchBool(result.effects.bloomLayerEnabled);
-        }
-        else if (*path == "effects.themeColor")
-        {
-            valueAccepted = readPatchString(result.effects.themeColor)
-                && normalizeThemeColor(result.effects.themeColor);
-        }
-        else if (*path == "effects.globalScale")
-        {
-            valueAccepted = readPatchFloat(result.effects.globalScale);
-        }
-        else if (*path == "effects.opacity")
-        {
-            valueAccepted = readPatchFloat(result.effects.opacity);
-        }
-        else if (*path == "effects.clickEnabled")
-        {
-            valueAccepted = readPatchBool(result.effects.clickEnabled);
-        }
-        else if (*path == "effects.trailEnabled")
-        {
-            valueAccepted = readPatchBool(result.effects.trailEnabled);
-        }
-        else if (*path == "effects.trailLength")
-        {
-            valueAccepted = readPatchFloat(result.effects.trailLength);
+            valueAccepted = std::visit([&](const auto field) -> bool
+            {
+                auto& target = result.effects.*field;
+                using Value = std::remove_cvref_t<decltype(target)>;
+                if constexpr (std::is_same_v<Value, bool>)
+                {
+                    return readPatchBool(target);
+                }
+                else if constexpr (std::is_same_v<Value, float>)
+                {
+                    return readPatchFloat(target);
+                }
+                else if constexpr (std::is_same_v<Value, std::uint32_t>)
+                {
+                    return readPatchUnsignedInteger(target);
+                }
+                else
+                {
+                    return readPatchString(target);
+                }
+            }, effectField->member);
             if (valueAccepted)
             {
-                result.effects.trailLifetimeMs = result.effects.trailLength
-                    * unityTrailLifetimeMs;
+                // These fields have coupled or normalized semantics beyond
+                // their storage type; preserve the existing patch contract.
+                if (effectField->name == "themeColor")
+                {
+                    valueAccepted = normalizeThemeColor(result.effects.themeColor);
+                }
+                else if (effectField->name == "trailLength")
+                {
+                    result.effects.trailLifetimeMs = result.effects.trailLength * unityTrailLifetimeMs;
+                }
+                else if (effectField->name == "trailLifetimeMs")
+                {
+                    result.effects.trailLength = result.effects.trailLifetimeMs / unityTrailLifetimeMs;
+                }
             }
-        }
-        else if (*path == "effects.trailLifetimeMs")
-        {
-            valueAccepted = readPatchFloat(result.effects.trailLifetimeMs);
-            if (valueAccepted)
-            {
-                result.effects.trailLength = result.effects.trailLifetimeMs
-                    / unityTrailLifetimeMs;
-            }
-        }
-        else if (*path == "effects.trailWidth")
-        {
-            valueAccepted = readPatchFloat(result.effects.trailWidth);
-        }
-        else if (*path == "effects.clickTimeScale")
-        {
-            valueAccepted = readPatchFloat(result.effects.clickTimeScale);
-        }
-        else if (*path == "effects.trailTimeScale")
-        {
-            valueAccepted = readPatchFloat(result.effects.trailTimeScale);
-        }
-        else if (*path == "effects.diskRadius")
-        {
-            valueAccepted = readPatchFloat(result.effects.diskRadius);
-        }
-        else if (*path == "effects.diskLifetimeMs")
-        {
-            valueAccepted = readPatchFloat(result.effects.diskLifetimeMs);
-        }
-        else if (*path == "effects.ringsCount")
-        {
-            valueAccepted = readPatchUnsignedInteger(result.effects.ringsCount);
-        }
-        else if (*path == "effects.ringsLifetimeMs")
-        {
-            valueAccepted = readPatchFloat(result.effects.ringsLifetimeMs);
-        }
-        else if (*path == "effects.ringsRadiusMin")
-        {
-            valueAccepted = readPatchFloat(result.effects.ringsRadiusMin);
-        }
-        else if (*path == "effects.ringsRadiusMax")
-        {
-            valueAccepted = readPatchFloat(result.effects.ringsRadiusMax);
-        }
-        else if (*path == "effects.ringsAngularVelocityMultiplier")
-        {
-            valueAccepted = readPatchFloat(
-                result.effects.ringsAngularVelocityMultiplier);
-        }
-        else if (*path == "effects.ringsRotationDirection")
-        {
-            valueAccepted = readPatchFloat(result.effects.ringsRotationDirection);
-        }
-        else if (*path == "effects.ringsHdrIntensity")
-        {
-            valueAccepted = readPatchFloat(result.effects.ringsHdrIntensity);
-        }
-        else if (*path == "effects.shardsHdrIntensity")
-        {
-            valueAccepted = readPatchFloat(result.effects.shardsHdrIntensity);
-        }
-        else if (*path == "effects.shardsClickCount")
-        {
-            valueAccepted = readPatchUnsignedInteger(
-                result.effects.shardsClickCount);
-        }
-        else if (*path == "effects.shardsClickLifetimeMinMs")
-        {
-            valueAccepted = readPatchFloat(
-                result.effects.shardsClickLifetimeMinMs);
-        }
-        else if (*path == "effects.shardsClickLifetimeMaxMs")
-        {
-            valueAccepted = readPatchFloat(
-                result.effects.shardsClickLifetimeMaxMs);
-        }
-        else if (*path == "effects.shardsClickRadius")
-        {
-            valueAccepted = readPatchFloat(result.effects.shardsClickRadius);
-        }
-        else if (*path == "effects.shardsClickSpeedMin")
-        {
-            valueAccepted = readPatchFloat(
-                result.effects.shardsClickSpeedMin);
-        }
-        else if (*path == "effects.shardsClickSpeedMax")
-        {
-            valueAccepted = readPatchFloat(
-                result.effects.shardsClickSpeedMax);
-        }
-        else if (*path == "effects.shardsSizeMin")
-        {
-            valueAccepted = readPatchFloat(result.effects.shardsSizeMin);
-        }
-        else if (*path == "effects.shardsSizeMax")
-        {
-            valueAccepted = readPatchFloat(result.effects.shardsSizeMax);
-        }
-        else if (*path == "effects.trailOpacity")
-        {
-            valueAccepted = readPatchFloat(result.effects.trailOpacity);
-        }
-        else if (*path == "effects.bloomIntensity")
-        {
-            valueAccepted = readPatchFloat(result.effects.bloomIntensity);
-        }
-        else if (*path == "effects.bloomDiffusion")
-        {
-            valueAccepted = readPatchFloat(result.effects.bloomDiffusion);
-        }
-        else if (*path == "effects.bloomThreshold")
-        {
-            valueAccepted = readPatchFloat(result.effects.bloomThreshold);
-        }
-        else if (*path == "effects.bloomSoftKnee")
-        {
-            valueAccepted = readPatchFloat(result.effects.bloomSoftKnee);
-        }
-        else if (*path == "effects.bloomClamp")
-        {
-            valueAccepted = readPatchFloat(result.effects.bloomClamp);
         }
         else if (*path == "effects.bloomQuality")
         {
@@ -3283,7 +3027,7 @@ namespace
             {
                 continue;
             }
-            if (fxOnly && !isSupportedFxParameterPath(entry.first))
+            if (fxOnly && detail::findEffectsField(entry.first) == nullptr)
             {
                 return ConfigBatchPatchResult{
                     base,
