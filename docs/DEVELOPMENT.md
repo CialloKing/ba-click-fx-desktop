@@ -209,6 +209,7 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File .\tools\package-user-installer.ps1
 | Host 命令行与诊断启动隔离 | [`run_options.cpp`](../src/desktop/run_options.cpp) |
 | 特效配置字段注册与类型绑定 | [`effects_fields.hpp`](../src/config/src/effects_fields.hpp) |
 | 显示运行时快照组装 | [`display_runtime_summary.cpp`](../src/desktop/display_runtime_summary.cpp) |
+| 主显示器输出协商、色彩刷新与有限重试 | [`coordinator_output_runtime.cpp`](../src/desktop/coordinator_output_runtime.cpp) |
 | 副显示器捕获、恢复与帧调度 | [`secondary_display_runtime.cpp`](../src/desktop/secondary_display_runtime.cpp) |
 | WGC 重试身份、待处理状态与输出重试预算 | [`host_recovery_state.hpp`](../src/desktop/host_recovery_state.hpp) |
 | 主副显示器共用的视觉配置映射 | [`frame_visual_config.cpp`](../src/desktop/frame_visual_config.cpp) |
@@ -226,7 +227,9 @@ Host 控制面、快捷键和特效预设共用 `bafx::host_control`；背景捕
 避免控制面与渲染协调互相依赖。
 
 显示运行时快照由 Render Owner 在同一时间点收集，再由 Host 发布同一份值给支持日志和 IPC。
-输出诊断模块只格式化已发生的状态；输出重试预算、捕获停止和渲染器修改仍由原有协调流程负责。
+主显示器输出模块持有待协商策略与有限重试预算，负责色彩刷新、WGC 停止及输出重建。
+主循环只在捕获事务、窗口尺寸与目标变更都稳定后调用它；该模块沿用 Render Owner，
+通过同一发布回调刷新诊断与 IPC。输出诊断模块只格式化已发生的状态。
 
 滑块的范围、步长、配置路径、读取函数与页面归属统一登记；页面控件描述复用字体和显隐逻辑，
 具体布局仍在布局模块维护。特效字段注册表同时驱动允许字段、普通字段的必填读取、补丁分派与 JSON 输出，

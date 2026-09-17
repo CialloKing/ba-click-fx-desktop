@@ -11,6 +11,50 @@
 namespace bafx::desktop
 {
 
+[[nodiscard]] std::string_view colorRefreshStatusName(
+    const DisplaySessionColorRefreshStatus status) noexcept
+{
+    switch (status)
+    {
+    case bafx::desktop::DisplaySessionColorRefreshStatus::Refreshed:
+        return "succeeded";
+    case bafx::desktop::DisplaySessionColorRefreshStatus::
+        RetainedTransactionSnapshot:
+        return "retained-target-snapshot";
+    case bafx::desktop::DisplaySessionColorRefreshStatus::
+        RetainedLastKnownSnapshot:
+        return "retained-last-known-snapshot";
+    case bafx::desktop::DisplaySessionColorRefreshStatus::Unavailable:
+        return "failed";
+    }
+    return "failed";
+}
+
+void appendDeviceRemovedNotificationStatus(
+    const std::filesystem::path& logPath,
+    const bafx::windows::CompositionRenderer& renderer,
+    const std::string_view phase)
+{
+    const bool available = renderer.deviceRemovedWaitableObject() != nullptr;
+    const std::string resultCode = bafx::desktop::formatHresult(
+        renderer.deviceRemovedNotificationResult());
+    const std::array fields{
+        bafx::windows::DiagnosticField{"Phase", phase},
+        bafx::windows::DiagnosticField{
+            "Available",
+            available ? "true" : "false"},
+        bafx::windows::DiagnosticField{
+            "RegistrationHRESULT",
+            resultCode}};
+    bafx::windows::appendDiagnosticEvent(
+        logPath,
+        "Graphics.DeviceRemovalNotification.Status",
+        fields,
+        available
+            ? bafx::windows::DiagnosticLevel::Info
+            : bafx::windows::DiagnosticLevel::Warning);
+}
+
 [[nodiscard]] std::string formatHresult(const HRESULT result)
 {
     std::ostringstream stream;

@@ -12,6 +12,16 @@ namespace bafx::desktop
 
 [[nodiscard]] std::string formatHresult(const HRESULT result);
 
+void appendDeviceRemovedNotificationStatus(
+    const std::filesystem::path& logPath,
+    const bafx::windows::CompositionRenderer& renderer,
+    std::string_view phase);
+
+enum class DisplaySessionColorRefreshStatus : std::uint8_t;
+
+[[nodiscard]] std::string_view colorRefreshStatusName(
+    DisplaySessionColorRefreshStatus status) noexcept;
+
 class DisplaySession;
 struct DisplayTarget;
 

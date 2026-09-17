@@ -14,6 +14,7 @@
 #include "bafx/windows/startup_registration.hpp"
 #include "bafx/windows/unique_handle.hpp"
 #include "background_capture_runtime.hpp"
+#include "coordinator_output_runtime.hpp"
 #include "demo_scenario.hpp"
 #include "display_output_diagnostics.hpp"
 #include "display_output_retarget.hpp"
@@ -603,31 +604,6 @@ void appendFramePacingDeviceRecoveryDetection(
         bafx::windows::DiagnosticLevel::Warning);
 }
 
-void appendDeviceRemovedNotificationStatus(
-    const std::filesystem::path& logPath,
-    const bafx::windows::CompositionRenderer& renderer,
-    const std::string_view phase)
-{
-    const bool available = renderer.deviceRemovedWaitableObject() != nullptr;
-    const std::string resultCode = bafx::desktop::formatHresult(
-        renderer.deviceRemovedNotificationResult());
-    const std::array fields{
-        bafx::windows::DiagnosticField{"Phase", phase},
-        bafx::windows::DiagnosticField{
-            "Available",
-            available ? "true" : "false"},
-        bafx::windows::DiagnosticField{
-            "RegistrationHRESULT",
-            resultCode}};
-    bafx::windows::appendDiagnosticEvent(
-        logPath,
-        "Graphics.DeviceRemovalNotification.Status",
-        fields,
-        available
-            ? bafx::windows::DiagnosticLevel::Info
-            : bafx::windows::DiagnosticLevel::Warning);
-}
-
 [[nodiscard]] std::string_view backgroundCompositeStatusName(
     const bafx::windows::BackgroundCompositeStatus status) noexcept
 {
@@ -796,51 +772,6 @@ void appendBorderlessAccessHealth(
             "WGC borderless access health could not be formatted");
     }
 }
-
-struct PendingOutputRenegotiation final
-{
-    bafx::windows::CompositionOutputPolicy policy{};
-    std::string reason{};
-    bafx::desktop::OutputRenegotiationBudget budget{};
-    bool retryPending{false};
-};
-
-[[nodiscard]] std::optional<bafx::windows::OutputRenegotiationResult>
-tryRenegotiateOutput(
-    const std::filesystem::path& logPath,
-    bafx::desktop::DisplaySession& session,
-    const bafx::windows::CompositionOutputPolicy policy,
-    const std::string_view reason) noexcept
-{
-    try
-    {
-        const bafx::windows::OutputRenegotiationResult result =
-            session.renderer().renegotiateOutput(policy);
-        bafx::desktop::appendOutputRenegotiation(logPath, session, reason, result);
-        return result;
-    }
-    catch (const std::exception& error)
-    {
-        bafx::desktop::appendOutputRenegotiationFailure(
-            logPath,
-            session,
-            policy,
-            reason,
-            error.what());
-        return std::nullopt;
-    }
-    catch (...)
-    {
-        bafx::desktop::appendOutputRenegotiationFailure(
-            logPath,
-            session,
-            policy,
-            reason,
-            "unknown exception");
-        return std::nullopt;
-    }
-}
-
 
 [[nodiscard]] std::uint64_t makeRuntimeSeed() noexcept
 {
@@ -1680,7 +1611,7 @@ int runApplication(
             appliedGeneration);
     };
     updateDisplayRuntimeSummary();
-    appendDeviceRemovedNotificationStatus(logPath, renderer, "startup");
+    bafx::desktop::appendDeviceRemovedNotificationStatus(logPath, renderer, "startup");
     bafx::windows::UniqueHandle framePacingStallHandle;
     if (options.framePacingStallProbe)
     {
@@ -1792,7 +1723,7 @@ int runApplication(
                 logPath);
     if (backgroundExecution.deviceRecovered)
     {
-        appendDeviceRemovedNotificationStatus(
+        bafx::desktop::appendDeviceRemovedNotificationStatus(
             logPath,
             renderer,
             "startup-background-recovery");
@@ -1933,22 +1864,14 @@ int runApplication(
     bafx::desktop::BackgroundRetryState backgroundRetry(appliedBackgroundRequest.retryToken);
     bool coordinatorPowerRecoveryEligible = false;
     bool outputPreferenceReconcilePending = false;
-    const bafx::windows::CompositionOutputPolicy
-        initialCoordinatorOutputPolicy =
-            bafx::desktop::resolveDisplayOutputPolicy(
-                displaySession.requestedOutputPreference(),
-                displaySession.colorCapabilities());
-    std::optional<PendingOutputRenegotiation>
-        pendingCoordinatorOutputRenegotiation =
-            renderer.outputPolicy() == initialCoordinatorOutputPolicy
-            && bafx::windows::compositionOutputSatisfiesPolicy(
-                renderer.outputState(),
-                initialCoordinatorOutputPolicy)
-            ? std::nullopt
-            : std::optional<PendingOutputRenegotiation>(
-                PendingOutputRenegotiation{
-                    initialCoordinatorOutputPolicy,
-                    "initial-output-fallback"});
+    bafx::desktop::DisplayCaptureSizeTracker coordinatorCaptureSizeTracker{};
+    bafx::desktop::BackgroundCaptureObservation backgroundObservation{};
+    bool deviceRecoveryConsumed = backgroundExecution.deviceRecovered;
+    bafx::desktop::CoordinatorOutputRuntime coordinatorOutput({
+        displaySession, control, report, backgroundRetry,
+        coordinatorCaptureSizeTracker, backgroundObservation,
+        backgroundCaptureEnabled, deviceRecoveryConsumed, logPath,
+        updateDisplayRuntimeSummary});
     bool lastPresentedDrawableContent = false;
     const auto refreshDisplaySessionPolicies =
         [&](const bafx::fx::SimulationTime time)
@@ -1967,16 +1890,13 @@ int runApplication(
             }
             if (change.outputPreferenceChanged)
             {
-                pendingCoordinatorOutputRenegotiation.reset();
+                coordinatorOutput.clearPending();
                 outputPreferenceReconcilePending = true;
             }
             return change;
         };
     std::optional<bafx::desktop::DisplayTarget> pendingDisplayTarget{};
-    bafx::desktop::DisplayCaptureSizeTracker coordinatorCaptureSizeTracker{};
-    bafx::desktop::BackgroundCaptureObservation backgroundObservation{};
     bool renderInvalidationPending = false;
-    bool deviceRecoveryConsumed = backgroundExecution.deviceRecovered;
     bool recoveryProbePending = options.recoveryProbe;
     bool displayPowerUnavailable = false;
     bafx::fx::SimulationTime lastFrameReadyAt = applicationStartedAt;
@@ -2031,262 +1951,6 @@ int runApplication(
         }
         return summaryChanged;
     };
-    const auto renegotiateCoordinatorOutput =
-        [&](const bafx::windows::CompositionOutputPolicy policy,
-            const std::string_view reason)
-    {
-        const bool backgroundCaptureWasActive =
-            renderer.backgroundCaptureActive();
-        const bool backgroundCaptureRequested =
-            backgroundCaptureRequestedByConfig(config);
-        const bool backgroundCaptureRestartRequired =
-            backgroundCaptureRequested && backgroundCaptureEnabled;
-        if (backgroundCaptureRestartRequired)
-        {
-            backgroundRetry.requireAvailable("WGC reconciliation token exhausted before output renegotiation");
-        }
-
-        const bafx::windows::GraphicsDeviceInfo previousDeviceInfo =
-            renderer.deviceInfo();
-        coordinatorCaptureSizeTracker.reset();
-        // WGC shares this D3D resource domain. Retire it before replacing the
-        // final swap chain so no callback can retain an old-domain texture.
-        renderer.disableBackgroundCapture();
-        const bafx::windows::WgcBackgroundStopDiagnostics stopDiagnostics =
-            bafx::desktop::appendBackgroundCaptureStopDiagnostics(
-                logPath,
-                renderer,
-                "output-renegotiation");
-        backgroundCaptureEnabled = false;
-        control.setBackgroundCaptureActive(false);
-        backgroundObservation.reset();
-        if (!stopDiagnostics.overallSucceeded)
-        {
-            const std::string monitor =
-                bafx::desktop::formatDisplayTargetMonitor(
-                    displaySession.target());
-            const std::array fields{
-                bafx::windows::DiagnosticField{"Reason", reason},
-                bafx::windows::DiagnosticField{"Monitor", monitor},
-                bafx::windows::DiagnosticField{
-                    "RequestedPreference",
-                    bafx::desktop::outputPreferenceName(policy.preference)},
-                bafx::windows::DiagnosticField{
-                    "WgcWasActive",
-                    backgroundCaptureWasActive ? "true" : "false"},
-                bafx::windows::DiagnosticField{
-                    "WgcReconcile",
-                    backgroundCaptureRestartRequired
-                        ? "blocked-stop-failed"
-                        : "not-required"}};
-            bafx::windows::appendDiagnosticEvent(
-                logPath,
-                "Display.Output.RenegotiationBlocked",
-                fields,
-                bafx::windows::DiagnosticLevel::Error);
-            return false;
-        }
-        if (backgroundCaptureRestartRequired)
-        {
-            backgroundRetry.request();
-        }
-
-        const bool recoveryBudgetWasConsumed =
-            renderer.deviceRecoveryBudgetConsumed();
-        const auto result = tryRenegotiateOutput(
-            logPath,
-            displaySession,
-            policy,
-            reason);
-        if (!result.has_value())
-        {
-            const bool recoveryBudgetConsumedByAttempt =
-                !recoveryBudgetWasConsumed
-                && renderer.deviceRecoveryBudgetConsumed();
-            if (recoveryBudgetConsumedByAttempt)
-            {
-                deviceRecoveryConsumed = true;
-                bafx::desktop::appendBackgroundCaptureStopDiagnostics(
-                    logPath,
-                    renderer,
-                    "output-renegotiation-device-recovery-failed");
-                appendDeviceRemovedNotificationStatus(
-                    logPath,
-                    renderer,
-                    "output-renegotiation-device-recovery-failed");
-                report.setDeviceInfo(renderer.deviceInfo());
-                updateDisplayRuntimeSummary();
-                bafx::windows::appendDiagnosticLog(logPath, report);
-
-                const std::string recoveryFailure(
-                    renderer.deviceRecoveryFailure());
-                if (!recoveryFailure.empty())
-                {
-                    throw std::runtime_error(
-                        "Output renegotiation device recovery failed: "
-                        + recoveryFailure);
-                }
-
-                const std::array fields{
-                    bafx::windows::DiagnosticField{"Reason", reason},
-                    bafx::windows::DiagnosticField{
-                        "Outcome",
-                        "device-recovered-output-not-applied"}};
-                bafx::windows::appendDiagnosticEvent(
-                    logPath,
-                    "Graphics.DeviceRecovery.OutputRenegotiationIncomplete",
-                    fields,
-                    bafx::windows::DiagnosticLevel::Error);
-            }
-            return false;
-        }
-
-        report.setDeviceInfo(renderer.deviceInfo());
-        updateDisplayRuntimeSummary();
-        const bool outputPolicySatisfied =
-            renderer.outputPolicy() == policy
-            && bafx::windows::compositionOutputSatisfiesPolicy(
-                renderer.outputState(),
-                policy);
-        if (!result->deviceRecovered)
-        {
-            return outputPolicySatisfied;
-        }
-
-        // The explicit stop above already scheduled reconciliation. Recovery
-        // only contributes adapter-domain evidence here.
-        deviceRecoveryConsumed = true;
-        bafx::desktop::appendBackgroundCaptureStopDiagnostics(
-            logPath,
-            renderer,
-            "output-renegotiation-device-recovery");
-        appendDeviceRemovedNotificationStatus(
-            logPath,
-            renderer,
-            "output-renegotiation-device-recovery");
-        const bool adapterChanged =
-            previousDeviceInfo.adapterLuid.LowPart
-                != renderer.deviceInfo().adapterLuid.LowPart
-            || previousDeviceInfo.adapterLuid.HighPart
-                != renderer.deviceInfo().adapterLuid.HighPart;
-        const std::string retryTokenText = std::to_string(
-            backgroundRetry.token());
-        const std::array fields{
-            bafx::windows::DiagnosticField{
-                "Reason",
-                reason},
-            bafx::windows::DiagnosticField{
-                "Adapter",
-                adapterChanged ? "changed" : "same"},
-            bafx::windows::DiagnosticField{
-                "WgcWasActive",
-                backgroundCaptureWasActive ? "true" : "false"},
-            bafx::windows::DiagnosticField{
-                "WgcRestart",
-                backgroundCaptureRestartRequired
-                    ? "scheduled"
-                    : "not-required"},
-            bafx::windows::DiagnosticField{
-                "ReconcileToken",
-                retryTokenText}};
-        bafx::windows::appendDiagnosticEvent(
-            logPath,
-            "Graphics.DeviceRecovery.OutputRenegotiationSucceeded",
-            fields,
-            bafx::windows::DiagnosticLevel::Warning);
-        return outputPolicySatisfied;
-    };
-    const auto retainFailedCoordinatorOutputRenegotiation =
-        [&](PendingOutputRenegotiation pending)
-        {
-            if (!pending.budget.retryAfterFailure())
-            {
-                const bafx::desktop::DisplayOutputExhaustionDisposition
-                    disposition =
-                        bafx::desktop::
-                            resolveDisplayOutputExhaustionDisposition(
-                                renderer.outputState());
-                bafx::desktop::appendOutputRenegotiationExhausted(
-                    logPath,
-                    displaySession,
-                    pending.policy,
-                    pending.reason,
-                    disposition);
-                pendingCoordinatorOutputRenegotiation.reset();
-                if (disposition
-                    == bafx::desktop::
-                        DisplayOutputExhaustionDisposition::FailClosed)
-                {
-                    // The Host shell owns the coordinator surface. Hiding it
-                    // before terminating guarantees an old scRGB contract
-                    // cannot remain visible after the user's SDR request.
-                    displaySession.markRenderFaulted();
-                    report.setDeviceInfo(renderer.deviceInfo());
-                    updateDisplayRuntimeSummary();
-                    bafx::windows::appendDiagnosticLog(logPath, report);
-                    throw std::runtime_error(
-                        "Coordinator output renegotiation exhausted while a non-SDR transport remained active");
-                }
-                return;
-            }
-
-            pending.retryPending = true;
-            pendingCoordinatorOutputRenegotiation = std::move(pending);
-            bafx::desktop::appendOutputRenegotiationRetryScheduled(
-                logPath,
-                displaySession,
-                pendingCoordinatorOutputRenegotiation->policy,
-                pendingCoordinatorOutputRenegotiation->reason,
-                pendingCoordinatorOutputRenegotiation->budget.remaining(),
-                "display-maintenance");
-        };
-    const auto queueCoordinatorOutputRecoveryIfNeeded =
-        [&](const std::string_view reason)
-        {
-            const bafx::windows::CompositionOutputPolicy policy =
-                bafx::desktop::resolveDisplayOutputPolicy(
-                    displaySession.requestedOutputPreference(),
-                    displaySession.colorCapabilities());
-            const bool outputPolicySatisfied =
-                renderer.outputPolicy() == policy
-                && bafx::windows::compositionOutputSatisfiesPolicy(
-                    renderer.outputState(),
-                    policy);
-            const bool duplicatePending =
-                pendingCoordinatorOutputRenegotiation.has_value()
-                && pendingCoordinatorOutputRenegotiation->policy == policy;
-            if (outputPolicySatisfied || duplicatePending)
-            {
-                return;
-            }
-
-            // A device/resource-domain recovery is a new finite recovery edge.
-            // Ordinary WGC transactions never call this helper, so an exhausted
-            // output budget cannot silently become an unbounded retry loop.
-            pendingCoordinatorOutputRenegotiation =
-                PendingOutputRenegotiation{
-                    policy,
-                    std::string(reason)};
-            const std::string attempts = std::to_string(
-                pendingCoordinatorOutputRenegotiation->budget.remaining());
-            const std::array fields{
-                bafx::windows::DiagnosticField{"Reason", reason},
-                bafx::windows::DiagnosticField{
-                    "RequestedPreference",
-                    bafx::desktop::outputPreferenceName(policy.preference)},
-                bafx::windows::DiagnosticField{
-                    "ActualTransfer",
-                    bafx::desktop::outputTransferName(renderer.outputState().transfer)},
-                bafx::windows::DiagnosticField{
-                    "Fallback",
-                    bafx::desktop::outputFallbackName(renderer.outputState().fallback)},
-                bafx::windows::DiagnosticField{"Attempts", attempts}};
-            bafx::windows::appendDiagnosticEvent(
-                logPath,
-                "Display.Output.RecoveryReconciliationQueued",
-                fields,
-                bafx::windows::DiagnosticLevel::Warning);
-        };
     const auto secondaryOutputPolicySatisfied =
         [](const bafx::desktop::DisplaySession& session,
            const bafx::windows::CompositionOutputPolicy policy) noexcept
@@ -2350,157 +2014,24 @@ int runApplication(
     // Advanced Color notifications first refresh monitor facts. A changed
     // transport is queued until the WGC owner reaches an idle transaction
     // boundary; duplicate notifications never recreate an unchanged output.
-    const auto colorRefreshStatusName =
-        [](const bafx::desktop::DisplaySessionColorRefreshStatus status)
-            noexcept -> std::string_view
-        {
-            switch (status)
-            {
-            case bafx::desktop::DisplaySessionColorRefreshStatus::Refreshed:
-                return "succeeded";
-            case bafx::desktop::DisplaySessionColorRefreshStatus::
-                RetainedTransactionSnapshot:
-                return "retained-target-snapshot";
-            case bafx::desktop::DisplaySessionColorRefreshStatus::
-                RetainedLastKnownSnapshot:
-                return "retained-last-known-snapshot";
-            case bafx::desktop::DisplaySessionColorRefreshStatus::Unavailable:
-                return "failed";
-            }
-            return "failed";
-        };
     const auto refreshDisplayColorState =
         [&](const std::string_view reason,
             const std::uint64_t generation,
             const bool outputRebuiltForCurrentTarget,
-            const std::optional<bafx::windows::DisplayColorCapabilities>&
-                fallbackCapabilities,
+            const std::optional<bafx::windows::DisplayColorCapabilities>& fallbackCapabilities,
             const bafx::desktop::DisplaySessionColorRefreshRequest request =
                 bafx::desktop::DisplaySessionColorRefreshRequest::Observation)
         {
-            const std::optional<bafx::windows::DisplayColorCapabilities>
-                previousCapabilities = displaySession.colorCapabilities();
-            const std::string previousMode =
-                previousCapabilities.has_value()
-                ? std::string(bafx::windows::displayColorModeName(
-                    previousCapabilities->activeColorMode))
-                : "unknown";
-            const bafx::desktop::DisplaySessionColorRefreshStatus refreshStatus =
-                displaySession.refreshColorCapabilities(
-                    fallbackCapabilities,
-                    request);
-            if (displaySession.colorCapabilities().has_value())
-            {
-                report.setPrimaryDisplayColorCapabilities(
-                    *displaySession.colorCapabilities());
-            }
-            else
-            {
-                report.clearPrimaryDisplayColorCapabilities();
-            }
-            report.setPrimaryDisplayColorMonitorResult(
-                displaySession.colorMonitorResult());
-
-            const std::string currentMode =
-                displaySession.colorCapabilities().has_value()
-                ? std::string(bafx::windows::displayColorModeName(
-                    displaySession.colorCapabilities()->activeColorMode))
-                : "unknown";
-            const std::string monitor =
-                bafx::desktop::formatDisplayTargetMonitor(
-                    appliedDisplayTarget);
-            const std::string generationText = std::to_string(generation);
-            const std::string retriesRemaining = std::to_string(
-                displaySession.colorRefreshRetriesRemaining());
-            const bafx::windows::CompositionOutputPreference
-                requestedPreference =
-                    displaySession.requestedOutputPreference();
-            const bafx::windows::CompositionOutputPolicy previousPolicy =
-                bafx::desktop::resolveDisplayOutputPolicy(
-                    requestedPreference,
-                    previousCapabilities);
-            const bafx::windows::CompositionOutputPolicy currentPolicy =
-                bafx::desktop::resolveDisplayOutputPolicy(
-                    requestedPreference,
-                    displaySession.colorCapabilities());
-            const bool outputPolicyMismatch =
-                renderer.outputPolicy() != currentPolicy
-                || !bafx::windows::compositionOutputSatisfiesPolicy(
-                    renderer.outputState(),
-                    currentPolicy);
-            const bool colorContractChanged =
-                bafx::desktop::displayOutputContractChanged(
-                    previousPolicy.preference,
-                    currentPolicy.preference,
-                    previousCapabilities,
-                    displaySession.colorCapabilities());
-            // A target migration already recreated the swap chain after the
-            // HWND moved. Reconcile only a pre/post query disagreement there;
-            // ordinary color events must also rebuild same-transfer metadata.
-            const bool outputContractChanged = outputPolicyMismatch
-                || (!outputRebuiltForCurrentTarget
-                    && colorContractChanged);
-            if (outputContractChanged)
-            {
-                const bool duplicatePendingContract =
-                    pendingCoordinatorOutputRenegotiation.has_value()
-                    && pendingCoordinatorOutputRenegotiation->policy
-                        == currentPolicy;
-                if (!duplicatePendingContract)
-                {
-                    // A duplicate OS notification must not reset the finite
-                    // retry budget of the same desired transport contract.
-                    pendingCoordinatorOutputRenegotiation =
-                        PendingOutputRenegotiation{
-                            currentPolicy,
-                            std::string(reason)};
-                }
-            }
-            else if (outputRebuiltForCurrentTarget)
-            {
-                // A completed display retarget already rebuilt or reaffirmed
-                // the output for the new monitor; discard stale notifications.
-                pendingCoordinatorOutputRenegotiation.reset();
-            }
-            const std::array fields{
-                bafx::windows::DiagnosticField{"Reason", reason},
-                bafx::windows::DiagnosticField{"Monitor", monitor},
-                bafx::windows::DiagnosticField{"PreviousMode", previousMode},
-                bafx::windows::DiagnosticField{"CurrentMode", currentMode},
-                bafx::windows::DiagnosticField{
-                    "Query",
-                    colorRefreshStatusName(refreshStatus)},
-                bafx::windows::DiagnosticField{
-                    "Generation",
-                    generationText},
-                bafx::windows::DiagnosticField{
-                    "RetryBudgetRemaining",
-                    retriesRemaining},
-                bafx::windows::DiagnosticField{
-                    "RequestedPreference",
-                    bafx::desktop::outputPreferenceName(requestedPreference)},
-                bafx::windows::DiagnosticField{
-                    "ResolvedPreference",
-                    bafx::desktop::outputPreferenceName(currentPolicy.preference)},
-                bafx::windows::DiagnosticField{
-                    "OutputContract",
-                    outputContractChanged ? "changed" : "unchanged"},
-                bafx::windows::DiagnosticField{
-                    "OutputRenegotiation",
-                    outputContractChanged ? "queued" : "not-needed"}};
-            bafx::windows::appendDiagnosticEvent(
-                logPath,
-                "Display.ColorState.Refreshed",
-                fields);
-            updateDisplayRuntimeSummary();
-            bafx::windows::appendDiagnosticLog(logPath, report);
+            coordinatorOutput.refreshColorState(
+                reason, generation, outputRebuiltForCurrentTarget,
+                fallbackCapabilities, appliedDisplayTarget, request);
         };
     const auto reconcileRequestedOutputPreferences =
         [&](const std::string_view reason,
             const std::string_view fxOnlyReason) -> bool
         {
             bool renderRequired = false;
-            pendingCoordinatorOutputRenegotiation.reset();
+            coordinatorOutput.clearPending();
             for (const auto& ownedSession : displaySessions.sessions())
             {
                 bafx::desktop::DisplaySession& session = *ownedSession;
@@ -2524,16 +2055,9 @@ int runApplication(
                 bool applied = false;
                 if (coordinator)
                 {
-                    applied = renegotiateCoordinatorOutput(
-                        effectivePolicy,
-                        reason);
-                    if (!applied)
-                    {
-                        retainFailedCoordinatorOutputRenegotiation(
-                            PendingOutputRenegotiation{
-                                effectivePolicy,
-                                std::string(reason)});
-                    }
+                    applied = coordinatorOutput.renegotiate(
+                        effectivePolicy, reason,
+                        backgroundCaptureRequestedByConfig(config));
                 }
                 else
                 {
@@ -2545,7 +2069,7 @@ int runApplication(
                     {
                         const std::optional<
                             bafx::windows::OutputRenegotiationResult> result =
-                            tryRenegotiateOutput(
+                            bafx::desktop::tryRenegotiateOutput(
                                 logPath,
                                 session,
                                 effectivePolicy,
@@ -2589,7 +2113,7 @@ int runApplication(
         }
         if (backgroundExecution.deviceRecovered)
         {
-            appendDeviceRemovedNotificationStatus(
+            bafx::desktop::appendDeviceRemovedNotificationStatus(
                 logPath,
                 renderer,
                 recoveryPhase);
@@ -2602,7 +2126,7 @@ int runApplication(
             // fresh one-shot device recovery budget.
             deviceRecoveryConsumed = false;
             report.setDeviceInfo(renderer.deviceInfo());
-            appendDeviceRemovedNotificationStatus(
+            bafx::desktop::appendDeviceRemovedNotificationStatus(
                 logPath,
                 renderer,
                 backgroundExecution.outputAdapterWarpFallback
@@ -2687,7 +2211,7 @@ int runApplication(
         {
             // Resolve after committing a pending target so the new monitor's
             // complete color snapshot owns the recovery contract.
-            queueCoordinatorOutputRecoveryIfNeeded(recoveryPhase);
+            coordinatorOutput.queueRecoveryIfNeeded(recoveryPhase);
         }
         backgroundCaptureEnabled =
             bafx::windows::isActiveBackgroundCapturePath(
@@ -3214,7 +2738,7 @@ int runApplication(
                         // fallback success unless its actual transfer matches.
                         const std::optional<
                             bafx::windows::OutputRenegotiationResult> result =
-                            tryRenegotiateOutput(
+                            bafx::desktop::tryRenegotiateOutput(
                                 logPath,
                                 session,
                                 policy,
@@ -3238,7 +2762,7 @@ int runApplication(
                     bafx::windows::DiagnosticField{"CurrentMode", currentMode},
                     bafx::windows::DiagnosticField{
                         "Query",
-                        colorRefreshStatusName(refreshStatus)},
+                        bafx::desktop::colorRefreshStatusName(refreshStatus)},
                     bafx::windows::DiagnosticField{"Generation", generation},
                     bafx::windows::DiagnosticField{
                         "RetryBudgetRemaining",
@@ -3915,35 +3439,21 @@ int runApplication(
             }
         }
         if (!displayPowerUnavailable
-            && pendingCoordinatorOutputRenegotiation.has_value()
-            && (!pendingCoordinatorOutputRenegotiation->retryPending
-                || displayMaintenanceDue)
+            && coordinatorOutput.readyForAttempt(displayMaintenanceDue)
             && !backgroundExecution.transactionActive
             && !backgroundTransition.transitioning()
             && !configChanged
             && !pendingOutputResize.has_value()
             && !pendingDisplayTarget.has_value())
         {
-            const PendingOutputRenegotiation pending =
-                *pendingCoordinatorOutputRenegotiation;
-            const bool applied = renegotiateCoordinatorOutput(
-                pending.policy,
-                pending.reason);
+            coordinatorOutput.servicePending(backgroundCaptureRequestedByConfig(config));
             // Even a failed attempt may have retired WGC resources. Force one
             // frame while the bounded retry keeps the requested transport.
             renderInvalidated = true;
-            if (applied)
-            {
-                pendingCoordinatorOutputRenegotiation.reset();
-            }
-            else
-            {
-                retainFailedCoordinatorOutputRenegotiation(pending);
-            }
         }
         if (!displayPowerUnavailable
             && outputPreferenceReconcilePending
-            && !pendingCoordinatorOutputRenegotiation.has_value()
+            && !coordinatorOutput.hasPending()
             && !backgroundExecution.transactionActive
             && !backgroundTransition.transitioning()
             && !backgroundRetry.pending()
@@ -4062,13 +3572,13 @@ int runApplication(
                         logPath,
                         renderer,
                         "bloom-device-recovery");
-                    appendDeviceRemovedNotificationStatus(
+                    bafx::desktop::appendDeviceRemovedNotificationStatus(
                         logPath,
                         renderer,
                         "bloom-device-recovery");
                     deviceRecoveryConsumed = true;
                     report.setDeviceInfo(renderer.deviceInfo());
-                    queueCoordinatorOutputRecoveryIfNeeded(
+                    coordinatorOutput.queueRecoveryIfNeeded(
                         "bloom-device-recovery-output");
                     updateDisplayRuntimeSummary();
                     const bool adapterChanged =
@@ -5042,12 +4552,12 @@ int runApplication(
                     throw;
                 }
 
-                appendDeviceRemovedNotificationStatus(
+                bafx::desktop::appendDeviceRemovedNotificationStatus(
                     logPath,
                     renderer,
                     "render-device-recovery");
                 report.setDeviceInfo(renderer.deviceInfo());
-                queueCoordinatorOutputRecoveryIfNeeded(
+                coordinatorOutput.queueRecoveryIfNeeded(
                     "render-device-recovery-output");
                 updateDisplayRuntimeSummary();
                 const bool adapterChanged =
@@ -5316,12 +4826,12 @@ int runApplication(
                             "Device recovery probe could not rebuild the renderer: "
                             + std::string(renderer.deviceRecoveryFailure()));
                     }
-                    appendDeviceRemovedNotificationStatus(
+                    bafx::desktop::appendDeviceRemovedNotificationStatus(
                         logPath,
                         renderer,
                         "device-recovery-probe");
                     report.setDeviceInfo(renderer.deviceInfo());
-                    queueCoordinatorOutputRecoveryIfNeeded(
+                    coordinatorOutput.queueRecoveryIfNeeded(
                         "device-recovery-probe-output");
                     updateDisplayRuntimeSummary();
                     const bafx::windows::DeviceRecoveryDiagnostics diagnostics =

@@ -222,6 +222,7 @@ signature. `-SkipBuild` only applies when the matching Full or Slim outputs alre
 | Host arguments and diagnostic startup isolation | [`run_options.cpp`](../src/desktop/run_options.cpp) |
 | Effects configuration field registration and types | [`effects_fields.hpp`](../src/config/src/effects_fields.hpp) |
 | Display runtime snapshot collection | [`display_runtime_summary.cpp`](../src/desktop/display_runtime_summary.cpp) |
+| Primary display output negotiation, color refresh and bounded retries | [`coordinator_output_runtime.cpp`](../src/desktop/coordinator_output_runtime.cpp) |
 | Secondary display capture, recovery and frame dispatch | [`secondary_display_runtime.cpp`](../src/desktop/secondary_display_runtime.cpp) |
 | WGC retry identity, pending state and output retry budgets | [`host_recovery_state.hpp`](../src/desktop/host_recovery_state.hpp) |
 | Shared visual configuration mapping for all displays | [`frame_visual_config.cpp`](../src/desktop/frame_visual_config.cpp) |
@@ -239,8 +240,9 @@ and performance logging share `bafx::desktop_runtime`. List these implementation
 Input and scheduling policies remain in `bafx::desktop_input`, avoiding dependencies between control and render coordination.
 
 The Render Owner collects display runtime state at one timestamp; the Host publishes the same value to support logs
-and IPC. Output diagnostics only format observed state. Retry budgets, capture teardown and renderer mutations remain
-with the existing coordination flow.
+and IPC. The coordinator output runtime owns pending policies and bounded retries, color refresh, WGC teardown
+and output recreation. The main loop invokes it only after capture transactions, resizes and target changes settle.
+It runs on the same Render Owner and publishes through the shared snapshot callback. Output diagnostics only format observed state.
 
 Slider descriptors register ranges, steps, configuration paths, readers and page membership in one place.
 Page control descriptors also drive fonts and visibility; geometry stays in the layout module. The effects field

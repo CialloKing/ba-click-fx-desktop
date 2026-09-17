@@ -83,6 +83,7 @@ set_target_properties(bafx_desktop_runtime PROPERTIES FOLDER "Libraries")
 add_executable(
     ba_click_fx_desktop
     WIN32
+        coordinator_output_runtime.cpp
         display_output_diagnostics.cpp
         display_pointer_router.cpp
         display_runtime_summary.cpp
