@@ -73,6 +73,32 @@ BAFX_TEST(hotkeys_codec_validation_and_schema19_migration)
     BAFX_CHECK(patched.config.hotkeys == *parsed);
 }
 
+BAFX_TEST(effects_required_reads_preserve_first_error_and_normalization_order)
+{
+    std::string json = bafx::config::toJson(bafx::config::defaultConfig(), false);
+    const auto replace = [&json](const std::string_view before, const std::string_view after)
+    {
+        const auto position = json.find(before);
+        BAFX_CHECK(position != std::string::npos);
+        json.replace(position, before.size(), after);
+    };
+    replace("\"enabled\":true", "\"enabled\":\"true\"");
+    replace("\"themeColor\":\"#4ca7ff\"", "\"themeColor\":\"red\"");
+    replace("\"globalScale\":1", "\"globalScale\":false");
+    BAFX_CHECK(bafx::config::parseJson(json).message
+        == "config field 'effects.enabled' must be boolean");
+    replace("\"enabled\":\"true\"", "\"enabled\":true");
+    BAFX_CHECK(bafx::config::parseJson(json).message
+        == "config field 'effects.themeColor' must be #rrggbb");
+    replace("\"themeColor\":\"red\"", "\"themeColor\":\"#ABCDEF\"");
+    BAFX_CHECK(bafx::config::parseJson(json).message
+        == "config field 'effects.globalScale' must be a finite number");
+    replace("\"globalScale\":false", "\"globalScale\":1");
+    const auto parsed = bafx::config::parseJson(json);
+    BAFX_CHECK(parsed.succeeded());
+    BAFX_CHECK(parsed.config.effects.themeColor == "#abcdef");
+}
+
 BAFX_TEST(config_defaults_round_trip_through_versioned_json)
 {
     const bafx::config::Config defaults = bafx::config::defaultConfig();

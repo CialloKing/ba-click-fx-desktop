@@ -244,8 +244,8 @@ with the existing coordination flow.
 
 Slider descriptors register ranges, steps, configuration paths, readers and page membership in one place.
 Page control descriptors also drive fonts and visibility; geometry stays in the layout module. The effects field
-registry drives allowed keys, patch dispatch and JSON output. Required-field reads, cross-field validation and
-historical schema migrations remain in the configuration parser.
+registry drives allowed keys, required reads of ordinary fields, patch dispatch and JSON output in the established
+read/error order. Normalization, cross-field validation and historical schema migrations remain in the configuration parser.
 
 The display page requests background `GetDisplayState` reads only while connected, visible and not minimized.
 One worker performs IPC and JSON parsing, coalescing duplicate requests. Page changes, disconnects and full refreshes

@@ -1092,6 +1092,49 @@ private:
     return JsonValue(std::move(result));
 }
 
+[[nodiscard]] bool readEffectsFields(
+    const JsonValue::Object& object,
+    EffectsConfig& effects,
+    std::string& error)
+{
+    for (const auto& field : detail::effectsFields)
+    {
+        const bool accepted = std::visit([&](const auto member) -> bool
+        {
+            auto& value = effects.*member;
+            using Value = std::remove_cvref_t<decltype(value)>;
+            if constexpr (std::is_same_v<Value, bool>)
+            {
+                return readBool(object, field.name, "effects", value, error);
+            }
+            else if constexpr (std::is_same_v<Value, float>)
+            {
+                return readFloat(object, field.name, "effects", value, error);
+            }
+            else if constexpr (std::is_same_v<Value, std::uint32_t>)
+            {
+                return readUnsignedInteger(object, field.name, "effects", value, error);
+            }
+            else
+            {
+                return readString(object, field.name, "effects", value, error);
+            }
+        }, field.member);
+        if (!accepted)
+        {
+            return false;
+        }
+        // Normalization stays at the original read boundary, before later
+        // fields are inspected. The registry only describes wire types.
+        if (field.name == "themeColor" && !normalizeThemeColor(effects.themeColor))
+        {
+            error = "config field 'effects.themeColor' must be #rrggbb";
+            return false;
+        }
+    }
+    return true;
+}
+
 [[nodiscard]] Config parseCurrentConfig(
     const JsonValue::Object& root,
     std::string& error)
@@ -1181,255 +1224,7 @@ private:
         return config;
     }
 
-    if (!readBool(*effects, "enabled", "effects", config.effects.enabled, error)
-        || !readBool(
-            *effects,
-            "diskLayerEnabled",
-            "effects",
-            config.effects.diskLayerEnabled,
-            error)
-        || !readBool(
-            *effects,
-            "ringsLayerEnabled",
-            "effects",
-            config.effects.ringsLayerEnabled,
-            error)
-        || !readBool(
-            *effects,
-            "clickShardsLayerEnabled",
-            "effects",
-            config.effects.clickShardsLayerEnabled,
-            error)
-        || !readBool(
-            *effects,
-            "trailShardsLayerEnabled",
-            "effects",
-            config.effects.trailShardsLayerEnabled,
-            error)
-        || !readBool(
-            *effects,
-            "trailLayerEnabled",
-            "effects",
-            config.effects.trailLayerEnabled,
-            error)
-        || !readBool(
-            *effects,
-            "bloomLayerEnabled",
-            "effects",
-            config.effects.bloomLayerEnabled,
-            error)
-        || !readString(
-            *effects,
-            "themeColor",
-            "effects",
-            config.effects.themeColor,
-            error)
-        || !normalizeThemeColor(config.effects.themeColor))
-    {
-        if (error.empty())
-        {
-            error = "config field 'effects.themeColor' must be #rrggbb";
-        }
-        return config;
-    }
-    if (!readFloat(
-            *effects,
-            "globalScale",
-            "effects",
-            config.effects.globalScale,
-            error)
-        || !readFloat(
-            *effects,
-            "opacity",
-            "effects",
-            config.effects.opacity,
-            error)
-        || !readBool(
-            *effects,
-            "clickEnabled",
-            "effects",
-            config.effects.clickEnabled,
-            error)
-        || !readBool(
-            *effects,
-            "trailEnabled",
-            "effects",
-            config.effects.trailEnabled,
-            error)
-        || !readFloat(
-            *effects,
-            "trailLength",
-            "effects",
-            config.effects.trailLength,
-            error)
-        || !readFloat(
-            *effects,
-            "trailWidth",
-            "effects",
-            config.effects.trailWidth,
-            error)
-        || !readFloat(
-            *effects,
-            "clickTimeScale",
-            "effects",
-            config.effects.clickTimeScale,
-            error)
-        || !readFloat(
-            *effects,
-            "trailTimeScale",
-            "effects",
-            config.effects.trailTimeScale,
-            error)
-        || !readFloat(
-            *effects,
-            "trailLifetimeMs",
-            "effects",
-            config.effects.trailLifetimeMs,
-            error)
-        || !readFloat(
-            *effects,
-            "diskLifetimeMs",
-            "effects",
-            config.effects.diskLifetimeMs,
-            error)
-        || !readFloat(
-            *effects,
-            "diskRadius",
-            "effects",
-            config.effects.diskRadius,
-            error)
-        || !readUnsignedInteger(
-            *effects,
-            "ringsCount",
-            "effects",
-            config.effects.ringsCount,
-            error)
-        || !readFloat(
-            *effects,
-            "ringsLifetimeMs",
-            "effects",
-            config.effects.ringsLifetimeMs,
-            error)
-        || !readFloat(
-            *effects,
-            "ringsRadiusMin",
-            "effects",
-            config.effects.ringsRadiusMin,
-            error)
-        || !readFloat(
-            *effects,
-            "ringsRadiusMax",
-            "effects",
-            config.effects.ringsRadiusMax,
-            error)
-        || !readFloat(
-            *effects,
-            "ringsAngularVelocityMultiplier",
-            "effects",
-            config.effects.ringsAngularVelocityMultiplier,
-            error)
-        || !readFloat(
-            *effects,
-            "ringsRotationDirection",
-            "effects",
-            config.effects.ringsRotationDirection,
-            error)
-        || !readFloat(
-            *effects,
-            "ringsHdrIntensity",
-            "effects",
-            config.effects.ringsHdrIntensity,
-            error)
-        || !readFloat(
-            *effects,
-            "shardsHdrIntensity",
-            "effects",
-            config.effects.shardsHdrIntensity,
-            error)
-        || !readUnsignedInteger(
-            *effects,
-            "shardsClickCount",
-            "effects",
-            config.effects.shardsClickCount,
-            error)
-        || !readFloat(
-            *effects,
-            "shardsClickLifetimeMinMs",
-            "effects",
-            config.effects.shardsClickLifetimeMinMs,
-            error)
-        || !readFloat(
-            *effects,
-            "shardsClickLifetimeMaxMs",
-            "effects",
-            config.effects.shardsClickLifetimeMaxMs,
-            error)
-        || !readFloat(
-            *effects,
-            "shardsClickRadius",
-            "effects",
-            config.effects.shardsClickRadius,
-            error)
-        || !readFloat(
-            *effects,
-            "shardsClickSpeedMin",
-            "effects",
-            config.effects.shardsClickSpeedMin,
-            error)
-        || !readFloat(
-            *effects,
-            "shardsClickSpeedMax",
-            "effects",
-            config.effects.shardsClickSpeedMax,
-            error)
-        || !readFloat(
-            *effects,
-            "shardsSizeMin",
-            "effects",
-            config.effects.shardsSizeMin,
-            error)
-        || !readFloat(
-            *effects,
-            "shardsSizeMax",
-            "effects",
-            config.effects.shardsSizeMax,
-            error)
-        || !readFloat(
-            *effects,
-            "trailOpacity",
-            "effects",
-            config.effects.trailOpacity,
-            error)
-        || !readFloat(
-            *effects,
-            "bloomIntensity",
-            "effects",
-            config.effects.bloomIntensity,
-            error)
-        || !readFloat(
-            *effects,
-            "bloomDiffusion",
-            "effects",
-            config.effects.bloomDiffusion,
-            error)
-        || !readFloat(
-            *effects,
-            "bloomThreshold",
-            "effects",
-            config.effects.bloomThreshold,
-            error)
-        || !readFloat(
-            *effects,
-            "bloomSoftKnee",
-            "effects",
-            config.effects.bloomSoftKnee,
-            error)
-        || !readFloat(
-            *effects,
-            "bloomClamp",
-            "effects",
-            config.effects.bloomClamp,
-            error))
+    if (!readEffectsFields(*effects, config.effects, error))
     {
         return config;
     }
