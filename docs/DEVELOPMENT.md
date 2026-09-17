@@ -201,6 +201,7 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File .\tools\package-user-installer.ps1
 | 字体、控件布局与页面可见性 | [`control_center_window_layout.cpp`](../src/control-center/control_center_window_layout.cpp) |
 | 滑块绑定与页面控件描述 | [`control_center_controls.cpp`](../src/control-center/control_center_controls.cpp) |
 | 显示状态呈现与逐屏策略操作 | [`control_center_display.cpp`](../src/control-center/control_center_display.cpp) |
+| 显示页后台读取、解析与过期结果丢弃 | [`display_state_poller.cpp`](../src/control-center/display_state_poller.cpp) |
 | Host 命令行与诊断启动隔离 | [`run_options.cpp`](../src/desktop/run_options.cpp) |
 | 特效配置字段注册与类型绑定 | [`effects_fields.hpp`](../src/config/src/effects_fields.hpp) |
 | 显示运行时快照组装 | [`display_runtime_summary.cpp`](../src/desktop/display_runtime_summary.cpp) |
@@ -222,6 +223,15 @@ Host 控制面、快捷键和特效预设共用 `bafx::host_control`；背景捕
 
 显示运行时快照由 Render Owner 在同一时间点收集，再由 Host 发布同一份值给支持日志和 IPC。
 输出诊断模块只格式化已发生的状态；输出重试预算、捕获停止和渲染器修改仍由原有协调流程负责。
+
+滑块的范围、步长、配置路径、读取函数与页面归属统一登记；页面控件描述复用字体和显隐逻辑，
+具体布局仍在布局模块维护。特效字段注册表同时驱动允许字段、补丁分派与 JSON 输出；必填字段读取、
+跨字段校验和历史 schema 迁移保留在配置解析器中。
+
+显示页仅在已连接、可见且未最小化时请求后台 `GetDisplayState`，单个工作线程完成 IPC 和 JSON 解析。
+重复请求合并，页面切换、断开和完整刷新使旧请求失效，控件只在 UI 线程更新。完整刷新仍保留
+`GetState → GetConfig → GetState` 的版本与代次校验，配置写入和其他操作保持原有同步流程。
+退出时工作线程完成有超时的在途读取并回收；异步模块不持有 HWND。
 
 完成配置后，布局或显示页改动可以先运行：
 

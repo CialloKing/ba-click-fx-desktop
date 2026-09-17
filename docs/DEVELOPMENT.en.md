@@ -214,6 +214,7 @@ signature. `-SkipBuild` only applies when the matching Full or Slim outputs alre
 | Fonts, control layout and page visibility | [`control_center_window_layout.cpp`](../src/control-center/control_center_window_layout.cpp) |
 | Slider bindings and page control descriptors | [`control_center_controls.cpp`](../src/control-center/control_center_controls.cpp) |
 | Display status presentation and per-display policy actions | [`control_center_display.cpp`](../src/control-center/control_center_display.cpp) |
+| Background display reads, parsing and stale-result rejection | [`display_state_poller.cpp`](../src/control-center/display_state_poller.cpp) |
 | Host arguments and diagnostic startup isolation | [`run_options.cpp`](../src/desktop/run_options.cpp) |
 | Effects configuration field registration and types | [`effects_fields.hpp`](../src/config/src/effects_fields.hpp) |
 | Display runtime snapshot collection | [`display_runtime_summary.cpp`](../src/desktop/display_runtime_summary.cpp) |
@@ -236,6 +237,17 @@ Input and scheduling policies remain in `bafx::desktop_input`, avoiding dependen
 The Render Owner collects display runtime state at one timestamp; the Host publishes the same value to support logs
 and IPC. Output diagnostics only format observed state. Retry budgets, capture teardown and renderer mutations remain
 with the existing coordination flow.
+
+Slider descriptors register ranges, steps, configuration paths, readers and page membership in one place.
+Page control descriptors also drive fonts and visibility; geometry stays in the layout module. The effects field
+registry drives allowed keys, patch dispatch and JSON output. Required-field reads, cross-field validation and
+historical schema migrations remain in the configuration parser.
+
+The display page requests background `GetDisplayState` reads only while connected, visible and not minimized.
+One worker performs IPC and JSON parsing, coalescing duplicate requests. Page changes, disconnects and full refreshes
+invalidate old requests; only the UI thread updates controls. Full refreshes retain the
+`GetState → GetConfig → GetState` version/generation checks. Configuration writes and other actions remain synchronous.
+On exit the worker finishes its bounded in-flight read and joins; the asynchronous module owns no HWND.
 
 After configuring, layout and display-page changes can be checked with:
 

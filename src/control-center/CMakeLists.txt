@@ -22,6 +22,7 @@ add_library(
         control_center_window_layout.cpp
         control_center_hotkeys.cpp
         display_state.cpp
+        display_state_poller.cpp
         obs_spout_plugin_probe.cpp
         package_activation.cpp
         startup_config.cpp

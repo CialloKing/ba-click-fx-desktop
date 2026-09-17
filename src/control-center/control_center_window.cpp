@@ -3,6 +3,7 @@
 #include "config_commands.hpp"
 #include "control_center_layout.hpp"
 #include "control_center_display.hpp"
+#include "display_state_poller.hpp"
 #include "package_activation.hpp"
 #include "startup_config.hpp"
 
@@ -39,6 +40,8 @@ constexpr UINT_PTR hostRetryTimerId = 2U;
 constexpr UINT_PTR hostShutdownTimerId = 3U;
 constexpr UINT_PTR updateCheckTimerId = 4U;
 constexpr UINT_PTR displayStateTimerId = 5U;
+constexpr UINT_PTR displayStateCompletionTimerId = 7U;
+constexpr UINT displayStateCompletionDelayMilliseconds = 50U;
 constexpr UINT patchDelayMilliseconds = 120U;
 constexpr UINT hostRetryDelayMilliseconds = 250U;
 constexpr UINT hostShutdownPollDelayMilliseconds = 100U;
@@ -415,6 +418,7 @@ ControlCenterWindow::~ControlCenterWindow()
         KillTimer(window_, hostShutdownTimerId);
         KillTimer(window_, updateCheckTimerId);
         KillTimer(window_, displayStateTimerId);
+        invalidateDisplayStateRefresh();
         DestroyWindow(window_);
         window_ = nullptr;
     }
@@ -945,6 +949,7 @@ LRESULT ControlCenterWindow::handleMessage(
         KillTimer(window_, hostShutdownTimerId);
         KillTimer(window_, updateCheckTimerId);
         KillTimer(window_, displayStateTimerId);
+        invalidateDisplayStateRefresh();
         if (updateChecker_ != nullptr)
         {
             // WinHTTP cancellation is part of the window lifetime contract;
@@ -1796,7 +1801,7 @@ void ControlCenterWindow::updateDisplayStatePolling() noexcept
         return;
     }
     KillTimer(window_, displayStateTimerId);
-    if (connected_ && activePage_ == Page::DisplayPerformance)
+    if (connected_ && !hostShutdownPending_ && activePage_ == Page::DisplayPerformance)
     {
         // ROI diagnostics are observational. A failed timer registration only
         // disables automatic refresh and must never affect Host settings.
@@ -1805,6 +1810,11 @@ void ControlCenterWindow::updateDisplayStatePolling() noexcept
             displayStateTimerId,
             displayStatePollDelayMilliseconds,
             nullptr));
+        requestDisplayStateRefresh();
+    }
+    else
+    {
+        invalidateDisplayStateRefresh();
     }
 }
 
@@ -2772,6 +2782,11 @@ void ControlCenterWindow::onTimer(const UINT_PTR timerId)
         }
         return;
     }
+    if (timerId == displayStateCompletionTimerId)
+    {
+        pollDisplayStateRefresh();
+        return;
+    }
     if (timerId == displayStateTimerId)
     {
         if (activePage_ != Page::DisplayPerformance || !connected_)
@@ -2779,7 +2794,8 @@ void ControlCenterWindow::onTimer(const UINT_PTR timerId)
             updateDisplayStatePolling();
             return;
         }
-        static_cast<void>(refreshDisplayStateFromHost());
+        pollDisplayStateRefresh();
+        requestDisplayStateRefresh();
         return;
     }
     if (timerId == updateCheckTimerId)
@@ -2910,6 +2926,7 @@ void ControlCenterWindow::onTimer(const UINT_PTR timerId)
 
 bool ControlCenterWindow::refreshFromHost()
 {
+    invalidateDisplayStateRefresh();
     hostVersionBlocked_ = false;
     const bool mutexPresent = hostMutexPresent();
     if (!mutexPresent)
@@ -3039,25 +3056,87 @@ bool ControlCenterWindow::refreshFromHost()
     displayState_ = {};
     displayStateError_.clear();
     displayStateRefreshWarning_.clear();
-    static_cast<void>(refreshDisplayStateFromHost());
 
     updateControls(*confirmedState.state, config.config);
     return true;
 }
 
-bool ControlCenterWindow::refreshDisplayStateFromHost()
+void ControlCenterWindow::requestDisplayStateRefresh() noexcept
 {
-    const bafx::windows::IpcClientResponse response =
-        client_.transact("GetDisplayState");
+    if (!connected_ || hostShutdownPending_ || activePage_ != Page::DisplayPerformance
+        || IsWindowVisible(window_) == FALSE || IsIconic(window_) != FALSE)
+    {
+        return;
+    }
+    try
+    {
+        if (displayStatePoller_ == nullptr)
+        {
+            displayStatePoller_ = std::make_unique<DisplayStatePoller>(controlCenterIpcOptions());
+        }
+        if (displayStatePoller_->request(generation_))
+        {
+            // The one-second timer remains a fallback if completion polling
+            // cannot be registered. Neither timer waits for an IPC response.
+            static_cast<void>(SetTimer(window_, displayStateCompletionTimerId,
+                displayStateCompletionDelayMilliseconds, nullptr));
+        }
+    }
+    catch (...)
+    {
+        logControlCenterEvent("Display.PollStartFailed", {}, bafx::windows::DiagnosticLevel::Warning);
+    }
+}
+
+void ControlCenterWindow::invalidateDisplayStateRefresh() noexcept
+{
+    if (window_ != nullptr)
+    {
+        KillTimer(window_, displayStateCompletionTimerId);
+    }
+    if (displayStatePoller_ != nullptr)
+    {
+        displayStatePoller_->invalidate();
+    }
+}
+
+void ControlCenterWindow::pollDisplayStateRefresh()
+{
+    if (displayStatePoller_ == nullptr)
+    {
+        KillTimer(window_, displayStateCompletionTimerId);
+        return;
+    }
+    if (!connected_ || hostShutdownPending_ || activePage_ != Page::DisplayPerformance
+        || IsWindowVisible(window_) == FALSE || IsIconic(window_) != FALSE)
+    {
+        invalidateDisplayStateRefresh();
+        return;
+    }
+    if (auto result = displayStatePoller_->takeResult(); result.has_value())
+    {
+        if (result->generation == generation_)
+        {
+            static_cast<void>(acceptDisplayStateResponse(std::move(*result)));
+        }
+    }
+    if (!displayStatePoller_->busy())
+    {
+        KillTimer(window_, displayStateCompletionTimerId);
+    }
+}
+
+bool ControlCenterWindow::acceptDisplayStateResponse(DisplayStatePollResult result)
+{
+    const auto& response = result.response;
+    auto& parsed = result.parsed;
     UiMessage failure;
-    DisplayStateParseResult parsed{};
     if (!response.succeeded())
     {
         failure = UiMessage(TextId::DisplayRefreshFailedPrefix) + describeResponse(response);
     }
     else
     {
-        parsed = parseDisplayState(response.payload);
         if (!parsed.succeeded())
         {
             failure = UiMessage(TextId::DisplayInvalidStatePrefix)

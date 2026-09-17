@@ -27,6 +27,9 @@
 namespace bafx::control_center
 {
 
+class DisplayStatePoller;
+struct DisplayStatePollResult;
+
 // This name is a process-level rendezvous contract. Unlike the caption, it
 // must remain stable when product versions or localized titles change.
 inline constexpr std::wstring_view controlCenterWindowClassName =
@@ -307,7 +310,10 @@ private:
     void openOfficialProjectRepository();
 
     [[nodiscard]] bool refreshFromHost();
-    [[nodiscard]] bool refreshDisplayStateFromHost();
+    void requestDisplayStateRefresh() noexcept;
+    void pollDisplayStateRefresh();
+    void invalidateDisplayStateRefresh() noexcept;
+    [[nodiscard]] bool acceptDisplayStateResponse(DisplayStatePollResult result);
     [[nodiscard]] static UiMessage::Argument hostVersionDescription(
         const HostState& state);
     void updateHostVersionText(const HostState& state);
@@ -570,6 +576,7 @@ private:
     HWND resetDefaultsButton_{nullptr};
 
     DiagnosticIpcClient client_{};
+    std::unique_ptr<DisplayStatePoller> displayStatePoller_{};
     std::unique_ptr<bafx::release_update::ReleaseUpdateChecker> updateChecker_{};
     bafx::windows::UniqueHandle hostLifetimeMutex_{};
     std::optional<PendingPatch> pendingPatch_{};

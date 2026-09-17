@@ -17,8 +17,8 @@ void logControlCenterMessage(std::string_view event, std::wstring_view message,
     bafx::windows::DiagnosticLevel level) noexcept;
 void logControlCenterLifecycle(std::string_view event, std::string_view reason, int exitCode = 0) noexcept;
 
-// The control center owns this client on its UI thread. Successful polling is
-// silent; repeated failures are summarized every 30 seconds and on recovery.
+// Each instance has one owner thread. UI actions and background polling use
+// separate clients; repeated failures are summarized every 30 seconds and on recovery.
 class DiagnosticIpcClient final
 {
 public:

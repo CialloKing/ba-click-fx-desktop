@@ -641,6 +641,7 @@ if(WIN32)
         control_center_ui_tests.cpp
         control_center_layout_tests.cpp
         display_state_tests.cpp
+        display_state_poller_tests.cpp
         host_state_tests.cpp
         obs_spout_plugin_probe_tests.cpp
         package_activation_tests.cpp
