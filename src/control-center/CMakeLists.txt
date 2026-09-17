@@ -12,6 +12,7 @@ add_library(
     STATIC
         config_commands.cpp
         control_center_diagnostics.cpp
+        control_center_controls.cpp
         control_center_display.cpp
         localization.cpp
         language_preferences.cpp

@@ -18,6 +18,7 @@
 #include <filesystem>
 #include <memory>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -190,6 +191,33 @@ private:
         Bloom,
         Layers
     };
+
+    struct SliderDescriptor final
+    {
+        SliderControl ControlCenterWindow::*control;
+        TextId label;
+        ControlId id;
+        double minimum;
+        double maximum;
+        double step;
+        std::string_view path;
+        Page page;
+        std::optional<AdvancedSection> section;
+        double (*read)(const bafx::config::Config&);
+    };
+
+    struct PageControlDescriptor final
+    {
+        HWND ControlCenterWindow::*control;
+        Page page;
+        std::optional<AdvancedSection> section;
+        bool heading;
+    };
+
+    [[nodiscard]] static std::span<const SliderDescriptor> sliderDescriptors() noexcept;
+    [[nodiscard]] static std::span<const PageControlDescriptor> pageControlDescriptors() noexcept;
+    [[nodiscard]] bool pageControlVisible(Page page, std::optional<AdvancedSection> section) const noexcept;
+    [[nodiscard]] bool createSliders();
 
     static LRESULT CALLBACK windowProcedure(
         HWND window,

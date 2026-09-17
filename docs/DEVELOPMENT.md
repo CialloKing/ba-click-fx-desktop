@@ -199,6 +199,7 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File .\tools\package-user-installer.ps1
 |---|---|
 | 控制中心窗口、命令与连接协调 | [`control_center_window.cpp`](../src/control-center/control_center_window.cpp) |
 | 字体、控件布局与页面可见性 | [`control_center_window_layout.cpp`](../src/control-center/control_center_window_layout.cpp) |
+| 滑块绑定与页面控件描述 | [`control_center_controls.cpp`](../src/control-center/control_center_controls.cpp) |
 | 显示状态呈现与逐屏策略操作 | [`control_center_display.cpp`](../src/control-center/control_center_display.cpp) |
 | Host 命令行与诊断启动隔离 | [`run_options.cpp`](../src/desktop/run_options.cpp) |
 | 显示运行时快照组装 | [`display_runtime_summary.cpp`](../src/desktop/display_runtime_summary.cpp) |

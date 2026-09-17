@@ -1124,266 +1124,7 @@ bool ControlCenterWindow::createControls()
         BS_AUTOCHECKBOX | WS_TABSTOP,
         ControlId::MiddleClickEnabled);
 
-    const bool slidersCreated = createSlider(
-        globalScale_,
-        TextId::EffectScale,
-        0.1,
-        4.0,
-        0.05,
-        "effects.globalScale",
-        ControlId::GlobalScale)
-        && createSlider(
-            trailLength_,
-            TextId::TrailLength,
-            0.0,
-            10000.0 / 300.0,
-            0.05,
-            "effects.trailLength",
-            ControlId::TrailLength)
-        && createSlider(
-            trailWidth_,
-            TextId::TrailWidth,
-            0.1,
-            4.0,
-            0.05,
-            "effects.trailWidth",
-            ControlId::TrailWidth)
-        && createSlider(
-            inputSamplingRate_,
-            TextId::SamplingRate,
-            0.0,
-            1000.0,
-            1.0,
-            "input.samplingRateHz",
-            ControlId::InputSamplingRate)
-        && createSlider(
-            bloomIntensity_,
-            TextId::BloomIntensity,
-            0.0,
-            10.0,
-            0.05,
-            "effects.bloomIntensity",
-            ControlId::BloomIntensity);
-
-    const bool advancedSlidersCreated = createSlider(
-        opacity_,
-        TextId::Opacity,
-        0.0,
-        1.0,
-        0.01,
-        "effects.opacity",
-        ControlId::Opacity)
-        && createSlider(
-            clickTimeScale_,
-            TextId::ClickSpeed,
-            0.01,
-            4.0,
-            0.01,
-            "effects.clickTimeScale",
-            ControlId::ClickTimeScale)
-        && createSlider(
-            trailTimeScale_,
-            TextId::TrailSpeed,
-            0.01,
-            4.0,
-            0.01,
-            "effects.trailTimeScale",
-            ControlId::TrailTimeScale)
-        && createSlider(
-            trailLifetimeMs_,
-            TextId::TrailLifetime,
-            0.0,
-            10000.0,
-            1.0,
-            "effects.trailLifetimeMs",
-            ControlId::TrailLifetimeMs)
-        && createSlider(
-            bloomDiffusion_,
-            TextId::BloomDiffusion,
-            0.0,
-            10.0,
-            0.01,
-            "effects.bloomDiffusion",
-            ControlId::BloomDiffusion)
-        && createSlider(
-            bloomThreshold_,
-            TextId::BloomThreshold,
-            0.0,
-            64.0,
-            0.01,
-            "effects.bloomThreshold",
-            ControlId::BloomThreshold)
-        && createSlider(
-            bloomSoftKnee_,
-            TextId::BloomSoftKnee,
-            0.0,
-            1.0,
-            0.01,
-            "effects.bloomSoftKnee",
-            ControlId::BloomSoftKnee)
-        && createSlider(
-            bloomClamp_,
-            TextId::BloomClamp,
-            0.0,
-            65504.0,
-            1.0,
-            "effects.bloomClamp",
-            ControlId::BloomClamp);
-
-    const bool particleSlidersCreated = createSlider(
-        diskRadius_,
-        TextId::DiskRadius,
-        20.0,
-        120.0,
-        0.01,
-        "effects.diskRadius",
-        ControlId::DiskRadius)
-        && createSlider(
-            diskLifetimeMs_,
-            TextId::DiskLifetime,
-            50.0,
-            500.0,
-            1.0,
-            "effects.diskLifetimeMs",
-            ControlId::DiskLifetimeMs)
-        && createSlider(
-            ringsHdrIntensity_,
-            TextId::RingsHdrIntensity,
-            0.0,
-            8.0,
-            0.01,
-            "effects.ringsHdrIntensity",
-            ControlId::RingsHdrIntensity)
-        && createSlider(
-            shardsHdrIntensity_,
-            TextId::ShardsHdrIntensity,
-            0.0,
-            8.0,
-            0.01,
-            "effects.shardsHdrIntensity",
-            ControlId::ShardsHdrIntensity)
-        && createSlider(
-            trailOpacity_,
-            TextId::TrailOpacity,
-            0.0,
-            1.0,
-            0.01,
-            "effects.trailOpacity",
-            ControlId::TrailOpacity);
-
-    const bool ringSlidersCreated = createSlider(
-        ringsCount_,
-        TextId::RingCount,
-        0.0,
-        6.0,
-        1.0,
-        "effects.ringsCount",
-        ControlId::RingsCount)
-        && createSlider(
-            ringsLifetimeMs_,
-            TextId::RingLifetime,
-            50.0,
-            2000.0,
-            1.0,
-            "effects.ringsLifetimeMs",
-            ControlId::RingsLifetimeMs)
-        && createSlider(
-            ringsRadiusMin_,
-            TextId::RingRadiusMin,
-            20.0,
-            120.0,
-            0.01,
-            "effects.ringsRadiusMin",
-            ControlId::RingsRadiusMin)
-        && createSlider(
-            ringsRadiusMax_,
-            TextId::RingRadiusMax,
-            20.0,
-            120.0,
-            0.01,
-            "effects.ringsRadiusMax",
-            ControlId::RingsRadiusMax)
-        && createSlider(
-            ringsAngularVelocityMultiplier_,
-            TextId::RingAngularVelocity,
-            1.0,
-            30.0,
-            0.01,
-            "effects.ringsAngularVelocityMultiplier",
-            ControlId::RingsAngularVelocityMultiplier)
-        && createSlider(
-            ringsRotationDirection_,
-            TextId::RingDirection,
-            -1.0,
-            1.0,
-            2.0,
-            "effects.ringsRotationDirection",
-            ControlId::RingsRotationDirection);
-
-    const bool clickShardSlidersCreated = createSlider(
-        shardsClickCount_,
-        TextId::ClickShardCount,
-        0.0,
-        12.0,
-        1.0,
-        "effects.shardsClickCount",
-        ControlId::ShardsClickCount)
-        && createSlider(
-            shardsClickLifetimeMinMs_,
-            TextId::LifetimeMin,
-            100.0,
-            1000.0,
-            1.0,
-            "effects.shardsClickLifetimeMinMs",
-            ControlId::ShardsClickLifetimeMinMs)
-        && createSlider(
-            shardsClickLifetimeMaxMs_,
-            TextId::LifetimeMax,
-            100.0,
-            1000.0,
-            1.0,
-            "effects.shardsClickLifetimeMaxMs",
-            ControlId::ShardsClickLifetimeMaxMs)
-        && createSlider(
-            shardsClickRadius_,
-            TextId::SpawnRadius,
-            0.0,
-            200.0,
-            0.01,
-            "effects.shardsClickRadius",
-            ControlId::ShardsClickRadius)
-        && createSlider(
-            shardsClickSpeedMin_,
-            TextId::SpeedMin,
-            0.0,
-            200.0,
-            0.01,
-            "effects.shardsClickSpeedMin",
-            ControlId::ShardsClickSpeedMin)
-        && createSlider(
-            shardsClickSpeedMax_,
-            TextId::SpeedMax,
-            0.0,
-            200.0,
-            0.01,
-            "effects.shardsClickSpeedMax",
-            ControlId::ShardsClickSpeedMax)
-        && createSlider(
-            shardsSizeMin_,
-            TextId::ShardSizeMin,
-            0.0,
-            100.0,
-            0.01,
-            "effects.shardsSizeMin",
-            ControlId::ShardsSizeMin)
-        && createSlider(
-            shardsSizeMax_,
-            TextId::ShardSizeMax,
-            0.0,
-            100.0,
-            0.01,
-            "effects.shardsSizeMax",
-            ControlId::ShardsSizeMax);
+    const bool slidersCreated = createSliders();
 
     themeColorLabel_ = createChild(
         L"STATIC",
@@ -1825,104 +1566,16 @@ bool ControlCenterWindow::createControls()
         displayPageButton_,
         hotkeysPageButton_,
         systemPageButton_,
-        effectsHeading_,
-        effectsEnabled_,
-        effectsModeLabel_,
-        effectsMode_,
-        clickEnabled_,
-        trailEnabled_,
-        diskLayerEnabled_,
-        ringsLayerEnabled_,
-        clickShardsLayerEnabled_,
-        trailShardsLayerEnabled_,
-        trailLayerEnabled_,
-        bloomLayerEnabled_,
-        trailAlwaysOn_,
-        leftClickEnabled_,
-        rightClickEnabled_,
-        middleClickEnabled_,
-        bloomQualityLabel_,
-        bloomQuality_,
-        backgroundHeading_,
-        backgroundModeLabel_,
-        backgroundMode_,
-        cursorExcluded_,
-        allowSystemBorder_,
-        idleOptimization_,
-        fxProfileLabel_,
-        fxProfileSelector_,
-        fxProfileNameEdit_,
-        applyFxProfileButton_,
-        saveFxProfileButton_,
-        deleteFxProfileButton_,
-        systemSettingsHeading_,
-        languageLabel_,
-        languageSelector_,
-        startWithWindows_,
-        startMinimized_,
-        closeToTray_,
-        versionUpdateHeading_,
-        controlCenterVersionText_,
-        hostVersionText_,
-        installStateText_,
-        latestVersionText_,
-        checkForUpdatesButton_,
-        openReleaseButton_,
-        repositoryStarHint_,
-        openRepositoryButton_,
-#if defined(BAFX_ENABLE_SPOUT2)
-        spout2Enabled_,
-        spout2SenderStatus_,
-        obsSpoutPluginStatus_,
-        spout2ObsHint_,
-        refreshObsSpoutPluginButton_,
-        openObsSpoutPluginPageButton_,
-#endif
-        displaySettingsHeading_,
-        displaySelectorLabel_,
-        displaySelector_,
-        displaySummaryText_,
-        hdrEnabled_,
-        activeFxRoiEnabled_,
-        framePacingLabel_,
-        framePacing_,
-        displayIndependent_,
-        displayEffectsEnabled_,
-        displayHdrEnabled_,
-        displayFramePacingLabel_,
-        displayFramePacing_,
-        displayDetailsHeading_,
-        displayDetailsText_,
-        activeFxRoiDetailsHeading_,
-        activeFxRoiDetailsText_,
         pauseButton_,
         refreshButton_,
         hostLifecycleButton_,
-        openLogDirectoryButton_,
-        clearLogsButton_,
-        resetDefaultsButton_,
-        advancedTimingHeading_,
-        advancedParticlesHeading_,
-        advancedRingsHeading_,
-        advancedClickShardsHeading_,
-        advancedBloomHeading_,
-        advancedLayersHeading_,
-        themeColorLabel_,
-        themeColorEdit_,
-        themeColorPreview_,
-        themeColorChoose_,
-        advancedTimingSectionButton_,
-        advancedParticlesSectionButton_,
-        advancedRingsSectionButton_,
-        advancedClickShardsSectionButton_,
-        advancedBloomSectionButton_,
-        advancedLayersSectionButton_};
+        resetDefaultsButton_};
     if (!slidersCreated
-        || !advancedSlidersCreated
-        || !particleSlidersCreated
-        || !ringSlidersCreated
-        || !clickShardSlidersCreated
-        || std::ranges::find(required, nullptr) != required.end())
+        || std::ranges::find(required, nullptr) != required.end()
+        || std::ranges::any_of(pageControlDescriptors(), [this](const auto& descriptor)
+        {
+            return this->*descriptor.control == nullptr;
+        }))
     {
         return false;
     }
@@ -2764,45 +2417,13 @@ void ControlCenterWindow::onSliderChanged(const HWND trackbar)
         return;
     }
 
-    const std::array sliders{
-        &globalScale_,
-        &trailLength_,
-        &trailWidth_,
-        &inputSamplingRate_,
-        &bloomIntensity_,
-        &opacity_,
-        &clickTimeScale_,
-        &trailTimeScale_,
-        &trailLifetimeMs_,
-        &bloomDiffusion_,
-        &bloomThreshold_,
-        &bloomSoftKnee_,
-        &bloomClamp_,
-        &diskRadius_,
-        &diskLifetimeMs_,
-        &ringsHdrIntensity_,
-        &ringsCount_,
-        &ringsLifetimeMs_,
-        &ringsRadiusMin_,
-        &ringsRadiusMax_,
-        &ringsAngularVelocityMultiplier_,
-        &ringsRotationDirection_,
-        &shardsHdrIntensity_,
-        &shardsClickCount_,
-        &shardsClickLifetimeMinMs_,
-        &shardsClickLifetimeMaxMs_,
-        &shardsClickRadius_,
-        &shardsClickSpeedMin_,
-        &shardsClickSpeedMax_,
-        &shardsSizeMin_,
-        &shardsSizeMax_,
-        &trailOpacity_};
-    for (SliderControl* const slider : sliders)
+    for (const auto& descriptor : sliderDescriptors())
     {
-        if (slider->trackbar == trackbar)
+        SliderControl& slider = this->*descriptor.control;
+        if (slider.trackbar == trackbar)
         {
-            updateSliderValueText(*slider);
-            queueNumberPatch(*slider);
+            updateSliderValueText(slider);
+            queueNumberPatch(slider);
             return;
         }
     }
@@ -3573,50 +3194,10 @@ void ControlCenterWindow::updateControls(
     setChecked(leftClickEnabled_, config.input.leftClick);
     setChecked(rightClickEnabled_, config.input.rightClick);
     setChecked(middleClickEnabled_, config.input.middleClick);
-    setSliderValue(globalScale_, config.effects.globalScale);
-    setSliderValue(trailLength_, config.effects.trailLength);
-    setSliderValue(trailWidth_, config.effects.trailWidth);
-    setSliderValue(inputSamplingRate_, config.input.samplingRateHz);
-    setSliderValue(bloomIntensity_, config.effects.bloomIntensity);
-    setSliderValue(opacity_, config.effects.opacity);
-    setSliderValue(clickTimeScale_, config.effects.clickTimeScale);
-    setSliderValue(trailTimeScale_, config.effects.trailTimeScale);
-    setSliderValue(trailLifetimeMs_, config.effects.trailLifetimeMs);
-    setSliderValue(bloomDiffusion_, config.effects.bloomDiffusion);
-    setSliderValue(bloomThreshold_, config.effects.bloomThreshold);
-    setSliderValue(bloomSoftKnee_, config.effects.bloomSoftKnee);
-    setSliderValue(bloomClamp_, config.effects.bloomClamp);
-    setSliderValue(diskRadius_, config.effects.diskRadius);
-    setSliderValue(diskLifetimeMs_, config.effects.diskLifetimeMs);
-    setSliderValue(ringsHdrIntensity_, config.effects.ringsHdrIntensity);
-    setSliderValue(ringsCount_, config.effects.ringsCount);
-    setSliderValue(ringsLifetimeMs_, config.effects.ringsLifetimeMs);
-    setSliderValue(ringsRadiusMin_, config.effects.ringsRadiusMin);
-    setSliderValue(ringsRadiusMax_, config.effects.ringsRadiusMax);
-    setSliderValue(
-        ringsAngularVelocityMultiplier_,
-        config.effects.ringsAngularVelocityMultiplier);
-    setSliderValue(
-        ringsRotationDirection_,
-        config.effects.ringsRotationDirection);
-    setSliderValue(shardsHdrIntensity_, config.effects.shardsHdrIntensity);
-    setSliderValue(shardsClickCount_, config.effects.shardsClickCount);
-    setSliderValue(
-        shardsClickLifetimeMinMs_,
-        config.effects.shardsClickLifetimeMinMs);
-    setSliderValue(
-        shardsClickLifetimeMaxMs_,
-        config.effects.shardsClickLifetimeMaxMs);
-    setSliderValue(shardsClickRadius_, config.effects.shardsClickRadius);
-    setSliderValue(
-        shardsClickSpeedMin_,
-        config.effects.shardsClickSpeedMin);
-    setSliderValue(
-        shardsClickSpeedMax_,
-        config.effects.shardsClickSpeedMax);
-    setSliderValue(shardsSizeMin_, config.effects.shardsSizeMin);
-    setSliderValue(shardsSizeMax_, config.effects.shardsSizeMax);
-    setSliderValue(trailOpacity_, config.effects.trailOpacity);
+    for (const auto& descriptor : sliderDescriptors())
+    {
+        setSliderValue(this->*descriptor.control, descriptor.read(config));
+    }
     setText(
         themeColorEdit_,
         utf8ToWide(config.effects.themeColor).c_str());
@@ -4740,38 +4321,6 @@ void ControlCenterWindow::setConnected(const bool connected) noexcept
         leftClickEnabled_,
         rightClickEnabled_,
         middleClickEnabled_,
-        globalScale_.trackbar,
-        trailLength_.trackbar,
-        trailWidth_.trackbar,
-        inputSamplingRate_.trackbar,
-        bloomIntensity_.trackbar,
-        opacity_.trackbar,
-        clickTimeScale_.trackbar,
-        trailTimeScale_.trackbar,
-        trailLifetimeMs_.trackbar,
-        bloomDiffusion_.trackbar,
-        bloomThreshold_.trackbar,
-        bloomSoftKnee_.trackbar,
-        bloomClamp_.trackbar,
-        diskRadius_.trackbar,
-        diskLifetimeMs_.trackbar,
-        ringsHdrIntensity_.trackbar,
-        ringsCount_.trackbar,
-        ringsLifetimeMs_.trackbar,
-        ringsRadiusMin_.trackbar,
-        ringsRadiusMax_.trackbar,
-        ringsAngularVelocityMultiplier_.trackbar,
-        ringsRotationDirection_.trackbar,
-        shardsHdrIntensity_.trackbar,
-        shardsClickCount_.trackbar,
-        shardsClickLifetimeMinMs_.trackbar,
-        shardsClickLifetimeMaxMs_.trackbar,
-        shardsClickRadius_.trackbar,
-        shardsClickSpeedMin_.trackbar,
-        shardsClickSpeedMax_.trackbar,
-        shardsSizeMin_.trackbar,
-        shardsSizeMax_.trackbar,
-        trailOpacity_.trackbar,
         themeColorEdit_,
         themeColorChoose_,
         bloomQuality_,
@@ -4800,6 +4349,14 @@ void ControlCenterWindow::setConnected(const bool connected) noexcept
         if (control != nullptr)
         {
             EnableWindow(control, enabled);
+        }
+    }
+    for (const auto& descriptor : sliderDescriptors())
+    {
+        const auto& slider = this->*descriptor.control;
+        if (slider.trackbar != nullptr)
+        {
+            EnableWindow(slider.trackbar, enabled);
         }
     }
     EnableWindow(clearLogsButton_, TRUE);

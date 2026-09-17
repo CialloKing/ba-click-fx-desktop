@@ -212,6 +212,7 @@ signature. `-SkipBuild` only applies when the matching Full or Slim outputs alre
 |---|---|
 | Control Center window, commands and connection coordination | [`control_center_window.cpp`](../src/control-center/control_center_window.cpp) |
 | Fonts, control layout and page visibility | [`control_center_window_layout.cpp`](../src/control-center/control_center_window_layout.cpp) |
+| Slider bindings and page control descriptors | [`control_center_controls.cpp`](../src/control-center/control_center_controls.cpp) |
 | Display status presentation and per-display policy actions | [`control_center_display.cpp`](../src/control-center/control_center_display.cpp) |
 | Host arguments and diagnostic startup isolation | [`run_options.cpp`](../src/desktop/run_options.cpp) |
 | Display runtime snapshot collection | [`display_runtime_summary.cpp`](../src/desktop/display_runtime_summary.cpp) |
