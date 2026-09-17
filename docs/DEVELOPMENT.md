@@ -202,6 +202,8 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File .\tools\package-user-installer.ps1
 | 显示状态呈现与逐屏策略操作 | [`control_center_display.cpp`](../src/control-center/control_center_display.cpp) |
 | Host 命令行与诊断启动隔离 | [`run_options.cpp`](../src/desktop/run_options.cpp) |
 | 显示运行时快照组装 | [`display_runtime_summary.cpp`](../src/desktop/display_runtime_summary.cpp) |
+| 副显示器捕获、恢复与帧调度 | [`secondary_display_runtime.cpp`](../src/desktop/secondary_display_runtime.cpp) |
+| 主副显示器共用的视觉配置映射 | [`frame_visual_config.cpp`](../src/desktop/frame_visual_config.cpp) |
 | 显示输出协商与重试诊断 | [`display_output_diagnostics.cpp`](../src/desktop/display_output_diagnostics.cpp) |
 | 渲染诊断到性能样本的转换 | [`performance_samples.cpp`](../src/desktop/performance_samples.cpp) |
 | 性能窗口聚合与日志输出 | [`performance_window.cpp`](../src/desktop/performance_window.cpp)、[`performance_logging.cpp`](../src/desktop/performance_logging.cpp) |

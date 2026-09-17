@@ -5,9 +5,12 @@
 #include <cstdint>
 #include <filesystem>
 #include <string_view>
+#include <string>
 
 namespace bafx::desktop
 {
+
+[[nodiscard]] std::string formatHresult(const HRESULT result);
 
 class DisplaySession;
 struct DisplayTarget;

@@ -4,10 +4,23 @@
 #include "bafx/windows/runtime_diagnostics.hpp"
 
 #include <array>
+#include <iomanip>
+#include <sstream>
 #include <string>
 
 namespace bafx::desktop
 {
+
+[[nodiscard]] std::string formatHresult(const HRESULT result)
+{
+    std::ostringstream stream;
+    stream << "0x"
+           << std::hex << std::uppercase << std::setw(8)
+           << std::setfill('0')
+           << static_cast<unsigned long>(result);
+    return stream.str();
+}
+
 namespace
 {
 

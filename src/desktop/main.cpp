@@ -23,6 +23,8 @@
 #include "display_session.hpp"
 #include "display_session_manager.hpp"
 #include "frame_pacing.hpp"
+#include "frame_visual_config.hpp"
+#include "secondary_display_runtime.hpp"
 #include "host_control.hpp"
 #include "idle_render_policy.hpp"
 #include "performance_logging.hpp"
@@ -39,7 +41,6 @@
 #include <cstdint>
 #include <exception>
 #include <filesystem>
-#include <iomanip>
 #include <limits>
 #include <new>
 #include <optional>
@@ -103,15 +104,6 @@ void appendHostExit(const std::filesystem::path& logPath,
     }
 }
 
-[[nodiscard]] std::string formatHresult(const HRESULT result)
-{
-    std::ostringstream stream;
-    stream << "0x"
-           << std::hex << std::uppercase << std::setw(8)
-           << std::setfill('0')
-           << static_cast<unsigned long>(result);
-    return stream.str();
-}
 
 void appendRecordingCompatibleDiagnostic(
     const std::filesystem::path& logPath,
@@ -594,7 +586,7 @@ void appendFramePacingDeviceRecoveryDetection(
 {
     const std::string wake = std::string(framePacingWakeName(wait.wake));
     const std::string waitError = std::to_string(wait.error);
-    const std::string deviceCode = formatHresult(deviceResult);
+    const std::string deviceCode = bafx::desktop::formatHresult(deviceResult);
     const std::string stalledMicroseconds = std::to_string(
         std::chrono::duration_cast<std::chrono::microseconds>(
             stalledFor).count());
@@ -616,7 +608,7 @@ void appendDeviceRemovedNotificationStatus(
     const std::string_view phase)
 {
     const bool available = renderer.deviceRemovedWaitableObject() != nullptr;
-    const std::string resultCode = formatHresult(
+    const std::string resultCode = bafx::desktop::formatHresult(
         renderer.deviceRemovedNotificationResult());
     const std::array fields{
         bafx::windows::DiagnosticField{"Phase", phase},
@@ -777,7 +769,7 @@ void appendBorderlessAccessHealth(
     {
         const std::string status(
             bafx::windows::borderlessCaptureAccessStatusName(result.status));
-        const std::string resultCode = formatHresult(result.error);
+        const std::string resultCode = bafx::desktop::formatHresult(result.error);
         const std::string generation = std::to_string(result.generation);
         const std::array fields{
             bafx::windows::DiagnosticField{"Phase", phase},
@@ -849,62 +841,6 @@ tryRenegotiateOutput(
     }
 }
 
-void applyVisualConfig(
-    bafx::fx::FrameSnapshot& snapshot,
-    const bafx::config::Config& config)
-{
-    // The public Web value is a radius, while Sprite stores the Unity quad's
-    // full extent. Scaling against the Web default preserves the authored
-    // native geometry at radius 64.8.
-    constexpr float unityDiskRadiusAtReferenceHeight = 64.8F;
-    constexpr float unityHdrIntensity = 5.992157F;
-    if (!config.effects.enabled)
-    {
-        snapshot = bafx::fx::FrameSnapshot{};
-        return;
-    }
-    // The renderer applies this after Unity material evaluation. Mutating
-    // particle Alpha here would change Dissolve geometry and square emission.
-    snapshot.globalOpacity = std::clamp(
-        config.effects.opacity,
-        0.0F,
-        1.0F);
-
-    const float diskRadiusScale = config.effects.diskRadius
-        / unityDiskRadiusAtReferenceHeight;
-    const float ringsHdrScale = config.effects.ringsHdrIntensity
-        / unityHdrIntensity;
-    const float shardsHdrScale = config.effects.shardsHdrIntensity
-        / unityHdrIntensity;
-    for (bafx::fx::Sprite& sprite : snapshot.sprites)
-    {
-        switch (sprite.kind)
-        {
-        case bafx::fx::SpriteKind::CenterDisk:
-            sprite.sizePixels *= diskRadiusScale;
-            break;
-        case bafx::fx::SpriteKind::DissolveRing:
-            sprite.artisticIntensity *= ringsHdrScale;
-            break;
-        case bafx::fx::SpriteKind::Triangle:
-            sprite.artisticIntensity *= shardsHdrScale;
-            break;
-        }
-    }
-    snapshot.trailOpacity *= config.effects.trailOpacity;
-    for (bafx::fx::TrailStroke& stroke : snapshot.trailStrokes)
-    {
-        stroke.opacity *= config.effects.trailOpacity;
-    }
-
-    bafx::fx::applyGlobalScale(snapshot, config.effects.globalScale);
-    const float trailScale = config.effects.trailWidth;
-    snapshot.trailWidthPixels *= trailScale;
-    for (bafx::fx::TrailStroke& stroke : snapshot.trailStrokes)
-    {
-        stroke.widthPixels *= trailScale;
-    }
-}
 
 [[nodiscard]] std::uint64_t makeRuntimeSeed() noexcept
 {
@@ -1379,693 +1315,6 @@ void appendDisplayTopologyInvalidated(
     return diagnostics;
 }
 
-[[nodiscard]] bafx::fx::Viewport toViewport(const bafx::windows::WindowSize size) noexcept
-{
-    return bafx::fx::Viewport{size.width, size.height};
-}
-
-struct SecondaryRenderSummary final
-{
-    std::size_t rendered{0U};
-    std::size_t notReady{0U};
-    std::size_t recovered{0U};
-    std::size_t failed{0U};
-};
-
-void appendSecondaryRenderFailure(
-    const std::filesystem::path& logPath,
-    const bafx::desktop::DisplaySession& session,
-    const std::string_view operation,
-    const std::string_view message) noexcept
-{
-    try
-    {
-        const std::string device =
-            bafx::desktop::displayTargetDeviceUtf8(session.target());
-        const std::string monitor =
-            bafx::desktop::formatDisplayTargetMonitor(session.target());
-        const std::string bounds =
-            bafx::desktop::formatDisplayTargetBounds(session.target());
-        const std::array fields{
-            bafx::windows::DiagnosticField{"Operation", operation},
-            bafx::windows::DiagnosticField{"Device", device},
-            bafx::windows::DiagnosticField{"Monitor", monitor},
-            bafx::windows::DiagnosticField{"Bounds", bounds},
-            bafx::windows::DiagnosticField{"Message", message}};
-        bafx::windows::appendDiagnosticEvent(
-            logPath,
-            "Display.Session.RenderFailed",
-            fields,
-            bafx::windows::DiagnosticLevel::Error);
-    }
-    catch (...)
-    {
-        bafx::windows::appendDiagnosticLog(
-            logPath,
-            "Secondary display render failure could not be formatted");
-    }
-}
-
-void appendSecondaryBackgroundCaptureFailure(
-    const std::filesystem::path& logPath,
-    const bafx::desktop::DisplaySession& session,
-    const std::string_view operation,
-    const std::string_view message) noexcept
-{
-    try
-    {
-        const std::string device =
-            bafx::desktop::displayTargetDeviceUtf8(session.target());
-        const std::string monitor =
-            bafx::desktop::formatDisplayTargetMonitor(session.target());
-        const std::array fields{
-            bafx::windows::DiagnosticField{"Operation", operation},
-            bafx::windows::DiagnosticField{"Device", device},
-            bafx::windows::DiagnosticField{"Monitor", monitor},
-            bafx::windows::DiagnosticField{"Message", message},
-            bafx::windows::DiagnosticField{"Fallback", "fx-only"}};
-        bafx::windows::appendDiagnosticEvent(
-            logPath,
-            "Display.Session.BackgroundCaptureFailed",
-            fields,
-            bafx::windows::DiagnosticLevel::Error);
-    }
-    catch (...)
-    {
-        bafx::windows::appendDiagnosticLog(
-            logPath,
-            "Secondary background capture failure could not be formatted");
-    }
-}
-
-void applySecondaryBackgroundCaptureRequest(
-    bafx::desktop::DisplaySessionManager& sessions,
-    bafx::desktop::DisplaySession& coordinator,
-    const bafx::windows::BackgroundCaptureRequest& request,
-    const std::uint64_t controlGeneration,
-    const std::filesystem::path& logPath,
-    const bool powerUnavailable) noexcept
-{
-    for (const auto& ownedSession : sessions.sessions())
-    {
-        bafx::desktop::DisplaySession& session = *ownedSession;
-        if (&session == &coordinator
-            || (session.renderFaulted()
-                && !session.outputContractFaulted()))
-        {
-            continue;
-        }
-
-        try
-        {
-            if (session.secondaryBackgroundCaptureInitialized())
-            {
-                session.updateSecondaryBackgroundCaptureRequest(
-                    request,
-                    controlGeneration);
-            }
-            else
-            {
-                session.initializeSecondaryBackgroundCapture(
-                    request,
-                    controlGeneration,
-                    logPath,
-                    powerUnavailable);
-            }
-        }
-        catch (const std::exception& error)
-        {
-            // WGC is optional per surface. Retire only this transaction and
-            // preserve every other display plus this surface's FX-only path.
-            session.shutdownSecondaryBackgroundCapture();
-            appendSecondaryBackgroundCaptureFailure(
-                logPath,
-                session,
-                "apply-request",
-                error.what());
-        }
-        catch (...)
-        {
-            session.shutdownSecondaryBackgroundCapture();
-            appendSecondaryBackgroundCaptureFailure(
-                logPath,
-                session,
-                "apply-request",
-                "unknown exception");
-        }
-    }
-}
-
-void appendSecondaryBackgroundCaptureServiceResult(
-    const std::filesystem::path& logPath,
-    const bafx::desktop::DisplaySession& session,
-    const bafx::desktop::DisplaySessionBackgroundCaptureServiceResult& result)
-    noexcept;
-
-[[nodiscard]] bool handleSecondaryBorderlessAccessLosses(
-    bafx::desktop::DisplaySessionManager& sessions,
-    bafx::desktop::DisplaySession& coordinator,
-    const bafx::core::MonotonicTime now,
-    const std::filesystem::path& logPath) noexcept
-{
-    bool renderInvalidated = false;
-    for (const auto& ownedSession : sessions.sessions())
-    {
-        bafx::desktop::DisplaySession& session = *ownedSession;
-        if (&session == &coordinator
-            || session.renderFaulted()
-            || !session.secondaryBackgroundCaptureInitialized())
-        {
-            continue;
-        }
-
-        try
-        {
-            const bafx::desktop::DisplaySessionBackgroundCaptureServiceResult
-                result = session.handleSecondaryBorderlessAccessLost(now);
-            renderInvalidated = result.renderInvalidated || renderInvalidated;
-            appendSecondaryBackgroundCaptureServiceResult(
-                logPath,
-                session,
-                result);
-        }
-        catch (const std::exception& error)
-        {
-            session.shutdownSecondaryBackgroundCapture();
-            appendSecondaryBackgroundCaptureFailure(
-                logPath,
-                session,
-                "borderless-access-lost",
-                error.what());
-        }
-        catch (...)
-        {
-            session.shutdownSecondaryBackgroundCapture();
-            appendSecondaryBackgroundCaptureFailure(
-                logPath,
-                session,
-                "borderless-access-lost",
-                "unknown exception");
-        }
-    }
-    return renderInvalidated;
-}
-
-[[nodiscard]] bool retrySecondaryBorderlessAccess(
-    bafx::desktop::DisplaySessionManager& sessions,
-    bafx::desktop::DisplaySession& coordinator,
-    const std::uint64_t controlGeneration,
-    const bafx::core::MonotonicTime now,
-    const std::filesystem::path& logPath) noexcept
-{
-    bool renderInvalidated = false;
-    for (const auto& ownedSession : sessions.sessions())
-    {
-        bafx::desktop::DisplaySession& session = *ownedSession;
-        if (&session == &coordinator
-            || session.renderFaulted()
-            || !session.secondaryBackgroundCaptureInitialized())
-        {
-            continue;
-        }
-
-        try
-        {
-            if (!session.retrySecondaryBorderlessAccess(controlGeneration))
-            {
-                continue;
-            }
-            const bafx::desktop::DisplaySessionBackgroundCaptureServiceResult
-                result = session.serviceSecondaryBackgroundCapture(now);
-            renderInvalidated = true;
-            appendSecondaryBackgroundCaptureServiceResult(
-                logPath,
-                session,
-                result);
-        }
-        catch (const std::exception& error)
-        {
-            session.shutdownSecondaryBackgroundCapture();
-            appendSecondaryBackgroundCaptureFailure(
-                logPath,
-                session,
-                "borderless-access-retry",
-                error.what());
-        }
-        catch (...)
-        {
-            session.shutdownSecondaryBackgroundCapture();
-            appendSecondaryBackgroundCaptureFailure(
-                logPath,
-                session,
-                "borderless-access-retry",
-                "unknown exception");
-        }
-    }
-    return renderInvalidated;
-}
-
-void appendSecondaryBackgroundCaptureServiceResult(
-    const std::filesystem::path& logPath,
-    const bafx::desktop::DisplaySession& session,
-    const bafx::desktop::DisplaySessionBackgroundCaptureServiceResult& result)
-    noexcept
-{
-    if (result.outputRenegotiationDiscarded
-        && result.outputRenegotiationTarget.has_value())
-    {
-        bafx::desktop::appendOutputRenegotiationDiscarded(
-            logPath,
-            session,
-            *result.outputRenegotiationTarget,
-            result.outputRenegotiationPolicy,
-            result.outputRenegotiationReason);
-    }
-    if (result.outputRenegotiation.has_value())
-    {
-        bafx::desktop::appendOutputRenegotiation(
-            logPath,
-            session,
-            result.outputRenegotiationReason,
-            *result.outputRenegotiation);
-    }
-    if (!result.outputRenegotiationFailure.empty())
-    {
-        bafx::desktop::appendOutputRenegotiationFailure(
-            logPath,
-            session,
-            result.outputRenegotiationPolicy,
-            result.outputRenegotiationReason,
-            result.outputRenegotiationFailure,
-            result.deviceRecovered);
-    }
-    if (result.outputRenegotiationRetryPending)
-    {
-        bafx::desktop::appendOutputRenegotiationRetryScheduled(
-            logPath,
-            session,
-            result.outputRenegotiationPolicy,
-            result.outputRenegotiationReason,
-            result.outputRenegotiationRetriesRemaining,
-            "one-second-monotonic");
-    }
-    if (result.outputRenegotiationExhausted)
-    {
-        bafx::desktop::appendOutputRenegotiationExhausted(
-            logPath,
-            session,
-            result.outputRenegotiationPolicy,
-            result.outputRenegotiationReason,
-            result.outputRenegotiationFailedClosed
-                ? bafx::desktop::DisplayOutputExhaustionDisposition::FailClosed
-                : bafx::desktop::DisplayOutputExhaustionDisposition::
-                    AcceptConservativeFallback);
-    }
-}
-
-[[nodiscard]] bool secondaryDeviceRemovalPending(
-    const bafx::desktop::DisplaySession& session) noexcept
-{
-    const HANDLE deviceRemoved =
-        session.renderer().deviceRemovedWaitableObject();
-    if (deviceRemoved == nullptr)
-    {
-        return false;
-    }
-
-    // RegisterDeviceRemovedEvent uses a manual-reset event. Polling it here
-    // does not consume the recovery signal that the frame-pacing owner needs.
-    return WaitForSingleObject(deviceRemoved, 0U) == WAIT_OBJECT_0;
-}
-
-[[nodiscard]] bool serviceSecondaryBackgroundCaptures(
-    bafx::desktop::DisplaySessionManager& sessions,
-    bafx::desktop::DisplaySession& coordinator,
-    const bafx::core::MonotonicTime now,
-    const std::filesystem::path& logPath) noexcept
-{
-    bool renderInvalidated = false;
-    for (const auto& ownedSession : sessions.sessions())
-    {
-        bafx::desktop::DisplaySession& session = *ownedSession;
-        if (&session == &coordinator)
-        {
-            continue;
-        }
-        if (session.renderFaulted()
-            && !session.outputContractRecoveryActionable())
-        {
-            session.shutdownSecondaryBackgroundCapture();
-            continue;
-        }
-        if (!session.secondaryBackgroundCaptureInitialized())
-        {
-            continue;
-        }
-        if (secondaryDeviceRemovalPending(session))
-        {
-            renderInvalidated = true;
-            continue;
-        }
-
-        try
-        {
-            const bafx::desktop::DisplaySessionBackgroundCaptureServiceResult
-                result = session.serviceSecondaryBackgroundCapture(now);
-            renderInvalidated = result.renderInvalidated || renderInvalidated;
-            appendSecondaryBackgroundCaptureServiceResult(
-                logPath,
-                session,
-                result);
-        }
-        catch (const std::exception& error)
-        {
-            session.shutdownSecondaryBackgroundCapture();
-            appendSecondaryBackgroundCaptureFailure(
-                logPath,
-                session,
-                "service",
-                error.what());
-        }
-        catch (...)
-        {
-            session.shutdownSecondaryBackgroundCapture();
-            appendSecondaryBackgroundCaptureFailure(
-                logPath,
-                session,
-                "service",
-                "unknown exception");
-        }
-    }
-    return renderInvalidated;
-}
-
-[[nodiscard]] bool maintainSecondaryBackgroundCaptures(
-    bafx::desktop::DisplaySessionManager& sessions,
-    bafx::desktop::DisplaySession& coordinator,
-    const std::span<bafx::desktop::DisplaySession*> readySessions,
-    const bafx::core::MonotonicTime now,
-    const std::filesystem::path& logPath) noexcept
-{
-    bool renderInvalidated = false;
-    for (const auto& ownedSession : sessions.sessions())
-    {
-        bafx::desktop::DisplaySession& session = *ownedSession;
-        if (&session == &coordinator
-            || (session.renderFaulted()
-                && !session.outputContractRecoveryActionable())
-            || !session.secondaryBackgroundCaptureInitialized()
-            || std::find(
-                readySessions.begin(),
-                readySessions.end(),
-                &session) != readySessions.end())
-        {
-            continue;
-        }
-        if (secondaryDeviceRemovalPending(session))
-        {
-            renderInvalidated = true;
-            continue;
-        }
-
-        try
-        {
-            if (session.secondaryBackgroundCaptureActive())
-            {
-                // A WGC callback does not grant a swap-chain slot. Keep only
-                // the newest owned sample so a faster capture source cannot
-                // accumulate work behind a slower secondary Present cadence.
-                const bafx::windows::BackgroundSensorMaintenanceDiagnostics
-                    maintenance =
-                        session.renderer().serviceBackgroundCapture(now);
-                renderInvalidated =
-                    (maintenance.wgc.accepted
-                        && session.lastPresentedDrawableContent())
-                    || renderInvalidated;
-            }
-            const bafx::desktop::DisplaySessionBackgroundCaptureServiceResult
-                result = session.serviceSecondaryBackgroundCapture(now);
-            renderInvalidated = result.renderInvalidated || renderInvalidated;
-            appendSecondaryBackgroundCaptureServiceResult(
-                logPath,
-                session,
-                result);
-        }
-        catch (const std::exception& error)
-        {
-            session.shutdownSecondaryBackgroundCapture();
-            appendSecondaryBackgroundCaptureFailure(
-                logPath,
-                session,
-                "maintenance",
-                error.what());
-        }
-        catch (...)
-        {
-            session.shutdownSecondaryBackgroundCapture();
-            appendSecondaryBackgroundCaptureFailure(
-                logPath,
-                session,
-                "maintenance",
-                "unknown exception");
-        }
-    }
-    return renderInvalidated;
-}
-
-[[nodiscard]] std::string_view secondaryBackgroundRecoveryStatusName(
-    const bafx::desktop::DisplaySessionBackgroundRecoveryStatus status) noexcept
-{
-    switch (status)
-    {
-    case bafx::desktop::DisplaySessionBackgroundRecoveryStatus::NotRequired:
-        return "not-required";
-    case bafx::desktop::DisplaySessionBackgroundRecoveryStatus::Queued:
-        return "queued";
-    case bafx::desktop::DisplaySessionBackgroundRecoveryStatus::Blocked:
-        return "blocked";
-    }
-    return "unknown";
-}
-
-void appendSecondaryDeviceRecovery(
-    const std::filesystem::path& logPath,
-    const bafx::desktop::DisplaySession& session,
-    const bafx::desktop::DisplaySessionDeviceRecoveryResult& recovery,
-    const std::string_view eventName) noexcept
-{
-    try
-    {
-        const std::string monitor =
-            bafx::desktop::formatDisplayTargetMonitor(session.target());
-        const std::array fields{
-            bafx::windows::DiagnosticField{"Monitor", monitor},
-            bafx::windows::DiagnosticField{
-                "Driver",
-                session.renderer().deviceInfo().driverType
-                        == bafx::windows::GraphicsDriverType::Hardware
-                    ? "hardware"
-                    : "warp"},
-            bafx::windows::DiagnosticField{
-                "Adapter",
-                recovery.adapterChanged ? "changed" : "same"},
-            bafx::windows::DiagnosticField{
-                "WgcWasActive",
-                recovery.backgroundWasActive ? "true" : "false"},
-            bafx::windows::DiagnosticField{
-                "WgcRestart",
-                secondaryBackgroundRecoveryStatusName(recovery.background)}};
-        bafx::windows::appendDiagnosticEvent(
-            logPath,
-            eventName,
-            fields,
-            bafx::windows::DiagnosticLevel::Warning);
-    }
-    catch (...)
-    {
-        bafx::windows::appendDiagnosticLog(
-            logPath,
-            "Secondary device recovery could not be formatted");
-    }
-}
-
-[[nodiscard]] bool recoverSecondaryDisplaySession(
-    const std::filesystem::path& logPath,
-    bafx::desktop::DisplaySession& session,
-    const std::string_view failureOperation,
-    const std::string_view successEvent,
-    const bool validateRemovalReason) noexcept
-{
-    if (validateRemovalReason)
-    {
-        const HRESULT removalReason =
-            session.renderer().deviceRemovedReason();
-        if (!bafx::windows::isDeviceLostResult(removalReason))
-        {
-            session.markRenderFaulted();
-            try
-            {
-                appendSecondaryRenderFailure(
-                    logPath,
-                    session,
-                    failureOperation,
-                    "device removal notification produced unexpected HRESULT "
-                        + formatHresult(removalReason));
-            }
-            catch (...)
-            {
-                // Preserve per-display isolation even if formatting the
-                // unexpected driver result cannot allocate memory.
-                appendSecondaryRenderFailure(
-                    logPath,
-                    session,
-                    failureOperation,
-                    "device removal notification produced unexpected HRESULT");
-            }
-            return false;
-        }
-    }
-
-    const bafx::desktop::DisplaySessionDeviceRecoveryResult recovery =
-        session.tryRecoverDevice();
-    if (!recovery.recovered)
-    {
-        session.markRenderFaulted();
-        appendSecondaryRenderFailure(
-            logPath,
-            session,
-            failureOperation,
-            session.renderer().deviceRecoveryFailure());
-        return false;
-    }
-
-    session.clearRenderFault();
-    appendSecondaryDeviceRecovery(
-        logPath,
-        session,
-        recovery,
-        successEvent);
-    return true;
-}
-
-SecondaryRenderSummary renderSecondarySessions(
-    bafx::desktop::DisplaySessionManager& sessions,
-    bafx::desktop::DisplaySession& coordinator,
-    const std::span<bafx::desktop::DisplaySession*> readySessions,
-    const bafx::config::Config& config,
-    const bafx::fx::SimulationTime renderTime,
-    const bafx::core::MonotonicTime wallTime,
-    const bool commitSimulationFrame,
-    const bool requireCurrentBackground,
-    const std::filesystem::path& logPath)
-{
-    SecondaryRenderSummary summary{};
-    for (const auto& ownedSession : sessions.sessions())
-    {
-        bafx::desktop::DisplaySession& session = *ownedSession;
-        if (&session == &coordinator
-            || !session.effectsEnabled()
-            || session.renderFaulted())
-        {
-            continue;
-        }
-
-        bafx::windows::CompositionRenderer& sessionRenderer =
-            session.renderer();
-        const HANDLE deviceRemoved =
-            sessionRenderer.deviceRemovedWaitableObject();
-        if (deviceRemoved != nullptr
-            && WaitForSingleObject(deviceRemoved, 0U) == WAIT_OBJECT_0)
-        {
-            if (!recoverSecondaryDisplaySession(
-                    logPath,
-                    session,
-                    "device-recovery",
-                    "Display.Session.DeviceRecovered",
-                    true))
-            {
-                ++summary.failed;
-                continue;
-            }
-            ++summary.recovered;
-            // The recovered swap chain owns a new latency handle. An
-            // opportunity granted by the released handle cannot authorize a
-            // Present on this resource domain.
-            continue;
-        }
-
-        const bool frameReady = std::find(
-            readySessions.begin(),
-            readySessions.end(),
-            &session) != readySessions.end();
-        if (!frameReady)
-        {
-            ++summary.notReady;
-            continue;
-        }
-
-        bafx::fx::FrameSnapshot snapshot = session.simulation().snapshot(
-            toViewport(session.window().size()),
-            renderTime);
-        applyVisualConfig(snapshot, config);
-        try
-        {
-            const bafx::windows::CompositionFrameDiagnostics diagnostics =
-                sessionRenderer.renderFrame(
-                snapshot,
-                wallTime,
-                requireCurrentBackground);
-            session.recordActiveFxRoiFrame(
-                bafx::desktop::framePerformanceSample(diagnostics, 0U, false),
-                diagnostics.frameId,
-                wallTime);
-            session.recordPresentedFrame(
-                snapshot.hasDrawableContent(),
-                wallTime);
-            if (commitSimulationFrame)
-            {
-                session.simulation().onFrameRendered(renderTime);
-            }
-            ++summary.rendered;
-        }
-        catch (const bafx::windows::HResultError& error)
-        {
-            if (bafx::windows::isDeviceLostResult(error.result()))
-            {
-                if (recoverSecondaryDisplaySession(
-                        logPath,
-                        session,
-                        "render-device-recovery",
-                        "Display.Session.RenderDeviceRecovered",
-                        false))
-                {
-                    ++summary.recovered;
-                    continue;
-                }
-                ++summary.failed;
-                continue;
-            }
-            session.markRenderFaulted();
-            ++summary.failed;
-            appendSecondaryRenderFailure(
-                logPath,
-                session,
-                "render",
-                error.what());
-        }
-        catch (const std::exception& error)
-        {
-            session.markRenderFaulted();
-            ++summary.failed;
-            appendSecondaryRenderFailure(
-                logPath,
-                session,
-                "render",
-                error.what());
-        }
-    }
-    return summary;
-}
 
 int runApplication(
     const HINSTANCE instance,
@@ -2582,7 +1831,7 @@ int runApplication(
         initialReconcile,
         displaySessions.sessions().size());
     updateDisplayRuntimeSummary();
-    applySecondaryBackgroundCaptureRequest(
+    bafx::desktop::applySecondaryBackgroundCaptureRequest(
         displaySessions,
         displaySession,
         bafx::desktop::backgroundCaptureRequest(config),
@@ -2634,7 +1883,7 @@ int runApplication(
     const auto startDemoScenario =
         [&](const bafx::fx::SimulationTime time)
         {
-            const bafx::fx::Viewport viewport = toViewport(window.size());
+            const bafx::fx::Viewport viewport = bafx::desktop::toViewport(window.size());
             const std::chrono::milliseconds scenarioDuration =
                 bafx::desktop::demoScenarioDuration(options.demoScenario);
             // Dynamic demos must not enqueue future-dated input. Fixed-age
@@ -3089,7 +2338,7 @@ int runApplication(
             catch (const std::exception& error)
             {
                 session.shutdownSecondaryBackgroundCapture();
-                appendSecondaryBackgroundCaptureFailure(
+                bafx::desktop::appendSecondaryBackgroundCaptureFailure(
                     logPath,
                     session,
                     "queue-output-renegotiation",
@@ -3098,7 +2347,7 @@ int runApplication(
             catch (...)
             {
                 session.shutdownSecondaryBackgroundCapture();
-                appendSecondaryBackgroundCaptureFailure(
+                bafx::desktop::appendSecondaryBackgroundCaptureFailure(
                     logPath,
                     session,
                     "queue-output-renegotiation",
@@ -3615,7 +2864,7 @@ int runApplication(
                     "borderless-access-lost");
                 renderInvalidated = true;
             }
-            renderInvalidated = handleSecondaryBorderlessAccessLosses(
+            renderInvalidated = bafx::desktop::handleSecondaryBorderlessAccessLosses(
                 displaySessions,
                 displaySession,
                 accessChangedAt,
@@ -3665,7 +2914,7 @@ int runApplication(
             backgroundRetryPending = true;
             coordinatorRetryScheduled = true;
         }
-        const bool secondaryRetryScheduled = retrySecondaryBorderlessAccess(
+        const bool secondaryRetryScheduled = bafx::desktop::retrySecondaryBorderlessAccess(
             displaySessions,
             displaySession,
             appliedGeneration,
@@ -4290,7 +3539,7 @@ int runApplication(
                     std::to_string(
                         std::chrono::duration_cast<std::chrono::microseconds>(
                             cadence.producerCadence.applied).count());
-                const std::string producerResult = formatHresult(
+                const std::string producerResult = bafx::desktop::formatHresult(
                     cadence.producerCadence.result);
                 const std::string targetRefreshRate =
                     formatDisplayRefreshRate(cadence.refreshRate);
@@ -4365,7 +3614,7 @@ int runApplication(
             updateDisplayRuntimeSummary();
             // New topology sessions join the current request independently;
             // existing sessions treat the stable request as a no-op.
-            applySecondaryBackgroundCaptureRequest(
+            bafx::desktop::applySecondaryBackgroundCaptureRequest(
                 displaySessions,
                 displaySession,
                 bafx::desktop::backgroundCaptureRequest(config),
@@ -4492,7 +3741,7 @@ int runApplication(
                             DisplaySessionBackgroundCaptureServiceResult result =
                                 session.suspendSecondaryBackgroundCaptureForPower(
                                     powerChangedAt);
-                        appendSecondaryBackgroundCaptureServiceResult(
+                        bafx::desktop::appendSecondaryBackgroundCaptureServiceResult(
                             logPath,
                             session,
                             result);
@@ -4503,7 +3752,7 @@ int runApplication(
                     catch (const std::exception& error)
                     {
                         session.shutdownSecondaryBackgroundCapture();
-                        appendSecondaryBackgroundCaptureFailure(
+                        bafx::desktop::appendSecondaryBackgroundCaptureFailure(
                             logPath,
                             session,
                             "display-power-suspend",
@@ -4512,7 +3761,7 @@ int runApplication(
                     catch (...)
                     {
                         session.shutdownSecondaryBackgroundCapture();
-                        appendSecondaryBackgroundCaptureFailure(
+                        bafx::desktop::appendSecondaryBackgroundCaptureFailure(
                             logPath,
                             session,
                             "display-power-suspend",
@@ -4924,7 +4173,7 @@ int runApplication(
                         session.clearRenderFault();
                         if (recovery.recovered)
                         {
-                            appendSecondaryDeviceRecovery(
+                            bafx::desktop::appendSecondaryDeviceRecovery(
                                 logPath,
                                 session,
                                 recovery,
@@ -4934,14 +4183,14 @@ int runApplication(
                     catch (const std::exception& error)
                     {
                         session.markRenderFaulted();
-                        appendSecondaryRenderFailure(
+                        bafx::desktop::appendSecondaryRenderFailure(
                             logPath,
                             session,
                             "apply-bloom-settings",
                             error.what());
                     }
                 }
-                applySecondaryBackgroundCaptureRequest(
+                bafx::desktop::applySecondaryBackgroundCaptureRequest(
                     displaySessions,
                     displaySession,
                     bafx::desktop::backgroundCaptureRequest(config),
@@ -5168,7 +4417,7 @@ int runApplication(
                 renderInvalidated = true;
             }
         }
-        renderInvalidated = serviceSecondaryBackgroundCaptures(
+        renderInvalidated = bafx::desktop::serviceSecondaryBackgroundCaptures(
             displaySessions,
             displaySession,
             captureHealthNow,
@@ -5312,7 +4561,7 @@ int runApplication(
                             "Coordinator returned a null frame latency handle");
                     }
                     session.markRenderFaulted();
-                    appendSecondaryRenderFailure(
+                    bafx::desktop::appendSecondaryRenderFailure(
                         logPath,
                         session,
                         "frame-latency-handle",
@@ -5413,7 +4662,7 @@ int runApplication(
                 {
                     // Recover before any WGC maintenance can observe the
                     // failed sensor as inactive and erase restart eligibility.
-                    if (recoverSecondaryDisplaySession(
+                    if (bafx::desktop::recoverSecondaryDisplaySession(
                             logPath,
                             *awakenedSession,
                             "frame-pacing-device-recovery",
@@ -5439,7 +4688,7 @@ int runApplication(
                     // spinning on the same handle indefinitely.
                     throw std::runtime_error(
                         "D3D11 device removal notification produced unexpected HRESULT "
-                        + formatHresult(deviceResult));
+                        + bafx::desktop::formatHresult(deviceResult));
                 }
                 framePacingDeviceLoss = deviceResult;
                 break;
@@ -5493,7 +4742,7 @@ int runApplication(
                 // not grant Present permission, but their producer queues must
                 // still be collapsed while every swap chain is back-pressured.
                 renderInvalidationPending =
-                    maintainSecondaryBackgroundCaptures(
+                    bafx::desktop::maintainSecondaryBackgroundCaptures(
                         displaySessions,
                         displaySession,
                         readyDisplaySessions,
@@ -5581,7 +4830,7 @@ int runApplication(
                         }
                         const DWORD error = GetLastError();
                         session.markRenderFaulted();
-                        appendSecondaryRenderFailure(
+                        bafx::desktop::appendSecondaryRenderFailure(
                             logPath,
                             session,
                             "frame-latency-poll",
@@ -5620,7 +4869,7 @@ int runApplication(
         }
         if (!displayPowerUnavailable)
         {
-            renderInvalidationPending = maintainSecondaryBackgroundCaptures(
+            renderInvalidationPending = bafx::desktop::maintainSecondaryBackgroundCaptures(
                 displaySessions,
                 displaySession,
                 readyDisplaySessions,
@@ -5723,9 +4972,9 @@ int runApplication(
         if (renderCoordinatorThisIteration)
         {
             bafx::fx::FrameSnapshot snapshot = displaySession.effectsEnabled()
-                ? simulation.snapshot(toViewport(window.size()), renderTime)
+                ? simulation.snapshot(bafx::desktop::toViewport(window.size()), renderTime)
                 : bafx::fx::FrameSnapshot{};
-            applyVisualConfig(snapshot, config);
+            bafx::desktop::applyVisualConfig(snapshot, config);
             lastPresentedDrawableContent = snapshot.hasDrawableContent();
             // A paused DComp surface can persist indefinitely. Its last frame
             // may only bake a current background; normal animation tolerates
@@ -5760,7 +5009,7 @@ int runApplication(
                     if (bafx::windows::isDeviceLostResult(error.result())
                         && deviceRecoveryConsumed)
                     {
-                        const std::string resultCode = formatHresult(
+                        const std::string resultCode = bafx::desktop::formatHresult(
                             error.result());
                         const std::array suppressedFields{
                             bafx::windows::DiagnosticField{
@@ -5781,7 +5030,7 @@ int runApplication(
                 const bafx::windows::GraphicsDeviceInfo previousDeviceInfo =
                     renderer.deviceInfo();
                 const std::string originalError(error.what());
-                const std::string resultCode = formatHresult(error.result());
+                const std::string resultCode = bafx::desktop::formatHresult(error.result());
                 const std::array recoveryFields{
                     bafx::windows::DiagnosticField{
                         "HRESULT",
@@ -6454,7 +5703,7 @@ int runApplication(
         }
         if (shouldRender)
         {
-            static_cast<void>(renderSecondarySessions(
+            static_cast<void>(bafx::desktop::renderSecondarySessions(
                 displaySessions,
                 displaySession,
                 readyDisplaySessions,
@@ -6636,7 +5885,7 @@ int runApplication(
                     // Paused mode has no intervening render pass. Recover here
                     // so the next maintenance pass only sees the new device.
                     renderInvalidationPending =
-                        recoverSecondaryDisplaySession(
+                        bafx::desktop::recoverSecondaryDisplaySession(
                             logPath,
                             *ownedSessions[pausedWait.token],
                             "paused-device-recovery",

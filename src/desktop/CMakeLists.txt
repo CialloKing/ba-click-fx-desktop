@@ -67,6 +67,7 @@ add_library(
         display_output_retarget.cpp
         display_policy.cpp
         display_target.cpp
+        frame_visual_config.cpp
         performance_logging.cpp
 )
 add_library(bafx::desktop_runtime ALIAS bafx_desktop_runtime)
@@ -90,6 +91,7 @@ add_executable(
         main.cpp
         performance_samples.cpp
         run_options.cpp
+        secondary_display_runtime.cpp
         "${BAFX_DESKTOP_GENERATED_DIR}/ba-click-fx-desktop.manifest"
         "${BAFX_DESKTOP_GENERATED_DIR}/ba-click-fx-desktop.rc"
 )

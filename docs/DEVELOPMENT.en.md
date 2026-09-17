@@ -215,6 +215,8 @@ signature. `-SkipBuild` only applies when the matching Full or Slim outputs alre
 | Display status presentation and per-display policy actions | [`control_center_display.cpp`](../src/control-center/control_center_display.cpp) |
 | Host arguments and diagnostic startup isolation | [`run_options.cpp`](../src/desktop/run_options.cpp) |
 | Display runtime snapshot collection | [`display_runtime_summary.cpp`](../src/desktop/display_runtime_summary.cpp) |
+| Secondary display capture, recovery and frame dispatch | [`secondary_display_runtime.cpp`](../src/desktop/secondary_display_runtime.cpp) |
+| Shared visual configuration mapping for all displays | [`frame_visual_config.cpp`](../src/desktop/frame_visual_config.cpp) |
 | Display output negotiation and retry diagnostics | [`display_output_diagnostics.cpp`](../src/desktop/display_output_diagnostics.cpp) |
 | Renderer diagnostics to performance samples | [`performance_samples.cpp`](../src/desktop/performance_samples.cpp) |
 | Performance aggregation and log output | [`performance_window.cpp`](../src/desktop/performance_window.cpp), [`performance_logging.cpp`](../src/desktop/performance_logging.cpp) |
