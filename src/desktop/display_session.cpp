@@ -19,7 +19,7 @@ struct PendingSecondaryOutputRenegotiation final
     bafx::windows::CompositionOutputPolicy policy{};
     std::string reason{};
     std::optional<DisplayTarget> target{};
-    std::uint32_t attemptsRemaining{maximumOutputRenegotiationAttempts};
+    OutputRenegotiationBudget budget{};
     bafx::core::MonotonicTime retryNotBefore{};
     bool retryDeadlineNeedsAnchor{false};
 };
@@ -1649,9 +1649,8 @@ DisplaySession::serviceSecondaryBackgroundCapture(
                 state.pendingOutputRenegotiation.reset();
                 clearOutputContractFault();
             }
-            else if (pending.attemptsRemaining > 1U)
+            else if (pending.budget.retryAfterFailure())
             {
-                --pending.attemptsRemaining;
                 pending.retryDeadlineNeedsAnchor =
                     now == bafx::core::MonotonicTime::zero();
                 pending.retryNotBefore = pending.retryDeadlineNeedsAnchor
@@ -1660,7 +1659,7 @@ DisplaySession::serviceSecondaryBackgroundCapture(
                 state.pendingOutputRenegotiation = std::move(pending);
                 result.outputRenegotiationRetryPending = true;
                 result.outputRenegotiationRetriesRemaining =
-                    state.pendingOutputRenegotiation->attemptsRemaining;
+                    state.pendingOutputRenegotiation->budget.remaining();
             }
             else
             {

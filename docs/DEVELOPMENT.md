@@ -205,6 +205,7 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File .\tools\package-user-installer.ps1
 | 特效配置字段注册与类型绑定 | [`effects_fields.hpp`](../src/config/src/effects_fields.hpp) |
 | 显示运行时快照组装 | [`display_runtime_summary.cpp`](../src/desktop/display_runtime_summary.cpp) |
 | 副显示器捕获、恢复与帧调度 | [`secondary_display_runtime.cpp`](../src/desktop/secondary_display_runtime.cpp) |
+| WGC 重试身份、待处理状态与输出重试预算 | [`host_recovery_state.hpp`](../src/desktop/host_recovery_state.hpp) |
 | 主副显示器共用的视觉配置映射 | [`frame_visual_config.cpp`](../src/desktop/frame_visual_config.cpp) |
 | 显示输出协商与重试诊断 | [`display_output_diagnostics.cpp`](../src/desktop/display_output_diagnostics.cpp) |
 | 渲染诊断到性能样本的转换 | [`performance_samples.cpp`](../src/desktop/performance_samples.cpp) |

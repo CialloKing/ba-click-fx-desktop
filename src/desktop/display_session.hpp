@@ -2,6 +2,7 @@
 
 #include "display_capture_size_tracker.hpp"
 #include "display_target.hpp"
+#include "host_recovery_state.hpp"
 
 #include "bafx/config/config.hpp"
 #include "bafx/core/background_freshness.hpp"
@@ -40,8 +41,6 @@ struct ActiveFxRoiRuntimeSummary;
 
 namespace bafx::desktop
 {
-
-inline constexpr std::uint32_t maximumOutputRenegotiationAttempts = 3U;
 
 struct DisplaySessionRuntimePolicy final
 {

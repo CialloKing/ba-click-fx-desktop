@@ -26,6 +26,7 @@
 #include "frame_visual_config.hpp"
 #include "secondary_display_runtime.hpp"
 #include "host_control.hpp"
+#include "host_recovery_state.hpp"
 #include "idle_render_policy.hpp"
 #include "performance_logging.hpp"
 #include "performance_samples.hpp"
@@ -800,8 +801,7 @@ struct PendingOutputRenegotiation final
 {
     bafx::windows::CompositionOutputPolicy policy{};
     std::string reason{};
-    std::uint32_t attemptsRemaining{
-        bafx::desktop::maximumOutputRenegotiationAttempts};
+    bafx::desktop::OutputRenegotiationBudget budget{};
     bool retryPending{false};
 };
 
@@ -1930,8 +1930,7 @@ int runApplication(
     bool quit = false;
     std::uint64_t& renderedFrames = lifecycle.renderedFrames;
     std::uint64_t backgroundCompositeFrames = 0U;
-    std::uint64_t backgroundRetryToken = appliedBackgroundRequest.retryToken;
-    bool backgroundRetryPending = false;
+    bafx::desktop::BackgroundRetryState backgroundRetry(appliedBackgroundRequest.retryToken);
     bool coordinatorPowerRecoveryEligible = false;
     bool outputPreferenceReconcilePending = false;
     const bafx::windows::CompositionOutputPolicy
@@ -1975,8 +1974,7 @@ int runApplication(
         };
     std::optional<bafx::desktop::DisplayTarget> pendingDisplayTarget{};
     bafx::desktop::DisplayCaptureSizeTracker coordinatorCaptureSizeTracker{};
-    bool backgroundParticipationLogged = false;
-    bool backgroundPendingDiagnosticLogged = false;
+    bafx::desktop::BackgroundCaptureObservation backgroundObservation{};
     bool renderInvalidationPending = false;
     bool deviceRecoveryConsumed = backgroundExecution.deviceRecovered;
     bool recoveryProbePending = options.recoveryProbe;
@@ -2043,12 +2041,9 @@ int runApplication(
             backgroundCaptureRequestedByConfig(config);
         const bool backgroundCaptureRestartRequired =
             backgroundCaptureRequested && backgroundCaptureEnabled;
-        if (backgroundCaptureRestartRequired
-            && backgroundRetryToken
-                == std::numeric_limits<std::uint64_t>::max())
+        if (backgroundCaptureRestartRequired)
         {
-            throw std::runtime_error(
-                "WGC reconciliation token exhausted before output renegotiation");
+            backgroundRetry.requireAvailable("WGC reconciliation token exhausted before output renegotiation");
         }
 
         const bafx::windows::GraphicsDeviceInfo previousDeviceInfo =
@@ -2064,8 +2059,7 @@ int runApplication(
                 "output-renegotiation");
         backgroundCaptureEnabled = false;
         control.setBackgroundCaptureActive(false);
-        backgroundParticipationLogged = false;
-        backgroundPendingDiagnosticLogged = false;
+        backgroundObservation.reset();
         if (!stopDiagnostics.overallSucceeded)
         {
             const std::string monitor =
@@ -2094,8 +2088,7 @@ int runApplication(
         }
         if (backgroundCaptureRestartRequired)
         {
-            ++backgroundRetryToken;
-            backgroundRetryPending = true;
+            backgroundRetry.request();
         }
 
         const bool recoveryBudgetWasConsumed =
@@ -2177,7 +2170,7 @@ int runApplication(
             || previousDeviceInfo.adapterLuid.HighPart
                 != renderer.deviceInfo().adapterLuid.HighPart;
         const std::string retryTokenText = std::to_string(
-            backgroundRetryToken);
+            backgroundRetry.token());
         const std::array fields{
             bafx::windows::DiagnosticField{
                 "Reason",
@@ -2206,7 +2199,7 @@ int runApplication(
     const auto retainFailedCoordinatorOutputRenegotiation =
         [&](PendingOutputRenegotiation pending)
         {
-            if (pending.attemptsRemaining <= 1U)
+            if (!pending.budget.retryAfterFailure())
             {
                 const bafx::desktop::DisplayOutputExhaustionDisposition
                     disposition =
@@ -2237,7 +2230,6 @@ int runApplication(
                 return;
             }
 
-            --pending.attemptsRemaining;
             pending.retryPending = true;
             pendingCoordinatorOutputRenegotiation = std::move(pending);
             bafx::desktop::appendOutputRenegotiationRetryScheduled(
@@ -2245,7 +2237,7 @@ int runApplication(
                 displaySession,
                 pendingCoordinatorOutputRenegotiation->policy,
                 pendingCoordinatorOutputRenegotiation->reason,
-                pendingCoordinatorOutputRenegotiation->attemptsRemaining,
+                pendingCoordinatorOutputRenegotiation->budget.remaining(),
                 "display-maintenance");
         };
     const auto queueCoordinatorOutputRecoveryIfNeeded =
@@ -2276,7 +2268,7 @@ int runApplication(
                     policy,
                     std::string(reason)};
             const std::string attempts = std::to_string(
-                pendingCoordinatorOutputRenegotiation->attemptsRemaining);
+                pendingCoordinatorOutputRenegotiation->budget.remaining());
             const std::array fields{
                 bafx::windows::DiagnosticField{"Reason", reason},
                 bafx::windows::DiagnosticField{
@@ -2318,7 +2310,7 @@ int runApplication(
                     session.initializeSecondaryBackgroundCapture(
                         bafx::desktop::backgroundCaptureRequest(
                             config,
-                            backgroundRetryToken),
+                            backgroundRetry.token()),
                         appliedGeneration,
                         logPath,
                         displayPowerUnavailable);
@@ -2722,8 +2714,7 @@ int runApplication(
             backgroundTransition,
             backgroundExecution,
             renderer);
-        backgroundParticipationLogged = false;
-        backgroundPendingDiagnosticLogged = false;
+        backgroundObservation.reset();
         control.setBackgroundCaptureActive(renderer.backgroundCaptureActive());
         updateDisplayRuntimeSummary();
         bafx::windows::appendDiagnosticLog(logPath, report);
@@ -2735,7 +2726,7 @@ int runApplication(
     {
         if (backgroundExecution.transactionActive
             || backgroundTransition.transitioning()
-            || backgroundRetryPending
+            || backgroundRetry.pending()
             || !backgroundTopologyRecovery.takeRetry(
                 now,
                 captureRequested,
@@ -2746,16 +2737,8 @@ int runApplication(
         {
             return false;
         }
-        if (backgroundRetryToken
-            == (std::numeric_limits<std::uint64_t>::max)())
-        {
-            throw std::runtime_error(
-                "WGC retry token exhausted after display topology change");
-        }
-
-        ++backgroundRetryToken;
-        backgroundRetryPending = true;
-        const std::string retryToken = std::to_string(backgroundRetryToken);
+        backgroundRetry.request("WGC retry token exhausted after display topology change");
+        const std::string retryToken = std::to_string(backgroundRetry.token());
         const std::string recoveryWindowMilliseconds = std::to_string(
             std::chrono::duration_cast<std::chrono::milliseconds>(
                 bafx::desktop::backgroundCaptureTopologyRecoveryWindow)
@@ -2807,7 +2790,7 @@ int runApplication(
         const bafx::fx::SimulationTime accessChangedAt = clock.now();
         if (!accessAllowed)
         {
-            backgroundRetryPending = false;
+            backgroundRetry.finishRequest();
             bool coordinatorCleaned = false;
             bafx::desktop::BackgroundCaptureExecutionStatus cleanupStatus =
                 bafx::desktop::BackgroundCaptureExecutionStatus::Completed;
@@ -2904,14 +2887,7 @@ int runApplication(
                     backgroundTransition.effectivePath())
                 || !renderer.backgroundCaptureActive()))
         {
-            if (backgroundRetryToken
-                == (std::numeric_limits<std::uint64_t>::max)())
-            {
-                throw std::runtime_error(
-                    "WGC retry token exhausted after borderless access recovery");
-            }
-            ++backgroundRetryToken;
-            backgroundRetryPending = true;
+            backgroundRetry.request("WGC retry token exhausted after borderless access recovery");
             coordinatorRetryScheduled = true;
         }
         const bool secondaryRetryScheduled = bafx::desktop::retrySecondaryBorderlessAccess(
@@ -2922,7 +2898,7 @@ int runApplication(
             logPath);
         renderInvalidated = secondaryRetryScheduled || renderInvalidated;
 
-        const std::string retryToken = std::to_string(backgroundRetryToken);
+        const std::string retryToken = std::to_string(backgroundRetry.token());
         const std::array fields{
             bafx::windows::DiagnosticField{
                 "Coordinator",
@@ -3658,7 +3634,7 @@ int runApplication(
             coordinatorPowerRecoveryEligible =
                 coordinatorPowerRecoveryEligible
                 || backgroundCaptureEnabled;
-            backgroundRetryPending = false;
+            backgroundRetry.finishRequest();
             bool coordinatorSuspended = false;
             if (backgroundExecution.transactionActive)
             {
@@ -3798,16 +3774,9 @@ int runApplication(
                     == bafx::windows::GraphicsDriverType::Hardware
                 && renderer.backgroundCaptureRestartAllowed())
             {
-                if (!backgroundRetryPending)
+                if (!backgroundRetry.pending())
                 {
-                    if (backgroundRetryToken
-                        == (std::numeric_limits<std::uint64_t>::max)())
-                    {
-                        throw std::runtime_error(
-                            "WGC retry token exhausted after display power recovery");
-                    }
-                    ++backgroundRetryToken;
-                    backgroundRetryPending = true;
+                    backgroundRetry.request("WGC retry token exhausted after display power recovery");
                     coordinatorRecovery = "scheduled";
                 }
                 else
@@ -3834,7 +3803,7 @@ int runApplication(
             }
 
             const std::string retryToken = std::to_string(
-                backgroundRetryToken);
+                backgroundRetry.token());
             const std::string secondaryCount = std::to_string(
                 secondaryRecoveries);
             const std::array fields{
@@ -3900,7 +3869,7 @@ int runApplication(
             if (configChanged
                 || pendingOutputResize.has_value()
                 || displayTargetSupersedesTransaction
-                || backgroundRetryPending)
+                || backgroundRetry.pending())
             {
                 const auto cancelResizePolicy =
                     bafx::desktop::backgroundCaptureCancelResizePolicy(
@@ -3977,7 +3946,7 @@ int runApplication(
             && !pendingCoordinatorOutputRenegotiation.has_value()
             && !backgroundExecution.transactionActive
             && !backgroundTransition.transitioning()
-            && !backgroundRetryPending
+            && !backgroundRetry.pending()
             && !configChanged
             && !pendingOutputResize.has_value()
             && !pendingDisplayTarget.has_value()
@@ -4017,7 +3986,7 @@ int runApplication(
         if (configChanged
             || pendingOutputResize.has_value()
             || displayTargetChanged
-            || backgroundRetryPending)
+            || backgroundRetry.pending())
         {
             renderInvalidated = true;
             if (configChanged)
@@ -4116,13 +4085,7 @@ int runApplication(
                             renderer.backgroundCaptureRestartAllowed());
                     if (retryEligible)
                     {
-                        if (backgroundRetryToken
-                            == std::numeric_limits<std::uint64_t>::max())
-                        {
-                            throw std::runtime_error(
-                                "WGC retry token exhausted after Bloom resource recovery");
-                        }
-                        ++backgroundRetryToken;
+                        backgroundRetry.advanceToken("WGC retry token exhausted after Bloom resource recovery");
                     }
                     const std::array recoveryFields{
                         bafx::windows::DiagnosticField{
@@ -4221,7 +4184,7 @@ int runApplication(
             const bafx::windows::BackgroundCaptureRequest nextBackgroundRequest =
                 bafx::desktop::backgroundCaptureRequest(
                     config,
-                    backgroundRetryToken);
+                    backgroundRetry.token());
             const std::optional<bafx::windows::DisplayColorCapabilities>
                 targetColorObservation = displayTargetChanged
                 ? bafx::windows::queryDisplayColorCapabilities(
@@ -4293,7 +4256,7 @@ int runApplication(
                         borderlessAccessAuthority,
                         backgroundExecution,
                         logPath);
-                backgroundRetryPending = false;
+                backgroundRetry.finishRequest();
                 if (status
                     == bafx::desktop::BackgroundCaptureExecutionStatus::Completed)
                 {
@@ -4304,7 +4267,7 @@ int runApplication(
             }
             case bafx::windows::BackgroundCaptureRequestResult::NoChange:
                 appliedBackgroundRequest = nextBackgroundRequest;
-                backgroundRetryPending = false;
+                backgroundRetry.finishRequest();
                 break;
             case bafx::windows::BackgroundCaptureRequestResult::Busy:
                 throw std::logic_error(
@@ -5222,8 +5185,7 @@ int runApplication(
                         renderer.deviceInfo().driverType,
                         renderer.backgroundCaptureRestartAllowed());
                 if (backgroundRetryEligible
-                    && backgroundRetryToken
-                        == std::numeric_limits<std::uint64_t>::max())
+                    && backgroundRetry.exhausted())
                 {
                     const std::array failureFields{
                         bafx::windows::DiagnosticField{
@@ -5241,16 +5203,18 @@ int runApplication(
                 }
                 if (backgroundRetryEligible)
                 {
-                    ++backgroundRetryToken;
+                    backgroundRetry.request();
                 }
-                backgroundRetryPending = backgroundRetryEligible;
-                backgroundParticipationLogged = false;
-                backgroundPendingDiagnosticLogged = false;
+                else
+                {
+                    backgroundRetry.finishRequest();
+                }
+                backgroundObservation.reset();
                 std::string adapterState = adapterChanged
                     ? "changed"
                     : "same";
                 const std::string retryTokenText = std::to_string(
-                    backgroundRetryToken);
+                    backgroundRetry.token());
                 const bafx::windows::DeviceRecoveryDiagnostics diagnostics =
                     renderer.deviceRecoveryDiagnostics();
                 const std::string totalMicroseconds = std::to_string(
@@ -5271,7 +5235,7 @@ int runApplication(
                         backgroundCaptureWasActive ? "true" : "false"},
                     bafx::windows::DiagnosticField{
                         "WgcRetryPending",
-                        backgroundRetryPending ? "true" : "false"},
+                        backgroundRetry.pending() ? "true" : "false"},
                     bafx::windows::DiagnosticField{
                         "WgcStopUs",
                         backgroundStopMicroseconds},
@@ -5453,7 +5417,7 @@ int runApplication(
                     configurationIterationRejectedFrames > 0U;
             const bool firstBackgroundParticipation =
                 completedFrameDiagnostics.backgroundParticipated
-                && !backgroundParticipationLogged;
+                && !backgroundObservation.participationLogged;
             if (iterationRejected || firstBackgroundParticipation)
             {
                 // Rejected Session-local frames never participate in the
@@ -5468,7 +5432,7 @@ int runApplication(
                 ++backgroundCompositeFrames;
                 if (firstBackgroundParticipation)
                 {
-                    backgroundParticipationLogged = true;
+                    backgroundObservation.participationLogged = true;
                 }
             }
         }
@@ -5655,19 +5619,12 @@ int runApplication(
                         backgroundExecution.deviceRecoveryAdapterChanged,
                         renderer.deviceInfo().driverType,
                         renderer.backgroundCaptureRestartAllowed());
-                backgroundRetryPending = false;
+                backgroundRetry.finishRequest();
                 if (retryEligible)
                 {
-                    if (backgroundRetryToken
-                        == std::numeric_limits<std::uint64_t>::max())
-                    {
-                        throw std::runtime_error(
-                            "WGC retry token exhausted after frame pool recovery");
-                    }
-                    ++backgroundRetryToken;
-                    backgroundRetryPending = true;
+                    backgroundRetry.request("WGC retry token exhausted after frame pool recovery");
                     const std::string retryTokenText = std::to_string(
-                        backgroundRetryToken);
+                        backgroundRetry.token());
                     const std::array retryFields{
                         bafx::windows::DiagnosticField{
                             "RetryToken",
@@ -5690,8 +5647,8 @@ int runApplication(
         appendPendingBackgroundSnapshotInvalidation();
         if (lastPresentedDrawableContent
             && currentBackgroundCaptureActive
-            && !backgroundParticipationLogged
-            && !backgroundPendingDiagnosticLogged
+            && !backgroundObservation.participationLogged
+            && !backgroundObservation.pendingLogged
             && wallTime - applicationStartedAt >= std::chrono::seconds(1))
         {
             std::string diagnostic =
@@ -5699,7 +5656,7 @@ int runApplication(
             diagnostic += backgroundCompositeStatusName(
                 renderer.backgroundCompositeStatus());
             bafx::windows::appendDiagnosticLog(logPath, diagnostic);
-            backgroundPendingDiagnosticLogged = true;
+            backgroundObservation.pendingLogged = true;
         }
         if (shouldRender)
         {

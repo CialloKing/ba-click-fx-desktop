@@ -218,6 +218,7 @@ signature. `-SkipBuild` only applies when the matching Full or Slim outputs alre
 | Effects configuration field registration and types | [`effects_fields.hpp`](../src/config/src/effects_fields.hpp) |
 | Display runtime snapshot collection | [`display_runtime_summary.cpp`](../src/desktop/display_runtime_summary.cpp) |
 | Secondary display capture, recovery and frame dispatch | [`secondary_display_runtime.cpp`](../src/desktop/secondary_display_runtime.cpp) |
+| WGC retry identity, pending state and output retry budgets | [`host_recovery_state.hpp`](../src/desktop/host_recovery_state.hpp) |
 | Shared visual configuration mapping for all displays | [`frame_visual_config.cpp`](../src/desktop/frame_visual_config.cpp) |
 | Display output negotiation and retry diagnostics | [`display_output_diagnostics.cpp`](../src/desktop/display_output_diagnostics.cpp) |
 | Renderer diagnostics to performance samples | [`performance_samples.cpp`](../src/desktop/performance_samples.cpp) |
