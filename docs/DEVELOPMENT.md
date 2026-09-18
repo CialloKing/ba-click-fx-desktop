@@ -203,6 +203,7 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File .\tools\package-user-installer.ps1
 |---|---|
 | 控制中心窗口、命令与连接协调 | [`control_center_window.cpp`](../src/control-center/control_center_window.cpp) |
 | 字体、控件布局与页面可见性 | [`control_center_window_layout.cpp`](../src/control-center/control_center_window_layout.cpp) |
+| 控件差量回填与列表内容同步 | [`control_updates.cpp`](../src/control-center/control_updates.cpp) |
 | 滑块绑定与页面控件描述 | [`control_center_controls.cpp`](../src/control-center/control_center_controls.cpp) |
 | 显示状态呈现与逐屏策略操作 | [`control_center_display.cpp`](../src/control-center/control_center_display.cpp) |
 | 显示页后台读取、解析与过期结果丢弃 | [`display_state_poller.cpp`](../src/control-center/display_state_poller.cpp) |
@@ -240,6 +241,10 @@ Host 控制面、快捷键和特效预设共用 `bafx::host_control`；背景捕
 滑块的范围、步长、配置路径、读取函数与页面归属统一登记；页面控件描述复用字体和显隐逻辑，
 具体布局仍在布局模块维护。特效字段注册表同时驱动允许字段、普通字段的必填读取、补丁分派与 JSON 输出，
 并保留原有读取和报错顺序；归一化、跨字段校验和历史 schema 迁移保留在配置解析器中。
+
+控件回填比较原生控件的当前文本、数值、选项和启用状态，避免重复发送更新消息；
+预设与显示器列表仅在文字或项目身份变化时重建。比较实际控件可恢复被拒绝的乐观修改，
+同时保留待提交的滑块、拖动位置、颜色输入及原有快捷键和预设草稿。语言切换继续独立重译。
 
 显示页仅在已连接、可见且未最小化时请求后台 `GetDisplayState`，单个工作线程完成 IPC 和 JSON 解析。
 重复请求合并，页面切换、断开和完整刷新使旧请求失效，控件只在 UI 线程更新。完整刷新仍保留

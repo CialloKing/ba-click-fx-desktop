@@ -216,6 +216,7 @@ signature. `-SkipBuild` only applies when the matching Full or Slim outputs alre
 |---|---|
 | Control Center window, commands and connection coordination | [`control_center_window.cpp`](../src/control-center/control_center_window.cpp) |
 | Fonts, control layout and page visibility | [`control_center_window_layout.cpp`](../src/control-center/control_center_window_layout.cpp) |
+| Incremental control updates and list synchronization | [`control_updates.cpp`](../src/control-center/control_updates.cpp) |
 | Slider bindings and page control descriptors | [`control_center_controls.cpp`](../src/control-center/control_center_controls.cpp) |
 | Display status presentation and per-display policy actions | [`control_center_display.cpp`](../src/control-center/control_center_display.cpp) |
 | Background display reads, parsing and stale-result rejection | [`display_state_poller.cpp`](../src/control-center/display_state_poller.cpp) |
@@ -255,6 +256,11 @@ Slider descriptors register ranges, steps, configuration paths, readers and page
 Page control descriptors also drive fonts and visibility; geometry stays in the layout module. The effects field
 registry drives allowed keys, required reads of ordinary fields, patch dispatch and JSON output in the established
 read/error order. Normalization, cross-field validation and historical schema migrations remain in the configuration parser.
+
+Control updates compare native text, values, selection and enabled state before sending changes.
+Profile and display lists rebuild only when labels or item identities change. Comparing actual controls also
+repairs rejected optimistic edits, while preserving pending sliders, active drags, color input and existing
+hotkey/profile drafts. Language changes still retranslate independently.
 
 The display page requests background `GetDisplayState` reads only while connected, visible and not minimized.
 One worker performs IPC and JSON parsing, coalescing duplicate requests. Page changes, disconnects and full refreshes

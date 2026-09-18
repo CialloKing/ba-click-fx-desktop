@@ -1,4 +1,5 @@
 #include "control_center_window.hpp"
+#include "control_updates.hpp"
 
 #include <algorithm>
 
@@ -233,16 +234,16 @@ void ControlCenterWindow::updateHotkeyControls()
         }
         setText(hotkeyValues_[index], text.c_str());
         setText(hotkeyStatuses_[index], status.c_str());
-        EnableWindow(hotkeyRecord_[index], connected_ && !recording
+        setControlEnabled(hotkeyRecord_[index], connected_ && !recording
             && !hotkeyDraftConflicted_);
-        EnableWindow(hotkeyClear_[index], connected_ && !recording
+        setControlEnabled(hotkeyClear_[index], connected_ && !recording
             && !hotkeyDraftConflicted_);
     }
-    EnableWindow(hotkeySave_, connected_ && hotkeyDraftDirty_ && !recording
+    setControlEnabled(hotkeySave_, connected_ && hotkeyDraftDirty_ && !recording
         && !duplicateBindings && !hotkeyDraftConflicted_);
-    EnableWindow(hotkeyRevert_, connected_ && hotkeyDraftDirty_ && !recording);
-    EnableWindow(hotkeyRetry_, connected_ && !hotkeyDraftDirty_ && !recording);
-    EnableWindow(hotkeyCancel_, recording);
+    setControlEnabled(hotkeyRevert_, connected_ && hotkeyDraftDirty_ && !recording);
+    setControlEnabled(hotkeyRetry_, connected_ && !hotkeyDraftDirty_ && !recording);
+    setControlEnabled(hotkeyCancel_, recording);
 }
 
 bool ControlCenterWindow::refreshHotkeys(

@@ -1,4 +1,5 @@
 #include "control_center_window.hpp"
+#include "control_updates.hpp"
 #include "product/version.hpp"
 
 #include <commctrl.h>
@@ -43,7 +44,7 @@ void ControlCenterWindow::setText(const HWND control, const UiMessage& message) 
         localizedTexts_.insert_or_assign(control, message);
     }
     const std::wstring text = message.render();
-    SetWindowTextW(control, text.c_str());
+    setControlText(control, text);
 }
 
 void ControlCenterWindow::changeLanguage()
@@ -89,7 +90,7 @@ void ControlCenterWindow::retranslateUi()
     for (const auto& [control, message] : localizedTexts_)
     {
         const std::wstring text = message.render();
-        SetWindowTextW(control, text.c_str());
+        setControlText(control, text);
     }
     translateCombo(effectsMode_, {TextId::FullEffects, TextId::CoreEffects});
     translateCombo(backgroundMode_, {TextId::BackgroundAware, TextId::RecordingCompatible, TextId::LightBackground});
@@ -121,7 +122,7 @@ void ControlCenterWindow::retranslateUi()
     updateObsPluginPresentation();
 #endif
     const std::wstring info = infoTitle_.render() + L"\r\n" + infoMessage_.render();
-    SetWindowTextW(messageText_, info.c_str());
+    setControlText(messageText_, info);
     if (trayIconAdded_)
     {
         NOTIFYICONDATAW icon{};

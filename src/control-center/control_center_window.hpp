@@ -607,6 +607,8 @@ private:
     bool hostShutdownPending_{false};
     bool hostShutdownCommandAcknowledged_{false};
     bool updatingControls_{false};
+    bool controlsInitialized_{false};
+    bool themeColorDraftDirty_{false};
     bool interactiveMoveResize_{false};
     bool trayIconAdded_{false};
     Page activePage_{Page::Basic};

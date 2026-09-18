@@ -1,5 +1,6 @@
 #include "control_center_display.hpp"
 #include "control_center_window.hpp"
+#include "control_updates.hpp"
 #include "config_commands.hpp"
 
 #include <algorithm>
@@ -563,17 +564,14 @@ void ControlCenterWindow::updateDisplayControls(
     const bafx::config::Config& config)
 {
     setChecked(hdrEnabled_, config.display.hdrEnabled);
-    static_cast<void>(SendMessageW(
-        framePacing_,
-        CB_SETCURSEL,
-        framePacingIndex(config.performance.framePacing),
-        0));
+    setComboSelection(framePacing_, framePacingIndex(config.performance.framePacing));
 
-    static_cast<void>(SendMessageW(displaySelector_, CB_RESETCONTENT, 0U, 0));
+    std::vector<ComboItem> items;
     if (!displayStateError_.empty()
         || (displayState_.sessions.empty()
             && displayState_.offlineOverrides.empty()))
     {
+        static_cast<void>(updateComboItems(displaySelector_, items));
         updateDisplayPolicyControls();
         updateDisplayDetails();
         return;
@@ -605,27 +603,8 @@ void ControlCenterWindow::updateDisplayControls(
             label += tr(TextId::CoordinatorSuffix);
         }
 
-        const LRESULT comboIndex = SendMessageW(
-            displaySelector_,
-            CB_ADDSTRING,
-            0U,
-            reinterpret_cast<LPARAM>(label.c_str()));
-        if (comboIndex == CB_ERR || comboIndex == CB_ERRSPACE)
-        {
-            displayStateError_ = TextId::DisplayAllocationFailed;
-            static_cast<void>(SendMessageW(
-                displaySelector_,
-                CB_RESETCONTENT,
-                0U,
-                0));
-            updateDisplayDetails();
-            return;
-        }
-        static_cast<void>(SendMessageW(
-            displaySelector_,
-            CB_SETITEMDATA,
-            static_cast<WPARAM>(comboIndex),
-            static_cast<LPARAM>(index)));
+        const auto comboIndex = static_cast<LRESULT>(items.size());
+        items.push_back({std::move(label), static_cast<LPARAM>(index)});
 
         if (displaySessionIdentity(session) == selectedDisplayIdentity_)
         {
@@ -649,30 +628,10 @@ void ControlCenterWindow::updateDisplayControls(
             displayState_.offlineOverrides[index];
         const std::wstring label = tr(TextId::OfflineOverridePrefix)
             + utf8ToWide(overrideConfig.displayKey);
-        const LRESULT comboIndex = SendMessageW(
-            displaySelector_,
-            CB_ADDSTRING,
-            0U,
-            reinterpret_cast<LPARAM>(label.c_str()));
-        if (comboIndex == CB_ERR || comboIndex == CB_ERRSPACE)
-        {
-            displayStateError_ = TextId::DisplayAllocationFailed;
-            static_cast<void>(SendMessageW(
-                displaySelector_,
-                CB_RESETCONTENT,
-                0U,
-                0));
-            updateDisplayDetails();
-            return;
-        }
+        const auto comboIndex = static_cast<LRESULT>(items.size());
+        // Offline policies keep a separate item-data range from active sessions.
+        items.push_back({label, static_cast<LPARAM>(offlineDisplayItemBase + index)});
 
-        // Keep disconnected policies outside the active-session index range.
-        // The item remains removable without pretending it has runtime state.
-        static_cast<void>(SendMessageW(
-            displaySelector_,
-            CB_SETITEMDATA,
-            static_cast<WPARAM>(comboIndex),
-            static_cast<LPARAM>(offlineDisplayItemBase + index)));
         if (offlineDisplayIdentity(overrideConfig)
             == selectedDisplayIdentity_)
         {
@@ -680,6 +639,13 @@ void ControlCenterWindow::updateDisplayControls(
         }
     }
 
+    if (!updateComboItems(displaySelector_, items))
+    {
+        displayStateError_ = TextId::DisplayAllocationFailed;
+        updateDisplayPolicyControls();
+        updateDisplayDetails();
+        return;
+    }
     if (selectedIndex == CB_ERR)
     {
         selectedIndex = primaryIndex != CB_ERR
@@ -690,11 +656,7 @@ void ControlCenterWindow::updateDisplayControls(
     {
         selectedIndex = 0;
     }
-    static_cast<void>(SendMessageW(
-        displaySelector_,
-        CB_SETCURSEL,
-        static_cast<WPARAM>(selectedIndex),
-        0));
+    setComboSelection(displaySelector_, selectedIndex);
     updateDisplayPolicyControls();
     updateDisplayDetails();
 }
@@ -745,23 +707,19 @@ void ControlCenterWindow::updateDisplayPolicyControls() noexcept
     setChecked(displayIndependent_, independent);
     setChecked(displayEffectsEnabled_, policy.enabled);
     setChecked(displayHdrEnabled_, policy.hdrEnabled);
-    static_cast<void>(SendMessageW(
-        displayFramePacing_,
-        CB_SETCURSEL,
-        framePacingIndex(policy.framePacing),
-        0));
+    setComboSelection(displayFramePacing_, framePacingIndex(policy.framePacing));
 
     const bool canWrite = connected_ && displayKey != nullptr;
-    EnableWindow(displayIndependent_, canWrite ? TRUE : FALSE);
+    setControlEnabled(displayIndependent_, canWrite ? TRUE : FALSE);
     const BOOL policyEnabled = canWrite
             && independent
             && offlineOverride == nullptr
         ? TRUE
         : FALSE;
-    EnableWindow(displayEffectsEnabled_, policyEnabled);
-    EnableWindow(displayHdrEnabled_, policyEnabled);
-    EnableWindow(displayFramePacingLabel_, policyEnabled);
-    EnableWindow(displayFramePacing_, policyEnabled);
+    setControlEnabled(displayEffectsEnabled_, policyEnabled);
+    setControlEnabled(displayHdrEnabled_, policyEnabled);
+    setControlEnabled(displayFramePacingLabel_, policyEnabled);
+    setControlEnabled(displayFramePacing_, policyEnabled);
 
     updatingControls_ = wasUpdating;
 }

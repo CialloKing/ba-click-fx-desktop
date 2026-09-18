@@ -95,6 +95,32 @@ void writeUiBitmap(const HWND window, const std::wstring& name)
     BAFX_CHECK(file.good());
 }
 
+struct RefreshWrites
+{
+    unsigned text{0U};
+    unsigned sliders{0U};
+    unsigned lists{0U};
+};
+
+LRESULT CALLBACK countRefreshWrites(HWND window, UINT message, WPARAM wParam,
+    LPARAM lParam, UINT_PTR, DWORD_PTR data)
+{
+    auto& writes = *reinterpret_cast<RefreshWrites*>(data);
+    if (message == WM_SETTEXT)
+    {
+        ++writes.text;
+    }
+    if (message == TBM_SETPOS)
+    {
+        ++writes.sliders;
+    }
+    if (message == CB_RESETCONTENT)
+    {
+        ++writes.lists;
+    }
+    return DefSubclassProc(window, message, wParam, lParam);
+}
+
 thread_local std::vector<std::wstring> dialogTexts;
 void CALLBACK captureDialog(const HWND dialog, UINT, const UINT_PTR timer, DWORD)
 {
@@ -244,6 +270,37 @@ struct ControlCenterUiTest
         ui.displayState_.sessions = {display};
         ui.updateControls(state, ui.config_);
         ui.updateHostVersionText(state);
+        {
+            RefreshWrites writes;
+            for (HWND child = GetWindow(ui.window_, GW_CHILD); child != nullptr; child = GetWindow(child, GW_HWNDNEXT))
+            {
+                BAFX_CHECK(SetWindowSubclass(child, countRefreshWrites, 1U, reinterpret_cast<DWORD_PTR>(&writes)));
+            }
+            ui.updateControls(state, ui.config_);
+            BAFX_CHECK(writes.text == 0U && writes.sliders == 0U && writes.lists == 0U);
+            auto changed = ui.config_;
+            changed.effects.opacity = 0.5F;
+            ui.updateControls(state, changed);
+            BAFX_CHECK(writes.sliders == 1U && writes.lists == 0U);
+
+            SetWindowTextW(ui.themeColorEdit_, L"#12ab");
+            auto& slider = ui.*ui.sliderDescriptors().front().control;
+            SendMessageW(slider.trackbar, TBM_SETPOS, TRUE, 3);
+            ui.pendingPatch_ = ControlCenterWindow::PendingPatch{state.generation, slider.path, "3"};
+            ui.updateControls(state, changed);
+            BAFX_CHECK(caption(ui.themeColorEdit_) == L"#12ab");
+            BAFX_CHECK(SendMessageW(slider.trackbar, TBM_GETPOS, 0U, 0) == 3);
+            ui.pendingPatch_.reset();
+            // Even with the same Host snapshot, repair a rejected optimistic
+            // control value once it is no longer an uncommitted local edit.
+            writes = {};
+            ui.updateControls(state, changed);
+            BAFX_CHECK(writes.sliders == 1U && writes.lists == 0U);
+            for (HWND child = GetWindow(ui.window_, GW_CHILD); child != nullptr; child = GetWindow(child, GW_HWNDNEXT))
+            {
+                RemoveWindowSubclass(child, countRefreshWrites, 1U);
+            }
+        }
         SetWindowTextW(ui.themeColorEdit_, L"#12ab");
         SetWindowTextW(ui.fxProfileNameEdit_, L"我的 {0} draft");
         setUiLanguage(UiLanguage::SimplifiedChinese);

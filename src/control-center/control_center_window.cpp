@@ -1,4 +1,5 @@
 #include "control_center_window.hpp"
+#include "control_updates.hpp"
 
 #include "config_commands.hpp"
 #include "control_center_layout.hpp"
@@ -553,8 +554,8 @@ bool ControlCenterWindow::create(
         setText(
             latestVersionText_,
             TextId::LatestCheckerUnavailable);
-        EnableWindow(checkForUpdatesButton_, FALSE);
-        EnableWindow(openReleaseButton_, FALSE);
+        setControlEnabled(checkForUpdatesButton_, FALSE);
+        setControlEnabled(openReleaseButton_, FALSE);
     }
 
     RECT client{};
@@ -2098,11 +2099,7 @@ void ControlCenterWindow::onCommand(
                         generation_);
                     const int previousIndex = renderModeIndex(
                         config_.background.mode);
-                    static_cast<void>(SendMessageW(
-                        backgroundMode_,
-                        CB_SETCURSEL,
-                        previousIndex < 0 ? 0 : previousIndex,
-                        0));
+                    setComboSelection(backgroundMode_, previousIndex < 0 ? 0 : previousIndex);
                     if (!availability.versionQuerySucceeded)
                     {
                         localizedMessageBox(
@@ -2405,6 +2402,10 @@ void ControlCenterWindow::onCommand(
     case ControlId::TrailOpacity:
         break;
     case ControlId::ThemeColorEdit:
+        if (notificationCode == EN_CHANGE)
+        {
+            themeColorDraftDirty_ = true;
+        }
         if (notificationCode == EN_KILLFOCUS
             || notificationCode == themeColorReturnNotification)
         {
@@ -2447,6 +2448,7 @@ void ControlCenterWindow::commitThemeColor()
     }
     if (!connected_)
     {
+        themeColorDraftDirty_ = false;
         setText(
             themeColorEdit_,
             utf8ToWide(config_.effects.themeColor).c_str());
@@ -2475,6 +2477,7 @@ void ControlCenterWindow::commitThemeColor()
     {
         return;
     }
+    themeColorDraftDirty_ = false;
     applyPatchRequest(fxPatchRequest(
         generation_,
         "effects.themeColor",
@@ -2634,8 +2637,8 @@ void ControlCenterWindow::beginManualUpdateCheck()
     {
         updateChecker_->cancel();
         setText(latestVersionText_, TextId::LatestCheckFailed);
-        EnableWindow(checkForUpdatesButton_, TRUE);
-        EnableWindow(openReleaseButton_, FALSE);
+        setControlEnabled(checkForUpdatesButton_, TRUE);
+        setControlEnabled(openReleaseButton_, FALSE);
         setError(TextId::CheckerMonitorFailed);
         return;
     }
@@ -2657,8 +2660,8 @@ void ControlCenterWindow::pollManualUpdateCheck()
     const bool updateAvailable =
         snapshot.status
         == bafx::release_update::UpdateCheckStatus::UpdateAvailable;
-    EnableWindow(checkForUpdatesButton_, checking ? FALSE : TRUE);
-    EnableWindow(openReleaseButton_, updateAvailable ? TRUE : FALSE);
+    setControlEnabled(checkForUpdatesButton_, checking ? FALSE : TRUE);
+    setControlEnabled(openReleaseButton_, updateAvailable ? TRUE : FALSE);
 
     UiMessage latestText(TextId::LatestVersionLabel);
     switch (snapshot.status)
@@ -3218,6 +3221,8 @@ void ControlCenterWindow::updateControls(
     const HostState& state,
     const bafx::config::Config& config)
 {
+    const bool themeColorChanged = !controlsInitialized_
+        || config_.effects.themeColor != config.effects.themeColor;
     presentationState_ = state;
     generation_ = state.generation;
     paused_ = state.paused;
@@ -3252,11 +3257,7 @@ void ControlCenterWindow::updateControls(
     }
 
     setChecked(effectsEnabled_, config.effects.enabled);
-    static_cast<void>(SendMessageW(
-        effectsMode_,
-        CB_SETCURSEL,
-        effectsModeIndex(config.performance.effectsMode),
-        0));
+    setComboSelection(effectsMode_, effectsModeIndex(config.performance.effectsMode));
     setChecked(clickEnabled_, config.effects.clickEnabled);
     setChecked(trailEnabled_, config.effects.trailEnabled);
     setChecked(diskLayerEnabled_, config.effects.diskLayerEnabled);
@@ -3275,23 +3276,27 @@ void ControlCenterWindow::updateControls(
     setChecked(middleClickEnabled_, config.input.middleClick);
     for (const auto& descriptor : sliderDescriptors())
     {
-        setSliderValue(this->*descriptor.control, descriptor.read(config));
+        auto& slider = this->*descriptor.control;
+        // A Host refresh must not overwrite the next debounced edit or the
+        // thumb that the user is still dragging while a previous edit commits.
+        if ((!pendingPatch_.has_value() || pendingPatch_->path != slider.path)
+            && GetCapture() != slider.trackbar)
+        {
+            setSliderValue(slider, descriptor.read(config));
+        }
     }
-    setText(
-        themeColorEdit_,
-        utf8ToWide(config.effects.themeColor).c_str());
-    InvalidateRect(themeColorPreview_, nullptr, TRUE);
-    static_cast<void>(SendMessageW(
-        bloomQuality_,
-        CB_SETCURSEL,
-        qualityIndex(bafx::config::bloomQualityForDiffusion(
-            config.effects.bloomDiffusion)),
-        0));
-    static_cast<void>(SendMessageW(
-        backgroundMode_,
-        CB_SETCURSEL,
-        renderModeIndex(config.background.mode),
-        0));
+    if (!themeColorDraftDirty_)
+    {
+        setText(themeColorEdit_, utf8ToWide(config.effects.themeColor).c_str());
+    }
+    if (themeColorChanged)
+    {
+        InvalidateRect(themeColorPreview_, nullptr, TRUE);
+    }
+    controlsInitialized_ = true;
+    setComboSelection(bloomQuality_, qualityIndex(bafx::config::bloomQualityForDiffusion(
+            config.effects.bloomDiffusion)));
+    setComboSelection(backgroundMode_, renderModeIndex(config.background.mode));
     setChecked(cursorExcluded_, config.background.cursorExcluded);
     setChecked(
         allowSystemBorder_,
@@ -3337,27 +3342,17 @@ void ControlCenterWindow::updateControls(
 void ControlCenterWindow::updateFxProfileControls(const HostState& state)
 {
     fxProfiles_ = state.fxProfiles;
-    static_cast<void>(SendMessageW(
-        fxProfileSelector_,
-        CB_RESETCONTENT,
-        0U,
-        0));
-    static_cast<void>(SendMessageW(
-        fxProfileSelector_,
-        CB_ADDSTRING,
-        0U,
-        reinterpret_cast<LPARAM>(tr(TextId::Custom))));
+    std::vector<ComboItem> items{{tr(TextId::Custom)}};
+    for (const auto& profile : fxProfiles_)
+    {
+        items.push_back({profileDisplayName(profile.name, profile.builtIn)});
+    }
+    static_cast<void>(updateComboItems(fxProfileSelector_, items));
 
     LRESULT activeIndex = 0;
     for (std::size_t index = 0U; index < fxProfiles_.size(); ++index)
     {
         const FxProfileState& profile = fxProfiles_[index];
-        const std::wstring name = profileDisplayName(profile.name, profile.builtIn);
-        static_cast<void>(SendMessageW(
-            fxProfileSelector_,
-            CB_ADDSTRING,
-            0U,
-            reinterpret_cast<LPARAM>(name.c_str())));
         if (profile.name == state.activeFxProfile)
         {
             activeIndex = static_cast<LRESULT>(index + 1U);
@@ -3390,11 +3385,7 @@ void ControlCenterWindow::updateFxProfileControls(const HostState& state)
             }
         }
     }
-    static_cast<void>(SendMessageW(
-        fxProfileSelector_,
-        CB_SETCURSEL,
-        static_cast<WPARAM>(selectedIndex),
-        0));
+    setComboSelection(fxProfileSelector_, selectedIndex);
 
     const FxProfileState* const active = selectedFxProfile();
     if (!fxProfileNameDirty_)
@@ -3421,19 +3412,19 @@ void ControlCenterWindow::updateFxProfileActionState() const noexcept
     const bool hasName = fxProfileNameEdit_ != nullptr
         && GetWindowTextLengthW(fxProfileNameEdit_) > 0;
 
-    EnableWindow(
+    setControlEnabled(
         fxProfileSelector_,
         profileControlsEnabled ? TRUE : FALSE);
-    EnableWindow(
+    setControlEnabled(
         fxProfileNameEdit_,
         profileControlsEnabled ? TRUE : FALSE);
-    EnableWindow(
+    setControlEnabled(
         applyFxProfileButton_,
         profileControlsEnabled && selected != nullptr ? TRUE : FALSE);
-    EnableWindow(
+    setControlEnabled(
         saveFxProfileButton_,
         profileControlsEnabled && hasName ? TRUE : FALSE);
-    EnableWindow(
+    setControlEnabled(
         deleteFxProfileButton_,
         profileControlsEnabled
                 && selected != nullptr
@@ -4221,10 +4212,10 @@ void ControlCenterWindow::updateHostLifecycleButton() const noexcept
             : (hostStartPending_ ? TextId::Starting : TextId::StartHost));
     setText(hostLifecycleButton_, text);
     const BOOL lifecycleEnabled = hostShutdownPending_ ? FALSE : TRUE;
-    EnableWindow(hostLifecycleButton_, lifecycleEnabled);
+    setControlEnabled(hostLifecycleButton_, lifecycleEnabled);
     if (refreshButton_ != nullptr)
     {
-        EnableWindow(refreshButton_, lifecycleEnabled);
+        setControlEnabled(refreshButton_, lifecycleEnabled);
     }
 }
 
@@ -4427,7 +4418,7 @@ void ControlCenterWindow::setConnected(const bool connected) noexcept
     {
         if (control != nullptr)
         {
-            EnableWindow(control, enabled);
+            setControlEnabled(control, enabled);
         }
     }
     for (const auto& descriptor : sliderDescriptors())
@@ -4435,10 +4426,10 @@ void ControlCenterWindow::setConnected(const bool connected) noexcept
         const auto& slider = this->*descriptor.control;
         if (slider.trackbar != nullptr)
         {
-            EnableWindow(slider.trackbar, enabled);
+            setControlEnabled(slider.trackbar, enabled);
         }
     }
-    EnableWindow(clearLogsButton_, TRUE);
+    setControlEnabled(clearLogsButton_, TRUE);
     updateFxProfileActionState();
     if (!connected)
     {
@@ -4468,7 +4459,7 @@ void ControlCenterWindow::setConnected(const bool connected) noexcept
         const bool selectorEnabled = connected
             && displayStateError_.empty()
             && !displayState_.sessions.empty();
-        EnableWindow(displaySelector_, selectorEnabled ? TRUE : FALSE);
+        setControlEnabled(displaySelector_, selectorEnabled ? TRUE : FALSE);
     }
     updateDisplayPolicyControls();
     updateHotkeyControls();
@@ -4502,7 +4493,7 @@ void ControlCenterWindow::setInfo(
     infoTitle_ = title;
     infoMessage_ = message;
     const std::wstring text = title.render() + L"\r\n" + message.render();
-    SetWindowTextW(messageText_, text.c_str());
+    setControlText(messageText_, text);
 }
 
 void ControlCenterWindow::setError(const UiMessage& message)
@@ -4514,7 +4505,7 @@ void ControlCenterWindow::clearInfo() noexcept
 {
     infoTitle_ = UiMessage{};
     infoMessage_ = UiMessage{};
-    SetWindowTextW(messageText_, L"");
+    setControlText(messageText_, L"");
 }
 
 bool ControlCenterWindow::isChecked(const HWND control) const noexcept
@@ -4526,11 +4517,11 @@ void ControlCenterWindow::setChecked(
     const HWND control,
     const bool checked) const noexcept
 {
-    static_cast<void>(SendMessageW(
-        control,
-        BM_SETCHECK,
-        checked ? BST_CHECKED : BST_UNCHECKED,
-        0));
+    if (isChecked(control) != checked)
+    {
+        static_cast<void>(SendMessageW(
+            control, BM_SETCHECK, checked ? BST_CHECKED : BST_UNCHECKED, 0));
+    }
 }
 
 double ControlCenterWindow::sliderValue(const SliderControl& slider) const noexcept
@@ -4549,7 +4540,10 @@ void ControlCenterWindow::setSliderValue(
     const double clamped = std::clamp(value, slider.minimum, slider.maximum);
     const int position = static_cast<int>(std::lround(
         (clamped - slider.minimum) / slider.step));
-    static_cast<void>(SendMessageW(slider.trackbar, TBM_SETPOS, TRUE, position));
+    if (SendMessageW(slider.trackbar, TBM_GETPOS, 0U, 0) != position)
+    {
+        static_cast<void>(SendMessageW(slider.trackbar, TBM_SETPOS, TRUE, position));
+    }
     updateSliderValueText(slider);
 }
 

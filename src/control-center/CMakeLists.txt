@@ -11,6 +11,7 @@ add_library(
     bafx_control_center_ui
     STATIC
         config_commands.cpp
+        control_updates.cpp
         control_center_diagnostics.cpp
         control_center_controls.cpp
         control_center_display.cpp
