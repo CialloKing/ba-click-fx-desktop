@@ -36,6 +36,15 @@ Configuration schema 20, log schema 2 and effects profiles remain compatible. **
 
 To report a problem, reproduce on 0.2.19 and note the steps and time. Use **System → Open log folder** to collect both Host and Control Center logs, their remaining rotated backups, and `BAFX.config.json`. Installation/uninstallation failures require the separate detailed log referenced by the error dialog. For visual issues, include before/after images or a recording. Check local paths and other personal information before posting logs publicly.
 
+## 验证 / Validation
+
+- Windows SDK `10.0.28000.0`：Full/Slim Release 干净构建通过，无编译器警告或错误；CTest Full **46/46**、Slim **45/45** 全部通过。
+- 文档、便携包清单/版本/哈希/PE 依赖、Host 与控制中心启动检查通过；安装器版本、PE 依赖及未签名身份模板检查通过。
+- 从实际便携 ZIP 解包运行演示，确认 0.2.19 版本、新增诊断事件、模拟计数、Present 及正常退出末次刷新。未发现重复字段、超限记录或诊断格式化失败。
+- 安装器自动验证不等同于反馈者机器上的安装/升级/卸载验收；演示关闭 Raw Input，不构成 Issue #1/#2 或最终可见像素的实机验收。
+
+Full/Slim clean Release builds passed on SDK `10.0.28000.0` without compiler warnings or errors; CTest passed **46/46** and **45/45**. Documentation, Portable contents/version/hashes/dependencies/startup, and installer version/dependencies/unsigned identity-template checks passed. A demo run from the actual Portable ZIP verified the new diagnostics and final flush. Installer automation and the demo do not establish affected-machine installation/upgrade/uninstallation or Issue #1/#2 acceptance.
+
 ## 下载 / Downloads
 
 Full 版安装器、便携 ZIP 及各自的 SHA-256 校验文件。Slim 完成构建与测试，不上传预编译资产。
