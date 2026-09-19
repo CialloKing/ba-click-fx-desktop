@@ -366,6 +366,10 @@ Each process's diagnostic log rotates at 8 MiB and keeps up to three backups (ab
 The System page can open the log folder and clear both Control Center and Host logs after confirmation.
 While disconnected, cleanup handles only Control Center logs. When reporting a problem, provide both
 current logs and any remaining backups. See [SUPPORT.md](../SUPPORT.md) for event and sampling details.
+Current source builds also correlate input health, routing, simulation decisions, foreground and surface
+state, scheduling, and per-session Present counts. Input activity is aggregated at most once per second;
+window state is sampled at most every 250 ms, with 10-second idle heartbeats. These observations do not
+establish visible DWM pixels. See the [runtime logging guide (Chinese)](diagnostics/runtime-logging.md).
 
 ## IPC examples
 
