@@ -9,6 +9,7 @@
 namespace bafx::control_center
 {
 
+[[nodiscard]] bafx::windows::IpcClientOptions controlCenterIpcOptions();
 [[nodiscard]] const std::filesystem::path& controlCenterLogPath();
 void logControlCenterEvent(std::string_view event,
     std::initializer_list<bafx::windows::DiagnosticField> fields = {},

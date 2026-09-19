@@ -10,6 +10,15 @@
 
 namespace bafx::control_center
 {
+
+bafx::windows::IpcClientOptions controlCenterIpcOptions()
+{
+    bafx::windows::IpcClientOptions options{};
+    // Bound UI command acknowledgements and background-reader shutdown alike.
+    options.timeoutMilliseconds = 100U;
+    return options;
+}
+
 namespace
 {
 const ULONGLONG processStartedAt = GetTickCount64();

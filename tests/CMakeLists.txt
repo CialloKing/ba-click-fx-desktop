@@ -643,6 +643,7 @@ if(WIN32)
         display_state_tests.cpp
         display_state_poller_tests.cpp
         host_state_tests.cpp
+        host_snapshot_poller_tests.cpp
         obs_spout_plugin_probe_tests.cpp
         package_activation_tests.cpp
         startup_config_tests.cpp

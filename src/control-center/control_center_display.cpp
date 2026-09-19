@@ -709,7 +709,8 @@ void ControlCenterWindow::updateDisplayPolicyControls() noexcept
     setChecked(displayHdrEnabled_, policy.hdrEnabled);
     setComboSelection(displayFramePacing_, framePacingIndex(policy.framePacing));
 
-    const bool canWrite = connected_ && displayKey != nullptr;
+    const bool canWrite = connected_ && hostSnapshotCurrent_ && displayStateCurrent_
+        && displayKey != nullptr;
     setControlEnabled(displayIndependent_, canWrite ? TRUE : FALSE);
     const BOOL policyEnabled = canWrite
             && independent
@@ -1108,6 +1109,10 @@ void ControlCenterWindow::removeSelectedDisplayOverride()
 
 void ControlCenterWindow::applyDisplayPolicyCommand(std::string command)
 {
+    if (!requireCurrentSnapshot() || !displayStateCurrent_)
+    {
+        return;
+    }
     if (!connected_)
     {
         updateDisplayPolicyControls();
@@ -1115,21 +1120,23 @@ void ControlCenterWindow::applyDisplayPolicyCommand(std::string command)
         return;
     }
 
+    invalidateHostRefresh();
     const bafx::windows::IpcClientResponse response = client_.transact(command);
     if (response.succeeded())
     {
-        static_cast<void>(refreshFromHost());
+        confirmHostMutation();
+        requestHostRefresh();
         return;
     }
     if (response.errorCode == "generation_conflict")
     {
-        static_cast<void>(refreshFromHost());
+        requestHostRefresh();
         setInfo(TextId::ConfigChanged, TextId::ConfigRefreshed);
         return;
     }
 
     const UiMessage error = describeResponse(response);
-    static_cast<void>(refreshFromHost());
+    requestHostRefresh();
     setError(error);
 }
 

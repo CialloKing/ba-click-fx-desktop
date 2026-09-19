@@ -239,7 +239,7 @@ void ControlCenterWindow::updateHotkeyControls()
         setControlEnabled(hotkeyClear_[index], connected_ && !recording
             && !hotkeyDraftConflicted_);
     }
-    setControlEnabled(hotkeySave_, connected_ && hotkeyDraftDirty_ && !recording
+    setControlEnabled(hotkeySave_, connected_ && hostSnapshotCurrent_ && hotkeyDraftDirty_ && !recording
         && !duplicateBindings && !hotkeyDraftConflicted_);
     setControlEnabled(hotkeyRevert_, connected_ && hotkeyDraftDirty_ && !recording);
     setControlEnabled(hotkeyRetry_, connected_ && !hotkeyDraftDirty_ && !recording);
@@ -267,6 +267,12 @@ bool ControlCenterWindow::refreshHotkeys(
         setError(TextId::InvalidHostHotkeys);
         updateHotkeyControls();
         return false;
+    }
+    if (parsed.state->generation != generation_)
+    {
+        invalidateHostRefresh();
+        generation_ = parsed.state->generation;
+        requestHostRefresh();
     }
     hotkeyState_ = *parsed.state;
     hotkeyStateKnown_ = true;
@@ -466,6 +472,10 @@ bool ControlCenterWindow::captureHotkeyMessage(const MSG& message)
 
 bool ControlCenterWindow::saveHotkeys()
 {
+    if (!requireCurrentSnapshot())
+    {
+        return false;
+    }
     if (!connected_ || hotkeyRecording_.has_value())
     {
         if (!connected_)
@@ -479,7 +489,7 @@ bool ControlCenterWindow::saveHotkeys()
         setError(TextId::HotkeyBindingsChanged);
         return false;
     }
-    if (!commitPendingPatch())
+    if (!commitPendingPatch() || !requireCurrentSnapshot())
     {
         return false;
     }
@@ -492,8 +502,11 @@ bool ControlCenterWindow::saveHotkeys()
         updateHotkeyControls();
         return false;
     }
+    invalidateHostRefresh();
     const auto response = client_.transact("SetHotkeys " + std::to_string(hotkeyDraftGeneration_)
         + " " + bafx::config::toJson(hotkeyDraft_));
+    // Failed writes also need a fresh snapshot before another save is enabled.
+    requestHostRefresh();
     if (!response.succeeded())
     {
         const UiMessage responseError = describeResponse(response);

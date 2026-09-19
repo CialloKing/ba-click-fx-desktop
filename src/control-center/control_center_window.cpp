@@ -5,6 +5,7 @@
 #include "control_center_layout.hpp"
 #include "control_center_display.hpp"
 #include "display_state_poller.hpp"
+#include "host_snapshot_poller.hpp"
 #include "package_activation.hpp"
 #include "startup_config.hpp"
 
@@ -37,7 +38,6 @@ namespace
 {
 
 constexpr UINT_PTR patchTimerId = 1U;
-constexpr UINT_PTR hostRetryTimerId = 2U;
 constexpr UINT_PTR hostShutdownTimerId = 3U;
 constexpr UINT_PTR updateCheckTimerId = 4U;
 constexpr UINT_PTR displayStateTimerId = 5U;
@@ -48,7 +48,6 @@ constexpr UINT hostRetryDelayMilliseconds = 250U;
 constexpr UINT hostShutdownPollDelayMilliseconds = 100U;
 constexpr UINT updateCheckPollDelayMilliseconds = 100U;
 constexpr UINT displayStatePollDelayMilliseconds = 1'000U;
-constexpr DWORD controlCenterIpcTimeoutMilliseconds = 100U;
 constexpr ULONGLONG hostShutdownTimeoutMilliseconds = 10'000U;
 constexpr UINT redrawAfterInteractiveResizeMessage = WM_APP + 1U;
 constexpr UINT trayNotificationMessage = WM_APP + 2U;
@@ -208,15 +207,6 @@ struct InstallationStatePresentation final
     return tr(TextId::UnknownStatus);
 }
 #endif
-
-[[nodiscard]] bafx::windows::IpcClientOptions controlCenterIpcOptions()
-{
-    bafx::windows::IpcClientOptions options{};
-    // Control Center runs transactions on its window thread. A short local
-    // timeout keeps a starting or unavailable Host from freezing the UI.
-    options.timeoutMilliseconds = controlCenterIpcTimeoutMilliseconds;
-    return options;
-}
 
 [[nodiscard]] HMENU controlMenu(const int id) noexcept
 {
@@ -419,6 +409,7 @@ ControlCenterWindow::~ControlCenterWindow()
         KillTimer(window_, hostShutdownTimerId);
         KillTimer(window_, updateCheckTimerId);
         KillTimer(window_, displayStateTimerId);
+        invalidateHostRefresh();
         invalidateDisplayStateRefresh();
         DestroyWindow(window_);
         window_ = nullptr;
@@ -571,22 +562,14 @@ bool ControlCenterWindow::create(
     ShowWindow(window_, showCommand == 0 ? SW_SHOWNORMAL : showCommand);
     UpdateWindow(window_);
 
-    if (!refreshFromHost())
+    if (startHostOnLaunch && !hostRunning_)
     {
-        if (startHostOnLaunch && !hostRunning_)
-        {
-            // The Run entry launches the Control Center so packaged and
-            // portable activation continue to share one Host startup path.
-            startHostFromBundle();
-        }
-        else if (!hostVersionBlocked_)
-        {
-            scheduleHostRefreshRetry();
-        }
+        startHostFromBundle();
     }
     else
     {
-        updateHostLifecycleButton();
+        scheduleHostRefreshRetry();
+        requestHostRefresh();
     }
     return true;
 }
@@ -950,6 +933,7 @@ LRESULT ControlCenterWindow::handleMessage(
         KillTimer(window_, hostShutdownTimerId);
         KillTimer(window_, updateCheckTimerId);
         KillTimer(window_, displayStateTimerId);
+        invalidateHostRefresh();
         invalidateDisplayStateRefresh();
         if (updateChecker_ != nullptr)
         {
@@ -2331,7 +2315,7 @@ void ControlCenterWindow::onCommand(
     case ControlId::Refresh:
         if (notificationCode == BN_CLICKED)
         {
-            static_cast<void>(refreshFromHost());
+            requestHostRefresh();
 #if defined(BAFX_ENABLE_SPOUT2)
             refreshObsPluginStatus();
 #endif
@@ -2561,6 +2545,10 @@ bool ControlCenterWindow::commitPendingPatch()
 
 bool ControlCenterWindow::readyForFxProfileMutation()
 {
+    if (!requireCurrentSnapshot())
+    {
+        return false;
+    }
     const bool hadPendingPatch = pendingPatch_.has_value();
     if (!commitPendingPatch())
     {
@@ -2588,6 +2576,7 @@ bool ControlCenterWindow::applyFxProfileMutationRequest(std::string command)
         return false;
     }
 
+    invalidateHostRefresh();
     const bafx::windows::IpcClientResponse response = client_.transact(command);
     if (response.succeeded())
     {
@@ -2597,18 +2586,19 @@ bool ControlCenterWindow::applyFxProfileMutationRequest(std::string command)
         fxProfileSelectionDirty_ = false;
         fxProfileNameDirty_ = false;
         selectedFxProfileDraft_.reset();
-        static_cast<void>(refreshFromHost());
+        confirmHostMutation();
+        requestHostRefresh();
         return true;
     }
     if (response.errorCode == "generation_conflict")
     {
-        static_cast<void>(refreshFromHost());
+        requestHostRefresh();
         setInfo(TextId::ConfigChanged, TextId::ConfigRefreshed);
         return false;
     }
 
     const UiMessage error = describeResponse(response);
-    static_cast<void>(refreshFromHost());
+    requestHostRefresh();
     setError(error);
     return false;
 }
@@ -2774,6 +2764,11 @@ void ControlCenterWindow::openOfficialProjectRepository()
 
 void ControlCenterWindow::onTimer(const UINT_PTR timerId)
 {
+    if (timerId == hostRefreshTimerId)
+    {
+        pollHostRefresh();
+        return;
+    }
     if (timerId == hotkeyTimerId)
     {
         if (activePage_ == Page::Hotkeys && connected_ && IsWindowVisible(window_) && !IsIconic(window_))
@@ -2890,22 +2885,27 @@ void ControlCenterWindow::onTimer(const UINT_PTR timerId)
         return;
     }
 
-    if (hostShutdownPending_ || hostRetryAttempts_ == 0U)
+    if (hostShutdownPending_)
     {
         KillTimer(window_, hostRetryTimerId);
         return;
     }
-    if (refreshFromHost())
+    pollHostRefresh();
+    if ((hostRetryAttempts_ == 0U && !hostStartPending_) || hostVersionBlocked_)
     {
         KillTimer(window_, hostRetryTimerId);
-        hostRetryAttempts_ = 0U;
-        hostStartPending_ = false;
-        updateHostLifecycleButton();
+        return;
+    }
+    if (hostSnapshotPoller_ != nullptr && hostSnapshotPoller_->busy())
+    {
         return;
     }
     if (hostRetryAttempts_ > 0U)
     {
         --hostRetryAttempts_;
+        requestHostRefresh();
+        // Let the last asynchronous attempt finish before reporting timeout.
+        return;
     }
     if (hostRetryAttempts_ == 0U)
     {
@@ -2927,146 +2927,9 @@ void ControlCenterWindow::onTimer(const UINT_PTR timerId)
     }
 }
 
-bool ControlCenterWindow::refreshFromHost()
-{
-    invalidateDisplayStateRefresh();
-    hostVersionBlocked_ = false;
-    const bool mutexPresent = hostMutexPresent();
-    if (!mutexPresent)
-    {
-        hostRunning_ = hostStartPending_;
-        setConnected(false);
-        setText(
-            hostVersionText_,
-            hostStartPending_
-                ? TextId::HostVersionStarting
-                : TextId::HostVersionStopped);
-        if (!hostShutdownPending_ && !hostStartPending_)
-        {
-            setText(statusText_, TextId::HostNotRunning);
-            setInfo(TextId::HostNotRunning, TextId::StartHostHint);
-        }
-        return false;
-    }
-
-    hostRunning_ = true;
-    const bafx::windows::IpcClientResponse stateResponse = client_.transact("GetState");
-    if (!stateResponse.succeeded())
-    {
-        setConnected(false);
-        setText(hostVersionText_, TextId::HostVersionUnreadable);
-        if (!hostShutdownPending_ && !hostStartPending_)
-        {
-            if (hostRunning_)
-            {
-                setText(statusText_, TextId::HostServiceUnavailable);
-                setInfo(
-                    TextId::HostNotReady,
-                    TextId::HostNotReadyHint);
-            }
-            else
-            {
-                setText(statusText_, TextId::HostNotRunning);
-                setInfo(TextId::CannotConnectHost, describeResponse(stateResponse));
-            }
-        }
-        return false;
-    }
-
-    hostRunning_ = true;
-    const HostStateParseResult state = parseHostState(stateResponse.payload);
-    if (!state.succeeded())
-    {
-        setConnected(false);
-        setText(hostVersionText_, TextId::HostVersionInvalidState);
-        setText(statusText_, TextId::HostInvalidState);
-        setError(utf8ToWide(state.error));
-        return false;
-    }
-    updateHostVersionText(*state.state);
-    if (!state.state->settingsCompatible())
-    {
-        rejectIncompatibleHostVersion(*state.state);
-        return false;
-    }
-
-    // GetState is the compatibility gate. Never read configuration from a
-    // Host that does not explicitly identify as this Control Center version.
-    const bafx::windows::IpcClientResponse configResponse =
-        client_.transact("GetConfig");
-    if (!configResponse.succeeded())
-    {
-        setConnected(false);
-        setText(statusText_, TextId::HostConfigReadFailed);
-        setError(describeResponse(configResponse));
-        return false;
-    }
-
-    const bafx::config::ConfigLoadResult config = bafx::config::parseJson(
-        configResponse.payload);
-    if (!config.succeeded())
-    {
-        setConnected(false);
-        setText(statusText_, TextId::HostInvalidConfig);
-        setError(utf8ToWide(config.message));
-        return false;
-    }
-
-    const bafx::windows::IpcClientResponse confirmedStateResponse =
-        client_.transact("GetState");
-    const HostStateParseResult confirmedState = confirmedStateResponse.succeeded()
-        ? parseHostState(confirmedStateResponse.payload)
-        : HostStateParseResult{};
-    if (!confirmedStateResponse.succeeded() || !confirmedState.succeeded())
-    {
-        setConnected(false);
-        setText(
-            hostVersionText_,
-            confirmedStateResponse.succeeded()
-                ? TextId::HostVersionInvalidRecheck
-                : TextId::HostVersionRecheckFailed);
-        setText(statusText_, TextId::HostStateRecheckFailed);
-        setError(confirmedStateResponse.succeeded()
-            ? utf8ToWide(confirmedState.error)
-            : describeResponse(confirmedStateResponse));
-        return false;
-    }
-    updateHostVersionText(*confirmedState.state);
-    if (!confirmedState.state->settingsCompatible())
-    {
-        rejectIncompatibleHostVersion(*confirmedState.state);
-        return false;
-    }
-    if (confirmedState.state->generation != state.state->generation)
-    {
-        // GetState and GetConfig are separate pipe records. Retry once when a
-        // concurrent mutation lands between them rather than publishing a torn
-        // generation/config pair to the controls.
-        if (refreshRetrying_)
-        {
-            setConnected(false);
-            setInfo(
-                TextId::HostStateChanging,
-                TextId::HostStateChangingHint);
-            return false;
-        }
-        refreshRetrying_ = true;
-        const bool refreshed = refreshFromHost();
-        refreshRetrying_ = false;
-        return refreshed;
-    }
-
-    displayState_ = {};
-    displayStateError_.clear();
-    displayStateRefreshWarning_.clear();
-
-    updateControls(*confirmedState.state, config.config);
-    return true;
-}
-
 void ControlCenterWindow::requestDisplayStateRefresh() noexcept
 {
-    if (!connected_ || hostShutdownPending_ || activePage_ != Page::DisplayPerformance
+    if (!connected_ || !hostSnapshotCurrent_ || hostShutdownPending_ || activePage_ != Page::DisplayPerformance
         || IsWindowVisible(window_) == FALSE || IsIconic(window_) != FALSE)
     {
         return;
@@ -3110,7 +2973,7 @@ void ControlCenterWindow::pollDisplayStateRefresh()
         KillTimer(window_, displayStateCompletionTimerId);
         return;
     }
-    if (!connected_ || hostShutdownPending_ || activePage_ != Page::DisplayPerformance
+    if (!connected_ || !hostSnapshotCurrent_ || hostShutdownPending_ || activePage_ != Page::DisplayPerformance
         || IsWindowVisible(window_) == FALSE || IsIconic(window_) != FALSE)
     {
         invalidateDisplayStateRefresh();
@@ -3149,6 +3012,7 @@ bool ControlCenterWindow::acceptDisplayStateResponse(DisplayStatePollResult resu
 
     if (!failure.empty())
     {
+        displayStateCurrent_ = false;
         if (displayState_.sessions.empty()
             && displayState_.offlineOverrides.empty())
         {
@@ -3165,6 +3029,15 @@ bool ControlCenterWindow::acceptDisplayStateResponse(DisplayStatePollResult resu
         return false;
     }
 
+    if (parsed.state->configGeneration != generation_)
+    {
+        // Runtime diagnostics and saved policy come from separate requests.
+        // Keep the previous view until both describe the same configuration.
+        invalidateHostRefresh();
+        requestHostRefresh();
+        return false;
+    }
+    displayStateCurrent_ = true;
     displayState_ = std::move(*parsed.state);
     displayStateError_.clear();
     displayStateRefreshWarning_.clear();
@@ -3219,8 +3092,10 @@ void ControlCenterWindow::rejectIncompatibleHostVersion(
 
 void ControlCenterWindow::updateControls(
     const HostState& state,
-    const bafx::config::Config& config)
+    const bafx::config::Config& config,
+    const bool preserveInfo)
 {
+    hostSnapshotCurrent_ = true;
     const bool themeColorChanged = !controlsInitialized_
         || config_.effects.themeColor != config.effects.themeColor;
     presentationState_ = state;
@@ -3324,7 +3199,7 @@ void ControlCenterWindow::updateControls(
             state.backgroundCapture == "active" ? UiMessage::Argument(TextId::BackgroundActive)
                 : (state.backgroundCapture == "fallback-fx-only" ? UiMessage::Argument(TextId::BackgroundFallback)
                     : UiMessage::Argument(utf8ToWide(state.backgroundCapture)))}));
-    if (!hostShutdownPending_)
+    if (!hostShutdownPending_ && !preserveInfo)
     {
         if (!state.fxProfileWarning.empty())
         {
@@ -3408,6 +3283,7 @@ void ControlCenterWindow::updateFxProfileControls(const HostState& state)
 void ControlCenterWindow::updateFxProfileActionState() const noexcept
 {
     const bool profileControlsEnabled = connected_;
+    const bool canMutate = profileControlsEnabled && hostSnapshotCurrent_;
     const FxProfileState* const selected = selectedFxProfile();
     const bool hasName = fxProfileNameEdit_ != nullptr
         && GetWindowTextLengthW(fxProfileNameEdit_) > 0;
@@ -3420,13 +3296,13 @@ void ControlCenterWindow::updateFxProfileActionState() const noexcept
         profileControlsEnabled ? TRUE : FALSE);
     setControlEnabled(
         applyFxProfileButton_,
-        profileControlsEnabled && selected != nullptr ? TRUE : FALSE);
+        canMutate && selected != nullptr ? TRUE : FALSE);
     setControlEnabled(
         saveFxProfileButton_,
-        profileControlsEnabled && hasName ? TRUE : FALSE);
+        canMutate && hasName ? TRUE : FALSE);
     setControlEnabled(
         deleteFxProfileButton_,
-        profileControlsEnabled
+        canMutate
                 && selected != nullptr
                 && !selected->builtIn
             ? TRUE
@@ -3738,21 +3614,25 @@ bool ControlCenterWindow::applyPatchRequest(std::string command)
         return false;
     }
 
+    invalidateHostRefresh();
     const bafx::windows::IpcClientResponse response = client_.transact(command);
     if (response.succeeded())
     {
-        return refreshFromHost();
+        // A committed write is successful even if its later snapshot fails.
+        confirmHostMutation();
+        requestHostRefresh();
+        return true;
     }
     if (response.errorCode == "generation_conflict")
     {
-        static_cast<void>(refreshFromHost());
+        requestHostRefresh();
         setInfo(TextId::ConfigChanged, TextId::ConfigRefreshed);
         return false;
     }
     const UiMessage error = describeResponse(response);
     // A rejected write left the Host unchanged. Restore every optimistic
     // control value before presenting the failure so the UI remains truthful.
-    static_cast<void>(refreshFromHost());
+    requestHostRefresh();
     setError(error);
     return false;
 }
@@ -3768,13 +3648,16 @@ void ControlCenterWindow::sendCommand(const std::string_view command)
     {
         return;
     }
+    invalidateHostRefresh();
     const bafx::windows::IpcClientResponse response = client_.transact(command);
     if (!response.succeeded())
     {
+        requestHostRefresh();
         setError(describeResponse(response));
         return;
     }
-    static_cast<void>(refreshFromHost());
+    confirmHostMutation();
+    requestHostRefresh();
 }
 
 void ControlCenterWindow::openLogDirectory()
@@ -3923,6 +3806,10 @@ void ControlCenterWindow::clearDiagnosticLogs()
 
 void ControlCenterWindow::resetDefaults()
 {
+    if (!requireCurrentSnapshot())
+    {
+        return;
+    }
     if (!connected_)
     {
         setInfo(TextId::HostDisconnected, TextId::StartHostAndRefresh);
@@ -4048,6 +3935,8 @@ void ControlCenterWindow::startHostFromBundle()
 
 void ControlCenterWindow::stopHost()
 {
+    invalidateHostRefresh();
+    trayMenuPending_ = false;
     if (hostShutdownPending_)
     {
         return;
@@ -4120,7 +4009,7 @@ bool ControlCenterWindow::hostMutexPresent() const noexcept
 void ControlCenterWindow::scheduleHostRefreshRetry(const bool startPending) noexcept
 {
     // Host recreates its single pipe instance after each short-lived client.
-    // A bounded retry removes that startup race without a resident worker.
+    // A bounded retry also covers the interval before the IPC server is ready.
     hostRetryAttempts_ = hostRetryLimit;
     hostStartPending_ = startPending;
     hostRunning_ = hostRunning_ || hostMutexPresent();
@@ -4301,31 +4190,33 @@ HMENU ControlCenterWindow::createTrayMenu() const
 
 void ControlCenterWindow::showTrayMenu()
 {
-    if (window_ == nullptr)
+    if (window_ == nullptr || GetCursorPos(&trayMenuPosition_) == FALSE)
     {
         return;
     }
-    // The window can stay hidden for a long time. Refresh before deriving the
-    // action label so another local IPC client cannot leave the tray state stale.
-    static_cast<void>(refreshFromHost());
+    if (hostShutdownPending_)
+    {
+        openTrayMenu();
+        return;
+    }
+    trayMenuPending_ = true;
+    requestHostRefresh();
+}
+
+void ControlCenterWindow::openTrayMenu()
+{
+    const bool menuPaused = paused_;
     const HMENU menu = createTrayMenu();
     if (menu == nullptr)
     {
         return;
     }
-    POINT cursor{};
-    if (GetCursorPos(&cursor) == FALSE)
-    {
-        DestroyMenu(menu);
-        return;
-    }
-
     static_cast<void>(SetForegroundWindow(window_));
     const UINT command = TrackPopupMenu(
         menu,
         TPM_RIGHTBUTTON | TPM_RETURNCMD | TPM_NONOTIFY,
-        cursor.x,
-        cursor.y,
+        trayMenuPosition_.x,
+        trayMenuPosition_.y,
         0,
         window_,
         nullptr);
@@ -4337,7 +4228,7 @@ void ControlCenterWindow::showTrayMenu()
     }
     else if (command == trayPauseCommand)
     {
-        sendCommand(paused_ ? "Resume" : "Pause");
+        sendCommand(menuPaused ? "Resume" : "Pause");
     }
     else if (command == trayExitCommand)
     {
@@ -4430,9 +4321,12 @@ void ControlCenterWindow::setConnected(const bool connected) noexcept
         }
     }
     setControlEnabled(clearLogsButton_, TRUE);
+    setControlEnabled(resetDefaultsButton_, connected && hostSnapshotCurrent_);
     updateFxProfileActionState();
     if (!connected)
     {
+        invalidateHostRefresh();
+        displayStateCurrent_ = false;
         clearHotkeyCaptureLocally();
         hotkeyStateKnown_ = false;
         displayedHotkeyCleanupError_ = 0U;
@@ -4471,6 +4365,7 @@ void ControlCenterWindow::setInfo(
     const UiMessage& title,
     const UiMessage& message)
 {
+    ++infoRevision_;
     try
     {
         // Stable English diagnostics remain searchable after a UI language
@@ -4503,6 +4398,7 @@ void ControlCenterWindow::setError(const UiMessage& message)
 
 void ControlCenterWindow::clearInfo() noexcept
 {
+    ++infoRevision_;
     infoTitle_ = UiMessage{};
     infoMessage_ = UiMessage{};
     setControlText(messageText_, L"");

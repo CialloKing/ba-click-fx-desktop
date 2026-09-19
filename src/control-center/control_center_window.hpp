@@ -27,6 +27,8 @@
 namespace bafx::control_center
 {
 
+class HostSnapshotPoller;
+struct HostSnapshotResult;
 class DisplayStatePoller;
 struct DisplayStatePollResult;
 
@@ -50,6 +52,8 @@ public:
 
 private:
     friend struct ControlCenterUiTest;
+    static constexpr UINT_PTR hostRetryTimerId = 2U;
+    static constexpr UINT_PTR hostRefreshTimerId = 8U;
     enum class ControlId : int
     {
         Pause = 100,
@@ -309,7 +313,12 @@ private:
     void openOfficialLatestRelease();
     void openOfficialProjectRepository();
 
-    [[nodiscard]] bool refreshFromHost();
+    void requestHostRefresh();
+    void pollHostRefresh();
+    void invalidateHostRefresh() noexcept;
+    void acceptHostSnapshot(HostSnapshotResult result);
+    void confirmHostMutation();
+    [[nodiscard]] bool requireCurrentSnapshot();
     void requestDisplayStateRefresh() noexcept;
     void pollDisplayStateRefresh();
     void invalidateDisplayStateRefresh() noexcept;
@@ -320,7 +329,8 @@ private:
     void rejectIncompatibleHostVersion(const HostState& state);
     void updateControls(
         const HostState& state,
-        const bafx::config::Config& config);
+        const bafx::config::Config& config,
+        bool preserveInfo = false);
     void updateFxProfileControls(const HostState& state);
     void updateFxProfileActionState() const noexcept;
     void onFxProfileSelectionChanged();
@@ -354,6 +364,7 @@ private:
     void removeTrayIcon() noexcept;
     void restoreFromTray() noexcept;
     void showTrayMenu();
+    void openTrayMenu();
     [[nodiscard]] HMENU createTrayMenu() const;
 
     void setConnected(bool connected) noexcept;
@@ -577,6 +588,7 @@ private:
 
     DiagnosticIpcClient client_{};
     std::unique_ptr<DisplayStatePoller> displayStatePoller_{};
+    std::unique_ptr<HostSnapshotPoller> hostSnapshotPoller_{};
     std::unique_ptr<bafx::release_update::ReleaseUpdateChecker> updateChecker_{};
     bafx::windows::UniqueHandle hostLifetimeMutex_{};
     std::optional<PendingPatch> pendingPatch_{};
@@ -596,7 +608,12 @@ private:
     bool connected_{false};
     bool fxProfileSelectionDirty_{false};
     bool fxProfileNameDirty_{false};
-    bool refreshRetrying_{false};
+    bool hostSnapshotCurrent_{false};
+    bool displayStateCurrent_{false};
+    bool trayMenuPending_{false};
+    POINT trayMenuPosition_{};
+    std::uint64_t infoRevision_{0U};
+    std::uint64_t refreshInfoRevision_{0U};
     bool hostVersionBlocked_{false};
     // IPC can be unavailable while the Host is still initializing. Keep this
     // process-level state separate so the lifecycle button can still request

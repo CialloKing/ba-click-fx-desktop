@@ -1,6 +1,8 @@
 #include "test_support.hpp"
 #include "control_center_window.hpp"
 #include "control_center_layout.hpp"
+#include "display_state_poller.hpp"
+#include "host_snapshot_poller.hpp"
 #include "product/version.hpp"
 
 #include <commctrl.h>
@@ -270,6 +272,39 @@ struct ControlCenterUiTest
         ui.displayState_.sessions = {display};
         ui.updateControls(state, ui.config_);
         ui.updateHostVersionText(state);
+        {
+            // Background completion preserves newer user feedback and drafts.
+            HostSnapshotResult snapshot;
+            snapshot.status = HostSnapshotStatus::Succeeded;
+            snapshot.state = state;
+            snapshot.config = ui.config_;
+            ui.refreshInfoRevision_ = ui.infoRevision_;
+            ui.setError(TextId::InvalidHotkeyConfig);
+            const auto feedback = caption(ui.messageText_);
+            ui.invalidateHostRefresh();
+            ui.updateFxProfileActionState();
+            BAFX_CHECK(!IsWindowEnabled(ui.applyFxProfileButton_));
+            BAFX_CHECK(IsWindowEnabled(ui.languageSelector_));
+            ui.acceptHostSnapshot(snapshot);
+            BAFX_CHECK(ui.hostSnapshotCurrent_ && ui.connected_);
+            BAFX_CHECK(caption(ui.messageText_) == feedback);
+            BAFX_CHECK(ui.hotkeyDraft_ == draft && ui.hotkeyDraftDirty_);
+            BAFX_CHECK(caption(ui.themeColorEdit_) == L"#12ab");
+
+            DisplayStatePollResult displaySnapshot;
+            displaySnapshot.generation = state.generation;
+            displaySnapshot.response.status = bafx::windows::IpcClientStatus::Ok;
+            displaySnapshot.response.commandSucceeded = true;
+            displaySnapshot.parsed.state = ui.displayState_;
+            displaySnapshot.parsed.state->configGeneration = state.generation;
+            BAFX_CHECK(ui.acceptDisplayStateResponse(displaySnapshot));
+            BAFX_CHECK(IsWindowEnabled(ui.displayIndependent_));
+            BAFX_CHECK(!ui.acceptDisplayStateResponse({}));
+            BAFX_CHECK(!IsWindowEnabled(ui.displayIndependent_));
+            BAFX_CHECK(ui.displayState_.sessions.size() == 1U);
+            BAFX_CHECK(ui.acceptDisplayStateResponse(displaySnapshot));
+            ui.clearInfo();
+        }
         {
             RefreshWrites writes;
             for (HWND child = GetWindow(ui.window_, GW_CHILD); child != nullptr; child = GetWindow(child, GW_HWNDNEXT))

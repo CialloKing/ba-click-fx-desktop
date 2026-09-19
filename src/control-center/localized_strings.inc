@@ -262,7 +262,7 @@ BAFX_TEXT(ParametersSavedFirst, L"参数已先保存", L"Parameters saved first"
 BAFX_TEXT(ParametersSavedHint, L"特效参数已更新，请确认当前预设与名称后再次执行操作。", L"Effect parameters have been updated. Check the selected profile and name, then try again.")
 BAFX_TEXT(StartHostAndRefresh, L"请先启动 Host，然后刷新状态。", L"Start Host, then refresh status.")
 BAFX_TEXT(ConfigChanged, L"配置已变化", L"Settings changed")
-BAFX_TEXT(ConfigRefreshed, L"已刷新 Host 的最新设置，请再次调整。", L"The latest Host settings have been loaded. Please make your change again.")
+BAFX_TEXT(ConfigRefreshed, L"Host 设置已变化，请等待刷新完成后再次调整。", L"Host settings have changed. Wait for the refresh to finish, then make your change again.")
 BAFX_TEXT(CheckerUnavailable, L"更新检查器不可用；Host 与本地设置不受影响。", L"The update checker is unavailable. Host and local settings are unaffected.")
 BAFX_TEXT(LatestCheckFailed, L"最新公开版本：检查失败", L"Latest release: Check failed")
 BAFX_TEXT(CheckerMonitorFailed, L"无法监视更新检查；请求已取消，Host 与本地设置不受影响。", L"Could not monitor the update check. The request was canceled; Host and local settings are unaffected.")
@@ -539,3 +539,6 @@ BAFX_TEXT(HotkeyCleanupFailedLine, L"旧快捷键注册清理失败，请重启 
 BAFX_TEXT(HotkeysRetried, L"已重试保存的快捷键", L"Saved hotkeys retried")
 BAFX_TEXT(StartupFailed, L"BAFX 启动失败", L"BAFX startup failed")
 BAFX_TEXT(InitializationFailed, L"控制中心初始化时发生内部错误。", L"An internal error occurred while initializing Control Center.")
+
+BAFX_TEXT(HostRefreshing, L"正在刷新设置", L"Refreshing settings")
+BAFX_TEXT(HostRefreshingHint, L"请等待最新设置读取完成后再执行此操作。", L"Wait for the latest settings before performing this action.")

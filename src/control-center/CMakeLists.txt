@@ -20,6 +20,7 @@ add_library(
         control_center_layout.cpp
         control_center_localization.cpp
         control_center_window.cpp
+        control_center_refresh.cpp
         control_center_window_layout.cpp
         control_center_hotkeys.cpp
         display_state.cpp
@@ -28,6 +29,7 @@ add_library(
         package_activation.cpp
         startup_config.cpp
         host_state.cpp
+        host_snapshot_poller.cpp
         "${PROJECT_SOURCE_DIR}/src/windows/src/package_identity.cpp"
         "${PROJECT_SOURCE_DIR}/src/windows/src/portable_paths.cpp"
         "${PROJECT_SOURCE_DIR}/src/windows/src/diagnostic_log.cpp"
