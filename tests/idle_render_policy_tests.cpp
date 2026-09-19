@@ -8,6 +8,7 @@ using bafx::desktop::shouldRenderForIdlePolicy;
 BAFX_TEST(idle_render_policy_parks_an_empty_product_frame)
 {
     BAFX_CHECK(!shouldRenderForIdlePolicy(IdleRenderPolicyInput{}));
+    BAFX_CHECK(bafx::desktop::evaluateIdleRenderPolicy({}).reason == "idle-no-content");
 }
 
 BAFX_TEST(idle_render_policy_wakes_for_input_effects_and_clear_frames)
@@ -15,6 +16,7 @@ BAFX_TEST(idle_render_policy_wakes_for_input_effects_and_clear_frames)
     IdleRenderPolicyInput input{};
     input.pointerInputPending = true;
     BAFX_CHECK(shouldRenderForIdlePolicy(input));
+    BAFX_CHECK(bafx::desktop::evaluateIdleRenderPolicy(input).reason == "pointer-input-pending");
 
     input = IdleRenderPolicyInput{};
     input.activeEffects = true;

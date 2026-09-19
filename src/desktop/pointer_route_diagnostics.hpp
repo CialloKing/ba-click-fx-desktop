@@ -31,7 +31,7 @@ struct PointerRouteHealth final
     std::uint64_t cursorFallbacks{0U};
     std::uint64_t mappingFailures{0U};
     std::uint64_t invalidViewports{0U};
-    std::uint64_t ownerResets{0U};
+    std::uint64_t resetCalls{0U};
     std::uint32_t lastCursorError{0U};
     std::uint32_t lastMappingError{0U};
     PointerRouteOutcome lastOutcome{PointerRouteOutcome::NoMove};

@@ -102,29 +102,46 @@ BAFX_TEST(input_health_rate_limit_retains_failures_and_flushes_the_final_interva
     BAFX_CHECK(log.read().find("Observation.Final=true\n") != std::string::npos);
 }
 
-BAFX_TEST(surface_diagnostics_reports_changes_without_repeating_unchanged_samples)
+BAFX_TEST(surface_diagnostics_correlates_state_and_removal_with_bounded_sampling)
 {
     const TemporaryPerformanceLog log;
     bafx::windows::OverlayWindow window(GetModuleHandleW(nullptr), RECT{0, 0, 64, 64},
         L"ba-click-fx-surface-log-test", bafx::windows::RawMouseRegistration::Disabled);
     bafx::desktop::WindowVisibilityDiagnostics diagnostics;
     bafx::desktop::SurfaceDiagnosticState state{};
+    state.instanceId = 1U;
+    bafx::fx::SimulationInputDiagnostics simulation{};
+    simulation.moveCalls = 50U;
     BAFX_CHECK(diagnostics.begin(log.path(), 100U));
-    diagnostics.observe(log.path(), window.handle(), state, 1U, 0U, 0U);
+    diagnostics.observe(log.path(), window.handle(), state, 1U, 0U, 0U, simulation);
     diagnostics.end(log.path());
     const auto initial = log.read();
     BAFX_CHECK(initial.find("Window.Visible=false\n") != std::string::npos);
     BAFX_CHECK(initial.find("Surface.LastPresent.Available=false\n") != std::string::npos);
-    BAFX_CHECK(initial.find("Surface.LastPresent.AgeMs=") == std::string::npos);
+    BAFX_CHECK(initial.find("Surface.LastPresentedFrameStart.AgeMs=") == std::string::npos);
     BAFX_CHECK(!diagnostics.begin(log.path(), 200U));
     BAFX_CHECK(diagnostics.begin(log.path(), 350U));
     state.paused = true;
-    diagnostics.observe(log.path(), window.handle(), state, 2U, 5U, 30U);
+    simulation.moveCalls = 53U;
+    diagnostics.observe(log.path(), window.handle(), state, 2U, 5U, 30U, simulation);
     diagnostics.end(log.path());
     const auto changed = log.read();
     BAFX_CHECK(changed.find("Surface.Paused=true\n") != std::string::npos);
     BAFX_CHECK(changed.find("Surface.PresentedFrames.Total=5\n") != std::string::npos);
+    BAFX_CHECK(changed.find("Simulation.MoveCalls.Delta=3\n") != std::string::npos);
+    BAFX_CHECK(changed.find("Observation.IntervalMs=250\n") != std::string::npos);
     BAFX_CHECK(diagnostics.begin(log.path(), 600U));
+    // Model a replacement session reusing the HWND before the next sample.
+    state.instanceId = 2U;
+    simulation.moveCalls = 1U;
+    diagnostics.observe(log.path(), window.handle(), state, 2U, 0U, 0U, simulation);
+    diagnostics.end(log.path());
+    const auto replacement = log.read().substr(changed.size());
+    BAFX_CHECK(replacement.find("Surface.InstanceId=2\n") != std::string::npos);
+    BAFX_CHECK(replacement.find("Simulation.MoveCalls.Delta=1\n") != std::string::npos);
+    BAFX_CHECK(replacement.find("Observation.CounterBaselineReset=true\n") != std::string::npos);
+    BAFX_CHECK(replacement.find("Observation.IntervalMs=0\n") != std::string::npos);
+    BAFX_CHECK(diagnostics.begin(log.path(), 850U));
     diagnostics.end(log.path());
     BAFX_CHECK(log.read().find("Event.Name=Desktop.SurfaceRemoved\n") != std::string::npos);
 }

@@ -1,5 +1,7 @@
 #pragma once
 
+#include <string_view>
+
 namespace bafx::desktop
 {
 
@@ -20,6 +22,15 @@ struct IdleRenderPolicyInput final
 };
 
 [[nodiscard]] bool shouldRenderForIdlePolicy(
+    const IdleRenderPolicyInput& input) noexcept;
+
+struct IdleRenderDecision final
+{
+    bool shouldRender{false};
+    std::string_view reason{"not-evaluated"};
+};
+
+[[nodiscard]] IdleRenderDecision evaluateIdleRenderPolicy(
     const IdleRenderPolicyInput& input) noexcept;
 
 }

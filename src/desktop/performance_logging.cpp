@@ -943,6 +943,8 @@ std::chrono::nanoseconds appendPerformanceInterval(
     catch (...)
     {
         // Aggregation failures must never enter the interactive render path.
+        bafx::windows::appendDiagnosticEvent(logPath, "Performance.IntervalFormattingFailed", {},
+            bafx::windows::DiagnosticLevel::Warning);
     }
     return std::chrono::steady_clock::now() - startedAt;
 }

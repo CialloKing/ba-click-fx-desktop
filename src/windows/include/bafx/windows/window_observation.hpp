@@ -31,6 +31,8 @@ struct WindowObservation final
     DWORD cloaked{0U};
     HRESULT cloakResult{E_HANDLE};
     std::uint32_t scannedAbove{0U};
+    std::uint32_t aboveQueryFailures{0U};
+    DWORD lastAboveQueryError{ERROR_SUCCESS};
     bool scanTruncated{false};
     bool valid{false};
     bool visible{false};

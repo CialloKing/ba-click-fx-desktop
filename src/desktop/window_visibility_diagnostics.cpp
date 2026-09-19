@@ -63,7 +63,8 @@ bool WindowVisibilityDiagnostics::begin(const std::filesystem::path& logPath,
 void WindowVisibilityDiagnostics::observe(const std::filesystem::path& logPath,
     const HWND window, const SurfaceDiagnosticState& state,
     const std::uint64_t configurationGeneration, const std::uint64_t presentedFrames,
-    const std::uint64_t lastPresentAgeMs) noexcept
+    const std::uint64_t lastPresentAgeMs,
+    const bafx::fx::SimulationInputDiagnostics& simulation) noexcept
 {
     try
     {
@@ -73,17 +74,28 @@ void WindowVisibilityDiagnostics::observe(const std::filesystem::path& logPath,
         const bool changed = !previous.reported || previous.window != observation
             || previous.state != state || foregroundChanged_
             || previous.configurationGeneration != configurationGeneration;
-        if (!changed && !final_ && tickMs_ - previous.lastReportTickMs < 10'000U)
+        const bool inputActive = simulation.moveCalls != previous.simulation.moveCalls
+            || simulation.ambientEnds != previous.simulation.ambientEnds;
+        if (!changed && !final_
+            && tickMs_ - previous.lastReportTickMs < (inputActive ? 1'000U : 10'000U))
         {
             return;
         }
         // Advance the cadence even if formatting fails; diagnostics must never
         // repeatedly allocate or write at frame rate after a failure.
-        previous = Previous{observation, state, configurationGeneration, tickMs_, true, true};
+        // A replacement session may reuse the same HWND. Its counters start at
+        // zero and must never be subtracted from the previous session's totals.
+        const bool baselineReset = !previous.reported || previous.state.instanceId != state.instanceId;
+        const auto previousSimulation = baselineReset
+            ? bafx::fx::SimulationInputDiagnostics{} : previous.simulation;
+        const auto intervalMs = baselineReset ? 0U : tickMs_ - previous.lastReportTickMs;
+        previous = Previous{observation, state, simulation, configurationGeneration, tickMs_, true, true};
         DiagnosticFields fields;
         fields.add("Observation.TickMs", tickMs_);
+        fields.add("Observation.IntervalMs", intervalMs);
+        fields.add("Observation.CounterBaselineReset", baselineReset);
         fields.add("Observation.Final", final_);
-        fields.add("Observation.Reason", changed ? "state-change" : "heartbeat");
+        fields.add("Observation.Reason", changed ? "state-change" : (inputActive ? "active-input" : "heartbeat"));
         fields.add("Configuration.Generation", configurationGeneration);
         appendIdentity(fields, "Window", observation.identity);
         appendIdentity(fields, "Foreground", foreground_);
@@ -121,21 +133,42 @@ void WindowVisibilityDiagnostics::observe(const std::filesystem::path& logPath,
         }
         fields.add("Window.AboveScan.Count", observation.scannedAbove);
         fields.add("Window.AboveScan.Truncated", observation.scanTruncated);
+        fields.add("Window.AboveScan.QueryFailures", observation.aboveQueryFailures);
+        fields.add("Window.AboveScan.LastWin32Error", static_cast<std::uint32_t>(observation.lastAboveQueryError));
         fields.add("Window.VisibilitySemantic", "window-state-and-overlap-candidate-not-composed-pixels");
         fields.add("Surface.Enabled", state.enabled);
+        fields.add("Surface.InstanceId", state.instanceId);
         fields.add("Surface.Paused", state.paused);
         fields.add("Surface.PowerUnavailable", state.powerUnavailable);
         fields.add("Surface.Faulted", state.faulted);
         fields.add("Surface.PointerHeld", state.pointerHeld);
         fields.add("Surface.AmbientEnabled", state.ambientEnabled);
         fields.add("Surface.AmbientActive", state.ambientActive);
+        fields.add("Surface.AmbientSemantic", "allocated-stroke-or-anchor-not-visible-geometry");
         fields.add("Surface.DrawableLastFrame", state.drawableLastFrame);
+        fields.add("Schedule.Available", state.scheduleReason != "not-evaluated");
+        fields.add("Schedule.Reason", state.scheduleReason);
+        fields.add("Schedule.Scope", "last-global-policy-decision-before-window-sample");
+        if (state.scheduleReason != "not-evaluated")
+        {
+            fields.add("Schedule.Render", state.renderScheduled);
+            fields.add("Schedule.ConfigurationGeneration", state.scheduleGeneration);
+        }
         fields.add("Surface.PresentedFrames.Total", presentedFrames);
         fields.add("Surface.LastPresent.Available", presentedFrames != 0U);
         if (presentedFrames != 0U)
         {
-            fields.add("Surface.LastPresent.AgeMs", lastPresentAgeMs);
+            fields.add("Surface.LastPresentedFrameStart.AgeMs", lastPresentAgeMs);
         }
+        fields.add("Surface.PresentSemantic", "successful-present-return-count-not-dwm-or-scanout");
+        fields.add("Simulation.MoveCalls.Total", simulation.moveCalls);
+        fields.add("Simulation.MoveCalls.Delta", simulation.moveCalls - previousSimulation.moveCalls);
+        fields.add("Simulation.HeldMoves.Delta", simulation.heldMoves - previousSimulation.heldMoves);
+        fields.add("Simulation.AmbientDisabled.Delta", simulation.ambientDisabled - previousSimulation.ambientDisabled);
+        fields.add("Simulation.RateLimited.Delta", simulation.rateLimited - previousSimulation.rateLimited);
+        fields.add("Simulation.AmbientAnchors.Delta", simulation.ambientAnchors - previousSimulation.ambientAnchors);
+        fields.add("Simulation.AmbientMoves.Delta", simulation.ambientMoves - previousSimulation.ambientMoves);
+        fields.add("Simulation.AmbientEnds.Delta", simulation.ambientEnds - previousSimulation.ambientEnds);
         const bool unexpectedInvisible = state.enabled && !state.faulted
             && (!observation.valid || !observation.visible || observation.minimized
                 || (SUCCEEDED(observation.cloakResult) && observation.cloaked != 0U));
@@ -164,6 +197,7 @@ void WindowVisibilityDiagnostics::end(const std::filesystem::path& logPath) noex
         {
             DiagnosticFields fields;
             fields.add("Observation.TickMs", tickMs_);
+            fields.add("Surface.InstanceId", it->second.state.instanceId);
             appendIdentity(fields, "Window", it->second.window.identity);
             fields.append(logPath, "Desktop.SurfaceRemoved", bafx::windows::DiagnosticLevel::Info);
         }

@@ -301,7 +301,7 @@ void DisplayPointerRouter::cancelAll(
     DisplaySessionManager& sessions,
     const bafx::fx::SimulationTime frameTime)
 {
-    ++health_.ownerResets;
+    ++health_.resetCalls;
     health_.pressedSessionActive = false;
     for (const auto& session : sessions.sessions())
     {

@@ -11,6 +11,17 @@
 namespace bafx::fx
 {
 
+struct SimulationInputDiagnostics final
+{
+    std::uint64_t moveCalls{0U};
+    std::uint64_t heldMoves{0U};
+    std::uint64_t ambientDisabled{0U};
+    std::uint64_t rateLimited{0U};
+    std::uint64_t ambientAnchors{0U};
+    std::uint64_t ambientMoves{0U};
+    std::uint64_t ambientEnds{0U};
+};
+
 class SimulationRuntime final
 {
 public:
@@ -71,6 +82,7 @@ public:
     [[nodiscard]] bool pointerHeld() const noexcept;
     [[nodiscard]] bool alwaysOnTrailEnabled() const noexcept;
     [[nodiscard]] bool alwaysOnTrailActive() const noexcept;
+    [[nodiscard]] const SimulationInputDiagnostics& inputDiagnostics() const noexcept;
     [[nodiscard]] std::size_t instanceCount() const noexcept;
     [[nodiscard]] std::size_t pooledInstanceCount() const noexcept;
 
@@ -106,6 +118,7 @@ private:
     std::vector<RuntimeInstance> instances_{};
     std::deque<Simulation> unityPool_{};
     std::optional<Simulation> alwaysOnTrail_{};
+    SimulationInputDiagnostics inputDiagnostics_{};
 };
 
 }

@@ -634,6 +634,7 @@ void OverlayWindow::setPointerButtonPolicy(
 {
     if (pointerButtons_.setPolicy(policy))
     {
+        ++pointerHealth_.policyCancellations;
         pushPointerCancellation();
     }
 }
@@ -818,6 +819,7 @@ LRESULT OverlayWindow::handleMessage(
         if (role_ == OverlayWindowRole::HostShell
             && rawPointerMessageCancelsStroke(message, wParam))
         {
+            ++pointerHealth_.deviceRemovalNotices;
             cancelPointer();
         }
         return 0;
@@ -1137,6 +1139,8 @@ void OverlayWindow::handleRawInput(const LPARAM lParam) noexcept
         sizeof(RAWINPUTHEADER));
     if (bytes == static_cast<UINT>(-1))
     {
+        pointerHealth_.lastFailureStage = "raw-data";
+        pointerHealth_.lastFailureTickMs = pointerHealth_.lastReceivedTickMs;
         ++pointerHealth_.dataReadFailures;
         const DWORD error = GetLastError();
         pointerHealth_.lastDataReadError =
@@ -1145,6 +1149,8 @@ void OverlayWindow::handleRawInput(const LPARAM lParam) noexcept
     }
     if (bytes < sizeof(RAWINPUTHEADER))
     {
+        pointerHealth_.lastFailureStage = "packet-header";
+        pointerHealth_.lastFailureTickMs = pointerHealth_.lastReceivedTickMs;
         ++pointerHealth_.invalidPackets;
         return;
     }
@@ -1155,6 +1161,8 @@ void OverlayWindow::handleRawInput(const LPARAM lParam) noexcept
     }
     if (bytes < offsetof(RAWINPUT, data) + sizeof(RAWMOUSE))
     {
+        pointerHealth_.lastFailureStage = "mouse-payload";
+        pointerHealth_.lastFailureTickMs = pointerHealth_.lastReceivedTickMs;
         ++pointerHealth_.invalidPackets;
         return;
     }
@@ -1164,6 +1172,8 @@ void OverlayWindow::handleRawInput(const LPARAM lParam) noexcept
     SetLastError(ERROR_SUCCESS);
     if (!GetCursorPos(&screenPosition))
     {
+        pointerHealth_.lastFailureStage = "cursor-position";
+        pointerHealth_.lastFailureTickMs = pointerHealth_.lastReceivedTickMs;
         ++pointerHealth_.cursorQueryFailures;
         const DWORD error = GetLastError();
         pointerHealth_.lastCursorQueryError =
@@ -1172,6 +1182,8 @@ void OverlayWindow::handleRawInput(const LPARAM lParam) noexcept
     }
     if (!QueryPerformanceCounter(&qpc))
     {
+        pointerHealth_.lastFailureStage = "clock";
+        pointerHealth_.lastFailureTickMs = pointerHealth_.lastReceivedTickMs;
         // QPC does not define a GetLastError contract.
         ++pointerHealth_.clockQueryFailures;
         return;
@@ -1374,6 +1386,8 @@ void OverlayWindow::invalidatePointerGeometry() noexcept
     // Screen-to-client conversion changes with the monitor origin. Discard
     // queued coordinates and emit one hard release so no old-screen sample can
     // create a click or trail after the fullscreen surface is repositioned.
+    ++pointerHealth_.geometryResets;
+    pointerHealth_.geometryDiscardedEvents += pendingPointerEvents_.size();
     pendingPointerEvents_.clear();
     POINT screenPosition{};
     LARGE_INTEGER qpc{};

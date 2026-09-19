@@ -75,6 +75,7 @@ BAFX_TEST(raw_input_failed_read_is_observable_without_fabricating_pointer_events
     BAFX_CHECK(after.receivedMessages == before.receivedMessages + 1U);
     BAFX_CHECK(after.dataReadFailures == before.dataReadFailures + 1U);
     BAFX_CHECK(after.lastDataReadError != ERROR_SUCCESS);
+    BAFX_CHECK(after.lastFailureStage == "raw-data");
     BAFX_CHECK(after.acceptedMouseMessages == before.acceptedMouseMessages);
     BAFX_CHECK(window.takePointerEvents().empty());
     static_cast<void>(window.takePointerQueueDiagnostics());

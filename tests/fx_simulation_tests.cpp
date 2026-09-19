@@ -2091,6 +2091,7 @@ BAFX_TEST(discard_active_effects_preserves_configuration_and_resets_sampling_pha
     runtime.discardActiveEffects();
 
     BAFX_CHECK(runtime.alwaysOnTrailEnabled());
+    BAFX_CHECK(runtime.inputDiagnostics().ambientEnds == 1U);
     // A hard reset starts a new sampling epoch, so this sub-interval Move must
     // become the next ambient stroke's anchor instead of being rate-limited.
     runtime.pointerMove(PointF{700.0F, 400.0F}, goldenViewport, 60ms);
@@ -2104,6 +2105,7 @@ BAFX_TEST(discard_active_effects_preserves_configuration_and_resets_sampling_pha
 
     runtime.discardActiveEffects();
     runtime.pointerDown(goldenCenter, goldenViewport, 200ms);
+    BAFX_CHECK(runtime.inputDiagnostics().ambientEnds == 2U);
     const FrameSnapshot click = runtime.snapshot(goldenViewport, 250ms);
     BAFX_CHECK(countKind(click, SpriteKind::DissolveRing) == 3U);
     BAFX_CHECK(countKind(click, SpriteKind::Triangle) == 2U);
@@ -2304,6 +2306,13 @@ BAFX_TEST(always_on_trail_uses_the_same_input_sampling_limit)
     BAFX_CHECK(!trailContainsPoint(frame, PointF{300.0F, 300.0F}));
     BAFX_CHECK_NEAR(frame.trail.front().positionPixels.x, 100.0F, 1.0e-3F);
     BAFX_CHECK_NEAR(frame.trail.back().positionPixels.x, 500.0F, 1.0e-3F);
+    const auto& diagnostics = runtime.inputDiagnostics();
+    BAFX_CHECK(diagnostics.moveCalls == 3U);
+    BAFX_CHECK(diagnostics.ambientAnchors == 1U);
+    BAFX_CHECK(diagnostics.ambientMoves == 1U);
+    BAFX_CHECK(diagnostics.rateLimited == 1U);
+    runtime.endAlwaysOnTrail(110ms);
+    BAFX_CHECK(diagnostics.ambientEnds == 1U);
 }
 
 BAFX_TEST(pointer_edges_are_never_blocked_by_input_sampling)

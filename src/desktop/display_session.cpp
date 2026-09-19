@@ -6,6 +6,7 @@
 #include "bafx/windows/runtime_diagnostics.hpp"
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <deque>
 #include <limits>
@@ -591,7 +592,13 @@ DisplaySessionRoiTelemetry::summarize(
 }
 
 DisplaySession::DisplaySession(DisplaySessionOptions options)
-    : borderlessAccessAuthority_(options.borderlessAccessAuthority),
+    : diagnosticInstanceId_([]
+      {
+          // HWND values can be reused between diagnostic samples after hotplug.
+          static std::atomic<std::uint64_t> nextId{1U};
+          return nextId.fetch_add(1U, std::memory_order_relaxed);
+      }()),
+      borderlessAccessAuthority_(options.borderlessAccessAuthority),
       target_(std::move(options.target)),
       window_(
           options.instance,
@@ -927,6 +934,11 @@ bool DisplaySession::lastPresentedDrawableContent() const noexcept
 std::uint64_t DisplaySession::presentedFrameCount() const noexcept
 {
     return presentedFrameCount_;
+}
+
+std::uint64_t DisplaySession::diagnosticInstanceId() const noexcept
+{
+    return diagnosticInstanceId_;
 }
 
 bafx::core::MonotonicTime DisplaySession::lastPresentedAt() const noexcept

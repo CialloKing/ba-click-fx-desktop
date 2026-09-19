@@ -218,6 +218,7 @@ public:
     [[nodiscard]] bool outputContractRecoveryActionable() const noexcept;
     [[nodiscard]] bool lastPresentedDrawableContent() const noexcept;
     [[nodiscard]] std::uint64_t presentedFrameCount() const noexcept;
+    [[nodiscard]] std::uint64_t diagnosticInstanceId() const noexcept;
     [[nodiscard]] bafx::core::MonotonicTime lastPresentedAt() const noexcept;
     [[nodiscard]] bool resourceDomainReadyForTarget(
         const DisplayTarget& target) const noexcept;
@@ -318,6 +319,7 @@ private:
     [[nodiscard]] static std::optional<LUID> requestedAdapter(
         const DisplayTarget& target) noexcept;
 
+    const std::uint64_t diagnosticInstanceId_;
     bafx::windows::BorderlessCaptureAccessAuthority*
         borderlessAccessAuthority_{nullptr};
     DisplayTarget target_{};

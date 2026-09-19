@@ -1,6 +1,7 @@
 #pragma once
 
 #include "bafx/windows/window_observation.hpp"
+#include "bafx/fx/simulation_runtime.hpp"
 
 #include <filesystem>
 #include <map>
@@ -18,6 +19,10 @@ struct SurfaceDiagnosticState final
     bool ambientEnabled{false};
     bool ambientActive{false};
     bool drawableLastFrame{false};
+    bool renderScheduled{false};
+    std::string_view scheduleReason{"not-evaluated"};
+    std::uint64_t scheduleGeneration{0U};
+    std::uint64_t instanceId{0U};
 
     bool operator==(const SurfaceDiagnosticState&) const = default;
 };
@@ -29,7 +34,8 @@ public:
         std::uint64_t nowTickMs, bool final = false) noexcept;
     void observe(const std::filesystem::path& logPath, HWND window,
         const SurfaceDiagnosticState& state, std::uint64_t configurationGeneration,
-        std::uint64_t presentedFrames, std::uint64_t lastPresentAgeMs) noexcept;
+        std::uint64_t presentedFrames, std::uint64_t lastPresentAgeMs,
+        const bafx::fx::SimulationInputDiagnostics& simulation = {}) noexcept;
     void end(const std::filesystem::path& logPath) noexcept;
 
 private:
@@ -37,6 +43,7 @@ private:
     {
         bafx::windows::WindowObservation window{};
         SurfaceDiagnosticState state{};
+        bafx::fx::SimulationInputDiagnostics simulation{};
         std::uint64_t configurationGeneration{0U};
         std::uint64_t lastReportTickMs{0U};
         bool seen{false};

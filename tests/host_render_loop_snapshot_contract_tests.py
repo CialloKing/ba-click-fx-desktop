@@ -22,9 +22,8 @@ class HostRenderLoopSnapshotContractTests(unittest.TestCase):
         loop_start = source.index(
             "    while (!quit && !hostWindow.closeRequested())"
         )
-        loop_end = source.index(
-            "\n    if (backgroundExecution.transactionActive)", loop_start
-        )
+        # Shutdown diagnostics may take a final snapshot outside the hot loop.
+        loop_end = source.index('\n    lifecycle.phase = "shutdown";', loop_start)
         cls.loop_source = source[loop_start:loop_end]
 
         control_source = HOST_CONTROL_SOURCE.read_text(encoding="utf-8-sig")

@@ -8,7 +8,7 @@ void PointerRoutingDiagnostics::service(const std::filesystem::path& logPath,
     const PointerRouteHealth& snapshot, const std::uint64_t nowTickMs, const bool final) noexcept
 {
     const bool changed = snapshot.events != previous_.events
-        || snapshot.ownerResets != previous_.ownerResets
+        || snapshot.resetCalls != previous_.resetCalls
         || snapshot.cursorFailures != previous_.cursorFailures;
     const std::uint64_t elapsed = reported_ ? nowTickMs - lastReportTickMs_ : 0U;
     if (reported_ && !final && elapsed < (changed ? 1'000U : 10'000U))
@@ -45,7 +45,7 @@ void PointerRoutingDiagnostics::service(const std::filesystem::path& logPath,
         fields.add("Routing.MappingFailures.Delta", snapshot.mappingFailures - previous_.mappingFailures);
         fields.add("Routing.Mapping.LastWin32Error", snapshot.lastMappingError);
         fields.add("Routing.InvalidViewports.Total", snapshot.invalidViewports);
-        fields.add("Routing.ResetCalls.Total", snapshot.ownerResets);
+        fields.add("Routing.ResetCalls.Total", snapshot.resetCalls);
         fields.add("Routing.Semantic", "input-frame-forwarding-not-generated-geometry-or-visible-pixels");
         const bool failed = snapshot.cursorFailures != previous_.cursorFailures
             || snapshot.mappingFailures != previous_.mappingFailures
@@ -67,6 +67,7 @@ void InputHealthDiagnostics::service(const std::filesystem::path& logPath,
 {
     const bool changed = snapshot.receivedMessages != previous_.receivedMessages
         || snapshot.cancellations != previous_.cancellations
+        || snapshot.deviceRemovalNotices != previous_.deviceRemovalNotices
         || snapshot.registered != previous_.registered
         || snapshot.held != previous_.held;
     // A one-second active window separates short focus transitions. Idle
@@ -83,6 +84,7 @@ void InputHealthDiagnostics::service(const std::filesystem::path& logPath,
         fields.add("Observation.IntervalMs", elapsed);
         fields.add("Observation.Final", final);
         fields.add("Input.Registered", snapshot.registered);
+        fields.add("Input.Registered.Semantic", "host-registration-bookkeeping");
         fields.add("Input.LogicalHeld", snapshot.held);
         fields.add("Input.Received.Total", snapshot.receivedMessages);
         fields.add("Input.Received.Delta", snapshot.receivedMessages - previous_.receivedMessages);
@@ -92,6 +94,10 @@ void InputHealthDiagnostics::service(const std::filesystem::path& logPath,
         fields.add("Input.Down.Delta", snapshot.downs - previous_.downs);
         fields.add("Input.Up.Delta", snapshot.ups - previous_.ups);
         fields.add("Input.Cancel.Delta", snapshot.cancellations - previous_.cancellations);
+        fields.add("Input.DeviceRemovalNotices.Delta", snapshot.deviceRemovalNotices - previous_.deviceRemovalNotices);
+        fields.add("Input.GeometryResets.Delta", snapshot.geometryResets - previous_.geometryResets);
+        fields.add("Input.GeometryDiscardedEvents.Delta", snapshot.geometryDiscardedEvents - previous_.geometryDiscardedEvents);
+        fields.add("Input.PolicyCancellations.Delta", snapshot.policyCancellations - previous_.policyCancellations);
         fields.add("Input.DataReadFailures.Total", snapshot.dataReadFailures);
         fields.add("Input.DataReadFailures.Delta", snapshot.dataReadFailures - previous_.dataReadFailures);
         fields.add("Input.DataRead.LastWin32Error", static_cast<std::uint32_t>(snapshot.lastDataReadError));
@@ -101,6 +107,11 @@ void InputHealthDiagnostics::service(const std::filesystem::path& logPath,
         fields.add("Input.CursorQueryFailures.Delta", snapshot.cursorQueryFailures - previous_.cursorQueryFailures);
         fields.add("Input.CursorQuery.LastWin32Error", static_cast<std::uint32_t>(snapshot.lastCursorQueryError));
         fields.add("Input.ClockQueryFailures.Total", snapshot.clockQueryFailures);
+        fields.add("Input.LastFailure.Stage", snapshot.lastFailureStage);
+        if (snapshot.lastFailureStage != "none")
+        {
+            fields.add("Input.LastFailure.TickMs", snapshot.lastFailureTickMs);
+        }
         fields.add("Input.LastReceived.Available", snapshot.receivedMessages != 0U);
         fields.add("Input.LastAccepted.Available", snapshot.acceptedMouseMessages != 0U);
         if (snapshot.receivedMessages != 0U)

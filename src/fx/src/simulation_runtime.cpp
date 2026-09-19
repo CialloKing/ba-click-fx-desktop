@@ -119,12 +119,14 @@ void SimulationRuntime::pointerMove(
     const SimulationTime simulationTime,
     const SimulationTime inputTime)
 {
+    ++inputDiagnostics_.moveCalls;
     if (pointerActive_ && !instances_.empty())
     {
         Simulation& instance = instances_.back().simulation;
         const bool firstAdvancePending = instance.firstAdvancePending();
         if (firstAdvancePending)
         {
+            ++inputDiagnostics_.heldMoves;
             // Unity samples the final Input.mousePosition in the same Update
             // that creates FX_Touch. Preserve that final sample even when an
             // optional host-side rate would reject its short raw interval.
@@ -141,20 +143,27 @@ void SimulationRuntime::pointerMove(
         }
         else if (acceptInputSample(inputTime))
         {
+            ++inputDiagnostics_.heldMoves;
             instance.pointerMove(
                 screenPosition,
                 viewport,
                 simulationTime);
+        }
+        else
+        {
+            ++inputDiagnostics_.rateLimited;
         }
         return;
     }
 
     if (!alwaysOnTrailEnabled_)
     {
+        ++inputDiagnostics_.ambientDisabled;
         return;
     }
     if (!acceptInputSample(inputTime))
     {
+        ++inputDiagnostics_.rateLimited;
         return;
     }
     if (!alwaysOnTrail_.has_value())
@@ -168,9 +177,11 @@ void SimulationRuntime::pointerMove(
         alwaysOnTrail_->setTrailTimeScale(trailTimeScale_);
         alwaysOnTrail_->setShardParticleSettings(shardParticleSettings_);
         alwaysOnTrail_->startTrail(screenPosition, viewport, simulationTime);
+        ++inputDiagnostics_.ambientAnchors;
         return;
     }
     alwaysOnTrail_->pointerMove(screenPosition, viewport, simulationTime);
+    ++inputDiagnostics_.ambientMoves;
 }
 
 void SimulationRuntime::pointerUp(const SimulationTime time)
@@ -198,6 +209,10 @@ void SimulationRuntime::pointerCancel(const SimulationTime time)
 
 void SimulationRuntime::discardActiveEffects() noexcept
 {
+    if (alwaysOnTrail_.has_value())
+    {
+        ++inputDiagnostics_.ambientEnds;
+    }
     pointerActive_ = false;
     resetInputSamplingPhase();
     instances_.clear();
@@ -525,6 +540,11 @@ bool SimulationRuntime::alwaysOnTrailActive() const noexcept
     return alwaysOnTrail_.has_value();
 }
 
+const SimulationInputDiagnostics& SimulationRuntime::inputDiagnostics() const noexcept
+{
+    return inputDiagnostics_;
+}
+
 std::size_t SimulationRuntime::instanceCount() const noexcept
 {
     return instances_.size() + (alwaysOnTrail_.has_value() ? 1U : 0U);
@@ -626,6 +646,7 @@ void SimulationRuntime::retireAlwaysOnTrail(const SimulationTime time)
     }
 
     alwaysOnTrail_->pointerCancel(time);
+    ++inputDiagnostics_.ambientEnds;
     // Always-on trail is a desktop enhancement, not an FXTouch acquired from
     // the game's SyncComponentPool. Retain its fade without pooling it.
     instances_.push_back(RuntimeInstance{

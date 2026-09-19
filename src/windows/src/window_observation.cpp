@@ -77,12 +77,19 @@ WindowObservation observeWindow(const HWND window) noexcept
         ++result.scannedAbove;
         RECT candidate{};
         RECT intersection{};
-        if (result.boundsError == ERROR_SUCCESS && IsWindowVisible(above)
-            && GetWindowRect(above, &candidate)
-            && IntersectRect(&intersection, &bounds, &candidate))
+        if (result.boundsError == ERROR_SUCCESS && IsWindowVisible(above))
         {
-            result.aboveCandidate = observeWindowIdentity(above);
-            break;
+            SetLastError(ERROR_SUCCESS);
+            if (!GetWindowRect(above, &candidate))
+            {
+                ++result.aboveQueryFailures;
+                result.lastAboveQueryError = queryError();
+            }
+            else if (IntersectRect(&intersection, &bounds, &candidate))
+            {
+                result.aboveCandidate = observeWindowIdentity(above);
+                break;
+            }
         }
         const HWND previous = GetWindow(above, GW_HWNDPREV);
         if (previous == above || previous == window)

@@ -1915,6 +1915,8 @@ int runApplication(
     bafx::desktop::InputHealthDiagnostics inputHealthDiagnostics;
     bafx::desktop::PointerRoutingDiagnostics pointerRoutingDiagnostics;
     bafx::desktop::WindowVisibilityDiagnostics windowVisibilityDiagnostics;
+    bafx::desktop::IdleRenderDecision lastRenderDecision;
+    std::uint64_t lastRenderDecisionGeneration{0U};
     const auto observeWindows = [&](const bafx::fx::SimulationTime observedAt,
         const bool paused, const bool final = false)
     {
@@ -1930,8 +1932,11 @@ int runApplication(
             windowVisibilityDiagnostics.observe(logPath, session.window().handle(),
                 {session.effectsEnabled(), paused, displayPowerUnavailable, session.renderFaulted(),
                     session.simulation().pointerHeld(), session.simulation().alwaysOnTrailEnabled(),
-                    session.simulation().alwaysOnTrailActive(), session.lastPresentedDrawableContent()},
-                appliedGeneration, session.presentedFrameCount(), static_cast<std::uint64_t>(age.count()));
+                    session.simulation().alwaysOnTrailActive(), session.lastPresentedDrawableContent(),
+                    lastRenderDecision.shouldRender, lastRenderDecision.reason, lastRenderDecisionGeneration,
+                    session.diagnosticInstanceId()},
+                appliedGeneration, session.presentedFrameCount(), static_cast<std::uint64_t>(age.count()),
+                session.simulation().inputDiagnostics());
         }
         windowVisibilityDiagnostics.end(logPath);
     };
@@ -3946,7 +3951,7 @@ int runApplication(
             presentedDrawableContent = session.lastPresentedDrawableContent()
                 || presentedDrawableContent;
         }
-        const bool shouldRender = bafx::desktop::shouldRenderForIdlePolicy(
+        const auto renderDecision = bafx::desktop::evaluateIdleRenderPolicy(
             bafx::desktop::IdleRenderPolicyInput{
                 displayPowerUnavailable,
                 controlState.paused,
@@ -3971,6 +3976,9 @@ int runApplication(
                 activeEffects,
                 presentedDrawableContent,
                 renderer.spout2Enabled()});
+        const bool shouldRender = renderDecision.shouldRender;
+        lastRenderDecision = renderDecision;
+        lastRenderDecisionGeneration = appliedGeneration;
         // A powered-down display can leave the composition frame-latency
         // object unsignaled. Spout2 still needs a bounded cadence, so the
         // coordinator falls back to the existing control poll in this case.

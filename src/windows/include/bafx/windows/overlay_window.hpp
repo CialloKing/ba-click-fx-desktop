@@ -195,8 +195,14 @@ struct PointerHealthSnapshot final
     std::uint64_t downs{0U};
     std::uint64_t ups{0U};
     std::uint64_t cancellations{0U};
+    std::uint64_t deviceRemovalNotices{0U};
+    std::uint64_t geometryResets{0U};
+    std::uint64_t geometryDiscardedEvents{0U};
+    std::uint64_t policyCancellations{0U};
     std::uint64_t lastReceivedTickMs{0U};
     std::uint64_t lastAcceptedTickMs{0U};
+    std::uint64_t lastFailureTickMs{0U};
+    std::string_view lastFailureStage{"none"};
     DWORD lastDataReadError{ERROR_SUCCESS};
     DWORD lastCursorQueryError{ERROR_SUCCESS};
     bool registered{false};
