@@ -140,12 +140,12 @@
   性能窗提升为 Warning。它只说明通知路径被触发，不等同于恢复已经成功。
   排障时请同时提供 `BAFX.config.json`、Host 与控制中心的当前 `.log` 和仍存在的三个轮转备份。无需制作一键诊断包；
   若用户主动清理过日志，请保留清理后的新日志并说明清理时间。
-- 新源码构建还默认记录 `Input.Health`、`Input.Routing`、`Desktop.ForegroundChanged` 和
+- 0.2.19 起默认记录 `Input.Health`、`Input.Routing`、`Desktop.ForegroundChanged` 和
   `Desktop.SurfaceState`：补齐输入读取失败、取消来源、路由抑制、模拟采样、前台/覆盖窗口状态、
   调度原因及逐显示会话的 Present 累计。输入活动最多每秒汇总，窗口最多每 250 ms 采样、变化时写入，
   稳定空闲时保留 10 秒心跳；不会逐鼠标包或逐帧写盘。窗口类名和 PID 用于关联前台变化，
   不采集窗口标题或截图；窗口状态与 Present 成功均不证明实际可见像素。
-  字段含义、计数时间窗及桌面拖尾排查步骤见 [运行时日志排查](docs/diagnostics/runtime-logging.md)。
+  字段含义、计数时间窗及桌面拖尾排查步骤见 [运行时日志排查](https://github.com/CialloKing/ba-click-fx-desktop/blob/v0.2.19/docs/diagnostics/runtime-logging.md)。
 - 日志追加、轮转和清理按文件路径协调跨进程访问，锁等待预算为 `25 ms`；超时丢弃该次记录并累加
   `Log.Health.LockFailures`。遗留备份在首次使用、每分钟或实际轮转时清理，清理失败单独记录为
   `Log.Health.CleanupFailures`，不阻止正常追加。单条记录采用 `64 KiB` 预算（包含预留的事件头空间），
