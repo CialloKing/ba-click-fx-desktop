@@ -44,7 +44,7 @@ void ControlCenterWindow::setText(const HWND control, const UiMessage& message) 
         localizedTexts_.insert_or_assign(control, message);
     }
     const std::wstring text = message.render();
-    setControlText(control, text);
+    setControlText(control, text, control == displayDetailsText_ || control == activeFxRoiDetailsText_);
 }
 
 void ControlCenterWindow::changeLanguage()
@@ -90,7 +90,7 @@ void ControlCenterWindow::retranslateUi()
     for (const auto& [control, message] : localizedTexts_)
     {
         const std::wstring text = message.render();
-        setControlText(control, text);
+        setControlText(control, text, control == displayDetailsText_ || control == activeFxRoiDetailsText_);
     }
     translateCombo(effectsMode_, {TextId::FullEffects, TextId::CoreEffects});
     translateCombo(backgroundMode_, {TextId::BackgroundAware, TextId::RecordingCompatible, TextId::LightBackground});

@@ -5,7 +5,8 @@
 namespace bafx::control_center
 {
 
-void setControlText(const HWND control, const std::wstring_view text)
+void setControlText(const HWND control, const std::wstring_view text,
+    const bool preserveReadPosition)
 {
     if (control == nullptr)
     {
@@ -22,7 +23,35 @@ void setControlText(const HWND control, const std::wstring_view text)
             return;
         }
     }
-    SetWindowTextW(control, std::wstring(text).c_str());
+    // Allocate before suspending redraw so allocation failure cannot leave a
+    // native control hidden or with redraw permanently disabled.
+    const std::wstring replacement(text);
+    DWORD selectionStart = 0U;
+    DWORD selectionEnd = 0U;
+    LRESULT firstLine = 0;
+    const bool suspendRedraw = preserveReadPosition && IsWindowVisible(control);
+    if (preserveReadPosition)
+    {
+        SendMessageW(control, EM_GETSEL, reinterpret_cast<WPARAM>(&selectionStart),
+            reinterpret_cast<LPARAM>(&selectionEnd));
+        firstLine = SendMessageW(control, EM_GETFIRSTVISIBLELINE, 0U, 0);
+        if (suspendRedraw)
+        {
+            SendMessageW(control, WM_SETREDRAW, FALSE, 0);
+        }
+    }
+    SetWindowTextW(control, replacement.c_str());
+    if (preserveReadPosition)
+    {
+        SendMessageW(control, EM_SETSEL, selectionStart, selectionEnd);
+        SendMessageW(control, EM_LINESCROLL, 0U,
+            firstLine - SendMessageW(control, EM_GETFIRSTVISIBLELINE, 0U, 0));
+        if (suspendRedraw)
+        {
+            SendMessageW(control, WM_SETREDRAW, TRUE, 0);
+            RedrawWindow(control, nullptr, nullptr, RDW_INVALIDATE | RDW_ERASE | RDW_FRAME);
+        }
+    }
 }
 
 void setControlEnabled(const HWND control, const BOOL enabled) noexcept

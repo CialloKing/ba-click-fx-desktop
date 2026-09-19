@@ -102,6 +102,15 @@ struct RefreshWrites
     unsigned text{0U};
     unsigned sliders{0U};
     unsigned lists{0U};
+    unsigned enabled{0U};
+    unsigned checks{0U};
+    unsigned selections{0U};
+    unsigned readPosition{0U};
+
+    bool empty() const noexcept
+    {
+        return text + sliders + lists + enabled + checks + selections + readPosition == 0U;
+    }
 };
 
 LRESULT CALLBACK countRefreshWrites(HWND window, UINT message, WPARAM wParam,
@@ -119,6 +128,22 @@ LRESULT CALLBACK countRefreshWrites(HWND window, UINT message, WPARAM wParam,
     if (message == CB_RESETCONTENT)
     {
         ++writes.lists;
+    }
+    if (message == WM_ENABLE)
+    {
+        ++writes.enabled;
+    }
+    if (message == BM_SETCHECK)
+    {
+        ++writes.checks;
+    }
+    if (message == CB_SETCURSEL)
+    {
+        ++writes.selections;
+    }
+    if (message == EM_SETSEL || message == EM_SCROLLCARET || message == EM_LINESCROLL)
+    {
+        ++writes.readPosition;
     }
     return DefSubclassProc(window, message, wParam, lParam);
 }
@@ -296,10 +321,21 @@ struct ControlCenterUiTest
             displaySnapshot.response.status = bafx::windows::IpcClientStatus::Ok;
             displaySnapshot.response.commandSucceeded = true;
             displaySnapshot.parsed.state = ui.displayState_;
-            displaySnapshot.parsed.state->configGeneration = state.generation;
+            // Pausing advances the mutation generation independently of the
+            // display configuration generation; both snapshots remain valid.
+            displaySnapshot.parsed.state->configGeneration = 1U;
+            ui.displayState_ = {};
+            ui.updateDisplayControls(ui.config_);
+            BAFX_CHECK(!IsWindowEnabled(ui.displaySelector_));
             BAFX_CHECK(ui.acceptDisplayStateResponse(displaySnapshot));
+            BAFX_CHECK(IsWindowEnabled(ui.displaySelector_));
             BAFX_CHECK(IsWindowEnabled(ui.displayIndependent_));
-            BAFX_CHECK(!ui.acceptDisplayStateResponse({}));
+            DisplayStatePollResult failedDisplay;
+            failedDisplay.generation = state.generation - 1U;
+            BAFX_CHECK(!ui.acceptDisplayStateResponse(failedDisplay));
+            BAFX_CHECK(IsWindowEnabled(ui.displayIndependent_));
+            failedDisplay.generation = state.generation;
+            BAFX_CHECK(!ui.acceptDisplayStateResponse(failedDisplay));
             BAFX_CHECK(!IsWindowEnabled(ui.displayIndependent_));
             BAFX_CHECK(ui.displayState_.sessions.size() == 1U);
             BAFX_CHECK(ui.acceptDisplayStateResponse(displaySnapshot));
@@ -312,7 +348,7 @@ struct ControlCenterUiTest
                 BAFX_CHECK(SetWindowSubclass(child, countRefreshWrites, 1U, reinterpret_cast<DWORD_PTR>(&writes)));
             }
             ui.updateControls(state, ui.config_);
-            BAFX_CHECK(writes.text == 0U && writes.sliders == 0U && writes.lists == 0U);
+            BAFX_CHECK(writes.empty());
             auto changed = ui.config_;
             changed.effects.opacity = 0.5F;
             ui.updateControls(state, changed);
@@ -357,6 +393,35 @@ struct ControlCenterUiTest
         SetWindowLongPtrW(ui.window_, GWL_EXSTYLE, WS_EX_TOOLWINDOW);
         SetWindowPos(ui.window_, nullptr, -30'000, -30'000, 0, 0,
             SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOZORDER | SWP_SHOWWINDOW);
+
+        ui.activePage_ = ControlCenterWindow::Page::DisplayPerformance;
+        ui.updatePageVisibility();
+        ui.layoutControls(ui.scale(860), ui.scale(600));
+        for (const HWND details : {ui.displayDetailsText_, ui.activeFxRoiDetailsText_})
+        {
+            SendMessageW(details, EM_SETSEL, 6U, 12);
+            SendMessageW(details, EM_LINESCROLL, 0U, 8);
+            const auto firstLine = SendMessageW(details, EM_GETFIRSTVISIBLELINE, 0U, 0);
+            BAFX_CHECK(firstLine > 0);
+            const auto verifyReadPosition = [&]
+            {
+                DWORD first = 0U;
+                DWORD last = 0U;
+                SendMessageW(details, EM_GETSEL, reinterpret_cast<WPARAM>(&first),
+                    reinterpret_cast<LPARAM>(&last));
+                BAFX_CHECK(first == 6U && last == 12U);
+                BAFX_CHECK(SendMessageW(details, EM_GETFIRSTVISIBLELINE, 0U, 0) == firstLine);
+                BAFX_CHECK(IsWindowVisible(details));
+            };
+            ui.updateDisplayDetails();
+            verifyReadPosition();
+            // Updated diagnostics must preserve the view too, not just a
+            // byte-identical snapshot that skips WM_SETTEXT altogether.
+            ui.displayState_.sessions.front().backgroundCaptureFailure += " changed";
+            ++ui.displayState_.sessions.front().activeFxRoi.sampleAgeMs;
+            ui.updateDisplayDetails();
+            verifyReadPosition();
+        }
 
         for (const UINT dpi : {96U, 144U, 192U})
         {
@@ -433,6 +498,20 @@ struct ControlCenterUiTest
         }
         // Prevent the fixture destructor from contacting any real capture owner.
         ui.hotkeyDraftDirty_ = false;
+        ui.setConnected(false);
+        {
+            RefreshWrites writes;
+            for (HWND child = GetWindow(ui.window_, GW_CHILD); child != nullptr; child = GetWindow(child, GW_HWNDNEXT))
+            {
+                BAFX_CHECK(SetWindowSubclass(child, countRefreshWrites, 1U, reinterpret_cast<DWORD_PTR>(&writes)));
+            }
+            ui.setConnected(false);
+            BAFX_CHECK(writes.empty());
+            for (HWND child = GetWindow(ui.window_, GW_CHILD); child != nullptr; child = GetWindow(child, GW_HWNDNEXT))
+            {
+                RemoveWindowSubclass(child, countRefreshWrites, 1U);
+            }
+        }
     }
 };
 }

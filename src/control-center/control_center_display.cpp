@@ -567,6 +567,8 @@ void ControlCenterWindow::updateDisplayControls(
     setComboSelection(framePacing_, framePacingIndex(config.performance.framePacing));
 
     std::vector<ComboItem> items;
+    setControlEnabled(displaySelector_, connected_ && displayStateError_.empty()
+        && (!displayState_.sessions.empty() || !displayState_.offlineOverrides.empty()));
     if (!displayStateError_.empty()
         || (displayState_.sessions.empty()
             && displayState_.offlineOverrides.empty()))
@@ -642,6 +644,7 @@ void ControlCenterWindow::updateDisplayControls(
     if (!updateComboItems(displaySelector_, items))
     {
         displayStateError_ = TextId::DisplayAllocationFailed;
+        setControlEnabled(displaySelector_, FALSE);
         updateDisplayPolicyControls();
         updateDisplayDetails();
         return;
@@ -961,8 +964,6 @@ void ControlCenterWindow::updateDisplayDetails()
                 << utf8ToWide(session.backgroundCaptureFailure);
     }
     setText(displayDetailsText_, details.str().c_str());
-    static_cast<void>(SendMessageW(displayDetailsText_, EM_SETSEL, 0U, 0));
-    static_cast<void>(SendMessageW(displayDetailsText_, EM_SCROLLCARET, 0U, 0));
 }
 
 void ControlCenterWindow::updateActiveFxRoiDetails()
@@ -1009,16 +1010,6 @@ void ControlCenterWindow::updateActiveFxRoiDetails()
         roi.recordingRebuild);
 
     setText(activeFxRoiDetailsText_, details.str().c_str());
-    static_cast<void>(SendMessageW(
-        activeFxRoiDetailsText_,
-        EM_SETSEL,
-        0U,
-        0));
-    static_cast<void>(SendMessageW(
-        activeFxRoiDetailsText_,
-        EM_SCROLLCARET,
-        0U,
-        0));
 }
 
 void ControlCenterWindow::setSelectedDisplayOverride()

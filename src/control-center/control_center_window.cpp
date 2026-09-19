@@ -2252,6 +2252,12 @@ void ControlCenterWindow::onCommand(
         {
             updateDisplayPolicyControls();
             updateDisplayDetails();
+            // Start at the top only for an explicit monitor selection.
+            for (const HWND details : {displayDetailsText_, activeFxRoiDetailsText_})
+            {
+                SendMessageW(details, EM_SETSEL, 0U, 0);
+                SendMessageW(details, EM_SCROLLCARET, 0U, 0);
+            }
         }
         break;
     case ControlId::HdrEnabled:
@@ -2981,10 +2987,7 @@ void ControlCenterWindow::pollDisplayStateRefresh()
     }
     if (auto result = displayStatePoller_->takeResult(); result.has_value())
     {
-        if (result->generation == generation_)
-        {
-            static_cast<void>(acceptDisplayStateResponse(std::move(*result)));
-        }
+        static_cast<void>(acceptDisplayStateResponse(std::move(*result)));
     }
     if (!displayStatePoller_->busy())
     {
@@ -2994,6 +2997,13 @@ void ControlCenterWindow::pollDisplayStateRefresh()
 
 bool ControlCenterWindow::acceptDisplayStateResponse(DisplayStatePollResult result)
 {
+    // This is the UI mutation generation captured when requesting the read.
+    // Display configGeneration is a separate counter: Pause/Resume advance
+    // generation_ without changing it, so those counters must not be compared.
+    if (!hostSnapshotCurrent_ || result.generation != generation_)
+    {
+        return false;
+    }
     const auto& response = result.response;
     auto& parsed = result.parsed;
     UiMessage failure;
@@ -3029,14 +3039,6 @@ bool ControlCenterWindow::acceptDisplayStateResponse(DisplayStatePollResult resu
         return false;
     }
 
-    if (parsed.state->configGeneration != generation_)
-    {
-        // Runtime diagnostics and saved policy come from separate requests.
-        // Keep the previous view until both describe the same configuration.
-        invalidateHostRefresh();
-        requestHostRefresh();
-        return false;
-    }
     displayStateCurrent_ = true;
     displayState_ = std::move(*parsed.state);
     displayStateError_.clear();
@@ -4291,9 +4293,6 @@ void ControlCenterWindow::setConnected(const bool connected) noexcept
         idleOptimization_,
         fxProfileSelector_,
         fxProfileNameEdit_,
-        applyFxProfileButton_,
-        saveFxProfileButton_,
-        deleteFxProfileButton_,
         startWithWindows_,
         startMinimized_,
         closeToTray_,
@@ -4303,8 +4302,7 @@ void ControlCenterWindow::setConnected(const bool connected) noexcept
         hdrEnabled_,
         activeFxRoiEnabled_,
         framePacing_,
-        pauseButton_,
-        resetDefaultsButton_};
+        pauseButton_};
     for (const HWND control : controls)
     {
         if (control != nullptr)
@@ -4337,11 +4335,7 @@ void ControlCenterWindow::setConnected(const bool connected) noexcept
         displayState_ = {};
         displayStateError_ = TextId::DisconnectedDisplayHint;
         displayStateRefreshWarning_.clear();
-        static_cast<void>(SendMessageW(
-            displaySelector_,
-            CB_RESETCONTENT,
-            0U,
-            0));
+        static_cast<void>(updateComboItems(displaySelector_, {}));
         updateDisplayDetails();
     }
     else if (activePage_ == Page::Hotkeys)
@@ -4352,7 +4346,7 @@ void ControlCenterWindow::setConnected(const bool connected) noexcept
     {
         const bool selectorEnabled = connected
             && displayStateError_.empty()
-            && !displayState_.sessions.empty();
+            && (!displayState_.sessions.empty() || !displayState_.offlineOverrides.empty());
         setControlEnabled(displaySelector_, selectorEnabled ? TRUE : FALSE);
     }
     updateDisplayPolicyControls();

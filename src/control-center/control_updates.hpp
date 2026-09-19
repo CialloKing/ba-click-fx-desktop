@@ -11,7 +11,9 @@ namespace bafx::control_center
 
 // Compare against the real control, including optimistic user edits, instead
 // of caching the last value that the Host sent to the view.
-void setControlText(HWND control, std::wstring_view text);
+// preserveReadPosition is for multiline diagnostic edits that refresh while
+// the user is selecting or scrolling through their contents.
+void setControlText(HWND control, std::wstring_view text, bool preserveReadPosition = false);
 void setControlEnabled(HWND control, BOOL enabled) noexcept;
 void setComboSelection(HWND control, LRESULT selected) noexcept;
 
