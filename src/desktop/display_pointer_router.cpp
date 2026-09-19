@@ -29,6 +29,10 @@ DisplayPointerRouteResult DisplayPointerRouter::consumeFrame(
         frameAdapter_.consume(events);
     DisplayPointerRouteResult result{};
     result.acceptedDowns.reserve(frame.edges.size());
+    health_.events += events.size();
+    const std::uint64_t previousMappingFailures = health_.mappingFailures + health_.invalidViewports;
+    PointerRouteOutcome outcome = frame.edges.empty()
+        ? PointerRouteOutcome::NoMove : PointerRouteOutcome::EdgeFrame;
 
     bool down = false;
     bool up = false;
@@ -78,9 +82,18 @@ DisplayPointerRouteResult DisplayPointerRouter::consumeFrame(
     }
 
     POINT finalScreenPosition{};
+    SetLastError(ERROR_SUCCESS);
     bool finalPositionAvailable = GetCursorPos(&finalScreenPosition) != FALSE;
+    if (!finalPositionAvailable)
+    {
+        ++health_.cursorFailures;
+        const DWORD error = GetLastError();
+        health_.lastCursorError = error == ERROR_SUCCESS ? ERROR_GEN_FAILURE : error;
+        outcome = PointerRouteOutcome::NoPosition;
+    }
     if (!finalPositionAvailable && frame.latestNonCancelSample.has_value())
     {
+        ++health_.cursorFallbacks;
         finalScreenPosition = frame.latestNonCancelSample->screenPosition;
         finalPositionAvailable = true;
     }
@@ -125,7 +138,7 @@ DisplayPointerRouteResult DisplayPointerRouter::consumeFrame(
         {
             const std::optional<SessionPosition> mapped = mapPosition(
                 *downSession,
-                downPosition);
+                downPosition, health_);
             if (mapped.has_value())
             {
                 // Unity exposes one final Input.mousePosition per frame.
@@ -147,6 +160,7 @@ DisplayPointerRouteResult DisplayPointerRouter::consumeFrame(
         && (frame.hasFinalHeldMove || acceptedDown.has_value());
     if (heldPositionRequired && finalPositionAvailable)
     {
+        outcome = PointerRouteOutcome::HeldWithoutStroke;
         DisplaySession* const finalSession = sessions.findAtPoint(
             finalScreenPosition);
         if (pressedSession != nullptr
@@ -157,9 +171,10 @@ DisplayPointerRouteResult DisplayPointerRouter::consumeFrame(
         {
             const std::optional<SessionPosition> mapped = mapPosition(
                 *pressedSession,
-                finalScreenPosition);
+                finalScreenPosition, health_);
             if (mapped.has_value())
             {
+                outcome = PointerRouteOutcome::HeldForwarded;
                 pressedSession->simulation().pointerMove(
                     mapped->client,
                     mapped->viewport,
@@ -179,9 +194,10 @@ DisplayPointerRouteResult DisplayPointerRouter::consumeFrame(
             {
                 const std::optional<SessionPosition> mapped = mapPosition(
                     *finalSession,
-                    finalScreenPosition);
+                    finalScreenPosition, health_);
                 if (mapped.has_value())
                 {
+                    outcome = PointerRouteOutcome::HeldForwarded;
                     finalSession->simulation().continuePointerStroke(
                         mapped->client,
                         mapped->viewport,
@@ -200,6 +216,7 @@ DisplayPointerRouteResult DisplayPointerRouter::consumeFrame(
         && frame.hasFinalFreeMove
         && finalPositionAvailable)
     {
+        outcome = PointerRouteOutcome::NoTarget;
         DisplaySession* ambientSession = resolveSession(
             sessions,
             ambientTarget_);
@@ -219,9 +236,11 @@ DisplayPointerRouteResult DisplayPointerRouter::consumeFrame(
         {
             const std::optional<SessionPosition> mapped = mapPosition(
                 *finalSession,
-                finalScreenPosition);
+                finalScreenPosition, health_);
             if (mapped.has_value() && mapped->inside)
             {
+                outcome = finalSession->simulation().alwaysOnTrailEnabled()
+                    ? PointerRouteOutcome::FreeForwarded : PointerRouteOutcome::AmbientDisabled;
                 finalSession->simulation().pointerMove(
                     mapped->client,
                     mapped->viewport,
@@ -238,13 +257,25 @@ DisplayPointerRouteResult DisplayPointerRouter::consumeFrame(
         pressedTarget_.reset();
         pressedSession = nullptr;
     }
+    if (health_.mappingFailures + health_.invalidViewports != previousMappingFailures)
+    {
+        outcome = PointerRouteOutcome::MappingFailed;
+    }
     if (cancel)
     {
         cancelAll(sessions, frameTime);
+        outcome = PointerRouteOutcome::Cancelled;
         pressedSession = nullptr;
     }
 
     result.pressedSessionActive = pressedSession != nullptr;
+    health_.rawHeld = frame.heldAfter;
+    health_.pressedSessionActive = result.pressedSessionActive;
+    if (!events.empty())
+    {
+        health_.lastOutcome = outcome;
+        ++health_.outcomes[static_cast<std::size_t>(outcome)];
+    }
     return result;
 }
 
@@ -252,12 +283,26 @@ void DisplayPointerRouter::discardFrame(
     const std::span<const bafx::windows::PointerEvent> events)
 {
     static_cast<void>(frameAdapter_.consume(events));
+    health_.events += events.size();
+    health_.rawHeld = frameAdapter_.held();
+    if (!events.empty())
+    {
+        health_.lastOutcome = PointerRouteOutcome::Discarded;
+        ++health_.outcomes[static_cast<std::size_t>(PointerRouteOutcome::Discarded)];
+    }
+}
+
+const PointerRouteHealth& DisplayPointerRouter::health() const noexcept
+{
+    return health_;
 }
 
 void DisplayPointerRouter::cancelAll(
     DisplaySessionManager& sessions,
     const bafx::fx::SimulationTime frameTime)
 {
+    ++health_.ownerResets;
+    health_.pressedSessionActive = false;
     for (const auto& session : sessions.sessions())
     {
         session->simulation().pointerCancel(frameTime);
@@ -269,17 +314,22 @@ void DisplayPointerRouter::cancelAll(
 std::optional<DisplayPointerRouter::SessionPosition>
 DisplayPointerRouter::mapPosition(
     DisplaySession& session,
-    const POINT screenPosition) noexcept
+    const POINT screenPosition, PointerRouteHealth& health) noexcept
 {
     POINT clientPosition = screenPosition;
+    SetLastError(ERROR_SUCCESS);
     if (ScreenToClient(session.window().handle(), &clientPosition) == FALSE)
     {
+        ++health.mappingFailures;
+        const DWORD error = GetLastError();
+        health.lastMappingError = error == ERROR_SUCCESS ? ERROR_GEN_FAILURE : error;
         return std::nullopt;
     }
 
     const bafx::windows::WindowSize size = session.window().size();
     if (size.width == 0U || size.height == 0U)
     {
+        ++health.invalidViewports;
         return std::nullopt;
     }
     const bool inside = clientPosition.x >= 0

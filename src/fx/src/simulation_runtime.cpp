@@ -520,6 +520,11 @@ bool SimulationRuntime::alwaysOnTrailEnabled() const noexcept
     return alwaysOnTrailEnabled_;
 }
 
+bool SimulationRuntime::alwaysOnTrailActive() const noexcept
+{
+    return alwaysOnTrail_.has_value();
+}
+
 std::size_t SimulationRuntime::instanceCount() const noexcept
 {
     return instances_.size() + (alwaysOnTrail_.has_value() ? 1U : 0U);

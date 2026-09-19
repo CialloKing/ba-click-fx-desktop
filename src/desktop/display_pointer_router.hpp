@@ -1,6 +1,7 @@
 #pragma once
 
 #include "display_session_manager.hpp"
+#include "pointer_route_diagnostics.hpp"
 
 #include "bafx/fx/simulation.hpp"
 #include "bafx/windows/overlay_window.hpp"
@@ -49,6 +50,7 @@ public:
     void cancelAll(
         DisplaySessionManager& sessions,
         bafx::fx::SimulationTime frameTime);
+    [[nodiscard]] const PointerRouteHealth& health() const noexcept;
 
 private:
     struct SessionPosition final
@@ -60,7 +62,7 @@ private:
 
     [[nodiscard]] static std::optional<SessionPosition> mapPosition(
         DisplaySession& session,
-        POINT screenPosition) noexcept;
+        POINT screenPosition, PointerRouteHealth& health) noexcept;
     [[nodiscard]] static DisplaySession* resolveSession(
         DisplaySessionManager& sessions,
         const std::optional<DisplayTarget>& target) noexcept;
@@ -71,6 +73,7 @@ private:
     bafx::windows::PointerFrameAdapter frameAdapter_{};
     std::optional<DisplayTarget> pressedTarget_{};
     std::optional<DisplayTarget> ambientTarget_{};
+    PointerRouteHealth health_{};
 };
 
 }

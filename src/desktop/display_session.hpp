@@ -217,6 +217,8 @@ public:
     [[nodiscard]] bool outputContractFaulted() const noexcept;
     [[nodiscard]] bool outputContractRecoveryActionable() const noexcept;
     [[nodiscard]] bool lastPresentedDrawableContent() const noexcept;
+    [[nodiscard]] std::uint64_t presentedFrameCount() const noexcept;
+    [[nodiscard]] bafx::core::MonotonicTime lastPresentedAt() const noexcept;
     [[nodiscard]] bool resourceDomainReadyForTarget(
         const DisplayTarget& target) const noexcept;
     [[nodiscard]] bool framePacingDue(
@@ -334,6 +336,8 @@ private:
     bafx::core::MonotonicTime minimumFramePeriod_{};
     std::optional<bafx::core::MonotonicTime> nextFramePacingDeadline_{};
     bool lastPresentedDrawableContent_{false};
+    std::uint64_t presentedFrameCount_{0U};
+    bafx::core::MonotonicTime lastPresentedAt_{};
     bool renderFaulted_{false};
     bool outputContractFaulted_{false};
     std::uint32_t colorRefreshRetriesRemaining_{0U};

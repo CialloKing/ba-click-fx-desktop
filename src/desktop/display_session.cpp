@@ -924,6 +924,16 @@ bool DisplaySession::lastPresentedDrawableContent() const noexcept
     return lastPresentedDrawableContent_;
 }
 
+std::uint64_t DisplaySession::presentedFrameCount() const noexcept
+{
+    return presentedFrameCount_;
+}
+
+bafx::core::MonotonicTime DisplaySession::lastPresentedAt() const noexcept
+{
+    return lastPresentedAt_;
+}
+
 bool DisplaySession::resourceDomainReadyForTarget(
     const DisplayTarget& target) const noexcept
 {
@@ -2260,6 +2270,8 @@ void DisplaySession::recordPresentedFrame(
     const bool drawable,
     const bafx::core::MonotonicTime startedAt) noexcept
 {
+    ++presentedFrameCount_;
+    lastPresentedAt_ = startedAt;
     lastPresentedDrawableContent_ = drawable;
     if (minimumFramePeriod_ <= bafx::core::MonotonicTime::zero())
     {

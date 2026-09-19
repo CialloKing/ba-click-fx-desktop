@@ -1,6 +1,7 @@
 #include "test_support.hpp"
 
 #include "bafx/windows/overlay_window.hpp"
+#include "bafx/windows/window_observation.hpp"
 
 #include <windows.h>
 
@@ -38,6 +39,27 @@ BAFX_TEST(raw_pointer_stroke_only_cancels_for_device_removal)
     BAFX_CHECK(rawPointerMessageCancelsStroke(
         WM_INPUT_DEVICE_CHANGE,
         GIDC_REMOVAL));
+}
+
+BAFX_TEST(window_observation_distinguishes_a_hidden_surface_from_an_invalid_handle)
+{
+    OverlayWindow window(GetModuleHandleW(nullptr), RECT{10, 20, 74, 84},
+        L"ba-click-fx-observation-test", RawMouseRegistration::Disabled);
+    const auto hidden = observeWindow(window.handle());
+    BAFX_CHECK(hidden.valid);
+    BAFX_CHECK(!hidden.visible);
+    BAFX_CHECK(hidden.boundsError == ERROR_SUCCESS);
+    BAFX_CHECK(hidden.bounds[0] == 10);
+    BAFX_CHECK(hidden.bounds[3] == 84);
+    BAFX_CHECK(hidden.styleError == ERROR_SUCCESS);
+    BAFX_CHECK((hidden.extendedStyle & WS_EX_TOPMOST) != 0);
+    BAFX_CHECK(hidden.identity.processId == GetCurrentProcessId());
+    BAFX_CHECK(hidden.scannedAbove <= 128U);
+    const auto invalid = observeWindow(nullptr);
+    BAFX_CHECK(!invalid.valid);
+    BAFX_CHECK(invalid.boundsError == ERROR_INVALID_WINDOW_HANDLE);
+    BAFX_CHECK(invalid.styleError == ERROR_INVALID_WINDOW_HANDLE);
+    BAFX_CHECK(FAILED(invalid.cloakResult));
 }
 
 BAFX_TEST(raw_input_failed_read_is_observable_without_fabricating_pointer_events)

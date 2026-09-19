@@ -30,6 +30,7 @@
 #include "host_recovery_state.hpp"
 #include "idle_render_policy.hpp"
 #include "input_health_diagnostics.hpp"
+#include "window_visibility_diagnostics.hpp"
 #include "performance_logging.hpp"
 #include "performance_samples.hpp"
 #include "run_options.hpp"
@@ -1912,6 +1913,28 @@ int runApplication(
         backgroundTopologyRecovery;
     MessageDispatchDiagnostics pendingMessageDispatch{};
     bafx::desktop::InputHealthDiagnostics inputHealthDiagnostics;
+    bafx::desktop::PointerRoutingDiagnostics pointerRoutingDiagnostics;
+    bafx::desktop::WindowVisibilityDiagnostics windowVisibilityDiagnostics;
+    const auto observeWindows = [&](const bafx::fx::SimulationTime observedAt,
+        const bool paused, const bool final = false)
+    {
+        if (!windowVisibilityDiagnostics.begin(logPath, GetTickCount64(), final))
+        {
+            return;
+        }
+        for (const auto& ownedSession : displaySessions.sessions())
+        {
+            const auto& session = *ownedSession;
+            const auto age = std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::max(observedAt - session.lastPresentedAt(), bafx::core::MonotonicTime::zero()));
+            windowVisibilityDiagnostics.observe(logPath, session.window().handle(),
+                {session.effectsEnabled(), paused, displayPowerUnavailable, session.renderFaulted(),
+                    session.simulation().pointerHeld(), session.simulation().alwaysOnTrailEnabled(),
+                    session.simulation().alwaysOnTrailActive(), session.lastPresentedDrawableContent()},
+                appliedGeneration, session.presentedFrameCount(), static_cast<std::uint64_t>(age.count()));
+        }
+        windowVisibilityDiagnostics.end(logPath);
+    };
     const auto observeCaptureTopology =
         [&](const bafx::desktop::DisplayTargetSnapshot& topology)
             -> bool
@@ -2458,6 +2481,7 @@ int runApplication(
     {
         accumulateMessageDispatch(pendingMessageDispatch, dispatchMessages(quit));
         inputHealthDiagnostics.service(logPath, hostWindow.pointerHealth(), GetTickCount64());
+        pointerRoutingDiagnostics.service(logPath, pointerRouter.health(), GetTickCount64());
         const std::string hotkeyError = control.takeHotkeyError();
         if (!hotkeyError.empty())
         {
@@ -2479,6 +2503,7 @@ int runApplication(
             break;
         }
         const bafx::fx::SimulationTime loopObservedAt = clock.now();
+        observeWindows(loopObservedAt, controlState.paused);
         if (runtimeDeadlineReached(loopObservedAt))
         {
             break;
@@ -5388,6 +5413,8 @@ int runApplication(
     }
     lifecycle.phase = "shutdown";
     inputHealthDiagnostics.service(logPath, hostWindow.pointerHealth(), GetTickCount64(), true);
+    pointerRoutingDiagnostics.service(logPath, pointerRouter.health(), GetTickCount64(), true);
+    observeWindows(clock.now(), control.runtimeSnapshot().paused, true);
     if (lifecycle.exitReason.empty())
     {
         lifecycle.exitReason = quit ? "quit-message" : "window-close";

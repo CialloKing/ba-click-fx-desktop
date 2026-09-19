@@ -3,6 +3,7 @@
 #include "bafx/config/config.hpp"
 #include "performance_logging.hpp"
 #include "input_health_diagnostics.hpp"
+#include "window_visibility_diagnostics.hpp"
 
 #include <chrono>
 #include <filesystem>
@@ -99,6 +100,51 @@ BAFX_TEST(input_health_rate_limit_retains_failures_and_flushes_the_final_interva
     BAFX_CHECK(log.read() == failed);
     diagnostics.service(log.path(), snapshot, 2'101U, true);
     BAFX_CHECK(log.read().find("Observation.Final=true\n") != std::string::npos);
+}
+
+BAFX_TEST(surface_diagnostics_reports_changes_without_repeating_unchanged_samples)
+{
+    const TemporaryPerformanceLog log;
+    bafx::windows::OverlayWindow window(GetModuleHandleW(nullptr), RECT{0, 0, 64, 64},
+        L"ba-click-fx-surface-log-test", bafx::windows::RawMouseRegistration::Disabled);
+    bafx::desktop::WindowVisibilityDiagnostics diagnostics;
+    bafx::desktop::SurfaceDiagnosticState state{};
+    BAFX_CHECK(diagnostics.begin(log.path(), 100U));
+    diagnostics.observe(log.path(), window.handle(), state, 1U, 0U, 0U);
+    diagnostics.end(log.path());
+    const auto initial = log.read();
+    BAFX_CHECK(initial.find("Window.Visible=false\n") != std::string::npos);
+    BAFX_CHECK(initial.find("Surface.LastPresent.Available=false\n") != std::string::npos);
+    BAFX_CHECK(initial.find("Surface.LastPresent.AgeMs=") == std::string::npos);
+    BAFX_CHECK(!diagnostics.begin(log.path(), 200U));
+    BAFX_CHECK(diagnostics.begin(log.path(), 350U));
+    state.paused = true;
+    diagnostics.observe(log.path(), window.handle(), state, 2U, 5U, 30U);
+    diagnostics.end(log.path());
+    const auto changed = log.read();
+    BAFX_CHECK(changed.find("Surface.Paused=true\n") != std::string::npos);
+    BAFX_CHECK(changed.find("Surface.PresentedFrames.Total=5\n") != std::string::npos);
+    BAFX_CHECK(diagnostics.begin(log.path(), 600U));
+    diagnostics.end(log.path());
+    BAFX_CHECK(log.read().find("Event.Name=Desktop.SurfaceRemoved\n") != std::string::npos);
+}
+
+BAFX_TEST(routing_diagnostics_preserves_suppression_and_coordinate_fallback_evidence)
+{
+    const TemporaryPerformanceLog log;
+    bafx::desktop::PointerRoutingDiagnostics diagnostics;
+    bafx::desktop::PointerRouteHealth health{};
+    health.events = 3U;
+    health.cursorFailures = 1U;
+    health.cursorFallbacks = 1U;
+    health.lastCursorError = ERROR_ACCESS_DENIED;
+    health.outcomes[static_cast<std::size_t>(bafx::desktop::PointerRouteOutcome::EdgeFrame)] = 1U;
+    diagnostics.service(log.path(), health, 100U);
+    const auto text = log.read();
+    BAFX_CHECK(text.find("Routing.EdgeFrame.Frames=1\n") != std::string::npos);
+    BAFX_CHECK(text.find("Routing.CursorFallbacks.Delta=1\n") != std::string::npos);
+    diagnostics.service(log.path(), health, 200U);
+    BAFX_CHECK(log.read() == text);
 }
 
 BAFX_TEST(performance_log_preserves_metric_and_semantic_fields)

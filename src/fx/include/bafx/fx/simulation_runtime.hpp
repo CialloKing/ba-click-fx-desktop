@@ -70,6 +70,7 @@ public:
     [[nodiscard]] bool active() const noexcept;
     [[nodiscard]] bool pointerHeld() const noexcept;
     [[nodiscard]] bool alwaysOnTrailEnabled() const noexcept;
+    [[nodiscard]] bool alwaysOnTrailActive() const noexcept;
     [[nodiscard]] std::size_t instanceCount() const noexcept;
     [[nodiscard]] std::size_t pooledInstanceCount() const noexcept;
 

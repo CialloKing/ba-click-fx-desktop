@@ -1,6 +1,7 @@
 #pragma once
 
 #include "bafx/windows/overlay_window.hpp"
+#include "pointer_route_diagnostics.hpp"
 
 #include <cstdint>
 #include <filesystem>
@@ -17,6 +18,18 @@ public:
 
 private:
     bafx::windows::PointerHealthSnapshot previous_{};
+    std::uint64_t lastReportTickMs_{0U};
+    bool reported_{false};
+};
+
+class PointerRoutingDiagnostics final
+{
+public:
+    void service(const std::filesystem::path& logPath, const PointerRouteHealth& snapshot,
+        std::uint64_t nowTickMs, bool final = false) noexcept;
+
+private:
+    PointerRouteHealth previous_{};
     std::uint64_t lastReportTickMs_{0U};
     bool reported_{false};
 };

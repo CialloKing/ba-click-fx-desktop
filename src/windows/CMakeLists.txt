@@ -16,6 +16,7 @@ add_library(
         src/ipc.cpp
         src/ipc_client.cpp
         src/overlay_window.cpp
+        src/window_observation.cpp
         src/packed_fx_texture_loader.cpp
         src/packed_fx_textures.cpp
         src/package_identity.cpp
