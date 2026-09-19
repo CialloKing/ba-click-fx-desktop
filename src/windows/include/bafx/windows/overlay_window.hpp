@@ -179,6 +179,30 @@ struct PointerQueueDiagnostics
     std::uint32_t maximumWin32QueueAgeMilliseconds{0U};
 };
 
+// Cumulative acquisition facts survive queue draining and idle render waits.
+// Keep failed reads separate from accepted samples: neither proves delivery
+// of a usable pointer position to the simulation.
+struct PointerHealthSnapshot final
+{
+    std::uint64_t receivedMessages{0U};
+    std::uint64_t acceptedMouseMessages{0U};
+    std::uint64_t dataReadFailures{0U};
+    std::uint64_t invalidPackets{0U};
+    std::uint64_t nonMousePackets{0U};
+    std::uint64_t cursorQueryFailures{0U};
+    std::uint64_t clockQueryFailures{0U};
+    std::uint64_t moves{0U};
+    std::uint64_t downs{0U};
+    std::uint64_t ups{0U};
+    std::uint64_t cancellations{0U};
+    std::uint64_t lastReceivedTickMs{0U};
+    std::uint64_t lastAcceptedTickMs{0U};
+    DWORD lastDataReadError{ERROR_SUCCESS};
+    DWORD lastCursorQueryError{ERROR_SUCCESS};
+    bool registered{false};
+    bool held{false};
+};
+
 [[nodiscard]] constexpr bool rawPointerMessageCancelsStroke(
     const UINT message,
     const WPARAM wParam) noexcept
@@ -298,6 +322,7 @@ public:
     [[nodiscard]] bool pointerEventsPending() const noexcept;
     [[nodiscard]] std::vector<PointerEvent> takePointerEvents() noexcept;
     [[nodiscard]] PointerQueueDiagnostics takePointerQueueDiagnostics() noexcept;
+    [[nodiscard]] PointerHealthSnapshot pointerHealth() const noexcept;
     void setPointerButtonPolicy(PointerButtonPolicy policy) noexcept;
     // Raw Input belongs to the Host shell, but a secondary surface can be the
     // only window notified about a per-monitor DPI or geometry transition.
@@ -356,6 +381,7 @@ private:
     WindowResizeDiagnostics resizeDiagnostics_{};
     std::vector<PointerEvent> pendingPointerEvents_{};
     PointerQueueDiagnostics pointerQueueDiagnostics_{};
+    PointerHealthSnapshot pointerHealth_{};
     bool closeRequested_{false};
     bool rawMouseRegistered_{false};
     HPOWERNOTIFY displayPowerNotification_{nullptr};

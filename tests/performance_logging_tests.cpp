@@ -2,6 +2,7 @@
 
 #include "bafx/config/config.hpp"
 #include "performance_logging.hpp"
+#include "input_health_diagnostics.hpp"
 
 #include <chrono>
 #include <filesystem>
@@ -74,6 +75,30 @@ BAFX_TEST(performance_log_samples_resources_even_without_rendered_frames)
     }
     BAFX_CHECK(std::regex_search(text, std::regex("Process\\.Handles\\.Count=[1-9][0-9]*\\n")));
     BAFX_CHECK(text.size() < 64U * 1024U);
+}
+
+BAFX_TEST(input_health_rate_limit_retains_failures_and_flushes_the_final_interval)
+{
+    const TemporaryPerformanceLog log;
+    bafx::desktop::InputHealthDiagnostics diagnostics;
+    bafx::windows::PointerHealthSnapshot snapshot{};
+    diagnostics.service(log.path(), snapshot, 100U);
+    const auto initial = log.read();
+    snapshot.receivedMessages = 3U;
+    snapshot.dataReadFailures = 3U;
+    snapshot.lastDataReadError = ERROR_INVALID_HANDLE;
+    snapshot.lastReceivedTickMs = 200U;
+    diagnostics.service(log.path(), snapshot, 200U);
+    BAFX_CHECK(log.read() == initial);
+    diagnostics.service(log.path(), snapshot, 1'100U);
+    const auto failed = log.read();
+    BAFX_CHECK(failed.find("Input.DataReadFailures.Delta=3\n") != std::string::npos);
+    BAFX_CHECK(failed.find("Input.Accepted.Total=0\n") != std::string::npos);
+    BAFX_CHECK(failed.find("Input.LastAccepted.AgeMs=") == std::string::npos);
+    diagnostics.service(log.path(), snapshot, 2'100U);
+    BAFX_CHECK(log.read() == failed);
+    diagnostics.service(log.path(), snapshot, 2'101U, true);
+    BAFX_CHECK(log.read().find("Observation.Final=true\n") != std::string::npos);
 }
 
 BAFX_TEST(performance_log_preserves_metric_and_semantic_fields)

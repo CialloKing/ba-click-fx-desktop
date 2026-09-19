@@ -621,6 +621,14 @@ PointerQueueDiagnostics OverlayWindow::takePointerQueueDiagnostics() noexcept
         PointerQueueDiagnostics{});
 }
 
+PointerHealthSnapshot OverlayWindow::pointerHealth() const noexcept
+{
+    PointerHealthSnapshot snapshot = pointerHealth_;
+    snapshot.registered = rawMouseRegistered_;
+    snapshot.held = pointerButtons_.held();
+    return snapshot;
+}
+
 void OverlayWindow::setPointerButtonPolicy(
     const PointerButtonPolicy policy) noexcept
 {
@@ -1116,25 +1124,60 @@ void OverlayWindow::releaseHostShellRegistrations(const HWND) noexcept
 
 void OverlayWindow::handleRawInput(const LPARAM lParam) noexcept
 {
+    ++pointerHealth_.receivedMessages;
+    pointerHealth_.lastReceivedTickMs = GetTickCount64();
     RAWINPUT input{};
     UINT size = sizeof(input);
+    SetLastError(ERROR_SUCCESS);
     const UINT bytes = GetRawInputData(
         reinterpret_cast<HRAWINPUT>(lParam),
         RID_INPUT,
         &input,
         &size,
         sizeof(RAWINPUTHEADER));
-    if (bytes == static_cast<UINT>(-1) || input.header.dwType != RIM_TYPEMOUSE)
+    if (bytes == static_cast<UINT>(-1))
     {
+        ++pointerHealth_.dataReadFailures;
+        const DWORD error = GetLastError();
+        pointerHealth_.lastDataReadError =
+            error == ERROR_SUCCESS ? ERROR_GEN_FAILURE : error;
+        return;
+    }
+    if (bytes < sizeof(RAWINPUTHEADER))
+    {
+        ++pointerHealth_.invalidPackets;
+        return;
+    }
+    if (input.header.dwType != RIM_TYPEMOUSE)
+    {
+        ++pointerHealth_.nonMousePackets;
+        return;
+    }
+    if (bytes < offsetof(RAWINPUT, data) + sizeof(RAWMOUSE))
+    {
+        ++pointerHealth_.invalidPackets;
         return;
     }
 
     POINT screenPosition{};
     LARGE_INTEGER qpc{};
-    if (!GetCursorPos(&screenPosition) || !QueryPerformanceCounter(&qpc))
+    SetLastError(ERROR_SUCCESS);
+    if (!GetCursorPos(&screenPosition))
     {
+        ++pointerHealth_.cursorQueryFailures;
+        const DWORD error = GetLastError();
+        pointerHealth_.lastCursorQueryError =
+            error == ERROR_SUCCESS ? ERROR_GEN_FAILURE : error;
         return;
     }
+    if (!QueryPerformanceCounter(&qpc))
+    {
+        // QPC does not define a GetLastError contract.
+        ++pointerHealth_.clockQueryFailures;
+        return;
+    }
+    ++pointerHealth_.acceptedMouseMessages;
+    pointerHealth_.lastAcceptedTickMs = pointerHealth_.lastReceivedTickMs;
     const DWORD messageTime = GetMessageTime();
     const std::uint32_t messageTimeMilliseconds = messageTime == 0xFFFFFFFFU
         ? 0U
@@ -1238,13 +1281,19 @@ void OverlayWindow::pushPointerEvent(
     switch (kind)
     {
     case PointerEventKind::Move:
+        ++pointerHealth_.moves;
         ++pointerQueueDiagnostics_.moveEvents;
         break;
     case PointerEventKind::LeftButtonDown:
+        ++pointerHealth_.downs;
+        ++pointerQueueDiagnostics_.buttonEdges;
+        break;
     case PointerEventKind::LeftButtonUp:
+        ++pointerHealth_.ups;
         ++pointerQueueDiagnostics_.buttonEdges;
         break;
     case PointerEventKind::Cancel:
+        ++pointerHealth_.cancellations;
         ++pointerQueueDiagnostics_.cancelEvents;
         break;
     }

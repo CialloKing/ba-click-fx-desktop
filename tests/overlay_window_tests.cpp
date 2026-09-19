@@ -40,6 +40,25 @@ BAFX_TEST(raw_pointer_stroke_only_cancels_for_device_removal)
         GIDC_REMOVAL));
 }
 
+BAFX_TEST(raw_input_failed_read_is_observable_without_fabricating_pointer_events)
+{
+    OverlayWindow window(GetModuleHandleW(nullptr), RECT{0, 0, 64, 64},
+        L"ba-click-fx-input-health-test");
+    const auto before = window.pointerHealth();
+    // An invalid HRAWINPUT exercises the real API failure path without
+    // injecting mouse input into the user's desktop.
+    SendMessageW(window.handle(), WM_INPUT, RIM_INPUTSINK, 0);
+    const auto after = window.pointerHealth();
+    BAFX_CHECK(after.registered);
+    BAFX_CHECK(after.receivedMessages == before.receivedMessages + 1U);
+    BAFX_CHECK(after.dataReadFailures == before.dataReadFailures + 1U);
+    BAFX_CHECK(after.lastDataReadError != ERROR_SUCCESS);
+    BAFX_CHECK(after.acceptedMouseMessages == before.acceptedMouseMessages);
+    BAFX_CHECK(window.takePointerEvents().empty());
+    static_cast<void>(window.takePointerQueueDiagnostics());
+    BAFX_CHECK(window.pointerHealth().dataReadFailures == after.dataReadFailures);
+}
+
 BAFX_TEST(raw_pointer_buttons_merge_into_one_logical_stroke)
 {
     RawPointerButtonMerger buttons;

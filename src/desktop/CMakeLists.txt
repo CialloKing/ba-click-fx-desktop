@@ -68,6 +68,7 @@ add_library(
         display_policy.cpp
         display_target.cpp
         frame_visual_config.cpp
+        input_health_diagnostics.cpp
         performance_logging.cpp
 )
 add_library(bafx::desktop_runtime ALIAS bafx_desktop_runtime)

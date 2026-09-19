@@ -29,6 +29,7 @@
 #include "host_control.hpp"
 #include "host_recovery_state.hpp"
 #include "idle_render_policy.hpp"
+#include "input_health_diagnostics.hpp"
 #include "performance_logging.hpp"
 #include "performance_samples.hpp"
 #include "run_options.hpp"
@@ -1910,6 +1911,7 @@ int runApplication(
     bafx::desktop::BackgroundCaptureTopologyRecoveryGate
         backgroundTopologyRecovery;
     MessageDispatchDiagnostics pendingMessageDispatch{};
+    bafx::desktop::InputHealthDiagnostics inputHealthDiagnostics;
     const auto observeCaptureTopology =
         [&](const bafx::desktop::DisplayTargetSnapshot& topology)
             -> bool
@@ -2455,6 +2457,7 @@ int runApplication(
     while (!quit && !hostWindow.closeRequested())
     {
         accumulateMessageDispatch(pendingMessageDispatch, dispatchMessages(quit));
+        inputHealthDiagnostics.service(logPath, hostWindow.pointerHealth(), GetTickCount64());
         const std::string hotkeyError = control.takeHotkeyError();
         if (!hotkeyError.empty())
         {
@@ -5384,6 +5387,7 @@ int runApplication(
         }
     }
     lifecycle.phase = "shutdown";
+    inputHealthDiagnostics.service(logPath, hostWindow.pointerHealth(), GetTickCount64(), true);
     if (lifecycle.exitReason.empty())
     {
         lifecycle.exitReason = quit ? "quit-message" : "window-close";
