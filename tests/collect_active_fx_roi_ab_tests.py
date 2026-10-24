@@ -110,7 +110,7 @@ Invoke-Expression $env:BAFX_TEST_BODY
     def test_encodes_the_release_matrix_and_environment_contract(self) -> None:
         for token in (
             "$manifestSchemaVersion = 4",
-            "$supportedConfigSchemaVersions = @(19, 20)",
+            "$supportedConfigSchemaVersions = @(19, 20, 21)",
             "$configSchemaVersion = [int]$baseConfiguration.schemaVersion",
             "$environmentContract = 'rtx-4060-4k170-sdr-v1'",
             "$requiredAdapterNameFragment = 'RTX 4060'",

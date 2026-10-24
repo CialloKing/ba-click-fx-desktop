@@ -200,7 +200,18 @@ ApplicationRuleMonitor::ApplicationRuleMonitor(
     // or starts WGC. Subsequent enumerations never run on the render thread.
     if (tracker_.active())
     {
-        tracker_.observe(tracker_.runtime().revision, scanner_(tracker_.executableNames()));
+        try
+        {
+            auto observed = tracker_;
+            observed.observe(observed.runtime().revision, scanner_(observed.executableNames()));
+            tracker_ = std::move(observed);
+        }
+        catch (...)
+        {
+            // Startup follows the same unknown-result policy as later scans;
+            // a scanner failure must not prevent the user's Host from starting.
+            tracker_.observe(tracker_.runtime().revision, {{}, ERROR_GEN_FAILURE, false});
+        }
     }
     worker_ = std::thread([this, revision = tracker_.runtime().revision]()
     {
@@ -285,7 +296,11 @@ void ApplicationRuleMonitor::run(std::uint64_t observedRevision) noexcept
             const auto observation = scanner_(names);
             lock.lock();
             const auto previous = tracker_.runtime();
-            tracker_.observe(observedRevision, observation);
+            // Publish a whole observation: a conversion failure midway through
+            // a scan must not leave only some rules using the new sample.
+            auto observed = tracker_;
+            observed.observe(observedRevision, observation);
+            tracker_ = std::move(observed);
             if (previous != tracker_.runtime())
             {
                 ++generation_;

@@ -381,8 +381,8 @@ def _median(values: list[float]) -> float:
 
 
 def _canonical_without_roi(config: dict[str, Any], context: str) -> str:
-    if _integer(config.get("schemaVersion"), f"{context}.schemaVersion") not in (19, 20):
-        raise ValidationError(f"{context}.schemaVersion must be 19 or 20")
+    if _integer(config.get("schemaVersion"), f"{context}.schemaVersion") not in (19, 20, 21):
+        raise ValidationError(f"{context}.schemaVersion must be 19, 20 or 21")
     performance = _dict(config.get("performance"), f"{context}.performance")
     _boolean(
         performance.get("activeFxRoiEnabled"),
@@ -568,8 +568,8 @@ def _validate_configuration_contract(
     config_schema_version = _integer(
         contract["schemaVersion"], "configuration.schemaVersion"
     )
-    if config_schema_version not in (19, 20):
-        raise ValidationError("configuration.schemaVersion must be 19 or 20")
+    if config_schema_version not in (19, 20, 21):
+        raise ValidationError("configuration.schemaVersion must be 19, 20 or 21")
     if contract["differenceContract"] != "performance.activeFxRoiEnabled-only":
         raise ValidationError("configuration difference contract is invalid")
     base_path = _relative_file(root, contract["baseConfig"], "configuration.baseConfig")

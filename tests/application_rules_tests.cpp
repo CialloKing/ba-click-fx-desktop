@@ -1,6 +1,8 @@
 #include "test_support.hpp"
 #include "application_rule_monitor.hpp"
 
+#include <stdexcept>
+
 using bafx::config::ApplicationMatchMode;
 using bafx::config::ApplicationRulesConfig;
 using bafx::desktop::ApplicationRuleState;
@@ -21,6 +23,9 @@ BAFX_TEST(application_rules_match_all_instances_and_debounce_only_complete_scans
     BAFX_CHECK(tracker.runtime().suppressed);
     tracker.observe(revision, {{}, ERROR_SUCCESS, true});
     BAFX_CHECK(tracker.runtime().states[0] == ApplicationRuleState::Waiting);
+    tracker.observe(revision, running);
+    tracker.observe(revision, {{}, ERROR_SUCCESS, true});
+    BAFX_CHECK(tracker.runtime().suppressed);
     tracker.observe(revision, {{}, ERROR_ACCESS_DENIED, false});
     tracker.observe(revision, {{}, ERROR_SUCCESS, true});
     BAFX_CHECK(tracker.runtime().suppressed);
@@ -43,6 +48,11 @@ BAFX_TEST(application_rules_path_failure_never_broadens_match_or_proves_exit)
     tracker.configure({true, {{true, ApplicationMatchMode::ExecutableName, "game.exe"}}});
     tracker.observe(tracker.runtime().revision, inaccessible);
     BAFX_CHECK(tracker.runtime().suppressed);
+    auto unknownSession = inaccessible;
+    unknownSession.processes[0].sessionKnown = false;
+    tracker.observe(tracker.runtime().revision, unknownSession);
+    BAFX_CHECK(tracker.runtime().suppressed);
+    BAFX_CHECK(tracker.runtime().states[0] == ApplicationRuleState::Unknown);
 }
 
 BAFX_TEST(application_rules_edits_remove_only_their_own_holds_and_ignore_stale_results)
@@ -93,4 +103,17 @@ BAFX_TEST(application_rules_initial_scan_and_current_session_catalog)
     monitor.configure({});
     BAFX_CHECK(!monitor.snapshot().suppressed);
     monitor.stop();
+}
+
+BAFX_TEST(application_rules_initial_failure_preserves_manual_state)
+{
+    bafx::desktop::ApplicationRuleMonitor monitor(
+        {true, {{true, ApplicationMatchMode::ExecutableName, "game.exe"}}},
+        [](const auto) -> ProcessSnapshot
+        {
+            throw std::runtime_error("process enumeration unavailable");
+        });
+    BAFX_CHECK(!monitor.snapshot().suppressed);
+    BAFX_CHECK(monitor.snapshot().error == ERROR_GEN_FAILURE);
+    BAFX_CHECK(monitor.snapshot().states[0] == ApplicationRuleState::Unknown);
 }

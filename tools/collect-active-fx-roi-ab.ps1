@@ -51,7 +51,7 @@ $logName = 'ba-click-fx-desktop-support.log'
 $manifestName = 'capture.json'
 $manifestSchemaVersion = 4
 $diagnosticManifestSchemaVersion = 3
-$supportedConfigSchemaVersions = @(19, 20)
+$supportedConfigSchemaVersions = @(19, 20, 21)
 $environmentContract = 'rtx-4060-4k170-sdr-v1'
 $requiredAdapterNameFragment = 'RTX 4060'
 $requiredOutputWidth = 3840
@@ -2147,7 +2147,7 @@ catch
 if ($null -eq $baseConfiguration -or
     $baseConfiguration.schemaVersion -notin $supportedConfigSchemaVersions)
 {
-    throw 'Base configuration schemaVersion must be 19 or 20'
+    throw 'Base configuration schemaVersion must be 19, 20 or 21'
 }
 $configSchemaVersion = [int]$baseConfiguration.schemaVersion
 if ($null -eq $baseConfiguration.performance -or

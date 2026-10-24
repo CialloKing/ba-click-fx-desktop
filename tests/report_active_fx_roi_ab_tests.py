@@ -651,8 +651,8 @@ class ActiveFxRoiAbReporterTests(unittest.TestCase):
             with self.assertRaisesRegex(REPORTER.ValidationError, "differ outside"):
                 REPORTER.build_report(fixture.root)
 
-    def test_accepts_schema_19_and_20_configuration_contracts(self) -> None:
-        for schema_version in (19, 20):
+    def test_accepts_schema_19_through_21_configuration_contracts(self) -> None:
+        for schema_version in (19, 20, 21):
             with self.subTest(schema_version=schema_version), tempfile.TemporaryDirectory() as temporary:
                 fixture = CaptureFixture(
                     Path(temporary), config_schema_version=schema_version
@@ -683,7 +683,7 @@ class ActiveFxRoiAbReporterTests(unittest.TestCase):
             run["configSha256"] = _sha256(config_path)
             fixture.write_manifest()
             with self.assertRaisesRegex(
-                REPORTER.ValidationError, "schemaVersion must be 19 or 20"
+                REPORTER.ValidationError, "schemaVersion must be 19, 20 or 21"
             ):
                 REPORTER.build_report(fixture.root)
 
