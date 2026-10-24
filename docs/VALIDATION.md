@@ -991,6 +991,40 @@ unsigned identity template 版本为 `0.3.1.0`。Full/Slim 均以 Visual Studio 
 以及真实过期证书和故障现场安装/升级/卸载仍需实机验收。发布提交、注释标签、最终 CI 和公开下载复算记录保存在
 `artifacts/local/release-0.3.1-20261014/release-verification.md`。
 
+### 5.13 0.3.2 发布检查（2026-10-24）
+
+产品实现候选提交为 `182bdc4677a46a670809d6408c102089d8d0bfd8`，产品版本为 `0.3.2`，Windows 数字版本和
+unsigned identity template 版本为 `0.3.2.0`。Full / Slim 均以 Visual Studio 2026 和 SDK `10.0.28000.0`
+完整重建成功；构建时 SDK 缓存与生成项目一致，Host 与控制中心版本资源一致。
+
+- Full 本地 CTest **47/47**（110.76 秒），Slim **46/46**（100.82 秒）；没有跳过或禁用测试。
+- 实现阶段的原生快捷键注入超时未在本轮完整回归重现；本地两套构建与候选 CI 均通过该项。快捷键实现和测试
+  相对 v0.3.1 未修改，未放宽断言，先前超时的根因未确认。
+- 候选 [CI 40082026888](https://github.com/CialloKing/ba-click-fx-desktop/actions/runs/40082026888)
+  通过 42/42 自动测试、SDK 19041 / 22621 / 26100 构建和 8 个文档检查。
+- 程序规则的配置、匹配、检测异常、旧结果丢弃、手动意图及背景采集约束已覆盖；本机进程、WGC 与 Spout2
+  透明输出检查及实机限制见[程序规则验证](validation/application-rules.md)。
+- Full Portable 的内容、清单、版本、PE 依赖、Host 启动、配置路径和控制中心启动检查通过；Setup 的版本与
+  PE 依赖检查通过，identity template 保持未签名，包内不携带证书或私钥。四份资产的 SHA-256 已记录。
+- 打包前 Full 构建缓存被 Visual Studio 重新配置为 Ninja，导致打包脚本无法从缓存读取链接器；已核对 Host 和
+  控制中心哈希与完整回归后的二进制一致，并显式传入本轮 MSVC 链接器运行原有包校验。没有更改产品或验证断言。
+
+| 资产 | 字节数 | SHA-256 |
+| --- | ---: | --- |
+| `ba-click-fx-desktop-0.3.2-Portable-windows-x64.zip` | 1579775 | `6C73E6B2E7A218502654E06049D8AB694CA0CBC8017B262BFC311EF215EEED5A` |
+| `ba-click-fx-desktop-0.3.2-Portable-windows-x64.zip.sha256` | 116 | `9F71DA2C00261231B8CA553B2E5429E12FA2865A7406CD2EEE94833AAB43910A` |
+| `ba-click-fx-desktop-0.3.2-setup-windows-x64.exe` | 4298091 | `81CD126E5CA1A23599EEA773E2E6E2718572649B6F2B9C411C602F0A5B8050C4` |
+| `ba-click-fx-desktop-0.3.2-setup-windows-x64.exe.sha256` | 113 | `0BCA8EB6BB26B5DFC2B6C3ECDB193DE2C0B7D5B874C2330AA36CF432BAA5D32C` |
+
+Full / Slim clean builds and complete local tests passed, along with candidate CI and the package verifiers. The earlier local
+hotkey timeout did not recur; no assertions were weakened. An IDE rewrite of the Full build cache was handled by verifying
+unchanged binary hashes and supplying the recorded linker explicitly to the existing package checks.
+
+多显示器、HDR、Windows 11 无边框授权 / 设备拔插、OBS 最终合成 / 录制和桌面最终像素验收，以及真实安装实例的
+AppX / 证书及故障现场升级 / 卸载矩阵仍为 **Not Run**。Multi-display / HDR hardware, Windows 11 permission / hotplug,
+final OBS / desktop pixels and real-installation recovery matrices remain unverified. 发布提交、注释标签、最终 CI 和公开下载
+复算记录保存在 `artifacts/local/release-0.3.2-20261024/release-verification.md`。
+
 ## 6. 需求追踪
 
 | 合同 | ADR | Spike | Validation suite |

@@ -1,6 +1,7 @@
 # 程序规则验证 / Program rules validation
 
-日期 / Date: 2026-10-24。功能实现，尚未发布 / Implemented, not released.
+日期 / Date: 2026-10-24。0.3.2 程序规则验证；发布资产检查见 [VALIDATION.md](../VALIDATION.md)。
+Program rules validation for 0.3.2; release asset checks are recorded in [VALIDATION.md](../VALIDATION.md).
 
 ## 自动验证 / Automated checks
 
@@ -15,11 +16,13 @@
 ## 构建与回归 / Builds and regression
 
 - Full / Slim Release 均构建成功（Visual Studio 2026、Windows SDK 10.0.28000.0）。
-- 完整 CTest：Full **46/47**，Slim **45/46**。唯一未通过项是 `hotkey_process_boundary`，在 `tests/hotkey_process_tests.cpp:234` 等待注入的 Ctrl+Alt+Shift+F22 超时；Slim 单独重跑同样失败。快捷键实现与该测试相对基线 `5b990e5` 均未修改，未放宽测试或据此宣称全量通过。
-- 后续对初次检测异常和后台界面刷新作收尾修改，重建受影响目标并定向重跑 Host / 控制中心测试。
+- 0.3.2 发布前完整重建后的 CTest：Full **47/47**（110.76 秒），Slim **46/46**（100.82 秒），没有跳过或禁用测试。
+- 候选提交 `182bdc4` 的[远端 CI](https://github.com/CialloKing/ba-click-fx-desktop/actions/runs/40082026888) 通过 42/42 自动测试、SDK 19041 / 22621 / 26100 构建和文档检查。
+- 实现阶段曾出现 `hotkey_process_boundary` 在第 234 行等待注入的 Ctrl+Alt+Shift+F22 超时，当时 Full 为 46/47、Slim 为 45/46。此次本地 Full / Slim 和远端 CI 均通过；快捷键实现与该测试相对基线 `5b990e5` 未修改，未放宽断言，先前超时的根因未确认。
+- 初次检测异常和后台界面刷新的收尾修改已包含在此次完整重建与回归中。
 - `node tools/verify-readme.mjs`：通过；ROI 采集及报告工具扩展接受 schema 21，原有 schema 19 / 20 证据仍可读取。
-- Both Release variants built. Full CTest: **46/47**; Slim: **45/46**. The native hotkey injection test timed out at line 234, including an isolated Slim retry. Its implementation and test are unchanged from baseline `5b990e5`; no checks were weakened. A completely green suite is not claimed.
-- Affected targets and Host / UI checks were rebuilt and rerun after final startup-failure and background-refresh adjustments. Documentation checks passed.
+- Both Release variants were clean-built. Full CTest: **47/47** (110.76 s); Slim: **46/46** (100.82 s), with no skipped or disabled tests. Candidate CI passed 42/42 tests, three SDK builds and documentation checks.
+- Earlier implementation checks had a native hotkey injection timeout at line 234 (Full 46/47, Slim 45/46). The release checks now pass locally and in CI without changing the hotkey implementation or weakening its assertions; the earlier timeout's cause remains unconfirmed. Final startup-failure and background-refresh adjustments are included in the complete release regression.
 
 ## 本机进程与图形检查 / Local process and graphics checks
 
@@ -40,6 +43,5 @@ The Spout2 receiver remained connected for **108/108** samples with one unchange
 
 - 多显示器硬件、HDR、Windows 11 异步无边框授权及设备拔插；已复用原状态机并检查所有请求入口，但不能替代对应实机验收。
 - OBS 应用内的最终合成 / 录制与人工桌面最终像素验收。本轮通过 Spout2 接收器验证共享输出、通过 HWND 状态验证显示 / 隐藏；不把这些结果当作 OBS 录制或 DWM 最终像素验收。
-- 未发布新版本。
 
-Multi-display hardware, HDR, Windows 11 borderless permission / hotplug, final OBS composition / recording and human inspection of final desktop pixels remain unverified. Receiver readback and HWND visibility do not substitute for that acceptance. No release was published.
+Multi-display hardware, HDR, Windows 11 borderless permission / hotplug, final OBS composition / recording and human inspection of final desktop pixels remain unverified. Receiver readback and HWND visibility do not substitute for that acceptance.
