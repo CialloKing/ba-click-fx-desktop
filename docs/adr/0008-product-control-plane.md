@@ -12,7 +12,7 @@
 
 ## 决策
 
-1. 配置由 `bafx_config` 持有，使用版本化 JSON（当前 schema 为 20）。读取时接受完整的当前 schema，
+1. 配置由 `bafx_config` 持有，使用版本化 JSON（当前 schema 为 21）。读取时接受完整的当前 schema，
    并按固定链迁移 schema 14 至 19；其他版本、未知字段或枚举别名仍被拒绝。校验后生成不可变的运行时
    快照，写入使用同目录临时文件、flush、替换的原子流程。
 2. Host 是配置的唯一写入者。外部客户端只能通过版本化的本地 Named Pipe 请求操作，不能
@@ -22,7 +22,7 @@
    NUL/换行注入和超限请求都返回可诊断错误而不终止 Host。
 4. Host 通过用户范围的命名互斥体保证单实例；管道服务在独立线程运行，Render Owner 只
    在帧边界消费已校验的命令。Control Center 退出不会影响 Host。
-5. 基础配置协议保留 `GetState`、`GetDisplayState`、`GetConfig`、`SetConfig <schema-20-json>`、
+5. 基础配置协议保留 `GetState`、`GetDisplayState`、`GetConfig`、`SetConfig <schema-21-json>`、
    `SetConfig {generation,path,value}`、`Pause`、`Resume` 和 `Shutdown`。路径更新只允许
    配置库声明的产品字段，并在 generation 不匹配时返回冲突。响应中的 `generation` 用于
    客户端判断快照是否变化；`GetDisplayState` 固定使用严格 schema 4 和独立运行状态代次，同时报告
@@ -120,7 +120,7 @@
     Control Center 的录制会话保留旧注册但抑制快捷键动作，候选只进入本地草稿。失焦、显式取消、
     30 秒总时限或连续 5 秒没有匹配 token 的续期都会结束录制；只有非零且匹配的 token 查询可以续期。
     `SetHotkeys <generation> <hotkeys-json>` 使用 prepare/persist/commit：先在保留旧注册的情况下注册全部
-    新组合，再原子保存完整 schema 20 配置，最后发布动作映射并释放旧组合。注册、generation 或写盘失败
+    新组合，再原子保存完整 schema 21 配置，最后发布动作映射并释放旧组合。注册、generation 或写盘失败
     回滚新注册且保持旧绑定；配置已写入后的激活无法确认或旧注册清理失败，以已保存配置为权威并提示
     重启 Host。`RetryHotkeys` 只重试已保存绑定，不写配置。重置默认配置保留已保存快捷键。
 
@@ -142,7 +142,7 @@
 ## 验收
 
 - 无配置文件首次启动会创建当前 schema 的默认 JSON。
-- 接受字段完整的 schema 20，并按固定链迁移 schema 14 至 19；其他版本、缺少版本、未知字段和枚举别名
+- 接受字段完整的 schema 21，并按固定链迁移 schema 14 至 20；其他版本、缺少版本、未知字段和枚举别名
   均被拒绝。Host 使用内存默认值继续运行并保留无法识别的原文件，不猜测字段或枚举。
 - schema 20 新配置和 schema 19 迁移均产生四项未绑定快捷键；codec 拒绝重复、F12、仅修饰键和非法位。
   Host 使用 `RegisterHotKey` 并附加 `MOD_NOREPEAT` 执行四项动作，录制期间不执行旧动作，匹配 token 的续期不超过

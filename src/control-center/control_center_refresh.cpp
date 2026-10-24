@@ -31,7 +31,7 @@ bool ControlCenterWindow::requireCurrentSnapshot()
     return false;
 }
 
-void ControlCenterWindow::requestHostRefresh()
+void ControlCenterWindow::requestHostRefresh(const bool background)
 {
     if (hostShutdownPending_ || window_ == nullptr)
     {
@@ -57,17 +57,22 @@ void ControlCenterWindow::requestHostRefresh()
         return;
     }
     hostRunning_ = true;
-    hostSnapshotCurrent_ = false;
-    displayStateCurrent_ = false;
-    invalidateDisplayStateRefresh();
-    // These operations derive a compound mutation from a complete snapshot.
-    // Keep independent edits, navigation and language changes available.
-    for (const HWND control : {applyFxProfileButton_, saveFxProfileButton_,
-        deleteFxProfileButton_, displayIndependent_, displayEffectsEnabled_,
-        displayHdrEnabled_, displayFramePacingLabel_, displayFramePacing_,
-        hotkeySave_, resetDefaultsButton_})
+    // A periodic observation must not interrupt a file picker or invalidate
+    // an otherwise current editing snapshot. Mutations still check generation.
+    if (!background)
     {
-        setControlEnabled(control, FALSE);
+        hostSnapshotCurrent_ = false;
+        displayStateCurrent_ = false;
+        invalidateDisplayStateRefresh();
+        // These operations derive a compound mutation from a complete snapshot.
+        // Keep independent edits, navigation and language changes available.
+        for (const HWND control : {applyFxProfileButton_, saveFxProfileButton_,
+            deleteFxProfileButton_, displayIndependent_, displayEffectsEnabled_,
+            displayHdrEnabled_, displayFramePacingLabel_, displayFramePacing_,
+            hotkeySave_, resetDefaultsButton_})
+        {
+            setControlEnabled(control, FALSE);
+        }
     }
     try
     {
@@ -75,7 +80,7 @@ void ControlCenterWindow::requestHostRefresh()
         {
             hostSnapshotPoller_ = std::make_unique<HostSnapshotPoller>(controlCenterIpcOptions());
         }
-        if (hostSnapshotPoller_->request(generation_))
+        if (hostSnapshotPoller_->request(generation_) && !background)
         {
             refreshInfoRevision_ = infoRevision_;
         }

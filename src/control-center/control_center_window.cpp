@@ -1542,7 +1542,7 @@ bool ControlCenterWindow::createControls()
         BS_PUSHBUTTON | WS_TABSTOP,
         ControlId::DeleteFxProfile);
 
-    if (!createHotkeyControls())
+    if (!createHotkeyControls() || !createApplicationRuleControls())
     {
         return false;
     }
@@ -1823,6 +1823,10 @@ void ControlCenterWindow::onCommand(
         return;
     }
 
+    if (onApplicationRuleCommand(id, notificationCode))
+    {
+        return;
+    }
     switch (static_cast<ControlId>(id))
     {
     case ControlId::Language:
@@ -2770,6 +2774,20 @@ void ControlCenterWindow::openOfficialProjectRepository()
 
 void ControlCenterWindow::onTimer(const UINT_PTR timerId)
 {
+    if (timerId == applicationProcessTimerId)
+    {
+        pollApplicationProcesses();
+        return;
+    }
+    if (timerId == applicationStatusTimerId)
+    {
+        if (connected_ && !hostShutdownPending_
+            && (hostSnapshotPoller_ == nullptr || !hostSnapshotPoller_->busy()))
+        {
+            requestHostRefresh(true);
+        }
+        return;
+    }
     if (timerId == hostRefreshTimerId)
     {
         pollHostRefresh();
@@ -3190,17 +3208,14 @@ void ControlCenterWindow::updateControls(
     setChecked(spout2Enabled_, config.system.spout2Enabled);
     updateSpout2Status(state);
 #endif
+    updateApplicationRuleControls();
     updateDisplayControls(config);
     setText(pauseButton_, paused_ ? TextId::ResumeEffects : TextId::PauseEffects);
 
     updatingControls_ = false;
     hostRunning_ = true;
     setConnected(true);
-    setText(statusText_, UiMessage(TextId::ConnectedStatus,
-        {paused_ ? TextId::Paused : TextId::Running,
-            state.backgroundCapture == "active" ? UiMessage::Argument(TextId::BackgroundActive)
-                : (state.backgroundCapture == "fallback-fx-only" ? UiMessage::Argument(TextId::BackgroundFallback)
-                    : UiMessage::Argument(utf8ToWide(state.backgroundCapture)))}));
+    updateApplicationRuleStatus();
     if (!hostShutdownPending_ && !preserveInfo)
     {
         if (!state.fxProfileWarning.empty())
@@ -4181,6 +4196,12 @@ HMENU ControlCenterWindow::createTrayMenu() const
         MF_STRING | (connected_ ? MF_ENABLED : MF_GRAYED),
         trayPauseCommand,
         connected_ && paused_ ? tr(TextId::ResumeEffects) : tr(TextId::PauseEffects)));
+    if (connected_ && presentationState_.automaticSuppressed)
+    {
+        const auto reason = formatText(TextId::ApplicationRulesSuppressed,
+            {utf8ToWide(presentationState_.applicationRuleReason)});
+        AppendMenuW(menu, MF_STRING | MF_GRAYED, 0U, reason.c_str());
+    }
     static_cast<void>(AppendMenuW(menu, MF_SEPARATOR, 0U, nullptr));
     static_cast<void>(AppendMenuW(
         menu,
@@ -4264,6 +4285,17 @@ void ControlCenterWindow::setConnected(const bool connected) noexcept
             {"Host.VersionBlocked", hostVersionBlocked_ ? "true" : "false"}});
     }
     connected_ = connected;
+    if (window_ != nullptr)
+    {
+        if (connected && config_.applicationRules.enabled && !config_.applicationRules.rules.empty())
+        {
+            SetTimer(window_, applicationStatusTimerId, 1'000U, nullptr);
+        }
+        else
+        {
+            KillTimer(window_, applicationStatusTimerId);
+        }
+    }
     if (connected)
     {
         hostRunning_ = true;
@@ -4296,6 +4328,12 @@ void ControlCenterWindow::setConnected(const bool connected) noexcept
         startWithWindows_,
         startMinimized_,
         closeToTray_,
+        applicationRulesEnabled_,
+        applicationRuleMode_,
+        applicationRuleList_,
+        applicationRuleBrowse_,
+        applicationRuleProcess_,
+        applicationRuleAdd_,
 #if defined(BAFX_ENABLE_SPOUT2)
         spout2Enabled_,
 #endif
@@ -4310,6 +4348,11 @@ void ControlCenterWindow::setConnected(const bool connected) noexcept
             setControlEnabled(control, enabled);
         }
     }
+    const auto selectedRule = SendMessageW(applicationRuleList_, LB_GETCURSEL, 0U, 0);
+    const bool ruleSelected = connected && selectedRule >= 0
+        && static_cast<std::size_t>(selectedRule) < config_.applicationRules.rules.size();
+    setControlEnabled(applicationRuleToggle_, ruleSelected);
+    setControlEnabled(applicationRuleDelete_, ruleSelected);
     for (const auto& descriptor : sliderDescriptors())
     {
         const auto& slider = this->*descriptor.control;

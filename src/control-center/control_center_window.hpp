@@ -11,6 +11,8 @@
 #include "bafx/config/config.hpp"
 #include "bafx/windows/ipc_client.hpp"
 #include "bafx/windows/unique_handle.hpp"
+#include "bafx/windows/process_catalog.hpp"
+#include <future>
 
 #include <windows.h>
 
@@ -151,7 +153,18 @@ private:
         ClearLogs,
         ResetDefaults,
         Language,
-        OpenLogDirectory
+        OpenLogDirectory,
+        ApplicationRulesPage,
+        ApplicationRulesBack,
+        ApplicationRulesEnabled,
+        ApplicationRuleList,
+        ApplicationRuleToggle,
+        ApplicationRuleDelete,
+        ApplicationRuleBrowse,
+        ApplicationRuleProcess,
+        ApplicationRuleRefresh,
+        ApplicationRuleAdd,
+        ApplicationRuleMode
     };
     static_assert(
         static_cast<int>(ControlId::OpenRelease)
@@ -186,7 +199,8 @@ private:
         Advanced,
         DisplayPerformance,
         Hotkeys,
-        System
+        System,
+        ApplicationRules
     };
 
     enum class AdvancedSection : std::uint8_t
@@ -241,6 +255,17 @@ private:
     [[nodiscard]] bool createHotkeyControls();
     void layoutHotkeyControls(int width, int height) const noexcept;
     void updateHotkeyControls();
+    [[nodiscard]] bool createApplicationRuleControls();
+    void layoutApplicationRuleControls(int width, int height) const noexcept;
+    void updateApplicationRuleControls();
+    void updateApplicationRuleSelection();
+    [[nodiscard]] bool onApplicationRuleCommand(int id, int notification);
+    void refreshApplicationProcesses();
+    void pollApplicationProcesses();
+    void addApplicationRule(std::wstring target);
+    void saveApplicationRules(bafx::config::ApplicationRulesConfig rules);
+    void updateApplicationRuleStatus();
+
     [[nodiscard]] bool refreshHotkeys(
         std::string_view command = "GetHotkeyState");
     void beginHotkeyCapture(std::size_t index);
@@ -313,7 +338,7 @@ private:
     void openOfficialLatestRelease();
     void openOfficialProjectRepository();
 
-    void requestHostRefresh();
+    void requestHostRefresh(bool background = false);
     void pollHostRefresh();
     void invalidateHostRefresh() noexcept;
     void acceptHostSnapshot(HostSnapshotResult result);
@@ -541,6 +566,25 @@ private:
     HWND applyFxProfileButton_{nullptr};
     HWND saveFxProfileButton_{nullptr};
     HWND deleteFxProfileButton_{nullptr};
+    static constexpr UINT_PTR applicationProcessTimerId = 9U;
+    static constexpr UINT_PTR applicationStatusTimerId = 10U;
+    HWND applicationRulesPage_{nullptr};
+    HWND applicationRulesBack_{nullptr};
+    HWND applicationRulesEnabled_{nullptr};
+    HWND applicationRulesHint_{nullptr};
+    HWND applicationRuleList_{nullptr};
+    HWND applicationRuleTarget_{nullptr};
+    HWND applicationRuleToggle_{nullptr};
+    HWND applicationRuleDelete_{nullptr};
+    HWND applicationRuleModeLabel_{nullptr};
+    HWND applicationRuleMode_{nullptr};
+    HWND applicationRuleBrowse_{nullptr};
+    HWND applicationRuleProcess_{nullptr};
+    HWND applicationRuleRefresh_{nullptr};
+    HWND applicationRuleAdd_{nullptr};
+    std::future<bafx::windows::ProcessSnapshot> applicationProcessesFuture_{};
+    std::vector<bafx::windows::ProcessInfo> applicationProcesses_{};
+    std::vector<std::wstring> applicationRuleRows_{};
     HWND systemSettingsHeading_{nullptr};
     HWND startWithWindows_{nullptr};
     HWND startMinimized_{nullptr};

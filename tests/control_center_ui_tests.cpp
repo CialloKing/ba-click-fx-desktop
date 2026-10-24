@@ -125,7 +125,7 @@ LRESULT CALLBACK countRefreshWrites(HWND window, UINT message, WPARAM wParam,
     {
         ++writes.sliders;
     }
-    if (message == CB_RESETCONTENT)
+    if (message == CB_RESETCONTENT || message == LB_RESETCONTENT)
     {
         ++writes.lists;
     }
@@ -423,6 +423,34 @@ struct ControlCenterUiTest
             verifyReadPosition();
         }
 
+        ui.config_.applicationRules = {true,
+            {{true, bafx::config::ApplicationMatchMode::ExecutablePath, "C:\\Games\\Game.exe"},
+             {false, bafx::config::ApplicationMatchMode::ExecutableName, "Editor.exe"}}};
+        ui.presentationState_.automaticSuppressed = true;
+        ui.presentationState_.applicationRuleReason = "Game.exe";
+        ui.presentationState_.applicationRuleStates = "matched\ndisabled";
+        ui.connected_ = true;
+        ui.updateApplicationRuleControls();
+        ui.updateApplicationRuleStatus();
+        BAFX_CHECK(SendMessageW(ui.applicationRuleList_, LB_GETCOUNT, 0U, 0) == 2);
+        BAFX_CHECK(caption(ui.statusText_).find(L"Game.exe") != std::wstring::npos);
+        BAFX_CHECK(caption(ui.applicationRuleTarget_) == L"C:\\Games\\Game.exe");
+        BAFX_CHECK((GetWindowLongPtrW(ui.applicationRuleList_, GWL_STYLE) & WS_VISIBLE) == 0);
+        {
+            RefreshWrites writes;
+            for (const HWND control : {ui.statusText_, ui.applicationRuleList_})
+            {
+                BAFX_CHECK(SetWindowSubclass(control, countRefreshWrites, 1U, reinterpret_cast<DWORD_PTR>(&writes)));
+            }
+            ui.updateApplicationRuleControls();
+            ui.updateApplicationRuleStatus();
+            BAFX_CHECK(writes.empty());
+            for (const HWND control : {ui.statusText_, ui.applicationRuleList_})
+            {
+                RemoveWindowSubclass(control, countRefreshWrites, 1U);
+            }
+        }
+
         for (const UINT dpi : {96U, 144U, 192U})
         {
             ui.layoutDpi_ = dpi;
@@ -443,7 +471,7 @@ struct ControlCenterUiTest
                 GetMenuStringW(tray, 0U, menuText, 128, MF_BYPOSITION);
                 BAFX_CHECK(std::wstring_view(menuText) == tr(TextId::OpenControlCenter));
                 DestroyMenu(tray);
-                for (int page = 0; page < 5; ++page)
+                for (int page = 0; page < 6; ++page)
                 {
                     // Navigation is presentation-only here; selectPage() also
                     // starts live polling, which belongs to the actual app.

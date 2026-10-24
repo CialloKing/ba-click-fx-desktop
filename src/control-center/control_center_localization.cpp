@@ -113,6 +113,7 @@ void ControlCenterWindow::retranslateUi()
     updateVersionPresentation();
     updateDisplayControls(config_);
     updateHotkeyControls();
+    updateApplicationRuleControls();
     updateHostLifecycleButton();
 #if defined(BAFX_ENABLE_SPOUT2)
     if (connected_)
@@ -134,6 +135,7 @@ void ControlCenterWindow::retranslateUi()
         wcsncpy_s(icon.szTip, tip.c_str(), _TRUNCATE);
         Shell_NotifyIconW(NIM_MODIFY, &icon);
     }
+    updateApplicationRuleStatus();
     RECT client{};
     GetClientRect(window_, &client);
     layoutControls(client.right, client.bottom);

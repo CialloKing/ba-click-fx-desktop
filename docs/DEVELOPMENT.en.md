@@ -291,7 +291,17 @@ keep `BAFX.config.json`, `ba-click-fx-desktop-support.log`, and custom `fx-profi
 Host. Identity installs keep the same files under the writable `data` directory. A local
 `BAFX.Host.v1` mutex enforces one Host instance.
 
-The current configuration is explicit schema 20. Schemas 14 through 19 migrate in a fixed
+Machine-local `applicationRules` stores `{"enabled":false,"rules":[]}`. Each rule has `enabled`,
+`matchMode` (`path` / `name`) and `target`, with at most 64 rules and no duplicate normalized targets within a match mode.
+Schema 20 → 21 adds a disabled empty list. Effect profiles and ResetFxConfig preserve it; a SetConfig patch replaces the object under the existing generation check and atomic save.
+Host checks before creating visible surfaces, then scans the current login session every second. Rule edits wake the worker immediately and advance an independent revision to reject stale results; no active rules means no polling.
+One match suppresses effects. Two consecutive successful clear scans release the hold. Unknown enumeration, session or path results retain the last decision; path failures never broaden to filename matching.
+GetState adds `automaticSuppressed`, `applicationRulesRevision`, `applicationRulesError`, `applicationRuleReason`, and newline-separated `applicationRuleStates` in rule order
+(disabled / unknown / matched / clear / waiting). The existing `paused` remains manual. Runtime transitions do not save configuration or advance the render configuration generation.
+The render thread cancels presses, discards simulation contents, clears the OBS shared texture, hides desktop surfaces and stops WGC through the existing capture state machine.
+Resume presents a transparent frame before showing a surface and reconciles capture against current settings. Hotplug, device recovery and asynchronous permission completion obey the same suppression gate, timeout and FX-only fallback.
+
+The current configuration is explicit schema 21. Schemas 14 through 20 migrate in a fixed
 order; unknown versions, missing sections, unknown fields, and enum aliases are rejected and
 the Host uses in-memory defaults after logging the error. New defaults request
 `background-aware`, allow the Windows capture border, keep HDR disabled, follow the display

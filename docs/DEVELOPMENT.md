@@ -276,12 +276,12 @@ Identity 安装版则将这些文件和目录放入同一目录下可写的 `dat
 `%LOCALAPPDATA%`、当前工作目录或其他用户目录保存数据。Host 使用
 `Local\BAFX.Host.v1` 互斥体保证单实例。
 
-首次生成的 schema 20 配置将 `background.mode` 设为 `background-aware`、
+首次生成的 schema 21 配置将 `background.mode` 设为 `background-aware`、
 `background.allowSystemBorder` 设为 `true`、`display.hdrEnabled` 设为 `false`，并以
 `performance.framePacing=match-display`、`input.trailOnlyWhilePressed=true`、`input.samplingRateHz=0`
 保持跟随显示器刷新率、按住拖尾且不额外限制输入 Move。显示刷新率缺失或无效时，
 `match-display` 保守回退到 60 FPS；只有显式选择 `unlimited` 才不设置额外最小帧周期。
-当前配置要求字段完整的显式 `schemaVersion=20`；14 至 19 会按固定顺序迁移到当前版本，
+当前配置要求字段完整的显式 `schemaVersion=21`；14 至 20 会按固定顺序迁移到当前版本，
 其他版本、缺少 section、未知字段和枚举别名都会被拒绝。Host 记录错误后仅在内存中使用当前默认值，
 不会猜测未知格式。只有
 `background-aware` 会启用 WGC；WGC 或捕获排除路径失败时，Host 将当前批次回退到内部
@@ -293,6 +293,16 @@ WGC 可以在 Windows 要求隐私提示的情况下启动；可见边框会在�
 会在 `StartCapture` 前请求并确认无边框会话，接口缺失、权限不足或 Windows 仍要求系统边框时直接回退
 FX-only，不会先启动带黄色边框的会话。无论该开关如何设置，Overlay 的跨进程鼠标穿透都具有更高
 优先级，任何自排除冲突都必须回退 FX-only。
+
+程序规则保存在本机 `applicationRules`：`{"enabled":false,"rules":[]}`。
+每项包含 `enabled`、`matchMode`（`path` / `name`）和 `target`，上限 64 项，按规范化路径和匹配方式拒绝重复。
+schema 20 → 21 迁移增加关闭的空名单；特效预设与 ResetFxConfig 不包含此节。`SetConfig` 补丁整体替换该对象，沿用 generation 冲突检查与原子保存。
+Host 在创建覆盖层前同步初检，后台每秒只枚举当前登录会话；规则变化立即唤醒，独立 revision 丢弃旧检测结果，没有启用规则时停止轮询。
+一次匹配即停用，两次连续成功且无匹配才恢复；无法枚举、确认会话或读取目标路径时保留原判断，路径失败不改用文件名。
+`GetState.automaticSuppressed` 独立于手动 `paused`，并提供 `applicationRulesRevision`、`applicationRulesError`、`applicationRuleReason`
+和按名单顺序以换行分隔的 `applicationRuleStates`（disabled / unknown / matched / clear / waiting）。运行时状态不写配置、不增加渲染配置代次。
+渲染线程取消按压、清空模拟与 OBS 共享纹理、隐藏覆盖层并让背景采集状态机停止 WGC；恢复先呈现透明帧，再按最新配置重新协调采集。
+停用期间的热插拔、设备恢复和权限异步结果同样受采集请求约束，保留既有超时保护与 FX-only 回退。
 
 `BAFX.ControlCenter.exe` 已作为独立的 Win32 进程接入该 Pipe。Host 保持运行时，Control Center
 可以读取状态、暂停或恢复特效。五个顶层页面分别为“基础”“高级”“显示与性能”“快捷键”和“系统”。基础页提供启用状态、
@@ -456,7 +466,7 @@ Shutdown
 Control Center 拒绝。它返回独立运行代次、配置/应用代次、全局拓扑状态、权威离线 override 列表，以及
 每个会话实际应用的特效、HDR、颜色、cadence、输出状态和 Active-FX ROI 近 5 秒不可变工程快照；它不
 修改配置，也不代表其中的实验能力已经完成硬件验收。schema 4 不提供 schema 3 兼容层。
-`SetConfig` 仍接受完整的 schema 20
+`SetConfig` 仍接受完整的 schema 21
 JSON 快照。`GetFxConfig`、`SetFxParam`、原子批量的 `SetFxParams` 和 `ResetFxConfig` 是本项目的原生
 特效控制接口。`GetFxConfig` 返回平面的 `EffectsConfig` 字段，写入路径只接受唯一的 `effects.*`
 命名空间，不接受 Web 别名或额外单位换算。FX 快照不包含 HDR、背景、输入、性能或系统字段；这些

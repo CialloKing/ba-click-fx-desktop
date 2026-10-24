@@ -23,6 +23,7 @@ add_library(
         control_center_refresh.cpp
         control_center_window_layout.cpp
         control_center_hotkeys.cpp
+        control_center_application_rules.cpp
         display_state.cpp
         display_state_poller.cpp
         obs_spout_plugin_probe.cpp

@@ -483,6 +483,13 @@ void ControlCenterWindow::layoutControls(
         return;
     }
 
+    if (activePage_ == Page::ApplicationRules)
+    {
+        layoutApplicationRuleControls(clientWidth, clientHeight);
+        redrawWindowTree();
+        return;
+    }
+
     if (activePage_ == Page::System)
     {
         const int actionHeight = scale(38);
@@ -522,6 +529,8 @@ void ControlCenterWindow::layoutControls(
             contentTop,
             systemPanelWidth,
             panelHeight);
+        moveControl(applicationRulesPage_, margin + systemPanelWidth - scale(154),
+            contentTop, scale(142), scale(24));
         moveControl(languageLabel_, contentX, contentTop + scale(32), scale(108), scale(26));
         moveControl(languageSelector_, contentX + scale(116), contentTop + scale(28),
             contentWidth - scale(116), scale(160));
@@ -1305,7 +1314,7 @@ void ControlCenterWindow::updatePageVisibility() noexcept
     const bool basic = activePage_ == Page::Basic;
     const bool advanced = activePage_ == Page::Advanced;
     const bool display = activePage_ == Page::DisplayPerformance;
-    const bool system = activePage_ == Page::System;
+    const bool system = activePage_ == Page::System || activePage_ == Page::ApplicationRules;
     static_cast<void>(SendMessageW(
         basicPageButton_,
         BM_SETCHECK,
