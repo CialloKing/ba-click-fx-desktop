@@ -31,6 +31,11 @@ struct HostState final
         HostProductVersionStatus::Missing};
     std::uint64_t generation{0U};
     bool paused{false};
+    bool automaticSuppressed{false};
+    std::uint64_t applicationRulesRevision{0U};
+    std::uint64_t applicationRulesError{0U};
+    std::string applicationRuleReason{};
+    std::string applicationRuleStates{};
     std::string backgroundCapture{};
     bool spout2Enabled{false};
     std::string spout2Sender{};

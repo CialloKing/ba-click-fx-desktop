@@ -106,6 +106,7 @@ public:
         bool hasActiveFxProfile = false;
         bool hasFxProfileWarning = false;
         std::vector<std::string> hotkeyFields;
+        std::vector<std::string> applicationRuleFields;
 
         skipWhitespace();
         if (consume('}'))
@@ -164,6 +165,45 @@ public:
                     return fail("paused must be one boolean");
                 }
                 hasPaused = true;
+            }
+            else if (*key == "automaticSuppressed" || key->starts_with("applicationRule"))
+            {
+                if (std::find(applicationRuleFields.begin(), applicationRuleFields.end(), *key)
+                    != applicationRuleFields.end())
+                {
+                    return fail("duplicate application rule state field");
+                }
+                applicationRuleFields.push_back(*key);
+                if (*key == "automaticSuppressed")
+                {
+                    if (!parseBoolean(state.automaticSuppressed))
+                    {
+                        return fail("automaticSuppressed must be boolean");
+                    }
+                }
+                else if (*key == "applicationRulesRevision" || *key == "applicationRulesError")
+                {
+                    auto& value = *key == "applicationRulesRevision"
+                        ? state.applicationRulesRevision : state.applicationRulesError;
+                    if (!parseUnsigned(value))
+                    {
+                        return fail("application rule numeric state is invalid");
+                    }
+                }
+                else if (*key == "applicationRuleReason" || *key == "applicationRuleStates")
+                {
+                    auto value = parseString();
+                    if (!value.has_value())
+                    {
+                        return fail("application rule text state is invalid");
+                    }
+                    (*key == "applicationRuleReason" ? state.applicationRuleReason
+                        : state.applicationRuleStates) = std::move(*value);
+                }
+                else if (!skipPrimitive())
+                {
+                    return fail("invalid application rule state");
+                }
             }
             else if (*key == "backgroundCapture")
             {

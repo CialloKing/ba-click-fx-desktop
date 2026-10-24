@@ -606,6 +606,7 @@ DisplaySession::DisplaySession(DisplaySessionOptions options)
           options.title,
           bafx::windows::OverlayWindowOptions::renderSurface()),
       effectsEnabled_(options.runtimePolicy.effectsEnabled),
+      automaticSuppressed_(options.runtimePolicy.automaticSuppressed),
       requestedOutputPreference_(options.runtimePolicy.outputPreference),
       framePacing_(options.runtimePolicy.framePacing),
       colorObservation_(bafx::windows::queryDisplayColorCapabilities(
@@ -818,6 +819,7 @@ bafx::core::MonotonicTime DisplaySession::minimumFramePeriod() const noexcept
 DisplaySessionPolicyChange DisplaySession::applyRuntimePolicy(
     const DisplaySessionRuntimePolicy policy) noexcept
 {
+    setAutomaticSuppressed(policy.automaticSuppressed);
     const DisplaySessionPolicyChange change{
         effectsEnabled_ != policy.effectsEnabled,
         requestedOutputPreference_ != policy.outputPreference,
@@ -2285,6 +2287,11 @@ void DisplaySession::recordPresentedFrame(
     ++presentedFrameCount_;
     lastPresentedAt_ = startedAt;
     lastPresentedDrawableContent_ = drawable;
+    if (automaticClearPending_ && !drawable)
+    {
+        automaticClearPending_ = false;
+        show();
+    }
     if (minimumFramePeriod_ <= bafx::core::MonotonicTime::zero())
     {
         nextFramePacingDeadline_.reset();
@@ -2369,7 +2376,7 @@ void DisplaySession::clearOutputContractFault()
 
 void DisplaySession::show()
 {
-    if (!effectsEnabled_ || renderFaulted())
+    if (!effectsEnabled_ || renderFaulted() || automaticSuppressed_ || automaticClearPending_)
     {
         window_.hide();
         return;
@@ -2390,6 +2397,35 @@ void DisplaySession::show()
         return;
     }
     window_.show();
+}
+
+void DisplaySession::setAutomaticSuppressed(const bool suppressed) noexcept
+{
+    if (automaticSuppressed_ == suppressed)
+    {
+        return;
+    }
+    automaticSuppressed_ = suppressed;
+    // Keep the HWND hidden until its retained surface has been replaced by a
+    // transparent Present, including an exit that arrives before a frame slot.
+    automaticClearPending_ = true;
+    window_.hide();
+    if (suppressed)
+    {
+        simulation_.discardActiveEffects();
+        renderer_.clearSpout2Output();
+    }
+    resetFramePacing();
+}
+
+bool DisplaySession::automaticClearPending() const noexcept
+{
+    return automaticClearPending_;
+}
+
+bool DisplaySession::automaticSuppressed() const noexcept
+{
+    return automaticSuppressed_;
 }
 
 DisplaySessionDeviceRecoveryResult DisplaySession::finishDeviceRecovery(

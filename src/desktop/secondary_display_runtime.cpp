@@ -624,9 +624,9 @@ SecondaryRenderSummary renderSecondarySessions(
             continue;
         }
 
-        bafx::fx::FrameSnapshot snapshot = session.simulation().snapshot(
-            toViewport(session.window().size()),
-            renderTime);
+        bafx::fx::FrameSnapshot snapshot = session.automaticSuppressed() || session.automaticClearPending()
+            ? bafx::fx::FrameSnapshot{}
+            : session.simulation().snapshot(toViewport(session.window().size()), renderTime);
         applyVisualConfig(snapshot, config);
         try
         {

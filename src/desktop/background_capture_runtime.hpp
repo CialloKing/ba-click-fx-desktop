@@ -129,7 +129,8 @@ private:
 
 [[nodiscard]] bafx::windows::BackgroundCaptureRequest backgroundCaptureRequest(
     const bafx::config::Config& config,
-    std::uint64_t retryToken = 0U) noexcept;
+    std::uint64_t retryToken = 0U,
+    bool automaticSuppressed = false) noexcept;
 
 [[nodiscard]] bool canRetryBackgroundCaptureAfterDeviceRecovery(
     bool captureRequested,

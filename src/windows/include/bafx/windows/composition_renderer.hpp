@@ -332,6 +332,8 @@ public:
     // composition frame. This keeps OBS alive while the display swap chain is
     // idle or its frame-latency waitable is temporarily unsignaled.
     [[nodiscard]] bool sendSpout2Heartbeat() noexcept;
+    // Clear the independent output even if DComp has no Present opportunity.
+    void clearSpout2Output() noexcept;
     CompositionFrameDiagnostics renderFrame(
         const bafx::fx::FrameSnapshot& snapshot,
         bafx::core::MonotonicTime wallTime = bafx::core::MonotonicTime::zero(),

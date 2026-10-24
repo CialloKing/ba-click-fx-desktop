@@ -660,8 +660,16 @@ void BackgroundCaptureStopMonitor::record(
 
 bafx::windows::BackgroundCaptureRequest backgroundCaptureRequest(
     const bafx::config::Config& config,
-    const std::uint64_t retryToken) noexcept
+    const std::uint64_t retryToken,
+    const bool automaticSuppressed) noexcept
 {
+    if (automaticSuppressed)
+    {
+        // A no-sensor request must use an ordinary transparent FX profile;
+        // FxOnlyFallback represents a requested capture and is invalid here.
+        return {false, bafx::windows::FxOverlayProfile::RecordingCompatible,
+            config.background.cursorExcluded, config.background.allowSystemBorder, retryToken};
+    }
     const bool sessionLocal = config.performance.effectsMode
         != bafx::config::EffectsMode::Core
         && config.background.mode

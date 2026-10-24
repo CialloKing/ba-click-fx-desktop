@@ -783,6 +783,7 @@ HostControlPlane::HostControlPlane(
     : configPath_(std::move(configPath))
     , fxProfileStore_(configPath_.parent_path() / L"fx-profiles")
     , config_(std::move(initialConfig))
+    , applicationRules_(config_.applicationRules)
     , recordingCompatibleAvailability_(recordingCompatibleAvailability)
     , systemIntegration_(systemIntegration)
     , ipc_([this](const bafx::windows::IpcRequest& request)
@@ -913,6 +914,7 @@ void HostControlPlane::appendRecordingCompatibleDiagnostic(
 
 void HostControlPlane::stop() noexcept
 {
+    applicationRules_.stop();
     {
         std::lock_guard lock(hotkeyQueueMutex_);
         hotkeyWorkerStopping_ = true;
@@ -929,11 +931,14 @@ void HostControlPlane::stop() noexcept
 HostRuntimeSnapshot HostControlPlane::runtimeSnapshot() const
 {
     std::lock_guard<std::mutex> lock(mutex_);
+    const auto rules = applicationRules_.gate();
     return HostRuntimeSnapshot{
         config_,
         configGeneration_,
         paused_,
-        ipc_.stopRequested() || hotkeyShutdownRequested_.load()};
+        ipc_.stopRequested() || hotkeyShutdownRequested_.load(),
+        rules.suppressed,
+        rules.generation};
 }
 
 HostStateSnapshot HostControlPlane::snapshot() const
@@ -954,7 +959,8 @@ HostStateSnapshot HostControlPlane::snapshotLocked() const
         spout2RuntimeState_,
         fxProfileStore_.summaries(),
         fxProfileStore_.activeProfileName(config_.effects),
-        fxProfileStore_.loadWarning()};
+        fxProfileStore_.loadWarning(),
+        applicationRules_.snapshot()};
 }
 
 DisplayStateSnapshot HostControlPlane::displaySnapshot() const
@@ -1011,6 +1017,11 @@ DisplayStateSnapshot HostControlPlane::displaySnapshot() const
         }
     }
     return snapshot;
+}
+
+ApplicationRulesRuntime HostControlPlane::applicationRulesSnapshot() const
+{
+    return applicationRules_.snapshot();
 }
 
 void HostControlPlane::setBackgroundCaptureActive(const bool active) noexcept
@@ -1781,14 +1792,13 @@ bafx::windows::IpcResponse HostControlPlane::handleSetConfig(
     }
 
     const bool hotkeysChanged = candidate.hotkeys != config_.hotkeys;
-    bool renderConfigChanged = true;
+    auto renderCandidate = candidate;
+    renderCandidate.hotkeys = config_.hotkeys;
+    renderCandidate.applicationRules = config_.applicationRules;
+    const bool renderConfigChanged = bafx::config::toJson(renderCandidate, false)
+        != bafx::config::toJson(config_, false);
     if (hotkeysChanged || registerHotkeys)
     {
-        auto renderCandidate = candidate;
-        renderCandidate.hotkeys = config_.hotkeys;
-        // Only evaluated on configuration writes, never in the render loop.
-        renderConfigChanged = bafx::config::toJson(renderCandidate, false)
-            != bafx::config::toJson(config_, false);
         if (hotkeys_ == nullptr)
         {
             return bafx::windows::IpcResponse::failure("hotkeys_unavailable", "Host hotkeys are unavailable");
@@ -1867,6 +1877,7 @@ bafx::windows::IpcResponse HostControlPlane::handleSetConfig(
             saved.message.empty() ? "configuration could not be saved" : saved.message);
     }
     config_ = candidate;
+    applicationRules_.configure(config_.applicationRules);
     ++generation_;
     if (renderConfigChanged)
     {
@@ -1948,10 +1959,24 @@ bafx::windows::IpcResponse HostControlPlane::handleDisplayOverrideMutation(
 
 std::string HostControlPlane::stateJson(const HostStateSnapshot& state)
 {
+    std::string ruleStates;
+    for (const auto rule : state.applicationRules.states)
+    {
+        if (!ruleStates.empty())
+        {
+            ruleStates += '\n';
+        }
+        ruleStates += applicationRuleStateName(rule);
+    }
     std::ostringstream stream;
     stream << "{\"productVersion\":" << jsonEscape(bafx::product::version)
            << ",\"generation\":" << state.generation
            << ",\"paused\":" << jsonBool(state.paused)
+           << ",\"automaticSuppressed\":" << jsonBool(state.applicationRules.suppressed)
+           << ",\"applicationRulesRevision\":" << state.applicationRules.revision
+           << ",\"applicationRulesError\":" << state.applicationRules.error
+           << ",\"applicationRuleReason\":" << jsonEscape(state.applicationRules.reason)
+           << ",\"applicationRuleStates\":" << jsonEscape(ruleStates)
            << ",\"shutdownRequested\":" << jsonBool(state.shutdownRequested)
            << ",\"effectsEnabled\":" << jsonBool(state.config.effects.enabled)
            << ",\"backgroundCapture\":"

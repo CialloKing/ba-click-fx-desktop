@@ -2,6 +2,7 @@
 
 #include "fx_profile_store.hpp"
 #include "host_hotkeys.hpp"
+#include "application_rule_monitor.hpp"
 
 #include "bafx/config/config.hpp"
 #include "bafx/windows/ipc.hpp"
@@ -39,6 +40,8 @@ struct HostRuntimeSnapshot final
     std::uint64_t configGeneration{0U};
     bool paused{false};
     bool shutdownRequested{false};
+    bool automaticSuppressed{false};
+    std::uint64_t applicationRulesGeneration{0U};
 };
 
 struct HostStateSnapshot final
@@ -55,6 +58,7 @@ struct HostStateSnapshot final
     std::vector<FxProfileSummary> fxProfiles{};
     std::string activeFxProfile{"自定义"};
     std::string fxProfileWarning{};
+    ApplicationRulesRuntime applicationRules{};
 };
 
 struct HostControlStartResult final
@@ -153,6 +157,7 @@ public:
     [[nodiscard]] HostRuntimeSnapshot runtimeSnapshot() const;
     [[nodiscard]] HostStateSnapshot snapshot() const;
     [[nodiscard]] DisplayStateSnapshot displaySnapshot() const;
+    [[nodiscard]] ApplicationRulesRuntime applicationRulesSnapshot() const;
     void setBackgroundCaptureActive(bool active) noexcept;
     // Runtime transport health is observational state. Publishing it must not
     // invalidate optimistic config generations used by SetConfig clients.
@@ -224,6 +229,7 @@ private:
     std::filesystem::path configPath_{};
     FxProfileStore fxProfileStore_;
     bafx::config::Config config_{};
+    ApplicationRuleMonitor applicationRules_;
     std::uint64_t generation_{1U};
     std::uint64_t configGeneration_{1U};
     bafx::windows::DisplayRuntimeSummary displayRuntimeSummary_{};

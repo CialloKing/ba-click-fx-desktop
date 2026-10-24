@@ -1420,6 +1420,17 @@ int runApplication(
         bafx::windows::NamedPipeIpcServer::Options{},
         hostSystemIntegration,
         recordingCompatibleAvailability);
+    bool automaticSuppressed = control.runtimeSnapshot().automaticSuppressed;
+    std::uint64_t observedApplicationRulesGeneration = 0U;
+    const auto makeBackgroundRequest = [&automaticSuppressed](
+        const bafx::config::Config& requested, const std::uint64_t token = 0U)
+    {
+        return bafx::desktop::backgroundCaptureRequest(requested, token, automaticSuppressed);
+    };
+    const auto isCaptureRequested = [&automaticSuppressed](const bafx::config::Config& requested)
+    {
+        return !automaticSuppressed && backgroundCaptureRequestedByConfig(requested);
+    };
     std::uint64_t appliedGeneration = control.snapshot().configGeneration;
     report.setConfigurationSchemaVersion(config.schemaVersion);
     bafx::desktop::DisplayTarget appliedDisplayTarget = primaryDisplayTarget();
@@ -1470,9 +1481,11 @@ int runApplication(
             config.effects.themeColor,
             backgroundStopMonitor.observer(),
             makeOutputPreference(config.display),
-            [&config](const bafx::desktop::DisplayTarget& target)
+            [&config, &automaticSuppressed](const bafx::desktop::DisplayTarget& target)
             {
-                return makeRuntimePolicy(config, target);
+                auto policy = makeRuntimePolicy(config, target);
+                policy.automaticSuppressed = automaticSuppressed;
+                return policy;
             },
             makeRuntimeSeed(),
             config.effects.trailLength,
@@ -1703,7 +1716,7 @@ int runApplication(
     // request remains terminal until its key or explicit retry token changes.
     bafx::windows::BackgroundCaptureTransition backgroundTransition;
     bafx::windows::BackgroundCaptureRequest appliedBackgroundRequest =
-        bafx::desktop::backgroundCaptureRequest(config);
+        makeBackgroundRequest(config);
     if (backgroundTransition.beginRequest(appliedBackgroundRequest)
         != bafx::windows::BackgroundCaptureRequestResult::Started)
     {
@@ -1767,7 +1780,7 @@ int runApplication(
     bafx::desktop::applySecondaryBackgroundCaptureRequest(
         displaySessions,
         displaySession,
-        bafx::desktop::backgroundCaptureRequest(config),
+        makeBackgroundRequest(config),
         control.snapshot().generation,
         logPath,
         false);
@@ -2002,7 +2015,7 @@ int runApplication(
                     // Keep output retries owned by the same serialized state
                     // even when WGC itself is disabled or previously retired.
                     session.initializeSecondaryBackgroundCapture(
-                        bafx::desktop::backgroundCaptureRequest(
+                        makeBackgroundRequest(
                             config,
                             backgroundRetry.token()),
                         appliedGeneration,
@@ -2087,7 +2100,7 @@ int runApplication(
                 {
                     applied = coordinatorOutput.renegotiate(
                         effectivePolicy, reason,
-                        backgroundCaptureRequestedByConfig(config));
+                        isCaptureRequested(config));
                 }
                 else
                 {
@@ -2499,6 +2512,36 @@ int runApplication(
         }
         const bafx::desktop::HostRuntimeSnapshot controlState =
             control.runtimeSnapshot();
+        const bool automaticSuppressionChanged = automaticSuppressed != controlState.automaticSuppressed;
+        automaticSuppressed = controlState.automaticSuppressed;
+        const bool effectsPaused = controlState.paused || automaticSuppressed;
+        if (observedApplicationRulesGeneration != controlState.applicationRulesGeneration)
+        {
+            observedApplicationRulesGeneration = controlState.applicationRulesGeneration;
+            const auto rules = control.applicationRulesSnapshot();
+            const std::string error = std::to_string(rules.error);
+            const std::array fields{
+                bafx::windows::DiagnosticField{"AutomaticSuppressed", rules.suppressed ? "true" : "false"},
+                bafx::windows::DiagnosticField{"Programs", rules.reason},
+                bafx::windows::DiagnosticField{"QueryError", error}};
+            bafx::windows::appendDiagnosticEvent(logPath, "ApplicationRules.StateChanged", fields);
+        }
+        if (automaticSuppressionChanged)
+        {
+            if (automaticSuppressed)
+            {
+                pointerRouter.cancelAll(displaySessions, simulationTimeline.fromWallTime(clock.now()));
+            }
+            for (const auto& session : displaySessions.sessions())
+            {
+                session->setAutomaticSuppressed(automaticSuppressed);
+            }
+            // Cancel secondary permission requests before maintenance or device
+            // recovery can observe the previous active capture intent.
+            bafx::desktop::applySecondaryBackgroundCaptureRequest(displaySessions, displaySession,
+                makeBackgroundRequest(controlState.config), controlState.configGeneration,
+                logPath, displayPowerUnavailable);
+        }
         if (controlState.shutdownRequested
             || quit
             || hostWindow.closeRequested())
@@ -2508,7 +2551,7 @@ int runApplication(
             break;
         }
         const bafx::fx::SimulationTime loopObservedAt = clock.now();
-        observeWindows(loopObservedAt, controlState.paused);
+        observeWindows(loopObservedAt, effectsPaused);
         if (runtimeDeadlineReached(loopObservedAt))
         {
             break;
@@ -2574,7 +2617,7 @@ int runApplication(
             }
         }
 
-        bool renderInvalidated = renderInvalidationPending;
+        bool renderInvalidated = renderInvalidationPending || automaticSuppressionChanged;
         renderInvalidationPending = false;
         // Access revocation must win over topology reconciliation and every
         // transaction poll so no display can create a Session from stale state.
@@ -3150,7 +3193,7 @@ int runApplication(
             bafx::desktop::applySecondaryBackgroundCaptureRequest(
                 displaySessions,
                 displaySession,
-                bafx::desktop::backgroundCaptureRequest(config),
+                makeBackgroundRequest(config),
                 appliedGeneration,
                 logPath,
                 displayPowerUnavailable);
@@ -3160,7 +3203,7 @@ int runApplication(
             renderInvalidated =
                 scheduleCoordinatorTopologyCaptureRecovery(
                     loopObservedAt,
-                    backgroundCaptureRequestedByConfig(controlState.config),
+                    isCaptureRequested(controlState.config),
                     "display-configuration")
                 || renderInvalidated;
         }
@@ -3319,7 +3362,7 @@ int runApplication(
         }
         if (hostDisplayPowerBecameAvailable)
         {
-            const bool captureRequested = backgroundCaptureRequestedByConfig(
+            const bool captureRequested = isCaptureRequested(
                 controlState.config);
             const bool coordinatorEligible =
                 coordinatorPowerRecoveryEligible;
@@ -3411,6 +3454,7 @@ int runApplication(
         }
         const bool configChanged =
             controlState.configGeneration != appliedGeneration;
+        const bool capturePolicyChanged = configChanged || automaticSuppressionChanged;
         if (backgroundExecution.transactionActive)
         {
             const bool displayTargetSupersedesTransaction =
@@ -3423,7 +3467,7 @@ int runApplication(
                         backgroundExecution.targetIntent.target));
             bafx::desktop::BackgroundCaptureExecutionStatus executionStatus =
                 bafx::desktop::BackgroundCaptureExecutionStatus::Pending;
-            if (configChanged
+            if (capturePolicyChanged
                 || pendingOutputResize.has_value()
                 || displayTargetSupersedesTransaction
                 || backgroundRetry.pending())
@@ -3432,8 +3476,8 @@ int runApplication(
                     bafx::desktop::backgroundCaptureCancelResizePolicy(
                         pendingOutputResize.has_value(),
                         displayTargetSupersedesTransaction);
-                const std::string_view cancellationReason = configChanged
-                    ? "control-generation"
+                const std::string_view cancellationReason = capturePolicyChanged
+                    ? (automaticSuppressionChanged ? "application-rule" : "control-generation")
                     : (displayTargetSupersedesTransaction
                         ? "display-target"
                         : (pendingOutputResize.has_value()
@@ -3475,11 +3519,11 @@ int runApplication(
             && coordinatorOutput.readyForAttempt(displayMaintenanceDue)
             && !backgroundExecution.transactionActive
             && !backgroundTransition.transitioning()
-            && !configChanged
+            && !capturePolicyChanged
             && !pendingOutputResize.has_value()
             && !pendingDisplayTarget.has_value())
         {
-            coordinatorOutput.servicePending(backgroundCaptureRequestedByConfig(config));
+            coordinatorOutput.servicePending(isCaptureRequested(config));
             // Even a failed attempt may have retired WGC resources. Force one
             // frame while the bounded retry keeps the requested transport.
             renderInvalidated = true;
@@ -3490,7 +3534,7 @@ int runApplication(
             && !backgroundExecution.transactionActive
             && !backgroundTransition.transitioning()
             && !backgroundRetry.pending()
-            && !configChanged
+            && !capturePolicyChanged
             && !pendingOutputResize.has_value()
             && !pendingDisplayTarget.has_value()
             && displaySession.resourceDomainReadyForTarget(
@@ -3526,7 +3570,7 @@ int runApplication(
                     appliedDisplayTarget)
                 || !displaySession.resourceDomainReadyForTarget(
                     *pendingDisplayTarget));
-        if (configChanged
+        if (capturePolicyChanged
             || pendingOutputResize.has_value()
             || displayTargetChanged
             || backgroundRetry.pending())
@@ -3621,7 +3665,7 @@ int runApplication(
                             != renderer.deviceInfo().adapterLuid.HighPart;
                     const bool retryEligible =
                         bafx::desktop::canRetryBackgroundCaptureAfterDeviceRecovery(
-                            backgroundCaptureRequestedByConfig(config),
+                            isCaptureRequested(config),
                             backgroundCaptureWasActive,
                             adapterChanged,
                             renderer.deviceInfo().driverType,
@@ -3699,7 +3743,7 @@ int runApplication(
                 bafx::desktop::applySecondaryBackgroundCaptureRequest(
                     displaySessions,
                     displaySession,
-                    bafx::desktop::backgroundCaptureRequest(config),
+                    makeBackgroundRequest(config),
                     controlState.configGeneration,
                     logPath,
                     displayPowerUnavailable);
@@ -3725,7 +3769,7 @@ int runApplication(
                 }
             }
             const bafx::windows::BackgroundCaptureRequest nextBackgroundRequest =
-                bafx::desktop::backgroundCaptureRequest(
+                makeBackgroundRequest(
                     config,
                     backgroundRetry.token());
             const std::optional<bafx::windows::DisplayColorCapabilities>
@@ -3930,7 +3974,7 @@ int runApplication(
             logPath)
             || renderInvalidated;
 
-        const bool enteringPause = controlState.paused
+        const bool enteringPause = effectsPaused
             && !simulationTimeline.paused();
         const bafx::fx::SimulationTime idleProbeTime =
             simulationTimeline.fromWallTime(captureHealthNow);
@@ -3950,11 +3994,12 @@ int runApplication(
                 || activeEffects;
             presentedDrawableContent = session.lastPresentedDrawableContent()
                 || presentedDrawableContent;
+            renderInvalidated = renderInvalidated || session.automaticClearPending();
         }
         const auto renderDecision = bafx::desktop::evaluateIdleRenderPolicy(
             bafx::desktop::IdleRenderPolicyInput{
                 displayPowerUnavailable,
-                controlState.paused,
+                effectsPaused,
                 enteringPause,
                 renderInvalidated,
                 config.performance.idleOptimization,
@@ -4395,7 +4440,7 @@ int runApplication(
             // starting the visible batch that is intentionally path-latched.
             startDemoScenario(wallTime);
         }
-        simulationTimeline.setPaused(controlState.paused, wallTime);
+        simulationTimeline.setPaused(effectsPaused, wallTime);
         const bafx::fx::SimulationTime renderTime =
             options.demoAgeMilliseconds.has_value() && demoStartedAt.has_value()
             ? *demoStartedAt + std::chrono::milliseconds(*options.demoAgeMilliseconds)
@@ -4425,7 +4470,7 @@ int runApplication(
             messageDispatch.inputBudgetExhausted,
             messageDispatch.otherBudgetExhausted});
         PointerConsumptionDiagnostics pointerConsumption{};
-        if (options.demoClick || !config.effects.enabled || controlState.paused)
+        if (options.demoClick || !config.effects.enabled || effectsPaused)
         {
             // Do not let disabled/paused input accumulate and replay after resume.
             pointerRouter.discardFrame(pointerEvents);
@@ -4471,7 +4516,7 @@ int runApplication(
         {
             break;
         }
-        if ((!controlState.paused || enteringPause) && config.effects.enabled)
+        if ((!effectsPaused || enteringPause) && config.effects.enabled)
         {
             for (const auto& ownedSession : displaySessions.sessions())
             {
@@ -4481,6 +4526,7 @@ int runApplication(
         if (renderCoordinatorThisIteration)
         {
             bafx::fx::FrameSnapshot snapshot = displaySession.effectsEnabled()
+                && !automaticSuppressed && !displaySession.automaticClearPending()
                 ? simulation.snapshot(bafx::desktop::toViewport(window.size()), renderTime)
                 : bafx::fx::FrameSnapshot{};
             bafx::desktop::applyVisualConfig(snapshot, config);
@@ -4508,7 +4554,7 @@ int runApplication(
                 frameDiagnostics = renderer.renderFrame(
                     snapshot,
                     wallTime,
-                    controlState.paused);
+                    effectsPaused);
             }
             catch (const bafx::windows::HResultError& error)
             {
@@ -4799,7 +4845,7 @@ int runApplication(
                     frameDiagnostics = renderer.renderFrame(
                         snapshot,
                         wallTime,
-                        controlState.paused);
+                        effectsPaused);
                 }
                 catch (const std::exception& retryError)
                 {
@@ -4888,7 +4934,7 @@ int runApplication(
                     frameDiagnostics = renderer.renderFrame(
                         snapshot,
                         wallTime,
-                        controlState.paused);
+                        effectsPaused);
                     const std::optional<bafx::windows::PixelF> probePixel =
                         renderer.lastCenterPixel();
                     if (!probePixel.has_value()
@@ -4936,7 +4982,7 @@ int runApplication(
                 appliedOutputSize.height,
                 pointerQueue.maximumPendingEvents,
                 pointerQueue.maximumWin32QueueAgeMilliseconds,
-                controlState.paused});
+                effectsPaused});
             for (const PointerLatencyOrigin& origin :
                  pointerConsumption.acceptedDowns)
             {
@@ -5114,7 +5160,7 @@ int runApplication(
             renderInvalidated =
                 scheduleCoordinatorTopologyCaptureRecovery(
                     wallTime,
-                    backgroundCaptureRequestedByConfig(controlState.config),
+                    isCaptureRequested(controlState.config),
                     "session-stopped")
                 || renderInvalidated;
         }
@@ -5213,12 +5259,12 @@ int runApplication(
                 config,
                 renderTime,
                 wallTime,
-                (!controlState.paused || enteringPause)
+                (!effectsPaused || enteringPause)
                     && !options.demoAgeMilliseconds.has_value(),
                 // Paused DComp surfaces can persist indefinitely. Secondary
                 // displays need the same fresh-background boundary as the
                 // coordinator before retaining that frame.
-                controlState.paused,
+                effectsPaused,
                 logPath));
         }
         if (renderCoordinatorThisIteration && options.smokeTest)
@@ -5241,7 +5287,7 @@ int runApplication(
         {
             // A fixed-age baseline is a repeated observation of one authored
             // frame, so presentation must not retire its backing FX instance.
-            if ((!controlState.paused || enteringPause)
+            if ((!effectsPaused || enteringPause)
                 && !options.demoAgeMilliseconds.has_value())
             {
                 // Pool cleanup belongs after the boundary presentation.
@@ -5283,7 +5329,7 @@ int runApplication(
                     bafx::desktop::PerformanceLogContext{
                         appliedOutputSize,
                         renderer.backgroundCompositeStatus(),
-                        controlState.paused,
+                        effectsPaused,
                         previousPerformanceLogTiming},
                     performanceNow - performanceWindowStartedAt,
                     false);
@@ -5291,7 +5337,7 @@ int runApplication(
             performanceWindowStartedAt = clock.now();
         }
 
-        if ((controlState.paused || displayPowerUnavailable || !shouldRender)
+        if ((effectsPaused || displayPowerUnavailable || !shouldRender)
             && !renderInvalidationPending)
         {
             // Pause and idle optimization keep their sessions warm without

@@ -53,6 +53,7 @@ struct DisplaySessionRuntimePolicy final
     bafx::fx::SimulationEffectsMode effectsMode{
         bafx::fx::SimulationEffectsMode::Full};
     bool activeFxRoiEnabled{false};
+    bool automaticSuppressed{false};
 };
 
 struct DisplaySessionPolicyChange final
@@ -171,6 +172,9 @@ struct DisplaySessionBackgroundCaptureState;
 class DisplaySession final
 {
 public:
+    void setAutomaticSuppressed(bool suppressed) noexcept;
+    [[nodiscard]] bool automaticClearPending() const noexcept;
+    [[nodiscard]] bool automaticSuppressed() const noexcept;
     explicit DisplaySession(DisplaySessionOptions options);
     ~DisplaySession();
 
@@ -325,6 +329,8 @@ private:
     DisplayTarget target_{};
     bafx::windows::OverlayWindow window_;
     bool effectsEnabled_{true};
+    bool automaticSuppressed_{false};
+    bool automaticClearPending_{false};
     bafx::windows::CompositionOutputPreference requestedOutputPreference_{
         bafx::windows::CompositionOutputPreference::ConservativeSdr};
     bafx::config::FramePacing framePacing_{

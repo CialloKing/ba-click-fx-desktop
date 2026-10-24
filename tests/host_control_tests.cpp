@@ -187,6 +187,48 @@ BAFX_TEST(host_control_runtime_snapshot_preserves_runtime_state)
     BAFX_CHECK(full.activeFxProfile == "Unity 原版");
 }
 
+BAFX_TEST(application_rules_preserve_manual_intent_and_render_generation)
+{
+    TemporaryConfigDirectory temporary;
+    auto initial = bafx::config::defaultConfig();
+    initial.applicationRules.enabled = true;
+    initial.applicationRules.rules.push_back({true,
+        bafx::config::ApplicationMatchMode::ExecutablePath,
+        bafx::windows::processTextUtf8(
+            bafx::windows::queryProcessExecutable(GetCurrentProcessId()).wstring())});
+    bafx::windows::NamedPipeIpcServer::Options serverOptions{};
+    serverOptions.pipeName = testPipeName();
+    bafx::desktop::HostControlPlane control(temporary.configPath(), initial, serverOptions);
+    BAFX_CHECK(control.runtimeSnapshot().automaticSuppressed);
+    BAFX_CHECK(control.start(false).serviceStarted);
+    bafx::windows::IpcClientOptions options{};
+    options.pipeName = serverOptions.pipeName;
+    const bafx::windows::NamedPipeIpcClient client(options);
+    BAFX_CHECK(client.transact("Pause").succeeded());
+    BAFX_CHECK(control.runtimeSnapshot().paused);
+    BAFX_CHECK(client.transact("Resume").succeeded());
+    BAFX_CHECK(!control.runtimeSnapshot().paused);
+    BAFX_CHECK(control.runtimeSnapshot().automaticSuppressed);
+    BAFX_CHECK(client.transact("ResetFxConfig").succeeded());
+    BAFX_CHECK(control.snapshot().config.applicationRules == initial.applicationRules);
+    const auto state = client.transact("GetState");
+    const auto parsed = bafx::control_center::parseHostState(state.payload);
+    BAFX_CHECK(parsed.succeeded());
+    BAFX_CHECK(parsed.state->automaticSuppressed);
+    BAFX_CHECK(!parsed.state->paused);
+    BAFX_CHECK(parsed.state->applicationRuleStates == "matched");
+    const auto before = control.runtimeSnapshot();
+    initial.applicationRules.enabled = false;
+    BAFX_CHECK(client.transact("SetConfig {\"generation\":"
+        + std::to_string(control.snapshot().generation)
+        + ",\"path\":\"applicationRules\",\"value\":"
+        + bafx::config::toJson(initial.applicationRules) + "}").succeeded());
+    BAFX_CHECK(!control.runtimeSnapshot().automaticSuppressed);
+    BAFX_CHECK(control.runtimeSnapshot().configGeneration == before.configGeneration);
+    BAFX_CHECK(!control.runtimeSnapshot().paused);
+    control.stop();
+}
+
 BAFX_TEST(host_control_start_latches_generation_before_accepting_set_config)
 {
     TemporaryConfigDirectory temporary;

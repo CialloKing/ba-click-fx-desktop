@@ -267,6 +267,23 @@ BAFX_TEST(core_effects_mode_disables_background_capture)
         == bafx::windows::BackgroundCaptureRequest::ExclusionMode::LegacyGlobal);
 }
 
+BAFX_TEST(application_suppression_stops_capture_in_every_render_mode)
+{
+    auto config = bafx::config::defaultConfig();
+    for (const auto mode : {bafx::config::RenderMode::BackgroundAware,
+        bafx::config::RenderMode::RecordingCompatible,
+        bafx::config::RenderMode::LightBackground})
+    {
+        config.background.mode = mode;
+        const auto stopped = bafx::desktop::backgroundCaptureRequest(config, 19U, true);
+        BAFX_CHECK(!stopped.sensorRequired);
+        BAFX_CHECK(bafx::windows::isValidBackgroundCaptureRequest(stopped));
+        BAFX_CHECK(stopped.retryToken == 19U);
+        const auto resumed = bafx::desktop::backgroundCaptureRequest(config, 20U, false);
+        BAFX_CHECK(resumed.sensorRequired == (mode != bafx::config::RenderMode::LightBackground));
+    }
+}
+
 BAFX_TEST(device_recovery_retry_honors_resource_domain_gates)
 {
     BAFX_CHECK(!bafx::desktop::canRetryBackgroundCaptureAfterDeviceRecovery(

@@ -1292,6 +1292,17 @@ std::string_view CompositionRenderer::spout2Error() const noexcept
     return spout2Sender_->error();
 }
 
+void CompositionRenderer::clearSpout2Output() noexcept
+{
+    if (recordingRenderTarget_ != nullptr && context_ != nullptr)
+    {
+        constexpr float transparent[4]{0.0F, 0.0F, 0.0F, 0.0F};
+        context_->ClearRenderTargetView(recordingRenderTarget_.Get(), transparent);
+        context_->Flush();
+        static_cast<void>(sendSpout2Heartbeat());
+    }
+}
+
 bool CompositionRenderer::sendSpout2Heartbeat() noexcept
 {
     if (!spout2Enabled_ || recordingTexture_ == nullptr)
