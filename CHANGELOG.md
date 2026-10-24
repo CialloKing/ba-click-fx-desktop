@@ -1,5 +1,15 @@
 # 变更记录
 
+## 0.3.2 - 2026-10-24
+
+- 控制中心“系统”页新增程序规则，支持选择正在运行的程序或浏览 EXE，按完整路径或文件名匹配，并可启用、停用和删除规则；默认关闭、空名单。
+- 指定程序运行时自动停用桌面和 OBS 特效并停止背景采集，所有匹配实例退出后按最新设置恢复；最小化、切换前台或驻留托盘不会提前恢复，关闭控制中心不影响检测。
+- 自动停用独立于手动暂停和特效开关；立即清空粒子、拖尾和按压状态，OBS 保持连接并输出透明画面，恢复后从新输入开始。
+- 进程检测限定当前登录会话，连续两次成功扫描无匹配才恢复；检测异常保留上次有效判断，路径查询失败不扩大匹配范围，旧名单的异步结果不会生效。
+- 主配置升级为 schema 21，旧配置迁移为空名单；规则保存在本机，不随特效预设切换，也不会被“重置特效”清除。同步中英文界面、使用说明和验证记录。
+
+Program rules are available under **System → Program rules…**. Add a running program or browse for an EXE, match by full path or file name, and manage individual rules. The feature defaults to off with an empty list. While a matching process is alive, desktop / OBS effects and background capture stop; after all matching instances exit, the latest user settings are restored. Manual pause remains independent, OBS stays connected with transparent output, and detection continues without Control Center. Configuration schema 21 preserves these machine-local rules across effect presets and effect resets.
+
 ## 0.3.1 - 2026-10-14
 
 - 卸载器在任何挂起安装回滚或资源清理前只读检查运行实例；Host 或控制中心仍运行时提示先退出并中止卸载，不自动结束进程。
