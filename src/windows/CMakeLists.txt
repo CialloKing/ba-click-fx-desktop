@@ -21,6 +21,7 @@ add_library(
         src/packed_fx_textures.cpp
         src/package_identity.cpp
         src/portable_paths.cpp
+        src/process_catalog.cpp
         src/recording_compatibility.cpp
         src/diagnostic_log.cpp
         src/runtime_diagnostics.cpp

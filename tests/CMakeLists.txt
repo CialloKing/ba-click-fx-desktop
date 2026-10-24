@@ -556,6 +556,7 @@ if(WIN32)
         bafx_host_control_tests
         test_main.cpp
         fx_profile_store_tests.cpp
+        application_rules_tests.cpp
         host_control_tests.cpp
         "${PROJECT_SOURCE_DIR}/src/control-center/display_state.cpp"
         "${PROJECT_SOURCE_DIR}/src/control-center/host_state.cpp"

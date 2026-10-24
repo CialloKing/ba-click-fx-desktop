@@ -32,6 +32,7 @@ add_library(
         host_snapshot_poller.cpp
         "${PROJECT_SOURCE_DIR}/src/windows/src/package_identity.cpp"
         "${PROJECT_SOURCE_DIR}/src/windows/src/portable_paths.cpp"
+        "${PROJECT_SOURCE_DIR}/src/windows/src/process_catalog.cpp"
         "${PROJECT_SOURCE_DIR}/src/windows/src/diagnostic_log.cpp"
         "${PROJECT_SOURCE_DIR}/src/windows/src/recording_compatibility.cpp"
         "${PROJECT_SOURCE_DIR}/src/windows/src/ipc_client.cpp"

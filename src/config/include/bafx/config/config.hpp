@@ -12,7 +12,7 @@
 namespace bafx::config
 {
 
-inline constexpr std::uint32_t currentSchemaVersion = 20U;
+inline constexpr std::uint32_t currentSchemaVersion = 21U;
 inline constexpr std::size_t maximumDisplayOverrides = 64U;
 inline constexpr std::size_t maximumDisplayKeyBytes = 4096U;
 
@@ -201,6 +201,29 @@ struct HotkeysConfig final
     bool operator==(const HotkeysConfig&) const = default;
 };
 
+enum class ApplicationMatchMode : std::uint8_t
+{
+    ExecutablePath,
+    ExecutableName
+};
+
+struct ApplicationRule final
+{
+    bool enabled{true};
+    ApplicationMatchMode matchMode{ApplicationMatchMode::ExecutablePath};
+    std::string target{};
+    bool operator==(const ApplicationRule&) const = default;
+};
+
+struct ApplicationRulesConfig final
+{
+    bool enabled{false};
+    std::vector<ApplicationRule> rules{};
+    bool operator==(const ApplicationRulesConfig&) const = default;
+};
+
+inline constexpr std::size_t maximumApplicationRules = 64U;
+
 struct Config
 {
     std::uint32_t schemaVersion{currentSchemaVersion};
@@ -211,6 +234,7 @@ struct Config
     PerformanceConfig performance{};
     SystemConfig system{};
     HotkeysConfig hotkeys{};
+    ApplicationRulesConfig applicationRules{};
 };
 
 struct ResolvedDisplayPolicy final
@@ -305,6 +329,12 @@ struct ConfigSaveResult
 [[nodiscard]] bool validateHotkeys(
     const HotkeysConfig& hotkeys, std::string* error = nullptr) noexcept;
 [[nodiscard]] std::string toJson(const HotkeysConfig& hotkeys);
+[[nodiscard]] std::string toJson(const ApplicationRulesConfig& rules);
+[[nodiscard]] bool validateApplicationRules(
+    const ApplicationRulesConfig& rules, std::string* error = nullptr) noexcept;
+// The same lexical identity is used for validation, process matching and UI
+// deduplication. It never probes the filesystem or broadens a path rule.
+[[nodiscard]] std::string applicationTargetKey(std::string_view target);
 [[nodiscard]] std::optional<HotkeysConfig> parseHotkeysJson(
     std::string_view json, std::string* error = nullptr) noexcept;
 

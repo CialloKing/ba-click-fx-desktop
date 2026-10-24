@@ -1,4 +1,5 @@
 #include "obs_spout_plugin_probe.hpp"
+#include "bafx/windows/process_catalog.hpp"
 
 #include <windows.h>
 #include <tlhelp32.h>
@@ -401,62 +402,19 @@ void inspectProcessModules(RunningObsProcess& process) noexcept
     } while (Module32NextW(snapshot.get(), &module) != FALSE);
 }
 
-[[nodiscard]] std::filesystem::path processExecutable(
-    const DWORD processId) noexcept
-{
-    ScopedHandle process(OpenProcess(
-        PROCESS_QUERY_LIMITED_INFORMATION,
-        FALSE,
-        processId));
-    if (!process.valid())
-    {
-        return {};
-    }
-
-    std::wstring path(32'768U, L'\0');
-    DWORD length = static_cast<DWORD>(path.size());
-    if (QueryFullProcessImageNameW(
-            process.get(),
-            0U,
-            path.data(),
-            &length) == FALSE)
-    {
-        return {};
-    }
-    path.resize(length);
-    return std::filesystem::path(path);
-}
-
 [[nodiscard]] std::vector<RunningObsProcess> runningObsProcesses() noexcept
 {
     std::vector<RunningObsProcess> processes;
-    ScopedHandle snapshot(CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0U));
-    if (!snapshot.valid())
+    const std::array<std::wstring, 2U> names{L"obs64.exe", L"obs32.exe"};
+    const auto snapshot = bafx::windows::queryProcessSnapshot(names, false);
+    for (const auto& entry : snapshot.processes)
     {
-        return processes;
-    }
-
-    PROCESSENTRY32W entry{};
-    entry.dwSize = sizeof(entry);
-    if (Process32FirstW(snapshot.get(), &entry) == FALSE)
-    {
-        return processes;
-    }
-    do
-    {
-        if (!equalsIgnoreCase(entry.szExeFile, L"obs64.exe")
-            && !equalsIgnoreCase(entry.szExeFile, L"obs32.exe"))
-        {
-            entry.dwSize = sizeof(entry);
-            continue;
-        }
         RunningObsProcess process{};
-        process.processId = entry.th32ProcessID;
-        process.executable = processExecutable(process.processId);
+        process.processId = entry.id;
+        process.executable = entry.executablePath;
         inspectProcessModules(process);
         processes.push_back(std::move(process));
-        entry.dwSize = sizeof(entry);
-    } while (Process32NextW(snapshot.get(), &entry) != FALSE);
+    }
     return processes;
 }
 

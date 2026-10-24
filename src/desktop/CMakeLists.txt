@@ -49,6 +49,7 @@ set_target_properties(
 add_library(
     bafx_host_control
     STATIC
+        application_rule_monitor.cpp
         fx_profile_store.cpp
         host_control.cpp
         host_hotkeys.cpp

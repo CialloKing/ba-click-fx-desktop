@@ -1092,6 +1092,69 @@ private:
     return JsonValue(std::move(result));
 }
 
+[[nodiscard]] bool readApplicationRules(
+    const JsonValue::Object& object, ApplicationRulesConfig& output, std::string& error)
+{
+    if (!validateKnownMembers(object, {"enabled", "rules"}, "applicationRules", error)
+        || !readBool(object, "enabled", "applicationRules", output.enabled, error))
+    {
+        return false;
+    }
+    const auto* value = requiredMember(object, "rules", "applicationRules", error);
+    const auto* rules = value == nullptr ? nullptr : std::get_if<JsonValue::Array>(&value->storage);
+    if (rules == nullptr || rules->size() > maximumApplicationRules)
+    {
+        error = "applicationRules.rules must be an array of at most 64 rules";
+        return false;
+    }
+    output.rules.clear();
+    for (const auto& item : *rules)
+    {
+        const auto* rule = objectOf(item);
+        ApplicationRule parsed;
+        std::string mode;
+        if (rule == nullptr
+            || !validateKnownMembers(*rule, {"enabled", "matchMode", "target"}, "applicationRule", error)
+            || !readBool(*rule, "enabled", "applicationRule", parsed.enabled, error)
+            || !readString(*rule, "matchMode", "applicationRule", mode, error)
+            || !readString(*rule, "target", "applicationRule", parsed.target, error))
+        {
+            if (error.empty())
+            {
+                error = "application rule must be an object";
+            }
+            return false;
+        }
+        if (mode != "path" && mode != "name")
+        {
+            error = "application rule matchMode must be path or name";
+            return false;
+        }
+        parsed.matchMode = mode == "path" ? ApplicationMatchMode::ExecutablePath
+            : ApplicationMatchMode::ExecutableName;
+        output.rules.push_back(std::move(parsed));
+    }
+    return validateApplicationRules(output, &error);
+}
+
+[[nodiscard]] JsonValue applicationRulesValue(const ApplicationRulesConfig& config)
+{
+    JsonValue::Array rules;
+    for (const auto& rule : config.rules)
+    {
+        JsonValue::Object item;
+        item.emplace("enabled", JsonValue(rule.enabled));
+        item.emplace("matchMode", JsonValue(std::string(
+            rule.matchMode == ApplicationMatchMode::ExecutablePath ? "path" : "name")));
+        item.emplace("target", JsonValue(rule.target));
+        rules.emplace_back(std::move(item));
+    }
+    JsonValue::Object result;
+    result.emplace("enabled", JsonValue(config.enabled));
+    result.emplace("rules", JsonValue(std::move(rules)));
+    return JsonValue(std::move(result));
+}
+
 [[nodiscard]] bool readEffectsFields(
     const JsonValue::Object& object,
     EffectsConfig& effects,
@@ -1151,7 +1214,7 @@ private:
                 "display",
                 "input",
                 "performance",
-                "system", "hotkeys"},
+                "system", "hotkeys", "applicationRules"},
             {},
             error))
     {
@@ -1165,6 +1228,7 @@ private:
     const JsonValue::Object* performance = nullptr;
     const JsonValue::Object* system = nullptr;
     const JsonValue::Object* hotkeys = nullptr;
+    const JsonValue::Object* applicationRules = nullptr;
     if (!readRequiredObject(root, "effects", effects, error)
         || !readRequiredObject(root, "background", background, error)
         || !readRequiredObject(root, "display", display, error)
@@ -1172,7 +1236,9 @@ private:
         || !readRequiredObject(root, "performance", performance, error)
         || !readRequiredObject(root, "system", system, error)
         || !readRequiredObject(root, "hotkeys", hotkeys, error)
-        || !readHotkeys(*hotkeys, config.hotkeys, error))
+        || !readHotkeys(*hotkeys, config.hotkeys, error)
+        || !readRequiredObject(root, "applicationRules", applicationRules, error)
+        || !readApplicationRules(*applicationRules, config.applicationRules, error))
     {
         return config;
     }
@@ -1466,6 +1532,7 @@ private:
     root.emplace("schemaVersion", JsonValue(static_cast<double>(currentSchemaVersion)));
     root.emplace("system", JsonValue(std::move(system)));
     root.emplace("hotkeys", hotkeysValue(config.hotkeys));
+    root.emplace("applicationRules", applicationRulesValue(config.applicationRules));
     return JsonValue(std::move(root));
 }
 
@@ -1911,6 +1978,17 @@ void appendJsonValue(
         {
             migrated = migrateSchema19To20(*originalRoot);
         }
+        // Re-read the version after older migrations: assigning JSON members
+        // may invalidate the pointer to their previous numeric storage.
+        const auto* migratedVersion = member(*originalRoot, "schemaVersion");
+        const auto* number = migratedVersion == nullptr ? nullptr
+            : std::get_if<double>(&migratedVersion->storage);
+        if (error.empty() && number != nullptr && *number == 20.0)
+        {
+            originalRoot->try_emplace("applicationRules", applicationRulesValue({}));
+            (*originalRoot)["schemaVersion"] = JsonValue(21.0);
+            migrated = true;
+        }
     }
     if (!error.empty())
     {
@@ -2000,6 +2078,116 @@ std::string toJson(const HotkeysConfig& hotkeys)
     std::string result;
     appendJsonValue(hotkeysValue(hotkeys), result, false, 0U);
     return result;
+}
+
+std::string toJson(const ApplicationRulesConfig& rules)
+{
+    std::string result;
+    appendJsonValue(applicationRulesValue(rules), result, false, 0U);
+    return result;
+}
+
+std::string applicationTargetKey(const std::string_view target)
+{
+    std::string result(target);
+    std::replace(result.begin(), result.end(), '/', '\\');
+#if defined(_WIN32)
+    const int size = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS,
+        result.data(), static_cast<int>(result.size()), nullptr, 0);
+    if (size <= 0)
+    {
+        return {};
+    }
+    std::wstring wide(static_cast<std::size_t>(size), L'\0');
+    MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, result.data(),
+        static_cast<int>(result.size()), wide.data(), size);
+    wide = std::filesystem::path(wide).lexically_normal().native();
+    const int foldedSize = LCMapStringEx(LOCALE_NAME_INVARIANT, LCMAP_UPPERCASE,
+        wide.data(), static_cast<int>(wide.size()), nullptr, 0, nullptr, nullptr, 0);
+    if (foldedSize <= 0)
+    {
+        return {};
+    }
+    std::wstring folded(static_cast<std::size_t>(foldedSize), L'\0');
+    LCMapStringEx(LOCALE_NAME_INVARIANT, LCMAP_UPPERCASE, wide.data(),
+        static_cast<int>(wide.size()), folded.data(), foldedSize, nullptr, nullptr, 0);
+    const int bytes = WideCharToMultiByte(CP_UTF8, 0, folded.data(), foldedSize,
+        nullptr, 0, nullptr, nullptr);
+    result.resize(static_cast<std::size_t>(bytes));
+    WideCharToMultiByte(CP_UTF8, 0, folded.data(), foldedSize, result.data(), bytes, nullptr, nullptr);
+#else
+    for (char& character : result)
+    {
+        if (character >= 'a' && character <= 'z')
+        {
+            character = static_cast<char>(character - 'a' + 'A');
+        }
+    }
+#endif
+    return result;
+}
+
+bool validateApplicationRules(const ApplicationRulesConfig& config, std::string* error) noexcept
+{
+    const auto fail = [error](const char* message)
+    {
+        if (error != nullptr)
+        {
+            *error = message;
+        }
+        return false;
+    };
+    try
+    {
+        if (config.rules.size() > maximumApplicationRules)
+        {
+            return fail("applicationRules exceeds the 64 rule limit");
+        }
+        std::vector<std::pair<ApplicationMatchMode, std::string>> keys;
+        std::size_t totalBytes = 0U;
+        for (const auto& rule : config.rules)
+        {
+            totalBytes += rule.target.size();
+            if (rule.target.empty() || rule.target.size() > 4096U || totalBytes > 24U * 1024U
+                || std::any_of(rule.target.begin(), rule.target.end(), [](const unsigned char ch)
+                {
+                    return ch < 32U || ch == '*' || ch == '?' || ch == '"' || ch == '<' || ch == '>' || ch == '|';
+                }))
+            {
+                return fail("application rule target is empty, invalid or too long");
+            }
+            const auto key = applicationTargetKey(rule.target);
+            if (key.size() < 5U || !key.ends_with(".EXE"))
+            {
+                return fail("application rule target must identify an EXE");
+            }
+            if (rule.matchMode == ApplicationMatchMode::ExecutableName)
+            {
+                if (key.find_first_of("\\:") != std::string::npos)
+                {
+                    return fail("name rules must contain only an EXE filename");
+                }
+            }
+            else if (rule.matchMode != ApplicationMatchMode::ExecutablePath
+                || !((key.size() > 3U && key[0] >= 'A' && key[0] <= 'Z'
+                        && key[1] == ':' && key[2] == '\\')
+                    || key.starts_with("\\\\")))
+            {
+                return fail("path rules require an absolute executable path");
+            }
+            const auto identity = std::pair{rule.matchMode, key};
+            if (std::find(keys.begin(), keys.end(), identity) != keys.end())
+            {
+                return fail("application rules contain a duplicate target");
+            }
+            keys.push_back(identity);
+        }
+        return true;
+    }
+    catch (...)
+    {
+        return fail("application rule validation failed");
+    }
 }
 
 std::optional<HotkeysConfig> parseHotkeysJson(
@@ -2437,6 +2625,18 @@ namespace
         else if (*path == "system.spout2Enabled")
         {
             valueAccepted = readPatchBool(result.system.spout2Enabled);
+        }
+        else if (*path == "applicationRules")
+        {
+            std::string rulesError;
+            const auto* object = objectOf(*value);
+            if (object == nullptr || !readApplicationRules(*object, result.applicationRules, rulesError))
+            {
+                return ConfigPatchResult{base, ConfigStatus::ValidationError,
+                    rulesError.empty() ? "applicationRules must be an object" : rulesError,
+                    true, expectedGeneration};
+            }
+            valueAccepted = true;
         }
         else if (*path == "hotkeys")
         {
@@ -3330,7 +3530,8 @@ bool validateConfig(const Config& config, std::string* error) noexcept
     {
         return failValidation("config schemaVersion does not match the current schema");
     }
-    if (!validateHotkeys(config.hotkeys, error))
+    if (!validateHotkeys(config.hotkeys, error)
+        || !validateApplicationRules(config.applicationRules, error))
     {
         return false;
     }

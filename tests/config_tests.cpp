@@ -61,8 +61,8 @@ BAFX_TEST(hotkeys_codec_validation_and_schema19_migration)
     const auto end = old.find("},", start);
     BAFX_CHECK(start != std::string::npos && end != std::string::npos);
     old.erase(start, end + 2U - start);
-    const auto version = old.find("\"schemaVersion\":20");
-    old.replace(version, std::string("\"schemaVersion\":20").size(), "\"schemaVersion\":19");
+    const auto version = old.find("\"schemaVersion\":21");
+    old.replace(version, std::string("\"schemaVersion\":21").size(), "\"schemaVersion\":19");
     const auto migrated = parseJson(old);
     BAFX_CHECK(migrated.succeeded());
     BAFX_CHECK(migrated.config.schemaVersion == currentSchemaVersion);
@@ -71,6 +71,37 @@ BAFX_TEST(hotkeys_codec_validation_and_schema19_migration)
         "{\"generation\":1,\"path\":\"hotkeys\",\"value\":" + toJson(*parsed) + "}");
     BAFX_CHECK(patched.succeeded());
     BAFX_CHECK(patched.config.hotkeys == *parsed);
+}
+
+BAFX_TEST(application_rules_migration_roundtrip_patch_and_validation)
+{
+    using namespace bafx::config;
+    Config config;
+    std::string old = toJson(config, false);
+    const std::string section = "\"applicationRules\":{\"enabled\":false,\"rules\":[]},";
+    old.erase(old.find(section), section.size());
+    old.replace(old.find("\"schemaVersion\":21"), 18U, "\"schemaVersion\":20");
+    const auto migrated = parseJson(old);
+    BAFX_CHECK(migrated.succeeded());
+    BAFX_CHECK(migrated.config.applicationRules == ApplicationRulesConfig{});
+    config.applicationRules = {true, {
+        {true, ApplicationMatchMode::ExecutablePath, "D:\\Games\\测试\\Game.exe"},
+        {false, ApplicationMatchMode::ExecutableName, "Editor.exe"}}};
+    BAFX_CHECK(parseJson(toJson(config)).config.applicationRules == config.applicationRules);
+    const auto patch = applyPatchJson(Config{}, "{\"generation\":1,\"path\":\"applicationRules\",\"value\":"
+        + toJson(config.applicationRules) + "}");
+    BAFX_CHECK(patch.succeeded());
+    BAFX_CHECK(patch.config.applicationRules == config.applicationRules);
+    config.applicationRules.rules.push_back({true, ApplicationMatchMode::ExecutablePath,
+        "d:/games/测试/game.EXE"});
+    BAFX_CHECK(!validateConfig(config));
+    config.applicationRules.rules.pop_back();
+    config.applicationRules.rules[0].target = "relative\\Game.exe";
+    BAFX_CHECK(!validateConfig(config));
+    config.applicationRules.rules[0].target = "D:\\Games\\*.exe";
+    BAFX_CHECK(!validateConfig(config));
+    BAFX_CHECK(!parseJson(toJson(Config{}, false).replace(0U, 1U,
+        "{\"applicationRules\":{},")).succeeded());
 }
 
 BAFX_TEST(effects_required_reads_preserve_first_error_and_normalization_order)
