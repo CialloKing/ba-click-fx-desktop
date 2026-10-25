@@ -1,5 +1,14 @@
 # 变更记录
 
+## 0.3.3 - 2026-10-25
+
+- 将“程序规则”提升为顶部独立页签，位于“快捷键”和“系统”之间，所有页面均可直接进入；移除系统页旧入口和规则页返回按钮。
+- 六个页签按当前字体测量文字宽度，并随语言、DPI 和窗口大小重新布局；规则页统一 24 逻辑像素边距，保持 860×600 最小客户区。
+- 统一导航创建顺序、键盘分组、字体和选中状态，保留快捷键录制结束、显示状态轮询和异步进程刷新流程。配置保持 schema 21，自动停用行为不变。
+- 同步中英文说明，扩展中英文、96 / 144 / 192 DPI、最小与默认窗口的原生界面回归，并验证真实 Host 连接后的规则编辑和命中展示。
+
+**Program rules** is now a top-level tab between **Hotkeys** and **System**, accessible from every page. The old System entry and Back button are removed. Navigation sizes itself to translated text and responds to DPI and window changes; the rules page uses consistent 24-logical-pixel margins while retaining the 860×600 minimum client area. Keyboard grouping, exclusive selection and existing page lifecycles are preserved. Schema 21 and automatic suppression behavior are unchanged. Bilingual documentation, native UI layout coverage and live Host editing checks are updated.
+
 ## 0.3.2 - 2026-10-24
 
 - 控制中心“系统”页新增程序规则，支持选择正在运行的程序或浏览 EXE，按完整路径或文件名匹配，并可启用、停用和删除规则；默认关闭、空名单。

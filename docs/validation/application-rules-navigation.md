@@ -2,8 +2,8 @@
 
 日期 / Date: 2026-10-25。实现提交 / Implementation commit: `1f69f47`。
 
-本轮只调整控制中心导航与规则页布局，尚未发布；版本仍为 0.3.2，配置仍为 schema 21，Host 自动停用逻辑不变。
-This unreleased change updates Control Center navigation and layout. The product remains at 0.3.2 with schema 21 and unchanged Host suppression behavior.
+本变更纳入 0.3.3，只调整控制中心导航与规则页布局，配置仍为 schema 21，Host 自动停用逻辑不变。下述记录来自版本号仍为 0.3.2 的实现阶段；0.3.3 发布构建与包检查另见 [VALIDATION.md](../VALIDATION.md)。
+This change is included in 0.3.3 and updates Control Center navigation and layout without changing schema 21 or Host suppression behavior. The records below come from implementation checks with version 0.3.2; release builds and package checks are recorded separately in [VALIDATION.md](../VALIDATION.md).
 
 ## 构建与回归 / Builds and regression
 
@@ -72,5 +72,5 @@ Off-screen tests bypass native tracking limits and assert the exact client size.
 
 The new Full UI was exercised against the existing 0.3.2 Full Host with isolated files. Native control notifications verified disconnected navigation, enabling the feature, adding a running process by path, match-reason display, configuration-preserving navigation, disable/re-enable and deletion. Host IPC confirmed each saved edit and suppression transition. Schema 21 and the manual disabled-effects setting were preserved, and all test processes exited.
 
-本轮未重新执行完整 Host / 图形回归、物理多显示器 DPI 切换、OBS 合成或 WGC 启停验收，也未打包或发布。既有运行时验证见[程序规则验证](application-rules.md)。
-The complete Host/graphics suite, physical monitor transitions, OBS composition and WGC lifecycle acceptance were not rerun for this UI-only change. Packaging and release are separate work; prior runtime evidence remains in [program rules validation](application-rules.md).
+实现阶段未重新执行完整 Host / 图形回归、物理多显示器 DPI 切换、OBS 合成或 WGC 启停验收，也未打包或发布。发布阶段的构建、回归与包检查见 [VALIDATION.md](../VALIDATION.md)；既有运行时验证见[程序规则验证](application-rules.md)。
+The implementation phase did not rerun the complete Host/graphics suite, physical monitor transitions, OBS composition or WGC lifecycle acceptance, and did not package or publish a release. Release-stage builds, regression and package checks are recorded in [VALIDATION.md](../VALIDATION.md); prior runtime evidence remains in [program rules validation](application-rules.md).
