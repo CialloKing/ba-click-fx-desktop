@@ -1025,6 +1025,40 @@ AppX / 证书及故障现场升级 / 卸载矩阵仍为 **Not Run**。Multi-disp
 final OBS / desktop pixels and real-installation recovery matrices remain unverified. 发布提交、注释标签、最终 CI 和公开下载
 复算记录保存在 `artifacts/local/release-0.3.2-20261024/release-verification.md`。
 
+### 5.14 0.3.3 发布检查（2026-10-25）
+
+产品候选提交为 `bbaea6e96d2a813c754ffba7f6fb955b602588a9`，产品版本为 `0.3.3`，Windows 数字版本和
+unsigned identity template 版本为 `0.3.3.0`。使用独立发布工作树构建，避免现有 IDE 缓存干扰。本地 Windows 10
+build 19045、Visual Studio 2026、SDK `10.0.28000.0` 的 Full / Slim `--clean-first` 构建全部通过；
+两份 CMake cache、生成的 Host / 控制中心 / signer 工程均核对到同一 SDK，Host 与控制中心版本资源一致。
+
+- Full 完整 CTest **47/47**，耗时 `136.32 s`；Slim **46/46**，耗时 `118.48 s`，没有跳过或禁用项。
+- 两套 `control_center_activation` 均为 **68 tests, 0 failures**，耗时分别为 `10.45 s` / `10.16 s`；
+  两套原生快捷键测试均通过（各 `12.27 s`），Full Spout2 跨进程检查通过（`8.94 s`）。
+- 中英文、96 / 144 / 192 DPI、最小 / 默认窗口、原生控件位图及真实 Host 编辑验证见
+  [程序规则页签验证](validation/application-rules-navigation.md)。配置仍为 schema 21，未改动自动停用逻辑。
+- 文档检查覆盖 8 个文档，通过。Full Portable 沿用 `package-test-bundle.ps1` / `verify-test-bundle.ps1`，
+  文件清单、哈希、版本、PE 依赖、Host 启动、配置路径与控制中心启动检查均通过；ZIP 中的 Host 和控制中心
+  哈希另行核对，与完整回归使用的二进制一致。
+- Full Setup 由 Inno Setup `6.7.3` 编译，版本与 PE 依赖检查通过；携带 unsigned identity template 和 native
+  signer，不携带证书或私钥。四份资产独立复算 SHA-256，两份校验文件与实际包一致；Slim 仅构建和测试。
+
+| 资产 | 字节数 | SHA-256 |
+| --- | ---: | --- |
+| `ba-click-fx-desktop-0.3.3-Portable-windows-x64.zip` | 1630062 | `9D327F997F833DFCBEF3491EAFDED4B384F359CA8F9928EA3F2BCEF1739F135B` |
+| `ba-click-fx-desktop-0.3.3-Portable-windows-x64.zip.sha256` | 116 | `CB42F19CF823DA6EC03C954ADA61F4A74EF236474554AAD67F67E90DD88B0DDB` |
+| `ba-click-fx-desktop-0.3.3-setup-windows-x64.exe` | 4298098 | `2C7858BE8A07D0E6BF7FC6BE6131BCEC106AC76229B94E45ED2C1040C3633D66` |
+| `ba-click-fx-desktop-0.3.3-setup-windows-x64.exe.sha256` | 113 | `EC4C07F70AA506A905AF453E04D0AD98FF5562FA6BDF838E3E0403360FBA3AD1` |
+
+Full / Slim clean builds and complete local tests passed in an isolated release worktree with SDK 10.0.28000.0.
+Both Control Center suites passed all 68 checks. Documentation and package checks passed, including a comparison of
+portable binary hashes against the tested build. Public packages remain Full Portable and Setup with their SHA-256 files.
+
+本次发布不扩展物理多显示器 / HDR、Windows 11 无边框授权 / 热插拔、OBS 最终合成及桌面最终像素、真实安装实例
+AppX / 证书和故障恢复矩阵的验收范围；这些实机检查仍为 **Not Run**。These hardware, final-pixel and real-installation
+acceptance boundaries remain unchanged. 发布提交、中文注释标签、最终 CI、远端资产与公开下载复算结果记录至
+`artifacts/local/release-0.3.3-20261025/release-verification.md`。
+
 ## 6. 需求追踪
 
 | 合同 | ADR | Spike | Validation suite |
