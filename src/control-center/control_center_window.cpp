@@ -997,28 +997,12 @@ bool ControlCenterWindow::createControls()
         L"EDIT",
         L"",
         ES_LEFT | ES_MULTILINE | ES_READONLY | ES_AUTOVSCROLL | WS_VSCROLL);
-    basicPageButton_ = createChild(
-        L"BUTTON",
-        TextId::BasicPage,
-        BS_AUTORADIOBUTTON | WS_GROUP | WS_TABSTOP,
-        ControlId::BasicPage);
-    advancedPageButton_ = createChild(
-        L"BUTTON",
-        TextId::AdvancedPage,
-        BS_AUTORADIOBUTTON | WS_TABSTOP,
-        ControlId::AdvancedPage);
-    displayPageButton_ = createChild(
-        L"BUTTON",
-        TextId::DisplayPage,
-        BS_AUTORADIOBUTTON | WS_TABSTOP,
-        ControlId::DisplayPage);
-    hotkeysPageButton_ = createChild(L"BUTTON", TextId::HotkeysPage,
-        BS_AUTORADIOBUTTON | WS_TABSTOP, ControlId::HotkeysPage);
-    systemPageButton_ = createChild(
-        L"BUTTON",
-        TextId::SystemPage,
-        BS_AUTORADIOBUTTON | WS_TABSTOP,
-        ControlId::SystemPage);
+    for (const auto& descriptor : navigationDescriptors())
+    {
+        const DWORD group = descriptor.page == Page::Basic ? WS_GROUP : 0U;
+        this->*descriptor.control = createChild(L"BUTTON", descriptor.label,
+            BS_AUTORADIOBUTTON | WS_TABSTOP | group, descriptor.id);
+    }
     advancedTimingSectionButton_ = createChild(
         L"BUTTON",
         TextId::TimingSection,
@@ -1551,17 +1535,16 @@ bool ControlCenterWindow::createControls()
         titleText_,
         statusText_,
         messageText_,
-        basicPageButton_,
-        advancedPageButton_,
-        displayPageButton_,
-        hotkeysPageButton_,
-        systemPageButton_,
         pauseButton_,
         refreshButton_,
         hostLifecycleButton_,
         resetDefaultsButton_};
     if (!slidersCreated
         || std::ranges::find(required, nullptr) != required.end()
+        || std::ranges::any_of(navigationDescriptors(), [this](const auto& descriptor)
+        {
+            return this->*descriptor.control == nullptr;
+        })
         || std::ranges::any_of(pageControlDescriptors(), [this](const auto& descriptor)
         {
             return this->*descriptor.control == nullptr;
@@ -1823,6 +1806,28 @@ void ControlCenterWindow::onCommand(
         return;
     }
 
+    if (notificationCode == BN_CLICKED)
+    {
+        for (const auto& descriptor : navigationDescriptors())
+        {
+            if (id != static_cast<int>(descriptor.id))
+            {
+                continue;
+            }
+            selectPage(descriptor.page);
+            if (descriptor.page == Page::ApplicationRules)
+            {
+                refreshApplicationProcesses();
+            }
+#if defined(BAFX_ENABLE_SPOUT2)
+            if (descriptor.page == Page::System)
+            {
+                refreshObsPluginStatus();
+            }
+#endif
+            return;
+        }
+    }
     if (onApplicationRuleCommand(id, notificationCode))
     {
         return;
@@ -1833,39 +1838,6 @@ void ControlCenterWindow::onCommand(
         if (notificationCode == CBN_SELCHANGE)
         {
             changeLanguage();
-        }
-        break;
-    case ControlId::BasicPage:
-        if (notificationCode == BN_CLICKED)
-        {
-            selectPage(Page::Basic);
-        }
-        break;
-    case ControlId::AdvancedPage:
-        if (notificationCode == BN_CLICKED)
-        {
-            selectPage(Page::Advanced);
-        }
-        break;
-    case ControlId::DisplayPage:
-        if (notificationCode == BN_CLICKED)
-        {
-            selectPage(Page::DisplayPerformance);
-        }
-        break;
-    case ControlId::SystemPage:
-        if (notificationCode == BN_CLICKED)
-        {
-            selectPage(Page::System);
-#if defined(BAFX_ENABLE_SPOUT2)
-            refreshObsPluginStatus();
-#endif
-        }
-        break;
-    case ControlId::HotkeysPage:
-        if (notificationCode == BN_CLICKED)
-        {
-            selectPage(Page::Hotkeys);
         }
         break;
     case ControlId::AdvancedTimingSection:

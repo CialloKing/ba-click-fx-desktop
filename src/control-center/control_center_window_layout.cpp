@@ -167,14 +167,13 @@ void ControlCenterWindow::applyFonts() const noexcept
     {
         setControlFont(control, normalFont_);
     }
-    setControlFont(hotkeysPageButton_, normalFont_);
+    for (const auto& descriptor : navigationDescriptors())
+    {
+        setControlFont(this->*descriptor.control, normalFont_);
+    }
     const std::array normalControls{
         statusText_,
         messageText_,
-        basicPageButton_,
-        advancedPageButton_,
-        displayPageButton_,
-        systemPageButton_,
         pauseButton_,
         refreshButton_,
         hostLifecycleButton_,
@@ -271,34 +270,46 @@ void ControlCenterWindow::layoutControls(
     moveControl(messageText_, margin, scale(82), clientWidth - margin * 2, messageHeight);
 
     const int contentTop = scale(150);
-    const int tabWidth = (clientWidth - margin * 2 - scale(32)) / 5;
+    const auto navigation = navigationDescriptors();
     const int tabGap = scale(8);
-    moveControl(
-        basicPageButton_,
-        margin,
-        scale(120),
-        tabWidth,
-        scale(30));
-    moveControl(
-        advancedPageButton_,
-        margin + tabWidth + tabGap,
-        scale(120),
-        tabWidth,
-        scale(30));
-    moveControl(
-        displayPageButton_,
-        margin + (tabWidth + tabGap) * 2,
-        scale(120),
-        tabWidth,
-        scale(30));
-    moveControl(
-        hotkeysPageButton_,
-        margin + (tabWidth + tabGap) * 3,
-        scale(120),
-        tabWidth,
-        scale(30));
-    moveControl(systemPageButton_, margin + (tabWidth + tabGap) * 4,
-        scale(120), tabWidth, scale(30));
+    const int tabCount = static_cast<int>(navigation.size());
+    const int tabSpace = clientWidth - margin * 2 - tabGap * (tabCount - 1);
+    const HDC navigationDc = GetDC(window_);
+    const HGDIOBJ previousFont = navigationDc != nullptr
+        ? SelectObject(navigationDc, normalFont_) : nullptr;
+    const auto minimumTabWidth = [this, navigationDc](const NavigationDescriptor& descriptor)
+    {
+        SIZE textSize{};
+        const auto* label = tr(descriptor.label);
+        if (navigationDc != nullptr)
+        {
+            GetTextExtentPoint32W(navigationDc, label,
+                static_cast<int>(std::char_traits<wchar_t>::length(label)), &textSize);
+        }
+        // Reserve the native radio indicator and padding before distributing
+        // spare space, so longer translated labels do not lose their suffix.
+        return static_cast<int>(textSize.cx) + scale(32);
+    };
+    int minimumNavigationWidth = 0;
+    for (const auto& descriptor : navigation)
+    {
+        minimumNavigationWidth += minimumTabWidth(descriptor);
+    }
+    const int extraTabWidth = (std::max)(0, tabSpace - minimumNavigationWidth) / tabCount;
+    int tabX = margin;
+    for (std::size_t index = 0U; index < navigation.size(); ++index)
+    {
+        const auto& descriptor = navigation[index];
+        const int tabWidth = index + 1U == navigation.size()
+            ? clientWidth - margin - tabX : minimumTabWidth(descriptor) + extraTabWidth;
+        moveControl(this->*descriptor.control, tabX, scale(120), tabWidth, scale(30));
+        tabX += tabWidth + tabGap;
+    }
+    if (navigationDc != nullptr)
+    {
+        SelectObject(navigationDc, previousFont);
+        ReleaseDC(window_, navigationDc);
+    }
 
     if (activePage_ == Page::Hotkeys)
     {
@@ -529,8 +540,6 @@ void ControlCenterWindow::layoutControls(
             contentTop,
             systemPanelWidth,
             panelHeight);
-        moveControl(applicationRulesPage_, margin + systemPanelWidth - scale(154),
-            contentTop, scale(142), scale(24));
         moveControl(languageLabel_, contentX, contentTop + scale(32), scale(108), scale(26));
         moveControl(languageSelector_, contentX + scale(116), contentTop + scale(28),
             contentWidth - scale(116), scale(160));
@@ -1306,35 +1315,14 @@ void ControlCenterWindow::setPageControlVisible(
 void ControlCenterWindow::updatePageVisibility() noexcept
 {
     const bool hotkeys = activePage_ == Page::Hotkeys;
-    setChecked(hotkeysPageButton_, hotkeys);
+    for (const auto& descriptor : navigationDescriptors())
+    {
+        setChecked(this->*descriptor.control, activePage_ == descriptor.page);
+    }
     for (const HWND control : hotkeyControls_)
     {
         setPageControlVisible(control, hotkeys);
     }
-    const bool basic = activePage_ == Page::Basic;
-    const bool advanced = activePage_ == Page::Advanced;
-    const bool display = activePage_ == Page::DisplayPerformance;
-    const bool system = activePage_ == Page::System || activePage_ == Page::ApplicationRules;
-    static_cast<void>(SendMessageW(
-        basicPageButton_,
-        BM_SETCHECK,
-        basic ? BST_CHECKED : BST_UNCHECKED,
-        0));
-    static_cast<void>(SendMessageW(
-        advancedPageButton_,
-        BM_SETCHECK,
-        advanced ? BST_CHECKED : BST_UNCHECKED,
-        0));
-    static_cast<void>(SendMessageW(
-        displayPageButton_,
-        BM_SETCHECK,
-        display ? BST_CHECKED : BST_UNCHECKED,
-        0));
-    static_cast<void>(SendMessageW(
-        systemPageButton_,
-        BM_SETCHECK,
-        system ? BST_CHECKED : BST_UNCHECKED,
-        0));
     static_cast<void>(SendMessageW(
         advancedTimingSectionButton_,
         BM_SETCHECK,

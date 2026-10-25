@@ -155,7 +155,6 @@ private:
         Language,
         OpenLogDirectory,
         ApplicationRulesPage,
-        ApplicationRulesBack,
         ApplicationRulesEnabled,
         ApplicationRuleList,
         ApplicationRuleToggle,
@@ -213,6 +212,14 @@ private:
         Layers
     };
 
+    struct NavigationDescriptor final
+    {
+        HWND ControlCenterWindow::*control;
+        TextId label;
+        ControlId id;
+        Page page;
+    };
+
     struct SliderDescriptor final
     {
         SliderControl ControlCenterWindow::*control;
@@ -235,6 +242,7 @@ private:
         bool heading;
     };
 
+    [[nodiscard]] static std::span<const NavigationDescriptor> navigationDescriptors() noexcept;
     [[nodiscard]] static std::span<const SliderDescriptor> sliderDescriptors() noexcept;
     [[nodiscard]] static std::span<const PageControlDescriptor> pageControlDescriptors() noexcept;
     [[nodiscard]] bool pageControlVisible(Page page, std::optional<AdvancedSection> section) const noexcept;
@@ -514,6 +522,7 @@ private:
     HWND displayPageButton_{nullptr};
     HWND systemPageButton_{nullptr};
     HWND hotkeysPageButton_{nullptr};
+    HWND applicationRulesPage_{nullptr};
     HWND hotkeyHint_{nullptr};
     HWND hotkeySave_{nullptr};
     HWND hotkeyRevert_{nullptr};
@@ -568,8 +577,6 @@ private:
     HWND deleteFxProfileButton_{nullptr};
     static constexpr UINT_PTR applicationProcessTimerId = 9U;
     static constexpr UINT_PTR applicationStatusTimerId = 10U;
-    HWND applicationRulesPage_{nullptr};
-    HWND applicationRulesBack_{nullptr};
     HWND applicationRulesEnabled_{nullptr};
     HWND applicationRulesHint_{nullptr};
     HWND applicationRuleList_{nullptr};

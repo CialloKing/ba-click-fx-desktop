@@ -10,6 +10,7 @@
 #include <cstdlib>
 #include <fstream>
 #include <algorithm>
+#include <array>
 
 // Match the application's common-controls activation context. TaskDialog is
 // exported by version 6 and cannot be imported by a manifest-less test runner.
@@ -194,6 +195,58 @@ LRESULT CALLBACK inspectDialog(const int code, const WPARAM window, const LPARAM
 
 struct ControlCenterUiTest
 {
+    static auto navigation(const ControlCenterWindow& ui)
+    {
+        using Page = ControlCenterWindow::Page;
+        return std::array{
+            std::pair{ui.basicPageButton_, Page::Basic},
+            std::pair{ui.advancedPageButton_, Page::Advanced},
+            std::pair{ui.displayPageButton_, Page::DisplayPerformance},
+            std::pair{ui.hotkeysPageButton_, Page::Hotkeys},
+            std::pair{ui.applicationRulesPage_, Page::ApplicationRules},
+            std::pair{ui.systemPageButton_, Page::System}};
+    }
+
+    static void checkNavigation(const ControlCenterWindow& ui)
+    {
+        RECT client{};
+        GetClientRect(ui.window_, &client);
+        const auto tabs = navigation(ui);
+        int nextLeft = ui.scale(24);
+        unsigned checked = 0U;
+        for (std::size_t index = 0; index < tabs.size(); ++index)
+        {
+            const auto [control, page] = tabs[index];
+            const auto style = GetWindowLongPtrW(control, GWL_STYLE);
+            BAFX_CHECK((style & WS_VISIBLE) != 0 && IsWindowEnabled(control));
+            BAFX_CHECK((style & BS_TYPEMASK) == BS_AUTORADIOBUTTON);
+            BAFX_CHECK(SendMessageW(control, WM_GETFONT, 0U, 0) == reinterpret_cast<LRESULT>(ui.normalFont_));
+            const bool selected = SendMessageW(control, BM_GETCHECK, 0U, 0) == BST_CHECKED;
+            BAFX_CHECK(selected == (ui.activePage_ == page));
+            checked += selected ? 1U : 0U;
+            // Native arrow-key navigation must follow the visible tab order.
+            BAFX_CHECK(GetNextDlgGroupItem(ui.window_, control, FALSE) == tabs[(index + 1U) % tabs.size()].first);
+            RECT bounds{};
+            GetWindowRect(control, &bounds);
+            MapWindowPoints(nullptr, ui.window_, reinterpret_cast<POINT*>(&bounds), 2U);
+            BAFX_CHECK(bounds.left == nextLeft && bounds.top == ui.scale(120));
+            const auto label = caption(control);
+            SIZE textSize{};
+            const HDC dc = GetDC(control);
+            BAFX_CHECK(dc != nullptr);
+            const auto font = SelectObject(dc, ui.normalFont_);
+            const BOOL measured = GetTextExtentPoint32W(dc, label.data(), static_cast<int>(label.size()), &textSize);
+            SelectObject(dc, font);
+            ReleaseDC(control, dc);
+            BAFX_CHECK(measured && bounds.right - bounds.left >= textSize.cx + ui.scale(32));
+            nextLeft = bounds.right + ui.scale(8);
+        }
+        BAFX_CHECK(checked == 1U);
+        BAFX_CHECK(nextLeft - ui.scale(8) == client.right - ui.scale(24));
+        BAFX_CHECK(caption(ui.applicationRulesPage_) == (currentUiLanguage() == UiLanguage::English
+            ? L"Program rules" : L"程序规则"));
+    }
+
     static void run()
     {
         const INITCOMMONCONTROLSEX controls{sizeof(controls), ICC_STANDARD_CLASSES | ICC_BAR_CLASSES};
@@ -221,6 +274,38 @@ struct ControlCenterUiTest
 
         ui.config_.system.closeToTray = false;
         ui.setConnected(false);
+        const auto configBeforeNavigation = bafx::config::toJson(ui.config_);
+        const auto generationBeforeNavigation = ui.generation_;
+        // Exercise the real button command path without contacting a Host.
+        // Every page, including the disconnected rules editor, remains reachable.
+        for (const auto& [sourceControl, sourcePage] : navigation(ui))
+        {
+            for (const auto& [targetControl, targetPage] : navigation(ui))
+            {
+                SendMessageW(sourceControl, BM_CLICK, 0U, 0);
+                if (sourcePage == ControlCenterWindow::Page::Hotkeys)
+                {
+                    ui.hotkeyRecording_ = 0U;
+                    ui.hotkeyCaptureToken_ = 42U;
+                }
+                SendMessageW(targetControl, BM_CLICK, 0U, 0);
+                BAFX_CHECK(ui.activePage_ == targetPage);
+                if (targetPage != ControlCenterWindow::Page::Hotkeys)
+                {
+                    BAFX_CHECK(!ui.hotkeyRecording_.has_value() && ui.hotkeyCaptureToken_ == 0U);
+                }
+                BAFX_CHECK(!IsWindowEnabled(ui.applicationRulesEnabled_));
+                BAFX_CHECK(!IsWindowEnabled(ui.applicationRuleAdd_));
+                BAFX_CHECK(!IsWindowEnabled(ui.applicationRuleDelete_));
+            }
+        }
+        BAFX_CHECK(bafx::config::toJson(ui.config_) == configBeforeNavigation);
+        BAFX_CHECK(ui.generation_ == generationBeforeNavigation && !ui.pendingPatch_.has_value());
+        BAFX_CHECK(ui.applicationProcessesFuture_.valid());
+        BAFX_CHECK(ui.applicationProcessesFuture_.wait_for(std::chrono::seconds(5)) == std::future_status::ready);
+        ui.pollApplicationProcesses();
+        BAFX_CHECK(!ui.applicationProcessesFuture_.valid());
+        BAFX_CHECK(IsWindowEnabled(ui.applicationRuleRefresh_));
         ui.selectPage(ControlCenterWindow::Page::System);
         BAFX_CHECK(IsWindowEnabled(ui.languageSelector_));
         BAFX_CHECK(IsWindowEnabled(ui.clearLogsButton_));
@@ -429,12 +514,15 @@ struct ControlCenterUiTest
         ui.presentationState_.automaticSuppressed = true;
         ui.presentationState_.applicationRuleReason = "Game.exe";
         ui.presentationState_.applicationRuleStates = "matched\ndisabled";
-        ui.connected_ = true;
+        ui.setConnected(true);
         ui.updateApplicationRuleControls();
         ui.updateApplicationRuleStatus();
         BAFX_CHECK(SendMessageW(ui.applicationRuleList_, LB_GETCOUNT, 0U, 0) == 2);
         BAFX_CHECK(caption(ui.statusText_).find(L"Game.exe") != std::wstring::npos);
         BAFX_CHECK(caption(ui.applicationRuleTarget_) == L"C:\\Games\\Game.exe");
+        BAFX_CHECK(IsWindowEnabled(ui.applicationRulesEnabled_));
+        BAFX_CHECK(IsWindowEnabled(ui.applicationRuleAdd_));
+        BAFX_CHECK(IsWindowEnabled(ui.applicationRuleDelete_));
         BAFX_CHECK((GetWindowLongPtrW(ui.applicationRuleList_, GWL_STYLE) & WS_VISIBLE) == 0);
         {
             RefreshWrites writes;
@@ -455,56 +543,81 @@ struct ControlCenterUiTest
         {
             ui.layoutDpi_ = dpi;
             ui.createFonts();
-            RECT size{0, 0, ui.scale(minimumControlCenterClientWidth), ui.scale(minimumControlCenterClientHeight)};
-            AdjustWindowRectEx(&size, WS_OVERLAPPEDWINDOW, FALSE, 0U);
-            SetWindowPos(ui.window_, nullptr, 0, 0, size.right - size.left, size.bottom - size.top,
-                SWP_NOMOVE | SWP_NOACTIVATE | SWP_NOZORDER);
-            for (const auto language : {UiLanguage::SimplifiedChinese, UiLanguage::English})
+            for (const int width : {minimumControlCenterClientWidth, defaultControlCenterClientWidth})
             {
-                setUiLanguage(language);
-                ui.languagePreference_ = language;
-                SendMessageW(ui.languageSelector_, CB_SETCURSEL, static_cast<WPARAM>(language), 0);
-                ui.retranslateUi();
-                const HMENU tray = ui.createTrayMenu();
-                BAFX_CHECK(tray != nullptr);
-                wchar_t menuText[128]{};
-                GetMenuStringW(tray, 0U, menuText, 128, MF_BYPOSITION);
-                BAFX_CHECK(std::wstring_view(menuText) == tr(TextId::OpenControlCenter));
-                DestroyMenu(tray);
-                for (int page = 0; page < 6; ++page)
+                RECT size{0, 0, ui.scale(width), ui.scale(minimumControlCenterClientHeight)};
+                AdjustWindowRectEx(&size, WS_OVERLAPPEDWINDOW, FALSE, WS_EX_TOOLWINDOW);
+                // The off-screen 200% cases may exceed this monitor's native
+                // tracking limits. Preserve the exact matrix size for rendering.
+                SetWindowPos(ui.window_, nullptr, 0, 0, size.right - size.left, size.bottom - size.top,
+                    SWP_NOMOVE | SWP_NOACTIVATE | SWP_NOZORDER | SWP_NOSENDCHANGING);
+                RECT actualClient{};
+                GetClientRect(ui.window_, &actualClient);
+                BAFX_CHECK(actualClient.right == ui.scale(width));
+                BAFX_CHECK(actualClient.bottom == ui.scale(minimumControlCenterClientHeight));
+                for (const auto language : {UiLanguage::SimplifiedChinese, UiLanguage::English})
                 {
-                    // Navigation is presentation-only here; selectPage() also
-                    // starts live polling, which belongs to the actual app.
-                    ui.activePage_ = static_cast<ControlCenterWindow::Page>(page);
-                    ui.updatePageVisibility();
-                    ui.layoutControls(ui.scale(860), ui.scale(600));
-                    const int sections = page == 1 ? 6 : 1;
-                    for (int section = 0; section < sections; ++section)
+                    setUiLanguage(language);
+                    ui.languagePreference_ = language;
+                    SendMessageW(ui.languageSelector_, CB_SETCURSEL, static_cast<WPARAM>(language), 0);
+                    ui.retranslateUi();
+                    const HMENU tray = ui.createTrayMenu();
+                    BAFX_CHECK(tray != nullptr);
+                    wchar_t menuText[128]{};
+                    GetMenuStringW(tray, 0U, menuText, 128, MF_BYPOSITION);
+                    BAFX_CHECK(std::wstring_view(menuText) == tr(TextId::OpenControlCenter));
+                    DestroyMenu(tray);
+                    for (int page = 0; page < 6; ++page)
                     {
-                        if (page == 1)
+                        // Navigation is presentation-only here; selectPage() also
+                        // starts live polling, which belongs to the actual app.
+                        ui.activePage_ = static_cast<ControlCenterWindow::Page>(page);
+                        ui.updatePageVisibility();
+                        ui.layoutControls(ui.scale(width), ui.scale(600));
+                        checkNavigation(ui);
+                        if (ui.activePage_ == ControlCenterWindow::Page::ApplicationRules)
                         {
-                            ui.selectAdvancedSection(static_cast<ControlCenterWindow::AdvancedSection>(section));
-                            ui.layoutControls(ui.scale(860), ui.scale(600));
+                            RECT enabledBounds{};
+                            GetWindowRect(ui.applicationRulesEnabled_, &enabledBounds);
+                            MapWindowPoints(nullptr, ui.window_, reinterpret_cast<POINT*>(&enabledBounds), 2U);
+                            BAFX_CHECK(enabledBounds.left == ui.scale(24));
+                            BAFX_CHECK(enabledBounds.right == ui.scale(width - 24));
+                            BAFX_CHECK(enabledBounds.top >= ui.scale(150));
+                            RECT actionBounds{};
+                            GetWindowRect(ui.resetDefaultsButton_, &actionBounds);
+                            MapWindowPoints(nullptr, ui.window_, reinterpret_cast<POINT*>(&actionBounds), 2U);
+                            BAFX_CHECK(actionBounds.right == ui.scale(width - 24));
+                            BAFX_CHECK(actionBounds.bottom == ui.scale(minimumControlCenterClientHeight - 24));
                         }
-                        RECT client{};
-                        GetClientRect(ui.window_, &client);
-                        for (HWND child = GetWindow(ui.window_, GW_CHILD); child != nullptr; child = GetWindow(child, GW_HWNDNEXT))
+                        const int sections = page == 1 ? 6 : 1;
+                        for (int section = 0; section < sections; ++section)
                         {
-                            if ((GetWindowLongPtrW(child, GWL_STYLE) & WS_VISIBLE) == 0)
+                            if (page == 1)
                             {
-                                continue;
+                                ui.selectAdvancedSection(static_cast<ControlCenterWindow::AdvancedSection>(section));
+                                ui.layoutControls(ui.scale(width), ui.scale(600));
                             }
-                            RECT bounds{};
-                            GetWindowRect(child, &bounds);
-                            MapWindowPoints(nullptr, ui.window_, reinterpret_cast<POINT*>(&bounds), 2U);
-                            if (bounds.left < 0 || bounds.top < 0 || bounds.right > client.right || bounds.bottom > client.bottom)
+                            RECT client{};
+                            GetClientRect(ui.window_, &client);
+                            for (HWND child = GetWindow(ui.window_, GW_CHILD); child != nullptr; child = GetWindow(child, GW_HWNDNEXT))
                             {
-                                throw std::runtime_error("Control outside client area: id=" + std::to_string(GetDlgCtrlID(child))
-                                    + ", page=" + std::to_string(page));
+                                if ((GetWindowLongPtrW(child, GWL_STYLE) & WS_VISIBLE) == 0)
+                                {
+                                    continue;
+                                }
+                                RECT bounds{};
+                                GetWindowRect(child, &bounds);
+                                MapWindowPoints(nullptr, ui.window_, reinterpret_cast<POINT*>(&bounds), 2U);
+                                if (bounds.left < 0 || bounds.top < 0 || bounds.right > client.right || bounds.bottom > client.bottom)
+                                {
+                                    throw std::runtime_error("Control outside client area: id=" + std::to_string(GetDlgCtrlID(child))
+                                        + ", page=" + std::to_string(page));
+                                }
                             }
+                            writeUiBitmap(ui.window_, std::wstring(language == UiLanguage::English ? L"en" : L"zh")
+                                + L"-" + std::to_wstring(dpi) + L"-" + std::to_wstring(width)
+                                + L"-" + std::to_wstring(page) + L"-" + std::to_wstring(section));
                         }
-                        writeUiBitmap(ui.window_, std::wstring(language == UiLanguage::English ? L"en" : L"zh")
-                            + L"-" + std::to_wstring(dpi) + L"-" + std::to_wstring(page) + L"-" + std::to_wstring(section));
                     }
                 }
             }

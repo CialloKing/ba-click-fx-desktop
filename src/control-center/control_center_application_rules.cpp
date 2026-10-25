@@ -15,10 +15,6 @@ namespace bafx::control_center
 
 bool ControlCenterWindow::createApplicationRuleControls()
 {
-    applicationRulesPage_ = createChild(L"BUTTON", TextId::ApplicationRules,
-        BS_PUSHBUTTON | WS_TABSTOP, ControlId::ApplicationRulesPage);
-    applicationRulesBack_ = createChild(L"BUTTON", TextId::ApplicationRulesBack,
-        BS_PUSHBUTTON | WS_TABSTOP, ControlId::ApplicationRulesBack);
     applicationRulesEnabled_ = createChild(L"BUTTON", TextId::ApplicationRulesEnabled,
         BS_AUTOCHECKBOX | WS_TABSTOP, ControlId::ApplicationRulesEnabled);
     applicationRulesHint_ = createChild(L"STATIC", TextId::ApplicationRulesHint, SS_LEFT | SS_NOPREFIX);
@@ -43,20 +39,19 @@ bool ControlCenterWindow::createApplicationRuleControls()
     applicationRuleAdd_ = createChild(L"BUTTON", TextId::ApplicationRuleAdd,
         BS_PUSHBUTTON | WS_TABSTOP, ControlId::ApplicationRuleAdd);
     updateApplicationRuleControls();
-    return applicationRulesPage_ != nullptr && applicationRulesBack_ != nullptr;
+    return applicationRulesEnabled_ != nullptr && applicationRuleList_ != nullptr;
 }
 
 void ControlCenterWindow::layoutApplicationRuleControls(const int width, const int height) const noexcept
 {
-    const int x = scale(20);
+    const int x = scale(24);
     const int w = width - x * 2;
     const auto place = [this](const HWND control, const int left, const int top,
         const int controlWidth, const int controlHeight)
     {
         MoveWindow(control, left, top, controlWidth, controlHeight, TRUE);
     };
-    place(applicationRulesBack_, x, scale(158), scale(154), scale(28));
-    place(applicationRulesEnabled_, x + scale(168), scale(158), w - scale(168), scale(28));
+    place(applicationRulesEnabled_, x, scale(158), w, scale(28));
     place(applicationRulesHint_, x, scale(194), w, scale(42));
     const int footer = (std::max)(scale(400), height - scale(200));
     place(applicationRuleList_, x, scale(240), w, footer - scale(248));
@@ -74,7 +69,9 @@ void ControlCenterWindow::layoutApplicationRuleControls(const int width, const i
     const HWND actions[] = {pauseButton_, refreshButton_, hostLifecycleButton_, resetDefaultsButton_};
     for (int index = 0; index < 4; ++index)
     {
-        place(actions[index], x + index * (buttonWidth + gap), height - scale(58), buttonWidth, scale(38));
+        const int left = x + index * (buttonWidth + gap);
+        const int actionWidth = index == 3 ? width - x - left : buttonWidth;
+        place(actions[index], left, height - x - scale(38), actionWidth, scale(38));
     }
 }
 
@@ -199,13 +196,6 @@ bool ControlCenterWindow::onApplicationRuleCommand(const int id, const int notif
     }
     switch (command)
     {
-    case ControlId::ApplicationRulesPage:
-        selectPage(Page::ApplicationRules);
-        refreshApplicationProcesses();
-        return true;
-    case ControlId::ApplicationRulesBack:
-        selectPage(Page::System);
-        return true;
     case ControlId::ApplicationRuleRefresh:
         refreshApplicationProcesses();
         return true;

@@ -542,8 +542,7 @@ BAFX_TEXT(InitializationFailed, L"控制中心初始化时发生内部错误。"
 
 BAFX_TEXT(HostRefreshing, L"正在刷新设置", L"Refreshing settings")
 BAFX_TEXT(HostRefreshingHint, L"请等待最新设置读取完成后再执行此操作。", L"Wait for the latest settings before performing this action.")
-BAFX_TEXT(ApplicationRules, L"程序规则…", L"Program rules…")
-BAFX_TEXT(ApplicationRulesBack, L"返回系统设置", L"Back to System")
+BAFX_TEXT(ApplicationRules, L"程序规则", L"Program rules")
 BAFX_TEXT(ApplicationRulesEnabled, L"指定程序运行时自动停用特效", L"Disable effects while selected programs run")
 BAFX_TEXT(ApplicationRulesHint, L"关闭桌面和 OBS 特效，并停止背景采集；程序的所有实例退出后自动恢复。最小化或驻留托盘仍算运行。", L"Stops desktop / OBS effects and background capture until all matched instances exit. Minimized and tray processes still count.")
 BAFX_TEXT(ApplicationRulesEmpty, L"名单为空。选择正在运行的程序或浏览 EXE 添加规则。", L"No rules. Select a running program or browse for an EXE.")

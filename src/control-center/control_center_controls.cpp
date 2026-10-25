@@ -5,6 +5,24 @@
 namespace bafx::control_center
 {
 
+std::span<const ControlCenterWindow::NavigationDescriptor>
+ControlCenterWindow::navigationDescriptors() noexcept
+{
+    // Native keyboard order follows creation order, so use the same sequence
+    // for creation, layout and selection instead of relying on Page values.
+    static const NavigationDescriptor descriptors[] =
+    {
+        {&ControlCenterWindow::basicPageButton_, TextId::BasicPage, ControlId::BasicPage, Page::Basic},
+        {&ControlCenterWindow::advancedPageButton_, TextId::AdvancedPage, ControlId::AdvancedPage, Page::Advanced},
+        {&ControlCenterWindow::displayPageButton_, TextId::DisplayPage, ControlId::DisplayPage, Page::DisplayPerformance},
+        {&ControlCenterWindow::hotkeysPageButton_, TextId::HotkeysPage, ControlId::HotkeysPage, Page::Hotkeys},
+        {&ControlCenterWindow::applicationRulesPage_, TextId::ApplicationRules, ControlId::ApplicationRulesPage,
+            Page::ApplicationRules},
+        {&ControlCenterWindow::systemPageButton_, TextId::SystemPage, ControlId::SystemPage, Page::System}
+    };
+    return descriptors;
+}
+
 std::span<const ControlCenterWindow::SliderDescriptor>
 ControlCenterWindow::sliderDescriptors() noexcept
 {
@@ -276,8 +294,6 @@ ControlCenterWindow::pageControlDescriptors() noexcept
         {&ControlCenterWindow::displayDetailsText_, Page::DisplayPerformance, std::nullopt, false},
         {&ControlCenterWindow::activeFxRoiDetailsHeading_, Page::DisplayPerformance, std::nullopt, true},
         {&ControlCenterWindow::activeFxRoiDetailsText_, Page::DisplayPerformance, std::nullopt, false},
-        {&ControlCenterWindow::applicationRulesPage_, Page::System, std::nullopt, false},
-        {&ControlCenterWindow::applicationRulesBack_, Page::ApplicationRules, std::nullopt, false},
         {&ControlCenterWindow::applicationRulesEnabled_, Page::ApplicationRules, std::nullopt, false},
         {&ControlCenterWindow::applicationRulesHint_, Page::ApplicationRules, std::nullopt, false},
         {&ControlCenterWindow::applicationRuleList_, Page::ApplicationRules, std::nullopt, false},
