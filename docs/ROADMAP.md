@@ -1,6 +1,6 @@
 # 开发路线图
 
-更新于 2026-10-24。本页只记录当前状态、待办和完成条件。
+更新于 2026-10-25。本页只记录当前状态、待办和完成条件。
 已发布功能见[变更记录](../CHANGELOG.md)，验收合同见[VALIDATION.md](VALIDATION.md)
 和[SPIKES.md](SPIKES.md)，历史过程保存在[路线图历史快照](history/ROADMAP_2026-09-16.md)。
 
@@ -20,6 +20,7 @@
 - 已实现本机程序名单、路径 / 文件名匹配、独立自动停用状态与控制中心入口。
 - Host 负责进程检测，渲染线程清空桌面 / OBS 输出并协调 WGC 停止与恢复；手动设置始终保留。
 - 验证记录见 [程序规则验证](validation/application-rules.md)，自动测试与实机观察分开记录，发布检查见 [VALIDATION.md](VALIDATION.md)。
+- 待发布的界面调整：程序规则提升为顶部独立页签，导航顺序为基础设置、高级参数、显示与性能、快捷键、程序规则、系统。配置仍为 schema 21；布局与交互验证见[程序规则页签验证](validation/application-rules-navigation.md)。
 
 ## 本轮维护整理
 

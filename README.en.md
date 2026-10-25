@@ -101,7 +101,7 @@ Bindings accept a single main key or Ctrl/Alt/Shift/Win plus a main key; F12 is 
 After recording a binding, click Save all and confirm successful registration. Recording alone does not save it.
 Reset defaults (重置默认) preserves saved hotkeys, the current paused/running state, and the interface language preference.
 
-**Program rules**: open **System → Program rules…**, enable automatic suppression, and add a running program or browse for an EXE.
+**Program rules**: open the **Program rules** tab at the top of Control Center, enable automatic suppression, and add a running program or browse for an EXE.
 New rules match the full path by default; you can select EXE filename matching before adding. Enable, disable or delete each rule, and inspect match, exit-confirmation and detection states in the list.
 The feature starts disabled with an empty list. Any match clears desktop and OBS effects and stops background capture while keeping Host and graphics devices alive.
 Minimized, background and tray processes count as running. Effects resume only after all matching instances exit and two consecutive checks confirm it (usually about 1–2 seconds).
