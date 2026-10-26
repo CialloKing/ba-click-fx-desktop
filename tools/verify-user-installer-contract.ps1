@@ -124,6 +124,10 @@ function Get-FunctionText
                 $node.Name -eq $Name
         },
         $true) | Select-Object -First 1
+    if ($null -eq $function -and $Name -in @('Assert-ExpectedProcessIsStopped', 'Get-ExpectedProcesses'))
+    {
+        return Get-FunctionText -Ast (Get-ParsedScript -RelativePath 'tools/installer/installer-processes.ps1') -Name $Name
+    }
     if ($null -eq $function -and
         $Ast.Extent.Text.Contains(". (Join-Path `$PSScriptRoot 'installer-state.ps1')"))
     {
@@ -306,6 +310,7 @@ function Test-PowerShellScriptContracts
         'tools/installer/archive-install-log.ps1',
         'tools/installer/capture-user-context.ps1',
         'tools/installer/installer-diagnostics.ps1',
+        'tools/installer/installer-processes.ps1',
         'tools/installer/installer-state.ps1',
         'tools/installer/installer-identity.ps1',
         'tools/installer/install-machine.ps1',
@@ -729,8 +734,19 @@ function Test-UninstallerProcessPathFilter
 {
     $scriptPath = 'tools/installer/unregister-machine.ps1'
     $ast = Get-ParsedScript -RelativePath $scriptPath
-    $functionText = Get-FunctionText -Ast $ast -Name 'Assert-ExpectedProcessIsStopped'
+    $functionText = (Get-FunctionText -Ast $ast -Name 'Get-ExpectedProcesses') + "`n" +
+        (Get-FunctionText -Ast $ast -Name 'Assert-ExpectedProcessIsStopped')
 
+    . (Join-Path $repositoryRoot 'tools/installer/installer-diagnostics.ps1')
+    function Open-ExpectedProcess
+    {
+        param([int]$ProcessId, [string]$ExecutablePath, [bool]$AllowTerminate)
+        if ([string]::IsNullOrWhiteSpace($mockExecutablePath)) { throw 'Injected unreadable process handle.' }
+        $process = [pscustomobject]@{ ProcessId = $ProcessId }
+        $process | Add-Member ScriptMethod WaitExited { param($Timeout) return $false }
+        $process | Add-Member ScriptMethod Dispose {}
+        return $process
+    }
     # PowerShell accepts a line-leading -and as a command during parsing, so this
     # function must run to catch the failure mode seen by the shipped uninstaller.
     $mockExecutablePath = ''
@@ -750,6 +766,7 @@ function Test-UninstallerProcessPathFilter
             throw 'Injected process query failure.'
         }
         return [pscustomobject]@{
+            ProcessId = 123
             ExecutablePath = $mockExecutablePath
         }
     }
@@ -777,7 +794,8 @@ function Test-UninstallerProcessPathFilter
 function Test-UninstallerReadOnlyPreflight
 {
     $ast = Get-ParsedScript -RelativePath 'tools/installer/unregister-machine.ps1'
-    $guard = Get-FunctionText -Ast $ast -Name 'Assert-ExpectedProcessIsStopped'
+    $guard = (Get-FunctionText -Ast $ast -Name 'Get-ExpectedProcesses') + "`n" +
+        (Get-FunctionText -Ast $ast -Name 'Assert-ExpectedProcessIsStopped')
     $entry = Read-RepositoryText -RelativePath 'tools/installer/unregister-machine.ps1'
     $entry = $entry.Substring($entry.IndexOf("`$script:InstallerStep = 'validate-administrator'"))
     $temporaryRoot = Join-Path ([IO.Path]::GetTempPath()) ('bafx-preflight-' + [Guid]::NewGuid().ToString('N'))
@@ -810,21 +828,30 @@ function Resolve-ProtectedProgramFilesPath
     param([string]$Path, [string]$Description)
     return [IO.Path]::GetFullPath($Path)
 }
+function Open-ExpectedProcess
+{
+    param([int]$ProcessId, [string]$ExecutablePath, [bool]$AllowTerminate)
+    if ($Scenario -eq 'unknown') { throw 'Injected unreadable process handle.' }
+    $process = [pscustomobject]@{ ProcessId = $ProcessId }
+    $process | Add-Member ScriptMethod WaitExited { param($Timeout) return $false }
+    $process | Add-Member ScriptMethod Dispose {}
+    return $process
+}
 function Get-CimInstance
 {
     [CmdletBinding()]
     param([string]$ClassName, [string]$Filter)
     if ($Scenario -eq 'query-failure') { throw 'Injected query failure.' }
-    if ($Scenario -eq 'unknown') { return [pscustomobject]@{ ExecutablePath = $null } }
+    if ($Scenario -eq 'unknown') { return [pscustomobject]@{ ProcessId = 123; ExecutablePath = $null } }
     $name = [regex]::Match($Filter, "Name='([^']+)'").Groups[1].Value
     if (($Scenario -eq 'host' -and $name -eq 'ba-click-fx-desktop.exe') -or
         ($Scenario -eq 'center' -and $name -eq 'BAFX.ControlCenter.exe'))
     {
-        return [pscustomobject]@{ ExecutablePath = Join-Path $InstallDirectory $name }
+        return [pscustomobject]@{ ProcessId = 123; ExecutablePath = Join-Path $InstallDirectory $name }
     }
     if ($Scenario -eq 'other')
     {
-        return [pscustomobject]@{ ExecutablePath = Join-Path 'D:\Portable' $name }
+        return [pscustomobject]@{ ProcessId = 123; ExecutablePath = Join-Path 'D:\Portable' $name }
     }
 }
 '@
@@ -1089,7 +1116,7 @@ function Test-InstallerScriptWhitelist
         -Description 'rollback removes the prepared signed package file'
     Assert-TextContains `
         -Text $installMachine `
-        -Pattern 'Start-Process[\s\S]*-Wait[\s\S]*\$hostProcess\.ExitCode' `
+        -Pattern 'Start-Process[\s\S]*--installer-initialize-config[\s\S]*WaitForExit\(10000\)[\s\S]*WaitForExit\(3000\)[\s\S]*\$hostProcess\.ExitCode' `
         -Description 'identity bootstrap uses an explicit GUI process exit code'
     Assert-TextContains `
         -Text $installMachine `
@@ -1645,6 +1672,7 @@ function Test-InnoPayloadContract
         '{#StageRoot}\THIRD-PARTY-NOTICES.txt',
         '{#StageRoot}\Identity\*',
         '{#StageRoot}\Installer\*',
+        '{#StageRoot}\Installer\installer-processes.ps1',
         '{#StageRoot}\Installer\installer-diagnostics.ps1',
         '{#StageRoot}\Installer\installer-state.ps1',
         '{#StageRoot}\Installer\installer-identity.ps1',
@@ -1699,8 +1727,8 @@ function Test-InnoPayloadContract
         -Description 'embedded recovery scripts take priority across release boundaries'
     Assert-TextContains `
         -Text $inno `
-        -Pattern '(?m)^AppMutex=Global\\BAFX\.UserInstaller\.v1$' `
-        -Description 'installer-wide mutex prevents concurrent transactions'
+        -Pattern "CreateMaintenanceEvent\(0, 1, 1, 'Global\\BAFX\.InstallerMaintenance\.v1'\)" `
+        -Description 'maintenance event serializes installation, uninstall and repair'
     Assert-TextContains `
         -Text $inno `
         -Pattern 'function\s+IsReparsePointPath[\s\S]*function\s+AssertNoReparsePointTree[\s\S]*function\s+SafeDeleteTree[\s\S]*AssertNoReparsePointTree[\s\S]*DelTree' `
@@ -1859,8 +1887,8 @@ function Test-InnoPayloadContract
         -Description 'uninstall recovery failures must abort instead of returning to Inno cleanup'
     Assert-TextContains `
         -Text $uninstallCode.Value `
-        -Pattern 'SupportsProcessCheck[\s\S]*-CheckProcessesOnly[\s\S]*UserContextPath\s*:=\s*CreateOriginalUserStatePath[\s\S]*RollbackAction RemoveNew' `
-        -Description 'uninstall verifies process-only support and checks before any pending rollback'
+        -Pattern "AcquireMaintenance[\s\S]*StageMaintenanceScripts[\s\S]*RunMaintenanceProcesses\(InstallRoot, 'Stop'\)[\s\S]*UserContextPath\s*:=\s*CreateOriginalUserStatePath[\s\S]*RollbackAction RemoveNew" `
+        -Description 'uninstall freezes the current process helper and stops before any pending rollback'
     Assert-TextContains `
         -Text $uninstallCode.Value `
         -Pattern 'RollbackAction RemoveNew[\s\S]*-Phase Rollback[\s\S]*RollbackAction RestorePrevious[\s\S]*-Phase RollbackCleanup' `
@@ -4329,6 +4357,7 @@ if ($ProcessPreflightOnly)
 {
     Test-UninstallerProcessPathFilter
     Test-UninstallerReadOnlyPreflight
+    & (Join-Path $repositoryRoot 'tools/verify-installer-processes.ps1')
     exit 0
 }
 

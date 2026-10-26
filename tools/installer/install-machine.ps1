@@ -1,4 +1,4 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)]
     [ValidateSet('Prepare', 'CommitFiles', 'Finalize', 'Rollback', 'RollbackCleanup')]
@@ -29,6 +29,7 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'protected-paths.ps1')
 . (Join-Path $PSScriptRoot 'installer-state.ps1')
 . (Join-Path $PSScriptRoot 'installer-identity.ps1')
+. (Join-Path $PSScriptRoot 'installer-processes.ps1')
 $script:InstallerStep = 'initialize'
 $script:InstallerRelatedFailures = New-Object Collections.Generic.List[object]
 $script:PayloadRoot = ''
@@ -1876,29 +1877,6 @@ function Initialize-IdentityConfig
     Assert-NoReparsePath -Path $DataDirectory
     Assert-NoReparsePath -Path $hostPath
     Assert-NoReparsePath -Path $configPath -AllowMissing
-    Push-Location -LiteralPath $InstallRoot
-    try
-    {
-        # GUI-subsystem processes do not reliably update LASTEXITCODE. Wait
-        # explicitly so a stale signer exit code cannot mask bootstrap errors.
-        $hostProcess = Start-Process `
-            -FilePath $hostPath `
-            -ArgumentList @("--support-info=$reportName") `
-            -WorkingDirectory $InstallRoot `
-            -WindowStyle Hidden `
-            -Wait `
-            -PassThru `
-            -ErrorAction Stop
-        if ($hostProcess.ExitCode -ne 0)
-        {
-            throw "Host configuration bootstrap failed with exit code $($hostProcess.ExitCode)."
-        }
-    }
-    finally
-    {
-        Pop-Location
-    }
-
     foreach ($fileName in @('BAFX.config.json', 'ba-click-fx-desktop-support.log'))
     {
         $rootPath = Join-Path $InstallRoot $fileName
@@ -1915,6 +1893,23 @@ function Initialize-IdentityConfig
         }
         Assert-NoReparsePath -Path $destinationPath -AllowMissing
     }
+    $hostProcess = Start-Process -FilePath $hostPath -ArgumentList '--installer-initialize-config' `
+        -WorkingDirectory $InstallRoot -WindowStyle Hidden -PassThru -ErrorAction Stop
+    try
+    {
+        $null = $hostProcess.Handle
+        if (-not $hostProcess.WaitForExit(10000))
+        {
+            $hostProcess.Kill()
+            if (-not $hostProcess.WaitForExit(3000)) { throw 'Configuration initializer did not exit.' }
+            throw 'Configuration initialization timed out.'
+        }
+        if ($hostProcess.ExitCode -ne 0)
+        {
+            throw "Host configuration bootstrap failed with exit code $($hostProcess.ExitCode)."
+        }
+    }
+    finally { $hostProcess.Dispose() }
     if (-not (Test-Path -LiteralPath $configPath -PathType Leaf))
     {
         throw 'Host did not create the identity configuration.'
@@ -5318,6 +5313,9 @@ $script:InstallerStep = 'resolve-installer-paths'
 $installRoot = Resolve-ProtectedProgramFilesPath `
     -Path $InstallDirectory `
     -Description 'install directory'
+$script:InstallerStep = 'ensure-runtime-processes-stopped'
+Assert-InstallerMaintenanceActive
+Assert-InstalledProcessesStopped -InstallRoot $installRoot
 $script:PayloadRoot = ''
 if (-not [string]::IsNullOrWhiteSpace($PayloadDirectory))
 {

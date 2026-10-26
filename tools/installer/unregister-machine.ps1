@@ -1,4 +1,4 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)]
     [string]$InstallDirectory,
@@ -12,6 +12,7 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'protected-paths.ps1')
 . (Join-Path $PSScriptRoot 'installer-state.ps1')
 . (Join-Path $PSScriptRoot 'installer-identity.ps1')
+. (Join-Path $PSScriptRoot 'installer-processes.ps1')
 $script:InstallerStep = 'initialize'
 $script:InstallerProductVersion = ''
 $script:InstallerPackageVersion = ''
@@ -23,31 +24,6 @@ function Assert-Administrator
     if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator))
     {
         throw 'Uninstall requires administrator privileges.'
-    }
-}
-
-function Assert-ExpectedProcessIsStopped
-{
-    param(
-        [Parameter(Mandatory = $true)]
-        [string]$ExecutablePath
-    )
-
-    $expected = [IO.Path]::GetFullPath($ExecutablePath)
-    $running = @(Get-CimInstance Win32_Process `
-        -Filter "Name='$([IO.Path]::GetFileName($expected))'" -ErrorAction Stop)
-    foreach ($process in $running)
-    {
-        # An unreadable image path cannot prove that cleanup is safe, including
-        # when another Windows session owns the process. Never guess by name.
-        if ([string]::IsNullOrWhiteSpace([string]$process.ExecutablePath))
-        {
-            throw "Cannot verify the executable path of a running application: $expected"
-        }
-        if ([IO.Path]::GetFullPath([string]$process.ExecutablePath) -eq $expected)
-        {
-            throw "Close the running application before uninstalling: $expected"
-        }
     }
 }
 
@@ -1501,6 +1477,8 @@ if ($CheckProcessesOnly)
 {
     exit 0
 }
+
+Assert-InstallerMaintenanceActive
 
 $statePath = Join-Path $installRoot 'Installer\INSTALL-STATE.json'
 $uninstallCompleteMarkerPath = Join-Path $installRoot 'Installer\UNINSTALL-COMPLETE.json'

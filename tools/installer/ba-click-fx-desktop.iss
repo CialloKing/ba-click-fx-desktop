@@ -1,4 +1,4 @@
-#ifndef StageRoot
+﻿#ifndef StageRoot
   #error StageRoot must be provided by the packaging script
 #endif
 #ifndef OutputRoot
@@ -23,7 +23,6 @@
 
 [Setup]
 AppId={{573A6AF4-CC20-4AF9-88C1-9AD1FC68BC1E}
-AppMutex=Global\BAFX.UserInstaller.v1
 AppName={#ProductName}
 AppVersion={#ProductVersion}
 AppVerName={#ProductName} {#ProductVersion}
@@ -56,7 +55,7 @@ PrivilegesRequired=admin
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 MinVersion=10.0.19041
-CloseApplications=yes
+CloseApplications=no
 RestartApplications=no
 SetupLogging=yes
 UninstallLogging=yes
@@ -112,6 +111,11 @@ chinesesimplified.FinalizeRepair=程序包已提交，但最终清理仍需在�
 english.ProtectedInstallDirectoryRequired=For security, this installer must use the protected Program Files directory: %1
 chinesesimplified.ProtectedInstallDirectoryRequired=为保证安装安全，本安装器必须使用受保护的 Program Files 目录：%1
 
+english.MaintenanceBusy=Another installation, uninstall or repair is in progress. Close it and retry.
+chinesesimplified.MaintenanceBusy=另一个安装、卸载或修复正在进行，请完成后重试。
+english.MaintenanceStopFailed=The application could not save its changes or exit safely. Resolve unsaved changes, exit Host and Control Center, then retry. Installation files and recovery state were retained.
+chinesesimplified.MaintenanceStopFailed=程序未能保存修改或安全退出。请处理未保存的修改，退出 Host 和控制中心后重试。安装文件和恢复状态已保留。
+
 [Files]
 Source: "{#StageRoot}\ba-click-fx-desktop.exe"; DestDir: "{app}\.staging\current"; Flags: ignoreversion
 Source: "{#StageRoot}\BAFX.ControlCenter.exe"; DestDir: "{app}\.staging\current"; Flags: ignoreversion
@@ -125,6 +129,7 @@ Source: "{#StageRoot}\THIRD-PARTY-NOTICES.txt"; DestDir: "{app}\.staging\current
   ; Keep the current recovery implementation available before [Files] is
   ; copied. This is required when the live/staged payload belongs to an older
   ; installer that does not understand the current journal schema.
+  Source: "{#StageRoot}\Installer\installer-processes.ps1"; DestDir: "{tmp}"; Flags: dontcopy
   Source: "{#StageRoot}\Installer\installer-diagnostics.ps1"; DestDir: "{tmp}"; Flags: dontcopy
   Source: "{#StageRoot}\Installer\installer-state.ps1"; DestDir: "{tmp}"; Flags: dontcopy
   Source: "{#StageRoot}\Installer\installer-identity.ps1"; DestDir: "{tmp}"; Flags: dontcopy
@@ -158,6 +163,8 @@ var
   PayloadRoot: String;
   InstallerRoot: String;
   CurrentRecoveryRoot: String;
+  MaintenanceHandle: THandle;
+  MaintenanceScriptRoot: String;
   RecoveryRequired: Boolean;
   RollbackRetainedRecovery: Boolean;
   SetupFailureExitCode: Integer;
@@ -197,11 +204,124 @@ function ResolveRestoredRollbackScript(
 function ExtractCurrentRecoveryScripts(const InstallRoot: String): Boolean; forward;
 function ResolveCurrentRecoveryScript(const ScriptName: String): String; forward;
 procedure CleanupCurrentRecoveryScripts; forward;
+function AssertNoReparsePointPath(const Path: String): Boolean; forward;
 function SafeDeleteFile(const Path: String): Boolean; forward;
 function SafeDeleteTree(const Path: String): Boolean; forward;
 procedure RaiseInstallerFailure(
   const FailureText: String;
   const ExitCode: Integer); forward;
+
+function CreateMaintenanceEvent(Attributes, ManualReset, InitialState: LongWord; Name: String): THandle;
+external 'CreateEventW@kernel32.dll stdcall';
+function CloseMaintenanceHandle(Handle: THandle): Integer;
+external 'CloseHandle@kernel32.dll stdcall';
+function ConvertMaintenanceSecurity(Sddl: String; Revision: LongWord; var Descriptor: LongWord; Size: LongWord): Integer;
+external 'ConvertStringSecurityDescriptorToSecurityDescriptorW@advapi32.dll stdcall';
+function SetMaintenanceSecurity(Handle: THandle; Information, Descriptor: LongWord): Integer;
+external 'SetKernelObjectSecurity@advapi32.dll stdcall';
+function FreeMaintenanceSecurity(Value: LongWord): LongWord;
+external 'LocalFree@kernel32.dll stdcall';
+
+procedure EndMaintenance;
+begin
+  if MaintenanceHandle <> 0 then
+  begin
+    CloseMaintenanceHandle(MaintenanceHandle);
+    MaintenanceHandle := 0;
+    Log('BAFX_INSTALL_PROCESS: action=maintenance-released');
+  end;
+end;
+
+function AcquireMaintenance: Boolean;
+var
+  Descriptor: LongWord;
+  ErrorCode: LongWord;
+begin
+  Result := False;
+  if MaintenanceHandle <> 0 then
+  begin
+    Result := True;
+    Exit;
+  end;
+  MaintenanceHandle := CreateMaintenanceEvent(0, 1, 1, 'Global\BAFX.InstallerMaintenance.v1');
+  ErrorCode := DLLGetLastError;
+  if (MaintenanceHandle = 0) or (ErrorCode = 183) then
+  begin
+    EndMaintenance;
+    Log('Maintenance acquisition failed or another transaction is active. Win32=' + IntToStr(ErrorCode));
+    Exit;
+  end;
+  Descriptor := 0;
+  // Ordinary applications may query the event but cannot reset or replace it.
+  if ConvertMaintenanceSecurity('D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;0x00100000;;;AU)', 1, Descriptor, 0) <> 0 then
+  begin
+    Result := SetMaintenanceSecurity(MaintenanceHandle, 4, Descriptor) <> 0;
+    FreeMaintenanceSecurity(Descriptor);
+  end;
+  if not Result then
+  begin
+    EndMaintenance;
+  end;
+end;
+
+function StageMaintenanceScripts(const InstallRoot: String; FromSetup: Boolean): Boolean;
+var
+  SourceRoot: String;
+  Names: TArrayOfString;
+  Index: Integer;
+begin
+  Result := False;
+  if MaintenanceScriptRoot <> '' then
+  begin
+    Result := True;
+    Exit;
+  end;
+  SetArrayLength(Names, 3);
+  Names[0] := 'installer-processes.ps1';
+  Names[1] := 'installer-diagnostics.ps1';
+  Names[2] := 'protected-paths.ps1';
+  if FromSetup then
+  begin
+    SourceRoot := AddBackslash(ExpandConstant('{tmp}'));
+    for Index := 0 to GetArrayLength(Names) - 1 do
+    begin
+      ExtractTemporaryFile(Names[Index]);
+    end;
+  end
+  else
+    SourceRoot := AddBackslash(InstallRoot) + 'Installer\';
+  MaintenanceScriptRoot := AddBackslash(InstallRoot) + '.maintenance-current';
+  if not SafeDeleteTree(MaintenanceScriptRoot) then Exit;
+  if not ForceDirectories(MaintenanceScriptRoot) then Exit;
+  if not AssertNoReparsePointPath(MaintenanceScriptRoot) then Exit;
+  for Index := 0 to GetArrayLength(Names) - 1 do
+  begin
+    if not AssertNoReparsePointPath(SourceRoot + Names[Index]) then Exit;
+    if not CopyFile(SourceRoot + Names[Index], AddBackslash(MaintenanceScriptRoot) + Names[Index], False) then Exit;
+  end;
+  Result := True;
+end;
+
+function RunMaintenanceProcesses(const InstallRoot, Mode: String): Boolean;
+var
+  ExitCode: Integer;
+begin
+  Result := False;
+  if (MaintenanceHandle = 0) or (MaintenanceScriptRoot = '') then Exit;
+  if RunPowerShell(AddBackslash(MaintenanceScriptRoot) + 'installer-processes.ps1',
+    '-Mode ' + Mode + ' -InstallDirectory ' + QuoteArgument(InstallRoot), False, '', ExitCode) then
+    Result := ExitCode = 0;
+end;
+
+procedure CleanupMaintenanceScripts;
+begin
+  if (MaintenanceHandle <> 0) and (MaintenanceScriptRoot <> '') then
+  begin
+    if not SafeDeleteTree(MaintenanceScriptRoot) then
+      Log('Maintenance helper directory was retained: ' + MaintenanceScriptRoot);
+    MaintenanceScriptRoot := '';
+  end;
+end;
 
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
@@ -233,6 +353,28 @@ begin
     // command-line directory override before any files reach that directory.
     Result := FmtMessage(
       CustomMessage('ProtectedInstallDirectoryRequired'), [ProtectedRoot]);
+    Exit;
+  end;
+
+  // No pending recovery or payload writes may precede the shared stop pass.
+  if not AcquireMaintenance then
+  begin
+    Result := CustomMessage('MaintenanceBusy');
+    Exit;
+  end;
+  try
+    if (not StageMaintenanceScripts(InstallRoot, True)) or
+      (not RunMaintenanceProcesses(InstallRoot, 'Stop')) then
+    begin
+      Result := CustomMessage('MaintenanceStopFailed') + #13#10 + LastPowerShellFailureSummary;
+      CleanupMaintenanceScripts;
+      EndMaintenance;
+      Exit;
+    end;
+  except
+    CleanupMaintenanceScripts;
+    EndMaintenance;
+    Result := GetExceptionMessage;
     Exit;
   end;
 
@@ -445,7 +587,8 @@ end;
 
 function MachineInstallationCompleted(): Boolean;
 begin
-  Result := MachineInstallationSucceeded;
+  Result := MachineInstallationSucceeded and (SetupFailureExitCode = 0) and
+    (not RecoveryRequired) and (MaintenanceHandle = 0);
 end;
 
 function CreateOriginalUserStatePath(): String;
@@ -786,6 +929,17 @@ var
   ContextName: String;
   Parameters: String;
 begin
+  if (CompareText(ExtractFileName(ScriptPath), 'install-machine.ps1') = 0) or
+    (CompareText(ExtractFileName(ScriptPath), 'register-user-package.ps1') = 0) or
+    (CompareText(ExtractFileName(ScriptPath), 'unregister-machine.ps1') = 0) then
+  begin
+    if not RunMaintenanceProcesses(RemoveBackslashUnlessRoot(ExpandConstant('{app}')), 'Check') then
+    begin
+      ExitCode := 1001;
+      Result := False;
+      Exit;
+    end;
+  end;
   ResetPowerShellDiagnostics;
   if AsOriginalUser then
   begin
@@ -1291,6 +1445,7 @@ begin
   TempRoot := AddBackslash(ExpandConstant('{tmp}'));
   try
     ExtractTemporaryFile('installer-diagnostics.ps1');
+    ExtractTemporaryFile('installer-processes.ps1');
     ExtractTemporaryFile('installer-state.ps1');
     ExtractTemporaryFile('installer-identity.ps1');
     ExtractTemporaryFile('protected-paths.ps1');
@@ -1326,6 +1481,7 @@ begin
   begin
     Exit;
   end;
+  if not CopyFile(TempRoot + 'installer-processes.ps1', CurrentRecoveryRoot + 'installer-processes.ps1', False) then Exit;
   SourcePath := TempRoot + 'installer-state.ps1';
   DestinationPath := CurrentRecoveryRoot + 'installer-state.ps1';
   if not CopyFile(SourcePath, DestinationPath, False) then
@@ -1360,7 +1516,8 @@ begin
     Log('The copied current recovery scripts are not in a protected tree.');
     Exit;
   end;
-  if (ResolveCurrentRecoveryScript('installer-diagnostics.ps1') = '') or
+  if (ResolveCurrentRecoveryScript('installer-processes.ps1') = '') or
+    (ResolveCurrentRecoveryScript('installer-diagnostics.ps1') = '') or
     (ResolveCurrentRecoveryScript('installer-state.ps1') = '') or
     (ResolveCurrentRecoveryScript('installer-identity.ps1') = '') or
     (ResolveCurrentRecoveryScript('protected-paths.ps1') = '') or
@@ -1591,6 +1748,10 @@ begin
   end;
   SetupFailureExitCode := 0;
   MachineInstallationSucceeded := True;
+  CleanupUncommittedInstallArtifacts;
+  CleanupCurrentRecoveryScripts;
+  CleanupMaintenanceScripts;
+  EndMaintenance;
 end;
 
 function GetCustomSetupExitCode: Integer;
@@ -1642,28 +1803,28 @@ end;
 
 procedure DeinitializeSetup;
 begin
-  CleanupUncommittedInstallArtifacts;
-  CleanupCurrentRecoveryScripts;
-  DeleteTransientState;
-  ArchiveCompletedInstallerLog;
+  try
+    // A competing installer must never clean another transaction's staging.
+    if MaintenanceHandle <> 0 then
+    begin
+      CleanupUncommittedInstallArtifacts;
+      CleanupCurrentRecoveryScripts;
+      CleanupMaintenanceScripts;
+    end;
+    DeleteTransientState;
+    ArchiveCompletedInstallerLog;
+  finally
+    EndMaintenance;
+  end;
 end;
 
 procedure DeinitializeUninstall;
 begin
-  DeleteTransientState;
-end;
-
-function SupportsProcessCheck(const ScriptPath: String): Boolean;
-var
-  ScriptText: AnsiString;
-begin
-  // A pending upgrade may expose an older script. Do not pass a new switch
-  // to that script or silently bypass the read-only preflight.
-  Result := False;
-  if FileExists(ScriptPath) and AssertNoReparsePointPath(ScriptPath) and
-    LoadStringFromFile(ScriptPath, ScriptText) then
-  begin
-    Result := Pos('[switch]$CheckProcessesOnly', String(ScriptText)) > 0;
+  try
+    CleanupMaintenanceScripts;
+    DeleteTransientState;
+  finally
+    EndMaintenance;
   end;
 end;
 
@@ -1693,45 +1854,28 @@ begin
   InstallStatePath := AddBackslash(InstallerRoot) + 'INSTALL-STATE.json';
   UninstallCompleteMarkerPath :=
     AddBackslash(InstallerRoot) + 'UNINSTALL-COMPLETE.json';
-  // Check before rollback: it can overwrite the same live EXEs as uninstall.
-  // The elevated helper checks exact image paths across Windows sessions.
-  ScriptPath := ResolveRollbackScript(
-    InstallRoot, StagedInstallerRoot, 'unregister-machine.ps1');
-  if not SupportsProcessCheck(ScriptPath) then
+  if not AcquireMaintenance then
+    RaiseInstallerFailure(CustomMessage('MaintenanceBusy'), 1001);
+  // Freeze the installed helper before rollback can restore older script files.
+  if not StageMaintenanceScripts(InstallRoot, False) then
   begin
-    ScriptPath := AddBackslash(InstallerRoot) + 'unregister-machine.ps1';
-  end;
-  if SupportsProcessCheck(ScriptPath) then
-  begin
-    UninstallProgressForm.StatusLabel.Caption := CustomMessage('CheckRunningApplications');
-    if not RunPowerShell(
-      ScriptPath,
-      '-CheckProcessesOnly -InstallDirectory ' + QuoteArgument(InstallRoot),
-      False, '', ExitCode) then
+    // An installation which failed before deploying any helper/runtime still
+    // needs a removable Inno entry. Never use this exception for real payload.
+    if (not DirExists(InstallerRoot)) and (not DirExists(StagedInstallerRoot)) and
+      (not FileExists(AddBackslash(InstallRoot) + 'ba-click-fx-desktop.exe')) and
+      (not FileExists(AddBackslash(InstallRoot) + 'BAFX.ControlCenter.exe')) and
+      (not FileExists(InstallStatePath)) and (not FileExists(InstallStatePath + '.bak')) and
+      (not FileExists(MachineStatePath)) and (not DirExists(AddBackslash(InstallRoot) + '.rollback')) then
     begin
-      RaiseInstallerFailure(
-        FormatPowerShellFailure(
-          CustomMessage('CheckRunningApplications'), False, ExitCode) + #13#10#13#10 +
-        CustomMessage('CloseApplicationsBeforeUninstall'), 1001);
+      if not CleanupFirstInstallPayload(InstallRoot) then
+        RaiseInstallerFailure(CustomMessage('RuntimeCheckScriptUnavailable'), 1001);
+      Exit;
     end;
-    if ExitCode <> 0 then
-    begin
-      RaiseInstallerFailure(
-        FormatPowerShellFailure(
-          CustomMessage('CheckRunningApplications'), True, ExitCode) + #13#10#13#10 +
-        CustomMessage('CloseApplicationsBeforeUninstall'), 1001);
-    end;
-  end
-  else if FileExists(AddBackslash(InstallRoot) + 'ba-click-fx-desktop.exe') or
-    FileExists(AddBackslash(InstallRoot) + 'BAFX.ControlCenter.exe') or
-    FileExists(InstallStatePath) or FileExists(InstallStatePath + '.bak') or
-    FileExists(MachineStatePath) or DirExists(InstallerRoot) or
-    DirExists(StagedInstallerRoot) or DirExists(AddBackslash(InstallRoot) + '.rollback') then
-  begin
-    // Only a failed first install with no runtime or recovery material can
-    // use the existing payload-only cleanup without a process-check helper.
     RaiseInstallerFailure(CustomMessage('RuntimeCheckScriptUnavailable'), 1001);
   end;
+  UninstallProgressForm.StatusLabel.Caption := CustomMessage('CheckRunningApplications');
+  if not RunMaintenanceProcesses(InstallRoot, 'Stop') then
+    RaiseInstallerFailure(CustomMessage('MaintenanceStopFailed') + #13#10 + LastPowerShellFailureSummary, 1001);
   UserContextPath := CreateOriginalUserStatePath();
   RegistrationResultPath := CreateOriginalUserStatePath();
   if FileExists(MachineStatePath) then

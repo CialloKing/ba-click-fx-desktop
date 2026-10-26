@@ -1,4 +1,4 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param(
     [string]$InstallDirectory = (Join-Path $env:ProgramFiles 'ba-click-fx-desktop'),
     [switch]$Apply
@@ -35,10 +35,21 @@ $module = New-Module -ScriptBlock {
     . (Join-Path $Sources 'protected-paths.ps1')
     . (Join-Path $Sources 'installer-state.ps1')
     . (Join-Path $Sources 'installer-identity.ps1')
+    . (Join-Path $Sources 'installer-processes.ps1')
     . ([scriptblock]::Create($Functions))
 } -ArgumentList $sources, $functions
+$maintenance = $null
+. (Join-Path $sources 'installer-processes.ps1')
 try
 {
+    if ($Apply)
+    {
+        & $module { Assert-Administrator }
+        $maintenance = Enter-InstallerMaintenance
+        $verifiedRoot = Resolve-ProtectedProgramFilesPath -Path $InstallDirectory -Description 'repair directory'
+        Assert-NoReparsePath -Path $verifiedRoot
+        Stop-InstalledProcesses -InstallRoot $verifiedRoot
+    }
     & $module {
         param($Directory, $Apply, $BackupParent)
         $root = Resolve-ProtectedProgramFilesPath -Path $Directory -Description 'install directory'
@@ -85,13 +96,8 @@ try
             return
         }
         Assert-Administrator
-        foreach ($name in @('ba-click-fx-desktop.exe', 'BAFX.ControlCenter.exe'))
-        {
-            $expectedPath = Join-Path $root $name
-            $running = @(Get-CimInstance Win32_Process -Filter ("Name='" + $name + "'") -ErrorAction Stop |
-                Where-Object { [string]$_.ExecutablePath -eq $expectedPath })
-            if ($running.Count -ne 0) { throw "Close $name before repairing the journal." }
-        }
+        Assert-InstalledProcessesStopped -InstallRoot $root
+
         $backup = Join-Path $BackupParent ('uninstall-journal-recovery-' +
             [DateTime]::UtcNow.ToString('yyyyMMdd-HHmmss') + '-' + [Guid]::NewGuid().ToString('N'))
         Assert-NoReparsePath -Path $backup -AllowMissing
@@ -113,5 +119,6 @@ try
 }
 finally
 {
+    if ($null -ne $maintenance) { $maintenance.Dispose() }
     Remove-Module -ModuleInfo $module -Force -ErrorAction SilentlyContinue
 }

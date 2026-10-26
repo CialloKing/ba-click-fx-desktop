@@ -1,4 +1,4 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param(
     [string]$InstallDirectory = (Join-Path $env:ProgramFiles 'ba-click-fx-desktop'),
     [switch]$Apply
@@ -35,10 +35,21 @@ $module = New-Module -ScriptBlock {
     . (Join-Path $Sources 'protected-paths.ps1')
     . (Join-Path $Sources 'installer-state.ps1')
     . (Join-Path $Sources 'installer-identity.ps1')
+    . (Join-Path $Sources 'installer-processes.ps1')
     . ([scriptblock]::Create($Functions))
 } -ArgumentList $installerSources, $functionText
+$maintenance = $null
+. (Join-Path $installerSources 'installer-processes.ps1')
 try
 {
+    if ($Apply)
+    {
+        & $module { Assert-Administrator }
+        $maintenance = Enter-InstallerMaintenance
+        $verifiedRoot = Resolve-ProtectedProgramFilesPath -Path $InstallDirectory -Description 'repair directory'
+        Assert-NoReparsePath -Path $verifiedRoot
+        Stop-InstalledProcesses -InstallRoot $verifiedRoot
+    }
     $backupParent = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\artifacts\local'))
     & $module {
         param($InstallDirectory, $Apply, $BackupParent)
@@ -90,11 +101,7 @@ try
             return
         }
         Assert-Administrator
-        $running = @(Get-Process -ErrorAction Stop | Where-Object {
-            $_.ProcessName -eq 'ba-click-fx-desktop' -or $_.ProcessName -eq 'BAFX.ControlCenter' -or
-            $_.ProcessName -like 'ba-click-fx-desktop*setup*'
-        })
-        if ($running.Count -ne 0) { throw 'Close Setup, Host and Control Center before applying this repair.' }
+        Assert-InstalledProcessesStopped -InstallRoot $installRoot
 
         $backupRoot = Join-Path $BackupParent ('installer-recovery-' +
             [DateTime]::UtcNow.ToString('yyyyMMdd-HHmmss') + '-' + [Guid]::NewGuid().ToString('N'))
@@ -135,5 +142,6 @@ try
 }
 finally
 {
+    if ($null -ne $maintenance) { $maintenance.Dispose() }
     Remove-Module -ModuleInfo $module -Force -ErrorAction SilentlyContinue
 }

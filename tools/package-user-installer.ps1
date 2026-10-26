@@ -2,6 +2,7 @@
 param(
     [string]$OutputDirectory = 'artifacts\local',
     [string]$ISCC,
+    [string]$BuildDirectory,
 
     [switch]$Slim,
 
@@ -292,6 +293,10 @@ if (Test-Path -LiteralPath $checksumPath -PathType Leaf)
 }
 New-Item -ItemType Directory -Path $outputRoot -Force | Out-Null
 
+if (-not [string]::IsNullOrWhiteSpace($BuildDirectory) -and -not $SkipBuild)
+{
+    throw '-BuildDirectory requires -SkipBuild; build the selected tree before packaging.'
+}
 if (-not $SkipBuild)
 {
     Invoke-Checked `
@@ -306,9 +311,17 @@ if (-not $SkipBuild)
         -WorkingDirectory $repositoryRoot
 }
 
-$hostExecutable = Join-Path $repositoryRoot "build\$buildRootName\src\desktop\Release\ba-click-fx-desktop.exe"
-$controlCenterExecutable = Join-Path $repositoryRoot "build\$buildRootName\src\control-center\Release\BAFX.ControlCenter.exe"
-$identitySignerExecutable = Join-Path $repositoryRoot "build\$buildRootName\src\identity-signer\Release\BAFX.IdentitySigner.exe"
+$buildRoot = if ([string]::IsNullOrWhiteSpace($BuildDirectory))
+{
+    Join-Path $repositoryRoot "build\$buildRootName"
+}
+else
+{
+    Get-FullPath -Path $BuildDirectory -BaseDirectory $repositoryRoot
+}
+$hostExecutable = Join-Path $buildRoot 'src\desktop\Release\ba-click-fx-desktop.exe'
+$controlCenterExecutable = Join-Path $buildRoot 'src\control-center\Release\BAFX.ControlCenter.exe'
+$identitySignerExecutable = Join-Path $buildRoot 'src\identity-signer\Release\BAFX.IdentitySigner.exe'
 foreach ($required in @($hostExecutable, $controlCenterExecutable))
 {
     if (-not (Test-Path -LiteralPath $required -PathType Leaf))
@@ -499,7 +512,7 @@ try
 
     if (-not $SkipVerification)
     {
-        $linker = Get-CMakeLinker -CacheFile (Join-Path $repositoryRoot "build\$buildRootName\CMakeCache.txt")
+        $linker = Get-CMakeLinker -CacheFile (Join-Path $buildRoot 'CMakeCache.txt')
         & (Join-Path $repositoryRoot 'tools\verify-portable-pe.ps1') `
             -Executable $installerPath `
             -Linker $linker

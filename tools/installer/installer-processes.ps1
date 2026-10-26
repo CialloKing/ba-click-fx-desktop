@@ -1,7 +1,7 @@
 ﻿[CmdletBinding()]
 param(
-    [ValidateSet('Check', 'Stop')][string]$Mode,
-    [string]$InstallDirectory
+    [Alias('Mode')][ValidateSet('Check', 'Stop')][string]$ProcessMode,
+    [Alias('InstallDirectory')][string]$ProcessInstallDirectory
 )
 
 Set-StrictMode -Version Latest
@@ -386,6 +386,7 @@ function Stop-InstalledProcesses
 
 function Enter-InstallerMaintenance
 {
+    param([string]$EventName = 'Global\BAFX.InstallerMaintenance.v1')
     # Standalone repair commands own the same event as Inno. Only query access
     # is granted to normal users; the event lives exactly as long as its handles.
     $security = New-Object Security.AccessControl.EventWaitHandleSecurity
@@ -402,7 +403,7 @@ function Enter-InstallerMaintenance
         [Security.AccessControl.AccessControlType]::Allow)))
     $created = $false
     $handle = New-Object Threading.EventWaitHandle($true, [Threading.EventResetMode]::ManualReset,
-        'Global\BAFX.InstallerMaintenance.v1', [ref]$created, $security)
+        $EventName, [ref]$created, $security)
     if (-not $created)
     {
         $handle.Dispose()
@@ -411,7 +412,18 @@ function Enter-InstallerMaintenance
     return $handle
 }
 
-if (-not [string]::IsNullOrWhiteSpace($Mode))
+function Assert-InstallerMaintenanceActive
+{
+    $event = [Threading.EventWaitHandle]::OpenExisting('Global\BAFX.InstallerMaintenance.v1',
+        [Security.AccessControl.EventWaitHandleRights]::Synchronize)
+    try
+    {
+        if (-not $event.WaitOne(0)) { throw 'Installer maintenance is not active.' }
+    }
+    finally { $event.Dispose() }
+}
+
+if (-not [string]::IsNullOrWhiteSpace($ProcessMode))
 {
     try
     {
@@ -421,14 +433,18 @@ if (-not [string]::IsNullOrWhiteSpace($Mode))
         {
             throw 'Installer process management requires administrator privileges.'
         }
-        $root = Resolve-ProtectedProgramFilesPath -Path $InstallDirectory -Description 'installation directory'
+        $root = Resolve-ProtectedProgramFilesPath -Path $ProcessInstallDirectory -Description 'installation directory'
         Assert-NoReparsePath -Path $root -AllowMissing
-        if ($Mode -eq 'Stop') { Stop-InstalledProcesses -InstallRoot $root }
+        if ($ProcessMode -eq 'Stop')
+        {
+            Assert-InstallerMaintenanceActive
+            Stop-InstalledProcesses -InstallRoot $root
+        }
         else { Assert-InstalledProcessesStopped -InstallRoot $root }
     }
     catch
     {
-        Write-BafxInstallerFailure -ErrorRecord $_ -Phase 'RuntimeProcesses' -Step $Mode
+        Write-BafxInstallerFailure -ErrorRecord $_ -Phase 'RuntimeProcesses' -Step $ProcessMode
         exit 1
     }
 }
