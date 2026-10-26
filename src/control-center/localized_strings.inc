@@ -286,6 +286,7 @@ BAFX_TEXT(ReleaseOpenFailed, L"无法打开官方 Release 页面。请检查默�
 BAFX_TEXT(RepositoryOpenFailed, L"无法打开项目仓库。请检查默认浏览器设置。", L"Could not open the project repository. Check your default browser settings.")
 BAFX_TEXT(HostExitMonitorLost, L"无法继续监视 Host 退出，请重试关闭操作。", L"Could not continue monitoring Host shutdown. Try closing Host again.")
 BAFX_TEXT(HostShutdownTimeout, L"Host 未在预期时间内退出，可以再次尝试有序关闭。", L"Host did not exit in time. You can retry orderly shutdown.")
+BAFX_TEXT(MaintenanceInProgress, L"正在安装、卸载或修复，请完成后再启动程序。", L"Installation, uninstall or repair is in progress. Start the application after it finishes.")
 BAFX_TEXT(HostServiceTimeout, L"Host 控制服务启动超时，但进程仍在运行；可点击“关闭 Host”。", L"The Host control service timed out, but the process is still running. You can click \"Stop Host\".")
 BAFX_TEXT(HostStartTimeout, L"Host 启动超时，请查看支持日志后重试。", L"Host startup timed out. Check the support log before trying again.")
 BAFX_TEXT(HostVersionStarting, L"Host 版本：正在启动", L"Host version: Starting")

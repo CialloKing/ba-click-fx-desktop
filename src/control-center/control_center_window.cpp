@@ -12,6 +12,7 @@
 #include "product/version.hpp"
 #include "bafx/windows/recording_compatibility.hpp"
 #include "bafx/windows/portable_paths.hpp"
+#include "bafx/windows/installer_maintenance.hpp"
 #include "bafx/windows/spout2_sender.hpp"
 
 #include <commctrl.h>
@@ -398,6 +399,7 @@ ControlCenterWindow::ControlCenterWindow(const HINSTANCE instance) noexcept
     , client_(controlCenterIpcOptions())
 {
     taskbarCreatedMessage_ = RegisterWindowMessageW(L"TaskbarCreated");
+    maintenanceMessage_ = RegisterWindowMessageW(bafx::windows::kPrepareForMaintenanceMessage);
 }
 
 ControlCenterWindow::~ControlCenterWindow()
@@ -656,6 +658,15 @@ LRESULT ControlCenterWindow::handleMessage(
     const WPARAM wParam,
     const LPARAM lParam)
 {
+    if (maintenanceMessage_ != 0U && message == maintenanceMessage_)
+    {
+        if (bafx::windows::queryInstallerMaintenance(bafx::windows::executableDirectory())
+            != bafx::windows::InstallerMaintenanceState::Active)
+        {
+            return 2;
+        }
+        return prepareForMaintenance();
+    }
     if (taskbarCreatedMessage_ != 0U && message == taskbarCreatedMessage_)
     {
         // Explorer owns the notification area and drops all icons when it
@@ -671,6 +682,10 @@ LRESULT ControlCenterWindow::handleMessage(
     switch (message)
     {
     case WM_COMMAND:
+        if (maintenanceClosing_)
+        {
+            return 0;
+        }
         onCommand(LOWORD(wParam), HIWORD(wParam));
         return 0;
     case WM_DRAWITEM:
@@ -3828,6 +3843,12 @@ void ControlCenterWindow::resetDefaults()
 
 void ControlCenterWindow::startHostFromBundle()
 {
+    if (bafx::windows::queryInstallerMaintenance(bafx::windows::executableDirectory())
+        != bafx::windows::InstallerMaintenanceState::Idle)
+    {
+        setError(TextId::MaintenanceInProgress);
+        return;
+    }
     if (hostShutdownPending_)
     {
         return;
@@ -4240,9 +4261,37 @@ bool ControlCenterWindow::prepareToClose()
     return commitPendingPatch();
 }
 
+LRESULT ControlCenterWindow::prepareForMaintenance()
+{
+    if (maintenanceClosing_)
+    {
+        return 1;
+    }
+    endHotkeyCapture();
+    // Host must stay alive until both the draft and queued edits are committed.
+    // Failure deliberately keeps the window and draft available for correction.
+    const auto pendingBeforeSave = pendingPatch_;
+    if ((hotkeyDraftDirty_ && !saveHotkeys()) || !commitPendingPatch())
+    {
+        if (pendingBeforeSave.has_value())
+        {
+            pendingPatch_ = pendingBeforeSave;
+        }
+        return 2;
+    }
+    maintenanceClosing_ = true;
+    if (PostMessageW(window_, WM_CLOSE, 0, 0) == FALSE)
+    {
+        maintenanceClosing_ = false;
+        return 2;
+    }
+    EnableWindow(window_, FALSE);
+    return 1;
+}
+
 void ControlCenterWindow::closeControlCenter()
 {
-    if (prepareToClose())
+    if (maintenanceClosing_ || prepareToClose())
     {
         DestroyWindow(window_);
     }

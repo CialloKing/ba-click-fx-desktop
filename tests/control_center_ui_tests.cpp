@@ -4,6 +4,8 @@
 #include "display_state_poller.hpp"
 #include "host_snapshot_poller.hpp"
 #include "product/version.hpp"
+#include "bafx/windows/installer_maintenance.hpp"
+#include "bafx/windows/unique_handle.hpp"
 
 #include <commctrl.h>
 
@@ -195,6 +197,28 @@ LRESULT CALLBACK inspectDialog(const int code, const WPARAM window, const LPARAM
 
 struct ControlCenterUiTest
 {
+    static void maintenanceExit()
+    {
+        const INITCOMMONCONTROLSEX common{sizeof(INITCOMMONCONTROLSEX), ICC_STANDARD_CLASSES};
+        BAFX_CHECK(InitCommonControlsEx(&common) != FALSE);
+        ControlCenterWindow ui(GetModuleHandleW(nullptr));
+        BAFX_CHECK(ui.create(SW_HIDE, false));
+        ui.connected_ = false;
+        ui.hotkeyDraftDirty_ = true;
+        BAFX_CHECK(ui.prepareForMaintenance() == 2);
+        BAFX_CHECK(ui.hotkeyDraftDirty_);
+        BAFX_CHECK(!ui.maintenanceClosing_);
+        BAFX_CHECK(IsWindow(ui.window_) != FALSE);
+        ui.hotkeyDraftDirty_ = false;
+        ui.pendingPatch_.reset();
+        BAFX_CHECK(ui.prepareForMaintenance() == 1);
+        BAFX_CHECK(ui.maintenanceClosing_);
+        // The acknowledgement precedes teardown; the installer still waits
+        // for the process handle before changing any executable.
+        BAFX_CHECK(IsWindow(ui.window_) != FALSE);
+        ui.closeControlCenter();
+    }
+
     static auto navigation(const ControlCenterWindow& ui)
     {
         using Page = ControlCenterWindow::Page;
@@ -660,6 +684,26 @@ struct ControlCenterUiTest
 BAFX_TEST(control_center_language_switch_preserves_view_state)
 {
     bafx::control_center::ControlCenterUiTest::run();
+}
+
+BAFX_TEST(control_center_maintenance_preserves_unsaved_offline_draft)
+{
+    bafx::control_center::ControlCenterUiTest::maintenanceExit();
+}
+
+BAFX_TEST(installer_maintenance_event_lifetime_and_portable_scope)
+{
+    using namespace bafx::windows;
+    const auto name = L"Local\\BAFX.MaintenanceTest." + std::to_wstring(GetCurrentProcessId());
+    BAFX_CHECK(queryMaintenanceEvent(name.c_str()) == InstallerMaintenanceState::Idle);
+    {
+        UniqueHandle event(CreateEventW(nullptr, TRUE, TRUE, name.c_str()));
+        BAFX_CHECK(event.get() != nullptr);
+        BAFX_CHECK(queryMaintenanceEvent(name.c_str()) == InstallerMaintenanceState::Active);
+        BAFX_CHECK(queryInstallerMaintenance(std::filesystem::temp_directory_path())
+            == InstallerMaintenanceState::Idle);
+    }
+    BAFX_CHECK(queryMaintenanceEvent(name.c_str()) == InstallerMaintenanceState::Idle);
 }
 
 BAFX_TEST(control_center_ipc_diagnostics_suppress_repeated_poll_failures)

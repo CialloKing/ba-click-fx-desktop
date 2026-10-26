@@ -283,6 +283,7 @@ private:
     [[nodiscard]] bool saveHotkeys();
     [[nodiscard]] bool confirmHotkeyDraft();
     [[nodiscard]] bool prepareToClose();
+    [[nodiscard]] LRESULT prepareForMaintenance();
     void closeControlCenter();
     void acceptHotkeyCandidate(bafx::config::HotkeyBinding binding);
     [[nodiscard]] bool onHotkeyCommand(int id);
@@ -656,6 +657,8 @@ private:
     std::uint32_t hostRetryAttempts_{0U};
     ULONGLONG hostShutdownDeadlineTicks_{0U};
     UINT taskbarCreatedMessage_{0U};
+    UINT maintenanceMessage_{0U};
+    bool maintenanceClosing_{false};
     bool connected_{false};
     bool fxProfileSelectionDirty_{false};
     bool fxProfileNameDirty_{false};

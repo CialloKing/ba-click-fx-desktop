@@ -1,6 +1,7 @@
 #include "control_center_window.hpp"
 
 #include "bafx/windows/portable_paths.hpp"
+#include "bafx/windows/installer_maintenance.hpp"
 
 #include <windows.h>
 #include <commctrl.h>
@@ -148,6 +149,12 @@ int WINAPI wWinMain(
     const int showCommand)
 {
     ProcessMutex instanceGuard;
+    // Return before activating an older instance or opening any runtime files.
+    if (bafx::windows::queryInstallerMaintenance(bafx::windows::executableDirectory())
+        != bafx::windows::InstallerMaintenanceState::Idle)
+    {
+        return bafx::windows::kInstallerMaintenanceExitCode;
+    }
     if (!instanceGuard.acquire())
     {
         static_cast<void>(activateExistingControlCenter());

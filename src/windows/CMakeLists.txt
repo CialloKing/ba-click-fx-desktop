@@ -15,6 +15,7 @@ add_library(
         src/gpu_texture_readback.cpp
         src/ipc.cpp
         src/ipc_client.cpp
+        src/installer_maintenance.cpp
         src/overlay_window.cpp
         src/window_observation.cpp
         src/packed_fx_texture_loader.cpp

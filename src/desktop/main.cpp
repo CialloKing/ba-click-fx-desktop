@@ -9,6 +9,7 @@
 #include "bafx/windows/overlay_window.hpp"
 #include "bafx/windows/package_identity.hpp"
 #include "bafx/windows/portable_paths.hpp"
+#include "bafx/windows/installer_maintenance.hpp"
 #include "bafx/windows/recording_compatibility.hpp"
 #include "bafx/windows/runtime_diagnostics.hpp"
 #include "bafx/windows/startup_registration.hpp"
@@ -5531,6 +5532,49 @@ int runApplication(
 
 int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int)
 {
+    // Installation must never bootstrap the renderer or change startup items.
+    // Handle this restricted command before logs/config/UI from normal startup.
+    try
+    {
+        const auto directory = bafx::windows::executableDirectory();
+        const auto maintenance = bafx::windows::queryInstallerMaintenance(directory);
+        for (int index = 1; index < __argc; ++index)
+        {
+            if (std::wstring_view(__wargv[index]) == L"--installer-initialize-config")
+            {
+                if (__argc != 2 || !bafx::windows::isElevatedProcess()
+                    || maintenance != bafx::windows::InstallerMaintenanceState::Active)
+                {
+                    return ERROR_ACCESS_DENIED;
+                }
+                const auto data = directory / L"data";
+                const auto config = data / L"BAFX.config.json";
+                for (const auto& path : {directory, data, config})
+                {
+                    const DWORD attributes = GetFileAttributesW(path.c_str());
+                    if (attributes != INVALID_FILE_ATTRIBUTES
+                        && (attributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0)
+                    {
+                        return ERROR_ACCESS_DENIED;
+                    }
+                }
+                if (std::filesystem::exists(config))
+                {
+                    return 0;
+                }
+                const auto saved = bafx::config::saveConfigAtomic(config, bafx::config::defaultConfig());
+                return saved.succeeded() ? 0 : ERROR_WRITE_FAULT;
+            }
+        }
+        if (maintenance != bafx::windows::InstallerMaintenanceState::Idle)
+        {
+            return bafx::windows::kInstallerMaintenanceExitCode;
+        }
+    }
+    catch (...)
+    {
+        return ERROR_ACCESS_DENIED;
+    }
     HostLifecycleContext lifecycle;
     bafx::desktop::RunOptions options{};
     std::filesystem::path logPath{};

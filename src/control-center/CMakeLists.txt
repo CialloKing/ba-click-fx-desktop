@@ -37,6 +37,7 @@ add_library(
         "${PROJECT_SOURCE_DIR}/src/windows/src/diagnostic_log.cpp"
         "${PROJECT_SOURCE_DIR}/src/windows/src/recording_compatibility.cpp"
         "${PROJECT_SOURCE_DIR}/src/windows/src/ipc_client.cpp"
+        "${PROJECT_SOURCE_DIR}/src/windows/src/installer_maintenance.cpp"
 )
 
 add_library(bafx::control_center_ui ALIAS bafx_control_center_ui)
