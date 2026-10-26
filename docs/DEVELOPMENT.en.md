@@ -210,6 +210,7 @@ standard installation directories; use `-ISCC <path>` to select another copy. Th
 uses a target-machine certificate for the Sparse Package template and is not a public code
 signature. `-SkipBuild` only applies when the matching Full or Slim outputs already exist.
 Combine it with `-BuildDirectory <path>` to select a separate build tree matching the Full/Slim option.
+The Portable script `package-test-bundle.ps1` supports the same arguments and variant checks.
 
 Updates, uninstall and standalone repair share `Check`/`Stop` in `installer-processes.ps1`. The caller holds
 `Global\BAFX.InstallerMaintenance.v1` throughout shutdown, file and identity operations, and rollback. Normal programs only query the event.
@@ -222,7 +223,7 @@ The process helper does not modify configuration, certificates or transaction st
 The internal Host argument `--installer-initialize-config` must appear alone and requires elevation, the official installation directory and active maintenance.
 It reuses atomic saving to create missing configuration, preserves existing configuration, and creates no windows, GPU resources or IPC service.
 The installer script still migrates old directory data. Normal `--support-info` does not bypass maintenance protection.
-Configuration formats, data retention and version numbers remain unchanged. Checks before mutation and copy/deletion error handling remain necessary:
+The new flow in 0.3.4 preserves configuration formats and data retention. Checks before mutation and copy/deletion error handling remain necessary:
 older programs and external loaders do not cooperate with the startup guard.
 
 Run `tools/verify-installer-processes.ps1` with Windows PowerShell 5.1 for isolated native child-process checks covering save acknowledgement,

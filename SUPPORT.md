@@ -287,7 +287,7 @@ Package 注册和 Control Center 快捷方式创建。安装完成后打开 Cont
 下的 `data` 用户配置；卸载会按安装用户 SID 删除本程序自己的 `BAFX Control Center` 开机启动值，
 不删除 Run 键或其他程序的启动项。需要无管理员权限时可改用 portable ZIP，但它没有 Package Identity。
 
-当前源码的安装器、卸载器和独立修复入口共用进程检查与维护保护：先确认完整 EXE 路径，再让控制中心保存快捷键草稿和待提交设置、退出，最后关闭 Host。
+从 0.3.4 起，安装器、卸载器和独立修复入口共用进程检查与维护保护：先确认完整 EXE 路径，再让控制中心保存快捷键草稿和待提交设置、退出，最后关闭 Host。
 控制中心保存失败、结果不明、无法核实进程身份或权限不足时，中止维护；请处理修改并退出对应实例后重试。
 控制中心和 Host 各有最多 10 秒正常退出期限，同类实例共享期限；仅已确认保存的控制中心或超时 Host 可以被强制结束，再等待最多 3 秒确认退出。
 旧控制中心只请求普通关闭，超时需手动退出；同名的其他目录实例不受影响。其他 Windows 会话中的控制中心若无法取得保存确认，也需由该会话手动退出。
@@ -296,7 +296,7 @@ Package 注册和 Control Center 快捷方式创建。安装完成后打开 Cont
 旧程序不认识维护标记，首次升级仍依靠关键阶段复检和文件操作错误保护。复制、删除或回滚失败时，中止并保留现有恢复材料；不要手动删除状态文件。
 这些行为需使用包含本改动的安装器；已发布的旧卸载器仍需先手动退出程序，仅替换 EXE 不会更新卸载器。
 
-The installer, uninstaller and standalone repairs in the current source share process checks and maintenance protection. They verify full executable paths,
+Starting with 0.3.4, the installer, uninstaller and standalone repairs share process checks and maintenance protection. They verify full executable paths,
 ask Control Center to save hotkey drafts and pending settings and exit, then close Host. Failed or unconfirmed saves, unverifiable process identity or insufficient
 permissions stop maintenance. Resolve edits and exit the affected instance before retrying. Each application type shares a 10-second graceful deadline;
 only a Control Center that acknowledged saving, or a timed-out Host, may be terminated, followed by up to 3 seconds to confirm exit.

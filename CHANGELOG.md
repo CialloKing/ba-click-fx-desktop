@@ -1,5 +1,25 @@
 # 变更记录
 
+## 0.3.4 - 2026-10-26
+
+- 安装更新、卸载与独立修复共用进程检查：按完整 EXE 路径核实目标，控制中心先保存快捷键草稿及待提交设置并退出，再关闭 Host；其他目录的同名便携实例不受影响。
+- 保存失败或结果不明时中止维护并保留修改。控制中心和 Host 各共享 10 秒正常退出期限；仅已确认保存的控制中心和超时 Host 可强制结束，并在 3 秒内确认退出。旧控制中心无法正常退出时仍需手动退出。
+- 用跨 Windows 会话的维护事件防止并行安装、卸载及修复，并阻止正式安装目录内的新版 Host、控制中心在维护期间启动；辅助进程持有句柄直到退出，避免协调者崩溃后过早解除保护。
+- 在覆盖文件、身份变更和回滚前复检进程；卸载先固定当前辅助脚本，兼容文件尚未提交的失败升级。错误时保留恢复材料，成功安装后先释放维护状态，再执行控制中心启动选项。
+- 增加仅供安装器使用的配置初始化入口，严格限制管理员、正式目录、维护状态和独立参数；复用原子保存，保留现有配置，不启动窗口、GPU 或 IPC。
+- 同步双语说明、进程与控制中心回归，以及 Full／Slim 构建目录校验。配置保持 schema 21，用户数据保留规则不变。
+
+Updates, uninstall and standalone repairs now share exact-path process checks. Control Center saves hotkey drafts and pending settings before exiting,
+then Host closes. Failed or unconfirmed saves stop maintenance. Each application type shares a 10-second graceful deadline; only a Control Center
+that acknowledged saving, or a timed-out Host, may be terminated, followed by up to 3 seconds to confirm exit. Legacy Control Centers require manual exit if normal close fails.
+A cross-session maintenance event serializes operations and blocks new installed application launches; worker leases preserve protection if the coordinator crashes.
+File/identity operations and recovery recheck processes, and uninstall freezes current helpers before rollback. The restricted installer-only configuration entry
+preserves existing configuration without starting UI, GPU or IPC. Schema 21 and data retention are unchanged; Portable instances in other directories are unaffected.
+
+验证边界：真实隔离子进程、原生 Inno 事件生命周期和自动化回归不替代 AppX、证书、Program Files 覆盖及完整卸载验收。
+这些机器级故障恢复与跨会话验收仍待隔离管理员环境完成，详见[维护流程验证记录](docs/validation/installer-maintenance-20261026.md)。
+Machine-level AppX, certificate, real installation/uninstall and cross-session acceptance remain outstanding; automated and isolated process tests do not replace them.
+
 ## 0.3.3 - 2026-10-25
 
 - 将“程序规则”提升为顶部独立页签，位于“快捷键”和“系统”之间，所有页面均可直接进入；移除系统页旧入口和规则页返回按钮。

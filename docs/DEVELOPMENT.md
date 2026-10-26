@@ -195,6 +195,7 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File .\tools\package-user-installer.ps1
 
 也可以通过 `-ISCC <path>` 指定其他 `ISCC.exe`。`-SkipBuild` 只适用于已有对应构建输出；
 配合 `-BuildDirectory <path>` 可选择独立构建目录，必须与 Full／Slim 选项匹配。
+便携包脚本 `package-test-bundle.ps1` 也支持这组参数和相同的构建类型校验。
 `-SkipVerification` 是明确的可选绕过，不应作为发布证据。
 
 安装更新、卸载与独立修复共用 `installer-processes.ps1` 的 `Check`／`Stop`，并由调用者持有
@@ -207,7 +208,7 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File .\tools\package-user-installer.ps1
 
 内部 Host 参数 `--installer-initialize-config` 仅接受单独使用，并要求管理员、正式安装目录及有效维护状态。
 它复用原子配置保存，只生成缺失配置，不覆盖现有配置，也不创建窗口、GPU 或 IPC；旧目录数据迁移仍由安装脚本完成。
-普通 `--support-info` 不绕过维护保护。新增流程不改变配置格式、数据保留规则或版本号。
+普通 `--support-info` 不绕过维护保护。0.3.4 的新增流程不改变配置格式或数据保留规则。
 复检和复制、删除错误处理仍不可省略，因为旧程序及外部加载器不受协作启动保护约束。
 
 Windows PowerShell 5.1 下运行 `tools/verify-installer-processes.ps1` 可验证真实隔离子进程的保存确认、正常退出、
