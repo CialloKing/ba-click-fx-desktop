@@ -6,6 +6,8 @@ param(
     # selects and invokes the native toolchain, so no separate MSBuild path is needed.
     [string]$MSBuild,
 
+    [string]$BuildDirectory,
+
     [switch]$Slim,
 
     [switch]$SkipBuild,
@@ -173,6 +175,10 @@ if (Test-Path -LiteralPath $checksumPath -PathType Leaf)
 
 New-Item -ItemType Directory -Path $outputRoot -Force | Out-Null
 
+if (-not [string]::IsNullOrWhiteSpace($BuildDirectory) -and -not $SkipBuild)
+{
+    throw '-BuildDirectory requires -SkipBuild; build the selected tree before packaging.'
+}
 if (-not $SkipBuild)
 {
     Invoke-Checked -Description 'CMake configure' -FilePath $cmake.Source `
@@ -181,8 +187,23 @@ if (-not $SkipBuild)
         -Arguments @('--build', '--preset', $buildPreset) -WorkingDirectory $repositoryRoot
 }
 
-$hostExecutable = Join-Path $repositoryRoot "build\$buildRootName\src\desktop\Release\ba-click-fx-desktop.exe"
-$controlCenterExecutable = Join-Path $repositoryRoot "build\$buildRootName\src\control-center\Release\BAFX.ControlCenter.exe"
+$buildRoot = if ([string]::IsNullOrWhiteSpace($BuildDirectory))
+{
+    Join-Path $repositoryRoot "build\$buildRootName"
+}
+else
+{
+    Get-FullPath -Path $BuildDirectory -BaseDirectory $repositoryRoot
+}
+# Match the installer contract: a caller-selected tree must match its variant.
+$expectedSpout = if ($Slim) { 'OFF' } else { 'ON' }
+$buildCache = Get-Content -LiteralPath (Join-Path $buildRoot 'CMakeCache.txt') -Raw
+if ($buildCache -notmatch "(?m)^BAFX_ENABLE_SPOUT2:BOOL=$expectedSpout\r?$")
+{
+    throw "Build directory does not match the requested Full/Slim variant: $buildRoot"
+}
+$hostExecutable = Join-Path $buildRoot 'src\desktop\Release\ba-click-fx-desktop.exe'
+$controlCenterExecutable = Join-Path $buildRoot 'src\control-center\Release\BAFX.ControlCenter.exe'
 if (-not (Test-Path -LiteralPath $hostExecutable -PathType Leaf))
 {
     throw "Host Release executable is missing: $hostExecutable"
@@ -280,7 +301,7 @@ Set-Content -LiteralPath $checksumPath -Encoding Ascii -NoNewline `
 
 if (-not $SkipVerification)
 {
-    $linker = Get-CMakeLinker -CacheFile (Join-Path $repositoryRoot "build\$buildRootName\CMakeCache.txt")
+    $linker = Get-CMakeLinker -CacheFile (Join-Path $buildRoot 'CMakeCache.txt')
     $verifier = Join-Path $PSScriptRoot 'verify-test-bundle.ps1'
     # Hashtable splatting preserves named PowerShell parameters; array splatting does not.
     $verificationArguments = @{
