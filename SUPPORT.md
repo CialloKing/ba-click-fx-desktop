@@ -287,14 +287,26 @@ Package 注册和 Control Center 快捷方式创建。安装完成后打开 Cont
 下的 `data` 用户配置；卸载会按安装用户 SID 删除本程序自己的 `BAFX Control Center` 开机启动值，
 不删除 Run 键或其他程序的启动项。需要无管理员权限时可改用 portable ZIP，但它没有 Package Identity。
 
-卸载前请退出本安装目录中的 Host 和控制中心。卸载器先只读检查进程，程序仍运行或无法核实进程路径时会中止；
-退出后重新运行卸载即可重试，不会自动结束进程。同名的其他目录实例不影响卸载。挂起安装的回滚失败时，卸载会中止并保留
-卸载入口、暂存文件和恢复状态；请保留日志及材料后修复安装，不要手动删除状态文件。
+当前源码的安装器、卸载器和独立修复入口共用进程检查与维护保护：先确认完整 EXE 路径，再让控制中心保存快捷键草稿和待提交设置、退出，最后关闭 Host。
+控制中心保存失败、结果不明、无法核实进程身份或权限不足时，中止维护；请处理修改并退出对应实例后重试。
+控制中心和 Host 各有最多 10 秒正常退出期限，同类实例共享期限；仅已确认保存的控制中心或超时 Host 可以被强制结束，再等待最多 3 秒确认退出。
+旧控制中心只请求普通关闭，超时需手动退出；同名的其他目录实例不受影响。其他 Windows 会话中的控制中心若无法取得保存确认，也需由该会话手动退出。
+维护期间仅固定 Program Files 安装目录中的新版程序拒绝启动（退出码 `1618`）；便携版不受影响。第二个安装、卸载或修复流程中止。
+维护标记随持有进程退出自动释放；成功安装先释放标记，再执行完成页的控制中心启动选项，不恢复 Host 或特效运行状态。
+旧程序不认识维护标记，首次升级仍依靠关键阶段复检和文件操作错误保护。复制、删除或回滚失败时，中止并保留现有恢复材料；不要手动删除状态文件。
+这些行为需使用包含本改动的安装器；已发布的旧卸载器仍需先手动退出程序，仅替换 EXE 不会更新卸载器。
 
-Before uninstalling, exit Host and Control Center from this installation. The uninstaller checks running processes before recovery or cleanup;
-if an installed process is running or its executable path cannot be verified, it stops without terminating processes. Exit the applications and
-run uninstall again. Verified instances in other directories are ignored. Failed recovery stops uninstall and retains the uninstaller,
-staged files and recovery state; keep the logs and recovery materials, then repair the installation.
+The installer, uninstaller and standalone repairs in the current source share process checks and maintenance protection. They verify full executable paths,
+ask Control Center to save hotkey drafts and pending settings and exit, then close Host. Failed or unconfirmed saves, unverifiable process identity or insufficient
+permissions stop maintenance. Resolve edits and exit the affected instance before retrying. Each application type shares a 10-second graceful deadline;
+only a Control Center that acknowledged saving, or a timed-out Host, may be terminated, followed by up to 3 seconds to confirm exit.
+An older Control Center receives a normal close request and requires manual exit on timeout. Verified instances in other directories are ignored;
+a Control Center in another Windows session requires manual exit if its save acknowledgement cannot be obtained.
+During maintenance, new programs in the fixed Program Files installation refuse to start with exit code `1618`; Portable remains unaffected.
+A second installer, uninstaller or repair stops. The maintenance event is released when its owner exits. Successful installation releases it before the finish-page
+Control Center launch option; it does not restart Host or effects. Older programs need the additional checks before file and identity operations.
+Copy, deletion or recovery failures stop the operation and retain available recovery materials. Do not delete state files manually.
+These behaviors require an installer built with this change. Published older uninstallers still require manual exit; replacing EXEs alone does not update them.
 
 系统页显示“安装版”表示 `INSTALL-STATE.json` 与 `.bak` 状态文件完整成对、属于同一事务且内容相符（新格式要求
 摘要一致，兼容的旧格式要求内容完全一致），产品版本和 Package 版本也匹配当前 Control Center；主状态和备份都不存在时显示“便携版”。状态文件损坏、不一致、只剩一份、

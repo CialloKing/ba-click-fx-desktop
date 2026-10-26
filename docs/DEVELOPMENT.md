@@ -194,7 +194,25 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File .\tools\package-user-installer.ps1
 ```
 
 也可以通过 `-ISCC <path>` 指定其他 `ISCC.exe`。`-SkipBuild` 只适用于已有对应构建输出；
+配合 `-BuildDirectory <path>` 可选择独立构建目录，必须与 Full／Slim 选项匹配。
 `-SkipVerification` 是明确的可选绕过，不应作为发布证据。
+
+安装更新、卸载与独立修复共用 `installer-processes.ps1` 的 `Check`／`Stop`，并由调用者持有
+`Global\BAFX.InstallerMaintenance.v1` 事件覆盖退出、文件与身份操作及回滚。普通程序仅查询事件；
+正在执行修改的辅助进程持有查询句柄直到退出，防止安装器崩溃后提前解除维护保护。
+固定安装目录中的 Host 和控制中心在初始化前返回 `1618`，便携目录不受影响。控制中心通过
+`BAFX.PrepareForMaintenance.v1` 返回 `1`（保存成功并准备退出）、`2`（拒绝）或旧版的 `0`（不支持）。
+保存复用 `saveHotkeys()` 和 `commitPendingPatch()`；失败或未知结果不得强杀控制中心。
+进程辅助代码仅识别和退出进程，不负责配置、证书或事务状态。卸载先固定辅助脚本，防止回滚恢复旧脚本。
+
+内部 Host 参数 `--installer-initialize-config` 仅接受单独使用，并要求管理员、正式安装目录及有效维护状态。
+它复用原子配置保存，只生成缺失配置，不覆盖现有配置，也不创建窗口、GPU 或 IPC；旧目录数据迁移仍由安装脚本完成。
+普通 `--support-info` 不绕过维护保护。新增流程不改变配置格式、数据保留规则或版本号。
+复检和复制、删除错误处理仍不可省略，因为旧程序及外部加载器不受协作启动保护约束。
+
+Windows PowerShell 5.1 下运行 `tools/verify-installer-processes.ps1` 可验证真实隔离子进程的保存确认、正常退出、
+超时与强制结束决策；它也纳入 `uninstall_process_preflight`。这类测试不能代替隔离机器上的 AppX、证书及
+安装目录覆盖、卸载验收。验证范围见 [维护流程验证记录](validation/installer-maintenance-20261026.md)。
 
 
 ## 维护入口与自动测试

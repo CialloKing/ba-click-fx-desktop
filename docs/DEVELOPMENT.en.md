@@ -209,6 +209,25 @@ The installer script requires Inno Setup 6.3 or newer (`ISCC.exe`). It searches 
 standard installation directories; use `-ISCC <path>` to select another copy. The installer
 uses a target-machine certificate for the Sparse Package template and is not a public code
 signature. `-SkipBuild` only applies when the matching Full or Slim outputs already exist.
+Combine it with `-BuildDirectory <path>` to select a separate build tree matching the Full/Slim option.
+
+Updates, uninstall and standalone repair share `Check`/`Stop` in `installer-processes.ps1`. The caller holds
+`Global\BAFX.InstallerMaintenance.v1` throughout shutdown, file and identity operations, and rollback. Normal programs only query the event.
+Mutating helper processes retain a query handle until exit so a coordinator crash cannot release protection while a phase is still writing.
+Host and Control Center in the fixed installation directory return `1618` before initialization; Portable directories are unaffected.
+Control Center replies to `BAFX.PrepareForMaintenance.v1` with `1` (saved and preparing to exit), `2` (refused), or the legacy `0` (unsupported).
+Saving reuses `saveHotkeys()` and `commitPendingPatch()`. Failed or unknown saves never authorize forced Control Center termination.
+The process helper does not modify configuration, certificates or transaction state. Uninstall freezes the helper before rollback can restore older scripts.
+
+The internal Host argument `--installer-initialize-config` must appear alone and requires elevation, the official installation directory and active maintenance.
+It reuses atomic saving to create missing configuration, preserves existing configuration, and creates no windows, GPU resources or IPC service.
+The installer script still migrates old directory data. Normal `--support-info` does not bypass maintenance protection.
+Configuration formats, data retention and version numbers remain unchanged. Checks before mutation and copy/deletion error handling remain necessary:
+older programs and external loaders do not cooperate with the startup guard.
+
+Run `tools/verify-installer-processes.ps1` with Windows PowerShell 5.1 for isolated native child-process checks covering save acknowledgement,
+graceful exit, timeout and termination policy. It also runs through `uninstall_process_preflight`. These checks do not replace AppX, certificate,
+real file replacement and uninstall acceptance in an isolated machine. See the [maintenance validation record](validation/installer-maintenance-20261026.md).
 
 ## Maintenance entry points and automated tests
 

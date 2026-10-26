@@ -63,13 +63,19 @@ Compare the computed SHA-256 with the checksum file's first column. If they diff
 </details>
 
 **Updates and configuration**: click Check for updates (检查更新) on the System (系统) page, then download and run the new installer or replace the program files
-from a complete Portable package. Exit both the Host and Control Center and back up configuration first.
-For Portable updates, keep your configuration and profiles when replacing the complete program files. Do not mix Host and Control Center versions.
+from a complete Portable package. Back up configuration first. For installed builds, run the new installer directly:
+Control Center saves hotkey drafts and pending settings, exits, and then the installer closes Host.
+If saving fails or its result cannot be confirmed, maintenance stops. Resolve the changes in Control Center and retry;
+an older Control Center that cannot close normally requires a manual exit.
+New programs in the installation directory refuse to start during maintenance. After installation succeeds, use the finish page to open Control Center.
+For Portable updates, exit Host and Control Center, keep your configuration and profiles, then replace the complete program files.
+Do not mix Host and Control Center versions.
 The version check never downloads or installs updates automatically.
 
 Portable stores `BAFX.config.json`, `fx-profiles`, and logs beside the executables; installed builds use the installation directory's `data` folder.
 Include the language preference file `BAFX.ControlCenter.language` from the same directory in your backup.
-Exit Host and Control Center before uninstalling through the Start Menu or Windows Installed apps. Uninstall preserves `data` by default;
+Uninstall through the Start Menu or Windows Installed apps. The new uninstaller uses the same save-and-exit flow;
+older uninstallers still require a manual exit first. Uninstall preserves `data` by default;
 for a complete reset, back it up, uninstall successfully, then delete that folder.
 
 ## Settings and rendering modes

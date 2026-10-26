@@ -319,6 +319,14 @@ else
 {
     Get-FullPath -Path $BuildDirectory -BaseDirectory $repositoryRoot
 }
+# An explicit tree may belong to the other variant. Reject it before copying
+# a Full executable into a package that intentionally omits Spout dependencies.
+$expectedSpout = if ($Slim) { 'OFF' } else { 'ON' }
+$buildCache = Get-Content -LiteralPath (Join-Path $buildRoot 'CMakeCache.txt') -Raw
+if ($buildCache -notmatch "(?m)^BAFX_ENABLE_SPOUT2:BOOL=$expectedSpout\r?$")
+{
+    throw "Build directory does not match the requested Full/Slim variant: $buildRoot"
+}
 $hostExecutable = Join-Path $buildRoot 'src\desktop\Release\ba-click-fx-desktop.exe'
 $controlCenterExecutable = Join-Path $buildRoot 'src\control-center\Release\BAFX.ControlCenter.exe'
 $identitySignerExecutable = Join-Path $buildRoot 'src\identity-signer\Release\BAFX.IdentitySigner.exe'
