@@ -1478,7 +1478,7 @@ if ($CheckProcessesOnly)
     exit 0
 }
 
-Assert-InstallerMaintenanceActive
+$script:InstallerMaintenanceLease = Open-InstallerMaintenance
 
 $statePath = Join-Path $installRoot 'Installer\INSTALL-STATE.json'
 $uninstallCompleteMarkerPath = Join-Path $installRoot 'Installer\UNINSTALL-COMPLETE.json'

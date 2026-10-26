@@ -2,6 +2,7 @@
 #include "bafx/windows/unique_handle.hpp"
 
 #include <shlobj.h>
+#include <memory>
 #include <stdexcept>
 
 namespace bafx::windows
@@ -14,8 +15,8 @@ std::filesystem::path officialInstallationDirectory()
     {
         throw std::runtime_error("Cannot resolve the protected installation directory");
     }
-    const std::filesystem::path root(value);
-    CoTaskMemFree(value);
+    const std::unique_ptr<wchar_t, decltype(&CoTaskMemFree)> owned(value, &CoTaskMemFree);
+    const std::filesystem::path root(owned.get());
     return root / L"ba-click-fx-desktop";
 }
 

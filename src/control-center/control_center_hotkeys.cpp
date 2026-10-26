@@ -470,7 +470,7 @@ bool ControlCenterWindow::captureHotkeyMessage(const MSG& message)
     return true;
 }
 
-bool ControlCenterWindow::saveHotkeys()
+bool ControlCenterWindow::saveHotkeys(const bool preservePendingOnFailure)
 {
     if (!requireCurrentSnapshot())
     {
@@ -489,7 +489,7 @@ bool ControlCenterWindow::saveHotkeys()
         setError(TextId::HotkeyBindingsChanged);
         return false;
     }
-    if (!commitPendingPatch() || !requireCurrentSnapshot())
+    if (!commitPendingPatch(preservePendingOnFailure) || !requireCurrentSnapshot())
     {
         return false;
     }

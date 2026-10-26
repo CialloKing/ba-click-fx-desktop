@@ -280,7 +280,7 @@ private:
     void endHotkeyCapture();
     void clearHotkeyCaptureLocally() noexcept;
     [[nodiscard]] bool captureHotkeyMessage(const MSG& message);
-    [[nodiscard]] bool saveHotkeys();
+    [[nodiscard]] bool saveHotkeys(bool preservePendingOnFailure = false);
     [[nodiscard]] bool confirmHotkeyDraft();
     [[nodiscard]] bool prepareToClose();
     [[nodiscard]] LRESULT prepareForMaintenance();
@@ -336,7 +336,7 @@ private:
     void commitThemeColor();
     void chooseThemeColor();
     void queueNumberPatch(const SliderControl& slider);
-    bool commitPendingPatch();
+    bool commitPendingPatch(bool preserveOnFailure = false);
     bool readyForFxProfileMutation();
     bool applyFxProfileMutationRequest(std::string command);
     bool applyPatchRequest(std::string command);

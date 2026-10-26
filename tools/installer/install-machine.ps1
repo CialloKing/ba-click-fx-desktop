@@ -5314,7 +5314,7 @@ $installRoot = Resolve-ProtectedProgramFilesPath `
     -Path $InstallDirectory `
     -Description 'install directory'
 $script:InstallerStep = 'ensure-runtime-processes-stopped'
-Assert-InstallerMaintenanceActive
+$script:InstallerMaintenanceLease = Open-InstallerMaintenance
 Assert-InstalledProcessesStopped -InstallRoot $installRoot
 $script:PayloadRoot = ''
 if (-not [string]::IsNullOrWhiteSpace($PayloadDirectory))

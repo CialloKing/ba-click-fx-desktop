@@ -714,6 +714,10 @@ LRESULT ControlCenterWindow::handleMessage(
         return TRUE;
     }
     case WM_HSCROLL:
+        if (maintenanceClosing_)
+        {
+            return 0;
+        }
         onSliderChanged(reinterpret_cast<HWND>(lParam));
         return 0;
     case WM_TIMER:
@@ -2524,7 +2528,7 @@ void ControlCenterWindow::queueNumberPatch(const SliderControl& slider)
     }
 }
 
-bool ControlCenterWindow::commitPendingPatch()
+bool ControlCenterWindow::commitPendingPatch(const bool preserveOnFailure)
 {
     KillTimer(window_, patchTimerId);
     if (!pendingPatch_.has_value())
@@ -2534,10 +2538,17 @@ bool ControlCenterWindow::commitPendingPatch()
 
     PendingPatch patch = std::move(*pendingPatch_);
     pendingPatch_.reset();
-    return applyPatchRequest(patchRequest(
+    const bool saved = applyPatchRequest(patchRequest(
         patch.generation,
         patch.path,
         patch.valueJson));
+    if (!saved && preserveOnFailure)
+    {
+        // Preserve only failed writes. A later hotkey validation failure must
+        // not queue an already saved patch again with its old generation.
+        pendingPatch_ = std::move(patch);
+    }
+    return saved;
 }
 
 bool ControlCenterWindow::readyForFxProfileMutation()
@@ -4270,13 +4281,8 @@ LRESULT ControlCenterWindow::prepareForMaintenance()
     endHotkeyCapture();
     // Host must stay alive until both the draft and queued edits are committed.
     // Failure deliberately keeps the window and draft available for correction.
-    const auto pendingBeforeSave = pendingPatch_;
-    if ((hotkeyDraftDirty_ && !saveHotkeys()) || !commitPendingPatch())
+    if ((hotkeyDraftDirty_ && !saveHotkeys(true)) || !commitPendingPatch(true))
     {
-        if (pendingBeforeSave.has_value())
-        {
-            pendingPatch_ = pendingBeforeSave;
-        }
         return 2;
     }
     maintenanceClosing_ = true;

@@ -210,6 +210,10 @@ struct ControlCenterUiTest
         BAFX_CHECK(!ui.maintenanceClosing_);
         BAFX_CHECK(IsWindow(ui.window_) != FALSE);
         ui.hotkeyDraftDirty_ = false;
+        ui.pendingPatch_ = ControlCenterWindow::PendingPatch{0, "effects.scale", "3"};
+        BAFX_CHECK(ui.prepareForMaintenance() == 2);
+        BAFX_CHECK(ui.pendingPatch_.has_value());
+        BAFX_CHECK(ui.pendingPatch_->valueJson == "3");
         ui.pendingPatch_.reset();
         BAFX_CHECK(ui.prepareForMaintenance() == 1);
         BAFX_CHECK(ui.maintenanceClosing_);

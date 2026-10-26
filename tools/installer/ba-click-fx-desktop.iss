@@ -100,8 +100,6 @@ english.RemoveMachineIdentity=Removing the machine identity
 chinesesimplified.RemoveMachineIdentity=移除计算机身份
 english.CheckRunningApplications=Checking running applications
 chinesesimplified.CheckRunningApplications=检查正在运行的应用程序
-english.CloseApplicationsBeforeUninstall=Please exit Host and Control Center from this installation, then run uninstall again. Installation files and recovery state were retained.
-chinesesimplified.CloseApplicationsBeforeUninstall=请先退出本安装目录中的 Host 和控制中心，然后重新运行卸载。安装文件和恢复状态已保留。
 english.RuntimeCheckScriptUnavailable=The process check script is missing or unsupported. Installation files and recovery state were retained; repair or upgrade the installation before uninstalling.
 chinesesimplified.RuntimeCheckScriptUnavailable=进程检查脚本缺失或不受支持。安装文件和恢复状态已保留；请先修复或升级安装，再执行卸载。
 english.RollbackRecovery=Rollback also failed. The installation files and recovery state were retained; reopen Control Center to repair the installation.
@@ -289,7 +287,13 @@ begin
     end;
   end
   else
-    SourceRoot := AddBackslash(InstallRoot) + 'Installer\';
+  begin
+    // A failed upgrade may have deployed the new uninstaller before committing
+    // live files. Its current helper is then still in the protected staging tree.
+    SourceRoot := AddBackslash(InstallRoot) + '.staging\current\Installer\';
+    if not FileExists(SourceRoot + 'installer-processes.ps1') then
+      SourceRoot := AddBackslash(InstallRoot) + 'Installer\';
+  end;
   MaintenanceScriptRoot := AddBackslash(InstallRoot) + '.maintenance-current';
   if not SafeDeleteTree(MaintenanceScriptRoot) then Exit;
   if not ForceDirectories(MaintenanceScriptRoot) then Exit;

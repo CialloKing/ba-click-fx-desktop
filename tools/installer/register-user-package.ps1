@@ -23,6 +23,7 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'protected-paths.ps1')
 . (Join-Path $PSScriptRoot 'installer-state.ps1')
 . (Join-Path $PSScriptRoot 'installer-identity.ps1')
+. (Join-Path $PSScriptRoot 'installer-processes.ps1')
 $script:InstallerStep = 'initialize'
 $effectiveRollbackAction = $RollbackAction
 if ($Rollback -and [string]::IsNullOrWhiteSpace($effectiveRollbackAction))
@@ -919,6 +920,9 @@ if ($null -eq $currentIdentity.User -or
 {
     throw 'Package registration is not running as the original user.'
 }
+
+$script:InstallerStep = 'retain-maintenance'
+$script:InstallerMaintenanceLease = Open-InstallerMaintenance
 
 if (-not [string]::IsNullOrWhiteSpace($effectiveRollbackAction))
 {

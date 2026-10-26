@@ -281,7 +281,7 @@ function Assert-ExpectedProcessIsStopped
         {
             if (-not $process.WaitExited(0))
             {
-                throw "Application is still running before uninstall: $ExecutablePath (PID $($process.ProcessId))"
+                throw "Application is still running before maintenance: $ExecutablePath (PID $($process.ProcessId))"
             }
         }
     }
@@ -412,19 +412,24 @@ function Enter-InstallerMaintenance
     return $handle
 }
 
-function Assert-InstallerMaintenanceActive
+function Open-InstallerMaintenance
 {
-    $event = [Threading.EventWaitHandle]::OpenExisting('Global\BAFX.InstallerMaintenance.v1',
+    param([string]$EventName = 'Global\BAFX.InstallerMaintenance.v1')
+    $event = [Threading.EventWaitHandle]::OpenExisting($EventName,
         [Security.AccessControl.EventWaitHandleRights]::Synchronize)
     try
     {
         if (-not $event.WaitOne(0)) { throw 'Installer maintenance is not active.' }
+        # A phase keeps this handle until its process exits. If the coordinator
+        # crashes, no competing maintenance may start while that phase writes.
+        return $event
     }
-    finally { $event.Dispose() }
+    catch { $event.Dispose(); throw }
 }
 
 if (-not [string]::IsNullOrWhiteSpace($ProcessMode))
 {
+    $maintenanceLease = $null
     try
     {
         if ($PSVersionTable.PSEdition -ne 'Desktop') { throw 'Windows PowerShell 5.1 is required.' }
@@ -437,7 +442,7 @@ if (-not [string]::IsNullOrWhiteSpace($ProcessMode))
         Assert-NoReparsePath -Path $root -AllowMissing
         if ($ProcessMode -eq 'Stop')
         {
-            Assert-InstallerMaintenanceActive
+            $maintenanceLease = Open-InstallerMaintenance
             Stop-InstalledProcesses -InstallRoot $root
         }
         else { Assert-InstalledProcessesStopped -InstallRoot $root }
@@ -447,4 +452,5 @@ if (-not [string]::IsNullOrWhiteSpace($ProcessMode))
         Write-BafxInstallerFailure -ErrorRecord $_ -Phase 'RuntimeProcesses' -Step $ProcessMode
         exit 1
     }
+    finally { if ($null -ne $maintenanceLease) { $maintenanceLease.Dispose() } }
 }
