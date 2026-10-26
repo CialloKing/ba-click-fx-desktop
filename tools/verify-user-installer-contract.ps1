@@ -1,4 +1,4 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param(
     [string]$RepositoryRoot,
 
@@ -947,6 +947,7 @@ function Test-InstallerScriptWhitelist
         'capture-user-context.ps1',
         'ChineseSimplified.isl',
         'installer-diagnostics.ps1',
+        'installer-processes.ps1',
         'installer-state.ps1',
         'installer-identity.ps1',
         'install-machine.ps1',
@@ -967,6 +968,7 @@ function Test-InstallerScriptWhitelist
             '\x27archive-install-log\.ps1\x27\s*,\s*' +
             '\x27capture-user-context\.ps1\x27\s*,\s*' +
             '\x27installer-diagnostics\.ps1\x27\s*,\s*' +
+            '\x27installer-processes\.ps1\x27\s*,\s*' +
             '\x27installer-state\.ps1\x27\s*,\s*' +
             '\x27installer-identity\.ps1\x27\s*,\s*' +
             '\x27install-machine\.ps1\x27\s*,\s*' +

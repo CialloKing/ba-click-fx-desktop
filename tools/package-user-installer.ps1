@@ -1,4 +1,4 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param(
     [string]$OutputDirectory = 'artifacts\local',
     [string]$ISCC,
@@ -356,6 +356,7 @@ try
         'archive-install-log.ps1',
         'capture-user-context.ps1',
         'installer-diagnostics.ps1',
+        'installer-processes.ps1',
         'installer-state.ps1',
         'installer-identity.ps1',
         'install-machine.ps1',
